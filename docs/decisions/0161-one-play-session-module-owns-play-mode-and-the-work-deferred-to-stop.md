@@ -55,8 +55,8 @@ preferences), as the rest of the editor does.
 - `reapplyPlugins()`: in edit, apply `plugins.disabled` live (0133); otherwise queue it for Stop.
 
 **Stop's order is the module's, in one place:** take kept values, end live inspection, unmount the play tools,
-dispose the game, `Material._resetShared`, publish edit, write kept values (one undo step), re-apply plugins,
-reload scripts. The queue is two flags inside the controller; re-applying plugins that needs a script reload
+dispose the game, `Material._resetShared`, publish edit, write kept values (one undo step; the open scene is
+rebuilt first if scripts were swapped during play), re-apply plugins, reload scripts. The queue is two flags inside the controller; re-applying plugins that needs a script reload
 (third-party plugins, 0139) folds into the queued one, so Stop reloads at most once.
 
 **Script watching stays in `session.ts`.** Writing `tsconfig.json` and watching `scripts/` is per-project setup,
@@ -72,6 +72,10 @@ forward to it, so callers don't change. `syncPackageTypes` moves to `scriptCheck
 
 **Fixed drift.** Switching or closing a project no longer starts the old project's queued reload alongside the
 new project's script load; Stop no longer reloads twice when re-applied third-party plugins need a reload.
+Found by the new tests: values kept on a script component whose script was saved during play were all skipped
+("the node in the scene has no Wheel"), because the reload during play had replaced the type while the Editor
+World's nodes still held the old class. Stop now rebuilds the open scene before writing kept values when a reload
+is queued, so they land (the queued full reload still follows).
 
 ## Alternatives considered
 
@@ -93,13 +97,13 @@ new project's script load; Stop no longer reloads twice when re-applied third-pa
   (`src/editor/playSession.test.ts`).
 - `playReload.test.ts` reloads through the controller instead of re-implementing it; `scriptReload.test.ts` plays
   through it instead of poking `playState`.
-- `session.ts` loses play and reload (about 230 lines).
+- `session.ts` loses play and reload (671 to 505 lines; `playSession.ts` is 256).
 
 **Negative / costs**
 - Two controllers would fight over the shared `playState`/`playing` signals; the editor makes one, tests make their
   own and stop it after each test.
-- Stop is synchronous and starts the queued reload without awaiting it, as before; tests await `stop()`'s returned
-  promise, which `stopPlaying()` ignores.
+- Stop does its synchronous part at once and starts the queued reload without the caller waiting, as before; `stop()` returns
+  a promise of the queued work that tests await and `stopPlaying()` ignores.
 
 ## Deprecates
 

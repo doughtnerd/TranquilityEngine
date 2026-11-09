@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, getComponentClass } from "../engine";
 import { World } from "../engine/core/World";
-import { captureScriptTypes, engineWorld, swapScriptTypes } from "../engine/editor";
+import { engineWorld } from "../engine/editor";
 import type { SceneFile } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
-import { startPlay, type PlaySession } from "./playMode";
+import type { PlaySession } from "./playMode";
+import { createPlaySession, type PlayController } from "./playSession";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
-import { loadedRegistrations, replaceScripts } from "./scriptLoader";
-import { openScene, sceneCamera } from "./state";
+import { replaceScripts } from "./scriptLoader";
+import { currentProject, playing, sceneCamera, scriptProblems, status } from "./state";
 import { ROOT, demoFolder, type MemoryFileSystem } from "./testing";
 
 /** A script with a behavior, a helper it references, a data component and a system; `v` sets what changes between versions. */
@@ -65,7 +66,8 @@ export class Counter extends GameBehavior {
 let fs: MemoryFileSystem;
 let project: EditorProject;
 let editor: Engine;
-let play: PlaySession | null = null;
+let controller: PlayController;
+let play: PlaySession;
 const file = (path: string) => joinPath(ROOT, path);
 const frame = 1 / 60;
 
@@ -100,36 +102,37 @@ beforeEach(async () => {
   editor = await Engine.create({ headless: true, kind: "editor", project: editorSettings(project) });
   sceneCamera.value = OrbitCamera.create(GameObject.create("SceneCamera", { parent: editor.world.root }));
   openSceneFile(editor, project.mainScene!);
-  play = await startPlay({ editor, scene: openScene.value!, project });
+  currentProject.value = project;
+  controller = createPlaySession({ editor: () => editor, checkBeforePlay: async () => true });
+  await controller.start();
+  play = playing.value!;
   for (let i = 0; i < 3; i++) play.engine.step(frame);
 });
 
 afterEach(async () => {
-  play?.stop();
-  play = null;
+  await controller.stop({ discardQueued: true });
   editor.dispose();
+  currentProject.value = null;
   await replaceScripts(new Map());
 });
 
-/** Save a new version of the script and reload it into the running game, as the session does. */
-async function reloadWith(source: string) {
+/** Save a new version of the script, and reload while playing (ADR 0161); returns what the status bar said. */
+async function reloadWith(source: string): Promise<string> {
   fs.files.set(file("scripts/Counter.ts"), source);
-  await project.rereadScripts();
-  const before = captureScriptTypes(loadedRegistrations());
-  const result = await replaceScripts(project.scripts);
-  return { result, swap: swapScriptTypes(play!.engine, before) };
+  await controller.reloadScripts();
+  return status.value!.text;
 }
 
 describe("reloading scripts into a running game (ADR 0125)", () => {
   it("swaps behaviors to the new class, keeping every property and skipping awake and start", async () => {
-    const { counter: old } = counterIn(play!.engine);
+    const { counter: old } = counterIn(play.engine);
     expect(old.count).toBe(6); // 3 frames × step 2
     expect(old.log).toEqual(["awake", "enable", "start"]);
 
-    const { swap, result } = await reloadWith(counter({ gain: 10, extra: "@field(Number) bonus = 7;" }));
-    expect(result.problems).toEqual([]);
-    expect(swap.swapped).toBe(2); // the Counter and its Helper
-    const { counter: now, instance } = counterIn(play!.engine);
+    const said = await reloadWith(counter({ gain: 10, extra: "@field(Number) bonus = 7;" }));
+    expect(scriptProblems.value).toEqual([]);
+    expect(said).toBe("Reloaded scripts into the running game: 2 components swapped, state kept."); // the Counter and its Helper
+    const { counter: now, instance } = counterIn(play.engine);
     expect(now).not.toBe(old);
     expect(now).toBeInstanceOf(getComponentClass("game.Counter") as never);
     expect(now.count).toBe(6);
@@ -141,31 +144,31 @@ describe("reloading scripts into a running game (ADR 0125)", () => {
     expect(now.helpers[0]).toBeInstanceOf(getComponentClass("game.Helper") as never);
     expect(now.node.getBehavior(getComponentClass("game.Counter") as never)).toBe(now);
 
-    play!.engine.step(frame);
+    play.engine.step(frame);
     expect(now.count).toBe(26); // the new update: step 2 × gain 10
     expect(old.count).toBe(6); // the old instance no longer runs
   });
 
   it("moves data component rows to the new definition, and systems run their new code", async () => {
     const speed = () => {
-      const { counter: c } = counterIn(play!.engine);
+      const { counter: c } = counterIn(play.engine);
       const def = c.node.world._dataComponentsOf(c.node.entity).find((d) => d.id === "game.Speed")!;
       return c.node.getData(def) as unknown as { v: number; w?: number };
     };
     expect(speed().v).toBe(13); // 10, plus 1 a frame
     await reloadWith(counter({ gain: 1, speedFields: ", w: f32", speedUp: 100 }));
     expect(speed()).toMatchObject({ v: 13, w: 0 });
-    play!.engine.step(frame);
+    play.engine.step(frame);
     expect(speed().v).toBe(113);
   });
 
   it("keeps the old code running for a script that fails to load", async () => {
-    const { counter: old } = counterIn(play!.engine);
-    const { result, swap } = await reloadWith("export class = ;");
-    expect(result.problems.map((p) => p.path)).toEqual(["scripts/Counter.ts"]);
-    expect(swap.swapped).toBe(0);
-    expect([...swap.kept].sort()).toEqual(["game.Counter", "game.Helper"]);
-    play!.engine.step(frame);
+    const { counter: old } = counterIn(play.engine);
+    const said = await reloadWith("export class = ;");
+    expect(scriptProblems.value.map((p) => p.path)).toEqual(["scripts/Counter.ts"]);
+    expect(said).toMatch(/^Reloaded scripts into the game \(0 components swapped\); scripts\/Counter\.ts: /);
+    expect(said).toMatch(/; (game\.Counter, game\.Helper|game\.Helper, game\.Counter) keep running the old code until Stop$/);
+    play.engine.step(frame);
     expect(old.count).toBe(8);
   });
 });

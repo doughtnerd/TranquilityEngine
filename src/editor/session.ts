@@ -1,11 +1,13 @@
 // The editor session: one Editor World per open project (ADR 0016, 0026). Opening another
 // project tears the World down and boots a new one with that project's settings and assets.
+// Play mode, script reloads and plugin changes, and the work they defer to Stop, are the play
+// session's (playSession.ts, ADR 0161); this module creates the editor's one and forwards to it.
 import { errorStatus } from "./messages";
-import { Engine, GameObject, Material } from "../engine";
+import { Engine, GameObject } from "../engine";
 import { viewport } from "../engine/editor";
 import { pathKey } from "./document";
 import type { FileSystem } from "../engine/platform/FileSystem";
-import { effect, signal } from "@preact/signals";
+import { effect } from "@preact/signals";
 import { FsaFileSystem, ensureWritable } from "./fsaFileSystem";
 import { scaffoldProject, type ProjectTemplate } from "./newProject";
 import type { OpenRequest } from "./launcher/handoff";
@@ -14,7 +16,7 @@ import { recentProjects, recentVersion, type RecentProject } from "./recentProje
 import { confirmDiscard } from "./dialogs";
 import { copySample, findSample, openSampleProject, type SampleInfo } from "./samples";
 import { defaultHistoryPlatform } from "./historyPersistence";
-import { historyLocation, netConditionsSetting, netPlaySetup } from "./preferences";
+import { historyLocation } from "./preferences";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { installSceneView } from "./cameraPreview";
 import { installThumbnails } from "./thumbnails";
@@ -23,21 +25,18 @@ import { mountPlayTools } from "./ui/PlayStats";
 import { installGizmo } from "./gizmo";
 import { installViewportTheme } from "./viewportTheme";
 import { OrbitCamera } from "./OrbitCamera";
-import { startPlay, type PlaySession } from "./playMode";
-import { applyKept, endLiveInspection, takeKept, type KeptValues } from "./runtimeInspect";
+import { createPlaySession } from "./playSession";
 import { saveOpenScene } from "./project";
 import { createSceneTabs } from "./sceneTabs";
-import { applyEditorPlugins, reportPluginProblems } from "../plugins/editorPlugins";
-import { loadProjectCode, projectPlugins, unloadThirdPartyPlugins } from "../plugins/thirdPartyEditor";
-import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
-import { currentProject, docVersion, openScene, playing, playState, sceneCamera, scriptProblems, scriptsVersion, status, viewMode, type OpenScene } from "./state";
-import { closeAllScripts, loadedMonaco, preloadCodeEditor } from "./code/codeState";
+import { applyEditorPlugins } from "../plugins/editorPlugins";
+import { loadProjectCode, unloadThirdPartyPlugins } from "../plugins/thirdPartyEditor";
+import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
+import { currentProject, docVersion, openScene, playing, sceneCamera, scriptProblems, scriptsVersion, status, viewMode, type OpenScene } from "./state";
+import { closeAllScripts, preloadCodeEditor } from "./code/codeState";
 import { prefetchEngine } from "./prefetch";
 import { resetAssetBrowser } from "./assetSelection";
-import { isScriptPath, loadedPackageSpecifiers, loadedRegistrations, replaceScripts } from "./scriptLoader";
-import { checkBeforePlay, refreshPackageTypes } from "./scriptCheck";
-import { packageSourceFor } from "./projectPackages";
-import { captureScriptTypes, swapScriptTypes, type ScriptSwap } from "../engine/editor";
+import { isScriptPath, replaceScripts } from "./scriptLoader";
+import { checkBeforePlay, syncPackageTypes } from "./scriptCheck";
 import { viewportElements } from "./ui/ScenePanel";
 import { watchScripts, writeScriptingFiles } from "./scriptingSetup";
 import { installViewportSelection } from "./viewportSelection";
@@ -48,11 +47,15 @@ import { loadUIDocumentSupport } from "../engine/ui/UIDocument";
 import { reloadGraphics } from "./graphicsPreview";
 
 let session: { engine: Engine; dispose(): void } | null = null;
-let play: PlaySession | null = null;
 /** The running play session (kept in `state.ts`, so plugins' scene-view tools can follow it); re-exported for the panels. */
 export { playing };
-/** Removes the play bar's tools from the game view (set while playing). */
-let unmountPlayTools: () => void = () => {};
+
+// Play mode and the work deferred to Stop (ADR 0161), in this session's Editor World and the viewport's game view.
+const play = createPlaySession({
+  editor: () => session?.engine ?? null,
+  checkBeforePlay,
+  gameView: () => ({ container: viewportElements().gameView, mountTools: mountPlayTools }),
+});
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -99,7 +102,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
     thumbnailsInstalled = true;
     installThumbnails();
   }
-  stopPlaying();
+  void play.stop({ discardQueued: true }); // the old project's queued reload and plugin changes don't apply to the new one
   await tabs.closeAll();
   session?.dispose();
   session = null;
@@ -109,7 +112,6 @@ export async function loadProject(project: EditorProject): Promise<void> {
   void prefetchEngine(); // the renderer's chunks load while the scripts compile (ADR 0082)
   // Project scripts register their types before any scene is built, replacing the previous
   // project's (ADR 0030).
-  pendingReload = false;
   closeAllScripts();
   resetAssetBrowser();
   // The first-party plugins before the scripts and scenes: a disabled plugin's Components are gone (ADR 0133),
@@ -372,7 +374,7 @@ export async function openPickedProject(request: OpenRequest): Promise<void> {
 /** Close the project and go back to the start screen. */
 export async function closeProject(): Promise<void> {
   if (!currentProject.value || !(await confirmDiscard())) return;
-  stopPlaying();
+  void play.stop({ discardQueued: true });
   await tabs.closeAll();
   session?.dispose();
   session = null;
@@ -394,19 +396,7 @@ export async function closeProject(): Promise<void> {
  * the running game keeps the plugins it started with; the Editor World is rebuilt on Stop.
  */
 export function reapplyPlugins(): void {
-  const project = currentProject.value;
-  if (!project) return;
-  if (playState.value !== "edit") {
-    pendingPlugins = true;
-    status.value = { kind: "info", text: "Plugin settings changed. They apply when you stop playing." };
-    return;
-  }
-  pendingPlugins = false;
-  reportPluginProblems(applyEditorPlugins(project.settings.plugins?.disabled, { layout: "live" }).problems);
-  openScene.value?.sync.build();
-  docVersion.value++; // panels, outlines, asset kinds and the Inspector pick up the change
-  // Third-party plugins' code loads with the scripts (ADR 0139): reload it with the new set.
-  if (projectPlugins.value.found.length > 0) void reloadScripts();
+  play.reapplyPlugins();
 }
 
 /** Save the open scene to disk. */
@@ -426,85 +416,17 @@ export async function save(): Promise<void> {
 }
 
 /** Play the open scene in an Engine built from the project's bootstrap, shown in the game view (ADR 0022, 0032). */
-export async function startPlaying(): Promise<void> {
-  const scene = openScene.value, project = currentProject.value;
-  if (!session || !scene || !project || playState.value !== "edit" || checkingScripts) return;
-  // Type-check the scripts first (ADR 0125); with errors the user picks Play anyway or not.
-  checkingScripts = true;
-  let go: boolean;
-  try {
-    go = await checkBeforePlay(project);
-  } finally {
-    checkingScripts = false;
-  }
-  if (!go || !session || openScene.value !== scene || currentProject.value !== project || playState.value !== "edit") return;
-  playState.value = "starting";
-  const setup = netPlaySetup.value;
-  try {
-    play = await startPlay({
-      editor: session.engine,
-      scene,
-      project,
-      container: viewportElements().gameView,
-      netPlay: setup.enabled ? { clients: setup.clients, thin: setup.thin, thinInput: setup.thinInput, clientScenes: setup.clientScenes ?? "server" } : undefined,
-      conditions: netConditionsSetting.value,
-    });
-    playing.value = play;
-    playState.value = "playing";
-    unmountPlayTools = mountPlayTools(play); // the play bar's Gizmos and Stats
-    Object.assign(window, { playEngine: play.engine }); // debug and end-to-end test hook
-    const net = play.netPlay;
-    const how = net
-      ? ` with ${net.clients.length} client${net.clients.length === 1 ? "" : "s"}${net.thin.length ? ` and ${net.thin.length} thin client${net.thin.length === 1 ? "" : "s"}` : ""}${net.server ? ` on the ${net.server} World` : ""}`
-      : setup.enabled
-        ? " as the project sets it up (multiplayer play needs a client World linked to a server World, or a server template)"
-        : "";
-    status.value = { kind: "info", text: `Playing ${scene.path}${how}. Edits made now don't affect the running game. Stop (Ctrl+P) to return.` };
-  } catch (err) {
-    playState.value = "edit";
-    status.value = errorStatus(`Couldn't play ${scene.path}`, err);
-  }
+export function startPlaying(): Promise<void> {
+  return play.start();
 }
 
-/** The Code panel's TypeScript service learns the npm packages the scripts import (ADR 0125); loads Monaco only when there are some. */
-function syncPackageTypes(project: EditorProject): void {
-  if (typeof document === "undefined" || (loadedPackageSpecifiers().length === 0 && !loadedMonaco)) return;
-  refreshPackageTypes(project).catch((err: unknown) => console.warn("[editor] couldn't read the npm packages' types:", err));
-}
-
-/** True while Play waits for the scripts' type check. */
-let checkingScripts = false;
-
-/** Leave play mode: dispose the game's Engine and resume editing (and reload scripts saved meanwhile). */
+/** Leave play mode: dispose the game's Engine and resume editing (writing kept values, and applying plugin settings and scripts changed meanwhile). */
 export function stopPlaying(): void {
-  if (!play) return;
-  const keptValues = takeKept(); // "Keep values" from the live Inspector (runtimeInspect.ts)
-  endLiveInspection();
-  unmountPlayTools();
-  unmountPlayTools = () => {};
-  play.stop();
-  play = null;
-  Material._resetShared(); // scripts' changes to shared Materials are play-mode state, never the asset's (ADR 0107)
-  playing.value = null;
-  Object.assign(window, { playEngine: null });
-  playState.value = "edit";
-  status.value = null;
-  if (keptValues.length > 0) writeKeptValues(keptValues);
-  if (pendingPlugins) reapplyPlugins();
-  if (pendingReload) void reloadScripts();
+  void play.stop();
 }
 
-/** Write values kept during play into the open scene as one undo step, and say what happened. */
-function writeKeptValues(list: KeptValues[]): void {
-  const scene = openScene.value;
-  if (!scene) return;
-  try {
-    const { written, skipped } = applyKept(scene, list);
-    const text = `Kept play-mode changes: ${written} field${written === 1 ? "" : "s"} written to ${scene.path} (Undo reverts them)${skipped.length ? `; ${skipped.length} skipped: ${skipped.join(" ")}` : "."}`;
-    status.value = { kind: skipped.length && !written ? "error" : "info", text, detail: skipped.length ? skipped.join("\n") : undefined };
-  } catch (err) {
-    status.value = errorStatus("Couldn't keep the play-mode changes", err);
-  }
+export function togglePlaying(): void {
+  play.toggle();
 }
 
 /** Stops watching the current project's scripts folder. */
@@ -546,97 +468,14 @@ export async function openScriptExternally(path: string): Promise<void> {
   }
 }
 
-/** Scripts changed during play mode: reload them on Stop (ADR 0030). */
-let pendingReload = false;
-/** Plugin settings changed during play mode: apply them on Stop (ADR 0133). */
-let pendingPlugins = false;
-
 /**
  * Reload the project's scripts from disk (ADR 0030): compile and load them again, unregister
  * types that are gone, and rebuild the open scene from its document, so field values typed in
- * the Inspector stay. During play mode the reload waits for Stop: the running game keeps the code
- * it started with.
+ * the Inspector stay. During play they swap into the running game (ADR 0125), and the Editor
+ * World rebuilds on Stop.
  */
-export async function reloadScripts(options: { outside?: boolean } = {}): Promise<void> {
-  const project = currentProject.value;
-  if (!project) return;
-  if (options.outside) {
-    // A change on disk: skip it when the files match what's loaded (e.g. the editor's own save).
-    const before = project.scripts;
-    try {
-      await project.rereadScripts();
-    } catch {
-      return;
-    }
-    const after = project.scripts;
-    if (after.size === before.size && [...after].every(([path, text]) => before.get(path) === text)) return;
-  }
-  if (playState.value === "playing" && play) return reloadIntoGame(project, play);
-  if (playState.value !== "edit") {
-    pendingReload = true;
-    status.value = { kind: "info", text: "Scripts changed. They'll reload when you stop playing." };
-    return;
-  }
-  pendingReload = false;
-  try {
-    await project.rereadScripts();
-  } catch (err) {
-    status.value = errorStatus(`Couldn't read the scripts`, err);
-    return;
-  }
-  const result = await loadProjectCode(project); // third-party plugins' halves re-activate from the new code (ADR 0139)
-  scriptProblems.value = result.problems;
-  scriptsVersion.value++;
-  syncPackageTypes(project);
-  const scene = openScene.value;
-  if (scene) {
-    scene.sync.build();
-    docVersion.value++; // panels, outlines and the gizmo pick up the rebuilt nodes
-  }
-  status.value =
-    result.problems.length > 0
-      ? {
-          kind: "error",
-          text: `Reloaded scripts; ${result.problems.map((p) => `${p.path}: ${p.message}`).join("; ")}`,
-          detail: result.problems.map((p) => `${p.path}: ${p.message}`).join("\n"),
-        }
-      : options.outside
-        ? { kind: "info", text: "Scripts changed on disk; reloaded them." }
-        : result.loaded.length === 0
-          ? { kind: "info", text: "Reloaded scripts: there are none under scripts/ now." }
-          : { kind: "info", text: `Reloaded ${result.loaded.length} script${result.loaded.length === 1 ? "" : "s"}.` };
-}
-
-/**
- * Reload scripts into the running game (ADR 0125): load them again, then swap every World of the
- * game to the new types, keeping each component's properties. The Editor World rebuilds on Stop.
- */
-async function reloadIntoGame(project: EditorProject, session: PlaySession): Promise<void> {
-  try {
-    await project.rereadScripts();
-  } catch (err) {
-    status.value = errorStatus(`Couldn't read the scripts`, err);
-    return;
-  }
-  const before = captureScriptTypes(loadedRegistrations());
-  const result = await loadProjectCode(project, { runtime: false }); // plugins' editor halves re-activate; runtime halves wait for Stop (ADR 0139)
-  scriptProblems.value = result.problems;
-  scriptsVersion.value++;
-  pendingReload = true; // the Editor World rebuilds from its document on Stop
-  if (play !== session) return; // stopped meanwhile: Stop's reload covers it
-  let swap: ScriptSwap;
-  try {
-    swap = swapScriptTypes(session.engine, before);
-    session.redraw();
-  } catch (err) {
-    status.value = errorStatus("Couldn't reload the scripts into the running game", err);
-    return;
-  }
-  const problems = result.problems.map((p) => `${p.path}: ${p.message}`);
-  const kept = swap.kept.length ? `; ${swap.kept.join(", ")} keep${swap.kept.length === 1 ? "s" : ""} running the old code until Stop` : "";
-  status.value = problems.length
-    ? { kind: "error", text: `Reloaded scripts into the game (${swap.swapped} component${swap.swapped === 1 ? "" : "s"} swapped); ${problems.join("; ")}${kept}`, detail: problems.join("\n") }
-    : { kind: "info", text: `Reloaded scripts into the running game: ${swap.swapped} component${swap.swapped === 1 ? "" : "s"} swapped, state kept${kept}.` };
+export function reloadScripts(options: { outside?: boolean } = {}): Promise<void> {
+  return play.reloadScripts(options);
 }
 
 /**
@@ -663,9 +502,4 @@ export async function saveScript(path: string, text: string): Promise<void> {
   if (!project) throw new Error("No project is open.");
   await project.writeScript(path, text);
   await reloadScripts();
-}
-
-export function togglePlaying(): void {
-  if (playState.value === "edit") void startPlaying();
-  else if (playState.value === "playing") stopPlaying();
 }
