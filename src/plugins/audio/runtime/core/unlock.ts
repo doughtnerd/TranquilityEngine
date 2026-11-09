@@ -1,7 +1,7 @@
 // The unlock layer (ADR 0157; architecture ยง2.1, ยง3.1): when autoplay is blocked the context starts
 // suspended, and the core loads into it anyway (Locked). The layer then listens for the first user gesture
-// and calls `resume()` inside it, so a click or key press starts sound. A0.9 adds the re-arm after
-// `interrupted` and after a failed resume; this file is the gesture listener.
+// and calls `resume()` inside it, so a click or key press starts sound. `watch()` (A0.9) re-arms after
+// `interrupted` or a suspend the page didn't ask for; a failed resume leaves the layer armed.
 
 /** @internal What the unlock layer needs of an `AudioContext` (a fake in tests). */
 export interface UnlockContext {
@@ -30,6 +30,9 @@ export class Unlock {
   private readonly onUnlocked: (() => void) | undefined;
   private isArmed = false;
   private isDisposed = false;
+  private isListening = false;
+  private watching = false;
+  private pageSuspended: (() => boolean) | undefined;
 
   // Kept as fields so `addEventListener` and `removeEventListener` get the same function.
   private readonly onGesture = (): void => {
@@ -43,7 +46,11 @@ export class Unlock {
   };
 
   private readonly onStateChange = (): void => {
-    if (this.context.state === "running") this.unlock();
+    const state = this.context.state;
+    if (state === "running") this.unlock();
+    else if (this.watching && !this.isArmed && (state === "interrupted" || state === "suspended")) {
+      if (state === "interrupted" || !this.pageSuspended?.()) this.arm();
+    }
   };
 
   constructor(options: UnlockOptions) {
@@ -74,6 +81,29 @@ export class Unlock {
     for (const type of UNLOCK_EVENTS) {
       this.target.addEventListener(type, this.onGesture, { capture: true, passive: true });
     }
+    this.listen();
+  }
+
+  /**
+   * Re-arm (ง1, ง2): keeps a `statechange` listener for the layer's whole life, and each time the context leaves
+   * `"running"` for `"interrupted"` or `"suspended"` while disarmed, arms again, so the next pointerdown or keydown
+   * resumes it. `pageSuspended` says whether the page itself asked for a `"suspended"` (background policy); when it
+   * returns true the layer doesn't re-arm, so a gesture won't undo the page's own suspend. `"interrupted"` always
+   * re-arms. If the context is already not running, arms now. A resume that rejects or resolves without `"running"`
+   * already leaves the layer armed. The host calls this once after constructing the layer. Does nothing after `dispose()`.
+   */
+  watch(pageSuspended?: () => boolean): void {
+    if (this.isDisposed) return;
+    this.watching = true;
+    this.pageSuspended = pageSuspended;
+    this.listen();
+    const state = this.context.state;
+    if (state === "interrupted" || (state === "suspended" && !this.pageSuspended?.())) this.arm();
+  }
+
+  private listen(): void {
+    if (this.isListening) return;
+    this.isListening = true;
     this.context.addEventListener("statechange", this.onStateChange);
   }
 
@@ -84,13 +114,21 @@ export class Unlock {
     for (const type of UNLOCK_EVENTS) {
       this.target.removeEventListener(type, this.onGesture, { capture: true });
     }
+    if (!this.watching) this.unlisten();
+  }
+
+  private unlisten(): void {
+    if (!this.isListening) return;
+    this.isListening = false;
     this.context.removeEventListener("statechange", this.onStateChange);
   }
 
-  /** Disarms for good: later `arm()` calls do nothing. */
+  /** Disarms for good: later `arm()` and `watch()` calls do nothing, and every listener is removed. */
   dispose(): void {
     this.isDisposed = true;
+    this.watching = false;
     this.disarm();
+    this.unlisten();
   }
 
   /** A resume that resolved: unlocks only when the context reports `"running"`. */
