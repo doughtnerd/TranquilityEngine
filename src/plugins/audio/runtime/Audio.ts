@@ -8,6 +8,7 @@ import type { Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
 import { Assets } from "../../../engine/scene/Assets";
 import { clipVolume, startClip, warnStream, worldPlays } from "./AudioSource";
+import { warnOnce } from "./core/handle";
 import { audioBackend, type AudioDebugInfo, type AudioHandle, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest } from "./backend";
 
 /** Options for `Audio.playOneShot` (ADR 0074, api-and-models §1). */
@@ -38,20 +39,11 @@ class VoiceHandle implements AudioHandle {
   constructor(private readonly voice: AudioVoice) {}
   get playing(): boolean { try { return this.voice.playing; } catch { return false; } }
   get reason(): AudioReason | null { try { return this.voice.reason; } catch { return null; } }
-  stop(fadeSeconds = 0): void { try { this.voice.stop(Number.isFinite(fadeSeconds) ? Math.max(0, fadeSeconds) : 0); } catch { /* a voice already gone */ } }
-  fade(to: number, seconds: number): void {
-    try { this.voice.fade(Number.isFinite(to) ? Math.min(4, Math.max(0, to)) : 1, Number.isFinite(seconds) ? Math.max(0, seconds) : 0); } catch { /* a voice already gone */ }
-  }
+  // The voice clamps and warns once (`AudioHandle`), so the values go through as given.
+  stop(fadeSeconds = 0): void { try { this.voice.stop(fadeSeconds); } catch { /* a voice already gone */ } }
+  fade(to: number, seconds: number): void { try { this.voice.fade(to, seconds); } catch { /* a voice already gone */ } }
 }
 
-const warned = new Set<string>();
-function warnOnce(key: string, message: string): void {
-  if (warned.has(key)) return;
-  warned.add(key);
-  console.warn(`[myco] ${message}`);
-}
-/** @internal Test hook: forget the warn-once state. */
-export function resetAudioApiWarnings(): void { warned.clear(); }
 
 const MIN_PITCH = 0.0625;
 const MAX_PITCH = 16;
@@ -83,7 +75,7 @@ export const Audio = {
       extra.pitch = clampWarn("pitch", finiteOr("pitch", o.pitch, 1), MIN_PITCH, MAX_PITCH);
       extra.priority = Math.round(clampWarn("priority", finiteOr("priority", o.priority, 128), 0, 255));
       if (o.at !== undefined) {
-        if (typeof o.at === "number" && Number.isFinite(o.at)) extra.at = o.at;
+        if (typeof o.at === "number" && Number.isFinite(o.at)) { if (audioBackend().status !== "locked") extra.at = o.at; }
         else warnOnce("at:nonfinite", "Audio.playOneShot: at must be a finite number of seconds; playing now.");
       }
       if (o.position) {

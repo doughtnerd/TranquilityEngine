@@ -1,6 +1,7 @@
 // A1.6 L2: one case per row of api-and-models §1 (K10). Request-shaped rows use the fake backend; handle, locked,
 // clock and status rows use a real `CoreBackend` on a recording port (the rig below, copied from coreBackend.test.ts);
 // the default-backend row runs the Howler backend on a mocked "howler".
+import { Howl } from "howler";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { Assets, Engine, GameObject, SceneManager, Time } from "../../../myco";
 import * as myco from "../../../myco";
@@ -15,24 +16,6 @@ import { _resetHandleWarningsForTests } from "./core/handle";
 import { setAudioBackend } from "./backend";
 import { makeFakeBackend } from "./testing";
 import { Audio, AudioListener, AudioSource } from "./index";
-
-// The default-backend row: Howler is replaced by a small stand-in, so the real `HowlerBackend` runs without audio.
-vi.mock("howler", () => {
-  class Howl {
-    constructor(_options: unknown) {}
-    play() { return 1; }
-    playing() { return true; }
-    volume() { return 1; }
-    rate() {}
-    pannerAttr() {}
-    pos() {}
-    pause() {}
-    stop() {}
-    once() {}
-  }
-  const Howler = { volume: () => 1, mute() {}, pos() {}, orientation() {} };
-  return { Howl, Howler };
-});
 
 // --- The core rig (copied from coreBackend.test.ts; not exported from there) --------------------------------------
 
@@ -70,6 +53,7 @@ class FakeRegistry implements ClipRegistry {
     return () => {};
   }
   releaseWorld(): void {}
+  acquireReserved(): void {}
   applyClipEvent(id: number, code: number): void {
     this.events.push([id, code]);
   }
@@ -111,7 +95,7 @@ function rig(options: { status?: "locked" | "running" | "failed" } = {}) {
   /** Batches posted since the last call, as record lists. */
   const batches = () => {
     const out: ReturnType<typeof decode>[] = [];
-    for (const m of sent.splice(0)) if (readEnvelope(new DataView(m), 0).kind === Kind.BATCH) out.push(decode(m));
+    for (const m of sent.splice(0)) if (readEnvelope(new DataView(m), 0).kind === Kind.BATCH) { out.push(decode(m)); link.batchPool.release(m); } // the shell would recycle it; the decoded views are read before the next flush
     return out;
   };
   const ops = () => batches().flatMap((b) => b.records);
@@ -511,6 +495,8 @@ describe("Audio public surface (api-and-models §1)", () => {
     it("the default backend gives status running, handle reason null and a debug with an empty voice list", () => {
       // Unset the test backend: the next audioBackend() builds the default (Howler) one.
       setAudioBackend(null);
+      // The setup may have loaded the real Howler before this file's mock applied, so stand in for what it needs.
+      vi.spyOn(Howl.prototype, "playing").mockReturnValue(true);
       expect(Audio.status).toBe("running");
       const h = Audio.playOneShot("asset:a.wav");
       expect(h.playing).toBe(true);
