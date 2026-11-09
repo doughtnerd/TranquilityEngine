@@ -23,5 +23,40 @@ export interface EncodedCache {
 }
 
 export function createEncodedCache(_capBytes: number = ENCODED_CACHE_CAP_BYTES): EncodedCache {
-  throw new Error("not implemented: A1.3a-L2");
+  const entries = new Map<string, ArrayBuffer>();
+  let total = 0;
+
+  return {
+    set(path: string, bytes: ArrayBuffer): boolean {
+      const previous = entries.get(path);
+      const newTotal = total - (previous ? previous.byteLength : 0) + bytes.byteLength;
+      if (newTotal > _capBytes) return false;
+      entries.set(path, bytes);
+      total = newTotal;
+      return true;
+    },
+    get(path: string): ArrayBuffer | undefined {
+      return entries.get(path);
+    },
+    has(path: string): boolean {
+      return entries.has(path);
+    },
+    delete(path: string): boolean {
+      const previous = entries.get(path);
+      if (previous === undefined) return false;
+      entries.delete(path);
+      total -= previous.byteLength;
+      return true;
+    },
+    clear(): void {
+      entries.clear();
+      total = 0;
+    },
+    get bytes(): number {
+      return total;
+    },
+    get size(): number {
+      return entries.size;
+    },
+  };
 }
