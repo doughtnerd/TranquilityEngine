@@ -1,4 +1,4 @@
-# RFC 0149 review: senior engineer
+# RFC 0157 review: senior engineer
 
 **Verdict: approve with changes.** The spike evidence is strong, and the direction (engine-owned Rust core, 0098 seam kept, committed wasm like nav) is sound and buildable. But M1 is sold as "parity" while it is really a new audio engine plus a new decode pipeline plus five new features (virtual voices, priority/limits, sample-accurate clock, streaming, golden tests). It has no estimate, no return-channel design, and rests on a false premise about the existing unlock step. M2-M5 are each a product; the ADR should commit only to M1 and sketch the rest.
 

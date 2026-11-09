@@ -1,11 +1,11 @@
-# 0149. Audio runs on an engine-owned Rust core in an AudioWorklet, replacing Howler
+# 0157. Audio runs on an engine-owned Rust core in an AudioWorklet, replacing Howler
 
-- **Status:** Accepted (revision 3: refined by the approved technical design in `docs/design/0149-audio-core/`; see "Revision 3" at the end. Revision 2 followed the RFC round in `docs/rfc/0149/`)
+- **Status:** Accepted (revision 3: refined by the approved technical design in `docs/design/0157-audio-core/`; see "Revision 3" at the end. Revision 2 followed the RFC round in `docs/rfc/0157/`)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0006, 0099
 - **Amends:** 0074 (spatial audio is no longer through Howler; its fields and behaviour are kept), 0097 (its model is kept; the Web Audio bus graph is replaced), 0098 (the interface gains a status channel, handles and priority)
-- **Related:** 0148 (withdrawn), 0065, 0133, 0040, 0010, 0011, 0034
+- **Related:** 0156 (withdrawn), 0065, 0133, 0040, 0010, 0011, 0034
 
 ## Context
 
@@ -17,7 +17,7 @@ The owner's goal is **AAA-quality mixing and control built into the engine**, as
 - It has no voice priority or limits, no events or parameters, no HRTF, no occlusion, no routable streaming (streamed clips are HTML5 audio: no effects, no spatial) and no profiler.
 - Howler also does the unlocking after the first user gesture (`AudioSource.ts:2-3`). There is no unlock step outside it.
 
-FMOD was considered (0099, then 0148). It's proprietary and licensed per title, so an open-source engine can't ship it. "AAA audio built in" would really mean "AAA audio if you buy FMOD".
+FMOD was considered (0099, then 0156). It's proprietary and licensed per title, so an open-source engine can't ship it. "AAA audio built in" would really mean "AAA audio if you buy FMOD".
 
 **Spikes** in `spikes/audio-worklet/` (README there) tested an engine-owned core: a Rust mixer compiled to wasm, running in the browser's AudioWorklet. All were measured 2026-11-09 on one AMD Ryzen AI Max+ 395 core, mostly single runs.
 
@@ -165,7 +165,7 @@ A handle's `reason` says why a sound isn't audible: `virtual`, `stolen`, `busMut
 
 ### M1 iterations
 
-The iterations below are the RFC-round sketch. The approved plan is the task table in `docs/design/0149-audio-core/api-and-models.md` §9: **155 person-days (about 31 person-weeks) including a 10% reserve**, roughly 15–17 calendar weeks with one senior, two mid-level and one junior engineer. It grew from the sketch's 16–18 weeks with the platform checks, the two-Engine lifecycle, the parity harness, crash recovery, the metered CI build, HRTF in M1 and the Babylon backend.
+The iterations below are the RFC-round sketch. The approved plan is the task table in `docs/design/0157-audio-core/api-and-models.md` §9: **155 person-days (about 31 person-weeks) including a 10% reserve**, roughly 15–17 calendar weeks with one senior, two mid-level and one junior engineer. It grew from the sketch's 16–18 weeks with the platform checks, the two-Engine lifecycle, the parity harness, crash recovery, the metered CI build, HRTF in M1 and the Babylon backend.
 
 | Iteration | Content | Weeks |
 |---|---|---|
@@ -275,7 +275,7 @@ macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, a
 
 ## Alternatives considered
 
-- **FMOD (0099, 0148).** It has the best authoring tool today, but it's proprietary and licensed per title. It has no Live Update on web, and its threaded build needs COOP/COEP. It stays possible as a third-party plugin behind 0098.
+- **FMOD (0099, 0156).** It has the best authoring tool today, but it's proprietary and licensed per title. It has no Live Update on web, and its threaded build needs COOP/COEP. It stays possible as a third-party plugin behind 0098.
 - **Keep Howler, extend the Web Audio graph; or M1 on plain Web Audio and the core from M3.**
   - Cheapest, and Web Audio *is* sample-accurate: `AudioBufferSourceNode.start(when)` and `AudioParam` automation.
   - Virtual voices and priority are main-thread bookkeeping that would work over it too.
@@ -310,7 +310,7 @@ macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, a
 
 - **0006** is superseded. Howler, `howlerBackend.ts` and the `howler` dependency are deleted when the Babylon backend lands (design task BB2).
 - **0099** is superseded. In M1a, `fmodBackend.ts`, `tests/fmodBackend.test.ts`, `docs/guide/fmod.md` and the `"fmod"` backend value are removed, along with the FMOD wiring in `Engine.ts:13,177`.
-- **0148** is withdrawn and never built.
+- **0156** is withdrawn and never built.
 - **0074, 0097, 0098** are amended (header). 0097's `busGraph.ts` moves to a test-only Web Audio reference for the parity harness. `implementation-status.md` rows and the decisions index are updated when this record is accepted.
 
 ## Open questions
@@ -326,7 +326,7 @@ Settled at acceptance (2026-11-09):
 
 ## RFC round
 
-Reviews by an architect, a senior engineer and a mid-level engineer are in `docs/rfc/0149/`. Revision 2 took:
+Reviews by an architect, a senior engineer and a mid-level engineer are in `docs/rfc/0157/`. Revision 2 took:
 - the status channel and state ownership;
 - the unlock layer;
 - the clip-memory design;
@@ -353,13 +353,13 @@ Reviews by an architect, a senior engineer and a mid-level engineer are in `docs
 ## References
 
 - `spikes/audio-worklet/README.md` and its sub-READMEs: `spatial/`, `decode/`, `messaging/`, `native-out/`, `wasapi/`, `tauri-ipc/`, `occlusion/`, `bookkeeping/`.
-- `docs/rfc/0149/architect.md`, `senior-engineer.md`, `mid-junior-engineer.md`.
+- `docs/rfc/0157/architect.md`, `senior-engineer.md`, `mid-junior-engineer.md`.
 - 0074, 0097, 0098 (the API and model kept); 0065 (the Rust → wasm pattern); 0133 (plugins); 0040 (`stream`).
 - symphonia https://github.com/pdeljanov/Symphonia; SADIE II https://www.york.ac.uk/sadie-project/database.html; Firewheel https://github.com/BillyDM/Firewheel; Kira https://github.com/tesselode/kira.
 
 ## Revision 3 (2026-11-09): refinements from the approved technical design
 
-The technical design in `docs/design/0149-audio-core/` (an architect's and a senior engineer's documents, two review rounds, coordinator review), approved by the owner, refined this record. The decision is unchanged: an engine-owned Rust core in an AudioWorklet, M1 first. What changed:
+The technical design in `docs/design/0157-audio-core/` (an architect's and a senior engineer's documents, two review rounds, coordinator review), approved by the owner, refined this record. The decision is unchanged: an engine-owned Rust core in an AudioWorklet, M1 first. What changed:
 
 - **Fallback backend:** Babylon's AudioEngineV2 replaces Howler. It's chosen automatically when the core can't load, and kept after M1 for such engines. A core that loads and then exhausts its recoveries stays silent.
 - **Reused code:**

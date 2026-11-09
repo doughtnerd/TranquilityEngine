@@ -1,6 +1,6 @@
 # Rust mixer in an AudioWorklet (spike)
 
-A throwaway test, not engine code. It checks whether an engine-owned audio core, written in Rust and compiled to WebAssembly, can run a game-sized mix inside an AudioWorklet (the browser's audio thread) on stable Rust, with no threads, no `SharedArrayBuffer` and no COOP/COEP headers. This is the direction that replaces FMOD (ADR 0148 on hold) for an open-source engine.
+A throwaway test, not engine code. It checks whether an engine-owned audio core, written in Rust and compiled to WebAssembly, can run a game-sized mix inside an AudioWorklet (the browser's audio thread) on stable Rust, with no threads, no `SharedArrayBuffer` and no COOP/COEP headers. This is the direction that replaces FMOD (ADR 0156 on hold) for an open-source engine.
 
 - `core/`: the mixer crate (`src/lib.rs`), plain `extern "C"` exports, no wasm-bindgen; `examples/native_bench.rs` is the native baseline.
 - `wasm/mixer.wasm`, `wasm/mixer-simd.wasm`: built output (55 KB each).

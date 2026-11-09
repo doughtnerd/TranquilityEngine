@@ -1,6 +1,6 @@
-# 0149 audio core: technical design (M1)
+# 0157 audio core: technical design (M1)
 
-The technical design for [ADR 0149](../../decisions/0149-audio-runs-on-an-engine-owned-rust-core-in-an-audioworklet.md), the engine-owned audio core. **Status: approved by the owner (2026-11-09).** ADR 0149 revision 3 carries its decision-level changes.
+The technical design for [ADR 0157](../../decisions/0157-audio-runs-on-an-engine-owned-rust-core-in-an-audioworklet.md), the engine-owned audio core. **Status: approved by the owner (2026-11-09).** ADR 0157 revision 3 carries its decision-level changes.
 
 | Document | Owner | Covers |
 |---|---|---|

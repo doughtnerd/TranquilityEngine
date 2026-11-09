@@ -1,6 +1,6 @@
-# 0149 audio core: system architecture (M1)
+# 0157 audio core: system architecture (M1)
 
-The architect's design for ADR 0149 (Accepted, revision 2). It was revised after round 2 under the coordinator's rulings, and the owner approved it in round 3 with these choices:
+The architect's design for ADR 0157 (Accepted, revision 2). It was revised after round 2 under the coordinator's rulings, and the owner approved it in round 3 with these choices:
 - Babylon's AudioEngineV2 is the fallback backend, replacing Howler. It's chosen automatically when the core can't load, and kept after M1.
 - M1 includes a port of Chromium's HRTF panner, gated on its data licence.
 - Web Audio's DSP is ported from Chromium, and microfft is the FFT. Its companion, `api-and-models.md` (the senior engineer's, cited as **[API §n]**), owns the public API, settings, data models, byte layouts, the Rust ABI, the file layout, the tests and the tasks. This file owns components, lifecycles, interactions, timing, memory, performance, failure handling, observability and platforms. It covers M1 in detail, and later milestones only where they plug in.
@@ -773,7 +773,7 @@ Versions are recalled; **A0.6 confirms them**. The loader probes features, not v
 5. **Reuse:** port Chromium's Web Audio DSP (BSD, notices kept); microfft for FFTs; Kira, Firewheel and SoLoud for designs only.
 6. **Also settled:** the reverb stays today's convolver design; Worlds that lose the view go virtual (a listed behaviour change); macOS stays a release gate only.
 
-**ADR follow-up for the coordinator:** ADR 0149 names Howler as the M1 fallback and puts HRTF in M3. Both round-3 choices change accepted text, so per CLAUDE.md they need an amending record (or a revision note on 0149) before M1a.0.
+**ADR follow-up for the coordinator:** ADR 0157 names Howler as the M1 fallback and puts HRTF in M3. Both round-3 choices change accepted text, so per CLAUDE.md they need an amending record (or a revision note on 0157) before M1a.0.
 
 **Still open**
 

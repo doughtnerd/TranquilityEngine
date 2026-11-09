@@ -1,6 +1,6 @@
-# 0148. The FMOD backend uses FMOD 2.04's npm package, pthreads build, with the engine served cross-origin isolated
+# 0156. The FMOD backend uses FMOD 2.04's npm package, pthreads build, with the engine served cross-origin isolated
 
-- **Status:** Withdrawn in favour of 0149 (an engine-owned audio core; FMOD can only be a third-party plugin)
+- **Status:** Withdrawn in favour of 0157 (an engine-owned audio core; FMOD can only be a third-party plugin)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0099
@@ -70,7 +70,7 @@ We will:
 
 ## Deprecates
 
-0099 (Proposed) becomes **Superseded by 0148**: its research and its "Howler stays the default" stance carry over. The `<script>`/`FMODModule` loader, FS preloading, `{ val }` calls and the `audio.fmod.sdkPath` setting are removed. `settings.ts` reads an old `sdkPath`, ignores it, and reports it as a problem. `docs/guide/fmod.md` is rewritten.
+0099 (Proposed) becomes **Superseded by 0156**: its research and its "Howler stays the default" stance carry over. The `<script>`/`FMODModule` loader, FS preloading, `{ val }` calls and the `audio.fmod.sdkPath` setting are removed. `settings.ts` reads an old `sdkPath`, ignores it, and reports it as a problem. `docs/guide/fmod.md` is rewritten.
 
 ## Open questions
 

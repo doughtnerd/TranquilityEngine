@@ -1,4 +1,4 @@
-# RFC 0149 review: architect
+# RFC 0157 review: architect
 
 **Verdict: approve with changes.** The direction is sound and the spike work is unusually thorough: an engine-owned core in an AudioWorklet is the only path that gives open-source, identical-everywhere audio with a later native route, and the threading split (audio thread mixes, main thread decides, decoder worker streams straight to the worklet) is right. But the RFC commits to deleting a working system at the end of M1 on evidence gathered on one high-end CPU, in containers without audio devices for two of the three desktop webviews, with a cache-warm synthetic voice. Top 3 concerns: (1) the record has no worklet → main feedback channel and no recovery model, although 0098's `AudioVoice.playing` is synchronous and a wasm trap kills the processor; (2) clip memory has no design: without a SAB, every decoded clip must be copied into the worklet's own wasm heap, which contradicts "never allocates after start"; (3) the budgets are set on averages from an idealised mixer (linear interpolation, 4 one-second clips), so they say little about the worst case on real content or weaker hardware.
 

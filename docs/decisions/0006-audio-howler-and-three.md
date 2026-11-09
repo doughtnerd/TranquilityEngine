@@ -1,6 +1,6 @@
 # 0006. Audio: Howler + three.js positional audio
 
-- **Status:** Superseded by 0149 (an engine-owned Rust audio core replaces Howler); was amended by 0074
+- **Status:** Superseded by 0157 (an engine-owned Rust audio core replaces Howler); was amended by 0074
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
