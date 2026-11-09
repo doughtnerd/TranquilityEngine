@@ -5,11 +5,12 @@ import { Engine } from "../../../engine";
 import { createRegistry } from "../../../editor/sdk/registry";
 import type { ViewportToolContribution } from "../../../editor/sdk";
 import { openSceneFile } from "../../../editor/project";
-import { activateViewportTool, activeViewportTool, pickTool, playState, selection } from "../../../editor/state";
+import { activateViewportTool, activeViewportTool, pickTool, playState } from "../../../editor/state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
 import { createViewportToolHost, selectableOutlines } from "../../../editor/viewportTools";
 import { COLLIDER_TOOL_ID, colliderTool, editingCollider } from "./colliderGizmo";
 import { editColliderAction } from "./EditColliderButton";
+import { select } from "../../../editor/inspectorTarget";
 
 describe("the collider tool", () => {
   let engine: Engine;
@@ -35,7 +36,7 @@ describe("the collider tool", () => {
 
   afterEach(() => {
     dispose();
-    selection.value = null;
+    select([]);
     activateViewportTool(null);
     engine.dispose();
   });
@@ -46,7 +47,7 @@ describe("the collider tool", () => {
   });
 
   it("is active exactly while a collider is edited", () => {
-    selection.value = "ground-collider";
+    select(["ground-collider"]);
     editingCollider.value = { key: "ground-collider", type: "engine.BoxCollider2D", index: 0 };
     expect(activeViewportTool.value).toBe(COLLIDER_TOOL_ID);
     pickTool("move"); // a transform tool ends editing
@@ -55,13 +56,13 @@ describe("the collider tool", () => {
     activateViewportTool("another.tool"); // so does another tool
     expect(editingCollider.value).toBeNull();
     editingCollider.value = { key: "ground-collider", type: "engine.BoxCollider2D", index: 0 };
-    selection.value = "bird"; // and selecting another node
+    select(["bird"]); // and selecting another node
     expect(editingCollider.value).toBeNull();
     expect(activeViewportTool.value).toBeNull();
   });
 
   it("ends editing when the edited collider is removed from its card, and when uninstalled", () => {
-    selection.value = "ground-collider";
+    select(["ground-collider"]);
     const editing = { key: "ground-collider", type: "engine.BoxCollider2D" as const, index: 0 };
     editingCollider.value = editing;
     const info = { type: "engine.BoxCollider2D", index: 0 } as Parameters<NonNullable<typeof editColliderAction.onRemove>>[0]["info"];

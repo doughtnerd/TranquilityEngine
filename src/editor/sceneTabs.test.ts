@@ -8,9 +8,10 @@ import { OrbitCamera } from "./OrbitCamera";
 import { sceneOpenMigrations } from "./sdk/contributions";
 import { shortcutFor } from "./shortcuts";
 import { createSceneTabs, tabsToClose, type SceneTabs } from "./sceneTabs";
-import { openScene, openScenes, sceneCamera, select, selectedKeys, status, type OpenScene } from "./state";
+import { openScene, openScenes, sceneCamera, selectedKeys, status, type OpenScene } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings, sampleProject } from "./testing";
 import type { ConfirmOptions } from "./ui/ConfirmDialog";
+import { select } from "./inspectorTarget";
 
 const tabs = ["a", "b", "c", "d"];
 const dirty = (t: string) => t === "b" || t === "d";

@@ -17,10 +17,11 @@ import {
   type NodeClipboard,
   type PasteTarget,
 } from "./nodeClipboard";
-import { currentProject, openScene, playState, sceneCamera, select, selectedKeys, selection, status, viewMode, type OpenScene } from "./state";
+import { currentProject, openScene, playState, sceneCamera, selectedKeys, selection, status, viewMode, type OpenScene } from "./state";
 import { duplicateUIElement } from "./uiDocumentEdits";
 import { registeredKind } from "./assetKindLookup";
 import { selectedUIRef } from "./uiDocuments";
+import { select } from "./inspectorTarget";
 
 /** The copied nodes, or null. */
 export const nodeClipboard = signal<NodeClipboard | null>(null);

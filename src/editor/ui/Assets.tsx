@@ -21,29 +21,9 @@ import {
 import { fileName, folderOf } from "../assetBrowser";
 import { entryFolder, entryKind, entryName, entryPath, fileEntries, folderEntry, isFolderEntry, isSliceEntry, splitSliceEntry } from "../assetEntry";
 import { canAddToScene, hasSlices, kindLabel, type AssetKind } from "../assetKindLookup";
-import { inspectSelectedAsset } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
 import { assetClipboard, renameAsset, splitExtension } from "../assetOps";
-import {
-  arrowSelection,
-  assetAnchor,
-  assetCursor,
-  assetQuery,
-  boxSelection,
-  canGoBack,
-  canGoForward,
-  clickSelection,
-  folderPath,
-  goBack,
-  goForward,
-  historyVersion,
-  openFolder,
-  parentFolder,
-  renamingAsset,
-  select,
-  selectedAssets,
-  type Modifiers,
-} from "../assetSelection";
+import { arrowSelection, assetAnchor, assetCursor, assetQuery, boxSelection, canGoBack, canGoForward, clickSelection, folderPath, goBack, goForward, historyVersion, openFolder, parentFolder, renamingAsset, selectedAssets, type Modifiers } from "../assetSelection";
 import { errorStatus } from "../messages";
 import { installOsDrop, osDragFolder, osDragOver } from "../osDrop";
 import { newScript, scriptFolderFor } from "../newScript";
@@ -53,6 +33,7 @@ import { currentProject, docVersion, openScene, sceneCamera, scriptsVersion, sel
 import { TileThumbnail } from "./AssetPreview";
 import "./assets.css";
 import "./assetSlices.css";
+import { select, selectAssets } from "../inspectorTarget";
 
 /** The open context menu: where, and its items. */
 interface MenuItem {
@@ -325,8 +306,7 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
     const moved = arrowSelection(entries, assetCursor.value, assetAnchor.value, e.key, columns(), e.shiftKey);
     if (moved) {
       handled();
-      select(moved.selected, moved.focus, moved.anchor);
-      inspectSelectedAsset();
+      selectAssets(moved.selected, moved.focus, moved.anchor);
       list.current?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(moved.focus)}"]`)?.focus();
       return;
     }
@@ -334,8 +314,8 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
     const command = assetKeyCommand(e);
     if (command === "open" && (e.target as HTMLElement).closest("button")) return; // Enter presses a tile's own button (+, slices)
     if (command) return (handled(), void runAsset(command, { project, entries: listed }));
-    if (toggleKey(e) && !e.altKey && (e.key ?? "").toLowerCase() === "a") return (handled(), select(entries, assetCursor.value));
-    if (e.key === "Escape" && listed.length > 0) return (handled(), select([]));
+    if (toggleKey(e) && !e.altKey && (e.key ?? "").toLowerCase() === "a") return (handled(), selectAssets(entries, assetCursor.value));
+    if (e.key === "Escape" && listed.length > 0) return (handled(), selectAssets([]));
   };
 
   /** Press on empty space: drag a selection box (Shift adds, Ctrl/Cmd toggles); a click clears the selection. */
@@ -358,15 +338,15 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
           return b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
         })
         .map((item) => item.dataset.entry!);
-      select(boxSelection(before, hits, mods));
+      selectAssets(boxSelection(before, hits, mods));
     };
     const finish = (keep: boolean) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("keydown", key, true);
       box.value = null;
-      if (!keep) select(before);
-      else if (!moved && !mods.shift && !mods.toggle) select([]);
+      if (!keep) selectAssets(before);
+      else if (!moved && !mods.shift && !mods.toggle) selectAssets([]);
     };
     const up = () => finish(true);
     const key = (k: KeyboardEvent) => {
@@ -397,7 +377,7 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
         onContextMenu={(e) => {
           if ((e.target as HTMLElement).closest(".asset-item")) return;
           e.preventDefault();
-          select([]);
+          selectAssets([]);
           menu.value = { x: e.clientX, y: e.clientY, items: menuItems(project, []) };
         }}
       >
@@ -461,12 +441,12 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         press.current = { x: e.clientX, y: e.clientY };
         const sel = selectedAssets.value.filter((x) => entries.includes(x));
         if (e.button === 2) {
-          if (!sel.includes(entry)) select([entry]);
+          if (!sel.includes(entry)) selectAssets([entry]);
           return;
         }
         if (e.button !== 0 || renamingAsset.value === entry) return;
         // A plain press on an unselected item selects it alone, so dragging it drags just it.
-        if (!e.shiftKey && !toggleKey(e) && !sel.includes(entry)) select([entry]);
+        if (!e.shiftKey && !toggleKey(e) && !sel.includes(entry)) selectAssets([entry]);
         if (e.shiftKey || toggleKey(e)) return;
         startAssetDrag(e, selectedAssets.value.filter((x) => entries.includes(x)));
       }}
@@ -476,9 +456,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         const sel = selectedAssets.value.filter((x) => entries.includes(x));
         const mods = { shift: e.shiftKey, toggle: toggleKey(e) };
         const next = clickSelection(entries, sel, assetAnchor.value, entry, mods);
-        select(next.selected, entry, next.anchor);
-        // Selecting one asset with an inspector shows it, in place of the selected node (ADR 0040).
-        inspectSelectedAsset();
+        selectAssets(next.selected, entry, next.anchor); // one asset with an Inspector view shows there, in place of the node (ADR 0162)
       }}
       onDblClick={() => openEntry(project, entry)}
       onContextMenu={(e) => {
@@ -588,7 +566,7 @@ function RenameInput(props: { entry: string }) {
     void renameAsset(entry, value).then((ok) => {
       if (!ok) return;
       const path = entryFolder(entry) ? `${entryFolder(entry)}/${value}` : value;
-      select([isFolderEntry(entry) ? folderEntry(path) : path]);
+      selectAssets([isFolderEntry(entry) ? folderEntry(path) : path]);
     });
   };
   return (
@@ -662,6 +640,6 @@ function ContextMenu() {
 async function addToScene(path: string): Promise<void> {
   const focus = sceneCamera.peek()?.focusPoint;
   const { ids, message } = await addAssets([path], { kind: "selection", selected: selection.peek(), position: focus ? [focus.x, focus.y, focus.z] : [0, 0, 0] });
-  if (ids[0]) selection.value = ids[0];
+  if (ids[0]) select([ids[0]]);
   status.value = message;
 }

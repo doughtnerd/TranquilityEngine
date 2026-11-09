@@ -11,10 +11,11 @@ import { MemoryFileSystem } from "./memoryFs";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
-import { currentProject, openScene, playState, sceneCamera, select, status } from "./state";
+import { currentProject, openScene, playState, sceneCamera, status } from "./state";
 import { editorTextFiles } from "./textFiles";
 import { beginMove, beginResize, whyNoHandles, type BoxOf } from "./uiHandles";
 import { resolveUIElement, type UIElementRef } from "./uiDocuments";
+import { select } from "./inspectorTarget";
 
 const ROOT = "C:\\Games\\handles";
 const DT = 1 / 60;

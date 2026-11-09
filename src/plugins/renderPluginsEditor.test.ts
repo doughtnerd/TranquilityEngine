@@ -4,7 +4,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assetKind, canAddToScene, opensInCodePanel } from "../editor/assetBrowser";
 import { acceptsFile } from "../editor/assetFieldKinds";
 import { kindIcon, kindLabel, registeredKind } from "../editor/assetKindLookup";
-import { inspectableAsset } from "../editor/assetImport";
 import { activatePlugins, deactivatePlugin, isPluginActive } from "../editor/sdk/plugins";
 import { previewKind } from "../editor/thumbnails/keys";
 import { EDITOR_PLUGINS } from "./editor";
@@ -13,6 +12,7 @@ import { meshesEditorPlugin } from "./meshes/editor";
 import { postProcessingEditorPlugin } from "./post-processing/editor";
 import { uiEditorPlugin } from "./ui/editor";
 import { useCoreAssetKinds } from "../editor/testing";
+import { inspectableAsset } from "../editor/inspectorTarget";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 

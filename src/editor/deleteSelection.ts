@@ -4,10 +4,11 @@ import { deleteNodes, isInsidePrefab, describeReference, referencesInto, whyNotD
 import { askBeforeClearingReferences } from "./preferences";
 import { topmostKeys } from "./selectionModel";
 import { removeInnerNode } from "./prefabs";
-import { openScene, playState, select, selectedKeys, status } from "./state";
+import { openScene, playState, selectedKeys, status } from "./state";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { deleteUIElement } from "./uiDocumentEdits";
 import { selectedUIRef } from "./uiDocuments";
+import { select } from "./inspectorTarget";
 
 /** Delete the selected nodes (and their children) as one undo step. Returns true if they were deleted. */
 export async function deleteSelected(): Promise<boolean> {

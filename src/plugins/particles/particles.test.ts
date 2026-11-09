@@ -11,7 +11,6 @@ import { defaultParticleGraph, formatParticleGraph } from "../../engine/scene/pa
 import { assetKind } from "../../editor/assetBrowser";
 import { _reset } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
-import { inspectableAsset } from "../../editor/assetImport";
 import { canAddToScene, kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
 import { allPanels, isKnownPanel, isOnDemand, panelBeside, panelTitle, PANELS } from "../../editor/layout/model";
 import { joinPath, openFolderProject } from "../../editor/projects";
@@ -31,6 +30,7 @@ import { openParticleGraph, readEffect } from "./editor/particleAssets";
 import { particleBlockFormat, particlesFormat, particleSubgraphFormat } from "./editor/particleFormat";
 import { blockTemplate, formatAsset, subgraphTemplate } from "./editor/particleGraph/assetDocs";
 import { PARTICLES_SPEC, particlesRuntimePlugin } from "./runtime";
+import { inspectableAsset } from "../../editor/inspectorTarget";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 

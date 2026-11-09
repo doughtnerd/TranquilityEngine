@@ -7,7 +7,6 @@ import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph } from "..
 import { assetKind, opensInCodePanel } from "../../editor/assetBrowser";
 import { _reset, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
-import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
 import { isKnownPanel, isOnDemand, panelBeside, panelTitle } from "../../editor/layout/model";
 import { joinPath, openFolderProject } from "../../editor/projects";
@@ -21,6 +20,7 @@ import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { materialsEditorPlugin } from "./editor";
 import { materialsRuntimePlugin } from "./runtime";
+import { inspectableAsset } from "../../editor/inspectorTarget";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 

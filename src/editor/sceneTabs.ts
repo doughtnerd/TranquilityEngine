@@ -14,9 +14,10 @@ import { errorStatus } from "./messages";
 import type { ViewMode } from "./OrbitCamera";
 import type { EditorProject } from "./projects";
 import { sceneOpenMigrations } from "./sdk/contributions";
-import { docVersion, openScene, openScenes, sceneCamera, select, selectedKeys, setViewMode, status, viewMode, type OpenScene } from "./state";
+import { docVersion, openScene, openScenes, sceneCamera, selectedKeys, setViewMode, status, viewMode, type OpenScene } from "./state";
 import { editorTextFiles } from "./textFiles";
 import type { ConfirmOptions } from "./ui/ConfirmDialog";
+import { select } from "./inspectorTarget";
 
 // --- which tabs a "close" command closes (pure) ------------------------------------------------
 

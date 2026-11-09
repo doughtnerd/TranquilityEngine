@@ -5,7 +5,8 @@
 import type { GameObject } from "../../engine/scene/GameObject";
 import { idBase, uniqueId } from "../assetNodes";
 import type { NodePath, SceneDocument } from "../document";
-import { openScene, openScenes, playState, select, selectedKeys, selectedNodes, selectedPath, selectedWorldNode, selection, type OpenScene } from "../state";
+import { openScene, openScenes, playState, selectedKeys, selectedNodes, selectedPath, selectedWorldNode, selection, type OpenScene } from "../state";
+import { select } from "../inspectorTarget";
 
 export type { OpenScene };
 

@@ -39,7 +39,8 @@ import {
   setText,
   type SourceElement,
 } from "./uiEdit/markupText";
-import { formatValue, kebab, resolveUIElement, selectUIElement, type UIElementRef } from "./uiDocuments";
+import { formatValue, kebab, resolveUIElement, type UIElementRef } from "./uiDocuments";
+import { selectUIElement } from "./inspectorTarget";
 
 // --- Where an element is written ------------------------------------------------------------------
 

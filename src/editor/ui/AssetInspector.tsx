@@ -4,7 +4,7 @@ import { fileName } from "../assetBrowser";
 import { assetKind, kindImportSettings, kindInspector, kindLabel } from "../assetKindLookup";
 import type { ImportSettingsContribution, ImportSettingsViewProps, LoadComponent } from "../sdk/contributions";
 import { lazyComponent, type LazyComponent } from "./lazy";
-import { inspectedAsset, readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
+import { readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
 import { errorStatus } from "../messages";
 import { currentProject, docVersion, status } from "../state";
 import "./assetInspector.css";
@@ -24,14 +24,14 @@ function importViews(views: ImportSettingsContribution | undefined): { preview: 
 }
 
 /** The selected asset in the Inspector (ADR 0143): its kind's own view (materials, prefabs, render textures…), else its import settings. */
-export function AssetInspector() {
-  const path = inspectedAsset.value;
-  const inspector = path ? kindInspector(assetKind(path)) : undefined;
-  if (path && inspector) {
+export function AssetInspector(props: { path: string }) {
+  const { path } = props;
+  const inspector = kindInspector(assetKind(path));
+  if (inspector) {
     const View = lazyView(inspector);
     return <View path={path} />;
   }
-  return <ImportInspector />;
+  return <ImportInspector path={path} />;
 }
 
 /**
@@ -40,9 +40,9 @@ export function AssetInspector() {
  * else. The preview and the card's rows are its kind's `importSettings` (ADR 0143): images and audio
  * from the shell, models from the Meshes plugin.
  */
-function ImportInspector() {
+function ImportInspector(props: { path: string }) {
   docVersion.value; // the sidecar may be rewritten (Sprite Editor, moves)
-  const path = inspectedAsset.value;
+  const { path } = props;
   const project = currentProject.value;
   const saved = project && path ? readImportSettings(project, path) : null;
   const savedKey = saved ? JSON.stringify(saved.settings) : "";

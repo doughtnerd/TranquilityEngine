@@ -6,7 +6,6 @@ import { formatSky, parseSky, type SkySettings } from "../../engine/sky/skyForma
 import { assetKind } from "../../editor/assetBrowser";
 import { _reset, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
-import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
 import { isKnownPanel, isOnDemand, panelBeside, panelTitle } from "../../editor/layout/model";
 import { joinPath } from "../../editor/projects";
@@ -20,6 +19,7 @@ import { RUNTIME_PLUGINS } from "../runtime";
 import { skyEditorPlugin } from "./editor";
 import { createSky } from "./editor/skyAssets";
 import { skyRuntimePlugin } from "./runtime";
+import { inspectableAsset } from "../../editor/inspectorTarget";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 

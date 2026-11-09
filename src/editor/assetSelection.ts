@@ -1,7 +1,8 @@
 // The Assets panel's state: the folder showing (with Back/Forward history), the selection of
 // files and folders, and how clicks, box selection and arrow keys change it. Entries are Assets panel
 // entries (assetEntry.ts). The logic is pure; ui/Assets.tsx renders it, and assetActions.ts runs the
-// panel's commands on it (ADR 0157).
+// panel's commands on it (ADR 0157). Selecting entries goes through inspectorTarget.ts
+// (`selectAssets`), which keeps the Assets panel's selection apart from the scene's (ADR 0162).
 import { signal } from "@preact/signals";
 import { entryFolder } from "./assetEntry";
 
@@ -9,7 +10,7 @@ import { entryFolder } from "./assetEntry";
 export const folderPath = signal("");
 /** Search text; when set, the panel lists matching files from every folder. */
 export const assetQuery = signal("");
-/** Selected entries, in selection order. */
+/** Selected entries, in selection order. Written through inspectorTarget.ts `selectAssets`. */
 export const selectedAssets = signal<readonly string[]>([]);
 /** Where Shift ranges start: the entry last clicked or moved to without Shift. */
 export const assetAnchor = signal<string | null>(null);
@@ -54,7 +55,7 @@ export const parentFolder = (path: string) => (path === "" ? null : path.include
 
 function show(path: string): void {
   // The selection is kept when the folder showing is where it was made (going back to it).
-  if (selectedAssets.value.some((e) => !isIn(e, path))) select([]);
+  if (selectedAssets.value.some((e) => !isIn(e, path))) setPanelSelection([]);
   folderPath.value = path;
   historyVersion.value++;
 }
@@ -67,12 +68,16 @@ export function resetAssetBrowser(): void {
   folderPath.value = "";
   assetQuery.value = "";
   renamingAsset.value = null;
-  select([]);
+  setPanelSelection([]);
   historyVersion.value++;
 }
 
-/** Set the selection; the cursor and anchor go to `focus` (the last entry by default). */
-export function select(entries: readonly string[], focus: string | null = entries.at(-1) ?? null, anchor: string | null = focus): void {
+/**
+ * Set the selection; the cursor and anchor go to `focus` (the last entry by default). Only
+ * inspectorTarget.ts calls this with entries, applying the rule between the selections; clearing
+ * here needs no rule.
+ */
+export function setPanelSelection(entries: readonly string[], focus: string | null = entries.at(-1) ?? null, anchor: string | null = focus): void {
   selectedAssets.value = entries;
   assetCursor.value = focus;
   assetAnchor.value = anchor;

@@ -7,6 +7,7 @@ import { chooseSelection, hitIds, installViewportSelection, isPlainClick } from 
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 import { FakeRenderSurface } from "../engine/render/fakeViewport";
 import { installGizmo } from "./gizmo";
+import { select } from "./inspectorTarget";
 
 describe("click versus drag", () => {
   it("counts a left press and release with little movement as a click", () => {
@@ -61,7 +62,7 @@ describe("with the demo scene open", () => {
   });
 
   it("F and Focus frame the selected node, or the origin with nothing selected", () => {
-    selection.value = "bird";
+    select(["bird"]);
     orbit.focus();
     expect(orbit.focusPoint.toArray()).toEqual([-4, 1, 0]);
 
@@ -70,7 +71,7 @@ describe("with the demo scene open", () => {
     engine.step(1 / 60);
     expect(orbit.focusPoint.toArray()).toEqual([-4, 1, 0]);
 
-    selection.value = null;
+    select([]);
     orbit.focus();
     expect(orbit.focusPoint.toArray()).toEqual([0, 0, 0]);
   });
@@ -99,7 +100,7 @@ describe("clicking in the viewport, over a fake viewport (ADR 0128)", () => {
     sceneCamera.value = orbit;
     openSceneFile(engine, DEMO_SCENE);
     uninstall = installViewportSelection(engine, orbit);
-    selection.value = null;
+    select([]);
   });
 
   afterEach(() => {

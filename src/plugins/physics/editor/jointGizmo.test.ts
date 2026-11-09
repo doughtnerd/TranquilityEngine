@@ -5,8 +5,9 @@ import { jointOverlay } from "./jointGizmo";
 import { ARC_RADIUS, arcPoints, crossLines, jointWire, perpendicular, rotateAround, zigzag } from "./jointMath";
 import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
-import { openScene, selection } from "../../../editor/state";
+import { openScene } from "../../../editor/state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
+import { select } from "../../../editor/inspectorTarget";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 
@@ -60,7 +61,7 @@ describe("joint overlay", () => {
   });
 
   afterEach(() => {
-    selection.value = null;
+    select([]);
     engine.dispose();
   });
 
@@ -78,7 +79,7 @@ describe("joint overlay", () => {
     const link = lines.find((l) => l.points.length === 2 && Math.abs(l.points[1][0] - 3) < 1e-6 && Math.abs(l.points[0][0] - 1) < 1e-6);
     expect(link).toBeDefined();
     const normal = lines[0].color;
-    selection.value = a;
+    select([a]);
     expect(jointOverlay(engine).lines[0].color).not.toBe(normal);
   });
 });

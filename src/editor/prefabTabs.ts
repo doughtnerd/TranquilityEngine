@@ -4,7 +4,8 @@ import { signal } from "@preact/signals";
 import type { NodePath } from "./document";
 import { prefabTarget } from "./prefabs";
 import { switchScene } from "./session";
-import { openScene, openScenes, select, status } from "./state";
+import { openScene, openScenes, status } from "./state";
+import { select } from "./inspectorTarget";
 
 /** Prefab tabs opened from an instance: prefab path → the path of the tab it was opened from. */
 export const prefabOrigins = signal<ReadonlyMap<string, string>>(new Map());

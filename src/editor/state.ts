@@ -1,6 +1,5 @@
 // Shared editor UI state (ADR 0025). Signals so Preact panels re-render when it changes.
 import { batch, signal, type ReadonlySignal } from "@preact/signals";
-import { selectedAssets } from "./assetSelection";
 import type { GameObject } from "../engine";
 import type { CommandStack, NodePath, SceneDocument, WorldSync } from "./document";
 import type { OrbitCamera, ViewMode } from "./OrbitCamera";
@@ -42,22 +41,17 @@ export const docVersion = signal(0);
 /**
  * Selected document nodes as path keys (ids, or `instance/inner…` inside prefab instances, see
  * `selectedPath`), in the order they were selected. The last one is the active node: the one the
- * single-selection tools (Create Prefab, Edit Collider, focus) act on.
+ * single-selection tools (Create Prefab, Edit Collider, focus) act on. Written only through
+ * inspectorTarget.ts (`select`), which keeps it apart from the other selections (ADR 0162).
  */
 export const selectedKeys = signal<readonly string[]>([]);
 
 const activeOf = (keys: readonly string[]) => (keys.length ? keys[keys.length - 1] : null);
 
-/**
- * The active selected node's key. Reading it tracks the selection like a signal; setting it
- * selects just that node (null clears the selection).
- */
+/** The active selected node's key, or null. Reading it tracks the selection like a signal; select with inspectorTarget.ts `select`. */
 export const selection = {
   get value(): string | null {
     return activeOf(selectedKeys.value);
-  },
-  set value(key: string | null) {
-    select(key === null ? [] : [key]);
   },
   peek(): string | null {
     return activeOf(selectedKeys.peek());
@@ -65,26 +59,9 @@ export const selection = {
 };
 
 /**
- * Select `keys` (duplicates dropped). `active`, if among them, becomes the active node. Selecting
- * nodes deselects the Assets panel's entries, so the Inspector shows the latest selection (an
- * asset click deselects the nodes in turn, assetImport.ts `inspectSelectedAsset`).
- */
-export function select(keys: Iterable<string>, active?: string | null): void {
-  if (selectedUIElement.peek() !== null) selectedUIElement.value = null; // any node selection replaces a UI element's
-  const next = [...new Set(keys)];
-  if (active != null && next.includes(active)) next.push(next.splice(next.indexOf(active), 1)[0]);
-  const current = selectedKeys.peek();
-  if (next.length === current.length && next.every((k, i) => k === current[i])) return;
-  batch(() => {
-    selectedKeys.value = next;
-    if (next.length > 0 && selectedAssets.peek().length > 0) selectedAssets.value = [];
-  });
-}
-
-/**
  * The selected element of a UI document (ADR 0077), as a `uiDocuments.ts` key (`uiRefKey`), or
- * null. Elements aren't document nodes, so they're selected apart: selecting one clears
- * `selectedKeys` (`selectUIElement`), and selecting nodes (`select`) clears it.
+ * null. Elements aren't document nodes, so they're selected apart; written only through
+ * inspectorTarget.ts (`selectUIElement`), which clears the other selections (ADR 0162).
  */
 export const selectedUIElement = signal<string | null>(null);
 

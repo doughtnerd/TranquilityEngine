@@ -9,12 +9,13 @@ import { entryPath, fileEntries, folderEntry, isFolderEntry, isSliceEntry, slice
 import { readImportSettings } from "./assetImport";
 import { assetKind, hasSlices, kindCreators, kindOpens, openAsset } from "./assetKindLookup";
 import { assetClipboard, duplicateAssets, newFolder, pasteAssets, whyNotMovable, whyNotPaste } from "./assetOps";
-import { assetQuery, folderPath, openFolder, parentFolder, renamingAsset, select, selectedAssets } from "./assetSelection";
+import { assetQuery, folderPath, openFolder, parentFolder, renamingAsset, selectedAssets } from "./assetSelection";
 import { signal } from "@preact/signals";
 import { newScript } from "./newScript";
 import type { EditorProject } from "./projects";
 import { assetActions, type AssetActionTarget } from "./sdk/contributions";
 import { currentProject, status } from "./state";
+import { selectAssets } from "./inspectorTarget";
 
 /** What a command acts on: the entries right-clicked, or the panel's selection (`panelTarget`). */
 export interface AssetTarget {
@@ -140,13 +141,13 @@ export function whyNotAsset(id: AssetCommandId, target: AssetTarget): string | n
 
 /** Select what an operation made, if anything. True if it made something. */
 function selectMade(made: readonly string[]): boolean {
-  if (made.length > 0) select([...made]);
+  if (made.length > 0) selectAssets([...made]);
   return made.length > 0;
 }
 
 /** Start renaming `entry` in place (the panel shows a text field; Enter renames). */
 function startRename(entry: AssetEntry): void {
-  select([entry]);
+  selectAssets([entry]);
   renamingAsset.value = entry;
 }
 
@@ -204,7 +205,7 @@ export function assetCreateItems(target: AssetTarget): AssetMenuItem[] {
   return [
     { label: "New Folder", whyNot, run: () => void makeFolder(folder) },
     // Every file entry is a registered kind's `create`, core kinds' (scenes, render textures) first (ADR 0149).
-    ...kindCreators().map((c) => ({ label: c.label, whyNot, run: () => void c.create(folder).then((made) => made && select([made])) })),
+    ...kindCreators().map((c) => ({ label: c.label, whyNot, run: () => void c.create(folder).then((made) => made && selectAssets([made])) })),
     ...(project.root !== null ? [{ label: "New Script…", whyNot, run: () => void newScript({ assetFolder: folder }) }] : []),
   ];
 }

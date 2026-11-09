@@ -4,8 +4,9 @@ import { AddComponent, SetField } from "../../../editor/document";
 import { colliderOverlay, colliderShapes, editingCollider } from "./colliderGizmo";
 import { MIN_EXTENT, capsule2DHandles, capsule2DPoints, dragCapsule2DHeight, dragCapsule2DRadius, boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, pointInPolygon, polygonArea, toLocal, toWorld, type Pose2D } from "./colliderMath";
 import { openSceneFile } from "../../../editor/project";
-import { openScene, selection } from "../../../editor/state";
+import { openScene } from "../../../editor/state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
+import { select } from "../../../editor/inspectorTarget";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 const identity: Pose2D = { position: [0, 0, 0], rotation: 0, scale: [1, 1] };
@@ -97,12 +98,12 @@ describe("the overlay with the demo scene open", () => {
 
   afterEach(() => {
     editingCollider.value = null;
-    selection.value = null;
+    select([]);
     engine.dispose();
   });
 
   it("outlines every collider, the selected one brighter, with no handles until editing", () => {
-    selection.value = "bird";
+    select(["bird"]);
     const overlay = colliderOverlay(engine);
     expect(overlay.lines).toHaveLength(3); // ground, ceiling, bird
     const bird = overlay.lines.find((l) => l.points.length > 4)!;
@@ -120,18 +121,18 @@ describe("the overlay with the demo scene open", () => {
     const ys = shape.points.map((p) => p[1]), xs = shape.points.map((p) => p[0]);
     expect(Math.max(...ys) - Math.min(...ys)).toBeCloseTo(2 * Math.abs(node.transform!.worldScale.y));
     expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(1 * Math.abs(node.transform!.worldScale.x));
-    selection.value = "bird";
+    select(["bird"]);
     editingCollider.value = { key: "bird", type: "engine.CharacterController2D", index: 0 };
     expect(colliderOverlay(engine).handles.map((h) => h.id).sort()).toEqual(["center", "height-bottom", "height-top", "radius-left", "radius-right"]);
   });
 
   it("adds handles for the collider being edited", () => {
-    selection.value = "ground-collider";
+    select(["ground-collider"]);
     editingCollider.value = { key: "ground-collider", type: "engine.BoxCollider2D", index: 0 };
     const ids = colliderOverlay(engine).handles.map((h) => h.id);
     expect(ids.sort()).toEqual(["bottom", "center", "left", "right", "top"]);
 
-    selection.value = "bird"; // a stale edit target draws nothing
+    select(["bird"]); // a stale edit target draws nothing
     expect(colliderOverlay(engine).handles).toEqual([]);
   });
 
@@ -141,7 +142,7 @@ describe("the overlay with the demo scene open", () => {
     stack.execute(new AddComponent("bird", { type: "engine.EdgeCollider2D", data: { points: [[0, 0], [2, 0]] } }));
     const node = sync.nodeFor("bird")!;
     expect(node.getBehavior(PolygonCollider2D)!.points).toEqual([[0, 0], [1, 0], [0, 1]]);
-    selection.value = "bird";
+    select(["bird"]);
     const lines = colliderOverlay(engine).lines;
     expect(lines.filter((l) => l.points.length === 3 && l.closed)).toHaveLength(1);
     expect(lines.filter((l) => l.points.length === 2 && !l.closed)).toHaveLength(1);

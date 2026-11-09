@@ -5,7 +5,6 @@ import { defaultFormation, formatFormation, setFormationCell, type NavFormationA
 import { assetKind } from "../../editor/assetBrowser";
 import { _reset, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
-import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel, registeredKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { inspectorSectionsFor, registeredInspectorSections } from "../../editor/ui/inspectorSections";
@@ -18,6 +17,7 @@ import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { navigationEditorPlugin } from "./editor";
 import { navigationRuntimePlugin } from "./runtime";
+import { inspectableAsset } from "../../editor/inspectorTarget";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 

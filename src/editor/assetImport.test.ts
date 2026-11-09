@@ -8,16 +8,16 @@ import { isSliceEntry, splitSliceEntry } from "./assetEntry";
 import { nodeForAsset } from "./assetNodes";
 import { deleteAssets } from "./assetDelete";
 import { assetUsers } from "./assetReferences";
-import { inspectedAsset, readImportSettings, showsAssetInspector, writeImportSettings } from "./assetImport";
-import { selectedAssets } from "./assetSelection";
+import { readImportSettings, writeImportSettings } from "./assetImport";
 import { assetClipboard, copyAssets, duplicateAssets, moveAssetsTo, pasteAssets, renameAsset, renameSliceReferences } from "./assetOps";
 import { OrbitCamera } from "./OrbitCamera";
 import { askBeforeDeletingAssets } from "./preferences";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { replaceScripts } from "./scriptLoader";
-import { currentProject, openScene, sceneCamera, select } from "./state";
+import { currentProject, openScene, sceneCamera } from "./state";
 import { MemoryFileSystem, ROOT, demoFolder, useCoreAssetKinds } from "./testing";
+import { showSceneSettings } from "./inspectorTarget";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
@@ -55,8 +55,7 @@ beforeEach(async () => {
 afterEach(async () => {
   askBeforeDeletingAssets.value = true;
   assetClipboard.value = null;
-  selectedAssets.value = [];
-  select([]);
+  showSceneSettings(); // clears every selection
   await replaceScripts(new Map());
 });
 
@@ -93,23 +92,6 @@ describe("the Assets panel's view of sidecars and slices", () => {
     expect(entry.name).toBe("Walk_left"); // capitalized, like nodes from file names
     expect(entry.id).toBe("walk-left");
     expect(entry.components![1]).toEqual({ type: "engine.SpriteRenderer", data: { sprite: "asset:images/PipeUp.png#walk_left" } });
-  });
-
-  it("inspects one selected image or audio file (a slice shows its image) when no node is selected", () => {
-    selectedAssets.value = ["images/PipeUp.png#a"];
-    expect(inspectedAsset.value).toBe("images/PipeUp.png");
-    expect(showsAssetInspector()).toBe(true);
-    select(["bg-a"]);
-    expect(showsAssetInspector()).toBe(false);
-    select([]);
-    selectedAssets.value = ["music/town.mp3"];
-    expect(inspectedAsset.value).toBe("music/town.mp3");
-    selectedAssets.value = ["prefabs/slice.prefab.json"];
-    expect(inspectedAsset.value).toBe("prefabs/slice.prefab.json"); // a preview (ADR 0061)
-    selectedAssets.value = ["scenes/main.scene.json"];
-    expect(inspectedAsset.value).toBeNull();
-    selectedAssets.value = ["images/PipeUp.png", "images/PipeDown.png"];
-    expect(inspectedAsset.value).toBeNull();
   });
 });
 

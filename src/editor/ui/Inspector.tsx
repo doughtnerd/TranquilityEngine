@@ -34,44 +34,49 @@ import {
 import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
-import { showsAssetInspector } from "../assetImport";
+import { inspectorTarget } from "../inspectorTarget";
 import { listedFiles } from "../assetBrowser";
 import { isHiddenField } from "../assetFieldKinds";
 import { AssetLists, FieldRows, MIXED, TextInput } from "./fieldRows";
 import { CreatePrefabButton, MultiPrefabActions, OpenPrefabButton, PrefabActions } from "./PrefabActions";
 import { InspectorSections } from "./inspectorSections";
 import "./inspectorSections.builtin";
-import { liveInspecting } from "../runtimeInspect";
 import { addToPreload, preloadCandidates, removeFromPreload } from "../scenePreload";
 import { RuntimeInspector } from "./RuntimeInspector";
 import { UIElementInspector } from "./UIElementInspector";
 import { openScript, scriptFor } from "../code/codeState";
 import { findInner, isInnerPropertyOverridden, nodePropertyCommand, revertInnerProperty } from "../prefabs";
-import { currentProject, docVersion, openScene, scriptsVersion, selectedKeys, selectedUIElement, status, type OpenScene } from "../state";
+import { currentProject, docVersion, openScene, scriptsVersion, status, type OpenScene } from "../state";
 import { componentHeaderActions, type ComponentHeaderActionContribution } from "../sdk/contributions";
+
+/**
+ * What the Inspector shows (ADR 0162, `inspectorTarget`): a live World's node while playing, an
+ * asset, a UI document element, the selected nodes or the open scene's settings.
+ */
+export function Inspector() {
+  const target = inspectorTarget.value;
+  switch (target.kind) {
+    case "live": return <RuntimeInspector />; // a live World of the running game (ADR 0022, 0124)
+    case "asset": return <AssetInspector path={target.path} />; // a file selected in the Assets panel (ADR 0040, 0143)
+    case "uiElement": return <UIElementInspector />; // an element of a UI document (ADR 0077)
+    case "nodes":
+      return target.paths.length > 1 ? <MultiInspector scene={target.scene} paths={[...target.paths]} /> : <NodeInspector scene={target.scene} path={target.paths[0]} />;
+    case "sceneSettings": return <SceneSettings scene={target.scene} />;
+    case "nothing": return <p class="empty">Nothing selected</p>;
+  }
+}
 
 /**
  * The selected node's components with their declared fields and live values (ADR 0022, 0026).
  * Every edit is a command on the open document, so it can be undone. On a prefab instance, or a
  * node inside one, edits become overrides: overridden fields are marked and can be reverted, and
- * the instance's overrides can be applied to the prefab file. With several nodes selected it
- * shows the components they all have; fields that differ show a dash, and an edit sets every
- * selected node in one undo step.
+ * the instance's overrides can be applied to the prefab file. With several nodes selected
+ * (`MultiInspector`) it shows the components they all have; fields that differ show a dash, and
+ * an edit sets every selected node in one undo step.
  */
-export function Inspector() {
-  if (liveInspecting()) return <RuntimeInspector />; // a live World of the running game
-  if (showsAssetInspector()) return <AssetInspector />; // an image or audio file selected in the Assets panel (ADR 0040)
-  if (selectedUIElement.value !== null) return <UIElementInspector />; // an element of a UI document (ADR 0077)
+function NodeInspector(props: { scene: OpenScene; path: NodePath }) {
+  const { scene, path } = props;
   docVersion.value; // re-render when the document changes
-  const scene = openScene.value;
-  if (!scene) return <p class="empty">Nothing selected</p>;
-  // Selected nodes that still exist (an undo may have removed some).
-  const paths = selectedKeys.value
-    .map((k) => k.split("/") as NodePath)
-    .filter((p) => scene.doc.has(p[0]) && (p.length === 1 || findInner(scene.doc, p)));
-  if (paths.length === 0) return <SceneSettings scene={scene} />;
-  if (paths.length > 1) return <MultiInspector scene={scene} paths={paths} />;
-  const path = paths[0];
   const inner = path.length > 1 ? findInner(scene.doc, path) : null;
 
   const id = path[0];

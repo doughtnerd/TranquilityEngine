@@ -5,8 +5,9 @@ import { gizmoOptions } from "./gizmo";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { DEFAULT_SNAP, cleanSnap, gizmoPivot, gizmoSpace, sceneToolShortcut, snapActive, snapSettings, snapTo, updateSnap } from "./sceneTools";
-import { openScene, sceneCamera, select, snapping, viewMode } from "./state";
+import { openScene, sceneCamera, snapping, viewMode } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
+import { select } from "./inspectorTarget";
 
 const box = (x0: number, x1: number, y0 = 0, y1 = 0): Box => ({ min: [x0, y0, 0], max: [x1, y1, 0] });
 
