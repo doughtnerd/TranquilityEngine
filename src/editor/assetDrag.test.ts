@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { SceneInstance } from "../engine/scene/SceneLoader";
-import { addAsset, whyNotAddable } from "./assetBrowser";
+import { addAssets } from "./addAssets";
+import { whyNotAddable } from "./assetNodes";
 import { dropDescription, hierarchyDrop } from "./assetDrag";
 import { OrbitCamera } from "./OrbitCamera";
 import { innerNodes } from "./prefabs";
@@ -43,11 +44,11 @@ describe("hierarchy drop targets", () => {
     expect(hierarchyDrop(doc, "gone", 0.5)).toBeNull();
   });
 
-  it("drops at the chosen place, as one undoable step", () => {
+  it("drops at the chosen place, as one undoable step", async () => {
     const scene = openScene.value!;
     const target = hierarchyDrop(scene.doc, "ceiling", 0.1)!;
     if (target.kind !== "hierarchy") throw new Error("expected a hierarchy target");
-    const id = addAsset(scene, "music/foo.mp3", { parent: target.parent, index: target.index });
+    const id = (await addAssets(["music/foo.mp3"], { kind: "slot", parent: target.parent, index: target.index })).ids[0]!;
     const roots = scene.doc.roots();
     expect(roots[roots.indexOf("ceiling") - 1]).toBe(id);
     expect(scene.doc.node(id).components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.AudioSource"]);
@@ -65,11 +66,11 @@ describe("hierarchy drop targets", () => {
 });
 
 describe("dropping a scene into another scene (ADR 0016)", () => {
-  it("adds a scene node holding the scene's top-level nodes", () => {
+  it("adds a scene node holding the scene's top-level nodes", async () => {
     openSceneFile(engine, "prefabs/pipe-pair.prefab.json");
     const scene = openScene.value!;
     expect(whyNotAddable(scene.doc, "scenes/main.scene.json")).toBeNull();
-    const id = addAsset(scene, "scenes/main.scene.json", { parent: null, position: [0, 20, 0], placeInstances: true });
+    const id = (await addAssets(["scenes/main.scene.json"], { kind: "point", position: [0, 20, 0] })).ids[0]!;
 
     const node = scene.sync.nodeFor(id)!;
     expect(node.isSceneNode).toBe(true);

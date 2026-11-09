@@ -1,7 +1,9 @@
 // The Assets panel's state: the folder showing (with Back/Forward history), the selection of
-// files and folders, and how clicks, box selection and arrow keys change it. Entries are project
-// paths, folders ending in "/" (assetDelete.ts). The logic is pure; ui/Assets.tsx renders it.
+// files and folders, and how clicks, box selection and arrow keys change it. Entries are Assets panel
+// entries (assetEntry.ts). The logic is pure; ui/Assets.tsx renders it, and assetActions.ts runs the
+// panel's commands on it (ADR 0157).
 import { signal } from "@preact/signals";
+import { entryFolder } from "./assetEntry";
 
 /** The folder showing (project-relative, "" = the root). */
 export const folderPath = signal("");
@@ -57,10 +59,7 @@ function show(path: string): void {
   historyVersion.value++;
 }
 
-const isIn = (entry: string, folder: string) => {
-  const p = entry.endsWith("/") ? entry.slice(0, -1) : entry;
-  return (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "") === folder;
-};
+const isIn = (entry: string, folder: string) => entryFolder(entry) === folder;
 
 /** Forget history and selection (another project opened). */
 export function resetAssetBrowser(): void {
@@ -134,4 +133,24 @@ export function moveCursor(items: readonly string[], cursor: string | null, key:
     case "End": return items.at(-1)!;
     default: return null;
   }
+}
+
+/**
+ * The selection after an arrow key (or Home/End) among `items` laid out `columns` wide: the cursor
+ * moves (`moveCursor`) and selects that entry alone, or with Shift the range from the anchor to it.
+ * Null for keys that don't move the cursor. `focus` is the new cursor.
+ */
+export function arrowSelection(
+  items: readonly string[],
+  cursor: string | null,
+  anchor: string | null,
+  key: string,
+  columns: number,
+  shift: boolean,
+): { selected: string[]; focus: string; anchor: string } | null {
+  const next = moveCursor(items, cursor, key, columns);
+  if (next === null) return null;
+  if (!shift || !anchor) return { selected: [next], focus: next, anchor: next };
+  const range = clickSelection(items, [], anchor, next, { shift: true, toggle: false });
+  return { selected: range.selected, focus: next, anchor: range.anchor };
 }

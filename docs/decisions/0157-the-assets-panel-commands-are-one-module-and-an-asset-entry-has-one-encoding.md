@@ -22,14 +22,14 @@ The enable rules and the Shift+arrow range logic lived in the component, testabl
 We will put the panel's commands in one module, `src/editor/assetActions.ts`, modelled on `hierarchyActions.ts`, and let the context menu, the keys and the menu bar only map gestures onto it.
 
 - **Commands.** `AssetCommandId` is `open | rename | duplicate | copy | cut | paste | delete`. A command acts on an `AssetTarget` `{ project, entries }` (the entries right-clicked, or the panel's listed selection, `panelTarget()`).
-  - `whyNotAsset(id, target)` is the one rule: the reason it can't run, or null. It uses the same checks the operation does: Delete `whyNotDeletable` (exported from `assetDelete.ts`, the check `deleteAssets` makes), Rename and Cut `whyNotMovable` (exported from `assetOps.ts`, the check `moveAssets` makes, open tabs and unsaved scripts included), Paste `whyNotPaste` (read-only, nothing copied, and for a cut `whyNotMoveTarget` plus `whyNotMovable`; for a copy, a folder into itself).
+  - `whyNotAsset(id, target)` is the one rule: the reason it can't run, or null. It uses the same checks the operation does: Delete `whyNotDeletable` (exported from `assetDelete.ts`, the check `deleteAssets` makes), Rename and Cut `whyNotMovable` (exported from `assetOps.ts`, the check `moveAssets` makes, open tabs and unsaved scripts included), Paste `whyNotPaste` (new in `assetOps.ts`, now also checked by `pasteAssets`: read-only, nothing copied, and for a cut `whyNotMoveTarget` plus `whyNotMovable`; for a copy, a folder into itself).
   - `runAsset(id, target)` checks the rule (a refusal goes to the status bar as `Can't <verb>: <reason>.`), runs, and selects what it made.
   - `assetCommandLabel(id, target)` names it (Open, or Sprite Editor… for an image or slices) and `assetShortcut(id)` gives its key; `assetKeyCommand(event)` maps a key press to a command, so the menu's shortcut labels and the keys agree by construction (tested).
   - `assetCreateItems(target)`: New Folder, each kind's `create` (ADR 0149) and New Script…, with the read-only rule and selection of the result. `assetPluginItems(target)`: the plugin asset actions (ADR 0146), unchanged in contract, after Open.
   - Slices are listed but aren't files: Open and plugin actions take them; the file commands act on the selection's files and are unavailable for slices alone.
 - **The Assets panel** builds its context menu from these (layout and separators stay in `Assets.tsx`), its keyboard handler maps keys with `assetKeyCommand` and calls `runAsset` (a mapped key is always consumed in the panel, so a refused Delete no longer falls through to the editor's delete-node shortcut), and the Delete button uses `whyNotAsset("delete", …)`. Shift+arrow selection is `arrowSelection` in `assetSelection.ts`, pure and unit-tested. What the panel lists (`listedEntries`, the expanded images) moves to `assetActions.ts`, since `panelTarget()` needs it.
 - **The menu bar** (`menuBar.ts`): with the panel focused, `MenuState.assets` carries `whyNotAsset` for Cut, Copy, Paste, Duplicate and Delete, so Edit's items show the same reasons; `MenuBar.tsx` runs them with `runAsset` instead of synthesising key presses.
-- **One entry encoding.** `src/editor/assetEntry.ts` is the only place that knows the encoding: `folderEntry`, `sliceEntry`, `isFolderEntry`, `isSliceEntry`, `splitSliceEntry`, `entryPath`, `entryName`, `entryKind`, `fileEntries`. Every editor caller imports from it.
+- **One entry encoding.** `src/editor/assetEntry.ts` is the only place that knows the encoding: `folderEntry`, `sliceEntry`, `isFolderEntry`, `isSliceEntry`, `splitSliceEntry`, `entryPath`, `entryName`, `entryKind`, `entryFolder`, `fileEntries`. Every editor caller imports from it (`assetSelection.ts`, `addAssets.ts`, `assetOps.ts`, `assetDelete.ts`, `assetDrag.ts`, `assetImport.ts`).
 - **Node builders beside `addAssets`.** `parentForAdd`, `prefabInstanceEntry`, `spriteNodeEntry`, `audioNodeEntry`, `idBase`, `uniqueId`, `prepareAssets`, `whyNotAddable`, `nodeForAsset`, `addAssetEntries` move from `assetBrowser.ts` to `src/editor/assetNodes.ts`. `addAsset` is deleted; tests add through `addAssets`. `assetBrowser.ts` keeps the folder tree, search and path helpers.
 
 ## Alternatives considered
@@ -46,6 +46,7 @@ We will put the panel's commands in one module, `src/editor/assetActions.ts`, mo
 - One place decodes entries.
 
 **Negative / costs**
+- Pasting a copied folder into itself is now refused up front ("Can't paste here: … can't go inside itself.") instead of failing part-way as an error.
 - Keys that do nothing in the panel now say why in the status bar (Ctrl+V with nothing copied: "Can't paste: nothing copied."), where before they were silent.
 - `assetActions.ts` reads editor signals (selection, clipboard, open scenes), like `hierarchyActions.ts`; its tests set them.
 

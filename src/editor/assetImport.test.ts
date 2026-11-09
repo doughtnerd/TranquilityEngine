@@ -3,7 +3,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { parseImportSettings } from "../engine/scene/importSettings";
-import { assetKind, isSliceEntry, listedFiles, nodeForAsset, splitSliceEntry } from "./assetBrowser";
+import { assetKind, listedFiles } from "./assetBrowser";
+import { isSliceEntry, splitSliceEntry } from "./assetEntry";
+import { nodeForAsset } from "./assetNodes";
 import { deleteAssets } from "./assetDelete";
 import { assetUsers } from "./assetReferences";
 import { inspectedAsset, readImportSettings, showsAssetInspector, writeImportSettings } from "./assetImport";

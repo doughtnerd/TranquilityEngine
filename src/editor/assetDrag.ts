@@ -8,7 +8,7 @@ import { viewport } from "../engine/editor";
 import type { SceneDocument } from "./document";
 import { addAssets, whyNotAddAssets, type AssetAddTarget } from "./addAssets";
 import { fileName } from "./assetBrowser";
-import { entryPath } from "./assetDelete";
+import { entryPath } from "./assetEntry";
 import { moveAssetsTo, whyNotMoveTarget } from "./assetOps";
 import { currentProject, openScene, playState, sceneCamera, selectedKeys, status, viewMode } from "./state";
 

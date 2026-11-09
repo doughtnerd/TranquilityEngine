@@ -35,6 +35,15 @@ export interface HistoryInfo {
   canRedo: boolean;
 }
 
+/** Why each of Edit's clipboard items can't act on the Assets panel's selection, or null when it can. */
+export interface AssetClipboardReasons {
+  cut: string | null;
+  copy: string | null;
+  paste: string | null;
+  duplicate: string | null;
+  delete: string | null;
+}
+
 /** What the menus depend on, read from the editor's state. */
 export interface MenuState {
   project: { name: string; canSave: boolean; hasRoot: boolean } | null;
@@ -56,9 +65,10 @@ export interface MenuState {
   hasSelection: boolean;
   /**
    * What Edit's clipboard items act on: the Assets panel's files when it had the focus before the
-   * menu opened (as Ctrl+C/X/V/D/Delete do there), otherwise the Hierarchy's nodes.
+   * menu opened (as Ctrl+C/X/V/D/Delete do there), with why each command can't act on its selection
+   * (the Assets command module's rule, ADR 0157); null: the Hierarchy's nodes.
    */
-  clipboard: "nodes" | "assets";
+  assets: AssetClipboardReasons | null;
   /** The Hierarchy's Create items for the open scene (parent and position logic included). */
   createItems: readonly MenuEntry[];
 }
@@ -149,15 +159,17 @@ function editMenu(s: MenuState, a: MenuActions): Menu {
 
 /** Cut, Copy, Paste, Duplicate and Delete, for the Hierarchy's nodes or the Assets panel's files. */
 function clipboardItems(s: MenuState, a: MenuActions): MenuEntry[] {
-  const keys: [string, string, () => void][] = [
-    ["Cut", "Ctrl+X", a.cut],
-    ["Copy", "Ctrl+C", a.copy],
-    ["Paste", "Ctrl+V", a.paste],
-    ["Duplicate", "Ctrl+D", a.duplicate],
-    ["Delete", "Del", a.remove],
-  ];
-  // The Assets panel checks its own selection and project, as its shortcuts do.
-  if (s.clipboard === "assets") return keys.map(([label, shortcut, run]) => ({ label, shortcut, run, title: `${label} the selected assets` }));
+  if (s.assets) {
+    const why = s.assets;
+    const keys: [string, string, string | null, () => void][] = [
+      ["Cut", "Ctrl+X", why.cut, a.cut],
+      ["Copy", "Ctrl+C", why.copy, a.copy],
+      ["Paste", "Ctrl+V", why.paste, a.paste],
+      ["Duplicate", "Ctrl+D", why.duplicate, a.duplicate],
+      ["Delete", "Del", why.delete, a.remove],
+    ];
+    return keys.map(([label, shortcut, disabled, run]) => ({ label, shortcut, disabled, run, title: `${label} the selected assets` }));
+  }
   const editing = !s.scene ? NO_SCENE : s.playing ? STOP_PLAYING : null;
   const selected = s.hasSelection ? null : NOTHING_SELECTED;
   const inner = s.selectionInPrefab ? "nodes inside a prefab are edited in the prefab" : null;

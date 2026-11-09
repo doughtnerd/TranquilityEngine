@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, type BootstrapSetting, type ProjectSettingsInput } from "../engine";
 import { World } from "../engine/core/World";
 import { engineWorld, listComponents, listNodes, writeField } from "../engine/editor";
-import { addAsset } from "./assetBrowser";
+import { addAssets } from "./addAssets";
 import { RemoveNode, SetField } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";
@@ -59,7 +59,7 @@ afterEach(async () => {
 describe("mapping live nodes to the edited document", () => {
   it("maps scene nodes by id, and nodes inside a placed prefab instance as [instance, inner…]", async () => {
     const scene = openScene.value!;
-    const pipes = addAsset(scene, "prefabs/pipe-pair.prefab.json");
+    const pipes = (await addAssets(["prefabs/pipe-pair.prefab.json"], { kind: "selection", selected: null, position: [0, 0, 0] })).ids[0]!;
     play = await startPlay({ editor, scene, project: sample });
     const engine = play.engine;
     expect(docPathFor(live(engine, "Bird"), SCENE, scene.doc)).toEqual({ path: ["bird"] });

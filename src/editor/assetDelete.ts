@@ -5,6 +5,7 @@
 // files on disk are rewritten, and the open scene is edited as one undo step (save to keep it).
 // Scripts can't be cleaned automatically and are listed as still referring to it.
 import { fileName } from "./assetBrowser";
+import { entryPath, isFolderEntry } from "./assetEntry";
 import { closeScript, openScripts } from "./code/codeState";
 import { assetUsers, removeReferences } from "./assetReferences";
 import { assetDocumentsDeleted } from "./assetDocuments";
@@ -40,11 +41,6 @@ export function whyNotDeletableAsset(project: EditorProject, path: string, openP
   return null;
 }
 
-/** Folder entries in an asset selection end in "/" (`images/`); files don't. */
-export const isFolderEntry = (entry: string) => entry.endsWith("/");
-/** The project path of a selection entry: `images/` → `images`. */
-export const entryPath = (entry: string) => (isFolderEntry(entry) ? entry.slice(0, -1) : entry);
-
 /** The files (assets and scripts) in `folder`, at any depth. */
 export function filesIn(project: EditorProject, folder: string): string[] {
   return [...project.files, ...project.scripts.keys()].filter((f) => isWithin(f, folder));
@@ -60,6 +56,22 @@ export function whyNotDeletableFolder(project: EditorProject, path: string, open
   if (tab) return `it holds a scene open in another tab (${tab}); close that tab first`;
   if (playState.peek() !== "edit") return "stop playing first";
   if (!project.folders.includes(path)) return "it's gone already";
+  return null;
+}
+
+/**
+ * Why the file and folder entries can't be deleted right now, or null if they can: the one rule
+ * `deleteAssets` and the Assets panel's Delete use (ADR 0157). Every open scene tab is protected.
+ * With several entries, the reason names the one refused.
+ */
+export function whyNotDeletable(project: EditorProject, entries: readonly string[]): string | null {
+  if (entries.length === 0) return "select something first";
+  const open = openScenePaths();
+  for (const entry of entries) {
+    const path = entryPath(entry);
+    const reason = isFolderEntry(entry) ? whyNotDeletableFolder(project, path, open) : whyNotDeletableAsset(project, path, open);
+    if (reason) return entries.length === 1 ? reason : `${fileName(path)}: ${reason}`;
+  }
   return null;
 }
 
@@ -81,14 +93,11 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
   const project = currentProject.value;
   if (!project || entries.length === 0) return false;
   const scene = openScene.value;
-  const why = (entry: string) =>
-    isFolderEntry(entry) ? whyNotDeletableFolder(project, entryPath(entry), openScenePaths()) : whyNotDeletableAsset(project, entry, openScenePaths());
-  for (const entry of entries) {
-    const reason = why(entry);
-    if (reason) {
-      status.value = { kind: "info", text: `Can't delete ${fileName(entryPath(entry))}: ${reason}.` };
-      return false;
-    }
+  const name = entries.length === 1 ? fileName(entryPath(entries[0])) : `${entries.length} items`;
+  const refused = whyNotDeletable(project, entries);
+  if (refused) {
+    status.value = { kind: "info", text: `Can't delete ${name}: ${refused}.` };
+    return false;
   }
   // Folders take their contents with them; a file inside a deleted folder needn't be deleted again.
   const folders = entries.filter(isFolderEntry).map(entryPath);
@@ -96,7 +105,6 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
   const deleting = new Set([...loose, ...folders.flatMap((f) => filesIn(project, f))]);
   const open = scene && scene.stack.dirty ? { path: scene.path, text: JSON.stringify(scene.doc.toJSON()) } : null;
   const users = [...new Set([...deleting].flatMap((path) => assetUsers(project, path, open)))].filter((u) => !deleting.has(u));
-  const name = entries.length === 1 ? fileName(entryPath(entries[0])) : `${entries.length} items`;
   if (askBeforeDeletingAssets.value) {
     const contents = folders.length > 0 ? ` ${deleting.size === 1 ? "1 file" : `${deleting.size} files`} in all.` : "";
     const answer = await confirmInEditor({
@@ -113,7 +121,7 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
     if (answer.option) askBeforeDeletingAssets.value = false;
   }
   // Things may have changed while the dialog was open.
-  if (currentProject.value !== project || entries.some((e) => why(e))) return false;
+  if (currentProject.value !== project || whyNotDeletable(project, entries)) return false;
   const hadScript = [...deleting].some((p) => project.scripts.has(p));
   try {
     for (const folder of folders) await project.deleteFolder(folder);
