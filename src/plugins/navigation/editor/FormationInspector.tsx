@@ -123,7 +123,7 @@ export function NavFormationInspector(props: { path: string }) {
         ) : (
           <>
             <FormationSize formation={formation} readOnly={readOnly} onResize={(w, h) => apply(resizeFormation(formation, w, h))} />
-            <FormationGrid formation={formation} readOnly={readOnly} showOrder={showOrder} apply={apply} />
+            <FormationGrid formation={formation} readOnly={readOnly} showOrder={showOrder} apply={apply} endStroke={() => void doc.flush()} />
             <div class="nav-formation-row">
               <span aria-label="Slot count">{formationSlotCount(formation)} slots</span>
               <label class="nav-formation-check">
@@ -168,7 +168,7 @@ function FormationSize(props: { formation: NavFormationAsset; readOnly: boolean;
 }
 
 /** The paintable grid (row 0, the front, on top). */
-function FormationGrid(props: { formation: NavFormationAsset; readOnly: boolean; showOrder: boolean; apply: (next: NavFormationAsset, coalesce?: boolean) => void }) {
+function FormationGrid(props: { formation: NavFormationAsset; readOnly: boolean; showOrder: boolean; apply: (next: NavFormationAsset, coalesce?: boolean) => void; endStroke: () => void }) {
   const { formation: f } = props;
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -193,6 +193,12 @@ function FormationGrid(props: { formation: NavFormationAsset; readOnly: boolean;
   const cellAt = (e: PointerEvent): [number, number] => {
     const r = canvas.current!.getBoundingClientRect();
     return [Math.floor((e.clientX - r.left) / cell), Math.floor((e.clientY - r.top) / cell)];
+  };
+  /** A stroke ends at the button's release: its cells are one undo step even when the next stroke starts within the write delay. */
+  const endStroke = () => {
+    if (!paint.current) return;
+    paint.current = null;
+    props.endStroke();
   };
   const paintAt = (e: PointerEvent) => {
     const p = paint.current;
@@ -223,8 +229,8 @@ function FormationGrid(props: { formation: NavFormationAsset; readOnly: boolean;
           paintAt(e);
         }}
         onPointerMove={(e) => paint.current && paintAt(e)}
-        onPointerUp={() => (paint.current = null)}
-        onPointerCancel={() => (paint.current = null)}
+        onPointerUp={() => endStroke()}
+        onPointerCancel={() => endStroke()}
       />
     </div>
   );
