@@ -125,3 +125,33 @@ Two Opus leads. A1.2 had four Haiku leaves (L1 `resample.rs`, L2 `ramp.rs`, L3 `
 - Follow-ups noted on #66 (A1.4): `readStatus` allocates a new block per message, and bus limits must be reset after a remap.
 
 **Reserve used:** none.
+
+## MS2 wave 2 (A1.3b, A1.3a, A1.4, A1.5, A1.7) and H1 started
+
+Contracts K4 (`hostClock.ts`, the loopback host's signature in `testing.ts`) and K9 (the `clipRegistry.ts` interface) were committed first (`6ee93eb`). Leads: A1.3b Opus with one leaf (size classes); A1.3a Sonnet with two (pcm and chunker, the encoded cache); A1.4 Sonnet with one (the clock map); A1.7 Sonnet with three (the backend and spatial test rewrites, the loopback cases). A1.5 ran as one Haiku worker. H1 (MS6) started in parallel as the plan advises (Opus, three leaves), because the longest dependency chain runs through HRTF. No merge conflicts.
+
+**Landed**
+- A1.3b (#64): a size-class slab arena (4 classes per power of two from 4 KB, a free list per class, growth only in `clip_reserve`), the `ClipStore` body behind A1.2's K11 API, the clip ABI (`clip_reserve`, `chunk_ptr`, `commit`, `free`), clip events flushed into STATUS (resident, refusedGrow, refusedCeiling), arena counters, and RESET (clears voices and pending records, and clips unless `keepClips`). **Gap found and assigned to A1.3b:** the plan gave nobody the worklet shell's routing of CLIP_BEGIN, CLIP_CHUNK and CLIP_UNLOAD to the clip ABI. A1.3b added it to `coreDriver.ts` (sized from frames, never `bodyBytes`; 256 KB per quantum; views re-created after growth).
+- A1.3a (#65): the clip registry (state machine, ids with an 8-bit generation that never reach the reserved HRIR range, refcounts and holders, unload deferred one frame), `decodeAudioData` on main, int16 conversion, paced CLIP_CHUNKs, the 32 MB encoded-bytes cache, and an optional `nextSeq` dep so the registry shares the port's envelope counter.
+- A1.4 (#66): the command writer (pooled 64 KB BATCHes, carry-over, the overflow flag), a status reader into one preallocated block, `coreBackend` (plays, stops, fades, pitch, buses, pause through the voice table; clips through the registry; `onBusRemap` sends BUS_CONFIG and resets bus limits; BUS_MIX, MASTER; RESET 0 once nothing is live; spatial gains from A1.5's `spatial.ts`; `at` stamped on its frame), the clock map v1, the `debug.ts` stub (K10), and `service.ts` registering the core backend once the host starts.
+- A1.5 (#67): ports of Blink's `distance_effect` and `cone_effect` to `spatial.ts`, plus a listener-space direction helper (55 tests, hand-derived values).
+- A1.7 (#68): the browser and fake `HostClock`, `makeFakeBackend()`, `createLoopbackHost` on the real wasm in Node, and `audioBackend`/`spatialAudio` tests rewritten onto the fake (the Howler mock is gone).
+
+**MS2's acceptance check passes:** in the loopback (`coreBackend.test.ts`), a WAV plays through the real wasm, registry, shell and `coreBackend`, and its end reaches `playing = false`. `audioLoopback.test.ts` runs a 440 Hz clip through raw records, ends reach STATUS, and status buffers return at once (no starvation idle, at 20 Hz or hidden).
+
+**Numbers:** mixer wasm 63,333 B (61.8 KB) against the 150 KB gate; source hash `57f30108…`. `cargo test` 156 passed. Audio tests 320 passed (4 skipped: A1.7's coreBackend-shaped loopback cases, now covered by the coreBackend loopback test and left for A3.4a's REPLAY and B3b's seek). `npm test` at the baseline (timeouts pass alone). `npm run build` green.
+
+**Integration fixes at the merge**
+- A1.7's L2 found the fake backend's `setListener` copying engine `Vector3`s with a spread, which drops their getters. A1.7 copies x/y/z explicitly now.
+- A1.7's `testing.ts` imported `node:fs/promises`, which broke `tsc -p tsconfig.engine.json` in `npm run build` but not `npm run typecheck`. It's now a variable specifier. **Lesson (again):** run `npm run build`, not only typecheck.
+- `audioLoopback.test.ts` used voice id 7 (generation 0, invalid), so the core rightly dropped the PLAY. It now uses `0x0001_0007`.
+- `coreBackend.test.ts`'s WAV check expected equal-power centring for a flat voice. A non-spatial mono voice plays at full level on both channels (A1.2's goldens, Web Audio's upmix); corrected.
+
+**Deviations**
+- Clip-memory ceiling: no new ABI export. The wasm Memory's `maximum` encodes it, the main-side registry checks it first, and a full arena reports refusedGrow.
+- The arena's list heads live in the `Arena` struct (80 classes); the layout's 32 head slots are unused (noted in layout.rs).
+- The status decoder makes `link.lastStatus` a reused block; listeners must copy what they keep.
+- H1 notes for later tasks: no fft/2 convolver latency (H4 aligns its null tests by 256 frames, #90); the format = 2 layout for H2's converter (#88); the panner is sized by partition count (about 19 KB at 48 kHz, about 31 KB at 4 partitions), so 16 voices take about 300 KB at 48 kHz, more than architecture §5.1's 140 KB. To reconcile at A3.5.
+- `npm ci` reports 2 audit findings (1 critical) in the existing dependency tree; not introduced here. To look at before MS2 reaches master.
+
+**Reserve used:** none.
