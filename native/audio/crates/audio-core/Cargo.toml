@@ -1,0 +1,10 @@
+[package]
+name = "audio-core"
+description = "The mixer of Myco's audio core (ADR 0157): voices, buses, arena, scheduler, status. No I/O, no globals."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+audio-dsp.workspace = true

@@ -1,0 +1,37 @@
+# Myco's audio core (ADR 0157): a Rust mixer compiled to WebAssembly and run in an AudioWorklet.
+# Design: docs/design/0157-audio-core/api-and-models.md §5. Built by `npm run build:audio`
+# (native/audio/build.mjs) into src/plugins/audio/runtime/wasm/, which is committed.
+#
+# Crates: audio-wire (the wire schema, its generator and vectors) -> audio-dsp (DSP kernels and the
+# Chromium ports) -> audio-core (the mixer: no I/O, no globals) -> audio-wasm (the C ABI cdylib).
+# `crates/*` picks up audio-wire as soon as its directory exists. Its Cargo.toml is self-contained:
+# it doesn't inherit from [workspace.package] or [workspace.dependencies].
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[workspace.dependencies]
+audio-dsp = { path = "crates/audio-dsp" }
+audio-core = { path = "crates/audio-core" }
+# Real FFTs of 256 and 4,096 points and the complex 4,096 inverse (convolver, HRTF).
+microfft = { version = "0.6", default-features = false, features = ["size-4096"] }
+# Transcendentals, so native and wasm results are bit-identical.
+libm = "0.2"
+# audio-wasm's build script only: the source hash.
+sha2 = { version = "0.10", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+
+[profile.dev]
+panic = "abort"
