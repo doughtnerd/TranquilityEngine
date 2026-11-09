@@ -1,6 +1,5 @@
 // api-and-models §8, "Loopback" row: the real wasm with a fake HostClock, through `createLoopbackHost` (testing.ts).
-// Cases that need a clip stay `it.skip` until A1.3b lands clip_reserve, chunk_ptr and commit; the coreBackend cases
-// stay `it.skip` until A1.4 delivers coreBackend.
+// The coreBackend cases stay `it.skip` until A1.4 delivers coreBackend.
 import { describe, expect, it } from "vitest";
 import { createLoopbackHost, LOOPBACK_RATE, type LoopbackHost } from "./testing";
 import {
@@ -18,7 +17,8 @@ import {
 
 const QUANTUM_MS = (QUANTUM_FRAMES / LOOPBACK_RATE) * 1000;
 const CLIP_ID = 1;
-const VOICE_ID = 7;
+/** Index 7, generation 1: ids are `(gen << 16) | index` and generation 0 is invalid (api-and-models §3). */
+const VOICE_ID = 0x0001_0007;
 const CLIP_SECONDS = 0.1;
 const CLIP_FRAMES = Math.round(CLIP_SECONDS * LOOPBACK_RATE); // 4800
 
@@ -86,8 +86,7 @@ function peak(samples: Float32Array): number {
 }
 
 describe("loopback host: raw BATCH records (runs now)", () => {
-  // TODO(A1.3b): un-skip once clip_reserve lands
-  it.skip("a Play record makes a voice play: the render is non-silent and the STATUS block counts the voice", async () => {
+  it("a Play record makes a voice play: the render is non-silent and the STATUS block counts the voice", async () => {
     const host = await createLoopbackHost();
     loadSineClip(host, CLIP_ID);
     host.send(playBatch(host.frame, VOICE_ID, CLIP_ID));
@@ -98,8 +97,7 @@ describe("loopback host: raw BATCH records (runs now)", () => {
     expect(last.mixedVoices).toBeGreaterThanOrEqual(1);
   });
 
-  // TODO(A1.3b): un-skip once clip_reserve lands
-  it.skip("a voice that reaches the end of its clip appears in STATUS ended within 6 quanta, and liveVoices drops to 0", async () => {
+  it("a voice that reaches the end of its clip appears in STATUS ended within 6 quanta, and liveVoices drops to 0", async () => {
     const host = await createLoopbackHost();
     loadSineClip(host, CLIP_ID);
     host.send(playBatch(host.frame, VOICE_ID, CLIP_ID));
