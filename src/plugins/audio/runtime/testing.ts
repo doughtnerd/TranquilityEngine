@@ -84,7 +84,9 @@ export function makeFakeBackend(): FakeBackend {
       return voice;
     },
     setListener(pose) {
-      listeners.push({ position: { ...pose.position }, forward: { ...pose.forward }, up: { ...pose.up } });
+      // Explicit copies: the engine passes Vector3s whose x/y/z are getters, which a spread would miss.
+      const copy = (p: Vec3Like): Vec3Like => ({ x: p.x, y: p.y, z: p.z });
+      listeners.push({ position: copy(pose.position), forward: copy(pose.forward), up: copy(pose.up) });
     },
     applyMix(buses: readonly ResolvedBus[]) {
       void buses;

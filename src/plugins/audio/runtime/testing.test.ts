@@ -1,5 +1,6 @@
 // The K4 helpers themselves: the fake clock, the fake backend and the loopback host's cadence.
 import { describe, expect, it } from "vitest";
+import { Vector3 } from "../../../engine";
 import { fakeHostClock } from "./core/hostClock";
 import { createLoopbackHost, makeFakeBackend } from "./testing";
 
@@ -30,6 +31,18 @@ describe("makeFakeBackend", () => {
     expect(v.playing).toBe(false);
     b.ready = false;
     expect(b.play({ path: "b.wav", url: "b.wav", loop: false, stream: false, bus: "Master" })).toBeNull();
+  });
+});
+
+describe("makeFakeBackend listener", () => {
+  it("copies Vector3 poses (getter-based x/y/z) by value", () => {
+    const b = makeFakeBackend();
+    const position = new Vector3(1, 2, 3);
+    b.setListener({ position, forward: new Vector3(0, 0, -1), up: new Vector3(0, 1, 0) });
+    position.set(9, 9, 9);
+    expect(b.listener!.position).toEqual({ x: 1, y: 2, z: 3 });
+    expect(b.listener!.forward).toEqual({ x: 0, y: 0, z: -1 });
+    expect(b.listener!.up).toEqual({ x: 0, y: 1, z: 0 });
   });
 });
 
