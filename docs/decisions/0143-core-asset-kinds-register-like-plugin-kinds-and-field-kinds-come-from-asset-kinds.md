@@ -1,6 +1,6 @@
 # 0143. Core asset kinds register like plugin kinds; one asset kind module answers every per-kind question; field kinds come from asset kinds
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0134's "built-in entries go away kind by kind" and 0131's closed field-kind vocabulary)

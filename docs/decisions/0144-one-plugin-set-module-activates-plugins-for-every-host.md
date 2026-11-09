@@ -1,6 +1,6 @@
 # 0144. One plugin set module resolves, orders and activates plugins for every host
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0135's and 0139's activation sections)
