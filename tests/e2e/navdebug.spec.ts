@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { installFakeFolders, nextFolder } from "./fakeFolders";
 
 // Navigation debug drawing (ADR 0065): a scene with a NavChunk over a floor is baked with the

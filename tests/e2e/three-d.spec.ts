@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator, type Page, play, test } from "./fixtures";
 import { binarySeed, installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 // 3D in the editor (ADR 0043–0045): importing OBJ and FBX models into a scene, materials and model
@@ -267,8 +267,7 @@ test("sphere and capsule collider handles set the radius and height; lights from
 test("Play drops the playground's crates under 3D physics, and Stop puts them back", async ({ page }) => {
   const errors = trackErrors(page);
   await openPlayground(page, false);
-  await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+  await play(page);
   // The live World in the Hierarchy and Inspector (ADR 0032): Crate 3 starts 6 m up and lands.
   const picker = page.locator(".panel.hierarchy").getByRole("combobox", { name: "Inspect World" });
   const worldName = await page.evaluate(() => (window as unknown as { playEngine: { world: { name: string } } }).playEngine.world.name);

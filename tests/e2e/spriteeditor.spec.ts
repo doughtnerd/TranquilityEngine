@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./fixtures";
 
 // Import settings (ADR 0040): the Asset Inspector, the Sprite Editor, and slices in the Assets
 // panel and the scene, on a writable in-memory copy of the Flappy sample.

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { menu } from "./menus";
 
 // The Flappy sample (ADR 0031): listed on the start screen, opened from the files served beside the

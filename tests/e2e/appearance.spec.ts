@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { menu } from "./menus";
 
 // Appearance settings (theme presets, colour overrides, fonts) and branding (src/editor/theme.ts,

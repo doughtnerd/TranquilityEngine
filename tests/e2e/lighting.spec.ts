@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { installFakeFolders, nextFolder } from "./fakeFolders";
 
 // HDR environments and cascaded shadows (ADR 0053): an Environment component with an .hdr map

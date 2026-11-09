@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Reflection probes (ADR 0054), camera viewports with effects on every camera and in the editor's
 // camera inset (ADR 0056), on the read-only 3D Playground.

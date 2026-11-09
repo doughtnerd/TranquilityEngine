@@ -1,6 +1,6 @@
 // Tilemaps in the editor (ADR 0103): the platformer sample's level draws, the Tile Palette shows its
 // tileset, and painting in the scene view is one undoable step.
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { menu, openMenu } from "./menus";
 
 const EDITOR = "/editor.html?sample=platformer";

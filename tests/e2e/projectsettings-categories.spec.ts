@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { showTab } from "./tabs";
 
 // The Project panel's settings as a category list (left) with the selected category's settings

@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, requireWebGPU, test, type Locator, type Page } from "./fixtures";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 // Shader sub-graphs, custom functions, node previews, copy and paste, groups, notes and the
@@ -25,14 +25,6 @@ type Renderer = { node: { name: string }; setMaterialProperty(name: string, valu
 type Hooks = {
   engine?: { world: { time: { frameCount: number }; render: { renderer: { meshes: { meshRenderers: Map<Renderer, { meshes: { material: { unlit: boolean; uniqueId: number } | null }[] }> } } | null } } };
 };
-
-/** Shader graphs compile to WGSL alone (ADR 0081): on the WebGL2 fallback (software GL) they draw plain PBR. */
-async function requireWebGPU(page: Page): Promise<void> {
-  // The renderer starts asynchronously, possibly after the World's first frames.
-  await page.waitForFunction(() => !!(window as unknown as { engine?: { world: { render: { renderer: unknown } } } }).engine?.world.render.renderer);
-  const webgpu = await page.evaluate(() => (window as unknown as { engine: { world: { render: { renderer: { engine: { isWebGPU: boolean } } } } } }).engine.world.render.renderer.engine.isWebGPU);
-  test.skip(!webgpu, "shader graphs need WebGPU; the WebGL2 fallback draws plain PBR (ADR 0081)");
-}
 
 function trackErrors(page: Page, allow: RegExp[] = []): string[] {
   const errors: string[] = [];
@@ -74,12 +66,12 @@ const meshMaterial = (page: Page, name: string) =>
     return null;
   }, name);
 
-test("sub-graphs rebuild the materials using them; custom functions, copy and paste, groups, notes and previews save to the file", async ({ page, browserName }) => {
+test("sub-graphs rebuild the materials using them; custom functions, copy and paste, groups, notes and previews save to the file", async ({ page, browserName, webgpu }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
+  requireWebGPU(webgpu);
   // The broken custom function below is meant to fail in WGSL; Babylon only warns about that.
   const errors = trackErrors(page);
   await openPlayground(page, true);
-  await requireWebGPU(page);
 
   // The Ground draws with the water graph, which uses shaders/ripple.shadersubgraph.json.
   await row(page, "Ground").click();

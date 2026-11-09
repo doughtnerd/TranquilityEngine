@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, play, test } from "./fixtures";
 import { closeMenus, undoItem } from "./menus";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
@@ -138,8 +138,7 @@ test("Play runs the scene in a game view, Stop returns to the unchanged editor",
   await expect(page.getByRole("textbox", { name: "position y" })).toHaveValue("1");
 
   // The exact name: the Inspector's tag chips (e.g. "Remove tag Player") would match /Play/ too.
-  await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+  await play(page);
   const game = page.locator("#game-view canvas");
   await expect(game).toBeVisible();
   await expect(page.locator(".status-bar")).toContainText("Playing scenes/main.scene.json");

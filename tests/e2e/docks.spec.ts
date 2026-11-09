@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./fixtures";
 
 // Collapsing docks to their edge, and tabs that don't fit a header going behind "» N" (the
 // editor UX pass, docs/plans/2026-11-editor-ux-pass.md items 2 and 3).

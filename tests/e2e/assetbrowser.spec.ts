@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./fixtures";
 import { closeMenus, undoItem } from "./menus";
 
 // The Assets panel as a file browser, on a writable in-memory copy of the demo project.

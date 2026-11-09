@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { menu } from "./menus";
 
 // Game builds (ADR 0041): `npm run export` turns a sample into a static web build, served here by
@@ -72,7 +72,7 @@ const findScript = (page: Page, id: string, field: string) =>
     [id, field],
   );
 
-test.describe("Flappy web build", () => {
+test.describe("Flappy web build", { tag: "@slow" }, () => {
   let served: Served | undefined;
   test.beforeAll(async () => {
     served = await exportAndServe("flappy");
@@ -103,7 +103,7 @@ test.describe("Flappy web build", () => {
   });
 });
 
-test("the editor's Export… dialog: the player ships beside the editor; a browser editor without folder access explains, and shows the desktop command", async ({ page, browserName }) => {
+test("the editor's Export… dialog: the player ships beside the editor; a browser editor without folder access explains, and shows the desktop command", { tag: "@slow" }, async ({ page, browserName }) => {
   const errors = trackErrors(page);
   await page.goto("/editor.html?sample=flappy"); // relative to baseURL (E2E_PORT)
   await expect(page.locator(".project-name")).toHaveText("Flappy Bird (sample, read-only)");
@@ -128,7 +128,7 @@ test("the editor's Export… dialog: the player ships beside the editor; a brows
   expect(errors).toEqual([]);
 });
 
-test.describe("Arena web build", () => {
+test.describe("Arena web build", { tag: "@slow" }, () => {
   let served: Served | undefined;
   test.beforeAll(async () => {
     served = await exportAndServe("arena");
@@ -148,7 +148,7 @@ test.describe("Arena web build", () => {
   });
 });
 
-test.describe("3D Playground web build", () => {
+test.describe("3D Playground web build", { tag: "@slow" }, () => {
   let served: Served | undefined;
   test.beforeAll(async () => {
     served = await exportAndServe("playground3d");

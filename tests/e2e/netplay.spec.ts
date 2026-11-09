@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator, type Page, play, test } from "./fixtures";
 import { showTab } from "./tabs";
 
 // Multiplayer play mode and the Network panel (ADR 0033 §9): a client/server project plays with
@@ -66,8 +66,7 @@ test("multiplayer play: 2 clients + 1 thin client, live stats, latency raises th
   await panel.getByRole("combobox", { name: "Thin clients", exact: true }).selectOption("1");
   await expect(panel.locator(".network-note")).toContainText('copies the client World "P1" as Client 1–2 and Thin 1,');
 
-  await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+  await play(page);
 
   // Two rendering clients tiled; the strip lists all three clients and the server.
   const tiles = page.locator("#game-view .game-tile");

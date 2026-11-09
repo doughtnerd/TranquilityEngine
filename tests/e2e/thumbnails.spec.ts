@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { installFakeFolders, listFolder, nextFolder } from "./fakeFolders";
 
 // Asset previews (ADR 0061): rendered thumbnails on the Assets panel's tiles, hover animation,
@@ -31,7 +31,7 @@ const tile = (page: Page, name: string) => page.locator(".asset-tile", { hasText
 /** A tile's rendered image, once it has loaded. */
 const renderedWidth = (page: Page, name: string) => tile(page, name).locator("img.asset-rendered").evaluate((img: HTMLImageElement) => (img.complete && img.src.startsWith("blob:") ? img.naturalWidth : 0)).catch(() => 0);
 
-test("models and materials show rendered thumbnails; an animated effect plays on hover", async ({ page }) => {
+test("models and materials show rendered thumbnails; an animated effect plays on hover", { tag: "@slow" }, async ({ page }) => {
   const errors = trackErrors(page);
   await openSample(page, "playground3d");
   await page.locator(".asset-folder", { hasText: /^models$/ }).click();
@@ -62,7 +62,7 @@ test("models and materials show rendered thumbnails; an animated effect plays on
   expect(errors).toEqual([]);
 });
 
-test("audio tiles show a waveform and play; the Inspector's player stops", async ({ page, browserName }) => {
+test("audio tiles show a waveform and play; the Inspector's player stops", { tag: "@slow" }, async ({ page, browserName }) => {
   test.skip(browserName === "webkit", "Playwright's WebKit build has no MP3 decoder");
   const errors = trackErrors(page);
   await openSample(page, "flappy");
@@ -98,15 +98,33 @@ const canvasPrint = (page: Page, selector: string) =>
     return lit > 0 ? `${lit}:${sum}` : "";
   });
 
-test("the Inspector's preview turns with a drag, zooms, and resets; prefabs get one too", async ({ page }) => {
+/**
+ * A canvas's fingerprint once it has drawn and stopped changing: a model's textures and the studio
+ * light load over several frames, so the first picture drawn isn't the one a reset returns to.
+ */
+async function settledPrint(page: Page, selector: string): Promise<string> {
+  let last = "";
+  await expect
+    .poll(
+      async () => {
+        const previous = last;
+        last = await canvasPrint(page, selector);
+        return last !== "" && last === previous;
+      },
+      { timeout: 20_000, intervals: [250] },
+    )
+    .toBe(true);
+  return last;
+}
+
+test("the Inspector's preview turns with a drag, zooms, and resets; prefabs get one too", { tag: "@slow" }, async ({ page }) => {
   const errors = trackErrors(page);
   await openSample(page, "playground3d");
   await page.locator(".asset-folder", { hasText: /^models$/ }).click();
   await tile(page, "robot.fbx").click();
   const canvas = ".asset-large-preview.live canvas.asset-live-preview";
   await expect(page.locator(canvas)).toBeVisible({ timeout: 30_000 });
-  await expect.poll(() => canvasPrint(page, canvas), { timeout: 15_000 }).not.toBe("");
-  const start = await canvasPrint(page, canvas);
+  const start = await settledPrint(page, canvas);
 
   // Drag to turn: the picture changes.
   const box = (await page.locator(".asset-large-preview").boundingBox())!;
@@ -133,7 +151,7 @@ test("the Inspector's preview turns with a drag, zooms, and resets; prefabs get 
   expect(errors).toEqual([]);
 });
 
-test("a particle effect's Inspector shows its live preview", async ({ page }) => {
+test("a particle effect's Inspector shows its live preview", { tag: "@slow" }, async ({ page }) => {
   const errors = trackErrors(page);
   await openSample(page, "playground3d");
   await page.locator(".asset-folder", { hasText: /^effects$/ }).click();
@@ -148,11 +166,13 @@ test("a particle effect's Inspector shows its live preview", async ({ page }) =>
   expect(errors).toEqual([]);
 });
 
-test("switching the Inspector between an effect and a material many times leaves previews working", async ({ page }) => {
+test("switching the Inspector between an effect and a material many times leaves previews working", { tag: "@slow" }, async ({ page }) => {
   const errors = trackErrors(page);
   await openSample(page, "playground3d");
   const live = ".asset-large-preview.live canvas.asset-live-preview";
-  for (let i = 0; i < 15; i++) {
+  // 9 rounds open 18 live previews, more than the 16 WebGL contexts a Chromium page may hold, so a
+  // preview that kept its context would lose the oldest one ("Too many active WebGL contexts").
+  for (let i = 0; i < 9; i++) {
     await page.locator(".asset-folder", { hasText: /^effects$/ }).click();
     await tile(page, "campfire.particles.json").click();
     await expect(page.locator(live)).toBeVisible({ timeout: 30_000 });
@@ -176,7 +196,7 @@ test("switching the Inspector between an effect and a material many times leaves
 const PIXELS = [100, 90, 70, 127, 110, 95, 75, 127, 100, 90, 70, 127, 90, 85, 70, 127, 40, 50, 60, 127, 35, 45, 55, 127, 40, 50, 60, 127, 45, 55, 65, 127];
 const TINY_HDR = ["#?RADIANCE", "FORMAT=32-bit_rle_rgbe", "", "-Y 2 +X 8", ""].join("\n") + String.fromCharCode(...PIXELS.flatMap((_, i) => (i % 4 === 0 ? [...PIXELS.slice(i, i + 4), ...PIXELS.slice(i, i + 4)] : [])));
 
-test("an environment map gets a preview in the Inspector", async ({ page, browserName }) => {
+test("an environment map gets a preview in the Inspector", { tag: "@slow" }, async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
   const errors = trackErrors(page);
   await installFakeFolders(page, { Skies: { "project.json": JSON.stringify({ name: "Skies" }), "sky.hdr": TINY_HDR } });
@@ -203,7 +223,7 @@ function textFiles(dir = SAMPLE): Record<string, string> {
   return out;
 }
 
-test("editing a material updates the Inspector's live preview", async ({ page, browserName }) => {
+test("editing a material updates the Inspector's live preview", { tag: "@slow" }, async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
   const errors = trackErrors(page);
   await installFakeFolders(page, { Playground: textFiles() });
@@ -215,8 +235,7 @@ test("editing a material updates the Inspector's live preview", async ({ page, b
   await tile(page, "ground.material.json").click();
   const canvas = ".asset-large-preview.live canvas.asset-live-preview";
   await expect(page.locator(canvas)).toBeVisible({ timeout: 30_000 });
-  await expect.poll(() => canvasPrint(page, canvas), { timeout: 15_000 }).not.toBe("");
-  const before = await canvasPrint(page, canvas);
+  const before = await settledPrint(page, canvas);
   const roughness = page.getByLabel("Material", { exact: true }).getByRole("spinbutton", { name: "Roughness", exact: true });
   const now = Number(await roughness.inputValue());
   await roughness.fill(now < 0.5 ? "1" : "0");
@@ -227,7 +246,7 @@ test("editing a material updates the Inspector's live preview", async ({ page, b
   expect(errors).toEqual([]);
 });
 
-test("a writable project caches thumbnails in .myco/thumbnails/ and reads them back instead of rendering", async ({ page, browserName }) => {
+test("a writable project caches thumbnails in .myco/thumbnails/ and reads them back instead of rendering", { tag: "@slow" }, async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
   const errors = trackErrors(page);
   await installFakeFolders(page, { Playground: textFiles() });

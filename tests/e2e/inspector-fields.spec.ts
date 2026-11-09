@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // ADR 0042: list fields, dropdowns, Euler-angle quaternions, a component's Worlds and node tags in the Inspector.
 

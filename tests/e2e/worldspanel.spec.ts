@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { showTab } from "./tabs";
 
 // The Worlds panel (ADR 0032) on a writable in-memory copy of the demo project: building a

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Post-processing (ADR 0051): the 3D Playground's camera has a PostProcessing component (bloom,
 // ambient occlusion, vignette). The scene view previews its effects through the composer on the

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { showTab } from "./tabs";
 
 // The Arena sample (T16, ADR 0032/0033): listed on the start screen, played with Play. Its

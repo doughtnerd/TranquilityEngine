@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // A lobby match takes the screen (ADR 0068): in King of Pirates, "Practice against bots" starts a
 // match, the Engine hands its main view and input from the paused menu World to the match client
