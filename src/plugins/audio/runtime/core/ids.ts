@@ -17,17 +17,17 @@ export const MAX_VOICE_GEN = 0xffff;
  * no range check here). The result is an unsigned 32-bit integer, never 0 for a valid `gen`.
  */
 export function encodeVoiceId(index: number, gen: number): number {
-  throw new Error("not implemented: A1.1-L1");
+  return ((gen << 16) | index) >>> 0;
 }
 
 /** @internal §3: the slot index of `id` (its low 16 bits). */
 export function voiceIndex(id: number): number {
-  throw new Error("not implemented: A1.1-L1");
+  return id & MAX_VOICE_INDEX;
 }
 
 /** @internal §3: the generation of `id` (its high 16 bits, `id >>> 16`). 0 for an invalid id. */
 export function voiceGen(id: number): number {
-  throw new Error("not implemented: A1.1-L1");
+  return isVoiceId(id) ? id >>> 16 : 0;
 }
 
 /**
@@ -35,10 +35,10 @@ export function voiceGen(id: number): number {
  * nothing about whether the slot still holds that generation (the table checks `gen[index] === voiceGen(id)`).
  */
 export function isVoiceId(id: number): boolean {
-  throw new Error("not implemented: A1.1-L1");
+  return Number.isInteger(id) && id > 0 && id <= 0xffffffff && id >>> 16 !== 0;
 }
 
 /** @internal §3 "free pushes and bumps gen, skipping 0": the generation after `gen` (65535 wraps to 1). */
 export function nextVoiceGen(gen: number): number {
-  throw new Error("not implemented: A1.1-L1");
+  return gen >= MAX_VOICE_GEN ? MIN_VOICE_GEN : gen + 1;
 }
