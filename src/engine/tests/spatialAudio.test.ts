@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Howler is mocked: these tests check what the engine tells it, not what it plays.
+// The test setup already loaded the audio plugin and with it the real Howler: drop the module cache so the mock applies.
+vi.hoisted(() => vi.resetModules());
 const calls = vi.hoisted(() => ({ list: [] as { target: string; method: string; args: unknown[] }[], nextId: 1 }));
 vi.mock("howler", () => {
   class Howl {
@@ -28,7 +30,11 @@ vi.mock("howler", () => {
   return { Howl, Howler };
 });
 
-import { Assets, Audio, AudioListener, AudioSource, Camera, Engine, GameObject, SceneManager, Vector3 } from "../index";
+import { Assets, Camera, Engine, GameObject, SceneManager, Vector3 } from "../index";
+import { Audio, AudioListener, AudioSource } from "../../plugins/audio/runtime";
+import { applyTestPlugins } from "../../plugins/testPlugins";
+
+applyTestPlugins(); // the module cache was reset above, so activate the plugins again in this copy
 
 const of = (method: string, target = "howl") => calls.list.filter((c) => c.target === target && c.method === method);
 

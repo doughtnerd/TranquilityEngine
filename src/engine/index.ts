@@ -47,9 +47,5 @@ export { CUBEMAP_FORMAT, parseCubemap, formatCubemap, type CubemapFaces, type Cu
 
 export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
 
-
-export { Audio, AudioSource, type OneShotOptions, type Rolloff } from "./audio/AudioSource";
-export type { Bus } from "./audio/mixer";
-export { AudioListener } from "./audio/AudioListener";
 export { Input } from "./input/Input";
 export { Storage, MemoryStorage, type StorageBackend } from "./platform/Storage";

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Assets, Audio, AudioSource, Engine, GameObject, SceneManager } from "../index";
-import { mixer, setAudioBackend, type AudioBackend, type AudioVoice, type PlayRequest } from "../audio/backend";
+import { Assets, Engine, GameObject, SceneManager } from "../index";
+import { Audio, AudioSource } from "../../plugins/audio/runtime";
+import { setAudioBackend, type AudioBackend, type AudioVoice, type PlayRequest } from "../../plugins/audio/runtime/backend";
+import { mixer } from "../audio/mixer";
 
 const plays: PlayRequest[] = [];
 const events: string[] = [];

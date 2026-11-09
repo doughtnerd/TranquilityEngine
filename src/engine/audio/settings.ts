@@ -35,6 +35,8 @@ export interface BusSettings {
   volume: number;
   mute: boolean;
   effects: BusEffect[];
+  /** §2: at most this many sounds play on the bus at once (integer 1..`voices.logical`); absent is unlimited. Inert until the core (M1a). */
+  maxVoices?: number;
 }
 
 /** A named mix: per-bus volume multipliers (and optional low-pass cutoffs in Hz) the mixer fades to. */
@@ -62,11 +64,41 @@ export interface AudioSettings {
   buses: BusSettings[];
   snapshots: SnapshotSettings[];
   ducking: DuckingRule[];
-  /** Which backend plays sound (ADR 0098): "howler" (default) or "fmod" (ADR 0099, needs the SDK). */
-  backend: "howler" | "fmod";
-  /** With the fmod backend: the folder (URL path) holding the FMOD HTML5 SDK files and banks. */
+  voices: VoiceSettings;
+  /** What the page being hidden does to sound. Default `"mute"`. */
+  background: AudioBackground;
+  /** Clip arena ceiling in MB (integer 16..1024). Absent: the device preset's ceiling (architecture 5.3). */
+  clipMemoryMB?: number;
+  /** Decoded clip sample format. Default `"i16"`. */
+  clipFormat: AudioClipFormat;
+  codecs: { aac: boolean };
+  /** Default `"hrtf"`. */
+  spatial: AudioSpatialMode;
+  /** `"babylon"` (default; resolves to the Howler backend until BB2) or `"core"` (K3). Once A0.4-L1 lands the parse never gives `"howler"` or `"fmod"`. */
+  backend: AudioBackendSetting;
+  /** @deprecated A0.5 removes it with the FMOD backend. Once A0.4-L1 lands the parse drops it. */
   fmod?: { sdkPath: string; banks: string[] };
 }
+
+/** §2 `voices`: how many sounds the core mixes at once, tracks logically, and spatialises with HRTF. */
+export interface VoiceSettings {
+  /** Integer 8..512, default 128. */
+  mixed: number;
+  /** Integer `mixed`..8192, default 4096. */
+  logical: number;
+  /** Integer 0..32, default 16 (low preset 4). 0 behaves as `spatial: "equalPower"`. */
+  hrtf: number;
+}
+
+export type AudioBackground = "mute" | "pause" | "play";
+export type AudioClipFormat = "i16" | "f32";
+export type AudioSpatialMode = "hrtf" | "equalPower";
+
+/**
+ * Which backend plays sound (§2, K3). `"howler"` and `"fmod"` are pre-ADR-0157 values the parse maps away;
+ * they stay in the type only until A0.5 removes the FMOD and editor code that names them.
+ */
+export type AudioBackendSetting = "babylon" | "core" | "howler" | "fmod";
 
 export const MASTER = "Master";
 export const MAX_BUSES = 32;
@@ -74,7 +106,15 @@ export const MAX_BUSES = 32;
 export const defaultBuses = (): BusSettings[] =>
   [MASTER, "Music", "SFX", "UI", "Voice"].map((name, i) => ({ name, ...(i > 0 ? { parent: MASTER } : {}), volume: 1, mute: false, effects: [] }));
 
-export const defaultAudioSettings = (): AudioSettings => ({ buses: defaultBuses(), snapshots: [], ducking: [], backend: "howler" });
+/** The backend a project gets without `audio.backend`: "babylon" until M1b passes, then "core" (B7 changes this one line). */
+export const DEFAULT_BACKEND: "babylon" | "core" = "babylon";
+
+export const DEFAULT_VOICES: Readonly<VoiceSettings> = { mixed: 128, logical: 4096, hrtf: 16 };
+
+export const defaultAudioSettings = (): AudioSettings => ({
+  buses: defaultBuses(), snapshots: [], ducking: [],
+  voices: { ...DEFAULT_VOICES }, background: "mute", clipFormat: "i16", codecs: { aac: false }, spatial: "hrtf", backend: DEFAULT_BACKEND,
+});
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const num = (v: unknown, fallback: number, min: number, max: number): number =>
@@ -166,11 +206,80 @@ export function parseAudioSettings(input: unknown): { settings: AudioSettings; p
       settings.ducking.push({ target: raw.target, trigger: raw.trigger, amount: num(raw.amount, 0.4, 0, 1), attack: num(raw.attack, 0.1, 0, 10), release: num(raw.release, 0.5, 0, 10) });
     }
   }
-  if (input.backend === "fmod") settings.backend = "fmod";
-  else if (input.backend !== undefined && input.backend !== "howler") problems.push(`audio.backend must be "howler" or "fmod".`);
-  if (isRecord(input.fmod) && typeof input.fmod.sdkPath === "string") {
-    settings.fmod = { sdkPath: input.fmod.sdkPath, banks: Array.isArray(input.fmod.banks) ? input.fmod.banks.filter((b): b is string => typeof b === "string") : [] };
-  }
-  if (settings.backend === "fmod" && !settings.fmod) problems.push(`audio.backend "fmod" needs audio.fmod.sdkPath.`);
+  parseCoreKeys(input, settings, problems);
   return { settings, problems };
+}
+
+/**
+ * Integer `min`..`max`: a finite number is rounded then clamped (a problem only when clamping changed it).
+ * `undefined` gives `undefined` with no problem; a non-number, NaN or Infinity gives `undefined` plus a problem.
+ */
+function wholeNumber(raw: unknown, key: string, min: number, max: number, problems: string[]): number | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    problems.push(`${key}: must be a whole number from ${min} to ${max}.`);
+    return undefined;
+  }
+  const rounded = Math.round(raw);
+  const clamped = Math.min(max, Math.max(min, rounded));
+  if (clamped !== rounded) problems.push(`${key}: ${rounded} is outside ${min}..${max}; using ${clamped}.`);
+  return clamped;
+}
+
+/** An enum: `undefined` gives `fallback`; any other value outside `options` gives `fallback` plus a problem. */
+function pick<T extends string>(raw: unknown, key: string, options: readonly T[], fallback: T, problems: string[]): T {
+  if (raw === undefined) return fallback;
+  if (typeof raw === "string" && (options as readonly string[]).includes(raw)) return raw as T;
+  problems.push(`${key}: must be one of ${options.join(", ")}; using "${fallback}".`);
+  return fallback;
+}
+
+/**
+ * §2, K13: parse every key the core adds, leniently, into `settings` (which already holds the parsed buses,
+ * snapshots and ducking, and the defaults), appending to `problems`. Runs after the buses are parsed, so
+ * `settings.buses` is the final list. Keys the playing backend doesn't use yet stay inert.
+ */
+function parseCoreKeys(input: Record<string, unknown>, settings: AudioSettings, problems: string[]): void {
+  if (input.voices !== undefined) {
+    if (!isRecord(input.voices)) problems.push("audio.voices must be an object.");
+    else {
+      const v = input.voices;
+      const mixed = wholeNumber(v.mixed, "audio.voices.mixed", 8, 512, problems) ?? DEFAULT_VOICES.mixed;
+      const logical = wholeNumber(v.logical, "audio.voices.logical", mixed, 8192, problems) ?? DEFAULT_VOICES.logical;
+      const hrtf = wholeNumber(v.hrtf, "audio.voices.hrtf", 0, 32, problems) ?? DEFAULT_VOICES.hrtf;
+      settings.voices = { mixed, logical, hrtf };
+    }
+  }
+  settings.background = pick(input.background, "audio.background", ["mute", "pause", "play"] as const, "mute", problems);
+  const clipMemoryMB = wholeNumber(input.clipMemoryMB, "audio.clipMemoryMB", 16, 1024, problems);
+  if (clipMemoryMB !== undefined) settings.clipMemoryMB = clipMemoryMB;
+  settings.clipFormat = pick(input.clipFormat, "audio.clipFormat", ["i16", "f32"] as const, "i16", problems);
+  if (input.codecs !== undefined) {
+    if (!isRecord(input.codecs)) problems.push("audio.codecs must be an object.");
+    else {
+      const aac = input.codecs.aac;
+      if (aac !== undefined && typeof aac !== "boolean") problems.push("audio.codecs.aac: must be true or false; using false.");
+      settings.codecs = { aac: aac === true };
+    }
+  }
+  settings.spatial = pick(input.spatial, "audio.spatial", ["hrtf", "equalPower"] as const, "hrtf", problems);
+  if (input.backend !== undefined) {
+    if (input.backend === "babylon" || input.backend === "core") settings.backend = input.backend;
+    else if (input.backend === "howler") problems.push(`audio.backend "howler" was replaced by "babylon" (ADR 0157); using "babylon".`);
+    else if (input.backend === "fmod") problems.push(`audio.backend "fmod" was removed (ADR 0157); using "${DEFAULT_BACKEND}".`);
+    else problems.push(`audio.backend must be "babylon" or "core".`);
+  }
+  // `settings.voices` is parsed above, so `voices.logical` is the bound. Only the first valid entry per name counts,
+  // the same entry the bus parse kept.
+  if (Array.isArray(input.buses)) {
+    const named = new Set<string>();
+    for (const [i, raw] of input.buses.entries()) {
+      if (!isRecord(raw) || typeof raw.name !== "string" || raw.name.trim() === "" || named.has(raw.name)) continue;
+      named.add(raw.name);
+      const bus = settings.buses.find((b) => b.name === raw.name);
+      if (!bus || raw.maxVoices === undefined || raw.maxVoices === null) continue;
+      const maxVoices = wholeNumber(raw.maxVoices, `audio.buses[${i}].maxVoices`, 1, settings.voices.logical, problems);
+      if (maxVoices !== undefined) bus.maxVoices = maxVoices;
+    }
+  }
 }

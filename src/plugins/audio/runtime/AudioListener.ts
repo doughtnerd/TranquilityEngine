@@ -3,10 +3,10 @@
  * Howler's listener position and orientation each frame from its node: forward is the node's -Z, up
  * is +Y. Without one, the main camera is the listener.
  */
-import { Component } from "../core/Component";
-import { Quaternion, Vector3 } from "../core/math";
-import { component } from "../core/registry";
-import type { GameObject } from "../scene/GameObject";
+import { Component } from "../../../engine/core/Component";
+import { Quaternion, Vector3 } from "../../../engine/core/math";
+import { component } from "../../../engine/core/registry";
+import type { GameObject } from "../../../engine/scene/GameObject";
 
 @component("engine.AudioListener")
 export class AudioListener extends Component {}

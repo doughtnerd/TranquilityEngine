@@ -172,6 +172,10 @@ export {
   type BuoyancyMode,
 } from "./plugins/physics/runtime";
 
+// The Audio plugin (ADR 0157). Its settings types (`AudioSettings`…) stay in the core. A1.6 adds `AudioHandle`,
+// `AudioStatus`, `AudioReason` and `AudioDebugInfo` to this list.
+export { Audio, AudioSource, AudioListener, type OneShotOptions, type Rolloff, type Bus } from "./plugins/audio/runtime";
+
 // The Navigation plugin (ADR 0065, 0135). Its settings types (`NavigationSettings`…) are core exports.
 export {
   NavAgent,

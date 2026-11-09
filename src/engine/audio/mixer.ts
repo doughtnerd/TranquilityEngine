@@ -80,6 +80,8 @@ export class Mixer {
     this._dirty();
   }
 
+  /** The project's audio settings this mixer was configured with (the backend selector, K3, reads `backend` from it). */
+  get audioSettings(): AudioSettings { return this.settings; }
   get busNames(): readonly string[] { return this.order; }
   get currentSnapshot(): string | null { return this.snapshotName; }
   get snapshotNames(): string[] { return this.settings.snapshots.map((s) => s.name); }
@@ -208,6 +210,9 @@ export class Mixer {
   }
   resolveAll(): ResolvedBus[] { return this.order.map((n) => this.resolve(n)!); }
 }
+
+/** The one mixer: buses are a project setting, and the audio context is shared (ADR 0097). */
+export const mixer = new Mixer();
 
 /** Move `cur` one `step` (0..1) of the way from `from` to `to`; `useCur` eases from where it is instead (ducking). */
 function approach(cur: number, from: number, to: number, step: number, useCur = false): number {

@@ -1,6 +1,7 @@
 // Every first-party plugin's manifest (ADR 0133), without their code: what game builds check
 // third-party plugins' dependencies and `plugins.disabled` against (ADR 0139). A test keeps it in step
 // with the plugin folders.
+import { audioManifest } from "./audio/manifest";
 import { environmentManifest } from "./environment/manifest";
 import { materialsManifest } from "./materials/manifest";
 import type { PluginManifest } from "./manifest";
@@ -18,6 +19,7 @@ import { waterManifest } from "./water/manifest";
 
 export const FIRST_PARTY_MANIFESTS: readonly PluginManifest[] = [
   materialsManifest,
+  audioManifest,
   skyManifest,
   spritesManifest,
   meshesManifest,
