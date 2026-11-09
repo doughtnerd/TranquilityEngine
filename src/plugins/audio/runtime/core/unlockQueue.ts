@@ -26,10 +26,40 @@ export interface UnlockQueueOptions<T> {
   onDrop?: (item: T, reason: DropReason) => void;
 }
 
+/** One queued entry: a one-shot (expires, counts toward the cap) or an owned or looping item (neither). */
+interface QueuedItem<T> {
+  readonly item: T;
+  readonly oneShot: boolean;
+  /** `nowMs` at push; meaningful only for one-shots. */
+  readonly pushedAt: number;
+}
+
 export class UnlockQueue<T> {
+  private entries: QueuedItem<T>[] = [];
+  private readonly maxOneShots: number;
+  private readonly windowMs: number;
+  private readonly onDrop: ((item: T, reason: DropReason) => void) | undefined;
+  private dropped = 0;
+
   constructor(options: UnlockQueueOptions<T> = {}) {
-    void options;
-    throw new Error("A1.6 L1: UnlockQueue is not implemented yet");
+    this.maxOneShots = options.maxOneShots ?? MAX_QUEUED_ONE_SHOTS;
+    this.windowMs = options.windowMs ?? ONE_SHOT_WINDOW_MS;
+    this.onDrop = options.onDrop;
+  }
+
+  private isExpired(entry: QueuedItem<T>, nowMs: number): boolean {
+    return entry.oneShot && nowMs - entry.pushedAt > this.windowMs;
+  }
+
+  private countOneShots(): number {
+    let n = 0;
+    for (const entry of this.entries) if (entry.oneShot) n++;
+    return n;
+  }
+
+  private reportDrop(entry: QueuedItem<T>, reason: DropReason): void {
+    this.dropped++;
+    this.onDrop?.(entry.item, reason);
   }
 
   /**
@@ -38,15 +68,31 @@ export class UnlockQueue<T> {
    * `maxOneShots` stay. Owned items are never dropped by this.
    */
   pushOneShot(item: T, nowMs: number): void {
-    void item;
-    void nowMs;
-    throw new Error("A1.6 L1");
+    const expired: QueuedItem<T>[] = [];
+    const kept: QueuedItem<T>[] = [];
+    for (const entry of this.entries) {
+      if (this.isExpired(entry, nowMs)) expired.push(entry);
+      else kept.push(entry);
+    }
+    this.entries = kept;
+    for (const entry of expired) this.reportDrop(entry, "expired");
+
+    const entry: QueuedItem<T> = { item, oneShot: true, pushedAt: nowMs };
+    if (this.maxOneShots <= 0) {
+      this.reportDrop(entry, "overflow");
+      return;
+    }
+    while (this.countOneShots() >= this.maxOneShots) {
+      const index = this.entries.findIndex((e) => e.oneShot);
+      const [oldest] = this.entries.splice(index, 1);
+      this.reportDrop(oldest, "overflow");
+    }
+    this.entries.push(entry);
   }
 
   /** Queue an owned or looping item: it waits for `drain` however long that takes and doesn't count toward the one-shot cap. */
   pushOwned(item: T): void {
-    void item;
-    throw new Error("A1.6 L1");
+    this.entries.push({ item, oneShot: false, pushedAt: 0 });
   }
 
   /**
@@ -56,34 +102,44 @@ export class UnlockQueue<T> {
    * `start` are not started by this call.
    */
   drain(nowMs: number, start: (item: T) => void): void {
-    void nowMs;
-    void start;
-    throw new Error("A1.6 L1");
+    // Swap the queue out first, so items pushed from inside `start` or `onDrop` stay queued for a later drain.
+    const batch = this.entries;
+    this.entries = [];
+    const live: QueuedItem<T>[] = [];
+    const expired: QueuedItem<T>[] = [];
+    for (const entry of batch) {
+      if (this.isExpired(entry, nowMs)) expired.push(entry);
+      else live.push(entry);
+    }
+    for (const entry of expired) this.reportDrop(entry, "expired");
+    for (const entry of live) start(entry.item);
   }
 
   /** Take one item out (its voice was stopped before the unlock). True if it was queued. `onDrop` is not called. */
   remove(item: T): boolean {
-    void item;
-    throw new Error("A1.6 L1");
+    const index = this.entries.findIndex((e) => e.item === item);
+    if (index < 0) return false;
+    this.entries.splice(index, 1);
+    return true;
   }
 
   /** Forget everything without calling `onDrop` or `start` (the host closed). */
   clear(): void {
-    throw new Error("A1.6 L1");
+    this.entries = [];
   }
 
   /** Items queued, one-shots and owned together. */
   get size(): number {
-    throw new Error("A1.6 L1");
+    return this.entries.length;
   }
 
   /** One-shots queued. */
   get oneShotCount(): number {
-    throw new Error("A1.6 L1");
+    return this.countOneShots();
   }
 
   /** One-shots dropped since construction (overflow and expired), for `debug().counters.droppedPlays`. */
   get droppedCount(): number {
-    throw new Error("A1.6 L1");
+    return this.dropped;
   }
 }
