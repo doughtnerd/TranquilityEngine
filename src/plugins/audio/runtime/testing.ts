@@ -182,7 +182,9 @@ const QUANTUM_MS = (QUANTUM_FRAMES / LOOPBACK_RATE) * 1000;
 
 /** Builds a loopback host on the committed wasm, with the given (or a new) fake clock and preset. */
 export async function createLoopbackHost(options: { clock?: FakeHostClock; preset?: CorePreset } = {}): Promise<LoopbackHost> {
-  const { readFile } = await import("node:fs/promises");
+  // A variable specifier: the engine's declaration build (tsconfig.engine.json) has no Node types, and this file only runs in Node tests.
+  const nodeFs = "node:fs/promises";
+  const { readFile } = (await import(/* @vite-ignore */ nodeFs)) as { readFile(url: URL): Promise<Uint8Array> };
   const wasm = await readFile(new URL("./wasm/myco_audio.wasm", import.meta.url));
   const clock = options.clock ?? fakeHostClock();
   const core = instantiateCore(wasm, options.preset ?? LOOPBACK_PRESET, LOOPBACK_RATE);
