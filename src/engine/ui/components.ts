@@ -239,7 +239,7 @@ export class UIInputField extends UIPanel {
 /** The World frame whose scripts see an event that happens now: this one inside a frame, else the next. */
 function nextFrame(c: Component): number {
   const world = c._world;
-  return world._inFrame ? world.time.frameCount : world.time.frameCount + 1;
+  return world.inFrame ? world.time.frameCount : world.time.frameCount + 1;
 }
 
 /** Every UI component type, for the render backend and the routing. */

@@ -4,7 +4,7 @@
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0011, 0032, 0034, 0093, 0124, 0153, 0159
+- **Related:** 0011, 0032, 0034, 0093, 0124, 0153, 0238
 
 ## Context
 
@@ -19,10 +19,12 @@ ADR 0011 fixes the order of a frame; ADR 0032 gave each World its own loop and c
   (`!_inFrame && _flushDestroyed()`), and the editor's `destroyNow`/`applyDestroys`, which flushed even inside a
   frame and so were documented "only call between frames". `ui/components.ts` read `_inFrame` to pick an event's
   frame.
-- `ThumbnailRenderer.settle` (0153) moved particles by writing `world.time.deltaTime` by hand around
-  `renderer.sync` and setting it back.
+- The thumbnail stages (0153; `render/babylon/previews/thumbnailScenes.ts`) moved time by hand: `settle` wrote
+  `world.time.deltaTime` around `renderer.sync` to move particles and set it back, and a live sky's `step` added to
+  `realtimeSinceStartup`.
 - A World couldn't be stepped without an Engine: `isolation.test.ts` copied part of the frame (setting
-  `_inFrame`, calling `_flushDestroyed`) to run one.
+  `_inFrame`, calling `_runPendingStarts`, `_propagateTransforms`, `_flushDestroyed`, `_clearBuffers`) to run one,
+  and other tests called those internals directly.
 
 ## Decision
 
@@ -35,8 +37,8 @@ Stats). The input snapshot (2) stays the Engine's: one per Engine frame, shared 
 
 **`World.redraw(surface)`** is steps 7–9 alone, with the World current (the editor's redraw while paused).
 
-**`World.advanceClock(dt)`** is step 1 alone; `step` calls it first. `ThumbnailRenderer.settle` uses it (a
-thumbnail's World is drawn, never stepped), then `advanceClock(0)`.
+**`World.advanceClock(dt)`** is step 1 alone; `step` calls it first. The thumbnail stages' `settle` and a live
+sky's `step` use it (a thumbnail's World is drawn, never stepped), then `advanceClock(0)`.
 
 **One end-of-frame rule.** `World.atFrameEnd(op)`: inside the World's frame, `op` runs at step 10 after deferred
 destroys; otherwise now, with the World current. `World.applyDestroys()` is the same rule for deferred destroys
@@ -45,12 +47,14 @@ getter; the flag and the queue are private. Users: `SceneManager.load`, `Engine.
 editor's `destroyNow`/`applyDestroys` (now safe inside a frame), and `ui/components.ts` (`inFrame`).
 
 **Engine** keeps the scheduling: which Worlds step (unpaused, alive, in creation order), the input snapshot, the
-surface each draws to (`views.surfaceOf`, 0159), the default World current afterwards, and timings. `stepWorld` is
+surface each draws to (`views.surfaceOf`, 0238), the default World current afterwards, and timings. `stepWorld` is
 one call to `world.step`, `_redraw` one call to `world.redraw` per drawn World.
 
-The frame's order and behaviour are unchanged; only its owner moves. `_runPendingStarts`, `_resolveWaits`,
-`_propagateTransforms`, `_flushDestroyed`, `_clearBuffers` and `_accumulator` stay `@internal` World members (tests
-and the net session's tick estimate read some of them).
+The frame's order and behaviour are unchanged; only its owner moves. The steps only the frame runs become private
+(`runPendingStarts`, `resolveWaits`, `propagateTransforms`, `clearBuffers`); tests go through `step`, `applyDestroys`
+and what callers read (world positions compute on demand, buffers are read with `read()`), never the steps.
+`_flushDestroyed` stays `@internal` because the scene loader and `SceneManager`'s unload must apply destroys at once
+even inside a frame, and `_accumulator` because the net session's tick estimate reads it.
 
 ## Alternatives considered
 
@@ -69,17 +73,18 @@ and the net session's tick estimate read some of them).
 - `Engine.ts` loses its 70-line `stepWorld` and the `_redraw` copy.
 
 **Negative / costs**
-- `World.ts` grows by about 130 lines (with comments); `Engine.ts` goes from 542 to 473.
+- `World.ts` grows by about 130 lines (with comments); `Engine.ts` goes from 561 to 492.
 - `World.step` restores the previous current World instead of leaving itself current; the Engine sets the
   default World afterwards anyway, so nothing observable changes there.
-- `settle` now also advances `time`, `frameCount` and `realtimeSinceStartup` while it moves particles, as a real
-  frame would; nothing in a thumbnail reads them.
+- `settle` now also advances `time`, `frameCount` and `realtimeSinceStartup` while it moves particles, and a live
+  sky's `step` also advances `time`, `frameCount` and `deltaTime` (back to 0 after its sync), as a real frame would;
+  nothing else in a thumbnail reads them.
 
 ## Deprecates
 
-`World._inFrame` and `World._sceneOps` (now private, behind `inFrame` and `atFrameEnd`); `Engine.stepWorld`'s frame
-body and `_redraw`'s steps; the hand-written time in `ThumbnailRenderer.settle`; `isolation.test.ts`'s copy of the
-frame.
+`World._inFrame` and `World._sceneOps` (now private, behind `inFrame` and `atFrameEnd`); `World._runPendingStarts`,
+`_resolveWaits`, `_propagateTransforms` and `_clearBuffers` (now private); `Engine.stepWorld`'s frame body and
+`_redraw`'s steps; the hand-written time in the thumbnail stages; `isolation.test.ts`'s copy of the frame.
 
 ## Open questions
 
@@ -90,5 +95,7 @@ frame.
 
 - `src/engine/core/World.ts` (the frame section), `Engine.ts` (`step`, `stepWorld`, `_redraw`, `_destroyWorld`)
 - `src/engine/scene/SceneManager.ts`, `ui/UIDocument.ts`, `ui/components.ts`, `editor/index.ts`,
-  `render/babylon/previews/ThumbnailRenderer.ts` (`settle`)
-- Tests: `src/engine/tests/worldFrame.test.ts` (new), `isolation.test.ts`
+  `render/babylon/previews/thumbnailScenes.ts` (`settle`, a live sky's `step`)
+- Tests: `src/engine/tests/worldFrame.test.ts` (new), `isolation.test.ts`; `uiDocument.test.ts`, `liveEdits.test.ts`,
+  `replication.test.ts`, `replicationStructure.test.ts` and `liveTuningOcclusion.test.ts` no longer call the frame's
+  steps

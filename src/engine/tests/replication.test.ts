@@ -494,7 +494,6 @@ describe("wave 3 review fixes", () => {
     expect(crate.transform!.worldPosition.x).toBeCloseTo(11);
     const [ghost] = ghosts(world(engine, "P1")).values();
     expect(ghost.parent!.name).toBe("Projectiles");
-    world(engine, "P1")._propagateTransforms();
     expect(ghost.transform!.worldPosition.x).toBeCloseTo(11, 2);
   });
 
