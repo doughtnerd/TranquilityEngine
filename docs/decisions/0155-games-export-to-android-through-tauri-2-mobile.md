@@ -4,7 +4,7 @@
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0003, 0024, 0041, 0050, 0055, 0075, 0081, the audio-core record (numbered 0149 on branch `claude/fmod-integration-d19dbb`, "Audio runs on an engine-owned Rust core in an AudioWorklet"; its number collides with master's 0149 and will change when it merges)
+- **Related:** 0003, 0024, 0041, 0050, 0055, 0075, 0081, 0157 (the audio core; Accepted, on branch `claude/fmod-integration-d19dbb` until it merges)
 
 ## Context
 
@@ -16,7 +16,7 @@ What exists that Android can reuse:
 - Input is pointer events on the canvas (`src/engine/input/Input.ts`): one pointer, button 0 for mouse or touch. There is no multi-touch API.
 - `detectPlatform()` (`src/engine/core/graphics.ts`) returns `"desktop"` whenever Tauri's marker is present, before looking at the user agent, so a Tauri app on Android would get desktop quality defaults (0050).
 - Rendering is Babylon on `WebGPUEngine`, with WebGL2 kept as a fallback that "isn't a target" (0075).
-- The audio-core record needs AudioWorklet, WebAssembly `simd128`, transferable buffers and `getOutputTimestamp`; where they're missing it switches to the Babylon fallback backend. Its soak gate names one low-end device: an Android phone on the lowest Android version Google Play accepts for publishing, in Chrome and the Android System WebView.
+- The audio core (0157) needs AudioWorklet, WebAssembly `simd128`, transferable buffers and `getOutputTimestamp`; where they're missing it switches to the Babylon fallback backend. Its soak gate names one low-end device: an Android phone on the lowest Android version Google Play accepts for publishing, in Chrome and the Android System WebView.
 
 What the research found (checked 2026-11-09; sources under References):
 
@@ -118,7 +118,7 @@ The player is unchanged; these are detections in the engine and player, true on 
 - **Platform.** `detectPlatform()` checks for an Android or iOS user agent **before** the Tauri marker, so a Tauri app on a phone is `"mobile"` and gets the mobile quality defaults (0050) and auto-detection (0055).
 - **Secure context.** The Android build sets `useHttpsScheme: true`, so the page is `https://tauri.localhost` without relying on `*.localhost` being treated as trustworthy. (Changing it later would change the origin; nothing of ours depends on origin storage, since saves are files.)
 - **Rendering.** WebGPU where the WebView exposes it, else Babylon's WebGL2 engine. **On Android, WebGL2 is a supported path, not just a fallback** (a partial amendment of 0075's "isn't a target"): the Low quality tier must render correctly on it, and higher tiers may turn features off as 0075 allows. A WebView without WebGL2 gets a full-page message ("This game needs a newer Android System WebView", with a link to its Play page) instead of a blank canvas.
-- **Audio.** The audio core's own rule applies: AudioWorklet + `simd128` + a secure context run the core; anything less gets the Babylon fallback, with one warning. Android's minimum WebViews (Chromium 119 on 7.x) have all of these, so the fallback is for broken or disabled WebViews.
+- **Audio.** 0157's own rule applies: AudioWorklet + `simd128` + a secure context run the core; anything less gets the Babylon fallback, with one warning. Android's minimum WebViews (Chromium 119 on 7.x) have all of these, so the fallback is for broken or disabled WebViews.
 - **Gate on features, never on version strings.** The README states the expected floor (Chromium 91 for the audio core, WebGL2 for rendering) for players who ask.
 - **Lifecycle.** The WebView fires `visibilitychange` when the app goes to the background; `requestAnimationFrame` stops while the page is hidden, so frames stop. Audio must also stop: the audio backend suspends its `AudioContext` on `hidden` and resumes on `visible`. This record requires that of every audio backend (the core and the fallback); whether today's backend already does it is unverified.
 
@@ -131,7 +131,7 @@ The player is unchanged; these are detections in the engine and player, true on 
 ### The low-end device and minimum Android version
 
 - The owner's rule: the low-end device is an Android phone on the lowest Android version Google Play accepts for publishing, as a starting point that moves up if features show significant gaps.
-- Google Play has no `minSdkVersion` floor, so the lowest version a Myco game can publish for is **Tauri's floor, Android 7.0 (API 24)**. That's the default `minSdk` and the version of the low-end test phone (the same phone as the audio core's soak gate).
+- Google Play has no `minSdkVersion` floor, so the lowest version a Myco game can publish for is **Tauri's floor, Android 7.0 (API 24)**. That's the default `minSdk` and the version of the low-end test phone (the same phone as 0157's soak gate).
 - **The first likely step up is Android 10 (API 29)**: Android 7's WebView is frozen at Chromium 119 and 8–9's at 138, with no security fixes, while Android 10+ still updates. If testing on 7.x shows significant gaps (rendering bugs in an old WebView, memory, the audio core falling back), we raise `minSdk` and the test phone together and record it in this record's status.
 - `targetSdk` is always Play's current requirement (36 today); that's unrelated to the minimum.
 
@@ -139,7 +139,7 @@ The player is unchanged; these are detections in the engine and player, true on 
 
 - **Unit (Vitest, headless):** `tauriProjectFiles` for android (config values, identifier validation and default, versionCode, orientation default), the marked-block patcher (adds missing blocks, replaces its own, leaves other edits alone, idempotent), toolchain detection over a fake environment and file system (every row of the table, all problems at once), keystore handling (properties file written and removed on failure; never written without a keystore), and `detectPlatform` with Tauri + Android user agent.
 - **Emulator smoke (`npm run test:android`, manual and opt-in CI, not in `test:e2e`):** export Flappy with `--debug --abis x86_64`, boot two AVDs (API 24 and API 36, x86_64, Google APIs images), `adb install`, launch, attach **Playwright's Android support** (`_android`, which drives Android WebViews over adb) to the app's WebView, wait for the player's ready flag, tap to flap, check a save survives an app restart, and screenshot. The heavy toolchain (SDK, NDK, emulator) keeps this out of the default suite; it runs before releases and on changes to `src/export/android*.ts`, `tauriProject.ts` and the player.
-- **Real low-end device (manual checklist, per release while Android is new):** a release AAB through Play's internal testing track to the Android 7.x phone; boot to first frame time; 10 minutes of play at the Low tier; touch and Back; background/resume with audio; saves across restarts; and the audio core's 30-minute soak gate on the same phone. Results go in `implementation-status.md`. A gap found here is the trigger for moving the minimum up.
+- **Real low-end device (manual checklist, per release while Android is new):** a release AAB through Play's internal testing track to the Android 7.x phone; boot to first frame time; 10 minutes of play at the Low tier; touch and Back; background/resume with audio; saves across restarts; and 0157's 30-minute soak gate on the same phone. Results go in `implementation-status.md`. A gap found here is the trigger for moving the minimum up.
 - **Play pre-launch:** the first internal-track upload of a sample confirms the 16 KB page check, target API and signing pass Play's checks.
 
 ## Alternatives considered
@@ -185,7 +185,7 @@ Nothing. It resolves 0041's open question on mobile targets for Android (iOS sta
 ## References
 
 - 0041 and `src/export/` (`desktop.ts`, `node.ts`, `main.ts`, `cli.mjs`, `images.ts`); `src/engine/core/graphics.ts` (`detectPlatform`); `src/engine/input/Input.ts`; `src/engine/core/Engine.ts` (`TauriStorage`).
-- The audio-core record and `docs/design/0149-audio-core/` on branch `claude/fmod-integration-d19dbb` (Platforms and minimum versions; soak gate).
+- 0157 and `docs/design/0157-audio-core/` on branch `claude/fmod-integration-d19dbb` (Platforms and minimum versions; soak gate).
 - Tauri: [prerequisites (Android)](https://v2.tauri.app/start/prerequisites/), [Android code signing](https://v2.tauri.app/distribute/sign/android/), [Google Play distribution](https://v2.tauri.app/distribute/google-play/), [develop on mobile](https://v2.tauri.app/develop/), [2.1.0 release notes (`useHttpsScheme`)](https://tauri.app/release/tauri/v2.1.0/).
 - Google Play: [target API level requirements](https://developer.android.com/google/play/requirements/target-sdk), [16 KB page sizes](https://developer.android.com/guide/practices/page-sizes).
 - Chrome on old Android: [Chromium PSA: Android 8/9 deprecated (Chrome 138 last)](https://groups.google.com/a/chromium.org/g/chromium-dev/c/vEZz0721rUY), [Chrome 120 drops Android 7 (ghacks)](https://www.ghacks.net/?p=203825).
