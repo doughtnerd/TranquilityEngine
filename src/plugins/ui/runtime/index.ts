@@ -25,12 +25,18 @@ export const UI_SPEC: RenderFeatureSpec = {
   owns: (c) => isUIComponent(c) || c instanceof Text,
   lazy: true,
   holdsFirstFrame: true,
+  // A warm set's world-space UI (ADR 0080): warmed by `loadWarm` until the feature loads (ADR 0154).
+  warms: (content) => content.worldUI,
 };
 
 export const uiRuntimePlugin: RuntimePlugin = {
   manifest: uiManifest,
   activate(context) {
     context.registerComponents([UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UIDocument, Text]);
-    context.registerRenderFeature({ spec: UI_SPEC, load: () => import("./uiFeature").then((m) => m.loadUIFeature()) });
+    context.registerRenderFeature({
+      spec: UI_SPEC,
+      load: () => import("./uiFeature").then((m) => m.loadUIFeature()),
+      loadWarm: () => import("./uiWarm").then((m) => m.createUIWarm),
+    });
   },
 };

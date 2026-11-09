@@ -37,5 +37,5 @@ export function restartPreview(): void {
 
 /** The previewed effect's time and particle count, or null when none is playing. */
 export function previewStats(): { time: number; count: number } | null {
-  return engine ? (renderDiagnostics(engine.world)?.particles?.previewed ?? null) : null;
+  return engine ? (renderDiagnostics(engine.world)?.features.particles?.previewed ?? null) : null;
 }

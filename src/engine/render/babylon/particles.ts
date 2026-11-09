@@ -21,7 +21,8 @@ import { compileParticleGraph, type ParticleProgram } from "../../scene/particle
 import { parseParticleGraph } from "../../scene/particleGraphFormat";
 import { expandParticleGraph, expansionDependencies, projectAssets } from "../../scene/particleSubgraphs";
 import type { ParticleSystem } from "../components";
-import type { ParticlePreviewSettings, ParticleStats } from "../RenderSurface";
+import type { ParticleStats } from "../RenderSurface";
+import type { ParticlePreview } from "../renderPolicy";
 import { ProgramRunner, playTimes } from "../particles/programRunner";
 import { randomForSeed } from "../particles/random";
 import { EffectSimulation, linearRGB, type ParticleRaycast, type SimEmitter } from "../particles/simulation";
@@ -50,8 +51,9 @@ export interface BabylonParticleHost {
   /**
    * Preview mode (ADR 0057, 0129 `RenderPolicy.particlePreview`): script commands are ignored and only
    * systems on selected nodes (all with Simulate All) play, at the preview speed. Null: game rules.
+   * The playback settings are part of it (ADR 0154): the player keeps no copy.
    */
-  particlePreview(): { selected(node: GameObject): boolean } | null;
+  particlePreview(): ParticlePreview | null;
   /**
    * Loads a texture asset (sRGB colour) for particles: flipped as other textures (V 1 is the image's
    * top), or with `sheet` unflipped (V 0 at the top), as Babylon's particle sprite sheets read it.
@@ -134,7 +136,6 @@ export class BabylonParticles {
   /** Model meshes' ids in build keys. */
   private readonly meshIds = new WeakMap<ModelMesh, number>();
   private nextMeshId = 1;
-  readonly preview: ParticlePreviewSettings = { playing: true, speed: 1, simulateAll: false };
 
   constructor(private readonly host: BabylonParticleHost) {}
 
@@ -258,11 +259,11 @@ export class BabylonParticles {
     let dt: number;
     const previewing = this.host.particlePreview();
     if (previewing) {
-      const shown = this.preview.simulateAll || previewing.selected(c.node);
+      const shown = previewing.simulateAll || previewing.selected(c.node);
       if (shown && !inst.shown) this.applyState(inst, "restart");
       if (!shown && inst.shown) this.applyState(inst, "clear");
       inst.shown = shown;
-      dt = shown && this.preview.playing ? unscaledDeltaTime * this.preview.speed : 0;
+      dt = shown && previewing.playing ? unscaledDeltaTime * previewing.speed : 0;
     } else {
       for (const cmd of c._commands.splice(0)) {
         if (cmd.op === "emit") this.emit(inst, cmd.count);
@@ -294,7 +295,7 @@ export class BabylonParticles {
 
     if (previewing) {
       // Preview: a finished one-shot effect plays again after a moment.
-      if (inst.shown && !alive && this.preview.playing) {
+      if (inst.shown && !alive && previewing.playing) {
         inst.idle += dt;
         if (inst.idle >= PREVIEW_REPEAT_GAP) this.applyState(inst, "restart");
       } else inst.idle = 0;

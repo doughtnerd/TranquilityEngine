@@ -141,8 +141,8 @@ describe("viewport(world) and renderDiagnostics(world) (ADR 0128)", () => {
     surface.loaded = true;
     surface.sync(world); // the surface's frame hands the state over
     expect(surface.adapter.colors).toEqual(COLORS);
-    surface.diagnosticsSnapshot = { water: { surfaces: 2 } };
-    expect(renderDiagnostics(world)?.water).toEqual({ surfaces: 2 });
+    surface.diagnosticsSnapshot = { features: { water: { surfaces: 2 } } };
+    expect(renderDiagnostics(world)?.features.water).toEqual({ surfaces: 2 });
     world.render = null;
   });
 });

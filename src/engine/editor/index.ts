@@ -250,7 +250,7 @@ export function viewportCanvas(world: World): HTMLCanvasElement | null {
 
 const headlessViewports = new WeakMap<World, EditorViewport>();
 /** A headless World has no renderer to steer: policy settings go nowhere (ADR 0129). */
-const NO_POLICY: RenderPolicyPort = { setPolicy() {}, setParticlePreview() {}, restartParticlePreview() {} };
+const NO_POLICY: RenderPolicyPort = { setPolicy() {} };
 
 /**
  * The editor's handle on `world`'s viewport (ADR 0128): overlays, the transform gizmo, picking, rays,
