@@ -1,0 +1,6 @@
+<!doctype html><title>occlusion spike</title><script type="module">
+import RAPIER from "/rapier.mjs";
+import { runAll } from "/bench.js";
+await RAPIER.init();
+window.results = runAll(RAPIER, () => performance.now());
+</script>

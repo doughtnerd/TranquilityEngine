@@ -1,0 +1,196 @@
+{
+ "pm 1024": {
+  "gcEventsPerThread": {
+   "CrRendererMain / MinorGC": {
+    "count": 3,
+    "maxMs": 0.954
+   },
+   "CrRendererMain / V8.GCScavenger": {
+    "count": 3,
+    "maxMs": 0.747
+   },
+   "CrRendererMain / V8.GC_SCAVENGER": {
+    "count": 3,
+    "maxMs": 0.706
+   },
+   "Realtime AudioWorklet thread / MinorGC": {
+    "count": 1,
+    "maxMs": 0.551
+   },
+   "Realtime AudioWorklet thread / V8.GCScavenger": {
+    "count": 1,
+    "maxMs": 0.418
+   },
+   "Realtime AudioWorklet thread / V8.GC_SCAVENGER": {
+    "count": 1,
+    "maxMs": 0.384
+   }
+  },
+  "sampleGcEventNames": [
+   "V8.GC_HEAP_EXTERNAL_PROLOGUE",
+   "MinorGC",
+   "V8.GC_HEAP_PROLOGUE",
+   "V8.GCScavenger",
+   "V8.GC_TIME_TO_SAFEPOINT",
+   "V8.GC_SCAVENGER",
+   "V8.GC_HEAP_PROLOGUE_SAFEPOINT",
+   "V8.GC_SCAVENGER_SCAVENGE",
+   "V8.GC_SCAVENGER_SCAVENGE_WEAK_GLOBAL_HANDLES_IDENTIFY",
+   "V8.GC_SCAVENGER_TRACED_HANDLES_COMPUTE_WEAKNESS_PARALLEL",
+   "V8.GC_SCAVENGER_SCAVENGE_COLLECT_OLD_TO_NEW_PAGES",
+   "V8.GC_SCAVENGER_SCAVENGE_PARALLEL_PHASE",
+   "V8.GC_SCAVENGER_SCAVENGE_ROOTS",
+   "V8.GC_SCAVENGER_BACKGROUND_SCAVENGE_PARALLEL",
+   "V8.GC_SCAVENGER_SCAVENGE_WEAK_GLOBAL_HANDLES_PROCESS",
+   "V8.GC_SCAVENGER_TRACED_HANDLES_RESET_PARALLEL",
+   "V8.GC_SCAVENGER_SCAVENGE_FINALIZE",
+   "V8.GC_SCAVENGER_SCAVENGE_RESTORE_AND_QUARANTINE_PINNED",
+   "V8.GC_SCAVENGER_FREE_REMEMBERED_SET",
+   "V8.GC_SCAVENGER_SWEEP_ARRAY_BUFFERS"
+  ],
+  "totalEvents": 22923,
+  "threads": [
+   "swapper",
+   "PerfettoTrace",
+   "Chrome_IOThread",
+   "CrBrowserMain",
+   "CrRendererMain",
+   "Chrome_ChildIOThread",
+   "DevToolsPipeHandlerWriteThread",
+   "ThreadPoolSingleThreadForegroundBlocking",
+   "MemoryInfra",
+   "ThreadPoolServiceThread",
+   "Realtime AudioWorklet thread",
+   "Compositor",
+   "VizCompositorThread",
+   "ThreadPoolForegroundWorker",
+   "ThreadPoolBackgroundWorker"
+  ],
+  "mainHeap": {
+   "available": true,
+   "bytesGrowthSummed": 1789280,
+   "gcDrops": 2,
+   "samples": 600
+  }
+ },
+ "ring 1024": {
+  "gcEventsPerThread": {
+   "CrRendererMain / MinorGC": {
+    "count": 2,
+    "maxMs": 1.13
+   },
+   "CrRendererMain / V8.GCScavenger": {
+    "count": 2,
+    "maxMs": 0.926
+   },
+   "CrRendererMain / V8.GC_SCAVENGER": {
+    "count": 2,
+    "maxMs": 0.757
+   }
+  },
+  "sampleGcEventNames": [
+   "V8.GC_HEAP_EXTERNAL_PROLOGUE",
+   "MinorGC",
+   "V8.GC_HEAP_PROLOGUE",
+   "V8.GCScavenger",
+   "V8.GC_TIME_TO_SAFEPOINT",
+   "V8.GC_SCAVENGER",
+   "V8.GC_HEAP_PROLOGUE_SAFEPOINT",
+   "V8.GC_SCAVENGER_SCAVENGE",
+   "V8.GC_SCAVENGER_SCAVENGE_WEAK_GLOBAL_HANDLES_IDENTIFY",
+   "V8.GC_SCAVENGER_TRACED_HANDLES_COMPUTE_WEAKNESS_PARALLEL",
+   "V8.GC_SCAVENGER_SCAVENGE_COLLECT_OLD_TO_NEW_PAGES",
+   "V8.GC_SCAVENGER_SCAVENGE_PARALLEL_PHASE",
+   "V8.GC_SCAVENGER_SCAVENGE_ROOTS",
+   "V8.GC_SCAVENGER_BACKGROUND_SCAVENGE_PARALLEL",
+   "V8.GC_SCAVENGER_SCAVENGE_WEAK_GLOBAL_HANDLES_PROCESS",
+   "V8.GC_SCAVENGER_TRACED_HANDLES_RESET_PARALLEL",
+   "V8.GC_SCAVENGER_SCAVENGE_FINALIZE",
+   "V8.GC_SCAVENGER_SCAVENGE_RESTORE_AND_QUARANTINE_PINNED",
+   "V8.GC_SCAVENGER_FREE_REMEMBERED_SET",
+   "V8.GC_SCAVENGER_SWEEP_ARRAY_BUFFERS"
+  ],
+  "totalEvents": 18671,
+  "threads": [
+   "swapper",
+   "Chrome_IOThread",
+   "PerfettoTrace",
+   "CrBrowserMain",
+   "CrRendererMain",
+   "Chrome_ChildIOThread",
+   "VizCompositorThread",
+   "Compositor",
+   "DevToolsPipeHandlerWriteThread",
+   "ThreadPoolServiceThread",
+   "Realtime AudioWorklet thread",
+   "ThreadPoolForegroundWorker",
+   "ThreadPoolBackgroundWorker"
+  ],
+  "mainHeap": {
+   "available": true,
+   "bytesGrowthSummed": 1392856,
+   "gcDrops": 2,
+   "samples": 600
+  }
+ },
+ "pm 64": {
+  "gcEventsPerThread": {
+   "CrRendererMain / MinorGC": {
+    "count": 2,
+    "maxMs": 1.425
+   },
+   "CrRendererMain / V8.GCScavenger": {
+    "count": 2,
+    "maxMs": 1.249
+   },
+   "CrRendererMain / V8.GC_SCAVENGER": {
+    "count": 2,
+    "maxMs": 1.203
+   }
+  },
+  "sampleGcEventNames": [
+   "V8.GC_HEAP_EXTERNAL_PROLOGUE",
+   "MinorGC",
+   "V8.GC_HEAP_PROLOGUE",
+   "V8.GCScavenger",
+   "V8.GC_TIME_TO_SAFEPOINT",
+   "V8.GC_SCAVENGER",
+   "V8.GC_HEAP_PROLOGUE_SAFEPOINT",
+   "V8.GC_SCAVENGER_SCAVENGE",
+   "V8.GC_SCAVENGER_SCAVENGE_WEAK_GLOBAL_HANDLES_IDENTIFY",
+   "V8.GC_SCAVENGER_TRACED_HANDLES_COMPUTE_WEAKNESS_PARALLEL",
+   "V8.GC_SCAVENGER_SCAVENGE_COLLECT_OLD_TO_NEW_PAGES",
+   "V8.GC_SCAVENGER_SCAVENGE_PARALLEL_PHASE",
+   "V8.GC_SCAVENGER_SCAVENGE_ROOTS",
+   "V8.GC_SCAVENGER_BACKGROUND_SCAVENGE_PARALLEL",
+   "V8.GC_SCAVENGER_SCAVENGE_WEAK_GLOBAL_HANDLES_PROCESS",
+   "V8.GC_SCAVENGER_TRACED_HANDLES_RESET_PARALLEL",
+   "V8.GC_SCAVENGER_SCAVENGE_FINALIZE",
+   "V8.GC_SCAVENGER_SCAVENGE_RESTORE_AND_QUARANTINE_PINNED",
+   "V8.GC_SCAVENGER_FREE_REMEMBERED_SET",
+   "V8.GC_SCAVENGER_SWEEP_ARRAY_BUFFERS"
+  ],
+  "totalEvents": 22849,
+  "threads": [
+   "swapper",
+   "Chrome_ChildIOThread",
+   "PerfettoTrace",
+   "Chrome_IOThread",
+   "CrRendererMain",
+   "CrBrowserMain",
+   "DevToolsPipeHandlerWriteThread",
+   "VizCompositorThread",
+   "Compositor",
+   "ThreadPoolServiceThread",
+   "Realtime AudioWorklet thread",
+   "ThreadPoolForegroundWorker",
+   "ThreadPoolBackgroundWorker"
+  ],
+  "mainHeap": {
+   "available": true,
+   "bytesGrowthSummed": 1232152,
+   "gcDrops": 1,
+   "samples": 600
+  }
+ }
+}

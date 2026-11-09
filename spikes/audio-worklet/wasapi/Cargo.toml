@@ -1,0 +1,31 @@
+[package]
+name = "myco-audio-wasapi"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Standalone: not part of any other workspace.
+[workspace]
+
+[dependencies]
+myco-audio-spike = { path = "../core" }
+
+[dependencies.windows]
+version = "0.62"
+features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Variant",
+  "Win32_Devices_FunctionDiscovery",
+  "Win32_Media_Audio",
+  "Win32_Media_KernelStreaming",
+  "Win32_Media_Multimedia",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Performance",
+  "Win32_System_Threading",
+  "Win32_UI_Shell_PropertiesSystem",
+]
+
+[profile.release]
+opt-level = 3

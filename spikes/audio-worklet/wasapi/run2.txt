@@ -1,0 +1,8 @@
+  [Exclusive, minimum period] not aligned; realigned to 240 frames = 5.000 ms
+
+=== Exclusive, minimum period (int16) ===
+rate 48000 Hz, period 240 frames (5.000 ms), buffer 240 frames (5.000 ms), GetStreamLatency 5.000 ms
+wakes 602 (timeouts 0), interval ms p50/p95/p99/max: 4.999 / 5.045 / 5.079 / 8.115
+jitter |interval - p50| ms p95/p99/max: 0.054 / 0.248 / 3.127
+mixer us per wake p50/p95/max: 681 / 1191 / 3725 (13.6% of period at p50)
+glitches: padding==0 at wake 0, IAudioClock position beyond written 0, late wakes (>1.5 periods) 2

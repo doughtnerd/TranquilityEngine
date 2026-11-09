@@ -1,0 +1,12 @@
+{
+  "productName": "ipc-spike",
+  "version": "0.1.0",
+  "identifier": "com.foxfirestudios.myco.ipcspike",
+  "build": { "frontendDist": "./ui" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{ "title": "IPC spike", "width": 700, "height": 500 }],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false, "icon": ["icons/icon.ico"] }
+}

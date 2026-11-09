@@ -1,0 +1,11 @@
+[package]
+name = "myco-audio-native-out"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+cpal = "0.18.2"
+myco-audio-spike = { path = "../core" }

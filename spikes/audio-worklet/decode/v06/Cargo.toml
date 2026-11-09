@@ -1,0 +1,34 @@
+[package]
+name = "decode-spike06"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["sym-5"]
+dec = []
+sym-mp3 = ["dec", "symphonia/mp3"]
+sym-vorbis = ["dec", "symphonia/vorbis", "symphonia/ogg"]
+sym-flac = ["dec", "symphonia/flac"]
+sym-wav = ["dec", "symphonia/wav", "symphonia/pcm"]
+sym-aac = ["dec", "symphonia/aac", "symphonia/isomp4"]
+sym-opus = ["sym-vorbis", "dep:symphonia-adapter-opus-rs"] # Ogg Opus via the pure-Rust ruopus adapter
+sym-6 = ["sym-5", "sym-opus"]
+sym-4 = ["sym-mp3", "sym-vorbis", "sym-flac", "sym-wav"]
+sym-5 = ["sym-4", "sym-aac"]
+
+[dependencies]
+symphonia = { version = "0.6", default-features = false }
+
+symphonia-adapter-opus-rs = { version = "0.1", optional = true }
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+opt-level = 3

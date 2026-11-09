@@ -1,0 +1,11 @@
+endpoint id: {0.0.0.00000000}.{e7ab1582-689c-4b8a-8659-1d5042318b79}
+friendly name: Speakers (Realtek(R) Audio)
+device desc: Speakers
+adapter (DeviceInterface_FriendlyName): Realtek(R) Audio
+enumerator: HDAUDIO
+mix format: 48000 Hz, 2 ch, 32 bit, tag 0xfffe
+GetDevicePeriod: default 10.000 ms, min 3.000 ms
+exclusive 48k stereo float32: not supported (0x88890008)
+exclusive 48k stereo int16: SUPPORTED (0x00000000)
+exclusive 48k stereo int24-in-32: SUPPORTED (0x00000000)
+shared engine periods (frames): default 480 (10.00 ms), fundamental 480 (10.00 ms), min 480 (10.00 ms), max 480 (10.00 ms)

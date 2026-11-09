@@ -1,0 +1,36 @@
+[package]
+name = "decode-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["decode", "fx-std"]
+dec = ["dep:symphonia"]
+decode = ["dec", "dep:symphonia", "symphonia/mp3", "symphonia/flac", "symphonia/vorbis", "symphonia/ogg", "symphonia/wav", "symphonia/pcm", "symphonia/adpcm", "symphonia/mkv"]
+decode-min = ["dec", "dep:symphonia", "symphonia/mp3", "symphonia/wav", "symphonia/pcm"]
+# per-codec feature sets for the size table (each builds only that codec + its container)
+sym-mp3 = ["dec", "symphonia/mp3"]
+sym-vorbis = ["dec", "symphonia/vorbis", "symphonia/ogg"]
+sym-flac = ["dec", "symphonia/flac"]
+sym-wav = ["dec", "symphonia/wav", "symphonia/pcm"]
+sym-aac = ["dec", "symphonia/aac", "symphonia/isomp4"]
+sym-4 = ["sym-mp3", "sym-vorbis", "sym-flac", "sym-wav"]
+sym-5 = ["sym-4", "sym-aac"]
+fx = ["dep:fundsp"]
+fx-std = ["fx", "fundsp/std"]
+
+[dependencies]
+symphonia = { version = "0.5", default-features = false, optional = true }
+fundsp = { version = "0.23", default-features = false, optional = true }
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+opt-level = 3

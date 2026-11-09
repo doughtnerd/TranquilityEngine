@@ -1,0 +1,82 @@
+<!doctype html><meta charset="utf-8"><title>IPC spike</title>
+<pre id="out">running...</pre>
+<script>
+const { invoke, Channel } = window.__TAURI__.core;
+const out = document.getElementById('out');
+const log = (s) => { out.textContent += '\n' + s; };
+const pct = (a, p) => a[Math.min(a.length - 1, Math.floor(p * a.length))];
+function stats(arr) {
+  const a = Float64Array.from(arr).sort();
+  const mean = a.reduce((x, y) => x + y, 0) / a.length;
+  return { n: a.length, mean, p50: pct(a, .5), p95: pct(a, .95), p99: pct(a, .99), max: a[a.length - 1] };
+}
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+// rt = full round trip; sync = time for invoke() to return its promise (main-thread cost).
+async function timeCall(fn) {
+  const t0 = performance.now();
+  const p = fn();
+  const t1 = performance.now();
+  await p;
+  const t2 = performance.now();
+  return { rt: t2 - t0, sync: t1 - t0 };
+}
+async function bench(name, fn, iters, warm) {
+  for (let i = 0; i < warm; i++) await fn();
+  const rt = [], sy = [];
+  for (let i = 0; i < iters; i++) { const r = await timeCall(fn); rt.push(r.rt); sy.push(r.sync); }
+  log(name + ' p50=' + stats(rt).p50.toFixed(3));
+  return { roundTrip: stats(rt), mainThreadSync: stats(sy) };
+}
+async function main() {
+  const R = { userAgent: navigator.userAgent, results: {} };
+  const iters = 2000, warm = 300;
+  R.results.empty = await bench('empty', () => invoke('empty'), iters, warm);
+  for (const N of [512, 2048, 8192]) {
+    const f32 = new Float32Array(N); for (let i = 0; i < N; i++) f32[i] = Math.random();
+    const arr = Array.from(f32);
+    const bytes = new Uint8Array(f32.buffer);
+    R.results['json_' + N] = await bench('json ' + N, () => invoke('sum_json', { data: arr }), iters, warm);
+    R.results['raw_' + N] = await bench('raw ' + N, () => invoke('sum_raw', bytes), iters, warm);
+  }
+  R.results.rawResponse8k = await bench('resp 8k', async () => {
+    const r = await invoke('raw_response', { size: 8192 });
+    if (r.byteLength !== 8192) throw new Error('size ' + r.byteLength);
+  }, iters, warm);
+
+  // Paced channel: 60 Hz x 5 s x 8 KB
+  {
+    const times = []; let sz = 0;
+    const ch = new Channel();
+    ch.onmessage = (m) => { times.push(performance.now()); sz = m.byteLength; };
+    await invoke('stream_paced', { ch, hz: 60, count: 300, size: 8192 });
+    await sleep(5800);
+    const iv = []; for (let i = 1; i < times.length; i++) iv.push(times[i] - times[i - 1]);
+    const dev = iv.map(x => Math.abs(x - 1000 / 60));
+    R.results.channel60hz8k = { received: times.length, msgBytes: sz, intervalMs: stats(iv), absDeviationFromPeriodMs: stats(dev) };
+    log('channel60 received ' + times.length);
+  }
+  // Rate sweep: paced small (64 B) messages for 2 s; lag = arrival - scheduled send time.
+  R.results.channelRates = {};
+  for (const hz of [250, 500, 1000, 2000, 4000]) {
+    const count = hz * 2, lags = []; let recv = 0, t0 = 0, tEnd = 0;
+    const ch = new Channel();
+    const done = new Promise(res => {
+      ch.onmessage = () => { const now = performance.now(); lags.push(now - (t0 + recv * 1000 / hz)); recv++; tEnd = now; if (recv === count) res(); };
+    });
+    t0 = performance.now();
+    await invoke('stream_paced', { ch, hz, count, size: 64 });
+    await Promise.race([done, sleep(25000)]);
+    R.results.channelRates['hz' + hz] = { sent: count, received: recv, drainMs: tEnd - t0, lagMs: lags.length ? stats(lags) : null };
+    log('rate ' + hz + ' recv ' + recv + '/' + count + ' drain ' + (tEnd - t0).toFixed(0));
+    await sleep(500);
+  }
+  return R;
+}
+main().then(async (R) => {
+  await invoke('write_results', { json: JSON.stringify(R, null, 1) });
+  await invoke('quit');
+}).catch(async (e) => {
+  await invoke('write_results', { json: JSON.stringify({ error: String((e && e.stack) || e) }) });
+  await invoke('quit');
+});
+</script>

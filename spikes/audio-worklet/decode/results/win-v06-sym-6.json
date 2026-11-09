@@ -1,0 +1,504 @@
+{
+ "nodeFormats": {
+  "town.mp3": {
+   "supported": true,
+   "frames": 3631104,
+   "ch": 2,
+   "rate": 44100,
+   "seconds": 82.34,
+   "medianMs": 189.25,
+   "minMs": 187.05,
+   "xRealtime": 435
+  },
+  "town.ogg": {
+   "supported": true,
+   "frames": 3631104,
+   "ch": 2,
+   "rate": 44100,
+   "seconds": 82.34,
+   "medianMs": 133.58,
+   "minMs": 129.41,
+   "xRealtime": 616
+  },
+  "town.flac": {
+   "supported": true,
+   "frames": 3631104,
+   "ch": 2,
+   "rate": 44100,
+   "seconds": 82.34,
+   "medianMs": 104.17,
+   "minMs": 102.59,
+   "xRealtime": 790
+  },
+  "town.opus.ogg": {
+   "supported": true,
+   "frames": 3952223,
+   "ch": 2,
+   "rate": 48000,
+   "seconds": 82.34,
+   "medianMs": 336.75,
+   "minMs": 331.56,
+   "xRealtime": 245
+  },
+  "town.opus.webm": {
+   "supported": false
+  },
+  "town.m4a": {
+   "supported": true,
+   "frames": 3632128,
+   "ch": 2,
+   "rate": 44100,
+   "seconds": 82.36,
+   "medianMs": 111.34,
+   "minMs": 108.97,
+   "xRealtime": 740
+  }
+ },
+ "nodeStream": {
+  "town.mp3": {
+   "supported": true,
+   "rate": 44100,
+   "ch": 2,
+   "chunks": 887,
+   "packets": 3152,
+   "chunkBudgetMs": 92.9,
+   "p50Ms": 0.226,
+   "p99Ms": 0.36,
+   "maxMs": 1.709,
+   "seconds": 82.34,
+   "seek_coarse": {
+    "medianMs": 0.004,
+    "maxMs": 0.01,
+    "firstChunkMedianMs": 0.218,
+    "landedMinusRequestedMs": {
+     "median": -37.3,
+     "min": -51.8,
+     "max": -20.2
+    }
+   },
+   "seek_accurate": {
+    "medianMs": 0.002,
+    "maxMs": 0.004,
+    "firstChunkMedianMs": 0.216,
+    "landedMinusRequestedMs": {
+     "median": -39,
+     "min": -51.8,
+     "max": -28.8
+    }
+   }
+  },
+  "town.ogg": {
+   "supported": true,
+   "rate": 44100,
+   "ch": 2,
+   "chunks": 887,
+   "packets": 4341,
+   "chunkBudgetMs": 92.9,
+   "p50Ms": 0.137,
+   "p99Ms": 0.247,
+   "maxMs": 2.931,
+   "seconds": 82.34,
+   "seek_coarse": {
+    "medianMs": 0.163,
+    "maxMs": 0.255,
+    "firstChunkMedianMs": 0.173,
+    "landedMinusRequestedMs": {
+     "median": -34.4,
+     "min": -45.9,
+     "max": -5.7
+    }
+   },
+   "seek_accurate": {
+    "medianMs": 0.165,
+    "maxMs": 0.215,
+    "firstChunkMedianMs": 0.174,
+    "landedMinusRequestedMs": {
+     "median": -34.4,
+     "min": -45.9,
+     "max": -5.7
+    }
+   }
+  },
+  "town.flac": {
+   "supported": true,
+   "rate": 44100,
+   "ch": 2,
+   "chunks": 887,
+   "packets": 788,
+   "chunkBudgetMs": 92.9,
+   "p50Ms": 0.126,
+   "p99Ms": 0.233,
+   "maxMs": 1.557,
+   "seconds": 82.34,
+   "seek_coarse": {
+    "medianMs": 0.124,
+    "maxMs": 0.261,
+    "firstChunkMedianMs": 0.129,
+    "landedMinusRequestedMs": {
+     "median": -51.4,
+     "min": -102.9,
+     "max": -3.5
+    }
+   },
+   "seek_accurate": {
+    "medianMs": 0.096,
+    "maxMs": 0.143,
+    "firstChunkMedianMs": 0.13,
+    "landedMinusRequestedMs": {
+     "median": -51.4,
+     "min": -102.9,
+     "max": -3.5
+    }
+   }
+  },
+  "town.opus.ogg": {
+   "supported": true,
+   "rate": 48000,
+   "ch": 2,
+   "chunks": 965,
+   "packets": 4118,
+   "chunkBudgetMs": 85.3,
+   "p50Ms": 0.326,
+   "p99Ms": 0.586,
+   "maxMs": 2,
+   "seconds": 82.34,
+   "seek_coarse": {
+    "medianMs": 0.376,
+    "maxMs": 0.716,
+    "firstChunkMedianMs": 0.583,
+    "landedMinusRequestedMs": {
+     "median": -9,
+     "min": -19,
+     "max": -9
+    }
+   },
+   "seek_accurate": {
+    "medianMs": 0.312,
+    "maxMs": 0.467,
+    "firstChunkMedianMs": 0.562,
+    "landedMinusRequestedMs": {
+     "median": -9,
+     "min": -19,
+     "max": -9
+    }
+   }
+  },
+  "town.opus.webm": {
+   "supported": false
+  },
+  "town.m4a": {
+   "supported": true,
+   "rate": 44100,
+   "ch": 2,
+   "chunks": 887,
+   "packets": 3547,
+   "chunkBudgetMs": 92.9,
+   "p50Ms": 0.114,
+   "p99Ms": 0.207,
+   "maxMs": 1.58,
+   "seconds": 82.36,
+   "seek_coarse": {
+    "medianMs": 0.001,
+    "maxMs": 0.005,
+    "firstChunkMedianMs": 0.114,
+    "landedMinusRequestedMs": {
+     "median": -12,
+     "min": -23.1,
+     "max": -1
+    }
+   },
+   "seek_accurate": {
+    "medianMs": 0.001,
+    "maxMs": 0.001,
+    "firstChunkMedianMs": 0.111,
+    "landedMinusRequestedMs": {
+     "median": -12,
+     "min": -23.1,
+     "max": -1
+    }
+   }
+  }
+ },
+ "chromium": {
+  "formats": {
+   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.8078.4 Safari/537.36",
+   "crossOriginIsolated": true,
+   "wasmDecode": {
+    "town.mp3": {
+     "supported": true,
+     "frames": 3631104,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.34,
+     "medianMs": 194.34,
+     "minMs": 191.75,
+     "xRealtime": 424
+    },
+    "town.ogg": {
+     "supported": true,
+     "frames": 3631104,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.34,
+     "medianMs": 131.96,
+     "minMs": 130.47,
+     "xRealtime": 624
+    },
+    "town.flac": {
+     "supported": true,
+     "frames": 3631104,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.34,
+     "medianMs": 100.18,
+     "minMs": 98.67,
+     "xRealtime": 822
+    },
+    "town.opus.ogg": {
+     "supported": true,
+     "frames": 3952223,
+     "ch": 2,
+     "rate": 48000,
+     "seconds": 82.34,
+     "medianMs": 328.53,
+     "minMs": 322.84,
+     "xRealtime": 251
+    },
+    "town.opus.webm": {
+     "supported": false
+    },
+    "town.m4a": {
+     "supported": true,
+     "frames": 3632128,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.36,
+     "medianMs": 124.48,
+     "minMs": 110.98,
+     "xRealtime": 662
+    }
+   },
+   "wasmStream": {
+    "town.mp3": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 3152,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.23,
+     "p99Ms": 0.35,
+     "maxMs": 1.675,
+     "seconds": 82.34,
+     "seek_coarse": {
+      "medianMs": 0.005,
+      "maxMs": 0.015,
+      "firstChunkMedianMs": 0.225,
+      "landedMinusRequestedMs": {
+       "median": -37.3,
+       "min": -51.8,
+       "max": -20.2
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0,
+      "maxMs": 0.005,
+      "firstChunkMedianMs": 0.22,
+      "landedMinusRequestedMs": {
+       "median": -39,
+       "min": -51.8,
+       "max": -28.8
+      }
+     }
+    },
+    "town.ogg": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 4341,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.14,
+     "p99Ms": 0.255,
+     "maxMs": 2.19,
+     "seconds": 82.34,
+     "seek_coarse": {
+      "medianMs": 0.17,
+      "maxMs": 0.26,
+      "firstChunkMedianMs": 0.18,
+      "landedMinusRequestedMs": {
+       "median": -34.4,
+       "min": -45.9,
+       "max": -5.7
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0.17,
+      "maxMs": 0.52,
+      "firstChunkMedianMs": 0.18,
+      "landedMinusRequestedMs": {
+       "median": -34.4,
+       "min": -45.9,
+       "max": -5.7
+      }
+     }
+    },
+    "town.flac": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 788,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.12,
+     "p99Ms": 0.195,
+     "maxMs": 0.7,
+     "seconds": 82.34,
+     "seek_coarse": {
+      "medianMs": 0.105,
+      "maxMs": 0.24,
+      "firstChunkMedianMs": 0.125,
+      "landedMinusRequestedMs": {
+       "median": -51.4,
+       "min": -102.9,
+       "max": -3.5
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0.095,
+      "maxMs": 0.18,
+      "firstChunkMedianMs": 0.125,
+      "landedMinusRequestedMs": {
+       "median": -51.4,
+       "min": -102.9,
+       "max": -3.5
+      }
+     }
+    },
+    "town.opus.ogg": {
+     "supported": true,
+     "rate": 48000,
+     "ch": 2,
+     "chunks": 965,
+     "packets": 4118,
+     "chunkBudgetMs": 85.3,
+     "p50Ms": 0.32,
+     "p99Ms": 0.545,
+     "maxMs": 2.275,
+     "seconds": 82.34,
+     "seek_coarse": {
+      "medianMs": 0.275,
+      "maxMs": 0.595,
+      "firstChunkMedianMs": 0.395,
+      "landedMinusRequestedMs": {
+       "median": -9,
+       "min": -19,
+       "max": -9
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0.24,
+      "maxMs": 0.595,
+      "firstChunkMedianMs": 0.41,
+      "landedMinusRequestedMs": {
+       "median": -9,
+       "min": -19,
+       "max": -9
+      }
+     }
+    },
+    "town.opus.webm": {
+     "supported": false
+    },
+    "town.m4a": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 3547,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.115,
+     "p99Ms": 0.19,
+     "maxMs": 1.6,
+     "seconds": 82.36,
+     "seek_coarse": {
+      "medianMs": 0.005,
+      "maxMs": 0.005,
+      "firstChunkMedianMs": 0.12,
+      "landedMinusRequestedMs": {
+       "median": -12,
+       "min": -23.1,
+       "max": -1
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0,
+      "maxMs": 0.005,
+      "firstChunkMedianMs": 0.115,
+      "landedMinusRequestedMs": {
+       "median": -12,
+       "min": -23.1,
+       "max": -1
+      }
+     }
+    }
+   },
+   "decodeAudioData": {
+    "town.mp3": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 305.15,
+     "minMs": 301.57,
+     "xRealtime": 270
+    },
+    "town.ogg": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 282.95,
+     "minMs": 271.84,
+     "xRealtime": 291
+    },
+    "town.flac": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 251.11,
+     "minMs": 249.24,
+     "xRealtime": 328
+    },
+    "town.opus.ogg": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 262.48,
+     "minMs": 259.04,
+     "xRealtime": 314
+    },
+    "town.opus.webm": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 263.55,
+     "minMs": 261.23,
+     "xRealtime": 312
+    },
+    "town.m4a": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 281.87,
+     "minMs": 277.71,
+     "xRealtime": 292
+    }
+   }
+  }
+ }
+}

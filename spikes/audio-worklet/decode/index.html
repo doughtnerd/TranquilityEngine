@@ -1,0 +1,66 @@
+<!doctype html><meta charset="utf-8"><title>decode spike</title>
+<script type="module">
+import { load, benchDecode, benchFx, benchFormats, benchStream, median } from "./bench.js";
+const FILES = { "town.mp3": "/samples/flappy/music/town.mp3", "foo.mp3": "/samples/flappy/music/foo.mp3", "ocean_loop.wav": "/samples/pirates/audio/ocean_loop.wav" };
+const FIXTURES = ["town.mp3", "town.ogg", "town.flac", "town.opus.ogg", "town.opus.webm", "town.m4a"];
+// Formats/stream/decodeAudioData on the fixtures. wasm: name of wasm/*.wasm (no extension); skipWasm for browsers where only decodeAudioData matters.
+window.runFormats = async (wasmName = "sym-5") => {
+  const res = { ua: navigator.userAgent };
+  const files = {};
+  for (const n of FIXTURES) { const r = await fetch("/fixtures/" + n); if (r.ok) files[n] = new Uint8Array(await r.arrayBuffer()); }
+  res.crossOriginIsolated = self.crossOriginIsolated;
+  try {
+    const x = await load(new Uint8Array(await (await fetch(`/wasm/${wasmName}.wasm`)).arrayBuffer()));
+    res.wasmDecode = benchFormats(x, files, () => performance.now());
+    res.wasmStream = benchStream(x, files, () => performance.now());
+  } catch (e) { res.wasmError = String(e); }
+  const Ctx = self.OfflineAudioContext ?? self.webkitOfflineAudioContext;
+  res.decodeAudioData = {};
+  if (!Ctx) res.decodeAudioDataError = "no OfflineAudioContext";
+  else {
+    const ctx = new Ctx(2, 1, 48000);
+    for (const [n, b] of Object.entries(files)) {
+      const times = []; let dur = 0, rate = 0, ch = 0, err = null;
+      for (let i = 0; i < 10; i++) {
+        try {
+          const t0 = performance.now();
+          const buf = await new Promise((ok, no) => { const p = ctx.decodeAudioData(b.slice().buffer, ok, no); p?.then?.(ok, no); });
+          const t = performance.now() - t0;
+          if (i > 0) times.push(t);
+          dur = buf.duration; rate = buf.sampleRate; ch = buf.numberOfChannels;
+        } catch (e) { err = String(e?.message ?? e); break; }
+      }
+      res.decodeAudioData[n] = err ? { supported: false, error: err } : { supported: true, seconds: +dur.toFixed(2), ch, outRate: rate, medianMs: +median(times).toFixed(2), minMs: +Math.min(...times).toFixed(2), xRealtime: Math.round((dur * 1000) / median(times)) };
+    }
+  }
+  window.results = res;
+  return res;
+};
+window.run = async () => {
+  const res = {};
+  const wasm = new Uint8Array(await (await fetch("/wasm/all-o3.wasm")).arrayBuffer());
+  const files = {};
+  for (const [n, u] of Object.entries(FILES)) files[n] = new Uint8Array(await (await fetch(u)).arrayBuffer());
+  const x = await load(wasm);
+  res.wasmDecode = benchDecode(x, files, () => performance.now());
+  res.wasmFx = benchFx(x, () => performance.now());
+  // decodeAudioData on the same bytes (browser decodes on its own thread; we time the promise)
+  const ctx = new OfflineAudioContext(2, 1, 48000);
+  res.decodeAudioData = {};
+  for (const [n, b] of Object.entries(files)) {
+    const times = []; let dur = 0, rate = 0;
+    for (let i = 0; i < 10; i++) {
+      const copy = b.slice().buffer;
+      const t0 = performance.now();
+      const buf = await ctx.decodeAudioData(copy);
+      const t = performance.now() - t0;
+      if (i > 0) times.push(t);
+      dur = buf.duration; rate = buf.sampleRate;
+    }
+    const m = median(times);
+    res.decodeAudioData[n] = { seconds: +dur.toFixed(2), outRate: rate, medianMs: +m.toFixed(2), minMs: +Math.min(...times).toFixed(2), xRealtime: Math.round((dur * 1000) / m) };
+  }
+  res.done = true;
+  window.results = res;
+};
+</script>

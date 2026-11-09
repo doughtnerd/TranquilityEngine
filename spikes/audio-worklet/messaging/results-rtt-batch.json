@@ -1,0 +1,560 @@
+{
+ "date": "2026-11-09T15:16:43.064Z",
+ "chromium": "156.0.8078.4",
+ "seconds": 20,
+ "rtt": [
+  {
+   "isolated": false,
+   "kind": "ping",
+   "jank": false,
+   "rttMs": {
+    "n": 400,
+    "p50": 0.2,
+    "p95": 0.3,
+    "p99": 0.5,
+    "max": 3
+   },
+   "mainToWorkletQuanta": "needs isolation (frame SAB)"
+  },
+  {
+   "isolated": false,
+   "kind": "pingNext",
+   "jank": false,
+   "rttMs": {
+    "n": 400,
+    "p50": 4.3,
+    "p95": 4.9,
+    "p99": 6.2,
+    "max": 62.8
+   },
+   "mainToWorkletQuanta": "needs isolation (frame SAB)"
+  },
+  {
+   "isolated": false,
+   "kind": "ping",
+   "jank": true,
+   "rttMs": {
+    "n": 400,
+    "p50": 0.2,
+    "p95": 30.2,
+    "p99": 30.3,
+    "max": 30.9
+   },
+   "mainToWorkletQuanta": "needs isolation (frame SAB)"
+  },
+  {
+   "isolated": false,
+   "kind": "pingNext",
+   "jank": true,
+   "rttMs": {
+    "n": 400,
+    "p50": 8.2,
+    "p95": 30.2,
+    "p99": 30.4,
+    "max": 66
+   },
+   "mainToWorkletQuanta": "needs isolation (frame SAB)"
+  },
+  {
+   "isolated": true,
+   "kind": "ping",
+   "jank": false,
+   "rttMs": {
+    "n": 400,
+    "p50": 0.16,
+    "p95": 0.32,
+    "p99": 0.545,
+    "max": 1.05
+   },
+   "mainToWorkletQuanta": {
+    "n": 400,
+    "p50": 1,
+    "p95": 1,
+    "p99": 5,
+    "max": 5
+   }
+  },
+  {
+   "isolated": true,
+   "kind": "pingNext",
+   "jank": false,
+   "rttMs": {
+    "n": 400,
+    "p50": 4.495,
+    "p95": 9.61,
+    "p99": 10.22,
+    "max": 78.1
+   },
+   "mainToWorkletQuanta": {
+    "n": 400,
+    "p50": 1,
+    "p95": 1,
+    "p99": 1,
+    "max": 5
+   }
+  },
+  {
+   "isolated": true,
+   "kind": "ping",
+   "jank": true,
+   "rttMs": {
+    "n": 400,
+    "p50": 0.235,
+    "p95": 30.26,
+    "p99": 30.315,
+    "max": 30.44
+   },
+   "mainToWorkletQuanta": {
+    "n": 400,
+    "p50": 1,
+    "p95": 1,
+    "p99": 4,
+    "max": 5
+   }
+  },
+  {
+   "isolated": true,
+   "kind": "pingNext",
+   "jank": true,
+   "rttMs": {
+    "n": 400,
+    "p50": 8.205,
+    "p95": 30.22,
+    "p99": 30.33,
+    "max": 66.6
+   },
+   "mainToWorkletQuanta": {
+    "n": 400,
+    "p50": 1,
+    "p95": 1,
+    "p99": 4,
+    "max": 5
+   }
+  }
+ ],
+ "batch": [
+  {
+   "mode": "pm",
+   "N": 64,
+   "isolated": true,
+   "frames": 600,
+   "frameIntervalMs": {
+    "n": 599,
+    "p50": 16.665,
+    "p95": 19.845,
+    "p99": 27.7,
+    "max": 34.25
+   },
+   "mainCostMs": {
+    "n": 600,
+    "p50": 0.055,
+    "p95": 0.105,
+    "p99": 0.15,
+    "max": 1.66
+   },
+   "buildMs": {
+    "n": 600,
+    "p50": 0.015,
+    "p95": 0.035,
+    "p99": 0.065,
+    "max": 0.295
+   },
+   "postMessageMs": {
+    "n": 600,
+    "p50": 0.04,
+    "p95": 0.075,
+    "p99": 0.1,
+    "max": 1.555
+   },
+   "applyDelayQuanta": {
+    "n": 600,
+    "p50": 1,
+    "p95": 1,
+    "p99": 3,
+    "max": 5
+   },
+   "echoRoundTripMs": {
+    "n": 600,
+    "p50": 6.185,
+    "p95": 9.995,
+    "p99": 11.745,
+    "max": 68.675
+   },
+   "received": 600,
+   "dropped": 0,
+   "mainHeap": {
+    "available": true,
+    "bytesGrowthSummed": 1231840,
+    "gcDrops": 1,
+    "samples": 600
+   }
+  },
+  {
+   "mode": "ring",
+   "N": 64,
+   "isolated": true,
+   "frames": 600,
+   "frameIntervalMs": {
+    "n": 599,
+    "p50": 16.67,
+    "p95": 21.1,
+    "p99": 25.105,
+    "max": 28.4
+   },
+   "mainCostMs": {
+    "n": 600,
+    "p50": 0.005,
+    "p95": 0.035,
+    "p99": 0.055,
+    "max": 0.115
+   },
+   "applyDelayQuanta": {
+    "n": 595,
+    "p50": 1,
+    "p95": 1,
+    "p99": 1,
+    "max": 1
+   },
+   "received": 595,
+   "dropped": 0,
+   "mainHeap": {
+    "available": true,
+    "bytesGrowthSummed": 2049752,
+    "gcDrops": 2,
+    "samples": 600
+   }
+  },
+  {
+   "mode": "pm",
+   "N": 64,
+   "isolated": false,
+   "frames": 600,
+   "frameIntervalMs": {
+    "n": 599,
+    "p50": 16.7,
+    "p95": 19.7,
+    "p99": 25.7,
+    "max": 30.3
+   },
+   "mainCostMs": {
+    "n": 600,
+    "p50": 0.1,
+    "p95": 0.2,
+    "p99": 0.2,
+    "max": 0.3
+   },
+   "buildMs": {
+    "n": 600,
+    "p50": 0,
+    "p95": 0.1,
+    "p99": 0.1,
+    "max": 0.2
+   },
+   "postMessageMs": {
+    "n": 600,
+    "p50": 0,
+    "p95": 0.1,
+    "p99": 0.2,
+    "max": 0.2
+   },
+   "applyDelayQuanta": "needs isolation (frame SAB)",
+   "echoRoundTripMs": {
+    "n": 600,
+    "p50": 5.4,
+    "p95": 9.3,
+    "p99": 10,
+    "max": 72.4
+   },
+   "received": 600,
+   "dropped": 0,
+   "mainHeap": {
+    "available": true,
+    "bytesGrowthSummed": 1711828,
+    "gcDrops": 2,
+    "samples": 600
+   }
+  },
+  {
+   "mode": "pm",
+   "N": 256,
+   "isolated": true,
+   "frames": 600,
+   "frameIntervalMs": {
+    "n": 599,
+    "p50": 16.675,
+    "p95": 20.28,
+    "p99": 26.825,
+    "max": 31.295
+   },
+   "mainCostMs": {
+    "n": 600,
+    "p50": 0.1,
+    "p95": 0.14,
+    "p99": 0.245,
+    "max": 0.575
+   },
+   "buildMs": {
+    "n": 600,
+    "p50": 0.03,
+    "p95": 0.045,
+    "p99": 0.125,
+    "max": 0.495
+   },
+   "postMessageMs": {
+    "n": 600,
+    "p50": 0.065,
+    "p95": 0.09,
+    "p99": 0.14,
+    "max": 0.39
+   },
+   "applyDelayQuanta": {
+    "n": 600,
+    "p50": 1,
+    "p95": 1,
+    "p99": 5,
+    "max": 5
+   },
+   "echoRoundTripMs": {
+    "n": 600,
+    "p50": 6.3,
+    "p95": 10.09,
+    "p99": 11.495,
+    "max": 68.31
+   },
+   "received": 600,
+   "dropped": 0,
+   "mainHeap": {
+    "available": true,
+    "bytesGrowthSummed": 1433712,
+    "gcDrops": 2,
+    "samples": 600
+   }
+  },
+  {
+   "mode": "ring",
+   "N": 256,
+   "isolated": true,
+   "frames": 600,
+   "frameIntervalMs": {
+    "n": 599,
+    "p50": 16.71,
+    "p95": 20.885,
+    "p99": 26.885,
+    "max": 29.97
+   },
+   "mainCostMs": {
+    "n": 600,
+    "p50": 0.01,
+    "p95": 0.025,
+    "p99": 0.13,
+    "max": 0.35
+   },
+   "applyDelayQuanta": {
+    "n": 592,
+    "p50": 1,
+    "p95": 1,
+    "p99": 1,
+    "max": 1
+   },
+   "received": 592,
+   "dropped": 0,
+   "mainHeap": {
+    "available": true,
+    "bytesGrowthSummed": 1029108,
+    "gcDrops": 1,
+    "samples": 600
+   }
+  },
+  {
+   "mode": "pm",
+   "N": 256,
+   "isolated": false,
+   "frames": 600,
+   "frameIntervalMs": {
+    "n": 599,
+    "p50": 16.7,
+    "p95": 20.2,
+    "p99": 24.2,
+    "max": 27
+   },
+   "mainCostMs": {
+    "n": 600,
+    "p50": 0.1,
+    "p95": 0.2,
+    "p99": 0.3,
+    "max": 1.5
+   },
+   "buildMs": {
+    "n": 600,
+    "p50": 0,
+    "p95": 0.1,
+    "p99": 0.2,
+    "max": 0.3
+   },
+   "postMessageMs": {
+    "n": 600,
+    "p50": 0,
+    "p95": 0.1,
+    "p99": 0.2,
+    "max": 1.5
+   },
+   "applyDelayQuanta": "needs isolation (frame SAB)",
+   "echoRoundTripMs": {
+    "n": 600,
+    "p50": 5.1,
+    "p95": 9.2,
+    "p99": 12.4,
+    "max": 69.7
+   },
+   "received": 600,
+   "dropped": 0,
+   "mainHeap": {
+    "available": true,
+    "bytesGrowthSummed": 1427888,
+    "gcDrops": 2,
+    "samples": 600
+   }
+  },
+  {
+   "mode": "pm",
+   "N": 1024,
+   "isolated": true,
+   "frames": 600,
+   "frameIntervalMs": {
+    "n": 599,
+    "p50": 16.655,
+    "p95": 20.785,
+    "p99": 26.27,
+    "max": 76.79
+   },
+   "mainCostMs": {
+    "n": 600,
+    "p50": 0.1,
+    "p95": 0.165,
+    "p99": 0.625,
+    "max": 3.05
+   },
+   "buildMs": {
+    "n": 600,
+    "p50": 0.05,
+    "p95": 0.08,
+    "p99": 0.265,
+    "max": 1.46
+   },
+   "postMessageMs": {
+    "n": 600,
+    "p50": 0.05,
+    "p95": 0.085,
+    "p99": 0.165,
+    "max": 2.995
+   },
+   "applyDelayQuanta": {
+    "n": 600,
+    "p50": 1,
+    "p95": 1,
+    "p99": 1,
+    "max": 5
+   },
+   "echoRoundTripMs": {
+    "n": 600,
+    "p50": 5.985,
+    "p95": 9.985,
+    "p99": 12.8,
+    "max": 73.56
+   },
+   "received": 600,
+   "dropped": 0,
+   "mainHeap": {
+    "available": true,
+    "bytesGrowthSummed": 1789248,
+    "gcDrops": 2,
+    "samples": 600
+   }
+  },
+  {
+   "mode": "ring",
+   "N": 1024,
+   "isolated": true,
+   "frames": 600,
+   "frameIntervalMs": {
+    "n": 599,
+    "p50": 16.65,
+    "p95": 18.035,
+    "p99": 21.42,
+    "max": 27.27
+   },
+   "mainCostMs": {
+    "n": 600,
+    "p50": 0.015,
+    "p95": 0.045,
+    "p99": 0.34,
+    "max": 1.3
+   },
+   "applyDelayQuanta": {
+    "n": 594,
+    "p50": 1,
+    "p95": 1,
+    "p99": 1,
+    "max": 1
+   },
+   "received": 594,
+   "dropped": 0,
+   "mainHeap": {
+    "available": true,
+    "bytesGrowthSummed": 1398872,
+    "gcDrops": 2,
+    "samples": 600
+   }
+  },
+  {
+   "mode": "pm",
+   "N": 1024,
+   "isolated": false,
+   "frames": 600,
+   "frameIntervalMs": {
+    "n": 599,
+    "p50": 16.7,
+    "p95": 18.1,
+    "p99": 18.8,
+    "max": 20
+   },
+   "mainCostMs": {
+    "n": 600,
+    "p50": 0.1,
+    "p95": 0.2,
+    "p99": 0.3,
+    "max": 1
+   },
+   "buildMs": {
+    "n": 600,
+    "p50": 0,
+    "p95": 0.1,
+    "p99": 0.2,
+    "max": 0.9
+   },
+   "postMessageMs": {
+    "n": 600,
+    "p50": 0,
+    "p95": 0.2,
+    "p99": 0.2,
+    "max": 0.2
+   },
+   "applyDelayQuanta": "needs isolation (frame SAB)",
+   "echoRoundTripMs": {
+    "n": 600,
+    "p50": 5,
+    "p95": 9,
+    "p99": 10.6,
+    "max": 72.9
+   },
+   "received": 600,
+   "dropped": 0,
+   "mainHeap": {
+    "available": true,
+    "bytesGrowthSummed": 1790076,
+    "gcDrops": 2,
+    "samples": 600
+   }
+  }
+ ]
+}

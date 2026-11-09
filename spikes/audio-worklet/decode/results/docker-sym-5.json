@@ -1,0 +1,740 @@
+{
+ "chromium": {
+  "formats": {
+   "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.8078.80 Safari/537.36",
+   "crossOriginIsolated": true,
+   "wasmDecode": {
+    "town.mp3": {
+     "supported": true,
+     "frames": 3631104,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.34,
+     "medianMs": 200.17,
+     "minMs": 195.92,
+     "xRealtime": 411
+    },
+    "town.ogg": {
+     "supported": true,
+     "frames": 3631936,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.36,
+     "medianMs": 149.29,
+     "minMs": 146.21,
+     "xRealtime": 552
+    },
+    "town.flac": {
+     "supported": true,
+     "frames": 3631104,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.34,
+     "medianMs": 105.29,
+     "minMs": 104.11,
+     "xRealtime": 782
+    },
+    "town.opus.ogg": {
+     "supported": false
+    },
+    "town.opus.webm": {
+     "supported": false
+    },
+    "town.m4a": {
+     "supported": true,
+     "frames": 3632128,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.36,
+     "medianMs": 116.78,
+     "minMs": 113.94,
+     "xRealtime": 705
+    }
+   },
+   "wasmStream": {
+    "town.mp3": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 3152,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.23,
+     "p99Ms": 0.4,
+     "maxMs": 1.66,
+     "seconds": 82.34,
+     "seek_coarse": {
+      "medianMs": 0.005,
+      "maxMs": 0.01,
+      "firstChunkMedianMs": 0.225,
+      "landedMinusRequestedMs": {
+       "median": -37.3,
+       "min": -51.8,
+       "max": -20.2
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0,
+      "maxMs": 0.01,
+      "firstChunkMedianMs": 0.225,
+      "landedMinusRequestedMs": {
+       "median": -39,
+       "min": -51.8,
+       "max": -28.8
+      }
+     }
+    },
+    "town.ogg": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 4341,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.155,
+     "p99Ms": 0.34,
+     "maxMs": 1.73,
+     "seconds": 82.36,
+     "seek_coarse": {
+      "medianMs": 0.165,
+      "maxMs": 0.26,
+      "firstChunkMedianMs": 0.19,
+      "landedMinusRequestedMs": {
+       "median": -10.5,
+       "min": -23.2,
+       "max": -1
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0.225,
+      "maxMs": 0.385,
+      "firstChunkMedianMs": 0.275,
+      "landedMinusRequestedMs": {
+       "median": -10.5,
+       "min": -23.2,
+       "max": -1
+      }
+     }
+    },
+    "town.flac": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 788,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.125,
+     "p99Ms": 0.23,
+     "maxMs": 1.75,
+     "seconds": 82.34,
+     "seek_coarse": {
+      "medianMs": 0.11,
+      "maxMs": 0.295,
+      "firstChunkMedianMs": 0.13,
+      "landedMinusRequestedMs": {
+       "median": -51.4,
+       "min": -102.9,
+       "max": -3.5
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0.1,
+      "maxMs": 0.155,
+      "firstChunkMedianMs": 0.13,
+      "landedMinusRequestedMs": {
+       "median": -51.4,
+       "min": -102.9,
+       "max": -3.5
+      }
+     }
+    },
+    "town.opus.ogg": {
+     "supported": false
+    },
+    "town.opus.webm": {
+     "supported": false
+    },
+    "town.m4a": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 3547,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.125,
+     "p99Ms": 0.415,
+     "maxMs": 3.625,
+     "seconds": 82.36,
+     "seek_coarse": {
+      "medianMs": 0,
+      "maxMs": 0.01,
+      "firstChunkMedianMs": 0.125,
+      "landedMinusRequestedMs": {
+       "median": -12,
+       "min": -23.1,
+       "max": -1
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0,
+      "maxMs": 0.005,
+      "firstChunkMedianMs": 0.12,
+      "landedMinusRequestedMs": {
+       "median": -12,
+       "min": -23.1,
+       "max": -1
+      }
+     }
+    }
+   },
+   "decodeAudioData": {
+    "town.mp3": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 413.57,
+     "minMs": 380.01,
+     "xRealtime": 199
+    },
+    "town.ogg": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 373.92,
+     "minMs": 367.49,
+     "xRealtime": 220
+    },
+    "town.flac": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 306.64,
+     "minMs": 300.95,
+     "xRealtime": 269
+    },
+    "town.opus.ogg": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 365.21,
+     "minMs": 343.16,
+     "xRealtime": 225
+    },
+    "town.opus.webm": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 376.98,
+     "minMs": 368.94,
+     "xRealtime": 218
+    },
+    "town.m4a": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 408.23,
+     "minMs": 384.69,
+     "xRealtime": 202
+    }
+   }
+  }
+ },
+ "webkit": {
+  "formats": {
+   "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Safari/605.1.15",
+   "crossOriginIsolated": true,
+   "wasmDecode": {
+    "town.mp3": {
+     "supported": true,
+     "frames": 3631104,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.34,
+     "medianMs": 231.08,
+     "minMs": 228.16,
+     "xRealtime": 356
+    },
+    "town.ogg": {
+     "supported": true,
+     "frames": 3631936,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.36,
+     "medianMs": 164.98,
+     "minMs": 160.92,
+     "xRealtime": 499
+    },
+    "town.flac": {
+     "supported": true,
+     "frames": 3631104,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.34,
+     "medianMs": 96.02,
+     "minMs": 95.12,
+     "xRealtime": 858
+    },
+    "town.opus.ogg": {
+     "supported": false
+    },
+    "town.opus.webm": {
+     "supported": false
+    },
+    "town.m4a": {
+     "supported": true,
+     "frames": 3632128,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.36,
+     "medianMs": 136.1,
+     "minMs": 121.6,
+     "xRealtime": 605
+    }
+   },
+   "wasmStream": {
+    "town.mp3": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 3152,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.26,
+     "p99Ms": 0.54,
+     "maxMs": 2.12,
+     "seconds": 82.34,
+     "seek_coarse": {
+      "medianMs": 0.02,
+      "maxMs": 0.5,
+      "firstChunkMedianMs": 0.32,
+      "landedMinusRequestedMs": {
+       "median": -37.3,
+       "min": -51.8,
+       "max": -20.2
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0,
+      "maxMs": 0.02,
+      "firstChunkMedianMs": 0.26,
+      "landedMinusRequestedMs": {
+       "median": -39,
+       "min": -51.8,
+       "max": -28.8
+      }
+     }
+    },
+    "town.ogg": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 4341,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.16,
+     "p99Ms": 0.32,
+     "maxMs": 0.7,
+     "seconds": 82.36,
+     "seek_coarse": {
+      "medianMs": 0.14,
+      "maxMs": 0.48,
+      "firstChunkMedianMs": 0.22,
+      "landedMinusRequestedMs": {
+       "median": -10.5,
+       "min": -23.2,
+       "max": -1
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0.14,
+      "maxMs": 0.18,
+      "firstChunkMedianMs": 0.2,
+      "landedMinusRequestedMs": {
+       "median": -10.5,
+       "min": -23.2,
+       "max": -1
+      }
+     }
+    },
+    "town.flac": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 788,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.12,
+     "p99Ms": 0.18,
+     "maxMs": 4.32,
+     "seconds": 82.34,
+     "seek_coarse": {
+      "medianMs": 0.2,
+      "maxMs": 0.42,
+      "firstChunkMedianMs": 0.12,
+      "landedMinusRequestedMs": {
+       "median": -51.4,
+       "min": -102.9,
+       "max": -3.5
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0.08,
+      "maxMs": 0.16,
+      "firstChunkMedianMs": 0.12,
+      "landedMinusRequestedMs": {
+       "median": -51.4,
+       "min": -102.9,
+       "max": -3.5
+      }
+     }
+    },
+    "town.opus.ogg": {
+     "supported": false
+    },
+    "town.opus.webm": {
+     "supported": false
+    },
+    "town.m4a": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 3547,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.14,
+     "p99Ms": 0.26,
+     "maxMs": 1.88,
+     "seconds": 82.36,
+     "seek_coarse": {
+      "medianMs": 0,
+      "maxMs": 0.34,
+      "firstChunkMedianMs": 0.14,
+      "landedMinusRequestedMs": {
+       "median": -12,
+       "min": -23.1,
+       "max": -1
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0,
+      "maxMs": 0.02,
+      "firstChunkMedianMs": 0.14,
+      "landedMinusRequestedMs": {
+       "median": -12,
+       "min": -23.1,
+       "max": -1
+      }
+     }
+    }
+   },
+   "decodeAudioData": {
+    "town.mp3": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 378.96,
+     "minMs": 367.9,
+     "xRealtime": 217
+    },
+    "town.ogg": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 760.4,
+     "minMs": 749.24,
+     "xRealtime": 108
+    },
+    "town.flac": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 290.24,
+     "minMs": 281.82,
+     "xRealtime": 284
+    },
+    "town.opus.ogg": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 774.02,
+     "minMs": 765.16,
+     "xRealtime": 106
+    },
+    "town.opus.webm": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 777.14,
+     "minMs": 757.3,
+     "xRealtime": 106
+    },
+    "town.m4a": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 637.98,
+     "minMs": 627,
+     "xRealtime": 129
+    }
+   }
+  }
+ },
+ "firefox": {
+  "formats": {
+   "ua": "Mozilla/5.0 (X11; Linux x86_64; rv:157.0) Gecko/20100101 Firefox/157.0",
+   "crossOriginIsolated": true,
+   "wasmDecode": {
+    "town.mp3": {
+     "supported": true,
+     "frames": 3631104,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.34,
+     "medianMs": 226.4,
+     "minMs": 222.84,
+     "xRealtime": 364
+    },
+    "town.ogg": {
+     "supported": true,
+     "frames": 3631936,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.36,
+     "medianMs": 156.8,
+     "minMs": 151.82,
+     "xRealtime": 525
+    },
+    "town.flac": {
+     "supported": true,
+     "frames": 3631104,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.34,
+     "medianMs": 114.08,
+     "minMs": 112.72,
+     "xRealtime": 722
+    },
+    "town.opus.ogg": {
+     "supported": false
+    },
+    "town.opus.webm": {
+     "supported": false
+    },
+    "town.m4a": {
+     "supported": true,
+     "frames": 3632128,
+     "ch": 2,
+     "rate": 44100,
+     "seconds": 82.36,
+     "medianMs": 124.84,
+     "minMs": 122.86,
+     "xRealtime": 660
+    }
+   },
+   "wasmStream": {
+    "town.mp3": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 3152,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.28,
+     "p99Ms": 0.7,
+     "maxMs": 4.02,
+     "seconds": 82.34,
+     "seek_coarse": {
+      "medianMs": 0,
+      "maxMs": 0.02,
+      "firstChunkMedianMs": 0.26,
+      "landedMinusRequestedMs": {
+       "median": -37.3,
+       "min": -51.8,
+       "max": -20.2
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0,
+      "maxMs": 0.02,
+      "firstChunkMedianMs": 0.26,
+      "landedMinusRequestedMs": {
+       "median": -39,
+       "min": -51.8,
+       "max": -28.8
+      }
+     }
+    },
+    "town.ogg": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 4341,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.16,
+     "p99Ms": 0.34,
+     "maxMs": 1.64,
+     "seconds": 82.36,
+     "seek_coarse": {
+      "medianMs": 0.18,
+      "maxMs": 0.3,
+      "firstChunkMedianMs": 0.22,
+      "landedMinusRequestedMs": {
+       "median": -10.5,
+       "min": -23.2,
+       "max": -1
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0.18,
+      "maxMs": 0.42,
+      "firstChunkMedianMs": 0.24,
+      "landedMinusRequestedMs": {
+       "median": -10.5,
+       "min": -23.2,
+       "max": -1
+      }
+     }
+    },
+    "town.flac": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 788,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.14,
+     "p99Ms": 0.26,
+     "maxMs": 1.62,
+     "seconds": 82.34,
+     "seek_coarse": {
+      "medianMs": 0.14,
+      "maxMs": 0.24,
+      "firstChunkMedianMs": 0.14,
+      "landedMinusRequestedMs": {
+       "median": -51.4,
+       "min": -102.9,
+       "max": -3.5
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0.12,
+      "maxMs": 0.2,
+      "firstChunkMedianMs": 0.14,
+      "landedMinusRequestedMs": {
+       "median": -51.4,
+       "min": -102.9,
+       "max": -3.5
+      }
+     }
+    },
+    "town.opus.ogg": {
+     "supported": false
+    },
+    "town.opus.webm": {
+     "supported": false
+    },
+    "town.m4a": {
+     "supported": true,
+     "rate": 44100,
+     "ch": 2,
+     "chunks": 887,
+     "packets": 3547,
+     "chunkBudgetMs": 92.9,
+     "p50Ms": 0.12,
+     "p99Ms": 0.24,
+     "maxMs": 2.02,
+     "seconds": 82.36,
+     "seek_coarse": {
+      "medianMs": 0,
+      "maxMs": 0.02,
+      "firstChunkMedianMs": 0.12,
+      "landedMinusRequestedMs": {
+       "median": -12,
+       "min": -23.1,
+       "max": -1
+      }
+     },
+     "seek_accurate": {
+      "medianMs": 0,
+      "maxMs": 0.02,
+      "firstChunkMedianMs": 0.12,
+      "landedMinusRequestedMs": {
+       "median": -12,
+       "min": -23.1,
+       "max": -1
+      }
+     }
+    }
+   },
+   "decodeAudioData": {
+    "town.mp3": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 1063.76,
+     "minMs": 1029.84,
+     "xRealtime": 77
+    },
+    "town.ogg": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 1297.88,
+     "minMs": 1271.5,
+     "xRealtime": 63
+    },
+    "town.flac": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 518.92,
+     "minMs": 499.42,
+     "xRealtime": 159
+    },
+    "town.opus.ogg": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 1202.52,
+     "minMs": 1187.16,
+     "xRealtime": 68
+    },
+    "town.opus.webm": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 1220.26,
+     "minMs": 1170.96,
+     "xRealtime": 67
+    },
+    "town.m4a": {
+     "supported": true,
+     "seconds": 82.34,
+     "ch": 2,
+     "outRate": 48000,
+     "medianMs": 995.82,
+     "minMs": 960.12,
+     "xRealtime": 83
+    }
+   }
+  }
+ }
+}

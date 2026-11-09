@@ -1,0 +1,5 @@
+target/
+*.log
+target-simd/
+wasm/
+fixtures/

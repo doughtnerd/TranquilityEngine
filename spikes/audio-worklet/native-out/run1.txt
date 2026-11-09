@@ -1,0 +1,166 @@
+host: Wasapi
+device: Speakers (Realtek(R) Audio) (driver Some("Realtek(R) Audio"), interface Spdif, type Speaker)
+default config: 48000 Hz, 2 ch, F32, buffer Range { min: 480, max: 480 }
+  supported: 8000-8000 Hz, 2 ch, U8, buffer Range { min: 80, max: 80 }
+  supported: 8000-8000 Hz, 2 ch, I16, buffer Range { min: 80, max: 80 }
+  supported: 8000-8000 Hz, 2 ch, I24, buffer Range { min: 80, max: 80 }
+  supported: 8000-8000 Hz, 2 ch, I32, buffer Range { min: 80, max: 80 }
+  supported: 8000-8000 Hz, 2 ch, I64, buffer Range { min: 80, max: 80 }
+  supported: 8000-8000 Hz, 2 ch, F32, buffer Range { min: 80, max: 80 }
+  supported: 8000-8000 Hz, 2 ch, F64, buffer Range { min: 80, max: 80 }
+  supported: 11025-11025 Hz, 2 ch, U8, buffer Range { min: 110, max: 110 }
+  supported: 11025-11025 Hz, 2 ch, I16, buffer Range { min: 110, max: 110 }
+  supported: 11025-11025 Hz, 2 ch, I24, buffer Range { min: 110, max: 110 }
+  supported: 11025-11025 Hz, 2 ch, I32, buffer Range { min: 110, max: 110 }
+  supported: 11025-11025 Hz, 2 ch, I64, buffer Range { min: 110, max: 110 }
+  supported: 11025-11025 Hz, 2 ch, F32, buffer Range { min: 110, max: 110 }
+  supported: 11025-11025 Hz, 2 ch, F64, buffer Range { min: 110, max: 110 }
+  supported: 12000-12000 Hz, 2 ch, U8, buffer Range { min: 120, max: 120 }
+  supported: 12000-12000 Hz, 2 ch, I16, buffer Range { min: 120, max: 120 }
+  supported: 12000-12000 Hz, 2 ch, I24, buffer Range { min: 120, max: 120 }
+  supported: 12000-12000 Hz, 2 ch, I32, buffer Range { min: 120, max: 120 }
+  supported: 12000-12000 Hz, 2 ch, I64, buffer Range { min: 120, max: 120 }
+  supported: 12000-12000 Hz, 2 ch, F32, buffer Range { min: 120, max: 120 }
+  supported: 12000-12000 Hz, 2 ch, F64, buffer Range { min: 120, max: 120 }
+  supported: 16000-16000 Hz, 2 ch, U8, buffer Range { min: 160, max: 160 }
+  supported: 16000-16000 Hz, 2 ch, I16, buffer Range { min: 160, max: 160 }
+  supported: 16000-16000 Hz, 2 ch, I24, buffer Range { min: 160, max: 160 }
+  supported: 16000-16000 Hz, 2 ch, I32, buffer Range { min: 160, max: 160 }
+  supported: 16000-16000 Hz, 2 ch, I64, buffer Range { min: 160, max: 160 }
+  supported: 16000-16000 Hz, 2 ch, F32, buffer Range { min: 160, max: 160 }
+  supported: 16000-16000 Hz, 2 ch, F64, buffer Range { min: 160, max: 160 }
+  supported: 22050-22050 Hz, 2 ch, U8, buffer Range { min: 221, max: 221 }
+  supported: 22050-22050 Hz, 2 ch, I16, buffer Range { min: 221, max: 221 }
+  supported: 22050-22050 Hz, 2 ch, I24, buffer Range { min: 221, max: 221 }
+  supported: 22050-22050 Hz, 2 ch, I32, buffer Range { min: 221, max: 221 }
+  supported: 22050-22050 Hz, 2 ch, I64, buffer Range { min: 221, max: 221 }
+  supported: 22050-22050 Hz, 2 ch, F32, buffer Range { min: 221, max: 221 }
+  supported: 22050-22050 Hz, 2 ch, F64, buffer Range { min: 221, max: 221 }
+  supported: 24000-24000 Hz, 2 ch, U8, buffer Range { min: 240, max: 240 }
+  supported: 24000-24000 Hz, 2 ch, I16, buffer Range { min: 240, max: 240 }
+  supported: 24000-24000 Hz, 2 ch, I24, buffer Range { min: 240, max: 240 }
+  supported: 24000-24000 Hz, 2 ch, I32, buffer Range { min: 240, max: 240 }
+  supported: 24000-24000 Hz, 2 ch, I64, buffer Range { min: 240, max: 240 }
+  supported: 24000-24000 Hz, 2 ch, F32, buffer Range { min: 240, max: 240 }
+  supported: 24000-24000 Hz, 2 ch, F64, buffer Range { min: 240, max: 240 }
+  supported: 32000-32000 Hz, 2 ch, U8, buffer Range { min: 320, max: 320 }
+  supported: 32000-32000 Hz, 2 ch, I16, buffer Range { min: 320, max: 320 }
+  supported: 32000-32000 Hz, 2 ch, I24, buffer Range { min: 320, max: 320 }
+  supported: 32000-32000 Hz, 2 ch, I32, buffer Range { min: 320, max: 320 }
+  supported: 32000-32000 Hz, 2 ch, I64, buffer Range { min: 320, max: 320 }
+  supported: 32000-32000 Hz, 2 ch, F32, buffer Range { min: 320, max: 320 }
+  supported: 32000-32000 Hz, 2 ch, F64, buffer Range { min: 320, max: 320 }
+  supported: 44100-44100 Hz, 2 ch, U8, buffer Range { min: 441, max: 441 }
+  supported: 44100-44100 Hz, 2 ch, I16, buffer Range { min: 441, max: 441 }
+  supported: 44100-44100 Hz, 2 ch, I24, buffer Range { min: 441, max: 441 }
+  supported: 44100-44100 Hz, 2 ch, I32, buffer Range { min: 441, max: 441 }
+  supported: 44100-44100 Hz, 2 ch, I64, buffer Range { min: 441, max: 441 }
+  supported: 44100-44100 Hz, 2 ch, F32, buffer Range { min: 441, max: 441 }
+  supported: 44100-44100 Hz, 2 ch, F64, buffer Range { min: 441, max: 441 }
+  supported: 48000-48000 Hz, 2 ch, U8, buffer Range { min: 480, max: 480 }
+  supported: 48000-48000 Hz, 2 ch, I16, buffer Range { min: 480, max: 480 }
+  supported: 48000-48000 Hz, 2 ch, I24, buffer Range { min: 480, max: 480 }
+  supported: 48000-48000 Hz, 2 ch, I32, buffer Range { min: 480, max: 480 }
+  supported: 48000-48000 Hz, 2 ch, I64, buffer Range { min: 480, max: 480 }
+  supported: 48000-48000 Hz, 2 ch, F32, buffer Range { min: 480, max: 480 }
+  supported: 48000-48000 Hz, 2 ch, F64, buffer Range { min: 480, max: 480 }
+  supported: 64000-64000 Hz, 2 ch, U8, buffer Range { min: 640, max: 640 }
+  supported: 64000-64000 Hz, 2 ch, I16, buffer Range { min: 640, max: 640 }
+  supported: 64000-64000 Hz, 2 ch, I24, buffer Range { min: 640, max: 640 }
+  supported: 64000-64000 Hz, 2 ch, I32, buffer Range { min: 640, max: 640 }
+  supported: 64000-64000 Hz, 2 ch, I64, buffer Range { min: 640, max: 640 }
+  supported: 64000-64000 Hz, 2 ch, F32, buffer Range { min: 640, max: 640 }
+  supported: 64000-64000 Hz, 2 ch, F64, buffer Range { min: 640, max: 640 }
+  supported: 88200-88200 Hz, 2 ch, U8, buffer Range { min: 882, max: 882 }
+  supported: 88200-88200 Hz, 2 ch, I16, buffer Range { min: 882, max: 882 }
+  supported: 88200-88200 Hz, 2 ch, I24, buffer Range { min: 882, max: 882 }
+  supported: 88200-88200 Hz, 2 ch, I32, buffer Range { min: 882, max: 882 }
+  supported: 88200-88200 Hz, 2 ch, I64, buffer Range { min: 882, max: 882 }
+  supported: 88200-88200 Hz, 2 ch, F32, buffer Range { min: 882, max: 882 }
+  supported: 88200-88200 Hz, 2 ch, F64, buffer Range { min: 882, max: 882 }
+  supported: 96000-96000 Hz, 2 ch, U8, buffer Range { min: 960, max: 960 }
+  supported: 96000-96000 Hz, 2 ch, I16, buffer Range { min: 960, max: 960 }
+  supported: 96000-96000 Hz, 2 ch, I24, buffer Range { min: 960, max: 960 }
+  supported: 96000-96000 Hz, 2 ch, I32, buffer Range { min: 960, max: 960 }
+  supported: 96000-96000 Hz, 2 ch, I64, buffer Range { min: 960, max: 960 }
+  supported: 96000-96000 Hz, 2 ch, F32, buffer Range { min: 960, max: 960 }
+  supported: 96000-96000 Hz, 2 ch, F64, buffer Range { min: 960, max: 960 }
+  supported: 176400-176400 Hz, 2 ch, U8, buffer Range { min: 1764, max: 1764 }
+  supported: 176400-176400 Hz, 2 ch, I16, buffer Range { min: 1764, max: 1764 }
+  supported: 176400-176400 Hz, 2 ch, I24, buffer Range { min: 1764, max: 1764 }
+  supported: 176400-176400 Hz, 2 ch, I32, buffer Range { min: 1764, max: 1764 }
+  supported: 176400-176400 Hz, 2 ch, I64, buffer Range { min: 1764, max: 1764 }
+  supported: 176400-176400 Hz, 2 ch, F32, buffer Range { min: 1764, max: 1764 }
+  supported: 176400-176400 Hz, 2 ch, F64, buffer Range { min: 1764, max: 1764 }
+  supported: 192000-192000 Hz, 2 ch, U8, buffer Range { min: 1920, max: 1920 }
+  supported: 192000-192000 Hz, 2 ch, I16, buffer Range { min: 1920, max: 1920 }
+  supported: 192000-192000 Hz, 2 ch, I24, buffer Range { min: 1920, max: 1920 }
+  supported: 192000-192000 Hz, 2 ch, I32, buffer Range { min: 1920, max: 1920 }
+  supported: 192000-192000 Hz, 2 ch, I64, buffer Range { min: 1920, max: 1920 }
+  supported: 192000-192000 Hz, 2 ch, F32, buffer Range { min: 1920, max: 1920 }
+  supported: 192000-192000 Hz, 2 ch, F64, buffer Range { min: 1920, max: 1920 }
+  supported: 352800-352800 Hz, 2 ch, U8, buffer Range { min: 3528, max: 3528 }
+  supported: 352800-352800 Hz, 2 ch, I16, buffer Range { min: 3528, max: 3528 }
+  supported: 352800-352800 Hz, 2 ch, I24, buffer Range { min: 3528, max: 3528 }
+  supported: 352800-352800 Hz, 2 ch, I32, buffer Range { min: 3528, max: 3528 }
+  supported: 352800-352800 Hz, 2 ch, I64, buffer Range { min: 3528, max: 3528 }
+  supported: 352800-352800 Hz, 2 ch, F32, buffer Range { min: 3528, max: 3528 }
+  supported: 352800-352800 Hz, 2 ch, F64, buffer Range { min: 3528, max: 3528 }
+  supported: 384000-384000 Hz, 2 ch, U8, buffer Range { min: 3840, max: 3840 }
+  supported: 384000-384000 Hz, 2 ch, I16, buffer Range { min: 3840, max: 3840 }
+  supported: 384000-384000 Hz, 2 ch, I24, buffer Range { min: 3840, max: 3840 }
+  supported: 384000-384000 Hz, 2 ch, I32, buffer Range { min: 3840, max: 3840 }
+  supported: 384000-384000 Hz, 2 ch, I64, buffer Range { min: 3840, max: 3840 }
+  supported: 384000-384000 Hz, 2 ch, F32, buffer Range { min: 3840, max: 3840 }
+  supported: 384000-384000 Hz, 2 ch, F64, buffer Range { min: 3840, max: 3840 }
+buffer range: 480..480 frames
+RESULT Default voices=256: callbacks=296 frames_hist={480: 296} mean_period=10000us
+   interval us (mean 10001): p50=10005 p95=10212 p99=11627 max=13453 min=6577
+   jitter |interval-mean| us: p95=913 p99=3295 max=3453
+   playback-callback latency ms: p50=31.94 p95=32.15 min=28.46 max=33.98
+   callback body us: p50=1286 p95=1699 max=2582 (12.9% of period at p50); mixer-only us: p50=1284 p95=1696 max=2579; quanta=1130
+   stream errors: 0
+RESULT Fixed(128) voices=256: callbacks=396 frames_hist={480: 396} mean_period=10000us
+   interval us (mean 10000): p50=9998 p95=10238 p99=11725 max=15835 min=4236
+   jitter |interval-mean| us: p95=298 p99=2560 max=5835
+   playback-callback latency ms: p50=32.02 p95=32.31 min=25.52 max=32.48
+   callback body us: p50=1373 p95=1772 max=3127 (13.7% of period at p50); mixer-only us: p50=1370 p95=1770 max=3125; quanta=1505
+   stream errors: 0
+RESULT Fixed(256) voices=256: callbacks=396 frames_hist={480: 396} mean_period=10000us
+   interval us (mean 10001): p50=9998 p95=10338 p99=12694 max=18138 min=1968
+   jitter |interval-mean| us: p95=1440 p99=3402 max=8137
+   playback-callback latency ms: p50=33.62 p95=33.90 min=24.65 max=34.33
+   callback body us: p50=1338 p95=1831 max=3573 (13.4% of period at p50); mixer-only us: p50=1335 p95=1828 max=3569; quanta=1505
+   stream errors: 0
+RESULT Fixed(480) voices=256: callbacks=396 frames_hist={480: 396} mean_period=10000us
+   interval us (mean 10000): p50=10006 p95=10386 p99=12254 max=14825 min=5196
+   jitter |interval-mean| us: p95=703 p99=4147 max=4825
+   playback-callback latency ms: p50=31.65 p95=31.96 min=26.73 max=33.46
+   callback body us: p50=1373 p95=1779 max=4837 (13.7% of period at p50); mixer-only us: p50=1371 p95=1777 max=4834; quanta=1505
+   stream errors: 0
+RESULT Fixed(512) voices=256: callbacks=396 frames_hist={480: 396} mean_period=10000us
+   interval us (mean 10000): p50=10001 p95=10213 p99=11041 max=13085 min=6824
+   jitter |interval-mean| us: p95=260 p99=1244 max=3176
+   playback-callback latency ms: p50=31.71 p95=31.94 min=28.33 max=33.73
+   callback body us: p50=1248 p95=1889 max=3579 (12.5% of period at p50); mixer-only us: p50=1246 p95=1887 max=3577; quanta=1505
+   stream errors: 0
+RESULT Fixed(1024) voices=256: callbacks=396 frames_hist={480: 396} mean_period=10000us
+   interval us (mean 9999): p50=9991 p95=10203 p99=10378 max=14490 min=5603
+   jitter |interval-mean| us: p95=232 p99=2860 max=4491
+   playback-callback latency ms: p50=31.67 p95=31.92 min=27.48 max=31.98
+   callback body us: p50=1247 p95=1823 max=2516 (12.5% of period at p50); mixer-only us: p50=1244 p95=1821 max=2514; quanta=1505
+   stream errors: 0
+--- extra: 1024 voices, Default ---
+RESULT Default voices=1024: callbacks=296 frames_hist={480: 296} mean_period=10000us
+   interval us (mean 10001): p50=10000 p95=10229 p99=10310 max=12575 min=8351
+   jitter |interval-mean| us: p95=255 p99=680 max=2574
+   playback-callback latency ms: p50=32.15 p95=32.31 min=29.52 max=32.38
+   callback body us: p50=4821 p95=5983 max=8835 (48.2% of period at p50); mixer-only us: p50=4818 p95=5981 max=8832; quanta=1130
+   stream errors: 0
+--- extra: 0 voices, Default ---
+RESULT Default voices=0: callbacks=396 frames_hist={480: 396} mean_period=10000us
+   interval us (mean 10000): p50=10001 p95=10115 p99=11557 max=12954 min=7076
+   jitter |interval-mean| us: p95=152 p99=2330 max=2954
+   playback-callback latency ms: p50=31.56 p95=31.75 min=28.46 max=32.02
+   callback body us: p50=92 p95=121 max=254 (0.9% of period at p50); mixer-only us: p50=88 p95=117 max=250; quanta=1505
+   stream errors: 0

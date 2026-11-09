@@ -1,0 +1,24 @@
+
+=== IAudioClient3 shared, minimum period, fill whole buffer (mix format 32 bit) ===
+rate 48000 Hz, period 480 frames (10.000 ms), buffer 1056 frames (22.000 ms), GetStreamLatency 0.000 ms
+wakes 302 (timeouts 0), interval ms p50/p95/p99/max: 10.000 / 10.213 / 11.874 / 17.323
+jitter |interval - p50| ms p95/p99/max: 0.329 / 6.513 / 7.322
+mixer us per wake p50/p95/max: 1397 / 2012 / 3778 (14.0% of period at p50)
+padding at wake (frames queued, shared only) p50/min/max: 576 / 576 / 576 (12.00 ms at p50)
+glitches: padding==0 at wake 0, IAudioClock position beyond written 0, late wakes (>1.5 periods) 2
+
+=== IAudioClient3 shared, minimum period, tight (1 period ahead) (mix format 32 bit) ===
+rate 48000 Hz, period 480 frames (10.000 ms), buffer 1056 frames (22.000 ms), GetStreamLatency 0.000 ms
+wakes 302 (timeouts 0), interval ms p50/p95/p99/max: 10.002 / 10.114 / 11.600 / 14.037
+jitter |interval - p50| ms p95/p99/max: 0.363 / 2.585 / 4.036
+mixer us per wake p50/p95/max: 1349 / 2063 / 5017 (13.5% of period at p50)
+padding at wake (frames queued, shared only) p50/min/max: 0 / 0 / 0 (0.00 ms at p50)
+glitches: padding==0 at wake 302, IAudioClock position beyond written 0, late wakes (>1.5 periods) 0
+
+=== IAudioClient3 shared, default period, tight (1 period ahead) (mix format 32 bit) ===
+rate 48000 Hz, period 480 frames (10.000 ms), buffer 1056 frames (22.000 ms), GetStreamLatency 0.000 ms
+wakes 302 (timeouts 0), interval ms p50/p95/p99/max: 10.001 / 10.099 / 10.148 / 14.548
+jitter |interval - p50| ms p95/p99/max: 0.134 / 1.559 / 4.547
+mixer us per wake p50/p95/max: 1299 / 2064 / 6878 (13.0% of period at p50)
+padding at wake (frames queued, shared only) p50/min/max: 0 / 0 / 0 (0.00 ms at p50)
+glitches: padding==0 at wake 302, IAudioClock position beyond written 0, late wakes (>1.5 periods) 0
