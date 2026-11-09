@@ -10,7 +10,6 @@ import { SceneManager } from "../scene/SceneManager";
 import { connectWorlds, netSession } from "../net/session";
 import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
 import { mixer } from "../audio/backend";
-import { useFmodBackendIfConfigured } from "../audio/fmodBackend";
 import { parseAudioSettings } from "../audio/settings";
 import { navigationSettingsProblems, physicsBackendProblems, resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import { parseGraphics } from "./graphics";
@@ -174,7 +173,6 @@ export class Engine implements BootstrapEngine {
     // Audio (ADR 0097): the project's mixer buses; one shared mixer, like the one audio context.
     for (const p of parseAudioSettings(options.project?.audio).problems) console.warn(`[myco] project.json ${p}`);
     mixer.configure(engine.settings.audio);
-    if (engine.settings.audio.backend === "fmod" && (options.kind ?? "runtime") === "runtime") await useFmodBackendIfConfigured(engine.settings.audio);
     if ((options.quality ?? "player") === "player") {
       const graphics = engine.settings.graphics;
       const saved = await Storage.load(QUALITY_KEY, "settings").catch(() => undefined);
