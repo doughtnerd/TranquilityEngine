@@ -39,6 +39,26 @@ export class ClockMap {
   /** Times the offset re-anchored: after `REANCHOR_AFTER` rejections in a row, or after a stall. */
   reanchors = 0;
 
+  /** True once an output timestamp gave the offset. */
+  private primed = false;
+  /** The offset filter's value o (frames). */
+  private offset = 0;
+  /** The render lead Lambda (frames). */
+  private lead = 0;
+  /** Offset samples rejected in a row. */
+  private rejectRun = 0;
+  /** The previous beginFrame's rafTime (ms), valid when `hasPrevP`. */
+  private prevP = 0;
+  private hasPrevP = false;
+  /** Delta-bar: the frame-interval EMA (ms). */
+  private intervalMs = INITIAL_INTERVAL_MS;
+  /** The newest STATUS pair (fallback input). */
+  private statusFrame = 0;
+  private statusDateMs = 0;
+  private hasStatus = false;
+  /** The previous nextFirstFrame result. */
+  private prevFirstFrame = 0;
+
   constructor(
     private readonly clock: HostClock,
     /** The context's sample rate, Hz. */
@@ -52,7 +72,61 @@ export class ClockMap {
    * the filters (the A1.4-L1 spec in the brief). Does nothing the second time in the same frame (same `rafTime`).
    */
   beginFrame(): void {
-    throw new Error("not implemented: A1.4-L1 (ClockMap.beginFrame)");
+    const p = this.clock.rafTime();
+    if (this.hasPrevP && p === this.prevP) return;
+    let stall = false;
+    if (this.hasPrevP) {
+      const dt = p - this.prevP;
+      if (dt > STALL_MS) stall = true;
+      else if (dt > 0) this.intervalMs += INTERVAL_EMA * (dt - this.intervalMs);
+    }
+    this.prevP = p;
+    this.hasPrevP = true;
+    const ts = this.clock.outputTimestamp();
+    const ct = this.clock.currentTime();
+    if (ts === null) return;
+    const sr = this.sampleRate;
+    const heard = sr * (ts.contextTime + (p - ts.performanceTime) / 1000);
+    const oObs = heard - (p * sr) / 1000;
+    const lambdaObs = ct * sr - heard;
+    if (!this.primed) {
+      this.offset = oObs;
+      this.lead = Math.max(0, lambdaObs);
+      this.primed = true;
+    } else if (stall) {
+      this.offset = oObs;
+      this.lead = Math.max(0, lambdaObs);
+      this.reanchors++;
+      this.rejectRun = 0;
+    } else {
+      const diff = oObs - this.offset;
+      if (Math.abs(diff) > (OFFSET_REJECT_MS * sr) / 1000) {
+        this.rejected++;
+        this.rejectRun++;
+        if (this.rejectRun >= REANCHOR_AFTER) {
+          this.offset = oObs;
+          this.updateLead(lambdaObs);
+          this.reanchors++;
+          this.rejectRun = 0;
+        }
+      } else {
+        this.rejectRun = 0;
+        this.offset += OFFSET_EMA * diff;
+        this.updateLead(lambdaObs);
+      }
+    }
+  }
+
+  /** The lead envelope: attack at once, release by LEAD_RELEASE of the gap per frame; never below 0. */
+  private updateLead(lambdaObs: number): void {
+    if (lambdaObs > this.lead) this.lead = lambdaObs;
+    else this.lead = Math.max(0, this.lead - LEAD_RELEASE * (this.lead - lambdaObs));
+  }
+
+  /** The fallback's frame now (no lookahead lead), or 0 before any STATUS block. */
+  private fallbackFrame(): number {
+    if (!this.hasStatus) return 0;
+    return this.statusFrame + ((this.clock.dateNow() - this.statusDateMs) * this.sampleRate) / 1000;
   }
 
   /**
@@ -60,49 +134,59 @@ export class ClockMap {
    * `frameDateMs`). Used while there is no usable output timestamp.
    */
   noteStatus(currentFrame: number, dateMs: number): void {
-    void currentFrame;
-    void dateMs;
-    throw new Error("not implemented: A1.4-L1 (ClockMap.noteStatus)");
+    this.statusFrame = currentFrame;
+    this.statusDateMs = dateMs;
+    this.hasStatus = true;
   }
 
   /** True once an output timestamp gave an offset (the primary path); false while on the fallback or before anything. */
   get anchored(): boolean {
-    throw new Error("not implemented: A1.4-L1 (ClockMap.anchored)");
+    return this.primed;
   }
 
   /** The offset filter's value *o*, in frames (0 until anchored). */
   get offsetFrames(): number {
-    throw new Error("not implemented: A1.4-L1 (ClockMap.offsetFrames)");
+    return this.offset;
   }
 
   /** The render lead Λ, in frames (0 until anchored). */
   get leadFrames(): number {
-    throw new Error("not implemented: A1.4-L1 (ClockMap.leadFrames)");
+    return this.lead;
   }
 
   /** Δ̄: the EMA of frame intervals, ms. */
   get frameIntervalMs(): number {
-    throw new Error("not implemented: A1.4-L1 (ClockMap.frameIntervalMs)");
+    return this.intervalMs;
   }
 
   /** `Audio.time` in seconds (§4.3): the heard clock; 0 before the clock has any estimate. */
   audioTime(): number {
-    throw new Error("not implemented: A1.4-L1 (ClockMap.audioTime)");
+    if (this.primed) {
+      return Math.max(0, ((this.prevP * this.sampleRate) / 1000 + this.offset) / this.sampleRate);
+    }
+    return Math.max(0, this.fallbackFrame() / this.sampleRate);
   }
 
   /** *F*_now (§4.3): the frame the core will render when a command sent in this frame arrives; 0 before any estimate. */
   framesNow(): number {
-    throw new Error("not implemented: A1.4-L1 (ClockMap.framesNow)");
+    if (this.primed) {
+      return ((this.prevP * this.sampleRate) / 1000) + this.offset + this.lead;
+    }
+    if (!this.hasStatus) return 0;
+    return this.fallbackFrame() + FALLBACK_LEAD_FRAMES;
   }
 
   /** L (§4.3): the lookahead in frames. */
   lookaheadFrames(): number {
-    throw new Error("not implemented: A1.4-L1 (ClockMap.lookaheadFrames)");
+    const sr = this.sampleRate;
+    const wanted = Math.max((2 * this.intervalMs * sr) / 1000, LOOKAHEAD_MIN_FRAMES);
+    return Math.round(Math.min(wanted, LOOKAHEAD_MAX_SECONDS * sr));
   }
 
   /** `rampFrames` (§4.3): the ramp length for SET_PARAMS and BUS_MIX, in frames. */
   rampFrames(): number {
-    throw new Error("not implemented: A1.4-L1 (ClockMap.rampFrames)");
+    const ms = Math.min(Math.max(this.intervalMs, RAMP_MIN_MS), RAMP_MAX_MS);
+    return Math.round((ms * this.sampleRate) / 1000);
   }
 
   /**
@@ -110,11 +194,25 @@ export class ClockMap {
    * previous one, so the sequence never goes backwards.
    */
   nextFirstFrame(): number {
-    throw new Error("not implemented: A1.4-L1 (ClockMap.nextFirstFrame)");
+    const frameNow = this.framesNow();
+    const candidate = Math.round(frameNow + this.lookaheadFrames());
+    const result = Math.max(candidate, this.prevFirstFrame);
+    this.prevFirstFrame = result;
+    return result;
   }
 
   /** Forgets every estimate (a rebuild, a new context). Counters stay. */
   reset(): void {
-    throw new Error("not implemented: A1.4-L1 (ClockMap.reset)");
+    this.primed = false;
+    this.offset = 0;
+    this.lead = 0;
+    this.rejectRun = 0;
+    this.prevP = 0;
+    this.hasPrevP = false;
+    this.statusFrame = 0;
+    this.statusDateMs = 0;
+    this.hasStatus = false;
+    this.prevFirstFrame = 0;
+    this.intervalMs = INITIAL_INTERVAL_MS;
   }
 }
