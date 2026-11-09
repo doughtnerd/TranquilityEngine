@@ -685,7 +685,7 @@ Main allocates nothing per frame. The voice table and scratch are preallocated t
 
 ## 9. Cross-platform matrix
 
-Versions are recalled; **A0.6 confirms them**. The loader probes features, not versions.
+Versions were recalled at design time; **A0.6 and A0.7 confirmed them on 2026-11-09** (MDN browser-compat-data 8.1.8, Playwright WebKit and Firefox in a Linux container, WebKitGTK 2.52.6 in Docker, WebView2 on Windows; details in `docs/guide/audio-minimum-versions.md` and the build log). The loader probes features, not versions.
 
 **Platforms by product (owner, 2026-11-09).** The editor targets desktop and the web browser only. Published games also target Android through Tauri, whose export is a future record extending 0041; the core runs there in the Android System WebView, on the same AudioWorklet path.
 
@@ -693,14 +693,14 @@ Versions are recalled; **A0.6 confirms them**. The loader probes features, not v
 
 | | Chrome / Edge | Firefox | Safari | WebView2 | WKWebView | WebKitGTK |
 |---|---|---|---|---|---|---|
-| AudioWorklet | 66 | 76 | 14.1 | evergreen | system Safari | confirm |
-| wasm `simd128` (binding) | 91 | 89 | 16.4 | evergreen | Safari ≥ 16.4 | confirm (likely 2.40+) |
-| `getOutputTimestamp`, `outputLatency` | 57, 102 | 70, 70 | confirm | yes | confirm | confirm |
-| Load into a suspended context | yes | confirm | confirm | yes | confirm | confirm |
-| Autoplay without a gesture | no | no | no | `--autoplay-policy=no-user-gesture-required` (confirm) | `mediaTypesRequiringUserActionForPlayback` none (confirm) | `media-playback-requires-user-gesture` off (confirm) |
+| AudioWorklet | 66 | 76 | 14.1 | evergreen | system Safari | yes (2.52.6) |
+| wasm `simd128` (binding) | 91 | 89 | 16.4 | evergreen | Safari ≥ 16.4 | yes (2.52.6) |
+| `getOutputTimestamp`, `outputLatency` | 57, 102 | 70, 70 | 14.1 (getOutputTimestamp) | yes | system Safari | present (Playwright WebKit) |
+| Load into a suspended context | yes | yes (Playwright) | yes (Playwright WebKit) | yes | system Safari | yes (loads Locked, plays after the click) |
+| Autoplay without a gesture | no | no | no | **yes by default** (running at load, no flags) | `mediaTypesRequiringUserActionForPlayback` none (confirm) | **no by default**: starts `interrupted` and needs the unlock layer's gesture; `media-playback-requires-user-gesture` off doesn't lift it; a construct-only website autoplay policy of ALLOW does, which wry/Tauri doesn't expose |
 | `interrupted` state | no | no | yes | no | yes | confirm |
 | SAB ring (isolation) | COOP/COEP | COOP/COEP | COOP/COEP | Tauri headers (confirm) | confirm | confirm |
-| Spike evidence | real-time on Windows hardware | Linux container (157) | not run | worklet not yet run | not run | Playwright WebKit, Linux container, no device |
+| Spike evidence | real-time on Windows hardware | Linux container (157) | not run | A0.7: tone confirmed by WASAPI loopback (440 Hz) | not run | A0.7: tone confirmed in Docker by recording a PulseAudio null sink (440 Hz, the expected RMS); container timing, not a soak |
 
 | Quirk | Source | Handling |
 |---|---|---|
