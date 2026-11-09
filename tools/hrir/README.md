@@ -31,3 +31,5 @@ npx vitest run src/plugins/audio/runtime/core/hrirBlob.test.ts
 
 `PROVENANCE.json` records the Chromium commit, URL pattern, SHA-256 and size of each source, the blob's SHA-256 and
 size, the raw and delay-removed peaks, the scale factor, and the date.
+
+Note: 53 of the 240 source WAVs are byte-identical copies (upper-hemisphere elevations at several azimuths), consistent with Chromium capping the elevations for those azimuths (`kMaxElevations`); the table keeps them, and the core never reads the extras.
