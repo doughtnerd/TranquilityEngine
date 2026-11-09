@@ -644,11 +644,9 @@ export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): 
   const clips =
     deps.clips ??
     createClipRegistry({
-      // The registry numbers its own envelopes; `seq` is per sender on one port, so restamp it with the link's.
-      send: (message) => {
-        new DataView(message).setUint32(8, link.nextSeq(), true);
-        link.post(message);
-      },
+      // `seq` is per sender on one port: the registry shares the link's counter.
+      send: (message) => link.post(message),
+      nextSeq: () => link.nextSeq(),
       fetchBytes: async (path) => {
         const response = await fetch(Assets.url(path));
         if (!response.ok) throw new Error(`HTTP ${response.status}`);

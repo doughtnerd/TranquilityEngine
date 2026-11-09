@@ -252,7 +252,7 @@ export class CommandWriter implements VoiceCommandSink {
 
   /**
    * Posts what is staged as one or more BATCHes. `firstFrame` is the frame every asap record would apply at
-   * (`ClockMap.nextFirstFrame()`); a batch's header carries the earlier of it and its earliest stamp, and each
+   * (`ClockMap.nextFirstFrame()`); a batch's header carries its earliest stamp when it has one (else this), and each
    * stamped record's `frameOffset` is its frame minus that. Returns the number of batches posted. Posts nothing, and
    * keeps everything staged, when the pool is empty.
    */
@@ -289,7 +289,7 @@ export class CommandWriter implements VoiceCommandSink {
       for (let k = next; k < end; k++) {
         const f = this.frame[this.order[k]!]!;
         if (f !== Number.NEGATIVE_INFINITY) {
-          if (f < header) header = f;
+          header = f;
           break;
         }
       }
