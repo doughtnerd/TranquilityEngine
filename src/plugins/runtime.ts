@@ -1,6 +1,7 @@
 // First-party plugins' runtime halves (ADR 0133, 0135). The player, the dedicated server and the editor
 // (its World and Play) make this list active through a plugin set (`pluginSet.ts`, ADR 0144) before
 // `Engine.create`; nothing here may import from `src/editor/` or a plugin's `editor/` folder.
+import { audioRuntimePlugin } from "./audio/runtime";
 import { materialsRuntimePlugin } from "./materials/runtime";
 import { navigationRuntimePlugin } from "./navigation/runtime";
 import { particlesRuntimePlugin } from "./particles/runtime";
@@ -33,6 +34,7 @@ export const RUNTIME_PLUGINS: readonly RuntimePlugin[] = [
   uiRuntimePlugin,
   environmentRuntimePlugin,
   postProcessingRuntimePlugin,
+  audioRuntimePlugin,
 ];
 
 export { isRuntimePluginActive, pluginOfComponent, runtimePluginManifest, type RuntimePlugin, type RuntimePluginContext } from "./runtimeContext";

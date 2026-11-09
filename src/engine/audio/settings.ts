@@ -35,6 +35,8 @@ export interface BusSettings {
   volume: number;
   mute: boolean;
   effects: BusEffect[];
+  /** §2: at most this many sounds play on the bus at once (integer 1..`voices.logical`); absent is unlimited. Inert until the core (M1a). */
+  maxVoices?: number;
 }
 
 /** A named mix: per-bus volume multipliers (and optional low-pass cutoffs in Hz) the mixer fades to. */
@@ -62,11 +64,41 @@ export interface AudioSettings {
   buses: BusSettings[];
   snapshots: SnapshotSettings[];
   ducking: DuckingRule[];
-  /** Which backend plays sound (ADR 0098): "howler" (default) or "fmod" (ADR 0099, needs the SDK). */
-  backend: "howler" | "fmod";
-  /** With the fmod backend: the folder (URL path) holding the FMOD HTML5 SDK files and banks. */
+  voices: VoiceSettings;
+  /** What the page being hidden does to sound. Default `"mute"`. */
+  background: AudioBackground;
+  /** Clip arena ceiling in MB (integer 16..1024). Absent: the device preset's ceiling (architecture 5.3). */
+  clipMemoryMB?: number;
+  /** Decoded clip sample format. Default `"i16"`. */
+  clipFormat: AudioClipFormat;
+  codecs: { aac: boolean };
+  /** Default `"hrtf"`. */
+  spatial: AudioSpatialMode;
+  /** `"babylon"` (default; resolves to the Howler backend until BB2) or `"core"` (K3). Once A0.4-L1 lands the parse never gives `"howler"` or `"fmod"`. */
+  backend: AudioBackendSetting;
+  /** @deprecated A0.5 removes it with the FMOD backend. Once A0.4-L1 lands the parse drops it. */
   fmod?: { sdkPath: string; banks: string[] };
 }
+
+/** §2 `voices`: how many sounds the core mixes at once, tracks logically, and spatialises with HRTF. */
+export interface VoiceSettings {
+  /** Integer 8..512, default 128. */
+  mixed: number;
+  /** Integer `mixed`..8192, default 4096. */
+  logical: number;
+  /** Integer 0..32, default 16 (low preset 4). 0 behaves as `spatial: "equalPower"`. */
+  hrtf: number;
+}
+
+export type AudioBackground = "mute" | "pause" | "play";
+export type AudioClipFormat = "i16" | "f32";
+export type AudioSpatialMode = "hrtf" | "equalPower";
+
+/**
+ * Which backend plays sound (§2, K3). `"howler"` and `"fmod"` are pre-ADR-0157 values the parse maps away;
+ * they stay in the type only until A0.5 removes the FMOD and editor code that names them.
+ */
+export type AudioBackendSetting = "babylon" | "core" | "howler" | "fmod";
 
 export const MASTER = "Master";
 export const MAX_BUSES = 32;
@@ -74,7 +106,12 @@ export const MAX_BUSES = 32;
 export const defaultBuses = (): BusSettings[] =>
   [MASTER, "Music", "SFX", "UI", "Voice"].map((name, i) => ({ name, ...(i > 0 ? { parent: MASTER } : {}), volume: 1, mute: false, effects: [] }));
 
-export const defaultAudioSettings = (): AudioSettings => ({ buses: defaultBuses(), snapshots: [], ducking: [], backend: "howler" });
+export const DEFAULT_VOICES: Readonly<VoiceSettings> = { mixed: 128, logical: 4096, hrtf: 16 };
+
+export const defaultAudioSettings = (): AudioSettings => ({
+  buses: defaultBuses(), snapshots: [], ducking: [],
+  voices: { ...DEFAULT_VOICES }, background: "mute", clipFormat: "i16", codecs: { aac: false }, spatial: "hrtf", backend: "babylon",
+});
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const num = (v: unknown, fallback: number, min: number, max: number): number =>
@@ -166,11 +203,27 @@ export function parseAudioSettings(input: unknown): { settings: AudioSettings; p
       settings.ducking.push({ target: raw.target, trigger: raw.trigger, amount: num(raw.amount, 0.4, 0, 1), attack: num(raw.attack, 0.1, 0, 10), release: num(raw.release, 0.5, 0, 10) });
     }
   }
+  // A0.4-L1: the backend and fmod lines up to the `return` are replaced by `parseCoreKeys`; delete them.
   if (input.backend === "fmod") settings.backend = "fmod";
   else if (input.backend !== undefined && input.backend !== "howler") problems.push(`audio.backend must be "howler" or "fmod".`);
   if (isRecord(input.fmod) && typeof input.fmod.sdkPath === "string") {
     settings.fmod = { sdkPath: input.fmod.sdkPath, banks: Array.isArray(input.fmod.banks) ? input.fmod.banks.filter((b): b is string => typeof b === "string") : [] };
   }
   if (settings.backend === "fmod" && !settings.fmod) problems.push(`audio.backend "fmod" needs audio.fmod.sdkPath.`);
+  // A0.4-L1: delete `CORE_KEYS_PARSED` and this `if` (call `parseCoreKeys` unconditionally) once it is filled in.
+  if (CORE_KEYS_PARSED) parseCoreKeys(input, settings, problems);
   return { settings, problems };
+}
+
+/** A0.4-L1: false while `parseCoreKeys` is a stub, so the section still parses as before. */
+const CORE_KEYS_PARSED = false;
+
+/**
+ * §2, K13: parse every key the core adds, leniently, into `settings` (which already holds the parsed buses,
+ * snapshots and ducking, and the defaults), appending to `problems`. Runs after the buses are parsed, so
+ * `settings.buses` is the final list. Keys the playing backend doesn't use yet stay inert.
+ */
+function parseCoreKeys(input: Record<string, unknown>, settings: AudioSettings, problems: string[]): void {
+  void input; void settings; void problems;
+  throw new Error("not implemented: A0.4-L1");
 }

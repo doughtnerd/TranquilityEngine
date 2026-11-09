@@ -1,9 +1,14 @@
 /**
- * The internal audio backend interface (ADR 0098). `AudioSource` and `Audio` talk to this, never to a
- * library, so Howler (the default) and FMOD (ADR 0099) are interchangeable. Not part of the public API.
+ * The internal audio backend interface (ADR 0098) and the `audio.backend` selector (K3). `AudioSource` and
+ * `Audio` talk to this, never to a library. Not part of the public API.
+ *
+ * ADR 0157 §6 moves this file to `src/plugins/audio/runtime/backend.ts`. Until A0.5 (FMOD) and BB2 (Howler)
+ * remove `fmodBackend.ts` and `howlerBackend.ts`, and `Engine.ts` stops importing `mixer` from here, the
+ * code stays in `src/engine/audio/` (the engine must not import plugins) and the plugin path re-exports it.
  */
 import type { Vec3Like } from "../core/math";
-import { Mixer, type ResolvedBus } from "./mixer";
+import { mixer, type Mixer, type ResolvedBus } from "./mixer";
+import type { AudioSettings } from "./settings";
 
 export type Rolloff = "linear" | "inverse" | "exponential";
 
@@ -60,22 +65,41 @@ export interface AudioBackend {
   dispose?(): void;
 }
 
-/** The one mixer: buses are a project setting, and the audio context is shared (ADR 0097). */
-export const mixer = new Mixer();
-
 let backend: AudioBackend | null = null;
 let factory: (() => AudioBackend) | null = null;
+let coreFactory: (() => AudioBackend) | null = null;
+let warnedCore = false;
 
-/** Register how the default backend is made (the Howler backend does this on import). */
+/** Register how the `"babylon"` backend is made (the Howler backend does this on import, until BB2 replaces it). */
 export function registerDefaultBackend(make: () => AudioBackend): void {
   factory = make;
+}
+
+/** @internal The core's backend factory, registered by `core/service.ts` once the core has loaded (A0.3, A1.4). Returns an undo. */
+export function registerCoreBackend(make: () => AudioBackend): () => void {
+  coreFactory = make;
+  return () => { if (coreFactory === make) coreFactory = null; };
+}
+
+/**
+ * K3: which backend `audio.backend` picks. `"babylon"` is the default backend (Howler until BB2); `"core"`
+ * is the core. The pre-0157 values `"howler"` and `"fmod"` behave as `"babylon"` (the settings parse reports them).
+ */
+export function resolveBackendKind(configured: AudioSettings["backend"]): "babylon" | "core" {
+  return configured === "core" ? "core" : "babylon";
 }
 
 /** The active backend, created on first use so servers and tests that never play sound don't touch a library. */
 export function audioBackend(): AudioBackend {
   if (!backend) {
-    if (!factory) throw new Error("No audio backend registered.");
-    backend = factory();
+    let make = factory;
+    if (resolveBackendKind(mixer.audioSettings.backend) === "core") {
+      // The core's host loads through the `myco.audio` World service; until it has, sound falls back to "babylon" (§2 Fallback).
+      if (coreFactory) make = coreFactory;
+      else if (!warnedCore) { warnedCore = true; console.warn(`[myco] audio.backend "core" isn't loaded; using "babylon".`); }
+    }
+    if (!make) throw new Error("No audio backend registered.");
+    backend = make();
     backend.configureBuses(mixer);
     backend.applyMix(mixer.resolveAll());
     mixer.onChange(() => backend?.applyMix(mixer.resolveAll()));
@@ -95,3 +119,6 @@ export function setAudioBackend(next: AudioBackend | null): void {
 
 /** @internal Whether a backend exists yet (the audio system skips work before first sound). */
 export const hasAudioBackend = (): boolean => backend !== null;
+
+/** The one mixer lives in `./mixer` (ADR 0157 §6); re-exported for `Engine.ts` and the Howler and FMOD backends until A0.5 and BB2 remove their imports. */
+export { mixer } from "./mixer";
