@@ -30,18 +30,25 @@ export class AudioWorldService {
   /** The World's share of the host, or null when the core didn't load. */
   readonly share: WorldShare | null;
 
+  private disposed = false;
+
   constructor(readonly world: World, readonly core: AudioCoreModule) {
-    throw new Error("not implemented: A0.8");
+    const host = core.ready && core.host && !core.host.closed ? core.host : null;
+    this.share = host ? host.attachWorld(world) : null;
   }
 
   /** The World's key (the voice table's `world` byte), or 0 without a share. */
   get key(): WorldKey {
-    throw new Error("not implemented: A0.8");
+    return this.share && !this.share.released ? this.share.key : 0;
   }
 
   /** Releases the World's share (`host.releaseWorld`). A second call does nothing. */
   dispose(): void {
-    throw new Error("not implemented: A0.8");
+    if (this.disposed) return;
+    this.disposed = true;
+    const share = this.share;
+    // A released share's key may already be another World's: never release it twice.
+    if (share && !share.released) this.core.host?.releaseWorld(share.key);
   }
 }
 
@@ -56,8 +63,27 @@ export function connectHostToEngines(
   host: AudioHost,
   onConfigured: (listener: (settings: AudioSettings) => void) => () => void = (l) => Engine._onAudioConfigured(l),
 ): () => void {
-  throw new Error("not implemented: A0.8");
+  const existing = connections.get(host);
+  if (existing) return existing;
+  if (host.closed) return () => {};
+  const stopFollowing = onConfigured((settings) => {
+    if (!host.closed) host.reconfigure(settings);
+  });
+  let removeListener: () => void = () => {};
+  const disconnect = () => {
+    if (connections.get(host) !== disconnect) return;
+    connections.delete(host);
+    stopFollowing();
+    removeListener();
+  };
+  connections.set(host, disconnect);
+  removeListener = host.addLifecycleListener({ onClose: disconnect });
+  host.reconfigure(mixer.audioSettings);
+  return disconnect;
 }
+
+/** Hosts connected to the Engines, with their disconnect. */
+const connections = new WeakMap<AudioHost, () => void>();
 
 /** @internal The World service (K3): whether `audio.backend` is `"core"` decides if a World runs it at all. */
 export const AUDIO_SERVICE: WorldServiceDef<AudioCoreModule, AudioWorldService> = {

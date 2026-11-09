@@ -219,7 +219,35 @@ export interface HostLifecycleListener {
  * root). Names are unique within a tree (the settings parse guarantees it).
  */
 export function busRemap(from: readonly string[], to: readonly string[]): Uint8Array {
-  throw new Error("not implemented: A0.8");
+  const map = new Uint8Array(from.length);
+  for (let i = 0; i < from.length; i++) {
+    const j = to.indexOf(from[i]!);
+    map[i] = j < 0 ? 0 : j;
+  }
+  return map;
+}
+
+const presetsEqual = (a: CorePreset, b: CorePreset): boolean =>
+  a.maxLogical === b.maxLogical && a.maxMixed === b.maxMixed && a.maxBuses === b.maxBuses && a.arenaInitialBytes === b.arenaInitialBytes && a.clipCeilingBytes === b.clipCeilingBytes;
+
+const sameNames = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((n, i) => n === b[i]);
+
+/** Runs `fn` for each listener; one that throws is logged and doesn't stop the others or the host. */
+function each(listeners: Iterable<HostLifecycleListener>, fn: (l: HostLifecycleListener) => void): void {
+  for (const l of [...listeners]) {
+    try {
+      fn(l);
+    } catch (err) {
+      console.error("[myco] audio host listener failed:", err);
+    }
+  }
+}
+
+/** A share whose `released` only the host sets. */
+interface MutableShare {
+  readonly key: WorldKey;
+  readonly owner: object;
+  released: boolean;
 }
 
 /** @internal What the host is made of: the browser's in `AudioHost.start`, fakes in Node tests. */
@@ -252,7 +280,8 @@ export class AudioHost {
   private nextPreset: CorePreset | null = null;
   private names: readonly string[] = [];
   private epoch = 0;
-  private readonly shares = new Map<WorldKey, WorldShare>();
+  private readonly shares = new Map<WorldKey, MutableShare>();
+  private readonly byOwner = new Map<object, MutableShare>();
   private readonly listeners = new Set<HostLifecycleListener>();
 
   private constructor(parts: HostParts) {
@@ -322,7 +351,16 @@ export class AudioHost {
    * owner attached twice gets its existing share. Throws when all 255 keys are taken, or after `close()`.
    */
   attachWorld(owner: object): WorldShare {
-    throw new Error("not implemented: A0.8");
+    if (this.isClosed) throw new Error("audio core: the host is closed");
+    const existing = this.byOwner.get(owner);
+    if (existing) return existing;
+    let key = 1;
+    while (key <= MAX_WORLD_KEYS && this.shares.has(key)) key++;
+    if (key > MAX_WORLD_KEYS) throw new Error(`audio core: more than ${MAX_WORLD_KEYS} Worlds hold the audio host`);
+    const share: MutableShare = { key, owner, released: false };
+    this.shares.set(key, share);
+    this.byOwner.set(owner, share);
+    return share;
   }
 
   /**
@@ -331,17 +369,25 @@ export class AudioHost {
    * Returns false (and does nothing) for a key that isn't attached. The context and core stay alive.
    */
   releaseWorld(key: WorldKey): boolean {
-    throw new Error("not implemented: A0.8");
+    const share = this.shares.get(key);
+    if (!share) return false;
+    share.released = true;
+    // The key stays taken while listeners run, so a listener attaching a World can't be handed it mid-release.
+    each(this.listeners, (l) => l.onWorldReleased?.(key, share.owner));
+    this.shares.delete(key);
+    this.byOwner.delete(share.owner);
+    if (this.shares.size === 0) each(this.listeners, (l) => l.onIdle?.());
+    return true;
   }
 
   /** The live share for `key`, or null. */
   worldShare(key: WorldKey): WorldShare | null {
-    throw new Error("not implemented: A0.8");
+    return this.shares.get(key) ?? null;
   }
 
   /** How many Worlds hold a share. */
   get worldCount(): number {
-    throw new Error("not implemented: A0.8");
+    return this.shares.size;
   }
 
   // --- Reconfigure (Engine.ts; api §3 "Bus state serialisation") ---
@@ -376,12 +422,21 @@ export class AudioHost {
    * null when the names are unchanged. Also sets `pendingPreset` from `presetFromSettings(settings)`.
    */
   reconfigure(settings: AudioSettings): BusRemap | null {
-    throw new Error("not implemented: A0.8");
+    const preset = presetFromSettings(settings);
+    this.nextPreset = presetsEqual(preset, this.currentPreset) ? null : preset;
+    const to = settings.buses.map((b) => b.name);
+    if (this.epoch > 0 && sameNames(this.names, to)) return null;
+    const from = this.names;
+    const remap: BusRemap = { epoch: ++this.epoch, from, to, map: busRemap(from, to) };
+    this.names = to;
+    each(this.listeners, (l) => l.onBusRemap?.(remap));
+    return remap;
   }
 
   /** Adds lifecycle hooks (the seams for A1.1, A1.3a, A1.4); returns the removal. */
   addLifecycleListener(listener: HostLifecycleListener): () => void {
-    throw new Error("not implemented: A0.8");
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
   }
 
   /** §4.7 Starting timeout: counted only while the context runs, since a locked context renders nothing. */
@@ -400,6 +455,13 @@ export class AudioHost {
    * (without `onWorldReleased`: nothing is left to stop). A second call does nothing.
    */
   async close(): Promise<void> {
+    if (this.isClosed) return;
+    this.isClosed = true;
+    for (const share of this.shares.values()) share.released = true;
+    this.shares.clear();
+    this.byOwner.clear();
+    each(this.listeners, (l) => l.onClose?.());
+    this.listeners.clear();
     this.clearTimeout();
     this.context.removeEventListener("statechange", this.onStateChange);
     this.unlock.dispose();
@@ -418,18 +480,41 @@ export class AudioHost {
  * second AudioContext.
  */
 export function acquireAudioHost(start: () => Promise<AudioHost>): Promise<AudioHost> {
-  throw new Error("not implemented: A0.8");
+  if (pageHost && !pageHost.closed) return Promise.resolve(pageHost);
+  pageHost = null;
+  if (pageStart) return pageStart;
+  const pending: Promise<AudioHost> = start().then(
+    (host) => {
+      if (pageStart === pending) {
+        pageStart = null;
+        pageHost = host;
+      }
+      return host;
+    },
+    (error: unknown) => {
+      if (pageStart === pending) pageStart = null;
+      throw error;
+    },
+  );
+  pageStart = pending;
+  return pending;
 }
 
 /** @internal The page's live host, or null (none started, still starting, or closed). */
 export function currentAudioHost(): AudioHost | null {
-  throw new Error("not implemented: A0.8");
+  return pageHost && !pageHost.closed ? pageHost : null;
 }
 
 /** @internal Tests: closes the page's host (if any) and forgets it and any pending start. */
 export async function _resetAudioHostForTests(): Promise<void> {
-  throw new Error("not implemented: A0.8");
+  const host = pageHost;
+  pageHost = null;
+  pageStart = null;
+  if (host) await host.close();
 }
+
+let pageHost: AudioHost | null = null;
+let pageStart: Promise<AudioHost> | null = null;
 
 /** @internal Loads the core and starts the host for `settings` (the `myco.audio` service's `load`), once per page. */
 export async function startAudioHost(settings: AudioSettings, unlockTarget: EventTarget = document): Promise<AudioHost> {
