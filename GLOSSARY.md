@@ -44,3 +44,8 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 
 - **Effect player:** one particle effect at one transform on the Babylon backend (`render/babylon/effectPlayer.ts`): its runner, CPU simulation and kernel systems, their draws and fallbacks, and how it plays (restart, event-started systems, events, emit, stop, seeding). A World's ParticleSystems (one player each, through `BabylonParticles`), the particle graph's preview and the particle thumbnails all play through it. The players of one scene share **effect resources** (texture cache, dot, scene depth, kernel host). _Avoid:_ particle player (for anything but `BabylonParticles`, the World adapter).
 - **Thumbnail renderer:** a `BabylonRenderer` made with `forThumbnail` that draws a prefab's or scene's headless World with the real render features on the thumbnail engine, under the thumbnail policy (no warm-up machinery, a shared studio room, an engine it doesn't own). The thumbnail code only frames and captures.
+
+## Hosts (ADR 0155)
+
+- **Launch:** the ordered start of a game every host shares, through `launchGame` (`src/engine/launch.ts`): the asset source, scripts, plugin activation (passed in by the host), the Engine, then the entry scene; `dispose()` undoes it in reverse. The player, the dedicated server and play mode are its adapters. _Avoid:_ boot, bootstrap (that is a World's start-up plan, ADR 0032).
+- **Entry scene:** the scene that empty start-up Worlds (no `scenes` key and no nodes) load at launch: a build's main scene, or play mode's open scene. The dedicated server has none.
