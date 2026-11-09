@@ -114,12 +114,11 @@ impl Core {
     /// Renders one quantum (exactly [`QUANTUM`] frames) starting at context frame `frame` and
     /// returns the planar stereo output, `[L; 128][R; 128]`. Never allocates or grows memory.
     ///
-    /// M1a.0: silence. A1.2 mixes voices, A2.1 buses, A0.3 counts for STATUS.
+    /// A1.2 mixes voices (`voices::render`); A2.1 adds buses.
     pub fn process(&mut self, frame: u64) -> &[f32] {
         self.frame = frame;
-        let out = &mut self.regions.output[..OUTPUT_CHANNELS * QUANTUM];
-        out.fill(0.0);
-        out
+        crate::voices::render(self, frame);
+        &self.regions.output[..OUTPUT_CHANNELS * QUANTUM]
     }
 
     /// Work units spent in the last quantum (A3.3's model; 0 until then).
