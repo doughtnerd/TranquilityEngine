@@ -6,7 +6,8 @@ import "./sampleTypes";
 import { registerCoreAssetKinds } from "./assetKinds.builtin";
 import { MemoryFileSystem } from "./memoryFs";
 import { editorSettings, joinPath, openFolderProject, readOnlyProject, type EditorProject } from "./projects";
-import { currentProject, select, status } from "./state";
+import { currentProject, status } from "./state";
+import { select } from "./inspectorTarget";
 
 export { MemoryFileSystem };
 

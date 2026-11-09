@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { combineSelection, rangeBetween } from "../selectionModel";
-import { isSelected, refineList, select, selectedKeys } from "../state";
+import { isSelected, refineList, selectedKeys } from "../state";
+import { select } from "../inspectorTarget";
 
 /**
  * The Alt+click list (ADR 0022): every node near the click, occluded ones and children included,

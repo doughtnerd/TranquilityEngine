@@ -6,7 +6,6 @@ import { byPhase } from "../../engine/render/renderFeatures";
 import { assetKind } from "../../editor/assetBrowser";
 import { _reset, assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
-import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel, registeredKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels, viewportTools } from "../../editor/sdk/contributions";
@@ -31,6 +30,7 @@ import { parsePolygon } from "./editor/TilesetInspector";
 import { TILEMAPS_SPEC, Tilemap, tilemapsRuntimePlugin } from "./runtime";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
 import { newTileset, type TilesetData } from "./runtime/tileset";
+import { inspectableAsset } from "../../editor/inspectorTarget";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 

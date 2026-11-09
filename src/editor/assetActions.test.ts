@@ -13,7 +13,7 @@ import {
 } from "./assetActions";
 import { entryFolder, entryKind, entryName, entryPath, fileEntries, folderEntry, isFolderEntry, isSliceEntry, sliceEntry, splitSliceEntry } from "./assetEntry";
 import { assetClipboard } from "./assetOps";
-import { arrowSelection, assetQuery, folderPath, renamingAsset, resetAssetBrowser, select, selectedAssets } from "./assetSelection";
+import { arrowSelection, assetQuery, folderPath, renamingAsset, resetAssetBrowser, selectedAssets } from "./assetSelection";
 import { OrbitCamera } from "./OrbitCamera";
 import { askBeforeDeletingAssets } from "./preferences";
 import { openSceneFile } from "./project";
@@ -22,6 +22,7 @@ import { replaceScripts } from "./scriptLoader";
 import { assetActions } from "./sdk/contributions";
 import { currentProject, openScene, openScenes, playState, sceneCamera, status, type OpenScene } from "./state";
 import { MemoryFileSystem, ROOT, demoFolder, useCoreAssetKinds } from "./testing";
+import { selectAssets } from "./inspectorTarget";
 
 useCoreAssetKinds();
 
@@ -220,7 +221,7 @@ describe("plugins' asset actions (ADR 0146)", () => {
 describe("the panel's selection", () => {
   it("is what's selected among what the panel lists (the menu bar acts on it)", () => {
     folderPath.value = "music";
-    select(["music/foo.mp3", "images/flappyBird.png"]);
+    selectAssets(["music/foo.mp3", "images/flappyBird.png"]);
     expect(panelTarget()?.entries).toEqual(["music/foo.mp3"]);
     assetQuery.value = "flappy";
     expect(panelTarget()?.entries).toEqual(["images/flappyBird.png"]);

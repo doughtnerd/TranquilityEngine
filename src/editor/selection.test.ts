@@ -7,9 +7,10 @@ import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
 import { ancestorKeys, combineSelection, hierarchyEntries, rangeBetween, selectModeFor, topmostKeys, withDescendants } from "./selectionModel";
-import { openScene, sceneCamera, select, selectedKeys, selectedNodes, selection } from "./state";
+import { openScene, sceneCamera, selectedKeys, selectedNodes, selection } from "./state";
 import { boxBetween, colliderBounds, colliderHits, idsInBox, keysNear } from "./viewportSelection";
 import { sampleProject } from "./testing";
+import { select } from "./inspectorTarget";
 
 afterEach(() => select([]));
 
@@ -24,9 +25,9 @@ describe("the selection", () => {
 
   it("setting the active node selects just that node", () => {
     select(["a", "b"]);
-    selection.value = "z";
+    select(["z"]);
     expect(selectedKeys.value).toEqual(["z"]);
-    selection.value = null;
+    select([]);
     expect(selectedKeys.value).toEqual([]);
   });
 

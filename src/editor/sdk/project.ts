@@ -3,7 +3,7 @@
 // Reading `editor.project.current` or `editor.project.version` inside a component, `computed` or `effect`
 // tracks it, as reading the signal would.
 import type { ImportSettings } from "../../engine/scene/importSettings";
-import { readImportSettings, showAsset } from "../assetImport";
+import { readImportSettings } from "../assetImport";
 import { assetKind, type AssetKind } from "../assetKindLookup";
 import { freePath } from "../freePath";
 import { openScript } from "../code/codeState";
@@ -12,6 +12,7 @@ import { joinPath } from "../projectPaths";
 import { isScenePath, type EditorProject } from "../projects";
 import { currentProject, docVersion } from "../state";
 import { messages } from "./messages";
+import { showAsset } from "../inspectorTarget";
 
 export type { AssetKind, EditorProject };
 

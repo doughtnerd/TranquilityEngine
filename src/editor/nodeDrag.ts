@@ -9,7 +9,8 @@ import { hierarchyTargetAt, overPrefabInsides, type AssetDropTarget } from "./as
 import type { SceneDocument } from "./document";
 import { isInsidePrefab, moveNodes, whyNotMovable } from "./hierarchyEdit";
 import { subtreeRoots } from "./nodeClipboard";
-import { openScene, playState, select, selectedKeys, status } from "./state";
+import { openScene, playState, selectedKeys, status } from "./state";
+import { select } from "./inspectorTarget";
 
 const DRAG_THRESHOLD = 5;
 

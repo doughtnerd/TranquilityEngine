@@ -11,24 +11,10 @@ import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile, saveOpenScene } from "./project";
 import { createPrefab } from "./prefabs";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
-import { currentProject, openScene, sceneCamera, select, selectedKeys, selectedUIElement } from "./state";
-import {
-  contentSpan,
-  describeOrigin,
-  documentRows,
-  elementOfComponent,
-  fieldSources,
-  markupLocation,
-  parseUIRefKey,
-  refOfElement,
-  resolveUIElement,
-  rowAncestry,
-  selectUIElement,
-  selectedUIRef,
-  uiRefKey,
-  type FieldSourceRow,
-} from "./uiDocuments";
+import { currentProject, openScene, sceneCamera, selectedKeys, selectedUIElement } from "./state";
+import { contentSpan, describeOrigin, documentRows, elementOfComponent, fieldSources, markupLocation, parseUIRefKey, refOfElement, resolveUIElement, rowAncestry, selectedUIRef, uiRefKey, type FieldSourceRow } from "./uiDocuments";
 import { applyClickSelection, chooseSelection, uiHitKeys } from "./viewportSelection";
+import { select, selectUIElement } from "./inspectorTarget";
 
 const ROOT = "C:\\Games\\ui";
 const DT = 1 / 60;

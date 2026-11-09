@@ -8,7 +8,7 @@
 // which UIDocument on it (by index), and the element's static path in the built tree
 // (`UIDocumentElement._path`: "" for the root, then `/#id` or `/Tag[n]` per level, `/label` for a
 // button's text content). Refs survive rebuilds (hot reload) as long as the structure is the same.
-import { batch, signal } from "@preact/signals";
+import { signal } from "@preact/signals";
 import { Color, Vector2, type GameObject } from "../engine";
 import { UIDocument, type UIDocumentElement } from "../engine/ui/UIDocument";
 import { getFields, type FieldInfo } from "../engine/core/registry";
@@ -16,8 +16,7 @@ import { Assets } from "../engine/scene/Assets";
 import type { UIComponentType } from "../engine/ui/components";
 import type { MarkupAttribute, MarkupElement, ResolvedValue, SourceSpan, StyleTarget, ValueSource } from "../engine/ui/document/types";
 import { pathKey, type NodePath } from "./document";
-import { selectedAssets } from "./assetSelection";
-import { select, selectedUIElement } from "./state";
+import { selectedUIElement } from "./state";
 
 // --- Refs and keys ------------------------------------------------------------------------------
 
@@ -79,14 +78,7 @@ export function elementOfComponent(c: UIComponentType): UIDocumentElement | null
 
 // --- Selection ----------------------------------------------------------------------------------
 
-/** Select a UI element (null clears it). Node and asset selections are cleared: one thing shows in the Inspector. */
-export function selectUIElement(ref: UIElementRef | null): void {
-  batch(() => {
-    select([]);
-    if (selectedAssets.peek().length > 0) selectedAssets.value = [];
-    selectedUIElement.value = ref ? uiRefKey(ref) : null;
-  });
-}
+// Selecting an element goes through inspectorTarget.ts (`selectUIElement`, ADR 0162).
 
 /** The selected UI element's ref, or null. Tracks the selection like a signal. */
 export function selectedUIRef(): UIElementRef | null {

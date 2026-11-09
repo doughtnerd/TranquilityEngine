@@ -1,7 +1,8 @@
 // Import settings in the editor (ADR 0040): reading and writing an asset's sidecar
-// (`<asset>.meta.json`), which asset the Asset Inspector shows, and which image the Sprite Editor
-// has open. ui/AssetInspector.tsx and ui/SpriteEditor.tsx render them.
-import { computed, signal } from "@preact/signals";
+// (`<asset>.meta.json`), and which image the Sprite Editor (which edits a sidecar's slices) has
+// open. ui/AssetInspector.tsx and ui/SpriteEditor.tsx render them; which asset the Inspector shows
+// is inspectorTarget.ts (ADR 0162).
+import { signal } from "@preact/signals";
 import {
   defaultImportSettings,
   formatImportSettings,
@@ -9,12 +10,9 @@ import {
   sidecarPath,
   type ImportSettings,
 } from "../engine/scene/importSettings";
-import { assetKind, folderOf } from "./assetBrowser";
-import { isSliceEntry, splitSliceEntry } from "./assetEntry";
-import { kindImportSettings, kindInspector } from "./assetKindLookup";
-import { openFolder, select as selectAssets, selectedAssets } from "./assetSelection";
+import { assetKind } from "./assetBrowser";
+import { kindImportSettings } from "./assetKindLookup";
 import type { EditorProject } from "./projects";
-import { select as selectNodes, selectedKeys } from "./state";
 
 /** True if an asset has import settings: its kind brings an import settings view (ADR 0143: images and audio, models from the Meshes plugin). */
 export const hasImportSettings = (path: string): boolean => kindImportSettings(assetKind(path)) !== undefined;
@@ -46,42 +44,6 @@ export async function writeImportSettings(project: EditorProject, path: string, 
 
 /** True if two settings would write the same sidecar. */
 export const sameSettings = (a: ImportSettings, b: ImportSettings) => formatImportSettings(a) === formatImportSettings(b);
-
-/** The file the Asset Inspector shows for an Assets panel entry (a slice shows its image), or null if it has no inspector. */
-export function inspectableAsset(entry: string): string | null {
-  const file = isSliceEntry(entry) ? splitSliceEntry(entry).image : entry;
-  // Its kind's own Inspector view, or its import settings (ADR 0133, 0143).
-  return kindInspector(assetKind(file)) !== undefined || hasImportSettings(file) ? file : null;
-}
-
-/**
- * The asset the Asset Inspector shows: the one image, audio file, model, material, shader graph,
- * particle effect, formation, environment or prefab selected in the Assets panel (a selected
- * slice shows its image), or null. The Inspector shows it when no node is selected.
- */
-export const inspectedAsset = computed<string | null>(() => {
-  const sel = selectedAssets.value;
-  return sel.length === 1 ? inspectableAsset(sel[0]) : null;
-});
-
-/** True when the Inspector panel should show the Asset Inspector instead of a node. */
-export const showsAssetInspector = () => selectedKeys.value.length === 0 && inspectedAsset.value !== null;
-
-/**
- * After the Assets panel's selection changes by a click or the arrow keys: if it is one asset the Inspector can show, deselect the scene's nodes so the Inspector
- * shows it. The Inspector follows the latest selection; selecting nodes deselects the assets in
- * turn (state.ts `select`).
- */
-export function inspectSelectedAsset(): void {
-  if (inspectedAsset.peek() !== null) selectNodes([]);
-}
-
-/** Show `path` in the Assets panel (opening its folder) and select it alone, so the Inspector shows it. */
-export function showAsset(path: string): void {
-  openFolder(folderOf(path));
-  selectAssets([path]);
-  inspectSelectedAsset();
-}
 
 /** The image open in the Sprite Editor, if any. */
 export const spriteEditorImage = signal<string | null>(null);

@@ -10,7 +10,8 @@ import { addAssets, whyNotAddAssets, type AssetAddTarget } from "./addAssets";
 import { fileName } from "./assetBrowser";
 import { entryPath } from "./assetEntry";
 import { moveAssetsTo, whyNotMoveTarget } from "./assetOps";
-import { currentProject, openScene, playState, sceneCamera, selectedKeys, status, viewMode } from "./state";
+import { currentProject, openScene, playState, sceneCamera, status, viewMode } from "./state";
+import { select } from "./inspectorTarget";
 
 /** Pointer travel (CSS px) before pressing an asset tile becomes a drag. */
 const DRAG_THRESHOLD = 5;
@@ -119,6 +120,22 @@ function problemFor(paths: readonly string[], target: AssetDropTarget): string |
 }
 
 /**
+ * Release dragged entries on `target`: move them into a folder, or add them to the scene (one
+ * operation, ADR 0149: prepares a model's meshes, adds to the scene open now or to none, one undo
+ * step) and select what was added, through the Inspector target's rule (ADR 0162).
+ */
+export async function dropAssets(paths: readonly string[], target: AssetDropTarget): Promise<void> {
+  if (target.kind === "folder") {
+    await moveAssetsTo(paths, target.folder);
+    return;
+  }
+  const point = target.kind === "viewport" ? viewportDropPoint(target.x, target.y) : ([0, 0, 0] as const);
+  const { ids, message } = await addAssets(paths, addTarget(target, point));
+  if (ids.length > 0) select(ids);
+  status.value = message;
+}
+
+/**
  * Press on an asset tile: past the threshold this drags `paths` (the selection). The ghost label
  * follows the pointer and says what will happen; releasing over a valid spot adds the assets to
  * the scene (`addAssets`: one undoable step, selecting them) or moves them to a folder; anywhere else, or
@@ -151,17 +168,7 @@ export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void 
     const state = assetDrag.value;
     assetDrag.value = null;
     if (!apply || !active || !state?.target) return;
-    const target = state.target;
-    if (target.kind === "folder") {
-      void moveAssetsTo(paths, target.folder);
-      return;
-    }
-    const point = target.kind === "viewport" ? viewportDropPoint(target.x, target.y) : ([0, 0, 0] as const);
-    // One operation (ADR 0149): prepares (a model's meshes), adds to the scene open now or to none, one undo step.
-    void addAssets(paths, addTarget(target, point)).then(({ ids, message }) => {
-      if (ids.length > 0) selectedKeys.value = [...ids];
-      status.value = message;
-    });
+    void dropAssets(paths, state.target);
   };
   const up = (m: PointerEvent) => {
     if (active) update(m);

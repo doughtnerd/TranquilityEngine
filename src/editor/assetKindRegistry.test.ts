@@ -17,11 +17,11 @@ import {
   satisfiesFieldKind,
   sceneNodesOf,
 } from "./assetKindLookup";
-import { inspectableAsset } from "./assetImport";
 import { CORE_ASSET_KINDS } from "./assetKinds.builtin";
 import { SceneDocument } from "./document";
 import { assetKinds, type AssetKindContribution } from "./sdk/contributions";
 import { useCoreAssetKinds } from "./testing";
+import { inspectableAsset } from "./inspectorTarget";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 

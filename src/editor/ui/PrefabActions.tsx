@@ -5,7 +5,8 @@ import { errorStatus } from "../messages";
 import { applyOverrides, applyOverridesTo, createPrefab, createPrefabFromNodes } from "../prefabs";
 import { openPrefabFrom } from "../prefabTabs";
 import type { EditorProject } from "../projects";
-import { currentProject, docVersion, selection, status, type OpenScene } from "../state";
+import { currentProject, docVersion, status, type OpenScene } from "../state";
+import { select } from "../inspectorTarget";
 
 const READ_ONLY = "This project is read-only. Open a project folder to";
 
@@ -112,7 +113,7 @@ export function CreatePrefabButton(props: { scene: OpenScene; id: string }) {
         readOnly="create prefabs"
         run={async (project) => {
           const path = await createPrefab(scene, project, id);
-          selection.value = id;
+          select([id]);
           return `Created ${path}. Undo turns the node back; the file stays on disk.`;
         }}
       />

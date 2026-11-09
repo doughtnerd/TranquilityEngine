@@ -22,8 +22,9 @@ import { EDITABLE_COLLIDERS, collider3dShapes, colliderOverlay, editingCollider 
 import { AddComponent, SetField } from "../../../editor/document";
 import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
-import { openScene, selection } from "../../../editor/state";
+import { openScene } from "../../../editor/state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
+import { select } from "../../../editor/inspectorTarget";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 const identity: Pose3D = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
@@ -92,7 +93,7 @@ describe("3D colliders in the editor", () => {
 
   afterEach(() => {
     editingCollider.value = null;
-    selection.value = null;
+    select([]);
     engine.dispose();
   });
 
@@ -101,7 +102,7 @@ describe("3D colliders in the editor", () => {
     const id = createNode(scene, "cube", { position: [0, 0, 0] });
     const node = scene.sync.nodeFor(id)!;
     expect(node.getBehavior(BoxCollider)).not.toBeNull();
-    selection.value = id;
+    select([id]);
     const before = colliderOverlay(engine).lines.length;
     expect(before).toBeGreaterThanOrEqual(3 + 12); // the 2D colliders, and the cube's twelve edges
     editingCollider.value = { key: id, type: "engine.BoxCollider", index: 0 };
@@ -114,7 +115,7 @@ describe("3D colliders in the editor", () => {
     const scene = openScene.value!;
     const id = createNode(scene, "empty");
     scene.stack.execute(new AddComponent(id, { type: "engine.CapsuleCollider", data: { direction: "x" } }));
-    selection.value = id;
+    select([id]);
     editingCollider.value = { key: id, type: "engine.CapsuleCollider", index: 0 };
     expect(colliderOverlay(engine).handles.map((h) => h.id).sort()).toEqual(["center", "height+", "height-", "radius:u+", "radius:u-", "radius:v+", "radius:v-"]);
   });
@@ -130,7 +131,7 @@ describe("character controller and mesh collider gizmos", () => {
 
   afterEach(() => {
     editingCollider.value = null;
-    selection.value = null;
+    select([]);
     engine.dispose();
   });
 
@@ -139,7 +140,7 @@ describe("character controller and mesh collider gizmos", () => {
     const id = createNode(scene, "empty", { position: [1, 2, 3] });
     scene.stack.execute(new SetField(id, "engine.Transform", "rotation", [0, 0, 90]));
     scene.stack.execute(new AddComponent(id, { type: "engine.CharacterController", data: { center: [0, 0.5, 0], radius: 0.5, height: 2 } }));
-    selection.value = id;
+    select([id]);
     const node = scene.sync.nodeFor(id)!;
     const shapes = collider3dShapes(engine).filter((s) => s.node === node);
     expect(shapes).toHaveLength(1);
@@ -163,7 +164,7 @@ describe("character controller and mesh collider gizmos", () => {
   it("edits a mesh collider's centre only", () => {
     const scene = openScene.value!;
     const id = createNode(scene, "plane");
-    selection.value = id;
+    select([id]);
     expect(EDITABLE_COLLIDERS.has("engine.MeshCollider")).toBe(true);
     editingCollider.value = { key: id, type: "engine.MeshCollider", index: 0 };
     scene.stack.execute(new SetField(id, "engine.MeshCollider", "center", [0, 1, 0]));
