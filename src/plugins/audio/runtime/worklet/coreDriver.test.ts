@@ -6,8 +6,36 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CoreLink, type LinkPort } from "../core/context";
 import { BATCH_POOL_BUFFERS } from "../core/bufferPool";
-import { Kind, readStatus, SCHEMA_HASH, STATUS_FLAGS_READY, writeBatchHeader, writeEnvelope, type StatusBlock } from "../wire.generated";
-import { CoreDriver, CoreLoadError, FLAG_TRAP_CAUGHT, instantiateCore, MEMORY_INITIAL_PAGES, memoryMaximumPages, SHELL_FIELD, UnderrunProbe, type CoreInstance, type CorePreset } from "./coreDriver";
+import {
+  CLIP_BEGIN_FIXED_END,
+  CLIP_CHUNK_FIXED_END,
+  CLIP_UNLOAD_FIXED_END,
+  ClipEvent,
+  ClipFormat,
+  Kind,
+  readStatus,
+  SCHEMA_HASH,
+  STATUS_FLAGS_READY,
+  writeBatchHeader,
+  writeClipBegin,
+  writeClipChunk,
+  writeClipUnload,
+  writeEnvelope,
+  type StatusBlock,
+} from "../wire.generated";
+import {
+  CLIP_BYTES_PER_QUANTUM,
+  CoreDriver,
+  CoreLoadError,
+  FLAG_TRAP_CAUGHT,
+  instantiateCore,
+  MEMORY_INITIAL_PAGES,
+  memoryMaximumPages,
+  SHELL_FIELD,
+  UnderrunProbe,
+  type CoreInstance,
+  type CorePreset,
+} from "./coreDriver";
 
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio.wasm", import.meta.url)));
 const RATE = 48_000;
@@ -195,6 +223,121 @@ describe("coreDriver with the real wasm", () => {
     r.driver.onControl({ type: "debugTone", hz: 0, gain: 0.5 });
     r.run(1);
     expect(r.driver.output.every((v) => v === 0)).toBe(true);
+  });
+});
+
+/** A CLIP_BEGIN, as A1.3a's registry writes it. */
+function clipBegin(clipId: number, frames: number, channels: number, format: number): ArrayBuffer {
+  const buffer = new ArrayBuffer(CLIP_BEGIN_FIXED_END);
+  const view = new DataView(buffer);
+  writeEnvelope(view, 0, { kind: Kind.CLIP_BEGIN, seq: 0, bodyBytes: CLIP_BEGIN_FIXED_END - 16 });
+  writeClipBegin(view, 0, { clipId, frames, channels, sampleRate: 44_100, format });
+  return buffer;
+}
+
+/** A CLIP_CHUNK of interleaved `samples`, padded to 4 bytes as A1.3a's registry pads it. */
+function clipChunk(clipId: number, frameOffset: number, frames: number, samples: Float32Array | Int16Array): ArrayBuffer {
+  const total = CLIP_CHUNK_FIXED_END + ((samples.byteLength + 3) & ~3);
+  const buffer = new ArrayBuffer(total);
+  const view = new DataView(buffer);
+  writeEnvelope(view, 0, { kind: Kind.CLIP_CHUNK, seq: 0, bodyBytes: total - 16 });
+  writeClipChunk(view, 0, { clipId, frameOffset, frames, reserved: 0 });
+  new Uint8Array(buffer, CLIP_CHUNK_FIXED_END, samples.byteLength).set(new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength));
+  return buffer;
+}
+
+function clipUnload(clipId: number): ArrayBuffer {
+  const buffer = new ArrayBuffer(CLIP_UNLOAD_FIXED_END);
+  const view = new DataView(buffer);
+  writeEnvelope(view, 0, { kind: Kind.CLIP_UNLOAD, seq: 0, bodyBytes: CLIP_UNLOAD_FIXED_END - 16 });
+  writeClipUnload(view, 0, { clipId });
+  return buffer;
+}
+
+describe("coreDriver clip routing with the real wasm", () => {
+  const clipEvents = (blocks: StatusBlock[]) => blocks.flatMap((b) => b.clipEvents.map((e) => [e.clipId, e.code]));
+
+  it("a clip loads in chunks, the last one makes it resident in STATUS, and its buffers aren't returned", () => {
+    const r = rig();
+    const send = (m: ArrayBuffer) => r.driver.onMessage(m, r.clock.frame, r.clock.now);
+    send(clipBegin(7, 1_000, 2, ClipFormat.F32));
+    send(clipChunk(7, 0, 600, new Float32Array(1_200).fill(0.25)));
+    r.run(6);
+    expect(clipEvents(r.blocks)).toEqual([]);
+    send(clipChunk(7, 600, 400, new Float32Array(800).fill(0.5)));
+    r.run(6);
+    expect(clipEvents(r.blocks)).toEqual([[7, ClipEvent.Resident]]);
+    expect(r.driver.stats.clipBytes).toBe(1_000 * 2 * 4);
+    expect(r.link.lastStatus!.arenaUsedKB).toBe(8); // 8,000 bytes round up to the 8 KB class
+    expect(r.driver.stats.returned).toBe(0);
+  });
+
+  it("an odd-sample int16 chunk copies only its samples, not the padding", () => {
+    const r = rig();
+    const send = (m: ArrayBuffer) => r.driver.onMessage(m, r.clock.frame, r.clock.now);
+    send(clipBegin(9, 3, 1, ClipFormat.I16));
+    const chunk = clipChunk(9, 0, 3, Int16Array.of(100, -200, 300));
+    expect(chunk.byteLength - CLIP_CHUNK_FIXED_END).toBe(8); // 6 bytes of samples, 2 of padding
+    new DataView(chunk).setInt16(chunk.byteLength - 2, 0x5555, true); // marked, so a copied pad would show
+    send(chunk);
+    r.run(6);
+    expect(clipEvents(r.blocks)).toEqual([[9, ClipEvent.Resident]]);
+    expect(r.driver.stats.clipBytes).toBe(6);
+    // The clip's samples sit at its block's start; the bytes after them stay zero (the block is zeroed).
+    const at = r.core.exports.myco_audio_clip_chunk_ptr(9, 0, 6);
+    const arena = new DataView(r.core.memory.buffer, at, 8);
+    expect([arena.getInt16(0, true), arena.getInt16(2, true), arena.getInt16(4, true), arena.getInt16(6, true)]).toEqual([100, -200, 300, 0]);
+  });
+
+  it("unload frees the clip: the arena empties and later chunks for it are dropped", () => {
+    const r = rig();
+    const send = (m: ArrayBuffer) => r.driver.onMessage(m, r.clock.frame, r.clock.now);
+    send(clipBegin(3, 4_096, 1, ClipFormat.I16));
+    send(clipChunk(3, 0, 4_096, new Int16Array(4_096)));
+    r.run(6);
+    expect(r.link.lastStatus!.arenaUsedKB).toBe(8);
+    send(clipUnload(3));
+    send(clipChunk(3, 0, 16, new Int16Array(16)));
+    r.run(6);
+    expect(r.link.lastStatus!.arenaUsedKB).toBe(0);
+    expect(r.driver.stats.clipBytes).toBe(8_192);
+    // The id can be loaded again after its unload.
+    send(clipBegin(3, 2, 1, ClipFormat.I16));
+    send(clipChunk(3, 0, 2, Int16Array.of(1, 2)));
+    r.run(6);
+    expect(clipEvents(r.blocks)).toEqual([
+      [3, ClipEvent.Resident],
+      [3, ClipEvent.Resident],
+    ]);
+  });
+
+  it("copies at most 256 KB per quantum, keeping order, and grows memory past the initial arena", () => {
+    const r = rig();
+    const send = (m: ArrayBuffer) => r.driver.onMessage(m, r.clock.frame, r.clock.now);
+    const before = r.core.memory.buffer.byteLength;
+    const frames = CLIP_BYTES_PER_QUANTUM / 2; // one budget of mono int16 per chunk
+    const chunks = 6; // 1.5 MB: past the 1 MB initial arena
+    send(clipBegin(5, frames * chunks, 1, ClipFormat.I16));
+    for (let k = 0; k < chunks; k++) send(clipChunk(5, k * frames, frames, new Int16Array(frames).fill(k)));
+    expect(r.core.memory.buffer.byteLength).toBeGreaterThan(before);
+    expect(r.driver.stats.clipBytes).toBe(CLIP_BYTES_PER_QUANTUM);
+    expect(r.driver.pendingClipMessages).toBe(chunks - 1);
+    r.run(chunks - 1);
+    expect(r.driver.pendingClipMessages).toBe(0);
+    expect(r.driver.stats.clipBytes).toBe(chunks * CLIP_BYTES_PER_QUANTUM);
+    r.run(6);
+    expect(clipEvents(r.blocks)).toEqual([[5, ClipEvent.Resident]]);
+  });
+
+  it("a load past the Memory's maximum is refused with a refusedGrow event", () => {
+    const small: CorePreset = { ...PRESET, arenaInitialBytes: 0, clipCeilingBytes: 0 };
+    const r = rig({ core: instantiateCore(WASM, small, RATE) });
+    const send = (m: ArrayBuffer) => r.driver.onMessage(m, r.clock.frame, r.clock.now);
+    send(clipBegin(11, 64 << 20, 1, ClipFormat.I16)); // 128 MB, far past the 16 MB headroom
+    send(clipChunk(11, 0, 4, new Int16Array(4)));
+    r.run(6);
+    expect(clipEvents(r.blocks)).toEqual([[11, ClipEvent.RefusedGrow]]);
+    expect(r.driver.stats.clipBytes).toBe(0);
   });
 });
 
