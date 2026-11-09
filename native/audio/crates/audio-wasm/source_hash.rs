@@ -14,6 +14,8 @@
 //! - The hash is the digest's first 16 bytes. Its text form is 32 lowercase hex digits.
 #![allow(dead_code)]
 
+use sha2::{Digest, Sha256};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Directories never descended into, at any depth.
@@ -24,28 +26,83 @@ pub const HASHED_NAMES: [&str; 3] = ["Cargo.toml", "Cargo.lock", "rust-toolchain
 
 /// The hashed files under `root` as `(key, path)`: `key` relative to `root` with `/` separators,
 /// sorted by `key` in ascending byte order.
+///
+/// Keys are built from the names walked under `root` (never canonicalised, so `..` in `root` is
+/// harmless). Symbolic links are neither followed nor hashed, and names that aren't UTF-8 are
+/// skipped; neither occurs in a normal tree. Unreadable directories are skipped, not reported.
 pub fn hashed_files(root: &Path) -> Vec<(String, PathBuf)> {
-    // STUB(A0.1-L2): a build script can't `todo!()` without breaking every build.
-    let _ = root;
-    Vec::new()
+    let mut out = Vec::new();
+    collect(root, "", &mut out);
+    out.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+    out
+}
+
+fn collect(dir: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        let key = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{prefix}/{name}")
+        };
+        if file_type.is_dir() {
+            if !SKIPPED_DIRS.contains(&name.as_str()) {
+                collect(&entry.path(), &key, out);
+            }
+        } else if file_type.is_file()
+            && (name.ends_with(".rs") || HASHED_NAMES.contains(&name.as_str()))
+        {
+            out.push((key, entry.path()));
+        }
+    }
 }
 
 /// `contents` with every `\r\n` replaced by `\n`.
 pub fn normalise(contents: &[u8]) -> Vec<u8> {
-    // STUB(A0.1-L2)
-    contents.to_vec()
+    let mut out = Vec::with_capacity(contents.len());
+    let mut i = 0;
+    while i < contents.len() {
+        if contents[i] == b'\r' && contents.get(i + 1) == Some(&b'\n') {
+            out.push(b'\n');
+            i += 2;
+        } else {
+            out.push(contents[i]);
+            i += 1;
+        }
+    }
+    out
 }
 
 /// The source hash of `root` per the rule above.
+///
+/// Panics if a hashed file can't be read: a build script must fail loudly rather than embed a
+/// hash of a tree it didn't see.
 pub fn source_hash(root: &Path) -> [u8; 16] {
-    // STUB(A0.1-L2)
-    let _ = root;
-    [0; 16]
+    let mut hasher = Sha256::new();
+    for (key, path) in hashed_files(root) {
+        let raw = fs::read(&path)
+            .unwrap_or_else(|e| panic!("cannot read {} for the source hash: {e}", path.display()));
+        let contents = normalise(&raw);
+        hasher.update(key.as_bytes());
+        hasher.update([0u8]);
+        hasher.update((contents.len() as u64).to_le_bytes());
+        hasher.update(&contents);
+    }
+    let digest = hasher.finalize();
+    let mut out = [0u8; 16];
+    out.copy_from_slice(&digest[..16]);
+    out
 }
 
 /// 32 lowercase hex digits.
 pub fn to_hex(hash: &[u8; 16]) -> String {
-    // STUB(A0.1-L2)
-    let _ = hash;
-    String::new()
+    hash.iter().map(|b| format!("{b:02x}")).collect()
 }
