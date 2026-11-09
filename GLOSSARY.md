@@ -55,3 +55,8 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 ## Inspector (ADR 0158)
 
 - **Field target:** what an Inspector field row edits: one component field on one or more nodes (`src/editor/fieldTarget.ts`). It has two adapters: the edited document (undoable, overrides on instances) and a live World (play only). Both inspectors render the same field rows over it.
+
+## Engine (ADR 0159, 0160)
+
+- **View allocator:** what decides which surface (the main view, a tile, or none after a hand-over) and which input target each World has (`core/viewAllocator.ts`, ADR 0159). The Engine asks it `surfaceOf(world)`.
+- **End of frame:** the last step of a World's frame (ADR 0011, 0160). Work queued with `World.atFrameEnd` runs there, after deferred destroys; outside a frame it runs at once. _Avoid:_ checking `_inFrame` by hand.
