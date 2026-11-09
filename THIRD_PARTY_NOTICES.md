@@ -1,6 +1,6 @@
 # Third-party notices
 
-Code from these projects is compiled into Myco Engine's own modules. Libraries used as npm packages (three.js, Rapier, Howler, three.quarks, Preact, Monaco…) carry their licences in their packages.
+Code from these projects is compiled into Myco Engine's own modules. Libraries used as npm packages (three.js, Rapier, three.quarks, Preact, Monaco…) carry their licences in their packages.
 
 ## Navigation module (`native/nav`, compiled to `src/engine/nav/wasm/`; ADR 0065)
 

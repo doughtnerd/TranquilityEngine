@@ -7,7 +7,8 @@
  *   exists (a core load failed after the host started) its context is reused; otherwise this backend makes the page's one
  *   context and arms the `Unlock` layer on it.
  * - Mixer buses are Babylon `AudioBus`es (parent through `outBus`); `applyMix` sets each bus's volume to its resolved gain.
- *   Effects (reverb, filters, compressor) are core-only, and so are priority, stealing by priority and virtual voices.
+ *   Snapshots and ducking arrive already folded into that gain. Effects (reverb, filters, compressor), a snapshot's low-pass,
+ *   priority, stealing by priority and virtual voices are core-only: the fallback ignores them rather than fake them.
  * - A sound is one `StaticSound` (decoded once per URL, shared by every voice) or, for `stream` clips, one `StreamingSound`.
  *   `play` is synchronous but creating the sound is not, so the voice returned records its setters and applies them when
  *   the sound is ready (the pattern of `PendingVoice` in `backend.ts`).
@@ -53,6 +54,8 @@ interface Live {
   readonly buffers: Map<string, Promise<StaticSoundBuffer>>;
 }
 
+/** Babylon ramps each parameter change over this many seconds (`parameterRampDuration`); no per-call duration is needed. */
+const BUS_RAMP_SECONDS = 0.015;
 const RAMP = "linear" as AudioParameterRampShape;
 let nextVoiceId = 1;
 
@@ -361,6 +364,9 @@ export class BabylonBackend implements AudioBackend {
         resumeOnInteraction: false,
         resumeOnPause: false,
         disableDefaultUI: true,
+        // Every volume change (a bus's from `applyMix`, a fade step) ramps over this long instead of stepping, so a
+        // mute, a solo or a ducking jump doesn't click (the removed BusGraph used a 15 ms time constant too).
+        parameterRampDuration: BUS_RAMP_SECONDS,
         volume: this.isMuted ? 0 : this.master,
       });
       const main = engine.defaultMainBus ?? (await engine.createMainBusAsync("main"));

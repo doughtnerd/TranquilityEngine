@@ -4,7 +4,7 @@
 import { VoiceReason, VoiceState } from "./voiceTable";
 import type { VoiceTableHandleApi } from "./voiceTable";
 
-import type { AudioReason } from "../../../../engine/audio/backend";
+import type { AudioReason } from "../backend";
 export type { AudioReason };
 
 /**

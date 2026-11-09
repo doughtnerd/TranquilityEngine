@@ -74,7 +74,7 @@ export interface AudioSettings {
   codecs: { aac: boolean };
   /** Default `"hrtf"`. */
   spatial: AudioSpatialMode;
-  /** `"babylon"` (default; resolves to the Howler backend until BB2) or `"core"` (K3). The parse never gives the pre-0157 values (it reports them as problems). */
+  /** `"babylon"` (default; Babylon.js AudioEngineV2, the fallback) or `"core"` (K3). The parse never gives the pre-0157 values (it reports them as problems). */
   backend: AudioBackendSetting;
 }
 

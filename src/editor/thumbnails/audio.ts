@@ -1,5 +1,5 @@
 // Audio clip summaries for the Assets panel and the Inspector (ADR 0061): waveform peaks, length,
-// channels and sample rate, decoded with the browser's Web Audio (editor code; games use Howler).
+// channels and sample rate, decoded with the browser's Web Audio (editor code; games use the audio plugin).
 
 export interface AudioSummary {
   /** Loudest absolute sample in each slice of the clip, 0–1, across channels. */

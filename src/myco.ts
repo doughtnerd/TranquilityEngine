@@ -2,7 +2,7 @@
  * The public `myco` module (ADR 0135): the core (`src/engine/index.ts`) plus every first-party runtime
  * half's public exports. Game code and project scripts import from here (`import { Sky } from "myco"`);
  * the engine library, the player's `myco.js` and the code editor's declarations are built from it.
- * three.js, Babylon.js, Rapier and Howler are never part of this surface (ADR 0010).
+ * three.js, Babylon.js and Rapier are never part of this surface (ADR 0010).
  */
 export * from "./engine/index";
 

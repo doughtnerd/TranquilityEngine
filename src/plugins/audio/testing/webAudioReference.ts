@@ -1,10 +1,10 @@
 /**
- * Internal (ADR 0097): the Web Audio node graph for the mixer's buses, built on Howler's AudioContext
- * so the engine has one context. Per bus: input → effects → snapshot low-pass → gain → parent input.
+ * Test-only reference (ADR 0157 BB2; outside the engine bundle): the Web Audio node graph the pre-0157 mixer
+ * built for its buses (ADR 0097), kept so `audioMixer.test.ts` can check what a Web Audio realisation of the mixer does. Per bus: input → effects → snapshot low-pass → gain → parent input.
  * Reverb effects send to one shared convolver whose output goes straight to the destination.
  */
-import type { BusEffect } from "./settings";
-import type { Mixer, ResolvedBus } from "./mixer";
+import type { BusEffect } from "../../../engine/audio/settings";
+import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
 
 interface BusNodes {
   input: GainNode;

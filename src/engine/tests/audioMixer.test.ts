@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Mixer } from "../audio/mixer";
 import { parseAudioSettings, defaultAudioSettings } from "../audio/settings";
-import { BusGraph } from "../audio/busGraph";
+import { BusGraph } from "../../plugins/audio/testing/webAudioReference";
 
 const mk = (input: unknown) => new Mixer(parseAudioSettings(input).settings);
 

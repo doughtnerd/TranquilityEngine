@@ -1,6 +1,6 @@
 // `Audio.debug()` for the core (K10; api-and-models §1 `AudioDebugInfo`; architecture §8). A1.4 ships the stub that
 // `coreBackend.debug()` calls; A2.5 fills it from the mirror and the voice table. Nothing else here: A2.5 owns this file.
-import type { AudioDebugInfo } from "../../../../engine/audio/backend";
+import type { AudioDebugInfo } from "../backend";
 import type { CoreBackend } from "./coreBackend";
 
 export type { AudioDebugInfo };
