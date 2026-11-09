@@ -7,7 +7,7 @@ import { listComponents, type FieldValue } from "../engine/editor";
 import { AddComponent, AddNode, SetField, type NodePath } from "./document";
 import { choicesFor, defaultItem, editorFor, itemEditorFor, toSceneJSON } from "./fieldValues";
 import { deleteNodes } from "./hierarchyEdit";
-import { componentWorlds, effectiveWorlds, knownWorldTags, setComponentWorlds, setNodeTags, tagsOverridden, worldsBadge } from "./inspectorEdits";
+import { componentWorlds, effectiveWorlds, knownWorldTags, sameWorlds, setComponentWorlds, setNodeTags, setWorldsFor, tagsOverridden, worldsBadge, worldsSettingOf } from "./inspectorEdits";
 import { OrbitCamera } from "./OrbitCamera";
 import { removeComponentFrom } from "./componentEdits";
 import { openSceneFile } from "./project";
@@ -136,6 +136,36 @@ describe("a component's Worlds (ADR 0033 §3)", () => {
     expect(target("bg-a").node.getBehavior(Object.getPrototypeOf(info("bg-a", "engine.SpriteRenderer").component!).constructor)).not.toBeNull(); // the editor World has everything
     removeComponentFrom(scene(), [{ ...target("bg-a"), info: info("bg-a", "engine.SpriteRenderer") }]);
     expect(doc.node("bg-a").overrides!.some((o) => o.worlds !== undefined)).toBe(false);
+  });
+
+  it("sets Worlds for several components as one step, dropping a setting that equals the inherited one", () => {
+    const { doc, stack } = scene();
+    // Targets are read afresh after each edit: an override rebuilds the instance's live nodes.
+    const body = () => ({ ...target("bird"), info: info("bird", "engine.RigidBody2D") });
+    const sprite = () => ({ ...target("bg-a"), info: info("bg-a", "engine.SpriteRenderer") });
+    setComponentWorlds(scene(), [sprite()], ["client"]);
+    expect(setWorldsFor(scene(), [body(), sprite()], ["server", "client"], "Set Worlds of X")).toBe(2);
+    expect(worldsSettingOf(doc, body())!.own).toEqual(["server", "client"]);
+    expect(worldsSettingOf(doc, sprite())!.own).toEqual(["server", "client"]);
+    expect(stack.undoLabel).toBe("Set Worlds of X");
+    // The same tags in another order change nothing and record no step.
+    const states = stack.allStates.length;
+    expect(setWorldsFor(scene(), [body(), sprite()], ["client", "server"], "Again")).toBe(0);
+    expect(stack.allStates).toHaveLength(states);
+    // Every World is what both inherit: their own settings go instead of storing ["*"].
+    expect(setWorldsFor(scene(), [body(), sprite()], ["*"], "Set Worlds of X")).toBe(2);
+    expect(worldsSettingOf(doc, body())).toEqual({ own: undefined, inherited: undefined });
+    expect(doc.node("bg-a").overrides?.some((o) => o.worlds !== undefined) ?? false).toBe(false);
+    stack.undo();
+    expect(worldsSettingOf(doc, sprite())!.own).toEqual(["server", "client"]);
+    expect(worldsSettingOf(doc, body())!.own).toEqual(["server", "client"]);
+  });
+
+  it("compares Worlds settings by the Worlds they admit", () => {
+    expect(sameWorlds(undefined, ["*"])).toBe(true);
+    expect(sameWorlds(["a", "b"], ["b", "a"])).toBe(true);
+    expect(sameWorlds([], undefined)).toBe(false);
+    expect(sameWorlds(["a"], ["a", "b"])).toBe(false);
   });
 
   it("offers client, server and the project's World tags", () => {

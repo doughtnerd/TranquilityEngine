@@ -63,7 +63,7 @@ export function worldsBadge(worlds: readonly string[] | undefined): string | nul
  * Limit each component to Worlds with these tags (`["*"]`: every World), or with `undefined`
  * go back to the inherited setting, as one undo step. Returns how many changed.
  */
-export function setComponentWorlds(scene: OpenScene, targets: readonly { path: NodePath; node: GameObject; info: ComponentInfo }[], worlds: readonly string[] | undefined): number {
+export function setComponentWorlds(scene: OpenScene, targets: readonly WorldsTarget[], worlds: readonly string[] | undefined): number {
   const { doc, stack } = scene;
   const able = targets.filter((t) => componentWorlds(doc, t.path, t.info, countOf(t.node, t.info.type)) !== null);
   if (able.length === 0) return 0;
@@ -93,6 +93,44 @@ export function setComponentWorlds(scene: OpenScene, targets: readonly { path: N
     stack.endGroup();
   }
   return able.length;
+}
+
+/** A component on a node, as the Worlds edits take it. */
+export interface WorldsTarget {
+  readonly path: NodePath;
+  readonly node: GameObject;
+  readonly info: ComponentInfo;
+}
+
+/** The Worlds setting of `target`'s component, or null when it can't be set here (see `componentWorlds`). */
+export const worldsSettingOf = (doc: SceneDocument, target: WorldsTarget): WorldsSetting | null =>
+  componentWorlds(doc, target.path, target.info, countOf(target.node, target.info.type));
+
+/** True when two Worlds settings admit the same Worlds (tag order doesn't matter). */
+export const sameWorlds = (a: readonly string[] | undefined, b: readonly string[] | undefined): boolean =>
+  isEveryWorld(a) === isEveryWorld(b) && (isEveryWorld(a) || (a!.length === b!.length && a!.every((t) => b!.includes(t))));
+
+/**
+ * Give each target's component the Worlds `next` (`["*"]`: every World), as one undo step named
+ * `label`. Where `next` is what the component inherits (from the prefab or its class), its own
+ * setting is dropped instead, so it keeps following that; where it already has `next`, nothing
+ * changes. Targets that can't take a setting are skipped. Returns how many changed.
+ */
+export function setWorldsFor(scene: OpenScene, targets: readonly WorldsTarget[], next: readonly string[], label: string): number {
+  // Read every setting first: a write can rebuild an instance's live nodes.
+  const settings = targets.map((target) => ({ target, setting: worldsSettingOf(scene.doc, target) }));
+  return scene.stack.group(label, () => {
+    let changed = 0;
+    for (const { target, setting } of settings) {
+      if (!setting) continue;
+      if (sameWorlds(next, setting.inherited)) {
+        if (setting.own !== undefined) changed += setComponentWorlds(scene, [target], undefined);
+      } else if (setting.own === undefined || !sameWorlds(next, setting.own)) {
+        changed += setComponentWorlds(scene, [target], next);
+      }
+    }
+    return changed;
+  });
 }
 
 /** World tags to offer: client and server, plus every tag the project's bootstrap names. */
