@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useLayoutEffect, useState } from "preact/hooks";
 import { Color } from "../../engine";
 import type { UIDocumentElement } from "../../engine";
 import { openScript } from "../code/codeState";
@@ -129,7 +129,7 @@ function MoveToClass(props: { el: UIDocumentElement; uiRef: UIElementRef }) {
 /** A text box that commits on Enter or blur and reverts on Escape. */
 function DraftInput(props: { value: string; label: string; placeholder?: string; class?: string; onCommit: (v: string) => void }) {
   const [draft, setDraft] = useState(props.value);
-  useEffect(() => setDraft(props.value), [props.value]);
+  useLayoutEffect(() => setDraft(props.value), [props.value]);
   return (
     <input
       type="text"

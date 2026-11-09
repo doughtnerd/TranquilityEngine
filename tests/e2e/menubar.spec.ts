@@ -10,7 +10,7 @@ async function openEditor(page: Page): Promise<void> {
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 }
 
-test("the bar has File, Edit, Create, Window and Help, Play in the middle and the project on the right", async ({ page }) => {
+test("the bar has File, Edit, Create, Window and Help, Play in the middle and the project on the right; items show their shortcuts, and a disabled one says why", async ({ page }) => {
   await openEditor(page);
   await expect(menubar(page).getByRole("menuitem")).toHaveText(["File", "Edit", "Create", "Window", "Help"]);
   await expect(page.getByRole("button", { name: /Play/ })).toBeVisible();
@@ -18,9 +18,20 @@ test("the bar has File, Edit, Create, Window and Help, Play in the middle and th
   await expect(page.locator(".menubar-right .readonly-badge")).toHaveText("Read-only"); // a sample
   // The old toolbar buttons are gone.
   for (const name of ["Save", "Undo", "Redo", "Reset Layout", "Settings", "Project ▾", "Export…"]) await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
+
+  // Items show their shortcuts, and a disabled one says why.
+  const file = await openMenu(page, "File");
+  await expect(file.getByRole("menuitem", { name: /^Save/ })).toContainText("Ctrl+S");
+  await expect(file.getByRole("menuitem", { name: /^Save/ })).toBeDisabled(); // a read-only sample
+  await expect(file.getByRole("menuitem", { name: /^Save/ })).toHaveAttribute("title", /read-only/);
+  await expect(file.getByRole("menuitem", { name: "Reload Scripts" })).toHaveCount(0); // a sample has no scripts folder
+  await closeMenus(page);
+  const edit = await openMenu(page, "Edit");
+  await expect(edit.getByRole("menuitem", { name: /^Undo/ })).toContainText("Ctrl+Z");
+  await expect(edit.getByRole("menuitem", { name: /^Undo/ })).toHaveAttribute("title", /nothing to undo/);
 });
 
-test("a menu opens on click, closes on a second click, Escape and a click outside; hovering switches", async ({ page }) => {
+test("a menu opens on click, closes on a second click, Escape and a click outside; hovering switches; Escape gives the focus back", async ({ page }) => {
   await openEditor(page);
   const file = menuTitle(page, "File"), edit = menuTitle(page, "Edit");
   await expect(page.getByRole("menu")).toHaveCount(0);
@@ -39,19 +50,15 @@ test("a menu opens on click, closes on a second click, Escape and a click outsid
   await file.click();
   await page.locator(".status-bar").click({ position: { x: 300, y: 5 } }); // outside the bar (the log toggles; fine)
   await expect(page.getByRole("menu")).toHaveCount(0);
-});
 
-test("items show their shortcuts, and a disabled one says why", async ({ page }) => {
-  await openEditor(page);
-  const file = await openMenu(page, "File");
-  await expect(file.getByRole("menuitem", { name: /^Save/ })).toContainText("Ctrl+S");
-  await expect(file.getByRole("menuitem", { name: /^Save/ })).toBeDisabled(); // a read-only sample
-  await expect(file.getByRole("menuitem", { name: /^Save/ })).toHaveAttribute("title", /read-only/);
-  await expect(file.getByRole("menuitem", { name: "Reload Scripts" })).toHaveCount(0); // a sample has no scripts folder
-  await closeMenus(page);
-  const edit = await openMenu(page, "Edit");
-  await expect(edit.getByRole("menuitem", { name: /^Undo/ })).toContainText("Ctrl+Z");
-  await expect(edit.getByRole("menuitem", { name: /^Undo/ })).toHaveAttribute("title", /nothing to undo/);
+  // Closing a menu with Escape gives the focus back to where it was.
+  const search = page.getByPlaceholder(/Search/).first();
+  await search.focus();
+  await menuTitle(page, "Edit").click();
+  await expect(page.locator(".menubar-menu")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".menubar-menu")).toHaveCount(0);
+  await expect(search).toBeFocused();
 });
 
 test("the keyboard moves through the menus: Alt, arrows, Enter, Escape", async ({ page }) => {
@@ -78,6 +85,7 @@ test("the keyboard moves through the menus: Alt, arrows, Enter, Escape", async (
   await expect(page.getByRole("menuitem", { name: "Reset Layout", exact: true })).toBeFocused();
   await page.keyboard.press("ArrowRight"); // the next menu, opened
   await expect(menuTitle(page, "Help")).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("menu").getByRole("menuitem").first()).toBeFocused(); // focused once it has rendered: keys go there
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toHaveCount(0);
   await expect(menuTitle(page, "Help")).toBeFocused();
@@ -179,13 +187,3 @@ test("the menu bar does nothing while a dialog is open", async ({ page }) => {
   await expect(page.locator(".menubar-menu")).toHaveCount(0);
 });
 
-test("closing a menu with Escape gives the focus back to where it was", async ({ page }) => {
-  await openEditor(page);
-  const search = page.getByPlaceholder(/Search/).first();
-  await search.focus();
-  await menuTitle(page, "Edit").click();
-  await expect(page.locator(".menubar-menu")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.locator(".menubar-menu")).toHaveCount(0);
-  await expect(search).toBeFocused();
-});

@@ -1,5 +1,6 @@
 import { expect, openTestProject, type Page, test } from "./fixtures";
 
+test.use({ codePreload: true }); // the first test checks the background warm-up; the rest open files sooner with it
 
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };

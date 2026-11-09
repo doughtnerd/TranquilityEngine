@@ -103,13 +103,14 @@ test("Play: Host makes the server World, P adds a second player, input moves pla
   // Input moves the World's own player: Client has the keyboard, then Client 2 after a click.
   const x1 = await myX(page, "Client");
   await page.keyboard.down("d");
-  await expect.poll(() => myX(page, "Client")).toBeGreaterThan(x1 + 1);
+  // A World steps at most maxFrameTime a frame, so when frames come slowly (a loaded machine) the game runs slower than the clock.
+  await expect.poll(() => myX(page, "Client"), { timeout: 15_000 }).toBeGreaterThan(x1 + 1);
   await page.keyboard.up("d");
   await tile(page, "Client 2").click();
   await expect(tile(page, "Client 2")).toHaveClass(/has-input/);
   const x2 = await myX(page, "Client 2");
   await page.keyboard.down("a");
-  await expect.poll(() => myX(page, "Client 2")).toBeLessThan(x2 - 1);
+  await expect.poll(() => myX(page, "Client 2"), { timeout: 15_000 }).toBeLessThan(x2 - 1);
   await page.keyboard.up("a");
   // The server moved them too, and Client sees Client 2's player (interpolated) where the server has it.
   await expect.poll(async () => (await playersIn(page, "Server"))[1].x).toBeLessThan(x2 - 1);
@@ -193,7 +194,7 @@ test("Play: Join connects to a dedicated server, which spawns a player the keybo
 
     const x = await myX(page, "Client");
     await page.keyboard.down("d");
-    await expect.poll(() => myX(page, "Client")).toBeGreaterThan(x + 1);
+    await expect.poll(() => myX(page, "Client"), { timeout: 15_000 }).toBeGreaterThan(x + 1);
     await page.keyboard.up("d");
 
     await page.getByRole("button", { name: /Stop/ }).click();

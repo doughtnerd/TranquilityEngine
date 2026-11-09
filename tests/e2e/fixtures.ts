@@ -11,11 +11,11 @@
 // keeps 10 because a World clamps each frame's step (`maxFrameTime`, 0.1 s by default): at fewer
 // frames a second the game would run slower than the clock.
 //
-// Only loops are capped: a `requestAnimationFrame` made from inside a frame callback (the engine's
-// loop, previews, thumbnail renders) waits for the next capped tick, while one made from anywhere
-// else (a one-off "after the next frame" from an event handler or a promise) runs on the next real
-// frame, so start-up and UI updates aren't slowed. Each callback still gets the real time, so the
-// World's clock and fixed steps follow wall time as before.
+// Only loops are capped: a callback that has run before and is requested again (the engine's loop,
+// previews, thumbnail renders: each re-requests the same function) waits for the next capped tick,
+// while a new one (a one-off "after the next frame", such as Preact running effects after paint)
+// runs on the next real frame, so start-up and UI updates aren't slowed. Each callback still gets
+// the real time, so the World's clock and fixed steps follow wall time as before.
 import { expect, test as base, type Page } from "@playwright/test";
 import { gpuAngle } from "./gpu";
 
@@ -36,23 +36,21 @@ function capFrames({ play, edit }: { play: number; edit: number }): void {
   const editor = location.pathname.endsWith("/editor.html");
   /** The editor's play session (its debug hook) is null while it edits. */
   const interval = () => 1000 / (editor && !(window as unknown as { playEngine?: unknown }).playEngine ? edit : play);
+  /** Callbacks that have run: requested again, they're a loop. */
+  const ran = new WeakSet<FrameRequestCallback>();
   let capped = new Map<number, FrameRequestCallback>();
   const real = new Map<number, number>();
   let nextId = 1;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let last = 0;
-  let inFrame = false;
   const run = (cb: FrameRequestCallback, now: number) => {
-    const was = inFrame;
-    inFrame = true;
+    ran.add(cb);
     try {
       cb(now);
     } catch (err) {
       setTimeout(() => {
         throw err; // reported as uncaught, as from a real frame
       });
-    } finally {
-      inFrame = was;
     }
   };
   const tick = () => {
@@ -64,7 +62,7 @@ function capFrames({ play, edit }: { play: number; edit: number }): void {
   };
   window.requestAnimationFrame = (cb: FrameRequestCallback): number => {
     const id = nextId++;
-    if (!inFrame) {
+    if (!ran.has(cb)) {
       real.set(id, realRequest((now) => (real.delete(id), run(cb, now))));
     } else {
       capped.set(id, cb);
@@ -79,13 +77,20 @@ function capFrames({ play, edit }: { play: number; edit: number }): void {
   };
 }
 
-export const test = base.extend<{ fps: number; editFps: number }, { webgpu: boolean }>({
+export const test = base.extend<{ fps: number; editFps: number; codePreload: boolean }, { webgpu: boolean }>({
   /** The frame cap in Play mode and outside the editor (`test.use({ fps })` raises it where timing is measured in frames). */
   fps: [fps, { option: true }],
   /** The frame cap while the editor edits. */
   editFps: [editFps, { option: true }],
-  context: async ({ context, fps, editFps }, use) => {
+  /**
+   * Whether an open project warms up the Code panel in the background (Monaco and, with scripts,
+   * its TypeScript worker): seconds of CPU per page, so off unless a spec tests it; opening a file
+   * or pressing Play loads it when needed. Set on `window.mycoE2E` (src/editor/code/codeState.ts).
+   */
+  codePreload: [false, { option: true }],
+  context: async ({ context, fps, editFps, codePreload }, use) => {
     if (fps > 0) await context.addInitScript(capFrames, { play: fps, edit: editFps || fps });
+    if (!codePreload) await context.addInitScript(() => Object.assign(window, { mycoE2E: { codePreload: false } }));
     await use(context);
   },
   /**

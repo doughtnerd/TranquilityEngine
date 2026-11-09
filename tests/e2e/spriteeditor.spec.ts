@@ -129,9 +129,11 @@ test("the Sprite Editor slices by grid, renames a slice, and the slice drags int
     const r = (window as unknown as Hooks).nodeRect(k);
     return r ? [r.right - r.left, r.bottom - r.top] : null;
   }, key);
-  await expect.poll(() => size("wing")).not.toBeNull();
-  const [w, h] = (await size("wing"))!;
-  expect(w / h).toBeCloseTo(0.5, 1);
+  // The node is there at once; its rectangle has a size once the sprite's image has loaded.
+  await expect.poll(async () => {
+    const [w, h] = (await size("wing")) ?? [0, 0];
+    return h > 0 ? w / h : null;
+  }).toBeCloseTo(0.5, 1);
 });
 
 test("slices are drawn, moved and resized by hand; automatic slicing finds the opaque area", async ({ page }) => {

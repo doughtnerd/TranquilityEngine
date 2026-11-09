@@ -27,17 +27,12 @@ async function openEditor(page: Page): Promise<void> {
 
 const selectedRow = (page: Page) => page.locator(".tree .row.selected .name");
 
-test("opens the demo scene with its node tree", async ({ page }) => {
+test("opens the demo scene with its node tree; clicking in the viewport selects, cycles through overlaps, and clears on empty space", async ({ page }) => {
   const errors = trackErrors(page);
   await openEditor(page);
   await expect(page.locator(".tree .row .name")).toContainText(["Camera", "bg-a", "Bird", "Sprite", "GameManager"]);
   await expect(page.getByRole("button", { name: "2D" })).toHaveAttribute("aria-pressed", "true");
-  expect(errors).toEqual([]);
-});
 
-test("clicking in the viewport selects, cycles through overlaps, and clears on empty space", async ({ page }) => {
-  const errors = trackErrors(page);
-  await openEditor(page);
   const canvas = page.locator("#viewport canvas");
   const box = (await canvas.boundingBox())!;
   const centre = { x: box.width / 2, y: box.height / 2 };

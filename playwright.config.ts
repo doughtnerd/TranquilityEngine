@@ -56,7 +56,9 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${port}`,
     screenshot: "only-on-failure",
-    trace: "retain-on-failure",
+    // Recording a trace for every test (to keep the failures') cost a large share of the CPU; CI
+    // traces its retry of a failed test, and locally a failure reruns with `--trace on`.
+    trace: "on-first-retry",
   },
   projects: [
     { name: "chromium", grepInvert: slow, use: chromiumUse },
