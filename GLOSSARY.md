@@ -53,8 +53,9 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 - **Launch:** the ordered start of a game every host shares, through `launchGame` (`src/engine/launch.ts`): the asset source, scripts, plugin activation (passed in by the host), the Engine, then the entry scene; `dispose()` undoes it in reverse. The player, the dedicated server and play mode are its adapters. _Avoid:_ boot, bootstrap (that is a World's start-up plan, ADR 0032).
 - **Entry scene:** the scene that empty start-up Worlds (no `scenes` key and no nodes) load at launch: a build's main scene, or play mode's open scene. The dedicated server has none.
 
-## Inspector (ADR 0158)
+## Inspector (ADR 0158, 0162)
 
+- **Inspector target:** what the Inspector shows: a live World's node, an asset, a UI element, nodes, or scene settings (`inspectorTarget.ts`, ADR 0162). Every selection (nodes, Assets panel entries, a UI element) goes through its functions, which keep them apart. _Avoid:_ clearing another selection by hand.
 - **Field target:** what an Inspector field row edits: one component field on one or more nodes (`src/editor/fieldTarget.ts`). It has two adapters: the edited document (undoable, overrides on instances) and a live World (play only). Both inspectors render the same field rows over it.
 
 ## Engine (ADR 0159, 0160)

@@ -79,7 +79,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0037](decisions/0037-rename-to-myco-engine.md) | The engine is renamed Myco Engine, by Foxfire Studios | Accepted |
 | [0038](decisions/0038-browser-editor-opens-folders.md) | The browser editor opens project folders through the File System Access API | Accepted, amended by 0063 (the menu bar replaces the toolbar Project menu) |
 | [0039](decisions/0039-polygon-edge-colliders.md) | Polygon and edge colliders for 2D physics | Accepted |
-| [0040](decisions/0040-asset-import-sidecars.md) | Per-asset import settings live in sidecar files beside each asset | Accepted, extended by 0115 (proposed) |
+| [0040](decisions/0040-asset-import-sidecars.md) | Per-asset import settings live in sidecar files beside each asset | Accepted, extended by 0115 (proposed), amended by 0162 (any selection of one inspectable asset shows it in the Inspector) |
 | [0041](decisions/0041-game-builds.md) | Games build to a static web player, packaged for desktop through Tauri | Accepted |
 | [0042](decisions/0042-inspector-field-types.md) | List fields, field choices, and per-instance Worlds and tags overrides | Accepted |
 | [0043](decisions/0043-meshes-lights-materials.md) | Meshes, lights and material assets: a default lit material and default lighting | Proposed |
@@ -199,6 +199,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0160](decisions/0160-a-world-runs-its-own-frame-and-owns-the-end-of-frame-rule.md) | A World runs its own frame (`step`, `redraw`, `advanceClock`) and owns the "now, or at the end of the frame" rule (`atFrameEnd`, `applyDestroys`); the Engine only schedules Worlds and the input snapshot | Proposed |
 | [0161](decisions/0161-one-play-session-module-owns-play-mode-and-the-work-deferred-to-stop.md) | One play-session module (`playSession.ts`) owns play mode's edit/starting/playing states and the work deferred to Stop (kept values, plugin settings, script reload), with the game view and the pre-play script check as ports; `session.ts` keeps the project lifecycle | Proposed |
 | [0156](decisions/0156-every-asset-thumbnail-is-a-made-up-node-set-drawn-through-the-render-features.md) | Every asset thumbnail is a thumbnail stage (a made-up node set) its kind supplies, drawn through the render features like prefabs and scenes; `ThumbnailRenderer` keeps framing and capture; one engine factory with a WebGL2 fallback for the game and the previews (amends 0153) | Proposed |
+| [0162](decisions/0162-one-inspector-target-module-owns-what-the-inspector-shows-and-every-selection-goes-through-it.md) | One Inspector target module (`inspectorTarget.ts`) says what the Inspector shows (live node, asset, UI element, nodes or scene settings) and owns the rule between the node, asset and UI element selections; every selection source goes through it (amends 0040) | Proposed |
 
 ## Working with decisions
 
