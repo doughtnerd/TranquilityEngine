@@ -188,7 +188,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "A1.2: needs the L3 pan port (un-ignored at the merge)"]
     fn spatial_mono_matches_blinks_gains() {
         let m = matrix(true, kind::EQUAL_POWER, [0.0, 0.0, -1.0], 1);
         assert!((m[0] - core::f32::consts::FRAC_1_SQRT_2).abs() < 1e-7 && (m[2] - core::f32::consts::FRAC_1_SQRT_2).abs() < 1e-7);
@@ -206,7 +205,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "A1.2: needs the L2 ramp and L3 pan (un-ignored at the merge)"]
     fn a_direction_change_ramps_the_matrix() {
         let mut p = PannerState::default();
         p.start(true, kind::EQUAL_POWER, [-1.0, 0.0, 0.0], 1);

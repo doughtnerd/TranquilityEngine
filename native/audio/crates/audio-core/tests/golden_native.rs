@@ -301,7 +301,6 @@ unsafe impl GlobalAlloc for CountingAlloc {
 static GLOBAL: CountingAlloc = CountingAlloc;
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn one_shot_plays_its_clip_once_then_ends() {
     let x = ramp(300);
     let mut m = Mixer::new();
@@ -318,7 +317,6 @@ fn one_shot_plays_its_clip_once_then_ends() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn gain_scales_the_clip() {
     let x = ramp(300);
     let mut m = Mixer::new();
@@ -332,7 +330,6 @@ fn gain_scales_the_clip() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn a_virtual_voice_is_silent_but_ends_on_time() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &ramp(300));
@@ -347,7 +344,6 @@ fn a_virtual_voice_is_silent_but_ends_on_time() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn pitch_two_plays_every_other_frame() {
     let x = ramp(200);
     let mut m = Mixer::new();
@@ -362,19 +358,16 @@ fn pitch_two_plays_every_other_frame() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn pitch_half_interpolates_between_frames() {
     check_half_speed(48_000.0, 0.5);
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn a_clip_at_half_the_context_rate_plays_at_half_speed() {
     check_half_speed(24_000.0, 1.0);
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn a_loop_wraps_seamlessly_and_never_ends() {
     let x = ramp(100);
     let mut m = Mixer::new();
@@ -387,7 +380,6 @@ fn a_loop_wraps_seamlessly_and_never_ends() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn stop_ends_a_loop_at_the_next_quantum() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &[1.0f32; 100]);
@@ -402,7 +394,6 @@ fn stop_ends_a_loop_at_the_next_quantum() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn stop_with_a_fade_ramps_to_silence_then_ends() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &[1.0f32; 100]);
@@ -418,7 +409,6 @@ fn stop_with_a_fade_ramps_to_silence_then_ends() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn fade_with_stop_at_end_ends_the_voice() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &[1.0f32; 100]);
@@ -445,7 +435,6 @@ fn fade_with_stop_at_end_ends_the_voice() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn set_params_gain_ramps_over_ramp_frames() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &[1.0f32; 100]);
@@ -460,7 +449,6 @@ fn set_params_gain_ramps_over_ramp_frames() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn a_stamped_play_starts_at_its_sample_offset() {
     let x = ramp(300);
     let mut m = Mixer::new();
@@ -485,7 +473,6 @@ fn a_stamped_play_starts_at_its_sample_offset() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn a_late_stamped_play_starts_at_once_and_counts_late() {
     let x = ramp(300);
     let mut m = Mixer::new();
@@ -505,7 +492,6 @@ fn a_late_stamped_play_starts_at_once_and_counts_late() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn a_stamped_stop_cuts_at_its_sample_offset() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &[1.0f32; 100]);
@@ -523,7 +509,6 @@ fn a_stamped_stop_cuts_at_its_sample_offset() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn a_spatial_source_pans_with_blinks_equal_power_gains() {
     // Blink's EqualPowerPanner: azimuth = atan2(dirX, -dirZ), mono p = (az + 90) / 180,
     // L = cos(pi/2 p), R = sin(pi/2 p).
@@ -541,7 +526,6 @@ fn a_spatial_source_pans_with_blinks_equal_power_gains() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn a_moving_source_ramps_from_left_to_right() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &[1.0f32; 100]);
@@ -572,7 +556,6 @@ fn a_moving_source_ramps_from_left_to_right() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn a_new_generation_replaces_the_voice_in_its_slot() {
     let old = 0x0001_0003;
     let new = 0x0002_0003;
@@ -599,7 +582,6 @@ fn a_new_generation_replaces_the_voice_in_its_slot() {
 }
 
 #[test]
-#[ignore = "A1.2-L4: needs the A1.2 core"]
 fn process_never_allocates() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &[1.0f32; 100]);
