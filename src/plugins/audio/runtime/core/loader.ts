@@ -32,3 +32,23 @@ export async function workletModuleUrl(): Promise<string> {
   const { default: url } = await import("../worklet/processor.ts?worker&url");
   return url;
 }
+
+/** @internal A1.3a: one clip decoded on main (`decodeAudioData`), planar. Same shape as `DecodedClip` in `clipRegistry.ts`. */
+export interface DecodedAudio {
+  readonly frames: number;
+  readonly channels: number;
+  readonly sampleRate: number;
+  readonly channelData: readonly Float32Array[];
+}
+
+/**
+ * @internal A1.3a (api-and-models section 3): decodes `encoded` with the host context's `decodeAudioData`. The browser
+ * detaches the buffer it is given, so this decodes a copy and `encoded` stays usable (the encoded cache keeps it for
+ * rebuilds). Resamples to the context rate, as `decodeAudioData` does. Rejects on a decode failure. B6 removes it.
+ */
+export async function decodeClip(context: Pick<BaseAudioContext, "decodeAudioData">, encoded: ArrayBuffer): Promise<DecodedAudio> {
+  const buffer = await context.decodeAudioData(encoded.slice(0));
+  const channelData: Float32Array[] = [];
+  for (let c = 0; c < buffer.numberOfChannels; c++) channelData.push(buffer.getChannelData(c));
+  return { frames: buffer.length, channels: buffer.numberOfChannels, sampleRate: buffer.sampleRate, channelData };
+}
