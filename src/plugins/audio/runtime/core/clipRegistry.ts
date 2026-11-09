@@ -92,6 +92,8 @@ export interface ClipRegistryDeps {
   nextFrame?: (callback: () => void) => void;
   /** Runs `callback` about one core quantum later (chunk pacing; default `setTimeout(callback, 0)`). */
   nextQuantum?: (callback: () => void) => void;
+  /** The envelope `seq` of the next message (the host's one counter, so the core sees one sequence); default: the registry's own. */
+  nextSeq?: () => number;
   /** Encoded-bytes cache cap (default 32 MB, api-and-models section 3). */
   encodedCapBytes?: number;
 }
@@ -157,6 +159,8 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
   const nextFrame = deps.nextFrame ?? defaultNextFrame;
   const nextQuantum = deps.nextQuantum ?? ((cb: () => void) => void setTimeout(cb, 0));
   const send = deps.send ?? (() => {});
+  let ownSeq = 0;
+  const nextSeq = deps.nextSeq ?? (() => ownSeq++);
   const fetchBytes =
     deps.fetchBytes ??
     (async (path: string) => {
@@ -177,7 +181,6 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
   const freeIndices: number[] = [];
   const generations: number[] = [];
   let nextIndex = 0;
-  let seq = 0;
   let pumping = false;
 
   const idOf = (slot: Slot): number => makeClipId(slot.index, slot.generation);
@@ -200,7 +203,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     send(buffer);
   };
   const envelope = (view: DataView, kind: number, total: number): void => {
-    writeEnvelope(view, 0, { kind, seq: seq++ >>> 0, bodyBytes: total - 16 });
+    writeEnvelope(view, 0, { kind, seq: nextSeq() >>> 0, bodyBytes: total - 16 });
   };
 
   const notify = (slot: Slot): void => {

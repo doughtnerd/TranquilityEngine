@@ -80,6 +80,15 @@ describe("clipRegistry (A1.3a)", () => {
     expect([...new Float32Array(h.sent[1]!, 32, 4)]).toEqual([0.5, -0.5, 0.25, 0]);
   });
 
+  it("takes envelope seq values from the nextSeq dep when given", async () => {
+    let n = 100;
+    const h = harness({ nextSeq: () => n++ }, { frames: 4, channels: 1, channelData: [new Float32Array(4)] });
+    h.registry.acquire("a.wav");
+    await settle();
+    h.runQuantum();
+    expect(h.sent.map((m) => new DataView(m).getUint32(8, true))).toEqual([100, 101]);
+  });
+
   it("pads an odd int16 sample count to a word and bodyBytes covers it", async () => {
     const h = harness({}, { frames: 3, channels: 1, channelData: [Float32Array.of(1, 1, 1)] });
     h.registry.acquire("a.wav");
