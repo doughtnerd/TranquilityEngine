@@ -1,4 +1,4 @@
-# 0143. Undo and Redo act on one active history, resolved by focus
+# 0145. Undo and Redo act on one active history, resolved by focus
 
 - **Status:** Proposed — built in the same change
 - **Date:** 2026-11-09

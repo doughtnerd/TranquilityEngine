@@ -148,7 +148,7 @@ export function MaterialInspector(props: { path: string }) {
     <div
       class="inspector-body asset-inspector"
       aria-label="Material"
-      data-asset-document={doc.path} // focused, Undo / Redo (Ctrl+Z…, the Edit menu) act on the material's document (ADR 0143)
+      data-asset-document={doc.path} // focused, Undo / Redo (Ctrl+Z…, the Edit menu) act on the material's document (ADR 0145)
     >
       <div class="asset-inspector-head">
         <span class="asset-inspector-kind">Material</span>

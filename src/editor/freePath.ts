@@ -1,4 +1,4 @@
-// Free file names in a project (ADR 0145): split out of assetOps.ts, which re-exports them, so the
+// Free file names in a project (ADR 0147): split out of assetOps.ts, which re-exports them, so the
 // editor SDK reaches them without loading the Assets panel's file operations (and their imports of
 // the session, which loads the plugins).
 import type { EditorProject } from "./projects";

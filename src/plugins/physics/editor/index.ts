@@ -1,7 +1,7 @@
 // The Physics plugin's editor half (ADR 0137, 0142): the Project panel's Physics category (gravity, the 2D and
 // 3D backend, layers and the collision matrix), the "(no physics backend)" note in Add Component, the scene
 // view's collider tool (outlines, Edit Collider handles, 2D outlines selectable) and joint drawing, both viewport
-// tools (ADR 0138), the Edit Collider button in collider cards' headers, and (ADR 0144) fetching the physics core and
+// tools (ADR 0138), the Edit Collider button in collider cards' headers, and (ADR 0146) fetching the physics core and
 // the registered backends' code once the editor is idle. The physics Components have no
 // Inspector sections registered yet. The overlays themselves are drawn by the engine's Babylon overlay code.
 import type { EditorPlugin } from "../../../editor/sdk";

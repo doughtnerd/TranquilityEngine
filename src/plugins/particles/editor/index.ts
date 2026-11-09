@@ -1,7 +1,7 @@
 // The Particles plugin's editor half (ADR 0133: effects, sub-graphs and custom blocks together; ADR
 // 0134): the `particles`, `particlesubgraph` and `particleblock` asset kinds (New… entries, Inspector
 // views, opening in the Particle Graph, accepted by effect fields, thumbnails; an effect added to a scene is a node playing it), their asset formats,
-// the Particle Graph panel and the ParticleSystem's Inspector section; and (ADR 0144) the Hierarchy's Create
+// the Particle Graph panel and the ParticleSystem's Inspector section; and (ADR 0146) the Hierarchy's Create
 // Particle System, the scene view's particle preview with its overlay, and moving embedded effects into
 // assets when a scene opens.
 import type { EditorPlugin } from "../../../editor/sdk";

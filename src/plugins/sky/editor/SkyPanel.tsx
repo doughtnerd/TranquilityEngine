@@ -157,7 +157,7 @@ function SkyEditor({ path }: { path: string }) {
     <div
       class="sky-panel"
       aria-label="Sky"
-      data-asset-document={doc.path} // focused, Undo / Redo (Ctrl+Z…, the Edit menu) act on the sky's document (ADR 0143)
+      data-asset-document={doc.path} // focused, Undo / Redo (Ctrl+Z…, the Edit menu) act on the sky's document (ADR 0145)
     >
       <div class="sky-panel-side">
         <div class="asset-inspector-head">

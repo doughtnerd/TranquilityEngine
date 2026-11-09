@@ -232,7 +232,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   };
   const undo = () => doc.canUndo.peek() && step(() => doc.undo());
   const redo = () => doc.canRedo.peek() && step(() => doc.redo());
-  // While the panel has the focus, this is the active history (ADR 0143): Ctrl+Z, Edit > Undo and the
+  // While the panel has the focus, this is the active history (ADR 0145): Ctrl+Z, Edit > Undo and the
   // History panel act on the document through it, so they keep the frames too.
   const panelHistory = useMemo<UndoHistory>(
     () => ({
@@ -583,7 +583,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     const key = (e.key ?? "").toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
     let handled = true;
-    // Ctrl/Cmd+Z / Shift+Z / Y reach the editor's shortcuts, which undo the active history: the panel's (below, ADR 0143).
+    // Ctrl/Cmd+Z / Shift+Z / Y reach the editor's shortcuts, which undo the active history: the panel's (below, ADR 0145).
     if (mod && key === "d") {
       const made = duplicateItems(live.current.graph, selection);
       commit(made.graph);

@@ -1,5 +1,5 @@
 // Play mode's Stats (like Unity's Game view Stats): frame rate over the last second, the Engine's
-// per-World phase timings, render counters, node counts and plugins' counters (ADR 0144: navigation
+// per-World phase timings, render counters, node counts and plugins' counters (ADR 0146: navigation
 // agents), and the JS heap.
 // The collector is the Engine's timing hook (`setEngineTiming`) only while the panel shows, so a
 // hidden panel costs nothing.
@@ -124,7 +124,7 @@ export interface WorldStats {
   /** Null when the World doesn't render (headless, a server). */
   readonly render: RenderStats | null;
   readonly nodes: number;
-  /** Plugins' counts for the World (ADR 0144), in registration order; a counter with nothing to show (null) is left out. */
+  /** Plugins' counts for the World (ADR 0146), in registration order; a counter with nothing to show (null) is left out. */
   readonly counters: readonly { readonly label: string; readonly value: number }[];
 }
 

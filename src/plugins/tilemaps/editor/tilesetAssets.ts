@@ -1,4 +1,4 @@
-// Tileset assets in the editor (ADR 0103; the Tilemaps plugin's since 0144): creating `*.tileset.json` files
+// Tileset assets in the editor (ADR 0103; the Tilemaps plugin's since 0146): creating `*.tileset.json` files
 // (empty, or one tile per slice of an image), reading them, and the slice helpers the Assets panel's Create Tileset
 // from Slices action and the Tile Palette use. Editing goes through the tileset's asset document (ADR 0134), made
 // by this plugin's `tileset` format (`tilesetFormat.ts`).

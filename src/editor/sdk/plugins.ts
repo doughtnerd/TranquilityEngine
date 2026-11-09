@@ -26,15 +26,15 @@ export interface EditorPluginContext {
   registerSceneToolbarItem(item: SceneToolbarItemContribution): void;
   /** A control in Inspector component cards' headers for some Component types (ADR 0142). */
   registerComponentHeaderAction(action: ComponentHeaderActionContribution): void;
-  /** An entry of the Hierarchy's Create menu (ADR 0144). */
+  /** An entry of the Hierarchy's Create menu (ADR 0146). */
   registerHierarchyCreateEntry(entry: HierarchyCreateContribution): void;
-  /** An Assets panel context-menu entry for selected files or slices (ADR 0144). */
+  /** An Assets panel context-menu entry for selected files or slices (ADR 0146). */
   registerAssetAction(action: AssetActionContribution): void;
-  /** A count on the Play Stats panel's Nodes row (ADR 0144). */
+  /** A count on the Play Stats panel's Nodes row (ADR 0146). */
   registerPlayStatsCounter(counter: PlayStatsCounterContribution): void;
-  /** Work done on a scene when the editor opens it (ADR 0144). */
+  /** Work done on a scene when the editor opens it (ADR 0146). */
   registerSceneOpenMigration(migration: SceneOpenMigrationContribution): void;
-  /** Code fetched once the editor is idle (ADR 0144). */
+  /** Code fetched once the editor is idle (ADR 0146). */
   registerIdlePrefetch(prefetch: IdlePrefetchContribution): void;
 }
 

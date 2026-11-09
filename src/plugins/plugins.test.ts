@@ -106,7 +106,7 @@ describe("plugin import direction", () => {
     expect(bad).toEqual([]);
   });
 
-  it("keeps the editor core free of plugins' code: it reaches them through contribution points (ADR 0144; only main.tsx loads them, through editorBoot.ts)", () => {
+  it("keeps the editor core free of plugins' code: it reaches them through contribution points (ADR 0146; only main.tsx loads them, through editorBoot.ts)", () => {
     // The plugin host modules directly under src/plugins/ (manifests, ordering, enabling, the runtime list, third-party
     // loading) are the plugin system itself, which the shell drives; every file in a plugin's folder is off limits.
     const HOST = new Set(["manifest", "order", "enabled", "runtime", "runtimeContext", "thirdParty", "thirdPartyEditor", "pluginSet", "editorPlugins", "editorActivator"]);
@@ -127,7 +127,7 @@ describe("plugin import direction", () => {
   });
 });
 
-describe("plugin editor halves reach the editor through its SDK (ADR 0145)", () => {
+describe("plugin editor halves reach the editor through its SDK (ADR 0147)", () => {
   /**
    * The internal tier (ADR 0133): shell modules first-party editor halves may still import, as
    * `<file under src/plugins/> -> <module under src/editor/>`. Nothing may be added; an entry is

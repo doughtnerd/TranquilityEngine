@@ -39,7 +39,7 @@ export interface HistoryInfo {
 export interface MenuState {
   project: { name: string; canSave: boolean; hasRoot: boolean } | null;
   scene: { path: string; dirty: boolean } | null;
-  /** The active history Undo and Redo act on (ADR 0143): the focused editor's, else the scene's; null with neither. */
+  /** The active history Undo and Redo act on (ADR 0145): the focused editor's, else the scene's; null with neither. */
   history: HistoryInfo | null;
   /** The game is running (or starting): the scene can't be edited. */
   playing: boolean;

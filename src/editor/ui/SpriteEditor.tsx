@@ -133,7 +133,7 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
     setHistory(h);
     keepSelection(h);
   };
-  // The editor's snapshots are the active history while it's open and focused (ADR 0143): Ctrl+Z reaches
+  // The editor's snapshots are the active history while it's open and focused (ADR 0145): Ctrl+Z reaches
   // the editor's shortcuts, which undo them. Made anew for each history, so the Edit menu follows.
   const panelHistory = useMemo<UndoHistory>(() => ({ name: "Sprite Editor", canUndo: canUndo(history), canRedo: canRedo(history), undo: stepBack, redo: stepForward }), [history]);
   usePanelHistory(dialog, panelHistory);

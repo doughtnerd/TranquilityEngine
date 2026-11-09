@@ -1,4 +1,4 @@
-// The editor SDK's scene surface (ADR 0145): the open scene, its tabs, the node selection and
+// The editor SDK's scene surface (ADR 0147): the open scene, its tabs, the node selection and
 // whether the editor is playing, read through getters over the shell's signals (state.ts), so they
 // track like the signals do. `peek…` reads without tracking. Editing a scene goes through its
 // `stack` with the document commands (`SetField`, ADR 0026).

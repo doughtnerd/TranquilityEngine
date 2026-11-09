@@ -1,4 +1,4 @@
-// ADR 0144: plugin code that lived in the editor shell reaches it through contribution points. Create Tilemap and
+// ADR 0146: plugin code that lived in the editor shell reaches it through contribution points. Create Tilemap and
 // Create Particle System keep their places in the Create menu, Create Tileset from Slices is an asset action, the
 // Play Stats agent count, the particle preview, the embedded-effect migration and the physics prefetch are
 // registered by their plugins, and all of them go when their plugin does.
@@ -19,7 +19,7 @@ const PLUGINS = [particlesEditorPlugin, navigationEditorPlugin, tilemapsEditorPl
 useCoreAssetKinds();
 const halves = useEditorPlugins(PLUGINS, "each");
 
-describe("the Hierarchy's Create menu (ADR 0144)", () => {
+describe("the Hierarchy's Create menu (ADR 0146)", () => {
   it("lists plugins' kinds where they have always been", () => {
     const labels = newNodeKinds().map((k) => k.label);
     expect(labels.slice(0, 4)).toEqual(["Empty", "Sprite", "Tilemap", "Camera"]);
@@ -48,7 +48,7 @@ describe("the Hierarchy's Create menu (ADR 0144)", () => {
   });
 });
 
-describe("Create Tileset from Slices (ADR 0144)", () => {
+describe("Create Tileset from Slices (ADR 0146)", () => {
   it("is offered for slices and for an image with slices", async () => {
     const fs = new MemoryFileSystem();
     fs.files.set(joinPath(ROOT, "project.json"), "{}");
@@ -67,7 +67,7 @@ describe("Create Tileset from Slices (ADR 0144)", () => {
   });
 });
 
-describe("the plugins' other shell contributions (ADR 0144)", () => {
+describe("the plugins' other shell contributions (ADR 0146)", () => {
   it("are registered while their plugin is active, and go with it", () => {
     const ids = () => [
       playStatsCounters.get("myco.navigation.agents")?.label,

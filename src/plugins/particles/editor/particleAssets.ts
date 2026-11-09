@@ -2,7 +2,7 @@
 // the Particle Graph panel has open, reading effects, sub-graphs and custom blocks, and creating the
 // last two. Editing (the write queue, undo and redo, outside changes, renames) goes through each
 // file's asset document, `particleDocument(project, path)`, over the formats the plugin registers.
-// Creating effects is here too (ADR 0144): the plugin's Hierarchy Create entry and its embedded-effect
+// Creating effects is here too (ADR 0146): the plugin's Hierarchy Create entry and its embedded-effect
 // migration make them.
 import { signal } from "@preact/signals";
 import type { GraphProblem, ParticleGraph } from "../../../engine/scene/particleGraph";

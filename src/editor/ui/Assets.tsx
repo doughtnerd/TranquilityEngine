@@ -121,7 +121,7 @@ async function makeFolder(parent: string): Promise<void> {
   startRename(`${path}/`);
 }
 
-/** Plugins' entries for the selected files or slices (ADR 0144: Create Tileset from Slices), after Open. */
+/** Plugins' entries for the selected files or slices (ADR 0146: Create Tileset from Slices), after Open. */
 function actionItems(project: EditorProject, targets: readonly AssetActionTarget[], readOnly: string | null): MenuItem[] {
   return assetActions
     .list()

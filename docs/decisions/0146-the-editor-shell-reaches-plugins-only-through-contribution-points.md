@@ -1,10 +1,10 @@
-# 0144. The editor shell reaches plugins only through contribution points
+# 0146. The editor shell reaches plugins only through contribution points
 
 - **Status:** Proposed — built in the same change
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0057, 0060, 0065, 0082, 0103, 0133, 0134, 0135, 0137, 0138, 0142
+- **Related:** 0057, 0060, 0065, 0082, 0103, 0133, 0134, 0135, 0137, 0138, 0142, 0144
 
 ## Context
 
@@ -21,7 +21,7 @@ The boundary test (`plugins/plugins.test.ts`) only stopped the shell importing a
 
 ## Decision
 
-We will make the shell reach plugin code only through contribution points, add the five small ones that were missing, and reuse two existing ones. All are registries made with `createRegistry` in `src/editor/sdk/contributions.ts`, registered through `EditorPluginContext` (undone on deactivate) and exported from `myco/editor`.
+We will make the shell reach plugin code only through contribution points, add the five small ones that were missing, and reuse two existing ones. All are registries made with `createRegistry` in `src/editor/sdk/contributions.ts`, registered through `EditorPluginContext` (undone on deactivate; the editor makes halves active through 0144's plugin set, whose editor activator drives `activatePlugin`) and exported from `myco/editor`.
 
 **New contribution points**
 
@@ -38,7 +38,7 @@ We will make the shell reach plugin code only through contribution points, add t
 
 **Moves.** `tilesetAssets.ts` (and its test) → `src/plugins/tilemaps/editor/`; `particleAssets.ts` merges into the plugin's `particleAssets.ts` (`effectFolder`, `createParticleEffect`); `particlePreview.ts`, `particleMigration.ts` (and test) and `ui/ParticlePreviewOverlay.tsx` → `src/plugins/particles/editor/`.
 
-**The boundary.** The shell's non-test code imports nothing from a plugin's folder (`src/plugins/<name>/…`), not even its `runtime/index`. It may import the plugin host modules directly under `src/plugins/` (`manifest`, `order`, `enabled`, `runtime`, `runtimeContext`, `thirdParty`, `thirdPartyEditor`, `editorApply`), which are the plugin system the shell drives, and only `main.tsx` may import `editorBoot`. `plugins/plugins.test.ts` enforces this with an explicit list of host modules.
+**The boundary.** The shell's non-test code imports nothing from a plugin's folder (`src/plugins/<name>/…`), not even its `runtime/index`. It may import the plugin host modules directly under `src/plugins/` (`manifest`, `order`, `enabled`, `runtime`, `runtimeContext`, `thirdParty`, `thirdPartyEditor`, and 0144's `pluginSet`, `editorPlugins` and `editorActivator`), which are the plugin system the shell drives, and only `main.tsx` may import `editorBoot`. `plugins/plugins.test.ts` enforces this with an explicit list of host modules.
 
 ## Alternatives considered
 
@@ -75,4 +75,4 @@ We will make the shell reach plugin code only through contribution points, add t
 
 - `src/editor/sdk/contributions.ts`, `src/editor/sdk/plugins.ts`, `src/editor/nodeCreate.ts`, `src/editor/hierarchyActions.ts`, `src/editor/ui/Assets.tsx`, `src/editor/playStats.ts`, `src/editor/session.ts`, `src/editor/prefetch.ts`, `src/editor/ui/panelExtensions.tsx`
 - `src/plugins/tilemaps/editor/index.ts`, `src/plugins/particles/editor/index.ts`, `src/plugins/navigation/editor/index.ts`, `src/plugins/physics/editor/index.ts`, `src/plugins/physics/runtime/backend.ts`, `src/plugins/physics-rapier/runtime/index.ts`
-- Tests: `src/plugins/plugins.test.ts`, `src/plugins/shellContributions.test.ts`
+- Tests: `src/plugins/plugins.test.ts`, `src/plugins/shellContributions.test.ts` (editor halves through `useEditorPlugins`, 0144)

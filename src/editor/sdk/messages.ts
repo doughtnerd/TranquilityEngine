@@ -1,4 +1,4 @@
-// The editor SDK's messages (ADR 0145): a plugin reports to the status bar and the message log
+// The editor SDK's messages (ADR 0147): a plugin reports to the status bar and the message log
 // through these, never by setting the shell's `status` signal.
 import { errorStatus } from "../messages";
 import { status } from "../state";

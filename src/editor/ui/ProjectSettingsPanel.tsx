@@ -140,7 +140,7 @@ function jump(s: PanelState, redo: boolean): void {
 const renameLayerEdit = (s: PanelState, kind: LayerKind, draft: SettingsDraft, index: number, name: string) =>
   renameLayer_({ project: s.project, set: (label, next) => edit(s, label, next), refresh: () => void version.value++ }, kind, draft, index, name);
 
-/** The panel's undo list, the active history while the panel has the focus (ADR 0143): Ctrl+Z and Edit > Undo step it. */
+/** The panel's undo list, the active history while the panel has the focus (ADR 0145): Ctrl+Z and Edit > Undo step it. */
 const settingsHistory: UndoHistory = {
   name: "Project Settings",
   get canUndo() {

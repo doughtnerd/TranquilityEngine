@@ -3,7 +3,7 @@
 // paint (left drag paints, right drag or Shift+left erases), its size (Resize keeps the painted cells), Clear / Fill
 // all / Invert / Mirror, Import from an image and "Show fill order", which numbers the cells in the order members take
 // them. Every edit writes the file through the formation's asset document and can be undone (Ctrl+Z / Ctrl+Shift+Z
-// or Edit > Undo with the inspector focused, its document then being the active history (ADR 0143), or the Undo / Redo buttons).
+// or Edit > Undo with the inspector focused, its document then being the active history (ADR 0145), or the Undo / Redo buttons).
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import {
   FORMATION_SHAPES,

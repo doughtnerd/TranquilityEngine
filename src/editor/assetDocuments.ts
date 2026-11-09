@@ -354,7 +354,7 @@ function dropAll(write: boolean): void {
 const focused = signal<Document<unknown> | null>(null);
 
 /**
- * Clicks and focus inside these keep whichever editor's history was focused (ADR 0143): the History
+ * Clicks and focus inside these keep whichever editor's history was focused (ADR 0145): the History
  * panel showing it, and the menu bar whose Edit > Undo acts on it.
  */
 export const KEEPS_HISTORY_FOCUS = '.history-panel, [role="menubar"], [role="menu"]';
@@ -363,7 +363,7 @@ let stopTrackingFocus: (() => void) | null = null;
 /**
  * The asset document whose editor was last focused or clicked (its root carries
  * `data-asset-document` with the document's path), or null once something else was: the History
- * panel shows its tree instead of the scene's, and Undo / Redo act on it (activeHistory.ts, ADR 0143).
+ * panel shows its tree instead of the scene's, and Undo / Redo act on it (activeHistory.ts, ADR 0145).
  * Clicks in the History panel and the menu bar keep it.
  */
 export const focusedAssetDocument: ReadonlySignal<AssetDocument<unknown> | null> = focused;

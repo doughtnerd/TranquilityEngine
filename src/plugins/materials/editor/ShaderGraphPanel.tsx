@@ -322,7 +322,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     }
     if (isFieldTarget(e.target)) return;
     let handled = true;
-    // Ctrl/Cmd+Z / Shift+Z / Y reach the editor's shortcuts, which undo the active history: this graph's document (ADR 0143).
+    // Ctrl/Cmd+Z / Shift+Z / Y reach the editor's shortcuts, which undo the active history: this graph's document (ADR 0145).
     if (mod && key === "d") {
       const made = duplicateNodes(graph, selection);
       commit(made.graph);

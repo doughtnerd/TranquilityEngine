@@ -12,7 +12,7 @@ const PAD = 10;
  * The open scene's edit history as a tree (ADR 0027), like the undotree plugin: newest state at
  * the top, a column per branch, the current state filled, the saved state marked. Click a state
  * to jump to it; nothing is lost when you then edit, since edits start a new branch. It shows the
- * active history's tree (ADR 0143): while an asset editor is focused (Sky, a material, a graph…),
+ * active history's tree (ADR 0145): while an asset editor is focused (Sky, a material, a graph…),
  * that asset document's (ADR 0133).
  */
 export function HistoryPanel() {

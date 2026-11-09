@@ -1,4 +1,4 @@
-// The editor SDK's project and editor surface (ADR 0145): `editor.project`, `editor.assets`,
+// The editor SDK's project and editor surface (ADR 0147): `editor.project`, `editor.assets`,
 // `editor.messages` and `editor.scene` read and change the shell's state, and their getters track.
 import { computed } from "@preact/signals";
 import { afterEach, describe, expect, it } from "vitest";

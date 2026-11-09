@@ -1,14 +1,14 @@
-# 0145. The editor SDK gives plugins the project, status bar and scene through one `editor` object
+# 0147. The editor SDK gives plugins the project, status bar and scene through one `editor` object
 
 - **Status:** Proposed — built in the same change
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0025, 0026, 0060, 0083, 0116, 0133, 0134, 0138, 0139, 0140, 0142, 0143, 0144
+- **Related:** 0025, 0026, 0060, 0083, 0116, 0133, 0134, 0138, 0139, 0140, 0142, 0143, 0144, 0145, 0146
 
 ## Context
 
-ADR 0133 makes `myco/editor` (`src/editor/sdk/index.ts`) the editor half's SDK and everything else in `src/editor/` an internal tier for first-party plugins. 0144 made the shell reach plugins only through contribution points; the other direction was not checked. Measured on this branch before the change, over the 84 non-test files under `src/plugins/*/editor/`:
+ADR 0133 makes `myco/editor` (`src/editor/sdk/index.ts`) the editor half's SDK and everything else in `src/editor/` an internal tier for first-party plugins. 0146 made the shell reach plugins only through contribution points; the other direction was not checked. Measured on this branch before the change, over the 84 non-test files under `src/plugins/*/editor/`:
 
 - **57 files imported shell internals**: 157 import statements (CSS left out) into 25 `src/editor/` modules. Only 19 files imported the SDK entry, mostly for `EditorPlugin` types.
 - **`state.ts`** (35 files): `currentProject` ×22 and `docVersion` ×22 read as signals, `status` ×16 set directly (`status.value = { kind: "info", … }`, 9 with `errorStatus`), `openScene`, `playState` and the selection functions. Plugins also bumped `docVersion` themselves (9 places).
@@ -23,7 +23,7 @@ We will give `myco/editor` a small project and editor surface, migrate every fir
 **One `editor` object** (`src/editor/sdk/editor.ts`), with four parts and one function, each a typed interface over the shell's existing code. Getters read the signals, so reading one in a component, `computed` or `effect` tracks it as the signal did; `peek…` reads without tracking.
 
 - **`editor.project`** (`sdk/project.ts`, `ProjectSurface`): `current`, `peek()`, `version` (the old `docVersion`: bumped when the open scene or a project file changes), `peekVersion()`, `changed()`, `refuseReadOnly(project, what)`, `createFile({ folder, name, what, write(project, path), created? })`, `freePath(project, folder, name, copy?)`, `joinPath(root, path)`. `createFile` holds the eight copies' logic: no project → null; read-only → one info message ("<project> is read-only. Open a project folder (or copy the sample) to add <what>."); free name; write; failure → "Couldn't create <path>: …"; success → `changed()` and "Created <file>." (or `created(path)`).
-- **`editor.assets`** (`AssetsSurface`): `kindOf(path)` (0134's lookup), `fileName`, `folderOf`, `listed(files)` (sidecars left out), `isScene`, `importSettings(project, path)`, `reveal(path)` (Assets panel and Inspector), `openScript(path, at?)`.
+- **`editor.assets`** (`AssetsSurface`): `kindOf(path)` (the asset kind module's `assetKind`, 0143), `fileName`, `folderOf`, `listed(files)` (sidecars left out), `isScene`, `importSettings(project, path)`, `reveal(path)` (Assets panel and Inspector), `openScript(path, at?)`.
 - **`editor.messages`** (`sdk/messages.ts`, `MessagesSurface`): `info(text, detail?, action?)`, `error(text, detail?, action?)`, `failed(context, err)` (the old `errorStatus`), `clear()`. The status signal and `Status` type stay shell-only.
 - **`editor.scene`** (`sdk/scene.ts`, `SceneSurface`): `open`, `peekOpen()`, `tabs`, `playState`, `peekPlayState()`, `selection` (`keys`, `active`, `peekActive()`, `peekKeys()`, `path()`, `node()`, `nodes()`, `set(keys, active?)`), `uniqueId(doc, base)`, `idBase(path)`. Editing still goes through the scene's `stack` with `SetField` (0026).
 - **`editor.showPanel(id)`**.
@@ -36,7 +36,7 @@ We will give `myco/editor` a small project and editor surface, migrate every fir
 
 **Moves (shell code only one plugin used):** `modelNodeEntries` → `src/plugins/meshes/editor/modelNodes.ts`; `worldsConfig.uniqueName`'s three lines → a local helper in `navSettingsModel.ts`; `freePath`/`splitExtension` → a new leaf `src/editor/freePath.ts` that `assetOps.ts` re-exports.
 
-**The SDK's own imports never reach the plugins.** Plugin modules call the SDK while loading (`persisted(…)`); if the SDK's import graph reached `plugins/editor.ts` (it did, through `assetOps.ts` → `session.ts` → `editorApply.ts`), a plugin module would run while `myco/editor` is still loading and read `undefined`. That is why `freePath` moved to a leaf module, and a test walks the SDK's static imports and fails if any reaches `src/plugins/` (beyond `manifest`/`order`).
+**The SDK's own imports never reach the plugins.** Plugin modules call the SDK while loading (`persisted(…)`); if the SDK's import graph reached `plugins/editor.ts` (it did, through `assetOps.ts` → `session.ts` → `editorApply.ts`, now `editorPlugins.ts`, 0144), a plugin module would run while `myco/editor` is still loading and read `undefined`. That is why `freePath` moved to a leaf module, and a test walks the SDK's static imports and fails if any reaches `src/plugins/` (beyond `manifest`/`order`).
 
 **The internal tier, kept small and listed** in `plugins/plugins.test.ts` as `<file> -> <module>` pairs; anything else under `src/editor/` fails, and an entry that is no longer used fails too, so the list only shrinks:
 
@@ -44,9 +44,10 @@ We will give `myco/editor` a small project and editor surface, migrate every fir
 - `sceneTools` (snapping) for the collider gizmo, viewport-tool internals (0142);
 - `polygonMath` for collider maths, geometry shared with the shell's marquee selection;
 - `projectSettingsModel`'s layer and collision-matrix helpers and `layerRenameEdit` for the Physics settings section: core `project.json` keys the shell owns (0116);
+- `materialExtract` for the Meshes plugin's Extract Materials, which writes material assets and the model's sidecar through the shell's import settings writer (the model import settings moved into the plugin with 0143, after this record was written);
 - three shared stylesheets (`ui/assetInspector.css`, `ui/bake.css`, `graph/graph.css`): class names, no code.
 
-**Tests can use the surface.** `src/editor/testing.ts` gains `openTestProject(files)` (a writable in-memory project set as the editor's project) and `closeTestProject()` (clears project, status and selection); the Sky plugin's test uses them. `src/editor/sdk/editor.test.ts` covers the surface.
+**Tests can use the surface.** `src/editor/testing.ts` gains `openTestProject(files)` (a writable in-memory project set as the editor's project) and `closeTestProject()` (clears project, status and selection); the Sky plugin's test uses them. Tests that make editor halves active do so through 0144's plugin set helper (`useEditorPlugins`) and register the core asset kinds with `useCoreAssetKinds` (0143). `src/editor/sdk/editor.test.ts` covers the surface.
 
 ## Alternatives considered
 
@@ -59,7 +60,7 @@ We will give `myco/editor` a small project and editor surface, migrate every fir
 ## Consequences
 
 **Positive**
-- Plugin editor halves import shell internals in 4 files (8 statements: the listed internal tier) instead of 57 files (157 statements); 69 files import the SDK entry, up from 19.
+- Plugin editor halves import shell internals in 4 files (8 statements: the listed internal tier; one more once 0143's model import settings joined the Meshes plugin) instead of 57 files (157 statements); 69 files import the SDK entry, up from 19.
 - A third-party editor half can read the project, create files, report status, tell asset kinds and read the selection with what `myco/editor` already gives it.
 - The create-a-file logic and its read-only message exist once (`editor.project.createFile`); the 8 copies are gone.
 - New plugin→shell imports and SDK import cycles fail CI.
@@ -71,7 +72,7 @@ We will give `myco/editor` a small project and editor surface, migrate every fir
 
 ## Deprecates
 
-- Plugin imports of `state.ts`, `assetBrowser.ts`, `assetOps.ts`, `messages.ts`, `projects.ts`, `assetImport.ts`, `assetDocuments.ts`, `layout/store.ts`, `code/codeState.ts`, `assetNodeEntries.ts`, `document`, `graph`, `theme.ts`, `preferences.ts`, `ui/AssetPreview.tsx`, `ui/inspectorSections.tsx`, `ui/settingsControls.tsx`, `ui/WorldsPanel.tsx`, `worldsConfig.ts`, `sdk/contributions.ts` (deep): replaced by `myco/editor`.
+- Plugin imports of `state.ts`, `assetBrowser.ts`, `assetOps.ts`, `messages.ts`, `projects.ts`, `assetImport.ts`, `assetDocuments.ts`, `layout/store.ts`, `code/codeState.ts`, `document`, `graph`, `theme.ts`, `preferences.ts`, `ui/AssetPreview.tsx`, `ui/inspectorSections.tsx`, `ui/settingsControls.tsx`, `ui/WorldsPanel.tsx`, `worldsConfig.ts`, `sdk/contributions.ts` (deep): replaced by `myco/editor`.
 - `assetBrowser.ts`'s `modelNodeEntries` (moved to the Meshes plugin); `TextField`/`NumberField` in `ui/WorldsPanel.tsx` (moved to `ui/settingsControls.tsx`, not re-exported).
 
 ## Open questions

@@ -1,6 +1,6 @@
 // Creating new nodes from the hierarchy (ADR 0022, 0026): an empty node, a sprite, a camera, a
 // text, a 3D shape (with a matching collider, as in Unity), a light (ADR 0043), a UI element (ADR 0069) or a kind
-// a plugin adds (ADR 0144: Particle System, Tilemap), at the top of the scene, beside a node or under it. Each is
+// a plugin adds (ADR 0146: Particle System, Tilemap), at the top of the scene, beside a node or under it. Each is
 // one undo step.
 import { uniqueId } from "./assetBrowser";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
@@ -11,7 +11,7 @@ import { WATER_PRESET } from "../engine/render/water/gerstner";
 
 /** The editor's own node kinds. */
 export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "water" | `ui-${UIKind}` | "ui-document";
-/** A built-in node kind, or the id of a plugin's Hierarchy create entry (ADR 0144). */
+/** A built-in node kind, or the id of a plugin's Hierarchy create entry (ADR 0146). */
 export type NodeKind = NewNodeKind | (string & {});
 type Shape3D = "cube" | "sphere" | "capsule" | "cylinder" | "plane";
 type LightKind = "directional" | "point" | "spot" | "ambient";

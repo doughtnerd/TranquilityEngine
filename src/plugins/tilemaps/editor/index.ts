@@ -1,4 +1,4 @@
-// The Tilemaps plugin's editor half (ADR 0103, 0134, 0138, 0144): the `tileset` asset kind (the Inspector view
+// The Tilemaps plugin's editor half (ADR 0103, 0134, 0138, 0146): the `tileset` asset kind (the Inspector view
 // that edits tiles, terrains and collision, accepted by Tilemap's tileset field; New Tileset is its `create`) and
 // its asset format, the Tile Palette panel, the scene-view paint tool, the Tilemap's Inspector section, the
 // Hierarchy's Create Tilemap and the Assets panel's Create Tileset from Slices.

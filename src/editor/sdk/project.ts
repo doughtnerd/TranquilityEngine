@@ -1,4 +1,4 @@
-// The editor SDK's project and assets surfaces (ADR 0145): the open project, its change version,
+// The editor SDK's project and assets surfaces (ADR 0147): the open project, its change version,
 // paths, creating a file, and what a path is, so a plugin's editor half never reads the shell's signals (state.ts) itself.
 // Reading `editor.project.current` or `editor.project.version` inside a component, `computed` or `effect`
 // tracks it, as reading the signal would.

@@ -161,7 +161,7 @@ function afterJump(s: PanelState): void {
   persist(s);
 }
 
-/** The panel's undo list, the active history while the panel has the focus (ADR 0143): Ctrl+Z and Edit > Undo step it. */
+/** The panel's undo list, the active history while the panel has the focus (ADR 0145): Ctrl+Z and Edit > Undo step it. */
 const worldsHistory: UndoHistory = {
   name: "Worlds",
   get canUndo() {

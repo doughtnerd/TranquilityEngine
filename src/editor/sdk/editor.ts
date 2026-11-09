@@ -1,4 +1,4 @@
-// The editor SDK's project and editor surface (ADR 0145): one `editor` object grouping the open
+// The editor SDK's project and editor surface (ADR 0147): one `editor` object grouping the open
 // project, asset paths, the status bar and the open scene, over the shell's state (state.ts),
 // which plugins never import. Its getters track like the signals they read.
 import { showPanel } from "../layout/store";

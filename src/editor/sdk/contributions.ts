@@ -1,5 +1,5 @@
 // The editor contribution points (ADR 0134 onwards): asset kinds, asset formats (what an asset
-// document is made from), panels, and the smaller points later records add (0138, 0142, 0144). Each
+// document is made from), panels, and the smaller points later records add (0138, 0142, 0146). Each
 // is a registry; plugins add to them through `EditorPluginContext` so their entries are removed when
 // the plugin is.
 import type { FunctionComponent } from "preact";
@@ -277,7 +277,7 @@ export interface ComponentHeaderActionContribution {
 }
 
 /**
- * An entry of the Hierarchy's Create menu (and the menu bar's Create menu) a plugin adds (ADR 0144): the
+ * An entry of the Hierarchy's Create menu (and the menu bar's Create menu) a plugin adds (ADR 0146): the
  * Particles plugin's Particle System, the Tilemaps plugin's Tilemap. Listed among the built-in kinds after
  * `after`; the menu item reads `Create ${label}` (`… Child` under a node).
  */
@@ -307,7 +307,7 @@ export interface AssetActionTarget {
 }
 
 /**
- * An entry of the Assets panel's context menu for selected files or slices (ADR 0144), after Open (or
+ * An entry of the Assets panel's context menu for selected files or slices (ADR 0146), after Open (or
  * Sprite Editor…): the Tilemaps plugin's Create Tileset from Slices.
  */
 export interface AssetActionContribution {
@@ -321,7 +321,7 @@ export interface AssetActionContribution {
   run(project: EditorProject, targets: readonly AssetActionTarget[]): Promise<readonly string[]>;
 }
 
-/** A count the Play Stats panel shows on a World's Nodes row (ADR 0144): the Navigation plugin's "nav agents". */
+/** A count the Play Stats panel shows on a World's Nodes row (ADR 0146): the Navigation plugin's "nav agents". */
 export interface PlayStatsCounterContribution {
   readonly id: string;
   /** Shown before the number ("nav agents"). */
@@ -331,7 +331,7 @@ export interface PlayStatsCounterContribution {
 }
 
 /**
- * Work done on a scene when the editor opens it, after its nodes are in the scene view (ADR 0144): the
+ * Work done on a scene when the editor opens it, after its nodes are in the scene view (ADR 0146): the
  * Particles plugin moves embedded effects into assets. Run in registration order, one at a time.
  */
 export interface SceneOpenMigrationContribution {
@@ -342,7 +342,7 @@ export interface SceneOpenMigrationContribution {
 }
 
 /**
- * Code fetched once the editor is idle and the engine's own chunks are in (ADR 0082, 0144), so a project that
+ * Code fetched once the editor is idle and the engine's own chunks are in (ADR 0082, 0146), so a project that
  * needs it doesn't wait: the Physics plugin's core and its backends. Never rejects (a real load reports it).
  */
 export interface IdlePrefetchContribution {

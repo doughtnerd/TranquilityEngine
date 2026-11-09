@@ -300,7 +300,7 @@ export type PhysicsDimension = "2d" | "3d";
 
 /**
  * A backend a plugin contributes. `load` is a dynamic import, so the backend (and its WebAssembly) loads only when a
- * World needs it. `prefetch`, if given, fetches that code without starting it (the editor calls it once idle, ADR 0144).
+ * World needs it. `prefetch`, if given, fetches that code without starting it (the editor calls it once idle, ADR 0146).
  */
 export type PhysicsBackendRegistration =
   | { readonly id: string; readonly dimension: "2d"; readonly title?: string; load(): Promise<PhysicsBackend2D>; prefetch?(): Promise<unknown> }

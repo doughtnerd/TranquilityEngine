@@ -1,4 +1,4 @@
-// The active history (ADR 0143): the one edit history that Undo and Redo act on right now, wherever
+// The active history (ADR 0145): the one edit history that Undo and Redo act on right now, wherever
 // they come from (Edit menu, Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z / Ctrl+Y, Ctrl/Cmd+Alt(+Shift)+Z, the
 // History panel). It follows focus:
 //

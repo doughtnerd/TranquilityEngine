@@ -1,5 +1,5 @@
 // Plugins' extensions to a built-in panel (ADR 0133): extra UI rendered in a panel's own content, the Worlds
-// panel's navigation counters under it, and (ADR 0144) the Scene panel's overlays over the scene view (the
+// panel's navigation counters under it, and (ADR 0146) the Scene panel's overlays over the scene view (the
 // Particles plugin's preview controls). Kept apart from panels.tsx so the Scene panel can render them.
 import { panelExtensions, type PanelExtensionContribution } from "../sdk/contributions";
 import { lazyComponent, type LazyComponent } from "./lazy";

@@ -171,7 +171,7 @@ export function createNodeIn(kind: NodeKind, parent: string | null, index?: numb
   if (!scene) return null;
   const contributed = contributedKind(kind);
   if (contributed?.createAsset && effect === undefined) {
-    // A plugin's kind whose node uses a new asset (ADR 0144; a Particle System's effect, ADR 0060): write it
+    // A plugin's kind whose node uses a new asset (ADR 0146; a Particle System's effect, ADR 0060): write it
     // first, then add the node using it. A read-only project gets the node with none (`createAsset` says why
     // in the status).
     void contributed.createAsset().then((made) => {

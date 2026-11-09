@@ -63,7 +63,7 @@ export const DEMO_SCENE = "scenes/main.scene.json";
 
 /**
  * A writable project in memory holding `files` (project-relative paths; an empty `project.json`
- * unless given), opened as the editor's project, so `editor.project.current` (ADR 0145) is it.
+ * unless given), opened as the editor's project, so `editor.project.current` (ADR 0147) is it.
  * Pair it with `closeTestProject` in `afterEach`.
  */
 export async function openTestProject(files: Readonly<Record<string, string | Uint8Array>> = {}): Promise<{ project: EditorProject; fs: MemoryFileSystem }> {

@@ -1,6 +1,6 @@
 // Moving embedded particle effects (ADR 0057's `ParticleSystem.embeddedEffect`) into assets (ADR
 // 0060: effects are always assets). Done when the editor opens a scene in a project it can save to: the
-// Particles plugin's scene-open migration (ADR 0144).
+// Particles plugin's scene-open migration (ADR 0146).
 import { parseParticleGraph } from "../../../engine/scene/particleGraphFormat";
 import { createParticleEffect } from "./particleAssets";
 import { editor, SetField, type SceneDocument, type OpenScene } from "../../../editor/sdk";

@@ -207,7 +207,7 @@ function openScene_(path: string): void {
   );
 }
 
-/** Plugins' work on a scene that just opened (ADR 0144: the Particles plugin's embedded effects), one at a time, while it stays open. */
+/** Plugins' work on a scene that just opened (ADR 0146: the Particles plugin's embedded effects), one at a time, while it stays open. */
 async function runSceneOpenMigrations(scene: OpenScene, path: string): Promise<void> {
   for (const m of sceneOpenMigrations.list()) {
     if (!openScenes.peek().includes(scene)) return;

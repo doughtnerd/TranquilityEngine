@@ -47,7 +47,7 @@ describe("tilemap brushes (ADR 0103)", () => {
 });
 
 describe("painting a tilemap in the editor (ADR 0103)", () => {
-  // Create Tilemap is the plugin's Hierarchy create entry (ADR 0144).
+  // Create Tilemap is the plugin's Hierarchy create entry (ADR 0146).
   useEditorPlugins([tilemapsEditorPlugin]);
   let engine: Engine;
   let tiles: AssetSource;

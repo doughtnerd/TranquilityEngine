@@ -11,7 +11,7 @@ export { isEditable };
 
 export type Shortcut = "undo" | "redo" | "back" | "forward" | "save" | "play" | "pause" | "step" | "delete" | "copy" | "cut" | "paste" | "paste-child" | "duplicate" | "close-tab" | `tool:${Tool}`;
 
-/** Undo, redo and stepping through history: they act on the active history (ADR 0143), whichever editor has the focus. */
+/** Undo, redo and stepping through history: they act on the active history (ADR 0145), whichever editor has the focus. */
 const HISTORY_SHORTCUTS: readonly Shortcut[] = ["undo", "redo", "back", "forward"];
 
 /** Node clipboard shortcuts: the Assets panel and text fields keep their own Ctrl/Cmd+C/X/V/D. */

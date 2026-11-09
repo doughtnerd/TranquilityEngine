@@ -24,7 +24,7 @@ export function prefetchEngine(): Promise<void> {
 }
 
 /**
- * Once the editor is idle: the engine's chunks, then the script compiler and what plugins ask for (ADR 0144:
+ * Once the editor is idle: the engine's chunks, then the script compiler and what plugins ask for (ADR 0146:
  * the Physics plugin's core and its backends, which a project is likely to need).
  */
 export function prefetchWhenIdle(): void {

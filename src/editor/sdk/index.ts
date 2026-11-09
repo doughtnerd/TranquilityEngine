@@ -6,11 +6,11 @@ export * from "./plugins";
 export { openAssetDocument, type AssetDocument, type EditOptions } from "../assetDocuments";
 export type { InspectorSectionProps, InspectorSectionOptions } from "../ui/inspectorSections";
 export { activeViewportTool, activateViewportTool } from "../state";
-// Undo and Redo act on the active history (ADR 0143). An editor root marked `data-asset-document={doc.path}`
+// Undo and Redo act on the active history (ADR 0145). An editor root marked `data-asset-document={doc.path}`
 // makes its asset document the active history while focused; a panel with its own history registers it.
 export { activeHistory, providePanelHistory, usePanelHistory, type ActiveHistory, type HistoryTree, type UndoHistory } from "../activeHistory";
 
-// The project and editor surface (ADR 0145): `editor.project`, `editor.assets`, `editor.messages`,
+// The project and editor surface (ADR 0147): `editor.project`, `editor.assets`, `editor.messages`,
 // `editor.scene` and `editor.showPanel`, over the shell's state, which plugins never import.
 export { editor, type EditorSurface } from "./editor";
 export type { ProjectSurface, AssetsSurface, CreateFileOptions, AssetImportSettings, AssetKind, EditorProject } from "./project";

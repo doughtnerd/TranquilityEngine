@@ -1,4 +1,4 @@
-// Controls the Project and Worlds panels share, and plugins' sections too (ADR 0133, 0145): a labelled row,
+// Controls the Project and Worlds panels share, and plugins' sections too (ADR 0133, 0147): a labelled row,
 // a list of problems, an editable list of names, and text and number fields that commit on Enter or blur.
 import type { ComponentChildren } from "preact";
 import type { SettingsProblem } from "../projectSettingsModel";

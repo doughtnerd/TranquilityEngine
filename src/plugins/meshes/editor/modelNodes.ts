@@ -1,5 +1,5 @@
 // What adding a model to a scene makes (ADR 0044, 0118): the Meshes plugin's `addToScene` policy for
-// the `model` asset kind. Moved from the shell's asset browser (ADR 0145).
+// the `model` asset kind. Moved from the shell's asset browser (ADR 0147).
 import { composeMatrix, localPoseFromMatrix } from "../../../engine/render/gizmoMath";
 import { modelTreeIfLoaded, type NodePose } from "../../../engine/scene/models";
 import { editor, type NodeEntry, type SceneDocument } from "../../../editor/sdk";

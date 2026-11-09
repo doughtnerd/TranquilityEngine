@@ -102,7 +102,7 @@ afterEach(async () => {
 
 const openDoc = () => openAssetDocument<Thing>(project, PATH, "thing") as AssetDocument<Thing>;
 
-describe("the active history (ADR 0143)", () => {
+describe("the active history (ADR 0145)", () => {
   it("is the scene's stack when no editor with its own history is focused", () => {
     const { stack, calls } = fakeStack(true);
     openFakeScene(stack);
