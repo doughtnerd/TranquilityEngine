@@ -115,6 +115,20 @@ describe("history tree (ADR 0027)", () => {
     expect(JSON.stringify(doc.toJSON())).toBe(before);
   });
 
+  it("group() runs its body as one step and closes the group when the body throws", () => {
+    const doc = new SceneDocument(file());
+    const stack = new CommandStack(doc);
+    expect(stack.group("Two", () => {
+      setX(stack, 1);
+      setX(stack, 2);
+      return "done";
+    })).toBe("done");
+    expect(stack.allStates).toHaveLength(2);
+    expect(stack.undoLabel).toBe("Two");
+    expect(() => stack.group("Fails", () => { throw new Error("boom"); })).toThrow("boom");
+    expect(stack.canUndo).toBe(true); // not left inside a group
+  });
+
   it("tracks the saved state through branches", () => {
     const doc = new SceneDocument(file());
     const stack = new CommandStack(doc);

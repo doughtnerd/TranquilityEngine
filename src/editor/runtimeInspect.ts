@@ -7,7 +7,7 @@
 import { signal } from "@preact/signals";
 import { Connection, GameObject, Replicated, type Engine } from "../engine";
 import type { World } from "../engine/core/World";
-import { type ComponentInfo, engineWorld, instantiatedPrefabOf, listComponents, listNodes, sceneSourceOf, viewport, writeField } from "../engine/editor";
+import { type ComponentInfo, engineWorld, instantiatedPrefabOf, listComponents, listNodes, sceneSourceOf, viewport } from "../engine/editor";
 import { SetField, pathKey, type NodePath, type SceneDocument } from "./document";
 import { editorFor, toSceneJSON } from "./fieldValues";
 import { findInner } from "./prefabs";
@@ -151,11 +151,6 @@ export function liveValuesJSON(info: ComponentInfo, nodeId: (node: GameObject) =
     }
   }
   return out;
-}
-
-/** Write one field of a live component (scene-file JSON, as the loader would). False if it isn't there. */
-export function writeLive(node: GameObject, info: ComponentInfo, field: string, json: unknown): boolean {
-  return writeField(node, info.type, info.index, field, json);
 }
 
 /** The World an Inspector selection is outlined in, so a new selection can clear it. */

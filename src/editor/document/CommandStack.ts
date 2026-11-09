@@ -151,6 +151,16 @@ export class CommandStack {
     if (this.commit(this.groupLabel)) this.emit({ reason: "group", label: this.groupLabel, changes: [] });
   }
 
+  /** Run `body` as one step labelled `label` (between `beginGroup` and `endGroup`, closed even if it throws). */
+  group<T>(label: string, body: () => T): T {
+    this.beginGroup(label);
+    try {
+      return body();
+    } finally {
+      this.endGroup();
+    }
+  }
+
   private writeFiles(writes: readonly FileWrite[]): void {
     const files = this.files!;
     this.filesBefore ??= new Map();

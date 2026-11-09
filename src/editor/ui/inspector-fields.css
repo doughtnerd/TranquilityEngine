@@ -59,3 +59,6 @@
 .component h3 .worlds-badge { background: transparent; border: 1px solid var(--accent); color: var(--text); }
 /* The glyph is drawn by CSS so it isn't part of the header's text (the title stays the component name). */
 .component h3 .component-menu-button::before { content: "\22EF"; }
+
+/* --- values the editor can't classify, shown as JSON (ADR 0158) --- */
+.fields .field-json { font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; }

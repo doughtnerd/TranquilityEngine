@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "preact/hooks";
-import { Color, GameObject } from "../../engine";
-import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
-import { editorFor, parseNumber, toSceneJSON } from "../fieldValues";
-import { addLiveComponent, liveNodeChoices, removeLiveComponent, setLiveNodeRef, whyNotRemoveLive } from "../liveEdits";
-import { docPathFor, forgetKept, inspectedWorld, keepComponent, keepNode, kept, keptKey, liveSelection, writeLive } from "../runtimeInspect";
+import { useEffect, useState } from "preact/hooks";
+import type { GameObject } from "../../engine";
+import { listComponents, type ComponentInfo } from "../../engine/editor";
+import { isHiddenField } from "../assetFieldKinds";
+import { liveFieldTarget } from "../fieldTarget";
+import { addLiveComponent, removeLiveComponent, whyNotRemoveLive } from "../liveEdits";
+import { docPathFor, forgetKept, inspectedWorld, keepComponent, keepNode, kept, keptKey, liveSelection } from "../runtimeInspect";
 import { playing } from "../session";
 import { openScene, status } from "../state";
 import { AddComponentMenu } from "./AddComponentMenu";
+import { AssetLists, FieldRows } from "./fieldRows";
 import "./playdebug.css";
 
 /** Live values refresh this often (not every frame); a field being typed in keeps its draft. */
@@ -17,7 +19,7 @@ const REFRESH_MS = 250;
  * change the running World only. "Keep values" remembers a component's values to write into the
  * edited scene on Stop (as overrides on prefab instances), for nodes that came from that scene.
  * Components can be added and removed and node references set (ADR 0124); those changes aren't
- * kept.
+ * kept. Fields use the same rows as the edited scene's Inspector, writing the World (ADR 0158).
  */
 export function RuntimeInspector() {
   const [, setTick] = useState(0); // also re-renders after an add or remove
@@ -46,6 +48,7 @@ export function RuntimeInspector() {
   };
   return (
     <div class="inspector-body runtime-inspector">
+      <AssetLists />
       <div class="node-header">
         <input
           type="checkbox"
@@ -180,205 +183,8 @@ function LiveComponent(props: { node: GameObject; info: ComponentInfo; keepable:
           Keep values
         </button>
       </h3>
-      {info.fields.length === 0 ? (
-        <p class="empty">No fields</p>
-      ) : (
-        <div class="fields">
-          {info.fields.map((f) => (
-            <LiveField key={f.name} node={node} info={info} field={f} onEdit={onEdit} />
-          ))}
-        </div>
-      )}
+      {/* Fields another editor owns (ADR 0131) show their value: that editor isn't shown live. */}
+      <FieldRows target={liveFieldTarget(node, info, onEdit)} fields={info.fields} readOnly={isHiddenField} />
     </section>
-  );
-}
-
-function humanize(name: string): string {
-  return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
-}
-
-const formatNumber = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000));
-
-function LiveField(props: { node: GameObject; info: ComponentInfo; field: FieldValue; onEdit: () => void }) {
-  const { node, info, field, onEdit } = props;
-  const editor = editorFor(field);
-  const commit = (json: unknown) => {
-    if (!node.isValid) return;
-    writeLive(node, info, field.name, json);
-    onEdit();
-  };
-  const v = field.value;
-  let control;
-  switch (editor) {
-    case "number":
-    case "integer":
-      control = <LiveNumber value={Number(v)} label={field.name} onCommit={(n) => commit(editor === "integer" ? Math.round(n) : n)} />;
-      break;
-    case "boolean":
-      control = <input type="checkbox" checked={Boolean(v)} aria-label={field.name} onChange={(e) => commit((e.currentTarget as HTMLInputElement).checked)} />;
-      break;
-    case "string":
-    case "asset":
-      control = <LiveText value={String(v ?? "")} label={field.name} onCommit={(s) => commit(toSceneJSON(editor, s))} />;
-      break;
-    case "color": {
-      const c = v instanceof Color ? v : Color.white;
-      control = (
-        <input
-          type="color"
-          aria-label={field.name}
-          value={c.toHex()}
-          onChange={(e) => {
-            const next = Color.from((e.currentTarget as HTMLInputElement).value);
-            next.a = c.a;
-            commit(toSceneJSON("color", next));
-          }}
-        />
-      );
-      break;
-    }
-    case "vector2":
-    case "vector3": {
-      if (v === null || v === undefined) {
-        control = <span class="none">Auto</span>;
-        break;
-      }
-      const axes = (v as { toArray(): number[] }).toArray();
-      control = (
-        <span class="vec">
-          {axes.map((x, i) => (
-            <label key={i} class="axis">
-              <em>{"xyzw"[i]}</em>
-              <LiveNumber value={x} label={`${field.name} ${"xyzw"[i]}`} onCommit={(n) => commit(axes.map((old, j) => (j === i ? n : old)))} />
-            </label>
-          ))}
-        </span>
-      );
-      break;
-    }
-    case "node":
-      control = (
-        <LiveNodeRef
-          node={node}
-          value={v instanceof GameObject ? v : null}
-          label={field.name}
-          onCommit={(target) => {
-            const reason = setLiveNodeRef(node, info, field.name, target);
-            if (reason) status.value = { kind: "error", text: `Can't set ${field.name}: ${reason}.` };
-            onEdit();
-          }}
-        />
-      );
-      break;
-    default:
-      control = <span class="none live-json">{safeJSON(v)}</span>;
-  }
-  return (
-    <>
-      <div class="label-cell">
-        <label title={field.name}>{humanize(field.name)}</label>
-      </div>
-      <div class="value">{control}</div>
-    </>
-  );
-}
-
-/** A node reference: None or any node of the same World (ADR 0032 keeps other Worlds out), indented by depth. */
-function LiveNodeRef(props: { node: GameObject; value: GameObject | null; label: string; onCommit: (target: GameObject | null) => void }) {
-  const choices = liveNodeChoices(props.node.world);
-  const v = props.value;
-  const current = v && v.isValid ? String(v.entity) : v ? "destroyed" : "";
-  return (
-    <select
-      aria-label={props.label}
-      value={current}
-      onChange={(e) => {
-        const key = (e.currentTarget as HTMLSelectElement).value;
-        if (key === "destroyed") return;
-        props.onCommit(key === "" ? null : (choices.find((c) => String(c.node.entity) === key)?.node ?? null));
-      }}
-    >
-      <option value="">None</option>
-      {v && !v.isValid && (
-        <option value="destroyed" disabled>
-          (destroyed)
-        </option>
-      )}
-      {choices.map((c) => (
-        <option key={c.node.entity} value={String(c.node.entity)}>
-          {"  ".repeat(c.depth)}
-          {c.name}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function safeJSON(v: unknown): string {
-  try {
-    return JSON.stringify(v) ?? String(v);
-  } catch {
-    return String(v);
-  }
-}
-
-/** A number that shows the live value unless it's being typed in; commits on Enter or blur. */
-function LiveNumber(props: { value: number; label: string; onCommit: (n: number) => void }) {
-  const shown = formatNumber(props.value);
-  const [draft, setDraft] = useState<string | null>(null);
-  const cancelled = useRef(false);
-  const commit = () => {
-    const n = draft === null || cancelled.current ? null : parseNumber(draft);
-    cancelled.current = false;
-    setDraft(null);
-    if (n !== null && formatNumber(n) !== shown) props.onCommit(n);
-  };
-  return (
-    <input
-      type="text"
-      inputMode="decimal"
-      class="num-input"
-      aria-label={props.label}
-      value={draft ?? shown}
-      onFocus={() => setDraft(shown)}
-      onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-        if (e.key === "Escape") {
-          cancelled.current = true;
-          (e.currentTarget as HTMLInputElement).blur();
-        }
-      }}
-    />
-  );
-}
-
-/** Text that shows the live value unless it's being typed in; commits on Enter or blur. */
-function LiveText(props: { value: string; label: string; onCommit: (s: string) => void }) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const cancelled = useRef(false);
-  const commit = () => {
-    const d = cancelled.current ? null : draft;
-    cancelled.current = false;
-    setDraft(null);
-    if (d !== null && d !== props.value) props.onCommit(d);
-  };
-  return (
-    <input
-      type="text"
-      aria-label={props.label}
-      value={draft ?? props.value}
-      onFocus={() => setDraft(props.value)}
-      onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-        if (e.key === "Escape") {
-          cancelled.current = true;
-          (e.currentTarget as HTMLInputElement).blur();
-        }
-      }}
-    />
   );
 }
