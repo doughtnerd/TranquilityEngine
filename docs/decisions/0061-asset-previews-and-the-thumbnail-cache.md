@@ -1,6 +1,6 @@
 # 0061. Asset previews are rendered in the editor and cached by content in the project's `.myco/thumbnails/`
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0153 (prefab and scene thumbnails draw through the real render features)
 - **Date:** 2026-11-04
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
