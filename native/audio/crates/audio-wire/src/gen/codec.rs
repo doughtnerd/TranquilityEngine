@@ -69,7 +69,7 @@ fn encode_fields(
 ) -> Result<usize, String> {
     let (placed, end) = resolve(start, fields)?;
     for p in &placed {
-        let off = base + (p.offset - start) as usize;
+        let off = base + p.offset as usize;
         if let Some((_, c)) = derived.iter().find(|(n, _)| *n == p.field.name) {
             put_scalar(buf, off, p.field.ty, &Value::U(*c), what)?;
             continue;
@@ -84,7 +84,7 @@ fn encode_fields(
             None => return Err(format!("{what}: missing value for {}", p.field.name)),
         }
     }
-    let end_abs = base + (end - start) as usize;
+    let end_abs = base + end as usize;
     if buf.len() < end_abs {
         buf.resize(end_abs, 0);
     }
