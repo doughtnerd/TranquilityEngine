@@ -119,7 +119,7 @@ pub const MAX_ELEVATIONS: [i32; NUMBER_OF_RAW_AZIMUTHS] = [
 /// `HRTFElevation::CreateForSubject` builds `(*kernel_list)[i + jj]` from raw `i / 8` and `j / 8`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AzimuthPair {
-    /// Raw azimuth index of the first kernel, `azimuth_index / 8` (0..24).
+    /// Raw azimuth index of the first kernel, `azimuth_index / 8` (0..=23).
     pub raw1: usize,
     /// Raw azimuth index of the second kernel, `(raw1 + 1) % 24`.
     pub raw2: usize,
@@ -131,7 +131,7 @@ pub struct AzimuthPair {
 
 /// `CalculateDesiredAzimuthIndexAndBlend` (hrtf_panner.cc): for an azimuth in -180..=180 degrees
 /// (already in the database's convention, i.e. the panner's azimuth negated), the azimuth index
-/// 0..192 and the blend 0..1 towards the next index. Negative azimuths add 360; the index is the
+/// 0..=191 and the blend 0..1 towards the next index. Negative azimuths add 360; the index is the
 /// truncated `azimuth / (360 / 192)`, clamped to 0..=191; the blend is the fractional part. NaN
 /// gives `(0, 0.0)`.
 pub fn calculate_desired_azimuth_index_and_blend(azimuth: f64) -> (usize, f64) {
@@ -159,7 +159,7 @@ pub fn calculate_desired_azimuth_index_and_blend(azimuth: f64) -> (usize, f64) {
     (index.min(last), blend)
 }
 
-/// `IndexFromElevationAngle` (hrtf_database.cc): the elevation index 0..10 for an angle in degrees,
+/// `IndexFromElevationAngle` (hrtf_database.cc): the elevation index 0..=9 for an angle in degrees,
 /// clamped to -45..=90 first, then `(int)((angle + 45) / 15)`. NaN gives 0.
 pub fn index_from_elevation_angle(elevation_angle: f64) -> usize {
     if elevation_angle.is_nan() {
@@ -184,7 +184,7 @@ pub fn raw_elevation_index(elevation_index: usize, raw_azimuth: usize) -> usize 
     index.max(0) as usize
 }
 
-/// The raw pair and weight for an azimuth index 0..192 (see [`AzimuthPair`]). An index of 192 or
+/// The raw pair and weight for an azimuth index 0..=191 (see [`AzimuthPair`]). An index of 192 or
 /// more is taken modulo 192.
 pub fn azimuth_pair(azimuth_index: usize) -> AzimuthPair {
     let index = azimuth_index % NUMBER_OF_TOTAL_AZIMUTHS;

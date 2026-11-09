@@ -41,8 +41,8 @@
 //! | 16 + 8 * E * A | impulse responses: `i16[elevations * azimuths * irLength * 2]`, direction `d` occupies frames `d * irLength .. (d + 1) * irLength`, each frame interleaved (left, right) |
 //!
 //! where the direction index is `d = raw_azimuth * elevations + elevation_index` (azimuth-major,
-//! as upstream's concatenated resource), `raw_azimuth` counts 0..24 in 15° steps of the IRCAM
-//! convention, `elevation_index` counts 0..10 from -45° up in 15° steps (not upstream's
+//! as upstream's concatenated resource), `raw_azimuth` counts 0..=23 in 15° steps of the IRCAM
+//! convention, `elevation_index` counts 0..=9 from -45° up in 15° steps (not upstream's
 //! `kElevationIndexTable` order), and `ear` is 0 left, 1 right. An int16 sample `s` stands for
 //! `s as f32 / 32768.0`. The responses are at the context rate (`rate`) with their leading delay
 //! removed (upstream's `HRTFKernel` after `ExtractAverageGroupDelay`); the table holds those

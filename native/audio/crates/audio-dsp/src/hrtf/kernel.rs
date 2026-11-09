@@ -124,7 +124,7 @@ pub fn number_of_fade_out_frames(sample_rate: f32) -> usize {
     }
 }
 
-/// The kernel's frame delay for (`azimuth_index` 0..192, `elevation_index` 0..10, `ear`): the
+/// The kernel's frame delay for (`azimuth_index` 0..=191, `elevation_index` 0..=9, `ear`): the
 /// raw azimuth's table delay, or `lerp(delay1, delay2, x)` in `f32` between the two raw azimuths
 /// of an interpolated index (`CreateInterpolatedKernel`), each at its own capped elevation.
 pub fn kernel_frame_delay(db: &HrirDatabase<'_>, azimuth_index: usize, elevation_index: usize, ear: Ear) -> f32 {

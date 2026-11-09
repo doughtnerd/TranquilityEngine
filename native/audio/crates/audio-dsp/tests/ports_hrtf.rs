@@ -164,8 +164,10 @@ fn cap_elevation(raw: usize, e: usize) -> usize {
 }
 
 /// The faded, truncated response of one raw direction, as `HRTFKernel`'s constructor leaves it:
-/// `min(irLength, fft / 2)` frames, the last `(unsigned)(rate / 4410)` of them windowed linearly
-/// to zero, zero-padded to `fft / 2`. f32 throughout.
+/// `min(irLength, fft / 2)` frames zero-padded to `fft / 2`, then the last `(unsigned)(rate / 4410)`
+/// of those `fft / 2` frames windowed linearly to zero. A shorter response is padded before the
+/// fade (`CalculateKernelsForAzimuthElevation` pads when `2 * length < fft_size`, so
+/// `truncated_response_length` is always `fft / 2`), which puts the fade on the padding. f32 throughout.
 fn ref_raw_response(db: &SyntheticDb, raw: usize, e: usize, ear: usize) -> Vec<f32> {
     let taps = ref_fft_size(db.rate) / 2;
     let keep = db.ir_length.min(taps);
@@ -174,8 +176,8 @@ fn ref_raw_response(db: &SyntheticDb, raw: usize, e: usize, ear: usize) -> Vec<f
         *slot = db.sample(raw, e, ear, i);
     }
     let nf = (db.rate / 4410.0f32) as usize;
-    let start = keep - nf;
-    for i in start..keep {
+    let start = taps - nf;
+    for i in start..taps {
         let x = 1.0f32 - (i - start) as f32 / nf as f32;
         t[i] *= x;
     }
@@ -697,8 +699,9 @@ fn reference_kernel_of_a_raw_azimuth_is_the_faded_response() {
             for i in 0..taps {
                 let want = if i < keep {
                     let v = db.sample(raw, e1, ear, i) as f64;
-                    if i + nf >= keep {
-                        v * (1.0 - (i + nf - keep) as f64 / nf as f64)
+                    // The fade covers the last nf of the fft / 2 (padded) frames.
+                    if i + nf >= taps {
+                        v * (1.0 - (i + nf - taps) as f64 / nf as f64)
                     } else {
                         v
                     }
@@ -735,7 +738,6 @@ fn reference_interpolated_kernel_at_identical_raw_responses_is_that_response() {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-#[ignore = "needs the H1 core"]
 fn synthetic_bytes_equal_database_encode() {
     let db = synthetic_db(48000.0, 200, 17);
     let header = HrirHeader { elevations: 10, azimuths: 24, ir_length: 200, rate: 48000.0 };
@@ -746,7 +748,6 @@ fn synthetic_bytes_equal_database_encode() {
 }
 
 #[test]
-#[ignore = "needs the H1 core"]
 fn kernel_responses_match_reference_at_raw_azimuths() {
     for &(rate, ir_len) in &[(48000.0f32, 256usize), (96000.0, 512)] {
         let db = synthetic_db(rate, ir_len, 3);
@@ -762,7 +763,6 @@ fn kernel_responses_match_reference_at_raw_azimuths() {
 }
 
 #[test]
-#[ignore = "needs the H1 core"]
 fn kernel_responses_match_reference_at_interpolated_azimuths() {
     let azimuths = [1usize, 3, 4, 7, 10, 17, 42, 100, 189, 191];
     for &(rate, ir_len, a_set) in &[(48000.0f32, 256usize, &azimuths[..]), (96000.0, 512, &azimuths[..4])] {
@@ -779,7 +779,6 @@ fn kernel_responses_match_reference_at_interpolated_azimuths() {
 }
 
 #[test]
-#[ignore = "needs the H1 core"]
 fn kernel_frame_delays_match_reference() {
     let db = synthetic_db(48000.0, 256, 9);
     let hdb = HrirDatabase::parse(&db.bytes).expect("valid table");
@@ -799,7 +798,6 @@ fn kernel_frame_delays_match_reference() {
 }
 
 #[test]
-#[ignore = "needs the H1 core"]
 fn fixed_azimuth_sweep_at_elevation_0_matches_reference() {
     let db = synthetic_db(48000.0, 256, 1);
     let mut azimuths: Vec<f64> = (0..=96).map(|k| -180.0 + 3.75 * k as f64).collect();
@@ -811,7 +809,6 @@ fn fixed_azimuth_sweep_at_elevation_0_matches_reference() {
 }
 
 #[test]
-#[ignore = "needs the H1 core"]
 fn fixed_elevation_sweep_matches_reference() {
     let db = synthetic_db(48000.0, 256, 2);
     let elevations = [-90.0, -45.0, -30.0, -7.5, 0.0, 14.99, 15.0, 37.0, 45.0, 60.0, 75.0, 89.0, 90.0, 120.0];
@@ -825,7 +822,6 @@ fn fixed_elevation_sweep_matches_reference() {
 }
 
 #[test]
-#[ignore = "needs the H1 core"]
 fn stereo_source_matches_reference() {
     let db = synthetic_db(48000.0, 256, 6);
     let mut steps = Vec::new();
@@ -836,7 +832,6 @@ fn stereo_source_matches_reference() {
 }
 
 #[test]
-#[ignore = "needs the H1 core"]
 fn short_responses_are_zero_padded() {
     let db = synthetic_db(48000.0, 200, 5);
     let hdb = HrirDatabase::parse(&db.bytes).expect("valid table");
@@ -854,7 +849,6 @@ fn short_responses_are_zero_padded() {
 }
 
 #[test]
-#[ignore = "needs the H1 core"]
 fn rate_96k_uses_four_partitions_and_matches_reference() {
     let db = synthetic_db(96000.0, 512, 8);
     let hdb = HrirDatabase::parse(&db.bytes).expect("valid table");
@@ -871,7 +865,6 @@ fn rate_96k_uses_four_partitions_and_matches_reference() {
 }
 
 #[test]
-#[ignore = "needs the H1 core"]
 fn crossfade_on_a_direction_change_matches_reference() {
     let db = synthetic_db(48000.0, 256, 10);
     // 30 degrees for 4 quanta, then -60 degrees for 24 quanta. The request for 90 degrees at
@@ -892,7 +885,6 @@ fn crossfade_on_a_direction_change_matches_reference() {
 }
 
 #[test]
-#[ignore = "needs the H1 core"]
 fn at_most_four_kernel_computations_per_quantum() {
     let db = synthetic_db(48000.0, 256, 13);
     let hdb = HrirDatabase::parse(&db.bytes).expect("valid table");
