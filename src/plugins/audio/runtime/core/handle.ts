@@ -1,6 +1,7 @@
 // `AudioHandle` (ADR 0157; api-and-models §1, §3 "Handle encoding"): one sound started with `playOneShot`. It holds
 // the voice's id and the voice table, and reads the table's mirror; it never allocates after construction. A1.6
 // exposes this class through the public `AudioHandle` interface (§1) without adding to it.
+import { VoiceReason, VoiceState } from "./voiceTable";
 import type { VoiceTableHandleApi } from "./voiceTable";
 
 /**
@@ -17,6 +18,32 @@ export const REASON_NAMES: readonly (AudioReason | null)[] = [null, "virtual", "
 
 /** @internal §1: `fade`'s `to` is linear, 0..4. */
 export const MAX_FADE_GAIN = 4;
+
+/** @internal `id` names a live slot: non-zero, `gen[index]` matches the id's generation, and the slot isn't FREE (§3). */
+function isCurrent(t: VoiceTableHandleApi, id: number): boolean {
+  if (id === 0) return false;
+  const index = id & 0xffff;
+  return t.gen[index] === id >>> 16 && t.state[index] !== VoiceState.FREE;
+}
+
+/** @internal `isCurrent`, and not STOPPING or ENDING: `stop` and `fade` act only on these. */
+function isActive(t: VoiceTableHandleApi, id: number): boolean {
+  if (!isCurrent(t, id)) return false;
+  const s = t.state[id & 0xffff];
+  return s !== VoiceState.STOPPING && s !== VoiceState.ENDING;
+}
+
+/** @internal §1 reasons shown for an ended or ending voice: only "stolen" and "failed" show; anything else reads null. */
+function shownEndReason(code: number): AudioReason | null {
+  if (code === VoiceReason.STOLEN) return "stolen";
+  if (code === VoiceReason.FAILED) return "failed";
+  return null;
+}
+
+/** @internal A value for a warning message, without calling any method on it (so nothing a caller passes can throw). */
+function show(value: unknown): string {
+  return typeof value === "number" ? String(value) : typeof value;
+}
 
 /**
  * @internal §1 `AudioHandle`: "A value, safe to keep: once the voice ends or its slot is reused, every call is a
@@ -42,7 +69,9 @@ export class AudioHandle {
    * clip failed), or null. Allocates one object per call, like any `playOneShot`.
    */
   static inert(reason: AudioReason | null = null): AudioHandle {
-    throw new Error("not implemented: A1.1-L2");
+    const handle = new AudioHandle(null, 0);
+    handle.finalReason = reason;
+    return handle;
   }
 
   /**
@@ -54,7 +83,15 @@ export class AudioHandle {
    * or WAITING_FOR_DATA (not STOPPING or ENDING), and the reason is neither STOLEN nor FAILED.
    */
   get playing(): boolean {
-    throw new Error("not implemented: A1.1-L2");
+    const t = this.table;
+    if (t === null || !isCurrent(t, this.id)) return false;
+    const index = this.id & 0xffff;
+    const s = t.state[index];
+    const audibleOrWaiting =
+      s === VoiceState.LOCKED || s === VoiceState.PLAYING || s === VoiceState.VIRTUAL || s === VoiceState.WAITING_FOR_DATA;
+    if (!audibleOrWaiting) return false;
+    const r = t.reason[index];
+    return r !== VoiceReason.STOLEN && r !== VoiceReason.FAILED;
   }
 
   /**
@@ -67,7 +104,17 @@ export class AudioHandle {
    * after the end is cached and returned from then on, so a later reuse of the slot can't change it.
    */
   get reason(): AudioReason | null {
-    throw new Error("not implemented: A1.1-L2");
+    const t = this.table;
+    if (t === null || this.id === 0) return this.finalReason ?? null;
+    const index = this.id & 0xffff;
+    if (isCurrent(t, this.id)) {
+      const s = t.state[index];
+      if (s === VoiceState.STOPPING || s === VoiceState.ENDING) return shownEndReason(t.reason[index]);
+      return REASON_NAMES[t.reason[index]] ?? null;
+    }
+    if (this.finalReason !== undefined) return this.finalReason;
+    this.finalReason = shownEndReason(t.endedReason(this.id));
+    return this.finalReason;
   }
 
   /**
@@ -78,7 +125,14 @@ export class AudioHandle {
    * `stop()` updates the mirror at once).
    */
   stop(fadeSeconds = 0): void {
-    throw new Error("not implemented: A1.1-L2");
+    const t = this.table;
+    if (t === null || !isActive(t, this.id)) return;
+    let seconds = fadeSeconds;
+    if (!Number.isFinite(seconds) || seconds < 0) {
+      warnOnce("handle.stop.fadeSeconds", `AudioHandle.stop: fadeSeconds ${show(fadeSeconds)} is not a finite number >= 0; using 0.`);
+      seconds = 0;
+    }
+    t.requestStop(this.id, seconds);
   }
 
   /**
@@ -89,19 +143,40 @@ export class AudioHandle {
    * negative `seconds` becomes 0 with a one-time warning. Then `table.requestFade(id, to, seconds)`.
    */
   fade(to: number, seconds: number): void {
-    throw new Error("not implemented: A1.1-L2");
+    const t = this.table;
+    if (t === null || !isActive(t, this.id)) return;
+    if (!Number.isFinite(to)) {
+      warnOnce("handle.fade.to", `AudioHandle.fade: to ${show(to)} is not a finite gain; ignored.`);
+      return;
+    }
+    let gain = to;
+    if (gain < 0 || gain > MAX_FADE_GAIN) {
+      warnOnce("handle.fade.range", `AudioHandle.fade: to ${String(to)} is outside 0..${MAX_FADE_GAIN}; clamped.`);
+      gain = gain < 0 ? 0 : MAX_FADE_GAIN;
+    }
+    let secs = seconds;
+    if (!Number.isFinite(secs) || secs < 0) {
+      warnOnce("handle.fade.seconds", `AudioHandle.fade: seconds ${show(seconds)} is not a finite number >= 0; using 0.`);
+      secs = 0;
+    }
+    t.requestFade(this.id, gain, secs);
   }
 }
+
+/** @internal Keys already warned about on this page (`warnOnce`). Grows by a handful of keys, never per call. */
+const warnedKeys = new Set<string>();
 
 /**
  * @internal Warns once per `key` for the page (§1 "each clamps and warns once"), with the `[myco]` prefix as
  * `mixer.ts` does. Tests reset it with `_resetHandleWarningsForTests`.
  */
 export function warnOnce(key: string, message: string): void {
-  throw new Error("not implemented: A1.1-L2");
+  if (warnedKeys.has(key)) return;
+  warnedKeys.add(key);
+  console.warn(`[myco] ${message}`);
 }
 
 /** @internal Tests: forget which warnings were given. */
 export function _resetHandleWarningsForTests(): void {
-  throw new Error("not implemented: A1.1-L2");
+  warnedKeys.clear();
 }
