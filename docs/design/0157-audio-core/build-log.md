@@ -103,3 +103,25 @@ Leads: A0.8 Opus with one Haiku leaf (L1 `audioLifecycle.test.ts`); A0.6 Sonnet 
 ## MS1 complete (2026-11-09)
 
 Exit check met with `backend: "core"`: a tone after a click in Chromium (dev page), WebView2 and WebKitGTK (A0.7); STATUS flows with frames stopped (A0.3); FMOD gone (A0.5); an old engine gets one warning, then the fallback (A0.6). Typecheck, `npm test`, `npm run build`, `cargo test` and Chromium e2e are at the baseline, and the committed wasm matches its source hash. The default backend is unchanged (`"babylon"` is still Howler). Ready for the owner's approval to merge to master.
+
+## MS1 merged to master (2026-11-09)
+
+The owner approved; master fast-forwarded to `a524ad8` and was pushed to origin.
+
+## MS2 wave 1 (A1.2, A1.1)
+
+Two Opus leads. A1.2 had four Haiku leaves (L1 `resample.rs`, L2 `ramp.rs`, L3 `pan.rs`, L4 `golden_native.rs`) and A1.1 had three (L1 `ids.ts`, L2 `handle.ts`, L3 `audioHandle.test.ts`). No merge conflicts. Every test leaf passed against its lead's implementation on the first merge, with no expectation changed.
+
+**Landed**
+- A1.2 (#62): core voices (`voices.rs`: slots, a live list, PLAY/STOP/SET_PARAMS/FADE, mixed or virtual, loops, ended reporting carried over when STATUS's list is full, round-robin playheads, late counting). `scheduler.rs`: `submit` validates every record before applying any; asap records apply at once; stamped records apply at their exact sample, splitting the quantum; a late record starts at offset 0 and is counted. `panner.rs` (K11): direction to azimuth by the W3C algorithm, then the gains of Blink's `equal_power_panner` (ported in `audio-dsp/src/pan.rs`), with the 2x2 gain matrix ramped linearly, so it stays continuous across azimuth 0. `clips.rs` (K11): the `ClipStore` API over a `Vec`, whose body A1.3b replaces. A linear resampler and ramps in `audio-dsp`. `myco_audio_submit` is live. A PLAY with a new generation replaces the voice in that slot (A1.1's steal contract), and the old id is reported once in `ended`.
+- A1.1 (#63): the main-thread voice table (preallocated struct of arrays, a free list, generational ids, bus-then-global stealing, `endedReason` kept for one generation, a deduplicated stop/fade command queue for A1.4, `onFree` for `mixer.voiceEnded`, `remapBuses`, and `releaseWorld` hooked to A0.8's lifecycle listener). `AudioHandle` per §1. The STATUS mirror ignores stale ids, and frees ended voices in `onmessage` while the tab is hidden.
+
+**Numbers:** mixer wasm 55,179 B (53.9 KB, unoptimised) against the 150 KB gate; source hash `c30277e2…`. 18 native goldens pass (one-shot, pitch, loop, stop and fade shapes, stamped and late records, spatial gains, moving source, generation replace), and so does `process_never_allocates` under a counting allocator. `cargo test` 129 passed. `npm test`: 3,141 passed, only the baseline failures. A 20,000-frame steady-state test shows the voice table and mirror don't allocate. `npm run build` green.
+
+**Deviations and fixes**
+- A1.2 added the `clips` field and accessors to `core.rs` (A0.1's file; no other writer this wave). `audio-core` now depends on `audio-wire` and `libm`.
+- `portsNotices.test.ts` split lines on `\n`, so CRLF working copies on Windows failed the header check once `pan.rs`, the first real port, existed. It now splits on `\r?\n`.
+- Not yet applied in the core: `lpHz`, bus routing, SET_MIXED, SET_PAUSED, SEEK, BUS_*, MASTER, RESET. These records are parsed and skipped by length; they land in later tasks.
+- Follow-ups noted on #66 (A1.4): `readStatus` allocates a new block per message, and bus limits must be reset after a remap.
+
+**Reserve used:** none.
