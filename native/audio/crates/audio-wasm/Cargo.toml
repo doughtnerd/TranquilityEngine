@@ -1,0 +1,25 @@
+[package]
+name = "audio-wasm"
+description = "The WebAssembly boundary of Myco's audio core (ADR 0157): the C ABI over imported memory."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "myco_audio"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Extra exports for tests (myco_audio_debug_decode_batch); built by build.mjs into its own wasm.
+test-hooks = []
+
+[dependencies]
+audio-core.workspace = true
+
+[build-dependencies]
+sha2.workspace = true
+
+[dev-dependencies]
+# tests/source_hash.rs includes source_hash.rs, as build.rs does.
+sha2.workspace = true

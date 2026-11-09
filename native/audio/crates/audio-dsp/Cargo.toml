@@ -1,0 +1,12 @@
+[package]
+name = "audio-dsp"
+description = "DSP kernels for Myco's audio core (ADR 0157): resampler, ramps, pan, filters, compressor, convolver, HRTF."
+version.workspace = true
+edition.workspace = true
+# Ported Chromium files keep their BSD-3-Clause notice (api-and-models §5, task A0.10).
+license = "(Apache-2.0 OR MIT) AND BSD-3-Clause"
+publish.workspace = true
+
+[dependencies]
+microfft.workspace = true
+libm.workspace = true
