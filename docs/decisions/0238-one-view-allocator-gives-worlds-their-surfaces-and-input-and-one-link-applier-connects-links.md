@@ -8,7 +8,7 @@
 
 ## Context
 
-`core/Engine.ts` (816 lines) held three jobs besides stepping Worlds, each spread over fields and methods that had
+`core/Engine.ts` (834 lines) held three jobs besides stepping Worlds, each spread over fields and methods that had
 to agree:
 
 - **Views and input.** Eight fields (`viewWorld`, `render`, `extraViews`, `handedViews`, `inputWorld`,
@@ -23,7 +23,8 @@ to agree:
   record, awaited), and `applyLink` did the same bookkeeping for runtime ones with promise callbacks, plus the
   "already connected elsewhere" and retry-next-frame rules the start-up copy lacked.
 - **Project boot.** `create` also added asset sources, picked storage (0024), warned about four project-settings
-  sections (graphics, navigation, physics, audio), configured the mixer and FMOD, and ran quality auto-detect
+  sections (graphics, navigation, physics, audio), configured the mixer and told audio listeners
+  (`notifyAudioConfigured`), and ran quality auto-detect
   (0050, 0055), before it got to the bootstrap.
 
 ## Decision
@@ -37,11 +38,12 @@ target each World has. It is given `container` (null: headless), `createSurface(
   left are disposed, hand-overs given to it unwind, the main view passes on).
 - `surfaceOf(world)`: its main view or tile, or null. The Engine asks this when it steps and redraws a World.
 - `handView(world)` (0068), `attachView(world, element)` (editor tiles), `focusInput(world | null)`.
-- `state(world)` for `_viewStates`, `setVariantReport(on)` (0080, every surface now and later), `dispose()`.
+- `state(world)` for `_viewStates` (renders, main view, tile, handed over, takes input), `setVariantReport(on)` (0080, every surface now and later), `dispose()`.
 
 The invariants live inside it: one main view, tiles give way to it, hand-overs nest, input follows the view, a
-destroyed World unwinds its hand-overs. It sets `world.render` and `world._takesInput` as before. Its tests use
-fake surfaces and a fake input port, with no DOM, Babylon or Engine.
+destroyed World unwinds its hand-overs. It sets `world.render` and `world._takesInput` as before, and reports the latter in
+`state(world).takesInput`. Its tests use fake surfaces and a fake input port, with no DOM, Babylon or Engine, and
+read only what the allocator returns (`surfaceOf`, `state`, `world.render`) and what reached the fakes.
 
 **Link applier.** `core/linkApplier.ts` exports `LinkApplier` over `find(name)` and `alive(world)`: it holds the
 bootstrap's links, the connection each made per client (`linkedServer(client)`), and the links deferred to the
@@ -51,8 +53,10 @@ as before); `worldCreated(world)` and `retryDeferred()` (once per frame) apply r
 connected to another server (with the warning), which the start-up copy didn't check.
 
 **Project boot.** `core/projectBoot.ts` `bootProject(engineSettings, options)` does the asset sources, storage,
-the four sections' warnings, the mixer and FMOD, and the quality tier, and returns the quality monitor or null.
-`Engine.create` calls it, then runs the bootstrap.
+the four sections' warnings (audio's problems and warnings both), the mixer and `notifyAudioConfigured`, and the
+quality tier, and returns the quality monitor or null.
+`Engine.create` announces itself (`notifyEngineLifecycle("created")`), calls it, then runs the
+bootstrap.
 
 The public Engine API and `Engine.create`'s signature and behaviour are unchanged; `Engine` keeps its `@internal`
 editor methods (`_handView`, `_attachView`, `_focusInput`, `_viewStates`, `_setVariantReport`) as one-line
@@ -71,7 +75,7 @@ delegations.
 
 **Positive**
 - The view and input rules are in one module (270 lines, half of them comments) with direct tests; Engine drops
-  eight fields and six methods, and goes from 816 to 542 lines.
+  eight fields and six methods, and goes from 834 to 561 lines.
 - One link path; start-up and runtime agree on what "already connected" means.
 - `Engine.create` reads as: boot project settings, run the bootstrap, apply links, wait for scenes.
 
