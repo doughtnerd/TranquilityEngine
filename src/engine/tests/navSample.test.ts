@@ -11,6 +11,7 @@ import { Streamer } from "../../../samples/navigation/scripts/behaviors/Streamer
 import { Tour } from "../../../samples/navigation/scripts/behaviors/Tour";
 import { Hud, spawners } from "../../../samples/navigation/scripts/behaviors/Hud";
 import "../../../samples/navigation/scripts/behaviors/CameraRig";
+import "../../../samples/navigation/scripts/behaviors/Gate";
 
 // ADR 0065, W7: the navigation sample (samples/navigation, a port of Foxfire's Streaming Demo) played headless: the
 // project read from disk as the dedicated server reads it, its main scene run for 75 s of fixed steps. Every kind
