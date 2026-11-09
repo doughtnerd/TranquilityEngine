@@ -183,7 +183,7 @@ M1a ships behind `audio.backend: "core"`. The **Babylon backend** (Babylon's Aud
 **Soak gate.** 30 minutes of the stress sample with zero underruns on real hardware:
 - Windows on WebView2 and on Chromium;
 - Linux on WebKitGTK;
-- one low-end machine (a 4-core laptop CPU on battery).
+- one low-end device: an **Android phone** running the lowest Android version that Google Play currently accepts for publishing apps (the exact version is looked up when the soak is set up, since Google raises it over time), playing the web build in its Chrome and Android System WebView.
 
 macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, and until it passes macOS desktop builds default to the Babylon backend.
 
@@ -198,7 +198,7 @@ macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, a
 | Reserve (M2 layers, M3 spatial, M4 stems) | | 0.5 ms |
 | **Total** | | **≤ 1.3 ms** |
 
-- **Presets by measured device class,** not assumed headroom: "high" for the reference class, and "low" (64 voices, one reverb) defined by the low-end soak machine.
+- **Presets by measured device class,** not assumed headroom: "high" for the reference class, and "low" defined by the low-end Android soak device. Its 64 voices and one reverb are a starting point, to be lowered if that phone needs it.
 - **Adaptive voice cap.** When the core's work units per quantum pass 70% of budget, the mixed-voice cap drops, and it recovers slowly.
 - **Main thread, as a share of frame time:**
   - command batch ≤ 0.1 ms;
@@ -297,7 +297,7 @@ macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, a
 
 **Negative / costs**
 - About 31 person-weeks (155 person-days with reserve) for M1 alone, per the approved design. M2–M5 are each a project; the authoring UI is likely bigger than the DSP.
-- We own DSP quality. Every effect and preset needs a listening pass by someone with the ear for it (open question).
+- We own DSP quality. Every effect and preset needs a listening pass; the owner runs it.
 - Audio contributors need Rust; the committed wasm keeps everyone else Rust-free, as with navigation.
 - Browser output latency stays ~50 ms.
 - Main-thread state mirrors are up to a frame stale, which scripts must tolerate.
@@ -370,4 +370,7 @@ The technical design in `docs/design/0149-audio-core/` (an architect's and a sen
 - **New settings:** `audio.clipMemoryMB`, `audio.clipFormat`, `audio.spatial`, `audio.voices.hrtf`.
 - **Behaviour changes added:** a World that loses the view goes virtual; effects match by construction.
 - **Estimate:** 155 person-days (about 31 person-weeks) with reserve, replacing 16–18 weeks.
-- **Still open:** who runs the manual listening pass, and the low-end soak machine.
+- **Settled after revision 3 (2026-11-09):**
+  - The owner (Chris Carlson) runs the human listening pass.
+  - The low-end soak device is an **Android phone** running the lowest Android version that Google Play currently accepts for publishing apps (the exact version is looked up when the soak is set up, since Google raises it over time), playing the web build in its Chrome and Android System WebView.
+  - This makes Android's browser and WebView a runtime the core must serve at the "low" preset. If that Android version's WebView lacks AudioWorklet or `simd128`, the device gets the Babylon fallback, and the soak then measures the fallback. A0.6 checks which.

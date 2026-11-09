@@ -470,8 +470,8 @@ Level: S senior, M mid, J junior. Days are focused effort. `||` marks tasks para
 | C1 | Stress sample and informational benches | A3.5 | M | 3 | runs |
 | C1b | Metered wasm build and the 10% CI gate | C1 | S | 3 | CI fails on +10% |
 | C2 | Docs ("Playing sound", "Why is there no sound?", contributor note), `implementation-status.md`, notices review | B7 | J | 2 | links resolve |
-| C3 | Soak runs on the gate machines | C1 | M | 3 | 0 underruns |
-| C4 | Listening-pass checklist and objective thresholds, run by the owner's chosen listener | A2.7 | S | 3 | checklist signed |
+| C3 | Soak runs on the gate machines: Windows (WebView2, Chromium), Linux (WebKitGTK), and the low-end Android phone (lowest Android version Google Play accepts; web build in Chrome/WebView), sizing the "low" preset from it | C1 | M | 3 | 0 underruns; low preset numbers recorded |
+| C4 | Listening-pass checklist and objective thresholds; the owner runs the listening pass | A2.7 | S | 3 | checklist signed by the owner |
 
 **Totals.** Senior 60 days, mid 74, junior 7: **141 days**. The named **10% quirk reserve is 14 days**, giving **155 person-days, 31.0 person-weeks**. Senior load, 66 days with its share of the reserve, is the constraint: with one senior, two mid and one junior the calendar is roughly 15-17 weeks (estimate). The ADR estimates 16-18 person-weeks for one engineer; the owner accepted the larger figure. Porting C++ to Rust has its own risk (Blink's helpers around `AudioBus` and `VectorMath` come along); the port estimates are the savings the coordinator verified in part, and an overrun is a first call on the reserve.
 
@@ -555,6 +555,7 @@ Parallel groups: A0.1 then {A0.2, A0.3, A0.4, A0.10}, with H0 from day 1; {A1.1,
 - **D12** HRTF moves from M3 into M1 (nearest voices, Composite data or SADIE II); M3 keeps the ambisonic bed, convolution zones and occlusion.
 - **D13** 0098 amendment: the interface also covers `BabylonBackend`; the "failed load keeps the fallback" rule applies to the core.
 
-**Open owner items** (the only two)
-1. Who runs the manual listening pass (task C4).
-2. The low-end soak machine (ADR open item); macOS stays a release gate.
+**Owner items: all settled (2026-11-09)**
+1. The owner runs the human listening pass (task C4).
+2. The low-end soak device is an Android phone on the lowest Android version Google Play accepts for publishing, running the web build in Chrome/WebView (task C3). A0.6 checks AudioWorklet and `simd128` there; without them, it runs the Babylon fallback.
+3. macOS stays a release gate.

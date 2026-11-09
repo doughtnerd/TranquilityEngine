@@ -27,7 +27,8 @@ The technical design for [ADR 0149](../../decisions/0149-audio-runs-on-an-engine
 | Fallback backend | **Babylon's AudioEngineV2** instead of Howler, internal behind 0098 and never public. Howler is deleted when it lands. Coordinator rule: when the core can't load (an old engine, a failed load), the host switches to Babylon **automatically** with one warning; a core that loaded and then exhausts its recoveries stays silent. Babylon stays after M1 as the permanent fallback |
 | HRTF | **In M1:** a port of Chromium's HRTF panner with its Composite HRIR data for the nearest 16 spatial voices (`audio.voices.hrtf`, `audio.spatial`), matching today's Web Audio sound. Gated on clearing the data licence first (task H0); the fallbacks are SADIE II data with the same code, or equal-power |
 | Reuse | **Port** Chromium's Web Audio code (BSD, notices kept): biquad, dynamics compressor, staged convolver, HRTF panner, equal-power panner, distance and cone. **Adopt** microfft (MIT; 14 KB of wasm for 256/4096 real FFTs plus the inverse). **Borrow designs** from Kira, Firewheel and SoLoud |
-| Sound quality | A manual listening pass, backed by automated objective checks (sweeps, THD+N, null tests, loudness, goldens) |
+| Sound quality | A manual listening pass **run by the owner**, backed by automated objective checks (sweeps, THD+N, null tests, loudness, goldens) |
+| Low-end device | An **Android phone** on the lowest Android version Google Play accepts for publishing apps, running the web build in Chrome/WebView. It defines the "low" preset and is part of the soak gate. If its WebView lacks AudioWorklet or `simd128` (checked in A0.6), it runs the Babylon fallback |
 | Estimate | **155 person-days, about 31 person-weeks**, including a 10% reserve; roughly 15–17 calendar weeks with one senior, two mid-level and one junior engineer (estimate) |
 
 **How the estimate moved from the 136 days shown at approval:**
@@ -42,7 +43,7 @@ The technical design for [ADR 0149](../../decisions/0149-audio-runs-on-an-engine
 
 The table is in api-and-models §9.
 
-**Still open:** who runs the listening pass, and the low-end soak machine that defines the "low" preset.
+**Open owner items:** none.
 
 ## Coordinator review: problems found and fixed
 

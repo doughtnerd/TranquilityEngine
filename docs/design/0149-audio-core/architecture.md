@@ -577,7 +577,7 @@ In M1, presets are named bundles the editor offers. The file stores numbers [API
 | Streams | 4 | 8 | 16 |
 | Arena initial / ceiling | 8 / 64 MB | 16 / 128 MB | 32 / 256 MB |
 | Initial memory | ≈ 13.5 MB | ≈ 23.6 MB | ≈ 41.5 MB |
-| Defined by | the low-end soak machine (4-core laptop on battery) | — | the reference class |
+| Defined by | the low-end soak device: an Android phone on the lowest Android version Google Play accepts for publishing, running the web build in Chrome/WebView. Its numbers here are a starting point to lower after measuring | — | the reference class |
 
 ## 6. Performance
 
@@ -687,6 +687,8 @@ Main allocates nothing per frame. The voice table and scratch are preallocated t
 
 Versions are recalled; **A0.6 confirms them**. The loader probes features, not versions.
 
+**Android (owner, 2026-11-09).** The low-end soak device is an Android phone on the lowest Android version Google Play accepts for publishing apps, playing the web build in Chrome and the Android System WebView. A0.6 checks whether that version's browser and WebView get AudioWorklet and `simd128` (Chromium 91+). If not, the device runs the Babylon fallback and the soak measures that. Expect a phone CPU several times slower than the reference machine, and higher output latency than desktop. The "low" preset is sized from it.
+
 | | Chrome / Edge | Firefox | Safari | WebView2 | WKWebView | WebKitGTK |
 |---|---|---|---|---|---|---|
 | AudioWorklet | 66 | 76 | 14.1 | evergreen | system Safari | confirm |
@@ -773,5 +775,6 @@ Versions are recalled; **A0.6 confirms them**. The loader probes features, not v
 
 **Still open**
 
-1. **Who runs the listening pass:** someone with the ear for it, per effect, preset, resampler mode and HRTF, before each milestone ships.
-2. **The low-end soak machine:** a 4-core laptop CPU on battery. It defines the low preset's numbers (§5.3) and is part of the soak gate.
+Both owner items are now settled (2026-11-09):
+1. **Listening pass:** the owner runs it, per effect, preset, resampler mode and HRTF, before each milestone ships.
+2. **Low-end soak device:** an Android phone on the lowest Android version Google Play accepts for publishing apps (see §9). It defines the low preset's numbers (§5.3) and is part of the soak gate.
