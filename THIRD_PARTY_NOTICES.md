@@ -61,3 +61,7 @@ Code from these projects is compiled into Myco Engine's own modules. Libraries u
 
 - **microfft** (real and complex FFTs for the convolver and HRTF ports) — MIT. Version 0.6.0. https://crates.io/crates/microfft
 - **libm** (transcendental functions, so native and wasm builds give identical results) — MIT. Version 0.2.16. https://crates.io/crates/libm
+
+## HRIR data (`src/plugins/audio/runtime/wasm/myco_hrir.bin`; ADR 0157)
+
+- **HRIR data (HRTF panner)** - the head-related impulse responses are the IRC_Composite_C set from the Listen HRTF database, Copyright 2002 IRCAM (Institut de Recherche et Coordination Acoustique/Musique), http://recherche.ircam.fr/equipes/salles/listen/. IRCAM states: "The Listen database is public and available for any use." The data is shipped as format 2 (blob `src/plugins/audio/runtime/wasm/myco_hrir.bin`), converted to 16-bit integers and resampled at load. It was taken from Chromium's copy of the set at commit `cbba46fd94646232cfd2318ac962138c2a98c1f9`; the licence is IRCAM's, not Chromium's. We acknowledge the database as IRCAM requests.
