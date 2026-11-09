@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// `Engine._handView` (ADR 0068's match World taking the screen): the main view, and input with
-// it, pass to another World and come back. Surfaces are fakes here (no WebGL in Node): each records
+// `Engine._handView` (ADR 0068's match World taking the screen) through a whole Engine: the main
+// view, and input with it, pass to another World and come back, and each World's frame draws to
+// the surface it has. The hand-over, tile and input rules themselves: viewAllocator.test.ts (ADR 0159). Surfaces are fakes here (no WebGL in Node): each records
 // which World it drew, whether its canvas shows, and whether it was disposed.
 
 interface FakeSurface {
@@ -103,56 +104,14 @@ describe("Engine._handView", () => {
     expect(states(engine).Menu.main).toBe(true);
   });
 
-  it("hands the view back when the World given it is destroyed", async () => {
+  it("hands the view back when the World given it is destroyed, and names unknown Worlds", async () => {
     const engine = await create();
     const match = engine.createWorld({ name: "Match", tags: ["client"] });
     engine._handView("Match");
     match.destroy();
     expect(states(engine).Menu).toEqual({ main: true, input: true, handed: false });
-    expect(surfaces[0].canvas.style.display).toBe("block");
     expect(surfaces[1].disposed).toBe(true);
-  });
-
-  it("lets the World given the view keep it when the World that gave it up is destroyed", async () => {
-    const engine = await create();
-    engine.createWorld({ name: "Match", tags: ["client"] });
-    const handBack = engine._handView("Match");
-    engine.findWorld("Menu")!.destroy();
-    expect(surfaces[0].disposed).toBe(true); // its hidden surface went with it
-    handBack();
-    expect(states(engine).Match).toEqual({ main: true, input: true, handed: false });
-    expect(surfaces[1].disposed).toBe(false);
-  });
-
-  it("takes over a World's editor tile, nests, and refuses Worlds that don't render", async () => {
-    const engine = await create();
-    engine.createWorld({ name: "A", tags: ["client"] });
-    engine.createWorld({ name: "B", tags: ["client"] });
-    engine._attachView("A", {} as HTMLElement);
-    const tile = surfaces[1];
-    expect(() => engine._handView("Lobby")).toThrow(/doesn't render/);
     expect(() => engine._handView("Nope")).toThrow(/no World/);
-
-    const backA = engine._handView("A");
-    expect(tile.disposed).toBe(true); // the main view replaces its tile
-    expect(states(engine).A).toMatchObject({ main: true, input: true });
-    engine._handView("B");
-    expect(states(engine)).toMatchObject({ Menu: { handed: true }, A: { main: false, handed: true }, B: { main: true, input: true } });
-    expect(engine._handView("B")).toBeTypeOf("function"); // already has it: nothing to do
-
-    backA(); // the outer hand-over goes, and the one over it with it
-    expect(states(engine)).toMatchObject({ Menu: { main: true, input: true, handed: false }, A: { main: false, handed: false }, B: { main: false } });
-    expect(surfaces.filter((s) => !s.disposed)).toEqual([surfaces[0]]);
-  });
-
-  it("moves input headless, with no surfaces", async () => {
-    const engine = await create(true);
-    engine.createWorld({ name: "Match", tags: ["client"] });
-    const handBack = engine._handView("Match");
-    expect(states(engine)).toMatchObject({ Menu: { main: false, input: false }, Match: { main: true, input: true } });
-    handBack();
-    expect(states(engine)).toMatchObject({ Menu: { main: true, input: true }, Match: { main: false, input: false } });
-    expect(surfaces).toHaveLength(0);
   });
 
   it("disposes hidden surfaces with the Engine", async () => {
