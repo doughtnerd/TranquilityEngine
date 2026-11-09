@@ -6,13 +6,17 @@ import { orderPlugins } from "../../plugins/order";
 import { assetActions, assetFormats, assetKinds, componentHeaderActions, hierarchyCreateEntries, idlePrefetches, playStatsCounters, sceneOpenMigrations, type AssetActionContribution, type HierarchyCreateContribution, type IdlePrefetchContribution, type PlayStatsCounterContribution, type SceneOpenMigrationContribution, componentNotes, panelExtensions, panels, projectSettingsSections, sceneToolbarItems, viewportTools, type AssetFormatContribution, type ComponentHeaderActionContribution, type SceneToolbarItemContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import type { LoadComponent } from "./contributions";
+import { checkSettingsSectionKeys } from "../projectSettingsModel";
 
 
 export interface EditorPluginContext {
   registerAssetKind(kind: AssetKindContribution): void;
   registerAssetFormat<T>(format: AssetFormatContribution<T>): void;
   registerPanel(panel: PanelContribution): void;
-  /** A category of the Project settings panel (listed after the built-in ones unless `after` places it). */
+  /**
+   * A category of the Project settings panel (listed after the built-in ones unless `after` places it), owning
+   * the `project.json` keys it declares (ADR 0151). Throws for a key the shell or another section owns.
+   */
   registerProjectSettingsSection(section: ProjectSettingsSectionContribution): void;
   /** Extra UI rendered under a built-in panel's own content (`panel`: its id). */
   registerPanelExtension(extension: PanelExtensionContribution): void;
@@ -56,7 +60,7 @@ export function activatePlugin(plugin: EditorPlugin): void {
     registerAssetKind: (k) => void undo.push(assetKinds.register(k)),
     registerAssetFormat: (f) => void undo.push(assetFormats.register(f)),
     registerPanel: (p) => void undo.push(panels.register(p)),
-    registerProjectSettingsSection: (section) => void undo.push(projectSettingsSections.register(section)),
+    registerProjectSettingsSection: (section) => void undo.push(projectSettingsSections.register(checkSettingsSectionKeys(section))),
     registerPanelExtension: (extension) => void undo.push(panelExtensions.register(extension)),
     registerComponentNote: (n) => void undo.push(componentNotes.register(n)),
     registerInspectorSection: (type, view, options) => void undo.push(registerInspectorSection(type, view, options)),

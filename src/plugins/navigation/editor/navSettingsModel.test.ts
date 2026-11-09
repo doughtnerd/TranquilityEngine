@@ -33,8 +33,12 @@ import {
   setNavValue,
 } from "./navSettingsModel";
 import { readDraft, sectionsKey, settingsProblems, withSettings, type SettingsDraft } from "../../../editor/projectSettingsModel";
+import { useEditorPlugins } from "../../testEditorPlugins";
+import { navigationEditorPlugin } from "./index";
 
-// The Project panel's Navigation section (ADR 0065): editing project.json's `navigation` key.
+// The Project panel's Navigation section (ADR 0065): editing project.json's `navigation` key, which the
+// section owns and checks (ADR 0151) while the plugin is on.
+useEditorPlugins([navigationEditorPlugin]);
 
 describe("navigation settings draft", () => {
   it("reads the defaults without a section, and writes only the navigation key", () => {
