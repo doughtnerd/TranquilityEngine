@@ -1,4 +1,4 @@
-// The unlock layer (ADR 0157; architecture Â§2.1, Â§3.1): when autoplay is blocked the context starts
+// The unlock layer (ADR 0157; architecture §2.1, §3.1): when autoplay is blocked the context starts
 // suspended, and the core loads into it anyway (Locked). The layer then listens for the first user gesture
 // and calls `resume()` inside it, so a click or key press starts sound. `watch()` (A0.9) re-arms after
 // `interrupted` or a suspend the page didn't ask for; a failed resume leaves the layer armed.
@@ -11,7 +11,7 @@ export interface UnlockContext {
   removeEventListener(type: "statechange", listener: () => void): void;
 }
 
-/** @internal Â§3.1: the gestures that unlock, listened to with `{ capture: true, passive: true }`. */
+/** @internal §3.1: the gestures that unlock, listened to with `{ capture: true, passive: true }`. */
 export const UNLOCK_EVENTS = ["pointerdown", "keydown"] as const;
 
 /** @internal */
@@ -23,7 +23,7 @@ export interface UnlockOptions {
   readonly onUnlocked?: () => void;
 }
 
-/** @internal The gesture listener of Â§3.1: arm when locked, resume inside the gesture, disarm when running. */
+/** @internal The gesture listener of §3.1: arm when locked, resume inside the gesture, disarm when running. */
 export class Unlock {
   private readonly target: EventTarget;
   private readonly context: UnlockContext;
@@ -65,7 +65,7 @@ export class Unlock {
   }
 
   /**
-   * Â§3.1 "arm pointerdown and keydown, capture, passive": attaches a listener for each of `UNLOCK_EVENTS` on the
+   * §3.1 "arm pointerdown and keydown, capture, passive": attaches a listener for each of `UNLOCK_EVENTS` on the
    * target with `{ capture: true, passive: true }`, and a `statechange` listener on the context. Does nothing when
    * already armed, after `dispose()`, or when the context's state is already `"running"`.
    *
