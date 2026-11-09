@@ -4,6 +4,7 @@
 // the Shader Graph panel. Other editor code still compares these kind ids (dropping a material on a
 // mesh, model material slots, the particle graph's material list); only the definitions live here.
 import { materialsManifest } from "../manifest";
+import { materialThumbnail } from "./thumbnail";
 import { createMaterial } from "./materialAssets";
 import { materialFormat } from "./materialFormat";
 import { createShader } from "./shaderAssets";
@@ -32,7 +33,7 @@ export const materialsEditorPlugin: EditorPlugin = {
       inspector: () => import("./MaterialInspector").then((m) => m.MaterialInspector),
       create: { label: "New Material", create: (folder) => createMaterial(folder) },
       referencedAs: ["material"],
-      preview: "material",
+      preview: materialThumbnail("material"),
     });
     context.registerAssetKind({
       id: "shader",
@@ -53,7 +54,7 @@ export const materialsEditorPlugin: EditorPlugin = {
       create: { label: "New Shader Graph", create: (folder) => createShaderGraph(folder) },
       // A material field takes a graph too: it draws with the graph's defaults.
       referencedAs: ["material"],
-      preview: "shadergraph",
+      preview: materialThumbnail("shadergraph"),
     });
     context.registerAssetKind({
       id: "shadersubgraph",

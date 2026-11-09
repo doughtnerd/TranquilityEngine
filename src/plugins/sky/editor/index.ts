@@ -3,6 +3,7 @@
 import { formatSky, parseSky, type SkySettings } from "../../../engine/sky/skyFormat";
 import type { EditorPlugin } from "../../../editor/sdk";
 import { skyManifest } from "../manifest";
+import { skyThumbnail } from "./thumbnail";
 import { createSky, openSkyAsset } from "./skyAssets";
 
 /** A sun over a cloud, stroked in a 24×24 box. */
@@ -21,7 +22,7 @@ export const skyEditorPlugin: EditorPlugin = {
       // The New… menu has no submenus, so New Sky makes the default preset; the Sky panel switches presets.
       create: { label: "New Sky", create: (folder) => createSky(folder) },
       referencedAs: ["environment"],
-      preview: "sky",
+      preview: skyThumbnail,
     });
     context.registerAssetFormat<SkySettings>({
       id: "sky",

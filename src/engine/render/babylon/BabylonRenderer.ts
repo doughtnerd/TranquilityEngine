@@ -27,7 +27,6 @@
 import "./register";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { Camera as BabylonCamera } from "@babylonjs/core/Cameras/camera.js";
-import { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTexture.js";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
@@ -36,6 +35,7 @@ import { Viewport } from "@babylonjs/core/Maths/math.viewport.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLayerRenderer.js";
+import { createBabylonEngine } from "./createEngine";
 import { EDITOR_LAYER_MASK, type BabylonEditorContext } from "./editorContext";
 import type { BabylonEditorTools } from "./editorTools";
 import type { Component } from "../../core/Component";
@@ -199,19 +199,9 @@ export class BabylonRenderer {
   /** What reflection probes capture: the scene's meshes minus editor-only ones, refilled each frame. */
   private readonly probeMeshes: AbstractMesh[] = [];
 
-  /** Creates the engine (WebGPU, else the WebGL2 fallback, loaded only then) and the scene. */
+  /** Creates the engine (`createBabylonEngine`: WebGPU, else the WebGL2 fallback, ADR 0156) and the scene. */
   static async create(canvas: HTMLCanvasElement, settings: ProjectSettings): Promise<BabylonRenderer> {
-    let engine: AbstractEngine;
-    if (await WebGPUEngine.IsSupportedAsync) {
-      // The adapter's limits rather than WebGPU's minimums: a material with clustered lights (ADR 0079),
-      // cascaded shadows and two-sided lighting passes more than the minimum 16 values between its stages.
-      const gpu = new WebGPUEngine(canvas, { antialias: true, adaptToDeviceRatio: false, setMaximumLimits: true });
-      await gpu.initAsync();
-      engine = gpu;
-    } else {
-      const { Engine } = await import("@babylonjs/core/Engines/engine.js");
-      engine = new Engine(canvas, true, { adaptToDeviceRatio: false });
-    }
+    const engine = await createBabylonEngine(canvas);
     return new BabylonRenderer(engine, settings, await loadPluginFeatures());
   }
 
@@ -510,6 +500,11 @@ export class BabylonRenderer {
       this.afterPhase(phase, world, ctx);
     }
     this.tools?.sync(world);
+    // A thumbnail is drawn without `render`: graph materials' Time and size follow its World here (ADR 0156).
+    if (this.thumbnail) {
+      this.graphShared.time = world.time.time;
+      this.graphShared.resolution = [this.engine.getRenderWidth(), this.engine.getRenderHeight()];
+    }
   }
 
   /** The renderer's own steps between feature phases (ADR 0130 `SYNC_PHASES`). */
@@ -833,9 +828,42 @@ export class BabylonRenderer {
     return new BabylonRenderer(engine, settings, plugged, policy);
   }
 
-  /** @internal Thumbnails: whether the World's textures and models had all loaded at the last sync. */
+  /** @internal Thumbnails: whether the World's textures, models and environment map had all loaded at the last sync. */
   contentReady(): boolean {
-    return this.contentLoaded;
+    return this.contentLoaded && this.lighting.environmentReady();
+  }
+
+  /** @internal Thumbnails (ADR 0156): whether the scene draws anything: an enabled, visible mesh or a particle system (a disabled plugin's Components give neither). */
+  drawsAnything(): boolean {
+    return this.scene.meshes.some((m) => m.isEnabled() && m.isVisible && m.getTotalVertices() > 0) || this.scene.particleSystems.length > 0;
+  }
+
+  /** @internal Thumbnails (ADR 0156): the world-space box around the content meshes and what features report through `bounds()` (live particles), or null. */
+  contentBounds(): { min: number[]; max: number[] } | null {
+    const min = [Infinity, Infinity, Infinity];
+    const max = [-Infinity, -Infinity, -Infinity];
+    const add = (x: number, y: number, z: number) => {
+      const p = [x, y, z];
+      for (let k = 0; k < 3; k++) {
+        if (p[k] < min[k]) min[k] = p[k];
+        if (p[k] > max[k]) max[k] = p[k];
+      }
+    };
+    for (const m of this.contentMeshes()) {
+      const { minimum: a, maximum: b } = m.getBoundingInfo().boundingBox;
+      const world = m.computeWorldMatrix(true);
+      for (const x of [a.x, b.x]) for (const y of [a.y, b.y]) for (const z of [a.z, b.z]) {
+        const c = Vector3.TransformCoordinatesFromFloatsToRef(x, y, z, world, tmpPos);
+        add(c.x, c.y, c.z);
+      }
+    }
+    for (const slot of this.slots) {
+      const b = slot.feature?.bounds?.();
+      if (!b) continue;
+      add(b.min[0], b.min[1], b.min[2]);
+      add(b.max[0], b.max[1], b.max[2]);
+    }
+    return min[0] > max[0] ? null : { min, max };
   }
 
   /** @internal Thumbnails: the main view after the last sync (the first canvas camera, ADR 0129) and its Babylon camera, or null. */

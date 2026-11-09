@@ -1,8 +1,9 @@
 /**
  * What the editor's Babylon preview renderers share (ADR 0061, 0075 stage 7): making an engine on a
- * canvas (WebGPU, else the WebGL2 fallback), a scene lit like the editor's default one, the studio
- * environment, and a preview scene's material library (the World renderer's, ADR 0127). Babylon types
- * stay inside `render/babylon/` (ADR 0010).
+ * canvas (`createBabylonEngine` with `transparent`, the factory the World surface uses, ADR 0156), a
+ * transparent scene, the lighting rig's default lights and studio room, and a preview scene's material
+ * library (the World renderer's, ADR 0127).
+ * Babylon types stay inside `render/babylon/` (ADR 0010).
  *
  * Previews draw straight into their engine's canvas and copy it (`drawImage`) into a 2D canvas in the
  * same task: a WebGPU canvas can't be read after it's presented, but it can be right after drawing.
@@ -12,41 +13,13 @@ import "../register";
 import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
-import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
-import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import "../prefilterGuard";
-import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
+import { Color4 } from "@babylonjs/core/Maths/math.color.js";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Scene } from "@babylonjs/core/scene.js";
-import { Assets } from "../../../scene/Assets";
-import { parseMaterial, type MaterialSettings } from "../../../scene/material";
-import { parseShaderGraph, type ShaderGraph } from "../../../scene/shaderGraph";
 import type { GraphShared } from "../graphMaterial";
 import { BabylonMaterialLibrary } from "../materialLibrary";
-
-/** What a thumbnail's lights are (the editor's default scene: soft ambient, a sun, the studio room). */
-export const LIGHT_AMBIENT = 0.45;
-export const LIGHT_SUN = 1.6;
-export const LIGHT_ENVIRONMENT = 0.5;
-
-/**
- * A Babylon engine drawing into `canvas`: WebGPU where the browser has it, else the WebGL2 engine (loaded
- * only then). `alpha` keeps the canvas transparent where nothing is drawn.
- */
-export async function createPreviewEngine(canvas: HTMLCanvasElement, antialias = true): Promise<AbstractEngine> {
-  if (await WebGPUEngine.IsSupportedAsync) {
-    try {
-      const gpu = new WebGPUEngine(canvas, { antialias, adaptToDeviceRatio: false, setMaximumLimits: true }); // as BabylonRenderer.create
-      await gpu.initAsync();
-      return gpu;
-    } catch (err) {
-      console.warn("[myco] preview: WebGPU couldn't start; using WebGL2:", err);
-    }
-  }
-  const { Engine } = await import("@babylonjs/core/Engines/engine.js");
-  return new Engine(canvas, antialias, { adaptToDeviceRatio: false, alpha: true, preserveDrawingBuffer: true });
-}
 
 /** A right-handed scene (the engine's convention, ADR 0014) that clears to transparent. */
 export function createPreviewScene(engine: AbstractEngine): Scene {
@@ -57,19 +30,11 @@ export function createPreviewScene(engine: AbstractEngine): Scene {
   return scene;
 }
 
-/** Soft ambient light and a sun from above and in front, like the editor's default scene. */
-export function addPreviewLights(scene: Scene, ambient: number, sun: number): { ambient: HemisphericLight; sun: DirectionalLight } {
-  const hemi = new HemisphericLight("preview.ambient", new Vector3(0, 1, 0), scene);
-  hemi.intensity = ambient;
-  hemi.groundColor = new Color3(1, 1, 1); // three's AmbientLight: the same from every direction
-  hemi.specular = Color3.Black();
-  const light = new DirectionalLight("preview.sun", new Vector3(-4, -10, -6).normalize(), scene);
-  light.intensity = sun;
-  return { ambient: hemi, sun: light };
-}
-
 /** The studio room's prefiltered cube, made in `scene` (see {@link useWhenReady}). */
 export { createStudioTexture } from "../studioCube";
+/** The lighting rig's default lights and studio intensity (a World without Lights or an environment map). */
+export { addDefaultLights, STUDIO_INTENSITY } from "../lighting";
+
 
 /**
  * Give `scene` an environment texture once it's ready: prefiltering swaps a cube's GPU texture when it
@@ -182,26 +147,3 @@ export function previewMaterials(scene: Scene, shared: GraphShared, quiet = fals
     },
   });
 }
-
-// --- assets -----------------------------------------------------------------------------------------
-
-/** A material asset's settings, or null if it isn't a material. */
-export function readMaterial(path: string): MaterialSettings | null {
-  try {
-    return parseMaterial(Assets.json(path), path).settings;
-  } catch {
-    return null;
-  }
-}
-
-/** A shader graph asset, or null if it can't be read. */
-export function readGraph(path: string): ShaderGraph | null {
-  try {
-    return parseShaderGraph(Assets.json(path), path).graph;
-  } catch {
-    return null;
-  }
-}
-
-/** True if a shader graph reads the Time node, so its preview moves. */
-export const usesTime = (graph: ShaderGraph | null): boolean => !!graph?.nodes.some((n) => n.type === "time");

@@ -145,6 +145,8 @@ already the World's (0127, 0153).
 - `previews/common.ts` `createPreviewEngine`, `addPreviewLights`, `LIGHT_AMBIENT/SUN/ENVIRONMENT`, `readGraph`,
   `readMaterial`, `usesTime`: removed (the reads moved to `render/thumbnailStages.ts`).
 - `ThumbnailKind`: removed; `AssetKindContribution.preview`'s renderer names: replaced by `AssetThumbnail`.
+- `EffectResources.preload` (only the particle thumbnail used it; the particles feature holds a build until its
+  textures load) and the thumbnail's own `EffectPlayer`: removed.
 
 ## Open questions
 

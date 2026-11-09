@@ -1,6 +1,6 @@
-// ADR 0153: prefab and scene thumbnails load their nodes into a headless World and draw them with the real
-// render features through a thumbnail BabylonRenderer, headless on Babylon's NullEngine (whose textures are
-// all 512 pixels square). The sizes and defaults come from the features and Components, as in a World.
+// ADR 0153, 0156: thumbnails (here prefabs and scenes, staged as their kinds stage them) load their nodes
+// into a headless World and draw them with the real render features through a thumbnail BabylonRenderer,
+// headless on Babylon's NullEngine (whose textures are all 512 pixels square). The sizes and defaults come from the features and Components, as in a World.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import type { SpotLight } from "@babylonjs/core/Lights/spotLight.js";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
@@ -12,6 +12,8 @@ import { Camera, Light, SpriteRenderer } from "../render/components";
 import { BabylonRenderer, loadPluginFeatures } from "../render/babylon/BabylonRenderer";
 import { _registeredRenderFeatures, type RenderFeatureRegistration } from "../render/renderFeatures";
 import { ThumbnailRenderer } from "../render/babylon/previews/ThumbnailRenderer";
+import type { ThumbnailStage } from "../render/previewTypes";
+import type { SceneFile } from "../scene/SceneLoader";
 
 const TEXTURE = 512; // NullEngine's texture size
 const PROJECT_PPU = 16;
@@ -47,6 +49,9 @@ function box(m: AbstractMesh): [number[], number[]] {
 }
 
 const named = (scene: Scene, name: string) => scene.meshes.find((m) => m.name === name && m.isEnabled())!;
+
+/** A prefab's or scene's stage, as the core kinds make it (ADR 0156): the file itself; a scene through its main camera. */
+const fileStage = (path: string, mainCamera = false): ThumbnailStage => ({ scene: Assets.json<SceneFile>(path), source: path, view: { mainCamera } });
 
 describe("thumbnails through the render features (ADR 0153)", () => {
   let warn: ReturnType<typeof vi.spyOn>;
@@ -92,7 +97,7 @@ describe("thumbnails through the render features (ADR 0153)", () => {
 
   it("sizes a sliced sprite and a sprite with its own pixels per unit as a World does", async () => {
     const thumbnails = ThumbnailRenderer.forEngine(new NullEngine(), 64, { studio: false, readyTimeout: 500, settings: () => ({ render: { pixelsPerUnit: PROJECT_PPU } }) });
-    const p = (await thumbnails.prepare("prefab", "sprites.prefab.json", false))!;
+    const p = (await thumbnails.prepare(fileStage("sprites.prefab.json"), false))!;
     expect(p).not.toBeNull();
     const ref = await inWorld("sprites.prefab.json");
     try {
@@ -124,7 +129,7 @@ describe("thumbnails through the render features (ADR 0153)", () => {
 
   it("takes a scene's light and camera defaults from the Components, and frames it from that camera", async () => {
     const thumbnails = ThumbnailRenderer.forEngine(new NullEngine(), 64, { studio: false, readyTimeout: 200, settings: () => ({}) });
-    const p = (await thumbnails.prepare("scene", "defaults.scene.json", false))!;
+    const p = (await thumbnails.prepare(fileStage("defaults.scene.json", true), false))!;
     try {
       const world = new World("editor");
       const defaults = World._runIn(world, () => {
@@ -152,7 +157,7 @@ describe("thumbnails through the render features (ADR 0153)", () => {
     const at = registered.findIndex((r) => r.spec.name === "sprites");
     const [sprites] = registered.splice(at, 1);
     try {
-      expect(await thumbnails.prepare("prefab", "sprites.prefab.json", false)).toBeNull(); // nothing to draw
+      expect(await thumbnails.prepare(fileStage("sprites.prefab.json"), false)).toBeNull(); // nothing to draw
     } finally {
       registered.splice(at, 0, sprites);
       thumbnails.dispose();

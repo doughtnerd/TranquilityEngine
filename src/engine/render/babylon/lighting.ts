@@ -37,6 +37,23 @@ import type { ShadowRequest } from "./frameGraph";
 /** The default sun's direction (a World without Lights). */
 const DEFAULT_SUN = new Vector3(-4, -10, -6).normalize();
 
+/** How strongly the studio room lights lit materials when a World has no environment map of its own. */
+export const STUDIO_INTENSITY = 0.4;
+
+/**
+ * The light a World without Lights gets: a soft ambient light and a sun from above and in front. Also the
+ * editor's live material and particle previews' lights (ADR 0156), so they look like a default scene.
+ */
+export function addDefaultLights(scene: Scene): { ambient: HemisphericLight; sun: DirectionalLight } {
+  const ambient = new HemisphericLight("myco.default.ambient", new Vector3(0, 1, 0), scene);
+  ambient.intensity = 0.35;
+  ambient.groundColor = new Color3(1, 1, 1); // the same from every direction
+  ambient.specular = Color3.Black();
+  const sun = new DirectionalLight("myco.default.sun", DEFAULT_SUN.clone(), scene);
+  sun.intensity = 1;
+  return { ambient, sun };
+}
+
 /** Scratch vector for `fitShadowArea`. */
 const tmpBack = new Vector3();
 import { createStudioTexture } from "./studioCube";
@@ -177,13 +194,7 @@ export class BabylonLighting {
   private sunOverride: { direction: readonly number[]; color: readonly number[]; intensity: number } | null = null;
 
   constructor(private readonly scene: Scene) {
-    // The light a World without Lights gets: a soft ambient light and a sun from above and in front.
-    const ambient = new HemisphericLight("myco.default.ambient", new Vector3(0, 1, 0), scene);
-    ambient.intensity = 0.35;
-    ambient.groundColor = new Color3(1, 1, 1);
-    ambient.specular = Color3.Black();
-    const sun = new DirectionalLight("myco.default.sun", DEFAULT_SUN.clone(), scene);
-    sun.intensity = 1;
+    const { ambient, sun } = addDefaultLights(scene);
     this.defaults = [ambient, sun];
   }
 
@@ -478,7 +489,7 @@ export class BabylonLighting {
     const lighting = map ?? (this.studio?.isReady() ? this.studio : null);
     if (lighting && "rotationY" in lighting) (lighting as { rotationY: number }).rotationY = turn;
     if (this.scene.environmentTexture !== lighting) this.scene.environmentTexture = lighting;
-    this.scene.environmentIntensity = env ? Math.max(0, env.intensity) * (map ? 1 : 0.4) : 0.4;
+    this.scene.environmentIntensity = env ? Math.max(0, env.intensity) * (map ? 1 : STUDIO_INTENSITY) : STUDIO_INTENSITY;
 
     if (procedural) {
       this.skybox?.setEnabled(false);
@@ -575,6 +586,12 @@ export class BabylonLighting {
         : kind === "exr"
           ? new EXRCubeTexture(url, this.scene, ENV_SIZE, false, true, false, true, null, failed)
           : new EquiRectangularCubeTexture(url, this.scene, ENV_SIZE, false, true, null, failed);
+  }
+
+  /** Whether the Environment's map, if it has one, has loaded and prefiltered (thumbnails wait for it, ADR 0156). */
+  environmentReady(): boolean {
+    const texture = this.envMap?.texture;
+    return !texture || cubemapReady(texture);
   }
 
   /** A procedural sky's baked environment, or null (ADR 0112). */

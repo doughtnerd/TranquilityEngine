@@ -14,6 +14,7 @@ import {
   openAsset,
   opensInCodePanel,
   previewOf,
+  thumbnailOf,
   satisfiesFieldKind,
   sceneNodesOf,
 } from "./assetKindLookup";
@@ -38,7 +39,7 @@ describe("one kind through the asset kind module", () => {
     icon: "M0 0",
     open: (path) => opened.push(path),
     referencedAs: ["spin"],
-    preview: "material",
+    preview: { id: "spin", stage: () => ({ scene: { format: "myco.scene@2", nodes: [] } }) },
     addToScene: { nodes: (doc, path) => [{ id: "spinner", components: [{ type: "engine.Transform", data: { note: path } }] }] },
     importSettings: { view: async () => () => null },
   };
@@ -58,8 +59,10 @@ describe("one kind through the asset kind module", () => {
     expect(sceneNodesOf("spin")!.nodes(new SceneDocument({ format: "myco.scene@2", nodes: [] }), "a/x.spin.json")[0].id).toBe("spinner");
     expect(kindImportSettings("spin")).toBe(spin.importSettings);
     expect(inspectableAsset("a/x.spin.json")).toBe("a/x.spin.json");
-    expect(previewOf("a/x.spin.json")).toBe("material");
+    expect(previewOf("a/x.spin.json")).toBe("spin");
+    expect(thumbnailOf("a/x.spin.json")).toBe(spin.preview);
     expect(previewOf("a/x.spin.json.meta.json")).toBeNull();
+    expect(thumbnailOf("a/x.spin.json#part")).toBeNull();
     expect(satisfiesFieldKind("spin", "a/x.spin.json")).toBe(true);
     expect(fieldKindKnown("spin")).toBe(true);
     expect(assetsForKinds(["spin"], ["a/x.spin.json", "b/y.json"])).toEqual(["a/x.spin.json"]);

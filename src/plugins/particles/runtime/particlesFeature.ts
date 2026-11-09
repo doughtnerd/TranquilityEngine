@@ -2,7 +2,8 @@
 // own module, statically importing the particle player, so the renderer loads both together on first
 // need (ADR 0083) through the loader the plugin registers. Only this feature uses `BabylonParticles`
 // (the World adapter); it stays in the renderer folder because Babylon does (ADR 0075), and the effect
-// player under it (`effectPlayer.ts`, ADR 0153) also plays the particle graph's preview and the thumbnails.
+// player under it (`effectPlayer.ts`, ADR 0153) also plays the particle graph's preview; thumbnails draw
+// effects through this feature (ADR 0156), which frames them by `bounds()`.
 // ADR 0154: the renderer names nothing here. The factory builds the player's host from the renderer's
 // core host, the editor's preview arrives as render policy, and the feature answers the renderer's
 // generic hooks (warm items, a drawn object's description, its diagnostics).
@@ -115,6 +116,11 @@ export class ParticlesFeature implements BabylonFeature {
     const system = this.particles.ownerOf(drawn);
     if (!system) return null;
     return { node: system.node, what: `The particle effect of "${system.node.name}"`, ...(system.effect ? { asset: system.effect.replace(/^asset:/, "") } : {}) };
+  }
+
+  /** Thumbnails' framing (ADR 0156): the box around the live particles. */
+  bounds(): { min: number[]; max: number[] } | null {
+    return this.particles.bounds();
   }
 
   dispose(): void {

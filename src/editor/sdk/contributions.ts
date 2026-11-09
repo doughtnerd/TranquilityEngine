@@ -13,7 +13,7 @@ import type { EditorOverlay, EditorOverlayKind } from "../../engine/editor";
 import type { OpenScene } from "../state";
 import type { ComponentEntry, NodeEntry, NodePath, SceneDocument } from "../document";
 import type { GameObject } from "../../engine/scene/GameObject";
-import type { ComponentInfo } from "../../engine/editor";
+import type { ComponentInfo, ThumbnailStage } from "../../engine/editor";
 import type { ImportSettings } from "../../engine/scene/importSettings";
 import type { FieldChoice } from "../../engine/core/registry";
 
@@ -51,8 +51,11 @@ export interface AssetKindContribution {
   readonly slices?: boolean;
   /** Policy: the field asset kinds (0131 `@field(AssetRef, { kind })`) that accept files of this kind, e.g. sky → ["environment"] (ADR 0143: any name, so a plugin's Components can reference its own kind). */
   readonly referencedAs?: readonly string[];
-  /** Which built-in thumbnail renderer draws its preview (internal tier: renderers stay first-party, ADR 0133). */
-  readonly preview?: "sky" | "material" | "shadergraph" | "particles" | "environment" | "model" | "prefab" | "scene" | "audio";
+  /**
+   * Its files' preview: `"audio"` (a waveform), or a rendered thumbnail whose stage the kind supplies (ADR 0156).
+   * Internal tier (ADR 0133): a stage names engine internals.
+   */
+  readonly preview?: "audio" | AssetThumbnail;
   /** Policy (ADR 0140): files of this kind open in the Code panel (UI documents, stylesheets). Ignored when `open` is set. */
   readonly codeEditor?: boolean;
   /** Policy (ADR 0133, 0140): what adding a file of this kind to a scene makes (a drop on the Hierarchy or the scene view, the Assets panel's +). */
@@ -93,6 +96,20 @@ export interface ImportSettingsViewProps {
   readonly dirty: boolean;
   /** Why the project can't be written, or null. */
   readonly readOnly: string | null;
+}
+
+/**
+ * A rendered thumbnail of an asset kind's files (ADR 0156): the made-up node set each file is drawn as,
+ * through the enabled plugins' render features, and how it is framed.
+ */
+export interface AssetThumbnail {
+  /** Names the picture in the thumbnail cache's keys ("model", "sky"); unique per look. */
+  readonly id: string;
+  /**
+   * The stage `path` is drawn as. `live`: the Inspector's preview or a hovered tile, which may show more (a
+   * sky's chrome sphere) and say whether it `animates`. Throws when the file can't be shown.
+   */
+  stage(path: string, live: boolean): ThumbnailStage;
 }
 
 /** A kind's import settings in the Inspector, loaded on first use (ADR 0143). */

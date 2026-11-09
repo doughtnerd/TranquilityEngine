@@ -1,71 +1,38 @@
 /**
- * @internal Editor: asset thumbnails on the Babylon backend (ADR 0061, 0075 stage 7). The same API as
- * `render/ThumbnailRenderer.ts` (three.js): one offscreen engine renders still images of models,
- * materials, shader graphs, environments, particle effects and prefabs, with a transparent background so
- * tiles follow the editor theme, and animates one hovered tile at a time (particle effects, shader graphs
- * that use Time), plus the Inspector's orbitable preview. Every asset gets a Scene of its own on the shared
- * engine; the studio environment is made once, in a host scene, and handed to each.
+ * @internal Editor: asset thumbnails on the Babylon backend (ADR 0061, 0075 stage 7, 0153, 0156). One
+ * offscreen engine renders still images with a transparent background, so tiles follow the editor theme,
+ * animates one hovered tile at a time, and draws the Inspector's orbitable preview.
  *
- * Prefabs and scenes (ADR 0153) load into a headless World of their own and are drawn by a thumbnail
- * `BabylonRenderer` with the real render features, as a World draws them; particle effects play through
- * the effect player. What's left here is framing (`thumbnailMath`) and capture.
+ * What it draws is a stage (`ThumbnailStage`, ADR 0156) its asset kind supplies: a made-up node set (a
+ * model's MeshRenderer, a material's sphere, a sky's Environment, an effect's ParticleSystem; a prefab or
+ * scene is its own file). It is loaded into a headless World of its own and drawn by a thumbnail
+ * `BabylonRenderer` with the enabled plugins' render features, as a World draws it. What's left here is
+ * framing (`thumbnailMath`, the stage's view) and capture (the clear, matting, encoding). The studio room is
+ * made once, in a host scene, and shared by every thumbnail's lighting rig.
  *
  * Reached through `src/engine/editor`, which loads this file only when the Babylon renderer is chosen.
  */
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
-import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
-import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
-import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture.js";
-import { EXRCubeTexture } from "@babylonjs/core/Materials/Textures/exrCubeTexture.js";
-import { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTexture.js";
+import type { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTexture.js";
 import "../prefilterGuard";
-import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
-import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
+import { Color4 } from "@babylonjs/core/Maths/math.color.js";
 import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
-import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
-import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
 import type { Scene } from "@babylonjs/core/scene.js";
-import { Assets } from "../../../scene/Assets";
-import { materialGraph } from "../../../scene/material";
-import { loadMeshes, meshesIfLoaded } from "../../../scene/models";
-import type { SceneFile } from "../../../scene/SceneLoader";
 import { World } from "../../../core/World";
 import type { ProjectSettings, ProjectSettingsInput } from "../../../core/settings";
 import { instantiateDocument } from "../../../editor";
 import { MeshRenderer, ParticleSystem } from "../../components";
+import type { ParticlePreview } from "../../renderPolicy";
 import { BabylonRenderer, loadPluginFeatures } from "../BabylonRenderer";
-import { EffectPlayer, EffectResources, libraryEffectHost } from "../effectPlayer";
+import { createBabylonEngine } from "../createEngine";
 import { frameView, moveOrbit, orbitOf, orbitPosition, previewPixels, type Bounds, type Orbit } from "../../thumbnailMath";
-import type { ThumbnailKind, ThumbnailPreview, ThumbnailRendererApi } from "../../previewTypes";
-import type { GraphShared } from "../graphMaterial";
-import { environmentKind, ENV_SIZE } from "../lighting";
-import { SkyBaker, SkyDrawable } from "../sky/BabylonSky";
-import { cubemapReady, loadCubemap } from "../sky/cubemaps";
-import { parseSky } from "../../../sky/skyFormat";
-import { meshOf, pbr } from "../materials";
-import {
-  addPreviewLights,
-  aimCamera,
-  createPreviewEngine,
-  createPreviewScene,
-  createStudioTexture,
-  ensureCanvasSize,
-  LIGHT_AMBIENT,
-  LIGHT_ENVIRONMENT,
-  LIGHT_SUN,
-  previewMaterials,
-  readGraph,
-  readMaterial,
-  renderFrame,
-  sceneReady,
-  useWhenReady,
-  usesTime,
-} from "./common";
+import type { ThumbnailPreview, ThumbnailRendererApi, ThumbnailStage } from "../../previewTypes";
+import { aimCamera, createPreviewScene, createStudioTexture, ensureCanvasSize, renderFrame, sceneReady } from "./common";
 
 export { frameView, seededRandom } from "../../thumbnailMath";
-export type { ThumbnailKind, ThumbnailPreview } from "../../previewTypes";
+export type { ThumbnailPreview, ThumbnailStage } from "../../previewTypes";
 
 /** Thumbnails are this many pixels square: about twice the Assets panel's largest tile. */
 export const THUMBNAIL_SIZE = 256;
@@ -73,27 +40,32 @@ export const THUMBNAIL_SIZE = 256;
 /** Hover animation: frames per second, and the longest step a slow frame simulates. */
 const ANIMATION_FPS = 30;
 const MAX_STEP = 0.1;
-/** Particle effects are shown this many seconds in, simulated at this rate, with this random seed. */
+/** Particle effects are shown this many seconds in, simulated at this rate. */
 const PARTICLE_TIME = 1;
 const PARTICLE_DT = 1 / 30;
-const PARTICLE_SEED = 1;
-/** A hovered effect that finished plays again after this many seconds. */
-const PARTICLE_REPEAT_GAP = 0.5;
 /** Previews draw at most this many pixels across, so a large Inspector doesn't cost a large buffer. */
 const MAX_PREVIEW_PIXELS = 768;
 const FOV = 30;
 
-const DIRECTION_3D: [number, number, number] = norm([1, 0.75, 1.15]);
-const DIRECTION_FRONT: [number, number, number] = [0, 0, 1];
-const DIRECTION_MATERIAL: [number, number, number] = norm([0, 0.35, 1]);
+const DIRECTIONS: Record<"above" | "front" | "level", [number, number, number]> = {
+  above: norm([1, 0.75, 1.15]),
+  front: [0, 0, 1],
+  level: norm([0, 0.35, 1]),
+};
 const UNIT: Bounds = { min: [-0.5, -0.5, -0.5], max: [0.5, 0.5, 0.5] };
+
+/**
+ * A live stage's particle effects as the editor previews them (ADR 0057, 0154): every one plays, and a
+ * finished one-shot effect plays again after a moment, so a hovered tile keeps showing something.
+ */
+const LIVE_PARTICLES: ParticlePreview = { selected: () => true, playing: true, speed: 1, simulateAll: true, restarts: 0 };
 
 function norm(v: [number, number, number]): [number, number, number] {
   const l = Math.hypot(v[0], v[1], v[2]) || 1;
   return [v[0] / l, v[1] / l, v[2] / l];
 }
 
-/** A scene ready to draw: what to render, from where, what to free, and how to advance it (animations). */
+/** A stage ready to draw: what to render, from where, what to free, and how to advance it (animations). */
 export interface Prepared {
   scene: Scene;
   camera: TargetCamera;
@@ -101,8 +73,11 @@ export interface Prepared {
   target: [number, number, number];
   /** Before each draw with `camera` (a thumbnail renderer's sky box fits it). */
   beforeDraw?: (camera: TargetCamera) => void;
-  /** Advance by `dt` seconds (time-based graphs, particles) and refresh what draws. */
+  /** A live stage that animates: advance its World by `dt` seconds and sync what draws (particles, the sky, graphs' Time). */
   step?: (dt: number) => void;
+  /** @internal Tests: the stage's World and its thumbnail renderer. */
+  world: World;
+  renderer: BabylonRenderer;
   /**
    * Recover transparency by drawing over black and over white (particle effects): additive blending
    * leaves a transparent target's alpha at 0, so its light would be lost in the copy.
@@ -148,8 +123,14 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   static async create(size = THUMBNAIL_SIZE, options: ThumbnailOptions = {}): Promise<ThumbnailRenderer> {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = size;
-    const engine = await createPreviewEngine(canvas, true);
+    const engine = await createBabylonEngine(canvas, { transparent: true });
     return new ThumbnailRenderer(engine, size, options);
+  }
+
+  /** @internal Tests outside the Babylon backend (which never import Babylon, ADR 0075): a renderer on Babylon's headless NullEngine. */
+  static async headless(size = THUMBNAIL_SIZE, options: ThumbnailOptions = {}): Promise<ThumbnailRenderer> {
+    const { NullEngine } = await import("@babylonjs/core/Engines/nullEngine.js");
+    return new ThumbnailRenderer(new NullEngine(), size, options);
   }
 
   /** @internal Tests: a renderer on an engine of the caller's (Babylon's NullEngine). */
@@ -240,9 +221,9 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     ctx.drawImage(scratch, 0, 0, w, h, 0, 0, target.width, target.height);
   }
 
-  /** A still image of the asset (WebP where the browser encodes it, else PNG), or null if it can't be shown. */
-  async render(kind: ThumbnailKind, path: string): Promise<Blob | null> {
-    const prepared = await this.prepare(kind, path, false);
+  /** A still image of a stage (WebP where the browser encodes it, else PNG), or null if it can't be shown. */
+  async render(stage: ThumbnailStage): Promise<Blob | null> {
+    const prepared = await this.prepare(stage, false);
     if (!prepared || this.disposed || this.lost) {
       prepared?.dispose();
       return null;
@@ -257,25 +238,12 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     }
   }
 
-  /** Whether the asset animates on hover: particle effects, and shader graphs (or their materials) that use Time. */
-  canAnimate(kind: ThumbnailKind, path: string): boolean {
-    if (kind === "particles") return true;
-    if (kind === "sky") return true; // clouds drift and stars twinkle
-    if (kind === "shadergraph") return usesTime(readGraph(path));
-    if (kind === "material") {
-      const settings = readMaterial(path);
-      const graph = settings && materialGraph(settings);
-      return !!graph && usesTime(readGraph(graph));
-    }
-    return false;
-  }
-
   /**
-   * Draw the asset live into `target` (a 2D canvas) at about 30 fps, until the returned function
+   * Draw a live stage into `target` (a 2D canvas) at about 30 fps, until the returned function
    * is called, another animation starts, or `target` leaves the document. One at a time.
    * `onFrame` runs after the first frame is drawn (nothing is drawn while a preview is open).
    */
-  animate(kind: ThumbnailKind, path: string, target: HTMLCanvasElement, onFrame?: () => void): () => void {
+  animate(stage: ThumbnailStage, target: HTMLCanvasElement, onFrame?: () => void): () => void {
     if (this.live || this.lost) return () => undefined; // the Inspector's preview has the renderer: tiles stay stills
     this.animation?.stop();
     let stopped = false;
@@ -291,7 +259,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     };
     const handle = { stop };
     this.animation = handle;
-    void this.prepare(kind, path, true).then((p) => {
+    void this.prepare(stage, true).then((p) => {
       if (stopped || !p) {
         p?.dispose();
         return;
@@ -318,10 +286,10 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   }
 
   /**
-   * An orbitable preview of the asset in `target` (a 2D canvas, sized by the caller to its pixels).
+   * An orbitable preview of a live stage in `target` (a 2D canvas, sized by the caller to its pixels).
    * It takes the renderer from any hover animation, and replaces another preview.
    */
-  preview(kind: ThumbnailKind, path: string, target: HTMLCanvasElement): ThumbnailPreview {
+  preview(stage: ThumbnailStage, target: HTMLCanvasElement): ThumbnailPreview {
     this.live?.stop();
     this.animation?.stop();
     let stopped = false;
@@ -332,7 +300,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let queued = false;
     let last = performance.now();
-    const animates = this.canAnimate(kind, path);
+    const animates = !!stage.animates;
     const stop = () => {
       if (stopped) return;
       stopped = true;
@@ -371,7 +339,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
       queued = true;
       (typeof requestAnimationFrame === "function" ? requestAnimationFrame : (f: () => void) => setTimeout(f, 16))(draw);
     };
-    const ready = this.prepare(kind, path, true).then((p) => {
+    const ready = this.prepare(stage, true).then((p) => {
       if (stopped || !p || this.lost) {
         p?.dispose();
         stop(); // nothing to show: hovered tiles may animate again
@@ -419,31 +387,20 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     this.lostListeners = [];
   }
 
-  // --- scenes ---------------------------------------------------------------------------------------
+  // --- stages ---------------------------------------------------------------------------------------
 
-  /** @internal Tests: the scene a thumbnail of this asset draws, or null if it can't be made (warned). */
-  async prepare(kind: ThumbnailKind, path: string, live: boolean): Promise<Prepared | null> {
+  /**
+   * @internal Tests: a stage ready to draw, or null if it can't be (warned). Its nodes are loaded into a
+   * headless World of their own and drawn by a thumbnail renderer with the render features of the enabled
+   * plugins, as a World draws them (ADR 0153, 0156). A stage that draws nothing (a disabled plugin's
+   * Components) can't be.
+   */
+  async prepare(stage: ThumbnailStage, live: boolean): Promise<Prepared | null> {
     try {
       await this.loadStudio();
-      switch (kind) {
-        case "model":
-          return await this.prepareModel(path);
-        case "material":
-        case "shadergraph":
-          return await this.prepareMaterial(kind, path);
-        case "environment":
-          return await this.prepareEnvironment(path, live);
-        case "sky":
-          return await this.prepareSky(path, live);
-        case "particles":
-          return await this.prepareParticles(path, live);
-        case "prefab":
-          return await this.preparePrefab(path);
-        case "scene":
-          return await this.prepareScene(path);
-      }
+      return await this.prepareStage(stage, live);
     } catch (err) {
-      console.warn(`[myco] thumbnail: couldn't draw ${path}:`, err);
+      console.warn(`[myco] thumbnail: couldn't draw ${stage.source ?? stage.scene.nodes[0]?.name ?? "an asset"}:`, err);
       return null;
     }
   }
@@ -451,17 +408,6 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   /** Wait until `scene` can draw (shaders compiled, textures loaded), at most `ms`. */
   private ready(scene: Scene, ms: number): Promise<boolean> {
     return sceneReady(scene, this.readyTimeout ?? ms);
-  }
-
-  /** A scene lit like the editor's default: soft ambient, a sun, and the studio room's reflections. */
-  private litScene(): Scene {
-    const scene = createPreviewScene(this.engine);
-    addPreviewLights(scene, LIGHT_AMBIENT, LIGHT_SUN);
-    if (this.studioOk && this.studio) {
-      scene.environmentTexture = this.studio;
-      scene.environmentIntensity = LIGHT_ENVIRONMENT;
-    }
-    return scene;
   }
 
   private camera(scene: Scene, bounds: Bounds | null, direction: readonly number[], fallback: Bounds): { camera: TargetCamera; target: [number, number, number] } {
@@ -476,259 +422,63 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     return { camera, target: view.target };
   }
 
-  private async prepareModel(path: string): Promise<Prepared> {
-    const sources = await loadMeshes(path);
-    const scene = this.litScene();
-    const library = previewMaterials(scene, { time: 0, resolution: [this.size, this.size] }, true);
-    const box = new BoundsBox();
-    // Slots as the World renderer resolves them (ADR 0089): here, the model's import settings, then its own.
-    const drawn = library.slotMaterials({ mesh: path, material: "" }, sources);
-    for (const src of sources) {
-      const mesh = meshOf(scene, `model:${src.name}`, src);
-      mesh.material = drawn(src, mesh);
-      box.add(src.data.positions, null);
-    }
-    await library.settled();
-    await this.ready(scene, 3000); // the models' textures load on their own
-    return { scene, ...this.camera(scene, box.bounds(), DIRECTION_3D, UNIT), dispose: () => scene.dispose() };
-  }
-
-  private async prepareMaterial(kind: "material" | "shadergraph", path: string): Promise<Prepared> {
-    const scene = this.litScene();
-    const shared: GraphShared = { time: 0, resolution: [this.size, this.size] };
-    try {
-      // A material asset, or a shader graph named directly (its own property values).
-      const library = previewMaterials(scene, shared, true);
-      const material = library.material(path);
-      if (!material) throw new Error(`"${path}" isn't a ${kind === "shadergraph" ? "shader graph that can be read" : "material"}.`);
-      await library.settled();
-      const sphere = meshesIfLoaded("builtin:sphere")![0];
-      meshOf(scene, "preview.sphere", sphere).material = material;
-      await this.ready(scene, 5000);
-      let time = 0;
-      return {
-        scene,
-        ...this.camera(scene, UNIT, DIRECTION_MATERIAL, UNIT),
-        step: (dt) => {
-          time += dt;
-          shared.time = time;
-          const canvas = this.engine.getRenderingCanvas();
-          shared.resolution = [canvas?.width ?? this.size, canvas?.height ?? this.size];
-        },
-        dispose: () => scene.dispose(),
-      };
-    } catch (err) {
-      scene.dispose();
-      throw err;
-    }
-  }
-
-  /** A chrome sphere reflecting the map; a live preview also shows the map itself behind it. */
-  private async prepareEnvironment(path: string, live: boolean): Promise<Prepared> {
-    const scene = createPreviewScene(this.engine);
-    try {
-      const url = Assets.url(path);
-      const kind = environmentKind(path);
-      if (!kind || kind === "sky") throw new Error(`"${path}" isn't an .hdr, .exr, .png, .jpg, .env, .dds or .cubemap.json file.`);
-      const fail = (message?: string) => console.warn(`[myco] thumbnail: couldn't load environment "${path}": ${message ?? "unknown error"}`);
-      const map: BaseTexture =
-        kind === "cube" || kind === "faces"
-          ? loadCubemap(path, kind, scene, fail)
-          : kind === "hdr"
-          ? new HDRCubeTexture(url, scene, ENV_SIZE, false, true, false, true, null, fail)
-          : kind === "exr"
-            ? new EXRCubeTexture(url, scene, ENV_SIZE, false, true, false, true, null, fail)
-            : new EquiRectangularCubeTexture(url, scene, ENV_SIZE, false, true, null, fail);
-      if (!(await waitFor(() => cubemapReady(map), 8000)) || !(await useWhenReady(scene, map, 1, 8000))) throw new Error("the map didn't load.");
-      const chrome = pbr("preview.chrome", scene);
-      chrome.albedoColor = new Color3(1, 1, 1);
-      chrome.metallic = 1;
-      chrome.roughness = 0.05;
-      meshOf(scene, "preview.sphere", meshesIfLoaded("builtin:sphere")![0]).material = chrome;
-      if (live) {
-        // The map itself behind the sphere: a copy of the prefiltered cube drawn as a sky box.
-        const sky = map.clone();
-        if (sky) sky.coordinatesMode = Texture.SKYBOX_MODE;
-        const box = CreateBox("preview.sky", { size: 1 }, scene);
-        box.infiniteDistance = true;
-        box.isPickable = false;
-        box.scaling.setAll(40); // inside the preview camera's far plane at every zoom
-        const material = new PBRMaterial("preview.sky", scene);
-        material.backFaceCulling = false;
-        material.disableLighting = true;
-        material.sideOrientation = PBRMaterial.CounterClockWiseSideOrientation;
-        material.reflectionTexture = sky;
-        material.microSurface = 1;
-        box.material = material;
-      }
-      await this.ready(scene, 5000);
-      return { scene, ...this.camera(scene, UNIT, DIRECTION_FRONT, UNIT), dispose: () => scene.dispose() };
-    } catch (err) {
-      scene.dispose();
-      throw err;
-    }
-  }
-
-  /**
-   * A procedural sky (ADR 0112). Stills (tiles) draw the sky alone, quickly; live previews add a
-   * chrome sphere reflecting the sky's bake, and animate the clouds and stars.
-   */
-  private async prepareSky(path: string, live: boolean): Promise<Prepared> {
-    const scene = createPreviewScene(this.engine);
-    const sky = new SkyDrawable(scene);
-    const baker = new SkyBaker(scene);
-    const dispose = () => {
-      baker.dispose();
-      sky.dispose();
-      scene.dispose();
-    };
-    try {
-      const { settings } = parseSky(Assets.json(path), path);
-      const frame = { settings, time: settings.sun.timeOfDay, seconds: 0, rotation: 0, intensity: 1, fog: null, baking: false };
-      sky.update({ ...frame, baking: true });
-      const uniforms = sky.uniforms.slice();
-      sky.update(frame);
-      if (live) {
-        if (await waitFor(() => baker.ready(), 3000)) {
-          const bake = baker.bake(64, uniforms, (set) => sky.bindTextures(set));
-          if (bake && (await waitFor(() => bake.filtered, 3000))) {
-            scene.environmentTexture = bake.texture;
-            scene.environmentIntensity = 1;
-          }
-        }
-        const chrome = pbr("preview.chrome", scene);
-        chrome.albedoColor = new Color3(1, 1, 1);
-        chrome.metallic = 1;
-        chrome.roughness = 0.1;
-        meshOf(scene, "preview.sphere", meshesIfLoaded("builtin:sphere")![0]).material = chrome;
-      }
-      const view = this.camera(scene, UNIT, DIRECTION_FRONT, UNIT);
-      scene.onBeforeRenderObservable.add(() => sky.fit(scene.activeCamera as TargetCamera)); // the sky stays centred as the view orbits
-      await this.ready(scene, 5000);
-      let seconds = 0;
-      return {
-        scene,
-        ...view,
-        step: live
-          ? (dt) => {
-              seconds += dt;
-              sky.update({ ...frame, seconds });
-            }
-          : undefined,
-        dispose,
-      };
-    } catch (err) {
-      dispose();
-      throw err;
-    }
-  }
-
-  /** An effect one second in, played by an effect player (ADR 0153) seeded so every thumbnail of it is the same. */
-  private async prepareParticles(path: string, live: boolean): Promise<Prepared> {
-    const scene = createPreviewScene(this.engine);
-    const shared: GraphShared = { time: 0, resolution: [this.size, this.size] };
-    const library = previewMaterials(scene, shared, true);
-    const resources = new EffectResources(libraryEffectHost(scene, library), () => undefined);
-    let player: EffectPlayer | null = null;
-    const dispose = () => {
-      player?.dispose();
-      resources.dispose();
-      library.dispose();
-      scene.dispose();
-    };
-    try {
-      addPreviewLights(scene, LIGHT_AMBIENT, LIGHT_SUN);
-      const compiled = resources.compile(Assets.json(path), path);
-      if (!compiled) throw new Error("it isn't a particle effect that can be read.");
-      const program = compiled.program;
-      // Everything the emitters draw with, loaded first, so the effect is built once, with it.
-      await resources.preload(program);
-      await library.settled();
-      const made = new EffectPlayer(resources, program, { name: "thumbnail", seed: PARTICLE_SEED });
-      player = made;
-      if (!made.build()) throw new Error("what it draws with didn't load.");
-      const step = (dt: number) => {
-        shared.time += dt; // graph materials' Time node
-        made.step(dt);
-        // A finished one-shot effect starts again, so a hovered tile keeps showing something.
-        if (live) made.repeatWhenFinished(dt, PARTICLE_REPEAT_GAP);
-      };
-      for (let t = 0; t < PARTICLE_TIME; t += PARTICLE_DT) step(PARTICLE_DT);
-      // Frame what's alive now (the effect sits at the origin, so local and world space agree).
-      const box = new BoundsBox();
-      const pts: number[] = [];
-      for (const e of made.sim?.emitters ?? []) for (let i = 0; i < e.count; i++) pts.push(e.pool[i].wx, e.pool[i].wy, e.pool[i].wz);
-      box.add(Float32Array.from(pts), null);
-      const bounds = box.bounds();
-      await this.ready(scene, 3000);
-      return {
-        scene,
-        ...this.camera(scene, bounds && padded(bounds, 0.4), DIRECTION_3D, { min: [-1, 0, -1], max: [1, 2, 1] }),
-        step: live ? step : undefined,
-        matte: true,
-        dispose,
-      };
-    } catch (err) {
-      dispose();
-      throw err;
-    }
-  }
-
-  private async preparePrefab(path: string): Promise<Prepared> {
-    return this.prepareNodes(path, false);
-  }
-
-  /** A scene seen from its main camera, with its own lights; framed like a prefab when it has no camera (ADR 0117). */
-  private async prepareScene(path: string): Promise<Prepared> {
-    return this.prepareNodes(path, true);
-  }
-
-  /**
-   * A prefab's or scene's nodes (instances expanded), loaded into a headless World of their own and drawn
-   * by a thumbnail renderer with the render features of the enabled plugins, as a World draws them
-   * (sprite sizes and slices, lights, cameras, materials, particle effects). A prefab is framed by its
-   * bounds; a scene is seen from its main camera, framed like a prefab when it has none (ADR 0117).
-   */
-  private async prepareNodes(path: string, asScene: boolean): Promise<Prepared> {
-    const file = Assets.json(path) as SceneFile;
+  private async prepareStage(stage: ThumbnailStage, live: boolean): Promise<Prepared> {
     const world = new World("editor", this.settings());
-    const root = World._runIn(world, () => instantiateDocument(world, file, path, { onProblem: () => undefined }));
+    const root = World._runIn(world, () => instantiateDocument(world, stage.scene, stage.source ?? "thumbnail", { onProblem: () => undefined }));
     // The nodes are the World's own, so its cameras are canvas cameras; nothing runs, as the World never steps.
     world.setEditMode(root.entity, false);
+    if (stage.dress) World._runIn(world, () => stage.dress!(root));
     const renderer = BabylonRenderer.forThumbnail(this.engine, world.settings, await loadPluginFeatures(world), { studio: this.studioOk ? this.studio : null });
     const dispose = () => {
       renderer.dispose();
       world._destroyAll();
     };
     try {
-      renderer.setPolicy({ drawPolicy: "perObject" }); // a mesh per MeshRenderer and sprite, framed by their bounds
+      // A mesh per MeshRenderer and sprite, framed by their bounds; live effects play and repeat as the editor previews them.
+      renderer.setPolicy({ drawPolicy: "perObject", particlePreview: live ? LIVE_PARTICLES : null });
       await this.settle(world, renderer);
       const scene = renderer.scene;
       scene.clearColor = new Color4(0, 0, 0, 0); // tiles follow the editor theme
-      const drawn = renderer.contentMeshes();
-      const particles = world._componentsOfType(ParticleSystem).some((c) => c.isActiveAndEnabled);
-      if (!drawn.length && !particles) throw new Error("it has nothing to draw.");
-      const view = asScene ? renderer.mainView() : null;
+      if (!renderer.drawsAnything()) throw new Error("it has nothing to draw.");
+      const view = stage.view ?? {};
+      const main = view.mainCamera ? renderer.mainView() : null;
       let framed: { camera: TargetCamera; target: [number, number, number] };
-      if (view) {
+      if (main) {
         // Seen as its main camera sees it (the renderer set it up from the Camera), over its background.
-        const camera = view.babylon;
-        const bg = view.camera.backgroundColor;
+        const camera = main.babylon;
+        const bg = main.camera.backgroundColor;
         if (bg) scene.clearColor = new Color4(bg.r, bg.g, bg.b, 1);
         const forward = new Vector3(0, 0, -1).applyRotationQuaternion(camera.rotationQuaternion ?? Quaternion.Identity());
         const p = camera.position;
         framed = { camera, target: [p.x + forward.x * 10, p.y + forward.y * 10, p.z + forward.z * 10] };
       } else {
-        // From three-quarters above, or the front when it draws only sprites.
-        const meshes = world._componentsOfType(MeshRenderer).some((c) => c.isActiveAndEnabled);
-        framed = this.camera(scene, meshBounds(drawn), meshes || !drawn.length ? DIRECTION_3D : DIRECTION_FRONT, UNIT);
+        const bounds = renderer.contentBounds();
+        const from = view.from && view.from !== "auto" ? view.from : this.autoDirection(world, renderer);
+        framed = this.camera(scene, bounds && view.pad ? padded(bounds, view.pad) : bounds, DIRECTIONS[from], view.fallback ?? UNIT);
       }
       await this.ready(scene, 3000);
-      return { scene, ...framed, beforeDraw: (camera) => renderer.beforeStill(camera), dispose };
+      const step = live && stage.animates ? (dt: number) => this.advance(world, renderer, dt) : undefined;
+      return { scene, ...framed, beforeDraw: (camera) => renderer.beforeStill(camera), step, matte: stage.matte, world, renderer, dispose };
     } catch (err) {
       dispose();
       throw err;
     }
+  }
+
+  /** Three-quarters above, or the front when the stage draws only sprites. */
+  private autoDirection(world: World, renderer: BabylonRenderer): "above" | "front" {
+    const meshes = world._componentsOfType(MeshRenderer).some((c) => c.isActiveAndEnabled);
+    return meshes || !renderer.contentMeshes().length ? "above" : "front";
+  }
+
+  /** Move a live stage's World on by `dt` seconds, as a frame would, and sync what draws. */
+  private advance(world: World, renderer: BabylonRenderer, dt: number): void {
+    const time = world.time;
+    time.deltaTime = time.unscaledDeltaTime = dt;
+    time.time += dt;
+    time.realtimeSinceStartup += dt;
+    World._runIn(world, () => renderer.sync(world));
+    time.deltaTime = time.unscaledDeltaTime = 0;
   }
 
   /**
@@ -773,57 +523,3 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
 // --- helpers ------------------------------------------------------------------------------------------
 
 const padded = (b: Bounds, by: number): Bounds => ({ min: [b.min[0] - by, b.min[1] - by, b.min[2] - by], max: [b.max[0] + by, b.max[1] + by, b.max[2] + by] });
-
-/** The box around points (optionally moved by a column-major matrix). */
-class BoundsBox {
-  private min = [Infinity, Infinity, Infinity];
-  private max = [-Infinity, -Infinity, -Infinity];
-
-  add(positions: ArrayLike<number>, world: readonly number[] | null): void {
-    for (let i = 0; i + 2 < positions.length; i += 3) {
-      let x = positions[i], y = positions[i + 1], z = positions[i + 2];
-      if (world) {
-        const wx = world[0] * x + world[4] * y + world[8] * z + world[12];
-        const wy = world[1] * x + world[5] * y + world[9] * z + world[13];
-        const wz = world[2] * x + world[6] * y + world[10] * z + world[14];
-        x = wx;
-        y = wy;
-        z = wz;
-      }
-      if (x < this.min[0]) this.min[0] = x;
-      if (y < this.min[1]) this.min[1] = y;
-      if (z < this.min[2]) this.min[2] = z;
-      if (x > this.max[0]) this.max[0] = x;
-      if (y > this.max[1]) this.max[1] = y;
-      if (z > this.max[2]) this.max[2] = z;
-    }
-  }
-
-  bounds(): Bounds | null {
-    return this.min[0] > this.max[0] ? null : { min: [...this.min], max: [...this.max] };
-  }
-}
-
-/** The world-space box around Babylon meshes (each one's own box, moved by its world matrix). */
-function meshBounds(meshes: readonly AbstractMesh[]): Bounds | null {
-  const box = new BoundsBox();
-  for (const m of meshes) {
-    const { minimum: a, maximum: b } = m.getBoundingInfo().boundingBox;
-    const corners = [a.x, a.y, a.z, b.x, a.y, a.z, a.x, b.y, a.z, b.x, b.y, a.z, a.x, a.y, b.z, b.x, a.y, b.z, a.x, b.y, b.z, b.x, b.y, b.z];
-    box.add(corners, Array.from(m.computeWorldMatrix(true).asArray()));
-  }
-  return box.bounds();
-}
-
-/** Resolve true once `done()` holds (polled each frame), false after `ms`. */
-function waitFor(done: () => boolean, ms: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const started = Date.now();
-    const poll = () => {
-      if (done()) return resolve(true);
-      if (Date.now() - started > ms) return resolve(false);
-      setTimeout(poll, 16);
-    };
-    poll();
-  });
-}

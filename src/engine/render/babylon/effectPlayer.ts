@@ -6,16 +6,17 @@
 // effect plays: restart (seeded effects repeat exactly), the systems that start on events rather than On
 // Play, custom events, emit, stop and clear, and a finished one-shot effect playing again.
 //
-// Three callers drive it: `BabylonParticles` (a World's ParticleSystems, one player each), the particle
-// graph editor's `EffectPreview` and the asset thumbnails (one player each). What they share per scene
-// (the texture cache, the dot, the scene depth, the kernel host, warnings) is an `EffectResources`.
+// Two callers drive it: `BabylonParticles` (a World's ParticleSystems, one player each; asset thumbnails
+// draw through it too, ADR 0156) and the particle graph editor's `EffectPreview` (one player). What they
+// share per scene (the texture cache, the dot, the scene depth, the kernel host, warnings) is an
+// `EffectResources`.
 // Babylon types stay inside this folder (ADR 0010).
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import type { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
 import type { Scene } from "@babylonjs/core/scene.js";
-import { loadMeshes, meshesIfLoaded, type ModelMesh } from "../../scene/models";
+import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import { compileParticleGraph, type ParticleProgram } from "../../scene/particleCompile";
 import type { ParticleGraph } from "../../scene/particleGraph";
 import { parseParticleGraph } from "../../scene/particleGraphFormat";
@@ -251,32 +252,6 @@ export class EffectResources {
       parts.push(t === "failed" ? `${e.renderer.texture}:failed` : `${e.renderer.texture}:${t.uniqueId}`);
     }
     return `k|${parts.join("|")}`;
-  }
-
-  /**
-   * Start loading everything `program` draws with (textures, models), and resolve once they have loaded
-   * or failed: the thumbnails build an effect once, with everything there.
-   */
-  async preload(program: ParticleProgram): Promise<void> {
-    const fog = heightFogOn(this.host.scene);
-    const waits: Promise<unknown>[] = [];
-    const texture = (path: string, sheet: boolean) => {
-      this.textureFor(path, sheet);
-      waits.push(this.host.texture(path, sheet).catch(() => undefined));
-    };
-    for (const e of program.effect.emitters) {
-      if (!e.enabled) continue;
-      const r = e.renderer;
-      if (r.mode === "mesh" && r.mesh) waits.push(loadMeshes(r.mesh).catch(() => undefined));
-      if (r.texture && !this.materialFor(r.material)) texture(r.texture, usesSheet(r, fog));
-    }
-    for (const k of this.plan(program)?.running ?? []) {
-      for (const o of k.outputs) {
-        if (o.settings.texture) texture(o.settings.texture, false);
-        if (o.type === "mesh" && o.settings.mesh) waits.push(loadMeshes(o.settings.mesh).catch(() => undefined));
-      }
-    }
-    await Promise.all(waits);
   }
 
   /** A CPU emitter's draw (`particleDraw.ts`): with its material asset, else its texture, else the dot. */

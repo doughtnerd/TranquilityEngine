@@ -67,8 +67,8 @@ const FACES: readonly (readonly [Vector3, Vector3, Vector3])[] = [
 const language = (engine: AbstractEngine) => (engine.isWebGPU ? ShaderLanguage.WGSL : ShaderLanguage.GLSL);
 
 /**
- * @internal The sky's box and shader for one scene, also used by the editor's previews and
- * thumbnails. `update` packs a frame's uniforms; textures load on demand by asset path.
+ * @internal The sky's box and shader for one scene (asset thumbnails draw skies through the Sky feature
+ * too, ADR 0156). `update` packs a frame's uniforms; textures load on demand by asset path.
  */
 export class SkyDrawable {
   readonly mesh: Mesh;
