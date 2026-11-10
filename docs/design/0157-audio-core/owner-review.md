@@ -124,3 +124,15 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 - **Chosen:** two decoder builds: the default `myco_audio_decode.wasm` (WAV, FLAC, MP3, Vorbis; under 900 KB) and `myco_audio_decode_aac.wasm` (with AAC/MP4) with its own size gate, fetched only when `codecs.aac` is true.
 - **Why:** projects that don't use AAC don't download it; the gate keeps meaning something for the default build. Common practice for optional codecs (load-on-demand modules).
 - **If changed:** one decoder with AAC always in and the gate raised to ~1.1 MB.
+
+### 25. B4 details
+- AAC decoder build is 1,042.7 KB; its own gate is 1,100 KB (entry 24). The editor tooltip and guide say AAC costs about 1 MB.
+- No trimming heuristic for MP3s without a LAME/Info tag: they keep the encoder's delay at the loop seam, as ffmpeg does. **Flappy's `town.mp3` and `foo.mp3` have no such tag**, so their loops keep about 54 ms of near-silence at the seam; re-encoding the sample music with LAME would make them gapless (sample assets left unchanged).
+- Opus and AIFF aren't supported; they get the unknown-codec warning.
+- Coordinator fix: f32 worker clips now scale int16 by 1/32768 like the core's own int16 path (B4 found a 1-LSB mismatch).
+- Follow-up: a looping stream's playhead counts past the file length (the core's stream position is deliberately unwrapped); after a rebuild, a looping stream of unknown length could reopen past its end.
+
+### 26. B7: switching the default backend to the core
+- The plan gates B7 on MS5, MS6 and A0.6's old-engine fallback; all are done or being verified by the B7 worker. ADR 0157 says the core becomes the default at this point, with macOS desktop builds kept on Babylon until macOS passes its gate.
+- **Chosen:** flip the default if every gate and the full e2e suite pass on the core default, keep the change one constant (`DEFAULT_BACKEND` in `src/engine/audio/settings.ts`) so it's trivial to revert, and merge to master with MS7.
+- **If you'd rather review first:** set `DEFAULT_BACKEND` back to `"babylon"`; everything else in MS7 stays.
