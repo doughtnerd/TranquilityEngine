@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { colorKind, hexColor, numberKind, parseHexColor, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../../engine/scene/particles";
 import { convertColor, convertNumber } from "../../particles/curveEdit";
-import { CurveEditor, CurvePreview } from "./CurveEditor";
+import { CurveEditor, CurvePreview } from "./ParticleCurve";
 import { GradientEditor, GradientPreview } from "./GradientEditor";
 import "./particles.css";
 

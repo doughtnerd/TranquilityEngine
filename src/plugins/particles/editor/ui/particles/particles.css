@@ -77,8 +77,6 @@
 .pe-expand { display: flex; align-items: center; gap: 4px; width: 100%; padding: 1px 3px; border: 1px solid var(--border); border-radius: 3px; background: var(--input-bg); color: inherit; cursor: pointer; }
 .pe-expand:hover { border-color: var(--border-strong); }
 .pe-expand.open { border-color: var(--accent); }
-.curve-preview { flex: 1; min-width: 0; height: 18px; }
-.curve-preview polyline { fill: none; stroke: var(--accent); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
 .gradient-bar {
   background-image: var(--gradient), repeating-conic-gradient(var(--border) 0% 25%, var(--bg-sunken) 0% 50%);
   background-size: 100% 100%, 8px 8px;
@@ -87,22 +85,11 @@
 }
 .gradient-preview { flex: 1; min-width: 0; height: 14px; display: block; }
 
-/* --- curve editor --- */
-.curve-editor, .gradient-editor { margin: 3px 0 6px; padding: 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); }
-.curve-svg { display: block; width: 100%; max-width: 100%; aspect-ratio: 200 / 80; touch-action: none; user-select: none; cursor: crosshair; }
-.curve-svg:focus-visible { outline: 1px solid var(--focus-ring); }
-.curve-bg { fill: var(--input-bg); }
-.curve-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; }
-.curve-zero { stroke: var(--border-strong); stroke-width: 1; }
-.curve-line { fill: none; stroke: var(--accent); stroke-width: 1.5; }
-.curve-key { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; cursor: grab; }
-.curve-key:hover { fill: var(--accent-soft); }
-.curve-key.selected { fill: var(--accent); }
-.curve-label { fill: var(--faint); font-size: 7px; pointer-events: none; }
-.curve-readout, .gradient-readout { display: flex; align-items: center; gap: 6px; min-height: 22px; margin-top: 4px; }
-.curve-readout label, .gradient-readout label { display: flex; align-items: center; gap: 3px; flex: 1; min-width: 0; }
-.curve-readout em, .gradient-readout em { color: var(--muted); font-style: normal; font-size: 10px; }
-.curve-hint { color: var(--faint); font-size: 11px; }
+/* --- gradient editor readout (the curve widget's rules are in src/editor/ui/curveEditor.css) --- */
+.gradient-editor { margin: 3px 0 6px; padding: 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); }
+.gradient-readout { display: flex; align-items: center; gap: 6px; min-height: 22px; margin-top: 4px; }
+.gradient-readout label { display: flex; align-items: center; gap: 3px; flex: 1; min-width: 0; }
+.gradient-readout em { color: var(--muted); font-style: normal; font-size: 10px; }
 
 /* --- gradient editor --- */
 .gradient-stops { position: relative; height: 14px; margin: 0 6px; }

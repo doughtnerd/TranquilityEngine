@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { GraphInputValue } from "../../../../../engine/scene/particleGraph";
 import { colorKind, hexColor, numberKind, parseHexColor, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../../engine/scene/particles";
 import { convertColor, convertNumber } from "../../particles/curveEdit";
-import { CurveEditor, CurvePreview } from "../particles/CurveEditor";
+import { CurveEditor, CurvePreview } from "../particles/ParticleCurve";
 import { GradientEditor, GradientPreview } from "../particles/GradientEditor";
 import { NumField } from "../particles/valueInputs";
 import { editor, NO_DRAG, NO_PAN, NO_WHEEL } from "../../../../../editor/sdk";

@@ -1,37 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evalGradient } from "../../../../engine/scene/particles";
-import { addAlphaKey, addColorKey, addKey, convertColor, convertNumber, curveRange, moveKey, removeColorKey, removeKey } from "./curveEdit";
-
-describe("curve keys", () => {
-  it("adds keys in order and clamps t", () => {
-    const { keys, index } = addKey([[0, 0], [1, 1]] as [number, number][], 0.5, 3);
-    expect(keys).toEqual([[0, 0], [0.5, 3], [1, 1]]);
-    expect(index).toBe(1);
-    expect(addKey(keys, 2, 9).keys[3]).toEqual([1, 9]);
-    expect(addKey(keys, -1, 9).keys.map((k) => k[0])).toEqual([0, 0, 0.5, 1]);
-  });
-  it("moves keys but not past their neighbours", () => {
-    const keys: [number, number][] = [[0, 0], [0.5, 1], [1, 2]];
-    expect(moveKey(keys, 1, 0.7, 5)).toEqual([[0, 0], [0.7, 5], [1, 2]]);
-    expect(moveKey(keys, 1, 2, 5)[1][0]).toBe(1);
-    expect(moveKey(keys, 1, -2, 5)[1][0]).toBe(0);
-    expect(moveKey(keys, 0, -1, 0)[0][0]).toBe(0);
-    expect(keys[1]).toEqual([0.5, 1]);
-  });
-  it("never removes the last key", () => {
-    expect(removeKey([[0, 1], [1, 2]] as [number, number][], 0)).toEqual([[1, 2]]);
-    expect(removeKey([[0.3, 1]] as [number, number][], 0)).toEqual([[0.3, 1]]);
-  });
-  it("gives display ranges with padding, and for flat curves", () => {
-    const [lo, hi] = curveRange([[0, 0], [1, 10]]);
-    expect(lo).toBeLessThan(0);
-    expect(hi).toBeGreaterThan(10);
-    const [flo, fhi] = curveRange([[0, 2], [1, 2]]);
-    expect(flo).toBeLessThan(2);
-    expect(fhi).toBeGreaterThan(2);
-    expect(curveRange([[0, 5]], 0, 1)).toEqual([0, 1]);
-  });
-});
+import { addAlphaKey, addColorKey, convertColor, convertNumber, removeColorKey } from "./curveEdit";
 
 describe("convertNumber", () => {
   it("goes constant to random to curves", () => {
