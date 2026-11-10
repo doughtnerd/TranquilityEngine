@@ -241,6 +241,13 @@ pub fn sweeps() -> Vec<Sweep> {
         scenes: [0u32, 64, 128, 192, 256].iter().map(|&m| looping(format!("mixed-{m}"), m)).collect(),
         x: |r| r.mean_mixed,
     });
+    // Cache: 128 mixed voices over 1 MB of clips (warm) and 64 MB (cold); x = MB.
+    out.push(Sweep {
+        term: "cache",
+        unit: "µs per MB of distinct clips (128 voices)",
+        scenes: [1u32, 64].iter().map(|&mb| Scene { clip_mb: mb, ..looping(format!("clips-{mb}mb"), 128) }).collect(),
+        x: |r| r.clip_mb as f64,
+    });
     // Pitch: 128 mixed voices at pitch 1–16; x = source frames read ÷ 128.
     out.push(Sweep {
         term: "pitch",
@@ -387,6 +394,7 @@ pub struct RunResult {
     pub budget_max: u32,
     pub demoted: u32,
     pub buses: u32,
+    pub clip_mb: u32,
     pub biquads: u32,
     pub snapshot_lp: bool,
     pub compressor: bool,
@@ -949,6 +957,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     r.starts_per_quantum = (b.starts - starts_at_warm) as f64 / n;
     r.demoted = b.core.cap().demoted;
     r.buses = scene.buses;
+    r.clip_mb = scene.clip_mb;
     r.biquads = scene.biquads;
     r.snapshot_lp = scene.snapshot_lp;
     r.compressor = scene.compressor;
