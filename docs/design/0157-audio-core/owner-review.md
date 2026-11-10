@@ -88,3 +88,10 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 - **Chosen:** a crashed decoder worker respawns and retries its pending decodes, at most 3 times per 60 s, shared by all clips; past that, loads fail with one warning per asset until the window passes. A refused wasm or a hash mismatch isn't retried. `clipFormat` f32 now means the worker's int16 scaled (exact to int16 precision).
 - **Why:** mirrors the core's rebuild limit (3 per 60 s); browsers already decode to int16-equivalent precision for 16-bit sources.
 - **Known weakness:** one file that crashes the worker every time can use the budget and delay other clips for up to 60 s. A cheap follow-up: fail a clip after it crashed the worker twice, without spending the shared budget again.
+
+### 18. HRTF parity at 48 kHz: fix it (H5), with an interim per-rate tolerance (H4)
+- **Finding (H4):** against Chromium's `PannerNode` HRTF (same IRCAM set), 44.1 kHz matches (levels, ILD, ITD within 0.01 dB / 0.001 frame; waveform nulls −63 to −75 dB, one direction −40 dB). **48 kHz doesn't**: band levels up to 5.7 dB apart, ILD up to 3.2 dB, ITD up to 1.1 frames, nulls −5 to −21 dB. The owner's parity tolerance (0.1 dB, −90 dB nulls) can't apply to HRTF waveforms even at 44.1 kHz.
+- **Chosen:** (a) merge H4's tests with a per-rate HRTF tolerance: 44.1 kHz levels/ILD/ITD within 0.1 dB / 0.1 frame and nulls ≤ −35 dB; 48 kHz a regression guard only, until fixed. (b) Open **H5 (#111)** to port Chromium's exact HRIR path (resample the delay-included responses with a port of `SincResampler`, then extract delays at the context rate) and Blink's f32 angle math at kernel boundaries, then tighten 48 kHz to the 44.1 kHz figures.
+- **Why:** ADR 0157's D4 row promises HRTF that sounds like today's browser HRTF, and 48 kHz is the most common context rate; the Chromium-ports decision (owner, revision 3) says to follow Chromium's code; a 5.7 dB band difference is audible.
+- **If changed:** accept the 48 kHz difference (keep the guard) and close #111.
+- Also: H4's committed HRTF digests are 674 KB (`tests/e2e/audio-parity/hrtf-reference.json`).
