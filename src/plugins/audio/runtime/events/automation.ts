@@ -92,6 +92,35 @@ export function evaluate(bindings: readonly Binding[], curves: ReadonlyMap<numbe
   return { gain, pitch, lowpass };
 }
 
+/** What `evaluateInto` writes: the same three numbers `evaluate` returns. */
+export interface AutoResult {
+  gain: number;
+  pitch: number;
+  lowpass: number;
+}
+
+const NO_CURVE: Curve = [];
+
+/**
+ * `evaluate` without a callback or a result object (E5.3c: the core backend's play path): `n` bindings as parallel
+ * arrays (curve ids, `AutoTarget`s, and the parameter value each reads), written into `out`. The same rules and the
+ * same order of multiplication as `evaluate`, so the numbers are identical.
+ */
+export function evaluateInto(n: number, curveIds: ArrayLike<number>, targets: ArrayLike<number>, x: ArrayLike<number>, curves: ReadonlyMap<number, Curve>, out: AutoResult): AutoResult {
+  let gain = 1, pitch = 1, lowpass = LOWPASS_OFF;
+  for (let j = 0; j < n; j++) {
+    const y = evalCurve(curves.get(curveIds[j]!) ?? NO_CURVE, x[j]!);
+    const target = targets[j];
+    if (target === AutoTarget.Volume) gain *= Math.max(0, y);
+    else if (target === AutoTarget.Pitch) pitch *= y > 0 ? y : 1;
+    else lowpass = Math.min(lowpass, Math.max(10, y));
+  }
+  out.gain = gain;
+  out.pitch = pitch;
+  out.lowpass = lowpass;
+  return out;
+}
+
 interface BoundVoice {
   voice: AudioVoice;
   group: number;

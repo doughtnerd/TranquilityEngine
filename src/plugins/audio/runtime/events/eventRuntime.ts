@@ -191,6 +191,11 @@ export class EventSystem {
   private readonly freeGroups: number[] = [];
   private nextGroup = 1;
   private readonly live = new Set<EventInstance>();
+  /**
+   * E3.9: instances retired (stopped, or every voice past `playing`) whose voices the backend may still list (fading
+   * out, ending): `debugRows` keeps their rows while it does. The newest `LINGERING_MAX`; the debug merge prunes them.
+   */
+  private lingering: EventInstance[] = [];
   private readonly timers: Timer[] = [];
   private readonly lastPlay = new Map<string, number>();
   /** Per-World generators and sequence state, by World key (ADR 0158 §6). */
@@ -275,6 +280,7 @@ export class EventSystem {
   stopAll(): void {
     for (const i of [...this.live]) i.stop(0);
     this.live.clear();
+    this.lingering.length = 0;
     this.timers.length = 0;
   }
 
@@ -314,9 +320,38 @@ export class EventSystem {
     for (const [key, ref] of [...this.worldRefs]) if (ref.deref() === undefined) this.forgetWorld(key);
   }
 
-  /** Debug rows for `Audio.debug().events`. */
-  debugRows(): EventDebugRow[] {
-    return [...this.live].filter((i) => i.playing).map((i) => ({ id: i.group, asset: i.path, world: i.world, voices: i.voiceCount, parameters: i.parameterValues(), lateStarts: i.lateStarts }));
+  /**
+   * Debug rows for `Audio.debug().events`: every playing instance. E3.9: `listed` (the backend's debug voices per event
+   * id, `Audio.debug` passes it) also keeps the row of an instance whose voices have stopped `playing` but are still
+   * listed (fading out, or ended and not yet freed), so a row goes with its last voice, never a poll before it; such a
+   * row counts its listed voices. A group a playing instance holds again shows that instance only.
+   */
+  debugRows(listed?: ReadonlyMap<number, number>): EventDebugRow[] {
+    const rows: EventDebugRow[] = [];
+    const row = (i: EventInstance, voices: number) => rows.push({ id: i.group, asset: i.path, world: i.world, voices, parameters: i.parameterValues(), lateStarts: i.lateStarts });
+    const shown = new Set<number>();
+    for (const i of this.live) {
+      if (!i.playing) continue;
+      row(i, i.voiceCount);
+      if (i.group > 0) shown.add(i.group);
+    }
+    if (!listed) return rows;
+    const still = (i: EventInstance) => i.group > 0 && !shown.has(i.group) && (listed.get(i.group) ?? 0) > 0;
+    for (const i of this.live) {
+      if (i.playing || !still(i)) continue;
+      row(i, listed.get(i.group)!);
+      shown.add(i.group);
+    }
+    // Retired instances: kept while listed; once not, gone for good (their group may be reused later).
+    let w = 0;
+    for (const i of this.lingering) {
+      if (this.live.has(i) || !still(i)) continue;
+      row(i, listed.get(i.group)!);
+      shown.add(i.group);
+      this.lingering[w++] = i;
+    }
+    this.lingering.length = w;
+    return rows;
   }
 
   /** Clips started late since the page began (all instances, ended ones too). */
@@ -472,6 +507,10 @@ export class EventSystem {
   retire(instance: EventInstance): void {
     if (!this.live.delete(instance)) return;
     if (instance.group > 0) {
+      if (this.lingering.length >= LINGERING_MAX) this.lingering.splice(0, LINGERING_MAX >> 1);
+      this.lingering.push(instance);
+    }
+    if (instance.group > 0) {
       this.freeGroups.push(instance.group);
       this.ts?.releaseGroup(instance.group);
     }
@@ -558,6 +597,9 @@ function toNumber(def: ParameterDef, value: number | string, where: string): num
 
 const dbToGain = (db: number): number => Math.pow(10, db / 20);
 const semitonesToRatio = (st: number): number => Math.pow(2, st / 12);
+
+/** Most retired instances `debugRows` keeps looking for in the backend's voices (E3.9). */
+const LINGERING_MAX = 64;
 
 /** A row of `Audio.debug().events`: `AudioDebugInfo`'s event row plus the runtime's late-start count. */
 export interface EventDebugRow {

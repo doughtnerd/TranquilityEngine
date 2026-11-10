@@ -205,6 +205,10 @@ export const Audio = {
 
   /** A copy of the state for tools and "why is there no sound?". Allocates; never per frame. */
   debug(): AudioDebugState {
-    return { ...audioBackend().debug(), events: events().debugRows() };
+    const info = audioBackend().debug();
+    // E3.9: each event's voices the backend still lists, so an instance's row goes with its last voice.
+    const listed = new Map<number, number>();
+    for (const v of info.voices) if (v.event != null && v.state !== "stolen") listed.set(v.event, (listed.get(v.event) ?? 0) + 1);
+    return { ...info, events: events().debugRows(listed) };
   },
 };
