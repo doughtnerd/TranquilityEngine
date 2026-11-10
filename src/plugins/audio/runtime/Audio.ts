@@ -9,7 +9,10 @@ import { World } from "../../../engine/core/World";
 import { clipVolume, startClip, worldKeyOf, worldPlays } from "./AudioSource";
 import { warnOnce } from "./core/handle";
 import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest } from "./backend";
-import { events, type EventInstance, type EventOptions } from "./events/eventRuntime";
+import { events, type EventDebugRow, type EventInstance, type EventOptions } from "./events/eventRuntime";
+
+/** `Audio.debug()`: the backend's state plus the event runtime's rows (`AudioDebugInfo.events` with the late-start count each row carries). */
+export type AudioDebugState = Omit<AudioDebugInfo, "events"> & { events: EventDebugRow[] };
 
 /** Options for `Audio.playOneShot` (ADR 0074, api-and-models §1). */
 export interface OneShotOptions {
@@ -201,7 +204,7 @@ export const Audio = {
   },
 
   /** A copy of the state for tools and "why is there no sound?". Allocates; never per frame. */
-  debug(): AudioDebugInfo {
+  debug(): AudioDebugState {
     return { ...audioBackend().debug(), events: events().debugRows() };
   },
 };

@@ -177,6 +177,11 @@ export class TsAutomation implements AutomationSink {
     return this.param(group, slot)?.value ?? 0;
   }
 
+  /**
+   * Only the voice setters carry the automated gain and pitch; the `PlayRequest` keeps the base values (the request's
+   * volume is `base.volume`). A voice still waiting for the core (`PendingCoreBackend`) stores setter values in its
+   * request, so `EventInstance.resend` sets the base values back before the core's own automation binds.
+   */
   private apply(v: BoundVoice): void {
     const r = evaluate(v.bindings, this.curves, (p) => this.read(v.group, p));
     if (r.gain !== v.gain) { v.gain = r.gain; v.voice.setVolume(v.base.volume * r.gain); }
