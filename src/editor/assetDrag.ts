@@ -8,6 +8,7 @@ import { viewport } from "../engine/editor";
 import type { SceneDocument } from "./document";
 import { addAssets, whyNotAddAssets, type AssetAddTarget } from "./addAssets";
 import { fileName } from "./assetBrowser";
+import { dropTargetFor, setDraggedAssets, type AssetDropPoint, type AssetDropTargetSpec } from "./assetDropTargets";
 import { entryPath } from "./assetDelete";
 import { moveAssetsTo, whyNotMoveTarget } from "./assetOps";
 import { currentProject, openScene, playState, sceneCamera, selectedKeys, status, viewMode } from "./state";
@@ -19,6 +20,8 @@ const DRAG_THRESHOLD = 5;
 export type AssetDropTarget =
   | { kind: "viewport"; x: number; y: number }
   | { kind: "folder"; folder: string }
+  // A plugin panel's target (assetDropTargets.ts): its label for this spot, and the release it takes.
+  | { kind: "plugin"; spec: AssetDropTargetSpec; label: string; point: AssetDropPoint }
   | { kind: "hierarchy"; mode: "into" | "before" | "after" | "root"; row: string | null; parent: string | null; index?: number };
 
 export interface AssetDrag {
@@ -55,6 +58,21 @@ export function hierarchyDrop(doc: SceneDocument, rowKey: string | null, fractio
 function folderAt(clientX: number, clientY: number): string | null {
   const el = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-drop-folder]");
   return el ? (el.dataset.dropFolder ?? null) : null;
+}
+
+/**
+ * The plugin panel's target under a client point (registered with `registerAssetDropTarget`): a target taking the
+ * drag with its label for the spot, or the problem when the panel doesn't take it there. Null outside registered panels.
+ */
+function dropTarget(paths: readonly string[], x: number, y: number): { spec: AssetDropTargetSpec; target: AssetDropTarget | null; problem: string } | null {
+  const found = dropTargetFor(document.elementFromPoint(x, y));
+  if (!found) return null;
+  const { spec } = found;
+  if (!spec.accepts(paths)) return { spec, target: null, problem: "can't drop these here" };
+  const point = { x, y };
+  spec.over?.(paths, point);
+  const label = spec.label(paths, point);
+  return { spec, target: label === null ? null : { kind: "plugin", spec, label, point }, problem: "can't drop here" };
 }
 
 /** The drop target under a client point, found from the DOM (rows carry `data-key`). */
@@ -103,12 +121,13 @@ export function viewportDropPoint(x: number, y: number): [number, number, number
 }
 
 /** Where a scene drop adds the assets (`addAssets`, ADR 0149). */
-function addTarget(target: Exclude<AssetDropTarget, { kind: "folder" }>, point: readonly [number, number, number]): AssetAddTarget {
+function addTarget(target: Exclude<AssetDropTarget, { kind: "folder" | "plugin" }>, point: readonly [number, number, number]): AssetAddTarget {
   return target.kind === "viewport" ? { kind: "point", position: point } : { kind: "slot", parent: target.parent, index: target.index };
 }
 
 /** Why the dragged entries can't go to `target`, or null if they can. */
 function problemFor(paths: readonly string[], target: AssetDropTarget): string | null {
+  if (target.kind === "plugin") return null; // its own `accepts` and `label` decided (pluginTargetAt)
   if (target.kind === "folder") {
     if (!currentProject.value?.canSave) return "this project is read-only";
     if (playState.value !== "edit") return "stop playing to move files";
@@ -128,12 +147,25 @@ export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void 
   if (e.button !== 0) return;
   const startX = e.clientX, startY = e.clientY;
   let active = false;
+  /** The plugin target the pointer is over now, to tell it when the pointer leaves. */
+  let over: AssetDropTargetSpec | null = null;
+  const setOver = (spec: AssetDropTargetSpec | null) => {
+    if (over && over !== spec) over.leave?.();
+    over = spec;
+  };
 
   const update = (m: PointerEvent) => {
     if (!active && Math.hypot(m.clientX - startX, m.clientY - startY) < DRAG_THRESHOLD) return;
     if (!active) {
       active = true;
       window.getSelection()?.removeAllRanges();
+      setDraggedAssets(paths);
+    }
+    const plugin = dropTarget(paths, m.clientX, m.clientY);
+    setOver(plugin?.spec ?? null);
+    if (plugin) {
+      assetDrag.value = { paths, x: m.clientX, y: m.clientY, target: plugin.target, problem: plugin.target ? null : plugin.problem };
+      return;
     }
     const target = targetAt(m.clientX, m.clientY);
     const problem = target
@@ -150,8 +182,14 @@ export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void 
     window.removeEventListener("keydown", key, true);
     const state = assetDrag.value;
     assetDrag.value = null;
+    setOver(null);
+    setDraggedAssets(null);
     if (!apply || !active || !state?.target) return;
     const target = state.target;
+    if (target.kind === "plugin") {
+      target.spec.drop(paths, target.point);
+      return;
+    }
     if (target.kind === "folder") {
       void moveAssetsTo(paths, target.folder);
       return;
@@ -185,6 +223,7 @@ export function dropDescription(drag: AssetDrag, doc: SceneDocument | null): str
   const name = drag.paths.length === 1 ? fileName(entryPath(drag.paths[0])) : `${drag.paths.length} items`;
   if (drag.problem || !drag.target) return `${name}: ${drag.problem ?? "can't drop here"}`;
   const t = drag.target;
+  if (t.kind === "plugin") return t.label;
   if (t.kind === "viewport") return `Add ${name} here`;
   if (t.kind === "folder") return `Move ${name} to ${t.folder || "the project folder"}`;
   const label = (id: string | null) => (id && doc?.has(id) ? doc.node(id).name ?? id : "the scene");
