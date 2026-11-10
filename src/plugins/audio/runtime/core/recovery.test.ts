@@ -174,6 +174,24 @@ describe("the hard rebuild on the loopback host (A3.4a)", () => {
     backend.dispose();
   });
 
+  it("the buses and MASTER are sent again: bus gain, master volume and a muted bus hold across the rebuild", async () => {
+    const r = await rig();
+    const { loop, backend, mixer, step } = r;
+    backend.play(req("const.wav")); // 0.5 on SFX
+    backend.play(req("c-music.wav", { bus: "Music" })); // 0.5 on Music, muted below
+    mixer.bus("SFX").volume = 0.5;
+    mixer.bus("Music").mute = true;
+    backend.masterVolume = 0.5;
+    await step(8);
+    expect((await step(1)).last).toBeCloseTo(0.125, 5);
+    loop.trapNext();
+    expect(await r.untilSound()).toBeGreaterThan(0);
+    await step(4);
+    // A fresh core would have every gain at 1 (1.0 here); the replayed BUS_MIX and MASTER give 0.5 × 0.5 × 0.5 again.
+    expect((await step(1)).last).toBeCloseTo(0.125, 5);
+    backend.dispose();
+  });
+
   it("plays made during the rebuild wait in the locked queue and start once the new core runs", async () => {
     const r = await rig();
     const { loop, backend, step } = r;
