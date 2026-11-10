@@ -22,6 +22,14 @@ function spawnWorker(): WorkerLike {
   return new Worker(new URL("./decoder.worker.ts", import.meta.url), { type: "module" }) as unknown as WorkerLike;
 }
 
+/** The decoder could not run at all (no `Worker`, the wasm refused or did not match, the worker died), as opposed to a bad file. Callers may fall back to another decoder. */
+export class DecoderUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DecoderUnavailableError";
+  }
+}
+
 /** A decoded clip: `pcm` is interleaved int16 (`frames * channels` samples). */
 export interface DecodedClip {
   readonly pcm: Int16Array;
@@ -39,6 +47,10 @@ export interface DecodeClipOptions {
   readonly transfer?: boolean;
   /** Named in decoder errors. */
   readonly asset?: string;
+  /** B5: called once before the first chunk with what the container declares (`info.frames` -1 when unknown). */
+  readonly onInfo?: (info: ClipInfo) => void;
+  /** B5: false does not keep the chunks, so the result's `pcm` is empty: the caller took them through `onChunk` (a long clip is then not held twice). Default true. */
+  readonly collect?: boolean;
   /** Called with each chunk as it arrives, before the result resolves (a copy of nothing: the chunk is also part of the result). */
   readonly onChunk?: (pcm: Int16Array, index: number) => void;
 }
@@ -81,7 +93,7 @@ class Client implements DecoderClient {
     if (this.worker) return this.worker;
     const worker = (this.options.workerFactory ?? spawnWorker)();
     worker.onmessage = (e) => this.onReply(worker, e.data);
-    worker.onerror = (e) => this.failAll(worker, new Error(`audio decoder: the worker failed${e.message ? ` (${e.message})` : ""}`));
+    worker.onerror = (e) => this.failAll(worker, new DecoderUnavailableError(`audio decoder: the worker failed${e.message ? ` (${e.message})` : ""}`));
     this.worker = worker;
     if (this.options.wasmBytes) {
       const bytes = this.options.wasmBytes.slice(0);
@@ -98,7 +110,12 @@ class Client implements DecoderClient {
     let buffer: ArrayBuffer;
     if (bytes instanceof ArrayBuffer) buffer = options?.transfer ? bytes : bytes.slice(0);
     else buffer = options?.transfer && bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? (bytes.buffer as ArrayBuffer) : (bytes.slice().buffer as ArrayBuffer);
-    const worker = this.ensureWorker();
+    let worker: WorkerLike;
+    try {
+      worker = this.ensureWorker();
+    } catch (e) {
+      return Promise.reject(new DecoderUnavailableError(`audio decoder: no worker (${e instanceof Error ? e.message : String(e)})`));
+    }
     const id = this.nextId++;
     return new Promise<DecodedClip>((resolve, reject) => {
       const entry: Pending = { chunks: [], options, resolve, reject };
@@ -126,11 +143,14 @@ class Client implements DecoderClient {
   private onReply(worker: WorkerLike, msg: DecoderReply): void {
     if (worker !== this.worker) return;
     switch (msg.type) {
+      case "clipInfo":
+        this.pending.get(msg.id)?.options?.onInfo?.(msg.info);
+        return;
       case "clipChunk": {
         const entry = this.pending.get(msg.id);
         if (!entry) return;
         const pcm = new Int16Array(msg.pcm);
-        entry.chunks.push(pcm);
+        if (entry.options?.collect !== false) entry.chunks.push(pcm);
         entry.options?.onChunk?.(pcm, msg.index);
         return;
       }
@@ -138,7 +158,7 @@ class Client implements DecoderClient {
         const entry = this.settle(msg.id);
         if (!entry) return;
         const channels = msg.info.channels;
-        const pcm = entry.chunks.length === 1 ? entry.chunks[0] : concat(entry.chunks, msg.info.frames * channels);
+        const pcm = entry.chunks.length === 0 ? new Int16Array(0) : entry.chunks.length === 1 ? entry.chunks[0] : concat(entry.chunks, msg.info.frames * channels);
         entry.resolve({ pcm, rate: msg.info.rate, channels, frames: msg.info.frames, info: msg.info });
         return;
       }
@@ -148,7 +168,7 @@ class Client implements DecoderClient {
       case "error": {
         if (msg.id === undefined) {
           // Not tied to a request: the wasm did not load or did not match. Terminate so the next request retries from scratch.
-          if (msg.fatal) this.failAll(worker, new Error(msg.message));
+          if (msg.fatal) this.failAll(worker, new DecoderUnavailableError(msg.message));
           return;
         }
         this.settle(msg.id)?.reject(new Error(msg.message));

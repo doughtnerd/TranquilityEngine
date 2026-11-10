@@ -6,7 +6,9 @@
 import { ClipEvent, ClipFormat, CLIP_BEGIN_FIXED_END, CLIP_CHUNK_FIXED_END, CLIP_UNLOAD_FIXED_END, Kind, writeClipBegin, writeClipChunk, writeClipUnload, writeEnvelope } from "../wire.generated";
 import { CLIP_BYTES_PER_QUANTUM, createChunkPacer, planChunks } from "./chunker";
 import { createEncodedCache } from "./encodedCache";
-import { interleaveF32, interleaveI16 } from "./pcm";
+import { DecoderUnavailableError, type DecoderClient } from "../decoder/decoderClient";
+import { hintFromName } from "../decoder/protocol";
+import { i16ToF32, interleaveF32, interleaveI16 } from "./pcm";
 
 /** A clip's lifecycle (`copying -> ready` on the core's `resident` clip event, wire §4.3). */
 export type ClipState = "idle" | "fetching" | "decoding" | "copying" | "ready" | "failed" | "unloading";
@@ -124,6 +126,13 @@ export interface ClipRegistryDeps {
    * replay scales a voice's position when its clip comes back at another rate.
    */
   decode?: (encoded: ArrayBuffer, sampleRate?: number) => Promise<DecodedClip>;
+  /**
+   * B5: the decoder worker's client (`createDecoderClient()`). When given, clips decode on the worker: the file's own
+   * rate, int16, and a clip whose container states its length starts uploading while the rest decodes. When absent,
+   * or after the worker proves unavailable (no Worker, the wasm refused, the worker died: one warning), clips go
+   * through `decode` (`decodeAudioData`, the A1.3a path B6 removes). This is the switch: leave it out for the old path.
+   */
+  decodeWorker?: Pick<DecoderClient, "decodeClip">;
   /** Wire `ClipFormat` for ordinary clips: 0 f32 or 1 i16 (default 1, architecture section 5: i16 halves arena use). */
   clipFormat?: number;
   /** The `clipMemoryMB` ceiling in bytes, for the registry's own accounting (default `DEFAULT_CLIP_CEILING_MB`). */
@@ -179,8 +188,12 @@ interface Slot {
   loads: number;
   /** Freed: async work for this slot stops. */
   dead: boolean;
-  /** Decoded samples awaiting their paced chunks. */
+  /** Decoded samples awaiting their paced chunks (the `decodeAudioData` path: planar f32). */
   pcm: readonly Float32Array[] | null;
+  /** The worker path: interleaved int16 awaiting its paced chunks, by the frame offset of each chunk. */
+  parts: Map<number, Int16Array> | null;
+  /** The worker decode in flight; aborted when the load goes stale (unload, a resend) or the clip fails. */
+  abort: AbortController | null;
   readonly listeners: Set<ClipResidentListener>;
 }
 
@@ -280,6 +293,8 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     slot.state = "failed";
     slot.failure = failure;
     slot.pcm = null;
+    slot.parts = null;
+    slot.abort?.abort();
     pacer.cancel(idOf(slot));
     warn(`audio: clip "${slot.path}" failed to load (${detail})`);
     notify(slot);
@@ -330,10 +345,25 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
         continue;
       }
       const slot = byId.get(chunk.clipId);
-      if (!slot || slot.dead || !slot.pcm) continue;
+      if (!slot || slot.dead) continue;
       const samples = chunk.frames * slot.channels;
       // Word aligned (api-and-models 4.1): an odd int16 sample count is padded with two zero bytes.
       const total = CLIP_CHUNK_FIXED_END + ((chunk.bytes + 3) & ~3);
+      const parts = slot.parts;
+      if (parts) {
+        // B5: the worker's interleaved int16, already cut at the chunk boundaries `enqueuePieces` planned.
+        const data = parts.get(chunk.frameOffset);
+        if (!data) continue;
+        parts.delete(chunk.frameOffset);
+        post(total, (view) => {
+          envelope(view, Kind.CLIP_CHUNK, total);
+          writeClipChunk(view, 0, { clipId: chunk.clipId, frameOffset: chunk.frameOffset, frames: chunk.frames, reserved: 0 });
+          if (format === ClipFormat.F32) i16ToF32(data, new Float32Array(view.buffer, CLIP_CHUNK_FIXED_END, samples));
+          else new Int16Array(view.buffer, CLIP_CHUNK_FIXED_END, samples).set(data);
+        });
+        continue;
+      }
+      if (!slot.pcm) continue;
       const pcm = slot.pcm;
       post(total, (view) => {
         envelope(view, Kind.CLIP_CHUNK, total);
@@ -351,13 +381,125 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     nextQuantum(pump);
   };
 
+  /** What a load hands `beginCopy`: planar f32 from `decodeAudioData`, or the worker's interleaved int16 pieces in order. */
+  interface Loaded {
+    readonly frames: number;
+    readonly channels: number;
+    readonly sampleRate: number;
+    readonly planar?: readonly Float32Array[];
+    readonly pieces?: readonly Int16Array[];
+  }
+
+  let workerUnavailable = false;
+  const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+  /** CLIP_BEGIN for a clip about to upload (or a failure past the ceiling); false when it failed. */
+  const startClip = (slot: Slot, frames: number, channels: number, sampleRate: number): boolean => {
+    slot.frames = frames;
+    slot.channels = channels;
+    slot.sampleRate = sampleRate;
+    slot.format = format;
+    slot.bytes = frames * channels * bytesPerSample;
+    if (frames === 0 || channels === 0) {
+      fail(slot, "decode", "empty clip");
+      return false;
+    }
+    if (loadedBytes() + slot.bytes > ceiling) {
+      fail(slot, "refusedCeiling", "over the clip memory ceiling");
+      return false;
+    }
+    slot.state = "copying";
+    slot.begun = true;
+    post(CLIP_BEGIN_FIXED_END, (view) => {
+      envelope(view, Kind.CLIP_BEGIN, CLIP_BEGIN_FIXED_END);
+      writeClipBegin(view, 0, { clipId: idOf(slot), frames, channels, sampleRate, format });
+    });
+    return true;
+  };
+
+  /** Takes back a CLIP_BEGIN whose decode failed or must start over: the core drops the partial clip. */
+  const retract = (slot: Slot): void => {
+    if (!slot.begun) return;
+    const id = idOf(slot);
+    pacer.cancel(id);
+    slot.parts = null;
+    slot.begun = false;
+    post(CLIP_UNLOAD_FIXED_END, (view) => {
+      envelope(view, Kind.CLIP_UNLOAD, CLIP_UNLOAD_FIXED_END);
+      writeClipUnload(view, 0, { clipId: id });
+    });
+  };
+
+  /** Queues one decoded piece (interleaved int16 starting at frame `offset`) as paced chunks of the clip. */
+  const enqueuePiece = (slot: Slot, pcm: Int16Array, offset: number): void => {
+    const channels = slot.channels;
+    const parts = (slot.parts ??= new Map());
+    const plan = planChunks(pcm.length / channels, channels, bytesPerSample).map((c) => ({ frameOffset: offset + c.frameOffset, frames: c.frames }));
+    for (const c of plan) parts.set(c.frameOffset, pcm.subarray((c.frameOffset - offset) * channels, (c.frameOffset - offset + c.frames) * channels));
+    pacer.enqueue(idOf(slot), plan, channels, bytesPerSample);
+    schedulePump();
+  };
+
   /**
-   * Fetches (or takes the kept bytes) and decodes; null when it failed (already reported) or went stale. `then` runs
-   * with the decoded clip in the same tick (a first load begins its copy without waiting another microtask).
+   * The worker path. `early`: when the container states the clip's length, CLIP_BEGIN goes out at once and each chunk
+   * is queued as the worker produces it ("streamed"); otherwise (an MP3 without a length header, or `early` false)
+   * the clip is decoded to its end and its pieces handed back, so CLIP_BEGIN carries the real frame count.
    */
-  const fetchDecode = async (slot: Slot, token: number, then?: (decoded: DecodedClip) => void, rate?: number): Promise<DecodedClip | null> => {
+  const decodeOnWorker = async (slot: Slot, token: number, encoded: ArrayBuffer, early: boolean): Promise<Loaded | "streamed" | "unavailable" | null> => {
     const stale = (): boolean => slot.dead || slot.loads !== token;
-    const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+    const controller = new AbortController();
+    slot.abort = controller;
+    const pieces: Int16Array[] = [];
+    let channels = 0;
+    let streamedFrames = 0; // the length CLIP_BEGIN promised; 0 when not streaming
+    let received = 0;
+    try {
+      const result = await deps.decodeWorker!.decodeClip(encoded, hintFromName(slot.path), {
+        signal: controller.signal,
+        asset: slot.path,
+        collect: false,
+        onInfo: (info) => {
+          channels = info.channels;
+          if (!early || stale() || !info.lengthKnown || info.frames <= 0) return;
+          if (startClip(slot, info.frames, info.channels, info.rate)) streamedFrames = info.frames;
+          else controller.abort(); // failed past the ceiling
+        },
+        onChunk: (pcm) => {
+          if (stale() || slot.state === "failed") return;
+          const frames = pcm.length / channels;
+          if (streamedFrames === 0) pieces.push(pcm);
+          else if (received < streamedFrames) enqueuePiece(slot, frames > streamedFrames - received ? pcm.subarray(0, (streamedFrames - received) * channels) : pcm, received);
+          received += frames;
+        },
+      });
+      if (stale() || slot.state === "failed") return null;
+      if (streamedFrames > 0) return "streamed";
+      return { frames: result.frames, channels: result.channels, sampleRate: result.rate, pieces };
+    } catch (err) {
+      if (stale() || slot.state === "failed") return null;
+      retract(slot);
+      if (err instanceof DecoderUnavailableError) {
+        if (!workerUnavailable) {
+          workerUnavailable = true;
+          warn(`audio: the decoder worker is unavailable (${err.message}); decoding clips with decodeAudioData`);
+        }
+        return "unavailable";
+      }
+      fail(slot, "decode", message(err));
+      return null;
+    } finally {
+      if (slot.abort === controller) slot.abort = null;
+    }
+  };
+
+  /**
+   * Fetches (or takes the kept bytes) and decodes; null when it failed (already reported) or went stale, "streamed"
+   * when the worker already began the upload (`early`). `then` runs with a decoded clip in the same tick (a first load
+   * begins its copy without waiting another microtask). `rate` (a rebuild) only matters to `decodeAudioData`: the
+   * worker always gives the file's own rate.
+   */
+  const fetchDecode = async (slot: Slot, token: number, options: { early?: boolean; rate?: number } = {}, then?: (loaded: Loaded) => void): Promise<Loaded | "streamed" | null> => {
+    const stale = (): boolean => slot.dead || slot.loads !== token;
     let encoded: ArrayBuffer;
     try {
       slot.state = "fetching";
@@ -372,39 +514,45 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       if (!stale()) fail(slot, "fetch", message(err));
       return null;
     }
+    slot.state = "decoding";
+    if (deps.decodeWorker && !workerUnavailable) {
+      const result = await decodeOnWorker(slot, token, encoded, options.early === true);
+      if (result !== "unavailable") {
+        if (result && result !== "streamed") then?.(result);
+        return result;
+      }
+      if (stale()) return null;
+      slot.state = "decoding";
+    }
     let decoded: DecodedClip;
     try {
-      slot.state = "decoding";
-      decoded = await (rate === undefined ? decode(encoded) : decode(encoded, rate));
+      decoded = await (options.rate === undefined ? decode(encoded) : decode(encoded, options.rate));
       if (stale()) return null;
     } catch (err) {
       if (!stale()) fail(slot, "decode", message(err));
       return null;
     }
-    then?.(decoded);
-    return decoded;
+    const loaded: Loaded = { frames: decoded.frames, channels: decoded.channels, sampleRate: decoded.sampleRate, planar: decoded.channelData };
+    then?.(loaded);
+    return loaded;
   };
 
-  const load = (slot: Slot): Promise<unknown> => fetchDecode(slot, ++slot.loads, (decoded) => beginCopy(slot, decoded));
+  const load = (slot: Slot): Promise<unknown> => fetchDecode(slot, ++slot.loads, { early: true }, (loaded) => beginCopy(slot, loaded));
 
   /** CLIP_BEGIN and the paced chunks of a decoded clip (or a failure past the ceiling). */
-  const beginCopy = (slot: Slot, decoded: DecodedClip): void => {
-    slot.frames = decoded.frames;
-    slot.channels = decoded.channels;
-    slot.sampleRate = decoded.sampleRate;
-    slot.format = format;
-    slot.bytes = decoded.frames * decoded.channels * bytesPerSample;
-    if (decoded.frames === 0 || decoded.channels === 0) return fail(slot, "decode", "empty clip");
-    if (loadedBytes() + slot.bytes > ceiling) return fail(slot, "refusedCeiling", "over the clip memory ceiling");
-    slot.state = "copying";
-    slot.begun = true;
-    slot.pcm = decoded.channelData;
-    post(CLIP_BEGIN_FIXED_END, (view) => {
-      envelope(view, Kind.CLIP_BEGIN, CLIP_BEGIN_FIXED_END);
-      writeClipBegin(view, 0, { clipId: idOf(slot), frames: decoded.frames, channels: decoded.channels, sampleRate: decoded.sampleRate, format });
-    });
-    pacer.enqueue(idOf(slot), planChunks(decoded.frames, decoded.channels, bytesPerSample), decoded.channels, bytesPerSample);
-    schedulePump();
+  const beginCopy = (slot: Slot, loaded: Loaded): void => {
+    if (!startClip(slot, loaded.frames, loaded.channels, loaded.sampleRate)) return;
+    if (loaded.planar) {
+      slot.pcm = loaded.planar;
+      pacer.enqueue(idOf(slot), planChunks(loaded.frames, loaded.channels, bytesPerSample), loaded.channels, bytesPerSample);
+      schedulePump();
+      return;
+    }
+    let offset = 0;
+    for (const piece of loaded.pieces ?? []) {
+      enqueuePiece(slot, piece, offset);
+      offset += piece.length / loaded.channels;
+    }
   };
 
   const allocate = (path: string): Slot => {
@@ -428,6 +576,8 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       loads: 0,
       dead: false,
       pcm: null,
+      parts: null,
+      abort: null,
       listeners: new Set(),
     };
     byPath.set(path, slot);
@@ -444,6 +594,8 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     const id = idOf(slot);
     slot.dead = true;
     slot.pcm = null;
+    slot.parts = null;
+    slot.abort?.abort(); // a worker decode in flight stops at its next chunk
     pacer.cancel(id);
     if (slot.begun) {
       post(CLIP_UNLOAD_FIXED_END, (view) => {
@@ -595,14 +747,17 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       const jobs = slots.map((slot) => {
         pacer.cancel(idOf(slot));
         slot.pcm = null;
+        slot.parts = null;
+        slot.abort?.abort(); // an upload still decoding on the worker starts over
         slot.begun = false;
         const token = ++slot.loads;
-        return { slot, token, decoded: fetchDecode(slot, token, undefined, slot.sampleRate > 0 ? slot.sampleRate : undefined) };
+        // Not `early`: decode fully, then begin in the caller's priority order.
+        return { slot, token, decoded: fetchDecode(slot, token, { rate: slot.sampleRate > 0 ? slot.sampleRate : undefined }) };
       });
       void (async () => {
         for (const job of jobs) {
           const decoded = await job.decoded;
-          if (decoded && !job.slot.dead && job.slot.loads === job.token) beginCopy(job.slot, decoded);
+          if (decoded && decoded !== "streamed" && !job.slot.dead && job.slot.loads === job.token) beginCopy(job.slot, decoded);
         }
       })();
     },

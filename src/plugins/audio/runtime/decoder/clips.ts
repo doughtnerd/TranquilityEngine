@@ -6,6 +6,8 @@ import { CLIP_CHUNK_FRAMES, type ClipInfo, type DecodeHint } from "./protocol";
 import { DecoderError, type DecoderWasm } from "./wasm";
 
 export interface ClipDecodeOptions {
+  /** Called once, before the first chunk, with what the container declares (`frames` -1 when unknown; B5 sizes CLIP_BEGIN from it). */
+  readonly onInfo?: (info: ClipInfo) => void;
   /** Called with each chunk, in order; the array is a copy the callee owns (its buffer is transferable). */
   readonly onChunk: (index: number, pcm: Int16Array) => void;
   /** Checked after each chunk; true stops the decode (the result is `null`). */
@@ -27,6 +29,7 @@ export async function decodeClip(wasm: DecoderWasm, bytes: Uint8Array, hint: Dec
     if (raw.channels < 1 || raw.rate < 1) throw new DecoderError("audio decoder: the file reports no channels or rate");
     // A known length smaller than a chunk needs no bigger scratch.
     const chunkFrames = raw.frames >= 0 && raw.frames < CLIP_CHUNK_FRAMES ? Math.max(1, raw.frames) : CLIP_CHUNK_FRAMES;
+    options.onInfo?.({ rate: raw.rate, channels: raw.channels, frames: raw.frames, framesEstimate: raw.framesEstimate, codec: raw.codec, lengthKnown: raw.exact });
     scratchBytes = chunkFrames * raw.channels * 2;
     scratch = wasm.alloc(scratchBytes);
     let total = 0;
