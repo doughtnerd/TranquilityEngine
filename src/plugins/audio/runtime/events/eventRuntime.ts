@@ -165,7 +165,7 @@ export class EventSystem {
   private sink: AutomationSink | null = null;
   private sinkOf: AudioBackend | null = null;
   private ts: TsAutomation | null = null;
-  private readonly curveIds = new WeakMap<Curve, number>();
+  private curveIds = new WeakMap<Curve, number>();
   private readonly curvesById: Curve[] = [];
   private readonly freeGroups: number[] = [];
   private nextGroup = 1;
@@ -258,6 +258,7 @@ export class EventSystem {
     this.stopAll();
     this.sink = null; this.sinkOf = null; this.ts = null;
     this.curvesById.length = 0;
+    this.curveIds = new WeakMap(); // a parsed asset's curves outlive a reset (the asset cache), so their ids must go too
     this.freeGroups.length = 0; this.nextGroup = 1;
     this.lastPlay.clear();
     this.globals.clear(); this.globalsOf = null; this.busOf = null;
