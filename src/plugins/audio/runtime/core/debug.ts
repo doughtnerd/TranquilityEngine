@@ -4,6 +4,7 @@
 import type { AudioBackground, AudioDebugInfo, AudioStatus } from "../backend";
 import type { Mixer } from "../../../../engine/audio/mixer";
 import type { ClipInfo } from "./clipRegistry";
+import type { ClockMap } from "./clock";
 import type { StatusMirror } from "./mirror";
 import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
 
@@ -25,6 +26,8 @@ export interface DebugSource {
   readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings">;
   readonly lockedQueue: { readonly size: number; readonly droppedCount: number };
   readonly hrtfReady: boolean;
+  /** The clock map, for §8's timing figures in `core` (A3.2); hand-built test sources may omit it. */
+  readonly clockMap?: Pick<ClockMap, "lookaheadFrames" | "leadFrames" | "rampFrames" | "anchored" | "rejected" | "reanchors">;
 }
 
 const clamp01 = (v: number): number => (Number.isFinite(v) ? (v < 0 ? 0 : v > 1 ? 1 : v) : 0);
@@ -123,6 +126,21 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
     buses,
     voices,
     // `backend` names the backend the way babylonBackend does, so the panel can show it for either.
-    core: { backend: "core", hrtfReady: backend.hrtfReady },
+    core: { backend: "core", hrtfReady: backend.hrtfReady, ...timing(backend) },
+  };
+}
+
+/** Architecture §8 "Timing" for `core` (A3.2): L and Λ, the ramp, the newest block's max lateness, the clock map's health. */
+function timing(backend: DebugSource): Record<string, number | boolean> {
+  const clock = backend.clockMap;
+  if (!clock) return {};
+  return {
+    lookaheadFrames: clock.lookaheadFrames(),
+    leadFrames: Math.round(clock.leadFrames),
+    rampFrames: clock.rampFrames(),
+    maxLatenessFrames: backend.mirror.maxLatenessFrames,
+    clockAnchored: clock.anchored,
+    clockRejected: clock.rejected,
+    clockReanchors: clock.reanchors,
   };
 }

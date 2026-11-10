@@ -257,6 +257,38 @@ describe("ClockMap (architecture §4.3, §4.7)", () => {
     expect(map.frameIntervalMs).toBeCloseTo(16.6, 6);
   });
 
+  it("A3.2: an output timestamp back after frames without one re-anchors at once instead of rejecting ten", () => {
+    const f = fakeClock();
+    const map = new ClockMap(f, SR);
+    frame(f, map, 1000, BASE, 2.1);
+    // Three frames with no timestamp (a suspended context): the estimate holds.
+    run(f, map, 16, 3);
+    expect(map.offsetFrames).toBeCloseTo(48000, 6);
+    // The context resumed 1 s behind: the sample is 48000 frames off, far past the 5 ms rejection, yet taken as is.
+    frame(f, map, 16, shifted(-48000), 0);
+    expect(map.offsetFrames).toBeCloseTo(0, 6);
+    expect(map.rejected).toBe(0);
+    expect(map.reanchors).toBe(1);
+    // Back to normal filtering: the next off sample is rejected.
+    frame(f, map, 16, shifted(-47000), 0);
+    expect(map.rejected).toBe(1);
+  });
+
+  it("A3.2: frameOfTime is round(at·sr); stampFor stamps a frame after F_now and sends past ones asap", () => {
+    const f = fakeClock();
+    const map = new ClockMap(f, SR);
+    // F_now = 100800 (see "framesNow and audioTime follow the primary formulas").
+    frame(f, map, 1000, BASE, 2.1);
+    expect(map.frameOfTime(2.5)).toBe(120000);
+    expect(map.frameOfTime(undefined)).toBe(0);
+    expect(map.frameOfTime(Number.NaN)).toBe(0);
+    expect(map.stampFor(120000)).toBe(120000);
+    expect(map.stampFor(100801)).toBe(100801);
+    // Heard at 2.05 s, but the core already renders at 100800: past.
+    expect(map.stampFor(map.frameOfTime(2.05))).toBeUndefined();
+    expect(map.stampFor(0)).toBeUndefined();
+  });
+
   it("reset forgets the estimates but keeps the counters", () => {
     const f = fakeClock();
     const map = new ClockMap(f, SR);
