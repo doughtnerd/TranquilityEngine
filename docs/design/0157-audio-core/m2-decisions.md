@@ -14,7 +14,7 @@ Wave 1 (the pilot) is merged on `claude/sweet-ritchie-miy6jm` with every gate gr
 - `avoidRepeat: 0` now bans nothing (entry 5): a bug fix; random events with the default pick more randomly.
 - Babylon debug rows only for event voices (entry 2): drop the `group` filter in `babylonBackend.ts` `debug()`.
 
-**Proposals waiting for your yes/no:** the AAC decoder's size gate (entry 4); a `description` option on `@field` (entry 8).
+**Proposals waiting for your yes/no:** the AAC decoder's size gate (entry 4); a `description` option on `@field` (entry 8); a `releaseFade` key on `sustain` (entry 10).
 
 ## Entries
 
@@ -61,4 +61,9 @@ Wave 1 (the pilot) is merged on `claude/sweet-ritchie-miy6jm` with every gate gr
 ### 9. Runtime details that differ from 0158's wording, found by the guide (E3a, E5.2)
 - **Logged, no change:** curves are cached by object identity, so two events never share a curve id (the 1,024 cap counts each event's curves); an automation curve holds at most 32 keys (not stated in 0158); a spatial event's `maxDistance` defaults to `max(minDistance, 100)` (0158's example shows 30); a `sustain` container's `release` defaults to `"loopEnd"`; a switch's crossfade time is its own `crossfade` key (default 0.1 s), with `onChange: "crossfade"` choosing it, rather than `onChange` carrying the seconds. The guide documents the code.
 - **If changed:** each is one default or key in `src/engine/audio/eventFormat.ts` (and the guide).
+
+### 10. One `fade` key, two meanings (E6.3)
+- **Question:** in `myco.audioevent@1` a node's `fade` is its blend-child fade width (0158 §1 "blend") and, on a `sustain` node, the release crossfade (§1 "sustain"); a sustain node that is itself a blend child can't hold both.
+- **Chosen for now:** the editor lists `fade` once for such a node (the release crossfade when `release` is `"now"`, otherwise the blend fade); the runtime reads the one value for both, as it does today. The case needs a sustain container directly under a blend, which is rare (a blend child is usually a clip or a layer).
+- **Proposal (yes/no):** add an optional `releaseFade` key to `sustain` (additive; the format stays `@1`; absent means `fade`, so existing files keep their meaning). One parser line, one runtime line, one editor field.
 
