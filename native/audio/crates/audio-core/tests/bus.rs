@@ -1,7 +1,9 @@
 //! BUS_CONFIG, BUS_MIX and MASTER apply cases (api-and-models §4.2; task A2.1, leaf L2).
 //!
 //! Every case submits real BATCH messages and renders quanta, then reads the output, the bus state
-//! (`audio_core::bus`) and the counters (K12). The DC clip makes each level exact.
+//! (`audio_core::bus`) and the counters (K12). The DC clip makes each level exact. Levels are
+//! expected in core time and checked against the output the master limiter's latency later
+//! (`Mixer::expect`, A2.9).
 
 mod common;
 
@@ -21,9 +23,9 @@ fn before_any_bus_config_voices_play_at_unity_through_one_root() {
     assert_eq!(bus::count(&m.core), 1);
     assert_eq!(status::counters(&m.core).bus_count, 0, "no peaks are sent before BUS_CONFIG");
     m.submit(&[dc(V1, 5, 0.0)]);
-    let (l, r) = m.render();
-    check(&l, TOL, "unity, left", |_| 1.0);
-    check(&r, TOL, "unity, right", |_| 1.0);
+    m.render();
+    m.expect(L, TOL, "unity, left", |_| 1.0);
+    m.expect(R, TOL, "unity, right", |_| 1.0);
 }
 
 #[test]
@@ -44,37 +46,37 @@ fn gains_multiply_down_the_tree() {
     let mut m = Mixer::new(8);
     // 0 root; 1 under 0; 2 under 1.
     m.submit(&[config(&[ROOT, 0, 1]), gains(0, &[0.5, 0.5, 0.5]), dc(V1, 2, 0.0), dc(V2, 1, 0.0)]);
-    let (l, r) = m.render();
+    m.render();
     // V1: 0.5^3; V2: 0.5^2.
-    check(&l, TOL, "tree, left", |_| 0.125 + 0.25);
-    check(&r, TOL, "tree, right", |_| 0.125 + 0.25);
+    m.expect(L, TOL, "tree, left", |_| 0.125 + 0.25);
+    m.expect(R, TOL, "tree, right", |_| 0.125 + 0.25);
 }
 
 #[test]
 fn a_muted_bus_silences_its_voices_only() {
     let mut m = Mixer::new(8);
     m.submit(&[config(&[ROOT, 0, 0]), gains(0, &[1.0, 0.0, 1.0]), dc(V1, 1, 0.0), dc(V2, 2, 0.0)]);
-    let (l, _) = m.render();
-    check(&l, TOL, "only bus 2 sounds", |_| 1.0);
+    m.render();
+    m.expect(L, TOL, "only bus 2 sounds", |_| 1.0);
 }
 
 #[test]
 fn a_voice_on_an_unconfigured_bus_goes_to_the_root() {
     let mut m = Mixer::new(8);
     m.submit(&[config(&[ROOT, 0]), gains(0, &[0.5, 0.0]), dc(V1, 7, 0.0)]);
-    let (l, _) = m.render();
-    check(&l, TOL, "bus 7 routes to bus 0", |_| 0.5);
+    m.render();
+    m.expect(L, TOL, "bus 7 routes to bus 0", |_| 0.5);
 }
 
 #[test]
 fn set_params_moves_a_voice_to_another_bus() {
     let mut m = Mixer::new(8);
     m.submit(&[config(&[ROOT, 0, 0]), gains(0, &[1.0, 0.25, 0.75]), dc(V1, 1, 0.0)]);
-    let (l, _) = m.render();
-    check(&l, TOL, "on bus 1", |_| 0.25);
+    m.render();
+    m.expect(L, TOL, "on bus 1", |_| 0.25);
     m.submit(&[set_bus(V1, 2)]);
-    let (l, _) = m.render();
-    check(&l, TOL, "on bus 2", |_| 0.75);
+    m.render();
+    m.expect(L, TOL, "on bus 2", |_| 0.75);
 }
 
 #[test]
@@ -95,8 +97,8 @@ fn bad_parents_and_cycles_are_repaired_to_the_first_root() {
     for b in 1..5u16 {
         m.submit(&[dc(0x0001_0000 | b as u32, b, 0.0)]);
     }
-    let (l, _) = m.render();
-    check(&l, TOL, "four voices, each through the root at 0.5, MASTER 0.25", |_| 0.5);
+    m.render();
+    m.expect(L, TOL, "four voices, each through the root at 0.5, MASTER 0.25", |_| 0.5);
     let s = bus::slots(&m.core);
     for b in 0..5 {
         let mut at = b;
@@ -115,8 +117,8 @@ fn an_empty_bus_config_keeps_one_root() {
     let mut m = Mixer::new(8);
     m.submit(&[config(&[]), dc(V1, 3, 0.0)]);
     assert_eq!(bus::count(&m.core), 1);
-    let (l, _) = m.render();
-    check(&l, TOL, "through the kept root", |_| 1.0);
+    m.render();
+    m.expect(L, TOL, "through the kept root", |_| 1.0);
 }
 
 #[test]
@@ -137,8 +139,8 @@ fn bus_mix_ramps_the_gain_from_the_next_quantum() {
     m.submit(&[config(&[ROOT, 0]), dc(V1, 1, 0.0)]);
     m.render();
     m.submit(&[gains(200, &[1.0, 0.0])]);
-    let (l, _) = m.render_n(2);
-    check(&l, TOL, "gain ramp across two quanta", |k| ramp_to(1.0, 0.0, 200, k));
+    m.render_n(2);
+    m.expect(L, TOL, "gain ramp across two quanta", |k| ramp_to(1.0, 0.0, 200, k));
 }
 
 #[test]
@@ -181,14 +183,14 @@ fn the_snapshot_cut_off_ramps_per_quantum() {
 fn master_volume_and_mute_ramp_the_output() {
     let mut m = Mixer::new(8);
     m.submit(&[config(&[ROOT]), dc(V1, 0, 0.0), master(0.5, false, 0)]);
-    let (l, _) = m.render();
-    check(&l, TOL, "volume 0.5", |_| 0.5);
+    m.render();
+    m.expect(L, TOL, "volume 0.5", |_| 0.5);
     m.submit(&[master(0.5, true, 64)]);
-    let (l, _) = m.render();
-    check(&l, TOL, "mute ramps to 0", |k| ramp_to(0.5, 0.0, 64, k));
+    m.render();
+    m.expect(L, TOL, "mute ramps to 0", |k| ramp_to(0.5, 0.0, 64, k));
     m.submit(&[master(f32::NAN, false, 0)]);
-    let (l, _) = m.render();
-    check(&l, TOL, "unmute restores the last volume", |_| 0.5);
+    m.render();
+    m.expect(L, TOL, "unmute restores the last volume", |_| 0.5);
 }
 
 #[test]
@@ -198,8 +200,8 @@ fn a_stamped_bus_mix_applies_on_arrival() {
     let Rec::Mix(mut r) = gains(0, &[0.25]) else { unreachable!() };
     r.frame_offset = 10_000;
     m.submit(&[Rec::Mix(r)]);
-    let (l, _) = m.render();
-    check(&l, TOL, "applied at once", |_| 0.25);
+    m.render();
+    m.expect(L, TOL, "applied at once", |_| 0.25);
 }
 
 #[test]
@@ -223,8 +225,10 @@ fn effects_are_stored_per_bus_and_unknown_types_dropped() {
     m.submit(&[dc(V1, 1, 0.0)]);
     let (l, r) = m.render_n(3);
     assert!(l.iter().chain(&r).all(|x| x.is_finite()));
-    check(&l[..288], TOL, "the compressor's pre-delay", |_| 0.0);
-    assert!(l[288..].iter().all(|&x| x > 0.0), "the delayed signal arrives at frame 288");
+    // Heard: plus the master limiter's latency (A2.9).
+    let d = m.latency();
+    check(&l[..288 + d], TOL, "the compressor's pre-delay and the limiter's", |_| 0.0);
+    assert!(l[288 + d..].iter().all(|&x| x > 0.0), "the delayed signal is heard at frame 288 + D");
 }
 
 #[test]
@@ -241,8 +245,9 @@ fn a_second_compressor_on_a_bus_is_dropped_and_counted() {
     // One compressor's look-ahead on the root, not two.
     m.submit(&[dc(V1, 0, 0.0)]);
     let (l, _) = m.render_n(3);
-    check(&l[..288], TOL, "the compressor's pre-delay", |_| 0.0);
-    assert!(l[288..].iter().all(|&x| x > 0.0), "the signal arrives after one pre-delay");
+    let d = m.latency();
+    check(&l[..288 + d], TOL, "the compressor's pre-delay and the limiter's", |_| 0.0);
+    assert!(l[288 + d..].iter().all(|&x| x > 0.0), "the signal arrives after one pre-delay");
 }
 
 #[test]
@@ -307,6 +312,6 @@ fn reset_keeps_the_tree_and_gains_and_clears_meters() {
     assert_eq!(bus::area(&m.core).master.value, 0.25);
     assert_eq!(status::counters(&m.core).peaks[1].l, 0.0);
     m.submit(&[dc(V2, 0, 0.0)]);
-    let (l, _) = m.render();
-    check(&l, TOL, "the root still at unity under MASTER 0.25", |_| 0.25);
+    m.render();
+    m.expect(L, TOL, "the root still at unity under MASTER 0.25", |_| 0.25);
 }

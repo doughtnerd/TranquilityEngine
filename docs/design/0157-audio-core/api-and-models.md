@@ -329,6 +329,7 @@ Borrowed as designs only, no code: Kira (command queue, clocks, tweens), Firewhe
 | `myco_audio_abi_version` | `() -> u32` | `(major << 8) | minor` |
 | `myco_audio_schema_hash`, `myco_audio_source_hash` | `() -> *const u8` | 16 bytes each |
 | `myco_audio_init` | `(sample_rate: f32, max_logical: u32, max_mixed: u32, max_buses: u32, arena_initial_bytes: u32) -> i32` | **deterministic**: allocates in a fixed order, so a fresh instance lands on the same addresses (a test asserts the addresses; post-M1 soft recovery needs it). May grow memory |
+| `myco_audio_set_limiter_lookahead` | `(ms: f32) -> i32` | ABI 1.1 (A2.9): the master limiter's look-ahead (`audio.limiterLookaheadMs`), clamped to 0..5 ms (NaN: 1.5); after `init`, before the first `process` (refused with `ERR_BAD_STATE` after); without it the core uses 1.5 ms. Sets the core's fixed output latency, `round(ms · rate / 1000)` frames |
 | `myco_audio_inbox_ptr`, `_cap` | `() -> *mut u8`, `() -> u32` | fixed 1 MiB, holds BATCH, REPLAY and small control messages |
 | `myco_audio_submit` | `(len: u32) -> i32` | parses the inbox message; never inside `process` |
 | `myco_audio_clip_reserve` | `(clip: u32, frames: u32, channels: u32, src_rate: f32, format: u32) -> i32` | `onmessage` only; may grow |
