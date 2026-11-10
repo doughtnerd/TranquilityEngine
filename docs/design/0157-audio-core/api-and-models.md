@@ -376,6 +376,25 @@ src/plugins/audio/
   editor/ index.ts AudioSettingsSection.tsx audioSettingsModel.ts BusMeters.tsx AudioDebugPanel.tsx audioSettings.css
 ```
 
+**M2 additions (ADR 0158; plan [2026-11-audio-events-m2-waves.md](../../plans/2026-11-audio-events-m2-waves.md)):**
+
+```
+src/engine/core/curve.ts                     the shared Curve type (E1)
+src/engine/audio/eventFormat.ts              myco.audioevent@1 parser (E1)
+src/plugins/audio/
+  runtime/
+    events/ eventRuntime.ts automation.ts    EventSystem, EventInstance, the AutomationSink and TsAutomation (E3)
+    loopPoints.ts                            loop points per clip: sidecar over file (C1 stub, E4.2)
+    loopPointsReader.ts                      WAV smpl / Ogg-Opus LOOPSTART reader for the Babylon path (E4.2)
+    core/ coreAutomation.ts                  the core's AutomationSink, its mirror and replay records, the onPlay loop hook (E3.1)
+  editor/
+    eventAsset.ts createEventFromClips.ts    the audioEvent kind's format and "Create event from clips" (E6.2)
+    event/ openEventEditor.ts EventEditorPanel.tsx eventTree.ts nodeFields.ts NodeProperties.tsx
+           ParametersPane.tsx Audition.tsx auditionHost.ts eventEditor.css    the Event editor (E6.2–E6.4)
+src/editor/ui/ CurveEditor.tsx curveEdit.ts  moved from the particles plugin (E6.1)
+native/audio/crates/audio-decode/src/loop_points.rs   loop points from files (E4.1)
+```
+
 - **The host** (architecture section 1) is created by `service.ts`, the `myco.audio` World service's lazy `load` (dynamic import): servers and headless Worlds never load the core, so "servers never load the core" holds. One host per page serves every Engine and World.
 - **Stays in `src/engine/audio/`:** `settings.ts`, `mixer.ts` (with `export const mixer` moved from `backend.ts:316`, so `Engine.ts:176` works without importing the plugin), and nothing else: `busGraph.ts` leaves with `BabylonBackend` (below).
 - **Moves:** `AudioSource.ts`, `AudioListener.ts`, `backend.ts`. `howlerBackend.ts` does not move; it is deleted. Component ids unchanged; `activate` calls `registerComponents`, `registerEngineSystems`, `registerWorldService`.
