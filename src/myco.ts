@@ -173,7 +173,7 @@ export {
 } from "./plugins/physics/runtime";
 
 // The Audio plugin (ADR 0157). Its settings types (`AudioSettings`…) stay in the core.
-export { Audio, AudioSource, AudioListener, type AudioHandle, type AudioStatus, type AudioReason, type AudioDebugInfo, type OneShotOptions, type Rolloff, type Bus } from "./plugins/audio/runtime";
+export { Audio, AudioSource, AudioListener, type AudioHandle, type AudioEventHandle, type EventOptions, type AudioStatus, type AudioReason, type AudioDebugInfo, type OneShotOptions, type Rolloff, type Bus } from "./plugins/audio/runtime";
 
 // The Navigation plugin (ADR 0065, 0135). Its settings types (`NavigationSettings`…) are core exports.
 export {

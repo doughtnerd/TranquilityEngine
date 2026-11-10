@@ -26,7 +26,8 @@ export type FakeVoiceEvent =
   | { readonly kind: "resume" }
   | { readonly kind: "stop"; readonly fadeSeconds?: number }
   | { readonly kind: "fade"; readonly to: number; readonly seconds: number }
-  | { readonly kind: "priority"; readonly value: number };
+  | { readonly kind: "priority"; readonly value: number }
+  | { readonly kind: "loop"; readonly start: number; readonly end: number; readonly looping: boolean };
 
 /** A voice the fake handed out. Fields hold the latest value; `events` the whole history. */
 export interface FakeVoice extends AudioVoice {
@@ -57,6 +58,10 @@ export interface FakeBackend extends AudioBackend {
   ready: boolean;
   /** Forgets the recorded plays, voices and listener poses (not the voices' own state). */
   clear(): void;
+  /** ADR 0158: clip lengths `clipDuration` reports (seconds); unlisted clips are unknown (null). */
+  readonly durations: Map<string, number>;
+  /** ADR 0158: what `horizon()` returns; null: no `horizon` (as on the Babylon fallback). */
+  horizonTime: number | null;
 }
 
 /**
@@ -90,6 +95,9 @@ export function makeFakeBackend(): FakeBackend {
     },
     setBackground() {},
     update() {},
+    durations: new Map(),
+    horizonTime: null,
+    clipDuration(path: string) { return backend.durations.get(path) ?? null; },
     play(request) {
       plays.push(request);
       if (!backend.ready) return null;
@@ -112,8 +120,11 @@ export function makeFakeBackend(): FakeBackend {
       plays.length = 0;
       voices.length = 0;
       listeners.length = 0;
+      backend.durations.clear();
+      backend.horizonTime = null;
     },
   };
+  Object.defineProperty(backend, "horizon", { get: () => (backend.horizonTime === null ? undefined : () => backend.horizonTime!) });
   return backend;
 }
 
@@ -166,6 +177,7 @@ function makeFakeVoice(request: PlayRequest): FakeVoice {
       state.bus = bus;
       events.push({ kind: "bus", value: bus });
     },
+    setLoop(start, end, looping) { events.push({ kind: "loop", start, end, looping }); },
     pause() { state.paused = true; events.push({ kind: "pause" }); },
     resume() { state.paused = false; events.push({ kind: "resume" }); },
     stop(fadeSeconds) { state.stopped = true; state.playing = false; events.push(fadeSeconds ? { kind: "stop", fadeSeconds } : { kind: "stop" }); uncount(); },

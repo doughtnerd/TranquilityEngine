@@ -8,7 +8,8 @@ import type { Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
 import { clipVolume, startClip, worldKeyOf, worldPlays } from "./AudioSource";
 import { warnOnce } from "./core/handle";
-import { audioBackend, type AudioDebugInfo, type AudioHandle, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest } from "./backend";
+import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest } from "./backend";
+import { events, type EventInstance, type EventOptions } from "./events/eventRuntime";
 
 /** Options for `Audio.playOneShot` (ADR 0074, api-and-models §1). */
 export interface OneShotOptions {
@@ -43,6 +44,32 @@ class VoiceHandle implements AudioHandle {
   fade(to: number, seconds: number): void { try { this.voice.fade(to, seconds); } catch { /* a voice already gone */ } }
 }
 
+
+/** A handle for an event that didn't play. */
+const INERT_EVENT: AudioEventHandle = Object.freeze({
+  playing: false, reason: null, position: null,
+  stop() {}, fade() {}, setParameter() {}, getParameter: () => undefined, release() {},
+});
+
+/** The public handle over an event instance (ADR 0158 §5). */
+class EventHandle implements AudioEventHandle {
+  constructor(private readonly instance: EventInstance) {}
+  get playing(): boolean { return this.instance.playing; }
+  get reason(): AudioReason | null { return this.instance.reason; }
+  get position(): Vec3Like | null { return this.instance.position; }
+  set position(p: Vec3Like | null) { this.instance.position = p; }
+  stop(fadeSeconds = 0): void { this.instance.stop(fadeSeconds); }
+  fade(to: number, seconds: number): void { this.instance.fade(Math.min(4, Math.max(0, to)), Math.max(0, seconds)); }
+  setParameter(name: string, value: number | string): void { this.instance.setParameter(name, value); }
+  getParameter(name: string): number | string | undefined { return this.instance.getParameter(name); }
+  release(): void { this.instance.release(); }
+}
+
+/** @internal `AudioSource` plays events through this too. */
+export function _playEvent(path: string, options: EventOptions, world: World | null, sourceKey?: string): EventInstance | null {
+  if (!worldPlays(world)) return null;
+  return events().play(path, options, worldKeyOf(world), sourceKey);
+}
 
 const MIN_PITCH = 0.0625;
 const MAX_PITCH = 16;
@@ -93,6 +120,30 @@ export const Audio = {
       warnOnce("playOneShot:threw", `Audio.playOneShot failed (${e instanceof Error ? e.message : String(e)}); no sound.`);
       return INERT;
     }
+  },
+
+  /**
+   * Play an audio event asset (`*.audioevent.json`, ADR 0158), or a clip as a one-clip event. Always returns a handle
+   * (an inert one when nothing played: no World with the view, a missing asset, a cooldown or a full limit); never throws.
+   */
+  play(event: string, options?: EventOptions): AudioEventHandle {
+    try {
+      const i = _playEvent(String(event), options !== null && typeof options === "object" ? options : {}, World.active);
+      return i ? new EventHandle(i) : INERT_EVENT;
+    } catch (e) {
+      warnOnce("play:threw", `Audio.play failed (${e instanceof Error ? e.message : String(e)}); no sound.`);
+      return INERT_EVENT;
+    }
+  },
+
+  /** Set a global audio parameter (Project Settings > Audio > Parameters; labelled ones by label). */
+  setParameter(name: string, value: number | string): void {
+    try { events().setGlobal(String(name), value); } catch (e) { warnOnce("setParameter:threw", `Audio.setParameter failed (${e instanceof Error ? e.message : String(e)}).`); }
+  },
+
+  /** A global audio parameter's value (a label for labelled ones); undefined if there is none by that name. */
+  getParameter(name: string): number | string | undefined {
+    return events().getGlobal(String(name));
   },
 
   /** A mixer bus by name (ADR 0097): `Audio.bus("Music").volume = 0.5`. */
@@ -151,6 +202,6 @@ export const Audio = {
 
   /** A copy of the state for tools and "why is there no sound?". Allocates; never per frame. */
   debug(): AudioDebugInfo {
-    return audioBackend().debug();
+    return { ...audioBackend().debug(), events: events().debugRows() };
   },
 };

@@ -488,12 +488,12 @@ describe("Audio public surface (api-and-models §1)", () => {
       expect(again.counters.traps).not.toBe(99);
     });
 
-    it("debug() delegates to backend.debug()", () => {
+    it("debug() delegates to backend.debug() and adds the playing events (ADR 0158)", () => {
       const r = useCore();
       const spy = vi.spyOn(r.backend, "debug");
       const info = Audio.debug();
       expect(spy).toHaveBeenCalledTimes(1);
-      expect(info).toEqual(spy.mock.results[0]!.value);
+      expect(info).toEqual({ ...spy.mock.results[0]!.value, events: [] });
     });
 
     it("the babylon backend gives status running, handle reason null and a debug with an empty voice list", async () => {

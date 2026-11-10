@@ -8,6 +8,7 @@ import type { Vec3Like } from "../../../engine/core/math";
 import { mixer, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { AudioSettings } from "../../../engine/audio/settings";
 import { onAudioConfigured } from "../../../engine/core/audioConfigure";
+import type { AutomationSink } from "./events/automation";
 
 export type Rolloff = "linear" | "inverse" | "exponential";
 
@@ -41,6 +42,20 @@ export interface AudioDebugInfo {
   voices: { id: number; clip: string; bus: string; world: string | null; state: "playing" | "virtual" | "stolen" | "waitingForData" | "busMuted" | "locked"; priority: number; gain: number; pitch: number; audibility: number; playheadSeconds: number | null; owner: string | null }[];
   /** Architecture 8: context state, latencies, lookahead, transport, memory and health groups. */
   core: Record<string, number | string | boolean>;
+  /** ADR 0158: playing event instances (`Audio.debug()` adds them; a backend leaves it out). */
+  events?: { id: number; asset: string; world: number; voices: number; parameters: Record<string, number | string> }[];
+}
+
+/** ADR 0158 §5: a playing event. M1's four members keep their meaning across all of the instance's voices. */
+export interface AudioEventHandle extends AudioHandle {
+  /** Set one of the event's own parameters (labelled ones by label). Unknown names warn once. */
+  setParameter(name: string, value: number | string): void;
+  /** One of the event's parameters, else a global one; undefined if neither. */
+  getParameter(name: string): number | string | undefined;
+  /** Where a spatial event plays; set it to move it. Null for a flat event. */
+  position: Vec3Like | null;
+  /** Key-off: sustain loops leave their loops and play their tails; the event ends when they do. A no-op without sustain. */
+  release(): void;
 }
 
 export interface Attenuation {
@@ -72,6 +87,8 @@ export interface PlayRequest {
   at?: number;
   attenuation?: Attenuation;
   position?: Vec3Like;
+  /** ADR 0158: the event instance this voice belongs to (1..1024; 0 or omitted: none). The core carries it in PLAY's `group`. */
+  group?: number;
 }
 
 /** One playing sound. */
@@ -97,6 +114,11 @@ export interface AudioVoice {
    * there. A loop wraps the time, otherwise it clamps to the end. Absent on the Babylon fallback.
    */
   seek?(seconds: number): void;
+  /**
+   * ADR 0158 §4, for backends without an `automation` sink of their own (the Babylon fallback): loop `start..end` seconds
+   * of the clip (`end` 0 is its end), or with `looping` false play on past the loop to the clip's end.
+   */
+  setLoop?(start: number, end: number, looping: boolean): void;
   /** Stop now, or fade to silence over `fadeSeconds` (default 0) and stop. */
   stop(fadeSeconds?: number): void;
 }
@@ -126,6 +148,15 @@ export interface AudioBackend {
   /** Per-frame hook. */
   update(dt: number): void;
   dispose?(): void;
+  /**
+   * ADR 0158: the backend's own automation (the core's tables). Absent: the event runtime evaluates automation on main
+   * with `TsAutomation` once per frame and drives voices through their setters.
+   */
+  readonly automation?: AutomationSink;
+  /** ADR 0158: a loaded clip's length in seconds at pitch 1, or null while it isn't known (still loading, streaming). */
+  clipDuration?(path: string): number | null;
+  /** ADR 0158: the earliest audio-clock time (`time`'s base) a play with `at` lands on exactly, for gapless chains. */
+  horizon?(): number;
 }
 
 let backend: AudioBackend | null = null;

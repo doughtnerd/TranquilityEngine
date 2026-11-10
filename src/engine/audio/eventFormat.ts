@@ -55,8 +55,23 @@ export const parameterRange = (p: ParameterDef): [number, number] => (isLabelled
 /** The default as a number (a label's index). */
 export const parameterDefault = (p: ParameterDef): number => (isLabelled(p) ? Math.max(0, p.labels.indexOf(p.default)) : p.default);
 
-/** At most this many parameters per event, and globally. */
+/** At most this many parameters globally (the core's global slots). */
 export const MAX_PARAMETERS = 64;
+/** At most this many local parameters per event (the core's slots per instance). */
+export const MAX_LOCAL_PARAMETERS = 16;
+/** At most this many keys per automation curve (the core's curve table). */
+export const MAX_CURVE_KEYS = 32;
+
+/** An automation curve: `parseCurve`, capped at `MAX_CURVE_KEYS` keys. `null` when it has no keys. */
+export function audioCurve(raw: unknown, where: string, problems: string[]): Curve | null {
+  const curve = parseCurve(raw, where, problems);
+  if (!curve || curve.length === 0) return null;
+  if (curve.length > MAX_CURVE_KEYS) {
+    problems.push(`${where}: at most ${MAX_CURVE_KEYS} keys; the rest are dropped.`);
+    curve.length = MAX_CURVE_KEYS;
+  }
+  return curve;
+}
 
 // --- automation -----------------------------------------------------------------------------------------------------
 
@@ -259,8 +274,8 @@ class Reader {
       const w = `${where}[${i}]`;
       if (!isRecord(a) || typeof a.parameter !== "string" || a.parameter === "") return void this.problems.push(`${w}: parameter must name a parameter; dropped.`);
       if (typeof a.target !== "string" || !(EVENT_TARGETS as readonly string[]).includes(a.target)) return void this.problems.push(`${w}: target must be one of ${EVENT_TARGETS.join(", ")}; dropped.`);
-      const curve = parseCurve(a.curve, `${w}.curve`, this.problems);
-      if (!curve || curve.length === 0) return void this.problems.push(`${w}: the curve has no keys; dropped.`);
+      const curve = audioCurve(a.curve, `${w}.curve`, this.problems);
+      if (!curve) return void this.problems.push(`${w}: the curve has no keys; dropped.`);
       out.push({ parameter: a.parameter, target: a.target as EventTarget, curve });
     });
     return out;
@@ -366,7 +381,7 @@ class Reader {
  * The parameter list of an event or of the project's `audio.parameters`, leniently. Names must be unique and
  * non-empty; numeric ones get `min <= default <= max`; labelled ones need at least one label.
  */
-export function parseParameters(raw: unknown, where: string, problems: string[]): ParameterDef[] {
+export function parseParameters(raw: unknown, where: string, problems: string[], limit = MAX_PARAMETERS): ParameterDef[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) { problems.push(`${where}: must be a list.`); return []; }
   const r = new Reader(problems);
@@ -375,7 +390,7 @@ export function parseParameters(raw: unknown, where: string, problems: string[])
     const w = `${where}[${i}]`;
     if (!isRecord(p) || typeof p.name !== "string" || p.name.trim() === "") return void problems.push(`${w}: name must be a non-empty string; dropped.`);
     if (out.some((o) => o.name === p.name)) return void problems.push(`${w}: another parameter is already named "${p.name}"; dropped.`);
-    if (out.length >= MAX_PARAMETERS) return void problems.push(`${w}: at most ${MAX_PARAMETERS} parameters; dropped.`);
+    if (out.length >= limit) return void problems.push(`${w}: at most ${limit} parameters; dropped.`);
     if (p.labels !== undefined) {
       const labels = Array.isArray(p.labels) ? [...new Set(p.labels.filter((l): l is string => typeof l === "string" && l !== ""))] : [];
       if (labels.length === 0) return void problems.push(`${w}: labels must be a list of names; dropped.`);
@@ -445,7 +460,7 @@ export function parseAudioEvent(raw: unknown): { value: AudioEventAsset; problem
     };
   }
   value.cooldown = r.num(raw.cooldown, "cooldown", 0, 0, 60);
-  value.parameters = parseParameters(raw.parameters, "parameters", problems);
+  value.parameters = parseParameters(raw.parameters, "parameters", problems, MAX_LOCAL_PARAMETERS);
   value.automation = r.automation(raw.automation, "automation");
   if (raw.root === undefined) problems.push("root: missing; the event plays nothing.");
   else { const root = r.node(raw.root, "root", 0); if (root) value.root = root; }

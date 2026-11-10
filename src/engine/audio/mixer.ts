@@ -29,6 +29,9 @@ interface BusState {
   voices: number;
   /** Newest peak (max of L and R, linear), from the backend's status (A2.3). */
   peak: number;
+  /** ADR 0158: bus automation from the TypeScript evaluator (the Babylon fallback only); 1 and OFF_HZ otherwise. */
+  autoGain: number;
+  autoLp: number;
 }
 
 const OFF_HZ = 24000;
@@ -79,7 +82,7 @@ export class Mixer {
     this.snapshotName = null;
     this.order = settings.buses.map((b) => b.name);
     for (const b of settings.buses) {
-      this.buses.set(b.name, { settings: b, volume: b.volume, mute: b.mute, solo: false, snap: 1, snapFrom: 1, snapTo: 1, lp: OFF_HZ, lpFrom: OFF_HZ, lpTo: OFF_HZ, duck: 1, voices: 0, peak: 0 });
+      this.buses.set(b.name, { settings: b, volume: b.volume, mute: b.mute, solo: false, snap: 1, snapFrom: 1, snapTo: 1, lp: OFF_HZ, lpFrom: OFF_HZ, lpTo: OFF_HZ, duck: 1, voices: 0, peak: 0, autoGain: 1, autoLp: OFF_HZ });
     }
     this._dirty();
   }
@@ -96,6 +99,17 @@ export class Mixer {
   _dirty(): void { this.changed = true; }
   /** @internal A2.3: the backend reports a bus's peak. */
   _setPeak(name: string, peak: number): void { const s = this.buses.get(name); if (s) s.peak = peak; }
+  /**
+   * @internal ADR 0158: bus automation computed on main, used only where the backend can't run it itself (the
+   * TypeScript evaluator on the Babylon fallback). The core applies BUS_AUTOMATE in the audio thread and never calls this.
+   */
+  _setAutomation(name: string, gain: number, lowpass: number): void {
+    const s = this.buses.get(name);
+    if (!s || (s.autoGain === gain && s.autoLp === lowpass)) return;
+    s.autoGain = gain;
+    s.autoLp = lowpass;
+    this._dirty();
+  }
   /** @internal A2.3: the core backend resets a bus's live-voice count to the core mirror's (after a bus remap, which reconfigures the mixer and zeroes counts). */
   _setVoiceCount(name: string, n: number): void { const s = this.buses.get(name); if (s) s.voices = Math.max(0, n | 0); }
 
@@ -208,12 +222,12 @@ export class Mixer {
     const s = this.buses.get(name);
     if (!s) return null;
     const solo = this.anySolo();
-    const gainOf = (n: string, st: BusState) => (st.mute || (solo && !this.audibleUnderSolo(n)) ? 0 : st.volume * st.snap * st.duck);
+    const gainOf = (n: string, st: BusState) => (st.mute || (solo && !this.audibleUnderSolo(n)) ? 0 : st.volume * st.snap * st.duck * st.autoGain);
     let effective = 1;
     for (const n of this.chain(name)) effective *= gainOf(n, this.buses.get(n)!);
     return {
       name, parent: s.settings.parent ?? null, gain: gainOf(name, s), effectiveGain: effective,
-      effects: s.settings.effects, snapshotLowpass: s.lp < OFF_HZ ? s.lp : null,
+      effects: s.settings.effects, snapshotLowpass: Math.min(s.lp, s.autoLp) < OFF_HZ ? Math.min(s.lp, s.autoLp) : null,
     };
   }
   resolveAll(): ResolvedBus[] { return this.order.map((n) => this.resolve(n)!); }

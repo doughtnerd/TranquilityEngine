@@ -12,6 +12,8 @@ import { _worldServiceOf } from "../../../engine/core/worldServices";
 import { AUDIO, type AudioWorldService } from "./core/service";
 import { Assets } from "../../../engine/scene/Assets";
 import { audioBackend, type AudioVoice, type PlayRequest, type Rolloff } from "./backend";
+import { isAudioEventPath } from "../../../engine/audio/eventFormat";
+import { _setEventClipStarter, events, type EventInstance } from "./events/eventRuntime";
 
 export type { Rolloff } from "./backend";
 
@@ -22,6 +24,9 @@ export function startClip(path: string, loop: boolean, output: string | undefine
 
 /** @internal The clip's import volume (ADR 0040), which scales every playback of it. */
 export const clipVolume = (path: string) => Assets.importSettings(path).volume;
+
+// ADR 0158: event clips start like every clip, with the import volume (and the bus resolved as for `output`).
+_setEventClipStarter({ start: startClip, clipVolume });
 
 const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math.max(0, Math.round(p))) : 128);
 
@@ -40,7 +45,8 @@ export function worldKeyOf(world: World | null): number {
  */
 @component("engine.AudioSource")
 export class AudioSource extends Component {
-  @field(AssetRef, { kind: "audio" }) clip = "";
+  /** A clip, or an audio event asset (`*.audioevent.json`, ADR 0158). For an event, `loop`, `spatial` and the distance fields come from the event. */
+  @field(AssetRef, { kind: ["audio", "audioEvent"] }) clip = "";
   @field(Number) volume = 1;
   @field(Boolean) loop = false;
   @field(Boolean) playOnAwake = true;
@@ -61,10 +67,13 @@ export class AudioSource extends Component {
   @field(Number) priority = 128;
 
   private voice: AudioVoice | null = null;
+  /** ADR 0158: the playing event instance when `clip` is an event. */
+  private instance: EventInstance | null = null;
   /** What was last applied to the playing sound, so a frame only touches the backend for changes. */
   private applied = "";
 
   get isPlaying(): boolean {
+    if (this.instance) return this.instance.playing;
     return this.voice !== null && this.voice.playing;
   }
 
@@ -72,6 +81,14 @@ export class AudioSource extends Component {
     if (!this.clip || !worldPlays(this._world)) return;
     this.stop();
     const path = this.clip.replace(/^asset:/, "");
+    if (isAudioEventPath(path)) {
+      this.instance = events().play(path, {
+        pitch: this.pitch, priority: clamp255(this.priority), bus: this.output || undefined, position: this.node.transform?.worldPosition,
+      }, worldKeyOf(this._world));
+      this.applied = "";
+      if (this.instance) this.applyEvent();
+      return;
+    }
     this.voice = startClip(path, this.loop, this.output, { priority: clamp255(this.priority), world: worldKeyOf(this._world) });
     this.applied = "";
     if (this.voice) this.apply(path);
@@ -79,10 +96,27 @@ export class AudioSource extends Component {
 
   pause(): void {
     this.voice?.pause();
+    this.instance?.pause();
   }
 
   resume(): void {
     this.voice?.resume();
+    this.instance?.resume();
+  }
+
+  /** ADR 0158: set one of the playing event's own parameters. Does nothing for a clip. */
+  setParameter(name: string, value: number | string): void {
+    this.instance?.setParameter(name, value);
+  }
+
+  /** ADR 0158: one of the playing event's parameters (else a global one); undefined for a clip or when not playing. */
+  getParameter(name: string): number | string | undefined {
+    return this.instance?.getParameter(name);
+  }
+
+  /** ADR 0158: key-off the playing event, so its sustain loops play their tails. Does nothing for a clip. */
+  release(): void {
+    this.instance?.release();
   }
 
   /**
@@ -99,12 +133,26 @@ export class AudioSource extends Component {
   stop(): void {
     this.voice?.stop();
     this.voice = null;
+    this.instance?.stop();
+    this.instance = null;
   }
 
   /** @internal Each frame (the audio system): volume, pitch and, for spatial sources, position and falloff. */
   _sync(): void {
+    if (this.instance) return this.applyEvent();
     if (!this.voice) return;
     this.apply(this.clip.replace(/^asset:/, ""));
+  }
+
+  /** An event's volume follows `volume` (as the instance's fade multiplier) and a spatial event follows the node. Pitch and the rest apply at the next play. */
+  private applyEvent(): void {
+    const instance = this.instance!;
+    const signature = `${this.volume}`;
+    if (signature !== this.applied) {
+      this.applied = signature;
+      instance.fade(Math.min(4, Math.max(0, this.volume)), 0);
+    }
+    if (instance.asset.spatial && this.node.transform) instance.position = this.node.transform.worldPosition;
   }
 
   private apply(path: string): void {

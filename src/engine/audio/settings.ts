@@ -18,9 +18,9 @@
  * ```
  */
 
-import { parseCurve, type Curve } from "../core/curve";
+import type { Curve } from "../core/curve";
 import { detectPlatform, type PlatformEnv } from "../core/graphics";
-import { parseParameters, type ParameterDef } from "./eventFormat";
+import { audioCurve, parseParameters, type ParameterDef } from "./eventFormat";
 
 export type BusEffect =
   | { type: "lowpass"; frequency: number; q: number }
@@ -378,8 +378,8 @@ function parseEventKeys(input: Record<string, unknown>, settings: AudioSettings,
       if (typeof raw.bus !== "string" || !settings.buses.some((b) => b.name === raw.bus)) return void problems.push(`${where}: bus must name a bus; dropped.`);
       if (typeof raw.parameter !== "string" || !settings.parameters.some((p) => p.name === raw.parameter)) return void problems.push(`${where}: parameter must name a global parameter; dropped.`);
       if (raw.target !== "volume" && raw.target !== "lowpass") return void problems.push(`${where}: target must be "volume" or "lowpass"; dropped.`);
-      const curve = parseCurve(raw.curve, `${where}.curve`, problems);
-      if (!curve || curve.length === 0) return void problems.push(`${where}: the curve has no keys; dropped.`);
+      const curve = audioCurve(raw.curve, `${where}.curve`, problems);
+      if (!curve) return void problems.push(`${where}: the curve has no keys; dropped.`);
       settings.automation.push({ bus: raw.bus, parameter: raw.parameter, target: raw.target, curve });
     });
   }

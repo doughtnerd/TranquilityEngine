@@ -11,6 +11,7 @@ import type { GameObject } from "../../../engine/scene/GameObject";
 import { AudioListener, listenerPose } from "./AudioListener";
 import { AudioSource, worldPlays } from "./AudioSource";
 import { audioBackend, hasAudioBackend, isPendingCoreBackend } from "./backend";
+import { events } from "./events/eventRuntime";
 import { AUDIO, type AudioWorldService } from "./core/service";
 
 /** Worlds whose audio system already asked for the core's World service. */
@@ -80,6 +81,7 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
       }
       mixer.update(dt);
       audioBackend().update?.(dt);
+      events().update(dt); // ADR 0158: due continuous-container timers; the fallback's automation
       for (const s of world._componentsOfType(AudioSource)) s._sync();
     },
   },
