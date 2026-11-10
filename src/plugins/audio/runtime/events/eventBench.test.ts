@@ -167,6 +167,34 @@ function allocPerOp(op: () => void, batch = 200, batches = 15): number {
 
 const rigs: [string, () => Promise<Rig | null>][] = [["core (loopback)", coreRig], ["fake", fakeRig]];
 
+// The deterministic gate on the runtime's own per-play cost (E5.3b). The core's table, writer and mirror (and the fake's
+// recording voice) allocate on their own account, so this plays through a backend whose `play` returns one shared
+// voice and whose automation sink does nothing: what is left is `Audio.play` + the event runtime + `startClip` and the
+// asset lookups. Heap deltas are medians over batches (a scavenge inside a batch only lowers a batch's number), so the
+// ceilings below are stable under load; they sit about 1.5x over the measured values after E5.3b (before it: rand4 about
+// 4.4 KB, layer3 about 9 KB). A change that adds a closure, a spread or a table per play shows up here.
+const RUNTIME_BYTES_PER_PLAY: Record<string, number> = { rand4: 3_600, layer3: 6_500, clip: 2_600 };
+describe("event runtime allocations per play (null backend)", () => {
+  it.each(Object.keys(RUNTIME_BYTES_PER_PLAY))("%s stays under its ceiling", { timeout: 60_000 }, async (name) => {
+    await boot();
+    const fake = makeFakeBackend();
+    const voice = fake.play({ path: "a.wav", url: "", loop: false, stream: false, bus: "Master" })!;
+    const sink = { defineCurve() {}, setParam() {}, bindVoice() {}, bindBus() {}, setLoop() {} };
+    const backend = Object.create(fake, {
+      play: { value: () => voice },
+      automation: { value: sink },
+    }) as AudioBackend;
+    setAudioBackend(backend);
+    events()._reset();
+    const path = name === "clip" ? "a.wav" : `${name}.audioevent.json`;
+    const op = () => { Audio.play(path).stop(0); };
+    for (let i = 0; i < 2_000; i++) op();
+    const bytes = allocPerOp(op, 100, 25);
+    if (FULL) console.log(`[eventBench] runtime only, ${name}: ~${bytes.toFixed(0)} B heap per play+stop`);
+    expect(bytes).toBeLessThanOrEqual(RUNTIME_BYTES_PER_PLAY[name]!);
+  });
+});
+
 describe.each(rigs)("event cost on main: %s backend", (label, make) => {
   it("Audio.play and setParameter: records per operation (gated) and timings (reported)", { timeout: 120_000 }, async (ctx) => {
     const r = await make();

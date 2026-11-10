@@ -13,11 +13,12 @@ import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
 import {
-  AUDIO_EVENT_FORMAT, isLabelled, parameterDefault, parameterRange, parseAudioEvent,
+  AUDIO_EVENT_FORMAT, isLabelled, parameterDefault, parameterRange, parseAudioEvent, sustainReleaseFade,
   type AudioEventAsset, type Automation, type EventNode, type ParameterDef, type SustainNode, type SwitchNode,
 } from "../../../../engine/audio/eventFormat";
 import { audioBackend, type AudioBackend, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
 import { warnOnce } from "../core/handle";
+import { loopPointsFor, onLoopPoints } from "../loopPoints";
 import {
   AutoTarget, LOWPASS_OFF, MAX_BINDINGS, MAX_CURVES, MAX_GROUPS, TsAutomation,
   type AutomationSink, type Binding, type ParamRef,
@@ -64,6 +65,8 @@ export function loadAudioEvent(path: string): AudioEventAsset | null {
   }
   return value;
 }
+
+const EVENT_PATH = /\.audioevent\.json$/i;
 
 /** A clip played through `Audio.play` as a one-clip event. Cached per path. */
 const clipEvents = new Map<string, AudioEventAsset>();
@@ -124,6 +127,22 @@ function nodePath(asset: AudioEventAsset, node: EventNode): string {
   return m.get(node) ?? "?";
 }
 
+/** Whether `hist[from..]` holds `i`. */
+function inTail(hist: readonly number[], from: number, i: number): boolean {
+  for (let k = from; k < hist.length; k++) if (hist[k] === i) return true;
+  return false;
+}
+
+/** The key of a node's per-World state (`assetPath \0 nodePath`), built once per node and path. */
+const stateKeys = new WeakMap<EventNode, { path: string; key: string }>();
+function stateKey(path: string, asset: AudioEventAsset, node: EventNode): string {
+  const c = stateKeys.get(node);
+  if (c && c.path === path) return c.key;
+  const key = `${path}\0${nodePath(asset, node)}`;
+  stateKeys.set(node, { path, key });
+  return key;
+}
+
 // --- the system ---------------------------------------------------------------------------------------------------
 
 interface GlobalParam {
@@ -158,6 +177,8 @@ interface VoiceRec {
   length: number | null;
   /** The switch branch or sustain slot that started it, so a re-pick or release can find it. */
   owner: object | null;
+  /** Stops waiting for the clip's own loop points (they hadn't arrived at its PLAY). */
+  pointsOff: (() => void) | null;
 }
 
 /** The event runtime. One per page (the backend is one per page too); `events()` returns it. */
@@ -191,12 +212,16 @@ export class EventSystem {
   play(pathOrClip: string, options: EventOptions = {}, world = 0, sourceKey?: string): EventInstance | null {
     this.refresh();
     this.reapIfEnded();
-    const path = String(pathOrClip).replace(/^asset:/, "");
-    const asset = path.toLowerCase().endsWith(".audioevent.json") ? loadAudioEvent(path) : clipEvent(path);
+    let path = String(pathOrClip);
+    if (path.startsWith("asset:")) path = path.slice(6);
+    const asset = EVENT_PATH.test(path) ? loadAudioEvent(path) : clipEvent(path);
     if (!asset) return null;
-    const key = `${world}:${sourceKey ?? path}`;
-    const now = this.now();
+    // Cooldowns are the only reader of the last-play times, so only events that have one pay for the key and the map.
+    let key: string | null = null;
+    let now = 0;
     if (asset.cooldown > 0) {
+      key = `${world}:${sourceKey ?? path}`;
+      now = this.now();
       const last = this.lastPlay.get(key);
       if (last !== undefined && now - last < asset.cooldown) return null;
     }
@@ -208,7 +233,7 @@ export class EventSystem {
         victim.stop(0.01);
       }
     }
-    this.lastPlay.set(key, now);
+    if (key !== null) this.lastPlay.set(key, now);
     const instance = new EventInstance(this, asset, path, world, this.allocGroup(asset), options);
     this.live.add(instance);
     instance.start();
@@ -403,25 +428,25 @@ export class EventSystem {
     if (n <= 1) return 0;
     const st = this.stateOf(from.world);
     const rng = st.rng!;
-    const key = `${from.path}\0${nodePath(from.asset, node)}`;
-    const hist = st.history.get(key) ?? [];
-    // `avoid` 0 bans nothing (`slice(-0)` would have banned every earlier pick).
-    const banned = new Set(avoid > 0 ? hist.slice(-Math.min(avoid, n - 1)) : []);
+    const key = stateKey(from.path, from.asset, node);
+    let hist = st.history.get(key);
+    if (!hist) st.history.set(key, (hist = []));
+    // The last `avoid` picks are banned (`avoid` 0 bans nothing: `slice(-0)` would have banned every earlier pick).
+    const from0 = avoid > 0 ? Math.max(0, hist.length - Math.min(avoid, n - 1)) : hist.length;
     let total = 0;
-    for (let i = 0; i < n; i++) if (!banned.has(i)) total += node.children[i].weight;
+    for (let i = 0; i < n; i++) if (!inTail(hist, from0, i)) total += node.children[i].weight;
     let pick = -1;
     if (total > 0) {
       let r = rng() * total;
       for (let i = 0; i < n; i++) {
-        if (banned.has(i)) continue;
+        if (inTail(hist, from0, i)) continue;
         r -= node.children[i].weight;
         if (r < 0) { pick = i; break; }
       }
-      if (pick < 0) for (let i = n - 1; i >= 0; i--) if (!banned.has(i)) { pick = i; break; }
+      if (pick < 0) for (let i = n - 1; i >= 0; i--) if (!inTail(hist, from0, i)) { pick = i; break; }
     } else pick = Math.floor(rng() * n);
     hist.push(pick);
     if (hist.length > 32) hist.splice(0, hist.length - 32);
-    st.history.set(key, hist);
     return pick;
   }
 
@@ -429,7 +454,7 @@ export class EventSystem {
   nextStep(node: EventNode & { children: EventNode[]; reset: number }, from: Pick<EventInstance, "world" | "path" | "asset">): number {
     const now = this.now();
     const steps = this.stateOf(from.world).steps;
-    const key = `${from.path}\0${nodePath(from.asset, node)}`;
+    const key = stateKey(from.path, from.asset, node);
     const s = steps.get(key) ?? { index: -1, last: now };
     if (node.reset > 0 && now - s.last > node.reset) s.index = -1;
     s.index = (s.index + 1) % Math.max(1, node.children.length);
@@ -584,14 +609,32 @@ interface Runner {
   stopped: boolean;
 }
 
+const NO_SWITCHES: SwitchWatch[] = [];
+const NO_SUSTAINS: SustainWatch[] = [];
+const NO_RUNNERS: Runner[] = [];
+const NO_LOCALS: number[] = [];
+const NO_BINDINGS: Binding[] = [];
+
+/** An asset's local parameters by name (immutable once parsed, so shared by its instances). */
+const localDefCache = new WeakMap<AudioEventAsset, ReadonlyMap<string, { slot: number; def: ParameterDef }>>();
+function localDefsOf(asset: AudioEventAsset): ReadonlyMap<string, { slot: number; def: ParameterDef }> {
+  let m = localDefCache.get(asset);
+  if (!m) {
+    m = new Map(asset.parameters.map((def, slot) => [def.name, { slot, def }]));
+    localDefCache.set(asset, m);
+  }
+  return m;
+}
+
 /** One playing event: its voices, local parameters and handle state. */
 export class EventInstance {
   readonly voices: VoiceRec[] = [];
   private readonly locals: number[];
-  private readonly localDefs: Map<string, { slot: number; def: ParameterDef }>;
-  private readonly switches: SwitchWatch[] = [];
-  private readonly sustains: SustainWatch[] = [];
-  private readonly runners: Runner[] = [];
+  private readonly localDefs: ReadonlyMap<string, { slot: number; def: ParameterDef }>;
+  // Most events have no switch, sustain or continuous container: these are allocated when the first one is pushed.
+  private switches: SwitchWatch[] = NO_SWITCHES;
+  private sustains: SustainWatch[] = NO_SUSTAINS;
+  private runners: Runner[] = NO_RUNNERS;
   private pending = 0;
   private pos: Vec3Like | null;
   private released = false;
@@ -611,13 +654,17 @@ export class EventInstance {
     private readonly options: EventOptions,
   ) {
     this.pitchOption = Math.max(0.0625, options.pitch ?? 1);
-    this.localDefs = new Map(asset.parameters.map((def, slot) => [def.name, { slot, def }]));
-    this.locals = asset.parameters.map((def) => parameterDefault(def));
-    for (const [name, v] of Object.entries(options.parameters ?? {})) {
-      const l = this.localDefs.get(name);
-      if (!l) { warnOnce(`event:local:${path}:${name}`, `Audio.play("${path}"): the event has no parameter "${name}".`); continue; }
-      const n = toNumber(l.def, v, `Audio.play("${path}") parameter "${name}"`);
-      if (n !== null) this.locals[l.slot] = n;
+    this.localDefs = localDefsOf(asset);
+    const np = asset.parameters.length;
+    this.locals = np === 0 ? NO_LOCALS : new Array<number>(np);
+    for (let k = 0; k < np; k++) this.locals[k] = parameterDefault(asset.parameters[k]);
+    if (options.parameters) {
+      for (const [name, v] of Object.entries(options.parameters)) {
+        const l = this.localDefs.get(name);
+        if (!l) { warnOnce(`event:local:${path}:${name}`, `Audio.play("${path}"): the event has no parameter "${name}".`); continue; }
+        const n = toNumber(l.def, v, `Audio.play("${path}") parameter "${name}"`);
+        if (n !== null) this.locals[l.slot] = n;
+      }
     }
     this.pos = asset.spatial && options.position ? { x: options.position.x, y: options.position.y, z: options.position.z } : null;
   }
@@ -628,7 +675,8 @@ export class EventInstance {
   /** No side effects: an ended instance is retired by `EventSystem` (`play` and `update`). */
   get playing(): boolean {
     if (this.stopped) return false;
-    if (this.pending > 0 || this.runners.some((r) => !r.stopped)) return true;
+    if (this.pending > 0) return true;
+    for (const r of this.runners) if (!r.stopped) return true;
     for (const v of this.voices) if (v.voice.playing) return true;
     return false;
   }
@@ -656,7 +704,7 @@ export class EventInstance {
   start(): void {
     const a = this.asset;
     // Every local parameter starts at its value (a reused group must not keep the last instance's).
-    if (this.group > 0) this.locals.forEach((v, slot) => this.sys.automation.setParam(this.group, slot, v, 0));
+    if (this.group > 0) for (let slot = 0; slot < this.locals.length; slot++) this.sys.automation.setParam(this.group, slot, this.locals[slot], 0);
     const base: Ctx = {
       at: this.options.at !== undefined && Number.isFinite(this.options.at) ? this.options.at : null,
       volume: a.volume * dbToGain(lerp(a.volumeRandom, this.sys.random(this.world))) * Math.max(0, this.options.volume ?? 1),
@@ -672,7 +720,7 @@ export class EventInstance {
     if (this.stopped) return;
     this.stopped = true;
     for (const r of this.runners) r.stopped = true;
-    for (const v of this.voices) v.voice.stop(fadeSeconds);
+    for (const v of this.voices) { v.pointsOff?.(); v.voice.stop(fadeSeconds); }
     this.sys.retire(this);
   }
 
@@ -712,8 +760,10 @@ export class EventInstance {
       v.loop = { ...v.loop, looping: false };
       this.sys.automation.setLoop(v.voice, v.loop.start, v.loop.end, false);
     }
-    for (const s of this.sustains) this.releaseSustain(s);
-    this.sustains.length = 0;
+    if (this.sustains !== NO_SUSTAINS) {
+      for (const s of this.sustains) this.releaseSustain(s);
+      this.sustains.length = 0;
+    }
   }
 
   setParameter(name: string, value: number | string): void {
@@ -781,16 +831,31 @@ export class EventInstance {
   private playNode(node: EventNode, parent: Ctx, fadeIn = 0): number | null {
     if (this.stopped) return null;
     const sys = this.sys;
-    const ctx: Ctx = {
-      ...parent,
-      volume: parent.volume * node.volume * dbToGain(lerp(node.volumeRandom, sys.random(this.world))),
-      pitch: parent.pitch * node.pitch * semitonesToRatio(lerp(node.pitchRandom, sys.random(this.world))),
-      bindings: node.automation.length ? [...parent.bindings, ...this.bindings(node.automation)] : parent.bindings,
-    };
-    if (node.delay > 0) ctx.at = (ctx.at ?? sys.horizon() ?? sys.clock()) + node.delay;
+    // The draws are taken even for a fixed range, so a node's picks don't depend on its neighbours' settings.
+    const vol = parent.volume * node.volume * dbToGain(lerp(node.volumeRandom, sys.random(this.world)));
+    const pit = parent.pitch * node.pitch * semitonesToRatio(lerp(node.pitchRandom, sys.random(this.world)));
+    let ctx: Ctx;
+    if (vol === parent.volume && pit === parent.pitch && node.automation.length === 0 && !(node.delay > 0)) ctx = parent;
+    else {
+      ctx = {
+        at: parent.at, volume: vol, pitch: pit,
+        bindings: node.automation.length ? this.bindings(node.automation, parent.bindings) : parent.bindings,
+        sustain: parent.sustain, owner: parent.owner,
+      };
+      if (node.delay > 0) ctx.at = (ctx.at ?? sys.horizon() ?? sys.clock()) + node.delay;
+    }
     switch (node.type) {
       case "clip": return this.playClip(node, ctx, fadeIn);
-      case "layer": return maxEnd(node.children.map((c) => this.playNode(c, ctx, fadeIn)));
+      case "layer": {
+        // Every child plays; the layer ends when the last of them does (unknown if any is).
+        let end: number | null = 0, unknown = false;
+        for (const c of node.children) {
+          const e = this.playNode(c, ctx, fadeIn);
+          if (e === null) unknown = true;
+          else if (!unknown && e > end!) end = e;
+        }
+        return unknown || node.children.length === 0 ? null : end;
+      }
       case "blend": {
         const p = this.paramRef(node.parameter);
         return maxEnd(node.children.map((c) => {
@@ -803,7 +868,7 @@ export class EventInstance {
       case "switch": {
         const i = this.switchChild(node);
         const token = {};
-        this.switches.push({ node, ctx: { ...ctx }, child: i, token });
+        (this.switches === NO_SWITCHES ? (this.switches = []) : this.switches).push({ node, ctx: { ...ctx }, child: i, token });
         return i >= 0 ? this.playNode(node.children[i], { ...ctx, owner: token }, fadeIn) : null;
       }
       case "random":
@@ -825,36 +890,65 @@ export class EventInstance {
     const looping = node.loop || held;
     const volume = ctx.volume * starter.clipVolume(node.clip);
     const pitch = clampPitch(ctx.pitch * this.pitchOption);
-    const req: Partial<PlayRequest> = {
-      volume, pitch, priority: this.options.priority ?? a.priority,
-      world: this.world, group: this.group,
-    };
+    const req: Partial<PlayRequest> = { volume, pitch, priority: this.options.priority ?? a.priority, world: this.world, group: this.group };
     if (ctx.at !== null) req.at = ctx.at;
     if (a.spatial) {
-      req.attenuation = { minDistance: a.spatial.minDistance, maxDistance: a.spatial.maxDistance, rolloff: a.spatial.rolloff };
+      req.attenuation = attenuationOf(a.spatial);
       if (this.pos) req.position = this.pos;
     }
     const voice = starter.start(node.clip, looping, this.options.bus ?? (a.bus || undefined), req);
     if (!voice) return null;
     const base = { volume, pitch };
-    const bindings = ctx.bindings.slice(0, MAX_BINDINGS);
-    if (ctx.bindings.length > MAX_BINDINGS) warnOnce(`event:bindings:${this.path}`, `Audio events: "${this.path}" puts more than ${MAX_BINDINGS} automation curves on one clip; the rest are ignored.`);
+    let bindings = ctx.bindings;
+    if (bindings.length > MAX_BINDINGS) {
+      bindings = bindings.slice(0, MAX_BINDINGS);
+      warnOnce(`event:bindings:${this.path}`, `Audio events: "${this.path}" puts more than ${MAX_BINDINGS} automation curves on one clip; the rest are ignored.`);
+    }
     const sink = sys.automation;
-    sink.bindVoice(voice, this.group, bindings, base);
+    // A fresh voice has nothing bound, so an empty binding list needs no call.
+    if (bindings.length > 0) sink.bindVoice(voice, this.group, bindings, base);
     if (fadeIn > 0) { voice.fade(0, 0); voice.fade(this.fadeTo ?? 1, fadeIn); }
     let loop: LoopState | null = null;
-    if (looping && (node.loopRegion || held)) {
-      loop = { start: node.loopRegion?.[0] ?? 0, end: node.loopRegion?.[1] ?? 0, looping: true };
-      sink.setLoop(voice, loop.start, loop.end, true);
-    }
+    if (looping) loop = this.startLoop(voice, node, held, sink);
     if (node.startOffset > 0) voice.seek?.(node.startOffset);
     if (this.fadeTo !== null && !(fadeIn > 0)) voice.fade(this.fadeTo, 0);
     const len = sys.clipLength(node.clip);
     const length = len !== null ? Math.max(0, len - node.startOffset) / base.pitch : null;
     const start = ctx.at ?? sys.horizon();
-    this.voices.push({ voice, node, bindings, base, ctxPitch: ctx.pitch, loop, start, length, owner: ctx.owner });
+    const rec: VoiceRec = { voice, node, bindings, base, ctxPitch: ctx.pitch, loop, start, length, owner: ctx.owner, pointsOff: null };
+    this.voices.push(rec);
+    if (looping && !node.loopRegion) this.followClipLoopPoints(rec, node.clip);
     if (looping) return null;
     return start !== null && length !== null ? start + length : null;
+  }
+
+  /**
+   * The loop a looping clip starts with. An explicit `loopRegion` is sent as it is. Without one the clip loops its own
+   * loop points (ADR 0158 §1, §4) when they are known; held clips (sustain) always have a loop state, so a release can
+   * find it, and a plain loop whose clip has no points keeps the backend's whole-clip loop and sends nothing.
+   */
+  private startLoop(voice: AudioVoice, node: EventNode & { type: "clip" }, held: boolean, sink: AutomationSink): LoopState | null {
+    let loop: LoopState | null = null;
+    if (node.loopRegion) loop = { start: node.loopRegion[0], end: node.loopRegion[1], looping: true };
+    else {
+      const points = loopPointsFor(node.clip);
+      if (points) loop = { start: points.start, end: points.end, looping: true };
+      else if (held) loop = { start: 0, end: 0, looping: true };
+    }
+    if (loop) sink.setLoop(voice, loop.start, loop.end, true);
+    return loop;
+  }
+
+  /** The clip's own loop points may arrive after the PLAY (the decoder reports them): apply them to the voice then. */
+  private followClipLoopPoints(rec: VoiceRec, path: string): void {
+    if (rec.loop && !(rec.loop.start === 0 && rec.loop.end === 0)) return; // known now: already applied
+    rec.pointsOff = onLoopPoints(path, (points) => {
+      rec.pointsOff = null;
+      if (!points || this.stopped || !rec.voice.playing) return;
+      if (rec.loop && !rec.loop.looping) return; // released before they arrived
+      rec.loop = { start: points.start, end: points.end, looping: true };
+      this.sys.automation.setLoop(rec.voice, points.start, points.end, true);
+    });
   }
 
   private playSustain(node: SustainNode, ctx: Ctx): number | null {
@@ -871,7 +965,7 @@ export class EventInstance {
       if (end !== null) startLoop(end);
       else this.whenDone(() => this.voices.filter((v) => v.node === node.start || isUnder(node.start!, v.node)), () => startLoop(null));
     } else startLoop(ctx.at);
-    if (!this.released) this.sustains.push(watch);
+    if (!this.released) (this.sustains === NO_SUSTAINS ? (this.sustains = []) : this.sustains).push(watch);
     return null;
   }
 
@@ -879,8 +973,9 @@ export class EventInstance {
     const n = w.node;
     const loopVoices = this.voices.filter((v) => v.owner === w.token && v.voice.playing);
     if (n.release === "now" || loopVoices.length === 0) {
-      for (const v of loopVoices) v.voice.stop(n.fade);
-      if (n.end) this.playNode(n.end, { ...w.ctx, at: null, owner: {} }, n.fade);
+      const fade = sustainReleaseFade(n);
+      for (const v of loopVoices) v.voice.stop(fade);
+      if (n.end) this.playNode(n.end, { ...w.ctx, at: null, owner: {} }, fade);
       return;
     }
     // "loopEnd": each loop clip plays out its current pass, and `end` starts where the first of them ends.
@@ -904,7 +999,7 @@ export class EventInstance {
   /** Continuous random/sequence: one child now, the next scheduled from the first's known end (or when it ends). */
   private run(node: Runner["node"], ctx: Ctx): null {
     const r: Runner = { node, ctx, index: -1, stopped: false };
-    this.runners.push(r);
+    (this.runners === NO_RUNNERS ? (this.runners = []) : this.runners).push(r);
     this.step(r, ctx.at ?? this.sys.horizon());
     return null;
   }
@@ -975,8 +1070,10 @@ export class EventInstance {
     return null;
   }
 
-  private bindings(list: readonly Automation[]): Binding[] {
-    const out: Binding[] = [];
+  /** `list` as bindings, after `before` (the parent's, copied: a node's bindings never change its parent's). */
+  private bindings(list: readonly Automation[], before: readonly Binding[] = NO_BINDINGS): Binding[] {
+    if (list.length === 0) return before as Binding[];
+    const out: Binding[] = before.length === 0 ? [] : before.slice();
     for (const a of list) {
       const p = this.paramRef(a.parameter);
       const id = p ? this.sys.curveId(a.curve) : null;
@@ -996,6 +1093,14 @@ let starter: ClipStarter = { start: () => null, clipVolume: () => 1 };
 /** @internal `AudioSource.ts` provides the clip starter (it owns `startClip` and the import settings). */
 export function _setEventClipStarter(s: ClipStarter): void {
   starter = s;
+}
+
+/** A spatial event's attenuation as the request wants it, built once per asset (backends only read it). */
+const attenuations = new WeakMap<object, NonNullable<PlayRequest["attenuation"]>>();
+function attenuationOf(s: NonNullable<AudioEventAsset["spatial"]>): NonNullable<PlayRequest["attenuation"]> {
+  let a = attenuations.get(s);
+  if (!a) attenuations.set(s, (a = { minDistance: s.minDistance, maxDistance: s.maxDistance, rolloff: s.rolloff }));
+  return a;
 }
 
 const lerp = ([lo, hi]: readonly [number, number], t: number): number => (lo === hi ? lo : lo + (hi - lo) * t);
