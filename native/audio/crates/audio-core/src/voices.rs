@@ -22,8 +22,21 @@
 //! the core-state region right after the status area (`status::STATUS_AREA_BYTES`).
 //!
 //! Each voice mixes into its bus's input buffer (`bus.rs`, A2.1; an unconfigured bus index goes to
-//! bus 0, the root). Not applied yet: `lpHz` (kept for the per-voice filter), SET_MIXED /
-//! SET_PAUSED (A3.1).
+//! bus 0, the root). Not applied yet: `lpHz` (kept for the per-voice filter), SET_PAUSED.
+//!
+//! **Mixed and virtual** (A3.1; architecture §2.2, §4.7 "promote and demote 5 ms"). Main's selection
+//! decides which voices are mixed and sends SET_MIXED for changes ([`set_mixed`]); the adaptive cap
+//! (A3.3) demotes through [`demote`] / [`demote_lowest`], which report the ids in STATUS `demoted`.
+//! Both ride one per-voice `mix` ramp on top of the gain and fade:
+//! - **Demote** (mixed to virtual): `mix` ramps to 0 over [`MIX_FADE_SECONDS`] while the voice still
+//!   renders (flag `DEMOTING`); when it settles the voice stops rendering (`MIXED` clear) and keeps
+//!   time like any virtual voice.
+//! - **Promote** (virtual to mixed): the voice renders again from where its playhead is, its gain,
+//!   direction and `lpHz` set at once from the record (it is silent there), `mix` ramping from 0 to 1
+//!   over the same 5 ms. A voice still fading out turns round from where its `mix` is, its gain and
+//!   direction ramping over the 5 ms instead.
+//! - A voice that hasn't started yet (`Scheduled`) changes at once with no fade: it starts mixed at
+//!   its gain (a clean onset), or virtual.
 //!
 //! `process` never allocates: every buffer is a region or a fixed-size stack array.
 
@@ -60,7 +73,12 @@ pub mod flag {
     /// Set by FADE with "stop at end" and by STOP with a fade: the voice ends when `fade` settles.
     pub const STOP_ON_FADE_END: u8 = 1 << 3;
     pub const PAUSED: u8 = 1 << 4;
+    /// Mixed and fading out to virtual: `MIXED` clears when the `mix` ramp settles at 0.
+    pub const DEMOTING: u8 = 1 << 5;
 }
+
+/// The promote and demote fade (architecture §4.7: "promote and demote 5 ms").
+pub const MIX_FADE_SECONDS: f32 = 0.005;
 
 /// One logical voice. `#[repr(C)]`, all-zero is a free slot, at most `VOICE_SLOT_BYTES`.
 #[repr(C)]
@@ -79,12 +97,13 @@ pub struct VoiceSlot {
     /// Live list links: slot index + 1, 0 = none.
     pub next: u32,
     pub prev: u32,
+    /// Clip rate / context rate, set at PLAY. (Here, before the 8-byte fields, so the slot packs
+    /// into `VOICE_SLOT_BYTES` with the `mix` ramp.)
+    pub rate_ratio: f32,
     /// Absolute context frame to start at, or [`ASAP`].
     pub start_frame: u64,
     /// Read position in clip frames.
     pub position: f64,
-    /// Clip rate / context rate, set at PLAY.
-    pub rate_ratio: f32,
     /// PLAY / SET_PARAMS `lpHz`, kept for the per-voice filter (not applied yet).
     pub lp_hz: f32,
     /// PLAY / SET_PARAMS `score` (the adaptive cap's ranking, A3.3).
@@ -93,6 +112,9 @@ pub struct VoiceSlot {
     pub pitch: Ramp,
     /// FADE and STOP-with-fade; starts at 1.
     pub fade: Ramp,
+    /// Mixed or virtual (A3.1): 1 while mixed, 0 while virtual, ramping between them over
+    /// [`MIX_FADE_SECONDS`] on a promote or demote of a started voice.
+    pub mix: Ramp,
     pub panner: PannerState,
 }
 
@@ -302,16 +324,30 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, from: usize, to: usize,
         let mut l = [0.0f32; QUANTUM];
         let mut r = [0.0f32; QUANTUM];
         resample::linear(&clip.source, &mut slot.position, &steps[..n], looping, &mut l[..n], &mut r[..n]);
-        for i in 0..n {
-            let g = slot.gain.next() * slot.fade.next();
-            l[i] *= g;
-            r[i] *= g;
+        if slot.mix.is_settled() && slot.mix.value == 1.0 {
+            for i in 0..n {
+                let g = slot.gain.next() * slot.fade.next();
+                l[i] *= g;
+                r[i] *= g;
+            }
+        } else {
+            // A promote or demote under way (A3.1): the mix ramp on top of the gain and fade.
+            for i in 0..n {
+                let g = slot.gain.next() * slot.fade.next() * slot.mix.next();
+                l[i] *= g;
+                r[i] *= g;
+            }
         }
         slot.panner.mix(&l[..n], &r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
+        if slot.flags & flag::DEMOTING != 0 && slot.mix.is_settled() {
+            // The demote fade is done: virtual from the next frame, keeping time.
+            slot.flags &= !(flag::MIXED | flag::DEMOTING);
+        }
     } else {
         resample::advance(&mut slot.position, &steps[..n], clip.source.frames, looping);
         slot.gain.advance(n as u32);
         slot.fade.advance(n as u32);
+        slot.mix.advance(n as u32);
         slot.panner.advance(n as u32);
     }
     let ran_out = !looping && slot.position >= clip.source.frames as f64;
@@ -456,6 +492,7 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         s.gain = Ramp::at(play.gain);
         s.pitch = Ramp::at(play.pitch);
         s.fade = Ramp::at(1.0);
+        s.mix = Ramp::at(if flags & flag::MIXED != 0 { 1.0 } else { 0.0 });
         let spatial = play.flags & wire::PLAY_FLAGS_SPATIAL != 0;
         let kind = ((play.flags & wire::PLAY_FLAGS_PANNER_MASK) >> wire::PLAY_FLAGS_PANNER_SHIFT) as u8;
         s.panner.start(spatial, kind, [play.dir_x, play.dir_y, play.dir_z], channels);
@@ -523,6 +560,142 @@ pub fn fade(core: &mut Core, voice_id: u32, target: f32, frames: u32, stop_at_en
     if stop_at_end {
         s.flags |= flag::STOP_ON_FADE_END;
     }
+}
+
+/// The promote and demote fade in frames at the core's rate (5 ms, at least 1 frame).
+pub fn mix_fade_frames(core: &Core) -> u32 {
+    let frames = libm::roundf(MIX_FADE_SECONDS * core.params().sample_rate);
+    if frames < 1.0 {
+        1
+    } else {
+        frames as u32
+    }
+}
+
+/// SET_MIXED (api-and-models §4.2, A3.1): main's selection promotes (`mixed`) or demotes a voice;
+/// see the module notes for the fades. `gain`, `dir` and `lp_hz` are the voice's current
+/// parameters, applied on a promote (main sends no SET_PARAMS to virtual voices). A stale id is
+/// dropped; a voice already in the asked state only takes the parameters (a promote) or nothing.
+/// Never reported in `demoted`: main asked for it.
+pub fn set_mixed(core: &mut Core, m: &wire::SetMixed) {
+    let frames = mix_fade_frames(core);
+    let v = view(core.regions_mut());
+    let Some(index) = find(&v, m.voice_id) else { return };
+    let s = &mut v.slots[index];
+    if m.mixed != 0 {
+        promote_slot(s, m.gain, [m.dir_x, m.dir_y, m.dir_z], m.lp_hz, frames);
+    } else {
+        demote_slot(s, frames);
+    }
+}
+
+fn promote_slot(s: &mut VoiceSlot, gain: f32, dir: [f32; 3], lp_hz: f32, frames: u32) {
+    s.lp_hz = lp_hz;
+    if s.state == state::SCHEDULED {
+        // Not started: start mixed at its gain, no fade (a clean onset).
+        s.flags = (s.flags | flag::MIXED) & !flag::DEMOTING;
+        s.mix = Ramp::at(1.0);
+        s.gain = Ramp::at(gain);
+        s.panner.set_direction(dir, 0);
+        return;
+    }
+    if s.flags & flag::MIXED == 0 {
+        // Virtual: silent here, so the parameters jump and the mix fades in from 0. The panner's
+        // state restarts at the new direction (promotion resets filter state, architecture §2.2).
+        s.flags |= flag::MIXED;
+        s.mix = Ramp::at(0.0);
+        s.mix.set_target(1.0, frames);
+        s.gain = Ramp::at(gain);
+        s.panner.set_direction(dir, 0);
+    } else {
+        // Mixed, perhaps fading out: turn round from where it is, ramping the parameters.
+        s.flags &= !flag::DEMOTING;
+        if !(s.mix.is_settled() && s.mix.value == 1.0) {
+            s.mix.set_target(1.0, frames);
+        }
+        s.gain.set_target(gain, frames);
+        s.panner.set_direction(dir, frames);
+    }
+}
+
+/// Starts slot `s`'s demote; returns whether it was mixed (and not already fading out).
+fn demote_slot(s: &mut VoiceSlot, frames: u32) -> bool {
+    if s.flags & flag::MIXED == 0 || s.flags & flag::DEMOTING != 0 {
+        return false;
+    }
+    if s.state == state::SCHEDULED {
+        s.flags &= !flag::MIXED;
+        s.mix = Ramp::at(0.0);
+    } else {
+        s.flags |= flag::DEMOTING;
+        s.mix.set_target(0.0, frames);
+    }
+    true
+}
+
+/// The core's own demote (architecture §6.3; for A3.3's adaptive cap): `voice_id` fades to virtual
+/// over 5 ms and is reported in STATUS `demoted` so main's table follows. Returns false for a stale
+/// id, a voice already virtual or fading out, or a full `demoted` list (nothing changes then; the
+/// caller retries next quantum).
+pub fn demote(core: &mut Core, voice_id: u32) -> bool {
+    if status::counters(core).demoted.is_full() {
+        return false;
+    }
+    let frames = mix_fade_frames(core);
+    let changed = {
+        let v = view(core.regions_mut());
+        let Some(index) = find(&v, voice_id) else { return false };
+        demote_slot(&mut v.slots[index], frames)
+    };
+    if changed {
+        status::counters_mut(core).demoted.push(voice_id);
+    }
+    changed
+}
+
+/// Mixed voices that aren't fading out (what counts against a mixed cap).
+pub fn mixed_live(core: &mut Core) -> u32 {
+    let v = view(core.regions_mut());
+    let mut n = 0;
+    let mut cursor = v.area.live_head;
+    while cursor != 0 {
+        let s = &v.slots[cursor as usize - 1];
+        cursor = s.next;
+        if (s.state == state::SCHEDULED || s.state == state::PLAYING) && s.flags & flag::MIXED != 0 && s.flags & flag::DEMOTING == 0 {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Demotes the lowest-`score` mixed voices until at most `keep` remain mixed (architecture §6.3:
+/// "the core demotes the lowest-`score` mixed voices"), each through [`demote`]. Returns how many
+/// it demoted. O(demoted × live); the adaptive cap (A3.3) calls it rarely and with small excesses.
+pub fn demote_lowest(core: &mut Core, keep: u32) -> u32 {
+    let mut excess = mixed_live(core).saturating_sub(keep);
+    let mut demoted = 0;
+    while excess > 0 {
+        let victim = {
+            let v = view(core.regions_mut());
+            let mut best: Option<(f32, u32)> = None;
+            let mut cursor = v.area.live_head;
+            while cursor != 0 {
+                let s = &v.slots[cursor as usize - 1];
+                cursor = s.next;
+                if (s.state == state::SCHEDULED || s.state == state::PLAYING) && s.flags & flag::MIXED != 0 && s.flags & flag::DEMOTING == 0 && best.is_none_or(|(score, _)| s.score < score) {
+                    best = Some((s.score, s.id));
+                }
+            }
+            best
+        };
+        let Some((_, id)) = victim else { break };
+        if !demote(core, id) {
+            break;
+        }
+        demoted += 1;
+        excess -= 1;
+    }
+    demoted
 }
 
 #[cfg(test)]
