@@ -149,6 +149,19 @@ export class VoiceTable implements VoiceTableHandleApi {
   stolenCount = 0;
   /** Plays refused because every candidate had priority at or above the new sound's. */
   refusedCount = 0;
+  /** The selection frame (A3.1's `Selection.run` sets it), which stamps the recent steals below. */
+  frame = 0;
+
+  // --- Recent steals (A3.1), for `Audio.debug()`'s "stolen" entries: a ring of the last `STOLEN_RING` ---
+  /** Ids, clip ids, buses, Worlds, priorities and the `frame` of each recent steal, `stolenSize` valid, newest at `stolenHead - 1`. */
+  readonly stolenIds = new Uint32Array(STOLEN_RING);
+  readonly stolenClip = new Uint32Array(STOLEN_RING);
+  readonly stolenBus = new Uint8Array(STOLEN_RING);
+  readonly stolenWorld = new Uint8Array(STOLEN_RING);
+  readonly stolenPriority = new Uint8Array(STOLEN_RING);
+  readonly stolenFrame = new Float64Array(STOLEN_RING);
+  stolenHead = 0;
+  stolenSize = 0;
 
   /**
    * Called on every free, whatever the cause (natural end, immediate stop, steal, failure, World release), with the
@@ -234,6 +247,8 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.liveCount = 0;
     this.stolenCount = 0;
     this.refusedCount = 0;
+    this.stolenHead = 0;
+    this.stolenSize = 0;
     this.endedTop = 0;
     this.dirtyTop = 0;
   }
@@ -533,6 +548,19 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.queue(i, DIRTY_STOP);
   }
 
+  /** Records live slot `i` in the recent-steals ring (before it is freed). */
+  private noteStolen(i: number): void {
+    const k = this.stolenHead;
+    this.stolenIds[k] = this.idOf(i);
+    this.stolenClip[k] = this.clip[i]!;
+    this.stolenBus[k] = this.bus[i]!;
+    this.stolenWorld[k] = this.world[i]!;
+    this.stolenPriority[k] = this.priority[i]!;
+    this.stolenFrame[k] = this.frame;
+    this.stolenHead = (k + 1) % STOLEN_RING;
+    if (this.stolenSize < STOLEN_RING) this.stolenSize++;
+  }
+
   /** Queues `bit` for slot `i`, listing the slot once. */
   private queue(i: number, bit: number): void {
     const d = this.dirty[i]!;
@@ -543,6 +571,7 @@ export class VoiceTable implements VoiceTableHandleApi {
   /** Frees live slot `i` (see `free`). Its list memberships stay; the drains skip what no longer applies. */
   private freeSlot(i: number, reason: VoiceReasonCode): void {
     const b = this.bus[i]!;
+    if (reason === VoiceReason.STOLEN) this.noteStolen(i);
     this.onFree?.(this.idOf(i), b);
     this.state[i] = VoiceState.FREE;
     this.reason[i] = VoiceReason.NONE;
@@ -564,6 +593,8 @@ const INVALID_VOICE_ID = 0;
 const DIRTY_STOP = 1;
 const DIRTY_FADE = 2;
 const DIRTY_LISTED = 0x80;
+/** @internal How many recent steals the table keeps for `Audio.debug()` (A3.1). */
+export const STOLEN_RING = 16;
 
 /**
  * @internal Hooks `table` to the host's lifecycle (A0.8, `addLifecycleListener`): `onBusRemap` runs

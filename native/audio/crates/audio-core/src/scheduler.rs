@@ -7,8 +7,10 @@
 //!   skipped. BATCH (1) and REPLAY (12) carry records; other kinds aren't handled here.
 //! - Every record head is validated before any record applies (lengths inside the message, at least
 //!   the head; BUS_CONFIG and BUS_MIX also their per-bus entries), so a malformed batch changes
-//!   nothing. Unknown opcodes, and the ones later tasks apply (SET_MIXED, SET_PAUSED, SEEK), are
-//!   skipped by their length.
+//!   nothing. Unknown opcodes, and the ones later tasks apply (SET_PAUSED, SEEK), are skipped by
+//!   their length.
+//! - SET_MIXED (A3.1, `voices::set_mixed`) applies at once, in arrival order, whatever its
+//!   `frameOffset` (main's selection sends it asap; its 5 ms fade starts with the next quantum).
 //! - BUS_CONFIG, BUS_MIX and MASTER (A2.1, `bus.rs`) apply at once, in arrival order, whatever
 //!   their `frameOffset`; their ramps start with the next quantum.
 //! - RESET (A1.3b) applies at once, in arrival order, whatever its `frameOffset`: every voice and
@@ -140,6 +142,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::BUS_CONFIG => wire::BusConfig::FIXED_END,
             wire::op::BUS_MIX => wire::BusMix::FIXED_END,
             wire::op::MASTER => Master::FIXED_END,
+            wire::op::SET_MIXED => wire::SetMixed::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
         if len < min || off + len > msg.len() {
@@ -198,6 +201,11 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::RESET => {
                 if let Ok((r, _)) = Reset::read(msg, off) {
                     reset(core, r.keep_clips != 0);
+                }
+            }
+            wire::op::SET_MIXED => {
+                if let Ok((m, _)) = wire::SetMixed::read(msg, off) {
+                    voices::set_mixed(core, &m);
                 }
             }
             wire::op::BUS_CONFIG => bus::configure(core, msg, off),

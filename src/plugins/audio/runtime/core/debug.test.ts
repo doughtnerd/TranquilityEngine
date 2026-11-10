@@ -189,3 +189,29 @@ describe("buildDebugInfo: header, counters and core (A2.5 keeps them)", () => {
     expect(info.core).toEqual({ backend: "core", hrtfReady: true });
   });
 });
+
+describe("buildDebugInfo: virtual and stolen voices (A3.1)", () => {
+  it("shows a virtual voice on a muted bus as busMuted", () => {
+    const { table, source } = setup();
+    const id = table.allocate(0, 1, 0, VoiceState.VIRTUAL);
+    table.reason[id & 0xffff] = VoiceReason.BUS_MUTED;
+    expect(buildDebugInfo(source).voices[0]!.state).toBe("busMuted");
+  });
+
+  it("lists recent steals as stolen for about a second of selection frames", () => {
+    const { table, clips, source } = setup();
+    clips.set(3, clipInfo(3, "sfx/hit.wav"));
+    table.setBusLimits([0, 1, 0]);
+    const old = table.allocate(1, 10, 4, P);
+    table.clip[old & 0xffff] = 3;
+    table.frame = 100;
+    const fresh = table.allocate(1, 200, 0, P); // the bus is full: steals `old`
+    expect(fresh).not.toBe(0);
+    const stolen = buildDebugInfo(source).voices.filter((v) => v.state === "stolen");
+    expect(stolen).toEqual([{ id: old, clip: "sfx/hit.wav", bus: "music", world: "4", state: "stolen", priority: 10, gain: 0, pitch: 1, audibility: 0, playheadSeconds: null, owner: null }]);
+    table.frame = 160;
+    expect(buildDebugInfo(source).voices.some((v) => v.state === "stolen")).toBe(true);
+    table.frame = 161;
+    expect(buildDebugInfo(source).voices.some((v) => v.state === "stolen")).toBe(false);
+  });
+});
