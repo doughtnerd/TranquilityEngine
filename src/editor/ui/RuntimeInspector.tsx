@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Color, GameObject } from "../../engine";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
-import { editorFor, parseNumber, toSceneJSON } from "../fieldValues";
+import { editorFor, fieldTitle, parseNumber, toSceneJSON } from "../fieldValues";
 import { addLiveComponent, liveNodeChoices, removeLiveComponent, setLiveNodeRef, whyNotRemoveLive } from "../liveEdits";
 import { docPathFor, forgetKept, inspectedWorld, keepComponent, keepNode, kept, keptKey, liveSelection, writeLive } from "../runtimeInspect";
 import { playing } from "../session";
@@ -276,7 +276,7 @@ function LiveField(props: { node: GameObject; info: ComponentInfo; field: FieldV
   return (
     <>
       <div class="label-cell">
-        <label title={field.name}>{humanize(field.name)}</label>
+        <label title={fieldTitle(field)}>{humanize(field.name)}</label>
       </div>
       <div class="value">{control}</div>
     </>

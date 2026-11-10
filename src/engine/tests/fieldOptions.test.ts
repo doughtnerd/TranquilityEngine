@@ -18,6 +18,13 @@ describe("field options kind and hidden", () => {
     expect(byName.cache).toEqual({ hidden: true });
   });
 
+  it("keep a description (ADR 0159) beside other options", () => {
+    class Doc {
+      @field(Number, { replicate: true, description: "How fast." }) speed = 1;
+    }
+    expect(getFields(Doc).find((f) => f.name === "speed")!.options).toEqual({ replicate: true, description: "How fast." });
+  });
+
   it("refuse a kind on a field that doesn't hold assets", () => {
     expect(() => field(String, { kind: "material" })).toThrow(/AssetRef/);
     expect(() => field([Number], { kind: "audio" })).toThrow(/AssetRef/);
