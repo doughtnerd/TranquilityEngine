@@ -244,7 +244,7 @@ describe("clip registry on the decoder worker (B5)", () => {
     const before = r.sent.length;
     const decodes = () => r.log.posted.filter((m) => m.type === "decodeClip").length;
     expect(decodes()).toBe(1);
-    r.registry.resend([id]);
+    r.registry.resend!([id]);
     expect(["fetching", "decoding"]).toContain(r.registry.state(id)); // the kept bytes: no fetch
     await wait(() => r.sent.length > before && r.complete(id) && r.sent.slice(before).some((m) => r.kind(m) === Kind.CLIP_CHUNK), "the second upload");
     await wait(() => {
@@ -320,7 +320,7 @@ describe("clip registry on the decoder worker (B5)", () => {
     const id = r.registry.acquire("long.wav");
     await wait(() => r.sent.some((m) => r.kind(m) === Kind.CLIP_BEGIN), "CLIP_BEGIN");
     const before = r.sent.length;
-    r.registry.resend([id]);
+    r.registry.resend!([id]);
     await wait(() => r.sent.slice(before).some((m) => r.kind(m) === Kind.CLIP_BEGIN), "the new CLIP_BEGIN");
     await wait(() => {
       let n = 0;
@@ -433,7 +433,7 @@ describe("worker-sourced clips play on the loopback host (B5)", () => {
     // The tone starts at 0, so the first non-zero output is clip frame 1: the output is the clip, sample for sample.
     const start = first - 1;
     for (let k = 0; k < 6_000; k++) {
-      const got = r.out[start + k]!;
+      const got: number = r.out[start + k]!;
       const exp = want.pcm[k * 2]! / 32768;
       if (Math.abs(got - exp) > 1e-6) expect.fail(`frame ${k}: ${got}, expected ${exp}`);
     }
