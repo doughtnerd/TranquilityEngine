@@ -153,6 +153,17 @@ describe("a plain looping clip on the core uses its loop points (E4.5)", () => {
     r.backend.dispose();
   });
 
+  it("an event voice with file loop points gets exactly the runtime's loop, not a second plain one", async (ctx) => {
+    const r = await clipRig({ start: 2_400, end: 4_800 });
+    if (!r) return ctx.skip();
+    const voice = r.backend.play({ path: "ev2.wav", url: "ev2.wav", loop: true, stream: false, bus: "SFX", group: 3 })!;
+    r.backend.automation.setLoop(voice, 0.1, 0.15, true); // the runtime's region (4,800..7,200), before the points arrive
+    await r.step(260);
+    expectLoops(r.out, 4_800, 7_200);
+    expect(r.backend.automation.stats.loops).toBe(1);
+    r.backend.dispose();
+  });
+
   it("an event voice (a group) is left to the event runtime: no plain-loop region", async (ctx) => {
     const r = await clipRig({ start: 2_400, end: 4_800 });
     if (!r) return ctx.skip();
@@ -300,6 +311,15 @@ describe("a plain looping clip on Babylon uses its loop points (E4.5)", () => {
     gone.stop();
     await flush();
     expect(gone.playing).toBe(false);
+  });
+
+  it("an event voice (a group) gets no plain-clip region from its file's points", async () => {
+    const backend = make();
+    backend.play(req({ url: looping(2_000, 6_000), group: 3 }));
+    await flush();
+    expect(sound().loop).toBe(true);
+    expect(sound().loopStart).toBeUndefined();
+    expect(sound().loopEnd).toBeUndefined();
   });
 
   it("a streamed clip loops whole and warns once", async () => {
