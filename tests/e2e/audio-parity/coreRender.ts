@@ -21,6 +21,7 @@ import {
   type BusConfigBuses,
   type BusConfigBusesEffects,
 } from "../../../src/plugins/audio/runtime/wire.generated";
+import { HRIR_CLIP_ID, resampleHrir } from "../../../src/plugins/audio/runtime/core/hrir";
 import { CoreDriver, instantiateCore, type CorePreset } from "../../../src/plugins/audio/runtime/worklet/coreDriver";
 import { makeClip, prerollFrames, QUANTUM, sceneBuses, sceneFrames, type Scene } from "./scenes";
 import type { BusEffect } from "../../../src/engine/audio/settings";
@@ -39,6 +40,8 @@ const CHUNK_FRAMES = 8192;
  * unlimited mix, and the limiter, bypassed exactly while nothing exceeds its ceiling, never acts (checked below).
  */
 const HEADROOM = 16;
+/** The core copies at most 256 KB of clip per quantum (`CLIP_BYTES_PER_QUANTUM`). */
+const CLIP_BYTES_PER_QUANTUM = 256 * 1024;
 
 let wasmBytes: Uint8Array | null = null;
 async function wasm(): Promise<Uint8Array> {
@@ -61,6 +64,16 @@ function wireEffect(e: BusEffect): BusConfigBusesEffects {
       p[0] = e.send;
       return { type: 3, p };
   }
+}
+
+let hrirAsset: ArrayBuffer | null = null;
+/** The shipped HRIR table (`myco_hrir.bin`, 44.1 kHz) resampled to `rate` as `hrir.ts` does at runtime. */
+async function hrirBlob(rate: number): Promise<ArrayBuffer> {
+  if (!hrirAsset) {
+    const bytes = await readFile(new URL("../../../src/plugins/audio/runtime/wasm/myco_hrir.bin", import.meta.url));
+    hrirAsset = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  }
+  return resampleHrir(hrirAsset, rate);
 }
 
 export interface Render {
@@ -118,6 +131,31 @@ export async function renderCore(scene: Scene): Promise<Render> {
     }
   });
 
+  // HRTF scenes: the voice's HRTF flag is set in its PLAY (below), as `hrtfPick.ts` would on main, and the table is
+  // loaded like `hrir.ts` does (a format 2 clip under the reserved id, int16 words), with quanta for the core to copy
+  // it and build the panner bank before the voices start.
+  let hrirQuanta = 0;
+  if (scene.voices.some((v) => v.spatial?.panner === "hrtf")) {
+    const blob = await hrirBlob(rate);
+    const words = blob.byteLength / 2;
+    const begin = new ArrayBuffer(16 + 20);
+    const beginView = new DataView(begin);
+    envelope(beginView, Kind.CLIP_BEGIN, 20);
+    writeClipBegin(beginView, 0, { clipId: HRIR_CLIP_ID, frames: words, channels: 1, sampleRate: rate, format: 2 });
+    driver.onMessage(begin, frame, date);
+    for (let at = 0; at < words; at += CHUNK_FRAMES) {
+      const n = Math.min(CHUNK_FRAMES, words - at);
+      const bytes = (n * 2 + 3) & ~3;
+      const chunk = new ArrayBuffer(16 + 16 + bytes);
+      const view = new DataView(chunk);
+      envelope(view, Kind.CLIP_CHUNK, 16 + bytes);
+      writeClipChunk(view, 0, { clipId: HRIR_CLIP_ID, frameOffset: at, frames: n, reserved: 0 });
+      new Uint8Array(chunk, 32, n * 2).set(new Uint8Array(blob, at * 2, n * 2));
+      driver.onMessage(chunk, frame, date);
+    }
+    hrirQuanta = Math.ceil(blob.byteLength / CLIP_BYTES_PER_QUANTUM) + 8;
+  }
+
   const render = (quanta: number, into?: { l: Float32Array; r: Float32Array; at: number }): void => {
     for (let i = 0; i < quanta; i++) {
       const out = driver.process(frame, date);
@@ -135,7 +173,7 @@ export async function renderCore(scene: Scene): Promise<Render> {
     }
   };
 
-  render(prerollFrames(scene) / QUANTUM);
+  render(prerollFrames(scene) / QUANTUM + hrirQuanta);
 
   const voices = scene.voices;
   batch(

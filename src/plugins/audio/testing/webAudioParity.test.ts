@@ -53,8 +53,9 @@ describe("the core matches the Web Audio reference", () => {
     expect(violations(scene, m)).toEqual([]);
   }, 60_000);
 
-  // H4's hook: HRTF scenes join `HRTF_SCENES` when the core has an HRTF panner (H3).
-  it("has no HRTF scenes yet", () => {
-    expect(HRTF_SCENES).toHaveLength(0);
+  // The HRTF scenes (H4) are in `HRTF_SCENES`, with their own digests and test (`hrtfParity.test.ts`), not in `SCENES`.
+  it("keeps the HRTF scenes apart from SCENES", () => {
+    expect(HRTF_SCENES.length).toBeGreaterThan(0);
+    expect(SCENES.some((s) => s.group === "hrtf" || s.voices.some((v) => v.spatial?.panner === "hrtf"))).toBe(false);
   });
 });

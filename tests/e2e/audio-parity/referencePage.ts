@@ -44,6 +44,7 @@ export async function renderReference(page: Page, scene: Scene): Promise<{ left:
     rate: scene.rate,
     prerollFrames: prerollFrames(scene),
     frames: sceneFrames(scene),
+    skipFrames: scene.referenceLatency ?? 0,
     clips: scene.clips.map((c) => makeClip(c, scene.rate).map(b64)),
     buses: sceneBuses(scene),
     voices: scene.voices.map((v) => ({

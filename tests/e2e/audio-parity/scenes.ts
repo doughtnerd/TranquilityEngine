@@ -36,18 +36,18 @@ export interface SceneVoice {
   /**
    * Listener-space direction (+X right, -Z ahead, as Web Audio's default listener), at distance 1 so a
    * `PannerNode`'s default distance model gives gain 1. Absent: a non-spatial voice (identity pan).
-   * `panner: "hrtf"` is the hook for H4's null tests against `panningModel: "HRTF"`: the reference honours it,
-   * the core renders equal-power until H3, so no scene uses it yet (see `HRTF_SCENES`).
+   * `panner: "hrtf"` (H4, `hrtfScenes.ts`): the reference builds a `PannerNode` with `panningModel: "HRTF"`; the core
+   * renders the voice with the HRIR table loaded and the PLAY's panner bits set to HRTF (`coreRender.ts`).
    */
   spatial?: { dir: readonly [number, number, number]; panner?: "equalpower" | "hrtf" };
 }
 
 /** How strictly a scene is compared (see `TOLERANCES` in `analysis.ts`). */
-export type Profile = "biquad" | "compressor" | "reverb" | "pan";
+export type Profile = "biquad" | "compressor" | "reverb" | "pan" | "hrtf";
 
 export interface Scene {
   id: string;
-  group: "filter" | "snapshot" | "compressor" | "reverb" | "pan";
+  group: "filter" | "snapshot" | "compressor" | "reverb" | "pan" | "hrtf";
   profile: Profile;
   rate: ParityRate;
   /** Rendered length after the pre-roll, in seconds. */
@@ -66,6 +66,11 @@ export interface Scene {
   windows: boolean;
   /** Compare the largest sample's position (a click's: the compressor's pre-delay); for tones and noise it is arbitrary. */
   peakPosition?: boolean;
+  /**
+   * Frames the reference lags the core by (the HRTF panner's convolver latency, 256 frames in Chromium): the reference
+   * renders that many extra frames and drops the first, so the two outputs line up (`hrtfScenes.ts`). Default 0.
+   */
+  referenceLatency?: number;
   /** Reverb scenes also digest the energy decay curve from this time (seconds). */
   edcFrom?: number;
 }
@@ -400,12 +405,11 @@ function panScenes(): Scene[] {
 export const SCENES: readonly Scene[] = [...filterScenes(), ...snapshotScenes(), ...compressorScenes(), ...reverbScenes(), ...panScenes()];
 
 /**
- * H4's hook: HRTF against `PannerNode` with `panningModel: "HRTF"` (the Composite set) at fixed directions, as null
- * tests, plus a moving-source golden that crosses a panner-kind change. Empty until H3 lands the core's HRTF panner:
- * a scene here sets `spatial.panner: "hrtf"`, and `browserRender.ts` already builds its `PannerNode` with that model.
- * The spec has a `fixme` test that names this list.
+ * H4: HRTF against `PannerNode` with `panningModel: "HRTF"` at fixed directions (null tests, ITD and level checks),
+ * defined in `hrtfScenes.ts` (a scene there has `spatial.panner: "hrtf"`). Kept out of `SCENES`: their digests are
+ * committed in `hrtf-reference.json`, and the aligned comparison is `hrtfAnalysis.ts`'s.
  */
-export const HRTF_SCENES: readonly Scene[] = [];
+export { HRTF_SCENES } from "./hrtfScenes";
 
 export const sceneById = (id: string): Scene => {
   const s = SCENES.find((x) => x.id === id);
