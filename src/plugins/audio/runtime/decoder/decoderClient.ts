@@ -1,7 +1,9 @@
 // The main-thread side of the decoder worker (ADR 0157; architecture section 1). `createDecoderClient()` returns the
 // page's one client; the worker is spawned lazily by the first request and the wasm is fetched there. B5 (worker-sourced
-// clips) calls `decodeClip`; B3 adds streams. Replies are matched to requests by id; a worker that fails to load or dies
-// rejects everything pending and is respawned by the next request.
+// clips) calls `decodeClip`; B3 adds streams. Replies are matched to requests by id. A worker that dies (a crash, not a
+// refusal) is respawned and the pending decodes are posted again, at most `MAX_RESPAWNS` times per `RESPAWN_WINDOW_MS`
+// (B6: there is no `decodeAudioData` to fall back to); past that, or when the wasm is refused (it did not load, or its
+// hash does not match), the pending decodes fail with `DecoderUnavailableError` and the next request starts afresh.
 import type { ClipInfo, DecodeHint, DecoderReply, DecoderRequest } from "./protocol";
 
 /** What the client needs of a worker (a `Worker`, or an in-process stand-in in tests). */
@@ -29,6 +31,10 @@ export class DecoderUnavailableError extends Error {
     this.name = "DecoderUnavailableError";
   }
 }
+
+/** B6: a crashed worker is respawned at most this many times within `RESPAWN_WINDOW_MS`, like the core's rebuilds. */
+export const MAX_RESPAWNS = 3;
+export const RESPAWN_WINDOW_MS = 60_000;
 
 /** A decoded clip: `pcm` is interleaved int16 (`frames * channels` samples). */
 export interface DecodedClip {
@@ -69,10 +75,19 @@ export interface DecoderClientOptions {
   readonly wasmUrl?: string;
   /** For an in-process worker: the wasm bytes to send instead of a URL. */
   readonly wasmBytes?: ArrayBuffer;
+  /** The clock the respawn limit reads, in ms (default `Date.now`). */
+  readonly now?: () => number;
 }
 
 interface Pending {
   readonly chunks: Int16Array[];
+  /** The request, kept (the encoded bytes copied) to post it again to a respawned worker. */
+  readonly bytes: ArrayBuffer;
+  readonly hint: DecodeHint;
+  /** Whether `onInfo` has run, so a repeat after a respawn does not call it twice. */
+  informed: boolean;
+  /** Chunks delivered to `onChunk`; a decode posted again skips the same ones (decoding is deterministic). */
+  delivered: number;
   readonly options: DecodeClipOptions | undefined;
   resolve(value: DecodedClip): void;
   reject(reason: unknown): void;
@@ -83,6 +98,8 @@ class Client implements DecoderClient {
   private worker: WorkerLike | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
+  /** When the worker last crashed (ms), oldest first, within the window. */
+  private crashes: number[] = [];
 
   constructor(
     private readonly options: DecoderClientOptions,
@@ -91,9 +108,12 @@ class Client implements DecoderClient {
 
   private ensureWorker(): WorkerLike {
     if (this.worker) return this.worker;
+    const now = (this.options.now ?? Date.now)();
+    this.crashes = this.crashes.filter((t) => now - t < RESPAWN_WINDOW_MS);
+    if (this.crashes.length > MAX_RESPAWNS) throw new DecoderUnavailableError(`audio decoder: the worker crashed ${this.crashes.length} times within ${RESPAWN_WINDOW_MS / 1000} s`);
     const worker = (this.options.workerFactory ?? spawnWorker)();
     worker.onmessage = (e) => this.onReply(worker, e.data);
-    worker.onerror = (e) => this.failAll(worker, new DecoderUnavailableError(`audio decoder: the worker failed${e.message ? ` (${e.message})` : ""}`));
+    worker.onerror = (e) => this.crashed(worker, `audio decoder: the worker failed${e.message ? ` (${e.message})` : ""}`);
     this.worker = worker;
     if (this.options.wasmBytes) {
       const bytes = this.options.wasmBytes.slice(0);
@@ -110,6 +130,8 @@ class Client implements DecoderClient {
     let buffer: ArrayBuffer;
     if (bytes instanceof ArrayBuffer) buffer = options?.transfer ? bytes : bytes.slice(0);
     else buffer = options?.transfer && bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? (bytes.buffer as ArrayBuffer) : (bytes.slice().buffer as ArrayBuffer);
+    // Kept for a repeat after a crash (the post below transfers `buffer`).
+    const kept = buffer.slice(0);
     let worker: WorkerLike;
     try {
       worker = this.ensureWorker();
@@ -118,11 +140,11 @@ class Client implements DecoderClient {
     }
     const id = this.nextId++;
     return new Promise<DecodedClip>((resolve, reject) => {
-      const entry: Pending = { chunks: [], options, resolve, reject };
+      const entry: Pending = { chunks: [], bytes: kept, hint, informed: false, delivered: 0, options, resolve, reject };
       if (signal) {
         entry.abort = () => {
           if (!this.pending.delete(id)) return;
-          worker.postMessage({ type: "cancel", id });
+          this.worker?.postMessage({ type: "cancel", id });
           reject(abortError());
         };
         signal.addEventListener("abort", entry.abort, { once: true });
@@ -143,12 +165,17 @@ class Client implements DecoderClient {
   private onReply(worker: WorkerLike, msg: DecoderReply): void {
     if (worker !== this.worker) return;
     switch (msg.type) {
-      case "clipInfo":
-        this.pending.get(msg.id)?.options?.onInfo?.(msg.info);
+      case "clipInfo": {
+        const entry = this.pending.get(msg.id);
+        if (!entry || entry.informed) return;
+        entry.informed = true;
+        entry.options?.onInfo?.(msg.info);
         return;
+      }
       case "clipChunk": {
         const entry = this.pending.get(msg.id);
-        if (!entry) return;
+        if (!entry || msg.index < entry.delivered) return; // a repeat after a respawn
+        entry.delivered = msg.index + 1;
         const pcm = new Int16Array(msg.pcm);
         if (entry.options?.collect !== false) entry.chunks.push(pcm);
         entry.options?.onChunk?.(pcm, msg.index);
@@ -167,7 +194,7 @@ class Client implements DecoderClient {
         return;
       case "error": {
         if (msg.id === undefined) {
-          // Not tied to a request: the wasm did not load or did not match. Terminate so the next request retries from scratch.
+          // Not tied to a request: the wasm did not load or did not match (a refusal, not a crash: no retry). Terminate so the next request starts afresh.
           if (msg.fatal) this.failAll(worker, new DecoderUnavailableError(msg.message));
           return;
         }
@@ -179,12 +206,38 @@ class Client implements DecoderClient {
     }
   }
 
-  private failAll(worker: WorkerLike, error: Error): void {
+  /** The worker died: respawn it and post the pending decodes again, unless it keeps dying. */
+  private crashed(worker: WorkerLike, message: string): void {
     if (worker !== this.worker) return;
+    this.crashes.push((this.options.now ?? Date.now)());
+    const entries = [...this.pending.entries()];
+    this.retire(worker);
+    if (entries.length === 0) return;
+    let next: WorkerLike;
+    try {
+      next = this.ensureWorker();
+    } catch (e) {
+      const error = e instanceof DecoderUnavailableError ? e : new DecoderUnavailableError(`${message}; ${e instanceof Error ? e.message : String(e)}`);
+      for (const [id] of entries) this.settle(id)?.reject(error);
+      return;
+    }
+    for (const [id, entry] of entries) {
+      if (this.pending.get(id) !== entry) continue;
+      const bytes = entry.bytes.slice(0);
+      next.postMessage({ type: "decodeClip", id, bytes, hint: entry.hint, asset: entry.options?.asset }, [bytes]);
+    }
+  }
+
+  private retire(worker: WorkerLike): void {
     this.worker = null;
     worker.onmessage = null;
     worker.onerror = null;
     worker.terminate();
+  }
+
+  private failAll(worker: WorkerLike, error: Error): void {
+    if (worker !== this.worker) return;
+    this.retire(worker);
     for (const id of [...this.pending.keys()]) this.settle(id)?.reject(error);
   }
 

@@ -1,6 +1,7 @@
 // A3.4b end to end: the background modes on the loopback host (the real wasm, clip registry, shell and coreBackend).
 // `mute` ramps MASTER to silence and back with no frame running; `pause` suspends after the fade and resumes; `play`
 // leaves the output alone; and a voice that ends while hidden is freed from STATUS handling alone (no `update()`).
+import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
@@ -75,8 +76,7 @@ async function rig(mode: AudioBackground, opts: { settings?: AudioSettings; fram
     send: (m) => link.post(m),
     nextSeq: () => link.nextSeq(),
     fetchBytes: async () => new ArrayBuffer(8),
-    decode: async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] }),
-    clipFormat: 0,
+    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] })),
     nextFrame: (cb) => cb(),
     nextQuantum: (cb) => cb(),
   });

@@ -11,6 +11,7 @@
 // 0 ms), so the frame where sound first appears in the output is the heard frame, D after the core frame it was
 // rendered at. `Audio.time` is the heard clock in core frames, so at the heard frame h it reads (h − D) / sr: an `at`
 // lands exactly when the first sound is heard at round(at·sr) + D. Every case runs with 1.5 ms and with 0 ms.
+import { fakeDecoder } from "./fakeDecoder";
 import { describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
@@ -41,8 +42,7 @@ async function rig(lookaheadMs: number, clock?: FakeHostClock) {
     nextSeq: () => link.nextSeq(),
     fetchBytes: async () => new ArrayBuffer(8),
     // 0.1 s of a constant 0.5: the first non-zero sample is the voice's first frame.
-    decode: async () => ({ frames: 4_800, channels: 1, sampleRate: SR, channelData: [new Float32Array(4_800).fill(0.5)] }),
-    clipFormat: 0,
+    decodeWorker: fakeDecoder(async () => ({ frames: 4_800, channels: 1, sampleRate: SR, channelData: [new Float32Array(4_800).fill(0.5)] })),
     nextFrame: (cb) => cb(),
     nextQuantum: (cb) => cb(),
   });

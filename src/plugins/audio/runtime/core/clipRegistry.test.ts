@@ -1,15 +1,16 @@
 // A1.3a: the clip registry against fakes for send / fetchBytes / decode and manual frame and quantum clocks.
+import { fakeDecoder, type PlanarClip } from "./fakeDecoder";
 import { describe, expect, it, vi } from "vitest";
 import { ClipEvent, ClipFormat, Kind, readClipBegin, readClipChunk, readClipUnload } from "../wire.generated";
 import { CLIP_BYTES_PER_QUANTUM } from "./chunker";
-import { CLIP_INDEX_LIMIT, clipGeneration, clipIndex, createClipRegistry, makeClipId, type ClipRegistryDeps, type DecodedClip } from "./clipRegistry";
+import { CLIP_INDEX_LIMIT, clipGeneration, clipIndex, createClipRegistry, makeClipId, type ClipRegistryDeps } from "./clipRegistry";
 
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-function harness(over: Partial<ClipRegistryDeps> = {}, clip: Partial<DecodedClip> = {}) {
+function harness(over: Partial<ClipRegistryDeps> = {}, clip: Partial<PlanarClip> = {}) {
   const sent: ArrayBuffer[] = [];
   const frames = clip.frames ?? 200_000;
-  const decoded: DecodedClip = {
+  const decoded: PlanarClip = {
     frames,
     channels: clip.channels ?? 2,
     sampleRate: 48_000,
@@ -23,7 +24,7 @@ function harness(over: Partial<ClipRegistryDeps> = {}, clip: Partial<DecodedClip
   const registry = createClipRegistry({
     send: (m) => sent.push(m),
     fetchBytes,
-    decode,
+    decodeWorker: fakeDecoder(decode),
     warn,
     nextFrame: (cb) => frameQueue.push(cb),
     nextQuantum: (cb) => quantumQueue.push(cb),
@@ -77,7 +78,8 @@ describe("clipRegistry (A1.3a)", () => {
     await settle();
     h.runQuantum();
     expect(h.sent.map(h.kind)).toEqual([Kind.CLIP_BEGIN, Kind.CLIP_CHUNK]);
-    expect([...new Float32Array(h.sent[1]!, 32, 4)]).toEqual([0.5, -0.5, 0.25, 0]);
+    const got = [...new Float32Array(h.sent[1]!, 32, 4)];
+    [0.5, -0.5, 0.25, 0].forEach((want, i) => expect(got[i]).toBeCloseTo(want, 4)); // via int16 (the worker's format)
   });
 
   it("takes envelope seq values from the nextSeq dep when given", async () => {
@@ -202,7 +204,7 @@ describe("clipRegistry (A1.3a)", () => {
     expect(h.warn).toHaveBeenCalledTimes(1);
     expect(h.warn.mock.calls[0]![0]).toContain("missing.wav");
 
-    const d = harness({ decode: async () => Promise.reject(new Error("bad data")) });
+    const d = harness({ decodeWorker: fakeDecoder(async () => Promise.reject(new Error("bad data"))) });
     const id2 = d.registry.acquire("bad.wav");
     await settle();
     expect(d.registry.info(id2)).toMatchObject({ state: "failed", failure: "decode" });

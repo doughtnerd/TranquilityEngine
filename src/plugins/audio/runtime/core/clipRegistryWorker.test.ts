@@ -2,7 +2,7 @@
 // tests do) on B1's fixtures (native/audio/crates/audio-decode/tests/fixtures/): every codec loads, with CLIP_BEGIN and
 // the chunks equal to a straight decode; an MP3 without a length header gets its real frame count; a clip whose length
 // is stated starts uploading before its decode ends; a rebuild re-decodes through the worker; a corrupt file fails
-// cleanly; an unload mid-decode cancels; a worker that cannot run falls back to `decodeAudioData` with one warning.
+// cleanly; an unload mid-decode cancels; a worker that cannot run fails the clip loads, one warning each.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
@@ -98,13 +98,9 @@ function rig(files: Record<string, ArrayBuffer>, over: Partial<ClipRegistryDeps>
     if (!f) throw new Error("HTTP 404");
     return f.slice(0);
   });
-  const fallback = vi.fn(async () => {
-    throw new Error("decodeAudioData must not run");
-  });
   const registry = createClipRegistry({
     send: (m) => sent.push(m),
     fetchBytes,
-    decode: fallback,
     decodeWorker,
     warn,
     nextFrame: (cb) => frameQueue.push(cb),
@@ -133,7 +129,7 @@ function rig(files: Record<string, ArrayBuffer>, over: Partial<ClipRegistryDeps>
     const up = uploads().get(id);
     return !!up && up.received >= up.begin.frames;
   };
-  return { registry, sent, warn, fetchBytes, fallback, log, kind, uploads, complete, frameQueue, client: own };
+  return { registry, sent, warn, fetchBytes, log, kind, uploads, complete, frameQueue, client: own };
 }
 
 async function straight(name: string) {
@@ -156,7 +152,6 @@ describe("clip registry on the decoder worker (B5)", () => {
       expect(r.registry.state(id)).toBe("copying");
       r.registry.applyClipEvent(id, ClipEvent.Resident);
       expect(r.registry.info(id)).toMatchObject({ state: "ready", frames: want.frames, sampleRate: want.rate, failure: null });
-      expect(r.fallback).not.toHaveBeenCalled();
       expect(r.warn).not.toHaveBeenCalled();
       r.client.dispose();
     });
@@ -256,11 +251,10 @@ describe("clip registry on the decoder worker (B5)", () => {
     expect(r.fetchBytes).toHaveBeenCalledTimes(1);
     expect(r.kind(r.sent[before]!)).toBe(Kind.CLIP_BEGIN);
     expect(readClipBegin(new DataView(r.sent[before]!), 0)).toEqual(first.begin);
-    expect(r.fallback).not.toHaveBeenCalled();
     r.client.dispose();
   });
 
-  it("a corrupt file fails the clip cleanly: one warning, the listener hears of it, no fallback decode", async () => {
+  it("a corrupt file fails the clip cleanly: one warning, the listener hears of it", async () => {
     const junk = new Uint8Array(4_000).map((_, i) => (i * 31) & 0xff).buffer as ArrayBuffer;
     const r = rig({ "bad.wav": junk, "bad.mp3": junk });
     const id = r.registry.acquire("bad.wav");
@@ -272,7 +266,6 @@ describe("clip registry on the decoder worker (B5)", () => {
     expect(r.warn).toHaveBeenCalledTimes(1);
     expect(r.warn.mock.calls[0]![0]).toContain("bad.wav");
     expect(r.sent).toEqual([]);
-    expect(r.fallback).not.toHaveBeenCalled();
     // The worker is still usable for the next clip.
     const id2 = r.registry.acquire("bad.mp3");
     await wait(() => r.registry.state(id2) === "failed", "the second failure");
@@ -332,7 +325,7 @@ describe("clip registry on the decoder worker (B5)", () => {
     r.client.dispose();
   });
 
-  it("a worker that cannot start falls back to decodeAudioData with one warning, and keeps using it", async () => {
+  it("a worker that cannot start fails each clip load with one warning naming the asset", async () => {
     const calls = { n: 0 };
     const broken = createDecoderClient({
       workerFactory: () => {
@@ -341,37 +334,33 @@ describe("clip registry on the decoder worker (B5)", () => {
       },
       wasmBytes: wasmBytes(),
     });
-    const planar = { frames: 100, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(100).fill(0.5)] };
-    const decode = vi.fn(async () => planar);
-    const r = rig({ "a.wav": fixture("tone-44100-mono.wav"), "b.wav": fixture("tone-44100-mono.wav") }, { decode }, {}, broken);
+    const r = rig({ "a.wav": fixture("tone-44100-mono.wav"), "b.wav": fixture("tone-44100-mono.wav") }, {}, {}, broken);
     const a = r.registry.acquire("a.wav");
-    await wait(() => r.registry.state(a) === "copying", "the fallback load");
+    await wait(() => r.registry.state(a) === "failed", "the failed load");
     const b = r.registry.acquire("b.wav");
-    await wait(() => r.registry.state(b) === "copying", "the second fallback load");
-    expect(decode).toHaveBeenCalledTimes(2);
-    expect(calls.n).toBe(1); // the second clip did not try the worker again
-    expect(r.warn).toHaveBeenCalledTimes(1);
-    expect(r.warn.mock.calls[0]![0]).toContain("decodeAudioData");
+    await wait(() => r.registry.state(b) === "failed", "the second failed load");
+    expect(r.registry.info(a)!.failure).toBe("decode");
+    expect(r.warn).toHaveBeenCalledTimes(2);
+    expect(r.warn.mock.calls[0]![0]).toContain("a.wav");
+    expect(r.warn.mock.calls[1]![0]).toContain("b.wav");
     r.client.dispose();
   });
 
-  it("a decoder wasm that fails its checks (hash mismatch) is the same fallback", async () => {
-    const decode = vi.fn(async () => ({ frames: 10, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(10)] }));
-    const r = rig({ "a.wav": fixture("tone-44100-mono.wav") }, { decode }, { expectedSourceHash: "0".repeat(32) });
+  it("a decoder wasm that fails its checks (hash mismatch) fails the clip load with one warning", async () => {
+    const r = rig({ "a.wav": fixture("tone-44100-mono.wav") }, {}, { expectedSourceHash: "0".repeat(32) });
     const a = r.registry.acquire("a.wav");
-    await wait(() => r.registry.state(a) === "copying", "the fallback load");
-    expect(decode).toHaveBeenCalledTimes(1);
+    await wait(() => r.registry.state(a) === "failed", "the failed load");
     expect(r.warn).toHaveBeenCalledTimes(1);
+    expect(r.warn.mock.calls[0]![0]).toContain("a.wav");
+    expect(r.sent.map(r.kind)).not.toContain(Kind.CLIP_BEGIN);
     r.client.dispose();
   });
 
-  it("without a decodeWorker the registry decodes with decodeAudioData and says nothing", async () => {
-    const decode = vi.fn(async () => ({ frames: 10, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(10)] }));
-    const r = rig({ "a.wav": fixture("tone-44100-mono.wav") }, { decode, decodeWorker: undefined });
+  it("without a decodeWorker the registry uses the page's decoder client, which fails here (no Worker in Node) with one warning", async () => {
+    const r = rig({ "a.wav": fixture("tone-44100-mono.wav") }, { decodeWorker: undefined });
     const a = r.registry.acquire("a.wav");
-    await wait(() => r.registry.state(a) === "copying", "the load");
-    expect(decode).toHaveBeenCalledTimes(1);
-    expect(r.warn).not.toHaveBeenCalled();
+    await wait(() => r.registry.state(a) === "failed", "the failed load");
+    expect(r.warn).toHaveBeenCalledTimes(1);
     r.client.dispose();
   });
 });
@@ -387,14 +376,10 @@ describe("worker-sourced clips play on the loopback host (B5)", () => {
     }
     const link = loop.link;
     const client = createDecoderClient({ workerFactory: inProcessWorker({ posted: [] }), wasmBytes: wasmBytes() });
-    const fallback = vi.fn(async () => {
-      throw new Error("decodeAudioData must not run");
-    });
     const clips = createClipRegistry({
       send: (m) => link.post(m),
       nextSeq: () => link.nextSeq(),
       fetchBytes: async () => fixture(file),
-      decode: fallback,
       decodeWorker: client,
       nextFrame: (cb) => cb(),
     });
@@ -418,7 +403,7 @@ describe("worker-sourced clips play on the loopback host (B5)", () => {
         await new Promise((r) => setTimeout(r, 1));
       }
     };
-    return { backend, step, out, fallback, client };
+    return { backend, step, out, client };
   }
 
   it("a FLAC clip loaded by the worker plays through the real core, equal to a straight decode", async (ctx) => {
@@ -438,7 +423,6 @@ describe("worker-sourced clips play on the loopback host (B5)", () => {
       if (Math.abs(got - exp) > 1e-6) expect.fail(`frame ${k}: ${got}, expected ${exp}`);
     }
     expect(voice.reason).toBeNull();
-    expect(r.fallback).not.toHaveBeenCalled();
     r.backend.dispose();
     r.client.dispose();
   });

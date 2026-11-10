@@ -3,6 +3,7 @@
 // `hrtfReady` and `counters.hrtfVoices`), never more than `voices.hrtf`; `audio.spatial: "equalPower"` and
 // `voices.hrtf: 0` never fetch the table; a failed fetch reads `hrtfLoadFailure` 1 and flags nothing. Also the
 // per-voice cost of HRTF in the real wasm (printed, for A3.5; compare with `wu::HRTF_VOICE`).
+import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
@@ -38,8 +39,7 @@ async function rig(opts: { spatial?: "hrtf" | "equalPower"; hrtf?: number; failF
     send: (m) => link.post(m),
     nextSeq: () => link.nextSeq(),
     fetchBytes: async () => new ArrayBuffer(8),
-    decode: async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [tone] }),
-    clipFormat: 0,
+    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [tone] })),
     nextFrame: (cb) => cb(),
     nextQuantum: (cb) => cb(),
   });
@@ -121,8 +121,7 @@ describe("HRTF for the nearest voices on the loopback host (H3)", () => {
       send: (m) => link.post(m),
       nextSeq: () => link.nextSeq(),
       fetchBytes: async () => new ArrayBuffer(8),
-      decode: async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.1)] }),
-      clipFormat: 0,
+      decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.1)] })),
       nextFrame: (cb) => cb(),
       nextQuantum: (cb) => cb(),
     });
