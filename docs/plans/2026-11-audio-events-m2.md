@@ -4,6 +4,8 @@ Builds [ADR 0158](../decisions/0158-audio-events-and-parameters.md) (Accepted 20
 
 **The split to keep in mind:** main does only event-driven work (picks at play, parameter sets, scheduling the next clip of a continuous container); the core does everything continuous per quantum (smoothing, curves, blends, sustain loops). Voices stay in main's voice table. The Babylon fallback runs a TypeScript port of the core's evaluator once per frame.
 
+The rest of the build (E3's remainder through E7) is split into tasks and waves in [2026-11-audio-events-m2-waves.md](2026-11-audio-events-m2-waves.md), with the task tree in [2026-11-audio-events-m2-tree.md](2026-11-audio-events-m2-tree.md).
+
 ## Milestones
 
 | # | Milestone | Content | Exit check |
