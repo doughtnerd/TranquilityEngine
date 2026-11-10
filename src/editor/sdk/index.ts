@@ -31,5 +31,6 @@ export { persisted } from "../preferences";
 export { theme, mix, parseHex, viewportColors, type ThemeTokens } from "../theme";
 // The shared graph view (ADR 0060): canvas, wires, notes, minimap, search popup and clipboard.
 export * from "../graph";
-// A drag from the asset browser in progress (ADR 0022), for plugin panels that take dropped assets (the Event editor).
-export { assetDrag, type AssetDrag } from "../assetDrag";
+// The Assets panel's selected entries (read it, don't set it): what an asset browser drag carries (ADR 0022), for
+// plugin panels that take dropped assets (the Event editor).
+export { selectedAssets } from "../assetSelection";

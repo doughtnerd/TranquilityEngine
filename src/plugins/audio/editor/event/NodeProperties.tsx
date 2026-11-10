@@ -14,7 +14,7 @@ import {
   type ParameterDef,
 } from "../../../../engine/audio/eventFormat";
 import type { Curve, CurveKey } from "../../../../engine/core/curve";
-import { assetDragging, releasedClips } from "./assetDrop";
+import { draggedClips } from "./assetDrop";
 import { nodeLabel } from "./eventTree";
 import { coerceField, eventFields, nodeFields, readField, writeField, type FieldDescriptor, type GroupField } from "./nodeFields";
 
@@ -197,16 +197,14 @@ function FieldRow(props: { field: FieldDescriptor; value: unknown; context: Fiel
     }
     case "asset": {
       const path = typeof value === "string" ? value : "";
-      const dragging = assetDragging();
       return row(
         <select
           aria-label={label}
-          class={dragging ? "ev-drop-ready" : undefined}
           value={path}
           disabled={disabled}
           onChange={(e) => commit((e.currentTarget as HTMLSelectElement).value)}
           onPointerUp={() => {
-            const clips = releasedClips();
+            const clips = draggedClips(1);
             if (clips.length > 0 && !disabled) commit(clips[0]);
           }}
         >

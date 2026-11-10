@@ -2,9 +2,9 @@
 // empty slots as placeholder rows. A toolbar adds, wraps, retypes, duplicates, reorders and deletes; rows drag to
 // a new place; clips dragged from the asset browser drop into containers and slots or onto a clip row. Every edit is
 // handed to the panel as a new root and the path to select, which it makes one undo step.
-import { useEffect, useState } from "preact/hooks";
+import { useState } from "preact/hooks";
 import { NODE_TYPES, type EventNode, type NodeType } from "../../../../engine/audio/eventFormat";
-import { assetDragging, draggedClips, releasedClips } from "./assetDrop";
+import { draggedClips } from "./assetDrop";
 import {
   LIST_NODE_TYPES,
   SUSTAIN_SLOTS,
@@ -103,13 +103,8 @@ export function EventTree(props: EventTreeProps) {
   const sel = selected ? getNode(root, selected) : undefined;
   /** A row being dragged: its path and the drop under the pointer (after the threshold). */
   const [nodeDrag, setNodeDrag] = useState<{ from: NodePath; drop: TreeDrop | null; x: number; y: number } | null>(null);
-  /** Clips from the asset browser hovering the tree: the drop under the pointer. */
-  const [clipHover, setClipHover] = useState<TreeDrop | null>(null);
-  const dragging = assetDragging();
-  const clips = dragging ? draggedClips() : [];
-  useEffect(() => {
-    if (!dragging) setClipHover(null);
-  }, [dragging]);
+  /** Clips from the asset browser over the tree: how many, and the drop under the pointer. */
+  const [clipDrag, setClipDrag] = useState<{ count: number; drop: TreeDrop | null } | null>(null);
 
   const edit = (e: TreeEdit | string, label: string) => (typeof e === "string" ? props.onProblem(e) : props.onEdit(e.root, e.path, label));
   const add = (type: NodeType) => edit(addNode(root, selected, type), `Add ${type}`);
@@ -190,19 +185,21 @@ export function EventTree(props: EventTreeProps) {
     return isListNode(root) ? { parent: [], index: root.children.length } : null; // empty space: the root's end
   };
   const onTreePointerMove = (e: PointerEvent) => {
-    if (!dragging || readOnly) return;
-    setClipHover(clips.length > 0 ? clipDropAt(e.clientX, e.clientY) : null);
+    if (nodeDrag || readOnly) return;
+    const clips = draggedClips(e.buttons);
+    if (clips.length > 0) setClipDrag({ count: clips.length, drop: clipDropAt(e.clientX, e.clientY) });
+    else if (clipDrag) setClipDrag(null);
   };
   const onTreePointerUp = (e: PointerEvent) => {
-    const released = releasedClips();
-    setClipHover(null);
+    const released = nodeDrag ? [] : draggedClips(1);
+    setClipDrag(null);
     if (released.length === 0 || readOnly) return;
     const drop = clipDropAt(e.clientX, e.clientY);
     if (!drop) return props.onProblem("Drop clips on a container, an empty slot or a clip");
     edit(applyClipDrop(root, drop, released), released.length === 1 ? "Add clip" : "Add clips");
   };
 
-  const drop = nodeDrag?.drop ?? clipHover;
+  const drop = nodeDrag?.drop ?? clipDrag?.drop ?? null;
   const listSelected = sel && isListNode(sel) ? sel : null;
   return (
     <section class="ev-tree-pane" aria-label="Containers">
@@ -246,7 +243,7 @@ export function EventTree(props: EventTreeProps) {
         <button class="icon ev-danger" aria-label="Delete" title="Delete (Del)" disabled={readOnly || !selected || !canRemove(root, selected)} onClick={remove}>×</button>
       </div>
       <div
-        class={`ev-tree${dragging && clips.length > 0 ? " ev-drop-ready" : ""}`}
+        class={`ev-tree${clipDrag ? " ev-drop-ready" : ""}`}
         role="tree"
         aria-label="Event tree"
         data-testid="event-tree"
@@ -254,7 +251,7 @@ export function EventTree(props: EventTreeProps) {
         onKeyDown={onKeyDown}
         onPointerMove={onTreePointerMove}
         onPointerUp={onTreePointerUp}
-        onPointerLeave={() => setClipHover(null)}
+        onPointerLeave={() => setClipDrag(null)}
       >
         <div
           class={`ev-row ev-row-event${selected === null ? " selected" : ""}`}
@@ -315,9 +312,9 @@ export function EventTree(props: EventTreeProps) {
           <p class="ev-empty">Drag clips here from the Assets panel, or use + Add.</p>
         )}
       </div>
-      {(nodeDrag?.from || clipHover || (dragging && clips.length > 0)) && (
+      {(nodeDrag || clipDrag) && (
         <div class="ev-drop-hint" role="status" data-testid="event-drop-hint">
-          {nodeDrag ? describeDrop(root, nodeDrag.drop, 1, "node") : describeDrop(root, clipHover, clips.length, "clips")}
+          {nodeDrag ? describeDrop(root, nodeDrag.drop, 1, "node") : describeDrop(root, clipDrag!.drop, clipDrag!.count, "clips")}
         </div>
       )}
     </section>
