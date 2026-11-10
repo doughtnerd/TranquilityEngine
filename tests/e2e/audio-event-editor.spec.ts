@@ -199,7 +199,7 @@ test("authoring: containers, clips, weights, fields, a parameter and an automati
     const k = await box(key);
     await page.mouse.move(k.x + k.width / 2, k.y + k.height / 2);
     await page.mouse.down();
-    await page.mouse.move(k.x + k.width / 2, k.y + k.height / 2 - 20, { steps: 6 });
+    await page.mouse.move(k.x + k.width / 2, k.y + k.height / 2 - 20); // one move: a stall under load can't split the drag into two undo steps
     await page.mouse.up();
   });
   const curve = (e.automation as { curve: number[][] }[])[0].curve;
