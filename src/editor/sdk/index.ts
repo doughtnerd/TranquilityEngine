@@ -34,3 +34,6 @@ export * from "../graph";
 // The Assets panel's selected entries (read it, don't set it): what an asset browser drag carries (ADR 0022), for
 // plugin panels that take dropped assets (the Event editor).
 export { selectedAssets } from "../assetSelection";
+// Drop targets for assets dragged from the Assets panel (ADR 0022): a plugin panel registers an element, the drag's
+// label shows its message over it and releasing calls it. `draggedAssets` is what a drag in progress carries.
+export { registerAssetDropTarget, draggedAssets, type AssetDropTargetSpec, type AssetDropPoint } from "../assetDropTargets";
