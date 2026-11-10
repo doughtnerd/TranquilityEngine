@@ -95,6 +95,9 @@ export interface StreamOpenOptions {
   readonly startFrame: number;
   readonly epoch: number;
   readonly loop: boolean;
+  /** ADR 0158 §4 (contract C2, sent by E4.4): the loop region in frames (end exclusive, 0 = the end). */
+  readonly loopStartFrame?: number;
+  readonly loopEndFrame?: number;
 }
 
 /** B3: the replies about streams. */

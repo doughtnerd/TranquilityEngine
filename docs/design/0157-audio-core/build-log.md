@@ -506,3 +506,13 @@ ADR 0158 accepted; plan `docs/plans/2026-11-audio-events-m2.md`. E1 landed: `src
 ## M2: planning the rest (2026-11-10)
 
 The remainder of M2 (E3 from E3.1, E4–E7) is planned as a milestone build: [waves](../../plans/2026-11-audio-events-m2-waves.md) W0–W4 (tasks E3.1–E7.2, contracts C1–C6, single-writer files) and the [task tree](../../plans/2026-11-audio-events-m2-tree.md) (strongest-model leads for E3.1, E4.4, E6.3; 12 Haiku leaves). Estimates: ≈ 37.5 task days; pure critical path the editor chain E6.1 → E6.3 → E6.4 → E6.6, ≈ 10 days. An independent review's findings are applied. The M2 work was on `claude/vigilant-albattani-bm8i47`, not master; this branch was fast-forwarded to it. Known flake: `src/engine/tests/navSample.test.ts` fails under full-suite load and passes alone. Record number 0158 is also used by an unmerged branch; the owner ruled audio events keep it (next after 0157 on master) and that branch renumbers on merge. The plan and E1–E3a merge to master now (owner).
+
+## M2: wave 0 (2026-11-10)
+
+**Owner rulings:** audio events keep ADR 0158 (the next number after master's 0157; the unmerged field-row record renumbers when it merges); the plan and E1–E3a merged to master (`6d20e0e`) before the build; "everything else sounds good" (the plan's recommendations stand).
+
+**Baseline** (quiet machine, 4 cores): typecheck green; `npm test` 378/379 files, the one failure `src/engine/tests/navSample.test.ts`, which passes alone (known flake under load); `cargo test` 478 passed; `npm run check:audio-metered` pass (−0.23% overall).
+
+**Contracts committed:** C1 `runtime/loopPoints.ts` (`loopPointsFor`, `setFileLoopPoints`, `onLoopPoints`, stubs); C2 `decoder/protocol.ts` (`ClipInfo.loopStartFrame/loopEndFrame`, region fields on stream open, `StreamLoopMessage`) and the region fields on `decoderClient`'s `StreamOpenOptions`; C3 `AudioDebugInfo.voices[].event`.
+
+**Deviations from 0158 logged** (E2's six, including STATUS without `group`): [m2-decisions.md](m2-decisions.md) entry 1, for the owner. Tickets: not opened (the owner didn't ask; the plan's task ids are the tracker).

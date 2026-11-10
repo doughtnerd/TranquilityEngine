@@ -23,6 +23,12 @@ export interface ClipInfo {
   readonly codec: number;
   /** Whether the container stated the length exactly. */
   readonly lengthKnown: boolean;
+  /**
+   * ADR 0158 §4 (contract C2, filled by E4.1): the file's own loop region in frames, from a WAV `smpl` chunk or
+   * Ogg/Opus `LOOPSTART`/`LOOPLENGTH` comments; `loopEndFrame` is exclusive. Absent when the file has none.
+   */
+  readonly loopStartFrame?: number;
+  readonly loopEndFrame?: number;
 }
 
 // --- Main to worker ----------------------------------------------------------------------------
@@ -60,6 +66,21 @@ export interface StreamOpenMessage {
   readonly epoch: number;
   /** B3 (added): wrap to the start at the end, so the worklet's ring sees one continuous signal (B4 trims the seam). */
   readonly loop?: boolean;
+  /** ADR 0158 §4 (contract C2, filled by E4.4): with `loop`, wrap from `loopEndFrame` (exclusive; 0 = the end) back to `loopStartFrame`. */
+  readonly loopStartFrame?: number;
+  readonly loopEndFrame?: number;
+}
+
+/**
+ * ADR 0158 §4 (contract C2, filled by E4.4): change a stream's loop. `looping: false` is a release: finish the current
+ * pass and play on to the end. With `looping: true`, `loopStartFrame`/`loopEndFrame` set the region (0/0 = whole file).
+ */
+export interface StreamLoopMessage {
+  readonly type: "streamLoop";
+  readonly streamId: number;
+  readonly looping: boolean;
+  readonly loopStartFrame?: number;
+  readonly loopEndFrame?: number;
 }
 
 /** B3: the ring buffer has room for `frames` more frames (credit-based flow control). */
@@ -97,7 +118,7 @@ export interface ConnectWorkletMessage {
   readonly port: StreamPortLike;
 }
 
-export type StreamRequest = StreamOpenMessage | StreamCreditMessage | StreamSeekMessage | StreamCloseMessage | ConnectWorkletMessage;
+export type StreamRequest = StreamOpenMessage | StreamCreditMessage | StreamSeekMessage | StreamCloseMessage | StreamLoopMessage | ConnectWorkletMessage;
 export type DecoderRequest = InitMessage | DecodeClipMessage | CancelMessage | StreamRequest;
 
 // --- Worker to main ----------------------------------------------------------------------------
