@@ -3,7 +3,7 @@
 // length and level, the unknown-length MP3, errors, cancellation, chunking, the client's API over an in-process worker.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createDecoderHandler, type DecoderHandler } from "./handler";
 import { createDecoderClient, type WorkerLike } from "./decoderClient";
 import { CLIP_CHUNK_FRAMES, hintFromName, type DecodeHint, type DecoderReply, type DecoderRequest } from "./protocol";
@@ -202,7 +202,6 @@ describe("decoder handler: errors", () => {
     const replies: DecoderReply[] = [];
     const handler = createDecoderHandler({ post: (r) => void replies.push(r), expectedSourceHash: "0".repeat(32) });
     await handler.handle({ type: "init", wasmBytes: wasmBytes() });
-    await Promise.resolve();
     await handler.handle({ type: "decodeClip", id: 4, bytes: copyOf(fixture("tone-44100-mono.wav")), hint: 1 });
     const fatal = replies.find((r) => r.type === "error" && r.fatal);
     expect(fatal && fatal.type === "error" && fatal.message).toMatch(/built from other sources/);
@@ -213,8 +212,7 @@ describe("decoder handler: errors", () => {
     const replies: DecoderReply[] = [];
     const handler = createDecoderHandler({ post: (r) => void replies.push(r) });
     await handler.handle({ type: "init", wasmBytes: new ArrayBuffer(16) });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(replies.some((r) => r.type === "error" && r.fatal)).toBe(true);
+    await vi.waitFor(() => expect(replies.some((r) => r.type === "error" && r.fatal)).toBe(true));
   });
 
   it("streams are refused with the stream's id and asset (stub until B3)", async () => {
