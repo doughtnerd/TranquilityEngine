@@ -29,6 +29,8 @@ import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, t
 import { busCreationSteps, listenerQuaternion, planBuses, playbackRate, soundVolume, spatialParams, spatialSoundOptions, type BusPlan } from "./babylonMapping";
 import type { VisibilitySource } from "./core/background";
 import { Unlock, type UnlockContext } from "./core/unlock";
+import { warnOnce } from "./core/handle";
+import { loopPointsFor } from "./loopPoints";
 
 /** What a test (or an unusual host) can replace. */
 export interface BabylonBackendOptions {
@@ -58,6 +60,8 @@ interface Live {
   rootName: string | null;
   /** Decoded clips by URL, so repeated one-shots don't refetch. */
   readonly buffers: Map<string, Promise<StaticSoundBuffer>>;
+  /** Decoded clip lengths in seconds by asset path, for `clipDuration`. */
+  readonly durations: Map<string, number>;
 }
 
 /** Babylon ramps each parameter change over this many seconds (`parameterRampDuration`); no per-call duration is needed. */
@@ -94,11 +98,20 @@ class BabylonVoice implements AudioVoice {
   private started = false;
   private sound: Sound | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** ADR 0158 §4: the loop region and flag asked for (by `setLoop` or the clip's loop points), applied when the sound is ready. */
+  private region: { start: number; end: number } | null = null;
+  private looping: boolean;
 
   constructor(private readonly backend: BabylonBackend, private readonly req: PlayRequest) {
     this.bus = req.bus;
     this.volume = req.volume ?? 1;
     this.pitch = req.pitch ?? 1;
+    this.looping = req.loop;
+    if (req.loop) {
+      // E4.5 makes this live: a plain looping clip then loops its sidecar/file loop points. Until then it returns null.
+      const points = loopPointsFor(req.path);
+      if (points) this.region = { start: points.start, end: points.end };
+    }
     const flat = req.stream && (req.attenuation !== undefined || req.position !== undefined);
     if (flat) warnFlatStream(req.path);
     this.attenuation = flat ? null : (req.attenuation ?? null);
@@ -109,6 +122,16 @@ class BabylonVoice implements AudioVoice {
 
   get playing(): boolean {
     return !this.ended;
+  }
+
+  /** @internal The event instance this voice belongs to, null for none (debug rows). */
+  get event(): number | null {
+    return this.req.group ? this.req.group : null;
+  }
+
+  /** @internal Debug row fields. */
+  get row(): { clip: string; bus: string; gain: number; pitch: number } {
+    return { clip: this.req.path, bus: this.bus, gain: this.volume * this.gain, pitch: this.pitch };
   }
 
   /** @internal The bus this voice counts on. */
@@ -159,9 +182,12 @@ class BabylonVoice implements AudioVoice {
       if (!this.req.stream) options.playbackRate = playbackRate(this.pitch);
       if (this.attenuation || this.position) Object.assign(options, spatialSoundOptions(spatialParams(this.attenuation ?? DEFAULT_ATTENUATION, mixer.audioSettings.spatial)));
       const name = `${this.req.path}#${this.id}`;
-      sound = this.req.stream
-        ? await live.engine.createStreamingSoundAsync(name, this.req.url, options)
-        : await live.engine.createSoundAsync(name, await this.backend._buffer(live, this.req.url), options);
+      if (this.req.stream) sound = await live.engine.createStreamingSoundAsync(name, this.req.url, options);
+      else {
+        const buffer = await this.backend._buffer(live, this.req.url);
+        if (Number.isFinite(buffer.duration)) live.durations.set(this.req.path, buffer.duration);
+        sound = await live.engine.createSoundAsync(name, buffer, options);
+      }
     } catch (e) {
       if (!this.ended) {
         console.warn(`[myco] audio: could not load "${this.req.path}": ${e instanceof Error ? e.message : String(e)}`);
@@ -184,6 +210,7 @@ class BabylonVoice implements AudioVoice {
       this.disposeSound();
     });
     if (this.position) this.applyPosition();
+    if (this.region || this.looping !== this.req.loop) this.applyLoop();
     if (!this.paused) this.start();
     if (this.gain !== this.appliedGain) this.applyVolume(this.rampSeconds);
   }
@@ -197,6 +224,24 @@ class BabylonVoice implements AudioVoice {
     const wait = live && this.req.at !== undefined && Number.isFinite(this.req.at) ? this.req.at - live.engine.currentTime : 0;
     if (!this.req.stream && wait > 0) (sound as StaticSound).play({ waitTime: wait });
     else sound.play();
+  }
+
+  /**
+   * Put the loop region and flag on the sound. A streamed sound can't loop a region: it loops whole (warned once).
+   * `looping` false is release: `loop` clears, the current pass finishes and the clip plays on to its end.
+   */
+  private applyLoop(): void {
+    const sound = this.sound;
+    if (!sound) return;
+    const region = this.region;
+    if (this.req.stream) {
+      if (region && (region.start > 0 || region.end > 0)) warnOnce(`babylon-stream-loop:${this.req.path}`, `"${this.req.path}" streams, which the Babylon audio fallback can't loop by region; it loops whole.`);
+    } else if (region) {
+      const s = sound as StaticSound;
+      s.loopStart = Math.max(0, region.start);
+      s.loopEnd = Math.max(0, region.end);
+    }
+    sound.loop = this.looping;
   }
 
   /** Put volume times the fade's gain on the sound, easing over `seconds` when it is above zero. */
@@ -271,6 +316,13 @@ class BabylonVoice implements AudioVoice {
     if (this.req.stream) return warnFlatStream(this.req.path);
     this.position = { x: p.x, y: p.y, z: p.z };
     this.applyPosition();
+  }
+  /** ADR 0158 §4 (seconds; `end` 0 is the clip's end). `looping` false releases the loop. */
+  setLoop(start: number, end: number, looping: boolean): void {
+    if (this.ended) return;
+    this.region = { start: Number.isFinite(start) ? start : 0, end: Number.isFinite(end) ? end : 0 };
+    this.looping = looping;
+    this.applyLoop();
   }
   setBus(bus: string): void {
     if (this.ended || bus === this.bus) return;
@@ -403,7 +455,7 @@ export class BabylonBackend implements AudioBackend {
         volume: this.isMuted ? 0 : this.master,
       });
       const main = engine.defaultMainBus ?? (await engine.createMainBusAsync("main"));
-      const live: Live = { engine, main, buses: new Map(), plan: [], rootName: null, buffers: new Map() };
+      const live: Live = { engine, main, buses: new Map(), plan: [], rootName: null, buffers: new Map(), durations: new Map() };
       if (this.disposed) {
         this.teardown(live);
         return null;
@@ -522,6 +574,11 @@ export class BabylonBackend implements AudioBackend {
     return voice;
   }
 
+  /** A loaded clip's length in seconds, null while it isn't decoded (or streams). */
+  clipDuration(path: string): number | null {
+    return this.liveNow?.durations.get(path) ?? null;
+  }
+
   setListener(pose: ListenerPose): void {
     const copy = (p: Vec3Like): Vec3Like => ({ x: p.x, y: p.y, z: p.z });
     this.listenerPose = { position: copy(pose.position), forward: copy(pose.forward), up: copy(pose.up) };
@@ -627,7 +684,8 @@ export class BabylonBackend implements AudioBackend {
       background: this.background,
       counters: { underruns: 0, lateCommands: 0, minSlackFrames: 0, workUnits: 0, workUnitsMax: 0, mixedVoices: n, mixedCap: 0, logicalVoices: n, queuedPlays: 0, droppedPlays: 0, traps: 0, refusedLoads: 0, hrtfVoices: 0, hrtfLoadFailure: 0 },
       buses: (this.mixerRef?.resolveAll() ?? []).map((b) => ({ name: b.name, gain: b.gain, effectiveGain: b.effectiveGain, peakL: 0, peakR: 0, voices: counts.get(b.name) ?? 0, maxVoices: this._cap(b.name) })),
-      voices: [],
+      // Existing tests (and architecture 8 for this fallback) expect an empty list for plain voices: only event voices get rows.
+      voices: [...this.voices].filter((v) => v.event !== null).map((v) => ({ id: v.id, clip: v.row.clip, bus: v.row.bus, world: null, state: "playing" as const, priority: 0, gain: v.row.gain, pitch: v.row.pitch, audibility: 1, playheadSeconds: null, owner: null, event: v.event })),
       core: { backend: "babylon", voices: n, buffers: this.liveNow?.buffers.size ?? 0, context: this.ctx?.state ?? "none" },
     };
   }
@@ -644,6 +702,7 @@ export class BabylonBackend implements AudioBackend {
     }
     live.buses.clear();
     live.buffers.clear();
+    live.durations.clear();
     const ctx = this.ctx;
     // `engine.dispose()` closes its context. The host's context outlives this backend, so shield it from the close.
     const shielded = ctx !== null && !this.ownsContext;
