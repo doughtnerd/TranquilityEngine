@@ -166,6 +166,17 @@ For sounds authored as separate files: an optional `start`, a `loop` and an opti
 
 `start` then `loop` play back to back with no gap, and `loop` repeats until the instance is released. On release, `end` plays: with `"release": "loopEnd"` (the default) when the current pass of the loop finishes, to the sample; with `"release": "now"` right away, crossfading over `releaseFade` seconds (or `fade` when `releaseFade` is absent; a sustain that is itself a blend child keeps `fade` for its blend edges and sets `releaseFade` for the release).
 
+## The Event editor
+
+Double-click a `*.audioevent.json` in the Assets panel (or right-click an empty area, **New Event**, then double-click the new file) to open it in the Audio Event panel.
+
+- **Containers.** The tree on the left shows the event, then its nodes. Pick a container and choose **Add** to put a node at its end (or beside a node that isn't a container). **Wrap in** puts the selection inside a new container; **Change type** swaps a list container's type. Alt+Up and Alt+Down reorder, Ctrl+D duplicates, Delete removes, and rows drag to a new place.
+- **Clips.** Drag clips from the Assets panel onto the tree; the drag label says what releasing does: add to a container or a sustain slot, or replace a clip.
+- **Properties.** The right side shows the selected node's fields (weight, volume, loop and so on), or the event's own: bus, levels, randoms, priority, spatial, limit, cooldown and automation. Add an automation to drive volume, pitch or low-pass from a parameter, then drag the curve's keys.
+- **Parameters.** **+ Parameter** adds a local parameter, numeric or labelled. Local names win over project ones. Each parameter has a slider (or label buttons) for auditioning; those values aren't saved.
+- **Undo.** Edits save after a short pause. Ctrl+Z and Ctrl+Shift+Z, the Undo and Redo buttons and the History panel act on the open event; a slider or curve drag is one step.
+- **Audition.** **Play** runs the event through the editor's audio host with the slider values, **Release** sends the key-off and **Stop** ends it. The voice table lists the instance's voices. If you edit the event while it plays, a note says so: press Play again to hear the change.
+
 ## Parameters
 
 A parameter is a named value that your game sets and the event reacts to. A **numeric** one has `min`, `max`, `default` and `seekSpeed`; a **labelled** one has `labels` and a `default` label.
@@ -325,6 +336,3 @@ The Audio Debug panel groups the voices of an event instance under one row, with
 | Simultaneous instances | 1,024 | Further ones play without local parameters, with one warning. Put a `limit` on frequent events |
 | Keys per curve | 32 | Extra keys are dropped. Use a `shape` instead of more keys |
 
-## Coming in a later update
-
-- A guide section for the Event editor (double-click a `*.audioevent.json`: the container tree, the selected node's properties, the event's parameters with audition sliders, and Play, Stop and Release to audition the event).
