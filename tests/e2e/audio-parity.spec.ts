@@ -4,7 +4,7 @@ import { expect, test, type Page } from "./fixtures";
 import { digest, measure, nullDb, TOLERANCES, violations, type Digest } from "./audio-parity/analysis";
 import { renderCore } from "./audio-parity/coreRender";
 import { loadReferencePage, renderReference } from "./audio-parity/referencePage";
-import { HRTF_SCENES, SCENES, type Scene } from "./audio-parity/scenes";
+import { SCENES, type Scene } from "./audio-parity/scenes";
 import type { TestInfo } from "@playwright/test";
 
 // Web Audio parity (ADR 0157, api-and-models §8 "Web Audio parity"; task A2.2c): every scene in
@@ -90,12 +90,7 @@ for (const group of groups) {
   });
 }
 
-// H4's hook: HRTF against `PannerNode` with `panningModel: "HRTF"` (the Composite set) at fixed directions, as null
-// tests, and the moving-source golden across a panner-kind change. `HRTF_SCENES` is empty until H3 gives the core its HRTF
-// panner; `browserRender.ts` already builds the reference's `PannerNode` from a scene voice's `spatial.panner`.
-test.fixme(`core matches Web Audio: HRTF scenes (H4: ${HRTF_SCENES.length} scenes)`, { tag: "@slow" }, async ({ page }, info) => {
-  await runGroup(page, HRTF_SCENES, info);
-});
+// H4's HRTF scenes (`HRTF_SCENES`) run in their own spec, `audio-parity-hrtf.spec.ts`.
 
 test.afterAll(() => {
   if (!update) return;

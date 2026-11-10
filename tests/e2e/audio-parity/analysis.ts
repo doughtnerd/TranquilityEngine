@@ -40,6 +40,8 @@ export const TOLERANCES: Record<Scene["profile"], Tolerance> = {
   compressor: { levelDb: 0.1, nullDb: -90, peakFrames: 0 },
   reverb: { levelDb: 0.1, nullDb: -80, peakFrames: 0 },
   pan: { levelDb: 0.1, nullDb: -90, peakFrames: 0 },
+  // H4's HRTF scenes are compared by `hrtfAnalysis.ts` (its own figures); this entry only completes the record.
+  hrtf: { levelDb: 0.1, nullDb: -90, peakFrames: 0 },
 };
 
 /** Differences below this in a stopband or a silent window are float noise, not parity: levels under it are not compared. */

@@ -8,6 +8,8 @@ export interface ReferencePayload {
   rate: number;
   prerollFrames: number;
   frames: number;
+  /** Frames to drop after the pre-roll (the reference's latency; `frames` already counts them). */
+  skipFrames: number;
   /** Per clip, per channel, base64 of the planar f32 samples. */
   clips: string[][];
   buses: ResolvedBus[];
@@ -35,8 +37,8 @@ function toBase64(samples: Float32Array): string {
 }
 
 async function render(payload: ReferencePayload): Promise<ReferenceResult> {
-  const { rate, prerollFrames, frames } = payload;
-  const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: prerollFrames + frames, sampleRate: rate });
+  const { rate, prerollFrames, frames, skipFrames } = payload;
+  const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: prerollFrames + skipFrames + frames, sampleRate: rate });
   const graph = new BusGraph(ctx, ctx.destination, { resolveAll: () => payload.buses } as never, { immediate: true });
   const buffers = payload.clips.map((channels) => {
     const data = channels.map(fromBase64);
@@ -69,8 +71,8 @@ async function render(payload: ReferencePayload): Promise<ReferenceResult> {
   }
   const out = await ctx.startRendering();
   return {
-    left: toBase64(out.getChannelData(0).slice(prerollFrames)),
-    right: toBase64(out.getChannelData(1).slice(prerollFrames)),
+    left: toBase64(out.getChannelData(0).slice(prerollFrames + skipFrames)),
+    right: toBase64(out.getChannelData(1).slice(prerollFrames + skipFrames)),
     userAgent: navigator.userAgent,
   };
 }
