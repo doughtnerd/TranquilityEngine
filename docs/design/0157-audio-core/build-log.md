@@ -262,3 +262,37 @@ Five workers in parallel, each in its own worktree from `4680d94`: A2.2b and A2.
 **Open:** per-bus memory is 10.9 KB (32 buses ≈ 350 KB, design ≈ 3 KB per bus) because every effect slot reserves a compressor; a coordinator task moves the compressor out of the slot union (wave 3).
 
 **Reserve used:** none.
+
+## MS4 wave 3 (A2.2c, A2.6, A2.7) and the bus-memory change
+
+Four workers in parallel from `5e9918f`: A2.2c, A2.6 and A2.7 Sonnet leads, and an Opus worker on the coordinator's bus-memory change. No conflicts besides the committed wasm.
+
+**Landed**
+- Bus memory (coordinator): `FxState`'s union is gone; a bus holds its slots (152 B each: kind, params, a biquad) and **one compressor outside them**. A second compressor is dropped, counted in `BusArea.dropped`, and keeps its place. `BUS_BYTES` 10,944 → 4,224 B (32 buses ≈ 350 → 135 KB; just over the ≈4 KB target, the rest is the 2,400 B compressor and the bus buffer). Output unchanged: every golden and port test passed unedited, and A2.7's exact-hash goldens (recorded before this change merged) pass after it. The settings parse now reports more than 4 effects or a second compressor on a bus (kept as authored; the core skips them); the guide says so.
+- A2.6 (#80): `samples/sound-lab` (`backend: "core"`; buses with highpass, lowpass, compressor and a reverb send; an "Underwater" snapshot; SFX ducks Music; a moving spatial loop; one script per feature on keys 1–6; tones from the deterministic `tools/makeTones.mjs`, ≈200 KB). Samples are discovered from `samples/*`, so no shared file changed. `tests/e2e/audio-core.spec.ts` (`@slow`) drives one-shots, bus mute, the snapshot, ducking and the moving source through `Audio.debug()` and `Bus.peak`. Underruns: 0 at start, **at most 2 by the end** (headless software rendering shares the CPU; a real fault underruns every quantum). The soak gate's strict zero applies to the gate machines (C3).
+- A2.7 (#81): `quality_thdn.rs` (resampler THD+N and image/alias spurs), `quality_null_pan_limiter.rs` (in `audio-core/tests/`, since it drives the core), `audioGolden.test.ts` with 16 scene digests (exact SHA-256 of the f32 output, plus per-block RMS and peak for the failure message; `UPDATE_GOLDENS=1` rewrites), and `.github/workflows/audio-quality.yml` (the repository's CI ran only CodeQL; it now runs `cargo test --workspace --locked` and the audio Vitest on changes under `native/audio/` and `src/plugins/audio/`; first run on master).
+- A2.2c (#79): 100 parity scenes (lowpass and highpass sweeps with Q in dB at 48 and 44.1 kHz and the clamps, the snapshot low-pass, the compressor's static curve, steps, noise and pre-delay, the reverb wet and dry, pan at 13 directions), rendered by Chromium's `OfflineAudioContext` with `webAudioReference.ts` and by the core in Node, compared in third-octave bands, envelopes, levels, decay curves and full-waveform nulls. `webAudioReference.ts` now builds the core's seeded IR bit for bit (fed raw to a normalising `ConvolverNode`) and can set gains outright. Committed digests (`reference.json`, 184 KB) let `webAudioParity.test.ts` check the core in Node without a browser (101 tests, ≈3.5 s). An HRTF hook is left for H4.
+
+**Numbers**
+- Parity (Chromium 156, core minus reference): biquad and compressor 0.000 dB on every level measure, waveform nulls exact or −103 to −165 dB; compressor pre-delay click at the same frame (288 at 48 kHz); reverb at most 0.01 dB (nulls −104.5 dB at 48 kHz, −109 dB at 44.1 kHz); pan 0.000 dB (nulls exact to −126 dB). No core bug found.
+- Quality (linear resampler): THD+N −153.7 dB at whole-number ratios; at 1 kHz −66.4 dB (pitch 1.5) to −47.3 dB (0.5); 10 kHz a semitone up −23.4 dB. **Alias rejection 0 dB** (no anti-alias filter; pinned by a test to flip when M1a.3's resampler lands). Unity null bit-exact; pan power within 2.5e-7 dB through the core (limit 0.01 dB). Thresholds for THD+N and spurs were set from the measurements (design: "set at M1a.3, then ratcheted").
+- Mixer wasm 96,641 B (94.4 KB), source hash `7972447e…`; `cargo test` 295 passed, 3 ignored; `npm test` 344 files, 3,605 passed; `npm run build` green.
+
+**Findings for the owner**
+- **No master limiter exists, and no task in the plan owns one.** `api-and-models.md` §5 lists `limiter` among `audio-dsp`'s modules and §8 gates "limiter at or below 0 dBFS", but §9's task table never assigns it. Four full-scale voices peak at +12 dBFS; A2.7's ceiling test is `#[ignore]`d.
+- **The ADR has no dB figure for parity.** "The ADR's dB tolerance" points at nothing. A2.2c set 0.1 dB on level measures and −90 dB (reverb −80 dB) on waveform nulls, each at least 10× above what it measured.
+
+## MS4 exit check
+
+- Parity spec: passes in Chromium (5 groups; the HRTF group is a `fixme` for H4). **WebKit and Firefox parity in Docker were not run here.**
+- Sound-lab spec: passes.
+- Mixer wasm 94.4 KB ≤ 150 KB.
+- Editor during play with `backend: "core"` (sound-lab, checked in Chromium with screenshots): Project Settings > Audio shows the meter strip; Window > Audio Debug shows status running, backend core, 0 underruns, per-bus gain and peak (Music 0.19, Ambience 0.02) and both loops as playing voices. Cosmetic: "Mixed voices 2 / 0" (`mixedCap` isn't reported until A3.3).
+- Chromium e2e: 192 passed, 1 failed, 4 skipped. The failure, `codefiles.spec.ts:38` (the TypeScript worker starts within 20 s), is a pre-existing flake: 2 of 4 repeats fail on master `d1e5287` too, and 2 of 4 on this branch.
+- `@slow` audio specs (parity, sound-lab, babylon): 7 passed, 1 skipped (HRTF).
+
+**Reserve used:** none.
+
+## MS4 complete except the limiter (2026-11-10)
+
+Waiting on the owner: the limiter (where it goes) and the parity tolerance; then approval to merge.
