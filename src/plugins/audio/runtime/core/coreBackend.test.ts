@@ -160,7 +160,7 @@ const idx = (id: number) => id & 0xffff;
 const only = (list: ReturnType<typeof decode>["records"], op: number) => list.filter((x) => x.op === op);
 
 describe("CoreBackend (api-and-models §3, §6)", () => {
-  it("a stream: true play is a stream voice: never acquired as a whole clip, no warning, its PLAY flagged stream (B3, B6)", async () => {
+  it("a stream: true play is a stream voice: never acquired as a whole clip, no warning, its PLAY flagged stream and spatial (B3, B6)", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const opened: { streamId: number; asset: string }[] = [];
     const fetched: string[] = [];
@@ -179,7 +179,8 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
         fetchBytes: async (path) => (fetched.push(path), new ArrayBuffer(8)),
       },
     });
-    const voice = r.backend.play({ ...req("music.ogg"), stream: true })!;
+    // Spatial too: on the core a stream voice is a full voice (B3).
+    const voice = r.backend.play({ ...req("music.ogg"), stream: true, position: { x: 10, y: 0, z: 0 }, attenuation: { minDistance: 1, maxDistance: 100, rolloff: "inverse" } })!;
     expect(voice).not.toBeNull();
     expect(voice.reason).toBe("waitingForData");
     expect(r.clips.ids.has("music.ogg")).toBe(false);
@@ -189,6 +190,9 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     const p = readPlay(plays[0]!.view, plays[0]!.off);
     expect(p.clip).toBe(r.backend.table.clip[voice.id & 0xffff]);
     expect(p.clip >>> 0).toBeGreaterThanOrEqual(0xffff0100);
+    expect(p.flags & 2).toBe(2); // stream
+    expect(p.flags & 16).toBe(16); // spatial
+    expect(p.gain).toBeCloseTo(0.1);
     await Promise.resolve();
     await Promise.resolve();
     expect(fetched).toEqual(["music.ogg"]);

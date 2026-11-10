@@ -23,13 +23,6 @@ export function startClip(path: string, loop: boolean, output: string | undefine
 /** @internal The clip's import volume (ADR 0040), which scales every playback of it. */
 export const clipVolume = (path: string) => Assets.importSettings(path).volume;
 
-const warnedStream = new Set<string>();
-export function warnStream(path: string): void {
-  if (warnedStream.has(path)) return;
-  warnedStream.add(path);
-  console.warn(`[myco] "${path}" streams (HTML5 audio), which can't be spatial; it plays flat. Turn off "stream" in its import settings for positional sound.`);
-}
-
 const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math.max(0, Math.round(p))) : 128);
 
 /** Whether the active World has the view: only it plays sound (ADR 0074). */
@@ -53,7 +46,7 @@ export class AudioSource extends Component {
   @field(Boolean) playOnAwake = true;
   /** Playback speed and pitch: 1 is normal, 2 an octave up. */
   @field(Number) pitch = 1;
-  /** Sound from the node's position instead of flat. Clips that stream can't be spatial. */
+  /** Sound from the node's position instead of flat. On the Babylon fallback, clips that stream play flat. */
   @field(Boolean) spatial = false;
   /** Spatial: full volume inside this distance, in metres. */
   @field(Number) minDistance = 1;
@@ -105,9 +98,8 @@ export class AudioSource extends Component {
 
   private apply(path: string): void {
     const voice = this.voice!;
-    const stream = Assets.importSettings(path).stream;
-    const spatial = this.spatial && !stream;
-    if (this.spatial && stream) warnStream(path);
+    // A streamed clip is spatial on the core; the Babylon fallback flattens it (and warns) itself.
+    const spatial = this.spatial;
     const signature = `${this.priority}|${this.volume}|${this.pitch}|${spatial}|${this.minDistance}|${this.maxDistance}|${this.rolloff}|${this.output}`;
     if (signature !== this.applied) {
       this.applied = signature;

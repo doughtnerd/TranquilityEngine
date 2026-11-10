@@ -65,6 +65,17 @@ const BUS_RAMP_SECONDS = 0.015;
 const RAMP = "linear" as AudioParameterRampShape;
 let nextVoiceId = 1;
 
+const warnedFlatStream = new Set<string>();
+/**
+ * The fallback plays a `stream` clip as HTML5 audio (a `StreamingSound`), which it keeps flat: its position and
+ * attenuation are dropped, with one warning per asset. (On the core a streamed clip is a full voice: spatial too.)
+ */
+function warnFlatStream(path: string): void {
+  if (warnedFlatStream.has(path)) return;
+  warnedFlatStream.add(path);
+  console.warn(`[myco] "${path}" streams, which the Babylon audio fallback plays as HTML5 audio and can't make spatial; it plays flat. Turn off "stream" in its import settings for positional sound there.`);
+}
+
 class BabylonVoice implements AudioVoice {
   readonly id = nextVoiceId++;
   /** The fallback has no stealing, virtual or locked voices (api-and-models 1 "Fallback backend"); only a failed load shows. */
@@ -88,8 +99,10 @@ class BabylonVoice implements AudioVoice {
     this.bus = req.bus;
     this.volume = req.volume ?? 1;
     this.pitch = req.pitch ?? 1;
-    this.attenuation = req.attenuation ?? null;
-    this.position = req.position ? { x: req.position.x, y: req.position.y, z: req.position.z } : null;
+    const flat = req.stream && (req.attenuation !== undefined || req.position !== undefined);
+    if (flat) warnFlatStream(req.path);
+    this.attenuation = flat ? null : (req.attenuation ?? null);
+    this.position = !flat && req.position ? { x: req.position.x, y: req.position.y, z: req.position.z } : null;
     mixer.voiceStarted(this.bus);
     void this.load();
   }
@@ -248,12 +261,14 @@ class BabylonVoice implements AudioVoice {
   }
   setAttenuation(a: Attenuation): void {
     if (this.ended) return;
+    if (this.req.stream) return warnFlatStream(this.req.path);
     this.attenuation = a;
     this.applySpatial();
     this.applyPosition();
   }
   setPosition(p: Vec3Like): void {
     if (this.ended) return;
+    if (this.req.stream) return warnFlatStream(this.req.path);
     this.position = { x: p.x, y: p.y, z: p.z };
     this.applyPosition();
   }

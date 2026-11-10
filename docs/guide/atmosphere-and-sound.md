@@ -42,13 +42,13 @@ Add an `AudioListener` to the node that hears (usually the camera or the player)
 Audio.playOneShot("sfx/cannon.wav", { position: ship.worldPosition, volume: 0.8, pitch: 0.9, maxDistance: 150 });
 ```
 
-Only the World that has the view plays sound. Clips imported with `stream` can't be spatial; they play flat with a warning. On the Babylon fallback the browser's own panner places the sound, so 3D audio differs between browsers; see [the mixer guide](audio-mixer.md#limits).
+Only the World that has the view plays sound. On the audio core a clip imported with `stream` is spatial like any other; on the Babylon fallback it can't be, so it plays flat with a warning. On the Babylon fallback the browser's own panner places the sound, so 3D audio differs between browsers; see [the mixer guide](audio-mixer.md#limits).
 
 ### Sound files and decoding
 
 Import WAV, FLAC, MP3 or Ogg Vorbis files (AAC is not decoded by the audio core yet; it becomes an opt-in later). On the audio core a worker thread decodes them with the engine's own decoder, so loading a long clip never stalls a frame, and every clip plays at the sample rate of its file whatever the device runs at. An MP3 without a length header (some variable-bitrate files) loads like any other. A file that can't be read fails to load with one warning naming it; the rest of the project keeps playing.
 
-The **stream** import setting is for long files such as music. On the audio core a clip with `stream` on isn't decoded up front: the worker decodes it in small pieces while it plays, so it starts quickly and takes little memory. Streamed clips can't be spatial or routed through bus effects that need the whole clip, and they can't be pitched on the Babylon fallback (see [the mixer guide](audio-mixer.md#limits)).
+The **stream** import setting is for long files such as music. On the audio core a clip with `stream` on isn't decoded up front: the worker decodes it in small pieces while it plays, so it starts quickly and takes little memory. Otherwise a streamed clip is a sound like any other there: spatial (HRTF included), pitched, looping, on its bus with the bus's effects. If the file can't keep up, the sound fades out until data arrives and fades back in; if it fails it stops with one warning naming the file. On the Babylon fallback streamed clips play as the browser's own HTML5 audio, flat and unpitched (see [the mixer guide](audio-mixer.md#limits)).
 
 On the Babylon fallback the browser decodes: its own `decodeAudioData` handles whatever formats that browser supports, so a format the core can't read may still play there.
 

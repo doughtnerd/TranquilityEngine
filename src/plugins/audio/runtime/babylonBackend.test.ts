@@ -326,6 +326,22 @@ describe("BabylonBackend sounds", () => {
     expect(s.plays).toHaveLength(1);
   });
 
+  it("plays a spatial stream clip flat (HTML5 audio), with one warning per asset", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { backend } = rig();
+    const attenuation = { minDistance: 2, maxDistance: 50, rolloff: "linear" as const };
+    const v = backend.play(req({ path: "flat.ogg", stream: true, bus: "Music", attenuation, position: { x: 4, y: 5, z: 6 } }))!;
+    await flush();
+    const s = sound();
+    expect(s.kind).toBe("streaming");
+    expect("spatialEnabled" in s.options).toBe(false);
+    v.setAttenuation(attenuation);
+    v.setPosition({ x: 1, y: 2, z: 3 });
+    expect(s.spatialTouched).toBe(false);
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes("flat.ogg"))).toHaveLength(1);
+    warn.mockRestore();
+  });
+
   it("starts at the requested time on the audio clock when it is ahead, and at once when it is past", async () => {
     const { backend } = rig();
     backend.play(req({ bus: "Music" }));
