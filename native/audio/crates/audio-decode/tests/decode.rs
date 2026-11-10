@@ -5,9 +5,7 @@
 mod common;
 
 use common::*;
-use myco_audio_decode::Codec;
-#[cfg(not(feature = "aac"))]
-use myco_audio_decode::{DecodeError, Decoder, FormatHint};
+use myco_audio_decode::{Codec, DecodeError, Decoder, FormatHint};
 
 /// Decodes `name` and requires it to equal `source` sample for sample, through both outputs.
 fn check_lossless(name: &str, source: &str, codec: Codec) {
@@ -148,4 +146,18 @@ fn aac_refused_without_the_feature() {
             Ok(_) => panic!("{name}: opened without the aac feature"),
         }
     }
+}
+
+/// B4's unknown codec: Ogg Opus opens as Ogg but its codec isn't in either build, so it is refused
+/// with a codec error (the core's warning names the format and the supported list); garbage is a
+/// format error.
+#[test]
+fn opus_and_garbage_are_refused() {
+    match Decoder::open(bytes("tone-48000-stereo.opus"), FormatHint::None) {
+        Err(DecodeError::Codec(m)) => assert!(m.contains("unsupported codec"), "{m}"),
+        Err(e) => panic!("opus: unexpected {e:?}"),
+        Ok(_) => panic!("opus: opened"),
+    }
+    let garbage: myco_audio_decode::Bytes = std::sync::Arc::new(vec![0x5au8; 4096]);
+    assert!(matches!(Decoder::open(garbage, FormatHint::None), Err(DecodeError::Format(_))));
 }

@@ -109,3 +109,6 @@ ffmpeg("loop-48000-stereo.wav", "loop-48000-stereo.flac", ["-c:a", "flac"]);
 ffmpeg("loop-48000-stereo.wav", "loop-48000-stereo.mp3", ["-c:a", "libmp3lame", "-b:a", "192k"]);
 ffmpeg("loop-48000-stereo.wav", "loop-48000-stereo.ogg", ["-c:a", "libvorbis", "-q:a", "6"]);
 ffmpeg("loop-48000-stereo.wav", "loop-48000-stereo.m4a", ["-c:a", "aac", "-b:a", "192k"]);
+
+// B4's unknown-codec case: Ogg Opus, a container the decoder opens with a codec it doesn't include.
+ffmpeg("tone-48000-stereo.wav", "tone-48000-stereo.opus", ["-c:a", "libopus", "-b:a", "64k"]);
