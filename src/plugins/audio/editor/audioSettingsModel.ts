@@ -2,7 +2,9 @@
 // edited by pure functions like navigation and graphics. Edits start from the leniently parsed section and
 // write the whole section back, so the rest of the panel's undo/save machinery works unchanged.
 import {
+  DEFAULT_LIMITER_LOOKAHEAD_MS,
   EFFECT_TYPES,
+  LIMITER_LOOKAHEAD_LIMITS,
   MASTER,
   MAX_BUSES,
   parseAudioSettings,
@@ -24,7 +26,7 @@ function uniqueName(base: string, taken: readonly string[]): string {
   for (let i = 2; ; i++) if (!taken.includes(`${base} ${i}`)) return `${base} ${i}`;
 }
 
-export { EFFECT_TYPES, MAX_BUSES };
+export { EFFECT_TYPES, LIMITER_LOOKAHEAD_LIMITS, MAX_BUSES };
 
 export const audioOf = (d: SettingsDraft): AudioSettings => parseAudioSettings(d.audio).settings;
 export const audioProblems = (d: SettingsDraft): string[] => parseAudioSettings(d.audio).problems;
@@ -233,6 +235,14 @@ export function setClipMemory(d: SettingsDraft, mb: number | undefined): Setting
   const a = audioOf(d);
   const { clipMemoryMB: _drop, ...rest } = a;
   return withAudio(d, mb === undefined || !Number.isFinite(mb) ? rest : { ...a, clipMemoryMB: clampInt(mb, CLIP_MEMORY_LIMITS[0], CLIP_MEMORY_LIMITS[1]) });
+}
+
+/** The limiter's look-ahead in ms (clamped 0..5; not rounded); a non-finite value goes back to the 1.5 ms default. */
+export function setLimiterLookahead(d: SettingsDraft, ms: number): SettingsDraft {
+  const a = audioOf(d);
+  const [min, max] = LIMITER_LOOKAHEAD_LIMITS;
+  const v = Number.isFinite(ms) ? Math.min(max, Math.max(min, ms)) : DEFAULT_LIMITER_LOOKAHEAD_MS;
+  return a.limiterLookaheadMs === v ? d : withAudio(d, { ...a, limiterLookaheadMs: v });
 }
 
 export function setClipFormat(d: SettingsDraft, clipFormat: AudioClipFormat): SettingsDraft {

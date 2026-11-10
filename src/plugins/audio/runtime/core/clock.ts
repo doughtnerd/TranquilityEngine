@@ -3,7 +3,11 @@
 // (`firstFrame`). Pure arithmetic over a `HostClock` (hostClock.ts, K4): no timers, no globals, no allocation per
 // frame. A1.4 wrote the offset filter, the render lead and the fallback; A3.2 moved the lookahead and ramp rules to
 // `lookahead.ts`, added the stamp-or-asap rule for `at` (`stampFor`) and re-anchors when an output timestamp comes
-// back after a gap (a suspended or interrupted context).
+// back after a gap (a suspended or interrupted context). A2.9 adds the core's fixed output latency (the master
+// limiter's look-ahead, `limiterLatency.ts`): a frame the core renders at context frame f leaves the core D frames
+// later, so `Audio.time` (the heard clock, in the core's frames) is the heard context frame less D. Everything that
+// talks to the core (*F*_now, `firstFrame`, stamps) stays in the core's frames, so `at` = f / sr is heard exactly
+// when `Audio.time` reads it.
 //
 // Units: `p` is a frame's rAF time in ms (the `performance.now()` base). Frames are sample frames at the context rate
 // `sr`. The offset `o` and the lead Λ are in frames. Seconds only in `audioTime`.
@@ -62,6 +66,8 @@ export class ClockMap {
     private readonly clock: HostClock,
     /** The context's sample rate, Hz. */
     readonly sampleRate: number,
+    /** The core's output latency in frames (`limiterLatencyFrames` of the preset's look-ahead): a rendered frame is heard this much later. */
+    readonly outputLatencyFrames = 0,
   ) {
     void this.clock;
   }
@@ -164,12 +170,16 @@ export class ClockMap {
     return this.intervalMs;
   }
 
-  /** `Audio.time` in seconds (§4.3): the heard clock; 0 before the clock has any estimate. */
+  /**
+   * `Audio.time` in seconds (§4.3): the heard clock, as the core frame being heard: the context frame at the output
+   * less the core's output latency, so frame f renders for `at` = f / sr and is heard when this reads f / sr. 0 before
+   * the clock has any estimate.
+   */
   audioTime(): number {
     if (this.primed) {
-      return Math.max(0, ((this.prevP * this.sampleRate) / 1000 + this.offset) / this.sampleRate);
+      return Math.max(0, ((this.prevP * this.sampleRate) / 1000 + this.offset - this.outputLatencyFrames) / this.sampleRate);
     }
-    return Math.max(0, this.fallbackFrame() / this.sampleRate);
+    return Math.max(0, (this.fallbackFrame() - this.outputLatencyFrames) / this.sampleRate);
   }
 
   /** *F*_now (§4.3): the frame the core will render when a command sent in this frame arrives; 0 before any estimate. */

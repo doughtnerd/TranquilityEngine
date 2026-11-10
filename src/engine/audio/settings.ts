@@ -76,6 +76,12 @@ export interface AudioSettings {
   spatial: AudioSpatialMode;
   /** `"babylon"` (default; Babylon.js AudioEngineV2, the fallback) or `"core"` (K3). The parse never gives the pre-0157 values (it reports them as problems). */
   backend: AudioBackendSetting;
+  /**
+   * The core's master limiter look-ahead in ms, 0..5, default 1.5 (A2.9). It delays all of the core's output by that
+   * much (rounded to whole frames) so the limiter can lower the gain smoothly before a peak; 0 is no delay and an
+   * instant attack. Read when the core starts (a reload or rebuild), never mid-session.
+   */
+  limiterLookaheadMs: number;
 }
 
 /** §2 `voices`: how many sounds the core mixes at once, tracks logically, and spatialises with HRTF. */
@@ -109,9 +115,15 @@ export const DEFAULT_BACKEND: "babylon" | "core" = "babylon";
 
 export const DEFAULT_VOICES: Readonly<VoiceSettings> = { mixed: 128, logical: 4096, hrtf: 16 };
 
+/** `audio.limiterLookaheadMs` when absent (`DEFAULT_LOOKAHEAD_MS` in `audio-dsp/src/limiter.rs`). */
+export const DEFAULT_LIMITER_LOOKAHEAD_MS = 1.5;
+/** `audio.limiterLookaheadMs`'s range (`MAX_LOOKAHEAD_MS` in `audio-dsp/src/limiter.rs`). */
+export const LIMITER_LOOKAHEAD_LIMITS = [0, 5] as const;
+
 export const defaultAudioSettings = (): AudioSettings => ({
   buses: defaultBuses(), snapshots: [], ducking: [],
   voices: { ...DEFAULT_VOICES }, background: "mute", clipFormat: "i16", codecs: { aac: false }, spatial: "hrtf", backend: DEFAULT_BACKEND,
+  limiterLookaheadMs: DEFAULT_LIMITER_LOOKAHEAD_MS,
 });
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -228,6 +240,20 @@ function wholeNumber(raw: unknown, key: string, min: number, max: number, proble
   return clamped;
 }
 
+/** `audio.limiterLookaheadMs`: a number clamped to 0..5 (a problem when clamped); absent is 1.5; anything else is 1.5 plus a problem. */
+function lookaheadMs(raw: unknown, problems: string[]): number {
+  const key = "audio.limiterLookaheadMs";
+  const [min, max] = LIMITER_LOOKAHEAD_LIMITS;
+  if (raw === undefined) return DEFAULT_LIMITER_LOOKAHEAD_MS;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    problems.push(`${key}: must be a number of milliseconds from ${min} to ${max}; using ${DEFAULT_LIMITER_LOOKAHEAD_MS}.`);
+    return DEFAULT_LIMITER_LOOKAHEAD_MS;
+  }
+  const clamped = Math.min(max, Math.max(min, raw));
+  if (clamped !== raw) problems.push(`${key}: ${raw} is outside ${min}..${max}; using ${clamped}.`);
+  return clamped;
+}
+
 /** An enum: `undefined` gives `fallback`; any other value outside `options` gives `fallback` plus a problem. */
 function pick<T extends string>(raw: unknown, key: string, options: readonly T[], fallback: T, problems: string[]): T {
   if (raw === undefined) return fallback;
@@ -265,6 +291,7 @@ function parseCoreKeys(input: Record<string, unknown>, settings: AudioSettings, 
     }
   }
   settings.spatial = pick(input.spatial, "audio.spatial", ["hrtf", "equalPower"] as const, "hrtf", problems);
+  settings.limiterLookaheadMs = lookaheadMs(input.limiterLookaheadMs, problems);
   if (input.backend !== undefined) {
     if (input.backend === "babylon" || input.backend === "core") settings.backend = input.backend;
     else if (input.backend === "howler") problems.push(`audio.backend "howler" was replaced by "babylon" (ADR 0157); using "babylon".`);

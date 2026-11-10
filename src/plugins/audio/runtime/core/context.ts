@@ -34,6 +34,7 @@ export function presetFromSettings(settings: AudioSettings): CorePreset {
     maxBuses: MAX_BUSES,
     arenaInitialBytes: Math.min(ARENA_INITIAL_BYTES, clipCeilingBytes),
     clipCeilingBytes,
+    limiterLookaheadMs: settings.limiterLookaheadMs,
   };
 }
 
@@ -239,7 +240,7 @@ export function busRemap(from: readonly string[], to: readonly string[]): Uint8A
 }
 
 const presetsEqual = (a: CorePreset, b: CorePreset): boolean =>
-  a.maxLogical === b.maxLogical && a.maxMixed === b.maxMixed && a.maxBuses === b.maxBuses && a.arenaInitialBytes === b.arenaInitialBytes && a.clipCeilingBytes === b.clipCeilingBytes;
+  a.maxLogical === b.maxLogical && a.maxMixed === b.maxMixed && a.maxBuses === b.maxBuses && a.arenaInitialBytes === b.arenaInitialBytes && a.clipCeilingBytes === b.clipCeilingBytes && a.limiterLookaheadMs === b.limiterLookaheadMs;
 
 const sameNames = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((n, i) => n === b[i]);
 

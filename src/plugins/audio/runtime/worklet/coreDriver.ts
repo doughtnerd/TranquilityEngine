@@ -49,6 +49,8 @@ export interface CorePreset {
   readonly arenaInitialBytes: number;
   /** The clip arena's ceiling (`audio.clipMemoryMB`), which sets the Memory's `maximum` (architecture §5.1). */
   readonly clipCeilingBytes: number;
+  /** The master limiter's look-ahead in ms (`audio.limiterLookaheadMs`, 0..5): the core's fixed output latency (A2.9). */
+  readonly limiterLookaheadMs: number;
 }
 
 /** @internal What the host passes in `processorOptions`. */
@@ -69,6 +71,8 @@ export interface CoreExports {
   myco_audio_abi_version(): number;
   myco_audio_schema_hash(): number;
   myco_audio_init(sampleRate: number, maxLogical: number, maxMixed: number, maxBuses: number, arenaInitialBytes: number): number;
+  /** ABI 1.1 (A2.9): once after init, before the first `process`. */
+  myco_audio_set_limiter_lookahead(ms: number): number;
   myco_audio_inbox_ptr(): number;
   myco_audio_inbox_cap(): number;
   myco_audio_submit(len: number): number;
@@ -116,7 +120,8 @@ function hex(bytes: Uint8Array): string {
 /**
  * @internal Instantiates the core synchronously (the worklet has no async compile budget) over a fresh Memory of
  * `MEMORY_INITIAL_PAGES` pages and calls `myco_audio_init` first, before any export that could grow memory.
- * Throws `CoreLoadError` on an ABI major or schema hash mismatch, or when init refuses.
+ * Then sets the limiter's look-ahead from the preset (ABI 1.1). Throws `CoreLoadError` on an ABI major or schema hash
+ * mismatch, a module without that export, or when init refuses.
  */
 export function instantiateCore(wasm: BufferSource | WebAssembly.Module, preset: CorePreset, sampleRate: number, expected: CoreExpectations = EXPECTED): CoreInstance {
   const memory = new WebAssembly.Memory({ initial: MEMORY_INITIAL_PAGES, maximum: memoryMaximumPages(preset) });
@@ -134,6 +139,10 @@ export function instantiateCore(wasm: BufferSource | WebAssembly.Module, preset:
   if (abi >> 8 !== expected.abiMajor) throw new CoreLoadError(`audio core: ABI ${abi >> 8}.${abi & 0xff} where ${expected.abiMajor}.x was expected`);
   const schema = hex(new Uint8Array(memory.buffer, exports.myco_audio_schema_hash(), 16));
   if (schema !== expected.schemaHash) throw new CoreLoadError(`audio core: wire schema ${schema} where ${expected.schemaHash} was expected`);
+  // The limiter's look-ahead fixes the core's output latency for its life, so it goes in before anything renders.
+  if (typeof exports.myco_audio_set_limiter_lookahead !== "function") throw new CoreLoadError(`audio core: ABI ${abi >> 8}.${abi & 0xff} lacks myco_audio_set_limiter_lookahead (1.1)`);
+  const lookahead = exports.myco_audio_set_limiter_lookahead(preset.limiterLookaheadMs);
+  if (lookahead !== 0) throw new CoreLoadError(`audio core: myco_audio_set_limiter_lookahead refused (code ${lookahead})`);
   return { exports, memory, sampleRate };
 }
 

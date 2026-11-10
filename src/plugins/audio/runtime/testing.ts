@@ -10,6 +10,7 @@ import type { Vec3Like } from "../../../engine/core/math";
 import { CoreLink, type LinkPort } from "./core/context";
 import { fakeHostClock, type FakeHostClock } from "./core/hostClock";
 import { QUANTUM_FRAMES, type StatusBlock } from "./wire.generated";
+import { DEFAULT_LIMITER_LOOKAHEAD_MS } from "../../../engine/audio/settings";
 import { CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from "./worklet/coreDriver";
 
 // --- The fake backend -----------------------------------------------------------------------------------------
@@ -198,7 +199,7 @@ export interface LoopbackHost {
 }
 
 /** The default preset: roomy enough for the §8 loopback cases. */
-export const LOOPBACK_PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20 };
+export const LOOPBACK_PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: DEFAULT_LIMITER_LOOKAHEAD_MS };
 /** The loopback rate (the shell's `sampleRate`). */
 export const LOOPBACK_RATE = 48_000;
 

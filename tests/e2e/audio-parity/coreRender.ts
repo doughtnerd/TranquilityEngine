@@ -25,7 +25,12 @@ import { CoreDriver, instantiateCore, type CorePreset } from "../../../src/plugi
 import { makeClip, prerollFrames, QUANTUM, sceneBuses, sceneFrames, type Scene } from "./scenes";
 import type { BusEffect } from "../../../src/engine/audio/settings";
 
-const PRESET: CorePreset = { maxLogical: 64, maxMixed: 16, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20 };
+/**
+ * `limiterLookaheadMs: 0`: the master limiter's look-ahead (A2.9) would delay all core output by a fixed 1.5 ms by
+ * default. The reference graph has no such delay and the parity nulls are aligned at the frame, so the core renders
+ * these scenes with 0 ms (no latency; the limiter never acts here anyway, see HEADROOM) rather than trimming a delay.
+ */
+const PRESET: CorePreset = { maxLogical: 64, maxMixed: 16, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 0 };
 const CHUNK_FRAMES = 8192;
 /**
  * Headroom for the master limiter (A2.8). The reference graph has no limiter, and some scenes (high-Q filters on
