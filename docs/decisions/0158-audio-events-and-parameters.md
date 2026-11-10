@@ -1,9 +1,10 @@
-# 0158. Audio events are data assets whose containers run on the main thread over core voices, driven by named parameters through curves
+# 0158. Audio events are data assets whose containers run on the main thread over core voices, driven by named parameters through curves, with sustain points looped and released in the core
 
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
+- **Amends:** 0157 (size gates become tripwires, not design constraints; the mixer's is raised to 256 KB)
 - **Related:** 0157 (roadmap M2; the core, voices, `AudioHandle`, `group`), 0097 (buses, snapshots, ducking), 0074 (spatial fields), 0098 (backends), 0040 (sidecars), 0057 (particle curves), 0133 (plugins), 0134/0143 (asset kinds and formats), 0148 (rename tracking), 0046/0058 (graph editors; not used here)
 
 ## Context
@@ -15,7 +16,8 @@ M1 of 0157 is done (owner, 2026-11-10). Audio is the `myco.audio` plugin on the 
 **What M1 left for M2** (architecture §10):
 - Containers were designed to run on main and play ordinary voices. Stamped records and `rampFrames` on SET_PARAMS, FADE and BUS_MIX give automation; `at` gives sample-accurate starts.
 - PLAY and the voice table carry a reserved `u16 group` (0 = none), so event instances need no wire version bump.
-- The mixer wasm is 143.9 KB of its 150 KB gate, and the high preset's reserve for M2–M4 is ≈0.11 ms per quantum (design README). Anything added to the core must be small.
+- The mixer wasm is 143.9 KB of its 150 KB gate. The owner rates that gate arbitrary (2026-11-10): download size is not a goal worth bending the design for. The high preset's audio-thread reserve for M2–M4 is ≈0.11 ms per quantum (design README); that budget still matters.
+- Loops today are whole-clip only (PLAY `flags` bit0, gapless through the decoder for streams). There is no loop region inside a clip and no way to let a looping sound play out its tail.
 - Main-thread budgets: command batch ≤ 0.1 ms, voice bookkeeping ≤ 0.25 ms per frame.
 
 **What exists to reuse:**
@@ -27,7 +29,7 @@ M1 of 0157 is done (owner, 2026-11-10). Audio is the `myco.audio` plugin on the 
 
 ## Decision
 
-**We will add audio events as data assets, evaluated by a TypeScript event runtime on the main thread that plays ordinary core voices, with named parameters driving event and bus properties through a shared curve type. The core gains no new DSP and no new command kinds.**
+**We will add audio events as data assets, evaluated by a TypeScript event runtime on the main thread that plays ordinary core voices, with named parameters driving event and bus properties through a shared curve type. The core gains one thing: loop regions inside a clip, released sample-accurately, for sustain points.**
 
 ### 1. Event assets
 
@@ -55,12 +57,13 @@ M1 of 0157 is done (owner, 2026-11-10). Audio is the `myco.audio` plugin on the 
 ```
 
 - **Containers** (a tree; every node may also carry `volume`, `pitch`, `volumeRandom`, `pitchRandom`, `delay` seconds and its own `automation`):
-  - **`clip`**: plays one clip; `loop`, `startOffset` seconds.
+  - **`clip`**: plays one clip; `loop`, `startOffset` seconds. `loopRegion: [start, end]` seconds loops only that part of the clip (default: the clip's own loop points, §4, else the whole clip). With `"sustain": true` the region loops until the instance is **released**, then the voice plays on through the rest of the clip (its tail) and ends.
   - **`random`**: picks one child by `weight`; `avoidRepeat` n skips the last n picks; `mode: "step"` (one child per play, default) or `"continuous"` (keep picking back to back, gapless through `at`, until stopped; `gap` seconds, may be negative for an overlap with equal-power crossfade).
   - **`sequence`**: children in order; `mode: "step"` advances one child per play (the position is kept per event asset per World, `reset` after n seconds idle), or `"continuous"` plays them back to back like `random`; `loop` for continuous.
   - **`switch`**: plays the child whose `value` matches a labelled parameter (`"parameter": "Surface"`, children carry `"value": "Grass"`), else `default`. `onChange: "keep" | "restart" | "crossfade"` (seconds) for a change while playing.
   - **`blend`**: all children play; each child has a `range: [lo, hi]` on a parameter and fades in and out across its edges (equal-power, `fade` width in parameter units). Children outside their range are virtual, not stopped, so they stay in time.
   - **`layer`**: all children play together.
+  - **`sustain`**: three children, `start` (optional), `loop` and `end` (optional), for sounds authored as separate files. `start` then `loop` play back to back, gapless through `at`; `loop` repeats until release; on release `end` plays, `release: "now"` (crossfade, `fade` seconds) or `"loopEnd"` (at the end of the current loop pass, sample-accurate). Any node can sit in each slot, so the loop can itself be a blend or a random container.
 - **Instances.** Each `Audio.play` makes an **event instance**: its voices share an instance id carried in PLAY's reserved `group` (wrapping `u16`, 0 = none), its parameters, its position and its handle. Voices are still selected one by one by M1's selection, with the event's priority; the event `limit` acts on whole instances.
 
 ### 2. Parameters
@@ -76,7 +79,15 @@ M1 of 0157 is done (owner, 2026-11-10). Audio is the `myco.audio` plugin on the 
 - **When it applies:** once per frame, after scripts' `update` and before the audio system's selection. Changed values go out as SET_PARAMS or BUS_MIX with `rampFrames` covering one frame, so the core ramps between frames and there are no steps.
 - **The curve type** is engine-level, not audio's: `src/engine/core/curve.ts`, `Curve = CurveKey[]` where `CurveKey = [x, y]` or `[x, y, interp]`, `interp` the shape to the next key: `"linear"` (default), `"step"`, `"smooth"` (smoothstep), `"easeIn"`, `"easeOut"`. Keys sorted by `x`, clamped outside the first and last. A particle curve is a valid `Curve` with `x` in 0..1, so 0057's data needs no migration; particles may adopt the module later. Animation can add a key form with tangents additively (`{x, y, in, out}`); `Curve` is not frozen beyond "existing forms keep their meaning".
 
-### 4. Public API
+### 4. Sustain and release
+
+- **Release** is a key-off: `handle.release()` (and `AudioSource.release()`). Every `sustain` clip and `sustain` container in the instance leaves its loop and plays its tail; nodes without sustain are unaffected. A released instance ends when its last voice ends. `stop(fade)` still stops at once. Releasing twice, or an instance with no sustain, is a no-op.
+- **In the core:** a new command **SET_LOOP** (`0x08`: `u32 loopStartFrame; u32 loopEndFrame; u32 flags` with bit0 looping), stamped like every voice command, so a release can land on an exact frame. PLAY's loop flag keeps meaning "the whole clip", so old batches mean what they did. Release is SET_LOOP with bit0 clear: the voice finishes its current pass and plays on to the clip's end. ABI minor version 1.4; no wire major bump.
+- **Streams** loop a region through the decoder worker's existing gapless-loop path, which seeks to `loopStart` at `loopEnd` and prefetches from it.
+- **Loop points in files:** the decoder reads WAV `smpl` loop points and Ogg/Opus `LOOPSTART`/`LOOPLENGTH` comments (a common game-audio convention). A clip's sidecar (0040) can set `loopStart`/`loopEnd` seconds, which win over the file.
+- **Babylon fallback:** `AudioBufferSourceNode.loopStart`/`loopEnd`, and release clears `loop`; streamed clips there loop whole (warns once).
+
+### 5. Public API
 
 ```ts
 // New, in the audio plugin's public surface (re-exported from "myco" as today):
@@ -91,23 +102,25 @@ interface AudioEventHandle extends AudioHandle {   // M1's four members keep the
   setParameter(name: string, value: number | string): void;
   getParameter(name: string): number | string | undefined;
   position: Vec3Like | null;                       // move a spatial instance; null for flat
+  release(): void;                                 // key-off: sustain loops play their tails (§4)
 }
 ```
 
-- **`AudioSource`** accepts an event asset in `clip` (asset kinds `"audio"` and `"audioEvent"`), plays it as an instance that follows the node, and gains `setParameter`/`getParameter`. The field keeps its name so scenes don't migrate.
+- **`AudioSource`** accepts an event asset in `clip` (asset kinds `"audio"` and `"audioEvent"`), plays it as an instance that follows the node, and gains `setParameter`/`getParameter` and `release()`. The field keeps its name so scenes don't migrate.
 - `Audio.playOneShot` stays for clips and is unchanged.
 - **Completion** stays polled (`handle.playing`, `handle.reason`), as settled in 0157. A continuous event plays until stopped. `stop(fade)` fades every voice of the instance.
 - `Audio.debug()` gains `events: { id, asset, world, voices, parameters }[]`; each voice row gains `event` (instance id or null). The Audio Debug panel groups voices by instance.
 
-### 5. Runtime and the core
+### 6. Runtime and the core
 
 - **Where:** `src/plugins/audio/runtime/events/` (asset parse, instance tree, parameters, automation), behind the backend interface (0098), so **events work the same on the Babylon fallback**. Only voices are backend-specific; per-voice `lowpass` is not available on Babylon (it warns once, as bus effects already do).
-- **The core is unchanged** except that `group` gains its meaning in STATUS's voice section for debugging. No ABI change; no mixer wasm growth expected. If an M2 need does reach the core (a per-instance gain stage, say), it gets a minor ABI version and must fit the 150 KB gate.
+- **The core changes only for sustain** (§4: SET_LOOP, ABI 1.4) and for `group` gaining its meaning in STATUS's voice section for debugging. Containers, parameters and automation stay on main for the reasons under Alternatives, not for size.
+- **Size gates (amends 0157).** The build still checks sizes, as a tripwire against accidents (a dependency dragging in formatting code, say), not as a design constraint: the mixer's gate goes from 150 KB to 256 KB (`MIXER_LIMIT` in `native/audio/build.mjs`); the decoder gates stay. Raising a gate is a one-line change with a line in the build log saying why. Review entry 22's pinned `wasm-opt` is no longer needed for headroom.
 - **Timing.** Steps and switch picks happen on main at the frame the play or change arrives; continuous containers schedule each next clip with `at` from known clip lengths and the heard clock, a frame or more ahead, so they are gapless and sample-accurate. A clip whose length isn't known yet (still loading or streaming) starts the next on its end, one frame late, and the debug panel counts it.
 - **Randomness** is seeded per World from `audio.seed` (default: random each run); tests and goldens set it.
 - **Budget:** event evaluation and automation ≤ 0.15 ms per frame at 256 active instances on the lab VM (measured in the M2 bench, added to the main-thread table). Core cost per voice is unchanged; a layered event costs its voices.
 
-### 6. Editor authoring (M2b)
+### 7. Editor authoring (M2b)
 
 - **An Event editor** in the audio plugin's editor half opens `*.audioevent.json`: the container tree on the left (add, reorder, drag clips in from the asset browser), the selected node's properties on the right, and the event's parameters with sliders for auditioning. Preact, as every editor panel; it's a tree, not a node graph, so no xyflow.
 - **The curve widget:** the particles plugin's `CurveEditor.tsx` and `curveEdit.ts` move to `src/editor/ui/` and gain an arbitrary x range and per-segment interpolation; the particle inspector keeps using it (its x range is 0..1). Theme tokens only.
@@ -115,16 +128,17 @@ interface AudioEventHandle extends AudioHandle {   // M1's four members keep the
 - **Project Settings > Audio** gains Parameters (global, labelled) and bus Automation.
 - **New Event** in the asset browser's create menu; a clip's context menu gains "Create event from clips".
 
-### 7. Phasing and checks
+### 8. Phasing and checks
 
-- **M2a, runtime:** curve module, asset format and parser, containers, parameters, automation, `Audio.play`, `AudioSource` events, debug output, docs ("Sound events" guide page). Tests: Vitest for parsing, container picks (seeded), step positions, switch and blend transitions, automation on a fake backend, instance limits and cooldown; wasm goldens for a layered, a blend and a continuous event; one `@slow` spec playing a sample event set.
+- **M2a, runtime:** curve module, asset format and parser, containers, parameters, automation, `Audio.play`, `AudioSource` events, debug output, docs ("Sound events" guide page). Tests: Vitest for parsing, container picks (seeded), step positions, switch and blend transitions, automation on a fake backend, instance limits and cooldown, release; `cargo test` for SET_LOOP (region loops, release on the frame, streams); WAV `smpl` and Ogg loop-comment parsing; wasm goldens for a layered, a blend, a continuous and a sustained-then-released event; one `@slow` spec playing a sample event set.
 - **M2b, editor:** Event editor, curve widget, audition, settings sections, create menu. Playwright specs for authoring and audition.
-- **A sample:** `samples/sound-lab` gains an events page (footsteps by surface, an engine loop blended by RPM, a music intensity bus automation), which is also M2's listening-pass material.
+- **A sample:** `samples/sound-lab` gains an events page (footsteps by surface, an engine loop blended by RPM with a sustain and an engine-off tail, a music intensity bus automation), which is also M2's listening-pass material.
 - Exit: the tests above, the metered gate unchanged (+10%), the M2 bench under 0.15 ms, and the owner's listening pass of the sample events.
 
 ## Alternatives considered
 
-- **Containers in the core (Rust).** Sample-accurate parameter changes and no main-thread cost, but the mixer has ≈6 KB of headroom in its size gate, the design keeps policy on main (selection already is), and it would duplicate the work for the Babylon fallback. Frame-rate automation with per-frame ramps is what FMOD and Wwise do for game-driven parameters too.
+- **Containers and automation in the core (Rust).** Sample-accurate parameter changes and no main-thread cost. Size is no longer an objection, but the design keeps policy on main (selection already is), the work would be duplicated for the Babylon fallback, it spends the audio thread's scarce reserve rather than the main thread's, and container logic is easier to test and iterate in TypeScript. Frame-rate automation with per-frame ramps is what FMOD and Wwise do for game-driven parameters too. Sustain is the exception: a loop boundary must be exact to the frame, so it goes in the core.
+- **Sustain on main only** (stop the loop voice and start the tail with `at`). Works for three-file sounds, which the `sustain` container does, but a loop region inside one clip would need a seek inside a playing voice; SET_LOOP is simpler and also gives authored loop points from files.
 - **Node-graph authoring (xyflow) like the shader and particle graphs.** Events are trees with a few dozen nodes; a graph adds wiring without adding expressiveness. A graph view can be added later if events grow logic.
 - **A separate state system alongside parameters (Wwise).** Labelled global parameters cover it with one concept and one API.
 - **A timeline per event (FMOD).** Powerful for cinematic sound, but it is most of FMOD's authoring tool. Left for M4 (music grid) or a later record; `delay` per node covers simple timing.
@@ -135,22 +149,23 @@ interface AudioEventHandle extends AudioHandle {   // M1's four members keep the
 
 **Positive**
 - Sound designers author variation, layering, switching and intensity in data, audition in the editor, and programmers call `Audio.play("sfx/footstep", { parameters: { Surface: "Gravel" } })`.
-- No core change: the size gate, the metered gate and the audio-thread budget are untouched, and events work on both backends.
+- Sustained sounds (engines, weapons, charge-ups, held notes) loop and release cleanly, and loop points authored in WAV and Ogg files are honoured, also for plain `AudioSource` loops.
+- One small core change (SET_LOOP); the audio-thread budget is untouched and events work on both backends.
 - One curve type for audio now, particles and animation later.
 
 **Negative / costs**
 - Parameter changes take effect at frame rate (ramped over the frame), not sample-accurately; a 30 fps game hears ≈33 ms automation steps smoothed by ramps.
 - The main thread takes up to 0.15 ms more per frame.
-- The editor half (tree editor, curve widget, audition) is likely larger than the runtime. Estimate: M2a ≈ 4 person-weeks, M2b ≈ 5, plus the sample and listening pass.
+- The editor half (tree editor, curve widget, audition) is likely larger than the runtime. Estimate: M2a ≈ 5 person-weeks (sustain adds one), M2b ≈ 5, plus the sample and listening pass.
 - `AudioSource.clip` now accepts two asset kinds, which the inspector and docs must make clear.
 
 ## Deprecates
 
-Nothing. `Audio.playOneShot` and clip-based `AudioSource` stay.
+Nothing. `Audio.playOneShot` and clip-based `AudioSource` stay. 0157's 150 KB mixer gate is replaced by the 256 KB tripwire.
 
 ## Open questions
 
-- **Sustain points and cues** (FMOD key-off, Wwise exit cues: a loop that plays a tail when released). Likely wanted for engines and weapons; deferred unless the owner wants it in M2.
+- **Named cues beyond release** (several sustain points per event, FMOD-style, stepped through by repeated key-offs). One release per instance covers M2.
 - **Parameter-driven snapshots** (a snapshot's intensity from a global parameter) beyond bus volume and lowpass automation.
 - **Effects per event** (an event's own filter or send) would need core work; deferred to M3 with reverb zones.
 - **Whether particles' `evalCurve` moves onto `core/curve.ts`** in M2 (cheap: same data, linear keys) or when animation lands.
