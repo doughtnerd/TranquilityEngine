@@ -10,9 +10,11 @@ M2 is in wave 1 (the pilot). E1, E2 and E3a are on master with the plan.
 1. E2's deviations (entry 1): accept, or ask for changes.
 2. The lab-VM run of the native automation cost (E5.5), once E5.3 lands.
 
-**Biggest calls so far:** none beyond the plan.
+**Biggest calls so far:**
+- `avoidRepeat: 0` now bans nothing (entry 5): a bug fix; random events with the default pick more randomly.
+- Babylon debug rows only for event voices (entry 2): drop the `group` filter in `babylonBackend.ts` `debug()`.
 
-**Proposals waiting for your yes/no:** the AAC decoder's size gate (entry 4).
+**Proposals waiting for your yes/no:** the AAC decoder's size gate (entry 4); a `description` option on `@field` (entry 8).
 
 ## Entries
 
@@ -38,3 +40,20 @@ M2 is in wave 1 (the pilot). E1, E2 and E3a are on master with the plan.
 ### 4. Proposal: the AAC decoder's size gate (E4.1 merge)
 - **Question:** `myco_audio_decode_aac.wasm` is 1,073,338 B against the 1,100 KB (1,126,400 B) gate, 95%; it was already 94.8% before M2 (loop points added 5.6 KB).
 - **Proposal (waiting for your yes/no):** under ADR 0158 the gates are tripwires, so raise `DECODER_AAC_LIMIT` in `native/audio/build.mjs` to 1,280 KB with a build-log line, or leave it until something actually trips it. Later briefs touching `audio-decode` are told the remaining headroom (≈ 52 KB).
+
+### 5. `avoidRepeat: 0` banned every earlier pick; fixed (E3.6)
+- **Question:** E3a's random container did `history.slice(-avoidRepeat)`; with the default 0 that is the whole history, so up to 32 earlier picks were banned, weights were skewed, and it could fall back to a uniform pick.
+- **Chosen:** 0 bans nothing, as 0158 §1 means. Random events with the default sound more random than in E3a, and picks for a given seed change (E3a was never released).
+- **If changed:** not recommended; the old behaviour was a bug.
+
+### 6. Per-World state on the Babylon fallback is shared (E3.6)
+- **Chosen:** generators and sequence positions are per World key, seeded `(audio.seed ^ imul(key, 0x9e3779b1)) >>> 0` (key 0 keeps `mulberry32(seed)`); state is forgotten when the host stops listing a World. On the Babylon fallback every World has key 0, so they share one generator; only the World with the view plays there.
+- **If changed:** give the fallback its own World keys (`audioSystem.ts`).
+
+### 7. Follow-up: the per-frame reap scan (E3.6 → E3.5 in wave 2)
+- **Question:** making `EventInstance.playing` side-effect free moved retirement into `EventSystem.update()`, which now scans the live instances every frame; 0158 says steady instances cost main nothing per frame.
+- **Chosen:** accepted for wave 1; the wave 2 owner of `eventRuntime.ts` (the E3.3+E3.5 lead) retires instances from voice-end events instead (the core's STATUS already reports ends) and keeps the idle path at one heap comparison. E5.3's bench measures it.
+
+### 8. Proposal: a description option on `@field` (E3.6)
+- **Question:** 0158's Consequences ask the inspector to make clear that `AudioSource.clip` takes clips or events; `@field` has no description/tooltip option, so E3.6 only expanded the doc comment (the picker already offers both kinds).
+- **Proposal (yes/no):** add an optional `description` to `FieldOptions` (engine `registry.ts`) shown as the field's tooltip. It is a public API addition to the scripting surface, so it needs your yes (and maybe a short record). Otherwise the picker's two kinds stand alone.
