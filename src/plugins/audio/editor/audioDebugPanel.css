@@ -1,0 +1,24 @@
+/* Audio debug panel (ADR 0157, A2.5): theme tokens only, so Settings > Appearance themes it. */
+.audio-debug { padding: 6px 8px; font-size: 11px; color: var(--text); }
+.audio-debug h4 { margin: 0 0 4px; font-size: 11px; font-weight: 600; color: var(--text-strong); display: flex; gap: 6px; align-items: center; }
+.audio-debug h5 { margin: 8px 0 3px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.audio-debug-empty { margin: 0; color: var(--muted); }
+.audio-debug-status { color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 4px; font-weight: normal; font-size: 10px; }
+.audio-debug-status[data-status="failed"] { color: var(--danger); border-color: var(--danger); }
+.audio-debug-status[data-status="locked"] { color: var(--warning); border-color: var(--warning); }
+.audio-debug-summary,
+.audio-debug-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.audio-debug-summary td { padding: 1px 0; }
+.audio-debug-summary td:last-child { text-align: right; color: var(--muted); }
+.audio-debug-table th { text-align: left; font-weight: 600; color: var(--muted); padding: 2px 4px 2px 0; border-bottom: 1px solid var(--border); }
+.audio-debug-table td { padding: 1px 4px 1px 0; white-space: nowrap; }
+.audio-debug-table td:nth-child(n + 2) { text-align: right; }
+.audio-debug-voices { display: block; max-height: 240px; overflow: auto; }
+.audio-debug-voices thead, .audio-debug-voices tbody { display: table; width: 100%; table-layout: fixed; }
+.audio-debug-clip { max-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left !important; }
+.audio-debug-table td[data-state="waitingForData"] { color: var(--warning); }
+.audio-debug-table td[data-state="stolen"],
+.audio-debug-table td[data-state="failed"] { color: var(--danger); }
+.audio-debug-table td[data-state="busMuted"],
+.audio-debug-table td[data-state="virtual"],
+.audio-debug-table td[data-state="locked"] { color: var(--muted); }
