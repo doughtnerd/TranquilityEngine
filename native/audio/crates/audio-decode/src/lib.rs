@@ -27,9 +27,11 @@
 //! panic traps the instance, and the worker re-creates it.
 
 mod decoder;
+mod loop_points;
 #[cfg(feature = "aac")]
 mod mp4_gapless;
 
+pub use loop_points::{comment_loop_points, smpl_loop_points, wav_loop_points};
 pub use decoder::{mp3_has_length_header, Bytes, Codec, DecodeError, Decoder, FormatHint, Info};
 
 use std::alloc::{alloc, dealloc, Layout};
