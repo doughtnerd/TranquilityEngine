@@ -18,7 +18,8 @@ Written 2026-11-10 at the end of the build session. Every task of the [waves pla
 ## Open (the owner's)
 1. **The listening pass:** re-check the blended engine (E, Right, release, Up: the gap the owner heard, root-caused and fixed, decision entry 18), then sign off (E7.1).
 2. **The lab-VM run (E5.5):** the core's automation pass measured 39–56 µs p99.9 on this container against 0158's 30 µs. Commands in the decision log's summary.
-3. **Optional:** layered events' `Audio.play` (≈ 9 µs) to 5 µs (a per-voice task in `CoreBackend.play`); `Audio.bus(n).effectiveGain` doesn't include bus automation on the core (the debug rows do).
+3. **Done after the build (F1–F3):** layered events' per-voice start cost cut (Vitest bench 7.1–7.5 µs, the bundled player faster by an unmeasured amount: a bench over `dist/` would settle whether layered events meet 5 µs); `Audio.bus(n).effectiveGain` includes bus automation on the core; voice selection counts bus automation with the no-gap rule. Optional next: the bundled-build bench; caching `Assets` lookups (≈ 0.35 µs per voice, an engine change).
+5. **Not M2:** `tests/e2e/selection.spec.ts:77` (Alt+click node list) fails on master as of `149a46a`, alone too; filed as a separate task.
 4. **Still open from M1:** the three remaining C3 soaks, reference-machine budgets, the signed M1 listening pass, Flappy's music licence, the public seek API proposal, band-limited resampling (#110); GitHub issues #50, #100, #104.
 
 ## Gotchas for the next session
