@@ -67,7 +67,7 @@ test("authoring: containers, clips, weights, fields, a parameter and an automati
 
   /** Run `action`, wait for the file to change and keep what it holds: one entry per undo step. */
   const snapshots: string[] = [JSON.stringify(await readJson(page, NEW_EVENT))];
-  const step = async (action: () => Promise<void>): Promise<Json> => {
+  const step = async (action: () => Promise<unknown>): Promise<Json> => {
     const before = snapshots[snapshots.length - 1];
     await action();
     await expect.poll(async () => JSON.stringify(await readJson(page, NEW_EVENT)), { message: "the file should change" }).not.toBe(before);
@@ -204,7 +204,7 @@ test("authoring: containers, clips, weights, fields, a parameter and an automati
   });
   const curve = (e.automation as { curve: number[][] }[])[0].curve;
   expect(curve[0][1]).not.toBe(1);
-  expect(curve[0][0]).toBe(0);
+  expect(curve[0][0]).toBeCloseTo(0, 1); // a vertical drag: x stays at the range's start
   expect(curve[1]).toEqual([1, 1]);
 
   // Ctrl+Z three times: the file follows, one step each (the drag was one step).
