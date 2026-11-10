@@ -6,6 +6,7 @@ import type { Mixer } from "../../../../engine/audio/mixer";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
 import type { StatusMirror } from "./mirror";
+import type { PlayheadTracker } from "./replay";
 import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
 
 export type { AudioDebugInfo };
@@ -28,8 +29,17 @@ export interface DebugSource {
   readonly streams?: { clipInfo(id: number): ClipInfo | null; readonly size: number; readonly stats: { readonly starves: number; readonly errors: number; readonly coreErrors: number } };
   readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings">;
   readonly lockedQueue: { readonly size: number; readonly droppedCount: number };
-  /** ADR 0158 (E3.1): the automation mirror's counts; absent in hand-built sources. */
-  readonly automation?: { readonly counts: { readonly curves: number; readonly voices: number; readonly pending: number } };
+  /**
+   * ADR 0158 (E3.1): the automation mirror's counts; absent in hand-built sources. E3.9: main's estimate of a voice's
+   * automated gain and pitch now (false: none) and of a bus's automated gain, multiplied into the rows.
+   */
+  readonly automation?: {
+    readonly counts: { readonly curves: number; readonly voices: number; readonly pending: number };
+    voiceAutomation?(i: number, out: { gain: number; pitch: number; lowpass: number }): boolean;
+    busAutomationGain?(bus: string): number;
+  };
+  /** E3.9: the playhead estimate (event voices' `playheadSeconds`; the core reports none for them); absent in hand-built sources. */
+  readonly playheads?: Pick<PlayheadTracker, "wrappedNow">;
   readonly hrtfReady: boolean;
   /** H3: STATUS `hrtfLoadFailure` with main's fetch failure (1); absent in hand-built sources (STATUS's alone). */
   readonly hrtfLoadFailure?: number;
@@ -42,7 +52,7 @@ export interface DebugSource {
   /** The mixed cap selection runs at (A3.3: `min(voices.mixed, STATUS mixedCap)`); hand-built sources may omit it. */
   mixedCap?(): number;
   /** The clock map, for §8's timing figures in `core` (A3.2); hand-built test sources may omit it. */
-  readonly clockMap?: Pick<ClockMap, "lookaheadFrames" | "leadFrames" | "rampFrames" | "anchored" | "rejected" | "reanchors">;
+  readonly clockMap?: Pick<ClockMap, "lookaheadFrames" | "leadFrames" | "rampFrames" | "anchored" | "rejected" | "reanchors"> & Partial<Pick<ClockMap, "framesNow">>;
 }
 
 const clamp01 = (v: number): number => (Number.isFinite(v) ? (v < 0 ? 0 : v > 1 ? 1 : v) : 0);
@@ -71,11 +81,38 @@ function stateName(table: VoiceTable, i: number): VoiceStateName {
 /** @internal How long a steal stays listed in `Audio.debug()` ("stolen"), in selection frames (about 1 s at 60 fps). */
 export const STOLEN_LISTED_FRAMES = 60;
 
-/** Playhead in seconds, only for voices the core reports playheads for (`WANTS_PLAYHEAD`) whose clip rate is known. */
-function playheadSeconds(table: VoiceTable, i: number, clip: ClipInfo | null): number | null {
-  if ((table.flags[i]! & VoiceFlag.WANTS_PLAYHEAD) === 0) return null;
+/**
+ * Playhead in seconds, for voices the core reports playheads for (`WANTS_PLAYHEAD`) whose clip rate is known. E3.9: an
+ * event voice (the core reports none for clip voices) gets main's estimate (`PlayheadTracker`, wrapped in its loop or
+ * clamped to the clip's end) once its PLAY has gone out.
+ */
+function playheadSeconds(backend: DebugSource, i: number, clip: ClipInfo | null): number | null {
+  const table = backend.table;
   const rate = clip?.sampleRate ?? 0;
-  return rate > 0 ? table.playhead[i]! / rate : null;
+  if (!(rate > 0)) return null;
+  if ((table.flags[i]! & VoiceFlag.WANTS_PLAYHEAD) !== 0) return table.playhead[i]! / rate;
+  const tracker = backend.playheads;
+  const now = backend.clockMap?.framesNow;
+  const s = table.state[i];
+  const sent = s === VoiceState.PLAYING || s === VoiceState.VIRTUAL || s === VoiceState.STOPPING || s === VoiceState.ENDING;
+  if (table.group[i]! === 0 || !tracker || !now || !sent) return null;
+  let pos = tracker.wrappedNow(i, now.call(backend.clockMap));
+  const frames = clip?.frames ?? 0;
+  if (frames > 0 && pos > frames) pos = frames;
+  return Math.max(0, pos) / rate;
+}
+
+/** E3.9: bus `name`'s automation and its parents' (the core runs it; the mixer's resolve leaves it out), multiplied. */
+function chainAutomation(backend: DebugSource, resolved: ReadonlyMap<string, { parent: string | null }>, name: string): number {
+  const gainOf = backend.automation?.busAutomationGain;
+  if (!gainOf) return 1;
+  let g = 1;
+  let n: string | null | undefined = name;
+  for (let depth = 0; n && depth < 64; depth++) {
+    g *= gainOf.call(backend.automation, n);
+    n = resolved.get(n)?.parent;
+  }
+  return g;
 }
 
 /** The debug copy: the header fields and counters the backend has, plus one entry per bus and per live voice. */
@@ -89,10 +126,12 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
 
   const buses: AudioDebugInfo["buses"] = busNames.map((name, b) => {
     const r = resolved.get(name);
+    // E3.9: with the bus automation the core applies, as the Babylon fallback's mixer shows it.
+    const own = backend.automation?.busAutomationGain?.(name) ?? 1;
     return {
       name,
-      gain: r?.gain ?? 0,
-      effectiveGain: r?.effectiveGain ?? 0,
+      gain: (r?.gain ?? 0) * own,
+      effectiveGain: (r?.effectiveGain ?? 0) * chainAutomation(backend, resolved, name),
       peakL: b < m.peakCount ? m.peakL[b]! : 0,
       peakR: b < m.peakCount ? m.peakR[b]! : 0,
       voices: table.busLive[b] ?? 0,
@@ -101,12 +140,15 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
   });
 
   const voices: AudioDebugInfo["voices"] = [];
+  const auto = { gain: 1, pitch: 1, lowpass: 0 };
   for (let i = 0; i < table.capacity; i++) {
     if (table.state[i] === VoiceState.FREE) continue;
     const stream = (table.flags[i]! & VoiceFlag.STREAM) !== 0 && backend.streams;
     const clip = stream ? backend.streams!.clipInfo(table.clip[i]!) : backend.clips.info(table.clip[i]!);
     const world = table.world[i]!;
     const owner = table.owner[i]!;
+    // E3.9: an event voice's automated gain and pitch (main's estimate of the core's smoothed parameters) multiply in.
+    const automated = backend.automation?.voiceAutomation?.(i, auto) === true;
     voices.push({
       id: ((table.gen[i]! << 16) | i) >>> 0,
       clip: clip?.path ?? "",
@@ -114,10 +156,10 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       world: world === 0 ? null : String(world),
       state: stateName(table, i),
       priority: table.priority[i]!,
-      gain: table.gain[i]!,
-      pitch: table.pitch[i]!,
+      gain: automated ? table.gain[i]! * auto.gain : table.gain[i]!,
+      pitch: automated ? table.pitch[i]! * auto.pitch : table.pitch[i]!,
       audibility: clamp01(table.audibility[i]!),
-      playheadSeconds: playheadSeconds(table, i, clip),
+      playheadSeconds: playheadSeconds(backend, i, clip),
       owner: owner < 0 ? null : String(owner),
       // ADR 0158 §5 (C3): the voice's event instance, from PLAY's `group`.
       event: table.group[i]! === 0 ? null : table.group[i]!,

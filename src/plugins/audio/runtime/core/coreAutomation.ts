@@ -540,6 +540,36 @@ export class CoreAutomation implements AutomationSink {
     return { curves: this.curves.size, voices, pending: this.dirtyCurves.size + this.dirtyParams.size + this.dirtyBuses.size };
   }
 
+  /**
+   * @internal E3.9, `Audio.debug()`: slot `i`'s automated gain and pitch now, at main's estimate of the core's smoothed
+   * parameter values (what the core multiplies onto the voice's own gain and pitch), into `out`; false when the voice
+   * has no bindings (both 1).
+   */
+  voiceAutomation(i: number, out: AutoResult): boolean {
+    const e = this.voices[i];
+    if (!e || e.id !== this.idOf(i) || e.n === 0) return false;
+    this.evaluateEntry(e, true, out);
+    return true;
+  }
+
+  /** @internal E3.9, `Audio.debug()`: bus `name`'s automated gain now (its volume curves at the smoothed globals); 1 when unbound. */
+  busAutomationGain(name: string): number {
+    const wire = this.buses.get(name);
+    if (!wire) return 1;
+    const n = Math.min(wire.length, MAX_BINDINGS);
+    const ids = new Int32Array(n);
+    const targets = new Uint8Array(n);
+    const xs = new Float64Array(n);
+    for (let j = 0; j < n; j++) {
+      const b = wire[j]!;
+      const k = paramKey(0, b.param & 0x7fff);
+      ids[j] = b.curve;
+      targets[j] = b.target;
+      xs[j] = k >= 0 ? this.smoothed(k) : 0;
+    }
+    return evaluateInto(n, ids, targets, xs, this.curves, { gain: 1, pitch: 1, lowpass: 0 }).gain;
+  }
+
   /** @internal The parameter target the mirror holds (tests). */
   paramTarget(group: number, slot: number): number | undefined {
     const k = paramKey(group, slot);
