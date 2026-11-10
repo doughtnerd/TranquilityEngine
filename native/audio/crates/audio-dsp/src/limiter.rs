@@ -9,9 +9,10 @@
 //! - **Ceiling** [`CEILING`]: 0 dBFS sample peak (1.0), the §8 gate exactly. Every signal that is
 //!   within full scale (a normalised clip at gain 1, a full-scale tone, the core's DC test clips)
 //!   passes untouched; the limiter acts only where the output would otherwise be clipped at the
-//!   destination. A ceiling just under full scale (−0.3 dBFS was measured) would leave room for
-//!   inter-sample overs in a later resampler, but it also limits a single normalised voice and
-//!   changes renders that never clipped; a true-peak (oversampled) detector is a later choice.
+//!   destination. A ceiling just under full scale would leave room for inter-sample overs in a
+//!   later resampler, but it also limits a single normalised voice: tried at −0.3 dBFS, it changed
+//!   a third golden (`pitch-up`, one voice peaking at 0.997) and 13 more native tests that play a
+//!   full-scale clip alone. A true-peak (oversampled) detector is a later choice.
 //!   After the gain the output is clamped to ±`CEILING`, so float rounding in `CEILING / peak` can't
 //!   leave a sample one ulp over.
 //! - **Zero latency, instant attack.** The gain a frame needs is computed from that frame

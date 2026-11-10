@@ -30,7 +30,7 @@
 //! master peak limiter (`audio_dsp::limiter`, A2.8). Peaks of the first 32 buses go to STATUS (K12).
 //!
 //! **The limiter** comes after MASTER: it is the output's safety stage, so whatever MASTER is set
-//! to, nothing leaves the core above its −0.3 dBFS ceiling, and turning MASTER down lowers what
+//! to, nothing leaves the core above its 0 dBFS ceiling, and turning MASTER down lowers what
 //! reaches the limiter (less limiting) instead of limiting first and then turning the limited
 //! signal down (quieter, yet still pumping). It adds no latency, and while nothing exceeds the
 //! ceiling the output is bit-exact what it was without it (the module doc has the design).
