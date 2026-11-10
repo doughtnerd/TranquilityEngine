@@ -9,7 +9,7 @@ import { clip, eventKit, F } from "./eventTestKit";
 const kit = eventKit();
 
 describe("events debug rows go with their last listed voice (E3.9)", () => {
-  it("a stopped instance's row stays while listed, yields its group to a new instance, and is then forgotten", async () => {
+  it("a stopped instance's row stays while listed, keeps its group from a new instance, and is then forgotten", async () => {
     await kit.boot({ "e.audioevent.json": { format: F, root: { type: "layer", children: [clip("a.wav"), clip("b.wav")] } } });
     const a = Audio.play("e.audioevent.json");
     const id = events().debugRows()[0]!.id;
@@ -18,12 +18,12 @@ describe("events debug rows go with their last listed voice (E3.9)", () => {
     expect(events().debugRows()).toEqual([]);
     expect(events().debugRows(new Map([[id, 2]]))).toEqual([expect.objectContaining({ id, asset: "e.audioevent.json", voices: 2 })]);
     expect(events().debugRows(new Map([[id, 1]]))[0]!.voices).toBe(1);
-    // The next play takes the free group: one row for it, the playing instance's.
+    // E3.10: the next play takes a different group (the old one's voices are still fading): two rows.
     const b = Audio.play("e.audioevent.json");
-    expect(events().debugRows(new Map([[id, 4]]))).toEqual([expect.objectContaining({ id, voices: 2 })]);
+    const idB = events().debugRows()[0]!.id;
+    expect(idB).not.toBe(id);
+    expect(events().debugRows(new Map([[id, 2], [idB, 1]]))).toEqual([expect.objectContaining({ id: idB, voices: 2 }), expect.objectContaining({ id, voices: 2 })]);
     b.stop(0);
-    // The old instance was forgotten when the new one showed; the newest retired one is the group's row now.
-    expect(events().debugRows(new Map([[id, 1]]))).toHaveLength(1);
     // Once not listed, gone for good.
     expect(events().debugRows(new Map())).toEqual([]);
     expect(events().debugRows(new Map([[id, 1]]))).toEqual([]);

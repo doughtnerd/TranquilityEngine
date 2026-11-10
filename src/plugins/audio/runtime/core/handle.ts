@@ -91,6 +91,12 @@ export class AudioHandle {
     return r !== VoiceReason.STOLEN && r !== VoiceReason.FAILED;
   }
 
+  /** @internal E3.10: the voice has not been freed yet (a stopped voice fading out is alive though not `playing`). */
+  get alive(): boolean {
+    const t = this.table;
+    return t !== null && isCurrent(t, this.id);
+  }
+
   /**
    * §1: "Why it isn't audible (while `playing`) or why it ended early ("stolen", "failed"); null when audible, or
    * finished or stopped normally."

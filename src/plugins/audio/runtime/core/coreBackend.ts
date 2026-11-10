@@ -1123,6 +1123,10 @@ class Voice implements CoreVoice {
     return this.handle.playing;
   }
 
+  get alive(): boolean {
+    return this.handle.alive;
+  }
+
   get reason(): AudioReason | null {
     return this.handle.reason;
   }

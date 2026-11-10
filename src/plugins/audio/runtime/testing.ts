@@ -40,6 +40,8 @@ export interface FakeVoice extends AudioVoice {
   readonly bus: string;
   readonly paused: boolean;
   readonly stopped: boolean;
+  /** E3.10: false once freed: `stop()` with no fade, or `end()`. A voice stopped with a fade is not `playing` but stays alive (and counted on its bus) until `end()`, like a core voice fading out. */
+  readonly alive: boolean;
   /** Ends the voice the way a finished clip does: `playing` goes false and the bus count drops. */
   end(): void;
 }
@@ -133,10 +135,11 @@ let nextFakeVoiceId = 1;
 function makeFakeVoice(request: PlayRequest): FakeVoice {
   const events: FakeVoiceEvent[] = [];
   let counted = true;
-  const state = { volume: 1, pitch: 1, attenuation: null as Attenuation | null, position: null as Vec3Like | null, bus: request.bus, paused: false, stopped: false, playing: true };
+  const state = { volume: 1, pitch: 1, attenuation: null as Attenuation | null, position: null as Vec3Like | null, bus: request.bus, paused: false, stopped: false, playing: true, alive: true };
   const uncount = (): void => {
     if (counted) mixer.voiceEnded(state.bus);
     counted = false;
+    state.alive = false;
   };
   mixer.voiceStarted(request.bus);
   // The request's initial values are recorded like the setters' calls, only for what the request carries.
@@ -159,6 +162,7 @@ function makeFakeVoice(request: PlayRequest): FakeVoice {
     get paused() { return state.paused; },
     get stopped() { return state.stopped; },
     get playing() { return state.playing; },
+    get alive() { return state.alive; },
     setVolume(value) { state.volume = value; events.push({ kind: "volume", value }); },
     setPitch(value) { state.pitch = value; events.push({ kind: "pitch", value }); },
     setAttenuation(a) {
@@ -180,7 +184,11 @@ function makeFakeVoice(request: PlayRequest): FakeVoice {
     setLoop(start, end, looping) { events.push({ kind: "loop", start, end, looping }); },
     pause() { state.paused = true; events.push({ kind: "pause" }); },
     resume() { state.paused = false; events.push({ kind: "resume" }); },
-    stop(fadeSeconds) { state.stopped = true; state.playing = false; events.push(fadeSeconds ? { kind: "stop", fadeSeconds } : { kind: "stop" }); uncount(); },
+    stop(fadeSeconds) {
+      state.stopped = true; state.playing = false;
+      events.push(fadeSeconds ? { kind: "stop", fadeSeconds } : { kind: "stop" });
+      if (!(fadeSeconds && fadeSeconds > 0)) uncount(); // a fading voice is freed (and uncounted) at `end()`
+    },
     end() { state.playing = false; uncount(); },
   };
 }
