@@ -3,12 +3,14 @@
 // `hrtfReady` and `counters.hrtfVoices`), never more than `voices.hrtf`; `audio.spatial: "equalPower"` and
 // `voices.hrtf: 0` never fetch the table; a failed fetch reads `hrtfLoadFailure` 1 and flags nothing. Also the
 // per-voice cost of HRTF in the real wasm (printed, for A3.5; compare with `wu::HRTF_VOICE`).
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import type { AudioHost, CoreLink } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
+import { AudioHost, presetFromSettings, type CoreLink } from "./context";
+import { CoreBackend, createCoreBackend, type CoreBackendHost } from "./coreBackend";
 import { createHrirLoader } from "./hrir";
+import { watchForTraps } from "./recovery";
+import { Unlock, type UnlockContext } from "./unlock";
 
 const att = { minDistance: 1, maxDistance: 100, rolloff: "inverse" as const };
 const req = (path: string, x: number, z: number, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", attenuation: att, position: { x, y: 0, z }, ...extra });
@@ -79,7 +81,79 @@ async function rig(opts: { spatial?: "hrtf" | "equalPower"; hrtf?: number; failF
   return { loop, backend, mixer, step, fetches: () => fetches, warnings, hrtfSeen };
 }
 
+const hosts: AudioHost[] = [];
+afterEach(async () => {
+  for (const host of hosts.splice(0)) await host.close();
+});
+
 describe("HRTF for the nearest voices on the loopback host (H3)", () => {
+  it("a rebuild after a trap brings the HRTF voices back on HRTF (the replayed PLAY carries the panner)", async (ctx) => {
+    const testing = await import("../testing");
+    let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
+    try {
+      loop = await testing.createLoopbackHost({ testHooks: true });
+    } catch {
+      return ctx.skip();
+    }
+    const context = {
+      state: "running",
+      sampleRate: 48_000,
+      destination: {},
+      resume: () => Promise.resolve(),
+      close: () => Promise.resolve(),
+      addEventListener() {},
+      removeEventListener() {},
+    };
+    const node = Object.assign(new EventTarget(), { connect() {}, disconnect() {} }) as unknown as AudioWorkletNode;
+    const host = AudioHost._create({
+      context: context as unknown as AudioContext,
+      node,
+      link: loop.link,
+      unlock: new Unlock({ target: new EventTarget(), context: context as unknown as UnlockContext }),
+      preset: presetFromSettings(defaultAudioSettings()),
+      respawn: () => loop.respawn(),
+    });
+    hosts.push(host);
+    const { createClipRegistry } = await import("./clipRegistry");
+    const link = loop.link;
+    const frames = 48_000;
+    const clips = createClipRegistry({
+      send: (m) => link.post(m),
+      nextSeq: () => link.nextSeq(),
+      fetchBytes: async () => new ArrayBuffer(8),
+      decode: async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.1)] }),
+      clipFormat: 0,
+      nextFrame: (cb) => cb(),
+      nextQuantum: (cb) => cb(),
+    });
+    const settings = defaultAudioSettings();
+    settings.voices = { ...settings.voices, hrtf: 2 };
+    const mixer = new Mixer(settings);
+    const hrir = createHrirLoader({ clips, sampleRate: 48_000, fetchBytes: readAsset });
+    const backend = createCoreBackend(host, { clips, clock: loop.clock, mixer, hrir });
+    watchForTraps(host, { now: () => 0, warn: () => {} });
+    const step = async (n: number) => {
+      for (let f = 0; f < n; f++) {
+        mixer.update(0.003);
+        backend.update(0.003);
+        loop.renderQuanta(4);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    };
+    for (let k = 0; k < 3; k++) backend.play(req(`s${k}.wav`, -(k + 1), -1));
+    await step(30);
+    expect(backend.debug().counters.hrtfVoices).toBe(2);
+    loop.trapNext();
+    await step(40);
+    expect(host.health.recoveries).toBe(1);
+    expect(loop.cores).toBe(2);
+    const d = backend.debug();
+    expect(d.core.hrtfReady).toBe(true);
+    expect(d.core.hrtfFlagged).toBe(2);
+    expect(d.counters.hrtfVoices).toBe(2);
+    backend.dispose();
+  });
+
   it("gives HRTF to the top voices.hrtf spatial voices once the table is resident", async (ctx) => {
     const r = await rig({ hrtf: 2 });
     if (!r) return ctx.skip();

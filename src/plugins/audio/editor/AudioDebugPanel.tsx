@@ -65,6 +65,13 @@ export function AudioDebugPanel() {
             </td>
           </tr>
           <tr>
+            <td>HRTF voices</td>
+            <td>
+              {c.hrtfVoices}
+              {c.hrtfLoadFailure === 1 ? " (HRTF data failed to load)" : c.hrtfLoadFailure === 2 ? " (HRTF data invalid)" : ""}
+            </td>
+          </tr>
+          <tr>
             <td>Dropped plays</td>
             <td>{c.droppedPlays}</td>
           </tr>
