@@ -2,6 +2,24 @@
 
 The owner asked (2026-11-10) that, while the build runs unattended, decisions that would normally go to the owner are made by the coordinator in line with the design goals and industry practice, and listed here for review. Each entry gives the question, what was chosen and why, and what changes if the owner decides otherwise. Newest last. Entries the owner has already confirmed are marked.
 
+## Summary for the morning (read first)
+
+M1 is built except what needs you. MS5, MS6 and MS7 are on master; MS8's buildable tasks are done on the integration branch (merged to master too, see entry 34).
+
+**Needs you:**
+1. **C3 soak** on the gate machines with `samples/stress` (`?soak=30`), which also gives the reference-machine numbers (entries 30–32, 34).
+2. **C4 listening pass** (`listening-pass.md`, about an hour on headphones; entry 29).
+3. **Flappy's music licence** (`samples/flappy/music/*.mp3` has no credit anywhere; entry 28).
+
+**Biggest calls I made (easy to revert, each one line or one constant):**
+- The default backend is now the core (B7, entry 27): `DEFAULT_BACKEND` in `src/engine/audio/settings.ts`.
+- The adaptive cap assumes a reference machine 2× this VM (entry 30): `REFERENCE_SPEEDUP` in `native/audio/crates/audio-core/src/cap.rs`.
+- Presets match architecture §5.3 (entry 31).
+- HRTF at 48 kHz was fixed to match Chromium rather than accepted (entries 18, 20).
+- `AudioSource.seek` kept internal pending a decision record (entry 21).
+
+**Proposals waiting for your yes/no:** a pinned `wasm-opt` (entry 22; the mixer is 143.9 KB of 150 KB), the public seek API (entry 21), the high preset's content budget (entry 31).
+
 ## Made before the unattended run (not yet explicitly confirmed)
 
 ### 1. Voice presets "low" and "high" (A2.4) — superseded by entry 31
@@ -169,3 +187,9 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 ### 32. The stress sample and soak mode (C1) — for your C3 runs
 - `samples/stress` reproduces the soak content (64 MiB of clips generated at runtime, 4,096 logical voices, ≈200 starts/s, 32 buses with effects, 8 streams, HRTF emitters, churn). For C3, open it on each gate machine and run `?soak=30` (or press `K`): it reports per minute and ends with a PASS/FAIL report to copy into the build log.
 - On the lab VM the high preset's heavy content settles at ≈183 mixed voices under the cap (bench), and headless Chromium shows the cap adapting between 132 and 256 with 1–4 underruns a minute. Whether that's acceptable for the high preset depends on the reference machine (entries 30–31).
+
+### 33. The metered cost gate (C1b)
+- CI now fails if any of 13 scenes costs more than 10% more instructions per quantum than `tools/audio-bench/metered/baseline.json`. Raising the baseline is an explicit `UPDATE_METERED_BASELINE=1` commit; reviewers should ask why. The thin C ABI shell in `audio-wasm` isn't counted (the scenes run through `audio-bench`, which links the same core and DSP code).
+
+### 34. MS8's buildable work merged to master
+- A3.5, C1, C1b, C2 and C4's checklist merged to master after the full suite passed, so master holds everything; MS8 itself stays open until C3 and C4 (owner) are done. The behaviour changes in it are entries 30 (cap budget) and 31 (presets).
