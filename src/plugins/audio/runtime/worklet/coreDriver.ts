@@ -38,6 +38,7 @@ import {
   STATUS_IDLE_EVERY_QUANTA,
   VERSION_MAJOR,
   writeEnvelope,
+  writeStreamClose,
   writeStreamCredit,
 } from "../wire.generated";
 
@@ -487,7 +488,24 @@ export class CoreDriver {
 
   /** B3: where STREAM_CREDITs go: the worker's port (the processor wires `streamPort`), or a fake in tests. */
   setStreamPost(post: StreamPost | null): void {
+    // A new port means a new decoder worker (the old one died; main connects the next one before its first stream):
+    // the old worker's streams will never send STREAM_CLOSE, so close them here and free their rings once their voices
+    // end. Their chunk buffers belonged to the dead worker and are dropped.
+    if (this.streamPost && post && post !== this.streamPost) this.closeAllStreams();
     this.streamPost = post;
+  }
+
+  /** STREAM_CLOSE for every open stream, through the inbox as the worker's would come. */
+  private closeAllStreams(): void {
+    if (this.dead) return this.streams.clear();
+    for (const streamId of [...this.streams.keys()]) {
+      const buffer = new ArrayBuffer(STREAM_CLOSE_FIXED_END);
+      const view = new DataView(buffer);
+      writeEnvelope(view, 0, { kind: Kind.STREAM_CLOSE, seq: 0, bodyBytes: STREAM_CLOSE_FIXED_END - 16 });
+      writeStreamClose(view, 0, { streamId });
+      this.submitSmall(buffer);
+    }
+    this.streams.clear();
   }
 
   /** Open streams (for tests). */

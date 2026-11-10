@@ -9,7 +9,9 @@
 // - starvation (the worker stalled past the 0.68 s ring): a 5 ms fade to silence, `reason === "waitingForData"`, then a
 //   clean 5 ms fade-in from the held frame when the worker resumes, and the reason clears;
 // - a decoder error: STOP with a 50 ms fade and one warning naming the asset;
-// - two streams at once, mono and stereo, then cleanup on stop.
+// - two streams at once, mono and stereo, then cleanup on stop;
+// - a decoder worker crash: each open stream stops once (one warning each), the worklet closes the dead worker's
+//   rings when the next worker connects, and a new stream plays on it.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -61,15 +63,28 @@ async function rig(files: Record<string, ArrayBuffer>) {
     return null;
   }
   const link = loop.link;
-  // The decoder worker, in process: the real handler behind a WorkerLike.
-  const worker: WorkerLike = {
-    onmessage: null,
-    onerror: null,
-    postMessage: (m) => void handler.handle(m),
-    terminate() {},
+  // The decoder worker, in process: the real handler behind a WorkerLike, a fresh one per spawn (B6 respawns after a
+  // crash); a terminated one says nothing more.
+  let handler!: ReturnType<typeof createDecoderHandler>;
+  let worker!: WorkerLike;
+  let spawned = 0;
+  const spawn = (): WorkerLike => {
+    let dead = false;
+    const w: WorkerLike = {
+      onmessage: null,
+      onerror: null,
+      postMessage: (m) => void (dead || h.handle(m)),
+      terminate() {
+        dead = true;
+      },
+    };
+    const h = createDecoderHandler({ post: (reply: DecoderReply) => void (dead || w.onmessage?.({ data: reply })), expectedSourceHash: hash.sourceHash, yieldToEvents: async () => {} });
+    handler = h;
+    worker = w;
+    spawned++;
+    return w;
   };
-  const handler = createDecoderHandler({ post: (reply: DecoderReply) => worker.onmessage?.({ data: reply }), expectedSourceHash: hash.sourceHash, yieldToEvents: async () => {} });
-  const decoder = createDecoderClient({ workerFactory: () => worker, wasmBytes: decoderWasm() });
+  const decoder = createDecoderClient({ workerFactory: spawn, wasmBytes: decoderWasm() });
   let streamPort: ReturnType<typeof channel> | null = null;
   const host: CoreBackendHost = {
     link,
@@ -155,7 +170,24 @@ async function rig(files: Record<string, ArrayBuffer>) {
     );
   };
   await settle();
-  return { loop, backend, decoder, handler, step, settle, waitOpen, left, right, mixer, streamPort: () => streamPort! };
+  return {
+    loop,
+    backend,
+    decoder,
+    get handler() {
+      return handler;
+    },
+    /** The current "worker" and how many were spawned. */
+    worker: () => worker,
+    spawned: () => spawned,
+    step,
+    settle,
+    waitOpen,
+    left,
+    right,
+    mixer,
+    streamPort: () => streamPort!,
+  };
 }
 
 const WAV_FRAMES = 96_000; // 2 s
@@ -282,7 +314,7 @@ describe("streaming on the loopback host (B3)", () => {
     await r.step(10);
     const streamId = r.backend.table.clip[voice.id & 0xffff]!;
     // The worker reports a decode error for the stream (as on a truncated or corrupt frame).
-    const worker = (r.decoder as unknown as { worker: WorkerLike }).worker;
+    const worker = r.worker();
     worker.onmessage?.({ data: { type: "error", streamId, asset: "music/a.wav", message: "decode error at frame 12345" } });
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]![0])).toContain("music/a.wav");
@@ -325,6 +357,42 @@ describe("streaming on the loopback host (B3)", () => {
     expect(r.loop.driver.openStreams).toBe(0);
     expect(r.backend.streams.size).toBe(0);
     expect(r.left.slice(-512).every((s) => s === 0)).toBe(true);
+    r.backend.dispose();
+  });
+
+  it("a decoder worker crash stops each open stream once with one warning; a new stream plays on the next worker (B3, B6)", async (ctx) => {
+    const r = await rig({ "music/a.wav": stereo(), "sfx/b.wav": stereo() });
+    if (!r) return ctx.skip();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const a = r.backend.play({ path: "music/a.wav", url: "", loop: true, stream: true, bus: "Music" })!;
+    const b = r.backend.play({ path: "sfx/b.wav", url: "", loop: true, stream: true, bus: "SFX" })!;
+    await r.step(2);
+    await r.waitOpen(2);
+    await r.step(10);
+    expect(r.spawned()).toBe(1);
+    r.worker().onerror?.({ message: "boom" });
+    // Both voices stop (50 ms fade), each with one warning naming its asset.
+    expect(a.playing).toBe(false);
+    expect(b.playing).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(2);
+    const warned = warn.mock.calls.map((c) => String(c[0])).sort();
+    expect(warned[0]).toContain("music/a.wav");
+    expect(warned[1]).toContain("sfx/b.wav");
+    // The dead worker's rings are still open in the worklet: nobody sent their STREAM_CLOSE.
+    expect(r.loop.driver.openStreams).toBe(2);
+    // The next stream spawns a worker and connects it; the worklet closes the old rings, and the new stream plays.
+    const c = r.backend.play({ path: "music/a.wav", url: "", loop: false, stream: true, bus: "Music" })!;
+    await r.step(2);
+    await r.waitOpen(1);
+    expect(r.spawned()).toBe(2);
+    const from = r.left.length;
+    await r.step(20);
+    expect(c.playing).toBe(true);
+    expect(c.reason).toBeNull();
+    expect(r.left.slice(from).some((s) => s !== 0)).toBe(true);
+    expect(r.backend.streams.size).toBe(1);
+    // Nothing more about the old streams (their rings closing early in the core is not reported again).
+    expect(warn).toHaveBeenCalledTimes(2);
     r.backend.dispose();
   });
 });

@@ -94,7 +94,7 @@ export interface DecoderClient {
   closeStream(streamId: number): void;
   /** B3: every stream reply; returns the unsubscribe. */
   onStream(listener: (reply: StreamReply) => void): () => void;
-  /** B3: bumped each time a worker is spawned; a worklet connected to an older one must be connected again. */
+  /** B3: bumped each time a worker is spawned or retired (crashed, refused, disposed); a worklet connected at another generation must be connected again. */
   readonly generation: number;
   /** Terminates the worker and rejects what is pending. The client may be used again (it respawns). */
   dispose(): void;
@@ -313,6 +313,9 @@ class Client implements DecoderClient {
 
   private retire(worker: WorkerLike): void {
     this.worker = null;
+    // B3: a worker connected to the worklet is gone, so a caller holding the old generation connects again (the
+    // next spawn bumps it once more).
+    this.generation++;
     worker.onmessage = null;
     worker.onerror = null;
     worker.terminate();

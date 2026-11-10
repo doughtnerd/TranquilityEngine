@@ -14,7 +14,9 @@
 // - **Close.** When the voice is freed (ended, stopped, stolen) the stream is closed on the worker, which sends
 //   STREAM_CLOSE to the worklet (the core frees the ring).
 // - **Errors** (architecture §7): a stream error from the worker, a failed fetch or a refused ring stops the voice with
-//   a 50 ms fade and warns once, naming the asset.
+//   a 50 ms fade and warns once, naming the asset. A decoder worker that dies takes its streams with it (B6 respawns
+//   it for clip decodes only): each of its streams fails this way, and the next stream connects a new channel, on
+//   which the worklet closes the dead worker's rings.
 import { MAX_STARVED_PER_BLOCK, StreamEvent, type StatusBlock } from "../wire.generated";
 import type { DecodeHint, StreamPortLike } from "../decoder/protocol";
 import { hintFromName } from "../decoder/protocol";
@@ -61,6 +63,8 @@ interface Entry {
   /** From `streamOpened`: the file's rate and frames (0 until then, or when unknown). */
   rate: number;
   frames: number;
+  /** Failed already (stopping): later errors for it (a dead worker's rings closed early in the core) say nothing more. */
+  failed?: boolean;
 }
 
 /** @internal Counts for `Audio.debug()` and tests. */
@@ -168,7 +172,7 @@ export class StreamManager {
     const e = this.byStream.get(oldId);
     const id = this.allocate();
     this.close(oldId);
-    if (e) this.byStream.set(id, { ...e });
+    if (e) this.byStream.set(id, { ...e, failed: false });
     return id;
   }
 
@@ -215,7 +219,8 @@ export class StreamManager {
 
   private fail(streamId: number, err: unknown): void {
     const e = this.byStream.get(streamId);
-    if (!e) return;
+    if (!e || e.failed) return;
+    e.failed = true;
     const message = err instanceof Error ? err.message : String(err);
     this.deps.onError(e.voice, e.asset, message);
   }
