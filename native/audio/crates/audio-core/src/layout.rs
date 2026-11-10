@@ -66,12 +66,15 @@ pub enum RegionKind {
     Streams,
     /// The clip directory and the arena's size-class list heads.
     ClipDirectory,
+    /// Parameters, curves, voice and bus automation and loop regions (ADR 0158 E2;
+    /// `automation::region_bytes`).
+    Automation,
     /// The clip arena's initial reserve. Always last.
     Arena,
 }
 
 /// The layout order. Append-only before `Arena` (see the module comment).
-pub const REGION_ORDER: [RegionKind; 11] = [
+pub const REGION_ORDER: [RegionKind; 12] = [
     RegionKind::Output,
     RegionKind::CoreState,
     RegionKind::Pending,
@@ -82,6 +85,7 @@ pub const REGION_ORDER: [RegionKind; 11] = [
     RegionKind::Hrtf,
     RegionKind::Streams,
     RegionKind::ClipDirectory,
+    RegionKind::Automation,
     RegionKind::Arena,
 ];
 
@@ -124,6 +128,8 @@ fn region_len(kind: RegionKind, p: &InitParams) -> usize {
         // B3: the stream rings (`stream.rs`, K5-style: sized in its own module).
         RegionKind::Streams => crate::stream::region_bytes(p),
         RegionKind::ClipDirectory => CLIP_DIRECTORY_ENTRIES * CLIP_DIRECTORY_ENTRY_BYTES + CLIP_CLASS_LISTS * CLIP_CLASS_LIST_HEAD_BYTES,
+        // ADR 0158 E2: sized in its own module, like the streams.
+        RegionKind::Automation => crate::automation::region_bytes(p),
         RegionKind::Arena => align_up(p.arena_initial_bytes as usize, PAGE_BYTES),
     }
 }
@@ -207,8 +213,11 @@ mod tests {
         let fixed = layout.region(RegionKind::Arena).offset - reverb;
         let streams = layout.region(RegionKind::Streams).len;
         assert_eq!(streams, 8 * crate::stream::RING_BYTES, "8 rings at the default preset (architecture §5.3)");
-        let fixed = fixed - streams;
-        assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF and streams: {fixed}");
+        let automation = layout.region(RegionKind::Automation).len;
+        assert!(automation < 2 << 20, "the automation region (ADR 0158 E2): {automation}");
+        let fixed = fixed - streams - automation;
+        assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF, streams and automation: {fixed}");
+        eprintln!("default preset: automation {automation} B, total {} B", layout.total());
     }
 
     #[test]

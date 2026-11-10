@@ -147,6 +147,17 @@ pub struct Scene {
     /// The adaptive cap acts on the production budget with the work-unit model driving it (else its budget is
     /// unlimited) and main obeys `mixedCap`.
     pub cap: bool,
+    /// ADR 0158 E2: automation bindings per voice (0 to 3: volume on a global parameter, pitch on the voice's
+    /// group's local one, lowpass on a second global), with every batch seeking the globals and 32 groups' locals.
+    pub bindings: u32,
+    /// ADR 0158 E2: every bus has a volume and a lowpass binding to the seeking globals.
+    pub bus_automation: bool,
+    /// ADR 0158 E2: mixed voices are clips looping a SET_LOOP region (no whole-clip loop); each batch releases two,
+    /// which play their tails and end, and new ones replace them.
+    pub sustain: bool,
+    /// ADR 0158 E2: also time one extra `automation::begin_quantum` before each quantum (outside the timed work;
+    /// the parameters then seek twice as fast) and report its percentiles: the control-rate pass on its own.
+    pub probe_automation: bool,
 }
 
 impl Scene {
@@ -173,6 +184,10 @@ impl Scene {
             updates: false,
             ramps: true,
             cap: false,
+            bindings: 0,
+            bus_automation: false,
+            sustain: false,
+            probe_automation: false,
         }
     }
 
@@ -246,6 +261,17 @@ pub fn scene(name: &str) -> Option<Scene> {
         "virtual" => Scene { max_logical: 8_192, virtual_voices: 8_064, ..Scene::looping(name, 16) },
         // Records and the moving pan path: SET_PARAMS (gain and direction, ramped) for 256 voices every batch.
         "updates" => Scene { updates: true, ..Scene::looping(name, 256) },
+        // ADR 0158 E2: 256 mixed voices with 3 bindings each (0158 §6's budget case) and its twin without them; the
+        // same bindings on 256 virtual voices (the control-rate evaluation and pitch alone); 32 automated buses
+        // (the twin is the `snapshot-true` sweep); sustain loops released and replaced.
+        "automation" => Scene { bindings: 3, ..Scene::looping(name, 256) },
+        "automation-base" => Scene::looping(name, 256),
+        "automation-virtual" => Scene { bindings: 3, virtual_voices: 256, ..Scene::looping(name, 16) },
+        "bus-automation" => Scene { buses: 32, snapshot_lp: true, bus_automation: true, ..Scene::looping(name, 32) },
+        "sustain" => Scene { sustain: true, ..Scene::looping(name, 128) },
+        // Not gated: the timed control-rate pass of `automation`, and the virtual scene's twin without bindings.
+        "automation-probe" => Scene { bindings: 3, probe_automation: true, ..Scene::looping(name, 256) },
+        "automation-virtual-base" => Scene { virtual_voices: 256, ..Scene::looping(name, 16) },
         _ => return None,
     };
     Some(s)
@@ -446,6 +472,8 @@ pub struct RunResult {
     pub crossfading: Vec<u8>,
     pub kernels: Vec<u8>,
     pub hrtf: Vec<u8>,
+    /// `probe_automation`: the extra `begin_quantum`'s p50, p99, p99.9 and max (µs).
+    pub automation: [f64; 4],
 }
 
 /// A main-side voice.
@@ -483,6 +511,8 @@ struct Bench {
     stream_data: Vec<f32>,
     records_sent: u64,
     starts: u64,
+    /// ADR 0158 E2 (`sustain`): the next mixed voice to release, as an index into `mixed_ids`.
+    release_at: usize,
 }
 
 /// The scene's init parameters. The arena's initial reserve holds all of the scene's clips (with
@@ -616,6 +646,7 @@ impl Bench {
             stream_data: Vec::new(),
             records_sent: 0,
             starts: 0,
+            release_at: 0,
         };
         b.stream_data = (0..STREAM_CHUNK as usize * 2).map(|_| (b.rng.unit() - 0.5) * 0.1).collect();
         b.configure();
@@ -654,6 +685,21 @@ impl Bench {
         let mix = wire::BusMix { voice_id: 0, frame_offset: wire::ASAP, ramp_frames: 0, buses: (0..s.buses).map(|_| wire::BusMixBuses { gain: 0.9, lp_hz: lp }).collect() };
         self.push(&mix);
         self.push(&wire::Master { voice_id: 0, frame_offset: wire::ASAP, volume: 0.5, muted: 0, ramp_frames: 0 });
+        if s.bindings > 0 || s.bus_automation {
+            self.push(&bench_curves());
+            for slot in 0..2u16 {
+                self.push(&wire::Param { voice_id: 0, frame_offset: wire::ASAP, group: 0, slot, value: 0.5, seek_per_second: 0.0 });
+            }
+        }
+        if s.bus_automation {
+            for bus in 0..s.buses {
+                let bindings = vec![
+                    wire::BusAutomateBindings { param: 0x8000, curve: 0, target: 0 },
+                    wire::BusAutomateBindings { param: 0x8001, curve: 2, target: 2 },
+                ];
+                self.push(&wire::BusAutomate { voice_id: bus, frame_offset: wire::ASAP, bindings });
+            }
+        }
         self.flush_setup();
         for k in 0..s.streams {
             let id = STREAM_ID + k;
@@ -733,7 +779,7 @@ impl Bench {
         *g = g.wrapping_add(1).max(1);
         let id = ((*g as u32) << 16) | index;
         let s = self.scene.clone();
-        let looping = stream.is_some() || !mixed || !s.one_shots;
+        let looping = stream.is_some() || !mixed || !(s.one_shots || s.sustain);
         let hrtf = mixed && self.hrtf_now < s.hrtf;
         let clip = match stream {
             Some(sid) => sid,
@@ -762,7 +808,13 @@ impl Bench {
         }
         let frames = if stream.is_some() { 0 } else { self.clip_frames[clip as usize] };
         // Looping and first voices start anywhere in their clip, so ends spread out.
-        let offset = if frames > 0 && (looping || self.starts == 0) { self.rng.below(frames) } else { 0 };
+        let offset = if s.sustain && mixed {
+            self.rng.below(frames / 3 + 1)
+        } else if frames > 0 && (looping || self.starts == 0) {
+            self.rng.below(frames)
+        } else {
+            0
+        };
         let pitch = if stream.is_some() { 1.0 } else { self.pitch() };
         let score = self.rng.unit();
         self.push(&wire::Play {
@@ -779,8 +831,18 @@ impl Bench {
             lp_hz: wire::BUS_LP_OFF_HZ as f32,
             score,
             start_offset_frames: offset,
+            group: if s.bindings > 0 { 1 + (index % 1_024) as u16 } else { 0 },
             ..Default::default()
         });
+        if s.bindings > 0 && stream.is_none() {
+            let all = [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2)];
+            let bindings = all[..s.bindings.min(3) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect();
+            self.push(&wire::Automate { voice_id: id, frame_offset: wire::ASAP, bindings });
+        }
+        if s.sustain && mixed && stream.is_none() {
+            // A region in the clip's middle third; the voice starts before it.
+            self.push(&wire::SetLoop { voice_id: id, frame_offset: wire::ASAP, loop_start_frame: frames / 3, loop_end_frame: 2 * frames / 3, flags: wire::SET_LOOP_FLAGS_LOOPING });
+        }
         let mut v = Voice { id, mixed, hrtf, at: u32::MAX, phase };
         if mixed {
             v.at = self.mixed_ids.len() as u32;
@@ -837,13 +899,38 @@ impl Bench {
         if s.cap {
             target = target.min(status::counters(&self.core).mixed_cap as u32);
         }
-        if s.one_shots {
+        if s.one_shots || s.sustain {
             while (self.mixed_ids.len() as u32) < target && !self.free.is_empty() {
                 self.start(None, true);
                 self.starts += 1;
             }
         }
         let t = q as f32 * QUANTUM as f32 / RATE;
+        if s.bindings > 0 || s.bus_automation {
+            // ADR 0158 E2: the globals seek toward new targets every batch (≈ 0.25 s to cross), and 32 groups' locals.
+            for slot in 0..2u16 {
+                let value = 0.5 + 0.5 * libm::sinf(t * (1.0 + slot as f32));
+                self.push(&wire::Param { voice_id: 0, frame_offset: wire::ASAP, group: 0, slot, value, seek_per_second: 4.0 });
+            }
+            if s.bindings > 0 {
+                for k in 0..32u64 {
+                    let group = 1 + ((q / BATCH_EVERY * 32 + k) % (s.mixed + s.virtual_voices).max(1) as u64) as u16;
+                    let value = self.rng.unit();
+                    self.push(&wire::Param { voice_id: 0, frame_offset: wire::ASAP, group, slot: 0, value, seek_per_second: 2.0 });
+                }
+            }
+        }
+        if s.sustain {
+            // Two releases a batch (key-offs): those voices play their tails and end, and new ones replace them.
+            for _ in 0..2 {
+                if self.mixed_ids.is_empty() {
+                    break;
+                }
+                self.release_at = (self.release_at + 1) % self.mixed_ids.len();
+                let id = self.mixed_ids[self.release_at];
+                self.push(&wire::SetLoop { voice_id: id, frame_offset: wire::ASAP, loop_start_frame: 0, loop_end_frame: 0, flags: 0 });
+            }
+        }
         let ramp = if s.ramps { (BATCH_EVERY as u32) * QUANTUM as u32 } else { 0 };
         for k in 0..self.mixed_ids.len() {
             let id = self.mixed_ids[k];
@@ -904,7 +991,22 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master);
+wire_record!(wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop);
+
+/// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
+/// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps).
+fn bench_curves() -> wire::Curves {
+    let key = |x: f32, y: f32, interp: u32| wire::CurvesCurvesKeys { x, y, interp };
+    let volume = (0..8).map(|i| key(i as f32 / 7.0, 0.2 + 0.8 * (i as f32 / 7.0), 2)).collect();
+    let pitch = vec![key(0.0, 0.8, 3), key(1.0, 1.25, 0)];
+    let lowpass = (0..16).map(|i| key(i as f32 / 15.0, 800.0 + 19_200.0 * (i as f32 / 15.0) * (i as f32 / 15.0), 4)).collect();
+    wire::Curves {
+        voice_id: 0,
+        frame_offset: wire::ASAP,
+        first_curve: 0,
+        curves: [volume, pitch, lowpass].into_iter().map(|keys| wire::CurvesCurves { reserved: 0, keys }).collect(),
+    }
+}
 
 fn percentile(sorted: &[f32], p: f64) -> f64 {
     if sorted.is_empty() {
@@ -925,6 +1027,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     let mut r = RunResult { cap_min: u32::MAX, ..Default::default() };
     let (mut sum_mixed, mut sum_live, mut sum_src, mut sum_moving) = (0f64, 0f64, 0f64, 0f64);
     let mut status_buf = vec![0u8; 16 * 1024];
+    let mut probe: Vec<f32> = Vec::new();
     let mut deadline = platform::now_us();
     let (mut records_at_warm, mut starts_at_warm) = (0u64, 0u64);
     for q in 0..warm_q + rec_q as u64 {
@@ -952,6 +1055,14 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
             assert_eq!(rc, 0, "batch refused");
         }
         b.feed_streams(frame);
+        if scene.probe_automation {
+            let t1 = platform::now_us();
+            audio_core::automation::begin_quantum(&mut b.core);
+            let pt = platform::now_us() - t1;
+            if recording {
+                probe.push(pt as f32);
+            }
+        }
         b.core.process(frame);
         status::after_quantum(&mut b.core);
         clips::flush_events(&mut b.core);
@@ -1031,6 +1142,8 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     drop(b);
     // SAFETY: the core over the block is gone with `b`; nothing else points into it.
     unsafe { std::alloc::dealloc(base, block) };
+    probe.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    r.automation = [percentile(&probe, 0.5), percentile(&probe, 0.99), percentile(&probe, 0.999), *probe.last().unwrap_or(&0.0) as f64];
     r.times = times;
     r.crossfading = xf_v;
     r.kernels = k_v;
@@ -1108,7 +1221,7 @@ fn num(args: &str, key: &str, default: f64) -> f64 {
 }
 
 fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
-    format!(
+    let mut line = format!(
         "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{}}}",
         r.quanta,
         r.p50,
@@ -1135,7 +1248,12 @@ fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
         r.cap_min,
         r.cap_last,
         r.demoted
-    )
+    );
+    if r.automation[3] > 0.0 {
+        line.pop();
+        line.push_str(&format!(",\"automationP50\":{:.3},\"automationP99\":{:.3},\"automationP999\":{:.3},\"automationMax\":{:.3}}}", r.automation[0], r.automation[1], r.automation[2], r.automation[3]));
+    }
+    line
 }
 
 /// The fixed regions of a preset, for architecture §5.1.

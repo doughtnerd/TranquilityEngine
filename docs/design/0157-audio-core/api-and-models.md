@@ -244,13 +244,20 @@ Record head, 12 B: `u16 opcode; u16 words` (total length in u32 words; lets old 
 | 0x05 | SET_MIXED | `u32 mixed (0 virtual, 1 mixed); f32 gain; f32 dirX, dirY, dirZ; f32 lpHz` | 12+24 = 36 |
 | 0x06 | SET_PAUSED | `u32 paused` | 16 |
 | 0x07 | SEEK | `u32 clipFrame; u32 epoch` (streams: the epoch above; clips: 0) | 20 |
+| 0x08 | SET_LOOP | ADR 0158 §4, ABI 1.4. `u32 loopStartFrame; u32 loopEndFrame (0 = the clip's end); u32 flags (bit0 looping)`, in clip frames. Overrides PLAY's whole-clip loop flag; looping wraps loopEnd to loopStart gaplessly, clear is a release (the voice finishes its pass and plays on to the clip's end). Stamped like any voice record. Clip voices only (streams ignore it until E4) | 24 |
+| 0x09 | AUTOMATE | ADR 0158 §3, ABI 1.4. `u32 bindingCount; per binding: u16 param (bit15 global slot, else a local slot of the voice's PLAY `group`); u16 curve; u32 target (0 volume, 1 pitch, 2 lowpass)`. Replaces the voice's bindings (0 clears); at most 8 kept. Applies on arrival | 12+4+8n |
 | 0x10 | BUS_CONFIG | `u32 busCount; per bus: u16 parent (0xFFFF root); u16 effectCount; per effect: u32 type (0 lowpass, 1 highpass, 2 compressor, 3 reverb send); f32 p[7]`. lp/hp: `p0 frequency, p1 q` where **q is in dB** (Web Audio convention; the core uses linear Q = 10^(q/20)); compressor: `threshold dB, knee dB, ratio, attack s, release s`; reverb: `send`. Unused p = 0 | 12+4+per bus (4 + 32*effects) |
 | 0x11 | BUS_MIX | `u32 busCount; u32 rampFrames; per bus: f32 gain; f32 lpHz (24000 off)` | 12+8+8n |
 | 0x12 | MASTER | `f32 volume; u32 muted; u32 rampFrames` | 24 |
+| 0x13 | CURVES | ADR 0158 §3, ABI 1.4. `u32 firstCurve; u32 curveCount; per curve: u16 keyCount; u16 reserved; per key: f32 x; f32 y; u32 interp (0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut)`, keys sorted by x. Defines curves firstCurve..; 1,024 curves of at most 32 keys (extra keys and ids out of range ignored). Evaluated as `src/engine/core/curve.ts` | 12+8+per curve (4 + 12*keys) |
+| 0x14 | PARAM | ADR 0158 §3, ABI 1.4. `u16 group (0 global, slots 0..63; else an instance group 1..1024, slots 0..15); u16 slot; f32 value; f32 seekPerSecond (0 jumps)`. Sets the target; the core moves the value `seekPerSecond × 128 / rate` per quantum, never overshooting | 24 |
+| 0x15 | BUS_AUTOMATE | ADR 0158 §3, ABI 1.4. `voiceId` = bus index; `u32 bindingCount`, then AUTOMATE's bindings: global params only, target 0 volume (on top of BUS_MIX's gain) or 2 lowpass (min with BUS_MIX's lpHz); at most 8 kept | 12+4+8n |
 | 0x20 | LISTENER | reserved for M3; not sent in M1 (the main thread sends listener-space directions) | |
 | 0x30 | RESET | `u32 keepClips` (0 also resets the arena and slab classes; the first record of a rebuild's REPLAY) | 16 |
 
 PLAY does not ramp: a clip starts at its gain. Only SET_PARAMS, FADE, BUS_MIX and MASTER ramp. `rampFrames` is chosen by the host (architecture 4.3).
+
+**Automation (ADR 0158 E2).** Each quantum, before voices render, the core moves every seeking parameter, then evaluates each bound curve once at its parameter's value: a voice's volume curves multiply into a gain multiplier and its pitch curves into a pitch multiplier, both ramped linearly across the quantum (the first quantum after AUTOMATE starts at the value); its lowpass curves give a cut-off (their minimum) for the voice's own biquad at `min(lpHz, cut-off)`, set once per quantum. A bus's bindings act the same way on its gain and snapshot low-pass. A local binding of a voice in group 0 reads 0. CURVES, PARAM, AUTOMATE and BUS_AUTOMATE apply on arrival whatever their `frameOffset`; RESET clears every table.
 
 **Sizing and carry-over.** 128 mixed voices of SET_PARAMS per frame is 7.2 KB; 1,024 is 57 KB. A BATCH is capped at 64 KB; excess records stay in the writer and go in the next batch **with their absolute frame preserved** (the next batch's `firstFrame` is their earliest stamp, asap records stay asap). Records are stable-sorted by frame by insertion sort.
 

@@ -23,6 +23,8 @@ pub struct Regions {
     pub streams: &'static mut [u8],
     /// Empty: the clip store owns the directory region (A1.3b).
     pub clip_directory: &'static mut [u8],
+    /// Parameters, curves and automation (`automation.rs`, ADR 0158 E2).
+    pub automation: &'static mut [u8],
     /// Empty: the clip store owns the arena region (A1.3b).
     pub arena: &'static mut [u8],
 }
@@ -74,6 +76,7 @@ impl Core {
             hrtf: bytes(RegionKind::Hrtf),
             streams: bytes(RegionKind::Streams),
             clip_directory: bytes(RegionKind::ClipDirectory),
+            automation: bytes(RegionKind::Automation),
             arena: bytes(RegionKind::Arena),
         };
         // A1.3b: the clip store owns the directory and arena regions (they stay empty here).
@@ -84,6 +87,8 @@ impl Core {
         let mut core = Core { params, layout, base: base as usize, regions, frame: 0, clips, cap, streams };
         // A2.1: one root bus at unity and MASTER at unity until BUS_CONFIG, BUS_MIX and MASTER.
         crate::bus::init(&mut core);
+        // ADR 0158 E2: the automation region's header (its tables are all-zero valid).
+        crate::automation::init(&mut core);
         core
     }
 

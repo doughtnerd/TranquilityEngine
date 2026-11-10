@@ -40,6 +40,10 @@
 //! core has rendered; without it the core uses the default. 0 ms is A2.8's zero-latency limiter
 //! (the module doc has the design).
 //!
+//! **Automation** (ADR 0158 E2, `automation.rs`): a bus with BUS_AUTOMATE bindings also takes
+//! their `gainMul` after its gain ramp (ramped across the quantum) and its snapshot low-pass at
+//! `min(lpHz, lpAuto)`. Buses without bindings are untouched.
+//!
 //! **RESET** clears the buses' DSP state (buffers, filter and compressor state, the reverb tail,
 //! meters, the limiter's gain reduction) and settles every ramp on its target. The tree and the gains stay: they are main's
 //! intent, and main re-sends them after a rebuild's RESET (architecture §7, replay order), but not
@@ -497,6 +501,8 @@ pub fn mixdown(core: &mut Core) {
     let output: *mut [f32] = output;
     let reverb: &mut [u8] = &mut regions.reverb[..];
     let reverb: *mut [u8] = reverb;
+    // ADR 0158 E2: the buses' automation, or `None` when no bus has bindings (the M1 path).
+    let autos: Option<*mut [crate::automation::BusAuto]> = crate::automation::bus_entries(&mut regions.automation[..]).map(|a| a as *mut _);
     let v = view(regions);
     // SAFETY: the output and reverb regions are distinct from the buses and core-state regions
     // `v` views (Layout), so these views don't alias it.
@@ -511,10 +517,16 @@ pub fn mixdown(core: &mut Core) {
     for k in 0..count {
         let b = v.area.order[k] as usize;
         let slot = &mut v.slots[b];
+        // SAFETY: `autos` views the automation region, distinct from every region borrowed here.
+        let auto = autos.and_then(|a| unsafe { (&*a).get(b) }).filter(|a| a.count != 0);
         {
             let (l, r) = slot.buf.split_at_mut(QUANTUM);
             sent |= slot.fx.process(l, r, rev_l, rev_r);
-            fx::snapshot_lowpass(&mut slot.snapshot, sample_rate, slot.lp.value, l, r);
+            let lp = match auto {
+                Some(a) if a.targets & crate::automation::has::LOWPASS != 0 => slot.lp.value.min(a.lp),
+                _ => slot.lp.value,
+            };
+            fx::snapshot_lowpass(&mut slot.snapshot, sample_rate, lp, l, r);
             slot.lp.advance(QUANTUM as u32);
             if slot.gain.is_settled() {
                 let g = slot.gain.value;
@@ -526,6 +538,14 @@ pub fn mixdown(core: &mut Core) {
             } else {
                 for i in 0..QUANTUM {
                     let g = slot.gain.next();
+                    l[i] *= g;
+                    r[i] *= g;
+                }
+            }
+            if let Some(a) = auto.filter(|a| a.targets & crate::automation::has::GAIN != 0) {
+                // ADR 0158 §3: bus automation's gain on top of BUS_MIX's, ramped across the quantum.
+                for i in 0..QUANTUM {
+                    let g = a.gain_at(i);
                     l[i] *= g;
                     r[i] *= g;
                 }

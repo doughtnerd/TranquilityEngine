@@ -47,6 +47,13 @@ const SCENES = [
   "pitch4",
   "virtual",
   "updates",
+  // ADR 0158 E2: automation (256 mixed voices x 3 bindings, and their twin without), on virtual voices, on buses, and
+  // sustain loops released and replaced.
+  "automation",
+  "automation-base",
+  "automation-virtual",
+  "bus-automation",
+  "sustain",
 ];
 
 function fail(message) {

@@ -24,7 +24,7 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 
 /// ABI version, `(major << 8) | minor`. Bump the minor for an added export, the major for a change.
 pub const ABI_MAJOR: u32 = 1;
-pub const ABI_MINOR: u32 = 3;
+pub const ABI_MINOR: u32 = 4;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -333,7 +333,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x103);
+        assert_eq!(myco_audio_abi_version(), 0x104);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);

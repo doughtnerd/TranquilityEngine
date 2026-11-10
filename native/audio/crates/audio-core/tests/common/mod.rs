@@ -47,6 +47,8 @@ pub enum Rec {
     Mix(wire::BusMix),
     Master(wire::Master),
     Reset(wire::Reset),
+    /// A record already written, head included (ADR 0158's variable records in `automation.rs`).
+    Raw(Vec<u8>),
 }
 
 impl Rec {
@@ -59,6 +61,10 @@ impl Rec {
             Rec::Mix(r) => r.write(out, at),
             Rec::Master(r) => r.write(out, at),
             Rec::Reset(r) => r.write(out, at),
+            Rec::Raw(b) => {
+                out[at..at + b.len()].copy_from_slice(b);
+                Ok(b.len())
+            }
         }
         .unwrap()
     }

@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "4acdb6319f7798338cd8feda30d5ad52";
+export const SCHEMA_HASH = "d953ab7c6152275bb97b38848bcce1bb";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -124,9 +124,14 @@ export const Op = {
   SET_MIXED: 0x05,
   SET_PAUSED: 0x06,
   SEEK: 0x07,
+  SET_LOOP: 0x08,
+  AUTOMATE: 0x09,
   BUS_CONFIG: 0x10,
   BUS_MIX: 0x11,
   MASTER: 0x12,
+  CURVES: 0x13,
+  PARAM: 0x14,
+  BUS_AUTOMATE: 0x15,
   LISTENER: 0x20,
   RESET: 0x30,
 } as const;
@@ -1067,6 +1072,137 @@ export function readSeek(view: DataView, off: number): Seek {
   return _readSeek(view, off, limit)[0];
 }
 
+/** loop the region; clear is a release (play on to the clip's end) */
+export const SET_LOOP_FLAGS_LOOPING = 0x1;
+/** a clip voice's loop region, or its release (ADR 0158 §4); overrides PLAY's loop flag */
+export interface SetLoop {
+  voiceId: number;
+  frameOffset: number;
+  /** clip frames */
+  loopStartFrame: number;
+  /** clip frames; 0 is the clip's end */
+  loopEndFrame: number;
+  flags: number;
+}
+
+export const SET_LOOP_FIXED_END = 24;
+
+export function writeSetLoop(view: DataView, off: number, rec: SetLoop): number {
+  view.setUint32(off + 12, rec.loopStartFrame, true);
+  view.setUint32(off + 16, rec.loopEndFrame, true);
+  view.setUint32(off + 20, rec.flags, true);
+  let cur = off + 24;
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "SetLoop: record too long");
+  view.setUint16(off + 0, 8, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readSetLoop(view: DataView, off: number, limit: number): [SetLoop, number] {
+  if (off + 24 > limit) throw new WireError(ErrorCode.TRUNCATED, "SetLoop: truncated");
+  const loopStartFrame = view.getUint32(off + 12, true);
+  const loopEndFrame = view.getUint32(off + 16, true);
+  const flags = view.getUint32(off + 20, true);
+  let cur = off + 24;
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "SetLoop: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, loopStartFrame, loopEndFrame, flags }, cur - off];
+}
+
+export function readSetLoop(view: DataView, off: number): SetLoop {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "SetLoop: truncated");
+  if (view.getUint16(off + 0, true) !== 8) throw new WireError(ErrorCode.MALFORMED, "SetLoop: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "SetLoop: truncated");
+  return _readSetLoop(view, off, limit)[0];
+}
+
+export interface AutomateBindings {
+  /** bit15 set: global slot (low 15 bits); clear: local slot of the voice's group */
+  param: number;
+  /** curve id (CURVES) */
+  curve: number;
+  /** 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz) */
+  target: number;
+}
+
+export const AUTOMATE_BINDINGS_FIXED_END = 8;
+
+export function writeAutomateBindings(view: DataView, off: number, rec: AutomateBindings): number {
+  view.setUint16(off + 0, rec.param, true);
+  view.setUint16(off + 2, rec.curve, true);
+  view.setUint32(off + 4, rec.target, true);
+  let cur = off + 8;
+  return cur - off;
+}
+
+function _readAutomateBindings(view: DataView, off: number, limit: number): [AutomateBindings, number] {
+  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "AutomateBindings: truncated");
+  const param = view.getUint16(off + 0, true);
+  const curve = view.getUint16(off + 2, true);
+  const target = view.getUint32(off + 4, true);
+  let cur = off + 8;
+  return [{ param, curve, target }, cur - off];
+}
+
+export function readAutomateBindings(view: DataView, off: number): AutomateBindings {
+  const limit = view.byteLength;
+  return _readAutomateBindings(view, off, limit)[0];
+}
+
+/** replace a voice's automation bindings (ADR 0158 §3); count 0 clears them */
+export interface Automate {
+  voiceId: number;
+  frameOffset: number;
+  bindings: AutomateBindings[];
+}
+
+export const AUTOMATE_FIXED_END = 16;
+
+export function writeAutomate(view: DataView, off: number, rec: Automate): number {
+  view.setUint32(off + 12, rec.bindings.length, true);
+  let cur = off + 16;
+  for (const item of rec.bindings) cur += writeAutomateBindings(view, cur, item);
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Automate: record too long");
+  view.setUint16(off + 0, 9, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readAutomate(view: DataView, off: number, limit: number): [Automate, number] {
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "Automate: truncated");
+  const bindingCount = view.getUint32(off + 12, true);
+  let cur = off + 16;
+  if (bindingCount * 8 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "Automate: bindings overrun");
+  const bindings: AutomateBindings[] = [];
+  for (let i = 0; i < bindingCount; i++) {
+    const [item, used] = _readAutomateBindings(view, cur, limit);
+    cur += used;
+    bindings.push(item);
+  }
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Automate: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, bindings }, cur - off];
+}
+
+export function readAutomate(view: DataView, off: number): Automate {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Automate: truncated");
+  if (view.getUint16(off + 0, true) !== 9) throw new WireError(ErrorCode.MALFORMED, "Automate: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Automate: truncated");
+  return _readAutomate(view, off, limit)[0];
+}
+
 export interface BusConfigBusesEffects {
   /** 0 lowpass, 1 highpass, 2 compressor, 3 reverb send */
   type: number;
@@ -1303,6 +1439,256 @@ export function readMaster(view: DataView, off: number): Master {
   const limit = off + view.getUint16(off + 2, true) * 4;
   if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Master: truncated");
   return _readMaster(view, off, limit)[0];
+}
+
+export interface CurvesCurvesKeys {
+  x: number;
+  y: number;
+  /** shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut */
+  interp: number;
+}
+
+export const CURVES_CURVES_KEYS_FIXED_END = 12;
+
+export function writeCurvesCurvesKeys(view: DataView, off: number, rec: CurvesCurvesKeys): number {
+  view.setFloat32(off + 0, rec.x, true);
+  view.setFloat32(off + 4, rec.y, true);
+  view.setUint32(off + 8, rec.interp, true);
+  let cur = off + 12;
+  return cur - off;
+}
+
+function _readCurvesCurvesKeys(view: DataView, off: number, limit: number): [CurvesCurvesKeys, number] {
+  if (off + 12 > limit) throw new WireError(ErrorCode.TRUNCATED, "CurvesCurvesKeys: truncated");
+  const x = view.getFloat32(off + 0, true);
+  const y = view.getFloat32(off + 4, true);
+  const interp = view.getUint32(off + 8, true);
+  let cur = off + 12;
+  return [{ x, y, interp }, cur - off];
+}
+
+export function readCurvesCurvesKeys(view: DataView, off: number): CurvesCurvesKeys {
+  const limit = view.byteLength;
+  return _readCurvesCurvesKeys(view, off, limit)[0];
+}
+
+export interface CurvesCurves {
+  reserved: number;
+  keys: CurvesCurvesKeys[];
+}
+
+export const CURVES_CURVES_FIXED_END = 4;
+
+export function writeCurvesCurves(view: DataView, off: number, rec: CurvesCurves): number {
+  view.setUint16(off + 0, rec.keys.length, true);
+  view.setUint16(off + 2, rec.reserved, true);
+  let cur = off + 4;
+  for (const item of rec.keys) cur += writeCurvesCurvesKeys(view, cur, item);
+  return cur - off;
+}
+
+function _readCurvesCurves(view: DataView, off: number, limit: number): [CurvesCurves, number] {
+  if (off + 4 > limit) throw new WireError(ErrorCode.TRUNCATED, "CurvesCurves: truncated");
+  const keyCount = view.getUint16(off + 0, true);
+  const reserved = view.getUint16(off + 2, true);
+  let cur = off + 4;
+  if (keyCount * 12 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "CurvesCurves: keys overrun");
+  const keys: CurvesCurvesKeys[] = [];
+  for (let i = 0; i < keyCount; i++) {
+    const [item, used] = _readCurvesCurvesKeys(view, cur, limit);
+    cur += used;
+    keys.push(item);
+  }
+  return [{ reserved, keys }, cur - off];
+}
+
+export function readCurvesCurves(view: DataView, off: number): CurvesCurves {
+  const limit = view.byteLength;
+  return _readCurvesCurves(view, off, limit)[0];
+}
+
+/** define or overwrite curves firstCurve.. (ADR 0158 §3); 1024 curves of at most 32 keys */
+export interface Curves {
+  voiceId: number;
+  frameOffset: number;
+  firstCurve: number;
+  curves: CurvesCurves[];
+}
+
+export const CURVES_FIXED_END = 20;
+
+export function writeCurves(view: DataView, off: number, rec: Curves): number {
+  view.setUint32(off + 12, rec.firstCurve, true);
+  view.setUint32(off + 16, rec.curves.length, true);
+  let cur = off + 20;
+  for (const item of rec.curves) cur += writeCurvesCurves(view, cur, item);
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Curves: record too long");
+  view.setUint16(off + 0, 19, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readCurves(view: DataView, off: number, limit: number): [Curves, number] {
+  if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "Curves: truncated");
+  const firstCurve = view.getUint32(off + 12, true);
+  const curveCount = view.getUint32(off + 16, true);
+  let cur = off + 20;
+  if (curveCount * 4 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "Curves: curves overrun");
+  const curves: CurvesCurves[] = [];
+  for (let i = 0; i < curveCount; i++) {
+    const [item, used] = _readCurvesCurves(view, cur, limit);
+    cur += used;
+    curves.push(item);
+  }
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Curves: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, firstCurve, curves }, cur - off];
+}
+
+export function readCurves(view: DataView, off: number): Curves {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Curves: truncated");
+  if (view.getUint16(off + 0, true) !== 19) throw new WireError(ErrorCode.MALFORMED, "Curves: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Curves: truncated");
+  return _readCurves(view, off, limit)[0];
+}
+
+/** set a parameter's target and seek speed (ADR 0158 §3) */
+export interface Param {
+  voiceId: number;
+  frameOffset: number;
+  /** 0 global (slots 0..63), else the instance group 1..=1024 (slots 0..15) */
+  group: number;
+  slot: number;
+  /** the target */
+  value: number;
+  /** 0 jumps; else units per second toward the target */
+  seekPerSecond: number;
+}
+
+export const PARAM_FIXED_END = 24;
+
+export function writeParam(view: DataView, off: number, rec: Param): number {
+  view.setUint16(off + 12, rec.group, true);
+  view.setUint16(off + 14, rec.slot, true);
+  view.setFloat32(off + 16, rec.value, true);
+  view.setFloat32(off + 20, rec.seekPerSecond, true);
+  let cur = off + 24;
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Param: record too long");
+  view.setUint16(off + 0, 20, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readParam(view: DataView, off: number, limit: number): [Param, number] {
+  if (off + 24 > limit) throw new WireError(ErrorCode.TRUNCATED, "Param: truncated");
+  const group = view.getUint16(off + 12, true);
+  const slot = view.getUint16(off + 14, true);
+  const value = view.getFloat32(off + 16, true);
+  const seekPerSecond = view.getFloat32(off + 20, true);
+  let cur = off + 24;
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Param: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, group, slot, value, seekPerSecond }, cur - off];
+}
+
+export function readParam(view: DataView, off: number): Param {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Param: truncated");
+  if (view.getUint16(off + 0, true) !== 20) throw new WireError(ErrorCode.MALFORMED, "Param: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Param: truncated");
+  return _readParam(view, off, limit)[0];
+}
+
+export interface BusAutomateBindings {
+  /** bit15 set: global slot (low 15 bits); clear: local slot of the voice's group */
+  param: number;
+  /** curve id (CURVES) */
+  curve: number;
+  /** 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz) */
+  target: number;
+}
+
+export const BUS_AUTOMATE_BINDINGS_FIXED_END = 8;
+
+export function writeBusAutomateBindings(view: DataView, off: number, rec: BusAutomateBindings): number {
+  view.setUint16(off + 0, rec.param, true);
+  view.setUint16(off + 2, rec.curve, true);
+  view.setUint32(off + 4, rec.target, true);
+  let cur = off + 8;
+  return cur - off;
+}
+
+function _readBusAutomateBindings(view: DataView, off: number, limit: number): [BusAutomateBindings, number] {
+  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusAutomateBindings: truncated");
+  const param = view.getUint16(off + 0, true);
+  const curve = view.getUint16(off + 2, true);
+  const target = view.getUint32(off + 4, true);
+  let cur = off + 8;
+  return [{ param, curve, target }, cur - off];
+}
+
+export function readBusAutomateBindings(view: DataView, off: number): BusAutomateBindings {
+  const limit = view.byteLength;
+  return _readBusAutomateBindings(view, off, limit)[0];
+}
+
+/** replace a bus's automation bindings (voiceId = bus index; ADR 0158 §3) */
+export interface BusAutomate {
+  voiceId: number;
+  frameOffset: number;
+  bindings: BusAutomateBindings[];
+}
+
+export const BUS_AUTOMATE_FIXED_END = 16;
+
+export function writeBusAutomate(view: DataView, off: number, rec: BusAutomate): number {
+  view.setUint32(off + 12, rec.bindings.length, true);
+  let cur = off + 16;
+  for (const item of rec.bindings) cur += writeBusAutomateBindings(view, cur, item);
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "BusAutomate: record too long");
+  view.setUint16(off + 0, 21, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readBusAutomate(view: DataView, off: number, limit: number): [BusAutomate, number] {
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusAutomate: truncated");
+  const bindingCount = view.getUint32(off + 12, true);
+  let cur = off + 16;
+  if (bindingCount * 8 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusAutomate: bindings overrun");
+  const bindings: BusAutomateBindings[] = [];
+  for (let i = 0; i < bindingCount; i++) {
+    const [item, used] = _readBusAutomateBindings(view, cur, limit);
+    cur += used;
+    bindings.push(item);
+  }
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "BusAutomate: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, bindings }, cur - off];
+}
+
+export function readBusAutomate(view: DataView, off: number): BusAutomate {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusAutomate: truncated");
+  if (view.getUint16(off + 0, true) !== 21) throw new WireError(ErrorCode.MALFORMED, "BusAutomate: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusAutomate: truncated");
+  return _readBusAutomate(view, off, limit)[0];
 }
 
 /** reset the core */

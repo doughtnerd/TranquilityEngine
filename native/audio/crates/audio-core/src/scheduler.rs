@@ -16,6 +16,9 @@
 //!   promote that follows it land together).
 //! - BUS_CONFIG, BUS_MIX and MASTER (A2.1, `bus.rs`) apply at once, in arrival order, whatever
 //!   their `frameOffset`; their ramps start with the next quantum.
+//! - ADR 0158 E2: CURVES, PARAM, AUTOMATE and BUS_AUTOMATE (`automation.rs`) apply at once, in
+//!   arrival order, whatever their `frameOffset` (AUTOMATE finds its voice because PLAY writes the
+//!   slot at once); SET_LOOP is scheduled like STOP (a release lands on its exact frame).
 //! - RESET (A1.3b) applies at once, in arrival order, whatever its `frameOffset`: every voice and
 //!   pending record is cleared, and with `keepClips = 0` every clip too and the arena reclaimed
 //!   ([`reset`]). It's the first record of a rebuild's REPLAY, and A1.4 sends `RESET 0` when the
@@ -42,7 +45,7 @@ use audio_wire::generated::{self as wire, BatchHeader, Envelope, Fade, Master, P
 use crate::core::{Core, Regions};
 use crate::counters::flag;
 use crate::layout::{PENDING_CAPACITY, PENDING_RECORD_BYTES};
-use crate::{bus, status, voices};
+use crate::{automation, bus, status, voices};
 
 /// One stamped record waiting for its frame: 48 bytes (`PENDING_RECORD_BYTES`), all-zero valid.
 /// STOP, SET_PARAMS, FADE and SET_PAUSED only (PLAY is written to its slot at once).
@@ -52,17 +55,18 @@ pub struct PendingRecord {
     /// Absolute context frame.
     pub frame: u64,
     pub voice_id: u32,
-    /// The wire opcode (STOP, SET_PARAMS, FADE, SET_PAUSED or SEEK).
+    /// The wire opcode (STOP, SET_PARAMS, FADE, SET_PAUSED, SEEK or SET_LOOP).
     pub op: u8,
     /// SET_PARAMS `mask` (bits 0–6).
     pub mask: u8,
-    /// SET_PARAMS: the panner kind; FADE: bit0 stop at end; SET_PAUSED: bit0 paused.
+    /// SET_PARAMS: the panner kind; FADE: bit0 stop at end; SET_PAUSED: bit0 paused; SET_LOOP: bit0 looping.
     pub flags: u8,
     /// SET_PARAMS `bus` (bus indices fit a byte: at most 256 buses).
     pub bus: u8,
     /// SET_PARAMS: gain, pitch, dirX, dirY, dirZ, lpHz, score. FADE: `[0]` target.
     pub values: [f32; 7],
-    /// SET_PARAMS `rampFrames`; STOP `fadeFrames`; FADE `frames`.
+    /// SET_PARAMS `rampFrames`; STOP `fadeFrames`; FADE `frames`; SEEK `clipFrame`; SET_LOOP
+    /// `loopStartFrame` (its `loopEndFrame` rides in `values[0]`'s bits).
     pub frames: u32,
 }
 
@@ -164,6 +168,11 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::SET_MIXED => wire::SetMixed::FIXED_END,
             wire::op::SET_PAUSED => wire::SetPaused::FIXED_END,
             wire::op::SEEK => wire::Seek::FIXED_END,
+            wire::op::SET_LOOP => wire::SetLoop::FIXED_END,
+            wire::op::AUTOMATE => wire::Automate::FIXED_END,
+            wire::op::CURVES => wire::Curves::FIXED_END,
+            wire::op::PARAM => wire::Param::FIXED_END,
+            wire::op::BUS_AUTOMATE => wire::BusAutomate::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
         if len < min || off + len > msg.len() {
@@ -172,6 +181,8 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
         let entries_fit = match head.opcode {
             wire::op::BUS_CONFIG => bus::config_is_well_formed(msg, off, len),
             wire::op::BUS_MIX => bus::mix_is_well_formed(msg, off, len),
+            wire::op::AUTOMATE | wire::op::BUS_AUTOMATE => automation::bindings_is_well_formed(msg, off, len),
+            wire::op::CURVES => automation::curves_is_well_formed(msg, off, len),
             _ => true,
         };
         if !entries_fit {
@@ -243,6 +254,27 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
                     schedule(core, record, at);
                 }
             }
+            wire::op::SET_LOOP => {
+                if let Ok((l, _)) = wire::SetLoop::read(msg, off) {
+                    let record = PendingRecord {
+                        voice_id: l.voice_id,
+                        op: wire::op::SET_LOOP as u8,
+                        flags: (l.flags & wire::SET_LOOP_FLAGS_LOOPING) as u8,
+                        frames: l.loop_start_frame,
+                        values: [f32::from_bits(l.loop_end_frame), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        ..Default::default()
+                    };
+                    schedule(core, record, at);
+                }
+            }
+            wire::op::AUTOMATE => automation::automate(core, msg, off),
+            wire::op::BUS_AUTOMATE => automation::bus_automate(core, msg, off),
+            wire::op::CURVES => automation::curves(core, msg, off),
+            wire::op::PARAM => {
+                if let Ok((p, _)) = wire::Param::read(msg, off) {
+                    automation::param(core, &p);
+                }
+            }
             wire::op::BUS_CONFIG => bus::configure(core, msg, off),
             wire::op::BUS_MIX => bus::mix(core, msg, off),
             wire::op::MASTER => {
@@ -288,6 +320,8 @@ pub fn reset(core: &mut Core, keep_clips: bool) {
     c.live_voices = 0;
     c.mixed_voices = 0;
     bus::reset(core);
+    // ADR 0158 E2: curves, parameters, bindings and loop regions.
+    automation::reset(core);
     if !keep_clips {
         crate::clips::reset(core);
     }
@@ -376,6 +410,7 @@ pub fn apply(core: &mut Core, record: &PendingRecord) {
         wire::op::FADE => voices::fade(core, record.voice_id, record.values[0], record.frames, record.flags & 1 != 0),
         wire::op::SET_PAUSED => voices::set_paused(core, record.voice_id, record.flags & 1 != 0),
         wire::op::SEEK => voices::seek(core, record.voice_id, record.frames, record.values[0].to_bits()),
+        wire::op::SET_LOOP => voices::set_loop(core, record.voice_id, record.frames, record.values[0].to_bits(), record.flags & 1 != 0),
         wire::op::SET_PARAMS => {
             let v = record.values;
             let p = SetParams {

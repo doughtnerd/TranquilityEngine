@@ -10,12 +10,29 @@ import {
   readEnvelope,
   readFade,
   readPlay,
+  readAutomate,
+  readBusAutomate,
+  readCurves,
+  readParam,
   readRecordHead,
+  readSetLoop,
   readStop,
+  SET_LOOP_FLAGS_LOOPING,
   type Play,
 } from "../wire.generated";
 import { createBatchPool, type BufferPool } from "./bufferPool";
-import { CommandWriter, STAGING_BYTES, type BatchPort, type PlayArgs } from "./commandWriter";
+import {
+  AUTOMATION_GLOBAL,
+  AUTOMATION_TARGET,
+  CORE_BINDINGS,
+  CORE_CURVE_KEYS,
+  CORE_CURVES,
+  CommandWriter,
+  STAGING_BYTES,
+  type AutomationBinding,
+  type BatchPort,
+  type PlayArgs,
+} from "./commandWriter";
 import { VoiceState, VoiceTable } from "./voiceTable";
 
 function rig(sampleRate = 48_000) {
@@ -217,5 +234,93 @@ describe("CommandWriter (§4.2)", () => {
     expect(pool.available).toBe(4);
     expect(writer.stats.batches).toBe(50);
     expect(writer.pending).toBe(0);
+  });
+});
+
+describe("CommandWriter automation records (ADR 0158 E2)", () => {
+  it("setLoop writes a stamped SET_LOOP; a release clears the looping bit", () => {
+    const { writer, posted } = rig();
+    writer.play(play(5), 2000);
+    writer.setLoop(5, 2000, 4800, 9600, true);
+    writer.setLoop(5, 2100, 0, 0, false);
+    writer.flush(1000);
+    const b = records(posted[0]!);
+    expect(b.records.map((r) => r.op)).toEqual([Op.PLAY, Op.SET_LOOP, Op.SET_LOOP]);
+    expect(b.header.firstFrame).toBe(2000);
+    const loop = readSetLoop(b.view, b.records[1]!.off);
+    expect(loop).toMatchObject({ voiceId: 5, frameOffset: 0, loopStartFrame: 4800, loopEndFrame: 9600, flags: SET_LOOP_FLAGS_LOOPING });
+    expect(readSetLoop(b.view, b.records[2]!.off)).toMatchObject({ frameOffset: 100, flags: 0 });
+  });
+
+  it("automate stays after its stamped PLAY and keeps at most 8 bindings; an empty list clears", () => {
+    const { writer, posted } = rig();
+    const binding: AutomationBinding = { param: AUTOMATION_GLOBAL | 3, curve: 7, target: AUTOMATION_TARGET.lowpass };
+    writer.play(play(9), 500);
+    writer.automate(9, 500, [binding, { param: 1, curve: 8, target: AUTOMATION_TARGET.volume }]);
+    writer.automate(9, 500, Array.from({ length: 12 }, () => binding));
+    writer.automate(9, undefined, []);
+    writer.flush(400);
+    const b = records(posted[0]!);
+    expect(b.records.map((r) => r.op)).toEqual([Op.AUTOMATE, Op.PLAY, Op.AUTOMATE, Op.AUTOMATE]);
+    expect(readAutomate(b.view, b.records[0]!.off).bindings).toEqual([]);
+    const a = readAutomate(b.view, b.records[2]!.off);
+    expect(a.voiceId).toBe(9);
+    expect(a.bindings).toEqual([binding, { param: 1, curve: 8, target: 0 }]);
+    expect(readAutomate(b.view, b.records[3]!.off).bindings).toHaveLength(CORE_BINDINGS);
+  });
+
+  it("param writes PARAM asap; a bad seek jumps", () => {
+    const { writer, posted } = rig();
+    writer.param(3, 1, 0.5, 2);
+    writer.param(0, 63, 1, Number.NaN);
+    writer.flush(0);
+    const b = records(posted[0]!);
+    expect(readParam(b.view, b.records[0]!.off)).toEqual({ voiceId: 0, frameOffset: ASAP, group: 3, slot: 1, value: 0.5, seekPerSecond: 2 });
+    expect(readParam(b.view, b.records[1]!.off)).toMatchObject({ group: 0, slot: 63, value: 1, seekPerSecond: 0 });
+  });
+
+  it("curves writes the engine's curves with their interp codes, split into records that fit a batch", () => {
+    const { writer, posted } = rig();
+    writer.curves(10, [
+      [[0, 0], [1, 1, "smooth"]],
+      [[0.5, 0.25, "step"], [2, 3, "easeOut"], [3, 3, "easeIn"]],
+      [],
+    ]);
+    writer.flush(0);
+    const b = records(posted[0]!);
+    const c = readCurves(b.view, b.records[0]!.off);
+    expect(c.firstCurve).toBe(10);
+    expect(c.curves.map((x) => x.keys.map((k) => [k.x, k.y, k.interp]))).toEqual([
+      [[0, 0, 0], [1, 1, 2]],
+      [[0.5, 0.25, 1], [2, 3, 4], [3, 3, 3]],
+      [],
+    ]);
+    // 512 curves of 40 keys (≈ 200 KB): 32 keys each are sent, over several records with consecutive ids.
+    const big = rig();
+    const long = Array.from({ length: 40 }, (_, i) => [i, i] as const);
+    big.writer.curves(0, Array.from({ length: CORE_CURVES / 2 }, () => long));
+    big.writer.flush(0);
+    let next = 0;
+    for (const buffer of big.posted) {
+      const r = records(buffer);
+      for (const rec of r.records) {
+        const cc = readCurves(r.view, rec.off);
+        expect(cc.firstCurve).toBe(next);
+        expect(cc.curves.every((x) => x.keys.length === CORE_CURVE_KEYS)).toBe(true);
+        next += cc.curves.length;
+      }
+    }
+    expect(next).toBe(CORE_CURVES / 2);
+    expect(big.writer.pending).toBe(0);
+    expect(big.writer.stats.dropped).toBe(0);
+  });
+
+  it("busAutomate writes BUS_AUTOMATE for the bus index", () => {
+    const { writer, posted } = rig();
+    writer.busAutomate(2, [{ param: AUTOMATION_GLOBAL, curve: 4, target: AUTOMATION_TARGET.lowpass }]);
+    writer.flush(0);
+    const b = records(posted[0]!);
+    const r = readBusAutomate(b.view, b.records[0]!.off);
+    expect(r).toEqual({ voiceId: 2, frameOffset: ASAP, bindings: [{ param: 0x8000, curve: 4, target: 2 }] });
   });
 });

@@ -456,6 +456,105 @@ pub fn cases() -> Vec<VectorCase> {
             ],
             concat!("0700", "0500", "05000000", "ffffffff", "c0120000", "03000000"),
         ),
+        // SET_LOOP (ADR 0158), 24 B = 6 words: voice 0x00020003, stamped at offset 64; loop 4800..9600,
+        // looping.
+        case(
+            "SET_LOOP_region",
+            Subject::Opcode("SET_LOOP"),
+            vec![
+                ("voiceId", vu(0x0002_0003)),
+                ("frameOffset", vu(64)),
+                ("loopStartFrame", vu(4800)),
+                ("loopEndFrame", vu(9600)),
+                ("flags", vu(1)),
+            ],
+            concat!("0800", "0600", "03000200", "40000000", "c0120000", "80250000", "01000000"),
+        ),
+        // AUTOMATE (ADR 0158), variable length: 32 B = 8 words. Voice 0x00010005, asap; two bindings:
+        // global slot 3 (0x8003) through curve 7 to volume, local slot 1 through curve 8 to lowpass.
+        case(
+            "AUTOMATE_two_bindings",
+            Subject::Opcode("AUTOMATE"),
+            vec![
+                ("voiceId", vu(0x0001_0005)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                (
+                    "bindings",
+                    va(vec![
+                        vr(vec![("param", vu(0x8003)), ("curve", vu(7)), ("target", vu(0))]),
+                        vr(vec![("param", vu(1)), ("curve", vu(8)), ("target", vu(2))]),
+                    ]),
+                ),
+            ],
+            concat!(
+                "0900", "0800", "05000100", "ffffffff", // head: AUTOMATE, 8 words, voice, asap
+                "02000000", // bindingCount 2
+                "0380", "0700", "00000000", // param 0x8003, curve 7, target 0 (volume)
+                "0100", "0800", "02000000", // param 1, curve 8, target 2 (lowpass)
+            ),
+        ),
+        // CURVES (ADR 0158), variable length: 64 B = 16 words. Curves 10 and 11: curve 10 has keys
+        // (0, 0, linear) and (1, 1, smooth); curve 11 one key (0.5, 0.25, step).
+        case(
+            "CURVES_two_curves",
+            Subject::Opcode("CURVES"),
+            vec![
+                ("voiceId", vu(0)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                ("firstCurve", vu(10)),
+                (
+                    "curves",
+                    va(vec![
+                        vr(vec![
+                            ("reserved", vu(0)),
+                            (
+                                "keys",
+                                va(vec![
+                                    vr(vec![("x", vf(0.0)), ("y", vf(0.0)), ("interp", vu(0))]),
+                                    vr(vec![("x", vf(1.0)), ("y", vf(1.0)), ("interp", vu(2))]),
+                                ]),
+                            ),
+                        ]),
+                        vr(vec![("reserved", vu(0)), ("keys", va(vec![vr(vec![("x", vf(0.5)), ("y", vf(0.25)), ("interp", vu(1))])]))]),
+                    ]),
+                ),
+            ],
+            concat!(
+                "1300", "1000", "00000000", "ffffffff", // head: CURVES, 16 words, 0, asap
+                "0a000000", "02000000", // firstCurve 10, curveCount 2
+                "0200", "0000", // curve 10: keyCount 2, reserved
+                "00000000", "00000000", "00000000", // key (0.0, 0.0, linear)
+                "0000803f", "0000803f", "02000000", // key (1.0, 1.0, smooth)
+                "0100", "0000", // curve 11: keyCount 1, reserved
+                "0000003f", "0000803e", "01000000", // key (0.5, 0.25, step)
+            ),
+        ),
+        // PARAM (ADR 0158), 24 B = 6 words: group 3, slot 1, value 0.5, seek 2.0 per second. Asap.
+        case(
+            "PARAM_local_seek",
+            Subject::Opcode("PARAM"),
+            vec![
+                ("voiceId", vu(0)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                ("group", vu(3)),
+                ("slot", vu(1)),
+                ("value", vf(0.5)),
+                ("seekPerSecond", vf(2.0)),
+            ],
+            concat!("1400", "0600", "00000000", "ffffffff", "0300", "0100", "0000003f", "00000040"),
+        ),
+        // BUS_AUTOMATE (ADR 0158), variable length: 24 B = 6 words. Bus 2; one binding: global slot 0
+        // (0x8000) through curve 4 to lowpass.
+        case(
+            "BUS_AUTOMATE_one_binding",
+            Subject::Opcode("BUS_AUTOMATE"),
+            vec![
+                ("voiceId", vu(2)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                ("bindings", va(vec![vr(vec![("param", vu(0x8000)), ("curve", vu(4)), ("target", vu(2))])])),
+            ],
+            concat!("1500", "0600", "02000000", "ffffffff", "01000000", "0080", "0400", "02000000"),
+        ),
         // BUS_CONFIG, variable length: 120 B = 30 words. Two buses. Bus 0 (root, parent 0xFFFF) has a
         // lowpass (2000 Hz, q 1.0) and a reverb send (0.5); bus 1 (parent 0) has a compressor
         // (threshold -12, knee 6, ratio 4, attack 1, release 2 with the unused p = 0).

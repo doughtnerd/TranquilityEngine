@@ -295,6 +295,104 @@ pub fn advance(pos: &mut f64, steps: &[f32], frames: u32, looping: bool) -> usiz
     steps.len()
 }
 
+/// [`lagrange`] over a **loop region** (ADR 0158 §4, SET_LOOP): frames `start..end` of the clip
+/// repeat. The caller resolves `0 <= start < end <= frames`; an empty region writes zeros.
+///
+/// While the position is before `end`, a neighbour at or past `end` reads the region wrapped
+/// (`start + (j - end)`), so the kernel reads across the seam forward as a whole-clip loop does;
+/// other neighbours are the clip's own frames, held at its edges. A step that crosses `end` from
+/// below wraps the position back by the region's length. A position already at or past `end`
+/// (a voice started there) plays on, unwrapped, to the clip's end and stops there, as a
+/// non-looping clip does. Returns the frames written (fewer only when the clip ran out).
+pub fn lagrange_region(src: &Source<'_>, pos: &mut f64, steps: &[f32], start: u32, end: u32, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
+    match (src.samples, src.channels == 2) {
+        (Samples::F32(d), false) => region4::<f32, false>(d, src.frames, pos, steps, start, end, out_l, out_r),
+        (Samples::F32(d), true) => region4::<f32, true>(d, src.frames, pos, steps, start, end, out_l, out_r),
+        (Samples::I16(d), false) => region4::<i16, false>(d, src.frames, pos, steps, start, end, out_l, out_r),
+        (Samples::I16(d), true) => region4::<i16, true>(d, src.frames, pos, steps, start, end, out_l, out_r),
+    }
+}
+
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn region4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64, steps: &[f32], start: u32, end: u32, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
+    let len = out_l.len();
+    debug_assert!(out_r.len() == len && steps.len() == len);
+    let ch = if STEREO { 2 } else { 1 };
+    let frames = (frames as usize).min(data.len() / ch);
+    let end = (end as usize).min(frames);
+    let start = (start as usize).min(end);
+    if frames == 0 || end <= start {
+        out_l.fill(0.0);
+        out_r.fill(0.0);
+        return 0;
+    }
+    let (frames_f, end_f, span) = (frames as f64, end as f64, (end - start) as f64);
+    let last = frames - 1;
+    for i in 0..len {
+        if *pos >= frames_f {
+            out_l[i..].fill(0.0);
+            out_r[i..].fill(0.0);
+            return i;
+        }
+        let idx = (*pos as usize).min(last);
+        let t = (*pos - idx as f64) as f32;
+        let before = idx < end;
+        let at = |d: isize| -> usize {
+            let j = idx as isize + d;
+            if before && j >= end as isize {
+                start + (j as usize - end) % (end - start)
+            } else {
+                j.clamp(0, last as isize) as usize
+            }
+        };
+        let j = [at(-1), idx, at(1), at(2)];
+        if STEREO {
+            let w = weights(t);
+            let xl = j.map(|j| data[2 * j].get());
+            let xr = j.map(|j| data[2 * j + 1].get());
+            out_l[i] = w[0] * xl[0] + w[1] * xl[1] + w[2] * xl[2] + w[3] * xl[3];
+            out_r[i] = w[0] * xr[0] + w[1] * xr[1] + w[2] * xr[2] + w[3] * xr[3];
+        } else {
+            let y = horner(j.map(|j| data[j].get()), t);
+            out_l[i] = y;
+            out_r[i] = y;
+        }
+        let was = *pos;
+        *pos += steps[i] as f64;
+        if was < end_f {
+            while *pos >= end_f {
+                *pos -= span;
+            }
+        }
+    }
+    len
+}
+
+/// [`advance`] over a loop region, with [`lagrange_region`]'s position arithmetic (virtual voices).
+/// Returns the steps taken (fewer only when a position past the region ran out of clip).
+pub fn advance_region(pos: &mut f64, steps: &[f32], start: u32, end: u32, frames: u32) -> usize {
+    let end = end.min(frames);
+    let start = start.min(end);
+    if frames == 0 || end <= start {
+        return 0;
+    }
+    let (frames_f, end_f, span) = (frames as f64, end as f64, (end - start) as f64);
+    for (i, &step) in steps.iter().enumerate() {
+        if *pos >= frames_f {
+            return i;
+        }
+        let was = *pos;
+        *pos += step as f64;
+        if was < end_f {
+            while *pos >= end_f {
+                *pos -= span;
+            }
+        }
+    }
+    steps.len()
+}
+
 /// The exponent of the lowest set bit of a finite, non-zero `x` (`x` is an odd multiple of
 /// `2^result`).
 fn lowest_bit_exponent(x: f64) -> i32 {
@@ -375,6 +473,54 @@ mod tests {
 
     /// `advance_constant` lands exactly where `advance` does, over random positions, steps,
     /// lengths and loop modes, including huge positions and fine steps (the loop fallback).
+    fn ramp_clip(frames: usize) -> Vec<f32> {
+        (0..frames).map(|i| i as f32).collect()
+    }
+
+    #[test]
+    fn a_region_loop_wraps_at_its_end_and_reads_across_the_seam() {
+        let data = ramp_clip(16);
+        let src = Source { samples: Samples::F32(&data), channels: 1, frames: 16 };
+        let mut pos = 2.0;
+        let (mut l, mut r) = ([0.0f32; 12], [0.0f32; 12]);
+        assert_eq!(lagrange_region(&src, &mut pos, &[1.0; 12], 4, 8, &mut l, &mut r), 12);
+        // 2, 3 (the intro), then 4..8 repeating.
+        assert_eq!(l, [2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 4.0, 5.0, 6.0, 7.0, 4.0, 5.0]);
+        assert_eq!(pos, 6.0);
+        // Half a frame after the region's last frame: 6, 7, then the wrapped 4, 5.
+        let mut pos = 7.5;
+        let (mut l, mut r) = ([0.0f32; 1], [0.0f32; 1]);
+        lagrange_region(&src, &mut pos, &[1.0], 4, 8, &mut l, &mut r);
+        assert_eq!(l[0], horner([6.0, 7.0, 4.0, 5.0], 0.5));
+        assert_eq!(pos, 4.5);
+    }
+
+    #[test]
+    fn a_region_position_past_its_end_plays_on_to_the_clip_end() {
+        let data = ramp_clip(10);
+        let src = Source { samples: Samples::F32(&data), channels: 1, frames: 10 };
+        let mut pos = 8.0;
+        let (mut l, mut r) = ([9.0f32; 4], [9.0f32; 4]);
+        assert_eq!(lagrange_region(&src, &mut pos, &[1.0; 4], 2, 6, &mut l, &mut r), 2);
+        assert_eq!(l, [8.0, 9.0, 0.0, 0.0]);
+        let mut p = 8.0;
+        assert_eq!(advance_region(&mut p, &[1.0; 4], 2, 6, 10), 2);
+        assert_eq!(p, 10.0);
+    }
+
+    #[test]
+    fn advance_region_keeps_time_with_lagrange_region() {
+        let data = ramp_clip(64);
+        let src = Source { samples: Samples::F32(&data), channels: 1, frames: 64 };
+        let steps: Vec<f32> = (0..128).map(|i| 0.7 + (i % 5) as f32 * 0.3).collect();
+        let (mut a, mut b) = (1.25, 1.25);
+        let (mut l, mut r) = ([0.0f32; 128], [0.0f32; 128]);
+        lagrange_region(&src, &mut a, &steps, 10, 40, &mut l, &mut r);
+        advance_region(&mut b, &steps, 10, 40, 64);
+        assert_eq!(a, b);
+        assert!((10.0..40.0).contains(&a));
+    }
+
     #[test]
     fn advance_constant_matches_the_loop_bit_for_bit() {
         let mut seed = 0x1234_5678u32;
