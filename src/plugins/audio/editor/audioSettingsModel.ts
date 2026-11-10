@@ -203,9 +203,9 @@ export function setVoices(d: SettingsDraft, patch: Partial<VoiceSettings>): Sett
 
 /** Named bundles of the voice numbers and the clip ceiling (architecture 5.3); the file stores the numbers. "low" is provisional until the low-end soak (C3) sizes it. */
 export const VOICE_PRESETS = {
-  low: { voices: { mixed: 48, logical: 1024, hrtf: 4 }, clipMemoryMB: 64 },
+  low: { voices: { mixed: 64, logical: 1024, hrtf: 4 }, clipMemoryMB: 64 },
   default: { voices: { mixed: 128, logical: 4096, hrtf: 16 }, clipMemoryMB: undefined },
-  high: { voices: { mixed: 256, logical: 8192, hrtf: 32 }, clipMemoryMB: 256 },
+  high: { voices: { mixed: 256, logical: 4096, hrtf: 32 }, clipMemoryMB: 256 },
 } as const;
 export type VoicePresetName = keyof typeof VOICE_PRESETS;
 export const VOICE_PRESET_NAMES = Object.keys(VOICE_PRESETS) as VoicePresetName[];

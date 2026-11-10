@@ -116,7 +116,7 @@ fn the_model_counts_voices_buses_effects_and_records() {
     assert_eq!(m.core.work_units(), 10 * VOICE + fx + wu::RECORD, "the BUS_CONFIG record too");
     run(&mut m, 1);
     assert_eq!(m.core.work_units(), 10 * VOICE + fx);
-    assert_eq!(BUDGET_WU, 1_300_000, "1.3 ms at 1 WU per ns");
+    assert_eq!(BUDGET_WU, 2_600_000, "1.3 ms of reference-machine time: 2 × the lab VM, at 1 WU per lab ns");
 }
 
 #[test]

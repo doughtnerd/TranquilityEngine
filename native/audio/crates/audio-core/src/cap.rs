@@ -96,12 +96,18 @@ pub mod wu {
     pub const RECORD: u32 = 100;
 }
 
-/// k, the lab constant per build: nanoseconds of reference-machine time per work unit (§6.3's µs
-/// per WU × 1,000). 1: the coefficients are the lab machine's wasm nanoseconds (A3.5), and the lab
-/// machine stands in for the reference machine until that one is measured.
+/// k, the lab constant per build: nanoseconds of lab-machine time per work unit (§6.3's µs per WU
+/// × 1,000). 1: the coefficients are the lab machine's wasm nanoseconds (A3.5).
 pub const NS_PER_WU: u32 = 1;
-/// The fixed per-quantum budget (§6.1, the ADR's 1.3 ms) in work units: 1.3 ms ÷ k.
-pub const BUDGET_WU: u32 = 1_300_000 / NS_PER_WU;
+/// How much faster the reference machine is than the lab VM the coefficients came from: **2,
+/// provisional** (coordinator, owner-review 30) until A3.5's sweeps are re-run on the reference
+/// machine or C3's soak calibrates it. Without it the fixed model would read a lab-VM ceiling and cap
+/// the default preset's heavy scenes to 16 voices on every machine, fast ones included; machines as
+/// slow as the lab VM are still caught by the controller's underrun and late-command feedback (§6.3).
+pub const REFERENCE_SPEEDUP: u32 = 2;
+/// The fixed per-quantum budget (§6.1, the ADR's 1.3 ms of reference-machine time) in work units:
+/// 1.3 ms × the reference speed-up ÷ k.
+pub const BUDGET_WU: u32 = 1_300_000 * REFERENCE_SPEEDUP / NS_PER_WU;
 
 /// Most of a window's largest values kept for its p99 (`k = ⌊n/100⌋ + 1`, 4 at 192 kHz).
 const TOP_MAX: usize = 8;
