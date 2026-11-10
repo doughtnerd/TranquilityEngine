@@ -278,7 +278,12 @@ impl Decoder {
 
     fn read_with<T>(&mut self, out: &mut [T], copy: impl Fn(&mut [T], &[f32])) -> Result<usize, DecodeError> {
         let ch = self.info.channels as usize;
-        let want = out.len() / ch;
+        let mut want = out.len() / ch;
+        // A stated length is a promise: never return frames past it (an M4A's decode runs on into
+        // the last AAC frame's padding).
+        if let Some(n) = self.info.frames {
+            want = want.min(n.saturating_sub(self.pos).min(usize::MAX as u64) as usize);
+        }
         let mut done = 0usize;
         while done < want {
             let avail = (self.pend.len() - self.pend_pos) / ch;
@@ -304,11 +309,12 @@ impl Decoder {
     }
 
     /// Decodes the next packet of the track into `pend`. Returns false at the end of the stream.
-    /// Also returns the packet's first output frame (after trimming), when its timestamp is known.
     fn fill(&mut self) -> Result<bool, DecodeError> {
         Ok(self.fill_packet()?.is_some())
     }
 
+    /// As `fill`; `Some(start)` carries the packet's first output frame (after the decoder's
+    /// trim), when its timestamp is known.
     fn fill_packet(&mut self) -> Result<Option<Option<u64>>, DecodeError> {
         let ch = self.info.channels as usize;
         loop {
@@ -435,17 +441,22 @@ impl Decoder {
                 return Ok(0);
             }
         }
+        if Some(target) == self.info.frames {
+            // At the end: nothing to read (containers refuse a seek to the end itself).
+            self.pend_pos = self.pend.len();
+            self.skip = 0;
+            self.pos = target;
+            return Ok(target);
+        }
         let rate = u64::from(self.info.sample_rate);
         let secs = target / rate;
         let nanos = ((target % rate) * 1_000_000_000 / rate) as u32;
         let time = Time::try_new(secs as i64, nanos).ok_or_else(|| DecodeError::Seek("seek target out of range".into()))?;
         let seeked = self.format.seek(SeekMode::Accurate, SeekTo::Time { time, track_id: Some(self.track_id) });
         if let Err(e) = seeked {
-            // A seek past the end of an unknown-length stream: report the end.
-            if let SymError::SeekError(_) = e {
-                self.reopen()?;
-                return Err(DecodeError::Seek(format!("seek to frame {target} failed: {e}")));
-            }
+            // (A seek past the end of an unknown-length stream, say.) Leave the decoder usable,
+            // back at frame 0.
+            self.reopen()?;
             return Err(DecodeError::Seek(format!("seek to frame {target} failed: {e}")));
         }
         self.decoder.reset();
