@@ -36,9 +36,35 @@ fn new_core(rate: f32, max_mixed: u32) -> Core {
     core
 }
 
-/// The shipped table (44.1 kHz, H2's asset).
+/// The shipped table as main sends it to a 44.1 kHz context (H5): the asset (header, then int16
+/// responses with their delays in) with each response's delay extracted
+/// (`kernel::extract_average_group_delay`, as `hrir.ts` does) into the `format = 2` delay table.
 fn shipped_table() -> Vec<u8> {
-    std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../src/plugins/audio/runtime/wasm/myco_hrir.bin")).expect("the HRIR asset")
+    let asset = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../src/plugins/audio/runtime/wasm/myco_hrir.bin")).expect("the HRIR asset");
+    let header = HrirHeader::read(&asset).unwrap();
+    assert_eq!((header.ir_length, header.rate), (256, 44100.0));
+    let directions = header.directions();
+    let n = header.ir_length as usize;
+    assert_eq!(asset.len(), 16 + directions * n * 4, "the asset has no delay table");
+    let mut scratch = audio_dsp::hrtf::HrtfScratch::new();
+    let mut delays = vec![0.0f32; directions * 2];
+    let mut irs = vec![0i16; directions * n * 2];
+    let mut ir = vec![0.0f32; n];
+    for d in 0..directions {
+        for ear in 0..2 {
+            for (f, s) in ir.iter_mut().enumerate() {
+                let at = 16 + ((d * n + f) * 2 + ear) * 2;
+                *s = i16::from_le_bytes([asset[at], asset[at + 1]]) as f32 / 32768.0;
+            }
+            delays[d * 2 + ear] = audio_dsp::hrtf::kernel::extract_average_group_delay(&mut ir, &mut scratch);
+            for (f, s) in ir.iter().enumerate() {
+                irs[(d * n + f) * 2 + ear] = (s * 32768.0).round().clamp(-32768.0, 32767.0) as i16;
+            }
+        }
+    }
+    let mut bytes = vec![0u8; header.byte_len()];
+    encode(&header, &delays, &irs, &mut bytes).unwrap();
+    bytes
 }
 
 /// A synthetic table at `rate`: every response a 0.5 impulse, delays 3 (left) and 7.5 (right).

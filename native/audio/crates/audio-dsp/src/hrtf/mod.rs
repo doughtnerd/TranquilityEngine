@@ -20,14 +20,16 @@
 //!   its direction index changes, so at most 4 kernel computations per quantum (2 sets x 2 ears).
 //! - **Data** (`database`): the HRIRs come as one `format = 2` clip (api-and-models §4.1), int16 at
 //!   the context rate with the leading delay already removed and stored in the ear-delay table.
-//!   Resampling and delay extraction happen before upload (H2); `kernel::extract_average_group_delay`
-//!   is the port of the extraction for that tool.
+//!   Resampling and delay extraction happen on main before upload (`hrir.ts`, H5: Chromium's
+//!   `SincResampler` on each response with its delay in, then the extraction at the context rate);
+//!   `kernel::extract_average_group_delay` is the Rust port of the extraction, for tests.
 //!
 //! Nothing in the process path allocates: the panner is a fixed-size value sized by its partition
 //! count (`HrtfPannerN<P>`: `HrtfPanner`, 4 partitions, for every rate below 176.4 kHz;
 //! `HrtfPannerN<2>` below 88.2 kHz), kernel-computation buffers live in a shared `HrtfScratch`,
 //! and the database is a borrowed byte slice. Transcendentals go through `libm`.
 
+pub mod angles;
 pub mod convolver;
 pub mod database;
 pub mod delay;

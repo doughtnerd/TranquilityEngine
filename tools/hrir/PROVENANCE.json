@@ -1,10 +1,11 @@
 {
   "chromiumCommit": "cbba46fd94646232cfd2318ac962138c2a98c1f9",
   "urlPattern": "https://chromium.googlesource.com/chromium/src/+/cbba46fd94646232cfd2318ac962138c2a98c1f9/third_party/blink/renderer/platform/audio/resources/<name>?format=TEXT",
-  "date": "2026-11-09",
+  "mirrorUrlPattern": "https://raw.githubusercontent.com/chromium/chromium/cbba46fd94646232cfd2318ac962138c2a98c1f9/third_party/blink/renderer/platform/audio/resources/<name>",
+  "date": "2026-11-10",
   "licence": "docs/design/0157-audio-core/hrir-licence.md",
   "format": {
-    "number": 2,
+    "asset": "header + int16 responses, delays in (no delay table)",
     "elevations": 10,
     "azimuths": 24,
     "irLength": 256,
@@ -1454,17 +1455,18 @@
   ],
   "blob": {
     "path": "src/plugins/audio/runtime/wasm/myco_hrir.bin",
-    "bytes": 247696,
-    "sha256": "fe530cffc1dd11a9e3ae85350e5cc3840c01a490112b6a807e901d4fa04d1064"
+    "bytes": 245776,
+    "sha256": "7640de3b705205a397df34ea2eb3a1ceeb4acf65cafc306a6bad8d4e6b1dff53"
   },
   "peak": {
-    "rawWavAbs": 0.88873291015625,
-    "delayRemovedAbs": 0.8351528146038705,
-    "blobAbs": 0.83514404296875
+    "rawWavAbs": 0.88873291015625
   },
-  "scaling": {
-    "factor": 1,
-    "rule": "1.0 unless the delay-removed peak exceeds 1.0; then every IR is scaled by 0.999 / peak before quantising"
+  "chromiumResource": {
+    "name": "Composite.flac",
+    "path": "third_party/blink/renderer/platform/audio/resources/Composite.flac",
+    "bytes": 136404,
+    "sha256": "40bda2ad9170fa2bcdc2d5f20cdd98c70609ad33a94df49fe7d6007cacab2ada",
+    "note": "what Chromium loads (IDR_AUDIO_SPATIALIZATION_COMPOSITE); decoded (ffmpeg, 2026-11-10) its 240 x 256 stereo frames equal the WAVs' samples, in its own order (elevation 0..90, then 315, 330, 345, per azimuth)"
   },
-  "delayRemoval": "extractAverageGroupDelay (kernel.rs port), f64, 256-point FFT, 20-frame headroom; quantise = round(x * 32768) clamped"
+  "processing": "none: the WAV samples as stored (they equal Chromium's Composite.flac decoded); hrir.ts resamples each response with a port of media's SincResampler and extracts its average group delay at the context rate, as Chromium's hrtf_elevation.cc and hrtf_kernel.cc do"
 }

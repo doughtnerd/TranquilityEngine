@@ -173,7 +173,10 @@ impl PannerState {
 /// Audio spec's azimuth algorithm for a listener at the origin facing -Z with +Y up (the same
 /// arithmetic as Blink's `PannerHandler::CalculateAzimuthElevation`): project onto the horizontal
 /// plane, take the angle from the right vector with `acos`, mirror it when the source is behind,
-/// then make it relative to the front. A zero or vertical direction gives 0. Uses `libm`.
+/// then make it relative to the front. A zero or vertical direction gives 0. Uses `libm`. In f64:
+/// the equal-power panner's (its goldens stay as recorded). HRTF uses
+/// `audio_dsp::hrtf::angles::azimuth_elevation`, Blink's f32 arithmetic, because there the last
+/// bit picks the kernel on a boundary.
 pub fn azimuth(dir: [f32; 3]) -> f64 {
     let (x, z) = (dir[0] as f64, dir[2] as f64);
     if !(x.is_finite() && z.is_finite()) {
@@ -197,21 +200,6 @@ pub fn azimuth(dir: [f32; 3]) -> f64 {
     } else {
         450.0 - az
     }
-}
-
-/// The elevation in degrees (-90..90, +90 straight up) of a listener-space direction, by the same
-/// Blink function: 90° less the angle from the up vector. A zero or non-finite direction gives 0.
-/// Uses `libm`.
-pub fn elevation(dir: [f32; 3]) -> f64 {
-    let (x, y, z) = (dir[0] as f64, dir[1] as f64, dir[2] as f64);
-    if !(x.is_finite() && y.is_finite() && z.is_finite()) {
-        return 0.0;
-    }
-    let len = libm::sqrt(x * x + y * y + z * z);
-    if len == 0.0 {
-        return 0.0;
-    }
-    90.0 - libm::acos((y / len).clamp(-1.0, 1.0)).to_degrees()
 }
 
 /// The matrix targets `[a, b, c, d]` for a voice (see the module comment). Equal-power for every
@@ -451,8 +439,7 @@ impl<'a> Hrtf<'a> {
         }
         s.bus = bus;
         s.channels = p.channels;
-        s.azimuth = azimuth(p.dir);
-        s.elevation = elevation(p.dir);
+        (s.azimuth, s.elevation) = audio_dsp::hrtf::angles::azimuth_elevation(p.dir);
         Some(s)
     }
 

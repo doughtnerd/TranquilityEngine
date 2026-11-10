@@ -75,13 +75,14 @@ export function hrtfDigest(scene: Scene, left: Float32Array, right: Float32Array
  *   relative to the reference (dB).
  *
  * The owner's figures (0.1 dB, -90 dB: `TOLERANCES` in `analysis.ts`) hold for the biquad, compressor and pan scenes, which
- * run the same f32 operations in both engines. They do not hold for HRTF, which differs from Chromium's in two ways (build
- * log, H4): at 44.1 kHz, the table's own rate, the levels, ILD and ITD agree to 0.01 dB and 0.001 frames but the waveforms
- * null only to -40...-73 dB; at 48 kHz (the table is resampled, Chromium and the core by different resamplers) the response
- * differs by up to 5.7 dB in a band, 3.2 dB in ILD (median 0.8), 1.1 frames in ITD, and the waveforms null to only -5...-21 dB.
- * So the HRTF tolerance is per rate, `HRTF_TOLERANCES`: 44.1 kHz at 0.1 dB / 0.1 frames / -35 dB (the owner's level figure,
- * a looser null), 48 kHz a regression guard a little above what was measured (it fails if the core moves further from
- * Chromium, not if it matches better). The coordinator decides whether these stand.
+ * run the same f32 operations in both engines. For HRTF the levels, ILD and ITD hold (0.05 dB, 0.001 dB and 0.01 frames at
+ * worst, both rates), but the waveforms null only to -40...-75 dB (az100/el40 and az112 the worst; the core gets the table
+ * as int16, and its convolution and kernel interpolation round differently). 48 kHz needed H5 (issue #111): main resamples
+ * each response with its delay still in, by a port of Chromium's `SincResampler`, and extracts the delay at the context
+ * rate, as `hrtf_elevation.cc` and `hrtf_kernel.cc` do. Before that (another resampler, on delay-free responses) 48 kHz was
+ * off by up to 5.7 dB in a band, 3.2 dB in ILD, 1.1 frames in ITD, with nulls of -5...-21 dB. So `HRTF_TOLERANCES` is
+ * 0.1 dB / 0.1 frames / -35 dB at both rates (the owner's level figure, a looser null). The coordinator decides whether
+ * these stand.
  */
 export interface HrtfTolerance {
   levelDb: number;
@@ -92,7 +93,7 @@ export interface HrtfTolerance {
 
 export const HRTF_TOLERANCES: Record<number, HrtfTolerance> = {
   44_100: { levelDb: 0.1, ildDb: 0.1, itdFrames: 0.1, nullDb: -35 },
-  48_000: { levelDb: 8, ildDb: 4, itdFrames: 1.5, nullDb: -3 },
+  48_000: { levelDb: 0.1, ildDb: 0.1, itdFrames: 0.1, nullDb: -35 },
 };
 
 /** The core's tolerance for a scene's rate. */
