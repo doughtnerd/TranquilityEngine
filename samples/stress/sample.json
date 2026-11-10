@@ -1,0 +1,4 @@
+{
+  "name": "Audio Stress",
+  "description": "The audio core's stress test: up to 4,096 logical voices at about 200 starts a second over 64 MB of generated clips, 32 buses with effects, streams, moving HRTF sources and bus churn, with a live readout of the core's counters and a 30-minute soak mode. Click the game view; the README lists the keys and URL flags."
+}

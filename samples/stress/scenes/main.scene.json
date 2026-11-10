@@ -1,0 +1,1407 @@
+{
+  "format": "myco.scene@2",
+  "settings": {
+    "physics": "3d"
+  },
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              6,
+              14
+            ],
+            "rotation": [
+              -22,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Camera",
+          "data": {
+            "projection": "perspective",
+            "fieldOfView": 55
+          }
+        },
+        {
+          "type": "engine.AudioListener",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "sun",
+      "name": "Sun",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              8,
+              0
+            ],
+            "rotation": [
+              -55,
+              35,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "directional",
+            "intensity": 1.2
+          }
+        }
+      ]
+    },
+    {
+      "id": "stress",
+      "name": "Stress (storm, bus churn, readout, soak)",
+      "transform": false,
+      "components": [
+        {
+          "type": "stress.Stress",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "emitter0",
+      "name": "Emitter 0",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0.5,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-0.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 0.75,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus01"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 3,
+            "speed": -0.05,
+            "phase": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter1",
+      "name": "Emitter 1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.3,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-1.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 0.95,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus06"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 4,
+            "speed": 0.1,
+            "phase": 0.041666666666666664
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter2",
+      "name": "Emitter 2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2.1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-2.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.15,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus11"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 5,
+            "speed": -0.15000000000000002,
+            "phase": 0.08333333333333333
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter3",
+      "name": "Emitter 3",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2.9000000000000004,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-3.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.35,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus16"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 6,
+            "speed": 0.2,
+            "phase": 0.125
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter4",
+      "name": "Emitter 4",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              3.7,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-0.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.55,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus21"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 7,
+            "speed": -0.25,
+            "phase": 0.16666666666666666
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter5",
+      "name": "Emitter 5",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0.5,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-1.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.75,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus26"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 8,
+            "speed": 0.3,
+            "phase": 0.20833333333333334
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter6",
+      "name": "Emitter 6",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.3,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-2.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.9500000000000002,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus04"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 9,
+            "speed": -0.35000000000000003,
+            "phase": 0.25
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter7",
+      "name": "Emitter 7",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2.1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-3.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 0.75,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus09"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 10,
+            "speed": 0.4,
+            "phase": 0.2916666666666667
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter8",
+      "name": "Emitter 8",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2.9000000000000004,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-0.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 0.95,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus14"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 11,
+            "speed": -0.45,
+            "phase": 0.3333333333333333
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter9",
+      "name": "Emitter 9",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              3.7,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-1.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.15,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus19"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 12,
+            "speed": 0.05,
+            "phase": 0.375
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter10",
+      "name": "Emitter 10",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0.5,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-2.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.35,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus24"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 13,
+            "speed": -0.1,
+            "phase": 0.4166666666666667
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter11",
+      "name": "Emitter 11",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.3,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-3.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.55,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus02"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 14,
+            "speed": 0.15000000000000002,
+            "phase": 0.4583333333333333
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter12",
+      "name": "Emitter 12",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2.1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-0.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.75,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus07"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 3,
+            "speed": -0.2,
+            "phase": 0.5
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter13",
+      "name": "Emitter 13",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2.9000000000000004,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-1.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.9500000000000002,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus12"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 4,
+            "speed": 0.25,
+            "phase": 0.5416666666666666
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter14",
+      "name": "Emitter 14",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              3.7,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-2.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 0.75,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus17"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 5,
+            "speed": -0.3,
+            "phase": 0.5833333333333334
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter15",
+      "name": "Emitter 15",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0.5,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-3.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 0.95,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus22"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 6,
+            "speed": 0.35000000000000003,
+            "phase": 0.625
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter16",
+      "name": "Emitter 16",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.3,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-0.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.15,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus00"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 7,
+            "speed": -0.4,
+            "phase": 0.6666666666666666
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter17",
+      "name": "Emitter 17",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2.1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-1.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.35,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus05"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 8,
+            "speed": 0.45,
+            "phase": 0.7083333333333334
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter18",
+      "name": "Emitter 18",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2.9000000000000004,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-2.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.55,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus10"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 9,
+            "speed": -0.05,
+            "phase": 0.75
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter19",
+      "name": "Emitter 19",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              3.7,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-3.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.75,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus15"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 10,
+            "speed": 0.1,
+            "phase": 0.7916666666666666
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter20",
+      "name": "Emitter 20",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0.5,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-0.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.9500000000000002,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus20"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 11,
+            "speed": -0.15000000000000002,
+            "phase": 0.8333333333333334
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter21",
+      "name": "Emitter 21",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.3,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-1.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 0.75,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus25"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 12,
+            "speed": 0.2,
+            "phase": 0.875
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter22",
+      "name": "Emitter 22",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2.1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-2.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 0.95,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus03"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 13,
+            "speed": -0.25,
+            "phase": 0.9166666666666666
+          }
+        }
+      ]
+    },
+    {
+      "id": "emitter23",
+      "name": "Emitter 23",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2.9000000000000004,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/emit-3.wav",
+            "loop": true,
+            "volume": 0.25,
+            "pitch": 1.15,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "Bus08"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 14,
+            "speed": 0.3,
+            "phase": 0.9583333333333334
+          }
+        }
+      ]
+    },
+    {
+      "id": "stream0",
+      "name": "Stream 0",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/stream-0.wav",
+            "loop": true,
+            "volume": 0.12,
+            "pitch": 1,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 3,
+            "maxDistance": 50,
+            "output": "Bus02"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 8,
+            "speed": 0.12,
+            "phase": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "stream1",
+      "name": "Stream 1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/stream-1.wav",
+            "loop": true,
+            "volume": 0.12,
+            "pitch": 1,
+            "playOnAwake": true,
+            "spatial": false,
+            "minDistance": 3,
+            "maxDistance": 50,
+            "output": "Bus05"
+          }
+        }
+      ]
+    },
+    {
+      "id": "stream2",
+      "name": "Stream 2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/stream-2.wav",
+            "loop": true,
+            "volume": 0.12,
+            "pitch": 1,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 3,
+            "maxDistance": 50,
+            "output": "Bus08"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 12,
+            "speed": 0.18,
+            "phase": 0.25
+          }
+        }
+      ]
+    },
+    {
+      "id": "stream3",
+      "name": "Stream 3",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/stream-3.wav",
+            "loop": true,
+            "volume": 0.12,
+            "pitch": 1,
+            "playOnAwake": true,
+            "spatial": false,
+            "minDistance": 3,
+            "maxDistance": 50,
+            "output": "Bus11"
+          }
+        }
+      ]
+    },
+    {
+      "id": "stream4",
+      "name": "Stream 4",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/stream-0.wav",
+            "loop": true,
+            "volume": 0.12,
+            "pitch": 1.5,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 3,
+            "maxDistance": 50,
+            "output": "Bus14"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 16,
+            "speed": 0.24,
+            "phase": 0.5
+          }
+        }
+      ]
+    },
+    {
+      "id": "stream5",
+      "name": "Stream 5",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/stream-1.wav",
+            "loop": true,
+            "volume": 0.12,
+            "pitch": 1.5,
+            "playOnAwake": true,
+            "spatial": false,
+            "minDistance": 3,
+            "maxDistance": 50,
+            "output": "Bus17"
+          }
+        }
+      ]
+    },
+    {
+      "id": "stream6",
+      "name": "Stream 6",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/stream-2.wav",
+            "loop": true,
+            "volume": 0.12,
+            "pitch": 1.5,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 3,
+            "maxDistance": 50,
+            "output": "Bus20"
+          }
+        },
+        {
+          "type": "stress.Orbit",
+          "data": {
+            "radius": 20,
+            "speed": 0.3,
+            "phase": 0.75
+          }
+        }
+      ]
+    },
+    {
+      "id": "stream7",
+      "name": "Stream 7",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/stream-3.wav",
+            "loop": true,
+            "volume": 0.12,
+            "pitch": 1.5,
+            "playOnAwake": true,
+            "spatial": false,
+            "minDistance": 3,
+            "maxDistance": 50,
+            "output": "Bus23"
+          }
+        }
+      ]
+    }
+  ]
+}
