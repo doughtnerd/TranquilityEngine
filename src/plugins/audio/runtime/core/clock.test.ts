@@ -313,6 +313,39 @@ describe("ClockMap (architecture §4.3, §4.7)", () => {
     expect(map.stampFor(0)).toBeUndefined();
   });
 
+  it("A3.4c rebase: a new context's rate and latency, Audio.time held then continued from the old, `at` mapped through the offset", () => {
+    const f = fakeClock();
+    const map = new ClockMap(f, SR, 72);
+    // p = 1000, ts = {2, 1000}: Audio.time = (96000 - 72) / 48000 = 1.9985 s.
+    frame(f, map, 1000, BASE, 2);
+    expect(map.audioTime()).toBeCloseTo(1.9985, 9);
+    // The swap: a 44.1 kHz context (66 frames of limiter latency); no timestamp yet, so Audio.time holds.
+    map.rebase(44100, 66, map.carryPoint());
+    expect(map.sampleRate).toBe(44100);
+    expect(map.outputLatencyFrames).toBe(66);
+    expect(map.carryPending).toBe(true);
+    frame(f, map, 50, null);
+    expect(map.audioTime()).toBeCloseTo(1.9985, 9);
+    expect(map.framesNow()).toBe(0);
+    // 100 ms after the swap the new context gives its first timestamp: its clock read 0.02 s at p = 1100.
+    frame(f, map, 50, { contextTime: 0.02, performanceTime: 1100 });
+    expect(map.carryPending).toBe(false);
+    // Continued with the page clock: 1.9985 + 0.1.
+    expect(map.audioTime()).toBeCloseTo(2.0985, 9);
+    // Its raw time is (0.02 * 44100 - 66) / 44100; the offset is the rest.
+    expect(map.timeOffset).toBeCloseTo(2.0985 - (0.02 * 44100 - 66) / 44100, 9);
+    // F_now is in the new context's frames (from 0.02 s: 882), and `at` maps through the offset.
+    expect(map.framesNow()).toBeCloseTo(882, 6);
+    expect(map.frameOfTime(2.0985 + 0.5)).toBe(Math.round((2.0985 + 0.5 - map.timeOffset) * 44100));
+    expect(map.frameOfTime(map.timeOffset + 1)).toBe(44100);
+    // A later frame advances on the new clock, monotonic; a reset (a same-context rebuild) keeps the offset and holds.
+    frame(f, map, 10, { contextTime: 0.03, performanceTime: 1110 });
+    expect(map.audioTime()).toBeCloseTo(2.1085, 9);
+    map.reset();
+    expect(map.audioTime()).toBeCloseTo(2.1085, 9);
+    expect(map.timeOffset).toBeGreaterThan(2);
+  });
+
   it("reset forgets the estimates but keeps the counters", () => {
     const f = fakeClock();
     const map = new ClockMap(f, SR);

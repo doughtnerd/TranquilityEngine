@@ -436,7 +436,8 @@ export class CoreBackend implements AudioBackend {
     if (this.disposed) return;
     const clockMap = this.clockMap;
     clockMap.beginFrame();
-    if (this.mirror.blocks > 0) clockMap.noteStatus(this.mirror.frameAudio, this.mirror.frameDateMs);
+    // A3.4c: after a context swap, the old core's last STATUS is in the old context's frames: wait for the new one's.
+    if (this.mirror.blocks > this.staleBlocks) clockMap.noteStatus(this.mirror.frameAudio, this.mirror.frameDateMs);
     this.mirror.beginFrame();
     this.publishPeaks();
     this.table.freeEnded();
@@ -466,12 +467,10 @@ export class CoreBackend implements AudioBackend {
     if (this.disposed) return;
     this.recovering = true;
     this.replayer.begin();
-    // A3.4c: where `Audio.time` was while the old context still ran, should the rebuild move to a new one.
-    this.carry = this.clockMap.carryPoint();
   }
 
-  /** `Audio.time` and its rAF time when the rebuild started (A3.4c). */
-  private carry: { readonly time: number; readonly p: number } | null = null;
+  /** STATUS blocks that came from a context since replaced: the clock map's fallback ignores them (A3.4c). */
+  private staleBlocks = 0;
 
   /**
    * `onContextReplaced` (A3.4c, architecture §3.7): the rebuild made a new context at `rate`, whose frames start at 0.
@@ -484,9 +483,11 @@ export class CoreBackend implements AudioBackend {
     if (this.disposed) return;
     const clock = this.clockMap;
     this.replayer.newContext(clock.sampleRate, clock.timeOffset);
-    clock.rebase(rate, limiterLatencyFrames(rate, this.host.preset.limiterLookaheadMs), this.carry ?? clock.carryPoint());
+    // The old clock's newest estimate (its last frame's offset, extrapolated with the page clock) and its frame's time.
+    clock.rebase(rate, limiterLatencyFrames(rate, this.host.preset.limiterLookaheadMs), clock.carryPoint());
     this.writer.sampleRate = rate;
     this.hrir.retarget?.(rate);
+    this.staleBlocks = this.mirror.blocks;
   }
 
   /** `onRebuilt`: the new core answered: RESET 0, buses, MASTER, the clips again, then the voices as their clips return. */
