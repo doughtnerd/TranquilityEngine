@@ -307,3 +307,45 @@ describe("the default backend (B7)", () => {
     expect(parseAudioSettings({}).settings.backend).toBe(defaultBackend());
   });
 });
+
+describe("audio settings: events keys (ADR 0158)", () => {
+  it("defaults to no parameters, no automation and no seed", () => {
+    const { settings, problems } = parseAudioSettings({});
+    expect(problems).toEqual([]);
+    expect(settings.parameters).toEqual([]);
+    expect(settings.automation).toEqual([]);
+    expect(settings.seed).toBeUndefined();
+  });
+
+  it("reads global parameters, bus automation and the seed", () => {
+    const { settings, problems } = parseAudioSettings({
+      parameters: [{ name: "Intensity", min: 0, max: 1, seekSpeed: 0.5 }, { name: "Area", labels: ["Outdoor", "Cave"] }],
+      automation: [
+        { bus: "Music", parameter: "Intensity", target: "volume", curve: [[0, 0.4], [1, 1]] },
+        { bus: "SFX", parameter: "Area", target: "lowpass", curve: [[0, 24000, "step"], [1, 1500]] },
+      ],
+      seed: 42,
+    });
+    expect(problems).toEqual([]);
+    expect(settings.parameters.map((p) => p.name)).toEqual(["Intensity", "Area"]);
+    expect(settings.automation).toHaveLength(2);
+    expect(settings.automation[1].curve[0]).toEqual([0, 24000, "step"]);
+    expect(settings.seed).toBe(42);
+  });
+
+  it("drops automation on unknown buses, unknown parameters or bad targets", () => {
+    const { settings, problems } = parseAudioSettings({
+      parameters: [{ name: "P" }],
+      automation: [
+        { bus: "Nope", parameter: "P", target: "volume", curve: [[0, 1]] },
+        { bus: "Music", parameter: "Q", target: "volume", curve: [[0, 1]] },
+        { bus: "Music", parameter: "P", target: "pitch", curve: [[0, 1]] },
+        { bus: "Music", parameter: "P", target: "volume", curve: [] },
+      ],
+      seed: "x",
+    });
+    expect(settings.automation).toEqual([]);
+    expect(settings.seed).toBeUndefined();
+    expect(problems).toHaveLength(5);
+  });
+});

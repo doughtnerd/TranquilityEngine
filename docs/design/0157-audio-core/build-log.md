@@ -492,3 +492,7 @@ The owner declared M1 complete. What the exit criteria asked for and where it st
 - **Open proposals carried forward:** pinned `wasm-opt` (review 22), a public seek API (21), the high-preset content budget (31), the Flappy music licence (28), band-limited resampling (#110).
 
 Next: M2 (events and parameters), its own decision record (0158).
+
+## M2 (ADR 0158): E1 foundations (2026-11-10)
+
+ADR 0158 accepted; plan `docs/plans/2026-11-audio-events-m2.md`. E1 landed: `src/engine/core/curve.ts` (the shared curve type), `src/engine/audio/eventFormat.ts` (the `myco.audioevent@1` parser), `audio.parameters` / `audio.automation` / `audio.seed` in `engine/audio/settings.ts`, and the mixer size gate raised to a 256 KB tripwire (ADR 0158 amends 0157; the owner rates download size no design constraint). No Rust changed, so the wasm and its hash are untouched. Deviation: none.

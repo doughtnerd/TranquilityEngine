@@ -1,6 +1,6 @@
 # 0158. Audio events are data assets; main picks their voices when something happens, and the core runs everything continuous: parameters, curves, blends and sustain loops
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-10
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

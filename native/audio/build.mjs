@@ -19,8 +19,8 @@ const out = fileURLToPath(new URL("../../src/plugins/audio/runtime/wasm/", impor
 /** The metered build's directory (C1b): test-only, beside the gate that runs it. */
 const meteredOut = fileURLToPath(new URL("../../tools/audio-bench/metered/", import.meta.url));
 const TARGET = "wasm32-unknown-unknown";
-/** The mixer's size gate (ADR 0157): 150 KB. */
-const MIXER_LIMIT = 150 * 1024;
+/** The mixer's size tripwire (ADR 0158 amends 0157): 256 KB. A guard against accidental bloat, not a design constraint; raise it with a line in the build log saying why. */
+const MIXER_LIMIT = 256 * 1024;
 /** The decoder's size gate (M1b): 900 KB. */
 const DECODER_LIMIT = 900 * 1024;
 /** The AAC decoder build's own gate (B4): its measured size (1,042.7 KB) rounded up to the next 100 KB. It ships beside the

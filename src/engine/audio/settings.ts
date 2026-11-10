@@ -11,12 +11,16 @@
  *     { "name": "Voice", "parent": "Master" }
  *   ],
  *   "snapshots": [{ "name": "Paused", "volumes": { "Music": 0.3, "SFX": 0 }, "lowpass": { "Music": 800 } }],
- *   "ducking": [{ "target": "Music", "trigger": "Voice", "amount": 0.4, "attack": 0.1, "release": 0.6 }]
+ *   "ducking": [{ "target": "Music", "trigger": "Voice", "amount": 0.4, "attack": 0.1, "release": 0.6 }],
+ *   "parameters": [{ "name": "Intensity", "min": 0, "max": 1 }, { "name": "Area", "labels": ["Outdoor", "Cave"] }],  // ADR 0158
+ *   "automation": [{ "bus": "Music", "parameter": "Intensity", "target": "volume", "curve": [[0, 0.4], [1, 1]] }]
  * }
  * ```
  */
 
+import { parseCurve, type Curve } from "../core/curve";
 import { detectPlatform, type PlatformEnv } from "../core/graphics";
+import { parseParameters, type ParameterDef } from "./eventFormat";
 
 export type BusEffect =
   | { type: "lowpass"; frequency: number; q: number }
@@ -62,10 +66,25 @@ export interface DuckingRule {
   release: number;
 }
 
+/** ADR 0158 §3: a bus property driven by a global parameter through a curve. Multiplies with snapshots and ducking (volume) or takes the lowest cutoff (lowpass). */
+export interface BusAutomation {
+  bus: string;
+  parameter: string;
+  /** `volume`: a linear gain multiplier; `lowpass`: a cutoff in Hz. */
+  target: "volume" | "lowpass";
+  curve: Curve;
+}
+
 export interface AudioSettings {
   buses: BusSettings[];
   snapshots: SnapshotSettings[];
   ducking: DuckingRule[];
+  /** ADR 0158 §2: global parameters (labelled ones are the states). */
+  parameters: ParameterDef[];
+  /** ADR 0158 §3: bus properties driven by global parameters. */
+  automation: BusAutomation[];
+  /** ADR 0158 §6: the seed for events' random picks (a whole number); absent: a new seed each run. */
+  seed?: number;
   voices: VoiceSettings;
   /** What the page being hidden does to sound. Default `"mute"`. */
   background: AudioBackground;
@@ -152,7 +171,7 @@ export const DEFAULT_LIMITER_LOOKAHEAD_MS = 1.5;
 export const LIMITER_LOOKAHEAD_LIMITS = [0, 5] as const;
 
 export const defaultAudioSettings = (): AudioSettings => ({
-  buses: defaultBuses(), snapshots: [], ducking: [],
+  buses: defaultBuses(), snapshots: [], ducking: [], parameters: [], automation: [],
   voices: { ...DEFAULT_VOICES }, background: "mute", clipFormat: "i16", codecs: { aac: false }, spatial: "hrtf", backend: defaultBackend(),
   limiterLookaheadMs: DEFAULT_LIMITER_LOOKAHEAD_MS,
 });
@@ -252,6 +271,7 @@ export function parseAudioSettings(input: unknown): { settings: AudioSettings; p
     }
   }
   parseCoreKeys(input, settings, problems);
+  parseEventKeys(input, settings, problems);
   return { settings, problems };
 }
 
@@ -345,4 +365,24 @@ function parseCoreKeys(input: Record<string, unknown>, settings: AudioSettings, 
       if (maxVoices !== undefined) bus.maxVoices = maxVoices;
     }
   }
+}
+
+/** ADR 0158: `parameters`, `automation` and `seed`. Runs after the buses are parsed, so automation can check bus names. */
+function parseEventKeys(input: Record<string, unknown>, settings: AudioSettings, problems: string[]): void {
+  settings.parameters = parseParameters(input.parameters, "audio.parameters", problems);
+  if (input.automation !== undefined) {
+    if (!Array.isArray(input.automation)) problems.push("audio.automation must be a list.");
+    else input.automation.forEach((raw, i) => {
+      const where = `audio.automation[${i}]`;
+      if (!isRecord(raw)) return void problems.push(`${where}: must be an object; dropped.`);
+      if (typeof raw.bus !== "string" || !settings.buses.some((b) => b.name === raw.bus)) return void problems.push(`${where}: bus must name a bus; dropped.`);
+      if (typeof raw.parameter !== "string" || !settings.parameters.some((p) => p.name === raw.parameter)) return void problems.push(`${where}: parameter must name a global parameter; dropped.`);
+      if (raw.target !== "volume" && raw.target !== "lowpass") return void problems.push(`${where}: target must be "volume" or "lowpass"; dropped.`);
+      const curve = parseCurve(raw.curve, `${where}.curve`, problems);
+      if (!curve || curve.length === 0) return void problems.push(`${where}: the curve has no keys; dropped.`);
+      settings.automation.push({ bus: raw.bus, parameter: raw.parameter, target: raw.target, curve });
+    });
+  }
+  const seed = wholeNumber(input.seed, "audio.seed", 0, 0xffffffff, problems);
+  if (seed !== undefined) settings.seed = seed;
 }
