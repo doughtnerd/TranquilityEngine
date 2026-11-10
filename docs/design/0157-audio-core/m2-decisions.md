@@ -140,3 +140,6 @@ M2 is built: every task of the plan is merged on `claude/sweet-ritchie-miy6jm` w
 - **Open (owner):** keep the copies, or revert them and measure the budget on a bundled build instead (a small bench harness over `dist/`)?
 - **Left:** asset lookups (`Assets.importSettings`, `Assets.url`: regex path normalisation, ≈ 0.35 µs per voice) are now the largest single cost; caching them needs `Assets` to signal source changes (editor sources are mutable maps with no version): an engine change.
 
+### 24. Bus automation in voice selection, without the gap (F3)
+- **Done:** selection's bus factor on the core is the bus's effective gain (volume × snapshots × ducking × parents) times the automated gain of the bus and its ancestors; while a global parameter seeks, the automated part is the larger of the gain at the target and at main's smoothed estimate (the rule that fixed the gap, entry 18), the settled value at rest, refreshed only when it changes. Evidence (`core/busSelectionLoopback.test.ts`, real wasm): a bus automated 1 → 0 over its seek keeps its voice mixed and audible (no silent run over 10 ms while the gain is above 0.03) until the fade ends, then demotes it; with the rule disabled the test fails. Under a full budget, voices on a bus (or a child of a bus) automated to 0.1 lose to voices on a loud bus. `throttleGap.test.ts` unchanged and green.
+
