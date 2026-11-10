@@ -3,6 +3,16 @@
 version = 4
 
 [[package]]
+name = "audio-bench"
+version = "0.1.0"
+dependencies = [
+ "audio-core",
+ "audio-dsp",
+ "audio-wire",
+ "libm",
+]
+
+[[package]]
 name = "audio-core"
 version = "0.1.0"
 dependencies = [

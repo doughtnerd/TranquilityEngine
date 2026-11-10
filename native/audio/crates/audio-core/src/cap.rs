@@ -52,10 +52,16 @@ pub mod wu {
     /// Cost also grows with pitch (each voice reads pitch × 128 source frames); the render doesn't
     /// report a pitch sum yet, so the model counts every mixed voice at pitch 1 (see the report).
     pub const MIXED_VOICE: u32 = 1_150;
+    /// Each 128 source frames the mixed voices read (provisional).
+    pub const SOURCE_QUANTUM: u32 = 0;
     /// A virtual voice keeping time (§6.1: ≈ 0.008 µs).
     pub const VIRTUAL_VOICE: u32 = 8;
     /// An HRTF-panned voice on top of its mixed cost (§6.1: 6.6 µs static; 10.4 crossfading).
     pub const HRTF_VOICE: u32 = 6_600;
+    /// An HRTF panner crossfading two kernel sets (provisional).
+    pub const HRTF_CROSSFADE: u32 = 3_800;
+    /// One HRTF kernel computation (provisional).
+    pub const HRTF_KERNEL: u32 = 86_000;
     /// A configured bus: its gain ramp, mix into the parent and meter (§6.1: ≈ 1–2 µs).
     pub const BUS: u32 = 1_500;
     /// A biquad on a bus: lowpass, highpass, or the snapshot low-pass while on (§6.1: ≈ 0.5 µs).
@@ -116,6 +122,12 @@ pub struct CapState {
     batches: u32,
     /// Records carried by batches since the last quantum (their apply cost goes in its WU).
     pending_records: u32,
+    /// The quantum's render work the counters don't carry (A3.5), noted by the render before
+    /// [`after_render`]: source frames the mixed voices read (pitch), HRTF panners crossfading two
+    /// kernel sets, and kernel computations.
+    source_frames: f32,
+    hrtf_crossfading: u32,
+    hrtf_kernels: u32,
     /// Cumulative: decreases, increases, and voices the cap demoted (tests and a debugger).
     pub decreases: u32,
     pub increases: u32,
@@ -151,6 +163,9 @@ impl CapState {
             gaps: 0,
             batches: 0,
             pending_records: 0,
+            source_frames: 0.0,
+            hrtf_crossfading: 0,
+            hrtf_kernels: 0,
             decreases: 0,
             increases: 0,
             demoted: 0,
@@ -175,6 +190,25 @@ impl CapState {
     /// The last complete window's work-unit p99.
     pub fn last_p99(&self) -> u32 {
         self.last_p99
+    }
+
+    /// The render's note of the source frames its mixed voices read this quantum (A3.5; each
+    /// mixed voice's pitch × rate ratio × frames, so 128 per voice at pitch 1).
+    pub fn note_source_frames(&mut self, frames: f32) {
+        self.source_frames = frames;
+    }
+
+    /// The HRTF flush's note of this quantum's panners crossfading kernel sets and kernel
+    /// computations (A3.5).
+    pub fn note_hrtf(&mut self, crossfading: u32, kernels: u32) {
+        self.hrtf_crossfading = crossfading;
+        self.hrtf_kernels = kernels;
+    }
+
+    /// The last quantum's source frames, HRTF panners crossfading and kernel computations (the
+    /// work-unit terms the counters don't carry; tests and the bench).
+    pub fn render_work(&self) -> (f32, u32, u32) {
+        (self.source_frames, self.hrtf_crossfading, self.hrtf_kernels)
     }
 
     /// Sets the work-unit budget (tests and a lab harness; production keeps [`BUDGET_WU`]).
@@ -252,7 +286,15 @@ fn model(core: &Core, records: u32) -> u32 {
     let c = status::counters(core);
     let mixed = c.mixed_voices as u64;
     let live = c.live_voices as u64;
-    let mut units = mixed * wu::MIXED_VOICE as u64 + live.saturating_sub(mixed) * wu::VIRTUAL_VOICE as u64 + c.hrtf_voices as u64 * wu::HRTF_VOICE as u64;
+    let s = core.cap();
+    // Source frames in whole quanta of 128 (the f32 note is ≥ 0 and far below u64's range).
+    let source_quanta = (s.source_frames.max(0.0) as u64) / QUANTUM as u64;
+    let mut units = mixed * wu::MIXED_VOICE as u64
+        + source_quanta * wu::SOURCE_QUANTUM as u64
+        + live.saturating_sub(mixed) * wu::VIRTUAL_VOICE as u64
+        + c.hrtf_voices as u64 * wu::HRTF_VOICE as u64
+        + s.hrtf_crossfading as u64 * wu::HRTF_CROSSFADE as u64
+        + s.hrtf_kernels as u64 * wu::HRTF_KERNEL as u64;
     let count = bus::count(core);
     for slot in bus::slots(core).iter().take(count) {
         units += wu::BUS as u64;

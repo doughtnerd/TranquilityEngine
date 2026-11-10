@@ -299,7 +299,28 @@ impl<const P: usize> HrtfPannerN<P> {
         destination_r: &mut [f32; QUANTUM_FRAMES],
     ) {
         let Self { state, set1, set2, input_l, input_r } = self;
-        let io = PanIo { desired_azimuth, elevation, source_l, source_r, destination_l, destination_r };
+        let io = PanIo { desired_azimuth, elevation, source_l, source_r, destination_l, destination_r, switch: true };
+        state.pan(db, scratch, set1.view(), set2.view(), input_l.view(), input_r.view(), io);
+    }
+
+    /// As [`pan`](Self::pan), but never starts a kernel crossfade, so it computes no kernel: the
+    /// kernel sets stay as they are (a running crossfade runs on). H3's budget uses it for a voice
+    /// whose switch must wait a quantum (A3.5: `pan` on the voice's last direction could still start
+    /// a crossfade that the panner itself had deferred, computing kernels past the budget).
+    #[allow(clippy::too_many_arguments)]
+    pub fn pan_held(
+        &mut self,
+        db: &HrirDatabase<'_>,
+        scratch: &mut HrtfScratch,
+        desired_azimuth: f64,
+        elevation: f64,
+        source_l: &[f32; QUANTUM_FRAMES],
+        source_r: Option<&[f32; QUANTUM_FRAMES]>,
+        destination_l: &mut [f32; QUANTUM_FRAMES],
+        destination_r: &mut [f32; QUANTUM_FRAMES],
+    ) {
+        let Self { state, set1, set2, input_l, input_r } = self;
+        let io = PanIo { desired_azimuth, elevation, source_l, source_r, destination_l, destination_r, switch: false };
         state.pan(db, scratch, set1.view(), set2.view(), input_l.view(), input_r.view(), io);
     }
 }
@@ -312,6 +333,8 @@ struct PanIo<'a> {
     source_r: Option<&'a [f32; QUANTUM_FRAMES]>,
     destination_l: &'a mut [f32; QUANTUM_FRAMES],
     destination_r: &'a mut [f32; QUANTUM_FRAMES],
+    /// Whether a direction change may start a kernel crossfade (false: [`HrtfPannerN::pan_held`]).
+    switch: bool,
 }
 
 impl PanState {
@@ -319,7 +342,7 @@ impl PanState {
     #[inline(never)]
     #[allow(clippy::too_many_arguments)]
     fn pan(&mut self, db: &HrirDatabase<'_>, scratch: &mut HrtfScratch, mut set1: SetView<'_>, mut set2: SetView<'_>, mut input_l: EarView<'_>, mut input_r: EarView<'_>, io: PanIo<'_>) {
-        let PanIo { desired_azimuth, elevation, source_l, source_r, destination_l, destination_r } = io;
+        let PanIo { desired_azimuth, elevation, source_l, source_r, destination_l, destination_r, switch } = io;
         // IRCAM HRTF azimuths values from the loaded database is reversed from the panner's
         // notion of azimuth.
         let azimuth = -desired_azimuth;
@@ -343,13 +366,13 @@ impl PanState {
         let fade_frames: f64 = if self.sample_rate <= 48000.0 { 2048.0 } else { 4096.0 };
 
         // Check for azimuth and elevation changes, initiating a cross-fade if needed.
-        if self.crossfade_x == 0.0 && self.crossfade_selection == CrossfadeSelection::Selection1 && (desired_azimuth_index != azimuth_index1 || elevation != self.elevation1) {
+        if switch && self.crossfade_x == 0.0 && self.crossfade_selection == CrossfadeSelection::Selection1 && (desired_azimuth_index != azimuth_index1 || elevation != self.elevation1) {
             // Cross-fade from 1 -> 2.
             self.crossfade_incr = (1.0 / fade_frames) as f32;
             self.azimuth_index2 = Some(desired_azimuth_index);
             self.elevation2 = elevation;
         }
-        if self.crossfade_x == 1.0 && self.crossfade_selection == CrossfadeSelection::Selection2 && (desired_azimuth_index != azimuth_index2 || elevation != self.elevation2) {
+        if switch && self.crossfade_x == 1.0 && self.crossfade_selection == CrossfadeSelection::Selection2 && (desired_azimuth_index != azimuth_index2 || elevation != self.elevation2) {
             // Cross-fade from 2 -> 1.
             self.crossfade_incr = (-1.0 / fade_frames) as f32;
             self.azimuth_index1 = Some(desired_azimuth_index);
