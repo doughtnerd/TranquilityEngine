@@ -116,20 +116,13 @@ fn vorbis_48000_stereo() {
     check_gapless("tone-48000-stereo.ogg", "tone-48000-stereo.wav", Codec::Vorbis, 25.0);
 }
 
-/// AAC in M4A: symphonia 0.6.1's isomp4 reader ignores the edit list (`elst`) and its AAC decoder
-/// doesn't trim, so the decode keeps the encoder's 1,024 priming frames: the stated length and the
-/// decode are the source plus 1,024 frames, lined up at lag 1,024 (the decoder stops at the stated
-/// length, so the last AAC frame's padding is dropped). Gapless AAC (task B4) has to trim the
-/// priming itself.
+/// AAC in M4A (task B4): symphonia 0.6.1's isomp4 reader ignores the edit list (`elst`) and its AAC
+/// decoder doesn't trim, so the decoder trims the encoder's 1,024 priming frames and the last frame's
+/// padding itself, from the edit list: the stated length is the source's and the decode lines up
+/// with it at lag 0, like the other gapless codecs.
 #[cfg(feature = "aac")]
 fn check_aac(name: &str, source: &str, min_db: f64) {
-    let src = wav(source);
-    let info = open(name).info();
-    assert_eq!(info.codec, Codec::Aac, "{name}: codec");
-    assert_eq!(info.frames, Some(src.frames() as u64 + 1024), "{name}: stated frames");
-    let (_, dec) = decode_all(name, 4096);
-    assert_eq!(dec.len() / src.channels, src.frames() + 1024, "{name}: decoded frames");
-    check_lossy(name, source, min_db, Some(1024));
+    check_gapless(name, source, Codec::Aac, min_db);
 }
 
 #[cfg(feature = "aac")]

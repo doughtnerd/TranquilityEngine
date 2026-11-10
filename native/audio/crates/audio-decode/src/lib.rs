@@ -27,6 +27,8 @@
 //! panic traps the instance, and the worker re-creates it.
 
 mod decoder;
+#[cfg(feature = "aac")]
+mod mp4_gapless;
 
 pub use decoder::{mp3_has_length_header, Bytes, Codec, DecodeError, Decoder, FormatHint, Info};
 
