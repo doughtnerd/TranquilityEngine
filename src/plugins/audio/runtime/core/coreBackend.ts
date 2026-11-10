@@ -269,7 +269,22 @@ export class CoreBackend implements AudioBackend {
     });
     this.streams.afterSeek = (voice, frame) => this.reanchorSeek(voice, frame);
     // Stream voices' positions are in their stream's frames, at its rate (B3).
-    this.playheads = new PlayheadTracker(this.table, { info: (id) => this.streams.clipInfo(id) ?? this.clips.info(id) }, host.sampleRate);
+    // M2 F1: the tracker reads only `sampleRate` (per voice start and retime), so a clip's comes without an info object.
+    const rateInfo = { sampleRate: 0 };
+    this.playheads = new PlayheadTracker(
+      this.table,
+      {
+        info: (id) => {
+          const stream = this.streams.clipInfo(id);
+          if (stream || !this.clips.sampleRate) return stream ?? this.clips.info(id);
+          const rate = this.clips.sampleRate(id);
+          if (rate === null) return null;
+          rateInfo.sampleRate = rate;
+          return rateInfo as unknown as ClipInfo; // read at once, never kept
+        },
+      },
+      host.sampleRate,
+    );
     // E4.4: where a voice's (unwrapped) playhead is in its sound: a stream by its map (regions, splices, seeks), a clip
     // in its SET_LOOP region (or the whole clip for a plain loop).
     this.playheads.wrap = (i, pos) => this.wrapPlayhead(i, pos);
@@ -1109,26 +1124,20 @@ export class CoreBackend implements AudioBackend {
 }
 
 /** One voice; every call checks the id is still live. */
-class Voice implements CoreVoice {
-  readonly handle: AudioHandle;
-
+/**
+ * One voice. M2 F1: the voice is its own `AudioHandle` (one object per voice start, not two): `playing`, `alive`,
+ * `reason`, `stop` and `fade` are the handle's, with M1's semantics; `handle` is the voice itself.
+ */
+class Voice extends AudioHandle implements CoreVoice {
   constructor(
     private readonly backend: CoreBackend,
-    readonly id: number,
+    id: number,
   ) {
-    this.handle = new AudioHandle(backend.table, id);
+    super(backend.table, id);
   }
 
-  get playing(): boolean {
-    return this.handle.playing;
-  }
-
-  get alive(): boolean {
-    return this.handle.alive;
-  }
-
-  get reason(): AudioReason | null {
-    return this.handle.reason;
+  get handle(): AudioHandle {
+    return this;
   }
 
   setVolume(v: number): void {
@@ -1165,14 +1174,6 @@ class Voice implements CoreVoice {
 
   seek(seconds: number): void {
     this.backend._seek(this.id, seconds);
-  }
-
-  fade(to: number, seconds: number): void {
-    this.handle.fade(to, seconds);
-  }
-
-  stop(fadeSeconds = 0): void {
-    this.handle.stop(fadeSeconds);
   }
 }
 

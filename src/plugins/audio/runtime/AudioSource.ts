@@ -25,8 +25,14 @@ export function startClip(path: string, loop: boolean, output: string | undefine
 /** @internal The clip's import volume (ADR 0040), which scales every playback of it. */
 export const clipVolume = (path: string) => Assets.importSettings(path).volume;
 
-// ADR 0158: event clips start like every clip, with the import volume (and the bus resolved as for `output`).
-_setEventClipStarter({ start: startClip, clipVolume });
+// ADR 0158: event clips start like every clip, with the import volume (and the bus resolved as for `output`). M2 F1: in
+// parts, so the event runtime reads a clip's import settings once per voice and builds its request in one object.
+_setEventClipStarter({
+  settings: (path) => Assets.importSettings(path),
+  url: (path) => Assets.url(path),
+  bus: (output) => mixer.resolveOutput(output),
+  play: (req) => audioBackend().play(req),
+});
 
 const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math.max(0, Math.round(p))) : 128);
 

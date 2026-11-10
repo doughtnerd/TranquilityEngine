@@ -119,6 +119,8 @@ const BATCH_PREFIX_BYTES = 32;
 /** Every batch's records fit here. */
 const BATCH_RECORD_BYTES = BATCH_MAX_BYTES - BATCH_PREFIX_BYTES;
 const MAX_FRAME_OFFSET = 0xfffffffe;
+/** The AUTOMATE record's bindings between records (never written to). */
+const NO_AUTOMATE_BINDINGS: AutomateBindings[] = [];
 
 /** Counters for `Audio.debug()` and the tests. */
 export interface CommandWriterStats {
@@ -365,7 +367,7 @@ export class CommandWriter implements VoiceCommandSink {
     r.bindings = (bindings.length > CORE_BINDINGS ? bindings.slice(0, CORE_BINDINGS) : bindings) as AutomateBindings[];
     const at = this.begin(16 + AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
     if (at >= 0) this.end(at, writeAutomate(this.view, at, r), atFrame);
-    r.bindings = [];
+    r.bindings = NO_AUTOMATE_BINDINGS; // drops the caller's list without a new array per record (M2 F1)
   }
 
   /**
