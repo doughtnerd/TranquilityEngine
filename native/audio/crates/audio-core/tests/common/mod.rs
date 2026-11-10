@@ -222,11 +222,22 @@ pub struct Mixer {
 
 impl Mixer {
     pub fn new(max_buses: u32) -> Mixer {
-        let core = new_core(max_buses);
+        Mixer::over(new_core(max_buses))
+    }
+
+    /// A mixer over `core` (rendering from frame 0), with the DC clip loaded.
+    pub fn over(core: Core) -> Mixer {
         let latency = bus::output_latency_frames(&core) as usize;
         let mut m = Mixer { core, frame: 0, heard: Heard::new(latency), span: 0 };
         m.load_clip(DC, &[1.0f32; 64]);
         m
+    }
+
+    /// Sets the master limiter's look-ahead (before the first render) and the latency the checks
+    /// expect with it.
+    pub fn set_lookahead(&mut self, ms: f32) {
+        assert!(bus::set_limiter_lookahead(&mut self.core, ms), "before the first render");
+        self.heard.latency = bus::output_latency_frames(&self.core) as usize;
     }
 
     /// The output latency in frames.

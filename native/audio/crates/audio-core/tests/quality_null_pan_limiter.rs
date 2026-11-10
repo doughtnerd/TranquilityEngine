@@ -10,7 +10,9 @@
 //! unit signal within 0.01 dB of unity over the whole azimuth range; output peak at or below
 //! 0 dBFS. The master limiter (`audio_dsp::limiter`, A2.8) runs on the output after MASTER; its
 //! tests here drive it through the core at 44.1, 48 and 96 kHz (its own unit tests are in
-//! `audio-dsp`).
+//! `audio-dsp`). Its look-ahead (A2.9) delays all output by `bus::output_latency_frames` (72 frames
+//! at 48 kHz for the default 1.5 ms): the nulls compare the clip with the output that many frames
+//! later, and the first frames of a render are the delay line's silence.
 mod common;
 use audio_core::bus;
 use audio_core::layout::{Layout, PAGE_BYTES};
@@ -66,7 +68,9 @@ fn null_through(parents: &[u16], bus: u16, master_volume: Option<f32>) -> ((f64,
     recs.push(play(V1, CLIP, bus, MIXED));
     m.submit(&recs);
     let (l, r) = m.render_n(FRAMES / 128);
-    (residual(&l, &clip), residual(&r, &clip))
+    let d = m.latency();
+    assert!(l[..d].iter().chain(&r[..d]).all(|x| *x == 0.0), "the limiter's delay line starts silent");
+    (residual(&l[d..], &clip[..FRAMES - d]), residual(&r[d..], &clip[..FRAMES - d]))
 }
 
 #[test]
@@ -97,7 +101,10 @@ fn a_unity_voice_nulls_after_gains_ramp_away_and_back() {
     m.render_n(4);
     m.submit(&[play(V1, CLIP, 0, MIXED)]);
     let (l, _) = m.render_n(FRAMES / 128);
-    let r = residual(&l, &clip);
+    // Heard the limiter's latency later; before it, the end of the (silent) ramps.
+    let d = m.latency();
+    assert!(l[..d].iter().all(|x| *x == 0.0));
+    let r = residual(&l[d..], &clip[..FRAMES - d]);
     println!("unity null after ramps: {:.1} dBFS (max {:e})", r.0, r.1);
     assert!(r.0 < NULL_LIMIT_DBFS, "residual {} dBFS", r.0);
 }
@@ -184,7 +191,8 @@ fn the_master_limiter_holds_summed_voices_at_or_below_zero_dbfs() {
     let peak = l.iter().chain(&r).fold(0.0f32, |a, &v| a.max(v.abs()));
     println!("four full-scale voices: peak {peak} ({:.2} dBFS)", db_power((peak as f64).powi(2)));
     assert!(peak <= 1.0, "peak {peak} is above 0 dBFS");
-    assert!(l.iter().chain(&r).all(|&x| x == limiter::CEILING), "the summed DC is held on the ceiling");
+    let d = m.latency();
+    assert!(l[d..].iter().chain(&r[d..]).all(|&x| x == limiter::CEILING), "the summed DC is held on the ceiling once heard");
     assert_eq!(bus::area(&m.core).limited, 4, "the limiter acted in every quantum");
 }
 
@@ -196,9 +204,7 @@ fn mixer_at(rate: f32) -> Mixer {
     // SAFETY: non-zero size, zeroed, page-aligned; leaked on purpose ('static).
     let base = unsafe { std::alloc::alloc_zeroed(block) };
     // SAFETY: a fresh block of `layout.total()` zeroed bytes, aligned to PAGE_BYTES.
-    let mut m = Mixer { core: unsafe { Core::new(p, layout, base) }, frame: 0 };
-    m.load_clip(DC, &[1.0f32; 64]);
-    m
+    Mixer::over(unsafe { Core::new(p, layout, base) })
 }
 
 /// One period-aligned full-scale sine clip at 48 kHz (`period` frames), looped by the voice.
@@ -237,21 +243,63 @@ fn the_master_limiter_holds_summed_tones_at_every_rate() {
 }
 
 /// The limiter is after MASTER: four DC voices at MASTER 0.25 sum to exactly 1.0 and pass
-/// untouched (bit-exact, no limiting); at MASTER 0.5 the same voices are limited to the ceiling.
+/// untouched (bit-exact, no limiting, only delayed); at MASTER 0.5 the same voices are limited to
+/// the ceiling, the gain gliding down over the look-ahead before the louder signal is heard.
 #[test]
 fn the_master_limiter_comes_after_master() {
     let mut m = Mixer::new(1);
+    let d = m.latency();
+    assert_eq!(d, 72, "1.5 ms at 48 kHz");
     m.submit(&[config(&[ROOT]), master(0.25, false, 0), dc(V1, 0, 0.0), dc(V1 + 1, 0, 0.0), dc(V1 + 2, 0, 0.0), dc(V1 + 3, 0, 0.0)]);
-    let (l, r) = m.render_n(2);
-    assert!(l.iter().chain(&r).all(|&x| x == 1.0), "MASTER 0.25: exactly 1.0");
+    m.render_n(2);
+    m.expect(L, 0.0, "MASTER 0.25: exactly 1.0", |_| 1.0);
+    m.expect(R, 0.0, "MASTER 0.25: exactly 1.0, right", |_| 1.0);
     assert_eq!(bus::area(&m.core).limited, 0, "nothing limited under the ceiling");
     m.submit(&[master(0.5, false, 0)]);
     let (l, _) = m.render();
-    assert!(l.iter().all(|&x| x == limiter::CEILING), "MASTER 0.5: on the ceiling");
+    // The last D frames at 1.0 (MASTER 0.25) are heard in this quantum, ramped down by the
+    // look-ahead toward the 0.5 the next frames need: a linear ramp landing on the ceiling.
+    for k in 0..d {
+        let g = 1.0 - 0.5 * (k + 1) as f32 / (d + 1) as f32;
+        assert!((l[k] - g).abs() < 1e-6, "look-ahead ramp at frame {k}: {} vs {g}", l[k]);
+    }
+    assert!(l[d..].iter().all(|&x| x == limiter::CEILING), "MASTER 0.5: on the ceiling");
     assert_eq!(bus::area(&m.core).limited, 1);
 }
 
-/// RESET returns the limiter to its bypass: after a loud passage and RESET, a voice at 0.5 comes
+/// With the look-ahead set to 0 ms the core has no output latency and the limiter is A2.8's: the
+/// same voices come out at once, held on the ceiling from the first frame (instant attack).
+#[test]
+fn zero_ms_look_ahead_has_no_latency() {
+    let mut m = Mixer::new(1);
+    m.set_lookahead(0.0);
+    assert_eq!(m.latency(), 0);
+    m.submit(&[config(&[ROOT]), master(0.25, false, 0), dc(V1, 0, 0.0), dc(V1 + 1, 0, 0.0), dc(V1 + 2, 0, 0.0), dc(V1 + 3, 0, 0.0)]);
+    let (l, r) = m.render();
+    assert!(l.iter().chain(&r).all(|&x| x == 1.0), "no delay: 1.0 from frame 0");
+    m.submit(&[master(0.5, false, 0)]);
+    let (l, _) = m.render();
+    assert!(l.iter().all(|&x| x == limiter::CEILING), "instant attack: on the ceiling at once");
+}
+
+/// The look-ahead is fixed when the core starts: `set_limiter_lookahead` works before the first
+/// quantum (5 ms is 240 frames at 48 kHz) and is refused after it, leaving the latency alone.
+#[test]
+fn the_look_ahead_is_set_before_the_first_quantum_only() {
+    let mut m = Mixer::new(1);
+    m.set_lookahead(5.0);
+    assert_eq!(m.latency(), 240);
+    assert!(bus::set_limiter_lookahead(&mut m.core, 9.0), "still before the first quantum");
+    assert_eq!(bus::output_latency_frames(&m.core), 240, "clamped to 5 ms");
+    m.submit(&[config(&[ROOT]), dc(V1, 0, 0.0)]);
+    m.render_n(3);
+    m.expect(L, 0.0, "a DC voice, 240 frames late", |_| 1.0);
+    assert!(!bus::set_limiter_lookahead(&mut m.core, 0.0), "refused once rendering");
+    assert_eq!(bus::output_latency_frames(&m.core), 240);
+    assert_eq!(bus::area(&m.core).limiter_lookahead_ms, 5.0);
+}
+
+/// RESET returns the limiter to its pass-through: after a loud passage and RESET, a voice at 0.5 comes
 /// out exactly (no gain reduction carried over, no release tail).
 #[test]
 fn reset_clears_the_limiters_gain_reduction() {
@@ -264,6 +312,9 @@ fn reset_clears_the_limiters_gain_reduction() {
     let Rec::Play(mut p) = dc(V1 + 10, 0, 0.0) else { unreachable!() };
     p.gain = 0.5;
     m.submit(&[Rec::Play(p)]);
+    // RESET also cleared the delay line: its D frames of silence, then the voice exactly.
     let (l, r) = m.render();
-    assert!(l.iter().chain(&r).all(|&x| x == 0.5), "{:?}", &l[..4]);
+    let d = m.latency();
+    assert!(l[..d].iter().chain(&r[..d]).all(|&x| x == 0.0), "the cleared delay line");
+    assert!(l[d..].iter().chain(&r[d..]).all(|&x| x == 0.5), "{:?}", &l[d..d + 4]);
 }
