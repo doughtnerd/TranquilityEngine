@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 4acdb6319f7798338cd8feda30d5ad52).
+/// First 16 bytes of the schema's SHA-256 (hex: d953ab7c6152275bb97b38848bcce1bb).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x4a,
-    0xcd,
-    0xb6,
-    0x31,
-    0x9f,
-    0x77,
-    0x98,
-    0x33,
-    0x8c,
-    0xd8,
-    0xfe,
-    0xda,
-    0x30,
-    0xd5,
-    0xad,
+    0xd9,
+    0x53,
+    0xab,
+    0x7c,
+    0x61,
     0x52,
+    0x27,
+    0x5b,
+    0xb9,
+    0x7b,
+    0x38,
+    0x84,
+    0x8b,
+    0xcc,
+    0xe1,
+    0xbb,
 ];
-pub const SCHEMA_HASH_HEX: &str = "4acdb6319f7798338cd8feda30d5ad52";
+pub const SCHEMA_HASH_HEX: &str = "d953ab7c6152275bb97b38848bcce1bb";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -144,9 +144,14 @@ pub mod op {
     pub const SET_MIXED: u16 = 0x05;
     pub const SET_PAUSED: u16 = 0x06;
     pub const SEEK: u16 = 0x07;
+    pub const SET_LOOP: u16 = 0x08;
+    pub const AUTOMATE: u16 = 0x09;
     pub const BUS_CONFIG: u16 = 0x10;
     pub const BUS_MIX: u16 = 0x11;
     pub const MASTER: u16 = 0x12;
+    pub const CURVES: u16 = 0x13;
+    pub const PARAM: u16 = 0x14;
+    pub const BUS_AUTOMATE: u16 = 0x15;
     pub const LISTENER: u16 = 0x20;
     pub const RESET: u16 = 0x30;
 }
@@ -1415,6 +1420,187 @@ impl Seek {
     }
 }
 
+/// loop the region; clear is a release (play on to the clip's end)
+pub const SET_LOOP_FLAGS_LOOPING: u32 = 0x1;
+/// a clip voice's loop region, or its release (ADR 0158 §4); overrides PLAY's loop flag
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SetLoop {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// clip frames
+    pub loop_start_frame: u32,
+    /// clip frames; 0 is the clip's end
+    pub loop_end_frame: u32,
+    pub flags: u32,
+}
+
+impl SetLoop {
+    pub const FIXED_END: usize = 24;
+    pub const OPCODE: u16 = 8; // SET_LOOP
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, self.loop_start_frame);
+        put_u32(out, base + 16, self.loop_end_frame);
+        put_u32(out, base + 20, self.flags);
+        let mut cur = base + Self::FIXED_END;
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let loop_start_frame = get_u32(buf, base + 12);
+        let loop_end_frame = get_u32(buf, base + 16);
+        let flags = get_u32(buf, base + 20);
+        let mut cur = base + Self::FIXED_END;
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            loop_start_frame,
+            loop_end_frame,
+            flags,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AutomateBindings {
+    /// bit15 set: global slot (low 15 bits); clear: local slot of the voice's group
+    pub param: u16,
+    /// curve id (CURVES)
+    pub curve: u16,
+    /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz)
+    pub target: u32,
+}
+
+impl AutomateBindings {
+    pub const FIXED_END: usize = 8;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 0, self.param);
+        put_u16(out, base + 2, self.curve);
+        put_u32(out, base + 4, self.target);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let param = get_u16(buf, base + 0);
+        let curve = get_u16(buf, base + 2);
+        let target = get_u32(buf, base + 4);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            param,
+            curve,
+            target,
+        }, cur - base))
+    }
+}
+
+/// replace a voice's automation bindings (ADR 0158 §3); count 0 clears them
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Automate {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    pub bindings: Vec<AutomateBindings>,
+}
+
+impl Automate {
+    pub const FIXED_END: usize = 16;
+    pub const OPCODE: u16 = 9; // AUTOMATE
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, u32::try_from(self.bindings.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.bindings {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let binding_count = get_u32(buf, base + 12);
+        let mut cur = base + Self::FIXED_END;
+        let count = binding_count as usize;
+        if count.checked_mul(8).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut bindings = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = AutomateBindings::read_to(buf, cur, limit)?;
+            cur += n;
+            bindings.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            bindings,
+        }, cur - base))
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusConfigBusesEffects {
     /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send
@@ -1742,6 +1928,352 @@ impl Master {
             volume,
             muted,
             ramp_frames,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CurvesCurvesKeys {
+    pub x: f32,
+    pub y: f32,
+    /// shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut
+    pub interp: u32,
+}
+
+impl CurvesCurvesKeys {
+    pub const FIXED_END: usize = 12;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_f32(out, base + 0, self.x);
+        put_f32(out, base + 4, self.y);
+        put_u32(out, base + 8, self.interp);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let x = get_f32(buf, base + 0);
+        let y = get_f32(buf, base + 4);
+        let interp = get_u32(buf, base + 8);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            x,
+            y,
+            interp,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CurvesCurves {
+    pub reserved: u16,
+    pub keys: Vec<CurvesCurvesKeys>,
+}
+
+impl CurvesCurves {
+    pub const FIXED_END: usize = 4;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 0, u16::try_from(self.keys.len()).map_err(|_| ERR_OVERSIZE)?);
+        put_u16(out, base + 2, self.reserved);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.keys {
+            cur += item.write(out, cur)?;
+        }
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let key_count = get_u16(buf, base + 0);
+        let reserved = get_u16(buf, base + 2);
+        let mut cur = base + Self::FIXED_END;
+        let count = key_count as usize;
+        if count.checked_mul(12).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut keys = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = CurvesCurvesKeys::read_to(buf, cur, limit)?;
+            cur += n;
+            keys.push(item);
+        }
+        Ok((Self {
+            reserved,
+            keys,
+        }, cur - base))
+    }
+}
+
+/// define or overwrite curves firstCurve.. (ADR 0158 §3); 1024 curves of at most 32 keys
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Curves {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    pub first_curve: u32,
+    pub curves: Vec<CurvesCurves>,
+}
+
+impl Curves {
+    pub const FIXED_END: usize = 20;
+    pub const OPCODE: u16 = 19; // CURVES
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, self.first_curve);
+        put_u32(out, base + 16, u32::try_from(self.curves.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.curves {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let first_curve = get_u32(buf, base + 12);
+        let curve_count = get_u32(buf, base + 16);
+        let mut cur = base + Self::FIXED_END;
+        let count = curve_count as usize;
+        if count.checked_mul(4).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut curves = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = CurvesCurves::read_to(buf, cur, limit)?;
+            cur += n;
+            curves.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            first_curve,
+            curves,
+        }, cur - base))
+    }
+}
+
+/// set a parameter's target and seek speed (ADR 0158 §3)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Param {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// 0 global (slots 0..63), else the instance group 1..=1024 (slots 0..15)
+    pub group: u16,
+    pub slot: u16,
+    /// the target
+    pub value: f32,
+    /// 0 jumps; else units per second toward the target
+    pub seek_per_second: f32,
+}
+
+impl Param {
+    pub const FIXED_END: usize = 24;
+    pub const OPCODE: u16 = 20; // PARAM
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 12, self.group);
+        put_u16(out, base + 14, self.slot);
+        put_f32(out, base + 16, self.value);
+        put_f32(out, base + 20, self.seek_per_second);
+        let mut cur = base + Self::FIXED_END;
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let group = get_u16(buf, base + 12);
+        let slot = get_u16(buf, base + 14);
+        let value = get_f32(buf, base + 16);
+        let seek_per_second = get_f32(buf, base + 20);
+        let mut cur = base + Self::FIXED_END;
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            group,
+            slot,
+            value,
+            seek_per_second,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusAutomateBindings {
+    /// bit15 set: global slot (low 15 bits); clear: local slot of the voice's group
+    pub param: u16,
+    /// curve id (CURVES)
+    pub curve: u16,
+    /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz)
+    pub target: u32,
+}
+
+impl BusAutomateBindings {
+    pub const FIXED_END: usize = 8;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 0, self.param);
+        put_u16(out, base + 2, self.curve);
+        put_u32(out, base + 4, self.target);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let param = get_u16(buf, base + 0);
+        let curve = get_u16(buf, base + 2);
+        let target = get_u32(buf, base + 4);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            param,
+            curve,
+            target,
+        }, cur - base))
+    }
+}
+
+/// replace a bus's automation bindings (voiceId = bus index; ADR 0158 §3)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusAutomate {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    pub bindings: Vec<BusAutomateBindings>,
+}
+
+impl BusAutomate {
+    pub const FIXED_END: usize = 16;
+    pub const OPCODE: u16 = 21; // BUS_AUTOMATE
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, u32::try_from(self.bindings.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.bindings {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let binding_count = get_u32(buf, base + 12);
+        let mut cur = base + Self::FIXED_END;
+        let count = binding_count as usize;
+        if count.checked_mul(8).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut bindings = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = BusAutomateBindings::read_to(buf, cur, limit)?;
+            cur += n;
+            bindings.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            bindings,
         }, cur - base))
     }
 }

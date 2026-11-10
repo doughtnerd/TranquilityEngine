@@ -11,8 +11,12 @@
 // Steady state allocates nothing: the staging areas, the record index arrays and the scratch record objects are made
 // once; the generated writers write straight into the staging area. (`busConfig` and `busMix` write what the caller
 // passes; they are not per-frame in steady state.)
+//
+// ADR 0158 E2 adds the automation records (`setLoop`, `automate`, `param`, `curves`, `busAutomate`; byte layouts in
+// api-and-models §4.2). They write what they are given; the event runtime (E3) decides when to send them.
 import {
   ASAP,
+  AUTOMATE_BINDINGS_FIXED_END,
   BATCH_HEADER_FLAGS_OVERFLOWED,
   BATCH_MAX_BYTES,
   FADE_FLAGS_STOP_AT_END,
@@ -20,31 +24,43 @@ import {
   SET_PARAMS_MASK_FLAGS,
   SET_PARAMS_FLAGS_PANNER_SHIFT,
   Kind,
+  Op,
+  SET_LOOP_FLAGS_LOOPING,
+  writeAutomate,
   writeBatchHeader,
+  writeBusAutomate,
   writeBusConfig,
   writeBusMix,
   writeEnvelope,
   writeFade,
   writeMaster,
+  writeParam,
   writePlay,
   writeReset,
   writeSeek,
   writeSetParams,
   writeSetMixed,
   writeSetPaused,
+  writeSetLoop,
   writeStop,
+  type Automate,
+  type AutomateBindings,
+  type BusAutomate,
   type BusConfigBuses,
   type BusMixBuses,
   type Fade,
   type Master,
+  type Param,
   type Play,
   type Reset,
   type Seek,
   type SetParams,
   type SetMixed,
   type SetPaused,
+  type SetLoop,
   type Stop,
 } from "../wire.generated";
+import { CURVE_INTERPS, type Curve } from "../../../../engine/core/curve";
 import type { BufferPool } from "./bufferPool";
 import type { VoiceCommandSink } from "./voiceTable";
 
@@ -75,6 +91,24 @@ export interface PlayArgs {
   score: number;
   startOffsetFrames: number;
 }
+
+/**
+ * One automation binding of AUTOMATE / BUS_AUTOMATE (ADR 0158 §3), as on the wire: `param` is a parameter slot
+ * (`AUTOMATION_GLOBAL | slot` for a global one, else a local slot of the voice's instance `group`), `curve` a curve id
+ * from `curves`, `target` one of `AUTOMATION_TARGET`.
+ */
+export type AutomationBinding = AutomateBindings;
+
+/** `AutomationBinding.param` bit for a global parameter slot (0..63); without it the slot is the instance's local one (0..15). */
+export const AUTOMATION_GLOBAL = 0x8000;
+/** `AutomationBinding.target`: volume (linear gain multiplier), pitch (ratio multiplier), lowpass (Hz). A bus takes volume and lowpass. */
+export const AUTOMATION_TARGET = { volume: 0, pitch: 1, lowpass: 2 } as const;
+/** The core keeps at most this many bindings per voice and per bus, curves of at most `CORE_CURVE_KEYS` keys, and curve ids below `CORE_CURVES`. */
+export const CORE_BINDINGS = 8;
+export const CORE_CURVE_KEYS = 32;
+export const CORE_CURVES = 1024;
+/** Most bytes of curves in one CURVES record: larger uploads are split into several records (each fits a batch). */
+const CURVES_RECORD_BUDGET = 32 * 1024;
 
 /** The staging area's size in bytes: four full batches. */
 export const STAGING_BYTES = 4 * BATCH_MAX_BYTES;
@@ -128,6 +162,10 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly seekRec: Seek = { voiceId: 0, frameOffset: ASAP, clipFrame: 0, epoch: 0 };
   private readonly masterRec: Master = { voiceId: 0, frameOffset: ASAP, volume: 1, muted: 0, rampFrames: 0 };
   private readonly resetRec: Reset = { voiceId: 0, frameOffset: ASAP, keepClips: 0 } as Reset;
+  private readonly loopRec: SetLoop = { voiceId: 0, frameOffset: ASAP, loopStartFrame: 0, loopEndFrame: 0, flags: 0 };
+  private readonly paramRec: Param = { voiceId: 0, frameOffset: ASAP, group: 0, slot: 0, value: 0, seekPerSecond: 0 };
+  private readonly automateRec: Automate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
+  private readonly busAutomateRec: BusAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
 
   /** `sampleRate` converts the table's seconds to frames (STOP and FADE take frames); a context swap sets it again (A3.4c). */
   constructor(
@@ -298,6 +336,108 @@ export class CommandWriter implements VoiceCommandSink {
     const at = this.begin(24);
     if (at < 0) return;
     this.end(at, writeMaster(this.view, at, r));
+  }
+
+  /**
+   * SET_LOOP `voiceId` (ADR 0158 §4) at `atFrame` (absolute, stamped) or asap (omitted): with `looping`, the clip voice
+   * loops clip frames `startFrame..endFrame` (`endFrame` 0 = the clip's end); without, it is released (finishes its
+   * pass and plays on to the clip's end). Overrides PLAY's whole-clip loop flag. Clip voices only (E2).
+   */
+  setLoop(voiceId: number, atFrame: number | undefined, startFrame: number, endFrame: number, looping: boolean): void {
+    const r = this.loopRec;
+    r.voiceId = voiceId;
+    r.loopStartFrame = startFrame >>> 0;
+    r.loopEndFrame = endFrame >>> 0;
+    r.flags = looping ? SET_LOOP_FLAGS_LOOPING : 0;
+    const at = this.begin(24);
+    if (at < 0) return;
+    this.end(at, writeSetLoop(this.view, at, r), atFrame);
+  }
+
+  /**
+   * AUTOMATE `voiceId` (ADR 0158 §3): replaces the voice's bindings (an empty list clears them; past `CORE_BINDINGS`
+   * are not sent). Send it right after the voice's PLAY with the same `atFrame` (omitted = asap), so it stays after
+   * the PLAY in the batch; the core applies it on arrival.
+   */
+  automate(voiceId: number, atFrame: number | undefined, bindings: readonly AutomationBinding[]): void {
+    const r = this.automateRec;
+    r.voiceId = voiceId;
+    r.bindings = (bindings.length > CORE_BINDINGS ? bindings.slice(0, CORE_BINDINGS) : bindings) as AutomateBindings[];
+    const at = this.begin(16 + AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
+    if (at >= 0) this.end(at, writeAutomate(this.view, at, r), atFrame);
+    r.bindings = [];
+  }
+
+  /**
+   * PARAM (ADR 0158 §3): sets parameter `slot` of `group` (0 global, slots 0..63; else an instance group 1..1024,
+   * slots 0..15) toward `value`, moving `seekPerSecond` units a second (0 jumps). Asap.
+   */
+  param(group: number, slot: number, value: number, seekPerSecond: number): void {
+    const r = this.paramRec;
+    r.group = group;
+    r.slot = slot;
+    r.value = value;
+    r.seekPerSecond = seekPerSecond > 0 && Number.isFinite(seekPerSecond) ? seekPerSecond : 0;
+    const at = this.begin(24);
+    if (at < 0) return;
+    this.end(at, writeParam(this.view, at, r));
+  }
+
+  /**
+   * CURVES (ADR 0158 §3): defines curve ids `first`, `first + 1`, … from `curves` (the engine's `Curve`, keys sorted by
+   * x; past `CORE_CURVE_KEYS` keys are not sent). A large upload goes as several records of at most 32 KB. Asap. Upload
+   * per event asset: like any record, what doesn't fit the staging area (256 KB, about 660 full curves) is dropped.
+   */
+  curves(first: number, curves: readonly Curve[]): void {
+    let i = 0;
+    while (i < curves.length) {
+      // As many curves as fit the record budget (at least one).
+      let end = i;
+      let bytes = 20;
+      while (end < curves.length) {
+        const size = 4 + 12 * Math.min(curves[end]!.length, CORE_CURVE_KEYS);
+        if (end > i && bytes + size > CURVES_RECORD_BUDGET) break;
+        bytes += size;
+        end++;
+      }
+      const at = this.begin(bytes);
+      if (at < 0) return;
+      const v = this.view;
+      v.setUint16(at, Op.CURVES, true);
+      v.setUint16(at + 2, bytes / 4, true);
+      v.setUint32(at + 4, 0, true);
+      v.setUint32(at + 8, ASAP, true);
+      v.setUint32(at + 12, (first + i) >>> 0, true);
+      v.setUint32(at + 16, end - i, true);
+      let off = at + 20;
+      for (let c = i; c < end; c++) {
+        const keys = curves[c]!;
+        const n = Math.min(keys.length, CORE_CURVE_KEYS);
+        v.setUint16(off, n, true);
+        v.setUint16(off + 2, 0, true);
+        off += 4;
+        for (let k = 0; k < n; k++) {
+          const key = keys[k]!;
+          v.setFloat32(off, key[0], true);
+          v.setFloat32(off + 4, key[1], true);
+          const interp = key.length > 2 ? CURVE_INTERPS.indexOf(key[2]!) : 0;
+          v.setUint32(off + 8, interp < 0 ? 0 : interp, true);
+          off += 12;
+        }
+      }
+      this.end(at, bytes);
+      i = end;
+    }
+  }
+
+  /** BUS_AUTOMATE `bus` (ADR 0158 §3): replaces the bus's bindings (global parameters; volume and lowpass). Asap. */
+  busAutomate(bus: number, bindings: readonly AutomationBinding[]): void {
+    const r = this.busAutomateRec;
+    r.voiceId = bus;
+    r.bindings = (bindings.length > CORE_BINDINGS ? bindings.slice(0, CORE_BINDINGS) : bindings) as AutomateBindings[];
+    const at = this.begin(16 + AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
+    if (at >= 0) this.end(at, writeBusAutomate(this.view, at, r));
+    r.bindings = [];
   }
 
   /** RESET (§4.2): `keepClips` 0 also resets the arena and slab classes. */

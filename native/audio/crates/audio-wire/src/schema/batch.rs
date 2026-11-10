@@ -69,6 +69,42 @@ const BUS_MIX_BUSES: Repeat = Repeat {
     then: None,
 };
 
+/// SET_LOOP `flags` (ADR 0158 §4).
+const SET_LOOP_FLAGS: &[Bits] = &[Bits::bit("looping", 0, "loop the region; clear is a release (play on to the clip's end)")];
+
+/// One automation binding of AUTOMATE and BUS_AUTOMATE (ADR 0158 §3): `u16 param; u16 curve; u32 target`.
+const BINDING_ITEM: &[Field] = &[
+    Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); clear: local slot of the voice's group"),
+    Field::new("curve", Ty::U16).doc("curve id (CURVES)"),
+    Field::new("target", Ty::U32).doc("0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz)"),
+];
+
+/// AUTOMATE bindings: at most 8 per voice are kept.
+const AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None };
+
+/// BUS_AUTOMATE bindings: global parameters only; target 0 volume or 2 lowpass; at most 8 per bus.
+const BUS_AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None };
+
+/// One CURVES key: `f32 x; f32 y; u32 interp`.
+const CURVE_KEYS: Repeat = Repeat {
+    name: "keys",
+    count_field: "keyCount",
+    item: &[
+        Field::new("x", Ty::F32),
+        Field::new("y", Ty::F32),
+        Field::new("interp", Ty::U32).doc("shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut"),
+    ],
+    then: None,
+};
+
+/// CURVES curves: `u16 keyCount; u16 reserved`, then the keys (sorted by x; at most 32 kept).
+const CURVES_CURVES: Repeat = Repeat {
+    name: "curves",
+    count_field: "curveCount",
+    item: &[Field::new("keyCount", Ty::U16), Field::new("reserved", Ty::U16)],
+    then: Some(&CURVE_KEYS),
+};
+
 /// Body header, 16 bytes: `f64 firstFrame` (0), `u32 count` (8), `u32 flags` (12; bit0 overflowed,
 /// bit1 first chunk, bit2 last chunk of a REPLAY).
 pub const BATCH_HEADER: &[Field] = &[
@@ -191,6 +227,26 @@ pub const OPCODES: &[Opcode] = &[
         doc: "seek a voice; drops chunks of older epochs",
     },
     Opcode {
+        id: 0x08,
+        name: "SET_LOOP",
+        payload: Body::fixed(&[
+            Field::new("loopStartFrame", Ty::U32).doc("clip frames"),
+            Field::new("loopEndFrame", Ty::U32).doc("clip frames; 0 is the clip's end"),
+            Field::new("flags", Ty::U32).flags(SET_LOOP_FLAGS),
+        ]),
+        total_bytes: Some(24),
+        sent_in_m1: true,
+        doc: "a clip voice's loop region, or its release (ADR 0158 §4); overrides PLAY's loop flag",
+    },
+    Opcode {
+        id: 0x09,
+        name: "AUTOMATE",
+        payload: Body::with_tail(&[Field::new("bindingCount", Ty::U32)], Tail::Repeat(&AUTOMATE_BINDINGS)),
+        total_bytes: None,
+        sent_in_m1: true,
+        doc: "replace a voice's automation bindings (ADR 0158 §3); count 0 clears them",
+    },
+    Opcode {
         id: 0x10,
         name: "BUS_CONFIG",
         payload: Body::with_tail(
@@ -223,6 +279,38 @@ pub const OPCODES: &[Opcode] = &[
         total_bytes: Some(24),
         sent_in_m1: true,
         doc: "master volume and mute; ramps over rampFrames",
+    },
+    Opcode {
+        id: 0x13,
+        name: "CURVES",
+        payload: Body::with_tail(
+            &[Field::new("firstCurve", Ty::U32), Field::new("curveCount", Ty::U32)],
+            Tail::Repeat(&CURVES_CURVES),
+        ),
+        total_bytes: None,
+        sent_in_m1: true,
+        doc: "define or overwrite curves firstCurve.. (ADR 0158 §3); 1024 curves of at most 32 keys",
+    },
+    Opcode {
+        id: 0x14,
+        name: "PARAM",
+        payload: Body::fixed(&[
+            Field::new("group", Ty::U16).doc("0 global (slots 0..63), else the instance group 1..=1024 (slots 0..15)"),
+            Field::new("slot", Ty::U16),
+            Field::new("value", Ty::F32).doc("the target"),
+            Field::new("seekPerSecond", Ty::F32).doc("0 jumps; else units per second toward the target"),
+        ]),
+        total_bytes: Some(24),
+        sent_in_m1: true,
+        doc: "set a parameter's target and seek speed (ADR 0158 §3)",
+    },
+    Opcode {
+        id: 0x15,
+        name: "BUS_AUTOMATE",
+        payload: Body::with_tail(&[Field::new("bindingCount", Ty::U32)], Tail::Repeat(&BUS_AUTOMATE_BINDINGS)),
+        total_bytes: None,
+        sent_in_m1: true,
+        doc: "replace a bus's automation bindings (voiceId = bus index; ADR 0158 §3)",
     },
     Opcode {
         id: 0x20,
@@ -286,14 +374,14 @@ mod tests {
     fn opcode_ids_are_unique_and_sorted() {
         let ids: Vec<u16> = OPCODES.iter().map(|o| o.id).collect();
         assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids not strictly increasing: {ids:?}");
-        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x10, 0x11, 0x12, 0x20, 0x30]);
+        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x20, 0x30]);
         assert!(!op(0x20).sent_in_m1);
         assert!(OPCODES.iter().filter(|o| o.id != 0x20).all(|o| o.sent_in_m1));
     }
 
     #[test]
     fn fixed_totals_match_the_spec_column() {
-        let expected: [(u16, u32); 9] = [
+        let expected: [(u16, u32); 11] = [
             (0x01, 56),
             (0x02, 20),
             (0x03, 56),
@@ -301,7 +389,9 @@ mod tests {
             (0x05, 36),
             (0x06, 16),
             (0x07, 20),
+            (0x08, 24),
             (0x12, 24),
+            (0x14, 24),
             (0x30, 16),
         ];
         for (id, total) in expected {
@@ -310,7 +400,7 @@ mod tests {
             assert_eq!(size(RECORD_HEAD) + size(o.payload.fields), total, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::None), "{}", o.name);
         }
-        for id in [0x10, 0x11] {
+        for id in [0x09, 0x10, 0x11, 0x13, 0x15] {
             let o = op(id);
             assert_eq!(o.total_bytes, None, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::Repeat(_)), "{}", o.name);

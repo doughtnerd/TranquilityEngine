@@ -10,6 +10,7 @@
 //! A1.2 `voices`/`scheduler`/`panner`/`clips`, A1.3b `arena`, A2.1 `bus`/`fx`), each in its own file.
 
 pub mod arena;
+pub mod automation;
 pub mod bus;
 pub mod cap;
 pub mod cap_controller;

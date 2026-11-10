@@ -63,6 +63,7 @@ use audio_dsp::ramp::Ramp;
 use audio_dsp::resample;
 use audio_wire::generated as wire;
 
+use crate::automation::{self, VoiceAuto};
 use crate::clips::ClipStore;
 use crate::core::{Core, Regions};
 use crate::counters::{Playhead, ENDED_CAP, PLAYHEADS_CAP};
@@ -215,6 +216,24 @@ pub fn slots(core: &Core) -> &[VoiceSlot] {
     unsafe { core::slice::from_raw_parts(bytes.as_ptr() as *const VoiceSlot, bytes.len() / VOICE_SLOT_BYTES) }
 }
 
+/// The slots viewed over a `Voices` region's bytes (the automation pass reads them beside its own
+/// region, `automation::begin_quantum`).
+pub(crate) fn slots_of(bytes: &[u8]) -> &[VoiceSlot] {
+    // SAFETY: as in `view`.
+    unsafe { core::slice::from_raw_parts(bytes.as_ptr() as *const VoiceSlot, bytes.len() / VOICE_SLOT_BYTES) }
+}
+
+/// `true` for the states of a voice that is still live (scheduled or playing).
+#[inline]
+pub(crate) fn is_live_state(s: u8) -> bool {
+    s == state::SCHEDULED || s == state::PLAYING
+}
+
+/// The slot index of the live voice `voice_id`, or `None` (stale).
+pub(crate) fn live_index(core: &mut Core, voice_id: u32) -> Option<usize> {
+    find(&view(core.regions_mut()), voice_id)
+}
+
 /// Live voices (slots not free).
 pub fn live_count(core: &mut Core) -> u32 {
     view(core.regions_mut()).area.live_count
@@ -258,6 +277,8 @@ fn find(v: &View<'_>, voice_id: u32) -> Option<usize> {
 /// and playheads through the counters (K12). Never allocates.
 pub fn render(core: &mut Core, frame: u64) {
     let end = frame + QUANTUM as u64;
+    // ADR 0158 E2: parameters move and bindings are evaluated before any voice renders.
+    automation::begin_quantum(core);
     core.regions_mut().output[..2 * QUANTUM].fill(0.0);
     let mut cursor = 0usize;
     let (mut source_frames, mut moving) = (0.0f32, 0u32);
@@ -308,6 +329,9 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
     let mut inputs = crate::bus::Inputs::of(regions);
     // H3: the HRTF bank, once the HRIR table is resident (kind-1 voices pan equal-power until then).
     let mut hrtf = crate::panner::view(clips);
+    // ADR 0158 E2: the voices' automation and loop entries, or `None` when no voice has any (then
+    // every voice takes exactly the M1 path below). Another region than the ones `v` views.
+    let autos: Option<*mut [VoiceAuto]> = automation::voice_entries(&mut regions.automation[..]).map(|a| a as *mut _);
     let v = view(regions);
     let (mut source_frames, mut moving) = (0.0f32, 0u32);
     let mut cursor = v.area.live_head;
@@ -346,10 +370,16 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
             source_frames += slot.pitch.value * slot.rate_ratio * (to - start) as f32;
             moving += !slot.panner.matrix.iter().all(|r| r.is_settled()) as u32;
         }
-        if slot.flags & flag::STREAM != 0 {
-            render_stream_voice(slot, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r);
-        } else {
-            render_voice(slot, clips, hrtf.as_mut(), frame, fade_frames, start, to, out_l, out_r);
+        // SAFETY: `autos` views the automation region, distinct from the voices, core-state and
+        // buses regions borrowed here, and one entry is borrowed at a time.
+        let auto = autos.and_then(|a| unsafe { (&mut *a).get_mut(index) }).filter(|a| a.active_for(slot.id));
+        // `AUTO = false` compiles the automation away: a voice without bindings or a loop region takes
+        // exactly the M1 code (0158 E2: it costs nothing and renders bit for bit as before).
+        match (slot.flags & flag::STREAM != 0, auto.is_some()) {
+            (true, true) => render_stream_voice::<true>(slot, auto, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+            (true, false) => render_stream_voice::<false>(slot, None, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+            (false, true) => render_voice::<true>(slot, auto, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+            (false, false) => render_voice::<false>(slot, None, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
         }
     }
     (source_frames, moving)
@@ -358,7 +388,8 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
 /// Renders one playing voice over frames `from..to` of the quantum at `frame` (mixed) or keeps its
 /// time (virtual), and ends it when its clip runs out or its stopping fade settles.
 #[allow(clippy::too_many_arguments)]
-fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<'_>>, frame: u64, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
+fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, clips: &ClipStore, hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
+    let mut auto = if AUTO { auto } else { None };
     if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
         // Paused and out of the mix (A3.7): holds its position, ramps and panner exactly. A stop
         // (or a stopping fade) asked for while held ends it now: it is silent.
@@ -401,19 +432,33 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<
             n = n.min(slot.mix.remaining as usize);
         }
     }
+    // ADR 0158 §4: a SET_LOOP region (the slot's whole-clip loop flag is clear while it loops).
+    let region = auto.as_deref().and_then(|a| loop_region(a, clip.source.frames));
+    let pitched = auto.as_deref().is_some_and(|a| a.count != 0 && a.targets & automation::has::PITCH != 0);
     // Virtual at a settled pitch (A3.5): every step is the same, so the position moves in O(1)
     // (`advance_constant`, bit-exact to the per-frame loop). Most logical voices take this path.
-    let constant = slot.flags & flag::MIXED == 0 && slot.pitch.remaining == 0;
+    // A virtual voice with a pitch binding keeps time at its pitchMul's mean over the range (control
+    // rate: nobody hears it, and the O(1) path keeps 0158 §6's budget with many bound voices).
+    let constant = slot.flags & flag::MIXED == 0 && slot.pitch.remaining == 0 && region.is_none();
     let mut steps = [0.0f32; QUANTUM];
     if !constant {
         for step in steps[..n].iter_mut() {
             *step = slot.pitch.next() * slot.rate_ratio;
         }
+        if pitched {
+            if let Some(a) = auto.as_deref() {
+                auto_pitch(a, &mut steps[..n], from);
+            }
+        }
     }
     if slot.flags & flag::MIXED != 0 {
         let mut l = [0.0f32; QUANTUM];
         let mut r = [0.0f32; QUANTUM];
-        resample::lagrange(&clip.source, &mut slot.position, &steps[..n], looping, &mut l[..n], &mut r[..n]);
+        if let Some((start, end)) = region {
+            resample::lagrange_region(&clip.source, &mut slot.position, &steps[..n], start, end, &mut l[..n], &mut r[..n]);
+        } else {
+            resample::lagrange(&clip.source, &mut slot.position, &steps[..n], looping, &mut l[..n], &mut r[..n]);
+        }
         if slot.mix.is_settled() && slot.mix.value == 1.0 {
             for i in 0..n {
                 let g = slot.gain.next() * slot.fade.next();
@@ -428,6 +473,9 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<
                 r[i] *= g;
             }
         }
+        if let Some(a) = auto.as_deref_mut() {
+            auto_gain_and_filter(a, slot.lp_hz, sample_rate, &mut l[..n], &mut r[..n], from);
+        }
         let (id, bus) = (slot.id, slot.bus);
         slot.panner.mix_range(hrtf, id, bus, frame, from, &l[..n], &r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
         if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
@@ -437,7 +485,15 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<
         }
     } else {
         if constant {
-            resample::advance_constant(&mut slot.position, slot.pitch.value * slot.rate_ratio, n, clip.source.frames, looping);
+            let mut step = slot.pitch.value * slot.rate_ratio;
+            if pitched && n > 0 {
+                if let Some(a) = auto.as_deref() {
+                    step *= 0.5 * (a.pitch_at(from) + a.pitch_at(from + n - 1));
+                }
+            }
+            resample::advance_constant(&mut slot.position, step, n, clip.source.frames, looping);
+        } else if let Some((start, end)) = region {
+            resample::advance_region(&mut slot.position, &steps[..n], start, end, clip.source.frames);
         } else {
             resample::advance(&mut slot.position, &steps[..n], clip.source.frames, looping);
         }
@@ -446,7 +502,7 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<
         slot.mix.advance(n as u32);
         slot.panner.advance(n as u32);
     }
-    let ran_out = !looping && slot.position >= clip.source.frames as f64;
+    let ran_out = (region.is_some() || !looping) && slot.position >= clip.source.frames as f64;
     if ran_out || (stopping && slot.fade.is_settled()) {
         slot.state = state::ENDED;
     }
@@ -470,8 +526,9 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<
 /// frame is `position - start_frame`. Afterwards the ring's `consumed` follows the position, less
 /// the one frame behind it the resampler still reads.
 #[allow(clippy::too_many_arguments)]
-fn render_stream_voice(slot: &mut VoiceSlot, streams: &mut StreamStore, mut hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
+fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, streams: &mut StreamStore, mut hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
     use crate::stream::{frame_at, pending, phase, START_FRAMES};
+    let mut auto = if AUTO { auto } else { None };
     if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
         // Paused and out of the mix: held, as a clip voice (A3.7); a stop ends it now.
         if slot.flags & flag::STOP_ON_FADE_END != 0 {
@@ -505,7 +562,7 @@ fn render_stream_voice(slot: &mut VoiceSlot, streams: &mut StreamStore, mut hrtf
             slot.panner.start(p.spatial != 0, p.kind, p.dir, ring.channels);
         }
     }
-    if ring.seeking != 0 && render_seek_tail(slot, ring, samples, hrtf.as_deref_mut(), frame, fade_frames, from, to, out_l, out_r) {
+    if ring.seeking != 0 && render_seek_tail::<AUTO>(slot, auto.as_deref_mut(), ring, samples, hrtf.as_deref_mut(), frame, sample_rate, fade_frames, from, to, out_l, out_r) {
         return;
     }
     let ch = ring.channels as usize;
@@ -569,6 +626,9 @@ fn render_stream_voice(slot: &mut VoiceSlot, streams: &mut StreamStore, mut hrtf
         *step = slot.pitch.next() * slot.rate_ratio;
         max_step = max_step.max(*step);
     }
+    if let Some(a) = auto.as_deref() {
+        max_step = max_step.max(auto_pitch(a, &mut steps[..n], from));
+    }
     let written = ring.written;
     if mixed && ring.phase == phase::PLAYING && !input_done {
         // Enough ahead for this quantum and a fade? If not, fade out over what is left.
@@ -615,6 +675,9 @@ fn render_stream_voice(slot: &mut VoiceSlot, streams: &mut StreamStore, mut hrtf
             l[i] *= g;
             r[i] *= g;
         }
+        if let Some(a) = auto.as_deref_mut() {
+            auto_gain_and_filter(a, slot.lp_hz, sample_rate, &mut l[..done], &mut r[..done], from);
+        }
         let (id, bus) = (slot.id, slot.bus);
         slot.panner.mix_range(hrtf, id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
         if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
@@ -650,8 +713,9 @@ fn render_stream_voice(slot: &mut VoiceSlot, streams: &mut StreamStore, mut hrtf
 /// Returns true when it rendered (the quantum is done), false when the voice moved with nothing
 /// left to fade (the caller goes on with the new epoch).
 #[allow(clippy::too_many_arguments)]
-fn render_seek_tail(slot: &mut VoiceSlot, ring: &mut crate::stream::Ring, samples: &[f32], hrtf: Option<&mut Hrtf<'_>>, frame: u64, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) -> bool {
+fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, ring: &mut crate::stream::Ring, samples: &[f32], hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) -> bool {
     use crate::stream::{frame_at, TAIL_OFFSET};
+    let mut auto = if AUTO { auto } else { None };
     let finish = |slot: &mut VoiceSlot, ring: &mut crate::stream::Ring| {
         ring.seeking = 0;
         ring.tail_len = 0;
@@ -679,6 +743,9 @@ fn render_seek_tail(slot: &mut VoiceSlot, ring: &mut crate::stream::Ring, sample
     for step in steps[..n].iter_mut() {
         *step = slot.pitch.next() * slot.rate_ratio;
         max_step = max_step.max(*step);
+    }
+    if let Some(a) = auto.as_deref() {
+        max_step = max_step.max(auto_pitch(a, &mut steps[..n], from));
     }
     if ring.seeking == 1 {
         let have = len as f64 - 3.0 - (slot.position - t0);
@@ -714,6 +781,9 @@ fn render_seek_tail(slot: &mut VoiceSlot, ring: &mut crate::stream::Ring, sample
         l[i] *= g;
         r[i] *= g;
     }
+    if let Some(a) = auto.as_deref_mut() {
+        auto_gain_and_filter(a, slot.lp_hz, sample_rate, &mut l[..done], &mut r[..done], from);
+    }
     let (id, bus) = (slot.id, slot.bus);
     slot.panner.mix_range(hrtf, id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
     if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
@@ -725,6 +795,59 @@ fn render_seek_tail(slot: &mut VoiceSlot, ring: &mut crate::stream::Ring, sample
         slot.state = state::ENDED;
     }
     true
+}
+
+/// ADR 0158 §4: the voice's SET_LOOP region resolved against its clip's `frames` (`end` 0 or past
+/// the clip is the clip's end; an empty region loops the whole clip), or `None` when it has none.
+fn loop_region(a: &VoiceAuto, frames: u32) -> Option<(u32, u32)> {
+    if a.loop_on == 0 || frames == 0 {
+        return None;
+    }
+    let end = if a.loop_end == 0 { frames } else { a.loop_end.min(frames) };
+    Some(if a.loop_start < end { (a.loop_start, end) } else { (0, frames) })
+}
+
+/// ADR 0158 §3: multiplies `steps` (frames `from..` of the quantum) by the voice's `pitchMul`,
+/// ramped across the quantum (per frame); returns the largest step. Nothing (0) without a pitch
+/// binding.
+fn auto_pitch(a: &VoiceAuto, steps: &mut [f32], from: usize) -> f32 {
+    let mut max = 0.0f32;
+    if a.count != 0 && a.targets & automation::has::PITCH != 0 {
+        for (k, step) in steps.iter_mut().enumerate() {
+            *step *= a.pitch_at(from + k);
+            max = max.max(*step);
+        }
+    }
+    max
+}
+
+/// ADR 0158 §3: multiplies a mixed voice's block (frames `from..` of the quantum) by its
+/// `gainMul`, ramped across the quantum, and filters it at `min(lpHz, lpAuto)` when it has a
+/// lowpass binding (the coefficients change at most once per quantum).
+fn auto_gain_and_filter(a: &mut VoiceAuto, lp_hz: f32, sample_rate: f32, l: &mut [f32], r: &mut [f32], from: usize) {
+    if a.count == 0 {
+        return;
+    }
+    if a.targets & automation::has::GAIN != 0 {
+        if a.g0 == a.g1 {
+            let g = a.g1;
+            for i in 0..l.len() {
+                l[i] *= g;
+                r[i] *= g;
+            }
+        } else {
+            for i in 0..l.len() {
+                let g = a.gain_at(from + i);
+                l[i] *= g;
+                r[i] *= g;
+            }
+        }
+    }
+    if a.targets & automation::has::LOWPASS != 0 {
+        let base = if crate::fx::lowpass_on(lp_hz) { lp_hz } else { automation::LP_OFF_HZ };
+        a.filter.set_lowpass(sample_rate, base.min(a.lp), crate::fx::SNAPSHOT_Q_DB);
+        a.filter.process(l, r);
+    }
 }
 
 /// A clip voice's pending SEEK (its target in `start_frame`'s low bits) lands: moves it there
@@ -923,6 +1046,8 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         s.panner.start(spatial, kind, [play.dir_x, play.dir_y, play.dir_z], channels);
         (old.state != state::FREE && old.id != play.voice_id).then_some((old.id, old.flags & flag::STREAM != 0, old.clip))
     };
+    // ADR 0158 E2: the slot's automation entry now belongs to this voice and its group.
+    automation::on_play(core, index, play.voice_id, play.group);
     if let Some((old, stream, clip)) = replaced {
         status::counters_mut(core).ended.push(old);
         if stream {
@@ -944,6 +1069,25 @@ pub fn stop(core: &mut Core, voice_id: u32, fade_frames: u32) {
         s.fade.set_target(0.0, fade_frames);
         s.flags |= flag::STOP_ON_FADE_END;
     }
+}
+
+/// SET_LOOP (ADR 0158 §4): a clip voice's loop region (`looping`; `end` 0 is the clip's end) or
+/// its release (`looping` clear: it finishes its current pass and plays on to the clip's end, then
+/// ends like a non-looping voice). Either way PLAY's whole-clip loop flag no longer applies. A
+/// stale id is dropped. Stream voices are ignored in E2: their region loops go through the decoder
+/// worker's gapless-loop path (E4).
+pub fn set_loop(core: &mut Core, voice_id: u32, start: u32, end: u32, looping: bool) {
+    let index = {
+        let v = view(core.regions_mut());
+        let Some(index) = find(&v, voice_id) else { return };
+        let s = &mut v.slots[index];
+        if s.flags & flag::STREAM != 0 {
+            return;
+        }
+        s.flags &= !flag::LOOP;
+        index
+    };
+    automation::set_loop(core, index, voice_id, start, end, looping);
 }
 
 /// SEEK (api-and-models §4.2, B3b): moves voice `voice_id` to `frame` (a clip frame, or a stream

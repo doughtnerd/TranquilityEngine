@@ -46,15 +46,20 @@ import {
   SET_PARAMS_MASK_FLAGS,
   SET_PARAMS_MASK_GAIN,
   SET_PARAMS_MASK_PITCH,
+  writeAutomate,
   writeBatchHeader,
+  writeBusAutomate,
   writeBusConfig,
   writeBusMix,
   writeClipBegin,
   writeClipChunk,
   writeEnvelope,
   writeFade,
+  writeCurves,
   writeMaster,
+  writeParam,
   writePlay,
+  writeSetLoop,
   writeSetParams,
   writeStop,
   type BusConfigBuses,
@@ -121,6 +126,23 @@ const busMix = (rampFrames: number, buses: [number, number][]): Writer => (view,
 
 const master = (volume: number, muted: boolean, rampFrames: number): Writer => (view, off) =>
   writeMaster(view, off, { voiceId: 0, frameOffset: ASAP, volume, muted: muted ? 1 : 0, rampFrames });
+
+// ADR 0158 E2: automation records.
+/** CURVES from `first`: each curve `[x, y, interp]` keys (interp 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut). */
+const curves = (first: number, list: [number, number, number][][]): Writer => (view, off) =>
+  writeCurves(view, off, { voiceId: 0, frameOffset: ASAP, firstCurve: first, curves: list.map((keys) => ({ reserved: 0, keys: keys.map(([x, y, interp]) => ({ x, y, interp })) })) });
+/** PARAM: `group` 0 global, else an instance group. */
+const param = (group: number, slot: number, value: number, seekPerSecond: number): Writer => (view, off) =>
+  writeParam(view, off, { voiceId: 0, frameOffset: ASAP, group, slot, value, seekPerSecond });
+/** AUTOMATE `voiceId` with `[param, curve, target]` bindings (param bit15 = global; target 0 volume, 1 pitch, 2 lowpass). */
+const automate = (voiceId: number, bindings: [number, number, number][]): Writer => (view, off) =>
+  writeAutomate(view, off, { voiceId, frameOffset: ASAP, bindings: bindings.map(([param, curve, target]) => ({ param, curve, target })) });
+const busAutomate = (bus: number, bindings: [number, number, number][]): Writer => (view, off) =>
+  writeBusAutomate(view, off, { voiceId: bus, frameOffset: ASAP, bindings: bindings.map(([param, curve, target]) => ({ param, curve, target })) });
+/** SET_LOOP `voiceId`, `frameOffset` frames into the batch (ASAP for at once). */
+const setLoop = (voiceId: number, frameOffset: number, start: number, end: number, looping: boolean): Writer => (view, off) =>
+  writeSetLoop(view, off, { voiceId, frameOffset, loopStartFrame: start, loopEndFrame: end, flags: looping ? 1 : 0 });
+const GLOBAL = 0x8000;
 
 /** A scene's stage: a loopback host with clip loading, batch sending and a collected render. */
 class Stage {
@@ -379,6 +401,46 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.run(40);
     s.send(setParams(voice(3), 0, { bus: 2 }), stop(voice(1), 600));
     s.run(60);
+  },
+  // ADR 0158 E2: a voice with a volume binding (a global parameter through a smooth curve) and a lowpass binding (its
+  // instance's local parameter through an easeOut curve) while both parameters seek, then jump.
+  "automation-voice"(s) {
+    s.send(
+      curves(0, [[[0, 0.1, 2], [1, 1, 0]], [[0, 300, 4], [1, 12_000, 0]]]),
+      param(0, 0, 0, 0),
+      param(7, 2, 0, 0),
+      play(voice(1), CLIP, { flags: MIXED | LOOP, group: 7 }),
+      automate(voice(1), [[GLOBAL | 0, 0, 0], [2, 1, 2]]),
+    );
+    s.run(10);
+    s.send(param(0, 0, 1, 2), param(7, 2, 1, 1.5));
+    s.run(90);
+    s.send(param(0, 0, 0.3, 0), param(7, 2, 0.2, 0));
+    s.run(20);
+  },
+  // ADR 0158 E2: bus volume automation on a global parameter (a step then a linear segment), seeking, over BUS_MIX.
+  "automation-bus"(s) {
+    s.send(
+      busConfig([BUS_ROOT, 0]),
+      busMix(0, [[1, OFF], [0.8, OFF]]),
+      curves(5, [[[0, 0.2, 1], [0.25, 0.5, 0], [1, 1, 0]]]),
+      param(0, 3, 0, 0),
+      play(voice(1), CLIP, { bus: 1, flags: MIXED | LOOP }),
+      busAutomate(1, [[GLOBAL | 3, 5, 0]]),
+    );
+    s.run(10);
+    s.send(param(0, 3, 1, 3));
+    s.run(50);
+    s.send(param(0, 3, 0.1, 1));
+    s.run(40);
+  },
+  // ADR 0158 E2: SET_LOOP loops frames 2,000..5,000 of the clip (gapless across the seam) and, mid-pass, a release stamped
+  // 77 frames into its quantum lets the voice play on through the clip's tail and end.
+  "sustain-release"(s) {
+    s.send(play(voice(1), CLIP, { gain: 0.8 }), setLoop(voice(1), ASAP, 2000, 5000, true));
+    s.run(100); // 12,800 frames: the intro, then about 3.6 passes
+    s.send(setLoop(voice(1), 77, 0, 0, false));
+    s.run(70); // the rest of the pass, the tail to frame 12,000 and the end
   },
   // H4: the HRTF panner (the shipped table, resampled to 48 kHz). The HRTF flag is the voice's PLAY or SET_PARAMS panner
   // bits, as `hrtfPick.ts` sets them on main; the table is loaded and the bank built before the voices start.

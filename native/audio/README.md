@@ -45,7 +45,7 @@ npm run check:audio-metered                        # the cost gate: instruction 
 
 Commit the regenerated wasm, `hash.json`, the metered wasm and any generated wire files with the source change.
 
-**The cost gate** (ADR 0157 C1b; CI runs it): `npm run check:audio-metered` runs `audio-bench`'s presets, the Stress twins and focused scenes (effects, HRTF still and turning, streams, pitch 4, virtual voices, parameter updates) through the metered wasm in Node and fails when a scene's wasm instructions per quantum rise more than 10% over `tools/audio-bench/metered/baseline.json`. Counts are the same on every machine and run, unlike wall time. For a change meant to cost more (or to keep a gain), rewrite the baseline with `UPDATE_METERED_BASELINE=1 npm run check:audio-metered` and commit it, saying why. `src/plugins/audio/runtime/wasm/sourceHash.test.ts` recomputes the hash of every `*.rs`, `Cargo.toml`, `Cargo.lock` and `rust-toolchain.toml` under `native/audio/` (not `target/`, `vectors/` or `tests/`) and fails when the committed wasm is older than the source. Editing even a comment in a hashed file needs a rebuild.
+**The cost gate** (ADR 0157 C1b; CI runs it): `npm run check:audio-metered` runs `audio-bench`'s presets, the Stress twins and focused scenes (effects, HRTF still and turning, streams, pitch 4, virtual voices, parameter updates, and ADR 0158's automation: 256 bound voices and their unbound twin, bound virtual voices, bus automation, sustain loops) through the metered wasm in Node and fails when a scene's wasm instructions per quantum rise more than 10% over `tools/audio-bench/metered/baseline.json`. Counts are the same on every machine and run, unlike wall time. For a change meant to cost more (or to keep a gain), rewrite the baseline with `UPDATE_METERED_BASELINE=1 npm run check:audio-metered` and commit it, saying why. `src/plugins/audio/runtime/wasm/sourceHash.test.ts` recomputes the hash of every `*.rs`, `Cargo.toml`, `Cargo.lock` and `rust-toolchain.toml` under `native/audio/` (not `target/`, `vectors/` or `tests/`) and fails when the committed wasm is older than the source. Editing even a comment in a hashed file needs a rebuild.
 
 ## The wire
 
@@ -54,6 +54,14 @@ Main and the core talk through byte messages (BATCH, REPLAY, STATUS and stream c
 - `crates/audio-wire/src/generated.rs`,
 - `src/plugins/audio/runtime/wire.generated.ts`,
 - `crates/audio-wire/vectors/wire.json` (the byte vectors both sides test against).
+
+ADR 0158 (ABI 1.4, wire major unchanged) added five opcodes, applied in `audio-core/src/automation.rs` (SET_LOOP in `voices.rs`):
+
+- `0x08 SET_LOOP`: a clip voice's loop region (`loopStartFrame`, `loopEndFrame`, 0 = the clip's end) or, with bit0 clear, its release; stamped.
+- `0x09 AUTOMATE`: a voice's bindings (parameter slot, curve id, target volume/pitch/lowpass), at most 8; applies on arrival.
+- `0x13 CURVES`: defines curves from `firstCurve` (1,024 ids, 32 keys each), evaluated as `src/engine/core/curve.ts`.
+- `0x14 PARAM`: a global (group 0) or instance-group parameter's target and seek speed.
+- `0x15 BUS_AUTOMATE`: a bus's bindings to global parameters (volume, lowpass), at most 8.
 
 `gen_wire --check` fails when any is stale; `npm run build:audio` runs the generator for you. Never edit the generated files. A schema change changes the schema hash: `wire.schemaHash.test.ts` and `wire.roundtrip.test.ts` fail until the TypeScript side is updated, which is the point. The wire is frozen for M1 (contract K1); a change needs a review and a version decision.
 
