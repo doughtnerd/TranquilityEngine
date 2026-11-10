@@ -49,6 +49,7 @@ function attempt(cap: number, spatial: boolean, seed: number): Result {
   const sink: SelectionSink = {
     setMixed: () => void changes++,
     steal: () => {},
+    setScore: () => {}, // A3.3: the score refresh runs in the same loop
   };
   for (let k = 0; k < VOICES; k++) {
     const i = table.allocate(k % 8, Math.floor(r() * 256), 1 + (k % 4), VoiceState.WAITING_FOR_DATA) & 0xffff;
@@ -58,6 +59,7 @@ function attempt(cap: number, spatial: boolean, seed: number): Result {
     table.posZ[i] = (r() - 0.5) * 200;
     table.flags[i] = VoiceFlag.SPATIAL | (k % 3 === 0 ? VoiceFlag.LOOP : 0);
     table.state[i] = sel.admit(i, cap) ? VoiceState.PLAYING : VoiceState.VIRTUAL;
+    sel.noteScoreSent(i, table.audibility[i]!); // as the PLAY would carry it
   }
   for (let b = 0; b < 8; b++) sel.busGain[b] = 0.5 + b / 16;
   const basis = new ListenerBasis();

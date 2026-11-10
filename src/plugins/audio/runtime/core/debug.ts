@@ -30,6 +30,8 @@ export interface DebugSource {
   readonly health?: { readonly backgroundEnters: number; readonly interruptions: number } | null;
   /** A3.4b: whether the page is hidden. */
   readonly pageHidden?: boolean;
+  /** The mixed cap selection runs at (A3.3: `min(voices.mixed, STATUS mixedCap)`); hand-built sources may omit it. */
+  mixedCap?(): number;
   /** The clock map, for §8's timing figures in `core` (A3.2); hand-built test sources may omit it. */
   readonly clockMap?: Pick<ClockMap, "lookaheadFrames" | "leadFrames" | "rampFrames" | "anchored" | "rejected" | "reanchors">;
 }
@@ -142,7 +144,8 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       workUnits: m.workUnits,
       workUnitsMax: m.workUnitsMax,
       mixedVoices: m.mixedVoices,
-      mixedCap: m.mixedCap,
+      // A3.3: the cap selection runs at (the core's adaptive cap, or `voices.mixed` before its first STATUS).
+      mixedCap: backend.mixedCap ? backend.mixedCap() : m.mixedCap,
       logicalVoices: table.liveCount,
       queuedPlays: backend.lockedQueue.size,
       droppedPlays: table.refusedCount + backend.lockedQueue.droppedCount,

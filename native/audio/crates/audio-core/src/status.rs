@@ -431,7 +431,9 @@ mod tests {
         after_quantum(&mut core);
         let c = counters(&core);
         assert_eq!(c.current_frame, 384.0);
-        assert_eq!(c.work_units, 0);
+        // A3.3's model: the root bus and the limiter, no voices.
+        assert_eq!(c.work_units, crate::cap::wu::BUS + crate::cap::wu::LIMITER);
+        assert_eq!(c.work_units, core.work_units());
     }
 
     #[test]

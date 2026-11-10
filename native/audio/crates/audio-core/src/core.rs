@@ -1,5 +1,6 @@
 //! `Core`: the mixer's state over the fixed regions, and the render entry point.
 
+use crate::cap::CapState;
 use crate::clips::ClipStore;
 use crate::layout::{Layout, RegionKind};
 use crate::params::InitParams;
@@ -34,6 +35,8 @@ pub struct Core {
     frame: u64,
     /// Clip PCM (K11: A1.3b replaces the store's body with the slab arena).
     clips: ClipStore,
+    /// The adaptive mixed-voice cap (A3.3, `cap.rs`).
+    cap: CapState,
 }
 
 impl Core {
@@ -71,7 +74,8 @@ impl Core {
         };
         // A1.3b: the clip store owns the directory and arena regions (they stay empty here).
         let clips = ClipStore::over(core::mem::take(&mut regions.clip_directory), core::mem::take(&mut regions.arena));
-        let mut core = Core { params, layout, base: base as usize, regions, frame: 0, clips };
+        let cap = CapState::new(params.max_mixed, params.sample_rate);
+        let mut core = Core { params, layout, base: base as usize, regions, frame: 0, clips, cap };
         // A2.1: one root bus at unity and MASTER at unity until BUS_CONFIG, BUS_MIX and MASTER.
         crate::bus::init(&mut core);
         core
@@ -118,21 +122,40 @@ impl Core {
         self.frame
     }
 
+    /// The adaptive cap's state (A3.3).
+    pub fn cap(&self) -> &CapState {
+        &self.cap
+    }
+
+    /// The adaptive cap's state, mutably (`cap.rs`; tests set a low work-unit budget through it).
+    pub fn cap_mut(&mut self) -> &mut CapState {
+        &mut self.cap
+    }
+
     /// Renders one quantum (exactly [`QUANTUM`] frames) starting at context frame `frame` and
     /// returns the planar stereo output, `[L; 128][R; 128]`. Never allocates or grows memory.
     ///
     /// Voices render into their buses' buffers (`voices::render`, A1.2), then the bus tree mixes
-    /// down into the output (`bus::mixdown`, A2.1).
+    /// down into the output (`bus::mixdown`, A2.1), then the adaptive cap models the quantum's work
+    /// units, steps its controller and demotes if it must (`cap::after_render`, A3.3; its demotes
+    /// fade from the next quantum).
     pub fn process(&mut self, frame: u64) -> &[f32] {
         self.frame = frame;
         crate::voices::render(self, frame);
         crate::bus::mixdown(self);
+        crate::cap::after_render(self, frame);
         &self.regions.output[..OUTPUT_CHANNELS * QUANTUM]
     }
 
-    /// Work units spent in the last quantum (A3.3's model; 0 until then).
+    /// Work units the model gives the last quantum (A3.3, `cap.rs`; 1 WU ≈ 1 ns on the reference
+    /// machine).
     pub fn work_units(&self) -> u32 {
-        0
+        self.cap.work_units()
+    }
+
+    /// `myco_audio_note_underruns`: the shell's underrun probe's running total (A3.3).
+    pub fn note_underruns(&mut self, total: u32) {
+        crate::cap::note_underruns(self, total);
     }
 }
 
