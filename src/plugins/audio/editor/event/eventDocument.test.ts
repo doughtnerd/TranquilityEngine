@@ -28,7 +28,7 @@ async function openEvent() {
   const project = await openFolderProject(fs, ROOT);
   currentProject.value = project;
   const doc = openAssetDocument<AudioEventAsset>(project, PATH, "audioEvent");
-  const file = () => JSON.parse(fs.files.get(joinPath(ROOT, PATH))!) as AudioEventAsset;
+  const file = () => JSON.parse(fs.files.get(joinPath(ROOT, PATH)) as string) as AudioEventAsset;
   return { doc, file };
 }
 

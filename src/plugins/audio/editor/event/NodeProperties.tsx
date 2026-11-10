@@ -29,6 +29,8 @@ export interface FieldContext {
   /** The project's global parameters (a local one of the same name wins). */
   global: readonly ParameterDef[];
   readOnly: boolean;
+  /** Labels the text fields offer as suggestions (a switch's labelled parameter, for its children's `value` and its own `default`). */
+  labels?: readonly string[];
 }
 
 /** `drag`: a slider or curve drag whose changes in a row make one undo step. */
@@ -176,17 +178,23 @@ function FieldRow(props: { field: FieldDescriptor; value: unknown; context: Fiel
           {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>,
       );
-    case "text":
+    case "text": {
+      const listId = context.labels?.length ? `ev-labels-${f.name}` : undefined;
       return row(
-        <input
+        <>
+          <input
           type="text"
+          list={listId}
           aria-label={label}
           placeholder={f.optional ? "(none)" : ""}
           value={typeof value === "string" ? value : ""}
           disabled={disabled}
           onChange={(e) => commit((e.currentTarget as HTMLInputElement).value)}
-        />,
+          />
+          {listId && <datalist id={listId}>{context.labels!.map((l) => <option key={l} value={l} />)}</datalist>}
+        </>,
       );
+    }
     case "asset": {
       const path = typeof value === "string" ? value : "";
       const dragging = assetDragging();
@@ -287,6 +295,10 @@ export function FieldList<T extends object>(props: { fields: readonly FieldDescr
 export function NodeProperties(props: { node: EventNode; parent: EventNode | null; slot?: string; context: FieldContext; onChange: OnChange<EventNode> }) {
   const { node, parent } = props;
   const where = parent === null ? "the root" : props.slot ? `the ${props.slot} of a sustain` : `a child of ${parent.type}`;
+  // A switch's labels: suggested for its children's `value` and for its own `default`.
+  const sw = node.type === "switch" ? node : parent?.type === "switch" ? parent : null;
+  const param = sw ? allParameters(props.context).find((p) => p.name === sw.parameter) : undefined;
+  const context = param && isLabelled(param) ? { ...props.context, labels: param.labels } : props.context;
   return (
     <div class="ev-props" data-testid="event-node-properties" data-node-type={node.type}>
       <div class="ev-props-head">
@@ -294,7 +306,7 @@ export function NodeProperties(props: { node: EventNode; parent: EventNode | nul
         <span class="ev-props-name">{nodeLabel(node)}</span>
         <span class="ev-props-where">{where}</span>
       </div>
-      <FieldList fields={nodeFields(node, parent)} target={node} context={props.context} onChange={props.onChange} />
+      <FieldList fields={nodeFields(node, parent)} target={node} context={context} onChange={props.onChange} />
     </div>
   );
 }
