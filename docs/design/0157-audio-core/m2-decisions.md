@@ -78,3 +78,13 @@ Wave 1 is merged with every gate green; wave 2 is running (E5.2 guide and E5.3 b
 - **What happened:** the harness showed leaves calling tools they weren't asked to use: create a session (denied), archive a session, subscribe to PR activity, a Claude Docs batch call. A check of the account's sessions after the fact found nothing archived or created during the build. Whether the Docs call created a document isn't visible from here.
 - **Chosen:** every later brief says to use only file, shell and test tools.
 
+### 13. How automation bindings combine (E3.4)
+- **Question:** 0158 says volume curves multiply and out-of-range values "clamp or are ignored", but not per binding or per product. The parity test found the two evaluators disagreeing: Rust clamped the product (two negative volume curves made a positive gain; one non-positive pitch curve zeroed the others), and TypeScript skipped a binding to an undefined curve where Rust used 0.
+- **Chosen:** each binding is clamped before it combines: a volume value below 0 counts as 0, a pitch factor at or below 0 counts as 1 (no change; a zero pitch would stall the voice), and a binding to a curve that was never defined evaluates as the empty curve (0). Both evaluators agree to 1e-6 (gain) over 26 scenes.
+- **If changed:** `audio-core/src/automation.rs` `evaluate` and `runtime/events/automation.ts` `evaluate`, with the parity test.
+- **Left alone:** an automated low-pass below 10 Hz is floored to 10 Hz in TypeScript and 0 (silent) in the core; both are effectively mute.
+
+### 14. Follow-up: selection sees automated gain at the target, not the ramp (E3.4 found, E3.1's code)
+- **Question:** `coreAutomation.ts` `reevaluate` evaluates a bound voice's gain at the parameter's target for selection (0158 §3, "Selection still sees it"); when the target gain is 0, selection can make the voice virtual at once, so it cuts instead of ramping down over the seek time.
+- **Chosen:** fix in wave 3 (owner of `coreAutomation.ts` then is E4.5): selection uses the larger of the current smoothed estimate and the target until the seek completes, so a voice fades out before it is demoted.
+
