@@ -371,6 +371,17 @@ fn hrtf_cost_per_voice() {
     let per = |t: f64| (t - ep) / 32.0 * 1e6;
     std::println!("per HRTF voice per quantum (native): static {:.2} µs, moving {:.2} µs (equal-power quantum {:.1} µs for 32 voices)", per(still), per(moving), ep * 1e6);
     assert!(per(still) < 500.0);
+    // The table's last commit builds the bank (32 panners) in `onmessage`, on the audio thread.
+    let mut core = new_core(rate, 64);
+    let bytes = impulse_table(rate);
+    let frames = (bytes.len() / 2) as u32;
+    assert_eq!(clips::reserve(&mut core, HRIR_ID, frames, 1, rate, wire::clip_format::HRIR), wire::ERR_OK);
+    let p = clips::chunk_ptr(&mut core, HRIR_ID, 0, bytes.len() as u32);
+    // SAFETY: chunk_ptr gave room for the whole table (it is under 256 KB).
+    unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len()) };
+    let t = std::time::Instant::now();
+    assert_eq!(clips::commit(&mut core, HRIR_ID, 0, bytes.len() as u32), wire::ERR_OK);
+    std::println!("the completing commit (parse and build the bank): {:.0} µs", t.elapsed().as_secs_f64() * 1e6);
 }
 
 /// Many voices switching kernels in the same quanta never take more than `KERNEL_BUDGET` kernel
