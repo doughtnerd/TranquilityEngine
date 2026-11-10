@@ -101,8 +101,6 @@ interface VoiceEntry {
   bindings: readonly Binding[];
   wire: AutomationBinding[];
   loop: LoopRecord | null;
-  /** The PLAY's stamp on the current core (undefined: asap, or not sent yet). */
-  playStamp: number | undefined;
 }
 
 /** Counts for `Audio.debug()` and the tests. */
@@ -126,6 +124,9 @@ export class CoreAutomation implements AutomationSink {
   /** 1 for every slot the runtime has set (only those are re-sent). */
   private readonly paramSet = new Uint8Array(PARAM_SLOTS);
   private readonly voices: (VoiceEntry | null)[];
+  /** Per slot: the voice id whose PLAY last went out and its stamp (NaN: asap), so later records can sort behind it. */
+  private readonly playIds: Uint32Array;
+  private readonly playStamps: Float64Array;
   /** Bound voices by the group whose locals they read; voices reading a global parameter. */
   private readonly byGroup = new Map<number, Set<number>>();
   private readonly globalReaders = new Set<number>();
@@ -139,6 +140,8 @@ export class CoreAutomation implements AutomationSink {
 
   constructor(private readonly deps: CoreAutomationDeps) {
     this.voices = new Array<VoiceEntry | null>(deps.table.capacity).fill(null);
+    this.playIds = new Uint32Array(deps.table.capacity);
+    this.playStamps = new Float64Array(deps.table.capacity).fill(Number.NaN);
   }
 
   // --- AutomationSink ---------------------------------------------------------------------------------------------
@@ -181,7 +184,7 @@ export class CoreAutomation implements AutomationSink {
     e.wire = list.map(toWire);
     this.index(i, e);
     this.reevaluate(i);
-    if (this.onCore(i) && (hadBindings || e.wire.length > 0)) this.sendBindings(i, e, e.playStamp !== undefined && e.playStamp > this.deps.clockMap.framesNow() ? e.playStamp : undefined);
+    if (this.onCore(i) && (hadBindings || e.wire.length > 0)) this.sendBindings(i, e, this.stampBehindPlay(i, e.id));
     this.dropIfEmpty(i);
   }
 
@@ -206,7 +209,7 @@ export class CoreAutomation implements AutomationSink {
       this.routeStreamLoop(i, e.loop);
       return;
     }
-    if (this.onCore(i)) this.sendLoop(i, e, e.playStamp !== undefined && e.playStamp > this.deps.clockMap.framesNow() ? e.playStamp : undefined, true);
+    if (this.onCore(i)) this.sendLoop(i, e, this.stampBehindPlay(i, e.id), true);
   }
 
   // --- Seams (C6) -------------------------------------------------------------------------------------------------
@@ -235,13 +238,14 @@ export class CoreAutomation implements AutomationSink {
 
   /** `CoreBackend.sendPlay` wrote slot `i`'s PLAY (stamped at `stamp`, or asap): its bindings and loop follow it. */
   onPlaySent(id: number, i: number, stamp: number | undefined): void {
+    this.playIds[i] = id;
+    this.playStamps[i] = stamp ?? Number.NaN;
     const e = this.voices[i];
     if (!e) return;
     if (e.id !== id) {
       this.forget(i);
       return;
     }
-    e.playStamp = stamp;
     if (e.wire.length > 0) this.sendBindings(i, e, stamp);
     if (e.loop && (this.deps.table.flags[i]! & VoiceFlag.STREAM) === 0) this.sendLoop(i, e, stamp, false);
     else if (e.loop) this.routeStreamLoop(i, e.loop);
@@ -355,7 +359,8 @@ export class CoreAutomation implements AutomationSink {
   replayVoice(b: ReplayBuilder, id: number, i: number): void {
     const e = this.voices[i];
     if (!e || e.id !== id) return;
-    e.playStamp = undefined;
+    this.playIds[i] = id;
+    this.playStamps[i] = Number.NaN;
     if (e.wire.length > 0) {
       const wire = e.wire;
       b.record(bindingBytes(wire.length), (view, off) => writeAutomate(view, off, { voiceId: id, frameOffset: ASAP, bindings: wire }));
@@ -410,10 +415,20 @@ export class CoreAutomation implements AutomationSink {
       e = null;
     }
     if (!e) {
-      e = { id, group: this.deps.table.group[i]!, bindings: [], wire: [], loop: null, playStamp: undefined };
+      e = { id, group: this.deps.table.group[i]!, bindings: [], wire: [], loop: null };
       this.voices[i] = e;
     }
     return e;
+  }
+
+  /**
+   * The stamp for a record of voice `id` sent now: its PLAY's while that is still ahead of *F*_now (asap records sort
+   * ahead of stamped ones in a batch, and the core needs the PLAY first), else undefined (asap).
+   */
+  private stampBehindPlay(i: number, id: number): number | undefined {
+    if (this.playIds[i] !== id) return undefined;
+    const stamp = this.playStamps[i]!;
+    return stamp > this.deps.clockMap.framesNow() ? stamp : undefined;
   }
 
   private dropIfEmpty(i: number): void {
