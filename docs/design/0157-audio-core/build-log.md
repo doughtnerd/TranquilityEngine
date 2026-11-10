@@ -343,3 +343,35 @@ MS4 merged to master (`85080c9`); its issues closed. Owner decisions (2026-11-10
 - `Audio.debug()`'s `mixedCap` is 0 until A3.3.
 
 **Reserve used:** none.
+
+## MS5 wave 2 (A3.4a, A3.3, A3.4b, A3.6) and A3.7
+
+K6 (`recovery.ts`'s `rebuild(reason)` stub) was committed first (`0caec02`). Four leads in parallel from `b1a1dad` (A3.4a, A3.3, A3.6 Opus; A3.4b Sonnet), then A3.7 (Opus, #108, opened when A3.4b found the gap) once A3.6 freed `voices.rs`.
+
+**Landed**
+- A3.4b (#86): `deviceChange.ts`, the pure §3.7 classifier (closed → device rebuild; rate changed → rate rebuild; no STATUS for 1 s while running and visible → stall rebuild; interrupted → resume, then device rebuild after 2 s; an outside suspend → resume). `background.ts`: on hidden, `mute` ramps master to 0 over 50 ms, `pause` fades over 30 ms then suspends the context, `play` changes nothing; ended voices are freed from STATUS handling while hidden; the clock re-anchors on visible. **Fix:** `audio.background` never reached the backend. Plays carry their World's key and `audioSystem` reports which World has the view (`setWorldAudible`), so Worlds without the view go virtual and return in time. The Babylon fallback gets mute and pause (owned context only).
+- A3.6 (#106): `resample::lagrange` (4-point, 3rd-order Lagrange; beat Catmull-Rom by up to 20 dB on A2.7's rows), the same position arithmetic as `advance`, wrap across the loop seam, edge hold; bit-exact to linear at whole-frame positions. **Alias rejection is unchanged** (0 dB at whole ratios, 0.8–1.5 dB weaker than linear near Nyquist at fractional ratios): it needs band-limiting (the worker proposes an octave mipmap of each clip with half-band levels); the tests pin what is achieved. #106 stays open for the owner's decision.
+- A3.3 (#85): `cap_controller.rs` (§6.3's table: drop to max(16, ⌊0.85·cap⌋) on an underrun, a qualifying late command or work-unit p99 over 70%, hold 1 s; recover after 5 s calm under 55% by max(2, configured/32) per second). `cap.rs`: a work-unit model with named coefficients (`wu::MIXED_VOICE` 1,150 for A3.5 to re-measure), a 250 ms p99 kept as the top k, late commands gated on on-time negative-slack batches, `mixedCap` and flag bit 3, and a one-pass lowest-score demote (A3.1's measured about 0.9 ms for 39 demotes among 4,096 voices; this one 18 µs). New export `myco_audio_note_underruns` (**ABI 1.2**). Main re-sends a mixed voice's score when its audibility moves more than 3 dB (at most 64 per frame); `Audio.debug().counters.mixedCap` shows the real cap.
+- A3.4a (#84): a trapped core is never called again (silence, one `trap` event); `processorerror` counts as a trap. `AudioHost._replaceCore` makes a new node and Memory in the same context and rebinds `CoreLink` (no new link). `recovery.ts` allows 3 rebuilds per sliding 60 s (`rateLimit.ts`); the 4th leaves the host `"failed"` and silent with one warning, no switch to Babylon. `replay.ts`: RESET 0, BUS_CONFIG, BUS_MIX and MASTER in one REPLAY; the registry re-sends every clip (HRIR first, then by voice priority, from kept bytes); voices replay in stamped chunked REPLAYs as their clips return, positions from a main-side playhead tracker. Test hook `myco_audio_debug_trap_next` (test-hooks feature only).
+- A3.7 (#108): the core applies SET_PAUSED: a mixed voice fades out over 5 ms then holds (no rendering, no advancing; it holds at the frame its fade ended, since the 192-byte slot is full), a virtual voice holds at once, resume continues from the held frame through selection's promote. A voice paused before it reached the core (locked or loading) now gets SET_PAUSED after its PLAY.
+
+**Numbers**
+- A3.6: THD+N at 1 kHz from −66.4 / −64.9 / −47.3 dB (pitch 1.5 / semitone up / 0.5) to −123.3 / −112.5 / −85.2; 10 kHz a semitone up −23.4 → −35.6; worst spur −49.1 → −87.0 dBc. Cost per mixed voice per quantum in wasm about 1.4–1.9 µs mono f32 (linear 0.93) and 2.4–2.9 µs stereo i16 (measured under heavy load). Nine fractional-pitch goldens re-recorded; parity unchanged.
+- A3.3: loopback, 40 configured: a 60 ms stall → cap 34, the 6 quietest demoted; back to 40 after 5 s calm. Selection with the score refresh: p99 0.095 ms (cap 128), 0.120 ms (cap 256).
+- A3.4a: loopback, sound back 24 quanta (≈64 ms) after a trap, position within one quantum; Chromium (Sound Lab), a rebuild in 350 ms, Music back at the same level.
+- Mixer wasm 115,724 B (113.0 KB), source hash `862929c1…`, ABI 1.2; `cargo test` 380 passed, 4 ignored; audio Vitest 56 files, 800 passed; `npm test` 358 files passed; `npm run build` green; `@slow` audio specs 7 passed, 1 skipped (HRTF).
+
+**Integration fixes at the merges**
+- `debug.ts`: A3.3's `mixedCap`, A3.4b's background counters and A3.4a's `recoveries`/`rebuilds` all kept.
+- `context.ts`, `coreDriver.ts`: A3.3's, A3.4b's and A3.4a's fields kept; the driver stops after a trap raised by A3.3's `myco_audio_note_underruns` instead of calling the dead core's `process`.
+- `sendPlay`: A3.4a's playhead tracking and A3.7's SET_PAUSED kept; `cap::demote_lowest` skips paused voices, as `voices::mixed_live` does.
+- The selection benchmark failed its gate several times under parallel load (load average up to 12 on 4 cores) and passed alone each time.
+
+**Open**
+- Device and rate rebuilds happen in the same context (§3.7 asks for a new context at the device rate): A3.4c (#109), approved by the owner.
+- A rebuild keeps the running preset (`pendingPreset` isn't applied).
+- Playheads come from a main-side estimate; the core's `wantsPlayhead` round-robin reports only the STATUS quantum's batch.
+- Pitch isn't in the work-unit model (needs a pitch sum from the render); coefficients to be measured in A3.5.
+- Wasm headroom: 113.0 KB of 150 KB, and H3 is expected to add about 28 KB. `wasm-opt` isn't installed here.
+
+**Reserve used:** none.
