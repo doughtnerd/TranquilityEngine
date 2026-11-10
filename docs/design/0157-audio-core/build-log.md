@@ -298,3 +298,21 @@ Four workers in parallel from `5e9918f`: A2.2c, A2.6 and A2.7 Sonnet leads, and 
 Waiting on the owner: the limiter (where it goes) and the parity tolerance; then approval to merge.
 
 **Owner decisions (2026-11-10):** add the master limiter now as a follow-up task in MS4 (A2.8), then merge MS4 once it passes. The parity tolerance stays as A2.2c set it (0.1 dB on levels, nulls below −90 dB, −80 dB for the reverb), recorded in `api-and-models.md` §8.
+
+## MS4 A2.8 (master limiter) and MS4 complete
+
+**Landed: A2.8 (#105, Opus lead).** `audio-dsp/src/limiter.rs`, written here: one gain from max(|L|, |R|), **after MASTER** (the last stage of `bus::mixdown`, so turning master down means less limiting), **zero latency with an instant attack**: each frame gets `CEILING/peak` and is clamped, so the ceiling holds exactly; a 10 ms hold, then a 60 ms exponential release (back within 0.1 dB about 240 ms after the last peak), both scaled to the rate. Under the ceiling it is an exact bypass (no delay, gain exactly 1, the quantum isn't written); a reduction under 1e-5 snaps back to bypass. Four scalars in `BusArea`, no layout region, no wire change (`BusArea.limited` counts quanta it touched, for tests). NaN and infinity are silenced; RESET clears it.
+
+**Deviations from what the owner approved (coordinator flagged them to the owner at the merge):**
+- **No look-ahead.** The owner chose "about 1.5 ms look-ahead, ceiling just under 0 dBFS". The worker chose zero latency so nothing moves in time unless the signal really clips (timing goldens and parity alignment stay exact). The cost: the first over-the-ceiling half-cycle is shaped while the gain falls.
+- **Ceiling exactly 0 dBFS (1.0).** −0.3 dBFS limited a single normalised voice alone, changed the `pitch-up` golden and broke 13 native tests that play a full-scale clip by itself. No margin for overs between samples. `CEILING` is one constant.
+
+**Changed tests:** four native tests that summed above 1.0 now set MASTER 0.25 and scale their expectations (exact in f32). Goldens: `spatial-gains` (peak 1.070 → 1.0) and `bus-mute` (1.059 → 1.0) re-recorded; the other 14 byte-identical. Parity: ten high-Q filter scenes resonate above 0 dBFS, so `coreRender.ts` renders with MASTER at 1/16 and multiplies back by 16 (powers of two: bit-exact to the unlimited mix) and throws if any output sample reaches 1.0; `reference.json` unchanged, every measure still 0.000 dB.
+
+**Numbers:** mixer wasm 97,792 B (95.5 KB, +1,151 B), source hash `0514ecf1…`, rebuilt byte-identical at the merge; limiter about 0.0005–0.0009 ms per quantum native while limiting, 0.00017 ms bypassed; `cargo test` 311 passed, 3 ignored (A2.7's ceiling test now runs and passes); `npm test` 344 files, 3,605 passed (one intermittent timeout on a first run); `npm run build` green; `@slow` audio specs 7 passed, 1 skipped (HRTF).
+
+**Reserve used:** none.
+
+## MS4 merged (2026-11-10)
+
+Merged to master with the owner's approval ("when the limiter lands, merge MS4").
