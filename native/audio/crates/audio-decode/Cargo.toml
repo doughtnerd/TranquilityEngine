@@ -1,0 +1,25 @@
+[package]
+name = "audio-decode"
+description = "Myco's audio decoder (ADR 0157, M1b): symphonia behind a C ABI, built to myco_audio_decode.wasm for the decoder worker."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "myco_audio_decode"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# AAC-LC in MP4/M4A and ADTS (api-and-models §5). Off by default: it costs about 300 KB of wasm and
+# is opt-in per project (task B4).
+aac = ["symphonia/aac", "symphonia/isomp4"]
+
+[dependencies]
+# Exactly 0.6.1, the version the decode spike measured. No metadata readers (ID3, APE): the probe
+# skips tags it doesn't read.
+symphonia = { version = "=0.6.1", default-features = false, features = ["wav", "pcm", "flac", "mp3", "ogg", "vorbis"] }
+
+[build-dependencies]
+# build.rs includes audio-wasm's source_hash.rs.
+sha2.workspace = true
