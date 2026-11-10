@@ -90,7 +90,7 @@ describe("groups", () => {
     expect(warnCount("more than 1024 event instances at once")).toBe(1);
   });
 
-  it("a retired instance's group is reused", async () => {
+  it("a retired instance's group is not reused by the very next play (it queues behind every other free group; see groupReuse.test.ts)", async () => {
     await kit.boot({ "one.audioevent.json": ev(clip("a.wav")) });
     Audio.play("one.audioevent.json");
     const group = fake.plays[0].group;
@@ -98,7 +98,7 @@ describe("groups", () => {
     fake.voices[0].end();
     events().update(1 / 60);
     Audio.play("one.audioevent.json");
-    expect(fake.plays[1].group).toBe(group);
+    expect(fake.plays[1].group).not.toBe(group); // E3.10: the longest-free group goes first
   });
 });
 

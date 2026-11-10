@@ -149,13 +149,13 @@ describe("EventInstance.playing has no side effects", () => {
     expect(events().debugRows()).toEqual([]);
   });
 
-  it("a play also retires ended instances, so their groups are reused", async () => {
+  it("a play also retires ended instances (their groups queue behind the free ones)", async () => {
     await boot({ "e.audioevent.json": { format: F, root: clip("a.wav") } });
     Audio.play("e.audioevent.json");
     const group = fake.plays[0].group;
     fake.voices[0].end();
     Audio.play("e.audioevent.json");
-    expect(fake.plays[1].group).toBe(group);
+    expect(fake.plays[1].group).not.toBe(group); // E3.10: the longest-free group goes first
   });
 });
 

@@ -188,7 +188,10 @@ export class EventSystem {
   private ts: TsAutomation | null = null;
   private curveIds = new WeakMap<Curve, number>();
   private readonly curvesById: Curve[] = [];
+  /** Free groups, longest-free first (FIFO); never-used ones come from `nextGroup` before any of these. */
   private readonly freeGroups: number[] = [];
+  /** Retired instances whose voices are still fading out or ending: they keep their group until the last voice ends. */
+  private holding: EventInstance[] = [];
   private nextGroup = 1;
   private readonly live = new Set<EventInstance>();
   /**
@@ -290,7 +293,7 @@ export class EventSystem {
     this.sink = null; this.sinkOf = null; this.ts = null;
     this.curvesById.length = 0;
     this.curveIds = new WeakMap(); // a parsed asset's curves outlive a reset (the asset cache), so their ids must go too
-    this.freeGroups.length = 0; this.nextGroup = 1;
+    this.freeGroups.length = 0; this.holding.length = 0; this.nextGroup = 1;
     this.lastPlay.clear();
     this.globals.clear(); this.globalsOf = null; this.busOf = null;
     this.seed = null;
@@ -412,6 +415,7 @@ export class EventSystem {
     if (ends === this.endsSeen) return;
     this.endsSeen = ends;
     this.reap();
+    this.releaseHeld();
   }
 
   /** @internal A curve's id on the backend, defined on first use. Null (with a warning) once the table is full. */
@@ -511,17 +515,35 @@ export class EventSystem {
       this.lingering.push(instance);
     }
     if (instance.group > 0) {
-      this.freeGroups.push(instance.group);
-      this.ts?.releaseGroup(instance.group);
+      // A stopped instance's fading voices still carry its group: it is free only once the last of them has ended.
+      if (instance.hasVoices) this.holding.push(instance);
+      else this.freeGroup(instance.group);
     }
+  }
+
+  private freeGroup(group: number): void {
+    this.freeGroups.push(group);
+    this.ts?.releaseGroup(group);
+  }
+
+  /** Free the groups of retired instances whose voices have all ended (run after a voice end, never per frame). */
+  private releaseHeld(): void {
+    if (this.holding.length === 0) return;
+    let w = 0;
+    for (const i of this.holding) {
+      if (i.hasVoices) this.holding[w++] = i;
+      else this.freeGroup(i.group);
+    }
+    this.holding.length = w;
   }
 
   private allocGroup(asset: AudioEventAsset): number {
     // An event without local parameters still gets a group: blends and the debug view use it.
     void asset;
-    if (this.freeGroups.length === 0 && this.nextGroup > MAX_GROUPS) this.sweep();
-    if (this.freeGroups.length > 0) return this.freeGroups.shift()!;
+    // Never-used groups first, then the one free longest: a just-freed group is not reused while anything of it may be in flight.
     if (this.nextGroup <= MAX_GROUPS) return this.nextGroup++;
+    if (this.freeGroups.length === 0) this.sweep();
+    if (this.freeGroups.length > 0) return this.freeGroups.shift()!;
     warnOnce("event:groups-full", `Audio events: more than ${MAX_GROUPS} event instances at once; extra ones get no local parameters.`);
     return 0;
   }
@@ -529,6 +551,7 @@ export class EventSystem {
   /** Retire finished instances (lazily, when ids run short: no per-frame scan). */
   private sweep(): void {
     this.reap();
+    this.releaseHeld();
   }
 
   /** Follow the backend and the project settings: a new backend gets every table re-sent; new settings re-read globals. */
@@ -732,6 +755,12 @@ export class EventInstance {
       first ??= r;
     }
     return first;
+  }
+
+  /** @internal Any voice of this instance still playing (a fading-out voice counts). */
+  get hasVoices(): boolean {
+    for (const v of this.voices) if (v.voice.alive ?? v.voice.playing) return true;
+    return false;
   }
 
   get voiceCount(): number { return this.voices.filter((v) => v.voice.playing).length; }

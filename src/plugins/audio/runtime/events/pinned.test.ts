@@ -128,14 +128,14 @@ describe("pinned: cooldown, limits, instance lifetime", () => {
     expect(loud.playing).toBe(true);
   });
 
-  it("an ended instance frees its group for the next play (no frame needed)", async () => {
+  it("an ended instance frees its group without a frame, but the next play takes a different one", async () => {
     await boot({ "e.audioevent.json": { format: F, root: clip("a.wav") } });
     const h = Audio.play("e.audioevent.json");
     const group = fake.plays[0].group;
     fake.voices[0].end();
     expect(h.playing).toBe(false);
     Audio.play("e.audioevent.json");
-    expect(fake.plays[1].group).toBe(group);
+    expect(fake.plays[1].group).not.toBe(group); // E3.10: the longest-free group goes first
     expect(events().debugRows()).toHaveLength(1);
   });
 

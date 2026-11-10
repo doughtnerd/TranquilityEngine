@@ -94,6 +94,11 @@ export interface PlayRequest {
 /** One playing sound. */
 export interface AudioVoice {
   readonly playing: boolean;
+  /**
+   * E3.10: false once the voice has been freed. A stopped voice fading out is not `playing` but is still alive; the event
+   * runtime keeps an instance's group until every voice that carried it is gone. Absent: same as `playing`.
+   */
+  readonly alive?: boolean;
   readonly id: number;
   /** Why it isn't audible, or why it ended early (§1); null otherwise. */
   readonly reason: AudioReason | null;
@@ -304,6 +309,10 @@ class PendingVoice implements AudioVoice {
   }
   get playing(): boolean {
     if (this.inner) return this.inner.playing;
+    return this.live;
+  }
+  get alive(): boolean {
+    if (this.inner) return this.inner.alive ?? this.inner.playing;
     return this.live;
   }
   get reason(): AudioReason | null {
