@@ -6,6 +6,8 @@
 // Needs the toolchain pinned in rust-toolchain.toml and `rustup target add wasm32-unknown-unknown`.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
@@ -69,6 +71,52 @@ function buildWasm({ testHooks }) {
   return fileURLToPath(new URL(`${dir}/${TARGET}/release/myco_audio.wasm`, import.meta.url));
 }
 
+/** Builds audio-decode (M1b) for wasm32 in release; returns the built .wasm's path. Its build.rs
+ *  adds `--strip-all`; memory is exported (the decoder runs alone in a worker). symphonia's panic
+ *  locations name its sources under CARGO_HOME, so that prefix is remapped to `/cargo` (the wasm
+ *  then doesn't depend on where the registry lives). CARGO_ENCODED_RUSTFLAGS takes precedence over
+ *  the target's RUSTFLAGS and keeps a path with spaces in one argument. */
+function buildDecoder() {
+  const cargoHome = process.env.CARGO_HOME ?? join(homedir(), ".cargo");
+  const flags = [...WASM_RUSTFLAGS.split(" "), `--remap-path-prefix=${cargoHome}=/cargo`];
+  run("cargo", ["build", "-p", "audio-decode", "--target", TARGET, "--release"], { CARGO_ENCODED_RUSTFLAGS: flags.join("\x1f") });
+  return fileURLToPath(new URL(`target/${TARGET}/release/myco_audio_decode.wasm`, import.meta.url));
+}
+
+/** Decodes three of audio-decode's fixtures with the built decoder wasm (FLAC, MP3, Ogg Vorbis), checks
+ *  each one's frame count, and returns the source hash the decoder embeds (hex). Exits 1 on a mismatch. */
+function smokeDecoder(path) {
+  const { exports: x } = new WebAssembly.Instance(new WebAssembly.Module(readFileSync(path)), {});
+  const fixtures = fileURLToPath(new URL("crates/audio-decode/tests/fixtures/", import.meta.url));
+  const cases = [
+    ["tone-48000-stereo.flac", 2, 48000],
+    ["tone-44100-mono.mp3", 3, 88200],
+    ["tone-48000-stereo.ogg", 4, 48000],
+  ];
+  for (const [name, hint, frames] of cases) {
+    const bytes = readFileSync(`${fixtures}${name}`);
+    const p = x.myco_decode_alloc(bytes.length);
+    new Uint8Array(x.memory.buffer, p, bytes.length).set(bytes);
+    const h = x.myco_decode_open(p, bytes.length, hint);
+    const chunk = 4096;
+    const out = x.myco_decode_alloc(chunk * 2 * 4);
+    let total = 0;
+    while (h > 0) {
+      const n = x.myco_decode_read_f32(h, out, chunk);
+      if (n <= 0) break;
+      total += n;
+    }
+    x.myco_decode_free(out, chunk * 2 * 4);
+    if (h <= 0 || total !== frames || x.myco_decode_close(h) !== 0) {
+      const message = Buffer.from(x.memory.buffer, x.myco_decode_error_ptr(), x.myco_decode_error_len()).toString();
+      console.error(`[build:audio] myco_audio_decode.wasm decoded ${name} to ${total} frames, expected ${frames} (handle ${h}: ${message})`);
+      process.exit(1);
+    }
+  }
+  console.log(`[build:audio] myco_audio_decode.wasm decodes the FLAC, MP3 and Ogg Vorbis fixtures`);
+  return Buffer.from(x.memory.buffer, x.myco_decode_source_hash(), 16).toString("hex");
+}
+
 /** Runs `wasm-opt -O3` on `path` in place if wasm-opt is on PATH; logs a skip otherwise. */
 function optimize(path) {
   try {
@@ -117,9 +165,15 @@ function main() {
   optimize(mixerBuild);
   optimize(testBuild);
   const mixerBytes = gate(mixerBuild, MIXER_LIMIT, "myco_audio.wasm");
-  // The decoder (M1b) is gated only once its crate exists; inert until then.
+  // The decoder (M1b): built, gated, smoke-tested and copied once its crate exists.
+  let decoderBuild = null;
+  let decoderBytes = 0;
+  let decoderHash = null;
   if (existsSync(fileURLToPath(new URL("crates/audio-decode/Cargo.toml", import.meta.url)))) {
-    gate(fileURLToPath(new URL(`target/${TARGET}/release/myco_audio_decode.wasm`, import.meta.url)), DECODER_LIMIT, "myco_audio_decode.wasm");
+    decoderBuild = buildDecoder();
+    optimize(decoderBuild);
+    decoderBytes = gate(decoderBuild, DECODER_LIMIT, "myco_audio_decode.wasm");
+    decoderHash = smokeDecoder(decoderBuild);
   }
   const testBytes = statSync(testBuild).size;
   console.log(`[build:audio] myco_audio_test_hooks.wasm: ${testBytes} bytes (${(testBytes / 1024).toFixed(1)} KB), not gated`);
@@ -127,10 +181,17 @@ function main() {
   mkdirSync(`${out}testing`, { recursive: true });
   copyFileSync(mixerBuild, `${out}myco_audio.wasm`);
   copyFileSync(testBuild, `${out}testing/myco_audio_test_hooks.wasm`);
+  if (decoderBuild) copyFileSync(decoderBuild, `${out}myco_audio_decode.wasm`);
 
   const identity = readIdentity(`${out}myco_audio.wasm`);
   console.log(`[build:audio] source hash ${identity.sourceHash}, ABI ${identity.abiVersion}`);
-  writeHashJson(identity, { "myco_audio.wasm": mixerBytes, "testing/myco_audio_test_hooks.wasm": testBytes });
+  if (decoderHash !== null && decoderHash !== identity.sourceHash) {
+    console.error(`[build:audio] myco_audio_decode.wasm embeds source hash ${decoderHash}, the mixer ${identity.sourceHash}; rebuild both.`);
+    process.exit(1);
+  }
+  const bytes = { "myco_audio.wasm": mixerBytes, "testing/myco_audio_test_hooks.wasm": testBytes };
+  if (decoderBuild) bytes["myco_audio_decode.wasm"] = decoderBytes;
+  writeHashJson(identity, bytes);
 }
 
 main();

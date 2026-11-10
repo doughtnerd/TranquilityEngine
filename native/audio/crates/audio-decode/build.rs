@@ -1,9 +1,9 @@
 //! audio-decode's build script: embeds the audio core's source hash (audio-wasm's
 //! `source_hash.rs`, the same rule and the same root) as `$OUT_DIR/source_hash.bin`, so the decoder
 //! wasm reports the hash `hash.json` records; and, on wasm32, links with `--strip-all` (no name
-//! section: 112 KB of the module), so a plain `cargo build` gives the same module as
-//! `npm run build:audio` (which adds only `+simd128`). Memory stays exported (the linker's
-//! default): the decoder runs alone in a worker (see `src/lib.rs`).
+//! section: 112 KB of the module). `npm run build:audio` adds `+simd128` and remaps CARGO_HOME in
+//! symphonia's panic locations. Memory stays exported (the linker's default): the decoder runs
+//! alone in a worker (see `src/lib.rs`).
 
 #[path = "../audio-wasm/source_hash.rs"]
 mod source_hash;
