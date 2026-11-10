@@ -50,7 +50,7 @@ export class Bus {
   set solo(m: boolean) { const s = this.s; if (s) { s.solo = m; this.mixer._dirty(); } }
   /** Sounds playing on this bus right now. */
   get activeVoices(): number { return this.s?.voices ?? 0; }
-  /** The newest peak level on this bus (max of L and R, linear, decayed for display); 0 while the audio is locked. Declared by A1.6 (K10); 0 until A2.3 feeds it. */
+  /** The newest peak level on this bus (max of L and R, linear, decayed for display); 0 while the audio is locked. Declared by A1.6 (K10); fed by the core backend from STATUS (0 on the Babylon backend). */
   get peak(): number { return this.s?.peak ?? 0; }
   /** The level reaching the speakers from this bus (all gains up the tree multiplied). */
   get effectiveGain(): number { return this.mixer.resolve(this.name)?.effectiveGain ?? 0; }
@@ -96,6 +96,8 @@ export class Mixer {
   _dirty(): void { this.changed = true; }
   /** @internal A2.3: the backend reports a bus's peak. */
   _setPeak(name: string, peak: number): void { const s = this.buses.get(name); if (s) s.peak = peak; }
+  /** @internal A2.3: the core backend resets a bus's live-voice count to the core mirror's (after a bus remap, which reconfigures the mixer and zeroes counts). */
+  _setVoiceCount(name: string, n: number): void { const s = this.buses.get(name); if (s) s.voices = Math.max(0, n | 0); }
 
   bus(name: string = MASTER): Bus {
     if (!this.buses.has(name) && !this.warned.has(name)) {

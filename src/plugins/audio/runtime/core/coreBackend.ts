@@ -302,6 +302,10 @@ export class CoreBackend implements AudioBackend {
       effects: b.effects.map(wireEffect),
     }));
     this.writer.busConfig(wire);
+    // The mixer's counts restart at 0 when it is reconfigured; the table knows every live voice (virtual and locked
+    // included), so ducking keeps counting them across a remap. Peaks reported for the old indices are dropped.
+    this.names.forEach((n, i) => mixer._setVoiceCount(n, this.table.busLive[i]!));
+    this.mirror.resetPeaks();
     this.table.setBusLimits(settings.map((b) => b.maxVoices ?? 0));
     // A remap (A0.8) has already moved the table's voices to the new tree's indices; the core's
     // voices still carry the old ones, so each voice on the core is re-routed (after BUS_CONFIG, in
@@ -340,6 +344,7 @@ export class CoreBackend implements AudioBackend {
     clockMap.beginFrame();
     if (this.mirror.blocks > 0) clockMap.noteStatus(this.mirror.frameAudio, this.mirror.frameDateMs);
     this.mirror.beginFrame();
+    this.publishPeaks();
     this.table.freeEnded();
     this.mirror.drainClipEvents(this.clipSink);
     if (this.lockedQueue.size > 0 && this.host.status === "running") this.unlock();
@@ -347,6 +352,17 @@ export class CoreBackend implements AudioBackend {
     if (this.idlePending) this.checkIdle();
     this.table.drainCommands(this.writer);
     if (this.writer.pending > 0) this.writer.flush(clockMap.nextFirstFrame());
+  }
+
+  /** `Bus.peak` (A2.3): the newest STATUS peaks (already decayed in the core) by bus name; 0 while locked and past the 32 the core reports. */
+  private publishPeaks(): void {
+    const m = this.mirror;
+    const running = this.host.status === "running";
+    const names = this.names;
+    for (let b = 0; b < names.length; b++) {
+      const peak = running && b < m.peakCount ? Math.max(m.peakL[b]!, m.peakR[b]!) : 0;
+      this.mixer._setPeak(names[b]!, peak);
+    }
   }
 
   /** True once the core reported hrtfReady for the HRIR table (spatial voices stay equal-power until then). */

@@ -533,6 +533,125 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
   });
 });
 
+describe("CoreBackend: ducking counts and Bus.peak (A2.3)", () => {
+  const duckSettings = (): AudioSettings => ({ ...defaultAudioSettings(), ducking: [{ target: "Music", trigger: "Voice", amount: 0.4, attack: 0.1, release: 0.5 }] });
+
+  it("a locked voice on the trigger bus still ducks, and the duck lifts when it is freed", () => {
+    const r = rig({ status: "locked", settings: duckSettings() });
+    const v = r.backend.play(req("v.wav", { bus: "Voice", loop: true }))!;
+    expect(r.backend.table.state[idx(v.id)]).toBe(VoiceState.LOCKED);
+    expect(r.mixer.bus("Voice").activeVoices).toBe(1);
+    for (let i = 0; i < 60; i++) r.mixer.update(0.1);
+    expect(r.mixer.bus("Music").effectiveGain).toBeCloseTo(0.4, 2);
+    v.stop();
+    r.frame();
+    r.status({ ended: [v.id] });
+    r.frame();
+    for (let i = 0; i < 100; i++) r.mixer.update(0.1);
+    expect(r.mixer.bus("Music").effectiveGain).toBeCloseTo(1, 2);
+  });
+
+  it("a virtual voice on the trigger bus still ducks", () => {
+    const r = rig({ settings: duckSettings() });
+    const v = r.backend.play(req("v.wav", { bus: "Voice", loop: true }))!;
+    r.frame();
+    r.status({ demoted: [v.id] });
+    r.frame();
+    expect(r.backend.table.state[idx(v.id)]).toBe(VoiceState.VIRTUAL);
+    expect(r.mixer.bus("Voice").activeVoices).toBe(1);
+    for (let i = 0; i < 60; i++) r.mixer.update(0.1);
+    expect(r.mixer.bus("Music").effectiveGain).toBeCloseTo(0.4, 2);
+  });
+
+  it("a bus remap keeps counting live voices", () => {
+    const r = rig();
+    r.backend.play(req("v.wav", { bus: "Voice", loop: true }));
+    r.backend.play(req("v.wav", { bus: "Voice", loop: true }));
+    r.mixer.configure(r.mixer.audioSettings);
+    expect(r.mixer.bus("Voice").activeVoices).toBe(0);
+    r.backend.configureBuses(r.mixer);
+    expect(r.mixer.bus("Voice").activeVoices).toBe(2);
+  });
+
+  it("Bus.peak is max(L, R) per bus from STATUS, 0 while locked and past the reported buses", () => {
+    const r = rig();
+    r.status({ peaks: [{ l: 0.1, r: 0.2 }, { l: 0.5, r: 0.3 }, { l: 0.25, r: 0.75 }] });
+    r.frame();
+    expect(r.mixer.bus("Master").peak).toBeCloseTo(0.2, 6);
+    expect(r.mixer.bus("Music").peak).toBeCloseTo(0.5, 6);
+    expect(r.mixer.bus("SFX").peak).toBeCloseTo(0.75, 6);
+    expect(r.mixer.bus("Voice").peak).toBe(0);
+    r.state.status = "locked";
+    r.frame();
+    expect(r.mixer.bus("Music").peak).toBe(0);
+  });
+
+  it("a remap drops peaks reported for the old indices", () => {
+    const r = rig();
+    r.status({ peaks: [{ l: 0.9, r: 0.9 }, { l: 0.9, r: 0.9 }] });
+    r.frame();
+    expect(r.mixer.bus("Music").peak).toBeCloseTo(0.9, 6);
+    r.backend.configureBuses(r.mixer);
+    r.frame();
+    expect(r.mixer.bus("Music").peak).toBe(0);
+  });
+
+  it("on the loopback host a voice gives a non-zero peak that decays after it stops; a muted bus reads ~0", async (ctx) => {
+    const testing = await import("../testing");
+    let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
+    try {
+      loop = await testing.createLoopbackHost();
+    } catch {
+      return ctx.skip();
+    }
+    const { createClipRegistry } = await import("./clipRegistry");
+    const link = loop.link;
+    const clips = createClipRegistry({
+      send: (m) => link.post(m),
+      nextSeq: () => link.nextSeq(),
+      fetchBytes: async () => new ArrayBuffer(8),
+      decode: async () => ({ frames: 4_800, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(4_800).fill(0.5)] }),
+      clipFormat: 0,
+      nextFrame: (cb) => cb(),
+      nextQuantum: (cb) => cb(),
+    });
+    const host: CoreBackendHost = {
+      link,
+      status: "running",
+      preset: { maxLogical: 256 },
+      worldCount: 1,
+      sampleRate: 48_000,
+      addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
+    };
+    const mixer = new Mixer(defaultAudioSettings());
+    const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+    const step = async (frames: number) => {
+      for (let f = 0; f < frames; f++) {
+        mixer.update(0.003);
+        backend.update(0.003);
+        loop.renderQuanta(4);
+        await Promise.resolve();
+      }
+    };
+    const music = backend.play(req("m.wav", { bus: "Music", loop: true }))!;
+    const sfx = backend.play(req("s.wav", { bus: "SFX", loop: true }))!;
+    mixer.bus("SFX").mute = true;
+    await step(40);
+    expect(mixer.bus("Music").peak).toBeGreaterThan(0.3);
+    expect(mixer.bus("SFX").peak).toBeLessThan(0.001);
+    music.stop();
+    sfx.stop();
+    let last = mixer.bus("Music").peak;
+    await step(5);
+    const after = mixer.bus("Music").peak;
+    expect(after).toBeLessThanOrEqual(last);
+    await step(400);
+    expect(mixer.bus("Music").peak).toBeLessThan(0.05);
+    expect(mixer.bus("Music").peak).toBeLessThan(last);
+    backend.dispose();
+  });
+});
+
 describe("CoreBackend on the loopback host (A1.7's createLoopbackHost)", () => {
   /** The real wasm, the real clip registry and shell routing, the real coreBackend; a clip of a constant 0.5. Null when the loopback host can't load. */
   async function loopback(frames: number) {
