@@ -3,17 +3,24 @@
  * the core when `audio.backend` says so; the host unlocks audio after the first user gesture) and the project's mixer buses.
  * Game code never sees the backend library. Only the World that has the view plays sound.
  */
-import { mixer } from "../../../engine/audio/mixer";
+import { mixer as mixerImport } from "../../../engine/audio/mixer";
 import "./babylonBackend"; // registers the "babylon" backend: Babylon's AudioEngineV2 (ADR 0098, 0157 K3)
 import { Component } from "../../../engine/core/Component";
 import { AssetRef, component, field } from "../../../engine/core/registry";
 import type { World } from "../../../engine/core/World";
 import { _worldServiceOf } from "../../../engine/core/worldServices";
 import { AUDIO, type AudioWorldService } from "./core/service";
-import { Assets } from "../../../engine/scene/Assets";
-import { audioBackend, type AudioVoice, type PlayRequest, type Rolloff } from "./backend";
+import { Assets as AssetsImport } from "../../../engine/scene/Assets";
+import { audioBackend as audioBackendImport, type AudioVoice, type PlayRequest, type Rolloff } from "./backend";
 import { isAudioEventPath } from "../../../engine/audio/eventFormat";
 import { _setEventClipStarter, events, type EventInstance } from "./events/eventRuntime";
+
+// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
+// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
+// bundle reads either directly.
+const mixer = mixerImport;
+const Assets = AssetsImport;
+const audioBackend = audioBackendImport;
 
 export type { Rolloff } from "./backend";
 
