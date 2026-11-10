@@ -296,3 +296,5 @@ Four workers in parallel from `5e9918f`: A2.2c, A2.6 and A2.7 Sonnet leads, and 
 ## MS4 complete except the limiter (2026-11-10)
 
 Waiting on the owner: the limiter (where it goes) and the parity tolerance; then approval to merge.
+
+**Owner decisions (2026-11-10):** add the master limiter now as a follow-up task in MS4 (A2.8), then merge MS4 once it passes. The parity tolerance stays as A2.2c set it (0.1 dB on levels, nulls below −90 dB, −80 dB for the reverb), recorded in `api-and-models.md` §8.
