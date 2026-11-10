@@ -159,6 +159,26 @@ fn several_volume_curves_multiply_and_an_undefined_curve_is_zero() {
 }
 
 #[test]
+fn each_binding_is_clamped_before_it_combines() {
+    // `events/automation.ts` `evaluate`'s rules (the parity test holds the two together): a negative volume curve is
+    // silence for its binding, so two negatives don't make a positive gain; a pitch curve at or below 0 is a factor of 1.
+    let mut m = mixer();
+    m.submit(&[curves(0, &[&[(0.0, -0.5, 0)], &[(0.0, -0.8, 0)], &[(0.0, 0.5, 0)]]), dc(V1, 0, 0.0), automate(V1, &[(G, 0, 0), (G, 1, 0)])]);
+    let (l, _) = m.render();
+    check(&l, TOL, "-0.5 x -0.8 is silence, not 0.4", |_| 0.0);
+    m.submit(&[automate(V1, &[(G, 0, 0), (G, 2, 0)])]);
+    let (l, _) = m.render();
+    check(&l, TOL, "-0.5 x 0.5 is silence", |_| 0.0);
+
+    let mut m = mixer();
+    let clip: Vec<f32> = (0..4096).map(|i| i as f32 / 4096.0).collect();
+    m.load_clip(2, &clip);
+    m.submit(&[curves(0, &[&[(0.0, 2.0, 0)], &[(0.0, -3.0, 0)], &[(0.0, 0.0, 0)]]), play(V1, 2, 0, MIXED), automate(V1, &[(G, 0, 1), (G, 1, 1), (G, 2, 1)])]);
+    let (l, _) = m.render();
+    check(&l, 1e-6, "pitch 2 x (-3 ignored) x (0 ignored)", |j| (2 * j) as f32 / 4096.0);
+}
+
+#[test]
 fn a_pitch_binding_scales_the_read_rate() {
     let mut m = mixer();
     let clip: Vec<f32> = (0..4096).map(|i| i as f32 / 4096.0).collect();

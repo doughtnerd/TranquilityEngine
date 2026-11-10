@@ -83,9 +83,8 @@ export class ParamState {
 export function evaluate(bindings: readonly Binding[], curves: ReadonlyMap<number, Curve>, read: (p: ParamRef) => number): { gain: number; pitch: number; lowpass: number } {
   let gain = 1, pitch = 1, lowpass = LOWPASS_OFF;
   for (const b of bindings) {
-    const c = curves.get(b.curve);
-    if (!c) continue;
-    const y = evalCurve(c, read(b.param));
+    // A curve id that was never defined is the empty curve (0), as in the core's table.
+    const y = evalCurve(curves.get(b.curve) ?? [], read(b.param));
     if (b.target === AutoTarget.Volume) gain *= Math.max(0, y);
     else if (b.target === AutoTarget.Pitch) pitch *= y > 0 ? y : 1;
     else lowpass = Math.min(lowpass, Math.max(10, y));
