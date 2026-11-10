@@ -193,3 +193,8 @@ M1 is built except what needs you. MS5, MS6 and MS7 are on master; MS8's buildab
 
 ### 34. MS8's buildable work merged to master
 - A3.5, C1, C1b, C2 and C4's checklist merged to master after the full suite passed, so master holds everything; MS8 itself stays open until C3 and C4 (owner) are done. The behaviour changes in it are entries 30 (cap budget) and 31 (presets).
+
+### 35. The cap moves only on real trouble (owner decision, 2026-11-10) — supersedes entry 30's effect
+- Your soak (Windows, Tauri/WebView2, 32 cores) passed with zero underruns but sat at 184 of 256 voices, held by the model's estimate. You chose option A: only underruns and qualifying late commands lower the cap and restart its calm; the work-unit model is reported but informational (`MODEL_DRIVES_CAP = false` in `audio-core/src/cap_controller.rs`). `REFERENCE_SPEEDUP` (entry 30) now only scales the reported model.
+- Not done: feeding Chromium's measured audio-thread load (`AudioContext.renderCapacity`, where it exists) into the cap; a possible follow-up.
+- The C3 record is corrected: your run was the Tauri desktop app (WebView2), so Windows Chromium (the browser), Linux WebKitGTK and the Android phone remain.

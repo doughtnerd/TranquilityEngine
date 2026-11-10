@@ -675,6 +675,8 @@ Chromium on Windows renders 3–4 quanta back to back per ~10 ms device period (
 
 ### 6.3 Adaptive voice cap (M1)
 
+> **Owner decision (2026-11-10):** the work-unit model is informational. Only underruns and qualifying late commands move the cap (`MODEL_DRIVES_CAP = false`); the model's p99 rows of the table below apply only in model-driven mode (tests and the bench's `-cap` scenes). See `owner-review.md` entry 35.
+
 | Element | Design |
 |---|---|
 | Signals | underrun increments (§4.7); `lateCommands` increments with negative `minSlackFrames`, counted only when batches are arriving on time (gap between `firstFrame`s ≤ 2 × Δ̄; otherwise main is the cause); modelled WU p99 as a ceiling against a fixed budget, 1.3 ms ÷ *k*, with *k* (µs per WU) a lab constant per build |

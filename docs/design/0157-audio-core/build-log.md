@@ -473,10 +473,12 @@ Done: A3.5, C1, C1b, C2, C4's checklist. Waiting on the owner: **C3** (the 30-mi
 
 ## C3: first soak result (owner, 2026-11-10)
 
-**Windows, Edge 157 (Chromium) browser, 32 cores, 48 kHz, `samples/stress` `?soak=30`, high preset: PASS.** 30 of 30 minutes; underruns 0, late commands 0, stream starves 0, stream errors 0, traps 0, rebuilds 0; dropped plays 35 (the 4,096 logical limit); peaks: logical 4,096, mixed 265, HRTF 32; the cap went 256 → 184 in the first minutes and stayed at 184; work units max 1,792,910 (budget 2,600,000); 58 main-thread stalls over 100 ms (longest 460 ms, minutes 7–8, likely the owner opening the Audio Debug panel) with no underrun. The owner also reports the Sound Lab listening checks look right.
+**Windows, the Tauri desktop app (WebView2 157, whose user agent reads Edge), 32 cores, 48 kHz, `samples/stress` `?soak=30`, high preset: PASS.** 30 of 30 minutes; underruns 0, late commands 0, stream starves 0, stream errors 0, traps 0, rebuilds 0; dropped plays 35 (the 4,096 logical limit); peaks: logical 4,096, mixed 265, HRTF 32; the cap went 256 → 184 in the first minutes and stayed at 184; work units max 1,792,910 (budget 2,600,000); 58 main-thread stalls over 100 ms (longest 460 ms, minutes 7–8, likely the owner opening the Audio Debug panel) with no underrun. The owner also reports the Sound Lab listening checks look right.
 
 **Findings**
 - The Audio Debug panel rendered a row per voice four times a second (≈4,000 rows), which tanked the editor's frame rate; it now shows the 64 most audible voices and counts the rest by state.
 - **The cap is held by the work-unit model, not by real load:** a 32-core machine with zero underruns settled at 184 mixed voices, because the modelled p99 (≈1.58–1.79 M work units) sits in §6.3's 55–70% hold band of the provisional budget (owner-review 30), so it never climbs back to 256.
 
-**Still to run for C3:** Windows WebView2 (the Tauri desktop app), Linux WebKitGTK, the low-end Android phone.
+**Still to run for C3:** Windows Chromium (the browser), Linux WebKitGTK, the low-end Android phone.
+
+**Owner decision (2026-11-10): the cap moves only on real trouble.** Following the soak finding, only underruns and qualifying late commands (whose gate includes negative slack) lower the cap and restart its calm; the work-unit model still runs and is reported in STATUS `workUnits` and `Audio.debug()` (`cap_controller::MODEL_DRIVES_CAP = false`; `CapConfig::model_drives` keeps §6.3's original table for tests and the bench's `-cap` scenes, since a bench quantum never underruns). Headless check: the stress sample's 4 underruns on this VM dropped the cap to 184 and it recovered to 256 (it stayed at 184 before). `cargo test` 452 passed; `npm test` 376 files passed; `@slow` audio specs 10 passed; metered gate +0.00%.
