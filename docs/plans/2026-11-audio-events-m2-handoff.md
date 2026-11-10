@@ -1,4 +1,4 @@
-# Audio events (M2, ADR 0158): handoff after E1 and part of E3
+# Audio events (M2, ADR 0158): handoff after E1, E2 and part of E3
 
 **Goal.** Build [ADR 0158](../decisions/0158-audio-events-and-parameters.md) (Accepted 2026-11-10), 0157's roadmap M2: audio event assets, parameters, automation, sustain, editor authoring. The milestone table is [2026-11-audio-events-m2.md](2026-11-audio-events-m2.md) (E1–E7). This file says where the build stands and what the next session should do. It's written for a session that plans and runs the rest as a milestone build.
 
@@ -12,7 +12,7 @@
 | Milestone | State |
 |---|---|
 | E1 foundations | **Done**, committed (`src/engine/core/curve.ts`, `src/engine/audio/eventFormat.ts`, `audio.parameters`/`automation`/`seed` in `engine/audio/settings.ts`, the 256 KB tripwire). Tests in `src/engine/tests/{curve,audioEventFormat,audioSettings}.test.ts` |
-| E2 core automation and sustain (Rust) | **Delegated in the previous session to a subagent in a git worktree.** See "E2" below for its status at handoff |
+| E2 core automation and sustain (Rust) | **Done**, merged (`782bb8f`): `audio-core/src/automation.rs`, `tests/automation.rs`, ABI 1.4, the five opcodes, command-writer methods, three goldens, five metered scenes. See "E2" below for deviations |
 | E3 event runtime (TypeScript) | **Partly done**, committed as work in progress; see "E3" below |
 | E4–E7 | Not started |
 
@@ -25,7 +25,15 @@ The wire contract the TypeScript side is written against. ABI 1.3 → 1.4, no wi
 - **0x15 BUS_AUTOMATE** (voiceId = bus): same binding items, global params only, volume/lowpass.
 - Per quantum: smooth params, evaluate each bound curve once, ramp gain across the quantum; lowpass = min with the slot's/BUS_MIX's. Voices without bindings must render bit-identically (existing goldens unchanged). The subagent was also asked to add command-writer methods (`setLoop`, `automate`, `param`, `curves`, `busAutomate`) in `src/plugins/audio/runtime/core/commandWriter.ts`, goldens for the three new behaviours, metered-bench scenes, and the five rows in `api-and-models.md` §4.2.
 
-**If the E2 branch isn't on the integration branch** (check `git log` for an "E2" commit and `audio-wire/src/schema/batch.rs` for opcode 0x08), E2 has to be redone from the contract above; the full brief the subagent got is reproducible from this section plus ADR 0158 §3–§4 and §6.
+**E2 results.** `cargo test` 478 passed; existing goldens and parity digests unchanged; mixer wasm 147,384 → 178,265 B (256 KB tripwire); new `Automation` region 1,564,352 B at the default preset (232 B per voice, 120 B of it the voice's low-pass filter), layout total 25,362,432 B. Metered: old scenes −1.59%..+0.01% (baseline untouched); new scenes automation 13.46 M, automation-base 9.65 M, automation-virtual 1.38 M, bus-automation 2.10 M, sustain 5.26 M instructions per quantum. Native cost of the update and curve evaluation at 256 voices × 3 bindings on the shared container: p99.9 25–45 µs against the 30 µs budget, **needs a lab-VM run**; the per-voice low-pass filtering adds ≈195 µs on top of a 380 µs base in the full scene.
+
+**E2 deviations (accept or revisit):**
+- M1's core never applied per-voice `lpHz`. Now only voices with a low-pass binding are filtered, at min(lpHz, lpAuto); unbound voices stay bit-identical to M1 (still unfiltered).
+- AUTOMATE, PARAM and CURVES apply on arrival, not stamped (a pending record can't hold 8 bindings); the writer orders AUTOMATE after its PLAY.
+- Pitch automation ramps per frame; virtual voices advance at the block's mean pitch multiplier.
+- A voice already past `loopEnd` when SET_LOOP arrives plays on to the end. Stream voices ignore SET_LOOP (E4).
+- `commandWriter.curves()` splits uploads into 32 KB records; past the 256 KB staging area (≈660 full curves) a batch drops the rest, so upload per asset.
+- No `group` in STATUS (STATUS has no voice section); main knows each voice's group. ADR 0158 §6's line about STATUS should be noted as a deviation.
 
 ### E3: what's built (in `src/plugins/audio/runtime/events/`)
 - `automation.ts`: the `AutomationSink` interface a backend implements (`defineCurve`, `setParam`, `bindVoice`, `bindBus`, `setLoop`), the capacities (mirroring E2's), `evaluate`, `ParamState`, and `TsAutomation`, the fallback evaluator run once per frame on backends without a sink. It drives voices through `setVolume`/`setPitch`, buses through the new `mixer._setAutomation` (`engine/audio/mixer.ts`), and loops through the voice's optional `setLoop`.
@@ -35,7 +43,7 @@ The wire contract the TypeScript side is written against. ABI 1.3 → 1.4, no wi
 - The fake backend (`runtime/testing.ts`) gained `durations`, `horizonTime` and a recorded `setLoop`. Smoke tests: `events/events.test.ts` (8 cases).
 
 ### E3: what's left
-1. **Wire the core backend** (`core/coreBackend.ts`) once E2 is in: implement `automation` over the command-writer methods; `clipDuration` from the clip registry (frames / rate); `horizon()` from the clock map (the audio-clock time of `framesNow + lookahead`); carry `group` in PLAY; keep a mirror of curves, params, bindings and loops and **replay them in a rebuild's REPLAY** (`core/replay.ts`, `recovery.ts`); update main's audibility for bound voices when a parameter changes (evaluate the curves at the target with `curve.ts`), so selection sees automation.
+1. **Wire the core backend** (`core/coreBackend.ts`) to E2's command-writer methods (`setLoop`, `automate`, `param`, `curves`, `busAutomate` in `core/commandWriter.ts`): implement `automation` over the command-writer methods; `clipDuration` from the clip registry (frames / rate); `horizon()` from the clock map (the audio-clock time of `framesNow + lookahead`); carry `group` in PLAY; keep a mirror of curves, params, bindings and loops and **replay them in a rebuild's REPLAY** (`core/replay.ts`, `recovery.ts`); update main's audibility for bound voices when a parameter changes (evaluate the curves at the target with `curve.ts`), so selection sees automation.
 2. **The Babylon fallback**: `setLoop` on its voices (`AudioBufferSourceNode.loopStart`/`loopEnd`; release clears `loop`); `clipDuration` from the buffer.
 3. **The `PendingCoreBackend`**: the runtime already re-sends on backend change; check a voice played while the core loads keeps its loop and bindings after the hand-over.
 4. **The Rust–TypeScript parity test**: the same parameter/curve scenes through `TsAutomation` and the core (loopback host), within a tolerance.
@@ -48,7 +56,7 @@ As in the plan. E4 (loop points from WAV `smpl` / Ogg `LOOPSTART`/`LOOPLENGTH`, 
 ## Checks at handoff
 - `npm run typecheck` green; `npx vitest run src/plugins/audio src/engine/tests/audio* src/engine/tests/curve.test.ts` green (one existing assertion updated: `Audio.debug()` now includes `events`).
 - Full `npm test`: 379 files, 3,958 passed (one existing expectation updated: `AudioSource.clip` offers `["audio", "audioEvent"]`). `npm run build` green.
-- No Rust changed on the integration branch by E1/E3, so the committed wasm and its hash are untouched there.
+- After merging E2: `cargo test` 478 passed; `npx vitest run src/plugins/audio src/engine/tests` 2,588 passed; `npm run check:audio-metered` pass (−0.23% overall); `npm run typecheck`, `npm run build` and `npm run check:links` green.
 
 ## Owner items still open from M1
 The three remaining C3 soaks, reference-machine budgets, the signed listening pass, Flappy's music licence, the public seek API proposal, band-limited resampling (#110). GitHub issues #50, #100, #104 are still open.
