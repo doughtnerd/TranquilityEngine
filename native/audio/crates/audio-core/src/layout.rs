@@ -29,9 +29,10 @@ pub const PENDING_RECORD_BYTES: usize = 48;
 pub const VOICE_SLOT_BYTES: usize = 192;
 /// One entry of the mixed list (a voice slot index).
 pub const MIXED_ENTRY_BYTES: usize = 4;
-/// One bus: gains, ramps, effect slots and its stereo quantum buffer (architecture §5.1 budgets
-/// 3 KB). A2.1: the size of `bus::BusSlot`, rounded to a region alignment, so the effect state
-/// types A2.2a fills (`audio_dsp::biquad`, `audio_dsp::compressor`) size it without editing here.
+/// One bus: gains, ramps, effect slots, its one compressor and its stereo quantum buffer
+/// (architecture §5.1 budgets 3 KB; about 4 KB since the compressor port, see the test below).
+/// A2.1: the size of `bus::BusSlot`, rounded to a region alignment, so the effect state types
+/// A2.2a fills (`audio_dsp::biquad`, `audio_dsp::compressor`) size it without editing here.
 pub const BUS_BYTES: usize = align_up(core::mem::size_of::<crate::bus::BusSlot>(), REGION_ALIGN);
 /// The clip directory: 4,096 entries × 32 B plus 32 size-class list heads (architecture §5.1).
 /// A1.3b: the list-head bytes are unused. The arena has 80 classes and keeps its heads in the
@@ -203,5 +204,17 @@ mod tests {
         assert!(reverb > 2_600_000 && reverb < 3_200_000, "reverb region: {reverb}");
         let fixed = layout.region(RegionKind::Arena).offset - reverb;
         assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF and streams: {fixed}");
+    }
+
+    #[test]
+    fn a_bus_stays_near_the_memory_table() {
+        // architecture §5.1 budgets 3 KB per bus. The stereo quantum buffer (1 KB) and the bus's one
+        // compressor (2.4 KB, most of it the 6 ms pre-delay line) are most of a bus; the four effect
+        // slots hold only a biquad (120 B) or a send (fx.rs). About 4 KB (4,208 B rounded to a cache
+        // line) keeps 32 buses near 132 KB; a compressor per slot made it 10,944 B.
+        let (slot, fx) = (core::mem::size_of::<crate::bus::BusSlot>(), core::mem::size_of::<crate::fx::FxChain>());
+        eprintln!("BusSlot {slot} B, BUS_BYTES {BUS_BYTES} B, FxChain {fx} B, FxSlot {} B", core::mem::size_of::<crate::fx::FxSlot>());
+        assert!(BUS_BYTES <= 4 * 1024 + 2 * REGION_ALIGN, "BUS_BYTES: {BUS_BYTES}");
+        assert_eq!(Layout::new(&preset(4_096, 128, 16)).region(RegionKind::Buses).len, 32 * BUS_BYTES);
     }
 }

@@ -95,8 +95,8 @@ pub struct BusArea {
     /// MASTER as last received.
     pub master_volume: f32,
     pub master_muted: u32,
-    /// Buses, effects and BUS_MIX entries dropped (past the limits, unknown effect types),
-    /// cumulative. The wire has no STATUS field for it; tests and a debugger read it.
+    /// Buses, effects and BUS_MIX entries dropped (past the limits, a bus's second compressor,
+    /// unknown effect types), cumulative. The wire has no STATUS field for it; tests and a debugger read it.
     pub dropped: u32,
     /// The mix order: bus indices, deepest first (`count` of them).
     pub order: [u8; InitParams::MAX_BUSES as usize],

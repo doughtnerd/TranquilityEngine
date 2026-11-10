@@ -44,4 +44,6 @@ Buses, volume, mute, solo, snapshots (their volumes) and ducking work on every b
 - Clips with `stream` on in their import settings play through a streaming source with no pitch change.
 - Spatial sound uses the browser's own panner, so 3D sound differs from browser to browser.
 
+On the audio core (`audio.backend` `"core"`), a bus runs its first 4 effects and at most one `compressor` (the first in its list). Further effects, and a second compressor, are skipped.
+
 Bus volume changes ramp over about 15 milliseconds, so a mute or a ducking step doesn't click.
