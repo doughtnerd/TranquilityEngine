@@ -4,14 +4,17 @@ The coordinator's calls during the M2 build ([plan](../../plans/2026-11-audio-ev
 
 ## Summary (read first)
 
-Wave 1 is merged with every gate green; wave 2 is running (E5.2 guide and E5.3 bench merged). Master has E1, E2, E3a and the plan.
+M2 is built: every task of the plan is merged on `claude/sweet-ritchie-miy6jm` with the final review green (waves 1–3 are on master; wave 4 waits for your go). Twenty-one entries below; the ones you ruled on are marked confirmed.
 
 **Needs you:**
-- When M2a is ready: the listening pass in [m2-listening-pass.md](m2-listening-pass.md) (E7.1).
-1. The lab-VM run (E5.5): `./native/audio/target/release/audio-bench mode=scene name=automation-probe seconds=20 runs=5` and `npm run bench:audio-events` (entry 11).
+1. Re-check the blended engine in the listening pass ([m2-listening-pass.md](m2-listening-pass.md)): E, Right, release, Up should now be smooth (entry 18), then sign off (E7.1).
+2. The lab-VM run (E5.5): `./native/audio/target/release/audio-bench mode=scene name=automation-probe seconds=20 runs=5` and `npm run bench:audio-events` (entries 11, 21). On this container the core's automation pass is 39–56 µs p99.9 against 30 µs.
 
-**Biggest calls so far:**
-- `avoidRepeat: 0` now bans nothing (entry 5): a bug fix; random events with the default pick more randomly.
+**Biggest calls I made (each a one-line revert):**
+- `avoidRepeat: 0` bans nothing (entry 5): a bug fix.
+- Bindings clamp before they combine (entry 13): `evaluate` in `audio-core/src/automation.rs` and `events/automation.ts`.
+- A streamed loop's release is predicted on main and spliced into the ring (entry 17): measured 0 frames late.
+- Layered events' `Audio.play` stays over 5 µs (entry 21): a per-voice cost task in `CoreBackend.play` if you want it.
 - Babylon debug rows only for event voices (entry 2): drop the `group` filter in `babylonBackend.ts` `debug()`.
 
 **Proposals waiting for your yes/no:** none.

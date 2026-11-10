@@ -555,3 +555,14 @@ The remainder of M2 (E3 from E3.1, E4–E7) is planned as a milestone build: [wa
 **Wave review (load < 3 at start):** typecheck; `npm test` 410 files, 4,327 passed (the one failure, `piratesSample`, passes alone); build; `cargo test` 497; metered pass; `npm run test:e2e` 193 passed, 4 skipped; slow audio specs: `audio-events` and `audio-babylon` pass, `audio-core` failed once on one start-up underrun while running beside three other audio specs and passed 3 of 3 alone (its comment already allows for an occasional one; logged as a flake when run in parallel). **Merged to master (owner's standing instruction for this wave).**
 
 **Lessons:** the owner's listening pass found what no test did (selection reading gains at the target); a dedicated investigation agent with the owner's exact key sequence found it in one pass. Three agents' commits needed coordinator fixes (a WIP message, missing trailers); leaves kept to their files. Agents sharing a symlinked `node_modules` collide on `.vitest-cache` (ENOTEMPTY/ENOENT) constantly: E6.4 suggests a real `node_modules` directory of per-entry symlinks instead.
+
+## M2: wave 4 and close (2026-11-10)
+
+**Merged:** E6.6 (Playwright specs for authoring and audition in the Event editor and for the audio settings sections; 30 of 30 repeated runs), E5.3c + E3.9 (`Audio.play` of a typical event under 5 µs on the core; `Audio.debug()` on the core shows automated gain, pitch, playhead and bus automation; an instance's row goes with its last voice), E6.1b (the curve widget keeps its container's width when a key is selected in a narrow dock), E3.10 (an instance's group is held until its last voice ends; groups are handed out fresh first, then longest-free; new optional `AudioVoice.alive`).
+
+**Final review (load 2–4):** typecheck; `npm test` 415 files, 4,344 passed (one failure, `gltf.test.ts`, a 5 s timeout, passes alone 3 of 3); build; `cargo test` 497; metered pass; links; `npm run test:e2e` 198 passed (the editor specs included); slow audio specs (`audio-core`, `audio-events`, `audio-babylon`, run one at a time) 4 passed.
+
+**Bench (core loopback, this container, load ≈ 4):** `Audio.play` random of 4: median 3.98 µs, ≈ 2.9 KB per play+stop (budget 5 µs); layer of 3: 8.81 µs (over; accepted for "a typical event", m2-decisions entry 21); steady frame `events().update` 0.52 µs (≈ 0). The core's automation pass p99.9 was 39–56 µs here against 30 µs and needs the lab VM (E5.5).
+
+**Open at close, all the owner's:** E5.5 the lab-VM run (`./native/audio/target/release/audio-bench mode=scene name=automation-probe seconds=20 runs=5`, `npm run bench:audio-events`); the listening pass's re-check of the blended engine and sign-off (E7.1, `m2-listening-pass.md`).
+
