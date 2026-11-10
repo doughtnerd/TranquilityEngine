@@ -150,6 +150,15 @@ export class CoreLink {
     return this.pingSeq;
   }
 
+  /**
+   * B3: hands the worklet its end of the channel to the decoder worker (`port` transferred), over which streams flow
+   * without main. Goes to the current node; after a hard rebuild the stream manager connects the new one.
+   */
+  connectStreamPort(port: MessagePort): void {
+    const message: CoreControlMessage = { type: "streamPort", port };
+    this.port.postMessage(message, [port as unknown as Transferable]);
+  }
+
   /** Dev only: a sine of `hz` at `gain` mixed onto the core's output in the shell; `hz <= 0` stops it. */
   debugTone(hz: number, gain = 0.1): void {
     const message: CoreControlMessage = { type: "debugTone", hz, gain };

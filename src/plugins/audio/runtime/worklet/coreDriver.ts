@@ -7,7 +7,13 @@
 // the host (TIME_PING, RECYCLE, BATCH/REPLAY into the inbox, CLIP_BEGIN/CHUNK/UNLOAD into the arena, and returns
 // every other buffer), renders one quantum per `process`, runs the underrun probe, and posts STATUS from a pool of
 // 8 buffers every 6 quanta (every 48 after 250 ms without a batch), skipping the post when the pool is empty.
+//
+// B3: streams come from the decoder worker over a port of their own (`streamPort`, never through main): STREAM_OPEN
+// and STREAM_CLOSE into the inbox, STREAM_CHUNK copied once into the stream's ring (`myco_audio_stream_chunk_ptr`,
+// `_commit`). After each quantum the shell asks the core what each stream consumed (`myco_audio_stream_consumed`) and
+// sends a STREAM_CREDIT every 4,096 frames, with the emptied chunk buffers in the same message.
 import { createStatusPool, type BufferPool } from "../core/bufferPool";
+import { CreditAccumulator } from "../decoder/credit";
 import {
   CLIP_BEGIN_FIXED_END,
   CLIP_CHUNK_FIXED_END,
@@ -19,11 +25,20 @@ import {
   readClipBegin,
   readClipChunk,
   readClipUnload,
+  readStreamChunk,
+  readStreamClose,
+  readStreamOpen,
   SCHEMA_HASH,
+  STREAM_CHUNK_FIXED_END,
+  STREAM_CLOSE_FIXED_END,
+  STREAM_CREDIT_FIXED_END,
+  STREAM_OPEN_FIXED_END,
   STATUS_EVERY_QUANTA,
   STATUS_IDLE_AFTER_MS,
   STATUS_IDLE_EVERY_QUANTA,
   VERSION_MAJOR,
+  writeEnvelope,
+  writeStreamCredit,
 } from "../wire.generated";
 
 /** @internal The name `processor.ts` registers and the host creates its node with. */
@@ -64,7 +79,11 @@ export interface CoreProcessorOptions {
  * @internal Messages that aren't wire buffers: the dev-only tone, and `retire` (A3.4a: the host is replacing this
  * node, so the processor stops rendering and lets the node be collected).
  */
-export type CoreControlMessage = { readonly type: "debugTone"; readonly hz: number; readonly gain: number } | { readonly type: "retire" };
+export type CoreControlMessage =
+  | { readonly type: "debugTone"; readonly hz: number; readonly gain: number }
+  | { readonly type: "retire" }
+  /** B3: the worklet's end of the channel to the decoder worker (transferred); a later one replaces it. */
+  | { readonly type: "streamPort"; readonly port: MessagePort };
 
 /** @internal What the shell posts that isn't a wire buffer. */
 export type CoreShellEvent = { readonly type: "error"; readonly message: string } | { readonly type: "trap"; readonly message: string };
@@ -88,6 +107,11 @@ export interface CoreExports {
   myco_audio_status_ptr(): number;
   /** ABI 1.2 (A3.3): the underrun probe's running total, when it changes; feeds the adaptive cap. Absent before 1.2. */
   myco_audio_note_underruns?(total: number): number;
+  /** B3: where a STREAM_CHUNK's frames go in its ring (0 when refused), then `stream_commit`. */
+  myco_audio_stream_chunk_ptr(stream: number, frames: number): number;
+  myco_audio_stream_commit(stream: number, frames: number, epoch: number, flags: number): number;
+  /** ABI 1.3 (B3): frames the stream's voice consumed since the last call (negative: no such stream). Absent before 1.3. */
+  myco_audio_stream_consumed?(stream: number): number;
 }
 
 /** @internal A core instantiated and initialised over its Memory. */
@@ -244,6 +268,10 @@ export interface CoreDriverStats {
   returned: number;
   /** CLIP_CHUNK bytes copied into the arena. */
   clipBytes: number;
+  /** B3: STREAM_CHUNK frames committed to rings, chunks refused or dropped, and STREAM_CREDITs sent. */
+  streamFrames: number;
+  streamRefused: number;
+  streamCredits: number;
 }
 
 /** @internal Most clip bytes the shell copies per quantum (architecture §3.5, api-and-models §5: 256 KB). */
@@ -254,12 +282,23 @@ interface ClipShape {
   readonly frameBytes: number;
 }
 
+/** What the shell keeps per open stream (B3): its shape, the credit due, and the chunk buffers to hand back. */
+interface StreamShape {
+  channels: number;
+  epoch: number;
+  readonly credit: CreditAccumulator;
+  readonly returned: ArrayBuffer[];
+}
+
+/** @internal How the shell posts to the decoder worker (`port.postMessage` in the worklet, a fake in tests). */
+export type StreamPost = (message: ArrayBuffer[], transfer: Transferable[]) => void;
+
 const OUTPUT_SAMPLES = 2 * QUANTUM_FRAMES;
 const TWO_PI = 2 * Math.PI;
 
 /** @internal The shell's logic over one core instance. */
 export class CoreDriver {
-  readonly stats: CoreDriverStats = { quanta: 0, posted: 0, skipped: 0, recycled: 0, returned: 0, clipBytes: 0 };
+  readonly stats: CoreDriverStats = { quanta: 0, posted: 0, skipped: 0, recycled: 0, returned: 0, clipBytes: 0, streamFrames: 0, streamRefused: 0, streamCredits: 0 };
   /** The STATUS pool (§4.3: 8 × 16 KB). */
   readonly pool: BufferPool = createStatusPool();
   /** The underrun probe (§4.7); its counts go into every STATUS. */
@@ -293,6 +332,9 @@ export class CoreDriver {
   /** Clip messages waiting for this quantum's copy budget, in arrival order. */
   private readonly clipQueue: ArrayBuffer[] = [];
   private clipBudget = CLIP_BYTES_PER_QUANTUM;
+  /** B3: open streams by id, and where credits go (null until the host connects the worker's port). */
+  private readonly streams = new Map<number, StreamShape>();
+  private streamPost: StreamPost | null = null;
 
   /** `dateNow` is the wall clock at construction: the idle cadence counts 250 ms from it until a batch arrives. */
   constructor(
@@ -441,6 +483,130 @@ export class CoreDriver {
     this.core.exports.myco_audio_clip_free(clipId);
   }
 
+  // --- Streams (B3) ---------------------------------------------------------------------------------------
+
+  /** B3: where STREAM_CREDITs go: the worker's port (the processor wires `streamPort`), or a fake in tests. */
+  setStreamPost(post: StreamPost | null): void {
+    this.streamPost = post;
+  }
+
+  /** Open streams (for tests). */
+  get openStreams(): number {
+    return this.streams.size;
+  }
+
+  /**
+   * B3: a message from the decoder worker. STREAM_OPEN and STREAM_CLOSE go into the inbox (`myco_audio_submit`);
+   * STREAM_CHUNK is copied straight into its ring and its buffer kept for the next credit. A dead (trapped) core takes
+   * nothing; anything unreadable is dropped.
+   */
+  onStreamMessage(data: unknown, currentFrame: number, dateNow: number): void {
+    void currentFrame;
+    void dateNow;
+    if (!(data instanceof ArrayBuffer) || data.byteLength < 16 || this.dead) return;
+    const view = new DataView(data);
+    if (view.getUint32(0, true) !== MAGIC || view.getUint16(4, true) >> 8 !== VERSION_MAJOR) return;
+    switch (view.getUint16(6, true)) {
+      case Kind.STREAM_OPEN: {
+        if (data.byteLength < STREAM_OPEN_FIXED_END) return;
+        const open = readStreamOpen(view, 0);
+        if (this.submitSmall(data) !== 0) return; // no ring: the core reports a stream error
+        const known = this.streams.get(open.streamId);
+        if (known) {
+          // A new epoch (B3b's seek): the ring restarted, so nothing consumed of the old one is owed.
+          known.channels = open.channels;
+          known.epoch = open.epoch;
+          known.credit.take();
+        } else this.streams.set(open.streamId, { channels: open.channels, epoch: open.epoch, credit: new CreditAccumulator(), returned: [] });
+        return;
+      }
+      case Kind.STREAM_CHUNK:
+        return this.streamChunk(view);
+      case Kind.STREAM_CLOSE: {
+        if (data.byteLength < STREAM_CLOSE_FIXED_END) return;
+        const { streamId } = readStreamClose(view, 0);
+        this.submitSmall(data);
+        const shape = this.streams.get(streamId);
+        this.streams.delete(streamId);
+        // Its buffers go back to the worker's pool with a last (empty) credit.
+        if (shape && shape.returned.length > 0) this.postCredit(streamId, shape, 0);
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  /** A small control message through the inbox; returns `myco_audio_submit`'s code. */
+  private submitSmall(buffer: ArrayBuffer): number {
+    const len = 16 + new DataView(buffer).getUint32(12, true);
+    const { exports } = this.core;
+    if (len > buffer.byteLength || len > exports.myco_audio_inbox_cap()) return -1;
+    this.views();
+    this.u8.set(new Uint8Array(buffer, 0, len), exports.myco_audio_inbox_ptr());
+    return exports.myco_audio_submit(len);
+  }
+
+  /** STREAM_CHUNK → `stream_chunk_ptr`, one copy, `stream_commit`. The buffer goes back with the stream's next credit. */
+  private streamChunk(view: DataView): void {
+    if (view.byteLength < STREAM_CHUNK_FIXED_END) return;
+    const chunk = readStreamChunk(view, 0);
+    const shape = this.streams.get(chunk.streamId);
+    const buffer = view.buffer as ArrayBuffer;
+    if (!shape) {
+      // A stream the core doesn't hold (its open was refused, or it closed): drop the chunk, hand the buffer back.
+      this.stats.streamRefused++;
+      this.postBuffers([buffer], chunk.streamId, chunk.epoch);
+      return;
+    }
+    shape.returned.push(buffer);
+    const bytes = chunk.frames * shape.channels * 4;
+    if (STREAM_CHUNK_FIXED_END + bytes > view.byteLength || chunk.epoch !== shape.epoch) {
+      this.stats.streamRefused++;
+      return;
+    }
+    const { exports } = this.core;
+    if (chunk.frames > 0) {
+      const ptr = exports.myco_audio_stream_chunk_ptr(chunk.streamId, chunk.frames);
+      if (ptr === 0) {
+        this.stats.streamRefused++;
+        return;
+      }
+      this.views();
+      this.u8.set(new Uint8Array(buffer, STREAM_CHUNK_FIXED_END, bytes), ptr);
+    }
+    if (exports.myco_audio_stream_commit(chunk.streamId, chunk.frames, chunk.epoch, chunk.flags) === 0) this.stats.streamFrames += chunk.frames;
+    else this.stats.streamRefused++;
+  }
+
+  /** After a quantum: what each stream consumed; a credit every 4,096 frames (`credit.ts`). */
+  private creditStreams(): void {
+    const consumed = this.core.exports.myco_audio_stream_consumed;
+    if (typeof consumed !== "function" || this.streams.size === 0) return;
+    for (const [id, shape] of this.streams) {
+      const n = consumed(id);
+      if (n > 0 && shape.credit.add(n)) this.postCredit(id, shape, shape.credit.take());
+    }
+  }
+
+  /** STREAM_CREDIT for `frames`, written into the first returned buffer (a small new one if none), the rest after it. */
+  private postCredit(id: number, shape: StreamShape, frames: number): void {
+    const buffers = shape.returned.splice(0);
+    this.postBuffers(buffers, id, shape.epoch, frames);
+  }
+
+  private postBuffers(buffers: ArrayBuffer[], streamId: number, epoch: number, consumedFrames = 0): void {
+    const post = this.streamPost;
+    if (!post) return;
+    const head = buffers.length > 0 && buffers[0]!.byteLength >= STREAM_CREDIT_FIXED_END ? buffers[0]! : new ArrayBuffer(STREAM_CREDIT_FIXED_END);
+    if (head !== buffers[0]) buffers.unshift(head);
+    const view = new DataView(head);
+    writeEnvelope(view, 0, { kind: Kind.STREAM_CREDIT, seq: 0, bodyBytes: STREAM_CREDIT_FIXED_END - 16 });
+    writeStreamCredit(view, 0, { streamId, epoch, consumedFrames, returnedBuffers: buffers.length - 1 });
+    this.stats.streamCredits++;
+    post(buffers, buffers);
+  }
+
   /** A dev-only control (`debugTone`). */
   onControl(message: CoreControlMessage): void {
     if (message.type !== "debugTone") return;
@@ -486,6 +652,7 @@ export class CoreDriver {
       this.output.fill(0);
     }
     if (this.toneGain > 0) this.addTone();
+    this.creditStreams();
     const every = dateNow - this.lastBatchDate > STATUS_IDLE_AFTER_MS ? STATUS_IDLE_EVERY_QUANTA : STATUS_EVERY_QUANTA;
     if (++this.sinceStatus >= every) {
       this.sinceStatus = 0;
@@ -510,6 +677,7 @@ export class CoreDriver {
     this.dead = true;
     this.traps++;
     this.clipQueue.length = 0;
+    this.streams.clear();
     this.toneGain = 0;
     this.post({ type: "trap", message: error instanceof Error ? error.message : String(error) });
   }

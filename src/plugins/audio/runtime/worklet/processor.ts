@@ -6,6 +6,9 @@
 // A trap inside the core is caught in `CoreDriver.process` (silence, one `trap` event, the driver dead); anything
 // thrown outside that catch reaches the node as `processorerror`, which the host treats the same way (A3.4a). When the
 // host replaces the node (the hard rebuild) it posts `retire`: `process` then returns false so the node can be collected.
+//
+// B3: `streamPort` hands the processor its end of the channel to the decoder worker; stream messages arrive there,
+// never through main, and the shell's STREAM_CREDITs go back on it.
 import { CoreDriver, instantiateCore, PROCESSOR_NAME, type CoreControlMessage, type CoreProcessorOptions, type CoreShellEvent } from "./coreDriver";
 
 // AudioWorkletGlobalScope (the DOM lib doesn't declare it).
@@ -21,6 +24,8 @@ class CoreProcessor extends AudioWorkletProcessor {
   private readonly driver: CoreDriver | null = null;
   /** Set by `retire` (A3.4a): this node has been replaced, so it stops rendering for good. */
   private retired = false;
+  /** B3: the port to the decoder worker, once the host connected it. */
+  private streamPort: MessagePort | null = null;
 
   constructor(options: { processorOptions: CoreProcessorOptions }) {
     super(options);
@@ -46,10 +51,25 @@ class CoreProcessor extends AudioWorkletProcessor {
     return true;
   }
 
+  /** B3: stream messages from the decoder worker go to the driver; its credits go back on the same port. */
+  private connectStreams(port: MessagePort): void {
+    if (this.streamPort) this.streamPort.onmessage = null;
+    this.streamPort = port;
+    const driver = this.driver;
+    if (!driver) return;
+    port.onmessage = (event: MessageEvent<unknown>) => driver.onStreamMessage(event.data, currentFrame, Date.now());
+    driver.setStreamPost((message, transfer) => port.postMessage(message, transfer));
+  }
+
   private onMessage(data: ArrayBuffer | CoreControlMessage): void {
     if (!(data instanceof ArrayBuffer) && data && data.type === "retire") {
       this.retired = true;
       this.port.onmessage = null;
+      if (this.streamPort) this.streamPort.onmessage = null;
+      return;
+    }
+    if (!(data instanceof ArrayBuffer) && data && data.type === "streamPort") {
+      this.connectStreams(data.port);
       return;
     }
     const driver = this.driver;
