@@ -5,10 +5,15 @@
 //! | Element | Rule (architecture §6.3) |
 //! |---|---|
 //! | Signals | an underrun; a qualifying late command; the modelled work units' p99 over a window, against a fixed budget |
-//! | Decrease | any underrun, a qualifying late command, or p99 > 70% of the budget: cap ← max(16, ⌊0.85·cap⌋), then hold 1 s |
-//! | Increase | nothing qualifying and p99 < 55% for 5 s: cap ← min(configured, cap + max(2, configured/32)), once per second |
+//! | Decrease | any underrun, a qualifying late command, or (model-driven only) p99 > 70% of the budget: cap ← max(16, ⌊0.85·cap⌋), then hold 1 s |
+//! | Increase | nothing qualifying (and, model-driven only, p99 < 55%) for 5 s: cap ← min(configured, cap + max(2, configured/32)), once per second |
 //!
-//! Between 55% and 70% the cap holds (hysteresis): no decrease, and the 5 s of calm start again.
+//! **The work-unit model is informational by default** ([`MODEL_DRIVES_CAP`], owner decision 2026-11-10):
+//! the cap moves only on real trouble, underruns and qualifying late commands (whose gate includes negative
+//! slack). The owner's 30-minute soak on a fast machine showed why: with the model driving, a machine with zero
+//! underruns sat at 184 of 256 voices because the model's p99 stayed in the hold band. With the model driving
+//! (`CapConfig::model_drives`), a window between 55% and 70% holds the cap (hysteresis): no decrease, and the
+//! 5 s of calm start again.
 //! During a hold, signals don't lower the cap further (selection gets time to follow), but they do
 //! restart the calm. The floor is 16, or the configured cap when that is lower (the cap never rises
 //! above the configured value nor falls below the floor). Time is in frames of the core's clock;
@@ -26,6 +31,10 @@ pub const DECREASE_DEN: u32 = 100;
 pub const DECREASE_ABOVE_PERMILLE: u32 = 700;
 /// Windows below this share of the budget (‰) count as calm; at or above it, the calm restarts.
 pub const CALM_BELOW_PERMILLE: u32 = 550;
+/// Whether the work-unit model's p99 lowers the cap and holds its recovery (§6.3's original table). False: the
+/// model is reported (STATUS `workUnits`, `Audio.debug()`) but only underruns and qualifying late commands move
+/// the cap, since the model's coefficients are a fixed estimate from one lab machine (owner-review 30, 35).
+pub const MODEL_DRIVES_CAP: bool = false;
 /// The window the work units' p99 is taken over, in ms.
 pub const WINDOW_MS: u32 = 250;
 /// After a decrease, no further decrease (and no increase) for this long, in ms.
@@ -51,6 +60,8 @@ pub struct CapConfig {
     pub step_frames: u64,
     /// The work-unit budget per quantum (`cap::BUDGET_WU`, or a test's).
     pub budget: u32,
+    /// Whether the model's p99 moves the cap ([`MODEL_DRIVES_CAP`] by default; tests set it).
+    pub model_drives: bool,
 }
 
 impl CapConfig {
@@ -63,7 +74,13 @@ impl CapConfig {
             calm_frames: ms_to_frames(CALM_MS, sample_rate),
             step_frames: ms_to_frames(STEP_MS, sample_rate),
             budget,
+            model_drives: MODEL_DRIVES_CAP,
         }
+    }
+
+    /// The same, with the work-unit model driving the cap (§6.3's original table).
+    pub fn with_model(self) -> CapConfig {
+        CapConfig { model_drives: true, ..self }
     }
 
     /// The step an increase adds: `max(MIN_INCREASE, configured / INCREASE_DIVISOR)`.
@@ -137,7 +154,8 @@ impl CapController {
 
     /// One step at frame `now` (non-decreasing between calls) with what was seen since the last.
     pub fn step(&mut self, cfg: &CapConfig, now: u64, s: Signals) -> Change {
-        let over = s.wu_p99.is_some_and(|p| above(p, cfg.budget, DECREASE_ABOVE_PERMILLE));
+        let wu_p99 = if cfg.model_drives { s.wu_p99 } else { None };
+        let over = wu_p99.is_some_and(|p| above(p, cfg.budget, DECREASE_ABOVE_PERMILLE));
         if s.underrun || s.late || over {
             self.calm_since = now;
             if now < self.hold_until {
@@ -153,7 +171,7 @@ impl CapController {
             }
             return Change::None;
         }
-        if s.wu_p99.is_some_and(|p| p as u64 * 1_000 >= cfg.budget as u64 * CALM_BELOW_PERMILLE as u64) {
+        if wu_p99.is_some_and(|p| p as u64 * 1_000 >= cfg.budget as u64 * CALM_BELOW_PERMILLE as u64) {
             // A busy window (55% to 70%): hold where we are and start the calm again.
             self.calm_since = now;
             return Change::None;

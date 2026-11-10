@@ -144,8 +144,8 @@ pub struct Scene {
     pub updates: bool,
     /// Those updates ramp over the frame (else they apply at once, so the pan matrix settles).
     pub ramps: bool,
-    /// The adaptive cap acts on the production budget (else its budget is unlimited) and main
-    /// obeys `mixedCap`.
+    /// The adaptive cap acts on the production budget with the work-unit model driving it (else its budget is
+    /// unlimited) and main obeys `mixedCap`.
     pub cap: bool,
 }
 
@@ -564,6 +564,10 @@ impl Bench {
         if !scene.cap {
             // Unlimited budget: the cap never acts, so every scene keeps its voices.
             core.cap_mut().set_budget(u32::MAX);
+        } else {
+            // A bench quantum never underruns, so a `-cap` scene measures the capped case with the work-unit
+            // model driving the cap (§6.3's original table; production leaves the model informational).
+            core.cap_mut().set_model_drives(true);
         }
         let mut rng = Rng(seed.wrapping_mul(2_654_435_761).max(1));
         // Clips: int16 stereo noise at the context rate.

@@ -256,6 +256,8 @@ fn a_work_unit_ceiling_set_low_walks_the_cap_down_to_where_the_model_fits() {
     let model = |mixed: u32| mixed * VOICE + (CONFIGURED - mixed) * wu::VIRTUAL_VOICE + wu::BUS + wu::LIMITER;
     let budget = ((model(34) + model(28)) as f64 / 2.0 / 0.7) as u32;
     m.core.cap_mut().set_budget(budget);
+    // Model-driven mode (§6.3's original table); by default the model is informational (next test).
+    m.core.cap_mut().set_model_drives(true);
     let mut caps = Vec::new();
     for _ in 0..6 {
         run(&mut m, SECOND);
@@ -345,4 +347,20 @@ fn a_large_cut_demotes_the_lowest_scores_64_a_quantum() {
     assert_eq!(got, (0..75).collect::<Vec<u32>>(), "exactly the 75 lowest scores");
     run(&mut m, 2);
     assert_eq!(mixed(&m), 425);
+}
+
+#[test]
+fn by_default_the_work_unit_model_reports_but_does_not_move_the_cap() {
+    // The owner's soak (2026-11-10): a fast machine with zero underruns was held at 184 of 256 by the model.
+    // By default only underruns and qualifying late commands move the cap; the model stays in STATUS.
+    let mut m = rig(CONFIGURED);
+    run(&mut m, 10);
+    m.core.cap_mut().set_budget(1);
+    for _ in 0..6 {
+        run(&mut m, SECOND);
+    }
+    assert_eq!(cap_of(&m), CONFIGURED, "a model far over budget alone doesn't lower the cap");
+    assert_eq!(mixed(&m), CONFIGURED);
+    assert!(m.core.work_units() > 1, "the model is still computed and reported");
+    m.core.cap_mut().set_budget(BUDGET_WU);
 }

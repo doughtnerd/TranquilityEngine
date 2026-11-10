@@ -84,7 +84,7 @@ fn a_qualifying_late_command_cuts_the_cap() {
 
 #[test]
 fn a_window_over_70_percent_cuts_the_cap_and_70_exactly_does_not() {
-    let k = cfg(128);
+    let k = cfg(128).with_model();
     let mut c = CapController::new(&k, 0);
     assert_eq!(c.step(&k, 250, window(700)), Change::None, "70% is not over 70%");
     assert_eq!(c.step(&k, 500, window(701)), Change::Decreased);
@@ -174,7 +174,7 @@ fn a_signal_inside_the_hold_does_not_cut_but_restarts_the_calm() {
 
 #[test]
 fn a_busy_window_between_55_and_70_percent_holds_the_cap_and_restarts_the_calm() {
-    let k = cfg(128);
+    let k = cfg(128).with_model();
     let mut c = CapController::new(&k, 0);
     c.step(&k, 0, underrun()); // 108
     // Windows every 250 ms at 60%: neither down nor up.
@@ -223,4 +223,27 @@ fn ms_to_frames_rounds_and_is_at_least_one() {
     assert_eq!(ms_to_frames(250, 48_000.0), 12_000);
     assert_eq!(ms_to_frames(1_000, 44_100.0), 44_100);
     assert_eq!(ms_to_frames(1, 100.0), 1);
+}
+
+#[test]
+fn by_default_the_model_neither_cuts_the_cap_nor_holds_its_recovery() {
+    let c = cfg(128);
+    assert!(!c.model_drives, "MODEL_DRIVES_CAP is false");
+    let mut k = CapController::new(&c, 0);
+    let over = Signals { wu_p99: Some(BUDGET), ..Default::default() };
+    assert_eq!(k.step(&c, 10, over), Change::None, "100% of the budget alone doesn't cut");
+    assert_eq!(k.cap(), 128);
+    // After a real underrun, a busy model doesn't stop the recovery.
+    assert_eq!(k.step(&c, 20, Signals { underrun: true, ..Default::default() }), Change::Decreased);
+    let busy = Signals { wu_p99: Some(BUDGET * 6 / 10), ..Default::default() };
+    let mut t = 20;
+    let mut rose = false;
+    for _ in 0..20_000 {
+        t += 1;
+        if k.step(&c, t, busy) == Change::Increased {
+            rose = true;
+            break;
+        }
+    }
+    assert!(rose, "recovers through a busy model");
 }

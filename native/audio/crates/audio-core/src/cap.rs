@@ -257,6 +257,12 @@ impl CapState {
         self.cfg.budget = budget;
     }
 
+    /// Whether the work-unit model moves the cap (tests and a lab harness; production keeps
+    /// [`crate::cap_controller::MODEL_DRIVES_CAP`]).
+    pub fn set_model_drives(&mut self, drives: bool) {
+        self.cfg.model_drives = drives;
+    }
+
     /// `k` for a window of `n` quanta: the p99 is the `k`th largest.
     fn rank(n: u32) -> usize {
         ((n / 100) as usize + 1).min(TOP_MAX)
