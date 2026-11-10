@@ -136,3 +136,8 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 - The plan gates B7 on MS5, MS6 and A0.6's old-engine fallback; all are done or being verified by the B7 worker. ADR 0157 says the core becomes the default at this point, with macOS desktop builds kept on Babylon until macOS passes its gate.
 - **Chosen:** flip the default if every gate and the full e2e suite pass on the core default, keep the change one constant (`DEFAULT_BACKEND` in `src/engine/audio/settings.ts`) so it's trivial to revert, and merge to master with MS7.
 - **If you'd rather review first:** set `DEFAULT_BACKEND` back to `"babylon"`; everything else in MS7 stays.
+
+### 27. MS7 merged to master with the default switched to the core (B7)
+- Every B7 gate passed (MS5, MS6, the old-engine fallback with the default backend) and the full suite passed on the core default, so B7 shipped as planned: **projects without `audio.backend` now play on the audio core** (macOS desktop builds stay on Babylon until macOS passes its gate; browser Safari gets the core — the ADR names only "macOS desktop builds").
+- **Revert:** `DEFAULT_BACKEND = "babylon"` in `src/engine/audio/settings.ts` (one line); everything else in MS7 stays.
+- Not run here: WebKit and Firefox (no Docker), macOS, real devices.
