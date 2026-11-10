@@ -246,7 +246,9 @@ export class CoreBackend implements AudioBackend {
           return response.arrayBuffer();
         }),
       onError: (id, asset, message) => this.streamFailed(id, asset, message),
+      sendSeek: (id, frame, epoch) => this.writer.seek(id, frame, epoch),
     });
+    this.streams.afterSeek = (voice, frame) => this.reanchorSeek(voice, frame);
     // Stream voices' positions are in their stream's frames, at its rate (B3).
     this.playheads = new PlayheadTracker(this.table, { info: (id) => this.streams.clipInfo(id) ?? this.clips.info(id) }, host.sampleRate);
     this.replayer = new Replayer(this, host.link);
@@ -709,6 +711,38 @@ export class CoreBackend implements AudioBackend {
     if (this.onCore(i)) this.writer.setPaused(id, paused);
   }
 
+  /**
+   * @internal B3b: moves voice `id` to `seconds` of its sound. A stream voice restarts at the new epoch (`streams.ts`:
+   * the old audio fades out over 5 ms in the core, the ring is flushed, the new audio fades in once decoded, and the
+   * voice reads "waitingForData" meanwhile); a clip voice fades out, jumps and fades in. A loop wraps the time into
+   * the sound; otherwise it clamps to the end (the voice then ends). A voice not on the core yet (its clip still
+   * loading, or locked) ignores it.
+   */
+  _seek(id: number, seconds: number): void {
+    const i = this.slot(id);
+    if (i < 0 || !Number.isFinite(seconds)) return;
+    const t = this.table;
+    const time = Math.max(0, seconds);
+    if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) {
+      const frame = this.streams.seek(t.clip[i]!, time);
+      if (frame !== null) this.reanchorSeek(id, frame);
+      return;
+    }
+    if (!this.onCore(i)) return;
+    const info = this.clips.info(t.clip[i]!);
+    if (!info || info.sampleRate <= 0) return;
+    let frame = Math.round(time * info.sampleRate);
+    if (info.frames > 0) frame = (t.flags[i]! & VoiceFlag.LOOP) !== 0 ? frame % info.frames : Math.min(frame, info.frames);
+    this.writer.seek(id, frame, 0);
+    this.reanchorSeek(id, frame);
+  }
+
+  /** B3b: the playhead tracker follows a seek: the voice is at `frame` from now on. */
+  private reanchorSeek(id: number, frame: number): void {
+    const i = this.slot(id);
+    if (i >= 0) this.playheads.start(i, this.clockMap.framesNow(), frame);
+  }
+
   // --- Internals ---
 
   private slot(id: number): number {
@@ -1032,6 +1066,10 @@ class Voice implements CoreVoice {
 
   resume(): void {
     this.backend._setPaused(this.id, false);
+  }
+
+  seek(seconds: number): void {
+    this.backend._seek(this.id, seconds);
   }
 
   fade(to: number, seconds: number): void {

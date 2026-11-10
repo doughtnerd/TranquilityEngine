@@ -91,6 +91,12 @@ export interface AudioVoice {
   setBus(bus: string): void;
   pause(): void;
   resume(): void;
+  /**
+   * Move to `seconds` of the sound (B3b; the core backend only). The old audio fades out over 5 ms and the new fades
+   * in; a streamed sound is flushed (no old audio after the seek) and reads "waitingForData" until it is decoded from
+   * there. A loop wraps the time, otherwise it clamps to the end. Absent on the Babylon fallback.
+   */
+  seek?(seconds: number): void;
   /** Stop now, or fade to silence over `fadeSeconds` (default 0) and stop. */
   stop(fadeSeconds?: number): void;
 }

@@ -14,8 +14,11 @@
 // - Main hears `streamOpened` (the file's info) and `streamClosed`, and on a failure `{type:"error", streamId, asset,
 //   message}` (architecture §7: main then stops the voice with a 50 ms fade and warns once). A failed stream sends no
 //   more chunks; its voice starves until main stops it.
-// - `streamSeek` (B3b's) restarts the stream at a frame with a new epoch: a STREAM_OPEN of that epoch and chunks from
-//   there; the core restarts its ring on it and drops the old epoch's chunks. B3b adds the SEEK record's fades.
+// - `streamSeek` (B3b) restarts the stream at a frame with a new, larger epoch: the decoder seeks (sample-accurately),
+//   then a STREAM_OPEN of that epoch and chunks from there; the core restarts its ring on it (the SEEK record main sends
+//   with the same epoch may restart it first) and drops the old epoch's chunks. A loop wraps the frame into the file;
+//   a seek past the end of a one-shot sends one empty last chunk; credits of older epochs are ignored and the credit
+//   window starts again.
 //
 // Streams decode on their own instance of the wasm (`DecoderWasm.fork`), so a clip decode that traps can't take them
 // with it. Never throws: every failure becomes an `error` reply.
@@ -209,12 +212,16 @@ export class StreamDecoder {
     this.port?.postMessage(buffer, [buffer]);
   }
 
-  /** B3b's hook: restart at `frame` with a new epoch (the core restarts its ring on the STREAM_OPEN). */
+  /**
+   * B3b: restart at `m.frame` with the new epoch `m.epoch` (the core restarts its ring on the STREAM_OPEN). A seek whose
+   * epoch is not newer than the stream's is stale and ignored; for a looping stream of known length the frame wraps.
+   */
   private seek(m: StreamSeekMessage): void {
     const s = this.streams.get(m.streamId);
-    if (!s || !this.decoder) return;
+    if (!s || !this.decoder || ((m.epoch - s.epoch) | 0) <= 0) return;
+    const frame = s.loop && s.frames > 0 ? m.frame % s.frames : m.frame;
     try {
-      this.decoder.seek(s.handle, m.frame);
+      this.decoder.seek(s.handle, frame);
     } catch (e) {
       return this.failStream(s, e);
     }
@@ -223,7 +230,7 @@ export class StreamDecoder {
     s.done = false;
     s.failed = false;
     s.credit.reset();
-    this.postOpen(s, m.frame);
+    this.postOpen(s, frame);
     this.pump(s);
   }
 

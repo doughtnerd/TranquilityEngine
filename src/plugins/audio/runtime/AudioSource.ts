@@ -85,6 +85,15 @@ export class AudioSource extends Component {
     this.voice?.resume();
   }
 
+  /**
+   * Moves the playing sound to `seconds` (clamped to 0 and the end; a loop wraps). A 5 ms fade-out and fade-in cover
+   * the jump, and a streamed sound drops everything decoded before it, so nothing of the old position is heard after
+   * the fade. Does nothing when not playing, or on the Babylon fallback (the core backend only).
+   */
+  seek(seconds: number): void {
+    this.voice?.seek?.(seconds);
+  }
+
   stop(): void {
     this.voice?.stop();
     this.voice = null;
