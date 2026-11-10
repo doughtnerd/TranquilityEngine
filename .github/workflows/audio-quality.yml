@@ -1,0 +1,38 @@
+# ADR 0157, task A2.7: CI runs the audio core's native tests (including the objective quality harness,
+# audio-dsp/tests/quality_thdn.rs and audio-core/tests/quality_null_pan_limiter.rs) and the Vitest audio
+# tests (including the wasm golden runner, src/plugins/audio/runtime/audioGolden.test.ts).
+name: Audio core
+
+on:
+  push:
+    branches: [ master ]
+    paths: [ 'native/audio/**', 'src/plugins/audio/**', '.github/workflows/audio-quality.yml' ]
+  pull_request:
+    branches: [ master ]
+    paths: [ 'native/audio/**', 'src/plugins/audio/**', '.github/workflows/audio-quality.yml' ]
+
+jobs:
+  native:
+    name: cargo test (native/audio)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins the stable toolchain and the wasm target; rustup installs it on first use.
+      - name: Install the pinned toolchain
+        working-directory: native/audio
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: cargo test
+        working-directory: native/audio
+        run: cargo test --workspace --locked
+
+  vitest:
+    name: Vitest (audio plugin, wasm goldens)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run src/plugins/audio
