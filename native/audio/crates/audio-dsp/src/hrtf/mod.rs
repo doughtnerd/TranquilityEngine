@@ -8,7 +8,7 @@
 //! about 45 ms (`panner`).
 //!
 //! Re-done here:
-//! - **Convolution** (`convolver`): uniform 128-frame partitions on `microfft`'s 256-point real FFT,
+//! - **Convolution** (`convolver`): uniform 128-frame partitions on a 256-point real FFT (`fft`, on the reverb's transform, H3),
 //!   with one frequency-domain delay line per ear shared by both kernel sets, instead of Chromium's
 //!   `FFTConvolver` (512-point FFT, 256-frame blocks). Two consequences, both deliberate:
 //!   the port has no convolver latency (Chromium's adds `fft_size / 2` frames, 256 at 44.1 and

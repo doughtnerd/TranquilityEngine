@@ -15,6 +15,10 @@
 // allocates nothing). Only mixed voices get SET_PARAMS for gain and direction; virtual ones keep fresh values in the
 // table for their audibility, and SET_MIXED carries them on a promote.
 //
+// HRTF (H3): after selection, `HrtfPick` flags the top `voices.hrtf` mixed spatial voices by audibility (1.2x
+// hysteresis) with panner kind 1, sent as SET_PARAMS `flags`; the core crossfades 45 ms either way. The first flag
+// starts the lazy HRIR fetch (`hrir.ts`); `audio.spatial: "equalPower"` or `voices.hrtf: 0` never flags or fetches.
+//
 // A1.6 added `volume, pitch, priority, oneShot, at, attenuation, position` to `PlayRequest` and `id, reason, fade,
 // setPriority, stop(fadeSeconds)` to `AudioVoice` (§6). `CorePlayRequest` and `CoreVoice` keep only what the core adds.
 import type { Vec3Like } from "../../../../engine/core/math";
@@ -55,6 +59,7 @@ import { StatusReader } from "./statusReader";
 import { UnlockQueue } from "./unlockQueue";
 import { connectVoiceTable, VoiceFlag, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
 import { effectiveMixedCap, ListenerBasis, Selection, type SelectionSink } from "./selection";
+import { HrtfPick, type HrtfSink } from "./hrtfPick";
 
 /** `PlayRequest` plus the core's World key. */
 export interface CorePlayRequest extends PlayRequest {
@@ -151,6 +156,9 @@ export class CoreBackend implements AudioBackend {
   readonly playheads: PlayheadTracker;
   /** The hard rebuild's replay (A3.4a; `replay.ts`). */
   readonly replayer: Replayer;
+  /** H3: which voices the core pans with HRTF. */
+  readonly hrtf: HrtfPick;
+  private readonly hrtfSink: HrtfSink;
 
   private readonly clock: HostClock;
   private readonly reader = new StatusReader();
@@ -193,6 +201,8 @@ export class CoreBackend implements AudioBackend {
     this.table = deps.table ?? new VoiceTable(host.preset.maxLogical);
     this.spatialDirty = new Uint8Array(this.table.capacity);
     this.selection = new Selection(this.table);
+    this.hrtf = new HrtfPick(this.table);
+    this.hrtfSink = { setPanner: (i, on) => this.sendPanner(i, on) };
     this.basis.set(this.listenerPos, this.listenerFwd, this.listenerUp);
     this.selectionSink = {
       setMixed: (i, mixed) => this.sendMixed(i, mixed),
@@ -446,6 +456,7 @@ export class CoreBackend implements AudioBackend {
     if (this.lockedQueue.size > 0 && this.host.status === "running" && !this.recovering) this.unlock();
     if (this.spatialCount > 0) this.moveSpatial();
     this.select();
+    this.pickHrtf();
     if (this.idlePending) this.checkIdle();
     this.table.drainCommands(this.writer);
     // A3.4a: during a rebuild (or after recovery gave up) no core keeps what is sent; the replay re-derives it all.
@@ -542,6 +553,16 @@ export class CoreBackend implements AudioBackend {
   /** True once the core reported hrtfReady for the HRIR table (spatial voices stay equal-power until then). */
   get hrtfReady(): boolean {
     return this.hrir.ready;
+  }
+
+  /** H3, STATUS `hrtfLoadFailure` with main's part: 2 when the core found the table invalid, 1 when the fetch failed, else 0. */
+  get hrtfLoadFailure(): number {
+    return this.mirror.hrtfLoadFailure || (this.hrir.failed ? 1 : 0);
+  }
+
+  /** H3: the panner kind the core holds for slot `i` (0 equal-power, 1 HRTF), which a rebuild's replayed PLAY carries. */
+  hrtfPanner(i: number): number {
+    return this.hrtf.panner(i);
   }
 
   /** `Audio.debug()` (K10): delegates to `debug.ts`. */
@@ -658,7 +679,6 @@ export class CoreBackend implements AudioBackend {
     if ((t.flags[i]! & VoiceFlag.SPATIAL) === 0) {
       t.flags[i]! |= VoiceFlag.SPATIAL;
       this.spatialCount++;
-      this.hrir.ensure(); // lazy: the first spatial voice starts the fetch (once)
     }
   }
 
@@ -798,6 +818,27 @@ export class CoreBackend implements AudioBackend {
     this.writer.setMixed(id, mixed, t.gain[i]!, t.dirX[i]!, t.dirY[i]!, t.dirZ[i]!, t.lpHz[i]!);
   }
 
+  /**
+   * H3: the HRTF assignment after selection: the top `voices.hrtf` mixed spatial voices by audibility (`hrtfPick.ts`),
+   * while `audio.spatial` is `"hrtf"` and the table hasn't failed to load. The first voice flagged starts the HRIR
+   * fetch (lazy, architecture §2.4); until the core has it, flagged voices pan equal-power, then crossfade.
+   */
+  private pickHrtf(): void {
+    const settings = this.mixer.audioSettings;
+    const limit = settings.spatial === "hrtf" && this.hrtfLoadFailure === 0 ? settings.voices.hrtf : 0;
+    if (limit <= 0 || this.spatialCount === 0) {
+      if (this.hrtf.count > 0) this.hrtf.clear(this.hrtfSink);
+      return;
+    }
+    if (this.hrtf.run(limit, this.hrtfSink) > 0) this.hrir.ensure();
+  }
+
+  /** H3: SET_PARAMS `flags` for slot `i`'s panner kind. */
+  private sendPanner(i: number, hrtf: boolean): void {
+    const t = this.table;
+    this.writer.setPanner(((t.gen[i]! << 16) | i) >>> 0, hrtf ? 1 : 0);
+  }
+
   /** A3.3: selection re-sends slot `i`'s score (its audibility moved), the core's key for its own lowest-score demote. */
   private sendScore(i: number, score: number): void {
     const t = this.table;
@@ -831,6 +872,7 @@ export class CoreBackend implements AudioBackend {
     const s = t.state[i]!;
     if (s === VoiceState.PLAYING || s === VoiceState.VIRTUAL || s === VoiceState.STOPPING) this.writer.stop(id, STEAL_FADE_SECONDS);
     this.clips.release(t.clip[i]!);
+    this.hrtf.forget(i);
     this.mixer.voiceEnded(this.names[bus] ?? "");
     if ((t.flags[i]! & VoiceFlag.SPATIAL) !== 0) this.spatialCount--;
     t.flags[i] = 0;

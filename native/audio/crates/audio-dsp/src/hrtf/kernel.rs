@@ -49,7 +49,10 @@
 //!   response (zero total magnitude) gives a delay of 0 and is left alone, where upstream would
 //!   produce NaN.
 //! - `std::abs`, `arg`, `polar`, `log10` and `pow` become `libm::hypot`, `atan2`, `cos`/`sin`,
-//!   `log10` and `pow`.
+//!   `log10` and `pow`. In `InterpolateFrequencyComponents` (the cost of an interpolated kernel,
+//!   which the render pays on a direction change), `20 log10 |z|` is `10 log10 |z|²` and
+//!   `pow(10, x)` is `exp(x ln 10)` (H3): the same values to the last bits of f64, half the time
+//!   (about 80 → 43 µs a kernel natively).
 //!
 //! Nothing here allocates; all buffers are in [`HrtfScratch`] or the caller's [`KernelSpectra`].
 
@@ -63,6 +66,8 @@ use super::fft::{irfft, rfft, Twiddles};
 use super::{lerp_f32, Ear, MAX_FFT_SIZE, MAX_PARTITIONS, PARTITION_BINS, PARTITION_FFT_SIZE, QUANTUM_FRAMES};
 
 const TWO_PI: f64 = 2.0 * PI;
+/// `ln(10) / 20`: decibels to the natural log of the magnitude.
+const DB_TO_LN: f64 = core::f64::consts::LN_10 / 20.0;
 const ZERO_BIN: Complex32 = Complex32 { re: 0.0, im: 0.0 };
 
 /// One ear's kernel in the convolver's format: partition `k` is the 256-point packed FFT of taps
@@ -176,8 +181,8 @@ fn response_into_scratch(db: &HrirDatabase<'_>, sample_rate: f32, azimuth_index:
     scratch.time_b[taps..fft_size].fill(0.0);
     let HrtfScratch { time_a, time_b, spectrum, work, twiddles, .. } = scratch;
     {
-        let frame1 = rfft(&mut time_a[..fft_size]);
-        let frame2 = rfft(&mut time_b[..fft_size]);
+        let frame1 = rfft(&mut time_a[..fft_size], work, twiddles);
+        let frame2 = rfft(&mut time_b[..fft_size], work, twiddles);
         interpolate_frequency_components(frame1, frame2, pair.x as f64, &mut spectrum[..taps]);
     }
     irfft(&spectrum[..taps], &mut time_a[..fft_size], &mut work[..taps], twiddles);
@@ -216,9 +221,10 @@ fn partition_scratch(taps: usize, scratch: &mut HrtfScratch, out: &mut [[Complex
     for (k, part) in out.iter_mut().take(parts).enumerate() {
         let start = k * QUANTUM_FRAMES;
         let end = (start + QUANTUM_FRAMES).min(taps);
-        scratch.block.fill(0.0);
-        scratch.block[..end - start].copy_from_slice(&scratch.time_a[start..end]);
-        part.copy_from_slice(rfft(&mut scratch.block));
+        let HrtfScratch { block, time_a, work, twiddles, .. } = &mut *scratch;
+        block.fill(0.0);
+        block[..end - start].copy_from_slice(&time_a[start..end]);
+        part.copy_from_slice(rfft(block, work, twiddles));
     }
     parts
 }
@@ -258,6 +264,14 @@ pub(crate) fn partition_response(response: &[f32], scratch: &mut HrtfScratch, ou
     partition_scratch(response.len(), scratch, out)
 }
 
+/// `pow(s, 0.75)` for `s` in 0..=1 as `sqrt(s) * sqrt(sqrt(s))` (H3: correctly rounded square
+/// roots, within a few ulps of `pow`, and it keeps `libm::pow`'s 2 KB out of the mixer's wasm).
+#[inline]
+fn pow_three_quarters(s: f64) -> f64 {
+    let r = libm::sqrt(s);
+    r * libm::sqrt(r)
+}
+
 /// Unwraps a phase difference into -π..=π (upstream's two `if`s, in its order).
 #[inline]
 fn unwrap_upper_first(mut d: f64) -> f64 {
@@ -292,12 +306,11 @@ pub(crate) fn interpolate_frequency_components(frame1: &[Complex32], frame2: &[C
     for i in 1..packed_size {
         let (re1, im1) = (frame1[i].re as f64, frame1[i].im as f64);
         let (re2, im2) = (frame2[i].re as f64, frame2[i].im as f64);
-        let mag1 = libm::hypot(re1, im1);
-        let mag2 = libm::hypot(re2, im2);
 
-        // Interpolate magnitudes in decibels.
-        let db_mag1 = 20.0 * libm::log10(mag1);
-        let db_mag2 = 20.0 * libm::log10(mag2);
+        // Interpolate magnitudes in decibels. `20 log10 |z|` as `10 log10 |z|²` (H3: no `hypot`;
+        // the squares of f32 values are exact in f64, so only the last bits can differ).
+        let db_mag1 = 10.0 * libm::log10(re1 * re1 + im1 * im1);
+        let db_mag2 = 10.0 * libm::log10(re2 * re2 + im2 * im2);
 
         let mut s1 = s1base;
         let mut s2 = s2base;
@@ -306,15 +319,16 @@ pub(crate) fn interpolate_frequency_components(frame1: &[Complex32], frame2: &[C
         // Empirical tweak to retain higher-frequency zeroes.
         let threshold = if i > 16 { 5.0 } else { 2.0 };
         if db_mag_diff < -threshold && db_mag1 < 0.0 {
-            s1 = libm::pow(s1, 0.75);
+            s1 = pow_three_quarters(s1);
             s2 = 1.0 - s1;
         } else if db_mag_diff > threshold && db_mag2 < 0.0 {
-            s2 = libm::pow(s2, 0.75);
+            s2 = pow_three_quarters(s2);
             s1 = 1.0 - s2;
         }
 
         let db_mag = s1 * db_mag1 + s2 * db_mag2;
-        let mag = libm::pow(10.0, 0.05 * db_mag);
+        // `pow(10, 0.05 db)` as `exp(0.05 ln(10) db)` (H3: `exp` costs a fraction of `pow`).
+        let mag = libm::exp(DB_TO_LN * db_mag);
 
         // Now, deal with phase.
         let phase1 = libm::atan2(im1, re1);
@@ -352,7 +366,7 @@ pub fn extract_average_group_delay(ir: &mut [f32], scratch: &mut HrtfScratch) ->
     let packed_size = n / 2;
     let HrtfScratch { time_a, spectrum, work, twiddles, .. } = scratch;
     time_a[..n].copy_from_slice(ir);
-    spectrum[..packed_size].copy_from_slice(rfft(&mut time_a[..n]));
+    spectrum[..packed_size].copy_from_slice(rfft(&mut time_a[..n], work, twiddles));
     let spec = &mut spectrum[..packed_size];
 
     let mut ave_sum = 0.0f64;
@@ -416,7 +430,8 @@ mod tests {
 
     fn spectrum_of(x: &[f32]) -> Vec<Complex32> {
         let mut buf = x.to_vec();
-        rfft(&mut buf).to_vec()
+        let mut work = vec![Complex32::default(); MAX_FFT_SIZE / 2];
+        rfft(&mut buf, &mut work, &Twiddles::new()).to_vec()
     }
 
     #[test]

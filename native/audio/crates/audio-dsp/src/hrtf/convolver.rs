@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 //! Uniform partitioned convolution for the HRTF panner (api-and-models §5): 128-frame partitions,
-//! overlap-save on `microfft`'s 256-point real FFT. It replaces Blink's `FFTConvolver` (512-point,
+//! overlap-save on a 256-point real FFT (`fft`). It replaces Blink's `FFTConvolver` (512-point,
 //! 256-frame blocks) and is Myco's own code, not a port.
 //!
 //! Each ear keeps an [`EarInput`]: the previous input block and a frequency-domain delay line of
@@ -38,14 +38,41 @@ impl<const P: usize> EarInput<P> {
 
     /// Appends one quantum of input: transforms `[previous, block]` into the newest slot.
     pub fn push(&mut self, block: &[f32; QUANTUM_FRAMES], scratch: &mut HrtfScratch) {
-        if P == 0 {
+        self.view().push(block, scratch);
+    }
+
+    /// The history with its partition count erased (the panner's one process path, H3).
+    pub(crate) fn view(&mut self) -> EarView<'_> {
+        EarView { spectra: &mut self.spectra, newest: &mut self.newest, previous: &mut self.previous }
+    }
+}
+
+/// An [`EarInput`] of any `P`, borrowed: what the panner's process path uses, so the wasm carries
+/// it once rather than once per partition count (H3).
+pub(crate) struct EarView<'a> {
+    spectra: &'a mut [[Complex32; PARTITION_BINS]],
+    newest: &'a mut usize,
+    previous: &'a mut [f32; QUANTUM_FRAMES],
+}
+
+impl EarView<'_> {
+    /// [`EarInput::push`].
+    pub(crate) fn push(&mut self, block: &[f32; QUANTUM_FRAMES], scratch: &mut HrtfScratch) {
+        let p = self.spectra.len();
+        if p == 0 {
             return;
         }
-        scratch.block[..QUANTUM_FRAMES].copy_from_slice(&self.previous);
-        scratch.block[QUANTUM_FRAMES..].copy_from_slice(block);
-        self.previous = *block;
-        self.newest = (self.newest + 1) % P;
-        self.spectra[self.newest].copy_from_slice(rfft(&mut scratch.block));
+        let HrtfScratch { block: buf, work, twiddles, .. } = scratch;
+        buf[..QUANTUM_FRAMES].copy_from_slice(&self.previous[..]);
+        buf[QUANTUM_FRAMES..].copy_from_slice(block);
+        *self.previous = *block;
+        *self.newest = (*self.newest + 1) % p;
+        self.spectra[*self.newest].copy_from_slice(rfft(buf, work, twiddles));
+    }
+
+    /// [`convolve`] on this history.
+    pub(crate) fn convolve(&self, kernel: &[[Complex32; PARTITION_BINS]], partitions: usize, scratch: &mut HrtfScratch, out: &mut [f32; QUANTUM_FRAMES]) {
+        convolve_ring(self.spectra, *self.newest, kernel, partitions, scratch, out);
     }
 }
 
@@ -65,11 +92,25 @@ pub fn convolve<const P: usize>(
     scratch: &mut HrtfScratch,
     out: &mut [f32; QUANTUM_FRAMES],
 ) {
+    convolve_ring(&input.spectra, input.newest, kernel, partitions, scratch, out);
+}
+
+/// [`convolve`] over the ring as a slice, so the wasm carries one copy for every `P` (H3).
+#[inline(never)]
+fn convolve_ring(
+    spectra: &[[Complex32; PARTITION_BINS]],
+    newest: usize,
+    kernel: &[[Complex32; PARTITION_BINS]],
+    partitions: usize,
+    scratch: &mut HrtfScratch,
+    out: &mut [f32; QUANTUM_FRAMES],
+) {
+    let p = spectra.len();
     let HrtfScratch { spectrum, time_a, work, twiddles, .. } = scratch;
     let acc = &mut spectrum[..PARTITION_BINS];
     acc.fill(ZERO_BIN);
-    for (k, h) in kernel.iter().take(partitions.min(P)).enumerate() {
-        let x = &input.spectra[(input.newest + P - k) % P];
+    for (k, h) in kernel.iter().take(partitions.min(p)).enumerate() {
+        let x = &spectra[(newest + p - k) % p];
         // Bin 0 packs two real values: DC in re, Nyquist in im.
         acc[0].re += x[0].re * h[0].re;
         acc[0].im += x[0].im * h[0].im;

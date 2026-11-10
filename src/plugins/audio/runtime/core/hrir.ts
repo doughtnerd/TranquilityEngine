@@ -108,6 +108,10 @@ export interface HrirLoader {
   ensure(): void;
   /** True once the core reported hrtfReady for the table (clip event 4). */
   readonly ready: boolean;
+  /** H3: true once the fetch (or the resampling) failed: STATUS-style `hrtfLoadFailure` 1 on main. Optional so fakes satisfy it. */
+  readonly failed?: boolean;
+  /** H3: true once `ensure` started the load (`audio.spatial: "equalPower"` never starts it). Optional so fakes satisfy it. */
+  readonly started?: boolean;
   /**
    * A3.4c, a rebuild into a context at `sampleRate`: the table is resampled again from the original asset for the new
    * rate and the registry's kept blob replaced (`updateReserved`), so the rebuild's re-send carries it. A fetch still
@@ -126,6 +130,7 @@ export function createHrirLoader(deps: HrirLoaderDeps): HrirLoader {
       return response.arrayBuffer();
     });
   let started = false;
+  let failed = false;
   let rate = deps.sampleRate;
   /** The asset as fetched (at its own rate), kept for a rebuild at another rate (A3.4c). */
   let original: ArrayBuffer | null = null;
@@ -141,12 +146,19 @@ export function createHrirLoader(deps: HrirLoaderDeps): HrirLoader {
           deps.clips.acquireReserved(HRIR_CLIP_ID, { bytes, sampleRate: readHrirHeader(bytes).rate, format: FORMAT_HRIR });
         } catch (err) {
           original = null;
+          failed = true;
           fail(err);
         }
       })();
     },
     get ready() {
       return deps.clips.state(HRIR_CLIP_ID) === "ready";
+    },
+    get failed() {
+      return failed;
+    },
+    get started() {
+      return started;
     },
     retarget(sampleRate) {
       if (Math.abs(sampleRate - rate) < 0.5) return;

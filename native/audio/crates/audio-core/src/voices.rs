@@ -11,7 +11,8 @@
 //! voice starts at its sample offset (asap: offset 0 of the first quantum after arrival; a stamped
 //! frame already past: offset 0, counted late, from its start, architecture §4.4). A playing voice
 //! reads its clip through the 4-point resampler (`resample::lagrange`, A3.6), multiplies by its gain and fade ramps and pans
-//! through its [`PannerState`]. A virtual voice (PLAY flag `mixed` clear) keeps time without
+//! through its [`PannerState`] (equal-power, or HRTF for the voices main flags, H3: their HRTF half
+//! is panned per quantum by `panner::flush` after every voice rendered). A virtual voice (PLAY flag `mixed` clear) keeps time without
 //! rendering. A voice ends when a non-looping clip runs out, when STOP lands (fade 0), or when a
 //! fade with "stop at end" finishes. Ended voices are reported in STATUS `ended` (K12) and their slot
 //! is freed; when the block's `ended` list is full the rest wait in `Ended` for the next quantum
@@ -66,7 +67,7 @@ use crate::clips::ClipStore;
 use crate::core::{Core, Regions};
 use crate::counters::{Playhead, ENDED_CAP, PLAYHEADS_CAP};
 use crate::layout::VOICE_SLOT_BYTES;
-use crate::panner::PannerState;
+use crate::panner::{Hrtf, PannerState};
 use crate::{status, QUANTUM};
 
 /// `start_frame` of a voice that starts at the first quantum after its PLAY arrived.
@@ -267,6 +268,7 @@ pub fn render(core: &mut Core, frame: u64) {
     if cursor < QUANTUM {
         render_range(core, frame, cursor, QUANTUM);
     }
+    crate::panner::flush(core, frame);
     report(core);
 }
 
@@ -283,6 +285,8 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) {
     // The buses' buffers are the `Buses` region, distinct from the voices and core-state regions
     // `v` views (Layout); `Inputs` holds a raw view of them and reads the bus count first.
     let mut inputs = crate::bus::Inputs::of(regions);
+    // H3: the HRTF bank, once the HRIR table is resident (kind-1 voices pan equal-power until then).
+    let mut hrtf = crate::panner::view(clips);
     let v = view(regions);
     let mut cursor = v.area.live_head;
     while cursor != 0 {
@@ -316,13 +320,14 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) {
             _ => continue,
         };
         let Some((out_l, out_r)) = inputs.get(slot.bus) else { continue };
-        render_voice(slot, clips, start, to, out_l, out_r);
+        render_voice(slot, clips, hrtf.as_mut(), frame, start, to, out_l, out_r);
     }
 }
 
-/// Renders one playing voice over frames `from..to` (mixed) or keeps its time (virtual), and ends
-/// it when its clip runs out or its stopping fade settles.
-fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
+/// Renders one playing voice over frames `from..to` of the quantum at `frame` (mixed) or keeps its
+/// time (virtual), and ends it when its clip runs out or its stopping fade settles.
+#[allow(clippy::too_many_arguments)]
+fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<'_>>, frame: u64, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
     if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
         // Paused and out of the mix (A3.7): holds its position, ramps and panner exactly. A stop
         // (or a stopping fade) asked for while held ends it now: it is silent.
@@ -373,7 +378,8 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, from: usize, to: usize,
                 r[i] *= g;
             }
         }
-        slot.panner.mix(&l[..n], &r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
+        let (id, bus) = (slot.id, slot.bus);
+        slot.panner.mix_range(hrtf, id, bus, frame, from, &l[..n], &r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
         if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
             // The demote (or pause) fade is done: virtual from the next frame, keeping time (or,
             // paused, holding from here).
