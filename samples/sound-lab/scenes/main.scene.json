@@ -1,0 +1,80 @@
+{
+  "format": "myco.scene@2",
+  "settings": { "physics": "3d" },
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 5, 12], "rotation": [-20, 0, 0] } },
+        { "type": "engine.Camera", "data": { "projection": "perspective", "fieldOfView": 55 } },
+        { "type": "engine.AudioListener", "data": {} }
+      ]
+    },
+    {
+      "id": "sun",
+      "name": "Sun",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 8, 0], "rotation": [-55, 35, 0] } },
+        { "type": "engine.Light", "data": { "type": "directional", "intensity": 1.4 } }
+      ]
+    },
+    {
+      "id": "music",
+      "name": "Music",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.AudioSource",
+          "data": { "clip": "asset:audio/music-loop.wav", "loop": true, "volume": 0.5, "playOnAwake": true, "output": "Music" }
+        }
+      ]
+    },
+    {
+      "id": "emitter",
+      "name": "Emitter",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [6, 1, 0] } },
+        { "type": "engine.MeshRenderer", "data": { "mesh": "builtin:sphere" } },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/hum-loop.wav",
+            "loop": true,
+            "volume": 0.4,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 30,
+            "output": "Ambience"
+          }
+        },
+        { "type": "lab.Orbit", "data": { "radius": 6, "speed": 0.25 } }
+      ]
+    },
+    {
+      "id": "oneshots",
+      "name": "OneShots (key 1)",
+      "transform": false,
+      "components": [{ "type": "lab.OneShots", "data": {} }]
+    },
+    {
+      "id": "buses",
+      "name": "Buses (keys 2, 3)",
+      "transform": false,
+      "components": [{ "type": "lab.Buses", "data": {} }]
+    },
+    {
+      "id": "snapshots",
+      "name": "Snapshots (key 4)",
+      "transform": false,
+      "components": [{ "type": "lab.Snapshots", "data": {} }]
+    },
+    {
+      "id": "effects",
+      "name": "Effects (keys 5, 6)",
+      "transform": false,
+      "components": [{ "type": "lab.Effects", "data": {} }]
+    }
+  ]
+}
