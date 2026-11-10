@@ -227,6 +227,24 @@ fn effects_are_stored_per_bus_and_unknown_types_dropped() {
 }
 
 #[test]
+fn a_second_compressor_on_a_bus_is_dropped_and_counted() {
+    let mut m = Mixer::new(8);
+    m.submit(&[config_fx(&[
+        (ROOT, vec![(kind::COMPRESSOR, -24.0, 30.0), (kind::COMPRESSOR, -12.0, 6.0), (kind::LOWPASS, 800.0, 1.0)]),
+        (0, vec![(kind::COMPRESSOR, -12.0, 6.0)]),
+    ])]);
+    let s = bus::slots(&m.core);
+    assert_eq!(s[0].fx.kinds().collect::<Vec<_>>(), vec![kind::COMPRESSOR, kind::NONE, kind::LOWPASS]);
+    assert_eq!(s[1].fx.kinds().collect::<Vec<_>>(), vec![kind::COMPRESSOR], "one compressor per bus, not per tree");
+    assert_eq!(bus::area(&m.core).dropped, 1);
+    // One compressor's look-ahead on the root, not two.
+    m.submit(&[dc(V1, 0, 0.0)]);
+    let (l, _) = m.render_n(3);
+    check(&l[..288], TOL, "the compressor's pre-delay", |_| 0.0);
+    assert!(l[288..].iter().all(|&x| x > 0.0), "the signal arrives after one pre-delay");
+}
+
+#[test]
 fn a_bus_config_whose_entries_overrun_the_record_refuses_the_batch() {
     let mut m = Mixer::new(8);
     let mut msg = batch(0.0, &[dc(V1, 0, 0.0), config_fx(&[(ROOT, vec![(kind::LOWPASS, 500.0, 0.0)])])]);

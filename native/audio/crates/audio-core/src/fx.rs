@@ -14,14 +14,21 @@
 //!   unchanged (a tap); the shared `audio_dsp::convolver` (A2.2b) renders the wet signal once per
 //!   quantum in `bus.rs`.
 //!
-//! In A2.1 those modules are passthrough stubs, so a configured chain changes nothing yet.
+//! (In A2.1 those modules were passthrough stubs; A2.2a and A2.2b filled them.)
 //!
-//! **Limits and bad input.** A bus keeps at most [`MAX_EFFECTS`] effects; the rest, and effects of
-//! an unknown type (a newer minor), are dropped and counted (the count is returned to `bus.rs`,
-//! which keeps it in its area: the wire has no STATUS field for it). A non-finite parameter is
-//! read as 0; a send is clamped to 0..1. A slot that keeps its kind across a BUS_CONFIG keeps its
-//! filter or envelope state (an effect edit doesn't click); a slot whose kind changes starts from
-//! zeroed state.
+//! **Limits and bad input.** A bus keeps at most [`MAX_EFFECTS`] effects, and at most one
+//! compressor (the first); the rest, and effects of an unknown type (a newer minor), are dropped
+//! and counted (the count is returned to `bus.rs`, which keeps it in its area: the wire has no
+//! STATUS field for it). A dropped second compressor and an unknown type keep their place as a
+//! [`kind::NONE`] slot, so the others keep their slots. A non-finite parameter is read as 0; a
+//! send is clamped to 0..1. A slot that keeps its kind across a BUS_CONFIG keeps its filter or
+//! envelope state (an effect edit doesn't click); a slot whose kind changes starts from zeroed
+//! state.
+//!
+//! **Memory.** The compressor's state (about 2.4 KB, most of it its pre-delay line) is held once
+//! per bus, in [`FxChain::compressor`], beside the slots; a slot keeps only a biquad's state
+//! (lowpass, highpass), a send gain (in `p[0]`), or nothing (a compressor slot runs the bus's
+//! compressor). So a bus stays near architecture §5.1's budget (the `layout.rs` tests check it).
 //!
 //! All-zero is a valid empty chain. Nothing here allocates.
 
@@ -43,24 +50,12 @@ pub mod kind {
     pub const HIGHPASS: u32 = wire::effect_type::HIGHPASS;
     pub const COMPRESSOR: u32 = wire::effect_type::COMPRESSOR;
     pub const REVERB_SEND: u32 = wire::effect_type::REVERB_SEND;
-    /// An unknown type: skipped.
+    /// An unknown type, or a bus's second compressor: skipped.
     pub const NONE: u32 = u32::MAX;
 }
 
-/// A slot's DSP state: one of the kinds' state types. All-zero is valid for each.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub union FxState {
-    pub biquad: Biquad,
-    pub compressor: Compressor,
-}
-
-impl FxState {
-    fn zeroed() -> FxState {
-        // SAFETY: every member is all-zero valid (`audio-dsp`'s contract for both types).
-        unsafe { core::mem::zeroed() }
-    }
-}
+/// [`FxChain::compressor_slot`] when no slot is a compressor.
+pub const NO_COMPRESSOR: u32 = u32::MAX;
 
 /// One effect slot. All-zero is a lowpass with zeroed parameters, which is never processed unless
 /// it is within the chain's `count`.
@@ -69,9 +64,10 @@ impl FxState {
 pub struct FxSlot {
     /// [`kind`].
     pub kind: u32,
-    /// The wire parameters, sanitised (non-finite to 0).
+    /// The wire parameters, sanitised (non-finite to 0; a send clamped to 0..1).
     pub p: [f32; 7],
-    pub state: FxState,
+    /// The filter state of a lowpass or highpass slot (zeroed and unused for the other kinds).
+    pub biquad: Biquad,
 }
 
 /// One bus's effect chain. All-zero is an empty chain.
@@ -80,7 +76,12 @@ pub struct FxSlot {
 pub struct FxChain {
     /// Slots in use, in order.
     pub count: u32,
+    /// The index of the slot that runs [`FxChain::compressor`], or [`NO_COMPRESSOR`]. Read only
+    /// below `count` and with that slot's kind (all-zero reads slot 0, not in use when empty).
+    pub compressor_slot: u32,
     pub slots: [FxSlot; MAX_EFFECTS],
+    /// The bus's one compressor, run by the slot at `compressor_slot`.
+    pub compressor: Compressor,
 }
 
 impl Default for FxChain {
@@ -91,10 +92,23 @@ impl Default for FxChain {
 }
 
 impl FxChain {
+    /// The number of slots in use.
+    fn used(&self) -> usize {
+        (self.count as usize).min(MAX_EFFECTS)
+    }
+
+    /// The compressor's slot, when one is in use.
+    fn compressor_in_use(&self) -> Option<usize> {
+        let i = self.compressor_slot as usize;
+        (i < self.used() && self.slots[i].kind == kind::COMPRESSOR).then_some(i)
+    }
+
     /// Stores the effects `(type, p)` in order (BUS_CONFIG). Returns how many were dropped: past
-    /// [`MAX_EFFECTS`], or of an unknown type (those keep their place as a [`kind::NONE`] slot, so
-    /// the order of the others is kept).
+    /// [`MAX_EFFECTS`], a second compressor, or of an unknown type (those two keep their place as
+    /// a [`kind::NONE`] slot, so the order of the others is kept).
     pub fn configure<I: IntoIterator<Item = (u32, [f32; 7])>>(&mut self, effects: I, sample_rate: f32) -> u32 {
+        let old_compressor = self.compressor_in_use();
+        let mut compressor = None;
         let mut n = 0usize;
         let mut dropped = 0u32;
         for (type_, raw) in effects {
@@ -103,35 +117,45 @@ impl FxChain {
                 continue;
             }
             let k = match type_ {
+                kind::COMPRESSOR if compressor.is_some() => {
+                    dropped += 1;
+                    kind::NONE
+                }
                 kind::LOWPASS | kind::HIGHPASS | kind::COMPRESSOR | kind::REVERB_SEND => type_,
                 _ => {
                     dropped += 1;
                     kind::NONE
                 }
             };
+            let in_use = n < self.count as usize;
             let slot = &mut self.slots[n];
-            if slot.kind != k || n >= self.count as usize {
-                slot.state = FxState::zeroed();
+            if slot.kind != k || !in_use {
+                slot.biquad = Biquad::default();
             }
             slot.kind = k;
             for (dst, src) in slot.p.iter_mut().zip(raw) {
                 *dst = if src.is_finite() { src } else { 0.0 };
             }
             let p = slot.p;
-            // SAFETY: the member read and written matches `k` (the state was zeroed on a kind
-            // change, and all-zero is valid for every member).
-            unsafe {
-                match k {
-                    kind::LOWPASS => slot.state.biquad.set_lowpass(sample_rate, p[0], p[1]),
-                    kind::HIGHPASS => slot.state.biquad.set_highpass(sample_rate, p[0], p[1]),
-                    kind::COMPRESSOR => slot.state.compressor.configure(sample_rate, p[0], p[1], p[2], p[3], p[4]),
-                    kind::REVERB_SEND => slot.p[0] = p[0].clamp(0.0, 1.0),
-                    _ => {}
+            match k {
+                kind::LOWPASS => slot.biquad.set_lowpass(sample_rate, p[0], p[1]),
+                kind::HIGHPASS => slot.biquad.set_highpass(sample_rate, p[0], p[1]),
+                kind::COMPRESSOR => {
+                    // The rule for every kind: the compressor keeps its envelope only when it
+                    // stays in the same slot.
+                    if old_compressor != Some(n) {
+                        self.compressor = Compressor::default();
+                    }
+                    self.compressor.configure(sample_rate, p[0], p[1], p[2], p[3], p[4]);
+                    compressor = Some(n);
                 }
+                kind::REVERB_SEND => slot.p[0] = p[0].clamp(0.0, 1.0),
+                _ => {}
             }
             n += 1;
         }
         self.count = n as u32;
+        self.compressor_slot = compressor.map_or(NO_COMPRESSOR, |i| i as u32);
         dropped
     }
 
@@ -140,26 +164,25 @@ impl FxChain {
     /// send fed the reverb.
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32], reverb_l: &mut [f32], reverb_r: &mut [f32]) -> bool {
         let mut sent = false;
-        for slot in self.slots[..(self.count as usize).min(MAX_EFFECTS)].iter_mut() {
-            // SAFETY: each arm reads the member `configure` set up for the slot's kind.
-            unsafe {
-                match slot.kind {
-                    kind::LOWPASS | kind::HIGHPASS => slot.state.biquad.process(left, right),
-                    kind::COMPRESSOR => slot.state.compressor.process(left, right),
-                    kind::REVERB_SEND => {
-                        let send = slot.p[0];
-                        if send > 0.0 {
-                            for (acc, x) in reverb_l.iter_mut().zip(left.iter()) {
-                                *acc += send * *x;
-                            }
-                            for (acc, x) in reverb_r.iter_mut().zip(right.iter()) {
-                                *acc += send * *x;
-                            }
-                            sent = true;
+        let used = self.used();
+        for slot in self.slots[..used].iter_mut() {
+            match slot.kind {
+                kind::LOWPASS | kind::HIGHPASS => slot.biquad.process(left, right),
+                // `configure` keeps at most one compressor slot: the one `compressor` belongs to.
+                kind::COMPRESSOR => self.compressor.process(left, right),
+                kind::REVERB_SEND => {
+                    let send = slot.p[0];
+                    if send > 0.0 {
+                        for (acc, x) in reverb_l.iter_mut().zip(left.iter()) {
+                            *acc += send * *x;
                         }
+                        for (acc, x) in reverb_r.iter_mut().zip(right.iter()) {
+                            *acc += send * *x;
+                        }
+                        sent = true;
                     }
-                    _ => {}
                 }
+                _ => {}
             }
         }
         sent
@@ -167,26 +190,25 @@ impl FxChain {
 
     /// `true` when a slot in use is a reverb send.
     pub fn has_reverb_send(&self) -> bool {
-        self.slots[..(self.count as usize).min(MAX_EFFECTS)].iter().any(|s| s.kind == kind::REVERB_SEND)
+        self.slots[..self.used()].iter().any(|s| s.kind == kind::REVERB_SEND)
     }
 
     /// Clears every slot's filter and envelope state, keeping the configuration (RESET).
     pub fn reset(&mut self) {
-        for slot in self.slots[..(self.count as usize).min(MAX_EFFECTS)].iter_mut() {
-            // SAFETY: as in `process`.
-            unsafe {
-                match slot.kind {
-                    kind::LOWPASS | kind::HIGHPASS => slot.state.biquad.reset(),
-                    kind::COMPRESSOR => slot.state.compressor.reset(),
-                    _ => {}
-                }
+        let used = self.used();
+        for slot in self.slots[..used].iter_mut() {
+            if matches!(slot.kind, kind::LOWPASS | kind::HIGHPASS) {
+                slot.biquad.reset();
             }
+        }
+        if self.compressor_in_use().is_some() {
+            self.compressor.reset();
         }
     }
 
     /// The kinds in use, in order (tests and the debug panel).
     pub fn kinds(&self) -> impl Iterator<Item = u32> + '_ {
-        self.slots[..(self.count as usize).min(MAX_EFFECTS)].iter().map(|s| s.kind)
+        self.slots[..self.used()].iter().map(|s| s.kind)
     }
 }
 
@@ -228,8 +250,7 @@ mod tests {
         assert_eq!(c.configure(effects, 48_000.0), 1);
         assert_eq!(c.kinds().collect::<Vec<_>>(), vec![kind::LOWPASS, kind::COMPRESSOR, kind::HIGHPASS, kind::REVERB_SEND]);
         assert!(c.has_reverb_send());
-        // SAFETY: slot 0 is a lowpass.
-        assert_eq!(unsafe { c.slots[0].state.biquad.last }, [1.0, 800.0, 1.0], "the biquad was configured");
+        assert_eq!(c.slots[0].biquad.last, [1.0, 800.0, 1.0], "the biquad was configured");
     }
 
     #[test]
@@ -249,24 +270,73 @@ mod tests {
     fn a_kept_kind_keeps_its_state_and_a_new_kind_starts_zeroed() {
         let mut c = FxChain::default();
         c.configure([fx(kind::LOWPASS, 500.0)], 48_000.0);
-        // SAFETY: slot 0 is a lowpass.
-        unsafe { c.slots[0].state.biquad.history[0][0] = 0.75 };
+        c.slots[0].biquad.history[0][0] = 0.75;
         c.configure([fx(kind::LOWPASS, 600.0)], 48_000.0);
-        assert_eq!(unsafe { c.slots[0].state.biquad.history[0][0] }, 0.75, "same kind: state kept");
+        assert_eq!(c.slots[0].biquad.history[0][0], 0.75, "same kind: state kept");
         c.configure([fx(kind::COMPRESSOR, -20.0)], 48_000.0);
-        assert_eq!(unsafe { c.slots[0].state.compressor.params[0] }, -20.0);
+        assert_eq!(c.compressor.params[0], -20.0);
         c.configure([fx(kind::LOWPASS, 600.0)], 48_000.0);
-        assert_eq!(unsafe { c.slots[0].state.biquad.history[0][0] }, 0.0, "a kind change zeroes the state");
+        assert_eq!(c.slots[0].biquad.history[0][0], 0.0, "a kind change zeroes the state");
     }
 
     #[test]
     fn reset_clears_state_but_keeps_the_configuration() {
         let mut c = FxChain::default();
         c.configure([fx(kind::HIGHPASS, 100.0)], 48_000.0);
-        unsafe { c.slots[0].state.biquad.history[1][3] = 0.5 };
+        c.slots[0].biquad.history[1][3] = 0.5;
         c.reset();
-        assert_eq!(unsafe { c.slots[0].state.biquad.history[1][3] }, 0.0);
+        assert_eq!(c.slots[0].biquad.history[1][3], 0.0);
         assert_eq!(c.kinds().collect::<Vec<_>>(), vec![kind::HIGHPASS]);
+    }
+
+    #[test]
+    fn a_second_compressor_is_dropped_and_keeps_its_place() {
+        let mut c = FxChain::default();
+        let effects = [fx(kind::HIGHPASS, 80.0), fx(kind::COMPRESSOR, -20.0), fx(kind::COMPRESSOR, -10.0), fx(kind::LOWPASS, 900.0)];
+        assert_eq!(c.configure(effects, 48_000.0), 1, "the second compressor is counted");
+        assert_eq!(c.kinds().collect::<Vec<_>>(), vec![kind::HIGHPASS, kind::COMPRESSOR, kind::NONE, kind::LOWPASS]);
+        assert_eq!((c.compressor_slot, c.compressor.params[0]), (1, -20.0), "the first compressor runs");
+        assert_eq!(c.slots[3].biquad.last, [1.0, 900.0, 1.0], "later effects keep their slot");
+        c.configure([fx(kind::LOWPASS, 900.0)], 48_000.0);
+        assert_eq!(c.compressor_slot, NO_COMPRESSOR);
+    }
+
+    #[test]
+    fn the_compressor_keeps_its_envelope_only_in_the_same_slot() {
+        let mut c = FxChain::default();
+        c.configure([fx(kind::COMPRESSOR, -20.0)], 48_000.0);
+        c.compressor.detector_average = 0.5;
+        c.configure([fx(kind::COMPRESSOR, -30.0), fx(kind::LOWPASS, 900.0)], 48_000.0);
+        assert_eq!((c.compressor.detector_average, c.compressor.params[0]), (0.5, -30.0), "same slot: state kept, parameters updated");
+        c.configure([fx(kind::LOWPASS, 900.0), fx(kind::COMPRESSOR, -30.0)], 48_000.0);
+        assert_eq!(c.compressor.detector_average, 0.0, "moved to another slot: starts zeroed");
+        c.compressor.detector_average = 0.5;
+        c.configure([fx(kind::LOWPASS, 900.0)], 48_000.0);
+        c.configure([fx(kind::LOWPASS, 900.0), fx(kind::COMPRESSOR, -30.0)], 48_000.0);
+        assert_eq!(c.compressor.detector_average, 0.0, "removed then added back: starts zeroed");
+        c.compressor.constructed = 1;
+        c.reset();
+        assert_eq!(c.compressor.constructed, 0, "RESET returns it to a new node's state");
+    }
+
+    #[test]
+    fn a_compressor_slot_matches_a_lone_compressor() {
+        let mut c = FxChain::default();
+        c.configure([fx(kind::HIGHPASS, 20.0), fx(kind::COMPRESSOR, -30.0), fx(kind::COMPRESSOR, -5.0)], 48_000.0);
+        let mut hp = Biquad::default();
+        hp.set_highpass(48_000.0, 20.0, 1.0);
+        let mut alone = Compressor::default();
+        alone.configure(48_000.0, -30.0, 1.0, 0.0, 0.0, 0.0);
+        for q in 0..8 {
+            let mut l: Vec<f32> = (0..128).map(|i| ((q * 128 + i) as f32 * 0.05).sin() * 0.9).collect();
+            let mut r: Vec<f32> = l.iter().map(|x| -x * 0.5).collect();
+            let (mut el, mut er) = (l.clone(), r.clone());
+            let (mut rl, mut rr) = ([0.0f32; 128], [0.0f32; 128]);
+            c.process(&mut l, &mut r, &mut rl, &mut rr);
+            hp.process(&mut el, &mut er);
+            alone.process(&mut el, &mut er);
+            assert_eq!((l, r), (el, er), "quantum {q}");
+        }
     }
 
     #[test]
