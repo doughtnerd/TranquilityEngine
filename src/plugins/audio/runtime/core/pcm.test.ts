@@ -3,13 +3,13 @@ import { interleaveI16 } from "./fakeDecoder";
 import { i16ToF32 } from "./pcm";
 
 describe("pcm", () => {
-  it("i16ToF32 is the inverse of the wire's scaling at the ends and zero", () => {
+  it("i16ToF32 scales by 1/32768, as the core's own int16 conversion does", () => {
     const dst = new Float32Array(3);
     i16ToF32(Int16Array.of(-32768, 32767, 0), dst);
-    expect(Array.from(dst)).toEqual([-1, 1, 0]);
+    expect(Array.from(dst)).toEqual([-1, Math.fround(32767 / 32768), 0]);
     const half = new Float32Array(2);
     i16ToF32(Int16Array.of(16384, -16384), half);
-    expect(half[0]).toBeCloseTo(0.5, 4);
+    expect(half[0]).toBe(0.5);
     expect(half[1]).toBe(-0.5);
   });
 

@@ -224,7 +224,7 @@ describe("clip registry on the decoder worker (B5)", () => {
     const first = r.sent.find((m) => r.kind(m) === Kind.CLIP_CHUNK)!;
     const c = readClipChunk(new DataView(first), 0);
     const f32 = new Float32Array(first, CLIP_CHUNK_FIXED_END, c.frames);
-    for (let i = 0; i < 50; i++) expect(f32[i]).toBeCloseTo(want.pcm[i]! / (want.pcm[i]! < 0 ? 32768 : 32767), 6);
+    for (let i = 0; i < 50; i++) expect(f32[i]).toBe(Math.fround(want.pcm[i]! / 32768));
     expect(r.registry.info(id)!.bytes).toBe(want.frames * 4);
     r.client.dispose();
   });
