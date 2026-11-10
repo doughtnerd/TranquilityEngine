@@ -4,7 +4,7 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 
 ## Made before the unattended run (not yet explicitly confirmed)
 
-### 1. Voice presets "low" and "high" (A2.4)
+### 1. Voice presets "low" and "high" (A2.4) — superseded by entry 31
 - **Question:** the design gives numbers only for the default preset.
 - **Chosen:** low = 48 mixed, 1,024 logical, 4 HRTF, 64 MB clip memory; high = 256 mixed, 8,192 logical, 32 HRTF, 256 MB. Only low's 4 HRTF voices come from the design. Low is provisional until the C3 soak on the low-end Android phone sets it.
 - **Why:** low is about a third of the default, which is typical for mobile tiers; high doubles the default.
@@ -154,3 +154,14 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 - **Accepted behaviours listed in it:** aliasing on large pitch-ups of bright sounds, flappy's ~54 ms MP3 loop seam, `stop()` with no fade cuts, the 0 ms limiter's onset, the fallback's limits.
 - **Notes:** the trap item uses the dev-server console (`rebuild("trap")`), since the shipped wasm has no trap hook; the Master bus meter reads before the limiter (a 5.95 peak on key 8 is expected); 300 plays in one frame dip the adaptive cap (128 → 91) and recover; "preset loudness" has no automated test (listening item L5). Sound Lab grew by about 0.95 MB (loop fixtures).
 - Coordinator fix from C4's finding: `.flac` and `.m4a` are now audio assets in the editor and the web export.
+
+### 30. The adaptive cap's budget assumes a reference machine 2× the lab VM (A3.5, coordinator)
+- **Finding (A3.5):** on this shared 2.1 GHz VM the core's per-quantum cost is over the ADR's 1.3 ms at p99.9 for both default (3.90 ms; mean 1.48) and high (5.45 ms; mean 2.36), in wasm. The means are reliable (the model predicts them within 4%); the p99.9 is inflated by the shared VM. A3.5 froze these as the lab-VM table in architecture §6.1 and re-measured the cap's coefficients here.
+- **Problem:** the cap's model is a fixed ceiling in lab-VM nanoseconds against 1.3 ms, so as merged it would cap the default preset's heavy scenes to 16 voices on every machine, fast ones included.
+- **Chosen:** keep the measured relative costs but budget 1.3 ms of *reference-machine* time, assumed 2× the lab VM (`REFERENCE_SPEEDUP = 2` in `audio-core/src/cap.rs`), provisional until A3.5's sweeps are re-run on the reference machine or C3's soak calibrates it. Machines as slow as the lab VM are still protected by the controller's underrun and late-command feedback (§6.3), which is how adaptive voice limits generally work.
+- **If changed:** set `REFERENCE_SPEEDUP` from a reference-machine measurement (or 1 for the strict lab ceiling).
+- **Also from A3.5:** fixed H3's kernel budget (32 turning HRTF voices computed 4 kernels a quantum against a limit of 2: `pan_held`); virtual voices advance in one step at a settled pitch (3–4× cheaper, bit-identical); new `audio-bench` crate and `tools/audio-bench/run.mjs`; the mixer is 143.9 KB of 150 KB.
+
+### 31. Presets aligned with architecture §5.3 (coordinator)
+- **Chosen:** low = 64 mixed / 1,024 logical (was 48 mixed), high = 256 mixed / **4,096** logical (was 8,192), as §5.3's table says; HRTF stays 4 / 16 / 32 and clip memory 64 MB / unset / 256 MB. Halving high's logical voices saves about 0.27 ms a quantum on the lab VM (A3.5).
+- **Open proposals from A3.5 to bring high within budget on the reference machine, not applied** (each saves roughly, wasm mean on the lab VM at high): a content budget of at most 8 compressors and 32 biquads at high (0.21 ms); 16 HRTF voices at high instead of 32 (0.12 ms); `KERNEL_BUDGET` 1 (0.075 ms); post-M1 core work: virtual voices without a per-quantum walk (≈0.45 ms), a vectorised moving-voice pan (≤0.2 ms), a SIMD 4-point resampler (≤0.4 ms). The decision needs the reference machine's numbers (C3).

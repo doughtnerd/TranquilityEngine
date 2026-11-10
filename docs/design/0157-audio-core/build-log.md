@@ -448,3 +448,15 @@ Started from master `4aee234` in parallel: H3 (#89, Opus) and B1 (#91, Opus).
 - Merged to master under the owner's standing instruction; B7 flips the default (owner-review 26, revert by setting `DEFAULT_BACKEND` back).
 
 **Reserve used:** none.
+
+## MS8 wave 1 (A3.5, C4, C2)
+
+**Landed**
+- C2 (#101, Sonnet): guide pages "Playing sound" and "Why is there no sound?", `native/audio/README.md` (contributor note), `tools/check-doc-links.mjs` (`npm run check:links`: 220 relative links in 19 files resolve), notices review (the mixer's transitive crates through microfft now credited; the Chromium entry describes the three kinds of notice). Open: the licence of flappy's two MP3s (owner-review 28).
+- C4 (#100, Opus; open until the owner signs): `listening-pass.md` (three Sound Lab configurations, 16 items, the objective-thresholds table, sign-off) and Sound Lab keys for each item. Coordinator fix from its finding: `.flac` and `.m4a` are audio assets in the editor and the web export.
+- A3.5 (#99, Opus): `audio-bench` (native and Node wasm), architecture §6.1/§6.2/§6.3/§6.5 and §5.1 frozen on the lab VM (shared 4-core 2.1 GHz Xeon): high 5.45 ms p99.9 / 2.36 mean, default 3.90 / 1.48, low 2.35 / 0.66 (wasm; the model within 4% of the means); `cap::wu` re-measured with new pitch, moving-voice and HRTF-kernel terms; fixed H3's kernel budget being exceeded; virtual voices O(1) at a settled pitch. Memory: bus 4,224 B, reverb 3,015,744 B, rings 307,200 B each, HRTF bank 699,200 B (≤ 88.2 kHz) / 1,092,416 B, HRIR table 269,776 B at 48 kHz; block before the arena 4.94 / 6.69 / 9.81 MiB (low / default / high).
+- Coordinator: the cap budgets reference-machine time assumed 2× the lab VM (`REFERENCE_SPEEDUP`, owner-review 30); presets aligned with §5.3 (low 64 mixed, high 4,096 logical; owner-review 31).
+
+**Numbers:** mixer wasm 147,356 B (143.9 KB), ABI 1.3; `cargo test` 450 passed, 4 ignored; audio Vitest 68 files passed.
+
+**The 1.3 ms p99.9 exit gate isn't met on the lab VM.** It needs the reference machine and C3's soak (owner hardware); A3.5's proposals are in owner-review 31.
