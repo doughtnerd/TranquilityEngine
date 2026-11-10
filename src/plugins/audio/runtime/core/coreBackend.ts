@@ -64,7 +64,8 @@ import { StatusReader } from "./statusReader";
 import { UnlockQueue } from "./unlockQueue";
 import { connectVoiceTable, VoiceFlag, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
 import { STREAM_ERROR_FADE_SECONDS, StreamManager, type StreamManagerDeps } from "./streams";
-import { createDecoderClient } from "../decoder/decoderClient";
+import { sharedDecoderClient } from "../decoder/decoderClient";
+import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { effectiveMixedCap, ListenerBasis, Selection, type SelectionSink } from "./selection";
 import { HrtfPick, type HrtfSink } from "./hrtfPick";
 
@@ -116,6 +117,8 @@ export interface CoreBackendDeps {
    * fetch of the asset's URL. Tests pass an in-process decoder and channel.
    */
   streams?: Partial<Pick<StreamManagerDeps, "decoder" | "connectWorklet" | "channel" | "fetchBytes">>;
+  /** B4: warns once per asset the core can't decode (shared with the clip registry); default: the backend's own over `console.warn`. */
+  warnOnce?: WarnOnce;
 }
 
 const DIR_EPSILON = 0.005;
@@ -203,6 +206,7 @@ export class CoreBackend implements AudioBackend {
   private disposed = false;
   private readonly hrir: HrirLoader;
   private readonly clipSink: { event(id: number, code: number): void };
+  private readonly warnOnce: WarnOnce;
   private streamSink!: { event(id: number, code: number): void };
 
   constructor(
@@ -210,6 +214,7 @@ export class CoreBackend implements AudioBackend {
     deps: CoreBackendDeps & { clock: HostClock; clips: ClipRegistry },
   ) {
     this.mixer = deps.mixer ?? defaultMixer;
+    this.warnOnce = deps.warnOnce ?? createWarnOnce();
     this.clock = deps.clock;
     this.clips = deps.clips;
     this.hrir = deps.hrir ?? createHrirLoader({ clips: deps.clips, sampleRate: host.sampleRate });
@@ -230,7 +235,8 @@ export class CoreBackend implements AudioBackend {
     const streamDeps = deps.streams ?? {};
     this.streams = new StreamManager({
       table: this.table,
-      decoder: streamDeps.decoder ?? (() => createDecoderClient()),
+      // B4: the AAC build's worker when the project decodes AAC, else the default one.
+      decoder: streamDeps.decoder ?? (() => sharedDecoderClient(this.aac ? "aac" : "default")),
       connectWorklet:
         streamDeps.connectWorklet ??
         ((port) => {
@@ -245,7 +251,7 @@ export class CoreBackend implements AudioBackend {
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           return response.arrayBuffer();
         }),
-      onError: (id, asset, message) => this.streamFailed(id, asset, message),
+      onError: (id, asset, message, code) => this.streamFailed(id, asset, message, code),
       sendSeek: (id, frame, epoch) => this.writer.seek(id, frame, epoch),
     });
     this.streams.afterSeek = (voice, frame) => this.reanchorSeek(voice, frame);
@@ -484,16 +490,25 @@ export class CoreBackend implements AudioBackend {
     this.writer.master(this.master, m || this.hiddenMuteOn, this.clockMap.rampFrames());
   }
 
+  /** B4: `audio.codecs.aac` (read when used, like the rest of the settings). */
+  private get aac(): boolean {
+    return this.mixer.audioSettings.codecs?.aac === true;
+  }
+
   /**
    * B3, architecture §7: a stream failed (the decoder's error, a failed fetch, no ring free): its voice stops with a
-   * 50 ms fade and one warning names the asset.
+   * 50 ms fade and one warning names the asset. B4: a file the decoder can't read warns once per asset, naming its
+   * format and the supported list; the voice reads `reason` "failed" from now on, and once it has ended.
    */
-  private streamFailed(id: number, asset: string, message: string): void {
-    console.warn(`[myco] audio: streaming "${asset}" failed: ${message}`);
+  private streamFailed(id: number, asset: string, message: string, code?: number): void {
+    const unsupported = unsupportedFormat(asset, this.aac, code, message);
+    if (unsupported) this.warnOnce(asset, unsupported);
+    else console.warn(`[myco] audio: streaming "${asset}" failed: ${message}`);
     const t = this.table;
     if (!t.isLive(id)) return;
     const s = t.state[id & 0xffff];
     if (s === VoiceState.STOPPING || s === VoiceState.ENDING) return;
+    t.reason[id & 0xffff] = VoiceReason.FAILED;
     t.requestStop(id, STREAM_ERROR_FADE_SECONDS);
   }
 
@@ -804,7 +819,17 @@ export class CoreBackend implements AudioBackend {
   private launch(id: number): void {
     const t = this.table;
     const i = id & 0xffff;
-    if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) return this.launchStream(id, i);
+    if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) {
+      // B4: AAC while `audio.codecs.aac` is off: never sent to the core, one warning per asset.
+      const asset = this.streams.assetOf(t.clip[i]!) ?? "";
+      const refused = aacRefusal(asset, this.aac);
+      if (refused) {
+        this.warnOnce(asset, refused);
+        t.free(id, VoiceReason.FAILED);
+        return;
+      }
+      return this.launchStream(id, i);
+    }
     const clip = t.clip[i]!;
     const state = this.clips.state(clip);
     if (state === "ready") {
@@ -1089,6 +1114,9 @@ class Voice implements CoreVoice {
 export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): CoreBackend {
   const settings = (deps.mixer ?? defaultMixer).audioSettings;
   const link = host.link;
+  const aac = settings.codecs?.aac === true;
+  // B4: one set of "can't decode" warnings for clips and streams alike.
+  const warnOnce = deps.warnOnce ?? createWarnOnce();
   const clips =
     deps.clips ??
     createClipRegistry({
@@ -1102,6 +1130,10 @@ export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): 
       },
       clipFormat: settings.clipFormat === "f32" ? 0 : 1,
       ceilingBytes: (settings.clipMemoryMB ?? DEFAULT_CLIP_CEILING_MB) * (1 << 20),
+      // B4: the worker loads the AAC build of the decoder only when the project asks for AAC.
+      decodeWorker: sharedDecoderClient(aac ? "aac" : "default"),
+      aac,
+      warnOnce,
     });
   const backendHost: CoreBackendHost = {
     link,
@@ -1121,7 +1153,7 @@ export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): 
     addLifecycleListener: (listener) => host.addLifecycleListener(listener),
     health: host.health,
   };
-  const backend = new CoreBackend(backendHost, { ...deps, clips, clock: deps.clock ?? browserHostClock(() => host.context) });
+  const backend = new CoreBackend(backendHost, { ...deps, clips, warnOnce, clock: deps.clock ?? browserHostClock(() => host.context) });
   attachBackground(backend, host);
   return backend;
 }

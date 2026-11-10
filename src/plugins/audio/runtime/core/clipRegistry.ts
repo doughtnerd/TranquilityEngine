@@ -6,8 +6,9 @@
 import { ClipEvent, ClipFormat, CLIP_BEGIN_FIXED_END, CLIP_CHUNK_FIXED_END, CLIP_UNLOAD_FIXED_END, Kind, writeClipBegin, writeClipChunk, writeClipUnload, writeEnvelope } from "../wire.generated";
 import { CLIP_BYTES_PER_QUANTUM, createChunkPacer, planChunks } from "./chunker";
 import { createEncodedCache } from "./encodedCache";
-import { createDecoderClient, type DecoderClient } from "../decoder/decoderClient";
+import { createDecoderClient, DecodeFailedError, type DecoderClient } from "../decoder/decoderClient";
 import { hintFromName } from "../decoder/protocol";
+import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { i16ToF32 } from "./pcm";
 
 /** A clip's lifecycle (`copying -> ready` on the core's `resident` clip event, wire §4.3). */
@@ -131,6 +132,16 @@ export interface ClipRegistryDeps {
   nextSeq?: () => number;
   /** Encoded-bytes cache cap (default 32 MB, api-and-models section 3). */
   encodedCapBytes?: number;
+  /**
+   * B4: `audio.codecs.aac`. Off (the default), an AAC asset (`.m4a`, `.mp4`, `.aac`) fails without being fetched, with
+   * one warning naming the setting; on, the host passes the AAC build's decoder client.
+   */
+  aac?: boolean;
+  /**
+   * B4: warns once per asset for files the core can't decode (AAC while it is off, a format the decoder doesn't read),
+   * however often the clip is reloaded. The host shares one with its streams; default: the registry's own over `warn`.
+   */
+  warnOnce?: WarnOnce;
 }
 
 /** Ids: index in the low 24 bits, an 8-bit generation in the high bits. */
@@ -206,6 +217,8 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
   const bytesPerSample = format === ClipFormat.F32 ? 4 : 2;
   const ceiling = deps.ceilingBytes ?? DEFAULT_CEILING_BYTES;
   const warn = deps.warn ?? ((m: string) => console.warn(m));
+  const warnOnce = deps.warnOnce ?? createWarnOnce(warn);
+  const aac = deps.aac === true;
   const nextFrame = deps.nextFrame ?? defaultNextFrame;
   const nextQuantum = deps.nextQuantum ?? ((cb: () => void) => void setTimeout(cb, 0));
   const send = deps.send ?? (() => {});
@@ -267,14 +280,16 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     }
   };
 
-  const fail = (slot: Slot, failure: ClipFailure, detail: string): void => {
+  /** `codecWarning`: B4, the file can't be decoded by this core at all: that warning instead, once per asset. */
+  const fail = (slot: Slot, failure: ClipFailure, detail: string, codecWarning?: string): void => {
     if (slot.dead || slot.state === "failed") return;
     slot.state = "failed";
     slot.failure = failure;
     slot.parts = null;
     slot.abort?.abort();
     pacer.cancel(idOf(slot));
-    warn(`audio: clip "${slot.path}" failed to load (${detail})`);
+    if (codecWarning) warnOnce(slot.path, codecWarning);
+    else warn(`audio: clip "${slot.path}" failed to load (${detail})`);
     notify(slot);
   };
 
@@ -442,7 +457,9 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       if (stale() || slot.state === "failed") return null;
       retract(slot);
       // A worker that cannot run (DecoderUnavailableError) fails the clip like a bad file: one warning for this asset.
-      fail(slot, "decode", message(err));
+      // B4: a file the decoder can't read at all names its format and what is supported, once per asset.
+      const detail = message(err);
+      fail(slot, "decode", detail, unsupportedFormat(slot.path, aac, err instanceof DecodeFailedError ? err.code : undefined, detail) ?? undefined);
       return null;
     } finally {
       if (slot.abort === controller) slot.abort = null;
@@ -457,6 +474,12 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
    */
   const fetchDecode = async (slot: Slot, token: number, options: { early?: boolean } = {}, then?: (loaded: Loaded) => void): Promise<Loaded | "streamed" | null> => {
     const stale = (): boolean => slot.dead || slot.loads !== token;
+    // B4: AAC while `audio.codecs.aac` is off isn't fetched at all.
+    const refused = aacRefusal(slot.path, aac);
+    if (refused) {
+      fail(slot, "decode", "AAC is off", refused);
+      return null;
+    }
     let encoded: ArrayBuffer;
     try {
       slot.state = "fetching";

@@ -339,7 +339,7 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
           Clip format
           <Choice<AudioClipFormat> label="Clip format" value={a.clipFormat} options={["i16", "f32"]} labels={{ i16: "16-bit", f32: "32-bit float" }} onChange={(v) => set("Set clip format", setClipFormat(draft, v))} />
         </label>
-        <label class="audio-bus-check" title="Also decode AAC files, where the platform supports it">
+        <label class="audio-bus-check" title="Also decode AAC (.m4a, .mp4, .aac) on the audio core: the core then loads its larger AAC decoder (about 1 MB instead of 0.7 MB). Off, AAC assets don't play on the core (one warning each); the Babylon backend plays them wherever the browser does">
           <input type="checkbox" aria-label="AAC codec" checked={a.codecs.aac} onChange={(e) => set(`${a.codecs.aac ? "Disable" : "Enable"} AAC`, setCodec(draft, "aac", (e.currentTarget as HTMLInputElement).checked))} />
           AAC
         </label>

@@ -451,7 +451,7 @@ export class VoiceTable implements VoiceTableHandleApi {
   }
 
   /**
-   * Frees every slot `markEnded` listed (with reason NONE, so `onFree` runs for each). The per-frame system calls
+   * Frees every slot `markEnded` listed (with reason NONE, or FAILED for a voice that failed while stopping, B4; `onFree` runs for each). The per-frame system calls
    * it; `onmessage` calls it itself while the page is hidden (architecture §3.8). Returns how many it freed.
    */
   freeEnded(): number {
@@ -462,7 +462,7 @@ export class VoiceTable implements VoiceTableHandleApi {
       const i = this.endedList[k]!;
       this.endedListed[i] = 0;
       if (this.state[i] !== VoiceState.ENDING) continue;
-      this.freeSlot(i, VoiceReason.NONE);
+      this.freeSlot(i, this.reason[i] === VoiceReason.FAILED ? VoiceReason.FAILED : VoiceReason.NONE);
       freed++;
     }
     return freed;
