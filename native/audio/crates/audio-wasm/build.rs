@@ -38,5 +38,8 @@ fn main() {
     if env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32") {
         println!("cargo:rustc-link-arg-cdylib=--import-memory");
         println!("cargo:rustc-link-arg-cdylib=-zstack-size={STACK_BYTES}");
+        // No name section in the shipped wasm (as the decoder, B1): about 13 KB of the 150 KB gate. A trap's stack
+        // trace then shows function indices; build natively or without this line to debug with names.
+        println!("cargo:rustc-link-arg-cdylib=--strip-all");
     }
 }
