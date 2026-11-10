@@ -10,6 +10,8 @@
 
 use std::sync::Arc;
 
+use crate::loop_points::{comment_loop_points, wav_loop_points};
+
 use symphonia::core::codecs::audio::well_known::{
     CODEC_ID_AAC, CODEC_ID_FLAC, CODEC_ID_MP1, CODEC_ID_MP2, CODEC_ID_MP3, CODEC_ID_PCM_S32LE,
     CODEC_ID_VORBIS,
@@ -118,6 +120,10 @@ pub struct Info {
     /// The best available count: `frames`, else symphonia's estimate, else `None`.
     pub frames_estimate: Option<u64>,
     pub codec: Codec,
+    /// Loop points stored in the file, in frames, end exclusive (ADR 0158 §4): a WAV's first
+    /// forward `smpl` loop, or an Ogg Vorbis file's `LOOPSTART`/`LOOPLENGTH` comments. Clamped to
+    /// the stated length; `None` when absent or unusable.
+    pub loop_points: Option<(u32, u32)>,
 }
 
 struct Opened {
@@ -207,7 +213,16 @@ fn open_reader(bytes: &Bytes, hint: FormatHint) -> Result<(Opened, Info), Decode
     #[allow(unused_mut)] // changed only by the `aac` build
     let mut opened = Opened { track_id: track.id, time_base: track.time_base, format, decoder, lead: 0 };
     #[allow(unused_mut)]
-    let mut info = Info { sample_rate, channels, frames, frames_estimate, codec };
+    let mut info = Info { sample_rate, channels, frames, frames_estimate, codec, loop_points: None };
+    info.loop_points = match codec {
+        Codec::Pcm => wav_loop_points((**bytes).as_ref()),
+        Codec::Vorbis => vorbis_loop_points(&mut opened.format),
+        _ => None,
+    }
+    .and_then(|(start, end)| {
+        let end = info.frames.map_or(end, |f| end.min(f.min(u64::from(u32::MAX)) as u32));
+        (start < end).then_some((start, end))
+    });
     #[cfg(feature = "aac")]
     if codec == Codec::Aac {
         if let Some(g) = crate::mp4_gapless::mp4_gapless((**bytes).as_ref(), sample_rate) {
@@ -228,6 +243,24 @@ fn open_reader(bytes: &Bytes, hint: FormatHint) -> Result<(Opened, Info), Decode
         }
     }
     Ok((opened, info))
+}
+
+/// `LOOPSTART`/`LOOPLENGTH` from the Vorbis comment header, as symphonia's Ogg reader exposes it.
+fn vorbis_loop_points(format: &mut Box<dyn FormatReader>) -> Option<(u32, u32)> {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    let mut md = format.metadata();
+    let rev = md.skip_to_latest()?;
+    for tag in &rev.media.tags {
+        let value = match &tag.raw.value {
+            symphonia::core::meta::RawValue::String(s) => s.to_string(),
+            symphonia::core::meta::RawValue::UnsignedInt(n) => n.to_string(),
+            symphonia::core::meta::RawValue::SignedInt(n) => n.to_string(),
+            _ => continue,
+        };
+        pairs.push((tag.raw.key.clone(), value));
+    }
+    let refs: Vec<(&str, &str)> = pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    comment_loop_points(&refs)
 }
 
 /// Whether an MP3's first frame carries a Xing, Info or VBRI header (so symphonia's frame count is

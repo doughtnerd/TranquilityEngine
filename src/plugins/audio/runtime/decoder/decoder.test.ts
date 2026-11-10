@@ -149,6 +149,35 @@ describe("decoder handler: chunking", () => {
   });
 });
 
+describe("decoder handler: loop points", () => {
+  it("an Ogg Vorbis file's LOOPSTART/LOOPLENGTH comments reach clipInfo and clipDone", async () => {
+    const { replies } = await decode("loop/tagged.ogg", 4);
+    for (const type of ["clipInfo", "clipDone"] as const) {
+      const r = replies.find((x) => x.type === type);
+      expect(r && "info" in r && [r.info.loopStartFrame, r.info.loopEndFrame]).toEqual([1000, 6000]);
+    }
+  });
+
+  it("a WAV's trailing smpl chunk does too (end exclusive); a file without loops carries none", async () => {
+    const wav = fixture("tone-44100-mono.wav");
+    const smpl = new Uint8Array(8 + 60);
+    const dv = new DataView(smpl.buffer);
+    smpl.set([0x73, 0x6d, 0x70, 0x6c]); // "smpl"
+    dv.setUint32(4, 60, true);
+    dv.setUint32(8 + 28, 1, true); // one loop
+    dv.setUint32(8 + 36 + 8, 100, true); // start
+    dv.setUint32(8 + 36 + 12, 1099, true); // end, inclusive
+    const bytes = new Uint8Array(wav.length + smpl.length);
+    bytes.set(wav);
+    bytes.set(smpl, wav.length);
+    const looped = await decode("x.wav", 1, bytes);
+    const done = looped.last;
+    expect(done.type === "clipDone" && [done.info.loopStartFrame, done.info.loopEndFrame]).toEqual([100, 1100]);
+    const plain = (await decode("tone-44100-mono.wav")).last;
+    expect(plain.type === "clipDone" && "loopStartFrame" in plain.info).toBe(false);
+  });
+});
+
 describe("decoder handler: errors", () => {
   const errorOf = (replies: DecoderReply[]) => {
     const last = replies[replies.length - 1];
