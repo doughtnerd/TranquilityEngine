@@ -233,3 +233,32 @@ MS3 merged to master (`d1e5287`, fast-forward) with the owner's approval; #71, #
 - Per-bus `maxVoices` stays on main (BUS_CONFIG doesn't carry it).
 
 **Reserve used:** none.
+
+## MS4 wave 2 (A2.2b, A2.2a, A2.3, A2.4, A2.5)
+
+Five workers in parallel, each in its own worktree from `4680d94`: A2.2b and A2.2a Opus leads, A2.3 and A2.4 Sonnet leads, A2.5 one Haiku worker. The leads had no Agent tool and wrote their leaves themselves. Coordinator grants: A2.4 the audio plugin's entry in `EDITOR_PLUGINS`; the A2.5 panel registration went through the coordinator into A2.4's `editor/index.ts`. The only merge conflicts were the committed wasm and `hash.json` (rebuilt from the merged source; each rebuild byte-identical to its inputs' expectation).
+
+**Landed**
+- A2.2b (#74, critical path): the shared reverb. A zero-latency staged convolver: one head stage of 32 × 128-frame partitions on a 256-point FFT (overlap-save) over the first 4,096 frames, then 2,048-frame tail stages on 4,096-point FFTs that share one frequency-domain delay line (one forward and one inverse FFT per channel per block), the accumulation buffer ported from Blink, and transforms staggered across a 16-quantum cycle (Blink's `convolver_render_phase`) so no quantum runs more than one 4,096-point transform. The IR is generated sample by sample (mulberry32, seed `0x4D59434F`, the `makeImpulse` shape: 1.8 s, decay 3) and normalised as Blink's `reverb.cc` does. FFTs are Myco code (`convolver/fft.rs`) on microfft's 16-point transform only. All memory is in the layout's reverb region: 3,015,744 B at 48 kHz.
+- A2.2a (#75): Blink's biquad (`SetLowpassParams`, `SetHighpassParams`, single-precision `pow10` for Q in dB, double history) and `dynamics_compressor.cc` (knee and its 15-step `k` search, makeup gain, detector, adaptive release polynomial, sine warp, linked stereo detection, 6 ms pre-delay).
+- A2.3 (#76): the core backend's `voiceStarted/voiceEnded` already count virtual and locked voices; a bus remap used to zero the mixer's counts while voices lived on, so `configureBuses` now restores them from the voice table. `Bus.peak` is max(L, R) from STATUS each frame, 0 while not running and past 32 buses; a remap drops stale peaks.
+- A2.4 (#77): Project Settings > Audio moved into `src/plugins/audio/editor/` with every §7 control (per-bus max voices, the voices preset and numbers, spatial, background, clip memory, clip format, AAC, backend), `BusMeters` during play (dB from −60, writes `transform` only on change), and the underruns play stat. Presets: default = the parse defaults (128 / 4,096 / 16); low (48 / 1,024 / 4 HRTF / 64 MB; only the 4 HRTF is from the design, the rest provisional until C3) and high (256 / 8,192 / 32 / 256 MB) were chosen by the worker.
+- A2.5 (#78): `Audio.debug()` buses and voices from the voice table, mirror and mixer; the Audio Debug panel (4 Hz, theme tokens). `playheadSeconds` and `owner` read null until something on main sets them.
+
+**MS4 wave 2 numbers:** mixer wasm 96,540 B (94.3 KB; +17.6 KB this wave), source hash `61bd5c8d…`; `cargo test` 280 passed; `npm test` 342 files, 3,483 passed; `npm run build` green; project settings and `audio-babylon` e2e specs pass (10).
+- Reverb: max error against f64 direct convolution 2.0e-7 to 4.4e-7 of peak (gate 1e-6); native 0.025–0.030 ms average per quantum, p99.9 0.10–0.20 ms (gates 0.1, 0.35 ms); the wasm build measured the same in Node.
+- Biquad coefficients within 1.15e-8 of the cookbook; compressor within 7.3e-7 of a line-by-line upstream reference (tolerance 1e-5); default makeup +3.66 dB.
+- 32 buses × (lowpass, highpass, compressor, snapshot low-pass): about 0.2–0.3 ms per quantum native.
+
+**Accepted deviations (coordinator)**
+- A2.2b: microfft's large sizes inline their recursion (+92 KB for 4,096 points), so the FFTs are built on its 16-point transform; H1's HRTF FFT isn't reused (its size dispatch pulls every size, +28 KB). **H3 will bring those 28 KB when it links HRTF** (budget: about 122 KB of 150 KB).
+- A2.2b: the tail shares one frequency-domain delay line instead of Blink's per-stage FFT pairs (same output, about a tenth of the transforms); the head is one 256-point stage (architecture §6.1) instead of Blink's direct stage plus doubling stages.
+- A2.2b doc corrections, recorded here rather than editing the design: architecture §5.1's reverb memory is about 3.0 MB at 48 kHz (not 2.7 MB); Chromium at the pinned commit runs every reverb stage on the audio thread (architecture says a background thread for the tail).
+- The convolver runs only while a send exists; removing every send freezes the tail, which resumes from stale state (A2.1's behaviour; to revisit if audible).
+- A2.2a: the pre-delay line is sized for 48 kHz (288 frames; held above 48 kHz); no reduction metering; parameters clamped to `DynamicsCompressorNode`'s ranges; `reset()` gives a fresh node's state.
+- Integration fix: A2.5's panel imported `editor/session`, which `plugins.test.ts` forbids; it reads `editor.scene.playState` through the SDK now.
+- Staged `reverb.cc` (A2.2b's normalisation) in `native/audio/third_party/blink/` with its SHA-256; PORTS rows for A2.2a and A2.2b updated. `THIRD_PARTY_NOTICES.md` already covers the Blink files through PORTS.md.
+
+**Open:** per-bus memory is 10.9 KB (32 buses ≈ 350 KB, design ≈ 3 KB per bus) because every effect slot reserves a compressor; a coordinator task moves the compressor out of the slot union (wave 3).
+
+**Reserve used:** none.
