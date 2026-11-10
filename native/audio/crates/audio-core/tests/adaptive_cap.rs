@@ -19,7 +19,11 @@ const CONFIGURED: u32 = 40;
 const SECOND: usize = 375;
 
 fn core_with(max_mixed: u32) -> Core {
-    let p = InitParams { sample_rate: RATE, max_logical: 64, max_mixed, max_buses: 2, arena_initial_bytes: 0 };
+    core_sized(64, max_mixed)
+}
+
+fn core_sized(max_logical: u32, max_mixed: u32) -> Core {
+    let p = InitParams { sample_rate: RATE, max_logical, max_mixed, max_buses: 2, arena_initial_bytes: 0 };
     let layout = Layout::new(&p);
     let block = std::alloc::Layout::from_size_align(layout.total(), PAGE_BYTES).unwrap();
     // SAFETY: non-zero size, zeroed, page-aligned; leaked on purpose ('static).
@@ -288,5 +292,37 @@ fn p99_is_the_max_at_48k() {
     let mut m = rig(4);
     run(&mut m, 200);
     assert_eq!(m.core.cap().last_p99(), 4 * wu::MIXED_VOICE + wu::BUS + wu::LIMITER);
-    let _ = cap::NS_PER_WU;
+    assert_eq!(cap::NS_PER_WU, 1);
+}
+
+#[test]
+fn a_large_cut_demotes_the_lowest_scores_64_a_quantum() {
+    // 500 configured and mixed (scores shuffled across slots), one underrun: cap 425, 75 demotes.
+    let mut m = Mixer::over(core_sized(512, 500));
+    let score = |k: u32| (k * 211 % 500) as f32; // a permutation of 0..500 over k = 1..=500
+    for chunk in 0..2u32 {
+        let recs: Vec<Rec> = (0..250u32)
+            .map(|j| {
+                let k = chunk * 250 + j + 1;
+                let Rec::Play(mut pl) = dc(id(k), ROOT, 0.0) else { unreachable!() };
+                pl.gain = 1.0 / 1024.0;
+                pl.score = score(k);
+                Rec::Play(pl)
+            })
+            .collect();
+        m.submit(&recs);
+    }
+    run(&mut m, 4);
+    assert_eq!(mixed(&m), 500);
+    m.core.note_underruns(1);
+    let first = run(&mut m, 1);
+    assert_eq!(cap_of(&m), 425);
+    assert_eq!(first.len(), cap::DEMOTES_PER_QUANTUM);
+    let rest = run(&mut m, 4);
+    assert_eq!(rest.len(), 75 - cap::DEMOTES_PER_QUANTUM);
+    let mut got: Vec<u32> = first.iter().chain(rest.iter()).map(|&v| score(v & 0xFFFF) as u32).collect();
+    got.sort();
+    assert_eq!(got, (0..75).collect::<Vec<u32>>(), "exactly the 75 lowest scores");
+    run(&mut m, 2);
+    assert_eq!(mixed(&m), 425);
 }

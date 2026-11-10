@@ -21,15 +21,16 @@
 //! 4. **Steps the controller** (`cap_controller.rs`) and reports `mixedCap` and flag bit3 ("adaptive
 //!    cap active", the cap below `voices.mixed`) through the counters (K12).
 //! 5. **Demotes**: while the cap is below the configured value and more voices are mixed than it
-//!    allows, the core demotes the lowest-`score` mixed voices itself (`voices::demote_lowest`, A3.1),
-//!    5 ms fades, reported in STATUS `demoted`; main's selection then runs at
+//!    allows, the core demotes the lowest-`score` mixed voices itself ([`demote_lowest`]: one pass
+//!    over the slots, then A3.1's `voices::demote` for each, at most 64 a quantum), 5 ms fades,
+//!    reported in STATUS `demoted`; main's selection then runs at
 //!    `min(voices.mixed, mixedCap)` and never re-promotes against it. At the configured cap the
 //!    core enforces nothing (main's selection owns the count, as before A3.3), so normal output is
 //!    unchanged.
 //!
 //! The state is a plain field of `Core` (not a region: nothing here is shared with main). Nothing
 //! here allocates; the per-quantum cost is a pass over the configured buses (at most 32) and a few
-//! comparisons, plus `demote_lowest`'s walk only when voices must be demoted.
+//! comparisons, plus [`demote_lowest`]'s pass over the slots only while voices must be demoted.
 
 use crate::cap_controller::{CapConfig, CapController, Change, Signals, WINDOW_MS};
 use crate::core::Core;
@@ -307,9 +308,81 @@ pub fn after_render(core: &mut Core, frame: u64) {
     // `mixed_voices` counts the voices rendered mixed this quantum (fading-out ones too), a cheap
     // upper bound; `demote_lowest` counts exactly and demotes only past the cap.
     if active && (mixed_now > cap || change == Change::Decreased) {
-        let n = voices::demote_lowest(core, cap);
+        let n = demote_lowest(core, cap);
         core.cap_mut().demoted += n;
     }
+}
+
+/// Most voices demoted in one quantum; a larger excess finishes over the next quanta.
+pub const DEMOTES_PER_QUANTUM: usize = 64;
+
+/// Demotes the lowest-`score` mixed voices (started or not, not already fading out) until at most
+/// `keep` remain, at most [`DEMOTES_PER_QUANTUM`] this quantum; returns how many. One pass over the
+/// slots (`voices::slots`) keeps the lowest scores in a bounded max-heap on the stack, then each is
+/// demoted with `voices::demote` (O(1) by id; its 5 ms fade, STATUS `demoted`). Same choice as
+/// `voices::demote_lowest` (up to ties), whose O(demoted × live) walk measured about 1 ms natively
+/// for 39 demotes among 4,096 live voices, too long for the quantum that must shed load.
+pub fn demote_lowest(core: &mut Core, keep: u32) -> u32 {
+    use voices::{flag as vf, state as vs};
+    let mut heap = [(0f32, 0u32); DEMOTES_PER_QUANTUM];
+    let mut len = 0usize;
+    let mut mixed = 0u32;
+    for s in voices::slots(core) {
+        if (s.state != vs::SCHEDULED && s.state != vs::PLAYING) || s.flags & vf::MIXED == 0 || s.flags & vf::DEMOTING != 0 {
+            continue;
+        }
+        mixed += 1;
+        if len < DEMOTES_PER_QUANTUM {
+            // Push and sift up (largest score at the root).
+            let mut at = len;
+            heap[at] = (s.score, s.id);
+            len += 1;
+            while at > 0 && heap[(at - 1) / 2].0 < heap[at].0 {
+                heap.swap(at, (at - 1) / 2);
+                at = (at - 1) / 2;
+            }
+        } else if s.score < heap[0].0 {
+            // Replace the largest kept and sift down.
+            heap[0] = (s.score, s.id);
+            let mut at = 0;
+            loop {
+                let (l, r) = (2 * at + 1, 2 * at + 2);
+                let mut big = at;
+                if l < len && heap[l].0 > heap[big].0 {
+                    big = l;
+                }
+                if r < len && heap[r].0 > heap[big].0 {
+                    big = r;
+                }
+                if big == at {
+                    break;
+                }
+                heap.swap(at, big);
+                at = big;
+            }
+        }
+    }
+    let excess = (mixed.saturating_sub(keep) as usize).min(len);
+    if excess == 0 {
+        return 0;
+    }
+    // The `excess` lowest of the kept: sort the few kept ascending (insertion sort, at most 64).
+    let kept = &mut heap[..len];
+    for i in 1..kept.len() {
+        let mut j = i;
+        while j > 0 && kept[j - 1].0 > kept[j].0 {
+            kept.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+    let mut demoted = 0;
+    for &(_, id) in kept[..excess].iter() {
+        if !voices::demote(core, id) {
+            break; // the block's `demoted` list is full: the rest next quantum
+        }
+        demoted += 1;
+    }
+    demoted
 }
 
 #[cfg(test)]
