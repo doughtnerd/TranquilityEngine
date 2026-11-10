@@ -61,15 +61,81 @@ export class ClockMap {
   private hasStatus = false;
   /** The previous nextFirstFrame result. */
   private prevFirstFrame = 0;
+  private rate: number;
+  private latencyFrames: number;
+  /**
+   * A3.4c: seconds added to the core's clock to give `Audio.time` (0 until the first context swap). A new context starts
+   * its frames at 0; this keeps `Audio.time` continuous and monotonic for the game, so `at` times it computed from it
+   * keep their meaning: frame f of the current context is heard when `Audio.time` = f / sr + `timeOffset`.
+   */
+  private offsetSeconds = 0;
+  /** A3.4c: the old context's `Audio.time` at the swap and the rAF time it was read at, until the new clock has an estimate. */
+  private carry: { readonly time: number; readonly p: number } | null = null;
+  /** The newest `audioTime()` result, held while there is no estimate (after a reset). */
+  private lastTime = 0;
 
   constructor(
     private readonly clock: HostClock,
     /** The context's sample rate, Hz. */
-    readonly sampleRate: number,
+    sampleRate: number,
     /** The core's output latency in frames (`limiterLatencyFrames` of the preset's look-ahead): a rendered frame is heard this much later. */
-    readonly outputLatencyFrames = 0,
+    outputLatencyFrames = 0,
   ) {
-    void this.clock;
+    this.rate = sampleRate;
+    this.latencyFrames = outputLatencyFrames;
+  }
+
+  /** The context's sample rate, Hz (a context swap changes it, `rebase`). */
+  get sampleRate(): number {
+    return this.rate;
+  }
+
+  /** The core's output latency in frames at `sampleRate`. */
+  get outputLatencyFrames(): number {
+    return this.latencyFrames;
+  }
+
+  /** A3.4c: seconds between the current context's frame timeline and `Audio.time` (see `rebase`). */
+  get timeOffset(): number {
+    return this.offsetSeconds;
+  }
+
+  /** A3.4c: true from a `rebase` until the new context's clock gave its first estimate (`timeOffset` is not known yet). */
+  get carryPending(): boolean {
+    return this.carry !== null;
+  }
+
+  /**
+   * A3.4c: where `Audio.time` is now and the rAF time it is for (the last frame's *p* once anchored), for a later
+   * `rebase`: read it while the old context still runs.
+   */
+  carryPoint(): { readonly time: number; readonly p: number } {
+    return { time: this.audioTime(), p: this.primed ? this.prevP : this.clock.rafTime() };
+  }
+
+  /**
+   * A3.4c, a rebuild into a new context (architecture §3.7): forgets every estimate, takes the new context's rate and
+   * the core's output latency at it, and carries `Audio.time` across: until the new context's clock has an estimate,
+   * `audioTime()` holds `from.time`; at its first estimate `timeOffset` is set so `Audio.time` continues from
+   * `from.time` plus the rAF time elapsed since `from.p` (never below what it last returned). The new context's frames
+   * start again at 0, and every frame this map hands out (*F*_now, `firstFrame`, stamps) is in them.
+   */
+  rebase(sampleRate: number, outputLatencyFrames: number, from: { readonly time: number; readonly p: number }): void {
+    this.reset();
+    this.rate = sampleRate;
+    this.latencyFrames = outputLatencyFrames;
+    this.carry = { time: Math.max(from.time, this.lastTime), p: from.p };
+    this.lastTime = this.carry.time;
+  }
+
+  /** The carry resolves at the new clock's first estimate. */
+  private resolveCarry(): void {
+    const carry = this.carry;
+    if (!carry || (!this.primed && !this.hasStatus)) return;
+    this.carry = null;
+    const p = this.primed ? this.prevP : this.clock.rafTime();
+    const target = Math.max(carry.time + Math.max(0, p - carry.p) / 1000, this.lastTime);
+    this.offsetSeconds = target - this.rawTime();
   }
 
   /**
@@ -126,6 +192,7 @@ export class ClockMap {
         this.updateLead(lambdaObs);
       }
     }
+    this.resolveCarry();
   }
 
   /** The lead envelope: attack at once, release by LEAD_RELEASE of the gap per frame; never below 0. */
@@ -148,6 +215,7 @@ export class ClockMap {
     this.statusFrame = currentFrame;
     this.statusDateMs = dateMs;
     this.hasStatus = true;
+    this.resolveCarry();
   }
 
   /** True once an output timestamp gave an offset (the primary path); false while on the fallback or before anything. */
@@ -173,9 +241,22 @@ export class ClockMap {
   /**
    * `Audio.time` in seconds (§4.3): the heard clock, as the core frame being heard: the context frame at the output
    * less the core's output latency, so frame f renders for `at` = f / sr and is heard when this reads f / sr. 0 before
-   * the clock has any estimate.
+   * the clock has any estimate. A3.4c: plus `timeOffset` after a context swap; with no estimate (after a reset) it
+   * holds the last value it returned, so a rebuild never sends it backwards.
    */
   audioTime(): number {
+    if (this.carry) {
+      this.resolveCarry();
+      if (this.carry) return this.carry.time;
+    }
+    if (!this.primed && !this.hasStatus) return this.lastTime;
+    const t = this.rawTime() + this.offsetSeconds;
+    this.lastTime = t;
+    return t;
+  }
+
+  /** `audioTime()` on the current context's own timeline (no `timeOffset`). */
+  private rawTime(): number {
     if (this.primed) {
       return Math.max(0, ((this.prevP * this.sampleRate) / 1000 + this.offset - this.outputLatencyFrames) / this.sampleRate);
     }
@@ -201,9 +282,12 @@ export class ClockMap {
     return rampFrames(this.intervalMs, this.sampleRate);
   }
 
-  /** The context frame for an `at` time on the heard clock (`Audio.time` seconds), or 0 (asap) when omitted or non-finite. */
+  /**
+   * The context frame for an `at` time on the heard clock (`Audio.time` seconds), or 0 (asap) when omitted or
+   * non-finite. A3.4c: `at` is on `Audio.time`, which runs `timeOffset` ahead of the current context's frames.
+   */
   frameOfTime(at: number | undefined): number {
-    return frameOfTime(at, this.sampleRate);
+    return frameOfTime(at === undefined ? undefined : at - this.offsetSeconds, this.sampleRate);
   }
 
   /**

@@ -78,6 +78,12 @@ export interface ClipRegistry {
    * rebuild re-sends it, and stays loaded until `release(id)`. A second call for an id already held is ignored.
    */
   acquireReserved(id: number, data: ReservedClipData): void;
+  /**
+   * A3.4c, a rebuild into a context at another rate: replaces the kept blob of a reserved clip already held (`data` is
+   * the same table resampled for the new rate) without sending anything; the rebuild's `resend` then sends the new
+   * blob. Chunks of the old blob still queued are dropped. Ignored for an id not held. Optional so fakes satisfy K9.
+   */
+  updateReserved?(id: number, data: ReservedClipData): void;
 }
 
 /** What `acquireReserved` takes. */
@@ -112,7 +118,12 @@ export interface ClipRegistryDeps {
   /** Fetches the asset's encoded bytes (default: `fetch` of the project asset URL). Rejects on failure. */
   fetchBytes?: (path: string) => Promise<ArrayBuffer>;
   /** Decodes encoded bytes on main (default: `decodeClip` in `loader.ts` on the host's context). */
-  decode?: (encoded: ArrayBuffer) => Promise<DecodedClip>;
+  /**
+   * A3.4c: `sampleRate`, when given, is the rate the clip had before a rebuild re-decodes it: decode it at that rate
+   * (each clip keeps its own rate across a context swap, architecture §3.7). Decoders that ignore it still work: the
+   * replay scales a voice's position when its clip comes back at another rate.
+   */
+  decode?: (encoded: ArrayBuffer, sampleRate?: number) => Promise<DecodedClip>;
   /** Wire `ClipFormat` for ordinary clips: 0 f32 or 1 i16 (default 1, architecture section 5: i16 halves arena use). */
   clipFormat?: number;
   /** The `clipMemoryMB` ceiling in bytes, for the registry's own accounting (default `DEFAULT_CLIP_CEILING_MB`). */
@@ -177,8 +188,8 @@ interface Slot {
 interface ReservedSlot {
   readonly id: number;
   state: ClipState;
-  readonly data: ReservedClipData;
-  readonly samples: number;
+  data: ReservedClipData;
+  samples: number;
   /** True while CLIP_BEGIN has gone out and no CLIP_UNLOAD has. */
   begun: boolean;
   readonly listeners: Set<ClipResidentListener>;
@@ -344,7 +355,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
    * Fetches (or takes the kept bytes) and decodes; null when it failed (already reported) or went stale. `then` runs
    * with the decoded clip in the same tick (a first load begins its copy without waiting another microtask).
    */
-  const fetchDecode = async (slot: Slot, token: number, then?: (decoded: DecodedClip) => void): Promise<DecodedClip | null> => {
+  const fetchDecode = async (slot: Slot, token: number, then?: (decoded: DecodedClip) => void, rate?: number): Promise<DecodedClip | null> => {
     const stale = (): boolean => slot.dead || slot.loads !== token;
     const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
     let encoded: ArrayBuffer;
@@ -364,7 +375,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     let decoded: DecodedClip;
     try {
       slot.state = "decoding";
-      decoded = await decode(encoded);
+      decoded = await (rate === undefined ? decode(encoded) : decode(encoded, rate));
       if (stale()) return null;
     } catch (err) {
       if (!stale()) fail(slot, "decode", message(err));
@@ -557,6 +568,14 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       reserved.set(id, res);
       beginReserved(res);
     },
+    updateReserved(id, data) {
+      const res = reserved.get(id);
+      if (!res) return;
+      if (data.format !== ClipFormat.HRIR || data.bytes.byteLength === 0 || data.bytes.byteLength % 2 !== 0) throw new Error("audio: a reserved clip needs an even-length format 2 blob");
+      pacer.cancel(id);
+      res.data = data;
+      res.samples = data.bytes.byteLength / 2;
+    },
     resend(order) {
       for (const res of reserved.values()) {
         if (!res.begun || res.state === "failed") continue;
@@ -578,7 +597,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
         slot.pcm = null;
         slot.begun = false;
         const token = ++slot.loads;
-        return { slot, token, decoded: fetchDecode(slot, token) };
+        return { slot, token, decoded: fetchDecode(slot, token, undefined, slot.sampleRate > 0 ? slot.sampleRate : undefined) };
       });
       void (async () => {
         for (const job of jobs) {

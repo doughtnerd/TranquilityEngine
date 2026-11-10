@@ -221,6 +221,7 @@ export class CoreBackend implements AudioBackend {
         },
         onClose: () => this.dispose(),
         onRebuildStart: () => this.beginRecovery(),
+        onContextReplaced: (rate) => this.contextReplaced(rate),
         onRebuilt: () => this.endRecovery(),
         onRecoveryFailed: () => this.recoveryFailed(),
       }),
@@ -253,8 +254,13 @@ export class CoreBackend implements AudioBackend {
 
   // --- Background hooks (A3.4b; `background.ts` is the `BackgroundTarget` caller) ---
 
-  private hiddenMuted = false;
+  private hiddenMuteOn = false;
   private hidden = false;
+
+  /** @internal MASTER is held at 0 by the hidden-page policy (a rebuild's replayed MASTER keeps it so). */
+  get hiddenMuted(): boolean {
+    return this.hiddenMuteOn;
+  }
   /** @internal The background controller, when `createCoreBackend` made one (its counters feed `debug()`). */
   health: { readonly backgroundEnters: number; readonly interruptions: number } | null = null;
 
@@ -283,7 +289,7 @@ export class CoreBackend implements AudioBackend {
   /** @internal §3.8: MASTER to 0 (or back) over `rampMs`, flushed now since no frame will. `Audio.muted` and the volume are kept. */
   hiddenMute(on: boolean, rampMs: number): void {
     if (this.disposed) return;
-    this.hiddenMuted = on;
+    this.hiddenMuteOn = on;
     this.writer.master(this.master, this.isMuted || on, Math.max(1, Math.round((rampMs / 1000) * this.host.sampleRate)));
     this.writer.flush(this.clockMap.nextFirstFrame());
   }
@@ -412,7 +418,7 @@ export class CoreBackend implements AudioBackend {
 
   set masterVolume(v: number) {
     this.master = clamp(Number.isFinite(v) ? v : 1, 0, 1);
-    this.writer.master(this.master, this.isMuted || this.hiddenMuted, this.clockMap.rampFrames());
+    this.writer.master(this.master, this.isMuted || this.hiddenMuteOn, this.clockMap.rampFrames());
   }
 
   get muted(): boolean {
@@ -421,7 +427,7 @@ export class CoreBackend implements AudioBackend {
 
   set muted(m: boolean) {
     this.isMuted = m;
-    this.writer.master(this.master, m || this.hiddenMuted, this.clockMap.rampFrames());
+    this.writer.master(this.master, m || this.hiddenMuteOn, this.clockMap.rampFrames());
   }
 
   /** The per-frame step; see the header. */
@@ -460,6 +466,27 @@ export class CoreBackend implements AudioBackend {
     if (this.disposed) return;
     this.recovering = true;
     this.replayer.begin();
+    // A3.4c: where `Audio.time` was while the old context still ran, should the rebuild move to a new one.
+    this.carry = this.clockMap.carryPoint();
+  }
+
+  /** `Audio.time` and its rAF time when the rebuild started (A3.4c). */
+  private carry: { readonly time: number; readonly p: number } | null = null;
+
+  /**
+   * `onContextReplaced` (A3.4c, architecture §3.7): the rebuild made a new context at `rate`, whose frames start at 0.
+   * The voices' playheads and the trap frame are carried in `Audio.time` seconds (`Replayer.newContext`); the clock
+   * map takes the new rate and the limiter latency at it, and keeps `Audio.time` continuous (`ClockMap.rebase`); the
+   * writer converts seconds at the new rate; the HRIR is resampled for it from the original asset. Clips keep their
+   * own rate (the registry re-decodes them at it; the core's resampler absorbs the difference).
+   */
+  private contextReplaced(rate: number): void {
+    if (this.disposed) return;
+    const clock = this.clockMap;
+    this.replayer.newContext(clock.sampleRate, clock.timeOffset);
+    clock.rebase(rate, limiterLatencyFrames(rate, this.host.preset.limiterLookaheadMs), this.carry ?? clock.carryPoint());
+    this.writer.sampleRate = rate;
+    this.hrir.retarget?.(rate);
   }
 
   /** `onRebuilt`: the new core answered: RESET 0, buses, MASTER, the clips again, then the voices as their clips return. */
@@ -889,7 +916,8 @@ export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): 
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.arrayBuffer();
       },
-      decode: (encoded) => decodeClip(host.context, encoded),
+      // The host's current context (a rebuild may have replaced it, A3.4c); a re-decode keeps the clip's own rate.
+      decode: (encoded, rate) => decodeClip(host.context, encoded, rate),
       clipFormat: settings.clipFormat === "f32" ? 0 : 1,
       ceilingBytes: (settings.clipMemoryMB ?? DEFAULT_CLIP_CEILING_MB) * (1 << 20),
     });
@@ -904,11 +932,14 @@ export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): 
     get worldCount() {
       return host.worldCount;
     },
-    sampleRate: host.context.sampleRate,
+    // The current context's (a rebuild into a new context changes it, A3.4c).
+    get sampleRate() {
+      return host.context.sampleRate;
+    },
     addLifecycleListener: (listener) => host.addLifecycleListener(listener),
     health: host.health,
   };
-  const backend = new CoreBackend(backendHost, { ...deps, clips, clock: deps.clock ?? browserHostClock(host.context) });
+  const backend = new CoreBackend(backendHost, { ...deps, clips, clock: deps.clock ?? browserHostClock(() => host.context) });
   attachBackground(backend, host);
   return backend;
 }

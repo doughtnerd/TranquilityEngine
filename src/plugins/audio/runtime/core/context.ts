@@ -273,6 +273,12 @@ export interface HostLifecycleListener {
   onRebuilt?(): void;
   /** A3.4a: recovery gave up (the rate limit, or the new core never answered): the host is Failed and silent. */
   onRecoveryFailed?(): void;
+  /**
+   * A3.4c: the rebuild moved to a new AudioContext (architecture §3.7), at `sampleRate`: its frames start at 0 and
+   * `host.context` is the new one. Runs after `onRebuildStart` and before `onRebuilt`, before the new core's first
+   * STATUS, so whoever holds rate-dependent state (the core backend: clock map, writer, playheads, HRIR) moves it now.
+   */
+  onContextReplaced?(sampleRate: number): void;
 }
 
 /**
@@ -324,6 +330,22 @@ export interface HostParts {
    * its port. Absent: the host can't rebuild (a rebuild then fails).
    */
   readonly respawn?: () => { readonly node: AudioWorkletNode; readonly port: LinkPort };
+  /**
+   * A3.4c: makes a new AudioContext at the device's rate (the browser's default), adds the worklet module, makes a
+   * node (a new core initialised with the running preset at the new rate) connected to its output, and an unlock layer
+   * on it. The host closes the old context first. Absent: device and rate rebuilds fail.
+   */
+  readonly recreate?: () => Promise<ContextParts>;
+}
+
+/** @internal A3.4c: what `HostParts.recreate` gives: a new context with its first node, port, unlock layer and `respawn`. */
+export interface ContextParts {
+  readonly context: AudioContext;
+  readonly node: AudioWorkletNode;
+  readonly port: LinkPort;
+  readonly unlock: Unlock;
+  /** Makes another node in this new context (a later same-context rebuild). */
+  readonly respawn?: () => { readonly node: AudioWorkletNode; readonly port: LinkPort };
 }
 
 /** @internal Architecture §8 "Health": what the hard rebuild has done to the page's host (A3.4a). */
@@ -342,12 +364,17 @@ export interface HostHealth {
  * stay for the page (§3.9).
  */
 export class AudioHost {
-  readonly context: AudioContext;
   readonly link: CoreLink;
-  readonly unlock: Unlock;
   /** True while the page's own background policy has suspended the context (A3.4b drives it); unlock won't re-arm then. */
   pageSuspended = false;
 
+  private currentContext: AudioContext;
+  private currentUnlock: Unlock;
+  /** Every listener the host keeps on its context (its own `statechange`, `onDeviceEvent`'s): moved by a context swap. */
+  private readonly contextListeners = new Set<{ readonly type: string; readonly fn: () => void }>();
+  private readonly recreate: HostParts["recreate"];
+  /** §4.7's first-STATUS timeout for the core being started (a stall rebuild waits less, A3.4c). */
+  private statusTimeoutMs = FIRST_STATUS_TIMEOUT_MS;
   private timeout: ReturnType<typeof setTimeout> | null = null;
   private readonly onStateChange = () => this.startTimeout();
   private isClosed = false;
@@ -360,7 +387,7 @@ export class AudioHost {
   private readonly listeners = new Set<HostLifecycleListener>();
   private readonly deviceRemovals = new Set<() => void>();
   private currentNode: AudioWorkletNode;
-  private readonly respawn: HostParts["respawn"];
+  private respawn: HostParts["respawn"];
   /** §2.1 Recovering (A3.4a): between `_beginRebuild` and `_endRebuild`. */
   private recovering = false;
   /** §2.1 Failed after recovery gave up (A3.4a): silent for the rest of the session. */
@@ -369,13 +396,14 @@ export class AudioHost {
   readonly health: HostHealth = { traps: 0, recoveries: 0, rebuilds: 0 };
 
   private constructor(parts: HostParts) {
-    this.context = parts.context;
+    this.currentContext = parts.context;
     this.currentNode = parts.node;
     this.respawn = parts.respawn;
+    this.recreate = parts.recreate;
     this.link = parts.link;
-    this.unlock = parts.unlock;
+    this.currentUnlock = parts.unlock;
     this.currentPreset = parts.preset;
-    this.context.addEventListener("statechange", this.onStateChange);
+    this.listenOnContext("statechange", this.onStateChange);
     this.startTimeout();
     void this.link.ready.then(
       () => this.clearTimeout(),
@@ -384,9 +412,40 @@ export class AudioHost {
     this.watchNode(parts.node);
   }
 
+  /** The page's AudioContext. A rebuild into a new context (A3.4c, §3.7) replaces it: read it each time, never keep it. */
+  get context(): AudioContext {
+    return this.currentContext;
+  }
+
+  /** The unlock layer on the current context (a context swap makes a new one, A3.4c). */
+  get unlock(): Unlock {
+    return this.currentUnlock;
+  }
+
   /** The worklet node running the core (a hard rebuild replaces it, A3.4a). */
   get node(): AudioWorkletNode {
     return this.currentNode;
+  }
+
+  /** Whether the context is closed (by the browser or the OS): a rebuild then needs a new one (A3.4c). */
+  get contextClosed(): boolean {
+    return this.currentContext.state === "closed";
+  }
+
+  /** Whether this host can rebuild into a new context (A3.4c). */
+  get canRecreate(): boolean {
+    return this.recreate !== undefined;
+  }
+
+  /** Adds `fn` for `type` on the current context, and keeps it there across a context swap; returns the removal. */
+  private listenOnContext(type: string, fn: () => void): () => void {
+    const entry = { type, fn };
+    this.contextListeners.add(entry);
+    this.currentContext.addEventListener(type, fn);
+    return () => {
+      if (!this.contextListeners.delete(entry)) return;
+      this.currentContext.removeEventListener(type, fn);
+    };
   }
 
   /**
@@ -410,33 +469,20 @@ export class AudioHost {
    * one host, architecture §1). Get the host with `startAudioHost` or `currentAudioHost`, never with this.
    */
   static async _startNew(wasm: CoreWasm, moduleUrl: string, preset: CorePreset, unlockTarget: EventTarget): Promise<AudioHost> {
-    const context = new AudioContext({ latencyHint: "interactive" });
-    try {
-      await context.audioWorklet.addModule(moduleUrl);
-      // The module stays added to the context, so a rebuild (A3.4a) only makes another node: `processorOptions` are
-      // cloned into the new processor, which instantiates the wasm over a new Memory (the same running preset).
-      const respawn = () => {
-        const processorOptions: CoreProcessorOptions = { wasm: wasm.bytes, preset };
-        const node = new AudioWorkletNode(context, PROCESSOR_NAME, { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions });
-        node.connect(context.destination);
-        return { node, port: node.port as unknown as LinkPort };
-      };
-      const { node, port } = respawn();
-      const link = new CoreLink(port);
-      // onUnlocked does nothing: the constructor's statechange listener starts the first-STATUS clock.
-      const unlock = new Unlock({ target: unlockTarget, context });
-      return AudioHost._create({ context, node, link, unlock, preset, respawn });
-    } catch (error) {
-      void context.close().catch(() => {});
-      throw error;
-    }
+    // A3.4c: a device or rate rebuild makes the next context the same way (no rate asked for: the device's).
+    const recreate = () => openCoreContext(wasm, moduleUrl, preset, unlockTarget);
+    const { context, node, port, unlock, respawn } = await recreate();
+    const link = new CoreLink(port);
+    return AudioHost._create({ context, node, link, unlock, preset, respawn, recreate });
   }
 
   /** §2.1: Locked and Starting are `"locked"`, Failed `"failed"`, the rest `"running"`. */
   get status(): HostStatus {
-    if (this.recoveryFailed || this.link.readyState === "failed" || this.context.state === "closed") return "failed";
-    // §2.1: Recovering reads as running (the new core's first STATUS is pending, but the context hasn't locked).
-    if (this.recovering && this.context.state === "running") return "running";
+    if (this.recoveryFailed) return "failed";
+    // §2.1: Recovering reads as running (the new core's first STATUS is pending, but the context hasn't locked). A3.4c:
+    // so does the old context closed under a rebuild into a new one, or a stalled core failing before the escalation.
+    if (this.recovering) return this.context.state === "running" || this.context.state === "closed" ? "running" : "locked";
+    if (this.link.readyState === "failed" || this.context.state === "closed") return "failed";
     if (this.link.readyState === "pending" || this.context.state !== "running") return "locked";
     return "running";
   }
@@ -536,22 +582,23 @@ export class AudioHost {
 
   /**
    * Calls `listener` when the output device may have changed: the browser's `devicechange`, the context's `sinkchange`
-   * (Chromium) and its `statechange`. Returns the removal; `close()` removes every one.
+   * (Chromium) and its `statechange`. Returns the removal; `close()` removes every one. The context's listeners follow
+   * a rebuild onto a new context (A3.4c).
    */
   onDeviceEvent(listener: (kind: "device" | "state") => void): () => void {
     const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
     const onDevice = () => listener("device");
     const onState = () => listener("state");
     md?.addEventListener?.("devicechange", onDevice);
-    this.context.addEventListener("sinkchange", onDevice);
-    this.context.addEventListener("statechange", onState);
+    const offSink = this.listenOnContext("sinkchange", onDevice);
+    const offState = this.listenOnContext("statechange", onState);
     let removed = false;
     const remove = () => {
       if (removed) return;
       removed = true;
       md?.removeEventListener?.("devicechange", onDevice);
-      this.context.removeEventListener("sinkchange", onDevice);
-      this.context.removeEventListener("statechange", onState);
+      offSink();
+      offState();
       this.deviceRemovals.delete(remove);
     };
     this.deviceRemovals.add(remove);
@@ -654,7 +701,8 @@ export class AudioHost {
   /** §4.7 Starting timeout: counted only while the context runs, since a locked context renders nothing. */
   private startTimeout(): void {
     if (this.timeout !== null || this.link.readyState !== "pending" || this.context.state !== "running") return;
-    this.timeout = setTimeout(() => this.link.fail(new Error(`audio core: no STATUS within ${FIRST_STATUS_TIMEOUT_MS} ms`)), FIRST_STATUS_TIMEOUT_MS);
+    const ms = this.statusTimeoutMs;
+    this.timeout = setTimeout(() => this.link.fail(new Error(`audio core: no STATUS within ${ms} ms`)), ms);
   }
 
   private clearTimeout(): void {
@@ -688,8 +736,9 @@ export class AudioHost {
    * link to its port and resolves on its first ready STATUS. Rejects when the host can't rebuild, is closed, or the
    * new core fails (a shell error, an ABI mismatch, or no STATUS within `FIRST_STATUS_TIMEOUT_MS` of running).
    * `pendingPreset` is not applied: the voice table and the clock were sized for the running preset.
+   * `timeoutMs` (A3.4c) shortens the first-STATUS wait (a stall rebuild escalates sooner).
    */
-  async _replaceCore(): Promise<void> {
+  async _replaceCore(timeoutMs = FIRST_STATUS_TIMEOUT_MS): Promise<void> {
     if (this.isClosed) throw new Error("audio core: the host is closed");
     if (!this.respawn) throw new Error("audio core: this host can't make a new node");
     this.currentNode.disconnect();
@@ -697,14 +746,61 @@ export class AudioHost {
     this.currentNode = node;
     this.watchNode(node);
     this.link._rebind(port);
+    await this.awaitFirstStatus(timeoutMs);
+  }
+
+  /** The link's `ready` for the core just bound, with the first-STATUS timeout (counted while the context runs). */
+  private async awaitFirstStatus(timeoutMs: number): Promise<void> {
     const ready = this.link.ready;
     this.clearTimeout();
+    this.statusTimeoutMs = timeoutMs;
     this.startTimeout();
     void ready.then(
       () => this.clearTimeout(),
       () => this.clearTimeout(),
     );
     await ready;
+  }
+
+  /**
+   * @internal A3.4c (architecture §3.7): replaces the context. Retires and disconnects the node, takes the host's
+   * listeners off the old context and disposes its unlock layer, closes it, and makes a new one (`recreate`: at the
+   * device's rate, the worklet module added, a new node and core initialised with the running preset at the new rate,
+   * a new unlock layer). The host's `statechange` and `onDeviceEvent` listeners move to it, the unlock layer is armed
+   * when it starts suspended (autoplay; it keeps watching with the same `pageSuspended` rule), every
+   * `onContextReplaced` runs, and the link is rebound to the new node's port. Resolves on its first ready STATUS (the
+   * timeout counts only while it runs, so a locked one waits for the gesture). If the page's background policy had
+   * suspended the old context, the new one is suspended again once its core answered (`pageSuspended` stays set).
+   * Rejects when the host can't recreate, is closed, or the new context or core fails.
+   */
+  async _replaceContext(timeoutMs = FIRST_STATUS_TIMEOUT_MS): Promise<void> {
+    if (this.isClosed) throw new Error("audio core: the host is closed");
+    if (!this.recreate) throw new Error("audio core: this host can't make a new context");
+    const old = this.currentContext;
+    this.clearTimeout();
+    this.link.retire();
+    this.currentNode.disconnect();
+    for (const { type, fn } of this.contextListeners) old.removeEventListener(type, fn);
+    this.currentUnlock.dispose();
+    if (old.state !== "closed") await old.close().catch(() => {});
+    const parts = await this.recreate();
+    if (this.isClosed) {
+      void parts.context.close().catch(() => {});
+      throw new Error("audio core: the host is closed");
+    }
+    this.currentContext = parts.context;
+    this.currentNode = parts.node;
+    this.respawn = parts.respawn;
+    this.currentUnlock = parts.unlock;
+    for (const { type, fn } of this.contextListeners) parts.context.addEventListener(type, fn);
+    if (parts.context.state !== "running") parts.unlock.arm();
+    parts.unlock.watch(() => this.pageSuspended);
+    this.watchNode(parts.node);
+    this.link._rebind(parts.port);
+    each(this.listeners, (l) => l.onContextReplaced?.(parts.context.sampleRate));
+    await this.awaitFirstStatus(timeoutMs);
+    // §3.8 `pause`: the page had suspended the old context while hidden; the new one stays suspended too.
+    if (this.pageSuspended && this.currentContext.state === "running") await this.currentContext.suspend().catch(() => {});
   }
 
   /** @internal Leaves Recovering (the new core runs) and runs every `onRebuilt`. */
@@ -744,11 +840,41 @@ export class AudioHost {
     this.clearTimeout();
     // A rebuild waiting for its new core's first STATUS ends now rather than never (A3.4a).
     if (this.recovering) this.link.fail(new Error("audio core: the host closed"));
-    this.context.removeEventListener("statechange", this.onStateChange);
+    for (const { type, fn } of this.contextListeners) this.context.removeEventListener(type, fn);
+    this.contextListeners.clear();
     this.unlock.dispose();
     this.link.dispose();
     this.node.disconnect();
     if (this.context.state !== "closed") await this.context.close();
+  }
+}
+
+/**
+ * §3.1 (and §3.7's new context, A3.4c): creates an AudioContext (`latencyHint: "interactive"`, no `sampleRate`: the
+ * output device's), adds the worklet module, makes the first node with the wasm bytes and the preset, connected to the
+ * output, and an unlock layer on `unlockTarget` (armed by the host when the context isn't running). Closes the context
+ * again when any step fails.
+ */
+async function openCoreContext(wasm: CoreWasm, moduleUrl: string, preset: CorePreset, unlockTarget: EventTarget): Promise<ContextParts> {
+  const context = new AudioContext({ latencyHint: "interactive" });
+  try {
+    await context.audioWorklet.addModule(moduleUrl);
+    // The module stays added to the context, so a same-context rebuild (A3.4a) only makes another node:
+    // `processorOptions` are cloned into the new processor, which instantiates the wasm over a new Memory (the same
+    // running preset; init sets the limiter's look-ahead for the context's rate).
+    const respawn = () => {
+      const processorOptions: CoreProcessorOptions = { wasm: wasm.bytes, preset };
+      const node = new AudioWorkletNode(context, PROCESSOR_NAME, { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions });
+      node.connect(context.destination);
+      return { node, port: node.port as unknown as LinkPort };
+    };
+    const { node, port } = respawn();
+    // onUnlocked does nothing: the host's statechange listener starts the first-STATUS clock.
+    const unlock = new Unlock({ target: unlockTarget, context });
+    return { context, node, port, unlock, respawn };
+  } catch (error) {
+    void context.close().catch(() => {});
+    throw error;
   }
 }
 
