@@ -1,4 +1,4 @@
-# 0158. Audio events are data assets whose containers run on the main thread over core voices, driven by named parameters through curves, with sustain points looped and released in the core
+# 0158. Audio events are data assets; main picks their voices when something happens, and the core runs everything continuous: parameters, curves, blends and sustain loops
 
 - **Status:** Proposed
 - **Date:** 2026-11-10
@@ -29,7 +29,10 @@ M1 of 0157 is done (owner, 2026-11-10). Audio is the `myco.audio` plugin on the 
 
 ## Decision
 
-**We will add audio events as data assets, evaluated by a TypeScript event runtime on the main thread that plays ordinary core voices, with named parameters driving event and bus properties through a shared curve type. The core gains one thing: loop regions inside a clip, released sample-accurately, for sustain points.**
+**We will add audio events as data assets, with named parameters driving event and bus properties through a shared curve type. The work is split by when it happens:**
+- **Main does only event-driven work, never per-frame work for a running instance:** when a script plays an event (walk the tree, make the random, sequence and switch picks, send PLAYs), when a script sets a parameter (send the new value), and when a continuous container's clip starts (schedule the next one). An instance whose parameters aren't changing costs main nothing per frame.
+- **The core does everything continuous, per quantum:** parameter smoothing (`seekSpeed`), curve evaluation, blend weights, the resulting voice and bus gain, pitch and low-pass, and sustain loops and their release.
+- **Main keeps owning the voice table and selection (0157):** every voice an event plays is an ordinary voice main created, so priority, limits, stealing, handles and `Audio.debug()` work unchanged.
 
 ### 1. Event assets
 
@@ -76,7 +79,9 @@ M1 of 0157 is done (owner, 2026-11-10). Audio is the `myco.audio` plugin on the 
 ### 3. Automation and the shared curve
 
 - **Targets:** on events and nodes, `volume` (linear gain), `pitch` (ratio), `lowpass` (Hz, the voice's existing `lpHz`); on **buses** (project `audio.automation`, global parameters only), the bus `volume` and `lowpass`. Bus automation multiplies with snapshots and ducking (0097); it doesn't replace them.
-- **When it applies:** once per frame, after scripts' `update` and before the audio system's selection. Changed values go out as SET_PARAMS or BUS_MIX with `rampFrames` covering one frame, so the core ramps between frames and there are no steps.
+- **Where it runs: in the core.** At play, main sends each voice's automation bindings (parameter slot, curve id, target) after its PLAY; curves are uploaded once per event asset when it loads, global parameter slots once from the project. `Audio.setParameter` and `handle.setParameter` send one PARAM command (scope: global or the instance's `group`, slot, value). Each quantum the core moves every parameter toward its target at its `seekSpeed`, evaluates the bound curves once (control rate, 2.67 ms) and ramps the result linearly across the quantum, so automation is smooth and independent of the game's frame rate.
+- **Selection still sees it.** When a parameter changes, main evaluates the affected curves once at the target value (the same TypeScript `curve.ts`) to update those voices' audibility scores; smoothing in the core makes the heard value trail by at most the seek time, which selection's hysteresis absorbs.
+- **Commands (ABI minor 1.4, no wire major bump):** CURVES (upload a curve table), AUTOMATE (a voice's bindings), PARAM (set a parameter's target and seek speed), BUS_AUTOMATE (bus bindings to global parameters). Byte layouts go in the design doc.
 - **The curve type** is engine-level, not audio's: `src/engine/core/curve.ts`, `Curve = CurveKey[]` where `CurveKey = [x, y]` or `[x, y, interp]`, `interp` the shape to the next key: `"linear"` (default), `"step"`, `"smooth"` (smoothstep), `"easeIn"`, `"easeOut"`. Keys sorted by `x`, clamped outside the first and last. A particle curve is a valid `Curve` with `x` in 0..1, so 0057's data needs no migration; particles may adopt the module later. Animation can add a key form with tangents additively (`{x, y, in, out}`); `Curve` is not frozen beyond "existing forms keep their meaning".
 
 ### 4. Sustain and release
@@ -113,12 +118,13 @@ interface AudioEventHandle extends AudioHandle {   // M1's four members keep the
 
 ### 6. Runtime and the core
 
-- **Where:** `src/plugins/audio/runtime/events/` (asset parse, instance tree, parameters, automation), behind the backend interface (0098), so **events work the same on the Babylon fallback**. Only voices are backend-specific; per-voice `lowpass` is not available on Babylon (it warns once, as bus effects already do).
-- **The core changes only for sustain** (§4: SET_LOOP, ABI 1.4) and for `group` gaining its meaning in STATUS's voice section for debugging. Containers, parameters and automation stay on main for the reasons under Alternatives, not for size.
+- **Main:** `src/plugins/audio/runtime/events/` (asset loading, the instance tree and its picks, parameter bookkeeping, scheduling continuous containers), behind the backend interface (0098).
+- **Core:** a parameter table (global slots plus per-instance slots keyed by `group`), a curve table, per-voice and per-bus bindings, and SET_LOOP (§4). `group` also gains its meaning in STATUS's voice section for debugging.
+- **Babylon fallback:** there is no core, so a TypeScript port of the same smoothing and curve evaluation runs once per frame on main and drives voices through SET_PARAMS-equivalent calls. This is the only case where events cost main per-frame work, and the fallback is already the degraded path. A parity test runs the same scenes through the Rust and TypeScript evaluators. Per-voice `lowpass` is not available on Babylon (it warns once, as bus effects already do).
 - **Size gates (amends 0157).** The build still checks sizes, as a tripwire against accidents (a dependency dragging in formatting code, say), not as a design constraint: the mixer's gate goes from 150 KB to 256 KB (`MIXER_LIMIT` in `native/audio/build.mjs`); the decoder gates stay. Raising a gate is a one-line change with a line in the build log saying why. Review entry 22's pinned `wasm-opt` is no longer needed for headroom.
 - **Timing.** Steps and switch picks happen on main at the frame the play or change arrives; continuous containers schedule each next clip with `at` from known clip lengths and the heard clock, a frame or more ahead, so they are gapless and sample-accurate. A clip whose length isn't known yet (still loading or streaming) starts the next on its end, one frame late, and the debug panel counts it.
 - **Randomness** is seeded per World from `audio.seed` (default: random each run); tests and goldens set it.
-- **Budget:** event evaluation and automation ≤ 0.15 ms per frame at 256 active instances on the lab VM (measured in the M2 bench, added to the main-thread table). Core cost per voice is unchanged; a layered event costs its voices.
+- **Budget (lab VM, measured in the M2 bench):** main ≈ 0 per frame for steady instances; ≤ 5 µs per `Audio.play` of a typical event and per `setParameter`. Core: automation ≤ 0.03 ms p99.9 per quantum at 256 voices with 3 bindings each, taken from the M2 share of the 0.5 ms reserve; it joins the metered benchmark scenes. A layered event costs its voices, as before.
 
 ### 7. Editor authoring (M2b)
 
@@ -133,12 +139,13 @@ interface AudioEventHandle extends AudioHandle {   // M1's four members keep the
 - **M2a, runtime:** curve module, asset format and parser, containers, parameters, automation, `Audio.play`, `AudioSource` events, debug output, docs ("Sound events" guide page). Tests: Vitest for parsing, container picks (seeded), step positions, switch and blend transitions, automation on a fake backend, instance limits and cooldown, release; `cargo test` for SET_LOOP (region loops, release on the frame, streams); WAV `smpl` and Ogg loop-comment parsing; wasm goldens for a layered, a blend, a continuous and a sustained-then-released event; one `@slow` spec playing a sample event set.
 - **M2b, editor:** Event editor, curve widget, audition, settings sections, create menu. Playwright specs for authoring and audition.
 - **A sample:** `samples/sound-lab` gains an events page (footsteps by surface, an engine loop blended by RPM with a sustain and an engine-off tail, a music intensity bus automation), which is also M2's listening-pass material.
-- Exit: the tests above, the metered gate unchanged (+10%), the M2 bench under 0.15 ms, and the owner's listening pass of the sample events.
+- Exit: the tests above, the Rust–TypeScript automation parity test, the metered gate (+10%, with new automation scenes), the M2 bench within the budgets above, and the owner's listening pass of the sample events.
 
 ## Alternatives considered
 
-- **Containers and automation in the core (Rust).** Sample-accurate parameter changes and no main-thread cost. Size is no longer an objection, but the design keeps policy on main (selection already is), the work would be duplicated for the Babylon fallback, it spends the audio thread's scarce reserve rather than the main thread's, and container logic is easier to test and iterate in TypeScript. Frame-rate automation with per-frame ramps is what FMOD and Wwise do for game-driven parameters too. Sustain is the exception: a loop boundary must be exact to the frame, so it goes in the core.
-- **Sustain on main only** (stop the loop voice and start the tail with `at`). Works for three-file sounds, which the `sustain` container does, but a loop region inside one clip would need a seek inside a playing voice; SET_LOOP is simpler and also gives authored loop points from files.
+- **Everything on main, evaluated per frame** (this record's first draft). Simplest, one implementation, and it works the same on the fallback, but it puts recurring work on the game's thread and makes automation step at frame rate (≈33 ms at 30 fps). The owner wants main loaded no more than necessary.
+- **Containers in the core too** (the core makes the picks and starts voices itself). It would take the play-time picks off main, but those are microseconds once per play, and voices born in the core would be invisible to main's voice table: selection, limits, stealing, handles and debugging would need a second policy implementation in Rust. Not worth it for work that isn't recurring.
+- **Sustain on main** (stop the loop voice and start the tail with `at`). Works for three-file sounds, which the `sustain` container does, but a loop region inside one clip would need a seek inside a playing voice; SET_LOOP is simpler and also gives authored loop points from files.
 - **Node-graph authoring (xyflow) like the shader and particle graphs.** Events are trees with a few dozen nodes; a graph adds wiring without adding expressiveness. A graph view can be added later if events grow logic.
 - **A separate state system alongside parameters (Wwise).** Labelled global parameters cover it with one concept and one API.
 - **A timeline per event (FMOD).** Powerful for cinematic sound, but it is most of FMOD's authoring tool. Left for M4 (music grid) or a later record; `delay` per node covers simple timing.
@@ -150,13 +157,16 @@ interface AudioEventHandle extends AudioHandle {   // M1's four members keep the
 **Positive**
 - Sound designers author variation, layering, switching and intensity in data, audition in the editor, and programmers call `Audio.play("sfx/footstep", { parameters: { Surface: "Gravel" } })`.
 - Sustained sounds (engines, weapons, charge-ups, held notes) loop and release cleanly, and loop points authored in WAV and Ogg files are honoured, also for plain `AudioSource` loops.
-- One small core change (SET_LOOP); the audio-thread budget is untouched and events work on both backends.
+- Main does no per-frame work for running events; automation is smooth at the quantum (2.67 ms) whatever the frame rate.
+- Events behave the same on both backends; the voice table, selection and debugging are unchanged.
 - One curve type for audio now, particles and animation later.
 
 **Negative / costs**
-- Parameter changes take effect at frame rate (ramped over the frame), not sample-accurately; a 30 fps game hears ≈33 ms automation steps smoothed by ramps.
-- The main thread takes up to 0.15 ms more per frame.
-- The editor half (tree editor, curve widget, audition) is likely larger than the runtime. Estimate: M2a ≈ 5 person-weeks (sustain adds one), M2b ≈ 5, plus the sample and listening pass.
+- Curve evaluation and smoothing exist twice, in Rust for the core and TypeScript for the fallback and for selection scores; the parity test keeps them together.
+- Automation spends ≈0.03 ms of the audio thread's 0.5 ms reserve, which M3 also wants.
+- Five new core commands (CURVES, AUTOMATE, PARAM, BUS_AUTOMATE, SET_LOOP) and the tables behind them.
+- A parameter change still reaches the core with the next frame's command batch (up to a frame late); only the smoothing after it is at audio rate.
+- The editor half (tree editor, curve widget, audition) is likely larger than the runtime. Estimate: M2a ≈ 6 person-weeks (sustain and the core automation add two), M2b ≈ 5, plus the sample and listening pass.
 - `AudioSource.clip` now accepts two asset kinds, which the inspector and docs must make clear.
 
 ## Deprecates
