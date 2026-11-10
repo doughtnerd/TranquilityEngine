@@ -14,7 +14,7 @@ Wave 1 is merged with every gate green; wave 2 is running (E5.2 guide and E5.3 b
 - `avoidRepeat: 0` now bans nothing (entry 5): a bug fix; random events with the default pick more randomly.
 - Babylon debug rows only for event voices (entry 2): drop the `group` filter in `babylonBackend.ts` `debug()`.
 
-**Proposals waiting for your yes/no:** none.
+**Proposals waiting for your yes/no:** ADR 0160, asset drop targets in the editor SDK (entry 19).
 
 ## Entries
 
@@ -104,4 +104,13 @@ Wave 1 is merged with every gate green; wave 2 is running (E5.2 guide and E5.3 b
 - **Industry note:** FMOD and Wwise loop streams by seeking the stream at the loop end with prefetch; neither promises a sample-exact key-off on a stream, so this meets or beats them.
 - **Also chosen:** a splice is marked with existing fields (a restart STREAM_OPEN with `loopEnd` ≠ 0), no wire schema change; `atStreamFrame` moved into contract C2's `StreamLoopMessage` at the merge. A stream already past a new region's end wraps at the end of its current pass (a clip in the same spot plays on to its end, E2's accepted deviation (d)); both are rare.
 - **If changed:** a proper STREAM_OPEN flag bit in `audio-wire`'s schema (a wire minor bump) when the wire next changes.
+
+### 18. Root cause of the owner's listening-pass gap (blended engine, core)
+- **Found** (investigation, `events/throttleGap.test.ts`): selection evaluated a blend child's automated gain only at the parameter's **target**, once per `setParameter` (`core/coreAutomation.ts` `reevaluate`), so on an RPM sweep the child being left was cut at once, the child being approached stayed silent until the smoothed RPM reached it, and the mid child (target gain 0 at both ends of a 0 → 1 sweep) never played: ≈ 330 ms of silence each way. The core's smoothing was fine; the Babylon fallback has no virtual voices and isn't affected. The "only after pressing Right" pattern didn't reproduce: every sweep from a settled idle gapped; Up pressed during the 0.9 s start clip barely dips, which likely explains the smooth run.
+- **Fix** (E4.5, the owner of the file, as part of entry 14): selection uses the larger of the gain at the target and the gain at main's running estimate of the smoothed value, re-evaluated every frame while a parameter is seeking, and not at all otherwise. The investigator's model of it is gapless (quietest 10-frame RMS 0.157 during a sweep).
+- **Re-check:** the listening pass's blended-engine item after the fix merges.
+
+### 19. Asset drop targets in the editor SDK (E6.3b) — proposed record 0160
+- **Chosen:** `registerAssetDropTarget(element, spec)` and `draggedAssets()` in `myco/editor`, from an import-free registry the asset drag consults first; the Event editor uses it. Public API, so [ADR 0160](../../decisions/0160-asset-drop-targets-in-the-editor-sdk.md) is **Proposed** for your yes/no.
+- **If declined:** mark the two exports `@internal` (first-party plugins only) until a later record.
 
