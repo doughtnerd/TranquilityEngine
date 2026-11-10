@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 //! Uniform partitioned convolution for the HRTF panner (api-and-models §5): 128-frame partitions,
-//! overlap-save on `microfft`'s 256-point real FFT. It replaces Blink's `FFTConvolver` (512-point,
+//! overlap-save on a 256-point real FFT (`fft`). It replaces Blink's `FFTConvolver` (512-point,
 //! 256-frame blocks) and is Myco's own code, not a port.
 //!
 //! Each ear keeps an [`EarInput`]: the previous input block and a frequency-domain delay line of
