@@ -22,3 +22,9 @@
 .audio-debug-table td[data-state="busMuted"],
 .audio-debug-table td[data-state="virtual"],
 .audio-debug-table td[data-state="locked"] { color: var(--muted); }
+
+.audio-debug-more {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.9em;
+}
