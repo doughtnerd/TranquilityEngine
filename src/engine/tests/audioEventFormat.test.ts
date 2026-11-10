@@ -147,3 +147,19 @@ describe("isAudioEventPath", () => {
     expect(isAudioEventPath("sfx/step.ogg")).toBe(false);
   });
 });
+
+describe("releaseFade (m2-decisions entry 10)", () => {
+  it("parses an optional releaseFade on a sustain node and falls back to fade without it", async () => {
+    const { parseAudioEvent, sustainReleaseFade } = await import("../audio/eventFormat");
+    const loop = { type: "clip", clip: "a.wav", loop: true };
+    const withKey = parseAudioEvent({ format: "myco.audioevent@1", root: { type: "sustain", loop, fade: 0.3, releaseFade: 0.05 } });
+    expect(withKey.problems).toEqual([]);
+    const root = withKey.value.root as import("../audio/eventFormat").SustainNode;
+    expect(root.releaseFade).toBe(0.05);
+    expect(sustainReleaseFade(root)).toBe(0.05);
+    const without = parseAudioEvent({ format: "myco.audioevent@1", root: { type: "sustain", loop, fade: 0.3 } }).value.root as import("../audio/eventFormat").SustainNode;
+    expect(without.releaseFade).toBeUndefined();
+    expect(sustainReleaseFade(without)).toBe(0.3);
+  });
+});
+

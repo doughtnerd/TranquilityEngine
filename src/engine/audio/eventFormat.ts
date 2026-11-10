@@ -177,8 +177,18 @@ export interface SustainNode extends NodeBase {
   loop: EventNode;
   end?: EventNode;
   release: SustainRelease;
-  /** `release: "now"`: crossfade seconds from the loop into `end`. */
+  /** `release: "now"`: crossfade seconds from the loop into `end` (when `releaseFade` is absent). */
   fade: number;
+  /**
+   * `release: "now"`: crossfade seconds from the loop into `end`, separate from `fade` so a sustain that is itself a
+   * blend child can keep its blend fade (m2-decisions entry 10, owner 2026-11-10). Absent: `fade` is used, as before.
+   */
+  releaseFade?: number;
+}
+
+/** The release crossfade of a sustain node: `releaseFade` when set, else `fade` (files written before the key). */
+export function sustainReleaseFade(node: SustainNode): number {
+  return node.releaseFade ?? node.fade;
 }
 
 export type EventNode = ClipNode | RandomNode | SequenceNode | SwitchNode | BlendNode | LayerNode | SustainNode;
@@ -371,6 +381,7 @@ class Reader {
         const node: SustainNode = { ...base, type, loop, release: this.pick(raw.release, `${where}.release`, ["now", "loopEnd"] as const, "loopEnd") };
         if (raw.start !== undefined) { const s = this.node(raw.start, `${where}.start`, depth + 1); if (s) node.start = s; }
         if (raw.end !== undefined) { const e = this.node(raw.end, `${where}.end`, depth + 1); if (e) node.end = e; }
+        if (raw.releaseFade !== undefined) node.releaseFade = this.num(raw.releaseFade, `${where}.releaseFade`, 0, 0, 1e6);
         return node;
       }
     }
