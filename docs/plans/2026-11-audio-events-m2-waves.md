@@ -86,6 +86,8 @@ flowchart LR
 | E6.4 | "audition" | 2 | E6.3, E3.1 |
 | E6.5 | "Project Settings > Audio: Parameters and bus Automation" | 2 | E6.1 |
 | E6.6 | "Playwright specs for authoring and audition" | 1 | E6.3, E6.4, E6.5 |
+| E3.7 | (owner-approved addition) `@field` `description` (ADR 0159), shown as the Inspector tooltip; `AudioSource.clip`'s first use | 0.5 | – |
+| E3.8 | (owner-approved addition) optional `releaseFade` on `sustain` (m2-decisions entry 10): parser, runtime, editor field, guide | 0.5 | E3.5, E6.3 |
 | E7.1 | the owner's listening pass of the sample events | owner | E5, E6 |
 | E7.2 | "0157/0158 rows updated", build-log close, handoff | 0.5 | all |
 

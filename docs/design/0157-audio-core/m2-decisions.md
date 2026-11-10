@@ -13,7 +13,7 @@ Wave 1 is merged with every gate green; wave 2 is running (E5.2 guide and E5.3 b
 - `avoidRepeat: 0` now bans nothing (entry 5): a bug fix; random events with the default pick more randomly.
 - Babylon debug rows only for event voices (entry 2): drop the `group` filter in `babylonBackend.ts` `debug()`.
 
-**Proposals waiting for your yes/no:** a `description` option on `@field` (entry 8); a `releaseFade` key on `sustain` (entry 10).
+**Proposals waiting for your yes/no:** none.
 
 ## Entries
 
@@ -55,20 +55,26 @@ Wave 1 is merged with every gate green; wave 2 is running (E5.2 guide and E5.3 b
 - **Question:** making `EventInstance.playing` side-effect free moved retirement into `EventSystem.update()`, which now scans the live instances every frame; 0158 says steady instances cost main nothing per frame.
 - **Chosen:** accepted for wave 1; the wave 2 owner of `eventRuntime.ts` (the E3.3+E3.5 lead) retires instances from voice-end events instead (the core's STATUS already reports ends) and keeps the idle path at one heap comparison. E5.3's bench measures it.
 
-### 8. Proposal: a description option on `@field` (E3.6)
+### 8. A description option on `@field` (E3.6) (confirmed: ADR 0159)
 - **Question:** 0158's Consequences ask the inspector to make clear that `AudioSource.clip` takes clips or events; `@field` has no description/tooltip option, so E3.6 only expanded the doc comment (the picker already offers both kinds).
 - **Proposal (yes/no):** add an optional `description` to `FieldOptions` (engine `registry.ts`) shown as the field's tooltip. It is a public API addition to the scripting surface, so it needs your yes (and maybe a short record). Otherwise the picker's two kinds stand alone.
+- **Owner (2026-11-10):** "Adding the field description as you recommended is fine." Recorded as [ADR 0159](../../decisions/0159-field-description-option.md); built in wave 3 (task E3.7).
 
 ### 9. Runtime details that differ from 0158's wording, found by the guide (E3a, E5.2)
 - **Logged, no change:** curves are cached by object identity, so two events never share a curve id (the 1,024 cap counts each event's curves); an automation curve holds at most 32 keys (not stated in 0158); a spatial event's `maxDistance` defaults to `max(minDistance, 100)` (0158's example shows 30); a `sustain` container's `release` defaults to `"loopEnd"`; a switch's crossfade time is its own `crossfade` key (default 0.1 s), with `onChange: "crossfade"` choosing it, rather than `onChange` carrying the seconds. The guide documents the code.
 - **If changed:** each is one default or key in `src/engine/audio/eventFormat.ts` (and the guide).
 
-### 10. One `fade` key, two meanings (E6.3)
+### 10. One `fade` key, two meanings (E6.3) (confirmed: add `releaseFade`)
 - **Question:** in `myco.audioevent@1` a node's `fade` is its blend-child fade width (0158 §1 "blend") and, on a `sustain` node, the release crossfade (§1 "sustain"); a sustain node that is itself a blend child can't hold both.
 - **Chosen for now:** the editor lists `fade` once for such a node (the release crossfade when `release` is `"now"`, otherwise the blend fade); the runtime reads the one value for both, as it does today. The case needs a sustain container directly under a blend, which is rare (a blend child is usually a clip or a layer).
 - **Proposal (yes/no):** add an optional `releaseFade` key to `sustain` (additive; the format stays `@1`; absent means `fade`, so existing files keep their meaning). One parser line, one runtime line, one editor field.
+- **Owner (2026-11-10):** "releaseFade optional key is fine." Built in wave 3 (task E3.8).
 
 ### 11. M2 bench: first numbers miss three budgets on this container (E5.3)
 - **Measured** (shared 4-core container, load 4–7, so inflated; `npm run bench:audio-events` and `audio-bench mode=scene name=automation-probe`): `Audio.play` median 8.6–9.3 µs (random of 4) and 17–25 µs (layer of 3, 2 bindings each) against ≤ 5 µs, with 35–58 KB of heap per play on the core; `setParameter` median 0.1–1 µs (met); 100 steady instances cost 7–9 µs a frame in `events().update` before E3.5's reap change (budget ≈ 0; 0 records and 0 sink calls, which the test gates); the core's automation pass p99.9 39–56 µs against 30 µs (E2 saw 25–45 µs here).
 - **Chosen:** re-measure on a quiet machine after wave 2 merges. If `Audio.play` still misses, add a wave 3 task (**E5.3b**, mid model, owner of `events/eventRuntime.ts` in wave 3 alongside E4.5's one-line `loopRegion` default) to cut the play path's allocations (instance setup, picks, the handle). The core's number needs the lab VM (O3): `./native/audio/target/release/audio-bench mode=scene name=automation-probe seconds=20 runs=5` and `npm run bench:audio-events`.
+
+### 12. Stray tool calls by Haiku leaves (wave 2)
+- **What happened:** the harness showed leaves calling tools they weren't asked to use: create a session (denied), archive a session, subscribe to PR activity, a Claude Docs batch call. A check of the account's sessions after the fact found nothing archived or created during the build. Whether the Docs call created a document isn't visible from here.
+- **Chosen:** every later brief says to use only file, shell and test tools.
 
