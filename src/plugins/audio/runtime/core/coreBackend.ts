@@ -223,6 +223,12 @@ export class CoreBackend implements AudioBackend {
   private readonly selectionSink: SelectionSink;
   private readonly playArgs: PlayArgs = { voiceId: 0, clip: 0, bus: 0, flags: 0, group: 0, gain: 1, pitch: 1, dirX: 0, dirY: 0, dirZ: -1, lpHz: BUS_LP_OFF_HZ, score: 0, startOffsetFrames: 0 };
   private readonly mixPool: BusMixBuses[] = [];
+  /** M2 F3: selection's bus factor inputs, by bus index: effective gain without automation, parent, automated gain, chain product. */
+  private readonly selBase = new Float64Array(MAX_BUS).fill(1);
+  private readonly selParent = new Int16Array(MAX_BUS).fill(-1);
+  private readonly selAuto = new Float64Array(MAX_BUS).fill(1);
+  private readonly selChain = new Float64Array(MAX_BUS).fill(1);
+  private selCount = 0;
   private readonly mixView: BusMixBuses[] = [];
   private idlePending = false;
   private master = 1;
@@ -314,6 +320,12 @@ export class CoreBackend implements AudioBackend {
       streamLoop: (i, loop, at) => this.streams.setLoop(this.table.clip[i]!, loop, at),
       writerBatches: () => this.writer.stats.batches,
       busView: (name, gain) => this.mixer._setAutomationView(name, gain),
+      busSelection: (name, gain) => {
+        const b = this.busIndexByName.get(name);
+        if (b === undefined || b >= MAX_BUS) return;
+        this.selAuto[b] = gain;
+        this.refreshBusGain();
+      },
     });
     this.replayer = new Replayer(this, host.link);
     for (let i = 0; i < MAX_BUS; i++) this.mixPool.push({ gain: 1, lpHz: BUS_LP_OFF_HZ });
@@ -490,17 +502,37 @@ export class CoreBackend implements AudioBackend {
     const view = this.mixView;
     view.length = 0;
     const n = Math.min(buses.length, MAX_BUS);
-    const busGain = this.selection.busGain;
     for (let b = 0; b < n; b++) {
       const item = this.mixPool[b]!;
       item.gain = buses[b]!.gain;
       item.lpHz = buses[b]!.snapshotLowpass ?? BUS_LP_OFF_HZ;
       view.push(item);
-      // Selection's audibility uses the effective gain down the tree (A3.1).
+      // Selection's audibility uses the effective gain down the tree (A3.1), without bus automation (below).
       const g = buses[b]!.effectiveGain;
+      this.selBase[b] = Number.isFinite(g) && g > 0 ? g : 0;
+      const p = buses[b]!.parent;
+      this.selParent[b] = p === null ? -1 : (this.busIndexByName.get(p) ?? -1);
+    }
+    this.selCount = n;
+    this.refreshBusGain();
+    this.writer.busMix(view, this.clockMap.rampFrames());
+  }
+
+  /**
+   * M2 F3: selection's bus factor: the mixer's effective gain times each bus's automated gain (selection's no-gap
+   * estimate, `CoreAutomation.publishSelection`) and its ancestors', root first. Run where either input changes.
+   */
+  private refreshBusGain(): void {
+    const busGain = this.selection.busGain;
+    const chain = this.selChain;
+    for (let b = 0; b < this.selCount; b++) {
+      const p = this.selParent[b]!;
+      const own = this.selAuto[b]!;
+      const c = p >= 0 && p < b ? chain[p]! * own : own;
+      chain[b] = c;
+      const g = this.selBase[b]! * c;
       busGain[b] = Number.isFinite(g) && g > 0 ? g : 0;
     }
-    this.writer.busMix(view, this.clockMap.rampFrames());
   }
 
   /** Rebuilds the core's bus tree: BUS_CONFIG, the table's per-bus limits, and BUS_MIX. */
@@ -510,6 +542,7 @@ export class CoreBackend implements AudioBackend {
     this.busIndexByName.clear();
     this.names.forEach((n, i) => this.busIndexByName.set(n, i));
     this.lastBusName = null;
+    this.selAuto.fill(1);
     this.writer.busConfig(this.busConfigWire(mixer));
     // ADR 0158: bus bindings follow their buses to the new indices.
     this.automation.onBusesConfigured();
