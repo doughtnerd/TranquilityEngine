@@ -8,6 +8,7 @@ import { CLIP_BYTES_PER_QUANTUM, createChunkPacer, planChunks } from "./chunker"
 import { createEncodedCache } from "./encodedCache";
 import { createDecoderClient, DecodeFailedError, type DecoderClient } from "../decoder/decoderClient";
 import { hintFromName } from "../decoder/protocol";
+import { setFileLoopFrames, setFileLoopPoints } from "../loopPoints";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { i16ToF32 } from "./pcm";
 
@@ -290,6 +291,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     if (slot.dead || slot.state === "failed") return;
     slot.state = "failed";
     slot.failure = failure;
+    if (failure === "decode" || failure === "fetch") setFileLoopPoints(slot.path, null); // nothing will ever report: resolve waiters
     slot.parts = null;
     slot.abort?.abort();
     pacer.cancel(idOf(slot));
@@ -456,6 +458,9 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
         },
       });
       if (stale() || slot.state === "failed") return null;
+      // ADR 0158 §4 (C2): the file's own loop region, in frames; clips without one report null so waiters resolve.
+      const { loopStartFrame: ls, loopEndFrame: le } = result.info;
+      setFileLoopFrames(slot.path, ls !== undefined && le !== undefined ? { start: ls, end: le } : null, result.rate);
       if (streamedFrames > 0) return "streamed";
       return { frames: result.frames, channels: result.channels, sampleRate: result.rate, pieces };
     } catch (err) {

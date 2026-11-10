@@ -68,6 +68,20 @@ describe("parseImportSettings", () => {
     ]);
   });
 
+  it("reads audio loopStart and loopEnd in seconds, leniently", () => {
+    const ok = parseImportSettings({ format: "myco.import@1", loopStart: 1.5, loopEnd: 7.25 });
+    expect(ok.problems).toEqual([]);
+    expect(ok.settings).toMatchObject({ loopStart: 1.5, loopEnd: 7.25 });
+    expect(importSettingsJSON(ok.settings)).toMatchObject({ loopStart: 1.5, loopEnd: 7.25 });
+    expect(parseImportSettings({ format: "myco.import@1", loopEnd: 2 }).settings).toMatchObject({ loopStart: null, loopEnd: 2 });
+    const bad = parseImportSettings({ format: "myco.import@1", loopStart: "x", loopEnd: -1 });
+    expect(bad.problems).toHaveLength(2);
+    expect(bad.settings).toMatchObject({ loopStart: null, loopEnd: null });
+    const inverted = parseImportSettings({ format: "myco.import@1", loopStart: 5, loopEnd: 2 });
+    expect(inverted.problems).toHaveLength(1);
+    expect(inverted.settings).toMatchObject({ loopStart: null, loopEnd: null });
+  });
+
   it("skips bad values and slices, listing why", () => {
     const { settings, problems } = parseImportSettings({
       format: "myco.import@1",

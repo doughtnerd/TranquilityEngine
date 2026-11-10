@@ -22,6 +22,8 @@
  *   ],
  *   "volume": 0.8,                // audio: multiplies every playback's volume (default 1)
  *   "stream": true,               // audio: decode in pieces while playing instead of up front (default false)
+ *   "loopStart": 1.5,             // audio: loop region start in seconds; wins over the file's own points (ADR 0158 §4)
+ *   "loopEnd": 7.25,              // audio: loop region end in seconds (exclusive); a lone key overrides just that end
  *   "scale": 0.01,                // models: multiplies the model's size (default 1)
  *   "upAxis": "z",                // models: the axis that is up in the file, "y" (default) or "z" (ADR 0044)
  *   "normals": "calculate",       // models: "import" (default; calculated when the file has none) or "calculate"
@@ -95,6 +97,10 @@ export interface ImportSettings {
   sprites: SpriteSlice[];
   volume: number;
   stream: boolean;
+  /** Audio (ADR 0158 §4): the loop region's start in seconds, or null to use the file's own. Wins over the file. */
+  loopStart: number | null;
+  /** Audio (ADR 0158 §4): the loop region's end in seconds (exclusive), or null to use the file's own. */
+  loopEnd: number | null;
   /** Models (ADR 0044): multiplies the model's size. */
   scale: number;
   upAxis: ModelUpAxis;
@@ -118,6 +124,8 @@ export const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<I
   sprites: [],
   volume: 1,
   stream: false,
+  loopStart: null,
+  loopEnd: null,
   scale: 1,
   upAxis: "y",
   normals: "import",
@@ -239,6 +247,19 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
   if (raw.stream !== undefined) {
     if (typeof raw.stream === "boolean") settings.stream = raw.stream;
     else bad("stream", "true or false");
+  }
+  if (raw.loopStart !== undefined) {
+    if (typeof raw.loopStart === "number" && raw.loopStart >= 0 && Number.isFinite(raw.loopStart)) settings.loopStart = raw.loopStart;
+    else bad("loopStart", "a number of seconds ≥ 0");
+  }
+  if (raw.loopEnd !== undefined) {
+    if (typeof raw.loopEnd === "number" && raw.loopEnd > 0 && Number.isFinite(raw.loopEnd)) settings.loopEnd = raw.loopEnd;
+    else bad("loopEnd", "a number of seconds > 0");
+  }
+  if (settings.loopStart !== null && settings.loopEnd !== null && settings.loopEnd <= settings.loopStart) {
+    problems.push(`${where}: loopEnd should be after loopStart; both ignored.`);
+    settings.loopStart = null;
+    settings.loopEnd = null;
   }
   if (raw.scale !== undefined) {
     if (typeof raw.scale === "number" && raw.scale > 0 && Number.isFinite(raw.scale)) settings.scale = raw.scale;
@@ -375,6 +396,8 @@ export function importSettingsJSON(settings: ImportSettings): Record<string, unk
   if (!samePair(settings.pivot, d.pivot)) out.pivot = [...settings.pivot];
   if (settings.volume !== d.volume) out.volume = settings.volume;
   if (settings.stream !== d.stream) out.stream = settings.stream;
+  if (settings.loopStart !== d.loopStart) out.loopStart = settings.loopStart;
+  if (settings.loopEnd !== d.loopEnd) out.loopEnd = settings.loopEnd;
   if (settings.scale !== d.scale) out.scale = settings.scale;
   if (settings.upAxis !== d.upAxis) out.upAxis = settings.upAxis;
   if (settings.normals !== d.normals) out.normals = settings.normals;
