@@ -64,7 +64,7 @@
           "type": "engine.Text",
           "data": { "anchor": "top-left", "align": "left", "offset": [24, 270], "fontSize": 24, "outlineColor": "#000000", "outlineWidth": 4 }
         },
-        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/events/music-intensity.audioevent.json", "playOnAwake": true } },
+        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/events/music-intensity.audioevent.json", "playOnAwake": false } },
         { "type": "lab.MusicIntensity", "data": {} }
       ]
     }
