@@ -43,6 +43,7 @@ These files are unchanged copies of Chromium's Blink audio code, staged as the s
 | `hrtf_panner.h` | `third_party/blink/renderer/platform/audio/hrtf_panner.h` | `a9455989d877d27b40599820e3c044295ab8267f161748250fc30630d93ce618` |
 | `reverb_accumulation_buffer.cc` | `third_party/blink/renderer/platform/audio/reverb_accumulation_buffer.cc` | `3c0cc937a1caaaad7ba2b483b5b16f26e80a48e8c436a9f473ff149b1e309979` |
 | `reverb_accumulation_buffer.h` | `third_party/blink/renderer/platform/audio/reverb_accumulation_buffer.h` | `0618182eeddfbeb8474d4d4da93bc02ae150e3df408f6170ba39d222de33f103` |
+| `reverb.cc` | `third_party/blink/renderer/platform/audio/reverb.cc` | `6d17eb6c2022da61d1ecad19954004f807b1b00728fcf552a3827c3336ac6a72` |
 | `reverb_convolver.cc` | `third_party/blink/renderer/platform/audio/reverb_convolver.cc` | `7185312c93b342d9c1d03888c6e028fc49a4d91d8253cbb2754048bb7567e523` |
 | `reverb_convolver.h` | `third_party/blink/renderer/platform/audio/reverb_convolver.h` | `4ad669fd07f531a3e24aec491f890372e2dad62b1c7d0c6925f6b15721fdbc76` |
 | `reverb_convolver_stage.cc` | `third_party/blink/renderer/platform/audio/reverb_convolver_stage.cc` | `52fb4526b2e524037000f7e08f66d128fdbb2a26a27981228b1527efef8e8481` |
