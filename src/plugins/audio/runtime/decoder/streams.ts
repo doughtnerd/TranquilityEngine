@@ -227,6 +227,7 @@ export class StreamDecoder {
     let scratch = 0;
     let scratchBytes = 0;
     let stream: Stream;
+    let info: ClipInfo;
     try {
       handle = w.open(new Uint8Array(m.bytes), m.hint);
       const raw = w.info(handle);
@@ -264,18 +265,15 @@ export class StreamDecoder {
         failed: false,
       };
       this.streams.set(m.streamId, stream);
-      this.host.post({
-        type: "streamOpened",
-        streamId: m.streamId,
-        epoch: m.epoch,
-        info: infoOf(raw),
-      });
+      info = infoOf(raw);
     } catch (e) {
       if (scratch !== 0) w.free(scratch, scratchBytes);
       if (handle >= 0) w.close(handle);
       return this.failed(m.streamId, m.asset, e);
     }
+    // STREAM_OPEN first: main may answer `streamOpened` with a `streamLoop` at once (E4.4), which may send chunks.
     this.postOpen(stream, m.startFrame);
+    this.host.post({ type: "streamOpened", streamId: m.streamId, epoch: m.epoch, info });
     this.pump(stream);
   }
 

@@ -389,26 +389,34 @@ export class StreamManager {
     const rec = e.record;
     if (!rec) return;
     const segs = e.segments;
-    const cur = segs[segs.length - 1]!;
     const p0 = Number.isNaN(at) ? e.openFrame : this.playheadAt(e.voice, at);
-    const p = p0 === null || p0 === undefined ? null : Math.max(cur.stream, Math.floor(p0));
+    const p = p0 === null || p0 === undefined ? null : Math.max(segs[0]!.stream, Math.floor(p0));
+    // The segment the voice is in at `p` (later ones are changes still ahead of it; the next one's start, a seam, ends its pass).
+    let k = segs.length - 1;
+    while (p !== null && k > 0 && segs[k]!.stream > p) k--;
+    const cur = segs[k]!;
+    const ahead = segs[k + 1];
     const f = p === null ? 0 : fileAt(segs, p, e.frames);
     const region = this.regionNow(e);
     let x: number | undefined;
     let next: Segment | null = null;
     if (p !== null && e.frames > 0) {
+      // Where the voice's current pass ends: its segment's seam, or a change still ahead (which begins with one).
+      const seam = cur.loop ? p + (cur.region.end - f) : Number.POSITIVE_INFINITY;
+      const stop = ahead ? Math.min(seam, ahead.stream) : seam;
+      const lin = (at: number) => (at === seam ? cur.region.end : f + (at - p)); // the file frame at `at` without a wrap
       if (rec.looping) {
-        const oldEnd = cur.loop ? cur.region.end : e.frames;
-        // The new region's end comes first (inside it, before the old pass ends), else the old pass ends.
-        const end = f < region.end && region.end <= oldEnd ? region.end : f < oldEnd ? oldEnd : -1;
-        if (end > 0) {
-          x = p + (end - f);
-          const inside = end >= region.start && end < region.end;
-          next = { stream: x, file: inside ? end : region.start, loop: true, region };
+        // A new region: its end, if the voice reaches it first in this pass, else the pass's end; there it jumps to
+        // the region's start unless it is inside the region already.
+        const end = f < region.end && p + (region.end - f) < stop ? p + (region.end - f) : stop;
+        if (Number.isFinite(end)) {
+          x = end;
+          const file = end === stop ? lin(end) : region.end;
+          next = { stream: x, file: file >= region.start && file < region.end ? file : region.start, loop: true, region };
         }
-      } else if (cur.loop) {
-        x = p + (cur.region.end - f);
-        next = { stream: x, file: cur.region.end, loop: false, region: cur.region };
+      } else if (Number.isFinite(stop)) {
+        x = stop;
+        next = { stream: x, file: lin(x), loop: false, region: cur.region };
       }
     }
     e.loop = rec.looping;
