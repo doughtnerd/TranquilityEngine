@@ -19,8 +19,9 @@ import { HRTF_SCENES, type Scene } from "./audio-parity/scenes";
 // The tolerances are per rate (`HRTF_TOLERANCES` in `audio-parity/hrtfAnalysis.ts`, which says why they are not the owner's
 // -90 dB). The reference renders are committed (`audio-parity/hrtf-reference.json`, regenerated with `PARITY_UPDATE=1`), so
 // `src/plugins/audio/testing/hrtfParity.test.ts` checks the core in Node without a browser; this spec also checks that the
-// committed digests still describe this Chromium. Chromium only. The second test reports directions exactly on a kernel
-// boundary, where the two engines can pick different kernels (`HRTF_EDGE_DIRECTIONS`); it asserts nothing.
+// committed digests still describe this Chromium. Chromium only. The second test checks directions exactly on a kernel
+// boundary (`HRTF_EDGE_DIRECTIONS`), at both rates, against a live render (no committed digest): there the last bit of
+// the angle picks the kernel, and since H5 the core computes it in Blink's f32 arithmetic.
 
 test.describe.configure({ timeout: 300_000 });
 
@@ -106,16 +107,24 @@ test("core matches Web Audio: HRTF at fixed directions", { tag: "@slow" }, async
   expect(failures, failures.join("\n")).toEqual([]);
 });
 
-test("HRTF directions exactly on a kernel boundary (reported, not asserted)", { tag: "@slow" }, async ({ page }) => {
+test("HRTF directions exactly on a kernel boundary", { tag: "@slow" }, async ({ page }) => {
   await loadReferencePage(page);
   const ref0: Ref = { page };
-  const rows: string[] = ["scene | null L R (full)"];
-  for (const direction of HRTF_EDGE_DIRECTIONS) {
-    const scene = hrtfScene(direction, 44_100);
+  const rows: string[] = ["scene | null L R (full) | level dB | ITD | ILD"];
+  const failures: string[] = [];
+  for (const scene of HRTF_EDGE_DIRECTIONS.flatMap((d) => [hrtfScene(d, 44_100), hrtfScene(d, 48_000)])) {
     const ref = await renderRef(ref0, scene);
     const core = await renderCore(scene);
     const from = Math.round(scene.analyzeFrom * scene.rate);
-    rows.push(`${scene.id} | ${nullDb(core.left.subarray(from), ref.left.subarray(from)).toFixed(1)} ${nullDb(core.right.subarray(from), ref.right.subarray(from)).toFixed(1)}`);
+    const nl = nullDb(core.left.subarray(from), ref.left.subarray(from));
+    const nr = nullDb(core.right.subarray(from), ref.right.subarray(from));
+    const m = hrtfMeasure(hrtfDigest(scene, core.left, core.right), hrtfDigest(scene, ref.left, ref.right));
+    const tol = hrtfTolerance(scene.rate);
+    const lines = hrtfViolations(m, tol);
+    if (Math.max(nl, nr) > tol.nullDb) lines.push(`the full aligned waveform null is ${Math.max(nl, nr).toFixed(1)} dB (tolerance ${tol.nullDb})`);
+    for (const line of lines) failures.push(`${scene.id}: ${line}`);
+    rows.push(`${scene.id} | ${nl.toFixed(1)} ${nr.toFixed(1)} | ${m.worstLevelDb.toFixed(3)} | ${m.itdFrames.toFixed(3)} | ${m.ildDb.toFixed(3)}`);
   }
   console.log(rows.join("\n"));
+  expect(failures, failures.join("\n")).toEqual([]);
 });

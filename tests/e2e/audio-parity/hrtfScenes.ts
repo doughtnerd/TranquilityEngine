@@ -28,16 +28,16 @@ export function directionVector([azimuth, elevation]: Direction): [number, numbe
  * Directions on the IRCAM Composite set's measured grid (azimuth multiples of 15 degrees, elevations -45..90 in steps
  * of 15), each 0.3 degrees inside its cell where the angle is not 0, +-90 or 180. The panner picks a kernel by
  * truncating `azimuth / 1.875` and `(elevation + 45) / 15`, so a source exactly on a grid line sits on the edge of two
- * kernels, and which one it gets depends on the last bit of the angle (Chromium computes it in f32, the core in f64):
- * the two can pick different kernels (a step of 1.875 degrees in azimuth, 15 in elevation) and then differ by several dB.
- * 0.3 degrees in, the choice is the same, and the kernel is still the measured one (see `HRTF_EDGE_DIRECTIONS`).
+ * kernels, and which one it gets depends on the last bit of the angle (Chromium computes it in f32; the core did in f64
+ * until H5, and could pick a kernel 1.875 degrees in azimuth or 15 in elevation away, several dB off). 0.3 degrees in,
+ * the choice never depends on that bit, and the kernel is still the measured one (see `HRTF_EDGE_DIRECTIONS`).
  */
 export const MEASURED_DIRECTIONS: readonly Direction[] = [
   [0, 0], [30.3, 0], [-29.7, 0], [60.3, 0], [90, 0], [-90, 0], [135.3, 0], [180, 0],
   [0, 30.3], [45.3, 30.3], [-89.7, 30.3], [0, -29.7], [90, -29.7], [-44.7, -44.7], [30.3, 60.3],
 ];
 
-/** The same grid points exactly on the lines: reported by the spec, not asserted (see `MEASURED_DIRECTIONS`). */
+/** The same grid points exactly on the lines: the spec checks them against a live render at both rates (see `MEASURED_DIRECTIONS`). */
 export const HRTF_EDGE_DIRECTIONS: readonly Direction[] = [[30, 0], [45, 30], [0, -30], [90, -30], [30, 60], [0, 30]];
 
 /** Directions between measured ones (the kernel's interpolation in azimuth, in elevation, in both). */
