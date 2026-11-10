@@ -4,6 +4,7 @@
 import type { EditorPlugin } from "../../../editor/sdk";
 import { audioManifest } from "../manifest";
 import { Audio } from "../runtime";
+import { EVENT_EDITOR_PANEL } from "./event/openEventEditor";
 
 export const audioEditorPlugin: EditorPlugin = {
   manifest: audioManifest,
@@ -24,6 +25,13 @@ export const audioEditorPlugin: EditorPlugin = {
       id: "audiodebug",
       title: "Audio Debug",
       view: () => import("./AudioDebugPanel").then((m) => m.AudioDebugPanel),
+    });
+    // The Event editor (ADR 0158 §7, contract C4): opened by double-clicking an audio event; a placeholder until E6.3.
+    context.registerPanel({
+      id: EVENT_EDITOR_PANEL,
+      title: "Audio Event",
+      onDemand: true,
+      view: () => import("./event/EventEditorPanel").then((m) => m.EventEditorPanel),
     });
   },
 };
