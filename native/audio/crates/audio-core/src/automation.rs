@@ -624,14 +624,21 @@ fn enlist(header: &mut Header, active: &mut [u32], e: &mut VoiceAuto, index: usi
 
 // --- Per quantum ---
 
-/// Evaluates bindings: `(gainMul, pitchMul, lpAuto)`.
+/// Evaluates bindings: `(gainMul, pitchMul, lpAuto)`. Each binding is clamped before it combines, as
+/// `events/automation.ts` `evaluate` does (the parity test holds them together): a volume curve
+/// below 0 is silence for its binding (two negative curves don't multiply to a positive gain), and
+/// a pitch curve at or below 0 leaves the rate alone (a factor of 1; no binding stalls a voice).
 fn evaluate(params: &[Param], curves: &[Curve], bindings: &[Binding], group: u16) -> (f32, f32, f32) {
     let (mut g, mut p, mut lp) = (1.0f32, 1.0f32, LP_OFF_HZ);
     for b in bindings {
         let y = curve_value(curves, b.curve, binding_value(params, b.param, group));
         match b.target {
-            target::VOLUME => g *= y,
-            target::PITCH => p *= y,
+            target::VOLUME => g *= y.max(0.0),
+            target::PITCH => {
+                if y > 0.0 {
+                    p *= y;
+                }
+            }
             target::LOWPASS => lp = lp.min(y),
             _ => {}
         }
@@ -639,7 +646,7 @@ fn evaluate(params: &[Param], curves: &[Curve], bindings: &[Binding], group: u16
     if !(g.is_finite() && g >= 0.0) {
         g = 0.0;
     }
-    if !(p.is_finite() && p >= 0.0) {
+    if !(p.is_finite() && p > 0.0) {
         p = 1.0;
     }
     if !(lp >= 0.0) {
