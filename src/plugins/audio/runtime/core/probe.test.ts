@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { audioBackend, mixer, registerDefaultBackend, resetCoreFallbackState, setAudioBackend, type AudioBackend } from "../backend";
 import { missingFeatures, probeCoreSupport, refusalMessage, SIMD_PROBE_MODULE, type ProbeEnv } from "./probe";
+import { defaultBackend, parseAudioSettings } from "../../../../engine/audio/settings";
 
 /** A full engine: every probe passes. Built fresh each call, so no test shares or mutates a stub. */
 const fullEnv = (): ProbeEnv => ({
@@ -121,6 +122,19 @@ describe("probeCoreSupport on a stubbed old engine", () => {
     audioBackend();
     expect(warn).toHaveBeenCalledTimes(2);
     expect(warn).toHaveBeenLastCalledWith(`[myco] ${refusalMessage(FEATURES)}`);
+  });
+  it("with the default backend (no audio.backend in the project) an old engine still gives one warning and falls back to babylon", async () => {
+    const make = vi.fn(() => fakeBackend("babylon"));
+    registerDefaultBackend(make);
+    mixer.audioSettings.backend = parseAudioSettings({}).settings.backend;
+    expect(mixer.audioSettings.backend).toBe(defaultBackend());
+    await probeCoreSupport(oldEngine());
+    expect(audioBackend().name).toBe("babylon");
+    setAudioBackend(null);
+    expect(audioBackend().name).toBe("babylon");
+    expect(make).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(`[myco] ${refusalMessage(FEATURES)}`);
   });
   it("logs nothing when audio.backend is babylon, even on an old engine", async () => {
     const make = vi.fn(() => fakeBackend("babylon"));

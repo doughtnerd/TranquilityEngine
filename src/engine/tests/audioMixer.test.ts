@@ -22,10 +22,10 @@ describe("audio settings (ADR 0097)", () => {
     expect(settings.snapshots[0].volumes).toEqual({ A: 0.5 });
     expect(problems.length).toBeGreaterThanOrEqual(6);
   });
-  it("treats fmod as removed and falls back to babylon", () => {
+  it("treats fmod as removed and uses the default backend", () => {
     const { settings, problems } = parseAudioSettings({ backend: "fmod" });
     expect(problems[0]).toMatch(/removed/);
-    expect(settings.backend).toBe("babylon");
+    expect(settings.backend).toBe("core");
   });
 });
 

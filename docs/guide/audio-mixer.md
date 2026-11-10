@@ -33,9 +33,13 @@ Audio.bus("Voice").activeVoices;          // sounds playing on it
 
 Unknown bus names warn once and are ignored. Script changes are runtime state: save a player's volumes yourself (`Storage`) and set them at start.
 
+## Choosing the backend
+
+`audio.backend` is `"core"` by default: the Rust mixer with effects, priorities, virtual voices, HRTF and a limiter. `"babylon"` selects the Babylon fallback, which an engine that can't run the core uses too (one warning, then the fallback). One exception: a **macOS desktop build** (the Tauri app on macOS, WKWebView) defaults to `"babylon"` until macOS passes its real-time gate. A browser on macOS, Safari included, gets the core. Writing `audio.backend: "core"` (or `"babylon"`) in `project.json`, or choosing it in Project Settings > Audio, wins on every platform. Projects from before the switch that don't set the key now play on the core.
+
 ## Limits
 
-Buses, volume, mute, solo, snapshots (their volumes) and ducking work on every backend. What differs is the **Babylon fallback**, the backend an engine uses when `audio.backend` is `"babylon"` or when the audio core can't run there (see [audio-minimum-versions.md](audio-minimum-versions.md)):
+Buses, volume, mute, solo, snapshots (their volumes) and ducking work on every backend. What differs is the **Babylon fallback**, the backend an engine uses when `audio.backend` is `"babylon"` (the default on macOS desktop builds) or when the audio core can't run there (see [audio-minimum-versions.md](audio-minimum-versions.md)):
 
 - No bus effects. Reverb, filters and the compressor are skipped.
 - A snapshot's low-pass does nothing. Its volumes still apply.

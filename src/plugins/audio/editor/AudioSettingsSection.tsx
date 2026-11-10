@@ -347,10 +347,10 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
 
       <div class="project-settings-list-head">
         <span>Backend</span>
-        <span class="project-settings-hint">core is the Rust mixer; babylon is the fallback without effects or voice limits</span>
+        <span class="project-settings-hint">core (the default) is the Rust mixer; babylon is the fallback without effects or voice limits. macOS desktop builds default to babylon until macOS passes its gate</span>
       </div>
       <div class="audio-row">
-        <Choice<"babylon" | "core"> label="Audio backend" value={a.backend} options={["babylon", "core"]} onChange={(v) => set("Set audio backend", setBackend(draft, v))} />
+        <Choice<"babylon" | "core"> label="Audio backend" value={a.backend} options={["core", "babylon"]} onChange={(v) => set("Set audio backend", setBackend(draft, v))} />
       </div>
     </>
   );

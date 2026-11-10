@@ -1,9 +1,15 @@
-import { expect, type Page, play, test } from "./fixtures";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { expect, openTestProject, type Page, play, test } from "./fixtures";
 
-// The audio plugin's "babylon" backend (ADR 0157 BB1/BB2; the default `audio.backend`) in a real browser: the Flappy
-// sample's music prefab plays on awake, a click is the user gesture that unlocks the context, and `Audio.debug()` (the
-// engine module project scripts import as "myco", `globalThis.__myco`) reports the backend, the running context and a voice.
-const FLAPPY = "/editor.html?sample=flappy";
+// The audio plugin's "babylon" backend (ADR 0157 BB1/BB2) in a real browser. The default `audio.backend` is the core
+// (B7), so this opens the Flappy sample as a project folder with `audio.backend: "babylon"` set explicitly. Its music
+// prefab plays on awake, a click is the user gesture that unlocks the context, and `Audio.debug()` (the engine module
+// project scripts import as "myco", `globalThis.__myco`) reports the backend, the running context and a voice.
+const FLAPPY_BABYLON = JSON.stringify({
+  ...JSON.parse(readFileSync(join(process.cwd(), "samples/flappy/project.json"), "utf8")),
+  audio: { backend: "babylon" },
+});
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -21,8 +27,7 @@ test("the babylon backend plays the sample's music after a user gesture", { tag:
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await page.goto(FLAPPY);
-  await page.waitForFunction(() => ((window as unknown as { engine?: { world: { time: { frameCount: number } } } }).engine?.world.time.frameCount ?? 0) > 10);
+  await openTestProject(page, { "project.json": FLAPPY_BABYLON });
   await play(page);
 
   // The gesture: a click inside the game view.

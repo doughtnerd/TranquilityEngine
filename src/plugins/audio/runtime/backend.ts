@@ -167,8 +167,9 @@ export function resetCoreFallbackState(): void {
 }
 
 /**
- * K3: which backend `audio.backend` picks. `"babylon"` is the default backend (`BabylonBackend`, Babylon's AudioEngineV2); `"core"`
- * is the core. The settings parse reports pre-0157 values as problems and uses `"babylon"`.
+ * K3: which backend `audio.backend` picks. `"core"` is the core, the default (`defaultBackend()` in the settings; macOS
+ * desktop defaults to "babylon" until its gate passes); `"babylon"` is `BabylonBackend` (Babylon's AudioEngineV2), the
+ * fallback. The settings parse reports pre-0157 values as problems and uses the default.
  */
 export function resolveBackendKind(configured: AudioSettings["backend"]): "babylon" | "core" {
   return configured === "core" ? "core" : "babylon";
