@@ -34,6 +34,12 @@ The owner's listening pass for audio events, M2's exit item E7.1. Written by E5.
 - Starting the other engine, or a new one while a tail plays, cuts the old one with a 0.1 s fade (the events' `limit` is one instance).
 - The event cooldown runs on wall-clock time, not the audio clock.
 
+## Owner's first pass (2026-11-10)
+Everything passed except one finding, filed under "Engine, blended":
+- "Pressing T, followed by pressing Up is a smooth transition."
+- "Pressing T, press & release Right, then pressing Up results in a 'gap' in audio in both the transitions to & from the 'Up' audio before settling on the correct audio. Sounds like the interpolation just doesn't happen."
+Being investigated (the RPM target changes while the core is still smoothing the previous change); re-check this item after the fix.
+
 ## Sign-off
 - Core backend: pass / fail, date, machine:
 - Babylon fallback: pass / fail, date, machine:
