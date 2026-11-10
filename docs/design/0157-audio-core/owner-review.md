@@ -50,3 +50,9 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 
 ### 9. MS5 merged to master
 - MS5 (A3.1–A3.4c, A3.6, A3.7, A2.9) merged after its exit check, under the standing instruction. Not run: WebKit and Firefox (no Docker), a real hidden tab, a real device change.
+
+### 10. Decoder build choices (B1)
+- **Chosen:** symphonia `=0.6.1` (the newest release; the design pins 0.6.1); default formats WAV, FLAC, MP3, Ogg Vorbis, with AAC/MP4 behind a cargo feature `aac`; the decoder **exports** its own memory (it runs alone in a worker, unlike the mixer, which imports); the wasm name section is **stripped** (−112 KB; stack traces show function indices); built with `+simd128` like the mixer; seeks drop leading frames inside the decoder; reads stop at a container's stated length.
+- **Why:** each keeps the decoder small and its worker simple; stripping names is standard for shipped wasm.
+- **Licences:** symphonia is MPL-2.0 (file-level copyleft, shipped unmodified, with the source location in `THIRD_PARTY_NOTICES.md`); the rest MIT/Apache/Zlib. No GPL/LGPL.
+- **Open for B4:** the `aac` build is 1,037 KB, over the 900 KB gate, and symphonia's MP4 reader ignores the edit list, so AAC keeps 1,024 priming frames (gapless AAC must trim them).
