@@ -9,7 +9,7 @@ import type { CurveKey, ParticleColor, ParticleGradient } from "../../../../engi
 import { createParticleEffect, openParticleGraphAsset, readEffect } from "../particleAssets";
 import { parseBlockAsset, parseSubgraphAsset, type AssetPort } from "../../../../engine/scene/particleSubgraphs";
 import { assetDocKind } from "../particleGraph/assetDocs";
-import { CurveEditor } from "./particles/CurveEditor";
+import { CurveEditor } from "./particles/ParticleCurve";
 import { GradientEditor } from "./particles/GradientEditor";
 import { NumField, ParticleColorInput, VecField } from "./particles/valueInputs";
 import { editor, SetField, type NodePath, type OpenScene, LargePreview, sectionField, type InspectorSectionProps } from "../../../../editor/sdk";

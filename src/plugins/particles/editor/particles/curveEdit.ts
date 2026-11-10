@@ -1,59 +1,13 @@
 /**
- * Pure helpers behind the particle curve and gradient editors (ADR 0057): key lists stay sorted by
- * `t` (0 to 1), and values convert between a number's or colour's kinds without losing what they
- * show. No DOM here, so they're tested headless.
+ * Pure helpers behind the particle value inputs and gradient editor (ADR 0057): values convert between a number's or colour's kinds without losing what they
+ * show. The generic key helpers live in `src/editor/ui/curveEdit.ts`. No DOM here, so they're tested headless.
  */
-import { colorKind, evalCurve, evalGradient, hexColor, numberKind, parseHexColor, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../engine/scene/particles";
+import { addKey, moveKey, removeKey, type Key } from "../../../../editor/ui/curveEdit";
+import { colorKind, evalGradient, hexColor, numberKind, parseHexColor, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../engine/scene/particles";
 
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
 
-/** A key list entry: `[t, value]`, for curve keys (value a number), colour keys (a hex) or alpha keys. */
-export type Key<T> = [number, T];
-
 const copyKeys = <T>(keys: readonly Key<T>[]): Key<T>[] => keys.map((k) => [k[0], k[1]]);
-
-/** `keys` with a key at `t` (clamped to 0-1) inserted in order. `index` is where it landed. */
-export function addKey<T>(keys: readonly Key<T>[], t: number, value: T): { keys: Key<T>[]; index: number } {
-  const at = clamp01(t);
-  let index = keys.findIndex((k) => k[0] > at);
-  if (index < 0) index = keys.length;
-  const next = copyKeys(keys);
-  next.splice(index, 0, [at, value]);
-  return { keys: next, index };
-}
-
-/** Key `index` moved to `t` and `value`; `t` is clamped to 0-1 and can't pass the neighbouring keys. */
-export function moveKey<T>(keys: readonly Key<T>[], index: number, t: number, value: T): Key<T>[] {
-  if (index < 0 || index >= keys.length) return copyKeys(keys);
-  const lo = index > 0 ? keys[index - 1][0] : 0;
-  const hi = index < keys.length - 1 ? keys[index + 1][0] : 1;
-  return keys.map((k, i) => (i === index ? ([Math.min(hi, Math.max(lo, clamp01(t))), value] as Key<T>) : ([k[0], k[1]] as Key<T>)));
-}
-
-/** `keys` without key `index`; the last key is never removed. */
-export function removeKey<T>(keys: readonly Key<T>[], index: number): Key<T>[] {
-  const next = copyKeys(keys);
-  if (next.length <= 1 || index < 0 || index >= next.length) return next;
-  next.splice(index, 1);
-  return next;
-}
-
-/** The value range a curve editor shows: the keys' min and max with some padding; flat curves get a window around them. */
-export function curveRange(keys: readonly CurveKey[], min?: number, max?: number): [number, number] {
-  if (min !== undefined && max !== undefined && max > min) return [min, max];
-  let lo = keys.length ? Math.min(...keys.map((k) => k[1])) : 0;
-  let hi = keys.length ? Math.max(...keys.map((k) => k[1])) : 1;
-  if (hi - lo < 1e-6) {
-    const half = Math.max(0.5, Math.abs(lo) / 2);
-    lo -= half;
-    hi += half;
-  } else {
-    const pad = (hi - lo) * 0.1;
-    lo -= pad;
-    hi += pad;
-  }
-  return [min ?? lo, max ?? hi];
-}
 
 const flat = (v: number): CurveKey[] => [[0, v], [1, v]];
 const first = (c: readonly CurveKey[]) => (c.length ? c[0][1] : 0);
@@ -143,6 +97,3 @@ export const setColorKey = (g: ParticleGradient, index: number, hex: string): Pa
 export const removeColorKey = (g: ParticleGradient, index: number): ParticleGradient => ({ ...g, colors: removeKey(g.colors, index) });
 /** Alpha keys can all go: no alpha keys reads as opaque. */
 export const removeAlphaKey = (g: ParticleGradient, index: number): ParticleGradient => ({ ...g, alphas: copyKeys(g.alphas.filter((_, i) => i !== index)) });
-
-/** A curve sampled at `n` evenly spaced points, for drawing. */
-export const curveSamples = (keys: readonly CurveKey[], n: number): number[] => Array.from({ length: n }, (_, i) => evalCurve(keys, i / Math.max(1, n - 1)));
