@@ -21,7 +21,7 @@
  *     { "name": "walk_0", "rect": [0, 0, 16, 16], "pivot": [0.5, 0], "border": [2, 2, 2, 2] }
  *   ],
  *   "volume": 0.8,                // audio: multiplies every playback's volume (default 1)
- *   "stream": true,               // audio: stream (HTML5 audio) instead of decoding up front (default false)
+ *   "stream": true,               // audio: decode in pieces while playing instead of up front (default false)
  *   "scale": 0.01,                // models: multiplies the model's size (default 1)
  *   "upAxis": "z",                // models: the axis that is up in the file, "y" (default) or "z" (ADR 0044)
  *   "normals": "calculate",       // models: "import" (default; calculated when the file has none) or "calculate"
