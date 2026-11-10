@@ -98,3 +98,10 @@ Wave 1 is merged with every gate green; wave 2 is running (E5.2 guide and E5.3 b
 ### 16. Runtime fixes found while testing (E3.5)
 - Blend crossfades are equal-power: each edge samples cos/sin into 12 linear keys (|a²+b²−1| < 0.01; 0158 §1). `EventSystem._reset()` now clears curve ids (a second boot was silent). A continuous container waiting on an unknown clip length rechecks every frame instead of every 50 ms (0158 §6, "one frame late").
 
+### 17. Releasing a streamed loop: predicted on main, spliced into the core's ring (E4.4)
+- **Question:** 0158 §4 wants release on an exact frame; a stream's audio past the release already sits in the worklet's ring (up to ≈ 0.68 s), and the core can't tell the worker where to cut.
+- **Chosen:** main predicts the end of the voice's current pass in stream frames (from the last STATUS playhead) and sends it as `atStreamFrame`; the worker stops wrapping there, or, if it already sent past it, starts a new epoch from that frame and the core splices it into its ring (`audio-core/src/stream.rs`), gapless, no fade. Measured on the loopback: 0 frames late in every case (releases asked 5 to 40,000 frames before the seam), tails bit-exact. It can only pick the wrong pass if a starve or pitch change between STATUS and the seam moves the playhead; then it lands one pass early or late, still on a seam. If the voice already read past the splice point the core falls back to a seek-style restart (5 ms fade).
+- **Industry note:** FMOD and Wwise loop streams by seeking the stream at the loop end with prefetch; neither promises a sample-exact key-off on a stream, so this meets or beats them.
+- **Also chosen:** a splice is marked with existing fields (a restart STREAM_OPEN with `loopEnd` ≠ 0), no wire schema change; `atStreamFrame` moved into contract C2's `StreamLoopMessage` at the merge. A stream already past a new region's end wraps at the end of its current pass (a clip in the same spot plays on to its end, E2's accepted deviation (d)); both are rare.
+- **If changed:** a proper STREAM_OPEN flag bit in `audio-wire`'s schema (a wire minor bump) when the wire next changes.
+
