@@ -4,11 +4,10 @@ The coordinator's calls during the M2 build ([plan](../../plans/2026-11-audio-ev
 
 ## Summary (read first)
 
-Wave 1 (the pilot) is merged on `claude/sweet-ritchie-miy6jm` with every gate green; wave 2 is next. Master has E1, E2, E3a and the plan.
+Wave 1 is merged with every gate green; wave 2 is running (E5.2 guide and E5.3 bench merged). Master has E1, E2, E3a and the plan.
 
 **Needs you:**
-1. E2's deviations (entry 1): accept, or ask for changes.
-2. The lab-VM run of the native automation cost (E5.5), once E5.3 lands.
+1. The lab-VM run (E5.5): `./native/audio/target/release/audio-bench mode=scene name=automation-probe seconds=20 runs=5` and `npm run bench:audio-events` (entry 11).
 
 **Biggest calls so far:**
 - `avoidRepeat: 0` now bans nothing (entry 5): a bug fix; random events with the default pick more randomly.
@@ -18,11 +17,12 @@ Wave 1 (the pilot) is merged on `claude/sweet-ritchie-miy6jm` with every gate gr
 
 ## Entries
 
-### 1. E2's deviations from ADR 0158, logged rather than changed (wave 0)
+### 1. E2's deviations from ADR 0158, logged rather than changed (wave 0) (confirmed: accepted)
 - **Question:** E2 (merged before planning) departs from 0158 in six places; accepted records aren't rewritten.
 - **Chosen:** logged in the build log and here; no task changes them. (a) Only voices with a low-pass binding are filtered (M1 never applied per-voice `lpHz`; unbound voices stay bit-identical). (b) AUTOMATE, PARAM and CURVES apply on arrival, not stamped; the writer orders AUTOMATE after its PLAY. (c) Pitch automation ramps per frame; virtual voices advance at the block's mean pitch. (d) A voice past `loopEnd` when SET_LOOP arrives plays on to the end. (e) Curve uploads over the 256 KB staging area are dropped past ≈ 660 full curves (upload per asset; E3.1 spreads its replay over batches). (f) STATUS carries no `group` (0158 §6's line); main knows each voice's group.
 - **Why:** each keeps M1's goldens bit-identical or avoids a wire record that can't hold eight bindings.
 - **If changed:** (a) is `audio-core/src/automation.rs` and `voices.rs`'s filter gate; (f) would need a STATUS voice section, which STATUS doesn't have.
+- **Owner (2026-11-10):** "assuming all 6 recommendations keep the audio system in-line with industry standards, I accept them." They do: (a) FMOD and Wwise bypass a voice's filter at its default; (b) FMOD Studio applies parameter changes on its update, not sample-accurately; (c) per-sample smoothing is standard, and approximate positions for virtual voices is how Wwise's virtual voices work; (d) samplers play on to the end when the playhead is already past the loop; (e) and (f) are internal.
 
 ### 2. Babylon debug rows only for event voices (E3.2)
 - **Question:** contract C3 adds `voices[].event`; on the Babylon fallback `debug().voices` has been empty for plain voices, and existing tests assert that.
