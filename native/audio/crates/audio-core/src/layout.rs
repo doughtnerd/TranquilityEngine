@@ -198,7 +198,10 @@ mod tests {
         let layout = Layout::new(&preset(4_096, 128, 16));
         assert_eq!(layout.region(RegionKind::Voices).len, 768 * 1024);
         assert_eq!(layout.region(RegionKind::Arena).len, 16 << 20);
-        let fixed = layout.region(RegionKind::Arena).offset;
+        // The shared reverb (A2.2b): spectra and delay lines of the 1.8 s stereo IR, ≈ 3.0 MB at 48 kHz.
+        let reverb = layout.region(RegionKind::Reverb).len;
+        assert!(reverb > 2_600_000 && reverb < 3_200_000, "reverb region: {reverb}");
+        let fixed = layout.region(RegionKind::Arena).offset - reverb;
         assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF and streams: {fixed}");
     }
 }
