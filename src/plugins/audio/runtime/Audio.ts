@@ -7,7 +7,7 @@ import { mixer, type Bus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
 import { Assets } from "../../../engine/scene/Assets";
-import { clipVolume, startClip, warnStream, worldPlays } from "./AudioSource";
+import { clipVolume, startClip, warnStream, worldKeyOf, worldPlays } from "./AudioSource";
 import { warnOnce } from "./core/handle";
 import { audioBackend, type AudioDebugInfo, type AudioHandle, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest } from "./backend";
 
@@ -70,7 +70,7 @@ export const Audio = {
       if (!worldPlays(World.active)) return INERT;
       const o: OneShotOptions = typeof options === "number" ? { volume: options } : options !== null && typeof options === "object" ? options : {};
       const path = String(clip).replace(/^asset:/, "");
-      const extra: Partial<PlayRequest> = { oneShot: true };
+      const extra: Partial<PlayRequest> = { oneShot: true, world: worldKeyOf(World.active) };
       extra.volume = clampWarn("volume", finiteOr("volume", o.volume, 1), 0, Infinity) * clipVolume(path);
       extra.pitch = clampWarn("pitch", finiteOr("pitch", o.pitch, 1), MIN_PITCH, MAX_PITCH);
       extra.priority = Math.round(clampWarn("priority", finiteOr("priority", o.priority, 128), 0, 255));

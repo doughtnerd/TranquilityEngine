@@ -12,6 +12,7 @@ import { CORE_ABI_MAJOR, PROCESSOR_NAME, type CoreControlMessage, type CorePrese
 import { createBatchPool, type BufferPool } from "./bufferPool";
 import { loadCoreWasm, workletModuleUrl, type CoreWasm } from "./loader";
 import { Unlock } from "./unlock";
+import type { DeviceSnapshot } from "./deviceChange";
 
 /** @internal §2.1's states as `Audio.status` reports them. */
 export type HostStatus = "locked" | "running" | "failed";
@@ -295,6 +296,7 @@ export class AudioHost {
   private readonly shares = new Map<WorldKey, MutableShare>();
   private readonly byOwner = new Map<object, MutableShare>();
   private readonly listeners = new Set<HostLifecycleListener>();
+  private readonly deviceRemovals = new Set<() => void>();
 
   private constructor(parts: HostParts) {
     this.context = parts.context;
@@ -405,6 +407,106 @@ export class AudioHost {
     return this.shares.size;
   }
 
+  /** Calls `fn(key, owner)` for every World holding a share (the audio system reports which of them has the view, A3.4b). */
+  forEachWorld(fn: (key: WorldKey, owner: object) => void): void {
+    for (const share of this.shares.values()) fn(share.key, share.owner);
+  }
+
+  // --- Visibility and device hooks (A3.4b; architecture §3.7, §3.8; `background.ts` decides, these touch the context) ---
+
+  /** What the classifier (`deviceChange.ts`) reads of the context now. */
+  snapshot(): DeviceSnapshot {
+    const c = this.context as AudioContext & { sinkId?: unknown };
+    return { state: c.state, rate: c.sampleRate, sink: typeof c.sinkId === "string" ? c.sinkId : "" };
+  }
+
+  /**
+   * The rate a new context would get from the default output device, Hz, or null when it can't be told (no
+   * `AudioContext`, or creating one failed). Makes and closes a throwaway context: call it only on a device event.
+   */
+  async probeDeviceRate(): Promise<number | null> {
+    const Ctor = (globalThis as { AudioContext?: typeof AudioContext }).AudioContext;
+    if (!Ctor) return null;
+    let probe: AudioContext | null = null;
+    try {
+      probe = new Ctor();
+      const rate = probe.sampleRate;
+      return Number.isFinite(rate) && rate > 0 ? rate : null;
+    } catch {
+      return null;
+    } finally {
+      void probe?.close().catch(() => {});
+    }
+  }
+
+  /**
+   * Calls `listener` when the output device may have changed: the browser's `devicechange`, the context's `sinkchange`
+   * (Chromium) and its `statechange`. Returns the removal; `close()` removes every one.
+   */
+  onDeviceEvent(listener: (kind: "device" | "state") => void): () => void {
+    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+    const onDevice = () => listener("device");
+    const onState = () => listener("state");
+    md?.addEventListener?.("devicechange", onDevice);
+    this.context.addEventListener("sinkchange", onDevice);
+    this.context.addEventListener("statechange", onState);
+    let removed = false;
+    const remove = () => {
+      if (removed) return;
+      removed = true;
+      md?.removeEventListener?.("devicechange", onDevice);
+      this.context.removeEventListener("sinkchange", onDevice);
+      this.context.removeEventListener("statechange", onState);
+      this.deviceRemovals.delete(remove);
+    };
+    this.deviceRemovals.add(remove);
+    return remove;
+  }
+
+  /**
+   * §3.8 `pause` policy: the page suspends the context. Sets `pageSuspended` first, so the unlock layer doesn't treat the
+   * `statechange` as an outside suspend. Resolves true once the context is suspended; false (and the flag cleared) when
+   * the suspend failed or the context isn't running.
+   */
+  async suspendForBackground(): Promise<boolean> {
+    if (this.isClosed || this.context.state !== "running") return false;
+    this.pageSuspended = true;
+    try {
+      await this.context.suspend();
+    } catch {
+      this.pageSuspended = false;
+      return false;
+    }
+    if ((this.context.state as string) === "suspended") return true;
+    this.pageSuspended = false;
+    return false;
+  }
+
+  /**
+   * §3.8 on becoming visible: ends the page's own suspend and resumes the context. A resume the browser refuses (no
+   * gesture since) leaves the unlock layer armed, so the next gesture does it. Resolves true when the context runs.
+   * A context the page hadn't suspended is only checked, never resumed here (`resumeContext` does that).
+   */
+  async resumeFromBackground(): Promise<boolean> {
+    const mine = this.pageSuspended;
+    this.pageSuspended = false;
+    if (!mine) return this.context.state === "running";
+    return this.resumeContext();
+  }
+
+  /** Resumes the context; when the browser refuses it, arms the unlock layer for the next gesture. True when it runs. */
+  async resumeContext(): Promise<boolean> {
+    if (this.isClosed) return false;
+    try {
+      await this.context.resume();
+    } catch {
+      /* needs a gesture: the unlock layer takes it */
+    }
+    if (this.context.state === "running") return true;
+    this.unlock.arm();
+    return false;
+  }
+
   // --- Reconfigure (Engine.ts; api §3 "Bus state serialisation") ---
 
   /** The bus names the core was last configured with, by index (root first). Empty before the first `reconfigure`. */
@@ -477,6 +579,7 @@ export class AudioHost {
     this.byOwner.clear();
     each(this.listeners, (l) => l.onClose?.());
     this.listeners.clear();
+    for (const remove of [...this.deviceRemovals]) remove();
     this.clearTimeout();
     this.context.removeEventListener("statechange", this.onStateChange);
     this.unlock.dispose();

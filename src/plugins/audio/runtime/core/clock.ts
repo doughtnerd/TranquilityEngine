@@ -224,6 +224,15 @@ export class ClockMap {
     return result;
   }
 
+  /**
+   * A3.4b (§3.8, §4.5): the next frame takes its output timestamp as the new offset instead of filtering it (a tab
+   * that became visible, a context resumed). Keeps the other estimates and the first-frame monotonicity.
+   */
+  reanchor(): void {
+    if (this.primed) this.gap = true;
+    this.hasPrevP = false;
+  }
+
   /** Forgets every estimate (a rebuild, a new context). Counters stay. */
   reset(): void {
     this.primed = false;

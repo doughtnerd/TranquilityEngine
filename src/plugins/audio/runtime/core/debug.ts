@@ -26,6 +26,10 @@ export interface DebugSource {
   readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings">;
   readonly lockedQueue: { readonly size: number; readonly droppedCount: number };
   readonly hrtfReady: boolean;
+  /** A3.4b: the background controller's counters (§8 `backgroundEnters`, `interruptions`); absent without one. */
+  readonly health?: { readonly backgroundEnters: number; readonly interruptions: number } | null;
+  /** A3.4b: whether the page is hidden. */
+  readonly pageHidden?: boolean;
   /** The clock map, for §8's timing figures in `core` (A3.2); hand-built test sources may omit it. */
   readonly clockMap?: Pick<ClockMap, "lookaheadFrames" | "leadFrames" | "rampFrames" | "anchored" | "rejected" | "reanchors">;
 }
@@ -150,8 +154,15 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
     buses,
     voices,
     // `backend` names the backend the way babylonBackend does, so the panel can show it for either.
-    core: { backend: "core", hrtfReady: backend.hrtfReady, ...timing(backend) },
+    core: { backend: "core", hrtfReady: backend.hrtfReady, ...timing(backend), ...hostHealth(backend) },
   };
+}
+
+/** Architecture §8 "Health" for `core` (A3.4b): the background controller's counters and the hidden state. */
+function hostHealth(backend: DebugSource): Record<string, number | boolean> {
+  const h = backend.health;
+  if (!h) return {};
+  return { backgroundEnters: h.backgroundEnters, interruptions: h.interruptions, pageHidden: !!backend.pageHidden };
 }
 
 /** Architecture §8 "Timing" for `core` (A3.2): L and Λ, the ramp, the newest block's max lateness, the clock map's health. */

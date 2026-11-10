@@ -10,11 +10,39 @@ import { Camera } from "../../../engine/render/components";
 import type { GameObject } from "../../../engine/scene/GameObject";
 import { AudioListener, listenerPose } from "./AudioListener";
 import { AudioSource, worldPlays } from "./AudioSource";
-import { audioBackend, isPendingCoreBackend } from "./backend";
-import { AUDIO } from "./core/service";
+import { audioBackend, hasAudioBackend, isPendingCoreBackend } from "./backend";
+import { AUDIO, type AudioWorldService } from "./core/service";
 
 /** Worlds whose audio system already asked for the core's World service. */
 const askedCore = new WeakSet<World>();
+
+/** What the audio system needs of the core backend to say which World has the view (A3.1 `CoreBackend.setWorldAudible`). */
+interface WorldAudibleSink {
+  setWorldAudible(key: number, audible: boolean): void;
+}
+
+const hasWorldAudible = (b: unknown): b is WorldAudibleSink => typeof (b as Partial<WorldAudibleSink>).setWorldAudible === "function";
+
+/**
+ * A3.4b, architecture §3.9: tells the core which Worlds have the view. Runs in every World the Engine steps (the view's
+ * World, and an editor World that keeps running beside play mode), and reports every World holding a share of the
+ * host, not only the caller, so a World that no longer steps (paused, or its Engine stopped) still goes inaudible
+ * when another World has the view, and comes back when it gets it. Its voices go virtual (in time, silent); they
+ * aren't stopped. A cheap loop over the Worlds; nothing allocates.
+ */
+function reportView(world: World): void {
+  if (!hasAudioBackend()) return;
+  const backend: unknown = audioBackend();
+  if (!hasWorldAudible(backend)) return;
+  const service = _worldServiceOf(world, AUDIO) as AudioWorldService | null;
+  if (!service?.core.host) return;
+  reportTo = backend;
+  service.core.host.forEachWorld(reportOne);
+  reportTo = null;
+}
+
+let reportTo: WorldAudibleSink | null = null;
+const reportOne = (key: number, owner: object): void => reportTo?.setWorldAudible(key, worldPlays(owner as World));
 
 /**
  * Per frame, in the World that has the view: place the backend's listener at the first enabled
@@ -26,6 +54,7 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
     phase: "lateUpdate",
     after: ["engine.NetSend"], // as before the move: audio last in lateUpdate
     run(world: World, dt: number): void {
+      reportView(world);
       if (!worldPlays(world)) return;
       // "core" with no AudioSource or AudioListener to start the service (a script's one-shots only): start it here,
       // once per World, so the pending backend's locked voices don't wait for a load nobody began (§2.1).
