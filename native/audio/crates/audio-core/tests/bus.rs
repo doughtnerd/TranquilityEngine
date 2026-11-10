@@ -206,7 +206,8 @@ fn effects_are_stored_per_bus_and_unknown_types_dropped() {
     let mut m = Mixer::new(8);
     m.submit(&[config_fx(&[
         (ROOT, vec![(kind::COMPRESSOR, -24.0, 30.0)]),
-        (0, vec![(kind::LOWPASS, 800.0, 1.0), (kind::REVERB_SEND, 0.3, 0.0), (77, 0.0, 0.0)]),
+        // Send 0: the shared reverb (A2.2b) runs but adds no wet signal to the check below.
+        (0, vec![(kind::LOWPASS, 800.0, 1.0), (kind::REVERB_SEND, 0.0, 0.0), (77, 0.0, 0.0)]),
         (0, vec![(kind::HIGHPASS, 120.0, 0.0); 6]),
     ])]);
     let s = bus::slots(&m.core);
