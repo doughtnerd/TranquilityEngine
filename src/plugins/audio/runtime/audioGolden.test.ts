@@ -22,8 +22,10 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { HRIR_CLIP_ID, resampleHrir } from "./core/hrir";
 import { createLoopbackHost, LOOPBACK_RATE, type LoopbackHost } from "./testing";
 import {
   ASAP,
@@ -33,9 +35,14 @@ import {
   Kind,
   PLAY_FLAGS_LOOP,
   PLAY_FLAGS_MIXED,
+  PLAY_FLAGS_PANNER_SHIFT,
   PLAY_FLAGS_SPATIAL,
+  SET_PARAMS_FLAGS_MIXED,
+  SET_PARAMS_FLAGS_PANNER_SHIFT,
+  SET_PARAMS_FLAGS_SPATIAL,
   SET_PARAMS_MASK_BUS,
   SET_PARAMS_MASK_DIR,
+  SET_PARAMS_MASK_FLAGS,
   SET_PARAMS_MASK_GAIN,
   SET_PARAMS_MASK_PITCH,
   writeBatchHeader,
@@ -83,17 +90,18 @@ const stop = (voiceId: number, fadeFrames = 0): Writer => (view, off) => writeSt
 const fade = (voiceId: number, target: number, frames: number): Writer => (view, off) => writeFade(view, off, { voiceId, frameOffset: ASAP, target, frames, flags: 0 });
 
 /** SET_PARAMS asap with the fields `over` names (the mask is derived from them). */
-function setParams(voiceId: number, rampFrames: number, over: { gain?: number; pitch?: number; dir?: [number, number, number]; bus?: number }): Writer {
+function setParams(voiceId: number, rampFrames: number, over: { gain?: number; pitch?: number; dir?: [number, number, number]; bus?: number; flags?: number }): Writer {
   let mask = 0;
   if (over.gain !== undefined) mask |= SET_PARAMS_MASK_GAIN;
   if (over.pitch !== undefined) mask |= SET_PARAMS_MASK_PITCH;
   if (over.dir) mask |= SET_PARAMS_MASK_DIR;
   if (over.bus !== undefined) mask |= SET_PARAMS_MASK_BUS;
+  if (over.flags !== undefined) mask |= SET_PARAMS_MASK_FLAGS;
   return (view, off) =>
     writeSetParams(view, off, {
       voiceId, frameOffset: ASAP, mask, gain: over.gain ?? 0, pitch: over.pitch ?? 0,
       dirX: over.dir?.[0] ?? 0, dirY: over.dir?.[1] ?? 0, dirZ: over.dir?.[2] ?? 0,
-      lpHz: 0, score: 0, bus: over.bus ?? 0, rampFrames, flags: 0,
+      lpHz: 0, score: 0, bus: over.bus ?? 0, rampFrames, flags: over.flags ?? 0,
     });
 }
 
@@ -164,6 +172,33 @@ class Stage {
     this.host.send(scratch.slice(0, at));
   }
 
+  /**
+   * Loads the HRIR table (H3's format 2 clip under the reserved id), resampled to the loopback rate as `hrir.ts` does at
+   * runtime, then renders `warmQuanta` quanta that are not part of the output: the core copies the table and builds its
+   * panner bank over them.
+   */
+  async loadHrir(warmQuanta = 40): Promise<void> {
+    const bytes = await readFile(new URL("./wasm/myco_hrir.bin", import.meta.url));
+    const blob = resampleHrir(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, LOOPBACK_RATE);
+    const words = blob.byteLength / 2;
+    const begin = new ArrayBuffer(16 + 20);
+    const beginView = new DataView(begin);
+    writeEnvelope(beginView, 0, { kind: Kind.CLIP_BEGIN, seq: this.seq++, bodyBytes: 20 });
+    writeClipBegin(beginView, 0, { clipId: HRIR_CLIP_ID, frames: words, channels: 1, sampleRate: LOOPBACK_RATE, format: 2 });
+    this.host.send(begin);
+    for (let at = 0; at < words; at += 2048) {
+      const n = Math.min(2048, words - at);
+      const padded = Math.ceil((n * 2) / 4) * 4;
+      const chunk = new ArrayBuffer(16 + 16 + padded);
+      const view = new DataView(chunk);
+      writeEnvelope(view, 0, { kind: Kind.CLIP_CHUNK, seq: this.seq++, bodyBytes: 16 + padded });
+      writeClipChunk(view, 0, { clipId: HRIR_CLIP_ID, frameOffset: at, frames: n, reserved: 0 });
+      new Uint8Array(chunk, 32, n * 2).set(new Uint8Array(blob, at * 2, n * 2));
+      this.host.send(chunk);
+    }
+    this.host.renderQuanta(warmQuanta);
+  }
+
   /** Renders `quanta` more quanta into the scene's output. */
   run(quanta: number): void {
     const { left, right } = this.host.renderQuanta(quanta);
@@ -222,7 +257,13 @@ async function stage(): Promise<Stage> {
 
 // --- The scenes --------------------------------------------------------------------------------------------------
 
-const SCENES: Record<string, (s: Stage) => void> = {
+/** The panner bits for HRTF (kind 1) in a PLAY's flags and in a SET_PARAMS's. */
+const HRTF_PLAY = 1 << PLAY_FLAGS_PANNER_SHIFT;
+const HRTF_SET = 1 << SET_PARAMS_FLAGS_PANNER_SHIFT;
+/** A SET_PARAMS `flags` that keeps the voice mixed and spatial (the other bits are the panner's). */
+const SET_MIXED_SPATIAL = SET_PARAMS_FLAGS_MIXED | SET_PARAMS_FLAGS_SPATIAL;
+
+const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
   "one-shot"(s) {
     s.send(play(voice(1), CLIP, { gain: 0.8 }));
     s.run(100);
@@ -338,6 +379,37 @@ const SCENES: Record<string, (s: Stage) => void> = {
     s.send(setParams(voice(3), 0, { bus: 2 }), stop(voice(1), 600));
     s.run(60);
   },
+  // H4: the HRTF panner (the shipped table, resampled to 48 kHz). The HRTF flag is the voice's PLAY or SET_PARAMS panner
+  // bits, as `hrtfPick.ts` sets them on main; the table is loaded and the bank built before the voices start.
+  async "hrtf-static"(s) {
+    await s.loadHrir();
+    s.send(
+      play(voice(1), CLIP, { flags: MIXED | LOOP | SPATIAL | HRTF_PLAY, dirX: 0.5, dirZ: -0.866_025_4 }),
+      play(voice(2), CLIP, { flags: MIXED | LOOP | SPATIAL | HRTF_PLAY, dirX: -1, dirZ: 0, pitch: 0.8, gain: 0.6 }),
+      play(voice(3), STEREO, { flags: MIXED | LOOP | SPATIAL | HRTF_PLAY, dirX: 0.3, dirY: 0.5, dirZ: 0.812_403_8, gain: 0.5 }),
+    );
+    s.run(80);
+  },
+  // A source that moves across the listener while its panner kind changes: equal-power, then HRTF (the 45 ms crossfade, the
+  // direction updated every two quanta as the backend does), then equal-power again; a second, static voice stays on HRTF.
+  async "hrtf-moving-kind-change"(s) {
+    await s.loadHrir();
+    const toward = (azimuthDeg: number): [number, number, number] => [Math.sin((azimuthDeg * Math.PI) / 180), 0, -Math.cos((azimuthDeg * Math.PI) / 180)];
+    s.send(
+      play(voice(1), CLIP, { flags: MIXED | LOOP | SPATIAL, dirX: toward(-90)[0], dirZ: toward(-90)[2] }),
+      play(voice(2), CLIP, { flags: MIXED | LOOP | SPATIAL | HRTF_PLAY, dirX: 0.5, dirZ: -0.866_025_4, pitch: 1.5, gain: 0.4 }),
+    );
+    const steps = 120;
+    for (let k = 0; k < steps; k++) {
+      const az = -90 + (180 * k) / (steps - 1);
+      const kind = k >= 30 && k < 80 ? HRTF_SET : 0;
+      const over: Parameters<typeof setParams>[2] = { dir: toward(az) };
+      if (k === 30 || k === 80) over.flags = SET_MIXED_SPATIAL | kind;
+      s.send(setParams(voice(1), 256, over));
+      s.run(2);
+    }
+    s.run(10);
+  },
 };
 
 // --- Digests ---------------------------------------------------------------------------------------------------------
@@ -425,7 +497,7 @@ function explain(want: Golden, got: Golden): string {
 describe("wasm goldens: the committed core's output, scene by scene", () => {
   it.each(Object.keys(SCENES))("scene %s matches its golden digest", async (name) => {
     const s = await stage();
-    SCENES[name]!(s);
+    await SCENES[name]!(s);
     const { left, right } = s.output();
     for (const sample of left) expect(Number.isFinite(sample)).toBe(true);
     for (const sample of right) expect(Number.isFinite(sample)).toBe(true);
@@ -459,7 +531,7 @@ describe("wasm goldens: the committed core's output, scene by scene", () => {
   it("a render is repeatable within one process (the digest does not depend on the run)", async () => {
     const run = async (): Promise<string> => {
       const s = await stage();
-      SCENES["kitchen-sink"]!(s);
+      await SCENES["kitchen-sink"]!(s);
       const { left, right } = s.output();
       return digest("kitchen-sink", left, right).sha256;
     };

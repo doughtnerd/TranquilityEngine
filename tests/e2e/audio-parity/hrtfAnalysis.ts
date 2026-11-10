@@ -76,9 +76,9 @@ export function hrtfDigest(scene: Scene, left: Float32Array, right: Float32Array
  *
  * The owner's figures (0.1 dB, -90 dB: `TOLERANCES` in `analysis.ts`) hold for the biquad, compressor and pan scenes, which
  * run the same f32 operations in both engines. They do not hold for HRTF, which differs from Chromium's in two ways (build
- * log, H4): at 44.1 kHz, the table's own rate, the levels, ILD and ITD agree to 0.01 dB and 0.002 frames but the waveforms
- * null only to -40...-75 dB; at 48 kHz (the table is resampled, Chromium and the core by different resamplers) the response
- * differs by up to 5.7 dB in a band, 3.2 dB in ILD, 0.94 frames in ITD, and the waveforms null to only -5...-23 dB.
+ * log, H4): at 44.1 kHz, the table's own rate, the levels, ILD and ITD agree to 0.01 dB and 0.001 frames but the waveforms
+ * null only to -40...-73 dB; at 48 kHz (the table is resampled, Chromium and the core by different resamplers) the response
+ * differs by up to 5.7 dB in a band, 3.2 dB in ILD (median 0.8), 1.1 frames in ITD, and the waveforms null to only -5...-21 dB.
  * So the HRTF tolerance is per rate, `HRTF_TOLERANCES`: 44.1 kHz at 0.1 dB / 0.1 frames / -35 dB (the owner's level figure,
  * a looser null), 48 kHz a regression guard a little above what was measured (it fails if the core moves further from
  * Chromium, not if it matches better). The coordinator decides whether these stand.
