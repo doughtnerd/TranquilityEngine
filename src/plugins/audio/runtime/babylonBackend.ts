@@ -30,7 +30,7 @@ import { busCreationSteps, listenerQuaternion, planBuses, playbackRate, soundVol
 import type { VisibilitySource } from "./core/background";
 import { Unlock, type UnlockContext } from "./core/unlock";
 import { warnOnce } from "./core/handle";
-import { loopPointsFor } from "./loopPoints";
+import { loadFileLoopPoints, onLoopPoints } from "./loopPoints";
 
 /** What a test (or an unusual host) can replace. */
 export interface BabylonBackendOptions {
@@ -101,16 +101,23 @@ class BabylonVoice implements AudioVoice {
   /** ADR 0158 §4: the loop region and flag asked for (by `setLoop` or the clip's loop points), applied when the sound is ready. */
   private region: { start: number; end: number } | null = null;
   private looping: boolean;
+  /** E4.5: the wait for the clip's loop points, until they arrive or the voice ends. */
+  private unsubPoints: (() => void) | null = null;
+  /** True once a `setLoop` (an event's) set the region: the clip's own points don't override it. */
+  private regionSet = false;
+  /** The sound's length in seconds once its buffer is loaded (a loop end is clamped to it). */
+  private duration = Number.POSITIVE_INFINITY;
 
   constructor(private readonly backend: BabylonBackend, private readonly req: PlayRequest) {
     this.bus = req.bus;
     this.volume = req.volume ?? 1;
     this.pitch = req.pitch ?? 1;
     this.looping = req.loop;
-    if (req.loop) {
-      // E4.5 makes this live: a plain looping clip then loops its sidecar/file loop points. Until then it returns null.
-      const points = loopPointsFor(req.path);
-      if (points) this.region = { start: points.start, end: points.end };
+    // E4.5 (ADR 0158 §4): a plain looping clip or stream loops its sidecar's or file's loop points; they are read
+    // from the file once per path (`loadFileLoopPoints`) and applied when known (`pointsArrived`).
+    if (req.loop && !(req.group && req.group > 0)) {
+      this.unsubPoints = onLoopPoints(req.path, (p) => this.pointsArrived(p));
+      void loadFileLoopPoints(req.path, req.url);
     }
     const flat = req.stream && (req.attenuation !== undefined || req.position !== undefined);
     if (flat) warnFlatStream(req.path);
@@ -143,6 +150,8 @@ class BabylonVoice implements AudioVoice {
   private finish(): void {
     if (this.ended) return;
     this.ended = true;
+    this.unsubPoints?.();
+    this.unsubPoints = null;
     mixer.voiceEnded(this.bus);
     this.backend._forget(this);
   }
@@ -185,7 +194,10 @@ class BabylonVoice implements AudioVoice {
       if (this.req.stream) sound = await live.engine.createStreamingSoundAsync(name, this.req.url, options);
       else {
         const buffer = await this.backend._buffer(live, this.req.url);
-        if (Number.isFinite(buffer.duration)) live.durations.set(this.req.path, buffer.duration);
+        if (Number.isFinite(buffer.duration)) {
+          live.durations.set(this.req.path, buffer.duration);
+          this.duration = buffer.duration;
+        }
         sound = await live.engine.createSoundAsync(name, buffer, options);
       }
     } catch (e) {
@@ -215,6 +227,14 @@ class BabylonVoice implements AudioVoice {
     if (this.gain !== this.appliedGain) this.applyVolume(this.rampSeconds);
   }
 
+  /** E4.5: the clip's loop points are known (null: it has none, so it loops whole). Never overrides an event's `setLoop`. */
+  private pointsArrived(p: { start: number; end: number } | null): void {
+    this.unsubPoints = null;
+    if (this.ended || this.regionSet || !p) return;
+    this.region = { start: p.start, end: p.end };
+    if (this.sound) this.applyLoop();
+  }
+
   private start(): void {
     const sound = this.sound;
     if (!sound || this.started) return;
@@ -239,7 +259,8 @@ class BabylonVoice implements AudioVoice {
     } else if (region) {
       const s = sound as StaticSound;
       s.loopStart = Math.max(0, region.start);
-      s.loopEnd = Math.max(0, region.end);
+      // The TypeScript reader doesn't clamp to the file's length (the Rust decoder does).
+      s.loopEnd = Math.min(Math.max(0, region.end), this.duration);
     }
     sound.loop = this.looping;
   }
@@ -321,6 +342,7 @@ class BabylonVoice implements AudioVoice {
   setLoop(start: number, end: number, looping: boolean): void {
     if (this.ended) return;
     this.region = { start: Number.isFinite(start) ? start : 0, end: Number.isFinite(end) ? end : 0 };
+    this.regionSet = true;
     this.looping = looping;
     this.applyLoop();
   }
