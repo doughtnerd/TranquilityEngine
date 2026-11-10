@@ -12,6 +12,7 @@ const BESIDE_BUNDLE = [
   { module: "src/engine/ui/fonts.ts", path: "./fonts/Inter-latin-wght.woff2" }, // ADR 0076
   { module: "src/plugins/audio/runtime/core/loader.ts", path: "../wasm/myco_audio.wasm" }, // ADR 0157
   { module: "src/plugins/audio/runtime/core/hrir.ts", path: "../wasm/myco_hrir.bin" }, // ADR 0157
+  { module: "src/plugins/audio/runtime/decoder/decoderClient.ts", path: "../wasm/myco_audio_decode.wasm" }, // ADR 0157 (B2)
 ];
 
 /**

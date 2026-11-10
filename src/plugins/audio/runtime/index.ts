@@ -14,6 +14,9 @@ export type { AudioDebugInfo, AudioHandle, AudioReason, AudioStatus } from "./ba
 export { AudioSource, type Rolloff } from "./AudioSource";
 export { AudioListener } from "./AudioListener";
 export type { Bus } from "../../../engine/audio/mixer";
+/** @internal B2: the decoder worker's client (B5 wires the clip registry to it). Not part of the public API (`src/myco.ts` does not export it). */
+export { createDecoderClient, type DecoderClient, type DecodedClip } from "./decoder/decoderClient";
+export { hintFromName } from "./decoder/protocol";
 
 export const audioRuntimePlugin: RuntimePlugin = {
   manifest: audioManifest,
