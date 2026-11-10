@@ -3,7 +3,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { Audio } from "../runtime/Audio";
 import type { AudioDebugInfo } from "../runtime/backend";
-import { playing } from "../../../editor/session";
 import { editor } from "../../../editor/sdk";
 import "./audioDebugPanel.css";
 
@@ -17,7 +16,7 @@ const level = (v: number): string => (v === 0 ? "0" : v.toFixed(2));
 const peakOf = (b: AudioDebugInfo["buses"][number]): number => Math.max(b.peakL, b.peakR);
 
 export function AudioDebugPanel() {
-  const isPlaying = editor.scene.playState === "playing" && playing.value !== null;
+  const isPlaying = editor.scene.playState === "playing";
   const [info, setInfo] = useState<AudioDebugInfo | null>(null);
   useEffect(() => {
     if (!isPlaying) {
@@ -27,7 +26,7 @@ export function AudioDebugPanel() {
     setInfo(Audio.debug());
     const t = setInterval(() => setInfo(Audio.debug()), REFRESH_MS);
     return () => clearInterval(t);
-  }, [isPlaying, playing.value]);
+  }, [isPlaying]);
   if (!isPlaying || !info) {
     return (
       <section class="audio-debug" aria-label="Audio">
