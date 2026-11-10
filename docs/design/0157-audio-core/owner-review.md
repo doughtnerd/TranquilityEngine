@@ -141,3 +141,10 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 - Every B7 gate passed (MS5, MS6, the old-engine fallback with the default backend) and the full suite passed on the core default, so B7 shipped as planned: **projects without `audio.backend` now play on the audio core** (macOS desktop builds stay on Babylon until macOS passes its gate; browser Safari gets the core — the ADR names only "macOS desktop builds").
 - **Revert:** `DEFAULT_BACKEND = "babylon"` in `src/engine/audio/settings.ts` (one line); everything else in MS7 stays.
 - Not run here: WebKit and Firefox (no Docker), macOS, real devices.
+
+### 28. Notices and docs (C2)
+- **Fixed:** the mixer wasm's transitive crates through microfft (`num-complex`, `num-traits`, `cfg-if`, `static_assertions`, MIT or Apache-2.0) are now credited; the Chromium entry now describes the three kinds of notice accurately (2010/2011 Google with clause 3 naming Apple; Apple-only two-clause files; "The Chromium Authors" files from outside the Blink audio directory).
+- **Open — needs you:** `samples/flappy/music/foo.mp3` and `town.mp3` have no credit or licence anywhere (encoded with FL Studio; history squashed). They ship with the editor's samples. Please confirm their source and licence, or replace them (re-encoding with LAME would also make their loops gapless, entry 25).
+- The notices list licences by name and version, not the full MIT/Apache texts, matching how the navigation crates are handled.
+- Design-doc drift noted by C2: §2 mentions `Audio.debug().core.fallback`; the code reports `core.backend` (`"core"`, `"babylon"`, `"pending"`), which the guide uses. The design's default `clipMemoryMB` 128 vs the shipped default (unset; the low preset uses 64 MB).
+- Added the npm script `check:links` (`tools/check-doc-links.mjs`, no dependencies) and two guide-index rows in `docs/README.md`.
