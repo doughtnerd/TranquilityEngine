@@ -377,3 +377,24 @@ K6 (`recovery.ts`'s `rebuild(reason)` stub) was committed first (`0caec02`). Fou
 **Reserve used:** none.
 
 **Owner decision (2026-11-10), A3.6 (#106):** accepted as built and closed. Professional samplers band-limit (windowed sinc, multisampling); game middleware mostly doesn't (FMOD's default resampler is linear; the browser's `AudioBufferSourceNode` is linear), and the 4-point resampler is at or above that. Aliasing is audible only for large pitch-ups (≥ about 1.5×) of bright content; the guide says so (`docs/guide/audio-mixer.md`, Limits). Band-limited resampling (octave mipmaps with half-band levels, per clip or as a quality setting) is a post-M1 option, #110.
+
+## MS5 A3.4c (new-context rebuilds) and MS5 complete
+
+**Landed: A3.4c (#109, Opus, approved by the owner).** `AudioHost._replaceContext`: retire the node, move the host's listeners off the old context, dispose its unlock layer and close it, then `recreate()` (a new `AudioContext` at the device's rate, `addModule`, a node, a new `Unlock`), move `statechange`/`sinkchange`, arm unlock if it starts suspended, rebind the link, `onContextReplaced(rate)`, and wait for the first STATUS. Recovery: a trap rebuilds in the same context; `"device"`, `"rate"` or a closed context get a new context; `"stall"` tries the same context with a 2 s first-STATUS limit, then a new one (a second stall within 10 s goes straight to a new one). The 3-per-60 s limit covers every core made. Across the swap, playheads cross in `Audio.time` seconds; the clock map, writer, limiter latency and HRIR follow the new rate (the HRIR re-resampled from the asset, the registry's kept copy replaced); clips re-decode at their own rate through an `OfflineAudioContext`. **`Audio.time` stays continuous** (a carried `timeOffset`; it holds its value after any reset and never goes backwards), so `at` values computed before the swap keep their meaning. A hidden-page mute now survives a rebuild's MASTER replay.
+
+**Numbers:** loopback 48 → 44.1 kHz: a voice resumes within one quantum (127 clip frames) of its position; `Audio.time` within 0.1 ms of the page clock; `at` after the swap exact, 0 late. Chromium (Sound Lab, `rebuild("device")`): 865 ms at the same rate, 557 ms with the rate forced from 44.1 to 48 kHz; same voices, no errors.
+
+**Open:** a pitch change or pause during the rebuild gap is integrated at the old rate until the replay; plays made during a rebuild lose their `at` (as in A3.4a); `contextRebuilds` isn't in `Audio.debug()`; WebKit and Firefox context recreation unverified (no Docker).
+
+## MS5 exit check (2026-11-10)
+
+- 4,096 voices select in ≤ 0.25 ms p99 in Node: the bench passes on a quiet machine (0.093–0.131 ms p99 earlier runs).
+- 4-point resampler replaces linear; THD+N thresholds ratcheted; alias rejection measured (0 dB at whole ratios; accepted by the owner, band-limiting post-M1, #110).
+- `at` lands within a quantum in the loopback: exactly on its frame (and after a context swap).
+- The cap drops and recovers under load (loopback: 40 → 34 → 40).
+- A simulated trap restores voices; the 4th within 60 s goes silent with one warning; device and rate changes rebuild into a new context.
+- Mute, pause and play background modes checked on the loopback host (no real hidden tab in this container).
+- `cargo test` 380 passed, 4 ignored; `npm test` 360 files, 3,759 passed; `npm run build` green; Chromium e2e 193 passed, 0 failed, 4 skipped; `@slow` audio specs 7 passed, 1 skipped (HRTF). Mixer wasm 113.0 KB, ABI 1.2.
+- Merged to master with the owner's standing approval ("merge into master and close tickets before moving on").
+
+**Reserve used:** none.

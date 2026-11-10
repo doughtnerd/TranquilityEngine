@@ -41,3 +41,12 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 ## Made during the unattended run
 
 (Entries are added below as they are made.)
+
+### 8. Stall recovery timing (A3.4c)
+- **Question:** §3.7 says a stalled context is rebuilt, but not how long to wait or when to give up on the same context.
+- **Chosen:** a stall first rebuilds in the same context and waits 2 s for the new core's first STATUS; if none arrives, or the page stalls again within 10 s, it moves to a new context. Both attempts count against the 3-per-60 s limit.
+- **Why:** a same-context rebuild is cheaper and fixes most worklet stalls; 2 s is well under the 5 s start-up limit; counting both attempts keeps a crash loop bounded.
+- **If changed:** `STALL_REBUILD_STATUS_TIMEOUT_MS` and `STALL_ESCALATE_WINDOW_MS` in `src/plugins/audio/runtime/core/recovery.ts`.
+
+### 9. MS5 merged to master
+- MS5 (A3.1–A3.4c, A3.6, A3.7, A2.9) merged after its exit check, under the standing instruction. Not run: WebKit and Firefox (no Docker), a real hidden tab, a real device change.
