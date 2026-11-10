@@ -1,7 +1,7 @@
 // A1.6 L2: one case per row of api-and-models §1 (K10). Request-shaped rows use the fake backend; handle, locked,
 // clock and status rows use a real `CoreBackend` on a recording port (the rig below, copied from coreBackend.test.ts);
-// the default-backend row runs the Babylon backend on a mocked AudioV2 engine and a stand-in AudioContext.
-import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
+// the babylon-backend row runs the Babylon backend on a mocked AudioV2 engine and a stand-in AudioContext.
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi, type MockInstance } from "vitest";
 import { Assets, Engine, GameObject, SceneManager, Time } from "../../../myco";
 import * as myco from "../../../myco";
 import { mixer } from "../../../engine/audio/mixer";
@@ -496,9 +496,12 @@ describe("Audio public surface (api-and-models §1)", () => {
       expect(info).toEqual(spy.mock.results[0]!.value);
     });
 
-    it("the default backend gives status running, handle reason null and a debug with an empty voice list", async () => {
-      // Unset the test backend: the next audioBackend() builds the default (Babylon) one, on a stand-in context.
+    it("the babylon backend gives status running, handle reason null and a debug with an empty voice list", async () => {
+      // Unset the test backend: the next audioBackend() builds the Babylon one (chosen explicitly, the default is the core), on a stand-in context.
       setAudioBackend(null);
+      const saved = mixer.audioSettings.backend;
+      mixer.audioSettings.backend = "babylon";
+      onTestFinished(() => { mixer.audioSettings.backend = saved; });
       babylonMock.reset();
       vi.stubGlobal("AudioContext", class { constructor() { return makeFakeContext("running"); } });
       expect(Audio.status).toBe("running");

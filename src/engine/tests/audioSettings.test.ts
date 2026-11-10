@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { defaultAudioSettings, parseAudioSettings } from "../audio/settings";
+import { DEFAULT_BACKEND, defaultAudioSettings, defaultBackend, isMacOSDesktop, parseAudioSettings } from "../audio/settings";
 
 // §2 of docs/design/0157-audio-core/api-and-models.md, one block per key (K13).
 describe("audio settings: the §2 keys (ADR 0157)", () => {
   describe("defaults", () => {
-    it("no audio section gives every default: voices 128/4096/16, background mute, clipFormat i16, codecs.aac false, spatial hrtf, backend babylon, no clipMemoryMB", () => {
+    it("no audio section gives every default: voices 128/4096/16, background mute, clipFormat i16, codecs.aac false, spatial hrtf, backend core, no clipMemoryMB", () => {
       const { settings, problems } = parseAudioSettings(undefined);
       expect(problems).toEqual([]);
       expect(settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 16 });
@@ -12,7 +12,7 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
       expect(settings.clipFormat).toBe("i16");
       expect(settings.codecs).toEqual({ aac: false });
       expect(settings.spatial).toBe("hrtf");
-      expect(settings.backend).toBe("babylon");
+      expect(settings.backend).toBe("core");
       expect(settings.clipMemoryMB).toBeUndefined();
       expect(settings).not.toHaveProperty("clipMemoryMB");
       expect(settings).not.toHaveProperty("fmod");
@@ -37,7 +37,7 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
       expect(settings.ducking).toEqual([{ target: "Music", trigger: "Voice", amount: 0.4, attack: 0.1, release: 0.6 }]);
       expect(settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 16 });
       expect(settings.background).toBe("mute");
-      expect(settings.backend).toBe("babylon");
+      expect(settings.backend).toBe("core");
       expect(settings.buses.every((b) => !("maxVoices" in b))).toBe(true);
     });
   });
@@ -235,18 +235,18 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
       expect(settings.backend).toBe("babylon");
       expect(problems).toEqual([`audio.backend "howler" was replaced by "babylon" (ADR 0157); using "babylon".`]);
     });
-    it('"fmod" gives the default plus the problem `audio.backend "fmod" was removed (ADR 0157); using "babylon".`, and the fmod object is dropped silently', () => {
+    it('"fmod" gives the default plus the problem `audio.backend "fmod" was removed (ADR 0157); using "core".`, and the fmod object is dropped silently', () => {
       const bare = parseAudioSettings({ backend: "fmod" });
-      expect(bare.settings.backend).toBe("babylon");
-      expect(bare.problems).toEqual([`audio.backend "fmod" was removed (ADR 0157); using "babylon".`]);
+      expect(bare.settings.backend).toBe("core");
+      expect(bare.problems).toEqual([`audio.backend "fmod" was removed (ADR 0157); using "core".`]);
       const withObject = parseAudioSettings({ backend: "fmod", fmod: { sdkPath: "C:/fmod", banks: ["a.bank"] } });
-      expect(withObject.settings.backend).toBe("babylon");
+      expect(withObject.settings.backend).toBe("core");
       expect(withObject.settings).not.toHaveProperty("fmod");
-      expect(withObject.problems).toEqual([`audio.backend "fmod" was removed (ADR 0157); using "babylon".`]);
+      expect(withObject.problems).toEqual([`audio.backend "fmod" was removed (ADR 0157); using "core".`]);
     });
-    it("an unknown value gives babylon plus a problem", () => {
+    it("an unknown value gives the default (core) plus a problem", () => {
       const { settings, problems } = parseAudioSettings({ backend: "loud" });
-      expect(settings.backend).toBe("babylon");
+      expect(settings.backend).toBe("core");
       expect(problems).toEqual([`audio.backend must be "babylon" or "core".`]);
     });
   });
@@ -274,5 +274,36 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
       expect(settings.snapshots).toEqual([{ name: "Paused", volumes: { Music: 0.2, SFX: 0 }, lowpass: { Music: 800 } }]);
       expect(settings.ducking).toEqual([{ target: "Music", trigger: "Voice", amount: 0.4, attack: 0.1, release: 0.5 }]);
     });
+  });
+});
+
+describe("the default backend (B7)", () => {
+  const MAC_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)";
+  const mac = { navigator: { userAgent: MAC_UA, platform: "MacIntel", maxTouchPoints: 0 } };
+  const tauri = { __TAURI_INTERNALS__: {} };
+
+  it("is the core", () => {
+    expect(DEFAULT_BACKEND).toBe("core");
+    expect(defaultBackend({ navigator: { userAgent: "Mozilla/5.0 (X11; Linux x86_64) Chrome/130", platform: "Linux x86_64" } })).toBe("core");
+    expect(defaultBackend({ ...tauri, navigator: { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/130", platform: "Win32" } })).toBe("core");
+    expect(defaultBackend({ ...tauri, navigator: { userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15" } })).toBe("core");
+  });
+  it("is babylon in the Tauri shell on macOS only", () => {
+    expect(isMacOSDesktop({ ...tauri, ...mac })).toBe(true);
+    expect(defaultBackend({ ...tauri, ...mac })).toBe("babylon");
+    expect(defaultBackend({ ...tauri, navigator: { userAgent: "", userAgentData: { platform: "macOS" } } })).toBe("babylon");
+    expect(defaultBackend({ ...tauri, navigator: { userAgent: "", platform: "MacIntel" } })).toBe("babylon");
+  });
+  it("Safari on macOS (a browser, not the desktop shell) and Tauri on iPadOS keep the core", () => {
+    expect(isMacOSDesktop(mac)).toBe(false);
+    expect(defaultBackend(mac)).toBe("core");
+    expect(defaultBackend({ ...tauri, navigator: { userAgent: MAC_UA, platform: "MacIntel", maxTouchPoints: 5 } })).toBe("core");
+    expect(defaultBackend({ ...tauri, navigator: { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)" } })).toBe("core");
+  });
+  it("an explicit audio.backend wins on every platform, and the parse of an absent one is the default", () => {
+    expect(parseAudioSettings({ backend: "core" }).settings.backend).toBe("core");
+    expect(parseAudioSettings({ backend: "babylon" }).settings.backend).toBe("babylon");
+    expect(parseAudioSettings(undefined).settings.backend).toBe(defaultBackend());
+    expect(parseAudioSettings({}).settings.backend).toBe(defaultBackend());
   });
 });

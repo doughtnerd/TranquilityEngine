@@ -16,6 +16,8 @@
  * ```
  */
 
+import { detectPlatform, type PlatformEnv } from "../core/graphics";
+
 export type BusEffect =
   | { type: "lowpass"; frequency: number; q: number }
   | { type: "highpass"; frequency: number; q: number }
@@ -75,7 +77,7 @@ export interface AudioSettings {
   codecs: { aac: boolean };
   /** Default `"hrtf"`. */
   spatial: AudioSpatialMode;
-  /** `"babylon"` (default; Babylon.js AudioEngineV2, the fallback) or `"core"` (K3). The parse never gives the pre-0157 values (it reports them as problems). */
+  /** `"core"` (default, K3; `"babylon"` on macOS desktop until its gate passes, see `defaultBackend`) or `"babylon"` (Babylon.js AudioEngineV2, the fallback). The parse never gives the pre-0157 values (it reports them as problems). */
   backend: AudioBackendSetting;
   /**
    * The core's master limiter look-ahead in ms, 0..5, default 1.5 (A2.9). It delays all of the core's output by that
@@ -111,8 +113,36 @@ export const defaultBuses = (): BusSettings[] =>
 /** Effects per bus the audio core runs (`MAX_EFFECTS` in `audio-core/src/fx.rs`); one of them at most may be a compressor. */
 export const MAX_CORE_BUS_EFFECTS = 4;
 
-/** The backend a project gets without `audio.backend`: "babylon" until M1b passes, then "core" (B7 changes this one line). */
-export const DEFAULT_BACKEND: "babylon" | "core" = "babylon";
+/**
+ * The backend a project gets without `audio.backend` (B7, ADR 0157): the core. To revert the switch, set this to
+ * "babylon" (and `MACOS_DESKTOP_DEFAULT_BACKEND` becomes redundant).
+ */
+export const DEFAULT_BACKEND: "babylon" | "core" = "core";
+
+/** The default on macOS desktop builds (ADR 0157 Gates): "babylon" until WKWebView passes the macOS gate. Drop it then. */
+export const MACOS_DESKTOP_DEFAULT_BACKEND: "babylon" | "core" = "babylon";
+
+/** What `isMacOSDesktop` reads: `detectPlatform`'s inputs plus the platform hints a browser engine gives. */
+export interface BackendEnv extends PlatformEnv {
+  navigator?: { userAgent?: string; maxTouchPoints?: number; platform?: string; userAgentData?: { platform?: string } };
+}
+
+/**
+ * True in the desktop shell (Tauri, its `__TAURI_INTERNALS__` marker, the same test as `detectPlatform`) on macOS
+ * (WKWebView). A browser, Safari on macOS included, is not macOS desktop, and neither is Tauri on iOS/iPadOS (a touch
+ * screen reporting as a Mac). macOS is read from `userAgentData.platform`, `navigator.platform` or the user agent.
+ */
+export function isMacOSDesktop(env: BackendEnv = globalThis as BackendEnv): boolean {
+  if (detectPlatform(env) !== "desktop") return false;
+  const nav = env.navigator;
+  if ((nav?.maxTouchPoints ?? 0) > 1 || /iPhone|iPad|iPod/i.test(nav?.userAgent ?? "")) return false;
+  return /mac/i.test(nav?.userAgentData?.platform ?? "") || /^mac/i.test(nav?.platform ?? "") || /Macintosh|Mac OS X/.test(nav?.userAgent ?? "");
+}
+
+/** The backend a project gets when `audio.backend` is absent: `DEFAULT_BACKEND`, except `MACOS_DESKTOP_DEFAULT_BACKEND` on macOS desktop. An explicit `audio.backend` always wins. */
+export function defaultBackend(env?: BackendEnv): "babylon" | "core" {
+  return isMacOSDesktop(env) ? MACOS_DESKTOP_DEFAULT_BACKEND : DEFAULT_BACKEND;
+}
 
 export const DEFAULT_VOICES: Readonly<VoiceSettings> = { mixed: 128, logical: 4096, hrtf: 16 };
 
@@ -123,7 +153,7 @@ export const LIMITER_LOOKAHEAD_LIMITS = [0, 5] as const;
 
 export const defaultAudioSettings = (): AudioSettings => ({
   buses: defaultBuses(), snapshots: [], ducking: [],
-  voices: { ...DEFAULT_VOICES }, background: "mute", clipFormat: "i16", codecs: { aac: false }, spatial: "hrtf", backend: DEFAULT_BACKEND,
+  voices: { ...DEFAULT_VOICES }, background: "mute", clipFormat: "i16", codecs: { aac: false }, spatial: "hrtf", backend: defaultBackend(),
   limiterLookaheadMs: DEFAULT_LIMITER_LOOKAHEAD_MS,
 });
 
@@ -295,8 +325,11 @@ function parseCoreKeys(input: Record<string, unknown>, settings: AudioSettings, 
   settings.limiterLookaheadMs = lookaheadMs(input.limiterLookaheadMs, problems);
   if (input.backend !== undefined) {
     if (input.backend === "babylon" || input.backend === "core") settings.backend = input.backend;
-    else if (input.backend === "howler") problems.push(`audio.backend "howler" was replaced by "babylon" (ADR 0157); using "babylon".`);
-    else if (input.backend === "fmod") problems.push(`audio.backend "fmod" was removed (ADR 0157); using "${DEFAULT_BACKEND}".`);
+    else if (input.backend === "howler") {
+      settings.backend = "babylon";
+      problems.push(`audio.backend "howler" was replaced by "babylon" (ADR 0157); using "babylon".`);
+    }
+    else if (input.backend === "fmod") problems.push(`audio.backend "fmod" was removed (ADR 0157); using "${defaultBackend()}".`);
     else problems.push(`audio.backend must be "babylon" or "core".`);
   }
   // `settings.voices` is parsed above, so `voices.logical` is the bound. Only the first valid entry per name counts,
