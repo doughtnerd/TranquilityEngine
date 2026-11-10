@@ -538,3 +538,4 @@ The remainder of M2 (E3 from E3.1, E4–E7) is planned as a milestone build: [wa
 4. Concurrent vitest runs through a symlinked `node_modules` collide on `.vitest-cache` (`ENOTEMPTY`); retry.
 5. Known flakes under load (pass alone): `src/engine/tests/navSample.test.ts`, `core/selectionBench.test.ts` (p99 timing), `src/server/server.test.ts`, `piratesSample`.
 
+**Owner ruling (2026-11-10, during wave 2):** size gates are a signal to check for unnecessary bloat; the AAC decoder's gate goes 1,100 → 1,280 KB (`DECODER_AAC_LIMIT`), since M2's loop points are wanted growth (it is 1,048 KB).

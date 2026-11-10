@@ -14,7 +14,7 @@ Wave 1 (the pilot) is merged on `claude/sweet-ritchie-miy6jm` with every gate gr
 - `avoidRepeat: 0` now bans nothing (entry 5): a bug fix; random events with the default pick more randomly.
 - Babylon debug rows only for event voices (entry 2): drop the `group` filter in `babylonBackend.ts` `debug()`.
 
-**Proposals waiting for your yes/no:** the AAC decoder's size gate (entry 4); a `description` option on `@field` (entry 8); a `releaseFade` key on `sustain` (entry 10).
+**Proposals waiting for your yes/no:** a `description` option on `@field` (entry 8); a `releaseFade` key on `sustain` (entry 10).
 
 ## Entries
 
@@ -37,9 +37,10 @@ Wave 1 (the pilot) is merged on `claude/sweet-ritchie-miy6jm` with every gate gr
 - **Why:** additive ABI change; a bad loop in a file should never break playback.
 - **If changed:** `audio-decode/src/decoder.rs` (clamp) and `loop_points.rs` (record rules); Opus comments come with Opus decoding.
 
-### 4. Proposal: the AAC decoder's size gate (E4.1 merge)
+### 4. The AAC decoder's size gate (E4.1 merge) (confirmed: raised)
 - **Question:** `myco_audio_decode_aac.wasm` is 1,073,338 B against the 1,100 KB (1,126,400 B) gate, 95%; it was already 94.8% before M2 (loop points added 5.6 KB).
 - **Proposal (waiting for your yes/no):** under ADR 0158 the gates are tripwires, so raise `DECODER_AAC_LIMIT` in `native/audio/build.mjs` to 1,280 KB with a build-log line, or leave it until something actually trips it. Later briefs touching `audio-decode` are told the remaining headroom (≈ 52 KB).
+- **Owner (2026-11-10):** "the size gate is just a signal to investigate and make sure the systems aren't bloating unnecessarily, so the AAC decoder is fine to increase in size." Raised to 1,280 KB in `native/audio/build.mjs`.
 
 ### 5. `avoidRepeat: 0` banned every earlier pick; fixed (E3.6)
 - **Question:** E3a's random container did `history.slice(-avoidRepeat)`; with the default 0 that is the whole history, so up to 32 earlier picks were banned, weights were skewed, and it could fall back to a uniform pick.

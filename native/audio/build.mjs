@@ -23,9 +23,10 @@ const TARGET = "wasm32-unknown-unknown";
 const MIXER_LIMIT = 256 * 1024;
 /** The decoder's size gate (M1b): 900 KB. */
 const DECODER_LIMIT = 900 * 1024;
-/** The AAC decoder build's own gate (B4): its measured size (1,042.7 KB) rounded up to the next 100 KB. It ships beside the
- *  default decoder and is fetched only when a project sets `audio.codecs.aac`. */
-const DECODER_AAC_LIMIT = 1100 * 1024;
+/** The AAC decoder build's own gate (B4; raised 1,100 -> 1,280 KB in M2 by the owner, 2026-11-10: gates are a signal to look for
+ *  bloat, and M2's loop points are wanted growth). It ships beside the default decoder and is fetched only when a project sets
+ *  `audio.codecs.aac`. */
+const DECODER_AAC_LIMIT = 1280 * 1024;
 /** Only +simd128 here: --import-memory and the 256 KB stack are link args in audio-wasm's build.rs. */
 const WASM_RUSTFLAGS = "-C target-feature=+simd128";
 /** Pages of the Memory the hash read instantiates the wasm with (enough for its data and stack). */
