@@ -839,14 +839,23 @@ export class EventInstance {
     else {
       ctx = {
         at: parent.at, volume: vol, pitch: pit,
-        bindings: node.automation.length ? [...parent.bindings, ...this.bindings(node.automation)] : parent.bindings,
+        bindings: node.automation.length ? this.bindings(node.automation, parent.bindings) : parent.bindings,
         sustain: parent.sustain, owner: parent.owner,
       };
       if (node.delay > 0) ctx.at = (ctx.at ?? sys.horizon() ?? sys.clock()) + node.delay;
     }
     switch (node.type) {
       case "clip": return this.playClip(node, ctx, fadeIn);
-      case "layer": return maxEnd(node.children.map((c) => this.playNode(c, ctx, fadeIn)));
+      case "layer": {
+        // Every child plays; the layer ends when the last of them does (unknown if any is).
+        let end: number | null = 0, unknown = false;
+        for (const c of node.children) {
+          const e = this.playNode(c, ctx, fadeIn);
+          if (e === null) unknown = true;
+          else if (!unknown && e > end!) end = e;
+        }
+        return unknown || node.children.length === 0 ? null : end;
+      }
       case "blend": {
         const p = this.paramRef(node.parameter);
         return maxEnd(node.children.map((c) => {
@@ -936,8 +945,7 @@ export class EventInstance {
     rec.pointsOff = onLoopPoints(path, (points) => {
       rec.pointsOff = null;
       if (!points || this.stopped || !rec.voice.playing) return;
-      if (rec.loop ? !rec.loop.looping : false) return; // released before they arrived
-      if (rec.loop && (rec.loop.start !== 0 || rec.loop.end !== 0)) return;
+      if (rec.loop && !rec.loop.looping) return; // released before they arrived
       rec.loop = { start: points.start, end: points.end, looping: true };
       this.sys.automation.setLoop(rec.voice, points.start, points.end, true);
     });
@@ -1062,9 +1070,10 @@ export class EventInstance {
     return null;
   }
 
-  private bindings(list: readonly Automation[]): Binding[] {
-    if (list.length === 0) return NO_BINDINGS;
-    const out: Binding[] = [];
+  /** `list` as bindings, after `before` (the parent's, copied: a node's bindings never change its parent's). */
+  private bindings(list: readonly Automation[], before: readonly Binding[] = NO_BINDINGS): Binding[] {
+    if (list.length === 0) return before as Binding[];
+    const out: Binding[] = before.length === 0 ? [] : before.slice();
     for (const a of list) {
       const p = this.paramRef(a.parameter);
       const id = p ? this.sys.curveId(a.curve) : null;
