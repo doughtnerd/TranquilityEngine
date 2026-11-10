@@ -104,3 +104,14 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 ### 20. HRTF parity at 48 kHz resolved (H5); remaining small differences
 - **Result:** H5 (#111) found Chromium cuts each 256-frame response out with its delay in, resamples each on its own with media's `SincResampler` (32-tap Blackman, cutoff 0.9), then extracts the group delay at the context rate. Myco now does the same at load (`hrir.ts`), and uses Blink's f32 angle math for HRTF. 48 kHz now matches as well as 44.1 kHz (levels ≤ 0.05 dB, ILD ≤ 0.001 dB, ITD ≤ 0.01 frames, nulls −42 to −75 dB, was up to 5.7 dB / 3.2 dB / 1.1 frames / −5 dB); boundary directions match at both rates. The tolerance is the same at both rates (0.1 dB / 0.1 frame / null ≤ −35 dB), replacing entry 18's interim 48 kHz guard.
 - **Choices to note:** the HRIR asset now keeps its leading delays (245,776 B, the WAV samples as stored); building the table costs about 65 ms on main at 48 kHz (110 ms at 96 kHz), once at the first HRTF voice and on a rate rebuild (movable to a worker later); equal-power panning keeps its f64 angle so the 16 non-HRTF goldens stay byte-identical. Two directions (az100/el40, az112) null −40 to −50 dB at both rates (kernel interpolation, not resampling), still within level/ILD/ITD tolerance.
+
+### 21. Seeking: kept internal until a decision record (B3b)
+- **Question:** B3b added `AudioSource.seek(seconds)` and an optional `AudioVoice.seek`, but §1 of the design declares no seek, and CLAUDE.md requires a decision record for a public API change.
+- **Chosen:** keep the method but mark it `@internal` (stripped from the public types by `stripInternal`). The engine and tests use it; game code can't yet.
+- **Proposal for the owner:** a short ADR adding seek to the public audio API, modelled on Unity's `AudioSource.time` setter: `AudioSource.time` (get/set, seconds) on both backends (the Babylon fallback can seek a `StaticSound` by restarting at an offset). Then drop `@internal`.
+- **Also in B3b:** SEEK now applies to clip voices too (5 ms fade out and in; a loop wraps, a one-shot clamps or ends); each stream ring grew by 1,536 frames for the seek fade's tail copy (+12 KB per ring, ≈96 KB at the default 8 rings); the clip seek target is stored in the voice slot's spare `start_frame` field (the 192-byte slot is full).
+
+### 22. Mixer wasm headroom: 141.8 KB of 150 KB
+- After B3b the mixer is 141.8 KB. `wasm-opt` (binaryen) isn't installed in this container and isn't a project dependency, so release builds skip `-O3`/`-Oz`; it would likely cut 10–20%.
+- **Chosen for tonight:** don't add a build dependency unreviewed (it would also make the committed wasm depend on the machine that built it). B4 is told to keep code small.
+- **Proposal:** pin binaryen as a dev dependency (or a CI step) so every build runs the same `wasm-opt`, and record it as a build decision; or raise the gate if a measured reason exists.
