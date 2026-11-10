@@ -4,7 +4,7 @@ Written 2026-11-10 at the end of the build session. Every task of the [waves pla
 
 ## Where things are
 
-- **Branch:** `claude/sweet-ritchie-miy6jm`. Waves 1–3 are on master (`72ccf28`); wave 4 (E6.6, E5.3c + E3.9, E6.1b, E3.10) and the close-out docs are on the branch, final review green, waiting for the owner's go to merge. No worktrees or task branches are left.
+- **Branch:** `claude/sweet-ritchie-miy6jm`. All four waves and the close-out docs are on master (owner, 2026-11-10). No worktrees or task branches are left.
 - **Docs:** the plan ([waves](2026-11-audio-events-m2-waves.md), [tree](2026-11-audio-events-m2-tree.md)); the build log's M2 entries (`docs/design/0157-audio-core/build-log.md`, waves 0–4 with numbers and lessons); the decision log [m2-decisions.md](../design/0157-audio-core/m2-decisions.md) (21 entries, summary at the top); the [listening pass](../design/0157-audio-core/m2-listening-pass.md); the guide [Sound events](../guide/sound-events.md).
 - **Records:** [0158](../decisions/0158-audio-events-and-parameters.md) (Accepted); [0159](../decisions/0159-field-description-option.md) `@field` descriptions and [0160](../decisions/0160-asset-drop-targets-in-the-editor-sdk.md) asset drop targets in the editor SDK, both Accepted during the build. The unmerged branch `claude/ecstatic-heisenberg-xg0fvc` still carries a different record numbered 0158; it renumbers when it merges (owner's ruling).
 

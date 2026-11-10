@@ -4,7 +4,7 @@ The coordinator's calls during the M2 build ([plan](../../plans/2026-11-audio-ev
 
 ## Summary (read first)
 
-M2 is built: every task of the plan is merged on `claude/sweet-ritchie-miy6jm` with the final review green (waves 1–3 are on master; wave 4 waits for your go). Twenty-one entries below; the ones you ruled on are marked confirmed.
+M2 is built: every task of the plan is merged on `claude/sweet-ritchie-miy6jm` with the final review green (all of it on master). Twenty-one entries below; the ones you ruled on are marked confirmed.
 
 **Needs you:**
 1. Re-check the blended engine in the listening pass ([m2-listening-pass.md](m2-listening-pass.md)): E, Right, release, Up should now be smooth (entry 18), then sign off (E7.1).

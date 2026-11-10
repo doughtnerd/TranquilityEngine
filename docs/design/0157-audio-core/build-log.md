@@ -566,3 +566,4 @@ The remainder of M2 (E3 from E3.1, E4–E7) is planned as a milestone build: [wa
 
 **Open at close, all the owner's:** E5.5 the lab-VM run (`./native/audio/target/release/audio-bench mode=scene name=automation-probe seconds=20 runs=5`, `npm run bench:audio-events`); the listening pass's re-check of the blended engine and sign-off (E7.1, `m2-listening-pass.md`).
 
+**Merged to master (owner, 2026-11-10):** wave 4 and the close-out, fast-forward (`149a46a`). Follow-ups started after: layered events' `Audio.play` to 5 µs (F1) and bus automation in `Audio.bus(n).effectiveGain` on the core (F2).
