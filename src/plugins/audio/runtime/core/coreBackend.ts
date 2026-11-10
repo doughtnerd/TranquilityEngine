@@ -21,6 +21,10 @@
 //
 // A1.6 added `volume, pitch, priority, oneShot, at, attenuation, position` to `PlayRequest` and `id, reason, fade,
 // setPriority, stop(fadeSeconds)` to `AudioVoice` (§6). `CorePlayRequest` and `CoreVoice` keep only what the core adds.
+//
+// B3: a `PlayRequest` with `stream: true` is a stream voice (`streams.ts`): no clip load; its PLAY (flag `stream`)
+// goes out at once and the decoder worker feeds the core's ring directly. It is an ordinary voice otherwise (mixed or
+// virtual, spatial, routed through any bus and its effects, paused, faded, stolen), as the design has it.
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
 import type { BusEffect } from "../../../../engine/audio/settings";
@@ -32,6 +36,8 @@ import {
   PLAY_FLAGS_LOOP,
   PLAY_FLAGS_MIXED,
   PLAY_FLAGS_SPATIAL,
+  PLAY_FLAGS_STREAM,
+  PLAY_FLAGS_WANTS_PLAYHEAD,
   readStatus,
   SET_PARAMS_MASK_BUS,
   SET_PARAMS_MASK_DIR,
@@ -57,6 +63,8 @@ import { DistanceEffect } from "./spatial";
 import { StatusReader } from "./statusReader";
 import { UnlockQueue } from "./unlockQueue";
 import { connectVoiceTable, VoiceFlag, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
+import { STREAM_ERROR_FADE_SECONDS, StreamManager, type StreamManagerDeps } from "./streams";
+import { createDecoderClient } from "../decoder/decoderClient";
 import { effectiveMixedCap, ListenerBasis, Selection, type SelectionSink } from "./selection";
 import { HrtfPick, type HrtfSink } from "./hrtfPick";
 
@@ -78,7 +86,7 @@ export interface CoreVoice extends AudioVoice {
 
 /** What the backend needs of the host (an `AudioHost`, or a fake in tests). */
 export interface CoreBackendHost {
-  readonly link: Pick<CoreLink, "batchPool" | "nextSeq" | "post" | "onStatus"> & { statusDecoder: CoreLink["statusDecoder"] };
+  readonly link: Pick<CoreLink, "batchPool" | "nextSeq" | "post" | "onStatus"> & { statusDecoder: CoreLink["statusDecoder"] } & Partial<Pick<CoreLink, "connectStreamPort">>;
   readonly status: "locked" | "running" | "failed";
   /**
    * `maxMixed` is `voices.mixed` (selection's configured cap; absent: every logical voice may be mixed).
@@ -93,18 +101,8 @@ export interface CoreBackendHost {
   readonly health?: HostHealth;
 }
 
-/**
- * B6: where a `stream: true` play goes (B3 implements it on the decoder worker's streams and the core's stream
- * voices). A request the seam takes is never decoded whole; `open` returns its voice, or null when it cannot start.
- */
-export interface CoreStreamSeam {
-  open(req: CorePlayRequest): CoreVoice | null;
-}
-
 /** What `createCoreBackend` takes beyond the host (tests inject fakes). */
 export interface CoreBackendDeps {
-  /** Streamed plays (the `stream` import setting). Absent (before B3): such a clip is decoded whole, with one warning per asset. */
-  streams?: CoreStreamSeam;
   /** The registry for clips; defaults to one wired to the host (CoreLink, `fetch`, the decoder worker). */
   clips?: ClipRegistry;
   clock?: HostClock;
@@ -113,6 +111,11 @@ export interface CoreBackendDeps {
   table?: VoiceTable;
   /** The HRTF table loader (H2); defaults to one on `clips` at the host rate. Tests inject a fake. */
   hrir?: HrirLoader;
+  /**
+   * B3: stream plumbing. Defaults: the page's decoder client, `host.link.connectStreamPort`, a `MessageChannel`, and a
+   * fetch of the asset's URL. Tests pass an in-process decoder and channel.
+   */
+  streams?: Partial<Pick<StreamManagerDeps, "decoder" | "connectWorklet" | "channel" | "fetchBytes">>;
 }
 
 const DIR_EPSILON = 0.005;
@@ -168,6 +171,8 @@ export class CoreBackend implements AudioBackend {
   /** H3: which voices the core pans with HRTF. */
   readonly hrtf: HrtfPick;
   private readonly hrtfSink: HrtfSink;
+  /** B3: the stream voices' main side (`streams.ts`). */
+  readonly streams: StreamManager;
 
   private readonly clock: HostClock;
   private readonly reader = new StatusReader();
@@ -198,8 +203,7 @@ export class CoreBackend implements AudioBackend {
   private disposed = false;
   private readonly hrir: HrirLoader;
   private readonly clipSink: { event(id: number, code: number): void };
-  private readonly streams: CoreStreamSeam | undefined;
-  private readonly streamWarned = new Set<string>();
+  private streamSink!: { event(id: number, code: number): void };
 
   constructor(
     readonly host: CoreBackendHost,
@@ -208,7 +212,6 @@ export class CoreBackend implements AudioBackend {
     this.mixer = deps.mixer ?? defaultMixer;
     this.clock = deps.clock;
     this.clips = deps.clips;
-    this.streams = deps.streams;
     this.hrir = deps.hrir ?? createHrirLoader({ clips: deps.clips, sampleRate: host.sampleRate });
     this.table = deps.table ?? new VoiceTable(host.preset.maxLogical);
     this.spatialDirty = new Uint8Array(this.table.capacity);
@@ -224,7 +227,28 @@ export class CoreBackend implements AudioBackend {
     this.mirror = new StatusMirror(this.table);
     this.writer = new CommandWriter(host.link, host.sampleRate);
     this.clockMap = new ClockMap(this.clock, host.sampleRate, limiterLatencyFrames(host.sampleRate, host.preset.limiterLookaheadMs));
-    this.playheads = new PlayheadTracker(this.table, this.clips, host.sampleRate);
+    const streamDeps = deps.streams ?? {};
+    this.streams = new StreamManager({
+      table: this.table,
+      decoder: streamDeps.decoder ?? (() => createDecoderClient()),
+      connectWorklet:
+        streamDeps.connectWorklet ??
+        ((port) => {
+          if (!host.link.connectStreamPort) throw new Error("audio: this host can't connect streams to the worklet");
+          host.link.connectStreamPort(port as MessagePort);
+        }),
+      channel: streamDeps.channel,
+      fetchBytes:
+        streamDeps.fetchBytes ??
+        (async (path) => {
+          const response = await fetch(Assets.url(path));
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.arrayBuffer();
+        }),
+      onError: (id, asset, message) => this.streamFailed(id, asset, message),
+    });
+    // Stream voices' positions are in their stream's frames, at its rate (B3).
+    this.playheads = new PlayheadTracker(this.table, { info: (id) => this.streams.clipInfo(id) ?? this.clips.info(id) }, host.sampleRate);
     this.replayer = new Replayer(this, host.link);
     for (let i = 0; i < MAX_BUS; i++) this.mixPool.push({ gain: 1, lpHz: BUS_LP_OFF_HZ });
     this.clipSink = { event: (id, code) => this.clips.applyClipEvent(id, code) };
@@ -232,6 +256,9 @@ export class CoreBackend implements AudioBackend {
     // STATUS: decode into one block, apply in onmessage.
     host.link.statusDecoder = (buffer) => this.reader.read(buffer);
     this.cleanups.push(this.mirror.attach(host.link));
+    // B3, after the mirror: a stream voice that moves again is no longer waiting for data.
+    this.cleanups.push(this.streams.attach(host.link));
+    this.streamSink = { event: (id, code) => this.streams.streamEvent(id, code) };
     // Voice ends free the slot's clip reference and the bus count (api §3 "Mixer counting").
     this.table.onFree = (id, bus) => this.onFree(id, bus);
     this.cleanups.push(connectVoiceTable(this.table, host));
@@ -329,23 +356,17 @@ export class CoreBackend implements AudioBackend {
   /** Starts a clip. Returns null only when the backend can't play at all (the host failed). */
   play(req: CorePlayRequest): CoreVoice | null {
     if (this.disposed || this.host.status === "failed") return null;
-    if (req.stream) {
-      // The `stream` import setting (B6): a streamed clip is never decoded whole when the core can stream it.
-      if (this.streams) return this.streams.open(req);
-      if (!this.streamWarned.has(req.path)) {
-        this.streamWarned.add(req.path);
-        console.warn(`[myco] "${req.path}" is set to stream, which this audio core can't do yet; it loads whole.`);
-      }
-    }
     const world = req.world ?? 0;
-    const clip = this.clips.acquire(req.path, world);
+    // B3: a stream voice takes a stream id where a clip voice takes a registry clip (no clip load).
+    const stream = req.stream === true;
+    const clip = stream ? this.streams.allocate() : this.clips.acquire(req.path, world);
     const bus = this.busIndex(req.bus);
     const priority = req.priority ?? 128;
     // A3.4a: while a hard rebuild runs, new plays wait in the locked queue and start once the new core is up.
     const running = this.host.status === "running" && !this.recovering;
     const id = this.table.allocate(bus, priority, world, running ? VoiceState.WAITING_FOR_DATA : VoiceState.LOCKED);
     if (id === 0) {
-      this.clips.release(clip);
+      if (!stream) this.clips.release(clip);
       return null;
     }
     const t = this.table;
@@ -353,7 +374,8 @@ export class CoreBackend implements AudioBackend {
     t.clip[i] = clip;
     t.volume[i] = req.volume !== undefined && Number.isFinite(req.volume) ? Math.max(0, req.volume) : 1;
     t.pitch[i] = req.pitch !== undefined && Number.isFinite(req.pitch) ? clamp(req.pitch, MIN_PITCH, MAX_PITCH) : 1;
-    t.flags[i] = (req.loop ? VoiceFlag.LOOP : 0) | (req.oneShot ? VoiceFlag.ONE_SHOT : 0);
+    t.flags[i] = (req.loop ? VoiceFlag.LOOP : 0) | (req.oneShot ? VoiceFlag.ONE_SHOT : 0) | (stream ? VoiceFlag.STREAM | VoiceFlag.WANTS_PLAYHEAD : 0);
+    if (stream) this.streams.register(clip, id, req.path, req.loop === true);
     t.lpHz[i] = BUS_LP_OFF_HZ;
     t.dirX[i] = 0;
     t.dirY[i] = 0;
@@ -460,6 +482,19 @@ export class CoreBackend implements AudioBackend {
     this.writer.master(this.master, m || this.hiddenMuteOn, this.clockMap.rampFrames());
   }
 
+  /**
+   * B3, architecture §7: a stream failed (the decoder's error, a failed fetch, no ring free): its voice stops with a
+   * 50 ms fade and one warning names the asset.
+   */
+  private streamFailed(id: number, asset: string, message: string): void {
+    console.warn(`[myco] audio: streaming "${asset}" failed: ${message}`);
+    const t = this.table;
+    if (!t.isLive(id)) return;
+    const s = t.state[id & 0xffff];
+    if (s === VoiceState.STOPPING || s === VoiceState.ENDING) return;
+    t.requestStop(id, STREAM_ERROR_FADE_SECONDS);
+  }
+
   /** The per-frame step; see the header. */
   update(dt: number): void {
     void dt;
@@ -472,6 +507,7 @@ export class CoreBackend implements AudioBackend {
     this.publishPeaks();
     this.table.freeEnded();
     this.mirror.drainClipEvents(this.clipSink);
+    this.mirror.drainStreamEvents(this.streamSink);
     this.replayer.flush();
     if (this.lockedQueue.size > 0 && this.host.status === "running" && !this.recovering) this.unlock();
     if (this.spatialCount > 0) this.moveSpatial();
@@ -497,6 +533,8 @@ export class CoreBackend implements AudioBackend {
   private beginRecovery(): void {
     if (this.disposed) return;
     this.recovering = true;
+    // B3: the new core gets a new node; streams connect to it when they reopen (`reopenStreams`).
+    this.streams.disconnect();
     this.replayer.begin();
   }
 
@@ -595,6 +633,7 @@ export class CoreBackend implements AudioBackend {
     this.disposed = true;
     this.lockedQueue.clear();
     for (const c of this.cleanups.splice(0)) c();
+    this.streams.dispose();
     this.table.onFree = null;
     this.host.link.statusDecoder = readStatus;
     this.writer.clear();
@@ -731,6 +770,7 @@ export class CoreBackend implements AudioBackend {
   private launch(id: number): void {
     const t = this.table;
     const i = id & 0xffff;
+    if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) return this.launchStream(id, i);
     const clip = t.clip[i]!;
     const state = this.clips.state(clip);
     if (state === "ready") {
@@ -752,14 +792,55 @@ export class CoreBackend implements AudioBackend {
     }
   }
 
-  private sendPlay(id: number, i: number): void {
+  /**
+   * B3: a stream voice starts on the core at once, mixed or virtual like a clip voice, and waits there for its data
+   * ("waitingForData"); the worker is asked to open the stream from `startFrame`.
+   */
+  private launchStream(id: number, i: number, startFrame = 0): void {
+    const t = this.table;
+    const mixed = this.selection.admit(i, this.mixedCap());
+    t.state[i] = mixed ? VoiceState.PLAYING : VoiceState.VIRTUAL;
+    t.reason[i] = VoiceReason.WAITING_FOR_DATA;
+    this.sendPlay(id, i, startFrame);
+    this.streams.open(t.clip[i]!, startFrame);
+  }
+
+  /**
+   * B3, a hard rebuild (`Replayer.restore` hands over the live stream voices): each reopens on the new core with a new
+   * stream id, from where its playhead is now (wrapped for loops; a finished one is dropped).
+   */
+  reopenStreams(ids: readonly number[]): void {
+    const t = this.table;
+    const frame = this.clockMap.framesNow();
+    for (const id of ids) {
+      if (!t.isLive(id)) continue;
+      const i = id & 0xffff;
+      const info = this.streams.clipInfo(t.clip[i]!);
+      const frames = info?.frames ?? 0;
+      let pos = Math.max(0, Math.floor(this.playheads.positionNow(i, frame)));
+      if ((t.flags[i]! & VoiceFlag.LOOP) !== 0 && frames > 0) pos %= frames;
+      else if (frames > 0 && pos >= frames) {
+        t.free(id, VoiceReason.NONE);
+        continue;
+      }
+      t.clip[i] = this.streams.rekey(t.clip[i]!);
+      this.launchStream(id, i, pos);
+    }
+  }
+
+  private sendPlay(id: number, i: number, startOffsetFrames = 0): void {
     const t = this.table;
     const a = this.playArgs;
     a.voiceId = id;
     a.clip = t.clip[i]!;
     a.bus = t.bus[i]!;
     const f = t.flags[i]!;
-    a.flags = (t.state[i] === VoiceState.PLAYING ? PLAY_FLAGS_MIXED : 0) | (f & VoiceFlag.LOOP ? PLAY_FLAGS_LOOP : 0) | (f & VoiceFlag.SPATIAL ? PLAY_FLAGS_SPATIAL : 0);
+    a.flags =
+      (t.state[i] === VoiceState.PLAYING ? PLAY_FLAGS_MIXED : 0) |
+      (f & VoiceFlag.LOOP ? PLAY_FLAGS_LOOP : 0) |
+      (f & VoiceFlag.SPATIAL ? PLAY_FLAGS_SPATIAL : 0) |
+      (f & VoiceFlag.STREAM ? PLAY_FLAGS_STREAM | PLAY_FLAGS_WANTS_PLAYHEAD : 0);
+    a.startOffsetFrames = startOffsetFrames;
     a.gain = t.gain[i]!;
     a.pitch = t.pitch[i]!;
     a.dirX = t.dirX[i]!;
@@ -891,7 +972,9 @@ export class CoreBackend implements AudioBackend {
     // still the old one here; natural ends (ENDING) are already gone from the core.
     const s = t.state[i]!;
     if (s === VoiceState.PLAYING || s === VoiceState.VIRTUAL || s === VoiceState.STOPPING) this.writer.stop(id, STEAL_FADE_SECONDS);
-    this.clips.release(t.clip[i]!);
+    // B3: a stream voice's stream closes on the worker (the worklet frees its ring); a clip voice drops its reference.
+    if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) this.streams.close(t.clip[i]!);
+    else this.clips.release(t.clip[i]!);
     this.hrtf.forget(i);
     this.mixer.voiceEnded(this.names[bus] ?? "");
     if ((t.flags[i]! & VoiceFlag.SPATIAL) !== 0) this.spatialCount--;

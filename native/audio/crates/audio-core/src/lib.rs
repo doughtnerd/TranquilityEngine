@@ -23,6 +23,7 @@ pub mod panner;
 pub mod params;
 pub mod scheduler;
 pub mod status;
+pub mod stream;
 pub mod voices;
 
 pub use crate::core::Core;

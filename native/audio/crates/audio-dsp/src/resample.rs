@@ -175,8 +175,10 @@ pub fn lagrange(src: &Source<'_>, pos: &mut f64, steps: &[f32], looping: bool, o
 }
 
 /// The Lagrange weights for neighbours `idx - 1 ..= idx + 2` at fraction `t` (see [`lagrange`]).
+/// Public for readers that fetch their own neighbours (B3's stream rings); `t = 0` gives exactly
+/// `(0, 1, 0, 0)`.
 #[inline(always)]
-fn weights(t: f32) -> [f32; 4] {
+pub fn weights(t: f32) -> [f32; 4] {
     let (a, b, c) = (t + 1.0, t - 1.0, t - 2.0);
     [-(t * b * c) * (1.0 / 6.0), 0.5 * (a * b * c), -0.5 * (a * t * c), (a * t * b) * (1.0 / 6.0)]
 }

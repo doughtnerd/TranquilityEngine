@@ -27,7 +27,7 @@ import type { AudioHost, BusRemap, HostLifecycleListener } from "./context";
 import { CoreLink, type LinkPort } from "./context";
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./clipRegistry";
 import type { HrirLoader } from "./hrir";
-import { CoreBackend, type CoreBackendHost, type CoreStreamSeam, type CoreVoice } from "./coreBackend";
+import { CoreBackend, type CoreBackendDeps, type CoreBackendHost, type CoreVoice } from "./coreBackend";
 import { makeStatusBlock } from "./mirror";
 import { VoiceReason, VoiceState } from "./voiceTable";
 
@@ -79,7 +79,7 @@ class FakeRegistry implements ClipRegistry {
   }
 }
 
-function rig(options: { status?: "locked" | "running" | "failed"; settings?: AudioSettings; hrir?: HrirLoader; streams?: CoreStreamSeam } = {}) {
+function rig(options: { status?: "locked" | "running" | "failed"; settings?: AudioSettings; hrir?: HrirLoader; streams?: CoreBackendDeps["streams"] } = {}) {
   const sent: ArrayBuffer[] = [];
   const port: LinkPort = { onmessage: null, postMessage: (m) => sent.push(m as ArrayBuffer) };
   const link = new CoreLink(port);
@@ -160,30 +160,43 @@ const idx = (id: number) => id & 0xffff;
 const only = (list: ReturnType<typeof decode>["records"], op: number) => list.filter((x) => x.op === op);
 
 describe("CoreBackend (api-and-models §3, §6)", () => {
-  it("a stream: true play goes to the stream seam and is never acquired as a whole clip (B6)", () => {
-    const opened: string[] = [];
-    const sentinel = {} as CoreVoice;
-    const r = rig({ streams: { open: (q) => (opened.push(q.path), sentinel) } });
-    expect(r.backend.play({ ...req("music.ogg"), stream: true })).toBe(sentinel);
-    expect(opened).toEqual(["music.ogg"]);
+  it("a stream: true play is a stream voice: never acquired as a whole clip, no warning, its PLAY flagged stream (B3, B6)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const opened: { streamId: number; asset: string }[] = [];
+    const fetched: string[] = [];
+    const decoder = {
+      generation: 1,
+      connectWorklet: () => {},
+      openStream: (o: { streamId: number; asset: string }) => void opened.push({ streamId: o.streamId, asset: o.asset }),
+      closeStream: () => {},
+      onStream: () => () => {},
+    };
+    const r = rig({
+      streams: {
+        decoder: () => decoder,
+        connectWorklet: () => {},
+        channel: () => ({ worker: {} as MessagePort, worklet: {} as MessagePort }),
+        fetchBytes: async (path) => (fetched.push(path), new ArrayBuffer(8)),
+      },
+    });
+    const voice = r.backend.play({ ...req("music.ogg"), stream: true })!;
+    expect(voice).not.toBeNull();
+    expect(voice.reason).toBe("waitingForData");
     expect(r.clips.ids.has("music.ogg")).toBe(false);
+    r.frame();
+    const plays = only(r.ops(), Op.PLAY);
+    expect(plays).toHaveLength(1);
+    const p = readPlay(plays[0]!.view, plays[0]!.off);
+    expect(p.clip).toBe(r.backend.table.clip[voice.id & 0xffff]);
+    expect(p.clip >>> 0).toBeGreaterThanOrEqual(0xffff0100);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fetched).toEqual(["music.ogg"]);
+    expect(opened).toEqual([{ streamId: p.clip >>> 0, asset: "music.ogg" }]);
     // A clip that does not stream still goes through the registry.
     r.backend.play(req("hit.wav"));
     expect(r.clips.ids.has("hit.wav")).toBe(true);
-    expect(opened).toEqual(["music.ogg"]);
-  });
-
-  it("without a stream seam a stream: true play loads whole, with one warning per asset (B6)", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const r = rig();
-    const a = r.backend.play({ ...req("music.ogg"), stream: true });
-    const b = r.backend.play({ ...req("music.ogg"), stream: true });
-    r.backend.play({ ...req("other.ogg"), stream: true });
-    expect(a).not.toBeNull();
-    expect(b).not.toBeNull();
-    expect(r.clips.ids.has("music.ogg")).toBe(true);
-    expect(warn.mock.calls.filter((c) => String(c[0]).includes("music.ogg"))).toHaveLength(1);
-    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 

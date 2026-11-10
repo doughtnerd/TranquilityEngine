@@ -1,9 +1,10 @@
 // The decoder worker's message handler, factored out of the worker so Node tests drive it in-process (K7): it routes
-// `decodeClip` and `cancel` to `clips.ts` and `stream*` to `streams.ts`, loads the wasm on `init` (requests that arrive
-// first wait for it), and turns every failure into an `error` reply. Never throws, never waits on anything but the wasm.
+// `decodeClip` and `cancel` to `clips.ts` and `stream*` and `connectWorklet` to `streams.ts` (B3), loads the
+// wasm on `init` (requests that arrive first wait for it), and turns every failure into an `error` reply. Never throws,
+// never waits on anything but the wasm.
 import { decodeClip } from "./clips";
 import type { DecodeClipMessage, DecoderReply, DecoderRequest, InitMessage } from "./protocol";
-import { handleStreamRequest } from "./streams";
+import { StreamDecoder } from "./streams";
 import { DecoderError, DecoderWasm } from "./wasm";
 
 export interface HandlerOptions {
@@ -20,6 +21,8 @@ export interface HandlerOptions {
 export interface DecoderHandler {
   /** Handles one request; resolves when the request has been dealt with (tests await it). */
   handle(request: DecoderRequest): Promise<void>;
+  /** B3: the stream decoder's counts (chunks posted, chunk buffers allocated, credits received). */
+  readonly streamStats: { readonly chunks: number; readonly allocated: number; readonly credits: number };
 }
 
 const macrotask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -32,6 +35,8 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
   let failure: string | null = null;
   const cancelled = new Set<number>();
   const active = new Set<number>();
+  // B3: the streams, on their own instance of the wasm once it loaded.
+  const streams = new StreamDecoder({ post, wasm: () => wasm });
 
   const load = async (msg: InitMessage): Promise<DecoderWasm> => {
     try {
@@ -79,6 +84,7 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
   };
 
   return {
+    streamStats: streams.stats,
     async handle(request) {
       switch (request.type) {
         case "init":
@@ -96,7 +102,8 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
         case "streamCredit":
         case "streamSeek":
         case "streamClose":
-          return handleStreamRequest({ post }, request);
+        case "connectWorklet":
+          return streams.handle(request);
       }
     },
   };

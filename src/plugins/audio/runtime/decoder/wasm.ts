@@ -80,6 +80,15 @@ export class DecoderWasm {
     return { instance, abiVersion, sourceHash };
   }
 
+  /**
+   * B3: a second, independent instance of the same module (its own memory and handles), already checked. The stream
+   * decoder keeps one, so a clip decode that traps (and `reset`s its instance) never takes the open streams with it.
+   */
+  fork(): DecoderWasm {
+    const { instance } = DecoderWasm.instantiate(this.module);
+    return new DecoderWasm(this.module, this.abiVersion, this.sourceHash, instance);
+  }
+
   /** A fresh instance of the same module: after a trap (a `WebAssembly.RuntimeError`) the old one's state is gone, and every handle with it. */
   reset(): void {
     this.x = DecoderWasm.instantiate(this.module).instance;

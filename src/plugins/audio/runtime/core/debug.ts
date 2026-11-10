@@ -24,6 +24,8 @@ export interface DebugSource {
   readonly mirror: StatusMirror;
   readonly table: VoiceTable;
   readonly clips: { info(id: number): ClipInfo | null };
+  /** B3: the stream voices' clip info (asset and rate) and counts; absent in hand-built sources. */
+  readonly streams?: { clipInfo(id: number): ClipInfo | null; readonly size: number; readonly stats: { readonly starves: number; readonly errors: number; readonly coreErrors: number } };
   readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings">;
   readonly lockedQueue: { readonly size: number; readonly droppedCount: number };
   readonly hrtfReady: boolean;
@@ -99,7 +101,8 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
   const voices: AudioDebugInfo["voices"] = [];
   for (let i = 0; i < table.capacity; i++) {
     if (table.state[i] === VoiceState.FREE) continue;
-    const clip = backend.clips.info(table.clip[i]!);
+    const stream = (table.flags[i]! & VoiceFlag.STREAM) !== 0 && backend.streams;
+    const clip = stream ? backend.streams!.clipInfo(table.clip[i]!) : backend.clips.info(table.clip[i]!);
     const world = table.world[i]!;
     const owner = table.owner[i]!;
     voices.push({
@@ -165,13 +168,19 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
     buses,
     voices,
     // `backend` names the backend the way babylonBackend does, so the panel can show it for either.
-    core: { backend: "core", hrtfReady: backend.hrtfReady, ...hrtf(backend), ...timing(backend), ...hostHealth(backend), ...health(backend) },
+    core: { backend: "core", hrtfReady: backend.hrtfReady, ...hrtf(backend), ...timing(backend), ...hostHealth(backend), ...health(backend), ...streamHealth(backend) },
   };
 }
 
 /** H3: how many voices main flags for HRTF (`hrtfFlagged`; the core's own count is `counters.hrtfVoices`). */
 function hrtf(backend: DebugSource): Record<string, number> {
   return backend.hrtf ? { hrtfFlagged: backend.hrtf.count } : {};
+}
+
+/** B3: open streams, starves (STATUS stream events) and stream errors (the worker's and the core's) for `core`. */
+function streamHealth(backend: DebugSource): Record<string, number> {
+  const s = backend.streams;
+  return s ? { streams: s.size, streamStarves: s.stats.starves, streamErrors: s.stats.errors + s.stats.coreErrors } : {};
 }
 
 /** Architecture §8 "Health" for `core` (A3.4b): the background controller's counters and the hidden state. */

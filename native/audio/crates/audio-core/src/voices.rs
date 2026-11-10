@@ -68,6 +68,7 @@ use crate::core::{Core, Regions};
 use crate::counters::{Playhead, ENDED_CAP, PLAYHEADS_CAP};
 use crate::layout::VOICE_SLOT_BYTES;
 use crate::panner::{Hrtf, PannerState};
+use crate::stream::StreamStore;
 use crate::{status, QUANTUM};
 
 /// `start_frame` of a voice that starts at the first quantum after its PLAY arrived.
@@ -97,6 +98,9 @@ pub mod flag {
     /// Paused while mixed and fading out (A3.7): `MIXED` clears when the `mix` ramp settles at 0,
     /// and the voice holds from then on. A resume before that turns the fade round.
     pub const PAUSING: u8 = 1 << 6;
+    /// A stream voice (PLAY flag `stream`, B3): `clip` is the stream id and the PCM comes from its
+    /// ring (`stream.rs`) through [`super::render_stream_voice`].
+    pub const STREAM: u8 = 1 << 7;
 }
 
 /// The promote and demote fade (architecture §4.7: "promote and demote 5 ms").
@@ -281,7 +285,9 @@ fn note_late(core: &mut Core, lateness: u64) {
 /// Renders every live voice over frames `from..to` of the quantum at `frame`, each into its bus's
 /// input buffer (A2.1; `bus::mixdown` mixes the buses into the output after the last range).
 fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) {
-    let (regions, clips) = core.parts_mut();
+    let sample_rate = core.params().sample_rate;
+    let fade_frames = mix_fade_frames(core);
+    let (regions, clips, streams) = core.render_parts();
     // The buses' buffers are the `Buses` region, distinct from the voices and core-state regions
     // `v` views (Layout); `Inputs` holds a raw view of them and reads the bus count first.
     let mut inputs = crate::bus::Inputs::of(regions);
@@ -320,7 +326,11 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) {
             _ => continue,
         };
         let Some((out_l, out_r)) = inputs.get(slot.bus) else { continue };
-        render_voice(slot, clips, hrtf.as_mut(), frame, start, to, out_l, out_r);
+        if slot.flags & flag::STREAM != 0 {
+            render_stream_voice(slot, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r);
+        } else {
+            render_voice(slot, clips, hrtf.as_mut(), frame, start, to, out_l, out_r);
+        }
     }
 }
 
@@ -398,12 +408,196 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<
     }
 }
 
+/// B3: renders one playing **stream** voice over frames `from..to` from its ring (`stream.rs`), or
+/// holds it while its data is missing. A branch of its own beside [`render_voice`] (clips): the
+/// ring replaces the clip, and the rest of the voice (gain, fade and mix ramps, panner, pause,
+/// stop) behaves as a clip voice's. See `stream.rs` for the phases:
+/// - no ring yet (PLAY before STREAM_OPEN) or `WAITING`: silent and held; it starts, with no fade,
+///   once a chunk is in (or the input ended), its position set to the stream's start frame;
+/// - each quantum a mixed voice checks the ring holds this quantum plus a 5 ms fade ahead; if not,
+///   it fades out over what is left (`STARVING`), then holds silent (`STARVED`, reported once);
+///   a virtual voice keeps time only over the frames there are, and starves without a fade;
+/// - `STARVED` resumes with a 5 ms fade-in once a chunk is buffered (or the input ended);
+/// - once the input ended, it plays out what is buffered (the last frame held for the resampler's
+///   neighbours) and ends (stream event eos, or error if the stream was closed early).
+///
+/// The read is the 4-point Lagrange of `resample::lagrange` on the ring's frames (whole positions
+/// read the ring bit for bit). The voice's position is in stream frames (its playhead); its ring
+/// frame is `position - start_frame`. Afterwards the ring's `consumed` follows the position, less
+/// the one frame behind it the resampler still reads.
+#[allow(clippy::too_many_arguments)]
+fn render_stream_voice(slot: &mut VoiceSlot, streams: &mut StreamStore, hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
+    use crate::stream::{frame_at, pending, phase, START_FRAMES};
+    if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
+        // Paused and out of the mix: held, as a clip voice (A3.7); a stop ends it now.
+        if slot.flags & flag::STOP_ON_FADE_END != 0 {
+            slot.state = state::ENDED;
+        }
+        return;
+    }
+    let stopping = slot.flags & flag::STOP_ON_FADE_END != 0;
+    if stopping && slot.fade.is_settled() {
+        slot.state = state::ENDED;
+        return;
+    }
+    let index = streams.index_of(slot.clip).filter(|&i| {
+        let v = streams.ring(i).voice;
+        v == 0 || v == slot.id
+    });
+    let Some(index) = index else {
+        // No STREAM_OPEN yet (or none could be taken): waiting, silent. A stop ends it now.
+        if stopping {
+            slot.state = state::ENDED;
+        }
+        return;
+    };
+    let (ring, samples) = streams.split(index);
+    if ring.voice == 0 {
+        // Binds: the stream's rate and channels are known now.
+        ring.voice = slot.id;
+        slot.rate_ratio = ring.rate / sample_rate;
+        if slot.panner.channels as u32 != ring.channels {
+            let p = slot.panner;
+            slot.panner.start(p.spatial != 0, p.kind, p.dir, ring.channels);
+        }
+    }
+    let ch = ring.channels as usize;
+    let start = ring.start_frame as f64;
+    let mixed = slot.flags & flag::MIXED != 0;
+    let input_done = ring.input_done();
+    let buffered = ring.written.saturating_sub((slot.position - start).max(0.0) as u64);
+    let hold = |slot: &mut VoiceSlot| {
+        // Silent and held: a stop ends it, and a demote or pause fade has nothing left to fade.
+        if stopping {
+            slot.state = state::ENDED;
+        }
+        if slot.flags & (flag::DEMOTING | flag::PAUSING) != 0 {
+            slot.mix = Ramp::at(0.0);
+            slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
+        }
+    };
+    match ring.phase {
+        phase::WAITING => {
+            if !input_done && ring.written < START_FRAMES {
+                hold(slot);
+                return;
+            }
+            ring.phase = phase::PLAYING;
+            ring.gain = Ramp::at(1.0);
+            slot.position = start;
+        }
+        phase::STARVED => {
+            if !input_done && buffered < START_FRAMES {
+                hold(slot);
+                return;
+            }
+            ring.phase = phase::PLAYING;
+            ring.gain = Ramp::at(if mixed { 0.0 } else { 1.0 });
+            ring.gain.set_target(1.0, if mixed { fade_frames } else { 0 });
+        }
+        phase::STARVING if input_done || buffered >= START_FRAMES => {
+            // Data came back during the fade-out: turn round.
+            ring.phase = phase::PLAYING;
+            ring.gain.set_target(1.0, fade_frames);
+        }
+        _ => {}
+    }
+    let mut n = to - from;
+    if stopping {
+        n = n.min(slot.fade.remaining as usize);
+    }
+    if slot.flags & flag::PAUSED != 0 {
+        n = n.min(slot.mix.remaining as usize);
+    }
+    let mut steps = [0.0f32; QUANTUM];
+    let mut max_step = 0.0f32;
+    for step in steps[..n].iter_mut() {
+        *step = slot.pitch.next() * slot.rate_ratio;
+        max_step = max_step.max(*step);
+    }
+    let written = ring.written;
+    if mixed && ring.phase == phase::PLAYING && !input_done {
+        // Enough ahead for this quantum and a fade? If not, fade out over what is left.
+        let have = written as f64 - 3.0 - (slot.position - start);
+        if have < (n as f64 + fade_frames as f64) * max_step as f64 {
+            let can = if max_step > 0.0 { libm::floor(have / max_step as f64).max(0.0) } else { f64::MAX };
+            let frames = (fade_frames as f64).min(can) as u32;
+            ring.phase = phase::STARVING;
+            ring.gain.set_target(0.0, frames);
+        }
+    }
+    let mut l = [0.0f32; QUANTUM];
+    let mut r = [0.0f32; QUANTUM];
+    let mut done = 0usize;
+    let mut starved = false;
+    for i in 0..n {
+        let p = slot.position - start;
+        if input_done && p >= written as f64 {
+            break;
+        }
+        let idx = p.max(0.0) as u64;
+        if (!input_done && idx + 3 > written) || (ring.phase == phase::STARVING && ring.gain.is_settled()) {
+            starved = true;
+            break;
+        }
+        let g = ring.gain.next();
+        if mixed {
+            let last = written - 1;
+            let t = (p - idx as f64) as f32;
+            let w = resample::weights(t);
+            let a = frame_at(samples, ch, idx.saturating_sub(1).min(last));
+            let b = frame_at(samples, ch, idx.min(last));
+            let c = frame_at(samples, ch, (idx + 1).min(last));
+            let d = frame_at(samples, ch, (idx + 2).min(last));
+            l[i] = (w[0] * a.0 + w[1] * b.0 + w[2] * c.0 + w[3] * d.0) * g;
+            r[i] = (w[0] * a.1 + w[1] * b.1 + w[2] * c.1 + w[3] * d.1) * g;
+        }
+        slot.position += steps[i] as f64;
+        done += 1;
+    }
+    if mixed {
+        for i in 0..done {
+            let g = slot.gain.next() * slot.fade.next() * slot.mix.next();
+            l[i] *= g;
+            r[i] *= g;
+        }
+        let (id, bus) = (slot.id, slot.bus);
+        slot.panner.mix_range(hrtf, id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
+        if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
+            slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
+        }
+    } else {
+        slot.gain.advance(done as u32);
+        slot.fade.advance(done as u32);
+        slot.mix.advance(done as u32);
+        slot.panner.advance(done as u32);
+    }
+    let p = slot.position - start;
+    let behind = (p.max(0.0) as u64).saturating_sub(1).min(written);
+    ring.consumed = ring.consumed.max(behind);
+    if starved && ring.phase != phase::STARVED {
+        ring.phase = phase::STARVED;
+        ring.pending |= pending::STARVED;
+        ring.gain = Ramp::at(0.0);
+        hold(slot);
+    }
+    if input_done && p >= written as f64 {
+        slot.state = state::ENDED;
+        ring.pending |= pending::ENDED;
+    } else if stopping && slot.fade.is_settled() {
+        slot.state = state::ENDED;
+    }
+}
+
 /// After the render: frees ended voices into STATUS `ended` (as many as the block has room for),
 /// gathers playheads round-robin, and sets the live and mixed counts and the late records.
 fn report(core: &mut Core) {
+    // B3: first, while the rings of voices that ended this quantum still hold their reports.
+    report_streams(core);
     let room = (ENDED_CAP - status::counters(core).ended.len()).min(ENDED_SCRATCH);
     let (live, mixed, ended, playheads, late_count, late_max) = {
-        let mut v = view(core.regions_mut());
+        let (regions, _, streams) = core.render_parts();
+        let mut v = view(regions);
         v.area.ended_len = 0;
         let mut mixed = 0u32;
         let mut wants = 0u32;
@@ -418,6 +612,10 @@ fn report(core: &mut Core) {
                         let at = v.area.ended_len as usize;
                         v.area.ended[at] = s.id;
                         v.area.ended_len += 1;
+                        if s.flags & flag::STREAM != 0 {
+                            // B3: its ring is freed (closed) or orphaned until STREAM_CLOSE.
+                            streams.release(s.clip, s.id);
+                        }
                         unlink_and_free(&mut v, index);
                     }
                 }
@@ -454,6 +652,35 @@ fn report(core: &mut Core) {
     }
     c.live_voices = live.min(u16::MAX as u32) as u16;
     c.mixed_voices = mixed.min(u16::MAX as u32) as u16;
+}
+
+/// B3: moves the rings' pending reports into STATUS: a starved voice into `starved` and stream
+/// event 1, a drained stream as event 2 (eos) or 3 (closed before its last chunk). What a full
+/// block can't take waits for the next (a ring freed meanwhile drops its report).
+fn report_streams(core: &mut Core) {
+    use crate::counters::Event;
+    use crate::stream::pending;
+    for i in 0..core.streams().capacity() {
+        let r = *core.streams().ring(i);
+        if r.pending == 0 {
+            continue;
+        }
+        let mut left = r.pending;
+        let c = status::counters_mut(core);
+        if left & pending::STARVED != 0 && !c.starved.is_full() && !c.stream_events.is_full() {
+            c.starved.push(r.voice);
+            c.stream_events.push(Event { id: r.id, code: wire::stream_event::STARVED });
+            left &= !pending::STARVED;
+        }
+        if left & pending::ENDED != 0 && !c.stream_events.is_full() {
+            let code = if left & pending::ERROR != 0 { wire::stream_event::ERROR } else { wire::stream_event::EOS };
+            c.stream_events.push(Event { id: r.id, code });
+            left &= !(pending::ENDED | pending::ERROR);
+        }
+        if r.open != 0 {
+            core.streams_mut().ring_mut(i).pending = left;
+        }
+    }
 }
 
 /// Up to `PLAYHEADS_CAP` playing `wantsPlayhead` voices, starting after the cursor's count and
@@ -500,7 +727,13 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         return;
     }
     let sample_rate = core.params().sample_rate;
-    let (channels, clip_rate) = core.clips().frames(play.clip).map_or((1, sample_rate), |c| (c.source.channels, c.sample_rate));
+    let (channels, clip_rate) = if play.flags & wire::PLAY_FLAGS_STREAM != 0 {
+        // B3: a stream's shape comes with STREAM_OPEN, which may arrive after the PLAY; the render
+        // branch sets the rate and the panner's channels when the voice binds to its ring.
+        core.streams().get(play.clip).map_or((2, sample_rate), |r| (r.channels, r.rate))
+    } else {
+        core.clips().frames(play.clip).map_or((1, sample_rate), |c| (c.source.channels, c.sample_rate))
+    };
     let replaced = {
         let mut v = view(core.regions_mut());
         if index >= v.slots.len() {
@@ -521,6 +754,9 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         if play.flags & wire::PLAY_FLAGS_WANTS_PLAYHEAD != 0 {
             flags |= flag::WANTS_PLAYHEAD;
         }
+        if play.flags & wire::PLAY_FLAGS_STREAM != 0 {
+            flags |= flag::STREAM;
+        }
         s.id = play.voice_id;
         s.clip = play.clip;
         s.state = state::SCHEDULED;
@@ -538,10 +774,13 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         let spatial = play.flags & wire::PLAY_FLAGS_SPATIAL != 0;
         let kind = ((play.flags & wire::PLAY_FLAGS_PANNER_MASK) >> wire::PLAY_FLAGS_PANNER_SHIFT) as u8;
         s.panner.start(spatial, kind, [play.dir_x, play.dir_y, play.dir_z], channels);
-        (old.state != state::FREE && old.id != play.voice_id).then_some(old.id)
+        (old.state != state::FREE && old.id != play.voice_id).then_some((old.id, old.flags & flag::STREAM != 0, old.clip))
     };
-    if let Some(old) = replaced {
+    if let Some((old, stream, clip)) = replaced {
         status::counters_mut(core).ended.push(old);
+        if stream {
+            core.streams_mut().release(clip, old);
+        }
     }
 }
 
