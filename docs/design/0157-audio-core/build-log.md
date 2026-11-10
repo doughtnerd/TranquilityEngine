@@ -482,3 +482,13 @@ Done: A3.5, C1, C1b, C2, C4's checklist. Waiting on the owner: **C3** (the 30-mi
 **Still to run for C3:** Windows Chromium (the browser), Linux WebKitGTK, the low-end Android phone.
 
 **Owner decision (2026-11-10): the cap moves only on real trouble.** Following the soak finding, only underruns and qualifying late commands (whose gate includes negative slack) lower the cap and restart its calm; the work-unit model still runs and is reported in STATUS `workUnits` and `Audio.debug()` (`cap_controller::MODEL_DRIVES_CAP = false`; `CapConfig::model_drives` keeps §6.3's original table for tests and the bench's `-cap` scenes, since a bench quantum never underruns). Headless check: the stress sample's 4 underruns on this VM dropped the cap to 184 and it recovered to 256 (it stayed at 184 before). `cargo test` 452 passed; `npm test` 376 files passed; `@slow` audio specs 10 passed; metered gate +0.00%.
+
+## M1 closed by the owner (2026-11-10)
+
+The owner declared M1 complete. What the exit criteria asked for and where it stands at closing:
+- **C3 soak:** Windows Tauri (WebView2) passed; Windows Chromium, Linux WebKitGTK and the low-end Android phone were not run before closing. They stay owed as release checks for those platforms, not as M1 blockers; results still go in the C3 section above.
+- **Budgets:** frozen on the lab VM (A3.5); the 1.3 ms p99.9 gate at the high preset is unconfirmed on the reference machine, and the "low" preset is unsized until the phone soak. Review entry 31's high-preset proposals stay open.
+- **C4:** the owner reported Sound Lab works as expected; the signed checklist in `listening-pass.md` is not filled in.
+- **Open proposals carried forward:** pinned `wasm-opt` (review 22), a public seek API (21), the high-preset content budget (31), the Flappy music licence (28), band-limited resampling (#110).
+
+Next: M2 (events and parameters), its own decision record (0158).
