@@ -57,6 +57,7 @@ import {
 } from "../wire.generated";
 import type { AudioVoice, PlayRequest } from "../backend";
 import { AutoTarget, evaluate, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, type AutomationSink, type Binding, type ParamRef } from "../events/automation";
+import { onLoopPoints } from "../loopPoints";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
 import { AUTOMATION_GLOBAL, CORE_CURVE_KEYS, type AutomationBinding, type CommandWriter } from "./commandWriter";
@@ -101,7 +102,7 @@ export function wrapPosition(pos: number, loopStart: number, loopEnd: number, le
 export interface CoreAutomationDeps {
   readonly table: VoiceTable;
   readonly writer: Pick<CommandWriter, "automate" | "param" | "curves" | "busAutomate" | "setLoop">;
-  readonly clockMap: Pick<ClockMap, "framesNow" | "lookaheadFrames">;
+  readonly clockMap: Pick<ClockMap, "framesNow" | "lookaheadFrames"> & Partial<Pick<ClockMap, "sampleRate">>;
   readonly playheads: Pick<PlayheadTracker, "positionNow" | "start" | "retime">;
   /** A voice's clip (a stream voice's stream) info: frames and rate, null while unknown. */
   clipInfo(i: number): ClipInfo | null;
@@ -142,6 +143,11 @@ export class CoreAutomation implements AutomationSink {
   private readonly curves = new Map<number, Curve>();
   private readonly paramValue = new Float64Array(PARAM_SLOTS);
   private readonly paramSeek = new Float32Array(PARAM_SLOTS);
+  /** E4.5: where a parameter's smoothing started (its estimated value then, the frame), for selection's view of a fade. */
+  private readonly paramFrom = new Float64Array(PARAM_SLOTS);
+  private readonly paramAt = new Float64Array(PARAM_SLOTS);
+  /** Parameters whose seek is still running (selection reads the larger of the smoothed value and the target). */
+  private readonly fading = new Set<number>();
   /** 1 for every slot the runtime has set (only those are re-sent). */
   private readonly paramSet = new Uint8Array(PARAM_SLOTS);
   private readonly voices: (VoiceEntry | null)[];
@@ -152,6 +158,8 @@ export class CoreAutomation implements AutomationSink {
   private readonly playBatches: Float64Array;
   /** Bound voices by the group whose locals they read; voices reading a global parameter. */
   private readonly byGroup = new Map<number, Set<number>>();
+  /** Per slot: the unsubscribe of a plain looping voice's wait for its clip's loop points (E4.5). */
+  private readonly plainUnsub: ((() => void) | null)[];
   private readonly globalReaders = new Set<number>();
   private readonly buses = new Map<string, AutomationBinding[]>();
   /** The bus index each bound bus's bindings were last sent to. */
@@ -163,6 +171,7 @@ export class CoreAutomation implements AutomationSink {
 
   constructor(private readonly deps: CoreAutomationDeps) {
     this.voices = new Array<VoiceEntry | null>(deps.table.capacity).fill(null);
+    this.plainUnsub = new Array<(() => void) | null>(deps.table.capacity).fill(null);
     this.playIds = new Uint32Array(deps.table.capacity);
     this.playStamps = new Float64Array(deps.table.capacity).fill(Number.NaN);
     this.playBatches = new Float64Array(deps.table.capacity).fill(Number.NaN);
@@ -182,9 +191,15 @@ export class CoreAutomation implements AutomationSink {
   setParam(group: number, slot: number, value: number, seekPerSecond: number): void {
     const k = paramKey(group, slot);
     if (k < 0 || !Number.isFinite(value)) return;
+    const seek = seekPerSecond > 0 && Number.isFinite(seekPerSecond) ? seekPerSecond : 0;
+    // The smoothed value now (what the core is at), where this seek starts from.
+    this.paramFrom[k] = this.paramSet[k] ? this.smoothed(k) : value;
+    this.paramAt[k] = this.deps.clockMap.framesNow();
     this.paramValue[k] = value;
-    this.paramSeek[k] = seekPerSecond > 0 && Number.isFinite(seekPerSecond) ? seekPerSecond : 0;
+    this.paramSeek[k] = seek;
     this.paramSet[k] = 1;
+    if (seek > 0 && this.paramFrom[k] !== value) this.fading.add(k);
+    else this.fading.delete(k);
     this.dirtyParams.delete(k);
     if (this.deps.sending()) {
       this.deps.writer.param(group, slot, value, this.paramSeek[k]!);
@@ -239,13 +254,29 @@ export class CoreAutomation implements AutomationSink {
   // --- Seams (C6) -------------------------------------------------------------------------------------------------
 
   /**
-   * C6: every voice the core backend starts, right after `play` made it (before its PLAY may have gone out). E4.5 will
-   * send SET_LOOP here for plain looping clips with file loop points (`loopPoints.ts`, via `setLoop`). Today it does
-   * nothing: plain clips ignore loop points until E4.5 (plan rule 3), and events send their own loops.
+   * C6: every voice the core backend starts, right after `play` made it (before its PLAY may have gone out). E4.5
+   * (ADR 0158 §4): a plain looping clip or stream (not an event's voice: those send their own loops) loops its
+   * sidecar's or file's loop points through `setLoop`; the points usually arrive after PLAY (the decoder reports them
+   * with the clip's info), and a voice that ended by then is left alone. No points: it loops the whole clip, as before.
    */
   onPlay(voice: AudioVoice, req: PlayRequest): void {
-    void voice;
-    void req;
+    if (req.loop !== true || (req.group !== undefined && req.group > 0)) return;
+    const i = this.resolve(voice);
+    if (i < 0) return;
+    const id = voice.id;
+    this.clearPlain(i);
+    let called = false;
+    const unsub = onLoopPoints(req.path, (points) => {
+      called = true;
+      this.plainUnsub[i] = null;
+      if (!points || !this.deps.table.isLive(id) || (id & 0xffff) !== i) return;
+      // A loop record already on the voice (an event's own) wins over the clip's points.
+      const e = this.voices[i];
+      if (e && e.id === id && e.loop) return;
+      this.setLoop(voice, points.start, points.end, true);
+    });
+    // Called back at once when the points were known; otherwise held until they arrive or the voice ends.
+    if (!called) this.plainUnsub[i] = unsub;
   }
 
   /**
@@ -272,7 +303,7 @@ export class CoreAutomation implements AutomationSink {
     const e = this.voices[i];
     if (!e) return;
     if (e.id !== id) {
-      this.forget(i);
+      this.dropMirror(i);
       return;
     }
     if (e.wire.length > 0) this.sendBindings(i, e, stamp);
@@ -282,6 +313,19 @@ export class CoreAutomation implements AutomationSink {
 
   /** The table freed slot `i` (`onFree`): its mirror goes. */
   forget(i: number): void {
+    this.clearPlain(i);
+    this.dropMirror(i);
+  }
+
+  private clearPlain(i: number): void {
+    const u = this.plainUnsub[i];
+    if (u) {
+      this.plainUnsub[i] = null;
+      u();
+    }
+  }
+
+  private dropMirror(i: number): void {
     const e = this.voices[i];
     if (!e) return;
     this.unindex(i, e);
@@ -294,6 +338,7 @@ export class CoreAutomation implements AutomationSink {
   /** Once per frame, before the writer flushes: a new budget, and as much of the pending resync as fits it. */
   beginFrame(): void {
     this.budget = RESYNC_BYTES_PER_FRAME;
+    if (this.fading.size > 0) this.stepFades();
     if (!this.deps.sending() || (this.dirtyCurves.size === 0 && this.dirtyParams.size === 0 && this.dirtyBuses.size === 0)) return;
     if (this.dirtyCurves.size > 0) {
       const ids = [...this.dirtyCurves].sort((a, b) => a - b);
@@ -320,6 +365,7 @@ export class CoreAutomation implements AutomationSink {
   /** The idle `RESET 0` cleared the core's tables: curves, parameters and bus bindings go again, spread over frames. */
   afterReset(): void {
     this.stats.resyncs++;
+    for (let k = 0; k < PARAM_SLOTS; k++) this.jumped(k); // the resync jumps every parameter to its target
     for (const id of this.curves.keys()) this.dirtyCurves.add(id);
     for (let k = 0; k < PARAM_SLOTS; k++) if (this.paramSet[k]) this.dirtyParams.add(k);
     this.busSentTo.clear();
@@ -349,6 +395,7 @@ export class CoreAutomation implements AutomationSink {
    */
   replayHeader(b: ReplayBuilder): void {
     this.stats.replays++;
+    for (let k = 0; k < PARAM_SLOTS; k++) this.jumped(k); // the replay jumps every parameter to its target
     this.dirtyCurves.clear();
     this.dirtyParams.clear();
     this.dirtyBuses.clear();
@@ -441,7 +488,7 @@ export class CoreAutomation implements AutomationSink {
     const id = this.idOf(i);
     let e = this.voices[i];
     if (e && e.id !== id) {
-      this.forget(i);
+      this.dropMirror(i);
       e = null;
     }
     if (!e) {
@@ -465,7 +512,7 @@ export class CoreAutomation implements AutomationSink {
 
   private dropIfEmpty(i: number): void {
     const e = this.voices[i];
-    if (e && e.wire.length === 0 && !e.loop) this.forget(i);
+    if (e && e.wire.length === 0 && !e.loop) this.dropMirror(i);
   }
 
   private onCore(i: number): boolean {
@@ -497,16 +544,60 @@ export class CoreAutomation implements AutomationSink {
     }
   }
 
-  /** Slot `i`'s automated gain and pitch at the parameters' targets, into the table (audibility, playhead rate). */
+  /**
+   * Slot `i`'s automated gain and pitch at the parameters' targets, into the table (audibility, playhead rate). While a
+   * parameter's seek runs the core's gain is still on its way, so the audibility is the larger of the gain at the
+   * smoothed values and at the targets: a voice fading out to 0 stays audible to selection until its fade ends instead
+   * of being demoted (and cut) at once (M2 decision 14). Fades back in count at the target at once.
+   */
   private reevaluate(i: number): void {
     const e = this.voices[i];
     const t = this.deps.table;
     if (!e) return;
     const r = evaluate(e.bindings, this.curves, (p: ParamRef) => this.target(e.group, p));
-    t.autoGain[i] = r.gain;
+    let gain = r.gain;
+    if (this.fading.size > 0) {
+      const now = evaluate(e.bindings, this.curves, (p: ParamRef) => this.smoothedOf(e.group, p));
+      if (now.gain > gain) gain = now.gain;
+    }
+    t.autoGain[i] = gain;
     if (t.autoPitch[i] !== r.pitch) {
       t.autoPitch[i] = r.pitch;
       if (this.onCore(i)) this.deps.playheads.retime(i, this.deps.clockMap.framesNow());
+    }
+  }
+
+  /** The core jumped parameter `k` to its target (a resync or replay): no seek is running any more. */
+  private jumped(k: number): void {
+    this.paramSeek[k] = 0;
+    this.fading.delete(k);
+  }
+
+  /** The core's smoothed value of parameter `k` now: linear from where its seek started at the seek speed. */
+  private smoothed(k: number): number {
+    const target = this.paramValue[k]!;
+    const seek = this.paramSeek[k]!;
+    if (!(seek > 0)) return target;
+    const rate = this.deps.clockMap.sampleRate ?? 48000;
+    const dt = Math.max(0, this.deps.clockMap.framesNow() - this.paramAt[k]!) / rate;
+    const from = this.paramFrom[k]!;
+    const step = seek * dt;
+    return Math.abs(target - from) <= step ? target : from + Math.sign(target - from) * step;
+  }
+
+  private smoothedOf(group: number, p: ParamRef): number {
+    const k = p.global ? paramKey(0, p.slot) : group > 0 ? paramKey(group, p.slot) : -1;
+    return k >= 0 ? this.smoothed(k) : 0;
+  }
+
+  /** Once per frame while a seek runs: its readers' audibility follows the fade, and drops to the target when it ends. */
+  private stepFades(): void {
+    for (const k of [...this.fading]) {
+      const done = this.smoothed(k) === this.paramValue[k]!;
+      if (done) this.fading.delete(k);
+      const group = k < MAX_GLOBAL_SLOTS ? 0 : 1 + Math.floor((k - MAX_GLOBAL_SLOTS) / MAX_LOCAL_SLOTS);
+      const readers = group === 0 ? this.globalReaders : this.byGroup.get(group);
+      if (readers) for (const i of readers) this.reevaluate(i);
     }
   }
 
@@ -581,6 +672,7 @@ export class CoreAutomation implements AutomationSink {
     const slot = k < MAX_GLOBAL_SLOTS ? k : (k - MAX_GLOBAL_SLOTS) % MAX_LOCAL_SLOTS;
     // A resync jumps to the target (the core's smoothing state is gone).
     this.deps.writer.param(group, slot, this.paramValue[k]!, 0);
+    this.jumped(k);
     this.budget -= PARAM_BYTES;
     this.stats.params++;
   }

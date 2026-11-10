@@ -261,7 +261,7 @@ describe("CoreAutomation: bulk uploads and the mirror's replay", () => {
 
 describe("CoreAutomation: selection sees automated gain (0158 §3)", () => {
   it("evaluates the bound curves at a parameter's target: a voice whose automated gain drops to ~0 loses audibility", () => {
-    const { auto, voice, table, retimes } = rig();
+    const { auto, voice, table, retimes, state } = rig();
     const selection = new Selection(table);
     selection.busGain.fill(1);
     auto.defineCurve(0, [[0, 0], [10, 1]]);
@@ -275,7 +275,13 @@ describe("CoreAutomation: selection sees automated gain (0158 §3)", () => {
     expect(table.autoGain[i]).toBe(1);
     const loud = selection.audibilityOf(i);
     expect(loud).toBeCloseTo(selection.audibilityOf(other.id & 0xffff), 6);
+    // E4.5 (decision 14): while the seek (10 -> 0.001 at 5 a second: 2 s) runs, selection still sees the voice at its
+    // smoothed gain; it loses audibility when the fade ends.
     auto.setParam(4, 0, 0.001, 5);
+    expect(table.autoGain[i]).toBeCloseTo(1, 6);
+    expect(selection.audibilityOf(i)).toBeCloseTo(loud, 6);
+    state.now += 96_000;
+    auto.beginFrame();
     expect(table.autoGain[i]).toBeCloseTo(0.0001, 6);
     expect(selection.audibilityOf(i)).toBeLessThan(loud * 0.001);
     // Another instance's parameter doesn't touch it; a global one its pitch reads does (and retimes the playhead).
