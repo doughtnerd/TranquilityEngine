@@ -44,14 +44,27 @@
         "mute": false,
         "effects": [{ "type": "reverb", "send": 0.5 }]
       },
-      { "name": "UI", "parent": "Master", "volume": 1, "mute": false, "effects": [] }
+      { "name": "UI", "parent": "Master", "volume": 1, "mute": false, "effects": [] },
+      {
+        "name": "Filters",
+        "parent": "Master",
+        "volume": 1,
+        "mute": false,
+        "effects": [
+          { "type": "highpass", "frequency": 500, "q": 6 },
+          { "type": "lowpass", "frequency": 3000, "q": 6 }
+        ]
+      },
+      { "name": "Tape", "parent": "Master", "volume": 1, "mute": false, "effects": [] },
+      { "name": "Load", "parent": "Master", "volume": 1, "mute": false, "maxVoices": 12, "effects": [] }
     ],
     "snapshots": [
       {
         "name": "Underwater",
         "volumes": { "Music": 0.6, "Ambience": 0.5 },
         "lowpass": { "Music": 500, "SFX": 1500, "Ambience": 900 }
-      }
+      },
+      { "name": "Sweep", "volumes": {}, "lowpass": { "Tape": 250, "Music": 400 } }
     ],
     "ducking": [{ "target": "Music", "trigger": "SFX", "amount": 0.3, "attack": 0.05, "release": 0.4 }]
   },
