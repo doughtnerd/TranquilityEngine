@@ -1,15 +1,17 @@
 # ADR 0157, task A2.7: CI runs the audio core's native tests (including the objective quality harness,
 # audio-dsp/tests/quality_thdn.rs and audio-core/tests/quality_null_pan_limiter.rs) and the Vitest audio
 # tests (including the wasm golden runner, src/plugins/audio/runtime/audioGolden.test.ts).
+# Task C1b adds the cost gate: audio-bench's scenes through the committed metered wasm in Node; a scene whose
+# instruction count rises more than 10% over tools/audio-bench/metered/baseline.json fails (no Rust needed).
 name: Audio core
 
 on:
   push:
     branches: [ master ]
-    paths: [ 'native/audio/**', 'src/plugins/audio/**', '.github/workflows/audio-quality.yml' ]
+    paths: [ 'native/audio/**', 'src/plugins/audio/**', 'tools/audio-bench/**', '.github/workflows/audio-quality.yml' ]
   pull_request:
     branches: [ master ]
-    paths: [ 'native/audio/**', 'src/plugins/audio/**', '.github/workflows/audio-quality.yml' ]
+    paths: [ 'native/audio/**', 'src/plugins/audio/**', 'tools/audio-bench/**', '.github/workflows/audio-quality.yml' ]
 
 jobs:
   native:
@@ -36,3 +38,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx vitest run src/plugins/audio
+
+  metered:
+    name: Cost gate (metered wasm, +10% fails)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Node only: the gate imports nothing from node_modules.
+      - run: node tools/audio-bench/metered-gate.mjs

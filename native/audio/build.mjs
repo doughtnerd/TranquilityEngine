@@ -4,15 +4,20 @@
 // AAC, B4) and hash.json to src/plugins/audio/runtime/wasm/, which is
 // committed, so the engine builds without Rust. Modelled on native/nav/build.mjs, without
 // wasm-bindgen: the core's exports are plain `extern "C"` functions over imported memory.
+// From C1b it also writes the metered test wasm (tools/audio-bench/metered/), which CI's cost gate runs; it is never
+// shipped and not size-gated.
 // Needs the toolchain pinned in rust-toolchain.toml and `rustup target add wasm32-unknown-unknown`.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { meter, METER_VERSION } from "../../tools/audio-bench/meter.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const out = fileURLToPath(new URL("../../src/plugins/audio/runtime/wasm/", import.meta.url));
+/** The metered build's directory (C1b): test-only, beside the gate that runs it. */
+const meteredOut = fileURLToPath(new URL("../../tools/audio-bench/metered/", import.meta.url));
 const TARGET = "wasm32-unknown-unknown";
 /** The mixer's size gate (ADR 0157): 150 KB. */
 const MIXER_LIMIT = 150 * 1024;
@@ -166,6 +171,30 @@ function writeHashJson(identity, bytes) {
   console.log(`[build:audio] wrote ${path}`);
 }
 
+/** C1b: builds audio-bench's wasm as the mixer is built (release, +simd128; the same audio-core and DSP), injects the
+ *  instruction counter (tools/audio-bench/meter.mjs) and writes it with metered.json (the source hash it was built
+ *  from) to tools/audio-bench/metered/. Test-only: never copied into a build, not size-gated. */
+function buildMetered(sourceHash) {
+  run("cargo", ["build", "-p", "audio-bench", "--lib", "--release", "--target", TARGET, "--target-dir", "target/bench"], {
+    CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: WASM_RUSTFLAGS,
+  });
+  const built = fileURLToPath(new URL(`target/bench/${TARGET}/release/audio_bench.wasm`, import.meta.url));
+  let metered;
+  try {
+    metered = meter(readFileSync(built));
+  } catch (e) {
+    console.error(`[build:audio] the metered build failed: ${e.message}`);
+    process.exit(1);
+  }
+  mkdirSync(meteredOut, { recursive: true });
+  writeFileSync(`${meteredOut}audio_bench.metered.wasm`, metered.bytes);
+  const json = { sourceHash, meterVersion: METER_VERSION, bytes: metered.bytes.length, ...metered.stats };
+  writeFileSync(`${meteredOut}metered.json`, JSON.stringify(json, null, 2) + "\n");
+  const kb = (metered.bytes.length / 1024).toFixed(1);
+  console.log(`[build:audio] audio_bench.metered.wasm: ${metered.bytes.length} bytes (${kb} KB), test-only, not gated; ${metered.stats.segments} counted segments`);
+  console.log("[build:audio] check the core's cost against the baseline: npm run check:audio-metered");
+}
+
 function main() {
   checkToolchain();
   genWire();
@@ -213,6 +242,7 @@ function main() {
   if (decoderBuild) bytes["myco_audio_decode.wasm"] = decoderBytes;
   if (aacBuild) bytes["myco_audio_decode_aac.wasm"] = aacBytes;
   writeHashJson(identity, bytes);
+  buildMetered(identity.sourceHash);
 }
 
 main();

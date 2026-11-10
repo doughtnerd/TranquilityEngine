@@ -31,6 +31,7 @@ cargo test -p audio-core --test bus                # one integration test
 npx vitest run src/plugins/audio                   # the TypeScript side, headless
 npm run test:e2e:slow -- audio-core                # browser: the Sound Lab on the core (@slow)
 npm run test:e2e:slow -- audio-parity              # browser parity with Web Audio (@slow)
+npm run check:audio-metered                        # the cost gate: instruction counts vs the baseline (below)
 ```
 
 `npm run build:audio` (`build.mjs`) does, in order:
@@ -40,8 +41,11 @@ npm run test:e2e:slow -- audio-parity              # browser parity with Web Aud
 3. Builds `audio-decode`, default and `aac`, and decodes a few fixtures with the built wasm as a smoke test.
 4. Enforces the size gates: mixer 150 KB, default decoder 900 KB, AAC decoder 1,100 KB. A build over a gate fails.
 5. Reads the source hash and ABI version out of the wasm and writes `hash.json`.
+6. Builds `audio-bench` for `wasm32` the same way, injects an instruction counter (`tools/audio-bench/meter.mjs`) and writes the metered test wasm and `metered.json` to `tools/audio-bench/metered/`. It is never shipped and not size-gated.
 
-Commit the regenerated wasm, `hash.json` and any generated wire files with the source change. `src/plugins/audio/runtime/wasm/sourceHash.test.ts` recomputes the hash of every `*.rs`, `Cargo.toml`, `Cargo.lock` and `rust-toolchain.toml` under `native/audio/` (not `target/`, `vectors/` or `tests/`) and fails when the committed wasm is older than the source. Editing even a comment in a hashed file needs a rebuild.
+Commit the regenerated wasm, `hash.json`, the metered wasm and any generated wire files with the source change.
+
+**The cost gate** (ADR 0157 C1b; CI runs it): `npm run check:audio-metered` runs `audio-bench`'s presets, the Stress twins and focused scenes (effects, HRTF still and turning, streams, pitch 4, virtual voices, parameter updates) through the metered wasm in Node and fails when a scene's wasm instructions per quantum rise more than 10% over `tools/audio-bench/metered/baseline.json`. Counts are the same on every machine and run, unlike wall time. For a change meant to cost more (or to keep a gain), rewrite the baseline with `UPDATE_METERED_BASELINE=1 npm run check:audio-metered` and commit it, saying why. `src/plugins/audio/runtime/wasm/sourceHash.test.ts` recomputes the hash of every `*.rs`, `Cargo.toml`, `Cargo.lock` and `rust-toolchain.toml` under `native/audio/` (not `target/`, `vectors/` or `tests/`) and fails when the committed wasm is older than the source. Editing even a comment in a hashed file needs a rebuild.
 
 ## The wire
 
