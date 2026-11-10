@@ -5,9 +5,7 @@
 mod common;
 
 use common::*;
-use myco_audio_decode::Codec;
-#[cfg(not(feature = "aac"))]
-use myco_audio_decode::{DecodeError, Decoder, FormatHint};
+use myco_audio_decode::{Codec, DecodeError, Decoder, FormatHint};
 
 /// Decodes `name` and requires it to equal `source` sample for sample, through both outputs.
 fn check_lossless(name: &str, source: &str, codec: Codec) {
@@ -116,20 +114,13 @@ fn vorbis_48000_stereo() {
     check_gapless("tone-48000-stereo.ogg", "tone-48000-stereo.wav", Codec::Vorbis, 25.0);
 }
 
-/// AAC in M4A: symphonia 0.6.1's isomp4 reader ignores the edit list (`elst`) and its AAC decoder
-/// doesn't trim, so the decode keeps the encoder's 1,024 priming frames: the stated length and the
-/// decode are the source plus 1,024 frames, lined up at lag 1,024 (the decoder stops at the stated
-/// length, so the last AAC frame's padding is dropped). Gapless AAC (task B4) has to trim the
-/// priming itself.
+/// AAC in M4A (task B4): symphonia 0.6.1's isomp4 reader ignores the edit list (`elst`) and its AAC
+/// decoder doesn't trim, so the decoder trims the encoder's 1,024 priming frames and the last frame's
+/// padding itself, from the edit list: the stated length is the source's and the decode lines up
+/// with it at lag 0, like the other gapless codecs.
 #[cfg(feature = "aac")]
 fn check_aac(name: &str, source: &str, min_db: f64) {
-    let src = wav(source);
-    let info = open(name).info();
-    assert_eq!(info.codec, Codec::Aac, "{name}: codec");
-    assert_eq!(info.frames, Some(src.frames() as u64 + 1024), "{name}: stated frames");
-    let (_, dec) = decode_all(name, 4096);
-    assert_eq!(dec.len() / src.channels, src.frames() + 1024, "{name}: decoded frames");
-    check_lossy(name, source, min_db, Some(1024));
+    check_gapless(name, source, Codec::Aac, min_db);
 }
 
 #[cfg(feature = "aac")]
@@ -144,6 +135,19 @@ fn aac_48000_stereo() {
     check_aac("tone-48000-stereo.m4a", "tone-48000-stereo.wav", 25.0);
 }
 
+/// An M4A of 30,001 frames (not a whole number of milliseconds): ffmpeg's edit list states 680 ms
+/// (29,988 frames), so the exact end comes from the track's own length less the priming.
+#[cfg(feature = "aac")]
+#[test]
+fn aac_length_is_exact_when_the_edit_list_rounds() {
+    let name = "tone-44100-mono-odd.m4a";
+    assert_eq!(open(name).info().frames, Some(30_001));
+    let (_, dec) = decode_all(name, 4096);
+    assert_eq!(dec.len(), 30_001);
+    let src = wav("tone-44100-mono.wav").as_f32();
+    assert_eq!(best_lag(&src[..30_001], &dec, 2400), 0);
+}
+
 /// Without the `aac` feature an M4A is refused with a clear error, not a panic.
 #[cfg(not(feature = "aac"))]
 #[test]
@@ -155,4 +159,18 @@ fn aac_refused_without_the_feature() {
             Ok(_) => panic!("{name}: opened without the aac feature"),
         }
     }
+}
+
+/// B4's unknown codec: Ogg Opus opens as Ogg but its codec isn't in either build, so it is refused
+/// with a codec error (the core's warning names the format and the supported list); garbage is a
+/// format error.
+#[test]
+fn opus_and_garbage_are_refused() {
+    match Decoder::open(bytes("tone-48000-stereo.opus"), FormatHint::None) {
+        Err(DecodeError::Codec(m)) => assert!(m.contains("unsupported codec"), "{m}"),
+        Err(e) => panic!("opus: unexpected {e:?}"),
+        Ok(_) => panic!("opus: opened"),
+    }
+    let garbage: myco_audio_decode::Bytes = std::sync::Arc::new(vec![0x5au8; 4096]);
+    assert!(matches!(Decoder::open(garbage, FormatHint::None), Err(DecodeError::Format(_))));
 }

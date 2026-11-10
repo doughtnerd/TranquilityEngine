@@ -11,7 +11,7 @@ const handler = createDecoderHandler({
   expectedSourceHash: hash.sourceHash,
   fetchBytes: async (url) => {
     const response = await fetch(url);
-    if (!response.ok) throw new Error(`audio decoder: fetching myco_audio_decode.wasm failed (HTTP ${response.status})`);
+    if (!response.ok) throw new Error(`audio decoder: fetching ${url.slice(url.lastIndexOf("/") + 1)} failed (HTTP ${response.status})`);
     return response.arrayBuffer();
   },
 });

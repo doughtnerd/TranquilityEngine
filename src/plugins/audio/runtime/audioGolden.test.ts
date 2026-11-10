@@ -26,6 +26,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { HRIR_CLIP_ID, resampleHrir } from "./core/hrir";
+import { DecoderWasm } from "./decoder/wasm";
 import { createLoopbackHost, LOOPBACK_RATE, type LoopbackHost } from "./testing";
 import {
   ASAP,
@@ -410,7 +411,49 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     }
     s.run(10);
   },
+  // B4: a looping clip of a lossy file across its seam (start 4,096 frames before the end, run 8,192): the decoder's
+  // gapless trim and the core's wrap together. The scene also checks the output is the decode's end then its start.
+  async "loop-seam-mp3"(s) {
+    await loopSeam(s, "loop-48000-stereo.mp3", 3, DECODER_WASM);
+  },
+  async "loop-seam-vorbis"(s) {
+    await loopSeam(s, "loop-48000-stereo.ogg", 4, DECODER_WASM);
+  },
+  async "loop-seam-aac"(s) {
+    await loopSeam(s, "loop-48000-stereo.m4a", 5, DECODER_AAC_WASM);
+  },
 };
+
+const DECODER_WASM = "./wasm/myco_audio_decode.wasm";
+const DECODER_AAC_WASM = "./wasm/myco_audio_decode_aac.wasm";
+const SEAM_CLIP = 3;
+
+/** Decodes B1's loopable fixture `name` (int16, as the registry loads clips) with the committed decoder, plays it looping from 4,096 frames before its end and renders 8,192 frames (plus the limiter's latency); throws unless the output is the decode's last 4,096 frames then its first 4,096. */
+async function loopSeam(s: Stage, name: string, hint: number, wasmPath: string): Promise<void> {
+  const wasm = await readFile(new URL(wasmPath, import.meta.url));
+  const file = await readFile(new URL(`../../../../native/audio/crates/audio-decode/tests/fixtures/${name}`, import.meta.url));
+  const w = await DecoderWasm.load(wasm);
+  const h = w.open(file, hint);
+  const frames = w.info(h).frames;
+  if (frames !== 48_000) throw new Error(`${name}: ${frames} frames, expected the source's 48,000`);
+  const ptr = w.alloc(frames * 4);
+  const pcm = Int16Array.from(w.i16(ptr, w.readI16(h, ptr, frames) * 2));
+  w.close(h);
+  s.loadI16(SEAM_CLIP, pcm, 2);
+  s.host.renderQuanta(40); // not part of the output: the core copies the clip in over these
+  const tail = 4096;
+  s.send(play(voice(1), SEAM_CLIP, { flags: MIXED | LOOP, startOffsetFrames: frames - tail }));
+  s.run((2 * tail) / 128 + 2);
+  const { left, right } = s.output();
+  // The master limiter's look-ahead delays everything by a fixed latency: the first sounding frame.
+  let lag = 0;
+  while (lag < left.length && left[lag] === 0 && right[lag] === 0) lag++;
+  if (lag > 256) throw new Error(`${name}: silent for ${lag} frames`);
+  for (let k = 0; k < 2 * tail; k++) {
+    const f = (frames - tail + k) % frames;
+    if (left[lag + k] !== pcm[2 * f]! / 32768 || right[lag + k] !== pcm[2 * f + 1]! / 32768) throw new Error(`${name}: output frame ${k} isn't decoded frame ${f}`);
+  }
+}
 
 // --- Digests ---------------------------------------------------------------------------------------------------------
 

@@ -71,6 +71,7 @@ export interface AudioSettings {
   clipMemoryMB?: number;
   /** Decoded clip sample format. Default `"i16"`. */
   clipFormat: AudioClipFormat;
+  /** `aac`: the audio core also decodes AAC (`.m4a`, `.mp4`, `.aac`), loading its larger AAC decoder build (B4). Default false: AAC assets don't play on the core and warn once each; the Babylon fallback is unaffected. */
   codecs: { aac: boolean };
   /** Default `"hrtf"`. */
   spatial: AudioSpatialMode;

@@ -13,6 +13,7 @@ const BESIDE_BUNDLE = [
   { module: "src/plugins/audio/runtime/core/loader.ts", path: "../wasm/myco_audio.wasm" }, // ADR 0157
   { module: "src/plugins/audio/runtime/core/hrir.ts", path: "../wasm/myco_hrir.bin" }, // ADR 0157
   { module: "src/plugins/audio/runtime/decoder/decoderClient.ts", path: "../wasm/myco_audio_decode.wasm" }, // ADR 0157 (B2)
+  { module: "src/plugins/audio/runtime/decoder/decoderClient.ts", path: "../wasm/myco_audio_decode_aac.wasm" }, // ADR 0157 (B4)
 ];
 
 /**
@@ -28,11 +29,14 @@ function assetsBesideBundle(): Plugin {
     enforce: "pre",
     transform(code, id) {
       const file = id.replaceAll("\\", "/");
-      const entry = BESIDE_BUNDLE.find((e) => file.endsWith(e.module));
-      const literal = entry && `new URL(${JSON.stringify(entry.path)}, import.meta.url)`;
-      if (!entry || !literal || !code.includes(literal)) return null;
-      // Same line, so the mapping is unchanged (map: null keeps the previous one).
-      return { code: code.replace(literal, `new URL(/* @vite-ignore */ ${JSON.stringify("./" + fileName(entry.path))}.toString(), import.meta.url)`), map: null };
+      // A module may load more than one file (the decoder client: the default and the AAC decoder).
+      let out = code;
+      for (const entry of BESIDE_BUNDLE.filter((e) => file.endsWith(e.module))) {
+        const literal = `new URL(${JSON.stringify(entry.path)}, import.meta.url)`;
+        // Same line, so the mapping is unchanged (map: null keeps the previous one).
+        out = out.replace(literal, `new URL(/* @vite-ignore */ ${JSON.stringify("./" + fileName(entry.path))}.toString(), import.meta.url)`);
+      }
+      return out === code ? null : { code: out, map: null };
     },
     generateBundle() {
       for (const e of BESIDE_BUNDLE) {

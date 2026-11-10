@@ -58,8 +58,8 @@ export interface StreamManagerDeps {
   readonly sendSeek?: (id: number, frame: number, epoch: number) => void;
   /** Fetches an asset's encoded bytes. */
   readonly fetchBytes: (path: string) => Promise<ArrayBuffer>;
-  /** A stream failed: stop voice `id` with a fade and warn (the backend's). */
-  readonly onError: (id: number, asset: string, message: string) => void;
+  /** A stream failed: stop voice `id` with a fade and warn (the backend's). `code` is the decoder's `ERR_*` code when it refused the file (B4). */
+  readonly onError: (id: number, asset: string, message: string, code?: number) => void;
 }
 
 interface Entry {
@@ -256,16 +256,16 @@ export class StreamManager {
       }
     } else if (reply.type === "error") {
       this.stats.errors++;
-      this.fail(reply.streamId, reply.message);
+      this.fail(reply.streamId, reply.message, reply.code);
     }
   }
 
-  private fail(streamId: number, err: unknown): void {
+  private fail(streamId: number, err: unknown, code?: number): void {
     const e = this.byStream.get(streamId);
     if (!e || e.failed) return;
     e.failed = true;
     const message = err instanceof Error ? err.message : String(err);
-    this.deps.onError(e.voice, e.asset, message);
+    this.deps.onError(e.voice, e.asset, message, code);
   }
 
   /** A STATUS stream event (drained per frame by the backend). Code 3 is the core refusing the stream (no ring free). */

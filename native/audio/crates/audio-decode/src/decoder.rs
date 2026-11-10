@@ -1,9 +1,12 @@
 //! One open decoder: a symphonia format reader and audio decoder over an in-memory file, read in
 //! frames into caller buffers, with sample-accurate seeks.
 //!
-//! Positions are output frames at the file's own rate, counted from the first playable frame:
-//! encoder delay and padding (MP3's LAME tag, Vorbis and AAC priming) are already trimmed by
-//! symphonia's decoders, so frame 0 is the first frame of the source signal.
+//! Positions are output frames at the file's own rate, counted from the first playable frame, so a
+//! loop wraps with no gap (task B4). symphonia's decoders trim MP3's encoder delay and padding (the
+//! LAME/Info tag, plus the 529-frame decoder delay it implies) and Vorbis' (granule positions); AAC
+//! in MP4 is trimmed here, from the edit list or `iTunSMPB` (`mp4_gapless.rs`), because symphonia
+//! 0.6.1 ignores both. WAV and FLAC are exact. Files that state nothing (an MP3 without a LAME tag,
+//! an ADTS `.aac`) keep what the encoder added.
 
 use std::sync::Arc;
 
@@ -122,6 +125,7 @@ struct Opened {
     decoder: Box<dyn AudioDecoder>,
     track_id: u32,
     time_base: Option<TimeBase>,
+    lead: u64,
 }
 
 pub struct Decoder {
@@ -146,6 +150,9 @@ pub struct Decoder {
     eof: bool,
     /// Packets skipped as corrupt since open.
     pub skipped_packets: u32,
+    /// Leading decoded frames that are encoder priming, dropped at open and after each reopen; output
+    /// frame `f` is decoded frame `f + lead` (AAC in MP4).
+    lead: u64,
 }
 
 fn classify(codec: symphonia::core::codecs::audio::AudioCodecId) -> Codec {
@@ -197,8 +204,30 @@ fn open_reader(bytes: &Bytes, hint: FormatHint) -> Result<(Opened, Info), Decode
     if codec == Codec::Mp3 && !mp3_has_length_header((**bytes).as_ref()) {
         frames = None;
     }
-    let opened = Opened { track_id: track.id, time_base: track.time_base, format, decoder };
-    Ok((opened, Info { sample_rate, channels, frames, frames_estimate, codec }))
+    #[allow(unused_mut)] // changed only by the `aac` build
+    let mut opened = Opened { track_id: track.id, time_base: track.time_base, format, decoder, lead: 0 };
+    #[allow(unused_mut)]
+    let mut info = Info { sample_rate, channels, frames, frames_estimate, codec };
+    #[cfg(feature = "aac")]
+    if codec == Codec::Aac {
+        if let Some(g) = crate::mp4_gapless::mp4_gapless((**bytes).as_ref(), sample_rate) {
+            let total = info.frames;
+            if total.map_or(true, |t| g.delay < t) {
+                // The track's own length (exact, in the media timescale) less the priming, unless the
+                // edit says the playable part is shorter than that by more than its own rounding.
+                let after = total.map(|t| t - g.delay);
+                let n = match (g.frames, after) {
+                    (Some(f), Some(a)) if f + g.slack >= a => Some(a),
+                    (Some(f), Some(_)) => Some(f),
+                    (f, a) => f.or(a),
+                };
+                opened.lead = g.delay;
+                info.frames = n;
+                info.frames_estimate = n;
+            }
+        }
+    }
+    Ok((opened, info))
 }
 
 /// Whether an MP3's first frame carries a Xing, Info or VBRI header (so symphonia's frame count is
@@ -245,10 +274,11 @@ impl Decoder {
             pend: Vec::new(),
             pend_pos: 0,
             remap: Vec::new(),
-            skip: 0,
             pos: 0,
             eof: false,
             skipped_packets: 0,
+            lead: o.lead,
+            skip: o.lead,
         })
     }
 
@@ -419,7 +449,8 @@ impl Decoder {
         self.track_id = o.track_id;
         self.time_base = o.time_base;
         self.pend_pos = self.pend.len();
-        self.skip = 0;
+        self.lead = o.lead;
+        self.skip = o.lead;
         self.pos = 0;
         self.eof = false;
         Ok(())
@@ -449,8 +480,10 @@ impl Decoder {
             return Ok(target);
         }
         let rate = u64::from(self.info.sample_rate);
-        let secs = target / rate;
-        let nanos = ((target % rate) * 1_000_000_000 / rate) as u32;
+        // The container's frames include the priming the output drops.
+        let raw = target + self.lead;
+        let secs = raw / rate;
+        let nanos = ((raw % rate) * 1_000_000_000 / rate) as u32;
         let time = Time::try_new(secs as i64, nanos).ok_or_else(|| DecodeError::Seek("seek target out of range".into()))?;
         let seeked = self.format.seek(SeekMode::Accurate, SeekTo::Time { time, track_id: Some(self.track_id) });
         if let Err(e) = seeked {
@@ -470,12 +503,12 @@ impl Decoder {
                 Ok(target)
             }
             Some(start) => {
-                let start = start.unwrap_or(target);
-                if start < target {
-                    self.skip = target - start;
+                let start = start.unwrap_or(raw);
+                if start < raw {
+                    self.skip = raw - start;
                     self.pos = target;
                 } else {
-                    self.pos = start;
+                    self.pos = start.saturating_sub(self.lead);
                 }
                 Ok(self.pos)
             }

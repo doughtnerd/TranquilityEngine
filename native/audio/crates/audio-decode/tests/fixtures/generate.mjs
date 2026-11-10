@@ -16,6 +16,9 @@ const SOURCES = [
   { name: "tone-44100-mono", rate: 44100, channels: 1, bits: 16, seconds: 2.0 },
   { name: "tone-48000-stereo", rate: 48000, channels: 2, bits: 16, seconds: 1.0 },
   { name: "tone-22050-stereo-s24", rate: 22050, channels: 2, bits: 24, seconds: 0.5 },
+  // B4's loop-seam fixture: no fades and whole cycles only (440/660 Hz left, 330/990 Hz right in 1 s), so the
+  // looped source is continuous across the seam and a gap or click there shows.
+  { name: "loop-48000-stereo", rate: 48000, channels: 2, bits: 16, seconds: 1.0, loopable: true },
 ];
 
 /** Sample `i` of channel `c` in [-1, 1): two tones and a 200 Hz to 4 kHz chirp, 10 ms fades. */
@@ -29,7 +32,14 @@ function signal(i, c, rate, frames) {
   return s * Math.max(0, fade);
 }
 
-function writeWav({ name, rate, channels, bits, seconds }) {
+/** The loopable signal: whole cycles in the clip's length, no fades. */
+function loopSignal(i, c, rate) {
+  const t = i / rate;
+  const [f0, f1] = c === 0 ? [440, 660] : [330, 990];
+  return 0.4 * Math.sin(2 * Math.PI * f0 * t) + 0.2 * Math.sin(2 * Math.PI * f1 * t + c);
+}
+
+function writeWav({ name, rate, channels, bits, seconds, loopable }) {
   const frames = Math.round(rate * seconds);
   const bytesPerSample = bits / 8;
   const dataBytes = frames * channels * bytesPerSample;
@@ -51,7 +61,8 @@ function writeWav({ name, rate, channels, bits, seconds }) {
   let o = 44;
   for (let i = 0; i < frames; i++) {
     for (let c = 0; c < channels; c++) {
-      const v = Math.max(-full, Math.min(full - 1, Math.round(signal(i, c, rate, frames) * full)));
+      const s = loopable ? loopSignal(i, c, rate) : signal(i, c, rate, frames);
+      const v = Math.max(-full, Math.min(full - 1, Math.round(s * full)));
       if (bits === 16) buf.writeInt16LE(v, o);
       else buf.writeIntLE(v, o, 3);
       o += bytesPerSample;
@@ -89,6 +100,19 @@ ffmpeg("tone-48000-stereo.wav", "tone-48000-stereo-vbr-noxing.mp3", ["-c:a", "li
 ffmpeg("tone-44100-mono.wav", "tone-44100-mono.ogg", ["-c:a", "libvorbis", "-q:a", "4"]);
 ffmpeg("tone-48000-stereo.wav", "tone-48000-stereo.ogg", ["-c:a", "libvorbis", "-q:a", "4"]);
 
-// AAC-LC in M4A (ffmpeg's encoder), decoded only by the `aac` build.
+// AAC-LC in M4A (ffmpeg's encoder, which writes an edit list: 1,024 priming frames), decoded only by the `aac` build.
 ffmpeg("tone-44100-mono.wav", "tone-44100-mono.m4a", ["-c:a", "aac", "-b:a", "96k"]);
 ffmpeg("tone-48000-stereo.wav", "tone-48000-stereo.m4a", ["-c:a", "aac", "-b:a", "128k"]);
+
+// B4's loop seam: the loopable source in every codec (MP3 CBR with its LAME tag).
+ffmpeg("loop-48000-stereo.wav", "loop-48000-stereo.flac", ["-c:a", "flac"]);
+ffmpeg("loop-48000-stereo.wav", "loop-48000-stereo.mp3", ["-c:a", "libmp3lame", "-b:a", "192k"]);
+ffmpeg("loop-48000-stereo.wav", "loop-48000-stereo.ogg", ["-c:a", "libvorbis", "-q:a", "6"]);
+ffmpeg("loop-48000-stereo.wav", "loop-48000-stereo.m4a", ["-c:a", "aac", "-b:a", "192k"]);
+
+// B4's unknown-codec case: Ogg Opus, a container the decoder opens with a codec it doesn't include.
+ffmpeg("tone-48000-stereo.wav", "tone-48000-stereo.opus", ["-c:a", "libopus", "-b:a", "64k"]);
+
+// B4: an M4A whose length is not a whole number of milliseconds (30,001 frames at 44.1 kHz): the edit list's
+// duration is in the movie timescale (ffmpeg: 1/1000 s), so the exact end must come from the track's own length.
+ffmpeg("tone-44100-mono.wav", "tone-44100-mono-odd.m4a", ["-af", "atrim=end_sample=30001", "-c:a", "aac", "-b:a", "96k"]);

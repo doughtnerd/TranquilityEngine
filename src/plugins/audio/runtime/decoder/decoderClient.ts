@@ -25,9 +25,28 @@ export function decoderWasmUrl(): URL {
   return new URL("../wasm/myco_audio_decode.wasm", import.meta.url);
 }
 
+/** @internal B4: the decoder built with AAC (`myco_audio_decode_aac.wasm`), served beside the default one and fetched only by a worker of the "aac" build (a project with `audio.codecs.aac` on). */
+export function decoderAacWasmUrl(): URL {
+  return new URL("../wasm/myco_audio_decode_aac.wasm", import.meta.url);
+}
+
+/** @internal B4: which decoder wasm a worker loads: the default (WAV, FLAC, MP3, Ogg Vorbis) or the larger one that adds AAC. */
+export type DecoderBuild = "default" | "aac";
+
 function spawnWorker(): WorkerLike {
   // Vite bundles the worker and what it imports (the worker pipeline, the same as the navigation bake worker).
   return new Worker(new URL("./decoder.worker.ts", import.meta.url), { type: "module" }) as unknown as WorkerLike;
+}
+
+/** B4: the decoder refused a file; `code` is its negative `ERR_*` code when it gave one (-3 not a container it reads, -4 a codec it lacks). */
+export class DecodeFailedError extends Error {
+  constructor(
+    message: string,
+    readonly code?: number,
+  ) {
+    super(message);
+    this.name = "DecodeFailedError";
+  }
 }
 
 /** The decoder could not run at all (no `Worker`, the wasm refused or did not match, the worker died), as opposed to a bad file. Callers may fall back to another decoder. */
@@ -280,7 +299,7 @@ class Client implements DecoderClient {
           if (msg.fatal) this.failAll(worker, new DecoderUnavailableError(msg.message));
           return;
         }
-        this.settle(msg.id)?.reject(new Error(msg.message));
+        this.settle(msg.id)?.reject(new DecodeFailedError(msg.message, msg.code));
         return;
       }
       default:
@@ -357,16 +376,31 @@ function abortError(): Error {
   return e;
 }
 
-let shared: Client | null = null;
+const shared = new Map<DecoderBuild, Client>();
 
 /**
  * The page's decoder client: one worker shared by every caller, spawned by the first `decodeClip`. With `options` (a
  * worker factory, for tests) a private client is made instead. `dispose()` on the shared client ends its worker; the
- * next `createDecoderClient()` makes a new one.
+ * next `createDecoderClient()` makes a new one. Same as `sharedDecoderClient("default")` without options.
  */
 export function createDecoderClient(options?: DecoderClientOptions): DecoderClient {
   if (options) return new Client(options);
-  return (shared ??= new Client({}, () => {
-    shared = null;
-  }));
+  return sharedDecoderClient("default");
+}
+
+/**
+ * @internal B4: the page's shared client for `build`. The core asks for the "aac" one when the project sets
+ * `audio.codecs.aac` (its worker loads `myco_audio_decode_aac.wasm`), else the default one, so a page only ever spawns
+ * the worker (and fetches the wasm) it uses.
+ */
+export function sharedDecoderClient(build: DecoderBuild): DecoderClient {
+  let client = shared.get(build);
+  if (!client) {
+    const options: DecoderClientOptions = build === "aac" ? { wasmUrl: decoderAacWasmUrl().href } : {};
+    client = new Client(options, () => {
+      if (shared.get(build) === client) shared.delete(build);
+    });
+    shared.set(build, client);
+  }
+  return client;
 }
