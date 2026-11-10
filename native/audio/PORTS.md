@@ -8,8 +8,8 @@ ADR 0157, api-and-models §5 ("Ports and dependencies"), task A0.10.
 
 | Upstream file(s) | Rust module (or TypeScript) | Task | Notes |
 |---|---|---|---|
-| `biquad.cc`, `biquad.h` | `native/audio/crates/audio-dsp/src/biquad.rs` | A2.2a | Q in dB, as upstream |
-| `dynamics_compressor.cc`, `dynamics_compressor.h` | `native/audio/crates/audio-dsp/src/compressor.rs` | A2.2a | makeup gain, knee, adaptive release, pre-delay |
+| `biquad.cc`, `biquad.h` | `native/audio/crates/audio-dsp/src/biquad.rs`, `biquad/coeffs.rs`, `biquad/kernel.rs` (each carries the header) | A2.2a | Q in dB as upstream (linear Q through upstream's single-precision `pow10`); lowpass and highpass only; k-rate coefficients |
+| `dynamics_compressor.cc`, `dynamics_compressor.h` (the kernel is folded into these at the pinned commit; there is no `dynamics_compressor_kernel.*`) | `native/audio/crates/audio-dsp/src/compressor.rs` | A2.2a | makeup gain, knee, adaptive release, 6 ms pre-delay; pre-delay line sized for 48 kHz (held at 288 frames above), no metering, parameters clamped to the node's ranges |
 | `reverb_convolver.cc`, `.h`; `reverb_convolver_stage.cc`, `.h`; `reverb_accumulation_buffer.cc`, `.h`; `fft_convolver.cc`, `.h` | `native/audio/crates/audio-dsp/src/convolver.rs` | A2.2b | staged non-uniform convolver; FFT from `microfft`, not Chromium's FFT code |
 | `equal_power_panner.cc`, `.h` | `native/audio/crates/audio-dsp/src/pan.rs` | A1.2 | |
 | `distance_effect.cc`, `.h`; `cone_effect.cc`, `.h` | `src/plugins/audio/runtime/core/spatial.ts` (TypeScript, main thread, not Rust) | A1.5 | the cone is ported but unused until `AudioSource` gains cone fields |
