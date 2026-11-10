@@ -4,3 +4,6 @@ test-results/
 playwright-report/
 .myco/
 .tranquility/
+
+# Agent worktrees (local scratch, never committed)
+.claude/worktrees/
