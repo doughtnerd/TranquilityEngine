@@ -130,6 +130,13 @@ export class VoiceTable implements VoiceTableHandleApi {
   readonly dirZ: Float32Array;
   readonly lpHz: Float32Array;
   readonly audibility: Float32Array;
+  /**
+   * ADR 0158 §3 (E3.1): the voice's automation gain and pitch multipliers at its parameters' targets, as main evaluates
+   * them when a parameter changes (`coreAutomation.ts`); 1 for a voice without bindings. The core applies the smoothed
+   * values itself; main uses these for audibility (`gain`) and the playhead estimate (`pitch`) only.
+   */
+  readonly autoGain: Float32Array;
+  readonly autoPitch: Float32Array;
   readonly startFrame: Float64Array;
   readonly playhead: Uint32Array;
   readonly epoch: Uint32Array;
@@ -213,6 +220,8 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.dirZ = new Float32Array(capacity);
     this.lpHz = new Float32Array(capacity);
     this.audibility = new Float32Array(capacity);
+    this.autoGain = new Float32Array(capacity).fill(1);
+    this.autoPitch = new Float32Array(capacity).fill(1);
     this.startFrame = new Float64Array(capacity);
     this.playhead = new Uint32Array(capacity);
     this.epoch = new Uint32Array(capacity);
@@ -305,6 +314,8 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.dirZ[i] = 0;
     this.lpHz[i] = 0;
     this.audibility[i] = 0;
+    this.autoGain[i] = 1;
+    this.autoPitch[i] = 1;
     this.startFrame[i] = 0;
     this.playhead[i] = 0;
     this.epoch[i] = 0;

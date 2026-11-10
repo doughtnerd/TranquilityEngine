@@ -9,6 +9,10 @@
 // loops), FADE to its fade gain and SET_PAUSED for paused voices. One-shots that would have ended by F are dropped, and
 // so are one-shots under 1 s whose replay comes more than 250 ms after the trap (§3.6's note). Voices stopped while
 // the rebuild ran are freed (no core will report their end).
+//
+// ADR 0158 (E3.1): the core backend's automation mirror (`coreAutomation.ts`) rides along: the header REPLAY carries
+// every curve, parameter and bus binding after MASTER, and each replayed PLAY is followed by the voice's AUTOMATE and
+// SET_LOOP. A voice looping a region resumes inside it (`wrapPosition`); a released one plays on from where it was.
 import type { Mixer } from "../../../../engine/audio/mixer";
 import {
   ASAP,
@@ -37,6 +41,7 @@ import type { ClipInfo, ClipRegistry } from "./clipRegistry";
 import type { ClockMap } from "./clock";
 import type { StatusMirror } from "./mirror";
 import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
+import { wrapPosition } from "./coreAutomation";
 
 /** @internal §3.6: one-shots shorter than this (seconds)... */
 export const REPLAY_SHORT_ONE_SHOT_SECONDS = 1;
@@ -87,11 +92,15 @@ export class PlayheadTracker {
     return clipRate > 0 ? clipRate : this.sampleRate;
   }
 
-  /** Clip frames per context frame for slot `i` now: pitch × clip rate / context rate, 0 while paused. */
+  /**
+   * Clip frames per context frame for slot `i` now: pitch × clip rate / context rate, 0 while paused. ADR 0158: times
+   * the voice's automated pitch at its parameters' targets (`autoPitch`, 1 without bindings; the core's smoothing
+   * trails it by at most the seek time).
+   */
   private rateOf(i: number): number {
     const t = this.table;
     if ((t.flags[i]! & VoiceFlag.PAUSED) !== 0) return 0;
-    return (t.pitch[i]! * this.clipRateOf(i)) / this.sampleRate;
+    return (t.pitch[i]! * t.autoPitch[i]! * this.clipRateOf(i)) / this.sampleRate;
   }
 
   /** The voice in slot `i` starts at clip frame `pos` on context frame `frame` (its PLAY, or its replay). */
@@ -258,6 +267,18 @@ export interface ReplaySource {
   busConfigWire(): BusConfigBuses[];
   /** B3: the live stream voices reopen on the new core (new stream ids, from their playheads), after the header. */
   reopenStreams?(ids: readonly number[]): void;
+  /** ADR 0158 (E3.1): the automation mirror the replay restores; absent: nothing to restore. */
+  readonly automation?: ReplayAutomation;
+}
+
+/** @internal What the replay asks of the automation mirror (`CoreAutomation` satisfies it). */
+export interface ReplayAutomation {
+  /** Curves, parameters and bus bindings, appended to the header REPLAY after MASTER. */
+  replayHeader(b: ReplayBuilder): void;
+  /** Voice `id`'s bindings and loop, appended right after its replayed PLAY. */
+  replayVoice(b: ReplayBuilder, id: number, i: number): void;
+  /** Slot `i`'s loop region in clip frames (`end` 0 = the clip's end), or null without one. */
+  loopOf(i: number): { readonly start: number; readonly end: number; readonly looping: boolean } | null;
 }
 
 /** @internal Counts for `Audio.debug()` and the tests. */
@@ -423,6 +444,7 @@ export class Replayer {
     const { masterVolume } = this.src;
     const muted = this.src.muted || this.src.hiddenMuted === true;
     b.record(24, (view, off) => writeMaster(view, off, { voiceId: 0, frameOffset: ASAP, volume: masterVolume, muted: muted ? 1 : 0, rampFrames: 0 }));
+    this.src.automation?.replayHeader(b);
     this.stats.messages += b.post(this.port, this.src.mirror.frameAudio, true);
   }
 
@@ -459,7 +481,9 @@ export class Replayer {
       const frames = info?.frames ?? 0;
       const clipRate = info && info.sampleRate > 0 ? info.sampleRate : rate;
       const flags = t.flags[i]!;
-      const loop = (flags & VoiceFlag.LOOP) !== 0;
+      // ADR 0158: a SET_LOOP region (looping, or released) decides instead of PLAY's whole-clip flag.
+      const region = this.src.automation?.loopOf(i) ?? null;
+      const loop = region ? region.looping : (flags & VoiceFlag.LOOP) !== 0;
       let pos = playheads.positionNow(i, frame);
       const shortOneShot = (flags & VoiceFlag.ONE_SHOT) !== 0 && frames / clipRate < REPLAY_SHORT_ONE_SHOT_SECONDS;
       if ((!loop && pos >= frames) || (shortOneShot && !loop && waited > REPLAY_SHORT_ONE_SHOT_MAX_WAIT_SECONDS)) {
@@ -467,7 +491,8 @@ export class Replayer {
         this.stats.dropped++;
         continue;
       }
-      if (loop && frames > 0) pos %= frames;
+      if (region && loop) pos = wrapPosition(pos, region.start, region.end, frames);
+      else if (loop && frames > 0) pos %= frames;
       playheads.start(i, frame, pos);
       const spatial = (flags & VoiceFlag.SPATIAL) !== 0;
       const panner = spatial ? (this.src.hrtfPanner?.(i) ?? 0) << PLAY_FLAGS_PANNER_SHIFT : 0;
@@ -491,6 +516,7 @@ export class Replayer {
           startOffsetFrames: Math.floor(pos),
         }),
       );
+      this.src.automation?.replayVoice(b, id, i);
       const fade = t.fadeGain[i]!;
       if (fade !== 1) b.record(24, (view, off) => writeFade(view, off, { voiceId: id, frameOffset: ASAP, target: fade, frames: 0, flags: 0 }));
       if ((flags & VoiceFlag.PAUSED) !== 0) b.record(16, (view, off) => writeSetPaused(view, off, { voiceId: id, frameOffset: ASAP, paused: 1 }));

@@ -28,6 +28,8 @@ export interface DebugSource {
   readonly streams?: { clipInfo(id: number): ClipInfo | null; readonly size: number; readonly stats: { readonly starves: number; readonly errors: number; readonly coreErrors: number } };
   readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings">;
   readonly lockedQueue: { readonly size: number; readonly droppedCount: number };
+  /** ADR 0158 (E3.1): the automation mirror's counts; absent in hand-built sources. */
+  readonly automation?: { readonly counts: { readonly curves: number; readonly voices: number; readonly pending: number } };
   readonly hrtfReady: boolean;
   /** H3: STATUS `hrtfLoadFailure` with main's fetch failure (1); absent in hand-built sources (STATUS's alone). */
   readonly hrtfLoadFailure?: number;
@@ -117,6 +119,8 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       audibility: clamp01(table.audibility[i]!),
       playheadSeconds: playheadSeconds(table, i, clip),
       owner: owner < 0 ? null : String(owner),
+      // ADR 0158 §5 (C3): the voice's event instance, from PLAY's `group`.
+      event: table.group[i]! === 0 ? null : table.group[i]!,
     });
   }
 
@@ -137,6 +141,7 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       audibility: 0,
       playheadSeconds: null,
       owner: null,
+      event: null,
     });
   }
 
@@ -168,8 +173,14 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
     buses,
     voices,
     // `backend` names the backend the way babylonBackend does, so the panel can show it for either.
-    core: { backend: "core", hrtfReady: backend.hrtfReady, ...hrtf(backend), ...timing(backend), ...hostHealth(backend), ...health(backend), ...streamHealth(backend) },
+    core: { backend: "core", hrtfReady: backend.hrtfReady, ...hrtf(backend), ...timing(backend), ...hostHealth(backend), ...health(backend), ...streamHealth(backend), ...automation(backend) },
   };
+}
+
+/** ADR 0158 (E3.1): curves defined, voices with bindings or a loop, and resync records still waiting, for `core`. */
+function automation(backend: DebugSource): Record<string, number> {
+  const c = backend.automation?.counts;
+  return c ? { automationCurves: c.curves, automationVoices: c.voices, automationPending: c.pending } : {};
 }
 
 /** H3: how many voices main flags for HRTF (`hrtfFlagged`; the core's own count is `counters.hrtfVoices`). */
