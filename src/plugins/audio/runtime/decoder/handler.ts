@@ -21,6 +21,8 @@ export interface HandlerOptions {
 export interface DecoderHandler {
   /** Handles one request; resolves when the request has been dealt with (tests await it). */
   handle(request: DecoderRequest): Promise<void>;
+  /** B3: the stream decoder's counts (chunks posted, chunk buffers allocated, credits received). */
+  readonly streamStats: { readonly chunks: number; readonly allocated: number; readonly credits: number };
 }
 
 const macrotask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -81,6 +83,7 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
   };
 
   return {
+    streamStats: streams.stats,
     async handle(request) {
       switch (request.type) {
         case "init":

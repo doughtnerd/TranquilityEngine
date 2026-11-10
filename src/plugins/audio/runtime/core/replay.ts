@@ -253,6 +253,8 @@ export interface ReplaySource {
   readonly host: { readonly sampleRate: number };
   /** BUS_CONFIG's buses for the current tree, root first. */
   busConfigWire(): BusConfigBuses[];
+  /** B3: the live stream voices reopen on the new core (new stream ids, from their playheads), after the header. */
+  reopenStreams?(ids: readonly number[]): void;
 }
 
 /** @internal Counts for `Audio.debug()` and the tests. */
@@ -280,6 +282,8 @@ export class Replayer {
   private readonly waiting = new Map<number, number[]>();
   /** Voices whose clip is back, replayed at the next `flush`. */
   private readonly back: number[] = [];
+  /** B3: live stream voices, reopened at the next `flush` (once the clock, and a new context's timeline, is known). */
+  private streams: number[] = [];
   private readonly builder: ReplayBuilder;
   private trapFrame = 0;
   /** Bumped by each `restore`, so clip listeners from an earlier rebuild do nothing. */
@@ -296,7 +300,7 @@ export class Replayer {
 
   /** Voices waiting for their clip, or for the next `flush`. */
   get pending(): number {
-    let n = this.back.length;
+    let n = this.back.length + this.streams.length;
     for (const ids of this.waiting.values()) n += ids.length;
     return n;
   }
@@ -347,6 +351,7 @@ export class Replayer {
     const epoch = ++this.epoch;
     this.waiting.clear();
     this.back.length = 0;
+    this.streams = [];
     this.src.writer.clear();
     // §3.7/A3.2: a new core is a new STATUS stream; the clock map takes its next sample as it is.
     this.src.clockMap.reset();
@@ -354,6 +359,7 @@ export class Replayer {
     // Live voices: those the old core had (PLAYING, VIRTUAL) wait for their clip; STOPPING ones would have been ended
     // by the old core, which can't report it now.
     const priorityOf = new Map<number, number>();
+    const streams: number[] = [];
     for (let i = 0; i < t.capacity; i++) {
       const s = t.state[i]!;
       if (s === VoiceState.STOPPING) {
@@ -362,6 +368,11 @@ export class Replayer {
         continue;
       }
       if (s !== VoiceState.PLAYING && s !== VoiceState.VIRTUAL) continue;
+      if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) {
+        // B3: no clip to wait for; reopened from its playhead once the header is out.
+        streams.push(this.idOf(i));
+        continue;
+      }
       const clip = t.clip[i]!;
       const ids = this.waiting.get(clip);
       if (ids) ids.push(this.idOf(i));
@@ -370,6 +381,7 @@ export class Replayer {
     }
 
     this.postHeader();
+    this.streams = streams;
 
     // §3.6: resident clips go back ordered by their live voices' priority (the registry puts the HRIR first).
     const order = [...priorityOf.keys()].sort((a, b) => priorityOf.get(b)! - priorityOf.get(a)!);
@@ -416,6 +428,12 @@ export class Replayer {
    * F = *F*_now + L, each PLAY starting where the voice would be at F. Returns how many voices it replayed.
    */
   flush(): number {
+    if (this.streams.length > 0 && this.settleTimeline()) {
+      const streams = this.streams;
+      this.streams = [];
+      this.src.reopenStreams?.(streams);
+      this.stats.replayed += streams.length;
+    }
     if (this.back.length === 0 || !this.settleTimeline()) return 0;
     const { table: t, clips, clockMap, playheads } = this.src;
     const rate = clockMap.sampleRate;

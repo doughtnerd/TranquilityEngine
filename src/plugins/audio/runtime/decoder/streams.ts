@@ -83,6 +83,8 @@ export class StreamDecoder {
   private readonly cancelled = new Set<number>();
   private readonly pool: ArrayBuffer[] = [];
   private decoder: DecoderWasm | null = null;
+  /** The one fork every stream shares (opens that wait together must land on the same instance). */
+  private forking: Promise<DecoderWasm> | null = null;
   private seq = 0;
   /** Chunks posted, buffers allocated (not from the pool), credits received: for tests. */
   readonly stats = { chunks: 0, allocated: 0, credits: 0 };
@@ -129,10 +131,11 @@ export class StreamDecoder {
     this.opening.add(m.streamId);
     let w: DecoderWasm;
     try {
-      w = this.decoder ?? (await loading).fork();
+      w = await (this.forking ??= loading.then((loaded) => loaded.fork()));
     } catch (e) {
       this.opening.delete(m.streamId);
       this.cancelled.delete(m.streamId);
+      this.forking = null;
       return this.fail(m.streamId, m.asset, e instanceof DecoderError ? e : new DecoderError("audio decoder: failed to load"));
     }
     this.decoder = w;
