@@ -34,6 +34,7 @@
 //   it for clip decodes only): each of its streams fails this way, and the next stream connects a new channel, on
 //   which the worklet closes the dead worker's rings.
 import { MAX_STARVED_PER_BLOCK, StreamEvent, type StatusBlock } from "../wire.generated";
+import { setFileLoopPoints } from "../loopPoints";
 import { wrapPosition, type LoopRecord } from "./coreAutomation";
 import type { DecodeHint, StreamPortLike } from "../decoder/protocol";
 import { hintFromName } from "../decoder/protocol";
@@ -349,7 +350,11 @@ export class StreamManager {
       // E4.4: the file's own loop points, the asset's facts for the next open, and the map from here.
       const info = reply.info;
       e.fileLoop = info.loopStartFrame !== undefined && info.loopEndFrame !== undefined && info.loopEndFrame > info.loopStartFrame ? { start: info.loopStartFrame, end: info.loopEndFrame } : null;
-      if (e.rate > 0) this.facts.set(e.asset, { rate: e.rate, frames: e.frames, loop: e.fileLoop });
+      if (e.rate > 0) {
+        this.facts.set(e.asset, { rate: e.rate, frames: e.frames, loop: e.fileLoop });
+        // C1: what the decoder found in a streamed file, as it does for decoded clips (E4.2 keeps it, E4.5 uses it).
+        setFileLoopPoints(e.asset, e.fileLoop ? { start: e.fileLoop.start / e.rate, end: e.fileLoop.end / e.rate } : null);
+      }
       const opened = e.sentRegion ? this.regionNow(e) : e.fileLoop && e.loop ? e.fileLoop : { start: 0, end: e.frames };
       const file = e.loop ? wrapPosition(e.openFrame, opened.start, opened.end, e.frames) : e.openFrame;
       e.segments = [{ stream: e.openFrame, file, loop: e.loop, region: opened }];

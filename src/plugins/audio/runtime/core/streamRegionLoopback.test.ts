@@ -22,6 +22,9 @@ import { RATE, rig } from "../../testing/streamRig";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings } from "./context";
 import { createCoreBackend } from "./coreBackend";
+import { CoreAutomation, type CoreAutomationDeps, type LoopRecord } from "./coreAutomation";
+import { VoiceFlag, VoiceState, VoiceTable } from "./voiceTable";
+import type { AudioVoice } from "../backend";
 import { watchForTraps } from "./recovery";
 import { Unlock, type UnlockContext } from "./unlock";
 
@@ -247,4 +250,59 @@ describe("stream region loops on the loopback host (E4.4)", () => {
       await host.close();
     }
   }, 30_000);
+});
+
+describe("CoreAutomation's stream seam and a held-back PLAY (E4.4, C6)", () => {
+  function sink() {
+    const table = new VoiceTable(8);
+    const loops: [string, ...unknown[]][] = [];
+    const state = { now: 10_000, batches: 3 };
+    const writer: CoreAutomationDeps["writer"] = {
+      automate: () => {},
+      param: () => {},
+      curves: () => {},
+      busAutomate: () => {},
+      setLoop: (id, at, a, b, l) => void loops.push(["setLoop", id, at, a, b, l]),
+    };
+    const auto = new CoreAutomation({
+      table,
+      writer,
+      clockMap: { framesNow: () => state.now, lookaheadFrames: () => 1000 },
+      playheads: { positionNow: () => 0, start: () => {}, retime: () => {} },
+      clipInfo: () => ({ id: 1, path: "a.wav", state: "ready", refs: 1, frames: 96_000, channels: 2, sampleRate: 48_000, format: 0, bytes: 0, failure: null }),
+      busIndex: () => 0,
+      sending: () => true,
+      streamLoop: (i, loop: LoopRecord, at) => void loops.push(["stream", i, loop, at]),
+      writerBatches: () => state.batches,
+    });
+    const voice = (flags = 0): AudioVoice => {
+      const id = table.allocate(0, 128, 0, VoiceState.PLAYING as never);
+      table.flags[id & 0xffff] = flags;
+      return { id } as AudioVoice;
+    };
+    return { auto, loops, state, voice };
+  }
+
+  it("routes a stream voice's loop and release to the stream manager, asked for where a SET_LOOP would land", () => {
+    const { auto, loops, voice } = sink();
+    const v = voice(VoiceFlag.STREAM);
+    auto.onPlaySent(v.id, v.id & 0xffff, undefined);
+    auto.setLoop(v, 0.25, 0.5, true);
+    auto.setLoop(v, 0.25, 0.5, false);
+    expect(loops).toEqual([
+      ["stream", v.id & 0xffff, { start: 0.25, end: 0.5, looping: true }, 11_000],
+      ["stream", v.id & 0xffff, { start: 0.25, end: 0.5, looping: false }, 11_000],
+    ]);
+  });
+
+  it("a PLAY still staged (no batch out since) keeps later records behind its stamp even once that is past", () => {
+    const { auto, loops, state, voice } = sink();
+    const v = voice();
+    auto.onPlaySent(v.id, v.id & 0xffff, 10_500);
+    state.now = 11_000; // the stamp fell behind F_now while the pool was empty
+    auto.setLoop(v, 0.25, 0.5, true);
+    state.batches++; // it went out
+    auto.setLoop(v, 0.25, 0.5, false);
+    expect(loops.map((l) => l[2])).toEqual([10_500, undefined]);
+  });
 });
