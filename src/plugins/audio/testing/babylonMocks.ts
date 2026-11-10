@@ -313,10 +313,16 @@ export function makeFakeContext(state = "suspended") {
     currentTime: 0,
     sampleRate: 48_000,
     resumes: 0,
+    suspends: 0,
     closed: false,
     resume(): Promise<void> {
       context.resumes++;
       context.setState("running");
+      return Promise.resolve();
+    },
+    suspend(): Promise<void> {
+      context.suspends++;
+      context.setState("suspended");
       return Promise.resolve();
     },
     close(): Promise<void> {
