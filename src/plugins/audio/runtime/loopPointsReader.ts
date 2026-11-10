@@ -15,13 +15,25 @@ export interface LoopFrames {
 /** A Vorbis/Opus comment, split at the first `=`: `[key, value]`. */
 export type CommentPair = readonly [key: string, value: string];
 
+const MAX_U32 = 0xffffffff;
+const MAX_COMMENT_PACKET_BYTES = 4 * 1024 * 1024;
+const VORBIS_IDENTIFICATION = [0x01, ...asciiCodes("vorbis")];
+const VORBIS_COMMENT_HEADER = [0x03, ...asciiCodes("vorbis")];
+const OPUS_HEAD = asciiCodes("OpusHead");
+const OPUS_TAGS = asciiCodes("OpusTags");
+
 /**
  * The loop points stored in a whole audio file: `RIFF` -> {@link wavLoopPoints}; `OggS` ->
  * {@link oggComments} then {@link commentLoopPoints}; anything else (MP3, MP4, empty, garbage) null.
  */
 export function readLoopPoints(bytes: Uint8Array): LoopFrames | null {
-  void bytes; // L4.2a
-  throw new Error("L4.2a");
+  try {
+    if (startsWithAscii(bytes, "RIFF")) return wavLoopPoints(bytes);
+    if (startsWithAscii(bytes, "OggS")) return commentLoopPoints(oggComments(bytes));
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -31,8 +43,19 @@ export function readLoopPoints(bytes: Uint8Array): LoopFrames | null {
  * past the end of `bytes` ends the walk (a truncated `smpl` is malformed: null). Only `RIFF` (not `RIFX`/`RF64`).
  */
 export function wavLoopPoints(bytes: Uint8Array): LoopFrames | null {
-  void bytes; // L4.2a
-  throw new Error("L4.2a");
+  if (bytes.length < 12 || !startsWithAscii(bytes, "RIFF") || !matchesAscii(bytes, 8, "WAVE")) return null;
+  let pos = 12;
+  for (;;) {
+    if (pos + 8 > bytes.length) return null;
+    const isSmpl = matchesAscii(bytes, pos, "smpl");
+    const size = readU32(bytes, pos + 4);
+    const bodyStart = pos + 8;
+    const bodyEnd = bodyStart + size;
+    if (bodyEnd > bytes.length) return null;
+    if (isSmpl) return smplLoopPoints(bytes.subarray(bodyStart, bodyEnd));
+    // Odd-sized bodies are followed by one pad byte.
+    pos = bodyEnd + (size % 2);
+  }
 }
 
 /**
@@ -43,8 +66,23 @@ export function wavLoopPoints(bytes: Uint8Array): LoopFrames | null {
  * read at most numSampleLoops records. Body under 36 bytes or no qualifying record: null.
  */
 export function smplLoopPoints(body: Uint8Array): LoopFrames | null {
-  void body; // L4.2a
-  throw new Error("L4.2a");
+  if (body.length < 36) return null;
+  const count = readU32(body, 28);
+  if (count === 0) return null;
+  // Whole records only: a trailing partial record is never read.
+  const available = Math.floor((body.length - 36) / 24);
+  const records = Math.min(count, available);
+  for (let i = 0; i < records; i++) {
+    const at = 36 + i * 24;
+    const type = readU32(body, at + 4);
+    const start = readU32(body, at + 8);
+    const end = readU32(body, at + 12);
+    if (type !== 0 || end < start) continue;
+    const exclusiveEnd = end + 1;
+    if (exclusiveEnd > MAX_U32) continue;
+    return { start, end: exclusiveEnd };
+  }
+  return null;
 }
 
 /**
@@ -54,8 +92,20 @@ export function smplLoopPoints(body: Uint8Array): LoopFrames | null {
  * decimal u32, the length is 0, or the sum exceeds 0xFFFFFFFF.
  */
 export function commentLoopPoints(comments: readonly CommentPair[]): LoopFrames | null {
-  void comments; // L4.2a
-  throw new Error("L4.2a");
+  let startText: string | undefined;
+  let lengthText: string | undefined;
+  for (const [key, value] of comments) {
+    const upper = asciiUpper(key);
+    if (upper === "LOOPSTART") startText ??= value;
+    else if (upper === "LOOPLENGTH") lengthText ??= value;
+  }
+  if (startText === undefined || lengthText === undefined) return null;
+  const start = parseFrames(startText);
+  const length = parseFrames(lengthText);
+  if (start === null || length === null || length === 0) return null;
+  const end = start + length;
+  if (end > MAX_U32) return null;
+  return { start, end };
 }
 
 /**
@@ -73,6 +123,160 @@ export function commentLoopPoints(comments: readonly CommentPair[]): LoopFrames 
  * bytes, whichever is first.
  */
 export function oggComments(bytes: Uint8Array): CommentPair[] {
-  void bytes; // L4.2a
-  throw new Error("L4.2a");
+  // Packets are read only up to the comment header, so the walk stops there. Any structural fault
+  // (bad page, a truncated page, a lost continuation) makes the whole result empty.
+  let serial: number | null = null;
+  let codec: "vorbis" | "opus" | null = null;
+  let packetIndex = 0;
+  let inPacket = false;
+  let pieces: Uint8Array[] = [];
+  let pieceBytes = 0;
+  let pos = 0;
+
+  while (pos < bytes.length) {
+    if (pos + 27 > bytes.length) return [];
+    if (!matchesAscii(bytes, pos, "OggS") || bytes[pos + 4] !== 0) return [];
+    const headerType = bytes[pos + 5];
+    const pageSerial = readU32(bytes, pos + 14);
+    const segmentCount = bytes[pos + 26];
+    const lacingStart = pos + 27;
+    const dataStart = lacingStart + segmentCount;
+    if (dataStart > bytes.length) return [];
+    let dataLength = 0;
+    for (let i = 0; i < segmentCount; i++) dataLength += bytes[lacingStart + i];
+    const pageEnd = dataStart + dataLength;
+    if (pageEnd > bytes.length) return [];
+
+    if (serial === null) serial = pageSerial;
+    if (pageSerial !== serial) {
+      pos = pageEnd;
+      continue;
+    }
+    const continued = (headerType & 0x01) !== 0;
+    if (continued !== inPacket) return [];
+
+    let cursor = dataStart;
+    for (let i = 0; i < segmentCount; i++) {
+      const lacing = bytes[lacingStart + i];
+      if (lacing > 0) {
+        pieces.push(bytes.subarray(cursor, cursor + lacing));
+        pieceBytes += lacing;
+        if (pieceBytes > MAX_COMMENT_PACKET_BYTES) return [];
+      }
+      cursor += lacing;
+      if (lacing < 255) {
+        const packet = concatBytes(pieces, pieceBytes);
+        pieces = [];
+        pieceBytes = 0;
+        inPacket = false;
+        const done = handlePacket(packet);
+        if (done !== undefined) return done;
+      } else {
+        inPacket = true;
+      }
+    }
+    pos = pageEnd;
+  }
+  return [];
+
+  // Returns the comments once the comment header is complete, `undefined` while more packets are needed, and
+  // `[]` when the packet is not a supported header.
+  function handlePacket(packet: Uint8Array): CommentPair[] | undefined {
+    if (packetIndex === 0) {
+      packetIndex = 1;
+      if (startsWithBytes(packet, VORBIS_IDENTIFICATION)) codec = "vorbis";
+      else if (startsWithBytes(packet, OPUS_HEAD)) codec = "opus";
+      else return [];
+      return undefined;
+    }
+    const prefix = codec === "vorbis" ? VORBIS_COMMENT_HEADER : OPUS_TAGS;
+    if (!startsWithBytes(packet, prefix)) return [];
+    return parseCommentHeader(packet, prefix.length);
+  }
+}
+
+// ---- helpers ----
+
+/** Reads a little-endian u32 at `at`; the caller has checked that four bytes are there. */
+function readU32(bytes: Uint8Array, at: number): number {
+  return (bytes[at] | (bytes[at + 1] << 8) | (bytes[at + 2] << 16)) + bytes[at + 3] * 0x1000000;
+}
+
+/** True when `bytes` holds the ASCII `text` at `at`. */
+function matchesAscii(bytes: Uint8Array, at: number, text: string): boolean {
+  if (at + text.length > bytes.length) return false;
+  for (let i = 0; i < text.length; i++) {
+    if (bytes[at + i] !== text.charCodeAt(i)) return false;
+  }
+  return true;
+}
+
+function startsWithAscii(bytes: Uint8Array, text: string): boolean {
+  return matchesAscii(bytes, 0, text);
+}
+
+function asciiCodes(text: string): number[] {
+  return Array.from(text, (c) => c.charCodeAt(0));
+}
+
+function startsWithBytes(bytes: Uint8Array, expected: readonly number[]): boolean {
+  if (bytes.length < expected.length) return false;
+  for (let i = 0; i < expected.length; i++) {
+    if (bytes[i] !== expected[i]) return false;
+  }
+  return true;
+}
+
+/** Upper-cases ASCII letters only, so comparing with an upper-case key is case-insensitive over ASCII. */
+function asciiUpper(text: string): string {
+  return text.replace(/[a-z]/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Parses a decimal sample-frame count: plain ASCII digits only (no sign), after trimming ASCII whitespace
+ * (space, tab, LF, FF, CR), and within u32. Null when it is not one.
+ */
+function parseFrames(text: string): number | null {
+  const trimmed = text.replace(/^[ \t\n\f\r]+|[ \t\n\f\r]+$/g, "");
+  if (!/^[0-9]+$/.test(trimmed)) return null;
+  const value = Number(trimmed);
+  return value <= MAX_U32 ? value : null;
+}
+
+function concatBytes(pieces: readonly Uint8Array[], total: number): Uint8Array {
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const piece of pieces) {
+    out.set(piece, at);
+    at += piece.length;
+  }
+  return out;
+}
+
+/**
+ * Parses a comment header packet after its codec prefix: vendor length and string, comment count, then the
+ * comments. Any field that runs past the packet makes the whole header malformed (`[]`).
+ */
+function parseCommentHeader(packet: Uint8Array, prefixLength: number): CommentPair[] {
+  let pos = prefixLength;
+  if (pos + 4 > packet.length) return [];
+  const vendorLength = readU32(packet, pos);
+  pos += 4 + vendorLength;
+  if (pos + 4 > packet.length) return [];
+  const declared = readU32(packet, pos);
+  pos += 4;
+
+  const decoder = new TextDecoder("utf-8");
+  const comments: CommentPair[] = [];
+  for (let i = 0; i < declared; i++) {
+    if (pos + 4 > packet.length) return [];
+    const length = readU32(packet, pos);
+    pos += 4;
+    if (pos + length > packet.length) return [];
+    const text = decoder.decode(packet.subarray(pos, pos + length));
+    pos += length;
+    const equals = text.indexOf("=");
+    if (equals >= 0) comments.push([text.slice(0, equals), text.slice(equals + 1)] as const);
+  }
+  return comments;
 }
