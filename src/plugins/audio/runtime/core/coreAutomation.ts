@@ -23,8 +23,25 @@
 //   time, which selection's hysteresis absorbs. Nothing here runs per frame for a steady instance.
 //
 // Seams for later tasks (C6): `onPlay` (E4.5 sends SET_LOOP for plain looping clips with file loop points),
-// `routeStreamLoop` (E4.4 loops and releases stream voices through the decoder worker; the core ignores SET_LOOP for
-// them, E2), and `wrapPosition` (E4.4 calls it from seek, `reopenStreams` and `PlayheadTracker`).
+// `routeStreamLoop` (E4.4: stream voices loop and release through the decoder worker, `deps.streamLoop`; the core
+// ignores SET_LOOP for them, E2), and `wrapPosition` (E4.4 calls it from seek, `reopenStreams` and `PlayheadTracker`).
+//
+// **E4.4's release mechanism for streams** (the choice the plan asked for first): the worker loops a stream's region
+// up to a ring (32,768 frames, 0.68 s) ahead of the voice, so a release can't simply tell it to stop wrapping (that
+// lands up to a ring late). Neither an epoch seek (a 5 ms fade out, silence while the new epoch decodes, a fade in: an
+// audible hole in a sustain's tail) nor teaching the core's stream path SET_LOOP (the core would still need the tail's
+// audio, which only the worker has, and nothing tells the worker where) is enough. Instead the release lands at the
+// end of the voice's **current pass**, which main predicts from the voice's playhead (re-anchored on every STATUS) at
+// the frame the release was asked for, exactly as a SET_LOOP would land; the worker gets that stream frame
+// (`streams.ts` `setLoop` → `decoderClient.loopStream`) and stops wrapping there, or, when it already sent past it,
+// **splices** the core's ring there with a new epoch that carries the tail (`decoder/streams.ts`, `stream.rs`): gapless
+// and on that exact frame. A region change goes the same way. The prediction is exact unless the voice starves or its
+// pitch moves between the last STATUS and the end of the pass; a splice the voice has already read past restarts the
+// ring there (a seek's fade).
+//
+// The edge E3.1 left (a stamped PLAY held back by an empty buffer pool, its stamp then behind *F*_now: a later
+// SET_LOOP/AUTOMATE went asap and sorted ahead of it) is fixed: while no batch has gone out since the PLAY was written
+// (`deps.writerBatches`), records keep the PLAY's stamp.
 import { CURVE_INTERPS, type Curve } from "../../../../engine/core/curve";
 import {
   ASAP,
@@ -92,6 +109,10 @@ export interface CoreAutomationDeps {
   busIndex(name: string): number;
   /** True while no core keeps what is sent (a hard rebuild): the mirror is updated and the REPLAY sends it. */
   readonly sending: () => boolean;
+  /** E4.4: a stream voice's loop or release, asked for at context frame `at` (the backend's stream manager); absent: kept in the mirror only. */
+  readonly streamLoop?: (i: number, loop: LoopRecord, at: number) => void;
+  /** Batches the writer has posted (`CommandWriter.stats.batches`): a PLAY written since the last one is still staged. */
+  readonly writerBatches?: () => number;
 }
 
 /** One voice's mirror: its bindings (as the runtime gave them and on the wire) and its loop. */
@@ -127,6 +148,8 @@ export class CoreAutomation implements AutomationSink {
   /** Per slot: the voice id whose PLAY last went out and its stamp (NaN: asap), so later records can sort behind it. */
   private readonly playIds: Uint32Array;
   private readonly playStamps: Float64Array;
+  /** Per slot: the writer's batch count when its PLAY was written (it is still staged while that hasn't moved). */
+  private readonly playBatches: Float64Array;
   /** Bound voices by the group whose locals they read; voices reading a global parameter. */
   private readonly byGroup = new Map<number, Set<number>>();
   private readonly globalReaders = new Set<number>();
@@ -142,6 +165,7 @@ export class CoreAutomation implements AutomationSink {
     this.voices = new Array<VoiceEntry | null>(deps.table.capacity).fill(null);
     this.playIds = new Uint32Array(deps.table.capacity);
     this.playStamps = new Float64Array(deps.table.capacity).fill(Number.NaN);
+    this.playBatches = new Float64Array(deps.table.capacity).fill(Number.NaN);
   }
 
   // --- AutomationSink ---------------------------------------------------------------------------------------------
@@ -230,8 +254,12 @@ export class CoreAutomation implements AutomationSink {
    * mirror, so E4.4's replay and re-open can read it.
    */
   routeStreamLoop(i: number, loop: LoopRecord): void {
-    void i;
-    void loop;
+    const stream = this.deps.streamLoop;
+    if (!stream) return;
+    const clock = this.deps.clockMap;
+    const id = this.idOf(i);
+    // Asked for where a SET_LOOP would land: behind the voice's PLAY while that is ahead, else the next batch's frame.
+    stream(i, loop, this.stampBehindPlay(i, id) ?? clock.framesNow() + clock.lookaheadFrames());
   }
 
   // --- The core backend's hooks -----------------------------------------------------------------------------------
@@ -240,6 +268,7 @@ export class CoreAutomation implements AutomationSink {
   onPlaySent(id: number, i: number, stamp: number | undefined): void {
     this.playIds[i] = id;
     this.playStamps[i] = stamp ?? Number.NaN;
+    this.playBatches[i] = this.deps.writerBatches?.() ?? Number.NaN;
     const e = this.voices[i];
     if (!e) return;
     if (e.id !== id) {
@@ -361,6 +390,7 @@ export class CoreAutomation implements AutomationSink {
     if (!e || e.id !== id) return;
     this.playIds[i] = id;
     this.playStamps[i] = Number.NaN;
+    this.playBatches[i] = Number.NaN;
     if (e.wire.length > 0) {
       const wire = e.wire;
       b.record(bindingBytes(wire.length), (view, off) => writeAutomate(view, off, { voiceId: id, frameOffset: ASAP, bindings: wire }));
@@ -428,7 +458,9 @@ export class CoreAutomation implements AutomationSink {
   private stampBehindPlay(i: number, id: number): number | undefined {
     if (this.playIds[i] !== id) return undefined;
     const stamp = this.playStamps[i]!;
-    return stamp > this.deps.clockMap.framesNow() ? stamp : undefined;
+    if (stamp > this.deps.clockMap.framesNow()) return stamp;
+    // Still staged (no batch out since, e.g. the pool was empty): keep its stamp, so the record sorts behind it.
+    return stamp === stamp && this.deps.writerBatches?.() === this.playBatches[i] ? stamp : undefined;
   }
 
   private dropIfEmpty(i: number): void {

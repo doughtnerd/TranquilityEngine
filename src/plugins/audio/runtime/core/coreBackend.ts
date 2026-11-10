@@ -73,7 +73,7 @@ import { sharedDecoderClient } from "../decoder/decoderClient";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { effectiveMixedCap, ListenerBasis, Selection, type SelectionSink } from "./selection";
 import { HrtfPick, type HrtfSink } from "./hrtfPick";
-import { CoreAutomation } from "./coreAutomation";
+import { CoreAutomation, wrapPosition } from "./coreAutomation";
 import { MAX_GROUPS } from "../events/automation";
 
 /** `PlayRequest` plus the core's World key. */
@@ -262,10 +262,17 @@ export class CoreBackend implements AudioBackend {
         }),
       onError: (id, asset, message, code) => this.streamFailed(id, asset, message, code),
       sendSeek: (id, frame, epoch) => this.writer.seek(id, frame, epoch),
+      // E4.4: a stream loop's change lands at the end of the voice's current pass, predicted from its STATUS playhead
+      // at the playhead estimate's rate (the estimate itself before the voice sounds).
+      positionAt: (id, frame) => (this.table.isLive(id) ? this.playheads.positionNow(id & 0xffff, frame) : null),
+      rateOf: (id) => this.playheads.rate[id & 0xffff] ?? 0,
     });
     this.streams.afterSeek = (voice, frame) => this.reanchorSeek(voice, frame);
     // Stream voices' positions are in their stream's frames, at its rate (B3).
     this.playheads = new PlayheadTracker(this.table, { info: (id) => this.streams.clipInfo(id) ?? this.clips.info(id) }, host.sampleRate);
+    // E4.4: where a voice's (unwrapped) playhead is in its sound: a stream by its map (regions, splices, seeks), a clip
+    // in its SET_LOOP region (or the whole clip for a plain loop).
+    this.playheads.wrap = (i, pos) => this.wrapPlayhead(i, pos);
     this.automation = new CoreAutomation({
       table: this.table,
       writer: this.writer,
@@ -274,6 +281,8 @@ export class CoreBackend implements AudioBackend {
       clipInfo: (i) => ((this.table.flags[i]! & VoiceFlag.STREAM) !== 0 ? this.streams.clipInfo(this.table.clip[i]!) : this.clips.info(this.table.clip[i]!)),
       busIndex: (name) => this.busIndexByName.get(name) ?? -1,
       sending: () => !this.disposed && !this.recovering && this.host.status !== "failed",
+      streamLoop: (i, loop, at) => this.streams.setLoop(this.table.clip[i]!, loop, at),
+      writerBatches: () => this.writer.stats.batches,
     });
     this.replayer = new Replayer(this, host.link);
     for (let i = 0; i < MAX_BUS; i++) this.mixPool.push({ gain: 1, lpHz: BUS_LP_OFF_HZ });
@@ -793,6 +802,16 @@ export class CoreBackend implements AudioBackend {
     this.reanchorSeek(id, frame);
   }
 
+  /** E4.4: the playhead tracker's wrap (see the constructor). */
+  private wrapPlayhead(i: number, pos: number): number {
+    const t = this.table;
+    if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) return this.streams.fileFrame(t.clip[i]!, pos);
+    const frames = this.clips.info(t.clip[i]!)?.frames ?? 0;
+    const region = this.automation.loopOf(i);
+    if (region) return region.looping ? wrapPosition(pos, region.start, region.end, frames) : pos;
+    return (t.flags[i]! & VoiceFlag.LOOP) !== 0 && frames > 0 ? pos % frames : pos;
+  }
+
   /** B3b: the playhead tracker follows a seek: the voice is at `frame` from now on. */
   private reanchorSeek(id: number, frame: number): void {
     const i = this.slot(id);
@@ -917,9 +936,9 @@ export class CoreBackend implements AudioBackend {
       const i = id & 0xffff;
       const info = this.streams.clipInfo(t.clip[i]!);
       const frames = info?.frames ?? 0;
-      let pos = Math.max(0, Math.floor(this.playheads.positionNow(i, frame)));
-      if ((t.flags[i]! & VoiceFlag.LOOP) !== 0 && frames > 0) pos %= frames;
-      else if (frames > 0 && pos >= frames) {
+      // E4.4: the file frame by the stream's map: inside its loop region while it loops; a released (or plain) stream past its end is dropped.
+      const pos = Math.max(0, Math.floor(this.playheads.wrappedNow(i, frame)));
+      if (!this.streams.looping(t.clip[i]!) && frames > 0 && pos >= frames) {
         t.free(id, VoiceReason.NONE);
         continue;
       }
