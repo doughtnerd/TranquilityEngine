@@ -86,6 +86,8 @@ flowchart LR
 | E6.4 | "audition" | 2 | E6.3, E3.1 |
 | E6.5 | "Project Settings > Audio: Parameters and bus Automation" | 2 | E6.1 |
 | E6.6 | "Playwright specs for authoring and audition" | 1 | E6.3, E6.4, E6.5 |
+| E5.3b | (bench follow-up, m2-decisions entry 11) cut `Audio.play`'s main-thread cost; also the event `loopRegion` default and `releaseFade` in the runtime (both in `eventRuntime.ts`) | 1.5 | E3.5 |
+| E6.3b | (E6.3 follow-up) an asset drop-target hook in `src/editor/assetDrag.ts` for plugin panels, replacing the Event editor's workaround | 1 | E6.3 |
 | E3.7 | (owner-approved addition) `@field` `description` (ADR 0159), shown as the Inspector tooltip; `AudioSource.clip`'s first use | 0.5 | – |
 | E3.8 | (owner-approved addition) optional `releaseFade` on `sustain` (m2-decisions entry 10): parser, runtime, editor field, guide | 0.5 | E3.5, E6.3 |
 | E7.1 | the owner's listening pass of the sample events | owner | E5, E6 |
@@ -188,6 +190,8 @@ After every wave, before the next one starts, the coordinator:
 | E5.5 | owner | the lab-VM run of E5.3's native numbers |
 
 **Exit (E5):** 0158 §6's budgets in the build log (main ≤ 5 µs per typical `Audio.play` and per `setParameter`; ≈ 0 per frame for steady instances; core automation ≤ 0.03 ms p99.9 at 256 voices × 3 bindings, from the lab VM); the `@slow` spec green.
+
+**Wave 3 as run (base `28b134f`):** E4.5 (plain-clip loop points on both backends, and selection lets an automated voice fade before demoting it, m2-decisions entry 14), E5.3b, E3.7 (ADR 0159), E3.8 (`releaseFade` editor field, one Haiku leaf; the coordinator added the parser and `sustainReleaseFade` as contract C7), E6.4, E6.3b, E5.4. File owners this wave: `eventRuntime.ts` E5.3b; `coreAutomation.ts`, `babylonBackend.ts`, `loopPoints.ts` E4.5; `nodeFields.ts` E3.8; `registry.ts`, `AudioSource.ts` E3.7; `assetDrag.ts`, `EventTree.tsx` E6.3b; `Audition.tsx`, `auditionHost.ts` E6.4; `src/editor/sdk/index.ts` additive lines by E6.4 and E6.3b; the guide is the coordinator's (from reports).
 
 ## Wave 4: editor specs and close
 
