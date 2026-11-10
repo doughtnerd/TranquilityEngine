@@ -1155,6 +1155,20 @@ pub fn main(args: &str) {
                 for run_i in 0..runs {
                     let r = run(&s, seconds, warmup, seed + run_i as u32, pace, Some(&hrir));
                     platform::print(&result_json(target, name, run_i, &r));
+                    if num(args, "phases", 0.0) != 0.0 {
+                        // Mean and p99 by quantum index mod 16 (the reverb tail's period) and mod 6
+                        // (batches and STATUS takes): where the tail of the distribution comes from.
+                        for period in [16usize, 6] {
+                            let mut parts = Vec::new();
+                            for ph in 0..period {
+                                let mut v: Vec<f32> = r.times.iter().skip(ph).step_by(period).copied().collect();
+                                v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                                let mean = v.iter().map(|&t| t as f64).sum::<f64>() / v.len().max(1) as f64;
+                                parts.push(format!("[{mean:.0},{:.0}]", percentile(&v, 0.99)));
+                            }
+                            platform::print(&format!("{{\"phases\":{period},\"meanP99\":[{}]}}", parts.join(",")));
+                        }
+                    }
                 }
             }
         }

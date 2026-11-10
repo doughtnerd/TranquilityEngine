@@ -537,21 +537,25 @@ each call:
 
 The shell creates the `Memory` and imports it, with `maximum` = fixed size + the clip ceiling. `myco_audio_init` allocates deterministically, and everything but the arena is sized there and never grows. (Imported memory with deterministic init is in M1, so the future soft-recovery path in §7 needs no ABI break.)
 
-| Region | Formula | Default preset |
+Measured by A3.5 (`audio-bench mode=memory`: `Layout::new` for each preset at 48 kHz with 32 buses, and the sizes of the HRTF bank and table). The block is what `myco_audio_init` lays out; the first four rows are outside it.
+
+| Region | Formula | Default preset (48 kHz) |
 |---|---|---|
-| Code and data | — | ≤ 150 KB (ADR gate), including microfft (14 KB) and the ported Chromium DSP and HRTF code (≈ 25 KB, est.) |
-| HRTF slots | *N* × 2 kernel sets × 2 ears × 2 partitions × 129 bins × 8 B + delay lines | 16 → ≈ 140 KB |
-| HRIR blob (lazy) | int16 at the context rate | ≈ 0.75 MB, outside the clip ceiling |
+| Code and data | — | mixer wasm MIXER_KB of 150 KB (ADR gate), name section stripped |
 | Shadow stack | fixed | 256 KB; a test asserts the stack high-water mark under the stress scene |
-| Core state, scheduler | 64 KB + 8,192 pending × 48 B | ≈ 450 KB |
 | Inbox | fixed | 1 MiB (BATCH and control only; chunks go direct) |
-| Voice slots | *L* × 192 B (est.) | 4,096 → 768 KB |
-| Bus graph | *B* × 3 KB + shared convolver reverb (1.8 s stereo IR: non-uniform partition spectra plus frequency-domain delay lines ≈ 2.7 MB) | 96 KB + 2.7 MB at 48 kHz |
 | STATUS staging | 16 KB | 16 KB |
-| Clip directory and class lists | 4,096 × 32 B + 32 list heads | ≈ 130 KB |
-| Stream rings | *S* × 32,768 × channels × 4 B (f32) | 8 × 256 KB = 2 MB |
-| **Fixed total** | | **≈ 7.7 MB**, plus 0.75 MB once HRTF loads (low ≈ 5.5 MB, high ≈ 9.6 MB) |
+| Output, core state, scheduler | 1 KB + 64 KB + 8,192 pending × 48 B | 450 KB (460,800 B) |
+| Voice slots, mixed list | *L* × 192 B + *M* × 4 B | 4,096 / 128 → 768.5 KB |
+| Bus graph | *B* × 4,224 B (`BusSlot`: stereo quantum buffer, one compressor with its 6 ms pre-delay, four effect slots) | 32 → 132 KB |
+| Reverb | the shared 1.8 s stereo convolver: non-uniform partition spectra and frequency-domain delay lines; grows with the rate | 2.88 MiB (3,015,744 B) |
+| Stream rings | *S* × (32,768 ring + 4,096 chunk + 1,536 seek-tail frames, B3 and B3b) × 2 channels × 4 B = *S* × 307,200 B; *S* = clamp(*M* ÷ 16, 4, 16) | 8 → 2.34 MiB |
+| Clip directory | 4,096 × 32 B + 32 × 8 B | 128 KB |
+| **Block before the arena** | | **6.69 MiB** (7,012,352 B); low (1,024 / 48, 4 rings) 4.94 MiB; high (8,192 / 256, 16 rings) 9.81 MiB |
 | Clip arena | initial reserve, growing to the ceiling | 16 → 128 MB |
+| HRTF bank (H3, owner-review 12) | 32 panners, built in the arena when the HRIR table arrives; outside `clipMemoryMB` | 683 KB (699,200 B) up to 88.2 kHz; 1.04 MiB (1,092,416 B) above |
+| HRIR table (lazy) | int16 responses at the context rate plus the delay table, in the arena under a reserved id; outside `clipMemoryMB` | 263 KB (269,776 B) at 48 kHz; about 0.51 MB at 96 kHz |
+| **Initial memory** | block + the four rows outside it | **22.7 MiB block** (23,789,568 B) + ≈ 1.4 MB; low 12.9 MiB + 1.4 MB; high 41.8 MiB + 1.4 MB; + ≈ 0.95 MB once HRTF loads |
 
 ### 5.2 Clip arena (M1)
 
@@ -583,38 +587,91 @@ In M1, presets are named bundles the editor offers. The file stores numbers [API
 
 ### 6.1 Cost per quantum
 
-*T*_q = *M*·*c*_v(mode, pitch) + (*L*_live − *M*)·*c*_virt + Σ_bus (*c*_bus + Σ *c*_fx) + *c*_rev + *c*_lim + *R*·*c*_rec + *b*·*c*_copy
+*T*_q = *M*·*c*_v + *F*·*c*_src + *M*_mov·*c*_mov + (*L*_live − *M*)·*c*_virt + *N*·*c*_hrtf + *K*·*c*_kern + Σ_bus (*c*_bus + Σ *c*_fx) + *c*_rev + *c*_lim + *R*·*c*_rec
 
-| Term | Value | Source |
+*F* is the source frames the mixed voices read (pitch × 128 each), *M*_mov the mixed voices whose pan matrix is ramping (a direction change), *N* the HRTF voices and *K* the HRTF kernel computations (at most `KERNEL_BUDGET` = 2 a quantum). The core's work-unit model (`cap::model`, §6.3) is this formula with the `wu::` coefficients; the render notes *F*, *M*_mov, *K* and the panners crossfading for it (A3.5).
+
+**Frozen by A3.5 (2026-11-10).** Measured with `audio-bench` (`native/audio/crates/audio-bench`; wasm in Node through `tools/audio-bench/run.mjs`, built `+simd128` in release like the mixer). Each coefficient is the least-squares slope of the mean quantum time over a sweep that varies only that term (3 runs × 10 s per point; two wasm sweeps and two native sweeps, the ranges below). **Lab machine:** a shared 4-core 2.1 GHz Xeon VM (260 MB L3), Node 22, load average 1.0–1.5 during the runs (the bench's own core). No reference machine was available; every number here is to be re-measured on it (§6.5).
+
+| Term | wasm (Node) | native | `cap::wu` | Before A3.5 |
+|---|---|---|---|---|
+| *c*_v, mixed voice (4-point resampler, int16 stereo, gain, fade, equal-power pan, mix) | 3.0–3.8 µs | 2.5–2.7 µs | `MIXED_VOICE` 3,400 | 1.15 µs (linear, spike) |
+| *c*_src, per 128 source frames (pitch) | 0.03 µs (second sweep: within the noise of 0) | 0.035–0.05 µs | `SOURCE_QUANTUM` 30 | not modelled |
+| *c*_mov, moving mixed voice (pan matrix per frame) | 0.78–0.94 µs | 1.2 µs | `MOVING_VOICE` 860 | not modelled |
+| *c*_virt, virtual voice | 0.059–0.070 µs | 0.035–0.040 µs (0.17 before A3.5's O(1) advance) | `VIRTUAL_VOICE` 65 | 0.008 µs (spike) |
+| *c*_hrtf, HRTF voice (convolution and delays) | 6.9–7.8 µs | 8.6–8.9 µs | `HRTF_VOICE` 7,400 | 6.6 µs |
+| *c*_kern, HRTF kernel computation | 67–84 µs | 55–58 µs | `HRTF_KERNEL` 75,000 | not modelled (owner-review 13) |
+| kernel crossfade (two sets convolved) | −4 to +7 µs, collinear with *c*_kern | 0.1–8 µs | no term | 3.8 µs |
+| *c*_bus | 0.8–0.9 µs | within the noise of 0 (±0.2) | `BUS` 800 | 1.5 µs |
+| biquad (lowpass, highpass, snapshot low-pass) | 0.3–1.2 µs | 0.7–1.5 µs | `BIQUAD` 1,200 | 0.5 µs |
+| compressor | 5.5–5.6 µs | 2.5–3.3 µs | `COMPRESSOR` 5,500 | 4.5 µs |
+| reverb send | within the noise (±0.6 µs) | within the noise | `REVERB_SEND` 150 (est.) | 0.15 µs |
+| *c*_rev, the shared 1.8 s convolver, average | 20–40 µs (±11 per sweep) | 24–28 µs | `REVERB` 30,000 | 70 µs |
+| *c*_lim, limiter at 1.5 ms look-ahead | 1.8 µs (A2.9) | 0.9–1.8 µs | `LIMITER` 2,000 | 5 µs |
+| *c*_rec, record applied | within the noise (±1.5 µs at 43 a quantum) | within the noise | `RECORD` 100 (est.) | 0.1 µs |
+| stream voice over a clip voice | within the noise (±1 µs) | within the noise | counted as a mixed voice | |
+| 64 MB of distinct clips against 1 MB (cache-cold reads) | within the noise | within the noise | none: the lab VM's L3 holds them; **re-measure on the reference machine** | |
+| starts (200 a second) | within the noise | within the noise | none | |
+
+`NS_PER_WU` stays 1: the coefficients are the lab machine's wasm nanoseconds, and the lab machine stands in for the reference machine. The model matches the measured means of the full scenes within 4% (wasm: default 1.42 ms modelled against 1.48 measured, high 2.34 against 2.36). These runs render back to back; a short paced run (`pace=1`, one quantum per 2.67 ms, so caches cool between quanta as on a device) measured the default scene's mean 11% (wasm) to 18% (native) higher, which the soak's numbers will include.
+
+**The frozen scenes** (§6.5's content): the preset's mixed voices as one-shots of 64 MB of distinct int16 stereo clips in shuffled order, restarted as they end (about 170 starts a second), pitch 0.5–2, the preset's streams among them, the rest of the logical voices virtual and looping, 32 buses each with lowpass, highpass, compressor and snapshot low-pass, the reverb fed by 8 of them, the limiter at 1.5 ms, every HRTF voice turning at 120° a second, and a batch every 6 quanta with gain and direction for every mixed voice (≈ 22 records a quantum at default, 43 at high). Time per quantum is the audio thread's whole work: the batch's `submit`, stream chunk copies, `process`, `after_quantum`, the clip events and a STATUS take every 6 quanta. Default and high: 5 runs × 60 s after a 5 s warm-up; the variants 3 runs × 30 s. Median of the runs, [range]; ms.
+
+| Scene (lab VM) | Target | p50 | p99 | **p99.9** | mean | modelled mean |
+|---|---|---|---|---|---|---|
+| **Default**: 128 mixed / 4,096 logical, 16 HRTF, 8 streams | wasm | 1.30 [1.24–1.36] | 2.42 [2.32–2.64] | **3.90** [3.74–5.74] | 1.48 | 1.42 |
+| | native | 1.05 [1.01–1.33] | 1.89 [1.77–1.93] | 3.52 [3.22–3.85] | 1.18 | |
+| **High**: 256 mixed / 8,192 logical, 32 HRTF, 16 streams | wasm | 2.07 [2.04–2.41] | 3.81 [3.69–3.94] | **5.45** [5.33–6.07] | 2.36 | 2.34 |
+| | native | 1.85 [1.73–2.26] | 3.20 [2.96–3.47] | 4.60 [4.31–6.27] | 2.03 | |
+| High, HRTF voices still | wasm | 2.01 | 3.50 | 5.51 | 2.25 | 2.17 |
+| High, 16 HRTF voices | wasm | 2.55 [1.95–2.81] | 4.19 | 5.87 | 2.61 | 2.23 |
+| | native | 1.72 | 2.88 | 4.77 | 1.88 | |
+| High, 192 mixed | wasm | 1.85 | 3.60 | 4.93 | 2.16 | 2.07 |
+| High, pitch 1–16 | wasm | 2.08 | 3.82 | 5.94 | 2.35 | 2.34 |
+| High with the adaptive cap (production budget) | wasm | 1.35 | 2.36 | 4.62 | 1.44 | 1.28; the cap fell to 16 and stayed |
+| Default with the adaptive cap | wasm | 0.88 | 1.54 | 3.01 | 0.98 | 0.95; the cap fell to 16 and stayed |
+| Low: 48 mixed / 1,024 logical, 4 HRTF, 4 streams | wasm | 0.59 | 1.07 | 2.35 | 0.66 | 0.68 |
+
+The high-16-HRTF wasm runs ran slower than the 32-HRTF ones (one run 2.74 ms mean): the lab VM's run-to-run spread is about ±15% on the mean; native shows the expected 0.15 ms saving.
+
+**The high preset at p99.9 (4-point resampler), frozen.** The attribution is the model's (the measured coefficients at the high scene's counts, wasm, lab VM). The ADR budget is 1.3 ms at p99.9 on the reference machine.
+
+| High preset (wasm, lab VM) | mean ms | Count |
 |---|---|---|
-| *c*_v, linear resampler | 1.15 µs per mixed voice | `README`: 0.31 ms for 256 |
-| *c*_v, 4-point or sinc | 1.6–2.3 µs (est.); grows with pitch, since each voice reads pitch × 128 source frames | re-measured in A3.3 |
-| *c*_virt | ≈ 0.008 µs | `README` |
-| *c*_bus + meters; *c*_fx | ≈ 1–2 µs; Chromium biquad ≈ 0.5 µs, Chromium compressor 3–6 µs (est., per-sample envelope) | |
-| *c*_hrtf per HRTF voice | 6.6 µs static, 10.4 µs while crossfading kernels or panner kind; *N* = 16 all crossfading = 0.17 ms | `spatial/` (Chromium wasm, FFT 256, 256 taps; moving source) |
-| *c*_ep, equal-power pan | < 0.1 µs, inside *c*_v | |
-| *c*_lim | ≈ 5 µs (est.) | |
-| *c*_rev, the 1.8 s non-uniform convolver (stereo) | ≈ 0.07 ms average, ≈ 0.3 ms p99.9 | `spatial/` (2 s stereo: 0.054–0.07 ms average, p99.9 0.23–0.30 ms in Node wasm, idle machine) |
-| *c*_copy | ≈ 0.1 µs per KB (est.), ≤ 30 µs per quantum at the cap | |
+| Mixed voices | 0.87 | 254 × 3.4 µs, plus 0.01 for their source reads |
+| Moving mixed voices | 0.22 | 255 × 0.86 µs |
+| Virtual voices | 0.51 | 7,872 × 0.065 µs |
+| HRTF voices | 0.24 | 32 × 7.4 µs |
+| HRTF kernels | 0.15 | 2 a quantum × 75 µs |
+| Buses and effects | 0.32 | 32 × (bus 0.8 + 3 biquads 3.6 + compressor 5.5 µs), 8 sends |
+| Reverb, limiter, records | 0.04 | |
+| **Total, mean** | **2.34** (measured 2.36) | |
+| **Measured p99.9** | **5.45** | **4.15 ms over the 1.3 ms budget** |
 
-The formula gains + *N*·*c*_hrtf. The reverb's stages use microfft's 4,096-point transforms for the tail and 256-point for the head.
+**It doesn't fit on the lab machine** — at either preset: default is 3.9 ms at p99.9 (1.48 mean), high 5.45 (2.36 mean), and even low is 2.35 at p99.9. Two things are behind that, and only measurement on the reference machine separates them:
 
-| High preset at p99.9 (4-point resampler) | ms |
-|---|---|
-| 256 mixed voices | 0.59 |
-| 3,840 virtual voices | 0.03 |
-| Buses and effects | 0.10 |
-| Reverb convolver (its p99.9 is the quantum that runs the tail's inverse FFT; M1 has one convolver, so nothing aligns with it) | 0.30 |
-| HRTF, 16 voices all crossfading (moved from the M3 reserve into M1) | 0.17 |
-| **M1 total** | **1.19** |
-| Remaining reserve for M2–M4 | 0.11 |
-| **Total** | **1.30, exactly the ADR budget** |
+- **The lab VM's tail.** Fixed workloads with nothing varying (128 looping voices; 32 compressors) still show p99 1.4–2× and p99.9 2–4× their p50, with no phase pattern (quanta by index mod 16 and mod 6 have the same spread), so most of the p99.9 is the shared VM (neighbours, steal), not the core. The means (and the model) are trustworthy; the p99.9 column is an upper bound to replace on an idle reference machine.
+- **The costs themselves.** The mean alone is 1.8× the budget at high and 1.1× at default on this 2.1 GHz server core. A desktop core at 4–5 GHz is commonly about twice as fast single-threaded, which would put high at ≈ 1.2 ms mean (no headroom for a p99.9 of 1.3) and default at ≈ 0.75 ms mean.
 
-It fits, but the ADR's 0.5 ms reserve is now mostly spent. M3's ambisonic bed (0.18–0.35 ms, `spatial/`) will need its own budget from A3.3's measured numbers, or fewer HRTF voices. The default preset (128 mixed voices) totals ≈ 0.9 ms.
+**Proposals (for the coordinator; savings are wasm means on the lab VM at high):**
+
+| Change | Saves | Cost |
+|---|---|---|
+| Budget effects realistically: the frozen scene puts a compressor and three biquads on all 32 buses. A budget of ≤ 8 compressors and ≤ 32 biquads at high | ≈ 0.21 ms | a documented content limit (the model counts what is configured, so the cap already sees it) |
+| High preset at 4,096 logical voices (as §5.3's table says; owner-review 1 chose 8,192) | 0.27 ms | fewer tracked voices at high |
+| Virtual voices without a per-quantum walk (keep time from the start frame; advance only on promote, end, or a pitch change) | ≈ 0.45 ms | a core change, post-M1 |
+| 16 HRTF voices at high (as default) | 0.12 ms | fewer HRTF voices |
+| `KERNEL_BUDGET` 1 instead of 2 | 0.075 ms | each turning voice's crossfades start half as often |
+| A vectorised ramped pan (the moving path) | up to ≈ 0.2 ms | a core change (output must stay bit-exact or goldens re-recorded) |
+| A SIMD 4-point resampler | up to ≈ 0.4 ms | a core change (same) |
+
+Without core changes (the effects budget, 4,096 logical voices, 16 HRTF voices, a kernel budget of 1), high would be ≈ 1.67 ms mean on the lab VM, ≈ 0.85 ms on a 2× faster reference core. The three core changes would take the lab VM to ≈ 0.85 ms mean (≈ 0.45 ms on the reference), which leaves room for a 1.3 ms p99.9. M3's ambisonic bed (0.18–0.35 ms, `spatial/`) is not in these numbers.
+
+**Re-measure** (`native/audio/crates/audio-bench`, §6.5): every row of the first table and both scene tables on the reference machine; the cache-cold row on a machine whose last-level cache is smaller than 64 MB; the p99.9 columns in C3's soak (the browser's real audio thread, other tabs, GC); the low preset on the low-end Android device.
 
 ### 6.2 Worst case
 
-Chromium on Windows renders 3–4 quanta back to back per ~10 ms device period (`messaging/` §2). Rule: **a 4-quantum burst finishes within 75% of the period (7.5 ms).** M1 on the reference machine: 4 × 1.3 + 0.86 (a worklet GC scavenge, ~once per 10 s at 1,024 voices, `messaging/` §6) + ~0.1 (copy, submit, STATUS) ≈ **6.2 ms**. M3's convolver tail maximum (1.67 ms, `spatial/`) would push that to 7.8 ms, hence phase-staggered tails. A CPU 2.5× slower misses the deadline at the high preset, which is why "low" exists and the cap adapts.
+Chromium on Windows renders 3–4 quanta back to back per ~10 ms device period (`messaging/` §2). Rule: **a 4-quantum burst finishes within 75% of the period (7.5 ms).** M1 on the reference machine, if the budget holds: 4 × 1.3 + 0.86 (a worklet GC scavenge, ~once per 10 s at 1,024 voices, `messaging/` §6) + ~0.1 (copy, submit, STATUS) ≈ **6.2 ms**. On the lab VM (A3.5) a burst of four high-preset quanta averages 4 × 2.36 = 9.4 ms and misses; four default quanta average 5.9 ms and fit only without a tail quantum. M3's convolver tail maximum (1.67 ms, `spatial/`) would add to that, hence phase-staggered tails. A CPU 2.5× slower than the reference misses the deadline at the high preset, which is why "low" exists and the cap adapts.
 
 ### 6.3 Adaptive voice cap (M1)
 
@@ -625,6 +682,7 @@ Chromium on Windows renders 3–4 quanta back to back per ~10 ms device period (
 | Decrease | any underrun, or a qualifying late command, or WU p99 > 70% of budget: cap ← max(16, ⌊0.85·cap⌋); hold 1 s |
 | Increase | nothing qualifying and WU p99 < 55% for 5 s: cap ← min(configured, cap + max(2, configured/32)), once per second |
 | Effect | the core demotes the lowest-`score` mixed voices and reports `demoted` and `mixedCap`; selection uses min(configured, `mixedCap`) |
+| Model (A3.5) | §6.1's formula with the frozen `wu::` coefficients and *k* = 1 (lab-machine wasm ns). The cap only sheds mixed voices: what the model counts outside them (virtual voices, HRTF, buses and effects) is a floor it can't lower. In the frozen scenes that floor is about 1.15 ms at high and 0.87 ms at default (their work-unit p99 1.67 and 1.07 ms), above the 70% line (0.91 ms), so the cap goes to 16 and stays (measured: high 1.44 ms mean, 4.6 ms p99.9 with the cap; default 0.98 ms, 3.0 ms). On a 2× faster reference those models would read the same: the model is a fixed ceiling for content, so scenes like these are capped on every machine until the coefficients are replaced with the reference machine's |
 | Future (not M1) | start-up calibration of *k*, a time-based load estimate from `Date.now()` probes (`loadPermille`, reserved as 0), an emergency per-quantum demote, and device-class preset selection |
 
 ### 6.4 Main thread and GC
@@ -641,8 +699,8 @@ Main allocates nothing per frame. The voice table and scratch are preallocated t
 
 | Track | When | What | Gate |
 |---|---|---|---|
-| Lab | from M1a.3 | per-quantum wall time: native, Node wasm, and a browser main thread on a COOP/COEP page for 5 µs timers; ≥ 5 runs × 60 s after a 5 s warm-up; p50, p99, **p99.9**, max; reference and low-end machines | freezes the budget table and *k* (A3.3) |
-| Content | | 4-point (or sinc) resampler, ≥ 64 MB of distinct clips in shuffled order (cache-cold), 32 buses with effects, 4,096 logical voices with 200 starts per second | |
+| Lab | from M1a.3; A3.5's harness | `audio-bench` (`native/audio/crates/audio-bench`): per-quantum wall time natively (`cargo run --release -p audio-bench -- mode=scene name=default,high`) and as wasm in Node (`node tools/audio-bench/run.mjs mode=scene …`, built `+simd128` like the mixer); `mode=fit` runs the coefficient sweeps, `mode=memory` §5.1's sizes. ≥ 5 runs × 60 s after a 5 s warm-up; p50, p99, **p99.9**, max, the modelled work units; `pace=1` sleeps to each 2.67 ms deadline (caches go cold between quanta, as on a device). Still to do: a browser main thread on a COOP/COEP page, the reference and low-end machines | froze §6.1 and *k* (A3.5, lab VM); re-run on the reference machine to replace them |
+| Content | | 4-point resampler, ≥ 64 MB of distinct clips in shuffled order (cache-cold where the last-level cache is smaller), 32 buses with effects, the reverb, the limiter at 1.5 ms, 4,096 / 8,192 logical voices, ≈ 170 starts per second, pitch 0.5–2 (and 1–16), HRTF still and turning, streams, a parameter batch every 6 quanta | |
 | CI | **M1c** | a metered wasm (an instruction counter injected after linking, test-only) over fixed scenes in Node; Rust isn't needed in CI | +10% fails |
 | Before M1c | | modelled WU totals and lab numbers are informational only | none |
 | Live | soak | 30 min of the stress sample with the underrun probe | 0 underruns |

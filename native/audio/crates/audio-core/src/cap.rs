@@ -53,41 +53,42 @@ use crate::{bus, fx, status, voices, QUANTUM};
 pub mod wu {
     /// A mixed voice, besides its source reads ([`SOURCE_QUANTUM`]): the 4-point resampler's
     /// arithmetic on int16 stereo, gain and fade ramps, the equal-power pan, the mix into its bus.
-    /// Measured 2.8–3.8 µs per pitch-1 voice in wasm over four runs on a loaded VM (native
-    /// 2.5–2.7); 3.4 µs keeps the cap on the safe side of that spread.
+    /// Measured 3.0–3.8 µs per pitch-1 voice in wasm over two sweeps (native 2.5–2.7); 3.4 µs
+    /// is the middle of that spread.
     pub const MIXED_VOICE: u32 = 3_400;
     /// Each 128 source frames the mixed voices read (a voice reads pitch × 128 a quantum; the
     /// render notes the sum). Small on the lab machine (its 260 MB L3 holds 64 MB of clips): 0.03
-    /// µs in wasm and natively; a machine with a smaller cache needs the sweep re-run.
-    pub const SOURCE_QUANTUM: u32 = 33;
+    /// µs natively, 0.03 and within the noise of 0 in wasm; a machine with a smaller cache needs
+    /// the sweep re-run.
+    pub const SOURCE_QUANTUM: u32 = 30;
     /// A mixed voice whose pan matrix is ramping (a direction change: the per-frame matrix path).
-    /// 0.94 µs in wasm (1.2 native).
-    pub const MOVING_VOICE: u32 = 940;
-    /// A virtual voice keeping time: 0.059 µs in wasm (0.040 native), after A3.5's O(1) advance
+    /// 0.78–0.94 µs in wasm (1.2 native).
+    pub const MOVING_VOICE: u32 = 860;
+    /// A virtual voice keeping time: 0.059–0.070 µs in wasm (0.040 native), after A3.5's O(1) advance
     /// at a settled pitch (0.17 µs natively before). The walk over the voice table and the clip
     /// lookup remain; §6.1's 0.008 µs was the spike's.
-    pub const VIRTUAL_VOICE: u32 = 59;
+    pub const VIRTUAL_VOICE: u32 = 65;
     /// An HRTF-panned voice on top of its mixed cost: its partitioned convolution and delays.
-    /// 6.9 µs in wasm (8.9 native) still. Turning voices cost the same plus their kernels.
-    pub const HRTF_VOICE: u32 = 6_900;
-    /// One HRTF kernel computation (one ear's kernel at a new direction): 67 µs in wasm (55
+    /// 6.9–7.8 µs in wasm (8.9 native) still. Turning voices cost the same plus their kernels.
+    pub const HRTF_VOICE: u32 = 7_400;
+    /// One HRTF kernel computation (one ear's kernel at a new direction): 67–84 µs in wasm (55
     /// native), at most `panner::KERNEL_BUDGET` (2) a quantum. A crossfade between kernel sets
-    /// measured no cost beyond the noise, so it has no term.
-    pub const HRTF_KERNEL: u32 = 67_000;
-    /// A configured bus: its gain ramp, mix into the parent and meter. 0.9 µs in wasm (native
+    /// measured −4 to +7 µs (collinear with the kernels in the fit), so it has no term.
+    pub const HRTF_KERNEL: u32 = 75_000;
+    /// A configured bus: its gain ramp, mix into the parent and meter. 0.8–0.9 µs in wasm (native
     /// within the noise of 0).
-    pub const BUS: u32 = 900;
-    /// A biquad on a bus: lowpass, highpass, or the snapshot low-pass while on. 1.2 µs in wasm
-    /// (1.3–1.5 native).
+    pub const BUS: u32 = 800;
+    /// A biquad on a bus: lowpass, highpass, or the snapshot low-pass while on. 0.3–1.2 µs in wasm
+    /// (1.3–1.5 native); the higher value.
     pub const BIQUAD: u32 = 1_200;
-    /// A bus compressor: 5.6 µs in wasm (3.3 native).
-    pub const COMPRESSOR: u32 = 5_600;
+    /// A bus compressor: 5.5–5.6 µs in wasm (3.3 native).
+    pub const COMPRESSOR: u32 = 5_500;
     /// A reverb send tap (a multiply-add into the shared input): below the sweep's noise (±0.3
     /// µs); the estimate stays.
     pub const REVERB_SEND: u32 = 150;
     /// The shared 1.8 s convolver while a bus sends to it, on average (its tail's quantum is a
-    /// spike the model doesn't follow): 20–28 µs (wasm, native).
-    pub const REVERB: u32 = 25_000;
+    /// spike the model doesn't follow): 20–40 µs in wasm (28 native; ±10 µs per sweep).
+    pub const REVERB: u32 = 30_000;
     /// The master limiter at its 1.5 ms look-ahead: 1.8 µs while limiting (A2.9).
     pub const LIMITER: u32 = 2_000;
     /// One record applied (parse, schedule, apply): below the sweep's noise (±1 µs for 43
