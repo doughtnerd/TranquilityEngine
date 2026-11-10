@@ -128,6 +128,8 @@ export interface CoreAutomationDeps {
   readonly writerBatches?: () => number;
   /** M2 F2: where main's estimate of a bus's automated gain goes (`Mixer._setAutomationView`), so `Bus.effectiveGain` includes it. */
   readonly busView?: (name: string, gain: number) => void;
+  /** M2 F3: where a bus's automated gain for voice selection goes (the no-gap rule: larger of target and smoothed while a seek runs). */
+  readonly busSelection?: (name: string, gain: number) => void;
 }
 
 /**
@@ -227,6 +229,8 @@ export class CoreAutomation implements AutomationSink {
   private readonly dirtyBuses = new Set<string>();
   /** The automated gain last handed to `deps.busView` per bound bus (absent: 1), so it is only written when it moves. */
   private readonly viewSent = new Map<string, number>();
+  /** The selection factor last handed to `deps.busSelection` per bus (absent: 1). */
+  private readonly selSent = new Map<string, number>();
   private readonly busIds = new Int32Array(MAX_BINDINGS);
   private readonly busTargets = new Uint8Array(MAX_BINDINGS);
   private readonly busAuto: AutoResult = { gain: 1, pitch: 1, lowpass: 0 };
@@ -476,6 +480,7 @@ export class CoreAutomation implements AutomationSink {
   onBusesConfigured(): void {
     // The mixer's reconfigure reset its view gains to 1: publish them again.
     this.viewSent.clear();
+    this.selSent.clear();
     this.publishBuses();
     if (this.buses.size === 0 && this.busSentTo.size === 0) return;
     if (!this.deps.sending()) {
@@ -780,16 +785,35 @@ export class CoreAutomation implements AutomationSink {
       const g = this.busGainNow(bus);
       if ((this.viewSent.get(bus) ?? 1) !== g) view(bus, g);
       this.viewSent.set(bus, g);
+      this.publishSelection(bus);
     }
     for (const bus of this.viewSent.keys()) {
       if (this.buses.has(bus)) continue;
       view(bus, 1); // unbound: back to 1
       this.viewSent.delete(bus);
+      this.publishSelection(bus);
     }
   }
 
+  /**
+   * M2 F3: bus `bus`'s factor for voice selection, handed to `deps.busSelection` only where it moved. The same no-gap
+   * rule as a voice's (`reevaluate`): while a seek runs, the larger of the automated gain at the targets and at the
+   * smoothed estimate, so a bus fading out keeps its voices mixed until the fade ends; at rest, the settled gain.
+   */
+  private publishSelection(bus: string): void {
+    const sel = this.deps.busSelection;
+    if (!sel) return;
+    const bound = this.buses.has(bus);
+    let g = bound ? this.busGainNow(bus, false) : 1;
+    if (bound && this.fading.size > 0) g = Math.max(g, this.busGainNow(bus));
+    if ((this.selSent.get(bus) ?? 1) === g) return;
+    sel(bus, g);
+    if (g === 1) this.selSent.delete(bus);
+    else this.selSent.set(bus, g);
+  }
+
   /** Bus `name`'s volume curves at the smoothed globals, allocation free; 1 when unbound. */
-  private busGainNow(name: string): number {
+  private busGainNow(name: string, smoothed = true): number {
     const wire = this.buses.get(name);
     if (!wire) return 1;
     const n = Math.min(wire.length, MAX_BINDINGS);
@@ -799,7 +823,7 @@ export class CoreAutomation implements AutomationSink {
       const k = paramKey(0, b.param & 0x7fff);
       this.busIds[j] = b.curve;
       this.busTargets[j] = b.target;
-      xs[j] = k >= 0 ? this.smoothed(k) : 0;
+      xs[j] = k < 0 ? 0 : smoothed ? this.smoothed(k) : this.paramValue[k]!;
     }
     return evaluateInto(n, this.busIds, this.busTargets, xs, this.curves, this.busAuto).gain;
   }
