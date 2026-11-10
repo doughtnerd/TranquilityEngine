@@ -4,6 +4,7 @@ use crate::cap::CapState;
 use crate::clips::ClipStore;
 use crate::layout::{Layout, RegionKind};
 use crate::params::InitParams;
+use crate::stream::StreamStore;
 use crate::{OUTPUT_CHANNELS, QUANTUM};
 
 /// The fixed regions as slices. Each one is a distinct, non-overlapping range of the block that
@@ -18,6 +19,7 @@ pub struct Regions {
     pub buses: &'static mut [u8],
     pub reverb: &'static mut [u8],
     pub hrtf: &'static mut [u8],
+    /// Empty: the stream store owns the streams region (B3).
     pub streams: &'static mut [u8],
     /// Empty: the clip store owns the directory region (A1.3b).
     pub clip_directory: &'static mut [u8],
@@ -37,6 +39,8 @@ pub struct Core {
     clips: ClipStore,
     /// The adaptive mixed-voice cap (A3.3, `cap.rs`).
     cap: CapState,
+    /// Stream rings (B3, `stream.rs`).
+    streams: StreamStore,
 }
 
 impl Core {
@@ -75,7 +79,9 @@ impl Core {
         // A1.3b: the clip store owns the directory and arena regions (they stay empty here).
         let clips = ClipStore::over(core::mem::take(&mut regions.clip_directory), core::mem::take(&mut regions.arena));
         let cap = CapState::new(params.max_mixed, params.sample_rate);
-        let mut core = Core { params, layout, base: base as usize, regions, frame: 0, clips, cap };
+        // B3: the stream store owns the streams region (it stays empty here).
+        let streams = StreamStore::over(core::mem::take(&mut regions.streams));
+        let mut core = Core { params, layout, base: base as usize, regions, frame: 0, clips, cap, streams };
         // A2.1: one root bus at unity and MASTER at unity until BUS_CONFIG, BUS_MIX and MASTER.
         crate::bus::init(&mut core);
         core
@@ -112,9 +118,25 @@ impl Core {
         &mut self.clips
     }
 
-    /// The regions and the clips at once, for the render loop (A1.2).
+    /// The regions and the clips at once (A1.2; the render loop now takes `render_parts`).
+    #[allow(dead_code)]
     pub(crate) fn parts_mut(&mut self) -> (&mut Regions, &ClipStore) {
         (&mut self.regions, &self.clips)
+    }
+
+    /// The stream rings (B3).
+    pub fn streams(&self) -> &StreamStore {
+        &self.streams
+    }
+
+    /// The stream rings, mutably: the `stream_*` exports and `submit` (`onmessage`), and the render loop.
+    pub fn streams_mut(&mut self) -> &mut StreamStore {
+        &mut self.streams
+    }
+
+    /// The regions, the clips and the stream rings at once, for the render loop (B3's stream voices).
+    pub(crate) fn render_parts(&mut self) -> (&mut Regions, &ClipStore, &mut StreamStore) {
+        (&mut self.regions, &self.clips, &mut self.streams)
     }
 
     /// The context frame of the last rendered quantum.

@@ -62,7 +62,7 @@ pub enum RegionKind {
     Reverb,
     /// HRTF voice slots (H1; empty until then).
     Hrtf,
-    /// Stream rings (B3, M1b; empty until then).
+    /// Stream rings (B3, M1b; `stream::region_bytes`).
     Streams,
     /// The clip directory and the arena's size-class list heads.
     ClipDirectory,
@@ -120,7 +120,9 @@ fn region_len(kind: RegionKind, p: &InitParams) -> usize {
         RegionKind::Buses => p.max_buses as usize * BUS_BYTES,
         // A2.2b sizes the shared convolver's state in its own module (K5).
         RegionKind::Reverb => align_up(audio_dsp::convolver::region_bytes(p.sample_rate), REGION_ALIGN),
-        RegionKind::Hrtf | RegionKind::Streams => 0,
+        RegionKind::Hrtf => 0,
+        // B3: the stream rings (`stream.rs`, K5-style: sized in its own module).
+        RegionKind::Streams => crate::stream::region_bytes(p),
         RegionKind::ClipDirectory => CLIP_DIRECTORY_ENTRIES * CLIP_DIRECTORY_ENTRY_BYTES + CLIP_CLASS_LISTS * CLIP_CLASS_LIST_HEAD_BYTES,
         RegionKind::Arena => align_up(p.arena_initial_bytes as usize, PAGE_BYTES),
     }
@@ -203,6 +205,9 @@ mod tests {
         let reverb = layout.region(RegionKind::Reverb).len;
         assert!(reverb > 2_600_000 && reverb < 3_200_000, "reverb region: {reverb}");
         let fixed = layout.region(RegionKind::Arena).offset - reverb;
+        let streams = layout.region(RegionKind::Streams).len;
+        assert_eq!(streams, 8 * crate::stream::RING_BYTES, "8 rings at the default preset (architecture §5.3)");
+        let fixed = fixed - streams;
         assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF and streams: {fixed}");
     }
 
