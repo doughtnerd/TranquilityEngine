@@ -83,3 +83,8 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 ### 16. A worker failure falls back to `decodeAudioData` for the session (B5, interim)
 - **Chosen (until B6):** if the decoder worker can't run (no Worker, wasm refused, hash mismatch, or the worker died), the registry warns once and uses `decodeAudioData` for the rest of the session.
 - **Note for B6:** once `decodeAudioData` is removed, a one-off worker crash should respawn the worker (with a retry limit) rather than latch; a refused wasm or hash mismatch then fails clip loads with one warning (or, at load, falls back to the Babylon backend, which decodes with the browser).
+
+### 17. Decoder worker crash budget (B6)
+- **Chosen:** a crashed decoder worker respawns and retries its pending decodes, at most 3 times per 60 s, shared by all clips; past that, loads fail with one warning per asset until the window passes. A refused wasm or a hash mismatch isn't retried. `clipFormat` f32 now means the worker's int16 scaled (exact to int16 precision).
+- **Why:** mirrors the core's rebuild limit (3 per 60 s); browsers already decode to int16-equivalent precision for 16-bit sources.
+- **Known weakness:** one file that crashes the worker every time can use the budget and delay other clips for up to 60 s. A cheap follow-up: fail a clip after it crashed the worker twice, without spending the shared budget again.
