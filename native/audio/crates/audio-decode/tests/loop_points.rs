@@ -52,21 +52,18 @@ fn riff(chunks: &[Vec<u8>]) -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn wav_smpl_after_data() {
     let f = riff(&[fmt_chunk(), data_chunk(), chunk(b"smpl", &smpl_body(&[(0, 10, 99)]))]);
     assert_eq!(wav_loop_points(&f), Some((10, 100)));
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn wav_smpl_before_data() {
     let f = riff(&[fmt_chunk(), chunk(b"smpl", &smpl_body(&[(0, 5, 149)])), data_chunk()]);
     assert_eq!(wav_loop_points(&f), Some((5, 150)));
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn wav_without_smpl_or_loops() {
     assert_eq!(wav_loop_points(&riff(&[fmt_chunk(), data_chunk()])), None);
     let f = riff(&[fmt_chunk(), data_chunk(), chunk(b"smpl", &smpl_body(&[]))]);
@@ -74,7 +71,6 @@ fn wav_without_smpl_or_loops() {
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn wav_not_riff_or_empty() {
     assert_eq!(wav_loop_points(&[]), None);
     assert_eq!(wav_loop_points(b"RIFF"), None);
@@ -82,14 +78,12 @@ fn wav_not_riff_or_empty() {
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn wav_odd_sized_chunk_before_smpl_is_padded() {
     let f = riff(&[fmt_chunk(), chunk(b"junk", &[1, 2, 3]), data_chunk(), chunk(b"smpl", &smpl_body(&[(0, 1, 2)]))]);
     assert_eq!(wav_loop_points(&f), Some((1, 3)));
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn wav_truncated_smpl_chunk_is_none() {
     let mut f = riff(&[fmt_chunk(), data_chunk(), chunk(b"smpl", &smpl_body(&[(0, 10, 99)]))]);
     f.truncate(f.len() - 10);
@@ -97,13 +91,11 @@ fn wav_truncated_smpl_chunk_is_none() {
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn smpl_first_forward_loop_wins() {
     assert_eq!(smpl_loop_points(&smpl_body(&[(0, 100, 199), (0, 300, 399)])), Some((100, 200)));
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn smpl_skips_non_forward_loops() {
     assert_eq!(smpl_loop_points(&smpl_body(&[(1, 0, 50)])), None);
     assert_eq!(smpl_loop_points(&smpl_body(&[(2, 0, 50)])), None);
@@ -111,14 +103,12 @@ fn smpl_skips_non_forward_loops() {
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn smpl_end_before_start_or_overflow_is_skipped() {
     assert_eq!(smpl_loop_points(&smpl_body(&[(0, 50, 10)])), None);
     assert_eq!(smpl_loop_points(&smpl_body(&[(0, 0, u32::MAX), (0, 1, 2)])), Some((1, 3)));
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn smpl_malformed_short_chunk() {
     assert_eq!(smpl_loop_points(&[]), None);
     assert_eq!(smpl_loop_points(&[0u8; 35]), None);
@@ -134,20 +124,17 @@ fn smpl_malformed_short_chunk() {
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn comments_start_and_length() {
     assert_eq!(comment_loop_points(&[("LOOPSTART", "1000"), ("LOOPLENGTH", "500")]), Some((1000, 1500)));
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn comments_mixed_case_keys_and_other_keys() {
     let c = [("TITLE", "x"), ("LoopLength", " 40 "), ("loopstart", "10")];
     assert_eq!(comment_loop_points(&c), Some((10, 50)));
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn comments_missing_length_or_start() {
     assert_eq!(comment_loop_points(&[("LOOPSTART", "10")]), None);
     assert_eq!(comment_loop_points(&[("LOOPLENGTH", "10")]), None);
@@ -155,7 +142,6 @@ fn comments_missing_length_or_start() {
 }
 
 #[test]
-#[ignore = "L4.1a"]
 fn comments_non_numeric_zero_or_overflow() {
     assert_eq!(comment_loop_points(&[("LOOPSTART", "abc"), ("LOOPLENGTH", "5")]), None);
     assert_eq!(comment_loop_points(&[("LOOPSTART", "5"), ("LOOPLENGTH", "-1")]), None);
