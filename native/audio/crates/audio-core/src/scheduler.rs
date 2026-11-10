@@ -6,8 +6,11 @@
 //!   is refused, counted with the STATUS `versionMismatch` flag; an unknown kind of this major is
 //!   skipped. BATCH (1) and REPLAY (12) carry records; other kinds aren't handled here.
 //! - Every record head is validated before any record applies (lengths inside the message, at least
-//!   the head), so a malformed batch changes nothing. Unknown opcodes, and the ones later tasks
-//!   apply (SET_MIXED, SET_PAUSED, SEEK, BUS_*, MASTER), are skipped by their length.
+//!   the head; BUS_CONFIG and BUS_MIX also their per-bus entries), so a malformed batch changes
+//!   nothing. Unknown opcodes, and the ones later tasks apply (SET_MIXED, SET_PAUSED, SEEK), are
+//!   skipped by their length.
+//! - BUS_CONFIG, BUS_MIX and MASTER (A2.1, `bus.rs`) apply at once, in arrival order, whatever
+//!   their `frameOffset`; their ramps start with the next quantum.
 //! - RESET (A1.3b) applies at once, in arrival order, whatever its `frameOffset`: every voice and
 //!   pending record is cleared, and with `keepClips = 0` every clip too and the arena reclaimed
 //!   ([`reset`]). It's the first record of a rebuild's REPLAY, and A1.4 sends `RESET 0` when the
@@ -29,12 +32,12 @@
 //! the voices' area. `pop_due` (inside `process`) only moves the head; the queue is compacted when a
 //! record is inserted (in `submit`).
 
-use audio_wire::generated::{self as wire, BatchHeader, Envelope, Fade, Play, RecordHead, Reset, SetParams, Stop};
+use audio_wire::generated::{self as wire, BatchHeader, Envelope, Fade, Master, Play, RecordHead, Reset, SetParams, Stop};
 
 use crate::core::{Core, Regions};
 use crate::counters::flag;
 use crate::layout::{PENDING_CAPACITY, PENDING_RECORD_BYTES};
-use crate::{status, voices};
+use crate::{bus, status, voices};
 
 /// One stamped record waiting for its frame: 48 bytes (`PENDING_RECORD_BYTES`), all-zero valid.
 /// STOP, SET_PARAMS and FADE only (PLAY is written to its slot at once).
@@ -134,9 +137,20 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::SET_PARAMS => SetParams::FIXED_END,
             wire::op::FADE => Fade::FIXED_END,
             wire::op::RESET => Reset::FIXED_END,
+            wire::op::BUS_CONFIG => wire::BusConfig::FIXED_END,
+            wire::op::BUS_MIX => wire::BusMix::FIXED_END,
+            wire::op::MASTER => Master::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
         if len < min || off + len > msg.len() {
+            return wire::ERR_MALFORMED;
+        }
+        let entries_fit = match head.opcode {
+            wire::op::BUS_CONFIG => bus::config_is_well_formed(msg, off, len),
+            wire::op::BUS_MIX => bus::mix_is_well_formed(msg, off, len),
+            _ => true,
+        };
+        if !entries_fit {
             return wire::ERR_MALFORMED;
         }
         off += len;
@@ -186,6 +200,13 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
                     reset(core, r.keep_clips != 0);
                 }
             }
+            wire::op::BUS_CONFIG => bus::configure(core, msg, off),
+            wire::op::BUS_MIX => bus::mix(core, msg, off),
+            wire::op::MASTER => {
+                if let Ok((m, _)) = Master::read(msg, off) {
+                    bus::master(core, &m);
+                }
+            }
             _ => {}
         }
         off += len;
@@ -193,9 +214,10 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
     wire::ERR_OK
 }
 
-/// RESET (api-and-models §4.2): frees every voice slot and drops every pending record; unless
-/// `keep_clips`, drops every clip and reclaims the arena (`clips::reset`). Ended voices aren't
-/// reported: main clears its own table with the RESET. `onmessage` only.
+/// RESET (api-and-models §4.2): frees every voice slot and drops every pending record, clears the
+/// buses' DSP state (`bus::reset`: the tree and gains stay); unless `keep_clips`, drops every clip
+/// and reclaims the arena (`clips::reset`). Ended voices aren't reported: main clears its own table
+/// with the RESET. `onmessage` only.
 pub fn reset(core: &mut Core, keep_clips: bool) {
     let regions = core.regions_mut();
     // All-zero bytes are free voice slots, an empty voices' area and an empty queue (the voices'
@@ -206,6 +228,7 @@ pub fn reset(core: &mut Core, keep_clips: bool) {
     let c = status::counters_mut(core);
     c.live_voices = 0;
     c.mixed_voices = 0;
+    bus::reset(core);
     if !keep_clips {
         crate::clips::reset(core);
     }

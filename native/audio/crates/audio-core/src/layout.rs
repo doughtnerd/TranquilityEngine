@@ -29,8 +29,10 @@ pub const PENDING_RECORD_BYTES: usize = 48;
 pub const VOICE_SLOT_BYTES: usize = 192;
 /// One entry of the mixed list (a voice slot index).
 pub const MIXED_ENTRY_BYTES: usize = 4;
-/// One bus: gains, ramps, effect slots and its stereo quantum buffer (architecture §5.1: 3 KB).
-pub const BUS_BYTES: usize = 3 * 1024;
+/// One bus: gains, ramps, effect slots and its stereo quantum buffer (architecture §5.1 budgets
+/// 3 KB). A2.1: the size of `bus::BusSlot`, rounded to a region alignment, so the effect state
+/// types A2.2a fills (`audio_dsp::biquad`, `audio_dsp::compressor`) size it without editing here.
+pub const BUS_BYTES: usize = align_up(core::mem::size_of::<crate::bus::BusSlot>(), REGION_ALIGN);
 /// The clip directory: 4,096 entries × 32 B plus 32 size-class list heads (architecture §5.1).
 /// A1.3b: the list-head bytes are unused. The arena has 80 classes and keeps its heads in the
 /// `Arena` struct (`arena.rs`); the bytes stay in the layout so addresses don't move.
@@ -54,7 +56,8 @@ pub enum RegionKind {
     Mixed,
     /// The bus tree.
     Buses,
-    /// The shared convolver reverb's spectra and delay lines (A2.2b; empty until then).
+    /// The shared convolver reverb's spectra and delay lines (`audio_dsp::convolver::region_bytes`;
+    /// empty until A2.2b).
     Reverb,
     /// HRTF voice slots (H1; empty until then).
     Hrtf,
@@ -114,7 +117,9 @@ fn region_len(kind: RegionKind, p: &InitParams) -> usize {
         RegionKind::Voices => p.max_logical as usize * VOICE_SLOT_BYTES,
         RegionKind::Mixed => p.max_mixed as usize * MIXED_ENTRY_BYTES,
         RegionKind::Buses => p.max_buses as usize * BUS_BYTES,
-        RegionKind::Reverb | RegionKind::Hrtf | RegionKind::Streams => 0,
+        // A2.2b sizes the shared convolver's state in its own module (K5).
+        RegionKind::Reverb => align_up(audio_dsp::convolver::region_bytes(p.sample_rate), REGION_ALIGN),
+        RegionKind::Hrtf | RegionKind::Streams => 0,
         RegionKind::ClipDirectory => CLIP_DIRECTORY_ENTRIES * CLIP_DIRECTORY_ENTRY_BYTES + CLIP_CLASS_LISTS * CLIP_CLASS_LIST_HEAD_BYTES,
         RegionKind::Arena => align_up(p.arena_initial_bytes as usize, PAGE_BYTES),
     }

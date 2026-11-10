@@ -17,6 +17,7 @@ import {
   readSetParams,
   readStop,
   readFade,
+  SET_PARAMS_MASK_BUS,
   STATUS_BUFFER_BYTES,
   writeStatus,
 } from "../wire.generated";
@@ -270,6 +271,9 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     const r = rig();
     r.frame();
     r.ops();
+    const live = r.backend.play(req())!; // on SFX, bus 2
+    r.frame();
+    r.ops();
     const settings = defaultAudioSettings();
     settings.buses = settings.buses.filter((b) => b.name !== "Music");
     settings.buses.find((b) => b.name === "SFX")!.maxVoices = 3;
@@ -281,6 +285,13 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     r.frame();
     const ops = r.ops();
     expect(readBusConfig(ops.find((o) => o.op === Op.BUS_CONFIG)!.view, ops.find((o) => o.op === Op.BUS_CONFIG)!.off).buses).toHaveLength(4);
+    // A2.1: the live voice is re-routed in the core to its new index, after the BUS_CONFIG.
+    const configAt = ops.findIndex((o) => o.op === Op.BUS_CONFIG);
+    const moveAt = ops.findIndex((o) => o.op === Op.SET_PARAMS && o.voiceId === live.id);
+    expect(moveAt).toBeGreaterThan(configAt);
+    const move = readSetParams(ops[moveAt]!.view, ops[moveAt]!.off);
+    expect(move.mask).toBe(SET_PARAMS_MASK_BUS);
+    expect(move.bus).toBe(1);
     // New plays use the new indices (SFX is bus 1 now).
     r.backend.play(req());
     r.frame();
@@ -523,21 +534,18 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
 });
 
 describe("CoreBackend on the loopback host (A1.7's createLoopbackHost)", () => {
-  // MS2's acceptance check (api-and-models §9, A1.4: "loopback plays a WAV"): the real wasm, the real clip registry and
-  // shell routing, the real coreBackend.
-  it("plays a WAV: the rendered output carries the clip's samples", async (ctx) => {
+  /** The real wasm, the real clip registry and shell routing, the real coreBackend; a clip of a constant 0.5. Null when the loopback host can't load. */
+  async function loopback(frames: number) {
     const testing = await import("../testing");
     // A1.7 adds `link` to K4's LoopbackHost; this branch's declaration doesn't have it yet.
     let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
     try {
       loop = (await testing.createLoopbackHost()) as typeof loop;
     } catch {
-      ctx.skip();
-      return;
+      return null;
     }
     const { createClipRegistry } = await import("./clipRegistry");
     const link = loop.link;
-    const frames = 4_800; // 0.1 s of a constant 0.5
     const clips = createClipRegistry({
       send: (m) => link.post(m),
       nextSeq: () => link.nextSeq(),
@@ -555,7 +563,16 @@ describe("CoreBackend on the loopback host (A1.7's createLoopbackHost)", () => {
       sampleRate: 48_000,
       addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
     };
-    const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer: new Mixer(defaultAudioSettings()) });
+    const mixer = new Mixer(defaultAudioSettings());
+    const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer });
+    return { loop, backend, mixer };
+  }
+
+  // MS2's acceptance check (api-and-models §9, A1.4: "loopback plays a WAV").
+  it("plays a WAV: the rendered output carries the clip's samples", async (ctx) => {
+    const rig = await loopback(4_800); // 0.1 s of a constant 0.5
+    if (!rig) return ctx.skip();
+    const { loop, backend } = rig;
     const voice = backend.play(req("tone.wav"))!;
     let peakL = 0;
     let peakR = 0;
@@ -578,6 +595,44 @@ describe("CoreBackend on the loopback host (A1.7's createLoopbackHost)", () => {
     expect(peakL).toBeCloseTo(0.5, 5);
     expect(peakR).toBeCloseTo(0.5, 5);
     expect(ended).toBe(true);
+    backend.dispose();
+  });
+
+  // A2.1: the core's buses apply the mixer's gains (BUS_MIX): a bus at half volume halves its voice, a muted bus
+  // silences its voice, and the root multiplies its children.
+  it("bus gains reach the output: half volume halves a voice, mute silences one", async (ctx) => {
+    const rig = await loopback(480);
+    if (!rig) return ctx.skip();
+    const { loop, backend, mixer } = rig;
+    /** Steps `n` frames of 4 quanta each; returns the last quantum's level (every sample of it, both channels, agree). */
+    const settle = async (n: number) => {
+      let level = NaN;
+      for (let f = 0; f < n; f++) {
+        mixer.update(0.003);
+        backend.update(0.003);
+        for (let q = 0; q < 4; q++) {
+          const { left, right } = loop.renderQuanta(1);
+          level = left[0]!;
+          if (f === n - 1 && q === 3) {
+            for (let i = 0; i < left.length; i++) {
+              expect(left[i]).toBeCloseTo(level, 6);
+              expect(right[i]).toBeCloseTo(level, 6);
+            }
+          }
+        }
+        await Promise.resolve();
+      }
+      return level;
+    };
+    backend.play(req("music.wav", { bus: "Music", loop: true }));
+    backend.play(req("sfx.wav", { bus: "SFX", loop: true }));
+    expect(await settle(10)).toBeCloseTo(1.0, 5); // 0.5 + 0.5
+    mixer.bus("Music").volume = 0.5;
+    expect(await settle(10)).toBeCloseTo(0.75, 5); // 0.25 + 0.5
+    mixer.bus("SFX").mute = true;
+    expect(await settle(10)).toBeCloseTo(0.25, 5); // 0.25 + 0
+    mixer.bus("Master").volume = 0.5;
+    expect(await settle(10)).toBeCloseTo(0.125, 5); // the root multiplies its children
     backend.dispose();
   });
 });
