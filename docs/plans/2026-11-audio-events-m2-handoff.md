@@ -47,7 +47,7 @@ As in the plan. E4 (loop points from WAV `smpl` / Ogg `LOOPSTART`/`LOOPLENGTH`, 
 
 ## Checks at handoff
 - `npm run typecheck` green; `npx vitest run src/plugins/audio src/engine/tests/audio* src/engine/tests/curve.test.ts` green (one existing assertion updated: `Audio.debug()` now includes `events`).
-- Full `npm test` and `npm run build`: see the build log's M2 entry for the result of the run at handoff.
+- Full `npm test`: 379 files, 3,958 passed (one existing expectation updated: `AudioSource.clip` offers `["audio", "audioEvent"]`). `npm run build` green.
 - No Rust changed on the integration branch by E1/E3, so the committed wasm and its hash are untouched there.
 
 ## Owner items still open from M1

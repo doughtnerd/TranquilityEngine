@@ -50,7 +50,7 @@ describe("engine asset fields", () => {
     ["engine.ReflectionProbe", "bakedMap", ["envmap"]],
     ["engine.Environment", "map", ["environment"]],
     ["engine.SpriteRenderer", "sprite", ["sprite"]],
-    ["engine.AudioSource", "clip", ["audio"]],
+    ["engine.AudioSource", "clip", ["audio", "audioEvent"]], // ADR 0158: a clip or an audio event
     ["engine.Tilemap", "tileset", ["tileset"]],
     ["engine.NavChunk", "bake", ["navbake"]],
   ])("%s.%s offers %j", (type, name, kinds) => {
