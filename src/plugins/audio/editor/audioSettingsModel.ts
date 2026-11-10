@@ -20,7 +20,7 @@ import {
   type VoiceSettings,
 } from "../../../engine/audio/settings";
 import type { Curve } from "../../../engine/core/curve";
-import { MAX_CURVE_KEYS, MAX_PARAMETERS, type ParameterDef } from "../../../engine/audio/eventFormat";
+import { isLabelled, MAX_CURVE_KEYS, MAX_PARAMETERS, parameterDefault, parameterRange, type ParameterDef } from "../../../engine/audio/eventFormat";
 import type { SettingsDraft } from "../../../editor/sdk";
 
 /** A name not in `taken`: `base`, else `base 2`, `base 3`… */
@@ -278,17 +278,27 @@ export interface ParameterRangePatch { min?: number; max?: number; default?: num
  * or, when `labelled`, `labels ["State 1", "State 2"]` with default "State 1". At `MAX_PARAMETERS`, returns `d`.
  */
 export function addParameter(d: SettingsDraft, labelled = false): SettingsDraft {
-  throw new Error("L6.5a: addParameter");
+  const a = audioOf(d);
+  if (a.parameters.length >= MAX_PARAMETERS) return d;
+  const name = uniqueName("Parameter", a.parameters.map((p) => p.name));
+  const param: ParameterDef = labelled ? { name, labels: ["State 1", "State 2"], default: "State 1" } : { name, min: 0, max: 1, default: 0, seekSpeed: 0 };
+  return withAudio(d, { ...a, parameters: [...a.parameters, param] });
 }
 
 /** Remove a parameter and the automation entries that name it. Unknown names return `d`. */
 export function removeParameter(d: SettingsDraft, name: string): SettingsDraft {
-  throw new Error("L6.5a: removeParameter");
+  const a = audioOf(d);
+  if (!a.parameters.some((p) => p.name === name)) return d;
+  return withAudio(d, { ...a, parameters: a.parameters.filter((p) => p.name !== name), automation: a.automation.filter((r) => r.parameter !== name) });
 }
 
 /** Rename a parameter, and the `parameter` of every automation entry that names it. Trimmed; empty, unchanged, taken or unknown names return `d`. */
 export function renameParameter(d: SettingsDraft, from: string, to: string): SettingsDraft {
-  throw new Error("L6.5a: renameParameter");
+  const a = audioOf(d);
+  const next = to.trim();
+  if (next === "" || next === from || a.parameters.some((p) => p.name === next) || !a.parameters.some((p) => p.name === from)) return d;
+  const fix = (n: string) => (n === from ? next : n);
+  return withAudio(d, { ...a, parameters: a.parameters.map((p) => ({ ...p, name: fix(p.name) })), automation: a.automation.map((r) => ({ ...r, parameter: fix(r.parameter) })) });
 }
 
 /**
@@ -297,7 +307,13 @@ export function renameParameter(d: SettingsDraft, from: string, to: string): Set
  * default's index, `seekSpeed 0`. Already that kind, or unknown: returns `d`. Automation is kept as authored.
  */
 export function setParameterLabelled(d: SettingsDraft, name: string, labelled: boolean): SettingsDraft {
-  throw new Error("L6.5a: setParameterLabelled");
+  const a = audioOf(d);
+  const p = parameterOf(a, name);
+  if (!p || isLabelled(p) === labelled) return d;
+  const next: ParameterDef = labelled
+    ? { name, labels: ["State 1", "State 2"], default: "State 1" }
+    : { name, min: 0, max: Math.max(1, parameterRange(p)[1]), default: parameterDefault(p), seekSpeed: 0 };
+  return withAudio(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? next : q)) });
 }
 
 /**
@@ -306,7 +322,16 @@ export function setParameterLabelled(d: SettingsDraft, name: string, labelled: b
  * into the final range.
  */
 export function setParameterRange(d: SettingsDraft, name: string, patch: ParameterRangePatch): SettingsDraft {
-  throw new Error("L6.5a: setParameterRange");
+  const a = audioOf(d);
+  const p = parameterOf(a, name);
+  if (!p || isLabelled(p)) return d;
+  const finite = (v: number | undefined) => (v !== undefined && Number.isFinite(v) ? v : undefined);
+  let min = finite(patch.min) ?? p.min;
+  let max = finite(patch.max) ?? p.max;
+  if (min > max) [min, max] = [max, min];
+  const seekSpeed = Math.max(0, finite(patch.seekSpeed) ?? p.seekSpeed);
+  const def = Math.min(max, Math.max(min, finite(patch.default) ?? p.default));
+  return withAudio(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? { name, min, max, default: def, seekSpeed } : q)) });
 }
 
 /**
@@ -314,12 +339,21 @@ export function setParameterRange(d: SettingsDraft, name: string, patch: Paramet
  * numeric or unknown parameter: returns `d`. The default stays if it is still a label, else becomes the first.
  */
 export function setParameterLabels(d: SettingsDraft, name: string, labels: readonly string[]): SettingsDraft {
-  throw new Error("L6.5a: setParameterLabels");
+  const a = audioOf(d);
+  const p = parameterOf(a, name);
+  if (!p || !isLabelled(p)) return d;
+  const list = [...new Set(labels.map((l) => l.trim()).filter((l) => l !== ""))];
+  if (list.length === 0) return d;
+  const def = list.includes(p.default) ? p.default : list[0];
+  return withAudio(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? { name, labels: list, default: def } : q)) });
 }
 
 /** A labelled parameter's default, which must be one of its labels (else `d`). */
 export function setParameterDefaultLabel(d: SettingsDraft, name: string, label: string): SettingsDraft {
-  throw new Error("L6.5a: setParameterDefaultLabel");
+  const a = audioOf(d);
+  const p = parameterOf(a, name);
+  if (!p || !isLabelled(p) || !p.labels.includes(label)) return d;
+  return withAudio(d, { ...a, parameters: a.parameters.map((q) => (q.name === name ? { ...p, default: label } : q)) });
 }
 
 /**
@@ -328,17 +362,28 @@ export function setParameterDefaultLabel(d: SettingsDraft, name: string, label: 
  * range (`parameterRange`). No parameters or an unknown explicit bus: returns `d`.
  */
 export function addBusAutomation(d: SettingsDraft, bus?: string): SettingsDraft {
-  throw new Error("L6.5a: addBusAutomation");
+  const a = audioOf(d);
+  const target = bus ?? (a.buses.find((b) => b.name === "Music") ?? a.buses[1] ?? a.buses[0]).name;
+  if (!a.buses.some((b) => b.name === target)) return d;
+  const p = a.parameters[0];
+  if (!p) return d;
+  const [lo, hi] = parameterRange(p);
+  const curve: Curve = lo === hi ? [[lo, 1], [lo + 1, 1]] : [[lo, 1], [hi, 1]];
+  return withAudio(d, { ...a, automation: [...a.automation, { bus: target, parameter: p.name, target: "volume", curve }] });
 }
 
 /** Remove the entry at `index` (out of range returns `d`). */
 export function removeBusAutomation(d: SettingsDraft, index: number): SettingsDraft {
-  throw new Error("L6.5a: removeBusAutomation");
+  const a = audioOf(d);
+  if (!a.automation[index]) return d;
+  return withAudio(d, { ...a, automation: a.automation.filter((_, i) => i !== index) });
 }
 
 /** Point an entry at another bus (unknown bus or index returns `d`). */
 export function setBusAutomationBus(d: SettingsDraft, index: number, bus: string): SettingsDraft {
-  throw new Error("L6.5a: setBusAutomationBus");
+  const a = audioOf(d);
+  if (!a.automation[index] || !a.buses.some((b) => b.name === bus)) return d;
+  return withAudio(d, { ...a, automation: a.automation.map((r, i) => (i === index ? { ...r, bus } : r)) });
 }
 
 /**
@@ -347,17 +392,37 @@ export function setBusAutomationBus(d: SettingsDraft, index: number, bus: string
  * curve keeps its shape over the new range; interpolation keys are kept.
  */
 export function setBusAutomationParameter(d: SettingsDraft, index: number, parameter: string): SettingsDraft {
-  throw new Error("L6.5a: setBusAutomationParameter");
+  const a = audioOf(d);
+  const entry = a.automation[index];
+  const next = parameterOf(a, parameter);
+  if (!entry || !next || entry.parameter === parameter) return d;
+  const old = parameterOf(a, entry.parameter);
+  const [oLo, oHi] = old ? parameterRange(old) : [0, 0];
+  const [nLo, nHi] = parameterRange(next);
+  const span = oHi - oLo;
+  const mapX = (x: number) => (span === 0 ? nLo : nLo + ((x - oLo) / span) * (nHi - nLo));
+  const curve: Curve = entry.curve.map((k) => (k.length > 2 ? [mapX(k[0]), k[1], k[2]] : [mapX(k[0]), k[1]]) as Curve[number]);
+  return withAudio(d, { ...a, automation: a.automation.map((r, i) => (i === index ? { ...r, parameter, curve } : r)) });
 }
 
 /** Switch an entry between `volume` and `lowpass`; the curve resets to flat over the parameter's range at 1 (volume) or 24000 Hz (lowpass), as the units differ. Same target or unknown index: returns `d`. */
 export function setBusAutomationTarget(d: SettingsDraft, index: number, target: BusAutomation["target"]): SettingsDraft {
-  throw new Error("L6.5a: setBusAutomationTarget");
+  const a = audioOf(d);
+  const entry = a.automation[index];
+  if (!entry || entry.target === target) return d;
+  const p = parameterOf(a, entry.parameter);
+  const [lo, hi] = p ? parameterRange(p) : [0, 1];
+  const v = target === "volume" ? 1 : 24000;
+  const curve: Curve = [[lo, v], [hi, v]];
+  return withAudio(d, { ...a, automation: a.automation.map((r, i) => (i === index ? { ...r, target, curve } : r)) });
 }
 
 /** Replace an entry's curve (an empty curve, or an unknown index, returns `d`; more than `MAX_CURVE_KEYS` keys are cut to that). */
 export function setBusAutomationCurve(d: SettingsDraft, index: number, curve: Curve): SettingsDraft {
-  throw new Error("L6.5a: setBusAutomationCurve");
+  const a = audioOf(d);
+  if (curve.length === 0 || !a.automation[index]) return d;
+  const kept: Curve = curve.slice(0, MAX_CURVE_KEYS);
+  return withAudio(d, { ...a, automation: a.automation.map((r, i) => (i === index ? { ...r, curve: kept } : r)) });
 }
 
 /** The parameter a name refers to, or undefined. */
