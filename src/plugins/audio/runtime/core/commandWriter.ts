@@ -28,6 +28,7 @@ import {
   writeMaster,
   writePlay,
   writeReset,
+  writeSeek,
   writeSetParams,
   writeSetMixed,
   writeSetPaused,
@@ -38,6 +39,7 @@ import {
   type Master,
   type Play,
   type Reset,
+  type Seek,
   type SetParams,
   type SetMixed,
   type SetPaused,
@@ -123,6 +125,7 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly paramsRec: SetParams = { voiceId: 0, frameOffset: ASAP, mask: 0, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, bus: 0, rampFrames: 0, flags: 0 };
   private readonly mixedRec: SetMixed = { voiceId: 0, frameOffset: ASAP, mixed: 0, gain: 1, dirX: 0, dirY: 0, dirZ: -1, lpHz: 0 };
   private readonly pausedRec: SetPaused = { voiceId: 0, frameOffset: ASAP, paused: 0 };
+  private readonly seekRec: Seek = { voiceId: 0, frameOffset: ASAP, clipFrame: 0, epoch: 0 };
   private readonly masterRec: Master = { voiceId: 0, frameOffset: ASAP, volume: 1, muted: 0, rampFrames: 0 };
   private readonly resetRec: Reset = { voiceId: 0, frameOffset: ASAP, keepClips: 0 } as Reset;
 
@@ -257,6 +260,17 @@ export class CommandWriter implements VoiceCommandSink {
     const at = this.begin(16);
     if (at < 0) return;
     this.end(at, writeSetPaused(this.view, at, r));
+  }
+
+  /** SEEK `id` to `clipFrame` (a stream voice's: its seek `epoch`; a clip voice's: 0). */
+  seek(id: number, clipFrame: number, epoch: number): void {
+    const r = this.seekRec;
+    r.voiceId = id;
+    r.clipFrame = clipFrame >>> 0;
+    r.epoch = epoch >>> 0;
+    const at = this.begin(20);
+    if (at < 0) return;
+    this.end(at, writeSeek(this.view, at, r));
   }
 
   /** BUS_CONFIG: the whole tree, root first (`parent` 0xFFFF for the root). */

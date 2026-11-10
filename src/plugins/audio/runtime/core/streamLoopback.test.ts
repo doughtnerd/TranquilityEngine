@@ -396,3 +396,209 @@ describe("streaming on the loopback host (B3)", () => {
     r.backend.dispose();
   });
 });
+
+// B3b: seeks. The loopback's output must hold, in order: the old audio until the seek, a 5 ms fade-out of it, silence
+// while the new epoch decodes, a 5 ms fade-in at the target, then a straight decode from the target; nothing of the
+// old position after the fade. The credits and chunk buffers keep circulating, and the ring is freed at the end.
+describe("stream seeks on the loopback host (B3b)", () => {
+  /** The first output index at or after `from` where the left channel stops following the straight decode (the fade-out starts). */
+  function fadeStart(out: number[], from: number, at: number): number {
+    let f = from;
+    while (f < out.length && out[f] === want(f - at, 0)) f++;
+    return f;
+  }
+
+  /**
+   * Checks the seek that began at output index `f` (`at` = where stream frame 0 sounded before): a fade-out of the old
+   * audio, silence, then the stream from `target` (a fade-in, then exact) for `len` frames. Returns the output index of
+   * the target's first frame.
+   */
+  function expectSeek(r: { left: number[]; right: number[] }, f: number, at: number, target: number, len: number): number {
+    const out = r.left;
+    for (let k = 0; k < FADE; k++) {
+      const g = 1 - (k + 1) / FADE;
+      if (Math.abs(out[f + k]! - want(f - at + k, 0) * g) > 1e-6) expect.fail(`fade-out frame ${k}: ${out[f + k]} vs ${want(f - at + k, 0) * g}`);
+    }
+    let g = f + FADE;
+    while (g < out.length && out[g] === 0) g++;
+    expect(g).toBeLessThan(out.length);
+    let lead = 0;
+    while (want(target + lead, 0) === 0) lead++;
+    const s0 = g - lead; // the output index of stream frame `target`
+    for (let k = 0; k < len; k++) {
+      const gain = k < FADE ? (k + 1) / FADE : 1;
+      const wl = want(target + k, 0) * gain;
+      const wr = want(target + k, 1) * gain;
+      if (Math.abs(out[s0 + k]! - wl) > 1e-6 || Math.abs(r.right[s0 + k]! - wr) > 1e-6) expect.fail(`new audio frame ${k}: ${out[s0 + k]} vs ${wl}`);
+    }
+    return s0;
+  }
+
+  async function playing(frames = 60, extra: { loop?: boolean; file?: ArrayBuffer } = {}) {
+    const r = await rig({ "music/a.wav": extra.file ?? stereo() });
+    if (!r) return null;
+    const voice = r.backend.play({ path: "music/a.wav", url: "", loop: extra.loop === true, stream: true, bus: "Music" })!;
+    await r.step(2);
+    await r.waitOpen(1);
+    await r.step(frames);
+    return { r, voice };
+  }
+
+  const cases: { name: string; frames: number; seconds: number }[] = [
+    { name: "forward", frames: 40, seconds: 1.0 },
+    { name: "backward", frames: 100, seconds: 0.1 },
+    { name: "to 0 (reopening from the kept bytes)", frames: 80, seconds: 0 },
+  ];
+  for (const c of cases) {
+    it(`seeking ${c.name} flushes the old audio: fade-out, silence, fade-in, then a straight decode from the target`, async (ctx) => {
+      const p = await playing(c.frames);
+      if (!p) return ctx.skip();
+      const { r, voice } = p;
+      const at = onsetOf(r.left);
+      expect(voice.reason).toBeNull();
+      const mark = r.left.length;
+      const chunksBefore = r.handler.streamStats.chunks;
+      voice.seek!(c.seconds);
+      expect(voice.reason).toBe("waitingForData");
+      await r.step(60);
+      const f = fadeStart(r.left, mark, at);
+      expect(f - mark).toBeLessThan(2 * QPF * 128 + 256); // the fade starts within a couple of frames
+      const target = Math.round(c.seconds * RATE);
+      const s0 = expectSeek(r, f, at, target, 8_000);
+      expect(s0 - (f + FADE)).toBeLessThan(RATE / 10); // the new audio sounds within 100 ms
+      expect(voice.playing).toBe(true);
+      expect(voice.reason).toBeNull();
+      expect(r.backend.mirror.underruns).toBe(0);
+      // Credits and buffers keep flowing: more chunks, from the pool.
+      expect(r.handler.streamStats.chunks).toBeGreaterThan(chunksBefore);
+      expect(r.handler.streamStats.allocated).toBeLessThanOrEqual(20);
+      expect(r.backend.streams.stats.seeks).toBe(1);
+      voice.stop();
+      await r.step(4);
+      await r.settle();
+      await r.step(2);
+      expect(r.loop.driver.openStreams).toBe(0);
+      r.backend.dispose();
+    });
+  }
+
+  it("no sample from before the seek is heard after its fade-out: the next 20,000 frames are only the target's audio", async (ctx) => {
+    const p = await playing(40);
+    if (!p) return ctx.skip();
+    const { r, voice } = p;
+    const at = onsetOf(r.left);
+    const mark = r.left.length;
+    voice.seek!(1.5);
+    await r.step(80);
+    const f = fadeStart(r.left, mark, at);
+    const target = Math.round(1.5 * RATE);
+    const s0 = expectSeek(r, f, at, target, 20_000);
+    for (let j = f + FADE; j < s0; j++) expect(r.left[j]).toBe(0);
+    for (let j = s0 + FADE; j < s0 + 20_000; j++) {
+      expect(r.left[j]! + 0).toBe(want(target + (j - s0), 0) + 0);
+      expect(r.right[j]! + 0).toBe(want(target + (j - s0), 1) + 0);
+    }
+    r.backend.dispose();
+  });
+
+  it("a seek past the end of a one-shot ends it after the fade, with no more sound", async (ctx) => {
+    const p = await playing(30);
+    if (!p) return ctx.skip();
+    const { r, voice } = p;
+    const at = onsetOf(r.left);
+    const mark = r.left.length;
+    voice.seek!(5);
+    await r.step(40);
+    const f = fadeStart(r.left, mark, at);
+    for (let k = 0; k < FADE; k++) expect(Math.abs(r.left[f + k]! - want(f - at + k, 0) * (1 - (k + 1) / FADE))).toBeLessThan(1e-6);
+    expect(r.left.slice(f + FADE).every((s) => s === 0)).toBe(true);
+    expect(voice.playing).toBe(false);
+    expect(r.backend.streams.stats.eos).toBe(1);
+    await r.settle();
+    await r.step(2);
+    expect(r.loop.driver.openStreams).toBe(0);
+    r.backend.dispose();
+  });
+
+  it("a seek past the end of a loop wraps into the file", async (ctx) => {
+    const p = await playing(30, { loop: true });
+    if (!p) return ctx.skip();
+    const { r, voice } = p;
+    const at = onsetOf(r.left);
+    const mark = r.left.length;
+    voice.seek!(WAV_FRAMES / RATE + 0.5); // 2.5 s of a 2 s file: 0.5 s
+    await r.step(60);
+    const f = fadeStart(r.left, mark, at);
+    expectSeek(r, f, at, Math.round(0.5 * RATE), 8_000);
+    expect(voice.playing).toBe(true);
+    r.backend.dispose();
+  });
+
+  it("a seek during starvation (the worker stalled past the ring) restarts from the target and the voice recovers", async (ctx) => {
+    const long = makeWav(4 * RATE, 2, RATE, signal);
+    const p = await playing(10, { file: long });
+    if (!p) return ctx.skip();
+    const { r, voice } = p;
+    await r.step(Math.ceil(1200 / FRAME_MS), { workerStalled: true });
+    expect(voice.reason).toBe("waitingForData");
+    expect(r.backend.streams.stats.starves).toBe(1);
+    const silent = r.left.length;
+    voice.seek!(2.0);
+    await r.step(40);
+    let on = silent;
+    while (on < r.left.length && r.left[on] === 0) on++;
+    expect(on).toBeLessThan(r.left.length);
+    const target = 2 * RATE;
+    let lead = 0;
+    while (want(target + lead, 0) === 0) lead++;
+    const s0 = on - lead;
+    for (let k = 0; k < 6_000; k++) {
+      const gain = k < FADE ? (k + 1) / FADE : 1;
+      if (Math.abs(r.left[s0 + k]! - want(target + k, 0) * gain) > 1e-6) expect.fail(`frame ${k}: ${r.left[s0 + k]} vs ${want(target + k, 0) * gain}`);
+    }
+    expect(voice.reason).toBeNull();
+    expect(voice.playing).toBe(true);
+    expect(r.backend.streams.stats.starves).toBe(1); // the seek is not a second starve
+    r.backend.dispose();
+  });
+
+  it("two seeks in a row end on the second target, with one continuous fade-out and no leak", async (ctx) => {
+    const p = await playing(40);
+    if (!p) return ctx.skip();
+    const { r, voice } = p;
+    const at = onsetOf(r.left);
+    const mark = r.left.length;
+    voice.seek!(1.2);
+    voice.seek!(0.3);
+    await r.step(80);
+    const f = fadeStart(r.left, mark, at);
+    expectSeek(r, f, at, Math.round(0.3 * RATE), 10_000);
+    expect(r.backend.streams.stats.seeks).toBe(2);
+    voice.stop();
+    await r.step(4);
+    await r.settle();
+    await r.step(2);
+    expect(r.loop.driver.openStreams).toBe(0);
+    r.backend.dispose();
+  });
+
+  it("a seek asked for before the stream opened is applied once the file's rate is known", async (ctx) => {
+    const r = await rig({ "music/a.wav": stereo() });
+    if (!r) return ctx.skip();
+    const voice = r.backend.play({ path: "music/a.wav", url: "", loop: false, stream: true, bus: "Music" })!;
+    voice.seek!(1.0);
+    expect(r.backend.streams.stats.seeks).toBe(0);
+    await r.step(2);
+    await r.waitOpen(1);
+    await r.step(40);
+    expect(r.backend.streams.stats.seeks).toBe(1);
+    // The output ends on the stream from 1.0 s on: find where the last 1,000 frames sit in the file.
+    const n = r.left.length;
+    let m = -1;
+    for (let k = 48_000; k < WAV_FRAMES; k++) if (want(k, 0) === r.left[n - 1000] && want(k + 1, 0) === r.left[n - 999] && want(k + 2, 0) === r.left[n - 998]) m = k;
+    expect(m).toBeGreaterThanOrEqual(48_000);
+    for (let k = 0; k < 1000 && m + k < WAV_FRAMES; k++) expect(r.left[n - 1000 + k]! + 0).toBe(want(m + k, 0) + 0);
+    expect(voice.playing).toBe(true);
+    r.backend.dispose();
+  });
+});

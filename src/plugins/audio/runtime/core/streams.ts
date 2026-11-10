@@ -11,6 +11,10 @@
 // - **Waiting.** The voice reads `reason === "waitingForData"` from its play until it sounds, and again while starved:
 //   the core lists a starving voice in STATUS `starved` (the mirror sets the reason), and the reason clears when a
 //   STATUS playhead shows the voice moving again (a starved voice holds its position).
+// - **Seek** (B3b, `seek`). Main picks `epoch = ++entry.epoch`, posts `seek(streamId, frame, epoch)` to the worker and
+//   sends a SEEK record with the same epoch (`deps.sendSeek`); the core fades the old audio out over 5 ms, flushes the
+//   ring and takes only chunks of the new epoch (`stream.rs`). Before the worker has reported the file's rate
+//   (`streamOpened`) a seek in seconds waits for it.
 // - **Close.** When the voice is freed (ended, stopped, stolen) the stream is closed on the worker, which sends
 //   STREAM_CLOSE to the worklet (the core frees the ring).
 // - **Errors** (architecture §7): a stream error from the worker, a failed fetch or a refused ring stops the voice with
@@ -33,7 +37,7 @@ const STREAM_ID_COUNT = 0xffffffff - STREAM_ID_FIRST + 1;
 export const STREAM_ERROR_FADE_SECONDS = 0.05;
 
 /** @internal What the manager needs of the decoder client. */
-export type StreamDecoderLike = Pick<DecoderClient, "connectWorklet" | "openStream" | "closeStream" | "onStream" | "generation">;
+export type StreamDecoderLike = Pick<DecoderClient, "connectWorklet" | "openStream" | "closeStream" | "onStream" | "generation"> & Partial<Pick<DecoderClient, "seekStream">>;
 
 /** @internal The two ends of a channel. */
 export interface StreamChannel {
@@ -50,6 +54,8 @@ export interface StreamManagerDeps {
   readonly connectWorklet: (port: MessagePort | StreamPortLike) => void;
   /** Makes a channel; default `new MessageChannel()`. */
   readonly channel?: () => StreamChannel;
+  /** B3b: sends the SEEK record for voice `id` (the backend's writer). */
+  readonly sendSeek?: (id: number, frame: number, epoch: number) => void;
   /** Fetches an asset's encoded bytes. */
   readonly fetchBytes: (path: string) => Promise<ArrayBuffer>;
   /** A stream failed: stop voice `id` with a fade and warn (the backend's). */
@@ -63,6 +69,10 @@ interface Entry {
   /** From `streamOpened`: the file's rate and frames (0 until then, or when unknown). */
   rate: number;
   frames: number;
+  /** The seek epoch: 1 at open, one more per seek (B3b). */
+  epoch: number;
+  /** A seek in seconds asked for before the file's rate was known (applied on `streamOpened`). */
+  pendingSeek?: number;
   /** Failed already (stopping): later errors for it (a dead worker's rings closed early in the core) say nothing more. */
   failed?: boolean;
 }
@@ -78,17 +88,21 @@ export interface StreamStats {
   coreErrors: number;
   /** Channels made (one per decoder worker and core). */
   connections: number;
+  /** Seeks sent to the worker and the core (B3b). */
+  seeks: number;
 }
 
 /** @internal The main side of streaming; see the header. */
 export class StreamManager {
-  readonly stats: StreamStats = { opened: 0, closed: 0, errors: 0, starves: 0, eos: 0, coreErrors: 0, connections: 0 };
+  readonly stats: StreamStats = { opened: 0, closed: 0, errors: 0, starves: 0, eos: 0, coreErrors: 0, connections: 0, seeks: 0 };
   private readonly byStream = new Map<number, Entry>();
   /** Per slot: the playhead last seen in STATUS (the waiting reason clears when it moves). */
   private readonly seen: Float64Array;
   private nextId = 0;
   /** The decoder generation and core this manager connected, or -1 when a new channel is needed. */
   private connectedGeneration = -1;
+  /** B3b: told the frame a seek that waited for the file's rate landed on (the backend re-anchors the playhead). */
+  afterSeek: ((voice: number, frame: number) => void) | null = null;
   private unsubscribe: (() => void) | null = null;
   private subscribed: StreamDecoderLike | null = null;
   private readonly starved: number[] = [];
@@ -111,7 +125,7 @@ export class StreamManager {
 
   /** Voice `voice` plays stream `streamId` of `asset` (its PLAY may still wait for the unlock). */
   register(streamId: number, voice: number, asset: string, loop: boolean): void {
-    this.byStream.set(streamId, { voice, asset, loop, rate: 0, frames: 0 });
+    this.byStream.set(streamId, { voice, asset, loop, rate: 0, frames: 0, epoch: 1 });
   }
 
   /** A `ClipInfo` for stream `id` (the playhead tracker's rate and the replay's loop length), or null. */
@@ -149,7 +163,7 @@ export class StreamManager {
       (bytes) => {
         if (this.byStream.get(streamId) !== e) return; // closed meanwhile
         this.stats.opened++;
-        decoder.openStream({ streamId, asset: e.asset, bytes, hint, startFrame, epoch: 1, loop: e.loop });
+        decoder.openStream({ streamId, asset: e.asset, bytes, hint, startFrame, epoch: e.epoch, loop: e.loop });
       },
       (err) => {
         if (this.byStream.get(streamId) === e) this.fail(streamId, err);
@@ -172,8 +186,33 @@ export class StreamManager {
     const e = this.byStream.get(oldId);
     const id = this.allocate();
     this.close(oldId);
-    if (e) this.byStream.set(id, { ...e, failed: false });
+    if (e) this.byStream.set(id, { ...e, failed: false, epoch: 1, pendingSeek: undefined });
     return id;
+  }
+
+  /**
+   * B3b: seeks stream `streamId` to `seconds` (of its file) and returns the stream frame it lands on, or null when it
+   * isn't known yet (the seek then waits for the file's rate) or there is no such stream. The frame is clamped to the
+   * file (wrapped for a loop). The voice reads "waitingForData" until it sounds from there.
+   */
+  seek(streamId: number, seconds: number): number | null {
+    const e = this.byStream.get(streamId);
+    if (!e || e.failed) return null;
+    if (e.rate <= 0) {
+      e.pendingSeek = seconds;
+      return null;
+    }
+    e.pendingSeek = undefined;
+    let frame = Math.max(0, Math.round(seconds * e.rate));
+    if (e.frames > 0) frame = e.loop ? frame % e.frames : Math.min(frame, e.frames);
+    const epoch = ++e.epoch;
+    this.stats.seeks++;
+    const i = e.voice & 0xffff;
+    this.seen[i] = frame;
+    this.deps.table.reason[i] = VoiceReason.WAITING_FOR_DATA;
+    this.subscribed?.seekStream?.(streamId, frame, epoch);
+    this.deps.sendSeek?.(e.voice, frame, epoch);
+    return frame;
   }
 
   /** The core is being replaced: the next open connects a new channel to the new node. */
@@ -211,6 +250,10 @@ export class StreamManager {
     if (reply.type === "streamOpened") {
       e.rate = reply.info.rate;
       e.frames = reply.info.frames > 0 ? reply.info.frames : 0;
+      if (e.pendingSeek !== undefined) {
+        const frame = this.seek(reply.streamId, e.pendingSeek);
+        if (frame !== null) this.afterSeek?.(e.voice, frame);
+      }
     } else if (reply.type === "error") {
       this.stats.errors++;
       this.fail(reply.streamId, reply.message);

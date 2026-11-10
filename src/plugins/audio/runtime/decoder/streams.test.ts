@@ -150,6 +150,51 @@ describe("stream decoder (B3)", () => {
     expect(new Float32Array(toWorklet[1]!, STREAM_CHUNK_FIXED_END, 1)[0]).toBe(1_000 / 32768);
   });
 
+  it("a seek (B3b) wraps a loop's frame, ignores a stale epoch, restarts the credit window and drops old credits", async () => {
+    const { handler, toWorklet, credit } = await rig();
+    const file = makeWav(10_000, 1, 48_000, (k) => k % 30_000);
+    await handler.handle({ type: "streamOpen", streamId: 5, asset: "l.wav", bytes: file, hint: 1, startFrame: 0, epoch: 1, loop: true });
+    expect(toWorklet.length).toBeGreaterThan(1); // the open and a window of chunks
+    toWorklet.length = 0;
+    // A looping stream of 10,000 frames seeks to 25,000: frame 5,000 of the file.
+    await handler.handle({ type: "streamSeek", streamId: 5, frame: 25_000, epoch: 2 });
+    expect(readStreamOpen(new DataView(toWorklet[0]!), 0)).toMatchObject({ startFrame: 5_000, epoch: 2 });
+    const chunks = toWorklet.slice(1);
+    expect(chunks.length).toBe(STREAM_WINDOW_FRAMES / STREAM_CHUNK_FRAMES); // a whole new window, from empty
+    expect(chunks.every((b) => readStreamChunk(new DataView(b), 0).epoch === 2)).toBe(true);
+    expect(new Float32Array(chunks[0]!, STREAM_CHUNK_FIXED_END, 1)[0]).toBe(5_000 / 32768);
+    // A seek whose epoch is not newer is stale: nothing is sent.
+    toWorklet.length = 0;
+    await handler.handle({ type: "streamSeek", streamId: 5, frame: 100, epoch: 2 });
+    await handler.handle({ type: "streamSeek", streamId: 5, frame: 100, epoch: 1 });
+    expect(toWorklet.length).toBe(0);
+    // A credit tagged with the old epoch frees nothing; one with the new epoch does.
+    credit(5, 1, 4 * STREAM_CHUNK_FRAMES, []);
+    expect(toWorklet.length).toBe(0);
+    credit(5, 2, STREAM_CHUNK_FRAMES, []);
+    expect(toWorklet.length).toBe(1);
+  });
+
+  it("a seek past the end of a one-shot sends one empty last chunk of the new epoch; a seek back after the end plays again", async () => {
+    const { handler, toWorklet } = await rig();
+    const file = makeWav(6_000, 1, 48_000, (k) => k % 30_000);
+    await handler.handle({ type: "streamOpen", streamId: 6, asset: "s.wav", bytes: file, hint: 1, startFrame: 0, epoch: 1 });
+    const lastOf = (bufs: ArrayBuffer[]) => readStreamChunk(new DataView(bufs[bufs.length - 1]!), 0);
+    expect(lastOf(toWorklet).flags & STREAM_CHUNK_FLAGS_LAST).toBe(STREAM_CHUNK_FLAGS_LAST); // the whole file fits the window
+    toWorklet.length = 0;
+    await handler.handle({ type: "streamSeek", streamId: 6, frame: 50_000, epoch: 2 });
+    expect(readStreamOpen(new DataView(toWorklet[0]!), 0)).toMatchObject({ startFrame: 50_000, epoch: 2 });
+    const empty = lastOf(toWorklet);
+    expect(toWorklet.length).toBe(2);
+    expect(empty).toMatchObject({ frames: 0, epoch: 2 });
+    expect(empty.flags & STREAM_CHUNK_FLAGS_LAST).toBe(STREAM_CHUNK_FLAGS_LAST);
+    // After the end, a seek back (the decoder reopens from the kept bytes) plays from there.
+    toWorklet.length = 0;
+    await handler.handle({ type: "streamSeek", streamId: 6, frame: 1_000, epoch: 3 });
+    expect(new Float32Array(toWorklet[1]!, STREAM_CHUNK_FIXED_END, 1)[0]).toBe(1_000 / 32768);
+    expect(lastOf(toWorklet)).toMatchObject({ epoch: 3, frames: 5_000 - STREAM_CHUNK_FRAMES });
+  });
+
   it("a bad file fails with the stream's id and asset; a credit for another epoch sends nothing", async () => {
     const { handler, replies, toWorklet, credit } = await rig();
     await handler.handle({ type: "streamOpen", streamId: 8, asset: "bad.ogg", bytes: new Uint8Array(64).fill(7).buffer, hint: 4, startFrame: 0, epoch: 1 });

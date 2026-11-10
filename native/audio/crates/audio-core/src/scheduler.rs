@@ -8,7 +8,7 @@
 //!   and close a stream's ring (B3, `stream.rs`); other kinds aren't handled here.
 //! - Every record head is validated before any record applies (lengths inside the message, at least
 //!   the head; BUS_CONFIG and BUS_MIX also their per-bus entries), so a malformed batch changes
-//!   nothing. Unknown opcodes, and the ones later tasks apply (SEEK), are skipped by their length.
+//!   nothing. Unknown opcodes are skipped by their length.
 //! - SET_MIXED (A3.1, `voices::set_mixed`) applies at once, in arrival order, whatever its
 //!   `frameOffset` (main's selection sends it asap; its 5 ms fade starts with the next quantum).
 //! - SET_PAUSED (A3.7, `voices::set_paused`) is scheduled like STOP: asap applies at once, a stamped
@@ -52,7 +52,7 @@ pub struct PendingRecord {
     /// Absolute context frame.
     pub frame: u64,
     pub voice_id: u32,
-    /// The wire opcode (STOP, SET_PARAMS, FADE or SET_PAUSED).
+    /// The wire opcode (STOP, SET_PARAMS, FADE, SET_PAUSED or SEEK).
     pub op: u8,
     /// SET_PARAMS `mask` (bits 0–6).
     pub mask: u8,
@@ -163,6 +163,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::MASTER => Master::FIXED_END,
             wire::op::SET_MIXED => wire::SetMixed::FIXED_END,
             wire::op::SET_PAUSED => wire::SetPaused::FIXED_END,
+            wire::op::SEEK => wire::Seek::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
         if len < min || off + len > msg.len() {
@@ -233,6 +234,12 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::SET_PAUSED => {
                 if let Ok((p, _)) = wire::SetPaused::read(msg, off) {
                     let record = PendingRecord { voice_id: p.voice_id, op: wire::op::SET_PAUSED as u8, flags: (p.paused != 0) as u8, ..Default::default() };
+                    schedule(core, record, at);
+                }
+            }
+            wire::op::SEEK => {
+                if let Ok((k, _)) = wire::Seek::read(msg, off) {
+                    let record = PendingRecord { voice_id: k.voice_id, op: wire::op::SEEK as u8, frames: k.clip_frame, values: [f32::from_bits(k.epoch), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ..Default::default() };
                     schedule(core, record, at);
                 }
             }
@@ -368,6 +375,7 @@ pub fn apply(core: &mut Core, record: &PendingRecord) {
         wire::op::STOP => voices::stop(core, record.voice_id, record.frames),
         wire::op::FADE => voices::fade(core, record.voice_id, record.values[0], record.frames, record.flags & 1 != 0),
         wire::op::SET_PAUSED => voices::set_paused(core, record.voice_id, record.flags & 1 != 0),
+        wire::op::SEEK => voices::seek(core, record.voice_id, record.frames, record.values[0].to_bits()),
         wire::op::SET_PARAMS => {
             let v = record.values;
             let p = SetParams {
