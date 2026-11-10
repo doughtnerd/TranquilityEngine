@@ -37,8 +37,8 @@ Written 2026-11-10 at the end of the planning session. E1, E2 and the first part
 ## Open
 
 Owner-only:
-- **O1, record number 0158 is taken twice.** `origin/claude/ecstatic-heisenberg-xg0fvc` (not merged) has `0158-one-field-row-edits-a-component-field-in-the-document-or-a-live-world.md`. Recommendation: whichever reaches master second renumbers; decide before M2's first merge to master.
-- **O2, when M2 reaches master.** Recommendation: at each milestone end with the owner's approval (E3+E4 after W2, E5 after W3, E6 after W4).
+- **O1, resolved (owner, 2026-11-10):** 0158 is the next number after M1's 0157 on master, so audio events keep it; `claude/ecstatic-heisenberg-xg0fvc`'s field-row record renumbers when it merges.
+- **O2, resolved (owner, 2026-11-10):** the plan and E1–E3a merged to master at the start of the build; later milestones merge at each milestone end with the owner's approval.
 - **O3, the native automation budget.** E2 measured 25–45 µs p99.9 on the shared container against 0158's 30 µs; it needs a lab-VM run (E5.5), and a decision if it misses.
 - **O4, the listening pass** of the sample events (E7.1).
 - **O5, E2's deviations** (below): accept, or ask for changes.
