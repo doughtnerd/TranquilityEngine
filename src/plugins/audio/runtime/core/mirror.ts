@@ -88,6 +88,13 @@ export class StatusMirror {
     return link.onStatus(this.listener);
   }
 
+  /** Forgets the peaks (a bus remap: the indices they were reported for no longer mean the same buses). */
+  resetPeaks(): void {
+    this.peakL.fill(0);
+    this.peakR.fill(0);
+    this.peakCount = 0;
+  }
+
   /**
    * Api §3 / §4.3: one STATUS block into the mirror. Voice sections, in order: `ended` (`table.markEnded`), `demoted`
    * (`markDemoted`), `starved` (`markStarved`), `playheads` (`setPlayhead`); stale ids are ignored by the table.

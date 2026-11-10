@@ -92,6 +92,22 @@ describe("mixer", () => {
     for (let i = 0; i < 100; i++) m.update(0.1);
     expect(m.bus("Music").effectiveGain).toBeCloseTo(1, 2);
   });
+  it("Bus.peak reads what the backend reports, 0 for an unknown bus, and resets on configure (A2.3)", () => {
+    const m = mk({});
+    expect(m.bus("SFX").peak).toBe(0);
+    m._setPeak("SFX", 0.6);
+    expect(m.bus("SFX").peak).toBe(0.6);
+    m._setPeak("Nope", 1);
+    m.configure(m.audioSettings);
+    expect(m.bus("SFX").peak).toBe(0);
+  });
+  it("a backend can restore a bus's voice count, and ducking follows it (A2.3)", () => {
+    const m = mk({ ducking: [{ target: "Music", trigger: "Voice", amount: 0.4, attack: 0.1, release: 0.5 }] });
+    m._setVoiceCount("Voice", 2);
+    expect(m.bus("Voice").activeVoices).toBe(2);
+    for (let i = 0; i < 60; i++) m.update(0.1);
+    expect(m.bus("Music").effectiveGain).toBeCloseTo(0.4, 2);
+  });
   it("notifies listeners only when something changed", () => {
     const m = mk({});
     const cb = vi.fn();
