@@ -45,7 +45,11 @@ export function worldKeyOf(world: World | null): number {
  */
 @component("engine.AudioSource")
 export class AudioSource extends Component {
-  /** A clip, or an audio event asset (`*.audioevent.json`, ADR 0158). For an event, `loop`, `spatial` and the distance fields come from the event. */
+  /**
+   * What to play: a clip (an audio file) or an audio event asset (`*.audioevent.json`, ADR 0158); the Inspector offers both.
+   * For an event, `loop`, `spatial` and the distance fields come from the event; `volume` and `pitch` still apply on top.
+   * (`@field` has no description option, so this comment is the whole hint until it gets one.)
+   */
   @field(AssetRef, { kind: ["audio", "audioEvent"] }) clip = "";
   @field(Number) volume = 1;
   @field(Boolean) loop = false;
@@ -71,6 +75,8 @@ export class AudioSource extends Component {
   private instance: EventInstance | null = null;
   /** What was last applied to the playing sound, so a frame only touches the backend for changes. */
   private applied = "";
+  /** The pitch last given to the playing event instance. */
+  private appliedPitch = 1;
 
   get isPlaying(): boolean {
     if (this.instance) return this.instance.playing;
@@ -86,6 +92,7 @@ export class AudioSource extends Component {
         pitch: this.pitch, priority: clamp255(this.priority), bus: this.output || undefined, position: this.node.transform?.worldPosition,
       }, worldKeyOf(this._world));
       this.applied = "";
+      this.appliedPitch = this.pitch;
       if (this.instance) this.applyEvent();
       return;
     }
@@ -144,13 +151,17 @@ export class AudioSource extends Component {
     this.apply(this.clip.replace(/^asset:/, ""));
   }
 
-  /** An event's volume follows `volume` (as the instance's fade multiplier) and a spatial event follows the node. Pitch and the rest apply at the next play. */
+  /** An event's volume follows `volume` (as the instance's fade multiplier), its pitch follows `pitch`, and a spatial event follows the node. The rest applies at the next play. */
   private applyEvent(): void {
     const instance = this.instance!;
     const signature = `${this.volume}`;
     if (signature !== this.applied) {
       this.applied = signature;
       instance.fade(Math.min(4, Math.max(0, this.volume)), 0);
+    }
+    if (this.pitch !== this.appliedPitch) {
+      this.appliedPitch = this.pitch;
+      instance.setPitch(this.pitch);
     }
     if (instance.asset.spatial && this.node.transform) instance.position = this.node.transform.worldPosition;
   }

@@ -90,6 +90,40 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
+/** One World's random generator and sequence state (ADR 0158 §1, §6): nothing here is shared between Worlds. */
+interface WorldState {
+  rng: (() => number) | null;
+  /** Step-sequence positions, by `assetPath \0 nodePath`. */
+  steps: Map<string, { index: number; last: number }>;
+  /** Random-pick history (for avoid-repeat), by the same key. */
+  history: Map<string, number[]>;
+}
+
+/** The seed for one World's generator: `audio.seed` combined with the World key (key 0 keeps `mulberry32(seed)`). */
+export const worldSeed = (seed: number, key: number): number => (seed ^ Math.imul(key, 0x9e3779b1)) >>> 0;
+
+/** A node's path in its asset (`0/2/1`; `s`, `l`, `e` for a sustain's start, loop and end), so state can be keyed by it. */
+const nodePaths = new WeakMap<AudioEventAsset, Map<EventNode, string>>();
+function nodePath(asset: AudioEventAsset, node: EventNode): string {
+  let m = nodePaths.get(asset);
+  if (!m) {
+    const paths = new Map<EventNode, string>();
+    m = paths;
+    const walk = (n: EventNode, path: string): void => {
+      paths.set(n, path);
+      if (n.type === "clip") return;
+      if (n.type === "sustain") {
+        if (n.start) walk(n.start, `${path}/s`);
+        walk(n.loop, `${path}/l`);
+        if (n.end) walk(n.end, `${path}/e`);
+      } else n.children.forEach((c, i) => walk(c, `${path}/${i}`));
+    };
+    walk(asset.root, "0");
+    nodePaths.set(asset, m);
+  }
+  return m.get(node) ?? "?";
+}
+
 // --- the system ---------------------------------------------------------------------------------------------------
 
 interface GlobalParam {
@@ -116,6 +150,8 @@ interface VoiceRec {
   node: EventNode;
   bindings: Binding[];
   base: { volume: number; pitch: number };
+  /** The clip's pitch before the instance's pitch option (`base.pitch` is this times that, clamped). */
+  ctxPitch: number;
   loop: LoopState | null;
   /** When it started (audio clock) if known, and its clip's length at its pitch if known. */
   start: number | null;
@@ -136,14 +172,17 @@ export class EventSystem {
   private readonly live = new Set<EventInstance>();
   private readonly timers: Timer[] = [];
   private readonly lastPlay = new Map<string, number>();
-  private readonly history = new WeakMap<EventNode, number[]>();
-  private readonly steps = new WeakMap<EventNode, { index: number; last: number }>();
+  /** Per-World generators and sequence state, by World key (ADR 0158 §6). */
+  private readonly worlds = new Map<number, WorldState>();
+  /** The World object last seen for a key, so a reused key (or a collected World) drops its state. */
+  private readonly worldRefs = new Map<number, WeakRef<object>>();
+  /** Clips a continuous container started on the previous clip's end (one frame late), for the debug panel. */
+  private lateStarts = 0;
   private readonly blendCurves = new WeakMap<EventNode, Curve>();
   private globals = new Map<string, GlobalParam>();
   private globalsOf: unknown = null;
   private busOf: unknown = null;
-  private rng: () => number = Math.random;
-  private seededFrom: number | undefined | null = null;
+  private seed: number | undefined | null = null;
   /** For tests: the clock in seconds used for cooldowns (wall time; the audio clock is 0 while locked). */
   now: () => number = () => performance.now() / 1000;
 
@@ -151,6 +190,7 @@ export class EventSystem {
 
   play(pathOrClip: string, options: EventOptions = {}, world = 0, sourceKey?: string): EventInstance | null {
     this.refresh();
+    this.reap();
     const path = String(pathOrClip).replace(/^asset:/, "");
     const asset = path.toLowerCase().endsWith(".audioevent.json") ? loadAudioEvent(path) : clipEvent(path);
     if (!asset) return null;
@@ -197,6 +237,7 @@ export class EventSystem {
   update(dt: number): void {
     if (this.live.size === 0 && !this.ts && this.timers.length === 0) return;
     this.refresh();
+    this.reap();
     const t = this.clock();
     while (this.timers.length > 0 && this.timers[0].at <= t) {
       const timer = heapPop(this.timers);
@@ -220,14 +261,39 @@ export class EventSystem {
     this.freeGroups.length = 0; this.nextGroup = 1;
     this.lastPlay.clear();
     this.globals.clear(); this.globalsOf = null; this.busOf = null;
-    this.seededFrom = null;
+    this.seed = null;
+    this.worlds.clear(); this.worldRefs.clear();
+    this.lateStarts = 0;
     clipEvents.clear();
   }
 
-  /** Debug rows for `Audio.debug().events`. */
-  debugRows(): { id: number; asset: string; world: number; voices: number; parameters: Record<string, number | string> }[] {
-    return [...this.live].filter((i) => i.playing).map((i) => ({ id: i.group, asset: i.path, world: i.world, voices: i.voiceCount, parameters: i.parameterValues() }));
+  /** The World `key` is (still) this `world`: a different object under the same key means the key was reused, so the old state goes. Cheap; per frame. */
+  noteWorld(key: number, world: object): void {
+    const ref = this.worldRefs.get(key);
+    if (ref?.deref() === world) return;
+    if (ref) this.worlds.delete(key);
+    this.worldRefs.set(key, new WeakRef(world));
   }
+
+  /** Forget a World's generator, sequence positions and avoid-repeat history (the World went away). */
+  forgetWorld(key: number): void {
+    this.worlds.delete(key);
+    this.worldRefs.delete(key);
+  }
+
+  /** Forget every World's state but those in `live` and key 0 (the audio system passes the keys the host still lists). */
+  keepWorlds(live: ReadonlySet<number>): void {
+    for (const key of [...this.worlds.keys()]) if (key !== 0 && !live.has(key)) this.forgetWorld(key);
+    for (const [key, ref] of [...this.worldRefs]) if (ref.deref() === undefined) this.forgetWorld(key);
+  }
+
+  /** Debug rows for `Audio.debug().events`. */
+  debugRows(): EventDebugRow[] {
+    return [...this.live].filter((i) => i.playing).map((i) => ({ id: i.group, asset: i.path, world: i.world, voices: i.voiceCount, parameters: i.parameterValues(), lateStarts: i.lateStarts }));
+  }
+
+  /** Clips started late since the page began (all instances, ended ones too). */
+  get lateStartTotal(): number { return this.lateStarts; }
 
   // --- internals used by instances --------------------------------------------------------------------------------
 
@@ -249,15 +315,33 @@ export class EventSystem {
     try { return audioBackend().clipDuration?.(path) ?? null; } catch { return null; }
   }
 
-  /** @internal */
-  random(): number { return this.rng(); }
+  /** @internal A random number from `world`'s generator. */
+  random(world: number): number { return this.stateOf(world).rng!(); }
+
+  /** @internal An instance counts a continuous clip it started a frame late. */
+  noteLateStart(instance: EventInstance): void {
+    this.lateStarts++;
+    instance.lateStarts++;
+  }
+
+  private stateOf(world: number): WorldState {
+    let s = this.worlds.get(world);
+    if (!s) this.worlds.set(world, (s = { rng: null, steps: new Map(), history: new Map() }));
+    if (!s.rng) s.rng = this.seed === undefined || this.seed === null ? Math.random : mulberry32(worldSeed(this.seed, world));
+    return s;
+  }
+
+  /** Retire instances whose voices have all ended (explicitly, so `EventInstance.playing` has no side effects). */
+  private reap(): void {
+    for (const i of this.live) if (!i.playing) this.retire(i);
+  }
 
   /** @internal A curve's id on the backend, defined on first use. Null (with a warning) once the table is full. */
   curveId(curve: Curve): number | null {
     let id = this.curveIds.get(curve);
     if (id !== undefined) return id;
     if (this.curvesById.length >= MAX_CURVES) {
-      warnOnce("event:curves-full", `Audio events: more than ${MAX_CURVES} automation curves are in use; new ones are ignored.`);
+      warnOnce("event:curves-full", `Audio events: more than ${MAX_CURVES} distinct automation curves are in use (the cap is ${MAX_CURVES}, and curves are never freed); new ones are ignored. Use fewer distinct curves, for example by sharing one curve between events.`);
       return null;
     }
     id = this.curvesById.length;
@@ -286,37 +370,43 @@ export class EventSystem {
   global(name: string): GlobalParam | undefined { return this.globals.get(name); }
 
   /** @internal Pick a random child index by weight, skipping the last `avoid` picks of this node. */
-  pickRandom(node: EventNode & { children: EventNode[] }, avoid: number): number {
+  pickRandom(node: EventNode & { children: EventNode[] }, avoid: number, from: Pick<EventInstance, "world" | "path" | "asset">): number {
     const n = node.children.length;
     if (n <= 1) return 0;
-    const hist = this.history.get(node) ?? [];
-    const banned = new Set(hist.slice(-Math.min(avoid, n - 1)));
+    const st = this.stateOf(from.world);
+    const rng = st.rng!;
+    const key = `${from.path}\0${nodePath(from.asset, node)}`;
+    const hist = st.history.get(key) ?? [];
+    // `avoid` 0 bans nothing (`slice(-0)` would have banned every earlier pick).
+    const banned = new Set(avoid > 0 ? hist.slice(-Math.min(avoid, n - 1)) : []);
     let total = 0;
     for (let i = 0; i < n; i++) if (!banned.has(i)) total += node.children[i].weight;
     let pick = -1;
     if (total > 0) {
-      let r = this.rng() * total;
+      let r = rng() * total;
       for (let i = 0; i < n; i++) {
         if (banned.has(i)) continue;
         r -= node.children[i].weight;
         if (r < 0) { pick = i; break; }
       }
       if (pick < 0) for (let i = n - 1; i >= 0; i--) if (!banned.has(i)) { pick = i; break; }
-    } else pick = Math.floor(this.rng() * n);
+    } else pick = Math.floor(rng() * n);
     hist.push(pick);
     if (hist.length > 32) hist.splice(0, hist.length - 32);
-    this.history.set(node, hist);
+    st.history.set(key, hist);
     return pick;
   }
 
-  /** @internal The next step of a sequence (kept per node across plays; `reset` seconds idle goes back to 0). */
-  nextStep(node: EventNode & { children: EventNode[]; reset: number }): number {
+  /** @internal The next step of a sequence (kept per event asset per World across plays; `reset` seconds idle goes back to 0). */
+  nextStep(node: EventNode & { children: EventNode[]; reset: number }, from: Pick<EventInstance, "world" | "path" | "asset">): number {
     const now = this.now();
-    const s = this.steps.get(node) ?? { index: -1, last: now };
+    const steps = this.stateOf(from.world).steps;
+    const key = `${from.path}\0${nodePath(from.asset, node)}`;
+    const s = steps.get(key) ?? { index: -1, last: now };
     if (node.reset > 0 && now - s.last > node.reset) s.index = -1;
     s.index = (s.index + 1) % Math.max(1, node.children.length);
     s.last = now;
-    this.steps.set(node, s);
+    steps.set(key, s);
     return s.index;
   }
 
@@ -346,15 +436,16 @@ export class EventSystem {
 
   /** Retire finished instances (lazily, when ids run short: no per-frame scan). */
   private sweep(): void {
-    for (const i of [...this.live]) if (!i.playing) this.retire(i);
+    this.reap();
   }
 
   /** Follow the backend and the project settings: a new backend gets every table re-sent; new settings re-read globals. */
   private refresh(): void {
     const settings = mixer.audioSettings;
-    if (settings.seed !== this.seededFrom) {
-      this.seededFrom = settings.seed;
-      this.rng = settings.seed === undefined ? Math.random : mulberry32(settings.seed);
+    if (settings.seed !== this.seed) {
+      // A new seed (or none): every World's generator starts over from it, lazily at its next pick.
+      this.seed = settings.seed;
+      for (const s of this.worlds.values()) s.rng = null;
     }
     let backend: AudioBackend | null = null;
     try { backend = audioBackend(); } catch { backend = null; }
@@ -415,6 +506,17 @@ function toNumber(def: ParameterDef, value: number | string, where: string): num
 const dbToGain = (db: number): number => Math.pow(10, db / 20);
 const semitonesToRatio = (st: number): number => Math.pow(2, st / 12);
 
+/** A row of `Audio.debug().events`: `AudioDebugInfo`'s event row plus the runtime's late-start count. */
+export interface EventDebugRow {
+  id: number;
+  asset: string;
+  world: number;
+  voices: number;
+  parameters: Record<string, number | string>;
+  /** Clips of a continuous container this instance started on the previous clip's end, one frame late (ADR 0158 §6). */
+  lateStarts: number;
+}
+
 // --- an instance --------------------------------------------------------------------------------------------------
 
 interface Ctx {
@@ -463,7 +565,11 @@ export class EventInstance {
   private pos: Vec3Like | null;
   private released = false;
   stopped = false;
+  /** Continuous-container clips this instance started a frame late. */
+  lateStarts = 0;
   private fadeTo: number | null = null;
+  /** The pitch option now (`AudioSource.pitch` changes it while playing); the clips' own pitches multiply onto it. */
+  private pitchOption: number;
 
   constructor(
     private readonly sys: EventSystem,
@@ -473,6 +579,7 @@ export class EventInstance {
     readonly group: number,
     private readonly options: EventOptions,
   ) {
+    this.pitchOption = Math.max(0.0625, options.pitch ?? 1);
     this.localDefs = new Map(asset.parameters.map((def, slot) => [def.name, { slot, def }]));
     this.locals = asset.parameters.map((def) => parameterDefault(def));
     for (const [name, v] of Object.entries(options.parameters ?? {})) {
@@ -487,11 +594,11 @@ export class EventInstance {
   /** A rough level for `steal: "quietest"`: the event's volume times the option's. */
   get loudness(): number { return this.asset.volume * (this.options.volume ?? 1); }
 
+  /** No side effects: an ended instance is retired by `EventSystem` (`play` and `update`). */
   get playing(): boolean {
     if (this.stopped) return false;
     if (this.pending > 0 || this.runners.some((r) => !r.stopped)) return true;
     for (const v of this.voices) if (v.voice.playing) return true;
-    this.sys.retire(this);
     return false;
   }
 
@@ -521,8 +628,8 @@ export class EventInstance {
     if (this.group > 0) this.locals.forEach((v, slot) => this.sys.automation.setParam(this.group, slot, v, 0));
     const base: Ctx = {
       at: this.options.at !== undefined && Number.isFinite(this.options.at) ? this.options.at : null,
-      volume: a.volume * dbToGain(lerp(a.volumeRandom, this.sys.random())) * Math.max(0, this.options.volume ?? 1),
-      pitch: a.pitch * semitonesToRatio(lerp(a.pitchRandom, this.sys.random())) * Math.max(0.0625, this.options.pitch ?? 1),
+      volume: a.volume * dbToGain(lerp(a.volumeRandom, this.sys.random(this.world))) * Math.max(0, this.options.volume ?? 1),
+      pitch: a.pitch * semitonesToRatio(lerp(a.pitchRandom, this.sys.random(this.world))),
       bindings: this.bindings(a.automation),
       sustain: null,
       owner: null,
@@ -536,6 +643,20 @@ export class EventInstance {
     for (const r of this.runners) r.stopped = true;
     for (const v of this.voices) v.voice.stop(fadeSeconds);
     this.sys.retire(this);
+  }
+
+  /** Change the pitch option of the playing instance: every playing voice (and later clips) follows, automation still multiplying on top. */
+  setPitch(ratio: number): void {
+    const next = Math.max(0.0625, Number.isFinite(ratio) ? ratio : 1);
+    if (next === this.pitchOption || this.stopped) return;
+    this.pitchOption = next;
+    const sink = this.sys.automation;
+    for (const v of this.voices) {
+      if (!v.voice.playing) continue;
+      v.base.pitch = clampPitch(v.ctxPitch * next);
+      if (v.bindings.length > 0) sink.bindVoice(v.voice, this.group, v.bindings, v.base);
+      else v.voice.setPitch(v.base.pitch);
+    }
   }
 
   fade(to: number, seconds: number): void {
@@ -613,6 +734,11 @@ export class EventInstance {
     if (this.group > 0) this.locals.forEach((v, slot) => sink.setParam(this.group, slot, v, 0));
     for (const v of this.voices) {
       if (!v.voice.playing) continue;
+      // The fallback's evaluator set its gain and pitch through the setters; a not-yet-started voice keeps those in its
+      // request, so the new backend's voice may carry them. Back to the base values first, or the core's own automation
+      // would apply on top of an already automated gain.
+      v.voice.setVolume(v.base.volume);
+      v.voice.setPitch(v.base.pitch);
       sink.bindVoice(v.voice, this.group, v.bindings, v.base);
       if (v.loop) sink.setLoop(v.voice, v.loop.start, v.loop.end, v.loop.looping);
     }
@@ -626,8 +752,8 @@ export class EventInstance {
     const sys = this.sys;
     const ctx: Ctx = {
       ...parent,
-      volume: parent.volume * node.volume * dbToGain(lerp(node.volumeRandom, sys.random())),
-      pitch: parent.pitch * node.pitch * semitonesToRatio(lerp(node.pitchRandom, sys.random())),
+      volume: parent.volume * node.volume * dbToGain(lerp(node.volumeRandom, sys.random(this.world))),
+      pitch: parent.pitch * node.pitch * semitonesToRatio(lerp(node.pitchRandom, sys.random(this.world))),
       bindings: node.automation.length ? [...parent.bindings, ...this.bindings(node.automation)] : parent.bindings,
     };
     if (node.delay > 0) ctx.at = (ctx.at ?? sys.horizon() ?? sys.clock()) + node.delay;
@@ -652,11 +778,11 @@ export class EventInstance {
       case "random":
         if (node.children.length === 0) return null;
         if (node.mode === "continuous") return this.run(node, ctx);
-        return this.playNode(node.children[sys.pickRandom(node, node.avoidRepeat)], ctx, fadeIn);
+        return this.playNode(node.children[sys.pickRandom(node, node.avoidRepeat, this)], ctx, fadeIn);
       case "sequence":
         if (node.children.length === 0) return null;
         if (node.mode === "continuous") return this.run(node, ctx);
-        return this.playNode(node.children[sys.nextStep(node)], ctx, fadeIn);
+        return this.playNode(node.children[sys.nextStep(node, this)], ctx, fadeIn);
       case "sustain": return this.playSustain(node, ctx);
     }
   }
@@ -667,8 +793,9 @@ export class EventInstance {
     const held = node.sustain || ctx.sustain !== null;
     const looping = node.loop || held;
     const volume = ctx.volume * starter.clipVolume(node.clip);
+    const pitch = clampPitch(ctx.pitch * this.pitchOption);
     const req: Partial<PlayRequest> = {
-      volume, pitch: clampPitch(ctx.pitch), priority: this.options.priority ?? a.priority,
+      volume, pitch, priority: this.options.priority ?? a.priority,
       world: this.world, group: this.group,
     };
     if (ctx.at !== null) req.at = ctx.at;
@@ -678,7 +805,7 @@ export class EventInstance {
     }
     const voice = starter.start(node.clip, looping, this.options.bus ?? (a.bus || undefined), req);
     if (!voice) return null;
-    const base = { volume, pitch: clampPitch(ctx.pitch) };
+    const base = { volume, pitch };
     const bindings = ctx.bindings.slice(0, MAX_BINDINGS);
     if (ctx.bindings.length > MAX_BINDINGS) warnOnce(`event:bindings:${this.path}`, `Audio events: "${this.path}" puts more than ${MAX_BINDINGS} automation curves on one clip; the rest are ignored.`);
     const sink = sys.automation;
@@ -694,7 +821,7 @@ export class EventInstance {
     const len = sys.clipLength(node.clip);
     const length = len !== null ? Math.max(0, len - node.startOffset) / base.pitch : null;
     const start = ctx.at ?? sys.horizon();
-    this.voices.push({ voice, node, bindings, base, loop, start, length, owner: ctx.owner });
+    this.voices.push({ voice, node, bindings, base, ctxPitch: ctx.pitch, loop, start, length, owner: ctx.owner });
     if (looping) return null;
     return start !== null && length !== null ? start + length : null;
   }
@@ -761,7 +888,7 @@ export class EventInstance {
         if (!(n as { loop?: boolean }).loop) { r.stopped = true; return; }
         i = 0;
       }
-    } else i = this.sys.pickRandom(n as EventNode & { children: EventNode[] }, (n as { avoidRepeat: number }).avoidRepeat);
+    } else i = this.sys.pickRandom(n as EventNode & { children: EventNode[] }, (n as { avoidRepeat: number }).avoidRepeat, this);
     r.index = i;
     const before = this.voices.length;
     const fade = n.gap < 0 ? -n.gap : 0;
@@ -772,7 +899,12 @@ export class EventInstance {
       this.sys.schedule(next - 0.25, this, () => this.step(r, next));
     } else {
       const mine = this.voices.slice(before);
-      this.whenDone(() => mine, () => this.step(r, null));
+      this.whenDone(() => mine, () => {
+        const before = this.voices.length;
+        this.step(r, null);
+        // The next clip started on this one's end, a frame late: the debug panel counts it (ADR 0158 §6).
+        if (this.voices.length > before) this.sys.noteLateStart(this);
+      });
     }
   }
 

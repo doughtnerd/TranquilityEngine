@@ -9,7 +9,7 @@ import { _startWorldService, _worldServiceIds, _worldServiceOf } from "../../../
 import { Camera } from "../../../engine/render/components";
 import type { GameObject } from "../../../engine/scene/GameObject";
 import { AudioListener, listenerPose } from "./AudioListener";
-import { AudioSource, worldPlays } from "./AudioSource";
+import { AudioSource, worldKeyOf, worldPlays } from "./AudioSource";
 import { audioBackend, hasAudioBackend, isPendingCoreBackend } from "./backend";
 import { events } from "./events/eventRuntime";
 import { AUDIO, type AudioWorldService } from "./core/service";
@@ -38,12 +38,20 @@ function reportView(world: World): void {
   const service = _worldServiceOf(world, AUDIO) as AudioWorldService | null;
   if (!service?.core.host) return;
   reportTo = backend;
+  liveKeys.clear();
   service.core.host.forEachWorld(reportOne);
   reportTo = null;
+  // A World the host no longer lists is gone: its random generator and sequence positions go with it (ADR 0158 §6).
+  events().keepWorlds(liveKeys);
 }
 
 let reportTo: WorldAudibleSink | null = null;
-const reportOne = (key: number, owner: object): void => reportTo?.setWorldAudible(key, worldPlays(owner as World));
+const reportOne = (key: number, owner: object): void => {
+  reportTo?.setWorldAudible(key, worldPlays(owner as World));
+  liveKeys.add(key);
+};
+/** The keys the host lists this frame (reused, so nothing allocates). */
+const liveKeys = new Set<number>();
 
 /**
  * Per frame, in the World that has the view: place the backend's listener at the first enabled
@@ -57,6 +65,7 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
     run(world: World, dt: number): void {
       reportView(world);
       if (!worldPlays(world)) return;
+      events().noteWorld(worldKeyOf(world), world); // a key now held by another World drops the old one's event state
       // "core" with no AudioSource or AudioListener to start the service (a script's one-shots only): start it here,
       // once per World, so the pending backend's locked voices don't wait for a load nobody began (§2.1).
       if (isPendingCoreBackend(audioBackend()) && !askedCore.has(world) && !_worldServiceOf(world, AUDIO) && _worldServiceIds().includes(AUDIO)) {
