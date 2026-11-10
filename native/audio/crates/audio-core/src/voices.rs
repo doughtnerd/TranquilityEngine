@@ -401,24 +401,14 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<
             n = n.min(slot.mix.remaining as usize);
         }
     }
-    if slot.flags & flag::MIXED == 0 && slot.pitch.remaining == 0 {
-        // Virtual at a settled pitch (A3.5): every step is the same, so the position moves in O(1)
-        // (`advance_constant`, bit-exact to the per-frame loop below). Most of the logical voices
-        // take this path every quantum.
-        resample::advance_constant(&mut slot.position, slot.pitch.value * slot.rate_ratio, n, clip.source.frames, looping);
-        slot.gain.advance(n as u32);
-        slot.fade.advance(n as u32);
-        slot.mix.advance(n as u32);
-        slot.panner.advance(n as u32);
-        let ran_out = !looping && slot.position >= clip.source.frames as f64;
-        if ran_out || (stopping && slot.fade.is_settled()) {
-            slot.state = state::ENDED;
-        }
-        return;
-    }
+    // Virtual at a settled pitch (A3.5): every step is the same, so the position moves in O(1)
+    // (`advance_constant`, bit-exact to the per-frame loop). Most logical voices take this path.
+    let constant = slot.flags & flag::MIXED == 0 && slot.pitch.remaining == 0;
     let mut steps = [0.0f32; QUANTUM];
-    for step in steps[..n].iter_mut() {
-        *step = slot.pitch.next() * slot.rate_ratio;
+    if !constant {
+        for step in steps[..n].iter_mut() {
+            *step = slot.pitch.next() * slot.rate_ratio;
+        }
     }
     if slot.flags & flag::MIXED != 0 {
         let mut l = [0.0f32; QUANTUM];
@@ -446,7 +436,11 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<
             slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
         }
     } else {
-        resample::advance(&mut slot.position, &steps[..n], clip.source.frames, looping);
+        if constant {
+            resample::advance_constant(&mut slot.position, slot.pitch.value * slot.rate_ratio, n, clip.source.frames, looping);
+        } else {
+            resample::advance(&mut slot.position, &steps[..n], clip.source.frames, looping);
+        }
         slot.gain.advance(n as u32);
         slot.fade.advance(n as u32);
         slot.mix.advance(n as u32);

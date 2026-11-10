@@ -306,19 +306,22 @@ fn lowest_bit_exponent(x: f64) -> i32 {
 }
 
 /// [`advance`] with every step equal to `step` (a settled pitch: virtual voices keep time), in
-/// O(1) when that is exact, else through [`advance`]'s loop. Same result bit for bit.
+/// O(1) when that is exact, else through [`advance`]'s loop. Same result bit for bit. `n` is at
+/// most a quantum (128).
 ///
 /// Why it is exact: `step`, `*pos` and `frames` are all multiples of `2^g` (`g` the lowest set bit
-/// of either, at most 0 since `frames` is whole). While every value stays below `2^(53 + g)` in
+/// of either, at most 0 since `frames` is whole). While every value stays below `2^(52 + g)` in
 /// magnitude, each of the loop's additions and subtractions is exact, so the loop's result is the
 /// exact `(pos + n·step)` reduced into `[0, frames)` (looping) — which is what this computes, with
 /// exact integer multiples. Otherwise (a huge position, a step with far finer bits than the
 /// position, a non-looping voice reaching its end, a negative or non-finite value) it loops.
+#[inline(never)]
 pub fn advance_constant(pos: &mut f64, step: f32, n: usize, frames: u32, looping: bool) -> usize {
+    let n = n.min(128);
     let frames_f = frames as f64;
     let s = step as f64;
     let p = *pos;
-    let exact = frames > 0 && s.is_finite() && s >= 0.0 && p.is_finite() && p >= 0.0 && n < (1 << 20);
+    let exact = frames > 0 && s.is_finite() && s >= 0.0 && p.is_finite() && p >= 0.0;
     if exact {
         let mut g = 0i32;
         if s != 0.0 {
@@ -329,18 +332,20 @@ pub fn advance_constant(pos: &mut f64, step: f32, n: usize, frames: u32, looping
         }
         // Everything the loop computes stays below p + n·step + frames.
         let bound = p + n as f64 * s + frames_f;
-        if g > -1000 && bound < libm::ldexp(1.0, 52 + g) {
+        // 2^(52 + g), built from its exponent bits (52 + g ≥ -948: a normal number).
+        if g > -1000 && bound < f64::from_bits(((1023 + 52 + g) as u64) << 52) {
             if looping {
                 let mut t = p;
                 // The loop first wraps `*pos` into the clip, then adds and wraps each step.
                 if t >= frames_f {
-                    t -= libm::floor(t / frames_f) * frames_f;
+                    t -= ((t / frames_f) as u64) as f64 * frames_f;
                 }
                 t += n as f64 * s;
                 if t >= frames_f {
-                    t -= libm::floor(t / frames_f) * frames_f;
+                    t -= ((t / frames_f) as u64) as f64 * frames_f;
                 }
-                // `floor` of a rounded quotient can be one off either way: settle exactly.
+                // The truncated quotient (t ≥ 0, so a floor) of a rounded division can be one off
+                // either way: settle exactly.
                 while t >= frames_f {
                     t -= frames_f;
                 }
@@ -358,18 +363,9 @@ pub fn advance_constant(pos: &mut f64, step: f32, n: usize, frames: u32, looping
             }
         }
     }
-    // The general case: the loop (steps of `step`, at most a quantum at a time).
+    // The general case: the loop itself.
     let steps = [step; 128];
-    let mut done = 0;
-    loop {
-        // At least once: with no steps, `advance` still wraps a looping position.
-        let k = (n - done).min(steps.len());
-        let used = advance(pos, &steps[..k], frames, looping);
-        done += used;
-        if used < k || done >= n {
-            return done;
-        }
-    }
+    advance(pos, &steps[..n], frames, looping)
 }
 
 #[cfg(test)]

@@ -541,7 +541,7 @@ Measured by A3.5 (`audio-bench mode=memory`: `Layout::new` for each preset at 48
 
 | Region | Formula | Default preset (48 kHz) |
 |---|---|---|
-| Code and data | — | mixer wasm MIXER_KB of 150 KB (ADR gate), name section stripped |
+| Code and data | — | mixer wasm 143.9 KB (147,356 B, A3.5) of 150 KB (ADR gate), name section stripped |
 | Shadow stack | fixed | 256 KB; a test asserts the stack high-water mark under the stress scene |
 | Inbox | fixed | 1 MiB (BATCH and control only; chunks go direct) |
 | STATUS staging | 16 KB | 16 KB |
