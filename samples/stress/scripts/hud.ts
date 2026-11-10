@@ -22,8 +22,6 @@ export interface Sample {
   streamErrors: number;
   traps: number;
   rebuilds: number;
-  baseLatencyMs: number;
-  outputLatencyMs: number;
   sampleRate: number;
 }
 
@@ -270,7 +268,7 @@ export class Hud {
   private finishSoak(how: string): void {
     const s = this.cur!;
     const b = this.base!;
-    if (this.rows.length < Math.floor((performance.now() - this.soakAt) / 60_000)) this.closeRow(s);
+    if ((performance.now() - this.soakAt) / 60_000 - this.rows.length > 0.05) this.closeRow(s);
     const minutes = (performance.now() - this.soakAt) / 60_000;
     const underruns = s.underruns - b.underruns;
     const starves = s.streamStarves - b.streamStarves;
@@ -279,7 +277,7 @@ export class Hud {
       `Myco audio stress soak: ${how}, ${minutes.toFixed(1)} of ${this.soakMinutes} min`,
       `date ${new Date().toISOString()}`,
       `agent ${typeof navigator === "undefined" ? "?" : navigator.userAgent}`,
-      `cores ${typeof navigator === "undefined" ? "?" : navigator.hardwareConcurrency}, rate ${s.sampleRate} Hz, base latency ${s.baseLatencyMs.toFixed(1)} ms, output latency ${s.outputLatencyMs.toFixed(1)} ms`,
+      `cores ${typeof navigator === "undefined" ? "?" : navigator.hardwareConcurrency}, rate ${s.sampleRate} Hz`,
       `plan ${this.planText()}`,
       "",
       "min  underruns late dropped starves logical mixed capMin wuMax stalls maxGapMs heapMB",

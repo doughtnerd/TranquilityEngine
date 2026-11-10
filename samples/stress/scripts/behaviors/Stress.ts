@@ -258,8 +258,6 @@ export class Stress extends GameBehavior {
       streamErrors: core.streamErrors ?? 0,
       traps: c.traps,
       rebuilds: core.rebuilds ?? 0,
-      baseLatencyMs: (core.baseLatency ?? 0) * 1000,
-      outputLatencyMs: (core.outputLatency ?? 0) * 1000,
       sampleRate: d.sampleRate,
     };
   }

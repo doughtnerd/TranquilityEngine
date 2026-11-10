@@ -17,8 +17,8 @@ Desktop: `npm run tauri:dev` and open the Audio Stress sample. A built game play
 
 | Part | What |
 |---|---|
-| Hits | About 490 short mono clips (0.3 to 1.4 s, different pitch and timbre), played in a shuffled order that never repeats a clip before the whole deck is spent, at pitch 0.5 to 16 (log-uniform), random priority, 25% spatial. About 160 starts a second. |
-| Beds | Six long mono clips (20 to 80 s) played quietly at pitch 0.5 to 2, 40% spatial. About 40 starts a second, plus a fast prefill in the first 12 s. They keep the logical voices near the 4,096 limit (the readout shows `logicalVoices` there after a minute or so; at the limit the core steals, and `droppedPlays` counts plays it refused). |
+| Hits | About 490 short mono clips (0.3 to 1.4 s, different pitch and timbre), played in a shuffled order that never repeats a clip before the whole deck is spent, at pitch 0.5 to 16 (log-uniform), random priority, 25% spatial. About 120 starts a second. |
+| Beds | Six long mono clips (20 to 80 s) played quietly at pitch 0.5 to 2, 40% spatial. About 80 starts a second (a bed lives about 48 s), plus a fast prefill in the first 12 s. They keep the logical voices near the 4,096 limit (the readout shows `logicalVoices` there after a minute or so; at the limit the core steals, and `droppedPlays` counts plays it refused). |
 | Emitters | 24 looping spatial sources orbiting the listener at 3 to 14 m (the HRTF candidates). |
 | Streams | 8 looping streamed files (four clips, `stream: true` in their `.meta.json`), half orbiting. |
 | Buses | 32: Master, `Mix0..3`, `Bus00..26`. Each but Master has a high-pass, a low-pass and a compressor; 8 leaves also send to the reverb. All plays are on the leaves. |
@@ -42,7 +42,7 @@ URL flags (on the editor URL, e.g. `editor.html?sample=stress&soak=30`): `soak=<
 
 ## Soak (C3)
 
-Start it with `K` or `?soak=30`. It logs one summary line a minute to the console (`[soak] ...`: the minute's underruns, late commands, dropped plays, starves, the last voice counts, the lowest cap, the highest work units, stalls and the JS heap) and after the last minute prints a report to the console and shows it in a text box with a Copy button: the machine (user agent, cores, sample rate, latencies), the plan, one row per minute, the totals, and the gate's verdict (0 underruns, 0 stream starves, no trap or rebuild). Keep the tab visible (a hidden tab goes to the background policy) and the machine otherwise idle. `globalThis.__stress.report()` returns the report text, `.stats()` the live numbers.
+Start it with `K` or `?soak=30`. It logs one summary line a minute to the console (`[soak] ...`: the minute's underruns, late commands, dropped plays, starves, the last voice counts, the lowest cap, the highest work units, stalls and the JS heap) and after the last minute prints a report to the console and shows it in a text box with a Copy button: the machine (user agent, cores, sample rate), the plan, one row per minute, the totals, and the gate's verdict (0 underruns, 0 stream starves, no trap or rebuild). Keep the tab visible (a hidden tab goes to the background policy) and the machine otherwise idle. `globalThis.__stress.report()` returns the report text, `.stats()` the live numbers.
 
 ## Bench twin
 
