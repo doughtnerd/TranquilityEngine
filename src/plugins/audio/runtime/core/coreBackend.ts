@@ -303,6 +303,14 @@ export class CoreBackend implements AudioBackend {
     }));
     this.writer.busConfig(wire);
     this.table.setBusLimits(settings.map((b) => b.maxVoices ?? 0));
+    // A remap (A0.8) has already moved the table's voices to the new tree's indices; the core's
+    // voices still carry the old ones, so each voice on the core is re-routed (after BUS_CONFIG, in
+    // the same batch).
+    const t = this.table;
+    for (let i = 0; i < t.capacity; i++) {
+      if (!this.onCore(i)) continue;
+      this.writer.setParams(((t.gen[i]! << 16) | i) >>> 0, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, t.bus[i]!);
+    }
     this.applyMix(mixer.resolveAll());
   }
 

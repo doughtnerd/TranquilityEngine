@@ -71,7 +71,10 @@ impl Core {
         };
         // A1.3b: the clip store owns the directory and arena regions (they stay empty here).
         let clips = ClipStore::over(core::mem::take(&mut regions.clip_directory), core::mem::take(&mut regions.arena));
-        Core { params, layout, base: base as usize, regions, frame: 0, clips }
+        let mut core = Core { params, layout, base: base as usize, regions, frame: 0, clips };
+        // A2.1: one root bus at unity and MASTER at unity until BUS_CONFIG, BUS_MIX and MASTER.
+        crate::bus::init(&mut core);
+        core
     }
 
     pub fn params(&self) -> &InitParams {
@@ -118,10 +121,12 @@ impl Core {
     /// Renders one quantum (exactly [`QUANTUM`] frames) starting at context frame `frame` and
     /// returns the planar stereo output, `[L; 128][R; 128]`. Never allocates or grows memory.
     ///
-    /// A1.2 mixes voices (`voices::render`); A2.1 adds buses.
+    /// Voices render into their buses' buffers (`voices::render`, A1.2), then the bus tree mixes
+    /// down into the output (`bus::mixdown`, A2.1).
     pub fn process(&mut self, frame: u64) -> &[f32] {
         self.frame = frame;
         crate::voices::render(self, frame);
+        crate::bus::mixdown(self);
         &self.regions.output[..OUTPUT_CHANNELS * QUANTUM]
     }
 

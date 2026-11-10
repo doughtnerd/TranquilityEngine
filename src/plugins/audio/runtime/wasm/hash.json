@@ -1,8 +1,8 @@
 {
-  "sourceHash": "8f5419516a52c06e64773c52a58a206b",
+  "sourceHash": "c587faa01e29f92884d1d03a1ebad258",
   "abiVersion": "1.0",
   "bytes": {
-    "myco_audio.wasm": 63333,
-    "testing/myco_audio_test_hooks.wasm": 63403
+    "myco_audio.wasm": 76913,
+    "testing/myco_audio_test_hooks.wasm": 76983
   }
 }

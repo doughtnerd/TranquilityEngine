@@ -21,8 +21,9 @@
 //! quantum touches only live slots. The list head and per-quantum scratch live in [`VoiceArea`], in
 //! the core-state region right after the status area (`status::STATUS_AREA_BYTES`).
 //!
-//! Not applied yet: `lpHz` (kept for the per-voice filter), `bus` (A2.1 routes; every voice goes to
-//! the output), SET_MIXED / SET_PAUSED (A3.1).
+//! Each voice mixes into its bus's input buffer (`bus.rs`, A2.1; an unconfigured bus index goes to
+//! bus 0, the root). Not applied yet: `lpHz` (kept for the per-voice filter), SET_MIXED /
+//! SET_PAUSED (A3.1).
 //!
 //! `process` never allocates: every buffer is a region or a fixed-size stack array.
 
@@ -73,7 +74,7 @@ pub struct VoiceSlot {
     pub state: u8,
     /// [`flag`] bits.
     pub flags: u8,
-    /// Bus index (A2.1 routes it; until then every voice goes to the output).
+    /// Bus index: the voice mixes into this bus (`bus.rs`; past the configured buses, bus 0).
     pub bus: u16,
     /// Live list links: slot index + 1, 0 = none.
     pub next: u32,
@@ -232,15 +233,14 @@ fn note_late(core: &mut Core, lateness: u64) {
     area.late_max = area.late_max.max(lateness.min(u32::MAX as u64) as u32);
 }
 
-/// Renders every live voice over frames `from..to` of the quantum at `frame`.
+/// Renders every live voice over frames `from..to` of the quantum at `frame`, each into its bus's
+/// input buffer (A2.1; `bus::mixdown` mixes the buses into the output after the last range).
 fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) {
     let (regions, clips) = core.parts_mut();
-    let output: &mut [f32] = &mut regions.output[..];
-    let output: *mut [f32] = output;
+    // The buses' buffers are the `Buses` region, distinct from the voices and core-state regions
+    // `v` views (Layout); `Inputs` holds a raw view of them and reads the bus count first.
+    let mut inputs = crate::bus::Inputs::of(regions);
     let v = view(regions);
-    // SAFETY: the output region and the voices/core-state regions are distinct regions of the
-    // block (Layout), so this mutable view of the output doesn't alias `v`.
-    let (out_l, out_r) = unsafe { &mut *output }[..2 * QUANTUM].split_at_mut(QUANTUM);
     let mut cursor = v.area.live_head;
     while cursor != 0 {
         let index = cursor as usize - 1;
@@ -268,6 +268,7 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) {
             state::PLAYING => from,
             _ => continue,
         };
+        let Some((out_l, out_r)) = inputs.get(slot.bus) else { continue };
         render_voice(slot, clips, start, to, out_l, out_r);
     }
 }
