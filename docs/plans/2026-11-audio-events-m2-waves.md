@@ -195,6 +195,8 @@ After every wave, before the next one starts, the coordinator:
 
 ## Wave 4: editor specs and close
 
+**Wave 4 as run (base `72ccf28`):** E6.6 (the editor and settings Playwright specs) and E5.3c + E3.9 (one task, since both own `core/coreAutomation.ts`: `Audio.play` under 5 µs on the core, and automation shown in `Audio.debug()` on the core; m2-decisions entry 20). Then E7.2 (coordinator) and the owner's items: the blended-engine re-check, the lab-VM run (E5.5), sign-off (E7.1).
+
 | Task | Level | Files |
 |---|---|---|
 | E6.6 | mid | `tests/e2e/audio-event-editor.spec.ts` |
