@@ -115,3 +115,6 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 - After B3b the mixer is 141.8 KB. `wasm-opt` (binaryen) isn't installed in this container and isn't a project dependency, so release builds skip `-O3`/`-Oz`; it would likely cut 10–20%.
 - **Chosen for tonight:** don't add a build dependency unreviewed (it would also make the committed wasm depend on the machine that built it). B4 is told to keep code small.
 - **Proposal:** pin binaryen as a dev dependency (or a CI step) so every build runs the same `wasm-opt`, and record it as a build decision; or raise the gate if a measured reason exists.
+
+### 23. MS6 merged to master, with finished MS7 tasks
+- MS6 (H1–H5) passed its exit check and was merged with the integration branch's finished MS7 tasks (B1, B2, B3, B3b, B5, B6). Those are opt-in (the default backend stays `"babylon"` until B7). Not run: WebKit and Firefox parity (no Docker).
