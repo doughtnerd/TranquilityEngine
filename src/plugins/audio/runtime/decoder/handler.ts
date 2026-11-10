@@ -1,5 +1,5 @@
 // The decoder worker's message handler, factored out of the worker so Node tests drive it in-process (K7): it routes
-// `decodeClip` and `cancel` to `clips.ts` and `stream*` and `connectWorklet` to `streams.ts` (B3), loads the
+// `decodeClip` and `cancel` to `clips.ts` and `stream*` (E4.4: `streamLoop` too) and `connectWorklet` to `streams.ts` (B3), loads the
 // wasm on `init` (requests that arrive first wait for it), and turns every failure into an `error` reply. Never throws,
 // never waits on anything but the wasm.
 import { decodeClip } from "./clips";
@@ -102,6 +102,7 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
         case "streamCredit":
         case "streamSeek":
         case "streamClose":
+        case "streamLoop":
         case "connectWorklet":
           return streams.handle(request);
       }

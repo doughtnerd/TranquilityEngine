@@ -20,6 +20,19 @@
 //   a seek past the end of a one-shot sends one empty last chunk; credits of older epochs are ignored and the credit
 //   window starts again.
 //
+// - **Region loops and their release** (ADR 0158 §4, M2 E4.4). A looping stream loops `loopStartFrame..loopEndFrame`
+//   of `streamOpen` (end exclusive; 0 = the file's end; both absent: the file's own loop points from the wasm's info,
+//   else the whole file): the worker reads up to `loopEnd`, seeks to `loopStart` and reads on, inside one chunk, so the
+//   ring sees one continuous signal (the gapless path whole-file loops always took). `streamOpened` carries the file's
+//   own points. `streamLoop` changes the region or releases the loop (`looping: false`: no more wraps, the stream
+//   plays on to the file's end) **at a stream frame**: main names the frame where the voice's current pass ends
+//   (`StreamLoopAt.atStreamFrame`, its prediction from the voice's playhead), and the worker acts there. The worker
+//   runs up to a ring (32,768 frames) ahead of the voice, so that frame may be behind what it already sent: it then
+//   **splices** (see `stream.rs`): a new epoch (the stream's next, which main reserved when it sent the message) whose
+//   STREAM_OPEN has `startFrame` = that stream frame and `loopEnd` set, and the core keeps its ring up to that frame and
+//   takes the new epoch from there, gapless. Without a frame the change applies where the worker is decoding (a release
+//   then lands up to a ring late).
+//
 // Streams decode on their own instance of the wasm (`DecoderWasm.fork`), so a clip decode that traps can't take them
 // with it. Never throws: every failure becomes an `error` reply.
 import {
@@ -37,9 +50,53 @@ import {
   writeStreamClose,
   writeStreamOpen,
 } from "../wire.generated";
-import { CreditWindow, STREAM_CHUNK_FRAMES } from "./credit";
-import type { DecoderReply, StreamOpenMessage, StreamPortLike, StreamRequest, StreamSeekMessage } from "./protocol";
-import { DecoderError, type DecoderWasm } from "./wasm";
+import { CreditWindow, STREAM_CHUNK_FRAMES, STREAM_WINDOW_FRAMES } from "./credit";
+import type { ClipInfo, DecoderReply, StreamLoopMessage, StreamOpenMessage, StreamPortLike, StreamRequest, StreamSeekMessage } from "./protocol";
+import { DecoderError, type DecoderWasm, type RawInfo } from "./wasm";
+
+/**
+ * E4.4: a `streamLoop` with the stream frame (on the voice's playhead, the core's stream frames) where the change lands:
+ * the end of the voice's current pass, as main predicts it. Contract C2's `StreamLoopMessage` has no field for it;
+ * main adds this one (`decoderClient.ts` `loopStream`) and a worker without it ignores it. Absent: where the worker is.
+ */
+export interface StreamLoopAt extends StreamLoopMessage {
+  readonly atStreamFrame?: number;
+}
+
+/** A loop region in file frames, `end` exclusive (0: the file's end). */
+export interface StreamRegion {
+  readonly start: number;
+  readonly end: number;
+}
+
+/**
+ * The region a looping stream loops (E4.4): `start`/`end` as sent (end 0 = the file's end; both absent: the file's own
+ * points, `fileLoop`, else the whole file), clamped to a file of `frames` frames (-1 unknown). An empty or inverted
+ * region loops the whole file, as the core does for clips.
+ */
+export function resolveRegion(start: number | undefined, end: number | undefined, fileLoop: StreamRegion | null, frames: number): StreamRegion {
+  if (start === undefined && end === undefined) return fileLoop ?? { start: 0, end: 0 };
+  let a = Math.max(0, Math.floor(start ?? 0));
+  let b = Math.max(0, Math.floor(end ?? 0));
+  if (frames > 0 && (b === 0 || b > frames)) b = frames;
+  if (b !== 0 && !(a < b)) {
+    a = 0;
+    b = frames > 0 ? frames : 0;
+  }
+  return { start: a, end: b };
+}
+
+/** The file's own loop region from the wasm's info, or null. */
+function fileLoopOf(raw: RawInfo): StreamRegion | null {
+  return raw.loopStartFrame !== undefined && raw.loopEndFrame !== undefined && raw.loopEndFrame > raw.loopStartFrame ? { start: raw.loopStartFrame, end: raw.loopEndFrame } : null;
+}
+
+/** Where a looping stream is after `frame` frames (file frames, never wrapped) in `region` of a `frames`-frame file. */
+function wrapInto(frame: number, region: StreamRegion, frames: number): number {
+  const end = region.end > 0 ? region.end : frames;
+  if (!(end > 0) || frame < end) return frame;
+  return region.start + ((frame - region.start) % (end - region.start));
+}
 
 export interface StreamHost {
   post(reply: DecoderReply, transfer?: Transferable[]): void;
@@ -64,7 +121,21 @@ interface Stream {
   readonly rate: number;
   /** -1 when unknown. */
   readonly frames: number;
-  readonly loop: boolean;
+  /** The file's own loop points (wasm info), or null. */
+  readonly fileLoop: StreamRegion | null;
+  /** E4.4: looping, and the region (end 0: the file's end). */
+  loop: boolean;
+  region: StreamRegion;
+  /** The stream frame of this epoch's first ring frame (the `startFrame` its ring started from), the ring frames sent since, and the file frame the next read gives. */
+  base: number;
+  sent: number;
+  pos: number;
+  /** Where the stream jumped (a wrap, a seek, a splice): stream frame to file frame, oldest first, kept a few windows back. */
+  readonly marks: { stream: number; file: number }[];
+  /** E4.4: a loop change waiting for its stream frame. */
+  pending: { at: number; looping: boolean; region: StreamRegion } | null;
+  /** The epoch before the last splice: its credits still count (the ring is the same). */
+  prevEpoch: number;
   epoch: number;
   chunkSeq: number;
   readonly credit: CreditWindow;
@@ -113,6 +184,9 @@ export class StreamDecoder {
       case "streamClose":
         this.close(request.streamId);
         return;
+      case "streamLoop":
+        this.changeLoop(request);
+        return;
     }
   }
 
@@ -159,7 +233,11 @@ export class StreamDecoder {
       if (raw.channels < 1 || raw.rate < 1) throw new DecoderError("audio decoder: the file reports no channels or rate");
       scratchBytes = STREAM_CHUNK_FRAMES * raw.channels * 4;
       scratch = w.alloc(scratchBytes);
-      if (m.startFrame > 0) w.seek(handle, m.startFrame);
+      const fileLoop = fileLoopOf(raw);
+      const loop = m.loop === true;
+      const region = resolveRegion(m.loopStartFrame, m.loopEndFrame, fileLoop, raw.frames);
+      const start = loop ? wrapInto(Math.max(0, m.startFrame), region, raw.frames) : Math.max(0, m.startFrame);
+      if (start > 0) w.seek(handle, start);
       stream = {
         id: m.streamId,
         asset: m.asset,
@@ -168,7 +246,15 @@ export class StreamDecoder {
         channels: Math.min(raw.channels, MAX_CHANNELS),
         rate: raw.rate,
         frames: raw.frames,
-        loop: m.loop === true,
+        fileLoop,
+        loop,
+        region,
+        base: m.startFrame,
+        sent: 0,
+        pos: start,
+        marks: [{ stream: m.startFrame, file: start }],
+        pending: null,
+        prevEpoch: m.epoch,
         epoch: m.epoch,
         chunkSeq: 0,
         credit: new CreditWindow(),
@@ -182,7 +268,7 @@ export class StreamDecoder {
         type: "streamOpened",
         streamId: m.streamId,
         epoch: m.epoch,
-        info: { rate: raw.rate, channels: raw.channels, frames: raw.frames, framesEstimate: raw.framesEstimate, codec: raw.codec, lengthKnown: raw.exact },
+        info: infoOf(raw),
       });
     } catch (e) {
       if (scratch !== 0) w.free(scratch, scratchBytes);
@@ -193,8 +279,11 @@ export class StreamDecoder {
     this.pump(stream);
   }
 
-  /** STREAM_OPEN for `s`'s current epoch, starting at stream frame `startFrame`. */
-  private postOpen(s: Stream, startFrame: number): void {
+  /**
+   * STREAM_OPEN for `s`'s current epoch, starting at stream frame `startFrame`. `splice` (E4.4, `stream.rs`): the epoch
+   * continues the ring there, and `loopStart`/`loopEnd` (never 0) name the region it loops from there, or the one it left.
+   */
+  private postOpen(s: Stream, startFrame: number, splice: StreamRegion | null = null): void {
     const buffer = new ArrayBuffer(STREAM_OPEN_FIXED_END);
     const view = new DataView(buffer);
     writeEnvelope(view, 0, { kind: Kind.STREAM_OPEN, seq: this.nextSeq(), bodyBytes: STREAM_OPEN_FIXED_END - 16 });
@@ -203,8 +292,8 @@ export class StreamDecoder {
       channels: s.channels,
       sampleRate: s.rate,
       totalFrames: s.frames >= 0 && s.frames < STREAM_TOTAL_FRAMES_UNKNOWN ? s.frames : STREAM_TOTAL_FRAMES_UNKNOWN,
-      loopStart: 0,
-      loopEnd: 0,
+      loopStart: splice ? splice.start : 0,
+      loopEnd: splice ? splice.end || (s.frames > 0 ? s.frames : 0xfffffffe) : 0,
       flags: s.loop ? STREAM_OPEN_FLAGS_LOOP : 0,
       epoch: s.epoch,
       startFrame,
@@ -219,19 +308,100 @@ export class StreamDecoder {
   private seek(m: StreamSeekMessage): void {
     const s = this.streams.get(m.streamId);
     if (!s || !this.decoder || ((m.epoch - s.epoch) | 0) <= 0) return;
-    const frame = s.loop && s.frames > 0 ? m.frame % s.frames : m.frame;
+    // A loop change still waiting for its frame applies now (that frame was on the old timeline).
+    if (s.pending) {
+      s.loop = s.pending.looping;
+      if (s.pending.looping) s.region = s.pending.region;
+      s.pending = null;
+    }
+    const frame = s.loop ? wrapInto(Math.max(0, m.frame), s.region, s.frames) : Math.max(0, m.frame);
     try {
       this.decoder.seek(s.handle, frame);
     } catch (e) {
       return this.failStream(s, e);
     }
+    s.base = m.frame;
+    s.sent = 0;
+    s.pos = frame;
+    s.marks.length = 0;
+    s.marks.push({ stream: m.frame, file: frame });
     s.epoch = m.epoch;
+    s.prevEpoch = m.epoch;
     s.chunkSeq = 0;
     s.done = false;
     s.failed = false;
     s.credit.reset();
     this.postOpen(s, frame);
     this.pump(s);
+  }
+
+  /**
+   * E4.4: a `streamLoop` (see the header): a new region (`looping`) or a release, at `atStreamFrame` (or where the
+   * worker is decoding). A frame not sent yet waits for the pump to reach it; one already sent is spliced.
+   */
+  private changeLoop(m: StreamLoopAt): void {
+    const s = this.streams.get(m.streamId);
+    if (!s || s.failed || !this.decoder) return;
+    const region = m.looping ? resolveRegion(m.loopStartFrame, m.loopEndFrame, s.fileLoop, s.frames) : s.region;
+    const next = s.base + s.sent;
+    let at = m.atStreamFrame !== undefined && Number.isFinite(m.atStreamFrame) ? Math.floor(m.atStreamFrame) : next;
+    // Before this epoch's first frame the ring can't take it: where the worker is.
+    if (at <= s.base && next > s.base) at = next;
+    if (at >= next) {
+      s.pending = { at, looping: m.looping, region };
+      this.pump(s);
+      return;
+    }
+    // Already sent: splice at `at`.
+    const left = s.region;
+    try {
+      const lin = this.fileAt(s, at - 1) + 1;
+      this.decoder.seek(s.handle, lin);
+      s.pos = lin;
+      while (s.marks.length > 1 && s.marks[s.marks.length - 1]!.stream >= at) s.marks.pop();
+      s.marks.push({ stream: at, file: lin });
+      s.credit.credit(next - at); // those frames are dropped from the ring
+      s.sent = at - s.base;
+      s.pending = null;
+      this.apply(s, m.looping, region, at);
+    } catch (e) {
+      return this.failStream(s, e);
+    }
+    s.prevEpoch = s.epoch;
+    s.epoch = (s.epoch + 1) >>> 0;
+    s.chunkSeq = 0;
+    s.done = false;
+    this.postOpen(s, at, m.looping ? s.region : left);
+    this.pump(s);
+  }
+
+  /** A loop change lands at stream frame `at` (the next frame read): a release stops wrapping; a region jumps to its start unless the stream is inside it. */
+  private apply(s: Stream, looping: boolean, region: StreamRegion, at: number): void {
+    s.loop = looping;
+    if (!looping) return;
+    s.region = region;
+    const end = region.end > 0 ? region.end : s.frames;
+    if (s.pos >= region.start && (!(end > 0) || s.pos < end)) return;
+    this.decoder!.seek(s.handle, region.start);
+    s.pos = region.start;
+    this.mark(s, at, region.start);
+  }
+
+  /** The file frame stream frame `frame` (sent, of this epoch) held, from the marks. */
+  private fileAt(s: Stream, frame: number): number {
+    let k = s.marks.length - 1;
+    while (k > 0 && s.marks[k]!.stream > frame) k--;
+    const m = s.marks[k]!;
+    return m.file + (frame - m.stream);
+  }
+
+  private mark(s: Stream, stream: number, file: number): void {
+    s.marks.push({ stream, file });
+    // Keep the marks a few windows back (the voice is at most a window behind what was sent).
+    const keepFrom = s.base + s.sent - 4 * STREAM_WINDOW_FRAMES;
+    let drop = 0;
+    while (drop < s.marks.length - 1 && s.marks[drop + 1]!.stream <= keepFrom) drop++;
+    if (drop > 0) s.marks.splice(0, drop);
   }
 
   private close(id: number): void {
@@ -278,12 +448,16 @@ export class StreamDecoder {
   }
 
   private credit(s: Stream, epoch: number, frames: number): void {
-    if (epoch !== s.epoch) return; // frames of an older epoch's ring
+    if (epoch !== s.epoch && epoch !== s.prevEpoch) return; // frames of an older epoch's ring (a splice keeps the ring)
     s.credit.credit(frames);
     this.pump(s);
   }
 
-  /** Sends chunks while the credit window has room for a whole one (see the header). */
+  /**
+   * Sends chunks while the credit window has room for a whole one (see the header). A chunk is filled in pieces: up to
+   * the region's end (then a wrap to its start, flagged `wrapped`), up to a pending loop change's frame (then the
+   * change), up to the file's end (then a wrap, or the last chunk).
+   */
   private pump(s: Stream): void {
     const w = this.decoder;
     const port = this.port;
@@ -291,20 +465,40 @@ export class StreamDecoder {
     const fc = s.fileChannels;
     try {
       while (s.credit.canSend(STREAM_CHUNK_FRAMES)) {
-        let n = w.readF32(s.handle, s.scratch, STREAM_CHUNK_FRAMES);
+        let n = 0;
         let flags = 0;
-        if (n < STREAM_CHUNK_FRAMES && s.loop) {
-          // Wrap to the start (more than once for a file shorter than a chunk); a file that gives nothing is broken.
-          let empty = 0;
-          while (n < STREAM_CHUNK_FRAMES) {
-            w.seek(s.handle, 0);
-            flags |= STREAM_CHUNK_FLAGS_WRAPPED;
-            const m = w.readF32(s.handle, s.scratch + n * fc * 4, STREAM_CHUNK_FRAMES - n);
-            if (m === 0 && ++empty > 1) throw new DecoderError("audio decoder: the looping stream holds no audio");
-            n += m;
+        let empty = 0;
+        while (n < STREAM_CHUNK_FRAMES) {
+          const at = s.base + s.sent + n;
+          const p = s.pending;
+          if (p && at >= p.at) {
+            s.pending = null;
+            this.apply(s, p.looping, p.region, at);
+            continue;
           }
-        } else if (n < STREAM_CHUNK_FRAMES) {
-          flags |= STREAM_CHUNK_FLAGS_LAST;
+          let want = STREAM_CHUNK_FRAMES - n;
+          if (p) want = Math.min(want, p.at - at);
+          const end = s.loop && s.region.end > 0 ? s.region.end : 0;
+          if (end > 0) want = Math.min(want, end - s.pos);
+          if (want <= 0) {
+            this.wrap(s, at);
+            flags |= STREAM_CHUNK_FLAGS_WRAPPED;
+            continue;
+          }
+          const got = w.readF32(s.handle, s.scratch + n * fc * 4, want);
+          s.pos += got;
+          n += got;
+          if (got > 0) empty = 0;
+          if (got < want) {
+            // The file's end.
+            if (!s.loop) {
+              flags |= STREAM_CHUNK_FLAGS_LAST;
+              break;
+            }
+            if (got === 0 && ++empty > 1) throw new DecoderError("audio decoder: the looping stream holds no audio");
+            this.wrap(s, s.base + s.sent + n);
+            flags |= STREAM_CHUNK_FLAGS_WRAPPED;
+          }
         }
         const buffer = this.take();
         const view = new DataView(buffer);
@@ -320,6 +514,7 @@ export class StreamDecoder {
         port.postMessage(buffer, [buffer]);
         this.stats.chunks++;
         s.credit.sent(n);
+        s.sent += n;
         if (flags & STREAM_CHUNK_FLAGS_LAST) {
           s.done = true;
           return;
@@ -328,6 +523,14 @@ export class StreamDecoder {
     } catch (e) {
       this.failStream(s, e);
     }
+  }
+
+  /** The loop's seam at stream frame `at`: back to the region's start. */
+  private wrap(s: Stream, at: number): void {
+    const start = s.region.start;
+    this.decoder!.seek(s.handle, start);
+    s.pos = start;
+    this.mark(s, at, start);
   }
 
   /** A pooled chunk buffer, or a new one. */
@@ -367,4 +570,10 @@ export class StreamDecoder {
   private fail(streamId: number, asset: string, e: DecoderError): void {
     this.host.post({ type: "error", streamId, asset, message: e.message, code: e.code !== 0 ? e.code : undefined });
   }
+}
+
+/** What `streamOpened` reports: the file's info, with its own loop points when it states them (E4.4). */
+function infoOf(raw: RawInfo): ClipInfo {
+  const loop = fileLoopOf(raw);
+  return { rate: raw.rate, channels: raw.channels, frames: raw.frames, framesEstimate: raw.framesEstimate, codec: raw.codec, lengthKnown: raw.exact, ...(loop ? { loopStartFrame: loop.start, loopEndFrame: loop.end } : {}) };
 }
