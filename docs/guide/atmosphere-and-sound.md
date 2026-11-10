@@ -1,6 +1,6 @@
 # Fog, camera rays and spatial audio
 
-Three small features from ADRs 0071, 0073 and 0074.
+Three small features from ADRs 0071, 0073 and 0074. For how to play sounds in the first place, see [Playing sound](playing-sound.md); when nothing is heard, [Why is there no sound?](why-no-sound.md).
 
 ## Fog (0071)
 

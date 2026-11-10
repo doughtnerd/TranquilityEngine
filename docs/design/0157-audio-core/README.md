@@ -6,6 +6,8 @@ The technical design for [ADR 0157](../../decisions/0157-audio-runs-on-an-engine
 |---|---|---|
 | [architecture.md](architecture.md) | architect | components and channels, lifecycles (state diagrams), interactions (sequence diagrams), threading and the clock, memory, the performance model, HRTF (§2.4), failure handling, observability, the platform matrix, extension points |
 | [api-and-models.md](api-and-models.md) | senior engineer | the public TypeScript API, `project.json` settings, the voice table and other data models, byte-exact wire formats, the Rust crates and C ABI, the file layout, editor changes, the test plan, the M1 task breakdown and estimate |
+| [native/audio/README.md](../../../native/audio/README.md) | contributors | building, testing, the wire, goldens and parity, adding a port, the single-writer rules |
+| Guide: [Playing sound](../../guide/playing-sound.md), [Why is there no sound?](../../guide/why-no-sound.md), [Audio mixer](../../guide/audio-mixer.md), [minimum versions](../../guide/audio-minimum-versions.md) | users | what shipped, as the guide tells it |
 | [review-log.md](review-log.md), [review-round2-architect.md](review-round2-architect.md), [review-round2-senior.md](review-round2-senior.md) | both | the cross-reviews |
 
 ## How it was made

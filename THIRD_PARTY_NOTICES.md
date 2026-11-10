@@ -29,7 +29,7 @@ Code from these projects is compiled into Myco Engine's own modules. Libraries u
 
 ## Audio core (`native/audio`; ADR 0157)
 
-- **Chromium Blink audio** (`native/audio/third_party/blink/`, reference copies of the files the audio core ports, listed in `native/audio/PORTS.md`) — BSD-3-Clause. The files carry Google Inc. copyright notices (2010, 2011) and the BSD clauses as WebKit's Blink audio code has them, clause 3 naming Apple Computer, Inc. Upstream: `third_party/blink/renderer/platform/audio/` in https://chromium.googlesource.com/chromium/src at commit `cbba46fd94646232cfd2318ac962138c2a98c1f9`. The repository licence, from Chromium's LICENSE file at that commit:
+- **Chromium Blink audio** (`native/audio/third_party/blink/`, reference copies of the files the audio core ports, listed in `native/audio/PORTS.md`) — BSD-3-Clause and its two-clause form. The files come from three sources, and each port keeps the notice of the file it draws on: (1) most Blink audio files carry `Copyright (C) 2010 Google Inc.` (`dynamics_compressor.*`: 2011) and the three clauses as WebKit has them, clause 3 naming Apple Computer, Inc.; (2) `audio_utilities.*`, `delay.*`, `equal_power_panner.*` and `hrtf_panner.*` carry `Copyright (C) 2010, Google Inc.` and only clauses 1 and 2, with the disclaimer in Apple Inc.'s name; (3) `panner_handler.cc` (2022), `vector3d_f.*` (2012), `angle_conversions.h` (2024) and `media/base/sinc_resampler.*` (2012) carry `Copyright … The Chromium Authors` and refer to Chromium's own LICENSE below. `rustfft_ffi.rs` (2026, The Chromium Authors) is staged for reference only and not ported. Upstream: `third_party/blink/renderer/platform/audio/` (plus `renderer/modules/webaudio/`, `media/base/`, `ui/gfx/geometry/` and `base/numerics/` for the files named in PORTS.md) in https://chromium.googlesource.com/chromium/src at commit `cbba46fd94646232cfd2318ac962138c2a98c1f9`. The repository licence, from Chromium's LICENSE file at that commit:
 
   > Copyright 2015 The Chromium Authors
   >
@@ -59,15 +59,17 @@ Code from these projects is compiled into Myco Engine's own modules. Libraries u
   > (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
   > OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-- **microfft** (real and complex FFTs for the convolver and HRTF ports) — MIT. Version 0.6.0. https://crates.io/crates/microfft
-- **libm** (transcendental functions, so native and wasm builds give identical results) — MIT. Version 0.2.16. https://crates.io/crates/libm
+- **microfft** (real and complex FFTs for the convolver and HRTF ports) — MIT, Copyright (c) 2020-2024 Jan Teske. Version 0.6.0. https://crates.io/crates/microfft
+- **libm** (transcendental functions, so native and wasm builds give identical results) — MIT (its LICENSE.txt also carries the Apache-2.0 text and the copyrights of Jorge Aparicio and of musl libc, Rich Felker et al.). Version 0.2.16. https://crates.io/crates/libm
+- **num-complex** 0.4.6 and **num-traits** 0.2.19 (Copyright (c) 2014 The Rust Project Developers), **cfg-if** 1.0.5 (Copyright (c) 2014 Alex Crichton) and **static_assertions** 1.1.0 (Copyright (c) 2017 Nikolai Vazquez) — each MIT or Apache-2.0. These are microfft's dependencies, so they are in `myco_audio.wasm` as well (num-complex and num-traits are also in the decoder, below). https://crates.io/crates/num-complex, https://crates.io/crates/num-traits, https://crates.io/crates/cfg-if, https://crates.io/crates/static_assertions
+- The mixer's own crates (`audio-wire`, `audio-dsp`, `audio-core`, `audio-wasm`) are Myco code: Apache-2.0 OR MIT, except the Chromium ports in `audio-dsp` (BSD-3-Clause, above).
 
 ## Audio decoder (`native/audio/crates/audio-decode`, compiled to `src/plugins/audio/runtime/wasm/myco_audio_decode.wasm`; ADR 0157)
 
 - **Symphonia** (audio container and codec decoding) — MPL-2.0. Version 0.6.1: crates `symphonia`, `symphonia-core`, `symphonia-common`, `symphonia-metadata`, `symphonia-bundle-flac`, `symphonia-bundle-mp3`, `symphonia-codec-pcm`, `symphonia-codec-vorbis`, `symphonia-format-ogg`, `symphonia-format-riff`; with the `aac` build also `symphonia-codec-aac` and `symphonia-format-isomp4` (these two ship only in `myco_audio_decode_aac.wasm`, which a game downloads only when it sets `audio.codecs.aac`; the default `myco_audio_decode.wasm` doesn't contain them). Copyright Philip Deljanov and the Symphonia contributors. Unmodified; the Source Code Form is available at https://github.com/pdeljanov/Symphonia and https://crates.io/crates/symphonia (MPL-2.0 §3.2). https://www.mozilla.org/MPL/2.0/
 - **lazy_static** 1.5.1, **log** 0.4.35, **bitflags** 2.13.2, **num-complex** 0.4.6, **num-traits** 0.2.19, **smallvec** 1.16.5, **regex-lite** 0.1.9 — MIT or Apache-2.0.
 - **bytemuck** 1.25.2 — Zlib or Apache-2.0 or MIT.
-- **extended** 0.1.0 (80-bit float parsing for AIFF and WAV headers) — MIT.
+- **extended** 0.1.0 (80-bit float parsing for AIFF and WAV headers) — MIT, Copyright 2022 Dietrich Epp.
 
 ## HRIR data (`src/plugins/audio/runtime/wasm/myco_hrir.bin`; ADR 0157)
 

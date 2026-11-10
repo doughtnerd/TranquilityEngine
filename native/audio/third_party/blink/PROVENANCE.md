@@ -59,4 +59,4 @@ These files are unchanged copies of Chromium's Blink audio code, staged as the s
 | `vector3d_f.h` | `ui/gfx/geometry/vector3d_f.h` | `e00ff0184b768564b3277b5a4d5bb0b616389eb3c1a301050e4ad08e81189a0e` |
 | `CHROMIUM-LICENSE` | `LICENSE` (repository root) | `368cca1106be99d39ecd32a38d8305585d802a475effb66380b91ffc9bcf709b` |
 
-`CHROMIUM-LICENSE` is Chromium's repository LICENSE at the pinned commit, copied as is. The Blink audio files carry their own BSD-3-Clause notices (Google Inc. copyright, with the Apple clause as WebKit has it); see `native/audio/PORTS.md`.
+`CHROMIUM-LICENSE` is Chromium's repository LICENSE at the pinned commit, copied as is. The Blink audio files carry their own BSD notices (Google Inc. copyright, with the Apple clause as WebKit has it, or only clauses 1 and 2 in four files); the files from `media/`, `ui/`, `base/` and `renderer/modules/` carry `The Chromium Authors` copyright under Chromium's LICENSE; see `native/audio/PORTS.md` and `THIRD_PARTY_NOTICES.md`.
