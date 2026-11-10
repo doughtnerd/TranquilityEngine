@@ -165,7 +165,7 @@ export class EventSystem {
   private sink: AutomationSink | null = null;
   private sinkOf: AudioBackend | null = null;
   private ts: TsAutomation | null = null;
-  private readonly curveIds = new WeakMap<Curve, number>();
+  private curveIds = new WeakMap<Curve, number>();
   private readonly curvesById: Curve[] = [];
   private readonly freeGroups: number[] = [];
   private nextGroup = 1;
@@ -190,7 +190,7 @@ export class EventSystem {
 
   play(pathOrClip: string, options: EventOptions = {}, world = 0, sourceKey?: string): EventInstance | null {
     this.refresh();
-    this.reap();
+    this.reapIfEnded();
     const path = String(pathOrClip).replace(/^asset:/, "");
     const asset = path.toLowerCase().endsWith(".audioevent.json") ? loadAudioEvent(path) : clipEvent(path);
     if (!asset) return null;
@@ -237,7 +237,7 @@ export class EventSystem {
   update(dt: number): void {
     if (this.live.size === 0 && !this.ts && this.timers.length === 0) return;
     this.refresh();
-    this.reap();
+    this.reapIfEnded();
     const t = this.clock();
     while (this.timers.length > 0 && this.timers[0].at <= t) {
       const timer = heapPop(this.timers);
@@ -258,12 +258,14 @@ export class EventSystem {
     this.stopAll();
     this.sink = null; this.sinkOf = null; this.ts = null;
     this.curvesById.length = 0;
+    this.curveIds = new WeakMap(); // a parsed asset's curves outlive a reset (the asset cache), so their ids must go too
     this.freeGroups.length = 0; this.nextGroup = 1;
     this.lastPlay.clear();
     this.globals.clear(); this.globalsOf = null; this.busOf = null;
     this.seed = null;
     this.worlds.clear(); this.worldRefs.clear();
     this.lateStarts = 0;
+    this.endsSeen = mixer.voicesEnded;
     clipEvents.clear();
   }
 
@@ -336,6 +338,22 @@ export class EventSystem {
     for (const i of this.live) if (!i.playing) this.retire(i);
   }
 
+  /** The mixer's ended-voice count at the last scan. */
+  private endsSeen = 0;
+
+  /**
+   * Retire instances after a voice has ended somewhere: every backend tells the mixer when a voice ends (`voiceEnded`,
+   * which also feeds ducking), so one number compared per frame says whether any instance can have finished. Steady
+   * instances cost nothing here (ADR 0158 §6); the scan runs only after an end. Instances that end without a backend
+   * voice (stopped while still waiting for the core) are caught by the next end, the next play, or an id sweep.
+   */
+  private reapIfEnded(): void {
+    const ends = mixer.voicesEnded;
+    if (ends === this.endsSeen) return;
+    this.endsSeen = ends;
+    this.reap();
+  }
+
   /** @internal A curve's id on the backend, defined on first use. Null (with a warning) once the table is full. */
   curveId(curve: Curve): number | null {
     let id = this.curveIds.get(curve);
@@ -356,11 +374,21 @@ export class EventSystem {
     if (!child.range) return null;
     let c = this.blendCurves.get(child);
     if (!c) {
-      // Full level on [lo, hi]; fades of width `fade` either side, shaped close to equal power (easeOut in, easeIn
-      // out). No fade still gets a tiny one, so the edges are ordinary keys the core evaluates the same way.
+      // Full level on [lo, hi]; fades of width `fade` either side. Equal power (0158 §1): the fade in is sin and the
+      // fade out cos of the edge position, sampled into linear keys (12 per edge: a²+b² stays within 0.01 of 1 where
+      // a fade out meets a fade in; 26 keys, under the 32-key cap). No fade is a tiny linear ramp.
       const [lo, hi] = child.range;
-      const f = child.fade > 0 ? child.fade : 1e-4 * Math.max(1, hi - lo);
-      c = [[lo - f, 0, "easeOut"], [lo, 1], [hi, 1, "easeIn"], [hi + f, 0]];
+      if (!(child.fade > 0)) {
+        const f = 1e-4 * Math.max(1, hi - lo);
+        c = [[lo - f, 0], [lo, 1], [hi, 1], [hi + f, 0]];
+      } else {
+        const f = child.fade;
+        const N = 12;
+        const keys: [number, number][] = [];
+        for (let k = 0; k <= N; k++) keys.push([lo - f + (f * k) / N, Math.sin((k / N) * Math.PI / 2)]);
+        for (let k = 0; k <= N; k++) keys.push([hi + (f * k) / N, Math.cos((k / N) * Math.PI / 2)]);
+        c = keys;
+      }
       this.blendCurves.set(child, c);
     }
     return c;
@@ -544,6 +572,9 @@ interface SustainWatch {
   token: object;
   loopStart: number | null;
 }
+
+/** The poll interval for waiting on a voice's end: just past now, so the check is due at the next frame's `update` (and not again inside this one). */
+const RECHECK = 1e-6;
 
 /** A continuous random/sequence running. */
 interface Runner {
@@ -908,16 +939,16 @@ export class EventInstance {
     }
   }
 
-  /** Run `then` once every voice `of()` returns has stopped playing (checked on a 50 ms timer; only for unknown lengths). */
+  /** Run `then` once every voice `of()` returns has stopped playing (polled each frame; only for unknown lengths, so the next clip starts one frame late, ADR 0158 §6). */
   private whenDone(of: () => VoiceRec[], then: () => void): void {
     this.pending++;
     const check = () => {
       if (this.stopped) { this.pending--; return; }
-      if (of().some((v) => v.voice.playing)) { this.sys.schedule(this.sys.clock() + 0.05, this, check); return; }
+      if (of().some((v) => v.voice.playing)) { this.sys.schedule(this.sys.clock() + RECHECK, this, check); return; }
       this.pending--;
       then();
     };
-    this.sys.schedule(this.sys.clock() + 0.05, this, check);
+    this.sys.schedule(this.sys.clock() + RECHECK, this, check);
   }
 
   private switchChild(node: SwitchNode): number {

@@ -286,6 +286,8 @@ class PendingVoice implements AudioVoice {
   private failed = false;
   private paused = false;
   private fadeTo: number | null = null;
+  /** ADR 0158 §4: the loop region the event runtime asked for while waiting (the latest call wins). */
+  private loop: { start: number; end: number; looping: boolean } | null = null;
   private readonly localId = nextPendingId++;
   readonly queuedAt = performance.now();
 
@@ -321,6 +323,11 @@ class PendingVoice implements AudioVoice {
     this.inner = voice;
     if (this.fadeTo !== null) voice.fade(this.fadeTo, 0);
     if (this.paused) voice.pause();
+    // The request's `group` went with `play`. A loop region is applied here only where the voice takes it itself (the
+    // Babylon fallback; a state set, so the event runtime's re-send that follows repeats it harmlessly); a core voice
+    // gets it from that re-send through the core's automation, by id.
+    if (this.loop && voice.setLoop) voice.setLoop(this.loop.start, this.loop.end, this.loop.looping);
+    this.loop = null;
   }
   /** Left out at the hand-over (D5: an old or surplus one-shot). */
   drop(): void {
@@ -354,6 +361,11 @@ class PendingVoice implements AudioVoice {
   setBus(bus: string): void {
     if (this.inner) this.inner.setBus(bus);
     else this.req.bus = bus;
+  }
+  /** Recorded while waiting (so the event runtime's `TsAutomation` doesn't warn that part of a clip can't loop), forwarded after. */
+  setLoop(start: number, end: number, looping: boolean): void {
+    if (this.inner) this.inner.setLoop?.(start, end, looping);
+    else this.loop = { start, end, looping };
   }
   pause(): void {
     if (this.inner) this.inner.pause();
