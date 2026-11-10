@@ -316,7 +316,7 @@ pub fn after_render(core: &mut Core, frame: u64) {
 /// Most voices demoted in one quantum; a larger excess finishes over the next quanta.
 pub const DEMOTES_PER_QUANTUM: usize = 64;
 
-/// Demotes the lowest-`score` mixed voices (started or not, not already fading out) until at most
+/// Demotes the lowest-`score` mixed voices (started or not, not already fading out, not paused: A3.7) until at most
 /// `keep` remain, at most [`DEMOTES_PER_QUANTUM`] this quantum; returns how many. One pass over the
 /// slots (`voices::slots`) keeps the lowest scores in a bounded max-heap on the stack, then each is
 /// demoted with `voices::demote` (O(1) by id; its 5 ms fade, STATUS `demoted`). Same choice as
@@ -328,7 +328,7 @@ pub fn demote_lowest(core: &mut Core, keep: u32) -> u32 {
     let mut len = 0usize;
     let mut mixed = 0u32;
     for s in voices::slots(core) {
-        if (s.state != vs::SCHEDULED && s.state != vs::PLAYING) || s.flags & vf::MIXED == 0 || s.flags & vf::DEMOTING != 0 {
+        if (s.state != vs::SCHEDULED && s.state != vs::PLAYING) || s.flags & vf::MIXED == 0 || s.flags & (vf::DEMOTING | vf::PAUSED) != 0 {
             continue;
         }
         mixed += 1;

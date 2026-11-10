@@ -705,6 +705,8 @@ export class CoreBackend implements AudioBackend {
     const stamp = this.clockMap.stampFor(start);
     this.writer.play(a, stamp);
     this.playheads.start(i, stamp ?? this.clockMap.framesNow(), a.startOffsetFrames);
+    // A3.7: paused before it reached the core (locked, or its clip loading): it waits there, paused, until resumed.
+    if (f & VoiceFlag.PAUSED) this.writer.setPaused(id, true);
     if (start > 0) t.startFrame[i] = 0;
     this.spatialDirty[i] = 0;
   }

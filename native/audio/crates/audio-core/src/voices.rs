@@ -22,7 +22,7 @@
 //! the core-state region right after the status area (`status::STATUS_AREA_BYTES`).
 //!
 //! Each voice mixes into its bus's input buffer (`bus.rs`, A2.1; an unconfigured bus index goes to
-//! bus 0, the root). Not applied yet: `lpHz` (kept for the per-voice filter), SET_PAUSED.
+//! bus 0, the root). Not applied yet: `lpHz` (kept for the per-voice filter).
 //!
 //! **Mixed and virtual** (A3.1; architecture §2.2, §4.7 "promote and demote 5 ms"). Main's selection
 //! decides which voices are mixed and sends SET_MIXED for changes ([`set_mixed`]); the adaptive cap
@@ -37,6 +37,24 @@
 //!   direction ramping over the 5 ms instead.
 //! - A voice that hasn't started yet (`Scheduled`) changes at once with no fade: it starts mixed at
 //!   its gain (a clean onset), or virtual.
+//!
+//! **Paused** (A3.7; api-and-models §4.2 SET_PAUSED; architecture §2.2: "Paused: the playhead
+//! holds", "Paused --> Virtual: resume, then selection"). [`set_paused`]:
+//! - A paused voice neither renders nor advances: its position, ramps and panner hold exactly.
+//! - A mixed voice fades out first, over the same 5 ms `mix` ramp as a demote (flag `PAUSING`), so
+//!   there is no click; it renders and advances during those 5 ms, then holds at the frame the fade
+//!   ended on, out of the mix (`MIXED` clear). A virtual voice holds at once. A voice already
+//!   fading out to virtual finishes that fade, then holds.
+//! - Resume makes a held voice virtual from that same frame; main's selection, in the same batch,
+//!   promotes it (a 5 ms fade-in from the held frame) or leaves it virtual (keeping time from there).
+//!   A resume during the 5 ms fade-out turns the fade round (main hasn't demoted it), unless a
+//!   SET_MIXED 0 arrived meanwhile, which the fade then completes.
+//! - A voice not started yet doesn't start while paused; resumed after its start frame has passed,
+//!   it starts at once (not counted late).
+//! - STOP, or FADE with "stop at end", ends a held voice at the next quantum (it is silent). The
+//!   cap's own demote and its counts leave paused voices out (they are already leaving the mix);
+//!   main never promotes a paused voice (selection forces it virtual), and a promote while paused is
+//!   dropped. RESET and a new PLAY in the slot clear the pause.
 //!
 //! `process` never allocates: every buffer is a region or a fixed-size stack array.
 
@@ -75,6 +93,9 @@ pub mod flag {
     pub const PAUSED: u8 = 1 << 4;
     /// Mixed and fading out to virtual: `MIXED` clears when the `mix` ramp settles at 0.
     pub const DEMOTING: u8 = 1 << 5;
+    /// Paused while mixed and fading out (A3.7): `MIXED` clears when the `mix` ramp settles at 0,
+    /// and the voice holds from then on. A resume before that turns the fade round.
+    pub const PAUSING: u8 = 1 << 6;
 }
 
 /// The promote and demote fade (architecture §4.7: "promote and demote 5 ms").
@@ -270,6 +291,10 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) {
         let slot = &mut v.slots[index];
         let start = match slot.state {
             state::SCHEDULED => {
+                if slot.flags & flag::PAUSED != 0 {
+                    // Paused before it started: it waits for the resume, not counted late (A3.7).
+                    continue;
+                }
                 let start = if slot.start_frame == ASAP {
                     from
                 } else if slot.start_frame < frame + from as u64 {
@@ -298,7 +323,12 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) {
 /// Renders one playing voice over frames `from..to` (mixed) or keeps its time (virtual), and ends
 /// it when its clip runs out or its stopping fade settles.
 fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
-    if slot.flags & flag::PAUSED != 0 {
+    if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
+        // Paused and out of the mix (A3.7): holds its position, ramps and panner exactly. A stop
+        // (or a stopping fade) asked for while held ends it now: it is silent.
+        if slot.flags & flag::STOP_ON_FADE_END != 0 {
+            slot.state = state::ENDED;
+        }
         return;
     }
     let Some(clip) = clips.frames(slot.clip) else {
@@ -314,6 +344,11 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, from: usize, to: usize,
     if stopping {
         // Render only up to the end of the stopping fade.
         n = n.min(slot.fade.remaining as usize);
+    }
+    if slot.flags & flag::PAUSED != 0 {
+        // Paused and still mixed: the fade-out's tail. Render (and advance) only to its end, so the
+        // voice holds at exactly the frame the fade ended on (A3.7).
+        n = n.min(slot.mix.remaining as usize);
     }
     let looping = slot.flags & flag::LOOP != 0;
     let mut steps = [0.0f32; QUANTUM];
@@ -339,9 +374,10 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, from: usize, to: usize,
             }
         }
         slot.panner.mix(&l[..n], &r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
-        if slot.flags & flag::DEMOTING != 0 && slot.mix.is_settled() {
-            // The demote fade is done: virtual from the next frame, keeping time.
-            slot.flags &= !(flag::MIXED | flag::DEMOTING);
+        if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
+            // The demote (or pause) fade is done: virtual from the next frame, keeping time (or,
+            // paused, holding from here).
+            slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
         }
     } else {
         resample::advance(&mut slot.position, &steps[..n], clip.source.frames, looping);
@@ -590,6 +626,10 @@ pub fn set_mixed(core: &mut Core, m: &wire::SetMixed) {
 }
 
 fn promote_slot(s: &mut VoiceSlot, gain: f32, dir: [f32; 3], lp_hz: f32, frames: u32) {
+    if s.flags & flag::PAUSED != 0 {
+        // Main never promotes a paused voice (selection forces it virtual); dropped (A3.7).
+        return;
+    }
     s.lp_hz = lp_hz;
     if s.state == state::SCHEDULED {
         // Not started: start mixed at its gain, no fade (a clean onset).
@@ -623,6 +663,11 @@ fn demote_slot(s: &mut VoiceSlot, frames: u32) -> bool {
     if s.flags & flag::MIXED == 0 || s.flags & flag::DEMOTING != 0 {
         return false;
     }
+    if s.flags & flag::PAUSING != 0 {
+        // Already fading out for a pause (A3.7): the same fade ends it; a resume no longer turns it round.
+        s.flags |= flag::DEMOTING;
+        return true;
+    }
     if s.state == state::SCHEDULED {
         s.flags &= !flag::MIXED;
         s.mix = Ramp::at(0.0);
@@ -645,6 +690,9 @@ pub fn demote(core: &mut Core, voice_id: u32) -> bool {
     let changed = {
         let v = view(core.regions_mut());
         let Some(index) = find(&v, voice_id) else { return false };
+        if v.slots[index].flags & flag::PAUSED != 0 {
+            return false; // already leaving the mix (A3.7)
+        }
         demote_slot(&mut v.slots[index], frames)
     };
     if changed {
@@ -653,7 +701,7 @@ pub fn demote(core: &mut Core, voice_id: u32) -> bool {
     changed
 }
 
-/// Mixed voices that aren't fading out (what counts against a mixed cap).
+/// Mixed voices that aren't fading out or paused (what counts against a mixed cap).
 pub fn mixed_live(core: &mut Core) -> u32 {
     let v = view(core.regions_mut());
     let mut n = 0;
@@ -661,7 +709,7 @@ pub fn mixed_live(core: &mut Core) -> u32 {
     while cursor != 0 {
         let s = &v.slots[cursor as usize - 1];
         cursor = s.next;
-        if (s.state == state::SCHEDULED || s.state == state::PLAYING) && s.flags & flag::MIXED != 0 && s.flags & flag::DEMOTING == 0 {
+        if (s.state == state::SCHEDULED || s.state == state::PLAYING) && s.flags & flag::MIXED != 0 && s.flags & (flag::DEMOTING | flag::PAUSED) == 0 {
             n += 1;
         }
     }
@@ -682,7 +730,7 @@ pub fn demote_lowest(core: &mut Core, keep: u32) -> u32 {
             while cursor != 0 {
                 let s = &v.slots[cursor as usize - 1];
                 cursor = s.next;
-                if (s.state == state::SCHEDULED || s.state == state::PLAYING) && s.flags & flag::MIXED != 0 && s.flags & flag::DEMOTING == 0 && best.is_none_or(|(score, _)| s.score < score) {
+                if (s.state == state::SCHEDULED || s.state == state::PLAYING) && s.flags & flag::MIXED != 0 && s.flags & (flag::DEMOTING | flag::PAUSED) == 0 && best.is_none_or(|(score, _)| s.score < score) {
                     best = Some((s.score, s.id));
                 }
             }
@@ -696,6 +744,53 @@ pub fn demote_lowest(core: &mut Core, keep: u32) -> u32 {
         excess -= 1;
     }
     demoted
+}
+
+/// SET_PAUSED (api-and-models §4.2, A3.7): pauses or resumes `voice_id`; see the module notes. A
+/// stale id is dropped; a voice already in the asked state is left alone.
+pub fn set_paused(core: &mut Core, voice_id: u32, paused: bool) {
+    let frames = mix_fade_frames(core);
+    // The next quantum's first frame (the frame after the last one rendered).
+    let now = core.frame() + QUANTUM as u64;
+    let v = view(core.regions_mut());
+    let Some(index) = find(&v, voice_id) else { return };
+    let s = &mut v.slots[index];
+    if paused {
+        pause_slot(s, frames);
+    } else {
+        resume_slot(s, frames, now);
+    }
+}
+
+fn pause_slot(s: &mut VoiceSlot, frames: u32) {
+    if s.flags & flag::PAUSED != 0 {
+        return;
+    }
+    s.flags |= flag::PAUSED;
+    if s.state == state::PLAYING && s.flags & flag::MIXED != 0 && s.flags & flag::DEMOTING == 0 {
+        // Mixed: fade out over 5 ms, then hold (a voice already demoting finishes its own fade).
+        s.flags |= flag::PAUSING;
+        s.mix.set_target(0.0, frames);
+    }
+}
+
+/// `now` is the context frame of the next quantum.
+fn resume_slot(s: &mut VoiceSlot, frames: u32, now: u64) {
+    if s.flags & flag::PAUSED == 0 {
+        return;
+    }
+    s.flags &= !flag::PAUSED;
+    if s.flags & flag::PAUSING != 0 {
+        // Resumed during the fade-out: turn round, unless main demoted it meanwhile.
+        s.flags &= !flag::PAUSING;
+        if s.flags & flag::DEMOTING == 0 {
+            s.mix.set_target(1.0, frames);
+        }
+    }
+    if s.state == state::SCHEDULED && s.start_frame != ASAP && s.start_frame < now {
+        // Its start passed while it was paused: start now, not counted late.
+        s.start_frame = ASAP;
+    }
 }
 
 #[cfg(test)]

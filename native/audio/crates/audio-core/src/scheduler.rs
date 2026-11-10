@@ -7,10 +7,12 @@
 //!   skipped. BATCH (1) and REPLAY (12) carry records; other kinds aren't handled here.
 //! - Every record head is validated before any record applies (lengths inside the message, at least
 //!   the head; BUS_CONFIG and BUS_MIX also their per-bus entries), so a malformed batch changes
-//!   nothing. Unknown opcodes, and the ones later tasks apply (SET_PAUSED, SEEK), are skipped by
-//!   their length.
+//!   nothing. Unknown opcodes, and the ones later tasks apply (SEEK), are skipped by their length.
 //! - SET_MIXED (A3.1, `voices::set_mixed`) applies at once, in arrival order, whatever its
 //!   `frameOffset` (main's selection sends it asap; its 5 ms fade starts with the next quantum).
+//! - SET_PAUSED (A3.7, `voices::set_paused`) is scheduled like STOP: asap applies at once, a stamped
+//!   one at its frame (main sends it asap, ahead of the frame's SET_MIXED, so a resume and the
+//!   promote that follows it land together).
 //! - BUS_CONFIG, BUS_MIX and MASTER (A2.1, `bus.rs`) apply at once, in arrival order, whatever
 //!   their `frameOffset`; their ramps start with the next quantum.
 //! - RESET (A1.3b) applies at once, in arrival order, whatever its `frameOffset`: every voice and
@@ -25,7 +27,7 @@
 //! offset is the absolute frame `firstFrame + frameOffset`:
 //! - PLAY writes its slot at once with that start frame (so later records for the voice find it),
 //!   and the voice starts at the sample offset in its quantum.
-//! - STOP, SET_PARAMS and FADE wait in the pending queue (the `Pending` region, kept sorted by frame,
+//! - STOP, SET_PARAMS, FADE and SET_PAUSED wait in the pending queue (the `Pending` region, kept sorted by frame,
 //!   stable) and apply at their sample offset in the quantum that contains their frame.
 //! - A stamped frame already before the quantum being rendered applies at offset 0 and counts in
 //!   `lateCommands` and `maxLatenessFrames` (§4.4). A full pending queue applies the record at once.
@@ -42,18 +44,18 @@ use crate::layout::{PENDING_CAPACITY, PENDING_RECORD_BYTES};
 use crate::{bus, status, voices};
 
 /// One stamped record waiting for its frame: 48 bytes (`PENDING_RECORD_BYTES`), all-zero valid.
-/// STOP, SET_PARAMS and FADE only (PLAY is written to its slot at once).
+/// STOP, SET_PARAMS, FADE and SET_PAUSED only (PLAY is written to its slot at once).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PendingRecord {
     /// Absolute context frame.
     pub frame: u64,
     pub voice_id: u32,
-    /// The wire opcode (STOP, SET_PARAMS or FADE).
+    /// The wire opcode (STOP, SET_PARAMS, FADE or SET_PAUSED).
     pub op: u8,
     /// SET_PARAMS `mask` (bits 0–6).
     pub mask: u8,
-    /// SET_PARAMS: the panner kind; FADE: bit0 stop at end.
+    /// SET_PARAMS: the panner kind; FADE: bit0 stop at end; SET_PAUSED: bit0 paused.
     pub flags: u8,
     /// SET_PARAMS `bus` (bus indices fit a byte: at most 256 buses).
     pub bus: u8,
@@ -143,6 +145,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::BUS_MIX => wire::BusMix::FIXED_END,
             wire::op::MASTER => Master::FIXED_END,
             wire::op::SET_MIXED => wire::SetMixed::FIXED_END,
+            wire::op::SET_PAUSED => wire::SetPaused::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
         if len < min || off + len > msg.len() {
@@ -208,6 +211,12 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::SET_MIXED => {
                 if let Ok((m, _)) = wire::SetMixed::read(msg, off) {
                     voices::set_mixed(core, &m);
+                }
+            }
+            wire::op::SET_PAUSED => {
+                if let Ok((p, _)) = wire::SetPaused::read(msg, off) {
+                    let record = PendingRecord { voice_id: p.voice_id, op: wire::op::SET_PAUSED as u8, flags: (p.paused != 0) as u8, ..Default::default() };
+                    schedule(core, record, at);
                 }
             }
             wire::op::BUS_CONFIG => bus::configure(core, msg, off),
@@ -323,6 +332,7 @@ pub fn apply(core: &mut Core, record: &PendingRecord) {
     match record.op as u16 {
         wire::op::STOP => voices::stop(core, record.voice_id, record.frames),
         wire::op::FADE => voices::fade(core, record.voice_id, record.values[0], record.frames, record.flags & 1 != 0),
+        wire::op::SET_PAUSED => voices::set_paused(core, record.voice_id, record.flags & 1 != 0),
         wire::op::SET_PARAMS => {
             let v = record.values;
             let p = SetParams {
