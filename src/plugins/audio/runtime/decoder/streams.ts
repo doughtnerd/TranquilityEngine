@@ -54,14 +54,8 @@ import { CreditWindow, STREAM_CHUNK_FRAMES, STREAM_WINDOW_FRAMES } from "./credi
 import type { ClipInfo, DecoderReply, StreamLoopMessage, StreamOpenMessage, StreamPortLike, StreamRequest, StreamSeekMessage } from "./protocol";
 import { DecoderError, type DecoderWasm, type RawInfo } from "./wasm";
 
-/**
- * E4.4: a `streamLoop` with the stream frame (on the voice's playhead, the core's stream frames) where the change lands:
- * the end of the voice's current pass, as main predicts it. Contract C2's `StreamLoopMessage` has no field for it;
- * main adds this one (`decoderClient.ts` `loopStream`) and a worker without it ignores it. Absent: where the worker is.
- */
-export interface StreamLoopAt extends StreamLoopMessage {
-  readonly atStreamFrame?: number;
-}
+/** E4.4: kept as an alias; `atStreamFrame` is now part of `StreamLoopMessage` (contract C2). */
+export type StreamLoopAt = StreamLoopMessage;
 
 /** A loop region in file frames, `end` exclusive (0: the file's end). */
 export interface StreamRegion {

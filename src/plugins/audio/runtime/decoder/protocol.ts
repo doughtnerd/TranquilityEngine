@@ -81,6 +81,12 @@ export interface StreamLoopMessage {
   readonly looping: boolean;
   readonly loopStartFrame?: number;
   readonly loopEndFrame?: number;
+  /**
+   * E4.4: the stream frame the change lands on (the end of the voice's current pass, predicted on main from its playhead).
+   * The worker stops wrapping (or changes region) there, or splices a new epoch from it if it already sent past it.
+   * Absent: at the next seam the worker reaches.
+   */
+  readonly atStreamFrame?: number;
 }
 
 /** B3: the ring buffer has room for `frames` more frames (credit-based flow control). */
