@@ -316,3 +316,30 @@ Waiting on the owner: the limiter (where it goes) and the parity tolerance; then
 ## MS4 merged (2026-11-10)
 
 Merged to master with the owner's approval ("when the limiter lands, merge MS4").
+
+## MS5 wave 1 (A3.1, A3.2) and A2.9 (the limiter look-ahead)
+
+MS4 merged to master (`85080c9`); its issues closed. Owner decisions (2026-11-10): add the limiter's look-ahead and keep the 0 dBFS ceiling, as a project setting in milliseconds (`audio.limiterLookaheadMs`, default 1.5, 0..5, applied when the core starts); add A3.6, a 4-point resampler, to MS5 wave 2 (#106). Three Opus leads in parallel from `85080c9`.
+
+**Landed**
+- A3.2 (#83): most of the clock and scheduler existed from A1.2 and A1.4. Added `lookahead.ts` (pure L, ramps, `firstFrame`, the stamp-or-asap rule), re-anchoring on the first timestamp after a gap (it waited for 10 rejections), timestamp sanity in `browserHostClock`, §8's timing fields in `Audio.debug().core`, and scheduler and loopback tests: `at` lands **exactly** on its frame; late records counted (lateness 408 frames with a host clock 10 ms behind); far-future `at` waits. Choice accepted: an `at` not after the frame the core will be rendering when the batch arrives (up to about Λ ahead of `Audio.time`) goes asap and isn't counted late.
+- A3.1 (#82): `selection.ts` each frame over all logical voices: audibility = gain × fade × bus effective gain × (1 + priority/255); `quickselect.ts` (three-way partition, median of three, O(n), no allocation or recursion) for the top `min(voices.mixed, mixedCap)`; 1.2× hysteresis and a 3-frame dwell; inaudible Worlds and paused voices forced virtual; a bus over `maxVoices` has its excess stolen (lowest priority, then audibility). The core applies SET_MIXED with 5 ms fades (demoted voices keep time; promotes resume on the right frame; a promote mid-demote turns round), and has `voices::demote`/`demote_lowest` for A3.3. Fix: a voice stolen while on the core kept sounding until its slot was reused; it's stopped with a 5 ms fade now. `Audio.debug()` shows `"stolen"` (last 60 frames) and `"busMuted"`.
+- A2.9 (#107): `limiter.rs` keeps A2.8's path for 0 ms (bit-exact against a copy of A2.8) and adds the look-ahead: a running max of the needed reduction over D+1 frames, A2.8's hold and release on it, then a box-filter average with an integer running sum (exact, no drift); the ceiling still holds exactly and a step becomes a linear ramp that lands on the peak. Latency `round(ms × rate / 1000)` frames (72 at 48 kHz for 1.5 ms); the delay line is 480 frames (5 ms at 96 kHz; at 192 kHz the longest look-ahead is 2.5 ms). New export `myco_audio_set_limiter_lookahead` after init (**ABI 1.1**); the setting, an editor field, the preset path, and `ClockMap`'s `outputLatencyFrames` (subtracted from `Audio.time`; `at` is heard on its frame at 0 and 1.5 ms).
+
+**Numbers**
+- Selection, 4,096 voices: p50 0.067 ms, p99 0.097 ms at cap 128; p99 0.131 ms at cap 256 (gate 0.25 ms).
+- Limiter, a sine 6 dB over, error against the scaled sine over the first 20 ms (instant → 1.5 ms look-ahead): 100 Hz −18.0 → −27.0 dB, 440 Hz −24.4 → −45.7 dB, 1 kHz −27.9 → −55.5 dB. Cost 0.0018 ms per quantum while limiting.
+- Goldens re-recorded at 1.5 ms: 14 of 16 are the old output delayed 72 frames, bit for bit; `bus-mute` and `spatial-gains` differ only where they limit. Parity renders at 0 ms; `reference.json` unchanged.
+- Mixer wasm 102,482 B (100.1 KB), source hash `4f78cbbb…`, ABI 1.1; `cargo test` 330 passed, 3 ignored; `npm test` 351 files, 3,673 passed; `npm run build` green; parity, sound-lab, babylon and project-settings e2e 16 passed, 1 skipped (HRTF).
+
+**Integration fixes at the merges**
+- `scheduler.rs`: A3.1 added SET_MIXED's dispatch (12 lines) beside A3.2's tests; merged cleanly.
+- `CoreBackendHost.preset` carries both A3.1's `maxMixed` and A2.9's `limiterLookaheadMs` (the one source conflict).
+- A3.1's `mixed_virtual.rs` checks fades frame by frame in core time, so it runs the core at 0 ms look-ahead.
+
+**Open, assigned in wave 2**
+- Nothing tells selection which World has the view (`CoreBackend.setWorldAudible` exists, untested end to end): A3.4b.
+- The core's `score` (for its own lowest-score demote) is sent only with PLAY: A3.3 refreshes it.
+- `Audio.debug()`'s `mixedCap` is 0 until A3.3.
+
+**Reserve used:** none.
