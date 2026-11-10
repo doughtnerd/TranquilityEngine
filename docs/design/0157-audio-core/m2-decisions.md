@@ -21,3 +21,10 @@ M2 is in wave 1 (the pilot). E1, E2 and E3a are on master with the plan.
 - **Chosen:** logged in the build log and here; no task changes them. (a) Only voices with a low-pass binding are filtered (M1 never applied per-voice `lpHz`; unbound voices stay bit-identical). (b) AUTOMATE, PARAM and CURVES apply on arrival, not stamped; the writer orders AUTOMATE after its PLAY. (c) Pitch automation ramps per frame; virtual voices advance at the block's mean pitch. (d) A voice past `loopEnd` when SET_LOOP arrives plays on to the end. (e) Curve uploads over the 256 KB staging area are dropped past ≈ 660 full curves (upload per asset; E3.1 spreads its replay over batches). (f) STATUS carries no `group` (0158 §6's line); main knows each voice's group.
 - **Why:** each keeps M1's goldens bit-identical or avoids a wire record that can't hold eight bindings.
 - **If changed:** (a) is `audio-core/src/automation.rs` and `voices.rs`'s filter gate; (f) would need a STATUS voice section, which STATUS doesn't have.
+
+### 2. Babylon debug rows only for event voices (E3.2)
+- **Question:** contract C3 adds `voices[].event`; on the Babylon fallback `debug().voices` has been empty for plain voices, and existing tests assert that.
+- **Chosen:** the fallback lists only voices belonging to an event instance (nonzero `group`), with `state` "playing", `priority` 0, `audibility` 1, `playheadSeconds`/`world`/`owner` null, `gain` = volume × fade.
+- **Why:** keeps M1's fallback behaviour and tests; the panel's grouping needs event voices only.
+- **If changed:** drop the `group` filter in `babylonBackend.ts`'s `debug()` and relax the `[]` assertions in `babylonBackend.test.ts` and `audioApi.test.ts`.
+- **Open follow-up:** whether changing `loopStart`/`loopEnd` on an already-playing Babylon sound takes effect isn't covered by the mocks; check in a real browser in the E5.4 `@slow` spec (Babylon backend).
