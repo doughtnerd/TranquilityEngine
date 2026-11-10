@@ -105,6 +105,8 @@ class BabylonVoice implements AudioVoice {
   private unsubPoints: (() => void) | null = null;
   /** True once a `setLoop` (an event's) set the region: the clip's own points don't override it. */
   private regionSet = false;
+  /** True while the region is the clip's own points (their end is clamped to the buffer; an event's isn't). */
+  private regionIsFile = false;
   /** The sound's length in seconds once its buffer is loaded (a loop end is clamped to it). */
   private duration = Number.POSITIVE_INFINITY;
 
@@ -232,6 +234,7 @@ class BabylonVoice implements AudioVoice {
     this.unsubPoints = null;
     if (this.ended || this.regionSet || !p) return;
     this.region = { start: p.start, end: p.end };
+    this.regionIsFile = true;
     if (this.sound) this.applyLoop();
   }
 
@@ -260,7 +263,7 @@ class BabylonVoice implements AudioVoice {
       const s = sound as StaticSound;
       s.loopStart = Math.max(0, region.start);
       // The TypeScript reader doesn't clamp to the file's length (the Rust decoder does).
-      s.loopEnd = Math.min(Math.max(0, region.end), this.duration);
+      s.loopEnd = this.regionIsFile ? Math.min(Math.max(0, region.end), this.duration) : Math.max(0, region.end);
     }
     sound.loop = this.looping;
   }
@@ -343,6 +346,7 @@ class BabylonVoice implements AudioVoice {
     if (this.ended) return;
     this.region = { start: Number.isFinite(start) ? start : 0, end: Number.isFinite(end) ? end : 0 };
     this.regionSet = true;
+    this.regionIsFile = false;
     this.looping = looping;
     this.applyLoop();
   }

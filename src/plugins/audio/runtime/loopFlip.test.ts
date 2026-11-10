@@ -318,8 +318,8 @@ describe("a plain looping clip on Babylon uses its loop points (E4.5)", () => {
 describe("selection sees a fading voice at its smoothed gain until the fade ends (E4.5)", () => {
   const SR = 48_000;
   function setup() {
-    const table = new VoiceTable(8, 1);
-    const id = table.allocate("Master", 128, 0, VoiceState.PLAYING);
+    const table = new VoiceTable(8);
+    const id = table.allocate(0, 128, 0, VoiceState.PLAYING);
     const i = id & 0xffff;
     const state = { now: 0 };
     const deps = {
