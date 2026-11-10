@@ -375,3 +375,5 @@ K6 (`recovery.ts`'s `rebuild(reason)` stub) was committed first (`0caec02`). Fou
 - Wasm headroom: 113.0 KB of 150 KB, and H3 is expected to add about 28 KB. `wasm-opt` isn't installed here.
 
 **Reserve used:** none.
+
+**Owner decision (2026-11-10), A3.6 (#106):** accepted as built and closed. Professional samplers band-limit (windowed sinc, multisampling); game middleware mostly doesn't (FMOD's default resampler is linear; the browser's `AudioBufferSourceNode` is linear), and the 4-point resampler is at or above that. Aliasing is audible only for large pitch-ups (≥ about 1.5×) of bright content; the guide says so (`docs/guide/audio-mixer.md`, Limits). Band-limited resampling (octave mipmaps with half-band levels, per clip or as a quality setting) is a post-M1 option, #110.
