@@ -470,3 +470,13 @@ Started from master `4aee234` in parallel: H3 (#89, Opus) and B1 (#91, Opus).
 ## MS8: everything buildable without the owner is done (2026-11-10)
 
 Done: A3.5, C1, C1b, C2, C4's checklist. Waiting on the owner: **C3** (the 30-minute soak with 0 underruns on Windows WebView2 and Chromium, Linux WebKitGTK and the low-end Android phone, using `samples/stress` `?soak=30`; it also sizes the "low" preset and gives the reference-machine numbers for the 1.3 ms p99.9 gate and `REFERENCE_SPEEDUP`), and **C4** (running and signing `listening-pass.md`). Then the 0157 row moves to Partial (M1 done).
+
+## C3: first soak result (owner, 2026-11-10)
+
+**Windows, Edge 157 (Chromium) browser, 32 cores, 48 kHz, `samples/stress` `?soak=30`, high preset: PASS.** 30 of 30 minutes; underruns 0, late commands 0, stream starves 0, stream errors 0, traps 0, rebuilds 0; dropped plays 35 (the 4,096 logical limit); peaks: logical 4,096, mixed 265, HRTF 32; the cap went 256 → 184 in the first minutes and stayed at 184; work units max 1,792,910 (budget 2,600,000); 58 main-thread stalls over 100 ms (longest 460 ms, minutes 7–8, likely the owner opening the Audio Debug panel) with no underrun. The owner also reports the Sound Lab listening checks look right.
+
+**Findings**
+- The Audio Debug panel rendered a row per voice four times a second (≈4,000 rows), which tanked the editor's frame rate; it now shows the 64 most audible voices and counts the rest by state.
+- **The cap is held by the work-unit model, not by real load:** a 32-core machine with zero underruns settled at 184 mixed voices, because the modelled p99 (≈1.58–1.79 M work units) sits in §6.3's 55–70% hold band of the provisional budget (owner-review 30), so it never climbs back to 256.
+
+**Still to run for C3:** Windows WebView2 (the Tauri desktop app), Linux WebKitGTK, the low-end Android phone.
