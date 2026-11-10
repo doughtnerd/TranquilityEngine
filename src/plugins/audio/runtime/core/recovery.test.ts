@@ -2,6 +2,7 @@
 // voices; the 4th within 60 s goes silent with one warning"). End to end on the loopback host with the test-hooks wasm:
 // a real trap inside `myco_audio_process`, the shell's catch, the host replacing its node and link (`respawn`), the
 // registry re-sending clips and the backend replaying its voices, all through the real `AudioHost` and `CoreBackend`.
+import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
@@ -84,12 +85,11 @@ async function rig() {
     send: (m) => link.post(m),
     nextSeq: () => link.nextSeq(),
     fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
-    decode: async (encoded) => {
+    decodeWorker: fakeDecoder((encoded) => {
       const path = new TextDecoder().decode(encoded);
       decodes.push(path);
       return { frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [path.startsWith("c") ? new Float32Array(CLIP_FRAMES).fill(0.5) : ramp()] };
-    },
-    clipFormat: ClipFormat.F32,
+    }),
     nextFrame: (cb) => cb(),
     nextQuantum: (cb) => cb(),
   });
@@ -440,7 +440,7 @@ describe("ClipRegistry.resend (A3.4a)", () => {
     const clips = createClipRegistry({
       send: (m) => void sent.push(m),
       fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
-      decode: async () => ({ frames: 256, channels: 1, sampleRate: RATE, channelData: [new Float32Array(256)] }),
+      decodeWorker: fakeDecoder(async () => ({ frames: 256, channels: 1, sampleRate: RATE, channelData: [new Float32Array(256)] })),
       nextFrame: (cb) => cb(),
       nextQuantum: (cb) => cb(),
     });

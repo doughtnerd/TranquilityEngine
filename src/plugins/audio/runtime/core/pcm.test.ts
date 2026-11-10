@@ -1,24 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { interleaveF32, interleaveI16 } from "./pcm";
+import { interleaveI16 } from "./fakeDecoder";
+import { i16ToF32 } from "./pcm";
 
-describe("pcm (A1.3a-L1)", () => {
-  it("interleaveF32 interleaves planar channels from a start frame", () => {
-    const left = new Float32Array([0.1, 0.2, 0.3, 0.4]);
-    const right = new Float32Array([-0.1, -0.2, -0.3, -0.4]);
-    const dst = new Float32Array(4);
-    interleaveF32([left, right], 1, 2, dst);
-    expect(Array.from(dst)).toEqual([0.2, -0.2, 0.3, -0.3].map((v) => Math.fround(v)));
-  });
-
-  it("interleaveF32 handles mono and a zero-frame range", () => {
-    const mono = new Float32Array([0.5, -0.5, 0.25]);
+describe("pcm", () => {
+  it("i16ToF32 is the inverse of the wire's scaling at the ends and zero", () => {
     const dst = new Float32Array(3);
-    interleaveF32([mono], 0, 3, dst);
-    expect(Array.from(dst)).toEqual([0.5, -0.5, 0.25]);
-
-    const untouched = new Float32Array([9, 9]);
-    interleaveF32([mono, mono], 0, 0, untouched);
-    expect(Array.from(untouched)).toEqual([9, 9]);
+    i16ToF32(Int16Array.of(-32768, 32767, 0), dst);
+    expect(Array.from(dst)).toEqual([-1, 1, 0]);
+    const half = new Float32Array(2);
+    i16ToF32(Int16Array.of(16384, -16384), half);
+    expect(half[0]).toBeCloseTo(0.5, 4);
+    expect(half[1]).toBe(-0.5);
   });
 
   it("interleaveI16 maps -1 to -32768, +1 to 32767, 0 to 0", () => {

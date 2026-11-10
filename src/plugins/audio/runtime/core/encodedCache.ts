@@ -9,7 +9,7 @@ export const ENCODED_CACHE_CAP_BYTES = 32 * 1024 * 1024;
 export interface EncodedCache {
   /** Stores `bytes` under `path`. Returns false (and stores nothing, leaving any old entry for `path`) if the total would pass the cap after replacing the entry for `path`. */
   set(path: string, bytes: ArrayBuffer): boolean;
-  /** The stored bytes (the same ArrayBuffer `set` was given; callers copy before `decodeAudioData`), or undefined. */
+  /** The stored bytes (the same ArrayBuffer `set` was given; callers copy before posting it to the worker), or undefined. */
   get(path: string): ArrayBuffer | undefined;
   has(path: string): boolean;
   /** Removes `path`; returns whether it was there. */

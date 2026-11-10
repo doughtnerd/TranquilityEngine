@@ -2,6 +2,7 @@
 // key (`worldKeyOf`), and the audio system reports every attached World's view to `CoreBackend.setWorldAudible`, so the
 // voices of a World without the view go virtual (in time, silent) and come back in time when the view returns. Run on the
 // loopback host with fake Worlds (only `render` is looked at).
+import { fakeDecoder } from "./core/fakeDecoder";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../engine/audio/settings";
@@ -65,8 +66,7 @@ async function rig() {
     send: (m) => link.post(m),
     nextSeq: () => link.nextSeq(),
     fetchBytes: async () => new ArrayBuffer(8),
-    decode: async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] }),
-    clipFormat: 0,
+    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] })),
     nextFrame: (cb) => cb(),
     nextQuantum: (cb) => cb(),
   });

@@ -2,6 +2,7 @@
 // coreBackend). The mixed cap holds in the core's counts and the output, a louder voice is promoted after the dwell,
 // an inaudible World's voices go silent and come back in time, a bus past `maxVoices` steals (the handle reads
 // "stolen" and `Audio.debug()` lists it), and a voice stolen for a sound still loading is stopped on the core.
+import { fakeDecoder } from "./fakeDecoder";
 import { describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
@@ -28,8 +29,7 @@ async function rig(opts: { maxMixed: number; maxLogical?: number; settings?: Aud
     send: (m) => link.post(m),
     nextSeq: () => link.nextSeq(),
     fetchBytes: async (path) => (pending.has(path) ? new Promise<ArrayBuffer>(() => {}) : new ArrayBuffer(8)),
-    decode: async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] }),
-    clipFormat: 0,
+    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] })),
     nextFrame: (cb) => cb(),
     nextQuantum: (cb) => cb(),
   });

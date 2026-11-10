@@ -2,6 +2,7 @@
 // End to end on the loopback host: the real `AudioHost` closes its fake context and makes a new one through `recreate`,
 // which the loopback serves with a new core initialised at the new rate (`LoopbackHost.recreate`: frames from 0, the
 // fake clock's context clock restarted); the real `CoreBackend` carries `Audio.time`, the playheads and the clips across.
+import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
@@ -112,18 +113,17 @@ async function rig(options: RigOptions = {}) {
   });
   hosts.push(host);
   const link = loop.link;
-  const decodes: { path: string; rate: number | undefined }[] = [];
+  const decodes: { path: string }[] = [];
   const clips = createClipRegistry({
     send: (m) => link.post(m),
     nextSeq: () => link.nextSeq(),
     fetchBytes: async (path) => new TextEncoder().encode(path).buffer as ArrayBuffer,
-    // Every clip decodes at 48 kHz (its own rate) whatever the context's: a constant 0.5 for paths starting "c".
-    decode: async (encoded, rate) => {
+    // Every clip decodes at 48 kHz (its own rate, as the worker gives it) whatever the context's: a constant 0.5 for paths starting "c".
+    decodeWorker: fakeDecoder((encoded) => {
       const path = new TextDecoder().decode(encoded);
-      decodes.push({ path, rate });
+      decodes.push({ path });
       return { frames: CLIP_FRAMES, channels: 1, sampleRate: RATE, channelData: [path.startsWith("c") ? new Float32Array(CLIP_FRAMES).fill(0.5) : ramp()] };
-    },
-    clipFormat: ClipFormat.F32,
+    }),
     nextFrame: (cb) => cb(),
     nextQuantum: (cb) => cb(),
   });
@@ -246,8 +246,8 @@ describe("the rebuild into a new context on the loopback host (A3.4c)", () => {
     expect(host.context.sampleRate).toBe(NEW_RATE);
     await step(20);
     expect(r.clips.state(clip)).toBe("ready");
-    // The clip kept its own rate: re-decoded at 48 kHz, not at the context's.
-    expect(r.decodes.filter((d) => d.path === "c-tone.wav").map((d) => d.rate)).toEqual([undefined, RATE]);
+    // The clip was decoded again by the worker, which gives the file's own rate (48 kHz), not the context's.
+    expect(r.decodes.filter((d) => d.path === "c-tone.wav")).toHaveLength(2);
     expect(backend.clockMap.timeOffset).toBeGreaterThan(0);
     const at = backend.time + 0.3;
     backend.play(req("c-tone.wav", { at, loop: false }));

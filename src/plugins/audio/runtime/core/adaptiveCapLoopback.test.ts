@@ -4,6 +4,7 @@
 // drops at once and demotes the lowest-score voices itself. STATUS carries `mixedCap` and `demoted`, selection runs at
 // the lower cap without promoting past it, `Audio.debug()` shows the cap, and after 5 s of calm the cap climbs back
 // once a second and selection re-promotes.
+import { fakeDecoder } from "./fakeDecoder";
 import { describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
@@ -31,8 +32,7 @@ async function rig(maxMixed: number) {
     send: (m) => link.post(m),
     nextSeq: () => link.nextSeq(),
     fetchBytes: async () => new ArrayBuffer(8),
-    decode: async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] }),
-    clipFormat: 0,
+    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] })),
     nextFrame: (cb) => cb(),
     nextQuantum: (cb) => cb(),
   });

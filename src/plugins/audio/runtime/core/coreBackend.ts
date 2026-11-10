@@ -52,8 +52,6 @@ import { PlayheadTracker, Replayer } from "./replay";
 import { buildDebugInfo, type AudioDebugInfo } from "./debug";
 import { BackgroundController } from "./background";
 import { browserHostClock, type HostClock } from "./hostClock";
-import { createDecoderClient, type DecoderClient } from "../decoder/decoderClient";
-import { decodeClip } from "./loader";
 import { StatusMirror } from "./mirror";
 import { DistanceEffect } from "./spatial";
 import { StatusReader } from "./statusReader";
@@ -95,9 +93,19 @@ export interface CoreBackendHost {
   readonly health?: HostHealth;
 }
 
+/**
+ * B6: where a `stream: true` play goes (B3 implements it on the decoder worker's streams and the core's stream
+ * voices). A request the seam takes is never decoded whole; `open` returns its voice, or null when it cannot start.
+ */
+export interface CoreStreamSeam {
+  open(req: CorePlayRequest): CoreVoice | null;
+}
+
 /** What `createCoreBackend` takes beyond the host (tests inject fakes). */
 export interface CoreBackendDeps {
-  /** The registry for clips; defaults to one wired to the host (CoreLink, `fetch`, `decodeAudioData`). */
+  /** Streamed plays (the `stream` import setting). Absent (before B3): such a clip is decoded whole, with one warning per asset. */
+  streams?: CoreStreamSeam;
+  /** The registry for clips; defaults to one wired to the host (CoreLink, `fetch`, the decoder worker). */
   clips?: ClipRegistry;
   clock?: HostClock;
   mixer?: Mixer;
@@ -190,6 +198,8 @@ export class CoreBackend implements AudioBackend {
   private disposed = false;
   private readonly hrir: HrirLoader;
   private readonly clipSink: { event(id: number, code: number): void };
+  private readonly streams: CoreStreamSeam | undefined;
+  private readonly streamWarned = new Set<string>();
 
   constructor(
     readonly host: CoreBackendHost,
@@ -198,6 +208,7 @@ export class CoreBackend implements AudioBackend {
     this.mixer = deps.mixer ?? defaultMixer;
     this.clock = deps.clock;
     this.clips = deps.clips;
+    this.streams = deps.streams;
     this.hrir = deps.hrir ?? createHrirLoader({ clips: deps.clips, sampleRate: host.sampleRate });
     this.table = deps.table ?? new VoiceTable(host.preset.maxLogical);
     this.spatialDirty = new Uint8Array(this.table.capacity);
@@ -318,6 +329,14 @@ export class CoreBackend implements AudioBackend {
   /** Starts a clip. Returns null only when the backend can't play at all (the host failed). */
   play(req: CorePlayRequest): CoreVoice | null {
     if (this.disposed || this.host.status === "failed") return null;
+    if (req.stream) {
+      // The `stream` import setting (B6): a streamed clip is never decoded whole when the core can stream it.
+      if (this.streams) return this.streams.open(req);
+      if (!this.streamWarned.has(req.path)) {
+        this.streamWarned.add(req.path);
+        console.warn(`[myco] "${req.path}" is set to stream, which this audio core can't do yet; it loads whole.`);
+      }
+    }
     const world = req.world ?? 0;
     const clip = this.clips.acquire(req.path, world);
     const bus = this.busIndex(req.bus);
@@ -942,18 +961,9 @@ class Voice implements CoreVoice {
 }
 
 /**
- * B5: the decoder worker the registry decodes clips on. Undefined where there is no `Worker` (Node tests), which is the
- * switch back to `decodeAudioData`; the registry also falls back by itself, with one warning, when the worker cannot start.
- * B6 removes the fallback and this check.
- */
-function clipDecodeWorker(): Pick<DecoderClient, "decodeClip"> | undefined {
-  return typeof Worker === "function" ? createDecoderClient() : undefined;
-}
-
-/**
  * The factory `service.ts` registers with `registerCoreBackend`: wires the registry to the host (its messages go
  * through `CoreLink.post` with the link's `seq`, clips are fetched from the project's asset URLs and decoded on the
- * host's context) and the clock to the context.
+ * decoder worker) and the clock to the context.
  */
 export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): CoreBackend {
   const settings = (deps.mixer ?? defaultMixer).audioSettings;
@@ -969,9 +979,6 @@ export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): 
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.arrayBuffer();
       },
-      // The host's current context (a rebuild may have replaced it, A3.4c); a re-decode keeps the clip's own rate.
-      decode: (encoded, rate) => decodeClip(host.context, encoded, rate),
-      decodeWorker: clipDecodeWorker(),
       clipFormat: settings.clipFormat === "f32" ? 0 : 1,
       ceilingBytes: (settings.clipMemoryMB ?? DEFAULT_CLIP_CEILING_MB) * (1 << 20),
     });

@@ -1,6 +1,7 @@
 // A1.4 (lead): `CoreBackend` against a fake ClipRegistry and a real `CoreLink` on a recording port (no wasm), plus the
 // loopback check (skipped until A1.7's `createLoopbackHost` is merged).
-import { describe, expect, it } from "vitest";
+import { fakeDecoder } from "./fakeDecoder";
+import { describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import {
@@ -26,7 +27,7 @@ import type { AudioHost, BusRemap, HostLifecycleListener } from "./context";
 import { CoreLink, type LinkPort } from "./context";
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./clipRegistry";
 import type { HrirLoader } from "./hrir";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
+import { CoreBackend, type CoreBackendHost, type CoreStreamSeam, type CoreVoice } from "./coreBackend";
 import { makeStatusBlock } from "./mirror";
 import { VoiceReason, VoiceState } from "./voiceTable";
 
@@ -78,7 +79,7 @@ class FakeRegistry implements ClipRegistry {
   }
 }
 
-function rig(options: { status?: "locked" | "running" | "failed"; settings?: AudioSettings; hrir?: HrirLoader } = {}) {
+function rig(options: { status?: "locked" | "running" | "failed"; settings?: AudioSettings; hrir?: HrirLoader; streams?: CoreStreamSeam } = {}) {
   const sent: ArrayBuffer[] = [];
   const port: LinkPort = { onmessage: null, postMessage: (m) => sent.push(m as ArrayBuffer) };
   const link = new CoreLink(port);
@@ -102,7 +103,7 @@ function rig(options: { status?: "locked" | "running" | "failed"; settings?: Aud
   const clock = fakeClock();
   const mixer = new Mixer(options.settings ?? defaultAudioSettings());
   const clips = new FakeRegistry();
-  const backend = new CoreBackend(host, { clips, clock, mixer, hrir: options.hrir });
+  const backend = new CoreBackend(host, { clips, clock, mixer, hrir: options.hrir, streams: options.streams });
   /** Batches posted since the last call, as record lists. */
   const batches = () => {
     const out: ReturnType<typeof decode>[] = [];
@@ -159,6 +160,33 @@ const idx = (id: number) => id & 0xffff;
 const only = (list: ReturnType<typeof decode>["records"], op: number) => list.filter((x) => x.op === op);
 
 describe("CoreBackend (api-and-models §3, §6)", () => {
+  it("a stream: true play goes to the stream seam and is never acquired as a whole clip (B6)", () => {
+    const opened: string[] = [];
+    const sentinel = {} as CoreVoice;
+    const r = rig({ streams: { open: (q) => (opened.push(q.path), sentinel) } });
+    expect(r.backend.play({ ...req("music.ogg"), stream: true })).toBe(sentinel);
+    expect(opened).toEqual(["music.ogg"]);
+    expect(r.clips.ids.has("music.ogg")).toBe(false);
+    // A clip that does not stream still goes through the registry.
+    r.backend.play(req("hit.wav"));
+    expect(r.clips.ids.has("hit.wav")).toBe(true);
+    expect(opened).toEqual(["music.ogg"]);
+  });
+
+  it("without a stream seam a stream: true play loads whole, with one warning per asset (B6)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const r = rig();
+    const a = r.backend.play({ ...req("music.ogg"), stream: true });
+    const b = r.backend.play({ ...req("music.ogg"), stream: true });
+    r.backend.play({ ...req("other.ogg"), stream: true });
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(r.clips.ids.has("music.ogg")).toBe(true);
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes("music.ogg"))).toHaveLength(1);
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
   it("play allocates a voice, sends PLAY with the registry's clip id, and counts the bus with mixer.voiceStarted", () => {
     const r = rig();
     r.frame(); // the initial BUS_CONFIG and BUS_MIX
@@ -614,8 +642,7 @@ describe("CoreBackend: ducking counts and Bus.peak (A2.3)", () => {
       send: (m) => link.post(m),
       nextSeq: () => link.nextSeq(),
       fetchBytes: async () => new ArrayBuffer(8),
-      decode: async () => ({ frames: 4_800, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(4_800).fill(0.5)] }),
-      clipFormat: 0,
+      decodeWorker: fakeDecoder(async () => ({ frames: 4_800, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(4_800).fill(0.5)] })),
       nextFrame: (cb) => cb(),
       nextQuantum: (cb) => cb(),
     });
@@ -673,8 +700,7 @@ describe("CoreBackend on the loopback host (A1.7's createLoopbackHost)", () => {
       send: (m) => link.post(m),
       nextSeq: () => link.nextSeq(),
       fetchBytes: async () => new ArrayBuffer(8),
-      decode: async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] }),
-      clipFormat: 0,
+      decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [new Float32Array(frames).fill(0.5)] })),
       nextFrame: (cb) => cb(),
       nextQuantum: (cb) => cb(),
     });

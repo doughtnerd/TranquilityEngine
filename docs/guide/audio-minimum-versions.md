@@ -2,6 +2,8 @@
 
 The audio core (`audio.backend: "core"`) runs in an `AudioWorklet` and uses WebAssembly SIMD. Before it loads, the engine probes for the features it needs (never version strings). An engine that lacks one logs **one warning** naming the missing feature and these minimums, then plays sound through the `"babylon"` backend instead: basic playback, no effects (the other limits are listed in [audio-mixer.md](audio-mixer.md#limits)).
 
+The core also needs a `Worker` and WebAssembly: clips decode on a worker running the engine's own decoder (`myco_audio_decode.wasm`), never with the browser's `decodeAudioData`. If that worker crashes, the engine restarts it and retries the decodes in flight (up to 3 times a minute). If it can't run at all, or its wasm doesn't match the engine build, clips fail to load with one warning each. Once the core has started it does not switch to the browser's decoder; only the choice made at load, the Babylon fallback above, uses the browser to decode.
+
 ## What the core needs
 
 | Feature | Chrome / Edge | Firefox | Safari | Android System WebView |

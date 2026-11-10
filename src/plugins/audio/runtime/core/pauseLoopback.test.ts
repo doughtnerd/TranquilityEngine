@@ -1,8 +1,9 @@
 // A3.7 end to end: a voice's `pause()` / `resume()` on the core backend over the loopback host (the real wasm, clip
-// registry, shell and coreBackend). The clip is a ramp (sample k = k / 200,000), so the output says which clip frame
+// registry, shell and coreBackend). The clip is a ramp (sample k = floor(k / 3) / 32767), so the output says which clip frame
 // is playing: a paused voice fades out over 5 ms, is silent and holds while paused, and after `resume()` fades in from
 // exactly the frame it held (not from where a virtual voice, which keeps time, would be). A voice paused before its
 // clip was resident waits on the core and starts from its beginning when resumed.
+import { fakeDecoder } from "./fakeDecoder";
 import { describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
@@ -10,13 +11,14 @@ import type { AudioHost, CoreLink } from "./context";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
 import { DWELL_FRAMES } from "./selection";
 
-const SCALE = 200_000;
+/** The ramp rises one int16 step every STEP frames, so it is exact through the int16 clip the worker gives. */
+const STEP = 3;
 const CLIP_FRAMES = 96_000;
 /** The promote, demote and pause fade: 5 ms at 48 kHz. */
 const FADE = 240;
 const TOL = 1e-6;
 
-const clipAt = (k: number): number => Math.fround(k / SCALE);
+const clipAt = (k: number): number => Math.floor(k / STEP) / 32768;
 /** The core's ramp at frame `k` of an `n`-frame ramp from `a` to `b`. */
 const rampAt = (a: number, b: number, n: number, k: number): number => (k + 1 >= n ? b : a + ((b - a) * (k + 1)) / n);
 
@@ -31,13 +33,12 @@ async function rig() {
   }
   const { createClipRegistry } = await import("./clipRegistry");
   const link = loop.link;
-  const ramp = Float32Array.from({ length: CLIP_FRAMES }, (_, k) => k / SCALE);
+  const ramp = Float32Array.from({ length: CLIP_FRAMES }, (_, k) => Math.floor(k / STEP) / 32767);
   const clips = createClipRegistry({
     send: (m) => link.post(m),
     nextSeq: () => link.nextSeq(),
     fetchBytes: async () => new ArrayBuffer(8),
-    decode: async () => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: 48_000, channelData: [ramp] }),
-    clipFormat: 0,
+    decodeWorker: fakeDecoder(async () => ({ frames: CLIP_FRAMES, channels: 1, sampleRate: 48_000, channelData: [ramp] })),
     nextFrame: (cb) => cb(),
     nextQuantum: (cb) => cb(),
   });
@@ -81,10 +82,10 @@ describe("pause and resume on the loopback host (A3.7)", () => {
     const voice = backend.play({ path: "ramp.wav", url: "ramp.wav", loop: false, stream: false, bus: "SFX" })!;
     await step(6);
     // Playing: out[j] = clipAt(j - start).
-    const first = out.findIndex((s) => s !== 0); // clip frame 1 (frame 0 is 0)
+    const first = out.findIndex((s) => s !== 0); // clip frame 3 (the first nonzero sample)
     expect(first).toBeGreaterThan(0);
-    const start = first - 1;
-    expectFrames(out, first, out.length - first, (k) => clipAt(1 + k), "playing");
+    const start = first - STEP;
+    expectFrames(out, first, out.length - first, (k) => clipAt(STEP + k), "playing");
 
     voice.pause();
     const pausedAt = out.length;
@@ -123,7 +124,7 @@ describe("pause and resume on the loopback host (A3.7)", () => {
     const first = out.findIndex((s, j) => j >= resumedAt && s !== 0);
     expect(first).toBeGreaterThanOrEqual(resumedAt);
     // A voice not started yet starts at its gain (a clean onset, no fade) from clip frame 0.
-    expectFrames(out, first, 2_000, (k) => clipAt(1 + k), "started on resume");
+    expectFrames(out, first, 2_000, (k) => clipAt(STEP + k), "started on resume");
     backend.dispose();
   });
 });
