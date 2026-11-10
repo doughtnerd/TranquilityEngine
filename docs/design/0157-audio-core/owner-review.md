@@ -75,3 +75,11 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 ### 14. Strip the mixer wasm's name section (coordinator)
 - **Chosen:** `--strip-all` on the mixer wasm (as B1 does for the decoder): 135.2 KB → 122.4 KB after HRTF, output unchanged.
 - **Why:** standard for shipped wasm; restores headroom under the 150 KB gate before streaming lands. Cost: a trap's stack trace shows function indices (debug natively, or drop the line in `audio-wasm/build.rs`).
+
+### 15. Unknown-length MP3s decode whole before upload (B5)
+- **Chosen:** an MP3 with no Xing/Info/VBRI header is decoded fully on the worker, then CLIP_BEGIN carries the real frame count; known-length clips upload as the worker decodes.
+- **Why:** follows `review-round2-senior.md`; the estimate-and-correct route needs a wire message K1 doesn't have. Cost: one transient int16 copy on main for such clips.
+
+### 16. A worker failure falls back to `decodeAudioData` for the session (B5, interim)
+- **Chosen (until B6):** if the decoder worker can't run (no Worker, wasm refused, hash mismatch, or the worker died), the registry warns once and uses `decodeAudioData` for the rest of the session.
+- **Note for B6:** once `decodeAudioData` is removed, a one-off worker crash should respawn the worker (with a retry limit) rather than latch; a refused wasm or hash mismatch then fails clip loads with one warning (or, at load, falls back to the Babylon backend, which decodes with the browser).
