@@ -50,8 +50,9 @@ fn cfft_base(x: &mut [Complex32]) {
 }
 
 /// Forward complex FFT of `x` in place (unscaled); `x.len()` is `16 * 2^p` up to 2,048, and
-/// `work` holds at least as many bins.
-fn cfft(x: &mut [Complex32], work: &mut [Complex32], w: &Twiddles) {
+/// `work` holds at least as many bins. `hrtf::fft` builds its real transforms on it too (H3), so
+/// the mixer carries one copy.
+pub(crate) fn cfft(x: &mut [Complex32], work: &mut [Complex32], w: &Twiddles) {
     let n = x.len();
     if n == BASE {
         cfft_base(x);

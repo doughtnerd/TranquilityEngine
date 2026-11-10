@@ -17,6 +17,8 @@ import {
   BATCH_MAX_BYTES,
   FADE_FLAGS_STOP_AT_END,
   SET_PARAMS_MASK_SCORE,
+  SET_PARAMS_MASK_FLAGS,
+  SET_PARAMS_FLAGS_PANNER_SHIFT,
   Kind,
   writeBatchHeader,
   writeBusConfig,
@@ -200,6 +202,18 @@ export class CommandWriter implements VoiceCommandSink {
     if (at < 0) return;
     this.end(at, writeSetParams(this.view, at, r));
     r.score = 0;
+  }
+
+  /** SET_PARAMS with only the `flags` bit (H3): the voice's panner kind (0 equal-power, 1 HRTF). Asap; the core crossfades 45 ms. */
+  setPanner(id: number, panner: number): void {
+    const r = this.paramsRec;
+    r.voiceId = id;
+    r.mask = SET_PARAMS_MASK_FLAGS;
+    r.flags = (panner & 3) << SET_PARAMS_FLAGS_PANNER_SHIFT;
+    const at = this.begin(56);
+    if (at < 0) return;
+    this.end(at, writeSetParams(this.view, at, r));
+    r.flags = 0;
   }
 
   /** SET_PARAMS (§4.2); `mask` is `SET_PARAMS_MASK_*`, other fields only matter where the mask says. `bus` only with the bus bit. */

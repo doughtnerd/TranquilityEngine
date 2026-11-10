@@ -27,6 +27,10 @@ export interface DebugSource {
   readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings">;
   readonly lockedQueue: { readonly size: number; readonly droppedCount: number };
   readonly hrtfReady: boolean;
+  /** H3: STATUS `hrtfLoadFailure` with main's fetch failure (1); absent in hand-built sources (STATUS's alone). */
+  readonly hrtfLoadFailure?: number;
+  /** H3: voices main flags for HRTF this frame (at most `voices.hrtf`); absent in hand-built sources. */
+  readonly hrtf?: { readonly count: number };
   /** A3.4b: the background controller's counters (§8 `backgroundEnters`, `interruptions`); absent without one. */
   readonly health?: { readonly backgroundEnters: number; readonly interruptions: number } | null;
   /** A3.4b: whether the page is hidden. */
@@ -153,14 +157,21 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       // The host's count over every core (A3.4a): a rebuilt core's STATUS starts again at 0.
       traps: backend.host.health ? Math.max(backend.host.health.traps, m.traps) : m.traps,
       refusedLoads: 0,
+      // H3: the voices the core panned with HRTF in its last STATUS quantum (crossfading ones included).
       hrtfVoices: m.hrtfVoices,
-      hrtfLoadFailure: m.hrtfLoadFailure,
+      // H3: 2 the core found the table invalid, 1 its fetch failed (main), 0 none.
+      hrtfLoadFailure: backend.hrtfLoadFailure ?? m.hrtfLoadFailure,
     },
     buses,
     voices,
     // `backend` names the backend the way babylonBackend does, so the panel can show it for either.
-    core: { backend: "core", hrtfReady: backend.hrtfReady, ...timing(backend), ...hostHealth(backend), ...health(backend) },
+    core: { backend: "core", hrtfReady: backend.hrtfReady, ...hrtf(backend), ...timing(backend), ...hostHealth(backend), ...health(backend) },
   };
+}
+
+/** H3: how many voices main flags for HRTF (`hrtfFlagged`; the core's own count is `counters.hrtfVoices`). */
+function hrtf(backend: DebugSource): Record<string, number> {
+  return backend.hrtf ? { hrtfFlagged: backend.hrtf.count } : {};
 }
 
 /** Architecture §8 "Health" for `core` (A3.4b): the background controller's counters and the hidden state. */

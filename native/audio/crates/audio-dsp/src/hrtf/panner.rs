@@ -47,7 +47,7 @@
 
 use microfft::Complex32;
 
-use super::convolver::{convolve, EarInput};
+use super::convolver::{EarInput, EarView};
 use super::database::HrirDatabase;
 use super::delay::DelayLine;
 use super::elevation_index::{calculate_desired_azimuth_index_and_blend, fft_size_for_sample_rate, index_from_elevation_angle, NUMBER_OF_TOTAL_AZIMUTHS};
@@ -96,12 +96,23 @@ struct KernelSet<const P: usize> {
 
 impl<const P: usize> KernelSet<P> {
     const EMPTY: Self = Self { left: [[ZERO_BIN; PARTITION_BINS]; P], right: [[ZERO_BIN; PARTITION_BINS]; P], key: None };
+
+    fn view(&mut self) -> SetView<'_> {
+        SetView { left: &mut self.left, right: &mut self.right, key: &mut self.key }
+    }
 }
 
-/// Upstream `HRTFPanner` with kernels of up to `P` partitions, one per HRTF voice. A fixed-size
-/// value (about 31 KB at `P` = 4, 19 KB at `P` = 2); nothing in [`pan`](Self::pan) allocates.
+/// A kernel set with its partition count erased, so the process path is one copy for every `P`
+/// (H3: the wasm carries `pan` once, not once per partition count).
+struct SetView<'a> {
+    left: &'a mut [[Complex32; PARTITION_BINS]],
+    right: &'a mut [[Complex32; PARTITION_BINS]],
+    key: &'a mut Option<(usize, usize)>,
+}
+
+/// Everything of a panner but its kernel sets and input histories (which depend on `P`).
 #[derive(Clone)]
-pub struct HrtfPannerN<const P: usize> {
+struct PanState {
     sample_rate: f32,
     fft_size: usize,
     partitions: usize,
@@ -113,10 +124,6 @@ pub struct HrtfPannerN<const P: usize> {
     elevation2: f64,
     crossfade_x: f32,
     crossfade_incr: f32,
-    set1: KernelSet<P>,
-    set2: KernelSet<P>,
-    input_l: EarInput<P>,
-    input_r: EarInput<P>,
     delay_line_l: DelayLine,
     delay_line_r: DelayLine,
     temp_l1: [f32; QUANTUM_FRAMES],
@@ -126,17 +133,28 @@ pub struct HrtfPannerN<const P: usize> {
     kernels_computed: u32,
 }
 
+/// Upstream `HRTFPanner` with kernels of up to `P` partitions, one per HRTF voice. A fixed-size
+/// value (about 31 KB at `P` = 4, 19 KB at `P` = 2); nothing in [`pan`](Self::pan) allocates.
+#[derive(Clone)]
+pub struct HrtfPannerN<const P: usize> {
+    state: PanState,
+    set1: KernelSet<P>,
+    set2: KernelSet<P>,
+    input_l: EarInput<P>,
+    input_r: EarInput<P>,
+}
+
 /// The panner for every supported rate (4 partitions).
 pub type HrtfPanner = HrtfPannerN<MAX_PARTITIONS>;
 
 /// Makes sure `set` holds the kernels for `key`; returns the kernel computations made (0 or 2).
-fn ensure_kernels<const P: usize>(set: &mut KernelSet<P>, key: (usize, usize), db: &HrirDatabase<'_>, sample_rate: f32, scratch: &mut HrtfScratch) -> u32 {
-    if set.key == Some(key) {
+fn ensure_kernels(set: &mut SetView<'_>, key: (usize, usize), db: &HrirDatabase<'_>, sample_rate: f32, scratch: &mut HrtfScratch) -> u32 {
+    if *set.key == Some(key) {
         return 0;
     }
-    compute_kernel_into(db, sample_rate, key.0, key.1, Ear::Left, scratch, &mut set.left);
-    compute_kernel_into(db, sample_rate, key.0, key.1, Ear::Right, scratch, &mut set.right);
-    set.key = Some(key);
+    compute_kernel_into(db, sample_rate, key.0, key.1, Ear::Left, scratch, set.left);
+    compute_kernel_into(db, sample_rate, key.0, key.1, Ear::Right, scratch, set.right);
+    *set.key = Some(key);
     2
 }
 
@@ -157,27 +175,29 @@ impl<const P: usize> HrtfPannerN<P> {
             _ => return Err(UnsupportedSampleRate(sample_rate)),
         };
         Ok(Self {
-            sample_rate,
-            fft_size: fft_size_for_sample_rate(sample_rate),
-            partitions,
-            crossfade_selection: CrossfadeSelection::Selection1,
-            azimuth_index1: None,
-            elevation1: 0.0,
-            azimuth_index2: None,
-            elevation2: 0.0,
-            crossfade_x: 0.0,
-            crossfade_incr: 0.0,
+            state: PanState {
+                sample_rate,
+                fft_size: fft_size_for_sample_rate(sample_rate),
+                partitions,
+                crossfade_selection: CrossfadeSelection::Selection1,
+                azimuth_index1: None,
+                elevation1: 0.0,
+                azimuth_index2: None,
+                elevation2: 0.0,
+                crossfade_x: 0.0,
+                crossfade_incr: 0.0,
+                delay_line_l: DelayLine::new(MAX_DELAY_TIME_SECONDS, sample_rate),
+                delay_line_r: DelayLine::new(MAX_DELAY_TIME_SECONDS, sample_rate),
+                temp_l1: [0.0; QUANTUM_FRAMES],
+                temp_r1: [0.0; QUANTUM_FRAMES],
+                temp_l2: [0.0; QUANTUM_FRAMES],
+                temp_r2: [0.0; QUANTUM_FRAMES],
+                kernels_computed: 0,
+            },
             set1: KernelSet::EMPTY,
             set2: KernelSet::EMPTY,
             input_l: EarInput::ZERO,
             input_r: EarInput::ZERO,
-            delay_line_l: DelayLine::new(MAX_DELAY_TIME_SECONDS, sample_rate),
-            delay_line_r: DelayLine::new(MAX_DELAY_TIME_SECONDS, sample_rate),
-            temp_l1: [0.0; QUANTUM_FRAMES],
-            temp_r1: [0.0; QUANTUM_FRAMES],
-            temp_l2: [0.0; QUANTUM_FRAMES],
-            temp_r2: [0.0; QUANTUM_FRAMES],
-            kernels_computed: 0,
         })
     }
 
@@ -185,34 +205,50 @@ impl<const P: usize> HrtfPannerN<P> {
     pub fn reset(&mut self) {
         self.input_l.reset();
         self.input_r.reset();
-        self.delay_line_l.reset();
-        self.delay_line_r.reset();
+        self.state.delay_line_l.reset();
+        self.state.delay_line_r.reset();
         self.set1.key = None;
         self.set2.key = None;
     }
 
+    /// [`reset`](Self::reset) plus the direction state: the next call snaps to its direction as a
+    /// new panner does, with no kernel crossfade from the last direction (H3 reuses one panner for
+    /// another voice). Nothing is allocated or copied wholesale.
+    pub fn restart(&mut self) {
+        self.reset();
+        let s = &mut self.state;
+        s.crossfade_selection = CrossfadeSelection::Selection1;
+        s.azimuth_index1 = None;
+        s.elevation1 = 0.0;
+        s.azimuth_index2 = None;
+        s.elevation2 = 0.0;
+        s.crossfade_x = 0.0;
+        s.crossfade_incr = 0.0;
+        s.kernels_computed = 0;
+    }
+
     pub fn sample_rate(&self) -> f32 {
-        self.sample_rate
+        self.state.sample_rate
     }
 
     /// `FftSize()`: the kernel FFT size for this rate (512 at 44.1 and 48 kHz).
     pub fn fft_size(&self) -> usize {
-        self.fft_size
+        self.state.fft_size
     }
 
     /// Kernel partitions at this rate, `max(1, fft_size / 256)`.
     pub fn partitions(&self) -> usize {
-        self.partitions
+        self.state.partitions
     }
 
     /// True while the two kernel sets are crossfading.
     pub fn is_crossfading(&self) -> bool {
-        self.crossfade_incr != 0.0
+        self.state.crossfade_incr != 0.0
     }
 
     /// Kernel computations the last [`pan`](Self::pan) call made (0 to 4).
     pub fn kernels_computed_last(&self) -> u32 {
-        self.kernels_computed
+        self.state.kernels_computed
     }
 
     /// `Pan` for one quantum: `desired_azimuth` in -180..=180 degrees (the panner's convention,
@@ -231,6 +267,28 @@ impl<const P: usize> HrtfPannerN<P> {
         destination_l: &mut [f32; QUANTUM_FRAMES],
         destination_r: &mut [f32; QUANTUM_FRAMES],
     ) {
+        let Self { state, set1, set2, input_l, input_r } = self;
+        let io = PanIo { desired_azimuth, elevation, source_l, source_r, destination_l, destination_r };
+        state.pan(db, scratch, set1.view(), set2.view(), input_l.view(), input_r.view(), io);
+    }
+}
+
+/// One quantum's direction, input and output for [`PanState::pan`].
+struct PanIo<'a> {
+    desired_azimuth: f64,
+    elevation: f64,
+    source_l: &'a [f32; QUANTUM_FRAMES],
+    source_r: Option<&'a [f32; QUANTUM_FRAMES]>,
+    destination_l: &'a mut [f32; QUANTUM_FRAMES],
+    destination_r: &'a mut [f32; QUANTUM_FRAMES],
+}
+
+impl PanState {
+    /// [`HrtfPannerN::pan`]'s body, for every `P`.
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn pan(&mut self, db: &HrirDatabase<'_>, scratch: &mut HrtfScratch, mut set1: SetView<'_>, mut set2: SetView<'_>, mut input_l: EarView<'_>, mut input_r: EarView<'_>, io: PanIo<'_>) {
+        let PanIo { desired_azimuth, elevation, source_l, source_r, destination_l, destination_r } = io;
         // IRCAM HRTF azimuths values from the loaded database is reversed from the panner's
         // notion of azimuth.
         let azimuth = -desired_azimuth;
@@ -283,8 +341,8 @@ impl<const P: usize> HrtfPannerN<P> {
         self.delay_line_r.process_k_rate(source_r, destination_r);
 
         // Both sets share each ear's input history, which advances every quantum.
-        self.input_l.push(destination_l, scratch);
-        self.input_r.push(destination_r, scratch);
+        input_l.push(destination_l, scratch);
+        input_r.push(destination_r, scratch);
 
         let needs_crossfading = self.crossfade_incr != 0.0;
         let use1 = self.crossfade_selection == CrossfadeSelection::Selection1 || needs_crossfading;
@@ -292,14 +350,14 @@ impl<const P: usize> HrtfPannerN<P> {
         let parts = self.partitions;
         self.kernels_computed = 0;
         if use1 {
-            self.kernels_computed += ensure_kernels(&mut self.set1, key1, db, self.sample_rate, scratch);
-            convolve(&self.input_l, &self.set1.left, parts, scratch, &mut self.temp_l1);
-            convolve(&self.input_r, &self.set1.right, parts, scratch, &mut self.temp_r1);
+            self.kernels_computed += ensure_kernels(&mut set1, key1, db, self.sample_rate, scratch);
+            input_l.convolve(set1.left, parts, scratch, &mut self.temp_l1);
+            input_r.convolve(set1.right, parts, scratch, &mut self.temp_r1);
         }
         if use2 {
-            self.kernels_computed += ensure_kernels(&mut self.set2, key2, db, self.sample_rate, scratch);
-            convolve(&self.input_l, &self.set2.left, parts, scratch, &mut self.temp_l2);
-            convolve(&self.input_r, &self.set2.right, parts, scratch, &mut self.temp_r2);
+            self.kernels_computed += ensure_kernels(&mut set2, key2, db, self.sample_rate, scratch);
+            input_l.convolve(set2.left, parts, scratch, &mut self.temp_l2);
+            input_r.convolve(set2.right, parts, scratch, &mut self.temp_r2);
         }
 
         if needs_crossfading {

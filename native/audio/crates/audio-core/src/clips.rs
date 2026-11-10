@@ -18,7 +18,17 @@
 //!   `clipMemoryMB` before CLIP_BEGIN. In the core, a full arena (the Memory's `maximum`, which the
 //!   shell sizes as the fixed regions plus the clip ceiling) is refusedGrow; refusedCeiling comes
 //!   only from [`ClipStore::set_ceiling`] or a full directory (see [`crate::arena`]).
+//! - **HRIR data (H3).** A CLIP_BEGIN with `format = 2` and a reserved id (`0xFFFF0000..=0xFFFF00FF`,
+//!   `channels` 1, `frames` = blob bytes / 2, `sampleRate` the context rate: H2's convention) is the
+//!   HRTF table, not a voice clip: its entry is never a voice's source ([`ClipStore::frames`] gives
+//!   `None`). Its reserve also takes the arena block for the [`HrtfBank`] (the 32 HRTF panners), so
+//!   memory grows only in `reserve` as before. When its last range is committed the blob is parsed
+//!   with `HrirDatabase::parse`, the bank is built, and clip event 4 `hrtfReady` is queued instead
+//!   of `resident`; invalid data, or a rate HRTF can't run at, leaves STATUS `hrtfLoadFailure` at 2
+//!   (data) and no event. One HRIR table at a time; freeing it (or a reset) drops the bank, and
+//!   kind-1 voices pan equal-power again.
 
+use audio_dsp::hrtf::HrirDatabase;
 use audio_dsp::resample::{Samples, Source};
 use audio_wire::generated as wire;
 
@@ -26,6 +36,7 @@ use crate::arena::{Arena, Block, GrowFn, Refusal};
 use crate::core::Core;
 use crate::counters::{flag, Event};
 use crate::layout::CLIP_DIRECTORY_ENTRY_BYTES;
+use crate::panner::HrtfBank;
 use crate::status;
 
 /// Most bytes one `chunk_ptr`/`commit` takes (api-and-models §5: at most 256 KB per quantum).
@@ -39,15 +50,27 @@ pub const EVENT_QUEUE: usize = 256;
 pub enum ClipFormat {
     F32,
     I16,
+    /// HRIR data (H3): int16 words, the HRTF table; never a voice's source.
+    Hrir,
 }
 
 impl ClipFormat {
-    /// The wire's `format` value (0 f32, 1 int16). HRIR data (2) isn't a voice clip (H2).
+    /// The wire's `format` value (0 f32, 1 int16, 2 HRIR data).
     pub fn from_wire(format: u32) -> Option<ClipFormat> {
         match format {
             wire::clip_format::F32 => Some(ClipFormat::F32),
             wire::clip_format::I16 => Some(ClipFormat::I16),
+            wire::clip_format::HRIR => Some(ClipFormat::Hrir),
             _ => None,
+        }
+    }
+
+    /// The wire's value back.
+    fn to_wire(self) -> u8 {
+        match self {
+            ClipFormat::F32 => 0,
+            ClipFormat::I16 => 1,
+            ClipFormat::Hrir => 2,
         }
     }
 
@@ -55,7 +78,7 @@ impl ClipFormat {
     pub fn sample_bytes(self) -> usize {
         match self {
             ClipFormat::F32 => 4,
-            ClipFormat::I16 => 2,
+            ClipFormat::I16 | ClipFormat::Hrir => 2,
         }
     }
 }
@@ -80,7 +103,7 @@ struct Entry {
     /// The block's address.
     addr: usize,
     channels: u8,
-    /// 0 f32, 1 int16 (the wire's values).
+    /// 0 f32, 1 int16, 2 HRIR (the wire's values).
     format: u8,
     class: u8,
     /// 1 once the resident event was queued.
@@ -92,10 +115,10 @@ const _: () = assert!(core::mem::align_of::<Entry>() <= crate::layout::REGION_AL
 
 impl Entry {
     fn format(&self) -> ClipFormat {
-        if self.format == 1 {
-            ClipFormat::I16
-        } else {
-            ClipFormat::F32
+        match self.format {
+            1 => ClipFormat::I16,
+            2 => ClipFormat::Hrir,
+            _ => ClipFormat::F32,
         }
     }
 
@@ -118,6 +141,18 @@ pub struct ClipStore {
     events: [Event; EVENT_QUEUE],
     events_head: usize,
     events_len: usize,
+    /// The HRIR table held (H3): its clip id (0: none) and the bank's block, taken with it.
+    hrir_id: u32,
+    hrtf_block: Block,
+    /// The bank is built (the table was parsed): kind-1 voices can pan HRTF.
+    hrtf_ready: bool,
+    /// STATUS `hrtfLoadFailure`'s core side: 0, or 2 (data).
+    hrtf_failure: u16,
+}
+
+/// The reserved clip ids `format = 2` data must use (api-and-models §4.1).
+pub fn is_hrir_id(id: u32) -> bool {
+    (wire::HRIR_CLIP_ID_FIRST..=wire::HRIR_CLIP_ID_LAST).contains(&id)
 }
 
 impl Default for ClipStore {
@@ -130,7 +165,18 @@ impl ClipStore {
     /// A store with no directory: it refuses every reserve (refusedCeiling). Doesn't allocate.
     /// `Core` builds its store with [`ClipStore::over`].
     pub const fn new() -> ClipStore {
-        ClipStore { entries: &mut [], len: 0, arena: Arena::empty(), events: [Event { id: 0, code: 0 }; EVENT_QUEUE], events_head: 0, events_len: 0 }
+        ClipStore {
+            entries: &mut [],
+            len: 0,
+            arena: Arena::empty(),
+            events: [Event { id: 0, code: 0 }; EVENT_QUEUE],
+            events_head: 0,
+            events_len: 0,
+            hrir_id: 0,
+            hrtf_block: Block { addr: 0, class: 0 },
+            hrtf_ready: false,
+            hrtf_failure: 0,
+        }
     }
 
     /// A store over the `ClipDirectory` region (zeroed, 64-byte aligned) and the `Arena` region.
@@ -169,11 +215,29 @@ impl ClipStore {
     /// Refuses (`ERR_BAD_ARG`) an id that's already held, `channels` other than 1 or 2, zero
     /// frames, or a rate that isn't positive and finite. A full directory or the arena's ceiling
     /// gives `ERR_CEILING`, a failed growth `ERR_ARENA_FULL`; each queues its clip event.
-    /// `onmessage` only; may grow memory.
+    /// HRIR data (`ClipFormat::Hrir`) needs a reserved id, one channel and no other HRIR table
+    /// held, and takes the HRTF bank's block too (see the module comment); `sample_rate` is the
+    /// context rate the bank is built for. `onmessage` only; may grow memory.
     pub fn reserve(&mut self, id: u32, frames: u32, channels: u32, sample_rate: f32, format: ClipFormat) -> Result<(), i32> {
         if !(channels == 1 || channels == 2) || frames == 0 || !(sample_rate > 0.0 && sample_rate.is_finite()) {
             return Err(wire::ERR_BAD_ARG);
         }
+        let hrir = format == ClipFormat::Hrir;
+        if hrir && (!is_hrir_id(id) || channels != 1 || self.hrir_id != 0) {
+            return Err(wire::ERR_BAD_ARG);
+        }
+        let bank_bytes = if hrir {
+            match HrtfBank::bytes_for(sample_rate) {
+                Some(b) => b,
+                None => {
+                    // HRTF can't run at this rate (176.4 kHz and up): the table is no use.
+                    self.hrtf_failure = wire::hrtf_load_failure::DATA as u16;
+                    return Err(wire::ERR_BAD_ARG);
+                }
+            }
+        } else {
+            0
+        };
         let at = match self.find(id) {
             Ok(_) => return Err(wire::ERR_BAD_ARG),
             Err(at) => at,
@@ -191,6 +255,20 @@ impl ClipStore {
                 return Err(refusal.code());
             }
         };
+        if hrir {
+            match self.arena.alloc(bank_bytes) {
+                Ok(bank) => {
+                    self.hrir_id = id;
+                    self.hrtf_block = bank;
+                    self.hrtf_ready = false;
+                }
+                Err(refusal) => {
+                    self.arena.free(block);
+                    self.queue_event(id, refusal.clip_event());
+                    return Err(refusal.code());
+                }
+            }
+        }
         let bytes = bytes.unwrap_or(0);
         // SAFETY: the block is ours and at least `bytes` long (its class holds the request).
         unsafe { core::ptr::write_bytes(block.addr as *mut u8, 0, bytes) };
@@ -202,7 +280,7 @@ impl ClipStore {
             committed: 0,
             addr: block.addr,
             channels: channels as u8,
-            format: if format == ClipFormat::I16 { 1 } else { 0 },
+            format: format.to_wire(),
             class: block.class,
             resident: 0,
         };
@@ -279,9 +357,62 @@ impl ClipStore {
         if e.committed == e.frames && e.resident == 0 {
             e.resident = 1;
             let id = e.id;
-            self.queue_event(id, wire::clip_event::RESIDENT);
+            if e.format() == ClipFormat::Hrir {
+                self.finish_hrir(at);
+            } else {
+                self.queue_event(id, wire::clip_event::RESIDENT);
+            }
         }
         Ok(())
+    }
+
+    /// The HRIR table at entry `at` is complete: parse it, build the bank in its block, queue
+    /// `hrtfReady`; invalid data sets `hrtfLoadFailure` 2 instead. `onmessage` only (it builds 32
+    /// panners); never allocates.
+    fn finish_hrir(&mut self, at: usize) {
+        let e = self.entries[at];
+        if e.id != self.hrir_id {
+            return;
+        }
+        // SAFETY: the block holds `frames * 2` bytes of the clip (int16 words), all committed.
+        let bytes = unsafe { core::slice::from_raw_parts(e.addr as *const u8, e.frames as usize * 2) };
+        let valid = HrirDatabase::parse(bytes).is_ok_and(|db| (db.header().rate - e.sample_rate).abs() <= 0.5);
+        // SAFETY: `reserve` took the bank's block for `HrtfBank::bytes_for(e.sample_rate)` bytes;
+        // blocks are at least 4 KB aligned; nothing else uses it.
+        if valid && unsafe { HrtfBank::init(self.hrtf_block.addr, e.sample_rate) } {
+            self.hrtf_ready = true;
+            self.hrtf_failure = wire::hrtf_load_failure::NONE as u16;
+            self.queue_event(e.id, wire::clip_event::HRTF_READY);
+        } else {
+            self.hrtf_failure = wire::hrtf_load_failure::DATA as u16;
+        }
+    }
+
+    /// The HRTF bank's address and the HRIR table's bytes, once the table is parsed and the bank
+    /// built (H3). Never allocates (`process` calls it).
+    pub fn hrtf_bank(&self) -> Option<(usize, &[u8])> {
+        if !self.hrtf_ready {
+            return None;
+        }
+        let e = &self.entries[self.find(self.hrir_id).ok()?];
+        // SAFETY: the HRIR entry's block holds `frames * 2` committed bytes; only `onmessage`
+        // writes or frees it, never while `process` reads.
+        Some((self.hrtf_block.addr, unsafe { core::slice::from_raw_parts(e.addr as *const u8, e.frames as usize * 2) }))
+    }
+
+    /// STATUS `hrtfLoadFailure`'s core side (0 none, 2 data).
+    pub fn hrtf_failure(&self) -> u16 {
+        self.hrtf_failure
+    }
+
+    /// Drops the HRTF bank (the HRIR table is going).
+    fn drop_hrtf(&mut self) {
+        if self.hrir_id != 0 {
+            self.arena.free(self.hrtf_block);
+        }
+        self.hrir_id = 0;
+        self.hrtf_ready = false;
+        self.hrtf_block = Block { addr: 0, class: 0 };
     }
 
     /// Whether every frame of the clip was committed.
@@ -299,6 +430,8 @@ impl ClipStore {
             match e.format() {
                 ClipFormat::F32 => Samples::F32(core::slice::from_raw_parts(e.addr as *const f32, len)),
                 ClipFormat::I16 => Samples::I16(core::slice::from_raw_parts(e.addr as *const i16, len)),
+                // The HRTF table isn't a voice's source.
+                ClipFormat::Hrir => return None,
             }
         };
         Some(Clip { source: Source { samples, channels: e.channels as u32, frames: e.frames }, sample_rate: e.sample_rate })
@@ -310,6 +443,9 @@ impl ClipStore {
     pub fn free(&mut self, id: u32) -> Result<(), i32> {
         let at = self.find(id).map_err(|_| wire::ERR_UNKNOWN_CLIP)?;
         let block = self.entries[at].block();
+        if id == self.hrir_id {
+            self.drop_hrtf();
+        }
         self.entries.copy_within(at + 1..self.len, at);
         self.len -= 1;
         self.arena.free(block);
@@ -320,6 +456,9 @@ impl ClipStore {
     /// events go too: main re-sends its clips after a reset.
     pub fn clear(&mut self) {
         self.len = 0;
+        self.hrir_id = 0;
+        self.hrtf_ready = false;
+        self.hrtf_block = Block { addr: 0, class: 0 };
         self.arena.reset();
         self.events_len = 0;
         self.events_head = 0;
@@ -379,9 +518,11 @@ pub fn flush_events(core: &mut Core) {
         core.clips_mut().pop_event();
     }
     let (used, largest) = (core.clips().arena().used_bytes(), core.clips().arena().largest_free_bytes());
+    let failure = core.clips().hrtf_failure();
     let c = status::counters_mut(core);
     c.arena_used_kb = (used / 1024) as u32;
     c.arena_largest_free_kb = (largest / 1024) as u32;
+    c.hrtf_load_failure = failure;
 }
 
 /// Sets STATUS `arenaFull` after a refusal and clears it after a reserve that succeeded, a free or
@@ -393,10 +534,16 @@ fn report(core: &mut Core, full: Option<bool>) {
     flush_events(core);
 }
 
-/// `myco_audio_clip_reserve`. `format` is the wire's (0 f32, 1 int16; anything else
-/// `ERR_BAD_ARG`).
+/// `myco_audio_clip_reserve`. `format` is the wire's (0 f32, 1 int16, 2 HRIR data; anything else
+/// `ERR_BAD_ARG`). HRIR data at a rate other than the core's is refused and reported as
+/// `hrtfLoadFailure` 2 (main resamples the table for the context, H2).
 pub fn reserve(core: &mut Core, id: u32, frames: u32, channels: u32, sample_rate: f32, format: u32) -> i32 {
     let Some(format) = ClipFormat::from_wire(format) else { return wire::ERR_BAD_ARG };
+    if format == ClipFormat::Hrir && (sample_rate - core.params().sample_rate).abs() > 0.5 {
+        core.clips_mut().hrtf_failure = wire::hrtf_load_failure::DATA as u16;
+        report(core, None);
+        return wire::ERR_BAD_ARG;
+    }
     let result = core.clips_mut().reserve(id, frames, channels, sample_rate, format);
     let full = match result {
         Ok(()) => Some(false),

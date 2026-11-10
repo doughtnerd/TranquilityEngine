@@ -16,6 +16,7 @@ import {
   Kind,
   PLAY_FLAGS_LOOP,
   PLAY_FLAGS_MIXED,
+  PLAY_FLAGS_PANNER_SHIFT,
   PLAY_FLAGS_SPATIAL,
   REPLAY_CHUNK_MAX_BYTES,
   REPLAY_FLAGS_FIRST_CHUNK,
@@ -251,6 +252,8 @@ export interface ReplaySource {
   /** MASTER is held at 0 by the hidden-page policy (`background.ts`); the replayed MASTER keeps it so. */
   readonly hiddenMuted?: boolean;
   readonly host: { readonly sampleRate: number };
+  /** H3: the panner kind main holds for slot `i` (1 HRTF), so the replayed PLAY keeps it; absent: equal-power. */
+  hrtfPanner?(i: number): number;
   /** BUS_CONFIG's buses for the current tree, root first. */
   busConfigWire(): BusConfigBuses[];
 }
@@ -448,7 +451,9 @@ export class Replayer {
       }
       if (loop && frames > 0) pos %= frames;
       playheads.start(i, frame, pos);
-      const playFlags = (s === VoiceState.PLAYING ? PLAY_FLAGS_MIXED : 0) | (loop ? PLAY_FLAGS_LOOP : 0) | (flags & VoiceFlag.SPATIAL ? PLAY_FLAGS_SPATIAL : 0);
+      const spatial = (flags & VoiceFlag.SPATIAL) !== 0;
+      const panner = spatial ? (this.src.hrtfPanner?.(i) ?? 0) << PLAY_FLAGS_PANNER_SHIFT : 0;
+      const playFlags = (s === VoiceState.PLAYING ? PLAY_FLAGS_MIXED : 0) | (loop ? PLAY_FLAGS_LOOP : 0) | (spatial ? PLAY_FLAGS_SPATIAL : 0) | panner;
       b.record(56, (view, off) =>
         writePlay(view, off, {
           voiceId: id,
