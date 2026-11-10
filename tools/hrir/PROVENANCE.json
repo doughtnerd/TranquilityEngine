@@ -1461,5 +1461,12 @@
   "peak": {
     "rawWavAbs": 0.88873291015625
   },
+  "chromiumResource": {
+    "name": "Composite.flac",
+    "path": "third_party/blink/renderer/platform/audio/resources/Composite.flac",
+    "bytes": 136404,
+    "sha256": "40bda2ad9170fa2bcdc2d5f20cdd98c70609ad33a94df49fe7d6007cacab2ada",
+    "note": "what Chromium loads (IDR_AUDIO_SPATIALIZATION_COMPOSITE); decoded (ffmpeg, 2026-11-10) its 240 x 256 stereo frames equal the WAVs' samples, in its own order (elevation 0..90, then 315, 330, 345, per azimuth)"
+  },
   "processing": "none: the WAV samples as stored (they equal Chromium's Composite.flac decoded); hrir.ts resamples each response with a port of media's SincResampler and extracts its average group delay at the context rate, as Chromium's hrtf_elevation.cc and hrtf_kernel.cc do"
 }

@@ -1,55 +1,121 @@
 import { describe, expect, it, vi } from "vitest";
 import { ClipEvent, ClipFormat, Kind, readClipBegin } from "../wire.generated";
 import { createClipRegistry } from "./clipRegistry";
-import { HRIR_CLIP_ID, createHrirLoader, readHrirHeader, resampleHrir } from "./hrir";
+import { HRIR_CLIP_ID, createHrirLoader, extractAverageGroupDelay, hrtfFftSize, readHrirHeader, resampleHrir, sincResample } from "./hrir";
 
 const E = 10;
 const A = 24;
 const D = E * A;
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-/** A table at 44.1 kHz, 256 frames: an impulse of height 16384 at frame 20 in every response; delay 2 * index. */
-function table(): ArrayBuffer {
+/** An asset at 44.1 kHz, 256 frames, delays in: an impulse of height 16384 at frame `at(d)` (default 50) in every response. */
+function table(at: (d: number) => number = () => 50): ArrayBuffer {
   const len = 256;
-  const buf = new ArrayBuffer(16 + 8 * D + 4 * D * len);
+  const buf = new ArrayBuffer(16 + 4 * D * len);
   const v = new DataView(buf);
   v.setUint32(0, E, true);
   v.setUint32(4, A, true);
   v.setUint32(8, len, true);
   v.setFloat32(12, 44100, true);
-  for (let i = 0; i < D * 2; i++) v.setFloat32(16 + i * 4, i * 2, true);
-  for (let d = 0; d < D; d++) for (let ear = 0; ear < 2; ear++) v.setInt16(16 + 8 * D + d * len * 4 + 20 * 4 + ear * 2, 16384, true);
+  for (let d = 0; d < D; d++) for (let ear = 0; ear < 2; ear++) v.setInt16(16 + d * len * 4 + (at(d) + ear) * 4 + ear * 2, 16384, true);
   return buf;
 }
 
-describe("resampleHrir", () => {
-  it("is the identity at the same rate", () => {
-    const t = table();
-    expect(resampleHrir(t, 44100)).toBe(t);
+/** Response `d`, `ear` of a wire blob, as a fraction of full scale. */
+function response(blob: ArrayBuffer, d: number, ear: number): Float32Array {
+  const head = readHrirHeader(blob);
+  const v = new DataView(blob);
+  const base = 16 + 8 * D + d * head.irLength * 4 + ear * 2;
+  return Float32Array.from({ length: head.irLength }, (_, j) => v.getInt16(base + j * 4, true) / 32768);
+}
+
+const peakAt = (x: Float32Array): number => x.reduce((best, s, i) => (Math.abs(s) > Math.abs(x[best]!) ? i : best), 0);
+
+describe("hrtfFftSize (HRTFPanner::FftSizeForSampleRate)", () => {
+  it("matches Chromium's table", () => {
+    const want: [number, number][] = [[3000, 32], [8000, 64], [16000, 128], [22050, 256], [44100, 512], [48000, 512], [88200, 1024], [96000, 1024], [176400, 2048]];
+    for (const [rate, size] of want) expect(hrtfFftSize(rate), `${rate}`).toBe(size);
+  });
+});
+
+describe("sincResample (media::SincResampler as AudioBus::TryCreateBySampleRateConverting runs it)", () => {
+  it("gives trunc(length / ratio) frames", () => {
+    expect(sincResample(new Float32Array(256), 44100 / 48000).length).toBe(278);
+    expect(sincResample(new Float32Array(256), 44100 / 96000).length).toBe(557);
+    expect(sincResample(new Float32Array(256), 44100 / 22050).length).toBe(128);
   });
 
-  it("scales lengths, delays and impulse positions to 48 kHz", () => {
-    const out = resampleHrir(table(), 48000);
-    const head = readHrirHeader(out);
-    expect(head).toEqual({ elevations: E, azimuths: A, irLength: Math.round((256 * 48000) / 44100), rate: 48000 });
-    expect(out.byteLength).toBe(16 + 8 * D + 4 * D * head.irLength);
-    const v = new DataView(out);
-    expect(v.getFloat32(16 + 4 * 7, true)).toBeCloseTo(14 * (48000 / 44100), 3);
-    // Direction 5, right ear: the impulse (frame 20) lands near frame 20 * 48000 / 44100 = 21.8 -> peak at 22.
-    const base = 16 + 8 * D + 5 * head.irLength * 4 + 2;
-    let peak = 0;
-    let at = -1;
-    for (let j = 0; j < head.irLength; j++) {
-      const s = Math.abs(v.getInt16(base + j * 4, true));
-      if (s > peak) [peak, at] = [s, j];
+  it("passes DC and a 1 kHz sine at the new rate, with no delay (output j is the source at j * ratio)", () => {
+    const ratio = 44100 / 48000;
+    const dc = sincResample(new Float32Array(2048).fill(0.5), ratio);
+    for (let j = 100; j < 2000; j++) expect(Math.abs(dc[j]! - 0.5)).toBeLessThan(2e-3);
+    const sine = Float32Array.from({ length: 2048 }, (_, i) => Math.sin((2 * Math.PI * 1000 * i) / 44100));
+    const out = sincResample(sine, ratio);
+    for (let j = 100; j < 2000; j++) expect(Math.abs(out[j]! - Math.sin((2 * Math.PI * 1000 * j) / 48000))).toBeLessThan(3e-3);
+  });
+
+  it("puts an impulse's peak at its position times the rate ratio, across the 64-frame request boundaries", () => {
+    for (const at of [3, 50, 63, 64, 100, 200]) {
+      const x = new Float32Array(256);
+      x[at] = 1;
+      expect(peakAt(sincResample(x, 44100 / 48000)), `impulse at ${at}`).toBe(Math.round((at * 48000) / 44100));
     }
-    expect(at).toBe(22);
-    expect(peak).toBeGreaterThan(12000);
-    expect(peak).toBeLessThanOrEqual(16384 + 600);
+  });
+});
+
+describe("extractAverageGroupDelay (HRTFKernel)", () => {
+  it("gives about 29.34 frames for an impulse at 50 in 256, with the peak moved to 20 or 21", () => {
+    const ir = new Float32Array(256);
+    ir[50] = 1;
+    expect(Math.abs(extractAverageGroupDelay(ir, 256) - 29.34)).toBeLessThan(0.1);
+    expect([20, 21]).toContain(peakAt(ir));
   });
 
-  it("rejects a truncated blob", () => {
+  it("leaves a silent response alone and returns 0", () => {
+    const ir = new Float32Array(256);
+    expect(extractAverageGroupDelay(ir, 256)).toBe(0);
+    expect(ir.every((x) => x === 0)).toBe(true);
+  });
+});
+
+describe("resampleHrir (the asset to the wire's format 2 at the context rate)", () => {
+  it("at the asset's rate extracts each delay: 256 frames, the impulse moved to frame 20 or 21", () => {
+    const out = resampleHrir(table(), 44100);
+    expect(readHrirHeader(out)).toEqual({ elevations: E, azimuths: A, irLength: 256, rate: 44100 });
+    expect(out.byteLength).toBe(16 + 8 * D + 4 * D * 256);
+    const v = new DataView(out);
+    expect(Math.abs(v.getFloat32(16 + 4 * 6, true) - 29.34)).toBeLessThan(0.1);
+    expect([20, 21]).toContain(peakAt(response(out, 3, 0)));
+  });
+
+  it("at 48 kHz resamples with the delay in, then extracts it at 48 kHz: fft_size / 2 = 256 frames", () => {
+    const at = (d: number) => 30 + (d % 50);
+    const out = resampleHrir(table(at), 48000);
+    const head = readHrirHeader(out);
+    expect(head).toEqual({ elevations: E, azimuths: A, irLength: 256, rate: 48000 });
+    expect(out.byteLength).toBe(16 + 8 * D + 4 * D * 256);
+    const v = new DataView(out);
+    for (const d of [0, 7, 49, 120]) {
+      // The impulse lands at at(d) * 48000 / 44100; the extraction removes all but about 20 frames of it.
+      const left = v.getFloat32(16 + d * 8, true);
+      expect(Math.abs(left + 20 - (at(d) * 48000) / 44100), `direction ${d}`).toBeLessThan(1.5);
+      expect(Math.abs(peakAt(response(out, d, 0)) - 20), `direction ${d}`).toBeLessThanOrEqual(1);
+      // The right ear's impulse is a frame later at 44.1 kHz: its delay is longer by about 48000 / 44100.
+      expect(Math.abs(v.getFloat32(16 + d * 8 + 4, true) - left - 48000 / 44100), `direction ${d}`).toBeLessThan(0.2);
+    }
+  });
+
+  it("at 96 kHz gives 512 frames (fft_size 1024)", () => {
+    expect(readHrirHeader(resampleHrir(table(), 96000)).irLength).toBe(512);
+  });
+
+  it("rejects a truncated asset, a blob with a delay table (the old layout, or the wire's) and a bad rate", () => {
     expect(() => resampleHrir(table().slice(0, 1000), 48000)).toThrow();
+    const withTable = new Uint8Array(table().byteLength + 8 * D);
+    withTable.set(new Uint8Array(table().slice(0, 16)));
+    expect(() => resampleHrir(withTable.buffer, 48000)).toThrow();
+    expect(() => resampleHrir(table(), 0)).toThrow();
+    expect(() => resampleHrir(table(), Number.NaN)).toThrow();
   });
 });
 
@@ -94,7 +160,7 @@ describe("hrir loader", () => {
     await settle();
     h.clips.applyClipEvent(HRIR_CLIP_ID, ClipEvent.HrtfReady);
     h.sent.length = 0;
-    // A context at 44.1 kHz: the asset's own rate, so the table goes back to 256 frames (from the original, not 48 kHz's).
+    // A context at 44.1 kHz: the table is made again from the original asset for that rate.
     h.loader.retarget!(44100);
     expect(h.sent).toHaveLength(0);
     h.clips.resend!([]);
@@ -102,7 +168,7 @@ describe("hrir loader", () => {
     const begin = readClipBegin(new DataView(h.sent[0]!), 0);
     expect(begin.clipId).toBe(HRIR_CLIP_ID);
     expect(begin.sampleRate).toBe(44100);
-    expect(begin.frames).toBe(table().byteLength / 2);
+    expect(begin.frames).toBe(resampleHrir(table(), 44100).byteLength / 2);
     expect(h.loader.ready).toBe(false);
     h.clips.applyClipEvent(HRIR_CLIP_ID, ClipEvent.HrtfReady);
     expect(h.loader.ready).toBe(true);
