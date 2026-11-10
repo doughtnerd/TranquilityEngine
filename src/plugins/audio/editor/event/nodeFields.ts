@@ -2,7 +2,7 @@
 // ordered list of fields the properties panel renders, each with its kind, label, limits, default and help. The
 // limits match `parseAudioEvent`'s, so whatever the panel writes reads back unchanged. Pure: no Preact, no editor state.
 // `readField` / `writeField` / `coerceField` read and write a descriptor's value on a node or the event, immutably.
-import type { AudioEventAsset, EventNode } from "../../../../engine/audio/eventFormat";
+import { sustainReleaseFade, type AudioEventAsset, type EventNode, type SustainNode } from "../../../../engine/audio/eventFormat";
 
 /**
  * What a field edits, which decides its widget:
@@ -133,7 +133,8 @@ const switchCrossfadeField = (): NumberField => ({ kind: "number", name: "crossf
 const blendParameterField = (): ParameterField => ({ kind: "parameter", name: "parameter", label: "Parameter", help: "The parameter whose value the children's ranges are on.", default: "" });
 
 const releaseField = (): SelectField => ({ kind: "select", name: "release", label: "Release", help: "On release: now crossfades into end, loopEnd finishes the current loop pass first.", options: ["now", "loopEnd"], default: "loopEnd" });
-const releaseFadeField = (): NumberField => ({ kind: "number", name: "fade", label: "Crossfade", help: "Seconds to crossfade from the loop into the end sound on release.", min: 0, max: 1e6, step: 0.01, default: 0 });
+/** The release crossfade; its default is the node's current release crossfade, so showing the row changes nothing. */
+const releaseFadeField = (node: SustainNode): NumberField => ({ kind: "number", name: "releaseFade", label: "Release crossfade", help: "seconds of crossfade from the loop into the end on release", min: 0, max: 1e6, step: 0.01, default: sustainReleaseFade(node) });
 
 const weightField = (): NumberField => ({ kind: "number", name: "weight", label: "Weight", help: "Relative chance of this child being picked.", min: 0, max: 1e6, step: 0.1, default: 1 });
 const valueField = (): TextField => ({ kind: "text", name: "value", label: "Value", help: "The label this child plays for.", optional: true, default: "" });
@@ -168,7 +169,7 @@ function ownFields(node: EventNode): FieldDescriptor[] {
     case "layer":
       return [];
     case "sustain":
-      return [releaseField(), ...(node.release === "now" ? [releaseFadeField()] : [])];
+      return [releaseField(), ...(node.release === "now" ? [releaseFadeField(node)] : [])];
   }
 }
 
@@ -198,12 +199,11 @@ function toFiniteNumber(value: unknown): number | undefined {
  * 1. The type's own fields (the `clip` asset first for a clip; `parameter` first for switch and blend), with the fields
  *    that mean nothing in the node's current mode left out: `gap` only for `mode: "continuous"`; a sequence's `loop`
  *    only for continuous and `reset` only for step; a switch's `crossfade` only for `onChange: "crossfade"`; a
- *    sustain's `fade` (release crossfade) only for `release: "now"`. `avoidRepeat`'s `max` is
- *    `max(0, children.length - 1)`.
+ *    sustain's `releaseFade` only for `release: "now"`. `avoidRepeat`'s `max` is `max(0, children.length - 1)`.
  * 2. The common fields: `volume`, `pitch`, `volumeRandom`, `pitchRandom`, `delay`.
  * 3. The fields the parent gives meaning to: `weight` under a random; `value` (optional text) under a switch; `range`
- *    (optional) and `fade` under a blend. A sustain under a blend lists `fade` once, as its release crossfade if shown,
- *    else as the blend fade (the format has one `fade` key; see the brief).
+ *    (optional) and `fade` under a blend, whatever the node (a sustain under a blend also lists its `releaseFade` when
+ *    `release` is "now").
  * 4. `automation` (curves) last.
  * Limits are `parseAudioEvent`'s (see the spec in the brief).
  */
@@ -212,9 +212,7 @@ export function nodeFields(node: EventNode, parent: EventNode | null): FieldDesc
   if (parent?.type === "random") out.push(weightField());
   if (parent?.type === "switch") out.push(valueField());
   if (parent?.type === "blend") {
-    out.push(rangeField());
-    // One `fade` key: a sustain set to release "now" already lists it as its release crossfade.
-    if (!(node.type === "sustain" && node.release === "now")) out.push(blendFadeField());
+    out.push(rangeField(), blendFadeField());
   }
   out.push(automationField());
   return out;
@@ -254,8 +252,17 @@ export function findField(fields: readonly FieldDescriptor[], name: string): Fie
   return fields.find((f) => f.name === name);
 }
 
-/** `target[field.name]`, or `undefined` when the key is absent. */
+/** Whether `target` is a sustain node. */
+function isSustain(target: object): target is SustainNode {
+  return (target as { type?: unknown }).type === "sustain";
+}
+
+/**
+ * `target[field.name]`, or `undefined` when the key is absent. A sustain's `releaseFade` reads as `sustainReleaseFade`,
+ * so a file without the key shows its `fade`.
+ */
 export function readField(target: EventNode | AudioEventAsset | Record<string, unknown>, field: FieldDescriptor): unknown {
+  if (field.name === "releaseFade" && isSustain(target)) return sustainReleaseFade(target);
   return (target as unknown as Record<string, unknown>)[field.name];
 }
 
