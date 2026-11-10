@@ -1,0 +1,24 @@
+{
+  "format": "myco.audioevent@1",
+  "bus": "Music",
+  "priority": 200,
+  "limit": { "maxInstances": 1, "steal": "oldest" },
+  "root": {
+    "type": "layer",
+    "children": [
+      { "type": "clip", "clip": "audio/events/music-pad.wav", "loop": true, "volume": 0.8 },
+      {
+        "type": "clip",
+        "clip": "audio/events/music-pulse.wav",
+        "loop": true,
+        "automation": [{ "parameter": "Intensity", "target": "volume", "curve": [[0.2, 0], [0.6, 1]] }]
+      },
+      {
+        "type": "clip",
+        "clip": "audio/events/music-lead.wav",
+        "loop": true,
+        "automation": [{ "parameter": "Intensity", "target": "volume", "curve": [[0.6, 0], [1, 1]] }]
+      }
+    ]
+  }
+}

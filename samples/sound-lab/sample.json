@@ -1,4 +1,4 @@
 {
   "name": "Sound Lab",
-  "description": "A tour of the audio core: one-shots, buses and their effects, snapshots, ducking and a moving spatial source. Click the game view, then press 1-6 to try each feature. The other keys run the audio listening pass's tests (see the Listening bench node)."
+  "description": "A tour of the audio core: one-shots, buses and their effects, snapshots, ducking and a moving spatial source. Click the game view, then press 1-6 to try each feature. The other keys run the audio listening pass's tests (see the Listening bench node). Press E for the events page: footsteps by surface, an engine blended by RPM with a key-off tail, and music that gets more intense."
 }

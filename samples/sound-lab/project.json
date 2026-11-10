@@ -56,7 +56,9 @@
         ]
       },
       { "name": "Tape", "parent": "Master", "volume": 1, "mute": false, "effects": [] },
-      { "name": "Load", "parent": "Master", "volume": 1, "mute": false, "maxVoices": 12, "effects": [] }
+      { "name": "Load", "parent": "Master", "volume": 1, "mute": false, "maxVoices": 12, "effects": [] },
+      { "name": "Foley", "parent": "Master", "volume": 1, "mute": false, "effects": [] },
+      { "name": "Engine", "parent": "Master", "volume": 0.8, "mute": false, "effects": [] }
     ],
     "snapshots": [
       {
@@ -66,7 +68,15 @@
       },
       { "name": "Sweep", "volumes": {}, "lowpass": { "Tape": 250, "Music": 400 } }
     ],
-    "ducking": [{ "target": "Music", "trigger": "SFX", "amount": 0.3, "attack": 0.05, "release": 0.4 }]
+    "ducking": [{ "target": "Music", "trigger": "SFX", "amount": 0.3, "attack": 0.05, "release": 0.4 }],
+    "parameters": [
+      { "name": "Surface", "labels": ["Grass", "Gravel", "Wood", "Metal"], "default": "Grass" },
+      { "name": "Intensity", "min": 0, "max": 1, "default": 1, "seekSpeed": 0.5 }
+    ],
+    "automation": [
+      { "bus": "Music", "parameter": "Intensity", "target": "volume", "curve": [[0, 0.45], [1, 1]] },
+      { "bus": "Music", "parameter": "Intensity", "target": "lowpass", "curve": [[0, 900], [0.5, 5000, "smooth"], [1, 18000]] }
+    ]
   },
   "autoload": []
 }

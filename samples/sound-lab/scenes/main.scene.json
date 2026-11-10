@@ -54,6 +54,12 @@
       ]
     },
     {
+      "id": "events",
+      "name": "Events page (key E)",
+      "transform": false,
+      "components": [{ "type": "lab.SceneSwitch", "data": { "key": "e", "scene": "scenes/events.scene.json" } }]
+    },
+    {
       "id": "oneshots",
       "name": "OneShots (key 1)",
       "transform": false,

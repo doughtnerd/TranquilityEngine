@@ -1,0 +1,72 @@
+{
+  "format": "myco.scene@2",
+  "settings": { "physics": "3d" },
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 5, 12], "rotation": [-20, 0, 0] } },
+        { "type": "engine.Camera", "data": { "projection": "perspective", "fieldOfView": 55 } },
+        { "type": "engine.AudioListener", "data": {} }
+      ]
+    },
+    {
+      "id": "title",
+      "name": "Title",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": {
+            "text": "Sound Lab: audio events (B goes back to the tour)\nClick the game view first. Footsteps, engine and music play together.",
+            "anchor": "top-left",
+            "align": "left",
+            "offset": [24, 20],
+            "fontSize": 22,
+            "outlineColor": "#000000",
+            "outlineWidth": 4
+          }
+        },
+        { "type": "lab.SceneSwitch", "data": { "key": "b", "scene": "scenes/main.scene.json" } }
+      ]
+    },
+    {
+      "id": "footsteps",
+      "name": "Footsteps (keys 1-4, W, Shift)",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": { "anchor": "top-left", "align": "left", "offset": [24, 110], "fontSize": 24, "outlineColor": "#000000", "outlineWidth": 4 }
+        },
+        { "type": "lab.Footsteps", "data": {} }
+      ]
+    },
+    {
+      "id": "engine",
+      "name": "Engine (keys E, T, Up, Right)",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": { "anchor": "top-left", "align": "left", "offset": [24, 190], "fontSize": 24, "outlineColor": "#000000", "outlineWidth": 4 }
+        },
+        { "type": "lab.EngineBench", "data": {} }
+      ]
+    },
+    {
+      "id": "music",
+      "name": "Music (keys N, M)",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": { "anchor": "top-left", "align": "left", "offset": [24, 270], "fontSize": 24, "outlineColor": "#000000", "outlineWidth": 4 }
+        },
+        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/events/music-intensity.audioevent.json", "playOnAwake": false } },
+        { "type": "lab.MusicIntensity", "data": {} }
+      ]
+    }
+  ]
+}
