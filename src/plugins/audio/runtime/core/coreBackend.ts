@@ -283,6 +283,7 @@ export class CoreBackend implements AudioBackend {
       sending: () => !this.disposed && !this.recovering && this.host.status !== "failed",
       streamLoop: (i, loop, at) => this.streams.setLoop(this.table.clip[i]!, loop, at),
       writerBatches: () => this.writer.stats.batches,
+      busView: (name, gain) => this.mixer._setAutomationView(name, gain),
     });
     this.replayer = new Replayer(this, host.link);
     for (let i = 0; i < MAX_BUS; i++) this.mixPool.push({ gain: 1, lpHz: BUS_LP_OFF_HZ });

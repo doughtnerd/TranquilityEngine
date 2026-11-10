@@ -114,6 +114,8 @@ export interface CoreAutomationDeps {
   readonly streamLoop?: (i: number, loop: LoopRecord, at: number) => void;
   /** Batches the writer has posted (`CommandWriter.stats.batches`): a PLAY written since the last one is still staged. */
   readonly writerBatches?: () => number;
+  /** M2 F2: where main's estimate of a bus's automated gain goes (`Mixer._setAutomationView`), so `Bus.effectiveGain` includes it. */
+  readonly busView?: (name: string, gain: number) => void;
 }
 
 /**
@@ -211,6 +213,11 @@ export class CoreAutomation implements AutomationSink {
   private readonly dirtyCurves = new Set<number>();
   private readonly dirtyParams = new Set<number>();
   private readonly dirtyBuses = new Set<string>();
+  /** The automated gain last handed to `deps.busView` per bound bus (absent: 1), so it is only written when it moves. */
+  private readonly viewSent = new Map<string, number>();
+  private readonly busIds = new Int32Array(MAX_BINDINGS);
+  private readonly busTargets = new Uint8Array(MAX_BINDINGS);
+  private readonly busAuto: AutoResult = { gain: 1, pitch: 1, lowpass: 0 };
   private budget = RESYNC_BYTES_PER_FRAME;
 
   constructor(private readonly deps: CoreAutomationDeps) {
@@ -238,6 +245,7 @@ export class CoreAutomation implements AutomationSink {
     if (this.budget >= bytes && this.deps.sending()) this.sendCurve(id);
     else this.dirtyCurves.add(id);
     this.reevaluateCurve(id);
+    if (this.buses.size > 0) this.publishBuses();
   }
 
   setParam(group: number, slot: number, value: number, seekPerSecond: number): void {
@@ -255,6 +263,7 @@ export class CoreAutomation implements AutomationSink {
     if (seek > 0 && this.paramFrom[k] !== value) this.fading.add(k);
     else this.fading.delete(k);
     this.dirtyParams.delete(k);
+    if (group === 0) this.publishBuses();
     if (this.deps.sending()) {
       this.deps.writer.param(group, slot, value, this.paramSeek[k]!);
       this.stats.params++;
@@ -310,6 +319,7 @@ export class CoreAutomation implements AutomationSink {
       if (!had && !this.busSentTo.has(bus)) return;
     } else this.buses.set(bus, wire);
     this.dirtyBuses.delete(bus);
+    this.publishBuses();
     if (this.deps.sending()) this.sendBus(bus);
     else this.dirtyBuses.add(bus);
   }
@@ -446,10 +456,14 @@ export class CoreAutomation implements AutomationSink {
     this.busSentTo.clear();
     for (const bus of this.buses.keys()) this.dirtyBuses.add(bus);
     this.budget = 0;
+    this.publishBuses();
   }
 
   /** BUS_CONFIG went out (a remap may have moved buses): bus bindings go to their buses' new indices. */
   onBusesConfigured(): void {
+    // The mixer's reconfigure reset its view gains to 1: publish them again.
+    this.viewSent.clear();
+    this.publishBuses();
     if (this.buses.size === 0 && this.busSentTo.size === 0) return;
     if (!this.deps.sending()) {
       for (const bus of this.buses.keys()) this.dirtyBuses.add(bus);
@@ -474,6 +488,7 @@ export class CoreAutomation implements AutomationSink {
     this.dirtyCurves.clear();
     this.dirtyParams.clear();
     this.dirtyBuses.clear();
+    this.publishBuses();
     const ids = [...this.curves.keys()].sort((x, y) => x - y);
     let k = 0;
     while (k < ids.length) {
@@ -554,20 +569,7 @@ export class CoreAutomation implements AutomationSink {
 
   /** @internal E3.9, `Audio.debug()`: bus `name`'s automated gain now (its volume curves at the smoothed globals); 1 when unbound. */
   busAutomationGain(name: string): number {
-    const wire = this.buses.get(name);
-    if (!wire) return 1;
-    const n = Math.min(wire.length, MAX_BINDINGS);
-    const ids = new Int32Array(n);
-    const targets = new Uint8Array(n);
-    const xs = new Float64Array(n);
-    for (let j = 0; j < n; j++) {
-      const b = wire[j]!;
-      const k = paramKey(0, b.param & 0x7fff);
-      ids[j] = b.curve;
-      targets[j] = b.target;
-      xs[j] = k >= 0 ? this.smoothed(k) : 0;
-    }
-    return evaluateInto(n, ids, targets, xs, this.curves, { gain: 1, pitch: 1, lowpass: 0 }).gain;
+    return this.busGainNow(name);
   }
 
   /** @internal The parameter target the mirror holds (tests). */
@@ -748,6 +750,43 @@ export class CoreAutomation implements AutomationSink {
       const group = k < MAX_GLOBAL_SLOTS ? 0 : 1 + Math.floor((k - MAX_GLOBAL_SLOTS) / MAX_LOCAL_SLOTS);
       this.reevaluateReaders(group);
     }
+    this.publishBuses();
+  }
+
+  /**
+   * M2 F2: each bound bus's automated gain at main's estimate of the smoothed globals goes to the mixer's view (only
+   * where it moved), so `Bus.effectiveGain` includes it. Called where a global, a bus binding or a curve changes and
+   * each frame a seek runs; with nothing bound it does nothing.
+   */
+  private publishBuses(): void {
+    const view = this.deps.busView;
+    if (!view || (this.buses.size === 0 && this.viewSent.size === 0)) return;
+    for (const bus of this.buses.keys()) {
+      const g = this.busGainNow(bus);
+      if ((this.viewSent.get(bus) ?? 1) !== g) view(bus, g);
+      this.viewSent.set(bus, g);
+    }
+    for (const bus of this.viewSent.keys()) {
+      if (this.buses.has(bus)) continue;
+      view(bus, 1); // unbound: back to 1
+      this.viewSent.delete(bus);
+    }
+  }
+
+  /** Bus `name`'s volume curves at the smoothed globals, allocation free; 1 when unbound. */
+  private busGainNow(name: string): number {
+    const wire = this.buses.get(name);
+    if (!wire) return 1;
+    const n = Math.min(wire.length, MAX_BINDINGS);
+    const xs = this.xs;
+    for (let j = 0; j < n; j++) {
+      const b = wire[j]!;
+      const k = paramKey(0, b.param & 0x7fff);
+      this.busIds[j] = b.curve;
+      this.busTargets[j] = b.target;
+      xs[j] = k >= 0 ? this.smoothed(k) : 0;
+    }
+    return evaluateInto(n, this.busIds, this.busTargets, xs, this.curves, this.busAuto).gain;
   }
 
   private reevaluateCurve(id: number): void {

@@ -32,6 +32,8 @@ interface BusState {
   /** ADR 0158: bus automation from the TypeScript evaluator (the Babylon fallback only); 1 and OFF_HZ otherwise. */
   autoGain: number;
   autoLp: number;
+  /** ADR 0158 §3 (M2 F2): bus automation the audio core applies itself, kept only so `effectiveGain` reports it; never sent to a backend. */
+  viewGain: number;
 }
 
 const OFF_HZ = 24000;
@@ -56,7 +58,7 @@ export class Bus {
   /** The newest peak level on this bus (max of L and R, linear, decayed for display); 0 while the audio is locked. Declared by A1.6 (K10); fed by the core backend from STATUS (0 on the Babylon backend). */
   get peak(): number { return this.s?.peak ?? 0; }
   /** The level reaching the speakers from this bus (all gains up the tree multiplied). */
-  get effectiveGain(): number { return this.mixer.resolve(this.name)?.effectiveGain ?? 0; }
+  get effectiveGain(): number { return (this.mixer.resolve(this.name)?.effectiveGain ?? 0) * this.mixer._viewChain(this.name); }
   /** Ease the volume to `v` over `seconds`. */
   fadeTo(v: number, seconds: number): void { this.mixer._fade(this.name, v, seconds); }
 }
@@ -82,7 +84,7 @@ export class Mixer {
     this.snapshotName = null;
     this.order = settings.buses.map((b) => b.name);
     for (const b of settings.buses) {
-      this.buses.set(b.name, { settings: b, volume: b.volume, mute: b.mute, solo: false, snap: 1, snapFrom: 1, snapTo: 1, lp: OFF_HZ, lpFrom: OFF_HZ, lpTo: OFF_HZ, duck: 1, voices: 0, peak: 0, autoGain: 1, autoLp: OFF_HZ });
+      this.buses.set(b.name, { settings: b, volume: b.volume, mute: b.mute, solo: false, snap: 1, snapFrom: 1, snapTo: 1, lp: OFF_HZ, lpFrom: OFF_HZ, lpTo: OFF_HZ, duck: 1, voices: 0, peak: 0, autoGain: 1, autoLp: OFF_HZ, viewGain: 1 });
     }
     this._dirty();
   }
@@ -109,6 +111,21 @@ export class Mixer {
     s.autoGain = gain;
     s.autoLp = lowpass;
     this._dirty();
+  }
+  /**
+   * @internal ADR 0158 §3 (M2 F2): bus automation the core applies in the audio thread, as main estimates it. It only
+   * shows in `Bus.effectiveGain` (multiplied with snapshots, ducking and parents); `resolve` leaves it out, since the
+   * core applies it itself and a backend must not apply it twice. No change notification: nothing is re-applied.
+   */
+  _setAutomationView(name: string, gain: number): void {
+    const s = this.buses.get(name);
+    if (s) s.viewGain = gain;
+  }
+  /** @internal The view gains of `name` and its ancestors, multiplied. */
+  _viewChain(name: string): number {
+    let g = 1;
+    for (const n of this.chain(name)) g *= this.buses.get(n)?.viewGain ?? 1;
+    return g;
   }
   /** @internal A2.3: the core backend resets a bus's live-voice count to the core mirror's (after a bus remap, which reconfigures the mixer and zeroes counts). */
   _setVoiceCount(name: string, n: number): void { const s = this.buses.get(name); if (s) s.voices = Math.max(0, n | 0); }
