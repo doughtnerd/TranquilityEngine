@@ -516,3 +516,25 @@ The remainder of M2 (E3 from E3.1, E4–E7) is planned as a milestone build: [wa
 **Contracts committed:** C1 `runtime/loopPoints.ts` (`loopPointsFor`, `setFileLoopPoints`, `onLoopPoints`, stubs); C2 `decoder/protocol.ts` (`ClipInfo.loopStartFrame/loopEndFrame`, region fields on stream open, `StreamLoopMessage`) and the region fields on `decoderClient`'s `StreamOpenOptions`; C3 `AudioDebugInfo.voices[].event`.
 
 **Deviations from 0158 logged** (E2's six, including STATUS without `group`): [m2-decisions.md](m2-decisions.md) entry 1, for the owner. Tickets: not opened (the owner didn't ask; the plan's task ids are the tracker).
+
+## M2: wave 1, the pilot (2026-11-10)
+
+**Merged** (each `--no-ff` into `claude/sweet-ritchie-miy6jm`): E3.2 Babylon region loops and release; E4.1 loop points from WAV `smpl` and Ogg Vorbis comments (decoder ABI 0x101, clip-info record 40 bytes); E6.2 the `audioEvent` asset kind, format, New Event, Create event from clips, Event editor stubs (C4); E3.1 the core runs event automation (`core/coreAutomation.ts`: sink, mirror, REPLAY, `group` in PLAY, `clipDuration`, `horizon`, selection reads automated gain); E3.6 runtime rough edges (side-effect-free `playing`, per-World seeding and sequence state, live pitch, the hand-over base reset, the `avoidRepeat: 0` fix) and the debug panel's grouping and late-start count; E6.1 the curve widget in `src/editor/ui/` with an x range and per-segment interpolation.
+
+**Integration fixes by the coordinator:** the decoder wasm rebuilt from merged source (decoder 743,484 → 749,095 B; AAC 1,067,758 → 1,073,338 B, 95% of its gate: proposal in [m2-decisions.md](m2-decisions.md) entry 4); E6.1's particle files imported `src/editor/ui/` directly, which `src/plugins/plugins.test.ts` (ADR 0147) forbids, so the SDK now exports `CurveEditor`, `CurvePreview` and the key helpers (`addCurveKey`…); E3.1's loopback tests got the 30 s timeout their siblings use (one timeout in three quiet full-suite runs).
+
+**Wave review (quiet machine, load < 2):** typecheck; `npm test` 387 files, 4,050 passed, twice in a row; `npm run build`; `cargo test` 493 passed; `npm run check:audio-metered` pass (automation scenes +0.00%); `npm run check:links`; `npm run test:e2e` 193 passed, 4 skipped (Chromium from `/opt/pw-browsers`; `playwright install` is blocked here, the config falls back on its own). No golden or parity digest changed.
+
+**Pilot measures** (tokens as reported by each agent; estimates of effort, not billing):
+- Haiku leaves: 4 of 4 merged first pass with no re-run (L4.1a, L6.1a, L6.2a, L6.2b), ≈ 90–110 k tokens and 1.5–3 min each, each touching only its two files. One leaf corrected an error in its lead's spec (an empty curve's y range). Leaf kinds stay as planned for wave 2.
+- Leads writing skeletons and briefs (phase 1): ≈ 90–120 k tokens, 2–6 min; their phase 2 after the leaves: 10–14 min.
+- Unsplit mid-model tasks: E3.2 ≈ 110 k tokens / 9 min, E3.6 ≈ 186 k / 30 min. Strongest-model E3.1: ≈ 292 k / 29 min.
+- By model, roughly: Haiku 0.4 M, mid model 0.7 M, strongest 0.3 M tokens (plus the coordinator).
+
+**Lessons (into every wave 2 brief):**
+1. Agent worktrees start at master, not the integration branch: every brief's base check fired. Keep it.
+2. Name the guard tests and require their result in the report; with six agents on four cores, timing tests fail and agents wrote off a real boundary failure as load. A failing file is rerun alone before it is called a flake.
+3. Plugins reach the editor only through `editor/sdk` (`plugins.test.ts`).
+4. Concurrent vitest runs through a symlinked `node_modules` collide on `.vitest-cache` (`ENOTEMPTY`); retry.
+5. Known flakes under load (pass alone): `src/engine/tests/navSample.test.ts`, `core/selectionBench.test.ts` (p99 timing), `src/server/server.test.ts`, `piratesSample`.
+

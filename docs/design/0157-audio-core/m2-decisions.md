@@ -4,7 +4,7 @@ The coordinator's calls during the M2 build ([plan](../../plans/2026-11-audio-ev
 
 ## Summary (read first)
 
-M2 is in wave 1 (the pilot). E1, E2 and E3a are on master with the plan.
+Wave 1 (the pilot) is merged on `claude/sweet-ritchie-miy6jm` with every gate green; wave 2 is next. Master has E1, E2, E3a and the plan.
 
 **Needs you:**
 1. E2's deviations (entry 1): accept, or ask for changes.
