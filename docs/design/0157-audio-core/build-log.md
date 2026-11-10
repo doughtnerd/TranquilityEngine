@@ -571,3 +571,7 @@ The remainder of M2 (E3 from E3.1, E4–E7) is planned as a milestone build: [wa
 **Follow-ups merged (2026-11-10):** F2 (bus automation in `Audio.bus(n).effectiveGain` on the core), F1 (per-voice start cost: layer of 3 ≈ 5.0 µs, random of 4 ≈ 2.5 µs on the bench; part of the gain is a Vitest effect, m2-decisions entry 23), F3 (bus automation in voice selection with the no-gap rule). All audio tests green after each merge.
 
 **Follow-ups merged to master (owner, 2026-11-10):** F1 (with its Vitest-only import copies reverted at the owner's request), F2, F3. Gates: typecheck; `npm test` 417 files, 4,350 passed (one failure, `navSample`, passes alone); build; `cargo test` 497; metered pass; links; slow audio specs 4 passed; `npm run test:e2e` 196 passed, 2 failed: `codefiles.spec.ts` (passes alone) and `selection.spec.ts:77` (the editor's Alt+click node list), which fails alone and **also fails on master's `149a46a`**, so it predates the follow-ups; nothing since touches `src/editor`. Filed as a separate task.
+
+## M2 complete (owner, 2026-11-10)
+
+The owner declared M2 complete. Carried as owner items: the lab-VM bench run (E5.5) and the listening-pass re-check and sign-off (E7.1). Saved for later: ADR 0161 (Proposed, `Assets` lookup caching). Next: M3 (spatial), which starts with its own record; kickoff prompt in [2026-11-audio-m3-kickoff.md](../../plans/2026-11-audio-m3-kickoff.md).

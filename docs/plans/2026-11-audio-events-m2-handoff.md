@@ -1,6 +1,6 @@
-# Audio events (M2, ADR 0158): handoff at the end of the build
+# Audio events (M2, ADR 0158): handoff at the end of the build (M2 complete)
 
-Written 2026-11-10 at the end of the build session. Every task of the [waves plan](2026-11-audio-events-m2-waves.md) is built and merged; what is left is the owner's.
+Written 2026-11-10 at the end of the build session. Every task of the [waves plan](2026-11-audio-events-m2-waves.md) is built and merged, and the owner declared M2 complete; the owner items below stay open. The next milestone, M3 (spatial), starts from [2026-11-audio-m3-kickoff.md](2026-11-audio-m3-kickoff.md).
 
 ## Where things are
 
