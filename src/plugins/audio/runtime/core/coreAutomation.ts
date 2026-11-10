@@ -365,6 +365,7 @@ export class CoreAutomation implements AutomationSink {
   /** The idle `RESET 0` cleared the core's tables: curves, parameters and bus bindings go again, spread over frames. */
   afterReset(): void {
     this.stats.resyncs++;
+    for (let k = 0; k < PARAM_SLOTS; k++) this.jumped(k); // the resync jumps every parameter to its target
     for (const id of this.curves.keys()) this.dirtyCurves.add(id);
     for (let k = 0; k < PARAM_SLOTS; k++) if (this.paramSet[k]) this.dirtyParams.add(k);
     this.busSentTo.clear();
@@ -394,6 +395,7 @@ export class CoreAutomation implements AutomationSink {
    */
   replayHeader(b: ReplayBuilder): void {
     this.stats.replays++;
+    for (let k = 0; k < PARAM_SLOTS; k++) this.jumped(k); // the replay jumps every parameter to its target
     this.dirtyCurves.clear();
     this.dirtyParams.clear();
     this.dirtyBuses.clear();
@@ -565,6 +567,12 @@ export class CoreAutomation implements AutomationSink {
     }
   }
 
+  /** The core jumped parameter `k` to its target (a resync or replay): no seek is running any more. */
+  private jumped(k: number): void {
+    this.paramSeek[k] = 0;
+    this.fading.delete(k);
+  }
+
   /** The core's smoothed value of parameter `k` now: linear from where its seek started at the seek speed. */
   private smoothed(k: number): number {
     const target = this.paramValue[k]!;
@@ -664,6 +672,7 @@ export class CoreAutomation implements AutomationSink {
     const slot = k < MAX_GLOBAL_SLOTS ? k : (k - MAX_GLOBAL_SLOTS) % MAX_LOCAL_SLOTS;
     // A resync jumps to the target (the core's smoothing state is gone).
     this.deps.writer.param(group, slot, this.paramValue[k]!, 0);
+    this.jumped(k);
     this.budget -= PARAM_BYTES;
     this.stats.params++;
   }

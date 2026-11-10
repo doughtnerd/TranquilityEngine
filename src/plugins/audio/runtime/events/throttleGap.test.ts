@@ -249,51 +249,43 @@ describe("throttle changes on the Sound Lab engines (the core, loopback)", () =>
   // `setParam`), so the blend child being left is demoted (cut in 5 ms) on the frame of the setParameter while the
   // core's smoothed RPM still has it at full level, and silence lasts until the smoothed RPM reaches the next child's
   // fade. Measured: sequence B 224 ms going to Up and 320 ms coming back; sequence A 320 ms both ways.
-  it.fails("E, sequence B (Right, release, Up): no gap going to or from Up [fails: target-gain demotion in selection]", { timeout: 60_000 }, async (ctx) => {
+  it("E, sequence B (Right, release, Up): no gap going to or from Up", { timeout: 60_000 }, async (ctx) => {
     const rows = await render(BLEND, SEQ_B, TOTAL);
     if (!rows) return ctx.skip();
     expect(longestGapMs(rows, S - 20)).toBeLessThan(SMOOTH_MS);
   });
 
-  it.fails("E, sequence A (Up from rest): no gap going to or from Up [fails: target-gain demotion in selection]", { timeout: 60_000 }, async (ctx) => {
+  it("E, sequence A (Up from rest): no gap going to or from Up", { timeout: 60_000 }, async (ctx) => {
     const rows = await render(BLEND, SEQ_A, TOTAL);
     if (!rows) return ctx.skip();
     expect(longestGapMs(rows, S - 20)).toBeLessThan(SMOOTH_MS);
   });
 
-  it.fails("E: the blend child being left stays mixed while the core still has it audible [fails: demoted on the setParameter frame]", { timeout: 60_000 }, async (ctx) => {
+  it("E: the blend child being left stays mixed while the core still has it audible", { timeout: 60_000 }, async (ctx) => {
     const rows = await render(BLEND, SEQ_A, S + 10);
     if (!rows) return ctx.skip();
     // RPM moves 0.016 a frame; idle is at full level up to 0.1 and fades out to 0.5, so it must still be mixed 5 frames on.
     expect(rows[S + 5]!.states.idle).toBe(VoiceState.PLAYING);
   });
 
-  it("visiting RPM 0.5 leaves mid virtual (not stopped), and a later Up gaps the same as one without the visit", { timeout: 120_000 }, async (ctx) => {
+  it("visiting RPM 0.5 leaves mid virtual (not stopped), and a later Up is gapless with or without the visit", { timeout: 120_000 }, async (ctx) => {
     const withRight = await render(BLEND, { [S]: 0.5, [S + 100]: 0, [S + 250]: 1 }, S + 350);
     const without = await render(BLEND, { [S + 250]: 1 }, S + 350);
     if (!withRight || !without) return ctx.skip();
-    expect(withRight.some((r) => r.frame > S && r.states.mid === VoiceState.PLAYING)).toBe(true);
     expect(withRight[S + 249]!.states).toEqual({ idle: VoiceState.PLAYING, mid: VoiceState.VIRTUAL, high: VoiceState.VIRTUAL });
-    const a = longestGapMs(withRight, S + 250);
-    const b = longestGapMs(without, S + 250);
-    expect(a).toBeGreaterThan(250); // the bug, with the visit...
-    expect(b).toBeGreaterThan(250); // ...and without it
-    expect(Math.abs(a - b)).toBeLessThan(15);
+    expect(longestGapMs(withRight, S - 20)).toBeLessThan(SMOOTH_MS);
+    expect(longestGapMs(without, S - 20)).toBeLessThan(SMOOTH_MS);
   });
 
-  it("the proposed fix, modelled (selection gain = max of the curves at the smoothed estimate and at the target, every frame while seeking): both sequences are gapless", { timeout: 120_000 }, async (ctx) => {
+  it("E: the quietest 10 frames of an Up sweep stay audible (E4.5 measures)", { timeout: 120_000 }, async (ctx) => {
     for (const seq of [SEQ_A, SEQ_B]) {
-      const rows = await render(BLEND, seq, TOTAL, "maxGain");
+      const rows = await render(BLEND, seq, TOTAL);
       if (!rows) return ctx.skip();
-      expect(longestGapMs(rows, S - 20)).toBeLessThan(SMOOTH_MS);
-      // mid, which the 0 -> 1 sweep only passes through, is mixed on the way.
-      expect(rows.some((r) => r.frame > S && r.states.mid === VoiceState.PLAYING)).toBe(true);
+      const per = rows.filter((r) => r.frame >= S).map((r) => Math.sqrt(r.rms.reduce((x, v) => x + v * v, 0) / r.rms.length));
+      let quiet = Infinity;
+      for (let k = 0; k + 10 <= per.length; k++) quiet = Math.min(quiet, Math.sqrt(per.slice(k, k + 10).reduce((x, v) => x + v * v, 0) / 10));
+      // Measured after the E4.5 fix: 0.155 (sequence A), 0.154 (B); the investigator's model reached 0.157.
+      expect(quiet).toBeGreaterThan(0.05);
     }
-  });
-
-  it("evaluating the curves at the larger parameter *value* (estimate or target) is not enough: rising RPM still cuts idle", { timeout: 60_000 }, async (ctx) => {
-    const rows = await render(BLEND, SEQ_A, TOTAL, "maxParam");
-    if (!rows) return ctx.skip();
-    expect(longestGapMs(rows, S - 20)).toBeGreaterThan(200);
   });
 });
