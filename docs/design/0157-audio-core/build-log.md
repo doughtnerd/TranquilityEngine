@@ -214,3 +214,22 @@ Run as two sequential waves, one Sonnet lead each, in their own worktrees (no Ag
 ## MS3 complete (2026-11-09)
 
 Ready for the owner's approval to merge to master.
+
+## MS3 merged; MS4 wave 1 (A2.1)
+
+MS3 merged to master (`d1e5287`, fast-forward) with the owner's approval; #71, #72 and #45 closed.
+
+**Landed: A2.1 (#73, Opus lead, leaves written by the lead).** `audio-core/src/bus.rs`: the bus tree from BUS_CONFIG (bad parents and cycles repaired onto the first root, as `settings.ts` does; mixed deepest first), BUS_MIX gain ramped per frame from the next quantum, `lpHz` stored and ramped per quantum for A2.2a, MASTER volume and mute ramped; voices render into their bus's buffer (unknown index: bus 0). `fx.rs` (K5): 4 effect slots per bus fed from BUS_CONFIG's existing effect records, dispatching to pass-through stubs `audio-dsp/src/{biquad,compressor,convolver}.rs` that A2.2a and A2.2b fill; a slot that keeps its kind keeps its state. `meters.rs`: per-bus L/R peak after the bus gain, instant attack, −20 dB/s fall, the first 32 in STATUS `peaks`. BUS_CONFIG and BUS_MIX entries are checked before anything applies (an overrun refuses the batch). TS: after a remap, `configureBuses` sends each live core voice its new bus index in the same batch (the voices kept stale indices before); a loopback case shows bus volume, mute and the root multiplying.
+
+**Numbers:** mixer wasm 76,913 B (75.1 KB; +13.6 KB with no DSP yet), source hash `c587faa0…`, rebuilt byte-identical at the merge; `cargo test` 241 passed; `npm test` 3,461 passed (one intermittent timeout on a first run, clean on two reruns); `npm run build` green.
+
+**Decisions to carry**
+- Meter decay is done in the core at the design's −20 dB/s, not on main; A2.3 reads `peaks` as they are.
+- BUS_CONFIG, BUS_MIX and MASTER apply between quanta on arrival; `frameOffset` is ignored (nothing stamps them in M1).
+- RESET clears bus DSP state and settles ramps but keeps the tree, gains and MASTER (main doesn't re-send BUS_CONFIG after the idle `RESET 0`; a rebuild gets a fresh core).
+- **The reverb return is added before MASTER**, so master mute silences it. `webAudioReference.ts` sends reverb straight to the destination: A2.2c's parity scenes keep master at unity or account for this.
+- Snapshot low-pass uses Q = 1 dB (Web Audio's default).
+- Dropped buses and effects are counted in `BusArea.dropped`; the wire has no STATUS field for them.
+- Per-bus `maxVoices` stays on main (BUS_CONFIG doesn't carry it).
+
+**Reserve used:** none.
