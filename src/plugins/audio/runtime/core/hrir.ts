@@ -108,6 +108,12 @@ export interface HrirLoader {
   ensure(): void;
   /** True once the core reported hrtfReady for the table (clip event 4). */
   readonly ready: boolean;
+  /**
+   * A3.4c, a rebuild into a context at `sampleRate`: the table is resampled again from the original asset for the new
+   * rate and the registry's kept blob replaced (`updateReserved`), so the rebuild's re-send carries it. A fetch still
+   * under way resamples for the new rate when it lands. Optional so fakes satisfy it.
+   */
+  retarget?(sampleRate: number): void;
 }
 
 export function createHrirLoader(deps: HrirLoaderDeps): HrirLoader {
@@ -120,21 +126,38 @@ export function createHrirLoader(deps: HrirLoaderDeps): HrirLoader {
       return response.arrayBuffer();
     });
   let started = false;
+  let rate = deps.sampleRate;
+  /** The asset as fetched (at its own rate), kept for a rebuild at another rate (A3.4c). */
+  let original: ArrayBuffer | null = null;
+  const fail = (err: unknown): void => warn(`audio: the HRTF data failed to load, spatial voices stay equal-power (${err instanceof Error ? err.message : String(err)})`);
   return {
     ensure() {
       if (started) return;
       started = true;
       void (async () => {
         try {
-          const bytes = resampleHrir(await fetchBytes(), deps.sampleRate);
+          original = await fetchBytes();
+          const bytes = resampleHrir(original, rate);
           deps.clips.acquireReserved(HRIR_CLIP_ID, { bytes, sampleRate: readHrirHeader(bytes).rate, format: FORMAT_HRIR });
         } catch (err) {
-          warn(`audio: the HRTF data failed to load, spatial voices stay equal-power (${err instanceof Error ? err.message : String(err)})`);
+          original = null;
+          fail(err);
         }
       })();
     },
     get ready() {
       return deps.clips.state(HRIR_CLIP_ID) === "ready";
+    },
+    retarget(sampleRate) {
+      if (Math.abs(sampleRate - rate) < 0.5) return;
+      rate = sampleRate;
+      if (!original || deps.clips.state(HRIR_CLIP_ID) === "idle") return;
+      try {
+        const bytes = resampleHrir(original, rate);
+        deps.clips.updateReserved?.(HRIR_CLIP_ID, { bytes, sampleRate: readHrirHeader(bytes).rate, format: FORMAT_HRIR });
+      } catch (err) {
+        fail(err);
+      }
     },
   };
 }

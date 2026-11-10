@@ -124,10 +124,10 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly masterRec: Master = { voiceId: 0, frameOffset: ASAP, volume: 1, muted: 0, rampFrames: 0 };
   private readonly resetRec: Reset = { voiceId: 0, frameOffset: ASAP, keepClips: 0 } as Reset;
 
-  /** `sampleRate` converts the table's seconds to frames (STOP and FADE take frames). */
+  /** `sampleRate` converts the table's seconds to frames (STOP and FADE take frames); a context swap sets it again (A3.4c). */
   constructor(
     private readonly port: BatchPort,
-    readonly sampleRate: number,
+    public sampleRate: number,
   ) {}
 
   /** Records staged and not yet posted. */

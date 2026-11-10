@@ -44,10 +44,14 @@ export interface DecodedAudio {
 /**
  * @internal A1.3a (api-and-models section 3): decodes `encoded` with the host context's `decodeAudioData`. The browser
  * detaches the buffer it is given, so this decodes a copy and `encoded` stays usable (the encoded cache keeps it for
- * rebuilds). Resamples to the context rate, as `decodeAudioData` does. Rejects on a decode failure. B6 removes it.
+ * rebuilds). Resamples to the context rate, as `decodeAudioData` does, or to `sampleRate` when given and different
+ * (A3.4c: a clip decoded again after a rebuild into a context at another rate keeps its own rate), through an
+ * `OfflineAudioContext` at that rate where there is one. Rejects on a decode failure. B6 removes it.
  */
-export async function decodeClip(context: Pick<BaseAudioContext, "decodeAudioData">, encoded: ArrayBuffer): Promise<DecodedAudio> {
-  const buffer = await context.decodeAudioData(encoded.slice(0));
+export async function decodeClip(context: Pick<BaseAudioContext, "decodeAudioData"> & { readonly sampleRate?: number }, encoded: ArrayBuffer, sampleRate?: number): Promise<DecodedAudio> {
+  const Offline = (globalThis as { OfflineAudioContext?: typeof OfflineAudioContext }).OfflineAudioContext;
+  const decoder = sampleRate !== undefined && sampleRate > 0 && sampleRate !== context.sampleRate && Offline ? new Offline(1, 1, sampleRate) : context;
+  const buffer = await decoder.decodeAudioData(encoded.slice(0));
   const channelData: Float32Array[] = [];
   for (let c = 0; c < buffer.numberOfChannels; c++) channelData.push(buffer.getChannelData(c));
   return { frames: buffer.length, channels: buffer.numberOfChannels, sampleRate: buffer.sampleRate, channelData };

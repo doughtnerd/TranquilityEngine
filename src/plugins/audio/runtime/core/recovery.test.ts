@@ -406,6 +406,32 @@ describe("PlayheadTracker (architecture §7: last playhead + elapsed frames × p
     t.retime(i, 10_000);
     expect(t.at(i, 10_480)).toBe(2_580);
   });
+
+  it("A3.4c: carries anchors across a context swap in Audio.time seconds; scales a position when the clip's rate changed", () => {
+    const table = new VoiceTable(4);
+    const id = table.allocate(0, 128, 0, VoiceState.PLAYING);
+    const i = id & 0xffff;
+    table.clip[i] = 7;
+    let clipRate = 48_000;
+    const clips = { info: (clip: number) => (clip === 7 ? ({ sampleRate: clipRate } as never) : null) };
+    const t = new PlayheadTracker(table, clips, 48_000);
+    // At 48 kHz, anchored at frame 48 000 (1 s on Audio.time with no offset) at clip frame 0.
+    t.start(i, 48_000, 0);
+    t.toTimeline(0);
+    // A retime while carried is ignored (it would mix the old frames with the new).
+    t.retime(i, 5);
+    // The new context runs at 44.1 kHz and its frame 0 is Audio.time 1.5 s: the anchor is half a second before it.
+    t.fromTimeline(44_100, 1.5);
+    expect(t.anchorFrame[i]).toBeCloseTo(-22_050, 6);
+    // At new frame 44 100 (Audio.time 2.5 s), 1.5 s after the anchor: 72 000 clip frames of the 48 kHz clip.
+    expect(t.at(i, 44_100)).toBeCloseTo(72_000, 6);
+    // Its clip came back decoded at 44.1 kHz instead: the same instant is 66 150 frames into it.
+    clipRate = 44_100;
+    expect(t.positionNow(i, 44_100)).toBeCloseTo(66_150, 6);
+    // A new start anchors in the new frames at the new rates.
+    t.start(i, 44_100, 66_150);
+    expect(t.at(i, 88_200)).toBeCloseTo(66_150 + 44_100, 6);
+  });
 });
 
 describe("ClipRegistry.resend (A3.4a)", () => {

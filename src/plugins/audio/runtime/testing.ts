@@ -204,8 +204,17 @@ export interface LoopbackHost {
   respawn(): { readonly node: AudioWorkletNode; readonly port: LinkPort };
   /** A3.4a: the next quantum traps inside the real wasm (`myco_audio_debug_trap_next`); needs `testHooks`. (Addition to K4.) */
   trapNext(): void;
-  /** Cores made so far (1, plus one per `respawn`). (Addition to K4.) */
+  /** Cores made so far (1, plus one per `respawn` or `recreate`). (Addition to K4.) */
   readonly cores: number;
+  /**
+   * A3.4c: a new context at `sampleRate` (a device or rate rebuild): a new core and shell initialised at that rate,
+   * with frames starting again at 0 and the fake clock's context clock restarted (`restartContext`); each quantum then
+   * advances the clock by 128 frames at the new rate. Returns the fake node and the port, as `respawn` does; the caller
+   * makes the fake context. (Addition to K4.)
+   */
+  recreate(sampleRate: number): { readonly node: AudioWorkletNode; readonly port: LinkPort };
+  /** The current context's rate (`LOOPBACK_RATE` until a `recreate`). (Addition to K4.) */
+  readonly sampleRate: number;
 }
 
 /** The default preset: roomy enough for the §8 loopback cases. */
@@ -213,7 +222,6 @@ export const LOOPBACK_PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxB
 /** The loopback rate (the shell's `sampleRate`). */
 export const LOOPBACK_RATE = 48_000;
 
-const QUANTUM_MS = (QUANTUM_FRAMES / LOOPBACK_RATE) * 1000;
 
 /**
  * Builds a loopback host on the committed wasm, with the given (or a new) fake clock and preset. `testHooks` loads the
@@ -228,9 +236,10 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
   const preset = options.preset ?? LOOPBACK_PRESET;
   const module = new WebAssembly.Module(wasm as Uint8Array<ArrayBuffer>);
 
+  let rate = LOOPBACK_RATE;
   /** One core with its shell and both message queues (a respawn makes another; the old one is dropped). */
   const spawn = () => {
-    const core = instantiateCore(module, preset, LOOPBACK_RATE);
+    const core = instantiateCore(module, preset, rate);
     const toMain: unknown[] = [];
     const toWorklet: unknown[] = [];
     const driver = new CoreDriver(core, (message) => toMain.push(message), clock.dateNow());
@@ -272,7 +281,19 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
     get cores() {
       return cores;
     },
+    get sampleRate() {
+      return rate;
+    },
     respawn() {
+      current = spawn();
+      cores++;
+      const node = { connect() {}, disconnect() {} } as unknown as AudioWorkletNode;
+      return { node, port: current.port };
+    },
+    recreate(sampleRate) {
+      rate = sampleRate;
+      frame = 0;
+      clock.restartContext();
       current = spawn();
       cores++;
       const node = { connect() {}, disconnect() {} } as unknown as AudioWorkletNode;
@@ -296,7 +317,7 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
         left.set(driver.left, i * QUANTUM_FRAMES);
         right.set(driver.right, i * QUANTUM_FRAMES);
         frame += QUANTUM_FRAMES;
-        clock.advance(QUANTUM_MS);
+        clock.advance((QUANTUM_FRAMES / rate) * 1000);
         flush();
       }
       return { left, right };

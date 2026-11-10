@@ -88,6 +88,34 @@ describe("hrir loader", () => {
     expect(h.clips.residentIds()).toContain(HRIR_CLIP_ID);
   });
 
+  it("A3.4c: retarget resamples the original table for a new context rate; the rebuild's resend carries it", async () => {
+    const h = harness();
+    h.loader.ensure();
+    await settle();
+    h.clips.applyClipEvent(HRIR_CLIP_ID, ClipEvent.HrtfReady);
+    h.sent.length = 0;
+    // A context at 44.1 kHz: the asset's own rate, so the table goes back to 256 frames (from the original, not 48 kHz's).
+    h.loader.retarget!(44100);
+    expect(h.sent).toHaveLength(0);
+    h.clips.resend!([]);
+    await settle();
+    const begin = readClipBegin(new DataView(h.sent[0]!), 0);
+    expect(begin.clipId).toBe(HRIR_CLIP_ID);
+    expect(begin.sampleRate).toBe(44100);
+    expect(begin.frames).toBe(table().byteLength / 2);
+    expect(h.loader.ready).toBe(false);
+    h.clips.applyClipEvent(HRIR_CLIP_ID, ClipEvent.HrtfReady);
+    expect(h.loader.ready).toBe(true);
+    // And to 96 kHz from the same original.
+    h.sent.length = 0;
+    h.loader.retarget!(96000);
+    h.clips.resend!([]);
+    await settle();
+    const again = readClipBegin(new DataView(h.sent[0]!), 0);
+    expect(again.sampleRate).toBe(96000);
+    expect(again.frames).toBe(resampleHrir(table(), 96000).byteLength / 2);
+  });
+
   it("warns once and stays not ready when the fetch fails", async () => {
     const h = harness(vi.fn(async () => Promise.reject(new Error("HTTP 404"))));
     h.loader.ensure();

@@ -30,8 +30,12 @@ export interface HostClock {
 /** How long (ms) the frame sampler keeps itself alive after the last `rafTime()` call. */
 const RAF_IDLE_MS = 1_000;
 
-/** A0.3/A1.7: the clock over a real AudioContext (architecture §4.6). `rafTime()` samples `requestAnimationFrame` while it's being called. */
-export function browserHostClock(context: AudioContext): HostClock {
+/**
+ * A0.3/A1.7: the clock over a real AudioContext (architecture §4.6). `rafTime()` samples `requestAnimationFrame` while
+ * it's being called. `context` may be a getter (A3.4c): a rebuild into a new context then moves the clock with it.
+ */
+export function browserHostClock(context: AudioContext | (() => AudioContext)): HostClock {
+  const contextNow = typeof context === "function" ? context : () => context;
   let frameTime = 0;
   let inFrame = false;
   let sampling = false;
@@ -54,6 +58,7 @@ export function browserHostClock(context: AudioContext): HostClock {
       return inFrame ? frameTime : lastAsked;
     },
     outputTimestamp() {
+      const context = contextNow();
       if (context.state !== "running" || typeof context.getOutputTimestamp !== "function") return null;
       const t = context.getOutputTimestamp();
       if (!t || t.contextTime === undefined || t.performanceTime === undefined) return null;
@@ -63,7 +68,7 @@ export function browserHostClock(context: AudioContext): HostClock {
       if (t.contextTime === 0 && t.performanceTime === 0) return null;
       return { contextTime: t.contextTime, performanceTime: t.performanceTime };
     },
-    currentTime: () => context.currentTime,
+    currentTime: () => contextNow().currentTime,
     dateNow: () => Date.now(),
     fake: false,
   };
@@ -75,6 +80,8 @@ export interface FakeHostClock extends HostClock {
   advance(ms: number): void;
   /** Sets whether the context clock runs (a suspended context's `currentTime` stands still). */
   setRunning(running: boolean): void;
+  /** A3.4c: a new context: its clock starts again at 0 (the page's clocks run on). */
+  restartContext(): void;
 }
 
 /** A fake clock starting at the given times (defaults: rAF 1000 ms, context 0 s, wall clock 1,000,000 ms). */
@@ -96,6 +103,9 @@ export function fakeHostClock(start: { rafTime?: number; currentTime?: number; d
     },
     setRunning(value) {
       running = value;
+    },
+    restartContext() {
+      current = 0;
     },
   };
 }

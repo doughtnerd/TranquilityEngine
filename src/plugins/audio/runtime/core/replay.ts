@@ -61,34 +61,53 @@ export class PlayheadTracker {
   readonly anchorFrame: Float64Array;
   readonly anchorPos: Float64Array;
   readonly rate: Float64Array;
+  /** Per slot: the clip's rate when it was anchored (a clip decoded again at another rate scales its position, A3.4c). */
+  readonly clipRate: Float64Array;
+  /** Per slot: 1 while `anchorFrame` holds `Audio.time` seconds instead of frames (between `toTimeline` and `fromTimeline`). */
+  private readonly inSeconds: Uint8Array;
+  private secondsCount = 0;
 
   constructor(
     private readonly table: VoiceTable,
     private readonly clips: Pick<ClipRegistry, "info">,
-    private readonly sampleRate: number,
+    /** The context's rate, Hz; `fromTimeline` changes it when the context is replaced. */
+    private sampleRate: number,
   ) {
     this.anchorFrame = new Float64Array(table.capacity);
     this.anchorPos = new Float64Array(table.capacity);
     this.rate = new Float64Array(table.capacity);
+    this.clipRate = new Float64Array(table.capacity);
+    this.inSeconds = new Uint8Array(table.capacity);
+  }
+
+  /** The clip rate of slot `i`'s clip now (the context rate when unknown). */
+  private clipRateOf(i: number): number {
+    const clipRate = this.clips.info(this.table.clip[i]!)?.sampleRate ?? 0;
+    return clipRate > 0 ? clipRate : this.sampleRate;
   }
 
   /** Clip frames per context frame for slot `i` now: pitch × clip rate / context rate, 0 while paused. */
   private rateOf(i: number): number {
     const t = this.table;
     if ((t.flags[i]! & VoiceFlag.PAUSED) !== 0) return 0;
-    const clipRate = this.clips.info(t.clip[i]!)?.sampleRate ?? this.sampleRate;
-    return (t.pitch[i]! * (clipRate > 0 ? clipRate : this.sampleRate)) / this.sampleRate;
+    return (t.pitch[i]! * this.clipRateOf(i)) / this.sampleRate;
   }
 
   /** The voice in slot `i` starts at clip frame `pos` on context frame `frame` (its PLAY, or its replay). */
   start(i: number, frame: number, pos: number): void {
+    this.dropSeconds(i);
     this.anchorFrame[i] = frame;
     this.anchorPos[i] = pos;
     this.rate[i] = this.rateOf(i);
+    this.clipRate[i] = this.clipRateOf(i);
   }
 
-  /** Slot `i`'s rate changed at `frame` (call after the table has the new pitch or pause): integrate, then re-anchor. */
+  /**
+   * Slot `i`'s rate changed at `frame` (call after the table has the new pitch or pause): integrate, then re-anchor.
+   * Ignored for a slot carried across a context swap until `fromTimeline` (it integrates at its old rate until then).
+   */
   retime(i: number, frame: number): void {
+    if (this.inSeconds[i]) return;
     this.anchorPos[i] = this.at(i, frame);
     this.anchorFrame[i] = Math.max(frame, this.anchorFrame[i]!);
     this.rate[i] = this.rateOf(i);
@@ -98,6 +117,52 @@ export class PlayheadTracker {
   at(i: number, frame: number): number {
     const elapsed = frame - this.anchorFrame[i]!;
     return this.anchorPos[i]! + (elapsed > 0 ? elapsed * this.rate[i]! : 0);
+  }
+
+  /** `at`, in frames of the clip as it is now: scaled when the clip came back at another rate than it was anchored at. */
+  positionNow(i: number, frame: number): number {
+    const pos = this.at(i, frame);
+    const was = this.clipRate[i]!;
+    const now = this.clipRateOf(i);
+    return was > 0 && Math.abs(now - was) > 0.5 ? (pos * now) / was : pos;
+  }
+
+  /**
+   * A3.4c, a context swap: every live slot's anchor moves from the old context's frames to `Audio.time` seconds
+   * (frame / old rate + `offset`, the old clock's `timeOffset`), so it survives the new context's frames starting at 0.
+   */
+  toTimeline(offset: number): void {
+    const t = this.table;
+    for (let i = 0; i < t.capacity; i++) {
+      const s = t.state[i]!;
+      if (this.inSeconds[i] || (s !== VoiceState.PLAYING && s !== VoiceState.VIRTUAL && s !== VoiceState.STOPPING)) continue;
+      this.anchorFrame[i] = this.anchorFrame[i]! / this.sampleRate + offset;
+      this.inSeconds[i] = 1;
+      this.secondsCount++;
+    }
+  }
+
+  /**
+   * A3.4c: the new context's clock is known: the anchors carried by `toTimeline` go to its frames (seconds less
+   * `offset`, its `timeOffset`, times `sampleRate`), and their rates to clip frames per new context frame.
+   */
+  fromTimeline(sampleRate: number, offset: number): void {
+    const was = this.sampleRate;
+    this.sampleRate = sampleRate;
+    if (this.secondsCount === 0) return;
+    for (let i = 0; i < this.inSeconds.length; i++) {
+      if (!this.inSeconds[i]) continue;
+      this.anchorFrame[i] = (this.anchorFrame[i]! - offset) * sampleRate;
+      this.rate[i] = (this.rate[i]! * was) / sampleRate;
+      this.inSeconds[i] = 0;
+    }
+    this.secondsCount = 0;
+  }
+
+  private dropSeconds(i: number): void {
+    if (!this.inSeconds[i]) return;
+    this.inSeconds[i] = 0;
+    this.secondsCount--;
   }
 }
 
@@ -183,6 +248,8 @@ export interface ReplaySource {
   readonly playheads: PlayheadTracker;
   readonly masterVolume: number;
   readonly muted: boolean;
+  /** MASTER is held at 0 by the hidden-page policy (`background.ts`); the replayed MASTER keeps it so. */
+  readonly hiddenMuted?: boolean;
   readonly host: { readonly sampleRate: number };
   /** BUS_CONFIG's buses for the current tree, root first. */
   busConfigWire(): BusConfigBuses[];
@@ -238,6 +305,36 @@ export class Replayer {
   begin(): void {
     const now = this.src.clockMap.framesNow();
     this.trapFrame = now > 0 ? now : this.src.mirror.frameAudio;
+  }
+
+  /** A3.4c: set by `newContext` until the new clock is known: `trapFrame` then holds `Audio.time` seconds. */
+  private timelinePending = false;
+
+  /**
+   * A3.4c, the rebuild moved to a new context whose frames start at 0 (call before the clock map's `rebase`, with the
+   * old rate and `timeOffset`): the trap frame and every live voice's playhead anchor are carried as `Audio.time`
+   * seconds until the new context's clock is known (`flush` converts them back to its frames).
+   */
+  newContext(oldRate: number, oldOffset: number): void {
+    if (!this.timelinePending) this.trapFrame = this.trapFrame / oldRate + oldOffset;
+    this.timelinePending = true;
+    this.src.playheads.toTimeline(oldOffset);
+  }
+
+  /** True while voices wait for the new context's clock (A3.4c). */
+  get waitingForClock(): boolean {
+    return this.timelinePending;
+  }
+
+  /** The carried anchors go to the new context's frames once its clock is known; false while it isn't yet. */
+  private settleTimeline(): boolean {
+    if (!this.timelinePending) return true;
+    const clock = this.src.clockMap;
+    if (clock.carryPending) return false;
+    this.trapFrame = (this.trapFrame - clock.timeOffset) * clock.sampleRate;
+    this.src.playheads.fromTimeline(clock.sampleRate, clock.timeOffset);
+    this.timelinePending = false;
+    return true;
   }
 
   /**
@@ -308,7 +405,8 @@ export class Replayer {
     mix.length = 0;
     for (let i = 0; i < n; i++) mix.push({ gain: resolved[i]!.gain, lpHz: resolved[i]!.snapshotLowpass ?? BUS_LP_OFF_HZ });
     b.record(20 + 8 * n, (view, off) => writeBusMix(view, off, { voiceId: 0, frameOffset: ASAP, rampFrames: 0, buses: mix }));
-    const { masterVolume, muted } = this.src;
+    const { masterVolume } = this.src;
+    const muted = this.src.muted || this.src.hiddenMuted === true;
     b.record(24, (view, off) => writeMaster(view, off, { voiceId: 0, frameOffset: ASAP, volume: masterVolume, muted: muted ? 1 : 0, rampFrames: 0 }));
     this.stats.messages += b.post(this.port, this.src.mirror.frameAudio, true);
   }
@@ -318,9 +416,9 @@ export class Replayer {
    * F = *F*_now + L, each PLAY starting where the voice would be at F. Returns how many voices it replayed.
    */
   flush(): number {
-    if (this.back.length === 0) return 0;
+    if (this.back.length === 0 || !this.settleTimeline()) return 0;
     const { table: t, clips, clockMap, playheads } = this.src;
-    const rate = this.src.host.sampleRate;
+    const rate = clockMap.sampleRate;
     const frame = Math.round(clockMap.framesNow() + clockMap.lookaheadFrames());
     const waited = (frame - this.trapFrame) / rate;
     const b = this.builder;
@@ -341,7 +439,7 @@ export class Replayer {
       const clipRate = info && info.sampleRate > 0 ? info.sampleRate : rate;
       const flags = t.flags[i]!;
       const loop = (flags & VoiceFlag.LOOP) !== 0;
-      let pos = playheads.at(i, frame);
+      let pos = playheads.positionNow(i, frame);
       const shortOneShot = (flags & VoiceFlag.ONE_SHOT) !== 0 && frames / clipRate < REPLAY_SHORT_ONE_SHOT_SECONDS;
       if ((!loop && pos >= frames) || (shortOneShot && !loop && waited > REPLAY_SHORT_ONE_SHOT_MAX_WAIT_SECONDS)) {
         t.free(id, VoiceReason.NONE);
