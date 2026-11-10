@@ -1,32 +1,291 @@
-// L6.3b fills these: the Event editor's field descriptors (nodeFields.ts).
-import { describe, it } from "vitest";
+// L6.3b: the Event editor's field descriptors (nodeFields.ts). Defaults are checked against what parseAudioEvent reads.
+import { describe, it, expect } from "vitest";
+import { parseAudioEvent, type AudioEventAsset, type BlendNode, type EventNode, type RandomNode, type SustainNode, type SwitchNode } from "../../../../engine/audio/eventFormat";
+import {
+  coerceField, eventFields, findField, nodeFields, readField, writeField, type FieldDescriptor, type GroupField,
+} from "./nodeFields";
+
+const clip = (extra: Record<string, unknown> = {}) => ({ type: "clip", clip: "a.ogg", ...extra });
+const parseRoot = (root: unknown): EventNode => parseAudioEvent({ format: "myco.audioevent@1", root }).value.root;
+const parseEvent = (extra: Record<string, unknown> = {}): AudioEventAsset =>
+  parseAudioEvent({ format: "myco.audioevent@1", root: clip(), ...extra }).value;
+
+const names = (fields: readonly FieldDescriptor[]): string[] => fields.map((f) => f.name);
+const need = (fields: readonly FieldDescriptor[], name: string): FieldDescriptor => {
+  const f = findField(fields, name);
+  if (!f) throw new Error(`no field "${name}"`);
+  return f;
+};
+
+/** Every non-optional, non-group field of the list has a default equal to the parsed node's value for its key. */
+function expectDefaultsMatch(node: EventNode, parent: EventNode | null): void {
+  for (const f of nodeFields(node, parent)) {
+    // The test nodes name a clip and a parameter, so those fields are not at their defaults; the tests below cover them.
+    if (f.kind === "curves" || f.kind === "group" || f.kind === "asset" || f.kind === "parameter") continue;
+    if ((f.kind === "range" || f.kind === "text") && f.optional) continue;
+    expect(readField(node, f), f.name).toEqual(f.default);
+  }
+}
 
 describe("nodeFields", () => {
-  it.skip("clip: clip asset first, then loop, startOffset, loopRegion (optional), sustain, then the common fields, automation last", () => {});
-  it.skip("random: avoidRepeat max is children - 1 (0 with none), mode, gap only when continuous", () => {});
-  it.skip("sequence: mode, loop only when continuous, reset only when step, gap only when continuous", () => {});
-  it.skip("switch: labelled parameter first, default (optional text), onChange, crossfade only when crossfade", () => {});
-  it.skip("blend: parameter; layer: no own fields", () => {});
-  it.skip("sustain: release, fade only when release is now", () => {});
-  it.skip("parent-given fields: weight under random, value under switch, range and fade under blend, none at the root", () => {});
-  it.skip("a sustain under a blend lists fade once", () => {});
-  it.skip("limits match parseAudioEvent's (volume 0..4, pitch 0.0625..16, volumeRandom -96..24, pitchRandom -48..48, delay 0..60)", () => {});
-  it.skip("every descriptor default equals parseAudioEvent's default for that key", () => {});
-  it.skip("names are unique within a list and every field has a label and help", () => {});
+  it("clip: clip asset first, then loop, startOffset, loopRegion (optional), sustain, then the common fields, automation last", () => {
+    const fields = nodeFields(parseRoot(clip()), null);
+    expect(names(fields)).toEqual([
+      "clip", "loop", "startOffset", "loopRegion", "sustain",
+      "volume", "pitch", "volumeRandom", "pitchRandom", "delay", "automation",
+    ]);
+    expect(fields[0]).toMatchObject({ kind: "asset", assetKind: "audio", default: "" });
+    expect(need(fields, "loopRegion")).toMatchObject({ kind: "range", optional: true, default: [0, 1] });
+  });
+
+  it("random: avoidRepeat max is children - 1 (0 with none), mode, gap only when continuous", () => {
+    const step = parseRoot({ type: "random", children: [clip(), clip({ clip: "b.ogg" }), clip({ clip: "c.ogg" })] });
+    const stepFields = nodeFields(step, null);
+    expect(need(stepFields, "avoidRepeat")).toMatchObject({ max: 2, integer: true, default: 0 });
+    expect(names(stepFields).slice(0, 2)).toEqual(["avoidRepeat", "mode"]);
+    expect(names(stepFields)).not.toContain("gap");
+
+    const cont = parseRoot({ type: "random", mode: "continuous", children: [clip()] });
+    const contFields = nodeFields(cont, null);
+    expect(names(contFields).slice(0, 3)).toEqual(["avoidRepeat", "mode", "gap"]);
+    expect(need(contFields, "gap")).toMatchObject({ min: -10, max: 60, default: 0 });
+
+    const none = parseRoot({ type: "random", children: [] });
+    expect(need(nodeFields(none, null), "avoidRepeat")).toMatchObject({ max: 0 });
+  });
+
+  it("sequence: mode, loop only when continuous, reset only when step, gap only when continuous", () => {
+    const step = nodeFields(parseRoot({ type: "sequence", children: [clip()] }), null);
+    expect(names(step).slice(0, 2)).toEqual(["mode", "reset"]);
+    expect(need(step, "reset")).toMatchObject({ min: 0, max: 1e6, default: 0 });
+
+    const cont = nodeFields(parseRoot({ type: "sequence", mode: "continuous", loop: true, children: [clip()] }), null);
+    expect(names(cont).slice(0, 3)).toEqual(["mode", "loop", "gap"]);
+    expect(names(cont)).not.toContain("reset");
+    expect(need(cont, "loop")).toMatchObject({ kind: "boolean", default: false });
+  });
+
+  it("switch: labelled parameter first, default (optional text), onChange, crossfade only when crossfade", () => {
+    const keep = nodeFields(parseRoot({ type: "switch", parameter: "Surface", children: [clip({ value: "Grass" })] }), null);
+    expect(names(keep).slice(0, 3)).toEqual(["parameter", "default", "onChange"]);
+    expect(keep[0]).toMatchObject({ kind: "parameter", labelled: true, default: "" });
+    expect(need(keep, "default")).toMatchObject({ kind: "text", optional: true });
+    expect(names(keep)).not.toContain("crossfade");
+
+    const fade = nodeFields(parseRoot({ type: "switch", parameter: "Surface", onChange: "crossfade", children: [clip()] }), null);
+    expect(need(fade, "crossfade")).toMatchObject({ min: 0, max: 10, step: 0.01, default: 0.1 });
+  });
+
+  it("blend: parameter; layer: no own fields", () => {
+    const blend = nodeFields(parseRoot({ type: "blend", parameter: "Speed", children: [clip({ range: [0, 1] })] }), null);
+    expect(blend[0]).toMatchObject({ name: "parameter", kind: "parameter", default: "" });
+    expect(blend[0].kind === "parameter" && blend[0].labelled).toBeFalsy();
+
+    const layer = nodeFields(parseRoot({ type: "layer", children: [clip()] }), null);
+    expect(names(layer)).toEqual(["volume", "pitch", "volumeRandom", "pitchRandom", "delay", "automation"]);
+  });
+
+  it("sustain: release, fade only when release is now", () => {
+    const loopEnd = nodeFields(parseRoot({ type: "sustain", loop: clip() }), null);
+    expect(names(loopEnd).slice(0, 1)).toEqual(["release"]);
+    expect(names(loopEnd)).not.toContain("fade");
+    expect(need(loopEnd, "release")).toMatchObject({ options: ["now", "loopEnd"], default: "loopEnd" });
+
+    const now = nodeFields(parseRoot({ type: "sustain", release: "now", loop: clip() }), null);
+    expect(names(now).slice(0, 2)).toEqual(["release", "fade"]);
+    expect(need(now, "fade")).toMatchObject({ kind: "number", min: 0, max: 1e6, default: 0 });
+  });
+
+  it("parent-given fields: weight under random, value under switch, range and fade under blend, none at the root", () => {
+    const random = parseRoot({ type: "random", children: [clip()] }) as RandomNode;
+    expect(names(nodeFields(random.children[0], random))).toContain("weight");
+    expect(need(nodeFields(random.children[0], random), "weight")).toMatchObject({ default: 1 });
+    expect(names(nodeFields(random.children[0], null))).not.toContain("weight");
+
+    const sw = parseRoot({ type: "switch", parameter: "S", children: [clip({ value: "A" })] }) as SwitchNode;
+    expect(need(nodeFields(sw.children[0], sw), "value")).toMatchObject({ kind: "text", optional: true, default: "" });
+
+    const blend = parseRoot({ type: "blend", parameter: "P", children: [clip({ range: [0, 0.5] })] }) as BlendNode;
+    const bf = nodeFields(blend.children[0], blend);
+    expect(names(bf).slice(-3)).toEqual(["range", "fade", "automation"]);
+    expect(need(bf, "range")).toMatchObject({ optional: true, min: -1e6, max: 1e6, default: [0, 1] });
+    expect(need(bf, "fade")).toMatchObject({ default: 0 });
+
+    const root = nodeFields(parseRoot(clip()), null);
+    for (const n of ["weight", "value", "range", "fade"]) expect(names(root)).not.toContain(n);
+  });
+
+  it("a sustain under a blend lists fade once", () => {
+    const now = parseRoot({ type: "blend", parameter: "P", children: [{ type: "sustain", release: "now", loop: clip(), range: [0, 1] }] }) as BlendNode;
+    const nowFields = nodeFields(now.children[0], now);
+    expect(names(nowFields).filter((n) => n === "fade")).toHaveLength(1);
+    expect(need(nowFields, "fade").label).toBe("Crossfade");
+
+    const loopEnd = parseRoot({ type: "blend", parameter: "P", children: [{ type: "sustain", loop: clip(), range: [0, 1] }] }) as BlendNode;
+    const loopEndFields = nodeFields(loopEnd.children[0], loopEnd);
+    expect(names(loopEndFields).filter((n) => n === "fade")).toHaveLength(1);
+    expect(need(loopEndFields, "fade").label).toBe("Fade");
+  });
+
+  it("limits match parseAudioEvent's (volume 0..4, pitch 0.0625..16, volumeRandom -96..24, pitchRandom -48..48, delay 0..60)", () => {
+    const fields = nodeFields(parseRoot(clip()), null);
+    expect(need(fields, "volume")).toMatchObject({ min: 0, max: 4, step: 0.01, default: 1 });
+    expect(need(fields, "pitch")).toMatchObject({ min: 0.0625, max: 16, step: 0.01, default: 1 });
+    expect(need(fields, "volumeRandom")).toMatchObject({ min: -96, max: 24, step: 0.5, default: [0, 0] });
+    expect(need(fields, "pitchRandom")).toMatchObject({ min: -48, max: 48, step: 0.1, default: [0, 0] });
+    expect(need(fields, "delay")).toMatchObject({ min: 0, max: 60, step: 0.01, default: 0 });
+  });
+
+  it("every descriptor default equals parseAudioEvent's default for that key", () => {
+    expectDefaultsMatch(parseRoot(clip()), null);
+    // Each node is left at its defaults, so every field (including the mode-dependent ones) is checked against the parser.
+    const random = parseRoot({ type: "random", children: [clip(), clip({ clip: "b.ogg" })] }) as RandomNode;
+    expectDefaultsMatch(random, null);
+    expectDefaultsMatch(random.children[0], random);
+    const sequence = parseRoot({ type: "sequence", children: [clip()] }) as EventNode;
+    expectDefaultsMatch(sequence, null);
+    const sw = parseRoot({ type: "switch", parameter: "S", children: [clip({ value: "A" })] }) as SwitchNode;
+    expectDefaultsMatch(sw, null);
+    expectDefaultsMatch(sw.children[0], sw);
+    const blend = parseRoot({ type: "blend", parameter: "P", children: [clip({ range: [0, 1] })] }) as BlendNode;
+    expectDefaultsMatch(blend.children[0], blend);
+    const sustain = parseRoot({ type: "sustain", loop: clip() }) as SustainNode;
+    expectDefaultsMatch(sustain, null);
+    const bare = parseRoot({ type: "switch", children: [] }) as SwitchNode;
+    expect(readField(bare, need(nodeFields(bare, null), "parameter"))).toBe("");
+    const continuous = parseRoot({ type: "sequence", mode: "continuous", loop: true, children: [clip()] }) as EventNode;
+    expect(readField(continuous, need(nodeFields(continuous, null), "mode"))).toBe("continuous");
+  });
+
+  it("names unique within a list and every field has a label and help", () => {
+    const check = (fields: readonly FieldDescriptor[]): void => {
+      expect(new Set(names(fields)).size, names(fields).join(",")).toBe(fields.length);
+      for (const f of fields) {
+        expect(f.label.length, f.name).toBeGreaterThan(0);
+        expect(f.help.length, f.name).toBeGreaterThan(0);
+        if (f.kind === "group") check(f.fields);
+      }
+    };
+    const root = parseRoot({ type: "random", children: [clip()] }) as RandomNode;
+    check(nodeFields(root, null));
+    check(nodeFields(root.children[0], root));
+    check(eventFields());
+  });
 });
 
 describe("eventFields", () => {
-  it.skip("lists bus, volume, pitch, volumeRandom, pitchRandom, priority, spatial, limit, cooldown, automation in order", () => {});
-  it.skip("spatial is an optional group with minDistance, maxDistance, rolloff; limit a required group", () => {});
-  it.skip("priority is an integer 0..255, maxInstances an integer 0..4096, cooldown 0..60", () => {});
+  it("lists bus, volume, pitch, volumeRandom, pitchRandom, priority, spatial, limit, cooldown, automation in order", () => {
+    expect(names(eventFields())).toEqual([
+      "bus", "volume", "pitch", "volumeRandom", "pitchRandom", "priority", "spatial", "limit", "cooldown", "automation",
+    ]);
+  });
+
+  it("spatial is an optional group with minDistance, maxDistance, rolloff; limit a required group", () => {
+    const spatial = need(eventFields(), "spatial") as GroupField;
+    expect(spatial).toMatchObject({ kind: "group", optional: true });
+    expect(names(spatial.fields)).toEqual(["minDistance", "maxDistance", "rolloff"]);
+    const limit = need(eventFields(), "limit") as GroupField;
+    expect(limit.kind).toBe("group");
+    expect(limit.optional).toBeFalsy();
+    expect(names(limit.fields)).toEqual(["maxInstances", "steal"]);
+  });
+
+  it("priority is an integer 0..255, maxInstances an integer 0..4096, cooldown 0..60", () => {
+    expect(need(eventFields(), "priority")).toMatchObject({ integer: true, min: 0, max: 255, default: 128 });
+    const limit = need(eventFields(), "limit") as GroupField;
+    expect(need(limit.fields, "maxInstances")).toMatchObject({ integer: true, min: 0, max: 4096, default: 0 });
+    expect(need(eventFields(), "cooldown")).toMatchObject({ min: 0, max: 60, default: 0 });
+  });
+
+  it("defaults equal parseAudioEvent's, groups included", () => {
+    const event = parseEvent();
+    for (const f of eventFields()) {
+      if (f.kind === "curves" || f.kind === "group") continue;
+      expect(readField(event, f), f.name).toEqual(f.default);
+    }
+    const limit = need(eventFields(), "limit") as GroupField;
+    expect(readField(event, limit)).toEqual(limit.default);
+    const spatial = need(eventFields(), "spatial") as GroupField;
+    expect(readField(parseEvent({ spatial: {} }), spatial)).toEqual(spatial.default);
+    expect(spatial.default).toEqual({ minDistance: 1, maxDistance: 100, rolloff: "inverse" });
+  });
 });
 
 describe("field values", () => {
-  it.skip("findField finds by name at the top level", () => {});
-  it.skip("readField reads a key, undefined when absent", () => {});
-  it.skip("writeField copies, sets, removes an optional key on undefined, never mutates", () => {});
-  it.skip("writeField gives a required field its default on undefined", () => {});
-  it.skip("coerceField: number clamp, integer rounding, non-finite to default", () => {});
-  it.skip("coerceField: range clamp and swap, optional undefined stays undefined", () => {});
-  it.skip("coerceField: select falls back to default, asset drops asset:, optional text maps empty to undefined, boolean", () => {});
+  it("findField finds by name at the top level", () => {
+    expect(findField(eventFields(), "priority")?.kind).toBe("number");
+    expect(findField(eventFields(), "nope")).toBeUndefined();
+    expect(findField(eventFields(), "maxInstances")).toBeUndefined();
+  });
+
+  it("readField reads a key, undefined when absent", () => {
+    const node = parseRoot(clip({ loopRegion: [0, 2] }));
+    expect(readField(node, need(nodeFields(node, null), "loopRegion"))).toEqual([0, 2]);
+    const bare = parseRoot(clip());
+    expect(readField(bare, need(nodeFields(bare, null), "loopRegion"))).toBeUndefined();
+  });
+
+  it("writeField copies, sets, removes an optional key on undefined, never mutates", () => {
+    const node = parseRoot(clip({ loopRegion: [0, 2], loop: false }));
+    const fields = nodeFields(node, null);
+    const loop = need(fields, "loop");
+
+    const set = writeField(node, loop, true);
+    expect(set).not.toBe(node);
+    expect(readField(set, loop)).toBe(true);
+    expect(readField(node, loop)).toBe(false);
+
+    const removed = writeField(node, need(fields, "loopRegion"), undefined);
+    expect("loopRegion" in removed).toBe(false);
+    expect(readField(node, need(fields, "loopRegion"))).toEqual([0, 2]);
+  });
+
+  it("writeField gives a required field its default on undefined", () => {
+    const node = parseRoot(clip({ loop: true, volumeRandom: [-3, 3] }));
+    const fields = nodeFields(node, null);
+    expect(readField(writeField(node, need(fields, "loop"), undefined), need(fields, "loop"))).toBe(false);
+    expect(readField(writeField(node, need(fields, "volumeRandom"), undefined), need(fields, "volumeRandom"))).toEqual([0, 0]);
+  });
+
+  it("coerceField: number clamp, integer rounding, non-finite to default", () => {
+    const volume = need(nodeFields(parseRoot(clip()), null), "volume");
+    expect(coerceField(volume, 9)).toBe(4);
+    expect(coerceField(volume, -1)).toBe(0);
+    expect(coerceField(volume, "0.5")).toBe(0.5);
+    expect(coerceField(volume, NaN)).toBe(1);
+    expect(coerceField(volume, Infinity)).toBe(1);
+    expect(coerceField(volume, "abc")).toBe(1);
+
+    const priority = need(eventFields(), "priority");
+    expect(coerceField(priority, 12.6)).toBe(13);
+    expect(coerceField(priority, 300)).toBe(255);
+  });
+
+  it("coerceField: range clamp and swap, optional undefined stays undefined", () => {
+    const volumeRandom = need(eventFields(), "volumeRandom");
+    expect(coerceField(volumeRandom, [30, -200])).toEqual([-96, 24]);
+    expect(coerceField(volumeRandom, [5, -5])).toEqual([-5, 5]);
+    expect(coerceField(volumeRandom, undefined)).toEqual([0, 0]);
+
+    const loopRegion = need(nodeFields(parseRoot(clip()), null), "loopRegion");
+    expect(coerceField(loopRegion, undefined)).toBeUndefined();
+    expect(coerceField(loopRegion, [2, 1])).toEqual([1, 2]);
+  });
+
+  it("coerceField: select falls back to default, asset drops asset:, optional text maps empty to undefined, boolean", () => {
+    const onChange = need(nodeFields(parseRoot({ type: "switch", parameter: "S", children: [clip({ value: "A" })] }), null), "onChange");
+    expect(coerceField(onChange, "bogus")).toBe("keep");
+    expect(coerceField(onChange, "crossfade")).toBe("crossfade");
+
+    const asset = need(nodeFields(parseRoot(clip()), null), "clip");
+    expect(coerceField(asset, "asset:sfx/a.ogg")).toBe("sfx/a.ogg");
+
+    const value = need(nodeFields(parseRoot({ type: "switch", parameter: "S", children: [clip({ value: "A" })] }), null), "default");
+    expect(coerceField(value, "")).toBeUndefined();
+    expect(coerceField(value, "Grass")).toBe("Grass");
+
+    const loop = need(nodeFields(parseRoot(clip()), null), "loop");
+    expect(coerceField(loop, true)).toBe(true);
+    expect(coerceField(loop, "yes")).toBe(false);
+  });
 });
