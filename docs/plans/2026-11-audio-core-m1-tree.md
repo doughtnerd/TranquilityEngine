@@ -161,6 +161,7 @@ Days are §9's focused days. "Leaf days" are an estimate of the work moved to Ha
 | A3.3 (3) | Opus | the signals, the work-unit model, demote wiring | **L1** `cap_controller.rs`: the pure controller in architecture §6.3's table · **L2** its tests from the same table (a test leaf, in parallel) | 1.25 |
 | **A3.4a** (3) | Opus | trap catch, rebuild, chunked REPLAY, clip re-send | **L1** `rateLimit.ts` (3 per 60 s) + tests | 0.25 |
 | A3.4b (3) | Sonnet | background modes, hidden tab, rebuild calls (K6) | **L1** `deviceChange.ts`: a pure classifier per architecture §3.7 + tests | 0.5 |
+| A3.6 (2) | Opus | the kernel choice (4-point Hermite or Lagrange, or a short windowed sinc on pitch-up), the render-path change, the quality ratchet | **L1** `quality_thdn.rs` re-measured and the thresholds ratcheted, the alias test flipped to a rejection threshold | 0.5 |
 
 ### MS6: HRTF
 

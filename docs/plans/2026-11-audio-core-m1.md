@@ -39,7 +39,7 @@ Every milestone merges to master with all of these true:
 | MS2 | **Voices on the core** (M1a.1 minus Babylon) | A1.1, **A1.2, A1.3b**, A1.3a, A1.4, A1.5, A1.6, A1.7 | one-shots and `AudioSource`s play with pitch, pan, distance and loops from `decodeAudioData` clips; loopback tests green | 22 | weeks 3–6 |
 | MS3 | Babylon replaces Howler (parallel track) | BB1, BB2 | default `"babylon"` is Babylon's AudioEngineV2; no Howler in the build; flappy and pirates play | 7 | weeks 6–7 |
 | MS4 | **Buses and effects** (M1a.2) | **A2.1, A2.2b**, A2.2a, A2.2c, A2.3, A2.4, A2.5, A2.6, A2.7 | buses, snapshots, ducking, filters, compressor and reverb match Web Audio; meters and `Audio.debug()` in the editor; sound-lab spec passes | 23 | weeks 6–9 |
-| MS5 | **Selection, clock and recovery** (M1a.3 minus A3.5) | **A3.1, A3.4a**, A3.2, A3.3, A3.4b | 4,096 logical voices; `at` lands within a quantum; the cap adapts; a trap rebuilds, and the 4th in 60 s goes silent; background modes work | 15 | weeks 9–11 |
+| MS5 | **Selection, clock and recovery** (M1a.3 minus A3.5) | **A3.1, A3.4a**, A3.2, A3.3, A3.4b, A3.6 | 4,096 logical voices; `at` lands within a quantum; the cap adapts; a trap rebuilds, and the 4th in 60 s goes silent; background modes work | 15 | weeks 9–11 |
 | MS6 | HRTF for the nearest voices (gated on H0) | H1, H2, H3, H4 | ≤ 16 HRTF voices, no clicks across a change, parity with `PannerNode` HRTF | 14 | weeks 8–12 |
 | MS7 | **Decoder, streaming, default to core** (M1b) | **B1, B3**, B2, B3b, B4, B5, B6, B7 | music streams with no underruns under a 300 ms main stall; gapless loops; no `decodeAudioData` in the core path; `"core"` becomes the default | 19 | weeks 10–14 |
 | MS8 | **Budgets, soak, release gate** (A3.5 and M1c) | A3.5, C1, C1b, C2, **C3**, C4 | budgets frozen; metered CI gate on; 30 min soak with 0 underruns on every gate machine; the owner signs the listening pass | 16 | weeks 13–16 |
@@ -269,10 +269,11 @@ Starts once A1.6 merges. Mid-level, one writer at a time on `backend.ts`.
 | **A3.4a** hard rebuild: trap catch, new node, chunked REPLAY, clips re-sent, 3 per 60 s, then silent `"failed"` | S | `runtime/core/recovery.ts`, the trap path in `worklet/processor.ts` |
 | A3.3 adaptive cap | S (after A3.4a, or a second Opus worker) | `audio-core/src/cap.rs`, its STATUS field (already in K1) |
 | A3.4b background modes, `devicechange`, hidden tab | M | `runtime/core/background.ts` (new), the visibility hooks in `context.ts` |
+| A3.6 (#106) 4-point resampler (added by the owner, 2026-11-10: the design's "M1a.3 choice" had no task); A2.7's THD+N and alias thresholds ratchet to it | S | `audio-dsp/src/resample.rs`, the render call in `audio-core/src/voices.rs` (free this wave; A3.1 owns it in wave 1), `audio-dsp/tests/quality_thdn.rs`, the pitch goldens |
 
 H3 (MS6) also lands here if H2 is ready. It touches `selection.ts` (the HRTF flag, after A3.1 merges) and `panner.rs` (K11), and sets its counters in `counters.rs` (K12). None of those belong to A3.3, A3.4a or A3.4b.
 
-**Exit:** 4,096 voices select in ≤ 0.25 ms p99 in Node; `at` lands within one quantum in the loopback; the cap drops and recovers under load; a simulated trap restores voices, and the 4th in 60 s goes silent with one warning; mute, pause and play background modes are checked.
+**Exit:** 4,096 voices select in ≤ 0.25 ms p99 in Node; the 4-point resampler replaces linear interpolation, with measured alias rejection and THD+N thresholds ratcheted; `at` lands within one quantum in the loopback; the cap drops and recovers under load; a simulated trap restores voices, and the 4th in 60 s goes silent with one warning; mute, pause and play background modes are checked.
 
 ## MS6: HRTF for the nearest voices (gated on H0)
 
