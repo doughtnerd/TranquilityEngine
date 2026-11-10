@@ -71,7 +71,7 @@ import { connectVoiceTable, VoiceFlag as VoiceFlagImport, VoiceReason as VoiceRe
 import { STREAM_ERROR_FADE_SECONDS, StreamManager, type StreamManagerDeps } from "./streams";
 import { sharedDecoderClient } from "../decoder/decoderClient";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
-import { effectiveMixedCap, ListenerBasis, Selection, type SelectionSink } from "./selection";
+import { effectiveMixedCap as effectiveMixedCapImport, ListenerBasis, Selection, type SelectionSink } from "./selection";
 import { HrtfPick, type HrtfSink } from "./hrtfPick";
 import { CoreAutomation, wrapPosition } from "./coreAutomation";
 import { MAX_GROUPS as MAX_GROUPSImport } from "../events/automation";
@@ -89,6 +89,7 @@ const VoiceFlag = VoiceFlagImport;
 const VoiceReason = VoiceReasonImport;
 const VoiceState = VoiceStateImport;
 const MAX_GROUPS = MAX_GROUPSImport;
+const effectiveMixedCap = effectiveMixedCapImport;
 
 /** `PlayRequest` plus the core's World key. */
 export interface CorePlayRequest extends PlayRequest {

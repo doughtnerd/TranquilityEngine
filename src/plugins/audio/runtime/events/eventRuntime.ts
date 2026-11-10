@@ -260,7 +260,10 @@ export class EventSystem {
     if (key !== null) this.lastPlay.set(key, now);
     const instance = new EventInstance(this, asset, path, world, this.allocGroup(asset), options);
     this.live.add(instance);
-    instance.start();
+    // M2 F1: the horizon is the same for every clip the start plays (it moves with the frame), so it is asked once.
+    this.starting = true;
+    this.horizonMemo = undefined;
+    try { instance.start(); } finally { this.starting = false; }
     return instance;
   }
 
@@ -388,8 +391,15 @@ export class EventSystem {
 
   /** @internal The earliest exact start time for a stamped play, or null when the backend can't say. */
   horizon(): number | null {
-    try { return audioBackend().horizon?.() ?? null; } catch { return null; }
+    if (this.starting && this.horizonMemo !== undefined) return this.horizonMemo;
+    let h: number | null;
+    try { h = audioBackend().horizon?.() ?? null; } catch { h = null; }
+    if (this.starting) this.horizonMemo = h;
+    return h;
   }
+  /** Inside `play`'s `instance.start()`, and the horizon asked there (undefined: not yet). */
+  private starting = false;
+  private horizonMemo: number | null | undefined = undefined;
 
   /** @internal A clip's length in seconds at pitch 1, or null. */
   clipLength(path: string): number | null {
