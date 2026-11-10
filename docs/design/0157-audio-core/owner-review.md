@@ -56,3 +56,6 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 - **Why:** each keeps the decoder small and its worker simple; stripping names is standard for shipped wasm.
 - **Licences:** symphonia is MPL-2.0 (file-level copyleft, shipped unmodified, with the source location in `THIRD_PARTY_NOTICES.md`); the rest MIT/Apache/Zlib. No GPL/LGPL.
 - **Open for B4:** the `aac` build is 1,037 KB, over the 900 KB gate, and symphonia's MP4 reader ignores the edit list, so AAC keeps 1,024 priming frames (gapless AAC must trim them).
+
+### 11. A flaky test outside audio (noted, not fixed)
+- `src/engine/tests/navSample.test.ts` (navigation, ADR 0065) fails about one run in three, even alone (`expected true to be false`, or a timeout in the full run). No navigation code changed in this work. Left alone rather than fixed inside the audio milestones; worth a separate task: make the test deterministic (fixed-step frames or fake timers) without loosening what it checks.

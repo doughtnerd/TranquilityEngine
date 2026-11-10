@@ -398,3 +398,13 @@ K6 (`recovery.ts`'s `rebuild(reason)` stub) was committed first (`0caec02`). Fou
 - Merged to master with the owner's standing approval ("merge into master and close tickets before moving on").
 
 **Reserve used:** none.
+
+## MS6/MS7 wave: H3 and B1, then B2
+
+Started from master `4aee234` in parallel: H3 (#89, Opus) and B1 (#91, Opus).
+
+**Landed: B1 (#91).** `native/audio/crates/audio-decode` (cdylib and rlib), symphonia `=0.6.1` (the newest release): WAV, FLAC, MP3, Ogg Vorbis by default, AAC/MP4 behind the `aac` feature. C ABI 1.0 (`myco_decode_*`; contract in `src/lib.rs`'s header): exported memory and its own 16-byte-aligned allocator, `open` from bytes with a format hint, a 32-byte `info` record (frames −1 when unknown, plus `framesEstimate`), `read_f32`/`read_i16` into the caller's buffer, sample-accurate `seek` (drops leading frames itself; a seek to 0 or after the end reopens from the kept bytes, so loops replay bit-identically and isomp4's seek-after-EOF bug is avoided), 64 generation-tagged handles, error codes and messages, no panics across the ABI. `build.rs` embeds the mixer's source hash; the name section is stripped. `build.mjs` builds, gates (900 KB), smoke-tests in Node and copies `myco_audio_decode.wasm`, and fails if the decoder's source hash differs from the mixer's. Fixtures from `tests/fixtures/generate.mjs` (synthesised WAVs; ffmpeg in bit-exact mode for FLAC, MP3 CBR/VBR with and without Xing, Vorbis, M4A).
+
+**Numbers:** decoder 743,428 B (726.0 KB; the `aac` build 1,062,084 B, over the gate); flappy's 82 s stereo `town.mp3` decodes in Node in 147 ms (≈559× realtime) with 4.8 MB peak memory streaming in 4,096-frame reads; WAV and FLAC bit-exact; MP3 26–35 dB, Vorbis 34–38 dB, AAC 31–38 dB SNR; seeks frame-accurate. `cargo test` 399 passed, 4 ignored; `npm test` passes except the flaky `navSample.test.ts` (fails about 1 in 3 alone; navigation, not audio; owner-review entry 11); `npm run build` green. Notices added for symphonia (MPL-2.0) and its dependencies.
+
+**Open for B4:** the `aac` build is over the 900 KB gate; symphonia's MP4 reader ignores the edit list, so AAC keeps 1,024 priming frames. Nothing ships the decoder wasm yet (B2).
