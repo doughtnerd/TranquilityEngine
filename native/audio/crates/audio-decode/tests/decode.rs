@@ -135,6 +135,19 @@ fn aac_48000_stereo() {
     check_aac("tone-48000-stereo.m4a", "tone-48000-stereo.wav", 25.0);
 }
 
+/// An M4A of 30,001 frames (not a whole number of milliseconds): ffmpeg's edit list states 680 ms
+/// (29,988 frames), so the exact end comes from the track's own length less the priming.
+#[cfg(feature = "aac")]
+#[test]
+fn aac_length_is_exact_when_the_edit_list_rounds() {
+    let name = "tone-44100-mono-odd.m4a";
+    assert_eq!(open(name).info().frames, Some(30_001));
+    let (_, dec) = decode_all(name, 4096);
+    assert_eq!(dec.len(), 30_001);
+    let src = wav("tone-44100-mono.wav").as_f32();
+    assert_eq!(best_lag(&src[..30_001], &dec, 2400), 0);
+}
+
 /// Without the `aac` feature an M4A is refused with a clear error, not a panic.
 #[cfg(not(feature = "aac"))]
 #[test]

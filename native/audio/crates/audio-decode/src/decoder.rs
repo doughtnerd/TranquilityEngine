@@ -213,9 +213,12 @@ fn open_reader(bytes: &Bytes, hint: FormatHint) -> Result<(Opened, Info), Decode
         if let Some(g) = crate::mp4_gapless::mp4_gapless((**bytes).as_ref(), sample_rate) {
             let total = info.frames;
             if total.map_or(true, |t| g.delay < t) {
+                // The track's own length (exact, in the media timescale) less the priming, unless the
+                // edit says the playable part is shorter than that by more than its own rounding.
                 let after = total.map(|t| t - g.delay);
                 let n = match (g.frames, after) {
-                    (Some(f), Some(a)) => Some(f.min(a)),
+                    (Some(f), Some(a)) if f + g.slack >= a => Some(a),
+                    (Some(f), Some(_)) => Some(f),
                     (f, a) => f.or(a),
                 };
                 opened.lead = g.delay;

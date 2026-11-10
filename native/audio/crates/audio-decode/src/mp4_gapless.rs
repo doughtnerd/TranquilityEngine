@@ -13,6 +13,10 @@ pub struct Gapless {
     pub delay: u64,
     /// Playable frames after the delay, when the file states it.
     pub frames: Option<u64>,
+    /// How far `frames` may be from the truth: an edit list states its duration in the movie
+    /// timescale (ffmpeg writes 1/1000 s), coarser than a frame, so it can be up to one movie tick
+    /// short or long; 0 for `iTunSMPB`, which counts frames.
+    pub slack: u64,
 }
 
 /// A box: its type and payload (after the 8- or 16-byte header).
@@ -105,7 +109,8 @@ fn from_edit_list(moov: &[u8], rate: u32) -> Option<Gapless> {
         let elst = child(child(trak.body, b"edts")?, b"elst")?;
         let (duration, media_time) = first_edit(elst)?;
         let frames = if duration > 0 { Some(rescale(duration, movie_ts, rate)) } else { None };
-        return Some(Gapless { delay: rescale(media_time, media_ts, rate), frames });
+        let slack = u64::from(rate.div_ceil(movie_ts));
+        return Some(Gapless { delay: rescale(media_time, media_ts, rate), frames, slack });
     }
     None
 }
@@ -119,7 +124,7 @@ pub fn parse_itunsmpb(text: &[u8]) -> Option<Gapless> {
     let delay = u64::from_str_radix(fields.next()?, 16).ok()?;
     let _padding = u64::from_str_radix(fields.next()?, 16).ok()?;
     let length = u64::from_str_radix(fields.next()?, 16).ok()?;
-    Some(Gapless { delay, frames: (length > 0).then_some(length) })
+    Some(Gapless { delay, frames: (length > 0).then_some(length), slack: 0 })
 }
 
 /// Finds `iTunSMPB` in `moov` (under `udta/meta/ilst/----`) and parses the `data` box after it.
@@ -159,7 +164,7 @@ mod tests {
     #[test]
     fn itunsmpb_fields() {
         let g = parse_itunsmpb(b" 00000000 00000840 000001CA 00000000000F4240 00000000 00000000").unwrap();
-        assert_eq!(g, Gapless { delay: 0x840, frames: Some(1_000_000) });
+        assert_eq!(g, Gapless { delay: 0x840, frames: Some(1_000_000), slack: 0 });
         assert_eq!(parse_itunsmpb(b"junk"), None);
     }
 
@@ -175,7 +180,7 @@ mod tests {
         let udta = mk(b"udta", &meta);
         let moov = mk(b"moov", &udta);
         let file = [mk(b"ftyp", b"M4A \0\0\0\0"), moov].concat();
-        assert_eq!(mp4_gapless(&file, 44_100), Some(Gapless { delay: 0x840, frames: Some(0x15888) }));
+        assert_eq!(mp4_gapless(&file, 44_100), Some(Gapless { delay: 0x840, frames: Some(0x15888), slack: 0 }));
     }
 
     #[test]
@@ -220,7 +225,7 @@ mod tests {
             let edts = mk(b"edts", &elst);
             let trak = mk(b"trak", &[edts, mdia].concat());
             let moov = mk(b"moov", &[mvhd, trak].concat());
-            assert_eq!(mp4_gapless(&moov, 48_000), Some(Gapless { delay: 1024, frames: Some(48_000) }), "version {version}");
+            assert_eq!(mp4_gapless(&moov, 48_000), Some(Gapless { delay: 1024, frames: Some(48_000), slack: 48 }), "version {version}");
         }
     }
 

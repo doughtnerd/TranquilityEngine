@@ -112,3 +112,7 @@ ffmpeg("loop-48000-stereo.wav", "loop-48000-stereo.m4a", ["-c:a", "aac", "-b:a",
 
 // B4's unknown-codec case: Ogg Opus, a container the decoder opens with a codec it doesn't include.
 ffmpeg("tone-48000-stereo.wav", "tone-48000-stereo.opus", ["-c:a", "libopus", "-b:a", "64k"]);
+
+// B4: an M4A whose length is not a whole number of milliseconds (30,001 frames at 44.1 kHz): the edit list's
+// duration is in the movie timescale (ffmpeg: 1/1000 s), so the exact end must come from the track's own length.
+ffmpeg("tone-44100-mono.wav", "tone-44100-mono-odd.m4a", ["-af", "atrim=end_sample=30001", "-c:a", "aac", "-b:a", "96k"]);
