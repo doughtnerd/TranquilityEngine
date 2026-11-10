@@ -47,7 +47,14 @@ export function editorFor(field: FieldValue): FieldEditor {
 /** A list field's item as a field of its own (`name[i]`), so the item editors can show it. */
 export function itemField(field: FieldValue, index: number, value: unknown): FieldValue {
   const type = (isListType(field.type) ? field.type[0] : field.type) as ScalarFieldType;
-  return field.options ? { name: `${field.name}[${index}]`, type, value, options: field.options } : { name: `${field.name}[${index}]`, type, value };
+  // The description belongs to the list, so an item's options drop it (ADR 0159).
+  const { description: _description, ...options } = field.options ?? {};
+  return Object.keys(options).length > 0 ? { name: `${field.name}[${index}]`, type, value, options } : { name: `${field.name}[${index}]`, type, value };
+}
+
+/** The tooltip for a field's label: its declared description (ADR 0159), else the field's name. Plain text, never markup. */
+export function fieldTitle(field: FieldValue): string {
+  return field.options?.description || field.name;
 }
 
 /** The editor for each item of a list field. */

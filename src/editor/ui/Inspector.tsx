@@ -5,7 +5,7 @@ import { Color, GameObject, Quaternion } from "../../engine";
 import type { FieldChoice } from "../../engine/core/registry";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
 import { RevertOverrides, pathKey, type NodePath } from "../document";
-import { choicesFor, defaultItem, editorFor, itemEditorFor, itemField, parseNumber, type FieldEditor } from "../fieldValues";
+import { choicesFor, defaultItem, editorFor, fieldTitle, itemEditorFor, itemField, parseNumber, type FieldEditor } from "../fieldValues";
 import { eulerAnglesOf, fieldState, revertField, setField, setFieldAxis, withAxis } from "../fieldEdits";
 import { fieldChoicesFor, listedChoices, loadFieldChoices } from "../fieldChoices";
 import type { FieldChoicesContribution } from "../sdk/contributions";
@@ -646,7 +646,7 @@ function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentI
   return (
     <>
       <div class={`label-cell${overridden ? " overridden" : ""}`}>
-        <ScrubLabel name={field.name} scene={scene} value={isNumeric(editor) && !mixed ? Number(field.value) : null} onScrub={commit} />
+        <ScrubLabel name={field.name} title={fieldTitle(field)} scene={scene} value={isNumeric(editor) && !mixed ? Number(field.value) : null} onScrub={commit} />
         {overridden && (
           <button class="revert" title={`Overridden in this scene. Revert ${field.name} to the prefab's value`} aria-label={`Revert ${field.name}`} onClick={revert}>
             ↺
@@ -1250,12 +1250,12 @@ function NodeTags(props: { scene: OpenScene; paths: NodePath[] }) {
  * A field label. For numbers, dragging it left/right scrubs the value; the whole drag is one undo
  * step. Shift drags 10× faster, Alt 10× slower.
  */
-function ScrubLabel(props: { name: string; scene: OpenScene; value: number | null; onScrub: (value: number) => void }) {
+function ScrubLabel(props: { name: string; title?: string; scene: OpenScene; value: number | null; onScrub: (value: number) => void }) {
   const drag = useRef<{ x: number; start: number; total: number } | null>(null);
   const { value, onScrub, scene } = props;
   return (
     <label
-      title={props.name}
+      title={props.title ?? props.name}
       class={value !== null ? "scrub" : undefined}
       onPointerDown={(e) => {
         if (value === null || e.button !== 0) return;

@@ -131,6 +131,12 @@ export interface FieldOptions {
    * loaded and replicated as usual.
    */
   hidden?: boolean;
+  /**
+   * One or two plain sentences saying what the field is for (ADR 0159). The editor shows it as the
+   * field's tooltip. Metadata only: not saved in scenes, not replicated, ignored at run time. A list
+   * field's description applies to the list, not to each item.
+   */
+  description?: string;
 }
 
 /**

@@ -48,9 +48,8 @@ export class AudioSource extends Component {
   /**
    * What to play: a clip (an audio file) or an audio event asset (`*.audioevent.json`, ADR 0158); the Inspector offers both.
    * For an event, `loop`, `spatial` and the distance fields come from the event; `volume` and `pitch` still apply on top.
-   * (`@field` has no description option, so this comment is the whole hint until it gets one.)
    */
-  @field(AssetRef, { kind: ["audio", "audioEvent"] }) clip = "";
+  @field(AssetRef, { kind: ["audio", "audioEvent"], description: "A sound clip, or an audio event (`*.audioevent.json`) to play as an instance." }) clip = "";
   @field(Number) volume = 1;
   @field(Boolean) loop = false;
   @field(Boolean) playOnAwake = true;

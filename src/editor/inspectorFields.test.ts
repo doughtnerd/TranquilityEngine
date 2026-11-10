@@ -5,7 +5,7 @@ import { Color, Engine, GameBehavior, GameObject, Input, Quaternion, RigidBody2D
 import { getFields } from "../engine/core/registry";
 import { listComponents, type FieldValue } from "../engine/editor";
 import { AddComponent, AddNode, SetField, type NodePath } from "./document";
-import { choicesFor, defaultItem, editorFor, itemEditorFor, toSceneJSON } from "./fieldValues";
+import { choicesFor, defaultItem, editorFor, fieldTitle, itemEditorFor, itemField, toSceneJSON } from "./fieldValues";
 import { deleteNodes } from "./hierarchyEdit";
 import { componentWorlds, effectiveWorlds, knownWorldTags, setComponentWorlds, setNodeTags, tagsOverridden, worldsBadge } from "./inspectorEdits";
 import { OrbitCamera } from "./OrbitCamera";
@@ -21,6 +21,7 @@ class Route extends GameBehavior {
   @field([GameObject]) stops: (GameObject | null)[] = [];
   @field([String], { choices: ["slow", "fast"] }) speeds: string[] = [];
   @field(Quaternion) facing = new Quaternion();
+  @field([Vector2], { description: "Where it goes <b>next</b>." }) described: Vector2[] = [];
 }
 
 beforeEach(async () => {
@@ -175,5 +176,39 @@ describe("node tags", () => {
     expect(target("pipes/top").node.tags).toEqual([]);
     stack.undo();
     expect(target("pipes/top").node.tags).toEqual(["hazard"]);
+  });
+});
+
+describe("field descriptions (ADR 0159)", () => {
+  const described = (): FieldValue => {
+    const f = getFields(Route).find((x) => x.name === "described")!;
+    return { ...f, value: [] };
+  };
+
+  it("are kept by the registry and reach the Inspector's field list", () => {
+    expect(getFields(Route).find((x) => x.name === "described")!.options?.description).toBe("Where it goes <b>next</b>.");
+    scene().stack.execute(new AddComponent("ceiling", { type: "test.inspector.Route" }));
+    expect(fieldOf("ceiling", "test.inspector.Route", "described").options?.description).toBe("Where it goes <b>next</b>.");
+  });
+
+  it("is the label's title as plain text, falling back to the name", () => {
+    expect(fieldTitle(described())).toBe("Where it goes <b>next</b>.");
+    expect(fieldTitle({ name: "points", type: [Vector2], value: [] })).toBe("points");
+  });
+
+  it("shows once on a list, not on each item", () => {
+    const item = itemField(described(), 0, [1, 2]);
+    expect(item.options?.description).toBeUndefined();
+    expect(fieldTitle(item)).toBe("described[0]");
+    // Other options still reach the item.
+    const speeds = getFields(Route).find((x) => x.name === "speeds")!;
+    expect(itemField({ ...speeds, value: [] }, 0, "slow").options?.choices).toEqual(["slow", "fast"]);
+  });
+
+  it("isn't saved in the scene", () => {
+    const { doc, stack } = scene();
+    stack.execute(new AddComponent("ceiling", { type: "test.inspector.Route" }));
+    stack.execute(new SetField("ceiling", "test.inspector.Route", "described", [[1, 2]]));
+    expect(JSON.stringify(doc.toJSON())).not.toContain("Where it goes");
   });
 });
