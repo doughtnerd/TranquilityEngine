@@ -131,7 +131,9 @@ export class Mixer {
 
   /** @internal Backends call these as sounds start and end, which is what ducking listens to. */
   voiceStarted(name: string): void { const s = this.buses.get(name); if (s) s.voices++; }
-  voiceEnded(name: string): void { const s = this.buses.get(name); if (s && s.voices > 0) s.voices--; }
+  voiceEnded(name: string): void { this.voicesEnded++; const s = this.buses.get(name); if (s && s.voices > 0) s.voices--; }
+  /** @internal Voices that have ended (or left a bus) since the page began, whichever backend counted them: the event runtime retires instances when this moves, instead of scanning every frame (ADR 0158 §6). */
+  voicesEnded = 0;
 
   /** Fade to a named snapshot (`seconds` 0 = at once). */
   snapshot(name: string, seconds = 0.5): void {

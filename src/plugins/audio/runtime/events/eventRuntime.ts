@@ -190,7 +190,7 @@ export class EventSystem {
 
   play(pathOrClip: string, options: EventOptions = {}, world = 0, sourceKey?: string): EventInstance | null {
     this.refresh();
-    this.reap();
+    this.reapIfEnded();
     const path = String(pathOrClip).replace(/^asset:/, "");
     const asset = path.toLowerCase().endsWith(".audioevent.json") ? loadAudioEvent(path) : clipEvent(path);
     if (!asset) return null;
@@ -237,7 +237,7 @@ export class EventSystem {
   update(dt: number): void {
     if (this.live.size === 0 && !this.ts && this.timers.length === 0) return;
     this.refresh();
-    this.reap();
+    this.reapIfEnded();
     const t = this.clock();
     while (this.timers.length > 0 && this.timers[0].at <= t) {
       const timer = heapPop(this.timers);
@@ -265,6 +265,7 @@ export class EventSystem {
     this.seed = null;
     this.worlds.clear(); this.worldRefs.clear();
     this.lateStarts = 0;
+    this.endsSeen = mixer.voicesEnded;
     clipEvents.clear();
   }
 
@@ -337,6 +338,22 @@ export class EventSystem {
     for (const i of this.live) if (!i.playing) this.retire(i);
   }
 
+  /** The mixer's ended-voice count at the last scan. */
+  private endsSeen = 0;
+
+  /**
+   * Retire instances after a voice has ended somewhere: every backend tells the mixer when a voice ends (`voiceEnded`,
+   * which also feeds ducking), so one number compared per frame says whether any instance can have finished. Steady
+   * instances cost nothing here (ADR 0158 §6); the scan runs only after an end. Instances that end without a backend
+   * voice (stopped while still waiting for the core) are caught by the next end, the next play, or an id sweep.
+   */
+  private reapIfEnded(): void {
+    const ends = mixer.voicesEnded;
+    if (ends === this.endsSeen) return;
+    this.endsSeen = ends;
+    this.reap();
+  }
+
   /** @internal A curve's id on the backend, defined on first use. Null (with a warning) once the table is full. */
   curveId(curve: Curve): number | null {
     let id = this.curveIds.get(curve);
@@ -367,7 +384,7 @@ export class EventSystem {
       } else {
         const f = child.fade;
         const N = 12;
-        const keys: Curve = [];
+        const keys: [number, number][] = [];
         for (let k = 0; k <= N; k++) keys.push([lo - f + (f * k) / N, Math.sin((k / N) * Math.PI / 2)]);
         for (let k = 0; k <= N; k++) keys.push([hi + (f * k) / N, Math.cos((k / N) * Math.PI / 2)]);
         c = keys;
