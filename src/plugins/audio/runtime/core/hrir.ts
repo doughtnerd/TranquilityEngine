@@ -1,3 +1,42 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Ported from chromium/src/third_party/blink/renderer/platform/audio/hrtf_elevation.cc @ cbba46fd94646232cfd2318ac962138c2a98c1f9
+// Ported from chromium/src/third_party/blink/renderer/platform/audio/hrtf_kernel.cc @ cbba46fd94646232cfd2318ac962138c2a98c1f9
+// Ported from chromium/src/third_party/blink/renderer/platform/audio/fft_frame.cc @ cbba46fd94646232cfd2318ac962138c2a98c1f9
+// Ported from chromium/src/third_party/blink/renderer/platform/audio/hrtf_panner.cc @ cbba46fd94646232cfd2318ac962138c2a98c1f9
+// Ported from chromium/src/third_party/blink/renderer/platform/audio/audio_bus.cc @ cbba46fd94646232cfd2318ac962138c2a98c1f9
+// Ported from chromium/src/media/base/sinc_resampler.cc @ cbba46fd94646232cfd2318ac962138c2a98c1f9
+// Copyright (C) 2010 Google Inc. All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+//
+// 1.  Redistributions of source code must retain the above copyright
+//     notice, this list of conditions and the following disclaimer.
+// 2.  Redistributions in binary form must reproduce the above copyright
+//     notice, this list of conditions and the following disclaimer in the
+//     documentation and/or other materials provided with the distribution.
+// 3.  Neither the name of Apple Computer, Inc. ("Apple") nor the names of
+//     its contributors may be used to endorse or promote products derived
+//     from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
+// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+// WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL APPLE OR ITS CONTRIBUTORS BE LIABLE FOR ANY
+// DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+// (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+// LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+// ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+// THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+//
+// (hrtf_panner.cc: Copyright (C) 2010, Google Inc., the same text without clause 3.)
+//
+// media/base/sinc_resampler.cc: Copyright 2012 The Chromium Authors. Use of this source code is governed by a
+// BSD-style license that can be found in Chromium's LICENSE file (native/audio/third_party/blink/CHROMIUM-LICENSE:
+// Copyright 2015 The Chromium Authors; the same two first clauses, a third naming Google LLC, the same disclaimer).
+//
 // H2: the HRIR table (IRCAM IRC_Composite_C, Chromium's `Composite.flac`) as a lazily fetched asset beside the wasm,
 // loaded into the core as a CLIP_BEGIN/CLIP_CHUNK format = 2 clip under a reserved id (api-and-models 4.1 and 5). The clip
 // registry keeps the blob, so a rebuild re-sends it with the other resident clips. Voices stay equal-power until the

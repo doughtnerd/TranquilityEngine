@@ -29,6 +29,7 @@
 //! `HrtfPannerN<2>` below 88.2 kHz), kernel-computation buffers live in a shared `HrtfScratch`,
 //! and the database is a borrowed byte slice. Transcendentals go through `libm`.
 
+pub mod angles;
 pub mod convolver;
 pub mod database;
 pub mod delay;
