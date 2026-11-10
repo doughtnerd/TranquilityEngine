@@ -95,3 +95,8 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 - **Why:** ADR 0157's D4 row promises HRTF that sounds like today's browser HRTF, and 48 kHz is the most common context rate; the Chromium-ports decision (owner, revision 3) says to follow Chromium's code; a 5.7 dB band difference is audible.
 - **If changed:** accept the 48 kHz difference (keep the guard) and close #111.
 - Also: H4's committed HRTF digests are 674 KB (`tests/e2e/audio-parity/hrtf-reference.json`).
+
+### 19. Streaming design choices (B3 and its merge)
+- **Chosen:** a new core export `myco_audio_stream_consumed` (ABI 1.3) that the worklet polls each quantum to credit the worker, rather than a shared counter table; the number of stream rings derived from `voices.mixed` (4 / 8 / 16 for the low / default / high presets, 2.36 MB at default) with no new init parameter; files with more than 2 channels keep their first two (no downmix); after a core rebuild streams reopen from the main-side playhead estimate; after a **decoder worker** crash streams stop with a fade and one warning each (they aren't reopened; clip decodes are retried). B6's `CoreStreamSeam` was dropped in favour of B3's path, which keeps stream voices in the ordinary voice table, so selection, spatial, HRTF, replay and debug all apply. On the core a streamed clip is a full voice (spatial incl. HRTF, pitch, loop, bus, effects); only the Babylon fallback plays it flat.
+- **Why:** minimal ABI and wire change (K1 frozen); rings scale with the preset; stereo is the M1 output; reopening after a worker crash is an improvement for later.
+- **Open:** a proper >2-channel downmix; reopening streams after a worker crash.
