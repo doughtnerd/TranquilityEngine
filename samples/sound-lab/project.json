@@ -1,0 +1,59 @@
+{
+  "name": "sound-lab",
+  "display": {
+    "width": 960,
+    "height": 540,
+    "backgroundColor": "#14171c"
+  },
+  "time": {
+    "fixedDeltaTime": 0.016666666666666666
+  },
+  "physics": {
+    "gravity": [0, -9.81],
+    "layers": ["Default"]
+  },
+  "render": {
+    "sortingLayers": ["Default"],
+    "pixelsPerUnit": 100
+  },
+  "audio": {
+    "backend": "core",
+    "buses": [
+      { "name": "Master", "volume": 1, "mute": false, "effects": [] },
+      {
+        "name": "Music",
+        "parent": "Master",
+        "volume": 0.6,
+        "mute": false,
+        "effects": [
+          { "type": "highpass", "frequency": 40, "q": 1 },
+          { "type": "lowpass", "frequency": 18000, "q": 1 }
+        ]
+      },
+      {
+        "name": "SFX",
+        "parent": "Master",
+        "volume": 1,
+        "mute": false,
+        "effects": [{ "type": "compressor", "threshold": -24, "knee": 30, "ratio": 8, "attack": 0.003, "release": 0.25 }]
+      },
+      {
+        "name": "Ambience",
+        "parent": "Master",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [{ "type": "reverb", "send": 0.5 }]
+      },
+      { "name": "UI", "parent": "Master", "volume": 1, "mute": false, "effects": [] }
+    ],
+    "snapshots": [
+      {
+        "name": "Underwater",
+        "volumes": { "Music": 0.6, "Ambience": 0.5 },
+        "lowpass": { "Music": 500, "SFX": 1500, "Ambience": 900 }
+      }
+    ],
+    "ducking": [{ "target": "Music", "trigger": "SFX", "amount": 0.3, "attack": 0.05, "release": 0.4 }]
+  },
+  "autoload": []
+}
