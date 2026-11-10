@@ -18,6 +18,9 @@ export interface RawInfo {
   readonly framesEstimate: number;
   readonly codec: number;
   readonly exact: boolean;
+  /** The file's own loop region (frames, end exclusive), when it states one. */
+  readonly loopStartFrame?: number;
+  readonly loopEndFrame?: number;
 }
 
 interface Exports {
@@ -38,6 +41,8 @@ interface Exports {
 
 /** The ABI major this code speaks. */
 export const DECODER_ABI_MAJOR = 1;
+/** Size of the info record `myco_decode_info` writes (ABI 1.1; 1.0 wrote 32 bytes without the loop fields). */
+const INFO_BYTES = 40;
 
 const hex = (bytes: Uint8Array) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -115,11 +120,11 @@ export class DecoderWasm {
   }
 
   info(handle: number): RawInfo {
-    const out = this.x.myco_decode_alloc(32);
+    const out = this.x.myco_decode_alloc(INFO_BYTES);
     if (out === 0) throw new DecoderError("audio decoder: out of memory", -8);
     try {
       this.check(this.x.myco_decode_info(handle, out));
-      const dv = new DataView(this.x.memory.buffer, out, 32);
+      const dv = new DataView(this.x.memory.buffer, out, INFO_BYTES);
       return {
         rate: dv.getUint32(0, true),
         channels: dv.getUint32(4, true),
@@ -127,9 +132,10 @@ export class DecoderWasm {
         framesEstimate: dv.getFloat64(16, true),
         codec: dv.getUint32(24, true),
         exact: (dv.getUint32(28, true) & 1) !== 0,
+        ...((dv.getUint32(28, true) & 2) !== 0 ? { loopStartFrame: dv.getUint32(32, true), loopEndFrame: dv.getUint32(36, true) } : {}),
       };
     } finally {
-      this.x.myco_decode_free(out, 32);
+      this.x.myco_decode_free(out, INFO_BYTES);
     }
   }
 

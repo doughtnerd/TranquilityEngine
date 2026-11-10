@@ -13,7 +13,9 @@
 //!
 //! 1. `p = myco_decode_alloc(len)`, copy the encoded file to `p`, then `h = myco_decode_open(p,
 //!    len, hint)`. `open` always takes ownership of the allocation (freed on failure too).
-//! 2. `myco_decode_info(h, info)` writes the 32-byte [`INFO_BYTES`] record at `info` (8-aligned).
+//! 2. `myco_decode_info(h, info)` writes the 40-byte [`INFO_BYTES`] record at `info` (8-aligned): rate u32 @0, channels u32 @4, frames f64 @8
+//!    (-1 unknown), frames estimate f64 @16, codec u32 @24, flags u32 @28 (bit 0 length exact, bit 1 the file
+//!    states a loop), loop start frame u32 @32 and loop end frame (exclusive) u32 @36 (both 0 without a loop).
 //! 3. `myco_decode_read_f32(h, out, frames)` or `myco_decode_read_i16(...)` decodes up to `frames`
 //!    interleaved frames into the caller's buffer (from `alloc`, reused across reads) and returns
 //!    the count: less than asked only at the end, 0 after it. Whole-clip decode is one read of
@@ -38,13 +40,13 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// `(major << 8) | minor` of this ABI.
-pub const ABI_VERSION: u32 = 0x100;
+pub const ABI_VERSION: u32 = 0x101;
 /// Open decoders at once.
 pub const MAX_DECODERS: usize = 64;
 /// Bytes of the record `myco_decode_info` writes: `u32 sampleRate; u32 channels; f64 frames (-1
 /// unknown); f64 framesEstimate (-1 unknown); u32 codec (0 other, 1 PCM, 2 FLAC, 3 MP3, 4 Vorbis,
 /// 5 AAC); u32 flags (bit0: frames is exact)`.
-pub const INFO_BYTES: usize = 32;
+pub const INFO_BYTES: usize = 40;
 /// Alignment of every `myco_decode_alloc` block (enough for f32, i16 and f64 views).
 pub const ALLOC_ALIGN: usize = 16;
 
@@ -288,7 +290,10 @@ pub unsafe extern "C" fn myco_decode_info(handle: i32, out: *mut u8) -> i32 {
     rec[8..16].copy_from_slice(&frames.to_le_bytes());
     rec[16..24].copy_from_slice(&estimate.to_le_bytes());
     rec[24..28].copy_from_slice(&(info.codec as u32).to_le_bytes());
-    let flags = u32::from(info.frames.is_some());
+    let (loop_start, loop_end) = info.loop_points.unwrap_or((0, 0));
+    let flags = u32::from(info.frames.is_some()) | (u32::from(info.loop_points.is_some()) << 1);
+    rec[32..36].copy_from_slice(&loop_start.to_le_bytes());
+    rec[36..40].copy_from_slice(&loop_end.to_le_bytes());
     rec[28..32].copy_from_slice(&flags.to_le_bytes());
     // SAFETY: checked above (in range and aligned); the caller owns the record.
     std::ptr::copy_nonoverlapping(rec.as_ptr(), out, INFO_BYTES);

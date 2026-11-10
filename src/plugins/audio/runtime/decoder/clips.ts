@@ -3,7 +3,7 @@
 // PCM at a time (the encoded file lives in the module until the decode ends). Between chunks the worker yields to its
 // event loop, which is how a `cancel` gets through. int16 is the core's clip format (CLIP_BEGIN `format` 1).
 import { CLIP_CHUNK_FRAMES, type ClipInfo, type DecodeHint } from "./protocol";
-import { DecoderError, type DecoderWasm } from "./wasm";
+import { DecoderError, type DecoderWasm, type RawInfo } from "./wasm";
 
 export interface ClipDecodeOptions {
   /** Called once, before the first chunk, with what the container declares (`frames` -1 when unknown; B5 sizes CLIP_BEGIN from it). */
@@ -14,6 +14,11 @@ export interface ClipDecodeOptions {
   readonly cancelled?: () => boolean;
   /** Awaited after each chunk; the worker passes a task-queue yield so messages (cancel) are seen. Default: none. */
   readonly yieldToEvents?: () => Promise<void>;
+}
+
+/** The ClipInfo loop fields, present only when the file states a loop. */
+function loopFields(raw: RawInfo): Pick<ClipInfo, "loopStartFrame" | "loopEndFrame"> {
+  return raw.loopStartFrame !== undefined && raw.loopEndFrame !== undefined ? { loopStartFrame: raw.loopStartFrame, loopEndFrame: raw.loopEndFrame } : {};
 }
 
 /**
@@ -29,7 +34,7 @@ export async function decodeClip(wasm: DecoderWasm, bytes: Uint8Array, hint: Dec
     if (raw.channels < 1 || raw.rate < 1) throw new DecoderError("audio decoder: the file reports no channels or rate");
     // A known length smaller than a chunk needs no bigger scratch.
     const chunkFrames = raw.frames >= 0 && raw.frames < CLIP_CHUNK_FRAMES ? Math.max(1, raw.frames) : CLIP_CHUNK_FRAMES;
-    options.onInfo?.({ rate: raw.rate, channels: raw.channels, frames: raw.frames, framesEstimate: raw.framesEstimate, codec: raw.codec, lengthKnown: raw.exact });
+    options.onInfo?.({ rate: raw.rate, channels: raw.channels, frames: raw.frames, framesEstimate: raw.framesEstimate, codec: raw.codec, lengthKnown: raw.exact, ...loopFields(raw) });
     scratchBytes = chunkFrames * raw.channels * 2;
     scratch = wasm.alloc(scratchBytes);
     let total = 0;
@@ -46,7 +51,7 @@ export async function decodeClip(wasm: DecoderWasm, bytes: Uint8Array, hint: Dec
     }
     if (raw.exact && total < raw.frames) throw new DecoderError(`audio decoder: the file ended after ${total} of ${raw.frames} frames (truncated?)`);
     if (total === 0) throw new DecoderError("audio decoder: the file holds no audio");
-    return { rate: raw.rate, channels: raw.channels, frames: total, framesEstimate: raw.framesEstimate, codec: raw.codec, lengthKnown: raw.exact };
+    return { rate: raw.rate, channels: raw.channels, frames: total, framesEstimate: raw.framesEstimate, codec: raw.codec, lengthKnown: raw.exact, ...loopFields(raw) };
   } finally {
     wasm.close(handle);
     if (scratch !== 0) wasm.free(scratch, scratchBytes);

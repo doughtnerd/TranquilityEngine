@@ -32,21 +32,23 @@ struct InfoRec {
     estimate: f64,
     codec: u32,
     flags: u32,
+    loop_start: u32,
+    loop_end: u32,
 }
 
 fn info(h: i32) -> InfoRec {
     let mut rec = [0u64; INFO_BYTES / 8];
-    // SAFETY: 32 writable, 8-aligned bytes.
+    // SAFETY: 40 writable, 8-aligned bytes.
     assert_eq!(unsafe { myco_decode_info(h, rec.as_mut_ptr().cast()) }, 0);
     let b: Vec<u8> = rec.iter().flat_map(|w| w.to_ne_bytes()).collect();
     let u32at = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let f64at = |o: usize| f64::from_le_bytes(b[o..o + 8].try_into().unwrap());
-    InfoRec { rate: u32at(0), channels: u32at(4), frames: f64at(8), estimate: f64at(16), codec: u32at(24), flags: u32at(28) }
+    InfoRec { rate: u32at(0), channels: u32at(4), frames: f64at(8), estimate: f64at(16), codec: u32at(24), flags: u32at(28), loop_start: u32at(32), loop_end: u32at(36) }
 }
 
 #[test]
 fn the_abi() {
-    assert_eq!(myco_decode_abi_version(), 0x100);
+    assert_eq!(myco_decode_abi_version(), 0x101);
     assert!(!myco_decode_source_hash().is_null());
     assert!(myco_decode_alloc(0).is_null());
 
@@ -113,6 +115,14 @@ fn the_abi() {
     assert!(i.estimate > 40000.0);
     assert_eq!(myco_decode_close(h), 0);
 
+    // Loop points ride in the record: none on plain files, the comments' on a tagged Ogg.
+    assert_eq!((i.loop_start, i.loop_end, i.flags & 2), (0, 0, 0));
+    let h = open_abi(&fixture("loop/tagged.ogg"), 4);
+    assert!(h > 0, "open: {h} {}", last_error());
+    let i = info(h);
+    assert_eq!((i.loop_start, i.loop_end, i.flags & 2), (1000, 6000, 2));
+    assert_eq!(myco_decode_close(h), 0);
+
     // At most MAX_DECODERS open at once.
     let wav = fixture("tone-22050-stereo-s24.wav");
     let handles: Vec<i32> = (0..MAX_DECODERS).map(|_| open_abi(&wav, 1)).collect();
@@ -123,5 +133,25 @@ fn the_abi() {
     }
     let h = open_abi(&wav, 1);
     assert!(h > 0);
+    assert_eq!(myco_decode_close(h), 0);
+}
+
+#[test]
+fn wav_smpl_loop_points_reach_the_info_record() {
+    // A tone WAV with a trailing `smpl` chunk (forward loop 100..=1099), appended after `data`.
+    let mut wav = fixture("tone-44100-mono.wav");
+    let mut body = vec![0u8; 28];
+    body.extend_from_slice(&1u32.to_le_bytes());
+    body.extend_from_slice(&0u32.to_le_bytes());
+    for v in [0u32, 0, 100, 1099, 0, 0] {
+        body.extend_from_slice(&v.to_le_bytes());
+    }
+    wav.extend_from_slice(b"smpl");
+    wav.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    wav.extend_from_slice(&body);
+    let h = open_abi(&wav, 1);
+    assert!(h > 0, "open: {h} {}", last_error());
+    let i = info(h);
+    assert_eq!((i.loop_start, i.loop_end, i.flags & 2), (100, 1100, 2));
     assert_eq!(myco_decode_close(h), 0);
 }
