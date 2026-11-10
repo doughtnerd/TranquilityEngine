@@ -16,6 +16,7 @@ import {
   writeClipBegin,
   writeClipChunk,
   writeEnvelope,
+  writeMaster,
   writePlay,
   type BusConfigBuses,
   type BusConfigBusesEffects,
@@ -26,6 +27,13 @@ import type { BusEffect } from "../../../src/engine/audio/settings";
 
 const PRESET: CorePreset = { maxLogical: 64, maxMixed: 16, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20 };
 const CHUNK_FRAMES = 8192;
+/**
+ * Headroom for the master limiter (A2.8). The reference graph has no limiter, and some scenes (high-Q filters on
+ * noise) go over full scale, which the core's limiter would hold at 0 dBFS. So MASTER (before the limiter) is set to
+ * 1/16 and the output is multiplied back by 16: both are powers of two, so the result is bit for bit the core's
+ * unlimited mix, and the limiter, bypassed exactly while nothing exceeds its ceiling, never acts (checked below).
+ */
+const HEADROOM = 16;
 
 let wasmBytes: Uint8Array | null = null;
 async function wasm(): Promise<Uint8Array> {
@@ -80,6 +88,7 @@ export async function renderCore(scene: Scene): Promise<Render> {
   const configBytes = 16 + tree.reduce((n, b) => n + 4 + 32 * b.effects.length, 0);
   batch(configBytes, (view, at) => void writeBusConfig(view, at, { voiceId: 0, frameOffset: ASAP, buses: tree }), 1);
   batch(20 + 8 * resolved.length, (view, at) => void writeBusMix(view, at, { voiceId: 0, frameOffset: ASAP, rampFrames: 0, buses: resolved.map((b) => ({ gain: b.gain, lpHz: b.snapshotLowpass ?? BUS_LP_OFF_HZ })) }), 1);
+  batch(24, (view, at) => void writeMaster(view, at, { voiceId: 0, frameOffset: ASAP, volume: 1 / HEADROOM, muted: 0, rampFrames: 0 }), 1);
 
   // The clips (f32, at the context rate), copied into the arena by the shell over the pre-roll.
   scene.clips.forEach((spec, id) => {
@@ -107,6 +116,7 @@ export async function renderCore(scene: Scene): Promise<Render> {
   const render = (quanta: number, into?: { l: Float32Array; r: Float32Array; at: number }): void => {
     for (let i = 0; i < quanta; i++) {
       const out = driver.process(frame, date);
+      for (let k = 0; k < 2 * QUANTUM; k++) if (Math.abs(out[k]!) >= 1) throw new Error(`${scene.id}: the output reached the limiter's ceiling; raise HEADROOM`);
       if (into) {
         const n = Math.min(QUANTUM, into.l.length - into.at);
         if (n > 0) {
@@ -155,5 +165,9 @@ export async function renderCore(scene: Scene): Promise<Render> {
   const into = { l: new Float32Array(frames), r: new Float32Array(frames), at: 0 };
   render(Math.ceil(frames / QUANTUM), into);
   if (driver.traps > 0) throw new Error(`the core trapped rendering ${scene.id}`);
+  for (let i = 0; i < frames; i++) {
+    into.l[i] *= HEADROOM;
+    into.r[i] *= HEADROOM;
+  }
   return { left: into.l, right: into.r };
 }

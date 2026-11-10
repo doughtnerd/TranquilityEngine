@@ -10,6 +10,8 @@
 //!   cut-off at once, plus the root. Sample-exact on the buses without a low-pass; the low-passed
 //!   bus is sample-exact while `audio_dsp::biquad` is the A2.1 passthrough stub, and checked at its
 //!   settled level (a low-pass passes DC) once A2.2a fills the filter.
+//! - MASTER is at 0.25 in both goldens, so the sums (up to 2.0 on a bus) stay under the master
+//!   limiter's ceiling (A2.8) and the checks see the bus math alone; the scale is exact in f32.
 //! - `process` never allocates with buses, every effect kind, reverb sends and ramps under way.
 
 mod common;
@@ -28,6 +30,9 @@ const LONG_RAMP_TOL: f32 = 1e-5;
 /// Equal-power gains for hard left/right are cos(π/2) ≈ 6e-17 and 1; ramps multiply in f32.
 const PAN_TOL: f32 = 1e-5;
 
+/// MASTER in both goldens: keeps the output under the limiter's ceiling (see the module comment).
+const M: f32 = 0.25;
+
 const MUSIC: u16 = 1;
 const SFX: u16 = 2;
 const UI: u16 = 3;
@@ -41,29 +46,29 @@ fn max_step(x: &[f32]) -> f32 {
 fn duck_golden() {
     let mut m = Mixer::new(8);
     // Master (root), Music and SFX under it. Music at 1.0, SFX at 0.5 (its voice's gain).
-    m.submit(&[config(&[ROOT, 0, 0]), gains(0, &[1.0, 1.0, 1.0]), dc(0x0001_0001, MUSIC, 0.0)]);
+    m.submit(&[config(&[ROOT, 0, 0]), gains(0, &[1.0, 1.0, 1.0]), master(M, false, 0), dc(0x0001_0001, MUSIC, 0.0)]);
     let Rec::Play(mut sfx) = dc(0x0001_0002, SFX, 0.0) else { unreachable!() };
     sfx.gain = 0.5;
     m.submit(&[Rec::Play(sfx)]);
     let (l, r) = m.render_n(2);
     assert_eq!(l, r);
-    check(&l, TOL, "before the duck", |_| 1.5);
+    check(&l, TOL, "before the duck", |_| M * 1.5);
 
     // Duck Music to 0.25 over 300 frames (not a whole number of quanta), as the mixer's BUS_MIX
     // sends it: every bus's own gain, only Music's changes.
     m.submit(&[gains(300, &[1.0, 0.25, 1.0])]);
     let (duck, duck_r) = m.render_n(4);
     assert_eq!(duck, duck_r);
-    check(&duck, TOL, "ducking", |k| ramp_to(1.0, 0.25, 300, k) + 0.5);
-    assert!(max_step(&duck) <= 0.75 / 300.0 + TOL, "click-free: the largest step is the ramp's");
+    check(&duck, TOL, "ducking", |k| M * (ramp_to(1.0, 0.25, 300, k) + 0.5));
+    assert!(max_step(&duck) <= M * 0.75 / 300.0 + TOL, "click-free: the largest step is the ramp's");
 
     // Hold, then recover to unity over 1,000 frames.
     let (hold, _) = m.render_n(2);
-    check(&hold, TOL, "held", |_| 0.75);
+    check(&hold, TOL, "held", |_| M * 0.75);
     m.submit(&[gains(1_000, &[1.0, 1.0, 1.0])]);
     let (rec, _) = m.render_n(9);
-    check(&rec, LONG_RAMP_TOL, "recovering", |k| ramp_to(0.25, 1.0, 1_000, k) + 0.5);
-    assert!(max_step(&rec) <= 0.75 / 1_000.0 + TOL);
+    check(&rec, LONG_RAMP_TOL, "recovering", |k| M * (ramp_to(0.25, 1.0, 1_000, k) + 0.5));
+    assert!(max_step(&rec) <= M * 0.75 / 1_000.0 + TOL);
 
     // A duck that is cut short: a new BUS_MIX ramps from wherever the gain is.
     m.submit(&[gains(256, &[1.0, 0.0, 1.0])]);
@@ -72,7 +77,7 @@ fn duck_golden() {
     assert!((mid - 0.5).abs() < TOL, "half way: {mid}");
     m.submit(&[gains(128, &[1.0, 1.0, 1.0])]);
     let (back, _) = m.render();
-    check(&back, TOL, "reversed mid-ramp", |k| ramp_to(mid, 1.0, 128, k) + 0.5);
+    check(&back, TOL, "reversed mid-ramp", |k| M * (ramp_to(mid, 1.0, 128, k) + 0.5));
 }
 
 #[test]
@@ -80,10 +85,10 @@ fn snapshot_golden() {
     let mut m = Mixer::new(8);
     // Root, Music, SFX, UI. Music is panned hard left, SFX and UI hard right, so the left channel
     // is Music alone and the right is SFX + UI.
-    m.submit(&[config(&[ROOT, 0, 0, 0]), gains(0, &[1.0; 4]), dc(0x0001_0001, MUSIC, -1.0), dc(0x0001_0002, SFX, 1.0), dc(0x0001_0003, UI, 1.0)]);
+    m.submit(&[config(&[ROOT, 0, 0, 0]), gains(0, &[1.0; 4]), master(M, false, 0), dc(0x0001_0001, MUSIC, -1.0), dc(0x0001_0002, SFX, 1.0), dc(0x0001_0003, UI, 1.0)]);
     let (l, r) = m.render();
-    check(&l, PAN_TOL, "Music before", |_| 1.0);
-    check(&r, PAN_TOL, "SFX + UI before", |_| 2.0);
+    check(&l, PAN_TOL, "Music before", |_| M * 1.0);
+    check(&r, PAN_TOL, "SFX + UI before", |_| M * 2.0);
 
     // One snapshot: the root to 0.8, Music to 0.5 with a 800 Hz low-pass, SFX to 0.25, UI muted;
     // all over 256 frames.
@@ -91,9 +96,9 @@ fn snapshot_golden() {
     m.submit(&[mix(N as u32, &[(0.8, OFF), (0.5, 800.0), (0.25, OFF), (0.0, OFF)])]);
     let (l, r) = m.render_n(3);
     let root = |k| ramp_to(1.0, 0.8, N, k);
-    check(&r, PAN_TOL, "SFX + UI through the root", |k| (ramp_to(1.0, 0.25, N, k) + ramp_to(1.0, 0.0, N, k)) * root(k));
+    check(&r, PAN_TOL, "SFX + UI through the root", |k| M * (ramp_to(1.0, 0.25, N, k) + ramp_to(1.0, 0.0, N, k)) * root(k));
     if audio_dsp::biquad::PASSTHROUGH {
-        check(&l, PAN_TOL, "Music through the root (passthrough low-pass)", |k| ramp_to(1.0, 0.5, N, k) * root(k));
+        check(&l, PAN_TOL, "Music through the root (passthrough low-pass)", |k| M * ramp_to(1.0, 0.5, N, k) * root(k));
     }
     let s = bus::slots(&m.core);
     assert_eq!(s[MUSIC as usize].lp.value, 800.0, "the cut-off reached its target");
@@ -102,14 +107,14 @@ fn snapshot_golden() {
     // Settled: 100 ms later every level is its product (a low-pass passes DC unchanged).
     m.render_n(37);
     let (l, r) = m.render();
-    check(&r, PAN_TOL, "SFX + UI settled", |_| 0.25 * 0.8);
+    check(&r, PAN_TOL, "SFX + UI settled", |_| M * 0.25 * 0.8);
     let lp_tol = if audio_dsp::biquad::PASSTHROUGH { PAN_TOL } else { 1e-3 };
-    check(&l, lp_tol, "Music settled", |_| 0.5 * 0.8);
+    check(&l, lp_tol, "Music settled", |_| M * 0.5 * 0.8);
 
     // The snapshot ends: back to unity with the low-pass off, at once.
     m.submit(&[mix(0, &[(1.0, OFF); 4])]);
     let (_, r) = m.render();
-    check(&r, PAN_TOL, "SFX + UI restored", |_| 2.0);
+    check(&r, PAN_TOL, "SFX + UI restored", |_| M * 2.0);
     assert_eq!(bus::slots(&m.core)[MUSIC as usize].lp.value, OFF);
 }
 
@@ -178,4 +183,5 @@ fn process_never_allocates_with_buses_and_effects() {
     }
     assert_eq!(allocations(), before, "process allocated");
     assert!(sink.is_finite() && sink != 0.0);
+    assert!(bus::area(&m.core).limited > 0, "the master limiter ran (33 DC voices go over the ceiling)");
 }
