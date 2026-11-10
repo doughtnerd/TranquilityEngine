@@ -10,7 +10,7 @@
 //! ended once and its generation's commands are dropped from then on. During `process` a scheduled
 //! voice starts at its sample offset (asap: offset 0 of the first quantum after arrival; a stamped
 //! frame already past: offset 0, counted late, from its start, architecture §4.4). A playing voice
-//! reads its clip through the linear resampler, multiplies by its gain and fade ramps and pans
+//! reads its clip through the 4-point resampler (`resample::lagrange`, A3.6), multiplies by its gain and fade ramps and pans
 //! through its [`PannerState`]. A virtual voice (PLAY flag `mixed` clear) keeps time without
 //! rendering. A voice ends when a non-looping clip runs out, when STOP lands (fade 0), or when a
 //! fade with "stop at end" finishes. Ended voices are reported in STATUS `ended` (K12) and their slot
@@ -323,7 +323,7 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, from: usize, to: usize,
     if slot.flags & flag::MIXED != 0 {
         let mut l = [0.0f32; QUANTUM];
         let mut r = [0.0f32; QUANTUM];
-        resample::linear(&clip.source, &mut slot.position, &steps[..n], looping, &mut l[..n], &mut r[..n]);
+        resample::lagrange(&clip.source, &mut slot.position, &steps[..n], looping, &mut l[..n], &mut r[..n]);
         if slot.mix.is_settled() && slot.mix.value == 1.0 {
             for i in 0..n {
                 let g = slot.gain.next() * slot.fade.next();

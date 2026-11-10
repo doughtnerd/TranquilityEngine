@@ -234,15 +234,18 @@ fn ramp(n: usize) -> Vec<f32> {
     (0..n).map(|i| (i + 1) as f32 / 512.0).collect()
 }
 
-/// The spec's half-speed sample: even frames are x[k/2]; odd frames the mean of the two frames
-/// either side of k/2, where a frame past the clip's end holds the last one.
+/// The half-speed sample of the voices' 4-point resampler (`resample::lagrange`, A3.6): even
+/// frames are x[k/2]; odd frames the midpoint (-x[m-1] + 9 x[m] + 9 x[m+1] - x[m+2]) / 16, where a
+/// frame before the clip's start holds the first one and a frame past its end holds the last one.
+/// (On a ramp that is the mean of x[m] and x[m+1] away from the edges, as linear gives.)
 fn half_speed(x: &[f32], k: usize) -> f32 {
     if k % 2 == 0 {
         x[k / 2]
     } else {
         let m = (k - 1) / 2;
-        let next = if m + 1 < x.len() { x[m + 1] } else { x[m] };
-        (x[m] + next) / 2.0
+        let at = |j: isize| x[j.clamp(0, x.len() as isize - 1) as usize];
+        let m = m as isize;
+        (-at(m - 1) + 9.0 * at(m) + 9.0 * at(m + 1) - at(m + 2)) / 16.0
     }
 }
 
