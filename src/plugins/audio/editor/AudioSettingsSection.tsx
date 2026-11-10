@@ -31,12 +31,14 @@ import {
   setClipMemory,
   setCodec,
   setDuckingValue,
+  setLimiterLookahead,
   setEffectValue,
   setSnapshotLowpass,
   setSnapshotVolume,
   setSpatial,
   setVoices,
   voicesPreset,
+  LIMITER_LOOKAHEAD_LIMITS,
   type VoicePresetName,
 } from "./audioSettingsModel";
 import { TextField, type SettingsDraft } from "../../../editor/sdk";
@@ -322,6 +324,10 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
         <label title="What the page being hidden does to sound">
           In background
           <Choice<AudioBackground> label="Audio background" value={a.background} options={["mute", "pause", "play"]} onChange={(v) => set("Set audio background", setBackground(draft, v))} />
+        </label>
+        <label title="The master limiter looks this far ahead (0..5 ms) so it can lower the gain smoothly before a peak; it delays all core output by as much. 0 is no delay and an instant attack. Applies when the core next starts.">
+          Limiter look-ahead (ms)
+          <Num label="Limiter look-ahead (ms)" value={a.limiterLookaheadMs} step={0.5} min={LIMITER_LOOKAHEAD_LIMITS[0]} max={LIMITER_LOOKAHEAD_LIMITS[1]} onCommit={(n) => set("Set limiter look-ahead", setLimiterLookahead(draft, n))} />
         </label>
       </div>
       <div class="audio-row">

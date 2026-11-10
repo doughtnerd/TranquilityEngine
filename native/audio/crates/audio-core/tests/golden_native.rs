@@ -5,11 +5,17 @@
 //! `audio_core::scheduler::submit` (the path `myco_audio_submit` takes), renders quanta with
 //! `Core::process`, and checks the samples against values computed here from the spec. A2.7 later
 //! adds the Vitest wasm layer; these stay (plan, F7).
+//!
+//! The expectations are in core time (the frame a voice renders at); `Mixer::expect` checks them
+//! against the output the master limiter's fixed latency later (A2.9; `common::Heard`).
+
+mod common;
 
 use audio_core::clips::ClipFormat;
 use audio_core::layout::{Layout, PAGE_BYTES};
 use audio_core::params::InitParams;
-use audio_core::{scheduler, status, Core, QUANTUM};
+use audio_core::{bus, scheduler, status, Core, QUANTUM};
+use common::{Heard, L, R};
 use audio_wire::generated as wire;
 use std::alloc::{GlobalAlloc, System};
 use std::cell::Cell;
@@ -130,11 +136,29 @@ fn fade(voice: u32, target: f32, frames: u32, flags: u32) -> wire::Fade {
 struct Mixer {
     core: Core,
     frame: u64,
+    /// The output as heard and the expectations in core time.
+    heard: Heard,
+    /// The first frame of the last `render` or `render_n`.
+    span: usize,
 }
 
 impl Mixer {
     fn new() -> Mixer {
-        Mixer { core: new_core(), frame: 0 }
+        let core = new_core();
+        let latency = bus::output_latency_frames(&core) as usize;
+        Mixer { core, frame: 0, heard: Heard::new(latency), span: 0 }
+    }
+
+    /// Expects channel `ch` of the last `render`/`render_n` to be `want(k)` at frame `k` of the
+    /// span, in core time, and checks the heard output (`Heard::expect`).
+    fn expect(&mut self, ch: usize, tol: f32, what: &str, want: impl Fn(usize) -> f32) {
+        self.expect_from(self.span, ch, tol, what, want);
+    }
+
+    /// As `expect`, from frame `start` to the end of what was rendered.
+    fn expect_from(&mut self, start: usize, ch: usize, tol: f32, what: &str, want: impl Fn(usize) -> f32) {
+        let len = self.heard.len() - start;
+        self.heard.expect(ch, start, len, tol, what, want);
     }
 
     /// Reserves a mono f32 clip and writes its samples.
@@ -161,17 +185,24 @@ impl Mixer {
 
     /// Renders the next quantum; returns its left and right channels.
     fn render(&mut self) -> (Vec<f32>, Vec<f32>) {
+        self.span = self.heard.len();
+        self.quantum()
+    }
+
+    fn quantum(&mut self) -> (Vec<f32>, Vec<f32>) {
         let out = self.core.process(self.frame);
         let pair = (out[..QUANTUM].to_vec(), out[QUANTUM..2 * QUANTUM].to_vec());
+        self.heard.push(&pair.0, &pair.1);
         self.frame += QUANTUM as u64;
         pair
     }
 
     /// Renders `n` quanta; returns their left and right channels, concatenated.
     fn render_n(&mut self, n: usize) -> (Vec<f32>, Vec<f32>) {
+        self.span = self.heard.len();
         let (mut left, mut right) = (Vec::new(), Vec::new());
         for _ in 0..n {
-            let (l, r) = self.render();
+            let (l, r) = self.quantum();
             left.extend(l);
             right.extend(r);
         }
@@ -181,14 +212,6 @@ impl Mixer {
     /// Whether `voice` is in the STATUS `ended` list (the list accumulates; nothing clears it here).
     fn is_ended(&self, voice: u32) -> bool {
         status::counters(&self.core).ended.as_slice().contains(&voice)
-    }
-}
-
-/// Asserts every sample of `actual` is within `tol` of `want(index)`.
-fn check(actual: &[f32], tol: f32, what: &str, want: impl Fn(usize) -> f32) {
-    for (i, &a) in actual.iter().enumerate() {
-        let w = want(i);
-        assert!((a - w).abs() <= tol, "{what}: sample {i} is {a}, expected {w}");
     }
 }
 
@@ -232,14 +255,12 @@ fn check_half_speed(rate: f32, pitch: f32) {
     let mut p = play(V1, CLIP_A, MIXED);
     p.pitch = pitch;
     m.submit(0.0, &[Rec::Play(p)]);
-    let mut left = Vec::new();
     for q in 0..4 {
         let (l, r) = m.render();
         assert_eq!(l, r);
-        left.extend(l);
         assert_eq!(m.is_ended(V1), q == 3, "ended after quantum {q}");
     }
-    check(&left, TOL, "half speed", |k| if k < 400 { half_speed(&x, k) } else { 0.0 });
+    m.expect_from(0, L, TOL, "half speed", |k| if k < 400 { half_speed(&x, k) } else { 0.0 });
 }
 
 /// The left and right gains of a spatial DC-1.0 voice at `dir`, after one quantum. Every frame of
@@ -253,9 +274,11 @@ fn spatial_gains(dir: [f32; 3]) -> (f32, f32) {
     p.dir_z = dir[2];
     m.submit(0.0, &[Rec::Play(p)]);
     let (l, r) = m.render();
-    let (gl, gr) = (l[0], r[0]);
-    check(&l, PAN_TOL, "left gain across the quantum", |_| gl);
-    check(&r, PAN_TOL, "right gain across the quantum", |_| gr);
+    // The first frame heard after the limiter's latency (silence before it).
+    let d = m.heard.latency;
+    let (gl, gr) = (l[d], r[d]);
+    m.expect(L, PAN_TOL, "left gain across the quantum", |_| gl);
+    m.expect(R, PAN_TOL, "right gain across the quantum", |_| gr);
     (gl, gr)
 }
 
@@ -306,14 +329,12 @@ fn one_shot_plays_its_clip_once_then_ends() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &x);
     m.submit(0.0, &[Rec::Play(play(V1, CLIP_A, MIXED))]);
-    let mut left = Vec::new();
     for q in 0..3 {
         let (l, r) = m.render();
         assert_eq!(l, r, "a non-spatial voice sounds equally on both channels");
-        left.extend(l);
         assert_eq!(m.is_ended(V1), q == 2, "ended after quantum {q}");
     }
-    check(&left, TOL, "one shot", |g| if g < 300 { x[g] } else { 0.0 });
+    m.expect_from(0, L, TOL, "one shot", |g| if g < 300 { x[g] } else { 0.0 });
 }
 
 #[test]
@@ -326,7 +347,7 @@ fn gain_scales_the_clip() {
     m.submit(0.0, &[Rec::Play(p)]);
     let (l, r) = m.render_n(3);
     assert_eq!(l, r);
-    check(&l, TOL, "half level", |g| if g < 300 { 0.5 * x[g] } else { 0.0 });
+    m.expect(L, TOL, "half level", |g| if g < 300 { 0.5 * x[g] } else { 0.0 });
 }
 
 #[test]
@@ -336,9 +357,9 @@ fn a_virtual_voice_is_silent_but_ends_on_time() {
     // No PLAY_FLAGS_MIXED: the voice is virtual.
     m.submit(0.0, &[Rec::Play(play(V1, CLIP_A, 0))]);
     for q in 0..3 {
-        let (l, r) = m.render();
-        check(&l, TOL, "virtual left", |_| 0.0);
-        check(&r, TOL, "virtual right", |_| 0.0);
+        m.render();
+        m.expect(L, TOL, "virtual left", |_| 0.0);
+        m.expect(R, TOL, "virtual right", |_| 0.0);
         assert_eq!(m.is_ended(V1), q == 2, "ended after quantum {q}");
     }
 }
@@ -353,7 +374,7 @@ fn pitch_two_plays_every_other_frame() {
     m.submit(0.0, &[Rec::Play(p)]);
     let (l, r) = m.render();
     assert_eq!(l, r);
-    check(&l, TOL, "double speed", |k| if k < 100 { x[2 * k] } else { 0.0 });
+    m.expect(L, TOL, "double speed", |k| if k < 100 { x[2 * k] } else { 0.0 });
     assert!(m.is_ended(V1), "the 200-frame clip is spent after one quantum");
 }
 
@@ -375,7 +396,7 @@ fn a_loop_wraps_seamlessly_and_never_ends() {
     m.submit(0.0, &[Rec::Play(play(V1, CLIP_A, MIXED | LOOP))]);
     let (l, r) = m.render_n(3);
     assert_eq!(l, r);
-    check(&l, TOL, "loop", |g| x[g % 100]);
+    m.expect(L, TOL, "loop", |g| x[g % 100]);
     assert!(!m.is_ended(V1), "a loop never ends");
 }
 
@@ -384,12 +405,12 @@ fn stop_ends_a_loop_at_the_next_quantum() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &[1.0f32; 100]);
     m.submit(0.0, &[Rec::Play(play(V1, CLIP_A, MIXED | LOOP))]);
-    let (l, _) = m.render();
-    check(&l, TOL, "playing", |_| 1.0);
+    m.render();
+    m.expect(L, TOL, "playing", |_| 1.0);
     m.submit(0.0, &[Rec::Stop(stop(V1))]);
-    let (l, r) = m.render();
-    check(&l, TOL, "silent after the stop", |_| 0.0);
-    check(&r, TOL, "silent after the stop, right", |_| 0.0);
+    m.render();
+    m.expect(L, TOL, "silent after the stop", |_| 0.0);
+    m.expect(R, TOL, "silent after the stop, right", |_| 0.0);
     assert!(m.is_ended(V1));
 }
 
@@ -398,13 +419,13 @@ fn stop_with_a_fade_ramps_to_silence_then_ends() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &[1.0f32; 100]);
     m.submit(0.0, &[Rec::Play(play(V1, CLIP_A, MIXED | LOOP))]);
-    let (l, _) = m.render();
-    check(&l, TOL, "playing", |_| 1.0);
+    m.render();
+    m.expect(L, TOL, "playing", |_| 1.0);
     let mut s = stop(V1);
     s.fade_frames = 64;
     m.submit(0.0, &[Rec::Stop(s)]);
-    let (l, _) = m.render();
-    check(&l, TOL, "fade out", |k| ramp_to(1.0, 0.0, 64, k));
+    m.render();
+    m.expect(L, TOL, "fade out", |k| ramp_to(1.0, 0.0, 64, k));
     assert!(m.is_ended(V1));
 }
 
@@ -413,11 +434,11 @@ fn fade_with_stop_at_end_ends_the_voice() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &[1.0f32; 100]);
     m.submit(0.0, &[Rec::Play(play(V1, CLIP_A, MIXED | LOOP))]);
-    let (l, _) = m.render();
-    check(&l, TOL, "playing", |_| 1.0);
+    m.render();
+    m.expect(L, TOL, "playing", |_| 1.0);
     m.submit(0.0, &[Rec::Fade(fade(V1, 0.0, 32, wire::FADE_FLAGS_STOP_AT_END))]);
-    let (l, _) = m.render();
-    check(&l, TOL, "fade to zero, then stop", |k| ramp_to(1.0, 0.0, 32, k));
+    m.render();
+    m.expect(L, TOL, "fade to zero, then stop", |k| ramp_to(1.0, 0.0, 32, k));
     assert!(m.is_ended(V1));
 
     // Without the flag, the fade holds its target and the loop plays on.
@@ -426,11 +447,11 @@ fn fade_with_stop_at_end_ends_the_voice() {
     m.submit(0.0, &[Rec::Play(play(V1, CLIP_A, MIXED | LOOP))]);
     m.render();
     m.submit(0.0, &[Rec::Fade(fade(V1, 0.5, 32, 0))]);
-    let (l, _) = m.render();
-    check(&l, TOL, "fade to a half, held", |k| ramp_to(1.0, 0.5, 32, k));
+    m.render();
+    m.expect(L, TOL, "fade to a half, held", |k| ramp_to(1.0, 0.5, 32, k));
     assert!(!m.is_ended(V1));
-    let (l, _) = m.render();
-    check(&l, TOL, "held at a half", |_| 0.5);
+    m.render();
+    m.expect(L, TOL, "held at a half", |_| 0.5);
     assert!(!m.is_ended(V1));
 }
 
@@ -439,13 +460,13 @@ fn set_params_gain_ramps_over_ramp_frames() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &[1.0f32; 100]);
     m.submit(0.0, &[Rec::Play(play(V1, CLIP_A, MIXED | LOOP))]);
-    let (l, _) = m.render();
-    check(&l, TOL, "playing", |_| 1.0);
+    m.render();
+    m.expect(L, TOL, "playing", |_| 1.0);
     let mut s = set_params(V1, wire::SET_PARAMS_MASK_GAIN, 64);
     s.gain = 0.5;
     m.submit(0.0, &[Rec::Set(s)]);
-    let (l, _) = m.render();
-    check(&l, TOL, "gain ramp", |k| ramp_to(1.0, 0.5, 64, k));
+    m.render();
+    m.expect(L, TOL, "gain ramp", |k| ramp_to(1.0, 0.5, 64, k));
 }
 
 #[test]
@@ -453,15 +474,15 @@ fn a_stamped_play_starts_at_its_sample_offset() {
     let x = ramp(300);
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &x);
-    let (l, _) = m.render();
-    check(&l, TOL, "silence before the play", |_| 0.0);
+    m.render();
+    m.expect(L, TOL, "silence before the play", |_| 0.0);
     // Absolute frame 200 + 10 = 210, inside the quantum at 128.
     let mut p = play(V1, CLIP_A, MIXED);
     p.frame_offset = 10;
     m.submit(200.0, &[Rec::Play(p)]);
     let (l, r) = m.render_n(2);
     assert_eq!(l, r);
-    check(&l, TOL, "stamped start", |i| {
+    m.expect(L, TOL, "stamped start", |i| {
         let g = 128 + i;
         if g < 210 {
             0.0
@@ -477,15 +498,15 @@ fn a_late_stamped_play_starts_at_once_and_counts_late() {
     let x = ramp(300);
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &x);
-    let (l, _) = m.render_n(2);
-    check(&l, TOL, "silence before the play", |_| 0.0);
+    m.render_n(2);
+    m.expect(L, TOL, "silence before the play", |_| 0.0);
     // Absolute frame 5, but the quantum at 256 has already begun: it starts at once, from x[0].
     let mut p = play(V1, CLIP_A, MIXED);
     p.frame_offset = 5;
     m.submit(0.0, &[Rec::Play(p)]);
     let (l, r) = m.render();
     assert_eq!(l, r);
-    check(&l, TOL, "late start from the clip's beginning", |k| x[k]);
+    m.expect(L, TOL, "late start from the clip's beginning", |k| x[k]);
     let c = status::counters(&m.core);
     assert_eq!(c.late_commands, 1);
     assert_eq!(c.max_lateness_frames, 251);
@@ -496,15 +517,15 @@ fn a_stamped_stop_cuts_at_its_sample_offset() {
     let mut m = Mixer::new();
     m.load_clip(CLIP_A, 48_000.0, &[1.0f32; 100]);
     m.submit(0.0, &[Rec::Play(play(V1, CLIP_A, MIXED | LOOP))]);
-    let (l, _) = m.render_n(2);
-    check(&l, TOL, "playing", |_| 1.0);
+    m.render_n(2);
+    m.expect(L, TOL, "playing", |_| 1.0);
     assert!(!m.is_ended(V1));
     // Absolute frame 300: the third quantum (256..383) is cut 44 frames in.
     let mut s = stop(V1);
     s.frame_offset = 0;
     m.submit(300.0, &[Rec::Stop(s)]);
-    let (l, _) = m.render();
-    check(&l, TOL, "cut at frame 300", |k| if k < 44 { 1.0 } else { 0.0 });
+    m.render();
+    m.expect(L, TOL, "cut at frame 300", |k| if k < 44 { 1.0 } else { 0.0 });
     assert!(m.is_ended(V1));
 }
 
@@ -533,9 +554,9 @@ fn a_moving_source_ramps_from_left_to_right() {
     p.dir_x = -1.0;
     p.dir_z = 0.0;
     m.submit(0.0, &[Rec::Play(p)]);
-    let (l, r) = m.render();
-    check(&l, PAN_TOL, "hard left at the start", |_| 1.0);
-    check(&r, PAN_TOL, "silent right at the start", |_| 0.0);
+    m.render();
+    m.expect(L, PAN_TOL, "hard left at the start", |_| 1.0);
+    m.expect(R, PAN_TOL, "silent right at the start", |_| 0.0);
 
     let mut s = set_params(V1, wire::SET_PARAMS_MASK_DIR, 128);
     s.dir_x = 1.0;
@@ -543,16 +564,18 @@ fn a_moving_source_ramps_from_left_to_right() {
     s.dir_z = 0.0;
     m.submit(0.0, &[Rec::Set(s)]);
     let (l, r) = m.render();
-    check(&l, PAN_TOL, "left ramps down", |k| 1.0 - (k + 1) as f32 / 128.0);
-    check(&r, PAN_TOL, "right ramps up", |k| (k + 1) as f32 / 128.0);
+    m.expect(L, PAN_TOL, "left ramps down", |k| 1.0 - (k + 1) as f32 / 128.0);
+    m.expect(R, PAN_TOL, "right ramps up", |k| (k + 1) as f32 / 128.0);
     assert!(l.windows(2).all(|w| w[1] <= w[0] + TOL), "left is non-increasing");
     assert!(r.windows(2).all(|w| w[1] + TOL >= w[0]), "right is non-decreasing");
-    assert!(l[127].abs() < 1e-6, "left is silent at the end of the ramp");
-    assert_near(r[127], 1.0, PAN_TOL, "right at the end of the ramp");
 
+    // The end of the ramp is heard in the next quantum, the limiter's latency later.
     let (l, r) = m.render();
-    assert!(l.iter().all(|x| x.abs() < 1e-6), "left stays silent after the ramp");
-    check(&r, PAN_TOL, "hard right after the ramp", |_| 1.0);
+    let d = m.heard.latency;
+    assert!(l[d - 1].abs() < 1e-6, "left is silent at the end of the ramp");
+    assert_near(r[d - 1], 1.0, PAN_TOL, "right at the end of the ramp");
+    m.expect(L, 1e-6, "left stays silent after the ramp", |_| 0.0);
+    m.expect(R, PAN_TOL, "hard right after the ramp", |_| 1.0);
 }
 
 #[test]
@@ -563,21 +586,21 @@ fn a_new_generation_replaces_the_voice_in_its_slot() {
     m.load_clip(CLIP_A, 48_000.0, &[1.0f32; 100]);
     m.load_clip(CLIP_B, 48_000.0, &[0.25f32; 100]);
     m.submit(0.0, &[Rec::Play(play(old, CLIP_A, MIXED | LOOP))]);
-    let (l, _) = m.render();
-    check(&l, TOL, "the first generation", |_| 1.0);
+    m.render();
+    m.expect(L, TOL, "the first generation", |_| 1.0);
 
     // Same index 3, new generation: the old voice is replaced, not added to.
     m.submit(0.0, &[Rec::Play(play(new, CLIP_B, MIXED | LOOP))]);
-    let (l, r) = m.render();
-    check(&l, TOL, "the replacement alone, left", |_| 0.25);
-    check(&r, TOL, "the replacement alone, right", |_| 0.25);
+    m.render();
+    m.expect(L, TOL, "the replacement alone, left", |_| 0.25);
+    m.expect(R, TOL, "the replacement alone, right", |_| 0.25);
     assert!(m.is_ended(old), "the old generation ends");
     assert!(!m.is_ended(new));
 
     // A stop for the stale generation leaves the replacement playing.
     m.submit(0.0, &[Rec::Stop(stop(old))]);
-    let (l, _) = m.render();
-    check(&l, TOL, "after a stop for the old generation", |_| 0.25);
+    m.render();
+    m.expect(L, TOL, "after a stop for the old generation", |_| 0.25);
     assert!(!m.is_ended(new), "the replacement is still playing");
 }
 

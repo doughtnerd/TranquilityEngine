@@ -40,7 +40,7 @@ import {
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio.wasm", import.meta.url)));
 const RATE = 48_000;
 const QUANTUM_MS = (128 / RATE) * 1000;
-const PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20 };
+const PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 1.5 };
 
 /** A driver and a link joined by queues; `recycle: false` makes main keep every STATUS buffer. */
 function rig(options: { recycle?: boolean; core?: CoreInstance } = {}) {
@@ -115,7 +115,7 @@ describe("coreDriver with the real wasm", () => {
     expect(r.blocks).toHaveLength(1);
     const first = r.blocks[0]!;
     expect(first.flags & STATUS_FLAGS_READY).toBeTruthy();
-    expect(first.abiVersion).toBe(0x100);
+    expect(first.abiVersion).toBe(0x101);
     expect(first.currentFrame).toBe(6 * 128);
     await expect(r.link.ready).resolves.toBeUndefined();
     r.run(6);

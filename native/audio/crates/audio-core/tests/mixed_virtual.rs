@@ -9,7 +9,7 @@
 use audio_core::clips::ClipFormat;
 use audio_core::layout::{Layout, PAGE_BYTES};
 use audio_core::params::InitParams;
-use audio_core::{scheduler, status, voices, Core, QUANTUM};
+use audio_core::{bus, scheduler, status, voices, Core, QUANTUM};
 use audio_wire::generated as wire;
 
 const RATE: f32 = 48_000.0;
@@ -28,7 +28,11 @@ fn new_core() -> Core {
     // SAFETY: non-zero size, zeroed, page-aligned; leaked on purpose.
     let base = unsafe { std::alloc::alloc_zeroed(block) };
     // SAFETY: a fresh zeroed block of `layout.total()` bytes, page-aligned.
-    unsafe { Core::new(p, layout, base) }
+    let mut core = unsafe { Core::new(p, layout, base) };
+    // These tests check SET_MIXED's fades frame by frame in core time; the limiter's look-ahead (A2.9, 1.5 ms by
+    // default) would delay every output frame, so they run at 0 ms (no output latency).
+    assert!(bus::set_limiter_lookahead(&mut core, 0.0));
+    core
 }
 
 enum Rec {

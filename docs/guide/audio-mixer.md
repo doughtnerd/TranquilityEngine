@@ -46,6 +46,8 @@ Buses, volume, mute, solo, snapshots (their volumes) and ducking work on every b
 
 On the audio core (`audio.backend` `"core"`), a bus runs its first 4 effects and at most one `compressor` (the first in its list). Further effects, and a second compressor, are skipped.
 
-The audio core ends in a master limiter, after the master volume: the output never goes above 0 dBFS, so many loud sounds at once are turned down for a moment (released over about a quarter of a second) instead of clipping. It adds no latency, and it doesn't change anything while the mix stays under full scale. The Babylon fallback has no limiter.
+The audio core ends in a master limiter, after the master volume: the output never goes above 0 dBFS, so many loud sounds at once are turned down for a moment (released over about a quarter of a second) instead of clipping. While the mix stays under full scale it changes nothing. The Babylon fallback has no limiter.
+
+The limiter looks ahead: it delays all of the core's output by a fixed time, set by `audio.limiterLookaheadMs` in `project.json` (Project panel > Audio > Playback > **Limiter look-ahead (ms)**; 0 to 5, default 1.5). With that head start it lowers the volume smoothly over the moment before a loud peak, so the peak comes out as the same sound, only quieter. Longer is gentler on sharp attacks but adds more delay. The delay is always there, limiting or not, and `Audio.time` and `at` already allow for it, so sounds still start exactly when you schedule them. 0 gives zero added latency, but the limiter then has to react on the peak itself, which flattens the start of a sound that goes over. A change takes effect the next time the audio core starts, for example after a page reload, never in the middle of a session.
 
 Bus volume changes ramp over about 15 milliseconds, so a mute or a ducking step doesn't click.

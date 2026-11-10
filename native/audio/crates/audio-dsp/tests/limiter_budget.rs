@@ -1,6 +1,7 @@
 //! The master limiter's budget (A2.8; architecture §6's per-quantum budget):
 //! - `process` and `reset` never allocate (every allocation on this thread is counted);
-//! - the cost per quantum while limiting (the per-frame path) and while bypassed (the scan only).
+//! - the cost per quantum while limiting (the per-frame path) and under the ceiling (the scan and
+//!   the delay line), with the default look-ahead and with 0 ms (A2.8's path).
 //!   The timing test is `#[ignore]`d (it needs a release build and an idle machine):
 //!   `cargo test --release -p audio-dsp --test limiter_budget -- --ignored --nocapture`.
 
@@ -10,6 +11,8 @@ use std::cell::Cell;
 use std::time::Instant;
 
 const QUANTUM: usize = 128;
+/// The default look-ahead (1.5 ms, 72 frames at 48 kHz); `cost_per_quantum` also times 0 ms.
+const LOOKAHEAD: f32 = audio_dsp::limiter::DEFAULT_LOOKAHEAD_MS;
 
 thread_local! {
     static ALLOCATIONS: Cell<u64> = const { Cell::new(0) };
@@ -64,7 +67,7 @@ fn inputs(amp: f32, quanta: usize) -> Vec<([f32; QUANTUM], [f32; QUANTUM])> {
 #[test]
 fn process_and_reset_never_allocate() {
     let blocks = inputs(1.0, 64);
-    let mut lim = Limiter::new(48_000.0);
+    let mut lim = Limiter::new(48_000.0, LOOKAHEAD);
     let before = allocations();
     for (l, r) in &blocks {
         let (mut l, mut r) = (*l, *r);
@@ -75,8 +78,8 @@ fn process_and_reset_never_allocate() {
 }
 
 /// Average and p99.9 of `process` per quantum over `blocks`, in ms.
-fn time(blocks: &[([f32; QUANTUM], [f32; QUANTUM])]) -> (f64, f64, f64) {
-    let mut lim = Limiter::new(48_000.0);
+fn time(blocks: &[([f32; QUANTUM], [f32; QUANTUM])], ms: f32) -> (f64, f64, f64) {
+    let mut lim = Limiter::new(48_000.0, ms);
     let mut times = Vec::with_capacity(blocks.len());
     let mut sink = 0.0f32;
     for (l, r) in blocks {
@@ -96,11 +99,15 @@ fn time(blocks: &[([f32; QUANTUM], [f32; QUANTUM])]) -> (f64, f64, f64) {
 #[ignore = "timing: release build on an idle machine"]
 fn cost_per_quantum() {
     const N: usize = 20_000;
-    let (avg, p999, max) = time(&inputs(1.0, N));
-    println!("limiter, limiting 48 kHz stereo: average {avg:.5} ms, p99.9 {p999:.5} ms, max {max:.4} ms over {N} quanta");
-    let (bavg, bp999, bmax) = time(&inputs(0.2, N));
-    println!("limiter, bypassed (under the ceiling): average {bavg:.5} ms, p99.9 {bp999:.5} ms, max {bmax:.4} ms over {N} quanta");
-    // A quantum at 48 kHz is 2.67 ms; the limiter is a few hundred flops of it.
-    assert!(avg <= 0.01, "average {avg} ms");
-    assert!(bavg <= avg, "the bypass is cheaper than limiting");
+    let loud = inputs(1.0, N);
+    let quiet = inputs(0.2, N);
+    for ms in [LOOKAHEAD, 0.0] {
+        let (avg, p999, max) = time(&loud, ms);
+        println!("limiter {ms} ms, limiting 48 kHz stereo: average {avg:.5} ms, p99.9 {p999:.5} ms, max {max:.4} ms over {N} quanta");
+        let (bavg, bp999, bmax) = time(&quiet, ms);
+        println!("limiter {ms} ms, under the ceiling: average {bavg:.5} ms, p99.9 {bp999:.5} ms, max {bmax:.4} ms over {N} quanta");
+        // A quantum at 48 kHz is 2.67 ms; the limiter is a few hundred flops of it.
+        assert!(avg <= 0.01, "average {avg} ms");
+        assert!(bavg <= avg, "passing through is cheaper than limiting");
+    }
 }

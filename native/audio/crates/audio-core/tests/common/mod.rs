@@ -1,12 +1,18 @@
 //! Shared helpers for the bus tests (`bus.rs`, `golden_buses.rs`): a core over a zeroed block, a
 //! generated clip, and BATCH messages written with `audio-wire`'s generated writers and submitted
 //! through `audio_core::scheduler::submit` (the path `myco_audio_submit` takes).
+//!
+//! **Latency** (A2.9): the master limiter's look-ahead delays all output by a fixed
+//! `bus::output_latency_frames` (72 frames at 48 kHz for the default 1.5 ms). The tests still
+//! write what they expect in **core time** (the frame a voice or a gain change is rendered at);
+//! [`Heard`] compares that with the output shifted by the latency: heard frame `h` carries core
+//! frame `h − latency`, and the first `latency` frames are the delay line's silence.
 #![allow(dead_code)]
 
 use audio_core::clips::ClipFormat;
 use audio_core::layout::{Layout, PAGE_BYTES};
 use audio_core::params::InitParams;
-use audio_core::{scheduler, Core, QUANTUM};
+use audio_core::{bus, scheduler, Core, QUANTUM};
 use audio_wire::generated as wire;
 
 pub const RATE: f32 = 48_000.0;
@@ -150,17 +156,100 @@ pub fn reset(keep_clips: bool) -> Rec {
     Rec::Reset(wire::Reset { voice_id: 0, frame_offset: wire::ASAP, keep_clips: keep_clips as u32 })
 }
 
+/// Left or right, for [`Heard::expect`].
+pub const L: usize = 0;
+pub const R: usize = 1;
+
+/// The output as heard, and what the test expects of it in core time (see the module comment).
+pub struct Heard {
+    /// The output latency in frames.
+    pub latency: usize,
+    /// The rendered output, per channel, from frame 0.
+    out: [Vec<f32>; 2],
+    /// The expected core-time output, per channel; NaN where the test said nothing.
+    want: [Vec<f32>; 2],
+}
+
+impl Heard {
+    pub fn new(latency: usize) -> Heard {
+        Heard { latency, out: [Vec::new(), Vec::new()], want: [Vec::new(), Vec::new()] }
+    }
+
+    /// Appends rendered output.
+    pub fn push(&mut self, l: &[f32], r: &[f32]) {
+        for (ch, x) in [l, r].into_iter().enumerate() {
+            self.out[ch].extend_from_slice(x);
+            let n = self.out[ch].len();
+            self.want[ch].resize(n, f32::NAN);
+        }
+    }
+
+    /// Frames rendered so far.
+    pub fn len(&self) -> usize {
+        self.out[0].len()
+    }
+
+    /// Says channel `ch` is `want(k)` at core frames `start + k` for `start..start + len`, then
+    /// checks every heard frame of that span against the core frame `latency` before it (silence
+    /// before frame 0; skipped where nothing was said).
+    pub fn expect(&mut self, ch: usize, start: usize, len: usize, tol: f32, what: &str, want: impl Fn(usize) -> f32) {
+        for k in 0..len {
+            self.want[ch][start + k] = want(k);
+        }
+        for h in start..start + len {
+            let w = match h.checked_sub(self.latency) {
+                None => 0.0,
+                Some(c) => self.want[ch][c],
+            };
+            if w.is_nan() {
+                continue;
+            }
+            let a = self.out[ch][h];
+            assert!((a - w).abs() <= tol, "{what}: heard frame {h} (core frame {}) is {a}, expected {w}", h as isize - self.latency as isize);
+        }
+    }
+}
+
 /// A core that renders quanta in order from frame 0, with the DC clip loaded.
 pub struct Mixer {
     pub core: Core,
     pub frame: u64,
+    /// The output as heard, and the expectations (see the module comment).
+    pub heard: Heard,
+    /// The first frame of the last `render` or `render_n`.
+    pub span: usize,
 }
 
 impl Mixer {
     pub fn new(max_buses: u32) -> Mixer {
-        let mut m = Mixer { core: new_core(max_buses), frame: 0 };
+        Mixer::over(new_core(max_buses))
+    }
+
+    /// A mixer over `core` (rendering from frame 0), with the DC clip loaded.
+    pub fn over(core: Core) -> Mixer {
+        let latency = bus::output_latency_frames(&core) as usize;
+        let mut m = Mixer { core, frame: 0, heard: Heard::new(latency), span: 0 };
         m.load_clip(DC, &[1.0f32; 64]);
         m
+    }
+
+    /// Sets the master limiter's look-ahead (before the first render) and the latency the checks
+    /// expect with it.
+    pub fn set_lookahead(&mut self, ms: f32) {
+        assert!(bus::set_limiter_lookahead(&mut self.core, ms), "before the first render");
+        self.heard.latency = bus::output_latency_frames(&self.core) as usize;
+    }
+
+    /// The output latency in frames.
+    pub fn latency(&self) -> usize {
+        self.heard.latency
+    }
+
+    /// Expects channel `ch` of the last `render`/`render_n` span to be `want(k)` in core time (frame
+    /// `k` of the span) and checks what was heard (see [`Heard::expect`]).
+    pub fn expect(&mut self, ch: usize, tol: f32, what: &str, want: impl Fn(usize) -> f32) {
+        let len = self.heard.len() - self.span;
+        self.heard.expect(ch, self.span, len, tol, what, want);
     }
 
     /// Reserves a mono f32 clip at the context rate and writes its samples.
@@ -183,17 +272,24 @@ impl Mixer {
 
     /// Renders the next quantum; returns its left and right channels.
     pub fn render(&mut self) -> (Vec<f32>, Vec<f32>) {
+        self.span = self.heard.len();
+        self.quantum()
+    }
+
+    fn quantum(&mut self) -> (Vec<f32>, Vec<f32>) {
         let out = self.core.process(self.frame);
         let pair = (out[..QUANTUM].to_vec(), out[QUANTUM..2 * QUANTUM].to_vec());
+        self.heard.push(&pair.0, &pair.1);
         self.frame += QUANTUM as u64;
         pair
     }
 
     /// Renders `n` quanta, concatenated.
     pub fn render_n(&mut self, n: usize) -> (Vec<f32>, Vec<f32>) {
+        self.span = self.heard.len();
         let (mut left, mut right) = (Vec::new(), Vec::new());
         for _ in 0..n {
-            let (l, r) = self.render();
+            let (l, r) = self.quantum();
             left.extend(l);
             right.extend(r);
         }

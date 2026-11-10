@@ -24,7 +24,7 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 
 /// ABI version, `(major << 8) | minor`. Bump the minor for an added export, the major for a change.
 pub const ABI_MAJOR: u32 = 1;
-pub const ABI_MINOR: u32 = 0;
+pub const ABI_MINOR: u32 = 1;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -93,6 +93,21 @@ pub extern "C" fn myco_audio_source_hash() -> *const u8 {
 #[no_mangle]
 pub extern "C" fn myco_audio_init(sample_rate: f32, max_logical: u32, max_mixed: u32, max_buses: u32, arena_initial_bytes: u32) -> i32 {
     instance().init(InitParams { sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes })
+}
+
+/// Sets the master limiter's look-ahead in ms (A2.9, ABI 1.1; the project's
+/// `audio.limiterLookaheadMs`): clamped to 0..=5, NaN is the 1.5 ms default, 0 is A2.8's
+/// zero-latency limiter. Call once after `init` and before the first `process`; it fixes the
+/// core's output latency (`audio_dsp::limiter::latency_frames`). `NOT_INITIALIZED` before `init`,
+/// and the same `ERR_BAD_STATE` (nothing changed) once the core has rendered. Never grows memory.
+#[no_mangle]
+pub extern "C" fn myco_audio_set_limiter_lookahead(ms: f32) -> i32 {
+    let Some(core) = instance().core_mut() else { return codes::NOT_INITIALIZED };
+    if audio_core::bus::set_limiter_lookahead(core, ms) {
+        codes::OK
+    } else {
+        codes::ALREADY_INITIALIZED // ERR_BAD_STATE: the core has started rendering
+    }
 }
 
 /// Drops state for tests. A rebuild makes a new global scope and reuses nothing.
@@ -261,7 +276,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x100);
+        assert_eq!(myco_audio_abi_version(), 0x101);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);
@@ -281,5 +296,6 @@ mod tests {
         assert!(myco_audio_stream_chunk_ptr(0, 4_096).is_null());
         assert_eq!(myco_audio_stream_commit(0, 4_096, 0, 0), NI);
         assert_eq!(myco_audio_status_take(), 0);
+        assert_eq!(myco_audio_set_limiter_lookahead(1.5), not_init, "A2.9: before init");
     }
 }

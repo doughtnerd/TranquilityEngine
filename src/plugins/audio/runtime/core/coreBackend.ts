@@ -38,6 +38,7 @@ import {
   type BusMixBuses,
 } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
+import { limiterLatencyFrames } from "./limiterLatency";
 import { ClockMap } from "./clock";
 import { CommandWriter, type PlayArgs } from "./commandWriter";
 import { createHrirLoader, type HrirLoader } from "./hrir";
@@ -73,8 +74,11 @@ export interface CoreVoice extends AudioVoice {
 export interface CoreBackendHost {
   readonly link: Pick<CoreLink, "batchPool" | "nextSeq" | "post" | "onStatus"> & { statusDecoder: CoreLink["statusDecoder"] };
   readonly status: "locked" | "running" | "failed";
-  /** `maxMixed` is `voices.mixed` (selection's configured cap; absent: every logical voice may be mixed). */
-  readonly preset: { readonly maxLogical: number; readonly maxMixed?: number };
+  /**
+   * `maxMixed` is `voices.mixed` (selection's configured cap; absent: every logical voice may be mixed).
+   * `limiterLookaheadMs` sets the core's output latency the clock map allows for (absent: the 1.5 ms default).
+   */
+  readonly preset: { readonly maxLogical: number; readonly maxMixed?: number; readonly limiterLookaheadMs?: number };
   /** Worlds holding a share (an idle host has none). */
   readonly worldCount: number;
   readonly sampleRate: number;
@@ -188,7 +192,7 @@ export class CoreBackend implements AudioBackend {
     };
     this.mirror = new StatusMirror(this.table);
     this.writer = new CommandWriter(host.link, host.sampleRate);
-    this.clockMap = new ClockMap(this.clock, host.sampleRate);
+    this.clockMap = new ClockMap(this.clock, host.sampleRate, limiterLatencyFrames(host.sampleRate, host.preset.limiterLookaheadMs));
     for (let i = 0; i < MAX_BUS; i++) this.mixPool.push({ gain: 1, lpHz: BUS_LP_OFF_HZ });
     this.clipSink = { event: (id, code) => this.clips.applyClipEvent(id, code) };
 

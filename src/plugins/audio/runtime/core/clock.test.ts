@@ -65,6 +65,30 @@ describe("ClockMap (architecture §4.3, §4.7)", () => {
     expect(map.reanchors).toBe(0);
   });
 
+  it("the core's output latency (A2.9) moves Audio.time back by that many frames and leaves F_now, L and firstFrame alone", () => {
+    const f = fakeClock();
+    const plain = new ClockMap(f, SR);
+    const delayed = new ClockMap(f, SR, 72);
+    expect(delayed.outputLatencyFrames).toBe(72);
+    for (const map of [plain, delayed]) map.beginFrame();
+    f.rafMs = 1000;
+    f.ts = BASE;
+    f.ct = 2.1;
+    for (const map of [plain, delayed]) map.beginFrame();
+    // Heard context frame at p = 1000: 1000 * 48 + 48000 = 96000; the delayed core frame being heard is 96000 - 72.
+    expect(plain.audioTime() * SR).toBeCloseTo(96000, 6);
+    expect(delayed.audioTime() * SR).toBeCloseTo(96000 - 72, 6);
+    expect(delayed.framesNow()).toBe(plain.framesNow());
+    expect(delayed.lookaheadFrames()).toBe(plain.lookaheadFrames());
+    expect(delayed.nextFirstFrame()).toBe(plain.nextFirstFrame());
+    // The fallback (no timestamp yet) moves the same way.
+    const g = fakeClock();
+    const fallback = new ClockMap(g, SR, 72);
+    fallback.noteStatus(4800, 0);
+    expect(fallback.audioTime() * SR).toBeCloseTo(4800 - 72, 6);
+    expect(fallback.framesNow()).toBe(4800 + 512); // FALLBACK_LEAD_FRAMES; no latency in F_now
+  });
+
   it("offset EMA: a steady shift moves the offset by 0.1 of the difference per frame", () => {
     const f = fakeClock();
     const map = new ClockMap(f, SR);

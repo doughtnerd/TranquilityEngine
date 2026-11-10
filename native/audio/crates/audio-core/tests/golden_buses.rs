@@ -12,6 +12,8 @@
 //!   settled level (a low-pass passes DC) once A2.2a fills the filter.
 //! - MASTER is at 0.25 in both goldens, so the sums (up to 2.0 on a bus) stay under the master
 //!   limiter's ceiling (A2.8) and the checks see the bus math alone; the scale is exact in f32.
+//! - The levels are expected in core time and checked against the output the master limiter's
+//!   fixed latency later (A2.9; `Mixer::expect`).
 //! - `process` never allocates with buses, every effect kind, reverb sends and ramps under way.
 
 mod common;
@@ -52,22 +54,22 @@ fn duck_golden() {
     m.submit(&[Rec::Play(sfx)]);
     let (l, r) = m.render_n(2);
     assert_eq!(l, r);
-    check(&l, TOL, "before the duck", |_| M * 1.5);
+    m.expect(L, TOL, "before the duck", |_| M * 1.5);
 
     // Duck Music to 0.25 over 300 frames (not a whole number of quanta), as the mixer's BUS_MIX
     // sends it: every bus's own gain, only Music's changes.
     m.submit(&[gains(300, &[1.0, 0.25, 1.0])]);
     let (duck, duck_r) = m.render_n(4);
     assert_eq!(duck, duck_r);
-    check(&duck, TOL, "ducking", |k| M * (ramp_to(1.0, 0.25, 300, k) + 0.5));
+    m.expect(L, TOL, "ducking", |k| M * (ramp_to(1.0, 0.25, 300, k) + 0.5));
     assert!(max_step(&duck) <= M * 0.75 / 300.0 + TOL, "click-free: the largest step is the ramp's");
 
     // Hold, then recover to unity over 1,000 frames.
-    let (hold, _) = m.render_n(2);
-    check(&hold, TOL, "held", |_| M * 0.75);
+    m.render_n(2);
+    m.expect(L, TOL, "held", |_| M * 0.75);
     m.submit(&[gains(1_000, &[1.0, 1.0, 1.0])]);
     let (rec, _) = m.render_n(9);
-    check(&rec, LONG_RAMP_TOL, "recovering", |k| M * (ramp_to(0.25, 1.0, 1_000, k) + 0.5));
+    m.expect(L, LONG_RAMP_TOL, "recovering", |k| M * (ramp_to(0.25, 1.0, 1_000, k) + 0.5));
     assert!(max_step(&rec) <= M * 0.75 / 1_000.0 + TOL);
 
     // A duck that is cut short: a new BUS_MIX ramps from wherever the gain is.
@@ -76,8 +78,8 @@ fn duck_golden() {
     let mid = bus::slots(&m.core)[MUSIC as usize].gain.value;
     assert!((mid - 0.5).abs() < TOL, "half way: {mid}");
     m.submit(&[gains(128, &[1.0, 1.0, 1.0])]);
-    let (back, _) = m.render();
-    check(&back, TOL, "reversed mid-ramp", |k| M * (ramp_to(mid, 1.0, 128, k) + 0.5));
+    m.render();
+    m.expect(L, TOL, "reversed mid-ramp", |k| M * (ramp_to(mid, 1.0, 128, k) + 0.5));
 }
 
 #[test]
@@ -86,19 +88,19 @@ fn snapshot_golden() {
     // Root, Music, SFX, UI. Music is panned hard left, SFX and UI hard right, so the left channel
     // is Music alone and the right is SFX + UI.
     m.submit(&[config(&[ROOT, 0, 0, 0]), gains(0, &[1.0; 4]), master(M, false, 0), dc(0x0001_0001, MUSIC, -1.0), dc(0x0001_0002, SFX, 1.0), dc(0x0001_0003, UI, 1.0)]);
-    let (l, r) = m.render();
-    check(&l, PAN_TOL, "Music before", |_| M * 1.0);
-    check(&r, PAN_TOL, "SFX + UI before", |_| M * 2.0);
+    m.render();
+    m.expect(L, PAN_TOL, "Music before", |_| M * 1.0);
+    m.expect(R, PAN_TOL, "SFX + UI before", |_| M * 2.0);
 
     // One snapshot: the root to 0.8, Music to 0.5 with a 800 Hz low-pass, SFX to 0.25, UI muted;
     // all over 256 frames.
     const N: usize = 256;
     m.submit(&[mix(N as u32, &[(0.8, OFF), (0.5, 800.0), (0.25, OFF), (0.0, OFF)])]);
-    let (l, r) = m.render_n(3);
+    m.render_n(3);
     let root = |k| ramp_to(1.0, 0.8, N, k);
-    check(&r, PAN_TOL, "SFX + UI through the root", |k| M * (ramp_to(1.0, 0.25, N, k) + ramp_to(1.0, 0.0, N, k)) * root(k));
+    m.expect(R, PAN_TOL, "SFX + UI through the root", |k| M * (ramp_to(1.0, 0.25, N, k) + ramp_to(1.0, 0.0, N, k)) * root(k));
     if audio_dsp::biquad::PASSTHROUGH {
-        check(&l, PAN_TOL, "Music through the root (passthrough low-pass)", |k| M * ramp_to(1.0, 0.5, N, k) * root(k));
+        m.expect(L, PAN_TOL, "Music through the root (passthrough low-pass)", |k| M * ramp_to(1.0, 0.5, N, k) * root(k));
     }
     let s = bus::slots(&m.core);
     assert_eq!(s[MUSIC as usize].lp.value, 800.0, "the cut-off reached its target");
@@ -106,15 +108,15 @@ fn snapshot_golden() {
 
     // Settled: 100 ms later every level is its product (a low-pass passes DC unchanged).
     m.render_n(37);
-    let (l, r) = m.render();
-    check(&r, PAN_TOL, "SFX + UI settled", |_| M * 0.25 * 0.8);
+    m.render();
+    m.expect(R, PAN_TOL, "SFX + UI settled", |_| M * 0.25 * 0.8);
     let lp_tol = if audio_dsp::biquad::PASSTHROUGH { PAN_TOL } else { 1e-3 };
-    check(&l, lp_tol, "Music settled", |_| M * 0.5 * 0.8);
+    m.expect(L, lp_tol, "Music settled", |_| M * 0.5 * 0.8);
 
     // The snapshot ends: back to unity with the low-pass off, at once.
     m.submit(&[mix(0, &[(1.0, OFF); 4])]);
-    let (_, r) = m.render();
-    check(&r, PAN_TOL, "SFX + UI restored", |_| M * 2.0);
+    m.render();
+    m.expect(R, PAN_TOL, "SFX + UI restored", |_| M * 2.0);
     assert_eq!(bus::slots(&m.core)[MUSIC as usize].lp.value, OFF);
 }
 

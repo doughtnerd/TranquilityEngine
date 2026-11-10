@@ -32,8 +32,13 @@
 //! **The limiter** comes after MASTER: it is the output's safety stage, so whatever MASTER is set
 //! to, nothing leaves the core above its 0 dBFS ceiling, and turning MASTER down lowers what
 //! reaches the limiter (less limiting) instead of limiting first and then turning the limited
-//! signal down (quieter, yet still pumping). It adds no latency, and while nothing exceeds the
-//! ceiling the output is bit-exact what it was without it (the module doc has the design).
+//! signal down (quieter, yet still pumping). Its look-ahead (A2.9) delays **all** output by a fixed
+//! `audio_dsp::limiter::latency_frames(rate, ms)` frames, 72 at 48 kHz for the default 1.5 ms,
+//! limiting or not; while nothing exceeds the ceiling the output is the unlimited mix delayed, bit
+//! for bit. The look-ahead is the project's `audio.limiterLookaheadMs`, given once after init by
+//! [`set_limiter_lookahead`] (the `myco_audio_set_limiter_lookahead` export) and refused once the
+//! core has rendered; without it the core uses the default. 0 ms is A2.8's zero-latency limiter
+//! (the module doc has the design).
 //!
 //! **RESET** clears the buses' DSP state (buffers, filter and compressor state, the reverb tail,
 //! meters, the limiter's gain reduction) and settles every ramp on its target. The tree and the gains stay: they are main's
@@ -49,7 +54,7 @@
 
 use audio_dsp::biquad::Biquad;
 use audio_dsp::convolver;
-use audio_dsp::limiter::Limiter;
+use audio_dsp::limiter::{self, Limiter};
 use audio_dsp::ramp::Ramp;
 use audio_wire::generated::{self as wire, BusConfigBusesEffects, BusMixBuses, Master, RecordHead};
 
@@ -111,9 +116,14 @@ pub struct BusArea {
     pub reverb_in: [f32; 2 * QUANTUM],
     /// The master peak limiter on the output, after MASTER (A2.8).
     pub limiter: Limiter,
-    /// Quanta in which the limiter changed the output, cumulative. The wire has no STATUS field for
-    /// it (K1 is frozen); tests and a debugger read it.
+    /// Quanta in which the limiter changed the output (a gain under 1 or a clamp on the frames
+    /// leaving its delay), cumulative. The wire has no STATUS field for it (K1 is frozen); tests
+    /// and a debugger read it.
     pub limited: u32,
+    /// The limiter's look-ahead as configured, ms (`audio_dsp::limiter::clamp_lookahead_ms`).
+    pub limiter_lookahead_ms: f32,
+    /// Non-zero once `mixdown` has run: the look-ahead can't change after that.
+    pub rendered: u32,
 }
 
 /// Offset of [`BusArea`] in the core-state region (after the scheduler's area).
@@ -186,14 +196,36 @@ pub fn init(core: &mut Core) {
     v.area.master_volume = 1.0;
     v.area.master_muted = 0;
     v.area.has_reverb = 0;
-    v.area.limiter = Limiter::new(sample_rate);
+    v.area.limiter_lookahead_ms = limiter::DEFAULT_LOOKAHEAD_MS;
+    v.area.limiter = Limiter::new(sample_rate, limiter::DEFAULT_LOOKAHEAD_MS);
     v.area.limited = 0;
+    v.area.rendered = 0;
     if let Some(first) = v.slots.first_mut() {
         *first = fresh(ROOT);
         v.area.order[0] = 0;
         v.area.count = 1;
     }
     // STATUS `busCount` stays 0 (no peaks sent) until main's first BUS_CONFIG names the buses.
+}
+
+/// Sets the master limiter's look-ahead to `ms` (clamped to 0..=5; NaN is the 1.5 ms default),
+/// which fixes the core's output latency at `audio_dsp::limiter::latency_frames(rate, ms)` frames.
+/// Only before the first quantum: returns `false` and changes nothing once the core has rendered
+/// (the latency is constant for a core's life; a new value takes a reload or a rebuild).
+pub fn set_limiter_lookahead(core: &mut Core, ms: f32) -> bool {
+    let v = view(core.regions_mut());
+    if v.area.rendered != 0 {
+        return false;
+    }
+    let ms = limiter::clamp_lookahead_ms(ms);
+    v.area.limiter_lookahead_ms = ms;
+    v.area.limiter.configure(v.area.sample_rate, ms);
+    true
+}
+
+/// The core's output latency in frames: the master limiter's look-ahead.
+pub fn output_latency_frames(core: &Core) -> u32 {
+    area(core).limiter.latency
 }
 
 // --- Record parsing (in `onmessage`, from `scheduler::submit`) ---
@@ -535,6 +567,7 @@ pub fn mixdown(core: &mut Core) {
             out_r[i] *= g;
         }
     }
+    v.area.rendered = 1;
     if v.area.limiter.process(out_l, out_r) {
         v.area.limited = v.area.limited.wrapping_add(1);
     }

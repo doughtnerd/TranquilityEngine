@@ -159,6 +159,37 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
     });
   });
 
+  describe("limiterLookaheadMs", () => {
+    it("absent is 1.5 ms with no problem, and the defaults carry it", () => {
+      const { settings, problems } = parseAudioSettings({});
+      expect(settings.limiterLookaheadMs).toBe(1.5);
+      expect(problems).toEqual([]);
+      expect(defaultAudioSettings().limiterLookaheadMs).toBe(1.5);
+    });
+    it("keeps a number in 0..5 as given, 0 included (no look-ahead, no latency)", () => {
+      for (const ms of [0, 0.75, 1.5, 2.25, 5]) {
+        const { settings, problems } = parseAudioSettings({ limiterLookaheadMs: ms });
+        expect(settings.limiterLookaheadMs).toBe(ms);
+        expect(problems).toEqual([]);
+      }
+    });
+    it("clamps to 0..5 with a problem", () => {
+      const high = parseAudioSettings({ limiterLookaheadMs: 12 });
+      expect(high.settings.limiterLookaheadMs).toBe(5);
+      expect(high.problems).toEqual(["audio.limiterLookaheadMs: 12 is outside 0..5; using 5."]);
+      const low = parseAudioSettings({ limiterLookaheadMs: -1 });
+      expect(low.settings.limiterLookaheadMs).toBe(0);
+      expect(low.problems).toEqual(["audio.limiterLookaheadMs: -1 is outside 0..5; using 0."]);
+    });
+    it("a wrong type, NaN or Infinity gives 1.5 plus a problem", () => {
+      for (const raw of ["2", null, true, Number.NaN, Infinity]) {
+        const { settings, problems } = parseAudioSettings({ limiterLookaheadMs: raw });
+        expect(settings.limiterLookaheadMs).toBe(1.5);
+        expect(problems).toEqual(["audio.limiterLookaheadMs: must be a number of milliseconds from 0 to 5; using 1.5."]);
+      }
+    });
+  });
+
   describe("clipFormat", () => {
     it("accepts i16 and f32; an unknown value gives i16 plus a problem", () => {
       expect(parseAudioSettings({ clipFormat: "f32" }).settings.clipFormat).toBe("f32");

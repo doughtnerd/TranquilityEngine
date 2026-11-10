@@ -3,7 +3,7 @@ import { parseAudioSettings } from "../../../engine/audio/settings";
 import { readDraft, withSettings } from "../../../editor/projectSettingsModel";
 import {
   addBus, addDucking, addEffect, addSnapshot, applyVoicesPreset, audioOf, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue,
-  setClipFormat, setClipMemory, setCodec, setSnapshotVolume, setSpatial, setVoices, voicesPreset,
+  setClipFormat, setClipMemory, setCodec, setLimiterLookahead, setSnapshotVolume, setSpatial, setVoices, voicesPreset,
 } from "./audioSettingsModel";
 
 const empty = () => readDraft({});
@@ -105,5 +105,20 @@ describe("audio settings model, the core keys (ADR 0157 §2, K13)", () => {
     expect(setCodec(same, "aac", false)).toBe(same);
     expect(setBackground(same, "mute")).toBe(same);
     expect(setClipFormat(same, "i16")).toBe(same);
+  });
+  it("sets the limiter look-ahead in ms, clamped to 0..5 and not rounded; non-finite is the 1.5 default; it re-parses", () => {
+    const same = empty();
+    expect(audioOf(same).limiterLookaheadMs).toBe(1.5);
+    expect(setLimiterLookahead(same, 1.5)).toBe(same);
+    let d = setLimiterLookahead(same, 2.25);
+    expect(audioOf(d).limiterLookaheadMs).toBe(2.25);
+    d = setLimiterLookahead(d, 9);
+    expect(audioOf(d).limiterLookaheadMs).toBe(5);
+    d = setLimiterLookahead(d, -3);
+    expect(audioOf(d).limiterLookaheadMs).toBe(0);
+    const parsed = parseAudioSettings(JSON.parse(withSettings("{}", d, {})).audio);
+    expect(parsed.problems).toEqual([]);
+    expect(parsed.settings.limiterLookaheadMs).toBe(0);
+    expect(audioOf(setLimiterLookahead(d, Number.NaN)).limiterLookaheadMs).toBe(1.5);
   });
 });
