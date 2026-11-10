@@ -311,3 +311,40 @@ pub fn after_render(core: &mut Core, frame: u64) {
         core.cap_mut().demoted += n;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_window_is_250_ms_of_quanta_and_its_p99_the_kth_largest() {
+        let s = CapState::new(128, 48_000.0);
+        assert_eq!(s.window_quanta, 94, "12,000 frames, rounded up to whole quanta");
+        assert_eq!(CapState::rank(94), 1, "p99 of 94 values is the max");
+        let mut s = CapState::new(128, 192_000.0);
+        assert_eq!(s.window_quanta, 375);
+        assert_eq!(CapState::rank(375), 4, "p99 of 375 values is the 4th largest");
+        // 371 quanta at 10, and 300, 100, 400, 200 scattered: the 4th largest is 100.
+        let mut p99 = None;
+        for q in 0..375u32 {
+            let units = match q {
+                7 => 300,
+                50 => 100,
+                123 => 400,
+                300 => 200,
+                _ => 10,
+            };
+            p99 = s.push_window(units);
+            if q < 374 {
+                assert_eq!(p99, None);
+            }
+        }
+        assert_eq!(p99, Some(100));
+        assert_eq!(s.last_p99(), 100);
+        // The next window starts empty.
+        for _ in 0..374 {
+            assert_eq!(s.push_window(5), None);
+        }
+        assert_eq!(s.push_window(5), Some(5));
+    }
+}
