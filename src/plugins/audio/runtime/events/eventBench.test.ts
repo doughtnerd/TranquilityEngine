@@ -73,6 +73,8 @@ interface Rig {
   backend: AudioBackend;
   /** Times the backend's own per-frame step. */
   backendUpdate(): void;
+  /** The core's selection evaluations so far (`CoreAutomation.stats.evaluations`); 0 on the fake. */
+  evaluations(): number;
 }
 
 async function boot(): Promise<void> {
@@ -107,6 +109,7 @@ async function fakeRig(): Promise<Rig> {
     sent: () => ({ batches: 0, bytes: 0 }),
     sinkCalls: calls,
     backendUpdate: () => fake.update?.(0.0107),
+    evaluations: () => 0,
   };
 }
 
@@ -150,6 +153,7 @@ async function coreRig(): Promise<Rig | null> {
     sent: () => ({ batches, bytes }),
     sinkCalls: () => sink,
     backendUpdate: () => backend.update(0.0107),
+    evaluations: () => backend.automation.stats.evaluations,
   };
 }
 
@@ -164,6 +168,32 @@ function allocPerOp(op: () => void, batch = 200, batches = 15): number {
   deltas.sort((a, b) => a - b);
   return deltas[deltas.length >> 1]!;
 }
+
+/**
+ * Median bytes allocated per play+stop on a live rig: batches of 16 plays measured alone, a frame (untimed, unmeasured)
+ * between batches so voices end and the table never fills (a full table refuses plays, a cheaper path).
+ */
+async function allocPerPlay(r: Rig, op: () => void, batches = 40): Promise<number> {
+  const deltas: number[] = [];
+  for (let b = 0; b < batches; b++) {
+    const before = process.memoryUsage().heapUsed;
+    for (let i = 0; i < 16; i++) op();
+    deltas.push((process.memoryUsage().heapUsed - before) / 16);
+    await r.frame();
+  }
+  deltas.sort((a, b) => a - b);
+  return deltas[deltas.length >> 1]!;
+}
+
+// E5.3c: the core backend's own per-play cost, gated deterministically. Each play evaluates its voices' curves once
+// for selection (one evaluation per voice bound; the instance's start sets its locals to the values the group already
+// holds, which re-evaluates nothing; before E5.3c it re-evaluated every voice of the reused group still stopping, about
+// 29 and 86 here), and a play+stop allocates about what the runtime does plus the voice and handle objects. At this
+// test's small size (after a 1,500-play warm-up) that measured about 4.7 KB (rand4) and 7.4 KB (layer3) after E5.3c,
+// 7.8 KB and 22.9 KB before it (the mirror's per-bind arrays and objects, the per-group sets, `evaluate`'s closures and
+// results); at full size (`AUDIO_BENCH=1`) 3.0 KB and 7.3 KB. The ceilings sit between.
+const CORE_EVALUATIONS_PER_PLAY: Record<string, number> = { rand4: 1, layer3: 3 };
+const CORE_BYTES_PER_PLAY: Record<string, number> = { rand4: 6_000, layer3: 10_500 };
 
 const rigs: [string, () => Promise<Rig | null>][] = [["core (loopback)", coreRig], ["fake", fakeRig]];
 
@@ -221,7 +251,9 @@ describe.each(rigs)("event cost on main: %s backend", (label, make) => {
       // Deterministic: what one play sends (the batch is flushed by the frame step, so count over a frame).
       const k0 = r.sinkCalls();
       const s0 = r.sent();
+      const e0 = r.evaluations();
       const h = Audio.play(path)!;
+      const playEvaluations = r.evaluations() - e0;
       await r.frame();
       const s1 = r.sent();
       h.stop(0);
@@ -233,14 +265,19 @@ describe.each(rigs)("event cost on main: %s backend", (label, make) => {
         // parameter and one AUTOMATE per clip voice (rand4: 1 voice; layer3: 3, each with both its bindings in one call).
         expect(playBatches).toBeLessThanOrEqual(2);
         expect(playSink).toBe(name === "rand4" ? 2 : 4);
+        expect(playEvaluations).toBe(CORE_EVALUATIONS_PER_PLAY[name]);
       }
       for (let i = 0; i < ITERS; i++) { playOnce(true, i); if (i % 16 === 15) await r.frame(); }
       const st = stats(times);
       let line = `play ${name}: ${fmt(st)}; ${playBatches} batch and ${playSink} sink calls per play (core: the writer's staging buffer is posted whole, so bytes say nothing)`;
-      if (FULL) {
-        const a = allocPerOp(() => { Audio.play(path)?.stop(0); }, 100, 15);
-        line += `; ~${a.toFixed(0)} B heap per play+stop`;
+      const playStop = () => { Audio.play(path)?.stop(0); };
+      for (let w = 0; w < (FULL ? 0 : 1_500); w++) { playStop(); if (w % 16 === 15) await r.frame(); } // the JIT settles (an unoptimised path allocates more)
+      const a = await allocPerPlay(r, playStop, FULL ? 200 : 40);
+      if (label.startsWith("core")) {
+        line += `, ${playEvaluations} evaluations`;
+        expect(a).toBeLessThanOrEqual(CORE_BYTES_PER_PLAY[name]!);
       }
+      line += `; ~${a.toFixed(0)} B heap per play+stop`;
       report.push(line);
       await r.frame();
     }

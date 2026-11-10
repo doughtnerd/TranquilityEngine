@@ -56,7 +56,7 @@ import {
   type CurvesCurves,
 } from "../wire.generated";
 import type { AudioVoice, PlayRequest } from "../backend";
-import { AutoTarget, evaluate, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, type AutomationSink, type Binding, type ParamRef } from "../events/automation";
+import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, type AutomationSink, type AutoResult, type Binding } from "../events/automation";
 import { onLoopPoints } from "../loopPoints";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
@@ -116,14 +116,36 @@ export interface CoreAutomationDeps {
   readonly writerBatches?: () => number;
 }
 
-/** One voice's mirror: its bindings (as the runtime gave them and on the wire) and its loop. */
+/**
+ * One voice's mirror: its bindings (as parallel arrays, and on the wire) and its loop. E5.3c: one per table slot,
+ * made the first time the slot is bound and reused by every later voice there, so binding a voice allocates nothing.
+ */
 interface VoiceEntry {
   id: number;
   group: number;
-  bindings: readonly Binding[];
-  wire: AutomationBinding[];
+  /** Bindings in use (0..MAX_BINDINGS). */
+  n: number;
+  /** Per binding: the parameter's index in the core's table for this voice (`paramKey`), or -1 (reads 0). */
+  readonly keys: Int32Array;
+  readonly curveIds: Int32Array;
+  readonly targets: Uint8Array;
+  /** The first `n` of `wirePool`, as the writer takes them. */
+  readonly wire: AutomationBinding[];
+  readonly wirePool: AutomationBinding[];
   loop: LoopRecord | null;
 }
+
+const newEntry = (): VoiceEntry => ({
+  id: 0,
+  group: 0,
+  n: 0,
+  keys: new Int32Array(MAX_BINDINGS),
+  curveIds: new Int32Array(MAX_BINDINGS),
+  targets: new Uint8Array(MAX_BINDINGS),
+  wire: [],
+  wirePool: Array.from({ length: MAX_BINDINGS }, () => ({ param: 0, curve: 0, target: 0 })),
+  loop: null,
+});
 
 /** Counts for `Audio.debug()` and the tests. */
 export interface CoreAutomationStats {
@@ -136,10 +158,12 @@ export interface CoreAutomationStats {
   /** Hard rebuilds and idle resets whose state was restored. */
   replays: number;
   resyncs: number;
+  /** E5.3c: voice evaluations for selection (a bind, a parameter or curve that moved, a frame of a running seek). */
+  evaluations: number;
 }
 
 export class CoreAutomation implements AutomationSink {
-  readonly stats: CoreAutomationStats = { curves: 0, params: 0, automates: 0, busAutomates: 0, loops: 0, replays: 0, resyncs: 0 };
+  readonly stats: CoreAutomationStats = { curves: 0, params: 0, automates: 0, busAutomates: 0, loops: 0, replays: 0, resyncs: 0, evaluations: 0 };
   private readonly curves = new Map<number, Curve>();
   private readonly paramValue = new Float64Array(PARAM_SLOTS);
   private readonly paramSeek = new Float32Array(PARAM_SLOTS);
@@ -151,16 +175,36 @@ export class CoreAutomation implements AutomationSink {
   /** 1 for every slot the runtime has set (only those are re-sent). */
   private readonly paramSet = new Uint8Array(PARAM_SLOTS);
   private readonly voices: (VoiceEntry | null)[];
+  /** Per slot: its reusable entry (E5.3c), made on first use. */
+  private readonly entries: (VoiceEntry | null)[];
   /** Per slot: the voice id whose PLAY last went out and its stamp (NaN: asap), so later records can sort behind it. */
   private readonly playIds: Uint32Array;
   private readonly playStamps: Float64Array;
   /** Per slot: the writer's batch count when its PLAY was written (it is still staged while that hasn't moved). */
   private readonly playBatches: Float64Array;
-  /** Bound voices by the group whose locals they read; voices reading a global parameter. */
-  private readonly byGroup = new Map<number, Set<number>>();
+  /**
+   * Bound voices by the group whose locals they read, and voices reading a global parameter (E5.3c: intrusive lists
+   * over the slots, in the order they were bound, so indexing a voice allocates nothing). -1 ends a list.
+   */
+  private readonly groupHead = new Int32Array(MAX_GROUPS + 1).fill(-1);
+  private readonly groupTail = new Int32Array(MAX_GROUPS + 1).fill(-1);
+  private readonly groupNext: Int32Array;
+  private readonly groupPrev: Int32Array;
+  /** Per slot: the group whose list it is on, 0 for none. */
+  private readonly groupOf: Int32Array;
+  private globalHead = -1;
+  private globalTail = -1;
+  private readonly globalNext: Int32Array;
+  private readonly globalPrev: Int32Array;
+  private readonly onGlobal: Uint8Array;
+  /** Slots on any list (the curve re-evaluation's early out). */
+  private listed = 0;
+  /** Scratch for `reevaluate`: the bindings' parameter values, and two results. */
+  private readonly xs = new Float64Array(MAX_BINDINGS);
+  private readonly atTarget: AutoResult = { gain: 1, pitch: 1, lowpass: 0 };
+  private readonly atNow: AutoResult = { gain: 1, pitch: 1, lowpass: 0 };
   /** Per slot: the unsubscribe of a plain looping voice's wait for its clip's loop points (E4.5). */
   private readonly plainUnsub: ((() => void) | null)[];
-  private readonly globalReaders = new Set<number>();
   private readonly buses = new Map<string, AutomationBinding[]>();
   /** The bus index each bound bus's bindings were last sent to. */
   private readonly busSentTo = new Map<string, number>();
@@ -170,7 +214,15 @@ export class CoreAutomation implements AutomationSink {
   private budget = RESYNC_BYTES_PER_FRAME;
 
   constructor(private readonly deps: CoreAutomationDeps) {
-    this.voices = new Array<VoiceEntry | null>(deps.table.capacity).fill(null);
+    const cap = deps.table.capacity;
+    this.voices = new Array<VoiceEntry | null>(cap).fill(null);
+    this.entries = new Array<VoiceEntry | null>(cap).fill(null);
+    this.groupNext = new Int32Array(cap).fill(-1);
+    this.groupPrev = new Int32Array(cap).fill(-1);
+    this.groupOf = new Int32Array(cap);
+    this.globalNext = new Int32Array(cap).fill(-1);
+    this.globalPrev = new Int32Array(cap).fill(-1);
+    this.onGlobal = new Uint8Array(cap);
     this.plainUnsub = new Array<(() => void) | null>(deps.table.capacity).fill(null);
     this.playIds = new Uint32Array(deps.table.capacity);
     this.playStamps = new Float64Array(deps.table.capacity).fill(Number.NaN);
@@ -192,6 +244,8 @@ export class CoreAutomation implements AutomationSink {
     const k = paramKey(group, slot);
     if (k < 0 || !Number.isFinite(value)) return;
     const seek = seekPerSecond > 0 && Number.isFinite(seekPerSecond) ? seekPerSecond : 0;
+    // E5.3c: the target it already had, and not on its way there (so its smoothed value is that target too).
+    const same = this.paramValue[k] === value && !this.fading.has(k);
     // The smoothed value now (what the core is at), where this seek starts from.
     this.paramFrom[k] = this.paramSet[k] ? this.smoothed(k) : value;
     this.paramAt[k] = this.deps.clockMap.framesNow();
@@ -205,9 +259,12 @@ export class CoreAutomation implements AutomationSink {
       this.deps.writer.param(group, slot, value, this.paramSeek[k]!);
       this.stats.params++;
     }
-    // Selection: the bound voices reading it, evaluated at the target.
-    const readers = group === 0 ? this.globalReaders : this.byGroup.get(group);
-    if (readers) for (const i of readers) this.reevaluate(i);
+    // Selection: the bound voices reading it, evaluated at the target. Skipped when nothing they read moved: with no
+    // seek running anywhere an evaluation reads only targets and curves, and each reader was evaluated when those last
+    // changed (`bindVoice`, `defineCurve`, here), so it would write the same numbers (an event's start sets every local
+    // to its default; a reused group's earlier voices, still stopping, already read it).
+    if (same && this.fading.size === 0) return;
+    this.reevaluateReaders(group);
   }
 
   bindVoice(voice: AudioVoice, group: number, bindings: readonly Binding[], base: { volume: number; pitch: number }): void {
@@ -215,13 +272,31 @@ export class CoreAutomation implements AutomationSink {
     const i = this.resolve(voice);
     if (i < 0) return;
     const e = this.entry(i);
-    this.unindex(i, e);
-    const list = bindings.slice(0, MAX_BINDINGS).map((b) => ({ param: { global: b.param.global, slot: b.param.slot }, curve: b.curve, target: b.target }));
-    const hadBindings = e.wire.length > 0;
+    this.unindex(i);
+    const hadBindings = e.n > 0;
     e.group = group;
-    e.bindings = list;
-    e.wire = list.map(toWire);
-    this.index(i, e);
+    const n = Math.min(bindings.length, MAX_BINDINGS);
+    const wire = e.wire;
+    wire.length = 0;
+    let global = false;
+    let local = false;
+    for (let j = 0; j < n; j++) {
+      const b = bindings[j]!;
+      const p = b.param;
+      // As the parameters are read: a global slot, or the group's local one (none without a group).
+      e.keys[j] = p.global ? paramKey(0, p.slot) : group > 0 ? paramKey(group, p.slot) : -1;
+      e.curveIds[j] = b.curve;
+      e.targets[j] = b.target;
+      const w = e.wirePool[j]!;
+      w.param = p.global ? AUTOMATION_GLOBAL | p.slot : p.slot;
+      w.curve = b.curve;
+      w.target = b.target;
+      wire.push(w);
+      if (p.global) global = true;
+      else local = true;
+    }
+    e.n = n;
+    this.index(i, group, global, local);
     this.reevaluate(i);
     if (this.onCore(i) && (hadBindings || e.wire.length > 0)) this.sendBindings(i, e, this.stampBehindPlay(i, e.id));
     this.dropIfEmpty(i);
@@ -306,7 +381,7 @@ export class CoreAutomation implements AutomationSink {
       this.dropMirror(i);
       return;
     }
-    if (e.wire.length > 0) this.sendBindings(i, e, stamp);
+    if (e.n > 0) this.sendBindings(i, e, stamp);
     if (e.loop && (this.deps.table.flags[i]! & VoiceFlag.STREAM) === 0) this.sendLoop(i, e, stamp, false);
     else if (e.loop) this.routeStreamLoop(i, e.loop);
   }
@@ -328,7 +403,7 @@ export class CoreAutomation implements AutomationSink {
   private dropMirror(i: number): void {
     const e = this.voices[i];
     if (!e) return;
-    this.unindex(i, e);
+    this.unindex(i);
     this.voices[i] = null;
     const t = this.deps.table;
     t.autoGain[i] = 1;
@@ -438,7 +513,7 @@ export class CoreAutomation implements AutomationSink {
     this.playIds[i] = id;
     this.playStamps[i] = Number.NaN;
     this.playBatches[i] = Number.NaN;
-    if (e.wire.length > 0) {
+    if (e.n > 0) {
       const wire = e.wire;
       b.record(bindingBytes(wire.length), (view, off) => writeAutomate(view, off, { voiceId: id, frameOffset: ASAP, bindings: wire }));
     }
@@ -492,7 +567,12 @@ export class CoreAutomation implements AutomationSink {
       e = null;
     }
     if (!e) {
-      e = { id, group: this.deps.table.group[i]!, bindings: [], wire: [], loop: null };
+      e = this.entries[i] ??= newEntry();
+      e.id = id;
+      e.group = this.deps.table.group[i]!;
+      e.n = 0;
+      e.wire.length = 0;
+      e.loop = null;
       this.voices[i] = e;
     }
     return e;
@@ -512,7 +592,7 @@ export class CoreAutomation implements AutomationSink {
 
   private dropIfEmpty(i: number): void {
     const e = this.voices[i];
-    if (e && e.wire.length === 0 && !e.loop) this.dropMirror(i);
+    if (e && e.n === 0 && !e.loop) this.dropMirror(i);
   }
 
   private onCore(i: number): boolean {
@@ -520,27 +600,59 @@ export class CoreAutomation implements AutomationSink {
     return (s === VoiceState.PLAYING || s === VoiceState.VIRTUAL || s === VoiceState.STOPPING) && this.deps.sending();
   }
 
-  private index(i: number, e: VoiceEntry): void {
-    let local = false;
-    let global = false;
-    for (const b of e.bindings) {
-      if (b.param.global) global = true;
-      else local = true;
+  private index(i: number, group: number, global: boolean, local: boolean): void {
+    if (global) {
+      this.onGlobal[i] = 1;
+      this.globalPrev[i] = this.globalTail;
+      this.globalNext[i] = -1;
+      if (this.globalTail >= 0) this.globalNext[this.globalTail] = i;
+      else this.globalHead = i;
+      this.globalTail = i;
     }
-    if (global) this.globalReaders.add(i);
-    if (local && e.group > 0) {
-      let set = this.byGroup.get(e.group);
-      if (!set) this.byGroup.set(e.group, (set = new Set()));
-      set.add(i);
+    // Only a group whose locals exist (`paramKey`) can have them set, so only those are listed.
+    const grouped = local && Number.isInteger(group) && group >= 1 && group <= MAX_GROUPS;
+    if (grouped) {
+      this.groupOf[i] = group;
+      const tail = this.groupTail[group]!;
+      this.groupPrev[i] = tail;
+      this.groupNext[i] = -1;
+      if (tail >= 0) this.groupNext[tail] = i;
+      else this.groupHead[group] = i;
+      this.groupTail[group] = i;
     }
+    if (global || grouped) this.listed++;
   }
 
-  private unindex(i: number, e: VoiceEntry): void {
-    this.globalReaders.delete(i);
-    const set = this.byGroup.get(e.group);
-    if (set) {
-      set.delete(i);
-      if (set.size === 0) this.byGroup.delete(e.group);
+  private unindex(i: number): void {
+    const was = this.onGlobal[i] !== 0 || this.groupOf[i] !== 0;
+    if (this.onGlobal[i]) {
+      this.onGlobal[i] = 0;
+      const prev = this.globalPrev[i]!;
+      const next = this.globalNext[i]!;
+      if (prev >= 0) this.globalNext[prev] = next;
+      else this.globalHead = next;
+      if (next >= 0) this.globalPrev[next] = prev;
+      else this.globalTail = prev;
+    }
+    const group = this.groupOf[i]!;
+    if (group !== 0) {
+      this.groupOf[i] = 0;
+      const prev = this.groupPrev[i]!;
+      const next = this.groupNext[i]!;
+      if (prev >= 0) this.groupNext[prev] = next;
+      else this.groupHead[group] = next;
+      if (next >= 0) this.groupPrev[next] = prev;
+      else this.groupTail[group] = prev;
+    }
+    if (was) this.listed--;
+  }
+
+  /** Every bound voice reading a parameter of `group` (0: a global one), re-evaluated. */
+  private reevaluateReaders(group: number): void {
+    if (group === 0) {
+      for (let i = this.globalHead; i >= 0; i = this.globalNext[i]!) this.reevaluate(i);
+    } else if (group >= 1 && group <= MAX_GROUPS) {
+      for (let i = this.groupHead[group]!; i >= 0; i = this.groupNext[i]!) this.reevaluate(i);
     }
   }
 
@@ -549,15 +661,17 @@ export class CoreAutomation implements AutomationSink {
    * parameter's seek runs the core's gain is still on its way, so the audibility is the larger of the gain at the
    * smoothed values and at the targets: a voice fading out to 0 stays audible to selection until its fade ends instead
    * of being demoted (and cut) at once (M2 decision 14). Fades back in count at the target at once.
+   * E5.3c: no callback and no result object (`evaluateInto` over the entry's arrays).
    */
   private reevaluate(i: number): void {
     const e = this.voices[i];
     const t = this.deps.table;
     if (!e) return;
-    const r = evaluate(e.bindings, this.curves, (p: ParamRef) => this.target(e.group, p));
+    this.stats.evaluations++;
+    const r = this.evaluateEntry(e, false, this.atTarget);
     let gain = r.gain;
     if (this.fading.size > 0) {
-      const now = evaluate(e.bindings, this.curves, (p: ParamRef) => this.smoothedOf(e.group, p));
+      const now = this.evaluateEntry(e, true, this.atNow);
       if (now.gain > gain) gain = now.gain;
     }
     t.autoGain[i] = gain;
@@ -565,6 +679,17 @@ export class CoreAutomation implements AutomationSink {
       t.autoPitch[i] = r.pitch;
       if (this.onCore(i)) this.deps.playheads.retime(i, this.deps.clockMap.framesNow());
     }
+  }
+
+  /** `e`'s bindings evaluated at the parameters' targets, or (`smoothed`) at the core's smoothed values now. */
+  private evaluateEntry(e: VoiceEntry, smoothed: boolean, out: AutoResult): AutoResult {
+    const xs = this.xs;
+    const n = e.n;
+    for (let j = 0; j < n; j++) {
+      const k = e.keys[j]!;
+      xs[j] = k < 0 ? 0 : smoothed ? this.smoothed(k) : this.paramValue[k]!;
+    }
+    return evaluateInto(n, e.curveIds, e.targets, xs, this.curves, out);
   }
 
   /** The core jumped parameter `k` to its target (a resync or replay): no seek is running any more. */
@@ -585,37 +710,27 @@ export class CoreAutomation implements AutomationSink {
     return Math.abs(target - from) <= step ? target : from + Math.sign(target - from) * step;
   }
 
-  private smoothedOf(group: number, p: ParamRef): number {
-    const k = p.global ? paramKey(0, p.slot) : group > 0 ? paramKey(group, p.slot) : -1;
-    return k >= 0 ? this.smoothed(k) : 0;
-  }
-
   /** Once per frame while a seek runs: its readers' audibility follows the fade, and drops to the target when it ends. */
   private stepFades(): void {
     for (const k of [...this.fading]) {
       const done = this.smoothed(k) === this.paramValue[k]!;
       if (done) this.fading.delete(k);
       const group = k < MAX_GLOBAL_SLOTS ? 0 : 1 + Math.floor((k - MAX_GLOBAL_SLOTS) / MAX_LOCAL_SLOTS);
-      const readers = group === 0 ? this.globalReaders : this.byGroup.get(group);
-      if (readers) for (const i of readers) this.reevaluate(i);
+      this.reevaluateReaders(group);
     }
   }
 
   private reevaluateCurve(id: number): void {
-    if (this.globalReaders.size === 0 && this.byGroup.size === 0) return;
+    if (this.listed === 0) return;
     for (let i = 0; i < this.voices.length; i++) {
       const e = this.voices[i];
-      if (e && e.bindings.some((b) => b.curve === id)) this.reevaluate(i);
+      if (e && e.curveIds.subarray(0, e.n).includes(id)) this.reevaluate(i);
     }
-  }
-
-  private target(group: number, p: ParamRef): number {
-    const k = p.global ? paramKey(0, p.slot) : group > 0 ? paramKey(group, p.slot) : -1;
-    return k >= 0 ? this.paramValue[k]! : 0;
   }
 
   /** What `bindings` read goes out first (curves and parameters still waiting in the resync). */
   private sendNeeds(group: number, bindings: readonly AutomationBinding[]): void {
+    if (this.dirtyCurves.size === 0 && this.dirtyParams.size === 0) return;
     for (const b of bindings) {
       if (this.dirtyCurves.has(b.curve)) this.sendCurve(b.curve);
       const global = (b.param & AUTOMATION_GLOBAL) !== 0;
