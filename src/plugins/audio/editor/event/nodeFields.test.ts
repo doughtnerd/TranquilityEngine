@@ -85,15 +85,45 @@ describe("nodeFields", () => {
     expect(names(layer)).toEqual(["volume", "pitch", "volumeRandom", "pitchRandom", "delay", "automation"]);
   });
 
-  it("sustain: release, fade only when release is now", () => {
+  it("sustain: release; releaseFade only when release is now; fade only under a blend", () => {
     const loopEnd = nodeFields(parseRoot({ type: "sustain", loop: clip() }), null);
     expect(names(loopEnd).slice(0, 1)).toEqual(["release"]);
+    expect(names(loopEnd)).not.toContain("releaseFade");
     expect(names(loopEnd)).not.toContain("fade");
     expect(need(loopEnd, "release")).toMatchObject({ options: ["now", "loopEnd"], default: "loopEnd" });
 
     const now = nodeFields(parseRoot({ type: "sustain", release: "now", loop: clip() }), null);
-    expect(names(now).slice(0, 2)).toEqual(["release", "fade"]);
-    expect(need(now, "fade")).toMatchObject({ kind: "number", min: 0, max: 1e6, default: 0 });
+    expect(names(now).slice(0, 2)).toEqual(["release", "releaseFade"]);
+    expect(names(now)).not.toContain("fade");
+    expect(need(now, "releaseFade")).toMatchObject({
+      kind: "number", label: "Release crossfade", min: 0, max: 1e6, step: 0.01, default: 0,
+      help: "seconds of crossfade from the loop into the end on release",
+    });
+  });
+
+  it("release now lists releaseFade defaulting to the node's current release crossfade", () => {
+    const node = parseRoot({ type: "sustain", release: "now", fade: 0.5, loop: clip() }) as SustainNode;
+    expect(need(nodeFields(node, null), "releaseFade")).toMatchObject({ default: 0.5 });
+    expect(readField(node, need(nodeFields(node, null), "releaseFade"))).toBe(0.5);
+  });
+
+  it("reading releaseFade falls back to fade when the key is absent, and reads releaseFade when set", () => {
+    const absent = parseRoot({ type: "sustain", release: "now", fade: 0.25, loop: clip() }) as SustainNode;
+    expect(absent.releaseFade).toBeUndefined();
+    expect(readField(absent, need(nodeFields(absent, null), "releaseFade"))).toBe(0.25);
+
+    const set = parseRoot({ type: "sustain", release: "now", fade: 0.25, releaseFade: 2, loop: clip() }) as SustainNode;
+    expect(readField(set, need(nodeFields(set, null), "releaseFade"))).toBe(2);
+  });
+
+  it("writing releaseFade sets releaseFade without touching fade", () => {
+    const node = parseRoot({ type: "sustain", release: "now", fade: 0.25, loop: clip() }) as SustainNode;
+    const field = need(nodeFields(node, null), "releaseFade");
+    const written = writeField(node, field, 1.5);
+    expect(written.releaseFade).toBe(1.5);
+    expect(written.fade).toBe(0.25);
+    expect(node.releaseFade).toBeUndefined();
+    expect(readField(written, field)).toBe(1.5);
   });
 
   it("parent-given fields: weight under random, value under switch, range and fade under blend, none at the root", () => {
@@ -115,14 +145,18 @@ describe("nodeFields", () => {
     for (const n of ["weight", "value", "range", "fade"]) expect(names(root)).not.toContain(n);
   });
 
-  it("a sustain under a blend lists fade once", () => {
-    const now = parseRoot({ type: "blend", parameter: "P", children: [{ type: "sustain", release: "now", loop: clip(), range: [0, 1] }] }) as BlendNode;
+  it("a sustain under a blend lists both releaseFade (when release is now) and the blend fade", () => {
+    const now = parseRoot({ type: "blend", parameter: "P", children: [{ type: "sustain", release: "now", loop: clip(), range: [0, 1], fade: 0.3 }] }) as BlendNode;
     const nowFields = nodeFields(now.children[0], now);
+    expect(names(nowFields).slice(0, 2)).toEqual(["release", "releaseFade"]);
     expect(names(nowFields).filter((n) => n === "fade")).toHaveLength(1);
-    expect(need(nowFields, "fade").label).toBe("Crossfade");
+    expect(need(nowFields, "fade")).toMatchObject({ label: "Fade", default: 0 });
+    expect(need(nowFields, "releaseFade").label).toBe("Release crossfade");
+    expect(names(nowFields).slice(-3)).toEqual(["range", "fade", "automation"]);
 
     const loopEnd = parseRoot({ type: "blend", parameter: "P", children: [{ type: "sustain", loop: clip(), range: [0, 1] }] }) as BlendNode;
     const loopEndFields = nodeFields(loopEnd.children[0], loopEnd);
+    expect(names(loopEndFields)).not.toContain("releaseFade");
     expect(names(loopEndFields).filter((n) => n === "fade")).toHaveLength(1);
     expect(need(loopEndFields, "fade").label).toBe("Fade");
   });
