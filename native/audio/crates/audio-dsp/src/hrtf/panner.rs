@@ -251,6 +251,37 @@ impl<const P: usize> HrtfPannerN<P> {
         self.state.kernels_computed
     }
 
+    /// Kernel computations [`pan`](Self::pan) would make for this direction now (0, 2 or 4),
+    /// without changing anything: the same decisions as `pan`. H3 uses it to keep the kernel work
+    /// of all voices within a per-quantum budget (architecture §2.4: "at most 4 kernel
+    /// computations per quantum; further switches wait a quantum").
+    pub fn kernels_needed(&self, desired_azimuth: f64, elevation: f64) -> u32 {
+        let s = &self.state;
+        let (index, _) = calculate_desired_azimuth_index_and_blend(-desired_azimuth);
+        let (a1, e1) = match s.azimuth_index1 {
+            Some(a) => (a, s.elevation1),
+            None => (index, elevation),
+        };
+        let (a2, e2) = match s.azimuth_index2 {
+            Some(a) => (a, s.elevation2),
+            None => (index, elevation),
+        };
+        let (mut key1, mut key2) = ((a1, index_from_elevation_angle(e1)), (a2, index_from_elevation_angle(e2)));
+        let mut incr = s.crossfade_incr;
+        if s.crossfade_x == 0.0 && s.crossfade_selection == CrossfadeSelection::Selection1 && (index != a1 || elevation != e1) {
+            incr = 1.0;
+            key2 = (index, index_from_elevation_angle(elevation));
+        }
+        if s.crossfade_x == 1.0 && s.crossfade_selection == CrossfadeSelection::Selection2 && (index != a2 || elevation != e2) {
+            incr = -1.0;
+            key1 = (index, index_from_elevation_angle(elevation));
+        }
+        let crossfading = incr != 0.0;
+        let use1 = s.crossfade_selection == CrossfadeSelection::Selection1 || crossfading;
+        let use2 = s.crossfade_selection == CrossfadeSelection::Selection2 || crossfading;
+        2 * (use1 && self.set1.key != Some(key1)) as u32 + 2 * (use2 && self.set2.key != Some(key2)) as u32
+    }
+
     /// `Pan` for one quantum: `desired_azimuth` in -180..=180 degrees (the panner's convention,
     /// positive to the right as Web Audio's `PannerNode` computes it) and `elevation` in degrees.
     /// A mono source passes `source_r = None` (both ears filter `source_l`); a stereo source's
@@ -450,5 +481,38 @@ mod tests {
             assert!((energy - (0.25 + 0.125)).abs() < 1e-3, "q {q}: energy {energy}");
         }
         assert!(panner.is_crossfading());
+    }
+
+    /// `kernels_needed` predicts what `pan` then computes, through snaps, crossfades both ways,
+    /// elevation-only changes and a restart (H3 budgets kernel work with it).
+    #[test]
+    fn kernels_needed_predicts_pan() {
+        use crate::hrtf::database::{encode, HrirHeader};
+        let header = HrirHeader { elevations: 10, azimuths: 24, ir_length: 256, rate: 48000.0 };
+        let delays = std::vec![1.0f32; 480];
+        let irs: std::vec::Vec<i16> = (0..240 * 256 * 2).map(|i| ((i * 7919) % 2000) as i16 - 1000).collect();
+        let mut bytes = std::vec![0u8; header.byte_len()];
+        encode(&header, &delays, &irs, &mut bytes).unwrap();
+        let db = HrirDatabase::parse(&bytes).unwrap();
+        let mut scratch = HrtfScratch::new();
+        let mut panner = HrtfPannerN::<2>::new(48000.0).unwrap();
+        let src = [0.1f32; QUANTUM_FRAMES];
+        let (mut l, mut r) = ([0.0f32; QUANTUM_FRAMES], [0.0f32; QUANTUM_FRAMES]);
+        let mut seed = 12345u32;
+        let mut total = 0;
+        for q in 0..400 {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12345);
+            let azimuth = ((seed >> 8) % 360) as f64 - 180.0;
+            let elevation = if q % 3 == 0 { ((seed >> 4) % 90) as f64 - 45.0 } else { 0.0 };
+            let (azimuth, elevation) = if q % 5 < 2 { (12.0, 0.0) } else { (azimuth, elevation) };
+            if q == 200 {
+                panner.restart();
+            }
+            let want = panner.kernels_needed(azimuth, elevation);
+            panner.pan(&db, &mut scratch, azimuth, elevation, &src, None, &mut l, &mut r);
+            assert_eq!(want, panner.kernels_computed_last(), "quantum {q}");
+            total += want;
+        }
+        assert!(total > 50, "the sequence switches kernels: {total}");
     }
 }

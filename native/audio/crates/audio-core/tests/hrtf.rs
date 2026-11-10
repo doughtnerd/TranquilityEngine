@@ -13,7 +13,7 @@
 
 use audio_core::clips;
 use audio_core::layout::{Layout, PAGE_BYTES};
-use audio_core::panner::{HrtfBank, HRTF_CROSSFADE_SECONDS, HRTF_SLOTS};
+use audio_core::panner::{HrtfBank, HRTF_CROSSFADE_SECONDS, HRTF_SLOTS, KERNEL_BUDGET};
 use audio_core::params::InitParams;
 use audio_core::{bus, scheduler, status, Core, QUANTUM};
 use audio_dsp::hrtf::database::{encode, HrirHeader};
@@ -317,11 +317,17 @@ fn at_most_32_voices_take_hrtf_and_the_rest_pan_equal_power() {
     let mut frame = 0u64;
     let recs: Vec<Rec> = (0..40u32).map(|i| play(((i + 1) << 16) | i, if i % 2 == 0 { SINE } else { STEREO }, AHEAD_LEFT, 1)).collect();
     submit(&mut core, frame, &recs);
-    let (l, r, h) = render(&mut core, &mut frame, 4);
-    assert!(h.iter().all(|&n| n as usize == HRTF_SLOTS), "{h:?}");
+    // The kernel budget lets KERNEL_BUDGET / 2 new panners start per quantum (each computes one
+    // kernel set first), so the 32 slots fill over 32 / (KERNEL_BUDGET / 2) quanta.
+    let per_quantum = (KERNEL_BUDGET / 2) as usize;
+    let fill = HRTF_SLOTS.div_ceil(per_quantum);
+    let (l, r, h) = render(&mut core, &mut frame, fill + 4);
+    assert_eq!(h[0] as usize, per_quantum, "{h:?}");
+    assert!(h.windows(2).all(|w| w[1] >= w[0] && (w[1] - w[0]) as usize <= per_quantum), "{h:?}");
+    assert!(h[fill..].iter().all(|&n| n as usize == HRTF_SLOTS), "{h:?}");
     assert!(l.iter().chain(&r).all(|v| v.is_finite()));
-    // Unflag 10: they fade out over 45 ms; then 30 remain... and the 8 waiting voices don't take
-    // the freed slots unless still flagged: they are, so the count returns to 32.
+    // Unflag 10: those holding slots fade out over 45 ms and free them; the 8 flagged voices that
+    // were waiting take the slots, so the 30 still flagged all end up on HRTF.
     let recs: Vec<Rec> = (0..10u32).map(|i| kind(((i + 1) << 16) | i, false)).collect();
     submit(&mut core, frame, &recs);
     let (_, _, h) = render(&mut core, &mut frame, 25);
@@ -365,4 +371,61 @@ fn hrtf_cost_per_voice() {
     let per = |t: f64| (t - ep) / 32.0 * 1e6;
     std::println!("per HRTF voice per quantum (native): static {:.2} µs, moving {:.2} µs (equal-power quantum {:.1} µs for 32 voices)", per(still), per(moving), ep * 1e6);
     assert!(per(still) < 500.0);
+}
+
+/// Many voices switching kernels in the same quanta never take more than `KERNEL_BUDGET` kernel
+/// computations in one quantum; the switches wait their turn (each on its last direction).
+#[test]
+fn kernel_work_stays_within_the_budget_per_quantum() {
+    let rate = 48_000.0;
+    let mut core = new_core(rate, 64);
+    load_table(&mut core, HRIR_ID, &shipped_table_at(rate), rate);
+    load_sine(&mut core, SINE, rate, 1);
+    let mut frame = 0u64;
+    let recs: Vec<Rec> = (0..32u32).map(|i| play(((i + 1) << 16) | i, SINE, AHEAD_LEFT, 1)).collect();
+    submit(&mut core, frame, &recs);
+    let mut total = 0;
+    for q in 0..200u32 {
+        // Every voice turns 4 degrees a quantum (a new interpolated azimuth index each time).
+        let a = (q as f32 * 4.0).to_radians();
+        let recs: Vec<Rec> = (0..32u32)
+            .map(|i| Rec::Set(wire::SetParams { voice_id: ((i + 1) << 16) | i, frame_offset: wire::ASAP, mask: wire::SET_PARAMS_MASK_DIR, dir_x: libm::sinf(a + i as f32), dir_z: -libm::cosf(a + i as f32), ramp_frames: 128, ..Default::default() }))
+            .collect();
+        submit(&mut core, frame, &recs);
+        let out = core.process(frame);
+        assert!(out.iter().all(|v| v.is_finite()));
+        let used = audio_core::panner::kernels_last_quantum(&core);
+        assert!(used <= KERNEL_BUDGET, "quantum {q}: {used} kernel computations");
+        total += used;
+        frame += QUANTUM as u64;
+    }
+    assert!(total >= 180 * KERNEL_BUDGET, "the budget is used, not starved: {total}");
+}
+
+/// The shipped table at `rate` by nearest-frame resampling (enough for load and cost tests, not
+/// for listening: main's `hrir.ts` resamples properly before upload).
+fn shipped_table_at(rate: f32) -> Vec<u8> {
+    let src = shipped_table();
+    let header = audio_dsp::hrtf::HrirHeader::read(&src).unwrap();
+    let ratio = rate / header.rate;
+    let out_len = ((header.ir_length as f32) * ratio).ceil() as u32;
+    let db = audio_dsp::hrtf::HrirDatabase::parse(&src).unwrap();
+    let out_header = HrirHeader { ir_length: out_len, rate, ..header };
+    let mut delays = Vec::new();
+    let mut irs = vec![0i16; header.directions() * out_len as usize * 2];
+    let mut tmp = vec![0.0f32; header.ir_length as usize];
+    for d in 0..header.directions() {
+        let (az, el) = (d / header.elevations as usize, d % header.elevations as usize);
+        for ear in [audio_dsp::hrtf::Ear::Left, audio_dsp::hrtf::Ear::Right] {
+            delays.push(db.ear_delay(el, az, ear) * ratio);
+            db.read_ir(el, az, ear, &mut tmp);
+            for f in 0..out_len as usize {
+                let s = tmp.get((f as f32 / ratio) as usize).copied().unwrap_or(0.0);
+                irs[(d * out_len as usize + f) * 2 + ear as usize] = (s * 32767.0) as i16;
+            }
+        }
+    }
+    let mut bytes = vec![0u8; out_header.byte_len()];
+    encode(&out_header, &delays, &irs, &mut bytes).unwrap();
+    bytes
 }

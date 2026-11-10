@@ -245,6 +245,20 @@ pub const HRTF_SLOTS: usize = 32;
 /// crossfade").
 pub const HRTF_CROSSFADE_SECONDS: f32 = 0.045;
 
+/// Kernel computations all HRTF voices may make in one quantum (architecture §2.4: "at most 4
+/// kernel computations per quantum; further switches wait a quantum, masked by the crossfade").
+/// A kernel costs far more than a quantum of convolution (an interpolated one blends 256 bins in
+/// the log-magnitude and phase domain), so without this a crowd of voices changing direction in
+/// the same quantum would spike the render. A voice whose switch waits keeps panning on its last
+/// direction; a voice that would take a free slot waits on equal-power.
+///
+/// 2, not the architecture's 4: an interpolated kernel takes about 43 µs natively (and roughly
+/// twice that in wasm), against about 5 µs for a voice's whole quantum of HRTF convolution, so 2
+/// keeps the worst quantum near §6.1's 0.17 ms HRTF crossfade reserve. One kernel set (2
+/// computations) a quantum still lets 16 moving voices each start a crossfade as often as one can
+/// run (2,048 frames, 16 quanta); new slots start one a quantum.
+pub const KERNEL_BUDGET: u32 = 2;
+
 /// The HRTF share at frame `i` of a quantum whose share starts at `x0` and changes by `inc` a
 /// frame (frame 0 already moves, as the ramps do).
 #[inline]
@@ -272,6 +286,11 @@ pub struct HrtfSlot {
     /// Azimuth and elevation (degrees) at the voice's last render.
     pub azimuth: f64,
     pub elevation: f64,
+    /// The direction the panner last ran with (a switch that waits for the kernel budget keeps it).
+    pub used_azimuth: f64,
+    pub used_elevation: f64,
+    /// 1 from the slot's claim to its first pan: its first kernels were paid from the budget then.
+    pub fresh: u32,
     /// The voice's samples this quantum (after its gains), zero where it didn't render.
     pub in_l: [f32; QUANTUM],
     pub in_r: [f32; QUANTUM],
@@ -285,6 +304,12 @@ pub struct HrtfBank {
     pub partitions: u32,
     /// [`HRTF_CROSSFADE_SECONDS`] in frames.
     pub fade_frames: u32,
+    /// The quantum [`budget_left`](Self::budget_left) belongs to, and the kernel computations left in
+    /// it ([`KERNEL_BUDGET`] at its start).
+    budget_frame: u64,
+    budget_left: u32,
+    /// The slot [`flush`] starts at, moved on each quantum so waiting switches take turns.
+    cursor: u32,
     pub scratch: HrtfScratch,
     pub slots: [HrtfSlot; HRTF_SLOTS],
     /// The output of one slot's panner (one quantum).
@@ -336,6 +361,7 @@ impl HrtfBank {
             core::ptr::write_bytes(addr as *mut u8, 0, core::mem::size_of::<HrtfBank>());
             core::ptr::addr_of_mut!((*bank).scratch).write(HrtfScratch::new());
             (*bank).partitions = partitions;
+            (*bank).budget_frame = u64::MAX;
             (*bank).fade_frames = (libm::roundf(HRTF_CROSSFADE_SECONDS * sample_rate) as u32).max(1);
             let panners = addr + Self::panners_offset();
             match partitions {
@@ -390,12 +416,18 @@ impl<'a> Hrtf<'a> {
                 return None;
             }
             let free = self.bank.slots.iter().position(|s| s.owner == 0)?;
+            // A new panner computes its first kernels at its first pan: paid now, or wait on
+            // equal-power for a quantum with budget left.
+            if !self.take_budget(frame, 2) {
+                return None;
+            }
             self.restart(free);
             let s = &mut self.bank.slots[free];
             s.owner = voice;
             s.x = 0.0;
             s.inc = 0.0;
             s.stamp = u64::MAX;
+            s.fresh = 1;
             index = free + 1;
             p.hrtf_slot = index as u8;
         }
@@ -424,6 +456,32 @@ impl<'a> Hrtf<'a> {
         Some(s)
     }
 
+    /// Takes `n` kernel computations from the quantum at `frame`'s budget, if that many are left.
+    fn take_budget(&mut self, frame: u64, n: u32) -> bool {
+        let bank = &mut *self.bank;
+        if bank.budget_frame != frame {
+            bank.budget_frame = frame;
+            bank.budget_left = KERNEL_BUDGET;
+        }
+        if bank.budget_left < n {
+            return false;
+        }
+        bank.budget_left -= n;
+        true
+    }
+
+    /// Kernel computations slot `k`'s panner would make for this direction.
+    fn kernels_needed(&self, k: usize, azimuth: f64, elevation: f64) -> u32 {
+        debug_assert!(k < HRTF_SLOTS);
+        // SAFETY: as `restart`.
+        unsafe {
+            match self.bank.partitions {
+                2 => (*(self.panners as *const HrtfPannerN<2>).add(k)).kernels_needed(azimuth, elevation),
+                _ => (*(self.panners as *const HrtfPannerN<4>).add(k)).kernels_needed(azimuth, elevation),
+            }
+        }
+    }
+
     /// Makes slot `k`'s panner new (no history; it snaps to its first direction).
     fn restart(&mut self, k: usize) {
         debug_assert!(k < HRTF_SLOTS);
@@ -436,17 +494,33 @@ impl<'a> Hrtf<'a> {
         }
     }
 
-    /// Runs slot `k`'s panner over its quantum buffer into the bank's output buffer.
-    fn pan(&mut self, k: usize) {
+    /// Runs slot `k`'s panner over its quantum buffer into the bank's output buffer, on the voice's
+    /// direction if the quantum's kernel budget allows the switch (or none is needed), else on the
+    /// direction it last used.
+    fn pan(&mut self, k: usize, frame: u64) {
         debug_assert!(k < HRTF_SLOTS);
+        let (azimuth, elevation, fresh) = {
+            let s = &self.bank.slots[k];
+            (s.azimuth, s.elevation, s.fresh != 0)
+        };
+        let go = fresh || {
+            let needed = self.kernels_needed(k, azimuth, elevation);
+            needed == 0 || self.take_budget(frame, needed)
+        };
         let bank = &mut *self.bank;
-        let s = &bank.slots[k];
+        let s = &mut bank.slots[k];
+        s.fresh = 0;
+        if go {
+            s.used_azimuth = azimuth;
+            s.used_elevation = elevation;
+        }
+        let (az, el) = (s.used_azimuth, s.used_elevation);
         let right = (s.channels >= 2).then_some(&s.in_r);
         // SAFETY: as `restart`.
         unsafe {
             match bank.partitions {
-                2 => (*(self.panners as *mut HrtfPannerN<2>).add(k)).pan(&self.db, &mut bank.scratch, s.azimuth, s.elevation, &s.in_l, right, &mut bank.out_l, &mut bank.out_r),
-                _ => (*(self.panners as *mut HrtfPannerN<4>).add(k)).pan(&self.db, &mut bank.scratch, s.azimuth, s.elevation, &s.in_l, right, &mut bank.out_l, &mut bank.out_r),
+                2 => (*(self.panners as *mut HrtfPannerN<2>).add(k)).pan(&self.db, &mut bank.scratch, az, el, &s.in_l, right, &mut bank.out_l, &mut bank.out_r),
+                _ => (*(self.panners as *mut HrtfPannerN<4>).add(k)).pan(&self.db, &mut bank.scratch, az, el, &s.in_l, right, &mut bank.out_l, &mut bank.out_r),
             }
         }
     }
@@ -459,6 +533,19 @@ impl<'a> Hrtf<'a> {
     /// Slot `k` (tests and debugging).
     pub fn slot(&self, k: usize) -> &HrtfSlot {
         &self.bank.slots[k]
+    }
+}
+
+/// Kernel computations the HRTF voices made in the quantum last rendered (at most
+/// [`KERNEL_BUDGET`]; tests and debugging).
+pub fn kernels_last_quantum(core: &Core) -> u32 {
+    let Some((addr, _)) = core.clips().hrtf_bank() else { return 0 };
+    // SAFETY: a built bank (`hrtf_bank`); read only, outside `process`.
+    let bank = unsafe { &*(addr as *const HrtfBank) };
+    if bank.budget_frame == core.frame() {
+        KERNEL_BUDGET - bank.budget_left
+    } else {
+        0
     }
 }
 
@@ -484,7 +571,10 @@ pub fn flush(core: &mut Core, frame: u64) {
             Some(mut h) => {
                 let mut inputs = crate::bus::Inputs::of(regions);
                 let mut panned = 0u16;
-                for k in 0..HRTF_SLOTS {
+                let start = h.bank.cursor as usize % HRTF_SLOTS;
+                h.bank.cursor = ((start + 1) % HRTF_SLOTS) as u32;
+                for j in 0..HRTF_SLOTS {
+                    let k = (start + j) % HRTF_SLOTS;
                     let s = &mut h.bank.slots[k];
                     if s.owner == 0 {
                         continue;
@@ -493,7 +583,7 @@ pub fn flush(core: &mut Core, frame: u64) {
                         s.owner = 0;
                         continue;
                     }
-                    h.pan(k);
+                    h.pan(k, frame);
                     let bank = &mut *h.bank;
                     let s = &mut bank.slots[k];
                     let (x0, inc) = (s.x, s.inc);
