@@ -61,6 +61,16 @@ export interface ClipRegistry {
   /** Ids of every clip that is ready, for a rebuild's re-send (A3.4a). Includes ready reserved (HRIR) clips. */
   residentIds(): readonly number[];
   /**
+   * A3.4a, the hard rebuild: the core was replaced, so nothing is in its arena. Every clip whose CLIP_BEGIN went to
+   * the old core (`copying` or `ready`) is sent again from the start: reserved (HRIR) clips first, from their kept
+   * blob; then the clips in `order` (ids, the caller's priority order), then the rest. Each goes back to `fetching`
+   * (re-decoded from the kept encoded bytes, else fetched again), and becomes `ready` again on the new core's
+   * resident event, so `onResident` listeners added now hear about it. Decodes run in parallel, the copies begin in
+   * that order. Clips still fetching or decoding are untouched: their CLIP_BEGIN will go to the new core anyway.
+   * Optional so other registries (fakes) still satisfy K9.
+   */
+  resend?(order: readonly number[]): void;
+  /**
    * H2: loads an HRIR table (wire format 2) under a reserved id in 0xFFFF0000..0xFFFF00FF (anything else throws).
    * No fetch or decode: `bytes` is the finished blob (api-and-models 4.1), sent as CLIP_BEGIN (`channels` 1, `frames`
    * = bytes / 2 int16 samples, `format` 2) and paced CLIP_CHUNKs like any clip. It completes on the core's clip event
@@ -154,6 +164,8 @@ interface Slot {
   begun: boolean;
   /** Zero refs and holders: unload runs at the next frame unless something acquires first. */
   unloadScheduled: boolean;
+  /** Bumped by each load (the first, and each `resend`): a load whose token is no longer current stops. */
+  loads: number;
   /** Freed: async work for this slot stops. */
   dead: boolean;
   /** Decoded samples awaiting their paced chunks. */
@@ -328,8 +340,12 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     nextQuantum(pump);
   };
 
-  const load = async (slot: Slot): Promise<void> => {
-    const stale = (): boolean => slot.dead;
+  /**
+   * Fetches (or takes the kept bytes) and decodes; null when it failed (already reported) or went stale. `then` runs
+   * with the decoded clip in the same tick (a first load begins its copy without waiting another microtask).
+   */
+  const fetchDecode = async (slot: Slot, token: number, then?: (decoded: DecodedClip) => void): Promise<DecodedClip | null> => {
+    const stale = (): boolean => slot.dead || slot.loads !== token;
     const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
     let encoded: ArrayBuffer;
     try {
@@ -338,22 +354,30 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       if (cached) encoded = cached;
       else {
         encoded = await fetchBytes(slot.path);
-        if (stale()) return;
+        if (stale()) return null;
         cache.set(slot.path, encoded);
       }
     } catch (err) {
       if (!stale()) fail(slot, "fetch", message(err));
-      return;
+      return null;
     }
     let decoded: DecodedClip;
     try {
       slot.state = "decoding";
       decoded = await decode(encoded);
-      if (stale()) return;
+      if (stale()) return null;
     } catch (err) {
       if (!stale()) fail(slot, "decode", message(err));
-      return;
+      return null;
     }
+    then?.(decoded);
+    return decoded;
+  };
+
+  const load = (slot: Slot): Promise<unknown> => fetchDecode(slot, ++slot.loads, (decoded) => beginCopy(slot, decoded));
+
+  /** CLIP_BEGIN and the paced chunks of a decoded clip (or a failure past the ceiling). */
+  const beginCopy = (slot: Slot, decoded: DecodedClip): void => {
     slot.frames = decoded.frames;
     slot.channels = decoded.channels;
     slot.sampleRate = decoded.sampleRate;
@@ -390,6 +414,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       failure: null,
       begun: false,
       unloadScheduled: false,
+      loads: 0,
       dead: false,
       pcm: null,
       listeners: new Set(),
@@ -531,6 +556,36 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       const res: ReservedSlot = { id, state: "copying", data, samples: data.bytes.byteLength / 2, begun: false, listeners: new Set() };
       reserved.set(id, res);
       beginReserved(res);
+    },
+    resend(order) {
+      for (const res of reserved.values()) {
+        if (!res.begun || res.state === "failed") continue;
+        pacer.cancel(res.id);
+        res.state = "copying";
+        beginReserved(res);
+      }
+      const slots: Slot[] = [];
+      const seen = new Set<Slot>();
+      const add = (slot: Slot | undefined): void => {
+        if (!slot || slot.dead || seen.has(slot) || !slot.begun || (slot.state !== "copying" && slot.state !== "ready")) return;
+        seen.add(slot);
+        slots.push(slot);
+      };
+      for (const id of order) add(byId.get(id));
+      for (const slot of byPath.values()) add(slot);
+      const jobs = slots.map((slot) => {
+        pacer.cancel(idOf(slot));
+        slot.pcm = null;
+        slot.begun = false;
+        const token = ++slot.loads;
+        return { slot, token, decoded: fetchDecode(slot, token) };
+      });
+      void (async () => {
+        for (const job of jobs) {
+          const decoded = await job.decoded;
+          if (decoded && !job.slot.dead && job.slot.loads === job.token) beginCopy(job.slot, decoded);
+        }
+      })();
     },
     residentIds() {
       const ids: number[] = [];
