@@ -142,6 +142,24 @@ export function sincResample(source: Float32Array, ioRatio: number, kernels: Flo
 
 // --- HRTFKernel's ExtractAverageGroupDelay (hrtf_kernel.cc, fft_frame.cc) ---------------------------------------------
 
+const twiddleCache = new Map<number, [Float64Array, Float64Array]>();
+
+/** cos and sin of 2 pi k / n for k < n / 2, cached per size. */
+function twiddles(n: number): [Float64Array, Float64Array] {
+  let t = twiddleCache.get(n);
+  if (!t) {
+    const cos = new Float64Array(n / 2);
+    const sin = new Float64Array(n / 2);
+    for (let k = 0; k < n / 2; k++) {
+      cos[k] = Math.cos((2 * Math.PI * k) / n);
+      sin[k] = Math.sin((2 * Math.PI * k) / n);
+    }
+    t = [cos, sin];
+    twiddleCache.set(n, t);
+  }
+  return t;
+}
+
 /** Radix-2 complex FFT in place, unnormalised; sign -1 forward, +1 inverse. */
 function fft(re: Float64Array, im: Float64Array, sign: number): void {
   const n = re.length;
@@ -158,13 +176,14 @@ function fft(re: Float64Array, im: Float64Array, sign: number): void {
       im[j] = ti;
     }
   }
+  const [cos, sin] = twiddles(n);
   for (let len = 2; len <= n; len <<= 1) {
     const half = len >> 1;
-    const ang = (sign * 2 * Math.PI) / len;
+    const stride = n / len;
     for (let i = 0; i < n; i += len) {
       for (let k = 0; k < half; k++) {
-        const wr = Math.cos(ang * k);
-        const wi = Math.sin(ang * k);
+        const wr = cos[k * stride]!;
+        const wi = sign * sin[k * stride]!;
         const a = i + k;
         const b = a + half;
         const tr = re[b]! * wr - im[b]! * wi;
@@ -205,7 +224,7 @@ export function extractAverageGroupDelay(ir: Float32Array, n: number): number {
   let weightSum = 0;
   let lastPhase = 0;
   for (let k = 0; k < half; k++) {
-    const mag = Math.hypot(specRe[k]!, specIm[k]!);
+    const mag = Math.sqrt(specRe[k]! * specRe[k]! + specIm[k]! * specIm[k]!);
     const phase = Math.atan2(specIm[k]!, specRe[k]!);
     let d = phase - lastPhase;
     lastPhase = phase;
@@ -221,7 +240,7 @@ export function extractAverageGroupDelay(ir: Float32Array, n: number): number {
   // AddConstantGroupDelay(-delay), then remove the DC offset.
   const phaseAdj = delay * samplePhaseDelay;
   for (let k = 1; k < half; k++) {
-    const mag = Math.hypot(specRe[k]!, specIm[k]!);
+    const mag = Math.sqrt(specRe[k]! * specRe[k]! + specIm[k]! * specIm[k]!);
     const phase = Math.atan2(specIm[k]!, specRe[k]!) + k * phaseAdj;
     specRe[k] = mag * Math.cos(phase);
     specIm[k] = mag * Math.sin(phase);
