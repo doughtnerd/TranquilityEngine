@@ -38,11 +38,30 @@ export const MIN_AUDIBILITY = 1e-5;
 /** @internal §1: priority raises audibility by at most 2x (+6 dB). */
 export const priorityWeight = (priority: number): number => 1 + priority / 255;
 
+// The codes the hot loop compares with, as plain constants.
+const S_FREE = VoiceState.FREE;
+const S_PLAYING = VoiceState.PLAYING;
+const S_VIRTUAL = VoiceState.VIRTUAL;
+const F_PAUSED = VoiceFlag.PAUSED;
+const R_NONE = VoiceReason.NONE;
+const R_VIRTUAL = VoiceReason.VIRTUAL;
+const R_BUS_MUTED = VoiceReason.BUS_MUTED;
+const R_WAITING = VoiceReason.WAITING_FOR_DATA;
+
+/** `priorityWeight` for each priority 0..255, so the hot loop reads instead of dividing. */
+const PRIORITY_WEIGHTS = Float32Array.from({ length: 256 }, (_, p) => priorityWeight(p));
+
 /** Keys above every audibility: a mixed voice inside its dwell ranks first (`DWELL_KEY + audibility`). */
 const DWELL_KEY = 1e30;
 /** A candidate that may not be promoted this frame (virtual inside its dwell, or below `MIN_AUDIBILITY`). */
 const NO_KEY = -1;
-const UNKNOWN = 2;
+/** A voice forced virtual (inaudible World, paused): ranks last and is demoted wherever it lands. */
+const FORCED_KEY = -2;
+/**
+ * The gather threshold is this fraction of the previous frame's weakest kept key. Any value is exact (a frame whose
+ * cut drops below it gathers again with no threshold); 0.9 keeps the ranked set near the cap while the cut drifts.
+ */
+const THRESHOLD_MARGIN = 0.9;
 
 /** @internal Where `Selection.run` sends its decisions (the backend: SET_MIXED, STOP). One long-lived object. */
 export interface SelectionSink {
@@ -56,6 +75,8 @@ export interface SelectionSink {
 export interface SelectionStats {
   /** Voices on the core considered this frame (PLAYING or VIRTUAL). */
   candidates: number;
+  /** Of those, how many were ranked (mixed ones, and virtual ones at or above the gather threshold). */
+  ranked: number;
   /** Mixed voices after the run. */
   mixed: number;
   promoted: number;
@@ -162,14 +183,19 @@ export class Selection {
   mixedCount = 0;
   /** Selection frames run (the table's `frame` follows it, for the debug view's recent steals). */
   frame = 0;
-  readonly stats: SelectionStats = { candidates: 0, mixed: 0, promoted: 0, demoted: 0, stolen: 0 };
+  readonly stats: SelectionStats = { candidates: 0, ranked: 0, mixed: 0, promoted: 0, demoted: 0, stolen: 0 };
 
-  /** Frames since slot `i` last changed between mixed and virtual (saturates at 255). */
+  /** Frames since slot `i` last changed between mixed and virtual (counts up to `DWELL_FRAMES`, then stays). */
   private readonly dwell: Uint8Array;
-  /** What selection last saw slot `i` as: 0 virtual, 1 mixed, `UNKNOWN`. A difference means someone else changed it. */
-  private readonly seen: Uint8Array;
-  /** The slot generation `seen` and `dwell` describe; another generation is a new voice. */
-  private readonly seenGen: Uint16Array;
+  /**
+   * What selection last saw slot `i` as: `gen << 1 | mixed` (0: never). Another generation is a new voice; the same
+   * generation with the other bit means someone else changed it (the core's demote).
+   */
+  private readonly seen: Uint32Array;
+  /** This frame's ranking key per slot (see `run`). */
+  private readonly slotKey: Float32Array;
+  /** The gather threshold for the next `run` (`-Infinity`: gather every candidate). */
+  private threshold = Number.NEGATIVE_INFINITY;
   /** Scratch for `selectTopK`: keys and slot indices of this frame's candidates. */
   private readonly keys: Float32Array;
   private readonly items: Uint16Array;
@@ -177,9 +203,9 @@ export class Selection {
   constructor(readonly table: VoiceTable) {
     const n = table.capacity;
     this.dwell = new Uint8Array(n);
-    this.seen = new Uint8Array(n).fill(UNKNOWN);
-    this.seenGen = new Uint16Array(n);
+    this.seen = new Uint32Array(n);
     this.keys = new Float32Array(n);
+    this.slotKey = new Float32Array(n);
     this.items = new Uint16Array(n);
   }
 
@@ -195,7 +221,7 @@ export class Selection {
   audibilityOf(i: number): number {
     const t = this.table;
     const forced = this.worldAudible[t.world[i]!] === 0 || (t.flags[i]! & VoiceFlag.PAUSED) !== 0;
-    const a = forced ? 0 : t.gain[i]! * t.fadeGain[i]! * this.busGain[t.bus[i]!]! * priorityWeight(t.priority[i]!);
+    const a = forced ? 0 : t.gain[i]! * t.fadeGain[i]! * this.busGain[t.bus[i]!]! * PRIORITY_WEIGHTS[t.priority[i]!]!;
     t.audibility[i] = a;
     return a;
   }
@@ -209,8 +235,7 @@ export class Selection {
     const a = this.audibilityOf(i);
     const mixed = a >= MIN_AUDIBILITY && this.mixedCount < cap;
     if (mixed) this.mixedCount++;
-    this.seen[i] = mixed ? 1 : 0;
-    this.seenGen[i] = this.table.gen[i]!;
+    this.seen[i] = (this.table.gen[i]! << 1) | (mixed ? 1 : 0);
     this.dwell[i] = DWELL_FRAMES;
     return mixed;
   }
@@ -232,69 +257,117 @@ export class Selection {
     const state = t.state;
     const dwell = this.dwell;
     const seen = this.seen;
-    const seenGen = this.seenGen;
     const gen = t.gen;
     const keys = this.keys;
     const items = this.items;
+    const gain = t.gain;
+    const fadeGain = t.fadeGain;
+    const bus = t.bus;
+    const priority = t.priority;
+    const world = t.world;
+    const flags = t.flags;
+    const audibility = t.audibility;
+    const busGain = this.busGain;
+    const worldAudible = this.worldAudible;
+    const weight = PRIORITY_WEIGHTS;
     const n = t.capacity;
-    let count = 0;
+    const slotKey = this.slotKey;
+    let onCore = 0;
+    const reason = t.reason;
     for (let i = 0; i < n; i++) {
       const s = state[i]!;
-      if (s === VoiceState.FREE) continue;
-      const a = this.audibilityOf(i);
-      if (s !== VoiceState.PLAYING && s !== VoiceState.VIRTUAL) continue;
-      const mixed = s === VoiceState.PLAYING;
-      let was = seen[i]!;
-      if (seenGen[i] !== gen[i]) {
-        was = UNKNOWN;
-        seenGen[i] = gen[i]!;
+      if (s === S_FREE) continue;
+      // `audibilityOf`, inlined (the hot loop: 4,096 voices per frame).
+      const forced = worldAudible[world[i]!] === 0 || (flags[i]! & F_PAUSED) !== 0;
+      const a = forced ? 0 : gain[i]! * fadeGain[i]! * busGain[bus[i]!]! * weight[priority[i]!]!;
+      audibility[i] = a;
+      if (s !== S_PLAYING && s !== S_VIRTUAL) continue;
+      const mixed = s === S_PLAYING;
+      const tag = (gen[i]! << 1) | (mixed ? 1 : 0);
+      const was = seen[i]!;
+      let d: number;
+      if (was !== tag) {
+        // A new voice (free to change, if virtual), or the core demoted it: its dwell starts now. (It changed before
+        // this frame, so one frame of its dwell has passed.)
+        seen[i] = tag;
+        d = was >>> 1 !== gen[i] && !mixed ? DWELL_FRAMES : 1;
+        dwell[i] = d;
+      } else {
+        d = dwell[i]!;
+        if (d < DWELL_FRAMES) dwell[i] = ++d;
       }
-      const d = dwell[i]!;
-      if (was !== (mixed ? 1 : 0)) {
-        // A new voice, or the core demoted it: its dwell starts now.
-        seen[i] = mixed ? 1 : 0;
-        dwell[i] = was === UNKNOWN && !mixed ? DWELL_FRAMES : 0;
-      } else if (d < 255) {
-        dwell[i] = d + 1;
-      }
-      if (a === 0 && (this.worldAudible[t.world[i]!] === 0 || (t.flags[i]! & VoiceFlag.PAUSED) !== 0)) {
-        // Forced virtual: an inaudible World or a paused voice, whatever the dwell.
-        if (mixed) this.change(i, false, sink);
-        else this.setVirtualReason(i);
-        continue;
-      }
-      const settled = dwell[i]! >= DWELL_FRAMES;
       let key: number;
-      if (mixed) key = settled ? a * HYSTERESIS : DWELL_KEY + a;
-      else key = settled && a >= MIN_AUDIBILITY ? a : NO_KEY;
-      keys[count] = key;
-      items[count] = i;
-      count++;
+      if (forced) {
+        // Forced virtual: an inaudible World or a paused voice, whatever the dwell (demoted below; no call in this
+        // loop, which keeps it fast).
+        key = FORCED_KEY;
+        if (!mixed && reason[i] !== R_WAITING) reason[i] = R_VIRTUAL;
+      } else if (mixed) {
+        key = d >= DWELL_FRAMES ? a * HYSTERESIS : DWELL_KEY + a;
+      } else {
+        key = d >= DWELL_FRAMES && a >= MIN_AUDIBILITY ? a : NO_KEY;
+        // A virtual voice's reason (`setVirtualReason`, inlined): busMuted on a silent bus.
+        const r = reason[i]!;
+        if (r !== R_WAITING) {
+          const want = busGain[bus[i]!] === 0 ? R_BUS_MUTED : R_VIRTUAL;
+          if (r !== want) reason[i] = want;
+        }
+      }
+      slotKey[i] = key;
+      onCore++;
     }
-    stats.candidates = count;
+    stats.candidates = onCore;
+
+    // Gather what can matter: every mixed voice (to keep or demote) and the virtual ones whose key reaches the
+    // threshold. When at least `cap` gathered keys reach it, the top `cap` of all candidates are among them (every
+    // voice left out ranks below them), so ranking the gathered few is exact. Otherwise gather everything.
+    let threshold = this.threshold;
+    let count = 0;
+    for (;;) {
+      let above = 0;
+      count = 0;
+      for (let i = 0; i < n; i++) {
+        const s = state[i]!;
+        if (s !== S_PLAYING && s !== S_VIRTUAL) continue;
+        const key = slotKey[i]!;
+        if (key >= threshold) above++;
+        else if (s !== S_PLAYING) continue;
+        keys[count] = key;
+        items[count] = i;
+        count++;
+      }
+      if (above >= cap || threshold === Number.NEGATIVE_INFINITY) break;
+      threshold = Number.NEGATIVE_INFINITY;
+    }
+    stats.ranked = count;
 
     const top = rankTop(keys, items, count, cap);
-    let mixedNow = 0;
-    for (let j = 0; j < count; j++) {
+    // Next frame's threshold: a little under this frame's weakest kept key (dwell and negative keys don't count).
+    let cutoff = Number.POSITIVE_INFINITY;
+    for (let j = 0; j < top; j++) {
+      const key = keys[j]!;
+      if (key < cutoff) cutoff = key;
+    }
+    this.threshold = top === cap && cutoff > 0 && cutoff < DWELL_KEY ? cutoff * THRESHOLD_MARGIN : Number.NEGATIVE_INFINITY;
+    // Outranked mixed voices first, so a batch never asks the core to mix more than the cap at once.
+    for (let j = top; j < count; j++) {
       const i = items[j]!;
-      const mixed = state[i] === VoiceState.PLAYING;
-      if (j < top) {
-        const key = keys[j]!;
-        if (!mixed && key !== NO_KEY) {
-          this.change(i, true, sink);
-          mixedNow++;
-        } else if (mixed && key < DWELL_KEY && t.audibility[i]! < MIN_AUDIBILITY) {
-          this.change(i, false, sink); // silent and settled: not worth a mixed voice
-        } else if (mixed) {
-          mixedNow++;
-          if (t.reason[i] !== VoiceReason.WAITING_FOR_DATA) t.reason[i] = VoiceReason.NONE;
+      if (state[i] === S_PLAYING) this.change(i, false, sink);
+    }
+    let mixedNow = 0;
+    for (let j = 0; j < top; j++) {
+      const i = items[j]!;
+      const key = keys[j]!;
+      if (state[i] === S_PLAYING) {
+        if (key === FORCED_KEY || (key < DWELL_KEY && audibility[i]! < MIN_AUDIBILITY)) {
+          this.change(i, false, sink); // forced, or silent and settled (not worth a mixed voice)
         } else {
-          this.setVirtualReason(i);
+          mixedNow++;
+          if (reason[i] !== R_WAITING) reason[i] = R_NONE;
         }
-      } else if (mixed) {
-        this.change(i, false, sink);
-      } else {
-        this.setVirtualReason(i);
+      } else if (key >= 0) {
+        this.change(i, true, sink);
+        mixedNow++;
       }
     }
     this.mixedCount = mixedNow;
@@ -313,8 +386,7 @@ export class Selection {
       this.setVirtualReason(i);
       this.stats.demoted++;
     }
-    this.seen[i] = mixed ? 1 : 0;
-    this.seenGen[i] = t.gen[i]!;
+    this.seen[i] = (t.gen[i]! << 1) | (mixed ? 1 : 0);
     this.dwell[i] = 0;
     sink.setMixed(i, mixed);
   }
