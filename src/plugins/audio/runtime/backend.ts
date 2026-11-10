@@ -54,7 +54,7 @@ export interface PlayRequest {
   path: string;
   url: string;
   loop: boolean;
-  /** Import setting: stream rather than decode up front. Streamed clips can't be spatial or routed through effects. */
+  /** Import setting: stream rather than decode up front. On the core a streamed clip is a full voice (spatial, buses, effects); the Babylon fallback plays it as HTML5 audio, flat and unpitched. */
   stream: boolean;
   /** Mixer bus name (already resolved to an existing bus). */
   bus: string;

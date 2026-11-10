@@ -6,8 +6,7 @@
 import { mixer, type Bus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
-import { Assets } from "../../../engine/scene/Assets";
-import { clipVolume, startClip, warnStream, worldKeyOf, worldPlays } from "./AudioSource";
+import { clipVolume, startClip, worldKeyOf, worldPlays } from "./AudioSource";
 import { warnOnce } from "./core/handle";
 import { audioBackend, type AudioDebugInfo, type AudioHandle, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest } from "./backend";
 
@@ -81,13 +80,11 @@ export const Audio = {
       if (o.position) {
         const p = o.position;
         if (Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)) {
-          if (Assets.importSettings(path).stream) warnStream(path);
-          else {
-            const min = Math.max(0, finiteOr("minDistance", o.minDistance, 1));
-            const max = Math.max(min, finiteOr("maxDistance", o.maxDistance, 100));
-            extra.attenuation = { minDistance: min, maxDistance: max, rolloff: "inverse" };
-            extra.position = p;
-          }
+          // A streamed clip is spatial on the core; the Babylon fallback flattens it (and warns) itself.
+          const min = Math.max(0, finiteOr("minDistance", o.minDistance, 1));
+          const max = Math.max(min, finiteOr("maxDistance", o.maxDistance, 100));
+          extra.attenuation = { minDistance: min, maxDistance: max, rolloff: "inverse" };
+          extra.position = p;
         } else warnOnce("position:nonfinite", "Audio.playOneShot: position must be finite; playing flat.");
       }
       const v = startClip(path, false, o.bus, extra);

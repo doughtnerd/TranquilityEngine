@@ -2,6 +2,11 @@
 // plain object with a `type`; PCM and encoded bytes travel as transferred ArrayBuffers. The worker routes `decodeClip`
 // and `cancel` to `clips.ts` and every `stream*` message to `streams.ts`; B3 fills `streams.ts` without touching
 // the clip path, and B5 calls `decodeClip` through `decoderClient.ts`.
+//
+// B3: a stream's PCM never comes back here. `connectWorklet` hands the worker one end of a `MessageChannel` whose other
+// end the host gave the worklet; STREAM_OPEN, STREAM_CHUNK and STREAM_CLOSE (wire kinds 5–7) go over it to the worklet,
+// and STREAM_CREDIT (kind 11) comes back with the emptied chunk buffers (architecture §1: "Main is never on a stream's
+// PCM path"). Main only opens, seeks and closes, and hears `streamOpened`, `streamClosed` and errors.
 
 /** The container hint of the decoder ABI (`myco_decode_open`'s `hint`): 0 probe alone, 1 wav, 2 flac, 3 mp3, 4 ogg, 5 mp4/m4a, 6 aac (ADTS). */
 export type DecodeHint = 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -53,6 +58,8 @@ export interface StreamOpenMessage {
   readonly hint: DecodeHint;
   readonly startFrame: number;
   readonly epoch: number;
+  /** B3 (added): wrap to the start at the end, so the worklet's ring sees one continuous signal (B4 trims the seam). */
+  readonly loop?: boolean;
 }
 
 /** B3: the ring buffer has room for `frames` more frames (credit-based flow control). */
@@ -75,7 +82,22 @@ export interface StreamCloseMessage {
   readonly streamId: number;
 }
 
-export type StreamRequest = StreamOpenMessage | StreamCreditMessage | StreamSeekMessage | StreamCloseMessage;
+/** What a stream port needs: a `MessagePort`, or an in-process stand-in in tests. */
+export interface StreamPortLike {
+  postMessage(message: unknown, transfer?: Transferable[]): void;
+  onmessage: ((event: { data: unknown }) => void) | null;
+}
+
+/**
+ * B3 (added): the worker's end of the channel to the worklet (`port` transferred). A later one replaces it (a hard
+ * rebuild made a new worklet); streams opened on the old one are closed by main.
+ */
+export interface ConnectWorkletMessage {
+  readonly type: "connectWorklet";
+  readonly port: StreamPortLike;
+}
+
+export type StreamRequest = StreamOpenMessage | StreamCreditMessage | StreamSeekMessage | StreamCloseMessage | ConnectWorkletMessage;
 export type DecoderRequest = InitMessage | DecodeClipMessage | CancelMessage | StreamRequest;
 
 // --- Worker to main ----------------------------------------------------------------------------

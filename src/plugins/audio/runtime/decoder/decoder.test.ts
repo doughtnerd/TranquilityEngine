@@ -215,11 +215,12 @@ describe("decoder handler: errors", () => {
     await vi.waitFor(() => expect(replies.some((r) => r.type === "error" && r.fatal)).toBe(true));
   });
 
-  it("streams are refused with the stream's id and asset (stub until B3)", async () => {
+  it("a stream with no worklet port is refused with the stream's id and asset (B3: streams.test.ts has the rest)", async () => {
     const { handler, replies } = await harness();
     await handler.handle({ type: "streamOpen", streamId: 9, asset: "music/a.ogg", bytes: new ArrayBuffer(8), hint: 4, startFrame: 0, epoch: 1 });
     await handler.handle({ type: "streamClose", streamId: 9 });
-    expect(replies.filter((r) => r.type === "error")).toMatchObject([{ streamId: 9, asset: "music/a.ogg" }, { streamId: 9 }]);
+    expect(replies.filter((r) => r.type === "error")).toMatchObject([{ streamId: 9, asset: "music/a.ogg" }]);
+    expect(replies.at(-1)).toEqual({ type: "streamClosed", streamId: 9 });
   });
 
   it("decodes again after an error", async () => {

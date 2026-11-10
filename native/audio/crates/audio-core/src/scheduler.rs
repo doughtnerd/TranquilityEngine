@@ -4,7 +4,8 @@
 //! in `onmessage`, never inside `process`:
 //! - The envelope is checked: a bad magic or a short message is refused; another **major** version
 //!   is refused, counted with the STATUS `versionMismatch` flag; an unknown kind of this major is
-//!   skipped. BATCH (1) and REPLAY (12) carry records; other kinds aren't handled here.
+//!   skipped. BATCH (1) and REPLAY (12) carry records; STREAM_OPEN (5) and STREAM_CLOSE (7) open
+//!   and close a stream's ring (B3, `stream.rs`); other kinds aren't handled here.
 //! - Every record head is validated before any record applies (lengths inside the message, at least
 //!   the head; BUS_CONFIG and BUS_MIX also their per-bus entries), so a malformed batch changes
 //!   nothing. Unknown opcodes, and the ones later tasks apply (SEEK), are skipped by their length.
@@ -118,8 +119,24 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
         _ => return wire::ERR_TRUNCATED,
     };
     let msg = &msg[..end];
-    if env.kind != wire::kind::BATCH && env.kind != wire::kind::REPLAY {
-        return wire::ERR_OK;
+    match env.kind {
+        wire::kind::BATCH | wire::kind::REPLAY => {}
+        // B3: the stream control messages the shell passes through the inbox (STREAM_CHUNK goes
+        // through `stream_chunk_ptr` and `stream_commit`).
+        wire::kind::STREAM_OPEN => return stream_open(core, msg),
+        wire::kind::STREAM_CLOSE => {
+            return match wire::StreamClose::read(msg, 0) {
+                Ok((c, _)) => {
+                    if core.streams_mut().close(c.stream_id) {
+                        wire::ERR_OK
+                    } else {
+                        wire::ERR_UNKNOWN_STREAM
+                    }
+                }
+                Err(e) => e,
+            };
+        }
+        _ => return wire::ERR_OK,
     }
     let header = match BatchHeader::read(msg, 0) {
         Ok((h, _)) => h,
@@ -233,6 +250,22 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
     wire::ERR_OK
 }
 
+/// STREAM_OPEN (B3, `stream.rs`): takes or restarts the stream's ring. No ring free, or a shape the
+/// ring can't hold: stream event 3 (error) for the stream and `ERR_BAD_ARG`; its voice waits until
+/// main stops it.
+fn stream_open(core: &mut Core, msg: &[u8]) -> i32 {
+    let o = match wire::StreamOpen::read(msg, 0) {
+        Ok((o, _)) => o,
+        Err(e) => return e,
+    };
+    if core.streams_mut().open(&o) {
+        return wire::ERR_OK;
+    }
+    let event = crate::counters::Event { id: o.stream_id, code: wire::stream_event::ERROR };
+    status::counters_mut(core).stream_events.push(event);
+    wire::ERR_BAD_ARG
+}
+
 /// RESET (api-and-models §4.2): frees every voice slot and drops every pending record, clears the
 /// buses' DSP state (`bus::reset`: the tree and gains stay); unless `keep_clips`, drops every clip
 /// and reclaims the arena (`clips::reset`). Ended voices aren't reported: main clears its own table
@@ -251,6 +284,8 @@ pub fn reset(core: &mut Core, keep_clips: bool) {
     if !keep_clips {
         crate::clips::reset(core);
     }
+    // B3: every voice is gone, so every ring is freed (main closes its streams with them).
+    core.streams_mut().clear();
 }
 
 /// `firstFrame + frameOffset` as an absolute frame (a negative or fractional `firstFrame` rounds,

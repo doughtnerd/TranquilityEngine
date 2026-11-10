@@ -24,7 +24,7 @@ export function AudioImportSettings(props: ImportSettingsViewProps) {
         </label>
         <label class="import-row">
           <span>Stream</span>
-          <input type="checkbox" aria-label="Stream" title="Play through HTML5 audio while loading, for long music" checked={draft.stream} onChange={(e) => set({ stream: (e.currentTarget as HTMLInputElement).checked })} />
+          <input type="checkbox" aria-label="Stream" title="Decode in pieces while it plays instead of loading whole, for long music" checked={draft.stream} onChange={(e) => set({ stream: (e.currentTarget as HTMLInputElement).checked })} />
         </label>
     </>
   );

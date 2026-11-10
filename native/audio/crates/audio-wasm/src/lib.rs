@@ -24,7 +24,7 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 
 /// ABI version, `(major << 8) | minor`. Bump the minor for an added export, the major for a change.
 pub const ABI_MAJOR: u32 = 1;
-pub const ABI_MINOR: u32 = 2;
+pub const ABI_MINOR: u32 = 3;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -199,16 +199,37 @@ pub extern "C" fn myco_audio_clip_free(clip: u32) -> i32 {
 
 // --- Streams (M1b, B3) ----------------------------------------------------------------------
 
-/// Into the stream ring (32,768 frames). TODO(B3).
+// STREAM_OPEN and STREAM_CLOSE go through the inbox and `myco_audio_submit` (B3); a chunk goes
+// through the two exports below, so the shell copies it once, straight into the ring.
+
+/// Where the shell copies `frames` interleaved f32 frames (at most 4,096) of a STREAM_CHUNK for
+/// `stream`, in its ring (`audio_core::stream`; 32,768 frames); then `myco_audio_stream_commit`.
+/// Null for an unknown stream, a chunk past the credit window or after the last one, or before
+/// `init`. `onmessage` only; never grows memory.
 #[no_mangle]
-pub extern "C" fn myco_audio_stream_chunk_ptr(_stream: u32, _frames: u32) -> *mut u8 {
-    core::ptr::null_mut()
+pub extern "C" fn myco_audio_stream_chunk_ptr(stream: u32, frames: u32) -> *mut u8 {
+    match instance().core_mut() {
+        Some(core) => core.streams_mut().chunk_ptr(stream, frames).unwrap_or(core::ptr::null_mut()),
+        None => core::ptr::null_mut(),
+    }
 }
 
-/// A stale `epoch` is dropped. TODO(B3).
+/// Commits the `frames` copied at the last `myco_audio_stream_chunk_ptr` as the stream's next
+/// frames (`frames == 0`: only `flags`, e.g. an empty last chunk). A chunk of another `epoch` is
+/// dropped (`ERR_STALE_EPOCH`). `flags` bit0 is the stream's last chunk.
 #[no_mangle]
-pub extern "C" fn myco_audio_stream_commit(_stream: u32, _frames: u32, _epoch: u32, _flags: u32) -> i32 {
-    codes::NOT_IMPLEMENTED
+pub extern "C" fn myco_audio_stream_commit(stream: u32, frames: u32, epoch: u32, flags: u32) -> i32 {
+    let Some(core) = instance().core_mut() else { return codes::NOT_INITIALIZED };
+    core.streams_mut().commit(stream, frames, epoch, flags)
+}
+
+/// ABI 1.3 (B3): frames of `stream` its voice consumed since the last call, which the shell
+/// credits back to the decoder worker (STREAM_CREDIT); `ERR_UNKNOWN_STREAM` once the ring is
+/// gone. The shell polls it after `process`. Never grows memory.
+#[no_mangle]
+pub extern "C" fn myco_audio_stream_consumed(stream: u32) -> i32 {
+    let Some(core) = instance().core_mut() else { return codes::NOT_INITIALIZED };
+    core.streams_mut().take_consumed(stream)
 }
 
 // --- Render ---------------------------------------------------------------------------------
@@ -312,7 +333,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x102);
+        assert_eq!(myco_audio_abi_version(), 0x103);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);
@@ -321,7 +342,6 @@ mod tests {
 
     #[test]
     fn stubbed_exports_return_not_implemented() {
-        use codes::NOT_IMPLEMENTED as NI;
         assert_eq!(myco_audio_submit(0), codes::NOT_INITIALIZED, "A1.2: before init");
         let not_init = codes::NOT_INITIALIZED;
         assert_eq!(myco_audio_clip_reserve(1, 128, 2, 48_000.0, 0), not_init, "A1.3b: before init");
@@ -330,7 +350,8 @@ mod tests {
         assert_eq!(myco_audio_clip_write(1, 0, 4), not_init, "A1.2: before init");
         assert_eq!(myco_audio_clip_free(1), not_init);
         assert!(myco_audio_stream_chunk_ptr(0, 4_096).is_null());
-        assert_eq!(myco_audio_stream_commit(0, 4_096, 0, 0), NI);
+        assert_eq!(myco_audio_stream_commit(0, 4_096, 0, 0), not_init, "B3: before init");
+        assert_eq!(myco_audio_stream_consumed(0), not_init);
         assert_eq!(myco_audio_status_take(), 0);
         assert_eq!(myco_audio_set_limiter_lookahead(1.5), not_init, "A2.9: before init");
         assert_eq!(myco_audio_note_underruns(1), not_init, "A3.3: before init");

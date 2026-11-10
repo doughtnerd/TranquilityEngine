@@ -4,7 +4,13 @@
 // refusal) is respawned and the pending decodes are posted again, at most `MAX_RESPAWNS` times per `RESPAWN_WINDOW_MS`
 // (B6: there is no `decodeAudioData` to fall back to); past that, or when the wasm is refused (it did not load, or its
 // hash does not match), the pending decodes fail with `DecoderUnavailableError` and the next request starts afresh.
-import type { ClipInfo, DecodeHint, DecoderReply, DecoderRequest } from "./protocol";
+//
+// B3: `connectWorklet` gives the worker its end of the channel to the worklet; `openStream`, `seekStream` and
+// `closeStream` steer streams whose PCM then flows worker to worklet; `onStream` hears `streamOpened`, `streamClosed`
+// and stream errors. Streams are not carried over to a respawned worker: a worker that dies (or is refused) fails its
+// open streams, an error each (the stream manager stops each voice with a fade and one warning), and the next worker
+// bumps `generation`, so the caller connects it to the worklet again (which closes the dead worker's rings there).
+import type { ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, StreamClosedMessage, StreamOpenedMessage, StreamPortLike } from "./protocol";
 
 /** What the client needs of a worker (a `Worker`, or an in-process stand-in in tests). */
 export interface WorkerLike {
@@ -61,9 +67,35 @@ export interface DecodeClipOptions {
   readonly onChunk?: (pcm: Int16Array, index: number) => void;
 }
 
+/** B3: what `openStream` takes. `bytes` is transferred (the caller's buffer is detached afterwards). */
+export interface StreamOpenOptions {
+  readonly streamId: number;
+  readonly asset: string;
+  readonly bytes: ArrayBuffer;
+  readonly hint: DecodeHint;
+  readonly startFrame: number;
+  readonly epoch: number;
+  readonly loop: boolean;
+}
+
+/** B3: the replies about streams. */
+export type StreamReply = StreamOpenedMessage | StreamClosedMessage | (ErrorMessage & { readonly streamId: number });
+
 export interface DecoderClient {
   /** Decodes a whole clip on the worker. `hint` is the container (see `hintFromName`); 0 lets the decoder probe. Rejects with the decoder's message on failure. */
   decodeClip(bytes: ArrayBuffer | Uint8Array, hint?: DecodeHint, options?: DecodeClipOptions): Promise<DecodedClip>;
+  /** B3: the worker's end of the channel to the worklet (transferred). Spawns the worker if needed. */
+  connectWorklet(port: MessagePort | StreamPortLike): void;
+  /** B3: opens a stream; its PCM goes to the connected worklet, its replies to `onStream`. */
+  openStream(options: StreamOpenOptions): void;
+  /** B3b: restarts a stream at `frame` with `epoch`. */
+  seekStream(streamId: number, frame: number, epoch: number): void;
+  /** B3: closes a stream (the worker sends STREAM_CLOSE to the worklet). Unknown ids are answered too. */
+  closeStream(streamId: number): void;
+  /** B3: every stream reply; returns the unsubscribe. */
+  onStream(listener: (reply: StreamReply) => void): () => void;
+  /** B3: bumped each time a worker is spawned or retired (crashed, refused, disposed); a worklet connected at another generation must be connected again. */
+  readonly generation: number;
   /** Terminates the worker and rejects what is pending. The client may be used again (it respawns). */
   dispose(): void;
 }
@@ -100,6 +132,10 @@ class Client implements DecoderClient {
   private readonly pending = new Map<number, Pending>();
   /** When the worker last crashed (ms), oldest first, within the window. */
   private crashes: number[] = [];
+  /** B3: open streams by id (their asset, for the error a dead worker gives them), and the stream listeners. */
+  private readonly streams = new Map<number, string>();
+  private readonly streamListeners = new Set<(reply: StreamReply) => void>();
+  generation = 0;
 
   constructor(
     private readonly options: DecoderClientOptions,
@@ -112,6 +148,7 @@ class Client implements DecoderClient {
     this.crashes = this.crashes.filter((t) => now - t < RESPAWN_WINDOW_MS);
     if (this.crashes.length > MAX_RESPAWNS) throw new DecoderUnavailableError(`audio decoder: the worker crashed ${this.crashes.length} times within ${RESPAWN_WINDOW_MS / 1000} s`);
     const worker = (this.options.workerFactory ?? spawnWorker)();
+    this.generation++;
     worker.onmessage = (e) => this.onReply(worker, e.data);
     worker.onerror = (e) => this.crashed(worker, `audio decoder: the worker failed${e.message ? ` (${e.message})` : ""}`);
     this.worker = worker;
@@ -154,6 +191,41 @@ class Client implements DecoderClient {
     });
   }
 
+  connectWorklet(port: MessagePort | StreamPortLike): void {
+    this.ensureWorker().postMessage({ type: "connectWorklet", port: port as StreamPortLike }, [port as unknown as Transferable]);
+  }
+
+  openStream(o: StreamOpenOptions): void {
+    let worker: WorkerLike;
+    try {
+      worker = this.ensureWorker();
+    } catch (e) {
+      // B6's respawn budget is spent (or there is no `Worker`): the stream fails like one on a dead worker.
+      this.emitStream({ type: "error", streamId: o.streamId, asset: o.asset, message: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+    this.streams.set(o.streamId, o.asset);
+    worker.postMessage({ type: "streamOpen", streamId: o.streamId, asset: o.asset, bytes: o.bytes, hint: o.hint, startFrame: o.startFrame, epoch: o.epoch, loop: o.loop }, [o.bytes]);
+  }
+
+  seekStream(streamId: number, frame: number, epoch: number): void {
+    if (this.worker && this.streams.has(streamId)) this.worker.postMessage({ type: "streamSeek", streamId, frame, epoch });
+  }
+
+  closeStream(streamId: number): void {
+    if (!this.streams.delete(streamId) || !this.worker) return;
+    this.worker.postMessage({ type: "streamClose", streamId });
+  }
+
+  onStream(listener: (reply: StreamReply) => void): () => void {
+    this.streamListeners.add(listener);
+    return () => this.streamListeners.delete(listener);
+  }
+
+  private emitStream(reply: StreamReply): void {
+    for (const listener of this.streamListeners) listener(reply);
+  }
+
   private settle(id: number): Pending | undefined {
     const entry = this.pending.get(id);
     if (!entry) return undefined; // aborted meanwhile
@@ -192,7 +264,17 @@ class Client implements DecoderClient {
       case "cancelled":
         this.settle(msg.id);
         return;
+      case "streamOpened":
+        if (this.streams.has(msg.streamId)) this.emitStream(msg);
+        return;
+      case "streamClosed":
+        this.emitStream(msg);
+        return;
       case "error": {
+        if (msg.streamId !== undefined) {
+          if (this.streams.has(msg.streamId)) this.emitStream({ ...msg, streamId: msg.streamId });
+          return;
+        }
         if (msg.id === undefined) {
           // Not tied to a request: the wasm did not load or did not match (a refusal, not a crash: no retry). Terminate so the next request starts afresh.
           if (msg.fatal) this.failAll(worker, new DecoderUnavailableError(msg.message));
@@ -202,16 +284,17 @@ class Client implements DecoderClient {
         return;
       }
       default:
-        return; // ready, and the stream replies (B3)
+        return; // ready
     }
   }
 
-  /** The worker died: respawn it and post the pending decodes again, unless it keeps dying. */
+  /** The worker died: respawn it and post the pending decodes again, unless it keeps dying. Its streams fail. */
   private crashed(worker: WorkerLike, message: string): void {
     if (worker !== this.worker) return;
     this.crashes.push((this.options.now ?? Date.now)());
     const entries = [...this.pending.entries()];
     this.retire(worker);
+    this.failStreams(`${message}; the stream stopped`);
     if (entries.length === 0) return;
     let next: WorkerLike;
     try {
@@ -230,6 +313,9 @@ class Client implements DecoderClient {
 
   private retire(worker: WorkerLike): void {
     this.worker = null;
+    // B3: a worker connected to the worklet is gone, so a caller holding the old generation connects again (the
+    // next spawn bumps it once more).
+    this.generation++;
     worker.onmessage = null;
     worker.onerror = null;
     worker.terminate();
@@ -239,6 +325,14 @@ class Client implements DecoderClient {
     if (worker !== this.worker) return;
     this.retire(worker);
     for (const id of [...this.pending.keys()]) this.settle(id)?.reject(error);
+    this.failStreams(error.message);
+  }
+
+  /** B3: the worker's streams are gone with it (its decoder state and its end of the worklet channel). */
+  private failStreams(message: string): void {
+    const streams = [...this.streams];
+    this.streams.clear();
+    for (const [streamId, asset] of streams) this.emitStream({ type: "error", streamId, asset, message });
   }
 
   dispose(): void {
