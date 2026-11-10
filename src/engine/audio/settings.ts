@@ -101,6 +101,9 @@ export const MAX_BUSES = 32;
 export const defaultBuses = (): BusSettings[] =>
   [MASTER, "Music", "SFX", "UI", "Voice"].map((name, i) => ({ name, ...(i > 0 ? { parent: MASTER } : {}), volume: 1, mute: false, effects: [] }));
 
+/** Effects per bus the audio core runs (`MAX_EFFECTS` in `audio-core/src/fx.rs`); one of them at most may be a compressor. */
+export const MAX_CORE_BUS_EFFECTS = 4;
+
 /** The backend a project gets without `audio.backend`: "babylon" until M1b passes, then "core" (B7 changes this one line). */
 export const DEFAULT_BACKEND: "babylon" | "core" = "babylon";
 
@@ -149,6 +152,10 @@ export function parseAudioSettings(input: unknown): { settings: AudioSettings; p
         if (buses.some((b) => b.name === raw.name)) return void problems.push(`${where}: another bus is already named "${raw.name}".`);
         const effects: BusEffect[] = [];
         if (Array.isArray(raw.effects)) raw.effects.forEach((e, j) => { const fx = parseEffect(e, `${where}.effects[${j}]`, problems); if (fx) effects.push(fx); });
+        // The audio core runs a bus's first MAX_CORE_BUS_EFFECTS effects and at most one compressor (`audio-core/src/fx.rs`).
+        // Kept as authored (the Web Audio reference runs them all); the problem says what the core skips.
+        if (effects.length > MAX_CORE_BUS_EFFECTS) problems.push(`${where}: the audio core runs only the first ${MAX_CORE_BUS_EFFECTS} effects of a bus; the rest are skipped.`);
+        if (effects.filter((fx) => fx.type === "compressor").length > 1) problems.push(`${where}: the audio core runs one compressor per bus (the first); the others are skipped.`);
         buses.push({
           name: raw.name,
           ...(typeof raw.parent === "string" ? { parent: raw.parent } : {}),
