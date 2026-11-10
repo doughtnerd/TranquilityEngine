@@ -1,6 +1,6 @@
 # 0160. Plugin panels accept assets dragged from the Assets panel through `registerAssetDropTarget` in the editor SDK
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-10
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

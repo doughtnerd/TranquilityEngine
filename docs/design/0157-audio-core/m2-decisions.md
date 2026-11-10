@@ -14,7 +14,7 @@ Wave 1 is merged with every gate green; wave 2 is running (E5.2 guide and E5.3 b
 - `avoidRepeat: 0` now bans nothing (entry 5): a bug fix; random events with the default pick more randomly.
 - Babylon debug rows only for event voices (entry 2): drop the `group` filter in `babylonBackend.ts` `debug()`.
 
-**Proposals waiting for your yes/no:** ADR 0160, asset drop targets in the editor SDK (entry 19).
+**Proposals waiting for your yes/no:** none.
 
 ## Entries
 
@@ -110,7 +110,8 @@ Wave 1 is merged with every gate green; wave 2 is running (E5.2 guide and E5.3 b
 - **Fix** (E4.5, the owner of the file, as part of entry 14): selection uses the larger of the gain at the target and the gain at main's running estimate of the smoothed value, re-evaluated every frame while a parameter is seeking, and not at all otherwise. The investigator's model of it is gapless (quietest 10-frame RMS 0.157 during a sweep).
 - **Re-check:** the listening pass's blended-engine item after the fix merges.
 
-### 19. Asset drop targets in the editor SDK (E6.3b) — proposed record 0160
+### 19. Asset drop targets in the editor SDK (E6.3b) (confirmed: ADR 0160 accepted)
 - **Chosen:** `registerAssetDropTarget(element, spec)` and `draggedAssets()` in `myco/editor`, from an import-free registry the asset drag consults first; the Event editor uses it. Public API, so [ADR 0160](../../decisions/0160-asset-drop-targets-in-the-editor-sdk.md) is **Proposed** for your yes/no.
 - **If declined:** mark the two exports `@internal` (first-party plugins only) until a later record.
+- **Owner (2026-11-10):** "Yes, that's approved."
 
