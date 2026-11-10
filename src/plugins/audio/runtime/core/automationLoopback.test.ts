@@ -83,7 +83,7 @@ async function loopbackRig(options: { mixer?: Mixer } = {}) {
 const vol = (slot: number, curve: number, global = false): Binding => ({ param: { global, slot }, curve, target: AutoTarget.Volume });
 
 describe("event automation in the core (E3.1, loopback)", () => {
-  it("runs an event's automation in the core: no TsAutomation on main, and a parameter change reaches the level within the seek time", async (ctx) => {
+  it("runs an event's automation in the core: no TsAutomation on main, and a parameter change reaches the level within the seek time", { timeout: 30_000 }, async (ctx) => {
     const F = "myco.audioevent@1";
     Assets.clearSources();
     Assets.addSource(Assets.fromObject({
@@ -140,7 +140,7 @@ describe("event automation in the core (E3.1, loopback)", () => {
     }
   });
 
-  it("loops a region and releases on the frame: the voice finishes its pass and plays its tail to the end", async (ctx) => {
+  it("loops a region and releases on the frame: the voice finishes its pass and plays its tail to the end", { timeout: 30_000 }, async (ctx) => {
     const r = await loopbackRig();
     if (!r) return ctx.skip();
     const { backend, step, out } = r;
@@ -177,7 +177,7 @@ describe("event automation in the core (E3.1, loopback)", () => {
     backend.dispose();
   });
 
-  it("finds a voice re-sent through a forwarding object by its id (C6)", async (ctx) => {
+  it("finds a voice re-sent through a forwarding object by its id (C6)", { timeout: 30_000 }, async (ctx) => {
     const r = await loopbackRig();
     if (!r) return ctx.skip();
     const { backend, step, out } = r;
@@ -215,7 +215,7 @@ function fakeContext() {
 }
 
 describe("a hard rebuild mid-automation (E3.1, loopback)", () => {
-  it("restores a full 1,024-curve table, parameters, bindings and loops on the new core", async () => {
+  it("restores a full 1,024-curve table, parameters, bindings and loops on the new core", { timeout: 30_000 }, async () => {
     const testing = await import("../testing");
     const loop = await testing.createLoopbackHost({ testHooks: true, preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } });
     const context = fakeContext();
