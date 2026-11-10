@@ -1,0 +1,913 @@
+{
+  "name": "stress",
+  "display": {
+    "width": 960,
+    "height": 540,
+    "backgroundColor": "#101318"
+  },
+  "time": {
+    "fixedDeltaTime": 0.016666666666666666
+  },
+  "physics": {
+    "gravity": [
+      0,
+      -9.81
+    ],
+    "layers": [
+      "Default"
+    ]
+  },
+  "render": {
+    "sortingLayers": [
+      "Default"
+    ],
+    "pixelsPerUnit": 100
+  },
+  "audio": {
+    "backend": "core",
+    "voices": {
+      "mixed": 256,
+      "logical": 4096,
+      "hrtf": 32
+    },
+    "clipMemoryMB": 256,
+    "buses": [
+      {
+        "name": "Master",
+        "volume": 1,
+        "mute": false,
+        "effects": []
+      },
+      {
+        "name": "Mix0",
+        "parent": "Master",
+        "volume": 1,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 30,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 14000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -20,
+            "knee": 20,
+            "ratio": 3,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Mix1",
+        "parent": "Master",
+        "volume": 1,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 40,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 15500,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -22,
+            "knee": 20,
+            "ratio": 4,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Mix2",
+        "parent": "Master",
+        "volume": 1,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 50,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 17000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -24,
+            "knee": 20,
+            "ratio": 5,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Mix3",
+        "parent": "Master",
+        "volume": 1,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 60,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 18500,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -26,
+            "knee": 20,
+            "ratio": 3,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus00",
+        "parent": "Mix0",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 70,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 20000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -20,
+            "knee": 20,
+            "ratio": 4,
+            "attack": 0.005,
+            "release": 0.2
+          },
+          {
+            "type": "reverb",
+            "send": 0.15
+          }
+        ]
+      },
+      {
+        "name": "Bus01",
+        "parent": "Mix1",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 80,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 14000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -22,
+            "knee": 20,
+            "ratio": 5,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus02",
+        "parent": "Mix2",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 90,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 15500,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -24,
+            "knee": 20,
+            "ratio": 3,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus03",
+        "parent": "Mix3",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 100,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 17000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -26,
+            "knee": 20,
+            "ratio": 4,
+            "attack": 0.005,
+            "release": 0.2
+          },
+          {
+            "type": "reverb",
+            "send": 0.3
+          }
+        ]
+      },
+      {
+        "name": "Bus04",
+        "parent": "Mix0",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 30,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 18500,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -20,
+            "knee": 20,
+            "ratio": 5,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus05",
+        "parent": "Mix1",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 40,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 20000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -22,
+            "knee": 20,
+            "ratio": 3,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus06",
+        "parent": "Mix2",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 50,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 14000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -24,
+            "knee": 20,
+            "ratio": 4,
+            "attack": 0.005,
+            "release": 0.2
+          },
+          {
+            "type": "reverb",
+            "send": 0.25
+          }
+        ]
+      },
+      {
+        "name": "Bus07",
+        "parent": "Mix3",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 60,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 15500,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -26,
+            "knee": 20,
+            "ratio": 5,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus08",
+        "parent": "Mix0",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 70,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 17000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -20,
+            "knee": 20,
+            "ratio": 3,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus09",
+        "parent": "Mix1",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 80,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 18500,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -22,
+            "knee": 20,
+            "ratio": 4,
+            "attack": 0.005,
+            "release": 0.2
+          },
+          {
+            "type": "reverb",
+            "send": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus10",
+        "parent": "Mix2",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 90,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 20000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -24,
+            "knee": 20,
+            "ratio": 5,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus11",
+        "parent": "Mix3",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 100,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 14000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -26,
+            "knee": 20,
+            "ratio": 3,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus12",
+        "parent": "Mix0",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 30,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 15500,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -20,
+            "knee": 20,
+            "ratio": 4,
+            "attack": 0.005,
+            "release": 0.2
+          },
+          {
+            "type": "reverb",
+            "send": 0.15
+          }
+        ]
+      },
+      {
+        "name": "Bus13",
+        "parent": "Mix1",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 40,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 17000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -22,
+            "knee": 20,
+            "ratio": 5,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus14",
+        "parent": "Mix2",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 50,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 18500,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -24,
+            "knee": 20,
+            "ratio": 3,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus15",
+        "parent": "Mix3",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 60,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 20000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -26,
+            "knee": 20,
+            "ratio": 4,
+            "attack": 0.005,
+            "release": 0.2
+          },
+          {
+            "type": "reverb",
+            "send": 0.3
+          }
+        ]
+      },
+      {
+        "name": "Bus16",
+        "parent": "Mix0",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 70,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 14000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -20,
+            "knee": 20,
+            "ratio": 5,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus17",
+        "parent": "Mix1",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 80,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 15500,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -22,
+            "knee": 20,
+            "ratio": 3,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus18",
+        "parent": "Mix2",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 90,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 17000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -24,
+            "knee": 20,
+            "ratio": 4,
+            "attack": 0.005,
+            "release": 0.2
+          },
+          {
+            "type": "reverb",
+            "send": 0.25
+          }
+        ]
+      },
+      {
+        "name": "Bus19",
+        "parent": "Mix3",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 100,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 18500,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -26,
+            "knee": 20,
+            "ratio": 5,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus20",
+        "parent": "Mix0",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 30,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 20000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -20,
+            "knee": 20,
+            "ratio": 3,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus21",
+        "parent": "Mix1",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 40,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 14000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -22,
+            "knee": 20,
+            "ratio": 4,
+            "attack": 0.005,
+            "release": 0.2
+          },
+          {
+            "type": "reverb",
+            "send": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus22",
+        "parent": "Mix2",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 50,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 15500,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -24,
+            "knee": 20,
+            "ratio": 5,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus23",
+        "parent": "Mix3",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 60,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 17000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -26,
+            "knee": 20,
+            "ratio": 3,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus24",
+        "parent": "Mix0",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 70,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 18500,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -20,
+            "knee": 20,
+            "ratio": 4,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus25",
+        "parent": "Mix1",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 80,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 20000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -22,
+            "knee": 20,
+            "ratio": 5,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      },
+      {
+        "name": "Bus26",
+        "parent": "Mix2",
+        "volume": 0.8,
+        "mute": false,
+        "effects": [
+          {
+            "type": "highpass",
+            "frequency": 90,
+            "q": 0.707
+          },
+          {
+            "type": "lowpass",
+            "frequency": 14000,
+            "q": 0.707
+          },
+          {
+            "type": "compressor",
+            "threshold": -24,
+            "knee": 20,
+            "ratio": 3,
+            "attack": 0.005,
+            "release": 0.2
+          }
+        ]
+      }
+    ],
+    "snapshots": [
+      {
+        "name": "Muffled",
+        "volumes": {
+          "Mix0": 0.7,
+          "Mix1": 0.7
+        },
+        "lowpass": {
+          "Mix0": 900,
+          "Mix1": 1500,
+          "Mix2": 3000
+        }
+      },
+      {
+        "name": "Quiet",
+        "volumes": {
+          "Mix2": 0.4,
+          "Mix3": 0.4
+        },
+        "lowpass": {}
+      }
+    ],
+    "ducking": [
+      {
+        "target": "Mix0",
+        "trigger": "Bus01",
+        "amount": 0.7,
+        "attack": 0.05,
+        "release": 0.5
+      }
+    ]
+  },
+  "autoload": []
+}

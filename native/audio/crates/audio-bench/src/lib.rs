@@ -220,6 +220,12 @@ pub fn scene(name: &str) -> Option<Scene> {
         // The high preset with the adaptive cap acting on the production budget.
         "high-cap" => Scene { cap: true, ..Scene::preset(name, 8_192, 256, 32, 16) },
         "default-cap" => Scene { cap: true, ..Scene::preset(name, 4_096, 128, 16, 8) },
+        // The Stress sample's content (`samples/stress`, C1): the editor's high preset (256 mixed, 4,096 logical,
+        // 32 HRTF), its 8 streams and pitch 0.5-16 for the one-shots. Informational: the sample's long quiet "beds"
+        // are the scene's looping virtual voices, its "hits" the restarted one-shots. `starts_per_sec: 120` makes the
+        // one-shots longer at pitch 1, so that pitch 16's short ones still come to about 200 starts a second.
+        "stress" => Scene { pitch: (0.5, 16.0), starts_per_sec: 120.0, ..Scene::preset(name, 4_096, 256, 32, 8) },
+        "stress-cap" => Scene { pitch: (0.5, 16.0), starts_per_sec: 120.0, cap: true, ..Scene::preset(name, 4_096, 256, 32, 8) },
         _ => return None,
     };
     Some(s)
