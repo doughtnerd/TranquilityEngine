@@ -25,6 +25,11 @@
 // B3: a `PlayRequest` with `stream: true` is a stream voice (`streams.ts`): no clip load; its PLAY (flag `stream`)
 // goes out at once and the decoder worker feeds the core's ring directly. It is an ordinary voice otherwise (mixed or
 // virtual, spatial, routed through any bus and its effects, paused, faded, stolen), as the design has it.
+//
+// ADR 0158 (M2 E3.1): `automation` is the event runtime's sink on the core (`coreAutomation.ts`: CURVES, PARAM,
+// AUTOMATE, BUS_AUTOMATE, SET_LOOP and their mirror for a rebuild), so events' automation runs in the core and the
+// runtime makes no `TsAutomation`. PLAY carries the request's `group`; `clipDuration` and `horizon` let continuous
+// containers schedule gapless with `at`.
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
 import type { BusEffect } from "../../../../engine/audio/settings";
@@ -68,6 +73,8 @@ import { sharedDecoderClient } from "../decoder/decoderClient";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { effectiveMixedCap, ListenerBasis, Selection, type SelectionSink } from "./selection";
 import { HrtfPick, type HrtfSink } from "./hrtfPick";
+import { CoreAutomation } from "./coreAutomation";
+import { MAX_GROUPS } from "../events/automation";
 
 /** `PlayRequest` plus the core's World key. */
 export interface CorePlayRequest extends PlayRequest {
@@ -176,6 +183,8 @@ export class CoreBackend implements AudioBackend {
   private readonly hrtfSink: HrtfSink;
   /** B3: the stream voices' main side (`streams.ts`). */
   readonly streams: StreamManager;
+  /** ADR 0158 (E3.1): the event runtime's automation sink on the core, and its mirror for a rebuild (`coreAutomation.ts`). */
+  readonly automation: CoreAutomation;
 
   private readonly clock: HostClock;
   private readonly reader = new StatusReader();
@@ -257,6 +266,15 @@ export class CoreBackend implements AudioBackend {
     this.streams.afterSeek = (voice, frame) => this.reanchorSeek(voice, frame);
     // Stream voices' positions are in their stream's frames, at its rate (B3).
     this.playheads = new PlayheadTracker(this.table, { info: (id) => this.streams.clipInfo(id) ?? this.clips.info(id) }, host.sampleRate);
+    this.automation = new CoreAutomation({
+      table: this.table,
+      writer: this.writer,
+      clockMap: this.clockMap,
+      playheads: this.playheads,
+      clipInfo: (i) => ((this.table.flags[i]! & VoiceFlag.STREAM) !== 0 ? this.streams.clipInfo(this.table.clip[i]!) : this.clips.info(this.table.clip[i]!)),
+      busIndex: (name) => this.busIndexByName.get(name) ?? -1,
+      sending: () => !this.disposed && !this.recovering && this.host.status !== "failed",
+    });
     this.replayer = new Replayer(this, host.link);
     for (let i = 0; i < MAX_BUS; i++) this.mixPool.push({ gain: 1, lpHz: BUS_LP_OFF_HZ });
     this.clipSink = { event: (id, code) => this.clips.applyClipEvent(id, code) };
@@ -365,6 +383,7 @@ export class CoreBackend implements AudioBackend {
   play(req: CorePlayRequest): CoreVoice | null {
     if (this.disposed || this.host.status === "failed") return null;
     const world = req.world ?? 0;
+    const group = req.group !== undefined && Number.isInteger(req.group) && req.group >= 1 && req.group <= MAX_GROUPS ? req.group : 0;
     // B3: a stream voice takes a stream id where a clip voice takes a registry clip (no clip load).
     const stream = req.stream === true;
     const clip = stream ? this.streams.allocate() : this.clips.acquire(req.path, world);
@@ -380,6 +399,7 @@ export class CoreBackend implements AudioBackend {
     const t = this.table;
     const i = id & 0xffff;
     t.clip[i] = clip;
+    t.group[i] = group;
     t.volume[i] = req.volume !== undefined && Number.isFinite(req.volume) ? Math.max(0, req.volume) : 1;
     t.pitch[i] = req.pitch !== undefined && Number.isFinite(req.pitch) ? clamp(req.pitch, MIN_PITCH, MAX_PITCH) : 1;
     t.flags[i] = (req.loop ? VoiceFlag.LOOP : 0) | (req.oneShot ? VoiceFlag.ONE_SHOT : 0) | (stream ? VoiceFlag.STREAM | VoiceFlag.WANTS_PLAYHEAD : 0);
@@ -397,7 +417,9 @@ export class CoreBackend implements AudioBackend {
     if (running) this.launch(id);
     else if (req.oneShot && !req.loop) this.lockedQueue.pushOneShot(id, performance.now());
     else this.lockedQueue.pushOwned(id);
-    return new Voice(this, id);
+    const voice = new Voice(this, id);
+    this.automation.onPlay(voice, req);
+    return voice;
   }
 
   setListener(pose: ListenerPose): void {
@@ -448,6 +470,8 @@ export class CoreBackend implements AudioBackend {
     this.busIndexByName.clear();
     this.names.forEach((n, i) => this.busIndexByName.set(n, i));
     this.writer.busConfig(this.busConfigWire(mixer));
+    // ADR 0158: bus bindings follow their buses to the new indices.
+    this.automation.onBusesConfigured();
     // The mixer's counts restart at 0 when it is reconfigured; the table knows every live voice (virtual and locked
     // included), so ducking keeps counting them across a remap. Peaks reported for the old indices are dropped.
     this.names.forEach((n, i) => mixer._setVoiceCount(n, this.table.busLive[i]!));
@@ -526,6 +550,7 @@ export class CoreBackend implements AudioBackend {
     this.mirror.drainClipEvents(this.clipSink);
     this.mirror.drainStreamEvents(this.streamSink);
     this.replayer.flush();
+    this.automation.beginFrame();
     if (this.lockedQueue.size > 0 && this.host.status === "running" && !this.recovering) this.unlock();
     if (this.spatialCount > 0) this.moveSpatial();
     this.select();
@@ -654,6 +679,22 @@ export class CoreBackend implements AudioBackend {
     this.table.onFree = null;
     this.host.link.statusDecoder = readStatus;
     this.writer.clear();
+  }
+
+  /** ADR 0158: the clip's length in seconds at pitch 1 once the registry has decoded it; null while unknown (or streamed). */
+  clipDuration(path: string): number | null {
+    return this.clips.duration?.(path) ?? null;
+  }
+
+  /**
+   * ADR 0158: the earliest `Audio.time` a play with `at` lands on exactly: the time of frame *F*_now + L (a stamp the
+   * writer keeps, `lookahead.ts`). Before the clock has an estimate, `time` (such a play goes asap).
+   */
+  horizon(): number {
+    const clock = this.clockMap;
+    const now = clock.framesNow();
+    if (!(now > 0)) return this.time;
+    return Math.ceil(now + clock.lookaheadFrames()) / clock.sampleRate + clock.timeOffset;
   }
 
   // --- Voice operations (`Voice` calls these) ---
@@ -894,6 +935,7 @@ export class CoreBackend implements AudioBackend {
     a.clip = t.clip[i]!;
     a.bus = t.bus[i]!;
     const f = t.flags[i]!;
+    a.group = t.group[i]!;
     a.flags =
       (t.state[i] === VoiceState.PLAYING ? PLAY_FLAGS_MIXED : 0) |
       (f & VoiceFlag.LOOP ? PLAY_FLAGS_LOOP : 0) |
@@ -913,6 +955,8 @@ export class CoreBackend implements AudioBackend {
     const stamp = this.clockMap.stampFor(start);
     this.writer.play(a, stamp);
     this.playheads.start(i, stamp ?? this.clockMap.framesNow(), a.startOffsetFrames);
+    // ADR 0158: the voice's bindings and loop, right behind its PLAY.
+    this.automation.onPlaySent(id, i, stamp);
     // A3.7: paused before it reached the core (locked, or its clip loading): it waits there, paused, until resumed.
     if (f & VoiceFlag.PAUSED) this.writer.setPaused(id, true);
     if (start > 0) t.startFrame[i] = 0;
@@ -1021,6 +1065,8 @@ export class CoreBackend implements AudioBackend {
     if (this.table.liveCount > 0 || this.clips.residentIds().length > 0) return;
     this.idlePending = false;
     this.writer.reset(false);
+    // RESET 0 clears the core's automation tables too: the mirror goes again, spread over frames.
+    this.automation.afterReset();
   }
 
   private onFree(id: number, bus: number): void {
@@ -1035,6 +1081,7 @@ export class CoreBackend implements AudioBackend {
     if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) this.streams.close(t.clip[i]!);
     else this.clips.release(t.clip[i]!);
     this.hrtf.forget(i);
+    this.automation.forget(i);
     this.mixer.voiceEnded(this.names[bus] ?? "");
     if ((t.flags[i]! & VoiceFlag.SPATIAL) !== 0) this.spatialCount--;
     t.flags[i] = 0;

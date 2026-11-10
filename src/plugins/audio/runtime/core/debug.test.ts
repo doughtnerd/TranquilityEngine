@@ -110,6 +110,7 @@ describe("buildDebugInfo: voices (A2.5)", () => {
     table.pitch[i] = 1.25;
     table.audibility[i] = 0.4;
     table.owner[i] = 9;
+    table.group[i] = 12;
     const info = buildDebugInfo(source);
     expect(info.voices).toEqual([
       {
@@ -124,8 +125,11 @@ describe("buildDebugInfo: voices (A2.5)", () => {
         audibility: expect.closeTo(0.4, 5),
         playheadSeconds: null,
         owner: "9",
+        event: 12,
       },
     ]);
+    table.group[i] = 0;
+    expect(buildDebugInfo(source).voices[0]!.event).toBeNull();
   });
 
   it("maps every table state and bus-muted or starved reasons to the API's state", () => {
@@ -214,7 +218,7 @@ describe("buildDebugInfo: virtual and stolen voices (A3.1)", () => {
     const fresh = table.allocate(1, 200, 0, P); // the bus is full: steals `old`
     expect(fresh).not.toBe(0);
     const stolen = buildDebugInfo(source).voices.filter((v) => v.state === "stolen");
-    expect(stolen).toEqual([{ id: old, clip: "sfx/hit.wav", bus: "music", world: "4", state: "stolen", priority: 10, gain: 0, pitch: 1, audibility: 0, playheadSeconds: null, owner: null }]);
+    expect(stolen).toEqual([{ id: old, clip: "sfx/hit.wav", bus: "music", world: "4", state: "stolen", priority: 10, gain: 0, pitch: 1, audibility: 0, playheadSeconds: null, owner: null, event: null }]);
     table.frame = 160;
     expect(buildDebugInfo(source).voices.some((v) => v.state === "stolen")).toBe(true);
     table.frame = 161;

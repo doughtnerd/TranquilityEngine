@@ -55,6 +55,11 @@ export interface ClipRegistry {
   state(id: number): ClipState;
   /** Everything known about the clip, or null for an unknown id. */
   info(id: number): ClipInfo | null;
+  /**
+   * ADR 0158 (E3.1): the length in seconds (at pitch 1) of the clip loaded for `path`, or null while it isn't known
+   * (not acquired, still loading, failed). Optional so fakes still satisfy K9.
+   */
+  duration?(path: string): number | null;
   /** Calls `listener` once when the clip is ready or failed (at once if it already is). Returns an unsubscribe. */
   onResident(id: number, listener: ClipResidentListener): () => void;
   /** Drops `key` from every clip's holders (A0.8's `onWorldReleased`). */
@@ -572,6 +577,10 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
   };
 
   return {
+    duration(path) {
+      const slot = byPath.get(path);
+      return slot && slot.frames > 0 && slot.sampleRate > 0 ? slot.frames / slot.sampleRate : null;
+    },
     acquire(path, holder = 0) {
       let slot = byPath.get(path);
       if (!slot) {
