@@ -7,6 +7,7 @@ The coordinator's calls during the M2 build ([plan](../../plans/2026-11-audio-ev
 Wave 1 is merged with every gate green; wave 2 is running (E5.2 guide and E5.3 bench merged). Master has E1, E2, E3a and the plan.
 
 **Needs you:**
+- When M2a is ready: the listening pass in [m2-listening-pass.md](m2-listening-pass.md) (E7.1).
 1. The lab-VM run (E5.5): `./native/audio/target/release/audio-bench mode=scene name=automation-probe seconds=20 runs=5` and `npm run bench:audio-events` (entry 11).
 
 **Biggest calls so far:**
