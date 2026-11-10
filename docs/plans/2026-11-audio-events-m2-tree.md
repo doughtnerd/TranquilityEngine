@@ -20,7 +20,11 @@ Done before splitting, over the file lists in the waves plan. Hotspots are files
 | Hotspot: `babylonBackend.ts` wanted by E3.2 (setLoop) and E4's Babylon loop points | W1/W3 | **Hook stub** (C1): E3.2 calls `loopPointsFor()` from `loopPoints.ts`, which returns `null` until E4.2 fills it; E4.5 (W3) makes the call live. No E4 task edits `babylonBackend.ts` before W3 |
 | Hotspot: debug voice rows (`core/debug.ts`, Babylon's `debug()`) and the panel | W1 | **Interface stub** (C3): `voices[].event` declared in `backend.ts` in W0; E3.1 fills core rows, E3.2 Babylon rows, E3.6 groups in the panel |
 | Hotspot: `decoder/protocol.ts` wanted by E4.1 (decode reply), E4.2 (main side) and E4.4 (stream open, release) | W1/W2 | **Generate the whole format first** (C2): the coordinator adds every M2 field and message in W0 |
-| Hotspot: `decoder.rs` and `handler.ts` wanted by E4.1 and E4.4 | W1/W2 | wave move: E4.1 in W1, E4.4 in W2 (E4.4 needs E4.1's reader anyway) |
+| Hotspot: `decoder.rs`, `handler.ts`, `decoder/clips.ts`, `decoder/wasm.ts` wanted by E4.1 and E4.4 | W1/W2 | wave move: E4.1 in W1 (the worker's clip reply is in `clips.ts`), E4.4 in W2 (it needs E4.1's reader anyway) |
+| Hotspot: `decoder/decoderClient.ts` wanted by E4.2 (decode reply) and E4.4 (stream open, `streamLoop`) | W2 | single owner E4.4; C2 makes the reply's points reach `ClipInfo`, which E4.2 reads in `clipRegistry.ts` (found in review) |
+| Hotspot: `coreBackend.ts`/`replay.ts` wanted by E4.4 (region-aware seek, `reopenStreams`, `PlayheadTracker`) | W2 | E4.4 is their only W2 writer; E3.1 (W1) leaves a wrap helper in `coreAutomation.ts` (found in review) |
+| Hotspot: `events/automation.ts` wanted by E3.4 (parity fixes) and E3.3 (double-applied gain) | W2 | E3.4 owns it in W2; the gain fix moved to E3.6 in W1 (found in review) |
+| Rework: E3.5's goldens if E3.4 changes `automation.rs` | W2 | the coordinator recaptures at the merge (found in review) |
 | Hotspot: `events/eventRuntime.ts` wanted by E3.3 (re-send), E3.5 (fixes from tests) and E3.6 (rough edges) | W1/W2 | E3.6 alone in W1; E3.3 and E3.5 share one lead in W2, who owns the file |
 | Hotspot: `testing.ts` (fake backend) | W1/W2 | single writer per wave: E3.6 in W1, the E3.3+E3.5 lead in W2 |
 | Hotspot: `clipRegistry.ts` wanted by E3.1 (duration getter) and E4.2 (loop points) | W1/W2 | wave move: E4.2 in W2; E3.1's edit is a getter only |
@@ -30,7 +34,7 @@ Done before splitting, over the file lists in the waves plan. Hotspots are files
 | Hotspot: tests: E3.5 vs the existing `events.test.ts` and `audioGolden.test.ts` | W2 | **Separate test files**: `containers`, `instances`, `sourceAndDebug`, `handover`, `eventGolden` |
 | Rework: E3.2's loop-points call, E4.5's flip | W1→W3 | **Planned stub replacement**, labelled in both briefs |
 | Rework: E6.2's placeholder panel and stub `Audition.tsx` | W1→W2/W3 | planned; E6.2's brief says the bodies are placeholders |
-| Rework: E3.4 finding a Rust bug | W2 | allowed: E3.4 owns `audio-core/src/automation.rs` in W2; nobody else edits audio-core in M2 |
+| Rework: E3.4 finding a Rust bug | W2 | allowed: E3.4 owns `audio-core/src/automation.rs` in W2; E4.4 may own `stream.rs`/`voices.rs` in W2 if its release needs it; the coordinator rebuilds the mixer wasm once after both merge |
 | Checked and left: `Audio.ts`, `AudioSource.ts` (E3.6 only); `importSettings.ts` (E4.2 only); `AudioSettingsSection.tsx` and its model (E6.5 only); the particles plugin (E6.1 only); `samples/sound-lab/` (E5.1 only) | | no overlap |
 
 ## How a task runs
@@ -66,8 +70,8 @@ Spec:
 |---|---|---|---|---|
 | E3.1 (3) | strongest | all: the sink over the command writer, the mirror and its replay in REPLAY, `group` in PLAY, `horizon()` from the clock map, audibility of bound voices on a parameter change (evaluate with `curve.ts` at the target), core debug rows, the loopback tests (including a rebuild mid-automation) | none: replay, ordering against PLAY and the rebuild lifecycle are lead work; the audibility helper is under a quarter day | – |
 | E3.2 (1) | mid | all | none: one file, the mocked AudioV2 voice lifecycle; too small to split | – |
-| E3.6 (1.5) | mid | all | none: judgement calls across five files (the getter, per-World seeding, live pitch, the panel grouping) | – |
-| E3.3 (0.5) + E3.5 (3) | mid (one lead) | skeleton test files with named skipped cases; `PendingVoice` hand-over (E3.3); the four wasm event goldens (capture on the loopback host, JSON files); runtime fixes the leaves' tests expose | **L3.5a**: `events/containers.test.ts`; spec: 0158 §1 "Containers" bullets, `eventFormat.ts` node types, the fake backend's API in `testing.ts`. **L3.5b**: `events/instances.test.ts` (limits oldest/quietest/none, cooldown, group exhaustion and reuse at 1024, release twice, release with no sustain); spec: 0158 §1 "Instances", §4 "Release", the capacities in `events/automation.ts`. **L3.5c**: `events/sourceAndDebug.test.ts` (`AudioSource` with an event, `setParameter`/`release` through it, `Audio.debug().events` and `voices[].event`, backend-switch re-send); spec: 0158 §5 | 0.6 each, 1.8 |
+| E3.6 (2) | mid | all, starting with tests that pin today's behaviour | none: judgement calls across seven files (the getter, per-World seeding and step positions, live pitch, the gain fix, the panel grouping and frame-late count) | – |
+| E3.3 (0.5) + E3.5 (3) | mid (one lead) | skeleton test files with named skipped cases; `PendingVoice` hand-over (E3.3); the four wasm event goldens (capture on the loopback host, JSON files); runtime fixes the leaves' tests expose | **L3.5a**: `events/containers.test.ts`; spec: 0158 §1 "Containers" bullets, `eventFormat.ts` node types, the fake backend's API in `testing.ts`. **L3.5b**: `events/instances.test.ts` (limits oldest/quietest/none, cooldown, group exhaustion and reuse at 1024, release twice, release with no sustain); spec: 0158 §1 "Instances", §4 "Release", the capacities in `events/automation.ts`. **L3.5c**: `events/sourceAndDebug.test.ts` (`AudioSource` with an event, `setParameter`/`release` through it, `Audio.debug().events` and `voices[].event`; the backend-switch re-send is the lead's, in `handover.test.ts`); spec: 0158 §5 | 0.6 each, 1.8 |
 | E3.4 (1.5) | mid | all | none: one test file whose value is the choice of scenes and tolerance | – |
 
 ### E4: loop points from files
@@ -76,8 +80,8 @@ Spec:
 |---|---|---|---|---|
 | E4.1 (1.5) | mid | the skeleton of `loop_points.rs` (`fn read_loop_points(bytes) -> Option<(u32, u32)>` per container), the call from `decoder.rs`, the worker's reply in `handler.ts` (C2 fields), how a streamed file's trailing `smpl` is found (risk in the waves plan) | **L4.1a**: `audio-decode/src/loop_points.rs`, `audio-decode/tests/loop_points.rs`; spec: the WAV `smpl` chunk layout (manufacturer, product, sample period, MIDI unity note, pitch fraction, SMPTE format/offset, loop count, sampler data, then 24-byte loop records `cuePointId, type, start, end, fraction, playCount`; use the first forward loop, `end` inclusive), Vorbis/Opus comments `LOOPSTART` (frames) and `LOOPLENGTH` (frames), case-insensitive, fixtures built in the test | 0.75 |
 | E4.2 (1.5) | mid | `loopPoints.ts` (precedence: sidecar over file), the decoder client and clip registry wiring, the `importSettings.ts` keys | **L4.2a**: `runtime/loopPointsReader.ts`, `loopPointsReader.test.ts`; spec: port `audio-decode/src/loop_points.rs` at W1's merge commit, same rules and fixtures | 0.75 |
-| E4.4 (2) | strongest | all | none: the worker's region seek and prefetch, release timing against the ring, the stream rebuild path | – |
-| E4.5 (0.5) | mid | all | none: a behaviour change with a sample-clip survey | – |
+| E4.4 (2.5) | strongest | all, starting with the release mechanism (ring flush or core change) | none: the worker's region seek and prefetch, release timing against the ring, the stream rebuild path | – |
+| E4.5 (1) | mid | all | none: a behaviour change with a sample-clip survey, late-arriving points, Babylon's byte fetch | – |
 
 ### E5: M2a exit
 
@@ -109,8 +113,8 @@ All figures are estimates.
 
 | | Before the tree | After |
 |---|---|---|
-| Strongest model | 10 days (E3.1, E4.4, E6.3) | 8.5 |
-| Mid model | ≈ 25 days (incl. the coordinator's E7.2) | ≈ 18.7 |
+| Strongest model | 10.5 days (E3.1, E4.4, E6.3) | 9 |
+| Mid model | ≈ 27 days (incl. the coordinator's E7.2) | ≈ 20.7 |
 | Cheapest model | 0 | ≈ 7.8 (12 leaves) |
 | Pure critical path | 10 days | ≈ 9 (E6.3's leaves overlap its lead's core) |
 
