@@ -260,7 +260,7 @@ pub fn render(core: &mut Core, frame: u64) {
     let end = frame + QUANTUM as u64;
     core.regions_mut().output[..2 * QUANTUM].fill(0.0);
     let mut cursor = 0usize;
-    let mut source_frames = 0.0f32;
+    let (mut source_frames, mut moving) = (0.0f32, 0u32);
     while let Some(record) = crate::scheduler::pop_due(core, end) {
         let offset = if record.frame < frame {
             note_late(core, frame - record.frame);
@@ -269,16 +269,20 @@ pub fn render(core: &mut Core, frame: u64) {
             (record.frame - frame) as usize
         };
         if offset > cursor {
-            source_frames += render_range(core, frame, cursor, offset);
+            let (f, m) = render_range(core, frame, cursor, offset);
+            source_frames += f;
+            moving = moving.max(m);
             cursor = offset;
         }
         crate::scheduler::apply(core, &record);
     }
     if cursor < QUANTUM {
-        source_frames += render_range(core, frame, cursor, QUANTUM);
+        let (f, m) = render_range(core, frame, cursor, QUANTUM);
+        source_frames += f;
+        moving = moving.max(m);
     }
-    // A3.5: the source frames the mixed voices read, for the work-unit model's pitch term.
-    core.cap_mut().note_source_frames(source_frames);
+    // A3.5: the source frames the mixed voices read and the moving ones, for the work-unit model.
+    core.cap_mut().note_voices(source_frames, moving);
     crate::panner::flush(core, frame);
     report(core);
 }
@@ -292,9 +296,10 @@ fn note_late(core: &mut Core, lateness: u64) {
 /// Renders every live voice over frames `from..to` of the quantum at `frame`, each into its bus's
 /// input buffer (A2.1; `bus::mixdown` mixes the buses into the output after the last range).
 /// Returns about how many source frames the mixed voices read (A3.5: each one's pitch × rate
-/// ratio at the range's start × its frames; the work-unit model's pitch term). Reading it changes
-/// nothing rendered.
-fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> f32 {
+/// ratio at the range's start × its frames; the work-unit model's pitch term) and how many mixed
+/// voices were moving (their pan matrix ramping, which takes the per-frame path). Reading them
+/// changes nothing rendered.
+fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u32) {
     let sample_rate = core.params().sample_rate;
     let fade_frames = mix_fade_frames(core);
     let (regions, clips, streams) = core.render_parts();
@@ -304,7 +309,7 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> f32 {
     // H3: the HRTF bank, once the HRIR table is resident (kind-1 voices pan equal-power until then).
     let mut hrtf = crate::panner::view(clips);
     let v = view(regions);
-    let mut source_frames = 0.0f32;
+    let (mut source_frames, mut moving) = (0.0f32, 0u32);
     let mut cursor = v.area.live_head;
     while cursor != 0 {
         let index = cursor as usize - 1;
@@ -339,6 +344,7 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> f32 {
         let Some((out_l, out_r)) = inputs.get(slot.bus) else { continue };
         if slot.flags & flag::MIXED != 0 {
             source_frames += slot.pitch.value * slot.rate_ratio * (to - start) as f32;
+            moving += !slot.panner.matrix.iter().all(|r| r.is_settled()) as u32;
         }
         if slot.flags & flag::STREAM != 0 {
             render_stream_voice(slot, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r);
@@ -346,7 +352,7 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> f32 {
             render_voice(slot, clips, hrtf.as_mut(), frame, fade_frames, start, to, out_l, out_r);
         }
     }
-    source_frames
+    (source_frames, moving)
 }
 
 /// Renders one playing voice over frames `from..to` of the quantum at `frame` (mixed) or keeps its

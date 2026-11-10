@@ -54,6 +54,8 @@ pub mod wu {
     pub const MIXED_VOICE: u32 = 1_150;
     /// Each 128 source frames the mixed voices read (provisional).
     pub const SOURCE_QUANTUM: u32 = 0;
+    /// A moving mixed voice (provisional).
+    pub const MOVING_VOICE: u32 = 0;
     /// A virtual voice keeping time (§6.1: ≈ 0.008 µs).
     pub const VIRTUAL_VOICE: u32 = 8;
     /// An HRTF-panned voice on top of its mixed cost (§6.1: 6.6 µs static; 10.4 crossfading).
@@ -92,6 +94,19 @@ const GAPS_BEFORE_ON_TIME: u32 = 2;
 /// The gap average's EMA weight (as main's Δ̄, architecture §4.3).
 const GAP_EMA: f64 = 0.1;
 
+/// One quantum's render work beyond the counters (A3.5; [`CapState::render_work`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RenderWork {
+    /// Source frames the mixed voices read (128 per voice at pitch 1).
+    pub source_frames: f32,
+    /// Mixed voices whose pan matrix was ramping (a direction change).
+    pub moving: u32,
+    /// HRTF panners crossfading two kernel sets.
+    pub hrtf_crossfading: u32,
+    /// HRTF kernel computations.
+    pub hrtf_kernels: u32,
+}
+
 /// The adaptive cap's state, a field of [`Core`]. Build with [`CapState::new`].
 #[derive(Clone, Copy, Debug)]
 pub struct CapState {
@@ -126,6 +141,7 @@ pub struct CapState {
     /// [`after_render`]: source frames the mixed voices read (pitch), HRTF panners crossfading two
     /// kernel sets, and kernel computations.
     source_frames: f32,
+    moving: u32,
     hrtf_crossfading: u32,
     hrtf_kernels: u32,
     /// Cumulative: decreases, increases, and voices the cap demoted (tests and a debugger).
@@ -164,6 +180,7 @@ impl CapState {
             batches: 0,
             pending_records: 0,
             source_frames: 0.0,
+            moving: 0,
             hrtf_crossfading: 0,
             hrtf_kernels: 0,
             decreases: 0,
@@ -193,9 +210,11 @@ impl CapState {
     }
 
     /// The render's note of the source frames its mixed voices read this quantum (A3.5; each
-    /// mixed voice's pitch × rate ratio × frames, so 128 per voice at pitch 1).
-    pub fn note_source_frames(&mut self, frames: f32) {
-        self.source_frames = frames;
+    /// mixed voice's pitch × rate ratio × frames, so 128 per voice at pitch 1) and of the mixed
+    /// voices moving (pan matrix ramping).
+    pub fn note_voices(&mut self, source_frames: f32, moving: u32) {
+        self.source_frames = source_frames;
+        self.moving = moving;
     }
 
     /// The HRTF flush's note of this quantum's panners crossfading kernel sets and kernel
@@ -205,10 +224,9 @@ impl CapState {
         self.hrtf_kernels = kernels;
     }
 
-    /// The last quantum's source frames, HRTF panners crossfading and kernel computations (the
-    /// work-unit terms the counters don't carry; tests and the bench).
-    pub fn render_work(&self) -> (f32, u32, u32) {
-        (self.source_frames, self.hrtf_crossfading, self.hrtf_kernels)
+    /// The last quantum's render work the counters don't carry (tests and the bench).
+    pub fn render_work(&self) -> RenderWork {
+        RenderWork { source_frames: self.source_frames, moving: self.moving, hrtf_crossfading: self.hrtf_crossfading, hrtf_kernels: self.hrtf_kernels }
     }
 
     /// Sets the work-unit budget (tests and a lab harness; production keeps [`BUDGET_WU`]).
@@ -291,6 +309,7 @@ fn model(core: &Core, records: u32) -> u32 {
     let source_quanta = (s.source_frames.max(0.0) as u64) / QUANTUM as u64;
     let mut units = mixed * wu::MIXED_VOICE as u64
         + source_quanta * wu::SOURCE_QUANTUM as u64
+        + s.moving as u64 * wu::MOVING_VOICE as u64
         + live.saturating_sub(mixed) * wu::VIRTUAL_VOICE as u64
         + c.hrtf_voices as u64 * wu::HRTF_VOICE as u64
         + s.hrtf_crossfading as u64 * wu::HRTF_CROSSFADE as u64

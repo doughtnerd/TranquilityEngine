@@ -142,6 +142,8 @@ pub struct Scene {
     pub streams: u32,
     /// Every batch sends SET_PARAMS (gain and direction) for every mixed voice.
     pub updates: bool,
+    /// Those updates ramp over the frame (else they apply at once, so the pan matrix settles).
+    pub ramps: bool,
     /// The adaptive cap acts on the production budget (else its budget is unlimited) and main
     /// obeys `mixedCap`.
     pub cap: bool,
@@ -169,6 +171,7 @@ impl Scene {
             moving: false,
             streams: 0,
             updates: false,
+            ramps: true,
             cap: false,
         }
     }
@@ -321,12 +324,19 @@ pub fn sweeps() -> Vec<Sweep> {
         scenes: [8u32, 16, 32].iter().map(|&n| Scene { hrtf: n, moving: true, ..looping(format!("hrtf-moving-{n}"), 32) }).collect(),
         x: |r| r.mean_hrtf,
     });
-    // Records: per-frame SET_PARAMS for 256 mixed voices, off and on.
+    // Records: per-frame SET_PARAMS for 256 mixed voices, off and on, applied at once.
     out.push(Sweep {
         term: "record",
         unit: "µs per record",
-        scenes: [false, true].iter().map(|&on| Scene { updates: on, ..looping(format!("records-{on}"), 256) }).collect(),
+        scenes: [false, true].iter().map(|&on| Scene { updates: on, ramps: false, ..looping(format!("records-{on}"), 256) }).collect(),
         x: |r| r.records_per_quantum,
+    });
+    // Moving voices: the same updates ramping over the frame (the pan matrix's per-frame path).
+    out.push(Sweep {
+        term: "moving",
+        unit: "µs per moving mixed voice",
+        scenes: [false, true].iter().map(|&on| Scene { updates: true, ramps: on, ..looping(format!("ramps-{on}"), 256) }).collect(),
+        x: |r| r.mean_moving,
     });
     // Streams: 32 mixed voices of which 0, 8, 16 are streams.
     out.push(Sweep {
@@ -383,6 +393,7 @@ pub struct RunResult {
     pub mean_crossfading: f64,
     pub mean_kernels: f64,
     pub mean_source_frames: f64,
+    pub mean_moving: f64,
     pub records_per_quantum: f64,
     pub starts_per_quantum: f64,
     pub wu_mean: f64,
@@ -789,7 +800,7 @@ impl Bench {
             }
         }
         let t = q as f32 * QUANTUM as f32 / RATE;
-        let ramp = (BATCH_EVERY as u32) * QUANTUM as u32;
+        let ramp = if s.ramps { (BATCH_EVERY as u32) * QUANTUM as u32 } else { 0 };
         for k in 0..self.mixed_ids.len() {
             let id = self.mixed_ids[k];
             let v = self.voices[(id & 0xFFFF) as usize].unwrap();
@@ -868,7 +879,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     let mut wus = Vec::with_capacity(rec_q);
     let (mut xf_v, mut k_v, mut h_v) = (Vec::with_capacity(rec_q), Vec::with_capacity(rec_q), Vec::with_capacity(rec_q));
     let mut r = RunResult { cap_min: u32::MAX, ..Default::default() };
-    let (mut sum_mixed, mut sum_live, mut sum_src) = (0f64, 0f64, 0f64);
+    let (mut sum_mixed, mut sum_live, mut sum_src, mut sum_moving) = (0f64, 0f64, 0f64, 0f64);
     let mut status_buf = vec![0u8; 16 * 1024];
     let mut deadline = platform::now_us();
     let (mut records_at_warm, mut starts_at_warm) = (0u64, 0u64);
@@ -909,7 +920,9 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
         }
         if recording {
             let c = status::counters(&b.core);
-            let (src, xf, kern) = b.core.cap().render_work();
+            let w = b.core.cap().render_work();
+            let (src, xf, kern) = (w.source_frames, w.hrtf_crossfading, w.hrtf_kernels);
+            sum_moving += w.moving as f64;
             times.push(dt as f32);
             wus.push(b.core.work_units() as f32);
             sum_mixed += c.mixed_voices as f64;
@@ -950,6 +963,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     r.mean_mixed = sum_mixed / n;
     r.mean_live = sum_live / n;
     r.mean_source_frames = sum_src / n;
+    r.mean_moving = sum_moving / n;
     r.mean_hrtf = h_v.iter().map(|&x| x as f64).sum::<f64>() / n;
     r.mean_crossfading = xf_v.iter().map(|&x| x as f64).sum::<f64>() / n;
     r.mean_kernels = k_v.iter().map(|&x| x as f64).sum::<f64>() / n;
@@ -1042,7 +1056,7 @@ fn num(args: &str, key: &str, default: f64) -> f64 {
 
 fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
     format!(
-        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{}}}",
+        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{}}}",
         r.quanta,
         r.p50,
         r.p99,
@@ -1057,6 +1071,7 @@ fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
         r.kernels.iter().max().copied().unwrap_or(0),
         r.budget_max,
         r.mean_source_frames,
+        r.mean_moving,
         r.records_per_quantum,
         r.starts_per_quantum * RATE as f64 / QUANTUM as f64,
         r.wu_mean,
