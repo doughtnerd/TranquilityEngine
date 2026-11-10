@@ -1,0 +1,116 @@
+{
+  "note": "Wasm instructions per quantum of audio-bench scenes in the metered build (ADR 0157 C1b). Rewrite with UPDATE_METERED_BASELINE=1 node tools/audio-bench/metered-gate.mjs.",
+  "meterVersion": 1,
+  "sourceHash": "9eb72cf5600f1d354d3ddc634b94854f",
+  "settings": {
+    "seconds": 2,
+    "warmup": 1,
+    "seed": 1
+  },
+  "scenes": {
+    "low": {
+      "quanta": 750,
+      "perQuantum": 8588346,
+      "total": 6441259568,
+      "p99": 9713324,
+      "max": 9779255,
+      "wuMean": 676694
+    },
+    "default": {
+      "quanta": 750,
+      "perQuantum": 19520507,
+      "total": 14640380025,
+      "p99": 20477566,
+      "max": 20504808,
+      "wuMean": 1415736
+    },
+    "high": {
+      "quanta": 750,
+      "perQuantum": 32515016,
+      "total": 24386261715,
+      "p99": 33644160,
+      "max": 33733408,
+      "wuMean": 2343672
+    },
+    "high-pitch16": {
+      "quanta": 750,
+      "perQuantum": 32261681,
+      "total": 24196260968,
+      "p99": 33560656,
+      "max": 33727812,
+      "wuMean": 2343643
+    },
+    "stress": {
+      "quanta": 750,
+      "perQuantum": 28439750,
+      "total": 21329812178,
+      "p99": 29642948,
+      "max": 29689242,
+      "wuMean": 2082680
+    },
+    "stress-cap": {
+      "quanta": 750,
+      "perQuantum": 24738412,
+      "total": 18553809195,
+      "p99": 26982624,
+      "max": 27472750,
+      "wuMean": 1791275
+    },
+    "fx": {
+      "quanta": 750,
+      "perQuantum": 5037796,
+      "total": 3778346917,
+      "p99": 5600796,
+      "max": 5603663,
+      "wuMean": 459760
+    },
+    "hrtf-static": {
+      "quanta": 750,
+      "perQuantum": 6311747,
+      "total": 4733810070,
+      "p99": 6312246,
+      "max": 6312294,
+      "wuMean": 349360
+    },
+    "hrtf-moving": {
+      "quanta": 750,
+      "perQuantum": 8921680,
+      "total": 6691260045,
+      "p99": 9187600,
+      "max": 9194234,
+      "wuMean": 527413
+    },
+    "streams": {
+      "quanta": 750,
+      "perQuantum": 1466447,
+      "total": 1099835168,
+      "p99": 1477596,
+      "max": 1477596,
+      "wuMean": 112560
+    },
+    "pitch4": {
+      "quanta": 750,
+      "perQuantum": 4839798,
+      "total": 3629848245,
+      "p99": 4840351,
+      "max": 4840581,
+      "wuMean": 453360
+    },
+    "virtual": {
+      "quanta": 750,
+      "perQuantum": 7102981,
+      "total": 5327235413,
+      "p99": 7103468,
+      "max": 7103516,
+      "wuMean": 581840
+    },
+    "updates": {
+      "quanta": 750,
+      "perQuantum": 13975175,
+      "total": 10481381280,
+      "p99": 14385348,
+      "max": 14385825,
+      "wuMean": 1105307
+    }
+  }
+}

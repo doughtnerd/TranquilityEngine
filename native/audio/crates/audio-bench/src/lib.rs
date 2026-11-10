@@ -176,6 +176,11 @@ impl Scene {
         }
     }
 
+    /// `mixed` looping voices at pitch 1, each reading its own clip of 64 MB ÷ `mixed`, on one bus (the sweeps' base).
+    fn looping(name: &str, mixed: u32) -> Scene {
+        Scene { mixed, ..Scene::base(name) }
+    }
+
     /// A preset's full scene (architecture §6.5 "Content"): mixed one-shots at 200 starts per
     /// second over 64 MB of clips, pitch 0.5–2, the rest of the logical voices virtual and
     /// looping, 32 buses each with lowpass, highpass, compressor and snapshot low-pass, the reverb
@@ -226,6 +231,21 @@ pub fn scene(name: &str) -> Option<Scene> {
         // one-shots longer at pitch 1, so that pitch 16's short ones still come to about 200 starts a second.
         "stress" => Scene { pitch: (0.5, 16.0), starts_per_sec: 120.0, ..Scene::preset(name, 4_096, 256, 32, 8) },
         "stress-cap" => Scene { pitch: (0.5, 16.0), starts_per_sec: 120.0, cap: true, ..Scene::preset(name, 4_096, 256, 32, 8) },
+        // Focused scenes for the metered gate (C1b, `tools/audio-bench/metered-gate.mjs`): each loads one part of the
+        // core so a regression there moves its count by more than it moves a preset's. 32 looping voices unless named.
+        // The bus graph: 32 buses each with lowpass, highpass, compressor and snapshot low-pass, 8 sending to the reverb.
+        "fx" => Scene { buses: 32, biquads: 2, compressor: true, snapshot_lp: true, reverb: true, reverb_sends: 8, ..Scene::looping(name, 32) },
+        // HRTF: all 32 voices on the HRTF panner, still (convolution only) and turning (kernel updates, crossfades).
+        "hrtf-static" => Scene { hrtf: 32, ..Scene::looping(name, 32) },
+        "hrtf-moving" => Scene { hrtf: 32, moving: true, ..Scene::looping(name, 32) },
+        // Streams: 16 of the 32 voices read stream rings fed 4,096 frames at a time.
+        "streams" => Scene { streams: 16, ..Scene::looping(name, 32) },
+        // The resampler: 128 voices at pitch 4 (four source frames per output frame).
+        "pitch4" => Scene { pitch: (4.0, 4.0), ..Scene::looping(name, 128) },
+        // Virtual voices keeping time: 8,064 looping virtual voices beside 16 mixed.
+        "virtual" => Scene { max_logical: 8_192, virtual_voices: 8_064, ..Scene::looping(name, 16) },
+        // Records and the moving pan path: SET_PARAMS (gain and direction, ramped) for 256 voices every batch.
+        "updates" => Scene { updates: true, ..Scene::looping(name, 256) },
         _ => return None,
     };
     Some(s)
@@ -241,7 +261,7 @@ pub struct Sweep {
 
 /// The sweeps that fit architecture §6.1's terms (and `cap::wu`).
 pub fn sweeps() -> Vec<Sweep> {
-    let looping = |name: String, mixed: u32| Scene { mixed, ..Scene::base(&name) };
+    let looping = |name: String, mixed: u32| Scene::looping(&name, mixed);
     let mut out = Vec::new();
     // Mixed voices at pitch 1, each looping its own clip of 64 MB / mixed (cache-cold), one bus.
     out.push(Sweep {
