@@ -219,6 +219,8 @@ pub extern "C" fn myco_audio_stream_commit(_stream: u32, _frames: u32, _epoch: u
 pub extern "C" fn myco_audio_process(frame_lo: u32, frame_hi: u32) -> *const f32 {
     // A0.3: render, then let the status writer note the quantum (currentFrame, work units).
     let frame = ((frame_hi as u64) << 32) | frame_lo as u64;
+    #[cfg(feature = "test-hooks")]
+    trap_if_asked();
     match instance().core_mut() {
         Some(core) => {
             let out = core.process(frame).as_ptr();
@@ -270,6 +272,31 @@ pub extern "C" fn myco_audio_debug_decode_batch(_len: u32) -> u32 {
     codes::NOT_IMPLEMENTED as u32
 }
 
+/// Set by `myco_audio_debug_trap_next`; the next `myco_audio_process` traps when it is set.
+#[cfg(feature = "test-hooks")]
+static TRAP_NEXT: Global<bool> = Global::new(false);
+
+/// A3.4a: makes the next `myco_audio_process` hit `unreachable` (a real wasm trap inside the render
+/// call), so the loopback tests can drive the shell's trap catch and the host's hard rebuild.
+#[cfg(feature = "test-hooks")]
+#[no_mangle]
+pub extern "C" fn myco_audio_debug_trap_next() {
+    // SAFETY: single-threaded (see `Global`).
+    unsafe { *TRAP_NEXT.get() = true };
+}
+
+/// The trap `myco_audio_debug_trap_next` asked for, at the top of `myco_audio_process`.
+#[cfg(feature = "test-hooks")]
+fn trap_if_asked() {
+    // SAFETY: single-threaded (see `Global`).
+    if unsafe { core::mem::replace(&mut *TRAP_NEXT.get(), false) } {
+        #[cfg(target_arch = "wasm32")]
+        core::arch::wasm32::unreachable();
+        #[cfg(not(target_arch = "wasm32"))]
+        panic!("myco_audio_debug_trap_next: the trap asked for");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,5 +324,17 @@ mod tests {
         assert_eq!(myco_audio_stream_commit(0, 4_096, 0, 0), NI);
         assert_eq!(myco_audio_status_take(), 0);
         assert_eq!(myco_audio_set_limiter_lookahead(1.5), not_init, "A2.9: before init");
+    }
+
+    /// A3.4a's test hook: the check `myco_audio_process` runs first traps (natively, a panic) once
+    /// after `myco_audio_debug_trap_next`. `cargo test -p audio-wasm --features test-hooks` runs it
+    /// (the loopback tests drive the real wasm trap).
+    #[cfg(feature = "test-hooks")]
+    #[test]
+    fn trap_next_traps_once() {
+        trap_if_asked();
+        myco_audio_debug_trap_next();
+        assert!(std::panic::catch_unwind(trap_if_asked).is_err());
+        trap_if_asked();
     }
 }
