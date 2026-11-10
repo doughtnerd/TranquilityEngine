@@ -573,6 +573,9 @@ interface SustainWatch {
   loopStart: number | null;
 }
 
+/** The poll interval for waiting on a voice's end: just past now, so the check is due at the next frame's `update` (and not again inside this one). */
+const RECHECK = 1e-6;
+
 /** A continuous random/sequence running. */
 interface Runner {
   node: EventNode & { children: EventNode[]; gap: number };
@@ -936,16 +939,16 @@ export class EventInstance {
     }
   }
 
-  /** Run `then` once every voice `of()` returns has stopped playing (checked on a 50 ms timer; only for unknown lengths). */
+  /** Run `then` once every voice `of()` returns has stopped playing (polled each frame; only for unknown lengths, so the next clip starts one frame late, ADR 0158 §6). */
   private whenDone(of: () => VoiceRec[], then: () => void): void {
     this.pending++;
     const check = () => {
       if (this.stopped) { this.pending--; return; }
-      if (of().some((v) => v.voice.playing)) { this.sys.schedule(this.sys.clock() + 0.05, this, check); return; }
+      if (of().some((v) => v.voice.playing)) { this.sys.schedule(this.sys.clock() + RECHECK, this, check); return; }
       this.pending--;
       then();
     };
-    this.sys.schedule(this.sys.clock() + 0.05, this, check);
+    this.sys.schedule(this.sys.clock() + RECHECK, this, check);
   }
 
   private switchChild(node: SwitchNode): number {
