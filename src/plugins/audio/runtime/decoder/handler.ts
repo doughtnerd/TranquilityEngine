@@ -62,6 +62,7 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
     active.add(msg.id);
     try {
       const info = await decodeClip(decoder, new Uint8Array(msg.bytes), msg.hint, {
+        onInfo: (info) => post({ type: "clipInfo", id: msg.id, info }),
         onChunk: (index, pcm) => post({ type: "clipChunk", id: msg.id, index, pcm: pcm.buffer as ArrayBuffer }, [pcm.buffer as ArrayBuffer]),
         cancelled: () => cancelled.has(msg.id),
         yieldToEvents,

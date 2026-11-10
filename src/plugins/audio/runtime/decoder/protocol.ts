@@ -86,6 +86,17 @@ export interface ReadyMessage {
   readonly abiVersion: number;
 }
 
+/**
+ * B5: sent once per clip decode before its first chunk: what the file says about itself. `frames` is the container's
+ * length (-1 when unknown, an MP3 without a length header) and `lengthKnown` says whether it is exact, so a caller can
+ * size CLIP_BEGIN and start uploading while the rest decodes.
+ */
+export interface ClipInfoMessage {
+  readonly type: "clipInfo";
+  readonly id: number;
+  readonly info: ClipInfo;
+}
+
 /** A piece of a clip, interleaved int16 (`pcm` transferred), `index` counting from 0. All chunks but the last hold `CLIP_CHUNK_FRAMES` frames. */
 export interface ClipChunkMessage {
   readonly type: "clipChunk";
@@ -145,7 +156,7 @@ export interface ErrorMessage {
   readonly fatal?: boolean;
 }
 
-export type DecoderReply = ReadyMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage;
+export type DecoderReply = ReadyMessage | ClipInfoMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage;
 
 /** Frames per `clipChunk`: 65,536 (1.5 s at 44.1 kHz), 128 KiB per channel, so a long clip is never one huge message. */
 export const CLIP_CHUNK_FRAMES = 65536;

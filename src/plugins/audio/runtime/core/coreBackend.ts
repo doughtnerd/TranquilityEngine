@@ -48,6 +48,7 @@ import { PlayheadTracker, Replayer } from "./replay";
 import { buildDebugInfo, type AudioDebugInfo } from "./debug";
 import { BackgroundController } from "./background";
 import { browserHostClock, type HostClock } from "./hostClock";
+import { createDecoderClient, type DecoderClient } from "../decoder/decoderClient";
 import { decodeClip } from "./loader";
 import { StatusMirror } from "./mirror";
 import { DistanceEffect } from "./spatial";
@@ -899,6 +900,15 @@ class Voice implements CoreVoice {
 }
 
 /**
+ * B5: the decoder worker the registry decodes clips on. Undefined where there is no `Worker` (Node tests), which is the
+ * switch back to `decodeAudioData`; the registry also falls back by itself, with one warning, when the worker cannot start.
+ * B6 removes the fallback and this check.
+ */
+function clipDecodeWorker(): Pick<DecoderClient, "decodeClip"> | undefined {
+  return typeof Worker === "function" ? createDecoderClient() : undefined;
+}
+
+/**
  * The factory `service.ts` registers with `registerCoreBackend`: wires the registry to the host (its messages go
  * through `CoreLink.post` with the link's `seq`, clips are fetched from the project's asset URLs and decoded on the
  * host's context) and the clock to the context.
@@ -919,6 +929,7 @@ export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): 
       },
       // The host's current context (a rebuild may have replaced it, A3.4c); a re-decode keeps the clip's own rate.
       decode: (encoded, rate) => decodeClip(host.context, encoded, rate),
+      decodeWorker: clipDecodeWorker(),
       clipFormat: settings.clipFormat === "f32" ? 0 : 1,
       ceilingBytes: (settings.clipMemoryMB ?? DEFAULT_CLIP_CEILING_MB) * (1 << 20),
     });

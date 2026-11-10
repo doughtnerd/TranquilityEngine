@@ -32,3 +32,11 @@ export function interleaveI16(_channels: readonly Float32Array[], _start: number
     for (let f = 0, d = c; f < _frames; f++, d += n) _dst[d] = toI16(src[_start + f]);
   }
 }
+
+/** B5: int16 to f32 (`s < 0 ? s / 32768 : s / 32767`, the inverse of `interleaveI16`'s scaling) for a worker clip uploaded as f32. `dst.length` is at least `src.length`. */
+export function i16ToF32(src: Int16Array, dst: Float32Array): void {
+  for (let i = 0; i < src.length; i++) {
+    const v = src[i]!;
+    dst[i] = v < 0 ? v / 32768 : v / 32767;
+  }
+}
