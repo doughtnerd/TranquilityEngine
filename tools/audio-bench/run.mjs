@@ -31,7 +31,7 @@ const sleeper = new Int32Array(new SharedArrayBuffer(4));
 const { instance } = await WebAssembly.instantiate(readFileSync(wasmPath), {
   env: {
     bench_now: () => performance.now(),
-    bench_print: (ptr, len) => console.log(new TextDecoder().decode(new Uint8Array(memory.buffer, ptr, len))),
+    bench_print: (ptr, len) => console.log(new TextDecoder().decode(new Uint8Array(memory.buffer, ptr >>> 0, len))),
     bench_sleep: (ms) => {
       if (ms > 0) Atomics.wait(sleeper, 0, 0, ms);
     },
@@ -40,5 +40,5 @@ const { instance } = await WebAssembly.instantiate(readFileSync(wasmPath), {
 memory = instance.exports.memory;
 const bytes = new TextEncoder().encode(args);
 const ptr = instance.exports.bench_alloc(bytes.length);
-new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
+new Uint8Array(memory.buffer, ptr >>> 0, bytes.length).set(bytes);
 instance.exports.bench_main(ptr, bytes.length);

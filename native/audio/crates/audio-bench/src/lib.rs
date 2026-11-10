@@ -432,6 +432,7 @@ struct Voice {
 
 struct Bench {
     core: Core,
+    block: (*mut u8, std::alloc::Layout),
     rng: Rng,
     scene: Scene,
     /// Per clip id (1-based): frames.
@@ -455,18 +456,24 @@ struct Bench {
     starts: u64,
 }
 
+/// The scene's init parameters. The arena's initial reserve holds all of the scene's clips (with
+/// the size classes' rounding) and the HRTF bank, so it never grows and the block can be freed
+/// after the run (wasm memory can't shrink; runs would otherwise pile up past 4 GB).
 fn init_params(s: &Scene) -> InitParams {
-    InitParams { sample_rate: RATE, max_logical: s.max_logical, max_mixed: s.max_mixed, max_buses: 32, arena_initial_bytes: 16 << 20 }
+    let arena_mb = s.clip_mb + s.clip_mb / 2 + 16;
+    InitParams { sample_rate: RATE, max_logical: s.max_logical, max_mixed: s.max_mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20 }
 }
 
-fn new_core(p: InitParams) -> Core {
+/// A core over a fresh zeroed block; returns the block to free after the core is dropped.
+fn new_core(p: InitParams) -> (Core, *mut u8, std::alloc::Layout) {
     let layout = Layout::new(&p);
     let block = std::alloc::Layout::from_size_align(layout.total(), PAGE_BYTES).unwrap();
-    // SAFETY: non-zero size, zeroed, page-aligned; leaked on purpose ('static).
+    // SAFETY: non-zero size; zeroed and page-aligned as `Core::new` needs.
     let base = unsafe { std::alloc::alloc_zeroed(block) };
     assert!(!base.is_null(), "the block");
-    // SAFETY: a fresh block of `layout.total()` zeroed bytes, aligned to PAGE_BYTES.
-    unsafe { Core::new(p, layout, base) }
+    // SAFETY: a fresh block of `layout.total()` zeroed bytes, aligned to PAGE_BYTES; it outlives
+    // the core (freed only after the core is dropped, `Bench::free`).
+    (unsafe { Core::new(p, layout, base) }, base, block)
 }
 
 /// The shipped HRIR asset (44.1 kHz, delays in).
@@ -520,8 +527,11 @@ fn load_hrir(core: &mut Core, bytes: &[u8]) {
 
 impl Bench {
     fn new(scene: &Scene, seed: u32, hrir: Option<&[u8]>) -> Bench {
-        let mut core = new_core(init_params(scene));
+        let (mut core, base, block) = new_core(init_params(scene));
         core.clips_mut().set_ceiling(usize::MAX);
+        // Growth would take memory the block's free can't return: refuse it (a scene that needs it
+        // fails its reserve loudly).
+        core.clips_mut().set_grow(|_| None);
         if !scene.cap {
             // Unlimited budget: the cap never acts, so every scene keeps its voices.
             core.cap_mut().set_budget(u32::MAX);
@@ -555,6 +565,7 @@ impl Bench {
         }
         let mut b = Bench {
             core,
+            block: (base, block),
             rng,
             scene: scene.clone(),
             order: (1..=count as u32).collect(),
@@ -978,6 +989,10 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     r.reverb = scene.reverb;
     r.reverb_sends = scene.reverb_sends;
     r.streams = scene.streams;
+    let (base, block) = b.block;
+    drop(b);
+    // SAFETY: the core over the block is gone with `b`; nothing else points into it.
+    unsafe { std::alloc::dealloc(base, block) };
     r.times = times;
     r.crossfading = xf_v;
     r.kernels = k_v;
