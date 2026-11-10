@@ -189,6 +189,7 @@ export class CoreBackend implements AudioBackend {
     this.selectionSink = {
       setMixed: (i, mixed) => this.sendMixed(i, mixed),
       steal: (i) => this.stealSlot(i),
+      setScore: (i, score) => this.sendScore(i, score),
     };
     this.mirror = new StatusMirror(this.table);
     this.writer = new CommandWriter(host.link, host.sampleRate);
@@ -394,9 +395,9 @@ export class CoreBackend implements AudioBackend {
   }
 
   /**
-   * The mixed cap selection uses (architecture §6.3): `min(voices.mixed, mixedCap)`, where `mixedCap` is STATUS's
-   * (0, ignored, until A3.3's adaptive cap reports one). A3.3 feeds its value through the mirror; nothing else here
-   * needs to change.
+   * The mixed cap selection uses (architecture §6.3): `min(voices.mixed, mixedCap)`, where `mixedCap` is STATUS's: the
+   * core's adaptive cap (A3.3), through the mirror. Before the first STATUS it is `voices.mixed`. `Audio.debug()`
+   * reports this value as `counters.mixedCap`.
    */
   mixedCap(): number {
     const configured = this.host.preset.maxMixed ?? this.table.capacity;
@@ -597,6 +598,7 @@ export class CoreBackend implements AudioBackend {
     a.dirZ = t.dirZ[i]!;
     a.lpHz = BUS_LP_OFF_HZ;
     a.score = t.audibility[i]!;
+    this.selection.noteScoreSent(i, a.score);
     const start = t.startFrame[i]!;
     // A3.2: stamped at its frame while that is ahead of F_now; past (or asap) goes asap (§1 `at`, `lookahead.ts`).
     this.writer.play(a, this.clockMap.stampFor(start));
@@ -661,6 +663,12 @@ export class CoreBackend implements AudioBackend {
     const id = ((t.gen[i]! << 16) | i) >>> 0;
     if (mixed) this.spatialDirty[i] = 0;
     this.writer.setMixed(id, mixed, t.gain[i]!, t.dirX[i]!, t.dirY[i]!, t.dirZ[i]!, t.lpHz[i]!);
+  }
+
+  /** A3.3: selection re-sends slot `i`'s score (its audibility moved), the core's key for its own lowest-score demote. */
+  private sendScore(i: number, score: number): void {
+    const t = this.table;
+    this.writer.setScore(((t.gen[i]! << 16) | i) >>> 0, score);
   }
 
   /** Selection stole slot `i` (its bus is past `maxVoices`): free it as STOLEN; `onFree` stops it on the core. */

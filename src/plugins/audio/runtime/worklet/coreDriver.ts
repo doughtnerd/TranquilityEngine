@@ -83,6 +83,8 @@ export interface CoreExports {
   myco_audio_process(frameLo: number, frameHi: number): number;
   myco_audio_status_take(): number;
   myco_audio_status_ptr(): number;
+  /** ABI 1.2 (A3.3): the underrun probe's running total, when it changes; feeds the adaptive cap. Absent before 1.2. */
+  myco_audio_note_underruns?(total: number): number;
 }
 
 /** @internal A core instantiated and initialised over its Memory. */
@@ -265,6 +267,8 @@ export class CoreDriver {
   readonly right = this.output.subarray(QUANTUM_FRAMES, OUTPUT_SAMPLES);
   /** Traps caught; sent in STATUS `traps`. */
   traps = 0;
+  /** The probe's underrun total as last told to the core (A3.3's adaptive cap). */
+  private notedUnderruns = 0;
 
   private pingSeq = 0;
   private pingFrameLo = 0;
@@ -436,6 +440,7 @@ export class CoreDriver {
   process(currentFrame: number, dateNow: number): Float32Array {
     this.stats.quanta++;
     this.probe.step(currentFrame, dateNow);
+    if (this.probe.underruns !== this.notedUnderruns) this.noteUnderruns();
     this.clipBudget = CLIP_BYTES_PER_QUANTUM;
     if (this.clipQueue.length > 0) this.drainClips();
     let ptr = 0;
@@ -458,6 +463,16 @@ export class CoreDriver {
       this.postStatus(dateNow);
     }
     return this.output;
+  }
+
+  /** A3.3: the core's adaptive cap drops on an underrun, so the probe's new total goes to it before this quantum renders. */
+  private noteUnderruns(): void {
+    this.notedUnderruns = this.probe.underruns;
+    try {
+      this.core.exports.myco_audio_note_underruns?.(this.probe.underruns);
+    } catch (error) {
+      this.trapped(error);
+    }
   }
 
   private trapped(error: unknown): void {

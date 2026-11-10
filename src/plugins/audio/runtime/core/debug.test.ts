@@ -188,6 +188,12 @@ describe("buildDebugInfo: header, counters and core (A2.5 keeps them)", () => {
     expect(info.counters).toMatchObject({ underruns: 2, mixedVoices: 3, mixedCap: 16, logicalVoices: 1, queuedPlays: 0, droppedPlays: 0, refusedLoads: 0, hrtfVoices: 1 });
     expect(info.core).toEqual({ backend: "core", hrtfReady: true });
   });
+
+  it("reports the cap selection runs at when the backend gives one (A3.3)", () => {
+    const { mirror, source } = setup();
+    mirror.apply(makeStatusBlock({ mixedCap: 0 }));
+    expect(buildDebugInfo({ ...source, mixedCap: () => 24 }).counters.mixedCap).toBe(24);
+  });
 });
 
 describe("buildDebugInfo: virtual and stolen voices (A3.1)", () => {

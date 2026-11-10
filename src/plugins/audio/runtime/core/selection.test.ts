@@ -3,7 +3,7 @@
 // weight, a dropping cap, MIN_AUDIBILITY, the core's demote, and steals past a bus's `maxVoices`.
 import { describe, expect, it } from "vitest";
 import { listenerSpaceDirection } from "./spatial";
-import { DWELL_FRAMES, effectiveMixedCap, HYSTERESIS, ListenerBasis, MIN_AUDIBILITY, priorityWeight, rankTop, Selection, type SelectionSink } from "./selection";
+import { DWELL_FRAMES, effectiveMixedCap, HYSTERESIS, ListenerBasis, MIN_AUDIBILITY, priorityWeight, rankTop, SCORE_BUDGET, SCORE_RATIO, Selection, type SelectionSink } from "./selection";
 import { VoiceFlag, VoiceReason, VoiceState, VoiceTable } from "./voiceTable";
 
 /** A sink that records the changes and frees stolen slots as the backend does. */
@@ -279,5 +279,68 @@ describe("ListenerBasis (A3.1)", () => {
       expect([basis.dirX, basis.dirY, basis.dirZ]).toEqual([...want.direction]);
       expect(basis.distance).toBe(want.distance);
     }
+  });
+});
+
+describe("score refresh for the core's own demote (A3.3)", () => {
+  /** `n` mixed voices at gain 1 whose PLAY sent their audibility as the score, and a sink that records score updates. */
+  function scored(n: number) {
+    const { table, sel, sink } = setup(Array(n).fill(1), n, Math.max(64, n));
+    for (let i = 0; i < n; i++) sel.noteScoreSent(i, sel.audibilityOf(i));
+    const scores: [number, number][] = [];
+    sink.setScore = (i, score) => scores.push([i, score]);
+    return { table, sel, sink, scores, run: () => sel.run(n, sink) };
+  }
+
+  it("sends nothing while audibility stays within 3 dB of the score sent", () => {
+    const { table, scores, run } = scored(4);
+    table.gain[1] = 1.4; // +2.9 dB
+    table.gain[2] = 0.71; // -3.0 dB, still inside
+    for (let f = 0; f < 5; f++) run();
+    expect(scores).toEqual([]);
+  });
+
+  it("re-sends a mixed voice's score once it moves more than 3 dB either way, then not again", () => {
+    const { table, sel, scores, run } = scored(4);
+    table.gain[1] = 2;
+    table.gain[3] = 0.5;
+    const stats = run();
+    expect(scores.map(([i]) => i)).toEqual([1, 3]);
+    expect(scores[0]![1]).toBeCloseTo(table.audibility[1]!, 6);
+    expect(sel.sentScore[3]).toBeCloseTo(table.audibility[3]!, 6);
+    expect(stats.scores).toBe(2);
+    scores.length = 0;
+    run();
+    expect(scores).toEqual([]);
+    expect(SCORE_RATIO).toBeCloseTo(Math.SQRT2);
+  });
+
+  it("only mixed voices: a virtual voice's score is sent when it is promoted and moves", () => {
+    const { table, scores, run } = scored(2);
+    table.state[1] = VoiceState.VIRTUAL;
+    table.gain[1] = 0.1;
+    run();
+    expect(scores.map(([i]) => i)).not.toContain(1);
+  });
+
+  it("sends at most SCORE_BUDGET a frame and the rest on later frames", () => {
+    const n = SCORE_BUDGET + 10;
+    const { table, scores, run } = scored(n);
+    for (let i = 0; i < n; i++) table.gain[i] = 4;
+    run();
+    expect(scores).toHaveLength(SCORE_BUDGET);
+    run();
+    expect(scores).toHaveLength(n);
+    expect(new Set(scores.map(([i]) => i)).size).toBe(n);
+    run();
+    expect(scores).toHaveLength(n);
+  });
+
+  it("a sink without setScore gets no score work", () => {
+    const { table, sel, ids } = setup([1, 1], 2);
+    void ids;
+    table.gain[0] = 8;
+    const { sink } = recorder(table);
+    expect(sel.run(2, sink).scores).toBe(0);
   });
 });

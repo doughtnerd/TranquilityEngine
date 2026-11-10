@@ -9,7 +9,13 @@
 // - **Forced virtual**: voices of an inaudible World (§3.9: the World lost the view) and paused voices are virtual
 //   whatever the room, at once (no dwell). A voice below `MIN_AUDIBILITY` (-100 dB) is never promoted.
 // - **Top N**: `selectTopK` (O(L), no sort, no allocation) keeps the `cap` best of the candidates mixed, where cap is
-//   `min(voices.mixed, mixedCap)` (the backend's `mixedCap()`, A3.3's seam).
+//   `min(voices.mixed, mixedCap)` (the backend's `mixedCap()`: STATUS `mixedCap`, A3.3's adaptive cap, through
+//   `effectiveMixedCap`). When the cap drops, the core has already demoted the lowest-score voices itself (STATUS
+//   `demoted`, which the table follows), and selection at the lower cap never promotes past it.
+// - **Score refresh (A3.3)**: the core ranks its own demotes by each voice's `score`, which PLAY carries. A mixed voice
+//   whose audibility moved more than `SCORE_RATIO` (3 dB) from the score last sent gets a score-only SET_PARAMS
+//   (`SelectionSink.setScore`), at most `SCORE_BUDGET` a frame (the rest go on later frames), so the wire isn't flooded
+//   by fades and moving sources.
 // - **Hysteresis 1.2x**: a mixed voice's key is its audibility times 1.2, so a virtual voice replaces it only when it
 //   is more than 1.2x louder.
 // - **Dwell 3 frames**: a voice that changed state (by selection, the core's demote, or a new PLAY) less than 3 frames
@@ -33,6 +39,10 @@ import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTabl
 export const HYSTERESIS = 1.2;
 /** @internal §3 (API §10 issue 9): a voice keeps a new state for at least 3 selection frames. */
 export const DWELL_FRAMES = 3;
+/** @internal A3.3: a mixed voice's score is re-sent when its audibility moves more than this factor (3 dB) either way. */
+export const SCORE_RATIO = Math.SQRT2;
+/** @internal A3.3: at most this many score updates a frame (56 bytes each). */
+export const SCORE_BUDGET = 64;
 /** @internal Audibility below this (-100 dB) is never promoted (it would cost a mixed voice and be inaudible). */
 export const MIN_AUDIBILITY = 1e-5;
 /** @internal §1: priority raises audibility by at most 2x (+6 dB). */
@@ -69,6 +79,8 @@ export interface SelectionSink {
   setMixed(i: number, mixed: boolean): void;
   /** Slot `i` is stolen (its bus is over `maxVoices`): stop it on the core and free it with reason STOLEN. */
   steal(i: number): void;
+  /** A3.3: slot `i`'s audibility moved enough that the core's copy of its `score` is re-sent (SET_PARAMS score). */
+  setScore?(i: number, score: number): void;
 }
 
 /** @internal What one `run` did (for tests, the bench and `Audio.debug()`). */
@@ -82,6 +94,8 @@ export interface SelectionStats {
   promoted: number;
   demoted: number;
   stolen: number;
+  /** Score updates sent (A3.3). */
+  scores: number;
 }
 
 /**
@@ -183,7 +197,11 @@ export class Selection {
   mixedCount = 0;
   /** Selection frames run (the table's `frame` follows it, for the debug view's recent steals). */
   frame = 0;
-  readonly stats: SelectionStats = { candidates: 0, ranked: 0, mixed: 0, promoted: 0, demoted: 0, stolen: 0 };
+  readonly stats: SelectionStats = { candidates: 0, ranked: 0, mixed: 0, promoted: 0, demoted: 0, stolen: 0, scores: 0 };
+  /** The `score` the core holds for slot `i`: what its PLAY or the last score update carried (A3.3). */
+  readonly sentScore: Float32Array;
+  /** This frame's slots whose score is re-sent (at most `SCORE_BUDGET`). */
+  private readonly scoreQueue = new Uint16Array(SCORE_BUDGET);
 
   /** Frames since slot `i` last changed between mixed and virtual (counts up to `DWELL_FRAMES`, then stays). */
   private readonly dwell: Uint8Array;
@@ -207,6 +225,12 @@ export class Selection {
     this.keys = new Float32Array(n);
     this.slotKey = new Float32Array(n);
     this.items = new Uint16Array(n);
+    this.sentScore = new Float32Array(n);
+  }
+
+  /** Slot `i`'s PLAY carried `score` (A3.3): the core holds that until a score update. */
+  noteScoreSent(i: number, score: number): void {
+    this.sentScore[i] = score;
   }
 
   /** World `key`'s voices are audible or forced virtual (architecture §3.9). Key 0 can't be made inaudible. */
@@ -250,6 +274,7 @@ export class Selection {
     stats.promoted = 0;
     stats.demoted = 0;
     stats.stolen = 0;
+    stats.scores = 0;
     this.frame++;
     t.frame = this.frame;
     this.enforceBusLimits(sink);
@@ -274,6 +299,10 @@ export class Selection {
     const slotKey = this.slotKey;
     let onCore = 0;
     const reason = t.reason;
+    const sentScore = this.sentScore;
+    const scoreQueue = this.scoreQueue;
+    let scores = 0;
+    const scoring = sink.setScore !== undefined;
     for (let i = 0; i < n; i++) {
       const s = state[i]!;
       if (s === S_FREE) continue;
@@ -304,6 +333,9 @@ export class Selection {
         if (!mixed && reason[i] !== R_WAITING) reason[i] = R_VIRTUAL;
       } else if (mixed) {
         key = d >= DWELL_FRAMES ? a * HYSTERESIS : DWELL_KEY + a;
+        // A3.3: the core's copy of the score drifted (3 dB either way): re-send it, within the frame's budget.
+        const sent = sentScore[i]!;
+        if (scoring && scores < SCORE_BUDGET && (a > sent * SCORE_RATIO || a * SCORE_RATIO < sent)) scoreQueue[scores++] = i;
       } else {
         key = d >= DWELL_FRAMES && a >= MIN_AUDIBILITY ? a : NO_KEY;
         // A virtual voice's reason (`setVirtualReason`, inlined): busMuted on a silent bus.
@@ -317,6 +349,12 @@ export class Selection {
       onCore++;
     }
     stats.candidates = onCore;
+    for (let k = 0; k < scores; k++) {
+      const i = scoreQueue[k]!;
+      sentScore[i] = audibility[i]!;
+      sink.setScore!(i, audibility[i]!);
+    }
+    stats.scores = scores;
 
     // Gather what can matter: every mixed voice (to keep or demote) and the virtual ones whose key reaches the
     // threshold. When at least `cap` gathered keys reach it, the top `cap` of all candidates are among them (every
@@ -451,7 +489,8 @@ export function rankTop(keys: Float32Array, items: Uint16Array, count: number, c
 
 /**
  * @internal The mixed cap selection uses (architecture §6.3): `min(configured, reported)` where `reported` is STATUS
- * `mixedCap`, 0 until the core reports one (A3.3's adaptive cap).
+ * `mixedCap` (A3.3's adaptive cap, never above `voices.mixed`), 0 before the core's first STATUS. A reported cap above
+ * `configured` (a core started with another preset) is ignored.
  */
 export function effectiveMixedCap(configured: number, reported: number): number {
   return reported > 0 && reported < configured ? reported : configured;
