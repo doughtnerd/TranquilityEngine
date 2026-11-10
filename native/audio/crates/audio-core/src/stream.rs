@@ -41,9 +41,22 @@
 //! voice drains and the ring is freed when the voice ends. A voice that ends first leaves its ring
 //! orphaned (everything counts as consumed) until STREAM_CLOSE. RESET frees every ring.
 //!
-//! **Epochs** (B3b's seeks). A chunk whose epoch differs from the ring's is dropped by [`commit`]
-//! (`ERR_STALE_EPOCH`); STREAM_OPEN with a new epoch for an open stream restarts its ring at the new
-//! `startFrame` ([`open`]). SEEK's flush and fades are B3b's.
+//! **Epochs and seeks** (B3b; api-and-models §4.1 "Stream seek protocol"). A seek restarts the stream
+//! at a new, larger epoch. Two messages carry it and either may arrive first: the SEEK record (main
+//! to core, through the batch) and STREAM_OPEN of the new epoch (worker to worklet). The first to
+//! arrive restarts the ring ([`StreamStore::open`], [`StreamStore::seek`]): the ring is flushed
+//! (`written` 0, the new epoch, the new `start_frame`), so a chunk of any other epoch is refused by
+//! [`StreamStore::commit`] (`ERR_STALE_EPOCH`) and nothing from before the seek can reach the ring.
+//! A restart for an epoch that is not newer (a late SEEK after a newer OPEN) changes nothing. A
+//! SEEK that comes first leaves the ring `awaiting_open` (no chunk is taken until the OPEN of that
+//! epoch gives the shape).
+//!
+//! **The seek fade.** The flushed audio is gone, but the voice is mid-waveform, so the restart
+//! first copies the next [`FADE_TAIL_FRAMES`] frames the voice has not read yet to the ring's
+//! **tail** area (`seeking`). The voice fades out over 5 ms from that copy, then holds silent
+//! while the new epoch's first chunk arrives (`phase::WAITING`) and fades in over 5 ms from the
+//! target frame. A seek during a seek fade keeps the first tail; a seek while starved, waiting or
+//! virtual has nothing to fade. The playhead jumps to the target when the fade-out ends.
 //!
 //! Loops never leave PLAYING: the worker wraps to the loop start, so the ring sees one continuous
 //! signal (the `wrapped` flag is B4's, for gapless trimming). `process` never allocates.
@@ -59,8 +72,13 @@ pub const RING_FRAMES: usize = wire::STREAM_RING_FRAMES as usize;
 pub const MAX_CHUNK_FRAMES: usize = 4_096;
 /// Channels a ring stores at most (a stream of more is downmixed by the worker).
 pub const RING_CHANNELS: usize = 2;
-/// Frames a ring's storage holds: the ring plus a tail a chunk may run into.
-pub const RING_STORAGE_FRAMES: usize = RING_FRAMES + MAX_CHUNK_FRAMES;
+/// Frames of the seek fade's copy (B3b): the 5 ms fade at 48 kHz is 240 frames, read at up to
+/// 6x steps with the resampler's neighbours (a bigger step shortens the fade, never clicks).
+pub const FADE_TAIL_FRAMES: usize = 1_536;
+/// Frames a ring's storage holds: the ring, a tail a chunk may run into, then the seek fade's copy.
+pub const RING_STORAGE_FRAMES: usize = RING_FRAMES + MAX_CHUNK_FRAMES + FADE_TAIL_FRAMES;
+/// Where the seek fade's copy starts in a ring's samples (f32 index).
+pub const TAIL_OFFSET: usize = (RING_FRAMES + MAX_CHUNK_FRAMES) * RING_CHANNELS;
 /// Bytes of one ring's storage (f32 samples).
 pub const RING_BYTES: usize = RING_STORAGE_FRAMES * RING_CHANNELS * 4;
 /// Fewest and most rings (architecture §5.3: 4 low, 8 default, 16 high).
@@ -137,6 +155,17 @@ pub struct Ring {
     pub gain: Ramp,
     /// Chunks refused (stale epoch, past the credit window, too large); for tests.
     pub refused: u32,
+    /// B3b: 0, or the voice is fading out the old epoch's audio from the tail copy: 1 until the
+    /// voice starts the fade, 2 while it runs.
+    pub seeking: u8,
+    /// A SEEK restarted the ring before the new epoch's STREAM_OPEN gave the shape.
+    pub awaiting_open: u8,
+    /// The voice fades in when this epoch starts (a seek, not a first start).
+    pub fade_in: u8,
+    /// The seek fade's copy: its frame count, the stream frame of its first frame, its channels.
+    pub tail_len: u32,
+    pub tail_frame0: u32,
+    pub tail_channels: u32,
 }
 
 impl Ring {
@@ -209,40 +238,124 @@ impl StreamStore {
         (&mut self.rings[index], &self.storage[index * n..(index + 1) * n])
     }
 
-    /// STREAM_OPEN: takes a free ring for the stream, or restarts its ring for a new epoch. Returns
-    /// false when no ring is free or the shape is unusable (the caller queues stream event 3).
+    /// STREAM_OPEN: takes a free ring for the stream, or restarts its ring for a new epoch (a
+    /// repeat, or an older epoch, changes nothing; a seek's SEEK may have restarted it already,
+    /// then this gives the shape). Returns false when no ring is free or the shape is unusable
+    /// (the caller queues stream event 3).
     pub fn open(&mut self, o: &StreamOpen) -> bool {
         if o.channels == 0 || o.channels as usize > RING_CHANNELS || !(o.sample_rate > 0.0) {
             return false;
         }
-        let index = match self.index_of(o.stream_id) {
+        match self.index_of(o.stream_id) {
             Some(i) => {
-                if self.rings[i].epoch == o.epoch {
+                let r = &mut self.rings[i];
+                if r.epoch == o.epoch {
+                    if r.awaiting_open != 0 {
+                        r.awaiting_open = 0;
+                        r.channels = o.channels;
+                        r.rate = o.sample_rate;
+                        r.total_frames = o.total_frames;
+                        r.flags = o.flags;
+                        r.start_frame = o.start_frame;
+                    }
                     return true; // a repeat: nothing changes
                 }
-                i
+                if newer(o.epoch, r.epoch) {
+                    self.restart(i, o.epoch, o.start_frame, Some(o));
+                }
+                true
             }
             None => match self.rings[..self.count].iter().position(|r| r.open == 0) {
-                Some(i) => i,
-                None => return false,
+                Some(i) => {
+                    self.rings[i] = Ring {
+                        open: 1,
+                        id: o.stream_id,
+                        channels: o.channels,
+                        rate: o.sample_rate,
+                        total_frames: o.total_frames,
+                        flags: o.flags,
+                        epoch: o.epoch,
+                        start_frame: o.start_frame,
+                        gain: Ramp::at(1.0),
+                        ..Ring::default()
+                    };
+                    true
+                }
+                None => false,
             },
-        };
-        let voice = self.rings[index].voice;
-        let r = &mut self.rings[index];
-        *r = Ring {
+        }
+    }
+
+    /// SEEK of stream `id` (B3b): restarts its ring at `epoch` and stream frame `frame` now, ahead
+    /// of the worker's STREAM_OPEN of that epoch. An epoch that is not newer than the ring's (the
+    /// OPEN came first, or a late SEEK) or a closed stream changes nothing. Returns false for an
+    /// unknown stream.
+    pub fn seek(&mut self, id: u32, epoch: u32, frame: u32) -> bool {
+        let Some(i) = self.index_of(id) else { return false };
+        if newer(epoch, self.rings[i].epoch) {
+            self.restart(i, epoch, frame, None);
+        }
+        true
+    }
+
+    /// Flushes ring `i` for `epoch` starting at stream frame `start_frame` (`shape` from its
+    /// STREAM_OPEN, or none: the SEEK came first and the ring awaits it). Copies what the voice
+    /// would read next to the tail for the seek fade unless it is fading already. A closed stream
+    /// keeps its ring as it is (it is draining toward its end).
+    fn restart(&mut self, i: usize, epoch: u32, start_frame: u32, shape: Option<&StreamOpen>) {
+        let old = self.rings[i];
+        if old.closed != 0 {
+            return;
+        }
+        let n = RING_STORAGE_FRAMES * RING_CHANNELS;
+        let mut ring = Ring {
             open: 1,
-            id: o.stream_id,
-            voice,
-            channels: o.channels,
-            rate: o.sample_rate,
-            total_frames: o.total_frames,
-            flags: o.flags,
-            epoch: o.epoch,
-            start_frame: o.start_frame,
+            id: old.id,
+            voice: old.voice,
+            channels: old.channels,
+            rate: old.rate,
+            total_frames: old.total_frames,
+            flags: old.flags,
+            epoch,
+            start_frame,
             gain: Ramp::at(1.0),
+            awaiting_open: shape.is_none() as u8,
+            fade_in: 1,
+            seeking: old.seeking,
+            tail_len: old.tail_len,
+            tail_frame0: old.tail_frame0,
+            tail_channels: old.tail_channels,
             ..Ring::default()
         };
-        true
+        if let Some(o) = shape {
+            ring.channels = o.channels;
+            ring.rate = o.sample_rate;
+            ring.total_frames = o.total_frames;
+            ring.flags = o.flags;
+        }
+        if old.seeking != 0 {
+            ring.gain = old.gain; // the earlier fade-out goes on
+        } else if old.voice != 0
+            && old.orphan == 0
+            && (old.phase == phase::PLAYING || old.phase == phase::STARVING)
+            && old.written > old.consumed
+        {
+            let from = old.consumed;
+            let len = (old.written - from).min(FADE_TAIL_FRAMES as u64);
+            let ch = old.channels as usize;
+            let base = i * n;
+            for f in 0..len as usize {
+                let src = base + ((from + f as u64) % RING_FRAMES as u64) as usize * ch;
+                let dst = base + TAIL_OFFSET + f * ch;
+                self.storage.copy_within(src..src + ch, dst);
+            }
+            ring.seeking = 1;
+            ring.tail_len = len as u32;
+            ring.tail_frame0 = old.start_frame.wrapping_add(from as u32);
+            ring.tail_channels = old.channels;
+            ring.gain = old.gain;
+        }
+        self.rings[i] = ring;
     }
 
     /// STREAM_CLOSE: the input ends; the ring is freed now if no voice holds it, else when it ends.
@@ -289,7 +402,7 @@ impl StreamStore {
         let Some(i) = self.index_of(id) else { return Err(wire::ERR_UNKNOWN_STREAM) };
         let n = RING_STORAGE_FRAMES * RING_CHANNELS;
         let r = &mut self.rings[i];
-        if frames == 0 || frames as usize > MAX_CHUNK_FRAMES || r.input_done() {
+        if frames == 0 || frames as usize > MAX_CHUNK_FRAMES || r.input_done() || r.awaiting_open != 0 {
             r.refused += 1;
             return Err(wire::ERR_BAD_ARG);
         }
@@ -315,7 +428,7 @@ impl StreamStore {
             r.refused += 1;
             return wire::ERR_STALE_EPOCH;
         }
-        if frames != reserved || r.input_done() {
+        if frames != reserved || r.input_done() || r.awaiting_open != 0 {
             r.refused += 1;
             return wire::ERR_BAD_ARG;
         }
@@ -347,6 +460,11 @@ impl StreamStore {
         r.credited += delta;
         delta as i32
     }
+}
+
+/// `a` is a later epoch than `b` (epochs only grow; the comparison wraps).
+fn newer(a: u32, b: u32) -> bool {
+    a != b && (a.wrapping_sub(b) as i32) > 0
 }
 
 /// Reads ring frame `f` (`< written`) of a ring with `ch` channels: `(left, right)`, mono copied.
@@ -397,7 +515,7 @@ mod tests {
         assert_eq!(stream_count(&p(256)), 16);
         assert_eq!(stream_count(&p(8)), 4);
         assert_eq!(region_bytes(&p(128)), 8 * RING_BYTES);
-        assert!(RING_BYTES < 300 * 1024);
+        assert!(RING_BYTES < 320 * 1024);
     }
 
     #[test]
@@ -492,6 +610,83 @@ mod tests {
         assert!(s.open(&StreamOpen { start_frame: 9_000, ..open_rec(1, 2, 2) }));
         let r = s.ring(0);
         assert_eq!((r.written, r.epoch, r.start_frame), (0, 2, 9_000));
+    }
+
+    #[test]
+    fn a_seek_before_its_open_flushes_the_ring_and_waits_for_the_shape() {
+        let mut s = store(1);
+        s.open(&open_rec(1, 2, 1));
+        assert_eq!(write(&mut s, 1, &[0.25; 512], 2, 1, 0), wire::ERR_OK);
+        assert!(s.seek(1, 2, 7_000));
+        let r = s.ring(0);
+        assert_eq!((r.written, r.consumed, r.epoch, r.start_frame, r.awaiting_open), (0, 0, 2, 7_000, 1));
+        // The old epoch's chunk (in flight when the seek came) can't land, nor can any before the OPEN.
+        assert_eq!(write(&mut s, 1, &[0.5; 512], 2, 1, 0), wire::ERR_BAD_ARG, "awaiting the OPEN");
+        assert_eq!(write(&mut s, 1, &[0.5; 512], 2, 2, 0), wire::ERR_BAD_ARG);
+        // The OPEN of that epoch gives the shape and keeps the ring (nothing flushed twice).
+        assert!(s.open(&StreamOpen { start_frame: 7_000, total_frames: 99_000, ..open_rec(1, 2, 2) }));
+        let r = s.ring(0);
+        assert_eq!((r.awaiting_open, r.start_frame, r.total_frames), (0, 7_000, 99_000));
+        assert_eq!(write(&mut s, 1, &[0.5; 512], 2, 1, 0), wire::ERR_STALE_EPOCH, "the old epoch is dropped");
+        assert_eq!(write(&mut s, 1, &[0.5; 512], 2, 2, 0), wire::ERR_OK);
+        assert_eq!(s.ring(0).written, 256);
+        // A repeat of the SEEK (or of the OPEN) changes nothing.
+        assert!(s.seek(1, 2, 7_000));
+        assert!(s.open(&open_rec(1, 2, 2)));
+        assert_eq!(s.ring(0).written, 256);
+    }
+
+    #[test]
+    fn an_older_epoch_never_restarts_a_ring() {
+        let mut s = store(1);
+        s.open(&open_rec(1, 2, 1));
+        // The OPEN of epoch 3 came before the SEEK of epoch 2 (two quick seeks, two channels).
+        assert!(s.open(&StreamOpen { start_frame: 300, ..open_rec(1, 2, 3) }));
+        assert_eq!(write(&mut s, 1, &[0.5; 64], 2, 3, 0), wire::ERR_OK);
+        assert!(s.seek(1, 2, 200));
+        assert!(s.open(&StreamOpen { start_frame: 200, ..open_rec(1, 2, 2) }));
+        let r = s.ring(0);
+        assert_eq!((r.epoch, r.start_frame, r.written), (3, 300, 32));
+        assert!(!s.seek(9, 4, 0), "an unknown stream");
+        assert!(newer(1, 0xFFFF_FFFF), "epochs wrap");
+    }
+
+    #[test]
+    fn a_closed_stream_keeps_draining_through_a_seek() {
+        let mut s = store(1);
+        s.open(&open_rec(1, 2, 1));
+        s.ring_mut(0).voice = 0x0001_0003;
+        assert_eq!(write(&mut s, 1, &[0.5; 64], 2, 1, 0), wire::ERR_OK);
+        s.close(1);
+        s.seek(1, 2, 0);
+        assert_eq!((s.ring(0).epoch, s.ring(0).written, s.ring(0).closed), (1, 32, 1));
+    }
+
+    #[test]
+    fn a_restart_copies_the_unread_audio_for_the_fade_once() {
+        let mut s = store(1);
+        s.open(&open_rec(1, 1, 1));
+        let ramp: Vec<f32> = (0..2_000).map(|k| k as f32).collect();
+        assert_eq!(write(&mut s, 1, &ramp, 1, 1, 0), wire::ERR_OK);
+        let r = s.ring_mut(0);
+        r.voice = 0x0001_0003;
+        r.phase = phase::PLAYING;
+        r.consumed = 300; // the voice is at frame 301
+        assert!(s.seek(1, 2, 50_000));
+        let r = *s.ring(0);
+        assert_eq!((r.seeking, r.tail_len, r.tail_frame0, r.tail_channels), (1, FADE_TAIL_FRAMES as u32, 300, 1));
+        let tail = &s.samples(0)[TAIL_OFFSET..TAIL_OFFSET + FADE_TAIL_FRAMES];
+        assert!(tail.iter().enumerate().all(|(k, v)| *v == (300 + k) as f32), "the next frames, copied");
+        // A second seek during the fade keeps the first copy.
+        assert!(s.seek(1, 3, 60_000));
+        let r = *s.ring(0);
+        assert_eq!((r.epoch, r.start_frame, r.seeking, r.tail_frame0), (3, 60_000, 1, 300));
+        // A voice with nothing buffered (waiting or starved) has nothing to fade.
+        let mut s = store(1);
+        s.open(&open_rec(1, 1, 1));
+        s.ring_mut(0).voice = 0x0001_0003;
+        assert!(s.seek(1, 2, 0));
+        assert_eq!((s.ring(0).seeking, s.ring(0).tail_len), (0, 0));
     }
 }
 
@@ -625,6 +820,214 @@ mod voice_tests {
         for k in FADE..l.len() {
             assert_eq!(l[k], sample(held as u64 + k as u64).0, "frame {k} after the fade-in");
         }
+    }
+
+    /// Feeds epoch `epoch`'s stream frames `from..from + n` as one chunk.
+    fn feed_epoch(core: &mut Core, epoch: u32, from: u64, n: usize, last: bool) -> i32 {
+        let data: Vec<f32> = (0..n as u64).flat_map(|k| { let (l, r) = sample(from + k); [l, r] }).collect();
+        match core.streams_mut().chunk_ptr(STREAM, n as u32) {
+            Ok(p) => {
+                // SAFETY: room for `n` stereo frames.
+                unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), p as *mut f32, data.len()) };
+                core.streams_mut().commit(STREAM, n as u32, epoch, if last { wire::STREAM_CHUNK_FLAGS_LAST } else { 0 })
+            }
+            Err(e) => e,
+        }
+    }
+
+    fn open_epoch(core: &mut Core, epoch: u32, start_frame: u32) {
+        let o = StreamOpen { stream_id: STREAM, channels: 2, sample_rate: 48_000.0, total_frames: wire::STREAM_TOTAL_FRAMES_UNKNOWN, epoch, start_frame, ..Default::default() };
+        assert!(core.streams_mut().open(&o));
+    }
+
+    /// A stream playing steadily at frame 5,000+: three chunks fed, 40 quanta rendered.
+    fn playing(core: &mut Core, frame: &mut u64) {
+        play(core, true);
+        open(core);
+        for k in 0..3 {
+            assert_eq!(feed(core, k * 4_096, 4_096, false), wire::ERR_OK);
+        }
+        render(core, frame, 40);
+    }
+
+    /// Asserts a seek's audio: `out` starts with the old audio fading out from `old_pos` over 5 ms,
+    /// then nothing until `gap_end`, then the new epoch from `new_pos` fading in over 5 ms and
+    /// bit for bit after. No frame of it may be from the old audio after the fade.
+    fn check_seek(out: &[f32], old_pos: usize, gap_end: usize, new_pos: u64) {
+        for k in 0..FADE {
+            let want = sample((old_pos + k) as u64).0 * (1.0 - (k + 1) as f32 / FADE as f32);
+            assert!((out[k] - want).abs() < 1e-6, "fade-out frame {k}: {} vs {want}", out[k]);
+        }
+        assert!(out[FADE..gap_end].iter().all(|s| *s == 0.0), "silent between the fade-out and the new audio");
+        for k in 0..FADE {
+            let want = sample(new_pos + k as u64).0 * ((k + 1) as f32 / FADE as f32);
+            assert!((out[gap_end + k] - want).abs() < 1e-6, "fade-in frame {k}: {} vs {want}", out[gap_end + k]);
+        }
+        for k in FADE..out.len() - gap_end {
+            assert_eq!(out[gap_end + k], sample(new_pos + k as u64).0, "frame {k} after the fade-in");
+        }
+    }
+
+    #[test]
+    fn a_seek_fades_out_the_old_audio_flushes_and_fades_in_the_new_epoch() {
+        for open_first in [false, true] {
+            let mut core = core();
+            let mut frame = 0;
+            playing(&mut core, &mut frame);
+            let before = core.streams().get(STREAM).unwrap().consumed;
+            let old_pos = slot(&core).position as usize;
+            assert!(old_pos > 5_000 && old_pos < 8_000, "mid-ring at {old_pos}");
+            // The SEEK record and the worker's OPEN, in either order.
+            if open_first {
+                open_epoch(&mut core, 2, 30_000);
+                voices::seek(&mut core, ID, 30_000, 2);
+            } else {
+                voices::seek(&mut core, ID, 30_000, 2);
+                assert!(core.streams().get(STREAM).unwrap().awaiting_open != 0);
+                open_epoch(&mut core, 2, 30_000);
+            }
+            // An old chunk that was in flight lands nowhere.
+            assert_eq!(feed_epoch(&mut core, 1, 12_288, 4_096, false), wire::ERR_STALE_EPOCH);
+            let ring = *core.streams().get(STREAM).unwrap();
+            assert_eq!((ring.epoch, ring.written, ring.consumed), (2, 0, 0));
+            assert_eq!(core.streams_mut().take_consumed(STREAM), 0, "nothing of the old ring is owed (the shell drops it)");
+            // The old audio fades out; the new has not arrived: silence, the position at the target.
+            let (l1, _) = render(&mut core, &mut frame, 6);
+            let mut out = l1.clone();
+            assert_eq!(slot(&core).position, 30_000.0, "the playhead is at the target once the fade is done");
+            // Chunks of the new epoch arrive.
+            assert_eq!(feed_epoch(&mut core, 2, 30_000, 4_096, false), wire::ERR_OK);
+            let gap = out.len();
+            let (l2, _) = render(&mut core, &mut frame, 20);
+            out.extend(l2);
+            check_seek(&out[..gap + 20 * QUANTUM], old_pos, gap, 30_000);
+            assert!(before > 0);
+            // The ring's credit starts again from the new epoch.
+            assert!(core.streams_mut().take_consumed(STREAM) > 0);
+            assert_eq!(core.streams().get(STREAM).unwrap().seeking, 0);
+        }
+    }
+
+    #[test]
+    fn nothing_before_the_seek_is_heard_after_its_fade() {
+        let mut core = core();
+        let mut frame = 0;
+        playing(&mut core, &mut frame);
+        // Old audio is the ramp below 12,288; the target is far above it and its audio is distinct.
+        voices::seek(&mut core, ID, 40_000, 2);
+        open_epoch(&mut core, 2, 40_000);
+        assert_eq!(feed_epoch(&mut core, 2, 40_000, 4_096, false), wire::ERR_OK);
+        let (l, _) = render(&mut core, &mut frame, 24);
+        // After the fade-out: silence, then the new epoch (values 0.4 up, fading in over 5 ms); the
+        // old audio (values under 0.13) is never heard again.
+        let first = l.iter().skip(FADE).position(|s| *s != 0.0).expect("the new epoch sounds") + FADE;
+        assert!(l[FADE..first].iter().all(|s| *s == 0.0));
+        for (k, s) in l.iter().enumerate().skip(first + FADE) {
+            assert!(*s >= 0.399, "frame {k}: {s} is from before the seek");
+        }
+    }
+
+    #[test]
+    fn a_seek_during_starvation_restarts_from_the_target() {
+        let mut core = core();
+        let mut frame = 0;
+        play(&mut core, true);
+        open(&mut core);
+        assert_eq!(feed(&mut core, 0, 4_096, false), wire::ERR_OK);
+        render(&mut core, &mut frame, 40);
+        assert_eq!(core.streams().get(STREAM).unwrap().phase, phase::STARVED);
+        voices::seek(&mut core, ID, 20_000, 2);
+        open_epoch(&mut core, 2, 20_000);
+        let ring = *core.streams().get(STREAM).unwrap();
+        assert_eq!((ring.seeking, ring.tail_len), (0, 0), "silent already: nothing to fade out");
+        let (l, _) = render(&mut core, &mut frame, 4);
+        assert!(l.iter().all(|s| *s == 0.0));
+        assert_eq!(slot(&core).position, 20_000.0, "the playhead is at the target while it waits");
+        assert_eq!(feed_epoch(&mut core, 2, 20_000, 4_096, false), wire::ERR_OK);
+        let (l, _) = render(&mut core, &mut frame, 4);
+        for k in 0..FADE {
+            let want = sample(20_000 + k as u64).0 * ((k + 1) as f32 / FADE as f32);
+            assert!((l[k] - want).abs() < 1e-6, "fade-in frame {k}: {} vs {want}", l[k]);
+        }
+        assert_eq!(l[FADE], sample(20_000 + FADE as u64).0);
+        assert_eq!(status::counters(&core).starved.len(), 0, "the seek is not a second starve");
+    }
+
+    #[test]
+    fn a_seek_while_waiting_for_the_first_chunk_starts_at_the_target() {
+        let mut core = core();
+        let mut frame = 0;
+        play(&mut core, true);
+        open(&mut core);
+        assert_eq!(feed(&mut core, 0, 1_000, false), wire::ERR_OK);
+        render(&mut core, &mut frame, 4);
+        voices::seek(&mut core, ID, 5_000, 2);
+        open_epoch(&mut core, 2, 5_000);
+        assert_eq!(feed_epoch(&mut core, 2, 5_000, 4_096, false), wire::ERR_OK);
+        let (l, _) = render(&mut core, &mut frame, 4);
+        for k in 0..FADE {
+            let want = sample(5_000 + k as u64).0 * ((k + 1) as f32 / FADE as f32);
+            assert!((l[k] - want).abs() < 1e-6, "fade-in frame {k}");
+        }
+        assert_eq!(slot(&core).position, 5_000.0 + 4.0 * QUANTUM as f64);
+    }
+
+    #[test]
+    fn a_second_seek_during_the_fade_keeps_the_fade_and_lands_on_the_second_target() {
+        let mut core = core();
+        let mut frame = 0;
+        playing(&mut core, &mut frame);
+        let old_pos = slot(&core).position as usize;
+        voices::seek(&mut core, ID, 30_000, 2);
+        open_epoch(&mut core, 2, 30_000);
+        let (a, _) = render(&mut core, &mut frame, 1);
+        voices::seek(&mut core, ID, 9_000, 3);
+        open_epoch(&mut core, 3, 9_000);
+        let (b, _) = render(&mut core, &mut frame, 5);
+        let mut out = a;
+        out.extend(b);
+        for k in 0..FADE {
+            let want = sample((old_pos + k) as u64).0 * (1.0 - (k + 1) as f32 / FADE as f32);
+            assert!((out[k] - want).abs() < 1e-6, "one continuous fade-out, frame {k}");
+        }
+        assert!(out[FADE..].iter().all(|s| *s == 0.0));
+        assert_eq!(slot(&core).position, 9_000.0);
+        assert_eq!(feed_epoch(&mut core, 3, 9_000, 4_096, false), wire::ERR_OK);
+        let (l, _) = render(&mut core, &mut frame, 4);
+        assert_eq!(l[FADE], sample(9_000 + FADE as u64).0);
+    }
+
+    #[test]
+    fn a_seek_past_the_end_of_a_stream_without_loop_ends_it() {
+        let mut core = core();
+        let mut frame = 0;
+        playing(&mut core, &mut frame);
+        voices::seek(&mut core, ID, 90_000, 2);
+        open_epoch(&mut core, 2, 90_000);
+        // The worker has nothing at the target: one empty last chunk.
+        assert_eq!(core.streams_mut().commit(STREAM, 0, 2, wire::STREAM_CHUNK_FLAGS_LAST), wire::ERR_OK);
+        render(&mut core, &mut frame, 8);
+        assert_eq!(slot(&core).state, state::FREE.max(slot(&core).state), "ended or freed");
+        let ended = status::counters(&core).ended.as_slice().contains(&ID);
+        let events = status::counters(&core).stream_events.as_slice().iter().any(|e| e.id == STREAM && e.code == wire::stream_event::EOS);
+        assert!(ended || events || slot(&core).state != state::PLAYING, "the voice ended after the seek fade");
+    }
+
+    #[test]
+    fn a_virtual_voice_seeks_at_once_without_a_fade() {
+        let mut core = core();
+        let mut frame = 0;
+        play(&mut core, false);
+        open(&mut core);
+        for k in 0..3 {
+            assert_eq!(feed(&mut core, k * 4_096, 4_096, false), wire::ERR_OK);
+        }
+        render(&mut core, &mut frame, 20);
+        voices::seek(&mut core, ID, 30_000, 2);
+        open_epoch(&mut core, 2, 30_000);
+        render(&mut core, &mut frame, 1);
+        assert_eq!(slot(&core).position, 30_000.0);
+        assert_eq!(core.streams().get(STREAM).unwrap().seeking, 0);
     }
 
     #[test]

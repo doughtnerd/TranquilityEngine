@@ -74,6 +74,10 @@ use crate::{status, QUANTUM};
 /// `start_frame` of a voice that starts at the first quantum after its PLAY arrived.
 pub const ASAP: u64 = u64::MAX;
 
+/// B3b: marks a started clip voice's `start_frame` as holding a pending SEEK (bit 62 set, bit 63
+/// clear, so it is neither [`ASAP`] nor a frame); the low 32 bits are the target frame.
+const SEEK_PENDING: u64 = 1 << 62;
+
 /// Slot states. 0 is free, so a zeroed region is all free slots.
 pub mod state {
     pub const FREE: u8 = 0;
@@ -329,7 +333,7 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) {
         if slot.flags & flag::STREAM != 0 {
             render_stream_voice(slot, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r);
         } else {
-            render_voice(slot, clips, hrtf.as_mut(), frame, start, to, out_l, out_r);
+            render_voice(slot, clips, hrtf.as_mut(), frame, fade_frames, start, to, out_l, out_r);
         }
     }
 }
@@ -337,7 +341,7 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) {
 /// Renders one playing voice over frames `from..to` of the quantum at `frame` (mixed) or keeps its
 /// time (virtual), and ends it when its clip runs out or its stopping fade settles.
 #[allow(clippy::too_many_arguments)]
-fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<'_>>, frame: u64, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
+fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<'_>>, frame: u64, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
     if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
         // Paused and out of the mix (A3.7): holds its position, ramps and panner exactly. A stop
         // (or a stopping fade) asked for while held ends it now: it is silent.
@@ -366,6 +370,20 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<
         n = n.min(slot.mix.remaining as usize);
     }
     let looping = slot.flags & flag::LOOP != 0;
+    if slot.start_frame >> 62 == 1 {
+        // A SEEK is pending (B3b): a virtual voice (silent) or one whose fade-out has settled moves
+        // now, and fades back in unless a demote or pause has taken the mix ramp; otherwise render
+        // only up to the end of the fade-out.
+        if slot.flags & flag::MIXED == 0 || slot.mix.is_settled() {
+            let fade_in = slot.flags & flag::MIXED != 0 && slot.mix.value == 0.0 && slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) == 0;
+            clip_seek_jump(slot, clip.source.frames, looping);
+            if fade_in {
+                slot.mix.set_target(1.0, fade_frames);
+            }
+        } else {
+            n = n.min(slot.mix.remaining as usize);
+        }
+    }
     let mut steps = [0.0f32; QUANTUM];
     for step in steps[..n].iter_mut() {
         *step = slot.pitch.next() * slot.rate_ratio;
@@ -381,7 +399,7 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<
                 r[i] *= g;
             }
         } else {
-            // A promote or demote under way (A3.1): the mix ramp on top of the gain and fade.
+            // A promote or demote (A3.1) or a seek fade (B3b) under way: the mix ramp on top of the gain and fade.
             for i in 0..n {
                 let g = slot.gain.next() * slot.fade.next() * slot.mix.next();
                 l[i] *= g;
@@ -426,7 +444,7 @@ fn render_voice(slot: &mut VoiceSlot, clips: &ClipStore, hrtf: Option<&mut Hrtf<
 /// frame is `position - start_frame`. Afterwards the ring's `consumed` follows the position, less
 /// the one frame behind it the resampler still reads.
 #[allow(clippy::too_many_arguments)]
-fn render_stream_voice(slot: &mut VoiceSlot, streams: &mut StreamStore, hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
+fn render_stream_voice(slot: &mut VoiceSlot, streams: &mut StreamStore, mut hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
     use crate::stream::{frame_at, pending, phase, START_FRAMES};
     if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
         // Paused and out of the mix: held, as a clip voice (A3.7); a stop ends it now.
@@ -461,6 +479,9 @@ fn render_stream_voice(slot: &mut VoiceSlot, streams: &mut StreamStore, hrtf: Op
             slot.panner.start(p.spatial != 0, p.kind, p.dir, ring.channels);
         }
     }
+    if ring.seeking != 0 && render_seek_tail(slot, ring, samples, hrtf.as_deref_mut(), frame, fade_frames, from, to, out_l, out_r) {
+        return;
+    }
     let ch = ring.channels as usize;
     let start = ring.start_frame as f64;
     let mixed = slot.flags & flag::MIXED != 0;
@@ -479,12 +500,19 @@ fn render_stream_voice(slot: &mut VoiceSlot, streams: &mut StreamStore, hrtf: Op
     match ring.phase {
         phase::WAITING => {
             if !input_done && ring.written < START_FRAMES {
+                // (After a seek the playhead is already at the target.)
+                slot.position = start;
                 hold(slot);
                 return;
             }
             ring.phase = phase::PLAYING;
             ring.gain = Ramp::at(1.0);
             slot.position = start;
+            if ring.fade_in != 0 && mixed {
+                // B3b: the first frames after a seek fade in.
+                ring.gain = Ramp::at(0.0);
+                ring.gain.set_target(1.0, fade_frames);
+            }
         }
         phase::STARVED => {
             if !input_done && buffered < START_FRAMES {
@@ -587,6 +615,99 @@ fn render_stream_voice(slot: &mut VoiceSlot, streams: &mut StreamStore, hrtf: Op
     } else if stopping && slot.fade.is_settled() {
         slot.state = state::ENDED;
     }
+}
+
+/// B3b: the seek fade of a stream voice (`stream.rs`, "The seek fade"): while `ring.seeking`, a
+/// mixed voice renders the old epoch's audio from the ring's tail copy, fading out over 5 ms (less
+/// if the copy is short), then moves to the new epoch (`position` = the target frame, the ring
+/// waiting for its first chunk). A virtual voice, or one silent when the seek came, moves at once.
+/// Returns true when it rendered (the quantum is done), false when the voice moved with nothing
+/// left to fade (the caller goes on with the new epoch).
+#[allow(clippy::too_many_arguments)]
+fn render_seek_tail(slot: &mut VoiceSlot, ring: &mut crate::stream::Ring, samples: &[f32], hrtf: Option<&mut Hrtf<'_>>, frame: u64, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) -> bool {
+    use crate::stream::{frame_at, TAIL_OFFSET};
+    let finish = |slot: &mut VoiceSlot, ring: &mut crate::stream::Ring| {
+        ring.seeking = 0;
+        ring.tail_len = 0;
+        slot.position = ring.start_frame as f64;
+    };
+    let mixed = slot.flags & flag::MIXED != 0;
+    if !mixed || (ring.seeking == 1 && slot.mix.value == 0.0) {
+        finish(slot, ring);
+        return false;
+    }
+    let stopping = slot.flags & flag::STOP_ON_FADE_END != 0;
+    let ch = ring.tail_channels.max(1) as usize;
+    let tail = &samples[TAIL_OFFSET..];
+    let len = ring.tail_len as u64;
+    let t0 = ring.tail_frame0 as f64;
+    let mut n = to - from;
+    if stopping {
+        n = n.min(slot.fade.remaining as usize);
+    }
+    if slot.flags & flag::PAUSED != 0 {
+        n = n.min(slot.mix.remaining as usize);
+    }
+    let mut steps = [0.0f32; QUANTUM];
+    let mut max_step = 0.0f32;
+    for step in steps[..n].iter_mut() {
+        *step = slot.pitch.next() * slot.rate_ratio;
+        max_step = max_step.max(*step);
+    }
+    if ring.seeking == 1 {
+        let have = len as f64 - 3.0 - (slot.position - t0);
+        let can = if max_step > 0.0 { libm::floor(have / max_step as f64).max(0.0) } else { f64::MAX };
+        ring.gain.set_target(0.0, (fade_frames as f64).min(can) as u32);
+        ring.seeking = 2;
+    }
+    let mut l = [0.0f32; QUANTUM];
+    let mut r = [0.0f32; QUANTUM];
+    let mut done = 0usize;
+    let mut faded = false;
+    for i in 0..n {
+        let p = slot.position - t0;
+        let idx = p.max(0.0) as u64;
+        if idx + 3 > len || ring.gain.is_settled() {
+            faded = true;
+            break;
+        }
+        let g = ring.gain.next();
+        let last = len - 1;
+        let w = resample::weights((p - idx as f64) as f32);
+        let a = frame_at(tail, ch, idx.saturating_sub(1).min(last));
+        let b = frame_at(tail, ch, idx.min(last));
+        let c = frame_at(tail, ch, (idx + 1).min(last));
+        let d = frame_at(tail, ch, (idx + 2).min(last));
+        l[i] = (w[0] * a.0 + w[1] * b.0 + w[2] * c.0 + w[3] * d.0) * g;
+        r[i] = (w[0] * a.1 + w[1] * b.1 + w[2] * c.1 + w[3] * d.1) * g;
+        slot.position += steps[i] as f64;
+        done += 1;
+    }
+    for i in 0..done {
+        let g = slot.gain.next() * slot.fade.next() * slot.mix.next();
+        l[i] *= g;
+        r[i] *= g;
+    }
+    let (id, bus) = (slot.id, slot.bus);
+    slot.panner.mix_range(hrtf, id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
+    if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
+        slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
+    }
+    if faded {
+        finish(slot, ring);
+    } else if stopping && slot.fade.is_settled() {
+        slot.state = state::ENDED;
+    }
+    true
+}
+
+/// A clip voice's pending SEEK (its target in `start_frame`'s low bits) lands: moves it there
+/// (wrapped for a loop, clamped to the end otherwise) and ends the pending state.
+fn clip_seek_jump(slot: &mut VoiceSlot, frames: u32, looping: bool) {
+    let target = (slot.start_frame & 0xFFFF_FFFF) as f64;
+    let total = frames as f64;
+    slot.position = if looping && total > 0.0 { libm::fmod(target, total) } else { target.min(total) };
+    slot.start_frame = 0;
 }
 
 /// After the render: frees ended voices into STATUS `ended` (as many as the block has room for),
@@ -796,6 +917,35 @@ pub fn stop(core: &mut Core, voice_id: u32, fade_frames: u32) {
     } else {
         s.fade.set_target(0.0, fade_frames);
         s.flags |= flag::STOP_ON_FADE_END;
+    }
+}
+
+/// SEEK (api-and-models §4.2, B3b): moves voice `voice_id` to `frame` (a clip frame, or a stream
+/// frame for a stream voice, whose `epoch` is the seek epoch; a stale id is dropped).
+/// - A stream voice: its ring restarts at the epoch (`StreamStore::seek`); the voice fades out
+///   the old audio over 5 ms and fades in at the target when the new epoch's data is there.
+/// - A clip voice: a mixed voice fades out over 5 ms (the `mix` ramp), jumps and fades back in; a
+///   virtual one jumps at its next render, one not started yet starts there. `frame` wraps for a
+///   loop and clamps to the end otherwise. A second SEEK before the jump replaces the target.
+pub fn seek(core: &mut Core, voice_id: u32, frame: u32, epoch: u32) {
+    let fade = mix_fade_frames(core);
+    let v = view(core.regions_mut());
+    let Some(index) = find(&v, voice_id) else { return };
+    let s = &mut v.slots[index];
+    if s.flags & flag::STREAM != 0 {
+        let stream = s.clip;
+        core.streams_mut().seek(stream, epoch, frame);
+        return;
+    }
+    if s.state == state::SCHEDULED {
+        s.position = frame as f64; // not started: it starts there
+        return;
+    }
+    // A started voice's `start_frame` is dead: it carries the pending seek (bit 62, then the frame).
+    let pending = s.start_frame >> 62 == 1;
+    s.start_frame = SEEK_PENDING | frame as u64;
+    if !pending && s.flags & flag::MIXED != 0 && s.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) == 0 {
+        s.mix.set_target(0.0, fade);
     }
 }
 
