@@ -25,6 +25,7 @@
     "build:audio": "node native/audio/build.mjs",
     "check:audio-metered": "node tools/audio-bench/metered-gate.mjs",
     "check:links": "node tools/check-doc-links.mjs",
+    "bench:audio-events": "AUDIO_BENCH=1 vitest run src/plugins/audio/runtime/events/eventBench.test.ts --reporter=verbose",
     "test:e2e": "playwright test --project=chromium",
     "test:e2e:slow": "playwright test --project=chromium-slow",
     "test:e2e:chromium": "playwright test --project=chromium --project=chromium-slow",
