@@ -32,10 +32,18 @@
 // `run`, reading the `audibility` this pass stores.
 //
 // Nothing here allocates after construction (architecture §6.4).
-import { MAX_BUSES } from "../../../../engine/audio/settings";
+import { MAX_BUSES as MAX_BUSESImport } from "../../../../engine/audio/settings";
 import type { WorldKey } from "./context";
 import { selectTopK } from "./quickselect";
-import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
+import { VoiceFlag as VoiceFlagImport, VoiceReason as VoiceReasonImport, VoiceState as VoiceStateImport, type VoiceTable } from "./voiceTable";
+
+// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
+// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
+// bundle reads either directly.
+const MAX_BUSES = MAX_BUSESImport;
+const VoiceFlag = VoiceFlagImport;
+const VoiceReason = VoiceReasonImport;
+const VoiceState = VoiceStateImport;
 
 /** @internal §3: hysteresis 1.2x (a virtual voice must beat a mixed one by this factor). */
 export const HYSTERESIS = 1.2;

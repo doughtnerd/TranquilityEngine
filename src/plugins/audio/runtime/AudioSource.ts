@@ -3,17 +3,26 @@
  * the core when `audio.backend` says so; the host unlocks audio after the first user gesture) and the project's mixer buses.
  * Game code never sees the backend library. Only the World that has the view plays sound.
  */
-import { mixer } from "../../../engine/audio/mixer";
+import { mixer as mixerImport } from "../../../engine/audio/mixer";
 import "./babylonBackend"; // registers the "babylon" backend: Babylon's AudioEngineV2 (ADR 0098, 0157 K3)
 import { Component } from "../../../engine/core/Component";
 import { AssetRef, component, field } from "../../../engine/core/registry";
 import type { World } from "../../../engine/core/World";
-import { _worldServiceOf } from "../../../engine/core/worldServices";
-import { AUDIO, type AudioWorldService } from "./core/service";
-import { Assets } from "../../../engine/scene/Assets";
-import { audioBackend, type AudioVoice, type PlayRequest, type Rolloff } from "./backend";
+import { _worldServiceOf as _worldServiceOfImport } from "../../../engine/core/worldServices";
+import { AUDIO as AUDIOImport, type AudioWorldService } from "./core/service";
+import { Assets as AssetsImport } from "../../../engine/scene/Assets";
+import { audioBackend as audioBackendImport, type AudioVoice, type PlayRequest, type Rolloff } from "./backend";
 import { isAudioEventPath } from "../../../engine/audio/eventFormat";
 import { _setEventClipStarter, events, type EventInstance } from "./events/eventRuntime";
+
+// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
+// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
+// bundle reads either directly.
+const mixer = mixerImport;
+const Assets = AssetsImport;
+const audioBackend = audioBackendImport;
+const _worldServiceOf = _worldServiceOfImport;
+const AUDIO = AUDIOImport;
 
 export type { Rolloff } from "./backend";
 
@@ -25,8 +34,14 @@ export function startClip(path: string, loop: boolean, output: string | undefine
 /** @internal The clip's import volume (ADR 0040), which scales every playback of it. */
 export const clipVolume = (path: string) => Assets.importSettings(path).volume;
 
-// ADR 0158: event clips start like every clip, with the import volume (and the bus resolved as for `output`).
-_setEventClipStarter({ start: startClip, clipVolume });
+// ADR 0158: event clips start like every clip, with the import volume (and the bus resolved as for `output`). M2 F1: in
+// parts, so the event runtime reads a clip's import settings once per voice and builds its request in one object.
+_setEventClipStarter({
+  settings: (path) => Assets.importSettings(path),
+  url: (path) => Assets.url(path),
+  bus: (output) => mixer.resolveOutput(output),
+  play: (req) => audioBackend().play(req),
+});
 
 const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math.max(0, Math.round(p))) : 128);
 

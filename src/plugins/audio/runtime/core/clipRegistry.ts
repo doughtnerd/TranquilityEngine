@@ -57,6 +57,11 @@ export interface ClipRegistry {
   /** Everything known about the clip, or null for an unknown id. */
   info(id: number): ClipInfo | null;
   /**
+   * M2 F1: the clip's sample rate (`info(id).sampleRate`) without building an info object, or null for an unknown id;
+   * the play path asks it per voice. Optional so fakes still satisfy K9 (callers fall back to `info`).
+   */
+  sampleRate?(id: number): number | null;
+  /**
    * ADR 0158 (E3.1): the length in seconds (at pitch 1) of the clip loaded for `path`, or null while it isn't known
    * (not acquired, still loading, failed). Optional so fakes still satisfy K9.
    */
@@ -619,7 +624,14 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       const res = reserved.get(id);
       if (res) return res.state;
       const slot = byId.get(id);
-      return slot ? infoOf(slot).state : "idle";
+      // As `infoOf(slot).state`, without the object (the play path asks per voice, M2 F1).
+      return slot ? (slot.unloadScheduled ? "unloading" : slot.state) : "idle";
+    },
+    sampleRate(id) {
+      const res = reserved.get(id);
+      if (res) return reservedInfo(res).sampleRate;
+      const slot = byId.get(id);
+      return slot ? slot.sampleRate : null;
     },
     info(id) {
       const res = reserved.get(id);

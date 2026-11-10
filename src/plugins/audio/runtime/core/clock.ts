@@ -12,7 +12,16 @@
 // Units: `p` is a frame's rAF time in ms (the `performance.now()` base). Frames are sample frames at the context rate
 // `sr`. The offset `o` and the lead Λ are in frames. Seconds only in `audioTime`.
 import type { HostClock } from "./hostClock";
-import { firstFrame, frameOfTime, isStamped, lookaheadFrames, rampFrames } from "./lookahead";
+import { firstFrame as firstFrameImport, frameOfTime as frameOfTimeImport, isStamped as isStampedImport, lookaheadFrames as lookaheadFramesImport, rampFrames as rampFramesImport } from "./lookahead";
+
+// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
+// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
+// bundle reads either directly.
+const firstFrame = firstFrameImport;
+const frameOfTime = frameOfTimeImport;
+const isStamped = isStampedImport;
+const lookaheadFrames = lookaheadFramesImport;
+const rampFrames = rampFramesImport;
 
 export { LOOKAHEAD_MAX_SECONDS, LOOKAHEAD_MIN_FRAMES, RAMP_MAX_MS, RAMP_MIN_MS } from "./lookahead";
 

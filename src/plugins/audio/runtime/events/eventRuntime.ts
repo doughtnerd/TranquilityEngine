@@ -10,19 +10,31 @@
 
 import type { Curve } from "../../../../engine/core/curve";
 import type { Vec3Like } from "../../../../engine/core/math";
-import { mixer } from "../../../../engine/audio/mixer";
-import { Assets } from "../../../../engine/scene/Assets";
+import { mixer as mixerImport } from "../../../../engine/audio/mixer";
+import { Assets as AssetsImport } from "../../../../engine/scene/Assets";
 import {
-  AUDIO_EVENT_FORMAT, isLabelled, parameterDefault, parameterRange, parseAudioEvent, sustainReleaseFade,
+  AUDIO_EVENT_FORMAT, isLabelled as isLabelledImport, parameterDefault as parameterDefaultImport, parameterRange, parseAudioEvent, sustainReleaseFade,
   type AudioEventAsset, type Automation, type EventNode, type ParameterDef, type SustainNode, type SwitchNode,
 } from "../../../../engine/audio/eventFormat";
-import { audioBackend, type AudioBackend, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
-import { warnOnce } from "../core/handle";
+import { audioBackend as audioBackendImport, type AudioBackend, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
+import { warnOnce as warnOnceImport } from "../core/handle";
 import { loopPointsFor, onLoopPoints } from "../loopPoints";
 import {
-  AutoTarget, LOWPASS_OFF, MAX_BINDINGS, MAX_CURVES, MAX_GROUPS, TsAutomation,
+  AutoTarget, LOWPASS_OFF, MAX_BINDINGS as MAX_BINDINGSImport, MAX_CURVES, MAX_GROUPS as MAX_GROUPSImport, TsAutomation,
   type AutomationSink, type Binding, type ParamRef,
 } from "./automation";
+
+// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
+// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
+// bundle reads either directly.
+const mixer = mixerImport;
+const Assets = AssetsImport;
+const audioBackend = audioBackendImport;
+const warnOnce = warnOnceImport;
+const parameterDefault = parameterDefaultImport;
+const isLabelled = isLabelledImport;
+const MAX_BINDINGS = MAX_BINDINGSImport;
+const MAX_GROUPS = MAX_GROUPSImport;
 
 // --- options and handle -------------------------------------------------------------------------------------------
 
@@ -188,8 +200,12 @@ export class EventSystem {
   private ts: TsAutomation | null = null;
   private curveIds = new WeakMap<Curve, number>();
   private readonly curvesById: Curve[] = [];
-  /** Free groups, longest-free first (FIFO); never-used ones come from `nextGroup` before any of these. */
+  /**
+   * Free groups, longest-free first (FIFO from `freeHead`; M2 F1: a head index, not `shift`, which moved up to 1,024
+   * entries per play); never-used ones come from `nextGroup` before any of these.
+   */
   private readonly freeGroups: number[] = [];
+  private freeHead = 0;
   /** Retired instances whose voices are still fading out or ending: they keep their group until the last voice ends. */
   private holding: EventInstance[] = [];
   private nextGroup = 1;
@@ -244,7 +260,10 @@ export class EventSystem {
     if (key !== null) this.lastPlay.set(key, now);
     const instance = new EventInstance(this, asset, path, world, this.allocGroup(asset), options);
     this.live.add(instance);
-    instance.start();
+    // M2 F1: the horizon is the same for every clip the start plays (it moves with the frame), so it is asked once.
+    this.starting = true;
+    this.horizonMemo = undefined;
+    try { instance.start(); } finally { this.starting = false; }
     return instance;
   }
 
@@ -293,7 +312,7 @@ export class EventSystem {
     this.sink = null; this.sinkOf = null; this.ts = null;
     this.curvesById.length = 0;
     this.curveIds = new WeakMap(); // a parsed asset's curves outlive a reset (the asset cache), so their ids must go too
-    this.freeGroups.length = 0; this.holding.length = 0; this.nextGroup = 1;
+    this.freeGroups.length = 0; this.freeHead = 0; this.holding.length = 0; this.nextGroup = 1;
     this.lastPlay.clear();
     this.globals.clear(); this.globalsOf = null; this.busOf = null;
     this.seed = null;
@@ -372,8 +391,15 @@ export class EventSystem {
 
   /** @internal The earliest exact start time for a stamped play, or null when the backend can't say. */
   horizon(): number | null {
-    try { return audioBackend().horizon?.() ?? null; } catch { return null; }
+    if (this.starting && this.horizonMemo !== undefined) return this.horizonMemo;
+    let h: number | null;
+    try { h = audioBackend().horizon?.() ?? null; } catch { h = null; }
+    if (this.starting) this.horizonMemo = h;
+    return h;
   }
+  /** Inside `play`'s `instance.start()`, and the horizon asked there (undefined: not yet). */
+  private starting = false;
+  private horizonMemo: number | null | undefined = undefined;
 
   /** @internal A clip's length in seconds at pitch 1, or null. */
   clipLength(path: string): number | null {
@@ -458,6 +484,17 @@ export class EventSystem {
     return c;
   }
 
+  /**
+   * @internal M2 F1: what cached binding lists depend on beyond their asset: the global parameters (replaced when the
+   * settings change) and the curve ids (replaced by a reset). The same object while both hold.
+   */
+  get bindingEpoch(): { readonly globals: object; readonly curves: object } {
+    const e = this.epoch;
+    if (e.globals !== this.globals || e.curves !== this.curveIds) this.epoch = { globals: this.globals, curves: this.curveIds };
+    return this.epoch;
+  }
+  private epoch: { readonly globals: object; readonly curves: object } = { globals: this, curves: this };
+
   /** @internal The global parameter `name`, or undefined. */
   global(name: string): GlobalParam | undefined { return this.globals.get(name); }
 
@@ -522,6 +559,8 @@ export class EventSystem {
   }
 
   private freeGroup(group: number): void {
+    // Compact the consumed head now and then (at most once per `MAX_GROUPS` takes), so the queue never grows past it.
+    if (this.freeHead >= MAX_GROUPS) { this.freeGroups.splice(0, this.freeHead); this.freeHead = 0; }
     this.freeGroups.push(group);
     this.ts?.releaseGroup(group);
   }
@@ -542,8 +581,8 @@ export class EventSystem {
     void asset;
     // Never-used groups first, then the one free longest: a just-freed group is not reused while anything of it may be in flight.
     if (this.nextGroup <= MAX_GROUPS) return this.nextGroup++;
-    if (this.freeGroups.length === 0) this.sweep();
-    if (this.freeGroups.length > 0) return this.freeGroups.shift()!;
+    if (this.freeHead === this.freeGroups.length) this.sweep();
+    if (this.freeHead < this.freeGroups.length) return this.freeGroups[this.freeHead++]!;
     warnOnce("event:groups-full", `Audio events: more than ${MAX_GROUPS} event instances at once; extra ones get no local parameters.`);
     return 0;
   }
@@ -959,15 +998,21 @@ export class EventInstance {
     const sys = this.sys, a = this.asset;
     const held = node.sustain || ctx.sustain !== null;
     const looping = node.loop || held;
-    const volume = ctx.volume * starter.clipVolume(node.clip);
+    const path = node.clip;
+    const settings = starter.settings(path);
+    const volume = ctx.volume * settings.volume;
     const pitch = clampPitch(ctx.pitch * this.pitchOption);
-    const req: Partial<PlayRequest> = { volume, pitch, priority: this.options.priority ?? a.priority, world: this.world, group: this.group };
+    // The request `startClip` builds (same keys, same order), in one object.
+    const req: PlayRequest = {
+      path, url: starter.url(path), loop: looping, stream: settings.stream, bus: starter.bus(this.options.bus ?? (a.bus || undefined)),
+      volume, pitch, priority: this.options.priority ?? a.priority, world: this.world, group: this.group,
+    };
     if (ctx.at !== null) req.at = ctx.at;
     if (a.spatial) {
       req.attenuation = attenuationOf(a.spatial);
       if (this.pos) req.position = this.pos;
     }
-    const voice = starter.start(node.clip, looping, this.options.bus ?? (a.bus || undefined), req);
+    const voice = starter.play(req);
     if (!voice) return null;
     const base = { volume, pitch };
     let bindings = ctx.bindings;
@@ -1141,9 +1186,24 @@ export class EventInstance {
     return null;
   }
 
-  /** `list` as bindings, after `before` (the parent's, copied: a node's bindings never change its parent's). */
+  /**
+   * `list` as bindings, after `before` (the parent's, copied: a node's bindings never change its parent's). M2 F1: the
+   * result is cached per automation list (a parsed asset's, immutable) and reused while what it was built from holds:
+   * the same parent list, the instance having a group or not, the same global parameters and curve ids. Binding lists
+   * are only read (the sinks copy what they keep), so instances share them.
+   */
   private bindings(list: readonly Automation[], before: readonly Binding[] = NO_BINDINGS): Binding[] {
     if (list.length === 0) return before as Binding[];
+    const grouped = this.group > 0;
+    const epoch = this.sys.bindingEpoch;
+    const c = bindingCache.get(list);
+    if (c && c.before === before && c.grouped === grouped && c.globals === epoch.globals && c.curves === epoch.curves && c.localDefs === this.localDefs) return c.out;
+    const out = this.buildBindings(list, before);
+    bindingCache.set(list, { before, grouped, globals: epoch.globals, curves: epoch.curves, localDefs: this.localDefs, out });
+    return out;
+  }
+
+  private buildBindings(list: readonly Automation[], before: readonly Binding[]): Binding[] {
     const out: Binding[] = before.length === 0 ? [] : before.slice();
     for (const a of list) {
       const p = this.paramRef(a.parameter);
@@ -1154,12 +1214,32 @@ export class EventInstance {
   }
 }
 
-/** How an event's clip starts on the backend and its import volume (ADR 0040); `AudioSource.ts` provides both. */
-interface ClipStarter {
-  start(path: string, loop: boolean, bus: string | undefined, extra: Partial<PlayRequest>): AudioVoice | null;
-  clipVolume(path: string): number;
+/** M2 F1: `EventInstance.bindings`' cache entry for one automation list: what the list was built from, and the result. */
+interface BindingCacheEntry {
+  before: readonly Binding[];
+  grouped: boolean;
+  globals: object;
+  curves: object;
+  localDefs: object;
+  out: Binding[];
 }
-let starter: ClipStarter = { start: () => null, clipVolume: () => 1 };
+const bindingCache = new WeakMap<readonly Automation[], BindingCacheEntry>();
+
+/**
+ * How an event's clip starts on the backend, as `startClip` does (ADR 0040's import settings, the bus resolved as for
+ * `output`); `AudioSource.ts` provides it. M2 F1: in parts, so a clip's import settings are read once per voice and the
+ * request is built once (no spread).
+ */
+interface ClipStarter {
+  /** The clip's import settings: `volume` scales every playback of it, `stream` picks the stream path. */
+  settings(path: string): { readonly volume: number; readonly stream: boolean };
+  /** The clip's URL (throws for a missing asset, as `startClip` does). */
+  url(path: string): string;
+  /** A mixer bus name for `output` (empty or unknown: Master). */
+  bus(output: string | undefined): string;
+  play(req: PlayRequest): AudioVoice | null;
+}
+let starter: ClipStarter = { settings: () => ({ volume: 1, stream: false }), url: () => "", bus: (o) => o ?? "", play: () => null };
 
 /** @internal `AudioSource.ts` provides the clip starter (it owns `startClip` and the import settings). */
 export function _setEventClipStarter(s: ClipStarter): void {

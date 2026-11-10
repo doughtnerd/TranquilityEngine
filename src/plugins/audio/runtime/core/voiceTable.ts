@@ -9,7 +9,12 @@
 // mirror in the host's `onmessage`, `mirror.ts`). A1.4's command writer drains the queued commands
 // (`drainCommands`) into the frame's BATCH.
 import type { AudioHost, BusRemap, HostLifecycleListener, WorldKey } from "./context";
-import { MAX_BUSES } from "../../../../engine/audio/settings";
+import { MAX_BUSES as MAX_BUSESImport } from "../../../../engine/audio/settings";
+
+// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
+// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
+// bundle reads either directly.
+const MAX_BUSES = MAX_BUSESImport;
 
 /** @internal §3 `state`. */
 export const VoiceState = {

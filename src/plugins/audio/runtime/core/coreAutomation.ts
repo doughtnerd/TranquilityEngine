@@ -56,13 +56,25 @@ import {
   type CurvesCurves,
 } from "../wire.generated";
 import type { AudioVoice, PlayRequest } from "../backend";
-import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, type AutomationSink, type AutoResult, type Binding } from "../events/automation";
+import { AutoTarget, evaluateInto as evaluateIntoImport, MAX_BINDINGS as MAX_BINDINGSImport, MAX_CURVES, MAX_GLOBAL_SLOTS as MAX_GLOBAL_SLOTSImport, MAX_GROUPS as MAX_GROUPSImport, MAX_LOCAL_SLOTS as MAX_LOCAL_SLOTSImport, type AutomationSink, type AutoResult, type Binding } from "../events/automation";
 import { onLoopPoints } from "../loopPoints";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
-import { AUTOMATION_GLOBAL, CORE_CURVE_KEYS, type AutomationBinding, type CommandWriter } from "./commandWriter";
+import { AUTOMATION_GLOBAL as AUTOMATION_GLOBALImport, CORE_CURVE_KEYS, type AutomationBinding, type CommandWriter } from "./commandWriter";
 import type { PlayheadTracker, ReplayBuilder } from "./replay";
-import { VoiceFlag, VoiceState, type VoiceTable } from "./voiceTable";
+import { VoiceFlag as VoiceFlagImport, VoiceState as VoiceStateImport, type VoiceTable } from "./voiceTable";
+
+// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
+// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
+// bundle reads either directly.
+const evaluateInto = evaluateIntoImport;
+const MAX_BINDINGS = MAX_BINDINGSImport;
+const MAX_GROUPS = MAX_GROUPSImport;
+const MAX_GLOBAL_SLOTS = MAX_GLOBAL_SLOTSImport;
+const MAX_LOCAL_SLOTS = MAX_LOCAL_SLOTSImport;
+const AUTOMATION_GLOBAL = AUTOMATION_GLOBALImport;
+const VoiceFlag = VoiceFlagImport;
+const VoiceState = VoiceStateImport;
 
 /** Most bytes of resync (curves, parameters, bus bindings) written per frame outside what a binding needs at once. */
 export const RESYNC_BYTES_PER_FRAME = 48 * 1024;
@@ -286,7 +298,6 @@ export class CoreAutomation implements AutomationSink {
     e.group = group;
     const n = Math.min(bindings.length, MAX_BINDINGS);
     const wire = e.wire;
-    wire.length = 0;
     let global = false;
     let local = false;
     for (let j = 0; j < n; j++) {
@@ -300,10 +311,12 @@ export class CoreAutomation implements AutomationSink {
       w.param = p.global ? AUTOMATION_GLOBAL | p.slot : p.slot;
       w.curve = b.curve;
       w.target = b.target;
-      wire.push(w);
+      wire[j] = w;
       if (p.global) global = true;
       else local = true;
     }
+    // M2 F1: rebuilt in place; the length is set (a slow path) only when it changes.
+    if (wire.length !== n) wire.length = n;
     e.n = n;
     this.index(i, group, global, local);
     this.reevaluate(i);
@@ -603,7 +616,9 @@ export class CoreAutomation implements AutomationSink {
       e.id = id;
       e.group = this.deps.table.group[i]!;
       e.n = 0;
-      e.wire.length = 0;
+      // M2 F1: emptied by `pop` (inlined) rather than `length = 0` (a runtime call), once per voice start in a reused slot.
+      const wire = e.wire;
+      while (wire.length > 0) wire.pop();
       e.loop = null;
       this.voices[i] = e;
     }

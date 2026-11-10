@@ -36,13 +36,13 @@ import type { BusEffect } from "../../../../engine/audio/settings";
 import { Assets } from "../../../../engine/scene/Assets";
 import type { Attenuation, AudioBackend, AudioBackground, AudioStatus, AudioVoice, ListenerPose, PlayRequest } from "../backend";
 import {
-  BUS_LP_OFF_HZ,
+  BUS_LP_OFF_HZ as BUS_LP_OFF_HZImport,
   BUS_ROOT,
-  PLAY_FLAGS_LOOP,
-  PLAY_FLAGS_MIXED,
-  PLAY_FLAGS_SPATIAL,
-  PLAY_FLAGS_STREAM,
-  PLAY_FLAGS_WANTS_PLAYHEAD,
+  PLAY_FLAGS_LOOP as PLAY_FLAGS_LOOPImport,
+  PLAY_FLAGS_MIXED as PLAY_FLAGS_MIXEDImport,
+  PLAY_FLAGS_SPATIAL as PLAY_FLAGS_SPATIALImport,
+  PLAY_FLAGS_STREAM as PLAY_FLAGS_STREAMImport,
+  PLAY_FLAGS_WANTS_PLAYHEAD as PLAY_FLAGS_WANTS_PLAYHEADImport,
   readStatus,
   SET_PARAMS_MASK_BUS,
   SET_PARAMS_MASK_DIR,
@@ -67,14 +67,29 @@ import { StatusMirror } from "./mirror";
 import { DistanceEffect } from "./spatial";
 import { StatusReader } from "./statusReader";
 import { UnlockQueue } from "./unlockQueue";
-import { connectVoiceTable, VoiceFlag, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
+import { connectVoiceTable, VoiceFlag as VoiceFlagImport, VoiceReason as VoiceReasonImport, VoiceRolloff, VoiceState as VoiceStateImport, VoiceTable } from "./voiceTable";
 import { STREAM_ERROR_FADE_SECONDS, StreamManager, type StreamManagerDeps } from "./streams";
 import { sharedDecoderClient } from "../decoder/decoderClient";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
-import { effectiveMixedCap, ListenerBasis, Selection, type SelectionSink } from "./selection";
+import { effectiveMixedCap as effectiveMixedCapImport, ListenerBasis, Selection, type SelectionSink } from "./selection";
 import { HrtfPick, type HrtfSink } from "./hrtfPick";
 import { CoreAutomation, wrapPosition } from "./coreAutomation";
-import { MAX_GROUPS } from "../events/automation";
+import { MAX_GROUPS as MAX_GROUPSImport } from "../events/automation";
+
+// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
+// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
+// bundle reads either directly.
+const BUS_LP_OFF_HZ = BUS_LP_OFF_HZImport;
+const PLAY_FLAGS_LOOP = PLAY_FLAGS_LOOPImport;
+const PLAY_FLAGS_MIXED = PLAY_FLAGS_MIXEDImport;
+const PLAY_FLAGS_SPATIAL = PLAY_FLAGS_SPATIALImport;
+const PLAY_FLAGS_STREAM = PLAY_FLAGS_STREAMImport;
+const PLAY_FLAGS_WANTS_PLAYHEAD = PLAY_FLAGS_WANTS_PLAYHEADImport;
+const VoiceFlag = VoiceFlagImport;
+const VoiceReason = VoiceReasonImport;
+const VoiceState = VoiceStateImport;
+const MAX_GROUPS = MAX_GROUPSImport;
+const effectiveMixedCap = effectiveMixedCapImport;
 
 /** `PlayRequest` plus the core's World key. */
 export interface CorePlayRequest extends PlayRequest {
@@ -269,7 +284,22 @@ export class CoreBackend implements AudioBackend {
     });
     this.streams.afterSeek = (voice, frame) => this.reanchorSeek(voice, frame);
     // Stream voices' positions are in their stream's frames, at its rate (B3).
-    this.playheads = new PlayheadTracker(this.table, { info: (id) => this.streams.clipInfo(id) ?? this.clips.info(id) }, host.sampleRate);
+    // M2 F1: the tracker reads only `sampleRate` (per voice start and retime), so a clip's comes without an info object.
+    const rateInfo = { sampleRate: 0 };
+    this.playheads = new PlayheadTracker(
+      this.table,
+      {
+        info: (id) => {
+          const stream = this.streams.clipInfo(id);
+          if (stream || !this.clips.sampleRate) return stream ?? this.clips.info(id);
+          const rate = this.clips.sampleRate(id);
+          if (rate === null) return null;
+          rateInfo.sampleRate = rate;
+          return rateInfo as unknown as ClipInfo; // read at once, never kept
+        },
+      },
+      host.sampleRate,
+    );
     // E4.4: where a voice's (unwrapped) playhead is in its sound: a stream by its map (regions, splices, seeks), a clip
     // in its SET_LOOP region (or the whole clip for a plain loop).
     this.playheads.wrap = (i, pos) => this.wrapPlayhead(i, pos);
@@ -479,6 +509,7 @@ export class CoreBackend implements AudioBackend {
     this.names = settings.map((b) => b.name);
     this.busIndexByName.clear();
     this.names.forEach((n, i) => this.busIndexByName.set(n, i));
+    this.lastBusName = null;
     this.writer.busConfig(this.busConfigWire(mixer));
     // ADR 0158: bus bindings follow their buses to the new indices.
     this.automation.onBusesConfigured();
@@ -831,8 +862,15 @@ export class CoreBackend implements AudioBackend {
   }
 
   private busIndex(name: string): number {
-    return this.busIndexByName.get(name) ?? 0;
+    // M2 F1: plays mostly name the bus the last one did (the same string), so that one skips the map.
+    if (name === this.lastBusName) return this.lastBusIndex;
+    const index = this.busIndexByName.get(name) ?? 0;
+    this.lastBusName = name;
+    this.lastBusIndex = index;
+    return index;
   }
+  private lastBusName: string | null = null;
+  private lastBusIndex = 0;
 
   private applyAttenuation(i: number, a: Attenuation): void {
     this.table.minDist[i] = a.minDistance;
@@ -1110,26 +1148,20 @@ export class CoreBackend implements AudioBackend {
 }
 
 /** One voice; every call checks the id is still live. */
-class Voice implements CoreVoice {
-  readonly handle: AudioHandle;
-
+/**
+ * One voice. M2 F1: the voice is its own `AudioHandle` (one object per voice start, not two): `playing`, `alive`,
+ * `reason`, `stop` and `fade` are the handle's, with M1's semantics; `handle` is the voice itself.
+ */
+class Voice extends AudioHandle implements CoreVoice {
   constructor(
     private readonly backend: CoreBackend,
-    readonly id: number,
+    id: number,
   ) {
-    this.handle = new AudioHandle(backend.table, id);
+    super(backend.table, id);
   }
 
-  get playing(): boolean {
-    return this.handle.playing;
-  }
-
-  get alive(): boolean {
-    return this.handle.alive;
-  }
-
-  get reason(): AudioReason | null {
-    return this.handle.reason;
+  get handle(): AudioHandle {
+    return this;
   }
 
   setVolume(v: number): void {
@@ -1166,14 +1198,6 @@ class Voice implements CoreVoice {
 
   seek(seconds: number): void {
     this.backend._seek(this.id, seconds);
-  }
-
-  fade(to: number, seconds: number): void {
-    this.handle.fade(to, seconds);
-  }
-
-  stop(fadeSeconds = 0): void {
-    this.handle.stop(fadeSeconds);
   }
 }
 
