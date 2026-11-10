@@ -1,5 +1,5 @@
 import type { CurveKey } from "../../../../../engine/scene/particles";
-import { CurveEditor as CurveWidget, CurvePreview as CurveWidgetPreview } from "../../../../../editor/ui/CurveEditor";
+import { CurveEditor as CurveWidget, CurvePreview as CurveWidgetPreview } from "../../../../../editor/sdk";
 
 /** The shared curve widget (`src/editor/ui/CurveEditor.tsx`) set up for a particle curve: x is `t` in 0..1, linear, and the value range fits the keys. */
 export function CurveEditor(props: { keys: CurveKey[]; onChange: (keys: CurveKey[]) => void; label: string; readOnly?: boolean }) {

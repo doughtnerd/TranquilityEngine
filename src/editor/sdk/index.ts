@@ -22,6 +22,9 @@ export { SetField, pathKey, type NodePath, type NodeEntry, type SceneDocument } 
 export { sectionField } from "../ui/inspectorSections";
 export { LargePreview } from "../ui/AssetPreview";
 export { NameList, NumberField, ProblemList, Row, TextField } from "../ui/settingsControls";
+// ADR 0158 §7: the shared curve widget (particles, audio events, later animation) and its pure key helpers.
+export { CurveEditor, CurvePreview, type CurveEditorProps } from "../ui/CurveEditor";
+export { addKey as addCurveKey, moveKey as moveCurveKey, removeKey as removeCurveKey, setKeyInterp as setCurveKeyInterp, type Key as CurveEditKey } from "../ui/curveEdit";
 export { setValue, type SettingsDraft, type SettingsProblem } from "../projectSettingsModel";
 export { persisted } from "../preferences";
 // The editor theme's tokens (ADR 0025): `theme.value` tracks the Settings > Appearance theme.

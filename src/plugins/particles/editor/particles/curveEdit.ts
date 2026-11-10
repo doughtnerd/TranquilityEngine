@@ -2,7 +2,7 @@
  * Pure helpers behind the particle value inputs and gradient editor (ADR 0057): values convert between a number's or colour's kinds without losing what they
  * show. The generic key helpers live in `src/editor/ui/curveEdit.ts`. No DOM here, so they're tested headless.
  */
-import { addKey, moveKey, removeKey, type Key } from "../../../../editor/ui/curveEdit";
+import { addCurveKey as addKey, moveCurveKey as moveKey, removeCurveKey as removeKey, type CurveEditKey as Key } from "../../../../editor/sdk";
 import { colorKind, evalGradient, hexColor, numberKind, parseHexColor, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../engine/scene/particles";
 
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
