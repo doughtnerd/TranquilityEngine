@@ -225,6 +225,29 @@ describe("event runtime allocations per play (null backend)", () => {
   });
 });
 
+// M2 F1: one voice start on the core backend (`CoreBackend.play` of a plain clip, then `stop`), without the event
+// runtime: the table row, the PLAY record, the playhead anchor, the selection admit and the voice object (a voice is its
+// own `AudioHandle`, so one object per start, plus the request the caller builds). Before F1 a start built a `Voice`, an
+// `AudioHandle` and four `ClipInfo` objects (the clip's state, the playhead's clip rate twice, the bind's retime).
+// At this test's size that measured 1,312 B before F1 and 960 B after (720 B at full size); the ceiling sits between.
+const CORE_BYTES_PER_VOICE_START = 1_150;
+describe("core voice start allocations (M2 F1)", () => {
+  it("a plain clip's start+stop on the core stays under its ceiling", { timeout: 60_000 }, async (ctx) => {
+    const r = await coreRig();
+    if (!r) return ctx.skip();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const keeper = Audio.play("keep.audioevent.json"); // keeps a.wav resident: every start below plays at once
+    for (let k = 0; k < 40; k++) await r.frame();
+    const backend = r.backend as CoreBackend;
+    const op = () => { backend.play({ path: "a.wav", url: "", loop: false, stream: false, bus: "SFX" })?.stop(0); };
+    for (let w = 0; w < 1_500; w++) { op(); if (w % 16 === 15) await r.frame(); } // the JIT settles
+    const bytes = await allocPerPlay(r, op, FULL ? 200 : 60);
+    if (FULL) console.log(`[eventBench] core voice start: ~${bytes.toFixed(0)} B heap per start+stop`);
+    expect(bytes).toBeLessThanOrEqual(CORE_BYTES_PER_VOICE_START);
+    keeper?.stop(0);
+  });
+});
+
 describe.each(rigs)("event cost on main: %s backend", (label, make) => {
   it("Audio.play and setParameter: records per operation (gated) and timings (reported)", { timeout: 120_000 }, async (ctx) => {
     const r = await make();
