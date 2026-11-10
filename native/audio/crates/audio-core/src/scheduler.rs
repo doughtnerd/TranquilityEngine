@@ -161,6 +161,8 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
 
     let slack = header.first_frame - status::counters(core).current_frame;
     status::counters_mut(core).note_slack(slack.clamp(i32::MIN as f64, i32::MAX as f64) as i32);
+    // A3.3: the adaptive cap's late gate (on-time batches with negative slack) and record count.
+    crate::cap::note_batch(core, header.first_frame, header.count);
 
     // Pass 2: apply in arrival order. The reads can't fail now; a failure would skip the record.
     let mut off = first;

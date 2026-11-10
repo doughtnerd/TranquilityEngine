@@ -11,6 +11,8 @@
 
 pub mod arena;
 pub mod bus;
+pub mod cap;
+pub mod cap_controller;
 pub mod clips;
 pub mod core;
 pub mod counters;

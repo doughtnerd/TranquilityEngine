@@ -24,7 +24,7 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 
 /// ABI version, `(major << 8) | minor`. Bump the minor for an added export, the major for a change.
 pub const ABI_MAJOR: u32 = 1;
-pub const ABI_MINOR: u32 = 1;
+pub const ABI_MINOR: u32 = 2;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -260,6 +260,15 @@ pub extern "C" fn myco_audio_work_units() -> u32 {
     instance().core().map_or(0, |core| core.work_units())
 }
 
+/// ABI 1.2 (A3.3): the shell's underrun probe's running total (architecture §4.7), called when it
+/// changes. A rise is an underrun signal for the adaptive cap. `NOT_INITIALIZED` before `init`.
+#[no_mangle]
+pub extern "C" fn myco_audio_note_underruns(total: u32) -> i32 {
+    let Some(core) = instance().core_mut() else { return codes::NOT_INITIALIZED };
+    core.note_underruns(total);
+    codes::OK
+}
+
 // --- Test hooks -----------------------------------------------------------------------------
 
 /// Decodes the batch in the inbox and writes its values back for the round-trip test.
@@ -276,7 +285,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x101);
+        assert_eq!(myco_audio_abi_version(), 0x102);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);
@@ -297,5 +306,6 @@ mod tests {
         assert_eq!(myco_audio_stream_commit(0, 4_096, 0, 0), NI);
         assert_eq!(myco_audio_status_take(), 0);
         assert_eq!(myco_audio_set_limiter_lookahead(1.5), not_init, "A2.9: before init");
+        assert_eq!(myco_audio_note_underruns(1), not_init, "A3.3: before init");
     }
 }
