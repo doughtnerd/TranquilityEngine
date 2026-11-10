@@ -27,7 +27,8 @@
         {
           "type": "engine.AudioSource",
           "data": { "clip": "asset:audio/music-loop.wav", "loop": true, "volume": 0.5, "playOnAwake": true, "output": "Music" }
-        }
+        },
+        { "type": "lab.PauseToggle", "data": { "key": "p" } }
       ]
     },
     {
@@ -75,6 +76,79 @@
       "name": "Effects (keys 5, 6)",
       "transform": false,
       "components": [{ "type": "lab.Effects", "data": {} }]
+    },
+    {
+      "id": "bench",
+      "name": "Listening bench (keys 7, 8, 9, 0, Q, O, I, K)",
+      "transform": false,
+      "components": [{ "type": "lab.ListeningBench", "data": {} }]
+    },
+    {
+      "id": "tape",
+      "name": "Tape (keys T, Y, U)",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.AudioSource",
+          "data": { "clip": "asset:audio/melody-loop.wav", "loop": true, "volume": 0.7, "playOnAwake": false, "output": "Tape" }
+        },
+        { "type": "lab.Tape", "data": {} },
+        { "type": "lab.PauseToggle", "data": { "key": "u" } }
+      ]
+    },
+    {
+      "id": "loops",
+      "name": "Loops (key G)",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.AudioSource",
+          "data": { "clip": "asset:audio/loops/loop.wav", "loop": true, "volume": 0.7, "playOnAwake": false, "output": "UI" }
+        },
+        { "type": "lab.LoopCycler", "data": {} }
+      ]
+    },
+    {
+      "id": "crowd1",
+      "name": "Crowd 1 (key H)",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [3, 5, 12] } },
+        { "type": "engine.MeshRenderer", "data": { "mesh": "builtin:sphere" } },
+        {
+          "type": "engine.AudioSource",
+          "data": { "clip": "asset:audio/noise-loop.wav", "loop": true, "volume": 0.5, "playOnAwake": false, "spatial": true, "minDistance": 2, "maxDistance": 30 }
+        },
+        { "type": "lab.Orbit", "data": { "radius": 3, "speed": 0.1, "phase": 0, "centerX": 0, "centerZ": 12 } },
+        { "type": "lab.Toggle", "data": { "key": "h" } }
+      ]
+    },
+    {
+      "id": "crowd2",
+      "name": "Crowd 2 (key J)",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [7, 4, 12] } },
+        { "type": "engine.MeshRenderer", "data": { "mesh": "builtin:sphere" } },
+        {
+          "type": "engine.AudioSource",
+          "data": { "clip": "asset:audio/noise-loop.wav", "loop": true, "volume": 0.5, "playOnAwake": false, "spatial": true, "minDistance": 2, "maxDistance": 30 }
+        },
+        { "type": "lab.Orbit", "data": { "radius": 7, "speed": -0.18, "phase": 0.33, "centerX": 0, "centerZ": 12 } },
+        { "type": "lab.Toggle", "data": { "key": "j" } }
+      ]
+    },
+    {
+      "id": "crowd3",
+      "name": "Crowd 3 (key J)",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [11, 6, 12] } },
+        { "type": "engine.MeshRenderer", "data": { "mesh": "builtin:sphere" } },
+        {
+          "type": "engine.AudioSource",
+          "data": { "clip": "asset:audio/noise-loop.wav", "loop": true, "volume": 0.5, "playOnAwake": false, "spatial": true, "minDistance": 2, "maxDistance": 30 }
+        },
+        { "type": "lab.Orbit", "data": { "radius": 11, "speed": 0.27, "phase": 0.66, "centerX": 0, "centerZ": 12 } },
+        { "type": "lab.Toggle", "data": { "key": "j" } }
+      ]
     }
   ]
 }
