@@ -1,12 +1,16 @@
-// The clock map, v1 (ADR 0157; architecture §4.3, §4.5, §4.7): turns the host's clocks into "which audio frame is
+// The clock map (ADR 0157; architecture §4.3, §4.5, §4.7): turns the host's clocks into "which audio frame is
 // being heard now" (`Audio.time`) and "which frame will the core render when a command sent now arrives"
 // (`firstFrame`). Pure arithmetic over a `HostClock` (hostClock.ts, K4): no timers, no globals, no allocation per
-// frame. A3.2 later replaces the lookahead and ramp rules with `lookahead.ts` and adds late counting; the offset
-// filter, the render lead and the fallback stay.
+// frame. A1.4 wrote the offset filter, the render lead and the fallback; A3.2 moved the lookahead and ramp rules to
+// `lookahead.ts`, added the stamp-or-asap rule for `at` (`stampFor`) and re-anchors when an output timestamp comes
+// back after a gap (a suspended or interrupted context).
 //
 // Units: `p` is a frame's rAF time in ms (the `performance.now()` base). Frames are sample frames at the context rate
 // `sr`. The offset `o` and the lead Λ are in frames. Seconds only in `audioTime`.
 import type { HostClock } from "./hostClock";
+import { firstFrame, frameOfTime, isStamped, lookaheadFrames, rampFrames } from "./lookahead";
+
+export { LOOKAHEAD_MAX_SECONDS, LOOKAHEAD_MIN_FRAMES, RAMP_MAX_MS, RAMP_MIN_MS } from "./lookahead";
 
 /** §4.7 Clock: the offset filter's EMA gain. */
 export const OFFSET_EMA = 0.1;
@@ -24,13 +28,6 @@ export const INTERVAL_EMA = 0.1;
 export const INITIAL_INTERVAL_MS = 1000 / 60;
 /** A gap between two frames longer than this (ms) is a stall or a hidden tab: re-anchor (§4.5), leave Δ̄ alone. */
 export const STALL_MS = 250;
-/** §4.3 L: the lookahead floor in frames (8 quanta). */
-export const LOOKAHEAD_MIN_FRAMES = 1024;
-/** §4.3 L: the lookahead ceiling in seconds. */
-export const LOOKAHEAD_MAX_SECONDS = 0.1;
-/** §4.3 `rampFrames`: Δ̄ clamps to this range in ms. */
-export const RAMP_MIN_MS = 5;
-export const RAMP_MAX_MS = 50;
 
 /** §4.3 as one object. One per host. */
 export class ClockMap {
@@ -41,6 +38,8 @@ export class ClockMap {
 
   /** True once an output timestamp gave the offset. */
   private primed = false;
+  /** True when a frame since priming had no output timestamp: the next one re-anchors (§4.5). */
+  private gap = false;
   /** The offset filter's value o (frames). */
   private offset = 0;
   /** The render lead Lambda (frames). */
@@ -84,7 +83,10 @@ export class ClockMap {
     this.hasPrevP = true;
     const ts = this.clock.outputTimestamp();
     const ct = this.clock.currentTime();
-    if (ts === null) return;
+    if (ts === null) {
+      if (this.primed) this.gap = true;
+      return;
+    }
     const sr = this.sampleRate;
     const heard = sr * (ts.contextTime + (p - ts.performanceTime) / 1000);
     const oObs = heard - (p * sr) / 1000;
@@ -93,7 +95,10 @@ export class ClockMap {
       this.offset = oObs;
       this.lead = Math.max(0, lambdaObs);
       this.primed = true;
-    } else if (stall) {
+    } else if (stall || this.gap) {
+      // A stall or a frame without a timestamp (the context suspended or interrupted): the old offset says nothing
+      // about the new one, so take the sample as it is rather than reject ten in a row.
+      this.gap = false;
       this.offset = oObs;
       this.lead = Math.max(0, lambdaObs);
       this.reanchors++;
@@ -176,17 +181,27 @@ export class ClockMap {
     return this.fallbackFrame() + FALLBACK_LEAD_FRAMES;
   }
 
-  /** L (§4.3): the lookahead in frames. */
+  /** L (§4.3, `lookahead.ts`): the lookahead in frames. Applies to stamped records only. */
   lookaheadFrames(): number {
-    const sr = this.sampleRate;
-    const wanted = Math.max((2 * this.intervalMs * sr) / 1000, LOOKAHEAD_MIN_FRAMES);
-    return Math.round(Math.min(wanted, LOOKAHEAD_MAX_SECONDS * sr));
+    return lookaheadFrames(this.intervalMs, this.sampleRate);
   }
 
-  /** `rampFrames` (§4.3): the ramp length for SET_PARAMS and BUS_MIX, in frames. */
+  /** `rampFrames` (§4.3, `lookahead.ts`): the ramp length for SET_PARAMS and BUS_MIX, in frames. */
   rampFrames(): number {
-    const ms = Math.min(Math.max(this.intervalMs, RAMP_MIN_MS), RAMP_MAX_MS);
-    return Math.round((ms * this.sampleRate) / 1000);
+    return rampFrames(this.intervalMs, this.sampleRate);
+  }
+
+  /** The context frame for an `at` time on the heard clock (`Audio.time` seconds), or 0 (asap) when omitted or non-finite. */
+  frameOfTime(at: number | undefined): number {
+    return frameOfTime(at, this.sampleRate);
+  }
+
+  /**
+   * The frame a record for `frame` (from `frameOfTime`) is stamped with, or undefined to send it asap: a frame not
+   * after *F*_now is past (API §1: "past: as soon as possible"; `lookahead.ts` `isStamped`).
+   */
+  stampFor(frame: number): number | undefined {
+    return isStamped(frame, this.framesNow()) ? frame : undefined;
   }
 
   /**
@@ -194,9 +209,7 @@ export class ClockMap {
    * previous one, so the sequence never goes backwards.
    */
   nextFirstFrame(): number {
-    const frameNow = this.framesNow();
-    const candidate = Math.round(frameNow + this.lookaheadFrames());
-    const result = Math.max(candidate, this.prevFirstFrame);
+    const result = firstFrame(this.framesNow(), this.lookaheadFrames(), this.prevFirstFrame);
     this.prevFirstFrame = result;
     return result;
   }
@@ -204,6 +217,7 @@ export class ClockMap {
   /** Forgets every estimate (a rebuild, a new context). Counters stay. */
   reset(): void {
     this.primed = false;
+    this.gap = false;
     this.offset = 0;
     this.lead = 0;
     this.rejectRun = 0;

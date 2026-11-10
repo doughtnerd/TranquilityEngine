@@ -57,6 +57,8 @@ export function browserHostClock(context: AudioContext): HostClock {
       if (context.state !== "running" || typeof context.getOutputTimestamp !== "function") return null;
       const t = context.getOutputTimestamp();
       if (!t || t.contextTime === undefined || t.performanceTime === undefined) return null;
+      // A3.2: a non-finite or negative pair would poison the offset filter; the clock map falls back instead.
+      if (!Number.isFinite(t.contextTime) || !Number.isFinite(t.performanceTime) || t.contextTime < 0 || t.performanceTime < 0) return null;
       // Engines report zeros until the first render.
       if (t.contextTime === 0 && t.performanceTime === 0) return null;
       return { contextTime: t.contextTime, performanceTime: t.performanceTime };

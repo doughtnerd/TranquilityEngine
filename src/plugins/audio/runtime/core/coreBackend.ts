@@ -246,8 +246,8 @@ export class CoreBackend implements AudioBackend {
     if (req.attenuation) this.applyAttenuation(i, req.attenuation);
     if (req.position) this.applyPosition(i, req.position);
     this.refreshGain(i);
-    const at = req.at;
-    t.startFrame[i] = at !== undefined && Number.isFinite(at) && running ? Math.round(at * this.host.sampleRate) : 0;
+    // `at` is ignored while locked (API §1); the stamp-or-asap choice is made when the PLAY is sent (`sendPlay`).
+    t.startFrame[i] = running ? this.clockMap.frameOfTime(req.at) : 0;
     this.mixer.voiceStarted(this.names[bus] ?? "");
     if (running) this.launch(id);
     else if (req.oneShot && !req.loop) this.lockedQueue.pushOneShot(id, performance.now());
@@ -549,8 +549,8 @@ export class CoreBackend implements AudioBackend {
     a.lpHz = BUS_LP_OFF_HZ;
     a.score = t.audibility[i]!;
     const start = t.startFrame[i]!;
-    // A start already in the past is dropped to asap (§1 `at`).
-    this.writer.play(a, start > 0 && start > this.clockMap.framesNow() ? start : undefined);
+    // A3.2: stamped at its frame while that is ahead of F_now; past (or asap) goes asap (§1 `at`, `lookahead.ts`).
+    this.writer.play(a, this.clockMap.stampFor(start));
     if (start > 0) t.startFrame[i] = 0;
     this.spatialDirty[i] = 0;
   }

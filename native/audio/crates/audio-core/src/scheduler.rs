@@ -457,6 +457,74 @@ mod tests {
         assert_eq!(absolute(99.6, 0), 100);
     }
 
+    /// A core with clip 1 resident (4,096 frames of silence: long enough to stay live for 32 quanta).
+    fn core_with_clip() -> Core {
+        let mut core = voices::tests::core();
+        core.clips_mut().reserve(1, 4_096, 1, 48_000.0, crate::clips::ClipFormat::I16).unwrap();
+        core
+    }
+
+    #[test]
+    fn slack_is_first_frame_minus_current_frame_and_may_be_negative() {
+        // A3.2: STATUS `minSlackFrames` (architecture §3.3: "slack is firstFrame minus currentFrame").
+        let mut core = voices::tests::core();
+        status::counters_mut(&mut core).current_frame = 1_024.0;
+        submit(&mut core, &batch(1_920.0, &[stop(0x0001_0009, wire::ASAP)]));
+        assert_eq!(status::counters(&core).min_slack_frames(), 896);
+        submit(&mut core, &batch(2_048.0, &[]));
+        assert_eq!(status::counters(&core).min_slack_frames(), 896, "the block keeps its minimum");
+        submit(&mut core, &batch(1_000.0, &[]));
+        assert_eq!(status::counters(&core).min_slack_frames(), -24, "a batch that arrived after its firstFrame");
+        // A refused batch notes nothing.
+        let mut bad = batch(0.0, &[play(0x0001_0001, wire::ASAP)]);
+        bad[24..28].copy_from_slice(&2u32.to_le_bytes());
+        assert_eq!(submit(&mut core, &bad), wire::ERR_TRUNCATED);
+        assert_eq!(status::counters(&core).min_slack_frames(), -24);
+    }
+
+    #[test]
+    fn a_far_future_stamped_play_waits_then_starts_on_its_frame() {
+        let mut core = core_with_clip();
+        // Frame 100 * 128 + 37 = 12,837: a hundred quanta ahead.
+        submit(&mut core, &batch(12_800.0, &[play(0x0001_0001, 37)]));
+        for q in 0..100u64 {
+            core.process(q * 128);
+            assert_eq!(voices::slots(&core)[1].state, state::SCHEDULED, "quantum {q}: still waiting");
+        }
+        core.process(100 * 128);
+        assert_eq!(voices::slots(&core)[1].state, state::PLAYING);
+        assert_eq!(status::counters(&core).late_commands, 0);
+    }
+
+    #[test]
+    fn a_stamped_stop_whose_frame_has_passed_applies_at_offset_0_and_counts_late() {
+        let mut core = core_with_clip();
+        submit(&mut core, &batch(0.0, &[play(0x0001_0001, wire::ASAP)]));
+        core.process(0);
+        core.process(128);
+        // Frame 200 is inside the quantum at 128, already rendered: due before the quantum at 256 starts.
+        submit(&mut core, &batch(200.0, &[stop(0x0001_0001, 0)]));
+        assert_eq!(pending_len(&mut core), 1);
+        core.process(256);
+        assert_eq!(pending_len(&mut core), 0);
+        assert!(status::counters(&core).ended.as_slice().contains(&0x0001_0001), "the STOP ended the voice");
+        let c = status::counters(&core);
+        assert_eq!(c.late_commands, 1);
+        assert_eq!(c.max_lateness_frames, 56);
+    }
+
+    #[test]
+    fn a_record_due_inside_the_quantum_is_not_late() {
+        let mut core = core_with_clip();
+        submit(&mut core, &batch(0.0, &[play(0x0001_0001, wire::ASAP)]));
+        core.process(0);
+        // Frame 255 is the last frame of the quantum at 128: on time, at offset 127.
+        submit(&mut core, &batch(255.0, &[stop(0x0001_0001, 0)]));
+        core.process(128);
+        assert!(status::counters(&core).ended.as_slice().contains(&0x0001_0001), "the STOP ended the voice");
+        assert_eq!(status::counters(&core).late_commands, 0);
+    }
+
     fn reset_rec(keep_clips: u32) -> Vec<u8> {
         let mut b = vec![0u8; Reset::FIXED_END];
         Reset { voice_id: 0, frame_offset: wire::ASAP, keep_clips }.write(&mut b, 0).unwrap();
