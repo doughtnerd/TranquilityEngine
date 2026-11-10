@@ -12,7 +12,7 @@ M2 is in wave 1 (the pilot). E1, E2 and E3a are on master with the plan.
 
 **Biggest calls so far:** none beyond the plan.
 
-**Proposals waiting for your yes/no:** none.
+**Proposals waiting for your yes/no:** the AAC decoder's size gate (entry 4).
 
 ## Entries
 
@@ -28,3 +28,13 @@ M2 is in wave 1 (the pilot). E1, E2 and E3a are on master with the plan.
 - **Why:** keeps M1's fallback behaviour and tests; the panel's grouping needs event voices only.
 - **If changed:** drop the `group` filter in `babylonBackend.ts`'s `debug()` and relax the `[]` assertions in `babylonBackend.test.ts` and `audioApi.test.ts`.
 - **Open follow-up:** whether changing `loopStart`/`loopEnd` on an already-playing Babylon sound takes effect isn't covered by the mocks; check in a real browser in the E5.4 `@slow` spec (Babylon backend).
+
+### 3. Loop points from files: clamping, ABI bump, Vorbis only (E4.1)
+- **Question:** how the decoder reports a file's loop and what to do with odd values.
+- **Chosen:** the clip-info record grows from 32 to 40 bytes (flags bit 1 = the file states a loop; `loopStart` u32 at 32, `loopEnd` exclusive u32 at 36); decoder `ABI_VERSION` 0x100 → 0x101 (minor, so main's major check is unaffected). A loop is clamped to the file's stated length and dropped if empty. A malformed `smpl` loop record is skipped; a truncated `smpl` gives no loop. Ogg **Vorbis** comments are read; **Opus** comments aren't, because this decoder build doesn't decode Opus (0158 §4 names Ogg/Opus). Streams need no ranged read: the worker already gets the whole file at stream open, so E4.4 only maps the stream's info into its reply.
+- **Why:** additive ABI change; a bad loop in a file should never break playback.
+- **If changed:** `audio-decode/src/decoder.rs` (clamp) and `loop_points.rs` (record rules); Opus comments come with Opus decoding.
+
+### 4. Proposal: the AAC decoder's size gate (E4.1 merge)
+- **Question:** `myco_audio_decode_aac.wasm` is 1,073,338 B against the 1,100 KB (1,126,400 B) gate, 95%; it was already 94.8% before M2 (loop points added 5.6 KB).
+- **Proposal (waiting for your yes/no):** under ADR 0158 the gates are tripwires, so raise `DECODER_AAC_LIMIT` in `native/audio/build.mjs` to 1,280 KB with a build-log line, or leave it until something actually trips it. Later briefs touching `audio-decode` are told the remaining headroom (≈ 52 KB).
