@@ -1,10 +1,28 @@
 // The Audio plugin's editor half (ADR 0097, 0157): the Audio category of Project settings (buses and their
 // effects and voice limits, snapshots, ducking, voices, playback options and the backend, with bus meters while
 // playing), the Play Stats panel's audio underruns count, and the Audio Debug panel.
-import type { EditorPlugin } from "../../../editor/sdk";
+import { editor, type EditorPlugin } from "../../../editor/sdk";
 import { audioManifest } from "../manifest";
 import { Audio } from "../runtime";
-import { EVENT_EDITOR_PANEL } from "./event/openEventEditor";
+import { AUDIO_EVENT_SUFFIX, emptyAudioEvent, formatAudioEvent } from "../../../engine/audio/eventFormat";
+import { createEventFromClips } from "./createEventFromClips";
+import { audioEventFormat, audioEventReferences } from "./eventAsset";
+import { EVENT_EDITOR_PANEL, openEventEditor } from "./event/openEventEditor";
+
+/** A speaker with waves over a page corner: an event is a sound that plays one of several. */
+const EVENT_ICON = "M5 9v6h4l5 4V5L9 9zM17.5 8.5a5 5 0 0 1 0 7M20 6a8.5 8.5 0 0 1 0 12";
+
+/** Where New Event goes by default: `audio/` if the project has it, else the folder given. */
+const eventFolder = (folder: string): string => (folder === "" && editor.project.current?.folders.includes("audio") ? "audio" : folder);
+
+/** Create `New Event.audioevent.json`: a valid, empty event (a layer with no children, which plays nothing) to fill in the Event editor. */
+const createEvent = (folder: string): Promise<string | null> =>
+  editor.project.createFile({
+    folder: eventFolder(folder),
+    name: `New Event${AUDIO_EVENT_SUFFIX}`,
+    what: "audio events",
+    write: (project, path) => project.writeText(path, formatAudioEvent(emptyAudioEvent())),
+  });
 
 export const audioEditorPlugin: EditorPlugin = {
   manifest: audioManifest,
@@ -25,6 +43,35 @@ export const audioEditorPlugin: EditorPlugin = {
       id: "audiodebug",
       title: "Audio Debug",
       view: () => import("./AudioDebugPanel").then((m) => m.AudioDebugPanel),
+    });
+    // The audio event asset (ADR 0158 §1): `AudioSource.clip` accepts it beside clips; its clips are references (ADR 0148).
+    context.registerAssetKind({
+      id: "audioEvent",
+      extensions: [AUDIO_EVENT_SUFFIX],
+      label: "Audio Event",
+      icon: EVENT_ICON,
+      open: (path) => openEventEditor(path),
+      create: { label: "New Event", create: createEvent },
+      referencedAs: ["audioEvent"],
+      references: { ...audioEventReferences, extensions: [AUDIO_EVENT_SUFFIX] },
+    });
+    context.registerAssetFormat(audioEventFormat);
+    // A clip's (or several clips') context menu: one event playing one of them per play.
+    context.registerAssetAction({
+      id: "myco.audio.event-from-clips",
+      label: "Create event from clips",
+      writes: true,
+      appliesTo: (_project, targets) => targets.length > 0 && targets.every((t) => t.slice === undefined && editor.assets.kindOf(t.path) === "audio"),
+      run: async (_project, targets) => {
+        const { name, event } = createEventFromClips(targets.map((t) => t.path));
+        const made = await editor.project.createFile({
+          folder: editor.assets.folderOf(targets[0]!.path),
+          name: `${name}${AUDIO_EVENT_SUFFIX}`,
+          what: "audio events",
+          write: (project, path) => project.writeText(path, formatAudioEvent(event)),
+        });
+        return made ? [made] : [];
+      },
     });
     // The Event editor (ADR 0158 §7, contract C4): opened by double-clicking an audio event; a placeholder until E6.3.
     context.registerPanel({
