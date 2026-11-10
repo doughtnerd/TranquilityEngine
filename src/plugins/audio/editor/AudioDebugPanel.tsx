@@ -1,9 +1,12 @@
 // The audio debug panel (ADR 0157, A2.5): `Audio.debug()` while the game plays, about four times a second. Shows the
 // status, the backend, the counters, each bus's gain, peak and voices, and the most audible voices (with a count of the
-// rest by state). "Not playing" otherwise.
+// rest by state). Voices that belong to an event instance (ADR 0158) are grouped under it, with its parameters; the
+// panel also counts the continuous-container clips started a frame late. "Not playing" otherwise.
 import { useEffect, useState } from "preact/hooks";
 import { Audio } from "../runtime/Audio";
 import type { AudioDebugInfo } from "../runtime/backend";
+import type { AudioDebugState } from "../runtime/Audio";
+import type { EventDebugRow } from "../runtime/events/eventRuntime";
 import { editor } from "../../../editor/sdk";
 import "./audioDebugPanel.css";
 
@@ -30,6 +33,39 @@ export function voiceRows(voices: readonly DebugVoice[], max = MAX_VOICE_ROWS): 
   return { rows: sorted.slice(0, max), hidden: sorted.length - max, hiddenByState };
 }
 
+/** A playing event instance and its voices among the rows shown. */
+export interface VoiceGroup {
+  event: EventDebugRow;
+  voices: DebugVoice[];
+}
+
+/**
+ * The shown rows split by event instance (`voices[].event` against `Audio.debug().events`): the groups in the order their
+ * first voice appears, and the voices that belong to no listed instance as they were (an instance that already ended
+ * counts as none).
+ */
+export function groupByEvent(rows: readonly DebugVoice[], events: readonly EventDebugRow[] | undefined): { groups: VoiceGroup[]; ungrouped: DebugVoice[] } {
+  const byId = new Map<number, EventDebugRow>();
+  for (const e of events ?? []) byId.set(e.id, e);
+  const groups = new Map<number, VoiceGroup>();
+  const ungrouped: DebugVoice[] = [];
+  for (const v of rows) {
+    const e = v.event !== undefined && v.event !== null ? byId.get(v.event) : undefined;
+    if (!e) { ungrouped.push(v); continue; }
+    let g = groups.get(e.id);
+    if (!g) groups.set(e.id, (g = { event: e, voices: [] }));
+    g.voices.push(v);
+  }
+  return { groups: [...groups.values()], ungrouped };
+}
+
+/** How many continuous-container clips the playing event instances started a frame late (0158 §6). */
+export const lateStartCount = (events: readonly EventDebugRow[] | undefined): number => (events ?? []).reduce((n, e) => n + (e.lateStarts ?? 0), 0);
+
+/** "Name 0.5, Other Grass": an instance's parameters on one line. */
+const parameterText = (p: Record<string, number | string>): string =>
+  Object.entries(p).map(([k, v]) => `${k} ${typeof v === "number" ? level(v) : v}`).join(", ");
+
 /** Two decimals, or "0" for a value that is exactly zero. */
 const level = (v: number): string => (v === 0 ? "0" : v.toFixed(2));
 
@@ -38,7 +74,7 @@ const peakOf = (b: AudioDebugInfo["buses"][number]): number => Math.max(b.peakL,
 
 export function AudioDebugPanel() {
   const isPlaying = editor.scene.playState === "playing";
-  const [info, setInfo] = useState<AudioDebugInfo | null>(null);
+  const [info, setInfo] = useState<AudioDebugState | null>(null);
   useEffect(() => {
     if (!isPlaying) {
       setInfo(null);
@@ -57,6 +93,19 @@ export function AudioDebugPanel() {
   }
   const c = info.counters;
   const shown = voiceRows(info.voices);
+  const grouped = groupByEvent(shown.rows, info.events);
+  const late = lateStartCount(info.events);
+  const voiceRow = (v: DebugVoice, inEvent: boolean) => (
+    <tr key={v.id} class={inEvent ? "audio-debug-in-event" : undefined}>
+      <td class="audio-debug-clip" title={v.clip}>
+        {v.clip}
+      </td>
+      <td>{v.bus}</td>
+      <td data-state={v.state}>{v.state}</td>
+      <td>{v.priority}</td>
+      <td>{level(v.gain)}</td>
+    </tr>
+  );
   return (
     <section class="audio-debug" aria-label="Audio">
       <h4>
@@ -96,6 +145,14 @@ export function AudioDebugPanel() {
           <tr>
             <td>Dropped plays</td>
             <td>{c.droppedPlays}</td>
+          </tr>
+          <tr>
+            <td>Event instances</td>
+            <td>{(info.events ?? []).length}</td>
+          </tr>
+          <tr>
+            <td title="Clips of a continuous container started on the previous clip's end, one frame late, because their length wasn't known yet">Clips started late</td>
+            <td>{late}</td>
           </tr>
         </tbody>
       </table>
@@ -140,17 +197,20 @@ export function AudioDebugPanel() {
             </tr>
           </thead>
           <tbody>
-            {shown.rows.map((v) => (
-              <tr key={v.id}>
-                <td class="audio-debug-clip" title={v.clip}>
-                  {v.clip}
+            {grouped.groups.flatMap((g) => [
+              <tr key={`e${g.event.id}`} class="audio-debug-event">
+                <td colSpan={5} title={g.event.asset}>
+                  <span class="audio-debug-event-name">{g.event.asset}</span>
+                  <span class="audio-debug-event-meta">
+                    {" "}#{g.event.id} · {g.event.voices} voice{g.event.voices === 1 ? "" : "s"}
+                    {Object.keys(g.event.parameters).length > 0 ? ` · ${parameterText(g.event.parameters)}` : ""}
+                    {g.event.lateStarts > 0 ? ` · ${g.event.lateStarts} late` : ""}
+                  </span>
                 </td>
-                <td>{v.bus}</td>
-                <td data-state={v.state}>{v.state}</td>
-                <td>{v.priority}</td>
-                <td>{level(v.gain)}</td>
-              </tr>
-            ))}
+              </tr>,
+              ...g.voices.map((v) => voiceRow(v, true)),
+            ])}
+            {grouped.ungrouped.map((v) => voiceRow(v, false))}
           </tbody>
         </table>
       )}

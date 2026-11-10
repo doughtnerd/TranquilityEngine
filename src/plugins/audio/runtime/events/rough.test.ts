@@ -222,7 +222,7 @@ describe("late starts of continuous containers (0158 §6)", () => {
     Audio.play("c.audioevent.json");
     expect(Audio.debug().events[0].lateStarts).toBe(0);
     fake.voices[0].end();
-    fake.time = 1;
+    (fake as { time: number }).time = 1;
     events().update(1 / 60);
     expect(fake.plays).toHaveLength(2);
     expect(Audio.debug().events[0].lateStarts).toBe(1);
@@ -235,7 +235,7 @@ describe("late starts of continuous containers (0158 §6)", () => {
     fake.horizonTime = 0;
     await boot({ "c.audioevent.json": { format: F, root: { type: "random", mode: "continuous", avoidRepeat: 0, children: [clip("a.wav"), clip("b.wav")] } } });
     Audio.play("c.audioevent.json");
-    fake.time = 0.9;
+    (fake as { time: number }).time = 0.9;
     events().update(1 / 60);
     expect(fake.plays).toHaveLength(2);
     expect(events().lateStartTotal).toBe(0);
