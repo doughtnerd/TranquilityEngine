@@ -1,0 +1,46 @@
+{
+  "format": "myco.audioevent@1",
+  "bus": "Engine",
+  "priority": 160,
+  "limit": { "maxInstances": 1, "steal": "oldest" },
+  "parameters": [{ "name": "RPM", "min": 0, "max": 1, "default": 0, "seekSpeed": 1.5 }],
+  "automation": [{ "parameter": "RPM", "target": "volume", "curve": [[0, 0.6], [1, 1]] }],
+  "root": {
+    "type": "sustain",
+    "start": { "type": "clip", "clip": "audio/events/engine-start.wav" },
+    "loop": {
+      "type": "blend",
+      "parameter": "RPM",
+      "automation": [{ "parameter": "RPM", "target": "pitch", "curve": [[0, 0.9], [1, 1.25]] }],
+      "children": [
+        {
+          "type": "clip",
+          "clip": "audio/events/engine-idle.wav",
+          "loop": true,
+          "loopRegion": [0.15, 1.15],
+          "range": [0, 0.1],
+          "fade": 0.4
+        },
+        {
+          "type": "clip",
+          "clip": "audio/events/engine-mid.wav",
+          "loop": true,
+          "loopRegion": [0.15, 1.15],
+          "range": [0.45, 0.55],
+          "fade": 0.4
+        },
+        {
+          "type": "clip",
+          "clip": "audio/events/engine-high.wav",
+          "loop": true,
+          "loopRegion": [0.15, 1.15],
+          "range": [0.9, 1],
+          "fade": 0.4
+        }
+      ]
+    },
+    "end": { "type": "clip", "clip": "audio/events/engine-off.wav" },
+    "release": "now",
+    "fade": 0.12
+  }
+}

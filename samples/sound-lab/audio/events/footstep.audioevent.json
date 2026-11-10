@@ -1,0 +1,63 @@
+{
+  "format": "myco.audioevent@1",
+  "bus": "Foley",
+  "priority": 128,
+  "limit": { "maxInstances": 6, "steal": "oldest" },
+  "cooldown": 0.05,
+  "root": {
+    "type": "switch",
+    "parameter": "Surface",
+    "default": "Grass",
+    "onChange": "keep",
+    "children": [
+      {
+        "type": "random",
+        "value": "Grass",
+        "avoidRepeat": 1,
+        "volumeRandom": [-3, 0],
+        "pitchRandom": [-1.5, 1.5],
+        "children": [
+          { "type": "clip", "clip": "audio/events/step-grass-1.wav", "loop": false },
+          { "type": "clip", "clip": "audio/events/step-grass-2.wav", "loop": false },
+          { "type": "clip", "clip": "audio/events/step-grass-3.wav", "loop": false }
+        ]
+      },
+      {
+        "type": "random",
+        "value": "Gravel",
+        "avoidRepeat": 1,
+        "volumeRandom": [-3, 0],
+        "pitchRandom": [-2, 2],
+        "children": [
+          { "type": "clip", "clip": "audio/events/step-gravel-1.wav", "loop": false },
+          { "type": "clip", "clip": "audio/events/step-gravel-2.wav", "loop": false },
+          { "type": "clip", "clip": "audio/events/step-gravel-3.wav", "loop": false }
+        ]
+      },
+      {
+        "type": "random",
+        "value": "Wood",
+        "avoidRepeat": 1,
+        "volumeRandom": [-3, 0],
+        "pitchRandom": [-1.5, 1.5],
+        "children": [
+          { "type": "clip", "clip": "audio/events/step-wood-1.wav", "loop": false },
+          { "type": "clip", "clip": "audio/events/step-wood-2.wav", "loop": false },
+          { "type": "clip", "clip": "audio/events/step-wood-3.wav", "loop": false }
+        ]
+      },
+      {
+        "type": "random",
+        "value": "Metal",
+        "avoidRepeat": 1,
+        "volumeRandom": [-2, 0],
+        "pitchRandom": [-1, 1],
+        "children": [
+          { "type": "clip", "clip": "audio/events/step-metal-1.wav", "loop": false },
+          { "type": "clip", "clip": "audio/events/step-metal-2.wav", "loop": false },
+          { "type": "clip", "clip": "audio/events/step-metal-3.wav", "loop": false }
+        ]
+      }
+    ]
+  }
+}
