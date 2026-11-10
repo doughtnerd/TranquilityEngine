@@ -115,3 +115,8 @@ Wave 1 is merged with every gate green; wave 2 is running (E5.2 guide and E5.3 b
 - **If declined:** mark the two exports `@internal` (first-party plugins only) until a later record.
 - **Owner (2026-11-10):** "Yes, that's approved."
 
+### 20. Follow-ups found in wave 3 (E5.3b, E5.4), scheduled for wave 4
+- **`Audio.play` on the core still misses ≤ 5 µs** (E5.3b, at load 11–12: ≈ 7–8 µs random-of-4, 22–25 µs layer-of-3; the event runtime's own allocations fell ≈ 40%, gated by a heap-per-play test). ≈ 85% of what is left is `CoreAutomation.bindVoice`/`setParam` (per-group `Set`s, closures in `evaluate`). Task **E5.3c**: a non-allocating `evaluate` (slot lookup instead of a callback), reuse of the group sets, no `reevaluate` before the voice is on the core.
+- **`Audio.debug()` on the core doesn't show automation** (E5.4): event voices report `gain` 1 and `pitch` 1 (automation shows only in `audibility` and `state`), `playheadSeconds` null, and a bus's `effectiveGain` leaves out bus automation; `events` can drop an instance one poll before its last voice leaves `voices`. On Babylon gain and pitch do show it. Task **E3.9**: report the automated gain and pitch (main's estimate) and the bus automation in the debug rows; retire an instance's debug row with its last voice.
+- **Babylon live loop region:** verified in a real browser (E5.4): changing `loopStart`/`loopEnd`/`loop` on a playing Babylon sound takes effect (entry 2's open follow-up is closed).
+

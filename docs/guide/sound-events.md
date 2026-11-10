@@ -86,7 +86,7 @@ Plays one asset.
 { "type": "clip", "clip": "audio/engine.ogg", "loopRegion": [0.4, 2.1], "sustain": true }
 ```
 
-With `"sustain": true` the clip loops until the instance is [released](#scripting), then plays on through the rest of the clip (its tail) and ends. Without a `loopRegion` it loops the whole clip; using the clip's own loop points instead is [coming in a later update](#loop-points).
+With `"sustain": true` the clip loops until the instance is [released](#scripting), then plays on through the rest of the clip (its tail) and ends. Without a `loopRegion` it loops the clip's own [loop points](#loop-points) (the sidecar's, else the file's), and the whole clip if it has none.
 
 ### random
 
@@ -164,7 +164,7 @@ For sounds authored as separate files: an optional `start`, a `loop` and an opti
   "end":   { "type": "clip", "clip": "audio/saw_end.wav" } }
 ```
 
-`start` then `loop` play back to back with no gap, and `loop` repeats until the instance is released. On release, `end` plays: with `"release": "loopEnd"` (the default) when the current pass of the loop finishes, to the sample; with `"release": "now"` right away, crossfading over `fade` seconds.
+`start` then `loop` play back to back with no gap, and `loop` repeats until the instance is released. On release, `end` plays: with `"release": "loopEnd"` (the default) when the current pass of the loop finishes, to the sample; with `"release": "now"` right away, crossfading over `releaseFade` seconds (or `fade` when `releaseFade` is absent; a sustain that is itself a blend child keeps `fade` for its blend edges and sets `releaseFade` for the release).
 
 ## Parameters
 
@@ -184,7 +184,7 @@ A parameter is a named value that your game sets and the event reacts to. A **nu
 
 A name that is neither the event's nor a global parameter, a label that does not exist, and a non-number each warn once; the value is clamped or ignored.
 
-The Project Settings > Audio sections for Parameters and Automation are **coming in a later update**. Until then write `audio.parameters` and `audio.automation` in `project.json`.
+Project Settings > Audio has a Parameters section (numeric or labelled) and an Automation section (a bus, a target, a global parameter and the curve, edited with the curve widget); both write `audio.parameters` and `audio.automation` in `project.json`.
 
 ## Automation and curves
 
@@ -277,9 +277,9 @@ source.release();
 
 ## Loop points
 
-Sounds that loop inside a file, such as an engine hum with an attack before the loop, need a loop region. Today you set it in the event with `loopRegion` on a `clip` node (above). On the audio core, clips held in memory and streamed clips both honour it.
+Sounds that loop inside a file, such as an engine hum with an attack before the loop, need a loop region. Set it in the event with `loopRegion` on a `clip` node (above), or store it with the clip. On the audio core, clips held in memory and streamed clips both honour it.
 
-Loop points stored in files and sidecars are **coming in a later update**. The decoder already reads WAV `smpl` loop points and Ogg Vorbis `LOOPSTART` and `LOOPLENGTH` comments, but events and plain looping clips do not use them yet. When they do, a clip's sidecar (`<asset>.meta.json`) can set `loopStart` and `loopEnd` in seconds, and these win over what the file says. A plain looping `AudioSource` will then loop the file's region, where today it loops the whole clip. Ogg Opus comments are not read, because [Opus is not supported](playing-sound.md#sound-files).
+A clip's own loop points come from its sidecar (`<asset>.meta.json`: `loopStart` and `loopEnd` in seconds), else from the file: a WAV `smpl` chunk or Ogg Vorbis `LOOPSTART` and `LOOPLENGTH` comments. An event `clip` without a `loopRegion` uses them, and so does a plain looping `AudioSource` (or `playOneShot` with `loop`); a clip with no points loops whole, as before. To keep a whole-clip loop for a clip that has points, set a sidecar `loopStart: 0` and `loopEnd` to the clip's length. Ogg Opus comments are not read, because [Opus is not supported](playing-sound.md#sound-files). On the Babylon fallback, reading a clip's points fetches the file once more, and streamed clips loop whole.
 
 ## Limits and cooldown
 
@@ -327,6 +327,4 @@ The Audio Debug panel groups the voices of an event instance under one row, with
 
 ## Coming in a later update
 
-- The Event editor: a tree editor for `*.audioevent.json`, with audition and sliders for parameters. **New Event** in the asset browser makes a valid, empty file; for now fill it in as text, using this page.
-- The Project Settings > Audio sections for Parameters and Automation (write them in `project.json`).
-- Loop points read from files and sidecars, for events and for plain looping clips (above).
+- A guide section for the Event editor (double-click a `*.audioevent.json`: the container tree, the selected node's properties, the event's parameters with audition sliders, and Play, Stop and Release to audition the event).
