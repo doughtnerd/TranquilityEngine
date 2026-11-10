@@ -5,12 +5,13 @@
 // (B6: there is no `decodeAudioData` to fall back to); past that, or when the wasm is refused (it did not load, or its
 // hash does not match), the pending decodes fail with `DecoderUnavailableError` and the next request starts afresh.
 //
-// B3: `connectWorklet` gives the worker its end of the channel to the worklet; `openStream`, `seekStream` and
-// `closeStream` steer streams whose PCM then flows worker to worklet; `onStream` hears `streamOpened`, `streamClosed`
+// B3: `connectWorklet` gives the worker its end of the channel to the worklet; `openStream`, `seekStream`, `loopStream`
+// (E4.4) and `closeStream` steer streams whose PCM then flows worker to worklet; `onStream` hears `streamOpened`, `streamClosed`
 // and stream errors. Streams are not carried over to a respawned worker: a worker that dies (or is refused) fails its
 // open streams, an error each (the stream manager stops each voice with a fade and one warning), and the next worker
 // bumps `generation`, so the caller connects it to the worklet again (which closes the dead worker's rings there).
 import type { ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, StreamClosedMessage, StreamOpenedMessage, StreamPortLike } from "./protocol";
+import type { StreamLoopAt } from "./streams";
 
 /** What the client needs of a worker (a `Worker`, or an in-process stand-in in tests). */
 export interface WorkerLike {
@@ -112,6 +113,13 @@ export interface DecoderClient {
   openStream(options: StreamOpenOptions): void;
   /** B3b: restarts a stream at `frame` with `epoch`. */
   seekStream(streamId: number, frame: number, epoch: number): void;
+  /**
+   * ADR 0158 §4 (E4.4): changes a stream's loop region (`looping`; frames, end exclusive, 0/0 the whole file, both
+   * omitted the file's own points) or releases it (`looping: false`), at stream frame `atStreamFrame` (the end of the
+   * voice's current pass; omitted: where the worker is decoding). The caller reserves the stream's next epoch for it
+   * (the worker splices with it when that frame was sent already, `decoder/streams.ts`).
+   */
+  loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number): void;
   /** B3: closes a stream (the worker sends STREAM_CLOSE to the worklet). Unknown ids are answered too. */
   closeStream(streamId: number): void;
   /** B3: every stream reply; returns the unsubscribe. */
@@ -227,7 +235,20 @@ class Client implements DecoderClient {
       return;
     }
     this.streams.set(o.streamId, o.asset);
-    worker.postMessage({ type: "streamOpen", streamId: o.streamId, asset: o.asset, bytes: o.bytes, hint: o.hint, startFrame: o.startFrame, epoch: o.epoch, loop: o.loop }, [o.bytes]);
+    const region = o.loopStartFrame !== undefined || o.loopEndFrame !== undefined ? { loopStartFrame: o.loopStartFrame ?? 0, loopEndFrame: o.loopEndFrame ?? 0 } : {};
+    worker.postMessage({ type: "streamOpen", streamId: o.streamId, asset: o.asset, bytes: o.bytes, hint: o.hint, startFrame: o.startFrame, epoch: o.epoch, loop: o.loop, ...region }, [o.bytes]);
+  }
+
+  loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number): void {
+    if (!this.worker || !this.streams.has(streamId)) return;
+    const message: StreamLoopAt = {
+      type: "streamLoop",
+      streamId,
+      looping,
+      ...(loopStartFrame !== undefined || loopEndFrame !== undefined ? { loopStartFrame: loopStartFrame ?? 0, loopEndFrame: loopEndFrame ?? 0 } : {}),
+      ...(atStreamFrame !== undefined ? { atStreamFrame } : {}),
+    };
+    this.worker.postMessage(message);
   }
 
   seekStream(streamId: number, frame: number, epoch: number): void {

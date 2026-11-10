@@ -60,6 +60,20 @@
 //!
 //! Loops never leave PLAYING: the worker wraps to the loop start, so the ring sees one continuous
 //! signal (the `wrapped` flag is B4's, for gapless trimming). `process` never allocates.
+//!
+//! **Splices** (ADR 0158 §4, M2 E4.4: region loops and their release). The worker loops a region by
+//! wrapping from `loopEnd` to `loopStart`, up to a ring (0.68 s) ahead of the voice, so a release
+//! (or a region change) that must land at the end of the voice's current pass may find that pass's
+//! wrap, and the next pass, already in the ring. The worker then restarts the stream at a new epoch
+//! whose STREAM_OPEN says *continue*, not *seek*: a restart whose `loopEnd` is not 0 is a splice.
+//! Its `startFrame` is the stream frame (on the voice's playhead) where the new epoch's first frame
+//! goes, inside what the ring holds; the ring keeps every frame before it, drops the rest and takes
+//! the new epoch's chunks from there, with no fade and no wait, so the seam is gapless and lands on
+//! that exact frame. `loopStart`/`loopEnd` name the region (the one it loops from there with
+//! `loop`, else the one it left); the core needs neither. A splice the voice has already read past
+//! (or that isn't in the ring yet) restarts the ring there as a seek does: a 5 ms fade, then the new
+//! epoch from `startFrame` (the release lands late, by what the voice had played past it, plus the
+//! wait). Plain seeks and first opens keep `loopEnd` 0 on a restart.
 
 use audio_dsp::ramp::Ramp;
 use audio_wire::generated::{self as wire, StreamOpen};
@@ -166,6 +180,8 @@ pub struct Ring {
     pub tail_len: u32,
     pub tail_frame0: u32,
     pub tail_channels: u32,
+    /// Splices taken (E4.4; see the module notes); for tests.
+    pub splices: u32,
 }
 
 impl Ring {
@@ -260,7 +276,7 @@ impl StreamStore {
                     }
                     return true; // a repeat: nothing changes
                 }
-                if newer(o.epoch, r.epoch) {
+                if newer(o.epoch, r.epoch) && !(o.loop_end != 0 && self.splice(i, o)) {
                     self.restart(i, o.epoch, o.start_frame, Some(o));
                 }
                 true
@@ -356,6 +372,29 @@ impl StreamStore {
             ring.gain = old.gain;
         }
         self.rings[i] = ring;
+    }
+
+    /// A splice (see the module notes): ring `i` keeps its frames before stream frame
+    /// `o.start_frame` and takes epoch `o.epoch`'s chunks from there. False (the caller restarts the
+    /// ring instead) when the voice has read that frame already (it reads up to 3 frames past
+    /// `consumed`), the ring doesn't hold it, or the ring is closed, seeking or awaiting an OPEN.
+    fn splice(&mut self, i: usize, o: &StreamOpen) -> bool {
+        let r = &mut self.rings[i];
+        if r.closed != 0 || r.orphan != 0 || r.seeking != 0 || r.awaiting_open != 0 || o.start_frame < r.start_frame {
+            return false;
+        }
+        let at = (o.start_frame - r.start_frame) as u64;
+        if at > r.written || at < r.consumed + 4 || o.channels != r.channels {
+            return false;
+        }
+        r.epoch = o.epoch;
+        r.written = at;
+        r.reserved = 0;
+        r.last = 0;
+        r.flags = o.flags;
+        r.total_frames = o.total_frames;
+        r.splices = r.splices.wrapping_add(1);
+        true
     }
 
     /// STREAM_CLOSE: the input ends; the ring is freed now if no voice holds it, else when it ends.
@@ -634,6 +673,51 @@ mod tests {
         assert!(s.seek(1, 2, 7_000));
         assert!(s.open(&open_rec(1, 2, 2)));
         assert_eq!(s.ring(0).written, 256);
+    }
+
+    #[test]
+    fn a_splice_keeps_the_ring_before_its_frame_and_takes_the_new_epoch_from_there() {
+        let mut s = store(1);
+        s.open(&StreamOpen { start_frame: 1_000, ..open_rec(1, 1, 1) });
+        let ramp: Vec<f32> = (0..8_000).map(|k| k as f32).collect();
+        assert_eq!(write(&mut s, 1, &ramp[..4_096], 1, 1, 0), wire::ERR_OK);
+        assert_eq!(write(&mut s, 1, &ramp[4_096..], 1, 1, 0), wire::ERR_OK);
+        s.ring_mut(0).voice = 0x0001_0003;
+        s.ring_mut(0).phase = phase::PLAYING;
+        s.ring_mut(0).consumed = 2_000;
+        s.ring_mut(0).credited = 1_500;
+        // Continue at stream frame 7,000 (ring frame 6,000): epoch 2, and `loopEnd` names the region left.
+        assert!(s.open(&StreamOpen { start_frame: 7_000, loop_start: 100, loop_end: 7_000, ..open_rec(1, 1, 2) }));
+        let r = *s.ring(0);
+        assert_eq!((r.epoch, r.start_frame, r.written, r.consumed, r.credited, r.seeking, r.splices), (2, 1_000, 6_000, 2_000, 1_500, 0, 1));
+        assert_eq!(write(&mut s, 1, &[-1.0; 512], 1, 1, 0), wire::ERR_STALE_EPOCH, "the old epoch's chunks are dropped");
+        assert_eq!(write(&mut s, 1, &[-1.0; 512], 1, 2, 0), wire::ERR_OK);
+        let samples = s.samples(0);
+        assert_eq!(frame_at(samples, 1, 5_999).0, 5_999.0, "kept");
+        assert_eq!(frame_at(samples, 1, 6_000).0, -1.0, "the new epoch from the splice");
+        assert_eq!(s.ring(0).written, 6_512);
+    }
+
+    #[test]
+    fn a_splice_the_voice_has_read_or_that_the_ring_lacks_restarts_it_as_a_seek() {
+        for (at, consumed) in [(1_000 + 2_003, 2_000), (1_000 + 9_000, 2_000)] {
+            let mut s = store(1);
+            s.open(&StreamOpen { start_frame: 1_000, ..open_rec(1, 1, 1) });
+            assert_eq!(write(&mut s, 1, &[0.25; 4_096], 1, 1, 0), wire::ERR_OK);
+            let r = s.ring_mut(0);
+            r.voice = 0x0001_0003;
+            r.phase = phase::PLAYING;
+            r.consumed = consumed;
+            assert!(s.open(&StreamOpen { start_frame: at, loop_end: 7_000, ..open_rec(1, 1, 2) }));
+            let r = *s.ring(0);
+            assert_eq!((r.epoch, r.start_frame, r.written, r.splices, r.seeking), (2, at, 0, 0, 1), "at {at}");
+        }
+        // A restart with `loopEnd` 0 is a seek, wherever it lands.
+        let mut s = store(1);
+        s.open(&open_rec(1, 1, 1));
+        assert_eq!(write(&mut s, 1, &[0.25; 4_096], 1, 1, 0), wire::ERR_OK);
+        assert!(s.open(&StreamOpen { start_frame: 3_000, ..open_rec(1, 1, 2) }));
+        assert_eq!((s.ring(0).start_frame, s.ring(0).written, s.ring(0).splices), (3_000, 0, 0));
     }
 
     #[test]
@@ -925,6 +1009,28 @@ mod voice_tests {
         for (k, s) in l.iter().enumerate().skip(first + FADE) {
             assert!(*s >= 0.399, "frame {k}: {s} is from before the seek");
         }
+    }
+
+    #[test]
+    fn a_splice_plays_on_gaplessly_into_the_new_epoch_at_its_frame() {
+        let mut core = core();
+        let mut frame = 0;
+        playing(&mut core, &mut frame); // at stream frame 5,120, 12,288 frames in the ring
+        // E4.4: the pass ends at stream frame 8,000; what follows there is epoch 2's (frames 30,000 on).
+        let o = StreamOpen { stream_id: STREAM, channels: 2, sample_rate: 48_000.0, total_frames: wire::STREAM_TOTAL_FRAMES_UNKNOWN, epoch: 2, start_frame: 8_000, loop_start: 1_000, loop_end: 8_000, ..Default::default() };
+        assert!(core.streams_mut().open(&o));
+        for k in 0..2 {
+            assert_eq!(feed_epoch(&mut core, 2, 30_000 + k * 4_096, 4_096, false), wire::ERR_OK);
+        }
+        let (l, r) = render(&mut core, &mut frame, 40);
+        for k in 0..l.len() {
+            let pos = 5_120 + k as u64;
+            let want = if pos < 8_000 { sample(pos) } else { sample(30_000 + pos - 8_000) };
+            assert_eq!((l[k], r[k]), want, "frame {k} (stream frame {pos})");
+        }
+        assert_eq!(slot(&core).position, 5_120.0 + l.len() as f64, "the playhead runs on through the seam");
+        assert_eq!(core.streams().get(STREAM).unwrap().splices, 1);
+        assert_eq!(status::counters(&core).starved.len(), 0);
     }
 
     #[test]

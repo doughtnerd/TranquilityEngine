@@ -123,6 +123,18 @@ export class PlayheadTracker {
     this.rate[i] = this.rateOf(i);
   }
 
+  /**
+   * E4.4: where an unwrapped playhead is in the voice's sound (the core backend's: a stream by its map of regions,
+   * splices and seeks, a clip in its SET_LOOP region or whole loop; `wrapPosition` underneath). Absent: unwrapped.
+   */
+  wrap: ((i: number, pos: number) => number) | null = null;
+
+  /** E4.4: slot `i`'s frame in its sound at context `frame`: `positionNow`, wrapped by `wrap` (inside a loop region while it loops). */
+  wrappedNow(i: number, frame: number): number {
+    const pos = this.positionNow(i, frame);
+    return this.wrap ? this.wrap(i, pos) : pos;
+  }
+
   /** Slot `i`'s clip frame (unwrapped) at context `frame`. */
   at(i: number, frame: number): number {
     const elapsed = frame - this.anchorFrame[i]!;

@@ -15,6 +15,18 @@
 //   sends a SEEK record with the same epoch (`deps.sendSeek`); the core fades the old audio out over 5 ms, flushes the
 //   ring and takes only chunks of the new epoch (`stream.rs`). Before the worker has reported the file's rate
 //   (`streamOpened`) a seek in seconds waits for it.
+// - **Region loops and release** (ADR 0158 §4, M2 E4.4). A stream voice's loop (an event's `loopRegion` or `sustain`,
+//   through `CoreAutomation.routeStreamLoop` → `setLoop`) goes to the worker: in `streamOpen` when the file's rate is
+//   known by then (seconds to frames; cached per asset from earlier opens), else as a region change right after
+//   `streamOpened`. A plain looping stream loops the whole file (0/0), as before (file loop points for plain loops are
+//   E4.5's). A change while it plays (a release, `looping: false`, or a new region) lands at the end of the voice's
+//   current pass, which main predicts from the voice's last STATUS playhead (`playheadAt`) at the
+//   frame the change was asked for (`at`, as a SET_LOOP would land): the worker gets that stream frame and acts there,
+//   splicing the core's ring when it had already sent past it (`decoder/streams.ts`, `stream.rs`). Each change reserves
+//   the stream's next epoch for that splice. Main keeps the stream-frame → file-frame map that follows (`fileFrame`):
+//   seeks, `reopenStreams` after a hard rebuild and the playhead wrap read it. The release lands on the predicted frame;
+//   the prediction is exact while the voice neither starves nor changes pitch between the last STATUS and the end of the
+//   pass.
 // - **Close.** When the voice is freed (ended, stopped, stolen) the stream is closed on the worker, which sends
 //   STREAM_CLOSE to the worklet (the core frees the ring).
 // - **Errors** (architecture §7): a stream error from the worker, a failed fetch or a refused ring stops the voice with
@@ -22,6 +34,8 @@
 //   it for clip decodes only): each of its streams fails this way, and the next stream connects a new channel, on
 //   which the worklet closes the dead worker's rings.
 import { MAX_STARVED_PER_BLOCK, StreamEvent, type StatusBlock } from "../wire.generated";
+import { setFileLoopPoints } from "../loopPoints";
+import { wrapPosition, type LoopRecord } from "./coreAutomation";
 import type { DecodeHint, StreamPortLike } from "../decoder/protocol";
 import { hintFromName } from "../decoder/protocol";
 import type { DecoderClient, StreamReply } from "../decoder/decoderClient";
@@ -37,7 +51,7 @@ const STREAM_ID_COUNT = 0xffffffff - STREAM_ID_FIRST + 1;
 export const STREAM_ERROR_FADE_SECONDS = 0.05;
 
 /** @internal What the manager needs of the decoder client. */
-export type StreamDecoderLike = Pick<DecoderClient, "connectWorklet" | "openStream" | "closeStream" | "onStream" | "generation"> & Partial<Pick<DecoderClient, "seekStream">>;
+export type StreamDecoderLike = Pick<DecoderClient, "connectWorklet" | "openStream" | "closeStream" | "onStream" | "generation"> & Partial<Pick<DecoderClient, "seekStream" | "loopStream">>;
 
 /** @internal The two ends of a channel. */
 export interface StreamChannel {
@@ -60,12 +74,47 @@ export interface StreamManagerDeps {
   readonly fetchBytes: (path: string) => Promise<ArrayBuffer>;
   /** A stream failed: stop voice `id` with a fade and warn (the backend's). `code` is the decoder's `ERR_*` code when it refused the file (B4). */
   readonly onError: (id: number, asset: string, message: string, code?: number) => void;
+  /** E4.4: voice `voice`'s stream frame at context frame `frame` by the backend's playhead estimate (used until a STATUS shows it playing), or null. */
+  readonly positionAt?: (voice: number, frame: number) => number | null;
+  /** E4.4: voice `voice`'s stream frames per context frame now (pitch, rate; 0 paused). */
+  readonly rateOf?: (voice: number) => number;
+}
+
+/** E4.4: a loop region in file frames (`end` exclusive, resolved: never 0 once the file's length is known). */
+interface Region {
+  readonly start: number;
+  readonly end: number;
+}
+
+/** E4.4: from stream frame `stream` on, the stream plays file frame `file` on, looping `region` or not. */
+interface Segment {
+  readonly stream: number;
+  readonly file: number;
+  readonly loop: boolean;
+  readonly region: Region;
+}
+
+/** What an asset's earlier `streamOpened` said (E4.4: the next open can send its region in frames). */
+interface FileFacts {
+  readonly rate: number;
+  readonly frames: number;
+  readonly loop: Region | null;
 }
 
 interface Entry {
   readonly voice: number;
   readonly asset: string;
-  readonly loop: boolean;
+  /** Looping now (PLAY's loop flag, then the voice's loop record). */
+  loop: boolean;
+  /** E4.4: the voice's loop record (seconds; `end` 0 the end), or null: a plain stream (a plain loop loops the whole file). */
+  record: LoopRecord | null;
+  /** The file's own loop points (from `streamOpened`), or null. */
+  fileLoop?: Region | null;
+  /** The stream frame it opened at, and whether the open carried the voice's region in frames (else it looped the whole file). */
+  openFrame: number;
+  sentRegion: boolean;
+  /** The stream-frame → file-frame map, newest last (empty until `streamOpened`). */
+  segments: Segment[];
   /** From `streamOpened`: the file's rate and frames (0 until then, or when unknown). */
   rate: number;
   frames: number;
@@ -98,7 +147,11 @@ export class StreamManager {
   private readonly byStream = new Map<number, Entry>();
   /** Per slot: the playhead last seen in STATUS (the waiting reason clears when it moves). */
   private readonly seen: Float64Array;
+  /** E4.4: per slot, the context frame of `seen` while the voice was playing (NaN: not since it opened or seeked). */
+  private readonly seenFrame: Float64Array;
   private nextId = 0;
+  /** E4.4: what each asset's last `streamOpened` said. */
+  private readonly facts = new Map<string, FileFacts>();
   /** The decoder generation and core this manager connected, or -1 when a new channel is needed. */
   private connectedGeneration = -1;
   /** B3b: told the frame a seek that waited for the file's rate landed on (the backend re-anchors the playhead). */
@@ -109,6 +162,7 @@ export class StreamManager {
 
   constructor(private readonly deps: StreamManagerDeps) {
     this.seen = new Float64Array(deps.table.capacity);
+    this.seenFrame = new Float64Array(deps.table.capacity).fill(Number.NaN);
   }
 
   /** Stream voices open. */
@@ -125,7 +179,40 @@ export class StreamManager {
 
   /** Voice `voice` plays stream `streamId` of `asset` (its PLAY may still wait for the unlock). */
   register(streamId: number, voice: number, asset: string, loop: boolean): void {
-    this.byStream.set(streamId, { voice, asset, loop, rate: 0, frames: 0, epoch: 1 });
+    this.byStream.set(streamId, { voice, asset, loop, record: null, openFrame: 0, sentRegion: false, segments: [], rate: 0, frames: 0, epoch: 1 });
+  }
+
+  /**
+   * E4.4: stream `streamId`'s voice loops `loop` (a region, or `looping: false` a release), asked for at context frame
+   * `at`. Before the stream is open it rides in `streamOpen` (or follows `streamOpened`); while it plays it lands at the
+   * end of the voice's current pass (see the header).
+   */
+  setLoop(streamId: number, loop: LoopRecord, at: number): void {
+    const e = this.byStream.get(streamId);
+    if (!e || e.failed) return;
+    e.record = loop;
+    if (e.rate <= 0 || e.segments.length === 0) {
+      // Not open yet: the open (or `streamOpened`) sends it.
+      e.loop = loop.looping;
+      return;
+    }
+    this.sendLoop(streamId, e, at);
+  }
+
+  /**
+   * E4.4: the file frame stream `streamId` plays at stream frame `pos` (its playhead's unit), from the map the opens,
+   * wraps, splices and seeks made; `pos` itself while the file isn't known. Past the end of a stream that no longer
+   * loops it is past `frames` (the caller drops it).
+   */
+  fileFrame(streamId: number, pos: number): number {
+    const e = this.byStream.get(streamId);
+    if (!e || e.segments.length === 0) return pos;
+    return fileAt(e.segments, pos, e.frames);
+  }
+
+  /** E4.4: whether stream `streamId` loops now (a released one doesn't). */
+  looping(streamId: number): boolean {
+    return this.byStream.get(streamId)?.loop ?? false;
   }
 
   /** A `ClipInfo` for stream `id` (the playhead tracker's rate and the replay's loop length), or null. */
@@ -150,6 +237,7 @@ export class StreamManager {
     const t = this.deps.table;
     const i = e.voice & 0xffff;
     this.seen[i] = startFrame;
+    this.seenFrame[i] = Number.NaN;
     t.reason[i] = VoiceReason.WAITING_FOR_DATA;
     let decoder: StreamDecoderLike;
     try {
@@ -163,7 +251,14 @@ export class StreamManager {
       (bytes) => {
         if (this.byStream.get(streamId) !== e) return; // closed meanwhile
         this.stats.opened++;
-        decoder.openStream({ streamId, asset: e.asset, bytes, hint, startFrame, epoch: e.epoch, loop: e.loop });
+        e.openFrame = startFrame;
+        // E4.4: the region in frames when the file's rate is known already (a plain loop: the whole file).
+        const facts = this.facts.get(e.asset);
+        // Never the file's own points: a looping stream whose region isn't known in frames yet loops the whole file (0/0)
+        // until `streamOpened` sends it.
+        const region = e.loop && e.record && facts ? regionOf(e.record, facts.rate, facts.frames) : null;
+        e.sentRegion = region !== null;
+        decoder.openStream({ streamId, asset: e.asset, bytes, hint, startFrame, epoch: e.epoch, loop: e.loop, ...(e.loop ? { loopStartFrame: region?.start ?? 0, loopEndFrame: region?.end ?? 0 } : {}) });
       },
       (err) => {
         if (this.byStream.get(streamId) === e) this.fail(streamId, err);
@@ -186,7 +281,7 @@ export class StreamManager {
     const e = this.byStream.get(oldId);
     const id = this.allocate();
     this.close(oldId);
-    if (e) this.byStream.set(id, { ...e, failed: false, epoch: 1, pendingSeek: undefined });
+    if (e) this.byStream.set(id, { ...e, failed: false, epoch: 1, pendingSeek: undefined, segments: [], sentRegion: false });
     return id;
   }
 
@@ -204,11 +299,15 @@ export class StreamManager {
     }
     e.pendingSeek = undefined;
     let frame = Math.max(0, Math.round(seconds * e.rate));
-    if (e.frames > 0) frame = e.loop ? frame % e.frames : Math.min(frame, e.frames);
+    // E4.4: a loop wraps into its region (the whole file for a plain loop).
+    const region = this.regionNow(e);
+    if (e.frames > 0) frame = e.loop ? wrapPosition(frame, region.start, region.end, e.frames) : Math.min(frame, e.frames);
+    if (e.segments.length > 0) e.segments = [{ stream: frame, file: frame, loop: e.loop, region }];
     const epoch = ++e.epoch;
     this.stats.seeks++;
     const i = e.voice & 0xffff;
     this.seen[i] = frame;
+    this.seenFrame[i] = Number.NaN;
     this.deps.table.reason[i] = VoiceReason.WAITING_FOR_DATA;
     this.subscribed?.seekStream?.(streamId, frame, epoch);
     this.deps.sendSeek?.(e.voice, frame, epoch);
@@ -250,6 +349,19 @@ export class StreamManager {
     if (reply.type === "streamOpened") {
       e.rate = reply.info.rate;
       e.frames = reply.info.frames > 0 ? reply.info.frames : 0;
+      // E4.4: the file's own loop points, the asset's facts for the next open, and the map from here.
+      const info = reply.info;
+      e.fileLoop = info.loopStartFrame !== undefined && info.loopEndFrame !== undefined && info.loopEndFrame > info.loopStartFrame ? { start: info.loopStartFrame, end: info.loopEndFrame } : null;
+      if (e.rate > 0) {
+        this.facts.set(e.asset, { rate: e.rate, frames: e.frames, loop: e.fileLoop });
+        // C1: what the decoder found in a streamed file, as it does for decoded clips (E4.2 keeps it, E4.5 uses it).
+        setFileLoopPoints(e.asset, e.fileLoop ? { start: e.fileLoop.start / e.rate, end: e.fileLoop.end / e.rate } : null);
+      }
+      const opened = e.sentRegion ? this.regionNow(e) : { start: 0, end: e.frames };
+      const file = e.loop ? wrapPosition(e.openFrame, opened.start, opened.end, e.frames) : e.openFrame;
+      e.segments = [{ stream: e.openFrame, file, loop: e.loop, region: opened }];
+      // A region asked for before the rate was known goes now, from the start of the stream.
+      if (!e.sentRegion && e.record && e.loop) this.sendLoop(reply.streamId, e, Number.NaN);
       if (e.pendingSeek !== undefined) {
         const frame = this.seek(reply.streamId, e.pendingSeek);
         if (frame !== null) this.afterSeek?.(e.voice, frame);
@@ -258,6 +370,72 @@ export class StreamManager {
       this.stats.errors++;
       this.fail(reply.streamId, reply.message, reply.code);
     }
+  }
+
+  /**
+   * E4.4: voice `voice`'s stream frame at context frame `frame`: its last STATUS playhead while playing, run on at its
+   * rate (exact unless it starves or its pitch moves meanwhile), else the backend's estimate.
+   */
+  private playheadAt(voice: number, frame: number): number | null {
+    const i = voice & 0xffff;
+    const at = this.seenFrame[i]!;
+    if (at === at) return this.seen[i]! + Math.max(0, frame - at) * (this.deps.rateOf?.(voice) ?? 0);
+    return this.deps.positionAt?.(voice, frame) ?? null;
+  }
+
+  /** The region `e` loops by its record now (resolved against the file), or the whole file. */
+  private regionNow(e: Entry): Region {
+    return (e.rate > 0 ? regionOf(e.record, e.rate, e.frames) : null) ?? { start: 0, end: e.frames };
+  }
+
+  /**
+   * E4.4: sends `e`'s loop record as a change landing at the end of the voice's current pass at context frame `at`
+   * (NaN: from where the stream opened, before it sounds), reserving the next epoch, and extends the map.
+   */
+  private sendLoop(streamId: number, e: Entry, at: number): void {
+    const rec = e.record;
+    if (!rec) return;
+    const segs = e.segments;
+    const p0 = Number.isNaN(at) ? e.openFrame : this.playheadAt(e.voice, at);
+    const p = p0 === null || p0 === undefined ? null : Math.max(segs[0]!.stream, Math.floor(p0));
+    // The segment the voice is in at `p` (later ones are changes still ahead of it; the next one's start, a seam, ends its pass).
+    let k = segs.length - 1;
+    while (p !== null && k > 0 && segs[k]!.stream > p) k--;
+    const cur = segs[k]!;
+    const ahead = segs[k + 1];
+    const f = p === null ? 0 : fileAt(segs, p, e.frames);
+    const region = this.regionNow(e);
+    let x: number | undefined;
+    let next: Segment | null = null;
+    if (p !== null && e.frames > 0) {
+      // Where the voice's current pass ends: its segment's seam, or a change still ahead (which begins with one).
+      const seam = cur.loop ? p + (cur.region.end - f) : Number.POSITIVE_INFINITY;
+      const stop = ahead ? Math.min(seam, ahead.stream) : seam;
+      const lin = (at: number) => (at === seam ? cur.region.end : f + (at - p)); // the file frame at `at` without a wrap
+      if (rec.looping) {
+        // A new region: its end, if the voice reaches it first in this pass, else the pass's end; there it jumps to
+        // the region's start unless it is inside the region already.
+        const end = f < region.end && p + (region.end - f) < stop ? p + (region.end - f) : stop;
+        if (Number.isFinite(end)) {
+          x = end;
+          const file = end === stop ? lin(end) : region.end;
+          next = { stream: x, file: file >= region.start && file < region.end ? file : region.start, loop: true, region };
+        }
+      } else if (Number.isFinite(stop)) {
+        x = stop;
+        next = { stream: x, file: lin(x), loop: false, region: cur.region };
+      }
+    }
+    e.loop = rec.looping;
+    e.epoch = (e.epoch + 1) >>> 0;
+    if (next) {
+      while (segs.length > 1 && segs[segs.length - 1]!.stream >= next.stream) segs.pop();
+      segs.push(next);
+    } else if (segs.length > 0) {
+      // Where the worker is: the map can't know the frame; it follows the change from the voice's position.
+      segs.push({ stream: p ?? cur.stream, file: f, loop: rec.looping, region: rec.looping ? region : cur.region });
+    }
+    this.subscribed?.loopStream?.(streamId, rec.looping, rec.looping ? region.start : undefined, rec.looping ? region.end : undefined, x);
   }
 
   private fail(streamId: number, err: unknown, code?: number): void {
@@ -293,6 +471,8 @@ export class StreamManager {
       if (!t.isLive(id) || (t.flags[i]! & VoiceFlag.STREAM) === 0) continue;
       const prev = this.seen[i]!;
       this.seen[i] = clipFrame;
+      // E4.4: where it plays, for `playheadAt` (a waiting or starved voice holds; the core reports the end of a block).
+      this.seenFrame[i] = !starved.includes(id) && t.reason[i] !== VoiceReason.WAITING_FOR_DATA ? status.currentFrame : Number.NaN;
       if (t.reason[i] !== VoiceReason.WAITING_FOR_DATA || clipFrame === prev || starved.includes(id)) continue;
       const s = t.state[i];
       if (s === VoiceState.PLAYING) t.reason[i] = VoiceReason.NONE;
@@ -312,4 +492,26 @@ export class StreamManager {
 function defaultChannel(): StreamChannel {
   const channel = new MessageChannel();
   return { worker: channel.port1, worklet: channel.port2 };
+}
+
+/** A loop record (seconds) as a region of a file at `rate` with `frames` frames (0 unknown); null without a record. */
+function regionOf(rec: LoopRecord | null, rate: number, frames: number): Region | null {
+  if (!rec) return null;
+  let start = Math.max(0, Math.round(rec.start * rate));
+  let end = rec.end > 0 ? Math.round(rec.end * rate) : frames;
+  if (frames > 0 && (end <= 0 || end > frames)) end = frames;
+  if (!(start < end)) {
+    start = 0;
+    end = frames;
+  }
+  return { start, end };
+}
+
+/** The file frame at stream frame `pos` by the map `segs` (newest last) of a `frames`-frame file. */
+function fileAt(segs: readonly Segment[], pos: number, frames: number): number {
+  let k = segs.length - 1;
+  while (k > 0 && segs[k]!.stream > pos) k--;
+  const s = segs[k]!;
+  const f = s.file + Math.max(0, pos - s.stream);
+  return s.loop ? wrapPosition(f, s.region.start, s.region.end, frames) : f;
 }
