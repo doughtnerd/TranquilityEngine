@@ -20,3 +20,7 @@
 .audio-settings button.icon { flex: none; width: 22px; height: 22px; padding: 0; line-height: 1; }
 .audio-settings button.audio-remove:hover { color: var(--danger); }
 .audio-hint-accent { color: var(--accent); }
+.audio-curve { max-width: 360px; }
+.audio-card[data-kind="labelled"] { border-left: 3px solid var(--accent); }
+.audio-row label.audio-grow { flex: 1 1 100%; min-width: 0; }
+.audio-row label.audio-grow input { flex: 1 1 auto; min-width: 0; width: 100%; }
