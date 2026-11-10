@@ -148,3 +148,9 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 - The notices list licences by name and version, not the full MIT/Apache texts, matching how the navigation crates are handled.
 - Design-doc drift noted by C2: §2 mentions `Audio.debug().core.fallback`; the code reports `core.backend` (`"core"`, `"babylon"`, `"pending"`), which the guide uses. The design's default `clipMemoryMB` 128 vs the shipped default (unset; the low preset uses 64 MB).
 - Added the npm script `check:links` (`tools/check-doc-links.mjs`, no dependencies) and two guide-index rows in `docs/README.md`.
+
+### 29. Listening pass ready to run (C4) — needs you
+- `docs/design/0157-audio-core/listening-pass.md`: three Sound Lab configurations (default; low preset with look-ahead 0 and background pause; high with look-ahead 5 ms and equal-power; optionally the Babylon backend to compare HRTF with Chromium's own), 16 listening items (about an hour, headphones), the objective-thresholds table (every automated gate, its value and its test), and a sign-off section. Sound Lab gained keys for each item.
+- **Accepted behaviours listed in it:** aliasing on large pitch-ups of bright sounds, flappy's ~54 ms MP3 loop seam, `stop()` with no fade cuts, the 0 ms limiter's onset, the fallback's limits.
+- **Notes:** the trap item uses the dev-server console (`rebuild("trap")`), since the shipped wasm has no trap hook; the Master bus meter reads before the limiter (a 5.95 peak on key 8 is expected); 300 plays in one frame dip the adaptive cap (128 → 91) and recover; "preset loudness" has no automated test (listening item L5). Sound Lab grew by about 0.95 MB (loop fixtures).
+- Coordinator fix from C4's finding: `.flac` and `.m4a` are now audio assets in the editor and the web export.
