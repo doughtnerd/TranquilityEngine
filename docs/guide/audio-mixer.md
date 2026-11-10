@@ -46,4 +46,6 @@ Buses, volume, mute, solo, snapshots (their volumes) and ducking work on every b
 
 On the audio core (`audio.backend` `"core"`), a bus runs its first 4 effects and at most one `compressor` (the first in its list). Further effects, and a second compressor, are skipped.
 
+The audio core ends in a master limiter, after the master volume: the output never goes above 0 dBFS, so many loud sounds at once are turned down for a moment (released over about a quarter of a second) instead of clipping. It adds no latency, and it doesn't change anything while the mix stays under full scale. The Babylon fallback has no limiter.
+
 Bus volume changes ramp over about 15 milliseconds, so a mute or a ducking step doesn't click.
