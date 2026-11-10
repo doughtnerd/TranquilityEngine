@@ -110,7 +110,7 @@ interface Entry {
   record: LoopRecord | null;
   /** The file's own loop points (from `streamOpened`), or null. */
   fileLoop?: Region | null;
-  /** The stream frame it opened at and whether the open carried the region in frames. */
+  /** The stream frame it opened at, and whether the open carried the voice's region in frames (else it looped the whole file). */
   openFrame: number;
   sentRegion: boolean;
   /** The stream-frame → file-frame map, newest last (empty until `streamOpened`). */
@@ -254,7 +254,9 @@ export class StreamManager {
         e.openFrame = startFrame;
         // E4.4: the region in frames when the file's rate is known already (a plain loop: the whole file).
         const facts = this.facts.get(e.asset);
-        const region = e.loop && facts ? regionOf(e.record, facts.rate, facts.frames) : e.loop && !e.record ? { start: 0, end: 0 } : null;
+        // Never the file's own points: a looping stream whose region isn't known in frames yet loops the whole file (0/0)
+        // until `streamOpened` sends it.
+        const region = e.loop && e.record && facts ? regionOf(e.record, facts.rate, facts.frames) : null;
         e.sentRegion = region !== null;
         decoder.openStream({ streamId, asset: e.asset, bytes, hint, startFrame, epoch: e.epoch, loop: e.loop, ...(e.loop ? { loopStartFrame: region?.start ?? 0, loopEndFrame: region?.end ?? 0 } : {}) });
       },
@@ -355,7 +357,7 @@ export class StreamManager {
         // C1: what the decoder found in a streamed file, as it does for decoded clips (E4.2 keeps it, E4.5 uses it).
         setFileLoopPoints(e.asset, e.fileLoop ? { start: e.fileLoop.start / e.rate, end: e.fileLoop.end / e.rate } : null);
       }
-      const opened = e.sentRegion ? this.regionNow(e) : e.fileLoop && e.loop ? e.fileLoop : { start: 0, end: e.frames };
+      const opened = e.sentRegion ? this.regionNow(e) : { start: 0, end: e.frames };
       const file = e.loop ? wrapPosition(e.openFrame, opened.start, opened.end, e.frames) : e.openFrame;
       e.segments = [{ stream: e.openFrame, file, loop: e.loop, region: opened }];
       // A region asked for before the rate was known goes now, from the start of the stream.
@@ -467,7 +469,6 @@ export class StreamManager {
       const { id, clipFrame } = playheads[k]!;
       const i = id & 0xffff;
       if (!t.isLive(id) || (t.flags[i]! & VoiceFlag.STREAM) === 0) continue;
-      // E4.4: the backend's playhead estimate follows the core's (a stream may wait or starve; splices are seamless).
       const prev = this.seen[i]!;
       this.seen[i] = clipFrame;
       // E4.4: where it plays, for `playheadAt` (a waiting or starved voice holds; the core reports the end of a block).

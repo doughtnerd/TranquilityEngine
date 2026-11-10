@@ -318,11 +318,11 @@ export class StreamDecoder {
     } catch (e) {
       return this.failStream(s, e);
     }
-    s.base = m.frame;
+    s.base = frame;
     s.sent = 0;
     s.pos = frame;
     s.marks.length = 0;
-    s.marks.push({ stream: m.frame, file: frame });
+    s.marks.push({ stream: frame, file: frame });
     s.epoch = m.epoch;
     s.prevEpoch = m.epoch;
     s.chunkSeq = 0;
