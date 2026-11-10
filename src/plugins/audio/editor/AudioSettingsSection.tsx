@@ -8,7 +8,22 @@ import {
   MAX_BUSES,
   VOICE_LIMITS,
   VOICE_PRESET_NAMES,
+  MAX_PARAMETERS,
   addBus,
+  addBusAutomation,
+  addParameter,
+  removeBusAutomation,
+  removeParameter,
+  renameParameter,
+  setBusAutomationBus,
+  setBusAutomationCurve,
+  setBusAutomationParameter,
+  setBusAutomationTarget,
+  setParameterDefaultLabel,
+  setParameterLabelled,
+  setParameterLabels,
+  setParameterRange,
+  parameterOf,
   addDucking,
   addEffect,
   addSnapshot,
@@ -41,7 +56,8 @@ import {
   LIMITER_LOOKAHEAD_LIMITS,
   type VoicePresetName,
 } from "./audioSettingsModel";
-import { TextField, type SettingsDraft } from "../../../editor/sdk";
+import { CurveEditor, TextField, type SettingsDraft } from "../../../editor/sdk";
+import { isLabelled, parameterRange } from "../../../engine/audio/eventFormat";
 import { BusMeters } from "./BusMeters";
 import "./audioSettings.css";
 
@@ -268,6 +284,127 @@ function Ducking(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
   );
 }
 
+/** ADR 0158 §2: global parameters, numeric (min, max, default, seek speed) or labelled (a label list and a default). */
+function Parameters(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
+  const { a, draft, set } = props;
+  return (
+    <>
+      <div class="project-settings-list-head">
+        <span>Parameters</span>
+        <span class="project-settings-hint">global values events and bus automation read; labelled ones are states (up to {MAX_PARAMETERS})</span>
+      </div>
+      {a.parameters.length === 0 && <p class="project-settings-none">None</p>}
+      {a.parameters.map((p) => (
+        <div key={p.name} class="audio-card" role="group" aria-label={`Parameter ${p.name}`} data-parameter={p.name} data-kind={isLabelled(p) ? "labelled" : "numeric"}>
+          <div class="audio-row">
+            <TextField class="audio-grow" value={p.name} label={`Parameter ${p.name} name`} onCommit={(v) => set(`Rename parameter ${p.name} to ${v.trim()}`, renameParameter(draft, p.name, v))} />
+            <label>
+              Kind
+              <Choice<"numeric" | "labelled"> label={`${p.name} kind`} value={isLabelled(p) ? "labelled" : "numeric"} options={["numeric", "labelled"]} onChange={(v) => set(`Make ${p.name} ${v}`, setParameterLabelled(draft, p.name, v === "labelled"))} />
+            </label>
+            <button class="icon audio-remove" aria-label={`Remove parameter ${p.name}`} title="Remove this parameter and the automation that uses it" onClick={() => set(`Remove parameter ${p.name}`, removeParameter(draft, p.name))}>
+              ×
+            </button>
+          </div>
+          {isLabelled(p) ? (
+            <div class="audio-row">
+              <label class="audio-grow" title="Comma-separated; the first is the default unless you pick another">
+                Labels
+                <TextField class="audio-grow" value={p.labels.join(", ")} label={`${p.name} labels`} onCommit={(v) => set(`Set ${p.name} labels`, setParameterLabels(draft, p.name, v.split(",")))} />
+              </label>
+              <label>
+                Default
+                <Choice<string> label={`${p.name} default`} value={p.default} options={p.labels} onChange={(v) => set(`Set ${p.name} default`, setParameterDefaultLabel(draft, p.name, v))} />
+              </label>
+            </div>
+          ) : (
+            <div class="audio-row">
+              <label>
+                Min
+                <Num label={`${p.name} min`} value={p.min} step={0.1} onCommit={(n) => set(`Set ${p.name} min`, setParameterRange(draft, p.name, { min: n }))} />
+              </label>
+              <label>
+                Max
+                <Num label={`${p.name} max`} value={p.max} step={0.1} onCommit={(n) => set(`Set ${p.name} max`, setParameterRange(draft, p.name, { max: n }))} />
+              </label>
+              <label>
+                Default
+                <Num label={`${p.name} default`} value={p.default} step={0.1} onCommit={(n) => set(`Set ${p.name} default`, setParameterRange(draft, p.name, { default: n }))} />
+              </label>
+              <label title="Units per second the value moves toward its target; 0 jumps at once">
+                Seek speed
+                <Num label={`${p.name} seek speed`} value={p.seekSpeed} step={0.1} min={0} onCommit={(n) => set(`Set ${p.name} seek speed`, setParameterRange(draft, p.name, { seekSpeed: n }))} />
+              </label>
+            </div>
+          )}
+        </div>
+      ))}
+      <div class="audio-row">
+        <button disabled={a.parameters.length >= MAX_PARAMETERS} onClick={() => set("Add parameter", addParameter(draft))}>
+          + Parameter
+        </button>
+        <button disabled={a.parameters.length >= MAX_PARAMETERS} onClick={() => set("Add labelled parameter", addParameter(draft, true))}>
+          + Labelled parameter
+        </button>
+      </div>
+    </>
+  );
+}
+
+const AUTOMATION_Y: Record<"volume" | "lowpass", [number, number]> = { volume: [0, 2], lowpass: [10, 24000] };
+
+/** ADR 0158 §3: a bus's volume or low-pass driven by a global parameter through a curve (x is the parameter's range). */
+function Automation(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
+  const { a, draft, set } = props;
+  return (
+    <>
+      <div class="project-settings-list-head">
+        <span>Automation</span>
+        <span class="project-settings-hint">drive a bus's volume or low-pass from a parameter; multiplies with snapshots and ducking</span>
+      </div>
+      {a.automation.length === 0 && <p class="project-settings-none">{a.parameters.length === 0 ? "None (add a parameter first)" : "None"}</p>}
+      {a.automation.map((r, i) => {
+        const p = parameterOf(a, r.parameter);
+        const [lo, hi] = p ? parameterRange(p) : [0, 1];
+        return (
+          <div key={i} class="audio-card" role="group" aria-label={`Automation ${i + 1}`} data-automation={i}>
+            <div class="audio-row">
+              <label>
+                Bus
+                <Choice<string> label={`Automation ${i + 1} bus`} value={r.bus} options={a.buses.map((b) => b.name)} onChange={(v) => set(`Set automation ${i + 1} bus`, setBusAutomationBus(draft, i, v))} />
+              </label>
+              <label>
+                Target
+                <Choice<"volume" | "lowpass"> label={`Automation ${i + 1} target`} value={r.target} options={["volume", "lowpass"]} labels={{ lowpass: "low-pass (Hz)" }} onChange={(v) => set(`Set automation ${i + 1} target`, setBusAutomationTarget(draft, i, v))} />
+              </label>
+              <label>
+                Parameter
+                <Choice<string> label={`Automation ${i + 1} parameter`} value={r.parameter} options={a.parameters.map((q) => q.name)} onChange={(v) => set(`Set automation ${i + 1} parameter`, setBusAutomationParameter(draft, i, v))} />
+              </label>
+              <button class="icon audio-remove" aria-label={`Remove automation ${i + 1}`} title="Remove this automation" onClick={() => set(`Remove automation ${i + 1}`, removeBusAutomation(draft, i))}>
+                ×
+              </button>
+            </div>
+            <div class="audio-curve">
+              <CurveEditor
+                curve={r.curve}
+                xRange={hi > lo ? [lo, hi] : [lo, lo + 1]}
+                yRange={AUTOMATION_Y[r.target]}
+                interpolation
+                label={`Automation ${i + 1} curve`}
+                onChange={(c) => set(`Edit automation ${i + 1} curve`, setBusAutomationCurve(draft, i, c))}
+              />
+            </div>
+          </div>
+        );
+      })}
+      <button disabled={a.parameters.length === 0} onClick={() => set("Add automation", addBusAutomation(draft))}>
+        + Automation
+      </button>
+    </>
+  );
+}
+
 function Choice<T extends string>(props: { label: string; value: T; options: readonly T[]; labels?: Record<string, string>; onChange: (v: T) => void }) {
   return (
     <select aria-label={props.label} value={props.value} onChange={(e) => props.onChange((e.currentTarget as HTMLSelectElement).value as T)}>
@@ -377,6 +514,9 @@ export function AudioSettingsSection(props: { draft: SettingsDraft; problems: re
       {busTree(a).map(({ bus, depth }) => (
         <BusRow key={bus.name} a={a} bus={bus} depth={depth} draft={draft} set={set} />
       ))}
+
+      <Parameters a={a} draft={draft} set={set} />
+      <Automation a={a} draft={draft} set={set} />
 
       <Snapshots a={a} draft={draft} set={set} />
       <Ducking a={a} draft={draft} set={set} />
