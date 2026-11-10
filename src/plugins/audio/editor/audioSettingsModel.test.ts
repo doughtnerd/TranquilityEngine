@@ -3,6 +3,8 @@ import { parseAudioSettings } from "../../../engine/audio/settings";
 import { readDraft, withSettings } from "../../../editor/projectSettingsModel";
 import {
   addBus, addDucking, addEffect, addSnapshot, applyVoicesPreset, audioOf, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue,
+  addBusAutomation, addParameter, removeBusAutomation, removeParameter, renameParameter, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter,
+  setBusAutomationTarget, setParameterDefaultLabel, setParameterLabelled, setParameterLabels, setParameterRange,
   setClipFormat, setClipMemory, setCodec, setLimiterLookahead, setSnapshotVolume, setSpatial, setVoices, voicesPreset,
 } from "./audioSettingsModel";
 
@@ -121,4 +123,36 @@ describe("audio settings model, the core keys (ADR 0157 §2, K13)", () => {
     expect(parsed.settings.limiterLookaheadMs).toBe(0);
     expect(audioOf(setLimiterLookahead(d, Number.NaN)).limiterLookaheadMs).toBe(1.5);
   });
+});
+
+// Written by the coordinator (not a stub): the existing bus edits keep automation consistent.
+describe("bus edits and automation (ADR 0158 §3)", () => {
+  it("renames and removes buses in the automation too", () => {
+    let d = readDraft({ audio: { parameters: [{ name: "P", min: 0, max: 1 }], automation: [{ bus: "Music", parameter: "P", target: "volume", curve: [[0, 1], [1, 0]] }] } });
+    d = renameBus(d, "Music", "Score");
+    expect(audioOf(d).automation[0].bus).toBe("Score");
+    d = removeBus(d, "Score");
+    expect(audioOf(d).automation).toEqual([]);
+  });
+});
+
+describe("global parameters and bus automation (ADR 0158 §2, §3; L6.5a)", () => {
+  it.skip("adds numeric and labelled parameters with unique names, up to MAX_PARAMETERS", () => {
+    // addParameter(d) -> { name: "Parameter", min: 0, max: 1, default: 0, seekSpeed: 0 }; again -> "Parameter 2";
+    // addParameter(d, true) -> labels ["State 1", "State 2"], default "State 1"; at 64 parameters returns the same draft.
+    void [addParameter, empty];
+  });
+  it.skip("removes a parameter and the automation that names it; unknown names change nothing", () => { void removeParameter; });
+  it.skip("renames a parameter and the automation that names it; rejects empty, taken and unknown names", () => { void renameParameter; });
+  it.skip("switches a parameter between numeric and labelled", () => {
+    // numeric -> labelled: ["State 1","State 2"]; labelled [a,b,c] default c -> numeric 0..2, default 2, seekSpeed 0; same kind returns d.
+    void setParameterLabelled;
+  });
+  it.skip("sets a numeric range: swaps min above max, clamps the default, clamps seekSpeed to 0 or more, ignores non-finite, ignores labelled", () => { void setParameterRange; });
+  it.skip("sets labels (trimmed, deduplicated, no empties), keeps or resets the default; refuses an empty list; sets the default label only to an existing label", () => { void [setParameterLabels, setParameterDefaultLabel]; });
+  it.skip("adds bus automation on the first parameter with a flat curve over its range; nothing without parameters or for an unknown bus", () => { void addBusAutomation; });
+  it.skip("removes, retargets and re-buses automation entries; out-of-range indexes and unknown names change nothing", () => { void [removeBusAutomation, setBusAutomationBus]; });
+  it.skip("re-pointing an entry at another parameter maps the curve's x range, keeping interpolation keys", () => { void setBusAutomationParameter; });
+  it.skip("switching an entry's target resets the curve flat at 1 (volume) or 24000 (lowpass)", () => { void setBusAutomationTarget; });
+  it.skip("sets a curve (empty refused, over MAX_CURVE_KEYS cut) and the result survives the lenient parse with no problems", () => { void setBusAutomationCurve; });
 });

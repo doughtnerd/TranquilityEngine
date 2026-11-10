@@ -9,6 +9,7 @@ import {
   MAX_BUSES,
   parseAudioSettings,
   type AudioSettings,
+  type BusAutomation,
   type BusEffect,
   type BusSettings,
   type DuckingRule,
@@ -18,6 +19,8 @@ import {
   type AudioSpatialMode,
   type VoiceSettings,
 } from "../../../engine/audio/settings";
+import type { Curve } from "../../../engine/core/curve";
+import { MAX_CURVE_KEYS, MAX_PARAMETERS, type ParameterDef } from "../../../engine/audio/eventFormat";
 import type { SettingsDraft } from "../../../editor/sdk";
 
 /** A name not in `taken`: `base`, else `base 2`, `base 3`… */
@@ -68,6 +71,7 @@ export function removeBus(d: SettingsDraft, name: string): SettingsDraft {
     buses: a.buses.filter((b) => !gone.has(b.name)),
     snapshots: a.snapshots.map((s) => ({ ...s, volumes: scrub(s.volumes), lowpass: scrub(s.lowpass) })),
     ducking: a.ducking.filter((r) => !gone.has(r.target) && !gone.has(r.trigger)),
+    automation: a.automation.filter((r) => !gone.has(r.bus)),
   });
 }
 
@@ -83,6 +87,7 @@ export function renameBus(d: SettingsDraft, from: string, to: string): SettingsD
     buses: a.buses.map((b) => ({ ...b, name: fix(b.name), ...(b.parent !== undefined ? { parent: fix(b.parent) } : {}) })),
     snapshots: a.snapshots.map((s) => ({ ...s, volumes: re(s.volumes), lowpass: re(s.lowpass) })),
     ducking: a.ducking.map((r) => ({ ...r, target: fix(r.target), trigger: fix(r.trigger) })),
+    automation: a.automation.map((r) => ({ ...r, bus: fix(r.bus) })),
   });
 }
 
@@ -260,3 +265,100 @@ export function setSpatial(d: SettingsDraft, spatial: AudioSpatialMode): Setting
   const a = audioOf(d);
   return a.spatial === spatial ? d : withAudio(d, { ...a, spatial });
 }
+
+// --- ADR 0158 §2, §3: global parameters and bus automation ----------------------------------------------------------
+
+export { MAX_CURVE_KEYS, MAX_PARAMETERS };
+
+/** What `setParameterRange` may change on a numeric parameter. */
+export interface ParameterRangePatch { min?: number; max?: number; default?: number; seekSpeed?: number }
+
+/**
+ * Append a global parameter named "Parameter" (unique: "Parameter 2"…): numeric `min 0, max 1, default 0, seekSpeed 0`,
+ * or, when `labelled`, `labels ["State 1", "State 2"]` with default "State 1". At `MAX_PARAMETERS`, returns `d`.
+ */
+export function addParameter(d: SettingsDraft, labelled = false): SettingsDraft {
+  throw new Error("L6.5a: addParameter");
+}
+
+/** Remove a parameter and the automation entries that name it. Unknown names return `d`. */
+export function removeParameter(d: SettingsDraft, name: string): SettingsDraft {
+  throw new Error("L6.5a: removeParameter");
+}
+
+/** Rename a parameter, and the `parameter` of every automation entry that names it. Trimmed; empty, unchanged, taken or unknown names return `d`. */
+export function renameParameter(d: SettingsDraft, from: string, to: string): SettingsDraft {
+  throw new Error("L6.5a: renameParameter");
+}
+
+/**
+ * Switch a parameter between numeric and labelled, keeping its name and position. Numeric to labelled: labels
+ * ["State 1", "State 2"], default "State 1". Labelled to numeric: `min 0, max labels-1 (at least 1)`, default the old
+ * default's index, `seekSpeed 0`. Already that kind, or unknown: returns `d`. Automation is kept as authored.
+ */
+export function setParameterLabelled(d: SettingsDraft, name: string, labelled: boolean): SettingsDraft {
+  throw new Error("L6.5a: setParameterLabelled");
+}
+
+/**
+ * Edit a numeric parameter (labelled or unknown ones return `d`). Non-finite fields are ignored, `seekSpeed` is clamped
+ * to 0 or more. If `min` ends up above `max` the two are swapped; `default` (the patched or the existing one) is clamped
+ * into the final range.
+ */
+export function setParameterRange(d: SettingsDraft, name: string, patch: ParameterRangePatch): SettingsDraft {
+  throw new Error("L6.5a: setParameterRange");
+}
+
+/**
+ * Replace a labelled parameter's labels: each trimmed, empty ones and repeats dropped (first kept). No labels left, a
+ * numeric or unknown parameter: returns `d`. The default stays if it is still a label, else becomes the first.
+ */
+export function setParameterLabels(d: SettingsDraft, name: string, labels: readonly string[]): SettingsDraft {
+  throw new Error("L6.5a: setParameterLabels");
+}
+
+/** A labelled parameter's default, which must be one of its labels (else `d`). */
+export function setParameterDefaultLabel(d: SettingsDraft, name: string, label: string): SettingsDraft {
+  throw new Error("L6.5a: setParameterDefaultLabel");
+}
+
+/**
+ * Append a bus automation entry: the bus `bus` (a known bus; default "Music", else the first bus after the root, else
+ * the root), the first global parameter, `target: "volume"`, and a flat curve `[[lo, 1], [hi, 1]]` over that parameter's
+ * range (`parameterRange`). No parameters or an unknown explicit bus: returns `d`.
+ */
+export function addBusAutomation(d: SettingsDraft, bus?: string): SettingsDraft {
+  throw new Error("L6.5a: addBusAutomation");
+}
+
+/** Remove the entry at `index` (out of range returns `d`). */
+export function removeBusAutomation(d: SettingsDraft, index: number): SettingsDraft {
+  throw new Error("L6.5a: removeBusAutomation");
+}
+
+/** Point an entry at another bus (unknown bus or index returns `d`). */
+export function setBusAutomationBus(d: SettingsDraft, index: number, bus: string): SettingsDraft {
+  throw new Error("L6.5a: setBusAutomationBus");
+}
+
+/**
+ * Point an entry at another global parameter (unknown parameter or index returns `d`). The curve's x values are mapped
+ * linearly from the old parameter's range to the new one's (a zero-width old range maps every key to the new min), so the
+ * curve keeps its shape over the new range; interpolation keys are kept.
+ */
+export function setBusAutomationParameter(d: SettingsDraft, index: number, parameter: string): SettingsDraft {
+  throw new Error("L6.5a: setBusAutomationParameter");
+}
+
+/** Switch an entry between `volume` and `lowpass`; the curve resets to flat over the parameter's range at 1 (volume) or 24000 Hz (lowpass), as the units differ. Same target or unknown index: returns `d`. */
+export function setBusAutomationTarget(d: SettingsDraft, index: number, target: BusAutomation["target"]): SettingsDraft {
+  throw new Error("L6.5a: setBusAutomationTarget");
+}
+
+/** Replace an entry's curve (an empty curve, or an unknown index, returns `d`; more than `MAX_CURVE_KEYS` keys are cut to that). */
+export function setBusAutomationCurve(d: SettingsDraft, index: number, curve: Curve): SettingsDraft {
+  throw new Error("L6.5a: setBusAutomationCurve");
+}
+
+/** The parameter a name refers to, or undefined. */
+export const parameterOf = (a: AudioSettings, name: string): ParameterDef | undefined => a.parameters.find((p) => p.name === name);
