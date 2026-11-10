@@ -89,3 +89,12 @@ Wave 1 is merged with every gate green; wave 2 is running (E5.2 guide and E5.3 b
 - **Question:** `coreAutomation.ts` `reevaluate` evaluates a bound voice's gain at the parameter's target for selection (0158 §3, "Selection still sees it"); when the target gain is 0, selection can make the voice virtual at once, so it cuts instead of ramping down over the seek time.
 - **Chosen:** fix in wave 3 (owner of `coreAutomation.ts` then is E4.5): selection uses the larger of the current smoothed estimate and the target until the seek completes, so a voice fades out before it is demoted.
 
+### 15. How instances retire without a per-frame scan (E3.5)
+- **Question:** a voice's end reaches main only through its polled `playing`; a callback would change `backend.ts`'s `AudioVoice` interface.
+- **Chosen:** the mixer counts ended voices (`Mixer.voicesEnded`, `@internal`, one line in `src/engine/audio/mixer.ts`, fed by `mixer.voiceEnded`, which every backend already calls); the event runtime scans its instances only when that count moved, so a steady instance costs one comparison per frame (0158 §6). An instance stopped while it had no backend voice yet retires at the next end, the next play or the group-id sweep; its group id lingers until then, which is harmless below 1,024 instances.
+- **Why not an `onEnd` hook on `AudioVoice`:** an interface change on every backend for what one counter gives.
+- **If changed:** add `onEnd?` to `AudioVoice` in `backend.ts` and call it from each backend's end path; `eventRuntime.ts`'s `reapIfEnded` subscribes instead of comparing.
+
+### 16. Runtime fixes found while testing (E3.5)
+- Blend crossfades are equal-power: each edge samples cos/sin into 12 linear keys (|a²+b²−1| < 0.01; 0158 §1). `EventSystem._reset()` now clears curve ids (a second boot was silent). A continuous container waiting on an unknown clip length rechecks every frame instead of every 50 ms (0158 §6, "one frame late").
+

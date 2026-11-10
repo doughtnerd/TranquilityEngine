@@ -541,3 +541,5 @@ The remainder of M2 (E3 from E3.1, E4–E7) is planned as a milestone build: [wa
 **Owner ruling (2026-11-10, during wave 2):** size gates are a signal to check for unnecessary bloat; the AAC decoder's gate goes 1,100 → 1,280 KB (`DECODER_AAC_LIMIT`), since M2's loop points are wanted growth (it is 1,048 KB).
 
 **Owner ruling (2026-11-10):** E2's six deviations from ADR 0158 are accepted, being in line with industry practice ([m2-decisions.md](m2-decisions.md) entry 1).
+
+**Wave 2 merges so far:** E5.2 guide; E5.3 bench (`npm run bench:audio-events`); E4.2 sidecar and main-side loop points with the TypeScript reader; E3.4 parity (26 scenes; two evaluator fixes; wasm rebuilt); E5.1 the Sound Lab events page; E6.5 the Parameters and Automation settings sections; E3.3 + E3.5 the event tests, the hand-over, retiring without a scan, equal-power blends and four event goldens (`runtime/golden/event-*.json`, regenerate with `UPDATE_GOLDENS=1 npx vitest run src/plugins/audio/runtime/events/eventGolden.test.ts`; they pass unchanged on the wasm rebuilt after E3.4). Haiku leaves: 12 of 12 first pass. Details: [m2-decisions.md](m2-decisions.md) entries 9–16.
