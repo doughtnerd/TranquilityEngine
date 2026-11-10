@@ -63,7 +63,7 @@ export const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
   },
   {
     id: "audio",
-    extensions: [".mp3", ".ogg", ".wav"],
+    extensions: [".mp3", ".ogg", ".wav", ".flac", ".m4a"],
     label: "Audio",
     icon: "M9 17V6l10-2v11M9 17a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM19 15a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z",
     referencedAs: ["audio"],
