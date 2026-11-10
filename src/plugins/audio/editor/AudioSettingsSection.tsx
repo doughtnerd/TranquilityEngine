@@ -1,14 +1,18 @@
 // The Project panel's Audio section (ADR 0097): the bus tree with per-bus effects, snapshots, ducking rules and
 // the backend. Edits go through the pure functions in `audioSettingsModel.ts` and the panel's undo history.
 import { useState } from "preact/hooks";
-import type { AudioSettings, BusEffect, BusSettings } from "../../engine/audio/settings";
+import type { AudioBackground, AudioClipFormat, AudioSettings, AudioSpatialMode, BusEffect, BusSettings } from "../../../engine/audio/settings";
 import {
+  CLIP_MEMORY_LIMITS,
   EFFECT_TYPES,
   MAX_BUSES,
+  VOICE_LIMITS,
+  VOICE_PRESET_NAMES,
   addBus,
   addDucking,
   addEffect,
   addSnapshot,
+  applyVoicesPreset,
   audioOf,
   busTree,
   descendants,
@@ -19,15 +23,24 @@ import {
   renameBus,
   renameSnapshot,
   setBackend,
+  setBackground,
+  setBusMaxVoices,
   setBusParent,
   setBusValue,
+  setClipFormat,
+  setClipMemory,
+  setCodec,
   setDuckingValue,
   setEffectValue,
   setSnapshotLowpass,
   setSnapshotVolume,
-} from "../audioSettingsModel";
-import type { SettingsDraft } from "../projectSettingsModel";
-import { TextField } from "./settingsControls";
+  setSpatial,
+  setVoices,
+  voicesPreset,
+  type VoicePresetName,
+} from "./audioSettingsModel";
+import { TextField, type SettingsDraft } from "../../../editor/sdk";
+import { BusMeters } from "./BusMeters";
 import "./audioSettings.css";
 
 type Set = (label: string, next: SettingsDraft) => void;
@@ -131,6 +144,10 @@ function BusRow(props: { a: AudioSettings; bus: BusSettings; depth: number; draf
         <label class="audio-bus-check">
           <input type="checkbox" aria-label={`Mute ${bus.name}`} checked={bus.mute} onChange={(e) => set(`${bus.mute ? "Unmute" : "Mute"} ${bus.name}`, setBusValue(draft, bus.name, "mute", (e.currentTarget as HTMLInputElement).checked))} />
           Mute
+        </label>
+        <label class="audio-bus-check" title="At most this many sounds play on the bus at once; blank is unlimited">
+          Max voices
+          <OptionalNum label={`${bus.name} max voices`} value={bus.maxVoices} step={1} min={1} max={a.voices.logical} placeholder="∞" onCommit={(n) => set(`Set ${bus.name} max voices`, setBusMaxVoices(draft, bus.name, n))} />
         </label>
         {!isRoot && (
           <select aria-label={`${bus.name} parent`} value={bus.parent} onChange={(e) => set(`Move ${bus.name} under ${(e.currentTarget as HTMLSelectElement).value}`, setBusParent(draft, bus.name, (e.currentTarget as HTMLSelectElement).value))}>
@@ -249,6 +266,90 @@ function Ducking(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
   );
 }
 
+function Choice<T extends string>(props: { label: string; value: T; options: readonly T[]; labels?: Record<string, string>; onChange: (v: T) => void }) {
+  return (
+    <select aria-label={props.label} value={props.value} onChange={(e) => props.onChange((e.currentTarget as HTMLSelectElement).value as T)}>
+      {props.options.map((o) => (
+        <option key={o} value={o}>
+          {props.labels?.[o] ?? o}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** Voices, clip memory, formats, spatial sound, backgrounding and the backend (api-and-models §2). */
+function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
+  const { a, draft, set } = props;
+  const preset = voicesPreset(a);
+  const voices = (key: "mixed" | "logical" | "hrtf", label: string, hint: string) => (
+    <label title={hint}>
+      {label}
+      <Num label={`Voices ${key}`} value={a.voices[key]} step={1} min={VOICE_LIMITS[key][0]} max={VOICE_LIMITS[key][1]} onCommit={(n) => set(`Set voices ${key}`, setVoices(draft, { [key]: n }))} />
+    </label>
+  );
+  return (
+    <>
+      <div class="project-settings-list-head">
+        <span>Voices</span>
+        <span class="project-settings-hint">how many sounds the core mixes, tracks and spatialises (core backend)</span>
+      </div>
+      <div class="audio-row">
+        <label>
+          Preset
+          <select aria-label="Voices preset" value={preset} onChange={(e) => { const v = (e.currentTarget as HTMLSelectElement).value; if (v !== "custom") set(`Apply ${v} voices preset`, applyVoicesPreset(draft, v as VoicePresetName)); }}>
+            {VOICE_PRESET_NAMES.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+            {preset === "custom" && <option value="custom">custom</option>}
+          </select>
+        </label>
+        {voices("mixed", "Mixed", "Sounds mixed at once (8..512)")}
+        {voices("logical", "Logical", "Sounds tracked, including silent virtual ones (mixed..8192)")}
+        {voices("hrtf", "HRTF", "Spatial sounds rendered with HRTF (0..32); 0 is equal-power only")}
+      </div>
+
+      <div class="project-settings-list-head">
+        <span>Playback</span>
+      </div>
+      <div class="audio-row">
+        <label>
+          Spatial
+          <Choice<AudioSpatialMode> label="Spatial mode" value={a.spatial} options={["hrtf", "equalPower"]} labels={{ equalPower: "equal power" }} onChange={(v) => set("Set spatial mode", setSpatial(draft, v))} />
+        </label>
+        <label title="What the page being hidden does to sound">
+          In background
+          <Choice<AudioBackground> label="Audio background" value={a.background} options={["mute", "pause", "play"]} onChange={(v) => set("Set audio background", setBackground(draft, v))} />
+        </label>
+      </div>
+      <div class="audio-row">
+        <label title="Ceiling for decoded clips in MB (16..1024); blank uses the device preset's">
+          Clip memory (MB)
+          <OptionalNum label="Clip memory MB" value={a.clipMemoryMB} step={16} min={CLIP_MEMORY_LIMITS[0]} max={CLIP_MEMORY_LIMITS[1]} placeholder="auto" onCommit={(n) => set("Set clip memory", setClipMemory(draft, n))} />
+        </label>
+        <label title="Sample format of decoded clips: 16-bit integer halves the memory">
+          Clip format
+          <Choice<AudioClipFormat> label="Clip format" value={a.clipFormat} options={["i16", "f32"]} labels={{ i16: "16-bit", f32: "32-bit float" }} onChange={(v) => set("Set clip format", setClipFormat(draft, v))} />
+        </label>
+        <label class="audio-bus-check" title="Also decode AAC files, where the platform supports it">
+          <input type="checkbox" aria-label="AAC codec" checked={a.codecs.aac} onChange={(e) => set(`${a.codecs.aac ? "Disable" : "Enable"} AAC`, setCodec(draft, "aac", (e.currentTarget as HTMLInputElement).checked))} />
+          AAC
+        </label>
+      </div>
+
+      <div class="project-settings-list-head">
+        <span>Backend</span>
+        <span class="project-settings-hint">core is the Rust mixer; babylon is the fallback without effects or voice limits</span>
+      </div>
+      <div class="audio-row">
+        <Choice<"babylon" | "core"> label="Audio backend" value={a.backend} options={["babylon", "core"]} onChange={(v) => set("Set audio backend", setBackend(draft, v))} />
+      </div>
+    </>
+  );
+}
+
 /** The Audio section's contents. `problems` are the section's parse problems. */
 export function AudioSettingsSection(props: { draft: SettingsDraft; problems: readonly string[]; set: Set }) {
   const { draft, set } = props;
@@ -262,6 +363,7 @@ export function AudioSettingsSection(props: { draft: SettingsDraft; problems: re
           ))}
         </ul>
       )}
+      <BusMeters names={a.buses.map((b) => b.name)} />
       <div class="project-settings-list-head">
         <span>Buses</span>
         <span class="project-settings-hint">a tree feeding Master; expand a bus for its effects (up to {MAX_BUSES})</span>
@@ -273,15 +375,7 @@ export function AudioSettingsSection(props: { draft: SettingsDraft; problems: re
       <Snapshots a={a} draft={draft} set={set} />
       <Ducking a={a} draft={draft} set={set} />
 
-      <div class="project-settings-list-head">
-        <span>Backend</span>
-      </div>
-      <div class="audio-row">
-        <select aria-label="Audio backend" value={a.backend} onChange={(e) => set("Set audio backend", setBackend(draft, (e.currentTarget as HTMLSelectElement).value as "babylon" | "core"))}>
-          <option value="babylon">babylon</option>
-          <option value="core">core</option>
-        </select>
-      </div>
+      <Playback a={a} draft={draft} set={set} />
     </div>
   );
 }
