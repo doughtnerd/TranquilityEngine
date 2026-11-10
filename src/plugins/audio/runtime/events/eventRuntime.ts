@@ -11,7 +11,7 @@
 import type { Curve } from "../../../../engine/core/curve";
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as mixerImport } from "../../../../engine/audio/mixer";
-import { Assets } from "../../../../engine/scene/Assets";
+import { Assets as AssetsImport } from "../../../../engine/scene/Assets";
 import {
   AUDIO_EVENT_FORMAT, isLabelled as isLabelledImport, parameterDefault as parameterDefaultImport, parameterRange, parseAudioEvent, sustainReleaseFade,
   type AudioEventAsset, type Automation, type EventNode, type ParameterDef, type SustainNode, type SwitchNode,
@@ -28,6 +28,7 @@ import {
 // the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
 // bundle reads either directly.
 const mixer = mixerImport;
+const Assets = AssetsImport;
 const audioBackend = audioBackendImport;
 const warnOnce = warnOnceImport;
 const parameterDefault = parameterDefaultImport;

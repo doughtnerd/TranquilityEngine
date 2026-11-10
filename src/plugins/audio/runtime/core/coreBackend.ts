@@ -507,6 +507,7 @@ export class CoreBackend implements AudioBackend {
     this.names = settings.map((b) => b.name);
     this.busIndexByName.clear();
     this.names.forEach((n, i) => this.busIndexByName.set(n, i));
+    this.lastBusName = null;
     this.writer.busConfig(this.busConfigWire(mixer));
     // ADR 0158: bus bindings follow their buses to the new indices.
     this.automation.onBusesConfigured();
@@ -859,8 +860,15 @@ export class CoreBackend implements AudioBackend {
   }
 
   private busIndex(name: string): number {
-    return this.busIndexByName.get(name) ?? 0;
+    // M2 F1: plays mostly name the bus the last one did (the same string), so that one skips the map.
+    if (name === this.lastBusName) return this.lastBusIndex;
+    const index = this.busIndexByName.get(name) ?? 0;
+    this.lastBusName = name;
+    this.lastBusIndex = index;
+    return index;
   }
+  private lastBusName: string | null = null;
+  private lastBusIndex = 0;
 
   private applyAttenuation(i: number, a: Attenuation): void {
     this.table.minDist[i] = a.minDistance;

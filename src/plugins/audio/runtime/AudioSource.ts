@@ -8,8 +8,8 @@ import "./babylonBackend"; // registers the "babylon" backend: Babylon's AudioEn
 import { Component } from "../../../engine/core/Component";
 import { AssetRef, component, field } from "../../../engine/core/registry";
 import type { World } from "../../../engine/core/World";
-import { _worldServiceOf } from "../../../engine/core/worldServices";
-import { AUDIO, type AudioWorldService } from "./core/service";
+import { _worldServiceOf as _worldServiceOfImport } from "../../../engine/core/worldServices";
+import { AUDIO as AUDIOImport, type AudioWorldService } from "./core/service";
 import { Assets as AssetsImport } from "../../../engine/scene/Assets";
 import { audioBackend as audioBackendImport, type AudioVoice, type PlayRequest, type Rolloff } from "./backend";
 import { isAudioEventPath } from "../../../engine/audio/eventFormat";
@@ -21,6 +21,8 @@ import { _setEventClipStarter, events, type EventInstance } from "./events/event
 const mixer = mixerImport;
 const Assets = AssetsImport;
 const audioBackend = audioBackendImport;
+const _worldServiceOf = _worldServiceOfImport;
+const AUDIO = AUDIOImport;
 
 export type { Rolloff } from "./backend";
 

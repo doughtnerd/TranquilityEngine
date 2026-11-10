@@ -614,7 +614,9 @@ export class CoreAutomation implements AutomationSink {
       e.id = id;
       e.group = this.deps.table.group[i]!;
       e.n = 0;
-      if (e.wire.length !== 0) e.wire.length = 0;
+      // M2 F1: emptied by `pop` (inlined) rather than `length = 0` (a runtime call), once per voice start in a reused slot.
+      const wire = e.wire;
+      while (wire.length > 0) wire.pop();
       e.loop = null;
       this.voices[i] = e;
     }
