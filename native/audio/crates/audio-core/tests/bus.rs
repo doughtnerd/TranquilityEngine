@@ -216,10 +216,13 @@ fn effects_are_stored_per_bus_and_unknown_types_dropped() {
     let a = bus::area(&m.core);
     assert_eq!(a.dropped, 1 + 2, "one unknown type, two past the limit");
     assert_eq!(a.has_reverb, 1);
-    // The stubs pass everything through: a voice on bus 1 is still at unity.
+    // The effects run (A2.2a): the root's compressor delays the mix by its 6 ms look-ahead (288
+    // frames at 48 kHz), so a voice on bus 1 (through its 800 Hz low-pass) arrives at frame 288.
     m.submit(&[dc(V1, 1, 0.0)]);
-    let (l, _) = m.render();
-    check(&l, TOL, "stubbed effects pass through", |_| 1.0);
+    let (l, r) = m.render_n(3);
+    assert!(l.iter().chain(&r).all(|x| x.is_finite()));
+    check(&l[..288], TOL, "the compressor's pre-delay", |_| 0.0);
+    assert!(l[288..].iter().all(|&x| x > 0.0), "the delayed signal arrives at frame 288");
 }
 
 #[test]
