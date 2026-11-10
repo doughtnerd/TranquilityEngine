@@ -1,6 +1,6 @@
 # Playing sound
 
-Two ways to make sound: an `AudioSource` component on a node, and `Audio.playOneShot` for fire-and-forget sounds. Both play through the project's [mixer buses](audio-mixer.md). Nothing plays until the player has clicked or pressed a key once; see [Why is there no sound?](why-no-sound.md) if something is silent.
+Two ways to make sound: an `AudioSource` component on a node, and `Audio.playOneShot` for fire-and-forget sounds. Both play through the project's [mixer buses](audio-mixer.md). For variations, layers, parameters and sustained sounds authored as data, see [Sound events](sound-events.md): `Audio.play` plays an event, and `AudioSource.clip` can name one. Nothing plays until the player has clicked or pressed a key once; see [Why is there no sound?](why-no-sound.md) if something is silent.
 
 ```ts
 import { Audio, AudioSource } from "myco";

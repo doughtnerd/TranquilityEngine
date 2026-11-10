@@ -21,6 +21,8 @@ Sound plays on **buses**: a tree that starts at `Master` (default children `Musi
 - **AudioSource**: set `output` (a dropdown of your buses). Empty means Master. **One-shots**: `Audio.playOneShot("asset:boom.wav", { bus: "SFX" })`.
 - **Snapshots** multiply bus volumes and can low-pass a bus; **ducking** lowers `target` while `trigger` has sounds playing.
 
+A bus's volume and low-pass can also follow a global parameter through a curve (`audio.automation`); see [Sound events](sound-events.md).
+
 ## Scripting
 
 ```ts

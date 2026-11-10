@@ -57,3 +57,8 @@ Wave 1 (the pilot) is merged on `claude/sweet-ritchie-miy6jm` with every gate gr
 ### 8. Proposal: a description option on `@field` (E3.6)
 - **Question:** 0158's Consequences ask the inspector to make clear that `AudioSource.clip` takes clips or events; `@field` has no description/tooltip option, so E3.6 only expanded the doc comment (the picker already offers both kinds).
 - **Proposal (yes/no):** add an optional `description` to `FieldOptions` (engine `registry.ts`) shown as the field's tooltip. It is a public API addition to the scripting surface, so it needs your yes (and maybe a short record). Otherwise the picker's two kinds stand alone.
+
+### 9. Runtime details that differ from 0158's wording, found by the guide (E3a, E5.2)
+- **Logged, no change:** curves are cached by object identity, so two events never share a curve id (the 1,024 cap counts each event's curves); an automation curve holds at most 32 keys (not stated in 0158); a spatial event's `maxDistance` defaults to `max(minDistance, 100)` (0158's example shows 30); a `sustain` container's `release` defaults to `"loopEnd"`; a switch's crossfade time is its own `crossfade` key (default 0.1 s), with `onChange: "crossfade"` choosing it, rather than `onChange` carrying the seconds. The guide documents the code.
+- **If changed:** each is one default or key in `src/engine/audio/eventFormat.ts` (and the guide).
+
