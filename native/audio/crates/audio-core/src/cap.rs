@@ -4,8 +4,10 @@
 //! Once per quantum, after the render (`Core::process`), [`after_render`]:
 //! 1. **Models the quantum's work units** (§8: 1 WU ≈ 1 ns on the reference machine) from what the
 //!    render reported: mixed and virtual voices (`counters.mixed_voices`, `live_voices`), HRTF voices
-//!    (`hrtf_voices`, H3), each configured bus with its effects and snapshot low-pass, the shared
-//!    reverb while a bus sends to it, the limiter, and the records the last batches carried. The
+//!    (`hrtf_voices`, H3) and their kernel computations, the source frames the mixed voices read
+//!    (pitch) and the moving ones (A3.5's `RenderWork`), each configured bus with its effects and
+//!    snapshot low-pass, the shared reverb while a bus sends to it, the limiter, and the records
+//!    the last batches carried. The
 //!    coefficients are the named constants in [`wu`]; `Core::work_units` returns the total, which
 //!    STATUS carries as `workUnits` / `workUnitsMax`.
 //! 2. **Takes the p99 over a 250 ms window** without storing the window: the `k` largest values,
@@ -37,51 +39,65 @@ use crate::core::Core;
 use crate::counters::flag;
 use crate::{bus, fx, status, voices, QUANTUM};
 
-/// Work-unit coefficients (architecture §6.1's table, in ns at 1 WU ≈ 1 ns). Estimates until A3.5's
-/// lab run freezes them.
+/// Work-unit coefficients (architecture §6.1's table and §6.5), in ns of the lab machine's time
+/// per item per quantum, as **wasm in Node** (`+simd128`, release, as shipped). Frozen by A3.5 from
+/// `audio-bench`'s sweeps (`node tools/audio-bench/run.mjs mode=fit`): each sweep varies one term
+/// with everything else fixed and the coefficient is the least-squares slope of the mean quantum
+/// time against that term. The lab machine was a shared 4-core 2.1 GHz Xeon VM (no reference
+/// machine yet), so [`NS_PER_WU`] is 1 and the totals read as that machine's nanoseconds; on the
+/// reference machine A3.5's sweeps are to be re-run and the coefficients (or `NS_PER_WU`) replaced.
 ///
-/// **Re-measuring** (A3.5, after A3.6's 4-point resampler): render a fixed scene in Node wasm and
-/// natively (≥ 5 runs × 60 s after a 5 s warm-up, §6.5) at several mixed counts with everything else
-/// fixed, fit the per-quantum wall time against the count, and put the slope in
-/// [`wu::MIXED_VOICE`] (and the pitch slope, below); likewise virtual voices, a bus, each effect
-/// kind and the reverb from scenes that vary only that term. Then [`NS_PER_WU`] stays 1 and the
-/// budget stays 1.3 ms, so the model's totals read as reference-machine nanoseconds.
+/// **Re-measuring:** `node tools/audio-bench/run.mjs mode=fit seconds=10 runs=3` (and natively,
+/// `cargo run --release -p audio-bench -- mode=fit`) on an idle machine; put each sweep's slope
+/// here (µs × 1,000), then check `mode=scene` runs' `wuMean` against their measured mean.
 pub mod wu {
-    /// A mixed voice at pitch ≤ 1 (§6.1: 1.15 µs with the linear resampler, from the README's 0.31 ms
-    /// for 256). A3.6's 4-point resampler is estimated at 1.6–2.3 µs: A3.5 re-measures this.
-    /// Cost also grows with pitch (each voice reads pitch × 128 source frames); the render doesn't
-    /// report a pitch sum yet, so the model counts every mixed voice at pitch 1 (see the report).
-    pub const MIXED_VOICE: u32 = 1_150;
-    /// Each 128 source frames the mixed voices read (provisional).
-    pub const SOURCE_QUANTUM: u32 = 0;
-    /// A moving mixed voice (provisional).
-    pub const MOVING_VOICE: u32 = 0;
-    /// A virtual voice keeping time (§6.1: ≈ 0.008 µs).
-    pub const VIRTUAL_VOICE: u32 = 8;
-    /// An HRTF-panned voice on top of its mixed cost (§6.1: 6.6 µs static; 10.4 crossfading).
-    pub const HRTF_VOICE: u32 = 6_600;
-    /// An HRTF panner crossfading two kernel sets (provisional).
-    pub const HRTF_CROSSFADE: u32 = 3_800;
-    /// One HRTF kernel computation (provisional).
-    pub const HRTF_KERNEL: u32 = 86_000;
-    /// A configured bus: its gain ramp, mix into the parent and meter (§6.1: ≈ 1–2 µs).
-    pub const BUS: u32 = 1_500;
-    /// A biquad on a bus: lowpass, highpass, or the snapshot low-pass while on (§6.1: ≈ 0.5 µs).
-    pub const BIQUAD: u32 = 500;
-    /// A bus compressor (§6.1: 3–6 µs, est.).
-    pub const COMPRESSOR: u32 = 4_500;
-    /// A reverb send tap (a multiply-add into the shared input).
+    /// A mixed voice, besides its source reads ([`SOURCE_QUANTUM`]): the 4-point resampler's
+    /// arithmetic on int16 stereo, gain and fade ramps, the equal-power pan, the mix into its bus.
+    /// Measured 2.8–3.8 µs per pitch-1 voice in wasm over four runs on a loaded VM (native
+    /// 2.5–2.7); 3.4 µs keeps the cap on the safe side of that spread.
+    pub const MIXED_VOICE: u32 = 3_400;
+    /// Each 128 source frames the mixed voices read (a voice reads pitch × 128 a quantum; the
+    /// render notes the sum). Small on the lab machine (its 260 MB L3 holds 64 MB of clips): 0.03
+    /// µs in wasm and natively; a machine with a smaller cache needs the sweep re-run.
+    pub const SOURCE_QUANTUM: u32 = 33;
+    /// A mixed voice whose pan matrix is ramping (a direction change: the per-frame matrix path).
+    /// 0.94 µs in wasm (1.2 native).
+    pub const MOVING_VOICE: u32 = 940;
+    /// A virtual voice keeping time: 0.059 µs in wasm (0.040 native), after A3.5's O(1) advance
+    /// at a settled pitch (0.17 µs natively before). The walk over the voice table and the clip
+    /// lookup remain; §6.1's 0.008 µs was the spike's.
+    pub const VIRTUAL_VOICE: u32 = 59;
+    /// An HRTF-panned voice on top of its mixed cost: its partitioned convolution and delays.
+    /// 6.9 µs in wasm (8.9 native) still. Turning voices cost the same plus their kernels.
+    pub const HRTF_VOICE: u32 = 6_900;
+    /// One HRTF kernel computation (one ear's kernel at a new direction): 67 µs in wasm (55
+    /// native), at most `panner::KERNEL_BUDGET` (2) a quantum. A crossfade between kernel sets
+    /// measured no cost beyond the noise, so it has no term.
+    pub const HRTF_KERNEL: u32 = 67_000;
+    /// A configured bus: its gain ramp, mix into the parent and meter. 0.9 µs in wasm (native
+    /// within the noise of 0).
+    pub const BUS: u32 = 900;
+    /// A biquad on a bus: lowpass, highpass, or the snapshot low-pass while on. 1.2 µs in wasm
+    /// (1.3–1.5 native).
+    pub const BIQUAD: u32 = 1_200;
+    /// A bus compressor: 5.6 µs in wasm (3.3 native).
+    pub const COMPRESSOR: u32 = 5_600;
+    /// A reverb send tap (a multiply-add into the shared input): below the sweep's noise (±0.3
+    /// µs); the estimate stays.
     pub const REVERB_SEND: u32 = 150;
-    /// The shared 1.8 s convolver while a bus sends to it (§6.1: ≈ 0.07 ms average).
-    pub const REVERB: u32 = 70_000;
-    /// The master limiter (§6.1: ≈ 5 µs, est.).
-    pub const LIMITER: u32 = 5_000;
-    /// One record applied (parse, schedule, apply; est.).
+    /// The shared 1.8 s convolver while a bus sends to it, on average (its tail's quantum is a
+    /// spike the model doesn't follow): 20–28 µs (wasm, native).
+    pub const REVERB: u32 = 25_000;
+    /// The master limiter at its 1.5 ms look-ahead: 1.8 µs while limiting (A2.9).
+    pub const LIMITER: u32 = 2_000;
+    /// One record applied (parse, schedule, apply): below the sweep's noise (±1 µs for 43
+    /// records a quantum); the estimate stays.
     pub const RECORD: u32 = 100;
 }
 
 /// k, the lab constant per build: nanoseconds of reference-machine time per work unit (§6.3's µs
-/// per WU × 1,000). 1 by definition until A3.5 measures otherwise.
+/// per WU × 1,000). 1: the coefficients are the lab machine's wasm nanoseconds (A3.5), and the lab
+/// machine stands in for the reference machine until that one is measured.
 pub const NS_PER_WU: u32 = 1;
 /// The fixed per-quantum budget (§6.1, the ADR's 1.3 ms) in work units: 1.3 ms ÷ k.
 pub const BUDGET_WU: u32 = 1_300_000 / NS_PER_WU;
@@ -312,7 +328,6 @@ fn model(core: &Core, records: u32) -> u32 {
         + s.moving as u64 * wu::MOVING_VOICE as u64
         + live.saturating_sub(mixed) * wu::VIRTUAL_VOICE as u64
         + c.hrtf_voices as u64 * wu::HRTF_VOICE as u64
-        + s.hrtf_crossfading as u64 * wu::HRTF_CROSSFADE as u64
         + s.hrtf_kernels as u64 * wu::HRTF_KERNEL as u64;
     let count = bus::count(core);
     for slot in bus::slots(core).iter().take(count) {

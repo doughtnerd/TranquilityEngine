@@ -410,8 +410,8 @@ fn hrtf_cost_per_voice() {
     std::println!("the completing commit (parse and build the bank): {:.0} µs", t.elapsed().as_secs_f64() * 1e6);
 }
 
-/// A3.5: the work-unit model counts each HRTF voice, each panner crossfading kernel sets and each
-/// kernel computation (the render notes the last two; `CapState::render_work`).
+/// A3.5: the work-unit model counts each HRTF voice and each kernel computation (the render notes
+/// the kernels, and the panners crossfading, in `CapState::render_work`).
 #[test]
 fn the_model_counts_hrtf_voices_crossfades_and_kernels() {
     use audio_core::cap::wu;
@@ -443,7 +443,7 @@ fn the_model_counts_hrtf_voices_crossfades_and_kernels() {
         let c = status::counters(&core);
         assert_eq!(c.hrtf_voices, 4);
         let rest = 4 * wu::MIXED_VOICE + 4 * wu::SOURCE_QUANTUM + w.moving * wu::MOVING_VOICE + wu::LIMITER + 4 * wu::RECORD + audio_core::bus::count(&core) as u32 * wu::BUS;
-        assert_eq!(core.work_units(), rest + 4 * wu::HRTF_VOICE + crossfading * wu::HRTF_CROSSFADE + kernels * wu::HRTF_KERNEL, "quantum {q}");
+        assert_eq!(core.work_units(), rest + 4 * wu::HRTF_VOICE + kernels * wu::HRTF_KERNEL, "quantum {q}");
     }
     assert!(saw_kernels && saw_crossfade, "the voices turned");
 }

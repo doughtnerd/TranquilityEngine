@@ -387,6 +387,9 @@ pub struct RunResult {
     pub p999: f64,
     pub max: f64,
     pub mean: f64,
+    /// The quanta without a batch or STATUS take (4 of every 6): their p99 and p99.9.
+    pub p99_quiet: f64,
+    pub p999_quiet: f64,
     pub mean_mixed: f64,
     pub mean_live: f64,
     pub mean_hrtf: f64,
@@ -966,6 +969,11 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     r.p99 = percentile(&sorted, 0.99);
     r.p999 = percentile(&sorted, 0.999);
     r.max = *sorted.last().unwrap_or(&0.0) as f64;
+    // Quantum q's batch is submitted at q % 6 == 0 and STATUS taken at q % 6 == 5.
+    let mut quiet: Vec<f32> = times.iter().enumerate().filter(|(i, _)| ((warm_q + *i as u64) % BATCH_EVERY) % 5 != 0).map(|(_, &t)| t).collect();
+    quiet.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    r.p99_quiet = percentile(&quiet, 0.99);
+    r.p999_quiet = percentile(&quiet, 0.999);
     let mut w = wus.clone();
     w.sort_by(|a, b| a.partial_cmp(b).unwrap());
     r.wu_mean = wus.iter().map(|&x| x as f64).sum::<f64>() / n;
@@ -1071,13 +1079,15 @@ fn num(args: &str, key: &str, default: f64) -> f64 {
 
 fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
     format!(
-        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{}}}",
+        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{}}}",
         r.quanta,
         r.p50,
         r.p99,
         r.p999,
         r.max,
         r.mean,
+        r.p99_quiet,
+        r.p999_quiet,
         r.mean_mixed,
         r.mean_live,
         r.mean_hrtf,
@@ -1110,8 +1120,9 @@ fn memory(name: &str, logical: u32, mixed: u32, arena_mb: u32) -> String {
     let hrtf44 = audio_core::panner::HrtfBank::bytes_for(44_100.0).unwrap_or(0);
     let hrtf48 = audio_core::panner::HrtfBank::bytes_for(48_000.0).unwrap_or(0);
     let hrtf96 = audio_core::panner::HrtfBank::bytes_for(96_000.0).unwrap_or(0);
+    let hrir = hrir_table(RATE).len();
     format!(
-        "{{\"memory\":\"{name}\",{},\"fixedBeforeArena\":{fixed},\"total\":{},\"hrtfBank44k\":{hrtf44},\"hrtfBank48k\":{hrtf48},\"hrtfBank96k\":{hrtf96},\"ringBytes\":{}}}",
+        "{{\"memory\":\"{name}\",\"hrirTable48k\":{hrir},{},\"fixedBeforeArena\":{fixed},\"total\":{},\"hrtfBank44k\":{hrtf44},\"hrtfBank48k\":{hrtf48},\"hrtfBank96k\":{hrtf96},\"ringBytes\":{}}}",
         parts.join(","),
         layout.total(),
         audio_core::stream::RING_BYTES
