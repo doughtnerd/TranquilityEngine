@@ -361,8 +361,3 @@ export class StreamDecoder {
     this.host.post({ type: "error", streamId, asset, message: e.message, code: e.code !== 0 ? e.code : undefined });
   }
 }
-
-/** @deprecated B2's entry point, kept for its signature: one request in, replies out through `host`. */
-export function handleStreamRequest(host: StreamHost, request: StreamRequest): void {
-  void new StreamDecoder(host).handle(request);
-}
