@@ -45,6 +45,7 @@ import { createHrirLoader, type HrirLoader } from "./hrir";
 import { createClipRegistry, type ClipInfo, type ClipRegistry } from "./clipRegistry";
 import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink } from "./context";
 import { buildDebugInfo, type AudioDebugInfo } from "./debug";
+import { BackgroundController } from "./background";
 import { browserHostClock, type HostClock } from "./hostClock";
 import { decodeClip } from "./loader";
 import { StatusMirror } from "./mirror";
@@ -227,7 +228,7 @@ export class CoreBackend implements AudioBackend {
 
   private background: AudioBackground = "mute";
 
-  /** §6 `setBackground`: what the host does when the page is hidden. A3.4b acts on it; until then it is kept for `debug()`. */
+  /** §6 `setBackground`: what the host does when the page is hidden (`background.ts` applies it at the next hide). */
   setBackground(mode: AudioBackground): void {
     this.background = mode;
   }
@@ -235,6 +236,48 @@ export class CoreBackend implements AudioBackend {
   /** @internal The mode last set. */
   get backgroundMode(): AudioBackground {
     return this.background;
+  }
+
+  // --- Background hooks (A3.4b; `background.ts` is the `BackgroundTarget` caller) ---
+
+  private hiddenMuted = false;
+  private hidden = false;
+  /** @internal The background controller, when `createCoreBackend` made one (its counters feed `debug()`). */
+  health: { readonly backgroundEnters: number; readonly interruptions: number } | null = null;
+
+  /** @internal Runs `fn` when the backend is disposed. */
+  addCleanup(fn: () => void): void {
+    this.cleanups.push(fn);
+  }
+
+  /** @internal STATUS blocks applied so far (the heartbeat the stall check watches). */
+  get statusBlocks(): number {
+    return this.mirror.blocks;
+  }
+
+  /** @internal Whether the page is hidden (for `debug()`). */
+  get pageHidden(): boolean {
+    return this.hidden;
+  }
+
+  /** @internal §3.8: while hidden no frame frees ended voices, so STATUS handling does (and frees what already ended). */
+  setHidden(hidden: boolean): void {
+    this.hidden = hidden;
+    this.mirror.freeEndedInMessage = hidden;
+    if (hidden && !this.disposed) this.table.freeEnded();
+  }
+
+  /** @internal §3.8: MASTER to 0 (or back) over `rampMs`, flushed now since no frame will. `Audio.muted` and the volume are kept. */
+  hiddenMute(on: boolean, rampMs: number): void {
+    if (this.disposed) return;
+    this.hiddenMuted = on;
+    this.writer.master(this.master, this.isMuted || on, Math.max(1, Math.round((rampMs / 1000) * this.host.sampleRate)));
+    this.writer.flush(this.clockMap.nextFirstFrame());
+  }
+
+  /** @internal §3.8: the next frame re-anchors the clock map. */
+  reanchor(): void {
+    this.clockMap.reanchor();
   }
 
   /** The bus names by index (root first), as last configured. */
@@ -351,7 +394,7 @@ export class CoreBackend implements AudioBackend {
 
   set masterVolume(v: number) {
     this.master = clamp(Number.isFinite(v) ? v : 1, 0, 1);
-    this.writer.master(this.master, this.isMuted, this.clockMap.rampFrames());
+    this.writer.master(this.master, this.isMuted || this.hiddenMuted, this.clockMap.rampFrames());
   }
 
   get muted(): boolean {
@@ -360,7 +403,7 @@ export class CoreBackend implements AudioBackend {
 
   set muted(m: boolean) {
     this.isMuted = m;
-    this.writer.master(this.master, m, this.clockMap.rampFrames());
+    this.writer.master(this.master, m || this.hiddenMuted, this.clockMap.rampFrames());
   }
 
   /** The per-frame step; see the header. */
@@ -794,5 +837,15 @@ export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): 
     sampleRate: host.context.sampleRate,
     addLifecycleListener: (listener) => host.addLifecycleListener(listener),
   };
-  return new CoreBackend(backendHost, { ...deps, clips, clock: deps.clock ?? browserHostClock(host.context) });
+  const backend = new CoreBackend(backendHost, { ...deps, clips, clock: deps.clock ?? browserHostClock(host.context) });
+  attachBackground(backend, host);
+  return backend;
+}
+
+/** A3.4b: the visibility, device-event and stall controller (`background.ts`) for a backend on the page's host. */
+function attachBackground(backend: CoreBackend, host: AudioHost): void {
+  const controller = new BackgroundController({ host, target: backend });
+  backend.health = controller.counters;
+  backend.addCleanup(() => controller.dispose());
+  controller.start();
 }

@@ -27,6 +27,7 @@ import type { Vec3Like } from "../../../engine/core/math";
 import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
 import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type PlayRequest } from "./backend";
 import { busCreationSteps, listenerQuaternion, planBuses, playbackRate, soundVolume, spatialParams, spatialSoundOptions, type BusPlan } from "./babylonMapping";
+import type { VisibilitySource } from "./core/background";
 import { Unlock, type UnlockContext } from "./core/unlock";
 
 /** What a test (or an unusual host) can replace. */
@@ -37,7 +38,12 @@ export interface BabylonBackendOptions {
   createContext?: () => AudioContext;
   /** Where the unlock layer listens for the first gesture. Default: `document` (none outside a browser). */
   unlockTarget?: EventTarget | null;
+  /** The page's visibility, for `audio.background` (A3.4b). Default: `document`; null never hides. */
+  visibility?: VisibilitySource | null;
 }
+
+/** A3.4b: `pause` suspends the context this long after muting, ms (as the core's, architecture §3.8). */
+const PAUSE_SUSPEND_DELAY_MS = 40;
 
 type Sound = StaticSound | StreamingSound;
 
@@ -318,8 +324,20 @@ export class BabylonBackend implements AudioBackend {
   private background: AudioBackground = "mute";
   private disposed = false;
   private warned = false;
+  /** A3.4b: the page is hidden and `audio.background` muted or paused the sound (the engine's volume is 0). */
+  private hiddenMuted = false;
+  /** True while this backend's own `pause` policy has suspended the context it owns. */
+  private pageSuspended = false;
+  private suspendTimer: ReturnType<typeof setTimeout> | null = null;
+  private appliedBackground: AudioBackground | null = null;
+  private readonly visibility: VisibilitySource | null;
+  private readonly onVisibility = (): void => (this.visibility?.hidden ? this.enterBackground() : this.leaveBackground());
 
-  constructor(private readonly options: BabylonBackendOptions = {}) {}
+  constructor(private readonly options: BabylonBackendOptions = {}) {
+    this.visibility = options.visibility !== undefined ? options.visibility : typeof document !== "undefined" ? (document as unknown as VisibilitySource) : null;
+    this.visibility?.addEventListener("visibilitychange", this.onVisibility);
+    if (this.visibility?.hidden) this.enterBackground();
+  }
 
   /** @internal */
   get _live(): Live | null {
@@ -350,7 +368,7 @@ export class BabylonBackend implements AudioBackend {
     if (target) {
       // Arms when the context starts suspended; keeps re-arming after "interrupted" (Safari) or an outside suspend.
       this.unlock = new Unlock({ target, context: ctx as unknown as UnlockContext });
-      this.unlock.watch();
+      this.unlock.watch(() => this.pageSuspended);
     }
     return ctx;
   }
@@ -534,12 +552,48 @@ export class BabylonBackend implements AudioBackend {
     this.applyMaster();
   }
   private applyMaster(): void {
-    if (this.liveNow) this.liveNow.engine.volume = this.isMuted ? 0 : Math.max(0, this.master);
+    if (this.liveNow) this.liveNow.engine.volume = this.isMuted || this.hiddenMuted ? 0 : Math.max(0, this.master);
   }
 
-  /** The fallback has no background policy of its own; the mode is only reported. */
+  /**
+   * `audio.background` (A3.4b), as far as the fallback can: `mute` sets the engine's volume to 0 while the page is
+   * hidden (at once, no ramp); `pause` also suspends the context when this backend owns it (a context shared with a
+   * core host is only muted, since the host's policy owns it); `play` does nothing. Applied at the next hide.
+   */
   setBackground(mode: AudioBackground): void {
     this.background = mode;
+  }
+
+  private enterBackground(): void {
+    if (this.disposed || this.appliedBackground !== null) return;
+    const mode = this.background;
+    this.appliedBackground = mode;
+    if (mode === "play") return;
+    this.hiddenMuted = true;
+    this.applyMaster();
+    if (mode === "pause" && this.ownsContext) {
+      this.suspendTimer = setTimeout(() => {
+        this.suspendTimer = null;
+        const ctx = this.ctx;
+        if (!ctx || this.disposed || this.appliedBackground !== "pause" || ctx.state !== "running") return;
+        this.pageSuspended = true;
+        ctx.suspend().catch(() => (this.pageSuspended = false));
+      }, PAUSE_SUSPEND_DELAY_MS);
+    }
+  }
+
+  private leaveBackground(): void {
+    if (this.appliedBackground === null) return;
+    this.appliedBackground = null;
+    if (this.suspendTimer !== null) clearTimeout(this.suspendTimer);
+    this.suspendTimer = null;
+    const resume = this.pageSuspended;
+    this.pageSuspended = false;
+    if (resume) this.ctx?.resume().catch(() => this.unlock?.arm());
+    if (this.hiddenMuted) {
+      this.hiddenMuted = false;
+      this.applyMaster();
+    }
   }
 
   /** Babylon updates its own listener and sounds. */
@@ -602,6 +656,9 @@ export class BabylonBackend implements AudioBackend {
     if (this.disposed) return;
     for (const v of [...this.voices]) v.stop();
     this.disposed = true;
+    this.visibility?.removeEventListener("visibilitychange", this.onVisibility);
+    if (this.suspendTimer !== null) clearTimeout(this.suspendTimer);
+    this.suspendTimer = null;
     this.unlock?.dispose();
     this.unlock = null;
     const live = this.liveNow;

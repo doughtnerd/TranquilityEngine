@@ -8,6 +8,8 @@ import "./babylonBackend"; // registers the "babylon" backend: Babylon's AudioEn
 import { Component } from "../../../engine/core/Component";
 import { AssetRef, component, field } from "../../../engine/core/registry";
 import type { World } from "../../../engine/core/World";
+import { _worldServiceOf } from "../../../engine/core/worldServices";
+import { AUDIO, type AudioWorldService } from "./core/service";
 import { Assets } from "../../../engine/scene/Assets";
 import { audioBackend, type AudioVoice, type PlayRequest, type Rolloff } from "./backend";
 
@@ -32,6 +34,12 @@ const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math
 
 /** Whether the active World has the view: only it plays sound (ADR 0074). */
 export const worldPlays = (world: World | null): boolean => !!world?.render;
+
+/** @internal The World's key on the core (its `myco.audio` share, architecture §3.9), or 0 while it has none. A play carries it so selection knows whose voice it is. */
+export function worldKeyOf(world: World | null): number {
+  if (!world) return 0;
+  return (_worldServiceOf(world, AUDIO) as AudioWorldService | null)?.key ?? 0;
+}
 
 /**
  * Plays a clip from its node. With `spatial` on it sounds from the node's position, panning and
@@ -71,7 +79,7 @@ export class AudioSource extends Component {
     if (!this.clip || !worldPlays(this._world)) return;
     this.stop();
     const path = this.clip.replace(/^asset:/, "");
-    this.voice = startClip(path, this.loop, this.output, { priority: clamp255(this.priority) });
+    this.voice = startClip(path, this.loop, this.output, { priority: clamp255(this.priority), world: worldKeyOf(this._world) });
     this.applied = "";
     if (this.voice) this.apply(path);
   }

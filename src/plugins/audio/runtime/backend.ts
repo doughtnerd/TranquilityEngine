@@ -7,6 +7,7 @@
 import type { Vec3Like } from "../../../engine/core/math";
 import { mixer, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { AudioSettings } from "../../../engine/audio/settings";
+import { onAudioConfigured } from "../../../engine/core/audioConfigure";
 
 export type Rolloff = "linear" | "inverse" | "exponential";
 
@@ -65,6 +66,8 @@ export interface PlayRequest {
   priority?: number;
   /** A fire-and-forget `playOneShot` sound (the locked queue may drop these, D5). */
   oneShot?: boolean;
+  /** The playing World's key on the core (0 or omitted: none); only the core uses it (A3.4b, architecture §3.9). */
+  world?: number;
   /** Start at this audio-clock time (seconds, `Audio.time`'s base). Past, non-finite or omitted: as soon as possible. */
   at?: number;
   attenuation?: Attenuation;
@@ -177,6 +180,7 @@ export function audioBackend(): AudioBackend {
         // §2.1, §3.1: the core loads (through the `myco.audio` World service) while sound is locked. Until it has
         // loaded or failed, plays wait as locked voices, then move to whichever backend the load settles on.
         backend = new PendingCoreBackend();
+        applyBackgroundSetting(backend);
         return backend;
       } else if (!warnedCore) {
         // A real failure (probe refusal, load or start failure): one warning, then "babylon" for the page (§2 Fallback).
@@ -188,9 +192,23 @@ export function audioBackend(): AudioBackend {
     backend = make();
     backend.configureBuses(mixer);
     backend.applyMix(mixer.resolveAll());
+    applyBackgroundSetting(backend);
     mixer.onChange(() => backend?.applyMix(mixer.resolveAll()));
   }
   return backend;
+}
+
+let followingBackground = false;
+
+/**
+ * A3.4b: `audio.background` reaches the backend (§6 `setBackground`) when it is made and after each Engine's mixer
+ * reconfigure, so a project switching mode is picked up at the next hide.
+ */
+function applyBackgroundSetting(target: AudioBackend): void {
+  target.setBackground(mixer.audioSettings.background);
+  if (followingBackground) return;
+  followingBackground = true;
+  onAudioConfigured((settings) => backend?.setBackground(settings.background));
 }
 
 /** Swap the backend (a test double). Sounds on the old one are stopped by its `dispose`. */
@@ -200,6 +218,7 @@ export function setAudioBackend(next: AudioBackend | null): void {
   if (next) {
     next.configureBuses(mixer);
     next.applyMix(mixer.resolveAll());
+    applyBackgroundSetting(next);
   }
 }
 

@@ -904,3 +904,93 @@ describe("the engine on BabylonBackend", () => {
     expect(engine().listener.position).toMatchObject({ x: 7, y: 0, z: 0 });
   });
 });
+
+describe("BabylonBackend audio.background (A3.4b)", () => {
+  class Page {
+    hidden = false;
+    private readonly ls = new Set<() => void>();
+    addEventListener(_: "visibilitychange", l: () => void): void {
+      this.ls.add(l);
+    }
+    removeEventListener(_: "visibilitychange", l: () => void): void {
+      this.ls.delete(l);
+    }
+    set(hidden: boolean): void {
+      this.hidden = hidden;
+      for (const l of [...this.ls]) l();
+    }
+  }
+
+  async function started(mode: "mute" | "pause" | "play") {
+    const page = new Page();
+    const r = rig({ visibility: page });
+    r.backend.setBackground(mode);
+    r.backend.play(req());
+    await flush();
+    return { ...r, page };
+  }
+
+  it("mute: the engine's volume is 0 while hidden and back when visible; Audio.muted and the master volume are kept", async () => {
+    const { backend, page } = await started("mute");
+    backend.masterVolume = 0.5;
+    expect(engine().volume).toBe(0.5);
+    page.set(true);
+    expect(engine().volume).toBe(0);
+    backend.masterVolume = 0.8;
+    expect(engine().volume).toBe(0);
+    page.set(false);
+    expect(engine().volume).toBe(0.8);
+    backend.muted = true;
+    page.set(true);
+    page.set(false);
+    expect(engine().volume).toBe(0);
+  });
+
+  it("pause: mutes, then suspends the context it owns; resumes it when visible", async () => {
+    vi.useFakeTimers();
+    const { page, context, backend } = await (async () => {
+      const page = new Page();
+      const r = rig({ visibility: page });
+      r.backend.setBackground("pause");
+      r.backend.play(req());
+      await vi.advanceTimersByTimeAsync(50);
+      return { ...r, page };
+    })();
+    page.set(true);
+    expect(engine().volume).toBe(0);
+    expect(context.suspends).toBe(0);
+    await vi.advanceTimersByTimeAsync(60);
+    expect(context.suspends).toBe(1);
+    expect(context.state).toBe("suspended");
+    page.set(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(context.state).toBe("running");
+    expect(engine().volume).toBe(1);
+    backend.dispose();
+  });
+
+  it("play: nothing is muted or suspended", async () => {
+    const { page, context } = await started("play");
+    page.set(true);
+    expect(engine().volume).toBe(1);
+    expect(context.suspends).toBe(0);
+    page.set(false);
+    expect(engine().volume).toBe(1);
+  });
+
+  it("a context shared with the core host is only muted on pause (the host's policy owns it)", async () => {
+    vi.useFakeTimers();
+    const page = new Page();
+    const shared = makeFakeContext("running");
+    const backend = new BabylonBackend({ visibility: page, hostContext: () => shared as unknown as AudioContext, unlockTarget: new EventTarget() });
+    live.push(backend);
+    backend.configureBuses(mixer);
+    backend.setBackground("pause");
+    backend.play(req());
+    await vi.advanceTimersByTimeAsync(50);
+    page.set(true);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(engine().volume).toBe(0);
+    expect(shared.suspends).toBe(0);
+  });
+});
