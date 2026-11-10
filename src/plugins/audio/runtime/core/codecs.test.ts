@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { aacRefusal, createWarnOnce, DECODE_ERR_CODEC, DECODE_ERR_FORMAT, isAacPath, unsupportedFormat } from "./codecs";
-import { rig } from "./streamRig";
+import { rig } from "../../testing/streamRig";
 
 const FIXTURES = new URL("../../../../../native/audio/crates/audio-decode/tests/fixtures/", import.meta.url);
 const read = (name: string): ArrayBuffer => {
@@ -92,7 +92,7 @@ describe("AAC opt-in and unknown formats on the core (B4)", () => {
     const r = await rig({ "music/s.m4a": m4a }, { aac: true, clipFiles: { "music/c.m4a": m4a }, decoderWasm: aacWasm.buffer.slice(aacWasm.byteOffset, aacWasm.byteOffset + aacWasm.byteLength) as ArrayBuffer });
     if (!r) return ctx.skip();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const clip = r.backend.play({ path: "music/c.m4a", url: "", loop: true, bus: "Music" })!;
+    const clip = r.backend.play({ path: "music/c.m4a", url: "", loop: true, stream: false, bus: "Music" })!;
     const stream = r.backend.play({ path: "music/s.m4a", url: "", loop: true, stream: true, bus: "Music" })!;
     await r.step(2);
     await r.waitOpen(1);

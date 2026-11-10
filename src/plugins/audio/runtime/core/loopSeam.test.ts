@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { hintFromName } from "../decoder/protocol";
 import { DecoderWasm } from "../decoder/wasm";
-import { rig } from "./streamRig";
+import { rig } from "../../testing/streamRig";
 
 const FIXTURES = new URL("../../../../../native/audio/crates/audio-decode/tests/fixtures/", import.meta.url);
 const read = (path: string | URL): ArrayBuffer => {
@@ -98,7 +98,7 @@ const CASES: { name: string; aac: boolean; lossless: boolean }[] = [
 ];
 
 describe("gapless loops: a looping clip and a looping stream are bit-exact across the seam (B4)", () => {
-  it.each(CASES)("$name", async ({ name, aac, lossless }, ctx) => {
+  it.for(CASES)("$name", async ({ name, aac, lossless }, ctx) => {
     const wasm = aac ? AAC_WASM : DEFAULT_WASM;
     const src = await decode(name, wasm);
     const frames = Math.round(FRAMES * 2.5);

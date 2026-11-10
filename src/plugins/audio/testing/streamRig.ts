@@ -4,17 +4,17 @@
 import { expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import hash from "../wasm/hash.json";
-import { createDecoderHandler } from "../decoder/handler";
-import { createDecoderClient, type WorkerLike } from "../decoder/decoderClient";
-import type { DecoderReply, StreamPortLike } from "../decoder/protocol";
-import type { AudioHost, CoreLink } from "./context";
-import { CoreBackend, type CoreBackendHost } from "./coreBackend";
-import type { CoreDriver } from "../worklet/coreDriver";
+import { Mixer } from "../../../engine/audio/mixer";
+import { defaultAudioSettings } from "../../../engine/audio/settings";
+import hash from "../runtime/wasm/hash.json";
+import { createDecoderHandler } from "../runtime/decoder/handler";
+import { createDecoderClient, type WorkerLike } from "../runtime/decoder/decoderClient";
+import type { DecoderReply, StreamPortLike } from "../runtime/decoder/protocol";
+import type { AudioHost, CoreLink } from "../runtime/core/context";
+import { CoreBackend, type CoreBackendHost } from "../runtime/core/coreBackend";
+import type { CoreDriver } from "../runtime/worklet/coreDriver";
 
-const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
+const WASM = readFileSync(fileURLToPath(new URL("../runtime/wasm/myco_audio_decode.wasm", import.meta.url)));
 export const decoderWasm = () => WASM.buffer.slice(WASM.byteOffset, WASM.byteOffset + WASM.byteLength) as ArrayBuffer;
 export const RATE = 48_000;
 /** Quanta per frame (a 60 Hz frame is 6.25 quanta at 48 kHz; 4 keeps the arithmetic whole). */
@@ -55,7 +55,7 @@ export interface RigOptions {
 }
 
 export async function rig(files: Record<string, ArrayBuffer>, options: RigOptions = {}) {
-  const testing = await import("../testing");
+  const testing = await import("../runtime/testing");
   let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
   try {
     loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } })) as typeof loop;
@@ -98,7 +98,7 @@ export async function rig(files: Record<string, ArrayBuffer>, options: RigOption
   if (options.aac) settings.codecs = { aac: true };
   const mixer = new Mixer(settings);
   const backend = new CoreBackend(host, {
-    clips: (await import("./clipRegistry")).createClipRegistry({
+    clips: (await import("../runtime/core/clipRegistry")).createClipRegistry({
       send: (m) => link.post(m),
       nextSeq: () => link.nextSeq(),
       fetchBytes: async (path) => options.clipFiles?.[path]?.slice(0) ?? new ArrayBuffer(8),

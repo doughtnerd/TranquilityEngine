@@ -14,7 +14,7 @@
 //   rings when the next worker connects, and a new stream plays on it.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeWav, signal } from "../decoder/testWav";
-import { FADE, FRAME_MS, QPF, RATE, rig } from "./streamRig";
+import { FADE, FRAME_MS, QPF, RATE, rig } from "../../testing/streamRig";
 
 
 const WAV_FRAMES = 96_000; // 2 s
