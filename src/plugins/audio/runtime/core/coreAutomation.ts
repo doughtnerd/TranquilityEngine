@@ -56,25 +56,14 @@ import {
   type CurvesCurves,
 } from "../wire.generated";
 import type { AudioVoice, PlayRequest } from "../backend";
-import { AutoTarget, evaluateInto as evaluateIntoImport, MAX_BINDINGS as MAX_BINDINGSImport, MAX_CURVES, MAX_GLOBAL_SLOTS as MAX_GLOBAL_SLOTSImport, MAX_GROUPS as MAX_GROUPSImport, MAX_LOCAL_SLOTS as MAX_LOCAL_SLOTSImport, type AutomationSink, type AutoResult, type Binding } from "../events/automation";
+import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, type AutomationSink, type AutoResult, type Binding } from "../events/automation";
 import { onLoopPoints } from "../loopPoints";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
-import { AUTOMATION_GLOBAL as AUTOMATION_GLOBALImport, CORE_CURVE_KEYS, type AutomationBinding, type CommandWriter } from "./commandWriter";
+import { AUTOMATION_GLOBAL, CORE_CURVE_KEYS, type AutomationBinding, type CommandWriter } from "./commandWriter";
 import type { PlayheadTracker, ReplayBuilder } from "./replay";
-import { VoiceFlag as VoiceFlagImport, VoiceState as VoiceStateImport, type VoiceTable } from "./voiceTable";
+import { VoiceFlag, VoiceState, type VoiceTable } from "./voiceTable";
 
-// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
-// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
-// bundle reads either directly.
-const evaluateInto = evaluateIntoImport;
-const MAX_BINDINGS = MAX_BINDINGSImport;
-const MAX_GROUPS = MAX_GROUPSImport;
-const MAX_GLOBAL_SLOTS = MAX_GLOBAL_SLOTSImport;
-const MAX_LOCAL_SLOTS = MAX_LOCAL_SLOTSImport;
-const AUTOMATION_GLOBAL = AUTOMATION_GLOBALImport;
-const VoiceFlag = VoiceFlagImport;
-const VoiceState = VoiceStateImport;
 
 /** Most bytes of resync (curves, parameters, bus bindings) written per frame outside what a binding needs at once. */
 export const RESYNC_BYTES_PER_FRAME = 48 * 1024;

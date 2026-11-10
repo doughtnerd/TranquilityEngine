@@ -1,16 +1,11 @@
 // `AudioHandle` (ADR 0157; api-and-models §1, §3 "Handle encoding"): one sound started with `playOneShot`. It holds
 // the voice's id and the voice table, and reads the table's mirror; it never allocates after construction. A1.6
 // exposes this class through the public `AudioHandle` interface (§1) without adding to it.
-import { VoiceReason as VoiceReasonImport, VoiceState as VoiceStateImport } from "./voiceTable";
+import { VoiceReason, VoiceState } from "./voiceTable";
 import type { VoiceTableHandleApi } from "./voiceTable";
 
 import type { AudioReason } from "../backend";
 
-// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
-// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
-// bundle reads either directly.
-const VoiceReason = VoiceReasonImport;
-const VoiceState = VoiceStateImport;
 export type { AudioReason };
 
 /**

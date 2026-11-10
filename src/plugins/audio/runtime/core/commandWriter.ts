@@ -15,8 +15,8 @@
 // ADR 0158 E2 adds the automation records (`setLoop`, `automate`, `param`, `curves`, `busAutomate`; byte layouts in
 // api-and-models §4.2). They write what they are given; the event runtime (E3) decides when to send them.
 import {
-  ASAP as ASAPImport,
-  AUTOMATE_BINDINGS_FIXED_END as AUTOMATE_BINDINGS_FIXED_ENDImport,
+  ASAP,
+  AUTOMATE_BINDINGS_FIXED_END,
   BATCH_HEADER_FLAGS_OVERFLOWED,
   BATCH_MAX_BYTES,
   FADE_FLAGS_STOP_AT_END,
@@ -26,23 +26,23 @@ import {
   Kind,
   Op,
   SET_LOOP_FLAGS_LOOPING,
-  writeAutomate as writeAutomateImport,
+  writeAutomate,
   writeBatchHeader,
   writeBusAutomate,
   writeBusConfig,
   writeBusMix,
   writeEnvelope,
-  writeFade as writeFadeImport,
+  writeFade,
   writeMaster,
-  writeParam as writeParamImport,
-  writePlay as writePlayImport,
+  writeParam,
+  writePlay,
   writeReset,
   writeSeek,
   writeSetParams,
   writeSetMixed,
   writeSetPaused,
-  writeSetLoop as writeSetLoopImport,
-  writeStop as writeStopImport,
+  writeSetLoop,
+  writeStop,
   type Automate,
   type AutomateBindings,
   type BusAutomate,
@@ -64,17 +64,6 @@ import { CURVE_INTERPS, type Curve } from "../../../../engine/core/curve";
 import type { BufferPool } from "./bufferPool";
 import type { VoiceCommandSink } from "./voiceTable";
 
-// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
-// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
-// bundle reads either directly.
-const ASAP = ASAPImport;
-const AUTOMATE_BINDINGS_FIXED_END = AUTOMATE_BINDINGS_FIXED_ENDImport;
-const writeAutomate = writeAutomateImport;
-const writePlay = writePlayImport;
-const writeParam = writeParamImport;
-const writeStop = writeStopImport;
-const writeFade = writeFadeImport;
-const writeSetLoop = writeSetLoopImport;
 
 /** What the writer needs from `CoreLink`. */
 export interface BatchPort {

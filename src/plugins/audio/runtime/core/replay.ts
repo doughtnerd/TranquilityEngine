@@ -40,15 +40,9 @@ import {
 import type { ClipInfo, ClipRegistry } from "./clipRegistry";
 import type { ClockMap } from "./clock";
 import type { StatusMirror } from "./mirror";
-import { VoiceFlag as VoiceFlagImport, VoiceReason as VoiceReasonImport, VoiceState as VoiceStateImport, type VoiceTable } from "./voiceTable";
+import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
 import { wrapPosition } from "./coreAutomation";
 
-// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
-// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
-// bundle reads either directly.
-const VoiceFlag = VoiceFlagImport;
-const VoiceReason = VoiceReasonImport;
-const VoiceState = VoiceStateImport;
 
 /** @internal §3.6: one-shots shorter than this (seconds)... */
 export const REPLAY_SHORT_ONE_SHOT_SECONDS = 1;

@@ -10,31 +10,20 @@
 
 import type { Curve } from "../../../../engine/core/curve";
 import type { Vec3Like } from "../../../../engine/core/math";
-import { mixer as mixerImport } from "../../../../engine/audio/mixer";
-import { Assets as AssetsImport } from "../../../../engine/scene/Assets";
+import { mixer } from "../../../../engine/audio/mixer";
+import { Assets } from "../../../../engine/scene/Assets";
 import {
-  AUDIO_EVENT_FORMAT, isLabelled as isLabelledImport, parameterDefault as parameterDefaultImport, parameterRange, parseAudioEvent, sustainReleaseFade,
+  AUDIO_EVENT_FORMAT, isLabelled, parameterDefault, parameterRange, parseAudioEvent, sustainReleaseFade,
   type AudioEventAsset, type Automation, type EventNode, type ParameterDef, type SustainNode, type SwitchNode,
 } from "../../../../engine/audio/eventFormat";
-import { audioBackend as audioBackendImport, type AudioBackend, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
-import { warnOnce as warnOnceImport } from "../core/handle";
+import { audioBackend, type AudioBackend, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
+import { warnOnce } from "../core/handle";
 import { loopPointsFor, onLoopPoints } from "../loopPoints";
 import {
-  AutoTarget, LOWPASS_OFF, MAX_BINDINGS as MAX_BINDINGSImport, MAX_CURVES, MAX_GROUPS as MAX_GROUPSImport, TsAutomation,
+  AutoTarget, LOWPASS_OFF, MAX_BINDINGS, MAX_CURVES, MAX_GROUPS, TsAutomation,
   type AutomationSink, type Binding, type ParamRef,
 } from "./automation";
 
-// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
-// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
-// bundle reads either directly.
-const mixer = mixerImport;
-const Assets = AssetsImport;
-const audioBackend = audioBackendImport;
-const warnOnce = warnOnceImport;
-const parameterDefault = parameterDefaultImport;
-const isLabelled = isLabelledImport;
-const MAX_BINDINGS = MAX_BINDINGSImport;
-const MAX_GROUPS = MAX_GROUPSImport;
 
 // --- options and handle -------------------------------------------------------------------------------------------
 

@@ -36,13 +36,13 @@ import type { BusEffect } from "../../../../engine/audio/settings";
 import { Assets } from "../../../../engine/scene/Assets";
 import type { Attenuation, AudioBackend, AudioBackground, AudioStatus, AudioVoice, ListenerPose, PlayRequest } from "../backend";
 import {
-  BUS_LP_OFF_HZ as BUS_LP_OFF_HZImport,
+  BUS_LP_OFF_HZ,
   BUS_ROOT,
-  PLAY_FLAGS_LOOP as PLAY_FLAGS_LOOPImport,
-  PLAY_FLAGS_MIXED as PLAY_FLAGS_MIXEDImport,
-  PLAY_FLAGS_SPATIAL as PLAY_FLAGS_SPATIALImport,
-  PLAY_FLAGS_STREAM as PLAY_FLAGS_STREAMImport,
-  PLAY_FLAGS_WANTS_PLAYHEAD as PLAY_FLAGS_WANTS_PLAYHEADImport,
+  PLAY_FLAGS_LOOP,
+  PLAY_FLAGS_MIXED,
+  PLAY_FLAGS_SPATIAL,
+  PLAY_FLAGS_STREAM,
+  PLAY_FLAGS_WANTS_PLAYHEAD,
   readStatus,
   SET_PARAMS_MASK_BUS,
   SET_PARAMS_MASK_DIR,
@@ -67,29 +67,15 @@ import { StatusMirror } from "./mirror";
 import { DistanceEffect } from "./spatial";
 import { StatusReader } from "./statusReader";
 import { UnlockQueue } from "./unlockQueue";
-import { connectVoiceTable, VoiceFlag as VoiceFlagImport, VoiceReason as VoiceReasonImport, VoiceRolloff, VoiceState as VoiceStateImport, VoiceTable } from "./voiceTable";
+import { connectVoiceTable, VoiceFlag, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
 import { STREAM_ERROR_FADE_SECONDS, StreamManager, type StreamManagerDeps } from "./streams";
 import { sharedDecoderClient } from "../decoder/decoderClient";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
-import { effectiveMixedCap as effectiveMixedCapImport, ListenerBasis, Selection, type SelectionSink } from "./selection";
+import { effectiveMixedCap, ListenerBasis, Selection, type SelectionSink } from "./selection";
 import { HrtfPick, type HrtfSink } from "./hrtfPick";
 import { CoreAutomation, wrapPosition } from "./coreAutomation";
-import { MAX_GROUPS as MAX_GROUPSImport } from "../events/automation";
+import { MAX_GROUPS } from "../events/automation";
 
-// M2 F1: module-local copies of imported values the per-voice play path reads. Under Vitest's module runner (where
-// the M2 bench measures) every read of an imported binding is a getter call on the exporting module, about 10 ns; a
-// bundle reads either directly.
-const BUS_LP_OFF_HZ = BUS_LP_OFF_HZImport;
-const PLAY_FLAGS_LOOP = PLAY_FLAGS_LOOPImport;
-const PLAY_FLAGS_MIXED = PLAY_FLAGS_MIXEDImport;
-const PLAY_FLAGS_SPATIAL = PLAY_FLAGS_SPATIALImport;
-const PLAY_FLAGS_STREAM = PLAY_FLAGS_STREAMImport;
-const PLAY_FLAGS_WANTS_PLAYHEAD = PLAY_FLAGS_WANTS_PLAYHEADImport;
-const VoiceFlag = VoiceFlagImport;
-const VoiceReason = VoiceReasonImport;
-const VoiceState = VoiceStateImport;
-const MAX_GROUPS = MAX_GROUPSImport;
-const effectiveMixedCap = effectiveMixedCapImport;
 
 /** `PlayRequest` plus the core's World key. */
 export interface CorePlayRequest extends PlayRequest {
