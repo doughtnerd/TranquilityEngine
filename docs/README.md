@@ -16,6 +16,8 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Navigation](guide/navigation.md) | Built-in navigation: agent types and areas, marking geometry, baking (editor and `npm run nav:bake`), streaming chunks, scripting `NavAgent`, groups, surround and flow fields, the `Navigation` queries, multiplayer, debug drawing, performance, known issues |
 | [Physics](guide/physics.md) | Bodies and colliders, interpolation, collision and trigger events (Enter/Stay/Exit), raycasts, shape casts and overlaps, character controllers, joints |
 | [Tilemaps](guide/tilemaps.md) | Tilesets from sliced sheets, painting with the Tile Palette, layers, auto-tiling, tile collision and one-way platforms, the scripting API |
+| [Playing sound](guide/playing-sound.md) | `Audio.playOneShot` and `AudioSource`, handles, buses and master volume, sound formats, streaming and loops, 3D sound and HRTF, which backend plays |
+| [Why is there no sound?](guide/why-no-sound.md) | A troubleshooting page driven by `Audio.debug()` and the Audio Debug panel: locked audio, the fallback backend, a sound's `reason`, AAC and format problems, the decoder worker, hidden tabs, mute and volume |
 | [Fog, camera rays and spatial audio](guide/atmosphere-and-sound.md) | The `Fog` component, `Camera.screenPointToRay` / `worldToScreenPoint`, `Ray` and `Plane`, `AudioListener` and spatial `AudioSource` |
 | [Audio mixer](guide/audio-mixer.md) | Buses, effects, snapshots, ducking, `AudioSource.output`, `Audio.bus(...)` |
 | [Audio core minimum versions](guide/audio-minimum-versions.md) | Browser and webview versions the `"core"` audio backend needs (AudioWorklet, `simd128`), the one-warning fallback to `"babylon"`, Android WebView |

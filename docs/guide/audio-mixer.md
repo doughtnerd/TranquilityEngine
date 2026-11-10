@@ -1,5 +1,7 @@
 # Audio mixer (ADR 0097)
 
+How to play sounds is in [Playing sound](playing-sound.md); if a bus is silent, see [Why is there no sound?](why-no-sound.md#4-a-sounds-reason).
+
 Sound plays on **buses**: a tree that starts at `Master` (default children `Music`, `SFX`, `UI`, `Voice`). Edit it in Project Settings > Audio, or in `project.json`:
 
 ```jsonc
