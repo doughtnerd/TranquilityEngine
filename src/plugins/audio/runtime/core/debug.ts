@@ -14,7 +14,8 @@ type VoiceStateName = AudioDebugInfo["voices"][number]["state"];
 
 /** What `buildDebugInfo` reads of the backend: `CoreBackend` satisfies it, and tests build it by hand. */
 export interface DebugSource {
-  readonly host: { readonly sampleRate: number };
+  /** `health` (A3.4a): the host's traps, recoveries and rebuilds over every core it ran; absent in hand-built sources. */
+  readonly host: { readonly sampleRate: number; readonly health?: { readonly traps: number; readonly recoveries: number; readonly rebuilds: number } };
   readonly status: AudioStatus;
   readonly time: number;
   readonly backgroundMode: AudioBackground;
@@ -149,7 +150,8 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       logicalVoices: table.liveCount,
       queuedPlays: backend.lockedQueue.size,
       droppedPlays: table.refusedCount + backend.lockedQueue.droppedCount,
-      traps: m.traps,
+      // The host's count over every core (A3.4a): a rebuilt core's STATUS starts again at 0.
+      traps: backend.host.health ? Math.max(backend.host.health.traps, m.traps) : m.traps,
       refusedLoads: 0,
       hrtfVoices: m.hrtfVoices,
       hrtfLoadFailure: m.hrtfLoadFailure,
@@ -157,7 +159,7 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
     buses,
     voices,
     // `backend` names the backend the way babylonBackend does, so the panel can show it for either.
-    core: { backend: "core", hrtfReady: backend.hrtfReady, ...timing(backend), ...hostHealth(backend) },
+    core: { backend: "core", hrtfReady: backend.hrtfReady, ...timing(backend), ...hostHealth(backend), ...health(backend) },
   };
 }
 
@@ -166,6 +168,12 @@ function hostHealth(backend: DebugSource): Record<string, number | boolean> {
   const h = backend.health;
   if (!h) return {};
   return { backgroundEnters: h.backgroundEnters, interruptions: h.interruptions, pageHidden: !!backend.pageHidden };
+}
+
+/** Architecture §8 "Health" for `core` (A3.4a): rebuilds after a trap (`recoveries`) and for other reasons (`rebuilds`). */
+function health(backend: DebugSource): Record<string, number> {
+  const h = backend.host.health;
+  return h ? { recoveries: h.recoveries, rebuilds: h.rebuilds } : {};
 }
 
 /** Architecture §8 "Timing" for `core` (A3.2): L and Λ, the ramp, the newest block's max lateness, the clock map's health. */

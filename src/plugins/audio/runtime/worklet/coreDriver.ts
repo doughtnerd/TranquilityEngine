@@ -60,8 +60,11 @@ export interface CoreProcessorOptions {
   readonly preset: CorePreset;
 }
 
-/** @internal Messages that aren't wire buffers: dev-only controls, never sent in production paths. */
-export type CoreControlMessage = { readonly type: "debugTone"; readonly hz: number; readonly gain: number };
+/**
+ * @internal Messages that aren't wire buffers: the dev-only tone, and `retire` (A3.4a: the host is replacing this
+ * node, so the processor stops rendering and lets the node be collected).
+ */
+export type CoreControlMessage = { readonly type: "debugTone"; readonly hz: number; readonly gain: number } | { readonly type: "retire" };
 
 /** @internal What the shell posts that isn't a wire buffer. */
 export type CoreShellEvent = { readonly type: "error"; readonly message: string } | { readonly type: "trap"; readonly message: string };
@@ -269,6 +272,12 @@ export class CoreDriver {
   traps = 0;
   /** The probe's underrun total as last told to the core (A3.3's adaptive cap). */
   private notedUnderruns = 0;
+  /**
+   * True once the core trapped (A3.4a): a trapped instance is left mid-call (its stack pointer and any half-written
+   * state are unknown), so the shell never calls it again. It renders silence, posts no STATUS, returns every buffer
+   * and drops clip messages until the host replaces the node (the hard rebuild, architecture §3.6).
+   */
+  dead = false;
 
   private pingSeq = 0;
   private pingFrameLo = 0;
@@ -322,6 +331,14 @@ export class CoreDriver {
     const view = new DataView(buffer);
     if (view.getUint32(0, true) !== MAGIC || view.getUint16(4, true) >> 8 !== VERSION_MAJOR) return this.giveBack(buffer);
     const kind = view.getUint16(6, true);
+    if (this.dead) {
+      // Nothing reaches a trapped core. STATUS buffers go back to the pool (they're the shell's), clip buffers are the
+      // main side's and simply dropped (it re-sends every clip to the new core), the rest return to the host.
+      if (kind === Kind.RECYCLE) {
+        if (this.pool.release(buffer)) this.stats.recycled++;
+      } else if (kind !== Kind.CLIP_BEGIN && kind !== Kind.CLIP_CHUNK && kind !== Kind.CLIP_UNLOAD) this.giveBack(buffer);
+      return;
+    }
     switch (kind) {
       case Kind.RECYCLE:
         if (this.pool.release(buffer)) this.stats.recycled++;
@@ -368,7 +385,7 @@ export class CoreDriver {
    * belongs to the host's BATCH pool.
    */
   private drainClips(): void {
-    while (this.clipQueue.length > 0) {
+    while (this.clipQueue.length > 0 && !this.dead) {
       const buffer = this.clipQueue[0]!;
       const view = new DataView(buffer);
       const kind = view.getUint16(6, true);
@@ -434,13 +451,23 @@ export class CoreDriver {
 
   /**
    * Renders the quantum starting at `currentFrame` and returns the planar stereo output, `[L; 128][R; 128]`, in a
-   * buffer the driver owns (valid until the next call). A trap in the core gives silence, counts in `traps`,
-   * sets the trap flag and posts a `trap` event (A3.4a rebuilds). Posts STATUS at its cadence.
+   * buffer the driver owns (valid until the next call). A trap in the core gives silence, counts in `traps`, posts
+   * one `trap` event (the host rebuilds, A3.4a) and leaves the driver `dead`: silence from then on, with no call into
+   * the core. Posts STATUS at its cadence while alive.
    */
   process(currentFrame: number, dateNow: number): Float32Array {
     this.stats.quanta++;
+    if (this.dead) {
+      this.output.fill(0);
+      return this.output;
+    }
     this.probe.step(currentFrame, dateNow);
     if (this.probe.underruns !== this.notedUnderruns) this.noteUnderruns();
+    // A trap in `myco_audio_note_underruns` (A3.3) leaves the core dead too (A3.4a): never call it again this quantum.
+    if (this.dead) {
+      this.output.fill(0);
+      return this.output;
+    }
     this.clipBudget = CLIP_BYTES_PER_QUANTUM;
     if (this.clipQueue.length > 0) this.drainClips();
     let ptr = 0;
@@ -448,6 +475,8 @@ export class CoreDriver {
       ptr = this.core.exports.myco_audio_process(currentFrame % 4_294_967_296 >>> 0, Math.floor(currentFrame / 4_294_967_296));
     } catch (error) {
       this.trapped(error);
+      this.output.fill(0);
+      return this.output;
     }
     if (ptr !== 0) {
       this.views();
@@ -475,8 +504,13 @@ export class CoreDriver {
     }
   }
 
+  /** The first trap: count it, mark the driver dead, drop queued clip messages and tell the host once. */
   private trapped(error: unknown): void {
+    if (this.dead) return;
+    this.dead = true;
     this.traps++;
+    this.clipQueue.length = 0;
+    this.toneGain = 0;
     this.post({ type: "trap", message: error instanceof Error ? error.message : String(error) });
   }
 
@@ -506,7 +540,7 @@ export class CoreDriver {
     } catch (error) {
       this.trapped(error);
     }
-    if (n <= 0 || n > buffer.byteLength) {
+    if (this.dead || n <= 0 || n > buffer.byteLength) {
       this.pool.release(buffer);
       return;
     }

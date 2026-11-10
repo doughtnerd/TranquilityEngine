@@ -56,8 +56,11 @@ export class CoreLink {
   statusCount = 0;
   /** The newest STATUS block, or null before the first. */
   lastStatus: StatusBlock | null = null;
-  /** Resolves on the first STATUS with the ready flag and this ABI's major; rejects on a shell error or a mismatch. */
-  readonly ready: Promise<void>;
+  /**
+   * Resolves on the first STATUS with the ready flag and this ABI's major; rejects on a shell error or a mismatch.
+   * A hard rebuild (`_rebind`, A3.4a) replaces it with the new core's.
+   */
+  ready: Promise<void>;
   /** Whether `ready` settled, and how. */
   readyState: "pending" | "ready" | "failed" = "pending";
   /**
@@ -72,8 +75,14 @@ export class CoreLink {
   private readonly statusListeners = new Set<(status: StatusBlock) => void>();
   private readonly shellListeners = new Set<(event: CoreShellEvent) => void>();
 
-  constructor(private readonly port: LinkPort) {
-    this.ready = new Promise<void>((resolve, reject) => {
+  constructor(private port: LinkPort) {
+    this.ready = this.newReady();
+    port.onmessage = (event) => this.handleMessage(event.data);
+  }
+
+  /** A pending `ready` and the `settle` that ends it. */
+  private newReady(): Promise<void> {
+    const ready = new Promise<void>((resolve, reject) => {
       this.settle = (error) => {
         if (this.readyState !== "pending") return;
         this.readyState = error ? "failed" : "ready";
@@ -82,8 +91,35 @@ export class CoreLink {
       };
     });
     // A failure is also reported through `readyState`; don't let an unobserved `ready` raise an unhandled rejection.
-    this.ready.catch(() => {});
+    ready.catch(() => {});
+    return ready;
+  }
+
+  /**
+   * A3.4a, the hard rebuild: tells the old node's processor to stop (`retire`), stops listening to its port and
+   * listens to `port` (the new node's) instead. `ready` and `readyState` start again for the new core's first STATUS;
+   * listeners, the decoder, `seq` and the counts stay, so everything holding this link carries over. BATCH buffers
+   * still out with the old node never come back, so the pool is topped up with new ones.
+   */
+  _rebind(port: LinkPort): void {
+    this.retire();
+    this.port = port;
+    this.readyState = "pending";
+    this.ready = this.newReady();
     port.onmessage = (event) => this.handleMessage(event.data);
+    const pool = this.batchPool;
+    while (pool.available < pool.count) if (!pool.release(new ArrayBuffer(pool.bytes))) break;
+  }
+
+  /** A3.4a: asks the current node's processor to stop rendering (`retire`) and stops listening to its port. */
+  retire(): void {
+    const message: CoreControlMessage = { type: "retire" };
+    try {
+      this.port.postMessage(message);
+    } catch {
+      // A closed port: nothing to retire.
+    }
+    this.port.onmessage = null;
   }
 
   /** Fails `ready` (no first STATUS in time, §4.7). No effect once it settled. */
@@ -225,6 +261,18 @@ export interface HostLifecycleListener {
   onIdle?(): void;
   /** The host closed (tests, or a future rebuild replacing it). */
   onClose?(): void;
+  /**
+   * A3.4a: a hard rebuild started (architecture §3.6): the old core is gone and a new node is being made. Until
+   * `onRebuilt`, nothing sent reaches a core that keeps it; new plays should wait.
+   */
+  onRebuildStart?(reason: string): void;
+  /**
+   * A3.4a: the new core answered its first STATUS. Its state is a fresh init: the owner of the voices and clips (the
+   * core backend) sends RESET 0, the buses, MASTER, the clips and the replay now.
+   */
+  onRebuilt?(): void;
+  /** A3.4a: recovery gave up (the rate limit, or the new core never answered): the host is Failed and silent. */
+  onRecoveryFailed?(): void;
 }
 
 /**
@@ -271,6 +319,21 @@ export interface HostParts {
   readonly unlock: Unlock;
   /** The preset the core was initialised with. */
   readonly preset: CorePreset;
+  /**
+   * A3.4a: makes a new worklet node (a new core over a new Memory) in the same context, connected to the output, with
+   * its port. Absent: the host can't rebuild (a rebuild then fails).
+   */
+  readonly respawn?: () => { readonly node: AudioWorkletNode; readonly port: LinkPort };
+}
+
+/** @internal Architecture §8 "Health": what the hard rebuild has done to the page's host (A3.4a). */
+export interface HostHealth {
+  /** Traps caught (the shell's catch, or `processorerror`), over every core this host ran. */
+  traps: number;
+  /** Rebuilds completed after a trap (§7's trap row). */
+  recoveries: number;
+  /** Rebuilds completed for another reason: a stall, a device or rate change (§7). */
+  rebuilds: number;
 }
 
 /**
@@ -280,7 +343,6 @@ export interface HostParts {
  */
 export class AudioHost {
   readonly context: AudioContext;
-  readonly node: AudioWorkletNode;
   readonly link: CoreLink;
   readonly unlock: Unlock;
   /** True while the page's own background policy has suspended the context (A3.4b drives it); unlock won't re-arm then. */
@@ -297,10 +359,19 @@ export class AudioHost {
   private readonly byOwner = new Map<object, MutableShare>();
   private readonly listeners = new Set<HostLifecycleListener>();
   private readonly deviceRemovals = new Set<() => void>();
+  private currentNode: AudioWorkletNode;
+  private readonly respawn: HostParts["respawn"];
+  /** §2.1 Recovering (A3.4a): between `_beginRebuild` and `_endRebuild`. */
+  private recovering = false;
+  /** §2.1 Failed after recovery gave up (A3.4a): silent for the rest of the session. */
+  private recoveryFailed = false;
+  /** §8 health counters (A3.4a's `recovery.ts` writes them). */
+  readonly health: HostHealth = { traps: 0, recoveries: 0, rebuilds: 0 };
 
   private constructor(parts: HostParts) {
     this.context = parts.context;
-    this.node = parts.node;
+    this.currentNode = parts.node;
+    this.respawn = parts.respawn;
     this.link = parts.link;
     this.unlock = parts.unlock;
     this.currentPreset = parts.preset;
@@ -310,6 +381,12 @@ export class AudioHost {
       () => this.clearTimeout(),
       () => this.clearTimeout(),
     );
+    this.watchNode(parts.node);
+  }
+
+  /** The worklet node running the core (a hard rebuild replaces it, A3.4a). */
+  get node(): AudioWorkletNode {
+    return this.currentNode;
   }
 
   /**
@@ -336,13 +413,19 @@ export class AudioHost {
     const context = new AudioContext({ latencyHint: "interactive" });
     try {
       await context.audioWorklet.addModule(moduleUrl);
-      const processorOptions: CoreProcessorOptions = { wasm: wasm.bytes, preset };
-      const node = new AudioWorkletNode(context, PROCESSOR_NAME, { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions });
-      node.connect(context.destination);
-      const link = new CoreLink(node.port as unknown as LinkPort);
+      // The module stays added to the context, so a rebuild (A3.4a) only makes another node: `processorOptions` are
+      // cloned into the new processor, which instantiates the wasm over a new Memory (the same running preset).
+      const respawn = () => {
+        const processorOptions: CoreProcessorOptions = { wasm: wasm.bytes, preset };
+        const node = new AudioWorkletNode(context, PROCESSOR_NAME, { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions });
+        node.connect(context.destination);
+        return { node, port: node.port as unknown as LinkPort };
+      };
+      const { node, port } = respawn();
+      const link = new CoreLink(port);
       // onUnlocked does nothing: the constructor's statechange listener starts the first-STATUS clock.
       const unlock = new Unlock({ target: unlockTarget, context });
-      return AudioHost._create({ context, node, link, unlock, preset });
+      return AudioHost._create({ context, node, link, unlock, preset, respawn });
     } catch (error) {
       void context.close().catch(() => {});
       throw error;
@@ -351,9 +434,21 @@ export class AudioHost {
 
   /** §2.1: Locked and Starting are `"locked"`, Failed `"failed"`, the rest `"running"`. */
   get status(): HostStatus {
-    if (this.link.readyState === "failed" || this.context.state === "closed") return "failed";
+    if (this.recoveryFailed || this.link.readyState === "failed" || this.context.state === "closed") return "failed";
+    // §2.1: Recovering reads as running (the new core's first STATUS is pending, but the context hasn't locked).
+    if (this.recovering && this.context.state === "running") return "running";
     if (this.link.readyState === "pending" || this.context.state !== "running") return "locked";
     return "running";
+  }
+
+  /** §2.1 Recovering (A3.4a): a hard rebuild is under way. */
+  get rebuilding(): boolean {
+    return this.recovering;
+  }
+
+  /** §2.1 Failed because recovery gave up (A3.4a). */
+  get recoveryHasFailed(): boolean {
+    return this.recoveryFailed;
   }
 
   /** Whether `close()` ran (the page singleton then starts a new host on the next acquire). */
@@ -567,6 +662,72 @@ export class AudioHost {
     this.timeout = null;
   }
 
+  // --- The hard rebuild (A3.4a; architecture §3.6). `recovery.ts` drives these; nothing else should call them. ---
+
+  /**
+   * `processorerror` (an error outside the shell's trap catch) on the current node is a trap like any other: it is
+   * handed to the link's shell listeners as one. Fakes without `addEventListener` are skipped.
+   */
+  private watchNode(node: AudioWorkletNode): void {
+    const target = node as unknown as Partial<Pick<EventTarget, "addEventListener">>;
+    if (typeof target.addEventListener !== "function") return;
+    target.addEventListener("processorerror", () => {
+      if (node === this.currentNode && !this.isClosed) this.link.handleMessage({ type: "trap", message: "processorerror" } satisfies CoreShellEvent);
+    });
+  }
+
+  /** @internal Enters Recovering and runs every `onRebuildStart`. */
+  _beginRebuild(reason: string): void {
+    this.recovering = true;
+    each(this.listeners, (l) => l.onRebuildStart?.(reason));
+  }
+
+  /**
+   * @internal Replaces the core: retires and disconnects the old node, makes a new one in the same context
+   * (`respawn`: a new Memory, init with the running preset, which sets the limiter's look-ahead again), rebinds the
+   * link to its port and resolves on its first ready STATUS. Rejects when the host can't rebuild, is closed, or the
+   * new core fails (a shell error, an ABI mismatch, or no STATUS within `FIRST_STATUS_TIMEOUT_MS` of running).
+   * `pendingPreset` is not applied: the voice table and the clock were sized for the running preset.
+   */
+  async _replaceCore(): Promise<void> {
+    if (this.isClosed) throw new Error("audio core: the host is closed");
+    if (!this.respawn) throw new Error("audio core: this host can't make a new node");
+    this.currentNode.disconnect();
+    const { node, port } = this.respawn();
+    this.currentNode = node;
+    this.watchNode(node);
+    this.link._rebind(port);
+    const ready = this.link.ready;
+    this.clearTimeout();
+    this.startTimeout();
+    void ready.then(
+      () => this.clearTimeout(),
+      () => this.clearTimeout(),
+    );
+    await ready;
+  }
+
+  /** @internal Leaves Recovering (the new core runs) and runs every `onRebuilt`. */
+  _endRebuild(): void {
+    this.recovering = false;
+    each(this.listeners, (l) => l.onRebuilt?.());
+  }
+
+  /**
+   * @internal §2.1 Failed after recovery: silent for the session (the node is retired and disconnected; no switch to
+   * another backend mid-session), `status` reads `"failed"`, every `onRecoveryFailed` runs. The host stays open, so
+   * Worlds keep their shares. A second call does nothing.
+   */
+  _markRecoveryFailed(): void {
+    if (this.recoveryFailed) return;
+    this.recoveryFailed = true;
+    this.recovering = false;
+    this.clearTimeout();
+    this.link.retire();
+    this.currentNode.disconnect();
+    each(this.listeners, (l) => l.onRecoveryFailed?.());
+  }
+
   /**
    * Closes the context and stops listening. Marks the host closed, runs every `onClose` and drops every share
    * (without `onWorldReleased`: nothing is left to stop). A second call does nothing.
@@ -581,6 +742,8 @@ export class AudioHost {
     this.listeners.clear();
     for (const remove of [...this.deviceRemovals]) remove();
     this.clearTimeout();
+    // A rebuild waiting for its new core's first STATUS ends now rather than never (A3.4a).
+    if (this.recovering) this.link.fail(new Error("audio core: the host closed"));
     this.context.removeEventListener("statechange", this.onStateChange);
     this.unlock.dispose();
     this.link.dispose();

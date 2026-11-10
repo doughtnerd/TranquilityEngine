@@ -193,23 +193,54 @@ describe("coreDriver with the real wasm", () => {
     expect(SHELL_FIELD).toEqual({ dateMs: 24, pingSeq: 32, pingFrameLo: 36, underruns: 40, flags: 60, traps: 82, underrunFrames: 88 });
   });
 
-  it("a trap gives silence, counts, flags and posts a trap event", () => {
+  it("a trap gives silence, counts, posts one trap event, and the driver never calls the core again (A3.4a)", () => {
     const real = instantiateCore(WASM, PRESET, RATE);
+    let trap = false;
+    const calls = { process: 0, status: 0, submit: 0 };
     const exports = {
       ...real.exports,
-      myco_audio_process: () => {
-        throw new WebAssembly.RuntimeError("unreachable");
+      myco_audio_process: (lo: number, hi: number) => {
+        calls.process++;
+        if (trap) throw new WebAssembly.RuntimeError("unreachable");
+        return real.exports.myco_audio_process(lo, hi);
+      },
+      myco_audio_status_take: () => {
+        calls.status++;
+        return real.exports.myco_audio_status_take();
+      },
+      myco_audio_submit: (len: number) => {
+        calls.submit++;
+        return real.exports.myco_audio_submit(len);
       },
     };
     const r = rig({ core: { ...real, exports } });
     const events: string[] = [];
     r.link.onShellEvent((e) => events.push(e.type));
-    r.driver.onControl({ type: "debugTone", hz: 440, gain: 0 });
-    r.run(6);
+    r.run(12);
+    const posted = r.driver.stats.posted;
+    expect(posted).toBe(2);
+    trap = true;
+    r.driver.onControl({ type: "debugTone", hz: 440, gain: 0.5 });
+    r.run(24);
     expect(r.driver.output.every((v) => v === 0)).toBe(true);
-    expect(events).toEqual(["trap", "trap", "trap", "trap", "trap", "trap"]);
-    expect(r.link.lastStatus!.traps).toBe(6);
-    expect(r.link.lastStatus!.flags & FLAG_TRAP_CAUGHT).toBeTruthy();
+    expect(events).toEqual(["trap"]);
+    expect(r.driver.traps).toBe(1);
+    expect(r.driver.dead).toBe(true);
+    // One process call trapped; after it nothing reaches the core: no render, no STATUS, no batch.
+    expect(calls.process).toBe(13);
+    const statusCalls = calls.status;
+    expect(r.driver.stats.posted).toBe(posted);
+    const batch = new ArrayBuffer(32);
+    const view = new DataView(batch);
+    writeEnvelope(view, 0, { kind: Kind.BATCH, seq: 1, bodyBytes: 16 });
+    writeBatchHeader(view, 0, { firstFrame: 0, count: 0, flags: 0 });
+    const returned = r.driver.stats.returned;
+    r.driver.onMessage(batch, 0, 0);
+    expect(calls.submit).toBe(0);
+    expect(r.driver.stats.returned).toBe(returned + 1); // the buffer still goes back to the host's pool
+    r.run(48);
+    expect(calls.status).toBe(statusCalls);
+    expect(calls.process).toBe(13);
   });
 
   it("the debug tone is a sine on both channels; off is silence", () => {

@@ -87,6 +87,8 @@ const errorText = (error: unknown): string => (error instanceof Error ? error.me
 
 /** Hosts connected to the Engines, with their disconnect. */
 const connections = new WeakMap<AudioHost, () => void>();
+/** Hosts whose traps start a rebuild (A3.4a), so a second `load` doesn't watch twice. */
+const armed = new WeakSet<AudioHost>();
 
 /** @internal The World service (K3): whether `audio.backend` is `"core"` decides if a World runs it at all. */
 export const AUDIO_SERVICE: WorldServiceDef<AudioCoreModule, AudioWorldService> = {
@@ -109,6 +111,12 @@ export const AUDIO_SERVICE: WorldServiceDef<AudioCoreModule, AudioWorldService> 
       const { startAudioHost } = await import("./context");
       const host = await startAudioHost(mixer.audioSettings);
       connectHostToEngines(host);
+      // A3.4a: a trap in the core starts the hard rebuild (3 per 60 s, then silent "failed").
+      const { watchForTraps } = await import("./recovery");
+      if (!armed.has(host)) {
+        armed.add(host);
+        watchForTraps(host);
+      }
       // A1.4: the core backend, made by `audioBackend()` (the registry and voice table belong to it). It registers once
       // the core has answered (the first STATUS with the ready flag and this ABI, §3.1); until then `audioBackend()` is
       // the pending stand-in whose plays wait as locked voices, so sound never settles on "babylon" just because the

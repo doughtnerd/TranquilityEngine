@@ -43,7 +43,8 @@ import { ClockMap } from "./clock";
 import { CommandWriter, type PlayArgs } from "./commandWriter";
 import { createHrirLoader, type HrirLoader } from "./hrir";
 import { createClipRegistry, type ClipInfo, type ClipRegistry } from "./clipRegistry";
-import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink } from "./context";
+import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink, type HostHealth } from "./context";
+import { PlayheadTracker, Replayer } from "./replay";
 import { buildDebugInfo, type AudioDebugInfo } from "./debug";
 import { BackgroundController } from "./background";
 import { browserHostClock, type HostClock } from "./hostClock";
@@ -84,6 +85,8 @@ export interface CoreBackendHost {
   readonly worldCount: number;
   readonly sampleRate: number;
   addLifecycleListener: AudioHost["addLifecycleListener"];
+  /** Architecture §8 health counters (traps, recoveries, rebuilds) of the host, for `Audio.debug()` (A3.4a). */
+  readonly health?: HostHealth;
 }
 
 /** What `createCoreBackend` takes beyond the host (tests inject fakes). */
@@ -144,6 +147,10 @@ export class CoreBackend implements AudioBackend {
   readonly mixer: Mixer;
   /** The per-frame voice selection (A3.1). */
   readonly selection: Selection;
+  /** Where each voice is in its clip (A3.4a), for a hard rebuild's replay. */
+  readonly playheads: PlayheadTracker;
+  /** The hard rebuild's replay (A3.4a; `replay.ts`). */
+  readonly replayer: Replayer;
 
   private readonly clock: HostClock;
   private readonly reader = new StatusReader();
@@ -195,6 +202,8 @@ export class CoreBackend implements AudioBackend {
     this.mirror = new StatusMirror(this.table);
     this.writer = new CommandWriter(host.link, host.sampleRate);
     this.clockMap = new ClockMap(this.clock, host.sampleRate, limiterLatencyFrames(host.sampleRate, host.preset.limiterLookaheadMs));
+    this.playheads = new PlayheadTracker(this.table, this.clips, host.sampleRate);
+    this.replayer = new Replayer(this, host.link);
     for (let i = 0; i < MAX_BUS; i++) this.mixPool.push({ gain: 1, lpHz: BUS_LP_OFF_HZ });
     this.clipSink = { event: (id, code) => this.clips.applyClipEvent(id, code) };
 
@@ -211,6 +220,9 @@ export class CoreBackend implements AudioBackend {
           this.idlePending = true;
         },
         onClose: () => this.dispose(),
+        onRebuildStart: () => this.beginRecovery(),
+        onRebuilt: () => this.endRecovery(),
+        onRecoveryFailed: () => this.recoveryFailed(),
       }),
     );
     this.cleanups.push(this.mixer.onChange(() => this.applyMix(this.mixer.resolveAll())));
@@ -293,7 +305,8 @@ export class CoreBackend implements AudioBackend {
     const clip = this.clips.acquire(req.path, world);
     const bus = this.busIndex(req.bus);
     const priority = req.priority ?? 128;
-    const running = this.host.status === "running";
+    // A3.4a: while a hard rebuild runs, new plays wait in the locked queue and start once the new core is up.
+    const running = this.host.status === "running" && !this.recovering;
     const id = this.table.allocate(bus, priority, world, running ? VoiceState.WAITING_FOR_DATA : VoiceState.LOCKED);
     if (id === 0) {
       this.clips.release(clip);
@@ -368,11 +381,7 @@ export class CoreBackend implements AudioBackend {
     this.names = settings.map((b) => b.name);
     this.busIndexByName.clear();
     this.names.forEach((n, i) => this.busIndexByName.set(n, i));
-    const wire: BusConfigBuses[] = settings.map((b) => ({
-      parent: b.parent === undefined ? BUS_ROOT : (this.busIndexByName.get(b.parent) ?? 0),
-      effects: b.effects.map(wireEffect),
-    }));
-    this.writer.busConfig(wire);
+    this.writer.busConfig(this.busConfigWire(mixer));
     // The mixer's counts restart at 0 when it is reconfigured; the table knows every live voice (virtual and locked
     // included), so ducking keeps counting them across a remap. Peaks reported for the old indices are dropped.
     this.names.forEach((n, i) => mixer._setVoiceCount(n, this.table.busLive[i]!));
@@ -387,6 +396,14 @@ export class CoreBackend implements AudioBackend {
       this.writer.setParams(((t.gen[i]! << 16) | i) >>> 0, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, t.bus[i]!);
     }
     this.applyMix(mixer.resolveAll());
+  }
+
+  /** BUS_CONFIG's buses for the tree last configured, root first (also the hard rebuild's replay, A3.4a). */
+  busConfigWire(mixer: Mixer = this.mixer): BusConfigBuses[] {
+    return mixer.audioSettings.buses.map((b) => ({
+      parent: b.parent === undefined ? BUS_ROOT : (this.busIndexByName.get(b.parent) ?? 0),
+      effects: b.effects.map(wireEffect),
+    }));
   }
 
   get masterVolume(): number {
@@ -418,12 +435,51 @@ export class CoreBackend implements AudioBackend {
     this.publishPeaks();
     this.table.freeEnded();
     this.mirror.drainClipEvents(this.clipSink);
-    if (this.lockedQueue.size > 0 && this.host.status === "running") this.unlock();
+    this.replayer.flush();
+    if (this.lockedQueue.size > 0 && this.host.status === "running" && !this.recovering) this.unlock();
     if (this.spatialCount > 0) this.moveSpatial();
     this.select();
     if (this.idlePending) this.checkIdle();
     this.table.drainCommands(this.writer);
-    if (this.writer.pending > 0) this.writer.flush(clockMap.nextFirstFrame());
+    // A3.4a: during a rebuild (or after recovery gave up) no core keeps what is sent; the replay re-derives it all.
+    if (this.recovering || this.host.status === "failed") this.writer.clear();
+    else if (this.writer.pending > 0) this.writer.flush(clockMap.nextFirstFrame());
+  }
+
+  // --- The hard rebuild (A3.4a; `recovery.ts` drives the host, `replay.ts` restores the voices) ---
+
+  private recovering = false;
+
+  /** True between the old core's loss and the new core's first STATUS. */
+  get isRecovering(): boolean {
+    return this.recovering;
+  }
+
+  /** `onRebuildStart`: the old core is gone; voices keep their handles and state, new plays queue. */
+  private beginRecovery(): void {
+    if (this.disposed) return;
+    this.recovering = true;
+    this.replayer.begin();
+  }
+
+  /** `onRebuilt`: the new core answered: RESET 0, buses, MASTER, the clips again, then the voices as their clips return. */
+  private endRecovery(): void {
+    if (this.disposed) return;
+    this.recovering = false;
+    this.mirror.resetPeaks();
+    this.replayer.restore();
+  }
+
+  /** `onRecoveryFailed`: the host is Failed and silent for the session: every voice ends with reason "failed". */
+  private recoveryFailed(): void {
+    if (this.disposed) return;
+    this.recovering = false;
+    this.lockedQueue.clear();
+    const t = this.table;
+    for (let i = 0; i < t.capacity; i++) {
+      if (t.state[i] !== VoiceState.FREE) t.free(((t.gen[i]! << 16) | i) >>> 0, VoiceReason.FAILED);
+    }
+    this.writer.clear();
   }
 
   /** `Bus.peak` (A2.3): the newest STATUS peaks (already decayed in the core) by bus name; 0 while locked and past the 32 the core reports. */
@@ -491,6 +547,7 @@ export class CoreBackend implements AudioBackend {
     const i = this.slot(id);
     if (i < 0 || !Number.isFinite(rate)) return;
     this.table.pitch[i] = clamp(rate, MIN_PITCH, MAX_PITCH);
+    if (this.onCore(i)) this.playheads.retime(i, this.clockMap.framesNow());
     if (this.onCore(i)) this.writer.setParams(id, SET_PARAMS_MASK_PITCH, 0, this.table.pitch[i]!, 0, 0, 0, 0, this.clockMap.rampFrames());
   }
 
@@ -540,6 +597,7 @@ export class CoreBackend implements AudioBackend {
     if (i < 0) return;
     const t = this.table;
     t.flags[i] = paused ? t.flags[i]! | VoiceFlag.PAUSED : t.flags[i]! & ~VoiceFlag.PAUSED;
+    if (this.onCore(i)) this.playheads.retime(i, this.clockMap.framesNow());
     if (this.onCore(i)) this.writer.setPaused(id, paused);
   }
 
@@ -644,7 +702,9 @@ export class CoreBackend implements AudioBackend {
     this.selection.noteScoreSent(i, a.score);
     const start = t.startFrame[i]!;
     // A3.2: stamped at its frame while that is ahead of F_now; past (or asap) goes asap (§1 `at`, `lookahead.ts`).
-    this.writer.play(a, this.clockMap.stampFor(start));
+    const stamp = this.clockMap.stampFor(start);
+    this.writer.play(a, stamp);
+    this.playheads.start(i, stamp ?? this.clockMap.framesNow(), a.startOffsetFrames);
     if (start > 0) t.startFrame[i] = 0;
     this.spatialDirty[i] = 0;
   }
@@ -844,6 +904,7 @@ export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): 
     },
     sampleRate: host.context.sampleRate,
     addLifecycleListener: (listener) => host.addLifecycleListener(listener),
+    health: host.health,
   };
   const backend = new CoreBackend(backendHost, { ...deps, clips, clock: deps.clock ?? browserHostClock(host.context) });
   attachBackground(backend, host);

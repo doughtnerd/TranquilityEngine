@@ -196,6 +196,16 @@ export interface LoopbackHost {
   send(buffer: ArrayBuffer): void;
   /** The first frame of the next quantum. (Addition to K4.) */
   readonly frame: number;
+  /**
+   * A3.4a: a new core and shell over a new Memory (the host's `respawn` for a hard rebuild), with a fake node and the
+   * port the host rebinds its link to. From then on `driver`, `core` and `renderQuanta` are the new ones'; the old
+   * shell gets nothing more. (Addition to K4.)
+   */
+  respawn(): { readonly node: AudioWorkletNode; readonly port: LinkPort };
+  /** A3.4a: the next quantum traps inside the real wasm (`myco_audio_debug_trap_next`); needs `testHooks`. (Addition to K4.) */
+  trapNext(): void;
+  /** Cores made so far (1, plus one per `respawn`). (Addition to K4.) */
+  readonly cores: number;
 }
 
 /** The default preset: roomy enough for the §8 loopback cases. */
@@ -205,30 +215,43 @@ export const LOOPBACK_RATE = 48_000;
 
 const QUANTUM_MS = (QUANTUM_FRAMES / LOOPBACK_RATE) * 1000;
 
-/** Builds a loopback host on the committed wasm, with the given (or a new) fake clock and preset. */
-export async function createLoopbackHost(options: { clock?: FakeHostClock; preset?: CorePreset } = {}): Promise<LoopbackHost> {
+/**
+ * Builds a loopback host on the committed wasm, with the given (or a new) fake clock and preset. `testHooks` loads the
+ * test-hooks wasm instead (the same core plus test-only exports, such as the trap A3.4a's tests ask for).
+ */
+export async function createLoopbackHost(options: { clock?: FakeHostClock; preset?: CorePreset; testHooks?: boolean } = {}): Promise<LoopbackHost> {
   // A variable specifier: the engine's declaration build (tsconfig.engine.json) has no Node types, and this file only runs in Node tests.
   const nodeFs = "node:fs/promises";
   const { readFile } = (await import(/* @vite-ignore */ nodeFs)) as { readFile(url: URL): Promise<Uint8Array> };
-  const wasm = await readFile(new URL("./wasm/myco_audio.wasm", import.meta.url));
+  const wasm = await readFile(new URL(options.testHooks ? "./wasm/testing/myco_audio_test_hooks.wasm" : "./wasm/myco_audio.wasm", import.meta.url));
   const clock = options.clock ?? fakeHostClock();
-  const core = instantiateCore(wasm, options.preset ?? LOOPBACK_PRESET, LOOPBACK_RATE);
-  const toMain: unknown[] = [];
-  const toWorklet: unknown[] = [];
-  const driver = new CoreDriver(core, (message) => toMain.push(message), clock.dateNow());
-  const port: LinkPort = { onmessage: null, postMessage: (message) => toWorklet.push(message) };
-  const link = new CoreLink(port);
+  const preset = options.preset ?? LOOPBACK_PRESET;
+  const module = new WebAssembly.Module(wasm as Uint8Array<ArrayBuffer>);
+
+  /** One core with its shell and both message queues (a respawn makes another; the old one is dropped). */
+  const spawn = () => {
+    const core = instantiateCore(module, preset, LOOPBACK_RATE);
+    const toMain: unknown[] = [];
+    const toWorklet: unknown[] = [];
+    const driver = new CoreDriver(core, (message) => toMain.push(message), clock.dateNow());
+    const port: LinkPort = { onmessage: null, postMessage: (message) => toWorklet.push(message) };
+    return { core, driver, toMain, toWorklet, port };
+  };
+  let current = spawn();
+  let cores = 1;
+  const link = new CoreLink(current.port);
   const statuses: StatusBlock[] = [];
   link.onStatus((s) => statuses.push(s));
   let frame = 0;
 
   // Both directions drain synchronously, so a STATUS is received (and RECYCLEd) inside the quantum that posted it.
   const flush = (): void => {
+    const { toMain, toWorklet, port, driver } = current;
     while (toMain.length || toWorklet.length) {
       for (const message of toMain.splice(0)) port.onmessage?.({ data: message });
       for (const message of toWorklet.splice(0)) {
         if (message instanceof ArrayBuffer) driver.onMessage(message, frame, clock.dateNow());
-        else driver.onControl(message as never);
+        else if ((message as { type?: unknown }).type === "debugTone") driver.onControl(message as never);
       }
     }
   };
@@ -236,20 +259,39 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
   return {
     clock,
     link,
-    driver,
-    core,
+    get driver() {
+      return current.driver;
+    },
+    get core() {
+      return current.core;
+    },
     statuses,
     get frame() {
       return frame;
     },
+    get cores() {
+      return cores;
+    },
+    respawn() {
+      current = spawn();
+      cores++;
+      const node = { connect() {}, disconnect() {} } as unknown as AudioWorkletNode;
+      return { node, port: current.port };
+    },
+    trapNext() {
+      const hook = (current.core.exports as unknown as { myco_audio_debug_trap_next?: () => void }).myco_audio_debug_trap_next;
+      if (typeof hook !== "function") throw new Error("trapNext needs createLoopbackHost({ testHooks: true })");
+      hook();
+    },
     send(buffer) {
-      port.postMessage(buffer, [buffer]);
+      current.port.postMessage(buffer, [buffer]);
       flush();
     },
     renderQuanta(n) {
       const left = new Float32Array(n * QUANTUM_FRAMES);
       const right = new Float32Array(n * QUANTUM_FRAMES);
       for (let i = 0; i < n; i++) {
+        const { driver } = current;
         driver.process(frame, clock.dateNow());
         left.set(driver.left, i * QUANTUM_FRAMES);
         right.set(driver.right, i * QUANTUM_FRAMES);
