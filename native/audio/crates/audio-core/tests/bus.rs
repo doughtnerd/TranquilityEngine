@@ -89,13 +89,14 @@ fn buses_past_max_buses_are_dropped_and_counted() {
 #[test]
 fn bad_parents_and_cycles_are_repaired_to_the_first_root() {
     let mut m = Mixer::new(8);
-    // 1 is its own parent, 2 is out of range, 3 and 4 form a cycle.
-    m.submit(&[config(&[ROOT, 1, 40, 4, 3]), gains(0, &[0.5, 1.0, 1.0, 1.0, 1.0])]);
+    // 1 is its own parent, 2 is out of range, 3 and 4 form a cycle. MASTER at 0.25 keeps the sum
+    // of four voices under the limiter's ceiling (A2.8); the scale is exact in f32.
+    m.submit(&[config(&[ROOT, 1, 40, 4, 3]), gains(0, &[0.5, 1.0, 1.0, 1.0, 1.0]), master(0.25, false, 0)]);
     for b in 1..5u16 {
         m.submit(&[dc(0x0001_0000 | b as u32, b, 0.0)]);
     }
     let (l, _) = m.render();
-    check(&l, TOL, "four voices, each through the root at 0.5", |_| 2.0);
+    check(&l, TOL, "four voices, each through the root at 0.5, MASTER 0.25", |_| 0.5);
     let s = bus::slots(&m.core);
     for b in 0..5 {
         let mut at = b;

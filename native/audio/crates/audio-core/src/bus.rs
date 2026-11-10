@@ -26,11 +26,17 @@
 //! does). Then, deepest bus first: the effect chain (`fx.rs`, K5; reverb sends feed the shared
 //! convolver's input), the snapshot low-pass, the gain ramp, the meter (`meters.rs`), and the sum
 //! into the parent's buffer, or into the output for a root. Then the shared reverb's wet signal is
-//! added to the output (`audio_dsp::convolver`, A2.2b), and last the MASTER gain ramp. Peaks of
-//! the first 32 buses go to STATUS (K12).
+//! added to the output (`audio_dsp::convolver`, A2.2b), then the MASTER gain ramp, and last the
+//! master peak limiter (`audio_dsp::limiter`, A2.8). Peaks of the first 32 buses go to STATUS (K12).
+//!
+//! **The limiter** comes after MASTER: it is the output's safety stage, so whatever MASTER is set
+//! to, nothing leaves the core above its −0.3 dBFS ceiling, and turning MASTER down lowers what
+//! reaches the limiter (less limiting) instead of limiting first and then turning the limited
+//! signal down (quieter, yet still pumping). It adds no latency, and while nothing exceeds the
+//! ceiling the output is bit-exact what it was without it (the module doc has the design).
 //!
 //! **RESET** clears the buses' DSP state (buffers, filter and compressor state, the reverb tail,
-//! meters) and settles every ramp on its target. The tree and the gains stay: they are main's
+//! meters, the limiter's gain reduction) and settles every ramp on its target. The tree and the gains stay: they are main's
 //! intent, and main re-sends them after a rebuild's RESET (architecture §7, replay order), but not
 //! after the idle `RESET 0` it sends when the last World is released.
 //!
@@ -43,6 +49,7 @@
 
 use audio_dsp::biquad::Biquad;
 use audio_dsp::convolver;
+use audio_dsp::limiter::Limiter;
 use audio_dsp::ramp::Ramp;
 use audio_wire::generated::{self as wire, BusConfigBusesEffects, BusMixBuses, Master, RecordHead};
 
@@ -102,6 +109,11 @@ pub struct BusArea {
     pub order: [u8; InitParams::MAX_BUSES as usize],
     /// The summed reverb sends of this quantum, planar stereo.
     pub reverb_in: [f32; 2 * QUANTUM],
+    /// The master peak limiter on the output, after MASTER (A2.8).
+    pub limiter: Limiter,
+    /// Quanta in which the limiter changed the output, cumulative. The wire has no STATUS field for
+    /// it (K1 is frozen); tests and a debugger read it.
+    pub limited: u32,
 }
 
 /// Offset of [`BusArea`] in the core-state region (after the scheduler's area).
@@ -174,6 +186,8 @@ pub fn init(core: &mut Core) {
     v.area.master_volume = 1.0;
     v.area.master_muted = 0;
     v.area.has_reverb = 0;
+    v.area.limiter = Limiter::new(sample_rate);
+    v.area.limited = 0;
     if let Some(first) = v.slots.first_mut() {
         *first = fresh(ROOT);
         v.area.order[0] = 0;
@@ -402,6 +416,7 @@ pub fn reset(core: &mut Core) {
         slot.fx.reset();
     }
     v.area.master = Ramp::at(v.area.master.target);
+    v.area.limiter.reset();
     v.area.reverb_in = [0.0; 2 * QUANTUM];
     let c = status::counters_mut(core);
     for b in 0..crate::counters::PEAKS_CAP {
@@ -519,6 +534,9 @@ pub fn mixdown(core: &mut Core) {
             out_l[i] *= g;
             out_r[i] *= g;
         }
+    }
+    if v.area.limiter.process(out_l, out_r) {
+        v.area.limited = v.area.limited.wrapping_add(1);
     }
     let peaks = count.min(crate::counters::PEAKS_CAP);
     for b in 0..peaks {

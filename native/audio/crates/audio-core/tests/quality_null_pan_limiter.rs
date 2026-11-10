@@ -8,9 +8,15 @@
 //!
 //! Thresholds, quoted from the section: null residual below -120 dBFS; `L^2 + R^2` of a panned
 //! unit signal within 0.01 dB of unity over the whole azimuth range; output peak at or below
-//! 0 dBFS. The limiter does not exist yet (api section 5 lists `limiter` among the `audio-dsp`
-//! modules to be written; MASTER is a plain gain), so its test is `#[ignore]`d with the numbers.
+//! 0 dBFS. The master limiter (`audio_dsp::limiter`, A2.8) runs on the output after MASTER; its
+//! tests here drive it through the core at 44.1, 48 and 96 kHz (its own unit tests are in
+//! `audio-dsp`).
 mod common;
+use audio_core::bus;
+use audio_core::layout::{Layout, PAGE_BYTES};
+use audio_core::params::InitParams;
+use audio_core::Core;
+use audio_dsp::limiter;
 use audio_dsp::pan::EqualPowerPanner;
 use common::*;
 
@@ -168,11 +174,9 @@ fn a_single_full_scale_voice_peaks_at_or_below_zero_dbfs() {
     assert!(peak <= 1.0, "peak {peak}");
 }
 
-/// The ceiling: the limiter is not written (the MASTER path is a gain), so four full-scale voices
-/// sum to +12 dBFS. When `audio-dsp::limiter` is wired into MASTER, remove the `ignore`: the output
-/// must stay at or below 0 dBFS. Run with `cargo test -- --ignored` to see the number.
+/// The ceiling: four full-scale voices sum to +12 dBFS before the master limiter (A2.8), which
+/// holds the output at or below 0 dBFS; the steady DC sits on the ceiling exactly.
 #[test]
-#[ignore = "no limiter yet: MASTER is a plain gain (api-and-models section 5 lists `limiter` as to be written)"]
 fn the_master_limiter_holds_summed_voices_at_or_below_zero_dbfs() {
     let mut m = Mixer::new(1);
     m.submit(&[config(&[ROOT]), dc(V1, 0, 0.0), dc(V1 + 1, 0, 0.0), dc(V1 + 2, 0, 0.0), dc(V1 + 3, 0, 0.0)]);
@@ -180,4 +184,86 @@ fn the_master_limiter_holds_summed_voices_at_or_below_zero_dbfs() {
     let peak = l.iter().chain(&r).fold(0.0f32, |a, &v| a.max(v.abs()));
     println!("four full-scale voices: peak {peak} ({:.2} dBFS)", db_power((peak as f64).powi(2)));
     assert!(peak <= 1.0, "peak {peak} is above 0 dBFS");
+    assert!(l.iter().chain(&r).all(|&x| x == limiter::CEILING), "the summed DC is held on the ceiling");
+    assert_eq!(bus::area(&m.core).limited, 4, "the limiter acted in every quantum");
+}
+
+/// A core at `rate` with the DC clip loaded.
+fn mixer_at(rate: f32) -> Mixer {
+    let p = InitParams { sample_rate: rate, ..params(4) };
+    let layout = Layout::new(&p);
+    let block = std::alloc::Layout::from_size_align(layout.total(), PAGE_BYTES).unwrap();
+    // SAFETY: non-zero size, zeroed, page-aligned; leaked on purpose ('static).
+    let base = unsafe { std::alloc::alloc_zeroed(block) };
+    // SAFETY: a fresh block of `layout.total()` zeroed bytes, aligned to PAGE_BYTES.
+    let mut m = Mixer { core: unsafe { Core::new(p, layout, base) }, frame: 0 };
+    m.load_clip(DC, &[1.0f32; 64]);
+    m
+}
+
+/// One period-aligned full-scale sine clip at 48 kHz (`period` frames), looped by the voice.
+fn sine_clip(period: usize) -> Vec<f32> {
+    (0..period).map(|i| (2.0 * std::f64::consts::PI * i as f64 / period as f64).sin() as f32).collect()
+}
+
+/// Four full-scale looping tones (100, 300, 400, 1,000 Hz at 48 kHz, resampled to the context
+/// rate), one hard left, one hard right, two centred, for a second at 44.1, 48 and 96 kHz: the
+/// output never exceeds 0 dBFS, and the limiter really worked (the sum goes far over).
+#[test]
+fn the_master_limiter_holds_summed_tones_at_every_rate() {
+    for rate in [44_100.0f32, 48_000.0, 96_000.0] {
+        let mut m = mixer_at(rate);
+        let mut recs = vec![config(&[ROOT])];
+        for (k, period) in [480usize, 160, 120, 48].into_iter().enumerate() {
+            let clip = 100 + k as u32;
+            m.load_clip(clip, &sine_clip(period));
+            let Rec::Play(mut p) = play(V1 + k as u32, clip, 0, MIXED | LOOP | if k < 2 { SPATIAL } else { 0 }) else { unreachable!() };
+            if k < 2 {
+                p.dir_x = if k == 0 { -1.0 } else { 1.0 };
+                p.dir_z = 0.0;
+            }
+            recs.push(Rec::Play(p));
+        }
+        m.submit(&recs);
+        let quanta = rate as usize / 128;
+        let (l, r) = m.render_n(quanta);
+        let peak = l.iter().chain(&r).fold(0.0f32, |a, &v| a.max(v.abs()));
+        let limited = bus::area(&m.core).limited;
+        println!("{rate} Hz: four full-scale tones, output peak {peak}, limited in {limited} of {quanta} quanta");
+        assert!(peak <= 1.0, "{rate}: peak {peak}");
+        assert!(peak > 0.99, "{rate}: the limiter keeps the level up to the ceiling ({peak})");
+        assert!(limited as usize > quanta / 2, "{rate}: the sum is over the ceiling most of the time");
+    }
+}
+
+/// The limiter is after MASTER: four DC voices at MASTER 0.25 sum to exactly 1.0 and pass
+/// untouched (bit-exact, no limiting); at MASTER 0.5 the same voices are limited to the ceiling.
+#[test]
+fn the_master_limiter_comes_after_master() {
+    let mut m = Mixer::new(1);
+    m.submit(&[config(&[ROOT]), master(0.25, false, 0), dc(V1, 0, 0.0), dc(V1 + 1, 0, 0.0), dc(V1 + 2, 0, 0.0), dc(V1 + 3, 0, 0.0)]);
+    let (l, r) = m.render_n(2);
+    assert!(l.iter().chain(&r).all(|&x| x == 1.0), "MASTER 0.25: exactly 1.0");
+    assert_eq!(bus::area(&m.core).limited, 0, "nothing limited under the ceiling");
+    m.submit(&[master(0.5, false, 0)]);
+    let (l, _) = m.render();
+    assert!(l.iter().all(|&x| x == limiter::CEILING), "MASTER 0.5: on the ceiling");
+    assert_eq!(bus::area(&m.core).limited, 1);
+}
+
+/// RESET returns the limiter to its bypass: after a loud passage and RESET, a voice at 0.5 comes
+/// out exactly (no gain reduction carried over, no release tail).
+#[test]
+fn reset_clears_the_limiters_gain_reduction() {
+    let mut m = Mixer::new(1);
+    m.submit(&[config(&[ROOT]), dc(V1, 0, 0.0), dc(V1 + 1, 0, 0.0), dc(V1 + 2, 0, 0.0), dc(V1 + 3, 0, 0.0)]);
+    m.render_n(2);
+    assert!(!bus::area(&m.core).limiter.is_bypassed());
+    m.submit(&[reset(true)]);
+    assert!(bus::area(&m.core).limiter.is_bypassed(), "RESET clears it");
+    let Rec::Play(mut p) = dc(V1 + 10, 0, 0.0) else { unreachable!() };
+    p.gain = 0.5;
+    m.submit(&[Rec::Play(p)]);
+    let (l, r) = m.render();
+    assert!(l.iter().chain(&r).all(|&x| x == 0.5), "{:?}", &l[..4]);
 }

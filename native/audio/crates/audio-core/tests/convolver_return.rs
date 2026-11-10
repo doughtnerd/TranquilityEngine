@@ -1,5 +1,7 @@
 //! The shared reverb return through the core (task A2.2b): a bus's `reverbSend` feeds the shared
-//! convolver, whose wet signal joins the output before MASTER; RESET clears its tail.
+//! convolver, whose wet signal joins the output before MASTER; RESET clears its tail. MASTER is at
+//! 0.25 in both renders so the dry DC plus its reverb stays under the master limiter's ceiling
+//! (A2.8); the comparison is linear, so the reference is unchanged.
 
 mod common;
 
@@ -12,7 +14,7 @@ const QUANTA: usize = 40;
 
 fn render(send: f32) -> (Vec<f32>, Vec<f32>, Mixer) {
     let mut m = Mixer::new(8);
-    m.submit(&[config_fx(&[(ROOT, vec![(kind::REVERB_SEND, send, 0.0)])]), dc(V1, 0, 0.0)]);
+    m.submit(&[config_fx(&[(ROOT, vec![(kind::REVERB_SEND, send, 0.0)])]), master(0.25, false, 0), dc(V1, 0, 0.0)]);
     let (l, r) = m.render_n(QUANTA);
     (l, r, m)
 }
