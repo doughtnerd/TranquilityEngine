@@ -59,3 +59,19 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 
 ### 11. A flaky test outside audio (noted, not fixed)
 - `src/engine/tests/navSample.test.ts` (navigation, ADR 0065) fails about one run in three, even alone (`expected true to be false`, or a timeout in the full run). No navigation code changed in this work. Left alone rather than fixed inside the audio milestones; worth a separate task: make the test deterministic (fixed-step frames or fake timers) without loosening what it checks.
+
+### 12. HRTF panner bank: 32 panners, allocated when the table loads (H3)
+- **Question:** the bank holds 32 HRTF panners (the `voices.hrtf` maximum): 682 KB at ≤ 88.2 kHz, 1.04 MB at 96 kHz; the architecture estimated about 300 KB for 16.
+- **Chosen:** keep 32, allocated only once the HRIR loads (so `"equalPower"` and `voices.hrtf: 0` pay nothing).
+- **Why:** sizing it to `voices.hrtf` needs that number in the core, which is a wire or ABI change (K1 is frozen); the owner has accepted higher HRTF memory for M1 with optimisation after the roadmap (2026-11-09).
+- **If changed:** pass `voices.hrtf` at init (an ABI addition like A2.9's) and size the bank to it.
+
+### 13. HRTF kernel budget: 2 kernel computations per quantum (H3)
+- **Question:** the architecture says 4; a kernel costs about 43 µs native (≈2× in wasm).
+- **Chosen:** 2 per quantum. A direction change past the budget keeps panning on the last direction one more quantum; new panners start one per quantum.
+- **Why:** keeps the worst quantum bounded (p99 ≈ 0.5 ms with 16 HRTF voices turning, in wasm) while 16 moving voices still crossfade as often as a crossfade can run. Industry HRTF engines similarly spread filter updates across blocks.
+- **Open, for A3.5:** a moving HRTF voice costs about 20 µs per quantum in wasm, over the work-unit model's 6,600 (≈6.6 µs; static voices are 5–7 µs). A3.5 re-measures and should model kernel computations in the cap.
+
+### 14. Strip the mixer wasm's name section (coordinator)
+- **Chosen:** `--strip-all` on the mixer wasm (as B1 does for the decoder): 135.2 KB → 122.4 KB after HRTF, output unchanged.
+- **Why:** standard for shipped wasm; restores headroom under the 150 KB gate before streaming lands. Cost: a trap's stack trace shows function indices (debug natively, or drop the line in `audio-wasm/build.rs`).
