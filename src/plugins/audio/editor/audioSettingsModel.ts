@@ -11,9 +11,18 @@ import {
   type BusSettings,
   type DuckingRule,
   type EffectType,
-} from "../engine/audio/settings";
-import type { SettingsDraft } from "./projectSettingsModel";
-import { uniqueName } from "./worldsConfig";
+  type AudioBackground,
+  type AudioClipFormat,
+  type AudioSpatialMode,
+  type VoiceSettings,
+} from "../../../engine/audio/settings";
+import type { SettingsDraft } from "../../../editor/sdk";
+
+/** A name not in `taken`: `base`, else `base 2`, `base 3`… */
+function uniqueName(base: string, taken: readonly string[]): string {
+  if (!taken.includes(base)) return base;
+  for (let i = 2; ; i++) if (!taken.includes(`${base} ${i}`)) return `${base} ${i}`;
+}
 
 export { EFFECT_TYPES, MAX_BUSES };
 
@@ -156,4 +165,88 @@ export function setDuckingValue(d: SettingsDraft, index: number, key: keyof Duck
 export function setBackend(d: SettingsDraft, backend: "babylon" | "core"): SettingsDraft {
   const a = audioOf(d);
   return withAudio(d, { ...a, backend });
+}
+
+// --- §2 core keys (ADR 0157, K13) -------------------------------------------------------------------
+
+const clampInt = (n: number, min: number, max: number): number => Math.min(max, Math.max(min, Math.round(n)));
+
+export const VOICE_LIMITS = { mixed: [8, 512], logical: [8, 8192], hrtf: [0, 32] } as const;
+export const CLIP_MEMORY_LIMITS = [16, 1024] as const;
+
+/** A bus's `maxVoices`: rounded and clamped to 1..`voices.logical`; `undefined` is unlimited. Unknown buses change nothing. */
+export function setBusMaxVoices(d: SettingsDraft, name: string, value: number | undefined): SettingsDraft {
+  const a = audioOf(d);
+  if (!a.buses.some((b) => b.name === name)) return d;
+  const max = value === undefined || !Number.isFinite(value) ? undefined : clampInt(value, 1, a.voices.logical);
+  return withAudio(d, { ...a, buses: a.buses.map((b) => {
+    if (b.name !== name) return b;
+    const { maxVoices: _drop, ...rest } = b;
+    return max === undefined ? rest : { ...rest, maxVoices: max };
+  }) });
+}
+
+/**
+ * Voice counts: a partial update, each number rounded and clamped to its range. `logical` never falls below `mixed`
+ * (it is raised), and per-bus `maxVoices` above a lowered `logical` are clamped to it, as the parse would.
+ */
+export function setVoices(d: SettingsDraft, patch: Partial<VoiceSettings>): SettingsDraft {
+  const a = audioOf(d);
+  const pick = (v: number | undefined, key: keyof VoiceSettings, [min, max]: readonly [number, number]) => (v === undefined || !Number.isFinite(v) ? a.voices[key] : clampInt(v, min, max));
+  const mixed = pick(patch.mixed, "mixed", VOICE_LIMITS.mixed);
+  const logical = Math.max(mixed, pick(patch.logical, "logical", VOICE_LIMITS.logical));
+  const hrtf = pick(patch.hrtf, "hrtf", VOICE_LIMITS.hrtf);
+  return withAudio(d, { ...a, voices: { mixed, logical, hrtf }, buses: a.buses.map((b) => (b.maxVoices !== undefined && b.maxVoices > logical ? { ...b, maxVoices: logical } : b)) });
+}
+
+/** Named bundles of the voice numbers and the clip ceiling (architecture 5.3); the file stores the numbers. "low" is provisional until the low-end soak (C3) sizes it. */
+export const VOICE_PRESETS = {
+  low: { voices: { mixed: 48, logical: 1024, hrtf: 4 }, clipMemoryMB: 64 },
+  default: { voices: { mixed: 128, logical: 4096, hrtf: 16 }, clipMemoryMB: undefined },
+  high: { voices: { mixed: 256, logical: 8192, hrtf: 32 }, clipMemoryMB: 256 },
+} as const;
+export type VoicePresetName = keyof typeof VOICE_PRESETS;
+export const VOICE_PRESET_NAMES = Object.keys(VOICE_PRESETS) as VoicePresetName[];
+
+/** The preset the section's numbers match exactly, or "custom". */
+export function voicesPreset(a: AudioSettings): VoicePresetName | "custom" {
+  for (const name of VOICE_PRESET_NAMES) {
+    const p = VOICE_PRESETS[name];
+    if (p.voices.mixed === a.voices.mixed && p.voices.logical === a.voices.logical && p.voices.hrtf === a.voices.hrtf && p.clipMemoryMB === a.clipMemoryMB) return name;
+  }
+  return "custom";
+}
+
+/** Apply a preset: voices and the clip ceiling (the default preset leaves the ceiling unset). Per-bus limits are kept, clamped to `logical`. */
+export function applyVoicesPreset(d: SettingsDraft, name: VoicePresetName): SettingsDraft {
+  const p = VOICE_PRESETS[name];
+  return setClipMemory(setVoices(d, p.voices), p.clipMemoryMB);
+}
+
+export function setBackground(d: SettingsDraft, background: AudioBackground): SettingsDraft {
+  const a = audioOf(d);
+  return a.background === background ? d : withAudio(d, { ...a, background });
+}
+
+/** The clip arena ceiling in MB (rounded, clamped 16..1024); `undefined` goes back to the device preset's. */
+export function setClipMemory(d: SettingsDraft, mb: number | undefined): SettingsDraft {
+  const a = audioOf(d);
+  const { clipMemoryMB: _drop, ...rest } = a;
+  return withAudio(d, mb === undefined || !Number.isFinite(mb) ? rest : { ...a, clipMemoryMB: clampInt(mb, CLIP_MEMORY_LIMITS[0], CLIP_MEMORY_LIMITS[1]) });
+}
+
+export function setClipFormat(d: SettingsDraft, clipFormat: AudioClipFormat): SettingsDraft {
+  const a = audioOf(d);
+  return a.clipFormat === clipFormat ? d : withAudio(d, { ...a, clipFormat });
+}
+
+/** A codec switch (`codecs.aac`). */
+export function setCodec(d: SettingsDraft, codec: "aac", on: boolean): SettingsDraft {
+  const a = audioOf(d);
+  return a.codecs[codec] === on ? d : withAudio(d, { ...a, codecs: { ...a.codecs, [codec]: on } });
+}
+
+export function setSpatial(d: SettingsDraft, spatial: AudioSpatialMode): SettingsDraft {
+  const a = audioOf(d);
+  return a.spatial === spatial ? d : withAudio(d, { ...a, spatial });
 }

@@ -42,7 +42,6 @@ import {
 import type { EditorProject } from "../projects";
 import { currentProject, docVersion } from "../state";
 import { reapplyPlugins } from "../session";
-import { AudioSettingsSection } from "./AudioSettingsSection";
 import { PluginsSection } from "./PluginsSection";
 import { lazyComponent, type LazyComponent } from "./lazy";
 import { NumberField, TextField } from "./settingsControls";
@@ -177,10 +176,6 @@ export function ProjectSettingsPanel() {
             <Tiers draft={draft} problems={problemsAt("graphics")} set={set} />
           </Section>
 
-          <Section title="Audio">
-            <AudioSettingsSection draft={draft} problems={problemsAt("audio").map((p) => p.message)} set={set} />
-          </Section>
-
           <Section title="Plugins">
             <PluginsSection draft={draft} set={set} />
           </Section>
@@ -241,7 +236,7 @@ function SaveMarker(props: { editable: boolean; saving: boolean; error: string |
 }
 
 /** The settings categories, in order (Unity-style list). A category's title is its id. */
-const BUILTIN_CATEGORIES = ["Project", "Display", "Time", "Rendering", "Graphics", "Audio", "Plugins", "Autoloads", "Build"] as const;
+const BUILTIN_CATEGORIES = ["Project", "Display", "Time", "Rendering", "Graphics", "Plugins", "Autoloads", "Build"] as const;
 
 /** The categories in order: the built-in ones, with each registered section (a plugin's, ADR 0133) after the one it names, else last. */
 function categories(): string[] {
