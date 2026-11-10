@@ -26,6 +26,7 @@ import {
   writePlay,
   writeReset,
   writeSetParams,
+  writeSetMixed,
   writeSetPaused,
   writeStop,
   type BusConfigBuses,
@@ -35,6 +36,7 @@ import {
   type Play,
   type Reset,
   type SetParams,
+  type SetMixed,
   type SetPaused,
   type Stop,
 } from "../wire.generated";
@@ -116,6 +118,7 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly stopRec: Stop = { voiceId: 0, frameOffset: ASAP, fadeFrames: 0, reason: 0 };
   private readonly fadeRec: Fade = { voiceId: 0, frameOffset: ASAP, target: 0, frames: 0, flags: 0 };
   private readonly paramsRec: SetParams = { voiceId: 0, frameOffset: ASAP, mask: 0, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, bus: 0, rampFrames: 0, flags: 0 };
+  private readonly mixedRec: SetMixed = { voiceId: 0, frameOffset: ASAP, mixed: 0, gain: 1, dirX: 0, dirY: 0, dirZ: -1, lpHz: 0 };
   private readonly pausedRec: SetPaused = { voiceId: 0, frameOffset: ASAP, paused: 0 };
   private readonly masterRec: Master = { voiceId: 0, frameOffset: ASAP, volume: 1, muted: 0, rampFrames: 0 };
   private readonly resetRec: Reset = { voiceId: 0, frameOffset: ASAP, keepClips: 0 } as Reset;
@@ -202,6 +205,21 @@ export class CommandWriter implements VoiceCommandSink {
     const at = this.begin(56);
     if (at < 0) return;
     this.end(at, writeSetParams(this.view, at, r));
+  }
+
+  /** SET_MIXED `id` (§4.2, A3.1): mixed or virtual; a promote carries the voice's gain, direction and `lpHz`. Always asap. */
+  setMixed(id: number, mixed: boolean, gain: number, dirX: number, dirY: number, dirZ: number, lpHz: number): void {
+    const r = this.mixedRec;
+    r.voiceId = id;
+    r.mixed = mixed ? 1 : 0;
+    r.gain = gain;
+    r.dirX = dirX;
+    r.dirY = dirY;
+    r.dirZ = dirZ;
+    r.lpHz = lpHz;
+    const at = this.begin(36);
+    if (at < 0) return;
+    this.end(at, writeSetMixed(this.view, at, r));
   }
 
   /** SET_PAUSED `id`. */

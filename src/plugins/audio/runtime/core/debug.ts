@@ -37,7 +37,8 @@ function stateName(table: VoiceTable, i: number): VoiceStateName {
     case VoiceState.WAITING_FOR_DATA:
       return "waitingForData";
     case VoiceState.VIRTUAL:
-      return "virtual";
+      // A3.1: selection makes a voice on a silent bus virtual with reason BUS_MUTED.
+      return table.reason[i] === VoiceReason.BUS_MUTED ? "busMuted" : table.reason[i] === VoiceReason.WAITING_FOR_DATA ? "waitingForData" : "virtual";
     case VoiceState.PLAYING: {
       const reason = table.reason[i];
       if (reason === VoiceReason.BUS_MUTED) return "busMuted";
@@ -48,6 +49,9 @@ function stateName(table: VoiceTable, i: number): VoiceStateName {
       return "playing";
   }
 }
+
+/** @internal How long a steal stays listed in `Audio.debug()` ("stolen"), in selection frames (about 1 s at 60 fps). */
+export const STOLEN_LISTED_FRAMES = 60;
 
 /** Playhead in seconds, only for voices the core reports playheads for (`WANTS_PLAYHEAD`) whose clip rate is known. */
 function playheadSeconds(table: VoiceTable, i: number, clip: ClipInfo | null): number | null {
@@ -96,6 +100,26 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       audibility: clamp01(table.audibility[i]!),
       playheadSeconds: playheadSeconds(table, i, clip),
       owner: owner < 0 ? null : String(owner),
+    });
+  }
+
+  // A3.1: voices stolen in about the last second (the table's ring; their slots are already reused or free).
+  for (let k = 0; k < table.stolenSize; k++) {
+    const r = (table.stolenHead - 1 - k + 2 * table.stolenIds.length) % table.stolenIds.length;
+    if (table.frame - table.stolenFrame[r]! > STOLEN_LISTED_FRAMES) break;
+    const world = table.stolenWorld[r]!;
+    voices.push({
+      id: table.stolenIds[r]!,
+      clip: backend.clips.info(table.stolenClip[r]!)?.path ?? "",
+      bus: busNames[table.stolenBus[r]!] ?? "",
+      world: world === 0 ? null : String(world),
+      state: "stolen",
+      priority: table.stolenPriority[r]!,
+      gain: 0,
+      pitch: 1,
+      audibility: 0,
+      playheadSeconds: null,
+      owner: null,
     });
   }
 

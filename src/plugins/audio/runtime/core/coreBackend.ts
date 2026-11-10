@@ -4,12 +4,16 @@
 // (`registerCoreBackend`) once the core has loaded.
 //
 // Frame flow (`update(dt)`, called by the audio system once per frame): clock.beginFrame, mirror.beginFrame, free ended
-// voices, apply clip events to the registry, start voices that were waiting for the unlock, move spatial voices, drain
-// the table's STOP and FADE commands into the writer, flush the batch at `clock.nextFirstFrame()`. Everything the
-// mirror does happens in `onmessage`, separately.
+// voices, apply clip events to the registry, start voices that were waiting for the unlock, move spatial voices, run
+// the voice selection (A3.1, `selection.ts`: SET_MIXED for changes, steals over a bus's `maxVoices`), drain the table's
+// STOP and FADE commands into the writer, flush the batch at `clock.nextFirstFrame()`. Everything the mirror does
+// happens in `onmessage`, separately.
 //
-// Until A3.1 (selection) every voice is mixed. Spatial voices get their listener-space direction and distance gain
-// here (A1.5's `spatial.ts`); A3.1 moves that into the per-frame selection.
+// Selection (A3.1): a new voice's PLAY carries the `mixed` bit `Selection.admit` decides (room under the cap); each
+// frame `Selection.run` promotes and demotes with hysteresis and dwell, and the core fades 5 ms either way. Spatial
+// voices get their listener-space direction and distance gain here (A1.5's models, through `ListenerBasis`, which
+// allocates nothing). Only mixed voices get SET_PARAMS for gain and direction; virtual ones keep fresh values in the
+// table for their audibility, and SET_MIXED carries them on a promote.
 //
 // A1.6 added `volume, pitch, priority, oneShot, at, attenuation, position` to `PlayRequest` and `id, reason, fade,
 // setPriority, stop(fadeSeconds)` to `AudioVoice` (§6). `CorePlayRequest` and `CoreVoice` keep only what the core adds.
@@ -43,10 +47,11 @@ import { buildDebugInfo, type AudioDebugInfo } from "./debug";
 import { browserHostClock, type HostClock } from "./hostClock";
 import { decodeClip } from "./loader";
 import { StatusMirror } from "./mirror";
-import { DistanceEffect, listenerSpaceDirection, type Vec3 } from "./spatial";
+import { DistanceEffect } from "./spatial";
 import { StatusReader } from "./statusReader";
 import { UnlockQueue } from "./unlockQueue";
 import { connectVoiceTable, VoiceFlag, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
+import { effectiveMixedCap, ListenerBasis, Selection, type SelectionSink } from "./selection";
 
 /** `PlayRequest` plus the core's World key. */
 export interface CorePlayRequest extends PlayRequest {
@@ -68,7 +73,8 @@ export interface CoreVoice extends AudioVoice {
 export interface CoreBackendHost {
   readonly link: Pick<CoreLink, "batchPool" | "nextSeq" | "post" | "onStatus"> & { statusDecoder: CoreLink["statusDecoder"] };
   readonly status: "locked" | "running" | "failed";
-  readonly preset: { readonly maxLogical: number };
+  /** `maxMixed` is `voices.mixed` (selection's configured cap; absent: every logical voice may be mixed). */
+  readonly preset: { readonly maxLogical: number; readonly maxMixed?: number };
   /** Worlds holding a share (an idle host has none). */
   readonly worldCount: number;
   readonly sampleRate: number;
@@ -93,6 +99,8 @@ const MAX_PITCH = 16;
 const MIN_PITCH = 0.0625;
 const MAX_BUS = 32;
 const ROLLOFF_NAMES = ["linear", "inverse", "exponential"] as const;
+/** Architecture §4.7: promote and demote fade 5 ms; a voice stolen while on the core fades out as long. */
+const STEAL_FADE_SECONDS = 0.005;
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
@@ -129,6 +137,8 @@ export class CoreBackend implements AudioBackend {
   readonly clockMap: ClockMap;
   readonly clips: ClipRegistry;
   readonly mixer: Mixer;
+  /** The per-frame voice selection (A3.1). */
+  readonly selection: Selection;
 
   private readonly clock: HostClock;
   private readonly reader = new StatusReader();
@@ -148,6 +158,8 @@ export class CoreBackend implements AudioBackend {
   private readonly listenerFwd: [number, number, number] = [0, 0, -1];
   private readonly listenerUp: [number, number, number] = [0, 1, 0];
   private readonly distance = new DistanceEffect();
+  private readonly basis = new ListenerBasis();
+  private readonly selectionSink: SelectionSink;
   private readonly playArgs: PlayArgs = { voiceId: 0, clip: 0, bus: 0, flags: 0, group: 0, gain: 1, pitch: 1, dirX: 0, dirY: 0, dirZ: -1, lpHz: BUS_LP_OFF_HZ, score: 0, startOffsetFrames: 0 };
   private readonly mixPool: BusMixBuses[] = [];
   private readonly mixView: BusMixBuses[] = [];
@@ -168,6 +180,12 @@ export class CoreBackend implements AudioBackend {
     this.hrir = deps.hrir ?? createHrirLoader({ clips: deps.clips, sampleRate: host.sampleRate });
     this.table = deps.table ?? new VoiceTable(host.preset.maxLogical);
     this.spatialDirty = new Uint8Array(this.table.capacity);
+    this.selection = new Selection(this.table);
+    this.basis.set(this.listenerPos, this.listenerFwd, this.listenerUp);
+    this.selectionSink = {
+      setMixed: (i, mixed) => this.sendMixed(i, mixed),
+      steal: (i) => this.stealSlot(i),
+    };
     this.mirror = new StatusMirror(this.table);
     this.writer = new CommandWriter(host.link, host.sampleRate);
     this.clockMap = new ClockMap(this.clock, host.sampleRate);
@@ -273,6 +291,7 @@ export class CoreBackend implements AudioBackend {
       up[1] = u.y;
       up[2] = u.z;
       this.listenerDirty = true;
+      this.basis.set(pos, fwd, up);
     }
   }
 
@@ -282,11 +301,15 @@ export class CoreBackend implements AudioBackend {
     const view = this.mixView;
     view.length = 0;
     const n = Math.min(buses.length, MAX_BUS);
+    const busGain = this.selection.busGain;
     for (let b = 0; b < n; b++) {
       const item = this.mixPool[b]!;
       item.gain = buses[b]!.gain;
       item.lpHz = buses[b]!.snapshotLowpass ?? BUS_LP_OFF_HZ;
       view.push(item);
+      // Selection's audibility uses the effective gain down the tree (A3.1).
+      const g = buses[b]!.effectiveGain;
+      busGain[b] = Number.isFinite(g) && g > 0 ? g : 0;
     }
     this.writer.busMix(view, this.clockMap.rampFrames());
   }
@@ -349,6 +372,7 @@ export class CoreBackend implements AudioBackend {
     this.mirror.drainClipEvents(this.clipSink);
     if (this.lockedQueue.size > 0 && this.host.status === "running") this.unlock();
     if (this.spatialCount > 0) this.moveSpatial();
+    this.select();
     if (this.idlePending) this.checkIdle();
     this.table.drainCommands(this.writer);
     if (this.writer.pending > 0) this.writer.flush(clockMap.nextFirstFrame());
@@ -363,6 +387,24 @@ export class CoreBackend implements AudioBackend {
       const peak = running && b < m.peakCount ? Math.max(m.peakL[b]!, m.peakR[b]!) : 0;
       this.mixer._setPeak(names[b]!, peak);
     }
+  }
+
+  /**
+   * The mixed cap selection uses (architecture §6.3): `min(voices.mixed, mixedCap)`, where `mixedCap` is STATUS's
+   * (0, ignored, until A3.3's adaptive cap reports one). A3.3 feeds its value through the mirror; nothing else here
+   * needs to change.
+   */
+  mixedCap(): number {
+    const configured = this.host.preset.maxMixed ?? this.table.capacity;
+    return effectiveMixedCap(configured, this.mirror.mixedCap);
+  }
+
+  /**
+   * Architecture §3.9: World `key`'s voices are audible, or forced virtual (in time, silent) while it doesn't have the
+   * view. Takes effect at the next frame's selection. Key 0 (no World) is always audible.
+   */
+  setWorldAudible(key: number, audible: boolean): void {
+    this.selection.setWorldAudible(key, audible);
   }
 
   /** True once the core reported hrtfReady for the HRIR table (spatial voices stay equal-power until then). */
@@ -491,23 +533,24 @@ export class CoreBackend implements AudioBackend {
     const t = this.table;
     let gain = t.volume[i]!;
     if ((t.flags[i]! & VoiceFlag.SPATIAL) !== 0) {
-      const src: Vec3 = [t.posX[i]!, t.posY[i]!, t.posZ[i]!];
-      const { direction, distance } = listenerSpaceDirection(src, this.listenerPos, this.listenerFwd, this.listenerUp);
+      const basis = this.basis;
+      basis.locate(t.posX[i]!, t.posY[i]!, t.posZ[i]!);
       const d = this.distance;
       d.model = ROLLOFF_NAMES[t.rolloff[i]!] ?? "inverse";
       d.refDistance = t.minDist[i]!;
       d.maxDistance = t.maxDist[i]!;
-      gain *= Math.max(0, d.gain(distance));
-      t.dirX[i] = direction[0];
-      t.dirY[i] = direction[1];
-      t.dirZ[i] = direction[2];
+      gain *= Math.max(0, d.gain(basis.distance));
+      t.dirX[i] = basis.dirX;
+      t.dirY[i] = basis.dirY;
+      t.dirZ[i] = basis.dirZ;
     }
     t.gain[i] = gain;
-    t.audibility[i] = gain * (1 + t.priority[i]! / 255);
+    this.selection.audibilityOf(i);
   }
 
   private sendGain(id: number, i: number): void {
-    if (this.onCore(i)) this.writer.setParams(id, SET_PARAMS_MASK_GAIN | SET_PARAMS_MASK_DIR, this.table.gain[i]!, 0, this.table.dirX[i]!, this.table.dirY[i]!, this.table.dirZ[i]!, 0, this.clockMap.rampFrames());
+    // Only a mixed voice is heard; a virtual one gets its gain with SET_MIXED when it is promoted (A3.1).
+    if (this.table.state[i] === VoiceState.PLAYING) this.writer.setParams(id, SET_PARAMS_MASK_GAIN | SET_PARAMS_MASK_DIR, this.table.gain[i]!, 0, this.table.dirX[i]!, this.table.dirY[i]!, this.table.dirZ[i]!, 0, this.clockMap.rampFrames());
   }
 
   /** The voice's clip decides what happens next: play now, wait for the data, or fail. */
@@ -517,8 +560,10 @@ export class CoreBackend implements AudioBackend {
     const clip = t.clip[i]!;
     const state = this.clips.state(clip);
     if (state === "ready") {
-      t.state[i] = VoiceState.PLAYING;
-      t.reason[i] = VoiceReason.NONE;
+      // A3.1: mixed when there is room under the cap; otherwise virtual, and this frame's selection may promote it.
+      const mixed = this.selection.admit(i, this.mixedCap());
+      t.state[i] = mixed ? VoiceState.PLAYING : VoiceState.VIRTUAL;
+      t.reason[i] = mixed ? VoiceReason.NONE : VoiceReason.VIRTUAL;
       this.sendPlay(id, i);
     } else if (state === "failed") {
       t.free(id, VoiceReason.FAILED);
@@ -540,7 +585,7 @@ export class CoreBackend implements AudioBackend {
     a.clip = t.clip[i]!;
     a.bus = t.bus[i]!;
     const f = t.flags[i]!;
-    a.flags = PLAY_FLAGS_MIXED | (f & VoiceFlag.LOOP ? PLAY_FLAGS_LOOP : 0) | (f & VoiceFlag.SPATIAL ? PLAY_FLAGS_SPATIAL : 0);
+    a.flags = (t.state[i] === VoiceState.PLAYING ? PLAY_FLAGS_MIXED : 0) | (f & VoiceFlag.LOOP ? PLAY_FLAGS_LOOP : 0) | (f & VoiceFlag.SPATIAL ? PLAY_FLAGS_SPATIAL : 0);
     a.gain = t.gain[i]!;
     a.pitch = t.pitch[i]!;
     a.dirX = t.dirX[i]!;
@@ -578,6 +623,11 @@ export class CoreBackend implements AudioBackend {
       if (!all && this.spatialDirty[i] === 0) continue;
       if (!this.onCore(i)) continue;
       this.spatialDirty[i] = 0;
+      if (t.state[i] === VoiceState.VIRTUAL) {
+        // Virtual (A3.1): fresh gain and direction for its audibility; nothing is sent until it is promoted.
+        this.refreshGain(i);
+        continue;
+      }
       const g = t.gain[i]!;
       const x = t.dirX[i]!;
       const y = t.dirY[i]!;
@@ -595,6 +645,27 @@ export class CoreBackend implements AudioBackend {
     }
   }
 
+  /** A3.1: the frame's selection over every logical voice, at the current mixed cap. */
+  private select(): void {
+    if (this.table.liveCount === 0) return;
+    this.selection.run(this.mixedCap(), this.selectionSink);
+  }
+
+  /** SET_MIXED for slot `i` (selection's change); a promote carries the voice's current gain, direction and `lpHz`. */
+  private sendMixed(i: number, mixed: boolean): void {
+    const t = this.table;
+    const id = ((t.gen[i]! << 16) | i) >>> 0;
+    if (mixed) this.spatialDirty[i] = 0;
+    this.writer.setMixed(id, mixed, t.gain[i]!, t.dirX[i]!, t.dirY[i]!, t.dirZ[i]!, t.lpHz[i]!);
+  }
+
+  /** Selection stole slot `i` (its bus is past `maxVoices`): free it as STOLEN; `onFree` stops it on the core. */
+  private stealSlot(i: number): void {
+    const t = this.table;
+    t.stolenCount++;
+    t.free(((t.gen[i]! << 16) | i) >>> 0, VoiceReason.STOLEN);
+  }
+
   /** `onIdle`: RESET 0 once no voice is live and no clip is resident (the registry unloads one frame after the World left). */
   private checkIdle(): void {
     if (this.host.worldCount > 0) {
@@ -609,6 +680,11 @@ export class CoreBackend implements AudioBackend {
   private onFree(id: number, bus: number): void {
     const i = id & 0xffff;
     const t = this.table;
+    // Freed while still on the core (a steal: allocation's, or selection's past a bus's `maxVoices`): stop it there,
+    // or it would sound on until a PLAY reuses the slot (the new voice may be waiting for its clip). The state is
+    // still the old one here; natural ends (ENDING) are already gone from the core.
+    const s = t.state[i]!;
+    if (s === VoiceState.PLAYING || s === VoiceState.VIRTUAL || s === VoiceState.STOPPING) this.writer.stop(id, STEAL_FADE_SECONDS);
     this.clips.release(t.clip[i]!);
     this.mixer.voiceEnded(this.names[bus] ?? "");
     if ((t.flags[i]! & VoiceFlag.SPATIAL) !== 0) this.spatialCount--;
