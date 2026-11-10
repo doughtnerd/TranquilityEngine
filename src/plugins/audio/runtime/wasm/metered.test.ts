@@ -26,7 +26,7 @@ const LOOP_MODULE = Uint8Array.from([
   0x20, 0x01, 0x0b,
 ]);
 
-function instantiate(bytes: Uint8Array) {
+function instantiate(bytes: Uint8Array<ArrayBuffer>) {
   const { exports } = new WebAssembly.Instance(new WebAssembly.Module(bytes), {});
   return { run: exports.run as (n: number) => number, counter: exports[COUNTER_EXPORT] as WebAssembly.Global };
 }

@@ -6,4 +6,4 @@ export interface MeterStats {
   segments: number;
   instructions: number;
 }
-export declare function meter(input: Uint8Array): { bytes: Buffer; stats: MeterStats };
+export declare function meter(input: Uint8Array): { bytes: Uint8Array<ArrayBuffer>; stats: MeterStats };
