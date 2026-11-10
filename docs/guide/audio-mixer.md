@@ -41,10 +41,10 @@ Buses, volume, mute, solo, snapshots (their volumes) and ducking work on every b
 - A snapshot's low-pass does nothing. Its volumes still apply.
 - No priorities and no virtual voices. Sounds are never stolen by priority.
 - `maxVoices` is approximate: when a bus is over its limit, the oldest sound on it is stopped.
-- Clips with `stream` on in their import settings play through a streaming source with no pitch change.
+- Clips with `stream` on in their import settings play through a streaming source (the browser's own) with no pitch change. The fallback decodes clips with the browser, not the engine's decoder, so the formats it supports are the browser's.
 - Spatial sound uses the browser's own panner, so 3D sound differs from browser to browser.
 
-On the audio core (`audio.backend` `"core"`), a bus runs its first 4 effects and at most one `compressor` (the first in its list). Further effects, and a second compressor, are skipped.
+On the audio core (`audio.backend` `"core"`), clips decode on a worker (WAV, FLAC, MP3 and Ogg Vorbis, each at its file's own rate); a clip with `stream` on decodes in pieces while it plays instead of loading whole. A bus runs its first 4 effects and at most one `compressor` (the first in its list). Further effects, and a second compressor, are skipped.
 
 The audio core ends in a master limiter, after the master volume: the output never goes above 0 dBFS, so many loud sounds at once are turned down for a moment (released over about a quarter of a second) instead of clipping. While the mix stays under full scale it changes nothing. The Babylon fallback has no limiter.
 
