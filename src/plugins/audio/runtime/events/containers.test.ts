@@ -155,13 +155,14 @@ describe("blend", () => {
     at(6); // the other way round
     expect(a.volume).toBeCloseTo(0);
     expect(b.volume).toBeCloseTo(1);
-    // Mid-crossfade both are partway in. The easing is quadratic, so the powers sum to ~1.1 at the middle; asserted
-    // loosely, as the curve's comment says "close to equal power".
+    // Across the whole crossfade (4..6) the powers sum to 1 within 0.01 (0158 §1: equal-power), and a mid-way is partway.
     at(5);
     expect(a.volume).toBeGreaterThan(0.05);
     expect(a.volume).toBeLessThan(0.95);
-    expect(a.volume ** 2 + b.volume ** 2).toBeGreaterThan(0.9);
-    expect(a.volume ** 2 + b.volume ** 2).toBeLessThan(1.25);
+    for (let x = 4; x <= 6.0001; x += 0.05) {
+      at(x);
+      expect(Math.abs(a.volume ** 2 + b.volume ** 2 - 1)).toBeLessThan(0.01);
+    }
   });
 
   it("fade width sets the edge ramp in parameter units; out-of-range children stay virtual (playing, silent)", async () => {

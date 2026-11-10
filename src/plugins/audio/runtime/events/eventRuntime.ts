@@ -356,11 +356,21 @@ export class EventSystem {
     if (!child.range) return null;
     let c = this.blendCurves.get(child);
     if (!c) {
-      // Full level on [lo, hi]; fades of width `fade` either side, shaped close to equal power (easeOut in, easeIn
-      // out). No fade still gets a tiny one, so the edges are ordinary keys the core evaluates the same way.
+      // Full level on [lo, hi]; fades of width `fade` either side. Equal power (0158 §1): the fade in is sin and the
+      // fade out cos of the edge position, sampled into linear keys (12 per edge: a²+b² stays within 0.01 of 1 where
+      // a fade out meets a fade in; 26 keys, under the 32-key cap). No fade is a tiny linear ramp.
       const [lo, hi] = child.range;
-      const f = child.fade > 0 ? child.fade : 1e-4 * Math.max(1, hi - lo);
-      c = [[lo - f, 0, "easeOut"], [lo, 1], [hi, 1, "easeIn"], [hi + f, 0]];
+      if (!(child.fade > 0)) {
+        const f = 1e-4 * Math.max(1, hi - lo);
+        c = [[lo - f, 0], [lo, 1], [hi, 1], [hi + f, 0]];
+      } else {
+        const f = child.fade;
+        const N = 12;
+        const keys: Curve = [];
+        for (let k = 0; k <= N; k++) keys.push([lo - f + (f * k) / N, Math.sin((k / N) * Math.PI / 2)]);
+        for (let k = 0; k <= N; k++) keys.push([hi + (f * k) / N, Math.cos((k / N) * Math.PI / 2)]);
+        c = keys;
+      }
       this.blendCurves.set(child, c);
     }
     return c;
