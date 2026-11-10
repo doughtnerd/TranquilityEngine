@@ -118,3 +118,9 @@ The owner asked (2026-11-10) that, while the build runs unattended, decisions th
 
 ### 23. MS6 merged to master, with finished MS7 tasks
 - MS6 (H1–H5) passed its exit check and was merged with the integration branch's finished MS7 tasks (B1, B2, B3, B3b, B5, B6). Those are opt-in (the default backend stays `"babylon"` until B7). Not run: WebKit and Firefox parity (no Docker).
+
+### 24. AAC ships as a separate, optional decoder wasm (B4)
+- **Question:** the decoder with AAC built in is about 1,037 KB, over the 900 KB gate; the design makes AAC opt-in (`audio.codecs.aac`, default false).
+- **Chosen:** two decoder builds: the default `myco_audio_decode.wasm` (WAV, FLAC, MP3, Vorbis; under 900 KB) and `myco_audio_decode_aac.wasm` (with AAC/MP4) with its own size gate, fetched only when `codecs.aac` is true.
+- **Why:** projects that don't use AAC don't download it; the gate keeps meaning something for the default build. Common practice for optional codecs (load-on-demand modules).
+- **If changed:** one decoder with AAC always in and the gate raised to ~1.1 MB.
