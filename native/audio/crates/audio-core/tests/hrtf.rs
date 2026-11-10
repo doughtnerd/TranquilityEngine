@@ -410,6 +410,44 @@ fn hrtf_cost_per_voice() {
     std::println!("the completing commit (parse and build the bank): {:.0} µs", t.elapsed().as_secs_f64() * 1e6);
 }
 
+/// A3.5: the work-unit model counts each HRTF voice and each kernel computation (the render notes
+/// the kernels, and the panners crossfading, in `CapState::render_work`).
+#[test]
+fn the_model_counts_hrtf_voices_crossfades_and_kernels() {
+    use audio_core::cap::wu;
+    let rate = 48_000.0;
+    let mut core = new_core(rate, 64);
+    load_table(&mut core, HRIR_ID, &shipped_table_at(rate), rate);
+    load_sine(&mut core, SINE, rate, 1);
+    let mut frame = 0u64;
+    let recs: Vec<Rec> = (0..4u32).map(|i| play(((i + 1) << 16) | i, SINE, AHEAD_LEFT, 1)).collect();
+    submit(&mut core, frame, &recs);
+    render(&mut core, &mut frame, 40);
+    let (mut saw_kernels, mut saw_crossfade) = (false, false);
+    for q in 0..64u32 {
+        let a = (q as f32 * 4.0).to_radians();
+        let recs: Vec<Rec> = (0..4u32)
+            .map(|i| Rec::Set(wire::SetParams { voice_id: ((i + 1) << 16) | i, frame_offset: wire::ASAP, mask: wire::SET_PARAMS_MASK_DIR, dir_x: libm::sinf(a), dir_z: -libm::cosf(a), ramp_frames: 128, ..Default::default() }))
+            .collect();
+        submit(&mut core, frame, &recs);
+        core.process(frame);
+        frame += QUANTUM as u64;
+        let w = core.cap().render_work();
+        let (crossfading, kernels) = (w.hrtf_crossfading, w.hrtf_kernels);
+        assert!(kernels <= KERNEL_BUDGET, "quantum {q}: {kernels} kernel computations past the budget");
+        assert!(crossfading <= 4);
+        saw_kernels |= kernels > 0;
+        saw_crossfade |= crossfading > 0;
+        // The rest of the model: 4 mixed voices, their source frames, the root bus, the limiter and
+        // the 4 records of this quantum's batch.
+        let c = status::counters(&core);
+        assert_eq!(c.hrtf_voices, 4);
+        let rest = 4 * wu::MIXED_VOICE + 4 * wu::SOURCE_QUANTUM + w.moving * wu::MOVING_VOICE + wu::LIMITER + 4 * wu::RECORD + audio_core::bus::count(&core) as u32 * wu::BUS;
+        assert_eq!(core.work_units(), rest + 4 * wu::HRTF_VOICE + kernels * wu::HRTF_KERNEL, "quantum {q}");
+    }
+    assert!(saw_kernels && saw_crossfade, "the voices turned");
+}
+
 /// Many voices switching kernels in the same quanta never take more than `KERNEL_BUDGET` kernel
 /// computations in one quantum; the switches wait their turn (each on its last direction).
 #[test]
@@ -433,6 +471,8 @@ fn kernel_work_stays_within_the_budget_per_quantum() {
         assert!(out.iter().all(|v| v.is_finite()));
         let used = audio_core::panner::kernels_last_quantum(&core);
         assert!(used <= KERNEL_BUDGET, "quantum {q}: {used} kernel computations");
+        let computed = core.cap().render_work().hrtf_kernels;
+        assert!(computed <= KERNEL_BUDGET, "quantum {q}: the panners computed {computed} kernels");
         total += used;
         frame += QUANTUM as u64;
     }

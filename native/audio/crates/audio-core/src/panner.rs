@@ -505,9 +505,32 @@ impl<'a> Hrtf<'a> {
         let right = (s.channels >= 2).then_some(&s.in_r);
         // SAFETY: as `restart`.
         unsafe {
-            match bank.partitions {
-                2 => (*(self.panners as *mut HrtfPannerN<2>).add(k)).pan(&self.db, &mut bank.scratch, az, el, &s.in_l, right, &mut bank.out_l, &mut bank.out_r),
-                _ => (*(self.panners as *mut HrtfPannerN<4>).add(k)).pan(&self.db, &mut bank.scratch, az, el, &s.in_l, right, &mut bank.out_l, &mut bank.out_r),
+            // A switch that waits pans without starting a crossfade (A3.5): its last direction may be
+            // one the panner itself deferred mid-crossfade, which would need kernels past the budget.
+            match (bank.partitions, go) {
+                (2, true) => (*(self.panners as *mut HrtfPannerN<2>).add(k)).pan(&self.db, &mut bank.scratch, az, el, &s.in_l, right, &mut bank.out_l, &mut bank.out_r),
+                (2, false) => (*(self.panners as *mut HrtfPannerN<2>).add(k)).pan_held(&self.db, &mut bank.scratch, az, el, &s.in_l, right, &mut bank.out_l, &mut bank.out_r),
+                (_, true) => (*(self.panners as *mut HrtfPannerN<4>).add(k)).pan(&self.db, &mut bank.scratch, az, el, &s.in_l, right, &mut bank.out_l, &mut bank.out_r),
+                (_, false) => (*(self.panners as *mut HrtfPannerN<4>).add(k)).pan_held(&self.db, &mut bank.scratch, az, el, &s.in_l, right, &mut bank.out_l, &mut bank.out_r),
+            }
+        }
+    }
+
+    /// Whether slot `k`'s panner is crossfading two kernel sets, and the kernel computations its
+    /// last pan made (A3.5: the work-unit model's HRTF terms).
+    fn work(&self, k: usize) -> (bool, u32) {
+        debug_assert!(k < HRTF_SLOTS);
+        // SAFETY: as `restart`.
+        unsafe {
+            match self.bank.partitions {
+                2 => {
+                    let p = &*(self.panners as *const HrtfPannerN<2>).add(k);
+                    (p.is_crossfading(), p.kernels_computed_last())
+                }
+                _ => {
+                    let p = &*(self.panners as *const HrtfPannerN<4>).add(k);
+                    (p.is_crossfading(), p.kernels_computed_last())
+                }
             }
         }
     }
@@ -551,13 +574,14 @@ pub(crate) fn view(clips: &crate::clips::ClipStore) -> Option<Hrtf<'_>> {
 /// whose voice didn't render or whose share reached 0, and sets STATUS `hrtfVoices` (the slots
 /// panned this quantum, those crossfading included). Never allocates.
 pub fn flush(core: &mut Core, frame: u64) {
-    let panned = {
+    let (panned, crossfading, kernels) = {
         let (regions, clips) = core.parts_mut();
         match view(clips) {
-            None => 0,
+            None => (0, 0, 0),
             Some(mut h) => {
                 let mut inputs = crate::bus::Inputs::of(regions);
                 let mut panned = 0u16;
+                let (mut crossfading, mut kernels) = (0u32, 0u32);
                 let start = h.bank.cursor as usize % HRTF_SLOTS;
                 h.bank.cursor = ((start + 1) % HRTF_SLOTS) as u32;
                 for j in 0..HRTF_SLOTS {
@@ -571,6 +595,9 @@ pub fn flush(core: &mut Core, frame: u64) {
                         continue;
                     }
                     h.pan(k, frame);
+                    let (fading, computed) = h.work(k);
+                    crossfading += fading as u32;
+                    kernels += computed;
                     let bank = &mut *h.bank;
                     let s = &mut bank.slots[k];
                     let (x0, inc) = (s.x, s.inc);
@@ -589,11 +616,12 @@ pub fn flush(core: &mut Core, frame: u64) {
                     }
                     panned += 1;
                 }
-                panned
+                (panned, crossfading, kernels)
             }
         }
     };
     crate::status::counters_mut(core).hrtf_voices = panned;
+    core.cap_mut().note_hrtf(crossfading, kernels);
 }
 
 #[cfg(test)]

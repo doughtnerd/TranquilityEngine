@@ -295,10 +295,124 @@ pub fn advance(pos: &mut f64, steps: &[f32], frames: u32, looping: bool) -> usiz
     steps.len()
 }
 
+/// The exponent of the lowest set bit of a finite, non-zero `x` (`x` is an odd multiple of
+/// `2^result`).
+fn lowest_bit_exponent(x: f64) -> i32 {
+    let bits = x.to_bits();
+    let biased = ((bits >> 52) & 0x7FF) as i32;
+    let mantissa = bits & ((1u64 << 52) - 1);
+    let (m, e) = if biased == 0 { (mantissa, -1074) } else { (mantissa | (1u64 << 52), biased - 1075) };
+    e + m.trailing_zeros() as i32
+}
+
+/// [`advance`] with every step equal to `step` (a settled pitch: virtual voices keep time), in
+/// O(1) when that is exact, else through [`advance`]'s loop. Same result bit for bit. `n` is at
+/// most a quantum (128).
+///
+/// Why it is exact: `step`, `*pos` and `frames` are all multiples of `2^g` (`g` the lowest set bit
+/// of either, at most 0 since `frames` is whole). While every value stays below `2^(52 + g)` in
+/// magnitude, each of the loop's additions and subtractions is exact, so the loop's result is the
+/// exact `(pos + n·step)` reduced into `[0, frames)` (looping) — which is what this computes, with
+/// exact integer multiples. Otherwise (a huge position, a step with far finer bits than the
+/// position, a non-looping voice reaching its end, a negative or non-finite value) it loops.
+#[inline(never)]
+pub fn advance_constant(pos: &mut f64, step: f32, n: usize, frames: u32, looping: bool) -> usize {
+    let n = n.min(128);
+    let frames_f = frames as f64;
+    let s = step as f64;
+    let p = *pos;
+    let exact = frames > 0 && s.is_finite() && s >= 0.0 && p.is_finite() && p >= 0.0;
+    if exact {
+        let mut g = 0i32;
+        if s != 0.0 {
+            g = g.min(lowest_bit_exponent(s));
+        }
+        if p != 0.0 {
+            g = g.min(lowest_bit_exponent(p));
+        }
+        // Everything the loop computes stays below p + n·step + frames.
+        let bound = p + n as f64 * s + frames_f;
+        // 2^(52 + g), built from its exponent bits (52 + g ≥ -948: a normal number).
+        if g > -1000 && bound < f64::from_bits(((1023 + 52 + g) as u64) << 52) {
+            if looping {
+                let mut t = p;
+                // The loop first wraps `*pos` into the clip, then adds and wraps each step.
+                if t >= frames_f {
+                    t -= ((t / frames_f) as u64) as f64 * frames_f;
+                }
+                t += n as f64 * s;
+                if t >= frames_f {
+                    t -= ((t / frames_f) as u64) as f64 * frames_f;
+                }
+                // The truncated quotient (t ≥ 0, so a floor) of a rounded division can be one off
+                // either way: settle exactly.
+                while t >= frames_f {
+                    t -= frames_f;
+                }
+                while t < 0.0 {
+                    t += frames_f;
+                }
+                *pos = t;
+                return n;
+            }
+            let t = p + n as f64 * s;
+            // The non-looping loop stops before a frame once `pos >= frames`.
+            if p + (n as f64 - 1.0).max(0.0) * s < frames_f {
+                *pos = t;
+                return n;
+            }
+        }
+    }
+    // The general case: the loop itself.
+    let steps = [step; 128];
+    advance(pos, &steps[..n], frames, looping)
+}
+
 #[cfg(test)]
 mod tests {
     #[allow(unused_imports)]
     use super::*;
+
+    /// `advance_constant` lands exactly where `advance` does, over random positions, steps,
+    /// lengths and loop modes, including huge positions and fine steps (the loop fallback).
+    #[test]
+    fn advance_constant_matches_the_loop_bit_for_bit() {
+        let mut seed = 0x1234_5678u32;
+        let mut rnd = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+        for case in 0..200_000 {
+            let frames = 1 + rnd() % match case % 4 {
+                0 => 8,
+                1 => 1_000,
+                2 => 200_000,
+                _ => 20_000_000,
+            };
+            let step = match case % 5 {
+                0 => 1.0,
+                1 => (rnd() % 1_000) as f32 / 997.0 * 2.0,
+                2 => f32::from_bits(0x3C00_0000 + rnd() % 0x0400_0000), // 2^-7 .. 2^1 any mantissa
+                3 => (rnd() % 17) as f32,
+                _ => f32::from_bits(0x3000_0000 + rnd() % 0x1000_0000), // tiny steps
+            };
+            let start = match case % 3 {
+                0 => (rnd() % frames) as f64,
+                1 => (rnd() % frames) as f64 + (rnd() % 4096) as f64 / 4096.0,
+                _ => (rnd() % (2 * frames)) as f64 * 0.731_f32 as f64,
+            };
+            let n = (rnd() % 129) as usize;
+            for looping in [false, true] {
+                let mut a = start;
+                let used_a = advance(&mut a, &vec![step; n], frames, looping);
+                let mut b = start;
+                let used_b = advance_constant(&mut b, step, n, frames, looping);
+                assert_eq!((a.to_bits(), used_a), (b.to_bits(), used_b), "case {case}: start {start} step {step} n {n} frames {frames} looping {looping}: {a} vs {b}");
+            }
+        }
+    }
 
     /// Frame `i` holds `i / 256`, so interpolated values are exact in f32.
     fn ramp(n: usize) -> Vec<f32> {

@@ -82,6 +82,9 @@ fn mixed(m: &Mixer) -> u32 {
     status::counters(&m.core).mixed_voices as u32
 }
 
+/// The work units of one mixed voice at pitch 1 (its own cost and its 128 source frames, A3.5).
+const VOICE: u32 = wu::MIXED_VOICE + wu::SOURCE_QUANTUM;
+
 #[test]
 fn at_normal_load_the_cap_is_the_configured_one_and_nothing_is_demoted() {
     let mut m = rig(CONFIGURED);
@@ -97,23 +100,37 @@ fn the_model_counts_voices_buses_effects_and_records() {
     let mut m = rig(10);
     run(&mut m, 1);
     let base = wu::BUS + wu::LIMITER;
-    assert_eq!(m.core.work_units(), 10 * wu::MIXED_VOICE + base);
+    assert_eq!(m.core.work_units(), 10 * VOICE + base);
     assert_eq!(status::counters(&m.core).work_units, m.core.work_units(), "STATUS workUnits");
     // Four voices go virtual (SET_MIXED), which also carries 4 records into the next quantum.
     let recs: Vec<Rec> = (1..=4).map(|k| Rec::Set(wire::SetParams { voice_id: id(k), frame_offset: wire::ASAP, mask: wire::SET_PARAMS_MASK_SCORE, score: 0.5, ..Default::default() })).collect();
     m.submit(&recs);
     run(&mut m, 1);
-    assert_eq!(m.core.work_units(), 10 * wu::MIXED_VOICE + base + 4 * wu::RECORD);
+    assert_eq!(m.core.work_units(), 10 * VOICE + base + 4 * wu::RECORD);
     run(&mut m, 1);
-    assert_eq!(m.core.work_units(), 10 * wu::MIXED_VOICE + base, "records count once");
+    assert_eq!(m.core.work_units(), 10 * VOICE + base, "records count once");
     // A second bus with a lowpass and a compressor.
     m.submit(&[config_fx(&[(ROOT, vec![]), (0, vec![(wire::effect_type::LOWPASS, 1_000.0, 0.0), (wire::effect_type::COMPRESSOR, -24.0, 30.0)])])]);
     run(&mut m, 1);
     let fx = 2 * wu::BUS + wu::BIQUAD + wu::COMPRESSOR + wu::LIMITER;
-    assert_eq!(m.core.work_units(), 10 * wu::MIXED_VOICE + fx + wu::RECORD, "the BUS_CONFIG record too");
+    assert_eq!(m.core.work_units(), 10 * VOICE + fx + wu::RECORD, "the BUS_CONFIG record too");
     run(&mut m, 1);
-    assert_eq!(m.core.work_units(), 10 * wu::MIXED_VOICE + fx);
+    assert_eq!(m.core.work_units(), 10 * VOICE + fx);
     assert_eq!(BUDGET_WU, 1_300_000, "1.3 ms at 1 WU per ns");
+}
+
+#[test]
+fn the_model_counts_the_source_frames_a_pitch_reads() {
+    // A3.5: each mixed voice reads pitch × 128 source frames a quantum; the model counts them in
+    // quanta of 128 (`wu::SOURCE_QUANTUM`) beside the voice's own `wu::MIXED_VOICE`.
+    let mut m = rig(10);
+    run(&mut m, 1);
+    assert_eq!(m.core.cap().render_work().source_frames, 10.0 * 128.0, "pitch 1: 128 frames a voice");
+    let recs: Vec<Rec> = (1..=10).map(|k| Rec::Set(wire::SetParams { voice_id: id(k), frame_offset: wire::ASAP, mask: wire::SET_PARAMS_MASK_PITCH, pitch: 4.0, ..Default::default() })).collect();
+    m.submit(&recs);
+    run(&mut m, 2);
+    assert_eq!(m.core.cap().render_work().source_frames, 10.0 * 512.0, "pitch 4: 512 frames a voice");
+    assert_eq!(m.core.work_units(), 10 * wu::MIXED_VOICE + 40 * wu::SOURCE_QUANTUM + wu::BUS + wu::LIMITER);
 }
 
 #[test]
@@ -234,19 +251,22 @@ fn negative_slack_alone_without_a_late_command_does_not_cut() {
 fn a_work_unit_ceiling_set_low_walks_the_cap_down_to_where_the_model_fits() {
     let mut m = rig(CONFIGURED);
     run(&mut m, 10);
-    // 40 voices model 52,500 WU; a 60,000 budget puts its 70% line at 42,000 and 55% at 33,000.
-    m.core.cap_mut().set_budget(60_000);
+    // A budget whose 70% line falls between the models of 34 and 28 mixed voices (the rest of the
+    // 40 virtual): 40 and 34 are over it, 28 is under it and over the 55% line.
+    let model = |mixed: u32| mixed * VOICE + (CONFIGURED - mixed) * wu::VIRTUAL_VOICE + wu::BUS + wu::LIMITER;
+    let budget = ((model(34) + model(28)) as f64 / 2.0 / 0.7) as u32;
+    m.core.cap_mut().set_budget(budget);
     let mut caps = Vec::new();
     for _ in 0..6 {
         run(&mut m, SECOND);
         caps.push((cap_of(&m), mixed(&m)));
     }
-    // 40 -> 34 (45,648 WU > 42,000) -> 28 (38,748 WU: busy, holds).
+    // 40 -> 34 (over the 70% line) -> 28 (busy, holds).
     assert_eq!(caps.last(), Some(&(28, 28)));
     assert_eq!(caps[0], (34, 34));
     let p99 = m.core.cap().last_p99();
-    assert_eq!(p99, 28 * wu::MIXED_VOICE + 12 * wu::VIRTUAL_VOICE + wu::BUS + wu::LIMITER);
-    assert!(p99 as u64 * 1000 >= 60_000 * 550 && (p99 as u64) * 1000 <= 60_000 * 700);
+    assert_eq!(p99, model(28));
+    assert!(p99 as u64 * 1000 >= budget as u64 * 550 && (p99 as u64) * 1000 <= budget as u64 * 700);
 
     // The load ends (the budget back): 5 s of calm, then up once a second.
     m.core.cap_mut().set_budget(BUDGET_WU);
@@ -291,7 +311,7 @@ fn under_the_floor_nothing_happens() {
 fn p99_is_the_max_at_48k() {
     let mut m = rig(4);
     run(&mut m, 200);
-    assert_eq!(m.core.cap().last_p99(), 4 * wu::MIXED_VOICE + wu::BUS + wu::LIMITER);
+    assert_eq!(m.core.cap().last_p99(), 4 * VOICE + wu::BUS + wu::LIMITER);
     assert_eq!(cap::NS_PER_WU, 1);
 }
 

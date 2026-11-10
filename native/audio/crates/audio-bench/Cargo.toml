@@ -1,0 +1,19 @@
+[package]
+name = "audio-bench"
+description = "The audio core's lab benchmark (ADR 0157 A3.5, architecture §6.5): per-quantum wall time of fixed scenes, natively and as wasm in Node."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "audio_bench"
+# rlib for the native binary (src/bin/audio-bench.rs); cdylib for the wasm module that
+# tools/audio-bench/run.mjs runs in Node.
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+audio-core.workspace = true
+audio-dsp.workspace = true
+audio-wire.workspace = true
+libm.workspace = true
