@@ -8,11 +8,13 @@
 //! use exactly the same position arithmetic, so a voice that goes virtual and comes back lands on
 //! the same frame it would have played.
 //!
-//! **Why Lagrange** (measured in `tests/quality_thdn.rs`): of the 4-point kernels that pass through
-//! the samples (so whole-frame positions stay bit-exact), it beat Catmull-Rom (cubic Hermite) on
-//! every THD+N and spur row, by up to 20 dB at 1 kHz (−112.5 against −93.2 dB a semitone up), at
-//! the same cost. The "optimal" 4-point polynomials for oversampled input (Niemitalo) do not pass
-//! through the samples, so they would change every voice, whole pitch ratios included.
+//! **Why Lagrange** (measured with `tests/quality_thdn.rs`' rows): of the 4-point kernels that pass
+//! through the samples (so whole-frame positions stay bit-exact), it ties Catmull-Rom (cubic
+//! Hermite) where every fraction is 0 or 1/2 (pitch 1.5 and 0.5, where the two kernels coincide)
+//! and beats it on every other THD+N and spur row, by up to 20 dB at 1 kHz (−112.5 against −93.2 dB
+//! a semitone up; 10 kHz a semitone up −35.6 against −30.7 dB), for about the same arithmetic. The
+//! "optimal" 4-point polynomials for oversampled input (Niemitalo) do not pass through the samples,
+//! so they would change every voice, whole pitch ratios included.
 //!
 //! **Aliasing.** No kernel here band-limits: content that pitching up pushes past the output's
 //! Nyquist folds back. A kernel that passes through the samples cannot reject it at whole ratios (at
@@ -148,6 +150,8 @@ impl Sample for i16 {
 /// `y = w0 x[idx-1] + w1 x[idx] + w2 x[idx+1] + w3 x[idx+2]`, where
 /// `w0 = -t (t-1) (t-2) / 6`, `w1 = (t+1) (t-1) (t-2) / 2`, `w2 = -(t+1) t (t-2) / 2`,
 /// `w3 = (t+1) t (t-1) / 6` (the cubic through the four neighbours, evaluated at `t`).
+/// (A mono clip evaluates the same cubic in Horner form; a stereo clip shares the four weights
+/// between its channels. The two forms agree to f32 rounding.)
 ///
 /// At `t = 0` the weights are exactly `(0, 1, 0, 0)`, so a voice whose position lands on whole
 /// frames (pitch 1 or 2 at the clip's rate, from a whole start offset) reads the clip bit for bit,
@@ -175,6 +179,16 @@ pub fn lagrange(src: &Source<'_>, pos: &mut f64, steps: &[f32], looping: bool, o
 fn weights(t: f32) -> [f32; 4] {
     let (a, b, c) = (t + 1.0, t - 1.0, t - 2.0);
     [-(t * b * c) * (1.0 / 6.0), 0.5 * (a * b * c), -0.5 * (a * t * c), (a * t * b) * (1.0 / 6.0)]
+}
+
+/// The cubic of [`lagrange`] through `x[0..4]` (frames `idx - 1 ..= idx + 2`) at `t`, in Horner form:
+/// `((c3 t + c2) t + c1) t + x[1]`, so `t = 0` gives `x[1]` exactly.
+#[inline(always)]
+fn horner(x: [f32; 4], t: f32) -> f32 {
+    let c1 = x[2] - (1.0 / 3.0) * x[0] - 0.5 * x[1] - (1.0 / 6.0) * x[3];
+    let c2 = 0.5 * (x[0] + x[2]) - x[1];
+    let c3 = (1.0 / 6.0) * (x[3] - x[0]) + 0.5 * (x[1] - x[2]);
+    ((c3 * t + c2) * t + c1) * t + x[1]
 }
 
 #[inline(always)]
@@ -213,15 +227,31 @@ fn render4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64
         }
         let idx = (*pos as usize).min(last);
         let t = (*pos - idx as f64) as f32;
-        let (j0, j1, j2, j3) = if idx >= 1 && idx + 2 < frames { (idx - 1, idx, idx + 1, idx + 2) } else { (edge(idx, -1), idx, edge(idx, 1), edge(idx, 2)) };
-        let w = weights(t);
+        // The four neighbours: one contiguous window inside the clip (the usual case), else frame by
+        // frame through `edge`.
+        let start = idx.wrapping_sub(1).wrapping_mul(ch);
+        let inside = idx >= 1 && idx + 2 < frames;
         if STEREO {
-            let l = w[0] * data[2 * j0].get() + w[1] * data[2 * j1].get() + w[2] * data[2 * j2].get() + w[3] * data[2 * j3].get();
-            let r = w[0] * data[2 * j0 + 1].get() + w[1] * data[2 * j1 + 1].get() + w[2] * data[2 * j2 + 1].get() + w[3] * data[2 * j3 + 1].get();
-            out_l[i] = l;
-            out_r[i] = r;
+            let window: Option<&[S; 8]> = if inside { data.get(start..start + 8).and_then(|s| s.try_into().ok()) } else { None };
+            let (xl, xr) = match window {
+                Some(x) => ([x[0].get(), x[2].get(), x[4].get(), x[6].get()], [x[1].get(), x[3].get(), x[5].get(), x[7].get()]),
+                None => {
+                    let j = [edge(idx, -1), idx, edge(idx, 1), edge(idx, 2)];
+                    (j.map(|j| data[2 * j].get()), j.map(|j| data[2 * j + 1].get()))
+                }
+            };
+            // Stereo shares the weights between channels.
+            let w = weights(t);
+            out_l[i] = w[0] * xl[0] + w[1] * xl[1] + w[2] * xl[2] + w[3] * xl[3];
+            out_r[i] = w[0] * xr[0] + w[1] * xr[1] + w[2] * xr[2] + w[3] * xr[3];
         } else {
-            let y = w[0] * data[j0].get() + w[1] * data[j1].get() + w[2] * data[j2].get() + w[3] * data[j3].get();
+            let window: Option<&[S; 4]> = if inside { data.get(start..start + 4).and_then(|s| s.try_into().ok()) } else { None };
+            let x = match window {
+                Some(x) => [x[0].get(), x[1].get(), x[2].get(), x[3].get()],
+                None => [edge(idx, -1), idx, edge(idx, 1), edge(idx, 2)].map(|j| data[j].get()),
+            };
+            // Mono: the same cubic in Horner form (fewer operations for one channel).
+            let y = horner(x, t);
             out_l[i] = y;
             out_r[i] = y;
         }
