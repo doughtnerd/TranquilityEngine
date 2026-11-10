@@ -590,7 +590,6 @@ export class AudioHost {
   async _replaceCore(): Promise<void> {
     if (this.isClosed) throw new Error("audio core: the host is closed");
     if (!this.respawn) throw new Error("audio core: this host can't make a new node");
-    this.link.retire();
     this.currentNode.disconnect();
     const { node, port } = this.respawn();
     this.currentNode = node;
@@ -640,6 +639,8 @@ export class AudioHost {
     each(this.listeners, (l) => l.onClose?.());
     this.listeners.clear();
     this.clearTimeout();
+    // A rebuild waiting for its new core's first STATUS ends now rather than never (A3.4a).
+    if (this.recovering) this.link.fail(new Error("audio core: the host closed"));
     this.context.removeEventListener("statechange", this.onStateChange);
     this.unlock.dispose();
     this.link.dispose();
