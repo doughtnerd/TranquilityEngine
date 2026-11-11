@@ -3,7 +3,7 @@ import { parseAudioSettings } from "../../../engine/audio/settings";
 import { MAX_PARAMETERS } from "../../../engine/audio/eventFormat";
 import { readDraft, withSettings } from "../../../editor/projectSettingsModel";
 import {
-  addBus, addDucking, addEffect, addSnapshot, applyVoicesPreset, audioOf, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue,
+  addBus, addDucking, addEffect, addSnapshot, applyVoicesPreset, audioOf, VOICE_PRESETS, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue,
   addBusAutomation, addParameter, removeBusAutomation, removeParameter, renameParameter, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter,
   setBusAutomationTarget, setParameterDefaultLabel, setParameterLabelled, setParameterLabels, setParameterRange,
   setClipFormat, setClipMemory, setCodec, setLimiterLookahead, setSnapshotVolume, setSpatial, setVoices, voicesPreset,
@@ -87,6 +87,20 @@ describe("audio settings model, the core keys (ADR 0157 §2, K13)", () => {
     expect(audioOf(back).clipMemoryMB).toBeUndefined();
     expect(voicesPreset(audioOf(back))).toBe("default");
     expect(voicesPreset(audioOf(setVoices(low, { hrtf: 5 })))).toBe("custom");
+  });
+  it("the presets carry ADR 0162's numbers: HRTF 4/8/8, maxBeds 0/2/4, maxClips 1/1/2, and the comparison reads them", () => {
+    expect(VOICE_PRESETS.low).toMatchObject({ voices: { hrtf: 4 }, maxBeds: 0, maxClips: 1 });
+    expect(VOICE_PRESETS.default).toMatchObject({ voices: { hrtf: 8 }, maxBeds: 2, maxClips: 1 });
+    expect(VOICE_PRESETS.high).toMatchObject({ voices: { hrtf: 8 }, maxBeds: 4, maxClips: 2 });
+    const high = audioOf(applyVoicesPreset(empty(), "high"));
+    expect(high.bed.maxBeds).toBe(4);
+    expect(high.ambisonic.maxClips).toBe(2);
+    expect(voicesPreset(high)).toBe("high");
+    expect(voicesPreset({ ...high, bed: { maxBeds: 3 } })).toBe("custom");
+    expect(voicesPreset({ ...high, ambisonic: { maxClips: 1 } })).toBe("custom");
+    const low = audioOf(applyVoicesPreset(empty(), "low"));
+    expect(low.bed.maxBeds).toBe(0);
+    expect(voicesPreset(audioOf(applyVoicesPreset(applyVoicesPreset(empty(), "high"), "default")))).toBe("default");
   });
   it("sets background, clip memory, clip format, codec, spatial and backend; the result re-parses without problems", () => {
     let d = setBackground(empty(), "pause");

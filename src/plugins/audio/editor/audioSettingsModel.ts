@@ -232,9 +232,9 @@ export function setVoices(d: SettingsDraft, patch: Partial<VoiceSettings>): Sett
 
 /** Named bundles of the voice numbers and the clip ceiling (architecture 5.3); the file stores the numbers. "low" is provisional until the low-end soak (C3) sizes it. */
 export const VOICE_PRESETS = {
-  low: { voices: { mixed: 64, logical: 1024, hrtf: 4 }, clipMemoryMB: 64 },
-  default: { voices: { mixed: 128, logical: 4096, hrtf: 16 }, clipMemoryMB: undefined },
-  high: { voices: { mixed: 256, logical: 4096, hrtf: 32 }, clipMemoryMB: 256 },
+  low: { voices: { mixed: 64, logical: 1024, hrtf: 4 }, clipMemoryMB: 64, maxBeds: 0, maxClips: 1 },
+  default: { voices: { mixed: 128, logical: 4096, hrtf: 8 }, clipMemoryMB: undefined, maxBeds: 2, maxClips: 1 },
+  high: { voices: { mixed: 256, logical: 4096, hrtf: 8 }, clipMemoryMB: 256, maxBeds: 4, maxClips: 2 },
 } as const;
 export type VoicePresetName = keyof typeof VOICE_PRESETS;
 export const VOICE_PRESET_NAMES = Object.keys(VOICE_PRESETS) as VoicePresetName[];
@@ -243,15 +243,17 @@ export const VOICE_PRESET_NAMES = Object.keys(VOICE_PRESETS) as VoicePresetName[
 export function voicesPreset(a: AudioSettings): VoicePresetName | "custom" {
   for (const name of VOICE_PRESET_NAMES) {
     const p = VOICE_PRESETS[name];
-    if (p.voices.mixed === a.voices.mixed && p.voices.logical === a.voices.logical && p.voices.hrtf === a.voices.hrtf && p.clipMemoryMB === a.clipMemoryMB) return name;
+    if (p.voices.mixed === a.voices.mixed && p.voices.logical === a.voices.logical && p.voices.hrtf === a.voices.hrtf && p.clipMemoryMB === a.clipMemoryMB && p.maxBeds === a.bed.maxBeds && p.maxClips === a.ambisonic.maxClips) return name;
   }
   return "custom";
 }
 
-/** Apply a preset: voices and the clip ceiling (the default preset leaves the ceiling unset). Per-bus limits are kept, clamped to `logical`. */
+/** Apply a preset: voices, the clip ceiling (the default preset leaves it unset), `bed.maxBeds` and `ambisonic.maxClips`. Per-bus limits are kept, clamped to `logical`. */
 export function applyVoicesPreset(d: SettingsDraft, name: VoicePresetName): SettingsDraft {
   const p = VOICE_PRESETS[name];
-  return setClipMemory(setVoices(d, p.voices), p.clipMemoryMB);
+  const voiced = setClipMemory(setVoices(d, p.voices), p.clipMemoryMB);
+  const a = audioOf(voiced);
+  return a.bed.maxBeds === p.maxBeds && a.ambisonic.maxClips === p.maxClips ? voiced : withAudio(voiced, { ...a, bed: { ...a.bed, maxBeds: p.maxBeds }, ambisonic: { ...a.ambisonic, maxClips: p.maxClips } });
 }
 
 export function setBackground(d: SettingsDraft, background: AudioBackground): SettingsDraft {

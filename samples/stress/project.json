@@ -28,9 +28,15 @@
     "voices": {
       "mixed": 256,
       "logical": 4096,
-      "hrtf": 32
+      "hrtf": 8
     },
     "clipMemoryMB": 256,
+    "bed": {
+      "maxBeds": 4
+    },
+    "ambisonic": {
+      "maxClips": 2
+    },
     "buses": [
       {
         "name": "Master",

@@ -100,7 +100,8 @@ test("the stress sample runs for a minute: thousands of voices, the cap adapts, 
     // The beds' prefill fills the logical voices: well into the thousands (the limit is 4,096).
     expect(s.logicalMax).toBeGreaterThan(2000);
     expect(s.mixedMax).toBeGreaterThan(32);
-    expect(s.hrtfMax).toBeGreaterThan(8);
+    expect(s.hrtfMax).toBeGreaterThan(0);
+    expect(s.hrtfMax).toBeLessThanOrEqual(8); // the high preset's 8 (ADR 0162); the voices past it go to the bed
     // Eight looping streams, open the whole time.
     expect(c.streams).toBe(8);
   });

@@ -174,7 +174,7 @@ export interface VoiceSettings {
   mixed: number;
   /** Integer `mixed`..8192, default 4096. */
   logical: number;
-  /** Integer 0..32, default 16 (low preset 4). 0 behaves as `spatial: "equalPower"`. */
+  /** Integer 0..32, default 8 (low preset 4; ADR 0162: the voices past it go to the bed, where the bus has one). 0 behaves as `spatial: "equalPower"`. */
   hrtf: number;
 }
 
@@ -225,7 +225,7 @@ export function defaultBackend(env?: BackendEnv): "babylon" | "core" {
   return isMacOSDesktop(env) ? MACOS_DESKTOP_DEFAULT_BACKEND : DEFAULT_BACKEND;
 }
 
-export const DEFAULT_VOICES: Readonly<VoiceSettings> = { mixed: 128, logical: 4096, hrtf: 16 };
+export const DEFAULT_VOICES: Readonly<VoiceSettings> = { mixed: 128, logical: 4096, hrtf: 8 };
 
 /** `audio.limiterLookaheadMs` when absent (`DEFAULT_LOOKAHEAD_MS` in `audio-dsp/src/limiter.rs`). */
 export const DEFAULT_LIMITER_LOOKAHEAD_MS = 1.5;

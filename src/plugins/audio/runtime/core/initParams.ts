@@ -1,6 +1,6 @@
 // ADR 0162 (K2, K4; api-and-models §5.2, contract C8): the ABI 2.0 init parameters `myco_audio_init` takes after the
 // M2 five, one function per feature, read by `presetFromSettings` (context.ts) into the `CorePreset`. Each sizes a
-// region the core lays out before the arena; 0 lays out nothing. They return 0 until their feature's flip, so an M2
+// region the core lays out before the arena; 0 lays out nothing. They return 0 until their feature's flip (`bedInitParams` has flipped, A5), so an M2
 // project's core is laid out as before. **Each flip edits only its own function:** A5 `bedInitParams`
 // (`audio.bed.maxBeds`), C5 `zoneInitParams` (`maxActive + standby` slots of `maxIrSeconds`), B5 `wideInitParams`
 // (`audio.ambisonic.maxClips`, flipped: every core project pays the `Wide` region and the private decoders in `Beds`).
@@ -23,10 +23,10 @@ export interface SpatialInitParams {
   readonly maxWide: number;
 }
 
-/** @internal `max_beds` (A5's flip: `audio.bed.maxBeds`). 0 until then: no bed is laid out. */
+/** @internal `max_beds` (A5's flip, on: `audio.bed.maxBeds`, 0..4). 0 lays out no bed, as M2. */
 export function bedInitParams(settings: AudioSettings): Pick<SpatialInitParams, "maxBeds"> {
-  void settings;
-  return { maxBeds: 0 };
+  const n = Math.floor(settings.bed.maxBeds);
+  return { maxBeds: n > 0 ? Math.min(n, 4) : 0 };
 }
 
 /**

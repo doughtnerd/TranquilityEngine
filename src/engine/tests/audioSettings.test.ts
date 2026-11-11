@@ -4,10 +4,10 @@ import { DEFAULT_BACKEND, defaultAudioSettings, defaultBackend, isMacOSDesktop, 
 // §2 of docs/design/0157-audio-core/api-and-models.md, one block per key (K13).
 describe("audio settings: the §2 keys (ADR 0157)", () => {
   describe("defaults", () => {
-    it("no audio section gives every default: voices 128/4096/16, background mute, clipFormat i16, codecs.aac false, spatial hrtf, backend core, no clipMemoryMB", () => {
+    it("no audio section gives every default: voices 128/4096/8, background mute, clipFormat i16, codecs.aac false, spatial hrtf, backend core, no clipMemoryMB", () => {
       const { settings, problems } = parseAudioSettings(undefined);
       expect(problems).toEqual([]);
-      expect(settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 16 });
+      expect(settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 8 });
       expect(settings.background).toBe("mute");
       expect(settings.clipFormat).toBe("i16");
       expect(settings.codecs).toEqual({ aac: false });
@@ -35,7 +35,7 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
       ]);
       expect(settings.snapshots).toEqual([{ name: "Paused", volumes: { Music: 0.3 }, lowpass: { Music: 800 } }]);
       expect(settings.ducking).toEqual([{ target: "Music", trigger: "Voice", amount: 0.4, attack: 0.1, release: 0.6 }]);
-      expect(settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 16 });
+      expect(settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 8 });
       expect(settings.background).toBe("mute");
       expect(settings.backend).toBe("core");
       expect(settings.buses.every((b) => !("maxVoices" in b))).toBe(true);
@@ -101,7 +101,7 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
       expect(high.settings.voices.logical).toBe(8192);
       expect(high.problems).toHaveLength(1);
       const below = parseAudioSettings({ voices: { mixed: 256, logical: 100 } });
-      expect(below.settings.voices).toEqual({ mixed: 256, logical: 256, hrtf: 16 });
+      expect(below.settings.voices).toEqual({ mixed: 256, logical: 256, hrtf: 8 });
       expect(below.problems).toEqual(["audio.voices.logical: 100 is outside 256..8192; using 256."]);
     });
     it("hrtf clamps to 0..32 with a problem when clamped; 0 is kept", () => {
@@ -114,10 +114,10 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
     });
     it("a non-object voices, or a non-number member, gives the default plus a problem", () => {
       const notObject = parseAudioSettings({ voices: 5 });
-      expect(notObject.settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 16 });
+      expect(notObject.settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 8 });
       expect(notObject.problems).toEqual(["audio.voices must be an object."]);
       const member = parseAudioSettings({ voices: { mixed: "big" } });
-      expect(member.settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 16 });
+      expect(member.settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 8 });
       expect(member.problems).toHaveLength(1);
       expect(member.problems[0]).toMatch(/^audio\.voices\.mixed: /);
     });

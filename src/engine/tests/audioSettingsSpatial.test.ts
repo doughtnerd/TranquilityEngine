@@ -23,9 +23,11 @@ describe("audio settings: the M3 keys (ADR 0162 §2.1)", () => {
       expect(settings.speedOfSound).toBe(343);
       expect(defaultAudioSettings().speedOfSound).toBe(343);
     });
-    it("voices.hrtf stays 16 (the A6b flip is not this task)", () => {
-      expect(parseAudioSettings(undefined).settings.voices.hrtf).toBe(16);
-      expect(parseAudioSettings({}).settings.voices.hrtf).toBe(16);
+    it("voices.hrtf defaults to 8 (the A6b flip: the voices past it go to the bed)", () => {
+      expect(parseAudioSettings(undefined).settings.voices.hrtf).toBe(8);
+      expect(parseAudioSettings({}).settings.voices.hrtf).toBe(8);
+      expect(parseAudioSettings({ voices: { mixed: 64 } }).settings.voices.hrtf).toBe(8);
+      expect(defaultAudioSettings().voices.hrtf).toBe(8);
     });
     it("a section with only the old keys gives every M3 default and no problem", () => {
       const { settings, problems } = parseAudioSettings({
