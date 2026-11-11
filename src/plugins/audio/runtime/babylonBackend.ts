@@ -26,7 +26,11 @@ import type { StreamingSound } from "@babylonjs/core/AudioV2/abstractAudio/strea
 import type { Vec3Like } from "../../../engine/core/math";
 import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
 import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type PlayRequest } from "./backend";
-import { busCreationSteps, listenerQuaternion, planBuses, playbackRate, soundVolume, spatialParams, spatialSoundOptions, type BusPlan } from "./babylonMapping";
+import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, type BusPlan } from "./babylonMapping";
+import { DistanceEffect, SendCurveTable, SpatialViewFlag, type SpatialPassHost, type SpatialVoiceView } from "./core/spatial";
+import { DopplerPass } from "./core/doppler";
+import { OcclusionPass } from "./core/occlusion";
+import { encodeVoiceId, voiceGen, voiceIndex } from "./core/ids";
 import type { VisibilitySource } from "./core/background";
 import { Unlock, type UnlockContext } from "./core/unlock";
 import { warnOnce } from "./core/handle";
@@ -62,12 +66,17 @@ interface Live {
   readonly buffers: Map<string, Promise<StaticSoundBuffer>>;
   /** Decoded clip lengths in seconds by asset path, for `clipDuration`. */
   readonly durations: Map<string, number>;
+  /** ADR 0162 §8: ambisonic clips' channel 0 as a mono buffer, by URL (null: refused, already warned). */
+  readonly wBuffers: Map<string, Promise<AudioBuffer | null>>;
 }
 
 /** Babylon ramps each parameter change over this many seconds (`parameterRampDuration`); no per-call duration is needed. */
 const BUS_RAMP_SECONDS = 0.015;
 const RAMP = "linear" as AudioParameterRampShape;
-let nextVoiceId = 1;
+/** Ids of voices past the slot table (no Doppler or occlusion for them): generation 0, so no pass binds them. */
+let overflowId = 1;
+/** Voices the spatial view lists at once (ADR 0162 K4: Doppler and occlusion run over these). */
+const SPATIAL_SLOTS = 1024;
 
 const warnedFlatStream = new Set<string>();
 /**
@@ -81,7 +90,17 @@ function warnFlatStream(path: string): void {
 }
 
 class BabylonVoice implements AudioVoice {
-  readonly id = nextVoiceId++;
+  /** `(gen << 16) | slot` in the backend's spatial table (so `AudioSource._voiceId` binds the occlusion pass), or a generation-0 id past it. */
+  readonly id: number;
+  /** The slot in the spatial view, -1 past the table. */
+  readonly slot: number;
+  /** The clip plays as a `StreamingSound`: not for an ambisonic clip, which always decodes (§8). */
+  private readonly stream: boolean;
+  /** Main's occlusion gain (1 open) and the one `applyVolume` last put on the sound. */
+  private occGain = 1;
+  private appliedOcc = 1;
+  /** Main's Doppler factor (1 none), decoded clips only. */
+  private dopplerFactor = 1;
   /** The fallback has no stealing, virtual or locked voices (api-and-models 1 "Fallback backend"); only a failed load shows. */
   reason: AudioReason | null = null;
   private ended = false;
@@ -111,6 +130,9 @@ class BabylonVoice implements AudioVoice {
   private duration = Number.POSITIVE_INFINITY;
 
   constructor(private readonly backend: BabylonBackend, private readonly req: PlayRequest) {
+    this.stream = req.stream && req.ambisonic !== true;
+    this.slot = backend._allocSlot(this);
+    this.id = this.slot >= 0 ? encodeVoiceId(this.slot, backend._slotGen(this.slot)) : overflowId++ & 0xffff || 1;
     this.bus = req.bus;
     this.volume = req.volume ?? 1;
     this.pitch = req.pitch ?? 1;
@@ -123,8 +145,12 @@ class BabylonVoice implements AudioVoice {
     }
     const flat = req.stream && (req.attenuation !== undefined || req.position !== undefined);
     if (flat) warnFlatStream(req.path);
-    this.attenuation = flat ? null : (req.attenuation ?? null);
-    this.position = !flat && req.position ? { x: req.position.x, y: req.position.y, z: req.position.z } : null;
+    // §8: an ambisonic clip plays its W channel as plain mono: no position, no distance, no rotation.
+    const ambisonic = req.ambisonic === true;
+    if (ambisonic) warnOnce(`babylon-ambisonic:${req.path}`, `"${req.path}" is an ambisonic clip; the Babylon audio fallback plays its W channel as mono, unrotated (ADR 0162).`);
+    if (filterIsActive(req.filter) || (req.aux && req.aux.level > 0)) warnOnce(`babylon-fx:${req.path}`, `"${req.path}" asks for a ${filterIsActive(req.filter) ? "filter" : "aux send"}, which the Babylon audio fallback skips (ADR 0162).`);
+    this.attenuation = flat || ambisonic ? null : (req.attenuation ?? null);
+    this.position = !flat && !ambisonic && req.position ? { x: req.position.x, y: req.position.y, z: req.position.z } : null;
     mixer.voiceStarted(this.bus);
     void this.load();
   }
@@ -186,21 +212,31 @@ class BabylonVoice implements AudioVoice {
       const cap = this.backend._cap(this.bus);
       const options: Record<string, unknown> = {
         outBus: this.backend._busNode(live, this.bus),
-        volume: soundVolume(this.volume * this.appliedGain),
+        volume: occludedVolume(this.volume, this.appliedGain, this.occGain),
         loop: this.req.loop,
         ...(cap !== null ? { maxInstances: cap } : {}),
       };
-      if (!this.req.stream) options.playbackRate = playbackRate(this.pitch);
+      this.appliedOcc = this.occGain;
+      if (!this.stream) options.playbackRate = dopplerPlaybackRate(this.pitch, this.dopplerFactor);
       if (this.attenuation || this.position) Object.assign(options, spatialSoundOptions(spatialParams(this.attenuation ?? DEFAULT_ATTENUATION, mixer.audioSettings.spatial)));
       const name = `${this.req.path}#${this.id}`;
-      if (this.req.stream) sound = await live.engine.createStreamingSoundAsync(name, this.req.url, options);
+      if (this.stream) sound = await live.engine.createStreamingSoundAsync(name, this.req.url, options);
       else {
-        const buffer = await this.backend._buffer(live, this.req.url);
+        // §8: an ambisonic clip is decoded with `decodeAudioData` and its channel 0 handed over as a mono `AudioBuffer`
+        // (null: refused over the size limit, warned once; the voice fails quietly).
+        const buffer: StaticSoundBuffer | AudioBuffer | null = this.req.ambisonic === true ? await this.backend._wBuffer(live, this.req.url, this.req.path) : await this.backend._buffer(live, this.req.url);
+        if (buffer === null) {
+          if (!this.ended) {
+            this.reason = "failed";
+            this.finish();
+          }
+          return;
+        }
         if (Number.isFinite(buffer.duration)) {
           live.durations.set(this.req.path, buffer.duration);
           this.duration = buffer.duration;
         }
-        sound = await live.engine.createSoundAsync(name, buffer, options);
+        sound = await live.engine.createSoundAsync(name, buffer as StaticSoundBuffer, options);
       }
     } catch (e) {
       if (!this.ended) {
@@ -226,7 +262,7 @@ class BabylonVoice implements AudioVoice {
     if (this.position) this.applyPosition();
     if (this.region || this.looping !== this.req.loop) this.applyLoop();
     if (!this.paused) this.start();
-    if (this.gain !== this.appliedGain) this.applyVolume(this.rampSeconds);
+    if (this.gain !== this.appliedGain || this.occGain !== this.appliedOcc) this.applyVolume(this.rampSeconds);
   }
 
   /** E4.5: the clip's loop points are known (null: it has none, so it loops whole). Never overrides an event's `setLoop`. */
@@ -245,7 +281,7 @@ class BabylonVoice implements AudioVoice {
     const live = this.backend._live;
     // `at` is a time on the heard clock (`Audio.time`); Babylon takes seconds from now. Only decoded clips can wait.
     const wait = live && this.req.at !== undefined && Number.isFinite(this.req.at) ? this.req.at - live.engine.currentTime : 0;
-    if (!this.req.stream && wait > 0) (sound as StaticSound).play({ waitTime: wait });
+    if (!this.stream && wait > 0) (sound as StaticSound).play({ waitTime: wait });
     else sound.play();
   }
 
@@ -257,7 +293,7 @@ class BabylonVoice implements AudioVoice {
     const sound = this.sound;
     if (!sound) return;
     const region = this.region;
-    if (this.req.stream) {
+    if (this.stream) {
       if (region && (region.start > 0 || region.end > 0)) warnOnce(`babylon-stream-loop:${this.req.path}`, `"${this.req.path}" streams, which the Babylon audio fallback can't loop by region; it loops whole.`);
     } else if (region) {
       const s = sound as StaticSound;
@@ -273,8 +309,9 @@ class BabylonVoice implements AudioVoice {
     const sound = this.sound;
     if (!sound) return;
     this.appliedGain = this.gain;
+    this.appliedOcc = this.occGain;
     this.rampSeconds = 0;
-    const target = soundVolume(this.volume * this.gain);
+    const target = occludedVolume(this.volume, this.gain, this.occGain);
     if (seconds > 0) sound.setVolume(target, { duration: seconds, shape: RAMP });
     else sound.volume = target;
   }
@@ -326,18 +363,76 @@ class BabylonVoice implements AudioVoice {
     if (this.ended) return;
     this.pitch = rate;
     const sound = this.sound;
-    if (sound && !this.req.stream) (sound as StaticSound).playbackRate = playbackRate(rate);
+    if (sound && !this.stream) (sound as StaticSound).playbackRate = dopplerPlaybackRate(rate, this.dopplerFactor);
+  }
+
+  // --- ADR 0162 (K0, K4, §8): main's occlusion and Doppler results, and the source's velocity ---
+
+  /** Gain only: `volume × occGain` through the sound's volume; the cutoff is dropped (one warning the first time a wall asks for one). */
+  setOcclusion(gain: number, lpHz: number): void {
+    if (this.ended) return;
+    if (lpHz < 20000) warnOnce("babylon-occlusion-cutoff", "occlusion on the Babylon audio fallback only lowers the volume; its low-pass cutoff is dropped (ADR 0162).");
+    const g = Number.isFinite(gain) ? Math.min(1, Math.max(0, gain)) : 1;
+    if (g === this.occGain) return;
+    this.occGain = g;
+    if (this.sound) this.applyVolume();
+  }
+
+  /** Doppler multiplies a decoded clip's `playbackRate`; a stream plays flat as HTML5 audio and takes none. */
+  setDopplerRate(factor: number): void {
+    if (this.ended || this.stream) return;
+    this.dopplerFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
+    const sound = this.sound;
+    if (sound) (sound as StaticSound).playbackRate = dopplerPlaybackRate(this.pitch, this.dopplerFactor);
+  }
+
+  /** The source's velocity from physics (`AudioSource.velocity`, Doppler). */
+  setVelocity(v: Vec3Like): void {
+    if (this.ended) return;
+    this.backend._setVelocity(this.id, v);
+  }
+
+  /** @internal Fills this voice's row of the spatial view (called by `collectSpatialVoices`); `listener` is the pose for the audibility estimate. */
+  _fillView(view: BabylonSpatialView, i: number, listener: ListenerPose | null, distance: DistanceEffect): void {
+    const pos = this.position;
+    const ambisonic = this.req.ambisonic === true;
+    const spatial = pos !== null && !ambisonic;
+    const att = this.attenuation ?? DEFAULT_ATTENUATION;
+    view.world[i] = this.req.world ?? 0;
+    view.viewFlags[i] =
+      (spatial ? SpatialViewFlag.SPATIAL : 0) |
+      SpatialViewFlag.MIXED |
+      (spatial && this.req.occlusion !== false ? SpatialViewFlag.OCCLUSION : 0) |
+      (ambisonic ? SpatialViewFlag.AMBISONIC : 0);
+    view.minDist[i] = att.minDistance;
+    view.maxDist[i] = att.maxDistance;
+    view.volume[i] = this.volume;
+    view.dopplerLevel[i] = this.req.dopplerLevel ?? 0;
+    let a0 = this.volume * this.gain;
+    if (pos) {
+      view.posX[i] = pos.x;
+      view.posY[i] = pos.y;
+      view.posZ[i] = pos.z;
+      if (listener) {
+        const p = spatialParams(att, mixer.audioSettings.spatial);
+        distance.model = p.distanceModel;
+        distance.refDistance = p.minDistance;
+        distance.maxDistance = p.maxDistance;
+        a0 *= Math.max(0, distance.gain(Math.hypot(pos.x - listener.position.x, pos.y - listener.position.y, pos.z - listener.position.z)));
+      }
+    }
+    view.audibility0[i] = a0;
   }
   setAttenuation(a: Attenuation): void {
     if (this.ended) return;
-    if (this.req.stream) return warnFlatStream(this.req.path);
+    if (this.stream) return warnFlatStream(this.req.path);
     this.attenuation = a;
     this.applySpatial();
     this.applyPosition();
   }
   setPosition(p: Vec3Like): void {
     if (this.ended) return;
-    if (this.req.stream) return warnFlatStream(this.req.path);
+    if (this.stream) return warnFlatStream(this.req.path);
     this.position = { x: p.x, y: p.y, z: p.z };
     this.applyPosition();
   }
@@ -400,8 +495,86 @@ class BabylonVoice implements AudioVoice {
 /** The settings of a sound given a position but no attenuation: the engine's defaults for `AudioSource`. */
 const DEFAULT_ATTENUATION: Attenuation = { minDistance: 1, maxDistance: 100, rolloff: "inverse" };
 
-export class BabylonBackend implements AudioBackend {
+/**
+ * ADR 0162 (K4, F1): the fallback's `SpatialVoiceView`. Slots are `SPATIAL_SLOTS` long; a voice takes one at play and gives
+ * it back when it ends (its generation then moves on). `collect` refreshes the live list from the voices; results come back
+ * through `setOcclusion` and `setDopplerRate` to the voice in the slot.
+ */
+class BabylonSpatialView implements SpatialVoiceView {
+  readonly capacity = SPATIAL_SLOTS;
+  readonly slots = new Uint16Array(SPATIAL_SLOTS);
+  count = 0;
+  readonly gen = new Uint16Array(SPATIAL_SLOTS);
+  readonly viewFlags = new Uint8Array(SPATIAL_SLOTS);
+  readonly world = new Float64Array(SPATIAL_SLOTS);
+  readonly posX = new Float32Array(SPATIAL_SLOTS);
+  readonly posY = new Float32Array(SPATIAL_SLOTS);
+  readonly posZ = new Float32Array(SPATIAL_SLOTS);
+  readonly minDist = new Float32Array(SPATIAL_SLOTS);
+  readonly maxDist = new Float32Array(SPATIAL_SLOTS);
+  readonly volume = new Float32Array(SPATIAL_SLOTS);
+  readonly audibility0 = new Float32Array(SPATIAL_SLOTS);
+  readonly dopplerLevel = new Float32Array(SPATIAL_SLOTS);
+  /** Zones are inert on the fallback (F2): no sends. */
+  readonly reverbSend = new Float32Array(SPATIAL_SLOTS);
+  readonly sendCurve = new Uint16Array(SPATIAL_SLOTS);
+  readonly curves = new SendCurveTable();
+  /** The voice in each slot, null when free. */
+  readonly voices: (BabylonVoice | null)[] = new Array<BabylonVoice | null>(SPATIAL_SLOTS).fill(null);
+  private readonly free: number[] = [];
+  private next = 0;
+  private readonly distance = new DistanceEffect();
+
+  /** A free slot for `voice`, or -1 when the table is full. The slot's generation moves on (1..65535). */
+  alloc(voice: BabylonVoice): number {
+    const i = this.free.length > 0 ? this.free.pop()! : this.next < SPATIAL_SLOTS ? this.next++ : -1;
+    if (i < 0) return -1;
+    this.gen[i] = this.gen[i]! >= 0xffff ? 1 : this.gen[i]! + 1;
+    this.voices[i] = voice;
+    return i;
+  }
+
+  release(i: number, voice: BabylonVoice): void {
+    if (i < 0 || this.voices[i] !== voice) return;
+    this.voices[i] = null;
+    this.free.push(i);
+  }
+
+  /** The voice that `id` names, null once it ended or for an id past the table. */
+  voiceOf(id: number): BabylonVoice | null {
+    const g = voiceGen(id);
+    const i = voiceIndex(id);
+    return g !== 0 && i < SPATIAL_SLOTS && this.gen[i] === g ? this.voices[i]! : null;
+  }
+
+  collect(listener: ListenerPose | null): void {
+    let n = 0;
+    for (let i = 0; i < this.next; i++) {
+      const v = this.voices[i];
+      if (!v) continue;
+      v._fillView(this, i, listener, this.distance);
+      this.slots[n++] = i;
+    }
+    this.count = n;
+  }
+
+  setOcclusion(i: number, gain: number, lpHz: number): void {
+    this.voices[i]?.setOcclusion(gain, lpHz);
+  }
+
+  setDopplerRate(i: number, factor: number): void {
+    this.voices[i]?.setDopplerRate(factor);
+  }
+}
+
+/** The fallback's decoded-clip memory ceiling for an ambisonic clip is in `babylonMapping.ts` (`AMBISONIC_DECODE_LIMIT_BYTES`). */
+export class BabylonBackend implements AudioBackend, SpatialPassHost {
   readonly name = "babylon";
+
+  /** ADR 0162 (K4, F1): main runs Doppler and occlusion over this view (`audioSystem.ts`), then `update`. */
+  readonly spatialVoices = new BabylonSpatialView();
+  readonly doppler = new DopplerPass(SPATIAL_SLOTS);
+  readonly occlusion = new OcclusionPass(SPATIAL_SLOTS);
 
   private readonly voices = new Set<BabylonVoice>();
   private mixerRef: Mixer | null = null;
@@ -481,7 +654,7 @@ export class BabylonBackend implements AudioBackend {
         volume: this.isMuted ? 0 : this.master,
       });
       const main = engine.defaultMainBus ?? (await engine.createMainBusAsync("main"));
-      const live: Live = { engine, main, buses: new Map(), plan: [], rootName: null, buffers: new Map(), durations: new Map() };
+      const live: Live = { engine, main, buses: new Map(), plan: [], rootName: null, buffers: new Map(), durations: new Map(), wBuffers: new Map() };
       if (this.disposed) {
         this.teardown(live);
         return null;
@@ -590,6 +763,68 @@ export class BabylonBackend implements AudioBackend {
   /** @internal */
   _forget(voice: BabylonVoice): void {
     this.voices.delete(voice);
+    this.spatialVoices.release(voice.slot, voice);
+  }
+
+  /** @internal A spatial slot for `voice` (-1 when full). */
+  _allocSlot(voice: BabylonVoice): number {
+    return this.spatialVoices.alloc(voice);
+  }
+
+  /** @internal The generation slot `i` holds now. */
+  _slotGen(i: number): number {
+    return this.spatialVoices.gen[i]!;
+  }
+
+  /** ADR 0162 (K4) `SpatialPassHost`: this frame's live voices, for Doppler and occlusion. */
+  collectSpatialVoices(): void {
+    if (!this.disposed) this.spatialVoices.collect(this.listenerPose);
+  }
+
+  /** @internal D3 `AudioSource.velocity`: voice `id`'s velocity (the estimate, or `setVelocity`'s value) into `out`; false when the voice is gone. */
+  _velocityOf(id: number, out: { x: number; y: number; z: number }): boolean {
+    if (!this.spatialVoices.voiceOf(id)) return false;
+    const i = voiceIndex(id);
+    out.x = this.doppler.velX[i]!;
+    out.y = this.doppler.velY[i]!;
+    out.z = this.doppler.velZ[i]!;
+    return true;
+  }
+
+  /** @internal K0 `AudioVoice.setVelocity`. */
+  _setVelocity(id: number, v: Vec3Like | null): void {
+    if (this.spatialVoices.voiceOf(id)) this.doppler.setVelocity(voiceIndex(id), v);
+  }
+
+  /**
+   * @internal ADR 0162 §8: an ambisonic clip's channel 0 (W) as a mono `AudioBuffer`, decoded once per URL with
+   * `decodeAudioData` (a streamed clip decodes too: HTML5 audio downmixes 4 or 16 channels unpredictably). Null for a clip
+   * that decodes to more than `AMBISONIC_DECODE_LIMIT_BYTES`: refused with a warning, once.
+   */
+  _wBuffer(live: Live, url: string, path: string): Promise<AudioBuffer | null> {
+    let buffer = live.wBuffers.get(url);
+    if (!buffer) {
+      buffer = this.decodeW(url, path);
+      live.wBuffers.set(url, buffer);
+      buffer.catch(() => live.wBuffers.delete(url));
+    }
+    return buffer;
+  }
+
+  private async decodeW(url: string, path: string): Promise<AudioBuffer | null> {
+    const ctx = this.ctx;
+    if (!ctx) throw new Error("no audio context");
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const decoded = await ctx.decodeAudioData(await response.arrayBuffer());
+    const bytes = decodedBytes(decoded.length, decoded.numberOfChannels);
+    if (bytes > AMBISONIC_DECODE_LIMIT_BYTES) {
+      console.warn(`[myco] audio: "${path}" is an ambisonic clip that decodes to ${(bytes / 1e6).toFixed(0)} MB, over the Babylon audio fallback's ${AMBISONIC_DECODE_LIMIT_BYTES / 1e6} MB limit; not played (ADR 0162).`);
+      return null;
+    }
+    const mono = ctx.createBuffer(1, decoded.length, decoded.sampleRate);
+    mono.copyToChannel(decoded.getChannelData(0), 0);
+    return mono;
   }
 
   play(req: PlayRequest): AudioVoice | null {
@@ -729,6 +964,7 @@ export class BabylonBackend implements AudioBackend {
     live.buses.clear();
     live.buffers.clear();
     live.durations.clear();
+    live.wBuffers.clear();
     const ctx = this.ctx;
     // `engine.dispose()` closes its context. The host's context outlives this backend, so shield it from the close.
     const shielded = ctx !== null && !this.ownsContext;

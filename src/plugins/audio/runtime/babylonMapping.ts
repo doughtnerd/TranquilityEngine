@@ -147,3 +147,32 @@ export function listenerQuaternion(forward: Vec3Like, up: Vec3Like): { x: number
   const s = Math.sqrt(1 + m22 - m00 - m11) * 2;
   return { w: (m10 - m01) / s, x: (m02 + m20) / s, y: (m12 + m21) / s, z: s / 4 };
 }
+
+/**
+ * ADR 0162 §8: an ambisonic clip decodes to this many bytes at most on the fallback (about 21 s of 3rd order, 83 s of 1st at
+ * 48 kHz; decimal megabytes). `decodeAudioData` holds every channel at once, so the peak is the whole clip.
+ */
+export const AMBISONIC_DECODE_LIMIT_BYTES = 64_000_000;
+
+/** The bytes `decodeAudioData` holds for a clip of `frames` frames and `channels` channels (f32). */
+export function decodedBytes(frames: number, channels: number): number {
+  return frames * channels * 4;
+}
+
+/** ADR 0162 §8: whether an event or one-shot `filter` asks for a filter the fallback would have to skip (the off values are lowpass >= 20000, highpass <= 20). */
+export function filterIsActive(filter: { lowpass?: number; highpass?: number } | undefined): boolean {
+  if (!filter) return false;
+  const lp = filter.lowpass;
+  const hp = filter.highpass;
+  return (lp !== undefined && Number.isFinite(lp) && lp < 20000) || (hp !== undefined && Number.isFinite(hp) && hp > 20);
+}
+
+/** ADR 0162 §8: a voice's Babylon volume: its own volume times the fade's gain times main's occlusion gain (the cutoff has no home here). */
+export function occludedVolume(volume: number, fade: number, occGain: number): number {
+  return soundVolume(volume * fade * (Number.isFinite(occGain) ? Math.min(1, Math.max(0, occGain)) : 1));
+}
+
+/** The playback rate of a decoded clip: its pitch times main's Doppler factor. */
+export function dopplerPlaybackRate(pitch: number, factor: number): number {
+  return playbackRate(playbackRate(pitch) * (Number.isFinite(factor) && factor > 0 ? factor : 1));
+}
