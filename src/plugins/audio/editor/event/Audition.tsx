@@ -13,7 +13,7 @@ import { Audio } from "../../runtime/Audio";
 import type { AudioEventHandle, AudioReason, AudioStatus } from "../../runtime/backend";
 import { editor, openAssetDocument } from "../../../../editor/sdk";
 import {
-  auditionNotice, buttonStates, instanceAlive, instanceVoices, isStale, limitRows, newInstanceId, nextPhase, parameterChanges,
+  auditionBackend, auditionNotice, buttonStates, instanceAlive, instanceVoices, isStale, limitRows, newInstanceId, nextPhase, parameterChanges,
   type AuditionAction, type AuditionPhase,
 } from "./auditionHost";
 
@@ -35,12 +35,15 @@ const rawAsset = (path: string): object | undefined => {
   try { return Assets.json<object>(path); } catch { return undefined; }
 };
 
+const backendName = (): unknown => { try { return Audio.debug().core.backend; } catch { return undefined; } };
+
 const level = (v: number): string => (v === 0 ? "0" : v.toFixed(2));
 
 export function Audition({ path, parameters, onVoices }: AuditionProps) {
   const [phase, setPhase] = useState<AuditionPhase>("idle");
   const [voices, setVoices] = useState<VoiceView[]>([]);
   const [status, setStatus] = useState<AudioStatus>(() => Audio.status);
+  const [backend, setBackend] = useState<unknown>(() => backendName());
   const [played, setPlayed] = useState(false);
   const [reason, setReason] = useState<AudioReason | null>(null);
   const [stale, setStale] = useState(false);
@@ -88,6 +91,7 @@ export function Audition({ path, parameters, onVoices }: AuditionProps) {
     setReason(h.reason);
     setStale(false);
     setStatus(Audio.status);
+    setBackend(backendName());
     move(ok ? "play" : "refused");
     if (!ok) showVoices([]);
   };
@@ -118,6 +122,7 @@ export function Audition({ path, parameters, onVoices }: AuditionProps) {
     const tick = () => {
       const h = handle.current;
       setStatus(Audio.status);
+      setBackend(backendName());
       if (!h) return;
       const info = Audio.debug();
       const alive = instance.current !== null ? instanceAlive(info.events, instance.current) : h.playing;
@@ -145,14 +150,17 @@ export function Audition({ path, parameters, onVoices }: AuditionProps) {
   const buttons = buttonStates(phase);
   const notice = auditionNotice(status, phase, reason, played);
   const shown = limitRows(voices);
+  const backendInfo = auditionBackend(backend);
   return (
     <div class="ev-aud" data-phase={phase}>
       <div class="ev-aud-bar">
         <button onClick={() => void play()} disabled={!buttons.play} data-testid="audition-play" title="Play the event with the parameter values above">Play</button>
         <button onClick={stop} disabled={!buttons.stop} data-testid="audition-stop" title="Stop it now">Stop</button>
         <button onClick={release} disabled={!buttons.release} data-testid="audition-release" title="Key-off: sustain loops play their tails">Release</button>
+        <span class="ev-aud-backend" data-testid="audition-backend" title="The audio backend this audition plays on">{backendInfo.label}</span>
         <span class="ev-aud-phase" data-testid="audition-phase">{phase === "idle" ? "" : phase === "ended" ? "ended" : phase}</span>
       </div>
+      {backendInfo.note && <p class="ev-aud-note" data-testid="audition-backend-note">{backendInfo.note}</p>}
       {notice && <p class="ev-aud-notice" role="status" data-testid="audition-notice">{notice}</p>}
       {stale && live && <p class="ev-aud-notice" data-testid="audition-stale">The event was edited after this started. Press Play to hear the change.</p>}
       {voices.length > 0 && (

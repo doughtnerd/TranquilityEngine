@@ -16,7 +16,7 @@ import {
 import type { Curve, CurveKey } from "../../../../engine/core/curve";
 import { draggedClips } from "./assetDrop";
 import { nodeLabel } from "./EventTree";
-import { coerceField, eventFields, nodeFields, readField, writeField, type FieldDescriptor, type GroupField } from "./nodeFields";
+import { coerceField, eventFields, nodeFields, readField, writeField, type AuxSend, type FieldDescriptor, type GroupField } from "./nodeFields";
 
 /** What the fields choose from. */
 export interface FieldContext {
@@ -133,6 +133,31 @@ function NumberInput(props: { value: number; label: string; step: number; disabl
   );
 }
 
+/** A number input for an optional value that may be absent: empty (with `placeholder`) is absent, and commits `undefined`. */
+function OptionalNumberInput(props: { value: number | undefined; label: string; step: number; placeholder: string; disabled: boolean; onCommit: (v: number | undefined) => void }) {
+  return (
+    <input
+      type="number"
+      class="ev-number"
+      aria-label={props.label}
+      step={props.step}
+      placeholder={props.placeholder}
+      value={props.value === undefined ? "" : +props.value.toFixed(4)}
+      disabled={props.disabled}
+      onChange={(e) => {
+        const raw = (e.currentTarget as HTMLInputElement).value;
+        if (raw.trim() === "") props.onCommit(undefined);
+        else if (Number.isFinite(Number(raw))) props.onCommit(Number(raw));
+      }}
+    />
+  );
+}
+
+/** The small button that puts an optional field back to "not set" (the key leaves the file). */
+function ResetButton(props: { label: string; disabled: boolean; onReset: () => void }) {
+  return <button class="icon ev-reset" aria-label={`Reset ${props.label}`} title="Reset to the default (removes it from the file)" disabled={props.disabled} onClick={props.onReset}>↺</button>;
+}
+
 /** One field's row. `value` is its current value on the target; `onValue` gets the coerced new one. */
 function FieldRow(props: { field: FieldDescriptor; value: unknown; context: FieldContext; prefix: string; onValue: (v: unknown, drag?: boolean) => void }) {
   const { field: f, value, context, onValue } = props;
@@ -148,11 +173,17 @@ function FieldRow(props: { field: FieldDescriptor; value: unknown; context: Fiel
   switch (f.kind) {
     case "number": {
       const n = typeof value === "number" ? value : f.default;
+      if (f.offLabel !== undefined) {
+        return row(
+          <OptionalNumberInput value={typeof value === "number" ? value : undefined} label={label} step={f.step} placeholder={f.offLabel} disabled={disabled} onCommit={(v) => onValue(v === undefined ? undefined : coerceField(f, v), false)} />,
+        );
+      }
       const slider = f.max - f.min <= 1000;
       return row(
         <span class="ev-slider">
           {slider && <input type="range" aria-label={label} min={f.min} max={f.max} step={f.step} value={n} disabled={disabled} onInput={(e) => commit(Number((e.currentTarget as HTMLInputElement).value), true)} />}
           <NumberInput value={n} label={slider ? `${label} value` : label} step={f.step} disabled={disabled} onCommit={(v) => commit(v)} />
+          {f.optional && typeof value === "number" && <ResetButton label={label} disabled={disabled} onReset={() => onValue(undefined)} />}
         </span>,
       );
     }
@@ -215,7 +246,7 @@ function FieldRow(props: { field: FieldDescriptor; value: unknown; context: Fiel
       );
     }
     case "boolean":
-      return row(<input type="checkbox" aria-label={label} checked={value === true} disabled={disabled} onChange={(e) => commit((e.currentTarget as HTMLInputElement).checked)} />);
+      return row(<input type="checkbox" aria-label={label} checked={typeof value === "boolean" ? value : f.default} disabled={disabled} onChange={(e) => commit((e.currentTarget as HTMLInputElement).checked)} />);
     case "parameter": {
       const name = typeof value === "string" ? value : "";
       const params = allParameters(context).filter((p) => !f.labelled || isLabelled(p));
@@ -238,6 +269,35 @@ function FieldRow(props: { field: FieldDescriptor; value: unknown; context: Fiel
         </select>,
       );
     }
+    case "curve": {
+      const set = Array.isArray(value) && value.length > 0;
+      return (
+        <div class="ev-field ev-field-wide" data-field={f.name} title={f.help}>
+          <span class="ev-field-label">
+            {f.label}
+            {set && <ResetButton label={label} disabled={disabled} onReset={() => onValue(undefined)} />}
+          </span>
+          <CurveEditor curve={set ? (value as Curve) : f.default} onChange={(curve) => commit(curve, true)} xRange={f.xRange} yRange={f.yRange} interpolation label={label} readOnly={disabled} />
+        </div>
+      );
+    }
+    case "aux": {
+      const aux = (value as AuxSend | undefined) ?? undefined;
+      const names = context.buses.slice(1);
+      return row(
+        <>
+          <select aria-label={`${label} bus`} value={aux?.bus ?? ""} disabled={disabled} onChange={(e) => {
+            const bus = (e.currentTarget as HTMLSelectElement).value;
+            commit(bus === "" ? undefined : { bus, level: aux?.level ?? f.default });
+          }}>
+            <option value="">(none)</option>
+            {aux && !names.includes(aux.bus) && <option value={aux.bus}>{aux.bus} (unknown)</option>}
+            {names.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+          {aux && <NumberInput value={aux.level} label={`${label} level`} step={f.step} disabled={disabled} onCommit={(v) => commit({ bus: aux.bus, level: v })} />}
+        </>,
+      );
+    }
     case "curves":
       return (
         <div class="ev-field ev-field-wide" data-field={f.name}>
@@ -252,11 +312,12 @@ function FieldRow(props: { field: FieldDescriptor; value: unknown; context: Fiel
 
 function GroupRow(props: { field: GroupField; value: unknown; context: FieldContext; prefix: string; onValue: (v: unknown, drag?: boolean) => void }) {
   const { field: f, context } = props;
-  const group = props.value && typeof props.value === "object" ? (props.value as Record<string, unknown>) : undefined;
+  const stored = props.value && typeof props.value === "object" ? (props.value as Record<string, unknown>) : undefined;
+  const group = stored ?? (f.implicit ? {} : undefined);
   return (
     <fieldset class="ev-group" data-field={f.name} title={f.help}>
       <legend>
-        {f.optional ? (
+        {f.optional && !f.implicit ? (
           <label>
             <input type="checkbox" aria-label={`${props.prefix}${f.label}`} checked={group !== undefined} disabled={context.readOnly} onChange={(e) => props.onValue((e.currentTarget as HTMLInputElement).checked ? structuredClone(f.default) : undefined)} />
             {f.label}
