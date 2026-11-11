@@ -76,3 +76,19 @@ Before choosing, the owner asked whether the recommendations follow industry sta
 - **M4a's pure-TypeScript tasks** (the format, the grid) and the editor's Ed1 may start alongside M4-0.
 - **Tripwire moves to record in the build log:** the mixer +10–14 KB (est.) from 265,952 B against 320 KB; the default and low worst allowances 0.08 / 0.06 ms.
 - **The listening pass, the lab-VM runs and the phone measurements** (`spikes/audio-music/rhythm/README.md` §8; the phone prime lead) are the owner's.
+
+## Plan seams (build plan, 2026-11-11)
+
+The build plan ([waves](../../plans/2026-11-audio-music-m4-waves.md), [tree](../../plans/2026-11-audio-music-m4-tree.md)) adds these files to the layout of `api-and-models.md` §5–§7, so parallel tasks own whole files. Each one's contract is in the waves plan's "Contracts" table.
+
+| File | Why | Writer |
+|---|---|---|
+| `audio-core/src/voice_split.rs` | class S voice-local split, called from `voices.rs` (hook H1), so Z2b and Z2c don't share `voices.rs` | Z2c |
+| `audio-core/src/group_hold.rs`, `group_rebase.rs` | the starve hold and the slip rebase, called from C2b's hooks (H2), so C2c and C2d don't share `groups.rs` or `due.rs` | C2c, C2d |
+| `audio-dsp/src/curve_laws.rs`, `equal_power.rs`, `native/audio/tools/gen-equal-power/` | the curve laws at control rate and the checked-in 1,024-point table §5 describes | Z2b (leaves) |
+| `runtime/core/musicOps.ts` | the core backend's group operations (§4.6), outside `coreBackend.ts` | Q2 (wiring), P1 |
+| `runtime/decoder/musicGroups.ts`, `musicCache.ts` | the worker's group lifecycle and the refcounted encoded cache (R16), outside `streams.ts` (H3) | D1a, D1b, D1c |
+| `runtime/music/seek.ts` | the public seek (R7) on R3a's `planImmediate` (H5) | R7 |
+| `runtime/music/playlistOrder.ts`, `stingerPolicy.ts` | pure selection and `ifTooLate`/`dontRepeat` tables | P4, R5 (leaves) |
+| `editor/music/index.ts`, `peaksMip.ts`, `segmentSnap.ts`, `tempoTools.ts`, `ruleLint.ts`, `importHints.ts` | panel registration (H6) and pure helpers split from the views | Ed2, Ed1, Ed3, Ed4, Ed7, Ed9 |
+| `tests/e2e/audio-music-smoke.spec.ts`, `audio-music-listening.spec.ts` | the end-to-end smoke from wave 1, and the walker for the owner's listening sections | S0, E1–E3, Ed11, L1 |
