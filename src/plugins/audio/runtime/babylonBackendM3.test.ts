@@ -7,11 +7,13 @@
 // | Event filters, `lowpass`/`highpass`, aux sends | skipped, one warning per asset |
 // | Ambisonic clips | channel 0 (W) as mono at the clip's gain, one warning; no rotation. The backend ignores `stream` for them: it decodes
 // |   with `decodeAudioData`, copies channel 0 into a mono `AudioBuffer` and passes that to `createSoundAsync`; clips decoding to over 64 MB are refused with a warning |
-// | Reverb zones | inert, one warning (F2's, not here) |
+// | Reverb zones | inert, one warning (F2, the last describe) |
 // | LISTENER, `AudioListener.velocity` | listener pose as today; velocity feeds Doppler |
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mixer } from "../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../engine/audio/settings";
+import { Assets, Engine, GameObject, SceneManager } from "../../../myco";
+import { AudioReverbZone } from "./AudioReverbZone";
 import { babylonMock, makeFakeContext, type FakeContext, type MockEngine, type MockSound } from "../testing/babylonMocks";
 import { setAudioBackend, type PlayRequest } from "./backend";
 import { BabylonBackend } from "./babylonBackend";
@@ -84,6 +86,8 @@ beforeEach(() => {
   babylonMock.reset();
   mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }, { name: "SFX", parent: "Master" }] }).settings);
   _resetHandleWarningsForTests();
+  Assets.clearSources();
+  Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
   warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => {
@@ -338,5 +342,49 @@ describe("F1 §8: listener velocity", () => {
     backend.collectSpatialVoices();
     const i = backend.spatialVoices.slots[0]!;
     expect(backend.spatialVoices.audibility0[i]).toBeCloseTo(1 / Math.hypot(2, 2, 3), 5);
+  });
+});
+
+describe("F2 §8: reverb zones are inert, one warning", () => {
+  const zoneWarnings = () => warnings().filter((w) => w.includes("reverb zones"));
+  const load = async () => {
+    await Engine.create({ headless: true });
+    await SceneManager.load("s.json");
+  };
+
+  it("warns once across many frames and zones, and changes nothing else", async () => {
+    await load();
+    const { backend } = rig();
+    backend.setListener({ position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } });
+    const a = GameObject.create("z1");
+    const w = a.world;
+    a.addBehavior(AudioReverbZone, { preset: "cave" });
+    GameObject.create("z2").addBehavior(AudioReverbZone, {});
+    expect(zoneWarnings()).toHaveLength(0);
+    backend.play(req({ position: at }));
+    await flush();
+    const before = backend.debug();
+    for (let i = 0; i < 30; i++) backend.noteReverbZones(w);
+    GameObject.create("z3").addBehavior(AudioReverbZone, {});
+    backend.noteReverbZones(w);
+    expect(zoneWarnings()).toHaveLength(1);
+    expect(zoneWarnings()[0]).toMatch(/audio core/);
+    expect(warnings()).toHaveLength(1);
+    expect(backend.debug().zones).toBeUndefined();
+    expect(backend.debug().voices).toEqual(before.voices);
+    expect(backend.debug().core).toEqual(before.core);
+  });
+
+  it("does not warn for a disabled zone, and warns when it is enabled", async () => {
+    await load();
+    const { backend } = rig();
+    const node = GameObject.create("off");
+    const z = node.addBehavior(AudioReverbZone, {});
+    z.enabled = false;
+    backend.noteReverbZones(node.world);
+    expect(zoneWarnings()).toHaveLength(0);
+    z.enabled = true;
+    backend.noteReverbZones(node.world);
+    expect(zoneWarnings()).toHaveLength(1);
   });
 });

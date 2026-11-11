@@ -107,8 +107,9 @@ function runFrame(backend: AudioBackend, dt: number): void {
     return;
   }
   if (isSpatialPassHost(backend)) {
-    // The Babylon fallback (F1, api-and-models §8): main's Doppler and occlusion, then its own frame. No zones (inert).
+    // The Babylon fallback (F1, api-and-models §8): main's Doppler and occlusion, then its own frame. Zones are inert (F2: one warning).
     const settings = mixer.audioSettings;
+    if (frame.world) (backend as { noteReverbZones?: (w: World) => void }).noteReverbZones?.(frame.world); // F2: one warning
     backend.collectSpatialVoices();
     backend.doppler.run(frame, backend.spatialVoices, settings);
     backend.occlusion.run(frame, backend.spatialVoices, settings);
