@@ -56,10 +56,19 @@ impl Law {
 /// every law (`equalPowerOut`'s progress is `1 − cos(u·π/2)`). Control rate only.
 #[inline]
 pub fn progress(law: Law, u: f32) -> f32 {
-    // L-Z2bb: clamp `u` to [0, 1], then linear `u`; sCurve `u*u*(3.0 - 2.0*u)`; equalPowerIn
-    // `equal_power::sin_quarter(u)`; equalPowerOut `1.0 - equal_power::cos_quarter(u)`. Linear until then.
-    let _ = law;
-    u
+    // NaN fails `u > 0.0` and so reads 0.
+    let u = if u > 0.0 { if u < 1.0 { u } else { 1.0 } } else { 0.0 };
+    match law {
+        Law::Linear => u,
+        // The polynomial is evaluated in f64 and rounded once: in f32 its rounding noise near u = 1
+        // (the slope is 6u(1 − u)) makes the curve step backwards by an ulp. f64 is monotone here.
+        Law::SCurve => {
+            let v = u as f64;
+            (v * v * (3.0 - 2.0 * v)) as f32
+        }
+        Law::EqualPowerIn => crate::equal_power::sin_quarter(u),
+        Law::EqualPowerOut => 1.0 - crate::equal_power::cos_quarter(u),
+    }
 }
 
 /// The fade's value at phase `u` going from `from` to `to` under `law`: `from` at `u = 0`, `to` at
@@ -77,8 +86,19 @@ pub fn progress(law: Law, u: f32) -> f32 {
 ///   table's power error).
 #[inline]
 pub fn value(law: Law, from: f32, to: f32, u: f32) -> f32 {
-    // L-Z2bb: the formulation above. Linear until then.
-    from + (to - from) * progress(law, u)
+    // NaN fails `u > 0.0` and so returns `from`, like `u <= 0`.
+    if !(u > 0.0) {
+        return from;
+    }
+    if u >= 1.0 {
+        return to;
+    }
+    match law {
+        Law::Linear => from + (to - from) * u,
+        Law::SCurve => from + (to - from) * progress(law, u),
+        Law::EqualPowerIn => from + (to - from) * crate::equal_power::sin_quarter(u),
+        Law::EqualPowerOut => to + (from - to) * crate::equal_power::cos_quarter(u),
+    }
 }
 
 #[cfg(test)]
@@ -106,7 +126,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "L-Z2bb"]
     fn progress_is_zero_at_zero_and_one_at_one_for_every_law() {
         for law in LAWS {
             assert_eq!(progress(law, 0.0), 0.0, "{law:?}");
@@ -117,7 +136,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "L-Z2bb"]
     fn progress_follows_each_law() {
         for law in LAWS {
             for u in grid() {
@@ -129,7 +147,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "L-Z2bb"]
     fn value_lands_exactly_on_from_and_to() {
         let pairs = [(0.0f32, 1.0f32), (1.0, 0.0), (0.7, 0.3), (0.25, 0.8), (2.0, -1.5)];
         for law in LAWS {
@@ -143,7 +160,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "L-Z2bb"]
     fn value_maps_progress_between_from_and_to() {
         for law in LAWS {
             for u in grid() {
@@ -156,7 +172,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "L-Z2bb"]
     fn the_equal_power_pair_is_the_quarter_sine_and_cosine() {
         for u in grid() {
             assert_eq!(value(Law::EqualPowerIn, 0.0, 1.0, u), crate::equal_power::sin_quarter(u), "in at {u}");
@@ -167,7 +182,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "L-Z2bb"]
     fn the_equal_power_crossfade_keeps_power_within_1e_6() {
         let mut max = 0.0f64;
         for u in grid() {
@@ -179,7 +193,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "L-Z2bb"]
     fn every_law_is_monotone() {
         for law in LAWS {
             let mut last = 0.0f32;
