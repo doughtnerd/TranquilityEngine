@@ -129,8 +129,80 @@ export interface GridLine {
  * The pickup (negative ticks) has no bar numbers and no lines. Pure.
  */
 export function gridLines(map: TempoMap, view: Viewport, options: GridLineOptions = {}): GridLine[] {
-  void map; void view; void options;
-  throw new Error("L-Ed2a: gridLines is not implemented");
+  const minBeatPx = options.minBeatPx ?? DEFAULT_MIN_BEAT_PX;
+  const minBarPx = options.minBarPx ?? DEFAULT_MIN_BAR_PX;
+  const out: GridLine[] = [];
+  // The visible ticks, widened by a tick each side; every line is then kept or dropped on its exact x.
+  const loI = Math.max(0, Math.floor(secondsToTicks(map, view.startSeconds)) - 1);
+  const hiI = Math.ceil(secondsToTicks(map, viewEndSeconds(view))) + 1;
+  if (!Number.isFinite(loI) || !Number.isFinite(hiI) || hiI < loI) return out;
+
+  /** Appends the line at integer `ticks` of span `s` when its x is on screen. */
+  const emit = (s: number, ticks: number, marker: boolean): void => {
+    const seconds = map.gridOffset + map.startSeconds[s] + (ticks - map.startTick[s]) / map.ticksPerSecond[s];
+    const x = secondsToX(view, seconds);
+    if (!(x >= 0 && x <= view.widthPx)) return;
+    // Beats from the bar line at or before the span's marker: bar and beat follow the span's own metre.
+    const j = (ticks - map.barOriginTick[s]) / MUSIC_TICKS_PER_BEAT;
+    const bpb = map.beatsPerBar[s];
+    const bar = map.startBar[s] + Math.floor(j / bpb);
+    const beat = (j % bpb) + 1;
+    const isBar = beat === 1;
+    const line: GridLine = {
+      x, ticks, seconds, kind: isBar ? "bar" : "beat", bar, beat,
+      ...(isBar ? { label: String(bar) } : {}),
+      ...(marker ? { marker: s } : {}),
+    };
+    out.push(line);
+  };
+
+  for (let s = spanIndexAt(map, loI); s < map.count && map.startTick[s] <= hiI; s++) {
+    const start = map.startTick[s];
+    const next = s + 1 < map.count ? map.startTick[s + 1] : Infinity;
+    // A change's marker is a line of its own, whatever the zoom (span 0 starts at 1:1:0, which is no change).
+    if (s >= 1 && start >= loI) emit(s, start, true);
+    const lo = Math.max(loI, start);
+    const hi = Math.min(hiI, next - 1);
+    if (lo > hi) continue;
+    const origin = map.barOriginTick[s];
+    const tpb = map.ticksPerBar[s];
+    const bpb = map.beatsPerBar[s];
+    const barPx = (tpb / map.ticksPerSecond[s]) * view.pxPerSecond;
+    const beatPx = (MUSIC_TICKS_PER_BEAT / map.ticksPerSecond[s]) * view.pxPerSecond;
+    // Thin the bars by the least power of two that keeps this span's bars at least minBarPx apart.
+    let n = 1;
+    while (n * barPx < minBarPx && n < 1 << 30) n *= 2;
+    if (beatPx >= minBeatPx) {
+      // Every beat of the span on screen; a bar line is kept only on the thinned bars.
+      for (let j = Math.ceil((lo - origin) / MUSIC_TICKS_PER_BEAT); origin + j * MUSIC_TICKS_PER_BEAT <= hi; j++) {
+        const ticks = origin + j * MUSIC_TICKS_PER_BEAT;
+        if (ticks === start && s >= 1) continue; // emitted above
+        const isBar = j % bpb === 0;
+        if (isBar && (map.startBar[s] + j / bpb - 1) % n !== 0) continue;
+        emit(s, ticks, false);
+      }
+    } else {
+      // Beats too narrow to draw: walk the thinned bar lines only. The first kept bar is found by arithmetic.
+      let k = Math.ceil((lo - origin) / tpb);
+      k += (n - ((map.startBar[s] - 1 + k) % n)) % n;
+      for (; origin + k * tpb <= hi; k += n) {
+        const ticks = origin + k * tpb;
+        if (ticks === start && s >= 1) continue; // emitted above
+        emit(s, ticks, false);
+      }
+    }
+  }
+  return out;
+}
+
+/** Index of the last span whose marker tick is `<= ticks` (0 before the grid). Private, so the module's imports stay as they are. */
+function spanIndexAt(map: TempoMap, ticks: number): number {
+  let lo = 0, hi = map.count - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (map.startTick[mid] <= ticks) lo = mid; else hi = mid - 1;
+  }
+  return lo;
 }
 
 /** One span of the tempo and metre lane. */
@@ -155,8 +227,21 @@ export interface TempoLaneItem {
  * its `endX >= 0` and its `x <= view.widthPx`. Pure.
  */
 export function tempoLane(map: TempoMap, view: Viewport): TempoLaneItem[] {
-  void map; void view;
-  throw new Error("L-Ed2a: tempoLane is not implemented");
+  const out: TempoLaneItem[] = [];
+  for (let s = spanIndexAt(map, secondsToTicks(map, view.startSeconds)); s < map.count; s++) {
+    const x = ticksToX(map, view, map.startTick[s]);
+    if (x > view.widthPx) break;
+    const endX = s + 1 < map.count ? ticksToX(map, view, map.startTick[s + 1]) : Infinity;
+    if (endX < 0) continue;
+    const bpm = map.bpm[s];
+    const beatsPerBar = map.beatsPerBar[s];
+    const beatUnit = map.beatUnit[s];
+    const metreChange = s === 0 || beatsPerBar !== map.beatsPerBar[s - 1] || beatUnit !== map.beatUnit[s - 1];
+    const bpmText = String(Math.round(bpm * 100) / 100);
+    const text = `${bpmText} bpm` + (metreChange ? ` ${beatsPerBar}/${beatUnit}` : "");
+    out.push({ index: s, x, endX, bpm, beatsPerBar, beatUnit, text, metreChange });
+  }
+  return out;
 }
 
 /** The position text under x for the status line (`"12:3:480"`), or null before the grid or past the last bar. */
@@ -170,8 +255,28 @@ export function positionAtX(map: TempoMap, view: Viewport, x: number): BarBeatTi
  * (a metre change's marker counts as a bar line). Never negative: x left of the grid gives 0. Pure.
  */
 export function nearestGridTicks(map: TempoMap, view: Viewport, x: number, kind: "bar" | "beat"): number {
-  void map; void view; void x; void kind;
-  throw new Error("L-Ed2a: nearestGridTicks is not implemented");
+  const t = secondsToTicks(map, xToSeconds(view, x));
+  if (kind === "beat") return Math.max(0, Math.round(t / MUSIC_TICKS_PER_BEAT) * MUSIC_TICKS_PER_BEAT) + 0;
+  // Bar lines of the span x falls in, plus the next span's start when that start is a bar line (a metre change).
+  const s = spanIndexAt(map, t);
+  const origin = map.barOriginTick[s];
+  const tpb = map.ticksPerBar[s];
+  const next = s + 1 < map.count ? map.startTick[s + 1] : Infinity;
+  const k0 = Math.ceil((map.startTick[s] - origin) / tpb);
+  const kMax = Number.isFinite(next) ? Math.ceil((next - origin) / tpb) - 1 : Infinity;
+  const candidates: number[] = [];
+  if (k0 <= kMax) {
+    candidates.push(origin + Math.min(kMax, Math.max(k0, Math.round((t - origin) / tpb))) * tpb);
+  }
+  if (Number.isFinite(next) && map.startBeat[s + 1] === 1) candidates.push(next);
+  if (candidates.length === 0) {
+    // A span with no bar line of its own (tempo markers only, inside one bar): the grid's bar lines either side of x.
+    const f = Math.max(0, Math.floor((t - origin) / tpb));
+    candidates.push(origin + f * tpb, origin + (f + 1) * tpb);
+  }
+  let best = candidates[0];
+  for (const c of candidates) if (Math.abs(c - t) < Math.abs(best - t)) best = c;
+  return Math.max(0, best) + 0;
 }
 
 /** The ticks of one beat, re-exported so the view and Ed3 need not import the grid for the constant. */
