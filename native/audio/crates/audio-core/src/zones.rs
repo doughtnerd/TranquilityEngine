@@ -1,28 +1,101 @@
-//! Reverb zones (ADR 0162, api-and-models §5.2, architecture §4.4, contract C5 ZONE_CONFIG): the
-//! fixed `Zones` region of convolver slots, the ZONE_CONFIG table and slot state machine (off,
-//! waiting for kernel, fading in, active, ringing out, evicting), the return buses (`add_returns`,
-//! called from `bus.rs`'s pre-effects input hook), the shared-return scale and the STATUS zone
-//! slots.
+//! Reverb zones (ADR 0162, api-and-models §3.1, §4.2 ZONE_CONFIG, §4.3, §5.2; architecture §2.2,
+//! §3.3, §4.4, §7.3; contracts C5, C7, C8, OD2, OD3): the fixed `Zones` region of convolver slots,
+//! the ZONE_CONFIG table and slot state machine, the return buses ([`add_returns`], called from
+//! `bus.rs`'s pre-effects input hook), the shared-return scale ([`shared_return`]), the STATUS zone
+//! slots and the load-shedding ladder's zone steps. Task C4 fills the slot inputs (`sends::tap`,
+//! through [`slot_input`]); task C3b prepares format 5 PCM in the core.
 //!
-//! Skeleton declared by K2 (task A1): the region and kernel-budget sizes, ZONE_CONFIG's
-//! well-formedness check and a handler that parses the record and drops it, the `add_returns` hook
-//! and `reset` (no-ops). Task C3 fills it, C4 adds the inputs and C3b the in-core IR preparation.
+//! **Slots (OD2).** The core has `max_zone_slots` slots: `maxActive + standby` (3 on high and
+//! default, the standby slot letting a released zone ring out while the incoming one takes the
+//! spare; 1 on low, where main evicts with a 150 ms fade first). Each slot is one stereo convolver
+//! (`audio_dsp::convolver::instance`) over a kernel held in the arena (format 3, read in place),
+//! with its state in this region, so a slot costs its region bytes whether used or not and nothing
+//! is ever allocated for it.
 //!
-//! **Sizes (C8).** The `Zones` region holds `max_zone_slots` convolver states (input histories,
-//! frequency-domain delay lines, accumulators, rings and FFT scratch) for an IR of
-//! `zone_max_frames`. The prepared kernels (format 3, or format 5 prepared in the core) are clips in
-//! the arena, outside `clipMemoryMB`, and [`kernel_budget_bytes`] (the
-//! `myco_audio_zone_kernel_budget_bytes` export) is what the shell adds to the Memory's maximum for
-//! them. [`slot_state_bytes`] is K2's estimate from the shared convolver's layout; C3 replaces its
-//! body with C1's `convolver::instance` state size (the TypeScript mirror in
-//! `runtime/core/initParams.ts` follows the same function).
+//! **The table (C5).** ZONE_CONFIG is idempotent and applies on arrival; [`configure`] diffs it
+//! against the slots. Per slot (the wire always carries up to 4; a slot past `max_zone_slots` with
+//! a kernel is the zone event `refusedSlot`):
+//!
+//! | Record | Slot | Result |
+//! |---|---|---|
+//! | new `kernelId`, state 1 | off | starts: waiting for kernel, or (resident) planned by `plan_stagger` and fading in over 100 ms |
+//! | new `kernelId` | not off | refused: zone event `refusedKernel`, once per id (main reads the slot states first) |
+//! | same id, state 1 | ringing out / evicting | active again (fades back in when it was fading out) |
+//! | same id, state 2 release | fading in / active | ringing out: sends ignored, the tail rings out, then off |
+//! | same id, state 3 evict | fading in / active / ringing out | evicting: sends ignored, the wet fades out over 150 ms, then off |
+//! | state 2 or 3 | waiting for kernel | off |
+//! | `kernelId` 0 (or the slot missing) | fading in / active | evicting (no cut); a waiting slot goes off |
+//!
+//! `wet` (0..2) ramps over `rampFrames` and `sharedReturnGain` (0..1) likewise; neither re-plans.
+//! A slot "waiting for kernel" starts when its kernel's last range is committed
+//! ([`kernel_resident`], from `clips::commit`), so REPLAY needs no ordering. Starting (the stagger
+//! plan and clearing the slot's state) runs in `onmessage`, never in `process`. A kernel that
+//! doesn't parse, is at another rate, or is longer than the slot holds is the zone event `badBlob`
+//! (once) and the slot keeps waiting. A kernel freed under a running slot sends it back to waiting.
+//!
+//! **Render** ([`render`], from `bus::mixdown` before the buses mix): each running slot convolves
+//! its input (the quantum's sends, zeroed when the slot ignores sends) and keeps the wet signal,
+//! times `wet × fade`, for [`add_returns`], which adds it into the slot's return bus (the zone's
+//! `output`, R17; bus 0 when that bus isn't configured) before the bus's effects, so the bus's
+//! fader, ducking and meter apply. A slot whose input has been silent for its IR plus
+//! [`IDLE_MARGIN_QUANTA`] stops convolving (its whole state is exact zeros by then) and costs
+//! nothing; a ringing-out or evicting slot is off at that point. Each slot's schedule clock is the
+//! core's quantum count (`Instance::set_clock` on start and on waking), so the stagger planner's
+//! phases line up across slots; the output never depends on the phase.
+//!
+//! **The shared reverb's return** is scaled by `sharedReturnGain` (1 minus the listener's zone
+//! weight), ramped per frame. Settled at 1 (always, before any ZONE_CONFIG) `bus::mixdown` runs
+//! M1's path unchanged, so every M1/M2 golden stays bit-identical.
+//!
+//! **The load-shedding ladder (OD3, architecture §7.3).** Only when the adaptive cap sits at its
+//! floor (16, or `max_mixed` below that) and underruns continue for [`LADDER_MS`]: step 1 cuts
+//! the releasing slots' tails with a 100 ms fade (and every release after it, for the session);
+//! step 2, after another second of underruns, allows one active slot fewer for the session (the
+//! active slot with the lowest wet is evicted; a start past the limit is `refusedSlot`). Each step
+//! counts in [`shed_steps`] (main's `m3Shed`). It never touches beds or HRTF.
+//!
+//! **Sizes (C8).** The region holds `max_zone_slots` slots of [`slot_state_bytes`]`(zone_max_frames)`
+//! (a header with the slot's stereo input and wet buffers, then the instance state). The kernels
+//! are arena clips outside `clipMemoryMB`, within [`kernel_budget_bytes`] (the
+//! `myco_audio_zone_kernel_budget_bytes` export, which the shell adds to the Memory's maximum).
+//! The TypeScript mirror (`worklet/coreDriver.ts`) follows both functions. The table's scalars,
+//! the shared-return ramp and the ladder live in [`ZoneArea`], in the core-state region after the
+//! bus area.
 
+use audio_dsp::convolver::instance::{self, Instance, Phase, SHARED_PHASE};
+use audio_dsp::convolver::kernel::Kernel;
+use audio_dsp::convolver::stagger::{plan_stagger, Load, MAX_PLANNED};
+use audio_dsp::convolver::{self, ir, Scratch};
+use audio_dsp::ramp::Ramp;
 use audio_wire::generated as wire;
+use wire::{zone_event, zone_slot_state, zone_state};
 
-use crate::core::Core;
+use crate::clips::{is_zone_kernel_id, ClipStore};
+use crate::core::{Core, Regions};
+use crate::counters::{ZoneEvent, ZoneStatus, ZONES_CAP};
 use crate::layout::REGION_ALIGN;
 use crate::params::InitParams;
-use crate::QUANTUM;
+use crate::{status, QUANTUM};
+
+/// The wet fade-in once a slot's kernel is resident (C5: 100 ms).
+pub const FADE_IN_MS: u32 = 100;
+/// The eviction fade (ZONE_CONFIG state 3, OD2: 150 ms).
+pub const EVICT_MS: u32 = 150;
+/// The ladder's tail cut (OD3: 100 ms).
+pub const CUT_MS: u32 = 100;
+/// Underruns at the cap's floor for this long take a ladder step (OD3: 1 s).
+pub const LADDER_MS: u32 = 1_000;
+/// Ladder steps: cut releasing tails, then one active slot fewer.
+pub const LADDER_STEPS: u32 = 2;
+/// Quanta of silent input past the IR's length after which a slot's state is exact zeros (the tail
+/// FFT's overlap, the delay line's newest block and the accumulation buffer's look-ahead: three
+/// 16-quantum cycles, plus 2), so it stops convolving.
+pub const IDLE_MARGIN_QUANTA: u32 = 3 * convolver::CYCLE + 2;
+/// Modelled work units of one running slot per quantum (`zones-2x2s` ≈ 47 µs p50 for two slots,
+/// container est.; STATUS `workZones`).
+pub const SLOT_WU: u32 = 23_000;
+/// [`ZoneArea::active_limit`] when the ladder hasn't lowered it.
+pub const NO_LIMIT: u32 = u32::MAX;
 
 /// Head partitions of a zone kernel (`convolver.rs`: 128-frame partitions, at most 32).
 pub const fn head_parts(frames: usize) -> usize {
@@ -49,30 +122,92 @@ pub const fn kernel_blob_bytes(frames: usize) -> usize {
     wire::ZONE_KERNEL_HEADER_BYTES as usize + head + tail
 }
 
-/// The zone kernel budget (C8): `max_zone_slots` kernels of `zone_max_frames`, each rounded up to
-/// the arena's 64-byte granule. 0 without slots.
+/// The arena block a request of `bytes` takes (`arena::size_class`: four classes per doubling
+/// from 4 KB), as a `const fn`, so the budget export and its TypeScript mirror agree.
+pub const fn arena_block_bytes(bytes: usize) -> usize {
+    let mut doubling = 0;
+    while doubling < 20 {
+        let mut step = 0;
+        while step < 4 {
+            let class = (1024usize << doubling) * (4 + step);
+            if class >= bytes {
+                return class;
+            }
+            step += 1;
+        }
+        doubling += 1;
+    }
+    usize::MAX
+}
+
+/// The zone kernel budget (C8): `max_zone_slots` kernels of `zone_max_frames`, each the arena
+/// block it takes (the kernel budget is one kernel per core slot, OD2). 0 without slots.
 pub const fn kernel_budget_bytes(max_zone_slots: u32, zone_max_frames: u32) -> usize {
     if max_zone_slots == 0 {
         return 0;
     }
-    max_zone_slots as usize * align_up(kernel_blob_bytes(zone_max_frames as usize), REGION_ALIGN)
+    max_zone_slots as usize * arena_block_bytes(kernel_blob_bytes(zone_max_frames as usize))
 }
 
 const fn align_up(n: usize, to: usize) -> usize {
     n.div_ceil(to) * to
 }
 
-/// One zone slot's convolver state for an IR of `frames` (K2's estimate, see the module comment):
-/// per channel the head input spectra (32 × 128 bins), the previous quantum, the tail's
-/// frequency-domain delay line (`tail_parts × 2,048` bins), the accumulator, a 2 × 4,096-frame input
-/// ring and a 4,096-frame output ring; per slot the FFT scratch (time, two spectra, twiddles).
+/// One slot's header, at the start of its bytes. `#[repr(C)]`; all-zero is an off slot.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SlotHeader {
+    /// Slots in the region and bytes per slot ([`init`] writes them into every slot, so a view of
+    /// the region alone, as `sends::tap` has, finds its slots).
+    pub count: u32,
+    pub stride: u32,
+    /// The slot's kernel (a zone kernel clip id), 0 when off.
+    pub kernel_id: u32,
+    /// ZONE_CONFIG `irFrames` (the idle check uses the kernel's own length once it runs).
+    pub ir_frames: u32,
+    /// ZONE_CONFIG `returnBus`, and the bus the wet goes to this quantum (bus 0 when it isn't
+    /// configured).
+    pub return_bus: u16,
+    pub route: u16,
+    /// The wire's `ZoneState` (0 off .. 5 evicting).
+    pub state: u8,
+    /// 1 once the instance was started for `kernel_id` (in `onmessage`).
+    pub started: u8,
+    /// 1 while the instance's clock follows the core's quantum count (0 after idling).
+    pub clocked: u8,
+    /// 1 once `badBlob` was reported for `kernel_id`.
+    pub bad_reported: u8,
+    /// The last id refused in this slot (`refusedKernel`/`refusedSlot` once per id).
+    pub refused_id: u32,
+    /// The running kernel's tail partitions and stagger phase `[f0, i0, f1, i1]`.
+    pub tail_parts: u32,
+    pub phase: [u8; 4],
+    /// 1 when `output` holds this quantum's wet signal.
+    pub live: u32,
+    /// Quanta since a send last fed the slot (saturating).
+    pub quanta_since_input: u32,
+    /// The wet output's peak, last quantum.
+    pub wet_peak: f32,
+    /// ZONE_CONFIG `wet`, ramped per frame.
+    pub wet: Ramp,
+    /// The fade: in over 100 ms, out over 150 ms (evict) or 100 ms (the ladder's cut).
+    pub fade: Ramp,
+    /// The quantum's sends, planar stereo `[L; 128][R; 128]` (C4's `sends::tap` adds into it).
+    pub input: [f32; 2 * QUANTUM],
+    /// The quantum's wet signal, planar stereo, after `wet × fade`.
+    pub output: [f32; 2 * QUANTUM],
+}
+
+/// Bytes before a slot's instance state: the header, rounded so the state starts 32 bytes past a
+/// 64-byte boundary (`instance.rs`: its parts are then 64-byte aligned).
+pub const SLOT_HEADER_BYTES: usize = align_up(core::mem::size_of::<SlotHeader>(), REGION_ALIGN) + 32;
+
+/// One zone slot's bytes for an IR of `frames` (C8): the header (input and wet buffers, the state
+/// machine), then C1's instance state (`instance::state_bytes`: head input spectra, the tail's
+/// frequency-domain delay lines, accumulators, the input ring and the accumulation buffer), rounded
+/// to the region alignment. The FFT scratch is the shared reverb's (`convolver::shared_scratch`).
 pub const fn slot_state_bytes(frames: usize) -> usize {
-    const SIZE: usize = 2 * wire::ZONE_TAIL_BINS as usize; // the tail FFT's size, 4,096
-    const BINS: usize = wire::ZONE_TAIL_BINS as usize;
-    let parts = wire::ZONE_KERNEL_MAX_HEAD_PARTS as usize;
-    let per_channel = parts * wire::ZONE_HEAD_BINS as usize * 8 + QUANTUM * 4 + tail_parts(frames) * BINS * 8 + BINS * 8 + 2 * SIZE * 4 + SIZE * 4;
-    let scratch = SIZE * 4 + 2 * BINS * 8 + SIZE * 8;
-    align_up(2 * per_channel + scratch, REGION_ALIGN)
+    align_up(SLOT_HEADER_BYTES + instance::state_bytes(tail_parts(frames)), REGION_ALIGN)
 }
 
 /// The `Zones` region's size: `max_zone_slots × slot_state_bytes(zone_max_frames)` (C8).
@@ -82,6 +217,105 @@ pub const fn region_bytes(p: &InitParams) -> usize {
     } else {
         p.max_zone_slots as usize * slot_state_bytes(p.zone_max_frames as usize)
     }
+}
+
+/// The table's scalars, the shared-return ramp and the ladder: in the core-state region at
+/// [`ZONE_AREA_OFFSET`]. All-zero is valid; [`init`] fills it.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct ZoneArea {
+    /// ZONE_CONFIG `sharedReturnGain`, ramped per frame (1 until the first ZONE_CONFIG).
+    pub shared_return: Ramp,
+    /// [`FADE_IN_MS`], [`EVICT_MS`], [`CUT_MS`] and [`LADDER_MS`] in frames.
+    pub fade_in_frames: u32,
+    pub evict_frames: u32,
+    pub cut_frames: u32,
+    pub ladder_frames: u32,
+    /// The ladder: 1 while underruns at the floor go on, since when, and the last one.
+    pub pressure: u32,
+    pub pressure_since: u64,
+    pub last_underrun: u64,
+    /// Steps taken (0..=2, main's `m3Shed`), whether releases are cut (step 1), and the most
+    /// active slots allowed (step 2; [`NO_LIMIT`] before).
+    pub shed_steps: u32,
+    pub cut_tails: u32,
+    pub active_limit: u32,
+    /// Kernels and slots refused, cumulative (main's `kernelRefused` counts from the events).
+    pub refused: u32,
+}
+
+/// Offset of [`ZoneArea`] in the core-state region (after the bus area).
+pub const ZONE_AREA_OFFSET: usize = align_up(crate::bus::BUS_AREA_OFFSET + core::mem::size_of::<crate::bus::BusArea>(), REGION_ALIGN);
+
+const _: () = assert!(ZONE_AREA_OFFSET + core::mem::size_of::<ZoneArea>() <= crate::layout::CORE_STATE_BYTES, "the zone area fits the core-state region");
+const _: () = assert!(core::mem::align_of::<SlotHeader>() <= REGION_ALIGN && core::mem::align_of::<ZoneArea>() <= REGION_ALIGN);
+
+fn area_mut(core_state: &mut [u8]) -> &mut ZoneArea {
+    let bytes = &mut core_state[ZONE_AREA_OFFSET..ZONE_AREA_OFFSET + core::mem::size_of::<ZoneArea>()];
+    // SAFETY: the core-state region is 64-byte aligned and zeroed at init; ZONE_AREA_OFFSET is a
+    // multiple of REGION_ALIGN and the area fits (asserted); all-zero bytes are a valid ZoneArea
+    // (integers, floats, ramps). Only this module views these bytes.
+    unsafe { &mut *(bytes.as_mut_ptr() as *mut ZoneArea) }
+}
+
+/// The zone area (tests and a debugger).
+pub fn area(core: &Core) -> &ZoneArea {
+    let bytes = &core.regions().core_state[ZONE_AREA_OFFSET..ZONE_AREA_OFFSET + core::mem::size_of::<ZoneArea>()];
+    // SAFETY: as in `area_mut`.
+    unsafe { &*(bytes.as_ptr() as *const ZoneArea) }
+}
+
+/// The region's slot count and stride, read from slot 0's header (0 slots for an empty region or
+/// one [`init`] didn't lay out).
+fn geometry(zones: &[u8]) -> (usize, usize) {
+    if zones.len() < core::mem::size_of::<SlotHeader>() {
+        return (0, 0);
+    }
+    let word = |i: usize| u32::from_ne_bytes([zones[4 * i], zones[4 * i + 1], zones[4 * i + 2], zones[4 * i + 3]]) as usize;
+    let (count, stride) = (word(0), word(1));
+    if count == 0 || stride < SLOT_HEADER_BYTES || count.checked_mul(stride).is_none_or(|n| n > zones.len()) {
+        return (0, 0);
+    }
+    (count, stride)
+}
+
+/// Slot `k`'s header and instance state bytes (`k < count`, `stride` from [`geometry`]).
+fn slot(zones: &mut [u8], k: usize, stride: usize) -> (&mut SlotHeader, &mut [u8]) {
+    let bytes = &mut zones[k * stride..(k + 1) * stride];
+    let (head, state) = bytes.split_at_mut(SLOT_HEADER_BYTES);
+    // SAFETY: the region is 64-byte aligned (Layout) and the stride a multiple of REGION_ALIGN, so
+    // the header is aligned; it fits SLOT_HEADER_BYTES; all-zero bytes are a valid SlotHeader.
+    (unsafe { &mut *(head.as_mut_ptr() as *mut SlotHeader) }, state)
+}
+
+fn header(zones: &[u8], k: usize, stride: usize) -> &SlotHeader {
+    // SAFETY: as in `slot`.
+    unsafe { &*(zones[k * stride..].as_ptr() as *const SlotHeader) }
+}
+
+/// Lays the slots out and sets the area's defaults (`sharedReturnGain` 1, no ladder step). Called
+/// once by `bus::init` (from `Core::new`).
+pub fn init(core: &mut Core) {
+    let p = *core.params();
+    let rate = p.sample_rate;
+    let regions = core.regions_mut();
+    let count = p.max_zone_slots as usize;
+    let stride = slot_state_bytes(p.zone_max_frames as usize);
+    if count > 0 && count * stride <= regions.zones.len() {
+        for k in 0..count {
+            let (h, _) = slot(regions.zones, k, stride);
+            h.count = count as u32;
+            h.stride = stride as u32;
+        }
+    }
+    let a = area_mut(regions.core_state);
+    a.shared_return = Ramp::at(1.0);
+    let frames = |ms: u32| crate::cap_controller::ms_to_frames(ms, rate).min(u32::MAX as u64) as u32;
+    a.fade_in_frames = frames(FADE_IN_MS);
+    a.evict_frames = frames(EVICT_MS);
+    a.cut_frames = frames(CUT_MS);
+    a.ladder_frames = frames(LADDER_MS);
+    a.active_limit = NO_LIMIT;
 }
 
 fn u32_at(msg: &[u8], off: usize) -> u32 {
@@ -98,22 +332,592 @@ pub fn config_is_well_formed(msg: &[u8], off: usize, len: usize) -> bool {
     n <= wire::MAX_ZONE_SLOTS as usize && wire::ZoneConfig::FIXED_END + n * wire::ZoneConfigSlots::FIXED_END <= len
 }
 
-/// ZONE_CONFIG (C5, idempotent, applies on arrival) from the well-formed record at `msg[off..]`.
-/// K2: parsed and dropped; C3 diffs it against the slot table.
-pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
-    let _ = (core, u32_at(msg, off + 12));
+/// Zone events gathered while the regions are borrowed, pushed to STATUS after.
+#[derive(Default)]
+struct Events {
+    list: [ZoneEvent; 2 * MAX_PLANNED],
+    len: usize,
 }
 
-/// The pre-effects input hook (`bus::mixdown`): adds the wet output of every zone slot whose return
-/// bus is `bus` into its input `l`, `r`. K2: a no-op (no zone runs before C3).
+impl Events {
+    fn push(&mut self, slot: usize, code: u32) {
+        if self.len < self.list.len() {
+            self.list[self.len] = ZoneEvent { slot: slot as u8, code: code as u8 };
+            self.len += 1;
+        }
+    }
+
+    fn flush(self, core: &mut Core) {
+        let c = status::counters_mut(core);
+        for e in &self.list[..self.len] {
+            let _ = c.spatial.zone_events.push(*e);
+        }
+    }
+}
+
+fn is_running(state: u8) -> bool {
+    matches!(state as u32, zone_state::FADING_IN | zone_state::ACTIVE | zone_state::RINGING_OUT | zone_state::EVICTING)
+}
+
+/// Sends accepted: waiting, fading in or active (ZONE_CONFIG state 1).
+fn accepts_sends(state: u8) -> bool {
+    matches!(state as u32, zone_state::WAITING_KERNEL | zone_state::FADING_IN | zone_state::ACTIVE)
+}
+
+fn set_off(h: &mut SlotHeader) {
+    h.kernel_id = 0;
+    h.state = zone_state::OFF as u8;
+    h.started = 0;
+    h.clocked = 0;
+    h.bad_reported = 0;
+    h.live = 0;
+    h.wet = Ramp::at(0.0);
+    h.fade = Ramp::at(0.0);
+    h.wet_peak = 0.0;
+    h.quanta_since_input = 0;
+}
+
+fn fade_out(h: &mut SlotHeader, frames: u32) {
+    h.state = zone_state::EVICTING as u8;
+    h.fade.set_target(0.0, frames);
+}
+
+fn clamp_wet(wet: f32, old: f32) -> f32 {
+    if wet.is_finite() {
+        wet.clamp(0.0, 2.0)
+    } else {
+        old
+    }
+}
+
+/// ZONE_CONFIG (C5, idempotent, applies on arrival) from the well-formed record at `msg[off..]`:
+/// diffs it against the slots (the module comment's table), then starts the slots whose kernel is
+/// resident. In `onmessage`; never allocates.
+pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
+    let n = (u32_at(msg, off + 12) as usize).min(wire::MAX_ZONE_SLOTS as usize);
+    let shared = f32::from_le_bytes(msg[off + 16..off + 20].try_into().unwrap_or([0; 4]));
+    let ramp = u32_at(msg, off + 20);
+    let mut recs: [wire::ZoneConfigSlots; wire::MAX_ZONE_SLOTS as usize] = Default::default();
+    for (k, r) in recs.iter_mut().enumerate().take(n) {
+        if let Ok((s, _)) = wire::ZoneConfigSlots::read(msg, off + wire::ZoneConfig::FIXED_END + k * wire::ZoneConfigSlots::FIXED_END) {
+            *r = s;
+        }
+    }
+    let mut events = Events::default();
+    {
+        let regions = core.regions_mut();
+        let a = area_mut(regions.core_state);
+        if shared.is_finite() {
+            let g = shared.clamp(0.0, 1.0);
+            if g != a.shared_return.target {
+                a.shared_return.set_target(g, ramp);
+            }
+        }
+        let a = *a;
+        let (count, stride) = geometry(regions.zones);
+        let zones = &mut regions.zones[..];
+        let mut active = (0..count).filter(|&k| accepts_sends(header(zones, k, stride).state)).count() as u32;
+        let mut refused = 0u32;
+        for (k, rec) in recs.iter().enumerate() {
+            let id = if is_zone_kernel_id(rec.kernel_id) { rec.kernel_id } else { 0 };
+            if k >= count {
+                if id != 0 && rec.state as u32 == zone_slot_state::ACTIVE {
+                    events.push(k, zone_event::REFUSED_SLOT);
+                    refused += 1;
+                }
+                continue;
+            }
+            let (h, _) = slot(zones, k, stride);
+            if id == 0 {
+                match h.state as u32 {
+                    zone_state::WAITING_KERNEL => {
+                        set_off(h);
+                        active = active.saturating_sub(1);
+                    }
+                    zone_state::FADING_IN | zone_state::ACTIVE => {
+                        fade_out(h, a.evict_frames);
+                        active = active.saturating_sub(1);
+                    }
+                    _ => {}
+                }
+                h.refused_id = 0;
+                continue;
+            }
+            if id != h.kernel_id {
+                if h.state as u32 != zone_state::OFF {
+                    if h.refused_id != id {
+                        events.push(k, zone_event::REFUSED_KERNEL);
+                        h.refused_id = id;
+                        refused += 1;
+                    }
+                    continue;
+                }
+                if rec.state as u32 != zone_slot_state::ACTIVE {
+                    continue;
+                }
+                if active >= a.active_limit {
+                    if h.refused_id != id {
+                        events.push(k, zone_event::REFUSED_SLOT);
+                        h.refused_id = id;
+                        refused += 1;
+                    }
+                    continue;
+                }
+                set_off(h);
+                h.kernel_id = id;
+                h.ir_frames = rec.ir_frames;
+                h.return_bus = rec.return_bus;
+                h.wet = Ramp::at(clamp_wet(rec.wet, 0.0));
+                h.state = zone_state::WAITING_KERNEL as u8;
+                h.refused_id = 0;
+                h.input = [0.0; 2 * QUANTUM];
+                active += 1;
+                continue;
+            }
+            // The slot's own kernel: return bus, wet and state.
+            h.return_bus = rec.return_bus;
+            h.ir_frames = rec.ir_frames;
+            let wet = clamp_wet(rec.wet, h.wet.target);
+            if wet != h.wet.target {
+                h.wet.set_target(wet, ramp);
+            }
+            match (rec.state as u32, h.state as u32) {
+                (zone_slot_state::ACTIVE, zone_state::RINGING_OUT) => {
+                    h.state = if h.fade.value >= 1.0 { zone_state::ACTIVE } else { zone_state::FADING_IN } as u8;
+                    active += 1;
+                }
+                (zone_slot_state::ACTIVE, zone_state::EVICTING) => {
+                    h.state = zone_state::FADING_IN as u8;
+                    h.fade.set_target(1.0, a.fade_in_frames);
+                    active += 1;
+                }
+                (zone_slot_state::RELEASE | zone_slot_state::EVICT, zone_state::WAITING_KERNEL) => {
+                    set_off(h);
+                    active = active.saturating_sub(1);
+                }
+                (zone_slot_state::RELEASE, zone_state::FADING_IN | zone_state::ACTIVE) => {
+                    if a.cut_tails != 0 {
+                        fade_out(h, a.cut_frames);
+                    } else {
+                        h.state = zone_state::RINGING_OUT as u8;
+                    }
+                    active = active.saturating_sub(1);
+                }
+                (zone_slot_state::EVICT, zone_state::FADING_IN | zone_state::ACTIVE) => {
+                    fade_out(h, a.evict_frames);
+                    active = active.saturating_sub(1);
+                }
+                (zone_slot_state::EVICT, zone_state::RINGING_OUT) => fade_out(h, a.evict_frames),
+                _ => {}
+            }
+        }
+        area_mut(regions.core_state).refused += refused;
+    }
+    start_waiting(core, None, &mut events);
+    events.flush(core);
+}
+
+/// Starts every slot waiting for kernel `only` (or for any kernel) whose kernel is resident: parses
+/// it, plans its stagger phase around the shared reverb and the running slots, and starts its
+/// instance (clearing its state), fading in. In `onmessage`.
+fn start_waiting(core: &mut Core, only: Option<u32>, events: &mut Events) {
+    let p = *core.params();
+    let max_tail = tail_parts(p.zone_max_frames as usize);
+    let shared = Load { phase: SHARED_PHASE, tail_parts: convolver::tail_partitions(ir::frames(p.sample_rate)) };
+    let fade_in = area(core).fade_in_frames;
+    let (regions, clips, _) = core.render_parts();
+    let (count, stride) = geometry(regions.zones);
+    let zones = &mut regions.zones[..];
+    for k in 0..count {
+        let h = header(zones, k, stride);
+        if h.state as u32 != zone_state::WAITING_KERNEL || only.is_some_and(|id| id != h.kernel_id) {
+            continue;
+        }
+        let Some(bytes) = clips.zone_kernel(h.kernel_id) else { continue };
+        let kernel = Kernel::parse(bytes).filter(|k| (k.sample_rate() - p.sample_rate).abs() <= 0.5 && k.tail_parts() <= max_tail);
+        let Some(kernel) = kernel else {
+            let (h, _) = slot(zones, k, stride);
+            if h.bad_reported == 0 {
+                h.bad_reported = 1;
+                events.push(k, zone_event::BAD_BLOB);
+            }
+            continue;
+        };
+        let mut fixed = [shared; 1 + MAX_PLANNED];
+        let mut n = 1;
+        for j in 0..count {
+            let o = header(zones, j, stride);
+            if j != k && o.started != 0 && is_running(o.state) && n < fixed.len() {
+                fixed[n] = Load { phase: [(o.phase[0], o.phase[1]), (o.phase[2], o.phase[3])], tail_parts: o.tail_parts as usize };
+                n += 1;
+            }
+        }
+        let mut phase: [Phase; 1] = [SHARED_PHASE];
+        if !plan_stagger(&fixed[..n], &[kernel.tail_parts()], &mut phase) {
+            phase = [SHARED_PHASE];
+        }
+        let (h, state) = slot(zones, k, stride);
+        if Instance::start(kernel, state, phase[0]).is_none() {
+            continue;
+        }
+        h.started = 1;
+        h.clocked = 0;
+        h.tail_parts = kernel.tail_parts() as u32;
+        h.ir_frames = kernel.frames() as u32;
+        h.phase = [phase[0][0].0, phase[0][0].1, phase[0][1].0, phase[0][1].1];
+        h.state = zone_state::FADING_IN as u8;
+        h.fade = Ramp::at(0.0);
+        h.fade.set_target(1.0, fade_in);
+        h.quanta_since_input = 0;
+    }
+}
+
+/// A zone kernel became resident (`clips::commit`, `clips::write`): the slots waiting for it start.
+pub fn kernel_resident(core: &mut Core, id: u32) {
+    let mut events = Events::default();
+    start_waiting(core, Some(id), &mut events);
+    events.flush(core);
+}
+
+/// Quanta after which slot input silence leaves the state at exact zeros.
+fn idle_quanta(ir_frames: u32) -> u32 {
+    (ir_frames as usize).div_ceil(QUANTUM).min(u32::MAX as usize) as u32 + IDLE_MARGIN_QUANTA
+}
+
+/// What [`render`] did this quantum.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RenderNote {
+    /// Slots that convolved.
+    pub running: u32,
+}
+
+/// Renders every running slot for the quantum at context frame `frame` (see the module comment);
+/// `bus_count` is the configured buses (a return bus past them goes to bus 0). Called by
+/// `bus::mixdown` before the buses mix. Never allocates.
+pub(crate) fn render(regions: &mut Regions, clips: &ClipStore, frame: u64, bus_count: usize) -> RenderNote {
+    let Regions { zones, reverb, .. } = regions;
+    let (count, stride) = geometry(zones);
+    let mut note = RenderNote::default();
+    if count == 0 {
+        return note;
+    }
+    let clock = (frame / QUANTUM as u64) as u32;
+    let mut scratch: Option<Scratch<'_>> = None;
+    let mut scratch_tried = false;
+    for k in 0..count {
+        let (h, state) = slot(zones, k, stride);
+        h.live = 0;
+        h.wet_peak = 0.0;
+        h.route = if (h.return_bus as usize) < bus_count { h.return_bus } else { 0 };
+        if !is_running(h.state) || h.started == 0 {
+            h.input = [0.0; 2 * QUANTUM];
+            continue;
+        }
+        if !accepts_sends(h.state) {
+            h.input = [0.0; 2 * QUANTUM];
+        }
+        if h.input.iter().any(|x| *x != 0.0) {
+            h.quanta_since_input = 0;
+        } else {
+            h.quanta_since_input = h.quanta_since_input.saturating_add(1);
+        }
+        if h.quanta_since_input > idle_quanta(h.ir_frames) {
+            // Silent long enough that every history is zero: skip the convolution.
+            h.clocked = 0;
+            h.wet.advance(QUANTUM as u32);
+            h.fade.advance(QUANTUM as u32);
+            match h.state as u32 {
+                zone_state::RINGING_OUT | zone_state::EVICTING => set_off(h),
+                zone_state::FADING_IN if h.fade.is_settled() => h.state = zone_state::ACTIVE as u8,
+                _ => {}
+            }
+            continue;
+        }
+        let kernel = clips.zone_kernel(h.kernel_id).and_then(Kernel::parse);
+        if !scratch_tried {
+            scratch_tried = true;
+            scratch = convolver::shared_scratch(reverb);
+        }
+        let (Some(kernel), Some(scratch)) = (kernel, scratch.as_mut()) else {
+            // The kernel went (freed under the slot) or the core has no scratch: silent until it
+            // is back (an accepting slot waits for it; a fading one is done).
+            if accepts_sends(h.state) {
+                h.state = zone_state::WAITING_KERNEL as u8;
+                h.started = 0;
+            } else {
+                set_off(h);
+            }
+            h.input = [0.0; 2 * QUANTUM];
+            continue;
+        };
+        let Some(mut inst) = Instance::attach(kernel, state) else {
+            h.state = zone_state::WAITING_KERNEL as u8;
+            h.started = 0;
+            h.input = [0.0; 2 * QUANTUM];
+            continue;
+        };
+        if h.clocked == 0 {
+            inst.set_clock(clock);
+            h.clocked = 1;
+        }
+        h.output = [0.0; 2 * QUANTUM];
+        {
+            let (in_l, in_r) = h.input.split_at(QUANTUM);
+            let (out_l, out_r) = h.output.split_at_mut(QUANTUM);
+            inst.process(scratch, in_l, in_r, out_l, out_r);
+        }
+        let mut peak = 0.0f32;
+        if h.wet.is_settled() && h.fade.is_settled() && h.wet.value * h.fade.value == 1.0 {
+            for x in h.output.iter() {
+                peak = peak.max(x.abs());
+            }
+        } else {
+            let (out_l, out_r) = h.output.split_at_mut(QUANTUM);
+            for i in 0..QUANTUM {
+                let g = h.wet.next() * h.fade.next();
+                out_l[i] *= g;
+                out_r[i] *= g;
+                peak = peak.max(out_l[i].abs()).max(out_r[i].abs());
+            }
+        }
+        h.wet_peak = peak;
+        h.input = [0.0; 2 * QUANTUM];
+        h.live = 1;
+        note.running += 1;
+        match h.state as u32 {
+            zone_state::FADING_IN if h.fade.is_settled() => h.state = zone_state::ACTIVE as u8,
+            // The fade has reached 0: this quantum's wet was the last.
+            zone_state::EVICTING if h.fade.is_settled() => {
+                h.state = zone_state::OFF as u8;
+                h.kernel_id = 0;
+                h.started = 0;
+                h.clocked = 0;
+                h.bad_reported = 0;
+            }
+            _ => {}
+        }
+    }
+    note
+}
+
+/// The pre-effects input hook (`bus::mixdown`): adds the wet output of every zone slot whose
+/// return bus is `bus` into its input `l`, `r`. Never allocates.
 #[inline]
 pub fn add_returns(zones: &mut [u8], bus: usize, l: &mut [f32], r: &mut [f32]) {
-    let _ = (zones, bus, l, r);
+    let (count, stride) = geometry(zones);
+    for k in 0..count {
+        let h = header(zones, k, stride);
+        if h.live == 0 || h.route as usize != bus {
+            continue;
+        }
+        let (wl, wr) = h.output.split_at(QUANTUM);
+        for (d, s) in l.iter_mut().zip(wl) {
+            *d += *s;
+        }
+        for (d, s) in r.iter_mut().zip(wr) {
+            *d += *s;
+        }
+    }
 }
 
-/// RESET (§4.2: "RESET clears … zone slots"). K2: a no-op.
+/// The shared reverb's return gain for this quantum, per frame, or `None` when it is settled at 1
+/// (then `bus::mixdown` adds the shared reverb unscaled, M1's path). Advances the ramp: call once
+/// per quantum.
+pub fn shared_return(core_state: &mut [u8]) -> Option<[f32; QUANTUM]> {
+    let a = area_mut(core_state);
+    if a.shared_return.is_settled() && a.shared_return.value == 1.0 {
+        return None;
+    }
+    let mut g = [0.0f32; QUANTUM];
+    a.shared_return.fill(&mut g);
+    Some(g)
+}
+
+/// After the buses mixed (`bus::mixdown`, before the adaptive cap's step): the ladder's check and
+/// the STATUS zone fields. Nothing happens without zone slots.
+pub(crate) fn after_render(core: &mut Core, note: RenderNote) {
+    let (count, stride) = geometry(&core.regions().zones[..]);
+    if count == 0 {
+        return;
+    }
+    let cap = core.cap();
+    let at_floor = cap.cap() <= cap.config().floor;
+    let underrun = cap.underrun_pending();
+    let frame = core.frame();
+    ladder(core, frame, at_floor, underrun);
+    let used_kb = (core.clips().zone_bytes() / 1024) as u32;
+    let mut slots = [ZoneStatus::default(); ZONES_CAP];
+    let (mut active, mut ringing) = (0u16, 0u16);
+    for (k, s) in slots.iter_mut().enumerate().take(count.min(ZONES_CAP)) {
+        let h = header(&core.regions().zones[..], k, stride);
+        *s = ZoneStatus { kernel_id: h.kernel_id, state: h.state, _pad: 0, quanta_since_input: h.quanta_since_input.min(u16::MAX as u32) as u16, wet_peak: h.wet_peak };
+        match h.state as u32 {
+            zone_state::WAITING_KERNEL | zone_state::FADING_IN | zone_state::ACTIVE => active += 1,
+            zone_state::RINGING_OUT | zone_state::EVICTING => ringing += 1,
+            _ => {}
+        }
+    }
+    let c = &mut status::counters_mut(core).spatial;
+    c.zone_slots = count.min(ZONES_CAP) as u16;
+    c.zones = slots;
+    c.zones_active = active;
+    c.zones_ringing = ringing;
+    c.zone_used_kb = used_kb;
+    c.work_zones = note.running * SLOT_WU;
+}
+
+/// The load-shedding ladder (OD3): see the module comment. `at_floor` and `underrun` are the
+/// adaptive cap's (`cap_controller`'s floor; the shell's probe since the last step).
+fn ladder(core: &mut Core, frame: u64, at_floor: bool, underrun: bool) {
+    let regions = core.regions_mut();
+    let a = area_mut(regions.core_state);
+    if !at_floor {
+        a.pressure = 0;
+        return;
+    }
+    if !underrun {
+        if a.pressure != 0 && frame.saturating_sub(a.last_underrun) > a.ladder_frames as u64 {
+            a.pressure = 0;
+        }
+        return;
+    }
+    if a.pressure == 0 {
+        a.pressure = 1;
+        a.pressure_since = frame;
+        a.last_underrun = frame;
+        return;
+    }
+    a.last_underrun = frame;
+    if frame.saturating_sub(a.pressure_since) < a.ladder_frames as u64 || a.shed_steps >= LADDER_STEPS {
+        return;
+    }
+    a.pressure_since = frame;
+    a.shed_steps += 1;
+    let a = *a;
+    let (count, stride) = geometry(regions.zones);
+    let zones = &mut regions.zones[..];
+    if a.shed_steps == 1 {
+        area_mut(regions.core_state).cut_tails = 1;
+        for k in 0..count {
+            let (h, _) = slot(zones, k, stride);
+            if h.state as u32 == zone_state::RINGING_OUT {
+                fade_out(h, a.cut_frames);
+            }
+        }
+        return;
+    }
+    // Step 2: one active slot fewer, for the session.
+    let active: Vec2 = (0..count).filter(|&k| accepts_sends(header(zones, k, stride).state)).fold(Vec2::default(), |mut v, k| {
+        v.push(k);
+        v
+    });
+    let limit = if active.len > 0 { active.len as u32 - 1 } else { count.saturating_sub(1) as u32 };
+    area_mut(regions.core_state).active_limit = limit;
+    let weakest = active.as_slice().iter().copied().fold(None, |best: Option<usize>, k| match best {
+        Some(b) if header(zones, b, stride).wet.target < header(zones, k, stride).wet.target => Some(b),
+        _ => Some(k),
+    });
+    if let Some(k) = weakest {
+        let (h, _) = slot(zones, k, stride);
+        if h.state as u32 == zone_state::WAITING_KERNEL {
+            set_off(h);
+        } else {
+            fade_out(h, a.evict_frames);
+        }
+    }
+}
+
+/// A fixed list of slot indices (no allocation).
+#[derive(Default)]
+struct Vec2 {
+    items: [usize; ZONES_CAP],
+    len: usize,
+}
+
+impl Vec2 {
+    fn push(&mut self, k: usize) {
+        if self.len < ZONES_CAP {
+            self.items[self.len] = k;
+            self.len += 1;
+        }
+    }
+
+    fn as_slice(&self) -> &[usize] {
+        &self.items[..self.len]
+    }
+}
+
+/// Ladder steps taken this session (0..=2): main's `m3Shed` for zones (`Audio.debug()`).
+pub fn shed_steps(core: &Core) -> u32 {
+    area(core).shed_steps
+}
+
+/// Slot `k`'s input buffers, planar `[L; 128]`, `[R; 128]`, when the slot accepts sends (waiting
+/// for kernel, fading in or active); `None` otherwise or past the slots. For C4's `sends::tap`,
+/// which has only the region: it adds `send[k] × mono sum × chain gain` into both.
+pub fn slot_input(zones: &mut [u8], k: usize) -> Option<(&mut [f32], &mut [f32])> {
+    let (count, stride) = geometry(zones);
+    if k >= count {
+        return None;
+    }
+    let (h, _) = slot(zones, k, stride);
+    if !accepts_sends(h.state) {
+        return None;
+    }
+    let (l, r) = h.input.split_at_mut(QUANTUM);
+    Some((l, r))
+}
+
+/// Adds `l`, `r` (each at most a quantum) into slot `k`'s input, when it accepts sends (tests and
+/// benches, before C4's sends; `onmessage` or between quanta).
+pub fn add_input(core: &mut Core, k: usize, l: &[f32], r: &[f32]) {
+    if let Some((il, ir)) = slot_input(&mut core.regions_mut().zones[..], k) {
+        for (d, s) in il.iter_mut().zip(l) {
+            *d += *s;
+        }
+        for (d, s) in ir.iter_mut().zip(r) {
+            *d += *s;
+        }
+    }
+}
+
+/// Zone slots in the core (`max_zone_slots`, 0 when the region is empty).
+pub fn slot_count(core: &Core) -> usize {
+    geometry(&core.regions().zones[..]).0
+}
+
+/// Slot `k`'s header, or `None` past the slots (tests and a debugger).
+pub fn slot_header(core: &Core, k: usize) -> Option<&SlotHeader> {
+    let zones = &core.regions().zones[..];
+    let (count, stride) = geometry(zones);
+    (k < count).then(|| header(zones, k, stride))
+}
+
+/// Slot `k`'s state, the wire's `ZoneState` (0 off when `k` is past the slots).
+pub fn slot_state(core: &Core, k: usize) -> u8 {
+    slot_header(core, k).map_or(zone_state::OFF as u8, |h| h.state)
+}
+
+/// The shared reverb's return gain as last rendered (its ramp's value).
+pub fn shared_return_gain(core: &Core) -> f32 {
+    area(core).shared_return.value
+}
+
+/// RESET (§4.2: "RESET clears … zone slots"): every slot off, the shared return back to 1. The
+/// ladder's steps stay (they are for the session); kernels go with the clips unless `keepClips`.
 pub fn reset(core: &mut Core) {
-    let _ = core;
+    let regions = core.regions_mut();
+    let (count, stride) = geometry(regions.zones);
+    for k in 0..count {
+        let (h, _) = slot(regions.zones, k, stride);
+        set_off(h);
+        h.refused_id = 0;
+        h.input = [0.0; 2 * QUANTUM];
+        h.output = [0.0; 2 * QUANTUM];
+    }
+    let a = area_mut(regions.core_state);
+    a.shared_return = Ramp::at(1.0);
+    a.pressure = 0;
 }
 
 #[cfg(test)]
@@ -130,15 +934,35 @@ mod tests {
         let mb4 = kernel_blob_bytes(192_000) as f64 / 1e6;
         assert!((2.9..3.2).contains(&mb4), "{mb4} MB at 4 s");
         assert_eq!(kernel_budget_bytes(0, 96_000), 0);
-        assert_eq!(kernel_budget_bytes(3, 96_000), 3 * align_up(kernel_blob_bytes(96_000), 64));
+        assert_eq!(kernel_budget_bytes(3, 96_000), 3 * arena_block_bytes(kernel_blob_bytes(96_000)));
+        assert_eq!(arena_block_bytes(kernel_blob_bytes(96_000)), 1536 * 1024, "the 1.5 MiB class");
+    }
+
+    #[test]
+    fn the_block_rounding_matches_the_arena() {
+        use crate::arena::size_class::{class_bytes, class_of};
+        for bytes in [1usize, 4096, 4097, 65_000, 1_507_360, 3_014_688, 6_000_000] {
+            assert_eq!(arena_block_bytes(bytes), class_bytes(class_of(bytes).unwrap()), "{bytes}");
+        }
     }
 
     #[test]
     fn a_slot_with_its_kernel_is_near_the_memory_table() {
-        // api-and-models §10 C3: 3.1 / 6.1 MB per slot at 2 / 4 s (state plus kernel, est.).
-        for (frames, mb) in [(96_000usize, 3.1f64), (192_000, 6.1)] {
-            let total = (slot_state_bytes(frames) + kernel_blob_bytes(frames)) as f64 / 1e6;
-            assert!((total - mb).abs() < 0.5, "{total} MB at {frames} frames");
+        // api-and-models §10 C3: 3.1 / 6.1 MB per slot at 2 / 4 s (state plus kernel). The spike's
+        // figures are MiB (3.21 / 6.29 MB decimal); the kernel is its arena block (1.5 / 3 MiB).
+        for (frames, mib) in [(96_000usize, 3.1f64), (192_000, 6.1)] {
+            let (state, kernel) = (slot_state_bytes(frames), arena_block_bytes(kernel_blob_bytes(frames)));
+            let total = (state + kernel) as f64 / (1u64 << 20) as f64;
+            eprintln!("{frames} frames: state {state} B + kernel block {kernel} B = {total:.2} MiB");
+            assert!((total - mib).abs() < 0.15, "{total} MiB at {frames} frames");
         }
+        assert_eq!(slot_state_bytes(96_000) % REGION_ALIGN, 0);
+        assert_eq!(SLOT_HEADER_BYTES % REGION_ALIGN, 32);
+    }
+
+    #[test]
+    fn the_zone_area_follows_the_bus_area() {
+        assert!(ZONE_AREA_OFFSET >= crate::bus::BUS_AREA_OFFSET + core::mem::size_of::<crate::bus::BusArea>());
+        assert_eq!(ZONE_AREA_OFFSET % REGION_ALIGN, 0);
     }
 }

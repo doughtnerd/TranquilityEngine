@@ -217,6 +217,12 @@ impl CapState {
         self.ctl.cap()
     }
 
+    /// Whether the shell's probe noted an underrun since the last step (ADR 0162 OD3: the
+    /// load-shedding ladder reads it in the render, before [`after_render`] consumes it).
+    pub fn underrun_pending(&self) -> bool {
+        self.underrun_pending
+    }
+
     /// The configured cap and budget.
     pub fn config(&self) -> &CapConfig {
         &self.cfg
