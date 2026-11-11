@@ -16,8 +16,9 @@ use audio_dsp::equal_power::{FADE_CURVE_TABLE_POINTS, QUARTER_SINE};
 
 /// The table, point `i` = `sin(π/2 · i / (N − 1))` rounded to f32.
 fn table() -> Vec<f32> {
-    // L-Z2ba: compute the N points (see the module comment).
-    Vec::new()
+    (0..FADE_CURVE_TABLE_POINTS)
+        .map(|i| libm::sin(core::f64::consts::FRAC_PI_2 * i as f64 / (FADE_CURVE_TABLE_POINTS - 1) as f64) as f32)
+        .collect()
 }
 
 /// The Rust source of the `QUARTER_SINE` static for `table`: the existing doc comment line, then
@@ -25,9 +26,18 @@ fn table() -> Vec<f32> {
 /// each printed with `{:?}` (shortest round-trip form, so it reads back bit for bit), and `];`.
 /// Add `#[rustfmt::skip]` above it if rustfmt would reflow it.
 fn source(table: &[f32]) -> String {
-    // L-Z2ba.
-    let _ = table;
-    String::new()
+    let mut out = String::new();
+    out.push_str("/// `sin(π/2 · i / (N − 1))`, `i` in `0..N` (see the module comment).\n");
+    out.push_str("#[rustfmt::skip]\n");
+    out.push_str("pub static QUARTER_SINE: [f32; FADE_CURVE_TABLE_POINTS] = [\n");
+    for line in table.chunks(8) {
+        out.push_str("    ");
+        let values: Vec<String> = line.iter().map(|v| format!("{v:?}")).collect();
+        out.push_str(&values.join(", "));
+        out.push_str(",\n");
+    }
+    out.push_str("];\n");
+    out
 }
 
 fn main() -> ExitCode {
@@ -50,7 +60,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "L-Z2ba"]
     fn the_generator_matches_the_checked_in_table() {
         let t = table();
         assert_eq!(t.len(), FADE_CURVE_TABLE_POINTS);
@@ -60,7 +69,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "L-Z2ba"]
     fn the_printed_source_reads_back_bit_for_bit() {
         let t = table();
         let src = source(&t);
