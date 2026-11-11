@@ -1,8 +1,8 @@
 // The decoder worker's music groups (ADR 0166 §4.6, contract C8; architecture §2.2, §2.3, §4.2): `handler.ts` routes
 // `primeGroup`, `cancelGroup`, `protectMusic` and `releaseMusic` here.
 //
-// Owners (M4 waves plan, H3): **D1a** wrote this file, the open path and the prime; **D1b** (W3) fills `cancel` and
-// `retarget` (the STUB(D1b) methods); **D1c** fills `musicCache.ts`, which the open path reaches only through
+// Owners (M4 waves plan, H3): **D1a** wrote this file, the open path and the prime; **D1b** (W3) wrote `cancel` and the
+// re-target (`open` with `retarget: true`); **D1c** fills `musicCache.ts`, which the open path reaches only through
 // `lookup`, `hold` and `release` (D1c doesn't edit this file).
 //
 // The open path (`primeGroup` with `retarget: false`, `open` below):
@@ -41,6 +41,8 @@ interface Member {
 interface Group {
   readonly instance: number;
   readonly members: Map<number, Member>;
+  /** Set by `cancel`: an open still waiting on a member (the worker doesn't serialize requests) closes it and stops. */
+  cancelled: boolean;
 }
 
 /** The worker's music groups (see the header). One per worker, beside the `StreamDecoder` it opens streams on. */
@@ -57,7 +59,7 @@ export class MusicGroups {
       case "primeGroup":
         if (request.budgetBytes !== undefined) this.host.cache.setBudget(request.budgetBytes);
         if (request.protect) this.host.cache.protect(request.instance, request.protect);
-        return request.retarget ? this.retarget(request) : this.open(request);
+        return this.open(request);
       case "cancelGroup":
         return this.cancel(request);
       case "protectMusic":
@@ -92,14 +94,25 @@ export class MusicGroups {
     if (g.members.size === 0) this.groups.delete(id);
   }
 
-  /** The open path (see the header, steps 2–5). */
+  /**
+   * The open path (header, steps 2–5) and, with `retarget` (§4.6, C8), the re-target: a member already open in the group
+   * restarts at its new `startFrame` under its new `epoch` (`StreamDecoder.restartMember`: the new STREAM_OPEN goes now,
+   * held; an epoch not newer than the member's is ignored and reported as an error), a member not open yet takes the open
+   * path; then one `prime` over every restarted and opened member in message order (so the breadth-first order of the
+   * open holds), and one `groupOpened`. Without `retarget`, a member already open under its id is replaced as before.
+   */
   private async open(m: PrimeGroupMessage): Promise<void> {
     const now = this.host.now ?? (() => performance.now());
     const t0 = now();
     const { cache, streams } = this.host;
+    const existing = m.retarget ? this.groups.get(m.group) : undefined;
     const missing: { streamId: number; asset: string }[] = [];
-    const ready: { member: PrimeGroupMember; bytes: ArrayBuffer }[] = [];
+    const ready: { member: PrimeGroupMember; bytes?: ArrayBuffer }[] = [];
     for (const member of m.members) {
+      if (existing?.members.has(member.streamId)) {
+        ready.push({ member });
+        continue;
+      }
       const bytes = member.bytes ?? cache.lookup(m.instance, member.asset);
       if (bytes) ready.push({ member, bytes });
       else missing.push({ streamId: member.streamId, asset: member.asset });
@@ -108,10 +121,27 @@ export class MusicGroups {
     if (ready.length === 0) return;
 
     let g = this.groups.get(m.group);
-    if (!g) this.groups.set(m.group, (g = { instance: m.instance, members: new Map() }));
+    if (!g) this.groups.set(m.group, (g = { instance: m.instance, members: new Map(), cancelled: false }));
     const results = new Map<number, { openMs: number; error?: string }>();
-    const opened: number[] = [];
+    const toPrime = new Set<number>();
+    // Restart the open members first: their STREAM_OPEN goes now, their chunks with the prime.
     for (const { member, bytes } of ready) {
+      if (bytes) continue;
+      const open = g.members.get(member.streamId);
+      const ok =
+        open !== undefined &&
+        streams.restartMember(member.streamId, member.startFrame, member.epoch, {
+          looping: member.loop,
+          ...(member.loopStartFrame !== undefined ? { loopStartFrame: member.loopStartFrame } : {}),
+          ...(member.loopEndFrame !== undefined ? { loopEndFrame: member.loopEndFrame } : {}),
+        });
+      if (ok) {
+        open.epoch = member.epoch;
+        toPrime.add(member.streamId);
+      } else results.set(member.streamId, { openMs: now() - t0, error: "not restarted: stream not open or epoch not newer" });
+    }
+    for (const { member, bytes } of ready) {
+      if (!bytes) continue;
       const r = await streams.openMember({
         type: "streamOpen",
         streamId: member.streamId,
@@ -125,6 +155,12 @@ export class MusicGroups {
         ...(member.loopEndFrame !== undefined ? { loopEndFrame: member.loopEndFrame } : {}),
         ...(member.convention ? { convention: member.convention } : {}),
       });
+      if (g.cancelled) {
+        // `cancel` ran while this member was opening: it isn't in the group yet, so close it here, and stop.
+        if (r === true) streams.closeMember(member.streamId);
+        for (const id of toPrime) if (g.members.has(id)) streams.closeMember(id);
+        return;
+      }
       if (r !== true) {
         results.set(member.streamId, { openMs: now() - t0, error: r });
         continue;
@@ -135,11 +171,13 @@ export class MusicGroups {
       g.members.set(member.streamId, { asset: member.asset, epoch: member.epoch });
       this.byStream.set(member.streamId, m.group);
       if (!this.groups.has(m.group)) this.groups.set(m.group, g); // `closed` above may have emptied and dropped it
-      opened.push(member.streamId);
+      toPrime.add(member.streamId);
     }
-    streams.prime(opened, (id) => results.set(id, { openMs: now() - t0 }));
+    const order = ready.map(({ member }) => member.streamId).filter((id) => toPrime.has(id));
+    streams.prime(order, (id) => results.set(id, { openMs: now() - t0 }));
     // A member that opened but failed during its prime reported its error itself; it is still listed here, without openMs' meaning.
-    for (const id of opened) if (!results.has(id)) results.set(id, { openMs: now() - t0, error: "failed while priming" });
+    for (const id of order) if (!results.has(id)) results.set(id, { openMs: now() - t0, error: "failed while priming" });
+    if (g.cancelled) return;
     this.host.post({
       type: "groupOpened",
       group: m.group,
@@ -148,23 +186,15 @@ export class MusicGroups {
   }
 
   /**
-   * STUB(D1b): `primeGroup` with `retarget: true` (§4.6, C8): members already open in the group restart at their new
-   * `startFrame` under their new `epoch` (`StreamDecoder.restartMember`, which posts the new STREAM_OPEN and holds the
-   * stream), members not open yet take the open path, and then one `StreamDecoder.prime` over all of them in message
-   * order, then `groupOpened` as `open` posts it.
-   */
-  private async retarget(m: PrimeGroupMessage): Promise<void> {
-    void m;
-    // STUB(D1b)
-  }
-
-  /**
-   * STUB(D1b): `cancelGroup` (§4.6): close every member stream the group opened (`StreamDecoder.closeMember`: STREAM_CLOSE
-   * to the worklet, `streamClosed` to main, and `closed` here releases each cache reference), and forget the group, so
-   * its rings and decoder memory are freed. Unknown ids are ignored.
+   * `cancelGroup` (§4.6): closes every member stream the group opened (`StreamDecoder.closeMember`: STREAM_CLOSE to the
+   * worklet, `streamClosed` to main; `closed` then releases each cache reference), and forgets the group, so its rings
+   * and decoder memory are freed. An open still in flight for the group stops at its next member. Unknown ids are ignored.
    */
   private async cancel(m: CancelGroupMessage): Promise<void> {
-    void m;
-    // STUB(D1b)
+    const g = this.groups.get(m.group);
+    if (!g) return;
+    g.cancelled = true;
+    for (const id of [...g.members.keys()]) this.host.streams.closeMember(id);
+    this.groups.delete(m.group);
   }
 }

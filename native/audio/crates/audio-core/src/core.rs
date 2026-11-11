@@ -111,7 +111,7 @@ impl Core {
         // 0166 M4 (tree A27): `M`, the music ring count, goes to `StreamStore::over` with the
         // regions, so C1 fills the pools in `stream.rs` without editing this file. `max_music_rings`
         // arrives with the wire's merge 2 (ABI 3.0); 0 until then.
-        let music_rings: usize = 0;
+        let music_rings: usize = params.max_music_rings as usize;
         let streams = StreamStore::over(core::mem::take(&mut regions.streams), core::mem::take(&mut regions.wide), music_rings);
         let mut core = Core { params, layout, base: base as usize, regions, frame: 0, clips, cap, streams };
         // A2.1: one root bus at unity and MASTER at unity until BUS_CONFIG, BUS_MIX and MASTER.

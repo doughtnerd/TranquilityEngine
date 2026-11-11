@@ -2,12 +2,11 @@
 // empty slots as placeholder rows. A toolbar adds, wraps, retypes, duplicates, reorders and deletes; rows drag to
 // a new place; clips dragged from the asset browser drop into containers and slots or onto a clip row. Every edit is
 // handed to the panel as a new root and the path to select, which it makes one undo step.
+// A music event (ADR 0166, decision D6: its tree is `AudioEventAsset.musicRoot`) shows `MusicTree` instead: segments,
+// playlists and music switches with their `library` segments, edited by the `*Music*` functions below.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { registerAssetDropTarget } from "../../../../editor/sdk";
-import { NODE_TYPES
-
-  
- } from "../../../../engine/audio/eventFormat";
+import { NODE_TYPES } from "../../../../engine/audio/eventFormat";
 import { audioPaths } from "./assetDrop";
 import { addNode, changeListType } from "./treeActions";
 import { applyClipDrop, canDropNode, describeDrop, dropAt, type DropRow, type TreeDrop } from "./treeDrop";
@@ -25,6 +24,17 @@ import {
   type NodeBase,
   type NodeType,
 } from "../../../../engine/audio/eventFormat";
+import {
+  MUSIC_ID_PATTERN,
+  MUSIC_LIMITS,
+  emptySegment,
+  isMusicContainer,
+  type MusicNode,
+  type MusicNodeType,
+  type MusicSwitchNode,
+  type PlaylistNode,
+  type SegmentNode,
+} from "../../../../engine/audio/musicFormat";
 
 /** A `sustain` node's three slots, in play order. `loop` is required; `start` and `end` are optional. */
 export const SUSTAIN_SLOTS = ["start", "loop", "end"] as const;
@@ -34,7 +44,12 @@ export type SustainSlot = (typeof SUSTAIN_SLOTS)[number];
  * One step down the tree: an index into a list container's `children` (`random`, `sequence`, `switch`, `blend`,
  * `layer`), or a slot name of a `sustain` node.
  */
-export type PathStep = number | SustainSlot;
+export type PathStep = number | SustainSlot | LibraryStep;
+
+/** A music container's `library` segment `n` (`"lib0"`): the step to it from the container, beside its numeric `children` steps. */
+export type LibraryStep = `lib${number}`;
+const LIBRARY_STEP = /^lib(0|[1-9][0-9]*)$/;
+const libraryIndex = (step: PathStep): number | null => (typeof step === "string" && LIBRARY_STEP.test(step) ? Number(step.slice(3)) : null);
 
 /**
  * A node's address from the event's root: `[]` is the root, `[1]` the root's second child, `[1, "loop"]` the loop slot
@@ -81,7 +96,7 @@ export function parsePathKey(key: string): NodePath | null {
       const n = Number(part);
       if (!Number.isSafeInteger(n)) return null;
       out.push(n);
-    } else if (isSlot(part)) out.push(part);
+    } else if (isSlot(part) || LIBRARY_STEP.test(part)) out.push(part as PathStep);
     else return null;
   }
   return out;
@@ -409,6 +424,7 @@ export function parameterUses(event: AudioEventAsset, name: string): number {
     uses += node.automation.filter((a) => a.parameter === name).length;
     if ((node.type === "switch" || node.type === "blend") && node.parameter === name) uses++;
   }
+  if (event.musicRoot) uses += musicParameterUses(event.musicRoot, name);
   return uses;
 }
 
@@ -445,8 +461,307 @@ export function renameParameter(event: AudioEventAsset, from: string, to: string
     parameters: event.parameters.map((p) => (p.name === from ? { ...p, name: to } : p)),
     automation: renameAutomation(event.automation),
     root: renameNode(event.root),
+    ...(event.musicRoot ? { musicRoot: renameMusicParameter(event.musicRoot, from, to) } : {}),
   };
 }
+
+// --- music trees (ADR 0166 §2.3, §2.5; decision D6) ----------------------------------------------------------------------
+// A music event's tree is `AudioEventAsset.musicRoot`: segments, playlists and music switches. A container's children
+// are reached by number, its `library` segments (bridges and stingers) by `"lib<n>"`. Ids are required and unique per
+// event, so every edit here keeps them so (a duplicate would make the parser drop the second node) and keeps the
+// rules, bridges and stingers that name an id in step with it. Same conventions as above: pure, new values, shared
+// subtrees.
+
+/** A music tree edit's result: the new root and the path of the node it made or moved (to select it). */
+export interface MusicEdit {
+  root: MusicNode;
+  path: NodePath;
+}
+
+/** What "Add" can make in a music tree: a node of a music type, or a `library` segment of a container. */
+export type MusicAddKind = MusicNodeType | "library";
+
+const musicChild = (node: MusicNode, step: PathStep): MusicNode | undefined => {
+  if (!isMusicContainer(node)) return undefined;
+  if (typeof step === "number") return node.children[step];
+  const i = libraryIndex(step);
+  return i === null ? undefined : node.library[i];
+};
+
+/** The music node at `path` (`[]` is the root), or `undefined`. */
+export function getMusicNode(root: MusicNode, path: NodePath): MusicNode | undefined {
+  let node: MusicNode | undefined = root;
+  for (const step of path) {
+    if (!node) return undefined;
+    node = musicChild(node, step);
+  }
+  return node;
+}
+
+/** Whether the node at `path` is one of its container's `library` segments. */
+export const isLibraryPath = (path: NodePath): boolean => path.length > 0 && libraryIndex(path[path.length - 1]) !== null;
+
+/** The steps from a music node to its children, then its library segments. */
+function musicSteps(node: MusicNode): PathStep[] {
+  if (!isMusicContainer(node)) return [];
+  return [...node.children.map((_, i): PathStep => i), ...node.library.map((_, i): PathStep => `lib${i}`)];
+}
+
+/** Every music node with its path, depth first: children, then the library, as `eventNodes` walks them. */
+export function musicNodePaths(root: MusicNode): { path: NodePath; node: MusicNode }[] {
+  const out: { path: NodePath; node: MusicNode }[] = [];
+  const walk = (node: MusicNode, path: NodePath): void => {
+    out.push({ path, node });
+    for (const step of musicSteps(node)) walk(musicChild(node, step)!, [...path, step]);
+  };
+  walk(root, []);
+  return out;
+}
+
+const countMusic = (node: MusicNode): number => 1 + musicSteps(node).reduce<number>((n, step) => n + countMusic(musicChild(node, step)!), 0);
+
+/** `node` with `fields` set, as a shallow copy of the same type. */
+const withMusic = <T extends MusicNode>(node: T, fields: Partial<T>): T => ({ ...node, ...fields });
+
+/** A new root with the node at `path` replaced by `node` (ancestors copied). Throws `RangeError` when `path` leads nowhere. */
+export function setMusicNode(root: MusicNode, path: NodePath, node: MusicNode): MusicNode {
+  if (getMusicNode(root, path) === undefined) throw new RangeError(`no node at "${pathKey(path)}"`);
+  const at = (current: MusicNode, i: number): MusicNode => {
+    if (i === path.length) return node;
+    const step = path[i];
+    const child = at(musicChild(current, step)!, i + 1);
+    const container = current as PlaylistNode | MusicSwitchNode;
+    if (typeof step === "number") return withMusic(container, { children: container.children.map((c, j) => (j === step ? child : c)) });
+    const n = libraryIndex(step)!;
+    return withMusic(container, { library: container.library.map((c, j) => (j === n ? (child as SegmentNode) : c)) });
+  };
+  return at(root, 0);
+}
+
+/** `fn` applied to every node of the subtree, bottom up; nodes `fn` leaves alone (same object) and their ancestors are shared. */
+function mapMusic(node: MusicNode, fn: (n: MusicNode) => MusicNode): MusicNode {
+  if (!isMusicContainer(node)) return fn(node);
+  const children = node.children.map((c) => mapMusic(c, fn));
+  const library = node.library.map((c) => mapMusic(c, fn) as SegmentNode);
+  const same = children.every((c, i) => c === node.children[i]) && library.every((c, i) => c === node.library[i]);
+  return fn(same ? node : withMusic(node, { children, library }));
+}
+
+/** The library segments in the whole event (the limit is per event). */
+const libraryCount = (root: MusicNode): number => musicNodePaths(root).reduce((n, e) => n + (isMusicContainer(e.node) ? e.node.library.length : 0), 0);
+
+/** Every id in the tree, in walk order (library segments included). */
+export const musicIds = (root: MusicNode): string[] => musicNodePaths(root).map((e) => e.node.id);
+
+/** The text for an id the format refuses, or `null` when `id` is fine for the node at `path` (its own id doesn't clash with itself). */
+export function musicIdProblem(root: MusicNode, path: NodePath, id: string): string | null {
+  if (!MUSIC_ID_PATTERN.test(id)) return "An id is 1 to 48 letters, digits, - or _.";
+  if (musicNodePaths(root).some((e) => e.node.id === id && !samePath(e.path, path))) return `The id "${id}" is already used in this event.`;
+  return null;
+}
+
+/** An id based on `base` (cleaned to the id alphabet and length) that no node uses: `base`, `base-2`, `base-3`… */
+export function freshMusicId(taken: ReadonlySet<string>, base: string): string {
+  const clean = base.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 40) || "node";
+  if (!taken.has(clean)) return clean;
+  for (let n = 2; ; n++) {
+    const id = `${clean}-${n}`;
+    if (!taken.has(id)) return id;
+  }
+}
+
+/** The container with every id its rules, bridges and stingers name looked up in `map` (unlisted ids stay). */
+function remapReferences(node: MusicNode, map: ReadonlyMap<string, string>): MusicNode {
+  if (!isMusicContainer(node)) return node;
+  const to = (id: string): string => map.get(id) ?? id;
+  const transitions = node.transitions.map((r) => {
+    const bridge = r.bridge && map.has(r.bridge.segment) ? { ...r.bridge, segment: to(r.bridge.segment) } : r.bridge;
+    return r.from === to(r.from) && r.to === to(r.to) && bridge === r.bridge ? r : { ...r, from: to(r.from), to: to(r.to), ...(bridge ? { bridge } : {}) };
+  });
+  const stingers = node.stingers.map((s) => (map.has(s.segment) ? { ...s, segment: to(s.segment) } : s));
+  const same = transitions.every((r, i) => r === node.transitions[i]) && stingers.every((s, i) => s === node.stingers[i]);
+  return same ? node : withMusic(node, { transitions, stingers });
+}
+
+/** The node at `path` renamed `id` (the caller checked `musicIdProblem`), and every rule, bridge and stinger that named the old id follows. */
+export function renameMusicId(root: MusicNode, path: NodePath, id: string): MusicNode {
+  const node = getMusicNode(root, path);
+  if (!node || node.id === id) return root;
+  const map = new Map([[node.id, id]]);
+  return mapMusic(setMusicNode(root, path, withMusic(node, { id })), (n) => remapReferences(n, map));
+}
+
+/** A fresh music node of `type` with `id`, every field at the default the parser gives it (an empty segment has no stems yet). */
+export function newMusicNode(type: MusicNodeType, id: string): MusicNode {
+  if (type === "segment") return emptySegment(id);
+  const base = {
+    id, volume: 1, pitch: 1, pitchRandom: [0, 0] as [number, number], volumeRandom: [0, 0] as [number, number], delay: 0, automation: [],
+    weight: 1, fade: 0, plays: 1, children: [], library: [], transitions: [], stingers: [],
+  };
+  return type === "playlist"
+    ? { ...base, type, mode: "sequence", rounds: 1, avoidRepeat: 0 }
+    : { ...base, type, parameter: "" };
+}
+
+/**
+ * Where "Add" puts a node: `library` segments go to the selected container (or the container of a selected child or
+ * library segment); other nodes go into the selected container at its end, or beside a selected child (after it); the
+ * event row (`null`) means the root. Null when there is no such container.
+ */
+function musicAddTarget(root: MusicNode, selected: NodePath | null, library: boolean): { parent: NodePath; index: number } | null {
+  const path = selected ?? [];
+  const node = getMusicNode(root, path);
+  if (!node) return null;
+  const upper = path.length > 0 ? path.slice(0, -1) : null;
+  const step = path[path.length - 1];
+  const host: NodePath | null = isMusicContainer(node) ? path : upper;
+  const hostNode = host ? getMusicNode(root, host) : undefined;
+  if (!host || !hostNode || !isMusicContainer(hostNode)) return null;
+  if (library) return { parent: host, index: hostNode.library.length };
+  if (host === path || typeof step !== "number") return { parent: host, index: hostNode.children.length };
+  return { parent: host, index: step + 1 };
+}
+
+/** Add a fresh node (or `library` segment) where `musicAddTarget` says; the new node's id is based on its type. Or a reason it can't. */
+export function addMusicNode(root: MusicNode, selected: NodePath | null, kind: MusicAddKind): MusicEdit | string {
+  const at = musicAddTarget(root, selected, kind === "library");
+  if (!at) return "select a playlist or music switch, or a node in one, to add to it";
+  const container = getMusicNode(root, at.parent) as PlaylistNode | MusicSwitchNode;
+  const type: MusicNodeType = kind === "library" ? "segment" : kind;
+  const id = freshMusicId(new Set(musicIds(root)), kind === "library" ? "library" : type === "musicSwitch" ? "switch" : type);
+  const node = newMusicNode(type, id);
+  if (countMusic(root) + 1 > MAX_EVENT_NODES) return "the event can't hold more nodes";
+  if (at.parent.length + 1 >= MAX_EVENT_DEPTH) return "the event can't hold more nodes there";
+  if (kind === "library") {
+    if (libraryCount(root) >= MUSIC_LIMITS.library) return `an event holds at most ${MUSIC_LIMITS.library} library segments`;
+    return { root: setMusicNode(root, at.parent, withMusic(container, { library: [...container.library, node as SegmentNode] })), path: [...at.parent, `lib${container.library.length}`] };
+  }
+  if (container.children.length >= MUSIC_LIMITS.playlistChildren) return `a container holds at most ${MUSIC_LIMITS.playlistChildren} children`;
+  const children = [...container.children.slice(0, at.index), node, ...container.children.slice(at.index)];
+  return { root: setMusicNode(root, at.parent, withMusic(container, { children })), path: [...at.parent, at.index] };
+}
+
+/** Whether the node at `path` may be removed: it exists and isn't the root (an event keeps its music tree). */
+export const canRemoveMusic = (root: MusicNode, path: NodePath): boolean => path.length > 0 && getMusicNode(root, path) !== undefined;
+
+/**
+ * A new root without the node at `path` (and its subtree). The rules naming a removed child, the bridges naming a removed
+ * library segment and the stingers playing one go with it, so nothing dangles (the parser would drop them with a problem).
+ * Throws `RangeError` when `canRemoveMusic` is false.
+ */
+export function removeMusicNode(root: MusicNode, path: NodePath): MusicNode {
+  if (!canRemoveMusic(root, path)) throw new RangeError(`cannot remove "${pathKey(path)}"`);
+  const gone = new Set(musicIds(getMusicNode(root, path)!));
+  const parentP = path.slice(0, -1);
+  const parent = getMusicNode(root, parentP) as PlaylistNode | MusicSwitchNode;
+  const step = path[path.length - 1];
+  const n = libraryIndex(step);
+  const next = n === null
+    ? withMusic(parent, { children: parent.children.filter((_, i) => i !== step) })
+    : withMusic(parent, { library: parent.library.filter((_, i) => i !== n) });
+  return mapMusic(setMusicNode(root, parentP, next), (node) => {
+    if (!isMusicContainer(node)) return node;
+    const transitions = node.transitions.filter((r) => !gone.has(r.from) && !gone.has(r.to)).map((r) => {
+      if (!r.bridge || !gone.has(r.bridge.segment)) return r;
+      const { bridge: _bridge, ...rest } = r;
+      return rest;
+    });
+    const stingers = node.stingers.filter((s) => !gone.has(s.segment));
+    return transitions.length === node.transitions.length && transitions.every((r, i) => r === node.transitions[i]) && stingers.length === node.stingers.length
+      ? node
+      : withMusic(node, { transitions, stingers });
+  });
+}
+
+/** Move the child or library segment at `path` by `by` places among its siblings (clamped). The node keeps its id; rules name ids, so none change. */
+export function reorderMusicNode(root: MusicNode, path: NodePath, by: number): MusicEdit {
+  const parentP = path.slice(0, -1);
+  const parent = getMusicNode(root, parentP);
+  if (!parent || !isMusicContainer(parent) || path.length === 0) throw new RangeError(`"${pathKey(path)}" has no siblings`);
+  const step = path[path.length - 1];
+  const lib = libraryIndex(step);
+  const list: MusicNode[] = lib === null ? parent.children : parent.library;
+  const from = lib === null ? (step as number) : lib;
+  const to = Math.max(0, Math.min(list.length - 1, from + by));
+  if (to === from) return { root, path };
+  const moved = list.slice();
+  const [item] = moved.splice(from, 1);
+  moved.splice(to, 0, item);
+  const next = lib === null ? withMusic(parent, { children: moved }) : withMusic(parent, { library: moved as SegmentNode[] });
+  return { root: setMusicNode(root, parentP, next), path: [...parentP, lib === null ? to : (`lib${to}` as const)] };
+}
+
+/** Whether the node at `path` may be duplicated: a child or library segment, with the node, depth and library limits holding for a copy. */
+export function canDuplicateMusic(root: MusicNode, path: NodePath): boolean {
+  const node = getMusicNode(root, path);
+  if (!node || path.length === 0) return false;
+  const parent = getMusicNode(root, path.slice(0, -1));
+  if (!parent || !isMusicContainer(parent)) return false;
+  if (countMusic(root) + countMusic(node) > MAX_EVENT_NODES) return false;
+  if (libraryIndex(path[path.length - 1]) !== null) return libraryCount(root) < MUSIC_LIMITS.library;
+  return parent.children.length < MUSIC_LIMITS.playlistChildren;
+}
+
+/**
+ * Insert a deep copy of the node at `path` right after it, every id in the copy made fresh (`id-2`…) and the copy's own
+ * rules, bridges and stingers following its renamed children. Throws `RangeError` when `canDuplicateMusic` is false.
+ */
+export function duplicateMusicNode(root: MusicNode, path: NodePath): MusicEdit {
+  if (!canDuplicateMusic(root, path)) throw new RangeError(`cannot duplicate "${pathKey(path)}"`);
+  const taken = new Set(musicIds(root));
+  const map = new Map<string, string>();
+  const fresh = (n: MusicNode): MusicNode => {
+    const id = freshMusicId(taken, n.id);
+    taken.add(id);
+    map.set(n.id, id);
+    return { ...deepCopy(n), id } as MusicNode;
+  };
+  const copy = mapMusic(getMusicNode(root, path)!, fresh);
+  const renamed = mapMusic(copy, (n) => remapReferences(n, map));
+  const parentP = path.slice(0, -1);
+  const parent = getMusicNode(root, parentP) as PlaylistNode | MusicSwitchNode;
+  const step = path[path.length - 1];
+  const lib = libraryIndex(step);
+  if (lib !== null) {
+    const library = [...parent.library.slice(0, lib + 1), renamed as SegmentNode, ...parent.library.slice(lib + 1)];
+    return { root: setMusicNode(root, parentP, withMusic(parent, { library })), path: [...parentP, `lib${lib + 1}`] };
+  }
+  const at = (step as number) + 1;
+  // A music switch's children are keyed by `value`, and a copy with the same value would lose to the original: the copy starts unset.
+  const unkeyed = parent.type === "musicSwitch" && renamed.value !== undefined ? (({ value: _value, ...rest }) => rest as MusicNode)(renamed) : renamed;
+  const children = [...parent.children.slice(0, at), unkeyed, ...parent.children.slice(at)];
+  return { root: setMusicNode(root, parentP, withMusic(parent, { children })), path: [...parentP, at] };
+}
+
+/** Every parameter name a music tree reads: musicSwitch parameters, stem automation and region `while` conditions. */
+function musicParameterNames(root: MusicNode): string[] {
+  const out: string[] = [];
+  for (const { node } of musicNodePaths(root)) {
+    if (node.type === "musicSwitch") out.push(node.parameter);
+    if (node.type === "segment") {
+      for (const t of node.tracks) for (const a of t.automation) out.push(a.parameter);
+      for (const r of node.regions) if (r.while) out.push(r.while.parameter);
+    }
+  }
+  return out;
+}
+
+/** How many places in a music tree name the parameter `name` (added to `parameterUses`' count for a music event). */
+export const musicParameterUses = (root: MusicNode, name: string): number => musicParameterNames(root).filter((n) => n === name).length;
+
+/** The music tree with every use of the parameter `from` renamed `to` (`renameParameter`'s music half). */
+export function renameMusicParameter(root: MusicNode, from: string, to: string): MusicNode {
+  return mapMusic(root, (n) => {
+    if (n.type === "musicSwitch") return n.parameter === from ? withMusic(n, { parameter: to }) : n;
+    if (n.type !== "segment") return n;
+    const tracks = n.tracks.map((t) => (t.automation.some((a) => a.parameter === from) ? { ...t, automation: t.automation.map((a) => (a.parameter === from ? { ...a, parameter: to } : a)) } : t));
+    const regions = n.regions.map((r) => (r.while?.parameter === from ? { ...r, while: { ...r.while, parameter: to } } : r));
+    return tracks.some((t, i) => t !== n.tracks[i]) || regions.some((r, i) => r !== n.regions[i]) ? withMusic(n, { tracks, regions }) : n;
+  });
+}
+
+/** A short label for a music tree row: the node's id. */
+export const musicNodeLabel = (node: MusicNode): string => node.id;
 
 // --- internals ------------------------------------------------------------------------------------------------------
 
@@ -515,6 +830,8 @@ export interface EventTreeProps {
   /** A problem to report (an action that can't be done). */
   onProblem(text: string): void;
   readOnly: boolean;
+  /** Set for a music event (its `musicRoot`): the pane shows the music tree instead of `root`. */
+  music?: MusicTreeProps;
 }
 
 type Row =
@@ -570,7 +887,7 @@ function indicator(row: Row, drop: TreeDrop | null, root: EventNode): string {
 
 const TYPE_LABEL: Record<NodeType, string> = { clip: "Clip", random: "Random", sequence: "Sequence", switch: "Switch", blend: "Blend", layer: "Layer", sustain: "Sustain" };
 
-export function EventTree(props: EventTreeProps) {
+function ClassicEventTree(props: EventTreeProps) {
   const { root, selected, readOnly } = props;
   const rows = rowsOf(root);
   const sel = selected ? getNode(root, selected) : undefined;
@@ -806,4 +1123,127 @@ export function EventTree(props: EventTreeProps) {
       )}
     </section>
   );
+}
+
+/** The music half of the tree pane (see `MusicEdit`): what the panel gives `EventTree` for an event with a `musicRoot`. */
+export interface MusicTreeProps {
+  root: MusicNode;
+  /** An edit: the new music root, the path to select (null: the event row) and the undo step's name. */
+  onEdit(root: MusicNode, select: NodePath | null, label: string): void;
+  /** Double-click on a segment: open it in the segment view. */
+  onOpenSegment?(id: string): void;
+  /** Double-click on a container: open its rules table. */
+  onOpenRules?(id: string): void;
+}
+
+const MUSIC_ADD_LABEL: Record<MusicAddKind, string> = { segment: "Segment", playlist: "Playlist", musicSwitch: "Music switch", library: "Library segment" };
+const MUSIC_ADD_KINDS = ["segment", "playlist", "musicSwitch", "library"] as const;
+
+/** The tree of a music event: segments, playlists and music switches, each container's library after its children. No drag: move with the arrows. */
+function MusicTree(props: EventTreeProps & { music: MusicTreeProps }) {
+  const { selected, readOnly, music } = props;
+  const root = music.root;
+  const rows = musicNodePaths(root);
+  const sel = selected ? getMusicNode(root, selected) : undefined;
+  const edit = (e: MusicEdit | string, label: string) => (typeof e === "string" ? props.onProblem(e) : music.onEdit(e.root, e.path, label));
+  const remove = () => {
+    if (!selected || !canRemoveMusic(root, selected)) return;
+    music.onEdit(removeMusicNode(root, selected), selected.slice(0, -1), "Delete node");
+  };
+  const move = (by: number) => {
+    if (selected && selected.length > 0) edit(reorderMusicNode(root, selected, by), "Reorder node");
+  };
+  const duplicate = () => selected && canDuplicateMusic(root, selected) && edit(duplicateMusicNode(root, selected), "Duplicate node");
+  const open = (node: MusicNode) => (isMusicContainer(node) ? music.onOpenRules?.(node.id) : music.onOpenSegment?.(node.id));
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if ((e.target as HTMLElement).closest("input, select, textarea")) return;
+    const at = selected ? rows.findIndex((r) => samePath(r.path, selected)) : -1;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (e.altKey && !readOnly) return move(e.key === "ArrowDown" ? 1 : -1);
+      const next = at + (e.key === "ArrowDown" ? 1 : -1);
+      if (next < 0) props.onSelect(null);
+      else if (next < rows.length) props.onSelect(rows[next].path);
+    } else if ((e.key === "Delete" || e.key === "Backspace") && !readOnly) {
+      e.preventDefault();
+      remove();
+    } else if (e.key === "d" && (e.ctrlKey || e.metaKey) && !readOnly) {
+      e.preventDefault();
+      duplicate();
+    } else if (e.key === "Enter" && sel) {
+      e.preventDefault();
+      open(sel);
+    }
+  };
+
+  const step = selected?.[selected.length - 1];
+  const parentNode = selected && selected.length > 0 ? getMusicNode(root, selected.slice(0, -1)) : undefined;
+  const siblings = parentNode && isMusicContainer(parentNode) ? (isLibraryPath(selected!) ? parentNode.library.length : parentNode.children.length) : 0;
+  const index = step === undefined ? -1 : typeof step === "number" ? step : Number(step.slice(3));
+  return (
+    <section class="ev-tree-pane" aria-label="Music" data-testid="event-music-tree">
+      <div class="ev-section-head">
+        <span>Music</span>
+      </div>
+      <div class="ev-toolbar" role="toolbar" aria-label="Tree actions">
+        <select aria-label="Add node" data-testid="event-add-node" value="" disabled={readOnly} onChange={(e) => {
+          const k = (e.currentTarget as HTMLSelectElement).value as MusicAddKind;
+          (e.currentTarget as HTMLSelectElement).value = "";
+          if (k) edit(addMusicNode(root, selected, k), `Add ${MUSIC_ADD_LABEL[k].toLowerCase()}`);
+        }}>
+          <option value="">+ Add…</option>
+          {MUSIC_ADD_KINDS.map((k) => <option key={k} value={k}>{MUSIC_ADD_LABEL[k]}</option>)}
+        </select>
+        <button class="icon" aria-label="Move up" title="Move up (Alt+↑)" disabled={readOnly || index <= 0 || siblings === 0} onClick={() => move(-1)}>↑</button>
+        <button class="icon" aria-label="Move down" title="Move down (Alt+↓)" disabled={readOnly || index < 0 || index >= siblings - 1} onClick={() => move(1)}>↓</button>
+        <button class="icon" aria-label="Duplicate" title="Duplicate (Ctrl+D)" disabled={readOnly || !selected || !canDuplicateMusic(root, selected)} onClick={duplicate}>⧉</button>
+        <button class="icon ev-danger" aria-label="Delete" title="Delete (Del)" disabled={readOnly || !selected || !canRemoveMusic(root, selected)} onClick={remove}>×</button>
+      </div>
+      <div class="ev-tree" role="tree" aria-label="Event tree" data-testid="event-tree" tabIndex={0} onKeyDown={onKeyDown}>
+        <div
+          class={`ev-row ev-row-event${selected === null ? " selected" : ""}`}
+          role="treeitem"
+          aria-selected={selected === null}
+          data-testid="event-tree-event"
+          onPointerDown={(e) => e.button === 0 && props.onSelect(null)}
+        >
+          <span class="ev-badge">event</span>
+          <span class="ev-row-label">Event</span>
+        </div>
+        {rows.map(({ path, node }) => {
+          const key = pathKey(path);
+          const isSel = selected !== null && samePath(path, selected);
+          return (
+            <div
+              key={key}
+              class={`ev-row${isSel ? " selected" : ""}`}
+              role="treeitem"
+              aria-selected={isSel}
+              aria-level={path.length + 1}
+              data-testid="event-tree-row"
+              data-event-row="node"
+              data-event-path={key}
+              data-node-type={node.type}
+              data-node-id={node.id}
+              title={isMusicContainer(node) ? "Double-click to open the rules table" : "Double-click to open the segment view"}
+              style={{ paddingLeft: `${8 + path.length * 14}px` }}
+              onPointerDown={(e) => e.button === 0 && props.onSelect(path)}
+              onDblClick={() => open(node)}
+            >
+              {isLibraryPath(path) && <span class="ev-slot-name">library</span>}
+              <span class={`ev-badge ev-badge-${node.type}`}>{node.type}</span>
+              <span class="ev-row-label">{musicNodeLabel(node)}</span>
+              {isMusicContainer(node) && <span class="ev-row-hint">{node.children.length === 0 ? "empty" : node.children.length}</span>}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/** The tree pane: the 0158 container tree, or the music tree when `music` is given (the event has a `musicRoot`). */
+export function EventTree(props: EventTreeProps) {
+  return props.music ? <MusicTree {...props} music={props.music} /> : <ClassicEventTree {...props} />;
 }
