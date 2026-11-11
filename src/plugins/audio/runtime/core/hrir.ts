@@ -52,6 +52,7 @@
 // `fft_size / 2` frames per response, all the kernel reads (it truncates there and fades out), and the delays at the
 // context rate.
 
+import { MAGLS_CLIP_ID, MAGLS_HEADER_FIXED_END, MAGLS_MAGIC, MAGLS_ORDER, MAGLS_VERSION, readMaglsHeader, writeMaglsHeader } from "../wire.generated";
 import type { ClipRegistry } from "./clipRegistry";
 
 /** The reserved HRIR clip id (generation 0xFF, index 0xFF0000); the range is 0xFFFF0000..0xFFFF00FF. */
@@ -430,6 +431,162 @@ export function createHrirLoader(deps: HrirLoaderDeps): HrirLoader {
       try {
         const bytes = resampleHrir(original, rate);
         deps.clips.updateReserved?.(HRIR_CLIP_ID, { bytes, sampleRate: readHrirHeader(bytes).rate, format: FORMAT_HRIR });
+      } catch (err) {
+        fail(err);
+      }
+    },
+  };
+}
+
+// --- ADR 0162 A3: the MagLS bed filters (clip format 4) -----------------------------------------------------------------
+//
+// The asset `src/engine/audio/magls-o3.bin` (made by `native/audio/tools/bake-magls`, designed from the HRIR set above,
+// so the IRCAM licence carries over) is the 32-byte `MaglsHeader` ("MYBD", version 1, order 3, taps 256, the HRIR's rate
+// 44.1 kHz, 12 reserved bytes) then f32 time responses `[16 channels][2 ears][taps]` (api-and-models 4.5, contract C6):
+// 32,800 B. Main resamples it for the context rate as it does the HRIR (C6: 256 taps up to 48 kHz, 512 from 88.2 kHz)
+// and loads it through the clip registry as CLIP_BEGIN format 4 under `MAGLS_CLIP_ID` (0xFFFF0100), `channels` 1,
+// `frames` = bytes / 4 (header included), on the first bed use; the registry keeps the blob so a rebuild re-sends it
+// (S5). Until the core reports it resident, or if it fails to load, beds decode through the baked 16 -> 2 matrix (R9).
+// `audio.spatial: "equalPower"` never fetches it.
+
+export { MAGLS_CLIP_ID };
+
+/**
+ * Turns the MagLS asset (responses at its own rate) into the format 4 blob for a context at `rate`: the header with
+ * `taps` = `hrtfFftSize(rate) / 2` and `sampleRate` = `Math.fround(rate)`, then every response, in the asset's order,
+ * resampled with `sincResample` (ratio = asset rate / context rate; skipped when the two rates are equal, so the blob
+ * then equals the asset), zero-padded or cut to `taps`; a response longer than `taps` is cut with a linear fade over
+ * its last `Math.trunc(rate / 4410)` frames (as the HRTF kernel, hrtf_kernel.cc). Returns a new blob; throws on an asset
+ * that isn't the documented layout (magic, version 1, order 3, taps > 0, a finite positive rate, byte length
+ * `32 + 16 * 2 * taps * 4`) or a rate that isn't finite and positive.
+ */
+export function resampleMagls(asset: ArrayBuffer, rate: number): ArrayBuffer {
+  if (!(rate > 0) || !Number.isFinite(rate)) throw new Error(`audio: bad MagLS target rate ${rate}`);
+  const bad = (why: string): never => {
+    throw new Error(`audio: the MagLS asset is not the documented layout (${why})`);
+  };
+  if (asset.byteLength < MAGLS_HEADER_FIXED_END) bad("shorter than its header");
+  const view = new DataView(asset);
+  const head = readMaglsHeader(view, 0);
+  if (head.magic !== MAGLS_MAGIC || head.version !== MAGLS_VERSION || head.order !== MAGLS_ORDER) bad("magic, version or order");
+  if (!(head.taps > 0)) bad("no taps");
+  const assetRate = head.sampleRate;
+  if (!(assetRate > 0) || !Number.isFinite(assetRate)) bad("rate");
+  const responses = 16 * 2; // [16 channels][2 ears]
+  if (asset.byteLength !== MAGLS_HEADER_FIXED_END + responses * head.taps * 4) bad("byte length");
+
+  const contextRate = Math.fround(rate);
+  const taps = hrtfFftSize(contextRate) / 2;
+  const out = new ArrayBuffer(MAGLS_HEADER_FIXED_END + responses * taps * 4);
+  const outView = new DataView(out);
+  writeMaglsHeader(outView, 0, { magic: MAGLS_MAGIC, version: MAGLS_VERSION, order: MAGLS_ORDER, taps, sampleRate: contextRate, reserved: [0, 0, 0] });
+  const ioRatio = assetRate / contextRate;
+  const kernels = assetRate === contextRate ? null : sincKernels(ioRatio);
+  // The fade of the cut: the last trunc(rate / 4410) frames, as the HRTF kernel's raw_response.
+  const fade = Math.trunc(rate / 4410);
+  const source = new Float32Array(head.taps);
+  for (let r = 0; r < responses; r++) {
+    for (let i = 0; i < head.taps; i++) source[i] = view.getFloat32(MAGLS_HEADER_FIXED_END + (r * head.taps + i) * 4, true);
+    const converted = kernels ? sincResample(source, ioRatio, kernels) : source;
+    const length = converted.length;
+    for (let j = 0; j < taps; j++) {
+      let v = j < length ? converted[j]! : 0;
+      if (length > taps && j >= taps - fade) v *= 1 - (j - (taps - fade)) / fade;
+      outView.setFloat32(MAGLS_HEADER_FIXED_END + (r * taps + j) * 4, v, true);
+    }
+  }
+  return out;
+}
+
+/** Where the MagLS asset is served from (`src/engine/audio/magls-o3.bin`, resolved from this module). */
+export function maglsUrl(): URL {
+  return new URL("../../../../engine/audio/magls-o3.bin", import.meta.url);
+}
+
+export interface MaglsLoaderDeps {
+  /** The registry the filters are loaded through (reserved id `MAGLS_CLIP_ID`, format 4). */
+  readonly clips: ClipRegistry;
+  /** The context's sample rate. */
+  readonly sampleRate: number;
+  /** Fetches the asset (default: `fetch(maglsUrl())`). */
+  readonly fetchBytes?: () => Promise<ArrayBuffer>;
+  /** The single warning on failure (default `console.warn`). */
+  readonly warn?: (message: string) => void;
+}
+
+export interface MaglsLoader {
+  /** Starts the lazy fetch on the first bed use; later calls do nothing (a failed load is not retried). */
+  ensure(): void;
+  /** True once the core reported the filters resident (the registry's state for `MAGLS_CLIP_ID` is "ready"). */
+  readonly ready: boolean;
+  /** True once the fetch or the resampling failed (beds stay on the matrix decode). */
+  readonly failed: boolean;
+  /** True once `ensure` started the load. */
+  readonly started: boolean;
+  /**
+   * A rebuild into a context at `sampleRate`: the filters are resampled again from the original asset and the
+   * registry's kept blob replaced (`updateReserved`), so the rebuild's re-send carries them. A fetch still under way
+   * resamples for the new rate when it lands. A change under 0.5 Hz does nothing.
+   */
+  retarget(sampleRate: number): void;
+}
+
+/**
+ * The MagLS loader: `createHrirLoader`'s lifecycle for format 4. `ensure` fetches once, resamples with
+ * `resampleMagls(asset, rate)` and calls `clips.acquireReserved(MAGLS_CLIP_ID, { bytes, sampleRate, format: 4 })`
+ * (`sampleRate` read back from the blob's header); a failure sets `failed`, drops the kept asset and warns once:
+ * `audio: the MagLS bed filters failed to load, beds decode through the equal-power matrix (<message>)`.
+ */
+export function createMaglsLoader(deps: MaglsLoaderDeps): MaglsLoader {
+  const warn = deps.warn ?? ((m: string) => console.warn(m));
+  const fetchBytes =
+    deps.fetchBytes ??
+    (async () => {
+      const response = await fetch(maglsUrl());
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.arrayBuffer();
+    });
+  let started = false;
+  let failed = false;
+  let rate = deps.sampleRate;
+  /** The asset as fetched (at its own rate), kept for a rebuild at another rate. */
+  let original: ArrayBuffer | null = null;
+  const fail = (err: unknown): void =>
+    warn(`audio: the MagLS bed filters failed to load, beds decode through the equal-power matrix (${err instanceof Error ? err.message : String(err)})`);
+  const blobFor = (asset: ArrayBuffer): { bytes: ArrayBuffer; sampleRate: number; format: 4 } => {
+    const bytes = resampleMagls(asset, rate);
+    return { bytes, sampleRate: readMaglsHeader(new DataView(bytes), 0).sampleRate, format: 4 };
+  };
+  return {
+    ensure() {
+      if (started) return;
+      started = true;
+      void (async () => {
+        try {
+          original = await fetchBytes();
+          deps.clips.acquireReserved(MAGLS_CLIP_ID, blobFor(original));
+        } catch (err) {
+          original = null;
+          failed = true;
+          fail(err);
+        }
+      })();
+    },
+    get ready() {
+      return deps.clips.state(MAGLS_CLIP_ID) === "ready";
+    },
+    get failed() {
+      return failed;
+    },
+    get started() {
+      return started;
+    },
+    retarget(sampleRate) {
+      if (Math.abs(sampleRate - rate) < 0.5) return;
+      rate = sampleRate;
+      if (!original || deps.clips.state(MAGLS_CLIP_ID) === "idle") return;
+      try {
+        deps.clips.updateReserved?.(MAGLS_CLIP_ID, blobFor(original));
       } catch (err) {
         fail(err);
       }
