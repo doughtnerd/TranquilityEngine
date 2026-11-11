@@ -153,7 +153,7 @@ fn paused(voice: u32, p: bool) -> Rec {
 }
 
 fn stop(voice: u32, fade_frames: u32) -> Rec {
-    Rec::Stop(wire::Stop { voice_id: voice, frame_offset: wire::ASAP, fade_frames, reason: 0 })
+    Rec::Stop(wire::Stop { voice_id: voice, frame_offset: wire::ASAP, fade_frames, reason: 0, shape: 0 })
 }
 
 fn reset(keep_clips: bool) -> Rec {

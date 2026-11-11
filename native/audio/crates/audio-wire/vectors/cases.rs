@@ -74,7 +74,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("format", vu(0)),
             ],
             concat!(
-                "3141594d", "0101", "0200", "09000000", "14000000", // envelope, bodyBytes 20
+                "3141594d", "0201", "0200", "09000000", "14000000", // envelope, bodyBytes 20
                 "07000000", // clipId
                 "e8030000", // frames 1000
                 "02000000", // channels
@@ -104,7 +104,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ),
             ],
             concat!(
-                "3141594d", "0101", "0300", "0a000000", "20000000", // envelope, bodyBytes 32
+                "3141594d", "0201", "0300", "0a000000", "20000000", // envelope, bodyBytes 32
                 "07000000", // clipId
                 "00000000", // frameOffset
                 "02000000", // frames
@@ -120,7 +120,7 @@ pub fn cases() -> Vec<VectorCase> {
             "CLIP_UNLOAD",
             Subject::Kind("CLIP_UNLOAD"),
             vec![("seq", vu(11)), ("clipId", vu(7))],
-            concat!("3141594d", "0101", "0400", "0b000000", "04000000", "07000000"),
+            concat!("3141594d", "0201", "0400", "0b000000", "04000000", "07000000"),
         ),
         // Kind 5 STREAM_OPEN: streamId 3, channels 2, sampleRate 44100.0 (0x472C4400), totalFrames unknown,
         // loop 0..0 (whole stream), flags loop, epoch 4, startFrame 0, convention 0 (AmbiX).
@@ -141,7 +141,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("convention", vu(0)),
             ],
             concat!(
-                "3141594d", "0101", "0500", "0c000000", "28000000", // envelope, bodyBytes 40
+                "3141594d", "0201", "0500", "0c000000", "28000000", // envelope, bodyBytes 40
                 "03000000", // streamId
                 "02000000", // channels
                 "00442c47", // sampleRate 44100.0
@@ -176,7 +176,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ),
             ],
             concat!(
-                "3141594d", "0101", "0600", "0d000000", "24000000", // envelope, bodyBytes 36
+                "3141594d", "0201", "0600", "0d000000", "24000000", // envelope, bodyBytes 36
                 "03000000", // streamId
                 "01000000", // chunkSeq
                 "02000000", // frames
@@ -193,21 +193,21 @@ pub fn cases() -> Vec<VectorCase> {
             "STREAM_CLOSE",
             Subject::Kind("STREAM_CLOSE"),
             vec![("seq", vu(14)), ("streamId", vu(3))],
-            concat!("3141594d", "0101", "0700", "0e000000", "04000000", "03000000"),
+            concat!("3141594d", "0201", "0700", "0e000000", "04000000", "03000000"),
         ),
         // Kind 8 TIME_PING: pingSeq 42.
         case(
             "TIME_PING",
             Subject::Kind("TIME_PING"),
             vec![("seq", vu(15)), ("pingSeq", vu(42))],
-            concat!("3141594d", "0101", "0800", "0f000000", "04000000", "2a000000"),
+            concat!("3141594d", "0201", "0800", "0f000000", "04000000", "2a000000"),
         ),
         // Kind 10 RECYCLE: no body.
         case(
             "RECYCLE",
             Subject::Kind("RECYCLE"),
             vec![("seq", vu(16))],
-            concat!("3141594d", "0101", "0a00", "10000000", "00000000"),
+            concat!("3141594d", "0201", "0a00", "10000000", "00000000"),
         ),
         // Kind 11 STREAM_CREDIT: streamId 3, epoch 4, consumedFrames 512, returnedBuffers 2.
         case(
@@ -221,7 +221,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("returnedBuffers", vu(2)),
             ],
             concat!(
-                "3141594d", "0101", "0b00", "11000000", "10000000", // envelope, bodyBytes 16
+                "3141594d", "0201", "0b00", "11000000", "10000000", // envelope, bodyBytes 16
                 "03000000", // streamId
                 "04000000", // epoch
                 "00020000", // consumedFrames 512
@@ -358,7 +358,7 @@ pub fn cases() -> Vec<VectorCase> {
                 "00010000", // startOffsetFrames 256
             ),
         ),
-        // STOP, 20 B = 5 words: fadeFrames 480, reason 1. Asap.
+        // STOP, 24 B = 6 words: fadeFrames 480, reason 1, shape 0 (the word is appended since envelope 1.2; ADR 0166). Asap.
         case(
             "STOP_fade_asap",
             Subject::Opcode("STOP"),
@@ -368,9 +368,9 @@ pub fn cases() -> Vec<VectorCase> {
                 ("fadeFrames", vu(480)),
                 ("reason", vu(1)),
             ],
-            concat!("0200", "0500", "07000000", "ffffffff", "e0010000", "01000000"),
+            concat!("0200", "0600", "07000000", "ffffffff", "e0010000", "01000000", "00000000"),
         ),
-        // SET_PARAMS, 56 B = 14 words, panner change: mask gain (bit0) | dir (bit2) | flags (bit6) = 0x45;
+        // SET_PARAMS, 60 B = 15 words (shape word 0 appended, envelope 1.2), panner change: mask gain (bit0) | dir (bit2) | flags (bit6) = 0x45;
         // flags 0x20 = panner 1 (HRTF). dirX -1.0 with rampFrames 480. Stamped frameOffset 2048.
         case(
             "SET_PARAMS_panner_change",
@@ -391,7 +391,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("flags", vu(0x20)),
             ],
             concat!(
-                "0300", "0e00", "07000000", "00080000", // head: SET_PARAMS, 14 words, voice 7, frame 2048
+                "0300", "0f00", "07000000", "00080000", // head: SET_PARAMS, 15 words, voice 7, frame 2048
                 "45000000", // mask: gain | dir | flags
                 "0000803e", // gain 0.25
                 "00000000", // pitch
@@ -403,9 +403,10 @@ pub fn cases() -> Vec<VectorCase> {
                 "00000000", // bus
                 "e0010000", // rampFrames 480
                 "20000000", // flags: panner 1
+                "00000000", // shape: linear, phase 0
             ),
         ),
-        // FADE, 24 B = 6 words: target 0.0, frames 960, flags stopAtEnd. Asap.
+        // FADE, 28 B = 7 words: target 0.0, frames 960, flags stopAtEnd, shape 0 (appended, envelope 1.2). Asap.
         case(
             "FADE_stop_at_end",
             Subject::Opcode("FADE"),
@@ -416,7 +417,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("frames", vu(960)),
                 ("flags", vu(1)),
             ],
-            concat!("0400", "0600", "07000000", "ffffffff", "00000000", "c0030000", "01000000"),
+            concat!("0400", "0700", "07000000", "ffffffff", "00000000", "c0030000", "01000000", "00000000"),
         ),
         // SET_MIXED, 36 B = 9 words: mixed 1, gain 1.0, dir (0, 0, -1), lpHz 24000. Asap.
         case(
@@ -661,7 +662,7 @@ pub fn cases() -> Vec<VectorCase> {
             vec![("voiceId", vu(0)), ("frameOffset", vu(0xFFFF_FFFF)), ("keepClips", vu(1))],
             concat!("3000", "0400", "00000000", "ffffffff", "01000000"),
         ),
-        // BATCH, 92 B body (16 header + 56 PLAY + 20 STOP). Flags 0. firstFrame 1000.0 (f64 0x408F400000000000).
+        // BATCH, 96 B body (16 header + 56 PLAY + 24 STOP). Flags 0. firstFrame 1000.0 (f64 0x408F400000000000).
         // Record 1: PLAY asap (the same payload as PLAY_loop_hrtf_spatial). Record 2: STOP stamped at 1000.
         case(
             "BATCH_play_stop",
@@ -702,7 +703,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ),
             ],
             concat!(
-                "3141594d", "0101", "0100", "14000000", "5c000000", // envelope: BATCH, seq 20, bodyBytes 92
+                "3141594d", "0201", "0100", "14000000", "60000000", // envelope: BATCH, seq 20, bodyBytes 96
                 "0000000000408f40", // firstFrame 1000.0
                 "02000000", // count 2
                 "00000000", // flags 0
@@ -711,8 +712,8 @@ pub fn cases() -> Vec<VectorCase> {
                 "03000000", "0100", "3900", "0200", "0000",
                 "0000003f", "0000803f", "00000000", "00000000", "000080bf", "0080bb46", "0000403f", "00000000",
                 // record 2: STOP at frame 1000
-                "0200", "0500", "07000000", "e8030000",
-                "e0010000", "01000000",
+                "0200", "0600", "07000000", "e8030000",
+                "e0010000", "01000000", "00000000",
             ),
         ),
         // REPLAY, first chunk: flags firstChunk (bit1); begins with RESET (keepClips 0), then MASTER.
@@ -745,7 +746,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ),
             ],
             concat!(
-                "3141594d", "0101", "0c00", "15000000", "38000000", // envelope: REPLAY, seq 21, bodyBytes 56
+                "3141594d", "0201", "0c00", "15000000", "38000000", // envelope: REPLAY, seq 21, bodyBytes 56
                 "0000000000000000", // firstFrame 0.0
                 "02000000", // count 2
                 "02000000", // flags: bit1 first chunk
@@ -774,7 +775,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ),
             ],
             concat!(
-                "3141594d", "0101", "0c00", "16000000", "20000000", // envelope: REPLAY, seq 22, bodyBytes 32
+                "3141594d", "0201", "0c00", "16000000", "20000000", // envelope: REPLAY, seq 22, bodyBytes 32
                 "0000000000408f40", // firstFrame 1000.0
                 "01000000", // count 1
                 "04000000", // flags: bit2 last chunk
@@ -822,6 +823,19 @@ pub fn cases() -> Vec<VectorCase> {
                 ("zoneUsedKB", vu(0)),
                 ("workBed", vu(0)),
                 ("workZones", vu(0)),
+                // ADR 0166 M4 header fields, distinct and non-zero except the section counts and `reserved`
+                // (the musicRings and groupStarts sections follow with W1).
+                ("musicRingCount", vu(0)),
+                ("groupStartCount", vu(0)),
+                ("musicRingsOpen", vu(5)),
+                ("streamStartsLate", vu(6)),
+                ("groupsLate", vu(7)),
+                ("groupsHeld", vu(8)),
+                ("groupsAbandoned", vu(9)),
+                ("curvePoolFull", vu(10)),
+                ("maxSlipFrames", vu(1111)),
+                ("splitQuanta", vu(222)),
+                ("voiceSplits", vu(333)),
                 ("ended", va(vec![vu(11), vu(12)])),
                 ("demoted", va(vec![vu(13)])),
                 ("starved", va(vec![vu(14), vu(15), vu(16)])),
@@ -846,7 +860,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("zoneEvents", va(vec![])),
             ],
             concat!(
-                "3141594d", "0101", "0900", "1e000000", "c8000000", // envelope: STATUS, seq 30, bodyBytes 200
+                "3141594d", "0201", "0900", "1e000000", "e8000000", // envelope: STATUS, seq 30, bodyBytes 232
                 "0000000000408f40", // 16 currentFrame f64 1000.0
                 "000000000000f83f", // 24 dateMs f64 1.5
                 "07000000", // 32 pingSeq
@@ -878,6 +892,12 @@ pub fn cases() -> Vec<VectorCase> {
                 "0200", // 110 hrtfLoadFailure 2
                 "0000000000000000", "0000000000000000", // 112..127 bed/zone counts, all 0
                 "0000000000000000", "0000000000000000", // 128..143 zoneSlots, m3Shed, zoneUsedKB, workBed, workZones
+                "00000000", // 144 musicRingCount 0, 146 groupStartCount 0 (derived)
+                "0500", "0600", "0700", "0800", "0900", "0a00", // 148 musicRingsOpen 5, streamStartsLate 6, groupsLate 7, groupsHeld 8, groupsAbandoned 9, curvePoolFull 10
+                "57040000", // 160 maxSlipFrames 1111
+                "de000000", // 164 splitQuanta 222
+                "4d010000", // 168 voiceSplits 333
+                "00000000", // 172 reserved
                 // sections, in order
                 "0b000000", "0c000000", // ended: 11, 12
                 "0d000000", // demoted: 13

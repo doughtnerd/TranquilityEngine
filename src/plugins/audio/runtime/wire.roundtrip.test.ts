@@ -531,6 +531,18 @@ describe("wire round trip", () => {
       zoneUsedKB: 6144,
       workBed: 4000000001,
       workZones: 77,
+      musicRingCount: 0,
+      groupStartCount: 0,
+      musicRingsOpen: 11,
+      streamStartsLate: 12,
+      groupsLate: 13,
+      groupsHeld: 14,
+      groupsAbandoned: 15,
+      curvePoolFull: 16,
+      maxSlipFrames: 4000000002,
+      splitQuanta: 4000000003,
+      voiceSplits: 4000000004,
+      reserved: 0,
       ended: [1, 2, 9],
       demoted: [4],
       starved: [5, 6],
@@ -697,10 +709,10 @@ function lcg(seed: number): () => number {
   };
 }
 
-/** Writes a STATUS message by hand at the spec offsets (header 144 bytes including the envelope, ADR 0162 §4.3). */
+/** Writes a STATUS message by hand at the spec offsets (header 176 bytes including the envelope, ADR 0162 §4.3 and ADR 0166 §4.4). */
 function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
   const size =
-    144 +
+    176 +
     4 * (s.ended.length + s.demoted.length + s.starved.length) +
     8 * (s.playheads.length + s.clipEvents.length + s.streamEvents.length + s.peaks.length) +
     8 * s.beds.length +
@@ -708,7 +720,7 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
     4 * s.zoneEvents.length;
   const view = new DataView(new ArrayBuffer(size));
   view.setUint32(0, 0x4d594131, true);
-  view.setUint16(4, 0x0101, true);
+  view.setUint16(4, 0x0102, true);
   view.setUint16(6, wire.Kind.STATUS, true);
   view.setUint32(8, seq, true);
   view.setUint32(12, size - 16, true);
@@ -754,8 +766,20 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
   view.setUint32(132, s.zoneUsedKB, true);
   view.setUint32(136, s.workBed, true);
   view.setUint32(140, s.workZones, true);
+  view.setUint16(144, s.musicRingCount, true);
+  view.setUint16(146, s.groupStartCount, true);
+  view.setUint16(148, s.musicRingsOpen, true);
+  view.setUint16(150, s.streamStartsLate, true);
+  view.setUint16(152, s.groupsLate, true);
+  view.setUint16(154, s.groupsHeld, true);
+  view.setUint16(156, s.groupsAbandoned, true);
+  view.setUint16(158, s.curvePoolFull, true);
+  view.setUint32(160, s.maxSlipFrames, true);
+  view.setUint32(164, s.splitQuanta, true);
+  view.setUint32(168, s.voiceSplits, true);
+  view.setUint32(172, s.reserved, true);
 
-  let cur = 144;
+  let cur = 176;
   for (const v of [...s.ended, ...s.demoted, ...s.starved]) {
     view.setUint32(cur, v, true);
     cur += 4;

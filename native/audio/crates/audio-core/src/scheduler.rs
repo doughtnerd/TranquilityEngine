@@ -456,6 +456,7 @@ pub fn apply(core: &mut Core, record: &PendingRecord) {
                 bus: record.bus as u32,
                 ramp_frames: record.frames,
                 flags: (record.flags as u32) << wire::SET_PARAMS_FLAGS_PANNER_SHIFT,
+                shape: 0,
             };
             voices::set_params(core, &p);
         }
@@ -495,7 +496,7 @@ mod tests {
 
     fn stop(id: u32, frame_offset: u32) -> Vec<u8> {
         let mut b = vec![0u8; Stop::FIXED_END];
-        Stop { voice_id: id, frame_offset, fade_frames: 0, reason: 0 }.write(&mut b, 0).unwrap();
+        Stop { voice_id: id, frame_offset, fade_frames: 0, reason: 0, shape: 0 }.write(&mut b, 0).unwrap();
         b
     }
 

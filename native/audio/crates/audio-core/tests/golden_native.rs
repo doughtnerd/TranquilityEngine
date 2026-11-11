@@ -105,7 +105,7 @@ fn play(voice: u32, clip: u32, flags: u16) -> wire::Play {
 
 /// A STOP, asap, with no fade.
 fn stop(voice: u32) -> wire::Stop {
-    wire::Stop { voice_id: voice, frame_offset: wire::ASAP, fade_frames: 0, reason: 0 }
+    wire::Stop { voice_id: voice, frame_offset: wire::ASAP, fade_frames: 0, reason: 0, shape: 0 }
 }
 
 /// A SET_PARAMS asap that changes only what `mask` names, over `ramp_frames`.
@@ -124,12 +124,13 @@ fn set_params(voice: u32, mask: u32, ramp_frames: u32) -> wire::SetParams {
         bus: 0,
         ramp_frames,
         flags: 0,
+        shape: 0,
     }
 }
 
 /// A FADE asap.
 fn fade(voice: u32, target: f32, frames: u32, flags: u32) -> wire::Fade {
-    wire::Fade { voice_id: voice, frame_offset: wire::ASAP, target, frames, flags }
+    wire::Fade { voice_id: voice, frame_offset: wire::ASAP, target, frames, flags, shape: 0 }
 }
 
 /// A core that renders quanta in order, from context frame 0.

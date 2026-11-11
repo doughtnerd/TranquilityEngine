@@ -11,7 +11,7 @@ const BATCH_FLAGS: &[Bits] = &[
 ];
 
 /// Flag bits of a voice (`flags` of PLAY, bits 0-7 of `flags` of SET_PARAMS). Only `panner` is
-/// read from SET_PARAMS `flags`; `ambisonic` only from PLAY. Bits 8-15 are reserved.
+/// read from SET_PARAMS `flags`; `ambisonic` and `fadeZero` only from PLAY. Bits 9-15 are reserved.
 const VOICE_FLAGS: &[Bits] = &[
     Bits::bit("loop", 0, "loop the clip"),
     Bits::bit("stream", 1, "a stream voice (STREAM_OPEN), not a clip"),
@@ -20,7 +20,20 @@ const VOICE_FLAGS: &[Bits] = &[
     Bits::bit("spatial", 4, "spatialised; the panner applies"),
     Bits::range("panner", 5, 2, "0 equal-power, 1 HRTF, 2 bed (ADR 0162 C1: the bus's bed slot, equal-power without one), 3 reserved; spatial voices only"),
     Bits::bit("ambisonic", 7, "a B-format clip or stream voice of 4, 9 or 16 channels (ADR 0162 C1); spatial, panner and dir are ignored; read from PLAY only"),
+    Bits::bit("fadeZero", 8, "the voice starts with its fade ramp at 0, so an incoming stem is silent without touching gain; a stamped FADE to 1 opens it (ADR 0166 M4, API section 4.1); read from PLAY only"),
 ];
+
+/// The `shape` word appended to FADE, SET_PARAMS and STOP (ADR 0166 M4, API section 4.2): bits 0-2
+/// `law`, bits 16-31 `startPhase`. An older, shorter record reads it as 0 (linear, phase 0).
+const SHAPE_BITS: &[Bits] = &[
+    Bits::range("law", 0, 3, "0 linear, 1 sCurve, 2 equalPowerIn, 3 equalPowerOut (FadeLaw); 4-7 reserved"),
+    Bits::range("startPhase", 16, 16, "start phase of the curve as u0.16: value / 65,536"),
+];
+
+const SHAPE: Field = Field::new("shape", Ty::U32)
+    .appended()
+    .flags(SHAPE_BITS)
+    .doc("law and start phase of the ramp (envelope 1.2); a record without the word reads 0");
 
 /// SET_PARAMS `mask`: which parameters the record sets.
 const SET_PARAMS_MASK: &[Bits] = &[
@@ -160,8 +173,9 @@ pub const OPCODES: &[Opcode] = &[
         payload: Body::fixed(&[
             Field::new("fadeFrames", Ty::U32).doc("0 is now"),
             Field::new("reason", Ty::U32),
+            SHAPE,
         ]),
-        total_bytes: Some(20),
+        total_bytes: Some(24),
         sent: true,
         doc: "stop a voice",
     },
@@ -180,8 +194,9 @@ pub const OPCODES: &[Opcode] = &[
             Field::new("bus", Ty::U32),
             Field::new("rampFrames", Ty::U32),
             Field::new("flags", Ty::U32).flags(VOICE_FLAGS).doc("only the panner bits are read"),
+            SHAPE,
         ]),
-        total_bytes: Some(56),
+        total_bytes: Some(60),
         sent: true,
         doc: "set voice parameters; ramps over rampFrames",
     },
@@ -192,8 +207,9 @@ pub const OPCODES: &[Opcode] = &[
             Field::new("target", Ty::F32),
             Field::new("frames", Ty::U32),
             Field::new("flags", Ty::U32).flags(FADE_FLAGS),
+            SHAPE,
         ]),
-        total_bytes: Some(24),
+        total_bytes: Some(28),
         sent: true,
         doc: "fade a voice's gain to target",
     },
@@ -383,9 +399,9 @@ mod tests {
     fn fixed_totals_match_the_spec_column() {
         let expected: [(u16, u32); 13] = [
             (0x01, 56),
-            (0x02, 20),
-            (0x03, 56),
-            (0x04, 24),
+            (0x02, 24),
+            (0x03, 60),
+            (0x04, 28),
             (0x05, 36),
             (0x06, 16),
             (0x07, 20),
