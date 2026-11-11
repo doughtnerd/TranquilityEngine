@@ -175,9 +175,10 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
         let len = head.words as usize * 4;
         let min = match head.opcode {
             wire::op::PLAY => Play::FIXED_END,
-            wire::op::STOP => Stop::FIXED_END,
-            wire::op::SET_PARAMS => SetParams::FIXED_END,
-            wire::op::FADE => Fade::FIXED_END,
+            // Envelope 1.2: an older record without the appended `shape` word reads it as 0.
+            wire::op::STOP => Stop::MIN_END,
+            wire::op::SET_PARAMS => SetParams::MIN_END,
+            wire::op::FADE => Fade::MIN_END,
             wire::op::RESET => Reset::FIXED_END,
             wire::op::BUS_CONFIG => wire::BusConfig::FIXED_END,
             wire::op::BUS_MIX => wire::BusMix::FIXED_END,
@@ -617,6 +618,41 @@ mod tests {
         let mut msg = batch(0.0, &[play(0x0001_0001, wire::ASAP)]);
         msg[24..28].copy_from_slice(&2u32.to_le_bytes()); // count says 2
         assert_eq!(submit(&mut core, &msg), wire::ERR_TRUNCATED);
+    }
+
+    /// `record` cut to `len` bytes, its head's word count to match (an older minor's record).
+    fn cut(mut record: Vec<u8>, len: usize) -> Vec<u8> {
+        record.truncate(len);
+        record[2..4].copy_from_slice(&((len / 4) as u16).to_le_bytes());
+        record
+    }
+
+    /// Envelope 1.2: STOP, FADE and SET_PARAMS of the sizes before the appended `shape` word are
+    /// accepted and read it as 0; one shorter than that is still malformed.
+    #[test]
+    fn older_records_without_the_shape_word_read_it_as_0() {
+        let id = 0x0001_0001;
+        let mut full_stop = vec![0u8; Stop::FIXED_END];
+        Stop { voice_id: id, frame_offset: 7, fade_frames: 33, reason: 0, shape: 0x0001_0003 }.write(&mut full_stop, 0).unwrap();
+        let mut full_fade = vec![0u8; Fade::FIXED_END];
+        Fade { voice_id: id, frame_offset: 7, target: 0.5, frames: 44, flags: 0, shape: 0x0001_0002 }.write(&mut full_fade, 0).unwrap();
+        let mut full_set = vec![0u8; SetParams::FIXED_END];
+        SetParams { voice_id: id, frame_offset: 7, mask: wire::SET_PARAMS_MASK_GAIN, gain: 0.25, ramp_frames: 55, shape: 0x0001_0001, ..Default::default() }.write(&mut full_set, 0).unwrap();
+        let cases = [(full_stop, Stop::MIN_END, wire::op::STOP, 33), (full_fade, Fade::MIN_END, wire::op::FADE, 44), (full_set, SetParams::MIN_END, wire::op::SET_PARAMS, 55)];
+        for (full, min, op, frames) in cases {
+            assert!(min < full.len(), "op {op}: the shape word is appended");
+            let mut core = voices::tests::core();
+            assert_eq!(submit(&mut core, &batch(1_000.0, &[cut(full.clone(), min)])), wire::ERR_OK, "op {op}: the older size is accepted");
+            let r = pop_due(&mut core, u64::MAX).expect("queued");
+            assert_eq!((r.op as u16, r.frame, r.frames, shape_word(&r)), (op, 1_007, frames, 0), "op {op}: read with shape 0");
+            let mut core = voices::tests::core();
+            submit(&mut core, &batch(1_000.0, &[full]));
+            assert_ne!(shape_word(&pop_due(&mut core, u64::MAX).unwrap()), 0, "op {op}: the full size keeps its shape");
+            let mut core = voices::tests::core();
+            let mut short = vec![0u8; min - 4];
+            RecordHead { opcode: op, words: ((min - 4) / 4) as u16, voice_id: id, frame_offset: 7 }.write(&mut short, 0).unwrap();
+            assert_eq!(submit(&mut core, &batch(1_000.0, &[short])), wire::ERR_MALFORMED, "op {op}: shorter still refused");
+        }
     }
 
     #[test]
