@@ -201,8 +201,8 @@ export function m4FixedRegionsBytes(): number {
  * (RING_BYTES 307,200). W1 only passes the count, and the core lays out no music ring until C1, so this is 0 now.
  * **C1 switches this function** to `preset.maxMusicRings * 307_200` and nothing else in the headroom changes.
  */
-export function musicRingsBytes(_preset: CorePreset): number {
-  return 0;
+export function musicRingsBytes(preset: CorePreset): number {
+  return preset.maxMusicRings * 307_200;
 }
 
 /** @internal Bytes per sample of a CLIP_BEGIN format (0 for a format the shell doesn't know): ADR 0162 C6 adds 3-5, all f32. */
