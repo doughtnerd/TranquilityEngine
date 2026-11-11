@@ -50,6 +50,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   SpringJoint: "Physics 3D",
   AudioSource: "Audio",
   AudioListener: "Audio",
+  AudioOccluder: "Audio", // ADR 0162
   UICanvas: "UI",
   UIPanel: "UI",
   UIText: "UI",
