@@ -4,6 +4,7 @@
 
 use audio_core::clips::ClipFormat;
 use audio_core::stream::{RING_BYTES, RING_FRAMES, START_FRAMES};
+use streamsalign::prime::*;
 use streamsalign::*;
 
 const BASE: u64 = 96_000; // a quantum start (750 * 128)
@@ -21,6 +22,7 @@ struct One {
     first_nz: Option<u64>,
     resid: (f32, Option<u64>, usize),
     late: (u32, u32),
+    starved: usize,
 }
 
 fn one(s_mod: u64, ready_at: u64, first_chunk: usize) -> One {
@@ -35,7 +37,7 @@ fn one(s_mod: u64, ready_at: u64, first_chunk: usize) -> One {
     rig.run_to(s.max(ready_at) + 12 * Q);
     // The output (a click at stream frame 0, then noise) against the ideal start at S.
     let resid = null_test(&rig, s - 128, s + 1024, TOL, |t| if t < s { (0.0, 0.0) } else { src(1, 0, t - s) });
-    One { start: rig.started(0), first_nz: rig.first_nonzero(0), resid, late: rig.late() }
+    One { start: rig.started(0), first_nz: rig.first_nonzero(0), resid, late: rig.late(), starved: rig.starved }
 }
 
 fn q1_single() {
@@ -71,10 +73,12 @@ fn q1_single() {
                 assert_eq!(r.resid.2, 0, "exact start must null: s_mod {s_mod} j {j}: {:?}", r.resid);
                 assert_eq!(r.late.0, 0, "not late");
             }
+            assert_eq!(r.late, (0, 0), "a waiting stream voice is not a late command");
+            assert_eq!(r.starved, 0, "a waiting stream voice does not report starved");
             checked += 1;
         }
     }
-    println!("\nAsserted over {checked} cases (all 128 sample offsets x 11 arrival quanta): the voice starts at S exactly when the data was committed before S's quantum, else at the first quantum boundary after the data arrived (slip = A - S, 1..), never mid-quantum. `lateCommands` stayed 0 in the exact cases (the stamp was ahead; the voice's wait is not a late command).\n");
+    println!("\nAsserted over {checked} cases (all 128 sample offsets x 11 arrival quanta): the voice starts at S exactly when the data was committed before S's quantum, else at the first quantum boundary after the data arrived (slip = A - S, 1..), never mid-quantum. `lateCommands` and `starved` stayed 0 in **every** case including the slipped ones: the core gives main no signal that a stream start slipped (asserted).\n");
 
     // A partial first chunk (1,000 frames): the voice waits for START_FRAMES = 4,096 buffered.
     println!("A first chunk of 1,000 frames then full chunks one quantum apart (the voice waits for {START_FRAMES} buffered frames):\n");
@@ -105,7 +109,7 @@ fn stems(n: u32, max_mixed: u32, s_mod: u64, ready: impl Fn(u32, u64) -> u64) ->
     let g = 1.0 / n as f32;
     let mut rig = Rig::new(max_mixed);
     for i in 0..n {
-        rig.feeds.push(Feed::new(i, Seg { from: 0, piece: 1, stem: i, file: 0, region: None }, qfloor(ready(i, s))));
+        rig.feeds.push(Feed::new(i, Seg { from: 0, piece: 1, stem: i, file: 0, region: None }, ready(i, s).div_ceil(Q) * Q));
         rig.watch(i);
     }
     let off = rig.off(s);
@@ -157,6 +161,60 @@ fn q1_stems() {
     let started = r.starts.iter().filter(|s| s.is_some()).count();
     println!("**8 stems on the low preset (max_mixed 64 -> 4 rings):** {} streams open, {} STREAM_OPEN refused, {started} of 8 voices ever started (the other four wait silent until main stops them: `stream.rs:41-43` \"none free: stream event 3, and the voice stays waiting\").\n", r.streams_open, r.refused);
     assert_eq!((r.streams_open, started), (4, 4));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Q2: the prime planner against the rig
+
+fn q2_prime() {
+    println!("### Q2: prime planner (`src/prime.rs`) against the core\n");
+    println!("A request to start N stems on the next bar line (bar = 96,000 frames = 2 s at 120 bpm 4/4, 48 kHz) arrives `r` before a bar line. The planner (cost model: per stem `D` serial in the one worker, delivery tail 640 frames = 5 quanta, margin 25 %, L = 1,024) picks the earliest bar line it can prime for. The rig then runs the real core with the stems' data arriving at `factor` x the planned cost; exact = every stem starts at the stamp and the sum nulls.\n");
+    println!("| N | D (frames / ms) | r before bar (far / just feasible / just missed) | lead needed | chosen bar line | bars deferred | factor | starts - stamp (per stem) | exact |\n|---|---|---|---|---|---|---|---|---|");
+    let grid = Grid { origin: 0, bar_frames: 96_000 };
+    for (n, d) in [(4u32, 480u64), (8, 480), (8, 2_400)] {
+        let cost = PrimeCost { per_stem: d, tail: 640, margin_pct: 25 };
+        let need = prime_lead(n, &cost, 1_024);
+        for r in [72_000u64, need + 300, need - 300] {
+            for factor_pct in [100u64, 125, 200] {
+                let now_target = 3 * 96_000 - r + 37;
+                let mut rig = Rig::new(128);
+                rig.run_to(qfloor(now_target));
+                let now = rig.frame;
+                let plan = plan_bar_transition(now, &grid, n, &cost, 1_024);
+                let g = 1.0 / n as f32;
+                for i in 0..n {
+                    let ready = (now + (i as u64 + 1) * d * factor_pct / 100 + 640 * factor_pct / 100).div_ceil(Q) * Q;
+                    rig.feeds.push(Feed::new(i, Seg { from: 0, piece: 1, stem: i, file: 0, region: None }, ready));
+                    rig.watch(i);
+                }
+                let off = rig.off(plan.stamp);
+                let recs: Vec<_> = (0..n).map(|i| rec_play(voice_id(i), STREAM0 + i, true, off, g)).collect();
+                rig.submit(&recs);
+                rig.run_to(plan.stamp + 9_000);
+                let st = plan.stamp;
+                let resid = null_test(&rig, st - 128, st + 8192, TOL, |t| {
+                    if t < st {
+                        return (0.0, 0.0);
+                    }
+                    let (mut l, mut rr) = (0.0f32, 0.0f32);
+                    for i in 0..n {
+                        let (a, b) = src(1, i, t - st);
+                        l += g * a;
+                        rr += g * b;
+                    }
+                    (l, rr)
+                });
+                let offs: Vec<i64> = (0..n as usize).map(|i| rig.started(i).map_or(-1, |s| s as i64 - st as i64)).collect();
+                let exact = offs.iter().all(|&o| o == 0) && resid.2 == 0;
+                let shown = if offs.iter().all(|&o| o == offs[0]) { format!("all {}", offs[0]) } else { offs.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(" ") };
+                println!("| {n} | {d} / {:.0} | {r} ({:.0} ms) | {} | {} | {} | {:.2} | {shown} | {} |", d as f64 / 48.0, r as f64 / 48.0, prime_lead(n, &cost, 1_024), plan.stamp, plan.bars_deferred, factor_pct as f64 / 100.0, if exact { "yes" } else { "NO" });
+                if factor_pct <= 125 {
+                    assert!(exact, "planned prime must be exact: n {n} d {d} r {r} factor {factor_pct}");
+                }
+            }
+        }
+    }
+    println!("\nAsserted: whenever the worker is no slower than the planner's estimate plus margin (factor <= 1.25), the primed start is sample-exact and the stems null. At 2x the estimate the late stems start at their own quantum boundary (skewed against stem 0), silently.\n");
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -375,6 +433,7 @@ fn main() {
     memory();
     q1_single();
     q1_stems();
+    q2_prime();
     q3_seam();
     q4_loops();
     q5_clips();

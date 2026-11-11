@@ -1883,12 +1883,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
                 probe.push(pt as f32);
             }
         }
-        let out = b.core.process(frame);
-        if recording {
-            for &x in out.iter() {
-                r.peak = r.peak.max(x.abs() as f64);
-            }
-        }
+        b.core.process(frame);
         status::after_quantum(&mut b.core);
         clips::flush_events(&mut b.core);
         let mut dt = platform::now_us() - t0;
@@ -1902,6 +1897,10 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
             dt += platform::now_us() - t1;
         }
         if recording {
+            // S4 sanity (outside the timed region): the quantum's output peak. After `after_quantum` the output is still the quantum's.
+            for &x in b.core.regions_mut().output[..2 * QUANTUM].iter() {
+                r.peak = r.peak.max(x.abs() as f64);
+            }
             let c = status::counters(&b.core);
             let w = b.core.cap().render_work();
             let (src, xf, kern) = (w.source_frames, w.hrtf_crossfading, w.hrtf_kernels);

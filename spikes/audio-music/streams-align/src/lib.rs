@@ -11,6 +11,8 @@
 //! first non-zero sample is frame 0 of the file, any shift shows as an error, and sums of up to 8 voices at gain 1/8
 //! are exact to within one f32 ulp. Stereo (R differs from L).
 
+pub mod prime;
+
 use audio_core::layout::{Layout, PAGE_BYTES};
 use audio_core::params::InitParams;
 use audio_core::stream::{phase, RING_FRAMES};

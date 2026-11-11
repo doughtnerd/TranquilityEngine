@@ -3,7 +3,7 @@
 //! 32,768-frame ring. This is the decoder's share of the prime lead; it excludes fetch, the postMessage hops and the
 //! wasm slowdown (est. 1.5-3x). Usage: `decode_lat [--runs R] [--iters N]` (default 7 x 100; expected ~40 s on an
 //! idle machine). Smoke: `decode_lat --runs 2 --iters 5`.
-use audio_decode::{Decoder, FormatHint};
+use myco_audio_decode::{Decoder, FormatHint};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -34,7 +34,8 @@ fn main() {
         let info = probe.info();
         let frames = info.frames.unwrap_or(0);
         let ch = info.channels as usize;
-        for (stage, start, chunks) in [("open + first chunk", 0u64, 1usize), ("open + seek + first chunk", (frames / 2).min(1_000_000), 1), ("open + seek + full ring (8 chunks)", (frames / 2).min(1_000_000), 8)] {
+        let mid = if frames > 0 { (frames / 2).min(1_000_000) } else { 1_000_000 };
+        for (stage, start, chunks) in [("open + first chunk", 0u64, 1usize), ("open + seek + first chunk", mid, 1), ("open + seek + full ring (8 chunks)", mid, 8)] {
             if start == 0 && stage.contains("seek") {
                 continue;
             }

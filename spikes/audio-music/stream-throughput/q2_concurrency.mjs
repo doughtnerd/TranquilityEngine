@@ -118,7 +118,7 @@ async function runScenario(codec, N, clipLoad) {
   const steadyRefill = refill.filter((r) => r.t > 3000).map((r) => r.ms);
   const lv = levels.length ? levels.reduce((m, x) => Math.min(m, x), 1e9) : NaN;
   const out = {
-    N, startMsP50: median(S.map((s) => s.startMs)), startMsMax: Math.max(...S.map((s) => s.startMs)), opened: S.filter((s) => s.open).length,
+    N, startMsP50: median(S.map((s) => s.startMs)), startMsMax: Math.max(...S.map((s) => s.startMs)), startSpread: Math.max(...S.map((s) => s.startMs)) - Math.min(...S.map((s) => s.startMs)), opened: S.filter((s) => s.open).length,
     starves: S.reduce((a, s) => a + s.starves, 0), starvedMs: S.reduce((a, s) => a + s.starvedFrames, 0) / 48, minRingFrames: lv,
     refill: stats(steadyRefill), eluPct: elu.utilization * 100, chunksWorker: elu.chunks, chunksSeen: chunks, allocatedBuffers: elu.allocated, clipChunks,
     wallS: (performance.now() - t0) / 1000,
@@ -133,14 +133,14 @@ for (const [ci, codec] of fixtures.entries()) {
   for (const N of ci === 0 ? Ns : Ns2) {
     const rs = [];
     for (let r = 0; r < runs; r++) rs.push(await runScenario(codec, N, withClip));
-    const row = { codec: codec.id, N, clip: withClip, runs: rs, median: { startP50: median(rs.map((x) => x.startMsP50)), startMax: median(rs.map((x) => x.startMsMax)), refillP50: median(rs.map((x) => x.refill.p50)), refillP99: median(rs.map((x) => x.refill.p99)), refillP999: median(rs.map((x) => x.refill.p999)), refillMax: Math.max(...rs.map((x) => x.refill.max)), elu: median(rs.map((x) => x.eluPct)), minRing: Math.min(...rs.map((x) => x.minRingFrames)), starves: rs.reduce((a, x) => a + x.starves, 0), opened: Math.min(...rs.map((x) => x.opened)) } };
+    const row = { codec: codec.id, N, clip: withClip, runs: rs, median: { startP50: median(rs.map((x) => x.startMsP50)), startMax: median(rs.map((x) => x.startMsMax)), startSpread: median(rs.map((x) => x.startSpread)), refillP50: median(rs.map((x) => x.refill.p50)), refillP99: median(rs.map((x) => x.refill.p99)), refillP999: median(rs.map((x) => x.refill.p999)), refillMax: Math.max(...rs.map((x) => x.refill.max)), elu: median(rs.map((x) => x.eluPct)), minRing: Math.min(...rs.map((x) => x.minRingFrames)), starves: rs.reduce((a, x) => a + x.starves, 0), opened: Math.min(...rs.map((x) => x.opened)) } };
     all.push(row);
     const m = row.median;
-    console.error(`${codec.id} N=${N}${withClip ? '+clip' : ''}: worker busy ${f(m.elu, 2)}% start p50 ${f(m.startP50, 0)} ms (max ${f(m.startMax, 0)}), refill p50 ${f(m.refillP50, 1)} p99 ${f(m.refillP99, 1)} max ${f(m.refillMax, 1)} ms, min ring ${m.minRing} fr, starves ${m.starves}`);
+    console.error(`${codec.id} N=${N}${withClip ? '+clip' : ''}: worker busy ${f(m.elu, 2)}% start p50 ${f(m.startP50, 0)} ms (max ${f(m.startMax, 0)}, spread ${f(m.startSpread, 0)}), refill p50 ${f(m.refillP50, 1)} p99 ${f(m.refillP99, 1)} max ${f(m.refillMax, 1)} ms, min ring ${m.minRing} fr, starves ${m.starves}`);
   }
 }
 saveJson(opt('--out', withClip ? 'q2_clip.json' : 'q2.json'), { date: new Date().toISOString(), node: process.version, runs, seconds, all });
 console.log(`\nQ2 concurrency${withClip ? ' + a whole-clip decode of the same file every 3 s in the same worker' : ''}: ${runs} runs x ${seconds} s each. Worker busy % = event-loop utilisation of the worker thread (= fraction of one core); refill = credit posted -> its chunk received (the worker's response time); start = open -> first sample played (needs ${CHUNK} frames); min ring = fewest frames buffered after a 3 s warm-up (starve below ${Q + FADE}). Median over runs, max = worst run, starves = total over runs.\n`);
-console.log('| codec | N | worker busy % | start p50 (ms) | start max (ms) | refill p50 (ms) | p99 | p99.9 | max | min ring (frames) | starves | opened (min over runs) |');
-console.log('|---|---|---|---|---|---|---|---|---|---|---|---|');
-for (const r of all) { const m = r.median; console.log(`| ${r.codec} | ${r.N} | ${f(m.elu, 2)} | ${f(m.startP50, 0)} | ${f(m.startMax, 0)} | ${f(m.refillP50, 1)} | ${f(m.refillP99, 1)} | ${f(m.refillP999, 1)} | ${f(m.refillMax, 1)} | ${m.minRing} | ${m.starves} | ${m.opened} |`); }
+console.log('| codec | N | worker busy % | start p50 (ms) | start max (ms) | start spread max-min (ms) | refill p50 (ms) | p99 | p99.9 | max | min ring (frames) | starves | opened (min over runs) |');
+console.log('|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+for (const r of all) { const m = r.median; console.log(`| ${r.codec} | ${r.N} | ${f(m.elu, 2)} | ${f(m.startP50, 0)} | ${f(m.startMax, 0)} | ${f(m.startSpread, 0)} | ${f(m.refillP50, 1)} | ${f(m.refillP99, 1)} | ${f(m.refillP999, 1)} | ${f(m.refillMax, 1)} | ${m.minRing} | ${m.starves} | ${m.opened} |`); }

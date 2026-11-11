@@ -11,7 +11,7 @@ const fixtures = ensureFixtures();
 const out = { decoderState: [], rings: {}, core: [], clips: {} };
 
 // --- decoder state per open stream: wasm memory growth for M open streams of the same file, less each stream's own copy of
-// the encoded file (lib.rs:445: `open` keeps the whole allocation for the stream's life) and its 4,096-frame f32 scratch
+// the encoded file (lib.rs:270: `open` keeps the whole allocation for the stream's life) and its 4,096-frame f32 scratch
 // (streams.ts: scratchBytes = chunkFrames * channels * 4).
 const M = 32;
 for (const c of fixtures) {

@@ -1,0 +1,81 @@
+{
+ "date": "2026-11-11T17:53:07.044Z",
+ "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+ "seconds": 10,
+ "runs": 1,
+ "offline": false,
+ "results": [
+  {
+   "preset": "high",
+   "N": 16,
+   "codec": "mp3-cbr192",
+   "secs": 10,
+   "runs": [
+    {
+     "N": 16,
+     "mixed": 256,
+     "ringsExpected": 16,
+     "statusBlocks": 111,
+     "starvedVoiceReports": 0,
+     "streamEventStarved": 0,
+     "streamEventEos": 0,
+     "streamEventError": 0,
+     "starveTimes": [],
+     "underruns": 0,
+     "underrunFrames": 0,
+     "lateCommands": 0,
+     "liveVoicesMax": 16,
+     "mixedVoicesMax": 16,
+     "minSlackFramesMin": -28416,
+     "loadPermillePeak": 0,
+     "peakMax": 0,
+     "errors": [],
+     "startMs": [],
+     "opened": 16,
+     "workerErrors": [],
+     "ctxTimeAtPlay": 0.552,
+     "ctxTimeAtEnd": 10.613333333333333,
+     "wallMsRun": 10063.800000000047,
+     "outPeak": 0.06758210808038712,
+     "killed": false
+    }
+   ]
+  },
+  {
+   "preset": "low",
+   "N": 8,
+   "codec": "mp3-cbr192",
+   "secs": 6,
+   "runs": [
+    {
+     "N": 8,
+     "mixed": 64,
+     "ringsExpected": 4,
+     "statusBlocks": 80,
+     "starvedVoiceReports": 0,
+     "streamEventStarved": 0,
+     "streamEventEos": 0,
+     "streamEventError": 4,
+     "starveTimes": [],
+     "underruns": 0,
+     "underrunFrames": 0,
+     "lateCommands": 0,
+     "liveVoicesMax": 8,
+     "mixedVoicesMax": 8,
+     "minSlackFramesMin": -27520,
+     "loadPermillePeak": 0,
+     "peakMax": 0,
+     "errors": [],
+     "startMs": [],
+     "opened": 8,
+     "workerErrors": [],
+     "ctxTimeAtPlay": 0.5413333333333333,
+     "ctxTimeAtEnd": 6.584,
+     "wallMsRun": 6041.800000000047,
+     "outPeak": 0.08223533630371094,
+     "killed": false
+    }
+   ]
+  }
+ ]
+}

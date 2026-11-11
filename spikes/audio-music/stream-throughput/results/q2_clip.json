@@ -1,0 +1,92 @@
+{
+ "date": "2026-11-11T17:52:48.302Z",
+ "node": "v22.23.4",
+ "runs": 1,
+ "seconds": 8,
+ "all": [
+  {
+   "codec": "mp3-cbr192",
+   "N": 8,
+   "clip": true,
+   "runs": [
+    {
+     "N": 8,
+     "startMsP50": 8,
+     "startMsMax": 8,
+     "opened": 8,
+     "starves": 0,
+     "starvedMs": 0,
+     "minRingFrames": 28544,
+     "refill": {
+      "n": 464,
+      "p50": 4.520535000000564,
+      "p99": 6.258045666667385,
+      "p999": 6.4349950000005265,
+      "max": 6.4349950000005265,
+      "mean": 4.569704285201484
+     },
+     "eluPct": 10.702949035219,
+     "chunksWorker": 808,
+     "chunksSeen": 808,
+     "allocatedBuffers": 64,
+     "clipChunks": 183,
+     "wallS": 8.002295681
+    }
+   ],
+   "median": {
+    "startP50": 8,
+    "startMax": 8,
+    "refillP50": 4.520535000000564,
+    "refillP99": 6.258045666667385,
+    "refillP999": 6.4349950000005265,
+    "refillMax": 6.4349950000005265,
+    "elu": 10.702949035219,
+    "minRing": 28544,
+    "starves": 0,
+    "opened": 8
+   }
+  },
+  {
+   "codec": "mp3-cbr192",
+   "N": 16,
+   "clip": true,
+   "runs": [
+    {
+     "N": 16,
+     "startMsP50": 26.66666666666697,
+     "startMsMax": 64.00000000000091,
+     "opened": 16,
+     "starves": 0,
+     "starvedMs": 0,
+     "minRingFrames": 28288,
+     "refill": {
+      "n": 943,
+      "p50": 4.051904333333368,
+      "p99": 7.884000333333461,
+      "p999": 13.657766999998785,
+      "max": 13.657766999998785,
+      "mean": 4.2820760685751695
+     },
+     "eluPct": 13.29949189163256,
+     "chunksWorker": 1615,
+     "chunksSeen": 1615,
+     "allocatedBuffers": 128,
+     "clipChunks": 183,
+     "wallS": 8.002081218
+    }
+   ],
+   "median": {
+    "startP50": 26.66666666666697,
+    "startMax": 64.00000000000091,
+    "refillP50": 4.051904333333368,
+    "refillP99": 7.884000333333461,
+    "refillP999": 13.657766999998785,
+    "refillMax": 13.657766999998785,
+    "elu": 13.29949189163256,
+    "minRing": 28288,
+    "starves": 0,
+    "opened": 16
+   }
+  }
+ ]
+}

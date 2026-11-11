@@ -1,0 +1,54 @@
+{
+ "date": "2026-11-11T17:53:16.921Z",
+ "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+ "seconds": 8,
+ "runs": 1,
+ "offline": false,
+ "results": [
+  {
+   "preset": "default",
+   "N": 8,
+   "codec": "mp3-cbr192",
+   "secs": 8,
+   "runs": [
+    {
+     "N": 8,
+     "mixed": 128,
+     "ringsExpected": 8,
+     "statusBlocks": 96,
+     "starvedVoiceReports": 8,
+     "streamEventStarved": 8,
+     "streamEventEos": 0,
+     "streamEventError": 0,
+     "starveTimes": [
+      4.28,
+      4.28,
+      4.28,
+      4.28,
+      4.28,
+      4.28,
+      4.28,
+      4.28
+     ],
+     "underruns": 0,
+     "underrunFrames": 0,
+     "lateCommands": 0,
+     "liveVoicesMax": 8,
+     "mixedVoicesMax": 8,
+     "minSlackFramesMin": -27520,
+     "loadPermillePeak": 0,
+     "peakMax": 0,
+     "errors": [],
+     "startMs": [],
+     "opened": 8,
+     "workerErrors": [],
+     "ctxTimeAtPlay": 0.552,
+     "ctxTimeAtEnd": 8.589333333333334,
+     "wallMsRun": 8040.699999999953,
+     "outPeak": 0.10872495174407959,
+     "killed": true
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,173 @@
+{
+ "decoderState": [
+  {
+   "codec": "mp3-cbr192",
+   "fileBytes": 1977453,
+   "perStreamTotal": 2050048,
+   "perStreamStateEst": 39827,
+   "M": 32,
+   "wasmMemMB": 66.125
+  },
+  {
+   "codec": "mp3-vbr",
+   "fileBytes": 1380813,
+   "perStreamTotal": 1472512,
+   "perStreamStateEst": 58931,
+   "M": 32,
+   "wasmMemMB": 47.9375
+  },
+  {
+   "codec": "mp3-cbr128",
+   "fileBytes": 1318317,
+   "perStreamTotal": 1413120,
+   "perStreamStateEst": 62035,
+   "M": 32,
+   "wasmMemMB": 46.0625
+  },
+  {
+   "codec": "vorbis-q5",
+   "fileBytes": 1179632,
+   "perStreamTotal": 2906112,
+   "perStreamStateEst": 1693712,
+   "M": 32,
+   "wasmMemMB": 92.875
+  },
+  {
+   "codec": "vorbis-q3",
+   "fileBytes": 884892,
+   "perStreamTotal": 2703360,
+   "perStreamStateEst": 1785700,
+   "M": 32,
+   "wasmMemMB": 86.5
+  },
+  {
+   "codec": "flac",
+   "fileBytes": 11305564,
+   "perStreamTotal": 11128832,
+   "perStreamStateEst": 0,
+   "M": 32,
+   "wasmMemMB": 351.75
+  },
+  {
+   "codec": "wav",
+   "fileBytes": 15808970,
+   "perStreamTotal": 15425536,
+   "perStreamStateEst": 0,
+   "M": 32,
+   "wasmMemMB": 487.125
+  },
+  {
+   "codec": "aac-192 (aac wasm)",
+   "fileBytes": 1993084,
+   "perStreamTotal": 2125824,
+   "perStreamStateEst": 99972,
+   "M": 32,
+   "wasmMemMB": 68.5
+  }
+ ],
+ "rings": {
+  "ringBytes": 307200,
+  "perPreset": {
+   "low": 1228800,
+   "default": 2457600,
+   "high": 4915200
+  },
+  "chunkBufferBytes": 32804,
+  "poolMaxBuffersPerClass": 16,
+  "workerPoolMaxBytes": 524864
+ },
+ "core": [
+  {
+   "preset": "low",
+   "memoryAfterInitMB": 28.125,
+   "maximumMB": 86.5,
+   "rings": 4
+  },
+  {
+   "preset": "default",
+   "memoryAfterInitMB": 30.3125,
+   "maximumMB": 150.625,
+   "rings": 8
+  },
+  {
+   "preset": "high",
+   "memoryAfterInitMB": 32.75,
+   "maximumMB": 278.75,
+   "rings": 16
+  }
+ ],
+ "clips": [
+  {
+   "name": "stereo 48 kHz i16",
+   "bytes": 34560000,
+   "blockBytes": 41943040,
+   "waste": 0.2136296296296296,
+   "low64": {
+    "byRegistry": 1,
+    "byArenaBlocks": 1
+   },
+   "high256": {
+    "byRegistry": 7,
+    "byArenaBlocks": 6
+   },
+   "default128": {
+    "byRegistry": 3,
+    "byArenaBlocks": 3
+   }
+  },
+  {
+   "name": "stereo 44.1 kHz i16",
+   "bytes": 31752000,
+   "blockBytes": 33554432,
+   "waste": 0.05676593600403135,
+   "low64": {
+    "byRegistry": 2,
+    "byArenaBlocks": 2
+   },
+   "high256": {
+    "byRegistry": 8,
+    "byArenaBlocks": 8
+   },
+   "default128": {
+    "byRegistry": 4,
+    "byArenaBlocks": 4
+   }
+  },
+  {
+   "name": "mono 48 kHz i16",
+   "bytes": 17280000,
+   "blockBytes": 20971520,
+   "waste": 0.2136296296296296,
+   "low64": {
+    "byRegistry": 3,
+    "byArenaBlocks": 3
+   },
+   "high256": {
+    "byRegistry": 15,
+    "byArenaBlocks": 12
+   },
+   "default128": {
+    "byRegistry": 7,
+    "byArenaBlocks": 6
+   }
+  },
+  {
+   "name": "stereo 48 kHz f32 (clipFormat f32)",
+   "bytes": 69120000,
+   "blockBytes": 83886080,
+   "waste": 0.2136296296296296,
+   "low64": {
+    "byRegistry": 0,
+    "byArenaBlocks": 0
+   },
+   "high256": {
+    "byRegistry": 3,
+    "byArenaBlocks": 3
+   },
+   "default128": {
+    "byRegistry": 1,
+    "byArenaBlocks": 1
+   }
+  }
+ ]
+}

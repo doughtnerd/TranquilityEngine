@@ -1,0 +1,96 @@
+{
+ "date": "2026-11-11T17:53:44.879Z",
+ "node": "v22.23.4",
+ "runs": 1,
+ "seconds": 5,
+ "all": [
+  {
+   "codec": "mp3-cbr192",
+   "N": 8,
+   "clip": false,
+   "runs": [
+    {
+     "N": 8,
+     "startMsP50": 8,
+     "startMsMax": 8,
+     "startSpread": 0,
+     "opened": 8,
+     "starves": 0,
+     "starvedMs": 0,
+     "minRingFrames": 28544,
+     "refill": {
+      "n": 184,
+      "p50": 4.385863333333418,
+      "p99": 6.52919166666652,
+      "p999": 6.6203116666665665,
+      "max": 6.6203116666665665,
+      "mean": 4.422129070652006
+     },
+     "eluPct": 3.3608968464632927,
+     "chunksWorker": 528,
+     "chunksSeen": 528,
+     "allocatedBuffers": 64,
+     "clipChunks": 0,
+     "wallS": 5.00177027
+    }
+   ],
+   "median": {
+    "startP50": 8,
+    "startMax": 8,
+    "startSpread": 0,
+    "refillP50": 4.385863333333418,
+    "refillP99": 6.52919166666652,
+    "refillP999": 6.6203116666665665,
+    "refillMax": 6.6203116666665665,
+    "elu": 3.3608968464632927,
+    "minRing": 28544,
+    "starves": 0,
+    "opened": 8
+   }
+  },
+  {
+   "codec": "mp3-cbr192",
+   "N": 32,
+   "clip": false,
+   "runs": [
+    {
+     "N": 32,
+     "startMsP50": 64,
+     "startMsMax": 144,
+     "startSpread": 90.66666666666697,
+     "opened": 32,
+     "starves": 0,
+     "starvedMs": 0,
+     "minRingFrames": 28416,
+     "refill": {
+      "n": 743,
+      "p50": 3.8226566666671715,
+      "p99": 10.075706999999966,
+      "p999": 11.381438333331971,
+      "max": 11.381438333331971,
+      "mean": 4.206295384029066
+     },
+     "eluPct": 13.43138123014298,
+     "chunksWorker": 2079,
+     "chunksSeen": 2079,
+     "allocatedBuffers": 256,
+     "clipChunks": 0,
+     "wallS": 5.002528447
+    }
+   ],
+   "median": {
+    "startP50": 64,
+    "startMax": 144,
+    "startSpread": 90.66666666666697,
+    "refillP50": 3.8226566666671715,
+    "refillP99": 10.075706999999966,
+    "refillP999": 11.381438333331971,
+    "refillMax": 11.381438333331971,
+    "elu": 13.43138123014298,
+    "minRing": 28416,
+    "starves": 0,
+    "opened": 32
+   }
+  }
+ ]
+}
