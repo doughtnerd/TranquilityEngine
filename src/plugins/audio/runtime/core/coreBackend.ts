@@ -321,7 +321,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.voiceFx = new VoiceFx(this.table, this.writer);
     this.beds = new BedPlanner(this.writer, preset.maxBeds ?? 0);
     this.zoneIr = deps.zoneIr ?? createZoneIrService({ sampleRate: host.sampleRate });
-    this.zones = new ZoneManager({ writer: this.writer, fx: this.voiceFx, irs: this.zoneIr, mirror: this.mirror, maxZoneSlots: preset.maxZoneSlots ?? 0, zoneMaxSeconds: preset.zoneMaxSeconds ?? 0 });
+    this.zones = new ZoneManager({ writer: this.writer, fx: this.voiceFx, irs: this.zoneIr, mirror: this.mirror, maxZoneSlots: preset.maxZoneSlots ?? 0, zoneMaxSeconds: preset.zoneMaxSeconds ?? 0, sampleRate: host.sampleRate, wet: this.occlusion.wet });
     this.listener = new ListenerStage(this.writer);
     this.spatialVoices = new TableSpatialView(this.table, this.sendCurves, {
       setOcclusion: (i, gain, lpHz) => this.occlusionAt(i, gain, lpHz),
