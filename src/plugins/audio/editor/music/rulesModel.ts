@@ -4,8 +4,9 @@
 // F2's `resolveTransition`), so the highlight equals what the runtime resolves. L-Ed6a fills every stub tagged
 // `L-Ed6a` and un-skips `rulesModel.test.ts`.
 
-import { RULE_WILDCARD, type RuleTier, type TransitionRule } from "../../../../engine/audio/musicRules";
+import { analyzeTransitionRules, RULE_WILDCARD, type RuleTier, type TransitionRule } from "../../../../engine/audio/musicRules";
 import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
+import { matchInContainer } from "../../runtime/music/transitionRules";
 
 /** One cell of the grid: the rule that wins the pair (`from`, `to`). `from` and `to` are child ids or `"*"`. */
 export interface RuleCell {
@@ -73,8 +74,8 @@ export const TIER_TEXT: Readonly<Record<RuleTier, string>> = {
  * `*`. L-Ed6a.
  */
 export function ruleHeaders(container: MusicContainerNode): RuleHeader[] {
-  void container;
-  throw new Error("L-Ed6a: ruleHeaders not implemented");
+  const children: RuleHeader[] = container.children.map((c) => ({ id: c.id, label: c.id, isWildcard: false }));
+  return [...children, { id: RULE_WILDCARD, label: RULE_WILDCARD, isWildcard: true }];
 }
 
 /**
@@ -82,20 +83,38 @@ export function ruleHeaders(container: MusicContainerNode): RuleHeader[] {
  * cell. A `*` header resolves as the id `"*"` (it matches only wildcard rules). L-Ed6a.
  */
 export function effectiveRule(container: MusicContainerNode, from: string, to: string): RuleCell {
-  void container; void from; void to;
-  throw new Error("L-Ed6a: effectiveRule not implemented");
+  const m = matchInContainer(container, from, to);
+  return { from, to, rule: m.rule, tier: m.tier, ruleKey: m.ruleKey, isDefault: m.rule < 0 };
 }
 
 /** The full grid of `container`: every row by every column, plus `effective` from `analyzeTransitionRules`. L-Ed6a. */
 export function buildRulesGrid(container: MusicContainerNode): RulesGrid {
-  void container;
-  throw new Error("L-Ed6a: buildRulesGrid not implemented");
+  const rows = ruleHeaders(container);
+  const columns = ruleHeaders(container);
+  const cells = rows.map((r) => columns.map((c) => effectiveRule(container, r.id, c.id)));
+  const childIds = container.children.map((c) => c.id);
+  const { effective } = analyzeTransitionRules(container.transitions, childIds);
+  return { container: container.id, rows, columns, cells, effective };
 }
 
 /** The readout of the pair (`from`, `to`): tier text, rule text, the rule, and the rules it beat. L-Ed6a. */
 export function explainPair(container: MusicContainerNode, from: string, to: string): RuleReadout {
-  void container; void from; void to;
-  throw new Error("L-Ed6a: explainPair not implemented");
+  const m = matchInContainer(container, from, to);
+  const beatenRules: number[] = [];
+  container.transitions.forEach((r, i) => {
+    if (i !== m.rule && ruleMatchesPair(r, from, to)) beatenRules.push(i);
+  });
+  return {
+    from,
+    to,
+    rule: m.rule,
+    tier: m.tier,
+    tierText: TIER_TEXT[m.tier],
+    ruleText: m.rule < 0 ? "The default rule" : `Rule ${m.rule} (${m.ruleKey})`,
+    transition: m.transition,
+    summary: `exit: ${m.exit}, enter: ${m.enter}`,
+    beatenRules,
+  };
 }
 
 /**
@@ -103,8 +122,7 @@ export function explainPair(container: MusicContainerNode, from: string, to: str
  * and its `to` is `*` or equals `to`. Used for `beatenRules` and for marking a rule's row in the list. L-Ed6a.
  */
 export function ruleMatchesPair(rule: Pick<TransitionRule, "from" | "to">, from: string, to: string): boolean {
-  void rule; void from; void to;
-  throw new Error("L-Ed6a: ruleMatchesPair not implemented");
+  return (rule.from === RULE_WILDCARD || rule.from === from) && (rule.to === RULE_WILDCARD || rule.to === to);
 }
 
 export { RULE_WILDCARD };
