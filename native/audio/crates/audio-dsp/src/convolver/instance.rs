@@ -182,6 +182,20 @@ impl<'a> Instance<'a> {
         sane.then_some(inst)
     }
 
+    /// Sets the schedule's clock to `k` (ADR 0162 C3: a zone slot aligns its block grid with the
+    /// core's quantum count, so the stagger planner's phases hold across slots). Only while the
+    /// state holds silence (just started, or idle long enough that every history is zero): the
+    /// block grid moves with the clock, so audio in flight would be misplaced.
+    pub fn set_clock(&mut self, k: u32) {
+        self.h.quantum = k;
+    }
+
+    /// The schedule's clock: quanta processed since start or reset, or as set by
+    /// [`Instance::set_clock`] (wrapping).
+    pub fn clock(&self) -> u32 {
+        self.h.quantum
+    }
+
     /// The instance's phase.
     pub fn phase(&self) -> Phase {
         let p = self.h.phase;

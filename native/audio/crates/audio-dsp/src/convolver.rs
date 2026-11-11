@@ -81,6 +81,7 @@ pub mod fft;
 pub mod instance;
 pub mod ir;
 pub mod kernel;
+pub mod presets;
 pub mod stagger;
 
 use core::mem::size_of;

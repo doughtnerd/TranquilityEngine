@@ -117,16 +117,36 @@ export function zoneKernelBlobBytes(frames: number): number {
 
 /** @internal `zones::kernel_budget_bytes` (`myco_audio_zone_kernel_budget_bytes`). */
 export function zoneKernelBudgetBytes(maxZoneSlots: number, zoneMaxFrames: number): number {
-  return maxZoneSlots === 0 ? 0 : maxZoneSlots * alignUp(zoneKernelBlobBytes(zoneMaxFrames), REGION_ALIGN);
+  return maxZoneSlots === 0 ? 0 : maxZoneSlots * arenaBlockBytes(zoneKernelBlobBytes(zoneMaxFrames));
 }
+
+/** @internal `zones::arena_block_bytes`: the arena size class a request takes (four per doubling from 4 KB). */
+export function arenaBlockBytes(bytes: number): number {
+  for (let d = 0; d < 20; d++) {
+    for (let s = 0; s < 4; s++) {
+      const block = 1024 * 2 ** d * (4 + s);
+      if (block >= bytes) return block;
+    }
+  }
+  return Infinity;
+}
+
+/** `zones::SLOT_HEADER_BYTES`: a slot's header (state, ramps, stereo input and wet buffers), 32 past a 64-byte boundary. */
+const ZONE_SLOT_HEADER_BYTES = 2_208;
+
 
 /** @internal `zones::slot_state_bytes`: one zone slot's convolver state. */
 export function zoneSlotStateBytes(frames: number): number {
-  const size = 2 * ZONE_TAIL_BINS;
-  const perChannel =
-    ZONE_KERNEL_MAX_HEAD_PARTS * ZONE_HEAD_BINS * 8 + QUANTUM * 4 + tailParts(frames) * ZONE_TAIL_BINS * 8 + ZONE_TAIL_BINS * 8 + 2 * size * 4 + size * 4;
-  const scratch = size * 4 + 2 * ZONE_TAIL_BINS * 8 + size * 8;
-  return alignUp(2 * perChannel + scratch, REGION_ALIGN);
+  // `instance::state_bytes`: header, per channel the head input (32 x 128 bins + a quantum), the tail delay line,
+  // the accumulator, the 8,192-frame input ring and the 4,096-frame accumulation buffer.
+  const instance = 32 + 2 * (ZONE_KERNEL_MAX_HEAD_PARTS * ZONE_HEAD_BINS * 8 + QUANTUM * 4) + 2 * tailParts(frames) * ZONE_TAIL_BINS * 8 + 2 * ZONE_TAIL_BINS * 8 + 2 * 8_192 * 4 + 2 * 4_096 * 4;
+  return alignUp(ZONE_SLOT_HEADER_BYTES + instance, REGION_ALIGN);
+}
+
+/** @internal `zones::region_bytes`: the slots, the aux accumulator (`max_buses` x 1 KB, with or without slots) and a 64-byte tail. */
+export function zonesRegionBytes(maxZoneSlots: number, zoneMaxFrames: number, maxBuses: number): number {
+  const slots = maxZoneSlots > 0 ? maxZoneSlots * zoneSlotStateBytes(zoneMaxFrames) : 0;
+  return slots + maxBuses * 2 * QUANTUM * 4 + REGION_ALIGN;
 }
 
 /** @internal `zone_max_frames`: the preset's longest zone IR at the context rate (0 without zone slots). */
@@ -140,7 +160,7 @@ export function zoneMaxFrames(preset: CorePreset, sampleRate: number): number {
  */
 export function spatialRegionsBytes(preset: CorePreset, sampleRate: number): number {
   const beds = bedsRegionBytes(preset.maxBeds + preset.maxWide, sampleRate);
-  const zones = preset.maxZoneSlots * (preset.maxZoneSlots > 0 ? zoneSlotStateBytes(zoneMaxFrames(preset, sampleRate)) : 0);
+  const zones = zonesRegionBytes(preset.maxZoneSlots, zoneMaxFrames(preset, sampleRate), preset.maxBuses);
   const wide = preset.maxWide * WIDE_RING_BYTES;
   const fx = alignUp(preset.maxMixed * FX_ENTRY_BYTES, REGION_ALIGN);
   return [beds, zones, wide, fx, PLANAR_SCRATCH_BYTES].reduce((sum, n) => sum + alignUp(n, REGION_ALIGN), 0);

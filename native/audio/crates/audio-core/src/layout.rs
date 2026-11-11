@@ -246,9 +246,10 @@ mod tests {
     #[test]
     fn the_m3_regions_are_zero_without_their_parameters_and_sized_per_c8() {
         let m2 = Layout::new(&preset(4_096, 128, 16));
-        for kind in [RegionKind::Beds, RegionKind::Zones, RegionKind::Wide] {
+        for kind in [RegionKind::Beds, RegionKind::Wide] {
             assert_eq!(m2.region(kind).len, 0, "{kind:?}");
         }
+        assert_eq!(m2.region(RegionKind::Zones).len, 32 * 1024 + 64, "the aux accumulator (32 buses) and the tail, without slots");
         assert_eq!(m2.region(RegionKind::Fx).len, 128 * 448, "56 KB at 128 mixed");
         assert_eq!(m2.region(RegionKind::Scratch).len, 8 * 1024);
         let p = InitParams { max_beds: 2, max_zone_slots: 3, zone_max_frames: 96_000, max_wide: 1, ..preset(4_096, 128, 16) };
@@ -259,7 +260,7 @@ mod tests {
         let beds = m3.region(RegionKind::Beds).len;
         assert_eq!(beds, crate::bed::region_bytes(&p));
         assert!(beds > 3 * 48 * 1024 && beds < 320 * 1024, "2 beds and 1 private decoder: {beds}");
-        assert_eq!(m3.region(RegionKind::Zones).len, 3 * crate::zones::slot_state_bytes(96_000));
+        assert_eq!(m3.region(RegionKind::Zones).len, 3 * crate::zones::slot_state_bytes(96_000) + 32 * 1024 + 64);
         assert_eq!(m3.region(RegionKind::Wide).len, 16 * (16_384 + 2_048 + 1_536) * 4);
         let wide_mib = m3.region(RegionKind::Wide).len as f64 / (1 << 20) as f64;
         assert!((wide_mib - 1.22).abs() < 0.01, "{wide_mib} MiB");

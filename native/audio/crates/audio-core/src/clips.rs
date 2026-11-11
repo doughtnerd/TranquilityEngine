@@ -31,6 +31,15 @@
 //!   of `resident`; invalid data, or a rate HRTF can't run at, leaves STATUS `hrtfLoadFailure` at 2
 //!   (data) and no event. One HRIR table at a time; freeing it (or a reset) drops the bank, and
 //!   kind-1 voices pan equal-power again.
+//! - **Zone kernels (ADR 0162 C6, task C3).** `format = 3` (a prepared kernel, `channels` 1, f32
+//!   words) and `format = 5` (zone IR PCM, `channels` 2, interleaved f32 at the context rate) take a
+//!   zone kernel id (`0xFFFF0200..=0xFFFF02FF`) and are never a voice's source. They are outside
+//!   `clipMemoryMB` and count against the zone kernel budget (`zones::kernel_budget_bytes`, the
+//!   shell's addition to the Memory's maximum): a reserve past it is refusedCeiling. A format 3 clip
+//!   is `resident` when its last range is committed, and the zone slots waiting for it start
+//!   (`zones::kernel_resident`); its header is checked when a slot starts (a bad one is the zone
+//!   event `badBlob`). A format 5 clip is stored and stays silent: task C3b prepares its kernel in
+//!   the core and reports `resident` then.
 
 use audio_dsp::hrtf::HrirDatabase;
 use audio_dsp::resample::{Samples, Source};
@@ -56,6 +65,10 @@ pub enum ClipFormat {
     I16,
     /// HRIR data (H3): int16 words, the HRTF table; never a voice's source.
     Hrir,
+    /// ADR 0162 C6: a prepared zone kernel (format 3), f32 words; never a voice's source.
+    ZoneKernel,
+    /// ADR 0162 C6: zone IR PCM (format 5), interleaved stereo f32; never a voice's source.
+    ZoneIrPcm,
     /// ADR 0162 A4: the MagLS bed filters (format 4, id `MAGLS_CLIP_ID`): f32 words, the
     /// `MaglsHeader` then `[16][2][taps]`; transformed into `bed.rs` at commit; never a voice's source.
     MagLs,
@@ -68,6 +81,8 @@ impl ClipFormat {
             wire::clip_format::F32 => Some(ClipFormat::F32),
             wire::clip_format::I16 => Some(ClipFormat::I16),
             wire::clip_format::HRIR => Some(ClipFormat::Hrir),
+            wire::clip_format::ZONE_KERNEL => Some(ClipFormat::ZoneKernel),
+            wire::clip_format::ZONE_IR_PCM => Some(ClipFormat::ZoneIrPcm),
             wire::clip_format::MAG_LS => Some(ClipFormat::MagLs),
             _ => None,
         }
@@ -79,6 +94,8 @@ impl ClipFormat {
             ClipFormat::F32 => 0,
             ClipFormat::I16 => 1,
             ClipFormat::Hrir => 2,
+            ClipFormat::ZoneKernel => 3,
+            ClipFormat::ZoneIrPcm => 5,
             ClipFormat::MagLs => 4,
         }
     }
@@ -86,7 +103,7 @@ impl ClipFormat {
     /// Bytes per sample.
     pub fn sample_bytes(self) -> usize {
         match self {
-            ClipFormat::F32 | ClipFormat::MagLs => 4,
+            ClipFormat::F32 | ClipFormat::ZoneKernel | ClipFormat::ZoneIrPcm | ClipFormat::MagLs => 4,
             ClipFormat::I16 | ClipFormat::Hrir => 2,
         }
     }
@@ -127,6 +144,8 @@ impl Entry {
         match self.format {
             1 => ClipFormat::I16,
             2 => ClipFormat::Hrir,
+            3 => ClipFormat::ZoneKernel,
+            5 => ClipFormat::ZoneIrPcm,
             4 => ClipFormat::MagLs,
             _ => ClipFormat::F32,
         }
@@ -158,6 +177,8 @@ pub struct ClipStore {
     hrtf_ready: bool,
     /// STATUS `hrtfLoadFailure`'s core side: 0, or 2 (data).
     hrtf_failure: u16,
+    /// ADR 0162 C6: arena bytes (block classes) held by zone kernels and zone IR PCM.
+    zone_bytes: usize,
 }
 
 /// The channel counts a clip may have (ADR 0162, api-and-models §5.2): 1, 2, or 4, 9 and 16 for an
@@ -170,6 +191,16 @@ pub fn is_clip_channel_count(channels: u32) -> bool {
 /// The reserved clip ids `format = 2` data must use (api-and-models §4.1).
 pub fn is_hrir_id(id: u32) -> bool {
     (wire::HRIR_CLIP_ID_FIRST..=wire::HRIR_CLIP_ID_LAST).contains(&id)
+}
+
+/// The reserved clip ids zone kernels (formats 3 and 5) must use (ADR 0162 C6).
+pub fn is_zone_kernel_id(id: u32) -> bool {
+    (wire::ZONE_KERNEL_ID_FIRST..=wire::ZONE_KERNEL_ID_LAST).contains(&id)
+}
+
+/// Whether `format` is a zone kernel's (3 or 5).
+fn is_zone(format: ClipFormat) -> bool {
+    matches!(format, ClipFormat::ZoneKernel | ClipFormat::ZoneIrPcm)
 }
 
 impl Default for ClipStore {
@@ -193,6 +224,7 @@ impl ClipStore {
             hrtf_block: Block { addr: 0, class: 0 },
             hrtf_ready: false,
             hrtf_failure: 0,
+            zone_bytes: 0,
         }
     }
 
@@ -244,6 +276,10 @@ impl ClipStore {
         if hrir && (!is_hrir_id(id) || channels != 1 || self.hrir_id != 0) {
             return Err(wire::ERR_BAD_ARG);
         }
+        let zone_channels = if format == ClipFormat::ZoneKernel { 1 } else { 2 };
+        if is_zone(format) && (!is_zone_kernel_id(id) || channels != zone_channels) {
+            return Err(wire::ERR_BAD_ARG);
+        }
         if format == ClipFormat::MagLs && (id != wire::MAGLS_CLIP_ID || channels != 1) {
             return Err(wire::ERR_BAD_ARG);
         }
@@ -289,6 +325,9 @@ impl ClipStore {
                     return Err(refusal.code());
                 }
             }
+        }
+        if is_zone(format) {
+            self.zone_bytes += block.len();
         }
         let bytes = bytes.unwrap_or(0);
         // SAFETY: the block is ours and at least `bytes` long (its class holds the request).
@@ -380,6 +419,8 @@ impl ClipStore {
             let id = e.id;
             if e.format() == ClipFormat::Hrir {
                 self.finish_hrir(at);
+            } else if e.format() == ClipFormat::ZoneIrPcm {
+                // Task C3b prepares the kernel and reports `resident` then.
             } else if e.format() == ClipFormat::MagLs {
                 // ADR 0162 A4: the core-level `commit` transforms it and queues the event.
             } else {
@@ -461,8 +502,8 @@ impl ClipStore {
             match e.format() {
                 ClipFormat::F32 => Samples::F32(core::slice::from_raw_parts(e.addr as *const f32, len)),
                 ClipFormat::I16 => Samples::I16(core::slice::from_raw_parts(e.addr as *const i16, len)),
-                // The HRTF table and the MagLS filters aren't a voice's source.
-                ClipFormat::Hrir | ClipFormat::MagLs => return None,
+                // The HRTF table, zone kernels and the MagLS filters aren't a voice's source.
+                ClipFormat::Hrir | ClipFormat::ZoneKernel | ClipFormat::ZoneIrPcm | ClipFormat::MagLs => return None,
             }
         };
         Some(Clip { source: Source { samples, channels: e.channels as u32, frames: e.frames }, sample_rate: e.sample_rate })
@@ -477,6 +518,9 @@ impl ClipStore {
         if id == self.hrir_id {
             self.drop_hrtf();
         }
+        if is_zone(self.entries[at].format()) {
+            self.zone_bytes -= block.len();
+        }
         self.entries.copy_within(at + 1..self.len, at);
         self.len -= 1;
         self.arena.free(block);
@@ -490,9 +534,28 @@ impl ClipStore {
         self.hrir_id = 0;
         self.hrtf_ready = false;
         self.hrtf_block = Block { addr: 0, class: 0 };
+        self.zone_bytes = 0;
         self.arena.reset();
         self.events_len = 0;
         self.events_head = 0;
+    }
+
+    /// A resident prepared zone kernel's bytes (format 3, ADR 0162 C6), for `Kernel::parse`; `None`
+    /// when `id` isn't held, isn't a format 3 clip or isn't fully committed. Never allocates
+    /// (`process` calls it).
+    pub fn zone_kernel(&self, id: u32) -> Option<&[u8]> {
+        let e = &self.entries[self.find(id).ok()?];
+        if e.format() != ClipFormat::ZoneKernel || e.resident == 0 {
+            return None;
+        }
+        // SAFETY: the block holds `frames * 4` committed bytes (f32 words); only `onmessage`
+        // writes or frees it, never while `process` reads.
+        Some(unsafe { core::slice::from_raw_parts(e.addr as *const u8, e.frames as usize * 4) })
+    }
+
+    /// Arena bytes (block classes) held by zone kernels and zone IR PCM (formats 3 and 5).
+    pub fn zone_bytes(&self) -> usize {
+        self.zone_bytes
     }
 
     /// Clips held.
@@ -570,6 +633,22 @@ fn report(core: &mut Core, full: Option<bool>) {
 /// `hrtfLoadFailure` 2 (main resamples the table for the context, H2).
 pub fn reserve(core: &mut Core, id: u32, frames: u32, channels: u32, sample_rate: f32, format: u32) -> i32 {
     let Some(format) = ClipFormat::from_wire(format) else { return wire::ERR_BAD_ARG };
+    if is_zone(format) {
+        // ADR 0162 C6: zone kernels have their own budget; their rate is the context's.
+        let zone_channels = if format == ClipFormat::ZoneKernel { 1 } else { 2 };
+        if !is_zone_kernel_id(id) || channels != zone_channels || frames == 0 || (sample_rate - core.params().sample_rate).abs() > 0.5 {
+            return wire::ERR_BAD_ARG;
+        }
+        let p = core.params();
+        let budget = crate::zones::kernel_budget_bytes(p.max_zone_slots, p.zone_max_frames);
+        let bytes = (frames as usize).saturating_mul(channels as usize * 4);
+        let class = crate::arena::size_class::class_of(bytes).map(crate::arena::size_class::class_bytes);
+        if class.is_none_or(|c| core.clips().zone_bytes() + c > budget) {
+            core.clips_mut().queue_event(id, wire::clip_event::REFUSED_CEILING);
+            report(core, None);
+            return wire::ERR_CEILING;
+        }
+    }
     if format == ClipFormat::Hrir && (sample_rate - core.params().sample_rate).abs() > 0.5 {
         core.clips_mut().hrtf_failure = wire::hrtf_load_failure::DATA as u16;
         report(core, None);
@@ -601,10 +680,23 @@ pub fn chunk_ptr(core: &mut Core, id: u32, frame_offset: u32, bytes: u32) -> *mu
 pub fn commit(core: &mut Core, id: u32, frame_offset: u32, bytes: u32) -> i32 {
     let was = core.clips().is_resident(id);
     let result = core.clips_mut().commit(id, frame_offset, bytes);
+    if result.is_ok() && core.clips().zone_kernel(id).is_some() {
+        crate::zones::kernel_resident(core, id);
+    }
     if id == wire::MAGLS_CLIP_ID && !was && core.clips().is_resident(id) {
         finish_magls(core);
     }
     report(core, None);
+    result.err().unwrap_or(wire::ERR_OK)
+}
+
+/// `myco_audio_clip_write` (tests): [`ClipStore::write`], then, as [`commit`], the zone slots
+/// waiting for a zone kernel it completes start. Events flush with the next quantum, as before.
+pub fn write(core: &mut Core, id: u32, frame_offset: u32, bytes: &[u8]) -> i32 {
+    let result = core.clips_mut().write(id, frame_offset, bytes);
+    if result.is_ok() && core.clips().zone_kernel(id).is_some() {
+        crate::zones::kernel_resident(core, id);
+    }
     result.err().unwrap_or(wire::ERR_OK)
 }
 
