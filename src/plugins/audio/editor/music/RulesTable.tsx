@@ -49,6 +49,8 @@ function OpenRules(props: { path: string; nodeId: string }) {
   const to = pick && ids.has(pick.to) ? pick.to : null;
   const readout = from !== null && to !== null ? explainPair(container, from, to) : null;
   const winner = readout ? readout.rule : null;
+  const winsCell = new Set(grid.cells.flat().map((c) => c.rule));
+  const winsChild = new Set(grid.effective);
 
   return (
     <div class="rules-table">
@@ -79,13 +81,13 @@ function OpenRules(props: { path: string; nodeId: string }) {
                       data-to={cell.to}
                       data-rule={cell.rule}
                       data-tier={cell.tier}
-                      title={`${cell.from} to ${cell.to}: ${cell.isDefault ? "default rule" : `rule ${cell.rule + 1} (${cell.ruleKey})`}, tier ${cell.tier}`}
+                      title={`${cell.from} to ${cell.to}: ${cell.isDefault ? "default rule" : `rule ${cell.rule} (${cell.ruleKey})`}, tier ${cell.tier}`}
                       onClick={() => (chosen.value = { key, from: cell.from, to: cell.to })}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); chosen.value = { key, from: cell.from, to: cell.to }; }
                       }}
                     >
-                      {cell.isDefault ? "default" : `#${cell.rule + 1}`}
+                      {cell.isDefault ? "default" : `#${cell.rule}`}
                     </td>
                   );
                 })}
@@ -102,7 +104,7 @@ function OpenRules(props: { path: string; nodeId: string }) {
             <div>{readout.tierText}</div>
             <div>{readout.ruleText}</div>
             <div class="rt-muted">{readout.summary}</div>
-            {readout.beatenRules.length > 0 && <div class="rt-muted">Also matches: {readout.beatenRules.map((i) => `#${i + 1}`).join(", ")} (beaten)</div>}
+            {readout.beatenRules.length > 0 && <div class="rt-muted">Also matches: {readout.beatenRules.map((i) => `#${i}`).join(", ")} (beaten)</div>}
           </>
         ) : (
           <div class="rt-muted">Choose a cell to see why its rule wins.</div>
@@ -117,9 +119,10 @@ function OpenRules(props: { path: string; nodeId: string }) {
           {container.transitions.map((r, i) => {
             const matches = from !== null && to !== null && ruleMatchesPair(r, from, to);
             return (
-              <li key={i} class={`${winner === i ? "rt-win" : ""}${matches && winner !== i ? " rt-beaten" : ""}${grid.effective.includes(i) ? "" : " rt-unused"}`}>
-                <span class="rt-idx">#{i + 1}</span> {r.from} to {r.to}
+              <li key={i} class={`${winner === i ? "rt-win" : ""}${matches && winner !== i ? " rt-beaten" : ""}${winsCell.has(i) ? "" : " rt-unused"}`}>
+                <span class="rt-idx">#{i}</span> {r.from} to {r.to}
                 <span class="rt-muted"> {typeof r.exit === "string" ? r.exit : `${r.exit.n} ${r.exit.every}s`}, {typeof r.enter === "string" ? r.enter : `cue:${r.enter.cue}`}{r.bridge ? `, bridge ${r.bridge.segment}` : ""}</span>
+                {!winsChild.has(i) && <span class="rt-muted">{winsCell.has(i) ? " (wins no child pair; only * cells, so it applies to new children)" : " (wins no pair)"}</span>}
               </li>
             );
           })}
