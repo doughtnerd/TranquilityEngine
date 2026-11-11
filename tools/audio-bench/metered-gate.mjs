@@ -59,11 +59,19 @@ const SCENES = [
   "bed-256",
   "bed-xfade",
   // ADR 0162 D6: 256 voices each with a ramping low-pass and high-pass (D1's pool), and each preset's worst case: beds,
-  // ambisonic clips (one private), filters and zone slots sized (C4's sends are not on this base, so the slots idle).
+  // ambisonic clips (one private), filters and zone slots sized (these three have no sends: the slots idle; see C7's `-sends` twins below).
   "filters-256",
   "m3-worst-high",
   "m3-worst-default",
   "m3-worst-low",
+  // ADR 0162 C7: zones with C4's sends. Two 2 s zones fed by 16 voices; zones swapping slots through the standby and eviction
+  // paths (kernels uploaded as they go); the high preset's typical M3 scene; and D6's worst scenes with their slots convolving.
+  "zones-2x2s",
+  "zones-swap",
+  "m3-high",
+  "m3-worst-high-sends",
+  "m3-worst-default-sends",
+  "m3-worst-low-sends",
 ];
 
 function fail(message) {
