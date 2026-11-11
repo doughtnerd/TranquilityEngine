@@ -37,7 +37,7 @@ export function presetFromSettings(settings: AudioSettings): CorePreset {
     arenaInitialBytes: Math.min(ARENA_INITIAL_BYTES, clipCeilingBytes),
     clipCeilingBytes,
     limiterLookaheadMs: settings.limiterLookaheadMs,
-    // ADR 0162 C8: the ABI 2.0 parameters (all 0 until their features' flips, `initParams.ts`).
+    // ADR 0162 C8: the ABI 2.0 parameters (`initParams.ts`: beds and zones 0 until their flips, wide from `audio.ambisonic.maxClips`).
     ...spatialInitParams(settings),
   };
 }

@@ -8,7 +8,7 @@
 // through the baked matrix (R9).
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets } from "../../../../engine/scene/Assets";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
@@ -19,8 +19,11 @@ import { createDecoderHandler } from "../decoder/handler";
 import type { DecoderRequest } from "../decoder/protocol";
 import hash from "../wasm/hash.json";
 import type { AudioHost } from "./context";
-import { ambisonicImportGain, createClipRegistry } from "./clipRegistry";
+import { ambisonicImportGain, ambisonicStreamsByDefault, createClipRegistry, resetAmbisonicStreamDefaults } from "./clipRegistry";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
+import { ListenerFrame } from "./spatial";
+import type { World } from "../../../../engine/core/World";
+import type { GameObject } from "../../../../engine/scene/GameObject";
 
 const RATE = 48_000;
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
@@ -107,10 +110,13 @@ async function rig(where: Where, files: Record<string, ArrayBuffer>) {
     right.length = 0;
     return { l, r, ild: (l - r) / (l + r || 1) };
   };
-  /** The head turned `deg` degrees to the left (a cut): the world to listener quaternion about +Y. */
+  /** The head turned `deg` degrees to the left (a cut), through the real listener stage (`ListenerStage`, B5). */
+  const frame = new ListenerFrame();
   const turnHead = (deg: number) => {
-    const a = (-deg * Math.PI) / 360;
-    backend.writer.listener(0, Math.sin(a), 0, Math.cos(a), 0, true);
+    const a = (deg * Math.PI) / 180;
+    frame.set({} as World, 1, {} as GameObject, { position: { x: 0, y: 0, z: 0 }, forward: { x: -Math.sin(a), y: 0, z: -Math.cos(a) }, up: { x: 0, y: 1, z: 0 } }, 0.003);
+    frame.cut = true;
+    backend.frameStageListener(frame);
   };
   return { backend, step, measure, turnHead, loop, client, clips };
 }
@@ -222,4 +228,76 @@ describe("ambisonic clips on the loopback host (B6)", () => {
       });
     }
   }
+
+  it("a FuMa clip played before it is loaded gets its import gain when it becomes ready (B5)", async () => {
+    const w = wavs(1, 50, 20);
+    const ambix = await rig("decoder", { "first.wav": w.ambix });
+    await playAmbisonic(ambix, "first.wav", "ambix");
+    await ambix.step(40);
+    ambix.measure();
+    await ambix.step(30);
+    const want = ambix.measure();
+    ambix.client.dispose();
+    Assets.clearSources();
+
+    const fuma = await rig("decoder", { "first-fuma.wav": w.fuma });
+    Assets.addSource(Assets.fromObject({ "first-fuma.wav.meta.json": { format: "myco.import@1", ambisonic: { convention: "fuma" } } }));
+    expect(ambisonicImportGain("first-fuma.wav")).toBe(1); // not decoded yet: the play's volume can't hold it
+    const voice = fuma.backend.play({ path: "first-fuma.wav", url: "first-fuma.wav", loop: true, stream: false, bus: "Master", ambisonic: true, volume: 1 });
+    expect(voice).not.toBeNull();
+    // The decode runs in real time on the in-process worker: step until the clip is on the core and playing.
+    for (let k = 0; k < 400 && fuma.backend.mirror.ambisonicVoices < 1; k++) await fuma.step(1);
+    expect(ambisonicImportGain("first-fuma.wav")).toBeCloseTo(Math.SQRT2, 6);
+    await fuma.step(40);
+    fuma.measure();
+    await fuma.step(30);
+    const got = fuma.measure();
+    fuma.client.dispose();
+    expect(got.l / want.l).toBeCloseTo(1, 1);
+    expect(got.r / want.r).toBeCloseTo(1, 1);
+  });
+
+  it("maxClips steals the lowest priority on main, and refuses a play that doesn't outrank them all (B5)", async () => {
+    const r = await rig("decoder", { "s.wav": wavs(1, 0).ambix });
+    Assets.addSource(Assets.fromObject({ "s.wav.meta.json": { format: "myco.import@1", ambisonic: { convention: "ambix" } } }));
+    r.clips.acquire("s.wav");
+    await r.step(20);
+    const play = (priority: number) => r.backend.play({ path: "s.wav", url: "s.wav", loop: true, stream: false, bus: "Master", ambisonic: true, priority });
+    const low = play(100)!;
+    expect(low).not.toBeNull();
+    expect(play(100)).toBeNull(); // equal priority: refused
+    expect(play(50)).toBeNull();
+    const high = play(200)!;
+    expect(high).not.toBeNull();
+    expect(low.playing).toBe(false); // stolen by main
+    expect(high.playing).toBe(true);
+    await r.step(40);
+    expect(r.backend.mirror.ambisonicVoices).toBe(1);
+    r.client.dispose();
+  });
+
+  it("an ambisonic clip over 5 s streams: the first play restarts as a stream, later plays are streams at once (B5)", async () => {
+    resetAmbisonicStreamDefaults();
+    const long = tone(440, 5.5, RATE, 0.5) as Float32Array;
+    const wav = toBuffer(ambisonicWav(encodeTone(long, 0, 0, 1) as Float32Array[], RATE));
+    const r = await rig("decoder", { "long.wav": wav });
+    Assets.addSource(Assets.fromObject({ "long.wav.meta.json": { format: "myco.import@1", ambisonic: { convention: "ambix" } } }));
+    expect(ambisonicStreamsByDefault("long.wav")).toBe(false);
+    const first = r.backend.play({ path: "long.wav", url: "long.wav", loop: true, stream: false, bus: "Master", ambisonic: true })!;
+    expect(first).not.toBeNull();
+    // The loopback host has no stream port to the worklet, so the stream itself fails (its own test is streamsWide.test.ts);
+    // what B5 owns is that the voice was restarted as one, on its path, once the registry read the clip's length.
+    const registered = vi.spyOn(r.backend.streams, "register");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await r.step(30);
+    warn.mockRestore();
+    expect(ambisonicStreamsByDefault("long.wav")).toBe(true);
+    expect(registered).toHaveBeenCalledTimes(1);
+    expect(registered.mock.calls[0]![2]).toBe("long.wav");
+    expect(registered.mock.calls[0]![3]).toBe(true); // loop kept
+    const second = r.backend.play({ path: "long.wav", url: "long.wav", loop: false, stream: ambisonicStreamsByDefault("long.wav"), bus: "Master", ambisonic: true })!;
+    expect(second).not.toBeNull();
+    expect(registered).toHaveBeenCalledTimes(2);
+    r.client.dispose();
+  });
 });

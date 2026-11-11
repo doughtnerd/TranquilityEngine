@@ -11,7 +11,7 @@ import { Vector3 } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { _worldServiceOf } from "../../../engine/core/worldServices";
 import { AUDIO, type AudioWorldService } from "./core/service";
-import { ambisonicImportGain } from "./core/clipRegistry";
+import { ambisonicImportGain, ambisonicStreamsByDefault } from "./core/clipRegistry";
 import { Assets } from "../../../engine/scene/Assets";
 import { audioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type AudioVoice, type PlayRequest, type Rolloff, type SendCurve } from "./backend";
 import { isAudioEventPath } from "../../../engine/audio/eventFormat";
@@ -20,9 +20,20 @@ import { _setEventClipStarter, events, type EventInstance } from "./events/event
 
 export type { Rolloff } from "./backend";
 
-/** @internal Start a clip on the active backend, on `output` (a mixer bus name; empty or unknown: Master). */
+/** @internal Whether `path`'s sidecar marks it ambisonic (ADR 0162 §2.4): it plays through the listener's rotation, with no position. */
+export const isAmbisonicClip = (path: string): boolean => Assets.importSettings(path).ambisonic !== null;
+
+/**
+ * @internal Start a clip on the active backend, on `output` (a mixer bus name; empty or unknown: Master). An ambisonic clip
+ * (§2.4) is sent with `ambisonic` set, and streams when its sidecar says so or the registry found it longer than 5 s.
+ */
 export function startClip(path: string, loop: boolean, output: string | undefined, extra?: Partial<PlayRequest>): AudioVoice | null {
-  return audioBackend().play({ path, url: Assets.url(path), loop, stream: Assets.importSettings(path).stream, bus: mixer.resolveOutput(output), ...extra });
+  const settings = Assets.importSettings(path);
+  const ambisonic = settings.ambisonic !== null;
+  return audioBackend().play({
+    path, url: Assets.url(path), loop, stream: settings.stream || (ambisonic && ambisonicStreamsByDefault(path)), bus: mixer.resolveOutput(output),
+    ...(ambisonic ? { ambisonic: true } : null), ...extra,
+  });
 }
 
 /**
@@ -106,6 +117,10 @@ export class AudioSource extends Component {
   private appliedM3 = "";
   private appliedCurve: SendCurve | null = null;
   private readonly zeroVelocity = new Vector3();
+  /** ADR 0162 §2.4 (B5): the playing clip is ambisonic, so `spatial`, the distance fields, `occlusion` and `dopplerLevel` don't apply. */
+  private ambisonicClip = false;
+  /** One warning per source about those fields. */
+  private warnedAmbisonic = false;
 
   /** ADR 0162 §1.2: the source's velocity in world units per second (Doppler). Read-only. K4: zero until D3. */
   get velocity(): Vector3 {
@@ -140,6 +155,8 @@ export class AudioSource extends Component {
       if (this.instance) this.applyEvent();
       return;
     }
+    this.ambisonicClip = isAmbisonicClip(path);
+    if (this.ambisonicClip) this.warnAmbisonicIgnored(path);
     this.voice = startClip(path, this.loop, this.output, { priority: clamp255(this.priority), world: worldKeyOf(this._world), ...this.spatialOptions() });
     this.applied = "";
     this.appliedM3 = "";
@@ -212,6 +229,17 @@ export class AudioSource extends Component {
   }
 
   /**
+   * ADR 0162 §1.2 (B5): a source whose clip is ambisonic ignores `spatial`, the distance fields, `occlusion` and
+   * `dopplerLevel` (the Inspector greys them); one warning per source, when it has set any of them.
+   */
+  private warnAmbisonicIgnored(path: string): void {
+    if (this.warnedAmbisonic) return;
+    if (!(this.spatial || this.minDistance !== 1 || this.maxDistance !== 100 || this.rolloff !== "inverse" || this.occlusion === false || this.dopplerLevel !== 1)) return;
+    this.warnedAmbisonic = true;
+    console.warn(`[myco] audio: AudioSource "${this.node.name}" plays the ambisonic clip "${path}", which ignores spatial, minDistance, maxDistance, rolloff, occlusion and dopplerLevel (ADR 0162)`);
+  }
+
+  /**
    * An event's volume follows `volume` (as the instance's fade multiplier), its pitch follows `pitch`, and a spatial event
    * follows the node. The rest applies at the next play. ADR 0162 (K4): §1.2's options for events (the event's own
    * `spatial` additions, §2.5) reach its voices through the event runtime (D4); the source's fields don't apply to an event yet.
@@ -233,10 +261,11 @@ export class AudioSource extends Component {
   private apply(path: string): void {
     const voice = this.voice!;
     // A streamed clip is spatial on the core; the Babylon fallback flattens it (and warns) itself.
-    const spatial = this.spatial;
+    const spatial = this.spatial && !this.ambisonicClip;
     const signature = `${this.priority}|${this.volume}|${this.pitch}|${spatial}|${this.minDistance}|${this.maxDistance}|${this.rolloff}|${this.output}`;
     if (signature !== this.applied) {
       this.applied = signature;
+      if (this.ambisonicClip) this.warnAmbisonicIgnored(path);
       voice.setBus(mixer.resolveOutput(this.output));
       voice.setPriority(clamp255(this.priority));
       voice.setVolume(this.volume * clipVolume(path));
