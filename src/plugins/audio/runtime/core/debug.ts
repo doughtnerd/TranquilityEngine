@@ -8,6 +8,7 @@ import { AUX_BUS_NONE } from "../wire.generated";
 import { spatialRegionsBytes, zoneKernelBudgetBytes, zoneMaxFrames, zonesRegionBytes, type CorePreset } from "../worklet/coreDriver";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
+import type { CoreMusicOps } from "./musicOps";
 import type { BedPlanner } from "./beds";
 import type { StatusMirror } from "./mirror";
 import type { DopplerPass } from "./doppler";
@@ -83,6 +84,11 @@ export interface DebugSource {
   mixedCap?(): number;
   /** The clock map, for §8's timing figures in `core` (A3.2); hand-built test sources may omit it. */
   readonly clockMap?: Pick<ClockMap, "lookaheadFrames" | "leadFrames" | "rampFrames" | "anchored" | "rejected" | "reanchors"> & Partial<Pick<ClockMap, "framesNow">>;
+  /**
+   * ADR 0166 §1.6, C11 (Q2's hook; P10 builds `music` and `musicTotals` from it and the players, `music/musicSystem.ts`
+   * `musicPlayers()`): the core's side of music (pool, groups); absent in hand-built sources.
+   */
+  readonly musicOps?: Pick<CoreMusicOps, "debugView">;
 }
 
 const clamp01 = (v: number): number => (Number.isFinite(v) ? (v < 0 ? 0 : v > 1 ? 1 : v) : 0);

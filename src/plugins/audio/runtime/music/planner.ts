@@ -15,8 +15,6 @@
 import type { MusicFrame, MusicNodeRef, MusicPlayer } from "./musicSystem";
 import type { SegmentRun } from "./segmentRun";
 
-/** Ê's seed, milliseconds (architecture §4.1). */
-export const PRIME_EMA_SEED_MS = 40;
 /** The margin on Ê in the lead (ADR 0167 §1). */
 export const PRIME_LEAD_FACTOR = 1.25;
 /** Re-plans in a row that warn `replanStorm` once. */
