@@ -76,7 +76,7 @@ fn encode_fields(
         }
         match lookup(vals, p.field.name) {
             Some(v) => put_field(buf, off, &p.field, v, &format!("{what}.{}", p.field.name))?,
-            None if p.field.name == "reserved" => {
+            None if p.field.name == "reserved" || p.field.appended => {
                 if buf.len() < off + p.field.bytes() as usize {
                     buf.resize(off + p.field.bytes() as usize, 0);
                 }
