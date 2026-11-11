@@ -4,6 +4,7 @@
 - **Date:** 2026-11-11
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
+- **Amended by:** [0167](0167-interactive-music-design-corrections-and-owner-decisions.md) (the technical design: a stamped PLAY doesn't split the quantum, the prime lead, the allowances, and the owner's design decisions; 0167 wins where they disagree)
 - **Amends (when accepted):**
   - 0157: the stream count gains a music pool; stamped gain records stop splitting the quantum;
   - 0158: `myco.audioevent@1` gains music nodes;

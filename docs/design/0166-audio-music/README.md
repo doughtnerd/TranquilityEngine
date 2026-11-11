@@ -42,15 +42,27 @@ The owner's working rules from M3 still apply: [../0162-audio-spatial/working-no
 - round 1: 291 d of tasks + a 96 d reserve = 77.4 pw;
 - round 2B: 288 d of tasks (−3 d: the architect's duplication cuts −21 d, then +18 d for the rows the rulings made firm: the voice-local split, span clips, the worker cache, the group hold and the slip rebase) + a reserve of **96 d (a third) = 76.8 pw**, or **58 d (20%) = 69.2 pw**.
 
-## Owner decisions on the design
+## Owner decisions on the design (2026-11-11)
 
-Pending (step 8). The list is at the end of [rulings.md](rulings.md):
-1. the reserve, with optional scope cuts;
-2. no pitch on music tracks;
-3. `handle.onMusic`;
-4. a public music seek;
-5. a hidden tab under `mute`;
-6. the starve behaviour.
+The owner accepted every recommendation (recorded in [ADR 0167](../../decisions/0167-interactive-music-design-corrections-and-owner-decisions.md) and at the end of [rulings.md](rulings.md)):
+1. **Reserve:** 20%, with no scope cuts.
+2. **Pitch:** none on music.
+3. **Callbacks:** `handle.onMusic(kind, fn)` alongside the component messages.
+4. **Seek:** a public `handle.music.seek(position)`.
+5. **Hidden tab:** under `mute`, the music commits ahead and keeps its place.
+6. **Starve:** the whole-group hold stays.
+7. **Record:** the corrections go into ADR 0167, which amends 0166.
+
+Before choosing, the owner asked whether the recommendations follow industry standards:
+- items 2–5 follow Wwise and FMOD (item 2 follows Wwise; FMOD allows pitch and leaves sync to the user);
+- item 6 is the project's own design;
+- item 7 originally recommended an in-place revision, against CLAUDE.md and common ADR practice, and was changed to an amending record.
+
+**Final figures:**
+- 290.5 days of tasks plus a 58-day named reserve = 348.5 days ≈ **69.7 person-weeks** (0166's provisional figure was 45–55);
+- the critical chain is ≈ 22 weeks if nothing waits, with at least two senior engineers;
+- music's audio-thread cost on high (reference machine, est.): typical 30–43 µs, worst 68 µs;
+- new core memory: 29,152 B on every preset, plus 2.3 / 3.5 / 4.7 MiB of music rings and a worker encoded-cache budget of 48 / 96 / 160 MiB (est.).
 
 ## Notes for the build
 

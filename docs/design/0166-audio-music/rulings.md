@@ -106,3 +106,14 @@ Anything that changes product behaviour, scope or schedule goes on the owner's l
 4. **A public music seek** (`handle.music.seek(position)`, +1.5 d). Seek exists internally for audition and hot reload; whether games get it is scope.
 5. **A hidden tab under `audio.background: mute`:** commit ahead as under `play`, so music resumes in place (the architect's recommendation), or re-plan on resume, as the record says.
 6. **The starve behaviour (R11):** when one stem runs dry, the whole group dips and resumes together, rather than one stem dropping out. This is a ruling, reported because it is audible.
+
+## The owner's answers (2026-11-11)
+
+The owner accepted every recommendation, recorded in [ADR 0167](../../decisions/0167-interactive-music-design-corrections-and-owner-decisions.md):
+1. **The reserve is 20%** (58 d, the named items in the API's 20% column). No scope cuts are taken. 290.5 d of tasks + 58 d = 348.5 d ≈ **69.7 pw**.
+2. **No pitch on music** (+0.5 d).
+3. **`handle.onMusic(kind, fn)`** (+0.5 d).
+4. **A public `handle.music.seek(position)`** (+1.5 d).
+5. **A hidden tab under `mute` commits ahead, as under `play`** (0 d).
+6. **The starve group hold (R11) stands.**
+7. **0166's corrections go into ADR 0167, an amending record**, not a revision section. The owner asked whether every recommendation follows industry standards. This one didn't (CLAUDE.md and ADR practice keep accepted records immutable), so it was changed. Item 6 is the project's own design: the middleware surveyed treats starvation as a fault, and its handling is unverified.
