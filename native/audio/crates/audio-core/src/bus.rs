@@ -70,6 +70,7 @@ use crate::fx::{self, FxChain};
 use crate::layout::REGION_ALIGN;
 use crate::meters::{self, Meter};
 use crate::params::InitParams;
+use crate::wire_read::{u16_at, u32_at};
 use crate::{status, QUANTUM};
 
 /// `parent` of a root bus (the wire's `BUS_ROOT`).
@@ -238,14 +239,6 @@ pub fn output_latency_frames(core: &Core) -> u32 {
 }
 
 // --- Record parsing (in `onmessage`, from `scheduler::submit`) ---
-
-fn u16_at(msg: &[u8], off: usize) -> u16 {
-    u16::from_le_bytes([msg[off], msg[off + 1]])
-}
-
-fn u32_at(msg: &[u8], off: usize) -> u32 {
-    u32::from_le_bytes([msg[off], msg[off + 1], msg[off + 2], msg[off + 3]])
-}
 
 /// `true` when the BUS_CONFIG record at `msg[off..off + len]` is well formed: every bus entry and
 /// every effect lies inside the record. (Pass 1 of `submit`; the generated reader would allocate.)

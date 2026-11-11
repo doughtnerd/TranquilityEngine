@@ -78,6 +78,7 @@ use crate::core::{Core, Regions};
 use crate::counters::{ZoneEvent, ZoneStatus, ZONES_CAP};
 use crate::layout::REGION_ALIGN;
 use crate::params::InitParams;
+use crate::wire_read::u32_at;
 use crate::{status, QUANTUM};
 
 /// The wet fade-in once a slot's kernel is resident (C5: 100 ms).
@@ -406,10 +407,6 @@ pub fn init(core: &mut Core) {
     a.cut_frames = frames(CUT_MS);
     a.ladder_frames = frames(LADDER_MS);
     a.active_limit = NO_LIMIT;
-}
-
-fn u32_at(msg: &[u8], off: usize) -> u32 {
-    u32::from_le_bytes([msg[off], msg[off + 1], msg[off + 2], msg[off + 3]])
 }
 
 /// `true` when the ZONE_CONFIG record at `msg[off..off + len]` holds its `slotCount` 16-byte slots
