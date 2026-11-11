@@ -68,7 +68,9 @@ pub struct FxEntry {
     pub aux_bus: u16,
     /// SET_VOICE_FX `yaw`, radians (ambisonic voices, B3).
     pub yaw: f32,
-    pub reserved: u32,
+    /// The yaw an ambisonic voice's rotation ended the last quantum on (B3: the next quantum ramps
+    /// from it); NaN in a fresh entry (the first quantum starts at `yaw`).
+    pub yaw_last: f32,
 }
 
 const _: () = assert!(core::mem::size_of::<FxEntry>() == FX_ENTRY_BYTES, "an entry is FX_ENTRY_BYTES");
@@ -87,7 +89,7 @@ impl FxEntry {
             owner: index as u16 + 1,
             aux_bus: wire::AUX_BUS_NONE as u16,
             yaw: 0.0,
-            reserved: 0,
+            yaw_last: f32::NAN,
         }
     }
 

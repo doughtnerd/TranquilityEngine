@@ -16,8 +16,10 @@ mod scenario;
 
 use std::process::Command;
 
-/// The scene's digest (native and wasm), committed.
-const DIGEST: &str = "eb26320cd582e0f8";
+/// The scene's digest (native and wasm), committed. ADR 0162 B3 changed it on purpose: the
+/// rotation runs through `encode_ramp_add` per input channel and the recurrence's coefficients are
+/// computed in f32 at run time (both for the mixer's size budget).
+const DIGEST: &str = "4e137b66b9976ea0";
 
 #[test]
 fn native_digest_matches_the_committed_value() {
