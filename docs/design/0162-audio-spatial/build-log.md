@@ -9,10 +9,11 @@ The coordinator's log of each wave review ([waves plan, "Wave reviews"](../../pl
 The owner asked (2026-11-11, evening): "Go through each of the waves as instructed until the milestone is complete. If any decisions need to be made, use your judgement … and I will review everything in the morning." The coordinator reads that together with the earlier standing rules, which it keeps: **no merge to master, no draw on the 14-day reserve and no default change outside the plan's flips without the owner.** Milestones are left ready on the integration branch, with their checks run, as proposals.
 
 **Needs you:**
-- Merges to master as each milestone becomes ready (none yet; M3a is due after W4).
-- **Review D11** (the zone stagger planner was redesigned because the spike's search took 20–300 ms on the audio thread; the bounded one keeps 95% of the spike's balancing). Options to trade back quality are listed there.
-- **Review the A3 numbers** (W2 section): the MagLS ILD check passes by 0.01 dB in the 1–2 kHz band, and the HRIR set has nothing below −45° elevation, which makes the floor-below listening item (reserve R1, SADIE II) the likeliest reserve draw at M3a.
-- **Mixer size** is at 79% of its 256 KB gate (203,040 B); the 230 KB warning is likely in W3–W4. Options in "Budgets".
+1. **P1, the mixer size (recommendation: yes).** The mixer wasm is 254,039 B of its 256 KB gate. A `wasm-opt` pass would save ≈ 21 KB (measured: 230,348 → 209,149 B with `-O3`, 208,054 with `-Oz`); `build.mjs` already runs it when `wasm-opt` is installed. Making every machine build the same optimised wasm means adding `binaryen` (pinned) as a dev dependency, which needs you (a new dependency; reserve item R2). Without it, B3 already traded CPU for size (its rotation does ≈ 2× the work, est. 5 → 10 µs a voice) and C4 only fitted after a size-recovery pass (−8.8 KB, no behaviour change). If you approve, B3's rotation trade should be reverted (D21).
+2. **The bed flip (A6b), held.** Beds on and HRTF voices 32/16 → 8 for every project. Its plan gate includes "mixer under 230 KB", which can't be met as M3 stands (the mixer passed 230 KB at A4, which is the bed itself). Everything else in its gate passed (A3, A4's goldens, A7's bed bench). It's kept as `flips/a6b-beds-on-hrtf-8.patch`, rebased and tested on the tip (`git am` it). **Recommendation:** approve the flip with the 230 KB criterion replaced by "under the 256 KB gate" (or by P1's optimised size).
+3. **M3a, M3b, M3c to master:** see "Milestone readiness" at the end of this log.
+4. Review D11 (the bounded zone planner), D13 (filter sweeps), D17–D20 (the wide, zone, occlusion and Doppler flips merged under the plan's flip rule), the A3 numbers (the MagLS ILD margin and the floor-below listening risk), and D19 (events keep their own Doppler).
+5. Your runs: the lab-VM benches (the wasm MagLS decode is noisy here: ≈ 30 µs against the model's 20) and the listening items per milestone.
 
 **Decisions taken (each with its revert):** see "Decisions" below, D1 onwards.
 
@@ -34,6 +35,15 @@ Numbered; superseded entries are marked, not rewritten.
 - **D13 (W2, D1) a filter update moves the cutoff at most one octave.** The leaf's click test failed for an 8-octave high-pass sweep in 128 frames (2.20× the input's largest step against the 2× bound). D1 stretches large sweeps so each 32-frame coefficient update moves ≤ 1 octave (`MAX_UPDATE_OCTAVES`): now 1.23× (low-pass) and 1.12× (high-pass). Bound kept, not loosened. *Revert:* the constant in `fxfilter.rs`.
 - **D14 (W2, D1) `VoiceSlot.lp_hz` moved into the pool entry.** The slot was full at 192 B and `layout.rs` is frozen. Main re-sends `lpHz` at every promotion, so this is safe; a voice that gets a pool entry late (pool full, nothing fading) starts unfiltered until the next `lpHz`. `lpHz` between 20,000 and 24,000 Hz now counts as off (no golden uses one).
 - **D15 (W2, A3) `clipRegistry.ts` takes format 4 reserved clips** (A3 edited it outside its list; nobody else owned it that wave). The bed matrix uses only ACN channels 0, 1, 6, 8, 9, 11. `magls-o3.bin` is derived from the IRCAM data, so `hrir-licence.md`'s terms apply to it too.
+- **D16 (W3, K4) `AudioSource.occlusionGain`.** §1.2 lists both a boolean field `occlusion` and a read-only `occlusion`; the read-only value on `AudioSource` is `occlusionGain`. The one-shot handle keeps `occlusion` (§1.1), where nothing clashes. *Revert:* rename.
+- **D17 (W5, B5) the wide memory flip merged.** `wideInitParams` = `audio.ambisonic.maxClips`: every core project lays out the `Wide` region (2.22 MiB per ring after B4's stall test, below) and the private decoders. The plan schedules it, its gates passed (B4's ring, C3's regions, K2's headroom with a high-preset init test under the Memory maximum), and it reverts in one line; the owner's overnight instruction covers judgement calls in line with the plan. *Revert:* `wideInitParams` returns 0.
+- **D18 (W5, D2a) the occlusion flip merged.** The pass is live by default (`AudioSource.occlusion` was already true, K4). `pirates` sets `audio.occlusion.layers: []`: its only colliders are navigation helpers (the sailable-water disc, 0.75 m footprint cylinders; the island meshes have no colliders), which would muffle sound at random. Gates passed (D0's exclusion, the no-physics path, overrun halving). *Revert:* one line in `core/occlusion.ts` (the environment default) and the `pirates` key.
+- **D19 (W4, D4) events keep their own Doppler.** A source playing a sound event passed its own default `dopplerLevel` 1, overriding the event's §2.5 default 0; the coordinator removed `dopplerLevel` from what a source passes to its events (Doppler is authored on the event, as in Wwise and FMOD). `occlusion` and `reverbSend` still pass through, with the event's own keys winning. *Revert:* `AudioSource.eventSpatialOptions`.
+- **D20 (W6, D3) the Doppler flip merged.** The pass went live in D3's first commit (`dopplerLevel` already defaulted to 1); the flip commit sets `dopplerLevel: 0` on `sound-lab`'s orbiting hum and crowd sources and in `stress`'s generator and regenerated scene (§1.6). Gates passed (teleport guard, `maxSpeed` clamp). *Revert:* the sample keys and the default.
+- **D21 (W4, B3) size for CPU in the ambisonic rotation.** To fit the mixer, B3 made A2's `rotate_ramp_add` run one encode pass per input channel (≈ 2× the rotation work, est. 5 → 10 µs a voice) and computes the Ivanic coefficients at run time; A2's identity digest changed on purpose (native = wasm still). *Revert* after P1 lands.
+- **D22 (W3, B4 → coordinator) wide stream rings are 32,768 frames.** B4's 300 ms stall test starved at 19 of 32 credit phases with 16,384 frames and at none with 32,768: the plan's named response, applied by the coordinator (wire constant regenerated, +1 MiB per wide ring). *Revert:* the constant in `audio-wire/src/schema.rs`.
+- **D23 (W3, C3 + size task) the mixer under its gate.** C3 replaced `plan_stagger` in the core by `plan_one` (plans one new zone exhaustively; zones only ever start one at a time; 4 × 2 s started one by one peak 3.13 against 3.08 batched, sequential 5.87), and a size-recovery task saved 8.8 KB with no behaviour change (an explicit-tag core slot moves a 6.4 KB static to `.bss`; a resampler clamp without formatting; shared record readers). Metered counts went slightly down.
+- **D24 (W3, C3/C4) fixed `Zones` memory without zones.** The aux accumulator (`max_buses × 1 KB`) and C4's per-bus chain gains (`max_buses × 512 B`) live in `Zones`, so every core project pays ≈ 48 KB at 32 buses even with zones off (as the `Fx` pool). Aux sends work without zones.
 - **D4 (W1, B1) B1 edited `decoder/decoderClient.ts` and `decoder/handler.ts`** (a few lines each) to carry `convention` from the registry to `decoder/clips.ts`; nothing else owns them in W1 (B4 takes `handler.ts` in W3). Accepted.
 
 ## Wave 0 (2026-11-11, base `origin/master` `918171a`)
@@ -109,7 +119,7 @@ Asked for by the tree ("The pilot") and the owner. Times are agent wall time fro
 - The boundary guard is `src/plugins/plugins.test.ts` (the first briefs named a wrong path).
 - Concurrent vitest runs collide on `node_modules/.vitest-cache` (ENOTEMPTY); a rerun passes.
 
-## Wave 2 (in progress)
+## Waves 2–7 (rolling starts; merged in dependency order)
 
 **Merged**
 - A2 (#120): SN3D/ACN encode (orders 1–3, polynomial), Ivanic–Ruedenberg rotation, the MagLS bed decoder (`MaglsFilters` 65,544 B, `BedDecoderN` 40,964 B, as §3.1). Analytic tests at 64 directions per order within 1e-5; native and wasm bit-identical (a probe digest run in both). 256 voices encode + decode: wasm p50 ≈ 152 µs against the 142 µs target, **on par with the spike's own code measured alongside (138–153 µs) on the loaded container**; the wave-end bench is the record. L-A2a not split (its lead judged a complete brief would be the implementation); L-A2b first pass.
@@ -117,12 +127,36 @@ Asked for by the tree ("The pilot") and the owner. Times are agent wall time fro
 - D1 + K3 (#143): the mixed-voice pool (448 B per entry), log-Hz ramps capped at one octave per update (D13), SET_VOICE_FX on arrival (D12), mono-once, automation's low-pass migrated bit-identically, ambisonic voices never filtered, `fxVoices`; K3's hooks plus `sends::begin_quantum` and `sends::tap_aux` (C4 fills them; the aux accumulator goes in `Zones`, noted on #138). M2 goldens bit-identical. Mixer +6.3 KB; metered +1.7%.
 - D2b (#145) and E6 (#157): in W1 above.
 
-**Running:** C3 (zones core), A4 (core bed, W3), K4 (main skeleton, W3). Next: C2a when a strongest slot frees, then B4.
+- K4 (#163): the main-thread skeleton: the M3 frame order for both backends, `voiceFx`, stubs with final signatures, the §1 surface declared, the fakes. L-K4a first pass.
+- A4 (#122): the core bed (slots, hosts, kind 2, the equal-power crossfade, decode before host effects, the gain fold with `chain::fill`, the MagLS commit, the ladder's bed-idle step). Goldens within 1e-5 dB; no BED_CONFIG → bit-identical to M2. Mixer +27.3 KB. `Beds` is 268 KB for 2 beds + 1 private decoder at 48 kHz (the design's 208 KB left out the header and FFT scratch).
+- C2a (#134): IR preparation in the decoder; prepare 1.15 / 2.32 / 5.46 ms for 1 / 2 / 4 s (design 1.3 / 2.5 / 5.3); the 44.1 → 48 kHz resample ≈ 4 ms per second of IR (in the worker); decoder 804,255 B (900 KB gate). Review items: the −80 dBFS trim is absolute, the 32-tap resampler, the preset model (two bands, a 2 kHz crossover).
+- C3 (#136): core zones, both slot paths, the ladder's zone steps, the aux accumulator; slot state 3.10 / 6.07 MiB at 2 / 4 s (D23, D24).
+- C2b (#135): the worker's IR handler and kernel send to the worklet, `ZoneIrService` (cache, re-preparation from kept bytes, failures); the worker unloads kernels itself.
+- A5 (#123, inert) and the A6b flip (#125, held: "Needs you" 2).
+- A7 (#126, open for the ambisonic fit terms): bed scenes, goldens, metered baselines. Container µs p50/p99, native | wasm: `bed-64` 203/448 | 247/505, `bed-256` 718/1,492 | 838/1,737, `bed-xfade` 413/857 | 511/1,040. Fit: `BED_VOICE` 0.27 / 0.35 µs (model 0.5), MagLS decode ≈ 18 native and ≈ 30 wasm, noisy (model 20: the lab VM settles it), matrix decode ≈ 2.2.
+- B3 (#129): the core ambisonic voice (listener ramp, rotation into a bed or a private decoder, the W send, `maxClips` steal); a 90° turn within 0.05 dB, 0.014 dB at 720°/s (D21).
+- B4 (#130): `Wide` rings, 1–16-channel worker streams with `convention`, the FuMa import gain on streams (D22).
+- B6 (#132): `makeAmbisonic.mjs`, 19 loopback tests (image azimuth through a bed and a private decoder, orders 1–3, a listener turn, yaw, FuMa twins). The `ambi-o3` bench scene is a follow-up.
+- E3 (#154): Project Settings > Audio for M3.
+- C4 (#138) with the size recovery: zone sends and aux in the core; a send follows a ducked bus within 9.8e-5 dB; a voice with sends differs from M2 by ≤ 1.49e-8 (the one allowed golden difference: 388 of 2,048 samples, ≈ 1 ulp).
+- B5 (#131) with the wide flip (D17): the listener on main, ambisonic sources and one-shots, `maxClips` stealing on main, the > 5 s stream default, the FuMa first-play fix.
+- D2a (#144) with the occlusion flip (D18): ray ages 1 / 5 / 20 frames at 64 / 256 / 1,024 sources (≤ 3 / 5 / 22), no per-frame allocation.
+- D4 (#147, D19), D3 (#146) with the Doppler flip (D20), E5 (#156), F1 (#150).
+- D6 (#149): `filters-256` and `m3-worst-*` scenes, filter goldens, the occlusion bench (`npm run bench:audio-spatial`). Filters ≈ 1.0 µs per pass; worst-case deltas against each preset agree with §7.2 (high +304 µs wasm vs ≈ 243 model; default +102 vs 159; low +50 vs 46).
+- C5 (#139) with the zone memory flip (merged under the same rule as D17: gates C3's regions and K2's headroom with a high-preset init test; revert `zoneInitParams` → 0): the zone registry, weights and sends (× the occlusion pass's wet factor), the planner with hysteresis, both slot paths, the kernel LRU and preload, the 5 s timeout, the shared return; the real-wasm A → B → C walk passes on both slot paths.
+
+**Leaves since the pilot:** L-A2b, L-A3a, L-A3b, L-K4a, L-C3a, L-C2aa, L-C5a first pass; L-D1a stopped on a spec gap (D13). Most mid-model leads judged their leaves under half a day and did them (L-B1a, L-A5a, L-B6a, L-D2aa, L-D3a, L-D4a, L-E3a, L-E5a, L-F1a, L-C5b), as the adjusted briefs allowed. The rule "paste measured numbers into a leaf brief" held: every leaf briefed that way passed first time.
+
+**Coordinator glue and fixes:** the FuMa import gain into `clipVolume` (B2); `AudioOccluder` and `AudioReverbZone` registered, exported and given Add Component categories; the bed and zone memory mirrors in `coreDriver.ts` (A4, C3); `voices.rs`'s seek-fade tail for wide rings (B4); `AudioSource._voiceId` (D2a); `bench:audio-spatial` in `package.json` (D6); the A3 follow-ups (Cargo.lock, shipping `magls-o3.bin`, the README build steps). One incident: a stray edit to `babylonBackend.ts`/`babylonMapping.ts` appeared in the coordinator's own checkout during F1 (F1 says it didn't write there); it was saved to the scratchpad and reverted, and every brief now says never to write to the main checkout.
+
+**Running now:** C3b (in-core IR preparation), C7 (zone tests and benches), D5 (the API surface and `Audio.debug()`, incl. the `m3Shed` STATUS field), E1 (zone gizmo), F2 (Babylon zones inert). Then E2, E4, E7, E8, E9, E10.
 
 ## Budgets
 
 | Budget | Now | Limit | Note |
 |---|---|---|---|
-| Mixer wasm | 203,040 B (79%) | 256 KB gate, warning 230 KB | M3's estimate was +40–50 KB; +24.4 KB so far, with A4 (the bed decoder), C3, C4 and B3 still to link. **If the warning trips:** (a) a `wasm-opt -O3` pass (`build.mjs` already runs it when installed; reserve R2), or (b) the owner moves the warning with a measured reason (the M2 precedent). Not drawn on without the owner |
-| Decoder wasm | 751,489 B | 900 KB | C2a adds the IR preparation (≈ 28 KB est.) |
-| Metered cost | +1.70% all, worst +4.2% | +10% per scene | baseline kept at M2 |
+| Mixer wasm | **254,039 B (97%)** | 256 KB gate, warning 230 KB | M2 178,598; by task: K1 +0.2, B2 +11.2, K2 +5.0, D1 +6.3, C1 +1.7, A4 +27.3, C3 +20.4 (after its own −14.7), B3 +7.1, B4 +1.6, C4 +3.4, size recovery −8.8. C3b still to come (≤ 6 KB asked). **P1** ("Needs you" 1) restores ≈ 21 KB |
+| Decoder wasm | 804,255 B | 900 KB | C2a +52.8 KB (design est. +28) |
+| AAC decoder | 1,128,486 B | 1,280 KB | |
+| Metered cost | +1.39% all against M2's baseline | +10% per scene | baseline kept at M2; new scenes (bed, filters, m3-worst) have their own baselines |
+| M3 fixed memory | default ≈ 9.2 MB zones + beds + wide + `Fx` + `Zones` aux/gains | owner-accepted ≈ 20.9 / 10.7 / 3.0 MB (Revision 4) | Beds +60 KB over §3.1; wide rings +1 MiB each (D22); `Zones` aux/gains ≈ 48 KB fixed (D24) |
