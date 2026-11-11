@@ -13,7 +13,7 @@ Plain words for terms used below:
 
 Every spatial sound that gets **HRTF** (the filtering that makes headphones place a sound outside your head) costs the same each, so a crowd of 200 of them would be too much. A **bed** is the cheap way for the rest. Think of it as one shared sound field around the listener: the engine places each distant sound into that field by its direction, then converts the whole field to your headphones once. The cost of the conversion is the same whether the field holds 5 sounds or 500.
 
-The nearest sounds keep their own HRTF, because they are the ones you can pick out; the distant ones go to the bed, and a sound moves between the two as it comes closer or goes away (with a short crossfade and a half-second pause, so a sound hovering at the boundary doesn't flip back and forth). Which sounds get HRTF is the **Voices > HRTF** count in Project Settings > Audio.
+The nearest sounds keep their own HRTF, because they are the ones you can pick out; the distant ones go to the bed, and a sound moves between the two as it comes closer or goes away (with a short crossfade and a half-second pause, so a sound hovering at the boundary doesn't flip back and forth). Which sounds get HRTF is the **Voices > HRTF** count in Project Settings > Audio: 8 by default (4 on the low preset), with **Max beds** 2 (4 on high, 0 on low, which turns beds off).
 
 A bed belongs to a bus. In Project Settings > Audio, each bus has two settings (in `project.json`, `buses[].bed` and `buses[].bedPriority`):
 

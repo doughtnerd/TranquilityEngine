@@ -99,9 +99,9 @@ Turn on `spatial` on an `AudioSource`, or pass `position` to `playOneShot`. Soun
 On the audio core, the nearest spatial sounds are rendered with **HRTF**: over headphones they seem to come from outside the head, in front or behind, above or below. The rest are panned left to right only (equal power). In Project Settings > Audio > Playback:
 
 - **Spatial** is `hrtf` (default) or `equal power` (no HRTF at all, cheapest).
-- **Voices > HRTF** is how many spatial sounds get HRTF at once (0 to 32, default 16). 0 means equal power for all.
+- **Voices > HRTF** is how many spatial sounds get HRTF at once (0 to 32, default 8; the presets give 4 / 8 / 8 for low / default / high). 0 means equal power for all. With beds on (the default: **Max beds** 2), 8 is enough, because the rest go to a bed instead of being panned flat.
 
-Sounds beyond the HRTF count are mixed into a shared **bed** instead of being panned flat, where the bus has one (see [spatial audio](spatial-audio.md#beds)). If the HRTF data can't load, spatial sounds stay equal-power and the Audio Debug panel says so. The Babylon fallback uses the browser's own panner, so 3D sound there differs between browsers. More in [spatial audio](atmosphere-and-sound.md#spatial-audio-0074).
+Sounds beyond the HRTF count are mixed into a shared **bed** instead of being panned flat (the Master bus has one by default; a bus without one uses its parent's) (see [spatial audio](spatial-audio.md#beds)). If the HRTF data can't load, spatial sounds stay equal-power and the Audio Debug panel says so. The Babylon fallback uses the browser's own panner, so 3D sound there differs between browsers. More in [spatial audio](atmosphere-and-sound.md#spatial-audio-0074).
 
 **Walls, rooms and moving sources.** Spatial sounds are also muffled by walls (`AudioOccluder`), can take the echo of a room (`AudioReverbZone`) and shift in pitch as they pass (`dopplerLevel`), and recorded surroundings can be played as ambisonic clips. All of it is in [Spatial audio](spatial-audio.md), with a recipe for doors. A listener that moves quickly (a vehicle) can say so with `AudioListener.setVelocity(v)`; otherwise its speed is read from the node's motion.
 
