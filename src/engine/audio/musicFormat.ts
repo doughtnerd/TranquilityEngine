@@ -31,7 +31,7 @@ import { parseCurve, type Curve } from "../core/curve";
 import type { NodeBase } from "./eventFormat";
 import {
   comparePositions, formatPosition, isBarBeatTick, parsePosition, positionProblem, snapToBeat, snapToNextBar,
-  type BarBeatTick,
+  MAX_POSITION_BAR, type BarBeatTick,
 } from "./musicPosition";
 
 // --- limits (§2.3) --------------------------------------------------------------------------------------------------
@@ -333,6 +333,7 @@ function parseTempo(raw: unknown, where: string, problems: string[]): TempoMarke
     const w = `${where}[${d.index}]`;
     if (before && (before.beatsPerBar !== d.beatsPerBar || before.beatUnit !== d.beatUnit) && d.pos.beat !== 1) {
       const to = snapToNextBar(d.pos);
+      if (to.bar > MAX_POSITION_BAR) { problems.push(`${w}.at: a metre change sits on beat 1 and there is no bar after "${formatPosition(d.pos)}"; dropped.`); continue; }
       problems.push(`${w}.at: a metre change sits on beat 1; moved from "${formatPosition(d.pos)}" to the next bar, "${formatPosition(to)}".`);
       d.pos = to;
     }
