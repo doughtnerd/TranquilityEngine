@@ -1,7 +1,7 @@
 {
   "note": "Wasm instructions per quantum of audio-bench scenes in the metered build (ADR 0157 C1b). Rewrite with UPDATE_METERED_BASELINE=1 node tools/audio-bench/metered-gate.mjs.",
   "meterVersion": 1,
-  "sourceHash": "faa8b0abf0539d93ef8288c7e0530ffc",
+  "sourceHash": "33cb4fbcd479063180060a887c36ce44",
   "settings": {
     "seconds": 2,
     "warmup": 1,
@@ -207,6 +207,54 @@
       "p99": 10982591,
       "max": 11059050,
       "wuMean": 676419
+    },
+    "zones-2x2s": {
+      "quanta": 750,
+      "perQuantum": 2477774,
+      "total": 1858330380,
+      "p99": 2946537,
+      "max": 2946537,
+      "wuMean": 57680
+    },
+    "zones-swap": {
+      "quanta": 750,
+      "perQuantum": 3077626,
+      "total": 2308219568,
+      "p99": 3626524,
+      "max": 5705404,
+      "wuMean": 57687
+    },
+    "m3-high": {
+      "quanta": 750,
+      "perQuantum": 35748495,
+      "total": 26811371265,
+      "p99": 37478176,
+      "max": 37502248,
+      "wuMean": 2090924
+    },
+    "m3-worst-high-sends": {
+      "quanta": 750,
+      "perQuantum": 44928616,
+      "total": 33696462330,
+      "p99": 46438540,
+      "max": 46490312,
+      "wuMean": 2090267
+    },
+    "m3-worst-default-sends": {
+      "quanta": 750,
+      "perQuantum": 26769242,
+      "total": 20076931793,
+      "p99": 28249636,
+      "max": 28316532,
+      "wuMean": 1282259
+    },
+    "m3-worst-low-sends": {
+      "quanta": 750,
+      "perQuantum": 11172199,
+      "total": 8379148913,
+      "p99": 12779892,
+      "max": 12840864,
+      "wuMean": 676461
     }
   }
 }
