@@ -1,7 +1,7 @@
 // Ed1 (api-and-models §7): the pure half of the waveform peaks service. The decoder worker answers a `computePeaks` with
 // one base level (int16 `[min, max]` pairs per `binFrames` frames per channel); this module builds the coarser mip
-// levels from it and picks the level to draw for a visible span, so the segment view reads about one bin per pixel
-// however far it is zoomed out. No DOM, no worker, no imports from other plugins.
+// levels from it and picks the level to draw for a visible span, so each pixel of the segment view covers one to two
+// bins however far it is zoomed out. No DOM, no worker, no imports from other plugins.
 
 /**
  * One resolution of a clip's peaks. `data` holds int16 `[min, max]` pairs, channel-major: every bin of channel 0, then
@@ -71,7 +71,7 @@ export function buildMips(base: PeakLevel, options?: BuildMipsOptions): PeakLeve
 /**
  * Picks the level to draw for the visible span `[startFrame, endFrame)` over `widthPx` pixels: the coarsest level whose
  * `binFrames` is at most the frames per pixel (`(endFrame - startFrame) / widthPx`), so a pixel never covers less than
- * one bin and the view never reads more than about one bin per pixel. Zoomed in past the base level (frames per pixel
+ * one bin, and (levels doubling) less than two. Zoomed in past the base level (frames per pixel
  * below `levels[0].binFrames`) it is level 0. A span that is empty or has a width below 1 gives 0. Returns an index into
  * `levels`. `levels` is non-empty and ordered finest first, as `buildMips` returns it.
  */
