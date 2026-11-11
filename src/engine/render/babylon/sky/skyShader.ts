@@ -45,7 +45,7 @@ export const SKY_UNIFORMS = [
   "fogShape", // sin(horizon height), whole-sky fog 0–1, -, -
   "nightCol", // rgb night-sky glow
   "quality", // atmosphere view steps (≤ 12), light steps (≤ 6), cloud octaves (≤ 5), - (`SKY_QUALITY`)
-  "skyOut", // multiplier (exposure × skybox intensity), Z flip for baking (1/-1), -, -
+  "skyOut", // multiplier (exposure × skybox intensity), -, -, -
 ] as const;
 
 export type SkyUniform = (typeof SKY_UNIFORMS)[number];
@@ -168,7 +168,7 @@ float fbm(vec2 p) {
 // One cloud layer over the base colour.
 vec3 cloudLayer(vec3 base, vec3 dir, vec3 sun, vec4 shape, vec4 drift, vec3 tint) {
   if (drift.z < 0.5 || dir.y <= 0.0) return base;
-  vec2 uv = dir.xz / (dir.y + shape.w) * shape.z + drift.xy;
+  vec2 uv = vec2(dir.x, -dir.z) / (dir.y + shape.w) * shape.z + drift.xy; // z mirrored: the pattern from when north was -Z
   float n = fbm(uv);
   float edge = 1.0 - shape.x;
   float d = smoothstep(edge, edge + 0.35 * (1.0 - 0.7 * shape.y) + 0.02, n);
@@ -226,8 +226,8 @@ vec3 skyColor(vec3 dir) {
       col += sunTint.rgb * sunDisc.z * 40.0 * limb * smoothstep(1.0, 0.85, r);
     }
     if (moonDisc.z > 0.0 && mm > moonDisc.x) {
-      vec3 tx = normalize(cross(abs(moon.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), moon));
-      vec3 ty = cross(moon, tx);
+      vec3 tx = normalize(cross(moon, abs(moon.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0))); // left-handed axes (ADR 0164): the texture keeps its picture
+      vec3 ty = cross(tx, moon);
       float rad = sqrt(max(1.0 - moonDisc.x * moonDisc.x, 1e-8));
       vec2 q = vec2(dot(dir, tx), dot(dir, ty)) / rad;
       float rr = dot(q, q);
@@ -289,7 +289,7 @@ varying vec3 vDir;
 ${GLSL_BODY}
 void main(void) {
   vec3 d = normalize(vDir);
-  gl_FragColor = vec4(skyColor(vec3(d.x, d.y, d.z * skyOut.y)), 1.0);
+  gl_FragColor = vec4(skyColor(d), 1.0);
 }
 `;
 
@@ -408,7 +408,7 @@ fn fbm(p0: vec2f) -> f32 {
 
 fn cloudLayer(base: vec3f, dir: vec3f, sun: vec3f, shape: vec4f, drift: vec4f, tint: vec3f) -> vec3f {
   if (drift.z < 0.5 || dir.y <= 0.0) { return base; }
-  let uv = dir.xz / (dir.y + shape.w) * shape.z + drift.xy;
+  let uv = vec2f(dir.x, -dir.z) / (dir.y + shape.w) * shape.z + drift.xy; // z mirrored: the pattern from when north was -Z
   let n = fbm(uv);
   let edge = 1.0 - shape.x;
   let d = smoothstep(edge, edge + 0.35 * (1.0 - 0.7 * shape.y) + 0.02, n);
@@ -465,8 +465,8 @@ fn skyColor(dir: vec3f) -> vec3f {
       col += uniforms.sunTint.rgb * uniforms.sunDisc.z * 40.0 * limb * smoothstep(1.0, 0.85, r);
     }
     if (uniforms.moonDisc.z > 0.0 && mm > uniforms.moonDisc.x) {
-      let tx = normalize(cross(select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(moon.y) < 0.99), moon));
-      let ty = cross(moon, tx);
+      let tx = normalize(cross(moon, select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(moon.y) < 0.99)));
+      let ty = cross(tx, moon);
       let rad = sqrt(max(1.0 - uniforms.moonDisc.x * uniforms.moonDisc.x, 1e-8));
       let q = vec2f(dot(dir, tx), dot(dir, ty)) / rad;
       let rr = dot(q, q);
@@ -529,7 +529,7 @@ ${WGSL_BODY}
 @fragment
 fn main(input: FragmentInputs) -> FragmentOutputs {
   let d = normalize(fragmentInputs.vDir);
-  fragmentOutputs.color = vec4f(skyColor(vec3f(d.x, d.y, d.z * uniforms.skyOut.y)), 1.0);
+  fragmentOutputs.color = vec4f(skyColor(d), 1.0);
 }
 `;
 

@@ -85,7 +85,7 @@ async function rig(slots: number, maxActive: number, standby: number) {
   const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer, zoneIr });
   const frame = new ListenerFrame();
   let world: import("../../../engine/core/World").World | null = null;
-  const pose = { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } };
+  const pose = { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } };
   const step = async () => {
     mixer.update(0.016);
     backend.frameAttenuate(0.016);

@@ -169,15 +169,19 @@ export class ConeEffect {
 
 /** A source's position in listener space (see `listenerSpaceDirection`). */
 export interface ListenerSpace {
-  /** Unit vector from the listener to the source in listener space: -Z is ahead, +X right, +Y up. Zero if coincident. */
+  /**
+   * Unit vector from the listener to the source in listener space, which is right-handed like the native HRTF and Web
+   * Audio (ADR 0164): -Z is ahead, +X right, +Y up. Zero if coincident.
+   */
   direction: Vec3;
   /** Distance from the listener to the source, in the world units of the inputs. */
   distance: number;
 }
 
 /**
- * The direction of a source as the listener hears it, and the distance. The listener's frame is forward (-Z), up
- * (+Y) and right (+X, forward x up). `forward` need not be unit length, and `up` need not be perpendicular to it:
+ * The direction of a source as the listener hears it, and the distance. Inputs are engine world space (left-handed,
+ * ADR 0164); the listener's frame is forward (listener-space -Z), up (+Y) and right (+X, up × forward as in the engine's
+ * left-handed world). `forward` need not be unit length, and `up` need not be perpendicular to it:
  * the frame is orthonormalised from `forward` and `up`. A degenerate frame (zero forward, or forward parallel to up)
  * gives a zero direction with the true distance.
  */
@@ -189,14 +193,14 @@ export function listenerSpaceDirection(source: Vec3, listener: Vec3, forward: Ve
   }
 
   const f = length(forward) === 0 ? null : scale(forward, 1 / length(forward));
-  const rightRaw = f === null ? [0, 0, 0] as const : cross(f, up);
+  const rightRaw = f === null ? [0, 0, 0] as const : cross(up, f); // left-handed: right = up × forward
   const rightLength = length(rightRaw);
   if (f === null || rightLength === 0) {
     return { direction: [0, 0, 0], distance };
   }
 
   const right = scale(rightRaw, 1 / rightLength);
-  const localUp = cross(right, f); // unit: right and forward are orthonormal
+  const localUp = cross(f, right); // unit: right and forward are orthonormal
   const n = scale(offset, 1 / distance);
   return { direction: [dot(n, right), dot(n, localUp), -dot(n, f)], distance };
 }
@@ -262,10 +266,10 @@ export class ListenerFrame {
   posX = 0;
   posY = 0;
   posZ = 0;
-  /** Unit forward (the node's -Z) and up (+Y), world space. */
+  /** Unit forward (the node's +Z) and up (+Y), world space. */
   fwdX = 0;
   fwdY = 0;
-  fwdZ = -1;
+  fwdZ = 1;
   upX = 0;
   upY = 1;
   upZ = 0;

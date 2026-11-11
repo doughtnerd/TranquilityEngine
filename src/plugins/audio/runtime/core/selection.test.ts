@@ -265,9 +265,9 @@ describe("Selection (A3.1)", () => {
 describe("ListenerBasis (A3.1)", () => {
   it("gives exactly listenerSpaceDirection's direction and distance, without allocating per call", () => {
     const cases: [number[], number[], number[], number[]][] = [
-      [[3, 1, -4], [0, 0, 0], [0, 0, -1], [0, 1, 0]],
+      [[3, 1, 4], [0, 0, 0], [0, 0, 1], [0, 1, 0]],
       [[-2, 5, 7], [1, 2, 3], [0.3, -0.2, 0.9], [0.1, 1, 0.2]],
-      [[1, 1, 1], [1, 1, 1], [0, 0, -1], [0, 1, 0]],
+      [[1, 1, 1], [1, 1, 1], [0, 0, 1], [0, 1, 0]],
       [[4, 0, 0], [0, 0, 0], [0, 1, 0], [0, 1, 0]], // degenerate frame
       [[4, 0, 0], [0, 0, 0], [0, 0, 0], [0, 1, 0]], // zero forward
     ];
@@ -279,6 +279,18 @@ describe("ListenerBasis (A3.1)", () => {
       expect([basis.dirX, basis.dirY, basis.dirZ]).toEqual([...want.direction]);
       expect(basis.distance).toBe(want.distance);
     }
+  });
+});
+
+describe("ListenerBasis handedness (ADR 0164)", () => {
+  it("a listener facing +Z hears a source at +X on its right (listener-space +X)", () => {
+    const basis = new ListenerBasis();
+    basis.set([0, 0, 0], [0, 0, 1], [0, 1, 0]);
+    basis.locate(3, 0, 0);
+    expect(basis.dirX).toBeCloseTo(1, 12);
+    expect(basis.dirZ).toBeCloseTo(0, 12);
+    basis.locate(0, 0, 5);
+    expect(basis.dirZ).toBeCloseTo(-1, 12); // ahead is listener-space -Z
   });
 });
 

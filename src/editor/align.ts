@@ -96,7 +96,7 @@ export function runAlign(action: AlignAction, planar: boolean): number {
   if (moves.length === 0) return 0;
   scene.stack.beginGroup(`${actionLabel(action, planar)} (${targets.length} nodes)`);
   try {
-    for (const m of moves) scene.stack.execute(gizmoEdit(scene.doc, m.path, "translate", { position: m.position, rotation: [0, 0, 0], scale: [1, 1, 1] }, "position"));
+    for (const m of moves) scene.stack.execute(gizmoEdit(scene.doc, m.path, "translate", { position: m.position, rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, "position"));
   } finally {
     scene.stack.endGroup();
   }

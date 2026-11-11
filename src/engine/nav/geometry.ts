@@ -145,14 +145,18 @@ function boxToWorld(m: Mat, center: V3, size: V3): number[] {
   return out;
 }
 
-/** Local triangles to world space: positions through `m`, triangles rewound when `m` mirrors. */
+/**
+ * Local triangles to world space: positions through `m`, rewound into the nav core's winding. Engine meshes are
+ * wound left-handed (ADR 0164: `cross(b - a, c - a)` points into the surface); the core takes the walkable side
+ * along it, so every triangle is rewound, except under a mirroring `m`, which rewinds it already.
+ */
 function toWorld(m: Mat, vertices: ArrayLike<number>, indices: ArrayLike<number>): { positions: Float32Array; indices: Uint32Array } {
   const count = Math.floor(vertices.length / 3);
   const positions = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) positions.set(transformPoint(m, vertices[i * 3], vertices[i * 3 + 1], vertices[i * 3 + 2]), i * 3);
   const tris = indices.length - (indices.length % 3);
   const out = new Uint32Array(tris);
-  const flip = det3(m) < 0;
+  const flip = det3(m) > 0;
   for (let i = 0; i < tris; i += 3) {
     out[i] = indices[i];
     out[i + 1] = flip ? indices[i + 2] : indices[i + 1];
@@ -161,20 +165,20 @@ function toWorld(m: Mat, vertices: ArrayLike<number>, indices: ArrayLike<number>
   return { positions, indices: out };
 }
 
-/** A unit box's corners and outward-wound triangles (counter-clockwise seen from outside). */
+/** A unit box's corners and triangles, wound as engine meshes are (clockwise seen from outside). */
 const BOX_VERTS = [-0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5];
 const BOX_TRIS = [
-  0, 2, 1, 0, 3, 2, // -z
-  4, 5, 6, 4, 6, 7, // +z
-  0, 1, 5, 0, 5, 4, // -y
-  3, 7, 6, 3, 6, 2, // +y
-  0, 4, 7, 0, 7, 3, // -x
-  1, 2, 6, 1, 6, 5, // +x
+  0, 1, 2, 0, 2, 3, // -z
+  4, 6, 5, 4, 7, 6, // +z
+  0, 5, 1, 0, 4, 5, // -y
+  3, 6, 7, 3, 2, 6, // +y
+  0, 7, 4, 0, 3, 7, // -x
+  1, 6, 2, 1, 5, 6, // +x
 ];
 
 /**
  * A capsule (or a sphere, with `half` 0) along +Y in its own frame: `radius`, straight part ±`half`,
- * outward-wound. Coarse (8 around), since the bake voxelizes it anyway.
+ * wound as engine meshes are. Coarse (8 around), since the bake voxelizes it anyway.
  */
 function capsuleMesh(radius: number, half: number, around = 8, rings = 4): { vertices: number[]; indices: number[] } {
   const vertices: number[] = [];
@@ -198,8 +202,8 @@ function capsuleMesh(radius: number, half: number, around = 8, rings = 4): { ver
   for (let i = 0; i < rows.length - 1; i++) {
     for (let j = 0; j < around; j++) {
       const a = i * around + j, b = i * around + ((j + 1) % around), c = a + around, d = b + around;
-      // Seen from outside, (a, c, b) and (b, c, d) run counter-clockwise.
-      indices.push(a, c, b, b, c, d);
+      // Seen from outside, (a, b, c) and (b, d, c) run clockwise.
+      indices.push(a, b, c, b, d, c);
     }
   }
   return { vertices, indices };
@@ -209,7 +213,7 @@ function capsuleMesh(radius: number, half: number, around = 8, rings = 4): { ver
 function rigidFrame(m: Mat, origin: V3, up: 0 | 1 | 2): Float64Array {
   const s = scaleOf(m);
   const col = (i: number): V3 => [m[i * 4] / (s[i] || 1), m[i * 4 + 1] / (s[i] || 1), m[i * 4 + 2] / (s[i] || 1)];
-  // The capsule mesh runs along its own +Y: map that to the node's `up` axis, keeping a right-handed frame.
+  // The capsule mesh runs along its own +Y: map that to the node's `up` axis, keeping the frame unmirrored.
   const [x, y, z] = up === 1 ? [col(0), col(1), col(2)] : up === 0 ? [col(1), col(0), col(2).map((v) => -v) as V3] : [col(0), col(2), col(1).map((v) => -v) as V3];
   const out = new Float64Array(16);
   out.set([...x, 0, ...y, 0, ...z, 0, ...origin, 1]);

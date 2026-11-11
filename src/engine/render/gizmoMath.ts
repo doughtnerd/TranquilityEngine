@@ -6,10 +6,10 @@
  */
 import { Mat4, Quaternion, type QuatLike, type Vec3Like } from "../core/math";
 
-/** @internal A Transform's local values in scene-file form: metres, Euler XYZ degrees, scale factors. */
+/** @internal A Transform's local values in scene-file form: metres, a quaternion `[x, y, z, w]` (ADR 0163), scale factors. */
 export interface LocalPose {
   position: [number, number, number];
-  rotation: [number, number, number];
+  rotation: [number, number, number, number];
   scale: [number, number, number];
 }
 
@@ -19,11 +19,16 @@ const local = new Float64Array(16);
 const p = [0, 0, 0];
 const q = [0, 0, 0, 1];
 const s = [1, 1, 1];
-const rotation = new Quaternion();
 
 /** Round away float noise so files don't fill with 0.30000000000000004. */
 function clean(n: number): number {
   const r = Math.round(n * 1e5) / 1e5;
+  return Object.is(r, -0) ? 0 : r;
+}
+
+/** Round a quaternion component (finer than `clean`: 1e-5 there is a 0.002-degree step). */
+function cleanUnit(n: number): number {
+  const r = Math.round(n * 1e7) / 1e7;
   return Object.is(r, -0) ? 0 : r;
 }
 
@@ -43,8 +48,7 @@ export function composeMatrix(position: Vec3Like, quaternion: QuatLike, scale: V
 
 /**
  * @internal Local pose of a node whose world matrix is `nodeWorld` (16 floats), given its parent's world
- * matrix (null for a node under the World root). Euler order XYZ matches the engine's
- * `Quaternion.setFromEuler`.
+ * matrix (null for a node under the World root). The rotation is a quaternion with w ≥ 0.
  */
 export function localPoseFromMatrix(parentWorld: ArrayLike<number> | null, nodeWorld: ArrayLike<number>): LocalPose {
   for (let i = 0; i < 16; i++) world[i] = nodeWorld[i];
@@ -54,10 +58,10 @@ export function localPoseFromMatrix(parentWorld: ArrayLike<number> | null, nodeW
     Mat4.multiply(local, 0, inverse, 0, world, 0);
   } else local.set(world);
   Mat4.decompose(local, 0, p, 0, q, 0, s, 0);
-  const euler = rotation.set(q[0], q[1], q[2], q[3]).toEuler();
+  const sign = q[3] < 0 ? -1 : 1;
   return {
     position: [clean(p[0]), clean(p[1]), clean(p[2])],
-    rotation: [clean(euler.x), clean(euler.y), clean(euler.z)],
+    rotation: [cleanUnit(q[0] * sign), cleanUnit(q[1] * sign), cleanUnit(q[2] * sign), cleanUnit(q[3] * sign)],
     scale: [clean(s[0]), clean(s[1]), clean(s[2])],
   };
 }

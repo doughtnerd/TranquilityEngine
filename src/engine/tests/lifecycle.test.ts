@@ -106,7 +106,7 @@ describe("transforms (ADR 0010, 0019)", () => {
     child.transform!.position.set(1, 2, 0);
     expect(child.transform!.worldPosition.toArray()).toEqual([6, 2, 0]);
 
-    parent.transform!.rotation2D = 90;
+    parent.transform!.rotation2D = Math.PI / 2;
     const wp = child.transform!.worldPosition;
     expect(wp.x).toBeCloseTo(3);
     expect(wp.y).toBeCloseTo(1);

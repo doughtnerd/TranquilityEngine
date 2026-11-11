@@ -161,7 +161,7 @@ function paintOverlay(state: PaintState): EditorOverlay {
   const tr = map.node.transform;
   const cs = map.cellSize;
   const w = (cx: number, cy: number): [number, number, number] => {
-    const p = tr.localToWorld({ x: cx * cs.x, y: cy * cs.y, z: 0 });
+    const p = tr.localToWorld.transformPoint({ x: cx * cs.x, y: cy * cs.y, z: 0 });
     return [p.x, p.y, p.z];
   };
   const [hx, hy] = hover;

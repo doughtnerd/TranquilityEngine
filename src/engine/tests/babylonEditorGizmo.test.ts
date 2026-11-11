@@ -12,10 +12,18 @@ import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
 import { Assets, Engine, GameObject, SceneManager } from "../index";
+import { Quaternion } from "../core/math";
 import type { LocalPose } from "../render/gizmoMath";
 import { BabylonEditorGizmo, gizmoRootScale } from "../render/babylon/editorGizmo";
 import type { BabylonEditorContext } from "../render/babylon/editorContext";
 import type { GizmoHandlers, GizmoOptions } from "../render/editorViewport";
+
+/** The Z angle (degrees) of a pose's quaternion rotation (ADR 0163). */
+/** The Z Euler angle in degrees, -180..180 (`toEuler` is in radians, 0..2π, since ADR 0164). */
+const zAngle = (q: readonly number[]) => {
+  const d = (Quaternion.from(q).toEuler().z * 180) / Math.PI;
+  return d > 180 ? d - 360 : d;
+};
 
 const base: GizmoOptions = { mode: "translate", planar: false, snap: false };
 
@@ -37,7 +45,6 @@ describe("the transform gizmo on the Babylon backend (ADR 0075 stage 8)", () => 
     await SceneManager.load("s.json");
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     camera = new FreeCamera("view", new BVector3(0, 0, 10), scene);
     camera.setTarget(BVector3.Zero());
     scene.activeCamera = camera;
@@ -79,7 +86,7 @@ describe("the transform gizmo on the Babylon backend (ADR 0075 stage 8)", () => 
   const node = (name: string, pos: [number, number, number], euler?: [number, number, number]) => {
     const n = GameObject.create(name);
     n.transform!.position.set(...pos);
-    if (euler) n.transform!.eulerAngles = euler;
+    if (euler) n.transform!.eulerAngles = euler.map((d) => (d * Math.PI) / 180); // given in degrees
     return n;
   };
   const sync = () => {
@@ -302,13 +309,13 @@ describe("the transform gizmo on the Babylon backend (ADR 0075 stage 8)", () => 
     const r = internals().gizmos.rotate!;
     const turn = (deg: number) => proxy().rotationQuaternion!.copyFrom(BQuaternion.FromEulerAngles(0, 0, ((20 + deg) * Math.PI) / 180));
     drag(r, r.zGizmo, () => turn(10)); // 10 degrees -> nearest 30 is 0
-    expect(changes.at(-1)![0].rotation[2]).toBeCloseTo(20, 3);
+    expect(zAngle(changes.at(-1)![0].rotation)).toBeCloseTo(20, 3);
     turn(20); // 20 degrees -> 30, from the start: 20 + 30 = 50 (not 60, the absolute grid)
     r.onDragObservable.notifyObservers({} as never);
-    expect(changes.at(-1)![0].rotation[2]).toBeCloseTo(50, 3);
+    expect(zAngle(changes.at(-1)![0].rotation)).toBeCloseTo(50, 3);
     turn(-50); // -50 -> -60
     r.onDragObservable.notifyObservers({} as never);
-    expect(changes.at(-1)![0].rotation[2]).toBeCloseTo(-40, 3);
+    expect(zAngle(changes.at(-1)![0].rotation)).toBeCloseTo(-40, 3);
   });
 
   it("snaps scale to an absolute multiple of the step per axis and never to zero", () => {
@@ -382,7 +389,7 @@ describe("the transform gizmo on the Babylon backend (ADR 0075 stage 8)", () => 
     const [c, o] = changes[0];
     expect(c.position[0]).toBeCloseTo(2, 4);
     expect(c.position[1]).toBeCloseTo(-1, 4);
-    expect(c.rotation[2]).toBeCloseTo(0, 3);
+    expect(zAngle(c.rotation)).toBeCloseTo(0, 3);
     expect(o.position).toEqual([1, 0, 6]);
     t.onDragEndObservable.notifyObservers({} as never);
     expect(calls).toEqual(["start", "change", "end"]);
@@ -403,7 +410,7 @@ describe("the transform gizmo on the Babylon backend (ADR 0075 stage 8)", () => 
     expect(pa.position[1]).toBeCloseTo(-1, 4);
     expect(pb.position[0]).toBeCloseTo(2, 4);
     expect(pb.position[1]).toBeCloseTo(1, 4);
-    expect(pa.rotation[2]).toBeCloseTo(90, 3);
+    expect(zAngle(pa.rotation)).toBeCloseTo(90, 3);
     r.onDragEndObservable.notifyObservers({} as never);
 
     calls.length = 0;

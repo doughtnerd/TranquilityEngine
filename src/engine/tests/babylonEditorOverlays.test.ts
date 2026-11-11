@@ -52,12 +52,11 @@ describe("Babylon editor overlays (ADR 0075 stage 8)", () => {
     world = World.require();
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     layer = new UtilityLayerRenderer(scene);
     sprites = [];
     meshes = [];
     const node = GameObject.create("view");
-    node.transform!.position.set(0, 0, 10);
+    node.transform!.position.set(0, 0, -10); // looking along +Z (ADR 0164)
     view = node.addBehavior(Camera, { projection: "orthographic", orthographicSize: 5 });
     cameras = [view];
     make(true);
@@ -310,7 +309,7 @@ describe("Babylon editor overlays (ADR 0075 stage 8)", () => {
     const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
     const sun = lightSegments({ type: "directional", range: 0, spotAngle: 0 }, identity, false);
     expect(sun).toHaveLength(9);
-    expect(sun[0][1]).toEqual([0, 0, -2]); // the arrow points down -Z
+    expect(sun[0][1]).toEqual([0, 0, 2]); // the arrow points along +Z
     expect(lightSegments({ type: "ambient", range: 0, spotAngle: 0 }, identity, true)).toHaveLength(0);
   });
 

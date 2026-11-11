@@ -3,7 +3,8 @@
  * time of day, latitude and date; the light they cast through the atmosphere; the star field's
  * rotation; and when a baked sky is stale. Pure functions, no renderer types.
  *
- * World axes: Y up, -Z north (before `northOffset`), +X east, so a camera looking down -Z faces north.
+ * World axes (left-handed, ADR 0164): Y up, +Z north (before `northOffset`), +X east, so an unrotated
+ * camera, looking along +Z, faces north.
  */
 import { hexToLinear, type SkySettings } from "./skyFormat";
 
@@ -20,7 +21,7 @@ const smoothstep = (a: number, b: number, x: number) => {
 export function directionFromAngles(elevation: number, azimuth: number, northOffset = 0): Vec3 {
   const el = elevation * RAD;
   const az = (azimuth + northOffset) * RAD;
-  return [Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el)];
+  return [Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)];
 }
 
 /** The sun's declination in degrees on a day of the year. */
@@ -186,12 +187,13 @@ export function skyLight(sky: SkySettings, timeOfDay = sky.sun.timeOfDay): SkyLi
 export function starRotation(sky: SkySettings, timeOfDay = sky.sun.timeOfDay): number[] {
   const pole = directionFromAngles(sky.sun.placement === "manual" ? 50 : sky.sun.latitude, 0, sky.sun.northOffset);
   const angle = (-(timeOfDay * 15 + sky.sun.dayOfYear * 0.9856) * RAD) % (2 * Math.PI);
-  // Rodrigues' rotation about `pole`.
-  const [x, y, z] = pole;
+  // Rodrigues' rotation about the pole in star-sphere axes, which are the world's with z mirrored (so
+  // the star field kept its picture when north moved from -Z to +Z, ADR 0164); then the mirror.
+  const [x, y, z] = [pole[0], pole[1], -pole[2]];
   const c = Math.cos(angle);
   const s = Math.sin(angle);
   const t = 1 - c;
-  return [t * x * x + c, t * x * y + s * z, t * x * z - s * y, t * x * y - s * z, t * y * y + c, t * y * z + s * x, t * x * z + s * y, t * y * z - s * x, t * z * z + c];
+  return [t * x * x + c, t * x * y + s * z, t * x * z - s * y, t * x * y - s * z, t * y * y + c, t * y * z + s * x, -(t * x * z + s * y), -(t * y * z - s * x), -(t * z * z + c)];
 }
 
 /** The settings that change a bake, as text: everything but the time of day (and the rebake policy). */

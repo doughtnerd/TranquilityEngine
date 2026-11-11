@@ -5,19 +5,19 @@ export type ViewMode = "3d" | "2d";
 
 /**
  * Scene view camera (ADR 0022). Lives on the rig's root node, which sits at the focus point and
- * yaws; its "Arm" child pitches; the "Camera" child sits `distance` metres back along the arm,
- * looking at the focus point.
+ * yaws; its "Arm" child pitches; the "Camera" child sits `distance` metres back along the arm (local -Z),
+ * looking at the focus point along +Z (ADR 0164).
  *
  * 3D view: right-drag or Alt + left-drag orbits, middle-drag or Shift + right-drag pans, the
- * wheel zooms, F focuses (the selection, when the editor sets `focusTarget`). 2D view: an orthographic camera looking down -Z at the XY plane;
+ * wheel zooms, F focuses (the selection, when the editor sets `focusTarget`). 2D view: an orthographic camera at z = -distance looking along +Z at the XY plane;
  * right-, middle- or Alt + left-drag pans, the wheel zooms.
  */
 @behavior("editor.OrbitCamera")
 export class OrbitCamera extends GameBehavior {
-  /** Degrees around the vertical axis. */
-  @field(Number) yaw = 35;
-  /** Degrees above (negative) or below (positive) the horizon. */
-  @field(Number) pitch = -24;
+  /** Degrees around the vertical axis (positive turns the view right). */
+  @field(Number) yaw = -35;
+  /** Degrees the view looks down (positive) or up (negative). */
+  @field(Number) pitch = 24;
   @field(Number) distance = 11;
   /** Degrees of rotation per pixel dragged. */
   @field(Number) sensitivity = 0.3;
@@ -33,7 +33,7 @@ export class OrbitCamera extends GameBehavior {
   private eye: GameObject | null = null;
   private camera: Camera | null = null;
   private _mode: ViewMode = "3d";
-  private saved3D = { yaw: 35, pitch: -24 };
+  private saved3D = { yaw: -35, pitch: 24 };
   private lastGesture: "orbit" | "pan" | null = null;
 
   /** Where `focus()` and the F key go when no point is given (the editor points it at the selection). Null or unset: the origin. */
@@ -92,8 +92,9 @@ export class OrbitCamera extends GameBehavior {
     const gesture = current === this.lastGesture ? current : null;
     this.lastGesture = current;
     if (gesture === "orbit") {
-      this.yaw -= delta.x * this.sensitivity;
-      this.pitch = Mathf.clamp(this.pitch - delta.y * this.sensitivity, this.minPitch, this.maxPitch);
+      // Dragging right swings the eye left around the focus (the view turns right); dragging down raises it.
+      this.yaw += delta.x * this.sensitivity;
+      this.pitch = Mathf.clamp(this.pitch + delta.y * this.sensitivity, this.minPitch, this.maxPitch);
     } else if (gesture === "pan") {
       this.pan(delta.x, delta.y);
     }
@@ -136,9 +137,9 @@ export class OrbitCamera extends GameBehavior {
 
   private apply(): void {
     this.yaw = ((this.yaw % 360) + 360) % 360;
-    this.transform!.eulerAngles = [0, this.yaw, 0];
-    if (this.arm) this.arm.transform!.eulerAngles = [this.pitch, 0, 0];
-    if (this.eye) this.eye.transform!.position = [0, 0, this.distance];
+    this.transform!.eulerAngles = [0, this.yaw * DEG2RAD, 0];
+    if (this.arm) this.arm.transform!.eulerAngles = [this.pitch * DEG2RAD, 0, 0];
+    if (this.eye) this.eye.transform!.position = [0, 0, -this.distance];
     if (this.camera) {
       this.camera.projection = this._mode === "2d" ? "orthographic" : "perspective";
       this.camera.fieldOfView = this.fieldOfView;

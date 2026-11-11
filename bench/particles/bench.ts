@@ -94,7 +94,6 @@ function benchMaterial(scene: Scene): PBRMaterial | null {
 
 async function runOne(engine: Engine | WebGPUEngine, count: number): Promise<Row> {
   const scene = new Scene(engine);
-  scene.useRightHandedSystem = true;
   scene.clearColor = new Color4(0.07, 0.07, 0.09, 1);
   const camera = new ArcRotateCamera("cam", Math.PI / 2, Math.PI / 2.6, 9, new Vector3(0, 2, 0), scene);
   scene.activeCamera = camera;

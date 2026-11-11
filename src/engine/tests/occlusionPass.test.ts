@@ -73,7 +73,7 @@ describe("the occlusion pass on a real 3D physics World", () => {
     const pass = new OcclusionPass(2, engineOcclusionEnvironment());
     if (bind) pass.bindSource(encodeVoiceId(0, 1), bind);
     const f = new ListenerFrame();
-    f.set(engine.world, 1, null, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
+    f.set(engine.world, 1, null, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
     pass.run(f, v, s);
     return pass;
   }
@@ -112,7 +112,7 @@ describe("the occlusion pass without 3D physics", () => {
     const v = view();
     const pass = new OcclusionPass(2, engineOcclusionEnvironment());
     const f = new ListenerFrame();
-    f.set(engine.world, 1, null, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
+    f.set(engine.world, 1, null, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
     pass.run(f, v, settings());
     expect(v.gain).toBe(1);
     expect(pass.debug().enabled).toBe(false);

@@ -29,7 +29,6 @@ describe("Babylon editor queries (ADR 0075 stage 8)", () => {
     await SceneManager.load("s.json");
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     sprites = [];
     meshes = [];
     texts = [];
@@ -53,8 +52,8 @@ describe("Babylon editor queries (ADR 0075 stage 8)", () => {
     engine.dispose();
   });
 
-  const camera = (props: Record<string, unknown> = {}, pos: [number, number, number] = [0, 0, 10]) => {
-    const node = GameObject.create("cam");
+  const camera = (props: Record<string, unknown> = {}, pos: [number, number, number] = [0, 0, -10]) => {
+    const node = GameObject.create("cam"); // looking along +Z (ADR 0164)
     node.transform!.position.set(...pos);
     const cam = node.addBehavior(Camera, { projection: "orthographic", orthographicSize: 5, ...props });
     cameras.push(cam);
@@ -78,10 +77,10 @@ describe("Babylon editor queries (ADR 0075 stage 8)", () => {
 
   it("picks a sprite by order, not depth, and meshes nearest first below every sprite", () => {
     camera();
-    const front = sprite("front", 1, [0, 0, 5]);
-    const back = sprite("back", 5, [0, 0, -5]); // farther but drawn on top
-    const near = box("near", [0, 0, 2]);
-    const far = box("far", [0, 0, -2]);
+    const front = sprite("front", 1, [0, 0, -5]);
+    const back = sprite("back", 5, [0, 0, 5]); // farther but drawn on top
+    const near = box("near", [0, 0, -2]);
+    const far = box("far", [0, 0, 2]);
     expect(queries.pick(world(), 400, 300)).toEqual([back, front, near, far]);
   });
 
@@ -106,9 +105,9 @@ describe("Babylon editor queries (ADR 0075 stage 8)", () => {
 
   it("picks meshes away from the origin (the ray goes into each mesh's own space)", () => {
     camera();
-    const moved = box("moved", [3, 1, -2], 1);
+    const moved = box("moved", [3, 1, 2], 1);
     box("centre", [0, 0, 0], 1);
-    const [x, y] = queries.worldToCanvas(world(), [3, 1, -2])!;
+    const [x, y] = queries.worldToCanvas(world(), [3, 1, 2])!;
     expect(queries.pick(world(), x, y)).toEqual([moved]);
     expect(queries.pick(world(), x + 60, y)).toEqual([]); // one unit right: past its half-unit side
   });
@@ -116,20 +115,20 @@ describe("Babylon editor queries (ADR 0075 stage 8)", () => {
   it("ignores hidden meshes and sprites", () => {
     camera();
     sprite("s", 0, [0, 0, 0]);
-    box("b", [0, 0, -3]);
+    box("b", [0, 0, 3]);
     sprites[0].mesh.setEnabled(false);
     meshes[0].meshes[0].isVisible = false;
     expect(queries.pick(world(), 400, 300)).toEqual([]);
   });
 
   it("round-trips rayAt and worldToCanvas", () => {
-    camera({ projection: "perspective", fieldOfView: 50 }, [1, 2, 12]);
+    camera({ projection: "perspective", fieldOfView: 50 }, [1, 2, -12]);
     const ray = queries.rayAt(world(), 123, 456)!;
     const p = [0, 1, 2].map((i) => ray.origin[i] + ray.direction[i] * 9);
     const back = queries.worldToCanvas(world(), p)!;
     expect(back[0]).toBeCloseTo(123, 3);
     expect(back[1]).toBeCloseTo(456, 3);
-    expect(queries.worldToCanvas(world(), [1, 2, 30])).toBeNull(); // behind the camera
+    expect(queries.worldToCanvas(world(), [1, 2, -30])).toBeNull(); // behind the camera
     expect(queries.rayAt(world(), 0, 0)).not.toBeNull();
   });
 
@@ -140,19 +139,19 @@ describe("Babylon editor queries (ADR 0075 stage 8)", () => {
   });
 
   it("finds the point on a plane z, and on an arbitrary plane", () => {
-    camera({ projection: "orthographic", orthographicSize: 5 }, [0, 0, 10]);
+    camera({ projection: "orthographic", orthographicSize: 5 }, [0, 0, -10]);
     const p = queries.pointOnPlaneZ(world(), 800, 0)!; // top-right: x 6.667, y 5
     expect(p[0]).toBeCloseTo(5 * (800 / 600));
     expect(p[1]).toBeCloseTo(5);
     expect(p[2]).toBe(0);
-    expect(queries.pointOnPlaneZ(world(), 400, 300, 20)).toBeNull(); // behind the camera
-    const q = queries.pointOnPlane(world(), 400, 300, [0, 0, 1], [0, 0, -4])!;
-    expect(q[2]).toBeCloseTo(-4);
+    expect(queries.pointOnPlaneZ(world(), 400, 300, -20)).toBeNull(); // behind the camera
+    const q = queries.pointOnPlane(world(), 400, 300, [0, 0, 1], [0, 0, 4])!;
+    expect(q[2]).toBeCloseTo(4);
     expect(queries.pointOnPlane(world(), 400, 300, [1, 0, 0], [3, 0, 0])).toBeNull(); // parallel
     // A tilted perspective camera meets the ground plane.
     camera({ projection: "perspective" }, [0, 5, 0]);
     cameras.shift();
-    cameras[0].node.transform!.eulerAngles = [-90, 0, 0];
+    cameras[0].node.transform!.eulerAngles = [Math.PI / 2, 0, 0]; // pitched down (radians, ADR 0164)
     const g = queries.pointOnPlane(world(), 400, 300, [0, 1, 0], [0, 0, 0])!;
     expect(g[1]).toBeCloseTo(0);
     expect(g[0]).toBeCloseTo(0);

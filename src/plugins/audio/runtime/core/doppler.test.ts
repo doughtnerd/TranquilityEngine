@@ -42,7 +42,7 @@ function rig(capacity = 4) {
   const frame = new ListenerFrame();
   const world = {} as World, node = {} as GameObject;
   const step = (dt: number, src: [number, number, number], lis: [number, number, number] = [0, 0, 0]) => {
-    frame.set(world, 1, node, { position: { x: lis[0], y: lis[1], z: lis[2] }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } }, dt);
+    frame.set(world, 1, node, { position: { x: lis[0], y: lis[1], z: lis[2] }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }, dt);
     posX[0] = src[0]; posY[0] = src[1]; posZ[0] = src[2];
     pass.run(frame, view, SETTINGS);
   };

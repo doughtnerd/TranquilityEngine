@@ -72,7 +72,6 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
   beforeEach(() => {
     engine = new NullEngine();
     scene = new Scene(engine);
-    scene.useRightHandedSystem = true;
     camera = new TargetCamera("camera", new Vector3(0, 0, 10), scene);
     camera.setTarget(Vector3.Zero());
     scene.activeCamera = camera;

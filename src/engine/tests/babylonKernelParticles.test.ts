@@ -61,7 +61,6 @@ describe("kernel particle systems in the World player (ADR 0094)", () => {
   beforeEach(() => {
     engine = new NullEngine();
     scene = new Scene(engine);
-    scene.useRightHandedSystem = true;
     const camera = new TargetCamera("camera", new Vector3(0, 0, 10), scene);
     camera.setTarget(Vector3.Zero());
     scene.activeCamera = camera;

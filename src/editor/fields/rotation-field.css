@@ -1,0 +1,5 @@
+/* The rotation field (ADR 0165): per-axis boxes and the view toggle. */
+.fields .rotation-field { display: flex; align-items: center; gap: 4px; }
+.fields .rotation-field .rotation-axes { flex: 1; min-width: 0; }
+.fields .rotation-view { flex: none; padding: 0 4px; font-size: 10px; line-height: 16px; color: var(--muted); background: transparent; border: 1px solid var(--border); border-radius: 3px; font-variant-numeric: tabular-nums; }
+.fields .rotation-view:hover { color: var(--text); border-color: var(--accent); background: var(--button-hover); }

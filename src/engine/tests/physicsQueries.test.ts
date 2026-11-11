@@ -61,7 +61,7 @@ describe("3D shape casts and overlaps", () => {
     const b = Physics.boxCast({ x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 }, X)!;
     expect(b.distance).toBeCloseTo(8.5, 3);
     // Rotated 45 degrees about Z, the box corner leads: reach = sqrt(2) instead of 1.
-    const r = Physics.boxCast({ x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 }, X, Quaternion.fromEuler(0, 0, 45))!;
+    const r = Physics.boxCast({ x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 }, X, Quaternion.fromEuler(0, 0, Math.PI / 4))!;
     expect(r.distance).toBeCloseTo(10 - 0.5 - Math.SQRT2, 2);
     // Vertical capsule (caps on Y), radius 0.5: leading extent 0.5 in X.
     const c = Physics.capsuleCast({ x: 0, y: -1, z: 0 }, { x: 0, y: 1, z: 0 }, 0.5, X)!;

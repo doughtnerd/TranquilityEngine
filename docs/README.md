@@ -15,6 +15,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Game UI](guide/ui.md) | Canvases (screen and world), the UI tree, flexbox layout, panels, text, images, buttons and input fields, scripting them, how the pointer and keyboard go to UI first, headless Worlds and tests |
 | [Navigation](guide/navigation.md) | Built-in navigation: agent types and areas, marking geometry, baking (editor and `npm run nav:bake`), streaming chunks, scripting `NavAgent`, groups, surround and flow fields, the `Navigation` queries, multiplayer, debug drawing, performance, known issues |
 | [Physics](guide/physics.md) | Bodies and colliders, interpolation, collision and trigger events (Enter/Stay/Exit), raycasts, shape casts and overlaps, character controllers, joints |
+| [Transforms and rotation](guide/transforms.md) | Unity's coordinates (left-handed, +Z forward), position, rotation and scale; quaternions and Euler angles (ZXY, radians), turning with `rotate`, `localToWorld`, how it maps to Unity, scene files, the Inspector's angles |
 | [Tilemaps](guide/tilemaps.md) | Tilesets from sliced sheets, painting with the Tile Palette, layers, auto-tiling, tile collision and one-way platforms, the scripting API |
 | [Playing sound](guide/playing-sound.md) | `Audio.playOneShot` and `AudioSource`, handles, buses and master volume, sound formats, streaming and loops, 3D sound and HRTF, which backend plays |
 | [Why is there no sound?](guide/why-no-sound.md) | A troubleshooting page driven by `Audio.debug()` and the Audio Debug panel: locked audio, the fallback backend, a sound's `reason`, AAC and format problems, the decoder worker, hidden tabs, mute and volume |
@@ -56,13 +57,13 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0010](decisions/0010-engine-graph-authoritative-over-threejs.md) | Engine node graph is authoritative; three.js never exposed | Accepted |
 | [0011](decisions/0011-frame-loop-and-system-order.md) | Frame loop and system order | Accepted, amended by 0032 |
 | [0012](decisions/0012-ecs-storage-implementation.md) | ECS storage: in-house sparse sets, benchmark first | Accepted |
-| [0013](decisions/0013-data-driven-scene-format.md) | Data-driven scene format with a type registry | Accepted |
-| [0014](decisions/0014-unified-2d-and-3d.md) | 2D and 3D share one pipeline | Accepted |
+| [0013](decisions/0013-data-driven-scene-format.md) | Data-driven scene format with a type registry | Accepted, amended by 0163 |
+| [0014](decisions/0014-unified-2d-and-3d.md) | 2D and 3D share one pipeline | Accepted, partly superseded by 0164 |
 | [0015](decisions/0015-vite-build-tooling.md) | Vite build tooling | Accepted |
 | [0016](decisions/0016-world-root-and-scenes-as-nodes.md) | A World root node; scenes are nodes | Accepted, amended by 0032 |
 | [0017](decisions/0017-user-systems-and-data-components.md) | User systems and data components in v1; no engine event system | Accepted, amended by 0032 |
 | [0018](decisions/0018-promise-based-waits.md) | Promise-based waits for scripts | Accepted |
-| [0019](decisions/0019-public-api-conventions.md) | Public API conventions: names, angles, live vectors | Accepted |
+| [0019](decisions/0019-public-api-conventions.md) | Public API conventions: names, angles, live vectors | Accepted, amended by 0163 and 0164 |
 | [0020](decisions/0020-in-canvas-ui-with-uikit.md) | In-canvas UI built on pmndrs uikit | Accepted; partly superseded by 0076 (uikit) |
 | [0021](decisions/0021-particles-with-three-quarks.md) | Particles with three.quarks | Superseded by 0081 |
 | [0022](decisions/0022-editor-is-a-v1-goal.md) | A scene editor is a v1 goal | Accepted |
@@ -85,7 +86,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0039](decisions/0039-polygon-edge-colliders.md) | Polygon and edge colliders for 2D physics | Accepted |
 | [0040](decisions/0040-asset-import-sidecars.md) | Per-asset import settings live in sidecar files beside each asset | Accepted, extended by 0115 (proposed) |
 | [0041](decisions/0041-game-builds.md) | Games build to a static web player, packaged for desktop through Tauri | Accepted |
-| [0042](decisions/0042-inspector-field-types.md) | List fields, field choices, and per-instance Worlds and tags overrides | Accepted |
+| [0042](decisions/0042-inspector-field-types.md) | List fields, field choices, and per-instance Worlds and tags overrides | Accepted, amended by 0163 |
 | [0043](decisions/0043-meshes-lights-materials.md) | Meshes, lights and material assets: a default lit material and default lighting | Proposed |
 | [0044](decisions/0044-obj-fbx-model-import.md) | OBJ and FBX models import through three.js's loaders, as meshes in model space | Proposed |
 | [0045](decisions/0045-3d-physics-rapier3d.md) | 3D physics on Rapier 3D, loaded on demand, with the 2D API's shape | Proposed |
@@ -204,6 +205,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0160](decisions/0160-asset-drop-targets-in-the-editor-sdk.md) | Plugin panels accept assets dragged from the Assets panel through `registerAssetDropTarget(element, spec)` in the editor SDK (label, accepts, drop; innermost wins), from an import-free registry the asset drag consults before its own targets | Accepted |
 | [0161](decisions/0161-assets-caches-lookups-behind-a-source-generation.md) | `Assets` would cache path normalisation, source lookups and sidecar values behind one generation counter that mutable sources bump through an optional `subscribe(onChange)`; static sources never invalidate. Saves ≈ 0.35 µs per audio voice start and the same for every repeat lookup | Proposed |
 | [0162](decisions/0162-spatial-audio-ambisonic-bed-occlusion-and-reverb-zones.md) | Spatial audio (0157's M3), following middleware practice: distant voices share 3rd-order ambisonic beds (a `maxBeds` setting; buses own, share their parent's or skip one, by priority), decoded with MagLS from M1's HRIRs (HRTF voices on high 16 → 8 with the bed); AmbiX clips stream and rotate into the bed; occlusion through 3D physics rays on a 0.25 ms frame budget (a layer list plus optional `AudioOccluder` materials, per-voice low-pass, wet path kept); `AudioReverbZone` volumes weighted per source on M1's convolver with load-balanced staggering and off-thread IR preparation; Doppler; event filters and sends; best effort on Babylon. Amends 0157, 0158, 0074 | Accepted |
+| [0163](decisions/0163-rotations-follow-unity-ecs-local-transform.md) | Rotations follow Unity ECS's `LocalTransform` / `LocalToWorld`: quaternions `[x, y, z, w]` in scene files (`myco.scene@3`, migrated), Euler angles in Unity's ZXY order (`eulerAngles` in 0..360), `Transform.rotate` / `rotateX/Y/Z`, a `transform.localToWorld` snapshot (replacing `localToWorld(point)` / `worldToLocal(point)`), Unity.Mathematics-style `Quaternion` builders (in degrees), and an Inspector that keeps typed angles. Amends 0013, 0019, 0042 | Accepted, amended by 0164 |
+| [0164](decisions/0164-unity-coordinates-left-handed-z-forward-and-radians.md) | Unity's coordinates: left-handed, +Y up, +Z forward (identity faces +Z, yaw + turns right), radians in the rotation API; a `myco.scene@4` migration mirrors z (quaternions `(-x, -y, z, w)`), and model import, Web Audio and navigation convert at their boundaries. Built in waves | Accepted |
+| [0165](decisions/0165-inspector-fields-are-codec-components.md) | Inspector fields with invariants become components built from a codec (`read` / `write` / `toJSON` / `same`); `RotationField` first: stored as a quaternion, shown as Euler radians (default), degrees, or a unitless x/y/z/w debug view that normalizes on commit | Accepted |
 
 ## Working with decisions
 

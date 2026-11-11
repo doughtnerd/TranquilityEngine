@@ -26,14 +26,14 @@ describe("King of Pirates: the arena's edge", () => {
     expect(out.homeZ).toBeCloseTo(-Math.SQRT1_2);
   });
 
-  it("names directions as the screen shows them: north up, east on the right (world -X)", () => {
-    expect(compass(0, 1)).toBe("north");
-    expect(compass(0, -1)).toBe("south");
+  it("names directions as the screen shows them: north up (world -Z), east on the right (world -X)", () => {
+    expect(compass(0, -1)).toBe("north");
+    expect(compass(0, 1)).toBe("south");
     expect(compass(-1, 0)).toBe("east");
     expect(compass(1, 0)).toBe("west");
-    expect(compass(1, 1)).toBe("north-west");
+    expect(compass(1, -1)).toBe("north-west");
     // Outside in the north-east (screen up and right), the way back is south-west.
-    const at = edgeStatus(-70, 70, 80);
+    const at = edgeStatus(-70, -70, 80);
     expect(compass(at.homeX, at.homeZ)).toBe("south-west");
   });
 });
@@ -72,9 +72,9 @@ describe("King of Pirates: the minimap", () => {
     expect(visibleHolder.find((m) => m.kind === "ship" && m.team === 2)).toMatchObject({ holder: true });
   });
 
-  it("puts north up and east (world -X) on the right", () => {
+  it("puts north (world -Z) up and east (world -X) on the right", () => {
     expect(chartPoint(0, 0, 80, 160)).toEqual({ x: 80, y: 80 });
-    expect(chartPoint(0, 80, 80, 160)).toEqual({ x: 80, y: 0 });
+    expect(chartPoint(0, -80, 80, 160)).toEqual({ x: 80, y: 0 });
     expect(chartPoint(-80, 0, 80, 160)).toEqual({ x: 160, y: 80 });
   });
 });

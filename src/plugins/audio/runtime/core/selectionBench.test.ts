@@ -65,7 +65,7 @@ function attempt(cap: number, spatial: boolean, seed: number): Result {
   const basis = new ListenerBasis();
   const distance = new DistanceEffect();
   const pos = [0, 0, 0];
-  const fwd = [0, 0, -1];
+  const fwd = [0, 0, 1];
   const up = [0, 1, 0];
   const times = new Float64Array(FRAMES);
   let t = 0;

@@ -101,7 +101,7 @@ describe("F1 §8: the backend runs main's passes", () => {
   it("is a SpatialPassHost whose view lists its voices with the right flags", async () => {
     const { backend } = rig();
     expect(isSpatialPassHost(backend)).toBe(true);
-    backend.setListener({ position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } });
+    backend.setListener({ position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } });
     backend.play(req({ position: at, occlusion: true, dopplerLevel: 2, world: 7 }));
     backend.play(req({ position: at, occlusion: false }));
     backend.play(req()); // flat
@@ -337,8 +337,8 @@ describe("F1 §8: listener velocity", () => {
     const { backend } = rig();
     backend.play(req({ position: at }));
     await flush();
-    backend.setListener({ position: { x: 1, y: 2, z: 3 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } });
-    expect(engine().listener.position).toMatchObject({ x: 1, y: 2, z: 3 });
+    backend.setListener({ position: { x: 1, y: 2, z: 3 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } });
+    expect(engine().listener.position).toMatchObject({ x: 1, y: 2, z: -3 });
     backend.collectSpatialVoices();
     const i = backend.spatialVoices.slots[0]!;
     expect(backend.spatialVoices.audibility0[i]).toBeCloseTo(1 / Math.hypot(2, 2, 3), 5);
@@ -355,7 +355,7 @@ describe("F2 §8: reverb zones are inert, one warning", () => {
   it("warns once across many frames and zones, and changes nothing else", async () => {
     await load();
     const { backend } = rig();
-    backend.setListener({ position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } });
+    backend.setListener({ position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } });
     const a = GameObject.create("z1");
     const w = a.world;
     a.addBehavior(AudioReverbZone, { preset: "cave" });

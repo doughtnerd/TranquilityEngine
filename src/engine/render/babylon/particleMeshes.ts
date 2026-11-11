@@ -358,7 +358,7 @@ export class QuadDraw implements Draw {
       for (let i = 0; i < n; i++) need += Math.max(0, e.pool[i].trailCount - 1);
     } else need = n * (e.renderer.blendTiles ? 2 : 1);
     if (need > this.quadCap) this.grow(Math.ceil(need * 1.5));
-    const w = cam.getWorldMatrix().m; // rows: right, up, back; then the position
+    const w = cam.getWorldMatrix().m; // rows: right, up, forward; then the position
     this.ex = w[12];
     this.ey = w[13];
     this.ez = w[14];
@@ -482,13 +482,14 @@ export class QuadDraw implements Draw {
           dy /= dl;
           dz /= dl;
         }
+        // Crosses in left-handed order (ADR 0164): width = toCamera' × velocity, length = width × toCamera'.
         const tx = p.wx - ex, ty = p.wy - ey, tz = p.wz - ez;
-        let wx = dy * tz - dz * ty, wy = dz * tx - dx * tz, wz = dx * ty - dy * tx;
+        let wx = ty * dz - tz * dy, wy = tz * dx - tx * dz, wz = tx * dy - ty * dx;
         const wl = Math.hypot(wx, wy, wz) || 1;
         wx /= wl;
         wy /= wl;
         wz /= wl;
-        let lx = ty * wz - tz * wy, ly = tz * wx - tx * wz, lz = tx * wy - ty * wx;
+        let lx = wy * tz - wz * ty, ly = wz * tx - wx * tz, lz = wx * ty - wy * tx;
         const ll = Math.hypot(lx, ly, lz) || 1;
         const half = Math.max(p.length, 1e-4) / 2 / ll;
         lx *= half;
@@ -502,13 +503,13 @@ export class QuadDraw implements Draw {
         bz = lz;
       } else {
         if (r.mode === "horizontal") {
-          // Flat on the ground, its top towards -Z.
+          // Flat on the ground, its top towards +Z (as the GPU path, `kernelShader.ts`).
           Rx = 1;
           Ry = 0;
           Rz = 0;
           Ux = 0;
           Uy = 0;
-          Uz = -1;
+          Uz = 1;
         } else if (r.mode === "vertical") {
           // Upright, turned about +Y towards the camera (right kept on the camera's right).
           const dx = p.wx - ex, dz = p.wz - ez;
@@ -564,7 +565,7 @@ export class QuadDraw implements Draw {
         const b = Math.min(count - 1, k + 1) * 3;
         const tx = pts[a] - pts[b], ty = pts[a + 1] - pts[b + 1], tz = pts[a + 2] - pts[b + 2];
         const cx = pts[k * 3] - ex, cy = pts[k * 3 + 1] - ey, cz = pts[k * 3 + 2] - ez;
-        const nx = ty * cz - tz * cy, ny = tz * cx - tx * cz, nz = tx * cy - ty * cx;
+        const nx = cy * tz - cz * ty, ny = cz * tx - cx * tz, nz = cx * ty - cy * tx; // toCamera' × along: left-handed order (ADR 0164)
         const len = Math.hypot(nx, ny, nz);
         if (len > 1e-9) {
           sx = nx / len;

@@ -76,14 +76,15 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
     it("draws a model with its own materials, lit by a sun and ambient light, framed by a camera", async () => {
       const p = (await renderer.prepare("model", "builtin:cube", false))!;
       expect(p).not.toBeNull();
-      expect(p.scene.useRightHandedSystem).toBe(true);
+      expect(p.scene.useRightHandedSystem).toBe(false); // Babylon's default left-handed mode (ADR 0164)
       expect(p.scene.meshes).toHaveLength(1);
       expect(p.scene.meshes[0].material).toBeInstanceOf(PBRMaterial);
       expect(p.scene.lights.map((l) => l.getClassName()).sort()).toEqual(["DirectionalLight", "HemisphericLight"]);
       expect(p.scene.activeCamera).toBe(p.camera);
-      // The cube's centre is the target, and the camera looks at it from the front-right-above.
+      // The cube's centre is the target, and the camera looks at it from in front (+Z, where a model
+      // faces), above and to its right: models are mirrored in x on import (ADR 0164).
       expect(p.target.every((v) => Math.abs(v) < 1e-6)).toBe(true);
-      expect(p.camera.position.x).toBeGreaterThan(0);
+      expect(p.camera.position.x).toBeLessThan(0);
       expect(p.camera.position.y).toBeGreaterThan(0);
       expect(p.camera.position.z).toBeGreaterThan(0);
       p.dispose();
@@ -96,7 +97,7 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
       expect(m.metallic).toBeCloseTo(0.2);
       expect(m.roughness).toBeCloseTo(0.4);
       expect(m.albedoColor.r).toBeGreaterThan(m.albedoColor.g); // red, in linear light
-      expect(m.sideOrientation).toBe(PBRMaterial.CounterClockWiseSideOrientation); // ADR 0075 stage 1
+      expect(m.sideOrientation).toBeNull(); // the scene's default front face (ADR 0164)
       p.dispose();
     });
 
@@ -178,7 +179,7 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
       const lit = p.scene.lights.filter((l) => l.isEnabled() && l.intensity > 0);
       expect(lit).toHaveLength(1); // the scene's sun replaced the default lights
       expect(lit[0]!.intensity).toBeCloseTo(2);
-      // The lowest-depth camera: orthographic, at x = 3, looking down -Z.
+      // The lowest-depth camera: orthographic, at x = 3, looking along +Z.
       expect(p.camera.mode).toBe(1);
       expect(p.camera.position.x).toBeCloseTo(3);
       expect(p.scene.clearColor.r).toBeGreaterThan(0.9);
@@ -256,8 +257,8 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
   });
 });
 
-describe("camera aiming (ADR 0014: cameras look down -Z)", () => {
-  const forward = (q: Quaternion) => new Vector3(0, 0, -1).applyRotationQuaternion(q);
+describe("camera aiming (ADR 0164: cameras look along +Z)", () => {
+  const forward = (q: Quaternion) => new Vector3(0, 0, 1).applyRotationQuaternion(q);
 
   it("turns a camera at `eye` to face `target`, +Y up", () => {
     const cases: [number[], number[]][] = [
@@ -280,6 +281,9 @@ describe("camera aiming (ADR 0014: cameras look down -Z)", () => {
     expect(up.y).toBeGreaterThan(0);
     const right = new Vector3(1, 0, 0).applyRotationQuaternion(lookAtRotation([3, 1, 4], [0, 0, 0]));
     expect(right.y).toBeCloseTo(0, 5); // no roll
+    // Left-handed: a camera in front of the origin at -Z, looking along +Z, has +X on its right.
+    const r = new Vector3(1, 0, 0).applyRotationQuaternion(lookAtRotation([0, 0, -5], [0, 0, 0]));
+    expect(r.x).toBeCloseTo(1, 5);
   });
 
   it("copes with looking straight down", () => {

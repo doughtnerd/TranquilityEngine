@@ -25,13 +25,12 @@ export function gizmoMode(t: Tool): Mode | null {
 
 /**
  * The edit one gizmo drag step makes: set the Transform field the mode changes, on a scene node
- * or (as an override) a prefab instance or a node inside one. A 2D rotation stays a single angle
- * when the file stores it that way.
+ * or (as an override) a prefab instance or a node inside one. A rotation is written as a quaternion
+ * (ADR 0163).
  */
 export function gizmoEdit(doc: SceneDocument, node: string | NodePath, mode: Mode, pose: LocalPose, field: "position" | "rotation" | "scale" = FIELDS[mode]): SetField {
   const [id, ...target] = typeof node === "string" ? [node] : node;
-  const previous = doc.isPrefabInstance(id) ? doc.overrideValue(id, target, "engine.Transform", field) : doc.fieldValue(id, "engine.Transform", field);
-  const value = toSceneJSON("vector3", pose[field], { field, previous });
+  const value = toSceneJSON(field === "rotation" ? "quaternion" : "vector3", pose[field]);
   return new SetField(id, "engine.Transform", field, value, { target });
 }
 

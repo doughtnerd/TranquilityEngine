@@ -4,20 +4,20 @@ import { GameObject, Navigation, NavAgent, Vector3, type Vec3Input } from "myco"
 
 /** The chunks' squares (metres) and the world's 3×3 grid of them, centred on the origin. */
 export const CHUNK_SIZE = 128;
-/** Chunk 1 is south-west, 5 the centre, 9 north-east (like a numpad). North is -z. */
+/** Chunk 1 is south-west, 5 the centre, 9 north-east (like a numpad). North is +z. */
 export const CHUNK_NAMES = ["South-west", "South", "South-east", "West", "Centre", "East", "North-west", "North", "North-east"];
 
 /** The chunk index (0-8) whose square holds (x, z), or -1 outside the world. */
 export function chunkIndexAt(x: number, z: number): number {
   const cx = Math.floor((x + CHUNK_SIZE * 1.5) / CHUNK_SIZE);
-  const row = Math.floor((-z + CHUNK_SIZE * 1.5) / CHUNK_SIZE); // 0 south, 2 north
+  const row = Math.floor((z + CHUNK_SIZE * 1.5) / CHUNK_SIZE); // 0 south, 2 north
   if (cx < 0 || cx > 2 || row < 0 || row > 2) return -1;
   return row * 3 + cx;
 }
 
 /** The centre of chunk `i` (y 0). */
 export function chunkCentre(i: number): Vector3 {
-  return new Vector3(((i % 3) - 1) * CHUNK_SIZE, 0, -(Math.floor(i / 3) - 1) * CHUNK_SIZE);
+  return new Vector3(((i % 3) - 1) * CHUNK_SIZE, 0, (Math.floor(i / 3) - 1) * CHUNK_SIZE);
 }
 
 /** mulberry32: a small seeded generator (the same numbers on every machine). */

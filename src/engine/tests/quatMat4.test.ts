@@ -25,7 +25,7 @@ describe("Quat helpers (ADR 0081)", () => {
     close(Quat.rotate(q, new Vector3(1, 0, 0)), 0, 1, 0);
     close(Quat.rotate(Quat.conjugate(q), Quat.rotate(q, new Vector3(1, 2, 3))), 1, 2, 3);
     const e = Quat.fromAxisAngle(1, 0, 0, Math.PI / 3).toEuler();
-    expect(e.x).toBeCloseTo(60, 9);
+    expect(e.x).toBeCloseTo(Math.PI / 3, 9); // radians (ADR 0164)
   });
 });
 

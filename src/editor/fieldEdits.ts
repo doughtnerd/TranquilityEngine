@@ -8,32 +8,43 @@ import { Color, GameObject, Quaternion } from "../engine";
 import { listComponents, type ComponentInfo, type FieldValue } from "../engine/editor";
 import { RevertOverrides, SetField, isFieldOverride, type NodePath, type SceneDocument } from "./document";
 import { editorFor, itemEditorFor, toSceneJSON, type FieldEditor } from "./fieldValues";
+import { rotationCodec, rotationFrom, withRotationAxis, type RotationView } from "./fields/rotationCodec";
+import { rotationAngles } from "./preferences";
 import { isOverridden } from "./prefabs";
 import type { OpenScene } from "./state";
 
 /** Which component a field belongs to: its type and its index among the node's components of that type. */
 export type ComponentRef = Pick<ComponentInfo, "type" | "index">;
 
-/** Euler angles (degrees) of a quaternion, rounded so a typed 30 doesn't read back as 29.999999. */
-export const eulerAnglesOf = (q: Quaternion): number[] => roundAngles(q.toEuler().toArray());
+/**
+ * How the Inspector shows a rotation field (ADR 0165): the field's own `view` option, else the Settings >
+ * Inspector > Rotation angles preference.
+ */
+export const rotationViewOf = (field: Pick<FieldValue, "options">): RotationView => field.options?.view ?? preferredRotationView();
 
-const roundAngles = (a: number[]) => a.map((n) => Math.round(n * 1e4) / 1e4 + 0); // + 0: no -0
+/** The Rotation angles preference (anything unreadable: radians). */
+export const preferredRotationView = (): RotationView => (rotationAngles.value === "degrees" ? "degrees" : "radians");
 
-/** A vector's (or a quaternion's Euler angles') axes, or a default when it's unset. */
+/** A vector's axes, or a default when it's unset. */
 export function axesBase(value: unknown, editor: FieldEditor): number[] {
-  if (value instanceof Quaternion) return eulerAnglesOf(value);
   if (Array.isArray(value)) return [...value];
   if (value && typeof value === "object" && "toArray" in value) return (value as { toArray(): number[] }).toArray();
   return editor === "vector2" ? [1, 1] : [0, 0, 0];
 }
 
-/** `value` with axis `axis` set to `n`, its other axes kept (a quaternion becomes Euler degrees). */
-export const withAxis = (value: unknown, editor: FieldEditor, axis: number, n: number): number[] => axesBase(value, editor).map((old, j) => (j === axis ? n : old));
+/**
+ * `value` with axis `axis` set to `n`, its other axes kept. A rotation's axes are the ones its view shows
+ * (`view`, default the field's), written back through the rotation codec as a Quaternion.
+ */
+export function withAxis(value: unknown, editor: FieldEditor, axis: number, n: number, view: RotationView = preferredRotationView()): unknown {
+  if (editor === "quaternion") return withRotationAxis(rotationFrom(value), view, axis, n);
+  return axesBase(value, editor).map((old, j) => (j === axis ? n : old));
+}
 
 /** A comparable form of a field value, to tell whether several nodes' values differ. */
 export function valueKey(v: unknown, scene: OpenScene): string {
   if (Array.isArray(v)) return `[${v.map((x) => valueKey(x, scene)).join(",")}]`;
-  if (v instanceof Quaternion) return `quat:${JSON.stringify(eulerAnglesOf(v))}`;
+  if (v instanceof Quaternion) return `quat:${JSON.stringify(rotationCodec("radians").read(v).map((r) => Math.round(r * 1e6)))}`;
   if (v instanceof Color) return `color:${v.toHex()}:${v.a}`;
   if (v instanceof GameObject) return `node:${scene.sync.nodeIdOf(v)}`;
   if (v && typeof v === "object" && "toArray" in v) return JSON.stringify((v as { toArray(): number[] }).toArray());
@@ -106,12 +117,22 @@ export const setField = (scene: OpenScene, paths: readonly NodePath[], component
   setFieldEach(scene, paths, component, field, () => value);
 
 /**
- * Set one axis of a vector (or of a rotation's Euler angles) on every node, keeping each node's other
- * axes, as one undo step. `values` holds each node's current value (read from the live nodes when absent).
+ * Set one axis of a vector (or of a rotation as its view shows it: Euler radians or degrees, or x, y, z, w;
+ * ADR 0165) on every node, keeping each node's other axes, as one undo step. `values` holds each node's
+ * current value (read from the live nodes when absent).
  */
-export function setFieldAxis(scene: OpenScene, paths: readonly NodePath[], component: ComponentRef, field: FieldValue, axis: number, n: number, values: readonly unknown[] = fieldValues(scene, paths, component, field.name)): void {
+export function setFieldAxis(
+  scene: OpenScene,
+  paths: readonly NodePath[],
+  component: ComponentRef,
+  field: FieldValue,
+  axis: number,
+  n: number,
+  values: readonly unknown[] = fieldValues(scene, paths, component, field.name),
+  view: RotationView = rotationViewOf(field),
+): void {
   const editor = editorFor(field);
-  setFieldEach(scene, paths, component, field, (i) => withAxis(values[i], editor, axis, n));
+  setFieldEach(scene, paths, component, field, (i) => withAxis(values[i], editor, axis, n, view));
 }
 
 /** Remove the field's override from every node that has one, as one undo step. Plain nodes are skipped. */

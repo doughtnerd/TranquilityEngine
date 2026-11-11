@@ -121,7 +121,7 @@ export class ListenerBasis {
   private fy = 0;
   private fz = 0;
   private degenerate = true;
-  /** Outputs of `locate`: the unit direction (listener space: -Z ahead, +X right, +Y up; zero if coincident or degenerate). */
+  /** Outputs of `locate`: the unit direction (right-handed listener space: -Z ahead, +X right, +Y up; zero if coincident or degenerate). */
   dirX = 0;
   dirY = 0;
   dirZ = 0;
@@ -142,10 +142,10 @@ export class ListenerBasis {
     const fx = fwd[0]! * s;
     const fy = fwd[1]! * s;
     const fz = fwd[2]! * s;
-    // right = cross(f, up)
-    const rx = fy * up[2]! - fz * up[1]!;
-    const ry = fz * up[0]! - fx * up[2]!;
-    const rz = fx * up[1]! - fy * up[0]!;
+    // right = cross(up, f) (the engine's world is left-handed, ADR 0164)
+    const rx = up[1]! * fz - up[2]! * fy;
+    const ry = up[2]! * fx - up[0]! * fz;
+    const rz = up[0]! * fy - up[1]! * fx;
     const rl = Math.sqrt(rx * rx + ry * ry + rz * rz);
     if (rl === 0) {
       this.degenerate = true;
@@ -155,10 +155,10 @@ export class ListenerBasis {
     this.rx = rx * k;
     this.ry = ry * k;
     this.rz = rz * k;
-    // localUp = cross(right, f)
-    this.ux = this.ry * fz - this.rz * fy;
-    this.uy = this.rz * fx - this.rx * fz;
-    this.uz = this.rx * fy - this.ry * fx;
+    // localUp = cross(f, right)
+    this.ux = fy * this.rz - fz * this.ry;
+    this.uy = fz * this.rx - fx * this.rz;
+    this.uz = fx * this.ry - fy * this.rx;
     this.fx = fx;
     this.fy = fy;
     this.fz = fz;

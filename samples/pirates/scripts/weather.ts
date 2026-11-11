@@ -91,7 +91,7 @@ defineSystem({
       rain.emissionScale = k;
       // Rain falls around what the camera looks at.
       const cam = Camera.main?.node.transform?.position;
-      if (cam) rain.node.transform!.position.set(cam.x, 24, cam.z + 14);
+      if (cam) rain.node.transform!.position.set(cam.x, 24, cam.z - 14);
       const sound = rain.node.getBehavior(AudioSource);
       if (sound) sound.volume = 0.6 * k;
     }

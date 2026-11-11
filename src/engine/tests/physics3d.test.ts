@@ -97,7 +97,7 @@ describe("3D physics on Rapier (ADR 0045)", () => {
     ball.addBehavior(SphereCollider);
     rb.angularVelocity = { x: 0, y: 90, z: 0 };
     steps(engine, 60);
-    expect(ball.transform!.eulerAngles.y).toBeGreaterThan(60); // about 90° after a second, less damping
+    expect((ball.transform!.eulerAngles.y * 180) / Math.PI).toBeGreaterThan(60); // about 90° after a second, less damping
     rb.useGravity = true;
     steps(engine, 60);
     expect(ball.transform!.position.y).toBeLessThan(-4);
@@ -152,7 +152,7 @@ describe("3D physics on Rapier (ADR 0045)", () => {
     wall.addBehavior(BoxCollider);
     steps(engine, 1);
     wall.transform!.position.x = 10;
-    wall.transform!.rotation = Quaternion.fromEuler(0, 0, 45);
+    wall.transform!.rotation = Quaternion.fromEuler(0, 0, Math.PI / 4);
     steps(engine, 1);
     expect(Physics.raycast({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 })?.distance).toBeCloseTo(10 - Math.SQRT1_2, 2);
   });

@@ -237,10 +237,10 @@ describe("the shared physics core over a fake backend (ADR 0137)", () => {
     fakeOf(rb).rotation = -3.1; // 0.083 rad further on, wrapped
     step(engine);
     physics2DOf(engine.world)!.interpolate(0.5);
-    const deg = node.transform!.worldRotation2D;
-    expect(Math.abs(Math.abs(deg) - 180)).toBeLessThan(0.5); // halfway is ±180°, not 0°
+    const angle = node.transform!.worldRotation2D; // radians (ADR 0164)
+    expect(Math.abs(Math.abs(angle) - Math.PI)).toBeLessThan(0.01); // halfway is ±π, not 0
     physics2DOf(engine.world)!.restoreInterpolated();
-    expect(node.transform!.worldRotation2D).toBeCloseTo((-3.1 * 180) / Math.PI, 3);
+    expect(node.transform!.worldRotation2D).toBeCloseTo(-3.1, 3);
     engine.dispose();
   });
 

@@ -1,12 +1,12 @@
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, GameObject, Navigation, Quaternion, Replicated } from "../../myco";
+import { Assets, Engine, GameObject, Navigation, Replicated } from "../../myco";
 import { World } from "../core/World";
 import { releaseBakeCaches } from "../nav/bake";
 import { clearNavBakeCache } from "../../plugins/navigation/runtime/navigationSystems";
 import { readProject } from "../../server/project";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
-import { CLOUD_PREFAB, Cloud, FlagState, Fx, SHIP_PREFAB, SHIP_RADIUS, Ship, bearing, type CloudView, type FlagView, type ShipView } from "../../../samples/pirates/scripts/data";
+import { CLOUD_PREFAB, Cloud, FlagState, Fx, SHIP_PREFAB, SHIP_RADIUS, Ship, bearing, headingRotation, type CloudView, type FlagView, type ShipView } from "../../../samples/pirates/scripts/data";
 import { obstacleList } from "../../../samples/pirates/scripts/systems";
 import "../../../samples/pirates/scripts/client";
 import "../../../samples/pirates/scripts/bots";
@@ -79,7 +79,7 @@ async function botAt(engine: Engine, server: World, from: [number, number], to: 
   const ship = shipIn(server)!;
   const heading = bearing(from[0], from[1], to[0], to[1]);
   ship.node.transform!.position.set(from[0], 0, from[1]);
-  ship.node.transform!.rotation = Quaternion.fromEuler(0, heading, 0);
+  ship.node.transform!.rotation = headingRotation(heading);
   ship.data.heading = heading;
   ship.data.speed = 0;
   ship.data.invulnerable = 0;
@@ -122,9 +122,9 @@ describe("King of Pirates bots on the navmesh", () => {
   // From one side of an obstacle to the other, straight through it: the island in the bay, the wreck in the open
   // ocean, and a rock of the maze's inner ring.
   const cases: { scene: string; from: [number, number]; to: [number, number]; obstacle: [number, number] }[] = [
-    { scene: "island-bay", from: [-16, -10], to: [-16, 34], obstacle: [-16, 12] },
-    { scene: "open-ocean", from: [-28, -50], to: [-28, -10], obstacle: [-28, -30] },
-    { scene: "rocky-maze", from: [24.7, 8], to: [3.8, 1.2], obstacle: [15.2, 4.9] },
+    { scene: "island-bay", from: [-16, 10], to: [-16, -34], obstacle: [-16, -12] },
+    { scene: "open-ocean", from: [-28, 50], to: [-28, 10], obstacle: [-28, 30] },
+    { scene: "rocky-maze", from: [24.7, -8], to: [3.8, -1.2], obstacle: [15.2, -4.9] },
   ];
   for (const c of cases) {
     it(`sails round an obstacle to a goal on its far side in ${c.scene}`, { timeout: 60_000 }, async () => {

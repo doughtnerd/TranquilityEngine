@@ -90,7 +90,7 @@ interface SceneOptions {
 
 function sceneFile(options: SceneOptions) {
   return {
-    format: "myco.scene@1",
+    format: "myco.scene@4",
     ...(options.physics ? { settings: { physics: options.physics } } : {}),
     nodes: [
       { id: "chunk", name: "Chunk", components: [{ type: "engine.NavChunk", data: { bake: `asset:${BAKE}` } }] },
@@ -163,6 +163,23 @@ describe("navigation in the engine (ADR 0065)", () => {
     expect(dist(b.transform.position, [6, 0, -6])).toBeLessThan(1);
     expect(a.remainingDistance).toBeLessThan(1);
     expect(a.mode).toBe("walking");
+  });
+
+  it("faces agents along their velocity: +Z moving +Z, with +X on their right (ADR 0164)", async () => {
+    const { engine } = await setup({ agents: [{ id: "a", position: [-6, 0, -8] }] });
+    const a = agentOf("a");
+    const facing = () => a.transform.localToWorld;
+    a.setDestination([-6, 0, 8]);
+    steps(engine, 90);
+    expect(a.pathState).toBe("following");
+    expect(a.velocity.z).toBeGreaterThan(0.5);
+    expect(facing().forward.z).toBeGreaterThan(0.95);
+    expect(facing().right.x).toBeGreaterThan(0.95);
+    a.setDestination([-6, 0, -8]);
+    stepUntil(engine, () => facing().forward.z < -0.95, 120);
+    expect(a.velocity.z).toBeLessThan(-0.5);
+    expect(facing().forward.z).toBeLessThan(-0.95);
+    expect(facing().right.x).toBeLessThan(-0.95);
   });
 
   it("reports the path, velocity and remaining distance while following", async () => {
@@ -388,7 +405,7 @@ describe("navigation in the engine (ADR 0065)", () => {
 
   it("returns nothing (with a warning) from queries before navigation loads, and starts it for agents added in code", async () => {
     Assets.clearSources();
-    Assets.addSource(Assets.fromObject({ "empty.json": { format: "myco.scene@1", nodes: [] } }));
+    Assets.addSource(Assets.fromObject({ "empty.json": { format: "myco.scene@4", nodes: [] } }));
     const engine = await Engine.create({ headless: true, project: project() });
     engines.push(engine);
     await SceneManager.load("empty.json");

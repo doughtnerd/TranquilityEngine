@@ -33,7 +33,7 @@ const steps = (engine: Engine, n: number) => {
 function box3(name: string, pos: [number, number, number], size: [number, number, number], rotZ = 0) {
   const go = GameObject.create(name);
   go.transform!.position.set(...pos);
-  if (rotZ) go.transform!.eulerAngles = [0, 0, rotZ];
+  if (rotZ) go.transform!.eulerAngles = [0, 0, (rotZ * Math.PI) / 180]; // degrees in, radians to the API
   go.addBehavior(BoxCollider).size.set(...size);
   return go;
 }

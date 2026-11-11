@@ -444,7 +444,8 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
 
   it("spatial play sends the listener-space direction and the distance gain, and a moved listener sends SET_PARAMS", () => {
     const r = rig();
-    r.backend.setListener({ position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } });
+    // Facing engine forward (+Z, ADR 0164): a source at +X is on the right, listener-space +X.
+    r.backend.setListener({ position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } });
     r.frame();
     r.ops();
     const v = r.backend.play({ ...req(), position: { x: 10, y: 0, z: 0 }, attenuation: { minDistance: 1, maxDistance: 100, rolloff: "inverse" } })!;

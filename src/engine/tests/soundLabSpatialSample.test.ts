@@ -90,7 +90,7 @@ describe("the Sound Lab spatial page (ADR 0162 E8)", () => {
     expect(paths).not.toContain("audio/hum-loop.wav");
     // The spatial sources are positioned and keep the default Doppler.
     const radio = fake.voices.find((v) => v.request.path === "audio/music-loop.wav")!;
-    expect(radio.position).toMatchObject({ x: 0, y: 1, z: 12.5 });
+    expect(radio.position).toMatchObject({ x: 0, y: 1, z: -12.5 });
     expect(radio.request.dopplerLevel ?? 1).toBe(1);
     // Audio Debug's Source column: each AudioSource's voice carries its node's name.
     expect(radio.request.owner).toBe("Radio (behind the door)");
@@ -156,12 +156,12 @@ describe("the Sound Lab spatial page (ADR 0162 E8)", () => {
       const v = view(...src);
       const pass = new OcclusionPass(2, engineOcclusionEnvironment());
       const f = new ListenerFrame();
-      f.set(engine!.world, 1, null, { position: { x: 0, y: 1.6, z: listenerZ }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
+      f.set(engine!.world, 1, null, { position: { x: 0, y: 1.6, z: listenerZ }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
       for (let i = 0; i < 400; i++) pass.run(f, v, settings);
       return { v, pass };
     };
 
-    const closed = cast([0, 1, 12.5], 2);
+    const closed = cast([0, 1, -12.5], -2);
     expect(closed.v.gain).toBeCloseTo(db(-12), 2); // the wooden door
     expect(closed.v.lp).toBeLessThan(3000);
     expect(closed.pass.voiceDebug(0)).toMatchObject({ hits: 1, material: "wood" });
@@ -170,13 +170,13 @@ describe("the Sound Lab spatial page (ADR 0162 E8)", () => {
     door.setOpen(true);
     advance(1.2); // the script moves openness to 1 over 0.8 s
     expect(door.node.getComponent(AudioOccluder)!.openness).toBe(1);
-    expect(cast([0, 1, 12.5], 2).v.gain).toBeGreaterThan(0.95);
+    expect(cast([0, 1, -12.5], -2).v.gain).toBeGreaterThan(0.95);
 
     // The curtain between the corridor and the cave: cloth, a little duller.
-    const curtain = cast([0.8, 1, -18], 0);
+    const curtain = cast([0.8, 1, 18], 0);
     expect(curtain.v.gain).toBeCloseTo(db(-4), 2);
     // The walls are concrete but run along the corridor: a listener and a source in the same stretch never cross one (the door and the curtain are behind them).
-    expect(cast([0.8, 1, -6], 2).v.gain).toBe(1);
+    expect(cast([0.8, 1, 6], -2).v.gain).toBe(1);
   });
 
   it("the flyover moves along the corridor at its speed and turns round at the ends", async () => {
@@ -184,11 +184,11 @@ describe("the Sound Lab spatial page (ADR 0162 E8)", () => {
     const fly = GameObject.findObjectOfType(PassBy)!;
     advance(1);
     const z = () => fly.node.transform!.position.z;
-    expect(Math.abs(z() - 10)).toBeLessThan(1);
+    expect(Math.abs(z() + 10)).toBeLessThan(1);
     advance(1.6); // 2.6 s in: 78 m along the 80 m run
-    expect(Math.abs(z() + 38)).toBeLessThan(1.5);
+    expect(Math.abs(z() - 38)).toBeLessThan(1.5);
     advance(0.8); // 3.4 s in: 102 m, so 22 m of the way back
-    expect(Math.abs(z() + 18)).toBeLessThan(1.5);
+    expect(Math.abs(z() - 18)).toBeLessThan(1.5);
   });
   it("key 8 turns the listener a quarter turn about up each press, so four presses make a full turn", async () => {
     await boot("scenes/spatial.scene.json");

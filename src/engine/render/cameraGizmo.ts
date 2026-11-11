@@ -1,6 +1,6 @@
 /**
  * Editor camera gizmo geometry (ADR 0022). Internal: the wireframe of what a scene camera sees,
- * in the camera's local space (looking down -Z), as line-segment vertex pairs. Kept free of the
+ * in the camera's local space (looking along +Z), as line-segment vertex pairs. Kept free of the
  * renderer so it can be tested headless.
  */
 
@@ -33,7 +33,7 @@ export function frustumCorners(shape: FrustumShape, maxDepth = GIZMO_MAX_DEPTH):
   };
   const rect = (d: number): [number, number, number][] => {
     const [w, h] = halfAt(d);
-    return [[-w, -h, -d], [w, -h, -d], [w, h, -d], [-w, h, -d]];
+    return [[-w, -h, d], [w, -h, d], [w, h, d], [-w, h, d]];
   };
   return [...rect(near), ...rect(far)];
 }

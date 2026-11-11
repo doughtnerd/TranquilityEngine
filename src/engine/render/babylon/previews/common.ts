@@ -48,10 +48,9 @@ export async function createPreviewEngine(canvas: HTMLCanvasElement, antialias =
   return new Engine(canvas, antialias, { adaptToDeviceRatio: false, alpha: true, preserveDrawingBuffer: true });
 }
 
-/** A right-handed scene (the engine's convention, ADR 0014) that clears to transparent. */
+/** A scene in Babylon's default left-handed mode (the engine's convention, ADR 0164) that clears to transparent. */
 export function createPreviewScene(engine: AbstractEngine): Scene {
   const scene = new Scene(engine);
-  scene.useRightHandedSystem = true;
   scene.autoClear = true;
   scene.clearColor = new Color4(0, 0, 0, 0);
   return scene;
@@ -63,7 +62,7 @@ export function addPreviewLights(scene: Scene, ambient: number, sun: number): { 
   hemi.intensity = ambient;
   hemi.groundColor = new Color3(1, 1, 1); // three's AmbientLight: the same from every direction
   hemi.specular = Color3.Black();
-  const light = new DirectionalLight("preview.sun", new Vector3(-4, -10, -6).normalize(), scene);
+  const light = new DirectionalLight("preview.sun", new Vector3(-4, -10, 6).normalize(), scene);
   light.intensity = sun;
   return { ambient: hemi, sun: light };
 }
@@ -140,10 +139,10 @@ export function ensureCanvasSize(engine: AbstractEngine, w: number, h: number): 
 
 /**
  * The rotation that puts a camera at `eye` looking at `target`, +Y up, as the engine's cameras look
- * (down -Z): the quaternion of the basis the engine's world matrices decompose to.
+ * (along +Z): the quaternion of the basis the engine's world matrices decompose to.
  */
 export function lookAtRotation(eye: readonly number[], target: readonly number[]): Quaternion {
-  const z = new Vector3(eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]);
+  const z = new Vector3(target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]);
   if (z.lengthSquared() < 1e-12) z.set(0, 0, 1);
   z.normalize();
   let x = Vector3.Cross(Vector3.Up(), z);

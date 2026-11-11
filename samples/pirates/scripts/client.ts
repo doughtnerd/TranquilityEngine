@@ -3,7 +3,7 @@
 // a cloud when this client can still see them), carry the flag above its holder, bob power-ups,
 // thin out fading clouds, mark the arena's edge on the water, and play the effects the server
 // reports.
-import { Audio, Camera, Color, GameObject, Input, MeshRenderer, ParticleSystem, Plane, Quaternion, Replicated, Transform, Vector3, Water, defineSystem } from "myco";
+import { Audio, Camera, Color, GameObject, Input, Mathf, MeshRenderer, ParticleSystem, Plane, Quaternion, Replicated, Transform, Vector3, Water, defineSystem } from "myco";
 import {
   BOLT_PREFAB,
   Battery,
@@ -134,19 +134,20 @@ defineSystem({
       if (fogged) sails.a = FOG_SAILS_ALPHA;
       tint(visual.find("Sails")?.getBehavior(MeshRenderer), sails);
       const at = (lx: number, lz: number) => {
-        const w = row.transform.localToWorld({ x: lx, y: 0, z: lz });
+        const w = row.transform.localToWorld.transformPoint({ x: lx, y: 0, z: lz });
         return Water.sample(w.x, w.z)?.height ?? 0;
       };
       const bow = at(0, HULL_HALF_LENGTH), stern = at(0, -HULL_HALF_LENGTH);
-      const port = at(HULL_HALF_WIDTH, 0), star = at(-HULL_HALF_WIDTH, 0);
+      const port = at(-HULL_HALF_WIDTH, 0), star = at(HULL_HALF_WIDTH, 0);
       let y = (bow + stern + port + star) / 4 - 0.1;
-      let pitch = (Math.atan2(stern - bow, HULL_HALF_LENGTH * 2) * 180) / Math.PI;
-      let roll = ((Math.atan2(port - star, HULL_HALF_WIDTH * 2) * 180) / Math.PI) * 0.6;
+      // Radians: a positive pitch dips the bow (+Z), a positive roll lifts starboard (+X).
+      let pitch = Math.atan2(stern - bow, HULL_HALF_LENGTH * 2);
+      let roll = Math.atan2(star - port, HULL_HALF_WIDTH * 2) * 0.6;
       if (ship.sunk > 0) {
         const t = RESPAWN_DELAY - ship.sunk;
         y -= t * t * 0.35;
-        pitch -= Math.min(30, t * 12);
-        roll += Math.min(20, t * 6);
+        pitch -= Math.min(30, t * 12) * Mathf.Deg2Rad;
+        roll -= Math.min(20, t * 6) * Mathf.Deg2Rad;
       }
       visual.transform.position.set(0, y, 0);
       visual.transform.rotation = Quaternion.fromEuler(pitch, 0, roll);
@@ -187,7 +188,7 @@ defineSystem({
         const p = row.transform.position;
         if (visual) {
           visual.position.set(0, (Water.sample(p.x, p.z)?.height ?? 0) + 0.5 + Math.sin(now * 3 + p.x) * 0.15, 0);
-          visual.rotation = Quaternion.fromEuler(0, now * 60, 0);
+          visual.rotation = Quaternion.fromEuler(0, -now * 60 * Mathf.Deg2Rad, 0);
         }
         continue;
       }
@@ -257,8 +258,8 @@ function buildEdge(radius: number): Edge {
   const length = ((2 * Math.PI * radius) / count) * 0.8;
   for (let i = 0; i < count; i++) {
     const a = (i / count) * Math.PI * 2;
-    const x = Math.sin(a) * radius, z = Math.cos(a) * radius;
-    const yaw = (a * 180) / Math.PI;
+    const x = Math.sin(a) * radius, z = -Math.cos(a) * radius;
+    const yaw = Math.PI - a;
     const float = GameObject.create(`Float ${i + 1}`, { parent: root });
     float.transform!.position.set(x, 0, z);
     float.transform!.rotation = Quaternion.fromEuler(0, yaw, 0);
