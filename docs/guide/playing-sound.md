@@ -20,7 +20,7 @@ Audio.playOneShot("sfx/cannon.wav", {
   dopplerLevel: 1,                                       // with position: opt in to the pitch shift of a moving sound (default 0)
   occlusion: true, reverbSend: 1,                        // with position: walls and reverb zones (the defaults)
   lowpass: 4000, highpass: 80,                           // Hz, any sound; the lowest low-pass wins
-  yaw: 90,                                               // ambisonic clips: degrees
+  yaw: 90,                                               // ambisonic clips: degrees, positive turns right
 });
 ```
 
@@ -56,7 +56,7 @@ Add an `AudioSource` component to a node and pick its `clip`, or drag an audio f
 | `occlusion` | On (default): walls between the sound and the listener muffle it ([Spatial audio](spatial-audio.md#occlusion-and-materials)) |
 | `dopplerLevel` | 0 to 5, default 1: how much a moving source or listener shifts the pitch; 0 is off |
 | `reverbSend`, `reverbSendCurve` | How much goes to the reverb zones that hold the source (0 to 2, default 1), and how that changes with distance |
-| `ambisonicYaw` | Ambisonic clips: turns the recording about the vertical axis, degrees |
+| `ambisonicYaw` | Ambisonic clips: turns the recording about the vertical axis, degrees, positive to the right (clockwise seen from above) |
 
 ```ts
 const source = this.node.getBehavior(AudioSource)!;
@@ -111,4 +111,4 @@ The audio core is the default. The Babylon fallback plays instead when you set `
 
 ## Testing and tuning
 
-`Audio.debug()` returns a copy of the audio state: status, buses with their peaks, and every playing sound. In the editor, the **Audio Debug** panel (Window menu) shows the same while the game plays. See [Why is there no sound?](why-no-sound.md).
+`Audio.debug()` returns a copy of the audio state: status, buses with their peaks, and every playing sound. In the editor, the **Audio Debug** panel (Window menu) shows the same while the game plays. Its voice table names the node whose AudioSource plays each sound (**Source**; `-` for one-shots and event voices) beside the clip, and shows how each is placed (**Panner**: `hrtf`, `bed`, `ambisonic`, `equalPower` or `flat`). See [Why is there no sound?](why-no-sound.md).

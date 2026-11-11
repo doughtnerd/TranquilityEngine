@@ -175,6 +175,8 @@ export interface Attenuation {
 }
 
 export interface PlayRequest {
+  /** The name of the node that plays it, for debug tools only (Audio Debug's Source column); absent for one-shots and events. */
+  owner?: string;
   /** Asset path (no `asset:` prefix). */
   path: string;
   url: string;
@@ -212,7 +214,7 @@ export interface PlayRequest {
   reverbSendCurve?: SendCurve;
   /** §1.6, §2.4: the clip is ambisonic (its sidecar says so); spatial fields, occlusion and Doppler are ignored. */
   ambisonic?: boolean;
-  /** §1.2 `ambisonicYaw` / §1.3 `yaw`: degrees, -180..180, positive to the left seen from above. */
+  /** §1.2 `ambisonicYaw` / §1.3 `yaw`: degrees, -180..180, positive to the right (clockwise seen from above, ADR 0164). */
   yaw?: number;
   /** §1.3, §2.5 `filter`: per-voice low-pass and high-pass, Hz (10..24000; lowpass ≥ 20000 and highpass ≤ 20 are off). */
   filter?: { lowpass?: number; highpass?: number };
@@ -229,7 +231,7 @@ export interface VoiceSpatialOptions {
   dopplerLevel?: number;
   reverbSend?: number;
   reverbSendCurve?: SendCurve;
-  /** Degrees, -180..180 (ambisonic clips). */
+  /** Degrees, -180..180, positive to the right (ambisonic clips). */
   yaw?: number;
 }
 

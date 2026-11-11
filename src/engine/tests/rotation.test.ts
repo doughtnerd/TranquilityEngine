@@ -238,13 +238,14 @@ describe("scene format 4: Unity's coordinates (ADR 0164)", () => {
             { type: "engine.HingeJoint", data: { anchor: [0, 1, 2], axis: [0, 0, 1], limits: [-30, 30] } },
             { type: "engine.WaterSurface", data: { waves: [{ direction: 30, amplitude: 1 }] } },
             { type: "game.Thing", data: { center: [0, 0, 5] } },
+            { type: "engine.AudioSource", data: { clip: "asset:amb.wav", ambisonicYaw: 30, minDistance: 2 } },
           ],
         },
         { id: "i", prefab: "p.json", overrides: [{ component: "engine.Transform", field: "position", value: [0, 0, 7] }, { component: "engine.AudioReverbZone", field: "center", value: [1, 1, 1] }] },
       ],
     };
     const out = migrateToUnityCoordinates(structuredClone(v3));
-    const [t, box, hinge, water, game] = out.nodes[0].components!;
+    const [t, box, hinge, water, game, source] = out.nodes[0].components!;
     expect(t.data!.position).toEqual([1, 2, -3]);
     expect(t.data!.scale).toEqual([1, 2, 3]);
     // The same picture: a point the old rotation sent to p now goes to p with z negated.
@@ -254,6 +255,9 @@ describe("scene format 4: Unity's coordinates (ADR 0164)", () => {
     expect(hinge.data).toEqual({ anchor: [0, 1, -2], axis: [0, 0, -1], limits: [-30, 30] });
     expect(water.data).toEqual({ waves: [{ direction: -30, amplitude: 1 }] });
     expect(game.data).toEqual({ center: [0, 0, 5] }); // script fields aren't known here
+    // An ambisonic clip's yaw turned left for +30 then; +30 now turns right, so the same sound is -30.
+    expect(source.data).toEqual({ clip: "asset:amb.wav", ambisonicYaw: -30, minDistance: 2 });
+    expect(mirrorField("engine.AudioSource", "ambisonicYaw", -180)).toBe(180);
     expect(out.nodes[1].overrides![0].value).toEqual([0, 0, -7]);
     expect(out.nodes[1].overrides![1].value).toEqual([1, 1, -1]);
     expect(mirrorField("engine.Transform", "rotation", [0, 0, 0.6, 0.8])).toEqual([0, 0, 0.6, 0.8]); // 2D turns unchanged

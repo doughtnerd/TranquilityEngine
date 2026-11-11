@@ -57,11 +57,12 @@ test("the Audio Debug panel is empty while editing and shows the Beds, Zones, Oc
 
   // The voices table has the M3 columns, and the emitter's occlusion cell names what the wall does (not "open").
   const voices = panel(page).getByRole("table", { name: "Voices" });
-  for (const column of ["Panner", "Doppler", "Occlusion", "Low-pass", "Sends"]) await expect(voices.getByRole("columnheader", { name: column })).toBeVisible();
+  for (const column of ["Source", "Panner", "Doppler", "Occlusion", "Low-pass", "Sends"]) await expect(voices.getByRole("columnheader", { name: column })).toBeVisible();
   const row = voices.locator("tbody tr", { hasText: "music/foo.mp3" });
+  await expect(row.locator("td").nth(0)).toHaveText("Emitter"); // Source: the node playing it
   await expect(row).toContainText("hrtf");
   await expect(row).toContainText("(occlusion)"); // the low-pass reads "800 Hz (occlusion)"-like
-  await expect(row.locator("td").nth(7)).not.toHaveText("open");
+  await expect(row.locator("td").nth(8)).not.toHaveText("open"); // Source, Clip, Bus, State, Priority, Gain, Panner, Doppler, Occlusion
 });
 
 test("the occlusion overlay draws rays in the game view while the panel's toggle is on", async ({ page }) => {

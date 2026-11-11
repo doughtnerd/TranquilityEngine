@@ -45,7 +45,7 @@ export interface OneShotOptions {
   lowpass?: number;
   /** High-pass cutoff, Hz (10..24000; 20 and below is none). */
   highpass?: number;
-  /** Ambisonic clips: turns the recording about the vertical axis, degrees (-180..180), positive to the left seen from above. */
+  /** Ambisonic clips: turns the recording about the vertical axis, degrees (-180..180), positive to the right (clockwise seen from above, ADR 0164). */
   yaw?: number;
 }
 
