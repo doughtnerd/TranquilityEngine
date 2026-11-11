@@ -8,3 +8,51 @@ node v22.23.4 wasm (+simd128), 7 runs x 20000 quanta per case, clock pair overhe
   m1_real_1.8s                 p50     19.2 us  p99.9    106.6  max   2892.4
   zones_1x2s_unstaggered       p50     20.1 us  p99.9    112.9  max   1532.3
   zones_1x2s_staggered         p50     19.5 us  p99.9    149.3  max   3393.4
+  zones_2x2s_unstaggered       p50     40.4 us  p99.9    218.3  max   4107.1
+  zones_2x2s_staggered         p50     48.6 us  p99.9    223.4  max   8192.1
+  zones_4x2s_unstaggered       p50     94.0 us  p99.9    516.6  max  16691.3
+  zones_4x2s_staggered         p50    106.3 us  p99.9    522.8  max  15386.9
+  zones_4x2s_unique            p50    121.0 us  p99.9    725.9  max  29694.9
+  zones_8x2s_unstaggered       p50    256.4 us  p99.9   1174.5  max   5432.0
+  zones_8x2s_staggered         p50    262.7 us  p99.9    908.5  max  31981.7
+  zones_8x2s_unique            p50    224.6 us  p99.9   1038.7  max  10709.0
+  zones_1x4s_unstaggered       p50     30.3 us  p99.9    122.9  max   1084.8
+  zones_1x4s_staggered         p50     33.2 us  p99.9    131.8  max   3270.2
+  zones_2x4s_unstaggered       p50     65.4 us  p99.9    502.5  max  33963.3
+  zones_2x4s_staggered         p50     65.7 us  p99.9    260.2  max  11255.7
+  zones_4x4s_unstaggered       p50    153.6 us  p99.9   1034.6  max   8522.3
+  zones_4x4s_staggered         p50    156.2 us  p99.9    605.4  max   4401.9
+  zones_4x4s_unique            p50    177.7 us  p99.9    594.9  max   4424.2
+  zones_8x4s_unstaggered       p50    356.7 us  p99.9   1485.6  max   8665.4
+  zones_8x4s_staggered         p50    396.5 us  p99.9   1549.0  max   8807.6
+  zones_8x4s_unique            p50    323.3 us  p99.9   1768.6  max   6741.1
+  blend_2x2s_unstaggered       p50     39.7 us  p99.9    243.4  max   3984.6
+  blend_2x2s_staggered         p50     46.8 us  p99.9    215.2  max   5792.8
+  blend_2x4s_unstaggered       p50     65.3 us  p99.9    337.0  max   4021.3
+  blend_2x4s_staggered         p50     67.6 us  p99.9    311.2  max   4078.3
+  prep_atonce_1s               p50   1411.0 us  p99.9   3694.3  max   4814.3
+  prep_atonce_2s               p50   2869.3 us  p99.9   7177.8  max  10770.9
+  prep_atonce_4s               p50   5847.5 us  p99.9  13064.8  max  21736.3
+  prep_spread_1s_u1            p50     32.5 us  p99.9    175.8  max   3112.3
+  prep_spread_1s_u2            p50     38.3 us  p99.9    182.1  max   1636.6
+  prep_spread_1s_u4            p50     63.4 us  p99.9    456.7  max   6048.6
+  prep_spread_2s_u1            p50     43.1 us  p99.9    188.2  max   4265.6
+  prep_spread_2s_u2            p50     67.6 us  p99.9    273.2  max   5899.3
+  prep_spread_2s_u4            p50    104.2 us  p99.9    336.0  max   5322.5
+  prep_spread_4s_u1            p50     55.6 us  p99.9    276.8  max   2609.8
+  prep_spread_4s_u2            p50     79.9 us  p99.9    266.6  max   9973.9
+  prep_spread_4s_u4            p50    130.6 us  p99.9    395.3  max   5247.9
+  event_16_route_only          p50      4.9 us  p99.9     49.0  max    322.6
+  event_16_filter              p50     18.3 us  p99.9     79.3  max   2857.3
+  event_16_filter_send         p50     18.5 us  p99.9     84.9  max   4272.4
+  event_16_filter_send_auto    p50     19.5 us  p99.9     77.4  max   2122.1
+  event_64_route_only          p50     21.9 us  p99.9    170.9  max   2174.3
+  event_64_filter              p50     73.8 us  p99.9    292.8  max   4766.1
+  event_64_filter_send         p50     76.1 us  p99.9    288.1  max   5193.5
+  event_64_filter_send_auto    p50     77.1 us  p99.9    437.3  max   9226.3
+  event_256_route_only         p50     98.6 us  p99.9    360.9  max   4193.1
+  event_256_filter             p50    315.2 us  p99.9   1039.8  max   4498.4
+  event_256_filter_send        p50    325.1 us  p99.9   1058.2  max   9631.5
+  event_256_filter_send_auto   p50    347.1 us  p99.9   1156.5  max  20193.3
+wrote results/wasm-node.json
+wasm sizes: probe_empty.wasm 18778 B, probe_m1.wasm 38827 B, probe_zone.wasm 45680 B, convolution_spike.wasm 211157 B
