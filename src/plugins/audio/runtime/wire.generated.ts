@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "e48724d2fa897fcebfc2beb1f6dda396";
+export const SCHEMA_HASH = "fbd70d16eedae8ed34006df376d6976c";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -56,8 +56,8 @@ export const HRIR_CLIP_ID_LAST = 0xffff00ff;
 export const CLIP_ID_RESERVED_FIRST = 0xffff0000;
 /** stream ring size (section 5) */
 export const STREAM_RING_FRAMES = 0x8000;
-/** wide (3-16 channel) stream ring size (ADR 0162 R16, §5.2) */
-export const STREAM_RING_FRAMES_WIDE = 0x4000;
+/** wide (3-16 channel) stream ring size (ADR 0162 R16, §5.2; 32,768 after B4's 300 ms stall test failed at 16,384) */
+export const STREAM_RING_FRAMES_WIDE = 0x8000;
 /** frames per chunk of a wide stream (128 KB at 16 channels) */
 export const STREAM_WIDE_CHUNK_FRAMES = 0x800;
 /** most channels of a stream (STREAM_OPEN) */

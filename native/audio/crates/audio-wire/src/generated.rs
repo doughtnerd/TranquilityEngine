@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: e48724d2fa897fcebfc2beb1f6dda396).
+/// First 16 bytes of the schema's SHA-256 (hex: fbd70d16eedae8ed34006df376d6976c).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0xe4,
-    0x87,
-    0x24,
-    0xd2,
-    0xfa,
-    0x89,
-    0x7f,
-    0xce,
-    0xbf,
-    0xc2,
-    0xbe,
-    0xb1,
-    0xf6,
-    0xdd,
-    0xa3,
-    0x96,
+    0xfb,
+    0xd7,
+    0x0d,
+    0x16,
+    0xee,
+    0xda,
+    0xe8,
+    0xed,
+    0x34,
+    0x00,
+    0x6d,
+    0xf3,
+    0x76,
+    0xd6,
+    0x97,
+    0x6c,
 ];
-pub const SCHEMA_HASH_HEX: &str = "e48724d2fa897fcebfc2beb1f6dda396";
+pub const SCHEMA_HASH_HEX: &str = "fbd70d16eedae8ed34006df376d6976c";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -73,8 +73,8 @@ pub const HRIR_CLIP_ID_LAST: u32 = 0xffff00ff;
 pub const CLIP_ID_RESERVED_FIRST: u32 = 0xffff0000;
 /// stream ring size (section 5)
 pub const STREAM_RING_FRAMES: u32 = 0x8000;
-/// wide (3-16 channel) stream ring size (ADR 0162 R16, §5.2)
-pub const STREAM_RING_FRAMES_WIDE: u32 = 0x4000;
+/// wide (3-16 channel) stream ring size (ADR 0162 R16, §5.2; 32,768 after B4's 300 ms stall test failed at 16,384)
+pub const STREAM_RING_FRAMES_WIDE: u32 = 0x8000;
 /// frames per chunk of a wide stream (128 KB at 16 channels)
 pub const STREAM_WIDE_CHUNK_FRAMES: u32 = 0x800;
 /// most channels of a stream (STREAM_OPEN)

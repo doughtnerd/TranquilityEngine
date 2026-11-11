@@ -275,7 +275,6 @@ fn stall_run(phase_quanta: usize) -> (usize, u64) {
 /// ≈ 12,300 frames buffered (256 ms) and runs dry. Measured results are in the B4 report; the
 /// test passes once `STREAM_RING_FRAMES_WIDE` is 32,768 (the coordinator regenerates the wire).
 #[test]
-#[ignore = "R16: fails with the 16,384-frame wide ring at some phases (see the B4 report); the ring becomes 32,768"]
 fn a_300_ms_decoder_stall_never_starves_the_wide_ring() {
     let period = (CREDIT_EVERY as usize).div_ceil(QUANTUM);
     let mut worst = u64::MAX;

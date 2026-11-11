@@ -728,7 +728,7 @@ mod tests {
     }
 
     #[test]
-    fn wide_chunks_are_2048_frames_at_most_wrap_and_keep_within_16384() {
+    fn wide_chunks_are_2048_frames_at_most_wrap_and_keep_within_the_window() {
         let mut s = stores(0, 1);
         assert!(s.open(&open_rec(1, 16, 1)));
         let ch = 16;
@@ -748,8 +748,8 @@ mod tests {
             }
             s.ring_mut(0).consumed = total.saturating_sub(12_000);
         }
-        // The window: 16,384 frames unconsumed at most.
-        s.ring_mut(0).consumed = total - 14_000;
+        // The window: STREAM_RING_FRAMES_WIDE (32,768, R16) frames unconsumed at most.
+        s.ring_mut(0).consumed = total - 30_000;
         assert_eq!(write(&mut s, 1, &vec![0.0; 2_048 * ch], ch, 1, 0), wire::ERR_OK);
         assert_eq!(write(&mut s, 1, &vec![0.0; 1_000 * ch], ch, 1, 0), wire::ERR_OVERSIZE);
     }

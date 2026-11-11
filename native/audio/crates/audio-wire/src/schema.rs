@@ -80,7 +80,7 @@ pub const CONSTANTS: &[Const] = &[
     c!("HRIR_CLIP_ID_LAST", 0xFFFF_00FFu32, "reserved clip ids for format = 2"),
     c!("CLIP_ID_RESERVED_FIRST", 0xFFFF_0000u32, "ids from here up are not allocated to ordinary clips"),
     c!("STREAM_RING_FRAMES", 32768, "stream ring size (section 5)"),
-    c!("STREAM_RING_FRAMES_WIDE", 16384, "wide (3-16 channel) stream ring size (ADR 0162 R16, §5.2)"),
+    c!("STREAM_RING_FRAMES_WIDE", 32768, "wide (3-16 channel) stream ring size (ADR 0162 R16, §5.2; 32,768 after B4's 300 ms stall test failed at 16,384)"),
     c!("STREAM_WIDE_CHUNK_FRAMES", 2048, "frames per chunk of a wide stream (128 KB at 16 channels)"),
     c!("STREAM_MAX_CHANNELS", 16, "most channels of a stream (STREAM_OPEN)"),
     c!("MAX_BEDS", 4, "most bed slots (BED_CONFIG slotCount, STATUS beds)"),

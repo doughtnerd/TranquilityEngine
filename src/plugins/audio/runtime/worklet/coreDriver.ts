@@ -99,7 +99,7 @@ function bedsRegionBytes(slots: number, sampleRate: number): number {
 }
 /** `stream::FADE_TAIL_FRAMES`. */
 const FADE_TAIL_FRAMES = 1_536;
-/** `stream::WIDE_RING_BYTES`: 16 × (16,384 + 2,048 + 1,536) × 4 B. */
+/** `stream::WIDE_RING_BYTES`: 16 × (32,768 + 2,048 + 1,536) × 4 B (R16 after B4's stall test). */
 const WIDE_RING_BYTES = STREAM_MAX_CHANNELS * (STREAM_RING_FRAMES_WIDE + STREAM_WIDE_CHUNK_FRAMES + FADE_TAIL_FRAMES) * 4;
 /** `fxpool::FX_ENTRY_BYTES`. */
 const FX_ENTRY_BYTES = 448;

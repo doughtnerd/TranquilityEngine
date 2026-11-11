@@ -842,7 +842,7 @@ fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut Vo
     }
     let stopping = slot.flags & flag::STOP_ON_FADE_END != 0;
     let ch = ring.tail_channels.max(1) as usize;
-    let tail = &samples[TAIL_OFFSET..];
+    let tail = crate::stream::tail(samples); // B4: the tail sits at a different offset in a wide ring
     let len = ring.tail_len as u64;
     let t0 = ring.tail_frame0 as f64;
     let mut n = to - from;
