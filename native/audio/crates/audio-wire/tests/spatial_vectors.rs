@@ -66,6 +66,7 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("SET_PARAMS_bed_panner2", "SET_PARAMS"),
     ("ZONE_KERNEL_HEADER", "ZONE_KERNEL_HEADER"),
     ("MAGLS_HEADER", "MAGLS_HEADER"),
+    ("STATUS_adr0162_sections", "STATUS"),
 ];
 
 fn named(name: &str) -> VectorCase {
@@ -426,6 +427,7 @@ fn read_any(kind: &str, buf: &[u8], base: usize) -> Result<usize, i32> {
         "SET_PARAMS" => SetParams::read(buf, base).map(|(_, n)| n),
         "ZONE_KERNEL_HEADER" => ZoneKernelHeader::read(buf, base).map(|(_, n)| n),
         "MAGLS_HEADER" => MaglsHeader::read(buf, base).map(|(_, n)| n),
+        "STATUS" => StatusBlock::read(buf, base).map(|(_, n)| n),
         other => panic!("no reader for {other}"),
     }
 }
@@ -439,6 +441,7 @@ fn fuzz_m3_records_never_panic() {
     let templates: Vec<(&str, Vec<u8>)> = TEMPLATES.iter().map(|&(name, kind)| (kind, bytes(&named(name)))).collect();
     let mut rng = Lcg(0x5eed_1234);
     let (mut ok, mut refused) = (0u32, 0u32);
+    let mut status_refused = 0u32;
 
     for _ in 0..1_000 {
         let (kind, template) = &templates[rng.below(templates.len() as u32) as usize];
@@ -487,6 +490,18 @@ fn fuzz_m3_records_never_panic() {
                     put_u32(&mut buf, 20 + 4 * rng.below(6) as usize, 0x7FC0_0000 | (rng.next() & 0x3F_FFFF));
                 }
             }
+            "STATUS" => {
+                // A bodyBytes shorter than the header, or past the buffer, or a section count past
+                // its cap (beds at 114, zoneEventCount at 124, zoneSlots at 128).
+                match rng.below(3) {
+                    0 => put_u32(&mut buf, 12, rng.below(200)),
+                    1 => put_u32(&mut buf, 12, rng.next()),
+                    _ => {
+                        let at = [114usize, 124, 128][rng.below(3) as usize];
+                        buf[at..at + 2].copy_from_slice(&(rng.below(40) as u16).to_le_bytes());
+                    }
+                }
+            }
             _ => {}
         }
         // Truncation.
@@ -506,11 +521,15 @@ fn fuzz_m3_records_never_panic() {
             }
             Err(code) => {
                 assert!((ERR_MALFORMED..=ERR_NOT_IMPLEMENTED).contains(&code), "{kind}: unexpected code {code}");
+                if *kind == "STATUS" {
+                    status_refused += 1;
+                }
                 refused += 1;
             }
         }
     }
     assert!(ok > 0 && refused > 0, "the fuzz exercised neither outcome: ok {ok}, refused {refused}");
+    assert!(status_refused > 0, "the fuzz refused no STATUS");
 }
 
 /// STATUS worst case (api-and-models §4.3): every section at its cap (ended, demoted, starved 1,024;
