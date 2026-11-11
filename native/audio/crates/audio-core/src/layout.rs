@@ -261,9 +261,10 @@ mod tests {
         assert_eq!(beds, crate::bed::region_bytes(&p));
         assert!(beds > 3 * 48 * 1024 && beds < 320 * 1024, "2 beds and 1 private decoder: {beds}");
         assert_eq!(m3.region(RegionKind::Zones).len, 3 * crate::zones::slot_state_bytes(96_000) + 32 * 1024 + 64);
-        assert_eq!(m3.region(RegionKind::Wide).len, 16 * (16_384 + 2_048 + 1_536) * 4);
+        // R16: 32,768-frame wide rings after B4's 300 ms stall test failed at 16,384 (2.22 MiB, §3.1).
+        assert_eq!(m3.region(RegionKind::Wide).len, 16 * (32_768 + 2_048 + 1_536) * 4);
         let wide_mib = m3.region(RegionKind::Wide).len as f64 / (1 << 20) as f64;
-        assert!((wide_mib - 1.22).abs() < 0.01, "{wide_mib} MiB");
+        assert!((wide_mib - 2.22).abs() < 0.01, "{wide_mib} MiB");
         assert!(m3.region(RegionKind::Arena).offset > m2.region(RegionKind::Arena).offset);
     }
 

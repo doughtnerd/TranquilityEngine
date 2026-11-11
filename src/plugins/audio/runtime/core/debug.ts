@@ -5,6 +5,7 @@ import type { AudioBackground, AudioDebugInfo, AudioStatus } from "../backend";
 import type { Mixer } from "../../../../engine/audio/mixer";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
+import type { BedPlanner } from "./beds";
 import type { StatusMirror } from "./mirror";
 import type { PlayheadTracker } from "./replay";
 import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
@@ -26,7 +27,7 @@ export interface DebugSource {
   readonly table: VoiceTable;
   readonly clips: { info(id: number): ClipInfo | null };
   /** B3: the stream voices' clip info (asset and rate) and counts; absent in hand-built sources. */
-  readonly streams?: { clipInfo(id: number): ClipInfo | null; readonly size: number; readonly stats: { readonly starves: number; readonly errors: number; readonly coreErrors: number } };
+  readonly streams?: { clipInfo(id: number): ClipInfo | null; readonly size: number; readonly stats: { readonly starves: number; readonly errors: number; readonly coreErrors: number; readonly wideStarved?: number } };
   readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings">;
   readonly lockedQueue: { readonly size: number; readonly droppedCount: number };
   /**
@@ -43,8 +44,12 @@ export interface DebugSource {
   readonly hrtfReady: boolean;
   /** H3: STATUS `hrtfLoadFailure` with main's fetch failure (1); absent in hand-built sources (STATUS's alone). */
   readonly hrtfLoadFailure?: number;
-  /** H3: voices main flags for HRTF this frame (at most `voices.hrtf`); absent in hand-built sources. */
-  readonly hrtf?: { readonly count: number };
+  /** H3: voices main flags for HRTF this frame (at most `voices.hrtf`); absent in hand-built sources. A5 adds the bed's. */
+  readonly hrtf?: { readonly count: number; readonly bedCount?: number; readonly bedSwitches?: number };
+  /** ADR 0162 (A5): the bed planner (`beds.ts`); absent in hand-built sources. Nothing is reported while no bed is laid out. */
+  readonly beds?: Pick<BedPlanner, "maxBeds" | "counters" | "debug" | "busDebug">;
+  /** ADR 0162 (A5): the MagLS loader's failure (`bedFilterLoadFailure`); absent in hand-built sources. */
+  readonly maglsFailed?: boolean;
   /** A3.4b: the background controller's counters (§8 `backgroundEnters`, `interruptions`); absent without one. */
   readonly health?: { readonly backgroundEnters: number; readonly interruptions: number } | null;
   /** A3.4b: whether the page is hidden. */
@@ -136,6 +141,8 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       peakR: b < m.peakCount ? m.peakR[b]! : 0,
       voices: table.busLive[b] ?? 0,
       maxVoices: settingsBuses[b]?.maxVoices ?? null,
+      // ADR 0162 (A5): the bed rows, once a bed is laid out.
+      ...(backend.beds && backend.beds.maxBeds > 0 ? backend.beds.busDebug(b) : {}),
     };
   });
 
@@ -211,12 +218,37 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       hrtfVoices: m.hrtfVoices,
       // H3: 2 the core found the table invalid, 1 its fetch failed (main), 0 none.
       hrtfLoadFailure: backend.hrtfLoadFailure ?? m.hrtfLoadFailure,
+      ...bedCounters(backend),
+      // ADR 0162 B4 (C24): starves of wide (ambisonic) streams, from STATUS stream events.
+      ...(backend.streams?.stats.wideStarved !== undefined ? { wideStarved: backend.streams.stats.wideStarved } : {}),
     },
     buses,
     voices,
+    ...bedRows(backend),
     // `backend` names the backend the way babylonBackend does, so the panel can show it for either.
     core: { backend: "core", hrtfReady: backend.hrtfReady, ...hrtf(backend), ...timing(backend), ...hostHealth(backend), ...health(backend), ...streamHealth(backend), ...automation(backend) },
   };
+}
+
+/** ADR 0162 (A5, C24): the bed counters (`bedVoices`, `beds`, `bedsRefused` from STATUS; `bedDenied`, `bedSwitches`, `bedFilterLoadFailure` main's), once a bed is laid out. */
+function bedCounters(backend: DebugSource): Record<string, number> {
+  const planner = backend.beds;
+  if (!planner || planner.maxBeds <= 0) return {};
+  const m = backend.mirror;
+  return {
+    bedVoices: m.bedVoices,
+    beds: m.bedCount,
+    bedDenied: planner.counters.bedDenied,
+    bedsRefused: m.bedsRefused,
+    bedSwitches: backend.hrtf?.bedSwitches ?? 0,
+    bedFilterLoadFailure: backend.maglsFailed ? 1 : 0,
+  };
+}
+
+/** ADR 0162 (A5): `AudioDebugInfo.beds` (one row per hosted slot), left out while no bed is laid out. */
+function bedRows(backend: DebugSource): { beds?: NonNullable<AudioDebugInfo["beds"]> } {
+  const rows = backend.beds?.debug(backend.mirror);
+  return rows ? { beds: rows } : {};
 }
 
 /** ADR 0158 (E3.1): curves defined, voices with bindings or a loop, and resync records still waiting, for `core`. */

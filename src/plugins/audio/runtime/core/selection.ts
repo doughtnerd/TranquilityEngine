@@ -28,7 +28,7 @@
 //   more than its limit after a `setBus`, a remap or a lower limit (lowest priority, then lowest audibility).
 //
 // Changes go to a `SelectionSink` (the backend writes SET_MIXED and STOP); the table's `state` and `reason` follow at
-// once. The nearest-N ordering (`rankTop`) is kept separate: H3's HRTF assignment (`hrtfPick.ts`: the top
+// once. The nearest-N ordering (`rankTop`) is kept separate: H3's HRTF assignment (`pannerPick.ts`: the top
 // `voices.hrtf` mixed spatial voices by audibility, with the same 1.2x hysteresis) reuses it with its own flag, after
 // `run`, reading the `audibility` this pass stores.
 //

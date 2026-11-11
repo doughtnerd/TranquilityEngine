@@ -10,7 +10,7 @@
 // and stream errors. Streams are not carried over to a respawned worker: a worker that dies (or is refused) fails its
 // open streams, an error each (the stream manager stops each voice with a fade and one warning), and the next worker
 // bumps `generation`, so the caller connects it to the worklet again (which closes the dead worker's rings there).
-import type { AmbisonicConvention, ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, StreamClosedMessage, StreamOpenedMessage, StreamPortLike } from "./protocol";
+import type { AmbisonicConvention, ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, IrFailedMessage, IrPreparedMessage, IrRequest, StreamClosedMessage, StreamOpenedMessage, StreamPortLike } from "./protocol";
 import type { StreamLoopAt } from "./streams";
 
 /** What the client needs of a worker (a `Worker`, or an in-process stand-in in tests). */
@@ -101,6 +101,8 @@ export interface StreamOpenOptions {
   /** ADR 0158 §4 (contract C2, sent by E4.4): the loop region in frames (end exclusive, 0 = the end). */
   readonly loopStartFrame?: number;
   readonly loopEndFrame?: number;
+  /** ADR 0162 B4: the sidecar's ambisonic convention, so the worker streams a 4, 9 or 16-channel file (FuMa converted). */
+  readonly convention?: AmbisonicConvention;
 }
 
 /** B3: the replies about streams. */
@@ -124,6 +126,13 @@ export interface DecoderClient {
   loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number): void;
   /** B3: closes a stream (the worker sends STREAM_CLOSE to the worklet). Unknown ids are answered too. */
   closeStream(streamId: number): void;
+  /**
+   * ADR 0162 C2b: posts a zone IR request (`prepareIr`, `generateIr`, `releaseIr`) to the worker, which sends the kernel to
+   * the connected worklet itself. A request the worker can't take is answered with `irFailed` through `onIr`.
+   */
+  postIr(request: IrRequest): void;
+  /** ADR 0162 C2b: every `irPrepared` / `irFailed`; a worker that dies fails its pending requests. Returns the unsubscribe. */
+  onIr(listener: (reply: IrPreparedMessage | IrFailedMessage) => void): () => void;
   /** B3: every stream reply; returns the unsubscribe. */
   onStream(listener: (reply: StreamReply) => void): () => void;
   /** B3: bumped each time a worker is spawned or retired (crashed, refused, disposed); a worklet connected at another generation must be connected again. */
@@ -167,6 +176,9 @@ class Client implements DecoderClient {
   /** B3: open streams by id (their asset, for the error a dead worker gives them), and the stream listeners. */
   private readonly streams = new Map<number, string>();
   private readonly streamListeners = new Set<(reply: StreamReply) => void>();
+  /** ADR 0162 C2b: zone IR requests awaiting a reply (token to kernel id), and the listeners. */
+  private readonly irPending = new Map<number, number>();
+  private readonly irListeners = new Set<(reply: IrPreparedMessage | IrFailedMessage) => void>();
   generation = 0;
 
   constructor(
@@ -238,7 +250,7 @@ class Client implements DecoderClient {
     }
     this.streams.set(o.streamId, o.asset);
     const region = o.loopStartFrame !== undefined || o.loopEndFrame !== undefined ? { loopStartFrame: o.loopStartFrame ?? 0, loopEndFrame: o.loopEndFrame ?? 0 } : {};
-    worker.postMessage({ type: "streamOpen", streamId: o.streamId, asset: o.asset, bytes: o.bytes, hint: o.hint, startFrame: o.startFrame, epoch: o.epoch, loop: o.loop, ...region }, [o.bytes]);
+    worker.postMessage({ type: "streamOpen", streamId: o.streamId, asset: o.asset, bytes: o.bytes, hint: o.hint, startFrame: o.startFrame, epoch: o.epoch, loop: o.loop, ...region, ...(o.convention ? { convention: o.convention } : {}) }, [o.bytes]);
   }
 
   loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number): void {
@@ -260,6 +272,38 @@ class Client implements DecoderClient {
   closeStream(streamId: number): void {
     if (!this.streams.delete(streamId) || !this.worker) return;
     this.worker.postMessage({ type: "streamClose", streamId });
+  }
+
+  postIr(request: IrRequest): void {
+    if (request.type === "releaseIr") {
+      this.worker?.postMessage(request);
+      return;
+    }
+    let worker: WorkerLike;
+    try {
+      worker = this.ensureWorker();
+    } catch (e) {
+      this.emitIr({ type: "irFailed", token: request.token, kernelId: request.kernelId, code: 0, message: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+    this.irPending.set(request.token, request.kernelId);
+    worker.postMessage(request);
+  }
+
+  onIr(listener: (reply: IrPreparedMessage | IrFailedMessage) => void): () => void {
+    this.irListeners.add(listener);
+    return () => this.irListeners.delete(listener);
+  }
+
+  private emitIr(reply: IrPreparedMessage | IrFailedMessage): void {
+    for (const listener of [...this.irListeners]) listener(reply);
+  }
+
+  /** The worker is gone with its kept IR bytes and its worklet port: what was pending fails. */
+  private failIr(message: string): void {
+    const pending = [...this.irPending];
+    this.irPending.clear();
+    for (const [token, kernelId] of pending) this.emitIr({ type: "irFailed", token, kernelId, code: 0, message });
   }
 
   onStream(listener: (reply: StreamReply) => void): () => void {
@@ -315,6 +359,10 @@ class Client implements DecoderClient {
       case "streamClosed":
         this.emitStream(msg);
         return;
+      case "irPrepared":
+      case "irFailed":
+        if (this.irPending.delete(msg.token)) this.emitIr(msg);
+        return;
       case "error": {
         if (msg.streamId !== undefined) {
           if (this.streams.has(msg.streamId)) this.emitStream({ ...msg, streamId: msg.streamId });
@@ -340,6 +388,7 @@ class Client implements DecoderClient {
     const entries = [...this.pending.entries()];
     this.retire(worker);
     this.failStreams(`${message}; the stream stopped`);
+    this.failIr(message);
     if (entries.length === 0) return;
     let next: WorkerLike;
     try {
@@ -371,6 +420,7 @@ class Client implements DecoderClient {
     this.retire(worker);
     for (const id of [...this.pending.keys()]) this.settle(id)?.reject(error);
     this.failStreams(error.message);
+    this.failIr(error.message);
   }
 
   /** B3: the worker's streams are gone with it (its decoder state and its end of the worklet channel). */

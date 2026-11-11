@@ -29,7 +29,7 @@ pub struct Regions {
     pub beds: &'static mut [u8],
     /// ADR 0162 C8: zone convolver states (`zones.rs`).
     pub zones: &'static mut [u8],
-    /// ADR 0162 C8: wide stream rings (B4 gives them to the stream store).
+    /// ADR 0162 C8: wide stream rings (B4: the stream store owns them; empty here after `new`).
     pub wide: &'static mut [u8],
     /// ADR 0162 C8: the mixed-voice pool (`fxpool.rs`).
     pub fx: &'static mut [u8],
@@ -97,8 +97,8 @@ impl Core {
         // A1.3b: the clip store owns the directory and arena regions (they stay empty here).
         let clips = ClipStore::over(core::mem::take(&mut regions.clip_directory), core::mem::take(&mut regions.arena));
         let cap = CapState::new(params.max_mixed, params.sample_rate);
-        // B3: the stream store owns the streams region (it stays empty here).
-        let streams = StreamStore::over(core::mem::take(&mut regions.streams));
+        // B3, B4: the stream store owns the streams and wide regions (they stay empty here).
+        let streams = StreamStore::over(core::mem::take(&mut regions.streams), core::mem::take(&mut regions.wide));
         let mut core = Core { params, layout, base: base as usize, regions, frame: 0, clips, cap, streams };
         // A2.1: one root bus at unity and MASTER at unity until BUS_CONFIG, BUS_MIX and MASTER.
         crate::bus::init(&mut core);

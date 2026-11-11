@@ -25,15 +25,18 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { HRIR_CLIP_ID, resampleHrir } from "./core/hrir";
+import { HRIR_CLIP_ID, resampleHrir, resampleMagls } from "./core/hrir";
 import { DecoderWasm } from "./decoder/wasm";
-import { createLoopbackHost, LOOPBACK_RATE, type LoopbackHost } from "./testing";
+import { createLoopbackHost, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost } from "./testing";
+import type { CorePreset } from "./worklet/coreDriver";
 import {
   ASAP,
+  BED_SLOT_NONE,
   BUS_LP_OFF_HZ,
   BUS_ROOT,
   EffectType,
   Kind,
+  MAGLS_CLIP_ID,
   PLAY_FLAGS_LOOP,
   PLAY_FLAGS_MIXED,
   PLAY_FLAGS_PANNER_SHIFT,
@@ -48,6 +51,7 @@ import {
   SET_PARAMS_MASK_PITCH,
   writeAutomate,
   writeBatchHeader,
+  writeBedConfig,
   writeBusAutomate,
   writeBusConfig,
   writeBusMix,
@@ -152,8 +156,8 @@ class Stage {
 
   private constructor(readonly host: LoopbackHost) {}
 
-  static async create(): Promise<Stage> {
-    return new Stage(await createLoopbackHost());
+  static async create(preset?: CorePreset): Promise<Stage> {
+    return new Stage(await createLoopbackHost(preset ? { preset } : {}));
   }
 
   /** Loads an interleaved f32 clip (1 or 2 channels) in chunks of at most 2,048 frames. */
@@ -222,6 +226,31 @@ class Stage {
     this.host.renderQuanta(warmQuanta);
   }
 
+  /**
+   * ADR 0162 A7: loads the MagLS bed filters (H3-style: the committed asset resampled to the loopback rate as `hrir.ts`
+   * does at runtime, format 4 under `MAGLS_CLIP_ID`), then renders `warmQuanta` quanta that are not part of the output.
+   */
+  async loadMagls(warmQuanta = 8): Promise<void> {
+    const bytes = await readFile(new URL("../../../engine/audio/magls-o3.bin", import.meta.url));
+    const blob = resampleMagls(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, LOOPBACK_RATE);
+    const words = blob.byteLength / 4;
+    const begin = new ArrayBuffer(16 + 20);
+    const beginView = new DataView(begin);
+    writeEnvelope(beginView, 0, { kind: Kind.CLIP_BEGIN, seq: this.seq++, bodyBytes: 20 });
+    writeClipBegin(beginView, 0, { clipId: MAGLS_CLIP_ID, frames: words, channels: 1, sampleRate: LOOPBACK_RATE, format: 4 });
+    this.host.send(begin);
+    for (let at = 0; at < words; at += 1024) {
+      const n = Math.min(1024, words - at);
+      const chunk = new ArrayBuffer(16 + 16 + n * 4);
+      const view = new DataView(chunk);
+      writeEnvelope(view, 0, { kind: Kind.CLIP_CHUNK, seq: this.seq++, bodyBytes: 16 + n * 4 });
+      writeClipChunk(view, 0, { clipId: MAGLS_CLIP_ID, frameOffset: at, frames: n, reserved: 0 });
+      new Uint8Array(chunk, 32, n * 4).set(new Uint8Array(blob, at * 4, n * 4));
+      this.host.send(chunk);
+    }
+    this.host.renderQuanta(warmQuanta);
+  }
+
   /** Renders `quanta` more quanta into the scene's output. */
   run(quanta: number): void {
     const { left, right } = this.host.renderQuanta(quanta);
@@ -271,8 +300,8 @@ const CLIP = 1;
 const CLIP_FRAMES = 12_000;
 const STEREO = 2;
 
-async function stage(): Promise<Stage> {
-  const s = await Stage.create();
+async function stage(preset?: CorePreset): Promise<Stage> {
+  const s = await Stage.create(preset);
   s.loadF32(CLIP, mixClip(CLIP_FRAMES));
   s.loadI16(STEREO, stereoI16(12_000), 2);
   return s;
@@ -443,7 +472,7 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.run(70); // the rest of the pass, the tail to frame 12,000 and the end
   },
   // H4: the HRTF panner (the shipped table, resampled to 48 kHz). The HRTF flag is the voice's PLAY or SET_PARAMS panner
-  // bits, as `hrtfPick.ts` sets them on main; the table is loaded and the bank built before the voices start.
+  // bits, as `pannerPick.ts` sets them on main; the table is loaded and the bank built before the voices start.
   async "hrtf-static"(s) {
     await s.loadHrir();
     s.send(
@@ -484,7 +513,77 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
   async "loop-seam-aac"(s) {
     await loopSeam(s, "loop-48000-stereo.m4a", 5, DECODER_AAC_WASM);
   },
+  // ADR 0162 A7: beds (A4's core bed, A2's encoder and the MagLS decoder), on the committed asset's filters. 64 kind 2
+  // voices into one root-hosted bed; the clip is the shared mix, every voice at its own offset, pitch and direction, and a
+  // third of them turning mid-scene (ramped SET_PARAMS), so encode ramps and the decode's partitions all show.
+  async "bed-64"(s) {
+    await s.loadMagls();
+    s.send(busConfig([BUS_ROOT]), busMix(0, [[1, OFF]]), bedConfig([0], [0]));
+    bedVoices(s, 64, () => 0);
+    s.run(40);
+    for (let k = 0; k < 64; k += 3) s.send(setParams(voice(k + 1), 512, { dir: bedDir(k + 17), gain: 0.05 }));
+    s.run(40);
+  },
+  // 256 voices into two beds hosted by two child buses (the high preset's full set), 64 at a time per batch (the scratch is 8 KB).
+  async "bed-256"(s) {
+    await s.loadMagls();
+    s.send(busConfig([BUS_ROOT, 0, 0]), busMix(0, [[1, OFF], [1, OFF], [0.8, OFF]]), bedConfig([BED_SLOT_NONE, 0, 1], [1, 2]));
+    bedVoices(s, 256, (k) => 1 + (k % 2));
+    s.run(40);
+    for (let k = 0; k < 256; k += 5) s.send(setParams(voice(k + 1), 256, { dir: bedDir(k + 3), gain: 0.02 }));
+    s.run(40);
+  },
+  // Voices crossing the HRTF/bed boundary (architecture §3.1): 16 voices, a quarter changing kind every 12 quanta, in turn,
+  // equal-power to bed to HRTF to bed, so the 45 ms crossfades overlap; both tables loaded.
+  async "bed-xfade"(s) {
+    await s.loadHrir();
+    await s.loadMagls();
+    s.send(busConfig([BUS_ROOT]), busMix(0, [[1, OFF]]), bedConfig([0], [0]));
+    bedVoices(s, 16, () => 0, (k) => (k % 2 === 0 ? 0 : BED_PLAY));
+    const kinds = [HRTF_SET, BED_SET, HRTF_SET, BED_SET];
+    for (let step = 0; step < 8; step++) {
+      for (let k = step % 4; k < 16; k += 4) s.send(setParams(voice(k + 1), 256, { dir: bedDir(k + step), flags: SET_MIXED_SPATIAL | kinds[(k + step) % 4]! }));
+      s.run(12);
+    }
+    s.run(10);
+  },
 };
+
+/** The core preset a scene needs (the loopback one by default). */
+const PRESETS: Record<string, CorePreset> = {
+  "bed-64": { ...LOOPBACK_PRESET, maxMixed: 64, maxBeds: 1 },
+  "bed-256": { ...LOOPBACK_PRESET, maxMixed: 256, maxBeds: 2 },
+  "bed-xfade": { ...LOOPBACK_PRESET, maxMixed: 16, maxBeds: 1 },
+};
+
+/** The panner bits for the bed (kind 2) in a PLAY's flags and in a SET_PARAMS's. */
+const BED_PLAY = 2 << PLAY_FLAGS_PANNER_SHIFT;
+const BED_SET = 2 << SET_PARAMS_FLAGS_PANNER_SHIFT;
+
+/** A direction on the sphere from integer `k`: azimuth in steps of 2.4 rad, elevation within about ±0.4 rad (unit length). */
+function bedDir(k: number): [number, number, number] {
+  const az = k * 2.4;
+  const el = ((k * 7) % 5) * 0.2 - 0.4;
+  return [Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el)];
+}
+
+/** BED_CONFIG: `bedSlot[b]` is bus b's slot (BED_SLOT_NONE for none), `hostBus[s]` the bus slot s decodes into. */
+const bedConfig = (bedSlot: number[], hostBus: number[]): Writer => (view, off) => writeBedConfig(view, off, { voiceId: 0, frameOffset: ASAP, bedSlot, hostBus });
+
+/**
+ * Starts `n` looping mixed spatial voices of the shared clip, each at its own offset, pitch and direction, on bus
+ * `busOf(k)`, in batches of 64: kind 2 (bed) unless `kindOf(k)` gives the panner bits.
+ */
+function bedVoices(s: Stage, n: number, busOf: (k: number) => number, kindOf: (k: number) => number = () => BED_PLAY): void {
+  for (let from = 0; from < n; from += 64) {
+    const batch: Writer[] = [];
+    for (let k = from; k < Math.min(n, from + 64); k++) {
+      const [dirX, dirY, dirZ] = bedDir(k);
+      batch.push(play(voice(k + 1), CLIP, { bus: busOf(k), flags: MIXED | LOOP | SPATIAL | kindOf(k), gain: 0.45 / Math.sqrt(n), pitch: 0.75 + (k % 7) * 0.125, dirX, dirY, dirZ, startOffsetFrames: (k * 977) % CLIP_FRAMES }));
+    }
+    s.send(...batch);
+  }
+}
 
 const DECODER_WASM = "./wasm/myco_audio_decode.wasm";
 const DECODER_AAC_WASM = "./wasm/myco_audio_decode_aac.wasm";
@@ -601,7 +700,7 @@ function explain(want: Golden, got: Golden): string {
 
 describe("wasm goldens: the committed core's output, scene by scene", () => {
   it.each(Object.keys(SCENES))("scene %s matches its golden digest", async (name) => {
-    const s = await stage();
+    const s = await stage(PRESETS[name]);
     await SCENES[name]!(s);
     const { left, right } = s.output();
     for (const sample of left) expect(Number.isFinite(sample)).toBe(true);

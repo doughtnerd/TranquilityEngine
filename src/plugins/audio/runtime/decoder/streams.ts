@@ -6,11 +6,17 @@
 // - STREAM_OPEN (kind 5) when a stream opens (or restarts at a new epoch), then STREAM_CHUNKs (kind 6) of 4,096
 //   interleaved f32 frames (fewer only in the last), tagged with the epoch; STREAM_CLOSE (kind 7) after `streamClose`.
 // - The worker keeps `buffered + inFlight <= 32,768` frames per stream (`credit.ts`) and then idles, with no timers.
+// - **Wide streams** (ADR 0162 B4, §4.6, R16): an ambisonic file of 4, 9 or 16 channels streams all of them into a wide
+//   ring of the core: chunks of `STREAM_WIDE_CHUNK_FRAMES` (2,048 frames, 128 KB at 16 channels) within a window of
+//   `STREAM_RING_FRAMES_WIDE` (16,384). `streamOpen.convention` (the sidecar's) is required for more than 2 channels
+//   (without it the stream fails: "multichannel mixes aren't supported"); "fuma" converts each read to AmbiX in the wasm
+//   (B2's `set_convention`), scaled into headroom by the import gain `streamOpened`'s info reports (as a clip's does),
+//   and STREAM_OPEN carries the file's convention.
 //   The worklet sends STREAM_CREDIT (kind 11) as its voice consumes, with the emptied chunk buffers in the message
 //   (an array of ArrayBuffers, the credit in the first); they go back into a pool, so a stream allocates no buffer
 //   per chunk once the first window has circulated.
 // - A loop wraps to frame 0 inside a chunk (flagged `wrapped`), so the ring sees one continuous signal (B4 trims the
-//   seam). More than 2 channels are downmixed to the first two.
+//   seam).
 // - Main hears `streamOpened` (the file's info) and `streamClosed`, and on a failure `{type:"error", streamId, asset,
 //   message}` (architecture §7: main then stops the voice with a 50 ms fade and warns once). A failed stream sends no
 //   more chunks; its voice starves until main stops it.
@@ -44,6 +50,9 @@ import {
   STREAM_CHUNK_FLAGS_WRAPPED,
   STREAM_OPEN_FIXED_END,
   STREAM_OPEN_FLAGS_LOOP,
+  STREAM_MAX_CHANNELS,
+  STREAM_RING_FRAMES_WIDE,
+  STREAM_WIDE_CHUNK_FRAMES,
   StreamConvention,
   STREAM_TOTAL_FRAMES_UNKNOWN,
   writeEnvelope,
@@ -52,7 +61,7 @@ import {
   writeStreamOpen,
 } from "../wire.generated";
 import { CreditWindow, STREAM_CHUNK_FRAMES, STREAM_WINDOW_FRAMES } from "./credit";
-import type { ClipInfo, DecoderReply, StreamLoopMessage, StreamOpenMessage, StreamPortLike, StreamRequest, StreamSeekMessage } from "./protocol";
+import type { AmbisonicConvention, ClipInfo, DecoderReply, StreamLoopMessage, StreamOpenMessage, StreamPortLike, StreamRequest, StreamSeekMessage } from "./protocol";
 import { DecoderError, type DecoderWasm, type RawInfo } from "./wasm";
 
 /** E4.4: kept as an alias; `atStreamFrame` is now part of `StreamLoopMessage` (contract C2). */
@@ -101,18 +110,42 @@ export interface StreamHost {
 
 /** Bytes of a pooled chunk buffer: the envelope and header, then 4,096 stereo f32 frames. */
 export const STREAM_CHUNK_BUFFER_BYTES = STREAM_CHUNK_FIXED_END + STREAM_CHUNK_FRAMES * 2 * 4;
-/** Chunk buffers kept for reuse (two windows of one stream, or one each of two). */
+/** B4: bytes of a pooled wide chunk buffer: the envelope and header, then 2,048 frames of 16 channels. */
+export const STREAM_WIDE_CHUNK_BUFFER_BYTES = STREAM_CHUNK_FIXED_END + STREAM_WIDE_CHUNK_FRAMES * STREAM_MAX_CHANNELS * 4;
+/** Chunk buffers kept for reuse per size (two windows of one stream, or one each of two). */
 const POOL_MAX = 16;
-/** Channels a stream sends at most (the core's ring holds 2). */
-const MAX_CHANNELS = 2;
+
+/** B4: a stream's ring class: 1-2 channels narrow, 4, 9 or 16 wide (the core's `stream.rs` classes). */
+interface StreamClass {
+  readonly chunkFrames: number;
+  readonly window: number;
+  readonly bufferBytes: number;
+}
+const NARROW: StreamClass = { chunkFrames: STREAM_CHUNK_FRAMES, window: STREAM_WINDOW_FRAMES, bufferBytes: STREAM_CHUNK_BUFFER_BYTES };
+const WIDE: StreamClass = { chunkFrames: STREAM_WIDE_CHUNK_FRAMES, window: STREAM_RING_FRAMES_WIDE, bufferBytes: STREAM_WIDE_CHUNK_BUFFER_BYTES };
+
+/**
+ * B4 (ADR 0162 §2.4, §4.6): the ring class for a file of `channels` channels, or why it can't stream. More than 2
+ * channels need the sidecar's ambisonic convention and 4, 9 or 16 channels (order 1, 2 or 3).
+ */
+export function streamClassFor(channels: number, convention: AmbisonicConvention | undefined): StreamClass | string {
+  if (channels <= 2) return NARROW;
+  if (!convention) return `audio decoder: ${channels}-channel audio needs an ambisonic import setting (ADR 0162); multichannel mixes aren't supported`;
+  if (channels !== 4 && channels !== 9 && channels !== 16) return `audio decoder: ${channels}-channel audio isn't ambisonic: first, second and third order need 4, 9 or 16 channels`;
+  return WIDE;
+}
 
 interface Stream {
   readonly id: number;
   readonly asset: string;
   readonly handle: number;
-  /** The file's channels, and what is sent (at most 2). */
+  /** The file's channels, all of them sent (B4: 1-2 narrow, 4, 9 or 16 wide). */
   readonly fileChannels: number;
   readonly channels: number;
+  /** B4: its ring class (chunk frames, credit window, pooled buffer size). */
+  readonly cls: StreamClass;
+  /** B4: the file's convention as STREAM_OPEN states it (the PCM sent is AmbiX either way). */
+  readonly convention: number;
   readonly rate: number;
   /** -1 when unknown. */
   readonly frames: number;
@@ -150,7 +183,11 @@ export class StreamDecoder {
   /** Streams whose `streamOpen` is waiting for the wasm, and those of them closed meanwhile. */
   private readonly opening = new Set<number>();
   private readonly cancelled = new Set<number>();
-  private readonly pool: ArrayBuffer[] = [];
+  /** Chunk buffers for reuse, by size (narrow, wide). */
+  private readonly pool = new Map<number, ArrayBuffer[]>([
+    [STREAM_CHUNK_BUFFER_BYTES, []],
+    [STREAM_WIDE_CHUNK_BUFFER_BYTES, []],
+  ]);
   private decoder: DecoderWasm | null = null;
   /** The one fork every stream shares (opens that wait together must land on the same instance). */
   private forking: Promise<DecoderWasm> | null = null;
@@ -227,7 +264,11 @@ export class StreamDecoder {
       handle = w.open(new Uint8Array(m.bytes), m.hint);
       const raw = w.info(handle);
       if (raw.channels < 1 || raw.rate < 1) throw new DecoderError("audio decoder: the file reports no channels or rate");
-      scratchBytes = STREAM_CHUNK_FRAMES * raw.channels * 4;
+      const cls = streamClassFor(raw.channels, m.convention);
+      if (typeof cls === "string") throw new DecoderError(cls);
+      // ADR 0162 §2.4 (B2): FuMa is converted in each read (so per chunk), scaled down by the import gain main applies.
+      const importGain = cls === WIDE && m.convention === "fuma" ? w.setConvention(handle, "fuma") : 1;
+      scratchBytes = cls.chunkFrames * raw.channels * 4;
       scratch = w.alloc(scratchBytes);
       const fileLoop = fileLoopOf(raw);
       const loop = m.loop === true;
@@ -239,7 +280,9 @@ export class StreamDecoder {
         asset: m.asset,
         handle,
         fileChannels: raw.channels,
-        channels: Math.min(raw.channels, MAX_CHANNELS),
+        channels: raw.channels,
+        cls,
+        convention: cls === WIDE && m.convention === "fuma" ? StreamConvention.FuMa : StreamConvention.AmbiX,
         rate: raw.rate,
         frames: raw.frames,
         fileLoop,
@@ -253,14 +296,14 @@ export class StreamDecoder {
         prevEpoch: m.epoch,
         epoch: m.epoch,
         chunkSeq: 0,
-        credit: new CreditWindow(),
+        credit: new CreditWindow(cls.window),
         scratch,
         scratchBytes,
         done: false,
         failed: false,
       };
       this.streams.set(m.streamId, stream);
-      info = infoOf(raw);
+      info = importGain !== 1 ? { ...infoOf(raw), importGain } : infoOf(raw);
     } catch (e) {
       if (scratch !== 0) w.free(scratch, scratchBytes);
       if (handle >= 0) w.close(handle);
@@ -290,8 +333,7 @@ export class StreamDecoder {
       flags: s.loop ? STREAM_OPEN_FLAGS_LOOP : 0,
       epoch: s.epoch,
       startFrame,
-      // B4 sets FuMa for a FuMa-convention ambisonic stream (ADR 0162 §4.6).
-      convention: StreamConvention.AmbiX,
+      convention: s.convention,
     });
     this.port?.postMessage(buffer, [buffer]);
   }
@@ -434,7 +476,8 @@ export class StreamDecoder {
         const view = new DataView(b);
         if (view.getUint32(0, true) === MAGIC && view.getUint16(6, true) === Kind.STREAM_CREDIT) credit = readStreamCredit(view, 0);
       }
-      if (b.byteLength >= STREAM_CHUNK_BUFFER_BYTES && this.pool.length < POOL_MAX) this.pool.push(b);
+      const pool = this.pool.get(b.byteLength);
+      if (pool && pool.length < POOL_MAX) pool.push(b);
     }
     if (!credit) return;
     this.stats.credits++;
@@ -458,12 +501,13 @@ export class StreamDecoder {
     const port = this.port;
     if (!w || !port || s.done || s.failed) return;
     const fc = s.fileChannels;
+    const chunkFrames = s.cls.chunkFrames;
     try {
-      while (s.credit.canSend(STREAM_CHUNK_FRAMES)) {
+      while (s.credit.canSend(chunkFrames)) {
         let n = 0;
         let flags = 0;
         let empty = 0;
-        while (n < STREAM_CHUNK_FRAMES) {
+        while (n < chunkFrames) {
           const at = s.base + s.sent + n;
           const p = s.pending;
           if (p && at >= p.at) {
@@ -471,7 +515,7 @@ export class StreamDecoder {
             this.apply(s, p.looping, p.region, at);
             continue;
           }
-          let want = STREAM_CHUNK_FRAMES - n;
+          let want = chunkFrames - n;
           if (p) want = Math.min(want, p.at - at);
           const end = s.loop && s.region.end > 0 ? s.region.end : 0;
           if (end > 0) want = Math.min(want, end - s.pos);
@@ -495,16 +539,13 @@ export class StreamDecoder {
             flags |= STREAM_CHUNK_FLAGS_WRAPPED;
           }
         }
-        const buffer = this.take();
+        const buffer = this.take(s.cls.bufferBytes);
         const view = new DataView(buffer);
         const ch = s.channels;
         writeEnvelope(view, 0, { kind: Kind.STREAM_CHUNK, seq: this.nextSeq(), bodyBytes: STREAM_CHUNK_FIXED_END - 16 + n * ch * 4 });
         writeStreamChunk(view, 0, { streamId: s.id, chunkSeq: s.chunkSeq++ >>> 0, frames: n, flags, epoch: s.epoch });
         if (n > 0) {
-          const src = w.f32(s.scratch, n * fc);
-          const dst = new Float32Array(buffer, STREAM_CHUNK_FIXED_END, n * ch);
-          if (fc === ch) dst.set(src);
-          else for (let f = 0; f < n; f++) for (let c = 0; c < ch; c++) dst[f * ch + c] = src[f * fc + c]!;
+          new Float32Array(buffer, STREAM_CHUNK_FIXED_END, n * ch).set(w.f32(s.scratch, n * fc));
         }
         port.postMessage(buffer, [buffer]);
         this.stats.chunks++;
@@ -528,12 +569,12 @@ export class StreamDecoder {
     this.mark(s, at, start);
   }
 
-  /** A pooled chunk buffer, or a new one. */
-  private take(): ArrayBuffer {
-    const b = this.pool.pop();
+  /** A pooled chunk buffer of `bytes` (a class's size), or a new one. */
+  private take(bytes: number): ArrayBuffer {
+    const b = this.pool.get(bytes)?.pop();
     if (b) return b;
     this.stats.allocated++;
-    return new ArrayBuffer(STREAM_CHUNK_BUFFER_BYTES);
+    return new ArrayBuffer(bytes);
   }
 
   private nextSeq(): number {
