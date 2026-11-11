@@ -1,6 +1,6 @@
 # S4: what M4 (interactive music) costs the audio thread
 
-Spike S4 of the M4 design pipeline ([BRIEFS](../BRIEFS.md), [goal](../../../docs/design/0163-audio-music/goal.md)). Build and smoke only: **no timed number here comes from an idle machine**. The coordinator runs `run.mjs` on an idle machine and the timed columns below are then filled from its `summary.md`.
+Spike S4 of the M4 design pipeline ([BRIEFS](../BRIEFS.md), [goal](../../../docs/design/0166-audio-music/goal.md)). Build and smoke only: **no timed number here comes from an idle machine**. The coordinator runs `run.mjs` on an idle machine and the timed columns below are then filled from its `summary.md`.
 
 Number labels: **metered** = wasm instructions per quantum from the repo's own metering pass (`tools/audio-bench/meter.mjs`): exact, identical on every machine and load, so these are real results now. **smoke** = a 1-run, 2 s timed run on the shared, loaded VM (other agents compiling): plumbing only, p50 at best. **(est.)** = derived, not measured. **[U]** = unverified.
 

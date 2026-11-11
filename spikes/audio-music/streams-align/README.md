@@ -1,6 +1,6 @@
 # S1: stream start alignment, priming and seams (audio M4 spike)
 
-Question: can M4's interactive music (4-8 stem layers of one piece, transitions that begin exactly on a bar) rest on the core's streamed voices? Goal and constraints: [goal.md](../../../docs/design/0163-audio-music/goal.md). Rules: [BRIEFS.md](../BRIEFS.md).
+Question: can M4's interactive music (4-8 stem layers of one piece, transitions that begin exactly on a bar) rest on the core's streamed voices? Goal and constraints: [goal.md](../../../docs/design/0166-audio-music/goal.md). Rules: [BRIEFS.md](../BRIEFS.md).
 
 **Short answer.** The core already starts a stamped stream voice sample-exactly *if its ring holds 4,096 frames when the quantum containing the stamp begins*. If not, the voice slips to the next quantum boundary after the data lands, by an unbounded amount, and **nothing tells main**. Stems whose rings fill at different times end up permanently skewed against each other. Priming (opening the streams early and stamping the PLAYs far enough ahead) needs **no core change** and gives exact starts, seams and crossfades, as the tests below show. What M4 needs is a prime planner on main, an acked group start, a slip counter in STATUS, and more rings.
 

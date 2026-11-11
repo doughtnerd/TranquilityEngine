@@ -2,7 +2,7 @@
 
 This is step 1 of the design pipeline, the goal interview. The owner confirmed it on 2026-11-11.
 
-The decision record (0163, not yet written) and the technical design build on this statement. Where they differ, this statement wins until the owner changes it.
+The decision record (0166, not yet written) and the technical design build on this statement. Where they differ, this statement wins until the owner changes it.
 
 The working rules in [../0162-audio-spatial/working-notes.md](../0162-audio-spatial/working-notes.md) carry over unchanged:
 - no runs that can't change a decision;

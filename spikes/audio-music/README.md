@@ -1,6 +1,6 @@
 # Audio M4 (interactive music) spikes
 
-This is step 2 of the M4 design pipeline: the survey, and the measurements that the decision record (0163) and the technical design will cite. The owner confirmed the goal and constraints on 2026-11-11, in [docs/design/0163-audio-music/goal.md](../../docs/design/0163-audio-music/goal.md). The shared rules for the spike agents are in [BRIEFS.md](BRIEFS.md).
+This is step 2 of the M4 design pipeline: the survey, and the measurements that the decision record (0166) and the technical design will cite. The owner confirmed the goal and constraints on 2026-11-11, in [docs/design/0166-audio-music/goal.md](../../docs/design/0166-audio-music/goal.md). The shared rules for the spike agents are in [BRIEFS.md](BRIEFS.md).
 
 Each sub-spike has its own README with its method, raw tables and an unverified list. This file collects the answers.
 

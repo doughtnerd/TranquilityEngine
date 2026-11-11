@@ -1,6 +1,6 @@
 # Audio M4 (interactive music) spikes: shared ground rules for every spike agent
 
-Step 2 of the M4 design pipeline. The owner-confirmed goal is in [docs/design/0163-audio-music/goal.md](../../docs/design/0163-audio-music/goal.md): read it first, including its "What exists today" table. M3's spikes are the model for layout and evidence: read [spikes/audio-spatial/README.md](../audio-spatial/README.md) (top section) and look at `spikes/audio-spatial/bed/` (Cargo.toml with path deps on `native/audio/crates/*`, `run.mjs`, `worklet/` for the Chromium AudioWorklet harness).
+Step 2 of the M4 design pipeline. The owner-confirmed goal is in [docs/design/0166-audio-music/goal.md](../../docs/design/0166-audio-music/goal.md): read it first, including its "What exists today" table. M3's spikes are the model for layout and evidence: read [spikes/audio-spatial/README.md](../audio-spatial/README.md) (top section) and look at `spikes/audio-spatial/bed/` (Cargo.toml with path deps on `native/audio/crates/*`, `run.mjs`, `worklet/` for the Chromium AudioWorklet harness).
 
 ## Rules
 - **Write only inside your own folder** `spikes/audio-music/<name>/`. Touch nothing else in the repository (no edits to `src/`, `native/`, `package.json`). **Do not commit.** Use only file, shell and test tools.
