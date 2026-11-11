@@ -1,0 +1,30 @@
+[package]
+name = "myco-music-cost-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Standalone: not a member of native/audio's workspace.
+[workspace]
+
+# A copy of native/audio/crates/audio-bench (lib.rs, edited: see README "What differs from audio-bench") plus music.rs.
+[lib]
+name = "musiccost"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "musiccost"
+path = "src/bin/musiccost.rs"
+
+[dependencies]
+audio-core = { path = "../../../native/audio/crates/audio-core" }
+audio-dsp = { path = "../../../native/audio/crates/audio-dsp" }
+audio-wire = { path = "../../../native/audio/crates/audio-wire" }
+libm = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false

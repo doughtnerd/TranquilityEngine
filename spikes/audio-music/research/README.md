@@ -1,6 +1,6 @@
 # S0: interactive-music prior art (research only)
 
-**Evidence limit.** In this session every documentation host failed DNS (docs.godotengine.org, audiokinetic.com, docs.unrealengine.com, developer.mozilla.org, docs.rs: not in the allowed network domains). Only WebSearch worked and returned snippets. So almost everything below is **[U]** (from training knowledge, not re-read today). **[V]** marks only what a search result stated, with its URL. A follow-up pass needs those hosts allowed; the "to verify first" list at the end is ordered by decision impact.
+**Evidence status (second pass).** Pass 1 had only blocked doc hosts. Pass 2 (section "Verified upgrades" at the end) read primary sources on raw.githubusercontent.com (fetched 2026-11-11, default branches; commit SHAs were not obtainable because the API is search-only, so cite repo + path + date). Claims upgraded there are [V]; the per-system notes above still carry their pass-1 [U] marks unless the end section overrides them. Pass-1 note: every documentation host failed DNS (docs.godotengine.org, audiokinetic.com, docs.unrealengine.com, developer.mozilla.org, docs.rs: not in the allowed network domains). Only WebSearch worked and returned snippets. So almost everything below is **[U]** (from training knowledge, not re-read today). **[V]** marks only what a search result stated, with its URL. A follow-up pass needs those hosts allowed; the "to verify first" list at the end is ordered by decision impact.
 
 Legend: [V] verified in cited primary source; [U] unverified.
 
@@ -40,7 +40,7 @@ Legend: [V] verified in cited primary source; [U] unverified.
 
 **Rhythm-game practice [U].** Unity `AudioSettings.dspTime` + schedule ahead with `PlayScheduled`; song position = dspTime minus start minus latency offset; players calibrate (tap to the beat / audio-visual offset) because OS-reported latency is unreliable. Input is timestamped at event time and judged against the audio clock, not frame time. Rhythm Doctor and NecroDancer devs publicly describe per-device calibration offsets (details unverified).
 
-**Web Audio [U].** `AudioContext.baseLatency` (processing buffer), `outputLatency` (device/OS; Chromium yes; Firefox since 70 yes [U]; Safari/WebKit: not implemented as far as I recall), `getOutputTimestamp()` returns `{contextTime, performanceTime}` (Chromium and Firefox yes, Safari partial [U]). `latencyHint`: "interactive" | "balanced" | "playback" | number (seconds). Android WebView follows Chromium but real latency is device-dependent. Implication: calibration must be the contract in rhythm mode; reported latency is a starting guess only.
+**Web Audio [U].** `AudioContext.baseLatency` (processing buffer), `outputLatency` (device/OS; Chromium yes; Firefox 70; Safari 18.4: see Verified upgrades, which overrides this [U] line), `getOutputTimestamp()` returns `{contextTime, performanceTime}` (Chromium and Firefox yes, Safari partial [U]). `latencyHint`: "interactive" | "balanced" | "playback" | number (seconds). Android WebView follows Chromium but real latency is device-dependent. Implication: calibration must be the contract in rhythm mode; reported latency is a starting guess only.
 
 **File formats [U].** WAV: `cue ` chunk (id, sample position) + `LIST/adtl` `labl`/`ltxt` (names, regions); `smpl` chunk (loops, MIDI unity note); `acid` chunk (type flags incl. one-shot/loop, root note, beats, meter num/den, tempo float). Ogg Vorbis has no standard for cues; conventions: Vorbis comments (`LOOPSTART`, `LOOPLENGTH`, `BPM`, ...) engine-specific. MIDI: tempo meta event FF 51, time signature FF 58, marker FF 06, cue FF 07; a tempo map = ordered (tick, microsecondsPerQuarter). DAWs: Reaper exports cues/regions in WAV (`cue `/`adtl`), Ableton writes acid-ish only for warp info in .asd (not exported); Logic/Cubase write markers [U]. An importer could read `cue `/`adtl` and `acid`; treat as hints only, with the sidecar JSON authoritative.
 
@@ -82,3 +82,41 @@ Godot: MIT (design port only). Kira: MIT or Apache-2.0 [U]. Quartz/Harmonix: Epi
 4. MDN compat for `outputLatency` / `getOutputTimestamp` in WebKit and Android WebView.
 5. Kira `ClockTime` semantics and licence file.
 6. `acid` and `cue ` layout details from the RIFF spec.
+
+## Verified upgrades (pass 2, all [V] unless marked)
+
+Sources (raw.githubusercontent.com, default branch, 2026-11-11): G = godotengine/godot `modules/interactive_music/audio_stream_interactive.cpp`, `.h`, `modules/interactive_music/doc_classes/AudioStream{Interactive,Playlist,Synchronized}.xml`, `modules/vorbis/doc_classes/AudioStreamOggVorbis.xml`; K = tesselode/kira `crates/kira/src/{clock.rs,clock/time.rs,clock/clock_speed.rs,start_time.rs,info.rs}`, `LICENSE-MIT`, `crates/kira/Cargo.toml`; M = mdn/browser-compat-data `api/AudioContext.json`; W = WebAudio/web-audio-api `index.bs`; F = ejoy/ant `3rd/fmod/windows/studio/inc/fmod_studio_common.h` (a third-party vendored copy of FMOD's header; version unknown); A = mariofv/LittleOrionEngine `Libraries/include/AK/SoundEngine/Common/AkCallback.h` (vendored Wwise header; version unknown).
+
+**Godot (MIT).**
+- [V] Enums: `TransitionFromTime` IMMEDIATE 0 / NEXT_BEAT 1 / NEXT_BAR 2 / END 3; `TransitionToTime` SAME_POSITION 0 / START 1 / PREVIOUS_POSITION 2; `FadeMode` DISABLED 0 / IN 1 / OUT 2 / CROSS 3 / AUTOMATIC 4; `AutoAdvanceMode` DISABLED / ENABLED / RETURN_TO_HOLD; `CLIP_ANY = -1` wildcard for from or to (xml).
+- [V] Transition record: from, to, from_time, to_time, fade_mode, fade_beats (float), use_filler_clip, filler_clip, hold_previous; keyed by (from,to) with ANY wildcards (xml, cpp:246-259).
+- [V] Quantising (cpp:686-725): the source stream must have `bpm`; wait = beat_sec - fmod(position, beat_sec) for NEXT_BEAT, same with bar_beats * beat_sec for NEXT_BAR (bar_beats 0 plays immediately), END = beat_count * beat_sec (or stream length) minus position; the fade length is `fade_beats * beat_sec`; without BPM the wait is 0 (or to the end) and fade_beats is read as seconds. So: static tempo per clip, no cues, quantise inside the mix callback with float seconds (block-granular, not stamped).
+- [V] Filler clip (cpp:803-814): started at 0, fully on, with a fade_wait equal to the source's wait; the destination then starts after the filler (cpp:789 stops a clip that is neither destination nor filler). This is a "transition segment" in the owner's sense but with no pre-entry/post-exit overlap logic.
+- [V] `AudioStreamOggVorbis`: `bpm` float 0.0, `beat_count` int 0, `bar_beats` int 4; loop ends at the last beat when beat_count is set (xml). `AudioStreamPlaylist`: stream_count, shuffle (false), loop (true), fade_time (0.3 s). `AudioStreamSynchronized`: stream_count, per-stream volume (stems).
+- Portable: the transition-table shape with ANY wildcard, beat-length fades, filler/bridge, auto-advance with "return to hold" (idea for stingers/one-shot sections). Not portable: the C++ code (Godot-internal types); ideas only, notice not required for ideas, required if code is copied (MIT).
+
+**Kira (MIT OR Apache-2.0, `crates/kira/Cargo.toml` license field; root `LICENSE-MIT` "Copyright 2021 Andrew Minnich").**
+- [V] `ClockTime {clock: ClockId, ticks: u64, fraction: f64 in [0,1)}`, comparable only within one clock; `ClockSpeed` = SecondsPerTick | TicksPerSecond | TicksPerMinute (f64); clocks start stopped and need `start()`; `StartTime` = Immediate | Delayed(Duration) | ClockTime(ClockTime).
+- [V] Start check (`info.rs` when_to_start): a pending start fires when the clock is ticking and `clock_info.time >= time`, evaluated in `update(dt, info)`: a per-update check, so Kira's clock-start granularity is the audio block, not the sample [from code reading; whether sub-block offset is applied elsewhere is [U]]. Design to borrow: ticks as the unit with a fractional part, clock speed changeable at runtime (tempo changes), "start at clock time" as the only scheduling primitive. Myco's stamped records (M3 `at`) are already finer.
+
+**Web Audio.**
+- [V] Support (M): `baseLatency` Chrome 58, Firefox 70, Safari 14.1; `outputLatency` Chrome 102, Firefox 70, **Safari 18.4** (the pass-1 guess that WebKit lacked it is out of date); `getOutputTimestamp` Chrome 57, Firefox 70, Safari 14.1; Chrome Android, WebView Android and iOS Safari all "mirror" desktop Chrome/Safari, i.e. WebView follows its Chromium version (Chromium 102+ for outputLatency).
+- [V] Spec (W): `outputLatency` is "the interval between the time the UA requests the host system to play a buffer and the time at which the first sample ... is actually processed by the audio output device"; it can change while running and "is useful to query this value frequently when accurate synchronization is required". `getOutputTimestamp()` returns `{contextTime, performanceTime}`: the frame currently being rendered by the output device (in `currentTime` units) and when that frame was rendered (`performance.now()` origin); both 0 until a block has been processed. `AudioContextLatencyCategory` = balanced | interactive | playback; the constructor also accepts a number of seconds (latencyHint is `(AudioContextLatencyCategory or double)`: [U] for the exact IDL). The spec also lists both values as fingerprinting surfaces, so browsers may coarsen them.
+- Implication: still calibrate; but heard-time = contextTime-based position minus outputLatency is available on Chromium, Firefox, WebKit 18.4+.
+
+**Wwise headers (A, vendored copy, version unknown).**
+- [V] `AkCallbackType`: AK_MusicPlayStarted 0x0080, AK_MusicSyncBeat 0x0100, Bar 0x0200, Entry 0x0400, Exit 0x0800, Grid 0x1000, UserCue 0x2000, Point 0x4000 (switch-transition sync point), SyncAll 0x7f00, AK_MIDIEvent 0x10000, AK_EnableGetMusicPlayPosition 0x200000.
+- [V] `AkMusicSyncCallbackInfo {playingID, segmentInfo, musicSyncType, pszUserCueName}`; `AkSegmentInfo {iCurrentPosition (ms, relative to Entry Cue, range [-preEntry, active+postExit]), iPreEntryDuration, iActiveDuration, iPostExitDuration, iRemainingLookAheadTime, fBeatDuration, fBarDuration, fGridDuration, fGridOffset}`. Note: positions in whole ms, and the segment info carries one beat/bar duration, i.e. one tempo per segment, confirming "no tempo change inside a segment".
+- Still [U]: callback delivery latency vs output (headers do not say).
+
+**FMOD headers (F, vendored copy, version unknown).**
+- [V] `FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_MARKER` 0x00000800, `..._TIMELINE_BEAT` 0x00001000, `..._NESTED_TIMELINE_BEAT` 0x00040000; `FMOD_STUDIO_TIMELINE_BEAT_PROPERTIES {int bar, beat, position; float tempo; int timesignatureupper, timesignaturelower}` (so FMOD reports tempo and metre per beat, i.e. tempo/metre can vary along a timeline); `FMOD_STUDIO_TIMELINE_MARKER_PROPERTIES {const char* name; int position}` (ms).
+- Still [U]: callback thread/timing (the "early/late" issue).
+
+**Unreal Quartz / Harmonix:** unchanged, [U] (private repo).
+
+## Corrections to pass-1 text
+- Godot has per-clip BPM/bar_beats/beat_count and a filler clip; it does not have cues or tempo maps ([V]).
+- Wwise segment info exposes one beat/bar duration per segment ([V], consistent with the claim).
+- WebKit has `outputLatency` from 18.4 ([V], replaces [U]).
+- Kira's clock-start check is per audio update, not per sample ([V] code reading), so a Myco music clock built on M3 stamped records can be more precise than Kira's.
