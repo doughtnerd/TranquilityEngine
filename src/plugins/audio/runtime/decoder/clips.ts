@@ -2,10 +2,16 @@
 // `CLIP_CHUNK_FRAMES` frames, so a long clip is never one huge message and the worker's memory holds one chunk of
 // PCM at a time (the encoded file lives in the module until the decode ends). Between chunks the worker yields to its
 // event loop, which is how a `cancel` gets through. int16 is the core's clip format (CLIP_BEGIN `format` 1).
-import { CLIP_CHUNK_FRAMES, type ClipInfo, type DecodeHint } from "./protocol";
+import { CLIP_CHUNK_FRAMES, type AmbisonicConvention, type ClipInfo, type DecodeHint } from "./protocol";
 import { DecoderError, type DecoderWasm, type RawInfo } from "./wasm";
 
 export interface ClipDecodeOptions {
+  /**
+   * ADR 0162 §2.4 (B1): the clip's ambisonic sidecar convention, from the `decodeClip` message. Plumbed to here and
+   * not yet applied: B2 adds it to the wasm open/read call (`audio-decode/src/ambisonic.rs`), where FuMa is converted
+   * before the int16 rounding. It is set for any clip with the sidecar, so B2 applies it only to 4, 9 or 16 channels.
+   */
+  readonly convention?: AmbisonicConvention;
   /** Called once, before the first chunk, with what the container declares (`frames` -1 when unknown; B5 sizes CLIP_BEGIN from it). */
   readonly onInfo?: (info: ClipInfo) => void;
   /** Called with each chunk, in order; the array is a copy the callee owns (its buffer is transferable). */
@@ -26,6 +32,7 @@ function loopFields(raw: RawInfo): Pick<ClipInfo, "loopStartFrame" | "loopEndFra
  * Throws `DecoderError` on a format error, a decode error, or a file shorter than its container stated.
  */
 export async function decodeClip(wasm: DecoderWasm, bytes: Uint8Array, hint: DecodeHint, options: ClipDecodeOptions): Promise<ClipInfo | null> {
+  // B2: `options.convention` goes into this open call (or the reads below) once the wasm takes it; today it is ignored.
   const handle = wasm.open(bytes, hint);
   let scratch = 0;
   let scratchBytes = 0;

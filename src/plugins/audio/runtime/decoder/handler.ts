@@ -76,6 +76,7 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
         onChunk: (index, pcm) => post({ type: "clipChunk", id: msg.id, index, pcm: pcm.buffer as ArrayBuffer }, [pcm.buffer as ArrayBuffer]),
         cancelled: () => cancelled.has(msg.id),
         yieldToEvents,
+        convention: msg.convention,
       });
       post(info ? { type: "clipDone", id: msg.id, info } : { type: "cancelled", id: msg.id });
     } catch (e) {

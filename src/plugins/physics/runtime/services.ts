@@ -26,6 +26,7 @@ export function physicsWorldService<I extends PhysicsInstance>(options: {
   neededBy: WorldServiceNeeds;
   create(world: World, core: CoreModule, backend: unknown): I;
   raycast?: WorldServiceDef<LoadedPhysics, I | null>["raycast"];
+  raycastInto?: WorldServiceDef<LoadedPhysics, I | null>["raycastInto"];
 }): WorldServiceDef<LoadedPhysics, I | null> {
   const label = options.dimension.toUpperCase();
   return {
@@ -48,5 +49,6 @@ export function physicsWorldService<I extends PhysicsInstance>(options: {
     dispose: (p) => p?.free(),
     interpolate: (p, alpha) => p?.interpolate(alpha),
     ...(options.raycast ? { raycast: options.raycast } : {}),
+    ...(options.raycastInto ? { raycastInto: options.raycastInto } : {}),
   };
 }

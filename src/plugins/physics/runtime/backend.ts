@@ -233,6 +233,14 @@ export interface BackendCharacter<D extends DimensionTypes> {
   move(collider: BackendCollider<D>, motion: D["vec"], groups: number): { movement: D["vec"]; grounded: boolean; hits: CharacterHit<D>[] };
 }
 
+/** The reused result of a 3D backend's `raycastInto`: written on a hit. */
+export interface BackendRayInto {
+  /** The hit collider's id. */
+  collider: number;
+  distance: number;
+  point: Vec3;
+}
+
 export interface RayHit<D extends DimensionTypes> {
   readonly collider: number;
   readonly point: D["vec"];
@@ -287,14 +295,22 @@ export interface PhysicsWorldOptions<D extends DimensionTypes> {
 }
 
 /** A loaded backend for one dimension. */
-export interface PhysicsBackend<D extends DimensionTypes> {
+export interface PhysicsBackend<D extends DimensionTypes, W extends PhysicsWorldBackend<D> = PhysicsWorldBackend<D>> {
   readonly capabilities: PhysicsCapabilities;
-  createWorld(options: PhysicsWorldOptions<D>): PhysicsWorldBackend<D>;
+  createWorld(options: PhysicsWorldOptions<D>): W;
 }
 export type PhysicsBackend2D = PhysicsBackend<Dim2>;
-export type PhysicsBackend3D = PhysicsBackend<Dim3>;
+export type PhysicsBackend3D = PhysicsBackend<Dim3, PhysicsWorld3DBackend>;
 export type PhysicsWorld2DBackend = PhysicsWorldBackend<Dim2>;
-export type PhysicsWorld3DBackend = PhysicsWorldBackend<Dim3>;
+export interface PhysicsWorld3DBackend extends PhysicsWorldBackend<Dim3> {
+  /**
+   * The first collider a ray hits that `accept` allows and that isn't a sensor (when `excludeSensors`), written
+   * into `out`; false on a miss. `direction` is unit length. `accept` is applied inside the query (Rapier: the
+   * predicate filter), so a rejected collider never hides one behind it. The backend allocates nothing itself:
+   * `accept` is made once by the caller and `out` is reused.
+   */
+  raycastInto(origin: Vec3, direction: Vec3, maxDistance: number, groups: number | undefined, excludeSensors: boolean, accept: (collider: number) => boolean, out: BackendRayInto): boolean;
+}
 
 export type PhysicsDimension = "2d" | "3d";
 
