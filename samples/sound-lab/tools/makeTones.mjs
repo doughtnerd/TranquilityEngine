@@ -84,6 +84,64 @@ const clips = {
   }),
 };
 
+// Spatial listening pass (ADR 0162): localisation needs broadband sound with onsets. A steady low tone gives the head almost
+// no level difference between the ears and, once a room's reverb scrambles its phase, no time difference either; the
+// up/down and front/back cues live at 4-16 kHz. Own seeds, so the clips above stay byte-identical.
+const pulseNoise = rng(3);
+// Pink noise (Paul Kellet's economy filter: equal energy per octave, the usual localisation test signal), then a
+// one-pole high-pass at about 150 Hz.
+const pink = [0, 0, 0];
+let pulseHp = 0;
+const spatialClips = {
+  // The bench's orbit: four 150 ms bursts of pink noise a second, each with a 3 ms
+  // attack and a 30 ms release, then silence: every burst starts and ends at zero, so the 1 s loop is seamless.
+  "orbit-pulse-loop.wav": make(1, (t) => {
+    const w = pulseNoise();
+    pink[0] = 0.99765 * pink[0] + w * 0.099046;
+    pink[1] = 0.963 * pink[1] + w * 0.2965164;
+    pink[2] = 0.57 * pink[2] + w * 1.0526913;
+    const n = (pink[0] + pink[1] + pink[2] + w * 0.1848) * 0.25;
+    pulseHp += 0.02 * (n - pulseHp);
+    const u = t % 0.25;
+    const env = u < 0.15 ? Math.min(1, u / 0.003, (0.15 - u) / 0.03) : 0;
+    return env * (n - pulseHp);
+  }),
+};
+{
+  // Normalised to a 0.8 peak (pink noise's peaks are large against its level).
+  const pulse = spatialClips["orbit-pulse-loop.wav"];
+  let peak = 0;
+  for (const v of pulse) peak = Math.max(peak, Math.abs(v));
+  spatialClips["orbit-pulse-loop.wav"] = pulse.map((v) => (v / peak) * 0.8);
+}
+// The Radio: two bars of a 120 bpm figure in 2 s, a plucked three-note chord (sawtooths to 8 kHz) at the start of each bar, ringing for the bar and
+// a hi-hat (noise above about 6 kHz) on every eighth: broadband, with clear onsets. Each note ends at zero before the next.
+{
+  // Noise high-passed at about 6 kHz (one pole), inline: the helpers below are defined later in the file.
+  const hatNoise = rng(4), k = 1 - Math.exp((-TAU * 6000) / RATE);
+  let hatLp = 0;
+  const hat = Float32Array.from({ length: RATE * 2 }, () => {
+    const n = hatNoise();
+    hatLp += k * (n - hatLp);
+    return n - hatLp;
+  });
+  const chords = [[220, 277, 330], [196, 247, 294]];
+  const radio = make(2, (t, i) => {
+    const bar = Math.floor(t / 1), u = t - bar;
+    let s = 0;
+    {
+      const env = Math.min(1, u / 0.004, Math.max(0, 0.98 - u) / 0.02) * Math.exp(-u * 2.5);
+      for (const hz of chords[bar % 2]) s += 0.16 * env * saw(hz, t, 8000, RATE);
+    }
+    const e8 = t % 0.25;
+    s += 0.35 * hat[i] * Math.min(1, e8 / 0.001) * Math.exp(-e8 / 0.03) * Math.min(1, Math.max(0, 0.24 - e8) / 0.005);
+    return s;
+  });
+  let peak = 0;
+  for (const v of radio) peak = Math.max(peak, Math.abs(v));
+  spatialClips["radio-loop.wav"] = radio.map((v) => (v / peak) * 0.9);
+}
+
 // Listening pass: a melody in a 24 kHz file that streams (its import settings say so). Eight half-second notes
 // rising, so a seek, a gap or a repeat shows where it lands; each note starts and ends at zero, so the loop is clean.
 const NOTES = [262, 294, 330, 392, 440, 523, 587, 659];
@@ -99,7 +157,7 @@ const melody = make(
 );
 
 mkdirSync(out, { recursive: true });
-const files = [...Object.entries(clips).map(([name, samples]) => [name, wav(samples)]), ["melody-loop.wav", wav(melody, 24000)]];
+const files = [...Object.entries(clips).map(([name, samples]) => [name, wav(samples)]), ...Object.entries(spatialClips).map(([name, samples]) => [name, wav(samples)]), ["melody-loop.wav", wav(melody, 24000)]];
 for (const [name, file] of files) {
   writeFileSync(join(out, name), file);
   console.log(`${name}  ${file.length} bytes`);
