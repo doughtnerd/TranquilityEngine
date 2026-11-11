@@ -1,3 +1,6 @@
+//! SPIKE S4 (audio M4 music cost): a COPY of native/audio/crates/audio-bench/src/lib.rs with music additions, marked `S4:`.
+//! The original header follows.
+//!
 //! The audio core's lab benchmark (ADR 0157 A3.5; architecture §6.5 "Lab" and "Content").
 //!
 //! Drives a real [`Core`] the way the worklet does (BATCH messages through `scheduler::submit`,
@@ -36,6 +39,8 @@ use audio_core::layout::{Layout, RegionKind, PAGE_BYTES};
 use audio_core::params::InitParams;
 use audio_core::{scheduler, status, zones, Core, QUANTUM};
 use audio_wire::generated as wire;
+
+mod music;
 
 // --- Platform ------------------------------------------------------------------------------
 
@@ -211,7 +216,27 @@ pub struct Scene {
     /// fade, its kernel freed, the incoming kernel uploaded into its slot, 256 KB a quantum). Main's side is scripted
     /// here (`ZoneMain`); the core's side (`configure`, `start_waiting`, kernel reserve and free) is timed.
     pub swap: bool,
+    /// S4: the sample rate of the scene's ordinary clips and streams (48 kHz = no resampling).
+    pub src_rate: f32,
+    /// S4: ordinary mixed voices carry PLAY_FLAGS_SPATIAL (equal-power panner); off: non-spatial.
+    pub spatial: bool,
+    /// S4: the LAST `music_stems` of `streams` are music stems (non-spatial, on the Music bus, `music_rate`), and
+    /// `music_stingers` looping decoded clips (non-spatial, `music_rate`, 2 s) follow, counted in `mixed`.
+    pub music_stems: u32,
+    pub music_stingers: u32,
+    pub music_rate: f32,
+    /// S4: the first `music_fades` music voices carry a volume automation binding (control-rate curve, global seeking).
+    pub music_fades: u32,
+    /// S4: every music voice gets a SET_PARAMS gain ramp each batch (the bus-fade/crossfade path of today's mixer).
+    pub music_ramp: bool,
+    /// S4: stamped SET_PARAMS gain records per batch at sample 64 of quanta 0..splits (each splits that quantum's render).
+    pub splits: u32,
+    /// S4: sizes the one-shot clip set as if `mixed` were this (twin scenes keep the same clips); 0 = `mixed`.
+    pub ref_mixed: u32,
 }
+
+/// S4: the bus music voices play on (a group under bus 0 with the preset's chain), or bus 0 in one-bus scenes.
+const MUSIC_BUS: u16 = 3;
 
 /// ADR 0162 C7: the bus aux sends go to (one of the presets' 32 buses).
 const AUX_BUS: u16 = 2;
@@ -290,6 +315,15 @@ impl Scene {
             sends_per_voice: 1,
             aux_voices: 0,
             swap: false,
+            src_rate: RATE,
+            spatial: true,
+            music_stems: 0,
+            music_stingers: 0,
+            music_rate: 44_100.0,
+            music_fades: 0,
+            music_ramp: false,
+            splits: 0,
+            ref_mixed: 0,
         }
     }
 
@@ -467,7 +501,7 @@ pub fn scene(name: &str) -> Option<Scene> {
         "m3-worst-high-sends" => Scene::zoned(Scene { name: name.into(), ..scene("m3-worst-high").unwrap() }, 3, 248, 2, 32),
         "m3-worst-default-sends" => Scene::zoned(Scene { name: name.into(), ..scene("m3-worst-default").unwrap() }, 3, 120, 2, 16),
         "m3-worst-low-sends" => Scene::zoned(Scene { name: name.into(), ..scene("m3-worst-low").unwrap() }, 1, 60, 1, 8),
-        _ => return None,
+        _ => return music::scene(name),
     };
     Some(s)
 }
@@ -778,6 +812,9 @@ pub struct RunResult {
     pub reverb_sends: u32,
     pub streams: u32,
     /// Per quantum (µs), plus the HRTF terms, for the moving fit.
+    /// S4 sanity: the largest output sample seen after warm-up, streams starved, and the mean output energy.
+    pub peak: f64,
+    pub starved: u32,
     pub times: Vec<f32>,
     pub crossfading: Vec<u8>,
     pub kernels: Vec<u8>,
@@ -806,6 +843,8 @@ struct Voice {
     send: bool,
     aux: bool,
     send_ord: u32,
+    /// S4: a music voice (stem or stinger).
+    music: bool,
 }
 
 /// ADR 0162 C7: main's picture of the zone table (`zones-swap` and the initial ZONE_CONFIG), and the kernel upload in flight.
@@ -873,6 +912,11 @@ struct Bench {
     sends_now: u32,
     aux_now: u32,
     zone: ZoneMain,
+    /// S4: the next voice started is a music voice; music voice ids; first stinger clip id.
+    starved_seen: u32,
+    force_music: bool,
+    music_ids: Vec<u32>,
+    stinger_base: u32,
 }
 
 /// The scene's init parameters. The arena's initial reserve holds all of the scene's clips (with
@@ -897,7 +941,7 @@ fn new_core(p: InitParams) -> (Core, *mut u8, std::alloc::Layout) {
 }
 
 /// The shipped HRIR asset (44.1 kHz, delays in).
-static HRIR_ASSET: &[u8] = include_bytes!("../../../../../src/plugins/audio/runtime/wasm/myco_hrir.bin");
+static HRIR_ASSET: &[u8] = include_bytes!("../../../../src/plugins/audio/runtime/wasm/myco_hrir.bin");
 
 /// The shipped table at `rate` as main would send it: delays extracted (H5), responses resampled
 /// by nearest frame (cost is independent of the responses' values; listening needs `hrir.ts`).
@@ -932,7 +976,7 @@ fn hrir_table(rate: f32) -> Vec<u8> {
 }
 
 /// The committed MagLS asset (44.1 kHz, 256 taps, `[16][2][taps]` f32).
-static MAGLS_ASSET: &[u8] = include_bytes!("../../../../../src/engine/audio/magls-o3.bin");
+static MAGLS_ASSET: &[u8] = include_bytes!("../../../../src/engine/audio/magls-o3.bin");
 
 /// The asset as main would send it for `RATE`: the header's rate set to the context's (the responses stay as they
 /// are: cost is independent of their values; listening needs `resampleMagls`).
@@ -1020,7 +1064,7 @@ impl Bench {
         // Clips: int16 stereo noise at the context rate.
         let bytes_total = scene.clip_mb as usize * (1 << 20);
         let (count, mean_frames) = if scene.one_shots {
-            let frames = ((scene.mixed.max(1) as f32 / scene.starts_per_sec) * RATE).max(4_096.0) as usize;
+            let frames = (((if scene.ref_mixed > 0 { scene.ref_mixed } else { scene.mixed }).max(1) as f32 / scene.starts_per_sec) * RATE).max(4_096.0) as usize;
             (bytes_total.div_ceil(frames * 4).max(1), frames)
         } else {
             let n = (scene.mixed - scene.streams).max(1) as usize;
@@ -1030,7 +1074,7 @@ impl Bench {
         let mut buf: Vec<u8> = Vec::new();
         for id in 1..=count as u32 {
             let frames = if scene.one_shots { (mean_frames as f32 * (0.5 + rng.unit())) as u32 } else { mean_frames as u32 };
-            core.clips_mut().reserve(id, frames, 2, RATE, ClipFormat::I16).expect("clip reserve");
+            core.clips_mut().reserve(id, frames, 2, scene.src_rate, ClipFormat::I16).expect("clip reserve");
             buf.clear();
             buf.reserve(frames as usize * 4);
             for _ in 0..frames as usize * 2 {
@@ -1053,6 +1097,19 @@ impl Bench {
                 buf.extend_from_slice(&s.to_le_bytes());
             }
             core.clips_mut().write(id, 0, &buf).expect("ambisonic clip write");
+            clip_frames.push(frames);
+        }
+        // S4: the stingers' decoded clips (2 s, int16 stereo at the music rate).
+        for k in 0..scene.music_stingers {
+            let id = count as u32 + scene.ambi + 1 + k;
+            let frames = (2.0 * scene.music_rate) as u32;
+            core.clips_mut().reserve(id, frames, 2, scene.music_rate, ClipFormat::I16).expect("stinger clip reserve");
+            buf.clear();
+            for _ in 0..frames as usize * 2 {
+                let s = (rng.next() >> 16) as i16 / 16;
+                buf.extend_from_slice(&s.to_le_bytes());
+            }
+            core.clips_mut().write(id, 0, &buf).expect("stinger clip write");
             clip_frames.push(frames);
         }
         if scene.hrtf > 0 || scene.xfade.is_some() {
@@ -1103,6 +1160,10 @@ impl Bench {
                 standby_swaps: 0,
                 evict_swaps: 0,
             },
+            starved_seen: 0,
+            force_music: false,
+            music_ids: Vec::new(),
+            stinger_base: count as u32 + scene.ambi + 1,
         };
         b.stream_data = (0..STREAM_CHUNK as usize * 2).map(|_| (b.rng.unit() - 0.5) * 0.1).collect();
         b.configure();
@@ -1154,7 +1215,7 @@ impl Bench {
         if s.zones_active > 0 {
             self.zones_init();
         }
-        if s.bindings > 0 || s.bus_automation {
+        if s.bindings > 0 || s.bus_automation || s.music_fades > 0 {
             self.push(&bench_curves());
             for slot in 0..2u16 {
                 self.push(&wire::Param { voice_id: 0, frame_offset: wire::ASAP, group: 0, slot, value: 0.5, seek_per_second: 0.0 });
@@ -1173,7 +1234,8 @@ impl Bench {
         for k in 0..s.streams {
             let id = STREAM_ID + k;
             self.start(Some(id), true);
-            let o = wire::StreamOpen { stream_id: id, channels: 2, sample_rate: RATE, total_frames: u32::MAX, epoch: 1, ..Default::default() };
+            let stem = k >= s.streams - s.music_stems;
+            let o = wire::StreamOpen { stream_id: id, channels: 2, sample_rate: if stem { s.music_rate } else { s.src_rate }, total_frames: u32::MAX, epoch: 1, ..Default::default() };
             assert!(self.core.streams_mut().open(&o), "stream open");
         }
         for _ in 0..s.virtual_voices {
@@ -1183,12 +1245,17 @@ impl Bench {
             }
         }
         self.flush_setup();
-        while (self.mixed_ids.len() as u32) < s.mixed {
+        while (self.mixed_ids.len() as u32) < s.mixed - s.music_stingers {
             self.start(None, true);
             if self.rec_count >= 2_048 {
                 self.flush_setup();
             }
         }
+        self.force_music = true;
+        for _ in 0..s.music_stingers {
+            self.start(None, true);
+        }
+        self.force_music = false;
         self.flush_setup();
     }
 
@@ -1388,10 +1455,11 @@ impl Bench {
         *g = g.wrapping_add(1).max(1);
         let id = ((*g as u32) << 16) | index;
         let s = self.scene.clone();
-        let looping = stream.is_some() || !mixed || !(s.one_shots || s.sustain);
-        let hrtf = mixed && self.hrtf_now < s.hrtf;
+        let looping = stream.is_some() || !mixed || !(s.one_shots || s.sustain) || self.force_music;
+        let music = self.force_music || stream.is_some_and(|sid| sid - STREAM_ID >= s.streams - s.music_stems);
+        let hrtf = mixed && !music && self.hrtf_now < s.hrtf;
         // ADR 0162 D6: the scene's M3 counts are kept by what the mixed voices stand for (streams stay plain).
-        let eligible = mixed && stream.is_none();
+        let eligible = mixed && stream.is_none() && !music;
         let ambi = eligible && self.ambi_now < s.ambi;
         let ambi_private = ambi && self.ambi_private_now < s.ambi_private;
         let bed = eligible && !ambi && !hrtf && self.bed_now < s.bed_voices;
@@ -1405,6 +1473,7 @@ impl Bench {
             Some(sid) => sid,
             // (A7: the ambisonic arm comes first: in a looping scene the next arm would give them a stereo clip.)
             None if ambi => self.stereo_clips + 1 + self.ambi_now,
+            None if music => self.stinger_base + (self.music_ids.len() as u32).saturating_sub(s.music_stems),
             None if mixed && !s.one_shots => {
                 // Looping mixed voices each read their own clip.
                 let n = self.stereo_clips;
@@ -1414,7 +1483,9 @@ impl Bench {
             None => 1 + self.rng.below(self.stereo_clips),
         };
         // Bed scenes: with several beds the voices spread over their host buses (1..=beds).
-        let bus = if ambi_private {
+        let bus = if music {
+            if s.buses > MUSIC_BUS as u32 { MUSIC_BUS } else { 0 }
+        } else if ambi_private {
             assert!(s.beds != 1, "a private ambisonic voice needs a bus with no bed");
             0
         } else if s.beds > 1 && (bed || ambi) {
@@ -1424,7 +1495,7 @@ impl Bench {
         };
         let ordinal = self.mixed_ids.len() as u32;
         let phase = self.rng.unit() * 6.283;
-        let mut flags = if ambi { 0 } else { wire::PLAY_FLAGS_SPATIAL };
+        let mut flags = if ambi || music || !s.spatial { 0 } else { wire::PLAY_FLAGS_SPATIAL };
         if ambi {
             flags |= wire::PLAY_FLAGS_AMBISONIC;
         }
@@ -1454,7 +1525,8 @@ impl Bench {
         } else {
             0
         };
-        let pitch = if stream.is_some() { 1.0 } else { self.pitch() };
+        let pitch = if stream.is_some() || music { 1.0 } else { self.pitch() };
+        let fade = music && (self.music_ids.len() as u32) < s.music_fades;
         let score = self.rng.unit();
         self.push(&wire::Play {
             voice_id: id,
@@ -1470,7 +1542,7 @@ impl Bench {
             lp_hz: if lp { LP_START_HZ } else { wire::BUS_LP_OFF_HZ as f32 },
             score,
             start_offset_frames: offset,
-            group: if s.bindings > 0 { 1 + (index % 1_024) as u16 } else { 0 },
+            group: if s.bindings > 0 || fade { 1 + (index % 1_024) as u16 } else { 0 },
             ..Default::default()
         });
         if hp {
@@ -1496,7 +1568,11 @@ impl Bench {
                 ..Default::default()
             });
         }
-        if s.bindings > 0 && stream.is_none() {
+        if fade {
+            // S4: one volume binding (curve 0 on the seeking global 0x8000): the stem's fade, at control rate.
+            self.push(&wire::Automate { voice_id: id, frame_offset: wire::ASAP, bindings: vec![wire::AutomateBindings { param: 0x8000, curve: 0, target: 0 }] });
+        }
+        if s.bindings > 0 && stream.is_none() && !music {
             let all = [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2)];
             let bindings = all[..s.bindings.min(3) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect();
             self.push(&wire::Automate { voice_id: id, frame_offset: wire::ASAP, bindings });
@@ -1505,7 +1581,10 @@ impl Bench {
             // A region in the clip's middle third; the voice starts before it.
             self.push(&wire::SetLoop { voice_id: id, frame_offset: wire::ASAP, loop_start_frame: frames / 3, loop_end_frame: 2 * frames / 3, flags: wire::SET_LOOP_FLAGS_LOOPING });
         }
-        let mut v = Voice { id, mixed, hrtf, at: u32::MAX, phase, bed, ambi, private: ambi_private, lp, hp, send, aux, send_ord };
+        if music {
+            self.music_ids.push(id);
+        }
+        let mut v = Voice { id, mixed, hrtf, at: u32::MAX, phase, bed, ambi, private: ambi_private, lp, hp, send, aux, send_ord, music };
         if mixed {
             v.at = self.mixed_ids.len() as u32;
             self.mixed_ids.push(id);
@@ -1550,6 +1629,7 @@ impl Bench {
 
     /// What STATUS says ended or was demoted since the last take.
     fn read_status(&mut self) {
+        self.starved_seen += status::counters(&self.core).starved.as_slice().len() as u32;
         let ended: Vec<u32> = status::counters(&self.core).ended.as_slice().to_vec();
         let demoted: Vec<u32> = status::counters(&self.core).demoted.as_slice().to_vec();
         for id in demoted {
@@ -1586,6 +1666,15 @@ impl Bench {
             }
         }
         let t = q as f32 * QUANTUM as f32 / RATE;
+        if s.splits > 0 && q % BATCH_EVERY == 0 {
+            // S4: stamped records land at sample 64 of the batch's quanta 0..splits (offsets are from the batch's first frame):
+            // each makes `render` cut that quantum into two ranges, for every live voice.
+            if let Some(&id) = self.music_ids.first().or(self.mixed_ids.first()) {
+                for k in 0..s.splits.min(BATCH_EVERY as u32) {
+                    self.push(&wire::SetParams { voice_id: id, frame_offset: k * QUANTUM as u32 + 64, mask: wire::SET_PARAMS_MASK_GAIN, gain: 0.2 + 0.05 * (k % 2) as f32, ramp_frames: 32, ..Default::default() });
+                }
+            }
+        }
         if s.listener && q % BATCH_EVERY == 0 {
             // ADR 0162 A7: the head turns 0.5 rad/s in yaw with a slow nod (0.3 rad at 0.7 rad/s), q = qy(yaw) * qx(pitch),
             // slerped over the batch's frames (the next LISTENER arrives as the ramp ends).
@@ -1593,7 +1682,7 @@ impl Bench {
             let (sa, ca, sb, cb) = (libm::sinf(ha), libm::cosf(ha), libm::sinf(hb), libm::cosf(hb));
             self.push(&wire::Listener { voice_id: 0, frame_offset: wire::ASAP, qx: ca * sb, qy: sa * cb, qz: -sa * sb, qw: ca * cb, ramp_frames: BATCH_EVERY as u32 * QUANTUM as u32, flags: 0 });
         }
-        if s.bindings > 0 || s.bus_automation {
+        if s.bindings > 0 || s.bus_automation || s.music_fades > 0 {
             // ADR 0158 E2: the globals seek toward new targets every batch (≈ 0.25 s to cross), and 32 groups' locals.
             for slot in 0..2u16 {
                 let value = 0.5 + 0.5 * libm::sinf(t * (1.0 + slot as f32));
@@ -1622,6 +1711,14 @@ impl Bench {
         for k in 0..self.mixed_ids.len() {
             let id = self.mixed_ids[k];
             let v = self.voices[(id & 0xFFFF) as usize].unwrap();
+            if v.music {
+                // S4: a music voice takes no direction; with `music_ramp` its gain ramps over the frame (a stem fade or crossfade).
+                if s.music_ramp {
+                    let a = v.phase + 1.3 * t;
+                    self.push(&wire::SetParams { voice_id: id, frame_offset: wire::ASAP, mask: wire::SET_PARAMS_MASK_GAIN, gain: 0.25 + 0.1 * libm::sinf(a), ramp_frames: ramp, ..Default::default() });
+                }
+                continue;
+            }
             if v.ambi {
                 // Ambisonic clips follow the listener, not a direction.
                 continue;
@@ -1786,7 +1883,12 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
                 probe.push(pt as f32);
             }
         }
-        b.core.process(frame);
+        let out = b.core.process(frame);
+        if recording {
+            for &x in out.iter() {
+                r.peak = r.peak.max(x.abs() as f64);
+            }
+        }
         status::after_quantum(&mut b.core);
         clips::flush_events(&mut b.core);
         let mut dt = platform::now_us() - t0;
@@ -1891,6 +1993,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     r.reverb = scene.reverb;
     r.reverb_sends = scene.reverb_sends;
     r.streams = scene.streams;
+    r.starved = b.starved_seen;
     let (base, block) = b.block;
     drop(b);
     // SAFETY: the core over the block is gone with `b`; nothing else points into it.
@@ -2017,6 +2120,8 @@ fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
         r.standby_swaps,
         r.evict_swaps
     );
+    line.pop();
+    line.push_str(&format!(",\"peak\":{:.4},\"starved\":{}}}", r.peak, r.starved));
     if r.automation[3] > 0.0 {
         line.pop();
         line.push_str(&format!(",\"automationP50\":{:.3},\"automationP99\":{:.3},\"automationP999\":{:.3},\"automationMax\":{:.3}}}", r.automation[0], r.automation[1], r.automation[2], r.automation[3]));
@@ -2130,6 +2235,7 @@ pub fn main(args: &str) {
                 ));
             }
         }
+        "micro" | "check" => music::main(args, mode),
         _ => platform::print(&format!("{{\"error\":\"unknown mode {mode}\"}}")),
     }
 }

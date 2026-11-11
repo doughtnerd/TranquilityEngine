@@ -1,6 +1,6 @@
 // Bundles the REAL engine modules (decoder worker/handler, stream decoder, worklet processor + CoreDriver, wire) with
 // esbuild into build/, so the spike measures the shipped code, not a copy. Nothing in src/ is touched.
-import { build } from '/home/user/TranquilityEngine/node_modules/esbuild/lib/main.js';
+import { build } from '/home/user/TranquilityEngine/node_modules/esbuild-wasm/lib/main.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdirSync } from 'node:fs';

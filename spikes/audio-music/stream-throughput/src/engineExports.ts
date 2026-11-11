@@ -4,3 +4,5 @@ export { DecoderWasm } from "../../../../src/plugins/audio/runtime/decoder/wasm"
 export { CreditAccumulator, CreditWindow, STREAM_CHUNK_FRAMES, STREAM_WINDOW_FRAMES, STREAM_CREDIT_FRAMES } from "../../../../src/plugins/audio/runtime/decoder/credit";
 export { Kind, MAGIC, readStreamOpen, readStreamChunk, writeEnvelope, writeStreamCredit, STREAM_CREDIT_FIXED_END, STREAM_CHUNK_FIXED_END } from "../../../../src/plugins/audio/runtime/wire.generated";
 export { default as hash } from "../../../../src/plugins/audio/runtime/wasm/hash.json";
+export { instantiateCore, arenaBlockBytes, memoryMaximumPages, PAGE_BYTES } from "../../../../src/plugins/audio/runtime/worklet/coreDriver";
+export { STREAM_CHUNK_BUFFER_BYTES } from "../../../../src/plugins/audio/runtime/decoder/streams";

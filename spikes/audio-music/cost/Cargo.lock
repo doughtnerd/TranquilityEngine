@@ -3,12 +3,25 @@
 version = 4
 
 [[package]]
+name = "audio-core"
+version = "0.1.0"
+dependencies = [
+ "audio-dsp",
+ "audio-wire",
+ "libm",
+]
+
+[[package]]
 name = "audio-dsp"
 version = "0.1.0"
 dependencies = [
  "libm",
  "microfft",
 ]
+
+[[package]]
+name = "audio-wire"
+version = "0.1.0"
 
 [[package]]
 name = "autocfg"
@@ -40,12 +53,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "myco-bed-spike"
+name = "myco-music-cost-spike"
 version = "0.0.0"
 dependencies = [
+ "audio-core",
  "audio-dsp",
+ "audio-wire",
  "libm",
- "microfft",
 ]
 
 [[package]]

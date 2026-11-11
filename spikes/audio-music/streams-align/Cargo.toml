@@ -1,0 +1,28 @@
+[package]
+name = "myco-streams-align-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Standalone: not a member of native/audio's workspace.
+[workspace]
+
+[lib]
+name = "streamsalign"
+
+[[bin]]
+name = "align"
+path = "src/bin/align.rs"
+
+[[bin]]
+name = "decode_lat"
+path = "src/bin/decode_lat.rs"
+
+[dependencies]
+audio-core = { path = "../../../native/audio/crates/audio-core" }
+audio-wire = { path = "../../../native/audio/crates/audio-wire" }
+audio-decode = { path = "../../../native/audio/crates/audio-decode" }
+
+[profile.release]
+opt-level = 3
+debug = false
