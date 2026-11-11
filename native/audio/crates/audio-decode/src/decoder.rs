@@ -10,6 +10,7 @@
 
 use std::sync::Arc;
 
+use crate::ambisonic::{Convention, FumaToAmbix};
 use crate::loop_points::{comment_loop_points, wav_loop_points};
 
 use symphonia::core::codecs::audio::well_known::{
@@ -97,6 +98,16 @@ impl FormatHint {
     }
 }
 
+/// The channel counts the decoder opens (ADR 0162, api-and-models §2.4 and §5.2): mono, stereo, or
+/// an ambisonic file of order 1-3 (4, 9 or 16 channels). Others (5.1 and other multichannel mixes)
+/// are refused at open.
+pub fn is_supported_channel_count(channels: u32) -> bool {
+    matches!(channels, 1 | 2 | 4 | 9 | 16)
+}
+
+/// Most channels a file may have (an order-3 ambisonic file).
+pub const MAX_CHANNELS: u32 = 16;
+
 /// The encoded file, shared between the reader and later reopens (seeks after end of stream).
 pub type Bytes = Arc<dyn AsRef<[u8]> + Send + Sync>;
 
@@ -159,6 +170,11 @@ pub struct Decoder {
     /// Leading decoded frames that are encoder priming, dropped at open and after each reopen; output
     /// frame `f` is decoded frame `f + lead` (AAC in MP4).
     lead: u64,
+    /// The FuMa to AmbiX conversion applied to every decoded packet before any read rounds it
+    /// (ADR 0162, owner O1), once [`Decoder::set_convention`] chose FuMa for a 4, 9 or 16-channel file.
+    fuma: Option<FumaToAmbix>,
+    /// `set_convention` was called (it may be called once, before the first read or seek).
+    convention_set: bool,
 }
 
 fn classify(codec: symphonia::core::codecs::audio::AudioCodecId) -> Codec {
@@ -296,6 +312,12 @@ impl Decoder {
         if info.channels == 0 || info.sample_rate == 0 {
             return Err(DecodeError::Codec("the audio track states no sample rate or channel count".into()));
         }
+        if !is_supported_channel_count(info.channels) {
+            return Err(DecodeError::Codec(format!(
+                "{}-channel audio isn't supported: mono, stereo, or ambisonic with 4, 9 or 16 channels (ADR 0162); multichannel mixes aren't",
+                info.channels
+            )));
+        }
         Ok(Decoder {
             bytes,
             hint,
@@ -312,7 +334,27 @@ impl Decoder {
             skipped_packets: 0,
             lead: o.lead,
             skip: o.lead,
+            fuma: None,
+            convention_set: false,
         })
+    }
+
+    /// Chooses the file's ambisonic convention (the sidecar's, api-and-models §2.4), before the
+    /// first read or seek. FuMa on a 4, 9 or 16-channel file converts every packet decoded from now
+    /// on to AmbiX, scaled into int16 headroom ([`crate::ambisonic`]); FuMa on another channel count
+    /// and AmbiX change nothing (main sends the sidecar's convention before it knows the count).
+    /// Returns the import gain main folds into the clip's volume: the headroom factor (√2 for
+    /// orders 1-3), else 1. Streams use the same call (per chunk, the conversion runs in the read).
+    pub fn set_convention(&mut self, convention: Convention) -> Result<f32, String> {
+        if self.convention_set || self.pos != 0 || !self.pend.is_empty() {
+            return Err("set the convention once, before the first read or seek".into());
+        }
+        self.convention_set = true;
+        self.fuma = match convention {
+            Convention::FuMa => FumaToAmbix::new(self.info.channels as usize),
+            Convention::AmbiX => None,
+        };
+        Ok(self.fuma.map_or(1.0, |f| f.import_gain()))
     }
 
     pub fn info(&self) -> Info {
@@ -442,6 +484,10 @@ impl Decoder {
                 }
             } else {
                 continue;
+            }
+            // Before any read rounds the samples to int16 (owner O1).
+            if let Some(fuma) = &self.fuma {
+                fuma.apply(&mut self.pend[..]);
             }
             return Ok(Some(start));
         }
