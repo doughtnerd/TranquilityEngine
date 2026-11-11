@@ -48,8 +48,50 @@ export const isBarBeatTick = (p: MusicPosition): p is BarBeatTick => typeof p !=
  * beat 0 or past `MAX_POSITION_BEAT`, tick past 959). Spec rule: §2.2.
  */
 export function parsePosition(raw: unknown, allow?: PositionAllow): MusicPosition | null {
-  void raw; void allow;
-  throw new Error("L-F1ab: parsePosition is not filled");
+  const result = diagnosePosition(raw, allow);
+  return "position" in result ? result.position : null;
+}
+
+/** One reading of a field: the position, or the problem fragment. Shared by parsePosition and positionProblem. */
+type PositionReading = { position: MusicPosition } | { problem: string };
+
+const POSITION_SHAPE = /^(\d+):(\d+):(\d+)$/;
+
+/** The fragment naming what a position must look like, with the words the field allows. */
+function expectedPosition(allow?: PositionAllow): string {
+  const shape = `"bar:beat:tick" (bar 1 or more, beat 1..${MAX_POSITION_BEAT}, tick 0..${MUSIC_TICKS_PER_BEAT - 1})`;
+  const words = POSITION_WORDS.filter((w) => allow?.[w] === true).map((w) => `"${w}"`);
+  return words.length > 0 ? `${shape} or ${words.join(" or ")}` : shape;
+}
+
+function diagnosePosition(raw: unknown, allow?: PositionAllow): PositionReading {
+  const must = `must be ${expectedPosition(allow)}`;
+  if (typeof raw !== "string") return { problem: must };
+  if ((POSITION_WORDS as readonly string[]).includes(raw)) {
+    return allow?.[raw as PositionWord] === true
+      ? { position: raw as PositionWord }
+      : { problem: `"${raw}" is not allowed here; ${must}` };
+  }
+  const match = POSITION_SHAPE.exec(raw);
+  if (match === null) {
+    // Name the part that is not a whole number when the text has the three colon-separated parts.
+    const parts = raw.split(":");
+    if (parts.length === 3) {
+      const names = ["bar", "beat", "tick"];
+      const bad = parts.findIndex((part) => !/^\d+$/.test(part));
+      if (bad >= 0) return { problem: `${names[bad]} "${parts[bad]}" is not a whole number; ${must}` };
+    }
+    return { problem: must };
+  }
+  const bar = Number(match[1]);
+  const beat = Number(match[2]);
+  const tick = Number(match[3]);
+  if (bar < 1) return { problem: `bar ${bar} is below 1` };
+  if (bar > MAX_POSITION_BAR) return { problem: `bar ${bar} is past ${MAX_POSITION_BAR}` };
+  if (beat < 1) return { problem: `beat ${beat} is below 1` };
+  if (beat > MAX_POSITION_BEAT) return { problem: `beat ${beat} is past ${MAX_POSITION_BEAT}` };
+  if (tick > MUSIC_TICKS_PER_BEAT - 1) return { problem: `tick ${tick} is past ${MUSIC_TICKS_PER_BEAT - 1}` };
+  return { position: { bar, beat, tick } };
 }
 
 /**
@@ -58,8 +100,8 @@ export function parsePosition(raw: unknown, allow?: PositionAllow): MusicPositio
  * Names the words the field allows. The caller prefixes the path and appends its own consequence ("dropped").
  */
 export function positionProblem(raw: unknown, allow?: PositionAllow): string | null {
-  void raw; void allow;
-  throw new Error("L-F1ab: positionProblem is not filled");
+  const result = diagnosePosition(raw, allow);
+  return "problem" in result ? result.problem : null;
 }
 
 /**
@@ -67,14 +109,13 @@ export function positionProblem(raw: unknown, allow?: PositionAllow): string | n
  * round-trips (with the word allowed). Spec rule: §2.2.
  */
 export function formatPosition(p: MusicPosition): string {
-  void p;
-  throw new Error("L-F1ab: formatPosition is not filled");
+  return isBarBeatTick(p) ? `${p.bar}:${p.beat}:${p.tick}` : p;
 }
 
 /** `formatPosition(parsePosition(raw, allow))`, or null when `raw` is not valid: the form the file stores. */
 export function canonicalPosition(raw: unknown, allow?: PositionAllow): string | null {
-  void raw; void allow;
-  throw new Error("L-F1ab: canonicalPosition is not filled");
+  const p = parsePosition(raw, allow);
+  return p === null ? null : formatPosition(p);
 }
 
 /**
@@ -83,14 +124,12 @@ export function canonicalPosition(raw: unknown, allow?: PositionAllow): string |
  * place `start` first and `end` last themselves.)
  */
 export function comparePositions(a: BarBeatTick, b: BarBeatTick): number {
-  void a; void b;
-  throw new Error("L-F1ab: comparePositions is not filled");
+  return a.bar - b.bar || a.beat - b.beat || a.tick - b.tick;
 }
 
 /** The same beat with tick 0 (a tempo marker "sits on a beat", §2.2). */
 export function snapToBeat(p: BarBeatTick): BarBeatTick {
-  void p;
-  throw new Error("L-F1ab: snapToBeat is not filled");
+  return { bar: p.bar, beat: p.beat, tick: 0 };
 }
 
 /**
@@ -98,6 +137,6 @@ export function snapToBeat(p: BarBeatTick): BarBeatTick {
  * already beat 1 tick 0 is returned unchanged: it already sits on a bar.
  */
 export function snapToNextBar(p: BarBeatTick): BarBeatTick {
-  void p;
-  throw new Error("L-F1ab: snapToNextBar is not filled");
+  if (p.beat === 1 && p.tick === 0) return p;
+  return { bar: p.bar + 1, beat: 1, tick: 0 };
 }
