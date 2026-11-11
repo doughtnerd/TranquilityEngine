@@ -38,7 +38,7 @@ fn all_opcodes_and_kinds_are_exposed() {
     let s = schema();
     let rust = rust::emit(&s, &schema_hash_hex()).unwrap();
     let ts = ts::emit(&s, &schema_hash_hex()).unwrap();
-    for op in s.opcodes.iter().filter(|o| o.sent_in_m1) {
+    for op in s.opcodes.iter().filter(|o| o.sent) {
         let name = layout::pascal(op.name);
         assert!(rust.contains(&format!("pub struct {name} ")), "{name}");
         assert!(ts.contains(&format!("export function write{name}(")), "{name}");

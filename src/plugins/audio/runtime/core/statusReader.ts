@@ -3,24 +3,38 @@
 // and items, for every message; #66). The same checks and errors as `readStatus` (`WireError`s with codes), the
 // same field offsets. The block it returns is the reader's own and is overwritten by the next `read`: consumers
 // (the mirror, in `onmessage`) use it before returning.
+//
+// ADR 0162 (§4.3, contract C7) grows the header to 144 B (`bedVoices` … `workZones` at 112..143) and appends the
+// `beds`, `zones` and `zoneEvents` sections after `peaks`; `validateM3` and `readM3` handle them (leaf L-A1b).
 import {
   ErrorCode,
   Kind,
   MAGIC,
+  MAX_BEDS,
+  MAX_ZONE_EVENTS_PER_BLOCK,
+  MAX_ZONE_SLOTS,
+  STATUS_HEADER_BYTES,
   VERSION_MAJOR,
   WireError,
+  type StatusBedsItem,
   type StatusBlock,
   type StatusClipEventsItem,
   type StatusPeaksItem,
   type StatusPlayheadsItem,
   type StatusStreamEventsItem,
+  type StatusZoneEventsItem,
+  type StatusZonesItem,
 } from "../wire.generated";
 
-const HEADER = 112;
+const HEADER = STATUS_HEADER_BYTES;
 const MAX_ENDED = 1024;
 const MAX_PLAYHEADS = 256;
 const MAX_EVENTS = 64;
 const MAX_PEAKS = 32;
+/** ADR 0162 §4.3: the M3 sections' item sizes. */
+const BED_ITEM_BYTES = 8;
+const ZONE_ITEM_BYTES = 12;
+const ZONE_EVENT_ITEM_BYTES = 4;
 
 export class StatusReader {
   /** The reused block. Its section arrays keep their capacity between reads; `length` is set per read. */
@@ -30,12 +44,18 @@ export class StatusReader {
   private readonly clipItems: StatusClipEventsItem[] = [];
   private readonly streamItems: StatusStreamEventsItem[] = [];
   private readonly peakItems: StatusPeaksItem[] = [];
+  private readonly bedItems: StatusBedsItem[] = [];
+  private readonly zoneItems: StatusZonesItem[] = [];
+  private readonly zoneEventItems: StatusZoneEventsItem[] = [];
 
   constructor() {
     for (let i = 0; i < MAX_PLAYHEADS; i++) this.playheadItems.push({ id: 0, clipFrame: 0 });
     for (let i = 0; i < MAX_EVENTS; i++) this.clipItems.push({ clipId: 0, code: 0 });
     for (let i = 0; i < MAX_EVENTS; i++) this.streamItems.push({ id: 0, code: 0 });
     for (let i = 0; i < MAX_PEAKS; i++) this.peakItems.push({ l: 0, r: 0 });
+    for (let i = 0; i < MAX_BEDS; i++) this.bedItems.push({ bus: 0, voices: 0, work: 0 });
+    for (let i = 0; i < MAX_ZONE_SLOTS; i++) this.zoneItems.push({ kernelId: 0, state: 0, pad: 0, quantaSinceInput: 0, wetPeak: 0 });
+    for (let i = 0; i < MAX_ZONE_EVENTS_PER_BLOCK; i++) this.zoneEventItems.push({ slot: 0, code: 0, reserved: 0 });
     this.block = {
       currentFrame: 0,
       dateMs: 0,
@@ -59,6 +79,16 @@ export class StatusReader {
       maxLatenessFrames: 0,
       hrtfVoices: 0,
       hrtfLoadFailure: 0,
+      bedVoices: 0,
+      fxVoices: 0,
+      ambisonicVoices: 0,
+      zonesActive: 0,
+      zonesRinging: 0,
+      bedsRefused: 0,
+      reserved: 0,
+      zoneUsedKB: 0,
+      workBed: 0,
+      workZones: 0,
       ended: [],
       demoted: [],
       starved: [],
@@ -66,6 +96,9 @@ export class StatusReader {
       clipEvents: [],
       streamEvents: [],
       peaks: [],
+      beds: [],
+      zones: [],
+      zoneEvents: [],
     };
     // Warm the id arrays to full size once, so later reads only set `length` and indices.
     for (const list of [this.block.ended, this.block.demoted, this.block.starved]) {
@@ -106,6 +139,8 @@ export class StatusReader {
     if (streamEventCount > MAX_EVENTS || streamEventCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: streamEvents overrun");
     cur += streamEventCount * 8;
     if (busCount > MAX_PEAKS || busCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: peaks overrun");
+    cur += busCount * 8;
+    this.validateM3(view, cur, limit);
 
     const b = this.block;
     b.currentFrame = view.getFloat64(16, true);
@@ -167,7 +202,46 @@ export class StatusReader {
       peaks[i] = item;
     }
     peaks.length = busCount;
+    this.readM3(view, cur);
     return b;
+  }
+
+  /**
+   * ADR 0162 §4.3: checks the `beds` (`bedsActive` at 114, at most `MAX_BEDS`, 8 B each), `zones` (`zoneSlots` at 128,
+   * at most `MAX_ZONE_SLOTS`, 12 B each) and `zoneEvents` (`zoneEventCount` at 124, at most
+   * `MAX_ZONE_EVENTS_PER_BLOCK`, 4 B each) sections, which start at `at` (just after `peaks`), against their caps and
+   * `limit`, throwing `WireError(OVERSIZE, "STATUS: <section> overrun")` as `readStatus` does. Touches nothing: it runs
+   * before the block is written, so a refused message leaves the block as it was.
+   */
+  private validateM3(view: DataView, at: number, limit: number): void {
+    // Skeleton (A1): only the empty sections every core writes before K2 pass; L-A1b replaces this body.
+    void at;
+    void limit;
+    if (view.getUint16(114, true) !== 0 || view.getUint16(128, true) !== 0 || view.getUint16(124, true) !== 0) {
+      throw new Error("not implemented: L-A1b");
+    }
+  }
+
+  /**
+   * ADR 0162 §4.3: reads the 144-byte header's M3 fields (112..143: `bedVoices`, `fxVoices`, `ambisonicVoices`,
+   * `zonesActive`, `zonesRinging`, `bedsRefused`, `reserved`, `zoneUsedKB`, `workBed`, `workZones`; the three counts
+   * are the section lengths) into `block`, then the three sections from `at` into the preallocated `bedItems`,
+   * `zoneItems` and `zoneEventItems`, setting each section array's `length`. Allocates nothing. `validateM3` has
+   * already checked the bounds.
+   */
+  private readM3(view: DataView, at: number): void {
+    // Skeleton (A1): M3 fields stay 0 and the sections empty; L-A1b replaces this body.
+    void view;
+    void at;
+    void BED_ITEM_BYTES;
+    void ZONE_ITEM_BYTES;
+    void ZONE_EVENT_ITEM_BYTES;
+    void this.bedItems;
+    void this.zoneItems;
+    void this.zoneEventItems;
+    this.block.beds.length = 0;
+    this.block.zones.length = 0;
+    this.block.zoneEvents.length = 0;
   }
 
   private ids(view: DataView, at: number, count: number, out: number[]): number {

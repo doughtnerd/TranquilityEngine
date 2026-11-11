@@ -1,6 +1,5 @@
-//! A0.2-L2: the command batch and REPLAY (ADR 0157 section 4.2). Transcribe the batch header, the
-//! record head and every opcode into the tables below. Fill the tables marked A0.2-L2 and the
-//! ignored tests.
+//! The command batch and REPLAY (ADR 0157 section 4.2; ADR 0162 §4.1–§4.2 for M3): the batch
+//! header, the record head and every opcode. The M3 records' tables are in `spatial.rs`.
 
 use crate::model::*;
 
@@ -11,15 +10,16 @@ const BATCH_FLAGS: &[Bits] = &[
     Bits::bit("lastChunk", 2, "last chunk of a REPLAY"),
 ];
 
-/// Flag bits of a voice (`flags` of PLAY, bits 0-6 of `flags` of SET_PARAMS). Only `panner` is
-/// read from SET_PARAMS `flags`.
+/// Flag bits of a voice (`flags` of PLAY, bits 0-7 of `flags` of SET_PARAMS). Only `panner` is
+/// read from SET_PARAMS `flags`; `ambisonic` only from PLAY. Bits 8-15 are reserved.
 const VOICE_FLAGS: &[Bits] = &[
     Bits::bit("loop", 0, "loop the clip"),
     Bits::bit("stream", 1, "a stream voice (STREAM_OPEN), not a clip"),
     Bits::bit("wantsPlayhead", 2, "report the playhead in STATUS"),
     Bits::bit("mixed", 3, "mixed (1) or virtual (0)"),
     Bits::bit("spatial", 4, "spatialised; the panner applies"),
-    Bits::range("panner", 5, 2, "0 equal-power, 1 HRTF, 2-3 reserved (spatial voices only)"),
+    Bits::range("panner", 5, 2, "0 equal-power, 1 HRTF, 2 bed (ADR 0162 C1: the bus's bed slot, equal-power without one), 3 reserved; spatial voices only"),
+    Bits::bit("ambisonic", 7, "a B-format clip or stream voice of 4, 9 or 16 channels (ADR 0162 C1); spatial, panner and dir are ignored; read from PLAY only"),
 ];
 
 /// SET_PARAMS `mask`: which parameters the record sets.
@@ -45,6 +45,7 @@ const EFFECTS: Repeat = Repeat {
         Field::new("p", Ty::F32).array(7).doc("parameters; q in dB; unused p = 0"),
     ],
     then: None,
+    max: 0,
 };
 
 /// BUS_CONFIG buses: `u16 parent (0xFFFF root); u16 effectCount`, then the effects.
@@ -56,6 +57,7 @@ const BUS_CONFIG_BUSES: Repeat = Repeat {
         Field::new("effectCount", Ty::U16),
     ],
     then: Some(&EFFECTS),
+    max: 0,
 };
 
 /// BUS_MIX buses: `f32 gain; f32 lpHz` (24000 is off).
@@ -67,6 +69,7 @@ const BUS_MIX_BUSES: Repeat = Repeat {
         Field::new("lpHz", Ty::F32).doc("low-pass cutoff; 24000 off"),
     ],
     then: None,
+    max: 0,
 };
 
 /// SET_LOOP `flags` (ADR 0158 §4).
@@ -80,10 +83,10 @@ const BINDING_ITEM: &[Field] = &[
 ];
 
 /// AUTOMATE bindings: at most 8 per voice are kept.
-const AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None };
+const AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None, max: 0 };
 
 /// BUS_AUTOMATE bindings: global parameters only; target 0 volume or 2 lowpass; at most 8 per bus.
-const BUS_AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None };
+const BUS_AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None, max: 0 };
 
 /// One CURVES key: `f32 x; f32 y; u32 interp`.
 const CURVE_KEYS: Repeat = Repeat {
@@ -95,6 +98,7 @@ const CURVE_KEYS: Repeat = Repeat {
         Field::new("interp", Ty::U32).doc("shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut"),
     ],
     then: None,
+    max: 0,
 };
 
 /// CURVES curves: `u16 keyCount; u16 reserved`, then the keys (sorted by x; at most 32 kept).
@@ -103,6 +107,7 @@ const CURVES_CURVES: Repeat = Repeat {
     count_field: "curveCount",
     item: &[Field::new("keyCount", Ty::U16), Field::new("reserved", Ty::U16)],
     then: Some(&CURVE_KEYS),
+    max: 0,
 };
 
 /// Body header, 16 bytes: `f64 firstFrame` (0), `u32 count` (8), `u32 flags` (12; bit0 overflowed,
@@ -123,9 +128,9 @@ pub const RECORD_HEAD: &[Field] = &[
     Field::new("frameOffset", Ty::U32).doc("frame after firstFrame; 0xFFFFFFFF is asap"),
 ];
 
-/// Every opcode of the section 4.2 table, including LISTENER (0x20, `sent_in_m1: false`) and RESET
-/// (0x30), in id order, with `total_bytes` from the table's "Total B" column. Payloads exclude the
-/// record head.
+/// Every opcode of the section 4.2 tables (ADR 0157, and ADR 0162's SET_VOICE_FX, BED_CONFIG,
+/// ZONE_CONFIG and LISTENER from `spatial.rs`), in id order, with `total_bytes` from the tables'
+/// "Total B". Payloads exclude the record head.
 pub const OPCODES: &[Opcode] = &[
     Opcode {
         id: 0x01,
@@ -146,7 +151,7 @@ pub const OPCODES: &[Opcode] = &[
             Field::new("startOffsetFrames", Ty::U32),
         ]),
         total_bytes: Some(56),
-        sent_in_m1: true,
+        sent: true,
         doc: "start a voice; does not ramp",
     },
     Opcode {
@@ -157,7 +162,7 @@ pub const OPCODES: &[Opcode] = &[
             Field::new("reason", Ty::U32),
         ]),
         total_bytes: Some(20),
-        sent_in_m1: true,
+        sent: true,
         doc: "stop a voice",
     },
     Opcode {
@@ -170,14 +175,14 @@ pub const OPCODES: &[Opcode] = &[
             Field::new("dirX", Ty::F32),
             Field::new("dirY", Ty::F32),
             Field::new("dirZ", Ty::F32),
-            Field::new("lpHz", Ty::F32),
+            Field::new("lpHz", Ty::F32).doc("low-pass cutoff, applied to every voice below LP_TOP (ADR 0162 §4.1), ramped in log-Hz"),
             Field::new("score", Ty::F32),
             Field::new("bus", Ty::U32),
             Field::new("rampFrames", Ty::U32),
             Field::new("flags", Ty::U32).flags(VOICE_FLAGS).doc("only the panner bits are read"),
         ]),
         total_bytes: Some(56),
-        sent_in_m1: true,
+        sent: true,
         doc: "set voice parameters; ramps over rampFrames",
     },
     Opcode {
@@ -189,7 +194,7 @@ pub const OPCODES: &[Opcode] = &[
             Field::new("flags", Ty::U32).flags(FADE_FLAGS),
         ]),
         total_bytes: Some(24),
-        sent_in_m1: true,
+        sent: true,
         doc: "fade a voice's gain to target",
     },
     Opcode {
@@ -204,7 +209,7 @@ pub const OPCODES: &[Opcode] = &[
             Field::new("lpHz", Ty::F32),
         ]),
         total_bytes: Some(36),
-        sent_in_m1: true,
+        sent: true,
         doc: "move a voice between mixed and virtual",
     },
     Opcode {
@@ -212,7 +217,7 @@ pub const OPCODES: &[Opcode] = &[
         name: "SET_PAUSED",
         payload: Body::fixed(&[Field::new("paused", Ty::U32)]),
         total_bytes: Some(16),
-        sent_in_m1: true,
+        sent: true,
         doc: "pause or resume the mix",
     },
     Opcode {
@@ -223,7 +228,7 @@ pub const OPCODES: &[Opcode] = &[
             Field::new("epoch", Ty::U32).doc("streams: the seek epoch; clips: 0"),
         ]),
         total_bytes: Some(20),
-        sent_in_m1: true,
+        sent: true,
         doc: "seek a voice; drops chunks of older epochs",
     },
     Opcode {
@@ -235,7 +240,7 @@ pub const OPCODES: &[Opcode] = &[
             Field::new("flags", Ty::U32).flags(SET_LOOP_FLAGS),
         ]),
         total_bytes: Some(24),
-        sent_in_m1: true,
+        sent: true,
         doc: "a clip voice's loop region, or its release (ADR 0158 §4); overrides PLAY's loop flag",
     },
     Opcode {
@@ -243,9 +248,10 @@ pub const OPCODES: &[Opcode] = &[
         name: "AUTOMATE",
         payload: Body::with_tail(&[Field::new("bindingCount", Ty::U32)], Tail::Repeat(&AUTOMATE_BINDINGS)),
         total_bytes: None,
-        sent_in_m1: true,
+        sent: true,
         doc: "replace a voice's automation bindings (ADR 0158 §3); count 0 clears them",
     },
+    super::spatial::SET_VOICE_FX,
     Opcode {
         id: 0x10,
         name: "BUS_CONFIG",
@@ -254,7 +260,7 @@ pub const OPCODES: &[Opcode] = &[
             Tail::Repeat(&BUS_CONFIG_BUSES),
         ),
         total_bytes: None,
-        sent_in_m1: true,
+        sent: true,
         doc: "configure buses and their effects",
     },
     Opcode {
@@ -265,7 +271,7 @@ pub const OPCODES: &[Opcode] = &[
             Tail::Repeat(&BUS_MIX_BUSES),
         ),
         total_bytes: None,
-        sent_in_m1: true,
+        sent: true,
         doc: "set bus gain and filter; ramps over rampFrames",
     },
     Opcode {
@@ -277,7 +283,7 @@ pub const OPCODES: &[Opcode] = &[
             Field::new("rampFrames", Ty::U32),
         ]),
         total_bytes: Some(24),
-        sent_in_m1: true,
+        sent: true,
         doc: "master volume and mute; ramps over rampFrames",
     },
     Opcode {
@@ -288,7 +294,7 @@ pub const OPCODES: &[Opcode] = &[
             Tail::Repeat(&CURVES_CURVES),
         ),
         total_bytes: None,
-        sent_in_m1: true,
+        sent: true,
         doc: "define or overwrite curves firstCurve.. (ADR 0158 §3); 1024 curves of at most 32 keys",
     },
     Opcode {
@@ -301,7 +307,7 @@ pub const OPCODES: &[Opcode] = &[
             Field::new("seekPerSecond", Ty::F32).doc("0 jumps; else units per second toward the target"),
         ]),
         total_bytes: Some(24),
-        sent_in_m1: true,
+        sent: true,
         doc: "set a parameter's target and seek speed (ADR 0158 §3)",
     },
     Opcode {
@@ -309,17 +315,12 @@ pub const OPCODES: &[Opcode] = &[
         name: "BUS_AUTOMATE",
         payload: Body::with_tail(&[Field::new("bindingCount", Ty::U32)], Tail::Repeat(&BUS_AUTOMATE_BINDINGS)),
         total_bytes: None,
-        sent_in_m1: true,
+        sent: true,
         doc: "replace a bus's automation bindings (voiceId = bus index; ADR 0158 §3)",
     },
-    Opcode {
-        id: 0x20,
-        name: "LISTENER",
-        payload: Body::EMPTY,
-        total_bytes: None,
-        sent_in_m1: false,
-        doc: "reserved for M3; not sent in M1 (the main thread sends listener-space directions)",
-    },
+    super::spatial::BED_CONFIG,
+    super::spatial::ZONE_CONFIG,
+    super::spatial::LISTENER,
     Opcode {
         id: 0x30,
         name: "RESET",
@@ -327,7 +328,7 @@ pub const OPCODES: &[Opcode] = &[
             "0 also resets the arena and slab classes; the first record of a rebuild's REPLAY",
         )]),
         total_bytes: Some(16),
-        sent_in_m1: true,
+        sent: true,
         doc: "reset the core",
     },
 ];
@@ -374,14 +375,13 @@ mod tests {
     fn opcode_ids_are_unique_and_sorted() {
         let ids: Vec<u16> = OPCODES.iter().map(|o| o.id).collect();
         assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids not strictly increasing: {ids:?}");
-        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x20, 0x30]);
-        assert!(!op(0x20).sent_in_m1);
-        assert!(OPCODES.iter().filter(|o| o.id != 0x20).all(|o| o.sent_in_m1));
+        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x20, 0x30]);
+        assert!(OPCODES.iter().all(|o| o.sent));
     }
 
     #[test]
     fn fixed_totals_match_the_spec_column() {
-        let expected: [(u16, u32); 11] = [
+        let expected: [(u16, u32); 13] = [
             (0x01, 56),
             (0x02, 20),
             (0x03, 56),
@@ -390,8 +390,10 @@ mod tests {
             (0x06, 16),
             (0x07, 20),
             (0x08, 24),
+            (0x0A, 52),
             (0x12, 24),
             (0x14, 24),
+            (0x20, 36),
             (0x30, 16),
         ];
         for (id, total) in expected {
@@ -400,13 +402,13 @@ mod tests {
             assert_eq!(size(RECORD_HEAD) + size(o.payload.fields), total, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::None), "{}", o.name);
         }
-        for id in [0x09, 0x10, 0x11, 0x13, 0x15] {
+        for id in [0x09, 0x10, 0x11, 0x13, 0x15, 0x17] {
             let o = op(id);
             assert_eq!(o.total_bytes, None, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::Repeat(_)), "{}", o.name);
         }
-        assert_eq!(op(0x20).total_bytes, None);
-        assert!(op(0x20).payload.fields.is_empty());
+        assert_eq!(op(0x16).total_bytes, None);
+        assert!(matches!(op(0x16).payload.tail, Tail::Arrays(_)));
     }
 
     #[test]
@@ -418,6 +420,7 @@ mod tests {
             ("mixed", 3, 1),
             ("spatial", 4, 1),
             ("panner", 5, 2),
+            ("ambisonic", 7, 1),
         ];
         for id in [0x01, 0x03] {
             let flags = field(op(id).payload.fields, "flags");

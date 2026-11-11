@@ -1,6 +1,5 @@
-//! A0.2-L1: the envelope and the kinds (ADR 0157 section 4.1). Transcribe the spec tables into the
-//! `const` tables below, using the `crate::model` types. Fill the tables marked A0.2-L1 and the
-//! ignored tests.
+//! The envelope and the kinds (ADR 0157 section 4.1; ADR 0162 §4.5–§4.6 for M3: clip formats 3-5,
+//! STREAM_OPEN `convention` and 1-16 channels).
 //!
 //! Layout rules: fields without `.at()` follow each other in order; the generator checks natural
 //! alignment and that sizes add up. Kind ids: STREAM_OPEN is 5 (the spec table lost its number; the
@@ -15,8 +14,9 @@ const STREAM_CHUNK_FLAGS: &[Bits] = &[
     Bits::bit("wrapped", 1, "1 = the stream looped before this chunk"),
 ];
 
-const CLIP_ID: Field =
-    Field::new("clipId", Ty::U32).doc("Clip id; for format 2 (HRIR) 0xFFFF0000..=0xFFFF00FF are reserved.");
+const CLIP_ID: Field = Field::new("clipId", Ty::U32).doc(
+    "Clip id; reserved from 0xFFFF0000: format 2 (HRIR) 0xFFFF0000..=0xFFFF00FF, format 4 (MagLS) 0xFFFF0100, formats 3 and 5 (zone kernels) 0xFFFF0200..=0xFFFF02FF.",
+);
 const CHANNELS: Field = Field::new("channels", Ty::U32).doc("Interleaved channel count.");
 const SAMPLE_RATE: Field = Field::new("sampleRate", Ty::F32).doc("Sample rate in Hz.");
 const STREAM_ID: Field = Field::new("streamId", Ty::U32).doc("Stream id, named in stream messages.");
@@ -53,8 +53,9 @@ pub const KINDS: &[Kind] = &[
             Field::new("frames", Ty::U32).doc("Total sample frames in the clip."),
             CHANNELS,
             SAMPLE_RATE,
-            Field::new("format", Ty::U32)
-                .doc("0 f32, 1 i16, 2 HRIR (int16 impulse responses already at the context rate)."),
+            Field::new("format", Ty::U32).doc(
+                "ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6).",
+            ),
         ]),
         doc: "Starts a clip load (main in M1a, worker in M1b).",
     },
@@ -72,7 +73,7 @@ pub const KINDS: &[Kind] = &[
             Tail::Bytes,
         ),
         doc: "Clip samples: `frames * channels` interleaved samples. A format 2 clip's first chunk \
-              begins with `HRIR_HEADER`.",
+              begins with `HRIR_HEADER`, format 3 with `ZoneKernelHeader`, format 4 with `MaglsHeader`.",
     },
     Kind {
         id: 4,
@@ -87,7 +88,9 @@ pub const KINDS: &[Kind] = &[
         dir: Dir::WorkerToWorklet,
         body: Body::fixed(&[
             STREAM_ID,
-            CHANNELS,
+            Field::new("channels", Ty::U32).doc(
+                "Interleaved channel count, 1 to STREAM_MAX_CHANNELS (16); more than 2 takes a wide ring (ADR 0162 §4.6).",
+            ),
             SAMPLE_RATE,
             Field::new("totalFrames", Ty::U32).doc("Total sample frames; 0xFFFFFFFF if unknown."),
             Field::new("loopStart", Ty::U32).doc("Loop start frame."),
@@ -95,6 +98,8 @@ pub const KINDS: &[Kind] = &[
             Field::new("flags", Ty::U32).flags(STREAM_OPEN_FLAGS).doc("Flag bits, see `flags`."),
             EPOCH,
             Field::new("startFrame", Ty::U32).doc("Frame the stream starts playing from."),
+            Field::new("convention", Ty::U32)
+                .doc("StreamConvention of an ambisonic stream: 0 AmbiX, 1 FuMa (the worker converts per chunk; ADR 0162 §4.6)."),
         ]),
         doc: "Opens a worker-fed stream.",
     },
@@ -203,7 +208,7 @@ mod tests {
         assert_eq!(fixed(3), 16, "CLIP_CHUNK header");
         assert!(matches!(kind(3).body.tail, crate::model::Tail::Bytes));
         assert_eq!(fixed(4), 4, "CLIP_UNLOAD");
-        assert_eq!(fixed(5), 36, "STREAM_OPEN");
+        assert_eq!(fixed(5), 40, "STREAM_OPEN");
         assert_eq!(fixed(6), 20, "STREAM_CHUNK header");
         assert!(matches!(kind(6).body.tail, crate::model::Tail::Bytes));
         assert_eq!(fixed(7), 4, "STREAM_CLOSE");

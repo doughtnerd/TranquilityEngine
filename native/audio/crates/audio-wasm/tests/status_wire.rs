@@ -79,7 +79,7 @@ fn full_sections_read_back_in_order() {
     c.set_bus_count(PEAKS_CAP);
     let mut out = vec![0u8; BUFFER_BYTES];
     let n = write(&c, 0, &mut out);
-    assert_eq!(n, 15_728);
+    assert_eq!(n, 15_760); // 0157 sections at their caps under the 144-byte header (K2 adds M3 sections)
     let (s, _) = StatusBlock::read(&out, 0).unwrap();
     assert_eq!(s.ended.len(), ENDED_CAP);
     assert_eq!(s.demoted[5], 10_005);

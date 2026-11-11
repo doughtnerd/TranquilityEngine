@@ -19,4 +19,8 @@ pub mod vector;
 #[path = "../vectors/cases.rs"]
 pub mod cases;
 
+/// ADR 0162's byte vectors (leaf L-A1a), chained into `cases::cases()`.
+#[path = "../vectors/spatial_cases.rs"]
+pub mod spatial_cases;
+
 pub use schema::{schema, schema_hash, schema_hash_hex};

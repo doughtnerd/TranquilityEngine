@@ -44,6 +44,7 @@ import {
   STREAM_CHUNK_FLAGS_WRAPPED,
   STREAM_OPEN_FIXED_END,
   STREAM_OPEN_FLAGS_LOOP,
+  StreamConvention,
   STREAM_TOTAL_FRAMES_UNKNOWN,
   writeEnvelope,
   writeStreamChunk,
@@ -289,6 +290,8 @@ export class StreamDecoder {
       flags: s.loop ? STREAM_OPEN_FLAGS_LOOP : 0,
       epoch: s.epoch,
       startFrame,
+      // B4 sets FuMa for a FuMa-convention ambisonic stream (ADR 0162 §4.6).
+      convention: StreamConvention.AmbiX,
     });
     this.port?.postMessage(buffer, [buffer]);
   }

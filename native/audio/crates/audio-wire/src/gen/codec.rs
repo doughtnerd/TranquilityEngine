@@ -133,19 +133,30 @@ fn encode_body(buf: &mut Vec<u8>, base: usize, start: u32, body: &Body, vals: &V
         Tail::Repeat(r) => Some(r),
         _ => None,
     };
-    let derived: Vec<(&str, u64)> = match rep {
+    let arrays: &[PaddedArray] = match body.tail {
+        Tail::Arrays(a) => a,
+        _ => &[],
+    };
+    let mut derived: Vec<(&str, u64)> = match rep {
         Some(r) => match lookup(vals, r.name) {
             Some(Value::Arr(a)) => vec![(r.count_field, a.len() as u64)],
             _ => return Err(format!("{what}: missing group {}", r.name)),
         },
         None => vec![],
     };
+    for a in arrays {
+        match lookup(vals, a.name) {
+            Some(Value::Arr(items)) => derived.push((a.count_field, items.len() as u64)),
+            _ => return Err(format!("{what}: missing array {}", a.name)),
+        }
+    }
     let mut known: Vec<&str> = body.fields.iter().map(|f| f.name).collect();
     known.retain(|k| !derived.iter().any(|(d, _)| d == k));
     let mut extra: Vec<&str> = skip.to_vec();
     if let Some(r) = rep {
         extra.push(r.name);
     }
+    extra.extend(arrays.iter().map(|a| a.name));
     if matches!(body.tail, Tail::Bytes) {
         extra.push("payload");
     }
@@ -153,6 +164,18 @@ fn encode_body(buf: &mut Vec<u8>, base: usize, start: u32, body: &Body, vals: &V
     let mut cur = encode_fields(buf, base, start, body.fields, vals, &derived, what)?;
     if let Some(r) = rep {
         cur = encode_repeat(buf, cur, r, lookup(vals, r.name).unwrap(), what)?;
+    }
+    for a in arrays {
+        let Some(Value::Arr(items)) = lookup(vals, a.name) else { unreachable!() };
+        let sz = a.ty.bytes() as usize;
+        for (i, x) in items.iter().enumerate() {
+            put_scalar(buf, cur + i * sz, a.ty, x, &format!("{what}.{}[{i}]", a.name))?;
+        }
+        let end = cur + ((items.len() * sz + 3) & !3);
+        if buf.len() < end {
+            buf.resize(end, 0);
+        }
+        cur = end;
     }
     if matches!(body.tail, Tail::Bytes) {
         if let Some(Value::Arr(a)) = lookup(vals, "payload") {
@@ -223,6 +246,11 @@ pub fn encode(schema: &Schema, case: &VectorCase) -> Result<Vec<u8>, String> {
         Subject::HrirHeader => {
             check_unknown(&vals, &schema.hrir_header.iter().map(|f| f.name).collect::<Vec<_>>(), &[], what)?;
             encode_fields(&mut buf, 0, 0, schema.hrir_header, &vals, &[], what)?;
+        }
+        Subject::BlobHeader(name) => {
+            let b = schema.blob_headers.iter().find(|b| b.name == *name).ok_or(format!("no blob header {name}"))?;
+            check_unknown(&vals, &b.fields.iter().map(|f| f.name).collect::<Vec<_>>(), &[], what)?;
+            encode_fields(&mut buf, 0, 0, b.fields, &vals, &[], what)?;
         }
         Subject::Opcode(name) => {
             let op = find_op(schema, name)?;

@@ -109,14 +109,25 @@ fn emit_item(o: &mut String, it: &Item, head: Option<&Head>, text: &str, env: bo
     if let Some(g) = &it.group {
         o.push_str(&format!("  {}: {}[];\n", g.name, g.item.name));
     }
+    for a in &it.arrays {
+        js_doc(o, "  ", a.doc);
+        o.push_str(&format!("  {}: ArrayLike<number>;\n", a.name));
+    }
     o.push_str("}\n\n");
     o.push_str(&format!("export const {}_FIXED_END = {};\n\n", screaming(n), it.fixed_end));
 
     // write
     o.push_str(&format!("export function write{n}(view: DataView, off: number, rec: {n}): number {{\n"));
     for p in &it.fields {
-        if let Some(g) = it.group.as_ref().filter(|g| g.count_field == p.field.name) {
-            o.push_str(&format!("  view.set{}(off + {}, rec.{}.length{});\n", dv(p.field.ty), p.offset, g.name, le(p.field.ty)));
+        let counted = match it.array_of(p.field.name) {
+            Some(a) => Some((a.name, a.max)),
+            None => it.group.as_ref().filter(|g| g.count_field == p.field.name).map(|g| (g.name, g.max)),
+        };
+        if let Some((list, max)) = counted {
+            if max > 0 {
+                o.push_str(&format!("  if (rec.{list}.length > {max}) throw new WireError(ErrorCode.OVERSIZE, \"{n}: {list} over its cap {max}\");\n"));
+            }
+            o.push_str(&format!("  view.set{}(off + {}, rec.{list}.length{});\n", dv(p.field.ty), p.offset, le(p.field.ty)));
         } else {
             let acc = match (env, p.field.name) {
                 (true, "magic") => "(rec.magic ?? MAGIC)".to_string(),
@@ -129,6 +140,15 @@ fn emit_item(o: &mut String, it: &Item, head: Option<&Head>, text: &str, env: bo
     o.push_str(&format!("  let cur = off + {};\n", it.fixed_end));
     if let Some(g) = &it.group {
         o.push_str(&format!("  for (const item of rec.{}) cur += write{}(view, cur, item);\n", g.name, g.item.name));
+    }
+    for a in &it.arrays {
+        let sz = a.ty.bytes();
+        o.push_str(&format!(
+            "  {{\n    const list = rec.{n};\n    for (let i = 0; i < list.length; i++) view.set{t}(cur + i * {sz}, list[i]!{l});\n    const end = cur + Math.ceil((list.length * {sz}) / 4) * 4;\n    for (let b = cur + list.length * {sz}; b < end; b++) view.setUint8(b, 0);\n    cur = end;\n  }}\n",
+            n = a.name,
+            t = dv(a.ty),
+            l = le(a.ty)
+        ));
     }
     if let Some(h) = head {
         o.push_str(&format!(
@@ -148,10 +168,26 @@ fn emit_item(o: &mut String, it: &Item, head: Option<&Head>, text: &str, env: bo
         o.push_str(&format!("  const {} = {};\n", p.field.name, get_expr(p)));
     }
     o.push_str(&format!("  let cur = off + {};\n", it.fixed_end));
+    if let Some(g) = it.group.as_ref().filter(|g| g.max > 0) {
+        o.push_str(&format!("  if ({} > {}) throw new WireError(ErrorCode.MALFORMED, \"{n}: {} over its cap\");\n", g.count_field, g.max, g.name));
+    }
     if let Some(g) = &it.group {
         o.push_str(&format!(
             "  if ({} * {} > limit - cur) throw new WireError(ErrorCode.TRUNCATED, \"{n}: {} overrun\");\n  const {}: {}[] = [];\n  for (let i = 0; i < {}; i++) {{\n    const [item, used] = _read{}(view, cur, limit);\n    cur += used;\n    {}.push(item);\n  }}\n",
             g.count_field, g.item.fixed_end, g.name, g.name, g.item.name, g.count_field, g.item.name, g.name
+        ));
+    }
+    for a in &it.arrays {
+        let sz = a.ty.bytes();
+        if a.max > 0 {
+            o.push_str(&format!("  if ({} > {}) throw new WireError(ErrorCode.MALFORMED, \"{n}: {} over its cap\");\n", a.count_field, a.max, a.name));
+        }
+        o.push_str(&format!(
+            "  if (Math.ceil(({c} * {sz}) / 4) * 4 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, \"{n}: {a} overrun\");\n  const {a}: number[] = [];\n  for (let i = 0; i < {c}; i++) {a}.push(view.get{t}(cur + i * {sz}{l}));\n  cur += Math.ceil(({c} * {sz}) / 4) * 4;\n",
+            c = a.count_field,
+            a = a.name,
+            t = dv(a.ty),
+            l = le(a.ty)
         ));
     }
     if let Some(h) = head {
@@ -171,6 +207,9 @@ fn emit_item(o: &mut String, it: &Item, head: Option<&Head>, text: &str, env: bo
     }
     if let Some(g) = &it.group {
         parts.push(g.name.to_string());
+    }
+    for a in &it.arrays {
+        parts.push(a.name.to_string());
     }
     o.push_str(&parts.join(", "));
     o.push_str(" }, cur - off];\n}\n\n");
@@ -247,13 +286,17 @@ export const Kind = {
     }
 
     let (env, _) = resolve(0, schema.envelope)?;
-    emit_item(&mut o, &Item { name: "Envelope".into(), fields: env, fixed_end: 16, group: None }, None, "The 16-byte envelope of every message (`magic` and `version` default on write).", true);
+    emit_item(&mut o, &Item::plain("Envelope", env, 16), None, "The 16-byte envelope of every message (`magic` and `version` default on write).", true);
     let (hd, _) = resolve(0, schema.record_head)?;
-    emit_item(&mut o, &Item { name: "RecordHead".into(), fields: hd.clone(), fixed_end: 12, group: None }, None, "The 12-byte head of every command record.", false);
+    emit_item(&mut o, &Item::plain("RecordHead", hd.clone(), 12), None, "The 12-byte head of every command record.", false);
     let at = |n: &str| hd.iter().find(|p| p.field.name == n).unwrap().offset;
     emit_item(&mut o, &build_item("BatchHeader", 16, schema.batch_header, None)?, None, "Body header of BATCH and REPLAY; records follow.", false);
     emit_bits(&mut o, "BATCH_HEADER", schema.batch_header);
     emit_item(&mut o, &build_item("HrirHeader", 0, schema.hrir_header, None)?, None, "First-chunk header of a format = 2 (HRIR) CLIP_CHUNK payload.", false);
+    for b in schema.blob_headers {
+        emit_bits(&mut o, &screaming(b.name), b.fields);
+        emit_item(&mut o, &build_item(b.name, 0, b.fields, None)?, None, b.doc, false);
+    }
     for k in schema.kinds {
         emit_bits(&mut o, k.name, k.body.fields);
         if k.name == "STATUS" || k.body.fields.is_empty() || matches!(k.body.tail, Tail::Records) {
@@ -263,7 +306,7 @@ export const Kind = {
     }
     for p in schema.opcodes {
         emit_bits(&mut o, p.name, p.payload.fields);
-        if !p.sent_in_m1 {
+        if !p.sent {
             continue;
         }
         let h = Head { id: p.id, voice_at: at("voiceId"), frame_at: at("frameOffset"), opcode_at: at("opcode"), words_at: at("words") };

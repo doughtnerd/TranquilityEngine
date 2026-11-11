@@ -20,7 +20,9 @@
 //!   followed by the same entries as an `Opcode` case.
 //! * `Status`: a whole STATUS message. `values`: `seq`, every header field by name, and one `Value::Arr`
 //!   per section by section name (items are `Value::Rec`, or a bare `U` for the single-field sections).
-//! * `HrirHeader`: the 16-byte header only.
+//! * `HrirHeader`: the 16-byte header only. `BlobHeader(name)`: that header's fixed fields only.
+//! * A BED_CONFIG-style padded array (`bedSlot`, `hostBus`) is `Value::Arr` of `U`; its count field is
+//!   derived and its zero padding filled by the codec.
 //! * `Envelope`: the 16 bytes. `values`: `magic`, `version`, `kind`, `seq`, `bodyBytes` (all stated).
 
 use crate::model::Value;
@@ -33,6 +35,8 @@ pub enum Subject {
     Batch(&'static str),
     Status,
     HrirHeader,
+    /// A blob header of `Schema::blob_headers` by name (ADR 0162: `ZoneKernelHeader`, `MaglsHeader`).
+    BlobHeader(&'static str),
 }
 
 #[derive(Clone, Debug)]
