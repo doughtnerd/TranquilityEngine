@@ -5,6 +5,12 @@
 // (frames, truncation, timing) or `irFailed` and keeps only the request that made each kernel, to answer repeats and to
 // ask again after a rate change or a hard rebuild (`reprepareAll`: the worker prepares from the bytes it kept, without
 // fetching again).
+//
+// The kernel travels on the decoder worker ↔ worklet channel, the one streams use (`workletChannel.ts`): the core
+// backend passes its `WorkletChannel`, and every request first `ensure()`s it, so a zone asked for before any stream
+// opened connects the worker to the worklet itself. When the channel is renewed (a respawned decoder worker, a new
+// worklet node, or another user reconnecting), the worklet frees the kernels the old channel brought, so every kernel
+// sent on an older channel is prepared again on the new one (its waiters hear `onPrepared` again).
 import type { ZoneIrService } from "../backend";
 import { createDecoderClient } from "../decoder/decoderClient";
 import type { IrFailedMessage, IrPreparedMessage, IrRequest } from "../decoder/protocol";
@@ -15,11 +21,27 @@ export interface ZoneIrChannel {
   onIr(listener: (reply: IrPreparedMessage | IrFailedMessage) => void): () => void;
 }
 
+/** @internal The worker ↔ worklet channel as the service uses it (the backend's `WorkletChannel`). */
+export interface ZoneIrWorklet {
+  /** The decoder, connected to the current worklet (a new channel first when needed; may throw when it can't). */
+  ensure(): ZoneIrChannel;
+  /** Channels connected so far: a change means the worklet holds none of the kernels sent before it. */
+  readonly connections: number;
+  /** Called after each new channel (the service re-sends what it sent on an older one); returns the unsubscribe. */
+  onConnect(listener: () => void): () => void;
+}
+
 /** @internal What C2b's service is built on; the core backend passes what it has. */
 export interface ZoneIrDeps {
   /** The context's rate now (kernels are prepared at it). */
   readonly sampleRate?: number;
-  /** The decoder worker (default: the page's shared client, which spawns its worker on the first request). */
+  /**
+   * The decoder worker connected to the worklet (the core backend's channel, shared with streams). Without it the
+   * service posts to `decoder` (tests with a fake that answers itself) or the page's shared client, which nothing
+   * connects to a worklet: a real worker then answers "no worklet port".
+   */
+  readonly worklet?: ZoneIrWorklet;
+  /** The decoder worker when there is no `worklet` (default: the page's shared client). */
   readonly decoder?: ZoneIrChannel;
 }
 
@@ -37,6 +59,8 @@ interface Entry {
   truncated: boolean;
   /** Tokens to answer when the worker replies (the requests that wait on this kernel). */
   waiters: number[];
+  /** The channel (`ZoneIrWorklet.connections`) its last request went out on; -1 while one is being sent. */
+  sentOn: number;
 }
 
 const same = (e: Entry, r: { assetUrl?: string; preset?: string; contextRate: number; maxFrames: number }) =>
@@ -44,18 +68,38 @@ const same = (e: Entry, r: { assetUrl?: string; preset?: string; contextRate: nu
 
 /** @internal The zone IR service the core backend constructs. */
 export function createZoneIrService(deps: ZoneIrDeps = {}): ZoneIrService {
-  let channel: ZoneIrChannel | null = deps.decoder ?? null;
+  let fallback: ZoneIrChannel | null = deps.decoder ?? null;
+  let subscribed: ZoneIrChannel | null = null;
   let unsubscribe: (() => void) | null = null;
+  const unlisten = deps.worklet?.onConnect(() => renewed());
   let nextToken = 1;
   let disposed = false;
   const entries = new Map<number, Entry>();
   /** In-flight worker requests: token to kernel id. A reply whose token isn't here (released, asked again) is ignored. */
   const inflight = new Map<number, number>();
 
+  /** The decoder for a request, its replies subscribed: connected to the worklet first when there is a `worklet`. */
   const decoder = (): ZoneIrChannel => {
-    if (!channel) channel = createDecoderClient();
-    if (!unsubscribe) unsubscribe = channel.onIr(onReply);
+    let channel: ZoneIrChannel;
+    if (deps.worklet) channel = deps.worklet.ensure();
+    else channel = fallback ??= createDecoderClient();
+    if (subscribed !== channel) {
+      unsubscribe?.();
+      subscribed = channel;
+      unsubscribe = channel.onIr(onReply);
+    }
     return channel;
+  };
+
+  /** A new channel: every kernel that went out on an older one is gone from the worklet, so it is asked for again. */
+  const renewed = (): void => {
+    if (disposed || !deps.worklet) return;
+    const now = deps.worklet.connections;
+    for (const [kernelId, entry] of entries) {
+      if (entry.sentOn === -1 || entry.sentOn === now) continue;
+      entry.state = "pending";
+      send(kernelId, entry, true);
+    }
   };
 
   const onReply = (reply: IrPreparedMessage | IrFailedMessage): void => {
@@ -78,14 +122,32 @@ export function createZoneIrService(deps: ZoneIrDeps = {}): ZoneIrService {
     }
   };
 
-  /** Sends the worker's request for `entry` under a new token (which supersedes any earlier one for the kernel). */
-  const send = (kernelId: number, entry: Entry): number => {
+  /**
+   * Sends the worker's request for `entry` under a new token (which supersedes any earlier one for the kernel);
+   * `wait`: the token also waits for the reply (a re-preparation, whose `onPrepared` the zone manager hears again).
+   * A channel that can't be connected fails the kernel's waiters.
+   */
+  const send = (kernelId: number, entry: Entry, wait: boolean): void => {
     for (const [token, id] of inflight) if (id === kernelId) inflight.delete(token);
     const token = nextToken++;
+    if (wait) entry.waiters.push(token);
+    // Not on any channel while this one connects (a renewal it triggers mustn't send it a second time).
+    entry.sentOn = -1;
+    let channel: ZoneIrChannel;
+    try {
+      channel = decoder();
+    } catch (e) {
+      const waiters = entry.waiters;
+      entry.waiters = [];
+      if (entries.get(kernelId) === entry) entries.delete(kernelId);
+      const message = `zone impulse responses: no channel to the worklet (${e instanceof Error ? e.message : String(e)})`;
+      queueMicrotask(() => waiters.forEach((t) => service.onFailed?.({ token: t, kernelId, code: ZONE_IR_NOT_AVAILABLE, message })));
+      return;
+    }
     inflight.set(token, kernelId);
+    entry.sentOn = deps.worklet?.connections ?? 0;
     const common = { token, kernelId, contextRate: entry.contextRate, maxFrames: entry.maxFrames };
-    decoder().postIr(entry.assetUrl !== undefined ? { type: "prepareIr", assetUrl: entry.assetUrl, ...common } : { type: "generateIr", preset: entry.preset ?? "", ...common });
-    return token;
+    channel.postIr(entry.assetUrl !== undefined ? { type: "prepareIr", assetUrl: entry.assetUrl, ...common } : { type: "generateIr", preset: entry.preset ?? "", ...common });
   };
 
   const service: ZoneIrService = {
@@ -110,30 +172,35 @@ export function createZoneIrService(deps: ZoneIrDeps = {}): ZoneIrService {
         }
         return token;
       }
-      const entry: Entry = { assetUrl: request.assetUrl, preset: request.preset, contextRate: request.contextRate, maxFrames: request.maxFrames, state: "pending", frames: 0, truncated: false, waiters: [token] };
+      const entry: Entry = { assetUrl: request.assetUrl, preset: request.preset, contextRate: request.contextRate, maxFrames: request.maxFrames, state: "pending", frames: 0, truncated: false, waiters: [token], sentOn: -1 };
       // A changed request for a held id replaces it; requests still waiting on the old one are told so.
       const stale = have?.waiters ?? [];
       if (stale.length) queueMicrotask(() => stale.forEach((t) => service.onFailed?.({ token: t, kernelId: request.kernelId, code: ZONE_IR_NOT_AVAILABLE, message: "zone impulse response replaced by a newer request" })));
       entries.set(request.kernelId, entry);
-      send(request.kernelId, entry);
+      send(request.kernelId, entry, false);
       return token;
     },
     release(kernelId) {
       if (!entries.delete(kernelId)) return;
       for (const [token, id] of inflight) if (id === kernelId) inflight.delete(token);
-      decoder().postIr({ type: "releaseIr", kernelId });
+      // The worker that holds it (none subscribed: nothing was ever sent). A worker since replaced holds nothing, and
+      // the worklet frees what the old one sent when the next channel connects.
+      (deps.worklet ? subscribed : decoder())?.postIr({ type: "releaseIr", kernelId });
     },
     reprepareAll(contextRate) {
       if (disposed) return;
+      // Every one goes again, so none is re-sent by the renewal the first send may trigger.
+      for (const entry of entries.values()) entry.sentOn = -1;
       for (const [kernelId, entry] of entries) {
         entry.contextRate = contextRate;
         entry.state = "pending";
         // The zone manager hears `onPrepared` again under this token once the kernel is back in the (new) worklet.
-        entry.waiters.push(send(kernelId, entry));
+        send(kernelId, entry, true);
       }
     },
     dispose() {
       disposed = true;
+      unlisten?.();
       unsubscribe?.();
       unsubscribe = null;
       entries.clear();
