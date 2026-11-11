@@ -1,0 +1,14 @@
+/* Notes, read-outs and controls under audio components in the Inspector (ADR 0162 E2). Theme tokens only. */
+.audio-note { margin: 4px 8px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.audio-note-warning { padding: 4px 6px; border: 1px solid var(--warning); border-radius: 4px; background: var(--warning-soft); color: var(--warning); }
+.audio-section { display: flex; flex-direction: column; padding: 4px 0; border-top: 1px solid var(--border); }
+.audio-readout { margin: 2px 8px; font-size: 11px; color: var(--text); overflow-wrap: anywhere; }
+.audio-openness { display: grid; grid-template-columns: minmax(90px, 40%) 1fr auto; align-items: center; gap: 4px 8px; margin: 4px 8px; font-size: 12px; color: var(--muted); }
+.audio-openness input[type="range"] { width: 100%; accent-color: var(--accent); }
+.audio-openness output { min-width: 3ch; text-align: right; color: var(--text); }
+.audio-swatch { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; border: 1px solid var(--border); vertical-align: -1px; }
+.audio-curve-field { margin: 4px 8px; }
+.audio-curve-field h4 { margin: 0 0 2px; font-size: 12px; font-weight: normal; color: var(--muted); }
+.audio-curve-field button { margin-top: 4px; }
+/* An ambisonic clip ignores these fields: the row stays visible but can't be edited. */
+[data-audio-greyed] { opacity: 0.45; pointer-events: none; }
