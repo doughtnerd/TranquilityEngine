@@ -111,4 +111,4 @@ The audio core is the default. The Babylon fallback plays instead when you set `
 
 ## Testing and tuning
 
-`Audio.debug()` returns a copy of the audio state: status, buses with their peaks, and every playing sound. In the editor, the **Audio Debug** panel (Window menu) shows the same while the game plays. See [Why is there no sound?](why-no-sound.md).
+`Audio.debug()` returns a copy of the audio state: status, buses with their peaks, and every playing sound. In the editor, the **Audio Debug** panel (Window menu) shows the same while the game plays. Its voice table names the node whose AudioSource plays each sound (**Source**; `-` for one-shots and event voices) beside the clip, and shows how each is placed (**Panner**: `hrtf`, `bed`, `ambisonic`, `equalPower` or `flat`). See [Why is there no sound?](why-no-sound.md).

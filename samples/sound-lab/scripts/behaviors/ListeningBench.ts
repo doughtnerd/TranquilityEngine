@@ -1,4 +1,4 @@
-import { Audio, AudioSource, GameBehavior, GameObject, Input, Time, behavior, field } from "myco";
+import { Audio, AudioSource, GameBehavior, GameObject, Input, Quaternion, Time, behavior, field } from "myco";
 
 /** Seconds between the sounds of a sequence. Each is scheduled with `at` on the audio clock, so the spacing is exact. */
 const ladderGap = 1.25;
@@ -83,12 +83,18 @@ export class ListeningBench extends GameBehavior {
     if (Input.getKeyDown(this.orbitKey)) this.toggleOrbit();
     if (Input.getKeyDown(this.wallKey)) this.teleport(this.wallX, this.wallZ);
     if (Input.getKeyDown(this.cornerKey)) this.teleport(this.cornerX, this.cornerZ);
-    if (Input.getKeyDown(this.turnKey)) {
-      const e = this.transform.eulerAngles;
-      this.transform.eulerAngles = { x: e.x, y: e.y + 90, z: e.z };
-    }
+    if (Input.getKeyDown(this.turnKey)) this.turn(90);
     if (Input.getKeyDown(this.silenceKey)) this.silence();
     if (Input.getKeyDown(this.pageQuietKey)) this.togglePageQuiet();
+  }
+
+  /**
+   * Turns the listener `degrees` about the world's up axis, keeping its tilt. Composed on the quaternion: reading
+   * `eulerAngles`, adding to y and writing it back fails past 90 degrees, because XYZ Euler angles come back with y in
+   * -90..90 (and x, z flipped to 180), so four presses wouldn't make a full turn.
+   */
+  private turn(degrees: number): void {
+    this.transform.rotation = Quaternion.fromEuler(0, degrees, 0).multiply(this.transform.rotation).normalize();
   }
 
   /** Stops every playing AudioSource on the page except the orbit (whose own keys are 5 and 9), or restarts the ones it stopped. */

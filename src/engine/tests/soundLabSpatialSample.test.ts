@@ -6,7 +6,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Assets, AudioOccluder, AudioReverbZone, Engine, GameObject, SceneManager } from "../../myco";
+import { Assets, AudioOccluder, AudioReverbZone, Engine, GameObject, Input, SceneManager } from "../../myco";
 import { parseAudioSettings } from "../audio/settings";
 import { readProject } from "../../server/project";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
@@ -21,7 +21,7 @@ import "../../../samples/sound-lab/scripts/behaviors/OneShots";
 import "../../../samples/sound-lab/scripts/behaviors/Buses";
 import "../../../samples/sound-lab/scripts/behaviors/Snapshots";
 import "../../../samples/sound-lab/scripts/behaviors/Effects";
-import "../../../samples/sound-lab/scripts/behaviors/ListeningBench";
+import { ListeningBench } from "../../../samples/sound-lab/scripts/behaviors/ListeningBench";
 import "../../../samples/sound-lab/scripts/behaviors/Tape";
 import "../../../samples/sound-lab/scripts/behaviors/LoopCycler";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
@@ -92,6 +92,8 @@ describe("the Sound Lab spatial page (ADR 0162 E8)", () => {
     const radio = fake.voices.find((v) => v.request.path === "audio/music-loop.wav")!;
     expect(radio.position).toMatchObject({ x: 0, y: 1, z: 12.5 });
     expect(radio.request.dopplerLevel ?? 1).toBe(1);
+    // Audio Debug's Source column: each AudioSource's voice carries its node's name.
+    expect(radio.request.owner).toBe("Radio (behind the door)");
     // The scene's structure: three zones with the three presets, a door with a wooden occluder and the Door script.
     const zones = GameObject.findObjectsOfType(AudioReverbZone);
     expect(zones.map((z) => z.preset).sort()).toEqual(["cave", "corridor", "room"]);
@@ -187,5 +189,28 @@ describe("the Sound Lab spatial page (ADR 0162 E8)", () => {
     expect(Math.abs(z() + 38)).toBeLessThan(1.5);
     advance(0.8); // 3.4 s in: 102 m, so 22 m of the way back
     expect(Math.abs(z() + 18)).toBeLessThan(1.5);
+  });
+  it("key 8 turns the listener a quarter turn about up each press, so four presses make a full turn", async () => {
+    await boot("scenes/spatial.scene.json");
+    const bench = GameObject.findObjectOfType(ListeningBench)!;
+    const start = bench.transform.rotation.clone();
+    // The listener's forward (-z) in world space, as a yaw in degrees.
+    const yaw = () => {
+      const { x, y, z, w } = bench.transform.rotation;
+      const fx = -2 * (x * z + y * w), fz = -(1 - 2 * (x * x + y * y));
+      return ((Math.atan2(-fx, -fz) * 180) / Math.PI + 360) % 360;
+    };
+    const yaw0 = yaw();
+    const seen: number[] = [];
+    for (let k = 0; k < 4; k++) {
+      Input.simulate("down", "8");
+      engine!.step(1 / 60);
+      Input.simulate("up", "8");
+      engine!.step(1 / 60);
+      seen.push(Math.round((yaw() - yaw0 + 360) % 360));
+    }
+    expect(seen).toEqual([90, 180, 270, 0]);
+    const q = bench.transform.rotation;
+    expect(Math.abs(q.x * start.x + q.y * start.y + q.z * start.z + q.w * start.w)).toBeCloseTo(1, 6);
   });
 });

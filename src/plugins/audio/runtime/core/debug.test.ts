@@ -109,9 +109,11 @@ describe("buildDebugInfo: voices (A2.5)", () => {
     table.gain[i] = 0.5;
     table.pitch[i] = 1.25;
     table.audibility[i] = 0.4;
-    table.owner[i] = 9;
     table.group[i] = 12;
-    const info = buildDebugInfo(source);
+    // The playing node's name comes from the backend's per-slot `owners` (PlayRequest.owner).
+    const owners: (string | null)[] = [];
+    owners[i] = "Radio";
+    const info = buildDebugInfo({ ...source, owners });
     expect(info.voices).toEqual([
       {
         id,
@@ -124,7 +126,7 @@ describe("buildDebugInfo: voices (A2.5)", () => {
         pitch: 1.25,
         audibility: expect.closeTo(0.4, 5),
         playheadSeconds: null,
-        owner: "9",
+        owner: "Radio",
         event: 12,
       },
     ]);

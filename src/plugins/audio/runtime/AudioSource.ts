@@ -168,7 +168,7 @@ export class AudioSource extends Component {
     }
     this.ambisonicClip = isAmbisonicClip(path);
     if (this.ambisonicClip) this.warnAmbisonicIgnored(path);
-    this.voice = startClip(path, this.loop, this.output, { priority: clamp255(this.priority), world: worldKeyOf(this._world), ...this.spatialOptions() });
+    this.voice = startClip(path, this.loop, this.output, { priority: clamp255(this.priority), world: worldKeyOf(this._world), owner: this.node.name, ...this.spatialOptions() });
     this.applied = "";
     this.appliedM3 = "";
     this.appliedCurve.length = 0;

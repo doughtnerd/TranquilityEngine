@@ -175,6 +175,8 @@ export interface Attenuation {
 }
 
 export interface PlayRequest {
+  /** The name of the node that plays it, for debug tools only (Audio Debug's Source column); absent for one-shots and events. */
+  owner?: string;
   /** Asset path (no `asset:` prefix). */
   path: string;
   url: string;

@@ -39,6 +39,8 @@ export interface DebugSource {
   readonly mirror: StatusMirror;
   readonly table: VoiceTable;
   readonly clips: { info(id: number): ClipInfo | null };
+  /** Each slot's playing node name (`PlayRequest.owner`), for the voice rows' `owner`; absent in hand-built sources. */
+  readonly owners?: readonly (string | null)[];
   /** B3: the stream voices' clip info (asset and rate) and counts; absent in hand-built sources. */
   readonly streams?: { clipInfo(id: number): ClipInfo | null; readonly size: number; readonly stats: { readonly starves: number; readonly errors: number; readonly coreErrors: number; readonly wideStarved?: number } };
   readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings">;
@@ -177,7 +179,6 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
     const stream = (table.flags[i]! & VoiceFlag.STREAM) !== 0 && backend.streams;
     const clip = stream ? backend.streams!.clipInfo(table.clip[i]!) : backend.clips.info(table.clip[i]!);
     const world = table.world[i]!;
-    const owner = table.owner[i]!;
     // E3.9: an event voice's automated gain and pitch (main's estimate of the core's smoothed parameters) multiply in.
     const automated = backend.automation?.voiceAutomation?.(i, auto) === true;
     voices.push({
@@ -191,7 +192,7 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       pitch: automated ? table.pitch[i]! * auto.pitch : table.pitch[i]!,
       audibility: clamp01(table.audibility[i]!),
       playheadSeconds: playheadSeconds(backend, i, clip),
-      owner: owner < 0 ? null : String(owner),
+      owner: backend.owners?.[i] ?? null,
       // ADR 0158 §5 (C3): the voice's event instance, from PLAY's `group`.
       event: table.group[i]! === 0 ? null : table.group[i]!,
       // ADR 0162 §1.6 (D5): the voice's M3 columns.

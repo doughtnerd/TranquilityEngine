@@ -9,7 +9,7 @@ The owner's listening pass for M3, the spatial milestone. It takes the owner's l
 - **Build.** Master (M3 merged). Beds are on by default since the bed flip (build log D27).
 - **Run.** `npm run dev`, open `/editor.html?sample=sound-lab`, press **Play**, click the game view once (sound starts after a gesture and the click gives the game the keys), then press **S** for the spatial page. **B** goes back to the tour. The title card lists every key.
 - **Headphones.** Required, as in the M1 pass: HRTF and the bed can't be judged on speakers.
-- **Watch.** Window > Audio Debug: the voice table's **Panner** column shows which panner each sound uses (`hrtf`, `bed`, `ambisonic`, `equalPower`, `flat`), the **Occlusion** column its occlusion gain and cutoff, and the **Beds**, **Zones** (with a `why` for a silent zone) and **Occlusion** sections. In the browser's devtools console, `__myco.Audio.debug()` returns the same data.
+- **Watch.** Window > Audio Debug: the voice table's **Source** column names the node playing each sound (the Flyover's row reads `Flyover (key V)`; one-shots, such as key 4's burst, show `-`), its **Clip** column the file (the Flyover and the Bed orbit both play `hum-loop.wav`), and its **Panner** column shows which panner each sound uses (`hrtf`, `bed`, `ambisonic`, `equalPower`, `flat`), the **Occlusion** column its occlusion gain and cutoff, and the **Beds**, **Zones** (with a `why` for a silent zone) and **Occlusion** sections. In the browser's devtools console, `__myco.Audio.debug()` returns the same data.
 - **Changing configurations.** The core reads its preset when it starts. For each configuration, edit the `audio` block of `samples/sound-lab/project.json` as the table below says, save, reload the page, Play, click and press **S** again. Put the file back afterwards (`git checkout samples/sound-lab/project.json`).
 - **Clips.** Start an item once Audio Debug lists the page's sources as `playing`, not `waitingForData`.
 
@@ -60,7 +60,7 @@ Mark each item **pass**, **fail** or **pass with note**. A fail gets an issue; a
 ### M3a: the bed
 
 #### B1. A source crossing the HRTF boundary, both ways (Config D)
-- **Do:** Config D (one HRTF voice). Press **2** (corridor), press **F** to open the door (so the Radio is loud enough to hold the HRTF voice while the Flyover is far), then **V**. Watch the Flyover's **Panner** cell in Audio Debug.
+- **Do:** Config D (one HRTF voice). Press **2** (corridor), press **F** to open the door (so the Radio is loud enough to hold the HRTF voice while the Flyover is far), then **V**. In Audio Debug, find the row whose **Source** is `Flyover (key V)` and watch its **Panner** cell (the table can be wider than the window: scroll it right).
 - **Listen for:** with one HRTF voice, the Flyover and the Radio compete for it. As the Flyover comes within about 20 m it becomes the most audible and moves from the bed to HRTF (and the Radio to the bed); as it leaves, it goes back to the bed (half a second after its last change). The Panner cell shows `bed` → `hrtf` → `bed`.
 - **Pass:** no dip in level, no jump in position or tone at either change: a smooth 45 ms crossfade each way.
 - Result: [ ] pass [ ] fail
@@ -104,7 +104,7 @@ Mark each item **pass**, **fail** or **pass with note**. A fail gets an issue; a
 ### M3b: ambisonic clips
 
 #### AM1. An ambience turned on the spot, first order (Config A)
-- **Do:** with the Flyover off and the bench stopped (**9**), press **2** (the corridor, between the Radio and the Machine, so the Ambience is the loudest thing), then press **8** four times, a quarter turn each, listening between presses.
+- **Do:** with the Flyover off and the bench stopped (**9**), press **2** (the corridor, between the Radio and the Machine, so the Ambience is the loudest thing), then press **8** four times, a quarter turn each, listening between presses (the fourth brings you back to where you started).
 - **Listen for:** the ambience stays put in the room as you turn, not with your head.
 - **Pass:** it turns against your head, with no wrong-way rotation and no collapse to the centre.
 - Result: [ ] pass [ ] fail
