@@ -104,7 +104,7 @@ export class AudioSource extends Component {
   @field(Boolean, { description: "Spatial sources: walls between the source and the listener muffle it. Inert in 2D worlds and without the 3D physics service." }) occlusion = true;
   @field(Number, { description: "Spatial sources: scales the Doppler shift, 0..5; 0 is off." }) dopplerLevel = 1;
   @field(Number, { description: "Spatial sources: how much of the source goes to the reverb zones that hold it, 0..2. Taken before the distance gain." }) reverbSend = 1;
-  @field(PlainObject, { description: "The reverb send against distance (x: 0 at minDistance to 1 at maxDistance; y multiplies the send), independent of the dry rolloff. reverbSend × curve is clamped to 4." }) reverbSendCurve: SendCurve = DEFAULT_SEND_CURVE.map((p) => [p[0], p[1]] as [number, number]);
+  @field(PlainObject, { hidden: true, description: "The reverb send against distance (x: 0 at minDistance to 1 at maxDistance; y multiplies the send), independent of the dry rolloff. reverbSend × curve is clamped to 4." }) reverbSendCurve: SendCurve = DEFAULT_SEND_CURVE.map((p) => [p[0], p[1]] as [number, number]);
   @field(Number, { description: "Ambisonic clips: turns the recording about the vertical axis, degrees (-180..180), positive to the left seen from above." }) ambisonicYaw = 0;
 
   private voice: AudioVoice | null = null;
