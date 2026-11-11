@@ -85,3 +85,25 @@ export function auditionNotice(status: AudioStatus, phase: AuditionPhase, reason
   }
   return null;
 }
+
+/** What the audition says about the backend that plays it (ADR 0162 §8): its name, and whether event filters and aux sends are skipped. */
+export interface AuditionBackendInfo {
+  label: string;
+  /** True on the Babylon fallback, which skips event filters and aux sends with a warning. */
+  skipsFilterAndSends: boolean;
+  /** A sentence for the editor when `skipsFilterAndSends`, else null. */
+  note: string | null;
+}
+
+/** `name` is `Audio.debug().core.backend`: "core", "babylon", "pending" (the core is still loading) or anything else (a test fake). */
+export function auditionBackend(name: unknown): AuditionBackendInfo {
+  if (name === "babylon") {
+    return {
+      label: "Babylon fallback", skipsFilterAndSends: true,
+      note: "This audition plays on the Babylon fallback, which skips the event's filters and aux sends. The audio core plays them.",
+    };
+  }
+  if (name === "core") return { label: "Audio core", skipsFilterAndSends: false, note: null };
+  if (name === "pending") return { label: "Audio core loading", skipsFilterAndSends: false, note: null };
+  return { label: typeof name === "string" && name !== "" ? name : "Audio core", skipsFilterAndSends: false, note: null };
+}

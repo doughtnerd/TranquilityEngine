@@ -107,3 +107,6 @@
 .ev-automation-item { align-self: stretch; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
 .ev-automation-head { display: flex; gap: 4px; align-items: center; margin-bottom: 4px; }
 .ev-automation-head select { flex: 1 1 auto; min-width: 0; }
+.ev-aud-backend { margin-left: auto; font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 5px; }
+.ev-aud-note { margin: 0; font-size: 11px; color: var(--muted); }
+.ev-reset { margin-left: 4px; }

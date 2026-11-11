@@ -1,8 +1,8 @@
 // L6.3b: the Event editor's field descriptors (nodeFields.ts). Defaults are checked against what parseAudioEvent reads.
 import { describe, it, expect } from "vitest";
-import { parseAudioEvent, type AudioEventAsset, type BlendNode, type EventNode, type RandomNode, type SustainNode, type SwitchNode } from "../../../../engine/audio/eventFormat";
+import { formatAudioEvent, parseAudioEvent, type AudioEventAsset, type BlendNode, type EventNode, type RandomNode, type SustainNode, type SwitchNode } from "../../../../engine/audio/eventFormat";
 import {
-  coerceField, eventFields, findField, nodeFields, readField, writeField, type FieldDescriptor, type GroupField,
+  coerceField, eventFields, findField, nodeFields, readField, writeField, type FieldDescriptor, type GroupField, type AuxSend,
 } from "./nodeFields";
 
 const clip = (extra: Record<string, unknown> = {}) => ({ type: "clip", clip: "a.ogg", ...extra });
@@ -210,14 +210,14 @@ describe("nodeFields", () => {
 describe("eventFields", () => {
   it("lists bus, volume, pitch, volumeRandom, pitchRandom, priority, spatial, limit, cooldown, automation in order", () => {
     expect(names(eventFields())).toEqual([
-      "bus", "volume", "pitch", "volumeRandom", "pitchRandom", "priority", "spatial", "limit", "cooldown", "automation",
+      "bus", "volume", "pitch", "volumeRandom", "pitchRandom", "priority", "spatial", "filter", "sends", "limit", "cooldown", "automation",
     ]);
   });
 
   it("spatial is an optional group with minDistance, maxDistance, rolloff; limit a required group", () => {
     const spatial = need(eventFields(), "spatial") as GroupField;
     expect(spatial).toMatchObject({ kind: "group", optional: true });
-    expect(names(spatial.fields)).toEqual(["minDistance", "maxDistance", "rolloff"]);
+    expect(names(spatial.fields)).toEqual(["minDistance", "maxDistance", "rolloff", "occlusion", "dopplerLevel", "reverbSendCurve"]);
     const limit = need(eventFields(), "limit") as GroupField;
     expect(limit.kind).toBe("group");
     expect(limit.optional).toBeFalsy();
@@ -321,5 +321,106 @@ describe("field values", () => {
     const loop = need(nodeFields(parseRoot(clip()), null), "loop");
     expect(coerceField(loop, true)).toBe(true);
     expect(coerceField(loop, "yes")).toBe(false);
+  });
+});
+
+// ADR 0162 §2.5 (E5): filter, sends and the spatial additions, through edit -> serialise -> parse.
+describe("filter, sends and spatial additions (ADR 0162 §2.5)", () => {
+  const root = (e: AudioEventAsset, name: string) => need(eventFields(), name) as GroupField;
+  const field = (g: GroupField, name: string) => need(g.fields, name);
+  /** Serialise and parse again, as a save followed by a load does. */
+  const roundTrip = (e: AudioEventAsset): AudioEventAsset => {
+    const out = parseAudioEvent(JSON.parse(formatAudioEvent(e)));
+    expect(out.problems).toEqual([]);
+    return out.value;
+  };
+  /** One edit as the panel makes it: coerce the widget value, write it into the group, write the group into the event. */
+  const edit = (e: AudioEventAsset, group: string, name: string, raw: unknown): AudioEventAsset => {
+    const g = root(e, group);
+    const f = field(g, name);
+    const current = (readField(e, g) as Record<string, unknown> | undefined) ?? {};
+    return writeField(e, g, writeField(current, f, coerceField(f, raw)));
+  };
+
+  it("filter: the fields have the parser's limits and an off end", () => {
+    const g = root(parseEvent(), "filter");
+    expect(g).toMatchObject({ kind: "group", implicit: true });
+    expect(field(g, "lowpass")).toMatchObject({ kind: "number", min: 10, max: 24000, optional: true, offAtOrAbove: 20000 });
+    expect(field(g, "highpass")).toMatchObject({ kind: "number", min: 10, max: 24000, optional: true, offAtOrBelow: 20 });
+  });
+
+  it("filter round trips; an off value or an empty input removes the key, and the last key removes the object", () => {
+    let e = parseEvent();
+    e = edit(e, "filter", "lowpass", 9000);
+    e = edit(e, "filter", "highpass", 80);
+    expect(roundTrip(e).filter).toEqual({ lowpass: 9000, highpass: 80 });
+    e = edit(e, "filter", "lowpass", 20000);
+    expect(roundTrip(e).filter).toEqual({ highpass: 80 });
+    e = edit(e, "filter", "highpass", 20);
+    expect(e.filter).toBeUndefined();
+    expect(formatAudioEvent(e)).not.toContain("filter");
+    expect(roundTrip(e).filter).toBeUndefined();
+    // Out of range clamps as the parser does.
+    e = edit(e, "filter", "lowpass", 5);
+    expect(roundTrip(e).filter).toEqual({ lowpass: 10 });
+  });
+
+  it("sends: reverb 0..2 (1 is the default and removes the key), one aux bus with a 0..2 level", () => {
+    const g = root(parseEvent(), "sends");
+    expect(names(g.fields)).toEqual(["reverb", "aux"]);
+    expect(field(g, "reverb")).toMatchObject({ min: 0, max: 2, default: 1, optional: true });
+    let e = parseEvent();
+    e = edit(e, "sends", "reverb", 0.5);
+    e = edit(e, "sends", "aux", { bus: "Cave", level: 0.3 });
+    expect(e.sends).toEqual({ reverb: 0.5, Cave: 0.3 });
+    expect(roundTrip(e).sends).toEqual({ reverb: 0.5, Cave: 0.3 });
+    expect(readField(e.sends!, field(g, "aux"))).toEqual({ bus: "Cave", level: 0.3 } satisfies AuxSend);
+    // Changing the bus replaces the aux send rather than adding a second one.
+    e = edit(e, "sends", "aux", { bus: "Radio", level: 5 });
+    expect(roundTrip(e).sends).toEqual({ reverb: 0.5, Radio: 2 });
+    // Reset: no aux, reverb back to 1, and then no sends at all.
+    e = edit(e, "sends", "aux", undefined);
+    expect(e.sends).toEqual({ reverb: 0.5 });
+    e = edit(e, "sends", "reverb", 1);
+    expect(e.sends).toBeUndefined();
+    expect(roundTrip(e).sends).toBeUndefined();
+    // "reverb" is the reverb key, never a bus.
+    expect(coerceField(field(g, "aux"), { bus: "reverb", level: 1 })).toBeUndefined();
+  });
+
+  it("spatial additions: occlusion, dopplerLevel and reverbSendCurve round trip and reset to absent", () => {
+    const g = root(parseEvent(), "spatial");
+    expect(field(g, "dopplerLevel")).toMatchObject({ min: 0, max: 5, default: 0, optional: true });
+    expect(field(g, "occlusion")).toMatchObject({ kind: "boolean", default: true, optional: true });
+    expect(field(g, "reverbSendCurve")).toMatchObject({ kind: "curve", default: [[0, 1], [1, 0.5]] });
+
+    let e = parseEvent({ spatial: {} });
+    e = edit(e, "spatial", "occlusion", false);
+    e = edit(e, "spatial", "dopplerLevel", 2.5);
+    e = edit(e, "spatial", "reverbSendCurve", [[0, 1], [0.5, 0.2], [1, 0]]);
+    expect(roundTrip(e).spatial).toMatchObject({ occlusion: false, dopplerLevel: 2.5, reverbSendCurve: [[0, 1], [0.5, 0.2], [1, 0]] });
+    expect(roundTrip(e).spatial!.minDistance).toBe(1);
+    // Out of range clamps.
+    expect(roundTrip(edit(e, "spatial", "dopplerLevel", 9)).spatial!.dopplerLevel).toBe(5);
+
+    e = edit(e, "spatial", "occlusion", true);
+    e = edit(e, "spatial", "dopplerLevel", 0);
+    e = edit(e, "spatial", "reverbSendCurve", [[0, 1], [1, 0.5]]);
+    expect(Object.keys(e.spatial!).sort()).toEqual(["maxDistance", "minDistance", "rolloff"]);
+    const text = formatAudioEvent(e);
+    for (const key of ["occlusion", "dopplerLevel", "reverbSendCurve"]) expect(text).not.toContain(key);
+    // Writing undefined (the reset button) removes a set key too.
+    const withDoppler = edit(e, "spatial", "dopplerLevel", 1);
+    const spatial = root(withDoppler, "spatial");
+    expect(writeField(withDoppler.spatial!, field(spatial, "dopplerLevel"), undefined)).not.toHaveProperty("dopplerLevel");
+  });
+
+  it("a flat event keeps filter and sends; turning spatial off drops the spatial keys with it", () => {
+    let e = parseEvent({ spatial: {}, filter: { lowpass: 5000 }, sends: { Cave: 1 } });
+    e = edit(e, "spatial", "dopplerLevel", 1);
+    const spatial = root(e, "spatial");
+    e = writeField(e, spatial, undefined);
+    expect(e.spatial).toBeUndefined();
+    expect(roundTrip(e)).toMatchObject({ filter: { lowpass: 5000 }, sends: { Cave: 1 } });
   });
 });

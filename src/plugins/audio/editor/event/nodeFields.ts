@@ -2,7 +2,8 @@
 // ordered list of fields the properties panel renders, each with its kind, label, limits, default and help. The
 // limits match `parseAudioEvent`'s, so whatever the panel writes reads back unchanged. Pure: no Preact, no editor state.
 // `readField` / `writeField` / `coerceField` read and write a descriptor's value on a node or the event, immutably.
-import { sustainReleaseFade, type AudioEventAsset, type EventNode, type SustainNode } from "../../../../engine/audio/eventFormat";
+import { REVERB_SEND_KEY, sustainReleaseFade, type AudioEventAsset, type EventNode, type SustainNode } from "../../../../engine/audio/eventFormat";
+import type { Curve } from "../../../../engine/core/curve";
 
 /**
  * What a field edits, which decides its widget:
@@ -16,10 +17,12 @@ import { sustainReleaseFade, type AudioEventAsset, type EventNode, type SustainN
  *   labelled parameters.
  * - `bus`: a bus name from the project's audio settings (`""` is Master).
  * - `curves`: an automation list (`Automation[]`), edited with the shared curve widget.
+ * - `curve`: one curve (`Curve`) edited with the shared curve widget (ADR 0162 `reverbSendCurve`).
+ * - `aux`: the event's one aux send (ADR 0162 §2.5), a `{ bus, level }` over the `sends` object's non-`reverb` keys.
  * - `group`: an object whose own `fields` are named relative to it; an `optional` group may be absent (a checkbox
- *   adds it with `default` or removes the key).
+ *   adds it with `default` or removes the key); an `implicit` one has no checkbox and exists only while it has a key.
  */
-export type FieldKind = "number" | "range" | "select" | "text" | "asset" | "boolean" | "parameter" | "bus" | "curves" | "group";
+export type FieldKind = "number" | "range" | "select" | "text" | "asset" | "boolean" | "parameter" | "bus" | "curves" | "curve" | "aux" | "group";
 
 interface FieldBase {
   /** The key on the node or event (or, inside a group, on the group's object). */
@@ -37,6 +40,17 @@ export interface NumberField extends FieldBase {
   step: number;
   /** Round to whole numbers (priority, avoidRepeat, maxInstances). */
   integer?: boolean;
+  /**
+   * The key may be absent (the ADR 0162 §2.5 keys): writing `undefined`, the `default` or an "off" value removes it, so
+   * a file only holds what was set. The widget shows `default` (or `offLabel`, when set) while absent.
+   */
+  optional?: boolean;
+  /** A value at or above this is "off": it removes the key (a low-pass at 20 kHz or more). */
+  offAtOrAbove?: number;
+  /** A value at or below this is "off": it removes the key (a high-pass at 20 Hz or less). */
+  offAtOrBelow?: number;
+  /** What the empty input says while the key is absent ("off"); the widget is then a bare number input with no slider. */
+  offLabel?: string;
   default: number;
 }
 
@@ -73,6 +87,8 @@ export interface AssetField extends FieldBase {
 
 export interface BooleanField extends FieldBase {
   kind: "boolean";
+  /** The key may be absent: writing `undefined` or the `default` removes it (`spatial.occlusion`). */
+  optional?: boolean;
   default: boolean;
 }
 
@@ -92,17 +108,43 @@ export interface CurvesField extends FieldBase {
   kind: "curves";
 }
 
+/** One curve (`reverbSendCurve`): absent, or equal to `default`, means the engine's default curve. */
+export interface CurveField extends FieldBase {
+  kind: "curve";
+  /** The x values the graph spans. */
+  xRange: [number, number];
+  /** Bounds for key values. */
+  yRange: [number, number];
+  /** Written back as absent when the curve equals this. */
+  default: Curve;
+}
+
+/** The value of an `aux` field: the bus an event sends to and the send level. */
+export interface AuxSend { bus: string; level: number }
+
+/** The event's single aux send, kept in the `sends` object beside `reverb`. */
+export interface AuxField extends FieldBase {
+  kind: "aux";
+  /** The level a freshly picked bus starts at. */
+  default: number;
+  min: number;
+  max: number;
+  step: number;
+}
+
 export interface GroupField extends FieldBase {
   kind: "group";
   /** May be absent (`spatial`: absent plays flat). */
   optional?: boolean;
+  /** No on/off checkbox: the object is absent while empty and appears with its first key (`filter`, `sends`). */
+  implicit?: boolean;
   /** The object written when an optional group is turned on (a fresh copy each time). */
   default: Record<string, unknown>;
   fields: FieldDescriptor[];
 }
 
 export type FieldDescriptor =
-  | NumberField | RangeField | SelectField | TextField | AssetField | BooleanField | ParameterField | BusField | CurvesField | GroupField;
+  | NumberField | RangeField | SelectField | TextField | AssetField | BooleanField | ParameterField | BusField | CurvesField | CurveField | AuxField | GroupField;
 
 // --- descriptor factories: a fresh object per call, with parseAudioEvent's limits and defaults ----------------------
 
@@ -141,6 +183,20 @@ const valueField = (): TextField => ({ kind: "text", name: "value", label: "Valu
 const rangeField = (): RangeField => ({ kind: "range", name: "range", label: "Range", help: "The parameter range where this child is at full level.", min: -1e6, max: 1e6, step: 0.01, optional: true, default: [0, 1] });
 const blendFadeField = (): NumberField => ({ kind: "number", name: "fade", label: "Fade", help: "Width, in parameter units, of the fade in and out at the range edges.", min: 0, max: 1e6, step: 0.01, default: 0 });
 
+const DEFAULT_SEND_CURVE: Curve = [[0, 1], [1, 0.5]];
+
+const occlusionField = (): BooleanField => ({ kind: "boolean", name: "occlusion", label: "Occlusion", help: "Walls and objects between the sound and the listener muffle it (needs colliders in the scene).", optional: true, default: true });
+const dopplerLevelField = (): NumberField => ({ kind: "number", name: "dopplerLevel", label: "Doppler level", help: "How strongly the pitch shifts as the sound and listener move; 0 is off, 1 is realistic, up to 5.", min: 0, max: 5, step: 0.05, optional: true, default: 0 });
+const reverbSendCurveField = (): CurveField => ({
+  kind: "curve", name: "reverbSendCurve", label: "Reverb send curve",
+  help: "How much of the sound goes to the reverb zone it is in as it gets farther away: left is at the min distance, right at the max distance.",
+  xRange: [0, 1], yRange: [0, 2], default: DEFAULT_SEND_CURVE.map((k) => [...k]) as unknown as Curve,
+});
+const lowpassField = (): NumberField => ({ kind: "number", name: "lowpass", label: "Low-pass (Hz)", help: "Cuts the highs above this frequency, for a muffled sound; empty (or 20000 and up) is off.", min: 10, max: 24000, step: 10, optional: true, offAtOrAbove: 20000, offLabel: "off", default: 24000 });
+const highpassField = (): NumberField => ({ kind: "number", name: "highpass", label: "High-pass (Hz)", help: "Cuts the lows below this frequency, for a thin sound; empty (or 20 and below) is off.", min: 10, max: 24000, step: 10, optional: true, offAtOrBelow: 20, offLabel: "off", default: 10 });
+const reverbSendField = (): NumberField => ({ kind: "number", name: REVERB_SEND_KEY, label: "Reverb send", help: "How much of the sound goes to reverb: 0 none, 1 normal, up to 2.", min: 0, max: 2, step: 0.05, optional: true, default: 1 });
+const auxSendField = (): AuxField => ({ kind: "aux", name: "aux", label: "Aux send", help: "Also send the sound to one other bus (an echo or a radio effect, say) at this level, 0 to 2; an event has one aux send.", default: 1, min: 0, max: 2, step: 0.05 });
+
 const spatialGroupDefault = (): Record<string, unknown> => ({ minDistance: 1, maxDistance: 100, rolloff: "inverse" });
 const limitGroupDefault = (): Record<string, unknown> => ({ maxInstances: 0, steal: "oldest" });
 
@@ -175,7 +231,17 @@ function ownFields(node: EventNode): FieldDescriptor[] {
 
 /** Whether a field's key may be absent (its widget can clear it). */
 function isOptional(field: FieldDescriptor): boolean {
-  return (field.kind === "range" || field.kind === "text" || field.kind === "group") && field.optional === true;
+  switch (field.kind) {
+    case "range": case "text": case "group": case "number": case "boolean": return field.optional === true;
+    case "curve": case "aux": return true;
+    default: return false;
+  }
+}
+
+/** Structural equality for the plain values a field holds (numbers, strings, booleans, arrays). */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i) => sameValue(x, b[i]));
+  return a === b;
 }
 
 /** A fresh copy of a field's default, for writing a required field given `undefined`. */
@@ -184,6 +250,8 @@ function defaultOf(field: FieldDescriptor): unknown {
     case "curves": return [];
     case "range": return [field.default[0], field.default[1]];
     case "group": return { ...field.default };
+    case "curve": return field.default.map((k) => [...k]);
+    case "aux": return undefined;
     default: return field.default;
   }
 }
@@ -220,7 +288,8 @@ export function nodeFields(node: EventNode, parent: EventNode | null): FieldDesc
 
 /**
  * The event's own fields, in panel order: `bus`, `volume`, `pitch`, `volumeRandom`, `pitchRandom`, `priority`,
- * `spatial` (optional group: `minDistance`, `maxDistance`, `rolloff`), `limit` (group: `maxInstances`, `steal`),
+ * `spatial` (optional group: `minDistance`, `maxDistance`, `rolloff`, `occlusion`, `dopplerLevel`, `reverbSendCurve`),
+ * `filter` (implicit group: `lowpass`, `highpass`), `sends` (implicit group: `reverb`, `aux`), `limit` (group: `maxInstances`, `steal`),
  * `cooldown`, `automation`. Parameters have their own pane and are not listed.
  */
 export function eventFields(): FieldDescriptor[] {
@@ -231,7 +300,16 @@ export function eventFields(): FieldDescriptor[] {
       { kind: "number", name: "minDistance", label: "Min distance", help: "Distance in world units within which the event plays at full volume.", min: 0, max: 1e6, step: 0.1, default: 1 },
       { kind: "number", name: "maxDistance", label: "Max distance", help: "Distance in world units beyond which the falloff stops.", min: 0, max: 1e6, step: 0.1, default: 100 },
       { kind: "select", name: "rolloff", label: "Rolloff", help: "How the volume falls off between the min and max distance.", options: ["linear", "inverse", "exponential"], default: "inverse" },
+      occlusionField(), dopplerLevelField(), reverbSendCurveField(),
     ],
+  };
+  const filter: GroupField = {
+    kind: "group", name: "filter", label: "Filter", help: "Per-voice low-pass and high-pass filters; absent applies none.", optional: true, implicit: true,
+    default: {}, fields: [lowpassField(), highpassField()],
+  };
+  const sends: GroupField = {
+    kind: "group", name: "sends", label: "Sends", help: "How much of the sound goes to the reverb and to one other bus; absent sends as usual.", optional: true, implicit: true,
+    default: {}, fields: [reverbSendField(), auxSendField()],
   };
   const limit: GroupField = {
     kind: "group", name: "limit", label: "Limit", help: "How many instances may play at once and what gives way.",
@@ -244,7 +322,7 @@ export function eventFields(): FieldDescriptor[] {
   const priority: NumberField = { kind: "number", name: "priority", label: "Priority", help: "Voice priority from 0 to 255; higher wins when voices are short.", min: 0, max: 255, step: 1, integer: true, default: 128 };
   const cooldown: NumberField = { kind: "number", name: "cooldown", label: "Cooldown", help: "Seconds after a play during which another play is refused.", min: 0, max: 60, step: 0.01, default: 0 };
   const bus: BusField = { kind: "bus", name: "bus", label: "Bus", help: "The bus the event plays through; empty is Master.", default: "" };
-  return [bus, volumeField(), pitchField(), volumeRandomField(), pitchRandomField(), priority, spatial, limit, cooldown, automationField()];
+  return [bus, volumeField(), pitchField(), volumeRandomField(), pitchRandomField(), priority, spatial, filter, sends, limit, cooldown, automationField()];
 }
 
 /** The field named `name` in `fields` (top level only), or `undefined`. */
@@ -263,6 +341,12 @@ function isSustain(target: object): target is SustainNode {
  */
 export function readField(target: EventNode | AudioEventAsset | Record<string, unknown>, field: FieldDescriptor): unknown {
   if (field.name === "releaseFade" && isSustain(target)) return sustainReleaseFade(target);
+  if (field.kind === "aux") {
+    // The first non-reverb key is the aux send (the parser keeps one).
+    const key = Object.keys(target).find((k) => k !== REVERB_SEND_KEY);
+    const level = key === undefined ? undefined : (target as Record<string, unknown>)[key];
+    return key !== undefined && typeof level === "number" ? ({ bus: key, level } satisfies AuxSend) : undefined;
+  }
   return (target as unknown as Record<string, unknown>)[field.name];
 }
 
@@ -272,6 +356,17 @@ export function readField(target: EventNode | AudioEventAsset | Record<string, u
  */
 export function writeField<T extends object>(target: T, field: FieldDescriptor, value: unknown): T {
   const copy: Record<string, unknown> = { ...(target as object) };
+  if (field.kind === "aux") {
+    // `value` is an `AuxSend` (or `undefined`); it replaces every non-reverb key.
+    for (const k of Object.keys(copy)) if (k !== REVERB_SEND_KEY) delete copy[k];
+    const aux = value as AuxSend | undefined;
+    if (aux) copy[aux.bus] = aux.level;
+    return copy as T;
+  }
+  // An implicit group left empty is absent; an optional leaf set to its default is absent (a file only holds what was set).
+  const empty = field.kind === "group" && field.implicit === true && value !== null && typeof value === "object" && Object.keys(value).length === 0;
+  const atDefault = (field.kind === "number" || field.kind === "boolean" || field.kind === "curve") && isOptional(field) && sameValue(value, defaultOf(field));
+  if (empty || atDefault) value = undefined;
   if (value === undefined) {
     if (isOptional(field)) {
       delete copy[field.name];
@@ -298,6 +393,8 @@ export function coerceField(field: FieldDescriptor, value: unknown): unknown {
       const n = toFiniteNumber(value);
       if (n === undefined) return field.default;
       const rounded = field.integer ? Math.round(n) : n;
+      if (field.optional && field.offAtOrAbove !== undefined && rounded >= field.offAtOrAbove) return undefined;
+      if (field.optional && field.offAtOrBelow !== undefined && rounded <= field.offAtOrBelow) return undefined;
       return Math.min(field.max, Math.max(field.min, rounded));
     }
     case "range": {
@@ -324,6 +421,15 @@ export function coerceField(field: FieldDescriptor, value: unknown): unknown {
       return String(value);
     case "boolean":
       return value === true;
+    case "aux": {
+      const aux = value as Partial<AuxSend> | undefined | null;
+      if (!aux || typeof aux.bus !== "string" || aux.bus === "" || aux.bus === REVERB_SEND_KEY) return undefined;
+      const level = toFiniteNumber(aux.level) ?? field.default;
+      return { bus: aux.bus, level: Math.min(field.max, Math.max(field.min, level)) } satisfies AuxSend;
+    }
+    case "curve":
+      // A curve with no keys cannot be written (the parser would drop it): absent.
+      return Array.isArray(value) && value.length > 0 ? value : undefined;
     case "curves":
     case "group":
       return value;
