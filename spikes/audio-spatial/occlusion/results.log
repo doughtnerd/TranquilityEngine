@@ -1,0 +1,123 @@
+
+ RUN  v5.0.5 /home/user/TranquilityEngine
+
+ ✓ spikes/audio-spatial/occlusion/correctness.test.ts > occlusion spike correctness > a source behind a wall is occluded, one in line of sight is not; the group filter skips non-occluders 454ms
+stdout | spikes/audio-spatial/occlusion/correctness.test.ts > occlusion spike correctness > large level vs analytic ray-box tests > engine first-hit equals the analytic first hit for 2,000 sources (all colliders)
+[correctness] filtered=false: mismatches=0/2000, occluded=1621, hit-distance disagreements=0
+
+stdout | spikes/audio-spatial/occlusion/correctness.test.ts > occlusion spike correctness > large level vs analytic ray-box tests > engine first-hit equals the analytic first hit for 2,000 sources (Occluder group)
+[correctness] filtered=true: mismatches=0/2000, occluded=1593, hit-distance disagreements=0
+
+ ✓ spikes/audio-spatial/occlusion/correctness.test.ts > occlusion spike correctness > large level vs analytic ray-box tests > engine first-hit equals the analytic first hit for 2,000 sources (all colliders) 69ms
+ ✓ spikes/audio-spatial/occlusion/correctness.test.ts > occlusion spike correctness > large level vs analytic ray-box tests > engine first-hit equals the analytic first hit for 2,000 sources (Occluder group) 40ms
+stdout | spikes/audio-spatial/occlusion/correctness.test.ts > occlusion spike correctness > large level vs analytic ray-box tests > the Occluder filter excludes non-occluder colliders (hit counts: filtered <= unfiltered, and no Default hit)
+[correctness] unfiltered hits=915, filtered hits=900, rays blocked only by a non-occluder=15
+
+ ✓ spikes/audio-spatial/occlusion/correctness.test.ts > occlusion spike correctness > large level vs analytic ray-box tests > the Occluder filter excludes non-occluder colliders (hit counts: filtered <= unfiltered, and no Default hit) 12ms
+ ✓ spikes/audio-spatial/occlusion/correctness.test.ts > occlusion spike correctness > large level vs analytic ray-box tests > the time-sliced scheduler visits every source within ceil(S / (b - tier share)) frames (count budgets) 957ms
+stdout | spikes/audio-spatial/occlusion/correctness.test.ts > occlusion spike correctness > large level vs analytic ray-box tests > time-sliced budgets converge: cached occluded state equals the truth once everything is refreshed (static)
+[correctness] scheduler static convergence: wrong=0/256, occluded=200
+
+ ✓ spikes/audio-spatial/occlusion/correctness.test.ts > occlusion spike correctness > large level vs analytic ray-box tests > time-sliced budgets converge: cached occluded state equals the truth once everything is refreshed (static) 124ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  01:45:06
+   Duration  3.99s (transform 50%, tests 44%, setup 4%, import 2%)
+
+
+ RUN  v5.0.5 /home/user/TranquilityEngine
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:45:11
+   Duration  351.22s (tests 100%)
+
+
+Results: Intel(R) Xeon(R) Processor @ 2.10GHz x4, node v22.23.4, 5 runs x 600 frames (+60 warm-up), 319 colliders (198 occluders). Times are per frame in us, pooled over runs.
+
+### 1. Rays through Physics.raycast (all S sources every frame)
+| S | variant | filter | rays/frame | p50 | p99 | p99.9 | max | rays/ms | us/ray | run p50 min-max |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 64 | R1 | none | 64 | 201 | 869 | 1401 | 5157 | 280 | 3.57 | 191-221 |
+| 64 | R1 | occluder | 64 | 197 | 812 | 1473 | 4326 | 290 | 3.45 | 171-244 |
+| 64 | R3 | none | 192 | 534 | 1574 | 2342 | 6163 | 323 | 3.10 | 491-646 |
+| 64 | R3 | occluder | 192 | 562 | 1642 | 3760 | 6538 | 307 | 3.26 | 544-573 |
+| 64 | R5 | none | 320 | 909 | 2276 | 5644 | 6133 | 322 | 3.11 | 831-959 |
+| 64 | R5 | occluder | 320 | 940 | 2157 | 4353 | 6611 | 319 | 3.14 | 787-988 |
+| 64 | R1x3 (continue through up to 3 walls) | occluder | 165 | 470 | 1498 | 2618 | 4698 | 320 | 3.13 | 440-499 |
+| 256 | R1 | none | 256 | 849 | 1968 | 3418 | 6491 | 284 | 3.52 | 681-918 |
+| 256 | R1 | occluder | 256 | 832 | 2278 | 3782 | 6963 | 268 | 3.74 | 731-1182 |
+| 256 | R3 | none | 768 | 2530 | 6007 | 8458 | 10201 | 264 | 3.79 | 2321-3326 |
+| 256 | R3 | occluder | 768 | 2285 | 4820 | 8154 | 10441 | 308 | 3.25 | 2224-2402 |
+| 256 | R5 | none | 1280 | 3889 | 7349 | 11161 | 12710 | 308 | 3.24 | 3825-3944 |
+| 256 | R5 | occluder | 1280 | 3860 | 7387 | 10092 | 12831 | 310 | 3.23 | 3762-3971 |
+| 256 | R1x3 (continue through up to 3 walls) | occluder | 659 | 1922 | 3964 | 6618 | 7471 | 315 | 3.17 | 1892-2016 |
+| 1024 | R1 | none | 1024 | 3479 | 6611 | 8478 | 9296 | 277 | 3.61 | 3395-3518 |
+| 1024 | R1 | occluder | 1024 | 3508 | 7106 | 10062 | 14248 | 273 | 3.67 | 3298-3571 |
+| 1024 | R3 | none | 3072 | 9699 | 16181 | 27116 | 42247 | 305 | 3.27 | 9470-9833 |
+| 1024 | R3 | occluder | 3072 | 9514 | 16304 | 25116 | 28191 | 313 | 3.19 | 9432-9623 |
+| 1024 | R5 | none | 5120 | 16028 | 26143 | 30983 | 34393 | 312 | 3.21 | 15765-16378 |
+| 1024 | R5 | occluder | 5120 | 16158 | 30360 | 38747 | 42997 | 302 | 3.31 | 15608-16357 |
+| 1024 | R1x3 (continue through up to 3 walls) | occluder | 2648 | 8317 | 17278 | 25700 | 33649 | 290 | 3.45 | 7845-9144 |
+
+### 2 + 4. Time-sliced scheduler (frame = rank + rays + smoothing of all S)
+| S | R | scheme | motion | casts/frame | rays/frame | p50 | p99 | p99.9 | max | rays/ms | frames to refresh all (median / max) | stale-wrong % |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 64 | 1 | 0.25 ms, tier 16 + round-robin | static | 44.7 | 44.7 | 259 | 339 | 2282 | 3327 | 175 | 3 / 5 | - |
+| 64 | 1 | 0.25 ms, tier 16 + round-robin | moving | 51.9 | 51.9 | 256 | 656 | 1894 | 4557 | 207 | 2 / 5 | 0.1 |
+| 64 | 1 | 0.5 ms, tier 16 + round-robin | static | 63.3 | 63.3 | 245 | 537 | 2000 | 2151 | 206 | 1 / 2 | - |
+| 64 | 1 | 0.5 ms, tier 16 + round-robin | moving | 63.4 | 63.4 | 217 | 963 | 1523 | 1886 | 246 | 1 / 2 | 0.0 |
+| 64 | 3 | 0.25 ms, tier 16 + round-robin | static | 27.4 | 82.3 | 260 | 1034 | 1465 | 2284 | 301 | 7 / 7 | - |
+| 64 | 3 | 0.25 ms, tier 16 + round-robin | moving | 27.8 | 83.4 | 260 | 858 | 1408 | 1516 | 307 | 4 / 6 | 0.8 |
+| 64 | 3 | 0.5 ms, tier 16 + round-robin | static | 48.4 | 145.3 | 511 | 1380 | 2902 | 6457 | 272 | 3 / 3 | - |
+| 64 | 3 | 0.5 ms, tier 16 + round-robin | moving | 53.3 | 159.8 | 510 | 1308 | 1752 | 2774 | 304 | 2 / 2 | 0.1 |
+| 256 | 1 | 0.25 ms, tier 16 + round-robin | static | 71.3 | 71.3 | 269 | 904 | 1787 | 4589 | 252 | 5 / 6 | - |
+| 256 | 1 | 0.25 ms, tier 16 + round-robin | moving | 72.8 | 72.8 | 269 | 775 | 1251 | 1989 | 260 | 5 / 11 | 1.0 |
+| 256 | 1 | 0.5 ms, tier 16 + round-robin | static | 130.1 | 130.1 | 520 | 1430 | 1992 | 6195 | 240 | 2 / 7 | - |
+| 256 | 1 | 0.5 ms, tier 16 + round-robin | moving | 132.5 | 132.5 | 520 | 1279 | 1825 | 3496 | 246 | 3 / 3 | 0.3 |
+| 256 | 3 | 0.25 ms, tier 16 + round-robin | static | 31.9 | 95.7 | 272 | 1055 | 1646 | 5507 | 334 | 16 / 20 | - |
+| 256 | 3 | 0.25 ms, tier 16 + round-robin | moving | 31.9 | 95.7 | 272 | 985 | 1318 | 1500 | 339 | 14 / 14 | 3.8 |
+| 256 | 3 | 0.5 ms, tier 16 + round-robin | static | 54.9 | 164.8 | 523 | 1328 | 2186 | 5838 | 302 | 6 / 7 | - |
+| 256 | 3 | 0.5 ms, tier 16 + round-robin | moving | 51.2 | 153.6 | 524 | 1398 | 2122 | 4689 | 280 | 6 / 6 | 1.9 |
+| 1024 | 1 | 0.25 ms, tier 16 + round-robin | static | 68.1 | 68.1 | 315 | 992 | 6554 | 20931 | 195 | 22 / 26 | - |
+| 1024 | 1 | 0.25 ms, tier 16 + round-robin | moving | 76.0 | 76.0 | 314 | 944 | 1590 | 1932 | 233 | 16 / 17 | 4.5 |
+| 1024 | 1 | 0.5 ms, tier 16 + round-robin | static | 146.9 | 146.9 | 564 | 1262 | 1503 | 1704 | 253 | 8 / 9 | - |
+| 1024 | 1 | 0.5 ms, tier 16 + round-robin | moving | 145.1 | 145.1 | 565 | 1360 | 2050 | 5236 | 248 | 8 / 8 | 2.2 |
+| 1024 | 3 | 0.25 ms, tier 16 + round-robin | static | 35.4 | 106.1 | 312 | 1149 | 1621 | 4825 | 324 | 53 / 63 | - |
+| 1024 | 3 | 0.25 ms, tier 16 + round-robin | moving | 35.1 | 105.3 | 313 | 1005 | 1507 | 1588 | 323 | 43 / 58 | 11.1 |
+| 1024 | 3 | 0.5 ms, tier 16 + round-robin | static | 53.5 | 160.5 | 570 | 1297 | 1913 | 4959 | 272 | 24 / 27 | - |
+| 1024 | 3 | 0.5 ms, tier 16 + round-robin | moving | 56.0 | 167.9 | 569 | 1495 | 3443 | 12038 | 279 | 25 / 32 | 6.5 |
+| 256 | 1 | top 32 only, every frame | static | 32.0 | 32.0 | 86 | 248 | 1394 | 1467 | 324 | never (no round-robin, by design) | - |
+| 256 | 1 | top 32 only, every frame | moving | 32.0 | 32.0 | 96 | 211 | 2437 | 10545 | 278 | never (no round-robin, by design) | 68.4 |
+| 256 | 1 | top 128 only, every frame | static | 128.0 | 128.0 | 396 | 1354 | 2513 | 3910 | 298 | never (no round-robin, by design) | - |
+| 256 | 1 | top 128 only, every frame | moving | 128.0 | 128.0 | 424 | 1358 | 2172 | 5013 | 272 | never (no round-robin, by design) | 33.2 |
+| 1024 | 1 | top 32 only, every frame | static | 32.0 | 32.0 | 134 | 429 | 1601 | 2198 | 201 | never (no round-robin, by design) | - |
+| 1024 | 1 | top 32 only, every frame | moving | 32.0 | 32.0 | 128 | 243 | 1200 | 1271 | 234 | never (no round-robin, by design) | 77.8 |
+| 1024 | 1 | top 128 only, every frame | static | 128.0 | 128.0 | 409 | 1374 | 2589 | 4927 | 289 | never (no round-robin, by design) | - |
+| 1024 | 1 | top 128 only, every frame | moving | 128.0 | 128.0 | 418 | 1420 | 2344 | 3514 | 284 | never (no round-robin, by design) | 69.4 |
+
+### 3. Transmission model (no rays)
+| S | R | part | p50 us | p99 | p99.9 | max | ns/source p50 |
+|---|---|---|---|---|---|---|---|
+| 64 | 1 | aggregate hits (Map lookup + tables), every source | 0.60 | 6.08 | 33.07 | 1075.35 | 9.3 |
+| 64 | 1 | smooth + write outputs, every source | 2.65 | 9.27 | 48.29 | 58.72 | 41.4 |
+| 64 | 3 | aggregate hits (Map lookup + tables), every source | 1.25 | 12.30 | 30.31 | 41.49 | 19.5 |
+| 64 | 3 | smooth + write outputs, every source | 2.65 | 7.99 | 28.41 | 41.62 | 41.3 |
+| 64 | 5 | aggregate hits (Map lookup + tables), every source | 1.73 | 1.94 | 15.71 | 29.77 | 27.1 |
+| 64 | 5 | smooth + write outputs, every source | 2.66 | 5.76 | 39.02 | 41.24 | 41.6 |
+| 256 | 1 | aggregate hits (Map lookup + tables), every source | 2.21 | 3.60 | 15.71 | 21.14 | 8.6 |
+| 256 | 1 | smooth + write outputs, every source | 10.32 | 20.50 | 33.41 | 45.84 | 40.3 |
+| 256 | 3 | aggregate hits (Map lookup + tables), every source | 4.62 | 9.30 | 20.25 | 30.11 | 18.1 |
+| 256 | 3 | smooth + write outputs, every source | 10.31 | 21.11 | 38.21 | 52.11 | 40.3 |
+| 256 | 5 | aggregate hits (Map lookup + tables), every source | 7.34 | 17.23 | 25.90 | 30.59 | 28.7 |
+| 256 | 5 | smooth + write outputs, every source | 11.72 | 28.93 | 50.84 | 80.23 | 45.8 |
+| 1024 | 1 | aggregate hits (Map lookup + tables), every source | 11.13 | 24.99 | 43.41 | 230.64 | 10.9 |
+| 1024 | 1 | smooth + write outputs, every source | 52.25 | 79.11 | 115.00 | 226.05 | 51.0 |
+| 1024 | 3 | aggregate hits (Map lookup + tables), every source | 32.25 | 55.45 | 94.02 | 144.45 | 31.5 |
+| 1024 | 3 | smooth + write outputs, every source | 52.33 | 93.57 | 126.11 | 134.27 | 51.1 |
+| 1024 | 5 | aggregate hits (Map lookup + tables), every source | 70.00 | 101.81 | 278.00 | 816.69 | 68.4 |
+| 1024 | 5 | smooth + write outputs, every source | 52.29 | 73.37 | 111.11 | 121.78 | 51.1 |
+
+raw: /home/user/TranquilityEngine/spikes/audio-spatial/occlusion/results.json

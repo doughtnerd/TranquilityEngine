@@ -6,3 +6,5 @@
 2026-11-11T01:44:58Z 1.00 1.00 0.85 conv wasm exit 1
 2026-11-11T01:44:59Z 1.00 1.00 0.85 conv chromium start
 2026-11-11T01:44:59Z 1.00 1.00 0.85 conv chromium exit 1
+2026-11-11T01:45:01Z 0.92 0.98 0.84 occlusion start
+2026-11-11T01:51:02Z 1.00 1.00 0.92 occlusion exit 0
