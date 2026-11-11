@@ -16,7 +16,7 @@ import {
   AUDIO_EVENT_FORMAT, REVERB_SEND_KEY, isLabelled, parameterDefault, parameterRange, parseAudioEvent, sustainReleaseFade,
   type AudioEventAsset, type Automation, type EventNode, type ParameterDef, type SustainNode, type SwitchNode,
 } from "../../../../engine/audio/eventFormat";
-import { audioBackend, type AudioBackend, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
+import { audioBackend, type AudioBackend, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
 import { warnOnce } from "../core/handle";
 import { loopPointsFor, onLoopPoints } from "../loopPoints";
 import {
@@ -784,6 +784,23 @@ export class EventInstance {
     for (const r of this.runners) if (!r.stopped) return true;
     for (const v of this.voices) if (v.voice.playing) return true;
     return false;
+  }
+
+  /** ADR 0162 §1.1: the panner of the first playing voice that reports one (a backend without panners: null). */
+  get panner(): AudioPanner | null {
+    for (const v of this.voices) {
+      if (!v.voice.playing) continue;
+      const p = v.voice.panner;
+      if (p) return p;
+    }
+    return null;
+  }
+
+  /** ADR 0162 §1.1: the lowest smoothed dry occlusion gain across the playing voices (1 open, or none playing). */
+  get occlusion(): number {
+    let g = 1;
+    for (const v of this.voices) if (v.voice.playing) g = Math.min(g, v.voice.occlusion ?? 1);
+    return g;
   }
 
   get reason(): AudioReason | null {

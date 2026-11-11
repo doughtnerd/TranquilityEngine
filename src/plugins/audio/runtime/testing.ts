@@ -8,7 +8,7 @@
 // `setVelocity`, `setOcclusion` and `setDopplerRate` (recorded like the other setters, latest values readable), and
 // `makeFakeZoneIrService()` is a `ZoneIrService` a test drives by hand.
 
-import type { AudioBackend, Attenuation, AudioVoice, ListenerPose, PlayRequest, ZoneIrService } from "./backend";
+import type { AudioBackend, AudioPanner, Attenuation, AudioVoice, ListenerPose, PlayRequest, VoiceSpatialOptions, ZoneIrService } from "./backend";
 import { mixer, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { CoreLink, type LinkPort } from "./core/context";
@@ -35,7 +35,8 @@ export type FakeVoiceEvent =
   // ADR 0162 (K0 members).
   | { readonly kind: "velocity"; readonly value: Vec3Like }
   | { readonly kind: "occlusion"; readonly gain: number; readonly lpHz: number }
-  | { readonly kind: "doppler"; readonly factor: number };
+  | { readonly kind: "doppler"; readonly factor: number }
+  | { readonly kind: "spatialOptions"; readonly options: VoiceSpatialOptions };
 
 /** A voice the fake handed out. Fields hold the latest value; `events` the whole history. */
 export interface FakeVoice extends AudioVoice {
@@ -64,6 +65,14 @@ export interface FakeVoice extends AudioVoice {
   setVelocity(v: Vec3Like): void;
   setOcclusion(gain: number, lpHz: number): void;
   setDopplerRate(factor: number): void;
+  /** ADR 0162 §1.2 (D5): Play edits of the source's M3 options, recorded as `spatialOptions` events. */
+  setSpatialOptions(o: VoiceSpatialOptions): void;
+  /** ADR 0162 D5: the panner the voice reports (the public handle's `panner`): "ambisonic", "equalPower" for a positioned play, else "flat", until `setPanner`. Null once freed. */
+  readonly panner: AudioPanner | null;
+  /** ADR 0162 D5: the smoothed dry occlusion gain (the public handle's `occlusion`): the latest `setOcclusion` gain. */
+  readonly occlusion: number;
+  /** Test hook: the panner pick's answer (a spatial voice moving to "hrtf" or "bed"). */
+  setPanner(kind: AudioPanner): void;
 }
 
 /** The fake backend: an `AudioBackend` plus what a test inspects. */
@@ -155,7 +164,7 @@ let nextFakeVoiceId = 1;
 function makeFakeVoice(request: PlayRequest): FakeVoice {
   const events: FakeVoiceEvent[] = [];
   let counted = true;
-  const state = { volume: 1, pitch: 1, attenuation: null as Attenuation | null, position: null as Vec3Like | null, bus: request.bus, paused: false, stopped: false, playing: true, alive: true, velocity: null as Vec3Like | null, occlusionGain: 1, occlusionLpHz: 24_000, dopplerRate: 1 };
+  const state = { volume: 1, pitch: 1, attenuation: null as Attenuation | null, position: null as Vec3Like | null, bus: request.bus, paused: false, stopped: false, playing: true, alive: true, panner: null as AudioPanner | null, velocity: null as Vec3Like | null, occlusionGain: 1, occlusionLpHz: 24_000, dopplerRate: 1 };
   const uncount = (): void => {
     if (counted) mixer.voiceEnded(state.bus);
     counted = false;
@@ -213,6 +222,9 @@ function makeFakeVoice(request: PlayRequest): FakeVoice {
     // ADR 0162 (K0 members), recorded like the other setters.
     get velocity() { return state.velocity; },
     get occlusionGain() { return state.occlusionGain; },
+    get occlusion() { return state.occlusionGain; },
+    get panner() { return !state.alive ? null : (state.panner ?? (request.ambisonic ? "ambisonic" : request.position || state.position ? "equalPower" : "flat")); },
+    setPanner(kind) { state.panner = kind; },
     get occlusionLpHz() { return state.occlusionLpHz; },
     get dopplerRate() { return state.dopplerRate; },
     setVelocity(v) {
@@ -228,6 +240,7 @@ function makeFakeVoice(request: PlayRequest): FakeVoice {
       state.dopplerRate = factor;
       events.push({ kind: "doppler", factor });
     },
+    setSpatialOptions(o) { events.push({ kind: "spatialOptions", options: { ...o } }); },
   };
 }
 

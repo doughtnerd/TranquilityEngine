@@ -85,7 +85,7 @@ export class StatusReader {
       zonesActive: 0,
       zonesRinging: 0,
       bedsRefused: 0,
-      reserved: 0,
+      m3Shed: 0,
       zoneUsedKB: 0,
       workBed: 0,
       workZones: 0,
@@ -229,7 +229,7 @@ export class StatusReader {
 
   /**
    * ADR 0162 §4.3: reads the 144-byte header's M3 fields (112..143: `bedVoices`, `fxVoices`, `ambisonicVoices`,
-   * `zonesActive`, `zonesRinging`, `bedsRefused`, `reserved`, `zoneUsedKB`, `workBed`, `workZones`; the three counts
+   * `zonesActive`, `zonesRinging`, `bedsRefused`, `m3Shed`, `zoneUsedKB`, `workBed`, `workZones`; the three counts
    * are the section lengths) into `block`, then the three sections from `at` into the preallocated `bedItems`,
    * `zoneItems` and `zoneEventItems`, setting each section array's `length`. Allocates nothing. `validateM3` has
    * already checked the bounds.
@@ -242,7 +242,7 @@ export class StatusReader {
     b.zonesActive = view.getUint16(120, true);
     b.zonesRinging = view.getUint16(122, true);
     b.bedsRefused = view.getUint16(126, true);
-    b.reserved = view.getUint16(130, true);
+    b.m3Shed = view.getUint16(130, true);
     b.zoneUsedKB = view.getUint32(132, true);
     b.workBed = view.getUint32(136, true);
     b.workZones = view.getUint32(140, true);

@@ -27,7 +27,7 @@ const m3 = () => ({
   zonesActive: 104,
   zonesRinging: 105,
   bedsRefused: 106,
-  reserved: 107,
+  m3Shed: 107,
   zoneUsedKB: 0x0102_0304,
   workBed: 0x0a0b_0c0d,
   workZones: 0x1122_3344,
@@ -63,7 +63,7 @@ describe("StatusReader, ADR 0162 header and sections", () => {
     expect(got.zonesActive).toBe(104);
     expect(got.zonesRinging).toBe(105);
     expect(got.bedsRefused).toBe(106);
-    expect(got.reserved).toBe(107);
+    expect(got.m3Shed).toBe(107);
     expect(got.zoneUsedKB).toBe(0x0102_0304);
     expect(got.workBed).toBe(0x0a0b_0c0d);
     expect(got.workZones).toBe(0x1122_3344);

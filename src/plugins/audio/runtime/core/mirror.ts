@@ -68,6 +68,8 @@ export class StatusMirror {
   zonesActive = 0;
   zonesRinging = 0;
   bedsRefused = 0;
+  /** D5: the load-shedding ladder's steps taken, bed plus zone (STATUS `m3Shed`). */
+  m3Shed = 0;
   zoneUsedKB = 0;
   workBed = 0;
   workZones = 0;
@@ -198,6 +200,7 @@ export class StatusMirror {
     this.bedVoices = status.bedVoices;
     this.fxVoices = status.fxVoices;
     this.ambisonicVoices = status.ambisonicVoices;
+    this.m3Shed = status.m3Shed;
     this.zonesActive = status.zonesActive;
     this.zonesRinging = status.zonesRinging;
     this.bedsRefused = status.bedsRefused;
@@ -351,7 +354,7 @@ export function makeStatusBlock(fields: Partial<StatusBlock> = {}): StatusBlock 
     zonesActive: 0,
     zonesRinging: 0,
     bedsRefused: 0,
-    reserved: 0,
+    m3Shed: 0,
     zoneUsedKB: 0,
     workBed: 0,
     workZones: 0,

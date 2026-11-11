@@ -55,10 +55,10 @@ const INERT: AudioHandle = Object.freeze({ playing: false, reason: null, panner:
 /** The public handle over a backend voice: only the four §1 members, none of the voice's setters. */
 class VoiceHandle implements AudioHandle {
   constructor(private readonly voice: AudioVoice) {}
-  /** ADR 0162 §1.1: the panner the sound uses, from the main-thread mirror. K4: null until D5. */
-  get panner(): AudioPanner | null { return null; }
-  /** ADR 0162 §1.1: the smoothed dry occlusion gain (1 open), from the main-thread mirror. K4: 1 until D5. */
-  get occlusion(): number { return 1; }
+  /** ADR 0162 §1.1: the panner the sound uses, from the main-thread mirror; null once it has ended or on a backend without panners. */
+  get panner(): AudioPanner | null { try { return this.voice.alive === false ? null : (this.voice.panner ?? null); } catch { return null; } }
+  /** ADR 0162 §1.1: the smoothed dry occlusion gain (1 open), from the main-thread mirror. */
+  get occlusion(): number { try { return this.voice.occlusion ?? 1; } catch { return 1; } }
   get playing(): boolean { try { return this.voice.playing; } catch { return false; } }
   get reason(): AudioReason | null { try { return this.voice.reason; } catch { return null; } }
   // The voice clamps and warns once (`AudioHandle`), so the values go through as given.
@@ -80,10 +80,10 @@ class EventHandle implements AudioEventHandle {
   get reason(): AudioReason | null { return this.instance.reason; }
   get position(): Vec3Like | null { return this.instance.position; }
   set position(p: Vec3Like | null) { this.instance.position = p; }
-  /** ADR 0162 §1.1 across the instance's voices. K4: null until D5. */
-  get panner(): AudioPanner | null { return null; }
-  /** ADR 0162 §1.1 across the instance's voices. K4: 1 until D5. */
-  get occlusion(): number { return 1; }
+  /** ADR 0162 §1.1 across the instance's voices: the first playing voice's panner. */
+  get panner(): AudioPanner | null { return this.instance.panner; }
+  /** ADR 0162 §1.1 across the instance's voices: the lowest (most occluded) smoothed dry gain. */
+  get occlusion(): number { return this.instance.occlusion; }
   stop(fadeSeconds = 0): void { this.instance.stop(fadeSeconds); }
   fade(to: number, seconds: number): void { this.instance.fade(Math.min(4, Math.max(0, to)), Math.max(0, seconds)); }
   setParameter(name: string, value: number | string): void { this.instance.setParameter(name, value); }

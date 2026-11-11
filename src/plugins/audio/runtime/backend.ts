@@ -280,6 +280,12 @@ export interface AudioVoice {
   setOcclusion?(gain: number, lpHz: number): void;
   /** §8, K4: main's clamped Doppler factor (1 none). The core folds it into pitch; Babylon into `playbackRate` (decoded clips only). */
   setDopplerRate?(factor: number): void;
+  /**
+   * §1.1, D5: the panner the voice uses and its smoothed dry occlusion gain (1 open), read from the main-thread tables
+   * (the public handle's `panner` and `occlusion`). Absent on a backend without them: the handle reads null and 1.
+   */
+  readonly panner?: AudioPanner | null;
+  readonly occlusion?: number;
   /** §1.2, K4: Play edits of the source's M3 options (`VoiceSpatialOptions`); a backend without them leaves it out. */
   setSpatialOptions?(o: VoiceSpatialOptions): void;
 }

@@ -527,7 +527,7 @@ describe("wire round trip", () => {
       zonesActive: 3,
       zonesRinging: 1,
       bedsRefused: 65535,
-      reserved: 0,
+      m3Shed: 3,
       zoneUsedKB: 6144,
       workBed: 4000000001,
       workZones: 77,
@@ -750,7 +750,7 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
   view.setUint16(124, s.zoneEvents.length, true);
   view.setUint16(126, s.bedsRefused, true);
   view.setUint16(128, s.zones.length, true);
-  view.setUint16(130, s.reserved, true);
+  view.setUint16(130, s.m3Shed, true);
   view.setUint32(132, s.zoneUsedKB, true);
   view.setUint32(136, s.workBed, true);
   view.setUint32(140, s.workZones, true);
