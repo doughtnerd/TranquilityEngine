@@ -10,7 +10,7 @@
   },
   "physics": {
     "gravity": [0, -9.81],
-    "layers": ["Default"]
+    "layers": ["Default", "Walls"]
   },
   "render": {
     "sortingLayers": ["Default"],
@@ -40,6 +40,8 @@
       {
         "name": "Ambience",
         "parent": "Master",
+        "bed": "own",
+        "bedPriority": 200,
         "volume": 0.8,
         "mute": false,
         "effects": [{ "type": "reverb", "send": 0.5 }]
@@ -68,6 +70,9 @@
       },
       { "name": "Sweep", "volumes": {}, "lowpass": { "Tape": 250, "Music": 400 } }
     ],
+    "occlusion": { "layers": ["Walls"], "defaultMaterial": "concrete" },
+    "zones": { "maxActive": 2, "standby": 1, "maxIrSeconds": 2 },
+    "doppler": { "maxSpeed": 150 },
     "ducking": [{ "target": "Music", "trigger": "SFX", "amount": 0.3, "attack": 0.05, "release": 0.4 }],
     "parameters": [
       { "name": "Surface", "labels": ["Grass", "Gravel", "Wood", "Metal"], "default": "Grass" },

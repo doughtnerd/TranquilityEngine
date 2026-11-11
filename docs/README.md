@@ -20,6 +20,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Why is there no sound?](guide/why-no-sound.md) | A troubleshooting page driven by `Audio.debug()` and the Audio Debug panel: locked audio, the fallback backend, a sound's `reason`, AAC and format problems, the decoder worker, hidden tabs, mute and volume |
 | [Fog, camera rays and spatial audio](guide/atmosphere-and-sound.md) | The `Fog` component, `Camera.screenPointToRay` / `worldToScreenPoint`, `Ray` and `Plane`, `AudioListener` and spatial `AudioSource` |
 | [Audio mixer](guide/audio-mixer.md) | Buses, effects, snapshots, ducking, `AudioSource.output`, `Audio.bus(...)` |
+| [Spatial audio](guide/spatial-audio.md) | Beds, reverb zones, occlusion and materials (the door recipe), Doppler, ambisonic clips, the Babylon fallback's limits, how it compares with Wwise, FMOD and Unity |
 | [Sound events](guide/sound-events.md) | Audio event assets (`*.audioevent.json`): containers, parameters, automation curves, `Audio.play`, sustain and release, limits |
 | [Audio core minimum versions](guide/audio-minimum-versions.md) | Browser and webview versions the `"core"` audio backend needs (AudioWorklet, `simd128`), the one-warning fallback to `"babylon"`, Android WebView |
 | [Writing a plugin](guide/plugins.md) | Third-party plugins: the folder layout, `plugin.json`, runtime and editor halves, a physics backend, enabling, reloading, npm packages, what refuses a plugin, trust |

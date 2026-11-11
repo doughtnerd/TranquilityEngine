@@ -61,6 +61,12 @@
       "components": [{ "type": "lab.SceneSwitch", "data": { "key": "e", "scene": "scenes/events.scene.json" } }]
     },
     {
+      "id": "spatial",
+      "name": "Spatial page (key S)",
+      "transform": false,
+      "components": [{ "type": "lab.SceneSwitch", "data": { "key": "s", "scene": "scenes/spatial.scene.json" } }]
+    },
+    {
       "id": "oneshots",
       "name": "OneShots (key 1)",
       "transform": false,
