@@ -424,11 +424,21 @@ fn a_voice_starting_or_ending_inside_the_quantum_splits_only_past_its_first_samp
 
 /// Two class G records for one voice at different samples (a FADE at 30 and a SET_PARAMS gain at
 /// 70) take the class S path for the second (§3.1): `voiceSplits` 1, `splitQuanta` 0, and the
-/// output follows both at their samples. Depends on Z2b's `curves::prepare` taking the first record
-/// into the gain loop (with Z2b's stub both split: 2); stays ignored until Z2b and Z2c are both on
-/// the flip branch.
+/// output follows both at their samples. Z2b's `curves::prepare` takes the first record into the
+/// gain loop; the second applies at its sample after the one split. Voices 1 and 2 untouched.
 #[test]
-#[ignore = "Z2b"]
 fn two_class_g_offsets_take_one_voice_local_split() {
-    unimplemented!("after Z2b")
+    let mut m = three_voices(DC, MIXED | LOOP);
+    let mut twin = three_voices(DC, MIXED | LOOP);
+    let mut fade = vec![0u8; wire::Fade::FIXED_END];
+    wire::Fade { voice_id: V3, frame_offset: 30, target: 0.5, frames: 0, flags: 0, shape: 0 }.write(&mut fade, 0).unwrap();
+    let gain = Rec::Set(wire::SetParams { voice_id: V3, frame_offset: 70, mask: wire::SET_PARAMS_MASK_GAIN, gain: 0.2, ramp_frames: 0, ..Default::default() });
+    m.submit(&[Rec::Raw(fade), gain]);
+    let (l, _) = m.render();
+    twin.render();
+    // Voices 1 and 2 give 0.2; voice 3 is 0.5 · fade · gain.
+    check(&l, TOL_OUT, "the fade at 30, the gain at 70", |k| 0.2 + if k < 30 { 0.5 } else if k < 70 { 0.25 } else { 0.1 });
+    assert_eq!(split_counts(&m), (0, 1), "one voice-local split, no quantum split");
+    assert_eq!(slot_bytes(&m.core, V1), slot_bytes(&twin.core, V1), "voice 1 untouched");
+    assert_eq!(slot_bytes(&m.core, V2), slot_bytes(&twin.core, V2), "voice 2 untouched");
 }

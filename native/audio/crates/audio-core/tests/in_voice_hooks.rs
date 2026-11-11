@@ -149,8 +149,8 @@ fn stamped(rec: Rec, frame_offset: u32) -> Rec {
 }
 
 /// Z2a's acceptance: stamped per-voice records inside a quantum go into the due list and apply in
-/// their voice, so nothing splits the quantum; the voice renders in pieces (with Z2b's and Z2c's
-/// stubs every record splits its own voice's render, each counting `voiceSplits`).
+/// their voice, so nothing splits the quantum. Z2b: the class G records (the fade, the stop) apply
+/// in the gain loop without a split; the pitch ramp (class S) splits voice 2 once.
 #[test]
 fn stamped_per_voice_records_split_only_their_voice() {
     let mut m = mixer();
@@ -167,7 +167,7 @@ fn stamped_per_voice_records_split_only_their_voice() {
     m.render();
     let c = &status::counters(&m.core).music;
     assert_eq!(c.split_quanta, 0, "per-voice records never split the quantum");
-    assert_eq!(c.voice_splits, 3, "voice 2 in three pieces, voice 5 in two");
+    assert_eq!(c.voice_splits, 1, "voice 2 in two pieces (the pitch ramp), voice 5 in one");
     let s = voices::slots(&m.core);
     assert_eq!((s[2].fade.target, s[2].pitch.target), (0.5, 1.5), "both reached voice 2");
     assert_eq!(s[5].fade.target, 0.0, "the stop reached voice 5");
