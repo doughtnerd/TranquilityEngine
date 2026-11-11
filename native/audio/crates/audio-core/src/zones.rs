@@ -56,7 +56,9 @@
 //!
 //! **Sizes (C8).** The region holds `max_zone_slots` slots of [`slot_state_bytes`]`(zone_max_frames)`
 //! (a header with the slot's stereo input and wet buffers, then the instance state), then the aux
-//! accumulator ([`aux_accumulator`], C4's, `max_buses × 1 KB`, also without slots) and a 64-byte tail. The kernels
+//! accumulator ([`aux_accumulator`], C4's, `max_buses × 1 KB`, also without slots), the sends
+//! area ([`sends_area`], C4's: the quantum's bus-chain gains, `max_buses × 512 B` plus a 64-byte
+//! header) and a 64-byte tail. The kernels
 //! are arena clips outside `clipMemoryMB`, within [`kernel_budget_bytes`] (the
 //! `myco_audio_zone_kernel_budget_bytes` export, which the shell adds to the Memory's maximum).
 //! The TypeScript mirror (`worklet/coreDriver.ts`) follows both functions. The table's scalars,
@@ -76,6 +78,7 @@ use crate::core::{Core, Regions};
 use crate::counters::{ZoneEvent, ZoneStatus, ZONES_CAP};
 use crate::layout::REGION_ALIGN;
 use crate::params::InitParams;
+use crate::wire_read::u32_at;
 use crate::{status, QUANTUM};
 
 /// The wet fade-in once a slot's kernel is resident (C5: 100 ms).
@@ -217,12 +220,66 @@ pub const fn aux_bytes(p: &InitParams) -> usize {
     p.max_buses as usize * 2 * QUANTUM * 4
 }
 
-/// The `Zones` region's size (C8, with the aux accumulator): `max_zone_slots ×
-/// slot_state_bytes(zone_max_frames)`, then [`aux_bytes`], then the 64-byte tail. Slots come first,
-/// so each is 64-byte aligned.
+/// The sends area's bytes (C4): a 64-byte [`SendsHeader`], then per bus the quantum's chain gain
+/// to the root (`max_buses × 512 B`), which `sends::begin_quantum` fills for the taps, since
+/// `sends::tap` sees only this region. There with or without zone slots.
+pub const fn sends_bytes(p: &InitParams) -> usize {
+    REGION_ALIGN + p.max_buses as usize * QUANTUM * 4
+}
+
+/// The `Zones` region's size (C8, with the aux accumulator and the sends area): `max_zone_slots ×
+/// slot_state_bytes(zone_max_frames)`, then [`aux_bytes`], then [`sends_bytes`], then the 64-byte
+/// tail. Slots come first, so each is 64-byte aligned.
 pub const fn region_bytes(p: &InitParams) -> usize {
     let slots = if p.max_zone_slots == 0 { 0 } else { p.max_zone_slots as usize * slot_state_bytes(p.zone_max_frames as usize) };
-    slots + aux_bytes(p) + REGION_TAIL_BYTES
+    slots + aux_bytes(p) + sends_bytes(p) + REGION_TAIL_BYTES
+}
+
+/// The sends area's header (C4), at the area's start. All-zero: no chain gains, no aux pending.
+#[repr(C)]
+pub struct SendsHeader {
+    /// Buses whose chain gains this quantum holds (0: none; `sends::begin_quantum` fills them only
+    /// while some mixed voice has a send or an aux bus).
+    pub buses: u32,
+    /// Bit `b`: bus `b`'s aux accumulator holds this quantum's sends (`sends::add_aux` clears it).
+    pub aux_dirty: [u32; 8],
+}
+
+const _: () = assert!(core::mem::size_of::<SendsHeader>() <= REGION_ALIGN && InitParams::MAX_BUSES as usize <= 8 * 32);
+
+/// The sends' view of the region (C4): the aux accumulator and, right after it, the sends area.
+pub struct SendsArea<'a> {
+    pub head: &'a mut SendsHeader,
+    /// Per bus a quantum of chain gains (`max_buses × 128` f32).
+    pub gains: &'a mut [f32],
+    /// [`aux_accumulator`]: per bus a planar stereo quantum (`max_buses × 256` f32).
+    pub aux: &'a mut [f32],
+}
+
+/// The aux accumulator and the sends area (one view, as `sends.rs` takes it), found from the
+/// region's end and its bus count (tail word 2): `[aux][header][gains][tail]`; `None` for a region
+/// [`init`] didn't lay out.
+#[inline(never)]
+pub fn sends_area(zones: &mut [u8]) -> Option<SendsArea<'_>> {
+    let end = zones.len().checked_sub(REGION_TAIL_BYTES)?;
+    let buses = tail_word(zones, 2);
+    if buses > InitParams::MAX_BUSES as usize {
+        return None;
+    }
+    let aux = buses * 2 * QUANTUM * 4;
+    let at = end.checked_sub(aux + REGION_ALIGN + buses * QUANTUM * 4)?;
+    let (acc, rest) = zones[at..end].split_at_mut(aux);
+    let (head, gains) = rest.split_at_mut(REGION_ALIGN);
+    // SAFETY: inside the region (checked); 64-byte aligned, since the region and every part's size
+    // are; every bit pattern is valid for the header's integers and the floats. Only `sends.rs`
+    // views these bytes (and the tests, through `aux_accumulator`).
+    unsafe {
+        Some(SendsArea {
+            head: &mut *(head.as_mut_ptr() as *mut SendsHeader),
+            gains: core::slice::from_raw_parts_mut(gains.as_mut_ptr() as *mut f32, gains.len() / 4),
+            aux: core::slice::from_raw_parts_mut(acc.as_mut_ptr() as *mut f32, acc.len() / 4),
+        })
+    }
 }
 
 /// The aux accumulator: per bus a planar stereo quantum `[L; 128][R; 128]`, as `f32`s
@@ -338,8 +395,8 @@ pub fn init(core: &mut Core) {
         // The region's tail: where a view of the region alone (`sends::tap`) finds its parts.
         let aux = aux_bytes(&p);
         let words = [count as u32, stride as u32, p.max_buses, (count * stride) as u32, aux as u32];
-        for (i, w) in words.iter().enumerate() {
-            regions.zones[len - REGION_TAIL_BYTES + 4 * i..len - REGION_TAIL_BYTES + 4 * i + 4].copy_from_slice(&w.to_ne_bytes());
+        for (dst, w) in regions.zones[len - REGION_TAIL_BYTES..].chunks_exact_mut(4).zip(words) {
+            dst.copy_from_slice(&w.to_ne_bytes());
         }
     }
     let a = area_mut(regions.core_state);
@@ -350,10 +407,6 @@ pub fn init(core: &mut Core) {
     a.cut_frames = frames(CUT_MS);
     a.ladder_frames = frames(LADDER_MS);
     a.active_limit = NO_LIMIT;
-}
-
-fn u32_at(msg: &[u8], off: usize) -> u32 {
-    u32::from_le_bytes([msg[off], msg[off + 1], msg[off + 2], msg[off + 3]])
 }
 
 /// `true` when the ZONE_CONFIG record at `msg[off..off + len]` holds its `slotCount` 16-byte slots

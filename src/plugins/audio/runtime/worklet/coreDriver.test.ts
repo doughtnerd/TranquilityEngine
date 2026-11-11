@@ -397,7 +397,8 @@ describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
         expect(Math.abs(wasm - mirror), `${rate} Hz`).toBeLessThanOrEqual(65_536);
       }
     }
-    expect(spatialRegionsBytes(PRESET, RATE)).toBe(32 * 448 + 8192 + PRESET.maxBuses * 1024 + 64); // an M2 preset: the pool, the scratch and the aux accumulator in Zones (C3)
+    // An M2 preset: the pool, the scratch, and in Zones the aux accumulator (C3) and the sends area's chain gains (C4).
+    expect(spatialRegionsBytes(PRESET, RATE)).toBe(32 * 448 + 8192 + PRESET.maxBuses * 1024 + (64 + PRESET.maxBuses * 512) + 64);
   });
 
   it("the zone kernel budget mirror equals myco_audio_zone_kernel_budget_bytes", () => {

@@ -84,6 +84,7 @@ use crate::counters::{flag, BedStatus};
 use crate::params::InitParams;
 use crate::panner::HrtfBank;
 use crate::QUANTUM;
+use crate::wire_read::{u16_at, u32_at};
 
 /// Most bed slots (the wire's `MAX_BEDS`).
 pub const MAX_SLOTS: usize = wire::MAX_BEDS as usize;
@@ -277,14 +278,6 @@ pub fn region_bytes(p: &InitParams) -> usize {
     }
     let parts = partitions_for(p.sample_rate);
     offsets(parts).2 + n * slot_bytes(parts)
-}
-
-fn u32_at(msg: &[u8], off: usize) -> u32 {
-    u32::from_le_bytes([msg[off], msg[off + 1], msg[off + 2], msg[off + 3]])
-}
-
-fn u16_at(msg: &[u8], off: usize) -> u16 {
-    u16::from_le_bytes([msg[off], msg[off + 1]])
 }
 
 /// `true` when the BED_CONFIG record at `msg[off..off + len]` holds its `bedSlot[busCount]` and

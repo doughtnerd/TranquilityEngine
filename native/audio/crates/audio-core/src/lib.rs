@@ -31,6 +31,7 @@ pub mod sends;
 pub mod status;
 pub mod stream;
 pub mod voices;
+mod wire_read;
 pub mod zones;
 
 pub use crate::core::Core;

@@ -48,6 +48,7 @@ use crate::core::{Core, Regions};
 use crate::layout::REGION_ALIGN;
 use crate::params::InitParams;
 use crate::QUANTUM;
+use crate::wire_read::{u16_at, u32_at};
 
 /// Global parameter slots (PARAM `group` 0).
 pub const GLOBAL_PARAMS: usize = 64;
@@ -439,14 +440,6 @@ pub fn eval(c: &Curve, x: f32) -> f32 {
 #[inline]
 fn curve_value(curves: &[Curve], curve: u16, x: f32) -> f32 {
     curves.get(curve as usize).map_or(0.0, |c| eval(c, x))
-}
-
-fn u16_at(msg: &[u8], off: usize) -> u16 {
-    u16::from_le_bytes([msg[off], msg[off + 1]])
-}
-
-fn u32_at(msg: &[u8], off: usize) -> u32 {
-    u32::from_le_bytes([msg[off], msg[off + 1], msg[off + 2], msg[off + 3]])
 }
 
 fn f32_at(msg: &[u8], off: usize) -> f32 {

@@ -14,15 +14,25 @@ struct Block {
     pages: usize,
 }
 
+/// `Option<Core>` with an explicit tag. `Option<Core>` keeps `None` in a niche of `Core` whose
+/// bit pattern isn't zero, which put the whole `INSTANCE` static (about 6 KB of zeros) in the
+/// wasm's `.data` segment; with `repr(u8)` the tag is explicit and `Empty` is 0, so the static is
+/// all zeros and lands in `.bss`.
+#[repr(u8)]
+enum Slot {
+    Empty = 0,
+    Live(Core),
+}
+
 pub struct Instance<M: LinearMemory> {
     memory: M,
     block: Option<Block>,
-    core: Option<Core>,
+    core: Slot,
 }
 
 impl<M: LinearMemory> Instance<M> {
     pub const fn new(memory: M) -> Instance<M> {
-        Instance { memory, block: None, core: None }
+        Instance { memory, block: None, core: Slot::Empty }
     }
 
     /// `myco_audio_init` (api-and-models §5). **Deterministic**: it takes exactly one block of
@@ -31,7 +41,7 @@ impl<M: LinearMemory> Instance<M> {
     /// the global allocator. So a fresh instance, given the same `initial` memory and the same
     /// parameters, puts every region (and the output `process` returns) on the same address.
     pub fn init(&mut self, params: InitParams) -> i32 {
-        if self.core.is_some() {
+        if matches!(self.core, Slot::Live(_)) {
             return codes::ALREADY_INITIALIZED;
         }
         if params.validate().is_err() {
@@ -54,28 +64,34 @@ impl<M: LinearMemory> Instance<M> {
         };
         // SAFETY: `base` is a zeroed, page-aligned block of `layout.total()` bytes that only this
         // instance uses, never freed (grown linear memory, or a leaked host reservation).
-        self.core = Some(unsafe { Core::new(params, layout, base) });
+        self.core = Slot::Live(unsafe { Core::new(params, layout, base) });
         codes::OK
     }
 
     /// `myco_audio_dispose`: drops the core. The block stays reserved for the next `init`.
     pub fn dispose(&mut self) {
-        self.core = None;
+        self.core = Slot::Empty;
     }
 
     pub fn core(&self) -> Option<&Core> {
-        self.core.as_ref()
+        match &self.core {
+            Slot::Live(core) => Some(core),
+            Slot::Empty => None,
+        }
     }
 
     pub fn core_mut(&mut self) -> Option<&mut Core> {
-        self.core.as_mut()
+        match &mut self.core {
+            Slot::Live(core) => Some(core),
+            Slot::Empty => None,
+        }
     }
 
     /// `myco_audio_process`: one quantum at context frame `frame`; null before `init`.
     pub fn process(&mut self, frame: u64) -> *const f32 {
-        match self.core.as_mut() {
-            Some(core) => core.process(frame).as_ptr(),
-            None => core::ptr::null(),
+        match &mut self.core {
+            Slot::Live(core) => core.process(frame).as_ptr(),
+            Slot::Empty => core::ptr::null(),
         }
     }
 

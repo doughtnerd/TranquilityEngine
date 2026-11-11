@@ -143,10 +143,13 @@ export function zoneSlotStateBytes(frames: number): number {
   return alignUp(ZONE_SLOT_HEADER_BYTES + instance, REGION_ALIGN);
 }
 
-/** @internal `zones::region_bytes`: the slots, the aux accumulator (`max_buses` x 1 KB, with or without slots) and a 64-byte tail. */
+/**
+ * @internal `zones::region_bytes`: the slots, the aux accumulator (`max_buses` x 1 KB, with or without slots), the sends
+ * area (`zones::sends_bytes`: a 64-byte header and `max_buses` x 512 B of chain gains) and a 64-byte tail.
+ */
 export function zonesRegionBytes(maxZoneSlots: number, zoneMaxFrames: number, maxBuses: number): number {
   const slots = maxZoneSlots > 0 ? maxZoneSlots * zoneSlotStateBytes(zoneMaxFrames) : 0;
-  return slots + maxBuses * 2 * QUANTUM * 4 + REGION_ALIGN;
+  return slots + maxBuses * 2 * QUANTUM * 4 + (REGION_ALIGN + maxBuses * QUANTUM * 4) + REGION_ALIGN;
 }
 
 /** @internal `zone_max_frames`: the preset's longest zone IR at the context rate (0 without zone slots). */

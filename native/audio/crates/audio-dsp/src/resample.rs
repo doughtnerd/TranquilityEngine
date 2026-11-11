@@ -212,6 +212,23 @@ fn horner(x: [f32; 4], t: f32) -> f32 {
     ((c3 * t + c2) * t + c1) * t + x[1]
 }
 
+/// `j.clamp(0, last) as usize`, the edge neighbour of a non-looping read. Not `isize::clamp`: its min > max
+/// assert formats both values, and that panic path was inlined into every copy of the four kernels (about
+/// 2.9 KB of the wasm). The plain assert keeps what it tells the optimiser (`last >= 0`, without which the
+/// metered count rises up to 0.9%) and panics on the same condition, which can't happen: `last` is
+/// `frames - 1` with `1 <= frames <= data.len() <= isize::MAX`.
+#[inline(always)]
+fn clamp_edge(j: isize, last: isize) -> usize {
+    assert!(last >= 0);
+    (if j < 0 {
+        0
+    } else if j > last {
+        last
+    } else {
+        j
+    }) as usize
+}
+
 #[inline(always)]
 fn render4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64, steps: &[f32], looping: bool, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
     let len = out_l.len();
@@ -237,7 +254,7 @@ fn render4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64
         if looping {
             j.rem_euclid(frames as isize) as usize
         } else {
-            j.clamp(0, last as isize) as usize
+            clamp_edge(j, last as isize)
         }
     };
     for i in 0..len {
@@ -368,7 +385,7 @@ fn region4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64
             if before && j >= end as isize {
                 start + (j as usize - end) % (end - start)
             } else {
-                j.clamp(0, last as isize) as usize
+                clamp_edge(j, last as isize)
             }
         };
         let j = [at(-1), idx, at(1), at(2)];
@@ -462,7 +479,7 @@ fn render_n<S: Sample, const MONO: bool>(data: &[S], stride: usize, frames: u32,
         if looping {
             j.rem_euclid(frames as isize) as usize
         } else {
-            j.clamp(0, last as isize) as usize
+            clamp_edge(j, last as isize)
         }
     };
     for i in 0..len {
@@ -540,7 +557,7 @@ fn region_n<S: Sample, const MONO: bool>(data: &[S], stride: usize, frames: u32,
             if before && j >= end as isize {
                 start + (j as usize - end) % (end - start)
             } else {
-                j.clamp(0, last as isize) as usize
+                clamp_edge(j, last as isize)
             }
         };
         let j = [at(-1), idx, at(1), at(2)];
