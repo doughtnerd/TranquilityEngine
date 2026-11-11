@@ -9,6 +9,7 @@ import { mixer, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer
 import type { AudioSettings } from "../../../engine/audio/settings";
 import { onAudioConfigured } from "../../../engine/core/audioConfigure";
 import type { AutomationSink } from "./events/automation";
+import type { Curve } from "../../../engine/core/curve";
 
 export type Rolloff = "linear" | "inverse" | "exponential";
 
@@ -31,19 +32,124 @@ export interface AudioHandle {
   fade(to: number, seconds: number): void;
 }
 
+/**
+ * ADR 0162 (contract K0): which panner a voice is using. "flat" for a non-spatial voice, "equalPower" and "hrtf" as in
+ * 0157, "bed" for a distant voice mixed into its bus's ambisonic bed, "ambisonic" for an ambisonic clip (api-and-models §1.1).
+ */
+export type AudioPanner = "flat" | "equalPower" | "hrtf" | "bed" | "ambisonic";
+
+/**
+ * ADR 0162 §1.1 (K0): a send's level against distance (0158 `Curve`): x is the distance as a fraction of
+ * minDistance..maxDistance (clamped 0..1), y multiplies the send.
+ */
+export type SendCurve = Curve;
+/** ADR 0162 §1.1 (K0): the default send curve, full send up close, half at `maxDistance`. D5 exports it publicly. */
+export const DEFAULT_SEND_CURVE: SendCurve = [[0, 1], [1, 0.5]];
+
+/**
+ * ADR 0162 §1.6 and contract C24 (K0): the M3 counters `AudioDebugInfo.counters` gains. All optional until the task
+ * that fills each one merges; a backend without the feature leaves it out.
+ */
+export interface AudioM3Counters {
+  bedVoices?: number; beds?: number; bedDenied?: number; bedsRefused?: number; bedSwitches?: number; bedFilterLoadFailure?: number; belowHorizonVoices?: number;
+  fxVoices?: number; ambisonicVoices?: number;
+  zonesActive?: number; zonesRinging?: number; zonesFaded?: number; zoneMemoryKB?: number; kernelRefused?: number; irFailures?: number; irTruncated?: number; irPrepInCore?: number; irPrepares?: number;
+  occlusionRays?: number; occlusionUsedMs?: number; occlusionOverruns?: number; occlusionSources?: number; occlusionNoPhysics?: number; oldestOcclusionAgeFrames?: number;
+  dopplerClamps?: number; dopplerTeleports?: number; dopplerGuardTrips?: number;
+  wideStarved?: number; m3Shed?: number;
+}
+
+/** ADR 0162 §1.6 (K0): one bed slot in `AudioDebugInfo.beds`. */
+export interface AudioBedDebug {
+  slot: number;
+  /** The bus that hosts the bed. */
+  bus: string;
+  /** Buses mixing into this bed (`parent` beds and buses folded in by gain). */
+  sharing: string[];
+  /** Buses that asked for a bed and didn't get one, and why (C15). */
+  denied: { bus: string; reason: string }[];
+  voices: number;
+  /** Ambisonic clips decoded into this bed. */
+  clips: number;
+  costUs: number;
+}
+
+/** ADR 0162 §1.6 (K0): one reverb zone in `AudioDebugInfo.zones`. */
+export interface AudioZoneDebug {
+  node: string;
+  world: string | null;
+  /** The core slot, or -1 without one. */
+  slot: number;
+  state: string;
+  /** The IR asset, or the preset name. */
+  ir: string;
+  irSeconds: number;
+  kernelKB: number;
+  prepareMs: number;
+  /** Who prepared the kernel (C15). */
+  by: "worker" | "core";
+  sendEnergy: number;
+  rank: number;
+  /** Why the zone is silent ("faded: preset has 2 reverbs", "IR failed: …", "wet 0", "no sources inside"), or "". */
+  why: string;
+}
+
+/** ADR 0162 §1.6 (K0): the occlusion pass in `AudioDebugInfo.occlusion`. */
+export interface AudioOcclusionDebug {
+  enabled: boolean;
+  /** Why it is inert ("2D world", "no 3D physics service"), or "". */
+  note: string;
+  budgetRays: number;
+  rays: number;
+  rayCostUs: number;
+  oldestAgeFrames: number;
+}
+
+/** ADR 0162 §1.6 (K0): M3's fixed memory in `AudioDebugInfo.memory`, bytes. */
+export interface AudioMemoryDebug {
+  beds: number;
+  zones: number;
+  kernels: number;
+  kernelBudget: number;
+  wideRings: number;
+}
+
+/** ADR 0162 §1.6 (K0): what a voice row gains in `AudioDebugInfo.voices`. All optional until the tasks that fill them merge. */
+export interface AudioVoiceM3Debug {
+  panner?: AudioPanner;
+  /** The bed slot this voice mixes into, or null. */
+  bed?: number | null;
+  kindDwellMs?: number;
+  /** The Doppler factor folded into its pitch (1 none). */
+  doppler?: number;
+  occlusion?: { gain: number; cutoffHz: number; ageFrames: number; hits: number; material: string; collider: string | null };
+  filter?: { lowpassHz: number; highpassHz: number; lowpassBy: "occlusion" | "event" | "automation" | "bus" | "snapshot" | "parent" | null };
+  sends?: { zone: string; level: number }[];
+  aux?: { bus: string; level: number } | null;
+}
+
 /** A copy of the audio state for tools and "why is there no sound?" (§1, architecture §8). */
 export interface AudioDebugInfo {
   status: AudioStatus;
   sampleRate: number;
   time: number;
   background: AudioBackground;
-  counters: { underruns: number; lateCommands: number; minSlackFrames: number; workUnits: number; workUnitsMax: number; mixedVoices: number; mixedCap: number; logicalVoices: number; queuedPlays: number; droppedPlays: number; traps: number; refusedLoads: number; hrtfVoices: number; hrtfLoadFailure: number };
-  buses: { name: string; gain: number; effectiveGain: number; peakL: number; peakR: number; voices: number; maxVoices: number | null }[];
-  voices: { id: number; clip: string; bus: string; world: string | null; state: "playing" | "virtual" | "stolen" | "waitingForData" | "busMuted" | "locked"; priority: number; gain: number; pitch: number; audibility: number; playheadSeconds: number | null; owner: string | null; /** ADR 0158 §5 (contract C3): the event instance this voice belongs to, null for none. Filled by E3.1 (core) and E3.2 (Babylon). */ event?: number | null }[];
+  counters: { underruns: number; lateCommands: number; minSlackFrames: number; workUnits: number; workUnitsMax: number; mixedVoices: number; mixedCap: number; logicalVoices: number; queuedPlays: number; droppedPlays: number; traps: number; refusedLoads: number; hrtfVoices: number; hrtfLoadFailure: number } & AudioM3Counters;
+  /** ADR 0162 (K0) adds `bed` (the bus's `bed` setting), `bedHost` (the bus whose bed it mixes into) and `bedLost` (it asked for a bed and has none). */
+  buses: { name: string; gain: number; effectiveGain: number; peakL: number; peakR: number; voices: number; maxVoices: number | null; bed?: "own" | "parent" | "none"; bedHost?: string | null; bedLost?: boolean }[];
+  voices: ({ id: number; clip: string; bus: string; world: string | null; state: "playing" | "virtual" | "stolen" | "waitingForData" | "busMuted" | "locked"; priority: number; gain: number; pitch: number; audibility: number; playheadSeconds: number | null; owner: string | null; /** ADR 0158 §5 (contract C3): the event instance this voice belongs to, null for none. Filled by E3.1 (core) and E3.2 (Babylon). */ event?: number | null } & AudioVoiceM3Debug)[];
   /** Architecture 8: context state, latencies, lookahead, transport, memory and health groups. */
   core: Record<string, number | string | boolean>;
   /** ADR 0158: playing event instances (`Audio.debug()` adds them; a backend leaves it out). */
   events?: { id: number; asset: string; world: number; voices: number; parameters: Record<string, number | string> }[];
+  /** ADR 0162 §1.6 (K0): bed slots (filled by A5; absent on a backend without beds). */
+  beds?: AudioBedDebug[];
+  /** ADR 0162 §1.6 (K0): reverb zones (filled by C5; absent on the Babylon fallback, where zones are inert). */
+  zones?: AudioZoneDebug[];
+  /** ADR 0162 §1.6 (K0): the occlusion pass (filled by D2a). */
+  occlusion?: AudioOcclusionDebug;
+  /** ADR 0162 §1.6 (K0): M3's fixed memory (filled by D5 from the core's preset). */
+  memory?: AudioMemoryDebug;
 }
 
 /** ADR 0158 §5: a playing event. M1's four members keep their meaning across all of the instance's voices. */
@@ -89,6 +195,25 @@ export interface PlayRequest {
   position?: Vec3Like;
   /** ADR 0158: the event instance this voice belongs to (1..1024; 0 or omitted: none). The core carries it in PLAY's `group`. */
   group?: number;
+
+  // ADR 0162 (contract K0). Every field is optional and means "as 0157/0158" when omitted, so a backend that predates
+  // the feature ignores it. Ranges are api-and-models §1.2, §1.3 and §2.5; callers clamp before they get here.
+  /** §1.2: spatial voices only; walls between source and listener muffle it. Omitted: true for a positioned voice. */
+  occlusion?: boolean;
+  /** §1.2/§1.3: 0..5, scales the Doppler shift; 0 off. Omitted: 0 (the caller applies the source or one-shot default). */
+  dopplerLevel?: number;
+  /** §1.2: 0..2, the voice's send to the zones that hold it, taken before the distance gain (R11). Omitted: 1. */
+  reverbSend?: number;
+  /** §1.2: the send against distance. Omitted: `DEFAULT_SEND_CURVE`. */
+  reverbSendCurve?: SendCurve;
+  /** §1.6, §2.4: the clip is ambisonic (its sidecar says so); spatial fields, occlusion and Doppler are ignored. */
+  ambisonic?: boolean;
+  /** §1.2 `ambisonicYaw` / §1.3 `yaw`: degrees, -180..180, positive to the left seen from above. */
+  yaw?: number;
+  /** §1.3, §2.5 `filter`: per-voice low-pass and high-pass, Hz (10..24000; lowpass ≥ 20000 and highpass ≤ 20 are off). */
+  filter?: { lowpass?: number; highpass?: number };
+  /** §2.5 `sends`: one aux send to a bus by name, 0..2, post the voice's bus-chain gain. */
+  aux?: { bus: string; level: number };
 }
 
 /** One playing sound. */
@@ -126,6 +251,40 @@ export interface AudioVoice {
   setLoop?(start: number, end: number, looping: boolean): void;
   /** Stop now, or fade to silence over `fadeSeconds` (default 0) and stop. */
   stop(fadeSeconds?: number): void;
+
+  // ADR 0162 (contract K0). Optional: a backend without the feature leaves them out and callers skip the call.
+  /** §3.2: the source's velocity, world units per second (Doppler, debug). */
+  setVelocity?(v: Vec3Like): void;
+  /**
+   * §8, K4: main's smoothed occlusion result for this voice. `gain` is the dry gain (1 open); `lpHz` the cutoff it asks
+   * for (≥ 20000 off). The core routes both into the per-voice filter (`voiceFx`); the Babylon fallback applies the gain
+   * only, through its volume, and drops the cutoff.
+   */
+  setOcclusion?(gain: number, lpHz: number): void;
+  /** §8, K4: main's clamped Doppler factor (1 none). The core folds it into pitch; Babylon into `playbackRate` (decoded clips only). */
+  setDopplerRate?(factor: number): void;
+}
+
+/**
+ * ADR 0162 (contract K0, C9): main's side of zone impulse-response preparation. K4 constructs it in `coreBackend.ts`;
+ * C2b implements it in `core/zoneIr.ts` over the decoder worker. The kernel itself goes from the worker straight to
+ * the worklet (main never holds kernels or time-domain IRs); main hears only that it was prepared or failed.
+ */
+export interface ZoneIrService {
+  /**
+   * Ask for kernel `kernelId` from an IR asset (`assetUrl`) or a built-in preset (`preset`, R10) at `contextRate`, cut to
+   * `maxFrames`. Returns the request's token. A request for a kernel already prepared at this rate is answered at once.
+   */
+  prepare(request: { kernelId: number; assetUrl?: string; preset?: string; contextRate: number; maxFrames: number }): number;
+  /** Forget kernel `kernelId`: the worker drops its kept bytes and the core may reuse the slot. Unknown ids are ignored. */
+  release(kernelId: number): void;
+  /** Called when a kernel reached the worklet (`irPrepared`). */
+  onPrepared: ((e: { token: number; kernelId: number; frames: number; truncated: boolean; prepareMs: number }) => void) | null;
+  /** Called when preparing failed (`irFailed`): the zone reads "IR failed: <message>". */
+  onFailed: ((e: { token: number; kernelId: number; code: number; message: string }) => void) | null;
+  /** A rate change or hard rebuild: re-prepare every kernel still held from the worker's kept bytes. */
+  reprepareAll?(contextRate: number): void;
+  dispose?(): void;
 }
 
 export interface ListenerPose {

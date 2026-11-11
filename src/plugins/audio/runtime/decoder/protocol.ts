@@ -11,9 +11,16 @@
 /** The container hint of the decoder ABI (`myco_decode_open`'s `hint`): 0 probe alone, 1 wav, 2 flac, 3 mp3, 4 ogg, 5 mp4/m4a, 6 aac (ADTS). */
 export type DecodeHint = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
+/**
+ * ADR 0162 §2.4 (contract K0): an ambisonic file's channel convention. "ambix" (ACN order, SN3D) is the engine's own;
+ * "fuma" is converted in the decoder (B2's Rust, before int16 rounding). Absent: not ambisonic.
+ */
+export type AmbisonicConvention = "ambix" | "fuma";
+
 /** What a decoder reports about a file, from the wasm's 32-byte info record. */
 export interface ClipInfo {
   readonly rate: number;
+  /** 1 or 2; ADR 0162 (K0): also 4, 9 or 16 for an ambisonic file (B2 lifts the decoder's limit). */
   readonly channels: number;
   /** Frames actually decoded (clip replies) or declared by the container (stream replies; -1 when unknown, an MP3 without a length header). */
   readonly frames: number;
@@ -47,6 +54,8 @@ export interface DecodeClipMessage {
   readonly asset?: string;
   readonly bytes: ArrayBuffer;
   readonly hint: DecodeHint;
+  /** ADR 0162 §2.4 (K0; B1 sends it, B2's decoder applies it): the sidecar's convention, so FuMa is converted while decoding. */
+  readonly convention?: AmbisonicConvention;
 }
 
 /** Stops the decode `id` (clip) at its next chunk boundary; it then answers `cancelled`. Unknown ids are ignored. */
@@ -69,6 +78,11 @@ export interface StreamOpenMessage {
   /** ADR 0158 §4 (contract C2, filled by E4.4): with `loop`, wrap from `loopEndFrame` (exclusive; 0 = the end) back to `loopStartFrame`. */
   readonly loopStartFrame?: number;
   readonly loopEndFrame?: number;
+  /**
+   * ADR 0162 §2.4 (K0; filled by B4): the sidecar's convention, so FuMa is converted per chunk. With it, a stream may have
+   * 4, 9 or 16 channels (the wire's STREAM_OPEN `channels` 1–16 and `convention`).
+   */
+  readonly convention?: AmbisonicConvention;
 }
 
 /**
@@ -124,8 +138,42 @@ export interface ConnectWorkletMessage {
   readonly port: StreamPortLike;
 }
 
+// --- ADR 0162 zone impulse responses (contract K0, C9; filled by C2b in `irPrepare.ts`) ---------------------------
+
+/**
+ * Prepare a zone kernel from an IR asset. The worker fetches and keeps the encoded bytes (for re-preparation on a rate
+ * change or rebuild), prepares the kernel with `myco_ir_prepare`, sends it to the worklet as CLIP_BEGIN/CLIP_CHUNK format 3
+ * over the worklet port, then posts `irPrepared` or `irFailed` to main. Main never holds the kernel.
+ */
+export interface PrepareIrMessage {
+  readonly type: "prepareIr";
+  readonly token: number;
+  readonly kernelId: number;
+  readonly assetUrl: string;
+  readonly contextRate: number;
+  readonly maxFrames: number;
+}
+
+/** As `prepareIr`, from a built-in preset (R10: "room", "corridor", "hall", "cave", "open") generated with `myco_ir_generate`. */
+export interface GenerateIrMessage {
+  readonly type: "generateIr";
+  readonly token: number;
+  readonly kernelId: number;
+  readonly preset: string;
+  readonly contextRate: number;
+  readonly maxFrames: number;
+}
+
+/** Drop kernel `kernelId`'s kept bytes. Unknown ids are ignored. */
+export interface ReleaseIrMessage {
+  readonly type: "releaseIr";
+  readonly kernelId: number;
+}
+
+export type IrRequest = PrepareIrMessage | GenerateIrMessage | ReleaseIrMessage;
+
 export type StreamRequest = StreamOpenMessage | StreamCreditMessage | StreamSeekMessage | StreamCloseMessage | StreamLoopMessage | ConnectWorkletMessage;
-export type DecoderRequest = InitMessage | DecodeClipMessage | CancelMessage | StreamRequest;
+export type DecoderRequest = InitMessage | DecodeClipMessage | CancelMessage | StreamRequest | IrRequest;
 
 // --- Worker to main ----------------------------------------------------------------------------
 
@@ -205,7 +253,26 @@ export interface ErrorMessage {
   readonly fatal?: boolean;
 }
 
-export type DecoderReply = ReadyMessage | ClipInfoMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage;
+/** ADR 0162 C9 (K0): kernel `kernelId` reached the worklet. `truncated`: the IR was cut to `maxFrames` with a 50 ms fade. */
+export interface IrPreparedMessage {
+  readonly type: "irPrepared";
+  readonly token: number;
+  readonly kernelId: number;
+  readonly frames: number;
+  readonly truncated: boolean;
+  readonly prepareMs: number;
+}
+
+/** ADR 0162 C9 (K0): preparing failed; the zone reads "IR failed: <message>". `code` is the decoder's `ERR_*`, or 0. */
+export interface IrFailedMessage {
+  readonly type: "irFailed";
+  readonly token: number;
+  readonly kernelId: number;
+  readonly code: number;
+  readonly message: string;
+}
+
+export type DecoderReply = ReadyMessage | ClipInfoMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage | IrPreparedMessage | IrFailedMessage;
 
 /** Frames per `clipChunk`: 65,536 (1.5 s at 44.1 kHz), 128 KiB per channel, so a long clip is never one huge message. */
 export const CLIP_CHUNK_FRAMES = 65536;
