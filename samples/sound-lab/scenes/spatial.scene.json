@@ -108,7 +108,7 @@
         {
           "type": "engine.Text",
           "data": {
-            "text": "Sound Lab: spatial audio (B goes back to the tour)\nClick the game view first. W / S walk, 1 2 3 jump to the room, corridor and cave,\nF opens and closes the door, V starts and stops the flyover.",
+            "text": "Sound Lab: spatial audio (B goes back to the tour)\nClick the game view first. W / S walk, 1 2 3 jump to the room, corridor and cave,\nF opens and closes the door, V starts and stops the flyover.\nListening bench: 4 burst, 5 orbit, 6 behind the wall, 7 by the cave, 8 turn, 9 stop the bench, 0 silence the page.",
             "anchor": "top-left",
             "align": "left",
             "offset": [
@@ -260,7 +260,7 @@
               16.25
             ],
             "scale": [
-              4,
+              5,
               4,
               0.5
             ]
@@ -294,7 +294,7 @@
               -24.25
             ],
             "scale": [
-              4,
+              5,
               4,
               0.5
             ]

@@ -70,9 +70,23 @@
       },
       { "name": "Sweep", "volumes": {}, "lowpass": { "Tape": 250, "Music": 400 } }
     ],
-    "occlusion": { "layers": ["Walls"], "defaultMaterial": "concrete" },
+    "voices": { "mixed": 128, "logical": 4096, "hrtf": 8 },
+    "bed": { "maxBeds": 2 },
+    "ambisonic": { "maxClips": 1 },
+    "occlusion": {
+      "layers": ["Walls"],
+      "defaultMaterial": "concrete",
+      "budgetMs": 0.25,
+      "smoothingMs": 100,
+      "materials": [
+        { "name": "cloth", "transmissionDb": -4, "cutoffHz": 8000, "wetOcclusion": 0.3 },
+        { "name": "wood", "transmissionDb": -12, "cutoffHz": 2500, "wetOcclusion": 0.5 },
+        { "name": "concrete", "transmissionDb": -30, "cutoffHz": 800, "wetOcclusion": 0.6 }
+      ]
+    },
     "zones": { "maxActive": 2, "standby": 1, "maxIrSeconds": 2 },
     "doppler": { "maxSpeed": 150 },
+    "speedOfSound": 343,
     "ducking": [{ "target": "Music", "trigger": "SFX", "amount": 0.3, "attack": 0.05, "release": 0.4 }],
     "parameters": [
       { "name": "Surface", "labels": ["Grass", "Gravel", "Wood", "Metal"], "default": "Grass" },

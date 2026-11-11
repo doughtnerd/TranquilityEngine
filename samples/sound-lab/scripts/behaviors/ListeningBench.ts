@@ -1,4 +1,4 @@
-import { Audio, AudioSource, GameBehavior, Input, Time, behavior, field } from "myco";
+import { Audio, AudioSource, GameBehavior, GameObject, Input, Time, behavior, field } from "myco";
 
 /** Seconds between the sounds of a sequence. Each is scheduled with `at` on the audio clock, so the spacing is exact. */
 const ladderGap = 1.25;
@@ -21,7 +21,9 @@ const ladderGap = 1.25;
  *   below the floor (-70 degrees) once every 12 s. It moves with the listener.
  * - 6 / 7: jump the listener behind the west wall (the wall between it and the corridor) and to the corner of the cave.
  * - 8: turns the listener 90 degrees on the spot (an ambience's orientation).
- * - 9: stops the orbit and the key-4 sounds (the silence check).
+ * - 9: stops the orbit and the key-4 sounds.
+ * - 0: stops every other sound on the page (the Ambience, Radio, Machine and Flyover), and on the second press starts
+ *   again the ones it stopped (the idle-silence check needs nothing playing at all).
  */
 @behavior("lab.ListeningBench")
 export class ListeningBench extends GameBehavior {
@@ -42,6 +44,7 @@ export class ListeningBench extends GameBehavior {
   @field(String) cornerKey = "7";
   @field(String) turnKey = "8";
   @field(String) silenceKey = "9";
+  @field(String) pageQuietKey = "0";
   /** Spatial mode: the child node the orbit moves, with an AudioSource. */
   @field(String) orbitNode = "Bed orbit";
   /** Spatial mode: the listener's stations (x, z in metres; the eye stays at its height). */
@@ -52,6 +55,8 @@ export class ListeningBench extends GameBehavior {
   private sweeping = false;
   private burstHandles: { stop(fade?: number): void }[] = [];
   private warnedNoOrbit = false;
+  /** The page's sources key 0 stopped, to start again on the next press. */
+  private quieted: AudioSource[] | null = null;
 
   update(): void {
     if (this.mode !== "spatial") {
@@ -83,6 +88,19 @@ export class ListeningBench extends GameBehavior {
       this.transform.eulerAngles = { x: e.x, y: e.y + 90, z: e.z };
     }
     if (Input.getKeyDown(this.silenceKey)) this.silence();
+    if (Input.getKeyDown(this.pageQuietKey)) this.togglePageQuiet();
+  }
+
+  /** Stops every playing AudioSource on the page except the orbit (whose own keys are 5 and 9), or restarts the ones it stopped. */
+  private togglePageQuiet(): void {
+    if (this.quieted) {
+      for (const source of this.quieted) if (source.enabled) source.play();
+      this.quieted = null;
+      return;
+    }
+    const orbit = this.orbitSource();
+    this.quieted = GameObject.findObjectsOfType(AudioSource).filter((s) => s !== orbit && s.isPlaying);
+    for (const source of this.quieted) source.stop();
   }
 
   private pitchLadder(): void {
