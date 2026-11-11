@@ -707,6 +707,95 @@ mod tests {
     }
 
     #[test]
+    fn wide_streams_take_wide_rings_and_narrow_ones_narrow_rings() {
+        let mut s = stores(1, 2);
+        assert_eq!((s.capacity(), s.narrow_count()), (3, 1));
+        assert!(s.open(&open_rec(1, 16, 1)));
+        assert!(s.open(&open_rec(2, 2, 1)));
+        assert!(s.open(&open_rec(3, 4, 1)));
+        assert_eq!((s.index_of(1), s.index_of(2), s.index_of(3)), (Some(1), Some(0), Some(2)));
+        assert!(!s.open(&open_rec(4, 9, 1)), "no wide ring free");
+        assert!(!s.open(&open_rec(5, 1, 1)), "no narrow ring free");
+        assert!(!s.open(&open_rec(6, 17, 1)), "17 channels");
+        assert!(!s.open(&open_rec(1, 2, 2)), "a restart can't move a stream to the other class");
+        assert_eq!(s.class(1), WIDE);
+        s.close(1);
+        assert!(s.open(&open_rec(4, 9, 1)));
+        // Without a `Wide` region, a wide stream is refused.
+        assert!(!store(2).open(&open_rec(1, 4, 1)));
+    }
+
+    #[test]
+    fn wide_chunks_are_2048_frames_at_most_wrap_and_keep_within_16384() {
+        let mut s = stores(0, 1);
+        assert!(s.open(&open_rec(1, 16, 1)));
+        let ch = 16;
+        assert_eq!(write(&mut s, 1, &vec![0.0; 2_049 * ch], ch, 1, 0), wire::ERR_BAD_ARG, "more than a wide chunk");
+        let mut total = 0u64;
+        // 1,500-frame chunks don't divide the ring: some run into the tail.
+        for _ in 0..60 {
+            let chunk: Vec<f32> = (0..1_500 * ch as u64).map(|k| (total * ch as u64 + k) as f32).collect();
+            assert_eq!(write(&mut s, 1, &chunk, ch, 1, 0), wire::ERR_OK);
+            total += 1_500;
+            let samples = s.samples(0);
+            assert_eq!(samples.len(), WIDE.floats());
+            for f in (total - 1_500)..total {
+                let want: Vec<f32> = (0..ch as u64).map(|c| (f * ch as u64 + c) as f32).collect();
+                assert_eq!(frame_n(samples, ch, f), &want[..], "frame {f}");
+                assert_eq!(frame_at(samples, ch, f).0, want[0]);
+            }
+            s.ring_mut(0).consumed = total.saturating_sub(12_000);
+        }
+        // The window: 16,384 frames unconsumed at most.
+        s.ring_mut(0).consumed = total - 14_000;
+        assert_eq!(write(&mut s, 1, &vec![0.0; 2_048 * ch], ch, 1, 0), wire::ERR_OK);
+        assert_eq!(write(&mut s, 1, &vec![0.0; 1_000 * ch], ch, 1, 0), wire::ERR_OVERSIZE);
+    }
+
+    #[test]
+    fn a_wide_restart_copies_the_unread_frames_to_its_own_tail() {
+        let mut s = stores(1, 1);
+        assert!(s.open(&open_rec(1, 9, 1)));
+        let ch = 9;
+        let ramp: Vec<f32> = (0..2_000 * ch).map(|k| k as f32).collect();
+        assert_eq!(write(&mut s, 1, &ramp, ch, 1, 0), wire::ERR_OK);
+        let r = s.ring_mut(1);
+        r.voice = 0x0001_0003;
+        r.phase = phase::PLAYING;
+        r.consumed = 100;
+        assert!(s.seek(1, 2, 9_000));
+        let r = *s.ring(1);
+        assert_eq!((r.seeking, r.tail_len, r.tail_frame0, r.tail_channels), (1, FADE_TAIL_FRAMES as u32, 100, 9));
+        let t = tail(s.samples(1));
+        for f in 0..FADE_TAIL_FRAMES as u64 {
+            let want: Vec<f32> = (0..ch).map(|c| ((100 + f as usize) * ch + c) as f32).collect();
+            assert_eq!(frame_n(t, ch, f), &want[..], "tail frame {f}");
+        }
+        assert_eq!(tail(s.samples(0)).len(), FADE_TAIL_FRAMES * RING_CHANNELS, "a narrow ring's tail is TAIL_OFFSET on");
+    }
+
+    #[test]
+    fn read_planar_is_the_stream_voices_lagrange_per_channel() {
+        let mut s = stores(0, 1);
+        assert!(s.open(&open_rec(1, 4, 1)));
+        let data: Vec<f32> = (0..64 * 4).map(|k| libm::sinf(k as f32 * 0.37)).collect();
+        assert_eq!(write(&mut s, 1, &data, 4, 1, 0), wire::ERR_OK);
+        let samples = s.samples(0);
+        let mut out = [0.0f32; 4 * 8];
+        for i in 0..8 {
+            read_planar(samples, 4, 10 + i as u64, 0.25, 63, 0.5, &mut out, 8, i);
+        }
+        let w = audio_dsp::resample::weights(0.25);
+        for c in 0..4 {
+            for i in 0..8 {
+                let x = |f: usize| data[f * 4 + c];
+                let want = (w[0] * x(9 + i) + w[1] * x(10 + i) + w[2] * x(11 + i) + w[3] * x(12 + i)) * 0.5;
+                assert_eq!(out[c * 8 + i], want, "channel {c} frame {i}");
+            }
+        }
+    }
+
+    #[test]
     fn chunks_wrap_through_the_tail_and_read_back_in_order() {
         let mut s = store(1);
         s.open(&open_rec(1, 2, 1));
