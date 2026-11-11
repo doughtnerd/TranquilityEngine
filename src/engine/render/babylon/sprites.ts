@@ -29,7 +29,7 @@ import { SpriteBatcher, type SpriteItem } from "./spriteBatches";
 
 /** @internal What the sprite feature needs from the renderer. */
 export interface BabylonSpriteHost {
-  /** Babylon scene (right-handed, +Y up). */
+  /** Babylon scene (left-handed, +Y up, +Z forward). */
   readonly scene: Scene;
   /** The project's pixels per unit (`render.pixelsPerUnit`): a slice's default scale, and the pixel snapping step. */
   pixelsPerUnit(): number;

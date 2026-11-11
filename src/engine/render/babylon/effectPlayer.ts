@@ -33,7 +33,7 @@ import { createDotTexture, makeDraw, usesSheet, type Draw } from "./particleDraw
 
 /** What an effect player needs from where it draws: the scene, textures, material assets, ray queries. */
 export interface EffectHost {
-  /** Babylon scene (right-handed, +Y up). */
+  /** Babylon scene (left-handed, +Y up, +Z forward). */
   readonly scene: Scene;
   /**
    * Loads a texture asset (sRGB colour) for particles: flipped as other textures (V 1 is the image's

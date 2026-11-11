@@ -83,9 +83,16 @@ const PARTICLE_REPEAT_GAP = 0.5;
 const MAX_PREVIEW_PIXELS = 768;
 const FOV = 30;
 
-const DIRECTION_3D: [number, number, number] = norm([1, 0.75, 1.15]);
-const DIRECTION_FRONT: [number, number, number] = [0, 0, 1];
-const DIRECTION_MATERIAL: [number, number, number] = norm([0, 0.35, 1]);
+// Where the camera sits, from the target. The World is mirrored in z from the right-handed one these
+// were chosen in (ADR 0164), so they are too and the pictures stay the same; imported models are
+// mirrored in x instead (still facing +Z), so they are seen from x-mirrored directions, with the sun
+// turned to match (`MODEL_SUN`).
+const DIRECTION_3D: [number, number, number] = norm([1, 0.75, -1.15]);
+const DIRECTION_FRONT: [number, number, number] = [0, 0, -1];
+const DIRECTION_MATERIAL: [number, number, number] = norm([0, 0.35, -1]);
+const DIRECTION_MODEL: [number, number, number] = norm([-1, 0.75, 1.15]);
+/** The preview sun turned half round Y, for models (see above). */
+const MODEL_SUN = new Vector3(4, -10, -6).normalize();
 const UNIT: Bounds = { min: [-0.5, -0.5, -0.5], max: [0.5, 0.5, 0.5] };
 
 function norm(v: [number, number, number]): [number, number, number] {
@@ -387,7 +394,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     return {
       ready,
       orbit: (dyaw, dpitch) => {
-        view = moveOrbit(view, dyaw, dpitch, 1, near(), far());
+        view = moveOrbit(view, -dyaw, dpitch, 1, near(), far()); // left-handed: yaw turns the other way on screen
         request();
       },
       zoom: (factor) => {
@@ -454,9 +461,10 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   }
 
   /** A scene lit like the editor's default: soft ambient, a sun, and the studio room's reflections. */
-  private litScene(): Scene {
+  private litScene(sun?: Vector3): Scene {
     const scene = createPreviewScene(this.engine);
-    addPreviewLights(scene, LIGHT_AMBIENT, LIGHT_SUN);
+    const lights = addPreviewLights(scene, LIGHT_AMBIENT, LIGHT_SUN);
+    if (sun) lights.sun.direction = sun.clone();
     if (this.studioOk && this.studio) {
       scene.environmentTexture = this.studio;
       scene.environmentIntensity = LIGHT_ENVIRONMENT;
@@ -478,7 +486,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
 
   private async prepareModel(path: string): Promise<Prepared> {
     const sources = await loadMeshes(path);
-    const scene = this.litScene();
+    const scene = this.litScene(MODEL_SUN);
     const library = previewMaterials(scene, { time: 0, resolution: [this.size, this.size] }, true);
     const box = new BoundsBox();
     // Slots as the World renderer resolves them (ADR 0089): here, the model's import settings, then its own.
@@ -490,7 +498,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     }
     await library.settled();
     await this.ready(scene, 3000); // the models' textures load on their own
-    return { scene, ...this.camera(scene, box.bounds(), DIRECTION_3D, UNIT), dispose: () => scene.dispose() };
+    return { scene, ...this.camera(scene, box.bounds(), DIRECTION_MODEL, UNIT), dispose: () => scene.dispose() };
   }
 
   private async prepareMaterial(kind: "material" | "shadergraph", path: string): Promise<Prepared> {
@@ -714,7 +722,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
         const camera = view.babylon;
         const bg = view.camera.backgroundColor;
         if (bg) scene.clearColor = new Color4(bg.r, bg.g, bg.b, 1);
-        const forward = new Vector3(0, 0, -1).applyRotationQuaternion(camera.rotationQuaternion ?? Quaternion.Identity());
+        const forward = new Vector3(0, 0, 1).applyRotationQuaternion(camera.rotationQuaternion ?? Quaternion.Identity());
         const p = camera.position;
         framed = { camera, target: [p.x + forward.x * 10, p.y + forward.y * 10, p.z + forward.z * 10] };
       } else {

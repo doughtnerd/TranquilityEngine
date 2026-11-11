@@ -199,7 +199,7 @@ export class MaterialPreview {
     this.shared.time = (performance.now() - this.start) / 1000;
     this.shared.resolution = [engine.getRenderWidth(), engine.getRenderHeight()];
     const r = this.distance;
-    aimCamera(camera, [Math.sin(this.yaw) * Math.cos(this.pitch) * r, Math.sin(this.pitch) * r, Math.cos(this.yaw) * Math.cos(this.pitch) * r], [0, 0, 0]);
+    aimCamera(camera, [Math.sin(this.yaw) * Math.cos(this.pitch) * r, Math.sin(this.pitch) * r, -Math.cos(this.yaw) * Math.cos(this.pitch) * r], [0, 0, 0]); // yaw 0 in front, at -Z (ADR 0164)
     // The first frame a new graph is ready to draw is watched for WGSL errors (see renderFrameChecked).
     if (this.unchecked && this.mesh?.material?.isReady(this.mesh)) {
       this.unchecked = false;
@@ -277,7 +277,7 @@ export class NodePreviewRenderer {
       this.engine = engine;
       engine.setSize(this.size, this.size);
       const scene = createPreviewScene(engine);
-      const camera = new TargetCamera("preview.camera", new Vector3(0, 0, 1), scene, false);
+      const camera = new TargetCamera("preview.camera", new Vector3(0, 0, -1), scene, false); // looking along +Z
       camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
       camera.orthoLeft = -0.5;
       camera.orthoRight = 0.5;
@@ -290,7 +290,7 @@ export class NodePreviewRenderer {
       const mesh = new Mesh("preview.quad", scene);
       const data = new VertexData();
       data.positions = [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0];
-      data.normals = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1];
+      data.normals = [0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1];
       data.uvs = [0, 0, 1, 0, 1, 1, 0, 1];
       data.indices = [0, 1, 2, 0, 2, 3];
       data.applyToMesh(mesh, false);
@@ -319,7 +319,7 @@ export class NodePreviewRenderer {
       if (shape === "sphere") m.scaling.setAll(0.92);
       else {
         m.scaling.setAll(0.62);
-        m.rotationQuaternion = Quaternion.FromEulerAngles(0.5, 0.7, 0);
+        m.rotationQuaternion = Quaternion.FromEulerAngles(-0.5, -0.7, 0);
       }
       m.setEnabled(false);
       this.shapes.set(shape, m);

@@ -1132,7 +1132,7 @@ FN(KV4, k_orient, KV3 corner, KV3 right0, KV3 up0, KV3 cam, KV4 draw) {
     // vertical: faces the camera, turning only about Y
     up = KV3(0.0, 1.0, 0.0);
     VAR(KV3, toCam) = cam - p;
-    right = normalize(cross(up, toCam) + KV3(0.000001, 0.0, 0.0));
+    right = normalize(cross(toCam, up) + KV3(0.000001, 0.0, 0.0)); // left-handed (ADR 0164): the camera's right
     return KV4(p + (right * q.x + up * q.y) * size, alive);
   }
   if (mode > 1.5) {
@@ -1146,7 +1146,7 @@ FN(KV4, k_orient, KV3 corner, KV3 right0, KV3 up0, KV3 cam, KV4 draw) {
     VAR(KV3, axis) = up0;
     if (speed > 0.000001) { axis = v / speed; }
     VAR(KV3, toCam) = normalize(cam - p);
-    VAR(KV3, side) = cross(axis, toCam);
+    VAR(KV3, side) = cross(toCam, axis); // left-handed order (ADR 0164)
     VAR(KF, sl) = length(side);
     if (sl > 0.000001) { side = side / sl; } else { side = right0; }
     return KV4(p + side * corner.y * size - axis * (corner.x + 0.5) * len, alive);
@@ -1297,7 +1297,7 @@ FN(KV4, k_trail, KF pt, KF side, KF points, KI widthRow, KV3 cam, KV3 right0) {
   VAR(KV3, p) = k_trailWorld(k_hist(k).xyz);
   VAR(KV3, a) = k_trailWorld(k_hist(max(k - 1.0, 0.0)).xyz);
   VAR(KV3, b) = k_trailWorld(k_hist(min(k + 1.0, n - 1.0)).xyz);
-  VAR(KV3, dir) = cross(a - b, cam - p);
+  VAR(KV3, dir) = cross(cam - p, a - b); // left-handed order (ADR 0164)
   VAR(KF, len) = length(dir);
   VAR(KV3, across) = right0;
   if (len > 0.000000001) { across = dir / len; }
