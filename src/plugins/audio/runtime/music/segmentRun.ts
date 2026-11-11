@@ -10,10 +10,45 @@
  * voice it starts is an ordinary voice tagged with its group.
  */
 import type { AudioVoice, MusicGroupEvent, MusicGroupRequest } from "../backend";
+import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import type { MusicFrame, MusicNodeRef, MusicPlayer } from "./musicSystem";
 
 /** The highest music group id (§3.2: ids 1..1023). */
 export const MAX_MUSIC_GROUP_ID = 1023;
+
+/**
+ * How a run resolves a stem's clip (P1). The event runtime's clip starter is private to `eventRuntime.ts`, so whoever
+ * owns `AudioSource.ts` provides this (P6/P7 wire it; tests set it). `facts` feeds the stream-or-decode rule (§2.6,
+ * `musicValidate.stemMode`: up to 30 s decoded, longer streamed); unknown facts fall back to the import setting `stream`.
+ */
+export interface SegmentClipSource {
+  /** The clip's URL. */
+  url(path: string): string;
+  /** The clip's import settings (ADR 0040): `volume` scales the stem, `stream` is the fallback mode. */
+  settings(path: string): { readonly volume: number; readonly stream: boolean };
+  /** A mixer bus name for a track's `bus` or the event's (empty or unknown: Master). */
+  bus(output: string | undefined): string;
+  /** The clip's facts (length, rate), or undefined when not yet probed. */
+  facts(path: string): MusicClipFacts | undefined;
+}
+
+const DEFAULT_CLIP_SOURCE: SegmentClipSource = {
+  url: (path) => path,
+  settings: () => ({ volume: 1, stream: true }),
+  bus: (output) => output ?? "",
+  facts: () => undefined,
+};
+let clipSource: SegmentClipSource = DEFAULT_CLIP_SOURCE;
+
+/** Set how runs resolve clips; null restores the default (URL = path, streamed, no facts). */
+export function setSegmentClipSource(source: SegmentClipSource | null): void {
+  clipSource = source ?? DEFAULT_CLIP_SOURCE;
+}
+
+/** @internal The clip source in use. */
+export function segmentClipSource(): SegmentClipSource {
+  return clipSource;
+}
 
 /** One stem of a run (§3.2 `StemRun`). */
 export interface StemRun {
@@ -138,4 +173,9 @@ export function stopPlayerRuns(player: MusicPlayer, fadeSeconds: number, f: Musi
 export function routeGroupEvent(e: MusicGroupEvent): void {
   void e;
   // STUB(P1)
+}
+
+/** @internal Tests: forget every live run and group id, reset the id counter to 1 and the clip source to the default. */
+export function _resetSegmentRuns(): void {
+  clipSource = DEFAULT_CLIP_SOURCE; // P1 also clears the live-run registry here
 }
