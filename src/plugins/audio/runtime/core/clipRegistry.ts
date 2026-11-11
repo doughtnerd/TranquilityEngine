@@ -3,7 +3,7 @@
 // signatures without the coordinator. H2 later loads the HRIR through it under the reserved ids 0xFFFF0000..0xFFFF00FF
 // (so A3.4a's rebuild re-sends it with every other clip).
 
-import { ClipEvent, ClipFormat, CLIP_BEGIN_FIXED_END, CLIP_CHUNK_FIXED_END, CLIP_UNLOAD_FIXED_END, Kind, writeClipBegin, writeClipChunk, writeClipUnload, writeEnvelope } from "../wire.generated";
+import { ClipEvent, ClipFormat, CLIP_BEGIN_FIXED_END, CLIP_CHUNK_FIXED_END, CLIP_UNLOAD_FIXED_END, Kind, MAGLS_CLIP_ID, writeClipBegin, writeClipChunk, writeClipUnload, writeEnvelope } from "../wire.generated";
 import { CLIP_BYTES_PER_QUANTUM, createChunkPacer, planChunks } from "./chunker";
 import { createEncodedCache } from "./encodedCache";
 import { createDecoderClient, DecodeFailedError, type DecoderClient } from "../decoder/decoderClient";
@@ -33,7 +33,7 @@ export interface ClipInfo {
   readonly frames: number;
   readonly channels: number;
   readonly sampleRate: number;
-  /** Wire `ClipFormat`: 0 f32, 1 i16, 2 HRIR. */
+  /** Wire `ClipFormat`: 0 f32, 1 i16, 2 HRIR, 4 MagLS filters (ADR 0162). */
   readonly format: number;
   /** Bytes in the core's arena, for the `clipMemoryMB` ceiling. */
   readonly bytes: number;
@@ -87,9 +87,10 @@ export interface ClipRegistry {
    */
   resend?(order: readonly number[]): void;
   /**
-   * H2: loads an HRIR table (wire format 2) under a reserved id in 0xFFFF0000..0xFFFF00FF (anything else throws).
-   * No fetch or decode: `bytes` is the finished blob (api-and-models 4.1), sent as CLIP_BEGIN (`channels` 1, `frames`
-   * = bytes / 2 int16 samples, `format` 2) and paced CLIP_CHUNKs like any clip. It completes on the core's clip event
+   * H2: loads an HRIR table (wire format 2) under a reserved id in 0xFFFF0000..0xFFFF00FF, or (ADR 0162 A3, C6) the
+   * MagLS filters (format 4) under `MAGLS_CLIP_ID` 0xFFFF0100; any other id or pairing throws. No fetch or decode:
+   * `bytes` is the finished blob (api-and-models 4.1, 0162 §4.5), sent as CLIP_BEGIN (`channels` 1, `frames` = bytes / 2
+   * int16 words for format 2, bytes / 4 f32 words for format 4, header included) and paced CLIP_CHUNKs like any clip. It completes on the core's clip event
    * 4 (hrtfReady) or 1, is never counted in the ceiling (`clipMemoryMB`), is listed by `residentIds()` once ready so a
    * rebuild re-sends it, and stays loaded until `release(id)`. A second call for an id already held is ignored.
    */
@@ -104,11 +105,12 @@ export interface ClipRegistry {
 
 /** What `acquireReserved` takes. */
 export interface ReservedClipData {
-  /** The finished format = 2 blob; its length must be even. */
+  /** The finished blob: format 2, an even length; format 4, a multiple of 4. */
   readonly bytes: ArrayBuffer;
   /** The rate the blob's responses are at (the context rate). */
   readonly sampleRate: number;
-  readonly format: 2;
+  /** 2 (HRIR, reserved ids 0xFFFF0000..0xFFFF00FF) or 4 (MagLS filters, `MAGLS_CLIP_ID`). */
+  readonly format: 2 | 4;
 }
 
 /** The reserved HRIR clip id range (api-and-models 4.1). */
@@ -238,7 +240,20 @@ interface Slot {
   readonly listeners: Set<ClipResidentListener>;
 }
 
-/** A reserved (HRIR) clip: its blob stays here for paced sending and for a rebuild's re-send. */
+/** Bytes per wire word of a reserved blob: int16 for format 2 (HRIR), f32 for format 4 (MagLS). */
+const reservedWordBytes = (format: number): number => (format === ClipFormat.MagLS ? 4 : 2);
+
+/** Throws unless `data` is a valid reserved blob for `id` (format 2 in the HRIR range, format 4 at `MAGLS_CLIP_ID`). */
+function checkReserved(id: number, data: ReservedClipData): void {
+  const hrir = Number.isInteger(id) && id >= RESERVED_CLIP_FIRST && id <= RESERVED_CLIP_LAST;
+  if (!hrir && id !== MAGLS_CLIP_ID) throw new Error(`audio: ${id} is not a reserved clip id`);
+  const format = hrir ? ClipFormat.HRIR : ClipFormat.MagLS;
+  if (data.format !== format || data.bytes.byteLength === 0 || data.bytes.byteLength % reservedWordBytes(format) !== 0) {
+    throw new Error(hrir ? "audio: a reserved clip needs an even-length format 2 blob" : "audio: the MagLS clip needs a format 4 blob whose length is a multiple of 4");
+  }
+}
+
+/** A reserved (HRIR or MagLS) clip: its blob stays here for paced sending and for a rebuild's re-send. */
 interface ReservedSlot {
   readonly id: number;
   state: ClipState;
@@ -346,9 +361,10 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     res.begun = true;
     post(CLIP_BEGIN_FIXED_END, (view) => {
       envelope(view, Kind.CLIP_BEGIN, CLIP_BEGIN_FIXED_END);
-      writeClipBegin(view, 0, { clipId: res.id, frames: res.samples, channels: 1, sampleRate: res.data.sampleRate, format: ClipFormat.HRIR });
+      writeClipBegin(view, 0, { clipId: res.id, frames: res.samples, channels: 1, sampleRate: res.data.sampleRate, format: res.data.format });
     });
-    pacer.enqueue(res.id, planChunks(res.samples, 1, 2), 1, 2);
+    const word = reservedWordBytes(res.data.format);
+    pacer.enqueue(res.id, planChunks(res.samples, 1, word), 1, word);
     schedulePump();
   };
 
@@ -360,7 +376,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     frames: res.samples,
     channels: 1,
     sampleRate: res.data.sampleRate,
-    format: ClipFormat.HRIR,
+    format: res.data.format,
     bytes: 0,
     failure: null,
   });
@@ -377,12 +393,12 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     for (const chunk of chunks) {
       const res = reserved.get(chunk.clipId);
       if (res) {
-        // Raw int16 words of the blob (channels 1), word aligned: the blob's length is even, padded to 4 on the wire.
+        // Raw words of the blob (channels 1; int16 for format 2, f32 for format 4), padded to 4 bytes on the wire.
         const total = CLIP_CHUNK_FIXED_END + ((chunk.bytes + 3) & ~3);
         post(total, (view) => {
           envelope(view, Kind.CLIP_CHUNK, total);
           writeClipChunk(view, 0, { clipId: chunk.clipId, frameOffset: chunk.frameOffset, frames: chunk.frames, reserved: 0 });
-          new Uint8Array(view.buffer, CLIP_CHUNK_FIXED_END, chunk.bytes).set(new Uint8Array(res.data.bytes, chunk.frameOffset * 2, chunk.bytes));
+          new Uint8Array(view.buffer, CLIP_CHUNK_FIXED_END, chunk.bytes).set(new Uint8Array(res.data.bytes, chunk.frameOffset * reservedWordBytes(res.data.format), chunk.bytes));
         });
         continue;
       }
@@ -744,20 +760,19 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       else if (code === ClipEvent.RefusedGrow) fail(slot, "refusedGrow", "the core could not grow its clip memory");
     },
     acquireReserved(id, data) {
-      if (!(Number.isInteger(id) && id >= RESERVED_CLIP_FIRST && id <= RESERVED_CLIP_LAST)) throw new Error(`audio: ${id} is not a reserved clip id`);
-      if (data.format !== ClipFormat.HRIR || data.bytes.byteLength === 0 || data.bytes.byteLength % 2 !== 0) throw new Error("audio: a reserved clip needs an even-length format 2 blob");
+      checkReserved(id, data);
       if (reserved.has(id)) return;
-      const res: ReservedSlot = { id, state: "copying", data, samples: data.bytes.byteLength / 2, begun: false, listeners: new Set() };
+      const res: ReservedSlot = { id, state: "copying", data, samples: data.bytes.byteLength / reservedWordBytes(data.format), begun: false, listeners: new Set() };
       reserved.set(id, res);
       beginReserved(res);
     },
     updateReserved(id, data) {
       const res = reserved.get(id);
       if (!res) return;
-      if (data.format !== ClipFormat.HRIR || data.bytes.byteLength === 0 || data.bytes.byteLength % 2 !== 0) throw new Error("audio: a reserved clip needs an even-length format 2 blob");
+      checkReserved(id, data);
       pacer.cancel(id);
       res.data = data;
-      res.samples = data.bytes.byteLength / 2;
+      res.samples = data.bytes.byteLength / reservedWordBytes(data.format);
     },
     resend(order) {
       for (const res of reserved.values()) {

@@ -21,6 +21,8 @@ const meteredOut = fileURLToPath(new URL("../../tools/audio-bench/metered/", imp
 const TARGET = "wasm32-unknown-unknown";
 /** The mixer's size tripwire (ADR 0158 amends 0157): 256 KB. A guard against accidental bloat, not a design constraint; raise it with a line in the build log saying why. */
 const MIXER_LIMIT = 256 * 1024;
+/** ADR 0162 (api-and-models §5.2): M3's mixer warning, under the gate: a build past it warns but passes. */
+const MIXER_WARN = 230 * 1024;
 /** The decoder's size gate (M1b): 900 KB. */
 const DECODER_LIMIT = 900 * 1024;
 /** The AAC decoder build's own gate (B4; raised 1,100 -> 1,280 KB in M2 by the owner, 2026-11-10: gates are a signal to look for
@@ -154,6 +156,13 @@ function gate(path, limit, label) {
   return size;
 }
 
+/** ADR 0162 A3: `bake-magls --check` re-bakes src/engine/audio/magls-o3.bin from the HRIR set, compares it byte for byte,
+ *  checks audio-dsp's baked bed matrix against its design and runs the bake check (12 of 12 azimuths, ILD within 1.7 dB
+ *  below 2 kHz). A failure stops the build. Native (not wasm), release. */
+function checkMagls() {
+  run("cargo", ["run", "--release", "-p", "bake-magls", "--", "--check"]);
+}
+
 /** Instantiates the wasm on a fresh Memory and reads its source hash (hex) and ABI version ("1.0"). */
 function readIdentity(path) {
   const memory = new WebAssembly.Memory({ initial: READ_MEMORY_PAGES });
@@ -199,11 +208,15 @@ function buildMetered(sourceHash) {
 function main() {
   checkToolchain();
   genWire();
+  checkMagls();
   const mixerBuild = buildWasm({ testHooks: false });
   const testBuild = buildWasm({ testHooks: true });
   optimize(mixerBuild);
   optimize(testBuild);
   const mixerBytes = gate(mixerBuild, MIXER_LIMIT, "myco_audio.wasm");
+  if (mixerBytes > MIXER_WARN) {
+    console.warn(`[build:audio] warning: myco_audio.wasm is ${mixerBytes - MIXER_WARN} bytes over the ${MIXER_WARN / 1024} KB warning line (ADR 0162 §5.2; the gate stays ${MIXER_LIMIT / 1024} KB). Look for bloat before it reaches the gate.`);
+  }
   // The decoder (M1b): built, gated, smoke-tested and copied once its crate exists.
   // B4: and its AAC build, beside it.
   let decoderBuild = null;
