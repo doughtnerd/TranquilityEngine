@@ -163,3 +163,69 @@ describe("releaseFade (m2-decisions entry 10)", () => {
   });
 });
 
+
+describe("ADR 0162 §2.5 additions", () => {
+  const base = { format: AUDIO_EVENT_FORMAT, root: clip("a.ogg") };
+
+  it("reads filter, sends and the spatial keys with no problems", () => {
+    const { value, problems } = parseAudioEvent({
+      ...base, filter: { lowpass: 9000, highpass: 80 }, sends: { reverb: 0.5, Cave: 0.3 },
+      spatial: { minDistance: 1, maxDistance: 30, rolloff: "inverse", occlusion: false, dopplerLevel: 2, reverbSendCurve: [[0, 1], [1, 0.5]] },
+    });
+    expect(problems).toEqual([]);
+    expect(value.filter).toEqual({ lowpass: 9000, highpass: 80 });
+    expect(value.sends).toEqual({ reverb: 0.5, Cave: 0.3 });
+    expect(value.spatial).toEqual({ minDistance: 1, maxDistance: 30, rolloff: "inverse", occlusion: false, dopplerLevel: 2, reverbSendCurve: [[0, 1], [1, 0.5]] });
+  });
+
+  it("leaves the keys absent when the file doesn't set them, and the writer emits none", () => {
+    const { value } = parseAudioEvent({ ...base, spatial: { minDistance: 1 } });
+    expect(value.filter).toBeUndefined();
+    expect(value.sends).toBeUndefined();
+    expect(Object.keys(value.spatial!)).toEqual(["minDistance", "maxDistance", "rolloff"]);
+    const text = formatAudioEvent(value);
+    for (const k of ["filter", "sends", "occlusion", "dopplerLevel", "reverbSendCurve"]) expect(text).not.toContain(k);
+  });
+
+  it("clamps filter Hz, send levels and dopplerLevel with problems", () => {
+    const { value, problems } = parseAudioEvent({
+      ...base, filter: { lowpass: 99999, highpass: 1 }, sends: { reverb: 5, Cave: -1 },
+      spatial: { dopplerLevel: 9 },
+    });
+    expect(value.filter).toEqual({ lowpass: 24000, highpass: 10 });
+    expect(value.sends).toEqual({ reverb: 2, Cave: 0 });
+    expect(value.spatial!.dopplerLevel).toBe(5);
+    expect(problems).toHaveLength(5);
+  });
+
+  it("keeps the first aux send and reports the rest", () => {
+    const { value, problems } = parseAudioEvent({ ...base, sends: { A: 0.1, reverb: 1, B: 0.2, C: 0.3 } });
+    expect(value.sends).toEqual({ A: 0.1, reverb: 1 });
+    expect(problems).toHaveLength(2);
+    expect(problems[0]).toMatch(/sends\.B.*one aux send/);
+  });
+
+  it("reports bad shapes without throwing", () => {
+    const { value, problems } = parseAudioEvent({
+      ...base, filter: 3, sends: { reverb: "x", Cave: "y" }, spatial: { occlusion: 1, reverbSendCurve: [] },
+    });
+    expect(value.filter).toBeUndefined();
+    expect(value.sends).toEqual({ reverb: 1 });
+    expect(value.spatial!.occlusion).toBe(true);
+    expect(value.spatial!.reverbSendCurve).toBeUndefined();
+    expect(problems.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("round-trips, writing filter and sends before root", () => {
+    const { value } = parseAudioEvent({
+      ...base, filter: { highpass: 120 }, sends: { Cave: 0.3 },
+      spatial: { minDistance: 2, maxDistance: 9, rolloff: "linear", occlusion: true, dopplerLevel: 1, reverbSendCurve: [[0, 1], [1, 0, "smooth"]] },
+    });
+    const text = formatAudioEvent(value);
+    const keys = Object.keys(JSON.parse(text));
+    expect(keys.slice(-3)).toEqual(["filter", "sends", "root"]);
+    const again = parseAudioEvent(JSON.parse(text));
+    expect(again.problems).toEqual([]);
+    expect(again.value).toEqual(value);
+  });
+});
