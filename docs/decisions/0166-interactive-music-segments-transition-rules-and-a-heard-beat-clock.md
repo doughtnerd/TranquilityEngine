@@ -1,6 +1,6 @@
 # 0166. Interactive music (M4): music is built from segments with tempo maps, arranged by playlist and switch containers under a transition matrix, started sample-exact by priming streams first, with a beat clock on the main thread
 
-- **Status:** Proposed (revision 2, 2026-11-11: the RFC round in `docs/rfc/0166/`, see "RFC round (revision 2)" at the end; where the end section and the text above disagree, the end section wins)
+- **Status:** Accepted (2026-11-11, with the recommended answers to revision 2's owner decisions; see "Owner decisions (accepted)" at the end) (revision 2, 2026-11-11: the RFC round in `docs/rfc/0166/`, see "RFC round (revision 2)" at the end; where the end section and the text above disagree, the end section wins)
 - **Date:** 2026-11-11
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -436,3 +436,14 @@ This section wins over the text above it.
 4. **Whole encoded files in the worker for M4** (recommended), or range streaming now.
 5. **Callback API shape:** component messages plus `handle.music` (recommended).
 6. **The estimate:** ≈ 45–55 person-weeks provisional, in milestones M4-0, M4a–d.
+
+## Owner decisions (accepted, 2026-11-11)
+
+The owner accepted the record ("I accept") after the revision 2 summary, which recommended an answer to each decision. These are recorded as the answers. The owner may still change any of them before the technical design starts.
+
+1. **Positions:** musical positions (bar:beat:tick against the tempo map; seconds and audio frames derived).
+2. **Music ring pool:** 8 / 12 / 16 (low / default / high).
+3. **Music voices count inside the preset's mixed-voice cap.**
+4. **Whole encoded files in the worker for M4.** Range streaming is later work.
+5. **Callbacks:** component messages (`onMusicBeat`, `onMusicBar`, `onMusicCue`) plus a readable `handle.music`. Polling arrives in M4a, callbacks in M4c.
+6. **Estimate:** ≈ 45–55 person-weeks, provisional until the technical design's task table. Milestones: M4-0 (in-voice stamped records), M4a, M4b, M4c, M4d.

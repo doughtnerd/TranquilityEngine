@@ -1,6 +1,6 @@
 # 0097. Audio mixer buses, snapshots and ducking over one shared AudioContext
 
-- **Status:** Proposed; amended by 0157 (the model is kept, the Web Audio bus graph is replaced by the core)
+- **Status:** Proposed; amended by 0157 (the model is kept, the Web Audio bus graph is replaced by the core) and 0166 (presets gain the music ring pool)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

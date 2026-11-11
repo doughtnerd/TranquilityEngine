@@ -1,6 +1,6 @@
 # 0158. Audio events are data assets; main picks their voices when something happens, and the core runs everything continuous: parameters, curves, blends and sustain loops
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0166 (`myco.audioevent@1` gains music nodes: segment, playlist, musicSwitch, transitions, stingers)
 - **Date:** 2026-11-10
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
