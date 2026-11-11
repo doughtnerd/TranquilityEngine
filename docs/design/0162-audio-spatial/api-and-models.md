@@ -101,7 +101,7 @@ An ambisonic clip is an ordinary clip path (`AudioSource.clip`, `playOneShot(pat
 |---|---|---|---|
 | `AudioSource`, `OneShotOptions`, `AudioListener`, `AudioReason`, `AudioDebugInfo` | 0157 shapes | §1.1-§1.6, all defaulted | scenes load; `sound-lab` and `stress` orbiting sources now Doppler-shift: set `dopplerLevel: 0` on the pitch and bench sources |
 | Distant spatial voices | equal-power beyond `voices.hrtf` | bed (kind 2) where the bus has one | sound changes by design; listening-pass items |
-| `voices.hrtf` presets | low 4, default 16, **high 32** (`audioSettingsModel.ts:213`) | low 4, default 16 (owner item 1: 8 where beds exist), high **8** | `stress` sets `hrtf: 32`: becomes the high preset's numbers |
+| `voices.hrtf` presets and default | low 4, default 16, **high 32** (`audioSettingsModel.ts:213`); `DEFAULT_VOICES.hrtf` 16 (`settings.ts`) | **8 where beds exist** (default and high), low 4; `DEFAULT_VOICES.hrtf` becomes 8; with `maxBeds` 0 the number is used as set | `sound-lab` (no `voices` key) gets 8; `stress` sets `hrtf: 32`: becomes the high preset's numbers (8, `maxBeds` 4) |
 | `audio.bed`, bus `bed`/`bedPriority`, `audio.ambisonic`, `audio.zones`, `audio.occlusion`, `audio.doppler` | none | §2.1; root defaults to `own` priority 255 | `sound-lab` and `stress` get the keys; `sound-lab` marks Ambience `own` |
 | `audio.spatial: "equalPower"` | no HRTF | no HRTF; **beds kept**, decoded by the baked 16 to 2 matrix (R9) | none |
 | Positioned one-shots and sources | no occlusion, no zone send | on, send 1 | no change without colliders or zones |
@@ -119,7 +119,7 @@ An ambisonic clip is an ordinary clip path (`AudioSource.clip`, `playOneShot(pat
              { "name": "SFX", "parent": "Master" } ],                     // bed absent: "parent"
   "bed": { "maxBeds": 4 }, "ambisonic": { "maxClips": 2 },
   "occlusion": { "layers": null, "budgetMs": 0.5, "defaultMaterial": "concrete", "smoothingMs": 100, "materials": [ /* §2.2 */ ] },
-  "zones": { "maxActive": 2, "maxIrSeconds": 4 },
+  "zones": { "maxActive": 2, "standby": 1, "maxIrSeconds": 4 },
   "doppler": { "maxSpeed": 150 }, "speedOfSound": 343,
   "voices": { "mixed": 256, "logical": 4096, "hrtf": 8 }
 }
@@ -135,11 +135,12 @@ An ambisonic clip is an ordinary clip path (`AudioSource.clip`, `playOneShot(pat
 | `occlusion.budgetMs` | number 0.02..2 | high 0.5, default 0.25, low 0.06 | clamp. Converted to a ray **count** per frame [ARCH §3.2] |
 | `occlusion.defaultMaterial`, `smoothingMs`, `materials` | name, 10..1000, list (<= 32) | `"concrete"`, 100, §2.2 | unknown material: the first plus problem; duplicate names dropped |
 | `zones.maxActive` | integer 0..2 | 2 (low 1) | clamp. 0: zones inert |
+| `zones.standby` | integer 0..1 | high 1, default 1, low 0 | clamp. Slots = `maxActive + standby`; the standby slot lets a released zone's tail ring out. Without it (low) a third zone evicts a ringing slot with a 150 ms fade |
 | `zones.maxIrSeconds` | number 0.5..8 | high 4, default 2, low 1 | clamp; longer IRs cut with a 50 ms fade |
 | `doppler.maxSpeed`, `speedOfSound` | number > 0, 10..100000 | 150, 343 | default plus problem / clamp |
-| `voices.hrtf` | integer 0..32 | low 4, default 16, high 8 | as 0157 §2; with `maxBeds` 0 used as set |
+| `voices.hrtf` | integer 0..32 | low 4, default 8, high 8 | as 0157 §2; with `maxBeds` 0 used as set |
 
-Presets stay editor bundles (`VOICE_PRESETS`, `audioSettingsModel.ts:210-214`, `as const`; `voicesPreset()` compares numbers exactly, so the new keys join the comparison). **low** `{ mixed 64, logical 1024, hrtf 4, clipMemoryMB 64, maxBeds 0, maxClips 1, zones 1 x 1 s, budgetMs 0.06 }`; **default** `{ 128, 4096, 16, unset, 2, 1, 2 x 2 s, 0.25 }`; **high** `{ 256, 4096, 8, 256, 4, 2, 2 x 4 s, 0.5 }`. Whether the default preset's `hrtf` becomes 8 (zero tasks, one number) is owner item 1; slots beyond `maxActive` are owner item 2 (§10.2).
+Presets stay editor bundles (`VOICE_PRESETS`, `audioSettingsModel.ts:210-214`, `as const`; `voicesPreset()` compares numbers exactly, so the new keys join the comparison). **low** `{ mixed 64, logical 1024, hrtf 4, clipMemoryMB 64, maxBeds 0, maxClips 1, zones 1 x 1 s, budgetMs 0.06 }`; **default** `{ 128, 4096, 8, unset, 2, 1, 2 + 1 standby x 2 s, 0.25 }`; **high** `{ 256, 4096, 8, 256, 4, 2, 2 + 1 standby x 4 s, 0.5 }`; low has no standby slot.
 
 **Bed resolution** is [ARCH §2.1] (candidates sorted by `bedPriority` then depth then index; losers share; `bedDenied`). Deltas: ties at the default 128 go to the shallowest bus, so Master wins by depth and by its default 255; when nobody asks `own` and `maxBeds > 0` the root is granted slot 0 implicitly. Output: `bedSlot[b]` per bus (0xFF none) and `hostBus[slot]` (§4.2).
 
@@ -182,7 +183,7 @@ Behaviour is [ARCH §2.1, §2.2, §4]; the tables and their sizes are here. Regi
 |---|---|---|---|
 | Beds | `Beds` | per bed and per private decoder: `acc[16][128]` f32 (8 KB) + decoder history (40 KB); shared MagLS spectra 64 KB (16 ch x 2 ears x 2 partitions x 128 bins) | (4 + 2) x 48 + 64 = 352 KB / (2 + 1) x 48 + 64 = 208 KB / 1 x 48 + 64 = 112 KB |
 | Mixed-voice pool | `Fx` | one entry per **mixed** voice (R12), taken at promote, so it cannot run out: lp and hp `Biquad` (120 B each), their log-Hz ramps, 4 send ramps, aux ramp and bus, yaw, bed share ramp, 16 f32 bed gains: about 448 B | 112 / 56 / 28 KB |
-| Zones | `Zones` | `slots x state(maxIrSeconds)`: frequency-domain delay lines, input and accumulation rings, per-slot stereo input buffer, state, `ring_left`, stagger phase. Kernels stay in the IR clip blocks (arena), read in place | state 6.1 / 3.1 / 0.9 MiB with `maxActive` slots (12.0 / 6.1 / 1.6 MiB with kernels); owner item 2 adds a slot (18.0 / 9.2 / 3.3 MiB) |
+| Zones | `Zones` | `slots x state(maxIrSeconds)`: frequency-domain delay lines, input and accumulation rings, per-slot stereo input buffer, state, `ring_left`, stagger phase. Kernels stay in the IR clip blocks (arena), read in place | state 9.2 / 4.8 / 0.9 MiB for 3 / 3 / 1 slots (18.0 / 9.2 / 1.6 MiB with kernels: the standby slot is on high and default, not on low) |
 | Wide rings | `Wide` | `maxClips` rings of 16 ch x (16,384 + 2,048 chunk + 1,536 seek tail) f32 = 1.22 MiB each; 2.22 MiB if the ring grows to 32,768 (R16) | 2.44 / 1.22 / 1.22 MiB |
 | Listener, fold table | core state | quaternion, matrix, per-bus chain gains (<= 32 buses) | 3 KB |
 
@@ -344,14 +345,14 @@ Checked against `babylonBackend.ts` (785 lines, Babylon 9.32.0). Best effort (ow
 | Doppler | the factor multiplies `playbackRate` (`setPitch`, line 329) | **only for decoded clips**: `playbackRate` is set `if (!this.req.stream)` (lines 193, 329), and a streamed clip plays flat as HTML5 audio (`warnFlatStream`), so streams get no Doppler |
 | Event filters, `lowpass`/`highpass`, aux sends | skipped, one warning per asset (as `lowpass` automation today, `sound-events.md:319`) | |
 | Ambisonic clips | channel 0 (W) as mono at the clip's gain, one warning; no rotation. **The backend must ignore `stream` for them**: HTML5 audio downmixes 4 or 16 channels unpredictably. It decodes with `decodeAudioData`, copies channel 0 into a mono `AudioBuffer` and passes that to `createSoundAsync` (which accepts an `AudioBuffer`). Peak memory is the decoded 16 channels (about 3.1 MB per second at 48 kHz, f32), so clips decoding to over 64 MB (about 21 s of 3rd order, 83 s of 1st) are **refused with a warning** | `createSoundAsync(name, ArrayBuffer \| AudioBuffer \| ...)` in the pinned `audioEngineV2.d.ts` |
-| Reverb zones | **inert, one warning** (F2). The record's "one `ConvolverNode`" needs a public insertion point: the V2 API exposes bus and sound nodes only as `_inNode`/`_outNode` (`webAudioBus.d.ts:21-23`), which 0157 declined to use; `audioEngineV2` has no send or node-insertion API. Recommend the owner confirms inert; the underscore route is a decision for the owner | grep of the pinned package |
+| Reverb zones | **inert, one warning** (F2). The record's "one `ConvolverNode`" needs a public insertion point: the V2 API exposes bus and sound nodes only as `_inNode`/`_outNode` (`webAudioBus.d.ts:21-23`), which 0157 declined to use; `audioEngineV2` has no send or node-insertion API. Decided: inert (owner) | grep of the pinned package |
 | LISTENER, `AudioListener.velocity` | listener pose as today; velocity feeds Doppler | |
 
 The guides' tables (`audio-mixer.md` 42-48, `sound-events.md` 319) gain these rows (E8). macOS desktop defaults to this backend, so those users get walls that only lower volume and no zones; the panel and the Event editor's audition say so [ARCH §10].
 
 ## 9. Test plan
 
-Layers as 0157 §8; M3 additions. WebKit and Firefox runs of `@slow` specs need Docker.
+Layers as 0157 §8; M3 additions. **Cadence (owner rule):** per task, typecheck, the affected unit tests (`vitest related` or the file's tests) and `cargo test` for the touched crate only. **Wave end:** full `npm test`, `npm run build`, the Chromium e2e specs, the metered gate and the benches. **Milestone end, before the merge to master:** `@slow` e2e, WebKit and Firefox (Docker), long benches and soaks. A layer below runs where its row says; no task runs the full suite.
 
 | Layer | What |
 |---|---|
@@ -359,20 +360,20 @@ Layers as 0157 §8; M3 additions. WebKit and Firefox runs of `@slow` specs need 
 | Bake check | `bake-magls --check` reproduces `magls-o3.bin`; cues right at 12 of 12 azimuths, within 1.7 dB of M1's HRTF below 2 kHz |
 | Wire | round trip, fuzz, golden vectors, hashes, STATUS worst case 15,904 B |
 | Golden (Node, real wasm) | 256 voices into a bed; HRTF to bed to equal-power crossfade continuity (dip recorded, not asserted); a sharing bus with ducking; a 3rd-order clip rotated by a 90 degree turn (image moves, level constant); two blending zones; ring-out then slot off; a rebuild REPLAY with zones and beds; per-voice filter ramp click bound; **M2 automation goldens and every M1/M2 parity digest unchanged** (shared reverb, automation low-pass and mono-once are bit-identical) |
-| Loopback | bed planner follows a bus edit; ambisonic AudioSource rotates with the listener; zone planner walks A to B to C (with and without the standby slot, owner item 2); IR re-prepared on a rate change; PCM IR prepared in the core (worker stopped); occlusion on a fake 3D service (a wall appears: age, smoothing, wet fraction, `occluded`, `lowpassBy`, own-collider exclusion); Doppler pass, teleport guard, hidden-tab reset; event `filter` and `sends`; `setVelocity` |
+| Loopback | bed planner follows a bus edit; ambisonic AudioSource rotates with the listener; zone planner walks A to B to C (high and default with the standby slot, low with the 150 ms eviction fade: both paths); IR re-prepared on a rate change; PCM IR prepared in the core (worker stopped); occlusion on a fake 3D service (a wall appears: age, smoothing, wet fraction, `occluded`, `lowpassBy`, own-collider exclusion); Doppler pass, teleport guard, hidden-tab reset; event `filter` and `sends`; `setVelocity` |
 | Fake backend | bed resolution table (maxBeds, priority, ties, losers, root default, `none`); kind dwell and hysteresis; material combine; send curve, weights and clamp; velocity estimator; settings and event parse rules; `apply` includes the new fields; every `@field` has a `description` |
 | Babylon | each §8 row against the Babylon mocks: gain-only occlusion, Doppler on decoded clips only, warnings once, W-only ambisonic and the size refusal, zones inert |
-| Bench, metered | C19's scenes, **`m3-typical`** (the record's scene) paced; `mode=fit` sweeps; the metered 10% gate; `bench:audio-spatial` runs `occlusion.ts` under the real `audioSystem.ts` with a fake 3.7 µs ray at 64 / 256 / 1,024 sources (ages near 3 / 5 / 22 frames) |
-| Stall test | wide ring with a 300 ms decoder stall: no underrun, else 32,768 frames (R16) |
-| Playwright | zone and occluder gizmos draw and drag (undoable), settings sections edit and persist, debug panel sections, Inspector warnings, live tuning |
-| Lab VM (owner) | `m3-typical` and `m3-worst-high`, p99.9 against 0157's 1.3 ms and the modelled net (§10.3); sets the presets. Container tails are not asked for |
+| Bench, metered (wave end) | C19's scenes, **`m3-typical`** (the record's scene) paced; `mode=fit` sweeps; the metered 10% gate; `bench:audio-spatial` runs `occlusion.ts` under the real `audioSystem.ts` with a fake 3.7 µs ray at 64 / 256 / 1,024 sources (ages near 3 / 5 / 22 frames) |
+| Stall test | wide ring with a 300 ms decoder stall: no underrun, else 32,768 frames (R16); a unit-level test, run with B4's crate tests |
+| Playwright (wave end) | zone and occluder gizmos draw and drag (undoable), settings sections edit and persist, debug panel sections, Inspector warnings, live tuning |
+| Lab VM and `@slow` (milestone end; the lab VM is the owner's) | `m3-typical` and `m3-worst-high`, p99.9 against 0157's 1.3 ms and the modelled net (§10.3); sets the presets. Container tails are not asked for |
 | Listening pass (owner) | per milestone below, headphones, the M2 format and sign-off block |
 
 **Exit checks:** **M3a** a source crossing the 8-voice HRTF boundary both ways (no dip or jump); above, below (the -45 degree gap: a floor-below sound, failure opens R1) behind and sides, bed against HRTF; a loud close source plus 200 quiet ones; idle silence. **M3b** an ambience turned on the spot at 1st and 3rd order. **M3c** rooms A, B, C with 2 s and 4 s IRs; a source in A heard from B. **M3d** wall, door open and closed, corner; a fast Doppler pass and a teleport. **M3e** Babylon once.
 
 ## 10. Task breakdown
 
-Level S/M/J. Days are focused human effort, not agent-wave days. **Critical path in bold.** Every task's acceptance includes typecheck, `npm test` and `cargo test` green, M1/M2 goldens and parity digests unchanged unless said, the committed wasm matching its hash.
+Level S/M/J. Days are focused human effort, not agent-wave days. **Critical path in bold.** Every task's acceptance is the **per-task cadence** of §9: typecheck, the affected unit tests and `cargo test` of the touched crate green, M1/M2 goldens that the crate owns unchanged unless said, the committed wasm matching its hash. E2e, the full suite, the metered gate and benches are covered by the **wave-end** run; `@slow`, WebKit and soaks by the **milestone-end** run. A row that names a bench or spec is satisfied by that wave-end or milestone-end run, not by running it per task.
 
 | ID | Task | Files | Depends | Lvl | d | Acceptance |
 |---|---|---|---|---|---|---|
@@ -380,10 +381,10 @@ Level S/M/J. Days are focused human effort, not agent-wave days. **Critical path
 | A1 | Wire: SET_VOICE_FX, BED_CONFIG (R1), ZONE_CONFIG (R4), LISTENER (R3), PLAY bit, STATUS growth, formats 3-5 and ids (R5, R7), single init (R6), `STREAM_OPEN.convention`, vectors, fuzz | `audio-wire/*`, `wire.generated.ts`, tests | none | M | 5 | round trip and fuzz of every record; stale wasm fails `npm test`; STATUS 15,904 B |
 | A2 | `ambisonic.rs`, `bed_decoder.rs` | `audio-dsp` | **A1** | S | 5 | analytic tests; bit-identical native and wasm; 256 voices decode within the spike's 142 µs p50 |
 | A3 | `bake-magls` + `magls-o3.bin` + loader + the baked 16 to 2 matrix (R9) and its test | `native/audio/tools`, `core/hrir.ts`, `build.mjs` | A1 | S | 4 | 12 of 12 azimuths; within 1.7 dB below 2 kHz; matrix test of §9 |
-| A4 | Core bed: slots and hosts, pool, kind 2, equal-power crossfade law, decode before host effects, gain fold, RESET, counters | `bed.rs`, `panner.rs`, `bus.rs`, `voices.rs`, `layout.rs`, `status.rs` | **A2**, A3 | S | 6.5 | bed, crossfade and ducked-chain goldens (< 0.05 dB) |
+| A4 | Core bed: slots and hosts, pool, kind 2, equal-power crossfade law, decode before host effects, gain fold, RESET, counters | `bed.rs`, `panner.rs`, `bus.rs`, `voices.rs`, `layout.rs`, `status.rs` | **A2**, A3 | S | 7 | bed, crossfade and ducked-chain goldens (< 0.05 dB); the shedding ladder's bed-idle step (1 quantum) and `m3Shed` counter |
 | A5 | Main bed: `beds.ts`, `pannerPick.ts` with the 500 ms dwell, commands, replay, debug rows (the core resolves a bus without a bed to equal-power) | `core/*` | A1, A4 | M | 3.5 | resolution tests; loopback follows a bus edit |
 | A6 | Settings: bed, bus `bed`/`bedPriority` (0..255, root 255), `ambisonic.maxClips`, presets | `settings.ts`, `audioSettingsModel.ts` | none | M | 2.5 | every §2.1 row |
-| A7 | Bed bench, goldens, metered baselines, `mode=fit` sweeps for bed and ambisonic terms, size check | `audio-bench`, `golden/` | A4 | M | 4.5 | `bed-64/256/xfade` recorded; mixer under 230 KB |
+| A7 | Bed bench, goldens, metered baselines, `mode=fit` sweeps for bed and ambisonic terms, size check | `audio-bench`, `golden/` | A4 | M | 4.5 | `bed-64/256/xfade` recorded at wave end; mixer under 230 KB |
 | **M3b clips** | | | | | | |
 | B1 | Sidecar `ambisonic`, registry validation, FuMa (int16 headroom scaling, per-chunk for streams) | `importSettings.ts`, `decoder/ambisonic.ts` | none | M | 3.5 | §2.4 rules; FuMa twin equals AmbiX within 1e-6 |
 | B2 | N-channel resampler, arena to 16, decoder channel limit, 16-channel WAV through `audio-decode` | `resample.rs`, `clips.rs`, `audio-decode` | none | S | 4 | 4, 9, 16 channels load and play; 5 refused |
@@ -395,12 +396,12 @@ Level S/M/J. Days are focused human effort, not agent-wave days. **Critical path
 | C1 | Convolver split (`prepare_ir`, `instance`, `plan_stagger`) | `audio-dsp/convolver*` | none | S | 6 | shared reverb **bit-identical**; planner as the spike |
 | C2a | IR preparation in the decoder, presets, ABI 0x102 | `audio-decode/ir.rs` | C1 | S | 4 | blob equals `prepare_ir`; times measured; decoder under 900 KB |
 | C2b | Worker handler, worker-to-worklet kernel send, `zoneIr.ts`, cache, rate change, failure | `decoder/irPrepare.ts`, `core/zoneIr.ts` | C2a | M | 3.5 | rate change re-prepares; kernels never touch main |
-| C3 | Core zones: fixed `Zones` region, ZONE_CONFIG table and state machine, return buses, shared-return scale, STATUS slots, formats 3 and 5 | `zones.rs`, `clips.rs`, `bus.rs`, `audio-wasm` | A1, **C1** | S | 7 | blend, ring-out, rebuild goldens; 3.1 / 6.1 MB per slot at 2 / 4 s |
+| C3 | Core zones: fixed `Zones` region, ZONE_CONFIG table and state machine, return buses, shared-return scale, STATUS slots, formats 3 and 5 | `zones.rs`, `clips.rs`, `bus.rs`, `audio-wasm` | A1, **C1** | S | 9 | blend, ring-out, rebuild goldens; 3.1 / 6.1 MB per slot at 2 / 4 s; **standby slot** (+1: slots = `maxActive` + `standby`, ring-out in the spare) and **eviction fade** paths both tested (low uses the fade); **shedding ladder** (+1: cut releasing tails, one active zone fewer after the cap sits at its floor and underruns continue 1 s; never beds or HRTF) |
 | C3b | In-core PCM IR preparation spread over quanta (was reserve R3) | `zones.rs` | C3 | S | 3 | a worker-less run prepares a 2 s IR, +23 µs a quantum at most |
 | C4 | Core sends and aux: pre-distance tap, bus-chain gain, aux add | `voices.rs`, `bus.rs`, `zones.rs` | **C3** | S | 3 | send follows a ducked bus; muted bus mutes its reverb |
-| C5 | Main zones: component, registry, weights, curve, planner, kernel LRU and proximity preload, 5 s timeout, listener weight for the shared return, commands | `AudioReverbZone.ts`, `core/zones.ts`, `voiceFx.ts` | C2b, **C4** | S | 6.5 | loopback A to B to C; each fade warning logged once |
-| C6 | Settings: zones keys, memory accounting, warning data | `settings.ts`, model | none | M | 2 | every row |
-| C7 | Zone tests, `zones-2x2s`/`zones-swap`, `m3-high`, fit sweeps | `golden/`, loopback, `audio-bench` | **C5** | M | 4.75 | `zones-2x2s` p50 about 47 µs, p99 about 107 µs |
+| C5 | Main zones: component, registry, weights, curve, planner, kernel LRU and proximity preload, 5 s timeout, listener weight for the shared return, commands | `AudioReverbZone.ts`, `core/zones.ts`, `voiceFx.ts` | C2b, **C4** | S | 8.5 | loopback A to B to C on both slot paths (+2: standby assignment, ring-out tracking, eviction wait on low); each fade warning logged once |
+| C6 | Settings: zones keys, memory accounting, warning data | `settings.ts`, model | none | M | 2.5 | every row, incl. `zones.standby` and the slots memory accounting (+0.5) |
+| C7 | Zone tests, `zones-2x2s`/`zones-swap`, `m3-high`, fit sweeps | `golden/`, loopback, `audio-bench` | **C5** | M | 4.75 | `zones-2x2s` p50 about 47 µs, p99 about 107 µs (recorded at wave end) |
 | **M3d** | | | | | | |
 | D0 | Ray query (R12): core interface, `raycastInto`, node exclusion, sensors off, reused `out`, `groupsFor` | `worldServices.ts`, physics `services.ts`, `systems3d.ts` | none | M | 3.5 | source's capsule never occludes it; no allocation per call; particles unchanged |
 | D1 | Core per-voice filters: mixed-voice pool, lp+hp, log-Hz ramps, mono-once, `lpHz` for every voice, automation migrated | `fxpool.rs`, `voices.rs`, `automation.rs`, `fxfilter.rs` | A1 | S | 4 | M2 goldens unchanged; click-free; clips never filtered |
@@ -408,60 +409,54 @@ Level S/M/J. Days are focused human effort, not agent-wave days. **Critical path
 | D2b | `AudioOccluder`, materials, `openness`, cache, debug rows, 2D note | `AudioOccluder.ts`, `occlusionMaterials.ts` | D0 | M | 3 | two-hit combine, trims, `none`, openness |
 | D3 | Doppler | `core/doppler.ts`, `listener.ts` | B5 | M | 3 | formula; teleport guard; one-shots default 0 |
 | D4 | Event effects incl. aux | `eventFormat.ts`, `events/eventRuntime.ts`, `voiceFx.ts` | D1, C4 | M | 3 | every §2.5 rule |
-| D5 | API surface, handle members, debug additions, exports | `AudioSource.ts`, `Audio.ts`, `myco.ts`, `debug.ts` | D2a, C5, D3 | M | 3 | each §1 row tested; every `@field` described |
-| D6 | Occlusion and filter tests and benches (`filters-256`, `bench:audio-spatial`, `m3-worst-*`) | tests, `audio-bench` | D2a, D1 | M | 3.75 | recorded; ages as the spike |
+| D5 | API surface, handle members, debug additions, exports | `AudioSource.ts`, `Audio.ts`, `myco.ts`, `debug.ts` | D2a, C5, D3 | M | 3.5 | each §1 row tested; every `@field` described; `m3Shed` and ladder state in `Audio.debug()` (+0.5) |
+| D6 | Occlusion and filter tests and benches (`filters-256`, `bench:audio-spatial`, `m3-worst-*`) | tests, `audio-bench` | D2a, D1 | M | 3.75 | benches recorded at wave end; ages as the spike |
 | **Fallback** | | | | | | |
 | F1 | Babylon: gain-only occlusion, Doppler on decoded clips, filter and aux warnings, W-only ambisonic via the decode path with the 64 MB refusal | `babylonBackend.ts`, `babylonMapping.ts` | D2a, D3, B5 | M | 3 | §8 rows against the mocks |
-| F2 | Babylon zones: inert plus one warning; document the underscore option for the owner | `babylonBackend.ts` | C5 | M | 0.5 | warning once; rows tested |
+| F2 | Babylon zones: inert, one warning (decided) | `babylonBackend.ts` | C5 | M | 0.5 | warning once; rows tested |
 | **M3e** | | | | | | |
 | E1 | Zone gizmo, handles, Edit Zone | `AudioReverbZoneGizmo.ts` | C5 | M | 4 | draw, drag, undo |
 | E2 | Occluder gizmo; Inspector sections; `output` bus field | `*Inspector.tsx` | D2b, E1 | M | 3.5 | warnings for no collider, no service, overlap |
 | E3 | Project Settings > Audio (§7) incl. `maxClips` and `bedPriority` | `AudioSettingsSection.tsx` | A6, C6, D2b | M | 5.5 | edits persist; lost-bed warning; material cards |
 | E4 | Debug panel sections and occlusion overlay | `AudioDebugPanel.tsx`, `OcclusionOverlay.ts` | D5, C5 | M | 4 | §7 rows against the loopback host |
-| E5 | Event editor | `event/*` | D4 | M | 3 | round trip; backend label |
+| E5 | Event editor | `event/*` | D4 | M | 3 | round trip (unit); backend label; e2e at wave end |
 | E6 | Asset Inspector ambisonic block | `AssetInspector.tsx` | B1 | M | 2 | writes only non-default keys |
-| E7 | Live tuning check | | E1, E3 | M | 1 | spec passes |
+| E7 | Live tuning check | | E1, E3 | M | 1 | covered by the wave-end e2e run |
 | E8 | Samples and guides: `sound-lab` spatial scene (zone corridor, occluders, **a door example with a script moving `openness`**, ambisonic ambience, Doppler pass-by), `stress` and `sound-lab` settings, `dopplerLevel: 0` where benches need it, guide edits and `spatial-audio.md` with the door recipe, `implementation-status.md` | `samples/*`, `docs/guide/*` | C7, D6, B6 | M | 6.5 | samples load warning-free and non-silent; `check:links` |
-| E9 | Playwright specs | `tests/e2e/` | E1 to E4 | M | 4 | 3 of 3 repeats |
+| E9 | Playwright specs | `tests/e2e/` | E1 to E4 | M | 4 | specs written and passing in the wave-end run; 3 of 3 repeats at milestone end |
 | E10 | Listening pass document, scenes, lab-VM instructions | `listening-pass.md`, `ListeningBench.ts` | E8 | J | 2 | every item has a key or scene |
 
-**Critical path (about 35 days):** A1 5, A2 5, A4 6.5, B3 6, B6 3 (spine, 25.5) feeding E8; the zone spine beside it: C1 6, C3 7, C4 3, C5 6.5, C7 4.75 = 27.25 (C3 needs A1, done by day 6), then D5 3, E4 4, E9 4, E10 2. Seniors carry about 66 days (A2-A4, B2-B4, C1-C5 incl. C3b, D1, D2a), so two seniors are the floor: **about 8 weeks to M3e with two seniors and three mids, 9 to 10 with the reserve and the owner's gates.** D0, D1 and D2 do not depend on B or C, so occlusion can ship first.
+**Critical path (about 45 days of chain):** A1 5, A2 5, A4 7, B3 6, B6 3 (spine, 26) feeding E8; the zone spine beside it: C1 6, C3 9, C4 3, C5 8.5, C7 4.75 = 31.25 (C3 needs A1, done by day 6), then D5 3.5, E4 4, E9 4, E10 2. Seniors carry about 70 days (A2-A4, B2-B4, C1-C5 incl. C3b, D1, D2a), so two seniors are the floor: **about 9 weeks to M3e with two seniors and three mids, 10 to 11 with the reserve and the owner's gates.** D0, D1 and D2 do not depend on B or C, so occlusion can ship first.
 
-### 10.1 Optional rows (owner items; not in the base total)
+### 10.1 Owner decisions folded into the base tasks
 
-| Row | Item | Tasks | d |
-|---|---|---|---|
-| O1 | Standby zone slot (owner item 2): `maxActive + 1` slots, tails ring out, peak zone memory 18.0 / 9.2 / 3.3 MiB against 12.0 / 6.1 / 1.6; without it a third zone evicts a ringing slot with a 150 ms fade | C3 +1, C5 +2, C6 +0.5 | +3.5 |
-| O2 | Load-shedding ladder (owner item 3): cut releasing tails, one active zone fewer, beds idle faster, `m3Shed`; never touches beds or HRTF | C3 +1, A4 +0.5, D5 +0.5 | +2 |
-| O3 | Default-preset HRTF 8 (owner item 1) | one preset number and a test | about 0 |
+| Decision | Where | d |
+|---|---|---|
+| Standby zone slot on high and default; 150 ms eviction fade on low (both paths tested) | C3 +1, C5 +2, C6 +0.5 | +3.5 |
+| Load-shedding ladder | C3 +1, A4 +0.5, D5 +0.5 | +2 |
+| Default-preset HRTF 8 where beds exist | A6 (one number, `DEFAULT_VOICES`, a test) | about 0 |
+| Estimate accepted; Babylon zones inert with one warning (F2) | | 0 |
 
 ### 10.2 Total and reserve
 
-Base tasks (no optional rows): A 31, B 25.5, C 39.75 (incl. C3b), D 28.75, F 3.5, E 35.5 = **164 days**. **Named reserve 14 days:** R1 SADIE II below the horizon if the floor-below check fails 4 d; R2 lab-VM tuning of presets, the cap and wasm size (a `wasm-opt` pass) 5 d; R4 listening-pass fixes (kind dwell, crossfade length, material values, send curve default) 5 d. (Round 1's R3, the in-core IR fallback, is now task C3b.)
-
-| Case | Days | Person-weeks |
-|---|---|---|
-| **Base** (tasks + reserve) | 178 | **35.6** |
-| + O1 standby slot | 181.5 | 36.3 |
-| + O2 ladder | 180 | 36.0 |
-| **+ O1 + O2** | 183.5 | **36.7** |
+Tasks, summed from the rows: A 31.5, B 25.5, C 44.25 (incl. C3b), D 29.25, F 3.5, E 35.5 = **169.5 days**. **Named reserve 14 days:** R1 SADIE II below the horizon if the floor-below check fails 4 d; R2 lab-VM tuning of presets, the cap and wasm size (a `wasm-opt` pass) 5 d; R4 listening-pass fixes (kind dwell, crossfade length, material values, send curve default) 5 d. (Round 1's R3, the in-core IR fallback, is task C3b.) **Total 183.5 days, about 36.7 person-weeks** (against round 1's 32.7 and the record's 22).
 
 ### 10.3 Line by line against round 1 (32.7 pw) and the record (22 pw)
 
 | Line | Record pw | Round 1 d | Round 2 d (base) | pw |
 |---|---|---|---|---|
-| Bed (A1-A7) | 4.5 | 27 | 31 | 6.2 |
+| Bed (A1-A7) | 4.5 | 27 | 31.5 | 6.3 |
 | Ambisonic clips (B) | 3 | 23 | 25.5 | 5.1 |
-| Zones (C incl. C3b) | 5.5 | 33 | 39.75 | 7.95 |
+| Zones (C incl. C3b) | 5.5 | 33 | 44.25 | 8.85 |
 | Occlusion with filters (D0, D1, D2a, D2b, D6) | 3 | 16 | 19.75 | 3.95 |
-| Doppler and event effects (D3, D4, D5) | 1 | 9 | 9 | 1.8 |
+| Doppler and event effects (D3, D4, D5) | 1 | 9 | 9.5 | 1.9 |
 | Fallback (F) | 0.5 | 4.5 | 3.5 | 0.7 |
 | Editor (E1-E7, E9) | 4 | 26 | 27 | 5.4 |
 | Samples, guides, listening pass (E8, E10) | 0 | 8 | 8.5 | 1.7 |
 | Reserve | 0.5 | 17 | 14 | 2.8 |
-| **Total** | **22** | **163.5 (32.7)** | **178 (35.6)** | |
+| **Total** | **22** | **163.5 (32.7)** | **183.5 (36.7)** | |
 
-Round 1 to round 2: +14.5 days net, roughly: the architecture's needs (private decoders and `maxClips` +2, separate wide rings and FuMa per chunk +1.5, shared-return scaling +1, baked equal-power matrix +1.2, the ray query with exclusion +1.5, lateral rays and ray-count EMA +1.5, the equal-power crossfade +0.5, zone return bus and STATUS telemetry +1, `mode=fit` sweeps and worst-case scenes +3) less in-core IR preparation moved from reserve (+3 / -3) less the mono-once and pool simplifications and the inert fallback zones (-1.5 net on F2). Against the record: **+13.6 pw**, of which about 5 is priced tests and tooling, 3.5 the wire, ray query, convolver split and 16-channel generalisation, 1.7 samples and listening, and the rest the architecture's additions; the reserve is named, not 0.5.
+Round 1 to round 3: +20 days net, roughly (+14.5 in round 2, +5.5 from the owner's decisions): the architecture's needs (private decoders and `maxClips` +2, separate wide rings and FuMa per chunk +1.5, shared-return scaling +1, baked equal-power matrix +1.2, the ray query with exclusion +1.5, lateral rays and ray-count EMA +1.5, the equal-power crossfade +0.5, zone return bus and STATUS telemetry +1, `mode=fit` sweeps and worst-case scenes +3) less in-core IR preparation moved from reserve (+3 / -3) less the mono-once and pool simplifications and the inert fallback zones (-1.5 net on F2). Against the record: **+14.7 pw**, of which about 5 is priced tests and tooling, 3.5 the wire, ray query, convolver split and 16-channel generalisation, 1.7 samples and listening, and the rest the architecture's additions; the reserve is named, not 0.5.
 
 **Cost model:** [ARCH §7.2] is the one cost model (coordinator verification: the two drafts' worst-high figures, 0.42 and 0.63 ms, differed only in per-pass filter and send costs, all estimates that task C3's bench measures). Its HRTF figure (32 → 8 removes 24 × 7.4 ≈ 178 µs, with those voices counted in the bed at 0.5 µs each) is the same saving as 24 × (7.4 − 0.5) ≈ 166 µs net.
 
@@ -471,14 +466,14 @@ Round 1 to round 2: +14.5 days net, roughly: the architecture's needs (private d
 2. **Ray query and `WorldRayHit`**: the record's `Physics.raycast` is not reachable from the audio plugin; D0 adds a core interface (confirmed).
 3. **Default occlusion layers make every collider an occluder** (characters, props); the samples set layers explicitly and Settings says so.
 4. **Event keys**: `sends` holds `reverb` plus one aux bus; `occlusion` lives in `spatial`.
-5. **Babylon zones**: the record's `ConvolverNode` is not reachable through the public API (§8); inert unless the owner accepts underscore members.
+5. **Babylon zones**: the record's `ConvolverNode` is not reachable through the public API (§8); the owner decided: inert with one warning.
 6. **Sends skip the dry gain, the occlusion low-pass and the event's static filter** (R11 consequences); [ARCH §3.3, §4] state the send "post-filter" and need the amendment of §4.4.
 7. **R13 says 30 frames; the architect's issue 10 asks 500 ms.** §3.2 uses 500 ms of game time (30 frames at 60 Hz), tested as the later of the two. Coordinator to confirm.
 8. **R16 labels "a separate region" as the senior engineer's design;** it was the architect's (mine reused the narrow slots). The ruling's content (a separate `Wide` region sized by `maxClips`) is what this file implements.
 9. **R2's "filter state in the pool at ≈ 120 B"** is one biquad; the entry holds two plus send and bed state (about 448 B, §3.1).
 10. **Beds memory:** the record's "about 110 KB" is one bed plus the decoder; §3.1 gives 112 / 208 / 352 KB by preset.
-11. **Kernel budget:** with a kernel per slot, a third zone's kernel cannot be prepared until a slot's kernel is released (an extra 50-200 ms); a spare kernel would add 3.0 MB at high. Accepted; owner item 2 interacts.
-12. **Reverb return** is now a per-zone bus (R17): the record's "added to the output" changes; reported to the owner as a ruling.
+11. **Kernel budget:** with a kernel per slot, a third zone's kernel cannot be prepared until a slot's kernel is released (an extra 50-200 ms); a spare kernel would add 3.0 MB at high. Accepted (the standby slot is on high and default).
+12. **Reverb return** is now a per-zone bus (R17): the record's "added to the output" changes; ruled (R17).
 
 ## 12. Resolutions: every item of `review-round2-architect.md`
 
@@ -495,7 +490,7 @@ Round 1 to round 2: +14.5 days net, roughly: the architecture's needs (private d
 | Issue 9: FuMa f32 | **Taken with changes** | scaled into int16 headroom with the inverse in the import volume; orders whose factor exceeds 4 keep f32 (§2.4) |
 | Issue 10: 500 ms dwell | **Taken with changes** | 500 ms of game time, at least 30 frames' worth at 60 Hz (§3.2; §11 item 7) |
 | Issue 11: send scale to 8x | **Taken** (R8) | product with the curve clamped to 4 |
-| Issue 12: eviction cuts a ringing tail | **Taken** | priced as owner item O1; without it eviction fades 150 ms |
+| Issue 12: eviction cuts a ringing tail | **Taken** | standby slot on high and default; low evicts with a 150 ms fade; both paths tested (C3, C5) |
 | Issue 13: 64-zone cap | **Taken** | zones past 64 warn by name (§3.2) |
 | Section 3 S1: add "zone set re-plans every 4 frames" | **Taken with changes** | the active set re-plans every 4 frames with 1.5x for 500 ms; weights update each frame |
 | S2 axis map and 0.001 rad | **Taken** | §4.2 |
@@ -517,4 +512,4 @@ Round 1 to round 2: +14.5 days net, roughly: the architecture's needs (private d
 | C11, C12, C13 | **Taken with changes** | `output` bus field (R17); `reverbSendCurve`; `openness` (R15); materials as §2.2 |
 | C15-C24 | **Taken** | §1.6, §5.1; C18 coefficients (`SEND` 300, `AMBI_ROTATE` 2,000) adopted in the cost model |
 | Section 5 conflicts | **Taken** | all resolved by the rulings; the table at §4 reflects them |
-| Section 6 owner list | **Priced, not decided** | §10.1 |
+| Section 6 owner list | **Taken** (owner decisions, round 3) | folded into the base tasks (§10.1): HRTF 8, standby on high and default, ladder in, root owns a bed, zone return bus |
