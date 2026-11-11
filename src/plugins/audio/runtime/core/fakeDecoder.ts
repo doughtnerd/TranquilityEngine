@@ -63,13 +63,40 @@ export function fakeDecoder(decode: (encoded: ArrayBuffer) => PlanarClip | Promi
      * than the member's is ignored) and opens the others, then one `groupOpened`. Records the message in `primed`.
      */
     primeGroup(options: PrimeGroupOptions): void {
-      void [groups, primed, streamListeners, musicListeners, options];
-      throw new Error("L-D1ba: fakeDecoder.primeGroup not implemented");
+      const { members, ...head } = options;
+      primed.push(head);
+      let open = groups.get(options.group);
+      if (!open) {
+        open = new Map<number, FakeGroupMember>();
+        groups.set(options.group, open);
+      }
+      const target = open;
+      for (const m of members) {
+        const existing = target.get(m.streamId);
+        if (options.retarget && existing) {
+          // C8: a retargeted member restarts only under a newer epoch (wrap-safe); otherwise nothing changes.
+          if (((m.epoch - existing.epoch) | 0) > 0) target.set(m.streamId, { asset: m.asset, epoch: m.epoch, startFrame: m.startFrame });
+          continue;
+        }
+        target.set(m.streamId, { asset: m.asset, epoch: m.epoch, startFrame: m.startFrame });
+        // The fake decodes nothing, so the stream's info is unknown until a real decode would report it.
+        const info = { rate: 48_000, channels: 1, frames: -1, framesEstimate: -1, codec: 0, lengthKnown: false };
+        for (const l of streamListeners) l({ type: "streamOpened", streamId: m.streamId, epoch: m.epoch, info });
+      }
+      const reply: MusicReply = {
+        type: "groupOpened",
+        group: options.group,
+        members: members.map((m) => ({ streamId: m.streamId, openMs: 0 })),
+      };
+      for (const l of musicListeners) l(reply);
     },
     /** L-D1ba: emits `streamClosed` through `onStream` for each member of `group` and forgets the group; unknown ids are ignored. */
     cancelGroup(group: number): void {
-      void group;
-      throw new Error("L-D1ba: fakeDecoder.cancelGroup not implemented");
+      const open = groups.get(group);
+      if (!open) return;
+      const ids = [...open.keys()];
+      groups.delete(group);
+      for (const streamId of ids) for (const l of streamListeners) l({ type: "streamClosed", streamId });
     },
     /** L-D1ba: accepted and ignored (the fake has no encoded cache). */
     protectMusic(instance: number, paths: readonly string[]): void {
