@@ -495,6 +495,11 @@ fn render_voices(core: &mut Core, frame: u64, from: usize, to: usize, mut walk: 
             state::PLAYING => from,
             _ => continue,
         };
+        if slot.reserved != 0 {
+            // 0166 M4-0 (Z2b): a shaped fade's control-rate retarget at its knots (quantum
+            // boundaries); one byte compare for every other voice, nothing per sample.
+            crate::curves::step(v.curves, index, &mut slot.reserved, &mut slot.fade, &mut slot.gain, (QUANTUM - start) as u32);
+        }
         let Some((out_l, out_r)) = inputs.get(slot.bus) else { continue };
         if slot.flags & flag::MIXED != 0 {
             *source_frames += slot.pitch.value * slot.rate_ratio * (to - start) as f32;
@@ -566,15 +571,20 @@ fn render_due_voice(core: &mut Core, frame: u64, from: usize, to: usize, index: 
         crate::voice_split::boundaries(list.for_voice(id), frame, first, to, &mut pieces);
     }
     let mut renders = 0u32;
-    for (a, b) in pieces.ranges() {
+    'pieces: for (a, b) in pieces.ranges() {
         let mut pos = a;
         while pos < b {
             apply_due_through(core, id, frame, pos);
+            if !is_live_state(view(core.regions_mut()).slots[index].state) {
+                // Ended inside the range (or by a record here): no more pieces; its records left
+                // apply below, to no effect, and count nothing.
+                break 'pieces;
+            }
             let (stop, due, record) = next_piece(core, index, id, frame, pos, b);
             render_voices(core, frame, pos, stop, Walk::One(index, &due), acc);
             renders += 1;
             if due.at != u32::MAX {
-                after_gain_record(core, index, &record, &due);
+                after_gain_record(core, index, &record, &due, (stop - pos) as u32);
             }
             pos = stop;
         }
@@ -632,12 +642,18 @@ fn gain_record(core: &mut Core, index: usize, record: &DueRecord, frame: u64, po
     let due = {
         let v = view(core.regions_mut());
         let s = &mut v.slots[index];
-        let mut ramp = if crate::due::ramp_of(record) == ramp_of::GAIN { s.gain } else { s.fade };
+        let on_gain = crate::due::ramp_of(record) == ramp_of::GAIN;
+        if !on_gain && s.flags & flag::STOP_ON_FADE_END != 0 {
+            // Z2b: a stopping voice renders only to its fade's end, counted before the piece; a
+            // record that moves that end applies at its sample after a split, as before.
+            return DueGain::NONE;
+        }
+        let mut ramp = if on_gain { s.gain } else { s.fade };
         for _ in pos..k {
             ramp.next();
         }
         let shape = Shape::from_word(crate::scheduler::shape_word(record));
-        crate::curves::prepare(v.curves, index, s.id, &mut s.reserved, record, shape, record.frame.max(frame), frame + pos as u64, ramp.value, &mut full)
+        crate::curves::prepare(v.curves, index, s.id, &mut s.reserved, record, shape, record.frame.max(frame), frame + pos as u64, frame + QUANTUM as u64, ramp.value, &mut full)
     };
     if full != 0 {
         let c = &mut status::counters_mut(core).music;
@@ -649,11 +665,24 @@ fn gain_record(core: &mut Core, index: usize, record: &DueRecord, frame: u64, po
 /// After a piece in which the gain loop took a class G record (`due`): a STOP with fade 0 ended the
 /// voice at its sample (`due.truncate_at`), and a stopping fade (STOP with a fade, FADE with "stop
 /// at end") marks the voice to end when its fade settles, as `stop` and `fade` do.
-fn after_gain_record(core: &mut Core, index: usize, record: &DueRecord, due: &DueGain) {
+///
+/// Z2b: a voice that stopped rendering before the record's sample (`curves::fired` says it never
+/// fired: a stream waiting for data, a pause or seek fade-out that settled) gets the record applied
+/// now, through `scheduler::apply`, as the old split applied it to a voice that wasn't moving. A
+/// record that fired disarms its curve (`curves::disarm`). `len` is the piece's frames.
+fn after_gain_record(core: &mut Core, index: usize, record: &DueRecord, due: &DueGain, len: u32) {
     let v = view(core.regions_mut());
     let s = &mut v.slots[index];
     if !is_live_state(s.state) {
         return;
+    }
+    if due.truncate_at == u32::MAX {
+        let ramp = if due.ramp == ramp_of::GAIN { &s.gain } else { &s.fade };
+        if !crate::curves::fired(ramp, due, len) {
+            crate::scheduler::apply(core, record);
+            return;
+        }
+        crate::curves::disarm(v.curves, s.reserved, index);
     }
     if due.truncate_at != u32::MAX {
         s.state = state::ENDED;
@@ -662,6 +691,25 @@ fn after_gain_record(core: &mut Core, index: usize, record: &DueRecord, due: &Du
         if s.fade.is_settled() {
             s.state = state::ENDED;
         }
+    }
+}
+
+/// 0166 M4-0 (Z2b): after `scheduler::apply` applied a class G record (or a SET_PARAMS with the gain
+/// bit) outside the gain loop (asap, between a voice's pieces, at a quantum split): the record's
+/// shape takes effect on its voice (`curves::applied`; shape 0 only releases a curve it replaces).
+pub(crate) fn shape_applied(core: &mut Core, record: &DueRecord) {
+    let mut full = 0u16;
+    {
+        let v = view(core.regions_mut());
+        let Some(index) = find(&v, record.voice_id) else { return };
+        let s = &mut v.slots[index];
+        let shape = Shape::from_word(crate::scheduler::shape_word(record));
+        let ramp = if crate::due::ramp_of(record) == ramp_of::GAIN { &mut s.gain } else { &mut s.fade };
+        crate::curves::applied(v.curves, index, s.id, &mut s.reserved, ramp, record, shape, &mut full);
+    }
+    if full != 0 {
+        let c = &mut status::counters_mut(core).music;
+        c.curve_pool_full = c.curve_pool_full.saturating_add(full);
     }
 }
 
@@ -1661,7 +1709,8 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         s.reserved = 0;
         s.gain = Ramp::at(play.gain);
         s.pitch = Ramp::at(play.pitch);
-        s.fade = Ramp::at(1.0);
+        // 0166 M4-0 (R5, api-and-models §4.1): `fadeZero` starts the fade at 0, for a FADE to open.
+        s.fade = Ramp::at(if play.flags & wire::PLAY_FLAGS_FADE_ZERO != 0 { 0.0 } else { 1.0 });
         s.mix = Ramp::at(if flags & flag::MIXED != 0 { 1.0 } else { 0.0 });
         let spatial = play.flags & wire::PLAY_FLAGS_SPATIAL != 0;
         let kind = ((play.flags & wire::PLAY_FLAGS_PANNER_MASK) >> wire::PLAY_FLAGS_PANNER_SHIFT) as u8;

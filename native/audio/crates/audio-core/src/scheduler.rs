@@ -547,6 +547,17 @@ pub fn apply(core: &mut Core, record: &PendingRecord) {
         }
         _ => {}
     }
+    // 0166 M4-0 (Z2b): a record that ramps a voice's fade or gain outside the gain loop (asap,
+    // between a voice's pieces, at a quantum split) takes its `shape` here: a law or a start phase,
+    // or, for shape 0, only the release of a curve it replaces on that ramp.
+    let ramps_gain = match record.op as u16 {
+        wire::op::STOP | wire::op::FADE => true,
+        wire::op::SET_PARAMS => record.mask & wire::SET_PARAMS_MASK_GAIN as u8 != 0,
+        _ => false,
+    };
+    if ramps_gain {
+        voices::shape_applied(core, record);
+    }
 }
 
 /// Pending records waiting.
