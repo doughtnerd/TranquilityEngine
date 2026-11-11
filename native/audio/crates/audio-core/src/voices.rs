@@ -258,6 +258,26 @@ pub(crate) fn live_index(core: &mut Core, voice_id: u32) -> Option<usize> {
     find(&view(core.regions_mut()), voice_id)
 }
 
+/// 0166 M4-0 (`due::route`): the `flags2` byte of the live voice `voice_id` (scheduled or playing),
+/// or `None` (stale or ended).
+pub(crate) fn live_flags2(core: &mut Core, voice_id: u32) -> Option<u8> {
+    let v = view(core.regions_mut());
+    find(&v, voice_id).map(|index| v.slots[index].flags2)
+}
+
+/// 0166 M4-0 (`due.rs`): sets voice `voice_id`'s `due` bit (`due::FLAG2_DUE`, only on that exact
+/// voice) or clears it from its slot (whichever voice holds the slot now: the bit only lives one
+/// quantum).
+pub(crate) fn set_due(core: &mut Core, voice_id: u32, on: bool) {
+    let v = view(core.regions_mut());
+    let Some(s) = v.slots.get_mut((voice_id & 0xFFFF) as usize) else { return };
+    if !on {
+        s.flags2 &= !crate::due::FLAG2_DUE;
+    } else if s.id == voice_id {
+        s.flags2 |= crate::due::FLAG2_DUE;
+    }
+}
+
 /// Live voices (slots not free).
 pub fn live_count(core: &mut Core) -> u32 {
     view(core.regions_mut()).area.live_count
@@ -570,7 +590,7 @@ fn render_due_voice(core: &mut Core, frame: u64, from: usize, to: usize, index: 
 fn next_piece(core: &mut Core, index: usize, id: u32, frame: u64, pos: usize, b: usize) -> (usize, DueGain, DueRecord) {
     let mut next = None;
     for (at, r) in crate::due::view(core.regions_mut()).records().iter().enumerate() {
-        if r.voice_id != id {
+        if !crate::due::is_for(r, id) {
             continue;
         }
         let k = crate::due::offset(r, frame);
@@ -649,7 +669,7 @@ fn apply_due_through(core: &mut Core, id: u32, frame: u64, pos: usize) {
     loop {
         let record = {
             let mut list = crate::due::view(core.regions_mut());
-            let Some(at) = list.records().iter().skip(from).position(|r| r.voice_id == id).map(|i| i + from) else { return };
+            let Some(at) = list.records().iter().skip(from).position(|r| crate::due::is_for(r, id)).map(|i| i + from) else { return };
             let r = list.records()[at];
             if crate::due::offset(&r, frame) > pos {
                 return;
@@ -1491,9 +1511,14 @@ fn report(core: &mut Core) {
         v.area.mixed_count = mixed;
         (v.area.live_count, mixed, ambisonic, v.area.ended_len as usize, v.area.playheads_len as usize, late.0, late.1)
     };
+    let parked = !crate::due::view(core.regions_mut()).parked().is_empty();
     for i in 0..ended {
         let id = view(core.regions_mut()).area.ended[i];
         status::counters_mut(core).ended.push(id);
+        if parked {
+            // 0166 M4-0 (R10): an ended voice's parked records go with it.
+            crate::due::view(core.regions_mut()).drop_parked(id);
+        }
     }
     status::counters_mut(core).playheads.clear();
     for i in 0..playheads {
@@ -1649,6 +1674,8 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
     automation::on_play(core, index, play.voice_id, play.group);
     if let Some((old, stream, clip)) = replaced {
         status::counters_mut(core).ended.push(old);
+        // 0166 M4-0 (R10): so do the replaced voice's parked records.
+        crate::due::view(core.regions_mut()).drop_parked(old);
         if stream {
             core.streams_mut().release(clip, old);
         }

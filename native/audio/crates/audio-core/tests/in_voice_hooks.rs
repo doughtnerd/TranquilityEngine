@@ -128,3 +128,86 @@ fn with_no_due_records_every_voice_renders_in_one_range_bit_identical() {
 
 /// Recorded before H1 (see the module comment).
 const UNSTAMPED_DIGEST: u64 = 0xfc25_84c0_769b_5f4b;
+
+fn stamped(rec: Rec, frame_offset: u32) -> Rec {
+    match rec {
+        Rec::Play(mut p) => {
+            p.frame_offset = frame_offset;
+            Rec::Play(p)
+        }
+        Rec::Set(mut p) => {
+            p.frame_offset = frame_offset;
+            Rec::Set(p)
+        }
+        Rec::Raw(mut b) => {
+            // Every record head keeps `frameOffset` at bytes 8..12.
+            b[8..12].copy_from_slice(&frame_offset.to_le_bytes());
+            Rec::Raw(b)
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// Z2a's acceptance: stamped per-voice records inside a quantum go into the due list and apply in
+/// their voice, so nothing splits the quantum; the voice renders in pieces (with Z2b's and Z2c's
+/// stubs every record splits its own voice's render, each counting `voiceSplits`).
+#[test]
+fn stamped_per_voice_records_split_only_their_voice() {
+    let mut m = mixer();
+    let recs: Vec<Rec> = (1..=6u32).map(|i| play(voice(i), CLIPS[(i % 3) as usize], ROOT, MIXED | LOOP)).collect();
+    m.submit(&recs);
+    m.render_n(2);
+    // Frame 256 + 40 and 256 + 90: a fade and a pitch ramp on voice 2, a stop with a fade on voice 5.
+    m.submit(&[
+        stamped(fade(voice(2), 0.5, 64), 40),
+        stamped(set_params(voice(2), wire::SET_PARAMS_MASK_PITCH, 0.0, 1.5, [0.0; 3], 32), 90),
+        stamped(stop(voice(5), 100), 90),
+    ]);
+    assert_eq!(audio_core::scheduler::pending_len(&mut m.core), 3);
+    m.render();
+    let c = &status::counters(&m.core).music;
+    assert_eq!(c.split_quanta, 0, "per-voice records never split the quantum");
+    assert_eq!(c.voice_splits, 3, "voice 2 in three pieces, voice 5 in two");
+    let s = voices::slots(&m.core);
+    assert_eq!((s[2].fade.target, s[2].pitch.target), (0.5, 1.5), "both reached voice 2");
+    assert_eq!(s[5].fade.target, 0.0, "the stop reached voice 5");
+    assert!(s.iter().all(|s| s.flags2 & FLAG2_DUE == 0 || s.id == voice(2) || s.id == voice(5)), "only the targets are flagged");
+    m.render();
+    assert!(voices::slots(&m.core).iter().all(|s| s.flags2 & FLAG2_DUE == 0), "the bits last one quantum");
+}
+
+/// §3.1: "so does a quantum with more than 256 due records": the records past `DUE_RECORDS` split
+/// the quantum, which counts once, and every record still applies, in order.
+#[test]
+fn past_the_due_list_a_quantum_splits_and_counts_once() {
+    let mut m = mixer();
+    m.submit(&[play(voice(1), CLIPS[0], ROOT, MIXED | LOOP)]);
+    m.render();
+    let n = audio_core::due::DUE_RECORDS + 4;
+    let recs: Vec<Rec> = (0..n).map(|k| stamped(Rec::Set(wire::SetParams { voice_id: voice(1), mask: wire::SET_PARAMS_MASK_SCORE, score: k as f32, ..Default::default() }), 10 + (k / 64) as u32)).collect();
+    m.submit(&recs);
+    m.render();
+    let c = &status::counters(&m.core).music;
+    assert_eq!(c.split_quanta, 1);
+    assert_eq!(voices::slots(&m.core)[1].score, (n - 1) as f32, "the last record applied last");
+}
+
+/// ADR 0167 §1.1 says a stamped spatial play with non-default effects splits the quantum because
+/// its SET_VOICE_FX goes at the same frame (`coreBackend.ts` `sendPlay`, `voiceFx.ts` `onPlay`).
+/// It doesn't, before or after M4-0: PLAY writes its slot at once and SET_VOICE_FX applies at once
+/// (`fxpool::set_voice_fx` ignores its frame), so neither enters the pending queue.
+#[test]
+fn a_stamped_spatial_play_with_sends_queues_nothing_and_splits_nothing() {
+    let mut m = mixer();
+    m.render();
+    let Rec::Play(mut p) = play(voice(3), CLIPS[1], ROOT, MIXED | SPATIAL) else { unreachable!() };
+    p.dir_x = 0.6;
+    p.dir_z = -0.8;
+    let mut fx = vec![0u8; wire::SetVoiceFx::FIXED_END];
+    wire::SetVoiceFx { voice_id: voice(3), frame_offset: 0, mask: wire::SET_VOICE_FX_MASK_SENDS | wire::SET_VOICE_FX_MASK_HP_HZ, ramp_frames: 0, hp_hz: 200.0, send: [0.5, 0.25, 0.0, 0.0], yaw: 0.0, aux_level: 0.0, aux_bus: wire::AUX_BUS_NONE as u16, reserved: 0 }.write(&mut fx, 0).unwrap();
+    m.submit(&[stamped(Rec::Play(p), 300), stamped(raw(fx), 300)]);
+    assert_eq!(audio_core::scheduler::pending_len(&mut m.core), 0, "nothing waits in the pending queue");
+    m.render_n(4);
+    let c = &status::counters(&m.core).music;
+    assert_eq!((c.split_quanta, c.voice_splits), (0, 0));
+}
