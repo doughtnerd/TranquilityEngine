@@ -908,6 +908,214 @@ pub fn cases() -> Vec<VectorCase> {
                 "0000803e", "0000003f", "0000803f", "0000403f", // peaks: (0.25, 0.5), (1.0, 0.75)
             ),
         ),
+        // FADE, 28 B = 7 words: a fade-in to 1 (target 1.0, frames 480, flags 0) stamped at 480 with equal power in
+        // and startPhase 0x4000 (a quarter): shape = law 2 | 0x4000 << 16 = 0x40000002. ADR 0166, API section 4.2.
+        case(
+            "FADE_equal_power_in_phase_quarter",
+            Subject::Opcode("FADE"),
+            vec![
+                ("voiceId", vu(7)),
+                ("frameOffset", vu(480)),
+                ("target", vf(1.0)),
+                ("frames", vu(480)),
+                ("flags", vu(0)),
+                ("shape", vu(0x4000_0002)),
+            ],
+            concat!(
+                "0400", "0700", "07000000", "e0010000", // head: FADE, 7 words, voice 7, frame 480
+                "0000803f", // target 1.0
+                "e0010000", // frames 480
+                "00000000", // flags 0
+                "02000040", // shape: equal power in (2), startPhase 0x4000
+            ),
+        ),
+        // STOP, 24 B = 6 words: fadeFrames 240, reason 1, stamped at 1000 with equal power out (3), startPhase 0.
+        // shape = 3 = 0x00000003. ADR 0166, API section 4.2.
+        case(
+            "STOP_equal_power_out",
+            Subject::Opcode("STOP"),
+            vec![
+                ("voiceId", vu(3)),
+                ("frameOffset", vu(1000)),
+                ("fadeFrames", vu(240)),
+                ("reason", vu(1)),
+                ("shape", vu(3)),
+            ],
+            concat!(
+                "0200", "0600", "03000000", "e8030000", // head: STOP, 6 words, voice 3, frame 1000
+                "f0000000", // fadeFrames 240
+                "01000000", // reason 1
+                "03000000", // shape: equal power out (3), startPhase 0
+            ),
+        ),
+        // SET_PARAMS, 60 B = 15 words: mask gain (bit 0), gain 0.5, rampFrames 128, flags 0, stamped at 4096 with an
+        // S-curve (1) and startPhase 0x8000 (a half): shape = 1 | 0x8000 << 16 = 0x80000001. ADR 0166, API section 4.2.
+        case(
+            "SET_PARAMS_s_curve",
+            Subject::Opcode("SET_PARAMS"),
+            vec![
+                ("voiceId", vu(7)),
+                ("frameOffset", vu(4096)),
+                ("mask", vu(0x1)),
+                ("gain", vf(0.5)),
+                ("pitch", vf(0.0)),
+                ("dirX", vf(0.0)),
+                ("dirY", vf(0.0)),
+                ("dirZ", vf(0.0)),
+                ("lpHz", vf(0.0)),
+                ("score", vf(0.0)),
+                ("bus", vu(0)),
+                ("rampFrames", vu(128)),
+                ("flags", vu(0)),
+                ("shape", vu(0x8000_0001)),
+            ],
+            concat!(
+                "0300", "0f00", "07000000", "00100000", // head: SET_PARAMS, 15 words, voice 7, frame 4096
+                "01000000", // mask: gain
+                "0000003f", // gain 0.5
+                "00000000", // pitch
+                "00000000", // dirX
+                "00000000", // dirY
+                "00000000", // dirZ
+                "00000000", // lpHz
+                "00000000", // score
+                "00000000", // bus
+                "80000000", // rampFrames 128
+                "00000000", // flags
+                "01000080", // shape: S-curve (1), startPhase 0x8000
+            ),
+        ),
+        // PLAY, 56 B = 14 words: fadeZero (0x100) | loop (0x1) | mixed (0x8) = 0x109, stamped at 2400, clip 4, bus 0.
+        // The gain, pitch and score are the usual defaults; lpHz 24000.0. ADR 0166, API section 4.1.
+        case(
+            "PLAY_fade_zero",
+            Subject::Opcode("PLAY"),
+            vec![
+                ("voiceId", vu(9)),
+                ("frameOffset", vu(2400)),
+                ("clip", vu(4)),
+                ("bus", vu(0)),
+                ("flags", vu(0x109)),
+                ("group", vu(0)),
+                ("gate", vu(0)),
+                ("gain", vf(1.0)),
+                ("pitch", vf(1.0)),
+                ("dirX", vf(0.0)),
+                ("dirY", vf(0.0)),
+                ("dirZ", vf(0.0)),
+                ("lpHz", vf(24000.0)),
+                ("score", vf(0.75)),
+                ("startOffsetFrames", vu(0)),
+            ],
+            concat!(
+                "0100", "0e00", "09000000", "60090000", // head: PLAY, 14 words, voice 9, frame 2400
+                "04000000", // clip 4
+                "0000", // bus 0
+                "0901", // flags: 0x100 fadeZero | 0x08 mixed | 0x01 loop
+                "0000", // group 0
+                "0000", // reserved
+                "0000803f", // gain 1.0
+                "0000803f", // pitch 1.0
+                "00000000", // dirX
+                "00000000", // dirY
+                "00000000", // dirZ
+                "0080bb46", // lpHz 24000.0
+                "0000403f", // score 0.75
+                "00000000", // startOffsetFrames
+            ),
+        ),
+        // STATUS, 176 B header only (no sections): READY flag; the M4 header fields read distinct non-zero values
+        // (musicRingCount and groupStartCount are 0 because no section exists at this commit; reserved 0).
+        // Offsets: 144 musicRingCount, 146 groupStartCount, 148 musicRingsOpen 2, 150 streamStartsLate 3,
+        // 152 groupsLate 4, 154 groupsHeld 5, 156 groupsAbandoned 6, 158 curvePoolFull 7, 160 maxSlipFrames 65536,
+        // 164 splitQuanta 258, 168 voiceSplits 4096, 172 reserved 0. bodyBytes 160; seq 31.
+        case(
+            "STATUS_m4_header_only",
+            Subject::Status,
+            vec![
+                ("seq", vu(31)),
+                ("currentFrame", vf(0.0)),
+                ("dateMs", vf(0.0)),
+                ("pingSeq", vu(0)),
+                ("pingFrameLo", vu(0)),
+                ("underruns", vu(0)),
+                ("lateCommands", vu(0)),
+                ("workUnits", vu(0)),
+                ("workUnitsMax", vu(0)),
+                ("mixedVoices", vu(0)),
+                ("liveVoices", vu(0)),
+                ("flags", vu(0x10)),
+                ("mixedCap", vu(0)),
+                ("loadPermille", vu(0)),
+                ("traps", vu(0)),
+                ("minSlackFrames", vi(0)),
+                ("underrunFrames", vu(0)),
+                ("arenaUsedKB", vu(0)),
+                ("arenaLargestFreeKB", vu(0)),
+                ("abiVersion", vu(0)),
+                ("maxLatenessFrames", vu(0)),
+                ("hrtfVoices", vu(0)),
+                ("hrtfLoadFailure", vu(0)),
+                ("bedVoices", vu(0)),
+                ("fxVoices", vu(0)),
+                ("ambisonicVoices", vu(0)),
+                ("zonesActive", vu(0)),
+                ("zonesRinging", vu(0)),
+                ("bedsRefused", vu(0)),
+                ("m3Shed", vu(0)),
+                ("zoneUsedKB", vu(0)),
+                ("workBed", vu(0)),
+                ("workZones", vu(0)),
+                ("musicRings", va(vec![])),
+                ("groupStarts", va(vec![])),
+                ("musicRingsOpen", vu(2)),
+                ("streamStartsLate", vu(3)),
+                ("groupsLate", vu(4)),
+                ("groupsHeld", vu(5)),
+                ("groupsAbandoned", vu(6)),
+                ("curvePoolFull", vu(7)),
+                ("maxSlipFrames", vu(65536)),
+                ("splitQuanta", vu(258)),
+                ("voiceSplits", vu(4096)),
+                ("ended", va(vec![])),
+                ("demoted", va(vec![])),
+                ("starved", va(vec![])),
+                ("playheads", va(vec![])),
+                ("clipEvents", va(vec![])),
+                ("streamEvents", va(vec![])),
+                ("peaks", va(vec![])),
+                ("beds", va(vec![])),
+                ("zones", va(vec![])),
+                ("zoneEvents", va(vec![])),
+            ],
+            concat!(
+                "3141594d", "0201", "0900", "1f000000", "a0000000", // envelope: STATUS, seq 31, bodyBytes 160
+                "0000000000000000", // 16 currentFrame f64 0.0
+                "0000000000000000", // 24 dateMs f64 0.0
+                "00000000", // 32 pingSeq
+                "00000000", // 36 pingFrameLo
+                "00000000", // 40 underruns
+                "00000000", // 44 lateCommands
+                "00000000", // 48 workUnits
+                "00000000", // 52 workUnitsMax
+                "0000", // 56 mixedVoices
+                "0000", // 58 liveVoices
+                "10000000", // 60 flags: ready (0x10)
+                "0000", "0000", "0000", "0000", "0000", "0000", "0000", // 64..77 section counts, all 0
+                "0000", "0000", "0000", // 78 mixedCap, 80 loadPermille, 82 traps
+                "00000000", "00000000", "00000000", "00000000", // 84 minSlackFrames .. 96 arenaLargestFreeKB
+                "00000000", "00000000", // 100 abiVersion, 104 maxLatenessFrames
+                "0000", "0000", // 108 hrtfVoices, 110 hrtfLoadFailure
+                "0000000000000000", "0000000000000000", // 112..127 bed, fx, ambisonic, zone counts (0)
+                "0000000000000000", "0000000000000000", // 128..143 zoneSlots, m3Shed, zoneUsedKB, workBed, workZones (0)
+                "0000", "0000", // 144 musicRingCount 0, 146 groupStartCount 0
+                "0200", "0300", "0400", "0500", "0600", "0700", // 148 musicRingsOpen 2 .. 158 curvePoolFull 7
+                "00000100", // 160 maxSlipFrames 65536
+                "02010000", // 164 splitQuanta 258
+                "00100000", // 168 voiceSplits 4096
+                "00000000", // 172 reserved 0
+            ),
+        ),
     ]
     .into_iter()
     .chain(crate::spatial_cases::spatial_cases())
