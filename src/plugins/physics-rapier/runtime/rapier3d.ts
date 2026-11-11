@@ -6,6 +6,7 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import type {
   BackendBody,
+  BackendRayInto,
   BackendCharacter,
   BackendCollider,
   BackendJoint,
@@ -211,6 +212,10 @@ export class RapierWorld3D implements PhysicsWorld3DBackend {
   readonly rapier: RAPIER.World;
   private readonly events = new RAPIER.EventQueue(true);
   private readonly bodies = new Map<number, Body>();
+  // `raycastInto`'s reused state: the ray, and the predicate (made once, it reads `rayAccept`).
+  private readonly queryRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
+  private rayAccept: (collider: number) => boolean = () => true;
+  private readonly rayPredicate = (c: RAPIER.Collider): boolean => this.rayAccept(c.handle);
 
   constructor(private readonly options: PhysicsWorldOptions<Dim3>) {
     this.rapier = new RAPIER.World(v3(options.gravity));
@@ -377,6 +382,27 @@ export class RapierWorld3D implements PhysicsWorld3DBackend {
     const hit = this.rapier.castRayAndGetNormal(ray, maxDistance, true, undefined, groups);
     if (!hit) return null;
     return { collider: hit.collider.handle, point: v3(ray.pointAt(hit.timeOfImpact)), normal: v3(hit.normal), distance: hit.timeOfImpact };
+  }
+
+  raycastInto(origin: Vec3, direction: Vec3, maxDistance: number, groups: number | undefined, excludeSensors: boolean, accept: (collider: number) => boolean, out: BackendRayInto): boolean {
+    const ray = this.queryRay;
+    ray.origin.x = origin.x;
+    ray.origin.y = origin.y;
+    ray.origin.z = origin.z;
+    ray.dir.x = direction.x;
+    ray.dir.y = direction.y;
+    ray.dir.z = direction.z;
+    this.rayAccept = accept;
+    // The predicate runs inside Rapier's traversal, so a rejected collider doesn't hide the one behind it.
+    const hit = this.rapier.castRay(ray, maxDistance, true, excludeSensors ? RAPIER.QueryFilterFlags.EXCLUDE_SENSORS : undefined, groups, undefined, undefined, this.rayPredicate);
+    if (!hit) return false;
+    const t = hit.timeOfImpact;
+    out.collider = hit.collider.handle;
+    out.distance = t;
+    out.point.x = origin.x + direction.x * t;
+    out.point.y = origin.y + direction.y * t;
+    out.point.z = origin.z + direction.z * t;
+    return true;
   }
 
   castShape(shape: QueryShape3D, position: Vec3, rotation: Quat, direction: Vec3, maxDistance: number, groups?: number) {

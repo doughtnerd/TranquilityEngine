@@ -38,6 +38,8 @@ export const PHYSICS_3D_SERVICE = physicsWorldService<PhysicsWorld3D>({
   neededBy: { sceneSetting: { physics: "3d" }, components: PHYSICS_3D_COMPONENTS, exceptSceneSetting: { physics: ["2d", "none"] } },
   create: (world, core, backend) => new core.PhysicsWorld3D(world, backend as PhysicsBackend3D),
   raycast: (p, origin, dir, maxDistance) => p?.raycast(origin, dir, maxDistance) ?? null,
+  // No backend loaded (p is null): no answer, like no service (ADR 0162, C14).
+  raycastInto: (p, out, origin, dir, maxDistance, query) => (p === null ? false : p.raycastInto(out, origin, dir, maxDistance, query)),
 });
 
 // The fixed-step 3D physics systems, after the 2D ones (ADR 0011): in every World, doing nothing in a
