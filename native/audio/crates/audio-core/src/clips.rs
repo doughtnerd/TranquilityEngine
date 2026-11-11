@@ -69,6 +69,9 @@ pub enum ClipFormat {
     ZoneKernel,
     /// ADR 0162 C6: zone IR PCM (format 5), interleaved stereo f32; never a voice's source.
     ZoneIrPcm,
+    /// ADR 0162 A4: the MagLS bed filters (format 4, id `MAGLS_CLIP_ID`): f32 words, the
+    /// `MaglsHeader` then `[16][2][taps]`; transformed into `bed.rs` at commit; never a voice's source.
+    MagLs,
 }
 
 impl ClipFormat {
@@ -80,6 +83,7 @@ impl ClipFormat {
             wire::clip_format::HRIR => Some(ClipFormat::Hrir),
             wire::clip_format::ZONE_KERNEL => Some(ClipFormat::ZoneKernel),
             wire::clip_format::ZONE_IR_PCM => Some(ClipFormat::ZoneIrPcm),
+            wire::clip_format::MAG_LS => Some(ClipFormat::MagLs),
             _ => None,
         }
     }
@@ -92,13 +96,14 @@ impl ClipFormat {
             ClipFormat::Hrir => 2,
             ClipFormat::ZoneKernel => 3,
             ClipFormat::ZoneIrPcm => 5,
+            ClipFormat::MagLs => 4,
         }
     }
 
     /// Bytes per sample.
     pub fn sample_bytes(self) -> usize {
         match self {
-            ClipFormat::F32 | ClipFormat::ZoneKernel | ClipFormat::ZoneIrPcm => 4,
+            ClipFormat::F32 | ClipFormat::ZoneKernel | ClipFormat::ZoneIrPcm | ClipFormat::MagLs => 4,
             ClipFormat::I16 | ClipFormat::Hrir => 2,
         }
     }
@@ -141,6 +146,7 @@ impl Entry {
             2 => ClipFormat::Hrir,
             3 => ClipFormat::ZoneKernel,
             5 => ClipFormat::ZoneIrPcm,
+            4 => ClipFormat::MagLs,
             _ => ClipFormat::F32,
         }
     }
@@ -272,6 +278,9 @@ impl ClipStore {
         }
         let zone_channels = if format == ClipFormat::ZoneKernel { 1 } else { 2 };
         if is_zone(format) && (!is_zone_kernel_id(id) || channels != zone_channels) {
+            return Err(wire::ERR_BAD_ARG);
+        }
+        if format == ClipFormat::MagLs && (id != wire::MAGLS_CLIP_ID || channels != 1) {
             return Err(wire::ERR_BAD_ARG);
         }
         let bank_bytes = if hrir {
@@ -412,6 +421,8 @@ impl ClipStore {
                 self.finish_hrir(at);
             } else if e.format() == ClipFormat::ZoneIrPcm {
                 // Task C3b prepares the kernel and reports `resident` then.
+            } else if e.format() == ClipFormat::MagLs {
+                // ADR 0162 A4: the core-level `commit` transforms it and queues the event.
             } else {
                 self.queue_event(id, wire::clip_event::RESIDENT);
             }
@@ -468,6 +479,14 @@ impl ClipStore {
         self.hrtf_block = Block { addr: 0, class: 0 };
     }
 
+    /// ADR 0162 A4: the MagLS blob's bytes, once every frame of it is committed.
+    pub fn magls_bytes(&self) -> Option<&[u8]> {
+        let e = &self.entries[self.find(wire::MAGLS_CLIP_ID).ok()?];
+        // SAFETY: the entry's block holds `frames * 4` bytes, all committed; only `onmessage`
+        // writes or frees it.
+        (e.format() == ClipFormat::MagLs && e.resident != 0).then(|| unsafe { core::slice::from_raw_parts(e.addr as *const u8, e.frames as usize * 4) })
+    }
+
     /// Whether every frame of the clip was committed.
     pub fn is_resident(&self, id: u32) -> bool {
         self.find(id).is_ok_and(|at| self.entries[at].resident != 0)
@@ -483,8 +502,8 @@ impl ClipStore {
             match e.format() {
                 ClipFormat::F32 => Samples::F32(core::slice::from_raw_parts(e.addr as *const f32, len)),
                 ClipFormat::I16 => Samples::I16(core::slice::from_raw_parts(e.addr as *const i16, len)),
-                // The HRTF table and zone kernels aren't a voice's source.
-                ClipFormat::Hrir | ClipFormat::ZoneKernel | ClipFormat::ZoneIrPcm => return None,
+                // The HRTF table, zone kernels and the MagLS filters aren't a voice's source.
+                ClipFormat::Hrir | ClipFormat::ZoneKernel | ClipFormat::ZoneIrPcm | ClipFormat::MagLs => return None,
             }
         };
         Some(Clip { source: Source { samples, channels: e.channels as u32, frames: e.frames }, sample_rate: e.sample_rate })
@@ -566,7 +585,7 @@ impl ClipStore {
         self.events_len
     }
 
-    fn queue_event(&mut self, id: u32, code: u32) {
+    pub(crate) fn queue_event(&mut self, id: u32, code: u32) {
         if self.events_len == EVENT_QUEUE {
             // Full: drop the oldest. Main still learns of a refusal from the call's result.
             self.pop_event();
@@ -635,6 +654,13 @@ pub fn reserve(core: &mut Core, id: u32, frames: u32, channels: u32, sample_rate
         report(core, None);
         return wire::ERR_BAD_ARG;
     }
+    if format == ClipFormat::MagLs && (!crate::bed::has_region(core) || (sample_rate - core.params().sample_rate).abs() > 0.5) {
+        // ADR 0162 A4: no beds to decode (main sends the filters on first bed use), or not at the
+        // context rate (main resamples them).
+        core.clips_mut().queue_event(id, wire::clip_event::REFUSED_FORMAT);
+        report(core, None);
+        return wire::ERR_BAD_ARG;
+    }
     let result = core.clips_mut().reserve(id, frames, channels, sample_rate, format);
     let full = match result {
         Ok(()) => Some(false),
@@ -652,9 +678,13 @@ pub fn chunk_ptr(core: &mut Core, id: u32, frame_offset: u32, bytes: u32) -> *mu
 
 /// `myco_audio_clip_commit`.
 pub fn commit(core: &mut Core, id: u32, frame_offset: u32, bytes: u32) -> i32 {
+    let was = core.clips().is_resident(id);
     let result = core.clips_mut().commit(id, frame_offset, bytes);
     if result.is_ok() && core.clips().zone_kernel(id).is_some() {
         crate::zones::kernel_resident(core, id);
+    }
+    if id == wire::MAGLS_CLIP_ID && !was && core.clips().is_resident(id) {
+        finish_magls(core);
     }
     report(core, None);
     result.err().unwrap_or(wire::ERR_OK)
@@ -670,9 +700,24 @@ pub fn write(core: &mut Core, id: u32, frame_offset: u32, bytes: &[u8]) -> i32 {
     result.err().unwrap_or(wire::ERR_OK)
 }
 
+/// ADR 0162 A4: the MagLS blob is complete: transform it (`bed::load_filters`, `bedDecoderReady`)
+/// and queue `resident`, or `refusedFormat` for a bad blob (beds keep decoding through the matrix).
+pub fn finish_magls(core: &mut Core) {
+    let Some(bytes) = core.clips().magls_bytes() else { return };
+    // SAFETY: the clip's block lives until `onmessage` frees it; `load_filters` only reads it and
+    // writes the `Beds` region and the counters, never the clip store.
+    let bytes: &[u8] = unsafe { core::slice::from_raw_parts(bytes.as_ptr(), bytes.len()) };
+    let ok = crate::bed::load_filters(core, bytes);
+    let code = if ok { wire::clip_event::RESIDENT } else { wire::clip_event::REFUSED_FORMAT };
+    core.clips_mut().queue_event(wire::MAGLS_CLIP_ID, code);
+}
+
 /// `myco_audio_clip_free`.
 pub fn free(core: &mut Core, id: u32) -> i32 {
     let result = core.clips_mut().free(id);
+    if id == wire::MAGLS_CLIP_ID && result.is_ok() {
+        crate::bed::clear_filters(core);
+    }
     report(core, result.is_ok().then_some(false));
     result.err().unwrap_or(wire::ERR_OK)
 }
@@ -680,6 +725,7 @@ pub fn free(core: &mut Core, id: u32) -> i32 {
 /// RESET with `keepClips = 0`: every clip dropped, the arena reclaimed.
 pub fn reset(core: &mut Core) {
     core.clips_mut().clear();
+    crate::bed::clear_filters(core);
     report(core, Some(false));
 }
 

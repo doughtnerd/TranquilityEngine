@@ -233,6 +233,11 @@ impl CapState {
         self.last_wu
     }
 
+    /// The shell's underrun total as last noted (ADR 0162 A4: the load shedding ladder, `bed.rs`).
+    pub fn underruns_total(&self) -> u32 {
+        self.underruns_total
+    }
+
     /// The last complete window's work-unit p99.
     pub fn last_p99(&self) -> u32 {
         self.last_p99

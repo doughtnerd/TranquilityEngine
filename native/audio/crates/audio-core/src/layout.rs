@@ -253,7 +253,12 @@ mod tests {
         assert_eq!(m2.region(RegionKind::Scratch).len, 8 * 1024);
         let p = InitParams { max_beds: 2, max_zone_slots: 3, zone_max_frames: 96_000, max_wide: 1, ..preset(4_096, 128, 16) };
         let m3 = Layout::new(&p);
-        assert_eq!(m3.region(RegionKind::Beds).len, 3 * 48 * 1024, "2 beds and 1 private decoder");
+        // A4: 2 beds and 1 private decoder, the decoder's scratch and the shared MagLS filters
+        // (`bed::region_bytes`; ≈ 262 KB at 48 kHz, api-and-models §3.1's 208 KB without the
+        // header and scratch).
+        let beds = m3.region(RegionKind::Beds).len;
+        assert_eq!(beds, crate::bed::region_bytes(&p));
+        assert!(beds > 3 * 48 * 1024 && beds < 320 * 1024, "2 beds and 1 private decoder: {beds}");
         assert_eq!(m3.region(RegionKind::Zones).len, 3 * crate::zones::slot_state_bytes(96_000));
         assert_eq!(m3.region(RegionKind::Wide).len, 16 * (16_384 + 2_048 + 1_536) * 4);
         let wide_mib = m3.region(RegionKind::Wide).len as f64 / (1 << 20) as f64;
