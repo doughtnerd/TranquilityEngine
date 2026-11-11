@@ -290,7 +290,7 @@ fn reset_clears_every_table_and_an_ended_voice_leaves_the_list() {
     m.submit(&[curves(0, &[IDENTITY]), param(0, 0, 0.5, 0.0), dc(V1, 0, 0.0), automate(V1, &[(G, 0, 0)])]);
     m.render();
     assert_eq!(automation::active_count(&mut m.core), 1);
-    let stop = wire::Stop { voice_id: V1, frame_offset: wire::ASAP, fade_frames: 0, reason: 0 };
+    let stop = wire::Stop { voice_id: V1, frame_offset: wire::ASAP, fade_frames: 0, reason: 0, shape: 0 };
     m.submit(&[raw(move |b| stop.write(b, 0))]);
     m.render_n(2);
     assert_eq!(automation::active_count(&mut m.core), 0, "the ended voice left the list");

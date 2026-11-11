@@ -114,7 +114,7 @@ describe("StatusReader, ADR 0162 header and sections", () => {
     expect(got).toEqual(readStatus(buffer));
   });
 
-  it("a message with every section at its cap is STATUS_WORST_CASE_BYTES (15,904 B) and reads back equal to readStatus", () => {
+  it("a message with every section at its cap is STATUS_WORST_CASE_BYTES (15,936 B) and reads back equal to readStatus", () => {
     const ids = Array.from({ length: 1024 }, (_, i) => i + 1);
     const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
     const n = writeStatus(
@@ -136,7 +136,7 @@ describe("StatusReader, ADR 0162 header and sections", () => {
       1,
     );
     expect(n).toBe(STATUS_WORST_CASE_BYTES);
-    expect(STATUS_WORST_CASE_BYTES).toBe(15_904);
+    expect(STATUS_WORST_CASE_BYTES).toBe(15_936);
     const got = new StatusReader().read(buffer);
     expect(got).toEqual(readStatus(buffer));
     expect(got.beds).toHaveLength(4);
@@ -168,8 +168,8 @@ describe("StatusReader, ADR 0162 header and sections", () => {
         { bus: 4, voices: 5, work: 6 },
       ],
     });
-    // bodyBytes 136: the body ends at byte 152, so only 8 of the two beds' 16 bytes (from 144) fit.
-    new DataView(bad).setUint32(12, 136, true);
+    // bodyBytes 168: the body ends at byte 184, so only 8 of the two beds' 16 bytes (from 176) fit.
+    new DataView(bad).setUint32(12, 168, true);
     expect(codeOf(() => readStatus(bad))).toBe(ErrorCode.OVERSIZE);
     expect(codeOf(() => reader.read(bad))).toBe(ErrorCode.OVERSIZE);
     expect(reader.block.currentFrame).toBe(55);

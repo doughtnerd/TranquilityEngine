@@ -208,7 +208,7 @@ fn a_voice_with_sends_keeps_its_dry_path_to_float_rounding() {
         let (mut l, _) = m.render_n(2);
         m.submit(&[
             Rec::Set(wire::SetParams { voice_id: V1, frame_offset: wire::ASAP, mask: wire::SET_PARAMS_MASK_GAIN, gain: 0.2, ramp_frames: 300, ..Default::default() }),
-            raw(|b| wire::Fade { voice_id: V1, frame_offset: wire::ASAP, target: 0.3, frames: 500, flags: 0 }.write(b, 0)),
+            raw(|b| wire::Fade { voice_id: V1, frame_offset: wire::ASAP, target: 0.3, frames: 500, flags: 0, shape: 0 }.write(b, 0)),
         ]);
         l.extend(m.render_n(6).0);
         l

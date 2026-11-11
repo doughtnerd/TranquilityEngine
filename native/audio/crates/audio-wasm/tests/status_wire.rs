@@ -107,7 +107,7 @@ fn full_sections_read_back_in_order() {
     }
     let mut out = vec![0u8; BUFFER_BYTES];
     let n = write(&c, 0, &mut out);
-    assert_eq!(n, 15_904, "api-and-models §4.3's worst case");
+    assert_eq!(n, 15_936, "api-and-models §4.3's worst case plus the 32-B M4 header");
     assert_eq!(n as u32, audio_wire::generated::STATUS_WORST_CASE_BYTES);
     let (s, _) = StatusBlock::read(&out, 0).unwrap();
     assert_eq!(s.ended.len(), ENDED_CAP);
