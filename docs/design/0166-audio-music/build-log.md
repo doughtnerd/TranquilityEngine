@@ -47,3 +47,18 @@ Numbered; superseded entries are marked, not rewritten.
 - `runtime/decoder/protocol.ts`: `primeGroup`, `cancelGroup`, `protectMusic`, `releaseMusic`, `computePeaks` (requests); `groupOpened`, `needBytes`, `peaks` (replies); the miss rule (D3).
 - `src/engine/audio/settings.ts`: `music.rings` (0..16, default 12) and `rhythmMode` (boolean), both inert (D4), with `src/engine/tests/audioSettingsMusic.test.ts`.
 - Checks: typecheck clean; the four settings test files pass (104 tests).
+
+## Wave 1 (pilot; base `da2be07f`)
+
+Started 2026-11-11 at about 22:10 UTC, all six leads in one message, each in its own worktree:
+
+| Task | Lead model | Branch | Flow |
+|---|---|---|---|
+| Z1 → W1 (wire) | mid | `m4/wire` | merge 1 (Z1 and every §4.5 constant) → leaf L-Z1a; merge 2 (W1, ABI 3.0, TS init) → leaves L-W1a, L-W1b |
+| Q1 (core skeleton) | strongest | `m4/q1` | stage A (modules, counters, `core.rs`) now; stage B (regions, 176-B header) on merge 1 |
+| Q2 (main-side skeleton) | strongest | `m4/q2` | merges after the wire's merge 2 (the `testing.ts` overlap) |
+| F1a (format head) | mid | `m4/f1a` | skeleton → leaves L-F1aa, L-F1ab |
+| Ed1 (peaks) | mid | `m4/ed1` | skeleton → leaf L-Ed1a |
+| S0 (smoke spec) | mid | `m4/s0` | unsplit; `E2E_PORT=4311` |
+
+Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S0 when ready.
