@@ -353,8 +353,34 @@ export function exitSeconds(grid: SegmentGrid): number | null {
  * on a beat returns itself ("at or after"). Pure, allocation free. Spec: §2.2 positions, §2.3 `GridSpec`.
  */
 export function nextBeatTicks(map: TempoMap, ticks: number): number {
-  void map; void ticks;
-  throw new Error("L-G1b: nextBeatTicks not implemented");
+  void map; // beat lines are multiples of 960 in every span, so the map does not matter
+  if (!(ticks > 0)) return 0;
+  return Math.ceil(ticks / MUSIC_TICKS_PER_BEAT) * MUSIC_TICKS_PER_BEAT;
+}
+
+/**
+ * `L-G1b` helper. The smallest bar line at or after `ticks` (>= 0) whose bar number minus 1 is a multiple of `n`
+ * (`n = 1` is every bar). Walks spans from the one holding `ticks`; a line of span `i` counts only before the next
+ * marker, or at it when that marker is on beat 1 (then it is the next span's own first line). Allocation free.
+ */
+function nextBarLine(map: TempoMap, ticks: number, n: number): number {
+  let i = spanAtTicks(map, ticks);
+  let from = ticks;
+  for (;;) {
+    const origin = map.barOriginTick[i];
+    const perBar = map.ticksPerBar[i];
+    let k = Math.max(0, Math.ceil((from - origin) / perBar));
+    // Line k of span i is bar startBar[i] + k: take the first k with (bar - 1) % n === 0.
+    const phase = (((map.startBar[i] - 1 + k) % n) + n) % n;
+    k += (n - phase) % n;
+    const line = origin + k * perBar;
+    const next = i + 1;
+    if (next >= map.count || line < map.startTick[next] || (line === map.startTick[next] && map.startBeat[next] === 1)) {
+      return line;
+    }
+    from = map.startTick[next];
+    i = next;
+  }
 }
 
 /**
@@ -364,8 +390,7 @@ export function nextBeatTicks(map: TempoMap, ticks: number): number {
  * phase. `ticks` before the grid gives 0 (`1:1:0` is bar 1). Pure, allocation free.
  */
 export function nextBarTicks(map: TempoMap, ticks: number): number {
-  void map; void ticks;
-  throw new Error("L-G1b: nextBarTicks not implemented");
+  return nextBarLine(map, Math.max(ticks, 0), 1);
 }
 
 /**
@@ -376,8 +401,13 @@ export function nextBarTicks(map: TempoMap, ticks: number): number {
  * grid's own start, not the playing position. Pure, allocation free.
  */
 export function nextGridTicks(map: TempoMap, ticks: number, spec: GridSpec): number {
-  void map; void ticks; void spec;
-  throw new Error("L-G1b: nextGridTicks not implemented");
+  const t = Math.max(ticks, 0);
+  if (spec === "beat") return nextBeatTicks(map, t);
+  if (spec === "bar") return nextBarLine(map, t, 1);
+  if (spec.every === "bar") return nextBarLine(map, t, spec.n);
+  // Beat index from 1:1:0 is ticks / 960; the first multiple of n at or after the beat at or after t.
+  const beat = Math.ceil(t / MUSIC_TICKS_PER_BEAT);
+  return Math.ceil(beat / spec.n) * spec.n * MUSIC_TICKS_PER_BEAT;
 }
 
 /**
@@ -386,8 +416,9 @@ export function nextGridTicks(map: TempoMap, ticks: number, spec: GridSpec): num
  * grid tick counts as on it), converted back with `ticksToSeconds`.
  */
 export function nextGridSeconds(map: TempoMap, seconds: number, spec: GridSpec): number {
-  void map; void seconds; void spec;
-  throw new Error("L-G1b: nextGridSeconds not implemented");
+  // Grid points are integer ticks, so a tick within 1e-9 above one still rounds up to it.
+  const tick = Math.ceil(secondsToTicks(map, seconds) - 1e-9);
+  return ticksToSeconds(map, nextGridTicks(map, tick, spec));
 }
 
 // --- cue lookup (L-G1b) ---------------------------------------------------------------------------------------------
@@ -397,12 +428,17 @@ export function nextGridSeconds(map: TempoMap, seconds: number, spec: GridSpec):
  * is `"end"` with the length unknown (`NaN`). Pure; no allocation.
  */
 export function cueTicks(grid: SegmentGrid, name: string): number | null {
-  void grid; void name;
-  throw new Error("L-G1b: cueTicks not implemented");
+  const names = grid.cueNames;
+  for (let i = 0; i < names.length; i++) {
+    if (names[i] !== name) continue;
+    const t = grid.cueTicks[i];
+    return Number.isNaN(t) ? null : t;
+  }
+  return null;
 }
 
 /** `L-G1b`. File seconds of the cue called `name` (`ticksToSeconds` of `cueTicks`), or null as `cueTicks`. */
 export function cueSeconds(grid: SegmentGrid, name: string): number | null {
-  void grid; void name;
-  throw new Error("L-G1b: cueSeconds not implemented");
+  const t = cueTicks(grid, name);
+  return t === null ? null : ticksToSeconds(grid, t);
 }
