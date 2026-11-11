@@ -123,7 +123,6 @@ describe("the Babylon warmer (ADR 0080)", () => {
   beforeEach(() => {
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     camera = new TargetCamera("view", new Vector3(0, 2, 10), scene);
     camera.setTarget(Vector3.Zero());
     fallback = new PBRMaterial("fallback", scene);
@@ -248,7 +247,6 @@ describe("the warmer draws the variants the scene will (ADR 0106, 0108)", () => 
   beforeEach(() => {
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     camera = new TargetCamera("view", new Vector3(0, 2, 10), scene);
     camera.setTarget(Vector3.Zero());
   });
@@ -319,7 +317,6 @@ describe("the warmer draws a model's material slots (ADR 0080, 0089)", () => {
     Assets.addSource(Assets.fromObject({ "models/lamp.glb": lamp() }));
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     camera = new TargetCamera("view", new Vector3(0, 2, 10), scene);
     camera.setTarget(Vector3.Zero());
   });

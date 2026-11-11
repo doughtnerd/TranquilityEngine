@@ -49,7 +49,6 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     await SceneManager.load("s.json");
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     lighting = new BabylonLighting(scene);
   });
 
@@ -355,7 +354,6 @@ describe("clustered point and spot lights (ADR 0079)", () => {
     Object.assign((babylon as unknown as { _caps: object })._caps, { texelFetch: true, colorBufferFloat: true, blendFloat: true, shaderFloatPrecision: 23, maxVaryingVectors: 28 });
     Object.defineProperty(babylon, "version", { get: () => 2 });
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     lighting = new BabylonLighting(scene);
   });
 

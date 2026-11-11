@@ -556,7 +556,6 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
         const material = new PBRMaterial("preview.sky", scene);
         material.backFaceCulling = false;
         material.disableLighting = true;
-        material.sideOrientation = PBRMaterial.CounterClockWiseSideOrientation;
         material.reflectionTexture = sky;
         material.microSurface = 1;
         box.material = material;

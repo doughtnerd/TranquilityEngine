@@ -52,7 +52,6 @@ beforeEach(async () => {
   babylon = new NullEngine();
   (babylon as unknown as { createCanvas: typeof fakeCanvas }).createCanvas = fakeCanvas;
   scene = new Scene(babylon);
-  scene.useRightHandedSystem = true;
   state.interactive = true;
   state.rect = null;
   frameUI = null;

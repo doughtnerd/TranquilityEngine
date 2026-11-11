@@ -41,7 +41,6 @@ describe("the transform gizmo on the Babylon backend (ADR 0075 stage 8)", () => 
     await SceneManager.load("s.json");
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     camera = new FreeCamera("view", new BVector3(0, 0, 10), scene);
     camera.setTarget(BVector3.Zero());
     scene.activeCamera = camera;

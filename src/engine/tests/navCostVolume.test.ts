@@ -74,7 +74,7 @@ async function setup(volume?: Record<string, unknown>) {
   clearNavBakeCache();
   Assets.clearSources();
   const scene = {
-    format: "myco.scene@1",
+    format: "myco.scene@4",
     nodes: [
       { id: "chunk", name: "Chunk", components: [{ type: "engine.NavChunk", data: { bake: `asset:${BAKE}` } }] },
       { id: "a", name: "a", components: [{ type: "engine.Transform", data: { position: [-6, 0, 0] } }, { type: "engine.NavAgent", data: {} }] },

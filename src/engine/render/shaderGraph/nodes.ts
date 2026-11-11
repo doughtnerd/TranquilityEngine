@@ -198,8 +198,8 @@ fn mycoMainLightColor() -> vec3f {
   let q1: vec3f = dpdy(eyePos);
   let st0: vec2f = dpdx(uv);
   let st1: vec2f = dpdy(uv);
-  let q1perp: vec3f = cross(q1, n);
-  let q0perp: vec3f = cross(n, q0);
+  let q1perp: vec3f = cross(n, q1); // left-handed order (ADR 0164)
+  let q0perp: vec3f = cross(q0, n);
   let T: vec3f = q1perp * st0.x + q0perp * st1.x;
   let B: vec3f = q1perp * st0.y + q0perp * st1.y;
   let det: f32 = max(dot(T, T), dot(B, B));

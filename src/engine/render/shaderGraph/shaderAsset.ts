@@ -44,10 +44,13 @@ const STRUCTS_GLSL = `struct MycoVertex { vec3 position; vec3 normal; vec2 uv; f
 struct MycoSurfaceInput { vec2 uv; vec3 position; vec3 normal; vec3 viewDir; float time; };
 struct MycoSurface { vec3 baseColor; float alpha; float metalness; float roughness; vec3 emission; vec3 normal; };`;
 
-/** A world-space tangent frame from screen derivatives (GLSL), for tangent-space normals; the WGSL one is the plugin's. */
+/**
+ * A world-space tangent frame from screen derivatives (GLSL), for tangent-space normals; the WGSL one is
+ * the plugin's. Crosses in left-handed order (ADR 0164), as there.
+ */
 export const TANGENT_FRAME_GLSL = `mat3 mycoBabylonTangentFrame(vec3 n, vec3 p, vec2 uv) {
   vec3 dp1 = dFdx(p); vec3 dp2 = dFdy(p); vec2 duv1 = dFdx(uv); vec2 duv2 = dFdy(uv);
-  vec3 dp2perp = cross(dp2, n); vec3 dp1perp = cross(n, dp1);
+  vec3 dp2perp = cross(n, dp2); vec3 dp1perp = cross(dp1, n);
   vec3 t = dp2perp * duv1.x + dp1perp * duv2.x; vec3 b = dp2perp * duv1.y + dp1perp * duv2.y;
   float invmax = inversesqrt(max(max(dot(t, t), dot(b, b)), 1e-12));
   return mat3(t * invmax, b * invmax, n);

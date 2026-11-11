@@ -8,7 +8,7 @@
  * ```
  *
  * Faces follow the usual OpenGL naming: px/nx are +X/-X, py/ny up/down, pz/nz +Z/-Z (the World's
- * east/west, up/down and south/north). Paths are project asset paths (an `asset:` prefix is allowed).
+ * east/west, up/down and north/south; +Z is forward, ADR 0164). Paths are project asset paths (an `asset:` prefix is allowed).
  */
 
 export const CUBEMAP_FORMAT = "myco.cubemap@1";

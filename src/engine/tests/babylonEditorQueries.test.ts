@@ -29,7 +29,6 @@ describe("Babylon editor queries (ADR 0075 stage 8)", () => {
     await SceneManager.load("s.json");
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     sprites = [];
     meshes = [];
     texts = [];

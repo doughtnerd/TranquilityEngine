@@ -260,7 +260,7 @@ async function march(formation: NavFormationAsset): Promise<{ x: number; z: numb
       "formations/f.formation.json": JSON.parse(formatFormation(formation)),
       [BAKE]: bakeUrl,
       [SCENE]: {
-        format: "myco.scene@1",
+        format: "myco.scene@4",
         nodes: [
           { id: "chunk", name: "Chunk", components: [{ type: "engine.NavChunk", data: { bake: `asset:${BAKE}` } }] },
           {
@@ -300,5 +300,14 @@ describe("a NavGroup with a formation asset (ADR 0065)", () => {
     const column = await march(rows(["#", "#", "#", "#"]));
     expect(spread(column.map((p) => p.z))).toBeLessThan(1.5);
     expect(spread(column.map((p) => p.x))).toBeGreaterThan(4.5);
+  }, 60_000);
+
+  it("puts the asset's right side on the group's right: heading +x, right is -z (ADR 0164)", async () => {
+    // X = up × forward, as Unity: a front cell painted on the right marches on the -z side of the path.
+    const leader = (ps: { x: number; z: number }[]) => ps.reduce((best, p) => (p.x > best.x ? p : best));
+    const right = await march(rows(["..#", "###"]));
+    const left = await march(rows(["#..", "###"]));
+    expect(leader(right).z).toBeLessThan(-1);
+    expect(leader(left).z).toBeGreaterThan(1);
   }, 60_000);
 });

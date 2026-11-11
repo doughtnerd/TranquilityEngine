@@ -1,6 +1,6 @@
 /**
  * An in-memory render surface and editor viewport adapter, for unit tests (ADR 0128). No renderer, no
- * DOM: the "view" is a fixed orthographic camera looking down -Z (`pixelsPerUnit` canvas pixels per
+ * DOM: the "view" is a fixed orthographic camera looking along +Z (`pixelsPerUnit` canvas pixels per
  * metre, world origin at the canvas centre, +Y up), and what lies where on the canvas is whatever the
  * test puts in `rects`. It records every state call so tests can check what the editor asked for.
  */
@@ -96,7 +96,7 @@ export class FakeViewportAdapter implements ViewportAdapter {
 
   rayAt(x: number, y: number): ViewRay {
     const s = this.pixelsPerUnit;
-    return { origin: [(x - this.width / 2) / s, (this.height / 2 - y) / s, 100], direction: [0, 0, -1] };
+    return { origin: [(x - this.width / 2) / s, (this.height / 2 - y) / s, -100], direction: [0, 0, 1] };
   }
 
   worldToCanvas(p: readonly number[]): [number, number] {

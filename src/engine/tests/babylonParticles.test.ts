@@ -49,7 +49,6 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
   beforeEach(() => {
     engine = new NullEngine();
     scene = new Scene(engine);
-    scene.useRightHandedSystem = true;
     // Trails and material-asset quads face the active camera: on +Z, looking at the origin.
     const camera = new TargetCamera("camera", new Vector3(0, 0, 10), scene);
     camera.setTarget(Vector3.Zero());

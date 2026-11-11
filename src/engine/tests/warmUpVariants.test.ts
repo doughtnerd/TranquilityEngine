@@ -95,7 +95,6 @@ describe("the Babylon warmer's custom items (ADR 0080)", () => {
   beforeEach(() => {
     babylon = nullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     camera = new TargetCamera("view", new Vector3(0, 2, 10), scene);
     camera.setTarget(Vector3.Zero());
     scene.activeCamera = camera;
@@ -200,7 +199,6 @@ describe("warming particle effects (ADR 0080)", () => {
   beforeEach(() => {
     babylon = nullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     camera = new TargetCamera("camera", new Vector3(0, 0, 10), scene);
     camera.setTarget(Vector3.Zero());
     textures = new Map();

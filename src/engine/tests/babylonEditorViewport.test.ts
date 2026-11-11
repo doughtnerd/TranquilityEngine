@@ -57,7 +57,6 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     await SceneManager.load("s.json");
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     layer = new UtilityLayerRenderer(scene);
     meshes = [];
     loaded = true;

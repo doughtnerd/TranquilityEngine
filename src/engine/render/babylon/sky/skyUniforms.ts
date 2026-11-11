@@ -33,7 +33,7 @@ export interface SkyFrame {
   intensity: number;
   /** The World's fog: its linear colour and how much it covers the whole sky (ADR 0071); null without one. */
   fog: { color: readonly number[]; amount: number } | null;
-  /** Baking a cube face: no discs or stars, and Z mirrored for Babylon's left-handed cube lookups. */
+  /** Baking a cube face: no discs or stars. */
   baking: boolean;
   moonTexture: boolean;
   milkyWayTexture: boolean;
@@ -136,6 +136,6 @@ export function packSkyUniforms(f: SkyFrame, out = new Float32Array(SKY_UNIFORMS
   set("nightCol", 0.004 * night, 0.006 * night, 0.012 * night);
   const q = SKY_QUALITY[f.baking ? "high" : (f.level ?? "high")];
   set("quality", q.viewSteps, q.lightSteps, q.cloudOctaves);
-  set("skyOut", 2 ** s.exposure * (f.baking ? 1 : f.intensity), f.baking ? -1 : 1);
+  set("skyOut", 2 ** s.exposure * (f.baking ? 1 : f.intensity));
   return out;
 }

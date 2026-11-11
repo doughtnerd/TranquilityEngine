@@ -15,7 +15,7 @@ import { findNavChunks } from "../../../engine/nav/geometry";
 const ROOT = "C:\\Games\\nav";
 const scene = (extra: SceneFile["nodes"] = []): string =>
   JSON.stringify({
-    format: "myco.scene@1",
+    format: "myco.scene@4",
     nodes: [
       { id: "nav", name: "Navigation", components: [{ type: "engine.Transform", data: {} }, { type: "engine.NavChunk", data: {} }] },
       { id: "ground", name: "Ground", components: [{ type: "engine.Transform", data: {} }, { type: "engine.MeshRenderer", data: { mesh: "builtin:plane" } }] },
@@ -28,7 +28,7 @@ async function project() {
   fs.files.set(joinPath(ROOT, "project.json"), '{ "name": "Nav" }\n');
   fs.files.set(joinPath(ROOT, "scenes/a.scene.json"), scene());
   fs.files.set(joinPath(ROOT, "scenes/b.scene.json"), scene([{ id: "box", name: "Box", components: [{ type: "engine.Transform", data: { position: [0, 0.5, 0] } }, { type: "engine.BoxCollider", data: {} }] }]));
-  fs.files.set(joinPath(ROOT, "scenes/empty.scene.json"), JSON.stringify({ format: "myco.scene@1", nodes: [] }));
+  fs.files.set(joinPath(ROOT, "scenes/empty.scene.json"), JSON.stringify({ format: "myco.scene@4", nodes: [] }));
   const p = await openFolderProject(fs, ROOT);
   useProjectAssets(p);
   return { fs, p };

@@ -13,7 +13,6 @@ import { LightConstants } from "@babylonjs/core/Lights/lightConstants.js";
 import { PointLight } from "@babylonjs/core/Lights/pointLight.js";
 import type { IShadowLight } from "@babylonjs/core/Lights/shadowLight.js";
 import { SpotLight } from "@babylonjs/core/Lights/spotLight.js";
-import { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture.js";
@@ -35,7 +34,7 @@ import { Graphics } from "../Graphics";
 import type { ShadowRequest } from "./frameGraph";
 
 /** The default sun's direction (a World without Lights). */
-const DEFAULT_SUN = new Vector3(-4, -10, -6).normalize();
+const DEFAULT_SUN = new Vector3(-4, -10, 6).normalize();
 
 /** Scratch vector for `fitShadowArea`. */
 const tmpBack = new Vector3();
@@ -165,10 +164,10 @@ export class BabylonLighting {
   /**
    * The main light shader graphs read (Main Light Direction / Color nodes), chosen as three.js's
    * `directionalLights[0]` is: the first shadow-casting directional light, else the first directional
-   * one, else the default sun when the World has no Lights, else (0.4, 1, 0.6) and white. `direction`
+   * one, else the default sun when the World has no Lights, else (0.4, 1, -0.6) and white. `direction`
    * is a unit world vector toward the light; `color` is linear colour × intensity. Updated in place.
    */
-  readonly mainLight = { direction: [0.4, 1, 0.6].map((v) => v / Math.hypot(0.4, 1, 0.6)), color: [1, 1, 1] };
+  readonly mainLight = { direction: [0.4, 1, -0.6].map((v) => v / Math.hypot(0.4, 1, 0.6)), color: [1, 1, 1] };
   /** How much the World's fog covers the sky (ADR 0071): the skybox dims by it and hides at 1. */
   private skyFog = 0;
   /** A procedural sky's baked environment (ADR 0112), set by `BabylonSky`; null until its first bake. */
@@ -304,7 +303,7 @@ export class BabylonLighting {
       const len = Math.hypot(0.4, 1, 0.6);
       direction[0] = 0.4 / len;
       direction[1] = 1 / len;
-      direction[2] = 0.6 / len;
+      direction[2] = -0.6 / len;
       color[0] = color[1] = color[2] = 1;
     }
   }
@@ -391,7 +390,7 @@ export class BabylonLighting {
     if (clustered) {
       // Never in the scene's own list: the container draws it.
       const light =
-        l.type === "point" ? new PointLight(name, Vector3.Zero(), this.scene, true) : new SpotLight(name, Vector3.Zero(), new Vector3(0, 0, -1), Math.PI / 6, 2, this.scene, true);
+        l.type === "point" ? new PointLight(name, Vector3.Zero(), this.scene, true) : new SpotLight(name, Vector3.Zero(), new Vector3(0, 0, 1), Math.PI / 6, 2, this.scene, true);
       setShadowEnabled(light, false); // a light with shadows can't cluster
       this.cluster!.addLight(light);
       return { light, type: l.type, clustered };
@@ -402,7 +401,7 @@ export class BabylonLighting {
       l.type === "point"
         ? new PointLight(name, Vector3.Zero(), this.scene)
         : l.type === "spot"
-          ? new SpotLight(name, Vector3.Zero(), new Vector3(0, 0, -1), Math.PI / 6, 2, this.scene)
+          ? new SpotLight(name, Vector3.Zero(), new Vector3(0, 0, 1), Math.PI / 6, 2, this.scene)
           : l.type === "ambient"
             ? new HemisphericLight(name, new Vector3(0, 1, 0), this.scene)
             : new DirectionalLight(name, new Vector3(0, -1, 0), this.scene);
@@ -432,7 +431,7 @@ export class BabylonLighting {
     // Set in place, then handed back so lights that react to a new position or direction (spot) do.
     const shadowLight = light as BabylonLight & IShadowLight;
     shadowLight.position = shadowLight.position.set(m[o + 12], m[o + 13], m[o + 14]);
-    if (light instanceof DirectionalLight || light instanceof SpotLight) light.direction = light.direction.set(-m[o + 8], -m[o + 9], -m[o + 10]).normalize(); // -Z, where cameras look too
+    if (light instanceof DirectionalLight || light instanceof SpotLight) light.direction = light.direction.set(m[o + 8], m[o + 9], m[o + 10]).normalize(); // +Z, where cameras look too
     if (light instanceof SpotLight) {
       light.range = lightRange(l.range);
       const angle = (Math.min(Math.max(l.spotAngle, 1), 179) * Math.PI) / 180;
@@ -472,7 +471,8 @@ export class BabylonLighting {
     if (path !== (this.envMap?.path ?? "")) this.loadEnvironmentMap(path);
     const map = procedural ? this.skyEnvironment : this.envMap?.texture && cubemapReady(this.envMap.texture) ? this.envMap.texture : null;
     if (!this.studioShared) this.studio ??= createStudioTexture(this.scene);
-    const turn = env ? (env.rotation * Math.PI) / 180 : 0;
+    // Negated: Babylon's right-handed lookups mirrored z after the turn, and the World is now mirrored instead (ADR 0164).
+    const turn = env ? (-env.rotation * Math.PI) / 180 : 0;
     // Only a ready texture goes to the scene: prefiltering swaps a cube's GPU texture when it finishes,
     // and materials that bound the first one on WebGPU would keep drawing with it once destroyed.
     const lighting = map ?? (this.studio?.isReady() ? this.studio : null);
@@ -506,7 +506,6 @@ export class BabylonLighting {
       this.skyMaterial = new PBRMaterial("myco.skybox", this.scene);
       this.skyMaterial.backFaceCulling = false;
       this.skyMaterial.disableLighting = true;
-      this.skyMaterial.sideOrientation = BabylonMaterial.CounterClockWiseSideOrientation;
       this.skybox.material = this.skyMaterial;
     }
     const mat = this.skyMaterial!;

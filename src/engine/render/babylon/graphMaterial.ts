@@ -33,7 +33,6 @@ import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
 import { DrawWrapper } from "@babylonjs/core/Materials/drawWrapper.js";
 import type { Effect } from "@babylonjs/core/Materials/effect.js";
-import { Material } from "@babylonjs/core/Materials/material.js";
 import type { MaterialDefines } from "@babylonjs/core/Materials/materialDefines.js";
 import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
@@ -54,13 +53,13 @@ import { linearColor, SHARED_UNIFORMS, srgbToLinear, type CompiledShaderGraph, t
 export interface GraphShared {
   time: number;
   resolution: [number, number];
-  /** The main light for Main Light nodes (`BabylonLighting.mainLight`); previews without one get (0.4, 1, 0.6) and white. */
+  /** The main light for Main Light nodes (`BabylonLighting.mainLight`); previews without one get (0.4, 1, -0.6) and white. */
   mainLight?: { readonly direction: readonly number[]; readonly color: readonly number[] };
 }
 
 /** Uniforms the WGSL Main Light helpers read (`nodes.ts`), bound from `GraphShared.mainLight`. */
 export const MAIN_LIGHT_UNIFORMS = { direction: "uMycoMainLightDir", color: "uMycoMainLightColor" } as const;
-const FALLBACK_LIGHT_DIR = [0.4, 1, 0.6].map((v) => v / Math.hypot(0.4, 1, 0.6));
+const FALLBACK_LIGHT_DIR = [0.4, 1, -0.6].map((v) => v / Math.hypot(0.4, 1, 0.6));
 
 /** Load a texture asset; `linear` asks for data (normal maps) rather than sRGB colour. */
 export type LoadGraphTexture = (path: string, linear: boolean) => Promise<BaseTexture>;
@@ -90,15 +89,18 @@ export const ALBEDO_ANCHOR = "!var\\s+albedoOpacityOut\\s*:\\s*albedoOpacityOutP
 
 const UBO_SIZE ={ float: 1, vec2: 2, vec3: 3, vec4: 4 } as const;
 
-/** A world-space tangent frame from screen derivatives, for tangent-space graph normals. */
+/**
+ * A world-space tangent frame from screen derivatives, for tangent-space graph normals. The crosses
+ * are in left-handed order (ADR 0164): screen x × screen y points away from the viewer.
+ */
 const TANGENT_FRAME = /* wgsl */ `
 fn mycoBabylonTangentFrame(n: vec3f, p: vec3f, uv: vec2f) -> mat3x3f {
   let dp1 = dpdx(p);
   let dp2 = dpdy(p);
   let duv1 = dpdx(uv);
   let duv2 = dpdy(uv);
-  let dp2perp = cross(dp2, n);
-  let dp1perp = cross(n, dp1);
+  let dp2perp = cross(n, dp2);
+  let dp1perp = cross(dp1, n);
   let t = dp2perp * duv1.x + dp1perp * duv2.x;
   let b = dp2perp * duv1.y + dp1perp * duv2.y;
   let invmax = inverseSqrt(max(max(dot(t, t), dot(b, b)), 1e-12));
@@ -461,7 +463,6 @@ export function _resetGraphTextures(): void {
  */
 export function createGraphMaterial(scene: Scene, name: string, c: CompiledShaderGraph, overrides: Record<string, GraphValue>, shared: GraphShared, loadTexture: LoadGraphTexture): BabylonGraphMaterial {
   const material = new PBRMaterial(name, scene);
-  material.sideOrientation = Material.CounterClockWiseSideOrientation;
   material.maxSimultaneousLights = 8;
   useEngineLightFalloff(material);
   material.albedoColor.set(1, 1, 1);

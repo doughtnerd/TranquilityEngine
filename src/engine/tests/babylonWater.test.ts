@@ -30,7 +30,6 @@ describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
     await SceneManager.load("s.json");
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     water = new BabylonWater(scene);
   });
 
@@ -65,7 +64,7 @@ describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
     expect(scene.meshes).toContain(mesh);
   });
 
-  it("winds the grid counter-clockwise seen from above, facing +Y", () => {
+  it("winds the grid as Babylon's left-handed default, facing +Y (right-hand-rule normal down)", () => {
     const d = waterGridData(2, 3);
     const p = d.positions as Float32Array;
     const idx = d.indices as Uint32Array;
@@ -74,7 +73,7 @@ describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
       const [a, b, c] = [v(0), v(1), v(2)];
       const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
       const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-      expect(e1[2] * e2[0] - e1[0] * e2[2]).toBeGreaterThan(0); // y of e1 x e2
+      expect(e1[2] * e2[0] - e1[0] * e2[2]).toBeLessThan(0); // y of e1 x e2
     }
   });
 
@@ -120,7 +119,7 @@ describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
     water = new BabylonWater(scene, () => hit);
     water.sync(world(), [w]);
     const m = water.meshes()[0].material as import("@babylonjs/core/Materials/PBR/pbrMaterial.js").PBRMaterial;
-    expect(m.sideOrientation).toBe(1);
+    expect(m.sideOrientation).toBeNull(); // the scene's default front face (ADR 0164)
     expect(m.maxSimultaneousLights).toBe(8);
     expect(m.transparencyMode).toBe(0);
     w.opacity = 0.5;
@@ -264,7 +263,6 @@ describe("the water Babylon draws is the water physics samples (pirates: hulls u
     await SceneManager.load("s.json");
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     water = new BabylonWater(scene);
   });
 

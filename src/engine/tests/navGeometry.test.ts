@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import "../index";
 import { World } from "../core/World";
 import { instantiateDocument } from "../editor";
-import { collectNavGeometry, findNavChunks, navBakeChunk, navBakePath, navInputSignature, type NavGeometry } from "../nav/geometry";
+import { collectNavGeometry, findNavChunks, loadNavGeometryMeshes, navBakeChunk, navBakePath, navInputSignature, type NavGeometry } from "../nav/geometry";
 import { defaultNavigationSettings } from "../nav/settings";
 import type { NodeEntry, SceneFile } from "../scene/SceneLoader";
 import type { GameObject } from "../scene/GameObject";
@@ -15,7 +15,7 @@ const node = (id: string, components: NodeEntry["components"], more: Partial<Nod
 
 function load(nodes: NodeEntry[]): { world: World; scene: GameObject; byId: (id: string) => GameObject } {
   const world = new World("editor");
-  const file: SceneFile = { format: "myco.scene@1", nodes };
+  const file: SceneFile = { format: "myco.scene@4", nodes };
   const scene = World._runIn(world, () => instantiateDocument(world, file, "scenes/test.scene.json"));
   const byId = (id: string) => {
     const find = (n: GameObject): GameObject | null => (n.id === id ? n : n.children.map(find).find(Boolean) ?? null);
@@ -74,6 +74,53 @@ describe("collectNavGeometry", () => {
     expect(normalSum(g.meshes[0])[1]).toBeGreaterThan(0);
     expect(g.meshes[0].kind).toBe("navMesh");
     expect(findNavChunks(scene).map((n) => n.id)).toEqual(["nav"]);
+  });
+
+  // ADR 0164: engine meshes wind left-handed (cross(b - a, c - a) into the surface); the bake input winds the
+  // other way, so surfaces facing up stay walkable whatever the source.
+  /** Sum of `cross(b - a, c - a)` over the triangles whose vertices all sit at height `y`. */
+  const facesAt = (m: NavGeometry["meshes"][number], y: number): number[] => {
+    const p = m.positions;
+    const keep: number[] = [];
+    for (let i = 0; i < m.indices.length; i += 3) {
+      const tri = [m.indices[i], m.indices[i + 1], m.indices[i + 2]];
+      if (tri.every((v) => Math.abs(p[v * 3 + 1] - y) < 1e-4)) keep.push(...tri);
+    }
+    return normalSum({ ...m, indices: new Uint32Array(keep) });
+  };
+
+  it("keeps the walkable side up for built-in meshes under a rotated node, and for box colliders (ADR 0164)", () => {
+    const yaw = [0, Math.sin(0.35), 0, Math.cos(0.35)];
+    const { world, byId } = load([
+      node("nav", [t([0, 0, 0]), CHUNK()]),
+      node("plane", [t([0, 0, 0], { rotation: yaw }), { type: "engine.MeshRenderer", data: { mesh: "builtin:plane" } }]),
+      node("cube", [t([30, 0.5, 0], { rotation: yaw }), { type: "engine.MeshRenderer", data: { mesh: "builtin:cube" } }]),
+      node("crate", [t([-30, 0.5, 0], { rotation: yaw }), { type: "engine.BoxCollider", data: {} }]),
+    ]);
+    const g = collectNavGeometry(world, byId("nav"));
+    expect(g.meshes).toHaveLength(3);
+    const [plane, cube, crate] = g.meshes;
+    expect(normalSum(plane)[1]).toBeGreaterThan(0);
+    expect(facesAt(cube, 1)[1]).toBeGreaterThan(0);
+    expect(facesAt(cube, 0)[1]).toBeLessThan(0);
+    expect(facesAt(crate, 1)[1]).toBeGreaterThan(0);
+    expect(facesAt(crate, 0)[1]).toBeLessThan(0);
+  });
+
+  it("keeps the walkable side up for an imported model, and under a mirroring scale (ADR 0164)", async () => {
+    // A right-handed OBJ floor, counter-clockwise from above (its file normal is +Y).
+    const obj = "v -1 0 -1\nv 1 0 -1\nv 1 0 1\nv -1 0 1\nf 1 3 2\nf 1 4 3\n";
+    Assets.addSource(Assets.fromObject({ "models/floor.obj": `data:text/plain;base64,${Buffer.from(obj).toString("base64")}` }));
+    const { world, byId } = load([
+      node("nav", [t([0, 0, 0]), CHUNK()]),
+      node("floor", [t([0, 0, 0]), { type: "engine.MeshRenderer", data: { mesh: "asset:models/floor.obj" } }]),
+      node("mirrored", [t([10, 0, 0], { scale: [-1, 1, 1] }), { type: "engine.MeshRenderer", data: { mesh: "asset:models/floor.obj" } }]),
+    ]);
+    await loadNavGeometryMeshes(world, byId("nav"));
+    const g = collectNavGeometry(world, byId("nav"));
+    expect(g.pending).toEqual([]);
+    expect(g.meshes).toHaveLength(2);
+    for (const m of g.meshes) expect(normalSum(m)[1]).toBeGreaterThan(0);
   });
 
   it("collects box, sphere and capsule colliders sized as physics sizes them, and skips triggers", () => {

@@ -34,7 +34,7 @@ export class SpriteRenderer extends Component {
 
 export type Projection = "orthographic" | "perspective";
 
-/** Renders the scene from its node's position, looking down -Z. */
+/** Renders the scene from its node's position, looking along +Z (left-handed, ADR 0164). */
 @component("engine.Camera")
 export class Camera extends Component {
   @field(String, { choices: ["orthographic", "perspective"] }) projection: Projection = "orthographic";
@@ -141,11 +141,11 @@ export class Camera extends Component {
     return { unit, offsetX: pixelCenterOffset(px.width, unit), offsetY: pixelCenterOffset(px.height, unit) };
   }
 
-  /** The camera's world position and axes (right, up, forward = the node's -Z), ignoring scale. */
+  /** The camera's world position and axes (right, up, forward = the node's +Z), ignoring scale. */
   private frame(): { position: Vector3; right: Vector3; up: Vector3; forward: Vector3 } {
     const t = this.node.transform!;
     const q = t.worldRotation;
-    return { position: t.worldPosition, right: rotate(q, 1, 0, 0), up: rotate(q, 0, 1, 0), forward: rotate(q, 0, 0, -1) };
+    return { position: t.worldPosition, right: rotate(q, 1, 0, 0), up: rotate(q, 0, 1, 0), forward: rotate(q, 0, 0, 1) };
   }
 
   /** The ray through normalized device coordinates (-1..1, +y up) of this camera's viewport. */
@@ -425,7 +425,7 @@ export type MaterialPropertyValue = number | Vector2 | Vector3 | Color | readonl
 export type LightType = "directional" | "point" | "spot" | "ambient";
 
 /**
- * A light (ADR 0043). Directional and spot lights shine down their node's -Z axis (like a
+ * A light (ADR 0043). Directional and spot lights shine along their node's +Z axis (like a
  * Camera); point lights shine every way; ambient light lights everything evenly. Intensity is
  * physical: 1 is full brightness for a directional light, and point and spot lights fade with the
  * square of distance (1 = full brightness at 1 m), reaching nothing beyond `range`.

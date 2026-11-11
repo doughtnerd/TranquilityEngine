@@ -52,7 +52,6 @@ describe("Babylon editor overlays (ADR 0075 stage 8)", () => {
     world = World.require();
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     layer = new UtilityLayerRenderer(scene);
     sprites = [];
     meshes = [];
@@ -310,7 +309,7 @@ describe("Babylon editor overlays (ADR 0075 stage 8)", () => {
     const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
     const sun = lightSegments({ type: "directional", range: 0, spotAngle: 0 }, identity, false);
     expect(sun).toHaveLength(9);
-    expect(sun[0][1]).toEqual([0, 0, -2]); // the arrow points down -Z
+    expect(sun[0][1]).toEqual([0, 0, 2]); // the arrow points along +Z
     expect(lightSegments({ type: "ambient", range: 0, spotAngle: 0 }, identity, true)).toHaveLength(0);
   });
 
