@@ -35,40 +35,91 @@ fn new_core(p: InitParams) -> Core {
 
 /// §4.5: `max_music_rings` 0..=16 validates on every preset and rate.
 #[test]
-#[ignore = "L-C1a"]
 fn music_rings_0_to_16_validate() {
-    todo!("L-C1a")
+    for &(name, max_logical, max_mixed, arena_mb, _) in PRESETS.iter() {
+        for &rate in RATES.iter() {
+            for m in 0..=16u32 {
+                let p = preset(rate, max_logical, max_mixed, arena_mb, m);
+                assert_eq!(p.validate(), Ok(()), "{name} at {rate} Hz, {m} music rings");
+            }
+        }
+    }
 }
 
 /// §4.5: 17, and larger values up to `u32::MAX`, are `InitError::MusicRings`, and only that field
 /// is blamed (the rest of the preset is valid).
 #[test]
-#[ignore = "L-C1a"]
 fn music_rings_past_16_are_refused() {
-    todo!("L-C1a")
+    for &(name, max_logical, max_mixed, arena_mb, _) in PRESETS.iter() {
+        for &rate in RATES.iter() {
+            // The preset is valid at 16 rings, so 17 and up blame the music-ring count alone.
+            assert_eq!(preset(rate, max_logical, max_mixed, arena_mb, 16).validate(), Ok(()), "{name} at {rate} Hz, 16 music rings");
+            for m in [17u32, 100, u32::MAX] {
+                let p = preset(rate, max_logical, max_mixed, arena_mb, m);
+                assert_eq!(p.validate(), Err(InitError::MusicRings), "{name} at {rate} Hz, {m} music rings");
+            }
+        }
+    }
 }
 
 /// §3.1, §4.5: `RING_BYTES` is 307,200 B and `stream::region_bytes` is `(G + M) × RING_BYTES` for
 /// every preset, rate and `M` in 0..=16 (G = 4 / 8 / 16 on low / default / high).
 #[test]
-#[ignore = "L-C1a"]
 fn region_bytes_is_g_plus_m_rings() {
-    todo!("L-C1a")
+    assert_eq!(RING_BYTES, 307_200);
+    // G = max_mixed / 16 clamped to 4..=16: 4 on low, 8 on default, 16 on high.
+    let general = [4usize, 8, 16];
+    for (i, &(name, max_logical, max_mixed, arena_mb, _)) in PRESETS.iter().enumerate() {
+        for &rate in RATES.iter() {
+            for m in 0..=16u32 {
+                let p = preset(rate, max_logical, max_mixed, arena_mb, m);
+                let g = stream::stream_count(&p);
+                assert_eq!(g, general[i], "{name} general rings");
+                let expected = (general[i] + m as usize) * RING_BYTES;
+                assert_eq!(stream::region_bytes(&p), expected, "{name} at {rate} Hz, M {m}");
+                assert_eq!(Layout::new(&p).region(RegionKind::Streams).len, expected, "{name} Streams region at {rate} Hz, M {m}");
+            }
+        }
+    }
 }
 
 /// §3.1 / architecture §6: the `Streams` region `Layout` lays out per preset at its own music rings:
 /// low 12 rings (3,686,400 B), default 20 (6,144,000 B), high 32 (9,830,400 B), at every rate; and
 /// with `M` = 0 it is the M3 size (G rings), so no earlier layout moves.
 #[test]
-#[ignore = "L-C1a"]
 fn streams_size_table_per_preset() {
-    todo!("L-C1a")
+    // At each preset's own M (low 8, default 12, high 16): 12, 20 and 32 rings.
+    let at_own_m = [3_686_400usize, 6_144_000, 9_830_400];
+    // At M = 0: G rings (4, 8, 16), the M3 size.
+    let at_zero_m = [1_228_800usize, 2_457_600, 4_915_200];
+    for (i, &(name, max_logical, max_mixed, arena_mb, music)) in PRESETS.iter().enumerate() {
+        for &rate in RATES.iter() {
+            let p = preset(rate, max_logical, max_mixed, arena_mb, music);
+            assert_eq!(Layout::new(&p).region(RegionKind::Streams).len, at_own_m[i], "{name} at {rate} Hz");
+            let p0 = preset(rate, max_logical, max_mixed, arena_mb, 0);
+            assert_eq!(Layout::new(&p0).region(RegionKind::Streams).len, at_zero_m[i], "{name} at {rate} Hz, M 0");
+        }
+    }
 }
 
 /// §3.1: a core built at each preset (48 kHz) has `G` general rings, `M` music rings at indices
 /// `G..G + M`, and no wide ring (`max_wide` 0).
 #[test]
-#[ignore = "L-C1a"]
 fn a_core_has_g_general_then_m_music_rings() {
-    todo!("L-C1a")
+    let general = [4usize, 8, 16];
+    for (i, &(name, max_logical, max_mixed, _, music)) in PRESETS.iter().enumerate() {
+        // No arena: this case builds the core only, so it needn't allocate the preset's 16 or 256 MB.
+        let p = preset(48_000.0, max_logical, max_mixed, 0, music);
+        let core = new_core(p);
+        let s = core.streams();
+        let (g, m) = (general[i], music as usize);
+        assert_eq!(s.general_count(), g, "{name} general rings");
+        assert_eq!(s.music_count(), m, "{name} music rings");
+        assert_eq!(s.narrow_count(), g + m, "{name} narrow rings");
+        assert_eq!(s.capacity(), g + m, "{name} rings (no wide ring)");
+        for ring in 0..s.capacity() {
+            assert_eq!(s.is_music(ring), (g..g + m).contains(&ring), "{name} ring {ring}");
+        }
+        assert!(!s.is_music(g + m), "{name}: no ring past the music pool");
+    }
 }
