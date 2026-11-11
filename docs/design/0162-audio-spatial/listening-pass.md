@@ -250,11 +250,11 @@ node tools/audio-bench/run.mjs mode=scene name=m3-worst-high-sends seconds=60 ru
 node tools/audio-bench/run.mjs mode=scene name=m3-high seconds=60 runs=5
 ```
 
-Each run prints one JSON line. Record **p50, p99 and p99.9** per scene (the spec's p99.9 is the lab VM's number; the container's tails are not asked for). **`m3-typical` is not in the bench at this commit** (only `m3-worst-high`, `m3-worst-high-sends` and `m3-high` are). Its scene and the run for it are the owner's to add; say so in the notes if it is missing.
+Each run prints one JSON line. Record **p50, p99 and p99.9** per scene (the spec's p99.9 is the lab VM's number; the container's tails are not asked for). `m3-typical` is the bench's **`m3-high`** scene (C7: architecture §7.2's typical high scene); `m3-worst-high` and `m3-worst-high-sends` are the worst case without and with zone sends.
 
 | Scene | Run on | p50 | p99 | p99.9 | Notes |
 |---|---|---|---|---|---|
-| `m3-typical` | lab VM (scene not in the bench yet) | | | | |
+| `m3-typical` (`m3-high`) | lab VM | | | | |
 | `m3-worst-high` | lab VM | | | | |
 | `m3-worst-high-sends` | lab VM | | | | |
 | `m3-high` | lab VM | | | | |
@@ -281,7 +281,6 @@ The keys 4 to 9 on the spatial page, and the third-order items, need scene edits
 
 - The spatial page's keys 4 to 9 are only live once the scene setup above is made.
 - The sample has no key that silences the Ambience, Radio and Machine together (B6).
-- `m3-typical` is not in the audio bench yet (M3e).
 - The 16-channel stream and the held flip's other gates are not in this pass.
 
 ## Sign-off

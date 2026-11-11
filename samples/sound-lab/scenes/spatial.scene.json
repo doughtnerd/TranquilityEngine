@@ -32,6 +32,43 @@
         {
           "type": "lab.Walker",
           "data": {}
+        },
+        {
+          "type": "lab.ListeningBench",
+          "data": {
+            "mode": "spatial"
+          }
+        }
+      ]
+    },
+    {
+      "id": "bed-orbit",
+      "name": "Bed orbit",
+      "parent": "camera",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              3,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/hum-loop.wav",
+            "loop": true,
+            "volume": 0.4,
+            "playOnAwake": false,
+            "spatial": true,
+            "minDistance": 1,
+            "maxDistance": 30,
+            "dopplerLevel": 0,
+            "output": "SFX"
+          }
         }
       ]
     },
