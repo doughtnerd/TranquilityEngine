@@ -1,6 +1,6 @@
 # 0162. Spatial audio (M3): distant voices share a 3rd-order ambisonic bed, sources are occluded through physics rays on a frame budget, and reverb zones run on M1's convolver
 
-- **Status:** Proposed (revision 2, after the RFC round in `docs/rfc/0162/`; see "RFC round" at the end)
+- **Status:** Proposed (revision 3: the RFC round in `docs/rfc/0162/` and the owner's decisions folded in; the technical design comes next)
 - **Date:** 2026-11-11
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -27,7 +27,7 @@ Plain-language meanings of the terms this record uses.
 - **Doppler:** the pitch rise of a sound moving toward the listener and fall moving away.
 - **Worklet / main thread:** the core runs in the browser's **AudioWorklet** (the audio thread); scripts, physics and the voice table run on the **main thread**.
 - **p50 / p99 / p99.9:** the cost that half, 99% and 99.9% of quanta (or frames) stay under. 0157's budgets are set at **p99.9**.
-- **Feature flag:** a project setting that turns a feature on; off means the engine behaves as before.
+- **Bus:** a mixer group (Music, SFX, Footsteps…) with its own volume, effects, ducking and meter; buses nest (0097).
 
 ## Context
 
@@ -58,13 +58,18 @@ Plain-language meanings of the terms this record uses.
 
 ## Decision (proposed)
 
-**Spatial audio follows 0157's and 0158's split: the core does everything continuous per quantum (beds, decoding, convolution, filters, gains), and main does event-driven and budgeted work (ray casts on a frame budget, smoothing of occlusion, zone weights, Doppler pitch, selection). Every M3 feature sits behind a feature flag; existing projects sound as before until a flag is on; the defaults flip only after the owner's listening pass.**
+**Spatial audio follows 0157's and 0158's split: the core does everything continuous per quantum (beds, decoding, convolution, filters, gains), and main does event-driven and budgeted work (ray casts on a frame budget, smoothing of occlusion, zone weights, Doppler pitch, selection). M3's features are on in every preset that affords them: the engine is unpublished and only its samples exist, so there are no feature flags or compatibility defaults (owner decision 2). Where a choice comes up, M3 follows what the established middleware (Wwise, FMOD, Steam Audio, Unity, Unreal) does, and says where it differs (owner).**
 
 ### 1. The ambisonic bed (panner kind 2), one per bus
-- A **3rd-order** bed (16 channels, ACN/SN3D). With `audio.bed` on, spatial voices that selection doesn't give an HRTF slot are **encoded into their bus's bed** (panner kind 2) instead of panned equal-power; each bed is **decoded once per quantum into its bus's stereo buffer, before the bus's effects, ducking and meter**, so buses keep working as today. Beds exist only on buses that hold bed voices, up to a preset limit (high: 4, default: 2, low: 0, where voices stay equal-power); a bus beyond the limit pans its voices equal-power.
+- A **3rd-order** bed (16 channels, ACN/SN3D). Spatial voices that selection doesn't give an HRTF slot are **encoded into a bed** (panner kind 2) instead of panned equal-power; each bed is **decoded once per quantum into its bus's stereo buffer, before the bus's effects, ducking and meter**, so buses keep working as today.
+- **Which buses have a bed (owner decision 6; the Wwise model, where a bus chooses an ambisonic configuration and child buses mix into their parent's):**
+  - **A project setting, `audio.bed.maxBeds`, per preset** (defaults: high 4, default 2, low 0), editable in Project Settings > Audio; the debug panel shows each bed's cost (≈ 20 µs per bed after the first).
+  - **A per-bus `bed` option:** `own` (the bus has its own bed, so its effects, ducking and meter apply to its distant voices), `parent` (the default: its distant voices go into the bed of the nearest ancestor bus that has one) or `none` (equal-power). A bus with no ancestor bed falls back to the master bus's bed, if any.
+  - **Sharing keeps the gains:** a sharing bus's volume, mute and ducking are folded into each voice's gain before encoding (ramped per quantum), so turning down Footsteps still turns down distant footsteps. A sharing bus loses only its own effects and its own meter for its distant voices (they show on the parent's meter). Exactness of the folded ducking is checked in the technical design.
+  - **A per-bus `bedPriority`:** when more buses ask for `own` than `maxBeds` allows, the highest priorities get beds; the rest share their parent's bed (still 3D, not equal-power), and the editor warns which buses lost their bed and why. With `maxBeds` 0 every voice outside an HRTF slot is equal-power.
 - The decode uses **MagLS** filters baked from M1's HRIR set (≈ 64 KB), prepared at the context's sample rate at load.
-- **HRTF voices:** with the bed on, the high preset's `voices.hrtf` is 8 (saving ≈ 55 µs); a project's stored number isn't changed, and with the bed off nothing changes.
-- **Below −45°** the filters fill the missing directions under regularisation. Whether that's acceptable, or SADIE II (Apache-2.0, M1's named fallback set) replaces the data, is decided by the owner's listening pass (a sound on the floor below), **before** `audio.bed` defaults on.
+- **HRTF voices:** the high preset's `voices.hrtf` becomes 8 where beds exist (saving ≈ 55 µs; owner decision 3); with `maxBeds` 0 it stays as set.
+- **Below −45°** the filters fill the missing directions under regularisation. Whether that's acceptable, or SADIE II (Apache-2.0, M1's named fallback set) replaces the data, is decided by the owner's listening pass (a sound on the floor below), an exit check of the bed's milestone (owner decision 5).
 - Equal-power output (`audio.spatial: "equalPower"`) decodes beds to equal-power stereo.
 - The panner change from HRTF (kind 1) to the bed (kind 2) reuses M1's crossfade; the dip it measures is a listening-pass item.
 - Source **spread** (size) is deferred; the encoder leaves room for an order-weighted spread.
@@ -77,7 +82,7 @@ Plain-language meanings of the terms this record uses.
 - The reserved **`LISTENER`** command (0x20) carries the listener's orientation for clip rotation; voices keep their listener-space directions from main.
 
 ### 3. Occlusion
-- With `audio.occlusion` on, main casts rays through the **3D** physics World service on a **frame budget: 0.25 ms by default, 0.5 ms on high, 0.06 ms (≈ 16 rays) on low** (`audio.occlusion.budgetMs`), inside 0157's "occlusion ≤ 6% of a frame". Rays go to the **16 sources with the highest audibility before occlusion** each frame (so a muffled source isn't recast less often), then **round-robin** over the rest; one ray per source by default, up to 3 through up to 3 occluders for the top few on high. When a frame's budget runs out, the rest keep their last result; the debug view shows each result's age.
+- Main casts rays through the **3D** physics World service on a **frame budget: 0.25 ms by default, 0.5 ms on high, 0.06 ms (≈ 16 rays) on low** (`audio.occlusion.budgetMs`), inside 0157's "occlusion ≤ 6% of a frame". Rays go to the **16 sources with the highest audibility before occlusion** each frame (so a muffled source isn't recast less often), then **round-robin** over the rest; one ray per source by default, up to 3 through up to 3 occluders for the top few on high. When a frame's budget runs out, the rest keep their last result; the debug view shows each result's age.
 - **What occludes:** rays test the physics layers in `audio.occlusion.layers` (default: every layer except triggers), so no collider changes layer; a hit collider's material comes from an optional **`AudioOccluder` component** on its node (transmission in dB and a low-pass cutoff from a table: wood, concrete, glass, metal, cloth…), else the project's default occluder material (`audio.occlusion.defaultMaterial`).
 - **Main owns the smoothing** (≈ 100 ms, ≈ 60 ns per source): it sends each voice's occlusion gain and low-pass with ramps, and selection's audibility uses the smoothed value with M2's no-gap rule.
 - Occlusion attenuates the **dry** path fully and the **wet** (reverb send) by `wetOcclusion` (per material, default 0.5), so a sound behind a wall in a reverberant room still sounds reverberant.
@@ -87,14 +92,14 @@ Plain-language meanings of the terms this record uses.
 
 ### 4. Reverb zones
 - The new **`AudioReverbZone` component**: a box or sphere volume, an **IR** (an `audio` clip; a few procedural presets ship), a wet level and a **blend distance** (outside the volume, over which the zone fades in).
-- **Zone weights are per source** (owner decision 1, recommended): each voice sends to the zone(s) containing **its** position (blending at boundaries), so a footstep in a cave heard from the street sounds like the cave. The send level is the voice's `reverbSend` (default 1 for spatial sources) times a **send-versus-distance curve** (0158's curve type; default a gentle rise from `minDistance`), times the zone weight, times `wetOcclusion`.
+- **Zone weights are per source** (owner decision 1): each voice sends to the zone(s) containing **its** position (blending at boundaries), so a footstep in a cave heard from the street sounds like the cave. The send level is the voice's `reverbSend` (default 1 for spatial sources) times a **send-versus-distance curve** (0158's curve type; default a gentle rise from `minDistance`), times the zone weight, times `wetOcclusion`.
 - Each active zone is one **M1 staged convolver**; at most **2 active zones** on high and default, **1 on low** (a 1 s IR); with more zones in use, the two with the most send energy play and the editor warns when a scene's layout needs more. Zone convolvers' tail work is **staggered by load** (a planner balancing modelled work per quantum), replacing architecture §10's "never share a tail quantum".
 - **IRs are prepared off the audio thread** (in the decoder worker, at the context's sample rate; spread across quanta if the worker isn't available); never at once on the audio thread. A rate change or a hard rebuild re-prepares them; zones are part of the rebuild's REPLAY.
 - The bus `reverb` effect (M1's shared reverb) keeps working; it is what a voice hears when no zone holds it.
 - Zone memory is a preset budget (high 2 × 4 s ≈ 12 MB; default 2 × 2 s ≈ 6 MB; low 1 × 1 s ≈ 1.7 MB), shown in the debug panel.
 
 ### 5. Doppler
-- With `audio.doppler` on, main computes a Doppler factor from the source's and **listener's** velocities (position deltas each frame), clamped to ±1 octave, with a **teleport guard** (no Doppler for a delta beyond `audio.doppler.maxSpeed`), and folds it into the voice's existing `pitch` with a ramp (no new core state; the playhead tracker stays right). `AudioSource.dopplerLevel` (default 1 for spatial sources; `playOneShot` and events opt in), `audio.speedOfSound` in **world units per second** (default 343). A hidden tab resets it.
+- Main computes a Doppler factor from the source's and **listener's** velocities (position deltas each frame), clamped to ±1 octave, with a **teleport guard** (no Doppler for a delta beyond `audio.doppler.maxSpeed`), and folds it into the voice's existing `pitch` with a ramp (no new core state; the playhead tracker stays right). `AudioSource.dopplerLevel` (default 1 for spatial sources; `playOneShot` and events opt in), `audio.speedOfSound` in **world units per second** (default 343). A hidden tab resets it.
 
 ### 6. Effects per event (from 0158)
 - `myco.audioevent@1` gains optional keys (additive; the format stays `@1`): `filter: { lowpass?, highpass? }` (cutoffs in Hz; `lowpass` combines with automation's `lowpass` target, lowest wins), `sends: { reverb?: level, <effect bus name>?: level }`, and `occlusion` (on/off). Filters apply **per voice** of the instance (voices are panned one by one, so a filter can't follow panning); the core uses the per-voice filter of §3.
@@ -115,7 +120,7 @@ Plain-language meanings of the terms this record uses.
 
 ## Alternatives considered
 
-- **Equal-power for distant voices, no bed.** ≈ 1.7 µs a voice, no decode. Loses headphone placement for everything beyond the nearest HRTF voices; whether listeners hear the difference at distance is the listening pass's first A/B, and `audio.bed` stays off until it does.
+- **Equal-power for distant voices, no bed.** ≈ 1.7 µs a voice, no decode. Loses headphone placement for everything beyond the nearest HRTF voices; whether listeners hear the difference at distance is the listening pass's first A/B.
 - **Per-voice HRTF for every spatial voice.** ≈ 13 µs a voice; 256 voices exceed a quantum.
 - **One bed for the whole mix.** Bypasses bus effects, ducking and meters for bed voices; one bed per bus keeps the bus tree intact.
 - **1st- or 2nd-order bed.** Cheaper, blurrier; the 3rd-order encode is already ≈ 0.5 µs.
@@ -134,7 +139,7 @@ Plain-language meanings of the terms this record uses.
 - Headphone placement for hundreds of voices at ≈ 0.5 µs of encoding each; ambisonic ambiences; walls that muffle without killing the room's reverb; per-room reverb by source; Doppler; per-event filters and sends.
 - Designers place zones and occluders in the editor like colliders; the occluder material table is project data.
 - Reuses M1's HRIR set, convolver, crossfades and selection, and M2's automation, curves, per-voice filter and no-gap rule.
-- Every feature is behind a flag, so M3 can ship piece by piece without changing how existing projects sound.
+- Follows the established middleware's models (Wwise-style per-bus ambisonic beds and per-source rooms), so sound designers' habits carry over.
 
 **Negative / costs**
 - The high preset's cost rises (≈ 0.22 ms est.) on a preset already over 0157's budget on the lab VM; the low preset gets no bed, 1 small zone and few rays.
@@ -142,7 +147,7 @@ Plain-language meanings of the terms this record uses.
 - Below-horizon placement is approximate with M1's HRIR data until the listening pass decides.
 - Nearest-8 HRTF with the bed on (a 1–4 dB switch dip, to be listened to).
 - Two components, a gizmo contribution, new settings, wire changes (panner kind 2, a clip voice kind, `LISTENER`, zone and occlusion fields), per-voice filters for every filtered voice, per-bus beds.
-- **Estimate (provisional; the technical design's task table sets the real one):** ≈ 22 person-weeks: the bed with per-bus beds (≈ 4.5), ambisonic clips with 16-channel streaming (≈ 3), reverb zones by source with off-thread preparation and REPLAY (≈ 5.5), occlusion with per-voice filters (≈ 3), Doppler and event effects (≈ 1), the fallback (≈ 0.5), the editor (≈ 4), and a reserve (≈ 0.5); plus a sample and the listening pass. Milestones M3a (bed), M3b (clips), M3c (zones), M3d (occlusion, Doppler, event effects), M3e (editor), each behind its flag.
+- **Estimate (provisional; the technical design's task table sets the real one):** ≈ 22 person-weeks: the bed with per-bus beds (≈ 4.5), ambisonic clips with 16-channel streaming (≈ 3), reverb zones by source with off-thread preparation and REPLAY (≈ 5.5), occlusion with per-voice filters (≈ 3), Doppler and event effects (≈ 1), the fallback (≈ 0.5), the editor (≈ 4), and a reserve (≈ 0.5); plus a sample and the listening pass. Milestones M3a (bed), M3b (clips), M3c (zones), M3d (occlusion, Doppler, event effects), M3e (editor), each shippable on its own.
 
 ## Deprecates
 
@@ -156,14 +161,16 @@ Architecture §10's "extra convolvers never share a tail quantum" (replaced by l
 - IR preparation in the decoder worker: unmeasured.
 - The lab-VM and phone numbers for every budget.
 
-## Owner decisions (for acceptance)
+## Owner decisions (2026-11-11)
 
-1. **Zone weights per source** (recommended: what Wwise rooms do; a sound in another room keeps its room) or per listener (simpler, FMOD-style).
-2. **Feature flags off until the listening pass** (recommended: existing projects unchanged; each feature defaults on after its listening items pass) or on by default as each lands.
-3. **HRTF voices 8 with the bed** on the high preset, a project's stored `voices.hrtf` untouched (recommended), or keep 16 and take the ≈ 55 µs.
-4. **Babylon occlusion gain only** (recommended: best effort) or add a per-voice `BiquadFilterNode` on the fallback (≈ +0.5 person-week).
-5. **Below the horizon:** listen first, SADIE II if a floor-below sound fails (recommended), or switch to SADIE II now.
-6. **Beds per bus** up to 4 on high (≈ +20 µs per extra bed; recommended) or beds only on buses without effects.
+The owner: follow industry standards as much as possible in these designs.
+
+1. **Zone weights per source**, as Wwise rooms do (a sound in another room keeps its room's reverb).
+2. **No feature flags:** the engine is unpublished and only the samples exist; M3's features are simply on in the presets that afford them. The listening pass is an exit check of each milestone, not a gate on defaults.
+3. **HRTF voices 8 where beds exist** on the high preset.
+4. **Babylon occlusion gain only** (best effort).
+5. **Below the horizon:** listen first; SADIE II if a floor-below sound fails.
+6. **Beds as a setting, per bus, with sharing and priority** (§1): `audio.bed.maxBeds` per preset (4 / 2 / 0); each bus `own`, `parent` (default) or `none`; sharing keeps volume, mute and ducking; `bedPriority` decides who gets a bed beyond the limit, the rest share their parent's.
 
 ## RFC round (revision 2)
 
@@ -171,7 +178,7 @@ Five reviews in `docs/rfc/0162/` (architect, senior engineer, mid-level engineer
 
 | Point (reviewer) | Outcome |
 |---|---|
-| A single bed bypasses the bus tree: effects, ducking, meters (architect, blocking; checked: `bus.rs` mixdown, `panner.rs` adds HRTF to the voice's bus) | **Taken:** one bed per bus, decoded into the bus before its effects; a preset limit; owner decision 6 |
+| A single bed bypasses the bus tree: effects, ducking, meters (architect, blocking; checked: `bus.rs` mixdown, `panner.rs` adds HRTF to the voice's bus) | **Taken:** beds per bus, decoded into the bus before its effects; a `maxBeds` setting, per-bus `own`/`parent`/`none` and a priority (owner decision 6) |
 | Budgets must be p99.9 (0157, 0158); the high preset is already 5.45 ms p99.9 on the lab VM (architect, senior, challenger; checked: architecture §6.1) | **Taken:** §8 states p99.9 as the statistic, acceptance needs the lab-VM run and the metered gate, the estimate is labelled modelled |
 | Bed voices still pay mixing; "0.5 µs a voice" is encode only (architect) | **Taken:** corrected in Context and Consequences |
 | The HRTF saving is ≈ 55 µs, not 94 (kernel budget) (architect; checked against `KERNEL_BUDGET`) | **Taken** |
@@ -191,17 +198,17 @@ Five reviews in `docs/rfc/0162/` (architect, senior engineer, mid-level engineer
 | A 16-channel minute is ≈ 92 MB (architect, challenger: "184 MB" assumed float) | **Taken:** clips stream by default |
 | Zone state in REPLAY; 48 kHz-only spectra and filters (architect; checked: `convolver.rs` sizes by rate) | **Taken:** prepared at the context's rate, re-prepared on change, in REPLAY |
 | Doppler on main into `pitch`; listener velocity; teleport guard; units; hidden tab (architect, senior, sound designer, mid) | **Taken** |
-| Behaviour changes for existing projects (HRTF 16 → 8, occlusion and bed on) (senior, mid) | **Taken:** feature flags; owner decisions 2 and 3 |
+| Behaviour changes for existing projects (HRTF 16 → 8, occlusion and bed on) (senior, mid) | **Not taken as flags:** the engine is unpublished, so there are no existing projects to protect (owner decision 2); HRTF 16 → 8 is owner decision 3 |
 | Babylon has no per-voice low-pass today (mid, blocking; checked: guides and `babylonBackend.ts`) | **Taken:** §7 corrected; owner decision 4 |
 | Wire changes under-specified; panner bits 5–6 (architect, senior) | **Taken:** the bit corrected; byte layouts go to the technical design (step 6) |
 | Zone IR asset kind; bus `reverb` vs zones; gizmos through the SDK (senior) | **Taken:** an `audio` clip; the shared reverb stays; a gizmo contribution |
 | An `occluded` debug cause; which stage set a low-pass (mid) | **Taken** |
 | Live tuning in Play; backend shown in audition (sound designer) | **Taken** |
 | Spread; rooms and portals; obstruction; diffraction (sound designer) | **Deferred**, listed in Open questions; the encoder leaves room for spread |
-| Below-horizon data as a gate (sound designer, challenger) | **Taken:** owner decision 5, decided by listening before `audio.bed` defaults on |
-| No listening evidence for the bed or 16 → 8 (challenger, blocking) | **Taken:** flags stay off until the listening pass's A/B items pass |
+| Below-horizon data as a gate (sound designer, challenger) | **Taken:** owner decision 5, decided by listening as an exit check of the bed's milestone |
+| No listening evidence for the bed or 16 → 8 (challenger, blocking) | **Taken with changes:** the listening pass's A/B items are exit checks of the bed's milestone (no flags, owner decision 2) |
 | Ambisonic clips out of proportion for v1 (challenger) | **Not taken:** the owner put them in scope (goal.md) |
 | Zones as presets on one global reverb; algorithmic reverb (challenger) | **Not taken:** keeps M1's convolution sound (0157's review); the low preset gets 1 small zone; algorithmic is a later option |
-| A half-size M3 (challenger: 5–7 + 2 person-weeks) | **Not taken as scope** (the owner's scope); the flags let any part ship first |
-| Estimate ≈ 20 person-weeks in milestones behind flags (senior) | **Taken with changes:** ≈ 22 with per-bus beds, per-voice filters, 16-channel streaming and source zones added |
+| A half-size M3 (challenger: 5–7 + 2 person-weeks) | **Not taken as scope** (the owner's scope); each milestone ships on its own |
+| Estimate ≈ 20 person-weeks in milestones (senior) | **Taken with changes:** ≈ 22 with per-bus beds, per-voice filters, 16-channel streaming and source zones added |
 | Doppler and event filters not needed in M3 (challenger) | **Not taken:** in the roadmap and 0158; ≈ 1 person-week together |
