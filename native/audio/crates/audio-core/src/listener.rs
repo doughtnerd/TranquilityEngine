@@ -11,8 +11,7 @@
 //! **Ramp.** LISTENER sets the target. With `snap` (a camera cut) the rotation jumps: this quantum's
 //! start and end are both the target. Otherwise it travels the great arc from where it is to the
 //! target at a constant speed over `max(rampFrames, 128)` frames: each quantum ([`begin_quantum`],
-//! before the voices) moves `cur` by `slerp(cur, to, 128 / left)` (a normalised linear
-//! interpolation along the arc, [`slerp`]), so a quantum covers 128 frames of
+//! before the voices) moves `cur` by `slerp(cur, to, 128 / left)`, so a quantum covers 128 frames of
 //! the arc; inside the quantum, the voices ramp their rotation matrices per sample from the start's
 //! to the end's (`ambisonic::rotate_ramp_add`). A quaternion that isn't finite or is zero is
 //! ignored (the rotation stays); the rest are normalised.
@@ -93,24 +92,33 @@ impl ListenerState {
     }
 }
 
-/// One step along the great arc from unit `a` toward unit `b`, a fraction `t` (0..1) of the way,
-/// the short way round: the normalised linear interpolation. It stays on the arc and lands on `b`
-/// at `t = 1`; taken as `t = 128 / left` from where the last step ended, its steps differ from a
-/// slerp's constant speed by under 0.5 % for a 12 degree ramp (720 degrees a second, LISTENER every
-/// 16 ms; 7 % for a 90 degree one), and the error doesn't accumulate (each step aims at the target). Chosen
-/// over a trigonometric slerp for the mixer's size budget.
+/// The spherical interpolation from unit `a` to unit `b` at `t` (0..1), the short way round (f64,
+/// so the constant-speed steps don't drift). Normalised linear interpolation when they are nearly
+/// the same rotation.
 pub fn slerp(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
-    let dot: f32 = (0..4).map(|i| a[i] * b[i]).sum();
-    let sb = if dot < 0.0 { -t } else { t };
-    let mut r = [0.0f32; 4];
-    for i in 0..4 {
-        r[i] = (1.0 - t) * a[i] + sb * b[i];
+    let (a, mut b) = (a.map(f64::from), b.map(f64::from));
+    let mut dot: f64 = (0..4).map(|i| a[i] * b[i]).sum();
+    if dot < 0.0 {
+        b = b.map(|v| -v);
+        dot = -dot;
     }
-    let n = libm::sqrtf(r.iter().map(|v| v * v).sum::<f32>());
-    if n > 1e-6 {
-        r.map(|v| v / n)
+    let t = t as f64;
+    let (wa, wb) = if dot > 0.9995 {
+        (1.0 - t, t)
     } else {
-        b
+        let s = libm::sqrt((1.0 - dot * dot).max(0.0));
+        let theta = libm::atan2(s, dot);
+        (libm::sin((1.0 - t) * theta) / s, libm::sin(t * theta) / s)
+    };
+    let mut r = [0.0f64; 4];
+    for i in 0..4 {
+        r[i] = wa * a[i] + wb * b[i];
+    }
+    let n = libm::sqrt(r.iter().map(|v| v * v).sum::<f64>());
+    if n > 0.0 {
+        r.map(|v| (v / n) as f32)
+    } else {
+        IDENTITY
     }
 }
 
@@ -183,25 +191,16 @@ mod tests {
         s.step();
         assert_eq!(s.start, s.cur);
         assert!(same(s.cur, yaw_q(1.0)));
-        // 12 degrees over 768 frames (720 degrees a second, LISTENER every 16 ms): 6 quanta of 2
-        // degrees each, within 0.5 % (the normalised interpolation's speed error).
-        let target = 1.0 + 12f32.to_radians();
-        s.set(yaw_q(target), 768, false);
-        for k in 1..=6 {
+        // 90 degrees over 1,024 frames: 8 quanta of 11.25 degrees each.
+        s.set(yaw_q(1.0 + core::f32::consts::FRAC_PI_2), 1_024, false);
+        for k in 1..=8 {
             s.step();
             let step = angle(s.start, s.cur);
-            let want = 2f64.to_radians();
-            assert!((step - want).abs() < 0.005 * want, "quantum {k}: {step}");
+            assert!((step - core::f64::consts::FRAC_PI_2 / 8.0).abs() < 1e-5, "quantum {k}: {step}");
         }
-        assert!(same(s.cur, yaw_q(target)));
+        assert!(same(s.cur, yaw_q(1.0 + core::f32::consts::FRAC_PI_2)));
         s.step();
         assert_eq!(s.start, s.cur, "at rest after the ramp");
-        // A long arc (90 degrees over 8 quanta) still lands on its target.
-        s.set(yaw_q(target + core::f32::consts::FRAC_PI_2), 1_024, false);
-        for _ in 0..8 {
-            s.step();
-        }
-        assert!(same(s.cur, yaw_q(target + core::f32::consts::FRAC_PI_2)));
     }
 
     #[test]

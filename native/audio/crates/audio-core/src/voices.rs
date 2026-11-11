@@ -828,7 +828,7 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
 /// left to fade (the caller goes on with the new epoch).
 #[allow(clippy::too_many_arguments)]
 fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, mut fx: VoiceFx<'_>, ring: &mut crate::stream::Ring, samples: &[f32], hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) -> bool {
-    use crate::stream::{frame_at, TAIL_OFFSET};
+    use crate::stream::frame_at;
     let mut auto = if AUTO { auto } else { None };
     let finish = |slot: &mut VoiceSlot, ring: &mut crate::stream::Ring| {
         ring.seeking = 0;

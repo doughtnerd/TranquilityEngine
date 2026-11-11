@@ -19,10 +19,14 @@ const out = fileURLToPath(new URL("../../src/plugins/audio/runtime/wasm/", impor
 /** The metered build's directory (C1b): test-only, beside the gate that runs it. */
 const meteredOut = fileURLToPath(new URL("../../tools/audio-bench/metered/", import.meta.url));
 const TARGET = "wasm32-unknown-unknown";
-/** The mixer's size tripwire (ADR 0158 amends 0157): 256 KB. A guard against accidental bloat, not a design constraint; raise it with a line in the build log saying why. */
-const MIXER_LIMIT = 256 * 1024;
+/**
+ * The mixer's size tripwire (ADR 0158 amends 0157): a guard against accidental bloat, not a design constraint; raise it
+ * with a line in the build log saying why. 320 KB since ADR 0162 M3 (2026-11-12, owner): beds, zones, ambisonic voices
+ * and sends took the mixer to ≈ 260 KB, past the 256 KB set before any of them existed.
+ */
+const MIXER_LIMIT = 320 * 1024;
 /** ADR 0162 (api-and-models §5.2): M3's mixer warning, under the gate: a build past it warns but passes. */
-const MIXER_WARN = 230 * 1024;
+const MIXER_WARN = 300 * 1024;
 /** The decoder's size gate (M1b): 900 KB. */
 const DECODER_LIMIT = 900 * 1024;
 /** The AAC decoder build's own gate (B4; raised 1,100 -> 1,280 KB in M2 by the owner, 2026-11-10: gates are a signal to look for

@@ -130,7 +130,6 @@ pub fn encode_gains(dir: [f32; 3], order: usize) -> [f32; CHANNELS] {
 /// `bed[c][i] += x[i] · (c0[c] + (c1[c] − c0[c]) · (i + 1) / 128)` for `c < channels` (clamped to 16).
 /// `c0` is the coefficient just before frame 0 (the previous quantum's `c1`), `c1` the one frame 127
 /// lands on; both are gain × [`encode_gains`]. One pass, two products per channel-frame.
-#[inline(never)]
 pub fn encode_ramp_add(bed: &mut [[f32; QUANTUM]; CHANNELS], x: &[f32; QUANTUM], c0: &[f32; CHANNELS], c1: &[f32; CHANNELS], channels: usize) {
     let mut v = [0.0f32; QUANTUM];
     for (i, (v, x)) in v.iter_mut().zip(x).enumerate() {
@@ -237,8 +236,8 @@ impl ShRotation {
         }
         let mut b2 = [[0.0f32; 5]; 5];
         let mut b3 = [[0.0f32; 7]; 7];
-        next_order(&b1, b1.as_flattened(), b2.as_flattened_mut(), 2);
-        next_order(&b1, b2.as_flattened(), b3.as_flattened_mut(), 3);
+        next_order(&b1, &b1, &mut b2, &COEF2);
+        next_order(&b1, &b2, &mut b3, &COEF3);
         ShRotation { b0: 1.0, b1, b2, b3 }
     }
 
@@ -317,19 +316,6 @@ pub const fn coefficient(l: i32, m: i32, n: i32) -> [f32; 3] {
     [u as f32, v as f32, w as f32]
 }
 
-/// [`coefficient`] at run time in f32 (`libm::sqrtf` of the exact integer ratios): within an ulp or
-/// two of the baked tables, and no table in the binary.
-fn coefficient_f32(l: i32, m: i32, n: i32) -> [f32; 3] {
-    let (am, an) = (m.abs(), n.abs());
-    let d = (m == 0) as i32;
-    let den = if an < l { (l + n) * (l - n) } else { 2 * l * (2 * l - 1) } as f32;
-    let root = |x: i32| libm::sqrtf(x as f32 / den);
-    let u = root((l + m) * (l - m));
-    let v = 0.5 * root((1 + d) * (l + am - 1) * (l + am)) * (1 - 2 * d) as f32;
-    let w = -0.5 * root(((l - am - 1) * (l - am)).max(0)) * (1 - d) as f32;
-    [u, v, w]
-}
-
 /// `√x` for `x ≥ 0` by Newton's iteration in f64 (for the compile-time tables only).
 const fn const_sqrt(x: f64) -> f64 {
     if x <= 0.0 {
@@ -375,15 +361,10 @@ pub const COEF3: [[[f32; 3]; 7]; 7] = table::<7>();
 ///   `P(1, m−1, n)·√(1 + δ(m,1)) − P(−1, −m+1, n)·(1 − δ(m,1))` if `m > 0`;
 ///   `P(1, m+1, n)·(1 − δ(m,−1)) + P(−1, −m−1, n)·√(1 + δ(m,−1))` if `m < 0`;
 /// - `W = P(1, m+1, n) + P(−1, −m−1, n)` if `m > 0`; `P(1, m−1, n) − P(−1, −m+1, n)` if `m < 0`.
-///
-/// The blocks are row-major slices (`prev` `(2l − 1)²`, `out` `(2l + 1)²`), so one copy serves
-/// both orders, and `(u, v, w)` come from [`coefficient_f32`] rather than [`COEF2`] / [`COEF3`] (the
-/// mixer's size budget; ADR 0162 B3).
-#[inline(never)]
-fn next_order(r1: &[[f32; 3]; 3], prev: &[f32], out: &mut [f32], l: i32) {
-    let (dim, np) = ((2 * l + 1) as usize, (2 * l - 1) as usize);
+fn next_order<const NP: usize, const N: usize>(r1: &[[f32; 3]; 3], prev: &[[f32; NP]; NP], out: &mut [[f32; N]; N], coef: &[[[f32; 3]; N]; N]) {
+    let l = ((N - 1) / 2) as i32;
     let r1 = |i: i32, j: i32| r1[(i + 1) as usize][(j + 1) as usize];
-    let rp = |a: i32, b: i32| prev[(a + l - 1) as usize * np + (b + l - 1) as usize];
+    let rp = |a: i32, b: i32| prev[(a + l - 1) as usize][(b + l - 1) as usize];
     let p = |i: i32, a: i32, b: i32| -> f32 {
         if b == l {
             r1(i, 1) * rp(a, l - 1) - r1(i, -1) * rp(a, -l + 1)
@@ -395,7 +376,7 @@ fn next_order(r1: &[[f32; 3]; 3], prev: &[f32], out: &mut [f32], l: i32) {
     };
     for m in -l..=l {
         for n in -l..=l {
-            let [u, v, w] = coefficient_f32(l, m, n);
+            let [u, v, w] = coef[(m + l) as usize][(n + l) as usize];
             let mut acc = 0.0f32;
             if u != 0.0 {
                 acc += u * p(0, m, n);
@@ -420,45 +401,53 @@ fn next_order(r1: &[[f32; 3]; 3], prev: &[f32], out: &mut [f32], l: i32) {
                 let ww = if m > 0 { p(1, m + 1, n) + p(-1, -m - 1, n) } else { p(1, m - 1, n) - p(-1, -m + 1, n) };
                 acc += w * ww;
             }
-            out[(m + l) as usize * dim + (n + l) as usize] = acc;
+            out[(m + l) as usize][(n + l) as usize] = acc;
         }
     }
 }
 
 /// Adds `M(t) · input` into `out` for the first `channels` channels (4, 9 or 16; others round down
 /// to the order below, at least 1), with `M(t)` ramped per sample from `m0` (just before frame 0)
-/// to `m1` (frame 127): frame `i` uses `m0 + (m1 − m0)(i + 1)/128`. Block-diagonal, run as one
-/// [`encode_ramp_add`] per input channel over the rows up to its block's end (1 + 12 + 45 + 112 row
-/// passes at order 3, against the 84 a dedicated kernel needs: a smaller binary for ≈ 2× the work).
-/// Fold a gain ramp in with [`ShRotation::scaled`].
+/// to `m1` (frame 127): frame `i` uses `m0 + (m1 − m0)(i + 1)/128`. Block-diagonal: 1 + 9 + 25 + 49
+/// products a frame at order 3. Fold a gain ramp in with [`ShRotation::scaled`].
 pub fn rotate_ramp_add(input: &[[f32; QUANTUM]; CHANNELS], out: &mut [[f32; QUANTUM]; CHANNELS], channels: usize, m0: &ShRotation, m1: &ShRotation) {
-    let blocks: [(usize, usize, &[f32], &[f32]); 4] = [
-        (0, 1, core::slice::from_ref(&m0.b0), core::slice::from_ref(&m1.b0)),
-        (1, 3, m0.b1.as_flattened(), m1.b1.as_flattened()),
-        (4, 5, m0.b2.as_flattened(), m1.b2.as_flattened()),
-        (9, 7, m0.b3.as_flattened(), m1.b3.as_flattened()),
-    ];
-    for (base, n, a, b) in blocks {
-        if base + n > channels.max(1) {
-            break;
+    let mut t = [0.0f32; QUANTUM];
+    for (i, t) in t.iter_mut().enumerate() {
+        *t = (i + 1) as f32 * (1.0 / QUANTUM as f32);
+    }
+    {
+        let (a, d) = (m0.b0, m1.b0 - m0.b0);
+        for ((o, x), t) in out[0].iter_mut().zip(&input[0]).zip(&t) {
+            *o += (a + d * t) * x;
         }
-        rotate_block(input, out, base, n, a, b);
+    }
+    if channels >= 4 {
+        block(input, out, 1, &m0.b1, &m1.b1, &t);
+    }
+    if channels >= 9 {
+        block(input, out, 4, &m0.b2, &m1.b2, &t);
+    }
+    if channels >= 16 {
+        block(input, out, 9, &m0.b3, &m1.b3, &t);
     }
 }
 
-/// One order's block of [`rotate_ramp_add`] (rows and columns `base..base + n`, `a` and `b` row-major):
-/// input channel `base + j` feeds the block's rows with column `j` of each matrix through the
-/// per-channel ramp of [`encode_ramp_add`] (one kernel for encode and rotation, ADR 0162 B3's size
-/// budget; rows below the block take coefficient 0).
-#[inline(never)]
-fn rotate_block(input: &[[f32; QUANTUM]; CHANNELS], out: &mut [[f32; QUANTUM]; CHANNELS], base: usize, n: usize, a: &[f32], b: &[f32]) {
-    for j in 0..n {
-        let (mut c0, mut c1) = ([0.0f32; CHANNELS], [0.0f32; CHANNELS]);
-        for i in 0..n {
-            c0[base + i] = a[i * n + j];
-            c1[base + i] = b[i * n + j];
+/// One order's block of [`rotate_ramp_add`]: rows `base..base + N`.
+#[inline]
+fn block<const N: usize>(input: &[[f32; QUANTUM]; CHANNELS], out: &mut [[f32; QUANTUM]; CHANNELS], base: usize, a: &[[f32; N]; N], b: &[[f32; N]; N], t: &[f32; QUANTUM]) {
+    for i in 0..N {
+        let mut acc = [0.0f32; QUANTUM];
+        let mut dif = [0.0f32; QUANTUM];
+        for j in 0..N {
+            let (c, d) = (a[i][j], b[i][j] - a[i][j]);
+            for ((acc, dif), x) in acc.iter_mut().zip(dif.iter_mut()).zip(&input[base + j]) {
+                *acc += c * x;
+                *dif += d * x;
+            }
         }
-        encode_ramp_add(out, &input[base + j], &c0, &c1, base + n);
+        for (((o, acc), dif), t) in out[base + i].iter_mut().zip(&acc).zip(&dif).zip(t) {
+            *o += acc + dif * t;
+        }
     }
 }
 
@@ -529,23 +518,6 @@ mod tests {
 
     fn f32v(d: [f64; 3]) -> [f32; 3] {
         [d[0] as f32, d[1] as f32, d[2] as f32]
-    }
-
-    #[test]
-    fn run_time_coefficients_match_the_tables() {
-        for (l, n) in [(2i32, 5usize), (3, 7)] {
-            for i in 0..n {
-                for j in 0..n {
-                    let (m, k) = (i as i32 - l, j as i32 - l);
-                    let t = if l == 2 { COEF2[i][j] } else { COEF3[i][j] };
-                    let r = coefficient_f32(l, m, k);
-                    for c in 0..3 {
-                        assert!((t[c] - r[c]).abs() <= 1e-6, "l {l} m {m} n {k}: {t:?} {r:?}");
-                        assert_eq!(t[c] == 0.0, r[c] == 0.0);
-                    }
-                }
-            }
-        }
     }
 
     #[test]
