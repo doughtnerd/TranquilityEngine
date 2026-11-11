@@ -30,6 +30,11 @@ export function mirrorRotation(value: unknown): unknown {
   return isNumbers(value, 4) ? [tidy(-value[0]), tidy(-value[1]), value[2], value[3]] : value;
 }
 
+/** A signed angle about the vertical axis (degrees or radians): a mirror reverses its turn, so it's negated. */
+function mirrorTurn(value: unknown): unknown {
+  return typeof value === "number" ? tidy(-value) : value;
+}
+
 /** Water waves: `direction` is degrees from +X towards +Z, so a mirror negates it. */
 function mirrorWaves(value: unknown): unknown {
   if (!Array.isArray(value)) return value;
@@ -62,6 +67,8 @@ const FIELDS: Readonly<Record<string, Readonly<Record<string, FieldMirror>>>> = 
     "engine.NavGate": center,
     "engine.NavCostVolume": center,
     "engine.WaterSurface": { waves: mirrorWaves },
+    // `ambisonicYaw` turned left for positive values in the right-handed world; it now turns right like every yaw.
+    "engine.AudioSource": { ambisonicYaw: mirrorTurn },
   };
 })();
 

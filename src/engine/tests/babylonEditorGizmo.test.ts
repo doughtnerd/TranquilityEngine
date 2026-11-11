@@ -254,7 +254,7 @@ describe("the transform gizmo on the Babylon backend (ADR 0075 stage 8)", () => 
     move();
     g.onDragObservable.notifyObservers({} as never);
   };
-  const snapOn = { ...base, snap: true, snapSteps: { move: 0.5, rotate: 30, scale: 0.25 } };
+  const snapOn = { ...base, snap: true, snapSteps: { move: 0.5, rotate: Math.PI / 6, scale: 0.25 } };
 
   it("snaps a translate drag to the absolute world grid from an off-grid start, on the dragged axes only", () => {
     const a = node("a", [0.13, 0.13, 0.13]);
@@ -339,13 +339,13 @@ describe("the transform gizmo on the Babylon backend (ADR 0075 stage 8)", () => 
 
   it("does not snap when snapping is off or a step is invalid", () => {
     const a = node("a", [0.13, 0, 0]);
-    gizmo.setGizmo([a], { ...base, snapSteps: { move: 0.5, rotate: 30, scale: 0.25 } }, handlers);
+    gizmo.setGizmo([a], { ...base, snapSteps: { move: 0.5, rotate: Math.PI / 6, scale: 0.25 } }, handlers);
     sync();
     const t = internals().gizmos.translate!;
     drag(t, t.xGizmo, () => (proxy().position.x += 0.3));
     expect(changes.at(-1)![0].position[0]).toBeCloseTo(0.43, 5);
     t.xGizmo.dragBehavior.onDragEndObservable.notifyObservers({} as never);
-    gizmo.setGizmo([a], { ...base, snap: true, snapSteps: { move: 0, rotate: 30, scale: 0.25 } }, handlers);
+    gizmo.setGizmo([a], { ...base, snap: true, snapSteps: { move: 0, rotate: Math.PI / 6, scale: 0.25 } }, handlers);
     sync();
     drag(t, t.xGizmo, () => (proxy().position.x += 0.3));
     expect(changes.at(-1)![0].position[0]).toBeCloseTo(0.43, 5);

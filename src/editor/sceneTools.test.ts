@@ -51,6 +51,13 @@ describe("snap settings", () => {
     expect(cleanSnap({ move: -1, rotate: Number.NaN, grid: 2, showGrid: "yes" as never })).toEqual({ ...DEFAULT_SNAP, grid: 2 });
   });
 
+  it("keeps the rotate step in radians, and converts a step saved in degrees before version 2 (ADR 0164)", () => {
+    expect(DEFAULT_SNAP.rotate).toBeCloseTo(Math.PI / 12, 12);
+    expect(cleanSnap({ move: 0.25, rotate: 45 }).rotate).toBeCloseTo(Math.PI / 4, 12); // an old save: degrees
+    expect(cleanSnap({ rotate: 0.5, v: 2 }).rotate).toBe(0.5);
+    expect(cleanSnap({ rotate: 45 }).v).toBe(2);
+  });
+
   it("snaps while Ctrl is held or always, and passes the steps, space and pivot to the gizmo", () => {
     snapSettings.value = { ...DEFAULT_SNAP };
     snapping.value = false;
@@ -58,13 +65,13 @@ describe("snap settings", () => {
     snapping.value = true;
     expect(snapActive.value).toBe(true);
     snapping.value = false;
-    updateSnap({ always: true, move: 0.5, rotate: 45 });
+    updateSnap({ always: true, move: 0.5, rotate: Math.PI / 4 });
     expect(snapActive.value).toBe(true);
     gizmoSpace.value = "local";
     gizmoPivot.value = "pivot";
     viewMode.value = "2d";
     const o = gizmoOptions("translate", ["a", "b", "c"], "b");
-    expect(o).toMatchObject({ snap: true, snapSteps: { move: 0.5, rotate: 45, scale: 0.1 }, space: "local", pivot: "pivot", planar: true, activeIndex: 1 });
+    expect(o).toMatchObject({ snap: true, snapSteps: { move: 0.5, rotate: Math.PI / 4, scale: 0.1 }, space: "local", pivot: "pivot", planar: true, activeIndex: 1 });
     expect(gizmoOptions("rotate", ["a", "b"], "child-of-a").activeIndex).toBe(1); // active isn't a target: the last one
     snapSettings.value = { ...DEFAULT_SNAP };
     gizmoSpace.value = "world";

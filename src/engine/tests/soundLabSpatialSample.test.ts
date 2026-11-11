@@ -190,26 +190,21 @@ describe("the Sound Lab spatial page (ADR 0162 E8)", () => {
     advance(0.8); // 3.4 s in: 102 m, so 22 m of the way back
     expect(Math.abs(z() - 18)).toBeLessThan(1.5);
   });
-  it("key 8 turns the listener a quarter turn about up each press, so four presses make a full turn", async () => {
+  it("key 8 turns the listener a quarter turn to the left each press, so four presses make a full turn", async () => {
     await boot("scenes/spatial.scene.json");
     const bench = GameObject.findObjectOfType(ListeningBench)!;
     const start = bench.transform.rotation.clone();
-    // The listener's forward (-z) in world space, as a yaw in degrees.
-    const yaw = () => {
-      const { x, y, z, w } = bench.transform.rotation;
-      const fx = -2 * (x * z + y * w), fz = -(1 - 2 * (x * x + y * y));
-      return ((Math.atan2(-fx, -fz) * 180) / Math.PI + 360) % 360;
-    };
-    const yaw0 = yaw();
+    // ADR 0164: eulerAngles are radians, yaw (y) outermost and read back in [0, 2π); a left turn lowers it.
+    const yaw0 = bench.transform.eulerAngles.y;
     const seen: number[] = [];
     for (let k = 0; k < 4; k++) {
       Input.simulate("down", "8");
       engine!.step(1 / 60);
       Input.simulate("up", "8");
       engine!.step(1 / 60);
-      seen.push(Math.round((yaw() - yaw0 + 360) % 360));
+      seen.push(Math.round((((bench.transform.eulerAngles.y - yaw0) * 180) / Math.PI + 720) % 360) % 360);
     }
-    expect(seen).toEqual([90, 180, 270, 0]);
+    expect(seen).toEqual([270, 180, 90, 0]);
     const q = bench.transform.rotation;
     expect(Math.abs(q.x * start.x + q.y * start.y + q.z * start.z + q.w * start.w)).toBeCloseTo(1, 6);
   });

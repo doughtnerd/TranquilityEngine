@@ -27,9 +27,9 @@ export interface GizmoOptions {
   mode: "translate" | "rotate" | "scale";
   /** 2D view: move/scale on X and Y only, rotate around Z only. */
   planar: boolean;
-  /** Snap drags to `snapSteps` (default 0.25 m, 15° and 0.1 scale steps). */
+  /** Snap drags to `snapSteps` (default 0.25 m, π/12 rad (15°) and 0.1 scale steps). */
   snap: boolean;
-  /** Snap steps: metres for moves, degrees for turns, a factor for scaling. */
+  /** Snap steps: metres for moves, radians for turns (ADR 0164), a factor for scaling. */
   snapSteps?: { move: number; rotate: number; scale: number };
   /** Move and turn along the world's axes (default) or the node's own (the active node's for several). */
   space?: "world" | "local";

@@ -1145,7 +1145,9 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     if (o.reverbSend !== undefined && Number.isFinite(o.reverbSend)) t.reverbSend[i] = clamp(o.reverbSend, 0, 2);
     if (o.reverbSendCurve !== undefined) t.sendCurve[i] = this.sendCurves.intern(o.reverbSendCurve);
     if (o.yaw !== undefined && Number.isFinite(o.yaw)) {
-      t.yaw[i] = (clamp(o.yaw, -180, 180) * Math.PI) / 180;
+      // The engine's yaw follows the left-hand rule (ADR 0164: positive turns right, seen from above clockwise); the
+      // native ambisonic code is right-handed (positive turns left), so the sign flips here, at the boundary.
+      t.yaw[i] = 0 - (clamp(o.yaw, -180, 180) * Math.PI) / 180; // 0 - x: a yaw of 0 stays +0
       if ((f2 & VoiceFlag2.AMBISONIC) !== 0) this.voiceFx.setYaw(i, t.yaw[i]!);
     }
     f2 = t.reverbSend[i]! > 0 ? f2 | VoiceFlag2.SENDS : f2 & ~VoiceFlag2.SENDS;

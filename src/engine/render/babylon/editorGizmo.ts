@@ -32,7 +32,7 @@ import type { BabylonEditorContext } from "./editorContext";
 type AnyGizmo = PositionGizmo | RotationGizmo | ScaleGizmo;
 type Mode = GizmoOptions["mode"];
 
-const DEFAULT_STEPS = { move: 0.25, rotate: 15, scale: 0.1 };
+const DEFAULT_STEPS = { move: 0.25, rotate: Math.PI / 12, scale: 0.1 };
 const MODES: readonly Mode[] = ["translate", "rotate", "scale"];
 
 /** A positive finite step, or 0 (no snapping). */
@@ -365,7 +365,7 @@ export class BabylonEditorGizmo {
       roundAxes(position, mask, st);
       if (space === "local") Quat.rotate(startQuaternion, position);
     } else if (mode === "rotate") {
-      const st = (step(steps.rotate) * Math.PI) / 180;
+      const st = step(steps.rotate);
       if (!st || mask.length !== 1) return now;
       const axis = new EngineVector3(mask === "X" ? 1 : 0, mask === "Y" ? 1 : 0, mask === "Z" ? 1 : 0);
       if (space === "local") Quat.rotate(startQuaternion, axis);

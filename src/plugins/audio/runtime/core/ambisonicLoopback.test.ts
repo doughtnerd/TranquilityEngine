@@ -190,15 +190,19 @@ describe("ambisonic clips on the loopback host (B6)", () => {
     }
   }
 
-  it("a clip's yaw turns the field to the left, as a head turn to the right would", async () => {
-    const r = await rig("decoder", { "y.wav": wavs(3, 0).ambix });
-    await playAmbisonic(r, "y.wav", "ambix", 90);
-    await r.step(30);
-    r.measure();
-    await r.step(30);
-    expect(r.measure().ild).toBeGreaterThan(0.2);
-    r.client.dispose();
-  });
+  for (const [yaw, side] of [[90, "right"], [-90, "left"]] as const) {
+    it(`a clip's yaw of ${yaw} turns the field to the ${side} (positive turns right, ADR 0164)`, async () => {
+      const r = await rig("decoder", { "y.wav": wavs(3, 0).ambix });
+      await playAmbisonic(r, "y.wav", "ambix", yaw);
+      await r.step(30);
+      r.measure();
+      await r.step(30);
+      const ild = r.measure().ild; // left minus right: positive is louder on the left
+      if (side === "right") expect(ild).toBeLessThan(-0.2);
+      else expect(ild).toBeGreaterThan(0.2);
+      r.client.dispose();
+    });
+  }
 
   for (const where of ["bed", "decoder"] as const) {
     for (const order of [1, 2, 3] as const) {

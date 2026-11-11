@@ -249,12 +249,13 @@ describe("AudioSource M3 fields reach the core's voice table on the next frame",
     frame();
     const i = voiceIndex(src._voiceId);
     expect(core.table.yaw[i]).toBe(0);
+    // The table holds the native (right-handed) yaw: the engine's +90 (right, ADR 0164) is the core's -π/2.
     src.ambisonicYaw = 90;
     frame();
-    expect(core.table.yaw[i]).toBeCloseTo(Math.PI / 2, 5);
+    expect(core.table.yaw[i]).toBeCloseTo(-Math.PI / 2, 5);
     src.ambisonicYaw = -180;
     frame();
-    expect(core.table.yaw[i]).toBeCloseTo(-Math.PI, 5);
+    expect(core.table.yaw[i]).toBeCloseTo(Math.PI, 5);
   });
 });
 
