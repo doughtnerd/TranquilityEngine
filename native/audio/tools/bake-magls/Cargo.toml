@@ -10,3 +10,4 @@ publish.workspace = true
 [dependencies]
 audio-dsp.workspace = true
 libm.workspace = true
+microfft.workspace = true
