@@ -5,6 +5,7 @@
 //! Skeleton declared by K2 (task A1): the region's size, a SET_VOICE_FX handler that takes the
 //! parsed record and drops it, and `reset` (a no-op). Task D1 fills it.
 
+use audio_dsp::fxfilter::FxFilter;
 use audio_dsp::ramp::Ramp;
 use audio_wire::generated::SetVoiceFx;
 
@@ -17,18 +18,41 @@ use crate::params::InitParams;
 /// `VOICE_SLOT_BYTES` does for the voices.
 pub const FX_ENTRY_BYTES: usize = 448;
 
-/// A pool entry. K3 declares the fields the send hooks read (D1 completes the entry).
+/// A pool entry (architecture §4.1's table, api-and-models §3.1): exactly [`FX_ENTRY_BYTES`].
+/// `owner == 0` is a free entry, so the zeroed region is an empty pool.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct FxEntry {
-    /// Zone send levels into slots 0..3 (SET_VOICE_FX `send[k]`), ramped.
+    /// The voice's low-pass (`min(lpHz, lpAuto)`) and high-pass (`hpHz`) with their log-Hz ramps.
+    pub filter: FxFilter,
+    /// The last quantum's 16 bed encode gains (A4).
+    pub bed_gains: [f32; 16],
+    /// Zone send levels into slots 0..3 (SET_VOICE_FX `send[k]`), ramped (C4's tap reads them).
     pub send: [Ramp; 4],
-    /// The aux send level, ramped, and its bus (`AUX_BUS_NONE` none).
+    /// The aux send level, ramped (C4).
     pub aux: Ramp,
+    /// The bed share during a panner kind change (A4).
+    pub bed_share: Ramp,
+    /// The voice slot holding the entry, plus 1; 0 when free.
+    pub owner: u16,
+    /// The aux send's bus (`AUX_BUS_NONE` none).
     pub aux_bus: u16,
+    /// SET_VOICE_FX `yaw`, radians (ambisonic voices, B3).
+    pub yaw: f32,
+    pub reserved: u32,
 }
 
+const _: () = assert!(core::mem::size_of::<FxEntry>() == FX_ENTRY_BYTES, "an entry is FX_ENTRY_BYTES");
+const _: () = assert!(core::mem::align_of::<FxEntry>() <= REGION_ALIGN);
+
 impl FxEntry {
+    /// A fresh entry for voice slot `index` (promotion resets the voice's effect state): filters
+    /// off, sends and aux at 0 with no bus, yaw 0.
+    pub fn fresh(index: usize) -> FxEntry {
+        let _ = index;
+        todo!("D1 glue")
+    }
+
     /// `true` while a zone send isn't settled at 0: the voice then runs filter, tap, dry gain
     /// (R11 as clarified); otherwise M2's order.
     #[inline]
