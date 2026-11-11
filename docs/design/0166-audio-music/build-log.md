@@ -62,3 +62,7 @@ Started 2026-11-11 at about 22:00 UTC, all six leads in one message, each in its
 | S0 (smoke spec) | mid | `m4/s0` | unsplit; `E2E_PORT=4311` |
 
 Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S0 when ready.
+
+**Master merged in (2026-11-11):** `79af3d85` (#169, the pirates rock nav footprints) fixed the baseline's `piratesNavigation` failure; merged into the integration branch as `0a024003`; the test passes (4 of 4). It is no longer a known failure.
+
+**S0 merged** (`m4/s0` → `634ab666`): `tests/e2e/audio-music-smoke.spec.ts`, 3 of 3 green (12–14 s each). It drives the sound-lab's engine event with `handle.fade(0, 0.3)` (checked on the Engine bus meter: a faded voice reads `virtual`, and the voice row's `gain` doesn't follow fades), and a stamped spatial one-shot with `reverbSend`, `lowpass` and `highpass` (`at: Audio.time + 0.3`), and records `splitQuanta` as an annotation ("not reported yet" today). **Follow-up for Z3 (on its brief):** the fade case is unstamped, because no public call stamps a fade yet; when Z3 flips the expectation to `splitQuanta === 0`, it must also make that fade stamped (through `AudioVoice.fadeShaped` with `at`), or the case doesn't test the M4-0 exit check.
