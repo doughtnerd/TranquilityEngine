@@ -163,6 +163,8 @@ const NO_NUMBERS: number[] = [];
 const NO_ZONE_SLOTS: ZoneSlotArgs[] = [];
 /** Pads a byte count to a multiple of 4 (the record and list padding of the M3 records). */
 const pad4 = (n: number): number => Math.ceil(n / 4) * 4;
+/** A ramp's start phase, 0..1, as the u0.16 the shape word carries (clamped). */
+const phase16 = (p: number): number => Math.min(65535, Math.max(0, Math.round(p * 65536)));
 
 /**
  * ADR 0162 C3: SET_VOICE_FX, minus the head. `mask` is `SET_VOICE_FX_MASK_*` (hpHz, sends, yaw, aux); fields outside
@@ -221,9 +223,9 @@ export class CommandWriter implements VoiceCommandSink {
   private lastStamp = Number.NEGATIVE_INFINITY;
 
   private readonly playRec: Play = { voiceId: 0, frameOffset: ASAP, clip: 0, bus: 0, flags: 0, group: 0, gate: 0, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, startOffsetFrames: 0 };
-  private readonly stopRec: Stop = { voiceId: 0, frameOffset: ASAP, fadeFrames: 0, reason: 0 };
-  private readonly fadeRec: Fade = { voiceId: 0, frameOffset: ASAP, target: 0, frames: 0, flags: 0 };
-  private readonly paramsRec: SetParams = { voiceId: 0, frameOffset: ASAP, mask: 0, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, bus: 0, rampFrames: 0, flags: 0 };
+  private readonly stopRec: Stop = { voiceId: 0, frameOffset: ASAP, fadeFrames: 0, reason: 0, shape: 0 };
+  private readonly fadeRec: Fade = { voiceId: 0, frameOffset: ASAP, target: 0, frames: 0, flags: 0, shape: 0 };
+  private readonly paramsRec: SetParams = { voiceId: 0, frameOffset: ASAP, mask: 0, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, bus: 0, rampFrames: 0, flags: 0, shape: 0 };
   private readonly mixedRec: SetMixed = { voiceId: 0, frameOffset: ASAP, mixed: 0, gain: 1, dirX: 0, dirY: 0, dirZ: -1, lpHz: 0 };
   private readonly pausedRec: SetPaused = { voiceId: 0, frameOffset: ASAP, paused: 0 };
   private readonly seekRec: Seek = { voiceId: 0, frameOffset: ASAP, clipFrame: 0, epoch: 0 };
@@ -251,12 +253,18 @@ export class CommandWriter implements VoiceCommandSink {
 
   /** PLAY at `atFrame` (an absolute audio frame, stamped) or asap (omitted). */
   play(args: PlayArgs, atFrame?: number): void {
+    this.playWith(args, args.gate ?? 0, atFrame);
+  }
+
+  /** Writes a PLAY with the given `gate` word (the scratch record; `args.gate` is not read here). */
+  private playWith(args: PlayArgs, gate: number, atFrame?: number): void {
     const r = this.playRec;
     r.voiceId = args.voiceId;
     r.clip = args.clip;
     r.bus = args.bus;
-    r.flags = args.flags;
+    r.flags = args.fadeZero ? args.flags | PLAY_FLAGS_FADE_ZERO : args.flags;
     r.group = args.group;
+    r.gate = gate;
     r.gain = args.gain;
     r.pitch = args.pitch;
     r.dirX = args.dirX;
@@ -275,7 +283,8 @@ export class CommandWriter implements VoiceCommandSink {
     const r = this.stopRec;
     r.voiceId = id;
     r.fadeFrames = this.frames(fadeSeconds);
-    const at = this.begin(20);
+    r.shape = 0;
+    const at = this.begin(24);
     if (at < 0) return;
     this.end(at, writeStop(this.view, at, r));
   }
@@ -287,7 +296,8 @@ export class CommandWriter implements VoiceCommandSink {
     r.target = to;
     r.frames = this.frames(seconds);
     r.flags = 0;
-    const at = this.begin(24);
+    r.shape = 0;
+    const at = this.begin(28);
     if (at < 0) return;
     this.end(at, writeFade(this.view, at, r));
   }
@@ -299,7 +309,8 @@ export class CommandWriter implements VoiceCommandSink {
     r.target = 0;
     r.frames = this.frames(seconds);
     r.flags = FADE_FLAGS_STOP_AT_END;
-    const at = this.begin(24);
+    r.shape = 0;
+    const at = this.begin(28);
     if (at < 0) return;
     this.end(at, writeFade(this.view, at, r));
   }
@@ -310,7 +321,8 @@ export class CommandWriter implements VoiceCommandSink {
     r.voiceId = id;
     r.mask = SET_PARAMS_MASK_SCORE;
     r.score = score;
-    const at = this.begin(56);
+    r.shape = 0;
+    const at = this.begin(60);
     if (at < 0) return;
     this.end(at, writeSetParams(this.view, at, r));
     r.score = 0;
@@ -322,13 +334,17 @@ export class CommandWriter implements VoiceCommandSink {
     r.voiceId = id;
     r.mask = SET_PARAMS_MASK_FLAGS;
     r.flags = (panner & 3) << SET_PARAMS_FLAGS_PANNER_SHIFT;
-    const at = this.begin(56);
+    r.shape = 0;
+    const at = this.begin(60);
     if (at < 0) return;
     this.end(at, writeSetParams(this.view, at, r));
     r.flags = 0;
   }
 
-  /** SET_PARAMS (§4.2); `mask` is `SET_PARAMS_MASK_*`, other fields only matter where the mask says. `bus` only with the bus bit. */
+  /**
+   * SET_PARAMS (§4.2); `mask` is `SET_PARAMS_MASK_*`, other fields only matter where the mask says. `bus` only with the bus bit.
+   * `shape` (ADR 0166 §4.2) is the ramp's `packShape` word, read with the mask's gain ramp; stamped at `atFrame` when given.
+   */
   setParams(id: number, mask: number, gain: number, pitch: number, dirX: number, dirY: number, dirZ: number, lpHz: number, rampFrames: number, bus = 0, shape = 0, atFrame?: number): void {
     const r = this.paramsRec;
     r.voiceId = id;
@@ -341,9 +357,10 @@ export class CommandWriter implements VoiceCommandSink {
     r.lpHz = lpHz;
     r.bus = bus;
     r.rampFrames = rampFrames;
-    const at = this.begin(56);
+    r.shape = shape;
+    const at = this.begin(60);
     if (at < 0) return;
-    this.end(at, writeSetParams(this.view, at, r));
+    this.end(at, writeSetParams(this.view, at, r), atFrame);
   }
 
   /**
@@ -353,7 +370,7 @@ export class CommandWriter implements VoiceCommandSink {
    * together in one BATCH (a group never straddles two).
    */
   playGated(args: PlayArgs, groupId: number, groupSize: number, atFrame?: number): void {
-    throw new Error(`L-Z4b: playGated not implemented (${args.voiceId}, ${groupId}, ${groupSize}, ${atFrame})`);
+    this.playWith(args, packGate(groupId, groupSize), atFrame);
   }
 
   /**
@@ -362,12 +379,26 @@ export class CommandWriter implements VoiceCommandSink {
    * `stopAtEnd` sets `FADE_FLAGS_STOP_AT_END`. A 28-byte FADE.
    */
   fadeShaped(id: number, to: number, seconds: number, law: number, startPhase: number, atFrame?: number, stopAtEnd = false): void {
-    throw new Error(`L-Z4b: fadeShaped not implemented (${id}, ${to}, ${seconds}, ${law}, ${startPhase}, ${atFrame}, ${stopAtEnd})`);
+    const r = this.fadeRec;
+    r.voiceId = id;
+    r.target = to;
+    r.frames = this.frames(seconds);
+    r.flags = stopAtEnd ? FADE_FLAGS_STOP_AT_END : 0;
+    r.shape = packShape(law, phase16(startPhase));
+    const at = this.begin(28);
+    if (at < 0) return;
+    this.end(at, writeFade(this.view, at, r), atFrame);
   }
 
   /** ADR 0166 §4.2 (L-Z4b): STOP `id` with a `fadeSeconds` fade of `law` from `startPhase`, stamped at `atFrame` or asap. A 24-byte STOP. */
   stopShaped(id: number, fadeSeconds: number, law: number, startPhase: number, atFrame?: number): void {
-    throw new Error(`L-Z4b: stopShaped not implemented (${id}, ${fadeSeconds}, ${law}, ${startPhase}, ${atFrame})`);
+    const r = this.stopRec;
+    r.voiceId = id;
+    r.fadeFrames = this.frames(fadeSeconds);
+    r.shape = packShape(law, phase16(startPhase));
+    const at = this.begin(24);
+    if (at < 0) return;
+    this.end(at, writeStop(this.view, at, r), atFrame);
   }
 
   /** SET_MIXED `id` (§4.2, A3.1): mixed or virtual; a promote carries the voice's gain, direction and `lpHz`. Always asap. */
