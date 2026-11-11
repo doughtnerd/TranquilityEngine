@@ -50,7 +50,7 @@ Numbered; superseded entries are marked, not rewritten.
 
 ## Wave 1 (pilot; base `da2be07f`)
 
-Started 2026-11-11 at about 22:10 UTC, all six leads in one message, each in its own worktree:
+Started 2026-11-11 at about 22:00 UTC, all six leads in one message, each in its own worktree:
 
 | Task | Lead model | Branch | Flow |
 |---|---|---|---|
