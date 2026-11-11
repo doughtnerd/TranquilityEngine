@@ -443,7 +443,7 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.run(70); // the rest of the pass, the tail to frame 12,000 and the end
   },
   // H4: the HRTF panner (the shipped table, resampled to 48 kHz). The HRTF flag is the voice's PLAY or SET_PARAMS panner
-  // bits, as `hrtfPick.ts` sets them on main; the table is loaded and the bank built before the voices start.
+  // bits, as `pannerPick.ts` sets them on main; the table is loaded and the bank built before the voices start.
   async "hrtf-static"(s) {
     await s.loadHrir();
     s.send(

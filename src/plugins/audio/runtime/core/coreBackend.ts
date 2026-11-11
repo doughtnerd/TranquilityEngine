@@ -15,9 +15,12 @@
 // allocates nothing). Only mixed voices get SET_PARAMS for gain and direction; virtual ones keep fresh values in the
 // table for their audibility, and SET_MIXED carries them on a promote.
 //
-// HRTF (H3): after selection, `HrtfPick` flags the top `voices.hrtf` mixed spatial voices by audibility (1.2x
+// HRTF (H3): after selection, `PannerPick` flags the top `voices.hrtf` mixed spatial voices by audibility (1.2x
 // hysteresis) with panner kind 1, sent as SET_PARAMS `flags`; the core crossfades 45 ms either way. The first flag
 // starts the lazy HRIR fetch (`hrir.ts`); `audio.spatial: "equalPower"` or `voices.hrtf: 0` never flags or fetches.
+// ADR 0162 (A5): the other mixed spatial voices go to kind 2 (the bed) where their bus has one (`beds.ts`), with a 500 ms
+// kind dwell in game time; the first bed hosted starts the lazy MagLS fetch (`hrir.ts`, HRTF mode only: R9), and the
+// sharing chain's snapshot low-pass reaches a bed voice as `LowpassBy.SNAPSHOT`.
 //
 // A1.6 added `volume, pitch, priority, oneShot, at, attenuation, position` to `PlayRequest` and `id, reason, fade,
 // setPriority, stop(fadeSeconds)` to `AudioVoice` (§6). `CorePlayRequest` and `CoreVoice` keep only what the core adds.
@@ -70,7 +73,7 @@ import { AudioHandle, type AudioReason } from "./handle";
 import { limiterLatencyFrames } from "./limiterLatency";
 import { ClockMap } from "./clock";
 import { CommandWriter, type PlayArgs } from "./commandWriter";
-import { createHrirLoader, type HrirLoader } from "./hrir";
+import { createHrirLoader, createMaglsLoader, type HrirLoader, type MaglsLoader } from "./hrir";
 import { createClipRegistry, type ClipInfo, type ClipRegistry } from "./clipRegistry";
 import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink, type HostHealth } from "./context";
 import { PlayheadTracker, Replayer } from "./replay";
@@ -86,7 +89,7 @@ import { STREAM_ERROR_FADE_SECONDS, StreamManager, type StreamManagerDeps } from
 import { sharedDecoderClient } from "../decoder/decoderClient";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { effectiveMixedCap, ListenerBasis, Selection, type SelectionSink } from "./selection";
-import { PannerPick, type PannerKindCode, type PannerSink } from "./pannerPick";
+import { PannerKind, PannerPick, type PannerKindCode, type PannerSink } from "./pannerPick";
 import { BedPlanner } from "./beds";
 import { ZoneManager } from "./zones";
 import { createZoneIrService } from "./zoneIr";
@@ -153,6 +156,8 @@ export interface CoreBackendDeps {
   table?: VoiceTable;
   /** The HRTF table loader (H2); defaults to one on `clips` at the host rate. Tests inject a fake. */
   hrir?: HrirLoader;
+  /** ADR 0162 (A5): the MagLS bed filters' loader (default: the real one). */
+  magls?: MaglsLoader;
   /**
    * B3: stream plumbing. Defaults: the page's decoder client, `host.link.connectStreamPort`, a `MessageChannel`, and a
    * fetch of the asset's URL. Tests pass an in-process decoder and channel.
@@ -278,6 +283,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private isMuted = false;
   private disposed = false;
   private readonly hrir: HrirLoader;
+  private readonly magls: MaglsLoader;
   private readonly clipSink: { event(id: number, code: number): void };
   private readonly warnOnce: WarnOnce;
   private streamSink!: { event(id: number, code: number): void };
@@ -291,6 +297,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.clock = deps.clock;
     this.clips = deps.clips;
     this.hrir = deps.hrir ?? createHrirLoader({ clips: deps.clips, sampleRate: host.sampleRate });
+    this.magls = deps.magls ?? createMaglsLoader({ clips: deps.clips, sampleRate: host.sampleRate });
     this.table = deps.table ?? new VoiceTable(host.preset.maxLogical);
     this.spatialDirty = new Uint8Array(this.table.capacity);
     this.selection = new Selection(this.table);
@@ -569,6 +576,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       const item = this.mixPool[b]!;
       item.gain = buses[b]!.gain;
       item.lpHz = buses[b]!.snapshotLowpass ?? BUS_LP_OFF_HZ;
+      this.snapLp[b] = item.lpHz;
       view.push(item);
       // Selection's audibility uses the effective gain down the tree (A3.1), without bus automation (below).
       const g = buses[b]!.effectiveGain;
@@ -579,7 +587,26 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.selCount = n;
     this.refreshBusGain();
     this.writer.busMix(view, this.clockMap.rampFrames());
+    this.refreshSharedLowpass();
   }
+
+  /**
+   * ADR 0162 (A5, S3): the sharing chain's snapshot low-pass. A voice on the bed (kind 2) of an ancestor's slot skips the
+   * buses between its own and the host, so main folds their snapshot cutoffs into its low-pass (`LowpassBy.SNAPSHOT`,
+   * the lowest wins); the core folds the gains. Run where a snapshot's cutoff or the bed plan changes.
+   */
+  private refreshSharedLowpass(): void {
+    if (!this.beds.foldLowpass(this.snapLp, this.selCount)) return;
+    const t = this.table;
+    for (let i = 0; i < t.capacity; i++) {
+      if (t.state[i] === VoiceState.FREE) continue;
+      this.voiceFx.setLowpass(i, LowpassBy.SNAPSHOT, this.panners.kindOf(i) === PannerKind.BED ? this.beds.chainLowpass[t.bus[i]!]! : BUS_LP_OFF_HZ);
+    }
+  }
+  /** Each bus's snapshot cutoff as last sent in BUS_MIX (`BUS_LP_OFF_HZ`: none), for the sharing chain's fold. */
+  private readonly snapLp = new Float32Array(MAX_BUS).fill(BUS_LP_OFF_HZ);
+  /** R13: game time, ms (the kind dwell's clock). */
+  private gameMs = 0;
 
   /**
    * M2 F3: selection's bus factor: the mixer's effective gain times each bus's automated gain (selection's no-gap
@@ -694,8 +721,9 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
 
   /** ADR 0162 (K4) `StagedFrameHost`: frame start through attenuation (gain, direction, `audibility0`). */
   frameAttenuate(dt: number): void {
-    void dt;
     if (this.disposed) return;
+    // R13: the panner kind dwell runs in game time (`dt` is 0 while `Time.scale` is 0).
+    if (dt > 0) this.gameMs += dt * 1000;
     const clockMap = this.clockMap;
     clockMap.beginFrame();
     // A3.4c: after a context swap, the old core's last STATUS is in the old context's frames: wait for the new one's.
@@ -726,7 +754,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   /** ADR 0162 (K4) `StagedFrameHost`: the panner kinds. */
   framePickPanners(): void {
     if (this.disposed) return;
-    this.pickHrtf();
+    this.pickPanners();
   }
 
   /** ADR 0162 (K4) `StagedFrameHost`: per-voice fx changes past their thresholds. */
@@ -787,6 +815,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     clock.rebase(rate, limiterLatencyFrames(rate, this.host.preset.limiterLookaheadMs), clock.carryPoint());
     this.writer.sampleRate = rate;
     this.hrir.retarget?.(rate);
+    this.magls.retarget(rate);
     this.zones.contextReplaced(rate);
     this.staleBlocks = this.mirror.blocks;
   }
@@ -843,6 +872,11 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   /** True once the core reported hrtfReady for the HRIR table (spatial voices stay equal-power until then). */
   get hrtfReady(): boolean {
     return this.hrir.ready;
+  }
+
+  /** ADR 0162 (A5): the MagLS bed filters failed to load (beds decode through the matrix: `bedFilterLoadFailure`). */
+  get maglsFailed(): boolean {
+    return this.magls.failed;
   }
 
   /** H3, STATUS `hrtfLoadFailure` with main's part: 2 when the core found the table invalid, 1 when the fetch failed, else 0. */
@@ -1346,20 +1380,25 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   }
 
   /**
-   * H3: the HRTF assignment after selection: the top `voices.hrtf` mixed spatial voices by audibility (`hrtfPick.ts`),
-   * while `audio.spatial` is `"hrtf"` and the table hasn't failed to load. The first voice flagged starts the HRIR
-   * fetch (lazy, architecture §2.4); until the core has it, flagged voices pan equal-power, then crossfade.
+   * The panner kinds after selection (`pannerPick.ts`): the top `voices.hrtf` mixed spatial voices by audibility get HRTF
+   * while `audio.spatial` is `"hrtf"` and the table hasn't failed to load (the first starts the lazy HRIR fetch; until
+   * the core has it they pan equal-power, then crossfade), and the other mixed spatial voices go to the bed where their
+   * bus has one (the first bed hosted starts the MagLS fetch in HRTF mode; `"equalPower"` keeps beds and fetches nothing,
+   * R9). With neither, every voice is equal-power.
    */
-  private pickHrtf(): void {
+  private pickPanners(): void {
     const settings = this.mixer.audioSettings;
-    const limit = settings.spatial === "hrtf" && this.hrtfLoadFailure === 0 ? settings.voices.hrtf : 0;
-    if (limit <= 0 || this.spatialCount === 0) {
-      if (this.panners.count > 0) this.panners.clear(this.pannerSink);
+    const hrtfOn = settings.spatial === "hrtf";
+    const limit = hrtfOn && this.hrtfLoadFailure === 0 ? settings.voices.hrtf : 0;
+    const beds = this.beds.slotCount > 0;
+    if ((limit <= 0 && !beds) || this.spatialCount === 0) {
+      if (this.panners.count > 0 || this.panners.bedCount > 0) this.panners.clear(this.pannerSink);
       return;
     }
+    if (beds && hrtfOn) this.magls.ensure();
     const limits = this.pannerLimits;
     limits.hrtf = limit;
-    limits.nowMs = performance.now();
+    limits.nowMs = this.gameMs;
     limits.bedSlot = this.beds.bedSlot;
     if (this.panners.run(limits, this.pannerSink) > 0) this.hrir.ensure();
   }
@@ -1370,6 +1409,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private sendPanner(i: number, kind: PannerKindCode): void {
     const t = this.table;
     this.writer.setPanner(((t.gen[i]! << 16) | i) >>> 0, kind);
+    // A voice on the bed takes its sharing chain's snapshot low-pass; one leaving it drops it.
+    if (kind === PannerKind.BED || this.beds.slotCount > 0) this.voiceFx.setLowpass(i, LowpassBy.SNAPSHOT, kind === PannerKind.BED ? this.beds.chainLowpass[t.bus[i]!]! : BUS_LP_OFF_HZ);
   }
 
   /** A3.3: selection re-sends slot `i`'s score (its audibility moved), the core's key for its own lowest-score demote. */
