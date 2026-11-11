@@ -1,4 +1,4 @@
-From 1b6d12ca401ea57901cc790b151919e3e266710d Mon Sep 17 00:00:00 2001
+From 18d9366bfb0d2241276462e868f0cab499746c30 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 11 Nov 2026 07:02:06 +0000
 Subject: [PATCH] The flip: beds on, HRTF voices to 8 (ADR 0162 A5 + A6b, #123,
@@ -160,7 +160,7 @@ index 4b9a315b..110e1d01 100644
      it("a section with only the old keys gives every M3 default and no problem", () => {
        const { settings, problems } = parseAudioSettings({
 diff --git a/src/plugins/audio/editor/audioSettingsModel.test.ts b/src/plugins/audio/editor/audioSettingsModel.test.ts
-index 545be2bd..50d77ba8 100644
+index 7668e9bd..7b8dbfeb 100644
 --- a/src/plugins/audio/editor/audioSettingsModel.test.ts
 +++ b/src/plugins/audio/editor/audioSettingsModel.test.ts
 @@ -3,7 +3,7 @@ import { parseAudioSettings } from "../../../engine/audio/settings";
@@ -172,7 +172,7 @@ index 545be2bd..50d77ba8 100644
    addBusAutomation, addParameter, removeBusAutomation, removeParameter, renameParameter, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter,
    setBusAutomationTarget, setParameterDefaultLabel, setParameterLabelled, setParameterLabels, setParameterRange,
    setClipFormat, setClipMemory, setCodec, setLimiterLookahead, setSnapshotVolume, setSpatial, setVoices, voicesPreset,
-@@ -87,6 +87,20 @@ describe("audio settings model, the core keys (ADR 0157 §2, K13)", () => {
+@@ -88,6 +88,20 @@ describe("audio settings model, the core keys (ADR 0157 §2, K13)", () => {
      expect(voicesPreset(audioOf(back))).toBe("default");
      expect(voicesPreset(audioOf(setVoices(low, { hrtf: 5 })))).toBe("custom");
    });
@@ -194,10 +194,10 @@ index 545be2bd..50d77ba8 100644
      let d = setBackground(empty(), "pause");
      d = setClipMemory(d, 5000);
 diff --git a/src/plugins/audio/editor/audioSettingsModel.ts b/src/plugins/audio/editor/audioSettingsModel.ts
-index 8b1bc564..887e05d0 100644
+index b7125a24..8f0ba3a6 100644
 --- a/src/plugins/audio/editor/audioSettingsModel.ts
 +++ b/src/plugins/audio/editor/audioSettingsModel.ts
-@@ -208,9 +208,9 @@ export function setVoices(d: SettingsDraft, patch: Partial<VoiceSettings>): Sett
+@@ -232,9 +232,9 @@ export function setVoices(d: SettingsDraft, patch: Partial<VoiceSettings>): Sett
  
  /** Named bundles of the voice numbers and the clip ceiling (architecture 5.3); the file stores the numbers. "low" is provisional until the low-end soak (C3) sizes it. */
  export const VOICE_PRESETS = {
@@ -210,7 +210,7 @@ index 8b1bc564..887e05d0 100644
  } as const;
  export type VoicePresetName = keyof typeof VOICE_PRESETS;
  export const VOICE_PRESET_NAMES = Object.keys(VOICE_PRESETS) as VoicePresetName[];
-@@ -219,15 +219,17 @@ export const VOICE_PRESET_NAMES = Object.keys(VOICE_PRESETS) as VoicePresetName[
+@@ -243,15 +243,17 @@ export const VOICE_PRESET_NAMES = Object.keys(VOICE_PRESETS) as VoicePresetName[
  export function voicesPreset(a: AudioSettings): VoicePresetName | "custom" {
    for (const name of VOICE_PRESET_NAMES) {
      const p = VOICE_PRESETS[name];

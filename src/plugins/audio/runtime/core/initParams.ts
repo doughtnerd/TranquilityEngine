@@ -3,7 +3,7 @@
 // region the core lays out before the arena; 0 lays out nothing. They return 0 until their feature's flip, so an M2
 // project's core is laid out as before. **Each flip edits only its own function:** A5 `bedInitParams`
 // (`audio.bed.maxBeds`), C5 `zoneInitParams` (`maxActive + standby` slots of `maxIrSeconds`), B5 `wideInitParams`
-// (`audio.ambisonic.maxClips`).
+// (`audio.ambisonic.maxClips`, flipped: every core project pays the `Wide` region and the private decoders in `Beds`).
 //
 // K4 kept the three functions here rather than in `beds.ts`, `zones.ts` and `listener.ts`: this file must stay a leaf
 // (it imports only the settings type), because `worklet/coreDriver.ts` imports it and `tests/e2e/audio-parity/
@@ -35,10 +35,9 @@ export function zoneInitParams(settings: AudioSettings): Pick<SpatialInitParams,
   return { maxZoneSlots: 0, zoneMaxSeconds: 0 };
 }
 
-/** @internal `max_wide` (B5's flip: `audio.ambisonic.maxClips`). 0 until then: no wide ring is laid out. */
+/** @internal `max_wide` (B5, the wide memory flip: `audio.ambisonic.maxClips`, 0..4): that many wide stream rings and private decoders are laid out; 0 lays out none and refuses ambisonic clips. */
 export function wideInitParams(settings: AudioSettings): Pick<SpatialInitParams, "maxWide"> {
-  void settings;
-  return { maxWide: 0 };
+  return { maxWide: settings.ambisonic.maxClips };
 }
 
 /** @internal All four, for `presetFromSettings`. */
