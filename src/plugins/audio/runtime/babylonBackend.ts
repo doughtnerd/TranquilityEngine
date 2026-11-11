@@ -27,7 +27,7 @@ import type { Vec3Like } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { AudioReverbZone } from "./AudioReverbZone";
 import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
-import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioM3Counters, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type PlayRequest } from "./backend";
+import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioM3Counters, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicGroupRequest, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
 import { DistanceEffect, SendCurveTable, SpatialViewFlag, type SpatialPassHost, type SpatialVoiceView } from "./core/spatial";
 import { DopplerPass } from "./core/doppler";
@@ -91,6 +91,41 @@ function warnFlatStream(path: string): void {
   console.warn(`[myco] "${path}" streams, which the Babylon audio fallback plays as HTML5 audio and can't make spatial; it plays flat. Turn off "stream" in its import settings for positional sound there.`);
 }
 
+/**
+ * What a music member adds to a plain play (api-and-models §8): the file frames it starts and loops at, the silent start
+ * of a stamped fade-in, and the group's hook for the member's end. Frames become seconds at the context's rate once the
+ * engine exists.
+ */
+interface VoiceMusic {
+  startFrame: number;
+  loopStartFrame: number;
+  /** 0: the file's end. */
+  loopEndFrame: number;
+  fadeZero: boolean;
+  onEnd: (voice: BabylonVoice) => void;
+}
+
+/** The fade law's weight at phase `p` (0..1): the share of `to - from` covered. Same curves as the core's (`musicOps.ts`). */
+function lawWeight(law: ShapedFade["law"], p: number): number {
+  const q = p <= 0 ? 0 : p >= 1 ? 1 : p;
+  switch (law) {
+    case "sCurve":
+      return q * q * (3 - 2 * q);
+    case "equalPowerIn":
+      return Math.sin((q * Math.PI) / 2);
+    case "equalPowerOut":
+      return 1 - Math.cos((q * Math.PI) / 2);
+    default:
+      return q;
+  }
+}
+
+/** A non-linear shaped fade runs as at most this many linear `setVolume` ramps, each at least `SHAPED_STEP_MIN_SECONDS` long. */
+const SHAPED_STEPS = 8;
+const SHAPED_STEP_MIN_SECONDS = 0.03;
+/** A music start later than this after its stamp counts as late, seconds. */
+const MUSIC_LATE_SECONDS = 0.002;
+
 class BabylonVoice implements AudioVoice {
   /** `(gen << 16) | slot` in the backend's spatial table (so `AudioSource._voiceId` binds the occlusion pass), or a generation-0 id past it. */
   readonly id: number;
@@ -130,8 +165,18 @@ class BabylonVoice implements AudioVoice {
   private regionIsFile = false;
   /** The sound's length in seconds once its buffer is loaded (a loop end is clamped to it). */
   private duration = Number.POSITIVE_INFINITY;
+  /** Music member: where playback starts in the file, seconds (frames converted at load). */
+  private startOffset = 0;
+  /** Music member: the context time the sound was put on (the stamp's time when on time), null before. */
+  private startedAtTime: number | null = null;
+  /** A streamed music member waits for its stamp on a timer (a `StreamingSound` has no `waitTime`). */
+  private startTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Pending steps and the end of a shaped fade. */
+  private readonly shapedTimers = new Set<ReturnType<typeof setTimeout>>();
+  /** Stamped fades with a law; present on decoded music members only (`MusicBackendCaps.stampedFades`, §8). */
+  fadeShaped?: (f: ShapedFade) => void;
 
-  constructor(private readonly backend: BabylonBackend, private readonly req: PlayRequest) {
+  constructor(private readonly backend: BabylonBackend, private readonly req: PlayRequest, private readonly music?: VoiceMusic) {
     this.stream = req.stream && req.ambisonic !== true;
     this.slot = backend._allocSlot(this);
     this.id = this.slot >= 0 ? encodeVoiceId(this.slot, backend._slotGen(this.slot)) : overflowId++ & 0xffff || 1;
@@ -139,9 +184,16 @@ class BabylonVoice implements AudioVoice {
     this.volume = req.volume ?? 1;
     this.pitch = req.pitch ?? 1;
     this.looping = req.loop;
+    if (music) {
+      if (music.fadeZero) {
+        this.gain = 0;
+        this.appliedGain = 0;
+      }
+      if (!this.stream) this.fadeShaped = (f) => this.shapedFade(f);
+    }
     // E4.5 (ADR 0158 §4): a plain looping clip or stream loops its sidecar's or file's loop points; they are read
     // from the file once per path (`loadFileLoopPoints`) and applied when known (`pointsArrived`).
-    if (req.loop && !(req.group && req.group > 0)) {
+    if (req.loop && !music && !(req.group && req.group > 0)) {
       this.unsubPoints = onLoopPoints(req.path, (p) => this.pointsArrived(p));
       void loadFileLoopPoints(req.path, req.url);
     }
@@ -176,10 +228,25 @@ class BabylonVoice implements AudioVoice {
     return this.bus;
   }
 
+  /** @internal Music: the context time the sound was put on, null while it hasn't started. */
+  get _startedAt(): number | null {
+    return this.startedAtTime;
+  }
+
+  /** @internal Music: the voice is done (ended, stopped or failed to load). */
+  get _ended(): boolean {
+    return this.ended;
+  }
+
   /** @internal Ends the voice's bookkeeping once: the bus count drops and the backend forgets it. */
   private finish(): void {
     if (this.ended) return;
     this.ended = true;
+    if (this.startTimer !== null) clearTimeout(this.startTimer);
+    this.startTimer = null;
+    for (const t of this.shapedTimers) clearTimeout(t);
+    this.shapedTimers.clear();
+    this.music?.onEnd(this);
     this.unsubPoints?.();
     this.unsubPoints = null;
     mixer.voiceEnded(this.bus);
@@ -211,6 +278,7 @@ class BabylonVoice implements AudioVoice {
         return;
       }
       if (this.ended) return;
+      if (this.music) this.setMusicRegion();
       const cap = this.backend._cap(this.bus);
       const options: Record<string, unknown> = {
         outBus: this.backend._busNode(live, this.bus),
@@ -267,6 +335,20 @@ class BabylonVoice implements AudioVoice {
     if (this.gain !== this.appliedGain || this.occGain !== this.appliedOcc) this.applyVolume(this.rampSeconds);
   }
 
+  /** Music: the member's start offset and loop region, from file frames at the context's rate. */
+  private setMusicRegion(): void {
+    const m = this.music;
+    if (!m) return;
+    const rate = this.backend._rate();
+    this.startOffset = Math.max(0, m.startFrame) / rate;
+    if (this.req.loop) {
+      this.region = { start: Math.max(0, m.loopStartFrame) / rate, end: Math.max(0, m.loopEndFrame) / rate };
+      this.regionSet = true;
+      this.regionIsFile = false;
+      this.looping = true;
+    }
+  }
+
   /** E4.5: the clip's loop points are known (null: it has none, so it loops whole). Never overrides an event's `setLoop`. */
   private pointsArrived(p: { start: number; end: number } | null): void {
     this.unsubPoints = null;
@@ -283,8 +365,75 @@ class BabylonVoice implements AudioVoice {
     const live = this.backend._live;
     // `at` is a time on the heard clock (`Audio.time`); Babylon takes seconds from now. Only decoded clips can wait.
     const wait = live && this.req.at !== undefined && Number.isFinite(this.req.at) ? this.req.at - live.engine.currentTime : 0;
+    if (this.music) {
+      const offset = this.startOffset > 0 ? { startOffset: this.startOffset } : {};
+      if (!this.stream) {
+        // Decoded: stamped through `waitTime` (§8).
+        this.startedAtTime = (live?.engine.currentTime ?? 0) + Math.max(0, wait);
+        (sound as StaticSound).play(wait > 0 ? { waitTime: wait, ...offset } : { ...offset });
+      } else if (wait > MUSIC_LATE_SECONDS) {
+        // Streamed: HTML5 audio can't wait, so a timer holds the start (best effort, unaligned).
+        this.startTimer = setTimeout(() => {
+          this.startTimer = null;
+          if (this.ended) return;
+          this.startedAtTime = this.backend._live?.engine.currentTime ?? 0;
+          sound.play(offset);
+        }, wait * 1000);
+      } else {
+        this.startedAtTime = live?.engine.currentTime ?? 0;
+        sound.play(offset);
+      }
+      return;
+    }
     if (!this.stream && wait > 0) (sound as StaticSound).play({ waitTime: wait });
     else sound.play();
+  }
+
+  /**
+   * Music (§8): a shaped fade of this voice's `fade` ramp. It starts at `f.at` (a timer, since a Babylon ramp starts when
+   * it is set) and runs `setVolume` ramps: one for a linear law, up to eight for the others. It replaces a fade under
+   * way and starts from the fade gain as it is when it begins.
+   */
+  private shapedFade(f: ShapedFade): void {
+    if (this.ended) return;
+    for (const t of this.shapedTimers) clearTimeout(t);
+    this.shapedTimers.clear();
+    const live = this.backend._live;
+    const wait = f.at !== undefined && Number.isFinite(f.at) && live ? f.at - live.engine.currentTime : 0;
+    if (wait > MUSIC_LATE_SECONDS) this.later(() => this.runShaped(f), wait);
+    else this.runShaped(f);
+  }
+
+  private later(fn: () => void, seconds: number): void {
+    const t = setTimeout(() => {
+      this.shapedTimers.delete(t);
+      fn();
+    }, seconds * 1000);
+    this.shapedTimers.add(t);
+  }
+
+  private runShaped(f: ShapedFade): void {
+    if (this.ended) return;
+    const from = this.gain;
+    const to = Math.min(4, Math.max(0, Number.isFinite(f.to) ? f.to : 1));
+    const u0 = f.startPhase !== undefined && Number.isFinite(f.startPhase) ? Math.min(1, Math.max(0, f.startPhase)) : 0;
+    const remaining = Math.max(0, Number.isFinite(f.seconds) ? f.seconds : 0) * (1 - u0);
+    const at = (u: number): number => from + (to - from) * lawWeight(f.law, u);
+    if (remaining <= 0) {
+      this.fade(to, 0);
+      if (f.stopAtEnd) this.stop();
+      return;
+    }
+    if (u0 > 0) this.fade(at(u0), 0);
+    const steps = f.law === "linear" ? 1 : Math.max(1, Math.min(SHAPED_STEPS, Math.floor(remaining / SHAPED_STEP_MIN_SECONDS)));
+    const dur = remaining / steps;
+    const step = (i: number): void => {
+      if (this.ended) return;
+      this.fade(i === steps ? to : at(u0 + ((1 - u0) * i) / steps), dur);
+      if (i < steps) this.later(() => step(i + 1), dur);
+      else if (f.stopAtEnd) this.later(() => this.stop(), dur);
+    };
+    step(1);
   }
 
   /**
@@ -831,12 +980,35 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
   }
 
   play(req: PlayRequest): AudioVoice | null {
+    return this._playVoice(req);
+  }
+
+  /** @internal `play`, with a music member's extras. */
+  _playVoice(req: PlayRequest, music?: VoiceMusic): BabylonVoice | null {
     if (this.disposed) return null;
-    const voice = new BabylonVoice(this, req);
+    const voice = new BabylonVoice(this, req, music);
     this.voices.add(voice);
     this._enforceCap(req.bus, voice);
     return voice;
   }
+
+  /** @internal The context's sample rate, for file frames to seconds. */
+  _rate(): number {
+    const r = this.ctx?.sampleRate;
+    return r && r > 0 ? r : 48000;
+  }
+
+  /** @internal `dispose` has run. */
+  get _disposed(): boolean {
+    return this.disposed;
+  }
+
+  /**
+   * ADR 0166 M4a on the fallback (api-and-models §8, B1): groups of decoded stems stamped through `waitTime`, shaped fades
+   * as `setVolume` ramps, streamed stems flat and unaligned, no priming, no rhythm mode. Its presence is what lets a
+   * music player leave "starting" on this backend.
+   */
+  readonly music: MusicBackend = new BabylonMusic(this);
 
   /** A loaded clip's length in seconds, null while it isn't decoded (or streams). */
   clipDuration(path: string): number | null {
@@ -953,6 +1125,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
   /** Babylon updates its own listener and sounds. */
   update(dt: number): void {
     void dt;
+    (this.music as BabylonMusic).pump();
   }
 
   debug(): AudioDebugInfo {
@@ -1036,6 +1209,141 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     if (live) this.teardown(live);
     else this.closeOwnedContext();
     // A start still in flight sees `disposed` and tears down what it made.
+  }
+}
+
+/** One admitted group on the fallback: its request, and once stamped its voices (null where a member couldn't start). */
+interface MusicGroup {
+  req: MusicGroupRequest;
+  voices: (BabylonVoice | null)[] | null;
+  at: number;
+  /** The `start` event went out. */
+  started: boolean;
+}
+
+/**
+ * The fallback's `MusicBackend` (api-and-models §8, B1). Decoded members start through `StaticSound.play({ waitTime })`
+ * from `Audio.time` (the context's clock, no latency correction); streamed members play as flat HTML5 audio from a timer,
+ * unaligned. There is no gate and no priming: `primedState` always answers ready, and `primeGroup` only warms the decoded
+ * buffers and warns. Group events are queued as voices start and end and delivered by `pump` (the backend's `update`).
+ */
+class BabylonMusic implements MusicBackend {
+  readonly caps = { primes: false, stampedFades: true, heardClock: false, rhythm: false } as const;
+  onGroupEvent: ((e: MusicGroupEvent) => void) | null = null;
+  /** No prime is ever timed here; the core's seed. */
+  readonly primeEmaMs = 40;
+  private readonly groups = new Map<number, MusicGroup>();
+  private readonly queue: MusicGroupEvent[] = [];
+
+  constructor(private readonly backend: BabylonBackend) {}
+
+  admitGroup(req: MusicGroupRequest): MusicAdmitResult {
+    if (this.backend._disposed) return { ok: false, reason: "neverFits", permanent: true };
+    this.groups.set(req.group, { req, voices: null, at: 0, started: false });
+    this.warm(req);
+    return { ok: true };
+  }
+
+  primeGroup(req: MusicGroupRequest): void {
+    if (!this.groups.has(req.group)) this.groups.set(req.group, { req, voices: null, at: 0, started: false });
+    for (const m of req.members) if (m.play.stream) warnFlatStream(m.play.path);
+    warnOnce("babylon-music-drift", "interactive music on the Babylon audio fallback can't prime or gate streamed stems; they start separately and may drift apart. Turn off \"stream\" on stems for aligned playback there (api-and-models §8).");
+    this.warm(req);
+  }
+
+  /** Start the engine and decode the group's non-streamed clips ahead of the stamp, so the stamp only has to make the sounds. */
+  private warm(req: MusicGroupRequest): void {
+    const wanted = req.members.filter((m) => !m.play.stream);
+    void this.backend._ready().then((live) => {
+      if (!live) return;
+      for (const m of wanted) this.backend._buffer(live, m.play.url).catch(() => {});
+    });
+  }
+
+  primedState(group: number): MusicPrimedState | null {
+    const g = this.groups.get(group);
+    if (!g) return null;
+    const n = g.req.members.length;
+    return { group, primed: n, of: n, ready: true };
+  }
+
+  stampGroup(stamp: MusicGroupStamp): (AudioVoice | null)[] {
+    const g = this.groups.get(stamp.group);
+    if (!g) return [];
+    if (g.voices) return g.voices;
+    g.at = stamp.at;
+    const voices = g.req.members.map((m, k) => {
+      const v = this.backend._playVoice(
+        { ...m.play, loop: m.loop, at: stamp.at },
+        {
+          startFrame: m.startFrame,
+          loopStartFrame: m.loopStartFrame ?? 0,
+          loopEndFrame: m.loopEndFrame ?? 0,
+          fadeZero: m.fadeZero === true,
+          onEnd: (voice) => this.memberEnded(stamp.group, k, voice),
+        },
+      );
+      return v;
+    });
+    g.voices = voices;
+    for (const f of stamp.fades ?? []) {
+      const v = voices[f.member];
+      if (!v) continue;
+      const fade = f.fade.at === undefined ? { ...f.fade, at: stamp.at } : f.fade;
+      if (v.fadeShaped) v.fadeShaped(fade);
+      else if (fade.stopAtEnd) v.stop(fade.seconds);
+      else v.fade(fade.to, fade.seconds);
+    }
+    return voices;
+  }
+
+  cancelGroup(group: number): void {
+    const g = this.groups.get(group);
+    if (!g) return;
+    this.groups.delete(group);
+    for (const v of g.voices ?? []) v?.stop();
+    for (let i = this.queue.length - 1; i >= 0; i--) if (this.queue[i]!.group === group) this.queue.splice(i, 1);
+  }
+
+  releaseInstance(instance: number): void {
+    void instance; // no worker cache here
+  }
+
+  protect(instance: number, paths: readonly string[]): void {
+    void instance;
+    void paths;
+  }
+
+  private memberEnded(group: number, member: number, voice: BabylonVoice): void {
+    const g = this.groups.get(group);
+    if (!g?.voices) return;
+    this.queue.push(voice.reason === "failed" ? { kind: "error", group, member, message: `could not load "${g.req.members[member]?.play.path ?? ""}"` } : { kind: "end", group, member });
+  }
+
+  /** Deliver this frame's events: each group's `start` once its members are on (or failed), then the members' ends and errors. */
+  pump(): void {
+    if (this.groups.size === 0) return;
+    const now = this.backend.time;
+    for (const [id, g] of this.groups) {
+      if (!g.voices || g.started || now < g.at) continue;
+      const live = g.voices.filter((v): v is BabylonVoice => v !== null);
+      if (live.some((v) => !v._ended && v._startedAt === null)) continue;
+      const startedAt = live.reduce((t, v) => (v._startedAt !== null ? Math.max(t, v._startedAt) : t), g.at);
+      g.started = true;
+      if (!live.some((v) => v._startedAt !== null)) continue; // every member failed: their errors tell it
+      const slip = startedAt - g.at;
+      const late = slip > MUSIC_LATE_SECONDS;
+      this.queue.unshift({ kind: "start", group: id, late, slipFrames: late ? Math.round(slip * this.backend._rate()) : 0, startFrame: g.req.members[0]?.startFrame ?? 0 });
+    }
+    const out = this.queue.splice(0);
+    const sink = this.onGroupEvent;
+    for (const e of out) {
+      if (sink) sink(e);
+      if (e.kind === "end" || e.kind === "error") {
+        const g = this.groups.get(e.group);
+        if (g?.voices?.every((v) => v === null || v._ended)) this.groups.delete(e.group);
+      }
+    }
   }
 }
 
