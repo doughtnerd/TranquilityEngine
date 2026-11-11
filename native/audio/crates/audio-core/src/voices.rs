@@ -109,6 +109,12 @@ pub mod flag {
     pub const STREAM: u8 = 1 << 7;
 }
 
+/// Second slot flag bits (ADR 0162).
+pub mod flag2 {
+    /// PLAY flag `ambisonic` (bit 7): a B-format clip voice, never filtered (C17).
+    pub const AMBISONIC: u8 = 1 << 0;
+}
+
 /// The promote and demote fade (architecture §4.7: "promote and demote 5 ms").
 pub const MIX_FADE_SECONDS: f32 = 0.005;
 
@@ -136,8 +142,13 @@ pub struct VoiceSlot {
     pub start_frame: u64,
     /// Read position in clip frames.
     pub position: f64,
-    /// PLAY / SET_PARAMS `lpHz`, kept for the per-voice filter (not applied yet).
-    pub lp_hz: f32,
+    /// ADR 0162: [`flag2`] bits (from PLAY).
+    pub flags2: u8,
+    pub reserved: u8,
+    /// ADR 0162 D1: the voice's mixed-voice pool entry (`fxpool.rs`) plus 1; 0 none. PLAY,
+    /// SET_PARAMS and SET_MIXED `lpHz` go straight to the entry's low-pass (a virtual voice keeps
+    /// none: main sends `lpHz` again with the promote), so the slot keeps no `lpHz` of its own.
+    pub fx: u16,
     /// PLAY / SET_PARAMS `score` (the adaptive cap's ranking, A3.3).
     pub score: f32,
     pub gain: Ramp,
@@ -192,6 +203,8 @@ const _: () = assert!(
 struct View<'a> {
     slots: &'a mut [VoiceSlot],
     area: &'a mut VoiceArea,
+    /// ADR 0162 D1: the mixed-voice pool (the `Fx` region).
+    pool: &'a mut [FxEntry],
 }
 
 fn view(regions: &mut Regions) -> View<'_> {
@@ -206,6 +219,7 @@ fn view(regions: &mut Regions) -> View<'_> {
         View {
             slots: core::slice::from_raw_parts_mut(regions.voices.as_mut_ptr() as *mut VoiceSlot, count),
             area: &mut *(state.as_mut_ptr() as *mut VoiceArea),
+            pool: crate::fxpool::entries(&mut regions.fx[..]),
         }
     }
 }
@@ -261,6 +275,7 @@ fn unlink_and_free(v: &mut View<'_>, index: usize) {
     if next != 0 {
         v.slots[next as usize - 1].prev = prev;
     }
+    crate::fxpool::release(v.pool, v.slots[index].fx, index);
     v.slots[index] = VoiceSlot::default();
     v.area.live_count -= 1;
 }
@@ -337,12 +352,14 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
     let autos: Option<*mut [VoiceAuto]> = automation::voice_entries(&mut regions.automation[..]).map(|a| a as *mut _);
     // ADR 0162 K3: the zone slot inputs the send tap writes (`sends::tap`), another region again.
     let zones: *mut [u8] = &mut regions.zones[..];
-    let v = view(regions);
+    let mut v = view(regions);
     let (mut source_frames, mut moving) = (0.0f32, 0u32);
     let mut cursor = v.area.live_head;
     while cursor != 0 {
         let index = cursor as usize - 1;
         cursor = v.slots[index].next;
+        // ADR 0162 D1: the pool entry follows the mixed flag (`fxpool.rs`).
+        sync_fx(&mut v, index);
         let slot = &mut v.slots[index];
         let start = match slot.state {
             state::SCHEDULED => {
@@ -380,7 +397,7 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
         let auto = autos.and_then(|a| unsafe { (&mut *a).get_mut(index) }).filter(|a| a.active_for(slot.id));
         // SAFETY: `zones` views the `Zones` region, distinct from every region borrowed here; one
         // voice holds it at a time.
-        let fx = VoiceFx { entry: None, zones: unsafe { &mut *zones } };
+        let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones } };
         // `AUTO = false` compiles the automation away: a voice without bindings or a loop region takes
         // exactly the M1 code (0158 E2: it costs nothing and renders bit for bit as before).
         match (slot.flags & flag::STREAM != 0, auto.is_some()) {
@@ -389,8 +406,100 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
             (false, true) => render_voice::<true>(slot, auto, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
             (false, false) => render_voice::<false>(slot, None, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
         }
+        // A voice that left the mix (a demote or pause fade settled) or ended gives its entry back.
+        let s = &mut v.slots[index];
+        if s.fx != 0 && (s.flags & flag::MIXED == 0 || s.state == state::ENDED) {
+            crate::fxpool::release(v.pool, s.fx, index);
+            s.fx = 0;
+        }
     }
     (source_frames, moving)
+}
+
+/// ADR 0162 D1: a live mixed voice holds a pool entry, any other slot none. A mixed voice without
+/// one (the pool was full when it became mixed) tries again, starting with its filters off.
+fn sync_fx(v: &mut View<'_>, index: usize) {
+    let s = &v.slots[index];
+    if s.flags & flag::MIXED != 0 && is_live_state(s.state) {
+        if crate::fxpool::owned(v.pool, s.fx, index).is_none() {
+            ensure_fx(v, index);
+        }
+    } else if s.fx != 0 {
+        crate::fxpool::release(v.pool, s.fx, index);
+        v.slots[index].fx = 0;
+    }
+}
+
+/// ADR 0162 D1: gives slot `index` a pool entry if it holds none (a fresh one; when the pool is
+/// full, the entry of a voice fading out to virtual or to a pause, which loses its effects for the
+/// rest of that fade). Returns whether it holds one now.
+fn ensure_fx(v: &mut View<'_>, index: usize) -> bool {
+    if crate::fxpool::owned(v.pool, v.slots[index].fx, index).is_some() {
+        return true;
+    }
+    v.slots[index].fx = 0;
+    if let Some(fx) = crate::fxpool::acquire(v.pool, index) {
+        v.slots[index].fx = fx;
+        return true;
+    }
+    for at in 0..v.pool.len() {
+        let owner = v.pool[at].owner as usize;
+        if owner == 0 || owner - 1 == index {
+            continue;
+        }
+        let o = &mut v.slots[owner - 1];
+        if o.fx as usize == at + 1 && o.flags & (flag::DEMOTING | flag::PAUSING) != 0 {
+            o.fx = 0;
+            v.pool[at] = FxEntry::fresh(index);
+            v.slots[index].fx = at as u16 + 1;
+            return true;
+        }
+    }
+    false
+}
+
+/// `true` while slot `s` is silent for its effects (not started, or its mix at 0: a promote just
+/// begun), so new values jump rather than ramp.
+#[inline]
+fn fx_silent(s: &VoiceSlot) -> bool {
+    s.state == state::SCHEDULED || s.mix.value == 0.0
+}
+
+/// ADR 0162 D1 (`fxpool::set_voice_fx`): the pool entry of the live mixed voice `voice_id` (taken
+/// now if it holds none and one can be had), with whether the voice is silent (values jump) and
+/// ambisonic. `None` for a stale id, a virtual voice or a full pool.
+pub(crate) fn fx_entry(core: &mut Core, voice_id: u32) -> Option<(&mut FxEntry, bool, bool)> {
+    let mut v = view(core.regions_mut());
+    let index = find(&v, voice_id)?;
+    if v.slots[index].flags & flag::MIXED == 0 || !ensure_fx(&mut v, index) {
+        return None;
+    }
+    let s = v.slots[index];
+    let View { pool, .. } = v;
+    crate::fxpool::owned(pool, s.fx, index).map(|e| (e, fx_silent(&s), s.flags2 & flag2::AMBISONIC != 0))
+}
+
+/// ADR 0158 E2 / 0162 D1 (`automation::automate`): slot `index` gained a lowpass binding; its
+/// entry's low-pass restarts from zeroed history unless it is running (as M2 reset its filter).
+pub(crate) fn lowpass_bound(core: &mut Core, index: usize) {
+    let v = view(core.regions_mut());
+    let Some(s) = v.slots.get(index) else { return };
+    let fx = s.fx;
+    if let Some(e) = crate::fxpool::owned(v.pool, fx, index) {
+        e.filter.lowpass_bound();
+    }
+}
+
+/// ADR 0162 D1: the voice's low-pass target `lp_hz` into its entry (ambisonic voices keep none):
+/// at once while silent, else over `frames` (at least `MIN_RAMP_FRAMES`).
+fn set_entry_lowpass(v: &mut View<'_>, index: usize, lp_hz: f32, frames: u32) {
+    let s = v.slots[index];
+    if s.flags2 & flag2::AMBISONIC != 0 {
+        return;
+    }
+    if let Some(e) = crate::fxpool::owned(v.pool, s.fx, index) {
+        e.filter.set_lowpass(lp_hz, crate::fxpool::cutoff_frames(fx_silent(&s), frames));
+    }
 }
 
 /// Renders one playing voice over frames `from..to` of the quantum at `frame` (mixed) or keeps its
@@ -846,11 +955,27 @@ fn voice_chain(slot: &mut VoiceSlot, mut auto: Option<&mut VoiceAuto>, fx: Voice
             r[i] *= g;
         }
     }
+    // ADR 0158 §3: automation's lowpass binding caps the voice's low-pass ("lowest wins", 0162 §4.1).
+    let mut cap = None;
     if let Some(a) = auto.as_deref_mut() {
         auto_gain(a, l, r, from);
-        auto_filter(a, slot.lp_hz, sample_rate, l, r);
+        if a.count != 0 && a.targets & automation::has::LOWPASS != 0 {
+            cap = Some(a.lp);
+        }
     }
     if let Some(e) = entry.as_deref_mut() {
+        // Step 3, the voice's filters (C17): never on an ambisonic voice; a mono voice once, on
+        // the left channel, then copied (both channels hold the same samples before).
+        if slot.flags2 & flag2::AMBISONIC == 0 {
+            if slot.panner.channels == 2 {
+                e.filter.process(sample_rate, cap, l, Some(r));
+            } else {
+                let was = e.filter.running();
+                if e.filter.process(sample_rate, cap, l, None) || was {
+                    r.copy_from_slice(l);
+                }
+            }
+        }
         if sending {
             crate::sends::tap(&mut e.send, zones, slot.bus, from, l, r);
             for i in 0..n {
@@ -883,16 +1008,6 @@ fn auto_gain(a: &VoiceAuto, l: &mut [f32], r: &mut [f32], from: usize) {
             l[i] *= g;
             r[i] *= g;
         }
-    }
-}
-
-/// ADR 0158 §3: filters a voice with a lowpass binding at `min(lpHz, lpAuto)` (the coefficients
-/// change at most once per quantum).
-fn auto_filter(a: &mut VoiceAuto, lp_hz: f32, sample_rate: f32, l: &mut [f32], r: &mut [f32]) {
-    if a.count != 0 && a.targets & automation::has::LOWPASS != 0 {
-        let base = if crate::fx::lowpass_on(lp_hz) { lp_hz } else { automation::LP_OFF_HZ };
-        a.filter.set_lowpass(sample_rate, base.min(a.lp), crate::fx::SNAPSHOT_Q_DB);
-        a.filter.process(l, r);
     }
 }
 
@@ -1081,8 +1196,11 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         s.start_frame = start_frame;
         s.position = play.start_offset_frames as f64;
         s.rate_ratio = clip_rate / sample_rate;
-        s.lp_hz = play.lp_hz;
         s.score = play.score;
+        s.flags2 = if play.flags & wire::PLAY_FLAGS_AMBISONIC != 0 { flag2::AMBISONIC } else { 0 };
+        // ADR 0162 D1: the old voice's pool entry goes; a mixed voice takes a fresh one.
+        crate::fxpool::release(v.pool, old.fx, index);
+        s.fx = 0;
         s.gain = Ramp::at(play.gain);
         s.pitch = Ramp::at(play.pitch);
         s.fade = Ramp::at(1.0);
@@ -1090,6 +1208,9 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         let spatial = play.flags & wire::PLAY_FLAGS_SPATIAL != 0;
         let kind = ((play.flags & wire::PLAY_FLAGS_PANNER_MASK) >> wire::PLAY_FLAGS_PANNER_SHIFT) as u8;
         s.panner.start(spatial, kind, [play.dir_x, play.dir_y, play.dir_z], channels);
+        if flags & flag::MIXED != 0 && ensure_fx(&mut v, index) {
+            set_entry_lowpass(&mut v, index, play.lp_hz, 0);
+        }
         (old.state != state::FREE && old.id != play.voice_id).then_some((old.id, old.flags & flag::STREAM != 0, old.clip))
     };
     // ADR 0158 E2: the slot's automation entry now belongs to this voice and its group.
@@ -1167,7 +1288,7 @@ pub fn seek(core: &mut Core, voice_id: u32, frame: u32, epoch: u32) {
 
 /// SET_PARAMS: applies the masked fields; gain, pitch and direction ramp over `ramp_frames`.
 pub fn set_params(core: &mut Core, p: &wire::SetParams) {
-    let v = view(core.regions_mut());
+    let mut v = view(core.regions_mut());
     let Some(index) = find(&v, p.voice_id) else { return };
     let s = &mut v.slots[index];
     if p.mask & wire::SET_PARAMS_MASK_GAIN != 0 {
@@ -1179,9 +1300,7 @@ pub fn set_params(core: &mut Core, p: &wire::SetParams) {
     if p.mask & wire::SET_PARAMS_MASK_DIR != 0 {
         s.panner.set_direction([p.dir_x, p.dir_y, p.dir_z], p.ramp_frames);
     }
-    if p.mask & wire::SET_PARAMS_MASK_LP_HZ != 0 {
-        s.lp_hz = p.lp_hz;
-    }
+    let lp = p.mask & wire::SET_PARAMS_MASK_LP_HZ != 0;
     if p.mask & wire::SET_PARAMS_MASK_SCORE != 0 {
         s.score = p.score;
     }
@@ -1190,6 +1309,10 @@ pub fn set_params(core: &mut Core, p: &wire::SetParams) {
     }
     if p.mask & wire::SET_PARAMS_MASK_FLAGS != 0 {
         s.panner.set_kind(((p.flags & wire::SET_PARAMS_FLAGS_PANNER_MASK) >> wire::SET_PARAMS_FLAGS_PANNER_SHIFT) as u8);
+    }
+    if lp {
+        // ADR 0162 D1: `lpHz` for every mixed voice, ramped in log-Hz.
+        set_entry_lowpass(&mut v, index, p.lp_hz, p.ramp_frames);
     }
 }
 
@@ -1226,22 +1349,29 @@ pub fn mix_fade_frames(core: &Core) -> u32 {
 /// Never reported in `demoted`: main asked for it.
 pub fn set_mixed(core: &mut Core, m: &wire::SetMixed) {
     let frames = mix_fade_frames(core);
-    let v = view(core.regions_mut());
+    let mut v = view(core.regions_mut());
     let Some(index) = find(&v, m.voice_id) else { return };
     let s = &mut v.slots[index];
     if m.mixed != 0 {
-        promote_slot(s, m.gain, [m.dir_x, m.dir_y, m.dir_z], m.lp_hz, frames);
+        promote_slot(s, m.gain, [m.dir_x, m.dir_y, m.dir_z], frames);
+        if v.slots[index].flags & flag::MIXED != 0 {
+            // ADR 0162 D1: a voice turning round keeps its entry and ramps to the new `lpHz` over
+            // the fade; one becoming mixed takes a fresh entry at it (silent there).
+            let had = crate::fxpool::owned(v.pool, v.slots[index].fx, index).is_some();
+            if ensure_fx(&mut v, index) {
+                set_entry_lowpass(&mut v, index, m.lp_hz, if had { frames } else { 0 });
+            }
+        }
     } else {
         demote_slot(s, frames);
     }
 }
 
-fn promote_slot(s: &mut VoiceSlot, gain: f32, dir: [f32; 3], lp_hz: f32, frames: u32) {
+fn promote_slot(s: &mut VoiceSlot, gain: f32, dir: [f32; 3], frames: u32) {
     if s.flags & flag::PAUSED != 0 {
         // Main never promotes a paused voice (selection forces it virtual); dropped (A3.7).
         return;
     }
-    s.lp_hz = lp_hz;
     if s.state == state::SCHEDULED {
         // Not started: start mixed at its gain, no fade (a clean onset).
         s.flags = (s.flags | flag::MIXED) & !flag::DEMOTING;
