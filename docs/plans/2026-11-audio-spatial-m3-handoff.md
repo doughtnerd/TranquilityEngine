@@ -48,12 +48,26 @@ Written 2026-11-11 at the end of the planning session. The plan is done and revi
 | O1 | The plan's changes to the table's split of work | **decided (owner, 2026-11-11): approved**, with FuMa moved to Rust (the int16 headroom scale must come before the decoder's rounding) | – |
 | O2 | When each milestone reaches master | **decided: yes**, after W4 (M3a), W5 (M3b, M3c), W7 (M3d, F), W9 (M3e), each with the owner's approval at the time | – |
 | O3 | Merge this plan to master before the build | **decided: yes**; done at the end of planning (fast-forward) | – |
-| O4 | Tickets: an epic per milestone, a sub-issue per task, leaves as checklist lines | only if the owner wants M3 tracked as M1 was | W0 |
+| O4 | Tickets | **decided: yes, tracked in GitHub issues** (see "Tickets" below) | – |
 | O5 | The owner's runs: the lab-VM runs (each milestone's benches; `m3-typical` and `m3-worst-high` at M3e) and the listening items per milestone | as §9 | each milestone end |
 | O6 | Up to three strongest-model leads at once in W2–W4 (cost) | **decided: yes** (with two, the chain would be ≈ 49–54 days instead of ≈ 42.5, plan est.) | – |
 | O7 | Draws on the named reserve (R1 SADIE II, R2 lab-VM tuning and `wasm-opt`, R4 listening fixes) | only on a failed exit check | as they arise |
 
 Still open from the design handoff, unchanged: the M2 lab-VM run, listening re-check and sign-off; ADR 0161 (Proposed); renumbering `ecstatic-heisenberg`; the `selection.spec.ts:77` e2e failure; the phone (unverified).
+
+## Tickets
+
+One epic per milestone, plus one for the contracts. Every task is a sub-issue titled `[ID] …` and labelled `audio-spatial`, `ready-for-agent`, `lead:opus` / `lead:sonnet` / `leaf-only`, and `critical-path` / `needs-owner` where they apply. Leaves are listed in each task's "How it runs" section; they don't have their own issues. Close a task's issue at its merge and an epic at its milestone's merge to master. The repository's GitHub milestones weren't created (the tools here can't); the epics stand in for them.
+
+| Epic | Tasks |
+|---|---|
+| [#118](https://github.com/doughtnerd/TranquilityEngine/issues/118) contracts | K0 #162, K4 #163 (K1/K2 in A1, K3 in D1) |
+| [#112](https://github.com/doughtnerd/TranquilityEngine/issues/112) M3a bed | A1 #119, A2 #120, A3 #121, A4 #122, A5 #123, A6a #124, A6b #125, A7 #126 |
+| [#113](https://github.com/doughtnerd/TranquilityEngine/issues/113) M3b clips | B1 #127, B2 #128, B3 #129, B4 #130, B5 #131, B6 #132 |
+| [#114](https://github.com/doughtnerd/TranquilityEngine/issues/114) M3c zones | C1 #133, C2a #134, C2b #135, C3 #136, C3b #137, C4 #138, C5 #139, C6 #140, C7 #141 |
+| [#115](https://github.com/doughtnerd/TranquilityEngine/issues/115) M3d | D0 #142, D1 #143, D2a #144, D2b #145, D3 #146, D4 #147, D5 #148, D6 #149 |
+| [#116](https://github.com/doughtnerd/TranquilityEngine/issues/116) fallback | F1 #150, F2 #151 |
+| [#117](https://github.com/doughtnerd/TranquilityEngine/issues/117) M3e | E1 #152, E2 #153, E3 #154, E4 #155, E5 #156, E6 #157, E7 #158, E8 #159, E9 #160, E10 #161 |
 
 ## Starting the build
 
