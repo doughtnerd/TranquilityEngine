@@ -29,10 +29,10 @@ const PACE = process.env.PACE === "1" ? 1 : 0;
 const parts = (flag("only") ?? "check,micro,native,wasm,metered").split(",");
 const QUANTUM_US = 2666.667;
 
-const CORE = ["mus-typ-base", "mus-typ", "mus-trans-base", "mus-trans", "mus-worst-base", "mus-worst", "mus-worst-split", "mus-trans-nofade", "mus-worst-nofade"];
+const CORE = ["mus-typ-base", "mus-typ", "mus-trans-base", "mus-trans", "mus-worst-base", "mus-worst", "mus-worst-split", "mus-trans-nofade", "mus-worst-nofade", "mus-typ-nofade", "mus-typ-fades4", "mus-typ-ramp"];
 const ISO = ["iso-empty", "iso-clip48", "iso-clip441", "iso-clip48-sp", "iso-clip441-sp", "iso-stream48", "iso-stream441", "iso-clip48-64", "iso-clip441-64"];
 const scenes = flag("scenes")?.split(",") ?? [...CORE, ...ISO];
-const TWIN = { "mus-typ": "mus-typ-base", "mus-trans": "mus-trans-base", "mus-worst": "mus-worst-base", "mus-worst-split": "mus-worst-base", "mus-trans-nofade": "mus-trans-base", "mus-worst-nofade": "mus-worst-base" };
+const TWIN = { "mus-typ": "mus-typ-base", "mus-trans": "mus-trans-base", "mus-worst": "mus-worst-base", "mus-worst-split": "mus-worst-base", "mus-trans-nofade": "mus-trans-base", "mus-worst-nofade": "mus-worst-base", "mus-typ-nofade": "mus-typ-base", "mus-typ-fades4": "mus-typ-base", "mus-typ-ramp": "mus-typ-base" };
 
 const targetDir = process.env.CARGO_TARGET_DIR ?? `${here}target`;
 const env = { ...process.env, CARGO_TARGET_DIR: targetDir };
