@@ -125,7 +125,7 @@ async function render(event: string, script: Record<number, number>, total: numb
   const engine = await boot();
   let loop;
   try {
-    loop = await createLoopbackHost({ preset: { maxLogical: 64, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 0 } });
+    loop = await createLoopbackHost({ preset: { maxLogical: 64, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 0, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0 } });
   } catch {
     engine.dispose();
     return null;
