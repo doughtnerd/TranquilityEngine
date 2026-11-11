@@ -106,6 +106,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus01"
           }
         },
@@ -150,6 +151,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus06"
           }
         },
@@ -194,6 +196,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus11"
           }
         },
@@ -238,6 +241,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus16"
           }
         },
@@ -282,6 +286,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus21"
           }
         },
@@ -326,6 +331,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus26"
           }
         },
@@ -370,6 +376,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus04"
           }
         },
@@ -414,6 +421,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus09"
           }
         },
@@ -458,6 +466,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus14"
           }
         },
@@ -502,6 +511,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus19"
           }
         },
@@ -546,6 +556,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus24"
           }
         },
@@ -590,6 +601,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus02"
           }
         },
@@ -634,6 +646,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus07"
           }
         },
@@ -678,6 +691,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus12"
           }
         },
@@ -722,6 +736,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus17"
           }
         },
@@ -766,6 +781,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus22"
           }
         },
@@ -810,6 +826,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus00"
           }
         },
@@ -854,6 +871,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus05"
           }
         },
@@ -898,6 +916,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus10"
           }
         },
@@ -942,6 +961,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus15"
           }
         },
@@ -986,6 +1006,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus20"
           }
         },
@@ -1030,6 +1051,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus25"
           }
         },
@@ -1074,6 +1096,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus03"
           }
         },
@@ -1118,6 +1141,7 @@
             "spatial": true,
             "minDistance": 2,
             "maxDistance": 40,
+            "dopplerLevel": 0,
             "output": "Bus08"
           }
         },
@@ -1156,6 +1180,7 @@
             "spatial": true,
             "minDistance": 3,
             "maxDistance": 50,
+            "dopplerLevel": 0,
             "output": "Bus02"
           }
         },
@@ -1194,6 +1219,7 @@
             "spatial": false,
             "minDistance": 3,
             "maxDistance": 50,
+            "dopplerLevel": 0,
             "output": "Bus05"
           }
         }
@@ -1224,6 +1250,7 @@
             "spatial": true,
             "minDistance": 3,
             "maxDistance": 50,
+            "dopplerLevel": 0,
             "output": "Bus08"
           }
         },
@@ -1262,6 +1289,7 @@
             "spatial": false,
             "minDistance": 3,
             "maxDistance": 50,
+            "dopplerLevel": 0,
             "output": "Bus11"
           }
         }
@@ -1292,6 +1320,7 @@
             "spatial": true,
             "minDistance": 3,
             "maxDistance": 50,
+            "dopplerLevel": 0,
             "output": "Bus14"
           }
         },
@@ -1330,6 +1359,7 @@
             "spatial": false,
             "minDistance": 3,
             "maxDistance": 50,
+            "dopplerLevel": 0,
             "output": "Bus17"
           }
         }
@@ -1360,6 +1390,7 @@
             "spatial": true,
             "minDistance": 3,
             "maxDistance": 50,
+            "dopplerLevel": 0,
             "output": "Bus20"
           }
         },
@@ -1398,6 +1429,7 @@
             "spatial": false,
             "minDistance": 3,
             "maxDistance": 50,
+            "dopplerLevel": 0,
             "output": "Bus23"
           }
         }

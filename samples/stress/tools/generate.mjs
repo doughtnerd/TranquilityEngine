@@ -143,6 +143,7 @@ for (let i = 0; i < 24; i++) {
           spatial: true,
           minDistance: 2,
           maxDistance: 40,
+          dopplerLevel: 0, // orbiting at fixed pitch (ADR 0162: Doppler is on by default)
           output: leaf(i * 5 + 1),
         },
       },
@@ -169,6 +170,7 @@ for (let i = 0; i < 8; i++) {
           spatial,
           minDistance: 3,
           maxDistance: 50,
+          dopplerLevel: 0,
           output: leaf(i * 3 + 2),
         },
       },

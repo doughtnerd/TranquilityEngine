@@ -127,8 +127,11 @@ export class AudioSource extends Component {
   /** One warning per source about those fields. */
   private warnedAmbisonic = false;
 
-  /** ADR 0162 §1.2: the source's velocity in world units per second (Doppler). Read-only. K4: zero until D3. */
+  /** ADR 0162 §1.2: the source's velocity in world units per second (Doppler). Read-only: the Doppler pass's estimate (zero while not playing, or on a backend without it). */
   get velocity(): Vector3 {
+    const id = this.voice?.id ?? 0;
+    const b = audioBackend() as { _velocityOf?: (id: number, out: Vector3) => boolean };
+    if (id === 0 || !b._velocityOf?.(id, this.zeroVelocity)) this.zeroVelocity.set(0, 0, 0);
     return this.zeroVelocity;
   }
 
