@@ -17,20 +17,20 @@ The owner's listening pass for M3, the spatial milestone. It takes the owner's l
 
 - **HRTF and the bed.** The 8 most audible spatial sounds (the **Voices > HRTF** count) get their own HRTF. Every other spatial sound is mixed into its bus's **bed**: a shared 3rd-order ambisonic sound field around the listener, decoded to headphones once by a MagLS binaural filter. On this page the Master bus hosts a bed (SFX, where the Radio, Machine, Flyover and orbit play, uses Master's), and the Ambience bus has its own. A sound changing between HRTF and the bed crossfades over 45 ms; a sound leaving HRTF for the bed waits until 500 ms after its last change (so one hovering at the boundary doesn't flip back and forth); a sound joining HRTF doesn't wait.
 - **Reverb zones follow the source.** Each spatial sound takes the reverb of the zone **it** is in (weighted across a zone's 2 or 3 m blend edge), as Wwise's rooms do: the Radio, in room A, always sounds of room A wherever you stand, and the Machine always of the cave. The listener's position matters for two things: the **ambience** (an ambisonic clip sends its W channel to the zones that hold the **listener**) and the shared bus reverb, which fades out as the listener goes inside zones. A source's send falls with distance (full up close, half at its `maxDistance`), independent of its dry rolloff.
-- **Occlusion.** A wall between a source and the listener lowers its level and dulls it (a low-pass), per material: concrete -30 dB / 800 Hz, wood -12 dB / 2.5 kHz, cloth -4 dB / 8 kHz (starting values for this pass). Its reverb send drops by part of the same loss (the material's `wetOcclusion`), so a source behind a wall in a reverberant room still sounds reverberant.
+- **Occlusion.** A wall between a source and the listener lowers its level and dulls it (a low-pass), per material: concrete -30 dB / 800 Hz, wood -12 dB / 2.5 kHz, cloth -4 dB / 8 kHz (starting values for this pass, written out in `audio.occlusion.materials` so they can be tuned there; the walls without an `AudioOccluder` use `defaultMaterial`, concrete). Its reverb send drops by part of the same loss (the material's `wetOcclusion`), so a source behind a wall in a reverberant room still sounds reverberant.
 - **Doppler.** A moving source's pitch rises toward you and falls away from you (OpenAL's formula, speed of sound 343 m/s). A jump (a teleport) isn't heard as motion.
 
 ### Configurations
 
-Edit only the keys shown; leave the rest of the `audio` block as it is.
+The file spells out every key the configurations change, set to Config A's values (the engine's defaults), so each configuration is a change of values. Edit only the keys shown; leave the rest of the `audio` block as it is.
 
-| Config | Add or change in the `audio` block of `samples/sound-lab/project.json` | Used by |
+| Config | Change in the `audio` block of `samples/sound-lab/project.json` | Used by |
 |---|---|---|
-| A (the sample as shipped) | nothing (default preset: 8 HRTF voices, 2 beds, 1 ambisonic clip, zones 2 active + 1 standby, IRs cut at 2 s) | every item unless it says otherwise |
-| B (low preset, eviction path) | `"voices": {"mixed": 64, "logical": 1024, "hrtf": 4}, "clipMemoryMB": 64, "bed": {"maxBeds": 0}, "ambisonic": {"maxClips": 1}, "zones": {"maxActive": 1, "standby": 0, "maxIrSeconds": 2}` | Z4 |
-| C (high preset, 4 s IRs) | `"voices": {"mixed": 256, "logical": 4096, "hrtf": 8}, "clipMemoryMB": 256, "bed": {"maxBeds": 4}, "ambisonic": {"maxClips": 2}, "zones": {"maxActive": 2, "standby": 1, "maxIrSeconds": 4}` | Z1 (4 s), Z5 |
-| D (one HRTF voice) | `"voices": {"hrtf": 1}` | B1, B2 (bed half), B4 |
-| F (Babylon fallback) | `"backend": "babylon"` | F1 to F4 |
+| A (the sample as shipped) | nothing: the default preset as written in the file (`voices` 128 mixed, 4096 logical, 8 HRTF; `bed.maxBeds` 2; `ambisonic.maxClips` 1; `zones` 2 active + 1 standby, IRs cut at 2 s; no `clipMemoryMB`, so the device's ceiling) | every item unless it says otherwise |
+| B (low preset, eviction path) | `"voices": {"mixed": 64, "logical": 1024, "hrtf": 4}`, add `"clipMemoryMB": 64`, `"bed": {"maxBeds": 0}, "ambisonic": {"maxClips": 1}, "zones": {"maxActive": 1, "standby": 0, "maxIrSeconds": 2}` | Z4 |
+| C (high preset, 4 s IRs) | `"voices": {"mixed": 256, "logical": 4096, "hrtf": 8}`, add `"clipMemoryMB": 256`, `"bed": {"maxBeds": 4}, "ambisonic": {"maxClips": 2}, "zones": {"maxActive": 2, "standby": 1, "maxIrSeconds": 4}` | Z1 (4 s), Z5 |
+| D (one HRTF voice) | `voices.hrtf` to `1` | B1, B2 (bed half), B4 |
+| F (Babylon fallback) | `"backend"` to `"babylon"` | F1 to F4 |
 
 B and C are the editor's low and high presets (`VOICE_PRESETS` in `src/plugins/audio/editor/audioSettingsModel.ts`) plus the zone keys the presets don't set: B uses one zone slot with no standby (the eviction fade), C 4-second impulse responses.
 
