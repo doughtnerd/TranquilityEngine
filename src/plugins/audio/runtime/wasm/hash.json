@@ -1,10 +1,10 @@
 {
-  "sourceHash": "42ca48e6869f887d5d1e7368b4a1fa59",
+  "sourceHash": "c7913cc235f3f3b62a16bee6c046de34",
   "abiVersion": "2.0",
   "bytes": {
-    "myco_audio.wasm": 254120,
-    "testing/myco_audio_test_hooks.wasm": 254232,
-    "myco_audio_decode.wasm": 804255,
-    "myco_audio_decode_aac.wasm": 1128486
+    "myco_audio.wasm": 260166,
+    "testing/myco_audio_test_hooks.wasm": 260278,
+    "myco_audio_decode.wasm": 804382,
+    "myco_audio_decode_aac.wasm": 1128625
   }
 }
