@@ -38,7 +38,7 @@
       "id": "rock3-nav",
       "name": "Nav Footprint",
       "components": [
-        { "type": "engine.Transform", "data": { "scale": [2, 0.75, 2] } },
+        { "type": "engine.Transform", "data": { "scale": [4.8, 0.75, 4.8] } },
         { "type": "engine.MeshCollider", "data": { "mesh": "builtin:cylinder" } },
         { "type": "engine.NavObstacle", "data": { "source": "collider" } }
       ],
