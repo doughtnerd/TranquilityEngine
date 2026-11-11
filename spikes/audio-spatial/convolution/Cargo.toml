@@ -1,0 +1,40 @@
+[package]
+name = "convolution-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Audio M3 measurement spike: reverb-zone convolution cost (throwaway, ADR 0162 design)."
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "spike"
+path = "src/main.rs"
+
+# Size probes: one cdylib each, to measure the wasm bytes of the convolution code alone.
+[[example]]
+name = "probe_empty"
+crate-type = ["cdylib"]
+[[example]]
+name = "probe_m1"
+crate-type = ["cdylib"]
+[[example]]
+name = "probe_zone"
+crate-type = ["cdylib"]
+
+[dependencies]
+audio-dsp = { path = "../../../native/audio/crates/audio-dsp" }
+# Same pin and features as native/audio's workspace (audio-dsp's FFT types are microfft's).
+microfft = { version = "0.6", default-features = false, features = ["size-4096"] }
+libm = "0.2"
+
+# Standalone: not a member of native/audio's workspace.
+[workspace]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false

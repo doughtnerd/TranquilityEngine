@@ -1,0 +1,5 @@
+# Same pinned toolchain as native/audio (cargo does not read it from a parent of the audio workspace).
+[toolchain]
+channel = "1.99.1"
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

@@ -1,0 +1,4 @@
+# Spike build output (never committed)
+target/
+*.wasm
+node_modules/

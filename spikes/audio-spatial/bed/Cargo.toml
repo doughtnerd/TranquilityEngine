@@ -1,0 +1,33 @@
+[package]
+name = "myco-bed-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Standalone: not a member of native/audio's workspace.
+[workspace]
+
+[lib]
+name = "bedspike"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "bench"
+path = "src/bin/bench.rs"
+
+[[bin]]
+name = "check"
+path = "src/bin/check.rs"
+
+[dependencies]
+audio-dsp = { path = "../../../native/audio/crates/audio-dsp" }
+# Same requirement as native/audio's workspace, so Cargo unifies the Complex32 type.
+microfft = { version = "0.6", default-features = false, features = ["size-4096"] }
+libm = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
