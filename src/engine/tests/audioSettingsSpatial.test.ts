@@ -253,12 +253,35 @@ describe("audio settings: the M3 keys (ADR 0162 §2.1)", () => {
     });
   });
 
-  // Skipped: these depend on the material leaf (the material table and `defaultMaterial` fallback), not on §2.1 alone.
   describe("occlusion.defaultMaterial and materials", () => {
-    it.skip("absent: concrete, and the table is the six built-ins in order", () => {});
-    it.skip("an authored material is appended; one named like a built-in replaces it in place", () => {});
-    it.skip("an unknown defaultMaterial gives the table's first material plus a problem; one that names an authored material is kept", () => {});
-    it.skip("a duplicate name is dropped plus a problem; more than 32 authored entries: the rest ignored plus a problem", () => {});
+    it("absent: concrete, and the table is the six built-ins in order", () => {
+      const { settings, problems } = parseAudioSettings({ occlusion: {} });
+      expect(problems).toEqual([]);
+      expect(settings.occlusion.defaultMaterial).toBe("concrete");
+      expect(settings.occlusion.materials.map((m) => m.name)).toEqual(["none", "cloth", "glass", "wood", "metal", "concrete"]);
+    });
+    it("an authored material is appended; one named like a built-in replaces it in place", () => {
+      const { settings, problems } = parseAudioSettings({ occlusion: { materials: [{ name: "brick", transmissionDb: -20, cutoffHz: 900, wetOcclusion: 0.5 }, { name: "glass", transmissionDb: -10, cutoffHz: 4000, wetOcclusion: 0.4 }] } });
+      expect(problems).toEqual([]);
+      const names = settings.occlusion.materials.map((m) => m.name);
+      expect(names).toEqual(["none", "cloth", "glass", "wood", "metal", "concrete", "brick"]);
+      expect(settings.occlusion.materials[2].transmissionDb).toBe(-10);
+    });
+    it("an unknown defaultMaterial falls back (concrete) plus a problem; one that names an authored material is kept", () => {
+      const bad = parseAudioSettings({ occlusion: { defaultMaterial: "paper" } });
+      expect(bad.settings.occlusion.defaultMaterial).toBe("concrete");
+      expect(bad.problems).toEqual([`audio.occlusion.defaultMaterial: unknown material "paper"; using "concrete".`]);
+      const ok = parseAudioSettings({ occlusion: { defaultMaterial: "brick", materials: [{ name: "brick" }] } });
+      expect(ok.settings.occlusion.defaultMaterial).toBe("brick");
+    });
+    it("a duplicate name is dropped plus a problem; more than 32 authored entries: the rest ignored plus a problem", () => {
+      const dup = parseAudioSettings({ occlusion: { materials: [{ name: "brick" }, { name: "brick" }] } });
+      expect(dup.settings.occlusion.materials.filter((m) => m.name === "brick")).toHaveLength(1);
+      expect(dup.problems).toHaveLength(1);
+      const many = parseAudioSettings({ occlusion: { materials: Array.from({ length: 40 }, (_, i) => ({ name: `m${i}` })) } });
+      expect(many.settings.occlusion.materials.length).toBeLessThanOrEqual(32);
+      expect(many.problems.length).toBeGreaterThan(0);
+    });
   });
 
   describe("zones.maxActive", () => {
