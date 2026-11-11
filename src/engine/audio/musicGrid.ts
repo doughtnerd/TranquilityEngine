@@ -412,12 +412,14 @@ export function nextGridTicks(map: TempoMap, ticks: number, spec: GridSpec): num
 
 /**
  * `L-G1b`. `nextGridTicks` for a time: the file seconds of the first grid point of `spec` at or after file `seconds`
- * (`secondsToTicks` rounded up to a tick that is not already past by more than float noise: a time within 1e-9 of a
- * grid tick counts as on it), converted back with `ticksToSeconds`.
+ * (`secondsToTicks` rounded up to a tick that is not already past by more than float noise: a time within a relative 1e-12 of
+ * a grid tick, at least 1e-9 ticks, counts as on it), converted back with `ticksToSeconds`.
  */
 export function nextGridSeconds(map: TempoMap, seconds: number, spec: GridSpec): number {
-  // Grid points are integer ticks, so a tick within 1e-9 above one still rounds up to it.
-  const tick = Math.ceil(secondsToTicks(map, seconds) - 1e-9);
+  // Grid points are integer ticks. Float noise in ticks is relative (<= ~1.5e-14 of the value, file header), so the
+  // tolerance is 1e-9 ticks or 1e-12 of the magnitude, whichever is larger (3e-3 ticks at the 99,999-bar limit).
+  const exact = secondsToTicks(map, seconds);
+  const tick = Math.ceil(exact - Math.max(1e-9, Math.abs(exact) * 1e-12));
   return ticksToSeconds(map, nextGridTicks(map, tick, spec));
 }
 
@@ -425,7 +427,8 @@ export function nextGridSeconds(map: TempoMap, seconds: number, spec: GridSpec):
 
 /**
  * `L-G1b`. Ticks of the cue called `name` (`grid.cueNames` / `cueTicks`), or null when there is no such cue or it
- * is `"end"` with the length unknown (`NaN`). Pure; no allocation.
+ * is `"end"` with the length unknown (`NaN`). Cue names are unique (F1a's parser rejects duplicates and compile only
+ * drops cues), so the first match is the only one. Pure; no allocation.
  */
 export function cueTicks(grid: SegmentGrid, name: string): number | null {
   const names = grid.cueNames;
