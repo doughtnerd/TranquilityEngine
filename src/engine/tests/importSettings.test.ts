@@ -82,6 +82,30 @@ describe("parseImportSettings", () => {
     expect(inverted.settings).toMatchObject({ loopStart: null, loopEnd: null });
   });
 
+  it("reads the audio ambisonic block (ADR 0162 §2.4), leniently, and writes only what differs", () => {
+    const base = { format: "myco.import@1" };
+    expect(parseImportSettings(base).settings.ambisonic).toBeNull();
+    const full = parseImportSettings({ ...base, ambisonic: { order: 3, convention: "fuma" } });
+    expect(full.problems).toEqual([]);
+    expect(full.settings.ambisonic).toEqual({ order: 3, convention: "fuma" });
+    expect(importSettingsJSON(full.settings).ambisonic).toEqual({ order: 3, convention: "fuma" });
+    // Order inferred, convention AmbiX: an empty block still marks the clip ambisonic.
+    const bare = parseImportSettings({ ...base, ambisonic: {} });
+    expect(bare.settings.ambisonic).toEqual({ order: null, convention: "ambix" });
+    expect(importSettingsJSON(bare.settings).ambisonic).toEqual({});
+    expect(importSettingsJSON(parseImportSettings({ ...base, ambisonic: { order: 2, convention: "ambix" } }).settings).ambisonic).toEqual({ order: 2 });
+    expect(importSettingsJSON(defaultImportSettings())).not.toHaveProperty("ambisonic");
+    expect(formatImportSettings(full.settings)).toContain('"ambisonic"');
+    // Bad values never throw: each is a problem and falls back.
+    const bad = parseImportSettings({ ...base, ambisonic: { order: 4, convention: "b-format" } });
+    expect(bad.problems).toHaveLength(2);
+    expect(bad.settings.ambisonic).toEqual({ order: null, convention: "ambix" });
+    const notObject = parseImportSettings({ ...base, ambisonic: true });
+    expect(notObject.problems).toHaveLength(1);
+    expect(notObject.settings.ambisonic).toBeNull();
+    expect(parseImportSettings(JSON.parse(formatImportSettings(full.settings))).settings.ambisonic).toEqual({ order: 3, convention: "fuma" });
+  });
+
   it("skips bad values and slices, listing why", () => {
     const { settings, problems } = parseImportSettings({
       format: "myco.import@1",

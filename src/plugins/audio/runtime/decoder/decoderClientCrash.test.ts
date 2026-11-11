@@ -79,6 +79,15 @@ describe("decoder client crash handling (B6)", () => {
     client.dispose();
   });
 
+  it("sends the clip's ambisonic convention with decodeClip, and again on a retry (ADR 0162 B1)", async () => {
+    const { r, factory } = rig({ behaviour: (n) => (n === 1 ? "crash" : "ok") });
+    const client = createDecoderClient({ workerFactory: factory, wasmBytes: wasmBytes() });
+    await client.decodeClip(fixture(WAV), 1, { convention: "fuma" });
+    const sent = r.posted.filter((p) => p.message.type === "decodeClip").map((p) => (p.message as { convention?: string }).convention);
+    expect(sent).toEqual(["fuma", "fuma"]);
+    client.dispose();
+  });
+
   it("a crash mid-decode retries the whole decode and the caller sees each chunk and the info once", async () => {
     const { r, factory } = rig({ behaviour: (n) => (n === 1 ? "crashAfterFirstChunk" : "ok") });
     const client = createDecoderClient({ workerFactory: factory, wasmBytes: wasmBytes() });

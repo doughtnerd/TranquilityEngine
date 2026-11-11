@@ -16,6 +16,11 @@
 //! 2. `myco_decode_info(h, info)` writes the 40-byte [`INFO_BYTES`] record at `info` (8-aligned): rate u32 @0, channels u32 @4, frames f64 @8
 //!    (-1 unknown), frames estimate f64 @16, codec u32 @24, flags u32 @28 (bit 0 length exact, bit 1 the file
 //!    states a loop), loop start frame u32 @32 and loop end frame (exclusive) u32 @36 (both 0 without a loop).
+//!    Files of 1, 2, 4, 9 or 16 channels open; others are refused (`ERR_CODEC`, ADR 0162).
+//! 2b. For an ambisonic file, `g = myco_decode_set_convention(h, convention)` (0 AmbiX, 1 FuMa)
+//!    before the first read or seek: FuMa on 4, 9 or 16 channels is converted to AmbiX in every
+//!    read, scaled into int16 headroom, and `g` is the import gain main multiplies the clip's
+//!    volume by (√2; 1 when nothing is converted). ABI 1.2.
 //! 3. `myco_decode_read_f32(h, out, frames)` or `myco_decode_read_i16(...)` decodes up to `frames`
 //!    interleaved frames into the caller's buffer (from `alloc`, reused across reads) and returns
 //!    the count: less than asked only at the end, 0 after it. Whole-clip decode is one read of
@@ -36,13 +41,14 @@ mod loop_points;
 mod mp4_gapless;
 
 pub use loop_points::{comment_loop_points, smpl_loop_points, wav_loop_points};
-pub use decoder::{mp3_has_length_header, Bytes, Codec, DecodeError, Decoder, FormatHint, Info};
+pub use ambisonic::Convention;
+pub use decoder::{is_supported_channel_count, mp3_has_length_header, Bytes, Codec, DecodeError, Decoder, FormatHint, Info, MAX_CHANNELS};
 
 use std::alloc::{alloc, dealloc, Layout};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// `(major << 8) | minor` of this ABI.
-pub const ABI_VERSION: u32 = 0x101;
+pub const ABI_VERSION: u32 = 0x102;
 /// Open decoders at once.
 pub const MAX_DECODERS: usize = 64;
 /// Bytes of the record `myco_decode_info` writes: `u32 sampleRate; u32 channels; f64 frames (-1
@@ -202,7 +208,8 @@ fn valid_range(ptr: usize, bytes: usize, align: usize) -> bool {
 
 // --- Exports -----------------------------------------------------------------------------------
 
-/// `(major << 8) | minor`: 1.0.
+/// `(major << 8) | minor`: 1.2 (1.1 added the loop fields to the info record, 1.2
+/// `myco_decode_set_convention`).
 #[no_mangle]
 pub extern "C" fn myco_decode_abi_version() -> u32 {
     ABI_VERSION
@@ -347,6 +354,24 @@ unsafe fn read<T>(
     match f(d, slice) {
         Ok(n) => n as i32,
         Err(e) => t.fail_decode(&e),
+    }
+}
+
+/// Sets the file's ambisonic convention (0 AmbiX, 1 FuMa; api-and-models §2.4), once, before the
+/// first read or seek. Returns the import gain (> 0: the factor the FuMa conversion scaled the
+/// samples down by, √2 for orders 1-3, or 1 when nothing is converted) or an `ERR_*` code: an
+/// unknown convention or a call after a read is `ERR_ARG`. A stream calls it the same way: the
+/// conversion then runs on every chunk it reads.
+#[no_mangle]
+pub extern "C" fn myco_decode_set_convention(handle: i32, convention: u32) -> f64 {
+    let mut t = table();
+    let Some(d) = t.get(handle) else { return f64::from(t.fail(ERR_HANDLE, "convention: no such decoder")) };
+    let Some(c) = Convention::from_code(convention) else {
+        return f64::from(t.fail(ERR_ARG, "convention: 0 (AmbiX) or 1 (FuMa)"));
+    };
+    match d.set_convention(c) {
+        Ok(gain) => f64::from(gain),
+        Err(m) => f64::from(t.fail(ERR_ARG, &format!("convention: {m}"))),
     }
 }
 

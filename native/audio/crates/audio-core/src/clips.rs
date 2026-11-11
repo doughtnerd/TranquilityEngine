@@ -10,7 +10,11 @@
 //! - `reserve`, `write`, `chunk_ptr`, `commit` and `free` run from `onmessage` only (the `clip_*`
 //!   exports, `submit`), never inside `process`. Only `reserve` may grow memory.
 //! - `frames` runs inside `process`: it never allocates and is O(log n).
-//! - Clips are interleaved, 1 or 2 channels, f32 or int16, each at its own sample rate.
+//! - Clips are interleaved, f32 or int16, each at its own sample rate, with 1 or 2 channels, or 4,
+//!   9 or 16 for an ambisonic clip of order 1-3 (ADR 0162 B2, [`is_clip_channel_count`]). A voice
+//!   reads an N-channel clip through `resample::lagrange_n` into the core's one shared 8 KB planar
+//!   scratch (`resample::PLANAR_SCRATCH_FLOATS`); until task B3's ambisonic voice, a plain voice
+//!   plays its W channel.
 //! - Clip events (api-and-models §4.3: 1 resident, 2 refusedCeiling, 3 refusedGrow) queue in the
 //!   store; the core-level functions at the end of this file move them to the STATUS counters
 //!   (K12) with [`flush_events`], and the store keeps what a full block can't take.
@@ -150,6 +154,13 @@ pub struct ClipStore {
     hrtf_failure: u16,
 }
 
+/// The channel counts a clip may have (ADR 0162, api-and-models §5.2): 1, 2, or 4, 9 and 16 for an
+/// ambisonic clip of order 1-3. The main-side registry refuses the others first ("multichannel
+/// mixes aren't supported"); the core refuses them too, with `ERR_BAD_ARG`.
+pub fn is_clip_channel_count(channels: u32) -> bool {
+    matches!(channels, 1 | 2 | 4 | 9 | 16)
+}
+
 /// The reserved clip ids `format = 2` data must use (api-and-models §4.1).
 pub fn is_hrir_id(id: u32) -> bool {
     (wire::HRIR_CLIP_ID_FIRST..=wire::HRIR_CLIP_ID_LAST).contains(&id)
@@ -212,14 +223,15 @@ impl ClipStore {
     }
 
     /// Reserves zeroed space for a clip of `frames` frames (`myco_audio_clip_reserve`).
-    /// Refuses (`ERR_BAD_ARG`) an id that's already held, `channels` other than 1 or 2, zero
+    /// Refuses (`ERR_BAD_ARG`) an id that's already held, `channels` other than 1, 2, 4, 9 or 16
+    /// ([`is_clip_channel_count`]), zero
     /// frames, or a rate that isn't positive and finite. A full directory or the arena's ceiling
     /// gives `ERR_CEILING`, a failed growth `ERR_ARENA_FULL`; each queues its clip event.
     /// HRIR data (`ClipFormat::Hrir`) needs a reserved id, one channel and no other HRIR table
     /// held, and takes the HRTF bank's block too (see the module comment); `sample_rate` is the
     /// context rate the bank is built for. `onmessage` only; may grow memory.
     pub fn reserve(&mut self, id: u32, frames: u32, channels: u32, sample_rate: f32, format: ClipFormat) -> Result<(), i32> {
-        if !(channels == 1 || channels == 2) || frames == 0 || !(sample_rate > 0.0 && sample_rate.is_finite()) {
+        if !is_clip_channel_count(channels) || frames == 0 || !(sample_rate > 0.0 && sample_rate.is_finite()) {
             return Err(wire::ERR_BAD_ARG);
         }
         let hrir = format == ClipFormat::Hrir;
@@ -647,7 +659,9 @@ mod tests {
     #[test]
     fn bad_reserves_and_writes_are_refused() {
         let mut s = store();
-        assert_eq!(s.reserve(1, 4, 3, 48_000.0, ClipFormat::F32), Err(wire::ERR_BAD_ARG));
+        for channels in [0, 3, 5, 6, 8, 10, 15, 17, 32] {
+            assert_eq!(s.reserve(1, 4, channels, 48_000.0, ClipFormat::F32), Err(wire::ERR_BAD_ARG), "{channels} channels");
+        }
         assert_eq!(s.reserve(1, 0, 1, 48_000.0, ClipFormat::F32), Err(wire::ERR_BAD_ARG));
         assert_eq!(s.reserve(1, 4, 1, f32::NAN, ClipFormat::F32), Err(wire::ERR_BAD_ARG));
         s.reserve(1, 4, 1, 48_000.0, ClipFormat::F32).unwrap();
@@ -655,6 +669,24 @@ mod tests {
         assert_eq!(s.write(1, 3, &f32_bytes(&[1.0, 1.0])), Err(wire::ERR_BAD_ARG), "past the end");
         assert_eq!(s.write(1, 0, &[0, 0, 0]), Err(wire::ERR_BAD_ARG), "not whole frames");
         assert_eq!(s.write(2, 0, &f32_bytes(&[1.0])), Err(wire::ERR_UNKNOWN_CLIP));
+    }
+
+    #[test]
+    fn ambisonic_channel_counts_are_held() {
+        let mut s = store();
+        for (id, channels) in [(1, 4u32), (2, 9), (3, 16)] {
+            s.reserve(id, 8, channels, 48_000.0, ClipFormat::I16).unwrap();
+            let bytes: Vec<u8> = (0..8 * channels as i16).flat_map(|v| v.to_le_bytes()).collect();
+            s.write(id, 0, &bytes).unwrap();
+            assert!(s.is_resident(id));
+            let clip = s.frames(id).unwrap();
+            assert_eq!((clip.source.channels, clip.source.frames), (channels, 8));
+            match clip.source.samples {
+                Samples::I16(v) => assert_eq!(v.len(), 8 * channels as usize),
+                Samples::F32(_) => panic!("int16 clip"),
+            }
+        }
+        assert_eq!(s.write(3, 0, &[0u8; 30]), Err(wire::ERR_BAD_ARG), "not a whole 16-channel frame");
     }
 
     #[test]
