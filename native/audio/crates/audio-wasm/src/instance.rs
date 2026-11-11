@@ -98,7 +98,7 @@ mod tests {
     }
 
     fn default_preset() -> InitParams {
-        InitParams { sample_rate: 48_000.0, max_logical: 4_096, max_mixed: 128, max_buses: 32, arena_initial_bytes: 16 << 20 }
+        InitParams { sample_rate: 48_000.0, max_logical: 4_096, max_mixed: 128, max_buses: 32, arena_initial_bytes: 16 << 20, ..InitParams::default() }
     }
 
     /// Every region's address in linear memory, then the output's.

@@ -176,7 +176,7 @@ mod tests {
     use super::*;
 
     fn preset(max_logical: u32, max_mixed: u32, arena_mb: u32) -> InitParams {
-        InitParams { sample_rate: 48_000.0, max_logical, max_mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20 }
+        InitParams { sample_rate: 48_000.0, max_logical, max_mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20, ..InitParams::default() }
     }
 
     #[test]

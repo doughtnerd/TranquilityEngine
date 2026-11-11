@@ -23,7 +23,7 @@ fn core_with(max_mixed: u32) -> Core {
 }
 
 fn core_sized(max_logical: u32, max_mixed: u32) -> Core {
-    let p = InitParams { sample_rate: RATE, max_logical, max_mixed, max_buses: 2, arena_initial_bytes: 0 };
+    let p = InitParams { sample_rate: RATE, max_logical, max_mixed, max_buses: 2, arena_initial_bytes: 0, ..InitParams::default() };
     let layout = Layout::new(&p);
     let block = std::alloc::Layout::from_size_align(layout.total(), PAGE_BYTES).unwrap();
     // SAFETY: non-zero size, zeroed, page-aligned; leaked on purpose ('static).

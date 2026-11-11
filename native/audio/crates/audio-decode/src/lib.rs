@@ -28,7 +28,9 @@
 //! symphonia's errors become codes. The release build is `panic = "abort"`, so a bug that does
 //! panic traps the instance, and the worker re-creates it.
 
+pub mod ambisonic;
 mod decoder;
+pub mod ir;
 mod loop_points;
 #[cfg(feature = "aac")]
 mod mp4_gapless;
