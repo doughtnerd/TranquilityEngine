@@ -158,7 +158,7 @@ No tripwire is a flip's gate or a task's acceptance. Where a row's acceptance na
 ### Branch and merge policy
 
 - **Integration branch:** the build session's designated branch, started from `origin/master` once this plan is merged (`013d53c` or later). Each wave's task branches merge into it with merge commits; the in-voice flip branch merges as one merge commit.
-- **To master, per milestone, with the owner's approval.** A **merge commit** (not a squash), so the integration branch continues from master without a force-push (owner item O2, decided).
+- **To master, per milestone, as soon as it completes** (owner's standing instruction at the start of the build, 2026-11-11: "merge milestones to master upon completion"; see the build log). Owner-only items don't hold the merge. A **merge commit** (not a squash), so the integration branch continues from master without a force-push (owner item O2, decided).
 - The integration branch is never rebased. Task branches are deleted after their merge.
 
 ### Owner procedures

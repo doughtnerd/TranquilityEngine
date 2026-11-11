@@ -8,6 +8,7 @@ import type { Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
 import { clipVolume, isAmbisonicClip, startClip, worldKeyOf, worldPlays } from "./AudioSource";
 import { warnOnce } from "./core/handle";
+import type { MusicEvent, MusicHandle, MusicKind } from "../../../engine/audio/musicTypes";
 import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioPanner, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest, type SendCurve } from "./backend";
 import { events, type EventDebugRow, type EventInstance, type EventOptions } from "./events/eventRuntime";
 
@@ -71,6 +72,8 @@ class VoiceHandle implements AudioHandle {
 const INERT_EVENT: AudioEventHandle = Object.freeze({
   playing: false, reason: null, position: null, panner: null, occlusion: 1,
   stop() {}, fade() {}, setParameter() {}, getParameter: () => undefined, release() {},
+  // ADR 0166 §1.2 (Q0): an event that didn't play has no music.
+  music: undefined, onMusic: () => () => {}, trigger: () => false,
 });
 
 /** The public handle over an event instance (ADR 0158 §5). */
@@ -89,6 +92,10 @@ class EventHandle implements AudioEventHandle {
   setParameter(name: string, value: number | string): void { this.instance.setParameter(name, value); }
   getParameter(name: string): number | string | undefined { return this.instance.getParameter(name); }
   release(): void { this.instance.release(); }
+  // ADR 0166 §1.2 (Q0 placeholders; Q2 delegates them to `music/handle.ts` and `music/stingers.ts`).
+  get music(): MusicHandle | undefined { return undefined; }
+  onMusic(_kind: MusicKind, _fn: (e: MusicEvent) => void): () => void { return () => {}; }
+  trigger(_name: string): boolean { return false; }
 }
 
 /** @internal `AudioSource` plays events through this too. */

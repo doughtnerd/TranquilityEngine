@@ -120,7 +120,27 @@ export interface AudioSettings {
   doppler: DopplerSettings;
   /** World units per second, 10..100000, default 343. */
   speedOfSound: number;
+  /**
+   * ADR 0166 §2.1 (contract Q0; inert until the core reads it, W1's ABI 3.0 and C1): `music.rings`, integer 0..16, the
+   * core's music ring pool (`max_music_rings`). Absent: 12 (the default preset; the editor's low and high presets write 8
+   * and 16). 0 refuses streamed stems with a warning; decoded stems still play.
+   */
+  music: MusicSettings;
+  /**
+   * ADR 0166 §1.5, §2.1 (Q0; inert until Rh1): create the context with `latencyHint: 0` and read the latencies back into
+   * `Audio.latency`. Default false. A change at runtime goes through the rebuild path.
+   */
+  rhythmMode: boolean;
 }
+
+/** `audio.music` (ADR 0166 §2.1). */
+export interface MusicSettings { rings: number }
+/** `audio.music.rings`' range (`MAX_MUSIC_RINGS` in the wire). */
+export const MUSIC_RINGS_LIMITS = [0, 16] as const;
+/** `audio.music.rings` when absent: the default preset's 12. */
+export const DEFAULT_MUSIC_RINGS = 12;
+/** The voice presets' music rings (api-and-models §2.1; the editor's `VOICE_PRESETS` writes them). */
+export const MUSIC_RINGS_PRESETS = { low: 8, default: 12, high: 16 } as const;
 
 /** `audio.bed`: integer `maxBeds` 0..4, default 2 (0: no beds). */
 export interface BedSettings { maxBeds: number }
@@ -239,6 +259,7 @@ export const defaultAudioSettings = (): AudioSettings => ({
   bed: { maxBeds: DEFAULT_BED_MAX_BEDS }, ambisonic: { maxClips: DEFAULT_AMBISONIC_MAX_CLIPS },
   occlusion: { layers: null, budgetMs: DEFAULT_OCCLUSION_BUDGET_MS, defaultMaterial: DEFAULT_MATERIAL_NAME, smoothingMs: DEFAULT_OCCLUSION_SMOOTHING_MS, materials: builtinMaterials() },
   zones: { ...DEFAULT_ZONES }, doppler: { maxSpeed: DEFAULT_DOPPLER_MAX_SPEED }, speedOfSound: DEFAULT_SPEED_OF_SOUND,
+  music: { rings: DEFAULT_MUSIC_RINGS }, rhythmMode: false,
 });
 
 /** A bus's bed mode with the default applied: the root (first bus) `own`, others `parent`. Unknown bus: `parent`. */
@@ -350,6 +371,7 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
   parseCoreKeys(input, settings, problems);
   parseSpatialKeys(input, settings, problems, options);
   parseEventKeys(input, settings, problems);
+  parseMusicKeys(input, settings, problems);
   return { settings, problems };
 }
 
@@ -537,6 +559,19 @@ function occlusionLayers(raw: unknown, known: readonly string[] | undefined, pro
     if (!out.includes(name)) out.push(name);
   });
   return out;
+}
+
+/**
+ * ADR 0166 §2.1 (Q0): `music.rings` (a whole number clamped to 0..16, a problem when clamped or not a number) and
+ * `rhythmMode` (a boolean; anything else is false plus a problem). Both are inert until the features that use them land.
+ */
+function parseMusicKeys(input: Record<string, unknown>, settings: AudioSettings, problems: string[]): void {
+  const music = section(input.music, "audio.music", problems);
+  if (music) settings.music.rings = wholeNumber(music.rings, "audio.music.rings", ...MUSIC_RINGS_LIMITS, problems) ?? DEFAULT_MUSIC_RINGS;
+  if (input.rhythmMode !== undefined) {
+    if (typeof input.rhythmMode === "boolean") settings.rhythmMode = input.rhythmMode;
+    else problems.push("audio.rhythmMode: must be true or false; using false.");
+  }
 }
 
 /** ADR 0158: `parameters`, `automation` and `seed`. Runs after the buses are parsed, so automation can check bus names. */

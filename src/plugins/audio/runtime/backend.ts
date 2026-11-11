@@ -10,6 +10,7 @@ import type { AudioSettings } from "../../../engine/audio/settings";
 import { onAudioConfigured } from "../../../engine/core/audioConfigure";
 import type { AutomationSink } from "./events/automation";
 import type { Curve } from "../../../engine/core/curve";
+import type { AudioLatency, MusicEventHandle } from "../../../engine/audio/musicTypes";
 
 export type Rolloff = "linear" | "inverse" | "exponential";
 
@@ -154,10 +155,229 @@ export interface AudioDebugInfo {
   occlusion?: AudioOcclusionDebug;
   /** ADR 0162 §1.6 (K0): M3's fixed memory (filled by D5 from the core's preset). */
   memory?: AudioMemoryDebug;
+  /** ADR 0166 §1.6, C11 (Q0): one row per playing music instance (filled by P10; absent on a backend without music). */
+  music?: MusicDebugRow[];
+  /** ADR 0166 §1.6, C11 (Q0): engine-wide music totals (filled by P10). */
+  musicTotals?: MusicDebugTotals;
 }
 
-/** ADR 0158 §5: a playing event. M1's four members keep their meaning across all of the instance's voices. */
-export interface AudioEventHandle extends AudioHandle {
+// --- ADR 0166 interactive music (M4): the debug shape (§1.6, C11; contract Q0, filled by P10) ---------------------
+
+/** A music instance's state (§1.6). */
+export type MusicDebugState = "priming" | "playing" | "transitioning" | "recovering" | "ending";
+
+/** One playing music instance in `Audio.debug().music` (api-and-models §1.6, architecture §9, C11). Every field states its unit. */
+export interface MusicDebugRow {
+  /** The event instance id (as `AudioDebugInfo.events[].id`). */
+  id: number;
+  /** The event asset path. */
+  asset: string;
+  state: MusicDebugState;
+  /** Node id of the playing segment; null while priming the first one. */
+  segment: string | null;
+  /** The playing segment's pass (loop count), from 1. */
+  pass: number;
+  /** 1-based position; `tick` 0..(ticks per beat - 1), §2.2. */
+  bar: number;
+  beat: number;
+  tick: number;
+  /** Beats per minute. */
+  tempo: number;
+  beatsPerBar: number;
+  /** Heard time of the position, seconds. */
+  time: number;
+  /** The pending change and the rule that supplied it, or null. */
+  pending: MusicDebugPending | null;
+  /** Live groups: id, state, primed members of `of`. */
+  groups: { id: number; state: "admitted" | "priming" | "stamped" | "playing" | "held" | "ending"; primed: number; of: number }[];
+  /** Stems of the playing segment: track name, primed, streamed, the music ring (index in the pool) or null. */
+  stems: { name: string; primed: boolean; streamed: boolean; ring: number | null }[];
+  /** Milliseconds: the last group prime time, the estimator Ê, and the prime lead (1.25 Ê + L + Δ̄, ADR 0167 §1.2). */
+  primeLastMs: number;
+  primeEmaMs: number;
+  leadMs: number;
+  /** Re-plans by reason (`deadline`, `primeLate`, `groupLate`, `groupHeld`, `rebuild`, ...); counts. */
+  replans: Record<string, number>;
+  /** Refusals by cause (`poolFull`, `neverFits`, `tailRefused`, ...); counts. */
+  refusals: Record<string, number>;
+  /** Counts: groups that started late, groups held by a starving member, groups the core gave up on. */
+  lateGroups: number;
+  groupsHeld: number;
+  groupTimeouts: number;
+  /** Audio frames: the slip of the last late or held group. */
+  lastSlipFrames: number;
+  /** Recoveries by cause (`rebuild`, `hidden`, `reload`, `crash`); counts. */
+  recoveries: Record<string, number>;
+  /** Beats coalesced into `missed` since the instance started. */
+  missedBeats: number;
+  /** Stinger outcomes; counts. */
+  stingers: { played: number; late: number; skipped: number; dropped: number };
+}
+
+/** `MusicDebugRow.pending` (§1.6): the change, when it lands, and the rule that supplied it. */
+export interface MusicDebugPending {
+  /** Target child id. */
+  to: string;
+  /** Where it lands, `"bar:beat"` in the playing segment. */
+  time: string;
+  /** Index of the matched rule in its container's list; -1 for the default rule. */
+  rule: number;
+  /** `"from>to"` as the rule names them (`*` for a wildcard). */
+  ruleKey: string;
+  /** Specificity tier 1..4 (§2.4). */
+  tier: 1 | 2 | 3 | 4;
+  /** Id of the container that supplied the rule (the common parent). */
+  parent: string;
+  /** The rule's exit and enter points as written (`"nextBar"`, `"cue:outro"`, ...). */
+  exit: string;
+  enter: string;
+}
+
+/** `Audio.debug().musicTotals` (§1.6): engine-wide; counts unless stated. */
+export interface MusicDebugTotals {
+  /** Music rings in use, the pool's size (`music.rings`), and the most ever in use at once. */
+  poolUsed: number;
+  poolSize: number;
+  poolHighWater: number;
+  musicRingRefused: number;
+  streamStartsLate: number;
+  /** Audio frames: the largest slip since init. */
+  maxSlipFrames: number;
+  /** Whole-quantum splits and voice-local splits, cumulative (R3). */
+  splitQuanta: number;
+  voiceSplits: number;
+  curvePoolFull: number;
+  /** A PLAY whose group found no core table entry (a bug signal, architecture §4.3). */
+  groupTableFull: number;
+}
+
+// --- ADR 0166 interactive music (M4): the backend seam (§4.6, C10; contract Q0) ------------------------------------
+
+/**
+ * What a backend can do for music (§4.6, C10). The player branches on this record, never on the backend type. The core:
+ * all true. The Babylon fallback: `stampedFades` for decoded clips only, no priming, `currentTime` clock, no rhythm.
+ */
+export interface MusicBackendCaps {
+  /** Streamed stems can be primed and started together by a gate (the core's music pool and group table). */
+  readonly primes: boolean;
+  /** Fades and stops can be stamped at a frame with a law (in-voice records, M4-0). */
+  readonly stampedFades: boolean;
+  /** `timeAt` maps `performance.now()` to the heard clock (the core's `ClockMap`); false: `currentTime` only. */
+  readonly heardClock: boolean;
+  /** Rhythm mode (numeric `latencyHint`, latency read-back, stamped recovery) is available. */
+  readonly rhythm: boolean;
+}
+
+/** A fade law (§3.1, the `shape` word's `law`, §4.2). Laws run at control rate. */
+export type FadeLaw = "linear" | "sCurve" | "equalPowerIn" | "equalPowerOut";
+
+/**
+ * A shaped, optionally stamped fade of one voice's `fade` ramp (§4.2; R5: crossfades run on `fade`, not `gain`). With
+ * `stopAtEnd` it is a stamped STOP with a shape. Ranges: `to` 0..4 linear, `seconds` >= 0, `startPhase` 0..1.
+ */
+export interface ShapedFade {
+  to: number;
+  seconds: number;
+  law: FadeLaw;
+  /** u0: the ramp starts at `law(u0)` and runs the remaining `1 - u0` over `seconds` (REPLAY of a fade under way). Default 0. */
+  startPhase?: number;
+  /** Heard time (seconds) it starts at; past, non-finite or omitted: as soon as possible. */
+  at?: number;
+  /** Stop the voice when the fade ends (a FADE with `stopAtEnd`, or a shaped STOP). */
+  stopAtEnd?: boolean;
+}
+
+/** One stem of a group (§4.6 `primeGroup` members, C8). Streamed members take a music ring; decoded ones play from the arena. */
+export interface MusicGroupMember {
+  /** The stem's track name, for debug rows. */
+  stem: string;
+  /** How the member plays: path, url, bus, volume, `stream`, `priority`, `world`, `group` (the event instance). `at` is ignored: the group's stamp sets it. */
+  play: PlayRequest;
+  /** File frame the member starts at (entry - pre-entry, a loop or seek offset). */
+  startFrame: number;
+  /** Loop the region `loopStartFrame..loopEndFrame` (file frames; end exclusive, 0 = the file's end). */
+  loop: boolean;
+  loopStartFrame?: number;
+  loopEndFrame?: number;
+  /** PLAY's `fadeZero` (§4.1): start with the `fade` ramp at 0, for a stamped fade-in. */
+  fadeZero?: boolean;
+}
+
+/** A group: the stems of one segment, started together by the core's gate (§4.1, architecture §4.3). */
+export interface MusicGroupRequest {
+  /** The music instance (event instance id); the worker's encoded cache is per instance (R16). */
+  instance: number;
+  /** 1..1023, from main's counter that skips live ids (§3.2). */
+  group: number;
+  /** At most 64 on the wire, 32 in the core's table. */
+  members: MusicGroupMember[];
+}
+
+/** The answer to `admitGroup` (architecture §4.2). A permanent refusal never fits this preset; a temporary one retries. */
+export type MusicAdmitResult =
+  | { ok: true }
+  | { ok: false; reason: "poolFull" | "neverFits" | "groupTableFull" | "noMusicRings"; permanent: boolean };
+
+/** `primedState`: a group's members primed in their current epoch (STATUS `musicRings`, R7), decoded members counting as primed. */
+export interface MusicPrimedState {
+  group: number;
+  primed: number;
+  of: number;
+  /** Every member primed (`primed === of`). */
+  ready: boolean;
+}
+
+/** A group's stamp (§4.1): its members start at `at` (heard seconds), with their first in-voice records. */
+export interface MusicGroupStamp {
+  group: number;
+  /** Heard time the members start at (the stamp's frame). */
+  at: number;
+  /** Shaped fades for members, by index in the request's `members`, applied in-voice at their own `at` (or the stamp). */
+  fades?: { member: number; fade: ShapedFade }[];
+}
+
+/** Group and member events from the core (STATUS `groupStarts`, starved, ended and error reports; §4.4, C4). */
+export type MusicGroupEvent =
+  | { kind: "start" | "resume" | "abandon"; group: number; late: boolean; slipFrames: number; startFrame: number }
+  | { kind: "starve" | "end"; group: number; member: number }
+  | { kind: "error"; group: number; member: number; message: string }
+  | { kind: "refused"; group: number; member: number; reason: "musicFull" };
+
+/**
+ * The backend's music operations (§4.6, C10). Absent on a backend without music: the player then plays nothing and
+ * warns once. The core implements this in `core/musicOps.ts` (Q2 wires it, P1 fills it); the fallback in B1.
+ */
+export interface MusicBackend {
+  readonly caps: MusicBackendCaps;
+  /** Check the pool and the group table for this group; nothing is opened. */
+  admitGroup(req: MusicGroupRequest): MusicAdmitResult;
+  /**
+   * Prime an admitted group: post `primeGroup` to the worker (breadth-first, §4.6). With `retarget`, open members restart
+   * at their new start frames under new epochs. `protect` is the instance's protected paths (playing, primed, candidate
+   * successors) for the worker's encoded cache (C8).
+   */
+  primeGroup(req: MusicGroupRequest, options?: { retarget?: boolean; protect?: readonly string[] }): void;
+  /** The group's primed state from the last STATUS; null for an unknown group. */
+  primedState(group: number): MusicPrimedState | null;
+  /** Stamp a primed group: PLAY every member gated, at the stamp's frame, in one BATCH. One voice per member, null where it couldn't start. */
+  stampGroup(stamp: MusicGroupStamp): (AudioVoice | null)[];
+  /** Cancel a group: close its streams, stop any member already playing, free its id. Unknown ids are ignored. */
+  cancelGroup(group: number): void;
+  /** The instance ended: the worker drops its encoded bytes (R16). */
+  releaseInstance(instance: number): void;
+  /** Tell the worker which paths of an instance are protected from eviction (on each planner change of candidates, C8). */
+  protect(instance: number, paths: readonly string[]): void;
+  /** Group and member events, delivered in `update()` after the status mirror is read. */
+  onGroupEvent: ((e: MusicGroupEvent) => void) | null;
+  /** Milliseconds: the page-wide prime estimator Ê (architecture §4.2), seeded at 40 on a new context. */
+  readonly primeEmaMs: number;
+}
+
+/**
+ * ADR 0158 §5: a playing event. M1's four members keep their meaning across all of the instance's voices. ADR 0166 §1.2
+ * adds `music`, `onMusic` and `trigger` (declared in `MusicEventHandle`).
+ */
+export interface AudioEventHandle extends AudioHandle, MusicEventHandle {
   /** Set one of the event's own parameters (labelled ones by label). Unknown names warn once. */
   setParameter(name: string, value: number | string): void;
   /** One of the event's parameters, else a global one; undefined if neither. */
@@ -220,6 +440,10 @@ export interface PlayRequest {
   filter?: { lowpass?: number; highpass?: number };
   /** §2.5 `sends`: one aux send to a bus by name, 0..2, post the voice's bus-chain gain. */
   aux?: { bus: string; level: number };
+
+  // ADR 0166 (contract Q0). Optional; a backend without music ignores it.
+  /** §4.1 `fadeZero`: the voice starts with its `fade` ramp at 0, silent until a stamped fade opens it. */
+  fadeZero?: boolean;
 }
 
 /**
@@ -290,6 +514,11 @@ export interface AudioVoice {
   readonly occlusion?: number;
   /** §1.2, K4: Play edits of the source's M3 options (`VoiceSpatialOptions`); a backend without them leaves it out. */
   setSpatialOptions?(o: VoiceSpatialOptions): void;
+  /**
+   * ADR 0166 §4.2 (Q0): a shaped fade of the voice's `fade` ramp, stamped at `f.at`; with `stopAtEnd` a shaped STOP.
+   * Absent on a backend without stamped fades (`MusicBackendCaps.stampedFades`): callers use `fade`/`stop`.
+   */
+  fadeShaped?(f: ShapedFade): void;
 }
 
 /**
@@ -348,6 +577,19 @@ export interface AudioBackend {
   clipDuration?(path: string): number | null;
   /** ADR 0158: the earliest audio-clock time (`time`'s base) a play with `at` lands on exactly, for gapless chains. */
   horizon?(): number;
+
+  // ADR 0166 (contract Q0). Optional: a backend without the feature leaves them out.
+  /** §4.6, C10: the music operations; absent: no music. */
+  readonly music?: MusicBackend;
+  /**
+   * §6 step 0 (R17): advance the heard-clock map and read the status mirror for this display frame. Idempotent per frame
+   * (`ClockMap.beginFrame` does nothing the second time at the same `rafTime`), so `update` may call it again.
+   */
+  beginFrame?(): void;
+  /** §1.3 `Audio.timeAt`: the raw heard time (seconds) of a `performance.now()` instant (ms). Calibration is never applied (R18). */
+  timeAt?(performanceTime: number): number;
+  /** §1.3 `Audio.latency`, seconds. */
+  latency?(): AudioLatency;
 }
 
 let backend: AudioBackend | null = null;
