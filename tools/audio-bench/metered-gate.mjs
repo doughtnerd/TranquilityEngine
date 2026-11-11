@@ -32,7 +32,7 @@ const SECONDS = 2;
 const WARMUP = 1;
 const SEED = 1;
 
-/** The gated scenes (`audio-bench`'s `scene()`): the presets, the Stress sample's twins, focused ones and the bed scenes. */
+/** The gated scenes (`audio-bench`'s `scene()`): the presets, the Stress sample's twins, focused ones, the bed scenes and M3's filter and worst-case scenes. */
 const SCENES = [
   "low",
   "default",
@@ -58,6 +58,12 @@ const SCENES = [
   "bed-64",
   "bed-256",
   "bed-xfade",
+  // ADR 0162 D6: 256 voices each with a ramping low-pass and high-pass (D1's pool), and each preset's worst case: beds,
+  // ambisonic clips (one private), filters and zone slots sized (C4's sends are not on this base, so the slots idle).
+  "filters-256",
+  "m3-worst-high",
+  "m3-worst-default",
+  "m3-worst-low",
 ];
 
 function fail(message) {

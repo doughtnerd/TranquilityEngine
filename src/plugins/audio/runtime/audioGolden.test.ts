@@ -48,6 +48,8 @@ import {
   SET_PARAMS_MASK_DIR,
   SET_PARAMS_MASK_FLAGS,
   SET_PARAMS_MASK_GAIN,
+  SET_PARAMS_MASK_LP_HZ,
+  SET_VOICE_FX_MASK_HP_HZ,
   SET_PARAMS_MASK_PITCH,
   writeAutomate,
   writeBatchHeader,
@@ -65,6 +67,7 @@ import {
   writePlay,
   writeSetLoop,
   writeSetParams,
+  writeSetVoiceFx,
   writeStop,
   type BusConfigBuses,
   type Play,
@@ -547,13 +550,76 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     }
     s.run(10);
   },
+  // ADR 0162 D6 (D1's per-voice filters): 256 mixed voices, each with its own low-pass and high-pass (mono and stereo
+  // clips, so the mono-once and the stereo paths both run), retargeted twice with log-Hz ramps: closed down, then
+  // opened to the filters' off values (low-pass 20 kHz and over, high-pass 20 Hz and under).
+  async "filters-256"(s) {
+    for (let from = 0; from < 256; from += 64) {
+      const batch: Writer[] = [];
+      for (let k = from; k < from + 64; k++) {
+        const [dirX, dirY, dirZ] = bedDir(k);
+        batch.push(play(voice(k + 1), k % 2 === 0 ? CLIP : STEREO, { flags: MIXED | LOOP | SPATIAL, gain: 0.45 / Math.sqrt(256), pitch: 0.75 + (k % 7) * 0.125, dirX, dirY, dirZ, lpHz: 9_000 + (k % 5) * 800, startOffsetFrames: (k * 977) % CLIP_FRAMES }));
+      }
+      s.send(...batch);
+    }
+    sendFilters(s, 256, 0, (k) => 9_000 + (k % 5) * 800, () => 120);
+    s.run(24);
+    sendFilters(s, 256, 1_024, (k) => 700 + ((k * 37) % 5_000), (k) => 40 + ((k * 13) % 900));
+    s.run(16);
+    sendFilters(s, 256, 512, () => LP_OPEN_HZ, () => HP_OPEN_HZ);
+    s.run(16);
+  },
+  // One voice of the broadband clip through the filters' full travel, closing low-pass 18 kHz to 400 Hz and rising
+  // high-pass 20 Hz to 1.5 kHz, each over 8,192 frames. Click bound (api-and-models §9): the largest sample-to-sample
+  // step of the ramped output stays within 1.15 times the unfiltered voice's (a click or zipper would exceed it).
+  async "filters-ramp"(s) {
+    const voice1 = play(voice(1), CLIP, { flags: MIXED | LOOP | SPATIAL, gain: 0.5 });
+    const unfiltered = await stage();
+    unfiltered.send(voice1);
+    unfiltered.run(96);
+    const dry = maxStep(unfiltered.output().left);
+    s.send(play(voice(1), CLIP, { flags: MIXED | LOOP | SPATIAL, gain: 0.5, lpHz: 18_000 }));
+    s.run(8);
+    sendFilters(s, 1, 8_192, () => 400, () => 1_500);
+    s.run(88);
+    const step = maxStep(s.output().left);
+    if (step > 1.15 * dry) throw new Error(`filters-ramp: largest step ${step.toFixed(4)} exceeds 1.15 x the dry voice's ${dry.toFixed(4)}`);
+  },
 };
+
+/** The filters' off values: a low-pass at or above, a high-pass at or below. */
+const LP_OPEN_HZ = 20_000;
+const HP_OPEN_HZ = 20;
+
+/** The largest absolute difference between neighbouring samples. */
+function maxStep(x: Float32Array): number {
+  let m = 0;
+  for (let i = 1; i < x.length; i++) m = Math.max(m, Math.abs(x[i]! - x[i - 1]!));
+  return m;
+}
+
+/** Sends `filtersFor`'s records in batches of 32 voices (a batch's scratch is 8 KB). */
+function sendFilters(s: Stage, n: number, ramp: number, lp: (k: number) => number, hp: (k: number) => number): void {
+  const all = filtersFor(n, ramp, lp, hp);
+  for (let at = 0; at < all.length; at += 64) s.send(...all.slice(at, at + 64));
+}
+
+/** A low-pass (SET_PARAMS `lpHz`) and a high-pass (SET_VOICE_FX `hpHz`) for voices 1..n, over `ramp` frames. */
+function filtersFor(n: number, ramp: number, lp: (k: number) => number, hp: (k: number) => number): Writer[] {
+  const out: Writer[] = [];
+  for (let k = 0; k < n; k++) {
+    out.push((view, off) => writeSetParams(view, off, { voiceId: voice(k + 1), frameOffset: ASAP, mask: SET_PARAMS_MASK_LP_HZ, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: lp(k), score: 0, bus: 0, rampFrames: ramp, flags: 0 }));
+    out.push((view, off) => writeSetVoiceFx(view, off, { voiceId: voice(k + 1), frameOffset: ASAP, mask: SET_VOICE_FX_MASK_HP_HZ, rampFrames: ramp, hpHz: hp(k), send: [0, 0, 0, 0], yaw: 0, auxLevel: 0, auxBus: 0xffff, reserved: 0 }));
+  }
+  return out;
+}
 
 /** The core preset a scene needs (the loopback one by default). */
 const PRESETS: Record<string, CorePreset> = {
   "bed-64": { ...LOOPBACK_PRESET, maxMixed: 64, maxBeds: 1 },
   "bed-256": { ...LOOPBACK_PRESET, maxMixed: 256, maxBeds: 2 },
   "bed-xfade": { ...LOOPBACK_PRESET, maxMixed: 16, maxBeds: 1 },
+  "filters-256": { ...LOOPBACK_PRESET, maxMixed: 256 },
 };
 
 /** The panner bits for the bed (kind 2) in a PLAY's flags and in a SET_PARAMS's. */

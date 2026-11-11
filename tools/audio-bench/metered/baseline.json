@@ -1,7 +1,7 @@
 {
   "note": "Wasm instructions per quantum of audio-bench scenes in the metered build (ADR 0157 C1b). Rewrite with UPDATE_METERED_BASELINE=1 node tools/audio-bench/metered-gate.mjs.",
   "meterVersion": 1,
-  "sourceHash": "03485e239d32c694a002038107044dff",
+  "sourceHash": "faa8b0abf0539d93ef8288c7e0530ffc",
   "settings": {
     "seconds": 2,
     "warmup": 1,
@@ -175,6 +175,38 @@
       "p99": 10218678,
       "max": 10385475,
       "wuMean": 536527
+    },
+    "filters-256": {
+      "quanta": 750,
+      "perQuantum": 20970916,
+      "total": 15728187308,
+      "p99": 21682752,
+      "max": 21683484,
+      "wuMean": 1109573
+    },
+    "m3-worst-high": {
+      "quanta": 750,
+      "perQuantum": 36796313,
+      "total": 27597234938,
+      "p99": 38658600,
+      "max": 38741736,
+      "wuMean": 2090222
+    },
+    "m3-worst-default": {
+      "quanta": 750,
+      "perQuantum": 21916691,
+      "total": 16437518130,
+      "p99": 23519576,
+      "max": 23565648,
+      "wuMean": 1282213
+    },
+    "m3-worst-low": {
+      "quanta": 750,
+      "perQuantum": 9856364,
+      "total": 7392272910,
+      "p99": 10982591,
+      "max": 11059050,
+      "wuMean": 676419
     }
   }
 }

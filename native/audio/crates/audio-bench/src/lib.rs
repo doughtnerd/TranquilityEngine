@@ -175,7 +175,29 @@ pub struct Scene {
     /// the HRTF window and `xfade` leave it ([`xfade_kind`]); the 45 ms crossfades overlap. `Some(0)`: the window
     /// stays still (the sweep's baseline); `None`: no window, every bed voice stays a bed voice.
     pub xfade: Option<u32>,
+    /// ADR 0162 D6 (D1's per-voice filters): mixed voices (streams and ambisonic voices excepted) carrying a low-pass,
+    /// and a high-pass, each ramping log-uniformly every batch (SET_PARAMS `lpHz`, SET_VOICE_FX `hpHz`). A voice with
+    /// both counts in both.
+    pub voice_lp: u32,
+    pub voice_hp: u32,
+    /// ADR 0162 D6: ambisonic voices (looping 3rd-order, 16-channel clips, `ambi_private` of them on a bus with no bed,
+    /// decoded by a private decoder, the rest into the beds' host buses) among the mixed; `max_wide` is the core's
+    /// `maxClips`.
+    pub ambi: u32,
+    pub ambi_private: u32,
+    pub max_wide: u32,
+    /// ADR 0162 D6: configured zone slots and the longest kernel they hold (frames). C4's sends are not on this base
+    /// (`sends::tap` is a no-op), so the slots are sized (the `Zones` region) but never fed: they idle at no cost.
+    pub zone_slots: u32,
+    pub zone_frames: u32,
 }
+
+/// ADR 0162 D6: where a filtered voice's cutoffs start, Hz (they sweep between [`LP_RANGE`] and [`HP_RANGE`] after).
+const LP_START_HZ: f32 = 4_000.0;
+const HP_START_HZ: f32 = 120.0;
+/// Low-pass and high-pass sweeps, Hz: log-uniform between the ends, one slow sine per voice.
+const LP_RANGE: (f32, f32) = (600.0, 14_000.0);
+const HP_RANGE: (f32, f32) = (40.0, 500.0);
 
 /// The voices in the HRTF window of `bed-xfade`'s rotating schedule.
 const XFADE_WINDOW: u32 = 16;
@@ -222,6 +244,13 @@ impl Scene {
             bed_voices: 0,
             magls: false,
             xfade: None,
+            voice_lp: 0,
+            voice_hp: 0,
+            ambi: 0,
+            ambi_private: 0,
+            max_wide: 0,
+            zone_slots: 0,
+            zone_frames: 0,
         }
     }
 
@@ -229,6 +258,30 @@ impl Scene {
     /// matrix, each on its own clip of 64 MB ÷ `voices`, with per-frame direction updates (the voices drift).
     fn bed(name: &str, voices: u32, beds: u32, magls: bool) -> Scene {
         Scene { beds, bed_voices: voices, magls, buses: if beds > 1 { 1 + beds } else { 1 }, updates: true, ..Scene::looping(name, voices) }
+    }
+
+    /// ADR 0162 D6 (architecture §7.2 "Worst" rows): a preset's full scene with M3's terms at their limits. The HRTF
+    /// voices drop to `hrtf` and every other mixed voice (the streams and the ambisonic ones apart) is a bed voice on the
+    /// beds' host buses; `ambi` ambisonic clips (`ambi_private` private); `lp` low-passes and `hp` high-passes ramping;
+    /// `zone_slots` of `zone_s` seconds.
+    #[allow(clippy::too_many_arguments)]
+    fn worst(name: &str, base: Scene, hrtf: u32, beds: u32, ambi: u32, ambi_private: u32, lp: u32, hp: u32, zone_slots: u32, zone_s: u32) -> Scene {
+        Scene {
+            name: name.to_string(),
+            hrtf,
+            beds,
+            bed_voices: if beds > 0 { base.mixed } else { 0 },
+            magls: beds > 0,
+            buses: if beds > 1 { base.buses.max(1 + beds) } else { base.buses },
+            ambi,
+            ambi_private,
+            max_wide: ambi,
+            voice_lp: lp,
+            voice_hp: hp,
+            zone_slots,
+            zone_frames: zone_s * RATE as u32,
+            ..base
+        }
     }
 
     /// `mixed` looping voices at pitch 1, each reading its own clip of 64 MB ÷ `mixed`, on one bus (the sweeps' base).
@@ -318,6 +371,15 @@ pub fn scene(name: &str) -> Option<Scene> {
         "bed-64" => Scene::bed(name, 64, 1, true),
         "bed-256" => Scene::bed(name, 256, 2, true),
         "bed-xfade" => Scene { xfade: Some(2), ..Scene::bed(name, 64, 1, true) },
+        // ADR 0162 D6: 256 looping voices, each with a low-pass and a high-pass ramping every batch (D1's pool); its
+        // twin without filters is `updates`.
+        "filters-256" => Scene { updates: true, voice_lp: 256, voice_hp: 256, ..Scene::looping(name, 256) },
+        // ADR 0162 D6 (architecture §7.2): each preset's worst case on top of its M1/M2 content. High: 8 HRTF, 4 beds,
+        // 2 ambisonic clips (1 private), 256 low-pass, 32 high-pass, 3 slots of 4 s. Default: 8 HRTF, 2 beds, 1 private
+        // clip, 128 + 16 filtered, 3 slots of 2 s. Low: 4 HRTF, no beds, 1 private clip, 64 + 8 filtered, 1 slot of 1 s.
+        "m3-worst-high" => Scene::worst(name, Scene::preset(name, 8_192, 256, 32, 16), 8, 4, 2, 1, 256, 32, 3, 4),
+        "m3-worst-default" => Scene::worst(name, Scene::preset(name, 4_096, 128, 16, 8), 8, 2, 1, 1, 128, 16, 3, 2),
+        "m3-worst-low" => Scene::worst(name, Scene::preset(name, 1_024, 48, 4, 4), 4, 0, 1, 1, 64, 8, 1, 1),
         _ => return None,
     };
     Some(s)
@@ -540,6 +602,9 @@ pub struct RunResult {
     pub mean_transit: f64,
     pub mean_source_frames: f64,
     pub mean_moving: f64,
+    /// ADR 0162 D6: mean STATUS `fxVoices` (pool entries whose filter ran) and `ambisonicVoices`.
+    pub mean_fx_voices: f64,
+    pub mean_ambisonic: f64,
     pub records_per_quantum: f64,
     pub starts_per_quantum: f64,
     pub wu_mean: f64,
@@ -576,6 +641,13 @@ struct Voice {
     /// Index in `Bench::mixed_ids` while mixed.
     at: u32,
     phase: f32,
+    /// ADR 0162 D6: what the voice stands for while mixed (the scene's counts are kept by these).
+    bed: bool,
+    ambi: bool,
+    /// With `ambi`: on the bus with no bed.
+    private: bool,
+    lp: bool,
+    hp: bool,
 }
 
 struct Bench {
@@ -604,14 +676,22 @@ struct Bench {
     starts: u64,
     /// ADR 0158 E2 (`sustain`): the next mixed voice to release, as an index into `mixed_ids`.
     release_at: usize,
+    /// The stereo clips (ids `1..=stereo_clips`); the ambisonic ones follow (ADR 0162 D6).
+    stereo_clips: u32,
+    /// Mixed voices now standing for each of the scene's M3 counts.
+    bed_now: u32,
+    ambi_now: u32,
+    ambi_private_now: u32,
+    lp_now: u32,
+    hp_now: u32,
 }
 
 /// The scene's init parameters. The arena's initial reserve holds all of the scene's clips (with
 /// the size classes' rounding) and the HRTF bank, so it never grows and the block can be freed
 /// after the run (wasm memory can't shrink; runs would otherwise pile up past 4 GB).
 fn init_params(s: &Scene) -> InitParams {
-    let arena_mb = s.clip_mb + s.clip_mb / 2 + 16;
-    InitParams { sample_rate: RATE, max_logical: s.max_logical, max_mixed: s.max_mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20, max_beds: s.beds, ..InitParams::default() }
+    let arena_mb = s.clip_mb + s.clip_mb / 2 + 16 + 2 * s.ambi;
+    InitParams { sample_rate: RATE, max_logical: s.max_logical, max_mixed: s.max_mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20, max_beds: s.beds, max_wide: s.max_wide, max_zone_slots: s.zone_slots, zone_max_frames: s.zone_frames, ..InitParams::default() }
 }
 
 /// A core over a fresh zeroed block; returns the block to free after the core is dropped.
@@ -742,6 +822,19 @@ impl Bench {
             core.clips_mut().write(id, 0, &buf).expect("clip write");
             clip_frames.push(frames);
         }
+        // ADR 0162 D6: ambisonic clips, 1 s of 16-channel int16 noise each (looping), at ids after the stereo ones.
+        for k in 0..scene.ambi {
+            let id = count as u32 + 1 + k;
+            let frames = RATE as u32;
+            core.clips_mut().reserve(id, frames, 16, RATE, ClipFormat::I16).expect("ambisonic clip reserve");
+            buf.clear();
+            for _ in 0..frames as usize * 16 {
+                let s = (rng.next() >> 16) as i16 / 32;
+                buf.extend_from_slice(&s.to_le_bytes());
+            }
+            core.clips_mut().write(id, 0, &buf).expect("ambisonic clip write");
+            clip_frames.push(frames);
+        }
         if scene.hrtf > 0 || scene.xfade.is_some() {
             load_hrir(&mut core, hrir.expect("the HRIR table"));
         }
@@ -769,6 +862,12 @@ impl Bench {
             records_sent: 0,
             starts: 0,
             release_at: 0,
+            stereo_clips: count as u32,
+            bed_now: 0,
+            ambi_now: 0,
+            ambi_private_now: 0,
+            lp_now: 0,
+            hp_now: 0,
         };
         b.stream_data = (0..STREAM_CHUNK as usize * 2).map(|_| (b.rng.unit() - 0.5) * 0.1).collect();
         b.configure();
@@ -913,21 +1012,40 @@ impl Bench {
         let s = self.scene.clone();
         let looping = stream.is_some() || !mixed || !(s.one_shots || s.sustain);
         let hrtf = mixed && self.hrtf_now < s.hrtf;
+        // ADR 0162 D6: the scene's M3 counts are kept by what the mixed voices stand for (streams stay plain).
+        let eligible = mixed && stream.is_none();
+        let ambi = eligible && self.ambi_now < s.ambi;
+        let ambi_private = ambi && self.ambi_private_now < s.ambi_private;
+        let bed = eligible && !ambi && !hrtf && self.bed_now < s.bed_voices;
+        let lp = eligible && !ambi && self.lp_now < s.voice_lp;
+        let hp = eligible && !ambi && self.hp_now < s.voice_hp;
+        let looping = looping || ambi;
         let clip = match stream {
             Some(sid) => sid,
             None if mixed && !s.one_shots => {
                 // Looping mixed voices each read their own clip.
-                let n = (self.clip_frames.len() - 1) as u32;
+                let n = self.stereo_clips;
                 1 + (self.mixed_ids.len() as u32 % n)
             }
+            None if ambi => self.stereo_clips + 1 + self.ambi_now,
             None if mixed => self.next_clip(),
-            None => 1 + self.rng.below((self.clip_frames.len() - 1) as u32),
+            None => 1 + self.rng.below(self.stereo_clips),
         };
         // Bed scenes: with several beds the voices spread over their host buses (1..=beds).
-        let bus = if s.beds > 1 { 1 + self.rng.below(s.beds) as u16 } else { self.rng.below(s.buses) as u16 };
+        let bus = if ambi_private {
+            assert!(s.beds != 1, "a private ambisonic voice needs a bus with no bed");
+            0
+        } else if s.beds > 1 && (bed || ambi) {
+            1 + self.rng.below(s.beds) as u16
+        } else {
+            self.rng.below(s.buses) as u16
+        };
         let ordinal = self.mixed_ids.len() as u32;
         let phase = self.rng.unit() * 6.283;
-        let mut flags = wire::PLAY_FLAGS_SPATIAL;
+        let mut flags = if ambi { 0 } else { wire::PLAY_FLAGS_SPATIAL };
+        if ambi {
+            flags |= wire::PLAY_FLAGS_AMBISONIC;
+        }
         if looping {
             flags |= wire::PLAY_FLAGS_LOOP;
         }
@@ -942,7 +1060,7 @@ impl Bench {
         }
         if let (true, Some(step)) = (mixed, s.xfade) {
             flags |= (xfade_kind(ordinal, 0, step, s.mixed) as u16) << wire::PLAY_FLAGS_PANNER_SHIFT;
-        } else if mixed && ordinal < s.bed_voices {
+        } else if bed {
             flags |= (wire::panner::BED as u16) << wire::PLAY_FLAGS_PANNER_SHIFT;
         }
         let frames = if stream.is_some() { 0 } else { self.clip_frames[clip as usize] };
@@ -967,12 +1085,15 @@ impl Bench {
             dir_x: libm::sinf(phase),
             dir_y: 0.0,
             dir_z: -libm::cosf(phase),
-            lp_hz: wire::BUS_LP_OFF_HZ as f32,
+            lp_hz: if lp { LP_START_HZ } else { wire::BUS_LP_OFF_HZ as f32 },
             score,
             start_offset_frames: offset,
             group: if s.bindings > 0 { 1 + (index % 1_024) as u16 } else { 0 },
             ..Default::default()
         });
+        if hp {
+            self.push(&wire::SetVoiceFx { voice_id: id, frame_offset: wire::ASAP, mask: wire::SET_VOICE_FX_MASK_HP_HZ, hp_hz: HP_START_HZ, ..Default::default() });
+        }
         if s.bindings > 0 && stream.is_none() {
             let all = [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2)];
             let bindings = all[..s.bindings.min(3) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect();
@@ -982,11 +1103,16 @@ impl Bench {
             // A region in the clip's middle third; the voice starts before it.
             self.push(&wire::SetLoop { voice_id: id, frame_offset: wire::ASAP, loop_start_frame: frames / 3, loop_end_frame: 2 * frames / 3, flags: wire::SET_LOOP_FLAGS_LOOPING });
         }
-        let mut v = Voice { id, mixed, hrtf, at: u32::MAX, phase };
+        let mut v = Voice { id, mixed, hrtf, at: u32::MAX, phase, bed, ambi, private: ambi_private, lp, hp };
         if mixed {
             v.at = self.mixed_ids.len() as u32;
             self.mixed_ids.push(id);
             self.hrtf_now += hrtf as u32;
+            self.bed_now += bed as u32;
+            self.ambi_now += ambi as u32;
+            self.ambi_private_now += ambi_private as u32;
+            self.lp_now += lp as u32;
+            self.hp_now += hp as u32;
         }
         self.voices[index as usize] = Some(v);
     }
@@ -998,9 +1124,15 @@ impl Bench {
             return;
         }
         v.mixed = false;
-        let (at, hrtf) = (v.at as usize, v.hrtf);
+        let (at, hrtf, bed, ambi, private, lp, hp) = (v.at as usize, v.hrtf, v.bed, v.ambi, v.private, v.lp, v.hp);
         v.hrtf = false;
+        (v.bed, v.ambi, v.private, v.lp, v.hp) = (false, false, false, false, false);
         self.hrtf_now -= hrtf as u32;
+        self.bed_now -= bed as u32;
+        self.ambi_now -= ambi as u32;
+        self.ambi_private_now -= private as u32;
+        self.lp_now -= lp as u32;
+        self.hp_now -= hp as u32;
         self.mixed_ids.swap_remove(at);
         if at < self.mixed_ids.len() {
             let moved = (self.mixed_ids[at] & 0xFFFF) as usize;
@@ -1074,6 +1206,10 @@ impl Bench {
         for k in 0..self.mixed_ids.len() {
             let id = self.mixed_ids[k];
             let v = self.voices[(id & 0xFFFF) as usize].unwrap();
+            if v.ambi {
+                // Ambisonic clips follow the listener, not a direction.
+                continue;
+            }
             let turning = v.hrtf && s.moving;
             // The window crosses `xfade` voices each way every batch.
             let crossing = if let Some(step) = s.xfade {
@@ -1083,7 +1219,13 @@ impl Bench {
             } else {
                 None
             };
-            if !(turning || crossing.is_some() || (s.updates && !v.hrtf)) {
+            if v.hp {
+                // D1's high-pass: a log-uniform sweep, a slow sine per voice (its own rate), ramped over the frame.
+                let u = 0.5 + 0.5 * libm::sinf(0.9 * t + 2.0 * v.phase);
+                let hp_hz = HP_RANGE.0 * libm::powf(HP_RANGE.1 / HP_RANGE.0, u);
+                self.push(&wire::SetVoiceFx { voice_id: id, frame_offset: wire::ASAP, mask: wire::SET_VOICE_FX_MASK_HP_HZ, ramp_frames: ramp, hp_hz, ..Default::default() });
+            }
+            if !(turning || crossing.is_some() || v.lp || (s.updates && !v.hrtf)) {
                 continue;
             }
             // Turning: 120° a second; otherwise a slow drift.
@@ -1092,6 +1234,13 @@ impl Bench {
             let mut mask = wire::SET_PARAMS_MASK_DIR;
             if s.updates {
                 mask |= wire::SET_PARAMS_MASK_GAIN;
+            }
+            let mut lp_hz = 0.0;
+            if v.lp {
+                // D1's low-pass: the same kind of sweep, ramped in log-Hz by the core over `ramp`.
+                let u = 0.5 + 0.5 * libm::sinf(0.6 * t + v.phase);
+                lp_hz = LP_RANGE.0 * libm::powf(LP_RANGE.1 / LP_RANGE.0, u);
+                mask |= wire::SET_PARAMS_MASK_LP_HZ;
             }
             let mut flags = 0;
             if let Some(kind) = crossing {
@@ -1104,6 +1253,7 @@ impl Bench {
                 flags,
                 mask,
                 gain: 0.25 + 0.05 * libm::sinf(a),
+                lp_hz,
                 dir_x: libm::sinf(a),
                 dir_z: -libm::cosf(a),
                 ramp_frames: ramp,
@@ -1144,7 +1294,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop);
+wire_record!(wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps).
@@ -1180,6 +1330,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     let mut r = RunResult { cap_min: u32::MAX, ..Default::default() };
     let (mut sum_mixed, mut sum_live, mut sum_src, mut sum_moving) = (0f64, 0f64, 0f64, 0f64);
     let (mut sum_bed_voices, mut sum_beds, mut sum_work_bed) = (0f64, 0f64, 0f64);
+    let (mut sum_fx, mut sum_ambi) = (0f64, 0f64);
     let mut status_buf = vec![0u8; 16 * 1024];
     let mut probe: Vec<f32> = Vec::new();
     let mut deadline = platform::now_us();
@@ -1237,6 +1388,8 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
             sum_bed_voices += c.spatial.bed_voices as f64;
             sum_beds += c.spatial.beds_active as f64;
             sum_work_bed += c.spatial.work_bed as f64;
+            sum_fx += c.spatial.fx_voices as f64;
+            sum_ambi += c.spatial.ambisonic_voices as f64;
             sum_mixed += c.mixed_voices as f64;
             sum_live += c.live_voices as f64;
             sum_src += src as f64;
@@ -1282,6 +1435,8 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     r.mean_bed_voices = sum_bed_voices / n;
     r.mean_beds = sum_beds / n;
     r.mean_work_bed = sum_work_bed / n;
+    r.mean_fx_voices = sum_fx / n;
+    r.mean_ambisonic = sum_ambi / n;
     r.mean_source_frames = sum_src / n;
     r.mean_moving = sum_moving / n;
     r.mean_hrtf = h_v.iter().map(|&x| x as f64).sum::<f64>() / n;
@@ -1383,7 +1538,7 @@ fn num(args: &str, key: &str, default: f64) -> f64 {
 
 fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
     let mut line = format!(
-        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{},\"bedVoices\":{:.1},\"beds\":{:.2},\"workBed\":{:.0},\"transit\":{:.2}}}",
+        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{},\"bedVoices\":{:.1},\"beds\":{:.2},\"workBed\":{:.0},\"transit\":{:.2},\"fxVoices\":{:.1},\"ambisonic\":{:.1}}}",
         r.quanta,
         r.p50,
         r.p99,
@@ -1412,7 +1567,9 @@ fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
         r.mean_bed_voices,
         r.mean_beds,
         r.mean_work_bed,
-        r.mean_transit
+        r.mean_transit,
+        r.mean_fx_voices,
+        r.mean_ambisonic
     );
     if r.automation[3] > 0.0 {
         line.pop();
@@ -1561,6 +1718,33 @@ mod tests {
         // Still window: no crossings.
         let still = run(&Scene { xfade: Some(0), ..scene("bed-xfade").unwrap() }, 0.5, 0.25, 1, false, Some(&hrir_table(RATE)));
         assert_eq!((still.mean_hrtf, still.mean_transit), (XFADE_WINDOW as f64, 0.0));
+    }
+
+    #[test]
+    fn filters_256_runs_256_low_and_high_passes() {
+        let r = short("filters-256");
+        assert_eq!(r.mean_mixed, 256.0);
+        assert_eq!(r.mean_fx_voices, 256.0, "every pool entry filters");
+        assert_eq!((r.mean_ambisonic, r.mean_bed_voices), (0.0, 0.0));
+        // The unfiltered twin keeps the pool idle.
+        let twin = run(&Scene { voice_lp: 0, voice_hp: 0, ..scene("filters-256").unwrap() }, 0.5, 0.25, 1, false, None);
+        assert_eq!(twin.mean_fx_voices, 0.0);
+    }
+
+    /// Each worst scene's composition: the counters say what it is for (STATUS fxVoices, ambisonicVoices, bedVoices).
+    #[test]
+    fn the_worst_scenes_hold_their_m3_terms() {
+        // (name, beds, HRTF, ambisonic, minimum filtered: the mixed voices less streams and clips, less one-shot churn)
+        for (name, beds, hrtf, ambi, fx) in [("m3-worst-low", 0.0, 4.0, 1.0, 38.0), ("m3-worst-default", 2.0, 8.0, 1.0, 100.0), ("m3-worst-high", 4.0, 8.0, 2.0, 200.0)] {
+            let r = short(name);
+            assert_eq!((r.mean_beds, r.mean_ambisonic), (beds, ambi), "{name}");
+            assert!(r.mean_hrtf >= hrtf - 0.5 && r.mean_hrtf <= hrtf, "{name}: hrtf {}", r.mean_hrtf);
+            assert!(r.mean_fx_voices >= fx, "{name}: fx voices {}", r.mean_fx_voices);
+            assert!(r.mean_mixed > 0.0 && r.p50 > 0.0);
+            if beds > 0.0 {
+                assert!(r.mean_bed_voices > 0.0, "{name}: bed voices");
+            }
+        }
     }
 
     #[test]
