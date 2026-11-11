@@ -7,7 +7,7 @@ import { Component } from "../core/Component";
 import { _setScriptAssetRefs } from "../scene/warmUp";
 import { _undefineComponent, getDataComponentDef, listDataComponentIds, type DataComponentDef, type ScalarType } from "../core/data";
 import { _undefineSystem } from "../core/systems";
-import { Mat4, Vector3 } from "../core/math";
+import { Mat4, Quaternion, Vector3 } from "../core/math";
 import { _setReplacingRegistrations, _takeRecordedRegistrations, _unregisterComponent, getComponentClass, getComponentId, getFields, listComponentIds, type ComponentClass, type FieldOptions, type FieldType, type ScriptRegistrations } from "../core/registry";
 import { World } from "../core/World";
 import type { Engine, EngineTiming, WorldViewState } from "../core/Engine";
@@ -120,7 +120,7 @@ export function listComponents(node: GameObject): ComponentInfo[] {
       enabled: true,
       fields: [
         { name: "position", type: Vector3, value: t.position.clone() },
-        { name: "rotation", type: Vector3, value: t.eulerAngles },
+        { name: "rotation", type: Quaternion, value: t.rotation.clone() },
         { name: "scale", type: Vector3, value: t.scale.clone() },
       ],
     });

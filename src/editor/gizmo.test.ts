@@ -14,7 +14,10 @@ const quat = (zDeg: number) => Quaternion.fromEuler(0, 0, zDeg);
 describe("gizmo math: world pose → local Transform values", () => {
   it("is the world pose itself under the World root", () => {
     const pose = localPoseFromWorld(null, new Vector3(1, 2, 3), quat(30), new Vector3(2, 2, 1));
-    expect(pose).toEqual({ position: [1, 2, 3], rotation: [0, 0, 30], scale: [2, 2, 1] });
+    expect(pose.position).toEqual([1, 2, 3]);
+    expect(pose.scale).toEqual([2, 2, 1]);
+    // A quaternion [x, y, z, w] (ADR 0163).
+    expect(pose.rotation).toEqual([0, 0, 0.258819, 0.9659258]);
   });
 
   it("removes a moved, rotated and scaled parent", () => {
@@ -22,7 +25,7 @@ describe("gizmo math: world pose → local Transform values", () => {
     // A child at local (1, 0, 0), rotated 10° locally, sits at world (10, 2, 0) rotated 100°, scale 2.
     const pose = localPoseFromWorld(parent, new Vector3(10, 2, 0), quat(100), new Vector3(2, 2, 2));
     expect(pose.position).toEqual([1, 0, 0]);
-    expect(pose.rotation[2]).toBeCloseTo(10, 4);
+    expect(Quaternion.from(pose.rotation).toEuler().z).toBeCloseTo(10, 4);
     expect(pose.scale).toEqual([1, 1, 1]);
   });
 
@@ -41,7 +44,8 @@ describe("gizmo edits (ADR 0026)", () => {
     openSceneFile(engine, DEMO_SCENE);
   });
 
-  const asPose = (): LocalPose => ({ position: [2, 3, 0], rotation: [0, 0, 45], scale: [1.5, 1.5, 1] });
+  const z45 = Quaternion.rotateZ(45).toArray();
+  const asPose = (): LocalPose => ({ position: [2, 3, 0], rotation: z45, scale: [1.5, 1.5, 1] });
 
   it("each mode edits its own Transform field", () => {
     const { doc } = openScene.value!;
@@ -62,15 +66,14 @@ describe("gizmo edits (ADR 0026)", () => {
     expect(JSON.stringify(doc.toJSON())).toBe(before);
   });
 
-  it("keeps a 2D rotation stored as one angle", () => {
-    const { doc, stack } = openScene.value!;
-    stack.execute(gizmoEdit(doc, "bird", "rotate", asPose())); // no rotation in the file yet: Euler array
-    expect(doc.fieldValue("bird", "engine.Transform", "rotation")).toEqual([0, 0, 45]);
-    stack.undo();
-
-    // A node whose file stores a single 2D angle keeps that form.
+  it("writes a rotation as a quaternion, 2D ones too (ADR 0163)", () => {
+    const { doc, stack, sync } = openScene.value!;
+    stack.execute(gizmoEdit(doc, "bird", "rotate", asPose()));
+    expect(doc.fieldValue("bird", "engine.Transform", "rotation")).toEqual([0, 0, 0.3826834, 0.9238795]);
+    expect(sync.nodeFor("bird")!.transform!.rotation2D).toBeCloseTo(45, 4);
+    // A file that still says a single angle is rewritten as a quaternion by the next rotate.
     stack.execute(new SetField("bird", "engine.Transform", "rotation", 10));
-    expect(gizmoEdit(doc, "bird", "rotate", asPose()).value).toBe(45);
+    expect(gizmoEdit(doc, "bird", "rotate", asPose()).value).toEqual([0, 0, 0.3826834, 0.9238795]);
   });
 
   it("on a prefab instance the drag writes an override", () => {

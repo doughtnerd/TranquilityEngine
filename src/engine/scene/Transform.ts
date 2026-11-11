@@ -1,19 +1,21 @@
 import { Mat4, Quaternion, RAD2DEG, Vector2, Vector3, type Vec3Input, type Vec3Like } from "../core/math";
 import type { World } from "../core/World";
 import type { GameObject } from "./GameObject";
+import { LocalToWorld } from "./LocalToWorld";
 
 const tmpA = new Float32Array(16);
-const tmpB = new Float32Array(16);
 const tmpP = new Float32Array(3);
 const tmpQ = new Float32Array(4);
 const tmpS = new Float32Array(3);
 
 /**
- * A node's position, rotation and scale (ADR 0008, 0010).
+ * A node's position, rotation and scale (ADR 0008, 0010, 0163).
  *
- * `position`, `rotation` and `scale` are **local** (relative to the parent) and are live views
- * (ADR 0019): `transform.position.x += 1` moves the node. Use `.clone()` to keep a snapshot.
- * World-space values are available as `worldPosition`, `worldRotation2D` and `worldScale`.
+ * `position`, `rotation` (a quaternion) and `scale` are **local** (relative to the parent), as the fields
+ * of Unity ECS's `LocalTransform`, and are live views (ADR 0019): `transform.position.x += 1` moves the
+ * node. Use `.clone()` to keep a snapshot. Turn with `rotate`, `rotateX/Y/Z` rather than by editing
+ * Euler angles. World space: `localToWorld` (as Unity ECS's `LocalToWorld`), `worldPosition`,
+ * `worldRotation`, `worldRotation2D` and `worldScale`.
  *
  * Transform data lives in the World's typed arrays; this class is a facade over it.
  */
@@ -60,12 +62,33 @@ export class Transform {
   get scale(): Vector3 { return this._scale; }
   set scale(v: Vec3Input) { this._scale.copy(v); }
 
-  /** Local rotation as Euler angles in degrees (XYZ). Returns a copy. */
-  get eulerAngles(): Vector3 { return this._rotation.toEuler(); }
+  /**
+   * Local rotation as Euler angles in degrees, as Unity's `localEulerAngles`: order ZXY (roll, then pitch,
+   * then yaw), each read back in [0, 360). Returns a copy. Reading, changing and writing back works for
+   * yaw (y) all the way round but not for pitch (x) past ±90, which reads back flipped; turn with
+   * `rotate`, `rotateX/Y/Z` instead.
+   */
+  get eulerAngles(): Vector3 { return this._rotation.eulerAngles; }
   set eulerAngles(v: Vec3Input) {
     const e = Vector3.from(v);
-    this._rotation.setFromEuler(e.x, e.y, e.z);
+    this._rotation.setFromEuler(e.x, e.y, e.z, "ZXY");
   }
+
+  /**
+   * Turn by `rotation`, about the parent's axes (`rotation = q · rotation`, default) or the node's own
+   * (`"self"`: `rotation = rotation · q`). Named after Unity ECS's `LocalTransform.Rotate`.
+   */
+  rotate(rotation: Quaternion, space: "parent" | "self" = "parent"): void {
+    if (space === "self") this._rotation.multiply(rotation).normalize();
+    else this._rotation.premultiply(rotation).normalize();
+  }
+
+  /** Turn `degrees` about the X axis (the parent's, or the node's own with `"self"`). */
+  rotateX(degrees: number, space: "parent" | "self" = "parent"): void { this.rotate(Quaternion.rotateX(degrees), space); }
+  /** Turn `degrees` about the Y axis (the parent's, or the node's own with `"self"`). */
+  rotateY(degrees: number, space: "parent" | "self" = "parent"): void { this.rotate(Quaternion.rotateY(degrees), space); }
+  /** Turn `degrees` about the Z axis (the parent's, or the node's own with `"self"`). */
+  rotateZ(degrees: number, space: "parent" | "self" = "parent"): void { this.rotate(Quaternion.rotateZ(degrees), space); }
 
   /** Local rotation around Z in degrees. */
   get rotation2D(): number { return this._rotation.angle2D; }
@@ -131,15 +154,13 @@ export class Transform {
     this.rotation2D = this.rotation2D + degrees;
   }
 
-  /** Transform a point from this node's local space to world space. */
-  localToWorld(point: Vec3Like): Vector3 {
-    return new Vector3(...Mat4.transformPoint(this.world.worldMatrix(this.e), this.e * 16, point.x, point.y, point.z));
-  }
-
-  /** Transform a world-space point into this node's local space. */
-  worldToLocal(point: Vec3Like): Vector3 {
-    Mat4.invert(tmpB, 0, this.world.worldMatrix(this.e), this.e * 16);
-    return new Vector3(...Mat4.transformPoint(tmpB, 0, point.x, point.y, point.z));
+  /**
+   * A snapshot of the node's local-to-world matrix (as Unity ECS's `LocalToWorld`): `value`, `position`,
+   * `rotation`, `right`, `up`, `forward`, and `transformPoint` / `inverseTransformPoint` to convert
+   * points between this node's space and world space.
+   */
+  get localToWorld(): LocalToWorld {
+    return new LocalToWorld(this.world.worldMatrix(this.e), this.e * 16);
   }
 
   /** @internal Set world x/y and Z rotation in one go (used by physics write-back). */

@@ -303,7 +303,7 @@ export class Hud extends GameBehavior {
     const homeNode = this.node.find("Overlay/HomeMarker");
     if (!camera || !flagNode || !homeNode) return;
     // The camera's view: its middle is half the canvas, in canvas pixels; the HUD scales those to UI pixels.
-    const middle = camera.worldToScreenPoint(camera.node.transform!.localToWorld({ x: 0, y: 0, z: -10 }));
+    const middle = camera.worldToScreenPoint(camera.node.transform!.localToWorld.transformPoint({ x: 0, y: 0, z: -10 }));
     const width = middle.x * 2, height = middle.y * 2;
     const k = height > 0 ? UI_HEIGHT / height : 1;
     const uiWidth = width * k, uiHeight = height * k;

@@ -25,7 +25,7 @@ export class MenuBackdrop extends GameBehavior {
       // Look at a point beside the middle, so the menu's cards leave the ships in view.
       // (A camera looks along -Z at yaw 0, so from (sin a, cos a) toward the middle is yaw a.)
       const yaw = (a * 180) / Math.PI - 12;
-      camera.eulerAngles = [12, yaw, 0];
+      camera.eulerAngles = [-12, yaw, 0]; // 12 degrees down, whatever the yaw (ZXY, ADR 0163)
     }
     let i = 0;
     for (const ship of this.node.children) {
@@ -41,7 +41,7 @@ export class MenuBackdrop extends GameBehavior {
       const visual = ship.find("Visual")?.transform;
       if (!visual) continue;
       const at = (lx: number, lz: number) => {
-        const w = ship.transform!.localToWorld({ x: lx, y: 0, z: lz });
+        const w = ship.transform!.localToWorld.transformPoint({ x: lx, y: 0, z: lz });
         return Water.sample(w.x, w.z)?.height ?? 0;
       };
       const bow = at(0, HULL_HALF_LENGTH), stern = at(0, -HULL_HALF_LENGTH);

@@ -283,9 +283,7 @@ export function applyKept(scene: OpenScene, list: readonly KeptValues[]): KeptRe
       if (!Object.hasOwn(k.values, f.name)) continue;
       const editor = editorFor(f);
       const previous = doc.isPrefabInstance(id) ? doc.overrideValue(id, target, k.type, f.name, k.index) : doc.fieldValue(id, k.type, f.name, k.index);
-      let value = k.values[f.name];
-      // A 2D rotation stays a single angle when the file stores it that way.
-      if (k.type === "engine.Transform" && f.name === "rotation" && Array.isArray(value)) value = toSceneJSON("vector3", value, { field: "rotation", previous });
+      const value = k.values[f.name];
       let current: unknown;
       try {
         current = f.value === null || f.value === undefined ? null : toSceneJSON(editor, f.value, { field: f.name, previous, nodeId });

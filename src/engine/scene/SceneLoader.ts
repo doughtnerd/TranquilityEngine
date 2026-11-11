@@ -3,6 +3,7 @@
  * is a scene file with a single root node, instanced inside another scene or at runtime.
  */
 import { migratePartPivots } from "./pivotMigration";
+import { migrateRotationsToQuaternions } from "./rotationMigration";
 import { Component } from "../core/Component";
 import { getDataComponentDef } from "../core/data";
 import { Color, Quaternion, Vector2, Vector3 } from "../core/math";
@@ -13,8 +14,11 @@ import { GameObject, _componentAllowedIn, type InstantiateOptions } from "./Game
 import { assetRefs } from "./resolvedScene";
 
 export const SCENE_FORMAT = "myco.scene";
-/** 2: model part references are node-pivoted by default; version 1 ones are pinned to model space (ADR 0118, `pivotMigration.ts`). */
-export const CURRENT_FORMAT_VERSION = 2;
+/**
+ * 2: model part references are node-pivoted by default; version 1 ones are pinned to model space (ADR 0118, `pivotMigration.ts`).
+ * 3: Transform rotations are quaternions `[x, y, z, w]`; version 2 Euler angles are converted (ADR 0163, `rotationMigration.ts`).
+ */
+export const CURRENT_FORMAT_VERSION = 3;
 
 export interface ComponentEntry {
   type: string;
@@ -88,7 +92,10 @@ export interface SceneFile {
 }
 
 type Migration = (file: SceneFile) => SceneFile;
-const migrations = new Map<number, Migration>([[1, migratePartPivots]]);
+const migrations = new Map<number, Migration>([
+  [1, migratePartPivots],
+  [2, migrateRotationsToQuaternions],
+]);
 
 /** Register an upgrade from format version `from` to `from + 1`. */
 export function registerSceneMigration(from: number, migrate: Migration): void {
@@ -535,10 +542,9 @@ function convertValue(t: ScalarFieldType, raw: unknown, current: unknown, ref: (
     return Vector3.from(raw as number[]);
   }
   if (t === Quaternion) {
-    // Euler degrees `[x, y, z]` (as the editor writes it), or a raw quaternion `[x, y, z, w]`.
+    // A quaternion `[x, y, z, w]` (as the editor writes it, ADR 0163), or Euler degrees `[x, y, z]` (order ZXY).
     if (raw === null) return null;
-    const a = raw as number[];
-    const q = a.length >= 4 ? new Quaternion(a[0], a[1], a[2], a[3]) : Quaternion.fromEuler(a[0] ?? 0, a[1] ?? 0, a[2] ?? 0);
+    const q = Quaternion.from(raw as number[]);
     if (current instanceof Quaternion) return (current.copy(q), SKIP);
     return q;
   }
@@ -553,9 +559,10 @@ export function applyTransform(node: GameObject, data: Record<string, unknown>):
   const t = node.transform ?? node.world._addTransform(node.entity);
   if (data.position !== undefined) t.position = data.position as number[];
   if (data.rotation !== undefined) {
-    // A number is a 2D angle; an array is Euler degrees [x, y, z].
+    // A quaternion [x, y, z, w] (ADR 0163). Hand-written files may also give Euler degrees [x, y, z]
+    // (order ZXY) or a number (a 2D angle).
     if (typeof data.rotation === "number") t.rotation2D = data.rotation;
-    else t.eulerAngles = data.rotation as number[];
+    else t.rotation = Quaternion.from(data.rotation as number[]).normalize();
   }
   if (data.scale !== undefined) t.scale = data.scale as number[];
 }

@@ -61,7 +61,7 @@ describe("field editors (ADR 0042)", () => {
     expect(toSceneJSON("list", [new Vector2(1, 2), [3, 4]], { itemEditor: "vector2" })).toEqual([[1, 2], [3, 4]]);
     expect(toSceneJSON("list", [b, null, "c"], { itemEditor: "node", nodeId })).toEqual([{ $node: "b" }, null, { $node: "c" }]);
     expect(toSceneJSON("list", [new Color(1, 0, 0, 1)], { itemEditor: "color" })).toEqual(["#ff0000"]);
-    expect(toSceneJSON("quaternion", Quaternion.fromEuler(0, 0, 30))).toEqual([0, 0, 30]);
+    expect(toSceneJSON("quaternion", Quaternion.fromEuler(0, 0, 30))).toEqual([0, 0, 0.258819, 0.9659258]);
   });
 
   it("makes engine enum fields dropdowns, with layers from the project settings", () => {

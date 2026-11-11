@@ -1,12 +1,12 @@
 {
-  "format": "myco.scene@2",
+  "format": "myco.scene@3",
   "settings": { "physics": "3d" },
   "nodes": [
     {
       "id": "camera",
       "name": "Camera",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [0, 5, 12], "rotation": [-20, 0, 0] } },
+        { "type": "engine.Transform", "data": { "position": [0, 5, 12], "rotation": [-0.1736482, 0, 0, 0.9848078] } },
         { "type": "engine.Camera", "data": { "projection": "perspective", "fieldOfView": 55 } },
         { "type": "engine.AudioListener", "data": {} }
       ]
@@ -15,7 +15,7 @@
       "id": "sun",
       "name": "Sun",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [0, 8, 0], "rotation": [-55, 35, 0] } },
+        { "type": "engine.Transform", "data": { "position": [0, 8, 0], "rotation": [-0.4403775, 0.2667293, -0.1388505, 0.8459573] } },
         { "type": "engine.Light", "data": { "type": "directional", "intensity": 1.4 } }
       ]
     },

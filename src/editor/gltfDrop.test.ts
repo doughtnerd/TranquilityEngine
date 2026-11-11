@@ -59,7 +59,7 @@ describe("dropping a glTF with lights, cameras and pivots (ADR 0118)", () => {
 
   it("gives every node its own pose from the file by default (node pivots)", async () => {
     const { component } = await dropCar();
-    expect(component("Wheel", "engine.Transform")!.data).toEqual({ position: [1, 0.5, 0], rotation: [0, 90, 0] });
+    expect(component("Wheel", "engine.Transform")!.data).toEqual({ position: [1, 0.5, 0], rotation: [0, 0.7071068, 0, 0.7071068] });
     expect(component("Body", "engine.Transform")!.data).toEqual({ position: [0, 1, 0] });
   });
 });

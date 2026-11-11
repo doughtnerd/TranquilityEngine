@@ -134,7 +134,7 @@ defineSystem({
       if (fogged) sails.a = FOG_SAILS_ALPHA;
       tint(visual.find("Sails")?.getBehavior(MeshRenderer), sails);
       const at = (lx: number, lz: number) => {
-        const w = row.transform.localToWorld({ x: lx, y: 0, z: lz });
+        const w = row.transform.localToWorld.transformPoint({ x: lx, y: 0, z: lz });
         return Water.sample(w.x, w.z)?.height ?? 0;
       };
       const bow = at(0, HULL_HALF_LENGTH), stern = at(0, -HULL_HALF_LENGTH);

@@ -27,14 +27,14 @@ const OLD = `{
 }
 `;
 const NEW = `{
-  "format": "myco.scene@2",
+  "format": "myco.scene@3",
   "nodes": [
     { "id": "a", "name": "Camera", "components": [{ "type": "engine.Transform", "data": { "position": [0, 0, 10] } }] },
     { "id": "b", "name": "Player", "parent": "a" }
   ]
 }
 `;
-const LATEST = `{ "format": "myco.scene@2", "nodes": [] }\n`;
+const LATEST = `{ "format": "myco.scene@3", "nodes": [] }\n`;
 
 describe("rewriteProjectFiles", () => {
   it("migrates old files, skips latest ones and ignores other paths", () => {
@@ -43,7 +43,7 @@ describe("rewriteProjectFiles", () => {
     expect(r.unchanged).toEqual(["prefabs/ok.prefab.json"]);
     expect(r.errors).toEqual([]);
     const out = r.changed.get("scenes/old.scene.json")!;
-    expect(JSON.parse(out)).toMatchObject({ format: "myco.scene@2" });
+    expect(JSON.parse(out)).toMatchObject({ format: "myco.scene@3" });
     expect(Object.keys(JSON.parse(out))).toEqual(["format", "nodes"]);
     expect(out.endsWith("\n")).toBe(true);
     expect(out).toContain('"name": "Camera"');
@@ -60,7 +60,7 @@ describe("rewriteProjectFiles", () => {
   it("upgrades the former tranquility format tag, keeping CRLF endings", () => {
     const text = `{\r\n  "format": "tranquility.scene@1",\r\n  "nodes": [{ "id": "a", "name": "A" }]\r\n}\r\n`;
     const out = rewriteProjectFiles(new Map([["a.prefab.json", text]])).changed.get("a.prefab.json")!;
-    expect(out).toBe(`{\r\n  "format": "myco.scene@2",\r\n  "nodes": [\r\n    { "id": "a", "name": "A" }\r\n  ]\r\n}\r\n`);
+    expect(out).toBe(`{\r\n  "format": "myco.scene@3",\r\n  "nodes": [\r\n    { "id": "a", "name": "A" }\r\n  ]\r\n}\r\n`);
   });
 
   it("reports files it can't migrate", () => {
@@ -104,7 +104,7 @@ describe("rewrite CLI", () => {
     expect(run(dir, "--dry-run").status).toBe(0);
     expect(readFileSync(file, "utf8")).toBe(old);
     expect(run(dir).status).toBe(0);
-    expect(readFileSync(file, "utf8")).toContain("myco.scene@2");
+    expect(readFileSync(file, "utf8")).toContain("myco.scene@3");
     expect(run(dir, "--check").status).toBe(0);
   }, 60_000);
 });

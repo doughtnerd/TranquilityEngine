@@ -1,6 +1,6 @@
 # 0013. Data-driven scene format with a type registry
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0163 (format 3: Transform rotations stored as quaternions)
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

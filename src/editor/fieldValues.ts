@@ -1,5 +1,6 @@
 // Converting inspector values to scene-file JSON (ADR 0013), the form `SetField` stores.
 import { AssetRef, Color, GameObject, PlainObject, Quaternion, Vector2, Vector3 } from "../engine";
+import type { QuatLike } from "../engine/core/math";
 import { isListType, resolveChoices, type FieldChoice, type ScalarFieldType } from "../engine/core/registry";
 import { resolveSettings, type ProjectSettingsInput } from "../engine/core/settings";
 import type { FieldValue } from "../engine/editor";
@@ -20,6 +21,34 @@ export type FieldEditor =
   | "choice"
   | "list"
   | "unknown";
+
+/** A rotation in scene-file form: a unit quaternion `[x, y, z, w]` with w ≥ 0, 7 decimals, no -0. */
+export function quaternionJSON(q: QuatLike): number[] {
+  const l = Math.hypot(q.x, q.y, q.z, q.w) || 1;
+  const s = (q.w < 0 ? -1 : 1) / l;
+  return [q.x, q.y, q.z, q.w].map((n) => Math.round(n * s * 1e7) / 1e7 + 0);
+}
+
+// The Euler angles last typed for each rotation (ADR 0163), so the Inspector shows Y = 200 after you type
+// 200 rather than the -160 a quaternion reads back as, and editing one axis keeps the others you typed.
+// Unity keeps the same "Euler hint" on its Transform. Keyed by the rotation, so it holds for any node that
+// has it and lapses by itself once the node turns some other way.
+const eulerHints = new Map<string, number[]>();
+const EULER_HINT_LIMIT = 512;
+
+/** A key for a rotation: the same for q and -q, and for float32 copies of it. */
+const rotationKey = (q: QuatLike): string => quaternionJSON(q).map((n) => n.toFixed(5)).join(",");
+
+/** Remember that `angles` (degrees, order ZXY) were typed for the rotation `q`. */
+export function rememberEulerAngles(angles: readonly number[], q: QuatLike): void {
+  const key = rotationKey(q);
+  eulerHints.delete(key);
+  eulerHints.set(key, [...angles]);
+  if (eulerHints.size > EULER_HINT_LIMIT) eulerHints.delete(eulerHints.keys().next().value!);
+}
+
+/** The Euler angles last typed for rotation `q`, if any. */
+export const rememberedEulerAngles = (q: QuatLike): readonly number[] | undefined => eulerHints.get(rotationKey(q));
 
 /** Pick an editor from the declared type, falling back to the live value's shape. */
 export function editorFor(field: FieldValue): FieldEditor {
@@ -104,7 +133,8 @@ export function colorToJSON(c: Color): string {
  * Scene-file JSON for an edited value.
  * - vectors → `[x, y(, z)]`; colors → hex; asset paths → `"asset:…"`; node refs → `{"$node": id}`
  *   (the caller resolves a node to its document id) or `null`.
- * - Transform `rotation` stays a single angle when the file already stores it that way (2D).
+ * - rotations (Transform `rotation`, `@field(Quaternion)`) → a quaternion `[x, y, z, w]` (ADR 0163), from a
+ *   Quaternion or from Euler degrees `[x, y, z]` (order ZXY), whose angles are remembered for the Inspector.
  */
 export function toSceneJSON(
   editor: FieldEditor,
@@ -118,18 +148,19 @@ export function toSceneJSON(
       const item = options.itemEditor ?? "unknown";
       return items.map((v) => toSceneJSON(item, v, { nodeId: options.nodeId }));
     }
-    case "quaternion":
+    case "quaternion": {
       if (value === null || value === undefined) return null;
-      // Euler degrees, rounded (and without -0) so the file reads as typed.
-      return value instanceof Quaternion ? value.toEuler().toArray().map((n) => Math.round(n * 1e4) / 1e4 + 0) : Array.isArray(value) ? [...value] : value;
+      const q = value instanceof Quaternion ? value : Array.isArray(value) ? Quaternion.from(value as number[]) : null;
+      if (!q) return value;
+      if (Array.isArray(value) && value.length === 3) rememberEulerAngles(value as number[], q);
+      return quaternionJSON(q);
+    }
     case "choice":
       return value;
     case "vector2":
     case "vector3": {
       if (value === null || value === undefined) return null;
-      const arr = Array.isArray(value) ? [...value] : (value as { toArray(): number[] }).toArray();
-      if (options.field === "rotation" && typeof options.previous === "number" && arr[0] === 0 && arr[1] === 0) return arr[2];
-      return arr;
+      return Array.isArray(value) ? [...value] : (value as { toArray(): number[] }).toArray();
     }
     case "color":
       if (value === null || value === undefined) return null;

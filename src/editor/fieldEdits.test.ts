@@ -7,6 +7,7 @@ import { listComponents, type ComponentInfo } from "../engine/editor";
 import { AddComponent, type NodePath } from "./document";
 import { fieldChoicesFor, listedChoices, loadFieldChoices } from "./fieldChoices";
 import { eulerAnglesOf, fieldState, fieldValues, isMixed, revertField, setField, setFieldAxis } from "./fieldEdits";
+import { toSceneJSON } from "./fieldValues";
 import { OrbitCamera } from "./OrbitCamera";
 import { meshesEditorPlugin } from "../plugins/meshes/editor";
 import { openSceneFile } from "./project";
@@ -65,8 +66,32 @@ describe("setting a field", () => {
     expect(eulerAnglesOf(facing().value as Quaternion)).toEqual([0, 0, 30]);
     setFieldAxis(scene(), [["bird"]], FACING, facing(), 0, 10); // keeps z
     expect(eulerAnglesOf(facing().value as Quaternion)).toEqual([10, 0, 30]);
-    expect(scene().doc.fieldValue("bird", FACING.type, "facing")).toEqual([10, 0, 30]);
+    // Stored as the quaternion those angles make (ADR 0163).
+    expect(scene().doc.fieldValue("bird", FACING.type, "facing")).toEqual(toSceneJSON("quaternion", Quaternion.euler(10, 0, 30)));
     expect(scene().sync.nodeFor("bird")!.getBehavior(Facing)!.facing).toBeInstanceOf(Quaternion);
+  });
+});
+
+describe("rotation angles in the Inspector (ADR 0163)", () => {
+  const rotation = () => fieldOf(["bird"], "engine.Transform", "rotation");
+  const shown = () => eulerAnglesOf(rotation().value as Quaternion);
+
+  it("shows yaw past 180 and pitch past 90 as typed, and editing one axis keeps the others", () => {
+    setFieldAxis(scene(), [["bird"]], TRANSFORM, rotation(), 1, 200);
+    expect(shown()).toEqual([0, 200, 0]);
+    setFieldAxis(scene(), [["bird"]], TRANSFORM, rotation(), 0, 120);
+    expect(shown()).toEqual([120, 200, 0]);
+    setFieldAxis(scene(), [["bird"]], TRANSFORM, rotation(), 2, 15);
+    expect(shown()).toEqual([120, 200, 15]);
+    const live = scene().sync.nodeFor("bird")!.transform!.rotation;
+    expect(live.equals(Quaternion.euler(120, 200, 15), 1e-6)).toBe(true);
+    expect(scene().doc.fieldValue("bird", "engine.Transform", "rotation")).toHaveLength(4);
+  });
+
+  it("four 90-degree yaw edits come back to the start", () => {
+    const start = (rotation().value as Quaternion).clone();
+    for (let i = 0; i < 4; i++) setFieldAxis(scene(), [["bird"]], TRANSFORM, rotation(), 1, shown()[1] + 90);
+    expect((rotation().value as Quaternion).equals(start, 1e-6)).toBe(true);
   });
 });
 

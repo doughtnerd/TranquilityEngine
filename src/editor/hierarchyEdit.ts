@@ -50,11 +50,13 @@ export function moveNode(scene: OpenScene, id: string, parent: string | null, in
     stack.execute(new ReparentNode(id, parent, at));
     if (pose && node?.transform) {
       const t = node.transform;
-      const current = { position: t.position.toArray(), rotation: t.eulerAngles.toArray(), scale: t.scale.toArray() };
+      const current = { position: t.position.toArray(), rotation: t.rotation.toArray(), scale: t.scale.toArray() };
       for (const field of ["position", "rotation", "scale"] as const) {
-        if (pose[field].every((v, i) => Math.abs(v - current[field][i]) < EPSILON)) continue;
+        // q and -q are the same rotation.
+        const same = field === "rotation" ? Math.abs(pose.rotation.reduce((d, v, i) => d + v * current.rotation[i], 0)) > 1 - EPSILON : pose[field].every((v, i) => Math.abs(v - current[field][i]) < EPSILON);
+        if (same) continue;
         const previous = doc.isPrefabInstance(id) ? doc.overrideValue(id, [], "engine.Transform", field) : doc.fieldValue(id, "engine.Transform", field);
-        stack.execute(new SetField(id, "engine.Transform", field, toSceneJSON("vector3", pose[field], { field, previous })));
+        stack.execute(new SetField(id, "engine.Transform", field, toSceneJSON(field === "rotation" ? "quaternion" : "vector3", pose[field], { field, previous })));
       }
     }
   } finally {

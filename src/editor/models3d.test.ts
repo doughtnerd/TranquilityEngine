@@ -24,7 +24,7 @@ describe("creating 3D nodes", () => {
     expect(newNodeEntry(doc, "plane", null).components![2].type).toBe("engine.MeshCollider");
     const sun = newNodeEntry(doc, "directional-light", null, [0, 0, 0]);
     expect(sun).toMatchObject({ id: "directional-light", name: "Directional Light" });
-    expect(sun.components![0].data).toEqual({ position: [0, 5, 0], rotation: [-50, 30, 0] });
+    expect(sun.components![0].data).toEqual({ position: [0, 5, 0], rotation: [-0.4082179, 0.2345697, -0.1093817, 0.8754261] });
     expect(newNodeEntry(doc, "point-light", null).components![1].data).toEqual({ type: "point" });
     engine.dispose();
   });

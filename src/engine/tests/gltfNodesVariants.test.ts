@@ -74,7 +74,7 @@ describe("scene format 1 → 2: part references keep model space (ADR 0118)", ()
         { id: "d", prefab: "prefabs/p.prefab.json", overrides: [{ component: "engine.MeshRenderer", field: "mesh", value: "asset:models/car.glb#Door" }] },
       ],
     });
-    expect(file.format).toBe("myco.scene@2");
+    expect(file.format).toBe("myco.scene@3");
     const mesh = (i: number, c = 0) => file.nodes[i].components![c].data!.mesh;
     expect(mesh(0)).toBe("asset:models/car.gltf#Wheel#model");
     expect(mesh(0, 1)).toBe("asset:models/car.gltf#Body#model");

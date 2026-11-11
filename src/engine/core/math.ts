@@ -274,6 +274,26 @@ export class Plane {
 }
 
 /** Rotation quaternion. Euler angles in the public API are degrees, XYZ order (ADR 0019). */
+/**
+ * The order Euler angles are applied in, as in Unity.Mathematics' `RotationOrder`: `"ZXY"` turns about Z,
+ * then X, then Y, each about the parent's (fixed) axes, so `q = qY · qX · qZ`. `"ZXY"` (yaw outermost) is
+ * the default everywhere (ADR 0163).
+ */
+export type RotationOrder = "XYZ" | "XZY" | "YXZ" | "YZX" | "ZXY" | "ZYX";
+
+const AXIS_INDEX = { X: 0, Y: 1, Z: 2 } as const;
+
+/** Wrap degrees into [0, 360), as Unity's `eulerAngles` reads back (float32 noise next to 0 or 360 reads as 0). */
+const wrap360 = (deg: number): number => {
+  const r = deg - Math.floor(deg / 360) * 360;
+  return r > 360 - 1e-4 || r < 1e-4 ? 0 : r;
+};
+
+/**
+ * A rotation, stored as a unit quaternion `(x, y, z, w)`: the data a Transform holds, as Unity ECS's
+ * `LocalTransform.Rotation` (ADR 0163). Euler angles (degrees, ADR 0019) only build or describe one.
+ * Static builders return new quaternions; instance methods named as verbs change this one.
+ */
 export class Quaternion {
   /** @internal */ _a!: Storage;
   /** @internal */ _o!: number;
@@ -296,13 +316,143 @@ export class Quaternion {
 
   static get identity(): Quaternion { return new Quaternion(0, 0, 0, 1); }
 
-  static fromEuler(x: number, y: number, z: number): Quaternion {
-    return new Quaternion().setFromEuler(x, y, z);
+  /**
+   * A quaternion from `[x, y, z, w]` (a raw quaternion, as scene files store rotations), Euler degrees
+   * `[x, y, z]` (in `order`), or another Quaternion (copied).
+   */
+  static from(value: Quaternion | QuatLike | readonly number[], order: RotationOrder = "ZXY"): Quaternion {
+    if (value instanceof Quaternion) return value.clone();
+    if (Array.isArray(value)) {
+      const a = value as readonly number[];
+      return a.length >= 4 ? new Quaternion(a[0], a[1], a[2], a[3]) : Quaternion.euler(a[0] ?? 0, a[1] ?? 0, a[2] ?? 0, order);
+    }
+    const q = value as QuatLike;
+    return new Quaternion(q.x, q.y, q.z, q.w);
   }
+
+  /**
+   * From Euler angles in degrees, applied in `order` (default `"ZXY"`: roll about Z, then pitch about X,
+   * then yaw about Y, as Unity's `quaternion.Euler` and `Quaternion.Euler`). Takes three numbers or a vector.
+   */
+  static euler(x: number, y: number, z: number, order?: RotationOrder): Quaternion;
+  static euler(angles: Vec3Input, order?: RotationOrder): Quaternion;
+  static euler(a: number | Vec3Input, b?: number | RotationOrder, c?: number, order: RotationOrder = "ZXY"): Quaternion {
+    if (typeof a === "number") return new Quaternion().setFromEuler(a, b as number, c as number, order);
+    const [x, y, z] = readVec3(a);
+    return new Quaternion().setFromEuler(x, y, z, (b as RotationOrder | undefined) ?? "ZXY");
+  }
+
+  /** Same as {@link Quaternion.euler} with three numbers (default order `"ZXY"`). */
+  static fromEuler(x: number, y: number, z: number, order: RotationOrder = "ZXY"): Quaternion {
+    return new Quaternion().setFromEuler(x, y, z, order);
+  }
+
+  /** A turn of `degrees` about the X axis. */
+  static rotateX(degrees: number): Quaternion { return Quaternion.axisAngle([1, 0, 0], degrees); }
+  /** A turn of `degrees` about the Y axis. */
+  static rotateY(degrees: number): Quaternion { return Quaternion.axisAngle([0, 1, 0], degrees); }
+  /** A turn of `degrees` about the Z axis. */
+  static rotateZ(degrees: number): Quaternion { return Quaternion.axisAngle([0, 0, 1], degrees); }
 
   /** Rotation of `degrees` around the Z axis (the 2D rotation axis). */
   static fromAngle2D(degrees: number): Quaternion {
-    return new Quaternion().setFromEuler(0, 0, degrees);
+    return Quaternion.rotateZ(degrees);
+  }
+
+  /** A turn of `degrees` about `axis` (normalized here; a zero axis gives the identity). */
+  static axisAngle(axis: Vec3Input, degrees: number): Quaternion {
+    const [ax, ay, az] = readVec3(axis);
+    const l = Math.hypot(ax, ay, az);
+    if (l === 0) return Quaternion.identity;
+    const h = (degrees * DEG2RAD) / 2, s = Math.sin(h) / l;
+    return new Quaternion(ax * s, ay * s, az * s, Math.cos(h));
+  }
+
+  /**
+   * The rotation that points a node's forward (-Z, where cameras look) along `forward`, with its up (+Y)
+   * as close to `up` as it can be. Both need not be unit length; they must not be parallel or zero
+   * (see {@link Quaternion.lookRotationSafe}).
+   */
+  static lookRotation(forward: Vec3Input, up: Vec3Input = [0, 1, 0]): Quaternion {
+    const [fx, fy, fz] = readVec3(forward);
+    const [ux, uy, uz] = readVec3(up);
+    // Basis columns: right (X), up (Y), back (Z = -forward).
+    let zx = -fx, zy = -fy, zz = -fz;
+    const zl = Math.hypot(zx, zy, zz) || 1;
+    zx /= zl; zy /= zl; zz /= zl;
+    let xx = uy * zz - uz * zy, xy = uz * zx - ux * zz, xz = ux * zy - uy * zx;
+    const xl = Math.hypot(xx, xy, xz) || 1;
+    xx /= xl; xy /= xl; xz /= xl;
+    const yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx;
+    return quaternionFromBasis(xx, xy, xz, yx, yy, yz, zx, zy, zz);
+  }
+
+  /**
+   * As {@link Quaternion.lookRotation}, but safe for any input: a zero `forward` gives the identity, and
+   * a `forward` parallel to `up` picks another up.
+   */
+  static lookRotationSafe(forward: Vec3Input, up: Vec3Input = [0, 1, 0]): Quaternion {
+    const f = readVec3(forward), u = readVec3(up);
+    const fl = Math.hypot(f[0], f[1], f[2]);
+    if (fl < 1e-12) return Quaternion.identity;
+    const ul = Math.hypot(u[0], u[1], u[2]);
+    const cross = Math.hypot(f[1] * u[2] - f[2] * u[1], f[2] * u[0] - f[0] * u[2], f[0] * u[1] - f[1] * u[0]);
+    if (ul < 1e-12 || cross < 1e-6 * fl * ul) {
+      // Parallel: any up perpendicular to forward will do; use the world axis least aligned with it.
+      const ax = Math.abs(f[0]), ay = Math.abs(f[1]), az = Math.abs(f[2]);
+      const alt: [number, number, number] = ay <= ax && ay <= az ? [0, 1, 0] : az <= ax ? [0, 0, 1] : [1, 0, 0];
+      return Quaternion.lookRotation(f, alt);
+    }
+    return Quaternion.lookRotation(f, u);
+  }
+
+  /** `a · b`: the rotation `b` followed by `a` (a new Quaternion). */
+  static mul(a: QuatLike, b: QuatLike): Quaternion {
+    return new Quaternion(a.x, a.y, a.z, a.w).multiply(b);
+  }
+
+  /** The inverse rotation of a unit quaternion (a new Quaternion). */
+  static inverse(q: QuatLike): Quaternion {
+    return new Quaternion(-q.x, -q.y, -q.z, q.w);
+  }
+
+  /** Dot product of two quaternions (1 or -1: the same rotation). */
+  static dot(a: QuatLike, b: QuatLike): number {
+    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+  }
+
+  /** The angle in degrees between two rotations (0..180). */
+  static angle(a: QuatLike, b: QuatLike): number {
+    const d = Math.min(Math.abs(Quaternion.dot(a, b)), 1);
+    return 2 * Math.acos(d) * RAD2DEG;
+  }
+
+  /** `v` turned by `q` (a new Vector3). */
+  static rotate(q: QuatLike, v: Vec3Input): Vector3 {
+    const [x, y, z] = readVec3(v);
+    return Quat.rotate(q, new Vector3(x, y, z));
+  }
+
+  /** Normalized linear interpolation (the shorter way round), cheaper than `slerp`. */
+  static nlerp(a: QuatLike, b: QuatLike, t: number): Quaternion {
+    const s = Quaternion.dot(a, b) < 0 ? -1 : 1;
+    return new Quaternion(
+      a.x + (b.x * s - a.x) * t,
+      a.y + (b.y * s - a.y) * t,
+      a.z + (b.z * s - a.z) * t,
+      a.w + (b.w * s - a.w) * t,
+    ).normalize();
+  }
+
+  /** Spherical interpolation (the shorter way round) from `a` (t = 0) to `b` (t = 1). */
+  static slerp(a: QuatLike, b: QuatLike, t: number): Quaternion {
+    let d = Quaternion.dot(a, b);
+    let bx = b.x, by = b.y, bz = b.z, bw = b.w;
+    if (d < 0) { d = -d; bx = -bx; by = -by; bz = -bz; bw = -bw; }
+    if (d > 0.9995) return Quaternion.nlerp(a, { x: bx, y: by, z: bz, w: bw }, t);
+    const th = Math.acos(d), sn = Math.sin(th);
+    const wa = Math.sin((1 - t) * th) / sn, wb = Math.sin(t * th) / sn;
+    return new Quaternion(a.x * wa + bx * wb, a.y * wa + by * wb, a.z * wa + bz * wb, a.w * wa + bw * wb);
   }
 
   get x(): number { return this._a[this._o]; }
@@ -321,38 +471,66 @@ export class Quaternion {
     return this;
   }
 
-  copy(q: Quaternion): this { return this.set(q.x, q.y, q.z, q.w); }
+  copy(q: QuatLike): this { return this.set(q.x, q.y, q.z, q.w); }
   clone(): Quaternion { return new Quaternion(this.x, this.y, this.z, this.w); }
 
-  /** Set from Euler angles in degrees (XYZ order). */
-  setFromEuler(xDeg: number, yDeg: number, zDeg: number): this {
-    const hx = (xDeg * DEG2RAD) / 2, hy = (yDeg * DEG2RAD) / 2, hz = (zDeg * DEG2RAD) / 2;
-    const c1 = Math.cos(hx), c2 = Math.cos(hy), c3 = Math.cos(hz);
-    const s1 = Math.sin(hx), s2 = Math.sin(hy), s3 = Math.sin(hz);
-    return this.set(
-      s1 * c2 * c3 + c1 * s2 * s3,
-      c1 * s2 * c3 - s1 * c2 * s3,
-      c1 * c2 * s3 + s1 * s2 * c3,
-      c1 * c2 * c3 - s1 * s2 * s3,
-    );
+  /** Set from Euler angles in degrees, applied in `order` (default `"ZXY"`, see {@link Quaternion.euler}). */
+  setFromEuler(xDeg: number, yDeg: number, zDeg: number, order: RotationOrder = "ZXY"): this {
+    const angles = [xDeg, yDeg, zDeg];
+    let rx = 0, ry = 0, rz = 0, rw = 1;
+    // Each turn about a fixed axis goes on the left: q = q3 · q2 · q1.
+    for (const axis of order) {
+      const i = AXIS_INDEX[axis as "X" | "Y" | "Z"];
+      const h = (angles[i] * DEG2RAD) / 2, s = Math.sin(h), c = Math.cos(h);
+      const ax = i === 0 ? s : 0, ay = i === 1 ? s : 0, az = i === 2 ? s : 0;
+      const nx = c * rx + ax * rw + ay * rz - az * ry;
+      const ny = c * ry + ay * rw + az * rx - ax * rz;
+      const nz = c * rz + az * rw + ax * ry - ay * rx;
+      const nw = c * rw - ax * rx - ay * ry - az * rz;
+      rx = nx; ry = ny; rz = nz; rw = nw;
+    }
+    return this.set(rx, ry, rz, rw);
   }
 
-  /** Euler angles in degrees (XYZ order). Returns a new Vector3. */
-  toEuler(): Vector3 {
+  /**
+   * Euler angles in degrees that rebuild this rotation in `order` (default `"ZXY"`). The middle axis of the
+   * order (X for `"ZXY"`) is in -90..90, the others in -180..180. Returns a new Vector3.
+   */
+  toEuler(order: RotationOrder = "ZXY"): Vector3 {
     const { x, y, z, w } = this;
-    const m11 = 1 - 2 * (y * y + z * z), m12 = 2 * (x * y - z * w), m13 = 2 * (x * z + y * w);
-    const m22 = 1 - 2 * (x * x + z * z), m23 = 2 * (y * z - x * w);
-    const m32 = 2 * (y * z + x * w), m33 = 1 - 2 * (x * x + y * y);
-    const ey = Math.asin(Mathf.clamp(m13, -1, 1));
-    let ex: number, ez: number;
-    if (Math.abs(m13) < 0.9999999) {
-      ex = Math.atan2(-m23, m33);
-      ez = Math.atan2(-m12, m11);
+    const R = [
+      [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+      [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+      [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ];
+    // R = R_k · R_j · R_i for order "ijk" (i applied first).
+    const i = AXIS_INDEX[order[0] as "X"], j = AXIS_INDEX[order[1] as "X"], k = AXIS_INDEX[order[2] as "X"];
+    const e = (j - i + 3) % 3 === 1 ? 1 : -1; // +1 when i, j, k run cyclically (X→Y→Z)
+    const sj = Mathf.clamp(-e * R[k][i], -1, 1);
+    const out = [0, 0, 0];
+    out[j] = Math.asin(sj);
+    if (Math.abs(sj) < 0.9999999) {
+      out[i] = Math.atan2(e * R[k][j], R[k][k]);
+      out[k] = Math.atan2(e * R[j][i], R[i][i]);
     } else {
-      ex = Math.atan2(m32, m22);
-      ez = 0;
+      // Gimbal lock: the first and last turns share an axis; put it all in the last.
+      out[i] = 0;
+      out[k] = Math.atan2(-e * R[i][j], R[j][j]);
     }
-    return new Vector3(ex * RAD2DEG, ey * RAD2DEG, ez * RAD2DEG);
+    return new Vector3(out[0] * RAD2DEG + 0, out[1] * RAD2DEG + 0, out[2] * RAD2DEG + 0);
+  }
+
+  /**
+   * Euler angles in degrees, order `"ZXY"`, each in [0, 360), as Unity's `eulerAngles`. Returns a new
+   * Vector3; assigning sets the rotation from them.
+   */
+  get eulerAngles(): Vector3 {
+    const e = this.toEuler("ZXY");
+    return new Vector3(wrap360(e.x), wrap360(e.y), wrap360(e.z));
+  }
+  set eulerAngles(v: Vec3Input) {
+    const [x, y, z] = readVec3(v);
+    this.setFromEuler(x, y, z, "ZXY");
   }
 
   /** Rotation around Z in degrees, assuming a 2D (Z-only) rotation. */
@@ -360,7 +538,8 @@ export class Quaternion {
     return 2 * Math.atan2(this.z, this.w) * RAD2DEG;
   }
 
-  multiply(q: Quaternion): this {
+  /** `this = this · q`: turn by `q` about this rotation's own axes. */
+  multiply(q: QuatLike): this {
     const ax = this.x, ay = this.y, az = this.z, aw = this.w;
     const bx = q.x, by = q.y, bz = q.z, bw = q.w;
     return this.set(
@@ -371,14 +550,60 @@ export class Quaternion {
     );
   }
 
+  /** `this = q · this`: turn by `q` about the parent's (fixed) axes. */
+  premultiply(q: QuatLike): this {
+    const ax = q.x, ay = q.y, az = q.z, aw = q.w;
+    const bx = this.x, by = this.y, bz = this.z, bw = this.w;
+    return this.set(
+      ax * bw + aw * bx + ay * bz - az * by,
+      ay * bw + aw * by + az * bx - ax * bz,
+      az * bw + aw * bz + ax * by - ay * bx,
+      aw * bw - ax * bx - ay * by - az * bz,
+    );
+  }
+
+  /** Invert this unit quaternion in place. */
+  invert(): this {
+    return this.set(-this.x, -this.y, -this.z, this.w);
+  }
+
   normalize(): this {
     const l = Math.hypot(this.x, this.y, this.z, this.w) || 1;
     return this.set(this.x / l, this.y / l, this.z / l, this.w / l);
   }
 
-  toJSON(): [number, number, number] {
-    return this.toEuler().toArray();
+  /** True when both describe the same rotation within `epsilon` (q and -q are the same rotation). */
+  equals(q: QuatLike, epsilon = 1e-6): boolean {
+    return Math.abs(Quaternion.dot(this, q)) >= 1 - epsilon;
   }
+
+  toArray(): [number, number, number, number] { return [this.x, this.y, this.z, this.w]; }
+
+  /** `[x, y, z, w]`: scene files store rotations as quaternions (ADR 0163). */
+  toJSON(): [number, number, number, number] {
+    return this.toArray();
+  }
+
+  toString(): string { return `Quaternion(${this.x}, ${this.y}, ${this.z}, ${this.w})`; }
+}
+
+/** A unit quaternion from an orthonormal basis given as its three columns (right, up, back). */
+function quaternionFromBasis(m11: number, m21: number, m31: number, m12: number, m22: number, m32: number, m13: number, m23: number, m33: number): Quaternion {
+  const trace = m11 + m22 + m33;
+  if (trace > 0) {
+    const t = 0.5 / Math.sqrt(trace + 1);
+    return new Quaternion((m32 - m23) * t, (m13 - m31) * t, (m21 - m12) * t, 0.25 / t);
+  }
+  if (m11 > m22 && m11 > m33) {
+    const t = 2 * Math.sqrt(1 + m11 - m22 - m33);
+    return new Quaternion(0.25 * t, (m12 + m21) / t, (m13 + m31) / t, (m32 - m23) / t);
+  }
+  if (m22 > m33) {
+    const t = 2 * Math.sqrt(1 + m22 - m11 - m33);
+    return new Quaternion((m12 + m21) / t, 0.25 * t, (m23 + m32) / t, (m13 - m31) / t);
+  }
+  const t = 2 * Math.sqrt(1 + m33 - m11 - m22);
+  return new Quaternion((m13 + m31) / t, (m23 + m32) / t, 0.25 * t, (m21 - m12) / t);
 }
 
 /** RGBA color with components in 0..1. */

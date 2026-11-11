@@ -59,7 +59,7 @@ export function modelNodeEntries(doc: SceneDocument, modelPath: string, position
     const local = localPoseFromMatrix(matrices.get(parent) ?? null, matrix);
     const data: Record<string, unknown> = {};
     if (local.position.some((v) => v !== 0)) data.position = local.position;
-    if (local.rotation.some((v) => v !== 0)) data.rotation = local.rotation;
+    if (local.rotation[3] !== 1) data.rotation = local.rotation;
     if (local.scale.some((v) => v !== 1)) data.scale = local.scale;
     return data;
   };

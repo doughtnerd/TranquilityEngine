@@ -7,15 +7,19 @@
 import { Color, GameObject, Quaternion } from "../engine";
 import { listComponents, type ComponentInfo, type FieldValue } from "../engine/editor";
 import { RevertOverrides, SetField, isFieldOverride, type NodePath, type SceneDocument } from "./document";
-import { editorFor, itemEditorFor, toSceneJSON, type FieldEditor } from "./fieldValues";
+import { editorFor, itemEditorFor, rememberedEulerAngles, toSceneJSON, type FieldEditor } from "./fieldValues";
 import { isOverridden } from "./prefabs";
 import type { OpenScene } from "./state";
 
 /** Which component a field belongs to: its type and its index among the node's components of that type. */
 export type ComponentRef = Pick<ComponentInfo, "type" | "index">;
 
-/** Euler angles (degrees) of a quaternion, rounded so a typed 30 doesn't read back as 29.999999. */
-export const eulerAnglesOf = (q: Quaternion): number[] => roundAngles(q.toEuler().toArray());
+/**
+ * Euler angles (degrees, order ZXY, ADR 0163) the Inspector shows for a rotation: the ones last typed for
+ * it when there are any, else read from the quaternion (pitch -90..90, yaw and roll -180..180), rounded so a
+ * typed 30 doesn't read back as 29.999999.
+ */
+export const eulerAnglesOf = (q: Quaternion): number[] => [...(rememberedEulerAngles(q) ?? roundAngles(q.toEuler().toArray()))];
 
 const roundAngles = (a: number[]) => a.map((n) => Math.round(n * 1e4) / 1e4 + 0); // + 0: no -0
 

@@ -24,6 +24,8 @@ export class FollowCamera extends GameBehavior {
     const t = this.node.transform!;
     t.position.set(this.at.x + this.offset.x, this.offset.y, this.at.z + this.offset.z);
     const pitch = (Math.atan2(this.offset.y, Math.hypot(this.offset.x, this.offset.z)) * 180) / Math.PI;
-    t.eulerAngles = [pitch, 180, 0];
+    // Turned to face +Z, then tilted down: Euler angles apply roll, pitch, then yaw (ZXY, ADR 0163),
+    // so the pitch is about the camera's own X axis and a negative one looks down.
+    t.eulerAngles = [-pitch, 180, 0];
   }
 }
