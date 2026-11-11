@@ -18,7 +18,7 @@
 //!
 //! | Record | Slot | Result |
 //! |---|---|---|
-//! | new `kernelId`, state 1 | off | starts: waiting for kernel, or (resident) planned by `plan_stagger` and fading in over 100 ms |
+//! | new `kernelId`, state 1 | off | starts: waiting for kernel, or (resident) planned by `stagger::plan_one` and fading in over 100 ms |
 //! | new `kernelId` | not off | refused: zone event `refusedKernel`, once per id (main reads the slot states first) |
 //! | same id, state 1 | ringing out / evicting | active again (fades back in when it was fading out) |
 //! | same id, state 2 release | fading in / active | ringing out: sends ignored, the tail rings out, then off |
@@ -55,7 +55,8 @@
 //! counts in [`shed_steps`] (main's `m3Shed`). It never touches beds or HRTF.
 //!
 //! **Sizes (C8).** The region holds `max_zone_slots` slots of [`slot_state_bytes`]`(zone_max_frames)`
-//! (a header with the slot's stereo input and wet buffers, then the instance state). The kernels
+//! (a header with the slot's stereo input and wet buffers, then the instance state), then the aux
+//! accumulator ([`aux_accumulator`], C4's, `max_buses × 1 KB`, also without slots) and a 64-byte tail. The kernels
 //! are arena clips outside `clipMemoryMB`, within [`kernel_budget_bytes`] (the
 //! `myco_audio_zone_kernel_budget_bytes` export, which the shell adds to the Memory's maximum).
 //! The TypeScript mirror (`worklet/coreDriver.ts`) follows both functions. The table's scalars,
@@ -64,7 +65,7 @@
 
 use audio_dsp::convolver::instance::{self, Instance, Phase, SHARED_PHASE};
 use audio_dsp::convolver::kernel::Kernel;
-use audio_dsp::convolver::stagger::{plan_stagger, Load, MAX_PLANNED};
+use audio_dsp::convolver::stagger::{plan_one, Load, MAX_PLANNED};
 use audio_dsp::convolver::{self, ir, Scratch};
 use audio_dsp::ramp::Ramp;
 use audio_wire::generated as wire;
@@ -157,10 +158,6 @@ const fn align_up(n: usize, to: usize) -> usize {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SlotHeader {
-    /// Slots in the region and bytes per slot ([`init`] writes them into every slot, so a view of
-    /// the region alone, as `sends::tap` has, finds its slots).
-    pub count: u32,
-    pub stride: u32,
     /// The slot's kernel (a zone kernel clip id), 0 when off.
     pub kernel_id: u32,
     /// ZONE_CONFIG `irFrames` (the idle check uses the kernel's own length once it runs).
@@ -210,13 +207,39 @@ pub const fn slot_state_bytes(frames: usize) -> usize {
     align_up(SLOT_HEADER_BYTES + instance::state_bytes(tail_parts(frames)), REGION_ALIGN)
 }
 
-/// The `Zones` region's size: `max_zone_slots × slot_state_bytes(zone_max_frames)` (C8).
+/// Bytes of the region's tail: slot count, stride, aux buses, the aux accumulator's offset and size.
+pub const REGION_TAIL_BYTES: usize = REGION_ALIGN;
+
+/// The aux accumulator's bytes (coordinator ruling for C4): one planar stereo quantum per bus,
+/// `max_buses × 1 KB` (32 KB at the default 32 buses), there with or without zone slots, since aux
+/// sends work without zones.
+pub const fn aux_bytes(p: &InitParams) -> usize {
+    p.max_buses as usize * 2 * QUANTUM * 4
+}
+
+/// The `Zones` region's size (C8, with the aux accumulator): `max_zone_slots ×
+/// slot_state_bytes(zone_max_frames)`, then [`aux_bytes`], then the 64-byte tail. Slots come first,
+/// so each is 64-byte aligned.
 pub const fn region_bytes(p: &InitParams) -> usize {
-    if p.max_zone_slots == 0 {
-        0
-    } else {
-        p.max_zone_slots as usize * slot_state_bytes(p.zone_max_frames as usize)
+    let slots = if p.max_zone_slots == 0 { 0 } else { p.max_zone_slots as usize * slot_state_bytes(p.zone_max_frames as usize) };
+    slots + aux_bytes(p) + REGION_TAIL_BYTES
+}
+
+/// The aux accumulator: per bus a planar stereo quantum `[L; 128][R; 128]`, as `f32`s
+/// (`aux_buses × 256` of them; empty for a region [`init`] didn't lay out). C4's `sends::tap_aux`
+/// adds into bus `b`'s quantum and `sends::add_aux` moves it into the bus's input and clears it.
+pub fn aux_accumulator(zones: &mut [u8]) -> &mut [f32] {
+    if zones.len() < REGION_TAIL_BYTES {
+        return &mut [];
     }
+    let (at, len) = (tail_word(zones, 3), tail_word(zones, 4));
+    if at % 4 != 0 || at.checked_add(len).is_none_or(|e| e > zones.len() - REGION_TAIL_BYTES) {
+        return &mut [];
+    }
+    let bytes = &mut zones[at..at + len];
+    // SAFETY: inside the region (checked), 4-byte aligned (the region is 64-byte aligned, the
+    // offset a multiple of 4); every bit pattern is a valid f32.
+    unsafe { core::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut f32, len / 4) }
 }
 
 /// The table's scalars, the shared-return ramp and the ladder: in the core-state region at
@@ -265,14 +288,21 @@ pub fn area(core: &Core) -> &ZoneArea {
     unsafe { &*(bytes.as_ptr() as *const ZoneArea) }
 }
 
-/// The region's slot count and stride, read from slot 0's header (0 slots for an empty region or
-/// one [`init`] didn't lay out).
+/// Word `i` of the region's tail (see [`region_bytes`]).
+#[inline(never)]
+fn tail_word(zones: &[u8], i: usize) -> usize {
+    let at = zones.len() - REGION_TAIL_BYTES + 4 * i;
+    u32::from_ne_bytes([zones[at], zones[at + 1], zones[at + 2], zones[at + 3]]) as usize
+}
+
+/// The region's slot count and stride, read from its tail (0 slots for an empty region or one
+/// [`init`] didn't lay out).
+#[inline(never)]
 fn geometry(zones: &[u8]) -> (usize, usize) {
-    if zones.len() < core::mem::size_of::<SlotHeader>() {
+    if zones.len() < REGION_TAIL_BYTES {
         return (0, 0);
     }
-    let word = |i: usize| u32::from_ne_bytes([zones[4 * i], zones[4 * i + 1], zones[4 * i + 2], zones[4 * i + 3]]) as usize;
-    let (count, stride) = (word(0), word(1));
+    let (count, stride) = (tail_word(zones, 0), tail_word(zones, 1));
     if count == 0 || stride < SLOT_HEADER_BYTES || count.checked_mul(stride).is_none_or(|n| n > zones.len()) {
         return (0, 0);
     }
@@ -280,6 +310,7 @@ fn geometry(zones: &[u8]) -> (usize, usize) {
 }
 
 /// Slot `k`'s header and instance state bytes (`k < count`, `stride` from [`geometry`]).
+#[inline(never)]
 fn slot(zones: &mut [u8], k: usize, stride: usize) -> (&mut SlotHeader, &mut [u8]) {
     let bytes = &mut zones[k * stride..(k + 1) * stride];
     let (head, state) = bytes.split_at_mut(SLOT_HEADER_BYTES);
@@ -288,6 +319,7 @@ fn slot(zones: &mut [u8], k: usize, stride: usize) -> (&mut SlotHeader, &mut [u8
     (unsafe { &mut *(head.as_mut_ptr() as *mut SlotHeader) }, state)
 }
 
+#[inline(never)]
 fn header(zones: &[u8], k: usize, stride: usize) -> &SlotHeader {
     // SAFETY: as in `slot`.
     unsafe { &*(zones[k * stride..].as_ptr() as *const SlotHeader) }
@@ -301,11 +333,13 @@ pub fn init(core: &mut Core) {
     let regions = core.regions_mut();
     let count = p.max_zone_slots as usize;
     let stride = slot_state_bytes(p.zone_max_frames as usize);
-    if count > 0 && count * stride <= regions.zones.len() {
-        for k in 0..count {
-            let (h, _) = slot(regions.zones, k, stride);
-            h.count = count as u32;
-            h.stride = stride as u32;
+    let len = regions.zones.len();
+    if len >= REGION_TAIL_BYTES {
+        // The region's tail: where a view of the region alone (`sends::tap`) finds its parts.
+        let aux = aux_bytes(&p);
+        let words = [count as u32, stride as u32, p.max_buses, (count * stride) as u32, aux as u32];
+        for (i, w) in words.iter().enumerate() {
+            regions.zones[len - REGION_TAIL_BYTES + 4 * i..len - REGION_TAIL_BYTES + 4 * i + 4].copy_from_slice(&w.to_ne_bytes());
         }
     }
     let a = area_mut(regions.core_state);
@@ -340,6 +374,7 @@ struct Events {
 }
 
 impl Events {
+    #[inline(never)]
     fn push(&mut self, slot: usize, code: u32) {
         if self.len < self.list.len() {
             self.list[self.len] = ZoneEvent { slot: slot as u8, code: code as u8 };
@@ -347,6 +382,7 @@ impl Events {
         }
     }
 
+    #[inline(never)]
     fn flush(self, core: &mut Core) {
         let c = status::counters_mut(core);
         for e in &self.list[..self.len] {
@@ -364,6 +400,7 @@ fn accepts_sends(state: u8) -> bool {
     matches!(state as u32, zone_state::WAITING_KERNEL | zone_state::FADING_IN | zone_state::ACTIVE)
 }
 
+#[inline(never)]
 fn set_off(h: &mut SlotHeader) {
     h.kernel_id = 0;
     h.state = zone_state::OFF as u8;
@@ -377,6 +414,7 @@ fn set_off(h: &mut SlotHeader) {
     h.quanta_since_input = 0;
 }
 
+#[inline(never)]
 fn fade_out(h: &mut SlotHeader, frames: u32) {
     h.state = zone_state::EVICTING as u8;
     h.fade.set_target(0.0, frames);
@@ -393,9 +431,10 @@ fn clamp_wet(wet: f32, old: f32) -> f32 {
 /// ZONE_CONFIG (C5, idempotent, applies on arrival) from the well-formed record at `msg[off..]`:
 /// diffs it against the slots (the module comment's table), then starts the slots whose kernel is
 /// resident. In `onmessage`; never allocates.
+#[inline(never)]
 pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
     let n = (u32_at(msg, off + 12) as usize).min(wire::MAX_ZONE_SLOTS as usize);
-    let shared = f32::from_le_bytes(msg[off + 16..off + 20].try_into().unwrap_or([0; 4]));
+    let shared = f32::from_bits(u32_at(msg, off + 16));
     let ramp = u32_at(msg, off + 20);
     let mut recs: [wire::ZoneConfigSlots; wire::MAX_ZONE_SLOTS as usize] = Default::default();
     for (k, r) in recs.iter_mut().enumerate().take(n) {
@@ -518,8 +557,9 @@ pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
 }
 
 /// Starts every slot waiting for kernel `only` (or for any kernel) whose kernel is resident: parses
-/// it, plans its stagger phase around the shared reverb and the running slots, and starts its
+/// it, plans its stagger phase around the shared reverb and the running slots (`stagger::plan_one`, exhaustive for one instance), and starts its
 /// instance (clearing its state), fading in. In `onmessage`.
+#[inline(never)]
 fn start_waiting(core: &mut Core, only: Option<u32>, events: &mut Events) {
     let p = *core.params();
     let max_tail = tail_parts(p.zone_max_frames as usize);
@@ -552,10 +592,7 @@ fn start_waiting(core: &mut Core, only: Option<u32>, events: &mut Events) {
                 n += 1;
             }
         }
-        let mut phase: [Phase; 1] = [SHARED_PHASE];
-        if !plan_stagger(&fixed[..n], &[kernel.tail_parts()], &mut phase) {
-            phase = [SHARED_PHASE];
-        }
+        let phase: [Phase; 1] = [plan_one(&fixed[..n], kernel.tail_parts()).unwrap_or(SHARED_PHASE)];
         let (h, state) = slot(zones, k, stride);
         if Instance::start(kernel, state, phase[0]).is_none() {
             continue;
@@ -667,18 +704,12 @@ pub(crate) fn render(regions: &mut Regions, clips: &ClipStore, frame: u64, bus_c
             inst.process(scratch, in_l, in_r, out_l, out_r);
         }
         let mut peak = 0.0f32;
-        if h.wet.is_settled() && h.fade.is_settled() && h.wet.value * h.fade.value == 1.0 {
-            for x in h.output.iter() {
-                peak = peak.max(x.abs());
-            }
-        } else {
-            let (out_l, out_r) = h.output.split_at_mut(QUANTUM);
-            for i in 0..QUANTUM {
-                let g = h.wet.next() * h.fade.next();
-                out_l[i] *= g;
-                out_r[i] *= g;
-                peak = peak.max(out_l[i].abs()).max(out_r[i].abs());
-            }
+        let (out_l, out_r) = h.output.split_at_mut(QUANTUM);
+        for i in 0..QUANTUM {
+            let g = h.wet.next() * h.fade.next();
+            out_l[i] *= g;
+            out_r[i] *= g;
+            peak = peak.max(out_l[i].abs()).max(out_r[i].abs());
         }
         h.wet_peak = peak;
         h.input = [0.0; 2 * QUANTUM];
@@ -735,6 +766,7 @@ pub fn shared_return(core_state: &mut [u8]) -> Option<[f32; QUANTUM]> {
 
 /// After the buses mixed (`bus::mixdown`, before the adaptive cap's step): the ladder's check and
 /// the STATUS zone fields. Nothing happens without zone slots.
+#[inline(never)]
 pub(crate) fn after_render(core: &mut Core, note: RenderNote) {
     let (count, stride) = geometry(&core.regions().zones[..]);
     if count == 0 {
@@ -746,20 +778,20 @@ pub(crate) fn after_render(core: &mut Core, note: RenderNote) {
     let frame = core.frame();
     ladder(core, frame, at_floor, underrun);
     let used_kb = (core.clips().zone_bytes() / 1024) as u32;
-    let mut slots = [ZoneStatus::default(); ZONES_CAP];
+    let n = count.min(ZONES_CAP);
     let (mut active, mut ringing) = (0u16, 0u16);
-    for (k, s) in slots.iter_mut().enumerate().take(count.min(ZONES_CAP)) {
-        let h = header(&core.regions().zones[..], k, stride);
-        *s = ZoneStatus { kernel_id: h.kernel_id, state: h.state, _pad: 0, quanta_since_input: h.quanta_since_input.min(u16::MAX as u32) as u16, wet_peak: h.wet_peak };
+    for k in 0..n {
+        let h = *header(&core.regions().zones[..], k, stride);
         match h.state as u32 {
             zone_state::WAITING_KERNEL | zone_state::FADING_IN | zone_state::ACTIVE => active += 1,
             zone_state::RINGING_OUT | zone_state::EVICTING => ringing += 1,
             _ => {}
         }
+        status::counters_mut(core).spatial.zones[k] =
+            ZoneStatus { kernel_id: h.kernel_id, state: h.state, _pad: 0, quanta_since_input: h.quanta_since_input.min(u16::MAX as u32) as u16, wet_peak: h.wet_peak };
     }
     let c = &mut status::counters_mut(core).spatial;
-    c.zone_slots = count.min(ZONES_CAP) as u16;
-    c.zones = slots;
+    c.zone_slots = n as u16;
     c.zones_active = active;
     c.zones_ringing = ringing;
     c.zone_used_kb = used_kb;
@@ -768,6 +800,7 @@ pub(crate) fn after_render(core: &mut Core, note: RenderNote) {
 
 /// The load-shedding ladder (OD3): see the module comment. `at_floor` and `underrun` are the
 /// adaptive cap's (`cap_controller`'s floor; the shell's probe since the last step).
+#[inline(never)]
 fn ladder(core: &mut Core, frame: u64, at_floor: bool, underrun: bool) {
     let regions = core.regions_mut();
     let a = area_mut(regions.core_state);
@@ -807,16 +840,17 @@ fn ladder(core: &mut Core, frame: u64, at_floor: bool, underrun: bool) {
         return;
     }
     // Step 2: one active slot fewer, for the session.
-    let active: Vec2 = (0..count).filter(|&k| accepts_sends(header(zones, k, stride).state)).fold(Vec2::default(), |mut v, k| {
-        v.push(k);
-        v
-    });
-    let limit = if active.len > 0 { active.len as u32 - 1 } else { count.saturating_sub(1) as u32 };
-    area_mut(regions.core_state).active_limit = limit;
-    let weakest = active.as_slice().iter().copied().fold(None, |best: Option<usize>, k| match best {
-        Some(b) if header(zones, b, stride).wet.target < header(zones, k, stride).wet.target => Some(b),
-        _ => Some(k),
-    });
+    let (mut active, mut weakest) = (0u32, None::<usize>);
+    for k in 0..count {
+        let h = header(zones, k, stride);
+        if accepts_sends(h.state) {
+            active += 1;
+            if weakest.is_none_or(|b| header(zones, b, stride).wet.target >= h.wet.target) {
+                weakest = Some(k);
+            }
+        }
+    }
+    area_mut(regions.core_state).active_limit = if active > 0 { active - 1 } else { count.saturating_sub(1) as u32 };
     if let Some(k) = weakest {
         let (h, _) = slot(zones, k, stride);
         if h.state as u32 == zone_state::WAITING_KERNEL {
@@ -824,26 +858,6 @@ fn ladder(core: &mut Core, frame: u64, at_floor: bool, underrun: bool) {
         } else {
             fade_out(h, a.evict_frames);
         }
-    }
-}
-
-/// A fixed list of slot indices (no allocation).
-#[derive(Default)]
-struct Vec2 {
-    items: [usize; ZONES_CAP],
-    len: usize,
-}
-
-impl Vec2 {
-    fn push(&mut self, k: usize) {
-        if self.len < ZONES_CAP {
-            self.items[self.len] = k;
-            self.len += 1;
-        }
-    }
-
-    fn as_slice(&self) -> &[usize] {
-        &self.items[..self.len]
     }
 }
 

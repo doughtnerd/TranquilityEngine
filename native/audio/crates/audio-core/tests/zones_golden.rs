@@ -345,3 +345,21 @@ fn the_ladder_waits_for_the_cap_floor_and_continuing_underruns() {
     assert!(z.core.cap().cap() > z.core.cap().config().floor);
     assert_eq!(zones::shed_steps(&z.core), 0);
 }
+
+#[test]
+fn the_aux_accumulator_is_there_with_or_without_zone_slots() {
+    for slots in [0u32, 1, 3] {
+        let mut z = Zones::new(slots);
+        assert_eq!(zones::slot_count(&z.core), slots as usize);
+        let aux = zones::aux_accumulator(&mut z.core.regions_mut().zones[..]);
+        assert_eq!(aux.len(), 8 * 2 * QUANTUM, "{slots} slots: one planar stereo quantum per bus (8 buses)");
+        assert!(aux.iter().all(|&v| v == 0.0));
+        aux.fill(1.0); // never overlaps a slot
+        if slots > 0 {
+            assert_eq!(z.state(0), zone_state::OFF);
+            load_kernel(&mut z.core, K1, &kernel_blob(IR_FRAMES, 12));
+            z.config(1.0, 0, &[active(K1, 1.0)]);
+            assert_eq!(z.state(0), zone_state::FADING_IN);
+        }
+    }
+}
