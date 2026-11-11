@@ -20,6 +20,8 @@ const DEFAULTS = [
   "docs/guide/why-no-sound.md",
   "docs/guide/atmosphere-and-sound.md",
   "docs/guide/audio-mixer.md",
+  "docs/guide/sound-events.md",
+  "docs/guide/spatial-audio.md",
   "docs/guide/audio-minimum-versions.md",
   "docs/design/0157-audio-core",
   "native/audio/README.md",
