@@ -47,7 +47,7 @@ function playBatch(firstFrame: number, voiceId: number, clip: number): ArrayBuff
     bus: 0,
     flags: PLAY_FLAGS_MIXED,
     group: 0,
-    reserved: 0,
+    gate: 0,
     gain: 1,
     pitch: 1,
     dirX: 0,

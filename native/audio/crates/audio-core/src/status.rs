@@ -457,7 +457,7 @@ mod tests {
         assert_eq!(write(&c, 1, &mut out), HEADER_BYTES);
         let (s, read) = audio_wire::generated::StatusBlock::read(&out, 0).expect("the generated reader accepts the header");
         assert_eq!(read, HEADER_BYTES);
-        assert_eq!((s.music_ring_count, s.group_start_count, s.music_rings_open, s.stream_starts_late), (0, 0, 3, 4));
+        assert_eq!((s.music_rings.len(), s.group_starts.len(), s.music_rings_open, s.stream_starts_late), (0, 0, 3, 4));
         assert_eq!((s.groups_late, s.groups_held, s.groups_abandoned, s.curve_pool_full), (5, 6, 7, 8));
         assert_eq!((s.max_slip_frames, s.split_quanta, s.voice_splits, s.reserved), (0x0001_0009, 0x0002_000A, 0x0003_000B, 0));
         assert_eq!(u32_at(&out, off::VOICE_SPLITS), 0x0003_000B);

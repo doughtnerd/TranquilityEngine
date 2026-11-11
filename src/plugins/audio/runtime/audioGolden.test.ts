@@ -96,7 +96,7 @@ const SPATIAL = PLAY_FLAGS_SPATIAL;
 /** A PLAY of `clip`: mixed, gain 1, pitch 1, facing forward, asap, on bus 0. Override what a scene needs. */
 function play(voiceId: number, clip: number, over: Partial<Play> = {}): Writer {
   const rec: Play = {
-    voiceId, frameOffset: ASAP, clip, bus: 0, flags: MIXED, group: 0, reserved: 0, gain: 1, pitch: 1,
+    voiceId, frameOffset: ASAP, clip, bus: 0, flags: MIXED, group: 0, gate: 0, gain: 1, pitch: 1,
     dirX: 0, dirY: 0, dirZ: -1, lpHz: OFF, score: 0, startOffsetFrames: 0, ...over,
   };
   return (view, off) => writePlay(view, off, rec);

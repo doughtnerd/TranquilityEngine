@@ -71,7 +71,7 @@ pub const CONSTANTS: &[Const] = &[
     c!("STATUS_HEADER_BYTES", 176, "STATUS header, envelope included (ADR 0162 §4.3; 176 B with the M4 fields, ADR 0166)"),
     c!("STATUS_POOL_BUFFERS", 8, "the shell's pool of STATUS buffers"),
     c!("STATUS_BUFFER_BYTES", 16384, "size of each STATUS buffer"),
-    c!("STATUS_WORST_CASE_BYTES", 15936, "176 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64"),
+    c!("STATUS_WORST_CASE_BYTES", 16192, "176 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 + 128 + 128"),
     c!("STATUS_EVERY_QUANTA", 6, "STATUS cadence"),
     c!("STATUS_IDLE_EVERY_QUANTA", 48, "cadence when no batch arrived for 250 ms"),
     c!("STATUS_IDLE_AFTER_MS", 250, "idle threshold"),

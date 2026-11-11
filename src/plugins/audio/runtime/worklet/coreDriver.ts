@@ -15,7 +15,7 @@
 // ADR 0162 C9: the worker's zone kernels come on that port too (CLIP_BEGIN format 3, CLIP_CHUNK, CLIP_UNLOAD) and join
 // main's clip queue; a new port (a new worker) frees the kernels the old one brought.
 import { createStatusPool, type BufferPool } from "../core/bufferPool";
-import type { SpatialInitParams } from "../core/initParams";
+import type { MusicInitParams, SpatialInitParams } from "../core/initParams";
 import { CreditAccumulator } from "../decoder/credit";
 import {
   CLIP_BEGIN_FIXED_END,
@@ -56,8 +56,8 @@ import {
 /** @internal The name `processor.ts` registers and the host creates its node with. */
 export const PROCESSOR_NAME = "myco-audio-core";
 
-/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5; 2 since ADR 0162 R6). */
-export const CORE_ABI_MAJOR = 2;
+/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5; 2 since ADR 0162 R6, 3 since ADR 0166 W1: `max_music_rings`). */
+export const CORE_ABI_MAJOR = 3;
 
 /** @internal Pages the shell's Memory starts with: the same every time (`native/audio/build.mjs` uses 64), which is what makes init deterministic (A0.1). */
 export const MEMORY_INITIAL_PAGES = 64;
@@ -177,7 +177,32 @@ export function spatialRegionsBytes(preset: CorePreset, sampleRate: number): num
  * regions (`spatialRegionsBytes`) and the zone kernel budget (kernels are arena clips outside `clipMemoryMB`, C8).
  */
 export function fixedRegionsHeadroomBytes(preset: CorePreset, sampleRate: number): number {
-  return M2_REGIONS_HEADROOM_BYTES + spatialRegionsBytes(preset, sampleRate) + zoneKernelBudgetBytes(preset.maxZoneSlots, zoneMaxFrames(preset, sampleRate));
+  return (
+    M2_REGIONS_HEADROOM_BYTES +
+    spatialRegionsBytes(preset, sampleRate) +
+    m4FixedRegionsBytes() +
+    musicRingsBytes(preset) +
+    zoneKernelBudgetBytes(preset.maxZoneSlots, zoneMaxFrames(preset, sampleRate))
+  );
+}
+
+/**
+ * @internal ADR 0166 M4 (API section 3.1, 5.3): the regions the core lays out on every preset before the arena, which
+ * Q1 adds to `layout.rs`: `Due` (256 due + 128 parked records of 48 B = 18,432 B), `Curves` (255 entries, 8,160 B) and
+ * `Groups` (16 entries, 2,560 B) = 29,152 B, each aligned as `layout.rs` aligns it. A mirror of the core's layout once Q1
+ * has merged; it is only a headroom bound (M2's 16 MiB constant already covers it), so a small drift cannot overrun.
+ */
+export function m4FixedRegionsBytes(): number {
+  return [18_432, 8_160, 2_560].reduce((sum, n) => sum + alignUp(n, REGION_ALIGN), 0);
+}
+
+/**
+ * @internal The music rings' part of the `Streams` region: C1 sizes it `(G + M) x RING_BYTES` with `M` = `maxMusicRings`
+ * (RING_BYTES 307,200). W1 only passes the count, and the core lays out no music ring until C1, so this is 0 now.
+ * **C1 switches this function** to `preset.maxMusicRings * 307_200` and nothing else in the headroom changes.
+ */
+export function musicRingsBytes(_preset: CorePreset): number {
+  return 0;
 }
 
 /** @internal Bytes per sample of a CLIP_BEGIN format (0 for a format the shell doesn't know): ADR 0162 C6 adds 3-5, all f32. */
@@ -197,7 +222,7 @@ export function clipSampleBytes(format: number): number {
 }
 
 /** @internal `myco_audio_init`'s parameters, less the rate (the worklet's `sampleRate`), plus the clip ceiling. */
-export interface CorePreset extends SpatialInitParams {
+export interface CorePreset extends SpatialInitParams, MusicInitParams {
   readonly maxLogical: number;
   readonly maxMixed: number;
   readonly maxBuses: number;
@@ -232,7 +257,7 @@ export type CoreShellEvent = { readonly type: "error"; readonly message: string 
 export interface CoreExports {
   myco_audio_abi_version(): number;
   myco_audio_schema_hash(): number;
-  /** ABI 2.0 (ADR 0162 C8): the M2 five, then `max_beds`, `max_zone_slots`, `zone_max_frames`, `max_wide`. */
+  /** ABI 3.0 (ADR 0166 W1): the M2 five, then `max_beds`, `max_zone_slots`, `zone_max_frames`, `max_wide`, `max_music_rings`. */
   myco_audio_init(
     sampleRate: number,
     maxLogical: number,
@@ -243,10 +268,11 @@ export interface CoreExports {
     maxZoneSlots: number,
     zoneMaxFrames: number,
     maxWide: number,
+    maxMusicRings: number,
   ): number;
   /** ABI 2.0: bytes the zone kernels need in the arena. Pure. */
   myco_audio_zone_kernel_budget_bytes(maxZoneSlots: number, zoneMaxFrames: number): number;
-  /** ABI 2.0: bytes of the block `myco_audio_init` takes for these parameters (0 when refused). Pure. */
+  /** ABI 3.0: bytes of the block `myco_audio_init` takes for these parameters (0 when refused). Pure. */
   myco_audio_layout_bytes(
     sampleRate: number,
     maxLogical: number,
@@ -257,6 +283,7 @@ export interface CoreExports {
     maxZoneSlots: number,
     zoneMaxFrames: number,
     maxWide: number,
+    maxMusicRings: number,
   ): number;
   /** ABI 1.1 (A2.9): once after init, before the first `process`. */
   myco_audio_set_limiter_lookahead(ms: number): number;
@@ -343,6 +370,7 @@ export function instantiateCore(wasm: BufferSource | WebAssembly.Module, preset:
     preset.maxZoneSlots,
     zoneMaxFrames(preset, sampleRate),
     preset.maxWide,
+    preset.maxMusicRings,
   );
   if (code !== 0) throw new CoreLoadError(`audio core: myco_audio_init refused (code ${code})`);
   const schema = hex(new Uint8Array(memory.buffer, exports.myco_audio_schema_hash(), 16));

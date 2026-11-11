@@ -546,7 +546,7 @@ export class Replayer {
           bus: t.bus[i]!,
           flags: playFlags,
           group: t.group[i]!,
-          reserved: 0,
+          gate: 0,
           gain: t.gain[i]! * t.occGain[i]!,
           pitch: t.pitch[i]! * t.dopplerFactor[i]!,
           dirX: t.dirX[i]!,

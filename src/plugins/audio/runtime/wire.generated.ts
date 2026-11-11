@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "d134301e035d535d27745724a78d2902";
+export const SCHEMA_HASH = "287e5173cde33028cb09bd4bfbc4d2ec";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -32,8 +32,8 @@ export const STATUS_HEADER_BYTES = 0xb0;
 export const STATUS_POOL_BUFFERS = 0x8;
 /** size of each STATUS buffer */
 export const STATUS_BUFFER_BYTES = 0x4000;
-/** 176 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 */
-export const STATUS_WORST_CASE_BYTES = 0x3e40;
+/** 176 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 + 128 + 128 */
+export const STATUS_WORST_CASE_BYTES = 0x3f40;
 /** STATUS cadence */
 export const STATUS_EVERY_QUANTA = 0x6;
 /** cadence when no batch arrived for 250 ms */
@@ -745,7 +745,7 @@ export interface StreamOpen {
   loopStart: number;
   /** Loop end frame; 0 means the whole stream. */
   loopEnd: number;
-  /** Flag bits, see `flags`. */
+  /** Flag bits: bit 0 loop; bit 1 music (STREAM_OPEN_FLAG_MUSIC): the ring comes from the music pool, none free is refused as stream event 4. */
   flags: number;
   /** Stream epoch; a restart bumps it, so older-epoch messages are stale. */
   epoch: number;
@@ -962,7 +962,8 @@ export interface Play {
   bus: number;
   flags: number;
   group: number;
-  reserved: number;
+  /** ADR 0166 M4: bits 0-9 groupId 1..=1023 (0 = ungated), bits 10-15 groupSize - 1 (PLAY_GATE_*; pack_gate); every member of a group arrives in one BATCH with the same frameOffset */
+  gate: number;
   gain: number;
   pitch: number;
   dirX: number;
@@ -980,7 +981,7 @@ export function writePlay(view: DataView, off: number, rec: Play): number {
   view.setUint16(off + 16, rec.bus, true);
   view.setUint16(off + 18, rec.flags, true);
   view.setUint16(off + 20, rec.group, true);
-  view.setUint16(off + 22, rec.reserved, true);
+  view.setUint16(off + 22, rec.gate, true);
   view.setFloat32(off + 24, rec.gain, true);
   view.setFloat32(off + 28, rec.pitch, true);
   view.setFloat32(off + 32, rec.dirX, true);
@@ -1005,7 +1006,7 @@ function _readPlay(view: DataView, off: number, limit: number): [Play, number] {
   const bus = view.getUint16(off + 16, true);
   const flags = view.getUint16(off + 18, true);
   const group = view.getUint16(off + 20, true);
-  const reserved = view.getUint16(off + 22, true);
+  const gate = view.getUint16(off + 22, true);
   const gain = view.getFloat32(off + 24, true);
   const pitch = view.getFloat32(off + 28, true);
   const dirX = view.getFloat32(off + 32, true);
@@ -1019,7 +1020,7 @@ function _readPlay(view: DataView, off: number, limit: number): [Play, number] {
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
-  return [{ voiceId, frameOffset, clip, bus, flags, group, reserved, gain, pitch, dirX, dirY, dirZ, lpHz, score, startOffsetFrames }, cur - off];
+  return [{ voiceId, frameOffset, clip, bus, flags, group, gate, gain, pitch, dirX, dirY, dirZ, lpHz, score, startOffsetFrames }, cur - off];
 }
 
 export function readPlay(view: DataView, off: number): Play {
@@ -2590,6 +2591,75 @@ export function readStatusZoneEventsItem(view: DataView, off: number): StatusZon
   return _readStatusZoneEventsItem(view, off, limit)[0];
 }
 
+/** every open music ring: stream id, epoch and primed and bound bits (ADR 0166 M4) */
+export interface StatusMusicRingsItem {
+  streamId: number;
+  /** bits 0-29 epoch, bit 30 primed, bit 31 bound */
+  epochFlags: number;
+}
+
+export const STATUS_MUSIC_RINGS_ITEM_FIXED_END = 8;
+
+export function writeStatusMusicRingsItem(view: DataView, off: number, rec: StatusMusicRingsItem): number {
+  view.setUint32(off + 0, rec.streamId, true);
+  view.setUint32(off + 4, rec.epochFlags, true);
+  let cur = off + 8;
+  return cur - off;
+}
+
+function _readStatusMusicRingsItem(view: DataView, off: number, limit: number): [StatusMusicRingsItem, number] {
+  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "StatusMusicRingsItem: truncated");
+  const streamId = view.getUint32(off + 0, true);
+  const epochFlags = view.getUint32(off + 4, true);
+  let cur = off + 8;
+  return [{ streamId, epochFlags }, cur - off];
+}
+
+export function readStatusMusicRingsItem(view: DataView, off: number): StatusMusicRingsItem {
+  const limit = view.byteLength;
+  return _readStatusMusicRingsItem(view, off, limit)[0];
+}
+
+/** one item per group start: slip, flags, start frame; the rest carry over like starved (ADR 0166 M4) */
+export interface StatusGroupStartsItem {
+  groupId: number;
+  /** bit 0 late, bit 1 held and resumed, bit 2 abandoned */
+  flags: number;
+  slipFrames: number;
+  /** low 32 bits of the start frame */
+  startFrameLo: number;
+  /** high 32 bits of the start frame */
+  startFrameHi: number;
+}
+
+export const STATUS_GROUP_STARTS_ITEM_FIXED_END = 16;
+
+export function writeStatusGroupStartsItem(view: DataView, off: number, rec: StatusGroupStartsItem): number {
+  view.setUint16(off + 0, rec.groupId, true);
+  view.setUint16(off + 2, rec.flags, true);
+  view.setUint32(off + 4, rec.slipFrames, true);
+  view.setUint32(off + 8, rec.startFrameLo, true);
+  view.setUint32(off + 12, rec.startFrameHi, true);
+  let cur = off + 16;
+  return cur - off;
+}
+
+function _readStatusGroupStartsItem(view: DataView, off: number, limit: number): [StatusGroupStartsItem, number] {
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "StatusGroupStartsItem: truncated");
+  const groupId = view.getUint16(off + 0, true);
+  const flags = view.getUint16(off + 2, true);
+  const slipFrames = view.getUint32(off + 4, true);
+  const startFrameLo = view.getUint32(off + 8, true);
+  const startFrameHi = view.getUint32(off + 12, true);
+  let cur = off + 16;
+  return [{ groupId, flags, slipFrames, startFrameLo, startFrameHi }, cur - off];
+}
+
+export function readStatusGroupStartsItem(view: DataView, off: number): StatusGroupStartsItem {
+  const limit = view.byteLength;
+  return _readStatusGroupStartsItem(view, off, limit)[0];
+}
+
 /** A whole STATUS message (kind 9); section counts are derived. */
 export interface StatusBlock {
   currentFrame: number;
@@ -2631,10 +2701,6 @@ export interface StatusBlock {
   workBed: number;
   /** work units, last quantum: zone convolvers, sends, aux */
   workZones: number;
-  /** the musicRings section's count (at most 16) */
-  musicRingCount: number;
-  /** the groupStarts section's count (at most 8) */
-  groupStartCount: number;
   /** music rings open */
   musicRingsOpen: number;
   /** voices that started after their stamp because a ring was not ready (cumulative, saturating) */
@@ -2675,6 +2741,10 @@ export interface StatusBlock {
   zones: StatusZonesItem[];
   /** ZoneEvent codes: 1 refused kernel, 2 refused slot, 3 bad blob (ADR 0162) (at most 16 per block) */
   zoneEvents: StatusZoneEventsItem[];
+  /** every open music ring: stream id, epoch and primed and bound bits (ADR 0166 M4) (at most 16 per block) */
+  musicRings: StatusMusicRingsItem[];
+  /** one item per group start: slip, flags, start frame; the rest carry over like starved (ADR 0166 M4) (at most 8 per block) */
+  groupStarts: StatusGroupStartsItem[];
 }
 
 /** Write a whole STATUS message at `off` (envelope first); returns the bytes written. */
@@ -2731,8 +2801,10 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
   view.setUint32(off + 132, rec.zoneUsedKB, true);
   view.setUint32(off + 136, rec.workBed, true);
   view.setUint32(off + 140, rec.workZones, true);
-  view.setUint16(off + 144, rec.musicRingCount, true);
-  view.setUint16(off + 146, rec.groupStartCount, true);
+  if (rec.musicRings.length > 16) throw new WireError(ErrorCode.OVERSIZE, "STATUS: musicRings over its cap 16");
+  view.setUint16(off + 144, rec.musicRings.length, true);
+  if (rec.groupStarts.length > 8) throw new WireError(ErrorCode.OVERSIZE, "STATUS: groupStarts over its cap 8");
+  view.setUint16(off + 146, rec.groupStarts.length, true);
   view.setUint16(off + 148, rec.musicRingsOpen, true);
   view.setUint16(off + 150, rec.streamStartsLate, true);
   view.setUint16(off + 152, rec.groupsLate, true);
@@ -2763,6 +2835,8 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
   for (const v of rec.beds) cur += writeStatusBedsItem(view, cur, v);
   for (const v of rec.zones) cur += writeStatusZonesItem(view, cur, v);
   for (const v of rec.zoneEvents) cur += writeStatusZoneEventsItem(view, cur, v);
+  for (const v of rec.musicRings) cur += writeStatusMusicRingsItem(view, cur, v);
+  for (const v of rec.groupStarts) cur += writeStatusGroupStartsItem(view, cur, v);
   writeEnvelope(view, off, { kind: Kind.STATUS, seq, bodyBytes: cur - off - 16 });
   return cur - off;
 }
@@ -2893,5 +2967,17 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
     zoneEvents.push(readStatusZoneEventsItem(view, cur));
     cur += 4;
   }
-  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, m3Shed, zoneUsedKB, workBed, workZones, musicRingCount, groupStartCount, musicRingsOpen, streamStartsLate, groupsLate, groupsHeld, groupsAbandoned, curvePoolFull, maxSlipFrames, splitQuanta, voiceSplits, reserved, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents };
+  if (musicRingCount > 16 || musicRingCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: musicRings overrun");
+  const musicRings: StatusMusicRingsItem[] = [];
+  for (let i = 0; i < musicRingCount; i++) {
+    musicRings.push(readStatusMusicRingsItem(view, cur));
+    cur += 8;
+  }
+  if (groupStartCount > 8 || groupStartCount * 16 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: groupStarts overrun");
+  const groupStarts: StatusGroupStartsItem[] = [];
+  for (let i = 0; i < groupStartCount; i++) {
+    groupStarts.push(readStatusGroupStartsItem(view, cur));
+    cur += 16;
+  }
+  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, m3Shed, zoneUsedKB, workBed, workZones, musicRingsOpen, streamStartsLate, groupsLate, groupsHeld, groupsAbandoned, curvePoolFull, maxSlipFrames, splitQuanta, voiceSplits, reserved, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents, musicRings, groupStarts };
 }

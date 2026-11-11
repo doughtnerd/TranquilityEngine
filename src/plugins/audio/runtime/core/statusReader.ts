@@ -89,8 +89,6 @@ export class StatusReader {
       zoneUsedKB: 0,
       workBed: 0,
       workZones: 0,
-      musicRingCount: 0,
-      groupStartCount: 0,
       musicRingsOpen: 0,
       streamStartsLate: 0,
       groupsLate: 0,
@@ -111,6 +109,8 @@ export class StatusReader {
       beds: [],
       zones: [],
       zoneEvents: [],
+      musicRings: [],
+      groupStarts: [],
     };
     // Warm the id arrays to full size once, so later reads only set `length` and indices.
     for (const list of [this.block.ended, this.block.demoted, this.block.starved]) {

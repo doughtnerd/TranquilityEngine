@@ -352,7 +352,7 @@ describe("REPLAY messages (api-and-models §4.2)", () => {
     return { posted, post: (b: ArrayBuffer) => void posted.push(b), nextSeq: () => seq++ };
   };
   const play = (id: number) => (view: DataView, off: number) =>
-    writePlay(view, off, { voiceId: id, frameOffset: 0, clip: 1, bus: 0, flags: 0, group: 0, reserved: 0, gain: 1, pitch: 1, dirX: 0, dirY: 0, dirZ: -1, lpHz: 24_000, score: 0, startOffsetFrames: id });
+    writePlay(view, off, { voiceId: id, frameOffset: 0, clip: 1, bus: 0, flags: 0, group: 0, gate: 0, gain: 1, pitch: 1, dirX: 0, dirY: 0, dirZ: -1, lpHz: 24_000, score: 0, startOffsetFrames: id });
 
   it("splits at the record limit, in order, kind 12, bit1 on the first chunk of a RESET wave, bit2 on the last", () => {
     const b = new ReplayBuilder(56 * 3);

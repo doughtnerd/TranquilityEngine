@@ -330,7 +330,7 @@ function m3Rows(backend: DebugSource, zoneRows: ReturnType<ZoneManager["debug"]>
 
 /** A preset with nothing laid out, which `spatialRegionsBytes` takes the parts of (it reads only the fields set here). */
 function emptyPreset(maxBeds: number, maxWide: number): CorePreset {
-  return { maxBeds, maxWide, maxZoneSlots: 0, zoneMaxSeconds: 0, maxMixed: 0, maxBuses: MAX_BUSES, maxLogical: 0, arenaInitialBytes: 0, clipCeilingBytes: 0, limiterLookaheadMs: 0 };
+  return { maxBeds, maxWide, maxZoneSlots: 0, zoneMaxSeconds: 0, maxMixed: 0, maxBuses: MAX_BUSES, maxLogical: 0, arenaInitialBytes: 0, clipCeilingBytes: 0, limiterLookaheadMs: 0, maxMusicRings: 0 };
 }
 
 /**
