@@ -1,4 +1,4 @@
-# 0166 interactive music: API, data models, formats and plan (M4), revision 2 (round 2B: the coordinator's rulings R1-R24 applied)
+# 0166 interactive music: API, data models, formats and plan (M4), revision 3 (owner decisions)
 
 Senior engineer's design for ADR 0166 (Accepted, revision 2 plus the owner decisions). Companion to `architecture.md` (cited **[ARCH §n]**: timing, memory, failure behaviour, observability, platforms), to 0162's `api-and-models.md` (the shape this file follows) and to 0157's. This file owns the public API, settings and the event file format with its limits and ids, internal models, every byte layout, native and TypeScript layout, editor integration, the Babylon mapping, the test plan and the task table. What I need from the architect is numbered **S1-S14** in `contracts-senior.md` (statuses after round 2); the architect's needs from me are **C1-C18**, answered in §12. I do not restate timing, memory or failure rules: [ARCH §n] has them, and each section below points to it.
 
@@ -13,6 +13,10 @@ Everything is exported from `src/myco.ts` (§6). Nothing names Babylon, three.js
 ```ts
 /** `"beat"`, `"bar"`, or every n-th: `{ every: "bar", n: 2 }` (n 2..64). Wwise's grid; FMOD's quantisation. */
 export type GridSpec = "beat" | "bar" | { every: "beat" | "bar"; n: number };
+/** The three callback kinds: `onMusicBeat`, `onMusicBar`, `onMusicCue` as component messages; `"beat" | "bar" | "cue"` for `handle.onMusic`. */
+export type MusicKind = "beat" | "bar" | "cue";
+/** The result of `handle.music.seek`: the planned heard landing time (seconds), or a refusal. A permanent refusal (invalid position or segment, not playing, never fits the pool) is final; a temporary one (no free rings) is retried each display frame until the target changes. */
+export type MusicSeekResult = { ok: true; time: number } | { ok: false; reason: "invalid" | "unknownSegment" | "notPlaying" | "neverFits" | "poolFull"; permanent: boolean };
 /** A point on the music's grid, heard time in seconds. */
 export interface GridPoint { time: number; bar: number; beat: number; segment: string }
 
@@ -45,6 +49,8 @@ export interface MusicPositionAt {
 interface AudioEventHandle {            // backend.ts; ADR 0158 members unchanged
   /** The music state; undefined unless the event's root is a segment, playlist or musicSwitch. */
   readonly music: MusicHandle | undefined;
+  /** Subscribe to beat, bar or cue events of this music instance, for scripts that `Audio.play` music with no node (M4c; owner decision 3). Returns an unsubscribe function. A non-music handle returns a no-op function. */
+  onMusic(kind: MusicKind, fn: (e: MusicEvent) => void): () => void;
   /** Fire the stinger whose `trigger` is `name`. True when accepted; false when unknown, dropped by `dontRepeat` or `ifTooLate: "skip"`, or the pool refused it (the debug rows say which). */
   trigger(name: string): boolean;
 }
@@ -59,9 +65,11 @@ interface MusicHandle {                 // readable from M4a; every getter is ma
   nextGrid(spec: GridSpec): GridPoint | null;
   /** Map an input timestamp to the music. Arrives in M4c; `segment` is null when the music is not playing at that instant. */
   positionAt(performanceTime: number): MusicPositionAt;
+  /** Jump to a musical position (M4b; owner decision 4; behaviour is [ARCH §3.9], C20). `"bar:beat:tick"` (§2.2) is read in the segment that will be playing when the seek lands; `{ segment, at }` names a segment of the event (not a `library` segment). Clamped to [file start, segment end]: at or past the exit cue the segment plays on and the container advances as at a natural end; before the entry cue it is allowed and enters exactly there, with no extra pre-entry. A pending change is replaced before its cancel point (T - L); after it, the seek is planned after T, in the incoming segment. A seek into a `count` region restarts its pass count; into a `while` region the condition is read at the next commit point. The playlist cursor, the item's `plays` count, the switch value and the alternative picks are unchanged (seeking to another item is not a seek). The skipped span fires no `missed` or `skippedCues`. Stamped like every music change; in rhythm mode callbacks are held until it lands. Fallback: decoded stems restart at the offset, streamed stems seek their HTML5 element, best effort. */
+  seek(to: string | { segment: string; at: string }): MusicSeekResult;
 }
 ```
-`handle.music` is `undefined`, never an empty object, for non-music events. The getters share one snapshot per display frame, recomputed on first read (no allocation after it). `setParameter` already exists; for a `musicSwitch` the latest call before the quantised exit wins, and setting it back to the playing child cancels the change. `handle.stop(fadeSeconds)` stops all stems with one in-voice fade stamped at now plus the lookahead like every music record (R19: no music record is asap); it is not grid-quantised and is allowed in rhythm mode (it ends callbacks). `handle.fade`, `release` are as 0158. A music event is flat: its `spatial` key is ignored with a problem.
+`handle.music` is `undefined`, never an empty object, for non-music events. The getters share one snapshot per display frame, recomputed on first read (no allocation after it). `handle.onMusic(kind, fn)` delivers the same `MusicEvent` as the component messages, in the same `engine.AudioMusic` step before `engine.UpdateScripts`, with the same window and coalescing (`missed`, `skippedCues`; C15). Component messages fire first, then listeners in subscription order; a listener added during a dispatch first hears the next event; a throw in `fn` is caught and logged (`console.error`) and does not stop others; a subscription ends with its instance. An instance with no component hook and no listener is not predicted at all. `setParameter` already exists; for a `musicSwitch` the latest call before the quantised exit wins, and setting it back to the playing child cancels the change. `handle.stop(fadeSeconds)` stops all stems with one in-voice fade stamped at now plus the lookahead like every music record (R19: no music record is asap); it is not grid-quantised and is allowed in rhythm mode (it ends callbacks). `handle.fade`, `release` are as 0158. A music event is flat: its `spatial` key is ignored with a problem.
 
 ### 1.3 `Audio` additions
 
@@ -77,7 +85,7 @@ Audio.rhythmMode: boolean;   // read-only: the project setting
 
 ### 1.4 Component messages (M4c)
 
-`LifecycleHooks` (`Component.ts:139`) gains `onMusicBeat?(e: MusicEvent)`, `onMusicBar?(e)`, `onMusicCue?(e)`, with `MusicEvent` declared in `engine/audio/musicTypes.ts` (the engine core imports no plugin, as for `onTriggerEnter`). They go to the active `GameBehavior`s on the node of the `AudioSource` that plays the music (the dispatch style of `PhysicsCore.notify`: look up the hook, `try`, `console.error` on a throw). **Phase:** the built-in system `engine.AudioMusic`, phase `update`, `after: ["engine.Lobby","engine.PredictionSmooth"]`, `before: ["engine.UpdateScripts"]` (the slot of `engine.UIDocumentEvents`, `UIDocument.ts:998`). A node with no component that defines a hook costs nothing: the subscription mask is recomputed when the node's component list changes, and predictions run only for subscribed instances. After a gap longer than one beat each kind fires once with `missed: n`. A script that calls `Audio.play` itself has no node and gets no callbacks; it polls `handle.music` (owner item 3 in §11 offers `handle.onMusic`). Coalesced cue events carry `skippedCues: string[]` (R20).
+`LifecycleHooks` (`Component.ts:139`) gains `onMusicBeat?(e: MusicEvent)`, `onMusicBar?(e)`, `onMusicCue?(e)`, with `MusicEvent` declared in `engine/audio/musicTypes.ts` (the engine core imports no plugin, as for `onTriggerEnter`). They go to the active `GameBehavior`s on the node of the `AudioSource` that plays the music (the dispatch style of `PhysicsCore.notify`: look up the hook, `try`, `console.error` on a throw). **Phase:** the built-in system `engine.AudioMusic`, phase `update`, `after: ["engine.Lobby","engine.PredictionSmooth"]`, `before: ["engine.UpdateScripts"]` (the slot of `engine.UIDocumentEvents`, `UIDocument.ts:998`). A node with no component that defines a hook costs nothing: the subscription mask is recomputed when the node's component list changes, and predictions run only for subscribed instances. After a gap longer than one beat each kind fires once with `missed: n`. A script that calls `Audio.play` itself has no node, so it subscribes with `handle.onMusic(kind, fn)` (§1.2) or polls `handle.music`. Coalesced cue events carry `skippedCues: string[]` (R20).
 
 ### 1.5 Calibration and rhythm mode (M4c)
 
@@ -120,7 +128,7 @@ A position is the string `"bar:beat:tick"`: bar 1-based, beat 1-based within the
 
 ### 2.3 Music nodes, limits, ids
 
-Music nodes extend `NodeBase`. Placement: a music node is the event's root or a child of a music container (`playlist`, `musicSwitch`); a music node under any other container, or a 0158 node under a music container, is dropped with a problem. `pitch`, `pitchRandom`, `delay`, `range`, `fade` on a music node are read and ignored (one problem each); pitch automation on a stem is dropped (the grid assumes rate 1). **`id`** is required on every music node: `^[A-Za-z0-9_-]{1,48}$`, unique per event (checked like `parseParameters`), also on `library` segments. `NodeBase` gains optional `id` for every type.
+Music nodes extend `NodeBase`. Placement: a music node is the event's root or a child of a music container (`playlist`, `musicSwitch`); a music node under any other container, or a 0158 node under a music container, is dropped with a problem. `pitch`, `pitchRandom`, `delay`, `range`, `fade` on a music node are read and ignored (one problem each); **no pitch on music (owner decision 2, C13):** a pitch automation binding on a track is a validation **error** (an error-level problem at parse and in the lint; the binding is dropped), and `pitch` on `AudioSource` and `EventOptions` is ignored for a music instance with one warning (the grid and loop prediction assume rate 1). **`id`** is required on every music node: `^[A-Za-z0-9_-]{1,48}$`, unique per event (checked like `parseParameters`), also on `library` segments. `NodeBase` gains optional `id` for every type.
 
 ```jsonc
 { "format": "myco.audioevent@1", "bus": "Music", "priority": 200,
@@ -339,7 +347,7 @@ Level S (senior), M (mid), J (junior). Days are focused human effort, not agent 
 | Z5 | Metered scenes: one stamped record every quantum, and stamped spatial plays with sends, against their twins; baselines; mixer size check | `audio-bench`, `tools/audio-bench` | Z2b | M | 2 | `check:audio-metered` within 10%; stamped scene within +60k instructions of its twin |
 | Z6 | Docs: ADR 0157 amendment text, `implementation-status.md`, guide note on fades | `docs/*` | Z3 | J | 1.5 | `check:links` clean |
 
-### M4a grid, segments, playlists, stems (108 days, 21.6 person-weeks)
+### M4a grid, segments, playlists, stems (108.5 days, 21.7 person-weeks)
 
 | ID | Task | Files | Depends | Lvl | d | Acceptance |
 |---|---|---|---|---|---|---|
@@ -362,10 +370,10 @@ Level S (senior), M (mid), J (junior). Days are focused human effort, not agent 
 | **P3** | **Counted loop regions, wrap prediction, per-pass alternative hand-over, segment end, grid anchors (musical position plus heard time), rebase on rate change** | `runtime/music/anchors.ts` | **P1** | S | 5 | anchors survive a rate change within 1 frame |
 | P4 | Playlist: sequence, random, shuffle, avoidRepeat, `plays`, `rounds`, nesting; natural advance at the exit cue; next always primed | `runtime/music/playlist.ts` | P2, P3 | M | 4 | a long run never shows an unprimed start |
 | P5 | Stems: ring release when a stem is silent, solo gain (per-stem automation is 0158's) | `runtime/music/stems.ts` | P1 | M | 1.5 | a silent stem's ring returns at the voice's end |
-| P6 | Event runtime: `playNode` for music nodes, `EventInstance.music`, limits, steal, cooldown; `AudioSource` plays music events | `eventRuntime.ts`, `AudioSource.ts` | P1, F1b | M | 5 | 0158 limit tests pass for music events |
+| P6 | Event runtime: `playNode` for music nodes, `EventInstance.music`, limits, steal, cooldown; `AudioSource` plays music events; `pitch` ignored for music with one warning | `eventRuntime.ts`, `AudioSource.ts` | P1, F1b | M | 5.5 | 0158 limit tests pass for music events; a pitched `AudioSource` plays a music event at rate 1 with one warning |
 | P7 | Public API: `handle.music` (state, `nextGrid`), `Audio.horizon`, `Audio.timeAt` (the one task), early `engine.AudioMusic` step, `MusicBackendCaps`, exports | `Audio.ts`, `audioSystem.ts`, `backend.ts`, `myco.ts` | P6 | M | 4 | every §1 row tested; `Audio.time` in `update()` is this frame's |
 | P8 | Hot reload of a playing segment: re-prime and swap at the next bar | `runtime/music/reload.ts` | P2 | M | 2.5 | a stem edit swaps at the next bar without a gap |
-| P9 | Hidden tab (`play` commits a segment ahead), context rebuild and worker crash (reopen groups as groups, `musicGroups` hand-off from the Replayer), group timeout | `runtime/music/background.ts`, `core/recovery.ts` | P2, P3 | S | 5 | rebuild and hidden-tab loopbacks keep stems aligned |
+| P9 | Hidden tab (`play` and `mute` both commit a segment ahead, owner decision 5), context rebuild and worker crash (reopen groups as groups, `musicGroups` hand-off from the Replayer), group timeout | `runtime/music/background.ts`, `core/recovery.ts` | P2, P3 | S | 5 | rebuild and hidden-tab loopbacks keep stems aligned |
 | P10 | `Audio.debug().music`: the whole shape of C11 in one task, status reader fields, panel rows, one warning per cause | `debug.ts`, `statusReader.ts`, `AudioDebugPanel.tsx` | P2 | M | 3.5 | each §1.6 counter reaches the panel |
 | T1 | Integration tests: late worker, re-plan, refusal, rebuild, hidden tab, hot reload, on a deterministic clock | `music/*.loopback.test.ts` | P9 | M | 5 | all pass without wall-clock waits |
 | B1 | Babylon M4a: segments (decoded stamped starts through `waitTime`), playlists, stream warning | `babylonBackend.ts` | P6 | M | 2.5 | §8 rows against the mocks |
@@ -373,7 +381,7 @@ Level S (senior), M (mid), J (junior). Days are focused human effort, not agent 
 | E1 | Playwright: a sample plays a segment and a playlist; the panel shows no late group | `tests/e2e/audio-music-a.spec.ts` | SM1, P10 | M | 3 | 3 of 3 repeats at wave end |
 | D2 | Docs: guide `interactive-music.md` (segments, playlists, stems), status rows | `docs/*` | SM1 | J | 2 | `check:links` clean |
 
-### M4b switches, rules, bridges, stingers (58 days, 11.6 person-weeks)
+### M4b switches, rules, bridges, stingers (59.5 days, 11.9 person-weeks)
 
 | ID | Task | Files | Depends | Lvl | d | Acceptance |
 |---|---|---|---|---|---|---|
@@ -387,6 +395,7 @@ Level S (senior), M (mid), J (junior). Days are focused human effort, not agent 
 | R4b | `while` regions: condition read one lead before the loop end, released through the region-release splice | `runtime/music/regions.ts` | P3, R3a | S | 2.5 | a flag set after the commit waits one more pass (stated latency) |
 | R5 | Stingers: trigger namespace, quantise, `dontRepeat`, `ifTooLate`, own bus, at most 4 at once, `handle.trigger` | `runtime/music/stingers.ts` | R1, P6 | M | 3.5 | each `ifTooLate` branch; a stinger never changes the grid |
 | R6 | `quantize` (`beat` or `bar`) on automation bindings (stamped in-voice ramp at the next grid point) | `music/stems.ts`, `events/automation.ts` | R1, Z4 | M | 2.5 | a bound stem enters on the bar line, sample-exact |
+| R7 | Public music seek `handle.music.seek(position)`: validate the position, plan an immediate transition into it, 5 ms crossfade, stamped ([ARCH §3.9]) | `music/handle.ts`, `music/transition.ts` | R3a | M | 1.5 | a seek lands on the stamp at the asked beat; invalid positions return false |
 | **T2** | **Seam goldens: cut, three crossfade curves, bridge, loop exit with tail, against an offline reference** | `golden/`, `music/seam.test.ts` | R3b, R4a | S | 5 | each seam nulls to 1e-5 |
 | T3 | Rule, precedence and nested-container tests; transition loopbacks (late prime, pool full, switch race) | `music/*.test.ts` | R3b | M | 5 | all pass without wall-clock waits |
 | Bench1 | Metered music scenes (typical, transition, worst; decoded and streamed; group start), STATUS worst-case test | `audio-bench`, `tools/audio-bench` | R3b | M | 3 | within the allowance of S7; baselines recorded |
@@ -395,13 +404,14 @@ Level S (senior), M (mid), J (junior). Days are focused human effort, not agent 
 | E2 | Playwright: a switch change lands on the bar; a stinger fires; the debug rule row | `tests/e2e/audio-music-b.spec.ts` | SM2 | M | 3 | 3 of 3 repeats at wave end |
 | D3 | Docs: guide chapters on transitions, bridges, stingers | `docs/guide` | SM2 | J | 2 | `check:links` clean |
 
-### M4c beat callbacks and rhythm mode (34 days, 6.8 person-weeks)
+### M4c beat callbacks and rhythm mode (34.5 days, 6.9 person-weeks)
 
 | ID | Task | Files | Depends | Lvl | d | Acceptance |
 |---|---|---|---|---|---|---|
 | **K1** | **Beat clock (design A): prediction from tempo map, anchors and `ClockMap`, window firing, `missed` coalescing, corrections from `groupStarts` and playheads** | `runtime/music/beatClock.ts` | P3, R3a | S | 5 | S4 tolerances on recorded jitter traces |
 | **K2** | **`engine.AudioMusic` dispatch, component messages, subscription mask, hook types** | `music/musicSystem.ts`, `engine/core/Component.ts` | **K1** | M | 3.5 | messages arrive before `update`; no cost without subscribers |
 | K3 | `positionAt`, `judged`, event types, exports (`Audio.timeAt` is P7's) | `music/handle.ts`, `Audio.ts`, `myco.ts` | K1 | M | 1.5 | every §1 row tested |
+| K5 | `handle.onMusic(kind, fn)`: subscribe, unsubscribe function returned, same event and the same `engine.AudioMusic` step | `music/musicSystem.ts`, `Audio.ts` | K2 | M | 0.5 | a script that plays music with `Audio.play` receives beat, bar and cue events; unsubscribing stops them |
 | K4 | Deterministic beat-clock tests: fake `ClockMap`, jitter traces, tempo change, seek, hidden-tab gap | `music/beatClock.test.ts` | K1 | M | 4 | 0 missed, doubled or phantom over the spike's traces |
 | Rh1 | `audio.rhythmMode`: numeric `latencyHint`, latency read-back and the `reliable` rule, `Audio.latency`, rebuild on a setting change, held callbacks during recovery | `core/context.ts`, `settings.ts`, `Audio.ts` | K1 | S | 4.5 | toggles through the rebuild path; recovery re-entry is stamped |
 | Rh2 | `Calibration.fromTaps`, `Audio.calibration`, persistence through `Storage` per output device, re-ask on device change | `music/calibration.ts` | K3 | J | 4 | p95 error under 10 ms on the spike's simulated taps |
@@ -432,11 +442,11 @@ Level S (senior), M (mid), J (junior). Days are focused human effort, not agent 
 
 ### 10.1 Total, reserve and the critical path
 
-Tasks, summed by script from the rows: M4-0 25 + M4a 108 + M4b 58 + M4c 34 + M4d 63 = **288 days** (57.6 person-weeks at 5 d). By level: S 99.5 d, M 162 d, J 26.5 d. The longest chain inside each milestone, summed because milestones ship in order, is **109.5 days** (M4-0 16.5, M4a 29.5, M4b 22, M4c 18, M4d 23.5; about 22 weeks if nothing waits). Two seniors are the floor; the core, player and clock chains should not share one person.
+Tasks, summed by script from the rows: M4-0 25 + M4a 108.5 + M4b 59.5 + M4c 34.5 + M4d 63 = **290.5 days** (58.1 person-weeks at 5 d). By level: S 99.5 d, M 164.5 d, J 26.5 d. The longest chain inside each milestone, summed because milestones ship in order, is **109.5 days** (M4-0 16.5, M4a 29.5, M4b 22, M4c 18, M4d 23.5; about 22 weeks if nothing waits). Two seniors are the floor; the core, player and clock chains should not share one person.
 
-**The reserve, two ways** (R24; owner item 1). The named items are the same; the columns scale them to a third of the tasks (the skill's calibration, my recommendation: the listening pass, the phone and the editor are untested) and to 20% (the architect's: M3 drew none of its 14 days). RS2, RS5 and RS8 stay whole in the 20% column.
+**The reserve: 20% (owner decision 1, 2026-11-11).** The named items are the 20% column below, 58 days. No scope cuts are taken: `while` regions and loop tails, the rules table's audition and lint, the rhythm sample and the Babylon beat callbacks all stay. Not taken: a reserve of a third (96 days, 386.5 total, 77.3 person-weeks), the option I recommended; the third column is kept for reference.
 
-| ID | What the reserve is for | d, a third | d, 20% |
+| ID | What the reserve is for | d, a third (not taken) | **d, 20% (chosen)** |
 |---|---|---|---|
 | RS1 | Listening-pass rework beyond L3: seams, curve laws, stinger timing, beat feel | 12 | 4 |
 | RS2 | Real-device beat clock, `outputLatency` honesty and the phone prime lead (the lab VM and phone runs are the owner's) | 14 | 14 |
@@ -452,8 +462,8 @@ Tasks, summed by script from the rows: M4-0 25 + M4a 108 + M4b 58 + M4c 34 + M4d
 
 | | Tasks | Reserve | Total days | Person-weeks |
 |---|---|---|---|---|
-| With a third | 288 | 96 | **384** | **76.8** |
-| With 20% | 288 | 58 | **346** | **69.2** |
+| **With 20% (chosen)** | 290.5 | 58 | **348.5** | **69.7** |
+| With a third (not taken) | 290.5 | 96 | 386.5 | 77.3 |
 
 ### 10.2 Line by line against the record's provisional estimate
 
@@ -463,27 +473,27 @@ The record (revision 2) priced 24.5 person-weeks of features and called the whol
 |---|---|---|---|---|---|
 | Format and validation | 1.5 | F1a, F1b, F3, F2 | 15 | 3.0 | ids, limits, rules, stingers, library, two-tier lint with the peak ring need |
 | Grid maths | 1 | G1 | 5 | 1.0 | as priced |
-| Main-side player, rules, stingers, planner | 4 | P1-P6, P8-P10, R1-R6, R4c | 66 | 13.2 | the record priced about twice M3's zone planner (C5, 8.5 d); the table has the prime and commit machine, anchors with rate rebase, nested playlists, hot reload, hidden tab and rebuild, `musicSwitch`, transitions with pre-entry, tails and bridges, `while`, stingers, quantised ramps, span clips, one debug task |
+| Main-side player, rules, stingers, planner | 4 | P1-P6, P8-P10, R1-R7, R4c | 68 | 13.6 | the record priced about twice M3's zone planner (C5, 8.5 d); the table has the prime and commit machine, anchors with rate rebase, nested playlists, hot reload, hidden tab and rebuild, `musicSwitch`, transitions with pre-entry, tails and bridges, `while`, stingers, quantised ramps, span clips, one debug task |
 | Streams: prime protocol, pool, slip counter | 2.5 | W1, C1, C2a-C2d, D1a-D1c | 30 | 6.0 | the group gate with hold on starve and slip rebase replaced the slip counter; the worker needs a group open, breadth-first prime, cancel and an encoded cache |
 | In-voice ramps | 1.5 | Z1, Z2a-Z2c, Z4 | 16.5 | 3.3 | a due list, both classes, the curve pool and REPLAY |
-| Beat clock and API | 1.5 | P7, K1, K2, K3 | 14 | 2.8 | includes the early frame step, `timeAt` and component dispatch |
+| Beat clock and API | 1.5 | P7, K1, K2, K3, K5 | 14.5 | 2.9 | includes the early frame step, `timeAt` and component dispatch |
 | Rhythm mode and its sample | 2 | Rh1, Rh2, Rh3 | 12.5 | 2.5 | close |
 | Fallback | 1 | B1, B2, B3 | 7 | 1.4 | as priced, spread over three milestones |
 | Editor | 7.5 | Ed1-Ed8, Ed10 | 40 | 8.0 | waveform peaks, tempo-aware snapping, undo and preview through the backend were the senior RFC's 2 pw; the record's 7.5 held none of them |
 | Import hints | 0.5 | Ed9 | 4.5 | 0.9 | a RIFF reader and lint rows |
 | Samples and listening pass | 1.5 | SM1, SM2, L1, L2, L3 | 18 | 3.6 | two sample sets and a rhythm scene plus one rework row |
 | Not in the record (the senior RFC's about 12 pw) | 12 | Z3, Z5, C3, T1-T3, K4, Bench1, E1-E3, Ed11, D2-D5, Z6 | 59.5 | 11.9 | goldens and replay, benches, tests, e2e, docs |
-| **Tasks** | **24.5 (+12)** | | **288** | **57.6** | |
-| Reserve, a third / 20% | in the multiplier | RS1-RS10 | 96 / 58 | 19.2 / 11.6 | |
-| **Total** | **45-55** | | **384 / 346** | **76.8 / 69.2** | **21.8 / 14.2 pw over the top of the record's range** |
+| **Tasks** | **24.5 (+12)** | | **290.5** | **58.1** | |
+| Reserve, 20% (chosen; a third not taken: 96 d, 19.2 pw) | in the multiplier | RS1-RS10 | 58 | 11.6 | |
+| **Total** | **45-55** | | **348.5** | **69.7** | **14.7 pw over the top of the record's range** |
 
-**The honest reading.** The tasks alone are 57.6 pw, 2.6 over the range's top; the player is 13.2 pw against the record's 4, and the wire, gate, worker, hold and ramp work 9.3 against 4. The record's 45-55 holds only with no reserve and the player near its 4 pw, which neither table supports. The reserve is the owner's item 1: the architect argues 20% (M3 drew none of its 14 days), I argue a third (the listening pass, the phone and the editor are untested; M3's only product bug was found by an e2e spec).
+**The honest reading.** The tasks alone are 58.1 pw, 3.1 over the range's top; the player is 13.6 pw against the record's 4, and the wire, gate, worker, hold and ramp work 9.3 against 4. The record's 45-55 holds only with no reserve and the player near its 4 pw, which neither table supports. The owner chose a 20% reserve (the architect's case: M3 drew none of its 14 days); I had argued for a third (the listening pass, the phone and the editor are untested).
 
 **Calibration from M3** (`build-log.md`, which logs agent time, not human days): M3's table days against per-kind work, which these rows copy: wire A1 5 d for five records and STATUS, core bed A4 7, zones C3 9, ambisonic voice B3 6, goldens and benches A7 4.5, C7 4.75, D6 3.75, editor E1 4, E3 5.5, E4 4, e2e E9 4, samples E8 6.5, listening E10 2. M3's lessons stay in: a leaf with an unmeasured bound stays with its lead, e2e catches wiring bugs unit tests miss, the metered gate and mixer size are checked per task.
 
-**Cuts that stay on the owner's list** (each cuts scope; I list them and do not decide): (a) drop `while` regions and loop tails (R4a, R4b, R4c, 8.5 d); (b) ship the rules table without audition and lint (about 4 d); (c) drop the rhythm sample scene (Rh3, 4 d); (d) drop the Babylon beat callbacks (B3, 2 d). All four: about 18.5 days, 3.7 pw.
+**Cuts:** the owner took none (2026-11-11). `while` regions and loop tails (R4a, R4b, R4c), the rules table's audition and lint, the rhythm sample scene and the Babylon beat callbacks all stay.
 
-### 10.3 Round 1 to 2B
+### 10.3 Round 1 to 2B to the owner's decisions
 
 | Milestone | Round 1 d | 2B d | Change |
 |---|---|---|---|
@@ -494,15 +504,17 @@ The record (revision 2) priced 24.5 person-weeks of features and called the whol
 | M4d | 63.5 | 63 | -0.5 |
 | **Tasks** | **291** | **288** | **-3** |
 
+Round 3 (owner decisions, 2026-11-11) adds **2.5 days: 290.5 in all**: P6 +0.5 (pitch ignored for music), K5 new 0.5 (`handle.onMusic`), R7 new 1.5 (public seek); mute under a hidden tab is 0 (inside P9). M4a 108.5, M4b 59.5, M4c 34.5, M4-0 and M4d unchanged.
+
 Row by row (days): Z1 3.5 to 3; Z2a 4 to 3; Z2b 5 to 4; Z2c new 3 d; Z3 4.5 to 5; Z4 4 to 3.5; Z5 3 to 2; W1 4 to 3.5; C2a 5 to 4; C2b 4.5 to 4; C2c new 3 d; C2d new 1.5 d; C3 5 to 5.5; D1b 3 to 2.5; D1c new 3 d; P2 4 to 5; P5 3 to 1.5; P7 3.5 to 4; P9 4.5 to 5; P10 3 to 3.5; R2 3 to 2; R3b 5 to 3; R4a 4 to 3; R4c new 3 d; R4b 4 to 2.5; R5 5 to 3.5; Bench1 4 to 3; K3 2.5 to 1.5; Rh1 5 to 4.5; Ed10 3 to 2.5; P11 dropped (2 d). The reasons are in §12: the architect's cuts that remove duplication (R21: one debug task, one `timeAt`, one wire task per record family) or rest on a simpler design (R2: one due list, no op table; control-rate laws; a bridge as two chained plans; the release splice that exists), the rows the rulings make firm (Z2c, R4c, D1c, the group hold C2c, the slip rebase C2d), and P12 dropped (R11). Where I kept a row against a cut (Z1 3 not 2.5, Z2 at 10 not 9, Z4 3.5 not 3, P9 5 not 6, R4c 3 not 2, C2a-C2b 8 not 7) §12 gives the reason.
 
-## 11. Where the record is wrong or under-specified, and the owner's open items
+## 11. Where the record is wrong or under-specified, and the owner's decisions
 
 Anything here that changes behaviour, scope or schedule goes to the owner through the coordinator; I have taken the cheapest reading and say which.
 
 **Settled and written back**
-1. **A stamped PLAY does not split the quantum** (`scheduler.rs:38-40`, `:57`, `:218-221`; `voices.rs:375-396`), so revision 2's correction is wrong for PLAY and spike S4 was right. The queued per-voice records split; a stamped play with sends is followed by a stamped SET_VOICE_FX, so M4-0 has consumers outside music (R1). Step 9 amends the record.
-2. **The record's lead formula** max(horizon, 1.25 x EMA) cannot meet its own deadline; the lead is 1.25 x Ê + L + Δ̄ (R12, [ARCH §4.1]).
+1. **A stamped PLAY does not split the quantum** (`scheduler.rs:38-40`, `:57`, `:218-221`; `voices.rs:375-396`), so revision 2's correction is wrong for PLAY and spike S4 was right. The queued per-voice records split; a stamped play with sends is followed by a stamped SET_VOICE_FX, so M4-0 has consumers outside music (R1). ADR 0167 amends the record.
+2. **The record's lead formula** max(horizon, 1.25 x EMA) cannot meet its own deadline; the lead is 1.25 x Ê + L + Δ̄ (R12, [ARCH §4.1]); ADR 0167 amends the record.
 
 **Under-specified, my reading stated**
 3. **ABI is 3.0** (the init signature changes, as 0162 R6 did for 2.0), envelope 1.2, STATUS 176 B with 192 B spare (§4.4); the next growth raises the shell's `STATUS_BUFFER_BYTES`.
@@ -510,7 +522,7 @@ Anything here that changes behaviour, scope or schedule goes to the owner throug
 5. **Names and vocabulary the record left open:** `plays` and `rounds` (not `loop`, a boolean elsewhere); bridge and stinger segments in a container's `library`; rule endpoints are direct children; the `while` operators `is`, `atLeast`, `below` (the format has no condition vocabulary to reuse).
 6. **Pool arithmetic, corrected by R15.** The record's pool sizes cover streamed stems; decoded stems, decoded bridges (up to about 30 s) and decoded tails need no ring, so "no bridge on low" was wrong. What a preset can do is the **peak** ring need of a sequence (§2.6); a need above the pool is refused at once (R14). A streamed stinger, hot reload (the reloaded segment primes beside the playing one) and a per-pass alternative on a streamed stem (a primed hand-over at each wrap, because a loop cannot jump into a different file) each add rings at their peak.
 7. **`quantize` on automation cannot be a core binding** (the core evaluates bindings continuously): a bound stem is evaluated on main at the grid point and applied as a stamped 20 ms in-voice ramp (§2.3).
-8. **Mixer size** +14 KB (est.) against the senior RFC's +8 KB; the gate is a tripwire (CLAUDE.md, R23), recorded in the build log.
+8. **Mixer size** +14 KB (est.) against the senior RFC's +8 KB; the gate is a tripwire (CLAUDE.md, R23), recorded in the build log (ADR 0167 carries the allowance corrections).
 9. **`Audio.play(music, { at })` closer than the lead** (R12): the ruling says it lands "on the next allowed grid point"; before the first segment there is no grid, so I read it as the earliest stampable frame, which then anchors the grid. If the coordinator meant something else (a bar line of what?) the wording changes in the guide only.
 10. **Not specified by the record, taken as stated in §1:** a quantised `stop` (none; `stop(fade)` only); `Nothing` as a rule source or target (none; the default rule governs a start); stems of one segment share a file rate, segments need not; a held group's parked records are capped at 128 ([ARCH §5.3] set it after round 2B).
 
@@ -518,16 +530,17 @@ Anything here that changes behaviour, scope or schedule goes to the owner throug
 - **R16 as written is unbounded.** "The encoded bytes of a music instance's files for its lifetime" is every file in the event tree: a score of 20 segments of 8 MP3 stems is about 700 MiB. I took it **with changes** (§4.6): refcounted by path for the instance's lifetime, but evicting files of segments that are neither playing, primed nor a candidate successor, inside the per-preset budget of the lint (48 / 96 / 160 MiB, est.). The architect should confirm the numbers in [ARCH §6].
 - **R11's timeout value** is the architect's; the core needs a constant (`GROUP_GIVE_UP_FRAMES`) to abandon a group; [ARCH §4.3] and §5.3 set it to 1 s after the stamp, or 1 s held.
 
-**Owner items, open (R-list "On the owner's list"; not decided here)**
+**Owner items, decided 2026-11-11** (every recommendation accepted)
 
-| # | Item | My recommendation | Day cost |
+| # | Item | Decision | Day cost, where |
 |---|---|---|---|
-| 1 | Estimate and reserve | the table sums to the tasks of §10.1; a third for the reserve (§10.1) | none |
-| 2 | No pitch automation on music tracks; `AudioSource.pitch` and `EventOptions.pitch` ignored for music | take it: the beat clock and loop prediction need rate 1; Wwise music tracks do not pitch | 0.5 (inside F1a and P6) |
-| 3 | `handle.onMusic(kind, fn)` for scripts that `Audio.play` music with no node | take it; both authors recommend it | 0.5 (M4c, not in the table) |
-| 4 | A public music seek, `handle.music.seek(position)` | take it only if games need it; it reuses the transition path | 1.5 (not in the table) |
-| 5 | Hidden tab under `mute`: commit ahead as under `play`, or re-plan on resume | commit ahead, so music resumes in place; on low it holds both ring sets while silent | 0 extra (P9) |
-| 6 | Starve behaviour (R11): the whole group dips and resumes together | ruled; reported because it is audible; it removes a second set of rings at the worst moment | in C2c (3) |
+| 1 | Estimate and reserve | a 20% reserve, 58 d; no scope cuts | none; §10.1 |
+| 2 | No pitch on music | a pitch automation binding on a music track is a validation error (dropped); `AudioSource.pitch` and `EventOptions.pitch` are ignored for music with one warning | +0.5, in P6 |
+| 3 | `handle.onMusic(kind, fn)` | taken; returns an unsubscribe function; same event and step as the component messages (§1.2) | +0.5, row K5 (M4c) |
+| 4 | A public music seek | taken: `handle.music.seek(to)` returns a `MusicSeekResult` (§1.2); behaviour is [ARCH §3.9], C20 | +1.5, row R7 (M4b) |
+| 5 | Hidden tab under `mute` | commit ahead as under `play`, so music keeps its place | 0, in P9 |
+| 6 | Starve behaviour (R11) | the core group hold stands: the whole group dips and resumes together | in C2c (3) |
+| 7 | The record's corrections | go into the amending ADR 0167 (PLAY does not split, the lead formula, the allowances) | none |
 
 ## 12. Resolutions: every item of `review-round2-architect.md`
 
@@ -549,7 +562,7 @@ Anything here that changes behaviour, scope or schedule goes to the owner throug
 | 12 group ids freed | taken with changes | main allocates 1..1023 skipping live ids; the core frees an entry at the start or the report, 16 entries (§3.1; R8, R9) |
 | 13 REPLAY of a running shaped ramp | taken with changes | the architect preferred a linear remainder from the computed value; R5 rules a start phase, so REPLAY re-sends the fade with its phase (§3.1, §4.2); their alternative rejected by the ruling |
 | 14 `primeGroup` and the backend seam | taken | §4.6 |
-| 15 `handle.onMusic` | open owner item 3 | recommended, 0.5 d (§11) |
+| 15 `handle.onMusic` | taken (owner decision 3) | §1.2, row K5 |
 
 **My contracts' statuses, C1-C18**
 
