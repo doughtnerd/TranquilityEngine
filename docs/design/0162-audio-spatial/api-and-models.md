@@ -30,7 +30,7 @@ Each field carries `description` (ADR 0159). `apply()`'s change signature (`Audi
 | `dopplerLevel` | 0..5 | `1` | Spatial sources: scales the Doppler shift; 0 off |
 | `reverbSend` | 0..2 | `1` | Spatial sources: how much of the source goes to the zones that hold it. The send is taken **before** the distance gain (R11, [ARCH §3.3] as amended in §4.5) |
 | `reverbSendCurve` | `SendCurve` | `DEFAULT_SEND_CURVE` | Send against distance, independent of the dry rolloff (Wwise's model). `reverbSend` x curve is clamped to 4 |
-| `ambisonicYaw` | -180..180 | `0` | Ambisonic clips: turns the recording about the vertical axis, degrees, positive to the left seen from above |
+| `ambisonicYaw` | -180..180 | `0` | Ambisonic clips: turns the recording about the vertical axis, degrees, positive to the right seen from above (ADR 0164; it was positive to the left before, and the format-4 migration negates saved values) |
 
 Read-only: `velocity: Vector3` (world units per second, §3.2), `panner`, `occlusion`. A source whose clip has an `ambisonic` sidecar ignores `spatial`, the distance fields, `occlusion` and `dopplerLevel` (the Inspector greys them; one warning per source). `reverbSendCurve` is `@field(PlainObject)` (the registry has no curve kind) and is drawn with the SDK's `CurveEditor` in an Inspector section (§7). **Industry:** `reverbSend` is Unity's `reverbZoneMix` and Wwise's game-defined aux send, scale 0..2 not Unity's 0..1.1.
 

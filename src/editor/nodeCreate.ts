@@ -114,12 +114,12 @@ export function newNodeEntry(doc: SceneDocument, kind: NodeKind, parent: string 
     case "sprite":
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.SpriteRenderer", data: {} }] };
     case "camera":
-      // In front of the sprite plane, looking down -z like the sample scenes' cameras.
+      // In front of the sprite plane, looking along +z like the sample scenes' cameras (ADR 0164).
       return {
         id,
         name,
         components: [
-          { type: "engine.Transform", data: { position: [at[0], at[1], parent === null ? 10 : at[2]] } },
+          { type: "engine.Transform", data: { position: [at[0], at[1], parent === null ? -10 : at[2]] } },
           { type: "engine.Camera", data: { projection: "orthographic", orthographicSize: 5 } },
         ],
       };
@@ -153,7 +153,8 @@ export function newNodeEntry(doc: SceneDocument, kind: NodeKind, parent: string 
     case "ui-input-field":
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, structuredClone(UI_ELEMENTS[builtin.slice(3) as UIKind])] };
     default: {
-      // A light: directional and spot lights point down and away, like a sun in the afternoon.
+      // A light: directional and spot lights point down and away, like a sun in the afternoon
+      // (a -30-degree yaw, then pitched 50 degrees down about the world X axis; a quaternion, ADR 0163, 0164).
       const type = builtin.replace(/-light$/, "");
       const aimed = type === "directional" || type === "spot";
       const position = type === "directional" && parent === null ? [at[0], at[1] + 5, at[2]] : at;
@@ -161,7 +162,7 @@ export function newNodeEntry(doc: SceneDocument, kind: NodeKind, parent: string 
         id,
         name,
         components: [
-          { type: "engine.Transform", data: aimed ? { position, rotation: [-50, 30, 0] } : { position } },
+          { type: "engine.Transform", data: aimed ? { position, rotation: [0.4082179, -0.2345697, -0.1093817, 0.8754261] } : { position } },
           { type: "engine.Light", data: { type } },
         ],
       };

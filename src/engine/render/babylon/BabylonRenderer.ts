@@ -4,8 +4,8 @@
  * Internal: game code never sees anything here.
  *
  * The engine node graph is authoritative (ADR 0010): each frame, sync copies world matrices into
- * Babylon objects, which are kept flat (no parenting) with frozen world matrices. The scene is
- * right-handed, +Y up, like the engine (ADR 0014).
+ * Babylon objects, which are kept flat (no parenting) with frozen world matrices. The scene is in
+ * Babylon's default left-handed mode, +Y up, +Z forward, like the engine (ADR 0164).
  *
  * Lights, shadows and the environment (stage 2) are in `lighting.ts`; the frame graph that draws each
  * frame, with post-processing (stage 3), is in `frameGraph.ts`.
@@ -223,7 +223,6 @@ export class BabylonRenderer {
     private readonly thumbnail: ThumbnailPolicy | null = null,
   ) {
     const scene = new Scene(engine);
-    scene.useRightHandedSystem = true; // the engine's convention (ADR 0014)
     scene.autoClear = true;
     this.clearColor = clearColorOf(settings.display.backgroundColor);
     scene.clearColor = this.clearColor;

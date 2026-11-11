@@ -39,17 +39,18 @@ export function edgeStatus(x: number, z: number, radius: number, warning = EDGE_
 }
 
 /**
- * The camera looks north (+Z) from the south, so the screen's up is +Z and its right is world -X.
+ * The camera looks north (-Z) from the south, so the screen's up is world -Z and its right is world -X.
  * Map and compass directions are the screen's: north is up, east is right.
  */
 export const SCREEN_RIGHT_X = -1;
+export const SCREEN_UP_Z = -1;
 
 const COMPASS = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"];
 
 /** The compass word for a direction on the water, as the screen shows it (north is up). */
 export function compass(dx: number, dz: number): string {
   const east = dx * SCREEN_RIGHT_X;
-  const a = Math.atan2(east, dz); // 0 = north, clockwise
+  const a = Math.atan2(east, dz * SCREEN_UP_Z); // 0 = north, clockwise
   const i = Math.round(a / (Math.PI / 4));
   return COMPASS[(i + 8) % 8];
 }
@@ -145,7 +146,7 @@ export function chartMarkers(input: ChartInput): MapMarker[] {
 /** A point on the water on a round minimap `size` pixels across showing an arena of `radius` metres (north up). */
 export function chartPoint(x: number, z: number, radius: number, size: number): { x: number; y: number } {
   const half = size / 2;
-  return { x: half + (x * SCREEN_RIGHT_X * half) / radius, y: half - (z * half) / radius };
+  return { x: half + (x * SCREEN_RIGHT_X * half) / radius, y: half - (z * SCREEN_UP_Z * half) / radius };
 }
 
 /** How far in from each side of the screen off-screen markers stay. */

@@ -25,7 +25,7 @@ export interface SkySun {
   latitude: number;
   /** Day of the year, 1–365 (172 ≈ the June solstice). Sets the sun's height through the year and the moon's phase. */
   dayOfYear: number;
-  /** Rotates the compass: degrees from the World's -Z axis to north, clockwise seen from above. */
+  /** Rotates the compass: degrees from the World's +Z axis to north, clockwise seen from above. */
   northOffset: number;
   /** `manual` placement: degrees above the horizon, -90–90. */
   elevation: number;

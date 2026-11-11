@@ -249,7 +249,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
     if (!engine || !scene || !camera) return;
     const r = this.distance;
     const t = this.target;
-    aimCamera(camera, [t.x + Math.sin(this.yaw) * Math.cos(this.pitch) * r, t.y + Math.sin(this.pitch) * r, t.z + Math.cos(this.yaw) * Math.cos(this.pitch) * r], [t.x, t.y, t.z]);
+    aimCamera(camera, [t.x + Math.sin(this.yaw) * Math.cos(this.pitch) * r, t.y + Math.sin(this.pitch) * r, t.z - Math.cos(this.yaw) * Math.cos(this.pitch) * r], [t.x, t.y, t.z]); // yaw 0 in front, at -Z (ADR 0164)
     renderFrame(engine, scene);
   }
 

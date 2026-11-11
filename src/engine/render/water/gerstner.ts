@@ -231,10 +231,10 @@ export function sampleWaves(packed: PackedWaves, x: number, z: number, iteration
   return { height: tmp.dy, nx, ny, nz, px, pz };
 }
 
-/** The four-wave preset the editor's Create > Water uses (and a new WaterSurface starts with). */
+/** The four-wave preset the editor's Create > Water uses (and a new WaterSurface starts with); mirrored in z with scenes (ADR 0164). */
 export const WATER_PRESET: readonly WaterWave[] = [
   { direction: 0, wavelength: 24, steepness: 0.18, speed: 0 },
-  { direction: 30, wavelength: 14, steepness: 0.16, speed: 0 },
-  { direction: -25, wavelength: 8, steepness: 0.14, speed: 0 },
-  { direction: 70, wavelength: 4.5, steepness: 0.1, speed: 0 },
+  { direction: -30, wavelength: 14, steepness: 0.16, speed: 0 },
+  { direction: 25, wavelength: 8, steepness: 0.14, speed: 0 },
+  { direction: -70, wavelength: 4.5, steepness: 0.1, speed: 0 },
 ];

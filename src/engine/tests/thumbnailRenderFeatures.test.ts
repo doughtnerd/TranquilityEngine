@@ -112,8 +112,8 @@ describe("thumbnails through the render features (ADR 0153)", () => {
       const [bmin, bmax] = box(named(p.scene, "sprite:B"));
       expect(bmax[0] - bmin[0]).toBeCloseTo((2 * TEXTURE) / 50, 4);
       expect((bmax[0] + bmin[0]) / 2).toBeCloseTo(-3, 4);
-      // Framed from the front (sprites only), at the middle of both.
-      expect(p.camera.position.z).toBeGreaterThan(p.target[2]);
+      // Framed from the front (sprites only: at -Z, looking along +Z, ADR 0164), at the middle of both.
+      expect(p.camera.position.z).toBeLessThan(p.target[2]);
       expect(Math.abs(p.camera.position.x - p.target[0])).toBeLessThan(1e-6);
     } finally {
       ref.dispose();

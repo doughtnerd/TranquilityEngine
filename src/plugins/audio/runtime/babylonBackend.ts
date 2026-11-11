@@ -28,7 +28,7 @@ import type { World } from "../../../engine/core/World";
 import { AudioReverbZone } from "./AudioReverbZone";
 import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
 import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioM3Counters, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type PlayRequest } from "./backend";
-import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, type BusPlan } from "./babylonMapping";
+import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
 import { DistanceEffect, SendCurveTable, SpatialViewFlag, type SpatialPassHost, type SpatialVoiceView } from "./core/spatial";
 import { DopplerPass } from "./core/doppler";
 import { OcclusionPass } from "./core/occlusion";
@@ -335,7 +335,8 @@ class BabylonVoice implements AudioVoice {
     const p = this.position;
     if (!sound || !p) return;
     const s = sound.spatial;
-    s.position.set(p.x, p.y, p.z);
+    const w = webAudioVector(p);
+    s.position.set(w.x, w.y, w.z);
     s.update();
   }
 
@@ -854,7 +855,8 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     if (!live || !pose) return;
     const listener = live.engine.listener;
     const q = listenerQuaternion(pose.forward, pose.up);
-    listener.position.set(pose.position.x, pose.position.y, pose.position.z);
+    const p = webAudioVector(pose.position);
+    listener.position.set(p.x, p.y, p.z);
     listener.rotationQuaternion.set(q.x, q.y, q.z, q.w);
     listener.update();
   }

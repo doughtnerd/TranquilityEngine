@@ -1,5 +1,5 @@
 {
-  "format": "myco.scene@2",
+  "format": "myco.scene@4",
   "nodes": [
     {
       "id": "walker",

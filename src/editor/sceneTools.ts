@@ -13,8 +13,10 @@ export const gizmoPivot = persisted<"center" | "pivot">("myco.editor.gizmoPivot"
 export interface SnapSettings {
   /** Move step in metres. */
   move: number;
-  /** Rotate step in degrees. */
+  /** Rotate step in radians (ADR 0164; Scene Tools shows it in the Rotation angles preference's unit). */
   rotate: number;
+  /** Storage version: 2 since the rotate step is radians; absent in settings saved before, whose `rotate` is degrees. */
+  v?: 2;
   /** Scale step (a factor). */
   scale: number;
   /** Grid cell size in metres. */
@@ -24,22 +26,23 @@ export interface SnapSettings {
   always: boolean;
 }
 
-export const DEFAULT_SNAP: SnapSettings = { move: 0.25, rotate: 15, scale: 0.1, grid: 1, showGrid: true, always: false };
+export const DEFAULT_SNAP: SnapSettings = { move: 0.25, rotate: Math.PI / 12, scale: 0.1, grid: 1, showGrid: true, always: false, v: 2 };
 
 /** Snap steps, grid and "always snap" (missing or bad values from older storage fall back to the defaults). */
 export const snapSettings = persisted<SnapSettings>("myco.editor.snap", DEFAULT_SNAP);
 
-/** The snap settings with any unusable value replaced by its default. */
+/** The snap settings with any unusable value replaced by its default. Settings saved before version 2 hold the rotate step in degrees: it's converted to radians. */
 export function cleanSnap(s: Partial<SnapSettings> | null | undefined): SnapSettings {
   const pos = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : d);
   const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
   return {
     move: pos(s?.move, DEFAULT_SNAP.move),
-    rotate: pos(s?.rotate, DEFAULT_SNAP.rotate),
+    rotate: pos(s?.v === 2 || typeof s?.rotate !== "number" ? s?.rotate : (s.rotate * Math.PI) / 180, DEFAULT_SNAP.rotate),
     scale: pos(s?.scale, DEFAULT_SNAP.scale),
     grid: pos(s?.grid, DEFAULT_SNAP.grid),
     showGrid: bool(s?.showGrid, DEFAULT_SNAP.showGrid),
     always: bool(s?.always, DEFAULT_SNAP.always),
+    v: 2,
   };
 }
 

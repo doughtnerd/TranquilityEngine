@@ -21,12 +21,12 @@ import { DEFAULT_SLOT, type ModelMesh, type SurfaceInfo, type TextureInfo } from
 import type { GraphValue } from "../../scene/shaderGraph";
 
 /**
- * A PBR material for engine geometry. The engine's meshes wind their front faces counter-clockwise
- * (three.js and glTF convention); Babylon's default, even in a right-handed scene, is clockwise.
+ * A PBR material for engine geometry. Front faces are Babylon's left-handed default (ADR 0164): the
+ * engine's meshes wind as Babylon's builders do, so a triangle's right-hand-rule normal points inward.
  */
 export function pbr(name: string, scene: Scene): PBRMaterial {
   const m = new PBRMaterial(name, scene);
-  m.sideOrientation = BabylonMaterial.CounterClockWiseSideOrientation;
+  useEngineTangentFrame(m);
   m.maxSimultaneousLights = 8; // Babylon's default is 4
   useEngineLightFalloff(m);
   return m;
@@ -41,6 +41,17 @@ export function pbr(name: string, scene: Scene): PBRMaterial {
  */
 export function useEngineLightFalloff(m: PBRMaterial): void {
   m.useGLTFLightFalloff = true;
+}
+
+/**
+ * Normal maps' tangent frame: Babylon derives it from screen derivatives, and in a left-handed world
+ * screen x × screen y points away from the viewer, which turns its tangent and bitangent round (the
+ * engine's normal maps are +X along u, +Y along v, as glTF). Inverting both turns them back; clear
+ * coat normal maps follow the same flags. `babylonWinding.test.ts` checks the sign.
+ */
+export function useEngineTangentFrame(m: PBRMaterial): void {
+  m.invertNormalMapX = true;
+  m.invertNormalMapY = true;
 }
 
 /** An sRGB engine colour as a linear Babylon colour (PBR colours are linear). */

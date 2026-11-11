@@ -1,7 +1,7 @@
 // King of Pirates' shared data (ADR 0017, 0033): components, the input stream, RPCs and the rules
 // every World uses. Client and server load the same scripts, so both define the same replicated
 // components, inputs and RPCs, as the handshake requires.
-import { GameObject, Replicated, defineComponent, defineInput, defineRpc, f32, i32, replicate, u8, type DataView } from "myco";
+import { GameObject, Mathf, Quaternion, Replicated, defineComponent, defineInput, defineRpc, f32, i32, replicate, u8, type DataView } from "myco";
 
 export const SHIP_PREFAB = "prefabs/ship.prefab.json";
 export const BALL_PREFAB = "prefabs/cannonball.prefab.json";
@@ -96,7 +96,7 @@ export const TEAM_COLORS = ["#d84a3a", "#3a7bd8", "#4caf50", "#f2c230", "#9c4fd8
 // --- data ------------------------------------------------------------------------------------------
 
 /**
- * A ship. `heading` (degrees about Y, 0 = +Z) and `speed` are predicted by the owner; the rest is
+ * A ship. `heading` (degrees about Y, 0 = +Z, positive turns to starboard) and `speed` are predicted by the owner; the rest is
  * the server's. `aimX`/`aimZ`/`fire`/`battery` are a bot's helm (players' come from `Helm`).
  */
 export const Ship = defineComponent("pirates.Ship", {
@@ -209,16 +209,24 @@ export function myShip(): ShipInfo | null {
   return ships().find((s) => s.rep.isOwnedLocally) ?? null;
 }
 
-/** Unit vector a heading points along, on the water. */
+/** Unit vector a heading points along, on the water (0 = +Z, 90 = +X). */
 export function forward(headingDeg: number): { x: number; z: number } {
   const r = (headingDeg * Math.PI) / 180;
   return { x: Math.sin(r), z: Math.cos(r) };
 }
 
-/** The starboard (right-hand) side of a heading; port is its negation. */
+/** The starboard (right-hand) side of a heading, `forward(heading + 90)`; port is its negation. */
 export function starboard(headingDeg: number): { x: number; z: number } {
   const r = (headingDeg * Math.PI) / 180;
-  return { x: -Math.cos(r), z: Math.sin(r) };
+  return { x: Math.cos(r), z: -Math.sin(r) };
+}
+
+/**
+ * A ship's rotation for a heading: the bow (+Z) turned onto `forward(heading)`. The ship prefab's mesh nodes
+ * carry a half turn so the bow is at +Z (its models import with `facing: "back"`, ADR 0164).
+ */
+export function headingRotation(headingDeg: number): Quaternion {
+  return Quaternion.fromEuler(0, headingDeg * Mathf.Deg2Rad, 0);
 }
 
 /** The heading (degrees) that points from (x, z) toward (tx, tz). */

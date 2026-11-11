@@ -44,7 +44,7 @@ export class Bird extends GameBehavior {
 
     const t = this.visual?.transform;
     if (t) {
-      const target = this.alive ? Mathf.clamp(velocity.y * 3, -80, 25) : -80;
+      const target = (this.alive ? Mathf.clamp(velocity.y * 3, -80, 25) : -80) * Mathf.Deg2Rad;
       t.rotation2D = Mathf.lerp(t.rotation2D, target, Math.min(1, Time.deltaTime * 10));
     }
   }

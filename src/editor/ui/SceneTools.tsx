@@ -4,6 +4,7 @@ import { actionLabel, alignTargets, minNodes, runAlign, type AlignAction, type A
 import { previewCamera, previewFrame, selectedCamera } from "../cameraPreview";
 import { cameraPreviewEnabled, cleanSnap, gizmoPivot, gizmoSpace, snapSettings, toggleGizmoPivot, toggleGizmoSpace, updateSnap, type SnapSettings } from "../sceneTools";
 import { docVersion, openScene, sceneCamera, selectedKeys, viewMode } from "../state";
+import { rotationAngles } from "../preferences";
 import { previewedQuality, previewQuality, qualityTiers } from "../graphicsPreview";
 import { sceneToolbarItems, type SceneToolbarItemContribution } from "../sdk/contributions";
 import { lazyComponent, type LazyComponent } from "./lazy";
@@ -140,20 +141,27 @@ function Popover(props: { label: string; buttonText: string; buttonClass: string
 
 const SNAP_FIELDS: { key: "move" | "rotate" | "scale" | "grid"; label: string; unit: string }[] = [
   { key: "move", label: "Move step", unit: "m" },
-  { key: "rotate", label: "Rotate step", unit: "°" },
+  { key: "rotate", label: "Rotate step", unit: "rad" },
   { key: "scale", label: "Scale step", unit: "×" },
   { key: "grid", label: "Grid size", unit: "m" },
 ];
 
+/** Rounds a shown step so float noise (π/12 as 0.2617993877991494) doesn't show. */
+const shownStep = (n: number): number => Math.round(n * 1e4) / 1e4;
+
 function SnapSettingsForm(props: { settings: SnapSettings }) {
   const s = props.settings;
+  // The rotate step is stored in radians (ADR 0164) and shown in the Inspector's Rotation angles unit (ADR 0165).
+  const degrees = rotationAngles.value === "degrees";
+  const shown = (key: (typeof SNAP_FIELDS)[number]["key"]) => (key === "rotate" ? shownStep(degrees ? (s.rotate * 180) / Math.PI : s.rotate) : s[key]);
+  const commit = (key: (typeof SNAP_FIELDS)[number]["key"], v: number) => updateSnap({ [key]: key === "rotate" && degrees ? (v * Math.PI) / 180 : v });
   return (
     <div class="snap-form">
       {SNAP_FIELDS.map((f) => (
         <label key={f.key} class="snap-row">
           <span>{f.label}</span>
-          <StepInput value={s[f.key]} label={f.label} onCommit={(v) => updateSnap({ [f.key]: v })} />
-          <span class="unit">{f.unit}</span>
+          <StepInput value={shown(f.key)} label={f.label} onCommit={(v) => commit(f.key, v)} />
+          <span class="unit">{f.key === "rotate" && degrees ? "°" : f.unit}</span>
         </label>
       ))}
       <label class="snap-row check">

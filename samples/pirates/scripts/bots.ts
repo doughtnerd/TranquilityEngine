@@ -25,7 +25,7 @@ function wanderPoint(team: number, x: number, z: number): { x: number; z: number
   let w = wander.get(team);
   if (!w || (w.x - x) ** 2 + (w.z - z) ** 2 < 100) {
     const a = Math.random() * Math.PI * 2, r = Math.random() * arenaRadius() * 0.6;
-    w = { x: Math.sin(a) * r, z: Math.cos(a) * r };
+    w = { x: Math.sin(a) * r, z: -Math.cos(a) * r };
     wander.set(team, w);
   }
   return w;
@@ -63,7 +63,7 @@ const avoid: Steer = (world, _team, x, z, tx, tz) => {
     const to = bearing(x, z, block.x, block.z);
     const half = (Math.asin(Math.min(1, (block.r + MARGIN) / d)) * 180) / Math.PI + 4;
     const left = to - half, right = to + half;
-    want = Math.abs(angleDelta(left, want)) < Math.abs(angleDelta(right, want)) ? left : right;
+    want = Math.abs(angleDelta(right, want)) < Math.abs(angleDelta(left, want)) ? right : left;
   }
   return want;
 };
@@ -125,7 +125,7 @@ defineSystem({
         const toTarget = bearing(p.x, p.z, target.x, target.z);
         const side = (target.x - p.x) * s.x + (target.z - p.z) * s.z >= 0 ? Battery.starboard : Battery.port;
         ship.battery = side;
-        const beam = toTarget + (side === Battery.starboard ? 90 : -90); // the heading that puts it abeam
+        const beam = toTarget + (side === Battery.starboard ? -90 : 90); // the heading that puts it abeam
         // Hunting (rather than racing for the free flag or running with it): run parallel once in range,
         // steering for a point ahead on that course like any other goal, so it doesn't run onto a rock.
         if (holder >= 0 && holder !== ship.team && target.d < RANGE) {

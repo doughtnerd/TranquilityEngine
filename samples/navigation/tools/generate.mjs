@@ -11,8 +11,9 @@
 // way (everything is seeded). Bake after changing the chunks' layout or the navigation settings
 // (`npm run nav:bake`): each chunk's NavChunk already refers to its `<scene>.nav.bin`.
 //
-// Coordinates: the Unity generator's layout, with z flipped (Myco is right-handed: north is -z,
-// so a camera looking north has east on its right, as in the Unity demo). `U(x, y, z)` converts.
+// Coordinates: the files are written as myco.scene@2 (right-handed, north is -z), so `U(x, y, z)` flips
+// the Unity generator's z, and loading mirrors them into today's Unity coordinates (north +z, ADR 0164).
+// Script fields aren't mirrored on load, so `S(x, y, z)` writes them in Unity coordinates as they are.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -70,8 +71,10 @@ const isCell = (c, d) => c.x === d.x && c.y === d.y;
 const COURSE_X = -52;
 const COURSE_HALF_WIDTH = 4;
 
-/** Unity position → Myco position (z flipped). */
+/** Unity position → a myco.scene@2 position (z flipped). */
 const U = (x, y, z) => [r(x), r(y), r(-z)];
+/** Unity position → a script field's position (unchanged: see Coordinates above). */
+const S = (x, y, z) => [r(x), r(y), r(z)];
 /** Rounded for tidy JSON. */
 const r = (v) => Math.round(v * 1000) / 1000 + 0;
 
@@ -603,7 +606,7 @@ function buildMain() {
   scene.add("Camera", [
     transform(U(0, 40, -50), [-35, 0, 0]),
     { type: "engine.Camera", data: { projection: "perspective", fieldOfView: 55, near: 0.5, far: 2000 } },
-    { type: "navdemo.CameraRig", data: { focus: U(0, 0, -10), distance: 70, yaw: 0, pitch: -40 } },
+    { type: "navdemo.CameraRig", data: { focus: S(0, 0, -10), distance: 70, yaw: 0, pitch: -40 } },
   ]);
   scene.add("Sun", [transform([0, 50, 0], [-50, -30, 0]), { type: "engine.Light", data: { type: "directional", intensity: 1.5, castShadows: true, shadowArea: 120 } }]);
   scene.add("Ambient Light", [transform([0, 0, 0]), { type: "engine.Light", data: { type: "ambient", intensity: 0.5 } }]);
@@ -626,7 +629,7 @@ function buildMain() {
   scene.add("Goal", [
     transform(U(...TOUR[0].slice(1)), undefined, [2, 2, 2]),
     renderer("builtin:sphere", "goal", { castShadows: false }),
-    { type: "navdemo.Tour", data: { waypoints: TOUR.map((w) => U(w[1], w[2], w[3])), names: TOUR.map((w) => w[0]), interval: TOUR_INTERVAL } },
+    { type: "navdemo.Tour", data: { waypoints: TOUR.map((w) => S(w[1], w[2], w[3])), names: TOUR.map((w) => w[0]), interval: TOUR_INTERVAL } },
   ]);
 
   // Crowds, spaced as a real crowd stands (2.5 radii apart): walkers west of the centre line, walk-and-fly agents east.
@@ -636,9 +639,9 @@ function buildMain() {
     if (count === 0) return;
     scene.add(name, [transform([0, 0, 0]), { type: "navdemo.Crowd", data: { kind, prefab, count, center: centre, spacing, spread: GOAL_SPREAD, height, seed } }]);
   };
-  crowd("Walkers", "walker", PREFABS.walker, COUNTS.walkers, U(-half(COUNTS.walkers) - 4, 1.5, -24), groundSpacing, 0, 11);
-  crowd("Walk-and-fly agents", "walkFly", PREFABS.walkFly, COUNTS.walkFlyers, U(half(COUNTS.walkFlyers) + 4, 1.5, -24), groundSpacing, 0, 22);
-  crowd("Flyers", "flyer", PREFABS.flyer, COUNTS.flyers, U(0, 12, -24), airSpacing, 10, 33);
+  crowd("Walkers", "walker", PREFABS.walker, COUNTS.walkers, S(-half(COUNTS.walkers) - 4, 1.5, -24), groundSpacing, 0, 11);
+  crowd("Walk-and-fly agents", "walkFly", PREFABS.walkFly, COUNTS.walkFlyers, S(half(COUNTS.walkFlyers) + 4, 1.5, -24), groundSpacing, 0, 22);
+  crowd("Flyers", "flyer", PREFABS.flyer, COUNTS.flyers, S(0, 12, -24), airSpacing, 10, 33);
 
   // Groups: one formation each; members start in a square round the group and take their slots on the way.
   let groupCount = 0;
@@ -687,7 +690,7 @@ function buildMain() {
     const goal = scene.add(`${name} goal`, [transform(U(wx + COURSE_X, 0.5, wz + endZ)), renderer("builtin:sphere", "goal", { castShadows: false })]);
     scene.add(name, [
       transform([0, 0, 0]),
-      { type: "navdemo.Course", data: { kind, prefab, count, from: U(wx + COURSE_X, pivot, wz + startZ), to: U(wx + COURSE_X, pivot, wz + endZ), interval: COURSE_INTERVAL, goal: { $node: goal } } },
+      { type: "navdemo.Course", data: { kind, prefab, count, from: S(wx + COURSE_X, pivot, wz + startZ), to: S(wx + COURSE_X, pivot, wz + endZ), interval: COURSE_INTERVAL, goal: { $node: goal } } },
     ]);
   };
   course("Jump course", "jumper", PREFABS.jumper, COUNTS.jumpers, 12, 48, 1);

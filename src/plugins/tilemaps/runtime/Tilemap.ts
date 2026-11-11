@@ -366,7 +366,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
   /** The cell holding a world point. */
   worldToCell(p: Vec2Like | Vec3Like): Vector2 {
     const t = this.node.transform;
-    const local = t ? t.worldToLocal({ x: p.x, y: p.y, z: (p as Vec3Like).z ?? 0 }) : p;
+    const local = t ? t.localToWorld.inverseTransformPoint({ x: p.x, y: p.y, z: (p as Vec3Like).z ?? 0 }) : p;
     return this.localToCell(local);
   }
 
@@ -374,7 +374,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
   cellToWorld(x: number, y: number): Vector3 {
     const l = this.cellToLocal(x, y);
     const t = this.node.transform;
-    return t ? t.localToWorld({ x: l.x, y: l.y, z: 0 }) : new Vector3(l.x, l.y, 0);
+    return t ? t.localToWorld.transformPoint({ x: l.x, y: l.y, z: 0 }) : new Vector3(l.x, l.y, 0);
   }
 
   override _onDetach(): void {

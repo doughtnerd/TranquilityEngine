@@ -48,7 +48,6 @@ beforeEach(async () => {
   babylon = new NullEngine();
   (babylon as unknown as { createCanvas: typeof fakeCanvas }).createCanvas = fakeCanvas;
   scene = new Scene(babylon);
-  scene.useRightHandedSystem = true;
   loaded.length = 0;
   ui = new BabylonUI(scene, {
     texture: async (ref) => {

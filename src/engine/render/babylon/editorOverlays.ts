@@ -386,7 +386,7 @@ export function emitLightSegments(
     const n = Math.hypot(x, y, z) || 1;
     return [(x / n) * sign, (y / n) * sign, (z / n) * sign];
   };
-  const [xx, xy, xz] = unit(0, 1), [yx, yy, yz] = unit(4, 1), [fx, fy, fz] = unit(8, -1);
+  const [xx, xy, xz] = unit(0, 1), [yx, yy, yz] = unit(4, 1), [fx, fy, fz] = unit(8, 1);
   const ring = (cx: number, cy: number, cz: number, ux: number, uy: number, uz: number, vx: number, vy: number, vz: number, r: number, n = 32): void => {
     let qx = cx + ux * r, qy = cy + uy * r, qz = cz + uz * r;
     for (let i = 1; i <= n; i++) {
@@ -701,7 +701,7 @@ export class BabylonEditorOverlays {
       const tx = 2 * (q.y * z - q.z * y), ty = 2 * (q.z * x - q.x * z), tz = 2 * (q.x * y - q.y * x);
       return [x + q.w * tx + (q.y * tz - q.z * ty), y + q.w * ty + (q.z * tx - q.x * tz), z + q.w * tz + (q.x * ty - q.y * tx)];
     };
-    const [rx, ry, rz] = rot(1, 0, 0), [ux, uy, uz] = rot(0, 1, 0), [fx, fy, fz] = rot(0, 0, -1);
+    const [rx, ry, rz] = rot(1, 0, 0), [ux, uy, uz] = rot(0, 1, 0), [fx, fy, fz] = rot(0, 0, 1);
     const canvasHeight = this.ctx.canvas.clientHeight > 0 ? this.ctx.canvas.clientHeight : this.ctx.settings.display.height;
     const pixels = Math.max(1, canvasHeight * Math.min(1, Math.max(0.001, camera.viewportSize.y)));
     return { camera, px: p.x, py: p.y, pz: p.z, rx, ry, rz, ux, uy, uz, fx, fy, fz, q: new Quaternion(q.x, q.y, q.z, q.w), ortho: camera.projection === "orthographic", pixels };

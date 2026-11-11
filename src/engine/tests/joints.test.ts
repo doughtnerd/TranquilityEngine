@@ -144,11 +144,11 @@ describe("2D joints (ADR 0092)", () => {
   it("FixedJoint2D holds a body; a rotated body keeps its rotation", async () => {
     const engine = await setup("2d");
     const a = body2("a", 0, 5);
-    a.transform!.eulerAngles = [0, 0, 30];
+    a.transform!.eulerAngles = [0, 0, Math.PI / 6];
     a.addBehavior(FixedJoint2D);
     steps(engine, 60);
     expect(pos(a).y).toBeCloseTo(5, 1);
-    expect(a.transform!.worldRotation2D).toBeCloseTo(30, 0);
+    expect(a.transform!.worldRotation2D).toBeCloseTo(Math.PI / 6, 2);
   });
 
   it("HingeJoint2D swings, respects limits, and its motor turns counterclockwise", async () => {

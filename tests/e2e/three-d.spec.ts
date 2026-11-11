@@ -188,7 +188,7 @@ test("model import settings and materials save to their files", async ({ page, b
   await inspector.getByRole("spinbutton", { name: "Scale" }).press("Enter");
   await inspector.getByRole("combobox", { name: "Up Axis" }).selectOption("z");
   await inspector.getByRole("button", { name: "Apply" }).click();
-  await expect.poll(() => readFile(page, "Playground/models/robot.fbx.meta.json")).toBe('{\n  "format": "myco.import@1",\n  "scale": 2,\n  "upAxis": "z"\n}\n');
+  await expect.poll(() => readFile(page, "Playground/models/robot.fbx.meta.json")).toBe('{\n  "format": "myco.import@1",\n  "scale": 2,\n  "upAxis": "z",\n  "facing": "back"\n}\n'); // the sample keeps facing "back" (ADR 0164)
 
   // New Material from the Assets panel's menu, then edited in the Inspector.
   await showFolder(page, "materials");

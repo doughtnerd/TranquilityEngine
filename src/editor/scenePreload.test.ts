@@ -7,7 +7,7 @@ import { CommandStack, SceneDocument, SetScenePreload, type SceneFile } from "./
 import { formatSceneJSON } from "./document/format";
 import { addToPreload, preloadCandidates, preloadSuggestion, removeFromPreload } from "./scenePreload";
 
-const file = (settings?: SceneFile["settings"]): SceneFile => ({ format: "myco.scene@2", ...(settings ? { settings } : {}), nodes: [{ id: "a", name: "A" }] }) as SceneFile;
+const file = (settings?: SceneFile["settings"]): SceneFile => ({ format: "myco.scene@4", ...(settings ? { settings } : {}), nodes: [{ id: "a", name: "A" }] }) as SceneFile;
 
 describe("the scene's preload list in the editor (ADR 0080)", () => {
   it("is kept when the scene is saved", () => {

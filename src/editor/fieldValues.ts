@@ -3,6 +3,7 @@ import { AssetRef, Color, GameObject, PlainObject, Quaternion, Vector2, Vector3 
 import { isListType, resolveChoices, type FieldChoice, type ScalarFieldType } from "../engine/core/registry";
 import { resolveSettings, type ProjectSettingsInput } from "../engine/core/settings";
 import type { FieldValue } from "../engine/editor";
+import { rotationCodec, rotationFrom } from "./fields/rotationCodec";
 
 /** How the inspector edits a field. */
 export type FieldEditor =
@@ -20,6 +21,8 @@ export type FieldEditor =
   | "choice"
   | "list"
   | "unknown";
+
+export { quaternionJSON } from "./fields/rotationCodec";
 
 /** Pick an editor from the declared type, falling back to the live value's shape. */
 export function editorFor(field: FieldValue): FieldEditor {
@@ -78,8 +81,9 @@ export function defaultItem(editor: FieldEditor, choices: readonly FieldChoice[]
     case "vector2":
       return [0, 0];
     case "vector3":
-    case "quaternion":
       return [0, 0, 0];
+    case "quaternion":
+      return [0, 0, 0, 1];
     case "object":
       return {};
     case "choice":
@@ -104,7 +108,9 @@ export function colorToJSON(c: Color): string {
  * Scene-file JSON for an edited value.
  * - vectors → `[x, y(, z)]`; colors → hex; asset paths → `"asset:…"`; node refs → `{"$node": id}`
  *   (the caller resolves a node to its document id) or `null`.
- * - Transform `rotation` stays a single angle when the file already stores it that way (2D).
+ * - rotations (Transform `rotation`, `@field(Quaternion)`) → a quaternion `[x, y, z, w]` (ADR 0163), from a
+ *   Quaternion, a raw `[x, y, z, w]` or Euler radians `[x, y, z]` (order ZXY, remembered for the Inspector),
+ *   in the rotation codec's form (ADR 0165).
  */
 export function toSceneJSON(
   editor: FieldEditor,
@@ -118,18 +124,17 @@ export function toSceneJSON(
       const item = options.itemEditor ?? "unknown";
       return items.map((v) => toSceneJSON(item, v, { nodeId: options.nodeId }));
     }
-    case "quaternion":
+    case "quaternion": {
       if (value === null || value === undefined) return null;
-      // Euler degrees, rounded (and without -0) so the file reads as typed.
-      return value instanceof Quaternion ? value.toEuler().toArray().map((n) => Math.round(n * 1e4) / 1e4 + 0) : Array.isArray(value) ? [...value] : value;
+      const q = rotationFrom(value);
+      return q ? rotationCodec("radians").toJSON(q) : value;
+    }
     case "choice":
       return value;
     case "vector2":
     case "vector3": {
       if (value === null || value === undefined) return null;
-      const arr = Array.isArray(value) ? [...value] : (value as { toArray(): number[] }).toArray();
-      if (options.field === "rotation" && typeof options.previous === "number" && arr[0] === 0 && arr[1] === 0) return arr[2];
-      return arr;
+      return Array.isArray(value) ? [...value] : (value as { toArray(): number[] }).toArray();
     }
     case "color":
       if (value === null || value === undefined) return null;
@@ -161,9 +166,11 @@ export function toSceneJSON(
 export function parseNumber(text: string): number | null {
   const trimmed = text.trim();
   if (trimmed === "") return null;
-  if (/^[-+*/().\d\se]+$/i.test(trimmed)) {
+  // `pi` or `π` for radians (ADR 0165).
+  const expr = trimmed.replace(/π|\bpi\b/gi, "(3.141592653589793)");
+  if (/^[-+*/().\d\se]+$/i.test(expr)) {
     try {
-      const n = Number(new Function(`return (${trimmed});`)());
+      const n = Number(new Function(`return (${expr});`)());
       return Number.isFinite(n) ? n : null;
     } catch {
       return null;

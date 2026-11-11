@@ -99,7 +99,7 @@ function rig() {
   /** One audio frame; `n` of them. */
   const run = (n = 1) => {
     for (let k = 0; k < n; k++) {
-      frame.set(world, KEY, null, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
+      frame.set(world, KEY, null, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
       pass.run(frame, view, settings);
     }
   };

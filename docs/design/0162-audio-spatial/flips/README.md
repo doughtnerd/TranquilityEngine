@@ -1,6 +1,6 @@
-# Held flips (ADR 0162 M3)
+# Flips (ADR 0162 M3)
 
-The plan's flips ("What shippable means", item 4) change a default for every project. Each is built and tested on its task's branch, then held until its gate passes and the owner approves. This build session can push only the integration branch, so each held flip is kept here as a `git format-patch` file; apply it with `git am <file>` on the integration branch.
+The plan's flips ("What shippable means", item 4) change a default for every project. Each is built and tested on its task's branch, then held until its gate passes and the owner approves. This build session can push only the integration branch, so each held flip is kept here as a `git format-patch` file; apply it with `git am <file>` on the integration branch. All of M3's flips are now applied and on master; the bed flip's patch below is kept for the record.
 
 | Flip | File | Task | Gate (waves plan) | State |
 |---|---|---|---|---|

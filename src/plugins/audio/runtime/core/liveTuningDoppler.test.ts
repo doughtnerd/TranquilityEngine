@@ -28,7 +28,7 @@ function rig() {
   const world = {} as World, node = {} as GameObject;
   /** One frame with the source at `x` (a source at -100 moving +x approaches a listener at the origin). */
   const step = (x: number) => {
-    frame.set(world, 1, node, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
+    frame.set(world, 1, node, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
     posX[0] = x;
     pass.run(frame, view, settings);
   };

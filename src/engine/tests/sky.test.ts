@@ -50,9 +50,9 @@ describe("sky format", () => {
 });
 
 describe("sky maths", () => {
-  it("points directions with -Z north and +X east", () => {
+  it("points directions with +Z north and +X east (left-handed, ADR 0164)", () => {
     const north = directionFromAngles(0, 0);
-    near(north[2], -1);
+    near(north[2], 1);
     const east = directionFromAngles(0, 90);
     near(east[0], 1);
     near(directionFromAngles(90, 0)[1], 1);
@@ -118,7 +118,11 @@ describe("sky maths", () => {
     for (let c = 0; c < 3; c++) near(Math.hypot(m[c * 3], m[c * 3 + 1], m[c * 3 + 2]), 1);
     const pole = directionFromAngles(sky.sun.latitude, 0);
     const out = [0, 1, 2].map((r) => m[r] * pole[0] + m[3 + r] * pole[1] + m[6 + r] * pole[2]);
-    for (let i = 0; i < 3; i++) near(out[i], pole[i]);
+    // Star-sphere axes are the world's mirrored in z (the star field kept its picture, ADR 0164).
+    for (let i = 0; i < 3; i++) near(out[i], i === 2 ? -pole[i] : pole[i]);
+    // The determinant is -1: a turn after a mirror.
+    const det = m[0] * (m[4] * m[8] - m[7] * m[5]) - m[3] * (m[1] * m[8] - m[7] * m[2]) + m[6] * (m[1] * m[5] - m[4] * m[2]);
+    near(det, -1);
   });
 
   it("schedules bakes on change and after the clock moves, throttled", () => {
@@ -175,9 +179,9 @@ describe("sky uniforms and cubemaps", async () => {
     expect(u).toHaveLength(SKY_UNIFORMS.length * 4);
     expect(at(u, "sunDir")[1]).toBeGreaterThan(0.5);
     expect(at(u, "sunDir")[3]).toBe(0);
-    expect(at(u, "skyOut")).toEqual([1, 1, 0, 0]);
+    expect(at(u, "skyOut")).toEqual([1, 0, 0, 0]);
     const baked = packSkyUniforms(frame({ baking: true, intensity: 3, fog: { color: [1, 0, 0], amount: 0.5 } }));
-    expect(at(baked, "skyOut")).toEqual([1, -1, 0, 0]); // no skybox intensity, Z mirrored
+    expect(at(baked, "skyOut")).toEqual([1, 0, 0, 0]); // no skybox intensity; no z flip in the left-handed scene (ADR 0164)
     expect(at(baked, "moonDir")[3]).toBe(1);
     expect(at(baked, "fogCol").slice(0, 3)).toEqual([1, 0, 0]);
     expect(at(baked, "fogShape")[1]).toBe(0.5);

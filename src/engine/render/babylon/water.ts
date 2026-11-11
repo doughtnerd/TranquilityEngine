@@ -21,7 +21,6 @@
  * while ships rode the sampled waves, so troughs hid their hulls.
  */
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
-import { Material } from "@babylonjs/core/Materials/material.js";
 import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
@@ -335,7 +334,7 @@ export function babylonWaterResolution(resolution: number, shaderLevel: string):
   return Math.max(2, Math.min(1024, Math.round(scaled)));
 }
 
-/** A flat grid of `size`, `resolution` vertices per side, in the XZ plane facing +Y (counter-clockwise from above). */
+/** A flat grid of `size`, `resolution` vertices per side, in the XZ plane facing +Y (wound as Babylon's left-handed default: right-hand-rule normal -Y). */
 export function waterGridData(size: number, resolution: number): VertexData {
   const n = resolution;
   const positions = new Float32Array(n * n * 3);
@@ -356,8 +355,8 @@ export function waterGridData(size: number, resolution: number): VertexData {
   for (let j = 0; j < n - 1; j++) {
     for (let i = 0; i < n - 1; i++) {
       const a = j * n + i, b = (j + 1) * n + i, c = (j + 1) * n + i + 1, d = j * n + i + 1;
-      indices[k++] = a; indices[k++] = b; indices[k++] = d;
-      indices[k++] = b; indices[k++] = c; indices[k++] = d;
+      indices[k++] = a; indices[k++] = d; indices[k++] = b;
+      indices[k++] = b; indices[k++] = d; indices[k++] = c;
     }
   }
   const data = new VertexData();
@@ -410,8 +409,7 @@ export class BabylonWater {
     if (!entry) {
       const state = createState();
       const material = new PBRMaterial("myco-water", this.scene);
-      material.sideOrientation = Material.CounterClockWiseSideOrientation;
-      material.maxSimultaneousLights = 8;
+          material.maxSimultaneousLights = 8;
       useEngineLightFalloff(material);
       material.albedoColor.set(1, 1, 1);
       material.metallic = 0;

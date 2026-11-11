@@ -1,6 +1,6 @@
 # 0042. List fields, field choices, and per-instance Worlds and tags overrides
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0163 (`@field(Quaternion)` stored as `[x, y, z, w]`)
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

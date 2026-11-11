@@ -254,6 +254,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private readonly idleFrame = new ListenerFrame();
   /** B5: per slot, the FuMa import gain (`ambisonicImportGain`) the voice's volume already carries; 1 when none was known at its play. */
   private readonly gainApplied: Float32Array;
+  /** @internal Each slot's `PlayRequest.owner` (the playing node's name), for `debug()`'s voice rows; null for none. */
+  readonly owners: (string | null)[] = [];
   /** B3: the stream voices' main side (`streams.ts`). */
   readonly streams: StreamManager;
   /** ADR 0158 (E3.1): the event runtime's automation sink on the core, and its mirror for a rebuild (`coreAutomation.ts`). */
@@ -274,7 +276,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private readonly spatialDirty: Uint8Array;
   private listenerDirty = true;
   private readonly listenerPos: [number, number, number] = [0, 0, 0];
-  private readonly listenerFwd: [number, number, number] = [0, 0, -1];
+  private readonly listenerFwd: [number, number, number] = [0, 0, 1];
   private readonly listenerUp: [number, number, number] = [0, 1, 0];
   private readonly distance = new DistanceEffect();
   private readonly basis = new ListenerBasis();
@@ -564,6 +566,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const i = id & 0xffff;
     t.clip[i] = clip;
     t.group[i] = group;
+    this.owners[i] = req.owner ?? null;
     t.volume[i] = req.volume !== undefined && Number.isFinite(req.volume) ? Math.max(0, req.volume) : 1;
     this.gainApplied[i] = req.ambisonic === true && !stream ? ambisonicImportGain(req.path) : 1;
     t.pitch[i] = req.pitch !== undefined && Number.isFinite(req.pitch) ? clamp(req.pitch, MIN_PITCH, MAX_PITCH) : 1;
@@ -1142,7 +1145,9 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     if (o.reverbSend !== undefined && Number.isFinite(o.reverbSend)) t.reverbSend[i] = clamp(o.reverbSend, 0, 2);
     if (o.reverbSendCurve !== undefined) t.sendCurve[i] = this.sendCurves.intern(o.reverbSendCurve);
     if (o.yaw !== undefined && Number.isFinite(o.yaw)) {
-      t.yaw[i] = (clamp(o.yaw, -180, 180) * Math.PI) / 180;
+      // The engine's yaw follows the left-hand rule (ADR 0164: positive turns right, seen from above clockwise); the
+      // native ambisonic code is right-handed (positive turns left), so the sign flips here, at the boundary.
+      t.yaw[i] = 0 - (clamp(o.yaw, -180, 180) * Math.PI) / 180; // 0 - x: a yaw of 0 stays +0
       if ((f2 & VoiceFlag2.AMBISONIC) !== 0) this.voiceFx.setYaw(i, t.yaw[i]!);
     }
     f2 = t.reverbSend[i]! > 0 ? f2 | VoiceFlag2.SENDS : f2 & ~VoiceFlag2.SENDS;

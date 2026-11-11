@@ -57,7 +57,6 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     await SceneManager.load("s.json");
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     layer = new UtilityLayerRenderer(scene);
     meshes = [];
     loaded = true;
@@ -69,7 +68,7 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
       bakeReflectionProbe: vi.fn(async () => new Uint8Array([1, 2]).buffer),
     };
     const cam = GameObject.create("cam");
-    cam.transform!.position.set(0, 0, 10);
+    cam.transform!.position.set(0, 0, -10); // looking along +Z (ADR 0164)
     cameras = [cam.addBehavior(Camera, { projection: "orthographic", orthographicSize: 5 })];
   });
 
@@ -118,14 +117,14 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
 
   it("picks, casts rays and projects through the view camera, in engine types", () => {
     const viewport = make();
-    const near = box("near", [0, 0, 2]);
-    const far = box("far", [0, 0, -2]);
+    const near = box("near", [0, 0, -2]);
+    const far = box("far", [0, 0, 2]);
     expect(viewport.pick(400, 300)).toEqual([near, far]);
     const ray = viewport.rayAt(400, 300)!;
-    expect(ray.direction[2]).toBeCloseTo(-1);
+    expect(ray.direction[2]).toBeCloseTo(1);
     expect(viewport.worldToCanvas([0, 0, 0])).toEqual([expect.closeTo(400), expect.closeTo(300)]);
     expect(viewport.pointOnPlane(400, 300, [0, 0, 1], [0, 0, 1])).toEqual([expect.closeTo(0), expect.closeTo(0), 1]);
-    expect(viewport.meshBounds(near)).toEqual({ min: [-1, -1, 1], max: [1, 1, 3] });
+    expect(viewport.meshBounds(near)).toEqual({ min: [-1, -1, -3], max: [1, 1, -1] });
     const bounds = viewport.screenBounds(World.require().root).find((b) => b.node === near)!;
     expect(bounds.rect.left).toBeLessThan(400);
     expect(bounds.rect.right).toBeGreaterThan(400);
@@ -158,7 +157,7 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     };
     hooks.ui.mockReturnValue(ui);
     expect(viewport.pickUI(400, 300)).toEqual([element]);
-    expect(ui.pickAll).toHaveBeenCalledWith(400, 300, expect.objectContaining({ direction: [expect.any(Number), expect.any(Number), expect.closeTo(-1)] }));
+    expect(ui.pickAll).toHaveBeenCalledWith(400, 300, expect.objectContaining({ direction: [expect.any(Number), expect.any(Number), expect.closeTo(1)] }));
     const box = viewport.uiElementBox(element)!;
     expect(box.points[0]).toEqual([expect.closeTo(400), expect.closeTo(300)]);
     expect(box.size).toEqual([100, 100]);

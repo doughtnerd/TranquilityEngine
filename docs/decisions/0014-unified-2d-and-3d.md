@@ -1,6 +1,6 @@
 # 0014. 2D and 3D share one pipeline
 
-- **Status:** Accepted
+- **Status:** Accepted; coordinate conventions superseded by 0164 (Unity's: left-handed, +Y up, +Z forward)
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

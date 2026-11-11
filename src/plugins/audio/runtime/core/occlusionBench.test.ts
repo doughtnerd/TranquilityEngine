@@ -159,7 +159,7 @@ export function runOcclusion(n: number, budgetMs: number, walled: boolean, frame
   for (let i = 0; i < n; i++) view.add(i, 10 + (i % 7), i - n / 2, 1 - i / (2 * n));
   const pass = new OcclusionPass(n, env);
   const f = new ListenerFrame();
-  f.set(WORLD, KEY, null, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
+  f.set(WORLD, KEY, null, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
   const s = settings(budgetMs);
   const oldest = new Float64Array(frames);
   const book = new Float64Array(frames);

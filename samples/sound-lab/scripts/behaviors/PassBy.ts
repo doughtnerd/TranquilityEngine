@@ -9,9 +9,9 @@ import { GameBehavior, Time, behavior, field } from "myco";
 @behavior("lab.PassBy")
 export class PassBy extends GameBehavior {
   /** Start of the run, z in metres. */
-  @field(Number) from = 40;
+  @field(Number) from = -40;
   /** End of the run, z in metres. */
-  @field(Number) to = -40;
+  @field(Number) to = 40;
   /** Metres per second. The speed of sound is 343, so 30 shifts the pitch by about 9% each way. */
   @field(Number) speed = 30;
 

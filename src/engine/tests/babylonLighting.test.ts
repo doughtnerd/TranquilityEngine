@@ -49,7 +49,6 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     await SceneManager.load("s.json");
     babylon = new NullEngine();
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     lighting = new BabylonLighting(scene);
   });
 
@@ -63,7 +62,7 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
   const light = (props: Record<string, unknown>, pos: [number, number, number] = [0, 0, 0], euler?: [number, number, number]) => {
     const node = GameObject.create(`light ${String(props.type)}`);
     node.transform!.position.set(...pos);
-    if (euler) node.transform!.eulerAngles = euler;
+    if (euler) node.transform!.eulerAngles = euler.map((d) => (d * Math.PI) / 180); // given in degrees; radians since ADR 0164
     return node.addBehavior(Light, props);
   };
   let shadows: ShadowRequest[] = [];
@@ -92,8 +91,8 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(def.direction.y).toBeLessThan(-0.5);
     expect(def.direction.x).toBeLessThan(0);
 
-    light({ type: "directional", intensity: 2 }, [0, 5, 0], [-45, 0, 0]);
-    light({ type: "directional", intensity: 1, castShadows: true }, [0, 5, 0], [-45, 0, 0]);
+    light({ type: "directional", intensity: 2 }, [0, 5, 0], [45, 0, 0]);
+    light({ type: "directional", intensity: 1, castShadows: true }, [0, 5, 0], [45, 0, 0]);
     lighting.setSunOverride(sunOver);
     sync();
     const lights = scene.lights.filter((l) => l.name.startsWith("light:")) as DirectionalLight[];
@@ -108,7 +107,7 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
   });
 
   it("mirrors each Light's type, colour, intensity and pose, and drops the defaults", () => {
-    light({ type: "directional", intensity: 2 }, [0, 5, 0], [-90, 0, 0]); // looking straight down
+    light({ type: "directional", intensity: 2 }, [0, 5, 0], [90, 0, 0]); // looking straight down (a positive pitch looks down)
     light({ type: "point", range: 7, color: new Color(1, 0, 0, 1) }, [1, 2, 3]);
     light({ type: "spot", spotAngle: 60, spotSoftness: 0.5 });
     light({ type: "ambient", intensity: 0.3 });
@@ -117,13 +116,14 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     const sun = byName("light:light directional") as DirectionalLight;
     expect(sun.getClassName()).toBe("DirectionalLight");
     expect(sun.intensity).toBe(2);
-    expect(sun.direction.y).toBeCloseTo(-1); // the node's -Z
+    expect(sun.direction.y).toBeCloseTo(-1); // the node's +Z (ADR 0164)
     const point = byName("light:light point") as PointLight;
     expect(point.position.asArray()).toEqual([1, 2, 3]);
     expect(point.range).toBe(7);
     expect(point.diffuse.r).toBeCloseTo(1);
     expect(point.diffuse.g).toBeCloseTo(0);
     const spot = byName("light:light spot") as SpotLight;
+    expect(spot.direction.asArray()).toEqual([0, 0, 1]); // an unturned spot shines along +Z (ADR 0164)
     expect(spot.angle).toBeCloseTo(Math.PI / 3);
     expect(spot.innerAngle).toBeCloseTo(Math.PI / 6);
     expect(byName("light:light ambient")!.getClassName()).toBe("HemisphericLight");
@@ -144,11 +144,11 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
   it("picks the main light for Main Light nodes as three.js does: shadow-casting directional first, toward the light, linear × intensity", () => {
     sync();
     const len = Math.hypot(4, 10, 6);
-    expect(lighting.mainLight.direction.map((v) => +v.toFixed(4))).toEqual([4 / len, 10 / len, 6 / len].map((v) => +v.toFixed(4))); // the default sun
+    expect(lighting.mainLight.direction.map((v) => +v.toFixed(4))).toEqual([4 / len, 10 / len, -6 / len].map((v) => +v.toFixed(4))); // the default sun
     light({ type: "ambient", intensity: 0.3 }); // made first, so Babylon's light0 isn't directional
     light({ type: "point" });
-    light({ type: "directional", intensity: 3, color: new Color(1, 0, 0, 1) }, [0, 0, 0], [0, 0, 0]); // faces -Z: light travels -Z
-    light({ type: "directional", intensity: 2, color: new Color(0.5, 0.5, 0.5, 1), castShadows: true }, [0, 5, 0], [-90, 0, 0]); // looking down
+    light({ type: "directional", intensity: 3, color: new Color(1, 0, 0, 1) }, [0, 0, 0], [0, 0, 0]); // faces +Z: light travels +Z
+    light({ type: "directional", intensity: 2, color: new Color(0.5, 0.5, 0.5, 1), castShadows: true }, [0, 5, 0], [90, 0, 0]); // looking down
     sync();
     const [dx, dy, dz] = lighting.mainLight.direction;
     expect(dx).toBeCloseTo(0);
@@ -159,11 +159,12 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(lighting.mainLight.color[1]).toBeCloseTo(half * 2, 3);
   });
 
-  it("falls back to (0.4, 1, 0.6) and white when the World's Lights include no directional one", () => {
+  it("falls back to (0.4, 1, -0.6) and white when the World's Lights include no directional one", () => {
     light({ type: "point" });
     sync();
     const len = Math.hypot(0.4, 1, 0.6);
     expect(lighting.mainLight.direction[1]).toBeCloseTo(1 / len);
+    expect(lighting.mainLight.direction[2]).toBeCloseTo(-0.6 / len);
     expect(lighting.mainLight.color).toEqual([1, 1, 1]);
   });
 
@@ -267,7 +268,7 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
 
   it("asks for a shadow map the tier's size for a shadow-casting light, covering its shadow area", () => {
     Graphics.quality = "High";
-    light({ type: "directional", castShadows: true, shadowArea: 30 }, [0, 10, 0], [-90, 0, 0]);
+    light({ type: "directional", castShadows: true, shadowArea: 30 }, [0, 10, 0], [90, 0, 0]);
     sync();
     const sun = byName("light:light directional") as DirectionalLight;
     expect(shadows).toHaveLength(1);
@@ -286,9 +287,9 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     const minimum = caps.maxVaryingVectors;
     caps.maxVaryingVectors = 32; // a device with room for the extra values each cascaded light passes
     const camera = new TargetCamera("view", Vector3.Zero(), scene);
-    light({ type: "directional", castShadows: true }, [0, 10, 0], [-90, 0, 0]);
-    light({ type: "directional", castShadows: true }, [0, 10, 0], [-60, 0, 0]);
-    light({ type: "directional", castShadows: true }, [0, 10, 0], [-30, 0, 0]);
+    light({ type: "directional", castShadows: true }, [0, 10, 0], [90, 0, 0]);
+    light({ type: "directional", castShadows: true }, [0, 10, 0], [60, 0, 0]);
+    light({ type: "directional", castShadows: true }, [0, 10, 0], [30, 0, 0]);
     engine.step(1 / 60);
     const requests = lighting.syncLights(World.require(), camera);
     expect(requests.map((r) => r.cascaded)).toEqual([true, true, false]);
@@ -319,7 +320,7 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
 
   it("leaves shadowEnabled on only for lights with a shadow map, so Babylon's per-render toggle never dirties meshes", () => {
     Graphics.quality = "High";
-    light({ type: "directional", castShadows: true }, [0, 10, 0], [-90, 0, 0]);
+    light({ type: "directional", castShadows: true }, [0, 10, 0], [90, 0, 0]);
     light({ type: "point" }, [1, 2, 3]);
     sync();
     expect(byName("light:light directional")!.shadowEnabled).toBe(true);
@@ -355,7 +356,6 @@ describe("clustered point and spot lights (ADR 0079)", () => {
     Object.assign((babylon as unknown as { _caps: object })._caps, { texelFetch: true, colorBufferFloat: true, blendFloat: true, shaderFloatPrecision: 23, maxVaryingVectors: 28 });
     Object.defineProperty(babylon, "version", { get: () => 2 });
     scene = new Scene(babylon);
-    scene.useRightHandedSystem = true;
     lighting = new BabylonLighting(scene);
   });
 

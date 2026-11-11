@@ -64,7 +64,7 @@ afterEach(() => {
 describe("BabylonBackend engine", () => {
   it("creates nothing until the first play", async () => {
     const { backend, createContext } = rig();
-    backend.setListener({ position: { x: 1, y: 2, z: 3 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } });
+    backend.setListener({ position: { x: 1, y: 2, z: 3 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } });
     backend.applyMix(mixer.resolveAll());
     await flush();
     expect(babylonMock.creates).toBe(0);
@@ -427,9 +427,9 @@ describe("BabylonBackend spatial sound", () => {
     const s = sound();
     expect(s.options).toMatchObject({ spatialEnabled: true, spatialDistanceModel: "linear", spatialMinDistance: 2, spatialMaxDistance: 50, spatialRolloffFactor: 1, spatialPanningModel: "HRTF" });
     expect(s.spatial.distanceModel).toBe("linear");
-    expect(s.spatial.position).toMatchObject({ x: 4, y: 5, z: 6 });
+    expect(s.spatial.position).toMatchObject({ x: 4, y: 5, z: -6 }); // Web Audio axes: z negated (ADR 0164)
     v.setPosition({ x: -1, y: 0, z: 9 });
-    expect(s.spatial.position).toMatchObject({ x: -1, y: 0, z: 9 });
+    expect(s.spatial.position).toMatchObject({ x: -1, y: 0, z: -9 });
     expect(s.spatial.updates).toBeGreaterThan(0);
     v.setAttenuation({ minDistance: 3, maxDistance: 30, rolloff: "exponential" });
     expect(s.spatial).toMatchObject({ distanceModel: "exponential", minDistance: 3, maxDistance: 30, rolloffFactor: 1 });
@@ -444,7 +444,7 @@ describe("BabylonBackend spatial sound", () => {
     v.setPosition({ x: 1, y: 2, z: 3 });
     expect(sound().spatialTouched).toBe(true);
     expect(sound().spatial.maxDistance).toBe(9);
-    expect(sound().spatial.position).toMatchObject({ x: 1, y: 2, z: 3 });
+    expect(sound().spatial.position).toMatchObject({ x: 1, y: 2, z: -3 });
   });
 
   it("uses equal-power panning when audio.spatial says so", async () => {
@@ -461,12 +461,12 @@ describe("BabylonBackend spatial sound", () => {
     backend.play(req());
     await flush();
     const l = engine().listener;
-    expect(l.position).toMatchObject({ x: 1, y: 2, z: 3 });
+    expect(l.position).toMatchObject({ x: 1, y: 2, z: -3 });
     // Turned a quarter turn: a unit quaternion that isn't the identity.
     expect(Math.hypot(l.rotationQuaternion.x, l.rotationQuaternion.y, l.rotationQuaternion.z, l.rotationQuaternion.w)).toBeCloseTo(1);
     expect(l.rotationQuaternion.w).toBeLessThan(0.99);
     const updates = l.updates;
-    backend.setListener({ position: { x: 7, y: 0, z: 0 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } });
+    backend.setListener({ position: { x: 7, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } });
     expect(l.position).toMatchObject({ x: 7, y: 0, z: 0 });
     expect([l.rotationQuaternion.x, l.rotationQuaternion.y, l.rotationQuaternion.z, l.rotationQuaternion.w].map((v) => Math.abs(v))).toEqual([0, 0, 0, 1]);
     expect(l.updates).toBeGreaterThan(updates);
@@ -683,7 +683,7 @@ describe("BabylonBackend setters before the sound is ready", () => {
     const s = sound();
     expect(s.outBus).toBe(bus("Music"));
     expect(s.options).toMatchObject({ volume: 0.25, playbackRate: 1.5, spatialDistanceModel: "linear", spatialMinDistance: 2, spatialMaxDistance: 20 });
-    expect(s.spatial.position).toMatchObject({ x: 1, y: 2, z: 3 });
+    expect(s.spatial.position).toMatchObject({ x: 1, y: 2, z: -3 });
     expect(s.plays).toHaveLength(1);
     // The fade runs from where the sound started, over the time asked.
     expect(s.ramps.at(-1)).toEqual({ value: expect.closeTo(0.125), duration: 0.2 });
@@ -888,11 +888,11 @@ describe("the engine on BabylonBackend", () => {
     game.step(1 / 60);
     await flush();
     const s = sound();
-    expect(s.spatial.position).toMatchObject({ x: 4, y: 5, z: 6 });
+    expect(s.spatial.position).toMatchObject({ x: 4, y: 5, z: -6 });
     expect(s.spatial).toMatchObject({ distanceModel: "linear", minDistance: 2, maxDistance: 50 });
     n.transform!.position.set(-1, 0, 9);
     game.step(1 / 60);
-    expect(s.spatial.position).toMatchObject({ x: -1, y: 0, z: 9 });
+    expect(s.spatial.position).toMatchObject({ x: -1, y: 0, z: -9 });
   });
 
   it("plays one-shots flat, with a volume number, or spatially at a position", async () => {
@@ -902,7 +902,7 @@ describe("the engine on BabylonBackend", () => {
     expect(sound(0).options.volume).toBe(0.4);
     expect(sound(0).spatialTouched).toBe(false);
     expect(sound(1).options).toMatchObject({ volume: 0.8, playbackRate: 0.5, spatialMinDistance: 4, spatialMaxDistance: 40, spatialDistanceModel: "inverse" });
-    expect(sound(1).spatial.position).toMatchObject({ x: 3, y: 2, z: 1 });
+    expect(sound(1).spatial.position).toMatchObject({ x: 3, y: 2, z: -1 });
   });
 
   it("sets the listener from an AudioListener, and falls back to the main camera", async () => {
@@ -912,7 +912,7 @@ describe("the engine on BabylonBackend", () => {
     cam.addBehavior(Camera);
     game.step(1 / 60);
     await flush();
-    expect(engine().listener.position).toMatchObject({ x: 0, y: 0, z: 10 });
+    expect(engine().listener.position).toMatchObject({ x: 0, y: 0, z: -10 });
     const ears = GameObject.create("ears");
     ears.transform!.position.set(7, 0, 0);
     ears.addBehavior(AudioListener);

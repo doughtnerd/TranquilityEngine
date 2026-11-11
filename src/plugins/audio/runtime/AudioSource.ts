@@ -105,7 +105,7 @@ export class AudioSource extends Component {
   @field(Number, { description: "Spatial sources: scales the Doppler shift, 0..5; 0 is off." }) dopplerLevel = 1;
   @field(Number, { description: "Spatial sources: how much of the source goes to the reverb zones that hold it, 0..2. Taken before the distance gain." }) reverbSend = 1;
   @field(PlainObject, { hidden: true, description: "The reverb send against distance (x: 0 at minDistance to 1 at maxDistance; y multiplies the send), independent of the dry rolloff. reverbSend × curve is clamped to 4." }) reverbSendCurve: SendCurve = DEFAULT_SEND_CURVE.map((p) => [p[0], p[1]] as [number, number]);
-  @field(Number, { description: "Ambisonic clips: turns the recording about the vertical axis, degrees (-180..180), positive to the left seen from above." }) ambisonicYaw = 0;
+  @field(Number, { description: "Ambisonic clips: turns the recording about the vertical axis, degrees (-180..180), positive to the right (clockwise seen from above), as every turn (ADR 0164)." }) ambisonicYaw = 0;
 
   private voice: AudioVoice | null = null;
   /** @internal ADR 0162 D2a: the playing voice's id (0 while none), so the occlusion pass can exclude the source's own colliders. */
@@ -168,7 +168,7 @@ export class AudioSource extends Component {
     }
     this.ambisonicClip = isAmbisonicClip(path);
     if (this.ambisonicClip) this.warnAmbisonicIgnored(path);
-    this.voice = startClip(path, this.loop, this.output, { priority: clamp255(this.priority), world: worldKeyOf(this._world), ...this.spatialOptions() });
+    this.voice = startClip(path, this.loop, this.output, { priority: clamp255(this.priority), world: worldKeyOf(this._world), owner: this.node.name, ...this.spatialOptions() });
     this.applied = "";
     this.appliedM3 = "";
     this.appliedCurve.length = 0;

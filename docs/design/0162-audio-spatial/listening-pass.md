@@ -9,7 +9,7 @@ The owner's listening pass for M3, the spatial milestone. It takes the owner's l
 - **Build.** Master (M3 merged). Beds are on by default since the bed flip (build log D27).
 - **Run.** `npm run dev`, open `/editor.html?sample=sound-lab`, press **Play**, click the game view once (sound starts after a gesture and the click gives the game the keys), then press **S** for the spatial page. **B** goes back to the tour. The title card lists every key.
 - **Headphones.** Required, as in the M1 pass: HRTF and the bed can't be judged on speakers.
-- **Watch.** Window > Audio Debug: the voice table's **Panner** column shows which panner each sound uses (`hrtf`, `bed`, `ambisonic`, `equalPower`, `flat`), the **Occlusion** column its occlusion gain and cutoff, and the **Beds**, **Zones** (with a `why` for a silent zone) and **Occlusion** sections. In the browser's devtools console, `__myco.Audio.debug()` returns the same data.
+- **Watch.** Window > Audio Debug: the voice table's **Source** column names the node playing each sound (the Flyover's row reads `Flyover (key V)`; one-shots, such as key 4's burst, show `-`), its **Clip** column the file, and its **Panner** column shows which panner each sound uses (`hrtf`, `bed`, `ambisonic`, `equalPower`, `flat`), the **Occlusion** column its occlusion gain and cutoff, and the **Beds**, **Zones** (with a `why` for a silent zone) and **Occlusion** sections. In the browser's devtools console, `__myco.Audio.debug()` returns the same data.
 - **Changing configurations.** The core reads its preset when it starts. For each configuration, edit the `audio` block of `samples/sound-lab/project.json` as the table below says, save, reload the page, Play, click and press **S** again. Put the file back afterwards (`git checkout samples/sound-lab/project.json`).
 - **Clips.** Start an item once Audio Debug lists the page's sources as `playing`, not `waitingForData`.
 
@@ -39,19 +39,19 @@ B and C are the editor's low and high presets (`VOICE_PRESETS` in `src/plugins/a
 | Key | What it does | Where |
 |---|---|---|
 | W / S | walk forward (toward the cave) / back (toward the room) along the corridor, 4 m/s | `Walker.ts` on the Listener |
-| 1 / 2 / 3 | jump to room A (z 11), the corridor B (z 0), the cave C (z -16): **teleports** | `Walker.ts` |
+| 1 / 2 / 3 | jump to room A (z -11), the corridor B (z 0), the cave C (z 16): **teleports**. You face +Z, toward the cave, until you press 8 | `Walker.ts` |
 | F | open / close the door between the corridor and room A (wood; it opens over 0.8 s) | `Door.ts` on the Door |
-| V | start / stop the Flyover: a hum passing overhead (6 m up) along the corridor at 30 m/s, from z 40 to -40 and back, Doppler on | `PassBy.ts`, `Toggle.ts` |
+| V | start / stop the Flyover: a 600 Hz hum (a steady pitch, so the Doppler shift is easy to hear) passing overhead (6 m up) along the corridor at 30 m/s, from z -40 to 40 and back, Doppler on | `PassBy.ts`, `Toggle.ts` |
 | 4 | a burst: one loud source 1.5 m away and 200 quiet ones 4 to 25 m away, all at once (press again for another) | `ListeningBench.ts` (spatial mode) |
-| 5 | start / stop the **Bed orbit**: a hum 3 m from your head, going round you once every 24 s while its height swings between overhead (+70°) and below the floor (-70°) every 12 s. It is attached to the listener, so it moves and turns with you | `ListeningBench.ts` |
+| 5 | the **Bed orbit**, pulses of pink noise 3 m from your head (broadband with sharp onsets, so it can be placed by ear). First press: a **level circle** at ear height, front, right, behind, left, once every 12 s. Second press: a **vertical circle**, front, overhead, behind, below the floor, once every 12 s. Third press: off. Each circle starts in front of you. It is attached to the listener, so it moves and turns with you | `ListeningBench.ts` |
 | 6 | jump behind the west wall (x -3.2, z 0): the wall, and the door, are between you and room A | `ListeningBench.ts` |
-| 7 | jump outside the west wall beside the cave (x -2.6, z -20.5): the wall is between you and the Machine, 3.5 m away | `ListeningBench.ts` |
-| 8 | turn the listener 90° on the spot (four presses make a full turn) | `ListeningBench.ts` |
+| 7 | jump outside the west wall beside the cave (x -2.6, z 20.5): the wall is between you and the Machine, 3.5 m away | `ListeningBench.ts` |
+| 8 | turn the listener a quarter turn to the left on the spot (four presses make a full turn) | `ListeningBench.ts` |
 | 9 | stop the orbit and the burst | `ListeningBench.ts` |
 | 0 | stop every other sound on the page (Ambience, Radio, Machine, Flyover); press again to start them again | `ListeningBench.ts` |
 | B | back to the tour | `SceneSwitch.ts` |
 
-The page's sources: the **Radio** (music loop) in room A at z 12.5, behind the door (z 6); the **Machine** (noise loop) in the cave at x 0.8, z -18; the **Ambience** (a first-order ambisonic loop, always on, on its own bus's bed); the **Flyover** (key V). The **Curtain** (cloth) hangs across the corridor at z -8, between the corridor and the cave. The zones: **room** (preset `room`, wet 0.6, z 6 to 16), **corridor** (`corridor`, wet 0.6, z -8 to 6), **cave** (`cave`, wet 0.7, z -24 to -8, blend 3 m).
+The page's sources: the **Radio** (a broadband music loop: plucked chords and a hi-hat) in room A at z -12.5, behind the door (z -6); the **Machine** (noise loop) in the cave at x 0.8, z 18; the **Ambience** (a first-order ambisonic loop, always on, on its own bus's bed); the **Flyover** (key V). The **Curtain** (cloth) hangs across the corridor at z 8, between the corridor and the cave. The zones: **room** (preset `room`, wet 0.6, z -16 to -6), **corridor** (`corridor`, wet 0.6, z -6 to 8), **cave** (`cave`, wet 0.7, z 8 to 24, blend 3 m). The sounds you place by ear (the orbit, the Radio, the Machine) are broadband on purpose: a steady low tone gives the head almost no difference between the ears, and up/down and front/back are heard from 4 to 16 kHz.
 
 ## Items
 
@@ -60,28 +60,28 @@ Mark each item **pass**, **fail** or **pass with note**. A fail gets an issue; a
 ### M3a: the bed
 
 #### B1. A source crossing the HRTF boundary, both ways (Config D)
-- **Do:** Config D (one HRTF voice). Press **2** (corridor), press **F** to open the door (so the Radio is loud enough to hold the HRTF voice while the Flyover is far), then **V**. Watch the Flyover's **Panner** cell in Audio Debug.
+- **Do:** Config D (one HRTF voice). Press **2** (corridor), press **F** to open the door (so the Radio is loud enough to hold the HRTF voice while the Flyover is far), then **V**. In Audio Debug, find the row whose **Source** is `Flyover (key V)` and watch its **Panner** cell (the table can be wider than the window: scroll it right).
 - **Listen for:** with one HRTF voice, the Flyover and the Radio compete for it. As the Flyover comes within about 20 m it becomes the most audible and moves from the bed to HRTF (and the Radio to the bed); as it leaves, it goes back to the bed (half a second after its last change). The Panner cell shows `bed` → `hrtf` → `bed`.
 - **Pass:** no dip in level, no jump in position or tone at either change: a smooth 45 ms crossfade each way.
 - Result: [ ] pass [ ] fail
 - Notes:
 
 #### B2. Above and below (Config A, then Config D)
-- **Do:** in Config A press **5** and listen for at least 12 s (one swing up and down). The orbit is the nearest sound, so it uses HRTF (Panner `hrtf`). Then in Config D press **1** (room A, next to the Radio, which takes the one HRTF voice), press **5**, and listen again: the orbit is now in the bed (Panner `bed`).
-- **Listen for:** at the top of its swing the hum is overhead; at the bottom it is below the floor and stays audible there. Both through HRTF and through the bed.
+- **Do:** in Config A press **5** twice (the vertical circle) and listen for at least 12 s (one full circle: front, overhead, behind, below). The orbit is the nearest sound, so it uses HRTF (Panner `hrtf`). Press **9**. Then in Config D press **1** (room A, next to the Radio, which takes the one HRTF voice), press **5** twice, and listen again: the orbit is now in the bed (Panner `bed`).
+- **Listen for:** the pulses rising from in front to overhead, going over to behind, then down below the floor and back up in front, and staying audible below. Both through HRTF and through the bed.
 - **Pass:** clearly above and clearly below, with no drop-out under the floor, on both paths. The head-response data has nothing below -45° (the lower rows reuse -45°), so a weak or vanishing image below is the floor-below failure: it opens reserve R1 (the SADIE II data set, [waves plan, "Milestones"](../../plans/2026-11-audio-spatial-m3-waves.md#milestones)). Note which path failed.
 - Result: [ ] pass [ ] fail
 - Notes:
 
 #### B3. Behind and at the sides
-- **Do:** Config A. Press **5** and listen for a full 24 s circle. Then press **9**, press **1** (room A; the Radio is 1.5 m away along the corridor's axis) and press **8** four times, a quarter turn each, listening to the Radio at each step.
-- **Listen for:** the orbit passing in front, to the sides and behind you; the Radio moving a quarter of the way round your head at each press (from its starting side, to one side, to the opposite side, to the other side) (the orbit is attached to you, so turning doesn't move it relative to your head; the Radio is fixed in the room).
+- **Do:** Config A. Press **5** once (the level circle) and listen for at least 12 s (one full circle). Then press **9**, press **1** (room A: you face the cave and the Radio is 1.5 m behind you) and press **8** four times, a quarter turn to the left each, listening to the Radio at each step.
+- **Listen for:** the orbit at ear height going from in front, to your right, behind you, to your left and back in front. The Radio starts behind you; after each press it is on your left, ahead, on your right, then behind you again (the orbit is attached to you, so turning doesn't move it relative to your head; the Radio is fixed in the room).
 - **Pass:** behind is behind, sides are at the sides, no front-back swap.
 - Result: [ ] pass [ ] fail
 - Notes:
 
 #### B4. The bed against HRTF (Config D)
-- **Do:** Config D. Press **1** (the Radio takes the HRTF voice), press **5** (the orbit goes to the bed), and compare the two. Then press **9**.
+- **Do:** Config D. Press **1** (the Radio takes the HRTF voice), press **5** once (the level circle; the orbit goes to the bed), and compare the two. Then press **9**.
 - **Listen for:** the orbit through the bed is a little wider and softer-edged than the Radio through HRTF, but placed in the right direction. The Ambience (its own bed) stays steady as the orbit moves.
 - **Pass:** the bed's image is in the right place and stable; nothing pumps or shifts in level as the orbit moves.
 - Result: [ ] pass [ ] fail
@@ -104,7 +104,7 @@ Mark each item **pass**, **fail** or **pass with note**. A fail gets an issue; a
 ### M3b: ambisonic clips
 
 #### AM1. An ambience turned on the spot, first order (Config A)
-- **Do:** with the Flyover off and the bench stopped (**9**), press **2** (the corridor, between the Radio and the Machine, so the Ambience is the loudest thing), then press **8** four times, a quarter turn each, listening between presses.
+- **Do:** with the Flyover off and the bench stopped (**9**), press **2** (the corridor, between the Radio and the Machine, so the Ambience is the loudest thing), then press **8** four times, a quarter turn each, listening between presses (the fourth brings you back to where you started).
 - **Listen for:** the ambience stays put in the room as you turn, not with your head.
 - **Pass:** it turns against your head, with no wrong-way rotation and no collapse to the centre.
 - Result: [ ] pass [ ] fail
@@ -186,7 +186,7 @@ Mark each item **pass**, **fail** or **pass with note**. A fail gets an issue; a
 - Notes:
 
 #### O4. The curtain, cloth (Config A)
-- **Do:** press **2** and listen to the Machine through the curtain (z -8) and the corridor; walk **W** past the curtain into the cave and listen again.
+- **Do:** press **2** and listen to the Machine through the curtain (z 8) and the corridor; walk **W** past the curtain into the cave and listen again.
 - **Listen for:** cloth only softens a little (about -4 dB, dull above 8 kHz): far lighter than the door or the walls.
 - **Pass:** the curtain is a light softening, clearly lighter than the door and the walls.
 - Result: [ ] pass [ ] fail

@@ -80,7 +80,7 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
     const t = node.transform;
     if (!t) return { position: { x: 0, y: 0 }, rotation: 0 };
     const p = t.worldPosition;
-    return { position: { x: p.x, y: p.y }, rotation: t.worldRotation2D * DEG2RAD };
+    return { position: { x: p.x, y: p.y }, rotation: t.worldRotation2D };
   }
 
   protected relativePose(parent: P2, child: P2): P2 {
@@ -90,7 +90,7 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
   }
 
   protected writePose(t: Transform, pose: P2): void {
-    t._setWorldPose2D(pose.position.x, pose.position.y, pose.rotation * RAD2DEG);
+    t._setWorldPose2D(pose.position.x, pose.position.y, pose.rotation);
   }
 
   /** The short way round: a body turning past ±π doesn't spin back through 0 (ADR 0137). */
@@ -199,7 +199,7 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
     const cx = c.center.x * ws.x, cy = c.center.y * ws.y;
     // A character controller's capsule stays upright, whichever way its node turns.
     if (c instanceof CharacterController2D) return { position: { x: p.x + cx, y: p.y + cy }, rotation: 0 };
-    const angle = t.worldRotation2D * DEG2RAD;
+    const angle = t.worldRotation2D;
     const [ox, oy] = this.rotate(angle, [cx, cy]);
     return { position: { x: p.x + ox, y: p.y + oy }, rotation: angle };
   }
@@ -234,7 +234,7 @@ export class PhysicsWorld2D extends PhysicsCore<Dim2, Types2D> {
     else if (j instanceof SliderJoint2D) {
       if (Math.abs(restAngle) > 1e-4) this.warnOnce(`slider:${j.node.entity}`, `${j.node.name}: SliderJoint2D's bodies should start at the same rotation; it turns them to match.`);
       const t = j.node.transform;
-      const turn = t ? t.worldRotation2D * DEG2RAD - p2.rotation : 0;
+      const turn = t ? t.worldRotation2D - p2.rotation : 0;
       const len = Math.hypot(j.axis.x, j.axis.y) || 1;
       const [x, y] = this.rotate(turn, [j.axis.x / len, j.axis.y / len]);
       desc = { kind: "prismatic", ...base, axis: { x, y } };

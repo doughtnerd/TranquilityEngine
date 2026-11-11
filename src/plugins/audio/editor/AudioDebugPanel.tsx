@@ -157,6 +157,9 @@ export function AudioDebugPanel() {
   const section = (id: Section["id"]) => <SectionView section={sections.find((x) => x.id === id)!} />;
   const voiceRow = (v: DebugVoice, inEvent: boolean) => (
     <tr key={v.id} class={inEvent ? "audio-debug-in-event" : undefined}>
+      <td class="audio-debug-clip" title={v.owner ?? "No node: a one-shot or an event voice"}>
+        {v.owner ?? "-"}
+      </td>
       <td class="audio-debug-clip" title={v.clip}>
         {v.clip}
       </td>
@@ -265,6 +268,7 @@ export function AudioDebugPanel() {
         <table class="audio-debug-table audio-debug-voices" aria-label="Voices">
           <thead>
             <tr>
+              <th scope="col" title="The node whose AudioSource plays the voice; - for one-shots and event voices">Source</th>
               <th scope="col">Clip</th>
               <th scope="col">Bus</th>
               <th scope="col">State</th>
@@ -280,7 +284,7 @@ export function AudioDebugPanel() {
           <tbody>
             {grouped.groups.flatMap((g) => [
               <tr key={`e${g.event.id}`} class="audio-debug-event">
-                <td colSpan={5 + VOICE_COLUMNS.length} title={g.event.asset}>
+                <td colSpan={6 + VOICE_COLUMNS.length} title={g.event.asset}>
                   <span class="audio-debug-event-name">{g.event.asset}</span>
                   <span class="audio-debug-event-meta">
                     {" "}#{g.event.id} · {g.event.voices} voice{g.event.voices === 1 ? "" : "s"}

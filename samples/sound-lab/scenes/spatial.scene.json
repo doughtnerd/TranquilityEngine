@@ -1,5 +1,5 @@
 {
-  "format": "myco.scene@2",
+  "format": "myco.scene@4",
   "settings": {
     "physics": "3d"
   },
@@ -14,7 +14,7 @@
             "position": [
               0,
               1.6,
-              2
+              -2
             ]
           }
         },
@@ -59,7 +59,7 @@
         {
           "type": "engine.AudioSource",
           "data": {
-            "clip": "asset:audio/hum-loop.wav",
+            "clip": "asset:audio/orbit-pulse-loop.wav",
             "loop": true,
             "volume": 0.4,
             "playOnAwake": false,
@@ -85,9 +85,10 @@
               0
             ],
             "rotation": [
-              -60,
-              20,
-              0
+              0.4924039,
+              -0.1503837,
+              -0.0868241,
+              0.8528685
             ]
           }
         },
@@ -108,7 +109,7 @@
         {
           "type": "engine.Text",
           "data": {
-            "text": "Sound Lab: spatial audio (B goes back to the tour)\nClick the game view first. W / S walk, 1 2 3 jump to the room, corridor and cave,\nF opens and closes the door, V starts and stops the flyover.\nListening bench: 4 burst, 5 orbit, 6 behind the wall, 7 by the cave, 8 turn, 9 stop the bench, 0 silence the page.",
+            "text": "Sound Lab: spatial audio (B goes back to the tour)\nClick the game view first. W / S walk, 1 2 3 jump to the room, corridor and cave,\nF opens and closes the door, V starts and stops the flyover.\nListening bench: 4 burst, 5 orbit (level, vertical, off), 6 behind the wall, 7 by the cave, 8 turn, 9 stop the bench, 0 silence the page.",
             "anchor": "top-left",
             "align": "left",
             "offset": [
@@ -139,7 +140,7 @@
             "position": [
               0,
               -0.1,
-              -4
+              4
             ],
             "scale": [
               4.5,
@@ -189,7 +190,7 @@
             "position": [
               -2.25,
               2,
-              -4
+              4
             ],
             "scale": [
               0.5,
@@ -223,7 +224,7 @@
             "position": [
               2.25,
               2,
-              -4
+              4
             ],
             "scale": [
               0.5,
@@ -257,7 +258,7 @@
             "position": [
               0,
               2,
-              16.25
+              -16.25
             ],
             "scale": [
               5,
@@ -291,7 +292,7 @@
             "position": [
               0,
               2,
-              -24.25
+              24.25
             ],
             "scale": [
               5,
@@ -324,7 +325,7 @@
             "position": [
               0,
               1.5,
-              6
+              -6
             ]
           }
         },
@@ -394,7 +395,7 @@
             "position": [
               0,
               1.5,
-              -8
+              8
             ],
             "scale": [
               4,
@@ -433,7 +434,7 @@
             "position": [
               0,
               2,
-              11
+              -11
             ]
           }
         },
@@ -463,7 +464,7 @@
             "position": [
               0,
               2,
-              -1
+              1
             ]
           }
         },
@@ -493,7 +494,7 @@
             "position": [
               0,
               2,
-              -16
+              16
             ]
           }
         },
@@ -540,7 +541,7 @@
             "position": [
               0,
               1,
-              12.5
+              -12.5
             ],
             "scale": [
               0.4,
@@ -558,7 +559,7 @@
         {
           "type": "engine.AudioSource",
           "data": {
-            "clip": "asset:audio/music-loop.wav",
+            "clip": "asset:audio/radio-loop.wav",
             "loop": true,
             "volume": 0.6,
             "playOnAwake": true,
@@ -580,7 +581,7 @@
             "position": [
               0.8,
               1,
-              -18
+              18
             ],
             "scale": [
               0.6,
@@ -620,7 +621,7 @@
             "position": [
               0,
               6,
-              40
+              -40
             ],
             "scale": [
               0.8,
@@ -652,8 +653,8 @@
         {
           "type": "lab.PassBy",
           "data": {
-            "from": 40,
-            "to": -40,
+            "from": -40,
+            "to": 40,
             "speed": 30
           }
         },

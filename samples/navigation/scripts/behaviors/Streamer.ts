@@ -76,7 +76,7 @@ export class Streamer extends GameBehavior {
     const half = this.chunkSize / 2;
     this.states = this.chunks.map((path, i) => {
       const x = ((i % 3) - 1) * this.chunkSize;
-      const z = -(Math.floor(i / 3) - 1) * this.chunkSize; // north is -z
+      const z = (Math.floor(i / 3) - 1) * this.chunkSize; // north is +z
       return { index: i, path, name: this.names[i] ?? path, minX: x - half, maxX: x + half, minZ: z - half, maxZ: z + half, state: "unloaded", scene: null, force: "none", distance: Infinity };
     });
   }

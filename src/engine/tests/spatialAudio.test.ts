@@ -63,16 +63,16 @@ describe("spatial audio (ADR 0074)", () => {
     expect(voice.events.filter((e) => e.kind === "attenuation")).toHaveLength(1);
   });
 
-  it("sets the listener from an AudioListener: position, forward is -Z, up is +Y", () => {
+  it("sets the listener from an AudioListener: position, forward is +Z, up is +Y", () => {
     giveView();
     const n = GameObject.create("ears");
     n.transform!.position.set(1, 2, 3);
-    n.transform!.eulerAngles = [0, 90, 0]; // turned left: -Z becomes -X
+    n.transform!.eulerAngles = [0, Math.PI / 2, 0]; // turned right (ADR 0164): +Z becomes +X
     n.addBehavior(AudioListener);
     engine.step(1 / 60);
     const pose = backend.listener!;
     expect(pose.position).toEqual({ x: 1, y: 2, z: 3 });
-    expect(pose.forward.x).toBeCloseTo(-1);
+    expect(pose.forward.x).toBeCloseTo(1);
     expect(pose.forward.y).toBeCloseTo(0);
     expect(pose.forward.z).toBeCloseTo(0);
     expect(pose.up.x).toBeCloseTo(0);

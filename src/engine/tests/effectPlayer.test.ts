@@ -48,7 +48,6 @@ describe("the effect player (ADR 0153)", () => {
   beforeEach(() => {
     engine = new NullEngine();
     scene = new Scene(engine);
-    scene.useRightHandedSystem = true;
     warnings = [];
   });
 

@@ -14,6 +14,6 @@ export class Orbit extends GameBehavior {
     const a = (Time.time * this.speed + this.phase) * Math.PI * 2;
     const p = this.transform.position;
     p.x = Math.cos(a) * this.radius;
-    p.z = Math.sin(a) * this.radius;
+    p.z = -Math.sin(a) * this.radius;
   }
 }

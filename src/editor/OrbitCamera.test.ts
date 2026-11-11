@@ -17,10 +17,19 @@ beforeEach(async () => {
 });
 
 describe("OrbitCamera (ADR 0022)", () => {
-  it("places the camera `distance` from the focus point, above it for negative pitch", () => {
+  it("places the camera `distance` from the focus point, above it for positive pitch, on the -Z side at yaw 0 (ADR 0164)", () => {
     const p = eye();
     expect(Math.hypot(p.x, p.y, p.z)).toBeCloseTo(orbit.distance, 4);
     expect(p.y).toBeGreaterThan(0);
+    orbit.yaw = 0;
+    orbit.focus();
+    const front = eye();
+    expect(front.x).toBeCloseTo(0, 4);
+    expect(front.z).toBeLessThan(0);
+    // A positive yaw turns the view right: the eye swings to -X.
+    orbit.yaw = 90;
+    orbit.focus();
+    expect(eye().x).toBeLessThan(-1);
   });
 
   it("rotates while the right mouse button drags", () => {
@@ -30,8 +39,8 @@ describe("OrbitCamera (ADR 0022)", () => {
     Input.simulateMouseMove(100, -50);
     engine.step(frame);
 
-    expect(orbit.yaw).toBeCloseTo(35 - 100 * orbit.sensitivity, 4);
-    expect(orbit.pitch).toBeCloseTo(-24 + 50 * orbit.sensitivity, 4);
+    expect(orbit.yaw).toBeCloseTo(-35 + 100 * orbit.sensitivity + 360, 4);
+    expect(orbit.pitch).toBeCloseTo(24 - 50 * orbit.sensitivity, 4);
     const after = eye();
     expect(Math.hypot(after.x, after.y, after.z)).toBeCloseTo(orbit.distance, 4); // still on the sphere
     expect(after.x).not.toBeCloseTo(before.x, 2);
@@ -43,16 +52,16 @@ describe("OrbitCamera (ADR 0022)", () => {
     Input.simulate("down", "mouse0");
     Input.simulateMouseMove(80, 40);
     engine.step(frame);
-    expect(orbit.yaw).toBeCloseTo(35, 4);
-    expect(orbit.pitch).toBeCloseTo(-24, 4);
+    expect(orbit.yaw).toBeCloseTo(325, 4);
+    expect(orbit.pitch).toBeCloseTo(24, 4);
   });
 
   it("ignores travel from before a drag began", () => {
     Input.simulateMouseMove(300, 200); // moved, then pressed, within one frame
     Input.simulate("down", "mouse2");
     engine.step(frame);
-    expect(orbit.yaw).toBeCloseTo(35, 4);
-    expect(orbit.pitch).toBeCloseTo(-24, 4);
+    expect(orbit.yaw).toBeCloseTo(325, 4);
+    expect(orbit.pitch).toBeCloseTo(24, 4);
   });
 
   it("orbits with Alt + left drag and clamps pitch", () => {
@@ -61,7 +70,7 @@ describe("OrbitCamera (ADR 0022)", () => {
     engine.step(frame); // the press: travel before it is ignored
     Input.simulateMouseMove(0, 10_000);
     engine.step(frame);
-    expect(orbit.pitch).toBe(orbit.minPitch);
+    expect(orbit.pitch).toBe(orbit.maxPitch);
   });
 
   it("pans with middle drag and Shift + right drag, keeping the view angle", () => {
@@ -73,7 +82,7 @@ describe("OrbitCamera (ADR 0022)", () => {
     const afterMiddle = orbit.focusPoint;
     expect(Math.hypot(afterMiddle.x, afterMiddle.y, afterMiddle.z)).toBeGreaterThan(0.1);
     expect(afterMiddle.y).toBeCloseTo(0, 4); // horizontal drag moves along the camera's right axis only
-    expect(orbit.yaw).toBeCloseTo(35, 4);
+    expect(orbit.yaw).toBeCloseTo(325, 4);
 
     Input.simulate("down", "shift");
     Input.simulate("down", "mouse2");
@@ -81,8 +90,8 @@ describe("OrbitCamera (ADR 0022)", () => {
     Input.simulateMouseMove(0, 60);
     engine.step(frame);
     expect(orbit.focusPoint.y).toBeGreaterThan(afterMiddle.y); // dragging down moves the focus up
-    expect(orbit.yaw).toBeCloseTo(35, 4);
-    expect(orbit.pitch).toBeCloseTo(-24, 4);
+    expect(orbit.yaw).toBeCloseTo(325, 4);
+    expect(orbit.pitch).toBeCloseTo(24, 4);
   });
 
   it("zooms with the wheel within limits", () => {
@@ -101,7 +110,7 @@ describe("OrbitCamera (ADR 0022)", () => {
     expect(orbit.focusPoint.toArray()).toEqual([0, 0, 0]);
   });
 
-  it("2D mode looks down -Z orthographically, pans with right drag, and restores the 3D angles", () => {
+  it("2D mode looks along +Z orthographically from z = -distance, pans with right drag, and restores the 3D angles", () => {
     const camera = orbit.gameObject.find("Arm/Camera")!.getBehavior(Camera)!;
     orbit.mode = "2d";
     engine.step(frame);
@@ -109,7 +118,7 @@ describe("OrbitCamera (ADR 0022)", () => {
     const p = eye();
     expect(p.x).toBeCloseTo(0, 4);
     expect(p.y).toBeCloseTo(0, 4);
-    expect(p.z).toBeCloseTo(orbit.distance, 4);
+    expect(p.z).toBeCloseTo(-orbit.distance, 4);
 
     Input.simulate("down", "mouse2");
     engine.step(frame); // the press: travel before it is ignored
@@ -122,7 +131,7 @@ describe("OrbitCamera (ADR 0022)", () => {
     orbit.mode = "3d";
     engine.step(frame);
     expect(camera.projection).toBe("perspective");
-    expect(orbit.yaw).toBeCloseTo(35, 4);
-    expect(orbit.pitch).toBeCloseTo(-24, 4);
+    expect(orbit.yaw).toBeCloseTo(325, 4);
+    expect(orbit.pitch).toBeCloseTo(24, 4);
   });
 });

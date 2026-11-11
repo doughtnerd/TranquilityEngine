@@ -1,7 +1,10 @@
 /**
- * Built-in meshes, Unity's sizes: a 1 m cube and sphere, a 2 m tall capsule and cylinder, a 10 m ground plane, a 1 m quad facing +Z.
+ * Built-in meshes, Unity's sizes: a 1 m cube and sphere, a 2 m tall capsule and cylinder, a 10 m ground plane, a 1 m quad facing -Z
+ * (towards an unrotated camera in front of it, as Unity's).
  * Generated without three.js so it stays out of the start-up bundle (ADR 0082). The algorithms are ported from three.js r187's
- * geometry generators (MIT, © three.js authors) and produce the same vertices, normals, uvs, indices and groups.
+ * geometry generators (MIT, © three.js authors) and produce the same uvs, indices and groups, with positions and normals mirrored
+ * in z (ADR 0164): three.js is right-handed, so mirrored, each mesh looks as it did there, and its triangles wind as Babylon's
+ * left-handed builders wind theirs (right-hand-rule normal inward), the renderer's default front face.
  */
 import type { MeshData } from "./models";
 
@@ -226,6 +229,11 @@ function plane(size: number, rotateX: number): MeshData {
 
 /** The mesh data of a built-in mesh (a fresh copy each call). */
 export function builtinMeshData(name: BuiltinMesh): MeshData {
+  return mirrorZ(threeMeshData(name));
+}
+
+/** three.js's geometry for a built-in mesh, before the mirror. */
+function threeMeshData(name: BuiltinMesh): MeshData {
   switch (name) {
     case "cube": return box(1, 1, 1);
     case "sphere": return sphere(0.5, 32, 16);
@@ -234,4 +242,14 @@ export function builtinMeshData(name: BuiltinMesh): MeshData {
     case "plane": return plane(10, -Math.PI / 2);
     case "quad": return plane(1, 0);
   }
+}
+
+/** Negates z of positions and normals in place, keeping the index order (so the winding flips with the mirror). */
+function mirrorZ(data: MeshData): MeshData {
+  const p = data.positions, n = data.normals!;
+  for (let k = 2; k < p.length; k += 3) {
+    p[k] = -p[k];
+    n[k] = -n[k];
+  }
+  return data;
 }

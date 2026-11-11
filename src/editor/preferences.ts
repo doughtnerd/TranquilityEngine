@@ -44,6 +44,9 @@ export const historyLocation = persisted<"project" | "user">("myco.editor.histor
  */
 export const historyPruneDays = persisted<number>("myco.editor.historyPruneDays", 0);
 
+/** How the Inspector shows rotations as Euler angles (ADR 0165): radians (the default) or degrees. A field's own `view` option wins. */
+export const rotationAngles = persisted<"radians" | "degrees">("myco.editor.rotationAngles", "radians");
+
 /** How the Assets panel lists files: tiles in a grid, or rows with kind and size. */
 export const assetView = persisted<"grid" | "list">("myco.editor.assetView", "grid");
 

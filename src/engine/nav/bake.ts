@@ -8,7 +8,11 @@ import { loadNavigation } from "./loader";
 import type { NavigationSettings } from "./settings";
 import type { NavBaker } from "./wasm/myco_nav.js";
 
-/** One mesh, in world space. Triangles are wound so the walkable side faces along `cross(b - a, c - a)`. */
+/**
+ * One mesh, in world space, in the nav core's winding: the walkable side faces along `cross(b - a, c - a)`, the
+ * opposite of engine meshes (`collectNavGeometry` rewinds them). Coordinates pass through unchanged: the core's
+ * crowd code already takes +Z as forward and X = up × forward, as the engine does (ADR 0164).
+ */
 export interface NavBakeMesh {
   /** xyz per vertex. */
   positions: Float32Array;

@@ -5,8 +5,10 @@ import { Color, GameObject, Quaternion } from "../../engine";
 import type { FieldChoice } from "../../engine/core/registry";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
 import { RevertOverrides, pathKey, type NodePath } from "../document";
-import { choicesFor, defaultItem, editorFor, fieldTitle, itemEditorFor, itemField, parseNumber, type FieldEditor } from "../fieldValues";
-import { eulerAnglesOf, fieldState, revertField, setField, setFieldAxis, withAxis } from "../fieldEdits";
+import { choicesFor, defaultItem, editorFor, fieldTitle, itemEditorFor, itemField, type FieldEditor } from "../fieldValues";
+import { fieldState, revertField, rotationViewOf, setField, setFieldAxis, setFieldEach, withAxis } from "../fieldEdits";
+import { MIXED, NumberInput, formatNumber } from "../fields/NumberInput";
+import { RotationField } from "../fields/RotationField";
 import { fieldChoicesFor, listedChoices, loadFieldChoices } from "../fieldChoices";
 import type { FieldChoicesContribution } from "../sdk/contributions";
 import {
@@ -640,6 +642,7 @@ function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentI
 
   const commit = (value: unknown) => setField(scene, paths, info, field, value);
   const commitAxis = (axis: number, n: number) => setFieldAxis(scene, paths, info, field, axis, n, values);
+  const commitEach = (next: readonly unknown[]) => setFieldEach(scene, paths, info, field, (i) => next[i]);
   const revert = () => revertField(scene, paths, info, field.name);
 
   if (choices === null) return null; // nothing to choose and nothing set
@@ -657,7 +660,17 @@ function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentI
         {choices !== undefined ? (
           <ChoiceInput choices={choices} value={field.value} mixed={mixed} label={field.name} onCommit={commit} />
         ) : (
-          <FieldEditorView editor={editor} field={field} values={values} mixed={mixed} scene={scene} onCommit={commit} onCommitAxis={commitAxis} />
+          <FieldEditorView
+            editor={editor}
+            field={field}
+            values={values}
+            mixed={mixed}
+            scene={scene}
+            rowKey={`${info.type}.${field.name}`}
+            onCommit={commit}
+            onCommitAxis={commitAxis}
+            onCommitEach={commitEach}
+          />
         )}
       </div>
     </>
@@ -682,9 +695,6 @@ function useContributedChoices(contribution: FieldChoicesContribution | undefine
 
 const isNumeric = (e: FieldEditor) => e === "number" || e === "integer";
 
-/** Shown for values that differ between the selected nodes. */
-const MIXED = "\u2014";
-
 function FieldEditorView(props: {
   editor: FieldEditor;
   field: FieldValue;
@@ -692,8 +702,12 @@ function FieldEditorView(props: {
   values: unknown[];
   mixed: boolean;
   scene: OpenScene;
+  /** Names the row for per-row view choices (a rotation's toggle). */
+  rowKey?: string;
   onCommit: (value: unknown) => void;
   onCommitAxis: (axis: number, value: number) => void;
+  /** Each node's new value, in `values` order. */
+  onCommitEach: (next: readonly unknown[]) => void;
 }) {
   const { editor, field, values, mixed, scene, onCommit } = props;
   const v = field.value;
@@ -742,14 +756,20 @@ function FieldEditorView(props: {
       return mixed ? <span class="none">{MIXED} (differs)</span> : <ObjectInput value={(v ?? {}) as Record<string, unknown>} onCommit={onCommit} />;
     case "choice":
       return <ChoiceInput choices={choicesFor(field, currentProject.value?.settings) ?? []} value={v} mixed={mixed} label={field.name} onCommit={onCommit} />;
-    case "quaternion": {
-      // Edited as Euler angles in degrees (ADR 0019).
+    case "quaternion":
+      // A codec component (ADR 0165): Euler radians or degrees, or x, y, z, w, as the field or Settings say.
       if (v === null || v === undefined) return <span class="none">None</span>;
-      const axes = values.map((x) => (x instanceof Quaternion ? eulerAnglesOf(x) : [0, 0, 0]));
-      return <VectorInput value={axes[0].map((n, i) => (axes.every((a) => a[i] === n) ? n : null))} label={field.name} onCommitAxis={props.onCommitAxis} />;
-    }
+      return (
+        <RotationField
+          values={values.map((x) => (x instanceof Quaternion ? x : null))}
+          view={rotationViewOf(field)}
+          label={field.name}
+          toggleKey={props.rowKey}
+          onCommit={props.onCommitEach}
+        />
+      );
     case "list":
-      return <ListInput field={field} mixed={mixed} scene={scene} onCommit={onCommit} />;
+      return <ListInput field={field} mixed={mixed} scene={scene} rowKey={props.rowKey} onCommit={onCommit} />;
     default:
       return <span>{JSON.stringify(v)}</span>;
   }
@@ -826,41 +846,6 @@ function TextInput(props: { value: string; label: string; class?: string; placeh
         if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
         if (e.key === "Escape") {
           setDraft(props.value);
-          (e.currentTarget as HTMLInputElement).blur();
-        }
-      }}
-    />
-  );
-}
-
-/**
- * A number that commits on Enter or blur. Accepts simple arithmetic (`2*3`); invalid text reverts.
- * A null value (differs between the selected nodes) shows a dash until a number is typed.
- */
-function NumberInput(props: { value: number | null; integer?: boolean; label: string; onCommit: (v: number) => void }) {
-  const shown = props.value === null ? MIXED : formatNumber(props.value);
-  const [draft, setDraft] = useState(shown);
-  useLayoutEffect(() => setDraft(shown), [shown]);
-  const commit = () => {
-    const n = parseNumber(draft);
-    if (n === null) return setDraft(shown);
-    const value = props.integer ? Math.round(n) : n;
-    if (value !== props.value) props.onCommit(value);
-    else setDraft(shown);
-  };
-  return (
-    <input
-      type="text"
-      inputMode="decimal"
-      class="num-input"
-      aria-label={props.label}
-      value={draft}
-      onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-        if (e.key === "Escape") {
-          setDraft(shown);
           (e.currentTarget as HTMLInputElement).blur();
         }
       }}
@@ -1002,7 +987,7 @@ function ChoiceInput(props: { choices: readonly FieldChoice[]; value: unknown; m
  * nodes whose lists differ it shows the active node's list under a dash; an edit replaces every
  * node's list with the edited one.
  */
-function ListInput(props: { field: FieldValue; mixed: boolean; scene: OpenScene; onCommit: (items: unknown[]) => void }) {
+function ListInput(props: { field: FieldValue; mixed: boolean; scene: OpenScene; rowKey?: string; onCommit: (items: unknown[]) => void }) {
   const { field, mixed, scene } = props;
   const items = Array.isArray(field.value) ? (field.value as unknown[]) : [];
   const editor = itemEditorFor(field);
@@ -1043,8 +1028,10 @@ function ListInput(props: { field: FieldValue; mixed: boolean; scene: OpenScene;
                 values={[item]}
                 mixed={false}
                 scene={scene}
+                rowKey={props.rowKey === undefined ? undefined : `${props.rowKey}[${i}]`}
                 onCommit={(v) => replace(i, v)}
                 onCommitAxis={(axis, n) => replace(i, withAxis(item, editor, axis, n))}
+                onCommitEach={(next) => replace(i, next[0])}
               />
             </div>
             <span class="list-buttons">
@@ -1068,7 +1055,7 @@ function ListInput(props: { field: FieldValue; mixed: boolean; scene: OpenScene;
 /** A copy of a list item, for Add (vectors and colors are live objects; nodes are shared references). */
 function copyItem(item: unknown): unknown {
   if (item instanceof GameObject || item === null || typeof item !== "object") return item;
-  if (item instanceof Quaternion) return eulerAnglesOf(item);
+  if (item instanceof Quaternion) return item.clone();
   if (item instanceof Color) return item.clone();
   if ("toArray" in item) return (item as { toArray(): number[] }).toArray();
   return structuredClone(item);
@@ -1281,10 +1268,6 @@ function ScrubLabel(props: { name: string; title?: string; scene: OpenScene; val
       {humanize(props.name)}
     </label>
   );
-}
-
-function formatNumber(n: number): string {
-  return Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000);
 }
 
 /** `orderInLayer` → "Order In Layer". */

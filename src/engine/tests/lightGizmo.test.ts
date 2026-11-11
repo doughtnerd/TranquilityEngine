@@ -4,9 +4,9 @@ import { lightSegments } from "../render/babylon/editorOverlays";
 describe("light gizmo wireframes (ADR 0043)", () => {
   const at = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 2, 3, 1]; // a translation to (1, 2, 3)
 
-  it("draws a directional light's rays down its -Z axis", () => {
+  it("draws a directional light's rays along its +Z axis (ADR 0164)", () => {
     const segs = lightSegments({ type: "directional", range: 10, spotAngle: 30 }, at, false);
-    expect(segs[0]).toEqual([[1, 2, 3], [1, 2, 1]]); // the main ray, 2 m long
+    expect(segs[0]).toEqual([[1, 2, 3], [1, 2, 5]]); // the main ray, 2 m long
     expect(segs.length).toBe(9);
   });
 
@@ -14,7 +14,7 @@ describe("light gizmo wireframes (ADR 0043)", () => {
     const segs = lightSegments({ type: "spot", range: 4, spotAngle: 90 }, at, false);
     const [, tip] = segs[0];
     expect(tip[0]).toBeCloseTo(1 + 4); // tan(45°) × 4 to the side
-    expect(tip[2]).toBeCloseTo(3 - 4);
+    expect(tip[2]).toBeCloseTo(3 + 4);
     expect(segs.length).toBe(4 + 32);
   });
 
