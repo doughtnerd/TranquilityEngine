@@ -6,11 +6,12 @@ Its companion, [api-and-models.md](api-and-models.md) (**[API §n]**), owns the 
 
 **Evidence.** Numbers cite the M3 spikes: **[S]** is `spikes/audio-spatial/README.md`, and **[bed]**, **[conv]**, **[occ]** and **[res]** are its sub-READMEs. They were measured on the shared 4-vCPU container, where **p50 and p99 are usable and p99.9 and max are not** [S]. 0157's frozen coefficients are the lab VM's [A157 §6.1]. **(est.)** marks an unmeasured number. Convolver numbers are M1's **non-uniform** staged convolver [conv], never a uniform one. A quantum is 128 frames, 2,667 µs at 48 kHz.
 
-**Owner decisions pending.** Four items are open ([rulings.md](rulings.md), "On the owner's list"); where they change this design, both options are given and marked **owner decision pending**:
-- **OD1:** HRTF voices on the default preset, 8 or 16.
-- **OD2:** a standby zone slot, or 2 slots with an eviction fade.
-- **OD3:** the load-shedding ladder, or none.
-- **OD4:** the estimate. That one is the senior engineer's.
+**Owner decisions (round 3).** The owner settled the five open items; this revision keeps only the chosen option:
+- **OD1:** HRTF voices are 8 where beds exist, on default as on high; low stays 4.
+- **OD2:** a standby zone slot on high and default; a 150 ms eviction fade on low.
+- **OD3:** the load-shedding ladder is in (§7.3).
+- **OD4:** the estimate is accepted (≈ 36.7 pw, [API §10]).
+- **OD5:** zones on the Babylon fallback are inert with one warning.
 
 **Industry practice.** The owner's rule is to follow Wwise, FMOD, Steam Audio, Unity and Unreal unless there is a measured reason not to, and to say where M3 differs. Each area ends with a "Practice" line, and §12 collects them.
 
@@ -170,9 +171,9 @@ The core reserves the kernel in the arena outside `clipMemoryMB`, counted in the
 - The top `zones.maxActive` (0..2; 2 on high and default, 1 on low) are active. To replace an active zone, a challenger must beat the weakest one by 1.5× for 500 ms (est.).
 - A slot whose input has been silent for its IR length plus 2 quanta stops running (the core checks this itself), so an unused slot costs nothing.
 
-**Swaps: owner decision pending (OD2).** The wire carries 4 slots in both options (R2, R4).
-- **Option A, standby slot:** slots = `maxActive + 1`. The incoming zone takes the free slot. The outgoing zone's sends ramp to 0 and its tail rings out (up to the IR length) in its own slot. This meets the sound designer's "tails ring out". The standby slot includes its kernel (kernel budget = slots), so an incoming zone's kernel can be prepared at once. Peak memory is 3.3 / 9.2 / 18.0 MB on low / default / high (§6).
-- **Option B, eviction fade:** slots = `maxActive`. The outgoing zone fades out over 150 ms, then the incoming zone takes its slot. A tail is cut whenever a swap happens. The kernel budget equals the active slots, so a third zone's kernel also waits for a free slot: it is prepared and uploaded only after the eviction, 50–200 ms later (est.). Peak memory is 1.5 / 6.2 / 12.2 MB. The editor should then warn when a layout makes swaps likely (more than `maxActive` zones within blend distance of a common walk).
+**Swaps (OD2).** The wire always carries 4 slots (R2, R4).
+- **High and default: a standby slot.** Core slots = `maxActive + 1`. The incoming zone takes the free slot, which includes its kernel (kernel budget = slots), so the kernel is prepared at once. The outgoing zone's sends ramp to 0 and its tail rings out (up to the IR length) in its own slot, as the sound designer asked.
+- **Low: an eviction fade.** Core slots = `maxActive` (1). The outgoing zone fades out over 150 ms (ZONE_CONFIG state 3), then the incoming zone takes the slot. Its kernel is prepared and uploaded only after the eviction, 50–200 ms later (est.). This saves ≈ 1.6 MB on the phone preset at the cost of a cut tail per swap, and the editor warns when a layout makes swaps likely.
 
 **Rate change and REPLAY.** Kernels depend on the rate ([conv]: partition counts change at 44.1 kHz). A rate change or a hard rebuild re-prepares every Prepared and Active zone from the worker's kept bytes. Until its kernel is back, a zone is silent; then it fades in over 100 ms (§3.4).
 
@@ -216,7 +217,7 @@ stateDiagram-v2
 
 ### 3.1 A voice moves from HRTF to the bed
 
-Selection gives HRTF to the top `voices.hrtf` spatial voices by audibility: 8 on high (owner decision 3); on default, 8 or 16 (owner decision pending, OD1). Every other spatial voice is kind 2 when `maxBeds > 0`. **Three timers** govern a kind change (R13, S14):
+Selection gives HRTF to the top `voices.hrtf` spatial voices by audibility: 8 on high and default where beds exist (owner decision 3, OD1), 4 on low. Every other spatial voice is kind 2 when `maxBeds > 0`. **Three timers** govern a kind change (R13, S14):
 - M1's 1.2× audibility hysteresis;
 - the 3-frame mixing dwell [A157 §2.4];
 - a **500 ms kind dwell** on main, in game time (R13 as clarified: 30 frames at 60 Hz).
@@ -501,7 +502,7 @@ Settings are marked **S**, with defaults per preset (low / default / high). Pars
 | | `BED_CHANNELS`, order | 16, 3rd (ACN/SN3D) | 0162 §1 |
 | | idle after; move crossfade | 2 quanta; 45 ms equal-power | [bed]; [A157 §2.4] |
 | | MagLS cutoff, taps | 1.5 kHz; 256 at 48 kHz | [bed] |
-| HRTF | **S** `voices.hrtf` | 4 / **16 or 8 (OD1)** / 8 (the high preset was 32, `audioSettingsModel.ts:213`) | owner decision 3 |
+| HRTF | **S** `voices.hrtf` | 4 / 8 / 8 (8 where beds exist; with `maxBeds` 0 as set; the high preset was 32, `audioSettingsModel.ts:213`) | owner decision 3, OD1 |
 | | kind dwell; kind crossfade | 500 ms of game time (R13); 45 ms, equal-power when kind 2 is involved | R13, [bed] |
 | Clips | **S** `ambisonic.maxClips` | 1 / 1 / 2 | R8 |
 | | wide ring, chunk | 16,384 frames (32,768 if the stall test fails); 2,048 frames | R16 |
@@ -515,8 +516,8 @@ Settings are marked **S**, with defaults per preset (low / default / high). Pars
 | Zones | **S** `zones.maxActive` | 1 / 2 / 2 (range 0..2) | R8 |
 | | **S** `zones.maxIrSeconds` | 1 / 2 / 4 | R8 |
 | | wire slots (`MAX_ZONE_SLOTS`) | 4 | R2, R4 |
-| | core slots | maxActive + 1 (standby, OD2-A) or maxActive (OD2-B) | OD2 |
-| | eviction fade (OD2-B) | 150 ms | [API] S20 |
+| | core slots | low `maxActive` (1); default and high `maxActive + 1` (standby) | OD2 |
+| | eviction fade (low) | 150 ms | OD2 |
 | | swap hysteresis; fade in | 1.5× for 500 ms (est.); 100 ms | this design |
 | | `blendDistance` default | 2 m | sound designer RFC |
 | | send curve default; clamp | 1 at `minDistance` → 0.5 at `maxDistance` (est.); send × curve ≤ 4 | R11, R8 |
