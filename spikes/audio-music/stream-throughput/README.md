@@ -108,9 +108,28 @@ Decoded 3-minute track as the arena stores it (int16; MiB, the engine's "MB"):
 
 Answer to "how many 3-minute stems fit in the low 64 MB if decoded": **one** stereo 48 kHz stem (two at 44.1 kHz), three mono. A 4-stem stereo piece decoded is 132 MB (160 MB in blocks): beyond even the default 128 MB.
 
-## Full run (to be filled from the coordinator's `node run.mjs` output)
+## Full run (idle machine, coordinator: `node run.mjs --only q1,q4`)
 
-Pending. Paste `results/summary.md` here: Q1 tables (p50/p99/p99.9/max per codec, median over 5 runs), Q2 (N sweep, with and without a clip decode), Q3 (60 s x 5 runs per config), and the control.
+Q1 and Q4 are timed/measured on an idle machine (`results/summary.md`, `q1.json`, `q4.json`). **Q2 and Q3 timing was not re-run and stays at smoke level** (the smoke tables above remain labelled as such): the smoke already shows at least 570x real-time decode headroom and no starvation up to 64 streams, so the binding limits are memory and ring count (deterministic), and a timed run would not change a decision.
+
+### Q1 (idle, 5 runs; median over runs of per-run p50/p99/p99.9, max = worst run; us per 4,096-frame chunk)
+
+| codec | kbps | p50 | p99 | p99.9 | max | RTF (x) | % of 1 core | int16 read p50 | open (us) |
+|---|---|---|---|---|---|---|---|---|---|
+| MP3 CBR 192 | 192 | 137.0 | 213.9 | 625.6 | 1580 | 645 | 0.16 | 189.5 | 348 |
+| MP3 VBR | 134 | 124.0 | 241.2 | 627.3 | 3452 | 673 | 0.15 | 180.5 | 243 |
+| MP3 CBR 128 | 128 | 129.4 | 188.3 | 451.2 | 6357 | 687 | 0.15 | 180.4 | 227 |
+| Vorbis q5 | 115 | 138.2 | 253.4 | 721.9 | 13283 | 569 | 0.18 | 190.9 | 1669 |
+| Vorbis q3 | 86 | 130.5 | 230.4 | 475.1 | 2277 | 613 | 0.16 | 182.4 | 1627 |
+| FLAC | 1098 | 129.0 | 256.0 | 810.7 | 4217 | 633 | 0.16 | 181.5 | 1822 |
+| WAV s16 | 1536 | 31.3 | 61.0 | 194.5 | 1319 | 2667 | 0.04 | 83.0 | 2548 |
+| AAC 192 (aac wasm) | 194 | 126.0 | 223.9 | 450.5 | 2216 | 631 | 0.16 | 179.3 | 670 |
+
+Correctness unchanged (frame counts equal ffmpeg's; SNR 122 / 137 / 133 dB; FLAC and WAV bit-exact). Max values are single-run outliers (scheduler, GC), not decode cost.
+
+**Open cost matters for priming:** opening a Vorbis stream costs about 1.7 ms (codebook setup) against 0.2-0.35 ms for MP3. Priming 8 stems is about 13 ms (Vorbis) vs about 2-3 ms (MP3), on top of each stream's 8-chunk window decode (about 1 ms): small, but it adds to the start spread (finding 3). WAV/FLAC open is 1.8-2.5 ms, mostly the copy of the large file.
+
+### Q4: the deterministic tables above are the final numbers.
 
 ## Findings (smoke-based where marked)
 
