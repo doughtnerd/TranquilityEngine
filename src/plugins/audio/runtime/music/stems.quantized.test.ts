@@ -23,7 +23,9 @@ function setup(stamped: boolean) {
   const ramps: { track: string; r: StampedRamp }[] = [];
   const stems: StemRun[] = node.tracks.map((t, k) => {
     const voice = b.play({ path: t.clip, url: t.clip, loop: false, stream: true, bus: "Music" }) as FakeVoice;
-    if (stamped) (voice as unknown as { paramsShaped: (r: StampedRamp) => void }).paramsShaped = (r) => ramps.push({ track: t.name, r });
+    // The fake voice records `paramsShaped`; this test wants the ramps in one list, or a voice without the method.
+    if (stamped) voice.paramsShaped = (r) => ramps.push({ track: t.name, r: r as StampedRamp });
+    else delete (voice as { paramsShaped?: unknown }).paramsShaped;
     return { track: t.name, alternative: 0, clip: t.clip, streamed: true, voice, primed: true, k } as unknown as StemRun;
   });
   const run = { node, player, state: "playing", group: 1, stems, startAt: 1, startFrame: 0, loopsDone: 0, prime: null } as unknown as SegmentRun;
@@ -135,14 +137,12 @@ describe("a quantised stem on the loopback host (ADR 0166 R6)", () => {
     } catch {
       return ctx.skip();
     }
-    const [{ createClipRegistry }, { CoreBackend }, { Mixer }, { defaultAudioSettings }, { fakeDecoder }, { SET_PARAMS_MASK_GAIN }, { packShape }] = await Promise.all([
+    const [{ createClipRegistry }, { CoreBackend }, { Mixer }, { defaultAudioSettings }, { fakeDecoder }] = await Promise.all([
       import("../core/clipRegistry"),
       import("../core/coreBackend"),
       import("../../../../engine/audio/mixer"),
       import("../../../../engine/audio/settings"),
       import("../core/fakeDecoder"),
-      import("../wire.generated"),
-      import("../wire.generated"),
     ]);
     const link = loop.link;
     const FRAMES = 4 * RATE;
@@ -172,14 +172,10 @@ describe("a quantised stem on the loopback host (ADR 0166 R6)", () => {
     backend.play({ path: "dc.wav", url: "dc.wav", loop: false, stream: false, bus: "Music", volume: 0 });
     await step(20);
     // The stem: playing, with its dry gain at 0 (the bound parameter is 0) from the start.
-    const voice = backend.play({ path: "dc.wav", url: "dc.wav", loop: false, stream: false, bus: "Music", volume: 1 }) as unknown as { id: number; playing: boolean; alive?: boolean; fade(): void } & Record<string, unknown>;
-    // The backend's `paramsShaped` is the coordinator's; this adapter is what it writes: a stamped gain-only SET_PARAMS.
-    voice.paramsShaped = (r: StampedRamp) => {
-      const clock = backend.clockMap;
-      const stamp = r.at !== undefined ? clock.stampFor(clock.frameOfTime(r.at)) : undefined;
-      backend.writer.setParams(voice.id, SET_PARAMS_MASK_GAIN, r.gain ?? 1, 0, 0, 0, 0, 0, Math.round((r.seconds ?? 0) * RATE), 0, packShape(0, 0), stamp);
-    };
-    (voice.paramsShaped as (r: StampedRamp) => void)({ gain: 0, seconds: 0 });
+    const voice = backend.play({ path: "dc.wav", url: "dc.wav", loop: false, stream: false, bus: "Music", volume: 1 })!;
+    // The core voice's own `paramsShaped` (G-1): a stamped gain SET_PARAMS through `musicOps`.
+    expect(typeof voice.paramsShaped).toBe("function");
+    voice.paramsShaped!({ gain: 0, seconds: 0 });
     await step(10);
 
     const node = parseSegmentNode({ type: "segment", id: "s", tracks: [{ name: "bass", clip: "dc.wav" }] }, "test", newMusicContext()) as SegmentNode;
