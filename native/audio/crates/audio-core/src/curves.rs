@@ -122,9 +122,9 @@ pub fn entries(region: &mut [u8]) -> &mut [CurveEntry] {
 /// `VoiceSlot::reserved`, or `None` with the pool full (the caller counts `curvePoolFull` and runs
 /// the fade linear).
 pub fn acquire(pool: &mut [CurveEntry], index: usize, voice_id: u32) -> Option<u8> {
-    // Z2b.
-    let _ = (pool, index, voice_id);
-    None
+    let at = pool.iter().position(|e| e.owner == 0)?;
+    pool[at] = CurveEntry { owner: index as u32 + 1, voice_id, ..CurveEntry::default() };
+    Some(at as u8 + 1)
 }
 
 /// The entry `link` names if slot `index` owns it (`None` for 0, a stale or a foreign link).

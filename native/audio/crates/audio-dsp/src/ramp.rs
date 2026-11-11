@@ -44,6 +44,19 @@ impl Ramp {
         }
     }
 
+    /// The control-rate retarget of a shaped fade (0166 M4-0, R6; `audio-core`'s `curves`): aims the
+    /// next `frames` frames at `knot` (the law's value there) **without moving the ramp's end**:
+    /// `target` and `remaining` stay, only `step` becomes `(knot − value) / frames`. So a stopping
+    /// fade's `remaining` still counts the frames to its end, and the last frame still lands exactly
+    /// on `target`. With `frames >= remaining` it aims at `target` itself (as `set_target` with the
+    /// same `remaining`). Settled, or `frames == 0`: no change.
+    pub fn retarget(&mut self, knot: f32, frames: u32) {
+        if frames == 0 || self.remaining == 0 {
+            return;
+        }
+        self.step = if frames >= self.remaining { (self.target - self.value) / self.remaining as f32 } else { (knot - self.value) / frames as f32 };
+    }
+
     /// Advances one frame and returns the new value: when `remaining > 0`, `remaining -= 1` and
     /// `value` becomes `target` if `remaining` is now 0, else `value + step`. When settled, returns
     /// `value` unchanged. So frame `k` (0-based) of an N-frame ramp from `a` is about
@@ -192,6 +205,34 @@ mod tests {
         assert_eq!(skipped.value, 1.0);
         assert_eq!(skipped.remaining, 0);
         assert!(skipped.is_settled());
+    }
+
+    #[test]
+    fn retarget_aims_at_a_knot_and_keeps_the_end() {
+        let mut ramp = Ramp::at(0.0);
+        ramp.set_target(1.0, 8);
+        ramp.retarget(0.25, 4);
+        assert_eq!((ramp.target, ramp.remaining), (1.0, 8), "the end stays");
+        for k in 0..4 {
+            assert_eq!(ramp.next(), 0.0625 * (k + 1) as f32);
+        }
+        assert_eq!(ramp.remaining, 4);
+        ramp.retarget(1.0, 4);
+        let tail: Vec<f32> = (0..4).map(|_| ramp.next()).collect();
+        assert_eq!(tail, [0.4375, 0.625, 0.8125, 1.0]);
+        assert!(ramp.is_settled());
+        ramp.retarget(0.5, 4);
+        assert_eq!(ramp.next(), 1.0, "a settled ramp ignores a retarget");
+    }
+
+    #[test]
+    fn retarget_past_the_end_aims_at_the_target() {
+        let mut ramp = Ramp::at(0.0);
+        ramp.set_target(1.0, 4);
+        ramp.retarget(0.1, 16);
+        assert_eq!(ramp.step, 0.25);
+        ramp.retarget(0.1, 0);
+        assert_eq!(ramp.step, 0.25, "0 frames: no change");
     }
 
     #[test]
