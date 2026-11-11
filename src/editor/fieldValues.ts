@@ -1,9 +1,9 @@
 // Converting inspector values to scene-file JSON (ADR 0013), the form `SetField` stores.
 import { AssetRef, Color, GameObject, PlainObject, Quaternion, Vector2, Vector3 } from "../engine";
-import type { QuatLike } from "../engine/core/math";
 import { isListType, resolveChoices, type FieldChoice, type ScalarFieldType } from "../engine/core/registry";
 import { resolveSettings, type ProjectSettingsInput } from "../engine/core/settings";
 import type { FieldValue } from "../engine/editor";
+import { rotationCodec, rotationFrom } from "./fields/rotationCodec";
 
 /** How the inspector edits a field. */
 export type FieldEditor =
@@ -22,33 +22,7 @@ export type FieldEditor =
   | "list"
   | "unknown";
 
-/** A rotation in scene-file form: a unit quaternion `[x, y, z, w]` with w ≥ 0, 7 decimals, no -0. */
-export function quaternionJSON(q: QuatLike): number[] {
-  const l = Math.hypot(q.x, q.y, q.z, q.w) || 1;
-  const s = (q.w < 0 ? -1 : 1) / l;
-  return [q.x, q.y, q.z, q.w].map((n) => Math.round(n * s * 1e7) / 1e7 + 0);
-}
-
-// The Euler angles last typed for each rotation (ADR 0163), so the Inspector shows Y = 200 after you type
-// 200 rather than the -160 a quaternion reads back as, and editing one axis keeps the others you typed.
-// Unity keeps the same "Euler hint" on its Transform. Keyed by the rotation, so it holds for any node that
-// has it and lapses by itself once the node turns some other way.
-const eulerHints = new Map<string, number[]>();
-const EULER_HINT_LIMIT = 512;
-
-/** A key for a rotation: the same for q and -q, and for float32 copies of it. */
-const rotationKey = (q: QuatLike): string => quaternionJSON(q).map((n) => n.toFixed(5)).join(",");
-
-/** Remember that `angles` (degrees, order ZXY) were typed for the rotation `q`. */
-export function rememberEulerAngles(angles: readonly number[], q: QuatLike): void {
-  const key = rotationKey(q);
-  eulerHints.delete(key);
-  eulerHints.set(key, [...angles]);
-  if (eulerHints.size > EULER_HINT_LIMIT) eulerHints.delete(eulerHints.keys().next().value!);
-}
-
-/** The Euler angles last typed for rotation `q`, if any. */
-export const rememberedEulerAngles = (q: QuatLike): readonly number[] | undefined => eulerHints.get(rotationKey(q));
+export { quaternionJSON } from "./fields/rotationCodec";
 
 /** Pick an editor from the declared type, falling back to the live value's shape. */
 export function editorFor(field: FieldValue): FieldEditor {
@@ -107,8 +81,9 @@ export function defaultItem(editor: FieldEditor, choices: readonly FieldChoice[]
     case "vector2":
       return [0, 0];
     case "vector3":
-    case "quaternion":
       return [0, 0, 0];
+    case "quaternion":
+      return [0, 0, 0, 1];
     case "object":
       return {};
     case "choice":
@@ -134,7 +109,8 @@ export function colorToJSON(c: Color): string {
  * - vectors → `[x, y(, z)]`; colors → hex; asset paths → `"asset:…"`; node refs → `{"$node": id}`
  *   (the caller resolves a node to its document id) or `null`.
  * - rotations (Transform `rotation`, `@field(Quaternion)`) → a quaternion `[x, y, z, w]` (ADR 0163), from a
- *   Quaternion or from Euler degrees `[x, y, z]` (order ZXY), whose angles are remembered for the Inspector.
+ *   Quaternion, a raw `[x, y, z, w]` or Euler radians `[x, y, z]` (order ZXY, remembered for the Inspector),
+ *   in the rotation codec's form (ADR 0165).
  */
 export function toSceneJSON(
   editor: FieldEditor,
@@ -150,10 +126,8 @@ export function toSceneJSON(
     }
     case "quaternion": {
       if (value === null || value === undefined) return null;
-      const q = value instanceof Quaternion ? value : Array.isArray(value) ? Quaternion.from(value as number[]) : null;
-      if (!q) return value;
-      if (Array.isArray(value) && value.length === 3) rememberEulerAngles(value as number[], q);
-      return quaternionJSON(q);
+      const q = rotationFrom(value);
+      return q ? rotationCodec("radians").toJSON(q) : value;
     }
     case "choice":
       return value;
@@ -192,9 +166,11 @@ export function toSceneJSON(
 export function parseNumber(text: string): number | null {
   const trimmed = text.trim();
   if (trimmed === "") return null;
-  if (/^[-+*/().\d\se]+$/i.test(trimmed)) {
+  // `pi` or `π` for radians (ADR 0165).
+  const expr = trimmed.replace(/π|\bpi\b/gi, "(3.141592653589793)");
+  if (/^[-+*/().\d\se]+$/i.test(expr)) {
     try {
-      const n = Number(new Function(`return (${trimmed});`)());
+      const n = Number(new Function(`return (${expr});`)());
       return Number.isFinite(n) ? n : null;
     } catch {
       return null;

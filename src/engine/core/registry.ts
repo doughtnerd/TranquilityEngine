@@ -137,6 +137,8 @@ export interface FieldOptions {
    * field's description applies to the list, not to each item.
    */
   description?: string;
+  /** For a `Quaternion` field: how the Inspector shows it (ADR 0165; default: the editor's preference). Editor-only. */
+  view?: "radians" | "degrees" | "quaternion";
 }
 
 /**

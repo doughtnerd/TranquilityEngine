@@ -6,7 +6,8 @@ import { Engine, GameBehavior, GameObject, Input, Quaternion, behavior, field } 
 import { listComponents, type ComponentInfo } from "../engine/editor";
 import { AddComponent, type NodePath } from "./document";
 import { fieldChoicesFor, listedChoices, loadFieldChoices } from "./fieldChoices";
-import { eulerAnglesOf, fieldState, fieldValues, isMixed, revertField, setField, setFieldAxis } from "./fieldEdits";
+import { fieldState, fieldValues, isMixed, revertField, setField, setFieldAxis } from "./fieldEdits";
+import { rotationCodec } from "./fields/rotationCodec";
 import { toSceneJSON } from "./fieldValues";
 import { OrbitCamera } from "./OrbitCamera";
 import { meshesEditorPlugin } from "../plugins/meshes/editor";
@@ -14,6 +15,9 @@ import { openSceneFile } from "./project";
 import { activatePlugin, deactivatePlugin } from "./sdk/plugins";
 import { openScene, sceneCamera } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
+
+const eulerAnglesOf = (q: Quaternion) => rotationCodec("radians").read(q);
+const degreesOf = (q: Quaternion) => rotationCodec("degrees").read(q);
 
 @behavior("test.fieldEdits.Facing")
 class Facing extends GameBehavior {
@@ -58,48 +62,66 @@ describe("setting a field", () => {
     expect(doc.fieldValue("bird", "engine.Transform", "position")).toEqual([-4, 1, 0]);
   });
 
-  it("edits a quaternion as Euler degrees that read back as typed", () => {
+  it("edits a quaternion as Euler radians that read back as typed", () => {
     scene().stack.execute(new AddComponent("bird", { type: "test.fieldEdits.Facing" }));
     const FACING = { type: "test.fieldEdits.Facing", index: 0 };
     const facing = () => fieldOf(["bird"], FACING.type, "facing");
-    setFieldAxis(scene(), [["bird"]], FACING, facing(), 2, 30);
-    expect(eulerAnglesOf(facing().value as Quaternion)).toEqual([0, 0, 30]);
-    setFieldAxis(scene(), [["bird"]], FACING, facing(), 0, 10); // keeps z
-    expect(eulerAnglesOf(facing().value as Quaternion)).toEqual([10, 0, 30]);
+    setFieldAxis(scene(), [["bird"]], FACING, facing(), 2, 0.5);
+    expect(eulerAnglesOf(facing().value as Quaternion)).toEqual([0, 0, 0.5]);
+    setFieldAxis(scene(), [["bird"]], FACING, facing(), 0, 0.25); // keeps z
+    expect(eulerAnglesOf(facing().value as Quaternion)).toEqual([0.25, 0, 0.5]);
     // Stored as the quaternion those angles make (ADR 0163).
-    expect(scene().doc.fieldValue("bird", FACING.type, "facing")).toEqual(toSceneJSON("quaternion", Quaternion.euler(10, 0, 30)));
+    expect(scene().doc.fieldValue("bird", FACING.type, "facing")).toEqual(toSceneJSON("quaternion", Quaternion.euler(0.25, 0, 0.5)));
     expect(scene().sync.nodeFor("bird")!.getBehavior(Facing)!.facing).toBeInstanceOf(Quaternion);
+  });
+
+  it("edits in degrees when the view says so, keeping the angles typed", () => {
+    scene().stack.execute(new AddComponent("bird", { type: "test.fieldEdits.Facing" }));
+    const FACING = { type: "test.fieldEdits.Facing", index: 0 };
+    const facing = () => fieldOf(["bird"], FACING.type, "facing");
+    setFieldAxis(scene(), [["bird"]], FACING, facing(), 1, 200, undefined, "degrees");
+    expect(degreesOf(facing().value as Quaternion)).toEqual([0, 200, 0]);
+    expect(eulerAnglesOf(facing().value as Quaternion)[1]).toBeCloseTo((200 * Math.PI) / 180, 10);
   });
 });
 
-describe("rotation angles in the Inspector (ADR 0163)", () => {
+describe("rotation angles in the Inspector (ADR 0163, 0165)", () => {
   const rotation = () => fieldOf(["bird"], "engine.Transform", "rotation");
   const shown = () => eulerAnglesOf(rotation().value as Quaternion);
 
-  it("shows yaw past 180 and pitch past 90 as typed, and editing one axis keeps the others", () => {
-    setFieldAxis(scene(), [["bird"]], TRANSFORM, rotation(), 1, 200);
-    expect(shown()).toEqual([0, 200, 0]);
-    setFieldAxis(scene(), [["bird"]], TRANSFORM, rotation(), 0, 120);
-    expect(shown()).toEqual([120, 200, 0]);
-    setFieldAxis(scene(), [["bird"]], TRANSFORM, rotation(), 2, 15);
-    expect(shown()).toEqual([120, 200, 15]);
+  it("shows yaw past π and pitch past π/2 as typed, and editing one axis keeps the others", () => {
+    setFieldAxis(scene(), [["bird"]], TRANSFORM, rotation(), 1, 3.5);
+    expect(shown()).toEqual([0, 3.5, 0]);
+    setFieldAxis(scene(), [["bird"]], TRANSFORM, rotation(), 0, 2);
+    expect(shown()).toEqual([2, 3.5, 0]);
+    setFieldAxis(scene(), [["bird"]], TRANSFORM, rotation(), 2, 0.25);
+    expect(shown()).toEqual([2, 3.5, 0.25]);
     const live = scene().sync.nodeFor("bird")!.transform!.rotation;
-    expect(live.equals(Quaternion.euler(120, 200, 15), 1e-6)).toBe(true);
+    expect(live.equals(Quaternion.euler(2, 3.5, 0.25), 1e-6)).toBe(true);
     expect(scene().doc.fieldValue("bird", "engine.Transform", "rotation")).toHaveLength(4);
   });
 
-  it("four 90-degree yaw edits come back to the start", () => {
+  it("four +π/2 yaw edits come back to the start", () => {
     const start = (rotation().value as Quaternion).clone();
-    for (let i = 0; i < 4; i++) setFieldAxis(scene(), [["bird"]], TRANSFORM, rotation(), 1, shown()[1] + 90);
+    for (let i = 0; i < 4; i++) setFieldAxis(scene(), [["bird"]], TRANSFORM, rotation(), 1, shown()[1] + Math.PI / 2);
     expect((rotation().value as Quaternion).equals(start, 1e-6)).toBe(true);
+  });
+
+  it("edits x, y, z, w in the quaternion view, normalized, as one undo step", () => {
+    const { stack } = scene();
+    const before = stack.undoLabel;
+    setFieldAxis(scene(), [["bird"]], TRANSFORM, rotation(), 1, 1, undefined, "quaternion");
+    expect(scene().doc.fieldValue("bird", "engine.Transform", "rotation")).toEqual([0, 0.7071068, 0, 0.7071068]);
+    stack.undo();
+    expect(stack.undoLabel).toBe(before);
   });
 });
 
 describe("reporting and reverting", () => {
   it("tells differing values apart, quaternions by their rounded angles", () => {
     expect(fieldState(scene(), instances, TRANSFORM, "position").mixed).toBe(true);
-    expect(isMixed(scene(), [Quaternion.fromEuler(0, 0, 30), Quaternion.fromEuler(0, 0, 30.000001)])).toBe(false);
-    expect(isMixed(scene(), [Quaternion.fromEuler(0, 0, 30), Quaternion.fromEuler(0, 0, 31)])).toBe(true);
+    expect(isMixed(scene(), [Quaternion.fromEuler(0, 0, 0.5), Quaternion.fromEuler(0, 0, 0.5 + 1e-9)])).toBe(false);
+    expect(isMixed(scene(), [Quaternion.fromEuler(0, 0, 0.5), Quaternion.fromEuler(0, 0, 0.51)])).toBe(true);
     setFieldAxis(scene(), instances, TRANSFORM, fieldOf(["bg-a"], "engine.Transform", "position"), 0, 5);
     expect(fieldValues(scene(), instances, TRANSFORM, "position").map((v) => (v as { toArray(): number[] }).toArray())).toEqual([
       [5, 3, 0],

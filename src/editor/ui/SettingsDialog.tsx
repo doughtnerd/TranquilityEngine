@@ -2,7 +2,7 @@ import { signal } from "@preact/signals";
 import { settingsOpen } from "./dialogState";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { PRODUCT_NAME } from "../brand";
-import { askBeforeClearingReferences, askBeforeDeletingAssets, checkScriptsBeforePlay, historyLocation, historyPruneDays } from "../preferences";
+import { askBeforeClearingReferences, askBeforeDeletingAssets, checkScriptsBeforePlay, historyLocation, historyPruneDays, rotationAngles } from "../preferences";
 import { cleanPruneDays } from "../historyPrune";
 import { currentProject } from "../state";
 import { removeProjectTheme, writeProjectTheme } from "../projectTheme";
@@ -40,9 +40,10 @@ import "./history.css";
 import "./brand.css";
 
 
-type Section = "general" | "appearance";
+type Section = "general" | "inspector" | "appearance";
 const SECTIONS: { id: Section; label: string }[] = [
   { id: "general", label: "General" },
+  { id: "inspector", label: "Inspector" },
   { id: "appearance", label: "Appearance" },
 ];
 /** The section showing (kept while the editor runs, so reopening returns to it). */
@@ -50,7 +51,8 @@ const section = signal<Section>("general");
 
 /**
  * Editor settings (per user), in sections: General (where edit history is kept, the delete
- * prompts) and Appearance (theme preset, colour overrides, UI and code fonts, applied live).
+ * prompts), Inspector (how rotations show) and Appearance (theme preset, colour overrides, UI and
+ * code fonts, applied live).
  */
 export function SettingsDialog() {
   const close = useRef<HTMLButtonElement>(null);
@@ -100,7 +102,7 @@ export function SettingsDialog() {
           ))}
         </div>
         <div class="settings-body" role="tabpanel" id={`settings-panel-${current}`} aria-labelledby={`settings-tab-${current}`}>
-          {current === "general" ? <GeneralSettings /> : <AppearanceSettings />}
+          {current === "general" ? <GeneralSettings /> : current === "inspector" ? <InspectorSettings /> : <AppearanceSettings />}
         </div>
         <div class="dialog-buttons">
           <button class="settings-about" onClick={() => (aboutOpen.value = true)}>
@@ -173,6 +175,24 @@ function GeneralSettings() {
         </label>
       </fieldset>
     </>
+  );
+}
+
+function InspectorSettings() {
+  const angles = rotationAngles.value === "degrees" ? "degrees" : "radians";
+  return (
+    <fieldset>
+      <legend>Rotation angles</legend>
+      <label>
+        <input type="radio" name="rotation-angles" checked={angles === "radians"} onChange={() => (rotationAngles.value = "radians")} />
+        Radians
+      </label>
+      <label>
+        <input type="radio" name="rotation-angles" checked={angles === "degrees"} onChange={() => (rotationAngles.value = "degrees")} />
+        Degrees
+      </label>
+      <p class="note">How the Inspector shows rotations as Euler angles. Scenes store quaternions either way; a field can pick its own view, and each row's toggle switches it for the session.</p>
+    </fieldset>
   );
 }
 

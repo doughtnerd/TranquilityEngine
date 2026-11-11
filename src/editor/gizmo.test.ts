@@ -9,7 +9,7 @@ import { shortcutFor } from "./shortcuts";
 import { openScene, sceneCamera } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
-const quat = (zDeg: number) => Quaternion.fromEuler(0, 0, zDeg);
+const quat = (zDeg: number) => Quaternion.fromEuler(0, 0, zDeg * (Math.PI / 180));
 
 describe("gizmo math: world pose → local Transform values", () => {
   it("is the world pose itself under the World root", () => {
@@ -25,7 +25,7 @@ describe("gizmo math: world pose → local Transform values", () => {
     // A child at local (1, 0, 0), rotated 10° locally, sits at world (10, 2, 0) rotated 100°, scale 2.
     const pose = localPoseFromWorld(parent, new Vector3(10, 2, 0), quat(100), new Vector3(2, 2, 2));
     expect(pose.position).toEqual([1, 0, 0]);
-    expect(Quaternion.from(pose.rotation).toEuler().z).toBeCloseTo(10, 4);
+    expect(Quaternion.from(pose.rotation).toEuler().z).toBeCloseTo(Math.PI / 18, 4);
     expect(pose.scale).toEqual([1, 1, 1]);
   });
 
@@ -44,7 +44,7 @@ describe("gizmo edits (ADR 0026)", () => {
     openSceneFile(engine, DEMO_SCENE);
   });
 
-  const z45 = Quaternion.rotateZ(45).toArray();
+  const z45 = Quaternion.rotateZ(Math.PI / 4).toArray();
   const asPose = (): LocalPose => ({ position: [2, 3, 0], rotation: z45, scale: [1.5, 1.5, 1] });
 
   it("each mode edits its own Transform field", () => {
@@ -70,7 +70,7 @@ describe("gizmo edits (ADR 0026)", () => {
     const { doc, stack, sync } = openScene.value!;
     stack.execute(gizmoEdit(doc, "bird", "rotate", asPose()));
     expect(doc.fieldValue("bird", "engine.Transform", "rotation")).toEqual([0, 0, 0.3826834, 0.9238795]);
-    expect(sync.nodeFor("bird")!.transform!.rotation2D).toBeCloseTo(45, 4);
+    expect(sync.nodeFor("bird")!.transform!.rotation2D).toBeCloseTo(Math.PI / 4, 4);
     // A file that still says a single angle is rewritten as a quaternion by the next rotate.
     stack.execute(new SetField("bird", "engine.Transform", "rotation", 10));
     expect(gizmoEdit(doc, "bird", "rotate", asPose()).value).toEqual([0, 0, 0.3826834, 0.9238795]);

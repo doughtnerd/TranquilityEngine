@@ -26,8 +26,8 @@ describe("field values (scene-file JSON)", () => {
 
   it("converts values to their scene-file form", () => {
     expect(toSceneJSON("vector3", new Vector3(1, 2, 3))).toEqual([1, 2, 3]);
-    // Rotations are quaternions (ADR 0163), from a Quaternion or from Euler degrees (ZXY), w kept ≥ 0.
-    expect(toSceneJSON("quaternion", [0, 0, 90])).toEqual([0, 0, 0.7071068, 0.7071068]);
+    // Rotations are quaternions (ADR 0163), from a Quaternion or from Euler radians (ZXY), w kept ≥ 0.
+    expect(toSceneJSON("quaternion", [0, 0, Math.PI / 2])).toEqual([0, 0, 0.7071068, 0.7071068]);
     expect(toSceneJSON("quaternion", new Quaternion(0, -0.7071068, 0, -0.7071068))).toEqual([0, 0.7071068, 0, 0.7071068]);
     expect(toSceneJSON("color", new Color(1, 0, 0, 1))).toBe("#ff0000");
     expect(colorToJSON(new Color(0, 1, 0, 0.5))).toBe("#00ff0080");
@@ -45,6 +45,9 @@ describe("field values (scene-file JSON)", () => {
     expect(parseNumber("")).toBeNull();
     expect(parseNumber("abc")).toBeNull();
     expect(parseNumber("alert(1)")).toBeNull();
+    expect(parseNumber("pi / 2")).toBeCloseTo(Math.PI / 2, 12);
+    expect(parseNumber("-π")).toBeCloseTo(-Math.PI, 12);
+    expect(parseNumber("pie")).toBeNull();
   });
 
   it("maps keys to undo/redo", () => {
