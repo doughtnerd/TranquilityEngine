@@ -15,7 +15,7 @@ import { ambisonicImportGain, ambisonicStreamsByDefault } from "./core/clipRegis
 import { Assets } from "../../../engine/scene/Assets";
 import { audioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type AudioVoice, type PlayRequest, type Rolloff, type SendCurve } from "./backend";
 import { isAudioEventPath } from "../../../engine/audio/eventFormat";
-import { _setEventClipStarter, events, type EventInstance } from "./events/eventRuntime";
+import { _setEventClipStarter, events, type EventInstance, type EventOptions } from "./events/eventRuntime";
 
 
 export type { Rolloff } from "./backend";
@@ -53,6 +53,7 @@ _setEventClipStarter({
   },
   url: (path) => Assets.url(path),
   bus: (output) => mixer.resolveOutput(output),
+  hasBus: (name) => mixer.has(name),
   play: (req) => audioBackend().play(req),
 });
 
@@ -153,6 +154,7 @@ export class AudioSource extends Component {
     if (isAudioEventPath(path)) {
       this.instance = events().play(path, {
         pitch: this.pitch, priority: clamp255(this.priority), bus: this.output || undefined, position: this.node.transform?.worldPosition,
+        ...this.eventSpatialOptions(),
       }, worldKeyOf(this._world));
       this.applied = "";
       this.appliedPitch = this.pitch;
@@ -230,6 +232,12 @@ export class AudioSource extends Component {
       reverbSendCurve: Array.isArray(this.reverbSendCurve) ? this.reverbSendCurve : DEFAULT_SEND_CURVE,
       yaw: clampOr(this.ambisonicYaw, -180, 180, 0),
     };
+  }
+
+  /** ADR 0162 §1.2 (D4): the options an event the source plays gets (the event's own `spatial` keys win; a flat event ignores them). */
+  private eventSpatialOptions(): Pick<EventOptions, "occlusion" | "dopplerLevel" | "reverbSend" | "reverbSendCurve"> {
+    const { occlusion, dopplerLevel, reverbSend, reverbSendCurve } = this.spatialOptions();
+    return { occlusion, dopplerLevel, reverbSend, reverbSendCurve };
   }
 
   /**

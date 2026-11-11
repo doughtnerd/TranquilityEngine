@@ -7,7 +7,9 @@
  * {
  *   "format": "myco.audioevent@1",
  *   "bus": "SFX", "volume": 1, "pitch": 1, "volumeRandom": [-2, 0], "pitchRandom": [-1, 1], "priority": 128,
- *   "spatial": { "minDistance": 1, "maxDistance": 30, "rolloff": "inverse" },   // absent: flat
+ *   "spatial": { "minDistance": 1, "maxDistance": 30, "rolloff": "inverse",      // absent: flat
+ *                "occlusion": true, "dopplerLevel": 0, "reverbSendCurve": [[0, 1], [1, 0.5]] },   // ADR 0162 §2.5
+ *   "filter": { "lowpass": 9000, "highpass": 80 }, "sends": { "reverb": 0.5, "Cave": 0.3 },   // ADR 0162 §2.5
  *   "limit": { "maxInstances": 4, "steal": "oldest" }, "cooldown": 0.05,
  *   "parameters": [{ "name": "Speed", "min": 0, "max": 10, "default": 0, "seekSpeed": 20 }],
  *   "automation": [{ "parameter": "Speed", "target": "volume", "curve": [[0, 0.5], [10, 1]] }],
@@ -200,6 +202,27 @@ export type NodeType = (typeof NODE_TYPES)[number];
 export type Steal = "oldest" | "quietest" | "none";
 export type EventRolloff = "linear" | "inverse" | "exponential";
 
+/** A spatial event. The ADR 0162 §2.5 keys are absent when the file doesn't set them (the runtime applies the defaults). */
+export interface EventSpatial {
+  minDistance: number;
+  maxDistance: number;
+  rolloff: EventRolloff;
+  /** Default true. */
+  occlusion?: boolean;
+  /** 0..5, default 0. */
+  dopplerLevel?: number;
+  /** The reverb send against distance (`SendCurve`, ADR 0162 §1.1); default `[[0, 1], [1, 0.5]]`. */
+  reverbSendCurve?: Curve;
+}
+
+export interface EventFilter {
+  lowpass?: number;
+  highpass?: number;
+}
+
+/** The `sends` key that is the event's own `reverbSend`; every other key is an aux send to the bus of that name. */
+export const REVERB_SEND_KEY = "reverb";
+
 export interface AudioEventAsset {
   format: typeof AUDIO_EVENT_FORMAT;
   /** Empty: Master. */
@@ -211,7 +234,11 @@ export interface AudioEventAsset {
   /** 0..255. */
   priority: number;
   /** Absent: the event plays flat. */
-  spatial?: { minDistance: number; maxDistance: number; rolloff: EventRolloff };
+  spatial?: EventSpatial;
+  /** ADR 0162 §2.5: per-voice filters, Hz (10..24000; lowpass at or above 20000 and highpass at or below 20 are off). Absent: none. */
+  filter?: EventFilter;
+  /** ADR 0162 §2.5: `reverb` (0..2) is the event's `reverbSend`; at most one other key, an aux send to that bus (0..2). Absent: none. */
+  sends?: Record<string, number>;
   /** `maxInstances` 0 is unlimited. `steal` decides who goes when a new instance would pass it. */
   limit: { maxInstances: number; steal: Steal };
   /** Seconds; a play sooner than this after the last one is refused. */
@@ -457,10 +484,44 @@ export function parseAudioEvent(raw: unknown): { value: AudioEventAsset; problem
     if (!isRecord(raw.spatial)) problems.push("spatial: must be an object; playing flat.");
     else if (raw.spatial.enabled !== false) {
       const min = r.num(raw.spatial.minDistance, "spatial.minDistance", 1, 0);
-      value.spatial = {
+      const spatial: EventSpatial = {
         minDistance: min, maxDistance: r.num(raw.spatial.maxDistance, "spatial.maxDistance", Math.max(min, 100), min),
         rolloff: r.pick(raw.spatial.rolloff, "spatial.rolloff", ["linear", "inverse", "exponential"] as const, "inverse"),
       };
+      if (raw.spatial.occlusion !== undefined) spatial.occlusion = r.bool(raw.spatial.occlusion, "spatial.occlusion", true);
+      if (raw.spatial.dopplerLevel !== undefined) spatial.dopplerLevel = r.num(raw.spatial.dopplerLevel, "spatial.dopplerLevel", 0, 0, 5);
+      if (raw.spatial.reverbSendCurve !== undefined) {
+        const curve = audioCurve(raw.spatial.reverbSendCurve, "spatial.reverbSendCurve", problems);
+        if (curve) spatial.reverbSendCurve = curve;
+        else if (Array.isArray(raw.spatial.reverbSendCurve)) problems.push("spatial.reverbSendCurve: the curve has no keys; using the default.");
+      }
+      value.spatial = spatial;
+    }
+  }
+  if (raw.filter !== undefined) {
+    if (!isRecord(raw.filter)) problems.push("filter: must be an object.");
+    else {
+      const filter: EventFilter = {};
+      if (raw.filter.lowpass !== undefined) filter.lowpass = r.num(raw.filter.lowpass, "filter.lowpass", 24000, 10, 24000);
+      if (raw.filter.highpass !== undefined) filter.highpass = r.num(raw.filter.highpass, "filter.highpass", 10, 10, 24000);
+      if (filter.lowpass !== undefined || filter.highpass !== undefined) value.filter = filter;
+    }
+  }
+  if (raw.sends !== undefined) {
+    if (!isRecord(raw.sends)) problems.push("sends: must be an object.");
+    else {
+      const sends: Record<string, number> = {};
+      let aux: string | null = null;
+      for (const [key, v] of Object.entries(raw.sends)) {
+        const where = `sends.${key}`;
+        if (key !== REVERB_SEND_KEY) {
+          if (aux !== null) { problems.push(`${where}: an event has one aux send ("${aux}" is the first); this one is dropped.`); continue; }
+          if (!finite(v)) { problems.push(`${where}: must be a number; dropped.`); continue; }
+          aux = key;
+          sends[key] = r.num(v, where, 0, 0, 2);
+        } else if (v !== undefined) sends[key] = r.num(v, where, 1, 0, 2);
+      }
+      if (Object.keys(sends).length > 0) value.sends = sends;
     }
   }
   if (raw.limit !== undefined) {
@@ -490,6 +551,7 @@ export function parseAudioEvent(raw: unknown): { value: AudioEventAsset; problem
 
 /** The asset as JSON text, `format` first, two-space indent (as the editor writes every asset). */
 export function formatAudioEvent(value: AudioEventAsset): string {
-  const { format: _f, ...rest } = value;
-  return JSON.stringify({ format: AUDIO_EVENT_FORMAT, ...rest }, null, 2) + "\n";
+  const { format: _f, filter, sends, root, ...rest } = value;
+  // `filter` and `sends` only when set, ahead of `root` (which stays last).
+  return JSON.stringify({ format: AUDIO_EVENT_FORMAT, ...rest, ...(filter ? { filter } : {}), ...(sends ? { sends } : {}), root }, null, 2) + "\n";
 }
