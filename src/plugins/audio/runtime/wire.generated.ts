@@ -4,14 +4,14 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "5b4cc14ab15d4099c443889815d94202";
+export const SCHEMA_HASH = "d134301e035d535d27745724a78d2902";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
 /** a core refuses a different major */
 export const VERSION_MAJOR = 0x1;
-/** new opcodes or appended payload words are minor (1.1: ADR 0162) */
-export const VERSION_MINOR = 0x1;
+/** new opcodes or appended payload words are minor (1.1: ADR 0162; 1.2: the shape word, ADR 0166) */
+export const VERSION_MINOR = 0x2;
 /** envelope size */
 export const ENVELOPE_BYTES = 0x10;
 /** f64 firstFrame; u32 count; u32 flags */
@@ -26,14 +26,14 @@ export const BATCH_MAX_BYTES = 0x10000;
 export const INBOX_BYTES = 0x100000;
 /** each REPLAY message: 1 MiB minus 32 bytes */
 export const REPLAY_CHUNK_MAX_BYTES = 0xfffe0;
-/** STATUS header, envelope included (ADR 0162 §4.3) */
-export const STATUS_HEADER_BYTES = 0x90;
+/** STATUS header, envelope included (ADR 0162 §4.3; 176 B with the M4 fields, ADR 0166) */
+export const STATUS_HEADER_BYTES = 0xb0;
 /** the shell's pool of STATUS buffers */
 export const STATUS_POOL_BUFFERS = 0x8;
 /** size of each STATUS buffer */
 export const STATUS_BUFFER_BYTES = 0x4000;
-/** 144 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 */
-export const STATUS_WORST_CASE_BYTES = 0x3e20;
+/** 176 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 */
+export const STATUS_WORST_CASE_BYTES = 0x3e40;
 /** STATUS cadence */
 export const STATUS_EVERY_QUANTA = 0x6;
 /** cadence when no batch arrived for 250 ms */
@@ -128,6 +128,56 @@ export const MAX_CLIP_EVENTS_PER_BLOCK = 0x40;
 export const MAX_STREAM_EVENTS_PER_BLOCK = 0x40;
 /** i32 result: ok */
 export const ERR_OK = 0x0;
+/** the STATUS header with the M4 fields, envelope included (STATUS_HEADER_BYTES); sections start here */
+export const HEADER_BYTES = 0xb0;
+/** most music rings (init max_music_rings 0..=16, the musicRings section's cap) */
+export const MAX_MUSIC_RINGS = 0x10;
+/** group table entries in the core (ADR 0167 R9) */
+export const MAX_GROUPS = 0x10;
+/** members of a group the core's table holds; a larger gate size is refused and counted */
+export const MAX_GROUP_MEMBERS = 0x20;
+/** curve pool entries (ADR 0167 R4) */
+export const CURVE_ENTRIES = 0xff;
+/** stamped records due in one quantum (the due list) */
+export const DUE_RECORDS = 0x100;
+/** parked records of held voices; overflow applies unrebased */
+export const PARKED_RECORDS = 0x80;
+/** PLAY gate bits 0-9: groupId 1..=1023, 0 = ungated */
+export const PLAY_GATE_ID_MASK = 0x3ff;
+/** PLAY gate bits 10-15: groupSize - 1 */
+export const PLAY_GATE_SIZE_SHIFT = 0xa;
+/** PLAY gate size field after the shift: groupSize - 1, 0..=63 */
+export const PLAY_GATE_SIZE_MASK = 0x3f;
+/** most members a gate can state on the wire (the core's table holds MAX_GROUP_MEMBERS) */
+export const PLAY_GATE_MAX_SIZE = 0x40;
+/** STREAM_OPEN flags bit 1: the ring comes from the music pool; none free is refused (stream event 4) */
+export const STREAM_OPEN_FLAG_MUSIC = 0x2;
+/** STATUS streamEvents code 4: a music STREAM_OPEN found no free music ring (ADR 0167 R7) */
+export const STREAM_EVENT_MUSIC_FULL = 0x4;
+/** shape word bits 0-2: the curve law (FadeLaw) */
+export const SHAPE_LAW_MASK = 0x7;
+/** shape word bits 16-31: startPhase as u0.16 */
+export const SHAPE_PHASE_SHIFT = 0x10;
+/** shape word startPhase bits */
+export const SHAPE_PHASE_MASK = 0xffff0000;
+/** startPhase = value / 65,536 */
+export const SHAPE_PHASE_SCALE = 0x10000;
+/** points of the equal-power curve table (control-rate laws, ADR 0167 R6) */
+export const FADE_CURVE_TABLE_POINTS = 0x400;
+/** musicRings epochFlags bits 0-29: the ring's current epoch */
+export const MUSIC_RING_EPOCH_MASK = 0x3fffffff;
+/** musicRings epochFlags bit 30: primed (at least START_FRAMES in the current epoch, or input ended) */
+export const MUSIC_RING_PRIMED = 0x40000000;
+/** musicRings epochFlags bit 31: bound to a voice */
+export const MUSIC_RING_BOUND = 0x80000000;
+/** groupStarts flags bit 0: the group started late */
+export const GROUP_START_LATE = 0x1;
+/** groupStarts flags bit 1: held and resumed */
+export const GROUP_START_HELD = 0x2;
+/** groupStarts flags bit 2: abandoned (give-up) */
+export const GROUP_START_ABANDONED = 0x4;
+/** STATUS groupStarts cap; the rest carry over like starved */
+export const MAX_GROUP_STARTS_PER_BLOCK = 0x8;
 
 /** Negative i32 results of the C ABI (0 is ok). */
 export const ErrorCode = {
@@ -221,6 +271,7 @@ export const StreamEvent = {
   Starved: 1,
   Eos: 2,
   Error: 3,
+  MusicFull: 4,
 } as const;
 
 /** STATUS hrtfLoadFailure */
@@ -275,6 +326,41 @@ export const EffectType = {
   Compressor: 2,
   ReverbSend: 3,
 } as const;
+
+/** shape word bits 0-2: the law of a gain ramp (FADE, SET_PARAMS, STOP) */
+export const FadeLaw = {
+  Linear: 0,
+  SCurve: 1,
+  EqualPowerIn: 2,
+  EqualPowerOut: 3,
+} as const;
+
+/** The shape word of FADE, SET_PARAMS and STOP: `law` (bits 0-2, `FadeLaw`) and `startPhase` as u0.16 (bits 16-31). */
+export function packShape(law: number, startPhase: number): number {
+  return (((law & SHAPE_LAW_MASK) | ((startPhase & 0xffff) << SHAPE_PHASE_SHIFT)) >>> 0);
+}
+/** The law of a shape word (0..7; 4..7 are reserved). */
+export function shapeLaw(shape: number): number {
+  return shape & SHAPE_LAW_MASK;
+}
+/** The start phase of a shape word, 0..65535 (value / 65,536). */
+export function shapeStartPhase(shape: number): number {
+  return shape >>> SHAPE_PHASE_SHIFT;
+}
+/** The PLAY `gate`: `groupId` 1..1023 (0 = ungated, which packs to 0) and `groupSize` 1..64 (clamped). */
+export function packGate(groupId: number, groupSize: number): number {
+  if ((groupId & PLAY_GATE_ID_MASK) === 0) return 0;
+  const size = Math.min(PLAY_GATE_MAX_SIZE, Math.max(1, groupSize));
+  return (groupId & PLAY_GATE_ID_MASK) | ((size - 1) << PLAY_GATE_SIZE_SHIFT);
+}
+/** The group id of a gate (0 = ungated). */
+export function gateGroupId(gate: number): number {
+  return gate & PLAY_GATE_ID_MASK;
+}
+/** The group size of a gate, 1..64; 0 for an ungated voice. */
+export function gateGroupSize(gate: number): number {
+  return (gate & PLAY_GATE_ID_MASK) === 0 ? 0 : ((gate >>> PLAY_GATE_SIZE_SHIFT) & PLAY_GATE_SIZE_MASK) + 1;
+}
 
 /** The 16-byte envelope of every message (`magic` and `version` default on write). */
 export interface Envelope {
@@ -864,6 +950,8 @@ export const PLAY_FLAGS_PANNER_SHIFT = 5;
 export const PLAY_FLAGS_PANNER_MASK = 0x60;
 /** a B-format clip or stream voice of 4, 9 or 16 channels (ADR 0162 C1); spatial, panner and dir are ignored; read from PLAY only */
 export const PLAY_FLAGS_AMBISONIC = 0x80;
+/** the voice starts with its fade ramp at 0, so an incoming stem is silent without touching gain; a stamped FADE to 1 opens it (ADR 0166 M4, API section 4.1); read from PLAY only */
+export const PLAY_FLAGS_FADE_ZERO = 0x100;
 /** start a voice; does not ramp */
 export interface Play {
   voiceId: number;
@@ -942,6 +1030,12 @@ export function readPlay(view: DataView, off: number): Play {
   return _readPlay(view, off, limit)[0];
 }
 
+/** 0 linear, 1 sCurve, 2 equalPowerIn, 3 equalPowerOut (FadeLaw); 4-7 reserved */
+export const STOP_SHAPE_LAW_SHIFT = 0;
+export const STOP_SHAPE_LAW_MASK = 0x7;
+/** start phase of the curve as u0.16: value / 65,536 */
+export const STOP_SHAPE_START_PHASE_SHIFT = 16;
+export const STOP_SHAPE_START_PHASE_MASK = 0xffff0000;
 /** stop a voice */
 export interface Stop {
   voiceId: number;
@@ -949,14 +1043,17 @@ export interface Stop {
   /** 0 is now */
   fadeFrames: number;
   reason: number;
+  /** law and start phase of the ramp (envelope 1.2); a record without the word reads 0 */
+  shape?: number;
 }
 
-export const STOP_FIXED_END = 20;
+export const STOP_FIXED_END = 24;
 
 export function writeStop(view: DataView, off: number, rec: Stop): number {
   view.setUint32(off + 12, rec.fadeFrames, true);
   view.setUint32(off + 16, rec.reason, true);
-  let cur = off + 20;
+  view.setUint32(off + 20, (rec.shape ?? 0), true);
+  let cur = off + 24;
   const total = cur - off;
   if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Stop: record too long");
   view.setUint16(off + 0, 2, true);
@@ -970,12 +1067,13 @@ function _readStop(view: DataView, off: number, limit: number): [Stop, number] {
   if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "Stop: truncated");
   const fadeFrames = view.getUint32(off + 12, true);
   const reason = view.getUint32(off + 16, true);
-  let cur = off + 20;
+  const shape = off + 24 <= limit ? view.getUint32(off + 20, true) : 0;
+  let cur = Math.min(off + 24, limit);
   if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Stop: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
-  return [{ voiceId, frameOffset, fadeFrames, reason }, cur - off];
+  return [{ voiceId, frameOffset, fadeFrames, reason, shape }, cur - off];
 }
 
 export function readStop(view: DataView, off: number): Stop {
@@ -1015,6 +1113,14 @@ export const SET_PARAMS_FLAGS_PANNER_SHIFT = 5;
 export const SET_PARAMS_FLAGS_PANNER_MASK = 0x60;
 /** a B-format clip or stream voice of 4, 9 or 16 channels (ADR 0162 C1); spatial, panner and dir are ignored; read from PLAY only */
 export const SET_PARAMS_FLAGS_AMBISONIC = 0x80;
+/** the voice starts with its fade ramp at 0, so an incoming stem is silent without touching gain; a stamped FADE to 1 opens it (ADR 0166 M4, API section 4.1); read from PLAY only */
+export const SET_PARAMS_FLAGS_FADE_ZERO = 0x100;
+/** 0 linear, 1 sCurve, 2 equalPowerIn, 3 equalPowerOut (FadeLaw); 4-7 reserved */
+export const SET_PARAMS_SHAPE_LAW_SHIFT = 0;
+export const SET_PARAMS_SHAPE_LAW_MASK = 0x7;
+/** start phase of the curve as u0.16: value / 65,536 */
+export const SET_PARAMS_SHAPE_START_PHASE_SHIFT = 16;
+export const SET_PARAMS_SHAPE_START_PHASE_MASK = 0xffff0000;
 /** set voice parameters; ramps over rampFrames */
 export interface SetParams {
   voiceId: number;
@@ -1032,9 +1138,11 @@ export interface SetParams {
   rampFrames: number;
   /** only the panner bits are read */
   flags: number;
+  /** law and start phase of the ramp (envelope 1.2); a record without the word reads 0 */
+  shape?: number;
 }
 
-export const SET_PARAMS_FIXED_END = 56;
+export const SET_PARAMS_FIXED_END = 60;
 
 export function writeSetParams(view: DataView, off: number, rec: SetParams): number {
   view.setUint32(off + 12, rec.mask, true);
@@ -1048,7 +1156,8 @@ export function writeSetParams(view: DataView, off: number, rec: SetParams): num
   view.setUint32(off + 44, rec.bus, true);
   view.setUint32(off + 48, rec.rampFrames, true);
   view.setUint32(off + 52, rec.flags, true);
-  let cur = off + 56;
+  view.setUint32(off + 56, (rec.shape ?? 0), true);
+  let cur = off + 60;
   const total = cur - off;
   if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "SetParams: record too long");
   view.setUint16(off + 0, 3, true);
@@ -1071,12 +1180,13 @@ function _readSetParams(view: DataView, off: number, limit: number): [SetParams,
   const bus = view.getUint32(off + 44, true);
   const rampFrames = view.getUint32(off + 48, true);
   const flags = view.getUint32(off + 52, true);
-  let cur = off + 56;
+  const shape = off + 60 <= limit ? view.getUint32(off + 56, true) : 0;
+  let cur = Math.min(off + 60, limit);
   if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "SetParams: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
-  return [{ voiceId, frameOffset, mask, gain, pitch, dirX, dirY, dirZ, lpHz, score, bus, rampFrames, flags }, cur - off];
+  return [{ voiceId, frameOffset, mask, gain, pitch, dirX, dirY, dirZ, lpHz, score, bus, rampFrames, flags, shape }, cur - off];
 }
 
 export function readSetParams(view: DataView, off: number): SetParams {
@@ -1089,6 +1199,12 @@ export function readSetParams(view: DataView, off: number): SetParams {
 
 /** stop the voice at the end of the fade */
 export const FADE_FLAGS_STOP_AT_END = 0x1;
+/** 0 linear, 1 sCurve, 2 equalPowerIn, 3 equalPowerOut (FadeLaw); 4-7 reserved */
+export const FADE_SHAPE_LAW_SHIFT = 0;
+export const FADE_SHAPE_LAW_MASK = 0x7;
+/** start phase of the curve as u0.16: value / 65,536 */
+export const FADE_SHAPE_START_PHASE_SHIFT = 16;
+export const FADE_SHAPE_START_PHASE_MASK = 0xffff0000;
 /** fade a voice's gain to target */
 export interface Fade {
   voiceId: number;
@@ -1096,15 +1212,18 @@ export interface Fade {
   target: number;
   frames: number;
   flags: number;
+  /** law and start phase of the ramp (envelope 1.2); a record without the word reads 0 */
+  shape?: number;
 }
 
-export const FADE_FIXED_END = 24;
+export const FADE_FIXED_END = 28;
 
 export function writeFade(view: DataView, off: number, rec: Fade): number {
   view.setFloat32(off + 12, rec.target, true);
   view.setUint32(off + 16, rec.frames, true);
   view.setUint32(off + 20, rec.flags, true);
-  let cur = off + 24;
+  view.setUint32(off + 24, (rec.shape ?? 0), true);
+  let cur = off + 28;
   const total = cur - off;
   if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Fade: record too long");
   view.setUint16(off + 0, 4, true);
@@ -1119,12 +1238,13 @@ function _readFade(view: DataView, off: number, limit: number): [Fade, number] {
   const target = view.getFloat32(off + 12, true);
   const frames = view.getUint32(off + 16, true);
   const flags = view.getUint32(off + 20, true);
-  let cur = off + 24;
+  const shape = off + 28 <= limit ? view.getUint32(off + 24, true) : 0;
+  let cur = Math.min(off + 28, limit);
   if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Fade: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
-  return [{ voiceId, frameOffset, target, frames, flags }, cur - off];
+  return [{ voiceId, frameOffset, target, frames, flags, shape }, cur - off];
 }
 
 export function readFade(view: DataView, off: number): Fade {
@@ -2511,6 +2631,30 @@ export interface StatusBlock {
   workBed: number;
   /** work units, last quantum: zone convolvers, sends, aux */
   workZones: number;
+  /** the musicRings section's count (at most 16) */
+  musicRingCount: number;
+  /** the groupStarts section's count (at most 8) */
+  groupStartCount: number;
+  /** music rings open */
+  musicRingsOpen: number;
+  /** voices that started after their stamp because a ring was not ready (cumulative, saturating) */
+  streamStartsLate: number;
+  /** groups that started late (cumulative, saturating) */
+  groupsLate: number;
+  /** groups held by a starving member (cumulative) */
+  groupsHeld: number;
+  /** group give-ups (cumulative) */
+  groupsAbandoned: number;
+  /** curve pool refusals (cumulative) */
+  curvePoolFull: number;
+  /** largest group slip since init */
+  maxSlipFrames: number;
+  /** whole-quantum splits (cumulative; R3) */
+  splitQuanta: number;
+  /** voice-local splits (cumulative; R3) */
+  voiceSplits: number;
+  /** reserved, 0 */
+  reserved: number;
   /** voices that ended in this block (at most 1024 per block) */
   ended: number[];
   /** voices virtualised by the adaptive cap (at most 1024 per block) */
@@ -2587,7 +2731,19 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
   view.setUint32(off + 132, rec.zoneUsedKB, true);
   view.setUint32(off + 136, rec.workBed, true);
   view.setUint32(off + 140, rec.workZones, true);
-  let cur = off + 144;
+  view.setUint16(off + 144, rec.musicRingCount, true);
+  view.setUint16(off + 146, rec.groupStartCount, true);
+  view.setUint16(off + 148, rec.musicRingsOpen, true);
+  view.setUint16(off + 150, rec.streamStartsLate, true);
+  view.setUint16(off + 152, rec.groupsLate, true);
+  view.setUint16(off + 154, rec.groupsHeld, true);
+  view.setUint16(off + 156, rec.groupsAbandoned, true);
+  view.setUint16(off + 158, rec.curvePoolFull, true);
+  view.setUint32(off + 160, rec.maxSlipFrames, true);
+  view.setUint32(off + 164, rec.splitQuanta, true);
+  view.setUint32(off + 168, rec.voiceSplits, true);
+  view.setUint32(off + 172, rec.reserved, true);
+  let cur = off + 176;
   for (const v of rec.ended) {
     view.setUint32(cur, v, true);
     cur += 4;
@@ -2615,13 +2771,13 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
 export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
   const view = buf instanceof ArrayBuffer ? new DataView(buf) : new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const off = 0;
-  if (144 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
+  if (176 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
   const env = readEnvelope(view, 0);
   if (env.magic !== MAGIC) throw new WireError(ErrorCode.BAD_MAGIC, "STATUS: bad magic");
   if (((env.version ?? 0) >> 8) !== VERSION_MAJOR) throw new WireError(ErrorCode.VERSION_MISMATCH, "STATUS: version mismatch");
   if (env.kind !== Kind.STATUS) throw new WireError(ErrorCode.MALFORMED, "STATUS: wrong kind");
   const limit = 16 + env.bodyBytes;
-  if (limit > view.byteLength || limit < 144) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
+  if (limit > view.byteLength || limit < 176) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
   const currentFrame = view.getFloat64(off + 16, true);
   const dateMs = view.getFloat64(off + 24, true);
   const pingSeq = view.getUint32(off + 32, true);
@@ -2664,7 +2820,19 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
   const zoneUsedKB = view.getUint32(off + 132, true);
   const workBed = view.getUint32(off + 136, true);
   const workZones = view.getUint32(off + 140, true);
-  let cur = 144;
+  const musicRingCount = view.getUint16(off + 144, true);
+  const groupStartCount = view.getUint16(off + 146, true);
+  const musicRingsOpen = view.getUint16(off + 148, true);
+  const streamStartsLate = view.getUint16(off + 150, true);
+  const groupsLate = view.getUint16(off + 152, true);
+  const groupsHeld = view.getUint16(off + 154, true);
+  const groupsAbandoned = view.getUint16(off + 156, true);
+  const curvePoolFull = view.getUint16(off + 158, true);
+  const maxSlipFrames = view.getUint32(off + 160, true);
+  const splitQuanta = view.getUint32(off + 164, true);
+  const voiceSplits = view.getUint32(off + 168, true);
+  const reserved = view.getUint32(off + 172, true);
+  let cur = 176;
   if (endedCount > 1024 || endedCount * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: ended overrun");
   const ended: number[] = [];
   for (let i = 0; i < endedCount; i++) {
@@ -2725,5 +2893,5 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
     zoneEvents.push(readStatusZoneEventsItem(view, cur));
     cur += 4;
   }
-  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, m3Shed, zoneUsedKB, workBed, workZones, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents };
+  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, m3Shed, zoneUsedKB, workBed, workZones, musicRingCount, groupStartCount, musicRingsOpen, streamStartsLate, groupsLate, groupsHeld, groupsAbandoned, curvePoolFull, maxSlipFrames, splitQuanta, voiceSplits, reserved, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents };
 }

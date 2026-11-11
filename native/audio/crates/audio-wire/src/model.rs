@@ -62,11 +62,15 @@ pub struct Field {
     pub offset: Option<u32>,
     pub bits: &'static [Bits],
     pub doc: &'static str,
+    /// An appended word of a newer minor (envelope 1.2: `shape`): the readers take a record that ends
+    /// before this field and read it as 0; the writers always write it. Only a contiguous tail of an
+    /// opcode's fixed fields may be appended, and only on records without a group or arrays.
+    pub appended: bool,
 }
 
 impl Field {
     pub const fn new(name: &'static str, ty: Ty) -> Field {
-        Field { name, ty, count: 1, offset: None, bits: &[], doc: "" }
+        Field { name, ty, count: 1, offset: None, bits: &[], doc: "", appended: false }
     }
     pub const fn at(self, offset: u32) -> Field {
         Field { offset: Some(offset), ..self }
@@ -76,6 +80,10 @@ impl Field {
     }
     pub const fn flags(self, bits: &'static [Bits]) -> Field {
         Field { bits, ..self }
+    }
+    /// Mark an appended word: a shorter, older record reads it as 0.
+    pub const fn appended(self) -> Field {
+        Field { appended: true, ..self }
     }
     pub const fn doc(self, doc: &'static str) -> Field {
         Field { doc, ..self }

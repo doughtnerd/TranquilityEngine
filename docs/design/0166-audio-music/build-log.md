@@ -23,6 +23,8 @@ Numbered; superseded entries are marked, not rewritten.
 - **D3 (W0) The peaks message (Ed1) and the encoded-cache miss rule are Q0's.** `computePeaks { id, asset?, bytes, hint, binFrames }` answered by `peaks { id, rate, channels, frames, binFrames, bins, peaks }` with `peaks` as int16 `[min, max]` pairs per bin, channel-major (the base level; `peaksMip.ts` builds the mips). Miss rule: a `primeGroup` member without `bytes` whose path the worker doesn't hold is answered with `needBytes`; main resends only those members with `bytes`; the worker never fetches. Also added: `protectMusic` and `releaseMusic` (C8's protected paths and the instance release). Revert: change the message shapes before D1a and Ed1 merge.
 - **D4 (W0) `music.rings` absent reads 12** (the default preset); the editor's low and high presets write 8 and 16 (`MUSIC_RINGS_PRESETS`). Why: §2.1 gives the presets but no value for an absent key on a project that set no preset; the default preset's value matches `voices`' defaults (the default preset's 128 mixed).
 
+- **D5 (W1) Rolling starts for pure-TypeScript tasks.** A later-wave task starts as soon as its dependencies are merged and its files are disjoint from every running task's, instead of waiting for the wave's end. First: F1b, F3, G1 after F1a. Why: G1 is on the 47.5-day pure chain; M3 ran "rolling starts" the same way. The wave-end checks still run per wave. Revert: hold later-wave tasks to their wave.
+
 ## Wave 0 (2026-11-11, base `origin/master` `c3f2e9b`)
 
 **State checked in the repository** (the plan's "State at planning" holds, with these corrections):
@@ -47,3 +49,32 @@ Numbered; superseded entries are marked, not rewritten.
 - `runtime/decoder/protocol.ts`: `primeGroup`, `cancelGroup`, `protectMusic`, `releaseMusic`, `computePeaks` (requests); `groupOpened`, `needBytes`, `peaks` (replies); the miss rule (D3).
 - `src/engine/audio/settings.ts`: `music.rings` (0..16, default 12) and `rhythmMode` (boolean), both inert (D4), with `src/engine/tests/audioSettingsMusic.test.ts`.
 - Checks: typecheck clean; the four settings test files pass (104 tests).
+
+## Wave 1 (pilot; base `da2be07f`)
+
+Started 2026-11-11 at about 22:00 UTC, all six leads in one message, each in its own worktree:
+
+| Task | Lead model | Branch | Flow |
+|---|---|---|---|
+| Z1 → W1 (wire) | mid | `m4/wire` | merge 1 (Z1 and every §4.5 constant) → leaf L-Z1a; merge 2 (W1, ABI 3.0, TS init) → leaves L-W1a, L-W1b |
+| Q1 (core skeleton) | strongest | `m4/q1` | stage A (modules, counters, `core.rs`) now; stage B (regions, 176-B header) on merge 1 |
+| Q2 (main-side skeleton) | strongest | `m4/q2` | merges after the wire's merge 2 (the `testing.ts` overlap) |
+| F1a (format head) | mid | `m4/f1a` | skeleton → leaves L-F1aa, L-F1ab |
+| Ed1 (peaks) | mid | `m4/ed1` | skeleton → leaf L-Ed1a |
+| S0 (smoke spec) | mid | `m4/s0` | unsplit; `E2E_PORT=4311` |
+
+Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S0 when ready.
+
+**Master merged in (2026-11-11):** `79af3d85` (#169, the pirates rock nav footprints) fixed the baseline's `piratesNavigation` failure; merged into the integration branch as `0a024003`; the test passes (4 of 4). It is no longer a known failure.
+
+**S0 merged** (`m4/s0` → `634ab666`): `tests/e2e/audio-music-smoke.spec.ts`, 3 of 3 green (12–14 s each). It drives the sound-lab's engine event with `handle.fade(0, 0.3)` (checked on the Engine bus meter: a faded voice reads `virtual`, and the voice row's `gain` doesn't follow fades), and a stamped spatial one-shot with `reverbSend`, `lowpass` and `highpass` (`at: Audio.time + 0.3`), and records `splitQuanta` as an annotation ("not reported yet" today). **Follow-up for Z3 (on its brief):** the fade case is unstamped, because no public call stamps a fade yet; when Z3 flips the expectation to `splitQuanta === 0`, it must also make that fade stamped (through `AudioVoice.fadeShaped` with `at`), or the case doesn't test the M4-0 exit check.
+
+**Ed1 merged** (`m4/ed1`, leaf L-Ed1a first pass): the worker `computePeaks` case (chunked decode, bins straddling chunks, unknown-length MP3), `decoderClient.computePeaks`, `editor/music/peaks.ts` (cache per path and mtime, shared in-flight requests, a newer mtime cancels the older computation, failures not cached) and `peaksMip.ts`. **Acceptance measured** (8 three-minute stereo 44.1 kHz WAV stems, the real client and service, the handler on a worker thread, 3 runs): worker ≈ 300 ms per stem; **main thread 8–12 ms per stem, longest event-loop stall 6–10 ms**. The lead first kept the bytes for a crash repeat, which cost ≈ 80 ms of main thread per stem (a 30 MB copy) and stalls of 640–850 ms; it dropped that (a worker crash rejects, and the service asks again). Caveats: WAV, so the worker time is mostly reduction, not codec decode; no shipped-browser `Worker` run. The coordinator corrected one doc comment the leaf flagged (`pickLevel` gives one to two bins per pixel, not "about one").
+
+**F1a merged** (`m4/f1a`, leaves L-F1ab and L-F1aa both first pass): `musicFormat.ts` (segment model, lenient parse, ids, limits, writer `musicNodeToJson`) and `musicPosition.ts`; 89 tests (39 limits, 42 positions, 8 writer round trip). Interpretations the spec leaves open: `bpm` 1..1000, `gridOffset` ≤ 3,600 s, bar ≤ 99,999 (a metre-change marker that would snap past it is dropped, "no bar after"); `start` allowed in `cues.at` and `regions.from`, `end` in `cues.at` and `regions.to`; segment-level `automation` is ignored with a problem; segment `plays` 1..64 parsed; error-level problems are prefixed `error: ` (`isMusicError`); a tempo field a marker omits keeps the previous marker's value; positions are stored as canonical strings. **For F1b's brief:** `formatAudioEvent` must route music nodes through `musicNodeToJson` (a plain `JSON.stringify` writes the ignored `pitch` and `fade` keys); F1b owns the placement rule and `NodeBase.id`; `musicFormat.ts` imports only types from `eventFormat.ts`, so no cycle.
+
+**Rolling start (D5):** F1b, F3 and G1 (wave 2, pure TypeScript, each depending only on F1a) start now rather than at W1's end, because G1 is on the pure dependency chain and none of them touches a W1 file.
+
+**Q1 stage A** (`m4/q1` `7ee07099`, not merged yet; stage B waits for the wire's merge 1): the eight skeleton files with entry structs and size asserts (48, 32, 160 B); `MusicCounters` in `counters.rs` (the ten STATUS fields, the two section lists, and core-only `parkedOverflow`, `groupTableFull`, `groupSizeRefused`, `musicRingRefused`); `Regions.{due,curves,groups}` empty until stage B. Granted: an ignored `music_rings` parameter on `StreamStore::over` in `stream.rs` (the plan gives Q1 that signature; `stream.rs` is otherwise C1's). Mixer 265,952 → 265,755 B (plain cargo build; the base build matches the committed size exactly). Q1's readings: the group entry's "held-since" is stored as frames held (`held_frames: u32`) so the entry fits 160 B; the due list's lengths live in a `DueArea` in core state after the zones' area; law values 4–7 read as linear; the quarter-sine table's point `i` is `sin(π/2·i/1023)` (both ends exact).
+
+**For Z2a's brief (from Q1):** (1) `PendingRecord` (48 B) has no room for a shape word on a full SET_PARAMS (60 B with the word): Z2a must decide how a shaped SET_PARAMS is held, without growing the 48-B record past the design's `Due` region unless logged. (2) Class S records need a per-voice apply; today's `scheduler::apply` takes the whole core (Z2a and Z2c). (3) `due::rebase` must also shift records still in the scheduler's pending queue; Q1 put that in Z2a's contract.

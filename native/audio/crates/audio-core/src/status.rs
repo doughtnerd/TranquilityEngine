@@ -23,8 +23,9 @@ use crate::QUANTUM;
 pub const MAGIC: u32 = 0x4D59_4131;
 pub const VERSION: u16 = 0x0101;
 pub const KIND_STATUS: u16 = 9;
-/// The header, envelope included (§4.3; 144 B since ADR 0162 §4.3).
-pub const HEADER_BYTES: usize = 144;
+/// The header, envelope included (§4.3; 144 B since ADR 0162 §4.3, 176 B with the M4 fields of API §4.4,
+/// which read 0 until Q1 and the tasks after it fill them).
+pub const HEADER_BYTES: usize = 176;
 /// The staging buffer, and each pooled buffer in the shell (§4.7: 16 KB).
 pub const BUFFER_BYTES: usize = 16 * 1024;
 
@@ -229,6 +230,7 @@ pub fn write(c: &Counters, seq: u32, out: &mut [u8]) -> usize {
     put_u32(out, off::ZONE_USED_KB, s.zone_used_kb);
     put_u32(out, off::WORK_BED, s.work_bed);
     put_u32(out, off::WORK_ZONES, s.work_zones);
+    out[off::WORK_ZONES + 4..HEADER_BYTES].fill(0); // the M4 header words (144..176)
     // Sections, in §4.3's order.
     let mut cur = HEADER_BYTES;
     for list in [c.ended.as_slice(), c.demoted.as_slice(), c.starved.as_slice()] {
@@ -480,9 +482,9 @@ mod tests {
         for i in 0..ZONE_EVENTS_CAP {
             assert!(c.spatial.zone_events.push(ZoneEvent { slot: i as u8, code: 1 }));
         }
-        assert_eq!(message_bytes(&c), 15_904, "api-and-models §4.3's worst case");
+        assert_eq!(message_bytes(&c), 15_936, "api-and-models §4.3's worst case plus the 32-B M4 header");
         let mut out = [0u8; BUFFER_BYTES];
-        assert_eq!(write(&c, 0, &mut out), 15_904);
+        assert_eq!(write(&c, 0, &mut out), 15_936);
     }
 
     #[test]

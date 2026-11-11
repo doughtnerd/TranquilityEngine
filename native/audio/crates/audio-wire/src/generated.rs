@@ -2,33 +2,33 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 5b4cc14ab15d4099c443889815d94202).
+/// First 16 bytes of the schema's SHA-256 (hex: d134301e035d535d27745724a78d2902).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x5b,
-    0x4c,
-    0xc1,
-    0x4a,
-    0xb1,
+    0xd1,
+    0x34,
+    0x30,
+    0x1e,
+    0x03,
     0x5d,
-    0x40,
-    0x99,
-    0xc4,
-    0x43,
-    0x88,
-    0x98,
-    0x15,
-    0xd9,
-    0x42,
+    0x53,
+    0x5d,
+    0x27,
+    0x74,
+    0x57,
+    0x24,
+    0xa7,
+    0x8d,
+    0x29,
     0x02,
 ];
-pub const SCHEMA_HASH_HEX: &str = "5b4cc14ab15d4099c443889815d94202";
+pub const SCHEMA_HASH_HEX: &str = "d134301e035d535d27745724a78d2902";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
 /// a core refuses a different major
 pub const VERSION_MAJOR: u32 = 0x1;
-/// new opcodes or appended payload words are minor (1.1: ADR 0162)
-pub const VERSION_MINOR: u32 = 0x1;
+/// new opcodes or appended payload words are minor (1.1: ADR 0162; 1.2: the shape word, ADR 0166)
+pub const VERSION_MINOR: u32 = 0x2;
 /// envelope size
 pub const ENVELOPE_BYTES: u32 = 0x10;
 /// f64 firstFrame; u32 count; u32 flags
@@ -43,14 +43,14 @@ pub const BATCH_MAX_BYTES: u32 = 0x10000;
 pub const INBOX_BYTES: u32 = 0x100000;
 /// each REPLAY message: 1 MiB minus 32 bytes
 pub const REPLAY_CHUNK_MAX_BYTES: u32 = 0xfffe0;
-/// STATUS header, envelope included (ADR 0162 §4.3)
-pub const STATUS_HEADER_BYTES: u32 = 0x90;
+/// STATUS header, envelope included (ADR 0162 §4.3; 176 B with the M4 fields, ADR 0166)
+pub const STATUS_HEADER_BYTES: u32 = 0xb0;
 /// the shell's pool of STATUS buffers
 pub const STATUS_POOL_BUFFERS: u32 = 0x8;
 /// size of each STATUS buffer
 pub const STATUS_BUFFER_BYTES: u32 = 0x4000;
-/// 144 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64
-pub const STATUS_WORST_CASE_BYTES: u32 = 0x3e20;
+/// 176 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64
+pub const STATUS_WORST_CASE_BYTES: u32 = 0x3e40;
 /// STATUS cadence
 pub const STATUS_EVERY_QUANTA: u32 = 0x6;
 /// cadence when no batch arrived for 250 ms
@@ -145,6 +145,56 @@ pub const MAX_CLIP_EVENTS_PER_BLOCK: u32 = 0x40;
 pub const MAX_STREAM_EVENTS_PER_BLOCK: u32 = 0x40;
 /// i32 result: ok
 pub const ERR_OK: i32 = 0;
+/// the STATUS header with the M4 fields, envelope included (STATUS_HEADER_BYTES); sections start here
+pub const HEADER_BYTES: u32 = 0xb0;
+/// most music rings (init max_music_rings 0..=16, the musicRings section's cap)
+pub const MAX_MUSIC_RINGS: u32 = 0x10;
+/// group table entries in the core (ADR 0167 R9)
+pub const MAX_GROUPS: u32 = 0x10;
+/// members of a group the core's table holds; a larger gate size is refused and counted
+pub const MAX_GROUP_MEMBERS: u32 = 0x20;
+/// curve pool entries (ADR 0167 R4)
+pub const CURVE_ENTRIES: u32 = 0xff;
+/// stamped records due in one quantum (the due list)
+pub const DUE_RECORDS: u32 = 0x100;
+/// parked records of held voices; overflow applies unrebased
+pub const PARKED_RECORDS: u32 = 0x80;
+/// PLAY gate bits 0-9: groupId 1..=1023, 0 = ungated
+pub const PLAY_GATE_ID_MASK: u32 = 0x3ff;
+/// PLAY gate bits 10-15: groupSize - 1
+pub const PLAY_GATE_SIZE_SHIFT: u32 = 0xa;
+/// PLAY gate size field after the shift: groupSize - 1, 0..=63
+pub const PLAY_GATE_SIZE_MASK: u32 = 0x3f;
+/// most members a gate can state on the wire (the core's table holds MAX_GROUP_MEMBERS)
+pub const PLAY_GATE_MAX_SIZE: u32 = 0x40;
+/// STREAM_OPEN flags bit 1: the ring comes from the music pool; none free is refused (stream event 4)
+pub const STREAM_OPEN_FLAG_MUSIC: u32 = 0x2;
+/// STATUS streamEvents code 4: a music STREAM_OPEN found no free music ring (ADR 0167 R7)
+pub const STREAM_EVENT_MUSIC_FULL: u32 = 0x4;
+/// shape word bits 0-2: the curve law (FadeLaw)
+pub const SHAPE_LAW_MASK: u32 = 0x7;
+/// shape word bits 16-31: startPhase as u0.16
+pub const SHAPE_PHASE_SHIFT: u32 = 0x10;
+/// shape word startPhase bits
+pub const SHAPE_PHASE_MASK: u32 = 0xffff0000;
+/// startPhase = value / 65,536
+pub const SHAPE_PHASE_SCALE: u32 = 0x10000;
+/// points of the equal-power curve table (control-rate laws, ADR 0167 R6)
+pub const FADE_CURVE_TABLE_POINTS: u32 = 0x400;
+/// musicRings epochFlags bits 0-29: the ring's current epoch
+pub const MUSIC_RING_EPOCH_MASK: u32 = 0x3fffffff;
+/// musicRings epochFlags bit 30: primed (at least START_FRAMES in the current epoch, or input ended)
+pub const MUSIC_RING_PRIMED: u32 = 0x40000000;
+/// musicRings epochFlags bit 31: bound to a voice
+pub const MUSIC_RING_BOUND: u32 = 0x80000000;
+/// groupStarts flags bit 0: the group started late
+pub const GROUP_START_LATE: u32 = 0x1;
+/// groupStarts flags bit 1: held and resumed
+pub const GROUP_START_HELD: u32 = 0x2;
+/// groupStarts flags bit 2: abandoned (give-up)
+pub const GROUP_START_ABANDONED: u32 = 0x4;
+/// STATUS groupStarts cap; the rest carry over like starved
+pub const MAX_GROUP_STARTS_PER_BLOCK: u32 = 0x8;
 
 /// K2 stub: the export exists but does nothing yet
 pub const ERR_NOT_IMPLEMENTED: i32 = -1;
@@ -255,6 +305,8 @@ pub mod stream_event {
     pub const EOS: u32 = 2;
     /// decode error
     pub const ERROR: u32 = 3;
+    /// a music STREAM_OPEN found no free music ring (ADR 0167 R7)
+    pub const MUSIC_FULL: u32 = 4;
 }
 
 /// STATUS hrtfLoadFailure
@@ -335,6 +387,18 @@ pub mod effect_type {
     pub const REVERB_SEND: u32 = 3;
 }
 
+/// shape word bits 0-2: the law of a gain ramp (FADE, SET_PARAMS, STOP)
+pub mod fade_law {
+    /// linear: today's behaviour
+    pub const LINEAR: u32 = 0;
+    /// S-curve
+    pub const S_CURVE: u32 = 1;
+    /// equal power, rising
+    pub const EQUAL_POWER_IN: u32 = 2;
+    /// equal power, falling
+    pub const EQUAL_POWER_OUT: u32 = 3;
+}
+
 #[inline]
 fn put_u8(out: &mut [u8], off: usize, v: u8) { out[off] = v; }
 #[inline]
@@ -359,6 +423,33 @@ fn get_i32(buf: &[u8], off: usize) -> i32 { i32::from_le_bytes(buf[off..off + 4]
 fn get_f32(buf: &[u8], off: usize) -> f32 { f32::from_le_bytes(buf[off..off + 4].try_into().unwrap()) }
 #[inline]
 fn get_f64(buf: &[u8], off: usize) -> f64 { f64::from_le_bytes(buf[off..off + 8].try_into().unwrap()) }
+
+/// The shape word: `law` (bits 0-2, `fade_law`) and `start_phase` as u0.16 (bits 16-31).
+#[inline]
+pub const fn pack_shape(law: u32, start_phase: u32) -> u32 { (law & SHAPE_LAW_MASK) | ((start_phase & 0xFFFF) << SHAPE_PHASE_SHIFT) }
+/// The law of a shape word (0..=7; 4..=7 are reserved).
+#[inline]
+pub const fn shape_law(shape: u32) -> u32 { shape & SHAPE_LAW_MASK }
+/// The start phase of a shape word, 0..=65535 (value / 65,536).
+#[inline]
+pub const fn shape_start_phase(shape: u32) -> u32 { shape >> SHAPE_PHASE_SHIFT }
+/// The PLAY gate: `group_id` 1..=1023 (0 = ungated, which packs to 0) and `group_size` 1..=64 (clamped).
+#[inline]
+pub const fn pack_gate(group_id: u32, group_size: u32) -> u16 {
+    if group_id & PLAY_GATE_ID_MASK == 0 {
+        return 0;
+    }
+    let size = if group_size < 1 { 1 } else if group_size > PLAY_GATE_MAX_SIZE { PLAY_GATE_MAX_SIZE } else { group_size };
+    ((group_id & PLAY_GATE_ID_MASK) | ((size - 1) << PLAY_GATE_SIZE_SHIFT)) as u16
+}
+/// The group id of a gate (0 = ungated).
+#[inline]
+pub const fn gate_group_id(gate: u16) -> u32 { gate as u32 & PLAY_GATE_ID_MASK }
+/// The group size of a gate, 1..=64; 0 for an ungated voice.
+#[inline]
+pub const fn gate_group_size(gate: u16) -> u32 {
+    if gate as u32 & PLAY_GATE_ID_MASK == 0 { 0 } else { ((gate as u32 >> PLAY_GATE_SIZE_SHIFT) & PLAY_GATE_SIZE_MASK) + 1 }
+}
 
 /// The 16-byte envelope of every message.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1107,6 +1198,8 @@ pub const PLAY_FLAGS_PANNER_SHIFT: u32 = 5;
 pub const PLAY_FLAGS_PANNER_MASK: u16 = 0x60;
 /// a B-format clip or stream voice of 4, 9 or 16 channels (ADR 0162 C1); spatial, panner and dir are ignored; read from PLAY only
 pub const PLAY_FLAGS_AMBISONIC: u16 = 0x80;
+/// the voice starts with its fade ramp at 0, so an incoming stem is silent without touching gain; a stamped FADE to 1 opens it (ADR 0166 M4, API section 4.1); read from PLAY only
+pub const PLAY_FLAGS_FADE_ZERO: u16 = 0x100;
 /// start a voice; does not ramp
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Play {
@@ -1214,6 +1307,12 @@ impl Play {
     }
 }
 
+/// 0 linear, 1 sCurve, 2 equalPowerIn, 3 equalPowerOut (FadeLaw); 4-7 reserved
+pub const STOP_SHAPE_LAW_SHIFT: u32 = 0;
+pub const STOP_SHAPE_LAW_MASK: u32 = 0x7;
+/// start phase of the curve as u0.16: value / 65,536
+pub const STOP_SHAPE_START_PHASE_SHIFT: u32 = 16;
+pub const STOP_SHAPE_START_PHASE_MASK: u32 = 0xffff0000;
 /// stop a voice
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Stop {
@@ -1222,10 +1321,14 @@ pub struct Stop {
     /// 0 is now
     pub fade_frames: u32,
     pub reason: u32,
+    /// law and start phase of the ramp (envelope 1.2); a record without the word reads 0
+    pub shape: u32,
 }
 
 impl Stop {
-    pub const FIXED_END: usize = 20;
+    pub const FIXED_END: usize = 24;
+    /// The shortest record accepted: an older one ends before its appended words, which read as 0.
+    pub const MIN_END: usize = 20;
     pub const OPCODE: u16 = 2; // STOP
     pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
         if base + Self::FIXED_END > out.len() {
@@ -1233,6 +1336,7 @@ impl Stop {
         }
         put_u32(out, base + 12, self.fade_frames);
         put_u32(out, base + 16, self.reason);
+        put_u32(out, base + 20, self.shape);
         let mut cur = base + Self::FIXED_END;
         let total = cur - base;
         if total % 4 != 0 || total / 4 > u16::MAX as usize {
@@ -1256,13 +1360,14 @@ impl Stop {
         Self::read_to(buf, base, limit)
     }
     fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
-        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+        if base.checked_add(Self::MIN_END).map_or(true, |e| e > limit) {
             return Err(ERR_TRUNCATED);
         }
         let (head, _) = RecordHead::read(buf, base)?;
         let fade_frames = get_u32(buf, base + 12);
         let reason = get_u32(buf, base + 16);
-        let mut cur = base + Self::FIXED_END;
+        let shape = if base + 24 <= limit { get_u32(buf, base + 20) } else { 0 };
+        let mut cur = (base + Self::FIXED_END).min(limit);
         if cur > limit {
             return Err(ERR_MALFORMED);
         }
@@ -1272,6 +1377,7 @@ impl Stop {
             frame_offset: head.frame_offset,
             fade_frames,
             reason,
+            shape,
         }, cur - base))
     }
 }
@@ -1305,6 +1411,14 @@ pub const SET_PARAMS_FLAGS_PANNER_SHIFT: u32 = 5;
 pub const SET_PARAMS_FLAGS_PANNER_MASK: u32 = 0x60;
 /// a B-format clip or stream voice of 4, 9 or 16 channels (ADR 0162 C1); spatial, panner and dir are ignored; read from PLAY only
 pub const SET_PARAMS_FLAGS_AMBISONIC: u32 = 0x80;
+/// the voice starts with its fade ramp at 0, so an incoming stem is silent without touching gain; a stamped FADE to 1 opens it (ADR 0166 M4, API section 4.1); read from PLAY only
+pub const SET_PARAMS_FLAGS_FADE_ZERO: u32 = 0x100;
+/// 0 linear, 1 sCurve, 2 equalPowerIn, 3 equalPowerOut (FadeLaw); 4-7 reserved
+pub const SET_PARAMS_SHAPE_LAW_SHIFT: u32 = 0;
+pub const SET_PARAMS_SHAPE_LAW_MASK: u32 = 0x7;
+/// start phase of the curve as u0.16: value / 65,536
+pub const SET_PARAMS_SHAPE_START_PHASE_SHIFT: u32 = 16;
+pub const SET_PARAMS_SHAPE_START_PHASE_MASK: u32 = 0xffff0000;
 /// set voice parameters; ramps over rampFrames
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SetParams {
@@ -1323,10 +1437,14 @@ pub struct SetParams {
     pub ramp_frames: u32,
     /// only the panner bits are read
     pub flags: u32,
+    /// law and start phase of the ramp (envelope 1.2); a record without the word reads 0
+    pub shape: u32,
 }
 
 impl SetParams {
-    pub const FIXED_END: usize = 56;
+    pub const FIXED_END: usize = 60;
+    /// The shortest record accepted: an older one ends before its appended words, which read as 0.
+    pub const MIN_END: usize = 56;
     pub const OPCODE: u16 = 3; // SET_PARAMS
     pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
         if base + Self::FIXED_END > out.len() {
@@ -1343,6 +1461,7 @@ impl SetParams {
         put_u32(out, base + 44, self.bus);
         put_u32(out, base + 48, self.ramp_frames);
         put_u32(out, base + 52, self.flags);
+        put_u32(out, base + 56, self.shape);
         let mut cur = base + Self::FIXED_END;
         let total = cur - base;
         if total % 4 != 0 || total / 4 > u16::MAX as usize {
@@ -1366,7 +1485,7 @@ impl SetParams {
         Self::read_to(buf, base, limit)
     }
     fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
-        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+        if base.checked_add(Self::MIN_END).map_or(true, |e| e > limit) {
             return Err(ERR_TRUNCATED);
         }
         let (head, _) = RecordHead::read(buf, base)?;
@@ -1381,7 +1500,8 @@ impl SetParams {
         let bus = get_u32(buf, base + 44);
         let ramp_frames = get_u32(buf, base + 48);
         let flags = get_u32(buf, base + 52);
-        let mut cur = base + Self::FIXED_END;
+        let shape = if base + 60 <= limit { get_u32(buf, base + 56) } else { 0 };
+        let mut cur = (base + Self::FIXED_END).min(limit);
         if cur > limit {
             return Err(ERR_MALFORMED);
         }
@@ -1400,12 +1520,19 @@ impl SetParams {
             bus,
             ramp_frames,
             flags,
+            shape,
         }, cur - base))
     }
 }
 
 /// stop the voice at the end of the fade
 pub const FADE_FLAGS_STOP_AT_END: u32 = 0x1;
+/// 0 linear, 1 sCurve, 2 equalPowerIn, 3 equalPowerOut (FadeLaw); 4-7 reserved
+pub const FADE_SHAPE_LAW_SHIFT: u32 = 0;
+pub const FADE_SHAPE_LAW_MASK: u32 = 0x7;
+/// start phase of the curve as u0.16: value / 65,536
+pub const FADE_SHAPE_START_PHASE_SHIFT: u32 = 16;
+pub const FADE_SHAPE_START_PHASE_MASK: u32 = 0xffff0000;
 /// fade a voice's gain to target
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Fade {
@@ -1414,10 +1541,14 @@ pub struct Fade {
     pub target: f32,
     pub frames: u32,
     pub flags: u32,
+    /// law and start phase of the ramp (envelope 1.2); a record without the word reads 0
+    pub shape: u32,
 }
 
 impl Fade {
-    pub const FIXED_END: usize = 24;
+    pub const FIXED_END: usize = 28;
+    /// The shortest record accepted: an older one ends before its appended words, which read as 0.
+    pub const MIN_END: usize = 24;
     pub const OPCODE: u16 = 4; // FADE
     pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
         if base + Self::FIXED_END > out.len() {
@@ -1426,6 +1557,7 @@ impl Fade {
         put_f32(out, base + 12, self.target);
         put_u32(out, base + 16, self.frames);
         put_u32(out, base + 20, self.flags);
+        put_u32(out, base + 24, self.shape);
         let mut cur = base + Self::FIXED_END;
         let total = cur - base;
         if total % 4 != 0 || total / 4 > u16::MAX as usize {
@@ -1449,14 +1581,15 @@ impl Fade {
         Self::read_to(buf, base, limit)
     }
     fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
-        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+        if base.checked_add(Self::MIN_END).map_or(true, |e| e > limit) {
             return Err(ERR_TRUNCATED);
         }
         let (head, _) = RecordHead::read(buf, base)?;
         let target = get_f32(buf, base + 12);
         let frames = get_u32(buf, base + 16);
         let flags = get_u32(buf, base + 20);
-        let mut cur = base + Self::FIXED_END;
+        let shape = if base + 28 <= limit { get_u32(buf, base + 24) } else { 0 };
+        let mut cur = (base + Self::FIXED_END).min(limit);
         if cur > limit {
             return Err(ERR_MALFORMED);
         }
@@ -1467,6 +1600,7 @@ impl Fade {
             target,
             frames,
             flags,
+            shape,
         }, cur - base))
     }
 }
@@ -3344,6 +3478,30 @@ pub struct StatusBlock {
     pub work_bed: u32,
     /// work units, last quantum: zone convolvers, sends, aux
     pub work_zones: u32,
+    /// the musicRings section's count (at most 16)
+    pub music_ring_count: u16,
+    /// the groupStarts section's count (at most 8)
+    pub group_start_count: u16,
+    /// music rings open
+    pub music_rings_open: u16,
+    /// voices that started after their stamp because a ring was not ready (cumulative, saturating)
+    pub stream_starts_late: u16,
+    /// groups that started late (cumulative, saturating)
+    pub groups_late: u16,
+    /// groups held by a starving member (cumulative)
+    pub groups_held: u16,
+    /// group give-ups (cumulative)
+    pub groups_abandoned: u16,
+    /// curve pool refusals (cumulative)
+    pub curve_pool_full: u16,
+    /// largest group slip since init
+    pub max_slip_frames: u32,
+    /// whole-quantum splits (cumulative; R3)
+    pub split_quanta: u32,
+    /// voice-local splits (cumulative; R3)
+    pub voice_splits: u32,
+    /// reserved, 0
+    pub reserved: u32,
     /// voices that ended in this block
     /// At most 1024 per block.
     pub ended: Vec<u32>,
@@ -3379,7 +3537,7 @@ pub struct StatusBlock {
 impl StatusBlock {
     /// Write the whole message at `base` (envelope first); returns the bytes written.
     pub fn write(&self, out: &mut [u8], base: usize, seq: u32) -> Result<usize, i32> {
-        if base + 144 > out.len() {
+        if base + 176 > out.len() {
             return Err(ERR_OVERSIZE);
         }
         put_f64(out, base + 16, self.current_frame);
@@ -3454,7 +3612,19 @@ impl StatusBlock {
         put_u32(out, base + 132, self.zone_used_kb);
         put_u32(out, base + 136, self.work_bed);
         put_u32(out, base + 140, self.work_zones);
-        let mut cur = base + 144;
+        put_u16(out, base + 144, self.music_ring_count);
+        put_u16(out, base + 146, self.group_start_count);
+        put_u16(out, base + 148, self.music_rings_open);
+        put_u16(out, base + 150, self.stream_starts_late);
+        put_u16(out, base + 152, self.groups_late);
+        put_u16(out, base + 154, self.groups_held);
+        put_u16(out, base + 156, self.groups_abandoned);
+        put_u16(out, base + 158, self.curve_pool_full);
+        put_u32(out, base + 160, self.max_slip_frames);
+        put_u32(out, base + 164, self.split_quanta);
+        put_u32(out, base + 168, self.voice_splits);
+        put_u32(out, base + 172, self.reserved);
+        let mut cur = base + 176;
         if cur + self.ended.len() * 4 > out.len() {
             return Err(ERR_OVERSIZE);
         }
@@ -3530,7 +3700,7 @@ impl StatusBlock {
     }
     /// Read a whole STATUS message at `base`; the envelope is checked for magic, major and kind.
     pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
-        if base.checked_add(144).map_or(true, |e| e > buf.len()) {
+        if base.checked_add(176).map_or(true, |e| e > buf.len()) {
             return Err(ERR_TRUNCATED);
         }
         let (env, _) = Envelope::read(buf, base)?;
@@ -3543,7 +3713,7 @@ impl StatusBlock {
         if env.kind != kind::STATUS {
             return Err(ERR_MALFORMED);
         }
-        let limit = base.checked_add(16 + env.body_bytes as usize).filter(|l| *l <= buf.len() && *l >= base + 144).ok_or(ERR_TRUNCATED)?;
+        let limit = base.checked_add(16 + env.body_bytes as usize).filter(|l| *l <= buf.len() && *l >= base + 176).ok_or(ERR_TRUNCATED)?;
         let current_frame = get_f64(buf, base + 16);
         let date_ms = get_f64(buf, base + 24);
         let ping_seq = get_u32(buf, base + 32);
@@ -3586,7 +3756,19 @@ impl StatusBlock {
         let zone_used_kb = get_u32(buf, base + 132);
         let work_bed = get_u32(buf, base + 136);
         let work_zones = get_u32(buf, base + 140);
-        let mut cur = base + 144;
+        let music_ring_count = get_u16(buf, base + 144);
+        let group_start_count = get_u16(buf, base + 146);
+        let music_rings_open = get_u16(buf, base + 148);
+        let stream_starts_late = get_u16(buf, base + 150);
+        let groups_late = get_u16(buf, base + 152);
+        let groups_held = get_u16(buf, base + 154);
+        let groups_abandoned = get_u16(buf, base + 156);
+        let curve_pool_full = get_u16(buf, base + 158);
+        let max_slip_frames = get_u32(buf, base + 160);
+        let split_quanta = get_u32(buf, base + 164);
+        let voice_splits = get_u32(buf, base + 168);
+        let reserved = get_u32(buf, base + 172);
+        let mut cur = base + 176;
         if ended_count as usize > 1024 || (ended_count as usize) * 4 > limit - cur {
             return Err(ERR_OVERSIZE);
         }
@@ -3707,6 +3889,18 @@ impl StatusBlock {
             zone_used_kb,
             work_bed,
             work_zones,
+            music_ring_count,
+            group_start_count,
+            music_rings_open,
+            stream_starts_late,
+            groups_late,
+            groups_held,
+            groups_abandoned,
+            curve_pool_full,
+            max_slip_frames,
+            split_quanta,
+            voice_splits,
+            reserved,
             ended,
             demoted,
             starved,
