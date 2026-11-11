@@ -14,6 +14,11 @@
 //
 // ADR 0158 E2 adds the automation records (`setLoop`, `automate`, `param`, `curves`, `busAutomate`; byte layouts in
 // api-and-models §4.2). They write what they are given; the event runtime (E3) decides when to send them.
+//
+// ADR 0162 K1 adds the spatial records (`setVoiceFx`, `bedConfig`, `zoneConfig`, `listener`; layouts in
+// docs/design/0162-audio-spatial/api-and-models.md §4.2 and contracts C2-C5) and PLAY's bit 7 (`PLAY_FLAGS_AMBISONIC`,
+// passed in `PlayArgs.flags`). Like the others they write what they are given, from preallocated scratch records;
+// K4 and the feature tasks decide when to send them.
 import {
   ASAP,
   AUTOMATE_BINDINGS_FIXED_END,
@@ -59,6 +64,11 @@ import {
   type SetPaused,
   type SetLoop,
   type Stop,
+  type BedConfig,
+  type Listener,
+  type SetVoiceFx,
+  type ZoneConfig,
+  type ZoneConfigSlots,
 } from "../wire.generated";
 import { CURVE_INTERPS, type Curve } from "../../../../engine/core/curve";
 import type { BufferPool } from "./bufferPool";
@@ -80,7 +90,11 @@ export interface PlayArgs {
   voiceId: number;
   clip: number;
   bus: number;
-  /** `PLAY_FLAGS_*` from wire.generated (loop, stream, wantsPlayhead, mixed, spatial, panner). */
+  /**
+   * `PLAY_FLAGS_*` from wire.generated (loop, stream, wantsPlayhead, mixed, spatial, panner, ambisonic). ADR 0162 C1:
+   * panner 2 (`PANNER_BED`) is the bus's bed; bit 7 (`PLAY_FLAGS_AMBISONIC`, `AMBI_FLAG`) a B-format voice of 4, 9 or 16
+   * channels, whose spatial, panner and dir the core ignores.
+   */
   flags: number;
   group: number;
   gain: number;
@@ -122,6 +136,29 @@ const BATCH_RECORD_BYTES = BATCH_MAX_BYTES - BATCH_PREFIX_BYTES;
 const MAX_FRAME_OFFSET = 0xfffffffe;
 /** The AUTOMATE record's bindings between records (never written to). */
 const NO_AUTOMATE_BINDINGS: AutomateBindings[] = [];
+
+/**
+ * ADR 0162 C3: SET_VOICE_FX, minus the head. `mask` is `SET_VOICE_FX_MASK_*` (hpHz, sends, yaw, aux); fields outside
+ * the mask are written as given and ignored by the core.
+ */
+export interface VoiceFxArgs {
+  voiceId: number;
+  /** `SET_VOICE_FX_MASK_HP_HZ | _SENDS | _YAW | _AUX`. */
+  mask: number;
+  rampFrames: number;
+  /** High-pass cutoff in Hz; `HP_BOTTOM` (20) or less is off. */
+  hpHz: number;
+  /** Linear send level into zone slots 0..3 (pre-distance; main folds volume, curve, weight and wet factor). Exactly 4 read. */
+  send: ArrayLike<number>;
+  /** Radians, ambisonic voices. */
+  yaw: number;
+  auxLevel: number;
+  /** The aux send's bus; `AUX_BUS_NONE` (0xFFFF) is none. */
+  auxBus: number;
+}
+
+/** ADR 0162 C5: one ZONE_CONFIG slot, as on the wire (`kernelId` 0 is off; `state` is `ZoneSlotState`). */
+export type ZoneSlotArgs = ZoneConfigSlots;
 
 /** Counters for `Audio.debug()` and the tests. */
 export interface CommandWriterStats {
@@ -169,6 +206,10 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly paramRec: Param = { voiceId: 0, frameOffset: ASAP, group: 0, slot: 0, value: 0, seekPerSecond: 0 };
   private readonly automateRec: Automate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
   private readonly busAutomateRec: BusAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
+  private readonly voiceFxRec: SetVoiceFx = { voiceId: 0, frameOffset: ASAP, mask: 0, rampFrames: 0, hpHz: 0, send: [0, 0, 0, 0], yaw: 0, auxLevel: 0, auxBus: 0xffff, reserved: 0 };
+  private readonly bedConfigRec: BedConfig = { voiceId: 0, frameOffset: ASAP, bedSlot: [], hostBus: [] };
+  private readonly zoneConfigRec: ZoneConfig = { voiceId: 0, frameOffset: ASAP, sharedReturnGain: 1, rampFrames: 0, slots: [] };
+  private readonly listenerRec: Listener = { voiceId: 0, frameOffset: ASAP, qx: 0, qy: 0, qz: 0, qw: 1, rampFrames: 0, flags: 0 };
 
   /** `sampleRate` converts the table's seconds to frames (STOP and FADE take frames); a context swap sets it again (A3.4c). */
   constructor(
@@ -441,6 +482,58 @@ export class CommandWriter implements VoiceCommandSink {
     const at = this.begin(16 + AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
     if (at >= 0) this.end(at, writeBusAutomate(this.view, at, r));
     r.bindings = [];
+  }
+
+  /**
+   * SET_VOICE_FX (ADR 0162 C3, 52 B) for `args.voiceId` at `atFrame` (absolute, stamped) or asap (omitted): stamped like
+   * SET_PARAMS, so send it after the voice's PLAY with the same frame. Copies `args` into the scratch record (`send`
+   * element by element, no new array); drops and flags like every record when the staging area is full.
+   */
+  setVoiceFx(args: VoiceFxArgs, atFrame?: number): void {
+    void args;
+    void atFrame;
+    void this.voiceFxRec;
+    throw new Error("not implemented: L-A1c");
+  }
+
+  /**
+   * BED_CONFIG (ADR 0162 C2): `bedSlot[b]` per bus, root first (`BED_SLOT_NONE` 0xFF for none), and `hostBus[s]` per
+   * slot (`BED_HOST_NONE` 0xFFFF for unused; at most `MAX_BEDS`). Size `20 + pad4(buses) + pad4(2 x slots)`. Asap; send
+   * after BUS_CONFIG. More than `MAX_BEDS` slots is dropped and flagged (the record is never written).
+   */
+  bedConfig(bedSlot: ArrayLike<number>, hostBus: ArrayLike<number>): void {
+    void bedSlot;
+    void hostBus;
+    void this.bedConfigRec;
+    throw new Error("not implemented: L-A1c");
+  }
+
+  /**
+   * ZONE_CONFIG (ADR 0162 C5, `24 + 16n` B): the shared reverb's return gain, the ramp, and up to `MAX_ZONE_SLOTS` slots
+   * (each `kernelId`, `returnBus`, `state`, `wet`, `irFrames`; `reserved` 0). Asap; idempotent in the core. More than
+   * `MAX_ZONE_SLOTS` slots is dropped and flagged.
+   */
+  zoneConfig(sharedReturnGain: number, rampFrames: number, slots: readonly ZoneSlotArgs[]): void {
+    void sharedReturnGain;
+    void rampFrames;
+    void slots;
+    void this.zoneConfigRec;
+    throw new Error("not implemented: L-A1c");
+  }
+
+  /**
+   * LISTENER (ADR 0162 C4, 36 B): the world-to-listener rotation `(qx, qy, qz, qw)`, slerped by the core over
+   * `rampFrames`, or jumped to with `snap` (flags bit0, a camera cut). Asap.
+   */
+  listener(qx: number, qy: number, qz: number, qw: number, rampFrames: number, snap: boolean): void {
+    void qx;
+    void qy;
+    void qz;
+    void qw;
+    void rampFrames;
+    void snap;
+    void this.listenerRec;
+    throw new Error("not implemented: L-A1c");
   }
 
   /** RESET (§4.2): `keepClips` 0 also resets the arena and slab classes. */

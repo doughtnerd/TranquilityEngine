@@ -105,6 +105,23 @@ pub struct Repeat {
     pub count_field: &'static str,
     pub item: &'static [Field],
     pub then: Option<&'static Repeat>,
+    /// Most items: the generated writers refuse more (`OVERSIZE`) and the readers refuse a larger
+    /// count (`MALFORMED`). 0 is no cap (the count field's range and the record length bound it).
+    pub max: u32,
+}
+
+/// A counted array of scalars after a body's fixed fields, zero-padded to the next 4-byte boundary
+/// (ADR 0162 BED_CONFIG: `u8 bedSlot[busCount]` then `u16 hostBus[slotCount]`, each padded to 4 B).
+/// Arrays follow each other in order; `count_field` is a fixed field of the same body.
+#[derive(Clone, Copy, Debug)]
+pub struct PaddedArray {
+    /// Name of the array in values and generated code (`bedSlot`).
+    pub name: &'static str,
+    pub count_field: &'static str,
+    pub ty: Ty,
+    /// Most elements, as `Repeat::max` (0 is no cap).
+    pub max: u32,
+    pub doc: &'static str,
 }
 
 /// What follows a body's fixed fields.
@@ -117,6 +134,8 @@ pub enum Tail {
     Records,
     /// A counted group (BUS_CONFIG, BUS_MIX).
     Repeat(&'static Repeat),
+    /// Counted scalar arrays, each padded to 4 bytes (BED_CONFIG).
+    Arrays(&'static [PaddedArray]),
 }
 
 /// A body: fixed fields, then a tail.
@@ -155,8 +174,9 @@ pub struct Opcode {
     pub name: &'static str,
     pub payload: Body,
     pub total_bytes: Option<u32>,
-    /// `false` for LISTENER (0x20): declared and reserved, never sent in M1 (no writer is generated).
-    pub sent_in_m1: bool,
+    /// `false` for an opcode that is declared and reserved but never sent (no reader or writer is
+    /// generated). LISTENER (0x20) was one until ADR 0162 gave it a payload; every opcode is sent now.
+    pub sent: bool,
     pub doc: &'static str,
 }
 
@@ -177,6 +197,16 @@ pub struct StatusSpec {
     pub header_bytes: u32,
     pub fields: &'static [Field],
     pub sections: &'static [Section],
+}
+
+/// A header at the start of a blob's first CLIP_CHUNK payload (ADR 0162 §4.5: the format 3 zone
+/// kernel and the format 4 MagLS filters). Fixed fields from offset 0; the blob's data follows.
+#[derive(Clone, Copy, Debug)]
+pub struct BlobHeader {
+    /// PascalCase type name (`ZoneKernelHeader`).
+    pub name: &'static str,
+    pub fields: &'static [Field],
+    pub doc: &'static str,
 }
 
 /// A named integer constant.
@@ -215,6 +245,8 @@ pub struct Schema {
     /// First-chunk header of an HRIR load (CLIP_CHUNK of a `format = 2` clip): fixed fields; the
     /// `f32[elevations * azimuths * 2]` ear-delay table and the int16 responses follow.
     pub hrir_header: &'static [Field],
+    /// The headers of the other blob formats (ADR 0162: formats 3 and 4).
+    pub blob_headers: &'static [BlobHeader],
     pub constants: &'static [Const],
     pub enums: &'static [Enum],
     pub errors: &'static [ErrorCode],

@@ -4,14 +4,14 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "d953ab7c6152275bb97b38848bcce1bb";
+export const SCHEMA_HASH = "e48724d2fa897fcebfc2beb1f6dda396";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
 /** a core refuses a different major */
 export const VERSION_MAJOR = 0x1;
-/** new opcodes or appended payload words are minor */
-export const VERSION_MINOR = 0x0;
+/** new opcodes or appended payload words are minor (1.1: ADR 0162) */
+export const VERSION_MINOR = 0x1;
 /** envelope size */
 export const ENVELOPE_BYTES = 0x10;
 /** f64 firstFrame; u32 count; u32 flags */
@@ -26,14 +26,14 @@ export const BATCH_MAX_BYTES = 0x10000;
 export const INBOX_BYTES = 0x100000;
 /** each REPLAY message: 1 MiB minus 32 bytes */
 export const REPLAY_CHUNK_MAX_BYTES = 0xfffe0;
-/** STATUS header, envelope included */
-export const STATUS_HEADER_BYTES = 0x70;
+/** STATUS header, envelope included (ADR 0162 §4.3) */
+export const STATUS_HEADER_BYTES = 0x90;
 /** the shell's pool of STATUS buffers */
 export const STATUS_POOL_BUFFERS = 0x8;
 /** size of each STATUS buffer */
 export const STATUS_BUFFER_BYTES = 0x4000;
-/** 112 + 4096*3 + 2048 + 512 + 512 + 256 */
-export const STATUS_WORST_CASE_BYTES = 0x3d70;
+/** 144 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 */
+export const STATUS_WORST_CASE_BYTES = 0x3e20;
 /** STATUS cadence */
 export const STATUS_EVERY_QUANTA = 0x6;
 /** cadence when no batch arrived for 250 ms */
@@ -56,6 +56,64 @@ export const HRIR_CLIP_ID_LAST = 0xffff00ff;
 export const CLIP_ID_RESERVED_FIRST = 0xffff0000;
 /** stream ring size (section 5) */
 export const STREAM_RING_FRAMES = 0x8000;
+/** wide (3-16 channel) stream ring size (ADR 0162 R16, §5.2) */
+export const STREAM_RING_FRAMES_WIDE = 0x4000;
+/** frames per chunk of a wide stream (128 KB at 16 channels) */
+export const STREAM_WIDE_CHUNK_FRAMES = 0x800;
+/** most channels of a stream (STREAM_OPEN) */
+export const STREAM_MAX_CHANNELS = 0x10;
+/** most bed slots (BED_CONFIG slotCount, STATUS beds) */
+export const MAX_BEDS = 0x4;
+/** most zone slots (ZONE_CONFIG slotCount, SET_VOICE_FX send, STATUS zones) */
+export const MAX_ZONE_SLOTS = 0x4;
+/** STATUS zoneEvents cap */
+export const MAX_ZONE_EVENTS_PER_BLOCK = 0x10;
+/** channels of a bed: third-order ambisonics, ACN/SN3D */
+export const BED_CHANNELS = 0x10;
+/** BED_CONFIG bedSlot: the bus has no bed */
+export const BED_SLOT_NONE = 0xff;
+/** BED_CONFIG hostBus: the slot is unused */
+export const BED_HOST_NONE = 0xffff;
+/** SET_VOICE_FX auxBus: no aux send */
+export const AUX_BUS_NONE = 0xffff;
+/** the panner value 2 (bed) of PLAY and SET_PARAMS flags bits 5-6 */
+export const PANNER_BED = 0x2;
+/** PLAY flags bit 7: an ambisonic voice */
+export const AMBI_FLAG = 0x80;
+/** lpHz at or above this is no low-pass */
+export const LP_TOP = 0x4e20;
+/** SET_VOICE_FX hpHz at or below this is no high-pass */
+export const HP_BOTTOM = 0x14;
+/** the reserved clip id of the MagLS filters (format 4) */
+export const MAGLS_CLIP_ID = 0xffff0100;
+/** reserved clip ids of zone kernels (formats 3 and 5) */
+export const ZONE_KERNEL_ID_FIRST = 0xffff0200;
+/** reserved clip ids of zone kernels (formats 3 and 5) */
+export const ZONE_KERNEL_ID_LAST = 0xffff02ff;
+/** format 3 header magic, 'MYIR' */
+export const ZONE_KERNEL_MAGIC = 0x5249594d;
+/** format 3 header version */
+export const ZONE_KERNEL_VERSION = 0x1;
+/** format 3 header size */
+export const ZONE_KERNEL_HEADER_BYTES = 0x20;
+/** format 3 headParts cap */
+export const ZONE_KERNEL_MAX_HEAD_PARTS = 0x20;
+/** bins per head partition of a zone kernel */
+export const ZONE_HEAD_BINS = 0x80;
+/** bins per tail partition of a zone kernel */
+export const ZONE_TAIL_BINS = 0x800;
+/** format 4 header magic, 'MYBD' */
+export const MAGLS_MAGIC = 0x4442594d;
+/** format 4 header version */
+export const MAGLS_VERSION = 0x1;
+/** format 4 header size */
+export const MAGLS_HEADER_BYTES = 0x20;
+/** ambisonic order of the MagLS filters */
+export const MAGLS_ORDER = 0x3;
+/** taps per MagLS response at up to 48 kHz */
+export const MAGLS_TAPS = 0x100;
+/** taps per MagLS response above 88.2 kHz */
+export const MAGLS_TAPS_HIGH_RATE = 0x200;
 /** STATUS ended section cap */
 export const MAX_ENDED_PER_BLOCK = 0x400;
 /** STATUS demoted section cap */
@@ -126,12 +184,15 @@ export const Op = {
   SEEK: 0x07,
   SET_LOOP: 0x08,
   AUTOMATE: 0x09,
+  SET_VOICE_FX: 0x0a,
   BUS_CONFIG: 0x10,
   BUS_MIX: 0x11,
   MASTER: 0x12,
   CURVES: 0x13,
   PARAM: 0x14,
   BUS_AUTOMATE: 0x15,
+  BED_CONFIG: 0x16,
+  ZONE_CONFIG: 0x17,
   LISTENER: 0x20,
   RESET: 0x30,
 } as const;
@@ -141,6 +202,9 @@ export const ClipFormat = {
   F32: 0,
   I16: 1,
   HRIR: 2,
+  ZoneKernel: 3,
+  MagLS: 4,
+  ZoneIrPcm: 5,
 } as const;
 
 /** STATUS clipEvents code */
@@ -149,6 +213,7 @@ export const ClipEvent = {
   RefusedCeiling: 2,
   RefusedGrow: 3,
   HrtfReady: 4,
+  RefusedFormat: 5,
 } as const;
 
 /** STATUS streamEvents code */
@@ -169,8 +234,38 @@ export const HrtfLoadFailure = {
 export const Panner = {
   EqualPower: 0,
   Hrtf: 1,
-  Reserved2: 2,
+  Bed: 2,
   Reserved3: 3,
+} as const;
+
+/** STREAM_OPEN convention */
+export const StreamConvention = {
+  AmbiX: 0,
+  FuMa: 1,
+} as const;
+
+/** ZONE_CONFIG slot state */
+export const ZoneSlotState = {
+  Active: 1,
+  Release: 2,
+  Evict: 3,
+} as const;
+
+/** STATUS zones state */
+export const ZoneState = {
+  Off: 0,
+  WaitingKernel: 1,
+  FadingIn: 2,
+  Active: 3,
+  RingingOut: 4,
+  Evicting: 5,
+} as const;
+
+/** STATUS zoneEvents code */
+export const ZoneEvent = {
+  RefusedKernel: 1,
+  RefusedSlot: 2,
+  BadBlob: 3,
 } as const;
 
 /** BUS_CONFIG effect type */
@@ -337,6 +432,105 @@ export function readHrirHeader(view: DataView, off: number): HrirHeader {
   return _readHrirHeader(view, off, limit)[0];
 }
 
+/** the source IR was mono (both channels' kernels are equal) */
+export const ZONE_KERNEL_HEADER_FLAGS_SOURCE_MONO = 0x1;
+/** First-chunk header of a format = 3 (prepared zone kernel) CLIP_CHUNK payload. */
+export interface ZoneKernelHeader {
+  /** ZONE_KERNEL_MAGIC, 'MYIR' */
+  magic: number;
+  /** ZONE_KERNEL_VERSION (1) */
+  version: number;
+  /** the IR's length in frames after trimming */
+  irFrames: number;
+  /** the context rate it was prepared at */
+  sampleRate: number;
+  /** head partitions of 128 bins, at most 32 */
+  headParts: number;
+  /** tail partitions of 2,048 bins */
+  tailParts: number;
+  flags: number;
+  reserved: number;
+}
+
+export const ZONE_KERNEL_HEADER_FIXED_END = 32;
+
+export function writeZoneKernelHeader(view: DataView, off: number, rec: ZoneKernelHeader): number {
+  view.setUint32(off + 0, rec.magic, true);
+  view.setUint32(off + 4, rec.version, true);
+  view.setUint32(off + 8, rec.irFrames, true);
+  view.setFloat32(off + 12, rec.sampleRate, true);
+  view.setUint32(off + 16, rec.headParts, true);
+  view.setUint32(off + 20, rec.tailParts, true);
+  view.setUint32(off + 24, rec.flags, true);
+  view.setUint32(off + 28, rec.reserved, true);
+  let cur = off + 32;
+  return cur - off;
+}
+
+function _readZoneKernelHeader(view: DataView, off: number, limit: number): [ZoneKernelHeader, number] {
+  if (off + 32 > limit) throw new WireError(ErrorCode.TRUNCATED, "ZoneKernelHeader: truncated");
+  const magic = view.getUint32(off + 0, true);
+  const version = view.getUint32(off + 4, true);
+  const irFrames = view.getUint32(off + 8, true);
+  const sampleRate = view.getFloat32(off + 12, true);
+  const headParts = view.getUint32(off + 16, true);
+  const tailParts = view.getUint32(off + 20, true);
+  const flags = view.getUint32(off + 24, true);
+  const reserved = view.getUint32(off + 28, true);
+  let cur = off + 32;
+  return [{ magic, version, irFrames, sampleRate, headParts, tailParts, flags, reserved }, cur - off];
+}
+
+export function readZoneKernelHeader(view: DataView, off: number): ZoneKernelHeader {
+  const limit = view.byteLength;
+  return _readZoneKernelHeader(view, off, limit)[0];
+}
+
+/** First-chunk header of a format = 4 (MagLS filters) CLIP_CHUNK payload. */
+export interface MaglsHeader {
+  /** MAGLS_MAGIC, 'MYBD' */
+  magic: number;
+  /** MAGLS_VERSION (1) */
+  version: number;
+  /** ambisonic order, 3 */
+  order: number;
+  /** taps per response: MAGLS_TAPS (256) at up to 48 kHz, MAGLS_TAPS_HIGH_RATE (512) above 88.2 kHz */
+  taps: number;
+  /** the rate of the responses (the context rate) */
+  sampleRate: number;
+  reserved: number[];
+}
+
+export const MAGLS_HEADER_FIXED_END = 32;
+
+export function writeMaglsHeader(view: DataView, off: number, rec: MaglsHeader): number {
+  view.setUint32(off + 0, rec.magic, true);
+  view.setUint32(off + 4, rec.version, true);
+  view.setUint32(off + 8, rec.order, true);
+  view.setUint32(off + 12, rec.taps, true);
+  view.setFloat32(off + 16, rec.sampleRate, true);
+  for (let i = 0; i < 3; i++) view.setUint32(off + 20 + i * 4, rec.reserved[i], true);
+  let cur = off + 32;
+  return cur - off;
+}
+
+function _readMaglsHeader(view: DataView, off: number, limit: number): [MaglsHeader, number] {
+  if (off + 32 > limit) throw new WireError(ErrorCode.TRUNCATED, "MaglsHeader: truncated");
+  const magic = view.getUint32(off + 0, true);
+  const version = view.getUint32(off + 4, true);
+  const order = view.getUint32(off + 8, true);
+  const taps = view.getUint32(off + 12, true);
+  const sampleRate = view.getFloat32(off + 16, true);
+  const reserved = Array.from({ length: 3 }, (_, i) => view.getUint32(off + 20 + i * 4, true));
+  let cur = off + 32;
+  return [{ magic, version, order, taps, sampleRate, reserved }, cur - off];
+}
+
+export function readMaglsHeader(view: DataView, off: number): MaglsHeader {
+  const limit = view.byteLength;
+  return _readMaglsHeader(view, off, limit)[0];
+}
+
 /** the writer dropped records this batch */
 export const BATCH_FLAGS_OVERFLOWED = 0x1;
 /** first chunk of a REPLAY (begins with RESET) */
@@ -345,7 +539,7 @@ export const BATCH_FLAGS_FIRST_CHUNK = 0x2;
 export const BATCH_FLAGS_LAST_CHUNK = 0x4;
 /** Starts a clip load (main in M1a, worker in M1b). */
 export interface ClipBegin {
-  /** Clip id; for format 2 (HRIR) 0xFFFF0000..=0xFFFF00FF are reserved. */
+  /** Clip id; reserved from 0xFFFF0000: format 2 (HRIR) 0xFFFF0000..=0xFFFF00FF, format 4 (MagLS) 0xFFFF0100, formats 3 and 5 (zone kernels) 0xFFFF0200..=0xFFFF02FF. */
   clipId: number;
   /** Total sample frames in the clip. */
   frames: number;
@@ -353,7 +547,7 @@ export interface ClipBegin {
   channels: number;
   /** Sample rate in Hz. */
   sampleRate: number;
-  /** 0 f32, 1 i16, 2 HRIR (int16 impulse responses already at the context rate). */
+  /** ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6). */
   format: number;
 }
 
@@ -385,9 +579,9 @@ export function readClipBegin(view: DataView, off: number): ClipBegin {
   return _readClipBegin(view, off, limit)[0];
 }
 
-/** Clip samples: `frames * channels` interleaved samples. A format 2 clip's first chunk begins with `HRIR_HEADER`. */
+/** Clip samples: `frames * channels` interleaved samples. A format 2 clip's first chunk begins with `HRIR_HEADER`, format 3 with `ZoneKernelHeader`, format 4 with `MaglsHeader`. */
 export interface ClipChunk {
-  /** Clip id; for format 2 (HRIR) 0xFFFF0000..=0xFFFF00FF are reserved. */
+  /** Clip id; reserved from 0xFFFF0000: format 2 (HRIR) 0xFFFF0000..=0xFFFF00FF, format 4 (MagLS) 0xFFFF0100, formats 3 and 5 (zone kernels) 0xFFFF0200..=0xFFFF02FF. */
   clipId: number;
   /** First frame of this chunk within the clip. */
   frameOffset: number;
@@ -425,7 +619,7 @@ export function readClipChunk(view: DataView, off: number): ClipChunk {
 
 /** Unloads a clip. */
 export interface ClipUnload {
-  /** Clip id; for format 2 (HRIR) 0xFFFF0000..=0xFFFF00FF are reserved. */
+  /** Clip id; reserved from 0xFFFF0000: format 2 (HRIR) 0xFFFF0000..=0xFFFF00FF, format 4 (MagLS) 0xFFFF0100, formats 3 and 5 (zone kernels) 0xFFFF0200..=0xFFFF02FF. */
   clipId: number;
 }
 
@@ -455,7 +649,7 @@ export const STREAM_OPEN_FLAGS_LOOP = 0x1;
 export interface StreamOpen {
   /** Stream id, named in stream messages. */
   streamId: number;
-  /** Interleaved channel count. */
+  /** Interleaved channel count, 1 to STREAM_MAX_CHANNELS (16); more than 2 takes a wide ring (ADR 0162 §4.6). */
   channels: number;
   /** Sample rate in Hz. */
   sampleRate: number;
@@ -471,9 +665,11 @@ export interface StreamOpen {
   epoch: number;
   /** Frame the stream starts playing from. */
   startFrame: number;
+  /** StreamConvention of an ambisonic stream: 0 AmbiX, 1 FuMa (the worker converts per chunk; ADR 0162 §4.6). */
+  convention: number;
 }
 
-export const STREAM_OPEN_FIXED_END = 52;
+export const STREAM_OPEN_FIXED_END = 56;
 
 export function writeStreamOpen(view: DataView, off: number, rec: StreamOpen): number {
   view.setUint32(off + 16, rec.streamId, true);
@@ -485,12 +681,13 @@ export function writeStreamOpen(view: DataView, off: number, rec: StreamOpen): n
   view.setUint32(off + 40, rec.flags, true);
   view.setUint32(off + 44, rec.epoch, true);
   view.setUint32(off + 48, rec.startFrame, true);
-  let cur = off + 52;
+  view.setUint32(off + 52, rec.convention, true);
+  let cur = off + 56;
   return cur - off;
 }
 
 function _readStreamOpen(view: DataView, off: number, limit: number): [StreamOpen, number] {
-  if (off + 52 > limit) throw new WireError(ErrorCode.TRUNCATED, "StreamOpen: truncated");
+  if (off + 56 > limit) throw new WireError(ErrorCode.TRUNCATED, "StreamOpen: truncated");
   const streamId = view.getUint32(off + 16, true);
   const channels = view.getUint32(off + 20, true);
   const sampleRate = view.getFloat32(off + 24, true);
@@ -500,8 +697,9 @@ function _readStreamOpen(view: DataView, off: number, limit: number): [StreamOpe
   const flags = view.getUint32(off + 40, true);
   const epoch = view.getUint32(off + 44, true);
   const startFrame = view.getUint32(off + 48, true);
-  let cur = off + 52;
-  return [{ streamId, channels, sampleRate, totalFrames, loopStart, loopEnd, flags, epoch, startFrame }, cur - off];
+  const convention = view.getUint32(off + 52, true);
+  let cur = off + 56;
+  return [{ streamId, channels, sampleRate, totalFrames, loopStart, loopEnd, flags, epoch, startFrame, convention }, cur - off];
 }
 
 export function readStreamOpen(view: DataView, off: number): StreamOpen {
@@ -661,9 +859,11 @@ export const PLAY_FLAGS_WANTS_PLAYHEAD = 0x4;
 export const PLAY_FLAGS_MIXED = 0x8;
 /** spatialised; the panner applies */
 export const PLAY_FLAGS_SPATIAL = 0x10;
-/** 0 equal-power, 1 HRTF, 2-3 reserved (spatial voices only) */
+/** 0 equal-power, 1 HRTF, 2 bed (ADR 0162 C1: the bus's bed slot, equal-power without one), 3 reserved; spatial voices only */
 export const PLAY_FLAGS_PANNER_SHIFT = 5;
 export const PLAY_FLAGS_PANNER_MASK = 0x60;
+/** a B-format clip or stream voice of 4, 9 or 16 channels (ADR 0162 C1); spatial, panner and dir are ignored; read from PLAY only */
+export const PLAY_FLAGS_AMBISONIC = 0x80;
 /** start a voice; does not ramp */
 export interface Play {
   voiceId: number;
@@ -810,9 +1010,11 @@ export const SET_PARAMS_FLAGS_WANTS_PLAYHEAD = 0x4;
 export const SET_PARAMS_FLAGS_MIXED = 0x8;
 /** spatialised; the panner applies */
 export const SET_PARAMS_FLAGS_SPATIAL = 0x10;
-/** 0 equal-power, 1 HRTF, 2-3 reserved (spatial voices only) */
+/** 0 equal-power, 1 HRTF, 2 bed (ADR 0162 C1: the bus's bed slot, equal-power without one), 3 reserved; spatial voices only */
 export const SET_PARAMS_FLAGS_PANNER_SHIFT = 5;
 export const SET_PARAMS_FLAGS_PANNER_MASK = 0x60;
+/** a B-format clip or stream voice of 4, 9 or 16 channels (ADR 0162 C1); spatial, panner and dir are ignored; read from PLAY only */
+export const SET_PARAMS_FLAGS_AMBISONIC = 0x80;
 /** set voice parameters; ramps over rampFrames */
 export interface SetParams {
   voiceId: number;
@@ -823,6 +1025,7 @@ export interface SetParams {
   dirX: number;
   dirY: number;
   dirZ: number;
+  /** low-pass cutoff, applied to every voice below LP_TOP (ADR 0162 §4.1), ramped in log-Hz */
   lpHz: number;
   score: number;
   bus: number;
@@ -1201,6 +1404,80 @@ export function readAutomate(view: DataView, off: number): Automate {
   const limit = off + view.getUint16(off + 2, true) * 4;
   if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Automate: truncated");
   return _readAutomate(view, off, limit)[0];
+}
+
+/** hpHz */
+export const SET_VOICE_FX_MASK_HP_HZ = 0x1;
+/** send[0..3] */
+export const SET_VOICE_FX_MASK_SENDS = 0x2;
+/** yaw (ambisonic voices) */
+export const SET_VOICE_FX_MASK_YAW = 0x4;
+/** auxLevel and auxBus */
+export const SET_VOICE_FX_MASK_AUX = 0x8;
+/** a mixed voice's high-pass, zone sends, ambisonic yaw and aux send (ADR 0162 C3); stamped like SET_PARAMS */
+export interface SetVoiceFx {
+  voiceId: number;
+  frameOffset: number;
+  mask: number;
+  rampFrames: number;
+  /** high-pass cutoff in Hz; HP_BOTTOM (20) or less is off */
+  hpHz: number;
+  /** linear level into zone slot k (0..3), taken pre-distance; main folds volume, curve, weight and wet factor */
+  send: number[];
+  /** radians, ambisonic voices only */
+  yaw: number;
+  /** linear level of the one aux send */
+  auxLevel: number;
+  /** aux send's bus; 0xFFFF (AUX_BUS_NONE) is none */
+  auxBus: number;
+  reserved: number;
+}
+
+export const SET_VOICE_FX_FIXED_END = 52;
+
+export function writeSetVoiceFx(view: DataView, off: number, rec: SetVoiceFx): number {
+  view.setUint32(off + 12, rec.mask, true);
+  view.setUint32(off + 16, rec.rampFrames, true);
+  view.setFloat32(off + 20, rec.hpHz, true);
+  for (let i = 0; i < 4; i++) view.setFloat32(off + 24 + i * 4, rec.send[i], true);
+  view.setFloat32(off + 40, rec.yaw, true);
+  view.setFloat32(off + 44, rec.auxLevel, true);
+  view.setUint16(off + 48, rec.auxBus, true);
+  view.setUint16(off + 50, rec.reserved, true);
+  let cur = off + 52;
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "SetVoiceFx: record too long");
+  view.setUint16(off + 0, 10, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readSetVoiceFx(view: DataView, off: number, limit: number): [SetVoiceFx, number] {
+  if (off + 52 > limit) throw new WireError(ErrorCode.TRUNCATED, "SetVoiceFx: truncated");
+  const mask = view.getUint32(off + 12, true);
+  const rampFrames = view.getUint32(off + 16, true);
+  const hpHz = view.getFloat32(off + 20, true);
+  const send = Array.from({ length: 4 }, (_, i) => view.getFloat32(off + 24 + i * 4, true));
+  const yaw = view.getFloat32(off + 40, true);
+  const auxLevel = view.getFloat32(off + 44, true);
+  const auxBus = view.getUint16(off + 48, true);
+  const reserved = view.getUint16(off + 50, true);
+  let cur = off + 52;
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "SetVoiceFx: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, mask, rampFrames, hpHz, send, yaw, auxLevel, auxBus, reserved }, cur - off];
+}
+
+export function readSetVoiceFx(view: DataView, off: number): SetVoiceFx {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "SetVoiceFx: truncated");
+  if (view.getUint16(off + 0, true) !== 10) throw new WireError(ErrorCode.MALFORMED, "SetVoiceFx: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "SetVoiceFx: truncated");
+  return _readSetVoiceFx(view, off, limit)[0];
 }
 
 export interface BusConfigBusesEffects {
@@ -1691,6 +1968,235 @@ export function readBusAutomate(view: DataView, off: number): BusAutomate {
   return _readBusAutomate(view, off, limit)[0];
 }
 
+/** the bed slots and their host buses (ADR 0162 C2); applies on arrival */
+export interface BedConfig {
+  voiceId: number;
+  frameOffset: number;
+  /** per bus, the bed slot its voices encode into; 0xFF (BED_SLOT_NONE) is none */
+  bedSlot: ArrayLike<number>;
+  /** per slot, the bus it decodes into before that bus's effects; 0xFFFF (BED_HOST_NONE) is unused */
+  hostBus: ArrayLike<number>;
+}
+
+export const BED_CONFIG_FIXED_END = 20;
+
+export function writeBedConfig(view: DataView, off: number, rec: BedConfig): number {
+  view.setUint32(off + 12, rec.bedSlot.length, true);
+  if (rec.hostBus.length > 4) throw new WireError(ErrorCode.OVERSIZE, "BedConfig: hostBus over its cap 4");
+  view.setUint32(off + 16, rec.hostBus.length, true);
+  let cur = off + 20;
+  {
+    const list = rec.bedSlot;
+    for (let i = 0; i < list.length; i++) view.setUint8(cur + i * 1, list[i]!);
+    const end = cur + Math.ceil((list.length * 1) / 4) * 4;
+    for (let b = cur + list.length * 1; b < end; b++) view.setUint8(b, 0);
+    cur = end;
+  }
+  {
+    const list = rec.hostBus;
+    for (let i = 0; i < list.length; i++) view.setUint16(cur + i * 2, list[i]!, true);
+    const end = cur + Math.ceil((list.length * 2) / 4) * 4;
+    for (let b = cur + list.length * 2; b < end; b++) view.setUint8(b, 0);
+    cur = end;
+  }
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "BedConfig: record too long");
+  view.setUint16(off + 0, 22, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readBedConfig(view: DataView, off: number, limit: number): [BedConfig, number] {
+  if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "BedConfig: truncated");
+  const busCount = view.getUint32(off + 12, true);
+  const slotCount = view.getUint32(off + 16, true);
+  let cur = off + 20;
+  if (Math.ceil((busCount * 1) / 4) * 4 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BedConfig: bedSlot overrun");
+  const bedSlot: number[] = [];
+  for (let i = 0; i < busCount; i++) bedSlot.push(view.getUint8(cur + i * 1));
+  cur += Math.ceil((busCount * 1) / 4) * 4;
+  if (slotCount > 4) throw new WireError(ErrorCode.MALFORMED, "BedConfig: hostBus over its cap");
+  if (Math.ceil((slotCount * 2) / 4) * 4 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BedConfig: hostBus overrun");
+  const hostBus: number[] = [];
+  for (let i = 0; i < slotCount; i++) hostBus.push(view.getUint16(cur + i * 2, true));
+  cur += Math.ceil((slotCount * 2) / 4) * 4;
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "BedConfig: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, bedSlot, hostBus }, cur - off];
+}
+
+export function readBedConfig(view: DataView, off: number): BedConfig {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BedConfig: truncated");
+  if (view.getUint16(off + 0, true) !== 22) throw new WireError(ErrorCode.MALFORMED, "BedConfig: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BedConfig: truncated");
+  return _readBedConfig(view, off, limit)[0];
+}
+
+export interface ZoneConfigSlots {
+  /** a zone kernel clip id (ZONE_KERNEL_ID_FIRST..=LAST); 0 is off */
+  kernelId: number;
+  /** the zone's output bus (R17) */
+  returnBus: number;
+  /** ZoneSlotState: 1 active, 2 release, 3 evict */
+  state: number;
+  reserved: number;
+  /** 0..2, ramped over rampFrames */
+  wet: number;
+  /** the kernel's length in frames */
+  irFrames: number;
+}
+
+export const ZONE_CONFIG_SLOTS_FIXED_END = 16;
+
+export function writeZoneConfigSlots(view: DataView, off: number, rec: ZoneConfigSlots): number {
+  view.setUint32(off + 0, rec.kernelId, true);
+  view.setUint16(off + 4, rec.returnBus, true);
+  view.setUint8(off + 6, rec.state);
+  view.setUint8(off + 7, rec.reserved);
+  view.setFloat32(off + 8, rec.wet, true);
+  view.setUint32(off + 12, rec.irFrames, true);
+  let cur = off + 16;
+  return cur - off;
+}
+
+function _readZoneConfigSlots(view: DataView, off: number, limit: number): [ZoneConfigSlots, number] {
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "ZoneConfigSlots: truncated");
+  const kernelId = view.getUint32(off + 0, true);
+  const returnBus = view.getUint16(off + 4, true);
+  const state = view.getUint8(off + 6);
+  const reserved = view.getUint8(off + 7);
+  const wet = view.getFloat32(off + 8, true);
+  const irFrames = view.getUint32(off + 12, true);
+  let cur = off + 16;
+  return [{ kernelId, returnBus, state, reserved, wet, irFrames }, cur - off];
+}
+
+export function readZoneConfigSlots(view: DataView, off: number): ZoneConfigSlots {
+  const limit = view.byteLength;
+  return _readZoneConfigSlots(view, off, limit)[0];
+}
+
+/** the zone slots: kernels, return buses, states and wet levels (ADR 0162 C5); idempotent, applies on arrival */
+export interface ZoneConfig {
+  voiceId: number;
+  frameOffset: number;
+  /** the shared reverb's return, 0..1 (1 minus the listener's zone weight), ramped */
+  sharedReturnGain: number;
+  rampFrames: number;
+  slots: ZoneConfigSlots[];
+}
+
+export const ZONE_CONFIG_FIXED_END = 24;
+
+export function writeZoneConfig(view: DataView, off: number, rec: ZoneConfig): number {
+  if (rec.slots.length > 4) throw new WireError(ErrorCode.OVERSIZE, "ZoneConfig: slots over its cap 4");
+  view.setUint32(off + 12, rec.slots.length, true);
+  view.setFloat32(off + 16, rec.sharedReturnGain, true);
+  view.setUint32(off + 20, rec.rampFrames, true);
+  let cur = off + 24;
+  for (const item of rec.slots) cur += writeZoneConfigSlots(view, cur, item);
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "ZoneConfig: record too long");
+  view.setUint16(off + 0, 23, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readZoneConfig(view: DataView, off: number, limit: number): [ZoneConfig, number] {
+  if (off + 24 > limit) throw new WireError(ErrorCode.TRUNCATED, "ZoneConfig: truncated");
+  const slotCount = view.getUint32(off + 12, true);
+  const sharedReturnGain = view.getFloat32(off + 16, true);
+  const rampFrames = view.getUint32(off + 20, true);
+  let cur = off + 24;
+  if (slotCount > 4) throw new WireError(ErrorCode.MALFORMED, "ZoneConfig: slots over its cap");
+  if (slotCount * 16 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "ZoneConfig: slots overrun");
+  const slots: ZoneConfigSlots[] = [];
+  for (let i = 0; i < slotCount; i++) {
+    const [item, used] = _readZoneConfigSlots(view, cur, limit);
+    cur += used;
+    slots.push(item);
+  }
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "ZoneConfig: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, sharedReturnGain, rampFrames, slots }, cur - off];
+}
+
+export function readZoneConfig(view: DataView, off: number): ZoneConfig {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "ZoneConfig: truncated");
+  if (view.getUint16(off + 0, true) !== 23) throw new WireError(ErrorCode.MALFORMED, "ZoneConfig: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "ZoneConfig: truncated");
+  return _readZoneConfig(view, off, limit)[0];
+}
+
+/** a camera cut: jump to the rotation, no ramp */
+export const LISTENER_FLAGS_SNAP = 0x1;
+/** the listener's world-to-listener rotation for ambisonic voices (ADR 0162 C4); asap */
+export interface Listener {
+  voiceId: number;
+  frameOffset: number;
+  /** world-to-listener rotation quaternion; normalised by the core, non-finite or zero ignored */
+  qx: number;
+  qy: number;
+  qz: number;
+  qw: number;
+  /** slerped per quantum over this many frames */
+  rampFrames: number;
+  flags: number;
+}
+
+export const LISTENER_FIXED_END = 36;
+
+export function writeListener(view: DataView, off: number, rec: Listener): number {
+  view.setFloat32(off + 12, rec.qx, true);
+  view.setFloat32(off + 16, rec.qy, true);
+  view.setFloat32(off + 20, rec.qz, true);
+  view.setFloat32(off + 24, rec.qw, true);
+  view.setUint32(off + 28, rec.rampFrames, true);
+  view.setUint32(off + 32, rec.flags, true);
+  let cur = off + 36;
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Listener: record too long");
+  view.setUint16(off + 0, 32, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readListener(view: DataView, off: number, limit: number): [Listener, number] {
+  if (off + 36 > limit) throw new WireError(ErrorCode.TRUNCATED, "Listener: truncated");
+  const qx = view.getFloat32(off + 12, true);
+  const qy = view.getFloat32(off + 16, true);
+  const qz = view.getFloat32(off + 20, true);
+  const qw = view.getFloat32(off + 24, true);
+  const rampFrames = view.getUint32(off + 28, true);
+  const flags = view.getUint32(off + 32, true);
+  let cur = off + 36;
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Listener: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, qx, qy, qz, qw, rampFrames, flags }, cur - off];
+}
+
+export function readListener(view: DataView, off: number): Listener {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Listener: truncated");
+  if (view.getUint16(off + 0, true) !== 32) throw new WireError(ErrorCode.MALFORMED, "Listener: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Listener: truncated");
+  return _readListener(view, off, limit)[0];
+}
+
 /** reset the core */
 export interface Reset {
   voiceId: number;
@@ -1744,6 +2250,8 @@ export const STATUS_FLAGS_ADAPTIVE_CAP_ACTIVE = 0x8;
 export const STATUS_FLAGS_READY = 0x10;
 /** a trap was caught in the render path */
 export const STATUS_FLAGS_TRAP_CAUGHT = 0x20;
+/** the MagLS filters (format 4) are committed and transformed (ADR 0162) */
+export const STATUS_FLAGS_BED_DECODER_READY = 0x40;
 /** playheads of looping, streamed and long clips, round-robin */
 export interface StatusPlayheadsItem {
   id: number;
@@ -1772,7 +2280,7 @@ export function readStatusPlayheadsItem(view: DataView, off: number): StatusPlay
   return _readStatusPlayheadsItem(view, off, limit)[0];
 }
 
-/** ClipEvent codes: 1 resident, 2 refusedCeiling, 3 refusedGrow, 4 hrtfReady */
+/** ClipEvent codes: 1 resident, 2 refusedCeiling, 3 refusedGrow, 4 hrtfReady, 5 refusedFormat */
 export interface StatusClipEventsItem {
   clipId: number;
   code: number;
@@ -1856,6 +2364,112 @@ export function readStatusPeaksItem(view: DataView, off: number): StatusPeaksIte
   return _readStatusPeaksItem(view, off, limit)[0];
 }
 
+/** per active bed slot: host bus, voices and work (ADR 0162) */
+export interface StatusBedsItem {
+  /** the slot's host bus */
+  bus: number;
+  /** voices encoded into the slot */
+  voices: number;
+  /** work units, last quantum */
+  work: number;
+}
+
+export const STATUS_BEDS_ITEM_FIXED_END = 8;
+
+export function writeStatusBedsItem(view: DataView, off: number, rec: StatusBedsItem): number {
+  view.setUint16(off + 0, rec.bus, true);
+  view.setUint16(off + 2, rec.voices, true);
+  view.setUint32(off + 4, rec.work, true);
+  let cur = off + 8;
+  return cur - off;
+}
+
+function _readStatusBedsItem(view: DataView, off: number, limit: number): [StatusBedsItem, number] {
+  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "StatusBedsItem: truncated");
+  const bus = view.getUint16(off + 0, true);
+  const voices = view.getUint16(off + 2, true);
+  const work = view.getUint32(off + 4, true);
+  let cur = off + 8;
+  return [{ bus, voices, work }, cur - off];
+}
+
+export function readStatusBedsItem(view: DataView, off: number): StatusBedsItem {
+  const limit = view.byteLength;
+  return _readStatusBedsItem(view, off, limit)[0];
+}
+
+/** per zone slot: kernel, state, quanta since input, wet peak (ADR 0162) */
+export interface StatusZonesItem {
+  kernelId: number;
+  /** ZoneState: 0 off, 1 waiting for kernel, 2 fading in, 3 active, 4 ringing out, 5 evicting */
+  state: number;
+  pad: number;
+  /** quanta since a send last fed the slot (saturating) */
+  quantaSinceInput: number;
+  /** peak of the slot's wet output, last block */
+  wetPeak: number;
+}
+
+export const STATUS_ZONES_ITEM_FIXED_END = 12;
+
+export function writeStatusZonesItem(view: DataView, off: number, rec: StatusZonesItem): number {
+  view.setUint32(off + 0, rec.kernelId, true);
+  view.setUint8(off + 4, rec.state);
+  view.setUint8(off + 5, rec.pad);
+  view.setUint16(off + 6, rec.quantaSinceInput, true);
+  view.setFloat32(off + 8, rec.wetPeak, true);
+  let cur = off + 12;
+  return cur - off;
+}
+
+function _readStatusZonesItem(view: DataView, off: number, limit: number): [StatusZonesItem, number] {
+  if (off + 12 > limit) throw new WireError(ErrorCode.TRUNCATED, "StatusZonesItem: truncated");
+  const kernelId = view.getUint32(off + 0, true);
+  const state = view.getUint8(off + 4);
+  const pad = view.getUint8(off + 5);
+  const quantaSinceInput = view.getUint16(off + 6, true);
+  const wetPeak = view.getFloat32(off + 8, true);
+  let cur = off + 12;
+  return [{ kernelId, state, pad, quantaSinceInput, wetPeak }, cur - off];
+}
+
+export function readStatusZonesItem(view: DataView, off: number): StatusZonesItem {
+  const limit = view.byteLength;
+  return _readStatusZonesItem(view, off, limit)[0];
+}
+
+/** ZoneEvent codes: 1 refused kernel, 2 refused slot, 3 bad blob (ADR 0162) */
+export interface StatusZoneEventsItem {
+  slot: number;
+  /** ZoneEvent: 1 refused kernel, 2 refused slot, 3 bad blob */
+  code: number;
+  reserved: number;
+}
+
+export const STATUS_ZONE_EVENTS_ITEM_FIXED_END = 4;
+
+export function writeStatusZoneEventsItem(view: DataView, off: number, rec: StatusZoneEventsItem): number {
+  view.setUint8(off + 0, rec.slot);
+  view.setUint8(off + 1, rec.code);
+  view.setUint16(off + 2, rec.reserved, true);
+  let cur = off + 4;
+  return cur - off;
+}
+
+function _readStatusZoneEventsItem(view: DataView, off: number, limit: number): [StatusZoneEventsItem, number] {
+  if (off + 4 > limit) throw new WireError(ErrorCode.TRUNCATED, "StatusZoneEventsItem: truncated");
+  const slot = view.getUint8(off + 0);
+  const code = view.getUint8(off + 1);
+  const reserved = view.getUint16(off + 2, true);
+  let cur = off + 4;
+  return [{ slot, code, reserved }, cur - off];
+}
+
+export function readStatusZoneEventsItem(view: DataView, off: number): StatusZoneEventsItem {
+  const limit = view.byteLength;
+  return _readStatusZoneEventsItem(view, off, limit)[0];
+}
+
 /** A whole STATUS message (kind 9); section counts are derived. */
 export interface StatusBlock {
   currentFrame: number;
@@ -1880,6 +2494,22 @@ export interface StatusBlock {
   maxLatenessFrames: number;
   hrtfVoices: number;
   hrtfLoadFailure: number;
+  /** voices encoded into a bed */
+  bedVoices: number;
+  /** mixed-voice pool entries with an active filter */
+  fxVoices: number;
+  ambisonicVoices: number;
+  zonesActive: number;
+  zonesRinging: number;
+  /** buses whose bed host failed validation (cumulative, saturating) */
+  bedsRefused: number;
+  reserved: number;
+  /** zone kernels resident, KB */
+  zoneUsedKB: number;
+  /** work units, last quantum: bed encode, decode, ambisonic voices */
+  workBed: number;
+  /** work units, last quantum: zone convolvers, sends, aux */
+  workZones: number;
   /** voices that ended in this block (at most 1024 per block) */
   ended: number[];
   /** voices virtualised by the adaptive cap (at most 1024 per block) */
@@ -1888,12 +2518,18 @@ export interface StatusBlock {
   starved: number[];
   /** playheads of looping, streamed and long clips, round-robin (at most 256 per block) */
   playheads: StatusPlayheadsItem[];
-  /** ClipEvent codes: 1 resident, 2 refusedCeiling, 3 refusedGrow, 4 hrtfReady (at most 64 per block) */
+  /** ClipEvent codes: 1 resident, 2 refusedCeiling, 3 refusedGrow, 4 hrtfReady, 5 refusedFormat (at most 64 per block) */
   clipEvents: StatusClipEventsItem[];
   /** StreamEvent codes: 1 starved, 2 eos, 3 error (at most 64 per block) */
   streamEvents: StatusStreamEventsItem[];
   /** peak level per bus, left and right (at most 32 per block) */
   peaks: StatusPeaksItem[];
+  /** per active bed slot: host bus, voices and work (ADR 0162) (at most 4 per block) */
+  beds: StatusBedsItem[];
+  /** per zone slot: kernel, state, quanta since input, wet peak (ADR 0162) (at most 4 per block) */
+  zones: StatusZonesItem[];
+  /** ZoneEvent codes: 1 refused kernel, 2 refused slot, 3 bad blob (ADR 0162) (at most 16 per block) */
+  zoneEvents: StatusZoneEventsItem[];
 }
 
 /** Write a whole STATUS message at `off` (envelope first); returns the bytes written. */
@@ -1934,7 +2570,23 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
   view.setUint32(off + 104, rec.maxLatenessFrames, true);
   view.setUint16(off + 108, rec.hrtfVoices, true);
   view.setUint16(off + 110, rec.hrtfLoadFailure, true);
-  let cur = off + 112;
+  view.setUint16(off + 112, rec.bedVoices, true);
+  if (rec.beds.length > 4) throw new WireError(ErrorCode.OVERSIZE, "STATUS: beds over its cap 4");
+  view.setUint16(off + 114, rec.beds.length, true);
+  view.setUint16(off + 116, rec.fxVoices, true);
+  view.setUint16(off + 118, rec.ambisonicVoices, true);
+  view.setUint16(off + 120, rec.zonesActive, true);
+  view.setUint16(off + 122, rec.zonesRinging, true);
+  if (rec.zoneEvents.length > 16) throw new WireError(ErrorCode.OVERSIZE, "STATUS: zoneEvents over its cap 16");
+  view.setUint16(off + 124, rec.zoneEvents.length, true);
+  view.setUint16(off + 126, rec.bedsRefused, true);
+  if (rec.zones.length > 4) throw new WireError(ErrorCode.OVERSIZE, "STATUS: zones over its cap 4");
+  view.setUint16(off + 128, rec.zones.length, true);
+  view.setUint16(off + 130, rec.reserved, true);
+  view.setUint32(off + 132, rec.zoneUsedKB, true);
+  view.setUint32(off + 136, rec.workBed, true);
+  view.setUint32(off + 140, rec.workZones, true);
+  let cur = off + 144;
   for (const v of rec.ended) {
     view.setUint32(cur, v, true);
     cur += 4;
@@ -1951,6 +2603,9 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
   for (const v of rec.clipEvents) cur += writeStatusClipEventsItem(view, cur, v);
   for (const v of rec.streamEvents) cur += writeStatusStreamEventsItem(view, cur, v);
   for (const v of rec.peaks) cur += writeStatusPeaksItem(view, cur, v);
+  for (const v of rec.beds) cur += writeStatusBedsItem(view, cur, v);
+  for (const v of rec.zones) cur += writeStatusZonesItem(view, cur, v);
+  for (const v of rec.zoneEvents) cur += writeStatusZoneEventsItem(view, cur, v);
   writeEnvelope(view, off, { kind: Kind.STATUS, seq, bodyBytes: cur - off - 16 });
   return cur - off;
 }
@@ -1959,13 +2614,13 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
 export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
   const view = buf instanceof ArrayBuffer ? new DataView(buf) : new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const off = 0;
-  if (112 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
+  if (144 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
   const env = readEnvelope(view, 0);
   if (env.magic !== MAGIC) throw new WireError(ErrorCode.BAD_MAGIC, "STATUS: bad magic");
   if (((env.version ?? 0) >> 8) !== VERSION_MAJOR) throw new WireError(ErrorCode.VERSION_MISMATCH, "STATUS: version mismatch");
   if (env.kind !== Kind.STATUS) throw new WireError(ErrorCode.MALFORMED, "STATUS: wrong kind");
   const limit = 16 + env.bodyBytes;
-  if (limit > view.byteLength || limit < 112) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
+  if (limit > view.byteLength || limit < 144) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
   const currentFrame = view.getFloat64(off + 16, true);
   const dateMs = view.getFloat64(off + 24, true);
   const pingSeq = view.getUint32(off + 32, true);
@@ -1995,7 +2650,20 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
   const maxLatenessFrames = view.getUint32(off + 104, true);
   const hrtfVoices = view.getUint16(off + 108, true);
   const hrtfLoadFailure = view.getUint16(off + 110, true);
-  let cur = 112;
+  const bedVoices = view.getUint16(off + 112, true);
+  const bedsActive = view.getUint16(off + 114, true);
+  const fxVoices = view.getUint16(off + 116, true);
+  const ambisonicVoices = view.getUint16(off + 118, true);
+  const zonesActive = view.getUint16(off + 120, true);
+  const zonesRinging = view.getUint16(off + 122, true);
+  const zoneEventCount = view.getUint16(off + 124, true);
+  const bedsRefused = view.getUint16(off + 126, true);
+  const zoneSlots = view.getUint16(off + 128, true);
+  const reserved = view.getUint16(off + 130, true);
+  const zoneUsedKB = view.getUint32(off + 132, true);
+  const workBed = view.getUint32(off + 136, true);
+  const workZones = view.getUint32(off + 140, true);
+  let cur = 144;
   if (endedCount > 1024 || endedCount * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: ended overrun");
   const ended: number[] = [];
   for (let i = 0; i < endedCount; i++) {
@@ -2038,5 +2706,23 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
     peaks.push(readStatusPeaksItem(view, cur));
     cur += 8;
   }
-  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks };
+  if (bedsActive > 4 || bedsActive * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: beds overrun");
+  const beds: StatusBedsItem[] = [];
+  for (let i = 0; i < bedsActive; i++) {
+    beds.push(readStatusBedsItem(view, cur));
+    cur += 8;
+  }
+  if (zoneSlots > 4 || zoneSlots * 12 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: zones overrun");
+  const zones: StatusZonesItem[] = [];
+  for (let i = 0; i < zoneSlots; i++) {
+    zones.push(readStatusZonesItem(view, cur));
+    cur += 12;
+  }
+  if (zoneEventCount > 16 || zoneEventCount * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: zoneEvents overrun");
+  const zoneEvents: StatusZoneEventsItem[] = [];
+  for (let i = 0; i < zoneEventCount; i++) {
+    zoneEvents.push(readStatusZoneEventsItem(view, cur));
+    cur += 4;
+  }
+  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, reserved, zoneUsedKB, workBed, workZones, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents };
 }

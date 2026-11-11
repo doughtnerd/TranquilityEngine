@@ -9,7 +9,7 @@ import { SCHEMA_HASH, WIRE_GENERATED } from "./wire.generated";
 
 const crateDir = new URL("../../../../native/audio/crates/audio-wire/", import.meta.url);
 // Keep in step with `SCHEMA_SOURCES` in src/schema.rs (a cargo test checks that list is complete).
-const SOURCES = ["src/model.rs", "src/schema.rs", "src/schema/batch.rs", "src/schema/envelope.rs", "src/schema/status.rs"];
+const SOURCES = ["src/model.rs", "src/schema.rs", "src/schema/batch.rs", "src/schema/envelope.rs", "src/schema/spatial.rs", "src/schema/status.rs"];
 
 function schemaHash(): string {
   const h = createHash("sha256");

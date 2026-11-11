@@ -21,10 +21,10 @@ use crate::QUANTUM;
 
 /// The wire's magic, version and kind for STATUS (api-and-models §4.1).
 pub const MAGIC: u32 = 0x4D59_4131;
-pub const VERSION: u16 = 0x0100;
+pub const VERSION: u16 = 0x0101;
 pub const KIND_STATUS: u16 = 9;
-/// The header, envelope included (§4.3).
-pub const HEADER_BYTES: usize = 112;
+/// The header, envelope included (§4.3; 144 B since ADR 0162 §4.3).
+pub const HEADER_BYTES: usize = 144;
 /// The staging buffer, and each pooled buffer in the shell (§4.7: 16 KB).
 pub const BUFFER_BYTES: usize = 16 * 1024;
 
@@ -194,6 +194,9 @@ pub fn write(c: &Counters, seq: u32, out: &mut [u8]) -> usize {
     put_u32(out, off::MAX_LATENESS_FRAMES, c.max_lateness_frames);
     put_u16(out, off::HRTF_VOICES, c.hrtf_voices);
     put_u16(out, off::HRTF_LOAD_FAILURE, c.hrtf_load_failure);
+    // ADR 0162 §4.3's header fields (112..144) and its `beds`/`zones`/`zoneEvents` sections: zero and
+    // empty until K2 serialises them from the counters.
+    out[112..HEADER_BYTES].fill(0);
     // Sections, in §4.3's order.
     let mut cur = HEADER_BYTES;
     for list in [c.ended.as_slice(), c.demoted.as_slice(), c.starved.as_slice()] {
@@ -282,7 +285,7 @@ mod tests {
         let mut out = [0u8; BUFFER_BYTES];
         assert_eq!(take(&mut core, &mut out, 0x100), HEADER_BYTES);
         assert_eq!(u32_at(&out, off::MAGIC), MAGIC);
-        assert_eq!(u16_at(&out, off::VERSION), 0x0100);
+        assert_eq!(u16_at(&out, off::VERSION), 0x0101);
         assert_eq!(u16_at(&out, off::KIND), KIND_STATUS);
         assert_eq!(u32_at(&out, off::SEQ), 0);
         assert_eq!(u32_at(&out, off::BODY_BYTES), (HEADER_BYTES - 16) as u32);
@@ -419,9 +422,11 @@ mod tests {
             c.set_peak(b, 1.0, 1.0);
         }
         assert_eq!(c.peaks[PEAKS_CAP - 1], Peak { l: 1.0, r: 1.0 });
-        assert_eq!(message_bytes(&c), 15_728, "api-and-models §4.3's worst case");
+        // 0157's sections at their caps under ADR 0162's 144-byte header; K2 adds the beds, zones and
+        // zoneEvents sections (32 + 48 + 64) for the full worst case of 15,904 B.
+        assert_eq!(message_bytes(&c), 15_760, "api-and-models §4.3's worst case without M3's sections");
         let mut out = [0u8; BUFFER_BYTES];
-        assert_eq!(write(&c, 0, &mut out), 15_728);
+        assert_eq!(write(&c, 0, &mut out), 15_760);
     }
 
     #[test]

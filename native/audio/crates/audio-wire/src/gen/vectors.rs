@@ -51,6 +51,7 @@ pub fn emit_json(cases: &[VectorCase]) -> Result<String, String> {
             Subject::Envelope => "{\"type\":\"Envelope\"}".to_string(),
             Subject::Status => "{\"type\":\"Status\"}".to_string(),
             Subject::HrirHeader => "{\"type\":\"HrirHeader\"}".to_string(),
+            Subject::BlobHeader(n) => format!("{{\"type\":\"BlobHeader\",\"name\":{}}}", json_str(n)),
             Subject::Kind(n) => format!("{{\"type\":\"Kind\",\"name\":{}}}", json_str(n)),
             Subject::Opcode(n) => format!("{{\"type\":\"Opcode\",\"name\":{}}}", json_str(n)),
             Subject::Batch(n) => format!("{{\"type\":\"Batch\",\"name\":{}}}", json_str(n)),

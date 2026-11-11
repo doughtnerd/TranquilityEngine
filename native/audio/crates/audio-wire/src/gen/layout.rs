@@ -49,6 +49,8 @@ pub struct Group {
     pub name: &'static str,
     pub count_field: &'static str,
     pub item: Box<Item>,
+    /// Most items (0 is no cap).
+    pub max: u32,
 }
 
 /// A struct-shaped piece of the wire: a body, a record, a header, or a group item.
@@ -60,17 +62,48 @@ pub struct Item {
     /// End of the fixed fields (absolute for bodies and records, relative for group items).
     pub fixed_end: u32,
     pub group: Option<Group>,
+    /// Padded scalar arrays after the fixed fields (never with a group).
+    pub arrays: Vec<PaddedArray>,
 }
 
 impl Item {
-    /// Fields that are the count of this item's group: derived on write, not stored.
+    /// A plain item: fixed fields only.
+    pub fn plain(name: &str, fields: Vec<Placed>, fixed_end: u32) -> Item {
+        Item { name: name.to_string(), fields, fixed_end, group: None, arrays: Vec::new() }
+    }
+    /// Fields that are the count of this item's group or of one of its arrays: derived on write,
+    /// not stored.
     pub fn is_derived(&self, name: &str) -> bool {
-        self.group.as_ref().map_or(false, |g| g.count_field == name)
+        self.group.as_ref().map_or(false, |g| g.count_field == name) || self.arrays.iter().any(|a| a.count_field == name)
+    }
+    /// The array whose count is `name`.
+    pub fn array_of(&self, name: &str) -> Option<&PaddedArray> {
+        self.arrays.iter().find(|a| a.count_field == name)
     }
     /// Fields stored in the generated struct.
     pub fn stored(&self) -> impl Iterator<Item = &Placed> {
         self.fields.iter().filter(move |p| !self.is_derived(p.field.name))
     }
+}
+
+/// Build an item starting at `start` with padded arrays (`build_item` for the other tails).
+pub fn build_item_arrays(name: &str, start: u32, fields: &[Field], arrays: &[PaddedArray]) -> Result<Item, String> {
+    let mut item = build_item(name, start, fields, None)?;
+    for a in arrays {
+        if !item.fields.iter().any(|p| p.field.name == a.count_field && p.field.count == 1 && matches!(p.field.ty, Ty::U8 | Ty::U16 | Ty::U32)) {
+            return Err(format!("{name}: count field {} of array {} not found or not an unsigned scalar", a.count_field, a.name));
+        }
+        if a.ty == Ty::F64 || item.fields.iter().any(|p| p.field.name == a.name) {
+            return Err(format!("{name}: array {} is f64 or shadows a field", a.name));
+        }
+    }
+    item.arrays = arrays.to_vec();
+    Ok(item)
+}
+
+/// `n` elements of `ty`, padded to whole 4-byte words.
+pub const fn padded_bytes(ty: Ty, n: u32) -> u32 {
+    (ty.bytes() * n + 3) & !3
 }
 
 /// Build an item starting at `start` with an optional repeated group.
@@ -86,10 +119,10 @@ pub fn build_item(name: &str, start: u32, fields: &[Field], tail: Option<&Repeat
             if item.fixed_end == 0 {
                 return Err(format!("{name}: group {} has empty items", r.name));
             }
-            Some(Group { name: r.name, count_field: r.count_field, item: Box::new(item) })
+            Some(Group { name: r.name, count_field: r.count_field, item: Box::new(item), max: r.max })
         }
     };
-    Ok(Item { name: name.to_string(), fields: placed, fixed_end: end, group })
+    Ok(Item { name: name.to_string(), fields: placed, fixed_end: end, group, arrays: Vec::new() })
 }
 
 /// The tail's group, if it is a `Repeat`.
@@ -139,14 +172,21 @@ pub fn screaming(s: &str) -> String {
     snake(s).chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' }).collect()
 }
 
+fn body_item(name: &str, start: u32, body: &Body) -> Result<Item, String> {
+    match body.tail {
+        Tail::Arrays(a) => build_item_arrays(name, start, body.fields, a),
+        _ => build_item(name, start, body.fields, repeat_of(&body.tail)),
+    }
+}
+
 /// Every opcode record's item (head not included), start 12.
 pub fn opcode_item(op: &Opcode) -> Result<Item, String> {
-    build_item(&pascal(op.name), 12, op.payload.fields, repeat_of(&op.payload.tail))
+    body_item(&pascal(op.name), 12, &op.payload)
 }
 
 /// A kind's body item, start 16 (the envelope is counted in offsets).
 pub fn kind_item(k: &Kind) -> Result<Item, String> {
-    build_item(&pascal(k.name), 16, k.body.fields, repeat_of(&k.body.tail))
+    body_item(&pascal(k.name), 16, &k.body)
 }
 
 /// Validate the whole schema: kind and opcode ids and names unique, `total_bytes` equal to the
@@ -170,6 +210,16 @@ pub fn validate(schema: &Schema) -> Result<(), String> {
         return Err(format!("batch header must be firstFrame, count, flags in 16 bytes (got {names:?})"));
     }
     resolve(0, schema.hrir_header)?;
+    let mut blob_names = HashSet::new();
+    for b in schema.blob_headers {
+        if !blob_names.insert(b.name) || b.name == "HrirHeader" {
+            return Err(format!("duplicate blob header {}", b.name));
+        }
+        let (_, end) = resolve(0, b.fields).map_err(|e| format!("{}: {e}", b.name))?;
+        if end % 4 != 0 {
+            return Err(format!("blob header {} is {end} B, not whole words", b.name));
+        }
+    }
 
     let mut ids = HashSet::new();
     let mut nm = HashSet::new();
@@ -193,11 +243,11 @@ pub fn validate(schema: &Schema) -> Result<(), String> {
         }
         let item = opcode_item(op)?;
         if let Some(want) = op.total_bytes {
-            if item.group.is_some() || item.fixed_end != want {
+            if item.group.is_some() || !item.arrays.is_empty() || item.fixed_end != want {
                 return Err(format!("opcode {}: spec total {} B, schema {} B", op.name, want, item.fixed_end));
             }
-        } else if item.group.is_none() && op.sent_in_m1 {
-            return Err(format!("opcode {} has no total_bytes and no group", op.name));
+        } else if item.group.is_none() && item.arrays.is_empty() && op.sent {
+            return Err(format!("opcode {} has no total_bytes and no group or arrays", op.name));
         }
     }
 

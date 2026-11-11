@@ -38,7 +38,9 @@ fn vector_names_are_unique_and_cover_every_kind_and_opcode() {
         assert!(ok, "kind {} ({}) has no vector", k.name, k.id);
     }
 
-    for op in s.opcodes.iter().filter(|o| o.sent_in_m1) {
+    // ADR 0162's opcodes are covered by `spatial_vectors.rs` (leaf L-A1a), with their own cases.
+    const M3: &[&str] = &["SET_VOICE_FX", "BED_CONFIG", "ZONE_CONFIG", "LISTENER"];
+    for op in s.opcodes.iter().filter(|o| o.sent && !M3.contains(&o.name)) {
         assert!(
             covered(&|x| matches!(x, Subject::Opcode(n) if *n == op.name)),
             "opcode {} ({:#x}) has no vector",
