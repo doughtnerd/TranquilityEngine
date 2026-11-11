@@ -793,7 +793,7 @@ describe("wasm goldens: the committed core's output, scene by scene", () => {
   });
 
   it("golden/ holds exactly the scenes' files", () => {
-    const files = existsSync(GOLDEN_DIR) ? readdirSync(GOLDEN_DIR).filter((f) => f.endsWith(".json") && !f.startsWith("event-")).sort() /* event-*.json: events/eventGolden.test.ts */ : [];
+    const files = existsSync(GOLDEN_DIR) ? readdirSync(GOLDEN_DIR).filter((f) => f.endsWith(".json") && !f.startsWith("event-") && !f.startsWith("zones-")).sort() /* event-*.json: events/eventGolden.test.ts; zones-*.json: core/zonesLoopback.test.ts */ : [];
     if (UPDATE) return;
     expect(files).toEqual(Object.keys(SCENES).map((n) => `${n}.json`).sort());
   });
