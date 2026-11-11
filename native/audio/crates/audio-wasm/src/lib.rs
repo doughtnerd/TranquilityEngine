@@ -92,7 +92,7 @@ pub extern "C" fn myco_audio_source_hash() -> *const u8 {
 /// Deterministic init (see `Instance::init`). May grow memory: the shell refreshes its views after.
 #[no_mangle]
 pub extern "C" fn myco_audio_init(sample_rate: f32, max_logical: u32, max_mixed: u32, max_buses: u32, arena_initial_bytes: u32) -> i32 {
-    instance().init(InitParams { sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes })
+    instance().init(InitParams { sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes, ..InitParams::default() })
 }
 
 /// Sets the master limiter's look-ahead in ms (A2.9, ABI 1.1; the project's

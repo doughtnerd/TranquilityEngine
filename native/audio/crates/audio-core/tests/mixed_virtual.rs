@@ -22,7 +22,7 @@ const V3: u32 = 0x0001_0003;
 const TOL: f32 = 1e-6;
 
 fn new_core() -> Core {
-    let p = InitParams { sample_rate: RATE, max_logical: 16, max_mixed: 8, max_buses: 2, arena_initial_bytes: 0 };
+    let p = InitParams { sample_rate: RATE, max_logical: 16, max_mixed: 8, max_buses: 2, arena_initial_bytes: 0, ..InitParams::default() };
     let layout = Layout::new(&p);
     let block = std::alloc::Layout::from_size_align(layout.total(), PAGE_BYTES).unwrap();
     // SAFETY: non-zero size, zeroed, page-aligned; leaked on purpose.

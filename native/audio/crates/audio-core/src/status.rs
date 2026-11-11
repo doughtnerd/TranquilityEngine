@@ -251,7 +251,7 @@ mod tests {
     use crate::params::InitParams;
 
     fn core() -> Core {
-        let params = InitParams { sample_rate: 48_000.0, max_logical: 256, max_mixed: 32, max_buses: 8, arena_initial_bytes: 1 << 20 };
+        let params = InitParams { sample_rate: 48_000.0, max_logical: 256, max_mixed: 32, max_buses: 8, arena_initial_bytes: 1 << 20, ..InitParams::default() };
         let layout = Layout::new(&params);
         let alloc = std::alloc::Layout::from_size_align(layout.total(), PAGE_BYTES).unwrap();
         // SAFETY: non-zero size; zeroed; leaked on purpose ('static).

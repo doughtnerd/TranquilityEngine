@@ -19,7 +19,7 @@ const FRAMES: usize = 16_000;
 const LEFT: [f32; 3] = [-0.6, 0.0, -0.8];
 
 fn new_core() -> Core {
-    let p = InitParams { sample_rate: RATE, max_logical: 64, max_mixed: 32, max_buses: 4, arena_initial_bytes: 4 << 20 };
+    let p = InitParams { sample_rate: RATE, max_logical: 64, max_mixed: 32, max_buses: 4, arena_initial_bytes: 4 << 20, ..InitParams::default() };
     let layout = Layout::new(&p);
     let block = std::alloc::Layout::from_size_align(layout.total(), PAGE_BYTES).unwrap();
     // SAFETY: non-zero size, zeroed, page-aligned; leaked on purpose ('static).

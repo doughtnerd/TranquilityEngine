@@ -520,7 +520,7 @@ struct Bench {
 /// after the run (wasm memory can't shrink; runs would otherwise pile up past 4 GB).
 fn init_params(s: &Scene) -> InitParams {
     let arena_mb = s.clip_mb + s.clip_mb / 2 + 16;
-    InitParams { sample_rate: RATE, max_logical: s.max_logical, max_mixed: s.max_mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20 }
+    InitParams { sample_rate: RATE, max_logical: s.max_logical, max_mixed: s.max_mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20, ..InitParams::default() }
 }
 
 /// A core over a fresh zeroed block; returns the block to free after the core is dropped.
@@ -1258,7 +1258,7 @@ fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
 
 /// The fixed regions of a preset, for architecture §5.1.
 fn memory(name: &str, logical: u32, mixed: u32, arena_mb: u32) -> String {
-    let p = InitParams { sample_rate: RATE, max_logical: logical, max_mixed: mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20 };
+    let p = InitParams { sample_rate: RATE, max_logical: logical, max_mixed: mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20, ..InitParams::default() };
     let layout = Layout::new(&p);
     let mut parts = Vec::new();
     for (kind, r) in layout.regions() {

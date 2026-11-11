@@ -15,6 +15,37 @@ pub struct InitParams {
     /// The clip arena's initial reserve in bytes (8 to 32 MB in the presets). Rounded up to whole
     /// 64 KiB pages by the layout. The arena grows past it later, in `onmessage` only (A1.3b).
     pub arena_initial_bytes: u32,
+    /// ABI 2.0 (contract C8): most ambisonic beds decoded at once (`audio.bed.maxBeds`, 0..4).
+    /// Sizes the `Beds` region (48 KB each). 0 leaves the region empty.
+    pub max_beds: u32,
+    /// ABI 2.0 (C8): reverb-zone convolver slots (`maxActive + 1` on default and high, `maxActive`
+    /// on low; OD2). Sizes the `Zones` region with `zone_max_frames`. 0 leaves it empty.
+    pub max_zone_slots: u32,
+    /// ABI 2.0 (C8): the longest zone kernel, in frames at the context rate
+    /// (`audio.zones.maxIrSeconds` × rate). 0 when there are no zone slots.
+    pub zone_max_frames: u32,
+    /// ABI 2.0 (C8): 16-channel wide stream rings and their private bed decoders
+    /// (`audio.ambisonic.maxClips`, 0..4). Sizes the `Wide` region. 0 leaves it empty.
+    pub max_wide: u32,
+}
+
+impl Default for InitParams {
+    /// M2's default preset (architecture §5.3; `presetFromSettings` with default settings):
+    /// 48 kHz, 4,096 logical, 128 mixed, 32 buses, a 16 MiB arena, and no M3 region (every
+    /// ABI 2.0 count 0), so an M2 configuration lays out exactly as before.
+    fn default() -> Self {
+        InitParams {
+            sample_rate: 48_000.0,
+            max_logical: 4_096,
+            max_mixed: 128,
+            max_buses: 32,
+            arena_initial_bytes: 16 << 20,
+            max_beds: 0,
+            max_zone_slots: 0,
+            zone_max_frames: 0,
+            max_wide: 0,
+        }
+    }
 }
 
 /// Why `InitParams::validate` refused.
@@ -36,7 +67,8 @@ impl InitParams {
     pub const MAX_BUSES: u32 = 256;
 
     /// Checks the ranges. Doesn't look at `arena_initial_bytes` (0 is allowed: the arena then
-    /// starts empty and grows on the first clip).
+    /// starts empty and grows on the first clip) nor, yet, at the four ABI 2.0 counts: zero is
+    /// always valid for them (no region); K2 adds their upper bounds.
     pub fn validate(&self) -> Result<(), InitError> {
         let (lo, hi) = Self::SAMPLE_RATE_RANGE;
         if !(self.sample_rate >= lo && self.sample_rate <= hi) {
@@ -60,7 +92,14 @@ mod tests {
     use super::*;
 
     fn default_preset() -> InitParams {
-        InitParams { sample_rate: 48_000.0, max_logical: 4_096, max_mixed: 128, max_buses: 32, arena_initial_bytes: 16 << 20 }
+        InitParams::default()
+    }
+
+    #[test]
+    fn the_default_is_m2s_preset_with_no_m3_region() {
+        let p = InitParams::default();
+        assert_eq!((p.sample_rate, p.max_logical, p.max_mixed, p.max_buses, p.arena_initial_bytes), (48_000.0, 4_096, 128, 32, 16 << 20));
+        assert_eq!((p.max_beds, p.max_zone_slots, p.zone_max_frames, p.max_wide), (0, 0, 0, 0));
     }
 
     #[test]

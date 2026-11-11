@@ -605,7 +605,7 @@ mod tests {
     }
 
     fn core_with_arena(arena_bytes: u32) -> Core {
-        let p = InitParams { sample_rate: 48_000.0, max_logical: 16, max_mixed: 8, max_buses: 4, arena_initial_bytes: arena_bytes };
+        let p = InitParams { sample_rate: 48_000.0, max_logical: 16, max_mixed: 8, max_buses: 4, arena_initial_bytes: arena_bytes, ..InitParams::default() };
         let layout = Layout::new(&p);
         let base = leak(layout.total()).as_mut_ptr();
         // SAFETY: a fresh, zeroed, page-aligned, leaked block of `layout.total()` bytes.

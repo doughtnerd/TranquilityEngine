@@ -548,7 +548,7 @@ mod tests {
 
     #[test]
     fn counts_follow_the_preset() {
-        let p = |m| InitParams { sample_rate: 48_000.0, max_logical: 4_096, max_mixed: m, max_buses: 32, arena_initial_bytes: 0 };
+        let p = |m| InitParams { sample_rate: 48_000.0, max_logical: 4_096, max_mixed: m, max_buses: 32, arena_initial_bytes: 0, ..InitParams::default() };
         assert_eq!(stream_count(&p(64)), 4);
         assert_eq!(stream_count(&p(128)), 8);
         assert_eq!(stream_count(&p(256)), 16);

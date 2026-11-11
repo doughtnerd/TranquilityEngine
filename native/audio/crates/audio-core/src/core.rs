@@ -199,7 +199,7 @@ mod tests {
     }
 
     fn params() -> InitParams {
-        InitParams { sample_rate: 48_000.0, max_logical: 256, max_mixed: 32, max_buses: 8, arena_initial_bytes: 1 << 20 }
+        InitParams { sample_rate: 48_000.0, max_logical: 256, max_mixed: 32, max_buses: 8, arena_initial_bytes: 1 << 20, ..InitParams::default() }
     }
 
     #[test]

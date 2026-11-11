@@ -835,7 +835,7 @@ mod tests {
 
     #[test]
     fn the_default_preset_region_size() {
-        let p = InitParams { sample_rate: 48_000.0, max_logical: 4_096, max_mixed: 128, max_buses: 32, arena_initial_bytes: 16 << 20 };
+        let p = InitParams { sample_rate: 48_000.0, max_logical: 4_096, max_mixed: 128, max_buses: 32, arena_initial_bytes: 16 << 20, ..InitParams::default() };
         let n = region_bytes(&p);
         eprintln!("automation region: {n} B (VoiceAuto {} B, Curve {} B, BusAuto {} B)", core::mem::size_of::<VoiceAuto>(), core::mem::size_of::<Curve>(), core::mem::size_of::<BusAuto>());
         assert!(n < 2 << 20, "{n}");
