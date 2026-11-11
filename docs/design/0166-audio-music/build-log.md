@@ -96,3 +96,5 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 ## Follow-ups found during the build (not scheduled)
 
 - **F-1 (from Q1, pre-existing, M3):** at a 192 kHz context the default and larger presets exceed the shell's 16 MiB fixed-region headroom (`M2_REGIONS_HEADROOM_BYTES` in `worklet/coreDriver.ts`) once the HRIR is counted, before M4. Fix by raising the headroom (a tripwire move with its measured reason) or sizing the reverb region per rate. Owner of `coreDriver.ts` after W1: the coordinator.
+
+**Started (rolling, D5), base `92969c11`:** Z2a (strongest) on the flip branch `m4/in-voice`, cut locally at `92969c11` after Q1 and the wire's merge 1 (the flip branch stays local: this session pushes only the integration branch); F2, Ed2, Ed9 and R4c (mid; each depends only on merged tasks and touches no running task's files). Waiting for the wire's merge 2: Z4, C1, D1a, then Q2's merge.
