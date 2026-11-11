@@ -23,7 +23,9 @@
 //! the core-state region right after the status area (`status::STATUS_AREA_BYTES`).
 //!
 //! Each voice mixes into its bus's input buffer (`bus.rs`, A2.1; an unconfigured bus index goes to
-//! bus 0, the root). Not applied yet: `lpHz` (kept for the per-voice filter).
+//! bus 0, the root). ADR 0162 A4: a mixed spatial voice of panner kind 2 whose bus has a bed
+//! encodes into the bed instead (`panner.rs`, `bed.rs`), through its pool entry's bed share and
+//! last encode gains; `bed::begin_quantum` runs once a quantum before the voices.
 //!
 //! **Mixed and virtual** (A3.1; architecture §2.2, §4.7 "promote and demote 5 ms"). Main's selection
 //! decides which voices are mixed and sends SET_MIXED for changes ([`set_mixed`]); the adaptive cap
@@ -297,6 +299,8 @@ pub fn render(core: &mut Core, frame: u64) {
     automation::begin_quantum(core);
     // ADR 0162 K3: the sends' per-quantum state (C4: the buses' chain gains) before any voice renders.
     crate::sends::begin_quantum(core);
+    // ADR 0162 A4: the beds' per-quantum state (counters, the ladder, moves, the sharing buses' folds).
+    crate::bed::begin_quantum(core);
     core.regions_mut().output[..2 * QUANTUM].fill(0.0);
     let mut cursor = 0usize;
     let (mut source_frames, mut moving) = (0.0f32, 0u32);
@@ -352,6 +356,9 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
     let autos: Option<*mut [VoiceAuto]> = automation::voice_entries(&mut regions.automation[..]).map(|a| a as *mut _);
     // ADR 0162 K3: the zone slot inputs the send tap writes (`sends::tap`), another region again.
     let zones: *mut [u8] = &mut regions.zones[..];
+    // ADR 0162 A4: the beds kind-2 voices encode into, another region again (`None` without beds).
+    // SAFETY: the `Beds` region is distinct from every region borrowed here.
+    let mut beds = crate::bed::view(unsafe { &mut *(&mut regions.beds[..] as *mut [u8]) });
     let mut v = view(regions);
     let (mut source_frames, mut moving) = (0.0f32, 0u32);
     let mut cursor = v.area.live_head;
@@ -397,7 +404,7 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
         let auto = autos.and_then(|a| unsafe { (&mut *a).get_mut(index) }).filter(|a| a.active_for(slot.id));
         // SAFETY: `zones` views the `Zones` region, distinct from every region borrowed here; one
         // voice holds it at a time.
-        let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones } };
+        let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones }, beds: beds.as_mut() };
         // `AUTO = false` compiles the automation away: a voice without bindings or a loop region takes
         // exactly the M1 code (0158 E2: it costs nothing and renders bit for bit as before).
         match (slot.flags & flag::STREAM != 0, auto.is_some()) {
@@ -440,6 +447,8 @@ fn ensure_fx(v: &mut View<'_>, index: usize) -> bool {
     v.slots[index].fx = 0;
     if let Some(fx) = crate::fxpool::acquire(v.pool, index) {
         v.slots[index].fx = fx;
+        // ADR 0162 A4: the bed share jumps to its target at the first render (silent there).
+        v.pool[fx as usize - 1].bed_share = Ramp::at(crate::panner::BED_SHARE_UNSET);
         return true;
     }
     for at in 0..v.pool.len() {
@@ -451,6 +460,7 @@ fn ensure_fx(v: &mut View<'_>, index: usize) -> bool {
         if o.fx as usize == at + 1 && o.flags & (flag::DEMOTING | flag::PAUSING) != 0 {
             o.fx = 0;
             v.pool[at] = FxEntry::fresh(index);
+            v.pool[at].bed_share = Ramp::at(crate::panner::BED_SHARE_UNSET);
             v.slots[index].fx = at as u16 + 1;
             return true;
         }
@@ -505,7 +515,7 @@ fn set_entry_lowpass(v: &mut View<'_>, index: usize, lp_hz: f32, frames: u32) {
 /// Renders one playing voice over frames `from..to` of the quantum at `frame` (mixed) or keeps its
 /// time (virtual), and ends it when its clip runs out or its stopping fade settles.
 #[allow(clippy::too_many_arguments)]
-fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, fx: VoiceFx<'_>, clips: &ClipStore, hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
+fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, mut fx: VoiceFx<'_>, clips: &ClipStore, hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
     let mut auto = if AUTO { auto } else { None };
     if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
         // Paused and out of the mix (A3.7): holds its position, ramps and panner exactly. A stop
@@ -576,9 +586,9 @@ fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceA
         } else {
             resample::lagrange(&clip.source, &mut slot.position, &steps[..n], looping, &mut l[..n], &mut r[..n]);
         }
-        voice_chain(slot, auto.as_deref_mut(), fx, sample_rate, from, &mut l[..n], &mut r[..n]);
+        voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..n], &mut r[..n]);
         let (id, bus) = (slot.id, slot.bus);
-        slot.panner.mix_range(hrtf, id, bus, frame, from, &l[..n], &r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
+        slot.panner.mix_range(hrtf, fx.bed(), id, bus, frame, from, &l[..n], &r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
         if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
             // The demote (or pause) fade is done: virtual from the next frame, keeping time (or,
             // paused, holding from here).
@@ -771,9 +781,9 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
         done += 1;
     }
     if mixed {
-        voice_chain(slot, auto.as_deref_mut(), fx, sample_rate, from, &mut l[..done], &mut r[..done]);
+        voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..done], &mut r[..done]);
         let (id, bus) = (slot.id, slot.bus);
-        slot.panner.mix_range(hrtf, id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
+        slot.panner.mix_range(hrtf, fx.bed(), id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
         if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
             slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
         }
@@ -807,7 +817,7 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
 /// Returns true when it rendered (the quantum is done), false when the voice moved with nothing
 /// left to fade (the caller goes on with the new epoch).
 #[allow(clippy::too_many_arguments)]
-fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, fx: VoiceFx<'_>, ring: &mut crate::stream::Ring, samples: &[f32], hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) -> bool {
+fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, mut fx: VoiceFx<'_>, ring: &mut crate::stream::Ring, samples: &[f32], hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) -> bool {
     use crate::stream::{frame_at, TAIL_OFFSET};
     let mut auto = if AUTO { auto } else { None };
     let finish = |slot: &mut VoiceSlot, ring: &mut crate::stream::Ring| {
@@ -870,9 +880,9 @@ fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut Vo
         slot.position += steps[i] as f64;
         done += 1;
     }
-    voice_chain(slot, auto.as_deref_mut(), fx, sample_rate, from, &mut l[..done], &mut r[..done]);
+    voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..done], &mut r[..done]);
     let (id, bus) = (slot.id, slot.bus);
-    slot.panner.mix_range(hrtf, id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
+    slot.panner.mix_range(hrtf, fx.bed(), id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
     if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
         slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
     }
@@ -913,11 +923,21 @@ fn auto_pitch(a: &VoiceAuto, steps: &mut [f32], from: usize) -> f32 {
 struct VoiceFx<'a> {
     entry: Option<&'a mut FxEntry>,
     zones: &'a mut [u8],
+    /// ADR 0162 A4: the beds (`bed.rs`), `None` for a core without them.
+    beds: Option<&'a mut crate::bed::Beds>,
 }
 
 impl VoiceFx<'_> {
     fn reborrow(&mut self) -> VoiceFx<'_> {
-        VoiceFx { entry: self.entry.as_deref_mut(), zones: &mut *self.zones }
+        VoiceFx { entry: self.entry.as_deref_mut(), zones: &mut *self.zones, beds: self.beds.as_deref_mut() }
+    }
+
+    /// ADR 0162 A4: the panner's kind-2 context, when the core has beds and the voice an entry.
+    fn bed(&mut self) -> Option<crate::panner::BedCtx<'_>> {
+        match (self.beds.as_deref_mut(), self.entry.as_deref_mut()) {
+            (Some(beds), Some(entry)) => Some(crate::panner::BedCtx { beds, entry }),
+            _ => None,
+        }
     }
 }
 
@@ -928,8 +948,9 @@ impl VoiceFx<'_> {
 /// - **a zone send** (R11 as clarified, K3): the fade and mix ramps, `gainMul`, the filters, the
 ///   send tap (`sends::tap`), then the dry `gain` ramp;
 /// - either way, with an aux bus, the post-fader aux tap (`sends::tap_aux`) last.
-fn voice_chain(slot: &mut VoiceSlot, mut auto: Option<&mut VoiceAuto>, fx: VoiceFx<'_>, sample_rate: f32, from: usize, l: &mut [f32], r: &mut [f32]) {
-    let VoiceFx { mut entry, zones } = fx;
+fn voice_chain(slot: &mut VoiceSlot, mut auto: Option<&mut VoiceAuto>, fx: &mut VoiceFx<'_>, sample_rate: f32, from: usize, l: &mut [f32], r: &mut [f32]) {
+    let VoiceFx { entry, zones, .. } = fx;
+    let zones: &mut [u8] = zones;
     let sending = entry.as_deref().is_some_and(FxEntry::sending);
     let n = l.len();
     let settled_mix = slot.mix.is_settled() && slot.mix.value == 1.0;
