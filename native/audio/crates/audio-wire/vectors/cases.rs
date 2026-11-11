@@ -1116,6 +1116,196 @@ pub fn cases() -> Vec<VectorCase> {
                 "00000000", // 172 reserved 0
             ),
         ),
+        // PLAY, gated (ADR 0166 M4, API 4.1): gate 0xffff = groupId 1023 (bits 0-9) | groupSize - 1 = 63 (bits
+        // 10-15, so size 64); flags 0x108 = fadeZero (0x100) | mixed (0x08); frameOffset 1200 (stamped).
+        case(
+            "PLAY_gate_1023_of_64_fade_zero",
+            Subject::Opcode("PLAY"),
+            vec![
+                ("voiceId", vu(5)),
+                ("frameOffset", vu(1200)),
+                ("clip", vu(6)),
+                ("bus", vu(0)),
+                ("flags", vu(0x108)),
+                ("group", vu(0)),
+                ("gate", vu(0xFFFF)),
+                ("gain", vf(1.0)),
+                ("pitch", vf(1.0)),
+                ("dirX", vf(0.0)),
+                ("dirY", vf(0.0)),
+                ("dirZ", vf(0.0)),
+                ("lpHz", vf(24000.0)),
+                ("score", vf(0.75)),
+                ("startOffsetFrames", vu(0)),
+            ],
+            concat!(
+                "0100", "0e00", "05000000", "b0040000", // head: PLAY, 14 words, voice 5, frame 1200
+                "06000000", // clip 6
+                "0000", // bus 0
+                "0801", // flags: 0x100 fadeZero | 0x08 mixed
+                "0000", // group 0
+                "ffff", // gate: groupId 1023 in bits 0-9, groupSize - 1 = 63 in bits 10-15
+                "0000803f", // gain 1.0
+                "0000803f", // pitch 1.0
+                "00000000", // dirX
+                "00000000", // dirY
+                "00000000", // dirZ
+                "0080bb46", // lpHz 24000.0
+                "0000403f", // score 0.75
+                "00000000", // startOffsetFrames
+            ),
+        ),
+        // STREAM_OPEN, music (ADR 0166 M4, API 4.3): flags 0x2 = music, no loop; stream 7, 2 channels,
+        // 48000.0 Hz (0x473B8000), unknown length, epoch 1, from frame 0. Body 40 B.
+        case(
+            "STREAM_OPEN_music",
+            Subject::Kind("STREAM_OPEN"),
+            vec![
+                ("seq", vu(14)),
+                ("streamId", vu(7)),
+                ("channels", vu(2)),
+                ("sampleRate", vf(48000.0)),
+                ("totalFrames", vu(0xFFFF_FFFF)),
+                ("loopStart", vu(0)),
+                ("loopEnd", vu(0)),
+                ("flags", vu(2)),
+                ("epoch", vu(1)),
+                ("startFrame", vu(0)),
+                ("convention", vu(0)),
+            ],
+            concat!(
+                "3141594d", "0201", "0500", "0e000000", "28000000", // envelope, bodyBytes 40
+                "07000000", // streamId 7
+                "02000000", // channels 2
+                "00803b47", // sampleRate 48000.0
+                "ffffffff", // totalFrames unknown
+                "00000000", // loopStart
+                "00000000", // loopEnd
+                "02000000", // flags: bit 1 music
+                "01000000", // epoch 1
+                "00000000", // startFrame 0
+                "00000000", // convention AmbiX
+            ),
+        ),
+        // STATUS, 320 B (ADR 0166 M4, API 4.4): the header of `STATUS_m4_header_only` with musicRingCount 2 (144)
+        // and groupStartCount 8 (146), then musicRings (2 x 8 B) and groupStarts (8 x 16 B). bodyBytes 304; seq 32.
+        // musicRings epochFlags: 0xC0000004 (epoch 4, primed, bound) and 0x40000009 (epoch 9, primed).
+        case(
+            "STATUS_two_music_rings_eight_group_starts",
+            Subject::Status,
+            vec![
+                ("seq", vu(32)),
+                ("currentFrame", vf(0.0)),
+                ("dateMs", vf(0.0)),
+                ("pingSeq", vu(0)),
+                ("pingFrameLo", vu(0)),
+                ("underruns", vu(0)),
+                ("lateCommands", vu(0)),
+                ("workUnits", vu(0)),
+                ("workUnitsMax", vu(0)),
+                ("mixedVoices", vu(0)),
+                ("liveVoices", vu(0)),
+                ("flags", vu(0x10)),
+                ("mixedCap", vu(0)),
+                ("loadPermille", vu(0)),
+                ("traps", vu(0)),
+                ("minSlackFrames", vi(0)),
+                ("underrunFrames", vu(0)),
+                ("arenaUsedKB", vu(0)),
+                ("arenaLargestFreeKB", vu(0)),
+                ("abiVersion", vu(0)),
+                ("maxLatenessFrames", vu(0)),
+                ("hrtfVoices", vu(0)),
+                ("hrtfLoadFailure", vu(0)),
+                ("bedVoices", vu(0)),
+                ("fxVoices", vu(0)),
+                ("ambisonicVoices", vu(0)),
+                ("zonesActive", vu(0)),
+                ("zonesRinging", vu(0)),
+                ("bedsRefused", vu(0)),
+                ("m3Shed", vu(0)),
+                ("zoneUsedKB", vu(0)),
+                ("workBed", vu(0)),
+                ("workZones", vu(0)),
+                (
+                    "musicRings",
+                    va(vec![
+                        vr(vec![("streamId", vu(3)), ("epochFlags", vu(0xC000_0004))]),
+                        vr(vec![("streamId", vu(5)), ("epochFlags", vu(0x4000_0009))]),
+                    ]),
+                ),
+                (
+                    "groupStarts",
+                    va(vec![
+                        vr(vec![("groupId", vu(1)), ("flags", vu(0)), ("slipFrames", vu(0)), ("startFrameLo", vu(0)), ("startFrameHi", vu(0))]),
+                        vr(vec![("groupId", vu(2)), ("flags", vu(1)), ("slipFrames", vu(128)), ("startFrameLo", vu(0x0001_0000)), ("startFrameHi", vu(0))]),
+                        vr(vec![("groupId", vu(3)), ("flags", vu(2)), ("slipFrames", vu(0)), ("startFrameLo", vu(0x0002_0000)), ("startFrameHi", vu(0))]),
+                        vr(vec![("groupId", vu(4)), ("flags", vu(4)), ("slipFrames", vu(0)), ("startFrameLo", vu(0)), ("startFrameHi", vu(0))]),
+                        vr(vec![("groupId", vu(5)), ("flags", vu(3)), ("slipFrames", vu(1024)), ("startFrameLo", vu(0x8000_0000)), ("startFrameHi", vu(0))]),
+                        vr(vec![("groupId", vu(1023)), ("flags", vu(0)), ("slipFrames", vu(0)), ("startFrameLo", vu(1)), ("startFrameHi", vu(1))]),
+                        vr(vec![("groupId", vu(1000)), ("flags", vu(5)), ("slipFrames", vu(65536)), ("startFrameLo", vu(0x1234_5678)), ("startFrameHi", vu(2))]),
+                        vr(vec![("groupId", vu(16)), ("flags", vu(0)), ("slipFrames", vu(7)), ("startFrameLo", vu(0)), ("startFrameHi", vu(0))]),
+                    ]),
+                ),
+                ("musicRingsOpen", vu(2)),
+                ("streamStartsLate", vu(3)),
+                ("groupsLate", vu(4)),
+                ("groupsHeld", vu(5)),
+                ("groupsAbandoned", vu(6)),
+                ("curvePoolFull", vu(7)),
+                ("maxSlipFrames", vu(65536)),
+                ("splitQuanta", vu(258)),
+                ("voiceSplits", vu(4096)),
+                ("ended", va(vec![])),
+                ("demoted", va(vec![])),
+                ("starved", va(vec![])),
+                ("playheads", va(vec![])),
+                ("clipEvents", va(vec![])),
+                ("streamEvents", va(vec![])),
+                ("peaks", va(vec![])),
+                ("beds", va(vec![])),
+                ("zones", va(vec![])),
+                ("zoneEvents", va(vec![])),
+            ],
+            concat!(
+                "3141594d", "0201", "0900", "20000000", "30010000", // envelope: STATUS, seq 32, bodyBytes 304
+                "0000000000000000", // 16 currentFrame f64 0.0
+                "0000000000000000", // 24 dateMs f64 0.0
+                "00000000", // 32 pingSeq
+                "00000000", // 36 pingFrameLo
+                "00000000", // 40 underruns
+                "00000000", // 44 lateCommands
+                "00000000", // 48 workUnits
+                "00000000", // 52 workUnitsMax
+                "0000", // 56 mixedVoices
+                "0000", // 58 liveVoices
+                "10000000", // 60 flags: ready (0x10)
+                "0000", "0000", "0000", "0000", "0000", "0000", "0000", // 64..77 section counts, all 0
+                "0000", "0000", "0000", // 78 mixedCap, 80 loadPermille, 82 traps
+                "00000000", "00000000", "00000000", "00000000", // 84 minSlackFrames .. 96 arenaLargestFreeKB
+                "00000000", "00000000", // 100 abiVersion, 104 maxLatenessFrames
+                "0000", "0000", // 108 hrtfVoices, 110 hrtfLoadFailure
+                "0000000000000000", "0000000000000000", // 112..127 bed, fx, ambisonic, zone counts (0)
+                "0000000000000000", "0000000000000000", // 128..143 zoneSlots, m3Shed, zoneUsedKB, workBed, workZones (0)
+                "0200", "0800", // 144 musicRingCount 2, 146 groupStartCount 8
+                "0200", "0300", "0400", "0500", "0600", "0700", // 148 musicRingsOpen 2 .. 158 curvePoolFull 7
+                "00000100", // 160 maxSlipFrames 65536
+                "02010000", // 164 splitQuanta 258
+                "00100000", // 168 voiceSplits 4096
+                "00000000", // 172 reserved 0
+                // musicRings at 176: streamId 3, epochFlags 0xC0000004; streamId 5, epochFlags 0x40000009
+                "03000000", "040000c0", "05000000", "09000040",
+                // groupStarts at 192: groupId u16, flags u16, slipFrames, startFrameLo, startFrameHi
+                "0100", "0000", "00000000", "00000000", "00000000", // 1: none, start 0
+                "0200", "0100", "80000000", "00000100", "00000000", // 2: late, slip 128, start 0x10000
+                "0300", "0200", "00000000", "00000200", "00000000", // 3: held, start 0x20000
+                "0400", "0400", "00000000", "00000000", "00000000", // 4: abandoned
+                "0500", "0300", "00040000", "00000080", "00000000", // 5: late | held, slip 1024, start 0x80000000
+                "ff03", "0000", "00000000", "01000000", "01000000", // 6: group 1023, start 2^32 + 1
+                "e803", "0500", "00000100", "78563412", "02000000", // 7: group 1000, late | abandoned, slip 65536, start 0x2_12345678
+                "1000", "0000", "07000000", "00000000", "00000000", // 8: group 16, slip 7
+            ),
+        ),
     ]
     .into_iter()
     .chain(crate::spatial_cases::spatial_cases())
