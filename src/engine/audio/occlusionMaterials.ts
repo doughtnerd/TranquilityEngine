@@ -61,16 +61,88 @@ export const builtinMaterials = (): OccluderMaterial[] => BUILTIN_MATERIALS.map(
  * `MAX_MATERIALS` (a problem).
  */
 export function parseOccluderMaterials(raw: unknown, key: string, problems: string[]): OccluderMaterial[] {
-  void raw; void key; void problems; // L-A6b: the stub returns the built-ins so the suite stays green until the leaf lands
-  return builtinMaterials();
+  const table = builtinMaterials();
+  if (raw === undefined) return table;
+  if (!Array.isArray(raw)) {
+    problems.push(`${key} must be a list; using the built-in materials.`);
+    return table;
+  }
+  if (raw.length > MAX_MATERIALS) problems.push(`${key}: at most ${MAX_MATERIALS} materials; the rest are ignored.`);
+  const concrete = BUILTIN_MATERIALS.find((m) => m.name === DEFAULT_MATERIAL_NAME) ?? BUILTIN_MATERIALS[0];
+  const at = new Map(table.map((m, i) => [m.name, i] as const));
+  const seen = new Set<string>();
+  raw.slice(0, MAX_MATERIALS).forEach((entry: unknown, i) => {
+    const where = `${key}[${i}]`;
+    if (!isRecord(entry) || typeof entry.name !== "string" || entry.name.trim() === "") {
+      problems.push(`${where}: must be an object with a non-empty name; dropped.`);
+      return;
+    }
+    const name = entry.name;
+    if (seen.has(name)) return void problems.push(`${where}: another material is already named "${name}"; dropped.`);
+    seen.add(name);
+    const base = BUILTIN_MATERIALS.find((b) => b.name === name) ?? concrete;
+    const m: OccluderMaterial = {
+      name,
+      transmissionDb: materialNumber(entry.transmissionDb, `${where}.transmissionDb`, MATERIAL_LIMITS.transmissionDb, base.transmissionDb, problems),
+      cutoffHz: materialNumber(entry.cutoffHz, `${where}.cutoffHz`, MATERIAL_LIMITS.cutoffHz, base.cutoffHz, problems),
+      wetOcclusion: materialNumber(entry.wetOcclusion, `${where}.wetOcclusion`, MATERIAL_LIMITS.wetOcclusion, base.wetOcclusion, problems),
+    };
+    const attackMs = materialNumber(entry.attackMs, `${where}.attackMs`, MATERIAL_LIMITS.attackMs, undefined, problems);
+    if (attackMs !== undefined) m.attackMs = attackMs;
+    const releaseMs = materialNumber(entry.releaseMs, `${where}.releaseMs`, MATERIAL_LIMITS.releaseMs, undefined, problems);
+    if (releaseMs !== undefined) m.releaseMs = releaseMs;
+    const existing = at.get(name);
+    if (existing !== undefined) table[existing] = m;
+    else {
+      at.set(name, table.length);
+      table.push(m);
+    }
+  });
+  if (table.length > MAX_MATERIALS) {
+    problems.push(`${key}: the table holds at most ${MAX_MATERIALS} materials; the rest are dropped.`);
+    table.length = MAX_MATERIALS;
+  }
+  return table;
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/**
+ * One numeric field of an authored material, clamped to `limits` (a problem when clamped). `undefined` gives
+ * `fallback` with no problem. A non-number or non-finite value gives `fallback` plus a problem saying so; with no
+ * `fallback` (attackMs/releaseMs) the value is dropped instead.
+ */
+function materialNumber(raw: unknown, key: string, limits: readonly [number, number], fallback: number, problems: string[]): number;
+function materialNumber(raw: unknown, key: string, limits: readonly [number, number], fallback: undefined, problems: string[]): number | undefined;
+function materialNumber(
+  raw: unknown,
+  key: string,
+  limits: readonly [number, number],
+  fallback: number | undefined,
+  problems: string[],
+): number | undefined {
+  const [min, max] = limits;
+  if (raw === undefined) return fallback;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    problems.push(`${key}: must be a number from ${min} to ${max}; ${fallback === undefined ? "dropped" : `using ${fallback}`}.`);
+    return fallback;
+  }
+  const clamped = Math.min(max, Math.max(min, raw));
+  if (clamped !== raw) problems.push(`${key}: ${raw} is outside ${min}..${max}; using ${clamped}.`);
+  return clamped;
 }
 
 /**
  * `audio.occlusion.defaultMaterial`: `raw` undefined gives "concrete" when the table has it (else the first row), no
- * problem; a name in `table` is kept; anything else (unknown name, non-string) gives the table's first material plus a
- * problem `${key}: unknown material "<raw>"; using "<first>".`. L-A6b.
+ * problem; a name in `table` is kept; anything else (unknown name, non-string) gives "concrete" (else the table's first
+ * material) plus a problem `${key}: unknown material "<raw>"; using "<fallback>".`. L-A6b. Coordinator ruling: the
+ * fallback is "concrete", not the first row, because "none" would silently disable occlusion.
  */
 export function resolveDefaultMaterial(raw: unknown, table: readonly OccluderMaterial[], key: string, problems: string[]): string {
-  void raw; void table; void key; void problems; // L-A6b stub
-  return DEFAULT_MATERIAL_NAME;
+  const fallback = table.some((m) => m.name === DEFAULT_MATERIAL_NAME) ? DEFAULT_MATERIAL_NAME : (table[0]?.name ?? DEFAULT_MATERIAL_NAME);
+  if (raw === undefined) return fallback;
+  if (typeof raw === "string" && table.some((m) => m.name === raw)) return raw;
+  const shown = typeof raw === "string" ? raw : JSON.stringify(raw) ?? String(raw);
+  problems.push(`${key}: unknown material "${shown}"; using "${fallback}".`);
+  return fallback;
 }
