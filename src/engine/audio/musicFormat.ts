@@ -30,6 +30,10 @@
 import { parseCurve, type Curve } from "../core/curve";
 import type { Automation, NodeBase } from "./eventFormat";
 import {
+  checkMusicRules, admitLibrarySegments, parseStingers, parseTransitions, stingerToJson, transitionToJson,
+  type StingerDef, type TransitionRule,
+} from "./musicRules";
+import {
   comparePositions, formatPosition, isBarBeatTick, parsePosition, positionProblem, snapToBeat, snapToNextBar,
   MAX_POSITION_BAR, type BarBeatTick,
 } from "./musicPosition";
@@ -198,6 +202,10 @@ interface MusicContainerBase extends NodeBase {
   children: MusicNode[];
   /** <= 64 segments that are bridges and stingers, not children (F2 adds the rules that name them). */
   library: SegmentNode[];
+  /** Transition rules in list order, <= 256 (F2, §2.4); resolve with `musicRules.ts`. */
+  transitions: TransitionRule[];
+  /** Stingers, <= 32 (F2, §2.5). */
+  stingers: StingerDef[];
 }
 
 /** A playlist: its children in `mode` order, `rounds` times (§2.3). */
@@ -217,6 +225,9 @@ export interface MusicSwitchNode extends MusicContainerBase {
   /** The label to use when none matches; absent: the first child. */
   default?: string;
 }
+
+/** A music container: a playlist or a musicSwitch. */
+export type MusicContainerNode = PlaylistNode | MusicSwitchNode;
 
 export const MUSIC_NODE_TYPES = ["segment", "playlist", "musicSwitch"] as const;
 export type MusicNodeType = (typeof MUSIC_NODE_TYPES)[number];
@@ -526,6 +537,11 @@ function openMusicNode(raw: unknown, where: string, ctx: MusicParseContext, what
   if (ctx.ids.has(id)) { p.push(`${where}.id: another node is already named "${id}"; dropped.`); return null; }
   if (ctx.admit && !ctx.admit(where)) { p.push(`${where}: the event's node limit is spent; dropped.`); return null; }
   ctx.ids.add(id);
+  if (what === "segment") {
+    for (const key of ["transitions", "stingers"] as const) {
+      if (raw[key] !== undefined) p.push(`${where}.${key}: only a playlist or musicSwitch has ${key}; ignored.`);
+    }
+  }
   for (const key of IGNORED_ON_MUSIC) {
     if (raw[key] !== undefined) p.push(`${where}.${key}: ${key === "automation" ? "put automation on a track" : "not used on music (no pitch, delay, range or fade on a music node)"}; ignored.`);
   }
@@ -579,7 +595,7 @@ export function parseMusicContainerHead(rawNode: unknown, where: string, ctx: Mu
   if (!open) return null;
   const { raw, id } = open;
   const base = {
-    id, children: [] as MusicNode[], library: [] as SegmentNode[],
+    id, children: [] as MusicNode[], library: [] as SegmentNode[], transitions: parseTransitions(raw.transitions, `${where}.transitions`, p), stingers: parseStingers(raw.stingers, `${where}.stingers`, p),
     volume: num(raw.volume, `${where}.volume`, 1, p, 0, 4),
     pitch: 1, pitchRandom: [0, 0] as [number, number], delay: 0, automation: [] as Automation[], fade: 0,
     volumeRandom: pair(raw.volumeRandom, `${where}.volumeRandom`, p, -96, 24),
@@ -612,7 +628,8 @@ export function musicChildrenList(raw: unknown, where: string, problems: string[
 /** `library`: <= 64 segments (ids shared with the event's, each counted as a node); anything else is dropped. */
 export function parseMusicLibrary(raw: unknown, where: string, ctx: MusicParseContext): SegmentNode[] {
   const out: SegmentNode[] = [];
-  capped(raw, where, MUSIC_LIMITS.library, ctx.problems).forEach((s, i) => {
+  const items = capped(raw, where, MUSIC_LIMITS.library, ctx.problems);
+  items.slice(0, admitLibrarySegments(ctx.ids, items.length, where, ctx.problems)).forEach((s, i) => {
     const w = `${where}[${i}]`;
     if (isRecord(s) && s.type !== "segment") return void ctx.problems.push(`${w}: a library holds segments; this ${JSON.stringify(s.type)} is dropped.`);
     const seg = parseSegmentNode(s, w, ctx);
@@ -627,6 +644,7 @@ export function parseMusicLibrary(raw: unknown, where: string, ctx: MusicParseCo
  */
 export function finishMusicContainer(node: PlaylistNode | MusicSwitchNode, where: string, problems: string[]): void {
   if (node.children.length === 0) problems.push(`${where}: has no children; it plays nothing.`);
+  checkMusicRules(node, where, problems);
   if (node.type === "playlist") {
     const max = Math.max(0, node.children.length - 1);
     if (node.avoidRepeat > max) {
@@ -730,6 +748,8 @@ export function musicNodeToJson(node: MusicNode): Record<string, unknown> {
   }
   if (node.type !== "segment") {
     out.children = node.children.map(musicNodeToJson);
+    if (node.transitions.length > 0) out.transitions = node.transitions.map(transitionToJson);
+    if (node.stingers.length > 0) out.stingers = node.stingers.map(stingerToJson);
     if (node.library.length > 0) out.library = node.library.map(musicNodeToJson);
     return out;
   }
