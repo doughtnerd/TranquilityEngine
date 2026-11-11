@@ -1,84 +1,162 @@
-# 0166 interactive music: the architect's contracts for `api-and-models.md` (round 1)
+# 0166 interactive music: the architect's contracts for `api-and-models.md` (round 2B)
 
-What [architecture.md](architecture.md) needs from the senior engineer's document, numbered **C1–C18**. Each states the fields, ranges and semantics, who writes them and when. The byte layouts, names, opcodes, ids and parse rules are the senior engineer's; where a layout is suggested it is only a size bound. "Arch §n" points to the section that relies on it.
+This file lists what [architecture.md](architecture.md) needs from the senior engineer's document, numbered **C1–C19**. It is revised under the coordinator's rulings R1–R24 ([rulings.md](rulings.md)). Each contract states fields, ranges, semantics, who writes them and when. Byte layouts, names, opcodes, ids and parse rules are the senior engineer's. "Arch §n" points to the section that relies on the contract.
 
 ## Core, wire and STATUS
 
-**C1. Music ring class** (Arch §4.2, §2.3).
-- `InitParams` gains the music ring count: 8 / 12 / 16 on low / default / high (owner decision 2), range 0..16. Rings are 32,768 frames of up to 2 channels, 300 KiB each, as narrow rings. A third class beside narrow and wide (`stream.rs:61-65` comment), with its own region or range.
-- STREAM_OPEN names the class (music or not). A music open takes only a music ring and a non-music open never takes one. No music ring free: stream event 3 (error), as today.
-- Written by: main at init (count); the worker on STREAM_OPEN (class, from `primeGroup`, C8).
+**C1. Music ring class** (Arch §2.3, §4.2).
+- `InitParams` gains `max_music_rings`: 8 / 12 / 16 by preset, range 0..16.
+- Rings hold 32,768 frames of up to 2 channels, 300 KiB each.
+- STREAM_OPEN gains a `music` flag. A music open takes only a music ring, and a non-music open never takes one.
+- A full music pool is reported as stream event **4** (`musicFull`).
+- Written by: main at init; the worker on STREAM_OPEN.
 
-**C2. Primed bits in STATUS** (Arch §4.2).
-- Per music ring: the stream id it holds (or none), its epoch, and **primed** = the ring holds ≥ `START_FRAMES` (4,096) frames committed in its current epoch, or its input ended. A bit for **bound** (a voice has bound it) helps the debug panel.
-- Every STATUS block (every 6 quanta; 48 when idle). ≤ 16 rings, so ≈ 16 × 8 B or a bitmask plus a stream-id table.
-- Written by: the core, at STATUS time, from ring state. Read by: the prime coordinator.
+**C2. `musicRings` in STATUS** (R7; Arch §4.2).
+- Every STATUS lists every open music ring as `{streamId, epoch, flags}`.
+  - Flag bit 0, **primed**: at least 4,096 frames committed in the ring's *current* epoch, or its input has ended.
+  - Flag bit 1, **bound**: a voice has bound the ring.
+- At most 16 items.
+- It is a level, not an event, so a lost report repairs itself.
+- Main accepts only its current epoch for each stream.
+- Written by: the core.
 
-**C3. PLAY sync group** (Arch §4.3, §2.2).
-- PLAY gains `syncGroup` (0 = none, else a group id, ≥ 16 live at once, ids reused after the group's end report) and `groupSize` (members, 1..32: 16 stems plus decoded members and tail voices). Distinct from PLAY's existing `group` (the automation instance group, `schema/batch.rs:142, 304`).
-- Semantics (the gate): all members carry one stamp and arrive in one batch. At the stamp's quantum, if every streamed member's ring is primed (C2's rule) all start at the stamp; otherwise every member, decoded ones included, holds SCHEDULED and they start together at offset 0 of the first quantum where all are ready. A STOP to a held member ends it (it no longer counts for the gate). RESET clears every group.
-- Written by: main (music player), in the batch after all primed bits are seen.
+**C3. PLAY gate and the group table** (R4, R8, R9; Arch §4.3).
+- PLAY carries a gate: a 10-bit group id (0 means ungated) and a 6-bit size.
+- Every member of a group arrives in one batch with one stamp.
+- The core's group table has **16 entries**. Each entry holds:
+  - id and size;
+  - members present, as voice ids, up to 64;
+  - state: stamped, started, held or abandoned;
+  - stamp frame, start frame and hold start.
+- An entry is freed when every member has ended or been stopped, when the group is abandoned, or on RESET.
+- A started group keeps its entry, because the hold needs it. 8 entries aren't enough (Arch §4.3).
+- A PLAY that finds no free entry starts ungated and counts `groupTableFull`.
+- Voice flags in `flags2`: due, gated, and a 4-bit group index. The slot stays 192 B.
+- Semantics are the table in Arch §4.3:
+  - gate at the stamp;
+  - hold every member on a would-be starve;
+  - resume together;
+  - abandon after 1 s, either unstarted past the stamp or held;
+  - a member STOPped leaves the group;
+  - virtual members stay members.
+- Written by: main sends the PLAYs; the core owns the table.
 
-**C4. Group-start event and slip counters** (Arch §3.6, §4.5, §8).
-- One event per group start: group id, absolute start frame, slip in frames (start − stamp, 0 when on time). ≤ 8 per STATUS block, carried to the next block when full.
-- Cumulative counters: `streamStartsLate` (groups or ungrouped stream voices that started after their stamp because a ring wasn't ready) and `maxSlipFrames`. Today a slip is invisible (S1 Q1).
-- Written by: the core, in the quantum of the start, reported in the next STATUS.
+**C4. Group events and counters** (R7, R10, R11; Arch §3.6, §4.3, §4.5).
+- One event per group per start, resume or abandon: `{groupId, kind, slipFrames, startFrame (u64)}`.
+  - `kind` is one of start, resume, abandon.
+  - On-time starts may be omitted.
+- At most 8 events per STATUS; the rest carry over.
+- Counters, cumulative and saturating:
+  - `groupsLate`, `groupHolds`, `groupsAbandoned`;
+  - `streamStartsLate`, which also covers ungated stream voices;
+  - `maxSlipFrames`.
+- Written by: the core, reported in the next STATUS.
 
-**C5. Fade law and start phase on class G records** (Arch §4.4).
-- FADE, SET_PARAMS (gain) and STOP-with-fade gain a **law**: `linear` (today's), `sCurve` (smoothstep), `equalPowerIn`, `equalPowerOut` (quarter-sine table, 1,024 points). Default `linear`, so today's senders are unchanged.
-- And a **start phase** u₀ in [0, 1) (resolution ≥ 1/65,536): the ramp starts at law(u₀) and runs the remaining (1 − u₀) of its length over the record's frames. Used only by REPLAY of a ramp already under way.
-- Semantics: a stamped record of this class applies inside its voice at its frame without splitting the quantum (M4-0). Written by: main (player, mixer, Replayer).
+**C5. Laws, start phase and the fade-at-zero PLAY** (R5; Arch §3.2, §4.4).
+- FADE, SET_PARAMS gain and STOP-with-fade carry a **law**: `linear`, `sCurve`, `equalPowerIn` or `equalPowerOut`. The default is linear.
+- They also carry a **start phase u₀** in [0, 1), with resolution of 1/65,536 or finer.
+  - The ramp starts at law(u₀) and covers the remaining (1 − u₀) of the law over the record's frames.
+  - REPLAY uses it to resume a running curve fade.
+- A PLAY flag starts the voice's `fade` ramp at 0. A crossfade-in is that PLAY plus a stamped FADE to 1.
+- The FADE `from` field is dropped.
+- Written by: main (player, mixer, Replayer).
 
-**C6. Per-voice curve state** (Arch §4.4, §6).
-- While a curve-law ramp runs, the voice keeps law (2 bits), u (f32) and du per quantum (f32): ≤ 12 B. The slot (192 B, full today: `layout.rs:29`) has one spare byte; this needs either `VOICE_SLOT_BYTES` grown (to 208 or 256) or a parallel per-slot array. Budget: ≤ 16 B per logical voice (16 / 64 / 64 KiB). Layout choice is the senior engineer's.
+**C6. Curve pool** (R4; Arch §4.4).
+- A pool of **255** entries for curve state (law, u, du), linked from the slot's spare byte.
+- A fade whose curve can't get an entry runs linear and counts `curvePoolFull`.
+- Freed when the fade settles, when the voice ends, or on RESET.
 
-**C7. Whole-quantum split counter** (Arch §4.4, §7.5, §9).
-- A cumulative core counter of quanta in which a record split the whole quantum (the due-list overflow path, Arch §4.4 step 1). Must read 0 in every test and bench after M4-0. In STATUS or in the bench-only counters; the senior engineer chooses.
+**C7. Split counters** (R3; Arch §4.4, §9).
+- **`splitQuanta`**: quanta in which a record split the whole quantum. These are records that aren't per voice (bus, master, listener, tables) plus due-list overflow.
+- **`voiceSplits`**: class S voice-local splits.
+- Both are cumulative, in STATUS.
+- M4-0 exit: `splitQuanta` reads 0 in the music scenes and in a scene of stamped spatial plays with sends.
 
 ## Worker protocol
 
-**C8. `primeGroup` and `groupOpened`** (Arch §4.2, §3.1–§3.9).
-- Main → worker: group id; per member: stream id, epoch, the asset's encoded bytes (transferred) or a reference to bytes the worker already holds for that stream, start frame (file frames), loop region (or none), looping flag, class music, channel convention.
-- Order rule: the worker posts every member's STREAM_OPEN and **first chunk** before any member's second chunk, then tops up round-robin. Today `pump` fills each stream depth-first (`decoder/streams.ts:498-510`).
-- Re-target: the same message with new epochs for members already open restarts them at a new start frame (a seek per member, same breadth-first order).
-- Worker → main: `groupOpened` with per-member open time (ms) and any error. **Diagnostics only**: it is never the primed signal (C2 is), because chunks travel on another port.
+**C8. `primeGroup`, re-target and the instance cache** (R16; Arch §4.2).
+- Main → worker, per group: group id and instance id. Per member:
+  - stream id and epoch;
+  - start frame, in file frames;
+  - loop region and looping flag;
+  - the music flag and the convention;
+  - either the encoded bytes (transferred) or a reference to the bytes the worker holds for that path in that instance.
+- Order: every member's STREAM_OPEN and first chunk go out before any member's second chunk. Top-ups then go round-robin.
+- **Re-target:** the same message with new epochs restarts open members at new start frames, in the same breadth-first order.
+- **Cache:** the worker keeps each path's bytes, refcounted per instance, until main posts the instance's release. Past the preset's encoded threshold (48 / 96 / 160 MiB, est.), the least recently closed file is dropped (Arch open point 1).
+- Worker → main: `groupOpened`, with open times per member and any errors. It is diagnostics only and never the primed signal; C2 is.
 
 ## Settings, format and public API
 
-**C9. Settings** (Arch §5.3, §4.6).
-- Presets gain the music ring count (8 / 12 / 16), feeding C1. A project-level `audio.rhythmMode` boolean, off by default; a change rebuilds the context (rate-limited).
-- No other music settings: every other constant in Arch §5.3 is a constant.
+**C9. Settings.**
+- Presets gain `music.rings` (8 / 12 / 16).
+- Project setting `audio.rhythmMode`; changing it at runtime rebuilds the context through the device path (rate-limited).
+- Everything else in Arch §5.3 is a constant.
 
-**C10. Backend seam for music** (Arch §1, §10).
-- The player talks to the backend through operations for: admitting and priming a group (C8), reading primed state (C2), stamping a group's PLAYs and class G records, cancelling a group, and receiving group-start, starve, end and error events per voice.
-- A capability description per backend: the core supports priming, stamped fades with laws and the heard clock; the Babylon fallback supports stamped starts of decoded clips only, frame-time linear fades, `currentTime` as clock, no rhythm mode. The player branches on capabilities, not on backend type.
+**C10. Backend seam** (Arch §1, §10).
+- `MusicBackendCaps` on the backend: primes, stamps with laws, heard clock, rhythm.
+- Operations:
+  - admit and prime a group;
+  - read `musicRings`;
+  - stamp a group with its records;
+  - cancel a group;
+  - release an instance's cache;
+  - receive group events and per-voice end, starve and error.
+- The player branches on capabilities, not on backend type.
 
-**C11. `Audio.debug().music`** (Arch §9). Per instance: event path; segment and pass; bar, beat, tick; tempo and metre; heard time; pending transition (from, to, T as bar:beat, matched rule id and tier, or the common parent that supplied it); each group's state and primed n/N; last prime time, Ê and lead; counters (re-plans by reason, refusals by cause, late groups and max slip, recoveries by cause, missed beats, stinger outcomes). Engine-wide: music rings in use, high-water mark, `musicRingRefused`, whole-quantum splits (C7). Every field states its unit.
+**C11. `Audio.debug().music`** (Arch §9).
+- Per instance:
+  - position, including the tick;
+  - the pending transition with the matched rule and its tier, or the common parent that supplied it;
+  - group states and primed n/N;
+  - last prime time, Ê and lead;
+  - re-plans by reason, refusals (temporary, permanent), holds, abandons, late groups and max slip;
+  - recoveries by cause;
+  - `missedBeats`;
+  - stinger outcomes.
+- Totals:
+  - pool used, pool size and high-water mark;
+  - `groupTableFull`, `curvePoolFull`;
+  - `splitQuanta`, `voiceSplits`.
+- One task (R21). Units on every field.
 
-**C12. Input mapping and calibration semantics** (Arch §4.6).
-- `Audio.timeAt(performanceTimeMs)` returns seconds on `Audio.time`'s base: the ClockMap's offset map applied to the timestamp, **minus** `Audio.calibration` (seconds, signed). Available without rhythm mode.
-- `positionAt` adds the instance's grid (bar, beat, beat fraction, nearest beat's heard time, signed offset in seconds, positive = late).
-- Calibration result: offset (s), MAD (s), taps used, a confidence value; persisted per output device; a stale flag after `devicechange`.
+**C12. Input mapping** (R18; Arch §4.6).
+- `Audio.timeAt(performanceTime)` is the raw clock map, in seconds.
+- `positionAt().judged = offset − Audio.calibration`.
+- `Audio.latency.reliable` follows Arch §4.6.
+- The calibration is marked stale on `devicechange`; its value is kept.
 
-**C13. Validation rules the runtime relies on** (Arch §3.5, §4.5).
-- A segment's stems share one length in seconds and one channel layout (record §1).
-- Music tracks carry **no pitch automation** (the beat clock and loop-pass prediction assume pitch 1).
-- Pre-entry ≤ the entry cue; a loop tail lies after its region's end and inside the file; alternatives of a stem match its length.
-- Streamed FLAC and WAV stems warn on low (record §3); stems without gapless metadata warn (record rev. 2 #11).
+**C13. Validation the runtime relies on** (Arch §3.5, §4.3, §10).
+- Stems of a segment share one length within 1,024 frames, one channel layout and one file rate.
+- A tail lies after its region's end and inside the file.
+- Alternatives have the stem's length.
+- Pre-entry is at most the entry cue.
+- The ring lint counts a sequence's peak rings, and decoded bridges count none (R15).
+- Pitch automation on music tracks is dropped. `pitch` on `AudioSource` and `EventOptions` is ignored for music with one warning; this is owner list item 2.
+- At most 4 concurrent stingers per instance, as a format limit (R20).
 
-**C14. Span clips for loop tails** (Arch §3.5).
-- The clip registry can decode a frame span `[start, end)` of an asset as its own clip (id distinct from the whole asset's), so a tail voice can play it stamped at each loop wrap. Spans ≤ 30 s; they count against the clip ceiling.
+**C14. Span clips for loop tails** (R15; Arch §3.5).
+- The clip registry decodes a frame span `[start, end)` of an asset as its own clip id. Spans are at most 30 s and count against the clip ceiling.
+- A refused span is reported, so the player can drop the tail with one warning.
 
-**C15. Callback event fields** (Arch §4.5).
-- Each beat, bar and cue event carries: `time` (the exact heard time, seconds on `Audio.time`'s base), `heardIn` (seconds until heard, ≥ 0 unless missed), `missed` (events of that kind skipped since the previous dispatch, 0 normally), segment, bar, beat, cue name for cues, the handle.
-- Delivered from `engine.AudioBeat` (C17), once per kind per dispatch (coalesced).
+**C15. Callback fields.**
+- `MusicEvent` as in [API §1.1], plus `skippedCues: string[]` on a coalesced cue event (R20).
 
 **C16. Replayer hand-off** (Arch §3.7, §4.4).
-- On a hard rebuild the `Replayer` passes every voice that belongs to a music group to the music player (by group), not to `reopenStreams` (`core/replay.ts:500`). It keeps the last stamped class G record and stamped STOP per voice for REPLAY of other voices (C5's start phase).
+- `Replayer.restore` passes music-group voices to the player by group, never to `reopenStreams` (`core/replay.ts:500`).
+- For other voices it keeps the last stamped class G record and any stamped STOP, and re-sends a running curve fade with u₀.
 
-**C17. `engine.AudioBeat` system** (Arch §4.5).
-- A built-in system in the `update` phase, `before: ["engine.UpdateScripts"]`, `after: ["engine.UIDocumentEvents"]`, in every World that plays audio. It calls `clockMap.beginFrame()` and dispatches beat callbacks. The system catalog test lists it.
+**C17. `engine.AudioMusic`** (R17; Arch §4.5).
+- Update phase, `before: ["engine.UpdateScripts"]`, after `engine.Lobby` and `engine.PredictionSmooth`.
+- It calls `beginFrame` and dispatches.
+- It is listed in the system catalog test.
 
-**C18. Musical position resolution and conversion** (Arch §4.5, §4.1).
-- Positions are bar:beat:tick (owner decision 1). The tick resolution must resolve ≤ 1 ms at 300 BPM (≥ 200 ticks per beat; 960 is the DAW norm).
-- One conversion function (position ⇄ segment seconds ⇄ frames, f64, a stated rounding rule) is shared by the runtime, the validator and the editor, so the editor's grid and the runtime's stamps agree to the frame.
+**C18. Positions and conversion** (Arch §4.5).
+- 960 ticks per beat.
+- One module, `musicGrid.ts`, does the conversion for runtime, validator and editor, with the stated rounding: integer ticks; seconds summed per tempo span in float64; frames = round(seconds × rate) once per stamp.
+
+**C19. Per-voice record routing** (R2; Arch §4.4).
+- Every queued per-voice record goes to the due list:
+  - **class G**: FADE, gain-only SET_PARAMS, STOP;
+  - **class S**: any other SET_PARAMS mask, SET_VOICE_FX, SET_PAUSED, SEEK, SET_LOOP.
+- The pending queue keeps a held voice's records across quanta. At a group's start or resume, it rebases a member's records stamped at or after the stamp (or after the hold start) by the slip (R10).

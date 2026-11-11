@@ -1,48 +1,66 @@
 # 0166 interactive music: system architecture (M4)
 
-The architect's design for ADR 0166 (Accepted, revision 2 with the owner's decisions of 2026-11-11). Round 1. It extends [0157's architecture](../0157-audio-core/architecture.md) (**[A157 §n]**) and [0162's](../0162-audio-spatial/architecture.md) (**[A162 §n]**) and doesn't repeat them: the host, the batch, STATUS, the clock map, streams, the hard rebuild and the adaptive cap work as there unless a section here says otherwise.
+The architect's design for ADR 0166 (Accepted, revision 2 with the owner's decisions of 2026-11-11). **Round 2B**, revised under the coordinator's rulings R1–R24 ([rulings.md](rulings.md)) and the senior engineer's review (`review-round2-senior.md`; resolutions in §13). It extends [0157's architecture](../0157-audio-core/architecture.md) (**[A157 §n]**) and [0162's](../0162-audio-spatial/architecture.md) (**[A162 §n]**) and doesn't repeat them: the host, the batch, STATUS, the clock map, streams, the hard rebuild and the adaptive cap work as there unless a section here says otherwise.
 
-Its companion, `api-and-models.md` (**[API]**, the senior engineer's), owns the public API signatures, settings keys, the event file format and its ids, byte layouts, the wire and the Rust ABI. This file owns components, state machines, timing, constants, memory, performance, failure handling, observability and platforms. What it needs from [API] is listed in [contracts-architect.md](contracts-architect.md) as **C1–C18**.
+Its companion, `api-and-models.md` (**[API §n]**), owns:
+- the public API and its signatures;
+- settings keys and parse rules;
+- the event format, its limits and ids, and the rule precedence (**[API §2]**);
+- byte layouts, the wire and the ABI (**[API §4]**);
+- the Babylon mapping (**[API §8]**), the tests and the task table.
 
-**Evidence.** **[S]** is `spikes/audio-music/README.md`; **[S1]** `streams-align/`, **[S2]** `stream-throughput/`, **[S3]** `beat-clock/`, **[S4]** `cost/`, **[S5]** `rhythm/`, **[S0]** `research/`. They were measured on the shared 4-vCPU container, where **p50 and p99 are usable and p99.9 and max are not** [S]. **(est.)** marks an unmeasured number. A quantum is 128 frames, 2,667 µs at 48 kHz. Times in this file are at 48 kHz and a 60 Hz display unless stated.
+This file owns components, state machines, timing, constants, memory, performance, failure handling, observability and platforms. What it needs from [API] is listed in [contracts-architect.md](contracts-architect.md) as **C1–C19**.
 
-**Reference factor.** The record assumes the reference machine is 2× this container. S4 measured the container's base scenes at ≈ 1.45× the ADR's reference ([S4] "Timed run", `cost/README.md:104`). This file uses **÷ 1.45** to convert container µs to reference µs, the more conservative of the two (the architect RFC asked for one factor).
+**Evidence.** **[S]** is `spikes/audio-music/README.md`; **[S1]** `streams-align/`, **[S2]** `stream-throughput/`, **[S3]** `beat-clock/`, **[S4]** `cost/`, **[S5]** `rhythm/`, **[S0]** `research/`. They were measured on the shared 4-vCPU container, where **p50 and p99 are usable and p99.9 and max are not** [S]. **(est.)** marks an unmeasured number. A quantum is 128 frames, 2,667 µs at 48 kHz. Times are at 48 kHz and a 60 Hz display unless stated.
 
-**Two code facts this design rests on, checked here.**
-- **A stamped PLAY doesn't split the quantum; every other stamped voice record does.** `scheduler::submit` writes a PLAY's slot at once with its start frame (`native/audio/crates/audio-core/src/scheduler.rs:38-40, 218-221`) and `render_range` starts it at its offset inside the range (`voices.rs:375-396`). STOP, SET_PARAMS, FADE, SET_PAUSED, SEEK, SET_LOOP and SET_VOICE_FX go to the pending queue (`scheduler.rs:41-43, 57`), and `render` splits the quantum for **every** live voice at each such record's offset (`voices.rs:310-325`). The record's revision 2 says PLAY splits too; the code says it doesn't (Open point 1).
-- **The worker wraps loops, not the core** (`stream.rs:72-73`); `streamOpened` is posted before any chunk, on the worker→main port, while chunks go worker→worklet (`decoder/streams.ts:312-315`); `pump` fills one stream's whole credit window before returning (`:498-510`); a hard rebuild relaunches each stream asap from its own playhead (`core/coreBackend.ts:1406-1422`).
+**Reference factor (R23).** Container µs are converted to reference µs by **÷ 1.45 (est.)**: S4's base scenes measured 1.45× the ADR's reference (`cost/README.md:104`). The factor is soft: it compares the container's p50 with the ADR's p99.9 figure, so allowances are set from measured deltas, not from the model.
 
-**Industry practice.** The owner's rule is to follow Wwise, FMOD and Unreal Quartz unless there is a measured reason not to, and to say where M4 differs. Sections end with a "Practice" line where it matters; §12 collects them.
+**Code facts this design rests on (checked; R1–R4).**
+- **A stamped PLAY doesn't split the quantum.** It is written to its slot at once and starts at its offset inside `render_range` (`scheduler.rs:38-40, 218-221`; `voices.rs:375-396`).
+- **Every other stamped voice record splits the quantum for every live voice.** STOP, SET_PARAMS, FADE, SET_PAUSED, SEEK, SET_LOOP and SET_VOICE_FX are queued (`scheduler.rs:41-43, 57`), and `render` splits at each one's offset (`voices.rs:310-325`). A stamped spatial play with non-default effects already splits today: its SET_VOICE_FX goes at the PLAY's frame (`core/coreBackend.ts:1458-1459`).
+- **FADE moves the voice's `fade` ramp,** a multiplier that starts at 1 (`voices.rs:159`), not `gain`.
+- **The slot is 192 B and full;** `reserved` is its one spare byte (`voices.rs:149-150`, `layout.rs:29`).
+- **Streams:**
+  - the worker wraps loops, not the core (`stream.rs:72-73`);
+  - `streamOpened` reaches main before any chunk reaches the worklet, on another port (`decoder/streams.ts:312-315`);
+  - `pump` fills one stream's window before returning (`:498-510`);
+  - a hard rebuild relaunches each stream asap from its own playhead (`core/coreBackend.ts:1406-1422`).
+
+**Industry practice.** The owner's rule is to follow Wwise, FMOD and Unreal Quartz unless there is a measured reason not to, and to say where M4 differs. §12 collects it.
 
 ## 1. Overview
 
 M4 adds no thread. Each thread's share:
-- **Main:** the music player per playing instance (its containers, rules, playlist and switch state, stingers), the planner, the prime coordinator (ring-pool mirror, lead estimate), the grid maths, the beat clock and its dispatch, rhythm mode's input mapping and calibration.
-- **Decoder worker:** group priming (breadth-first), loop wraps and region releases (as today).
-- **Core:** stamped starts with a **group gate**, **in-voice stamped records** (M4-0), curve fades at control rate, the **music ring pool**, per-ring **primed** bits and **group-start events** in STATUS.
+- **Main:** a music player per playing instance, the planner, the prime coordinator, the grid maths, the beat clock and rhythm mode's input mapping.
+- **Decoder worker:** priming groups breadth-first, keeping each instance's encoded files (R16), loop wraps and releases as today.
+- **Core:**
+  - stamped starts through a **group gate**, which also holds a group on starve (R11);
+  - **in-voice stamped records** (M4-0, R2);
+  - control-rate curve fades (R6);
+  - the **music ring pool**;
+  - music-ring state and group events in STATUS (R7).
 
 ```mermaid
 flowchart LR
   subgraph Main["Main thread"]
     direction TB
-    Beat["engine.AudioBeat (update, before scripts)<br/>beginFrame, beat dispatch"]
+    Beat["engine.AudioMusic (update, before scripts)<br/>beginFrame, beat dispatch"]
     Ev["Event runtime (0158)<br/>EventInstance"]
     MP["Music player (one per instance)<br/>containers, rules, playlist, switch, stingers"]
-    Plan["Planner<br/>grid points, lead, deadlines, re-plans"]
-    Prime["Prime coordinator<br/>pool mirror, lead EMA, primed bits"]
-    Grid["Grid maths<br/>tempo map, musical position ⇄ heard time"]
-    Rhy["Rhythm<br/>timeAt, calibration"]
+    Plan["Planner<br/>grid points, lead, deadlines, re-plans, refusals"]
+    Prime["Prime coordinator<br/>pool and group mirrors, lead estimate"]
+    Grid["Grid maths<br/>tempo map, musical position and heard time"]
     CB["CoreBackend [A157]<br/>voice table, streams, Replayer, ClockMap"]
   end
   subgraph Worker["Decoder worker"]
-    Dec["Streams [A157]<br/>+ group prime: first chunk of every member first"]
+    Dec["Streams [A157]<br/>+ breadth-first group prime, encoded cache per instance"]
   end
   subgraph Worklet["Audio thread"]
     direction TB
     Shell["Shell"]
     subgraph Core["Wasm core"]
-      Gate["Group gate"]
-      Vo["Voices + in-voice records<br/>(M4-0), control-rate curves"]
+      Gate["Group table: gate, hold on starve, give-up"]
+      Vo["Voices: due list, class G and S,<br/>curve pool"]
       Rings["Rings: narrow, wide, music pool"]
     end
   end
@@ -50,63 +68,61 @@ flowchart LR
   MP --> Plan
   Plan --> Grid
   Plan --> Prime
-  MP -->|"stamped PLAY (group), FADE, SET_PARAMS, STOP"| CB
+  MP -->|"stamped PLAY (gate), FADE (law, u0), STOP"| CB
   Prime -->|"primeGroup"| Dec
   CB -->|"one BATCH per frame"| Shell
-  Dec -->|"STREAM_OPEN (music class), chunks"| Shell
+  Dec -->|"STREAM_OPEN (music), chunks"| Shell
   Shell --> Core
-  Shell -->|"STATUS: primed bits, group events, ended"| CB
+  Shell -->|"STATUS: musicRings, groupStarts, ended"| CB
   CB --> Prime
   CB --> Beat
   Beat --> Grid
-  Rhy --> Grid
 ```
 
 | Component | Thread | Owns | Does |
 |---|---|---|---|
-| Music player | main | one instance's container cursors, playlist bags and loop counts, switch value, current and pending groups, stinger queue, beat cursors | Ticks once per frame in `engine.Audio` (lateUpdate), after scripts set parameters; asks the planner for every start (§2.1) |
-| Planner | main | none (pure functions over the player's state) | Picks the grid point T for a start, the fade frames, the deadline; decides re-plans and refusals (§4.1) |
-| Prime coordinator | main | the music-pool mirror (rings open, priming, closing), the prime-time estimate Ê, the per-ring primed bits from STATUS | Admits or refuses a group, posts `primeGroup`, reports "all primed", measures prime time (§4.2) |
-| Grid maths | main | per segment, the tempo map's prefix sums (seconds at each marker) | Musical position ⇄ segment seconds ⇄ heard time ⇄ frames; next grid line (§4.5) |
-| Beat clock | main | per instance, the last fired index per kind (beat, bar, cue) | Predicts events from the grid and `Audio.time`; dispatches them before `update` (§4.5) |
-| Rhythm | main | the calibration offset per output device | `Audio.timeAt`, `positionAt`, `Calibration.fromTaps` (§4.6) |
-| Decoder worker | worker | decoders, stream cursors, region wraps | Primes a group breadth-first: every member's first 4,096-frame chunk before any member's second (§4.2) |
-| Core: group gate | audio | per group: members, stamp, ready state | Starts a group's voices together at the stamp, or holds all of them and starts them together late, and reports it (§4.3) |
-| Core: in-voice records | audio | per quantum, the due records by voice; per voice, a curve-fade state | Applies stamped records inside the target voice; no other voice is touched (§4.4) |
-| Core: music ring pool | audio | 8 / 12 / 16 rings of 32,768 frames | Holds music streams only; reports primed per ring (§4.2) |
+| Music player | main | one instance's container cursors, playlist bags and plays, switch value, groups, stinger queue, beat cursors | Ticks in `engine.Audio` step 9 (lateUpdate, [API §6]), after scripts set parameters; asks the planner for every start (§2.1) |
+| Planner | main | none (pure functions over player state) | Picks T, the fade frames and the deadline; decides re-plans and refusals (§4.1) |
+| Prime coordinator | main | pool mirror, group-table mirror, Ê, the last `musicRings` state | Admits a group, posts `primeGroup`, sees "all primed", measures prime time (§4.2) |
+| Grid maths | main (`engine/audio/musicGrid.ts`) | per segment, tempo-map prefix sums | Musical position, seconds, heard time and frames; next grid line (§4.5) |
+| Beat clock | main | per instance, the last fired index per kind | Predicts and dispatches before `update` (§4.5) |
+| Decoder worker | worker | decoders, stream cursors, the per-instance encoded cache | Breadth-first group prime; keeps an instance's files until it ends (§4.2) |
+| Core: group table | audio | 16 groups: members, stamp, state, hold start | Gate at the stamp, hold on starve, give-up, events (§4.3) |
+| Core: in-voice records | audio | per quantum, the due list; a 255-entry curve pool | Applies every per-voice stamped record inside its voice (§4.4) |
+| Core: music pool | audio | 8 / 12 / 16 rings of 32,768 frames | Music streams only (§4.2) |
 
-| Channel | Direction | Carries (new in M4) | Rate | Mode |
-|---|---|---|---|---|
-| `node.port` | main → worklet | BATCH: PLAY with `syncGroup` (C3); FADE, SET_PARAMS and STOP with a fade law (C5) | one batch per frame; while hidden, one per planner tick | transferred, pooled [A157 §1] |
-| `node.port` | worklet → main | STATUS: music-ring primed bits (C2), group-start events and slip counters (C4) | every 6 quanta (16 ms); 48 quanta (128 ms) when no batch came for 250 ms (`audio-wire/src/schema.rs:72-74`) | transferred |
-| Worker `postMessage` | main → worker | `primeGroup` (C8): every member's encoded bytes, start frame, region, music class | one per group start or re-target | transferred (bytes) |
-| Worker `postMessage` | worker → main | `groupOpened` with per-member open times and errors (diagnostics only, never an ack) | one per group | clone (small) |
-| `MessageChannel` port | worker → worklet | STREAM_OPEN of class music (C1), chunks in breadth-first order | prime: N first chunks, then top-ups | transferred, epoch-tagged |
+The channels are [A157 §1]'s. M4 adds traffic in four places:
+- **BATCH:** PLAY's gate field and fade-at-zero flag, and FADE and SET_PARAMS with a law and u₀ (C3, C5).
+- **STATUS:** the `musicRings` section and `groupStarts` events (C2, C4), every 6 quanta (16 ms), or every 48 (128 ms) when no batch arrived for 250 ms (`schema.rs:72-74`).
+- **Main → worker:** `primeGroup` and the instance cache release (C8).
+- **Worker → worklet:** music-class STREAM_OPEN and chunks in breadth-first order.
 
-Main stays off every PCM path, as in M1.
+Main stays off every PCM path.
 
 ## 2. Lifecycles
 
 ### 2.1 The music player
 
-A music player exists for each event instance whose tree reaches a music node (`segment`, `playlist`, `musicSwitch`). `EventInstance.playNode` creates it when the walk reaches the music node, as it creates voices for clips today (`events/eventRuntime.ts:1140-1173`), and it registers with `EventSystem` for a per-frame tick (the same loop that pops its timer heap, `eventRuntime.ts:286-295`). It holds no voices of its own; every voice is an ordinary voice in the backend's table, tagged with the player's group.
+`EventInstance.playNode` creates a player when the tree walk reaches a `segment`, `playlist` or `musicSwitch` (`events/eventRuntime.ts:959-1010`). It registers for the per-frame tick (`eventRuntime.ts:286-295`). Every voice it starts is an ordinary voice in the backend's table, tagged with its group.
 
 ```mermaid
 stateDiagram-v2
   [*] --> Starting: Audio.play reaches a music node
   Starting --> Committed: first group primed and stamped
-  Starting --> Refused: pool cannot hold the first group
-  Refused --> Starting: rings returned (retry at the next allowed point)
-  Committed --> Playing: group-start seen (STATUS) or T passed
+  Starting --> Refused: the pool can never hold the group (permanent)
+  Starting --> Waiting: no free rings now
+  Waiting --> Starting: rings returned, next allowed point
+  Committed --> Playing: T passed
   Playing --> Pending: switch change, playlist step, stinger, seek, hot reload
   Pending --> Pending: re-plan (deadline missed, newer target replaces an unstarted one)
-  Pending --> Transitioning: incoming group stamped (cancellable until T − L)
-  Transitioning --> Playing: outgoing fade ended, rings returned
-  Playing --> Recovering: rebuild, worker crash, stem starve, rate change
+  Pending --> Transitioning: incoming group stamped (cancellable until T - L)
+  Transitioning --> Playing: outgoing group ended, rings returned
+  Playing --> Recovering: rebuild, worker crash, rate change, group abandoned
   Pending --> Recovering
   Transitioning --> Recovering
   Recovering --> Committed: group re-primed at the heard position and stamped
-  Recovering --> Stopped: recovery limit (3 per 60 s) reached
+  Recovering --> Stopped: recovery limit reached
+  Refused --> [*]
   Playing --> Stopping: handle.stop(fade)
   Pending --> Stopping
   Transitioning --> Stopping
@@ -114,57 +130,72 @@ stateDiagram-v2
   Stopped --> [*]
 ```
 
-- **Starting:** the first group needs the same prime-then-stamp as a transition, so `Audio.play` of a streamed music event starts one lead later (≈ 100 ms, §5.3). A purely decoded first segment starts at the horizon. `handle.music` is readable from Starting on, with `segment` set and `time` the planned start.
-- **Pending** holds **at most one pending transition per container** (architect RFC issue 6). A newer target replaces an unstarted one: its rings are closed, or if stamped, its SCHEDULED voices get STOP, which is immediate and exact for a voice that hasn't started (`voices.rs:1394-1396`). A replacement is possible until T − L, after which the stamped records may already be in the core; then the newer target becomes the next transition, planned from the committed one.
-- **Hidden:** not a state of its own. While the page is hidden the tick is driven from the STATUS handler instead of the frame (§3.8).
-- **Recovering** owns every stem of its groups: the backend's `Replayer` hands music groups to the player instead of `reopenStreams` (C16).
+- **Starting:** the first streamed group needs a full prime, so `Audio.play` starts one lead later (≈ 100 ms at first, less once the worker caches the files, §4.2). With `at`, the entry lands on the first allowed grid point ≥ max(`at`, now + lead), never off the grid (R12). `handle.music` is readable from Starting on.
+- **Pending:** at most one pending transition per container. A newer target replaces an unstarted one:
+  - its rings are closed;
+  - if it is already stamped, its SCHEDULED voices get STOP, which ends a voice that hasn't started at once and exactly (`voices.rs:1394-1396`).
+
+  A replacement is possible until T − L. After that the newer target becomes the next transition.
+- **Hidden:** not a state; while hidden, the tick runs from the STATUS handler (§3.8).
+- **Recovering** owns every member of its groups: `Replayer.restore` hands music groups to the player, never to `reopenStreams` (C16).
 
 ### 2.2 A group
 
-A **group** is the set of voices that must start on one frame: a segment's stems (streamed and decoded alike) for one pass, or a single stinger, or one alternative-take seam. Its id is the player's, sent on each PLAY as `syncGroup` (C3; distinct from PLAY's existing `group`, which is the automation instance group, `audio-wire/src/schema/batch.rs:142, 304`).
+A group is the set of voices that must start on one frame:
+- a segment's stems for one pass, streamed and decoded alike;
+- a streamed alternative hand-over at a wrap;
+- a streamed stinger.
+
+Decoded stingers, bridges and tail voices are ungated (gate id 0): a decoded voice always starts on its stamp. The gate's encoding (10-bit id, 6-bit size, R8) is [API §4.1].
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Admitted: pool mirror has a ring per streamed member
+  [*] --> Admitted: rings and a group entry free in the mirrors
   Admitted --> Priming: primeGroup posted (t_open)
-  Priming --> Primed: STATUS shows every member's primed bit
-  Priming --> Priming: deadline missed, re-target (same rings, new epochs if the entry moved)
-  Primed --> Stamped: PLAYs (one batch, one stamp) sent at T ≥ F_now + L
-  Admitted --> Stamped: no streamed member (decoded only)
-  Stamped --> Started: group-start event, slip 0
-  Stamped --> StartedLate: group-start event, slip > 0
-  Stamped --> Cancelled: replaced before T − L (STOP of SCHEDULED voices)
+  Priming --> Primed: musicRings shows every member primed in its current epoch
+  Priming --> Priming: deadline missed, re-target (new epochs if the entry moved)
+  Primed --> Stamped: PLAYs in one batch, one stamp T, T at or after firstFrame
+  Admitted --> Stamped: no streamed member
+  Stamped --> Started: all ready at T
+  Stamped --> StartedLate: all ready later, records rebased by the slip
+  Stamped --> Cancelled: replaced before T - L
   Priming --> Cancelled: replaced (streamClose)
-  Started --> Fading: stamped FADE to 0 with stop at end
-  StartedLate --> Fading
-  Started --> Broken: a member starved or failed
-  Broken --> [*]: player re-primes a replacement group
-  Fading --> Ended: every member reported ended
-  Started --> Ended: natural end (post-exit tail played out)
-  Ended --> [*]: rings returned (streamClose posted)
+  Started --> Held: a member is about to starve, all fade together
+  StartedLate --> Held
+  Held --> Started: all members ready again, resume together, records rebased
+  Stamped --> Abandoned: not started within 1 s of T
+  Held --> Abandoned: held longer than 1 s
+  Started --> Ended: every member ended (fade, natural end, STOP)
+  StartedLate --> Ended
+  Abandoned --> [*]: core ends the members, main re-plans
+  Ended --> [*]: group entry freed, rings returned
   Cancelled --> [*]
 ```
 
-A primed ring can't empty before its stamp: the voice binds only when it first renders (`voices.rs:675-681`) and the worker idles at its credit window (`decoder/streams.ts:8`). Only RESET (a rebuild) or a worker crash can take a primed ring away, and both go through Recovering.
+Between Primed and the stamp a primed ring can't empty. The voice binds only when it first renders (`voices.rs:675-681`), and the worker idles at its credit window. Only RESET or a worker crash takes a primed ring away, and both go through Recovering.
 
 ### 2.3 A ring of the music pool
 
 ```mermaid
 stateDiagram-v2
   [*] --> Free
-  Free --> Opening: main posts primeGroup (mirror counts it taken)
-  Opening --> Filling: STREAM_OPEN (music class) reached the worklet
-  Filling --> Primed: written ≥ 4,096 frames of this epoch (or input ended)
+  Free --> Opening: primeGroup posted (the mirror counts it taken)
+  Opening --> Filling: STREAM_OPEN (music) reached the worklet
+  Filling --> Primed: at least 4,096 frames of this epoch, or input ended
   Primed --> Bound: the voice first renders at its stamp
-  Bound --> Draining: STREAM_CLOSE while the voice plays (it plays out what is buffered)
+  Filling --> Filling: new epoch (re-target, splice)
+  Bound --> Draining: STREAM_CLOSE while the voice plays out its buffer
   Bound --> Free: voice ended and STREAM_CLOSE taken
   Filling --> Free: STREAM_CLOSE (cancelled)
   Primed --> Free: STREAM_CLOSE (cancelled)
   Draining --> Free: voice ended
-  Filling --> Filling: new epoch (re-target seek, splice)
 ```
 
-Main counts a ring **free when it posts `streamClose`**. Close and later opens from the same worker travel on one port in order, so the core frees the ring before it sees the next STREAM_OPEN that needs it. The record's rule "rings return as soon as the core reports the voice's end" (rev. 2 #7) is met: the voice's end arrives in STATUS, main frees the voice in the STATUS handler (`mirror.freeEndedInMessage`, used today while hidden, `core/background.ts`), and posts the close there, not on the next frame.
+Main counts a ring **free when it posts `streamClose`**:
+- close and later opens travel on the worker's one port to the worklet in order (`decoder/streams.ts:453`), so the core frees the ring before it sees the next open;
+- main posts the close in the STATUS handler that reports the voice's end (`mirror.freeEndedInMessage`, `core/background.ts`), not on the next frame.
+
+So "rings return as soon as the core reports the voice's end" (record rev. 2 #7) holds with no one-STATUS window. A full core pool is stream event 4 (`musicFull`, [API §4.3]); main's admission makes it a bug signal.
 
 ## 3. Interactions
 
@@ -177,57 +208,62 @@ sequenceDiagram
   participant W as Decoder worker
   participant K as Core (worklet)
   S->>P: Audio.play("music.audioevent")
-  P->>P: plan: T = first grid point ≥ now + lead (entry − preEntry)
-  P->>W: primeGroup {stems, startFrame, music class}
-  W->>K: STREAM_OPEN ×N, then first chunk ×N, then top-ups
-  K-->>P: STATUS: primed bits (every 16 ms)
-  Note over P: all bits set and T ≥ F_now + L
-  P->>K: BATCH: PLAY ×N, syncGroup g, stamp T
-  K->>K: gate: every ring ≥ 4,096 at T's quantum → start all at T
-  K-->>P: STATUS: group g started at T, slip 0
+  P->>P: plan T = first grid point with T - preEntry at or after now + lead
+  P->>W: primeGroup {stems, startFrame, music, instance}
+  W->>K: STREAM_OPEN xN, first chunk xN, then top-ups
+  K-->>P: STATUS musicRings (every 16 ms)
+  Note over P: every member primed in its epoch and T at or after F_now + L
+  P->>K: BATCH PLAY xN, gate g, stamp T
+  K->>K: gate: every ring ready at T's quantum, so start all at T
 ```
 
-If the deadline (T − L − Δ̄) passes first, the planner moves T to the next allowed grid point and keeps the rings priming (§4.1).
+If the deadline (§4.1) passes first, T moves to the next allowed point and the rings keep priming.
 
 ### 3.2 Quantised transition with crossfade
 
-A rule `exit: bar, enter: entryCue, fadeOut 1 beat, fadeIn 1 beat`:
+Take a rule with `exit: bar`, `enter: entryCue`, a 1-beat fade-out and a 1-beat fade-in. Crossfades run on the voice's **`fade` ramp**, so `gain` stays free for stem automation by parameters (R5):
 
 ```mermaid
 sequenceDiagram
   participant P as Music player
   participant W as Worker
   participant K as Core
-  P->>P: switch value changed, rule lookup (specificity, list order, common parent)
-  P->>P: T = next bar ≥ now + lead_B (+ B's pre-entry), pool admits B
+  P->>P: switch value changed, rule lookup (API 2.4)
+  P->>P: T = next bar with T - preEntry at or after now + lead, pool and group table admit B
   P->>W: primeGroup B
-  W->>K: B: opens, first chunks, top-ups
-  K-->>P: STATUS: B primed
-  P->>K: BATCH at T−X: PLAY B ×N (gain 0, syncGroup b), FADE B → 1 over X (law), FADE A → 0 over X, stop at end
-  K->>K: gate opens b at its stamp, A and B ramps run inside their voices
-  K-->>P: STATUS: b started, later A's voices ended
-  P->>W: streamClose A ×N (rings free at post)
+  W->>K: B opens, first chunks, top-ups
+  K-->>P: STATUS musicRings: B primed
+  P->>K: BATCH PLAY B xN (fade starts at 0, gate b, stamp T - X), FADE B to 1 over X (law), FADE A to 0 over X (law, stopAtEnd)
+  K->>K: gate opens b, both fades run inside their voices (class G)
+  K-->>P: STATUS A's voices ended
+  P->>W: streamClose A xN (rings free at post)
 ```
 
-X is the fade length in frames from the rule's beats through B's (or A's, for fadeOut) tempo map at that position. Fade offsets shift the ramp stamps, never T. The FADE records are class G (§4.4): none of them splits the quantum.
+- X is the fade length in frames, converted from the rule's beats through the tempo map at that position.
+- Fade offsets shift the FADE stamps, never T.
+- An equal-power crossfade uses `equalPowerIn` on B and `equalPowerOut` on A, which is power-complementary.
+- None of these records splits the quantum.
 
 ### 3.3 Bridge (transition segment)
 
-A → bridge → B. The bridge is planned like any segment against A's exit; B is planned against the **bridge's** exit cue with its own rule fades. Both may be primed at once if the pool has rings for A + bridge + B. If not, B is primed when A's rings return at the bridge's start: B needs `lead_B` before the bridge's exit, so the bridge must be at least A's fade-out + one STATUS + lead_B long (≈ 0.1 s + fade, est.). A shorter streamed bridge is refused at that point with `refusals.pool` and A keeps playing (the transition is retried at the next allowed point, §8). Bridges ≲ 30 s should be decoded clips (the record's rule for loops and stingers, §3), which need no ring.
+A → bridge → B. The bridge is planned against A's exit; B against the bridge's exit cue, with the bridge leg's fades [API §2.4].
+- Bridges ≲ 30 s are **decoded** clips, like stingers and short loops (R15). A decoded bridge needs no ring, so a bridge works on low.
+- A streamed bridge (longer than 30 s) primes beside A, and B primes when A's rings return at the bridge's start. That needs a bridge at least A's fade-out + one STATUS + lead_B long (≈ fade + 0.12 s, est.).
+- The lint counts the rings the sequence needs **at its peak** [API §2.6], and a sequence that never fits is refused permanently (R14).
 
 ### 3.4 Stinger
 
-A stinger is a one-member group, normally a decoded clip (no priming):
-1. T = the next `at` grid point (`beat`, `bar`, `cue(name)`) ≥ now + L; `immediate` is now + L.
-2. If that point is inside the lead (only for a streamed stinger, whose lead is the prime lead): `ifTooLate` decides: `nextGrid` (default, with one warning per stinger), `playNow` (at the earliest feasible frame, off the grid), or `skip`.
-3. `dontRepeat` is checked against the last stinger start of the same trigger, in heard seconds.
-4. One PLAY, stamped. A stamped PLAY never splits the quantum (code fact above), so a stinger costs only its voice.
+A stinger is one decoded ungated voice (a streamed stinger is a one-member group):
+1. T = the next `at` point ≥ now + L (`immediate`: now + L).
+2. Only a streamed stinger can find its point inside its lead; `ifTooLate` then applies ([API §2.5]).
+3. `dontRepeat` is checked in heard seconds against the trigger's last start.
+4. The PLAY is stamped, and a stamped PLAY never splits.
 
-At most **4 stingers sound at once per instance** (S4's worst scene); a fifth steals the oldest, with a 5 ms fade. The stinger doesn't change the grid; its voices count in the mixed cap.
+At most **4 stingers sound at once per instance**, a format limit (R20, [API §2.5]). A fifth steals the oldest, with a 5 ms FADE. Stingers never change the grid.
 
 ### 3.5 Loop region exit with `while`
 
-The worker loops the region by wrapping inside a chunk (`decoder/streams.ts:22-34`), so the core sees one continuous signal and main **predicts** each pass end E_k from the group's start frame and the region length (exact while no member starves and pitch is 1, `core/streams.ts` header; music tracks carry no pitch automation, C13).
+The worker loops a region by wrapping inside a chunk (`decoder/streams.ts:22-34`). Main **predicts** each pass end E_k from the group's start frame and the region length. The prediction is exact because a held group's hold time is reported and added (§4.3), and pitch is 1 (owner list item 2).
 
 ```mermaid
 sequenceDiagram
@@ -235,35 +271,41 @@ sequenceDiagram
   participant W as Worker
   participant K as Core
   loop each pass k
-    Note over P: commit point = E_k − L − Δ̄ − splice margin
+    Note over P: commit point = E_k - L - dbar - 10 ms (a full lead if a stem changes file at E_k)
     P->>P: read the while condition
   end
-  P->>W: streamLoop {looping: false, atStreamFrame: E_k} for every member
-  W->>K: if E_k is already sent: splice epoch at E_k (else just no wrap)
+  P->>W: streamLoop looping false, atStreamFrame E_k, every member
+  W->>K: splice epoch at E_k if already sent past it
   K->>K: every member continues past the region at E_k, gapless
 ```
 
-- The condition is read **at the commit point**, not at E_k. That is the condition's latency, as the record states (rev. 2 #6): L + Δ̄ + 10 ms (est.) ≈ 60 ms at 60 Hz. The splice must land ≥ 368 frames ahead of the voice, or the voice begins its starve fade (`voices.rs:754-760`; S1 Q4 measured ≥ 325 frames exact); 10 ms (480 frames) covers it.
-- All members get the same stream frame, because a segment's stems share one length (format rule) and one start frame.
-- `count` loops need nothing: the worker wraps `count` times, and main predicts the passes for the beat clock.
-- **Loop tails** (a tail mixed over the loop start): one decoded voice per stem plays the clip's span `[loopEnd, loopEnd + tail)`, stamped at each E_k. That needs a clip registry entry for a span of an asset (C14). Rings are unchanged; the tail voices count in the mixed cap.
+- **Condition latency (R13):** the condition is read at the commit point, ≈ 60 ms before E_k at 60 Hz.
+- **Splice margin:** 10 ms (480 frames) covers the ≥ 368 frames a splice needs ahead of the voice (`voices.rs:754-760`; S1 Q4: exact at ≥ 325).
+- **File change at the wrap:** if a streamed alternative changes file at E_k, the next pass is a primed hand-over group, and the commit point moves back by a full prime lead.
+- **Count loops:** `count` loops need nothing sent; main predicts the passes for the beat clock.
+- **Loop tails (R15)** are **decoded span clips** (C14), one per stem, stamped at each E_k and ungated. A span the clip ceiling refuses is dropped with one warning (`tailRefused`) and the loop goes on.
 
-### 3.6 Late group
+### 3.6 Late group and held records
 
-A late group can only follow a ring loss between Primed and the stamp (RESET, worker crash) or a STOP/close race, because main stamps only after every primed bit is set. The gate is the defence:
+A late group follows only a ring loss between Primed and the stamp, because main stamps after every primed bit (in the current epoch, R7) is set. The gate is the defence:
 
 ```mermaid
 sequenceDiagram
   participant P as Music player
   participant K as Core
-  P->>K: PLAY ×N, syncGroup g, stamp T
-  K->>K: quantum of T: member 3's ring < 4,096 → hold every member
-  K->>K: quantum q (data in): start every member at q's offset 0
-  K-->>P: STATUS: group g started at q, slip q − T
-  P->>P: beat clock: origin heard time += slip / sr, count lateGroups, max slip
+  P->>K: PLAY xN, gate g, stamp T, FADE to 1 at T
+  K->>K: T's quantum: member 3 not ready, so hold every member and keep their records queued
+  K->>K: quantum q, all ready: start every member at q, offset 0
+  K->>K: rebase every queued member record with frame at or after T by q - T
+  K-->>P: STATUS groupStarts g: start q, slip q - T
+  P->>P: anchor heard time += slip / sr
 ```
 
-The stems stay aligned. The outgoing segment's stamped STOP or fade isn't shifted, so the seam has a hole of the slip's length (Extension: linked outgoing records, §11). A group not started by T + max(2 × lead, 1 s) is stopped and re-planned (`groupTimeouts`).
+**Held records (R10).**
+- While a member is held, its stamped records stay in the pending queue across quanta; the due list doesn't consume them, and they aren't counted late.
+- When the group starts (or resumes after a hold, §4.3), every queued record of a member whose frame is ≥ the stamp (or ≥ the hold start) is shifted by the slip.
+- Fades therefore stay aligned to the music, not the clock.
+- Records of non-members (the outgoing A's fade-out) aren't shifted, so a late start leaves a hole of the slip's length at the seam (§11: linked outgoing records).
 
 ### 3.7 Hard rebuild (REPLAY), worker crash, rate change
 
@@ -274,176 +316,237 @@ sequenceDiagram
   participant W as Worker
   participant K as New core
   R->>K: RESET, BUS_CONFIG, clips, non-music voices (as today)
-  R->>P: musicGroups(ids) (not reopenStreams)
-  P->>P: heard position now (grid origin = musical position + heard time), T = next bar ≥ now + lead
+  R->>P: musicGroups(ids), not reopenStreams
+  P->>P: heard position now from the anchor, T = next bar at or after now + lead
   P->>W: primeGroup at T's musical position (sameTime), every member
-  K-->>P: STATUS: primed bits
-  P->>K: PLAY ×N, syncGroup, stamp T, 5 ms fade-in (class G)
-  P->>P: beat clock re-based, one coalesced callback per kind (missed: n)
+  K-->>P: STATUS musicRings primed
+  P->>K: PLAY xN (fade at 0), gate, stamp T, FADE to 1 over 5 ms
+  P->>P: beat clock rebased, one coalesced callback per kind
 ```
 
-- Music is silent from the rebuild until T (≈ one bar at most plus lead). Today each stem reopens asap from its own playhead (`coreBackend.ts:1406-1422`) and skews permanently (S1 Q1c); this path replaces that for music groups only.
-- A **new context at another rate** works the same way. Origins are stored as a musical position plus a heard time, never raw frames (rev. 2 #9), so frames are recomputed at the new rate; `Audio.time` stays monotonic across the swap (`ClockMap.rebase`, `core/clock.ts:124-140`).
-- A **worker crash** fails every stream (`core/streams.ts` header, "Errors"); the player sees one group failure per group, the backend connects a new channel, and the player re-primes as above.
-- All three take one from the recovery rate limit (3 per sliding 60 s, `core/recovery.ts`, `rateLimit.ts`); past it the player stops with one warning.
-- In rhythm mode the re-entry is stamped, never asap, and callbacks for the instance are held until the group's start is stamped (§4.6).
+- **Gap:** music is silent from the rebuild to T, at most one bar plus a lead. It re-enters at the **heard position** (`sameTime`), not the last grid point.
+- **Rate change:** a new context at another rate works the same way. Anchors are musical position plus heard time (record rev. 2 #9), so frames are recomputed, and `Audio.time` stays monotonic (`ClockMap.rebase`, `core/clock.ts:124-140`).
+- **Worker crash:** every stream fails (`core/streams.ts` header). The worker's encoded cache is lost with it, so the re-prime fetches again.
+- **Rate limit:** all three take one from the recovery limit (3 per sliding 60 s, `core/recovery.ts`). Past it the player stops with one warning.
+- **REPLAY of other voices:** a running curve fade is re-sent with u₀ at its current phase (R5), and a future stamped record at its frame (same context) or at heard time × the new rate.
+- **Rhythm mode:** re-entry is stamped, and callbacks for the instance are held until its group is stamped (§4.6).
 
 ### 3.8 Hidden tab
 
-rAF stops while hidden; STATUS keeps flowing under `mute` and `play` (`core/background.ts:4-10`), at the idle cadence of 48 quanta (128 ms) once no batch arrived for 250 ms.
-- **`play`:** when a segment starts, the player immediately commits its successor: a playlist's next item is primed and stamped at the current segment's exit cue, cancellable while SCHEDULED. A playlist therefore always holds its next segment primed (rev. 2 #8). While hidden, the tick runs from the STATUS handler with Δ̄ replaced by the STATUS interval, and the player flushes its own batch (as `background.ts` already flushes MASTER at once when hidden). Switch changes while hidden are planned the same way, with the larger Δ̄.
-- **`mute`:** the record says the player re-plans on resume (rev. 2 #8): the current segment plays out silently; a playlist that reaches its exit cue with nothing committed stops there; on resume the player starts from the heard position at the next bar (Open point 6 suggests using the `play` path here too).
-- **`pause`:** the context is suspended and every voice freezes with it; on resume the ClockMap re-anchors (`clock.ts:146-197`, `STALL_MS` 250) and the player re-plans from the heard position. No backlog accrues because nothing played.
-- On resume in every mode, missed callbacks coalesce to one per kind with `missed: n` (§4.5).
+rAF stops while hidden. STATUS keeps flowing under `mute` and `play` (`core/background.ts:4-10`), at 128 ms once no batch has arrived for 250 ms.
+- **`play`:** when a segment starts, the player commits its successor at once: a playlist's next item is primed and stamped at the current exit cue, and stays cancellable while SCHEDULED. While hidden the tick runs from the STATUS handler, with Δ̄ replaced by the STATUS interval, and the player flushes its own batch, as `background.ts` flushes MASTER. A `count: 0` loop needs nothing. Scripts don't run while rAF is stopped, so switch changes while hidden are rare; one that comes from a message handler is planned the same way.
+- **`mute`:** the record re-plans on resume. The playing segment plays out silently, and a playlist with nothing committed stops at its exit cue. The resume gap is up to one bar + lead. Commit-ahead under `mute` too is owner list item 5.
+- **`pause`:** the context freezes. On resume the ClockMap re-anchors (`STALL_MS` 250, `clock.ts:35`), and the player re-plans from the heard position with no backlog.
+- **Ê** isn't sampled while hidden (R12). On resume, missed callbacks coalesce (§4.5).
 
-Commit-ahead costs rings: a 4-stem playlist on low holds both sets (8 of 8). A primed-but-unstarted successor is **evictable**: a switch transition outranks it, closes its rings and re-primes it later.
+A primed-but-unstarted successor is **evictable**: a transition outranks it.
 
-### 3.9 Music seek
+### 3.9 Music seek (internal; public seek is owner list item 4)
 
-`handle` seek to a musical position (via [API]) is a transition: exit `immediate`, enter at the position, incoming group primed at that position, T = now + lead, and a 5 ms crossfade (the stream seek fade, `STARVE_FADE_SECONDS`, `stream.rs:116`). Per-stem SEEK epochs (`core/streams.ts:15-18`) are never used for music: they would skew stems the way a rebuild does.
+Audition and hot reload seek: exit `immediate`, enter at a position, the incoming group primed there, T = now + lead, and a 5 ms crossfade (`STARVE_FADE_SECONDS`, `stream.rs:116`). Per-stem SEEK epochs (`core/streams.ts:15-18`) are never used for music, because they skew stems the way a rebuild does.
 
 ### 3.10 Hot reload
 
-When the event file changes while it plays (the composer's loop, rev. 2 #13):
-- Rules, playlists, switches and stingers apply to the next decision at once.
-- If the playing segment changed (stems, cues, tempo map), the player primes the new version as a group and transitions at the next bar: `sameTime` when the segment's length and tempo map at that bar are unchanged, else `entryCue`. The beat clock adopts the new tempo map at the swap.
-- An invalid file keeps the old version, with the validator's error once.
+- Rules, playlists, switches and stingers apply to the next decision.
+- A changed playing segment is primed as a group and swapped at the next bar: `sameTime` if its length and tempo map are unchanged there, else `entryCue`. The worker's cache keeps the unchanged files.
+- An invalid file keeps the old version, with one error.
 
 ## 4. The core pipeline
 
 ### 4.1 The planner
 
-**Inputs:** the rule (from the precedence lookup), A's grid, B's group (members, streamed or not, pre-entry), the current Ê, L and Δ̄ from the ClockMap.
+**Lead (R12).**
+- For a group with unprimed streamed members: **lead = 1.25 Ê + L + Δ̄**.
+- For a group that is decoded or already primed: **lead = L**.
+- Ê is seeded at **40 ms**, so the first lead is 1.25 × 40 + 33.3 + 16.7 = **100 ms** at 60 Hz, the record's figure. The record's max(horizon, 1.25 × EMA) is corrected at step 9.
 
-**Lead.** For a group with streamed members that aren't primed yet:
+**Grid point.**
+- T is the first point of the rule's `exit` kind with T − preEntry_B ≥ now + lead and A's fade start ≥ now + L.
+- `immediate` takes now + lead exactly.
+- Every music change is stamped, in both modes (R19).
 
-  lead = 1.25 × Ê + L + Δ̄
-
-For a group whose members are all decoded, or already primed and waiting: lead = L. Ê starts at **40 ms**, so the first lead at 60 Hz is 1.25 × 40 + 33.3 + 16.7 = **100 ms**, the record's starting value. The record writes the lead as max(horizon, 1.25 × EMA) and the deadline as T − L − Δ̄; those two are only consistent if the measured prime time is followed by L + Δ̄, which this formula states (Open point 2).
-
-**Grid point.** T is the first allowed point (per `exit`: next beat, bar, `grid(n)` line, next cue, or A's exit cue) such that T − preEntry_B ≥ now + lead and A's fade-out start ≥ now + L. `immediate` takes now + lead exactly. Grid lines come from A's tempo map (§4.5).
-
-**Deadline.** At each tick in Priming: if every member is primed and T_start ≥ F_now + L (the batch's `firstFrame`, `lookahead.ts:41-43`), stamp now. If not primed and T_start < F_now + L + Δ̄ (the batch that leaves next frame would be late), **re-plan**.
+**Deadline.** At each tick in Priming:
+- every member primed in its current epoch and T_start ≥ F_now + L (the batch's `firstFrame`, `lookahead.ts:41-43`): stamp now;
+- not primed and T_start < F_now + L + Δ̄: **re-plan**.
 
 **Re-plan rules.**
-1. The rule's own `exit` kind picks the next point; the planner never degrades a `bar` rule to a beat. A `nextCue` or `exitCue` re-plan may be many seconds away; that is musically right (Wwise behaves the same) and is reported (`replans.deadline`).
-2. Rings keep priming across a re-plan. A `sameTime` or explicit-position entry whose start position moved with T re-targets the group: new epochs from the new position (C8), so it re-primes from zero. A re-target aims at the point after next when the last prime took longer than half the gap between points (est.), so a slow worker doesn't chase every bar.
-3. Three re-plans in a row for one transition warn once (`replanStorm`).
-4. A parameter change before stamping re-runs the rule lookup; a change to the same target is a no-op.
+1. The rule's own kind picks the next point; a `bar` rule never degrades to a beat. A `nextCue` or `exitCue` re-plan may be seconds away (Wwise's behaviour), and it is reported.
+2. Rings keep priming. A `sameTime` or position entry whose start moved re-targets: new epochs from the new position (C8). When the last prime took more than half the gap between points, it aims at the point after next (est.).
+3. Three re-plans in a row warn once (`replanStorm`).
 
-**Refusals (pool full).** Admission counts the free music rings in the mirror. If the group needs more:
-1. evict a primed-but-unstarted successor (§3.8);
-2. otherwise refuse **this grid point**: keep the current music, count `refusals.pool`, warn once per cause, and retry at the next allowed point after rings return (an outgoing fade's end). A refused stinger is dropped, not retried.
+**Refusals (R14).** Admission checks the pool mirror and the group-table mirror.
+1. **Permanent:** a group that can't fit even with every other music group closed, or that needs more than the pool minus the playing group, is refused at once. One warning names the numbers ("needs N rings, this preset has M"), and the change is dropped. The lint reports it at load.
+2. **Temporary:** first evict a primed-but-unstarted successor. Otherwise refuse this point and retry at **each allowed point** until the rings are free or the target changes. The current music plays on.
+3. A refused stinger is dropped.
 
-This keeps the record's "refuses, keeps the current music, counts and warns" (rev. 2 #7) and adds the retry (Open point 5).
+**Least delay of a quantised change (S1, for the guide):** lead plus the wait to the grid point.
 
-**Practice.** Wwise's transition timing is the same shape (source exit point, destination entry, fade offsets); Wwise streams with a per-track look-ahead time set by the designer [S0, U]. M4 measures the look-ahead instead of asking for it, because the phone's prime time is unknown.
+| Target | Lead at 60 Hz | Then |
+|---|---|---|
+| decoded or already primed | L: 33 ms (21.3 ms at ≥ 96 Hz) | + up to one grid interval (a beat is 500 ms at 120 BPM) |
+| streamed, first prime | 100 ms | same |
+| streamed, files cached in the worker (R16) | ≈ 63–90 ms (est.: Ê ≈ 10–30 ms) | same |
+| phone, streamed | ≈ 133–383 ms (est., §4.2) | same |
 
-### 4.2 Priming and the pool
+### 4.2 Priming, the pool and the encoded cache
 
-**Prime protocol** (rev. 2 #1–#3):
-1. Admission (above), then `primeGroup` (C8) with every member's encoded bytes (transferred), start frame (entry − pre-entry, in file frames), region, epoch and class `music`.
-2. The worker opens every member and posts each one's STREAM_OPEN and **first chunk** before any second chunk, then tops all up round-robin. Today `pump` fills each stream's whole window first (`decoder/streams.ts:498-510`), so stem N's first chunk waits behind N − 1 full rings: 8 × 1.62 ms (Vorbis full ring, native p50) instead of 8 × 1.13 ms (open + seek + first chunk) [S1 results-decode].
-3. The worklet commits chunks between quanta; the core sets a ring's **primed bit** when it holds ≥ 4,096 frames of the current epoch, or the input ended (C2). STATUS carries the bits every 6 quanta.
-4. Main sees all bits on the frame after the STATUS lands; Ê takes the sample `t_seen − t_open` (ms, `performance.now()`), which includes the fetch, the post, the decode, the delivery tail, the STATUS cadence and the frame wait.
-5. Main stamps the PLAYs in one batch (§4.1). The gate (§4.3) checks again in the core.
+**Protocol** (record rev. 2 #1–#3):
+1. Admission, then `primeGroup` (C8): every member's start frame (entry − pre-entry), region, epoch, music class and instance. The bytes are the worker's cached copy when it holds them; otherwise they are fetched by main and transferred.
+2. **Breadth-first:** the worker posts every member's STREAM_OPEN and **first chunk** before any second chunk, then tops up round-robin. Today `pump` fills each stream first (`decoder/streams.ts:498-510`), so stem N waits behind N − 1 full rings: 8 × 1.62 ms against 8 × 1.13 ms for Vorbis, native p50 [S1].
+3. The core marks a music ring **primed** at ≥ 4,096 frames of its **current epoch**, or once its input has ended. `musicRings` lists every open music ring with stream id, epoch and flags every STATUS (R7). Main accepts only its current epoch, so a STATUS taken before a re-target's STREAM_OPEN can't trigger a stamp.
+4. **Ê sample (R12):** from `primeGroup`'s post to the arrival (the message handler's `performance.now()`) of the STATUS that shows every member primed. It **excludes Δ̄**, which the lead adds once. It isn't sampled while hidden.
+5. Stamp (§4.1); the gate checks again in the core.
 
-**Estimate Ê.** An EMA, asymmetric so a slow sample raises the lead at once and a fast one lowers it slowly: α = 0.5 upward, 0.1 downward (est.). It is per backend, not per asset; it resets to 40 ms on a new context. When lead > one beat at the current tempo, the player warns once per instance (`leadOverBeat`): beat-quantised changes will land a beat or more late (rev. 2 #4).
+**Estimate Ê.** An asymmetric EMA: 0.5 upward, 0.1 downward (est.), floor 0. There is one per backend, reset to 40 ms on a new context, and it tracks the slowest format the planner meets. A lead longer than one beat warns once per instance (`leadOverBeat`, record rev. 2 #4).
 
-**Expected prime time (cached bytes).**
+**Expected prime time** for 8 stems with cached bytes (open + seek + first chunk, serial, plus the delivery tail p99 13 ms and the STATUS cadence 16 ms):
 
-| Platform | 8 stems, open + seek + first chunk, serial | + delivery tail p99, STATUS, frame | Ê | lead | Source |
-|---|---|---|---|---|---|
-| container, native | MP3 1.6 ms, Vorbis 9 ms (p50) | + 13 + 16 + 17 ms | 47–55 ms | 109–119 ms | [S1] Q2 |
-| desktop wasm (×1.5–3) | 2.4–27 ms | same | 48–73 ms | 110–141 ms | (est.) |
-| phone (×8 of wasm desktop) | 20–220 ms | same | 66–266 ms | 133–383 ms | (est.), unverified |
+| Platform | Decode | Ê | Lead | Source |
+|---|---|---|---|---|
+| container, native | MP3 1.6 ms, Vorbis 9 ms (p50) | 31–38 ms | 89–98 ms | [S1] Q2 |
+| desktop wasm (×1.5–3) | 2.4–27 ms | 31–56 ms | 89–120 ms | (est.) |
+| phone (×8 of desktop wasm) | 20–220 ms | 49–249 ms | 111–361 ms | (est.), unverified |
 
-A cold fetch adds the network or disk read [U]. At 120 BPM a beat is 500 ms; at 180 BPM, 333 ms: the phone's beat-quantised transitions are within a beat on this estimate, at the edge for fast tempi. The phone run is a milestone exit check (rev. 2 #4).
+The phone run is a milestone exit check.
 
-**Pool.** The music ring class (C1) has 8 / 12 / 16 rings (owner decision 2), separate from today's `max_mixed / 16` narrow rings (4 / 8 / 16, `stream.rs:118-120`) and the wide rings. A music STREAM_OPEN never takes a narrow ring and the reverse, so music and sound effects can't starve each other. Main's mirror never posts more opens than free music rings, so the core's refusal (stream event 3, `scheduler.rs:319-331`) is a bug signal, counted (`musicRingRefused`).
+**Pool.**
+- **Size:** 8 / 12 / 16 music rings (owner decision 2), beside today's `max_mixed / 16` narrow rings (`stream.rs:118-120`).
+- **Separation:** music opens never take narrow rings and the reverse.
+- **Admission:** the mirror never posts more opens than free music rings.
 
-**Encoded bytes.** The worker holds each open stream's whole encoded file (owner decision 4; `audio-decode/src/lib.rs:270`). Main fetches through `Assets` on each prime (the HTTP cache on web, a file read on Tauri) and transfers the bytes; it keeps no copy. The fetch is inside Ê.
+**Encoded cache (R16).**
+- The worker keeps the encoded bytes of every file a music instance has opened, refcounted by path, until the instance ends (main posts the release).
+- A re-prime then moves nothing through main, and Ê becomes unimodal after the first prime.
+- Main's own cache (32 MB, `core/encodedCache.ts`) isn't used for music.
+- **Bound:** the cache grows with the distinct streamed files an instance has played. When it passes the preset's encoded threshold (§6), the least recently closed file is dropped and re-fetched on its next prime. Open point 1 explains this reading.
 
-### 4.3 The group gate
+### 4.3 The group table: gate, hold on starve, give-up
 
-In `render`, before the voice loop, for each group with a member whose stamp is before the quantum's end:
-- **ready** if every streamed member's ring has ≥ 4,096 frames of its epoch (or input ended); decoded members are always ready;
-- **ready and first time:** every member starts at its stamp's offset (all share one stamp), as today;
-- **not ready:** every member is held SCHEDULED, including decoded ones, and the group is marked late;
-- **late and now ready:** every member starts at offset 0 of this quantum (ring commits happen between quanta, so readiness can only change at a boundary); the group-start event carries the start frame and the slip.
+The core's group table has **16 entries** (R9).
+- An entry is **taken** by the first PLAY of its group.
+- It is **freed** when every member has ended or been stopped, or the group is abandoned, or on RESET.
+- A started group keeps its entry for its whole life, because the starve hold (R11) needs the membership. So 8 entries don't suffice:
+  - one instance can hold up to 4 live groups at once: the playing group, the outgoing group fading, the stamped incoming group, and a wrap hand-over or streamed stinger;
+  - two music instances (say level music and an ambience bed) need 8, with no margin.
+- Main mirrors occupancy and never exceeds it. A PLAY whose group finds no entry starts ungated and counts `groupTableFull` (a bug signal).
 
-The gate needs every member present: all PLAYs of a group come in one batch, and PLAY carries the member count (C3). A member whose STREAM_OPEN was refused keeps the group closed; main's timeout (§3.6) ends it. Groups per core: at least 16 (est.: 2 instances × (current + next + bridge) + alternatives + stingers, with room), each ≈ 16 B. The check is one compare per member per quantum while a group waits, nothing once started.
+The entry layout, the voice flags (due, gated, group index in `flags2`) and the curve link are [API §3.1] (R4).
 
-Rebuild, seek and recovery reopen a group as a group (§3.7, §3.9); the core never reopens a stem by itself.
+**Per quantum, before the voice loop:**
 
-**Practice.** Wwise and FMOD start a segment's tracks together inside their own scheduler [U]; Quartz schedules quantised commands at sample offsets on the render thread [S0, U]. None documents a group gate; it exists here because streamed stems are separate rings fed by one worker.
+| Group state | Condition | Action |
+|---|---|---|
+| Stamped, the stamp in this quantum or earlier | every gated member present and ready: ≥ 4,096 frames of its epoch, or input ended (decoded members are always ready) | start every member at the stamp's offset (on time) or offset 0 (late); rebase held records (§3.6); report a late start |
+| Stamped | a member missing (incomplete) or not ready | hold every member SCHEDULED, decoded ones too |
+| Started | any gated mixed member would starve this quantum (the existing check: buffered < n + a 5 ms fade, `voices.rs:752-760`) | **hold:** every gated member takes the 5 ms starve fade together, then holds silent with its position pinned |
+| Held | every member has ≥ 4,096 frames buffered, or input ended | resume every member at offset 0 with a 5 ms fade-in; rebase their queued records by the hold length; report a resume with the slip |
+| Stamped or Held | more than **1 s** past the stamp, or held for more than 1 s | **abandon:** end every member (a 5 ms fade if sounding) and report it; main re-plans (§8) |
+
+Other rules:
+- A member STOPped while held leaves the group, and the size shrinks.
+- A virtual member is still a member under the same readiness rule: a virtual stream voice binds and consumes.
+- An ungated stream voice behaves as today, and a late start of one counts in `streamStartsLate` [API §4.4].
+- **Events:** one event per group per start, resume or abandon, with group id, kind, slip and start frame (C4, ≤ 8 per STATUS). Main adds each slip to the anchor's heard time.
+- **Cost:** the check is one compare per member per quantum while a group waits or holds, and one flag read once it plays.
+
+This replaces round 1's next-bar resync (R11): no second ring set is needed exactly when the worker is slow. When one stem runs dry, the whole music dips and resumes together (owner list item 6).
+
+**Practice.** Wwise and FMOD start a segment's tracks inside their own scheduler and stream with per-track prefetch [S0, U]; neither documents a gate. M4 needs one because its stems are separate rings fed by a worker.
 
 ### 4.4 In-voice stamped records (milestone M4-0)
 
-**Goal.** No stamped record splits the quantum for any voice but its target (rev. 2 #5). The +538 µs native / +810 µs wasm per split quantum [S4 timed] becomes the target voice's own cost.
+**Goal.** Only the target voice pays for a stamped record (R1, R2). S4 measured +538 µs native / +810 µs wasm per whole-quantum split.
 
-**Scope.** The records the pending queue holds: STOP, SET_PARAMS, FADE, SET_PAUSED, SEEK, SET_LOOP and SET_VOICE_FX (`scheduler.rs:41-43, 57`; SET_VOICE_FX through `fxpool`, A162 D1). PLAY already starts in its voice. This applies to every stamped record in the engine, not only music (an amendment to 0157).
+**`render` (R2):**
+1. `pop_due` (`voices.rs:308`) moves each due **per-voice** record into a per-quantum **due list** (256 records, est.) and sets the voice's due flag. Records of held voices stay queued (§3.6).
+2. `render_range(0, QUANTUM)` runs once. A voice without the flag renders as today, so unstamped work is bit-identical.
+3. A flagged voice applies its records in frame order:
+   - **Class G** (FADE, gain-only SET_PARAMS, STOP with or without a fade) applies **inside the gain loop**. The `fade` or `gain` ramp holds until sample k, then retargets. A STOP with fade 0 at k truncates the voice's frames to k, as `stopping` already shortens n (`voices.rs:737-740`). Cost ≈ 0.1 µs [S4 Q2].
+   - **Class S** covers every other per-voice record: SET_PARAMS pitch, low-pass, direction, bus or score; SET_VOICE_FX; SET_PAUSED; SEEK; SET_LOOP. It is a **voice-local split**: this voice alone renders `[from, k)`, applies the record, then renders `[k, to)`. Cost ≤ one voice render, ≈ 2.7 µs reference (est., S4's +52k instructions per voice per split, `cost/README.md:63`). Sends and beds already tap per range (`voices.rs:349-360`).
+   - Two class G records at different offsets in one voice in one quantum use the class S path.
+4. **Still queued:** records that aren't per voice (BUS_MIX, MASTER, LISTENER, configuration tables) keep splitting the quantum and count in `splitQuanta`. So does a due-list overflow. Voice-local splits count in `voiceSplits` (R3).
 
-**How `render` changes.**
-1. `pop_due` still pops every record due in the quantum (`voices.rs:308`), but into a per-quantum **due list** (≤ 256 records, est.; more spill to the old split path and count `dueOverflow`) instead of splitting. Each record marks its slot with a "due" flag (one bit; the slot has a spare byte, `voices.rs:149-150`).
-2. `render_range(0, QUANTUM)` runs **once**. A voice without the flag renders as today.
-3. A flagged voice applies its records in frame order, by class:
-   - **Class G (gain-like): FADE; SET_PARAMS whose mask is gain only; STOP.** Applied **inside the gain loop**: the voice's gain and fade ramps hold until sample k, then `set_target` at k, then move. STOP with fade 0 at k truncates the voice's frames to k (n = k − from, then ENDED), as `stopping` already shortens n (`voices.rs:737-740`). No second range. Cost: a start-sample compare, ≈ 0.1 µs per voice per quantum [S4 Q2 "linear starting at sample 37"].
-   - **Class S (state): SET_PARAMS with pitch, bus, direction, low-pass or score; SET_PAUSED; SEEK; SET_LOOP; SET_VOICE_FX.** A **voice-local split**: this voice alone renders `[from, k)`, applies the record, then `[k, to)`. Cost: one more pass of this voice's per-range work, ≤ one voice render, ≈ 2.3–3.9 µs native (est. from S4's +52k instructions per voice per split, `cost/README.md:63`).
-4. Two class G records for one voice at different offsets in one quantum fall back to a voice-local split.
+**Crossfades on the `fade` ramp (R5).**
+- A fade-in is a PLAY flagged to start with `fade` at 0, then a stamped FADE to 1 with a law. A fade-out is a FADE to 0 with `stopAtEnd`.
+- `gain` stays free for automation, including `quantize` bindings (applied as a 20 ms class G `gain` ramp at the grid point, `QUANTIZE_RAMP_MS`, est.; a low-pass binding is class S).
+- FADE, SET_PARAMS gain and STOP-with-fade carry a **law** and a **start phase u₀** (C5). The FADE `from` field is gone.
 
-Per-range work for sends and beds (`render_range` taps them per range, `voices.rs:349-360`) is already range-correct, so a voice-local split needs no change there.
+**Fade laws at control rate (R6).**
+- The voice runs each fade as its linear `Ramp` (`audio-dsp/src/ramp.rs`). A curve retargets it at the start sample k and at every quantum boundary, to the law's value at u there.
+- u is defined at both ends of each piece, so a mid-quantum start has no kink.
+- The laws:
+  - `linear`: one ramp;
+  - `sCurve`: 3u² − 2u³;
+  - `equalPowerIn` / `equalPowerOut`: sin / cos from a 1,024-point quarter-sine table with linear interpolation (table error 3.6e-7 [S4]).
+- The state lives in the **curve pool** (255 entries, linked from the slot's spare byte, R4). If the pool is full, the fade degrades to linear and counts `curvePoolFull`.
+- Cost: the linear ramp per sample, plus one law evaluation per quantum (≤ 0.15 µs per fading voice, est.).
+- Never `libm` `sinf` or `sqrtf` per sample: `sqrtf` costs 1,080 ns per voice per quantum in wasm, against 241 ns native [S4 timed].
+- Error against the exact curve: ≤ (Δu)² · max|f″| / 8, ≈ 3.5e-5 (−89 dB) for a 250 ms equal-power fade (est.). Retargeting every quantum also bounds the ramp's f32 step accumulation to 128 steps (≤ 7.6e-6).
 
-**Fade laws, cheap in wasm.** The voice runs every fade as its linear `Ramp` (`audio-dsp/src/ramp.rs`). A curve law retargets that ramp at each quantum boundary to the law's value there:
-- `linear`: one ramp to the end;
-- `sCurve`: smoothstep 3u² − 2u³, evaluated once per quantum;
-- `equalPower`: a 1,024-point quarter-sine table with linear interpolation (`sin` for in, `cos` for out; power-complementary, table error 3.6e-7 [S4]).
+**Seam-golden tolerance (R6).** The offline reference evaluates the same law at the same knots (k and each quantum boundary) and interpolates linearly in f64. Seams null to **1e-5** absolute. Against the exact curve the tolerance is **1e-4** for fades ≥ 250 ms; shorter fades are checked only against the same-knot reference. S1's linear crossfade measured 1.2e-5 with one 4,800-frame ramp; per-quantum retargets keep it under 1e-5.
 
-Per-voice state while a curve runs: law, u, du per quantum (≤ 12 B, C6). Per sample the cost is the linear ramp's; per quantum, one law evaluation (one table read or 4 multiplies). Never `libm` `sinf` or `sqrtf` per sample: `sqrtf` runs 4.5× slower in wasm (1,080 vs 241 ns per voice per quantum) and `sinf` 861 ns in wasm [S4 timed]. Piecewise-linear error against the exact curve is ≤ (Δu)² × max|f″| / 8: for a 250 ms fade (94 quanta) of the equal-power law, ≈ 3.5e-5 (−89 dB) (est.); for fades under 20 ms the shape is inaudible anyway.
+**Goldens and gates (R3, R22).**
+- M1–M3 digests stay unchanged; stamped cases are re-recorded once.
+- The exactness asserts stay (`audio-core/tests/golden_native.rs:476, 500, 519`).
+- M4-0 exit:
+  - `splitQuanta` reads 0 in the music scenes and in a scene of stamped spatial plays with sends;
+  - a metered scene with a stamped record every quantum adds ≤ 60k instructions over its twin (today +13.2M, `cost/README.md:46`).
 
-**Goldens.** Unstamped (asap) work is bit-identical: its path is unchanged. A stamped record's target voice renders exactly as under today's split (same sub-ranges); other voices now render in one range, so the stamped goldens are re-recorded once, and the existing exactness tests keep asserting onset frames (`audio-core/tests/golden_native.rs:476, 500, 519`). A metered bench scene with one stamped record every quantum must add ≤ 60k instructions per quantum over its twin (one voice; today +13.2M, `cost/README.md:46`), and a core counter of whole-quantum splits must read 0 in every test after M4-0 (C7).
+**REPLAY.** The Replayer keeps each voice's last stamped class G record and any stamped STOP [API §3.2].
+- A finished ramp is sent settled.
+- A running one is sent with u₀ = (F − f) / n over its remaining frames.
+- A future one is re-sent stamped.
 
-**REPLAY of pending ramps.** The `Replayer` (main) keeps, per voice, its last stamped class G record (frame f, length n, from, to, law) and any stamped STOP. At a rebuild at frame F:
-- f + n ≤ F: send the settled gain;
-- f ≤ F < f + n: send the ramp's remainder stamped at the replay's first frame, with `startPhase` u₀ = (F − f) / n so a curve resumes mid-shape (C5);
-- f > F: re-send stamped as is in the same context, or at its heard time × the new rate in a new context.
-
-Music groups are excluded: the player re-plans them (§3.7).
-
-**Practice.** Wwise and FMOD apply fades sample-accurately inside the voice [U]; M4-0 makes the core match. The control-rate curve with linear interpolation is FMOD's and Unreal's usual envelope practice [U].
+**Practice.** Wwise and FMOD fade sample-accurately in the voice [U], and M4-0 matches. Control-rate envelopes with linear interpolation are common middleware practice [U].
 
 ### 4.5 The beat clock
 
-**Model (design A, measured [S3]).** For each instance and each active segment pass, main holds:
-- the **grid origin** as (musical position p₀, heard time t₀): the group's stamped start frame gives t₀ = f₀ / sr on `Audio.time`'s base (`lookahead.ts:45-53`), and p₀ = entry − pre-entry;
-- the tempo map's prefix sums: seconds at each marker, so a position converts by one binary search (cached marker index; S4 Q3: 4.7 ns per quantum per instance even searching, `cost/README.md:71`);
-- per kind (beat, bar, cue), the index of the last fired event.
+**Model (design A [S3]).** Per instance and active pass:
+- **the anchor** ([API §3.2] `GridAnchor`): musical position p₀ plus heard time t₀. t₀ = f₀ / sr (`lookahead.ts:45-53`) from the stamp, plus every reported slip.
+- **the tempo map's prefix sums:** a position converts with one binary search from a cached index (S4 Q3: ns per instance). The rounding rule is [API §2.2].
+- **a per-kind index** of the last event fired.
 
-The heard time of position p is t₀ + sec(p) − sec(p₀); predicted loop passes add k × region length; the next pass of a playlist adds the committed successor's origin.
+Heard time of position p = t₀ + sec(p) − sec(p₀). Loop passes add k × the region length; a committed successor has its own anchor.
 
-**Dispatch before `update`.** A new built-in system `engine.AudioBeat` runs in the `update` phase, `before: ["engine.UpdateScripts"]` and after `engine.UIDocumentEvents` (systems sort topologically, `src/engine/core/systems.ts:255-282`; script hooks are `engine.UpdateScripts`, `World.ts:1032`). It:
-1. calls `clockMap.beginFrame()`, idempotent per rAF time (`clock.ts:148`), so every script's `update()` reads this frame's `Audio.time` instead of last frame's (today `engine.Audio` runs in `lateUpdate`, `audioSystem.ts:124-129`);
-2. for each instance, fires every event with heard time t < `Audio.time` + Δ̄ whose index is past the last fired (the window this display frame covers) [S3 Method].
+**Dispatch (R17).** `engine.AudioMusic` runs in the update phase before `engine.UpdateScripts` [API §1.4, §6].
+1. It calls `clockMap.beginFrame()`, which does nothing the second time at the same rAF time (`clock.ts:148`), so `update()` reads this frame's `Audio.time`. Nothing reads the clock between it and `engine.Audio`'s call.
+2. Per instance, it fires each event with heard time < `Audio.time` + Δ̄ past the last fired index.
 
-Each event carries its exact `time`, `heardIn` = time − `Audio.time` (seconds until heard, ≥ 0 unless missed), and `missed` (C15).
+`MusicEvent` fields are [API §1.1].
 
-**Coalescing.** If a kind has more than one due event in one dispatch (a long frame, a re-anchor after `STALL_MS`, a hidden tab), it fires **once**, for the latest, with `missed: n` (rev. 2 #9). At 60 Hz one frame (16.7 ms) is far below a beat, so normal frames never coalesce. Cues have names, and coalescing drops the skipped names (Open point 4).
+**Coalescing.** A kind with more than one due event in a dispatch fires **once**, for the latest, with `missed: n`. Cue events add `skippedCues` (R20). At 60 Hz a frame is far below a beat, so only long frames, re-anchors and hidden tabs coalesce.
 
-**Correction from STATUS.** The only grid changes the core decides are a late group start (§3.6) and a starve (§8). A late start shifts t₀ by slip / sr. A correction never re-fires an index: the cursor counts indices, not times, so a correction can't double or skip (S3: 0 missed, doubled or phantom over 6 timed runs).
+**Corrections.** The core decides only late starts, holds and abandons. Each one shifts t₀ by its slip.
+- Indices never re-fire, so no correction can double or skip an event.
+- A correction under Δ̄ is invisible.
+- A correction over one beat makes the next dispatch coalesce.
+- Corrections of any size are applied.
 
-**Accuracy.** Against Chromium's heard clock, 66 of 69 steady beats fired in the ideal frame and 3 one frame early by 1.66 ms; all tempo-change and transition beats in the ideal frame; ClockMap tracks the audio clock to 0.04 ms p50 [S3 confirming run]. Real devices are [U] (a loopback is owed).
+**Tolerances (S4, for tests on the spike's traces):**
+- ≥ 95% of steady beats in the ideal frame (S3 got 66 of 69), the rest within one frame;
+- every tempo-change and transition beat in the ideal frame;
+- 0 missed, doubled or phantom;
+- ClockMap error 0.04 ms p50 against Chromium's heard clock [S3].
 
-**Before M4c.** `handle.music` is readable from M4a through the same grid maths; callbacks arrive in M4c (owner decision 5). The early `beginFrame` step costs nothing and can land in M4a.
+Real devices are [U]; a loopback is owed.
 
-**Practice.** Wwise's music sync callbacks and FMOD's timeline beat callback are delivered at render or update time, not output-latency compensated [S0, U]; Quartz queues delegates back to the game thread, about a frame late [S0, U]. M4 differs: callbacks fire in the frame the beat is heard, with the exact heard time, because the measured render-ahead is 31–35 ms [S3].
+**Staging.** `handle.music` arrives in M4a, together with the early `beginFrame`; callbacks arrive in M4c.
+
+**Practice.** Wwise and FMOD deliver beat callbacks at render or update time, not compensated for output latency; Quartz delegates arrive a frame or so late [S0, U]. M4 fires in the frame the beat is **heard**, because the render runs 31–35 ms ahead [S3].
 
 ### 4.6 Rhythm mode
 
-`audio.rhythmMode` (project setting, off by default; key in [API]):
-- **Latency.** The context is created with `latencyHint: 0` (numeric, the smallest) and `baseLatency` and `outputLatency` are read back for the debug panel. Chromium's fake sink gave 2.9 ms base and 8 ms output latency at 0, against 10 / 32 ms at `interactive` [S5]. Toggling the setting rebuilds the context on the device path (A3.4c), rate-limited like any rebuild. The lookahead floor (1,024 frames), the limiter and the STATUS cadence stay (≈ 4 ms of the 25–55 ms total [S5]).
-- **Input.** `Audio.timeAt(performanceTime)` = (pt × sr / 1000 + o − D) / sr − calibration, the same map as `Audio.time` (`clock.ts:248-265`) applied to an event's `timeStamp`; `positionAt` adds the grid. Error 0.04 ms p50 against 9.4 ms for reading `Audio.time` in a handler [S3]. Available without rhythm mode too (owner decision 6, record §6).
-- **Calibration.** `Calibration.fromTaps`: drop 4 warm-up taps, median of the next ≥ 16, MAD for confidence; "unsteady, retry" above 40 ms MAD (est.) [S5]. p95 error ≈ 10 ms simulated. Persisted per output device; a `devicechange` marks it stale.
-- **Stamped only.** Every music command is stamped in both modes (the planner never sends asap music records; `handle.stop(fade)` is stamped at the horizon too). Rhythm mode adds: recovery re-entry is stamped, and callbacks for an instance are held from a recovery's start until its group is stamped, so no old-grid callback fires after a change [S3: at hint 0 a STATUS confirmation can arrive 12.5 ms after the beat is heard].
+`audio.rhythmMode` [API §1.5, §2.1]:
+- **Latency.**
+  - The context is created with `latencyHint: 0`. Chromium's fake sink reported 2.9 ms base and 8 ms output latency, against 10 / 32 ms at `interactive` [S5].
+  - A clamped hint is read back into `Audio.latency` and shown, never warned about.
+  - **`Audio.latency.reliable`** is true when `outputLatency` is finite with 0 < x < 0.5 s **and** it changed at least once in the first 10 s or `getOutputTimestamp` is valid. A constant 0 or an absurd value is unreliable, and the debug panel says to calibrate.
+  - Toggling the setting rebuilds the context on the device path, rate-limited.
+  - The lookahead floor, the limiter and the STATUS cadence stay, since they add ≈ 4 ms of a 25–55 ms total [S5].
+- **Input (R18).** `Audio.timeAt` is the raw clock map applied to `event.timeStamp`: 0.04 ms p50, against 9.4 ms for reading `Audio.time` in the handler [S3]. Calibration is subtracted only in `positionAt().judged`.
+- **Calibration** follows [API §1.5]: 4 warm-up taps, then the median of ≥ 16, with MAD; p95 ≈ 10 ms simulated [S5]. It is marked stale on `devicechange`.
+- **Stamped only (R19).** Every music change is already stamped. Rhythm mode refuses nothing. It adds stamped recovery re-entry, and holds callbacks from a recovery's start until its group is stamped. A STATUS confirmation can arrive 12.5 ms after the beat is heard at hint 0 [S3].
+- **Glitches at hint 0** are a milestone exit check on the owner's devices and show in the existing underrun counters.
 
 ## 5. Threading, state and constants
 
@@ -451,233 +554,286 @@ Each event carries its exact `time`, `heardIn` = time − `Audio.time` (seconds 
 
 | State | Owner (writes) | Copy elsewhere |
 |---|---|---|
-| Container cursors, playlist bags, loop counts, switch value, pending transition, matched rule | main (player) | `Audio.debug().music` |
-| Grid origins (musical position + heard time), tempo prefix sums | main | none (frames derived) |
-| Beat cursors (last index per kind) | main | none |
-| Prime estimate Ê, lead | main (coordinator) | debug |
-| Music-pool occupancy | main mirror (admission) | the core's ring table (truth for priming) |
-| Primed bit per ring | core | STATUS (C2) |
-| Group membership, stamp, gate state | core (from PLAY) | group-start event (C4) |
-| Stream cursor, region wraps, splices | worker | chunk headers, STREAM_OPEN |
+| Container cursors, playlist state, switch value, pending transition, matched rule | main (player) | `Audio.debug().music` |
+| Anchors, tempo prefix sums, beat cursors | main | none |
+| Ê, lead, pool and group mirrors | main | debug |
+| Primed and bound flags per music ring | core | STATUS `musicRings` |
+| Group membership, stamp, gate and hold state | core | `groupStarts` events |
+| Encoded files of an instance | worker | none |
+| Stream cursor, wraps, splices | worker | chunk headers |
 | Voice gain, fade, curve state | core | none |
-| Last stamped class G record per voice | main (Replayer) | for REPLAY only |
-| Calibration offset | main, persisted per device | none |
+| Last stamped class G record and STOP per voice | main (Replayer) | REPLAY only |
+| Calibration | main, persisted per device | none |
 
 ### 5.2 Staleness bounds
 
 | Value | Normal bound | Under a main stall of s |
 |---|---|---|
-| Primed bits seen on main | ≤ 16 ms STATUS + one frame after the chunk commit | s |
-| Group start / slip | ≤ 16 ms + one frame | s; stamped audio is unaffected |
+| Primed flags seen on main | ≤ 16 ms after the chunk commit + one frame | s |
+| Group start, hold, abandon | ≤ 16 ms + one frame | s; the core acts alone (gate, hold, give-up) |
 | Ring free for admission | 0 (counted at `streamClose` post) | — |
-| Voice end → ring close | ≤ 16 ms (128 ms at the hidden idle cadence) | handled in the STATUS handler, not the frame |
-| Parameter → switch decision | same frame (`engine.Audio` runs after scripts) + lead | s + lead |
-| `while` condition | read at E_k − L − Δ̄ − 10 ms | if s spans the commit point, the loop runs one more pass |
-| Beat callback | the frame whose window covers the heard time; error = clock error (0.04 ms p50 [S3]) | coalesced, `missed: n` |
-| `handle.music` | this frame's `Audio.time` | s |
+| Voice end to ring close | ≤ 16 ms (128 ms hidden) | handled in the STATUS handler |
+| Parameter to switch decision | same frame + lead | s + lead |
+| `while` condition | read at E_k − L − Δ̄ − 10 ms | a stall over the commit point runs one more pass |
+| Beat callback | the frame whose window holds the heard time; error = clock error | coalesced |
 
 ### 5.3 Constants
 
-**S** marks a setting (key and parse rules in [API]). Wire and core constants are generated from `audio-wire/src/schema.rs` and quoted by name.
+**S** is a setting [API §2.1]. Generated constants ([API §4.5]) are quoted by name.
 
 | Area | Constant | Value | Source |
 |---|---|---|---|
-| Streams | `START_FRAMES` (ready threshold, primed bit) | 4,096 frames | `stream.rs:114` |
-| | `RING_FRAMES`, ring bytes | 32,768 frames (0.68 s); 307,200 B (300 KiB) | `stream.rs:95, 108`; [S1] |
-| | **S** music rings | 8 / 12 / 16 | owner decision 2 |
-| | narrow rings (unchanged) | `max_mixed / 16` clamped 4..16: 4 / 8 / 16 | `stream.rs:118-120` |
-| | splice margin | ≥ 368 frames; 10 ms used | `voices.rs:754-760`; [S1] Q4 |
-| | stream fault stop fade | 50 ms | `core/streams.ts` header |
+| Streams | `START_FRAMES` (ready, primed) | 4,096 frames | `stream.rs:114` |
+| | `RING_FRAMES`; `RING_BYTES` | 32,768 frames (0.68 s); 307,200 B | `stream.rs:95, 108` |
+| | **S** `music.rings` (`MAX_MUSIC_RINGS` 16) | 8 / 12 / 16 | owner decision 2 |
+| | narrow rings (unchanged) | 4 / 8 / 16 | `stream.rs:118-120` |
+| | splice margin | 10 ms (≥ 368 frames) | `voices.rs:754-760`; [S1] Q4 |
+| | stream fault stop fade | 50 ms | `core/streams.ts` |
 | Lookahead | L | clamp(2 Δ̄, 1,024 frames, 100 ms): 33.3 ms at 60 Hz | `lookahead.ts:13-17, 27-31` |
-| | Δ̄ EMA gain, start | 0.1, 16.7 ms | `clock.ts:31-33` |
-| Planner | prime margin | 1.25 | record §2; [S1] `prime.rs` |
-| | Ê seed | 40 ms (first lead 100 ms at 60 Hz) | this design, from [S1]'s 20–60 ms (est.) |
-| | Ê gains | 0.5 up, 0.1 down | this design (est.) |
-| | lead (needs priming); lead (decoded or primed) | 1.25 Ê + L + Δ̄; L | §4.1 |
-| | deadline | T_start < F_now + L + Δ̄ while unprimed → re-plan | record rev. 2 #2 |
+| | Δ̄ gain, start | 0.1, 16.7 ms | `clock.ts:31-33` |
+| Planner | prime margin | 1.25 | record §2; [S1] |
+| | Ê seed; gains | 40 ms; 0.5 up, 0.1 down | R12; this design (est.) |
+| | lead | 1.25 Ê + L + Δ̄ (unprimed); L (decoded or primed) | R12 |
+| | deadline | unprimed and T_start < F_now + L + Δ̄ | record rev. 2 #2 |
 | | cancel point | T_start − L | `voices.rs:1394-1396` |
-| | re-plan storm | 3 in a row | this design (est.) |
-| | far re-target | point after next when last prime > ½ the gap | this design (est.) |
-| | group timeout | T + max(2 × lead, 1 s) | this design (est.) |
-| | lead warning | lead > one beat | record rev. 2 #4 |
-| Rules | default rule | `*`→`*`, exit `bar`, enter `entryCue`, 1-beat crossfade | record §1 |
-| | pending transitions per container | 1 | architect RFC #6 |
-| Stingers | concurrent per instance | 4 (fifth steals the oldest, 5 ms fade) | [S4] worst scene (est.) |
-| | `ifTooLate` default | `nextGrid`, one warning | record rev. 2 #10 |
-| Core | groups | ≥ 16, ≈ 16 B each | this design (est.) |
-| | due list per quantum | 256 records (overflow: old split, counted) | this design (est.) |
-| | curve state per voice | ≤ 12 B | §4.4 |
-| | equal-power table | 1,024 points | record §4; [S4] |
-| | curve retarget step | one quantum (128 frames) | this design |
-| Recovery | re-entry fade-in; seek crossfade | 5 ms (`STARVE_FADE_SECONDS`) | `stream.rs:116` |
-| | rebuild rate limit | 3 per sliding 60 s | `core/recovery.ts`; `rateLimit.ts` |
-| Clock | stall re-anchor | 250 ms | `clock.ts:35` |
-| | offset EMA; reject; re-anchor after | 0.1; 5 ms; 10 rejections | `clock.ts:21-25` |
-| STATUS | cadence; idle cadence; idle after | 6 quanta (16 ms); 48 (128 ms); 250 ms | `schema.rs:72-74` |
-| Rhythm | **S** `audio.rhythmMode` | off | record §6 |
-| | `latencyHint` in rhythm mode | 0 (numeric) | [S5] |
-| | calibration | 4 warm-up + ≥ 16 taps, median; MAD retry > 40 ms | [S5] (est. threshold) |
+| | re-plan storm; far re-target | 3 in a row; last prime > ½ the gap | this design (est.) |
+| | lead warning | > one beat | record rev. 2 #4 |
+| Rules | default rule; pending per container | `*`→`*` bar, entryCue, 1-beat crossfade [API §2.4]; 1 | record §1; architect RFC |
+| | `QUANTIZE_RAMP_MS` | 20 | this design (est.) |
+| Stingers | concurrent per instance | 4 (format limit) | R20; [S4] worst scene |
+| Core | group entries (`MAX_GROUPS`) | 16 | R9, §4.3 |
+| | group give-up | 1 s after the stamp, or 1 s held | R11, this design (est.) |
+| | hold fades | 5 ms out, 5 ms in (`STARVE_FADE_SECONDS`) | `stream.rs:116` |
+| | due list | 256 per quantum | this design (est.) |
+| | curve pool | 255 entries | R4 |
+| | `FADE_CURVE_TABLE_POINTS`; retarget step | 1,024; one quantum | R6; [S4] |
+| Recovery | re-entry fade-in; seek crossfade | 5 ms | `stream.rs:116` |
+| | rate limit | 3 per sliding 60 s | `core/recovery.ts` |
+| Clock | stall; offset EMA, reject, re-anchor | 250 ms; 0.1, 5 ms, 10 | `clock.ts:21-35` |
+| STATUS | cadence; idle; idle after | 6 quanta (16 ms); 48; 250 ms | `schema.rs:72-74` |
+| Worker | encoded cache | per instance, refcounted; above the §6 threshold, drop the least recently closed | R16 |
+| Rhythm | `latencyHint`; reliable latency | 0; 0 < x < 0.5 s and changed or timestamp valid | [S5]; this design |
 
 ## 6. Memory
 
 | Item | Formula | Low / default / high |
 |---|---|---|
-| Music rings (core) | rings × 300 KiB | 2.34 / 3.52 / 4.69 MiB |
+| Music rings | rings × 300 KiB | 2.34 / 3.52 / 4.69 MiB |
 | Narrow rings (unchanged) | 4 / 8 / 16 × 300 KiB | 1.17 / 2.34 / 4.69 MiB |
-| Encoded files in the worker, two full sets streaming (MP3 192 kbps, 3 min) | rings × 4.4 MiB | 35 / 53 / 70 MiB [S2] |
-| Same in Vorbis (+1.7 MB decoder state per stream) | rings × ≈ 6.1 MiB | 49 / 73 / 98 MiB [S2] (est.) |
-| Same in FLAC | 8 stems ≈ 190 MiB | warns on low (record §3) |
-| Fetch transient on main | one stem's bytes until transferred | ≈ 4.4 MiB per stem in flight, GC'd |
-| Curve state (core) | max_logical × ≤ 16 B if the slot grows (C6) | 16 / 64 / 64 KiB (est.) |
-| Group table, due list (core) | 16 × 16 B; 256 × 48 B | ≈ 12 KiB (est.) |
-| STATUS growth | primed bits + ≤ 8 group events | ≈ 0.2 KiB per block (est.) |
-| Main, per asset | tempo prefix sums, rule index | < 16 KiB (est.; limits: 64 markers, 64 cues, 256 rules) |
-| Main, per instance | player state, beat cursors | ≈ 2 KiB (est.) |
-| Loop-tail span clips | tail × channels × 2 B per stem | content-dependent (2 s stereo: 375 KiB) |
+| Worker encoded copies, two sets streaming (MP3 192 kbps, 3 min) | rings × 4.4 MiB | 35 / 53 / 70 MiB [S2] |
+| Same, Vorbis (+1.7 MB state per open stream) | rings × ≈ 6.1 MiB | 49 / 73 / 98 MiB (est.) |
+| **Encoded cache threshold** (lint warning, cache eviction) | | **48 / 96 / 160 MiB** (est.) |
+| FLAC | 8 stems ≈ 190 MiB | warns on low |
+| Curve pool, group table, due list (core) | [API §3.1]; 256 × 48 B | ≈ 8 + 2.5 + 12 KiB |
+| STATUS growth | `musicRings` ≤ 16 × 12 B, ≤ 8 group events × 16 B | [API §4.4] recomputes the worst case |
+| Mixer wasm | due list, classes G and S, curve pool, 4 KiB table, group table with hold | +10–14 KB (est.; [API §5] says +14) from 265,952 B, against the 320 KB tripwire |
+| Main, per asset; per instance | tempo prefix sums, rule index; player state | < 16 KiB; ≈ 2 KiB (est.) |
+| Loop-tail span clips | tail × channels × 2 B per stem | 2 s stereo: 375 KiB each |
 
-Decoded alternatives, stingers and bridges count against the clip ceiling (64 MB on low, `audioSettingsModel.ts:235`), as today. The worker's encoded copies are the largest item: the record accepts them for M4 (owner decision 4).
+Decoded bridges, stingers, alternatives and tail spans count against the clip ceiling (64 MB on low, `audioSettingsModel.ts:235`). Music rings and the worker's encoded copies don't.
 
 ## 7. Performance
 
 ### 7.1 The model
 
-Calibrated on S4's metered instruction counts (exact) and timed `mus-worst` delta (99 µs native p50 for 1,316k instructions: 0.075 µs per 1k instructions on the container). Per quantum, container native (est.):
+Calibrated on S4's metered counts and its timed `mus-worst` (99 µs native p50 for 1,316k instructions, 0.075 µs per 1k on the container):
 
-| Term | Instructions | µs container | µs reference (÷ 1.45) | Source |
+| Term | Instructions | µs container | µs reference (÷ 1.45, est.) | Source |
 |---|---|---|---|---|
-| streamed stem | 51.6k | 3.9 | 2.7 | [S4] cost model |
+| streamed stem | 51.6k | 3.9 | 2.7 | [S4] |
 | decoded voice (stinger, bridge, tail) | 40k | 3.0 | 2.1 | [S4] |
-| first live automation binding (once) | 245k | 18.4 | 12.7 | [S4] finding 6 |
+| first live automation binding (once) | 245k | 18.4 | 12.7 | [S4] |
 | each automated voice | 2.5k | 0.19 | 0.13 | [S4] |
-| class G record (target voice) | — | ≈ 0.1 | ≈ 0.07 | [S4] Q2 |
-| class S record (target voice) | ≤ 52k | ≤ 3.9 | ≤ 2.7 | [S4] (est.) |
-| curve law per fading voice per quantum | — | ≤ 0.15 | ≤ 0.1 | §4.4 (est.) |
-| group gate per waiting member | — | < 0.01 | < 0.01 | (est.) |
-| whole-quantum split (removed by M4-0) | 13.2M | 538 measured | 371 | [S4] timed |
+| class G record | — | ≈ 0.1 | ≈ 0.07 | [S4] Q2 |
+| class S record | ≤ 52k | ≤ 3.9 | ≤ 2.7 | [S4] (est.) |
+| curve law per fading voice per quantum | — | ≤ 0.15 | ≤ 0.1 | (est.) |
+| group check per waiting or held member | — | < 0.01 | < 0.01 | (est.) |
+| whole-quantum split (removed for per-voice records) | 13.2M | 538 measured | 371 | [S4] |
 
 The model reproduces S4's scenes: typical 34 µs (measured 43–63), transition 74 (75), worst 97 (99).
 
-### 7.2 Scenes per preset
+### 7.2 Scenes per preset (R23)
 
-Worst case per preset: every music ring streaming (two full sets mid-crossfade), the most concurrent stingers, every music voice automated and fading.
+Worst case: every music ring streaming, the most stingers, every music voice automated and fading.
 
-| Preset | Typical: 4 stems, 1 fading | µs ref (est.) | Worst | µs container | µs ref (est.) | Allowance (record §7) typical / worst |
-|---|---|---|---|---|---|---|
-| high | 34 container (43–63 measured) | 23–43 | 16 stems + 4 stingers | 97 (99 measured) | 68 | 50 / 80 |
-| default | same | 23–43 | 12 stems + 3 stingers | 77 | 53 | 50 / 60 |
-| low | same | 23–43 | 8 stems + 2 stingers | 58 | 40 | 40 / 40 |
+| Preset | Typical, ref (4 stems, 1 fading) | Worst scene | Worst, ref (est.) | Allowance typical / worst |
+|---|---|---|---|---|
+| high | 30–43 µs (measured ÷ 1.45) | 16 stems + 4 stingers | 68 µs (99 measured) | 0.05 / 0.08 ms |
+| default | same (est.) | 12 stems + 3 stingers | 53 µs | 0.05 / **0.08** ms (tripwire move) |
+| low | same (est.) | 8 stems + 2 stingers | 40 µs | 0.04 / **0.06** ms (tripwire move) |
 
-The record's default and low worst allowances were set when those presets had 8 and 4 rings [S4 Q5]; with 12 and 8 music rings the worst scene uses all of default's headroom margin below 50% and exactly meets low's (Open point 3). Music counts inside the mixed-voice cap (owner decision 3), so the preset's **total** doesn't grow: each stem displaces an average voice of ≈ 130k instructions [S4 Q5]. The rule for the gate: **music's own line** is checked at the worst scene above, and the preset total by the existing benches.
+Music counts inside the mixed-voice cap (owner decision 3): each stem displaces an average voice of ≈ 130k instructions [S4 Q5], so preset totals don't grow. Music's own line is gated at the worst scene; totals are gated by the existing benches. Both tripwire moves and the mixer size go in the build log (R23).
 
-### 7.3 Main thread
+### 7.3 Main thread and worker
 
-- Beat dispatch: per instance per frame, one compare per kind plus the due events; the grid search is cached. Nanoseconds per instance (S4 Q3 measured the same arithmetic at 4.7–35 ns).
-- Planner: a rule lookup on each decision, linear over ≤ 256 rules in four tiers, a few µs (est.); nothing per frame while idle.
-- Prime: one fetch per streamed member (an ArrayBuffer, transferred). GC pressure, not CPU.
-- No budget line, as the record says (§7).
+- **Main:**
+  - beat dispatch: nanoseconds per instance per frame;
+  - rule lookup: a few µs per decision (est.);
+  - priming: no fetch after an instance's first prime (R16).
 
-### 7.4 Decoder worker
+  No budget line.
+- **Worker:**
+  - steady: ≈ 0.16% of a core per stream [S2];
+  - prime burst: N × (open + seek + first chunk);
+  - phone at 8×: 12 streams ≈ 30–43% of a core (est.) [S].
 
-Per stream ≈ 0.16% of a container core steady [S2]. The prime burst is the peak: N × (open + seek + first chunk), then the top-ups. 12 streams on a phone at 8× ≈ 30–43% of one core (est.) [S]. The breadth-first order doesn't change the total work, only which chunk comes first.
+### 7.4 Benchmark method
 
-### 7.5 Benchmark method
+Three tiers:
+1. The meter in CI. The new scenes are gated at 10% (M3's rule).
+2. The lab VM for p99.9 (the owner's run).
+3. The phone, for:
+   - prime time p50/p99 for 8 cached Vorbis and MP3 stems;
+   - worker CPU at 12 streams over 10 minutes;
+   - the audio thread on low;
+   - beat-frame error with real output latency.
 
-Three tiers (architect RFC): (1) the repo's meter in CI for the music scenes and the stamped-record scene (exact, the regression gate); (2) the lab VM for p99.9 (owner's run); (3) the phone for prime time (request → all primed, p50/p99, 8 cached Vorbis and MP3 stems), worker CPU at 12 streams over 10 minutes, the audio thread on low, and the beat-callback frame error with real output latency. Container runs stay p50/p99 and short (working notes rule 1). Targets: prime p99 ≤ 0.8 × lead; re-plans < 1% of transitions on default; `streamStartsLate` 0 and `lateGroups` 0 over a sample soak; whole-quantum splits 0.
+Container runs stay short and p50/p99.
+
+Targets:
+- prime p99 ≤ 0.8 × lead;
+- re-plans < 1% of transitions on default;
+- `groupsLate`, `streamStartsLate` and abandons all 0 over a sample soak;
+- `splitQuanta` 0.
 
 ## 8. Failure modes
 
 | Failure | Detection | Handling | User-visible | Counter |
 |---|---|---|---|---|
-| Prime deadline missed (slow worker, cold fetch) | planner tick (§4.1) | re-plan to the next point of the rule's kind; rings keep priming | the change lands one grid step (or cue) later | `replans.deadline`, `replanStorm` |
-| Lead longer than a beat | lead vs tempo | warn once per instance | beat-quantised changes land late | `leadOverBeat` |
-| Pool full | admission | evict a primed successor, else refuse this point, retry when rings return; drop a stinger | the change waits; the current music plays on | `refusals.pool`, one warning per cause |
-| Music ring refused by the core | stream event 3 on a music stream | stop the group, re-plan | as late transition | `musicRingRefused` (a bug) |
-| Mixed-cap pressure | selection | music by its priority; a virtual stem keeps time while its ring has data (`voices.rs:638-640`) | quieter or missing layer | `musicVirtual` |
-| Late group | group-start event slip > 0 | aligned late start; beat clock shifted | a hole of the slip at the seam | `lateGroups`, `streamStartsLate`, `maxSlipFrames` |
-| Group never starts | timeout | stop, re-plan | as late transition | `groupTimeouts` |
-| A stem starves mid-piece | STATUS `starved` lists a group member | the group is Broken: re-prime it at `sameTime` and swap at the next bar; meanwhile the starved stem fades out (5 ms) and holds | one layer drops for up to a bar | `musicResyncs.starve` |
-| A stem fails to fetch or decode | stream error, fetch rejection | before stamping: the group plays without it, one warning; all fail: refuse. After start: 50 ms fade (today's path) | a layer missing | `stemFailures` |
-| Decoder worker crash | every stream errors | new channel, re-prime every group at the heard position (§3.7), rate-limited | music gap up to a bar + lead | `musicRecoveries.worker` |
-| Hard rebuild (trap, stall) | `onRebuilt` | §3.7 | music gap up to a bar + lead | `musicRecoveries.rebuild` |
-| Rate or device change | A3.4c | as rebuild; frames recomputed; rhythm calibration stale | gap; calibration prompt (game's UI) | `musicRecoveries.device` |
-| Recovery limit reached | rate limit | the player stops, one warning | music stops | `musicRecoveries.refused` |
-| Main hitch during a pending transition | — | stamped audio plays on time; an unprimed deadline in the hitch re-plans | late change; coalesced callbacks | `replans.deadline`, `missedBeats` |
-| Hidden tab | `visibilitychange` | §3.8 | none under `play` | `hiddenCommits` |
-| Stinger inside the lead | planner | `ifTooLate` | stinger on a later grid point, off-grid, or skipped | `stingers.late`, `stingers.skipped` |
-| Hot reload of an invalid file | validator | keep the old version | one error | `reloadRejected` |
-| Due list overflow (> 256 stamped records in one quantum) | core | the overflow uses the old global split | none (cost only) | `dueOverflow` |
+| Prime deadline missed | planner tick | re-plan to the next point of the rule's kind | the change lands one grid step (or cue) later | `replans.deadline`, `replanStorm` |
+| Lead > one beat | lead vs tempo | warn once per instance | beat-quantised changes land late | `leadOverBeat` |
+| Pool can never fit the group | admission, lint | refuse at once, one warning with N and M, no retry | that change never happens | `refusals.permanent` |
+| No free rings now | admission | evict a primed successor, else retry at each allowed point | the change waits | `refusals.pool` |
+| Group table full | main mirror; core | never sent; the core starts it ungated | none (a bug) | `groupTableFull` |
+| Music pool full in the core | stream event 4 | stop the group, re-plan | late change | `musicRingRefused` (a bug) |
+| Mixed-cap pressure | selection | music by priority; a virtual member keeps time (`voices.rs:638-640`) | a quieter or missing layer | `musicVirtual` |
+| Late group | group event, start slip > 0 | aligned late start, records rebased, anchor shifted | a hole of the slip at the seam | `groupsLate`, `maxSlipFrames` |
+| A stem about to starve | core check | the whole group holds (5 ms fade) and resumes together | the music dips, then resumes in step | `groupHolds`, hold slips |
+| Group not started or held > 1 s | core | abandon: end members, report | music stops, then re-enters at the next bar + lead | `groupsAbandoned` |
+| A stem fails to fetch or decode | stream error, fetch failure | before the stamp: dropped from the group, one warning; all streamed stems fail: refuse. After start: a 50 ms fade, and the group goes on without it | a missing layer | `stemFailures` |
+| Worker crash | every stream errors | new channel, re-prime every group at the heard position, rate-limited | gap ≤ one bar + lead | `musicRecoveries.worker` |
+| Hard rebuild, rate or device change | `onRebuilt`, A3.4c | §3.7; rhythm calibration stale | gap ≤ one bar + lead | `musicRecoveries.rebuild`, `.device` |
+| Recovery limit | rate limit | the player stops, one warning | music stops | `musicRecoveries.refused` |
+| Main hitch during a pending change | — | stamped audio plays on time; a missed deadline re-plans; the core acts alone | a late change, coalesced callbacks | `replans.deadline`, `missedBeats` |
+| Stinger inside the lead | planner | `ifTooLate` | later, off-grid or skipped | `stingers.late`, `.skipped` |
+| Tail span refused | clip ceiling | the loop goes on with no tail, one warning | no tail | `tailRefused` |
+| Curve pool full | core | the fade runs linear | a slightly different fade shape | `curvePoolFull` |
+| Due-list overflow | core | the old whole-quantum split | none (cost only) | `splitQuanta` |
+| Hot reload invalid | validator | keep the old version | one error | `reloadRejected` |
 
 ## 9. Observability
 
-`Audio.debug().music` (fields in [API], C11) lists per instance:
-- event path, current segment and pass, bar:beat:tick, tempo and metre, heard time;
-- the pending transition: from, to, T as bar:beat, **the rule that matched** (id and tier: exact, from, to, wildcard; or the common parent that supplied it);
-- group states (Priming, Primed, Stamped, Started, Late), primed members n/N, prime time last and Ê, the lead;
-- counters: re-plans by reason, refusals by cause, late groups and max slip, recoveries by cause, missed beats, stinger outcomes;
-- engine-wide: music rings in use, high-water mark, refusals; whole-quantum splits (must be 0).
+`Audio.debug().music` and `musicTotals` are [API §1.6] (C11): per instance, the segment, position, pending transition and **matched rule** (tier, or the common parent that supplied it), group states, primed n/N, prime time, Ê and lead, and the counters above. The engine-wide totals include the pool high-water mark and `splitQuanta` / `voiceSplits`. Each refusal, re-plan, slip and hold warns once per cause.
 
-**Health thresholds** (Audio Debug panel, 4 Hz, as M3's):
+**Health thresholds** (Audio Debug panel, 4 Hz):
 
 | Counter | Green | Amber | Red |
 |---|---|---|---|
 | `replans.deadline` per 100 transitions | < 1 | 1–10 | > 10 |
-| `refusals.pool`, `leadOverBeat`, `stingers.skipped` | 0 | non-zero | — |
-| `lateGroups`, `streamStartsLate`, `groupTimeouts` | 0 | — | any |
-| `musicResyncs`, `musicRecoveries` | 0 | ≤ 1 per minute | more |
-| whole-quantum splits, `musicRingRefused` | 0 | — | any (a bug) |
+| `refusals.pool`, `leadOverBeat`, `stingers.skipped`, `tailRefused`, `curvePoolFull` | 0 | non-zero | — |
+| `refusals.permanent` | 0 | — | any (content too big for the preset) |
+| `groupsLate`, `groupHolds`, `streamStartsLate` | 0 | — | any |
+| `groupsAbandoned`, `musicRecoveries` | 0 | ≤ 1 per minute | more |
+| `splitQuanta` in music, `musicRingRefused`, `groupTableFull` | 0 | — | any (a bug) |
 | lead (ms) | ≤ 150 | 150–330 | > one beat |
 
-The debug panel is the composer's live music monitor (rev. 2 #13); the segment view's playhead reads the same `handle.music`.
+The panel's Music section is the composer's live monitor (record rev. 2 #13).
 
 ## 10. Platform matrix
 
-| | Core: Chromium desktop (Chrome, Edge, WebView2) | Core: Android system WebView | Core: WebKit (Safari, WKWebView, WebKitGTK) | Core: Firefox | Babylon fallback |
+| | Core: Chromium desktop (Chrome, Edge, WebView2) | Core: Android system WebView | Core: WebKit (Safari, WKWebView, WebKitGTK) | Core: Firefox | Babylon fallback [API §8] |
 |---|---|---|---|---|---|
-| Segments, playlists, switches, rules, bridges, stingers, stems | full | full | full | full | best effort: segments play, playlists step, switches change at bar boundaries planned on main |
-| Sample-exact streamed stems | full | full; prime time unverified (§4.2) | full | full | no: HTML5 streams, unaligned, one warning (`babylonBackend.ts:85-91`) |
-| Stamped decoded starts | full | full | full | full | `waitTime` on decoded clips (`babylonBackend.ts:284-287`) |
-| Stamped fades, curve laws | full (M4-0) | full | full | full | fades start on the frame (`setVolume` with a duration, `babylonBackend.ts:317`), linear only |
-| Beat callbacks | heard clock | heard clock; `getOutputTimestamp` noise [U] | heard clock; `outputLatency` Safari 18.4+ [S5] | heard clock | from `currentTime`, uncorrected (`babylonBackend.ts:873-875`): early by the output latency |
-| Rhythm mode | full | full; `latencyHint` effect device-dependent [S5, U] | full where `outputLatency` exists | full | unavailable, one warning |
-| Evidence | S1–S5 in headless Chromium | none (owner: phone unverified) | not run | not run | — |
+| Containers, rules, bridges, stingers, stems | full | full | full | full | main-side logic the same; switches on bar boundaries |
+| Sample-exact streamed stems, group hold | full | full; prime time unverified | full | full | no: HTML5 streams, unaligned, one warning |
+| Stamped decoded starts | full | full | full | full | `waitTime` (`babylonBackend.ts:284-287`) |
+| Stamped fades with laws | full (M4-0) | full | full | full | linear, starting on the frame (`babylonBackend.ts:317`) |
+| Beat callbacks | heard clock | heard clock; `getOutputTimestamp` noise [U] | heard clock; `outputLatency` Safari 18.4+ [S5] | heard clock | `currentTime` (`babylonBackend.ts:873-875`), early by the output latency |
+| Rhythm mode | full | `latencyHint` effect device-dependent [S5, U] | where `outputLatency` exists; else `reliable` false | full | unavailable, one warning |
+| Evidence | S1–S5 headless Chromium | none (phone unverified) | not run | not run | — |
 
-Tauri: Windows WebView2 takes the Chromium column; macOS and Linux follow the WebKit column, or the fallback where 0157 puts it. WebKit and Firefox runs of the music scenes are owed as release checks, as M1's and M3's were.
+Tauri: WebView2 follows the Chromium column; macOS and Linux follow WebKit or the fallback, as 0157 places them. WebKit and Firefox runs are owed at milestone ends.
+
+**Mixed rates (S10).** A segment's stems share a file rate (C13); segments may differ. A seam between segments is a primed start on new rings, and the voice binds its rate at its first render (`voices.rs:677-680`), so 44.1 kHz and 48 kHz segments meet exactly at the seam. A splice (loop release, region change) only ever continues **the same file**, hence the same rate and channels. The worker never splices another file, so the core's stale-`rate_ratio` case can't arise.
 
 ## 11. Extension points
 
 | Extension | M4 provides |
 |---|---|
-| Range-request streaming | the worker holds whole files (owner decision 4); `primeGroup` already carries per-member bytes, so a range source replaces the bytes with a reader |
-| A music clock in the core | S4 measured 5–35 ns per quantum; the group-start event is the seam if stamped transitions ever need core-side timing |
-| Linked outgoing records | a stamped STOP or fade could name a group and shift by its slip, turning a late group's hole into a shift |
-| Group hold on starve | the gate's group table could also hold every member while one starves, removing the bar-long resync |
-| Cross-file splice at a loop end | the core's splice takes any content (S1 Q4: exact with ≥ 325 frames of lead); needs a worker op to continue with another file |
-| Worker-side encoded cache | keep closed music files in the worker for re-primes of the same segment, trading memory for fetches |
-| Tempo ramps | the grid maths takes a ramp segment (integral of tempo); deferred by the record |
-| Signal-driven ducking | M5; duck ramps on music buses can start on a grid point through M4-0's class G records |
-| Free clip arrangement | deferred by the owner; segments and groups are the runtime it would compile to |
+| Range-request streaming | `primeGroup` carries per-member bytes or a cache reference; a range reader replaces them |
+| Core music clock | 5–35 ns per quantum [S4]; group events are the seam |
+| Linked outgoing records | a non-member record could name a group and shift by its slip, closing a late start's hole |
+| Cross-file splice at a loop end | the core's splice takes any content (S1 Q4); needs a worker op and the same rate |
+| Tempo ramps | grid maths integrates a ramp segment; deferred by the record |
+| Signal-driven ducking (M5) | duck ramps on music buses can start on a grid point as class G records |
+| Free clip arrangement | segments and groups are the runtime it would compile to |
 
 ## 12. Where M4 follows or differs from industry practice
 
 | Area | Follows | Differs, and why |
 |---|---|---|
-| Structure | Wwise: segments, playlist and switch containers, transition matrix, stingers, pre-entry and post-exit [S0] | tempo and metre maps inside a segment (FMOD's markers), the owner's "both, as one model" |
-| Rule precedence | Wwise: specificity, then the nearest common parent's table | first listed wins inside a tier, with a validator warning |
-| Transition timing | Wwise exit points (immediate, beat, bar, grid, cue, exit cue) and fade offsets; Godot's beat-length fades | the look-ahead is measured per session (Ê), not a designer value per track |
-| Stream starts | Wwise/FMOD prefetch before a scheduled start [U] | prime-then-stamp with a worklet-side primed bit and a core group gate, because stems are separate rings fed by a worker |
-| Fades | sample-accurate in the voice (Wwise, FMOD) [U] | curve laws at control rate with linear interpolation, cheap in wasm (S4) |
-| Clock and callbacks | Quartz: quantised scheduling at sample offsets; FMOD/Wwise beat, bar and marker callbacks | callbacks fire in the frame the beat is **heard**, with the heard time; Wwise and FMOD deliver render-time events [S0, U] |
-| Missed callbacks | — | coalesced to one per kind with `missed: n` (no burst after a hidden tab) |
-| Rhythm games | Unity `dspTime` practice: input timestamps against the audio clock, per-device calibration [S0] | a project setting with calibration built in |
-| Loops with conditions | FMOD's conditional loop regions | the condition is read one commit point before the pass ends |
+| Structure | Wwise: segments, playlist and switch containers, a transition matrix, stingers, pre-entry and post-exit [S0] | tempo and metre maps inside a segment (FMOD), the owner's "both, as one model" |
+| Precedence | Wwise: specificity, then the nearest common parent | first listed wins inside a tier, with a validator warning |
+| Transition timing | Wwise's exit points and fade offsets; Godot's beat fades | the look-ahead is measured (Ê), not a designer value |
+| Stream starts | prefetch before a scheduled start [U] | prime-then-stamp, a worklet-side primed flag, a core gate and a hold on starve: stems are separate rings fed by one worker |
+| Fades | sample-accurate in the voice [U] | curve laws at control rate, cheap in wasm [S4] |
+| Clock and callbacks | Quartz scheduling at sample offsets; FMOD/Wwise beat, bar and marker callbacks | fired in the frame the beat is heard, with the heard time [S3] |
+| Missed callbacks | — | coalesced, with `missed` and `skippedCues` |
+| Rhythm | Unity `dspTime` practice: timestamps against the audio clock, calibration per device [S0] | a project setting with calibration built in |
+| Loops with conditions | FMOD conditional loop regions | read one commit point before the pass ends |
+
+## 13. Resolutions of the senior engineer's round-2A review
+
+### 13.1 Issues 1–16
+
+| # | Issue | Resolution |
+|---|---|---|
+| 1 | The slot can't carry the due bit, curve state and group | **Taken** (R4): due, gated and group index in `flags2`; curve link in the spare byte; a 255-entry curve pool; the group table is its own region with membership (§4.3, §4.4, §6) |
+| 2 | A fade-in specified as FADE on `gain` 0 | **Taken with changes** (R5): the fade-in stays a FADE, on the `fade` ramp, from a PLAY flagged to start at 0; `gain` stays free for automation (§3.2, §4.4) |
+| 3 | Stamped records of a voice that hasn't started | **Taken, extended** (R10): held voices' records stay queued, aren't counted late, and are rebased by the slip at start and after a hold (§3.6) |
+| 4 | Every prime re-fetches the encoded bytes | **Taken** (R16): a per-instance worker cache, with an eviction bound (§4.2; open point 1) |
+| 5 | A refusal that can never resolve | **Taken** (R14): permanent refusals with N and M; temporary ones retry at each allowed point (§4.1) |
+| 6 | Starve resync details | **Superseded** (R11): a core group hold with a 1 s give-up replaces the next-bar resync and P12 (§4.3) |
+| 7 | `timeAt` minus calibration | **Taken** (R18): `timeAt` is raw; `judged` subtracts (§4.6) |
+| 8 | Kinks and the golden reference | **Taken** (R6): u defined at k and at each boundary; the seam tolerance is stated (§4.4) |
+| 9 | Ê double counts Δ̄; hidden and cold samples | **Taken** (R12, R16): Ê excludes Δ̄ and isn't sampled while hidden; the cache removes cold samples (§4.2) |
+| 10 | The core gives up on a group | **Taken** (R11): 1 s after the stamp or 1 s held; abandon reported (§4.3) |
+| 11 | ÷ 1.45 is soft; allowances from measurements | **Taken** (R23): high from measured deltas, default and low est.; the factor marked est. (intro, §7.2) |
+| 12 | Pitch on `AudioSource` and `EventOptions` too | **Taken**, as owner list item 2 (C13) |
+| 13 | Music seek has no API | **Taken**: internal only (§3.9); public seek is owner list item 4 |
+| 14 | `skippedCues` | **Taken** (R20, §4.5, C15) |
+| 15 | Hidden tab under `mute` | **Open**: owner list item 5 (§3.8) |
+| 16 | Four stingers is a format limit | **Taken** (R20, §3.4) |
+
+### 13.2 Their contract statuses
+
+| Their status | Resolution |
+|---|---|
+| S1 partly (guide figure missing) | §4.1 table "least delay" |
+| S2 partly (virtual members, held records, give-up, membership) | §4.3 table and rules; §3.6 |
+| S3 met (permanent refusal) | §4.1 refusals |
+| S4 partly (tolerances, largest correction) | §4.5 "Tolerances", "Corrections" |
+| S5 met | — ([API §4.4] recomputes the worst case for R7) |
+| S6 partly (group table, curve state, wasm size) | §4.3, §6 (curve pool, group region, mixer +10–14 KB) |
+| S7 met; 10% gate | §7.4 |
+| S8 met | §8 |
+| S9 mostly (resume gap under `mute`) | §3.8: ≤ one bar + lead; owner list item 5 |
+| S10 mostly (44.1/48 splice) | §10 "Mixed rates" |
+| S12 met (the name) | R17: `engine.AudioMusic` (§4.5) |
+| S13 partly (sanity rule, clamp, glitches) | §4.6 |
+| S14 mostly (tail refusal) | §3.5: one warning, the loop goes on |
+| C1 event 4 | **Taken** (§2.3, §8) |
+| C12 disagreement | **Taken**, theirs (R18) |
+
+## Owner list (open; my recommendations)
+
+These come from the rulings' owner list; I don't decide them.
+1. **Estimate and reserve:** I recommend 20%, because M3 drew none of its 14 reserve days.
+2. **No pitch on music** (pitch automation on tracks, plus `pitch` on `AudioSource` and `EventOptions` ignored for music): **take it.** The beat clock, loop prediction and group hold need rate 1, and Wwise music tracks don't pitch.
+3. **`handle.onMusic(kind, fn)`** (+0.5 d): **take it.** Otherwise a script-played music event gets no callbacks.
+4. **Public seek** (`handle.music.seek(position)`, +1.5 d): **take it.** Wwise seeks on music events and FMOD sets timeline position, and the internal path (§3.9) exists.
+5. **Hidden tab under `mute`:** **commit ahead as under `play`.** Music resumes in place; the cost is holding a second set of rings while silent.
+6. **Starve behaviour (R11):** **keep the group hold.** A brief dip of the whole music is better than one stem permanently out of step, and it needs no extra rings.
 
 ## Open points for the coordinator
 
-1. **Stamped PLAY doesn't split the quantum.** The record's revision 2 ("every stamped record splits, not only gain records", citing `voices.rs:310-325`) and the brief's gotcha say PLAY splits. In the code PLAY is written to its slot at once and starts inside `render_range` at its offset (`scheduler.rs:38-40, 57, 218-221`; `voices.rs:375-396`); only STOP, SET_PARAMS, FADE, SET_PAUSED, SEEK, SET_LOOP and SET_VOICE_FX are queued and split. M4-0's scope is those records; PLAY needs no change. S4's README was right on this point. This shrinks M4-0 slightly; the record's correction note should be amended.
-2. **Lead formula.** The record's lead max(horizon, 1.25 × EMA) and its deadline T − L − Δ̄ conflict when the EMA is small: the stamp needs L + Δ̄ after priming ends. This design uses lead = 1.25 Ê + L + Δ̄ with Ê seeded at 40 ms, so the first lead is still the record's 100 ms. The coordinator should confirm this reading.
-3. **Default and low worst-case allowances.** The record's 0.06 / 0.04 ms worst allowances were sized for 8 and 4 rings. With 12 and 8 music rings the worst scene models at ≈ 53 / 40 µs reference (est.), below the 50% headroom the spike asked for on default and at zero headroom on low. Music sits inside the voice cap, so totals don't grow; this is a tripwire, and the build log should record raising them to ≈ 0.08 / 0.06 ms.
-4. **Cue coalescing drops names.** "Each callback kind fires once for the latest, with `missed: n`" loses the names of skipped custom cues, which game logic may key on. The API might add the skipped cue names to the coalesced event (senior engineer's ground; owner's call).
-5. **Refusal then retry.** A pool refusal here refuses one grid point and retries at the next allowed point once rings return; a stinger is dropped. The record says "refuses ... keeps the current music"; the retry is this design's reading.
-6. **Hidden tab under `mute`.** The record re-plans on resume under `mute` and commits ahead only under `play`. Running the `play` path under `mute` too costs nothing audible and keeps playlists stepping, so the resume lands in the right place. Behaviour change: owner's call.
-7. **Stem starvation mid-piece** skews a group permanently, as a slipped start did; the gate covers starts only. This design resyncs at the next bar. A core-side group hold on starve (§11) is more core work; priority is the owner's.
-8. **Music tracks can't carry pitch automation** (or the beat clock and loop prediction break). That is a validation rule in the format (C13), a scope restriction the owner should see.
+1. **R16's lifetime cache is unbounded by design.** "Keep every file an instance has opened until it ends" grows with the event's size: a switch over 4 segments × 8 MP3 stems is ≈ 141 MiB in the worker. I applied the ruling with a bound: past the preset's encoded threshold (48 / 96 / 160 MiB, est.), the least recently closed file is dropped and re-fetched on its next prime. That keeps the ruling's intent (no fetch for a segment that plays again soon) without an out-of-memory path on low. Confirm, or rule a different bound.
