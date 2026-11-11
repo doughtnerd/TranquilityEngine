@@ -28,14 +28,14 @@ export class AudioListener extends Component {
    * null goes back to estimating it from the node's motion.
    */
   setVelocity(v: Vec3Like | null): void {
-    // D3 owns the body (the Doppler pass reads the override from the listener frame); K4 stores the value.
+    // The audio system hands the override to the listener frame; the Doppler pass writes it (or the estimate) to `frame.vel*`.
     if (v && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)) {
       this.overridden.set(v.x, v.y, v.z);
       this._velocityOverride = this.overridden;
     } else this._velocityOverride = null;
   }
 
-  /** @internal The audio system, each frame: the listener velocity the Doppler pass estimated (0 until D3). */
+  /** @internal The audio system, each frame: the listener velocity the Doppler pass wrote to the frame (the estimate, or the override). */
   _noteVelocity(x: number, y: number, z: number): void {
     if (this.estimated.x !== x || this.estimated.y !== y || this.estimated.z !== z) this.estimated.set(x, y, z);
   }

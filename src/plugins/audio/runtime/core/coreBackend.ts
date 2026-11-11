@@ -993,6 +993,16 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.writer.setParams(((t.gen[i]! << 16) | i) >>> 0, SET_PARAMS_MASK_PITCH, 0, this.sentPitch(i), 0, 0, 0, 0, this.clockMap.rampFrames());
   }
 
+  /** @internal D3 `AudioSource.velocity`: voice `id`'s velocity (the estimate, or `setVelocity`'s value) into `out`; false when the voice is gone. */
+  _velocityOf(id: number, out: { x: number; y: number; z: number }): boolean {
+    const i = this.slot(id);
+    if (i < 0) return false;
+    out.x = this.doppler.velX[i]!;
+    out.y = this.doppler.velY[i]!;
+    out.z = this.doppler.velZ[i]!;
+    return true;
+  }
+
   /** @internal K0 `AudioVoice.setVelocity` on a core voice: the source's velocity from physics (Doppler, D3). */
   _setVelocity(id: number, v: Vec3Like | null): void {
     const i = this.slot(id);
