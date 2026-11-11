@@ -114,6 +114,21 @@ pub fn region_bytes(p: &InitParams) -> usize {
     stream_count(p) * RING_BYTES
 }
 
+/// ADR 0162 R16 (§5.2): frames of a wide (3-16 channel) ring.
+pub const WIDE_RING_FRAMES: usize = wire::STREAM_RING_FRAMES_WIDE as usize;
+/// Frames in one chunk of a wide stream (128 KB at 16 channels).
+pub const WIDE_CHUNK_FRAMES: usize = wire::STREAM_WIDE_CHUNK_FRAMES as usize;
+/// Channels a wide ring stores.
+pub const WIDE_CHANNELS: usize = wire::STREAM_MAX_CHANNELS as usize;
+/// Bytes of one wide ring's storage: the ring, a chunk's tail and the seek fade's copy, 16 channels
+/// of f32 (C8: 16 × (16,384 + 2,048 + 1,536) × 4 B = 1.22 MiB).
+pub const WIDE_RING_BYTES: usize = WIDE_CHANNELS * (WIDE_RING_FRAMES + WIDE_CHUNK_FRAMES + FADE_TAIL_FRAMES) * 4;
+
+/// The `Wide` region's size (C8): `max_wide` wide rings. K2 lays it out; B4 gives it its ring class.
+pub const fn wide_region_bytes(p: &InitParams) -> usize {
+    p.max_wide as usize * WIDE_RING_BYTES
+}
+
 /// A ring's phase for its voice (see the module notes).
 pub mod phase {
     pub const WAITING: u8 = 0;

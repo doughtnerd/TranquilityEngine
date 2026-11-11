@@ -23,7 +23,10 @@
 //!
 //! **Render** ([`mixdown`], once per quantum after the voices): voices have mixed into their bus's
 //! stereo buffer (a voice whose bus index isn't configured goes to bus 0, the root, as main's remap
-//! does). Then, deepest bus first: the effect chain (`fx.rs`, K5; reverb sends feed the shared
+//! does). Then, deepest bus first: the **pre-effects input hook** (ADR 0162 K2: `bed::decode_into`,
+//! `zones::add_returns`, `sends::add_aux` add the bus's bed decodes, zone returns and aux sends into
+//! its input, so its effects, snapshot, gain, meter and ducking apply to them; no-ops until A4, C3
+//! and C4), the effect chain (`fx.rs`, K5; reverb sends feed the shared
 //! convolver's input), the snapshot low-pass, the gain ramp, the meter (`meters.rs`), and the sum
 //! into the parent's buffer, or into the output for a root. Then the shared reverb's wet signal is
 //! added to the output (`audio_dsp::convolver`, A2.2b), then the MASTER gain ramp, and last the
@@ -501,6 +504,10 @@ pub fn mixdown(core: &mut Core) {
     let output: *mut [f32] = output;
     let reverb: &mut [u8] = &mut regions.reverb[..];
     let reverb: *mut [u8] = reverb;
+    // ADR 0162 K2: the regions the pre-effects input hook reads.
+    let beds: *mut [u8] = &mut regions.beds[..];
+    let zones: *mut [u8] = &mut regions.zones[..];
+    let fx_pool: *mut [u8] = &mut regions.fx[..];
     // ADR 0158 E2: the buses' automation, or `None` when no bus has bindings (the M1 path).
     let autos: Option<*mut [crate::automation::BusAuto]> = crate::automation::bus_entries(&mut regions.automation[..]).map(|a| a as *mut _);
     let v = view(regions);
@@ -508,6 +515,8 @@ pub fn mixdown(core: &mut Core) {
     // `v` views (Layout), so these views don't alias it.
     let (out_l, out_r) = unsafe { &mut *output }[..2 * QUANTUM].split_at_mut(QUANTUM);
     let reverb = unsafe { &mut *reverb };
+    // SAFETY: the beds, zones and fx regions are distinct from every region viewed here (Layout).
+    let (beds, zones, fx_pool) = unsafe { (&mut *beds, &mut *zones, &mut *fx_pool) };
     let count = (v.area.count as usize).min(v.slots.len());
     let sample_rate = v.area.sample_rate;
     let decay = v.area.meter_decay;
@@ -521,6 +530,10 @@ pub fn mixdown(core: &mut Core) {
         let auto = autos.and_then(|a| unsafe { (&*a).get(b) }).filter(|a| a.count != 0);
         {
             let (l, r) = slot.buf.split_at_mut(QUANTUM);
+            // ADR 0162 K2: the pre-effects input hook (no-ops until A4, C3 and C4).
+            crate::bed::decode_into(beds, b, l, r);
+            crate::zones::add_returns(zones, b, l, r);
+            crate::sends::add_aux(fx_pool, b, l, r);
             sent |= slot.fx.process(l, r, rev_l, rev_r);
             let lp = match auto {
                 Some(a) if a.targets & crate::automation::has::LOWPASS != 0 => slot.lp.value.min(a.lp),

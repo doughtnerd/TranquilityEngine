@@ -23,6 +23,12 @@
 //!   pending record is cleared, and with `keepClips = 0` every clip too and the arena reclaimed
 //!   ([`reset`]). It's the first record of a rebuild's REPLAY, and A1.4 sends `RESET 0` when the
 //!   last World is released.
+//! - ADR 0162 (K2): SET_VOICE_FX is handed to `fxpool::set_voice_fx` with its frame (stamped like
+//!   SET_PARAMS; D1 schedules it), BED_CONFIG to `bed::configure`, ZONE_CONFIG to
+//!   `zones::configure` and LISTENER to `listener::set`, each at once. BED_CONFIG with more than
+//!   `MAX_BEDS` slots or arrays past its length, and ZONE_CONFIG with more than `MAX_ZONE_SLOTS`
+//!   slots or slots past its length, refuse the batch like any malformed record. The handlers parse
+//!   and drop until their tasks fill them (A4, C3, D1, B3). RESET also calls their `reset`.
 //! - `slack = firstFrame - currentFrame` is noted for STATUS `minSlackFrames`.
 //!
 //! **asap vs stamped** (architecture §4.3). `frameOffset == 0xFFFFFFFF` is asap: PLAY starts at
@@ -45,7 +51,7 @@ use audio_wire::generated::{self as wire, BatchHeader, Envelope, Fade, Master, P
 use crate::core::{Core, Regions};
 use crate::counters::flag;
 use crate::layout::{PENDING_CAPACITY, PENDING_RECORD_BYTES};
-use crate::{automation, bus, status, voices};
+use crate::{automation, bed, bus, fxpool, listener, status, voices, zones};
 
 /// One stamped record waiting for its frame: 48 bytes (`PENDING_RECORD_BYTES`), all-zero valid.
 /// STOP, SET_PARAMS, FADE and SET_PAUSED only (PLAY is written to its slot at once).
@@ -173,6 +179,10 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::CURVES => wire::Curves::FIXED_END,
             wire::op::PARAM => wire::Param::FIXED_END,
             wire::op::BUS_AUTOMATE => wire::BusAutomate::FIXED_END,
+            wire::op::SET_VOICE_FX => wire::SetVoiceFx::FIXED_END,
+            wire::op::BED_CONFIG => wire::BedConfig::FIXED_END,
+            wire::op::ZONE_CONFIG => wire::ZoneConfig::FIXED_END,
+            wire::op::LISTENER => wire::Listener::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
         if len < min || off + len > msg.len() {
@@ -183,6 +193,8 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::BUS_MIX => bus::mix_is_well_formed(msg, off, len),
             wire::op::AUTOMATE | wire::op::BUS_AUTOMATE => automation::bindings_is_well_formed(msg, off, len),
             wire::op::CURVES => automation::curves_is_well_formed(msg, off, len),
+            wire::op::BED_CONFIG => bed::config_is_well_formed(msg, off, len),
+            wire::op::ZONE_CONFIG => zones::config_is_well_formed(msg, off, len),
             _ => true,
         };
         if !entries_fit {
@@ -275,6 +287,18 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
                     automation::param(core, &p);
                 }
             }
+            wire::op::SET_VOICE_FX => {
+                if let Ok((fx, _)) = wire::SetVoiceFx::read(msg, off) {
+                    fxpool::set_voice_fx(core, &fx, at);
+                }
+            }
+            wire::op::BED_CONFIG => bed::configure(core, msg, off),
+            wire::op::ZONE_CONFIG => zones::configure(core, msg, off),
+            wire::op::LISTENER => {
+                if let Ok((l, _)) = wire::Listener::read(msg, off) {
+                    listener::set(core, &l);
+                }
+            }
             wire::op::BUS_CONFIG => bus::configure(core, msg, off),
             wire::op::BUS_MIX => bus::mix(core, msg, off),
             wire::op::MASTER => {
@@ -327,6 +351,11 @@ pub fn reset(core: &mut Core, keep_clips: bool) {
     }
     // B3: every voice is gone, so every ring is freed (main closes its streams with them).
     core.streams_mut().clear();
+    // ADR 0162 §4.2: beds, zone slots, the pool and the listener (no-ops until A4, C3, D1, B3).
+    bed::reset(core);
+    zones::reset(core);
+    fxpool::reset(core);
+    listener::reset(core);
 }
 
 /// `firstFrame + frameOffset` as an absolute frame (a negative or fractional `firstFrame` rounds,
