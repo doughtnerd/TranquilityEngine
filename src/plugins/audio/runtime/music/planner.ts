@@ -587,5 +587,9 @@ export function planTick(player: MusicPlayer, f: MusicFrame): void {
     stamp(player, p, f);
     return;
   }
-  if ((!ready && p.at < horizon + frameIntervalSeconds(f) - EPS) || (ready && p.at < horizon - EPS)) replan(player, p, f);
+  if ((!ready && p.at < horizon + frameIntervalSeconds(f) - EPS) || (ready && p.at < horizon - EPS)) {
+    replan(player, p, f);
+    // A primed group re-planned with the short lead (now + L) stamps in this frame, or it would be inside L again.
+    if (ready && player.planned === p && p.run.state !== "cancelled" && p.at >= horizon - EPS && pollPrimed(p.run, f)) stamp(player, p, f);
+  }
 }
