@@ -6,11 +6,20 @@
 //
 // ADR 0162 (§4.3, contract C7) grows the header to 144 B (`bedVoices` … `workZones` at 112..143) and appends the
 // `beds`, `zones` and `zoneEvents` sections after `peaks`; `validateM3` and `readM3` handle them (leaf L-A1b).
+//
+// ADR 0166 (api-and-models §4.4, contract H4): the header grows to 176 B (`musicRingCount` at 144 through `voiceSplits`
+// at 168, `reserved` at 172) and the `musicRings` and `groupStarts` sections follow `zoneEvents`; `validateM4` and
+// `readM4` handle them (leaf L-Z4a). This is the one place the whole M4 STATUS is parsed: P10 and K1 read the fields of
+// the returned `StatusBlock` (`musicRingsOpen`, `streamStartsLate`, `groupsLate`, `groupsHeld`, `groupsAbandoned`,
+// `curvePoolFull`, `maxSlipFrames`, `splitQuanta`, `voiceSplits`, `musicRings[]`, `groupStarts[]`) and nobody edits the
+// reader again.
 import {
   ErrorCode,
   Kind,
   MAGIC,
   MAX_BEDS,
+  MAX_GROUP_STARTS_PER_BLOCK,
+  MAX_MUSIC_RINGS,
   MAX_ZONE_EVENTS_PER_BLOCK,
   MAX_ZONE_SLOTS,
   STATUS_HEADER_BYTES,
@@ -19,6 +28,8 @@ import {
   type StatusBedsItem,
   type StatusBlock,
   type StatusClipEventsItem,
+  type StatusGroupStartsItem,
+  type StatusMusicRingsItem,
   type StatusPeaksItem,
   type StatusPlayheadsItem,
   type StatusStreamEventsItem,
@@ -35,6 +46,9 @@ const MAX_PEAKS = 32;
 const BED_ITEM_BYTES = 8;
 const ZONE_ITEM_BYTES = 12;
 const ZONE_EVENT_ITEM_BYTES = 4;
+/** ADR 0166 §4.4: the M4 sections' item sizes. */
+const MUSIC_RING_ITEM_BYTES = 8;
+const GROUP_START_ITEM_BYTES = 16;
 
 export class StatusReader {
   /** The reused block. Its section arrays keep their capacity between reads; `length` is set per read. */
@@ -47,6 +61,8 @@ export class StatusReader {
   private readonly bedItems: StatusBedsItem[] = [];
   private readonly zoneItems: StatusZonesItem[] = [];
   private readonly zoneEventItems: StatusZoneEventsItem[] = [];
+  private readonly musicRingItems: StatusMusicRingsItem[] = [];
+  private readonly groupStartItems: StatusGroupStartsItem[] = [];
 
   constructor() {
     for (let i = 0; i < MAX_PLAYHEADS; i++) this.playheadItems.push({ id: 0, clipFrame: 0 });
@@ -56,6 +72,8 @@ export class StatusReader {
     for (let i = 0; i < MAX_BEDS; i++) this.bedItems.push({ bus: 0, voices: 0, work: 0 });
     for (let i = 0; i < MAX_ZONE_SLOTS; i++) this.zoneItems.push({ kernelId: 0, state: 0, pad: 0, quantaSinceInput: 0, wetPeak: 0 });
     for (let i = 0; i < MAX_ZONE_EVENTS_PER_BLOCK; i++) this.zoneEventItems.push({ slot: 0, code: 0, reserved: 0 });
+    for (let i = 0; i < MAX_MUSIC_RINGS; i++) this.musicRingItems.push({ streamId: 0, epochFlags: 0 });
+    for (let i = 0; i < MAX_GROUP_STARTS_PER_BLOCK; i++) this.groupStartItems.push({ groupId: 0, flags: 0, slipFrames: 0, startFrameLo: 0, startFrameHi: 0 });
     this.block = {
       currentFrame: 0,
       dateMs: 0,
@@ -152,7 +170,8 @@ export class StatusReader {
     cur += streamEventCount * 8;
     if (busCount > MAX_PEAKS || busCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: peaks overrun");
     cur += busCount * 8;
-    this.validateM3(view, cur, limit);
+    cur = this.validateM3(view, cur, limit);
+    this.validateM4(view, cur, limit);
 
     const b = this.block;
     b.currentFrame = view.getFloat64(16, true);
@@ -214,7 +233,8 @@ export class StatusReader {
       peaks[i] = item;
     }
     peaks.length = busCount;
-    this.readM3(view, cur);
+    cur = this.readM3(view, cur);
+    this.readM4(view, cur);
     return b;
   }
 
@@ -223,9 +243,10 @@ export class StatusReader {
    * at most `MAX_ZONE_SLOTS`, 12 B each) and `zoneEvents` (`zoneEventCount` at 124, at most
    * `MAX_ZONE_EVENTS_PER_BLOCK`, 4 B each) sections, which start at `at` (just after `peaks`), against their caps and
    * `limit`, throwing `WireError(OVERSIZE, "STATUS: <section> overrun")` as `readStatus` does. Touches nothing: it runs
-   * before the block is written, so a refused message leaves the block as it was.
+   * before the block is written, so a refused message leaves the block as it was. Returns the offset just after
+   * `zoneEvents`, where the M4 sections start.
    */
-  private validateM3(view: DataView, at: number, limit: number): void {
+  private validateM3(view: DataView, at: number, limit: number): number {
     const bedCount = view.getUint16(114, true);
     const zoneCount = view.getUint16(128, true);
     const zoneEventCount = view.getUint16(124, true);
@@ -237,6 +258,7 @@ export class StatusReader {
     if (zoneEventCount > MAX_ZONE_EVENTS_PER_BLOCK || zoneEventCount * ZONE_EVENT_ITEM_BYTES > limit - cur) {
       throw new WireError(ErrorCode.OVERSIZE, "STATUS: zoneEvents overrun");
     }
+    return cur + zoneEventCount * ZONE_EVENT_ITEM_BYTES;
   }
 
   /**
@@ -244,9 +266,9 @@ export class StatusReader {
    * `zonesActive`, `zonesRinging`, `bedsRefused`, `m3Shed`, `zoneUsedKB`, `workBed`, `workZones`; the three counts
    * are the section lengths) into `block`, then the three sections from `at` into the preallocated `bedItems`,
    * `zoneItems` and `zoneEventItems`, setting each section array's `length`. Allocates nothing. `validateM3` has
-   * already checked the bounds.
+   * already checked the bounds. Returns the offset just after `zoneEvents`.
    */
-  private readM3(view: DataView, at: number): void {
+  private readM3(view: DataView, at: number): number {
     const b = this.block;
     b.bedVoices = view.getUint16(112, true);
     b.fxVoices = view.getUint16(116, true);
@@ -292,6 +314,33 @@ export class StatusReader {
       zoneEvents[i] = item;
     }
     zoneEvents.length = zoneEventCount;
+    return cur;
+  }
+
+  /**
+   * ADR 0166 §4.4 (L-Z4a): checks the `musicRings` (`musicRingCount` at 144, at most `MAX_MUSIC_RINGS`, 8 B each) and
+   * `groupStarts` (`groupStartCount` at 146, at most `MAX_GROUP_STARTS_PER_BLOCK`, 16 B each) sections, which start at
+   * `at` (just after `zoneEvents`), against their caps and `limit`, throwing `WireError(OVERSIZE, "STATUS: musicRings
+   * overrun")` or `"STATUS: groupStarts overrun"` exactly as the generated `readStatus` does. Touches nothing.
+   */
+  private validateM4(view: DataView, at: number, limit: number): void {
+    // L-Z4a: stub.
+    void view;
+    void at;
+    void limit;
+  }
+
+  /**
+   * ADR 0166 §4.4 (L-Z4a): reads the header's M4 fields into `block` (`musicRingsOpen` 148, `streamStartsLate` 150,
+   * `groupsLate` 152, `groupsHeld` 154, `groupsAbandoned` 156, `curvePoolFull` 158, u16 each; `maxSlipFrames` 160,
+   * `splitQuanta` 164, `voiceSplits` 168, `reserved` 172, u32 each; the two counts at 144 and 146 are the section
+   * lengths), then the two sections from `at` into the preallocated `musicRingItems` and `groupStartItems`, setting
+   * each array's `length`. Allocates nothing. `validateM4` has already checked the bounds.
+   */
+  private readM4(view: DataView, at: number): void {
+    // L-Z4a: stub.
+    void view;
+    void at;
   }
 
   private ids(view: DataView, at: number, count: number, out: number[]): number {

@@ -19,12 +19,19 @@
 // docs/design/0162-audio-spatial/api-and-models.md §4.2 and contracts C2-C5) and PLAY's bit 7 (`PLAY_FLAGS_AMBISONIC`,
 // passed in `PlayArgs.flags`). Like the others they write what they are given, from preallocated scratch records;
 // K4 and the feature tasks decide when to send them.
+//
+// ADR 0166 M4 (Z4, leaf L-Z4b; api-and-models §4.1, §4.2, §3.2): PLAY's `gate` (`playGated`, `PlayArgs.gate`) and bit 8
+// `fadeZero` (`PlayArgs.fadeZero`); the `shape` word on FADE, SET_PARAMS and STOP, which makes them 28, 60 and 24 B
+// (`fadeShaped`, `stopShaped`, `setParams`' `shape`), each stampable; and a gate group's records stay in one BATCH.
 import {
   ASAP,
   AUTOMATE_BINDINGS_FIXED_END,
   BATCH_HEADER_FLAGS_OVERFLOWED,
   BATCH_MAX_BYTES,
   FADE_FLAGS_STOP_AT_END,
+  PLAY_FLAGS_FADE_ZERO,
+  packGate,
+  packShape,
   SET_PARAMS_MASK_SCORE,
   SET_PARAMS_MASK_FLAGS,
   SET_PARAMS_FLAGS_PANNER_SHIFT,
@@ -113,6 +120,13 @@ export interface PlayArgs {
   lpHz: number;
   score: number;
   startOffsetFrames: number;
+  /**
+   * ADR 0166 §4.1: the PLAY `gate` word as `packGate(groupId, groupSize)` makes it (0 = ungated). Optional: absent is 0.
+   * Prefer `playGated`, which packs it and keeps the group in one BATCH.
+   */
+  gate?: number;
+  /** ADR 0166 §4.1: start with the `fade` ramp at 0 (sets `PLAY_FLAGS_FADE_ZERO`, bit 8, on top of `flags`). */
+  fadeZero?: boolean;
 }
 
 /**
@@ -315,7 +329,7 @@ export class CommandWriter implements VoiceCommandSink {
   }
 
   /** SET_PARAMS (§4.2); `mask` is `SET_PARAMS_MASK_*`, other fields only matter where the mask says. `bus` only with the bus bit. */
-  setParams(id: number, mask: number, gain: number, pitch: number, dirX: number, dirY: number, dirZ: number, lpHz: number, rampFrames: number, bus = 0): void {
+  setParams(id: number, mask: number, gain: number, pitch: number, dirX: number, dirY: number, dirZ: number, lpHz: number, rampFrames: number, bus = 0, shape = 0, atFrame?: number): void {
     const r = this.paramsRec;
     r.voiceId = id;
     r.mask = mask;
@@ -330,6 +344,30 @@ export class CommandWriter implements VoiceCommandSink {
     const at = this.begin(56);
     if (at < 0) return;
     this.end(at, writeSetParams(this.view, at, r));
+  }
+
+  /**
+   * ADR 0166 §4.1 (L-Z4b): PLAY as one member of gate group `groupId` (1..1023) of `groupSize` members (1..64, clamped by
+   * `packGate`): `args.gate` becomes `packGate(groupId, groupSize)`. Stamped at `atFrame` like `play`. Every member of a
+   * group must be written with the same `atFrame` and the same `groupSize`; `flush` keeps the records of one `groupId`
+   * together in one BATCH (a group never straddles two).
+   */
+  playGated(args: PlayArgs, groupId: number, groupSize: number, atFrame?: number): void {
+    throw new Error(`L-Z4b: playGated not implemented (${args.voiceId}, ${groupId}, ${groupSize}, ${atFrame})`);
+  }
+
+  /**
+   * ADR 0166 §4.2 (L-Z4b): FADE `id`'s `fade` ramp to `to` over `seconds` with `law` (`FadeLaw`) starting at phase
+   * `startPhase` (0..1, packed u0.16 by `packShape`), stamped at `atFrame` (absolute audio frame) or asap when omitted;
+   * `stopAtEnd` sets `FADE_FLAGS_STOP_AT_END`. A 28-byte FADE.
+   */
+  fadeShaped(id: number, to: number, seconds: number, law: number, startPhase: number, atFrame?: number, stopAtEnd = false): void {
+    throw new Error(`L-Z4b: fadeShaped not implemented (${id}, ${to}, ${seconds}, ${law}, ${startPhase}, ${atFrame}, ${stopAtEnd})`);
+  }
+
+  /** ADR 0166 §4.2 (L-Z4b): STOP `id` with a `fadeSeconds` fade of `law` from `startPhase`, stamped at `atFrame` or asap. A 24-byte STOP. */
+  stopShaped(id: number, fadeSeconds: number, law: number, startPhase: number, atFrame?: number): void {
+    throw new Error(`L-Z4b: stopShaped not implemented (${id}, ${fadeSeconds}, ${law}, ${startPhase}, ${atFrame})`);
   }
 
   /** SET_MIXED `id` (§4.2, A3.1): mixed or virtual; a promote carries the voice's gain, direction and `lpHz`. Always asap. */
