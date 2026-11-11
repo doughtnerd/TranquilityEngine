@@ -483,8 +483,8 @@ impl Beds {
         if let Some(s) = range.clone().find(|&s| h.slots[s].state == slot_state::ACTIVE && h.slots[s].host == bus) {
             return Some(s);
         }
+        // A free private decoder is silent: it was reset when it went idle (or by RESET, or never used).
         let s = range.clone().find(|&s| h.slots[s].state == slot_state::FREE)?;
-        reset_slot(self, s);
         self.header().slots[s] = SlotState { host: bus, state: slot_state::ACTIVE, since: u32::MAX, ..SlotState::default() };
         Some(s)
     }
@@ -697,7 +697,8 @@ pub fn begin_quantum(core: &mut Core) {
     let mut n = 0usize;
     {
         let Some(mut beds) = view(&mut core.regions_mut().beds[..]) else { return };
-        for s in 0..slot_count(beds.header_ref()) {
+        // (A private decoder's host is its voice's configured bus: always mixed, never dropped.)
+        for s in 0..beds.header_ref().max_beds as usize {
             if beds.header_ref().slots[s].dirty != 0 {
                 // Encoded but not decoded (its host wasn't mixed): drop it.
                 beds.acc(s).iter_mut().for_each(|c| c.fill(0.0));
@@ -776,14 +777,12 @@ fn report(core: &mut Core) {
             continue;
         }
         st.decoded_last = 0;
-        if s >= max_beds {
-            work = work.saturating_add(st.work_last);
-            continue;
-        }
-        voices += st.voices_last as u32;
         work = work.saturating_add(st.work_last);
-        items[active] = BedStatus { bus: st.host, voices: st.voices_last, work: st.work_last };
-        active += 1;
+        if s < max_beds && active < MAX_SLOTS {
+            voices += st.voices_last as u32;
+            items[active] = BedStatus { bus: st.host, voices: st.voices_last, work: st.work_last };
+            active += 1;
+        }
     }
     let c = &mut crate::status::counters_mut(core).spatial;
     c.bed_voices = voices.min(u16::MAX as u32) as u16;

@@ -120,17 +120,14 @@ fn an_lp_hz_jump_on_a_playing_voice_ramps_click_free() {
 }
 
 #[test]
-fn hp_hz_removes_dc_and_ambisonic_voices_are_never_filtered() {
+fn hp_hz_removes_dc() {
     let mut m = mixer();
     m.submit(&[dc(V1, 0, 0.0), voice_fx(V1, wire::SET_VOICE_FX_MASK_HP_HZ, 400.0, [0.0; 4], 0)]);
     m.render_n(20);
     let (l, _) = m.render();
     assert!(peak(&l) < 1e-3, "400 Hz high-pass removes DC: {}", peak(&l));
-    // An ambisonic voice (PLAY bit 7) ignores lpHz and hpHz.
-    let plain = render(vec![play_lp(V1, NYQUIST, MIXED | LOOP, OFF)], 6);
-    let amb = MIXED | LOOP | wire::PLAY_FLAGS_AMBISONIC;
-    let filtered = render(vec![play_lp(V1, NYQUIST, amb, 300.0), voice_fx(V1, wire::SET_VOICE_FX_MASK_HP_HZ, 400.0, [0.0; 4], 0)], 6);
-    assert_eq!(bits(&filtered), bits(&plain));
+    // An ambisonic voice (PLAY bit 7) ignores lpHz and hpHz: it decodes through a bed or a private
+    // decoder (B3), which this core lacks, so `tests/ambisonic_voices.rs` holds that check.
 }
 
 #[test]

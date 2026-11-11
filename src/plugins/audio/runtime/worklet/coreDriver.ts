@@ -78,7 +78,7 @@ const QUANTUM = 128;
  * then one slot (16-channel accumulator + decoder) per bed or private decoder. P is the HRTF's partition count at the rate
  * (2 up to 48 kHz, 4 from 88.2 kHz); at other counts MagLS can't run and a slot is its accumulator alone.
  */
-const BEDS_HEADER_BYTES = 20_672;
+const BEDS_HEADER_BYTES = 20_800;
 const BEDS_SCRATCH_BYTES = 33_792;
 const BEDS_FILTER_BYTES: Readonly<Record<number, number>> = { 2: 65_600, 4: 131_136 };
 const BEDS_SLOT_BYTES: Readonly<Record<number, number>> = { 2: 49_216, 4: 81_984 };
