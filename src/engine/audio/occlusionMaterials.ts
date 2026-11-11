@@ -146,3 +146,208 @@ export function resolveDefaultMaterial(raw: unknown, table: readonly OccluderMat
   problems.push(`${key}: unknown material "${shown}"; using "${fallback}".`);
   return fallback;
 }
+
+// --- D2b (ADR 0162 §2.2, §1.5): compile, combine, cache ---------------------------------------------------------------
+
+/** The top of the cutoff range: a transparent hit, and where `openness` blends a cutoff to (log scale). */
+export const CUTOFF_OPEN_HZ = 22000;
+/** A cutoff at or above this means the low-pass is off. */
+export const CUTOFF_OFF_HZ = 20000;
+/** Several hits on one ray never take more than this many dB (§2.2). */
+export const COMBINED_FLOOR_DB = -60;
+
+/** What one ray hit costs: the gain through it in dB (<= 0), the low-pass cutoff in Hz, and the wet (reverb send) fraction it removes, 0..1. */
+export interface HitCost {
+  transmissionDb: number;
+  cutoffHz: number;
+  wetOcclusion: number;
+}
+
+/** A `HitCost` that also says which material produced it (debug rows). */
+export interface ResolvedHit extends HitCost {
+  material: string;
+}
+
+/** The per-wall part of an `AudioOccluder` the compile needs (a structural subset of the component). */
+export interface OccluderParams {
+  /** Material name; empty is the project's default material. */
+  material: string;
+  transmissionTrimDb: number;
+  cutoffScale: number;
+  /** 0 closed .. 1 open (transparent). */
+  openness: number;
+}
+
+const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+const OPEN_LOG = Math.log(CUTOFF_OPEN_HZ);
+
+/** A hit that changes nothing. Writes into `out`. */
+export function setTransparent(out: HitCost): HitCost {
+  out.transmissionDb = 0;
+  out.cutoffHz = CUTOFF_OPEN_HZ;
+  out.wetOcclusion = 0;
+  return out;
+}
+
+/**
+ * Compile one hit into `out` (no allocation): the material's `transmissionDb` plus `trimDb`, its cutoff times
+ * `cutoffScale` (clamped to 100..22000), its `wetOcclusion`; then `openness` (clamped 0..1) blends dB toward 0, the
+ * cutoff toward 22000 in log scale, and the wet fraction toward 0 (1 is fully transparent). An undefined material and
+ * the `none` row are transparent whatever the trims. Non-finite trims count as 0 and 1.
+ */
+export function compileHit(material: Readonly<OccluderMaterial> | undefined, trimDb: number, cutoffScale: number, openness: number, out: HitCost): HitCost {
+  if (!material || material.name === "none") return setTransparent(out);
+  const trim = Number.isFinite(trimDb) ? trimDb : 0;
+  const scale = Number.isFinite(cutoffScale) && cutoffScale > 0 ? cutoffScale : 1;
+  const open = Number.isFinite(openness) ? clamp(openness, 0, 1) : 0;
+  const closed = 1 - open;
+  const db = clamp(material.transmissionDb + trim, MATERIAL_LIMITS.transmissionDb[0], 0);
+  const hz = clamp(material.cutoffHz * scale, MATERIAL_LIMITS.cutoffHz[0], CUTOFF_OPEN_HZ);
+  out.transmissionDb = db * closed;
+  out.cutoffHz = open === 0 ? hz : Math.exp(Math.log(hz) * closed + OPEN_LOG * open);
+  out.wetOcclusion = material.wetOcclusion * closed;
+  return out;
+}
+
+/**
+ * The cost of several hits on one ray (§2.2): dB add (floored at -60), the cutoff is the lowest, wet fractions combine
+ * as `1 - prod(1 - w)` (each wall removes its share of what is left). Reuse one accumulator: `reset()`, `add()` per hit.
+ */
+export class HitAccumulator implements HitCost {
+  transmissionDb = 0;
+  cutoffHz = CUTOFF_OPEN_HZ;
+  wetOcclusion = 0;
+  /** Hits added since `reset()`. */
+  hits = 0;
+  reset(): this {
+    this.transmissionDb = 0;
+    this.cutoffHz = CUTOFF_OPEN_HZ;
+    this.wetOcclusion = 0;
+    this.hits = 0;
+    return this;
+  }
+  add(hit: HitCost): this {
+    this.hits++;
+    this.transmissionDb = Math.max(COMBINED_FLOOR_DB, this.transmissionDb + hit.transmissionDb);
+    if (hit.cutoffHz < this.cutoffHz) this.cutoffHz = hit.cutoffHz;
+    this.wetOcclusion = 1 - (1 - this.wetOcclusion) * (1 - hit.wetOcclusion);
+    return this;
+  }
+}
+
+/** Linear gain of `db` (0 dB is 1). */
+export const dbToGain = (db: number): number => Math.pow(10, db / 20);
+
+/** The node shape the cache needs (a `GameObject`): a collider's owner. */
+export interface OcclusionNode {
+  readonly name: string;
+  readonly parent: OcclusionNode | null;
+}
+
+interface CacheEntry {
+  /** The occluder that applied when the entry was made (null: none up the chain, the default material). */
+  occluder: OccluderParams | null;
+  /** What the base was compiled from: a change to any of these recompiles it. */
+  material: string;
+  trim: number;
+  scale: number;
+  /** The material compiled with trim and scale at openness 0. */
+  baseDb: number;
+  baseHz: number;
+  baseWet: number;
+  /** Resolved material name ("none" included). */
+  name: string;
+}
+
+/**
+ * Cache of compiled hits per collider node: node -> nearest occluder and its material, compiled once (ADR 0162 §1.5,
+ * §2.2). `find` is the nearest-occluder lookup (the plugin's `nearestOccluder`). `configure` (settings change)
+ * and `invalidate` (an occluder added, removed, enabled, disabled or a node reparented) drop every entry; edits to an
+ * occluder's material, trims or scale are noticed per lookup, and `openness` is applied live (a door script moves it
+ * every frame). `resolve` allocates nothing on a cached node.
+ */
+export class OccluderCache<N extends OcclusionNode = OcclusionNode> {
+  private readonly entries = new Map<N, CacheEntry>();
+  private table = new Map<string, Readonly<OccluderMaterial>>();
+  private defaultName = DEFAULT_MATERIAL_NAME;
+
+  constructor(
+    private readonly find: (node: N) => OccluderParams | null,
+    table: readonly OccluderMaterial[] = BUILTIN_MATERIALS,
+    defaultMaterial: string = DEFAULT_MATERIAL_NAME,
+  ) {
+    this.configure(table, defaultMaterial);
+  }
+
+  /** New settings (`audio.occlusion.materials`, `defaultMaterial`): the cache is dropped. */
+  configure(table: readonly OccluderMaterial[], defaultMaterial: string): void {
+    this.table = new Map(table.map((m) => [m.name, m] as const));
+    this.defaultName = defaultMaterial;
+    this.entries.clear();
+  }
+
+  /** Drop every entry (component added/removed/enabled, hierarchy change; D2a also calls it every 120 frames). */
+  invalidate(): void {
+    this.entries.clear();
+  }
+
+  /** Cached node count (tests, debug). */
+  get size(): number {
+    return this.entries.size;
+  }
+
+  /**
+   * What a hit on a collider of `node` costs, into `out` (`out.material` is the material's name): the nearest enabled
+   * occluder up the parent chain applies, else the project's default material with no trims and openness 0.
+   */
+  resolve(node: N, out: ResolvedHit): ResolvedHit {
+    let e = this.entries.get(node);
+    if (!e) {
+      e = { occluder: this.find(node), material: "\0", trim: NaN, scale: NaN, baseDb: 0, baseHz: CUTOFF_OPEN_HZ, baseWet: 0, name: "" };
+      this.entries.set(node, e);
+    }
+    const o = e.occluder;
+    const material = o ? o.material : "";
+    const trim = o ? o.transmissionTrimDb : 0;
+    const scale = o ? o.cutoffScale : 1;
+    if (material !== e.material || trim !== e.trim || scale !== e.scale) {
+      e.material = material;
+      e.trim = trim;
+      e.scale = scale;
+      e.name = material !== "" && this.table.has(material) ? material : this.defaultName;
+      compileHit(this.table.get(e.name), trim, scale, 0, out);
+      e.baseDb = out.transmissionDb;
+      e.baseHz = out.cutoffHz;
+      e.baseWet = out.wetOcclusion;
+    }
+    out.material = e.name;
+    const open = o ? o.openness : 0;
+    if (!(open > 0) || e.name === "none") {
+      out.transmissionDb = e.baseDb;
+      out.cutoffHz = e.baseHz;
+      out.wetOcclusion = e.baseWet;
+      return out;
+    }
+    // Openness blends the base (already trimmed and scaled) the same way `compileHit` does.
+    const k = clamp(open, 0, 1), closed = 1 - k;
+    out.transmissionDb = e.baseDb * closed;
+    out.cutoffHz = Math.exp(Math.log(e.baseHz) * closed + OPEN_LOG * k);
+    out.wetOcclusion = e.baseWet * closed;
+    return out;
+  }
+}
+
+/** The debug label of a collider (`AudioDebugInfo.voices[].occlusion.collider`): its node's name, "(unnamed)", or null without a node. */
+export function colliderLabel(node: { readonly name: string } | null | undefined): string | null {
+  return node ? node.name || "(unnamed)" : null;
+}
+
+/**
+ * Why occlusion is inert in a World, for `AudioDebugInfo.occlusion.note` (§1.6): "" when a 3D physics service runs,
+ * "2D world" when only a 2D one does, else "no 3D physics service". Inputs are whether the World's `myco.physics3d` /
+ * `myco.physics2d` services are running.
+ */
+export function occlusionNote(has3dService: boolean, has2dService: boolean): string {
+  if (has3dService) return "";
+  return has2dService ? "2D world" : "no 3D physics service";
+}
