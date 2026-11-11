@@ -1,6 +1,6 @@
 # 0162. Spatial audio (M3): distant voices share a 3rd-order ambisonic bed, sources are occluded through physics rays on a frame budget, and reverb zones run on M1's convolver
 
-- **Status:** Proposed (revision 3: the RFC round in `docs/rfc/0162/` and the owner's decisions folded in; the technical design comes next)
+- **Status:** Accepted (direction, 2026-11-11; revision 3: the RFC round in `docs/rfc/0162/` and the owner's decisions folded in. The schedule comes from the technical design in `docs/design/0162-audio-spatial/`, which may refine this record in a revision section)
 - **Date:** 2026-11-11
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
