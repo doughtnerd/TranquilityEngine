@@ -18,7 +18,7 @@ function rig() {
 }
 
 describe("fakeDecoder music groups (L-D1ba)", () => {
-  it.skip("primeGroup opens each member: streamOpened per member, then one groupOpened listing them without errors", () => {
+  it("primeGroup opens each member: streamOpened per member, then one groupOpened listing them without errors", () => {
     const { fake, streams, music } = rig();
     fake.primeGroup({ instance: 1, group: 7, retarget: false, members: [member(11), member(12)] });
     expect(streams.map((r) => r.type)).toEqual(["streamOpened", "streamOpened"]);
@@ -27,7 +27,7 @@ describe("fakeDecoder music groups (L-D1ba)", () => {
     expect(fake.openGroups().get(7)?.size).toBe(2);
   });
 
-  it.skip("retarget restarts open members at the new startFrame and epoch, and opens members not open yet", () => {
+  it("retarget restarts open members at the new startFrame and epoch, and opens members not open yet", () => {
     const { fake, music } = rig();
     fake.primeGroup({ instance: 1, group: 7, retarget: false, members: [member(11), member(12)] });
     fake.primeGroup({ instance: 1, group: 7, retarget: true, members: [member(11, { epoch: 2, startFrame: 960 }), member(13, { epoch: 2 })] });
@@ -37,14 +37,14 @@ describe("fakeDecoder music groups (L-D1ba)", () => {
     expect(music.filter((r) => r.type === "groupOpened")).toHaveLength(2);
   });
 
-  it.skip("retarget ignores an epoch that is not newer than the member's", () => {
+  it("retarget ignores an epoch that is not newer than the member's", () => {
     const { fake } = rig();
     fake.primeGroup({ instance: 1, group: 7, retarget: false, members: [member(11, { epoch: 5 })] });
     fake.primeGroup({ instance: 1, group: 7, retarget: true, members: [member(11, { epoch: 5, startFrame: 960 })] });
     expect(fake.openGroups().get(7)!.get(11)).toMatchObject({ epoch: 5, startFrame: 0 });
   });
 
-  it.skip("cancelGroup emits streamClosed for each member, forgets the group, and ignores an unknown group", () => {
+  it("cancelGroup emits streamClosed for each member, forgets the group, and ignores an unknown group", () => {
     const { fake, streams } = rig();
     fake.primeGroup({ instance: 1, group: 7, retarget: false, members: [member(11), member(12)] });
     streams.length = 0;
@@ -55,7 +55,7 @@ describe("fakeDecoder music groups (L-D1ba)", () => {
     expect(streams).toHaveLength(2);
   });
 
-  it.skip("records each primeGroup message without its members' bytes", () => {
+  it("records each primeGroup message without its members' bytes", () => {
     const { fake } = rig();
     fake.primeGroup({ instance: 1, group: 7, retarget: false, members: [member(11)], protect: ["a.wav"] });
     expect(fake.primed).toEqual([{ instance: 1, group: 7, retarget: false, protect: ["a.wav"] }]);
