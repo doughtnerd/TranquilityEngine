@@ -1,7 +1,7 @@
 //! The measured cases. Each is a `Case`: one `step()` is one 128-frame quantum of the audio
 //! thread's work for that scene (or, for `prep_atonce`, one whole IR preparation).
 
-use crate::conv::{plan_stagger, Prep, Scratch, Sched, Zone, M1_SCHED};
+use crate::conv::{plan_stagger, plan_unique, Prep, Scratch, Sched, Zone, M1_SCHED};
 use crate::util::*;
 use audio_dsp::biquad::Biquad;
 use audio_dsp::convolver as m1;
@@ -31,8 +31,9 @@ pub trait Case {
 pub enum Kind {
     Single { secs: u32, shape: Shape },
     M1Real,
-    Zones { n: usize, secs: u32, staggered: bool },
-    Blend { secs: u32, staggered: bool },
+    /// `stagger`: 0 M1's schedule in every zone, 1 load-balanced plan, 2 transform-unique plan.
+    Zones { n: usize, secs: u32, stagger: u8 },
+    Blend { secs: u32, stagger: u8 },
     PrepAtOnce { secs: u32 },
     PrepSpread { secs: u32, units: usize },
     Event { n: usize, mode: EventMode },
@@ -72,16 +73,17 @@ pub fn specs() -> Vec<Spec> {
     add("m1_real_1.8s".into(), "single", 1, Kind::M1Real);
     for secs in [2u32, 4] {
         for n in [1usize, 2, 4, 8] {
-            for staggered in [false, true] {
-                let tag = if staggered { "staggered" } else { "unstaggered" };
-                add(format!("zones_{n}x{secs}s_{tag}"), "zones", n, Kind::Zones { n, secs, staggered });
+            for (stagger, tag) in [(0u8, "unstaggered"), (1, "staggered"), (2, "unique")] {
+                if stagger == 2 && n < 4 {
+                    continue;
+                }
+                add(format!("zones_{n}x{secs}s_{tag}"), "zones", n, Kind::Zones { n, secs, stagger });
             }
         }
     }
     for secs in [2u32, 4] {
-        for staggered in [false, true] {
-            let tag = if staggered { "staggered" } else { "unstaggered" };
-            add(format!("blend_2x{secs}s_{tag}"), "blend", 2, Kind::Blend { secs, staggered });
+        for (stagger, tag) in [(0u8, "unstaggered"), (1, "staggered")] {
+            add(format!("blend_2x{secs}s_{tag}"), "blend", 2, Kind::Blend { secs, stagger });
         }
     }
     for secs in [1u32, 2, 4] {
@@ -108,10 +110,10 @@ pub fn specs() -> Vec<Spec> {
 pub fn make(spec: &Spec, run: u32) -> Box<dyn Case> {
     let r = run as u64 * 1000;
     match spec.kind.clone() {
-        Kind::Single { secs, shape } => Box::new(ZonesCase::new(1, secs, false, false, r, Some(shape))),
+        Kind::Single { secs, shape } => Box::new(ZonesCase::new(1, secs, 0, false, r, Some(shape))),
         Kind::M1Real => Box::new(M1RealCase::new(r)),
-        Kind::Zones { n, secs, staggered } => Box::new(ZonesCase::new(n, secs, staggered, false, r, None)),
-        Kind::Blend { secs, staggered } => Box::new(ZonesCase::new(2, secs, staggered, true, r, None)),
+        Kind::Zones { n, secs, stagger } => Box::new(ZonesCase::new(n, secs, stagger, false, r, None)),
+        Kind::Blend { secs, stagger } => Box::new(ZonesCase::new(2, secs, stagger, true, r, None)),
         Kind::PrepAtOnce { secs } => Box::new(PrepAtOnce::new(secs, r)),
         Kind::PrepSpread { secs, units } => Box::new(PrepSpread::new(secs, units, r)),
         Kind::Event { n, mode } => Box::new(EventCase::new(n, mode, r)),
@@ -172,11 +174,15 @@ pub struct ZonesCase {
 }
 
 impl ZonesCase {
-    pub fn new(n: usize, secs: u32, staggered: bool, blend: bool, seed: u64, shape: Option<Shape>) -> Self {
+    pub fn new(n: usize, secs: u32, stagger: u8, blend: bool, seed: u64, shape: Option<Shape>) -> Self {
         let mut sc = Scratch::new();
         let frames = (SR as usize) * secs as usize;
         let parts: Vec<usize> = vec![audio_dsp::convolver::tail_partitions(frames); n];
-        let scheds = if staggered { plan_stagger(&parts) } else { vec![M1_SCHED; n] };
+        let scheds = match stagger {
+            0 => vec![M1_SCHED; n],
+            1 => plan_stagger(&parts),
+            _ => plan_unique(&parts),
+        };
         let mut zones = Vec::new();
         let mut sources = Vec::new();
         for z in 0..n {
@@ -223,7 +229,13 @@ impl Case for ZonesCase {
     }
     fn note(&self) -> String {
         let t = crate::conv::transforms_per_slot(&self.scheds);
-        format!("tail FFTs in busiest quantum {}", t.iter().max().unwrap())
+        let parts = vec![self.zones[0].tail; self.zones.len()];
+        let l = crate::conv::modelled_slot_load(&self.scheds, &parts);
+        format!(
+            "tail FFTs in busiest quantum {}; modelled busiest quantum {:.1} FFT-eq",
+            t.iter().max().unwrap(),
+            l.iter().cloned().fold(0.0, f64::max)
+        )
     }
 }
 
@@ -346,6 +358,20 @@ impl Case for PrepSpread {
 
 // ----------------------------------------------------------------------------------------------
 
+#[inline]
+fn add(dst: &mut [f32; Q], src: &[f32]) {
+    for (d, s) in dst.iter_mut().zip(src) {
+        *d += *s;
+    }
+}
+
+#[inline]
+fn add_scaled(dst: &mut [f32; Q], src: &[f32; Q], g: f32) {
+    for (d, s) in dst.iter_mut().zip(src) {
+        *d += g * *s;
+    }
+}
+
 /// Per-event (per-`group`) effects. `n` instances of `VOICES_PER_INSTANCE` voices each. A voice's
 /// mixed stereo block (read from a 4 MB noise table at its own offset) is added to its
 /// instance's buffer; the instance's filter and sends then run.
@@ -391,42 +417,34 @@ impl EventCase {
         self.bus_r = [0.0; Q];
         self.rev_l = [0.0; Q];
         self.rev_r = [0.0; Q];
+        let len = self.table_l.len() - Q;
         for i in 0..self.n {
+            // Slice-based loops (bounds checked once), so wasm vectorises them like the mixer's.
             if self.mode == EventMode::RouteOnly {
                 for v in 0..VOICES_PER_INSTANCE {
-                    let len = self.table_l.len() - Q;
                     let off = ((i * VOICES_PER_INSTANCE + v) * 4099 + self.q as usize * Q) % len;
-                    for k in 0..Q {
-                        self.bus_l[k] += self.table_l[off + k];
-                        self.bus_r[k] += self.table_r[off + k];
-                    }
+                    add(&mut self.bus_l, &self.table_l[off..off + Q]);
+                    add(&mut self.bus_r, &self.table_r[off..off + Q]);
                 }
                 continue;
             }
             self.inst_l = [0.0; Q];
             self.inst_r = [0.0; Q];
             for v in 0..VOICES_PER_INSTANCE {
-                let len = self.table_l.len() - Q;
                 let off = ((i * VOICES_PER_INSTANCE + v) * 4099 + self.q as usize * Q) % len;
-                for k in 0..Q {
-                    self.inst_l[k] += self.table_l[off + k];
-                    self.inst_r[k] += self.table_r[off + k];
-                }
+                add(&mut self.inst_l, &self.table_l[off..off + Q]);
+                add(&mut self.inst_r, &self.table_r[off..off + Q]);
             }
             if self.mode == EventMode::FilterSendAuto {
                 self.filters[i].set_lowpass(SR, Self::cutoff(i, self.q), 1.0);
             }
             self.filters[i].process(&mut self.inst_l, &mut self.inst_r);
-            for k in 0..Q {
-                self.bus_l[k] += self.inst_l[k];
-                self.bus_r[k] += self.inst_r[k];
-            }
+            add(&mut self.bus_l, &self.inst_l);
+            add(&mut self.bus_r, &self.inst_r);
             if self.mode != EventMode::Filter {
                 let s = self.sends[i];
-                for k in 0..Q {
-                    self.rev_l[k] += s * self.inst_l[k];
-                    self.rev_r[k] += s * self.inst_r[k];
-                }
+                add_scaled(&mut self.rev_l, &self.inst_l, s);
+                add_scaled(&mut self.rev_r, &self.inst_r, s);
             }
         }
         self.q += 1;

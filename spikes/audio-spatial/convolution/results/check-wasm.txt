@@ -1,0 +1,39 @@
+PASS owned-buffer zone == audio_dsp::convolver::process, bit-identical, M1's 1.8 s IR, 1875 quanta (5 s)
+     memory: zone 2950144 B + shared scratch 65536 B; M1 region_bytes = 3015744 B
+PASS 1 s noise IR, M1 schedule: rel RMS 2.61e-7 (max abs / peak 3.10e-7) vs direct f64; 4533 of 96000 output samples x 2 ch, 2.0 s of input
+PASS 1 s noise IR, staggered (5,11),(7,13): rel RMS 2.61e-7 (max abs / peak 3.10e-7) vs direct f64; 4533 of 96000 output samples x 2 ch, 2.0 s of input
+PASS 1 s room IR, M1 schedule: rel RMS 2.44e-7 (max abs / peak 2.90e-7) vs direct f64; 4533 of 96000 output samples x 2 ch, 2.0 s of input
+PASS 1 s room IR, staggered (5,11),(7,13): rel RMS 2.44e-7 (max abs / peak 2.90e-7) vs direct f64; 4533 of 96000 output samples x 2 ch, 2.0 s of input
+PASS 2 s noise IR, M1 schedule: rel RMS 2.74e-7 (max abs / peak 3.22e-7) vs direct f64; 6533 of 144000 output samples x 2 ch, 3.0 s of input
+PASS 2 s noise IR, staggered (5,11),(7,13): rel RMS 2.74e-7 (max abs / peak 3.22e-7) vs direct f64; 6533 of 144000 output samples x 2 ch, 3.0 s of input
+PASS 2 s room IR, M1 schedule: rel RMS 2.65e-7 (max abs / peak 2.47e-7) vs direct f64; 6533 of 144000 output samples x 2 ch, 3.0 s of input
+PASS 2 s room IR, staggered (5,11),(7,13): rel RMS 2.65e-7 (max abs / peak 2.47e-7) vs direct f64; 6533 of 144000 output samples x 2 ch, 3.0 s of input
+PASS 8 zones x 2 s, staggered == unstaggered, bit-identical, 1500 quanta (4.0 s)
+     busiest quantum, measured tail FFTs (4,096-point, fwd+inv, both channels): unstaggered 8, staggered 4; floor for 8 zones is 2
+     1 zone(s), 2 s: busiest quantum, tail FFTs / modelled FFT-equivalents: M1 schedule in all 1 / 1.2; load-balanced plan 1 / 1.0; transform-unique plan 1 / 1.0
+       load-balanced schedules [[(0, 10), (11, 15)]]; unique [[(0, 10), (11, 15)]]
+     2 zone(s), 2 s: busiest quantum, tail FFTs / modelled FFT-equivalents: M1 schedule in all 2 / 2.4; load-balanced plan 1 / 1.2; transform-unique plan 1 / 1.2
+       load-balanced schedules [[(0, 11), (12, 15)], [(1, 5), (6, 10)]]; unique [[(0, 11), (12, 15)], [(1, 5), (6, 10)]]
+     4 zone(s), 2 s: busiest quantum, tail FFTs / modelled FFT-equivalents: M1 schedule in all 4 / 4.7; load-balanced plan 2 / 2.4; transform-unique plan 1 / 2.9
+       load-balanced schedules [[(0, 15), (1, 14)], [(2, 13), (3, 8)], [(0, 15), (9, 14)], [(1, 6), (7, 12)]]; unique [[(0, 15), (1, 14)], [(3, 12), (4, 7)], [(8, 11), (6, 9)], [(10, 13), (2, 5)]]
+     8 zone(s), 2 s: busiest quantum, tail FFTs / modelled FFT-equivalents: M1 schedule in all 8 / 9.4; load-balanced plan 4 / 4.7; transform-unique plan 2 / 7.4
+       load-balanced schedules [[(0, 15), (1, 14)], [(2, 13), (3, 12)], [(4, 11), (0, 15)], [(1, 14), (5, 10)], [(2, 13), (0, 15)], [(3, 12), (1, 14)], [(0, 15), (2, 7)], [(8, 13), (1, 14)]]; unique [[(0, 15), (1, 14)], [(2, 13), (3, 12)], [(4, 11), (0, 15)], [(1, 14), (5, 10)], [(2, 13), (3, 12)], [(6, 8), (8, 10)], [(4, 6), (9, 11)], [(5, 7), (7, 9)]]
+PASS 1 s IR, extreme schedule [(0, 2), (13, 15)] == M1 schedule, bit-identical
+PASS 1 s IR, extreme schedule [(13, 15), (0, 2)] == M1 schedule, bit-identical
+PASS 1 s IR, extreme schedule [(7, 9), (2, 10)] == M1 schedule, bit-identical
+PASS blend, staggered, 2 x 2 s, 1010 quanta (2.7 s: one full A-B-A cycle): rel RMS 2.62e-7 vs direct conv of the gained inputs (f64); 5919 of 129280 samples x 2 ch
+PASS blend: max sample step 0.0034 = 1.00 x the pure zones' max step 0.0034 (bound 1.5 x; smooth resonant IRs, tone inputs)
+PASS blend control: a hard cut A to B steps 0.0285 on average = 8.5 x the pure zones' max step, so the check can see a discontinuity
+PASS switch (U=1): prep of a 2 s IR took 178 units, finished at quantum Some(177) (475 ms of audio); zone B takes input from quantum 187
+PASS switch (U=1): spread-prepared spectra == at-once spectra, bit-identical
+PASS switch (U=1), spread prep then 375-quantum crossfade, 1500 quanta: rel RMS 2.63e-7 vs direct conv of the gained inputs (f64); 8533 of 192000 samples x 2 ch
+PASS switch (U=1): max sample step 0.0034 = 1.00 x the pure zones' max step 0.0034 (bound 1.5 x; smooth resonant IRs, tone inputs)
+PASS switch (U=1) control: a hard cut A to B steps 0.0285 on average = 8.5 x the pure zones' max step, so the check can see a discontinuity
+PASS switch (U=4): prep of a 2 s IR took 178 units, finished at quantum Some(44) (120 ms of audio); zone B takes input from quantum 54
+PASS switch (U=4): spread-prepared spectra == at-once spectra, bit-identical
+PASS switch (U=4), spread prep then 375-quantum crossfade, 1500 quanta: rel RMS 2.66e-7 vs direct conv of the gained inputs (f64); 8533 of 192000 samples x 2 ch
+PASS switch (U=4): max sample step 0.0034 = 1.00 x the pure zones' max step 0.0034 (bound 1.5 x; smooth resonant IRs, tone inputs)
+PASS switch (U=4) control: a hard cut A to B steps 0.0285 on average = 8.5 x the pure zones' max step, so the check can see a discontinuity
+PASS event effects, 16 instances x 4 voices, 300 quanta: bus rel RMS 4.94e-7, reverb-send rel RMS 5.36e-7 vs scalar f64 direct-form biquad (bound 1e-5)
+0 failure(s)
+(wasm, 15.8 s, 0 failure(s))

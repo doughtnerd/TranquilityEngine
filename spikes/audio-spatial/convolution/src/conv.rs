@@ -60,6 +60,8 @@ fn multiply_add(acc: &mut [Complex32], x: &[Complex32], h: &[Complex32]) {
 /// One reverb zone: a stereo staged convolver with its own partition spectra and histories.
 pub struct Zone {
     pub frames: usize,
+    /// The normalisation scale baked into the spectra (set when the IR's rms pass completes).
+    pub scale: f32,
     pub head: usize,
     pub tail: usize,
     head_kernel: Vec<Complex32>,
@@ -84,6 +86,7 @@ impl Zone {
         let (head, tail) = (head_partitions(frames), tail_partitions(frames));
         Zone {
             frames,
+            scale: 1.0,
             head,
             tail,
             head_kernel: vec![ZERO; CH * HP * HB],
@@ -257,6 +260,7 @@ impl Prep {
                 scale *= libm::powf(10.0, GAIN_CALIBRATION * 0.05);
                 scale *= 44_100.0 / 48_000.0;
                 self.scale = scale;
+                self.zone.scale = scale;
             }
             return;
         }
@@ -299,45 +303,99 @@ impl Prep {
     }
 }
 
-/// Spreads the tail transforms of `n` zones over the 16-quantum cycle. `tail_parts[z]` is zone
-/// z's tail partition count (for the multiply-add load). Greedy over every `(f, i)` pair of every
-/// channel, in zone order: minimise the busiest quantum's load (transform = 1.0, one partition
-/// multiply-add = 0.06), then the sum of squares. Zone 0 gets M1's own schedule.
-pub fn plan_stagger(tail_parts: &[usize]) -> Vec<Sched> {
-    let mut load = [0.0f64; 16];
-    let mut out = Vec::new();
-    for &parts in tail_parts {
-        let mut sched = M1_SCHED;
-        for c in 0..2 {
-            let mut best: Option<(f64, f64, (u32, u32))> = None;
-            for f in 0..14u32 {
-                for i in f + 2..16 {
-                    let mut l = load;
-                    l[f as usize] += 1.0;
-                    l[i as usize] += 1.0;
-                    let slots = (i - f - 1) as f64;
-                    for s in f + 1..i {
-                        l[s as usize] += 0.06 * parts as f64 / slots;
-                    }
-                    let peak = l.iter().cloned().fold(0.0, f64::max);
-                    let sq: f64 = l.iter().map(|x| x * x).sum();
-                    if best.map_or(true, |(bp, bs, _)| peak < bp - 1e-9 || (peak < bp + 1e-9 && sq < bs - 1e-9)) {
-                        best = Some((peak, sq, (f, i)));
-                    }
-                }
-            }
-            let (f, i) = best.unwrap().2;
-            load[f as usize] += 1.0;
-            load[i as usize] += 1.0;
-            let slots = (i - f - 1) as f64;
-            for s in f + 1..i {
-                load[s as usize] += 0.06 * parts as f64 / slots;
-            }
-            sched[c] = (f, i);
-        }
-        out.push(sched);
+/// Cost model for the planner (native measurements, `examples/micro.rs`): a 4,096-point
+/// transform 1.0, one partition's multiply-add 0.055.
+const MAC_WEIGHT: f64 = 0.055;
+
+fn add_channel(load: &mut [f64; 16], count: &mut [u32; 16], f: u32, i: u32, parts: usize, sign: f64) {
+    load[f as usize] += sign;
+    load[i as usize] += sign;
+    if sign > 0.0 {
+        count[f as usize] += 1;
+        count[i as usize] += 1;
+    } else {
+        count[f as usize] -= 1;
+        count[i as usize] -= 1;
     }
-    out
+    let slots = (i - f - 1) as f64;
+    for s in f + 1..i {
+        load[s as usize] += sign * MAC_WEIGHT * parts as f64 / slots;
+    }
+}
+
+/// Spreads the tail work of zones over the 16-quantum cycle. `tail_parts[z]` is zone z's tail
+/// partition count (for the multiply-add load). Each channel needs a forward slot f and an
+/// inverse slot i (`f + 2 <= i <= 15`); the multiply-adds fill the slots between. Finds the
+/// smallest cap (in steps of 0.05 transform-equivalents) on any quantum's modelled load for which
+/// a depth-first search over the channels, in zone order, finds an assignment (each channel's
+/// pairs tried lowest resulting peak first; a node budget bounds each attempt). For one or two
+/// zones the result need not be M1's own schedule (the cap search only looks at the peak).
+pub fn plan_stagger(tail_parts: &[usize]) -> Vec<Sched> {
+    plan(tail_parts, false)
+}
+
+/// As [`plan_stagger`], but first priority is that no quantum carries more than the floor
+/// `ceil(4 N / 16)` of transforms (zones never share a tail quantum while `N <= 4`); the peak load
+/// comes second.
+pub fn plan_unique(tail_parts: &[usize]) -> Vec<Sched> {
+    plan(tail_parts, true)
+}
+
+fn plan(tail_parts: &[usize], unique: bool) -> Vec<Sched> {
+    let channels = tail_parts.len() * 2;
+    struct Search<'a> {
+        parts: &'a [usize],
+        channels: usize,
+        cap: f64,
+        count_cap: u32,
+        budget: u32,
+        out: Vec<(u32, u32)>,
+    }
+    fn dfs(s: &mut Search, ch: usize, load: &mut [f64; 16], count: &mut [u32; 16]) -> bool {
+        if ch == s.channels {
+            return true;
+        }
+        if s.budget == 0 {
+            return false;
+        }
+        s.budget -= 1;
+        let p = s.parts[ch / 2];
+        let mut cands: Vec<(f64, f64, u32, u32)> = Vec::new();
+        for f in 0..14u32 {
+            for i in f + 2..16 {
+                let mut l = *load;
+                let mut c = *count;
+                add_channel(&mut l, &mut c, f, i, p, 1.0);
+                let peak = l.iter().cloned().fold(0.0, f64::max);
+                if peak > s.cap + 1e-9 || c.iter().any(|&n| n > s.count_cap) {
+                    continue;
+                }
+                let sq: f64 = l.iter().map(|x| x * x).sum();
+                cands.push((peak, sq, f, i));
+            }
+        }
+        cands.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        for (_, _, f, i) in cands {
+            add_channel(load, count, f, i, p, 1.0);
+            s.out.push((f, i));
+            if dfs(s, ch + 1, load, count) {
+                return true;
+            }
+            s.out.pop();
+            add_channel(load, count, f, i, p, -1.0);
+        }
+        false
+    }
+    let total: f64 = tail_parts.iter().map(|&p| 4.0 + 2.0 * MAC_WEIGHT * p as f64).sum();
+    let mut cap = (total / 16.0 * 20.0).floor() / 20.0;
+    loop {
+        let count_cap = if unique { (channels * 2).div_ceil(16) as u32 } else { u32::MAX };
+        let mut s = Search { parts: tail_parts, channels, cap, count_cap, budget: 20_000, out: Vec::new() };
+        if dfs(&mut s, 0, &mut [0.0; 16], &mut [0; 16]) {
+            return s.out.chunks(2).map(|c| [c[0], c[1]]).collect();
+        }
+        cap += 0.05;
+    }
 }
 
 /// Transforms per quantum slot `s = (k+1) % 16` implied by schedules (deterministic accounting).
@@ -350,4 +408,16 @@ pub fn transforms_per_slot(scheds: &[Sched]) -> [u32; 16] {
         }
     }
     n
+}
+
+/// Modelled tail load per slot, in 4,096-point-transform equivalents (`MAC_WEIGHT` per partition
+/// multiply-add), for zones with `parts` tail partitions on `scheds`.
+pub fn modelled_slot_load(scheds: &[Sched], parts: &[usize]) -> [f64; 16] {
+    let (mut load, mut count) = ([0.0f64; 16], [0u32; 16]);
+    for (s, &p) in scheds.iter().zip(parts) {
+        for &(f, i) in s {
+            add_channel(&mut load, &mut count, f, i, p, 1.0);
+        }
+    }
+    load
 }

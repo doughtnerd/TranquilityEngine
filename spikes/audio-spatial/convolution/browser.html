@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>convolution spike (browser runner)</title>
+<script type="module">
+import { load, runBench, tableMarkdown, toJson, clockOverheadUs, quantile } from './bench_core.mjs';
+
+async function wasmBytes() {
+  return new Uint8Array(await (await fetch('wasm/convolution_spike.wasm')).arrayBuffer());
+}
+
+// Per-quantum timings of the wasm on this page's main thread (the same V8 as the AudioWorklet's).
+window.runMain = async ({ runs, quanta, filter }) => {
+  const api = await load(await wasmBytes());
+  const now = () => performance.now() * 1000;
+  const meta = { runner: `chromium main thread, crossOriginIsolated=${crossOriginIsolated}`, runs, quanta, clock_overhead_us: clockOverheadUs(now) };
+  const rows = runBench(api, api.catalog(), { runs, quanta, filter, now });
+  return { table: tableMarkdown(rows, meta), json: toJson(rows, meta), ua: navigator.userAgent };
+};
+
+// The same cases stepped once per process() call inside an AudioWorklet of an OfflineAudioContext.
+// The worklet has no clock, so this reports wall time per quantum of the whole render (graph
+// overhead included, measured with an empty processor) and the largest Date.now() gap between
+// two process() calls (1 ms resolution).
+window.runWorklet = async ({ runs, quanta, names }) => {
+  const bytes = await wasmBytes();
+  const api = await load(bytes);
+  const cat = api.catalog();
+  const out = [];
+  const render = async (id, run) => {
+    const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: quanta * 128, sampleRate: 48000 });
+    await ctx.audioWorklet.addModule('worklet_processor.js');
+    const node = new AudioWorkletNode(ctx, 'case-proc', { numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { wasm: bytes, id, run, quanta } });
+    const ready = new Promise((res) => (node.port.onmessage = (e) => e.data.type === 'ready' && res(e.data)));
+    const done = new Promise((res) => { node.port.onmessage = ((prev) => (e) => { prev(e); if (e.data.type === 'done') res(e.data); })(node.port.onmessage); });
+    node.connect(ctx.destination);
+    await ready;
+    const t0 = performance.now();
+    await ctx.startRendering();
+    const wall = performance.now() - t0;
+    const d = await done;
+    return { us: (wall * 1000) / quanta, gap: d.maxGapMs, prepMs: d.prepMs };
+  };
+  const base = [];
+  for (let r = 0; r < runs; r++) base.push((await render(-1, r)).us);
+  base.sort((a, b) => a - b);
+  out.push({ name: '(empty processor)', per: base, gap: [0], baseline: base[base.length >> 1] });
+  const baseline = base[base.length >> 1];
+  for (const name of names) {
+    const spec = cat.find((c) => c.name === name);
+    const per = [], gap = [];
+    for (let r = 0; r < runs; r++) { const x = await render(spec.id, r); per.push(x.us); gap.push(x.gap); }
+    per.sort((a, b) => a - b);
+    out.push({ name, per, gap, baseline });
+  }
+  return { rows: out, ua: navigator.userAgent };
+};
+window.ready = true;
+</script>
