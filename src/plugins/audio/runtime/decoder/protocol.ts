@@ -36,6 +36,12 @@ export interface ClipInfo {
    */
   readonly loopStartFrame?: number;
   readonly loopEndFrame?: number;
+  /**
+   * ADR 0162 §2.4 (B2): set when the decoder converted a FuMa file to AmbiX. The converted samples are scaled down
+   * into int16 headroom by this factor (√2 for orders 1-3), so main multiplies the clip's import volume by it. Absent
+   * (meaning 1) for every other clip.
+   */
+  readonly importGain?: number;
 }
 
 // --- Main to worker ----------------------------------------------------------------------------

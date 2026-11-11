@@ -164,6 +164,19 @@ export interface ClipRegistryDeps {
  * load failure's detail. 1-2 channel clips aren't checked here (a sidecar on one is ignored by the caller).
  * @internal
  */
+/** ADR 0162 §2.4 (B2): the import gain a FuMa clip's decode reported, by clip path (absent: 1). */
+const importGains = new Map<string, number>();
+const gainKey = (path: string): string => path.replace(/^asset:/, "").replace(/^\.?\//, "");
+
+/**
+ * ADR 0162 §2.4 (B2): the factor the decoder scaled a FuMa clip down by to keep it int16 (√2 for orders 1-3), which
+ * multiplies the clip's import volume; 1 for every other clip and before its decode reports.
+ * @internal
+ */
+export function ambisonicImportGain(path: string): number {
+  return importGains.get(gainKey(path)) ?? 1;
+}
+
 export function checkAmbisonic(path: string, channels: number, ambisonic: AmbisonicImport | null): { readonly order: 1 | 2 | 3 } | { readonly error: string } {
   if (!ambisonic) return { error: `${channels}-channel audio needs an ambisonic import setting (ADR 0162); multichannel mixes aren't supported` };
   const inferred = channels === 4 ? 1 : channels === 9 ? 2 : channels === 16 ? 3 : null;
@@ -483,6 +496,9 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
               fail(slot, "decode", checked.error); // nothing was begun yet; fail() also aborts this decode
               return;
             }
+            // B2: fold the FuMa headroom scale back into the clip's volume (ambisonicImportGain).
+            if (info.importGain !== undefined) importGains.set(gainKey(slot.path), info.importGain);
+            else importGains.delete(gainKey(slot.path));
           } else if (ambisonic) warnOnce(`${slot.path}#ambisonic`, `audio: "${slot.path}" has an ambisonic import setting but ${info.channels} channel${info.channels === 1 ? "" : "s"}; ignored (ADR 0162)`);
           if (!early || stale() || !info.lengthKnown || info.frames <= 0) return;
           if (startClip(slot, info.frames, info.channels, info.rate)) streamedFrames = info.frames;
