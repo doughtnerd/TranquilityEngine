@@ -8,12 +8,18 @@
 // (`readStatus`, which `CoreLink` runs before calling listeners, still builds a `StatusBlock` per block; that object
 // is the link's, not the mirror's.)
 import { MAX_BUSES } from "../../../../engine/audio/settings";
-import { MAX_BEDS, MAX_ZONE_SLOTS, type StatusBlock } from "../wire.generated";
+import { MAX_BEDS, MAX_MUSIC_RINGS, MAX_ZONE_SLOTS, type StatusBlock } from "../wire.generated";
 import type { CoreLink } from "./context";
 import type { VoiceTable } from "./voiceTable";
 
 /** @internal Clip and stream events held between frames before the oldest are dropped (and counted). */
 export const MIRROR_EVENT_CAPACITY = 1024;
+
+/** @internal ADR 0166 (§4.4, Z4): where `drainGroupStarts` sends the queued group-start reports (musicOps, P1, once per frame). */
+export interface MirrorGroupStartSink {
+  /** `flags`: bit0 late, bit1 held and resumed, bit2 abandoned; `startFrame` is the group's start frame (hi and lo joined). */
+  groupStart(groupId: number, flags: number, slipFrames: number, startFrame: number): void;
+}
 
 /** @internal Where `drainClipEvents` / `drainStreamEvents` send queued events (one long-lived object per owner). */
 export interface MirrorEventSink {
@@ -87,6 +93,23 @@ export class StatusMirror {
   readonly zoneWetPeak = new Float32Array(MAX_ZONE_SLOTS);
   zoneCount = 0;
 
+  // --- ADR 0166 (Z4; §4.4, H4): the M4 header fields (newest block; the cumulative ones are the core's running totals) ---
+  musicRingsOpen = 0;
+  streamStartsLate = 0;
+  groupsLate = 0;
+  groupsHeld = 0;
+  groupsAbandoned = 0;
+  curvePoolFull = 0;
+  maxSlipFrames = 0;
+  splitQuanta = 0;
+  voiceSplits = 0;
+
+  // --- ADR 0166 (§4.4): the `musicRings` level, newest block: every open music ring, so a lost report repairs itself ---
+  /** Per open ring: its stream id and `epochFlags` (bits 0-29 epoch, 30 primed, 31 bound); `musicRingCount` valid. */
+  readonly musicRingStream = new Uint32Array(MAX_MUSIC_RINGS);
+  readonly musicRingEpochFlags = new Uint32Array(MAX_MUSIC_RINGS);
+  musicRingCount = 0;
+
   // --- Peaks (§4.3 `peaks`, newest block; index = bus) ---
   readonly peakL = new Float32Array(MAX_BUSES);
   readonly peakR = new Float32Array(MAX_BUSES);
@@ -109,6 +132,13 @@ export class StatusMirror {
   private readonly zoneEventCodes = new Uint8Array(MIRROR_EVENT_CAPACITY);
   private zoneEventHead = 0;
   private zoneEventCount = 0;
+  /** ADR 0166: `groupStarts` (one item per group start), queued for musicOps like zone events. */
+  private readonly gsId = new Uint16Array(MIRROR_EVENT_CAPACITY);
+  private readonly gsFlags = new Uint16Array(MIRROR_EVENT_CAPACITY);
+  private readonly gsSlip = new Uint32Array(MIRROR_EVENT_CAPACITY);
+  private readonly gsFrame = new Float64Array(MIRROR_EVENT_CAPACITY);
+  private gsHead = 0;
+  private gsCount = 0;
 
   private readonly listener = (status: StatusBlock): void => this.apply(status);
 
@@ -176,6 +206,25 @@ export class StatusMirror {
     this.zoneCount = nz;
     const zoneEvents = status.zoneEvents;
     for (let k = 0; k < zoneEvents.length; k++) this.pushZoneEvent(zoneEvents[k]!.slot, zoneEvents[k]!.code);
+    // ADR 0166 (Z4): the M4 header fields, the `musicRings` level and the `groupStarts` queue.
+    this.musicRingsOpen = status.musicRingsOpen;
+    this.streamStartsLate = status.streamStartsLate;
+    this.groupsLate = status.groupsLate;
+    this.groupsHeld = status.groupsHeld;
+    this.groupsAbandoned = status.groupsAbandoned;
+    this.curvePoolFull = status.curvePoolFull;
+    this.maxSlipFrames = status.maxSlipFrames;
+    this.splitQuanta = status.splitQuanta;
+    this.voiceSplits = status.voiceSplits;
+    const rings = status.musicRings;
+    const nr = rings.length < MAX_MUSIC_RINGS ? rings.length : MAX_MUSIC_RINGS;
+    for (let k = 0; k < nr; k++) {
+      this.musicRingStream[k] = rings[k]!.streamId;
+      this.musicRingEpochFlags[k] = rings[k]!.epochFlags;
+    }
+    this.musicRingCount = nr;
+    const starts = status.groupStarts;
+    for (let k = 0; k < starts.length; k++) this.pushGroupStart(starts[k]!.groupId, starts[k]!.flags, starts[k]!.slipFrames, starts[k]!.startFrameHi * 4294967296 + starts[k]!.startFrameLo);
     // Header: the newest block wins.
     this.currentFrame = status.currentFrame;
     this.dateMs = status.dateMs;
@@ -263,6 +312,39 @@ export class StatusMirror {
       head = (head + 1) % MIRROR_EVENT_CAPACITY;
     }
     return n;
+  }
+
+  /** ADR 0166: sends every queued group-start report, oldest first, to `sink` and empties the queue (musicOps, per frame). */
+  drainGroupStarts(sink: MirrorGroupStartSink): number {
+    const n = this.gsCount;
+    let head = this.gsHead;
+    this.gsCount = 0;
+    this.gsHead = (head + n) % MIRROR_EVENT_CAPACITY;
+    for (let k = 0; k < n; k++) {
+      sink.groupStart(this.gsId[head]!, this.gsFlags[head]!, this.gsSlip[head]!, this.gsFrame[head]!);
+      head = (head + 1) % MIRROR_EVENT_CAPACITY;
+    }
+    return n;
+  }
+
+  /** Queued group-start reports. */
+  get pendingGroupStarts(): number {
+    return this.gsCount;
+  }
+
+  /** Queues a group-start report; a full queue drops its oldest (counted in `droppedEvents`). */
+  private pushGroupStart(id: number, flags: number, slip: number, frame: number): void {
+    if (this.gsCount === MIRROR_EVENT_CAPACITY) {
+      this.gsHead = (this.gsHead + 1) % MIRROR_EVENT_CAPACITY;
+      this.gsCount--;
+      this.droppedEvents++;
+    }
+    const at = (this.gsHead + this.gsCount) % MIRROR_EVENT_CAPACITY;
+    this.gsId[at] = id;
+    this.gsFlags[at] = flags;
+    this.gsSlip[at] = slip;
+    this.gsFrame[at] = frame;
+    this.gsCount++;
   }
 
   /** Queues a zone event; a full queue drops its oldest (counted in `droppedEvents`). */
