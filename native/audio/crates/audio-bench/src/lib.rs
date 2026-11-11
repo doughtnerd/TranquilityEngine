@@ -15,6 +15,11 @@
 //!   least-squares slope (µs per unit), from which `cap::wu` is set.
 //! - `mode=memory`: the fixed regions per preset (architecture §5.1).
 //!
+//! ADR 0162 A7 adds the bed scenes (`bed-64`, `bed-256`, `bed-xfade`) and the bed sweeps (`bed_encode`, `bed_decode`,
+//! `bed_decode_matrix`, `bed_xfade`): kind 2 voices encode into beds hosted on buses, decoded with the committed MagLS
+//! filters (loaded as format 4, as main does) or the baked matrix. The ambisonic terms (`AMBI_ROTATE`, `AMBI_READ`) wait
+//! for task B3's ambisonic voice.
+//!
 //! `pace=1` sleeps to the next 2.667 ms deadline after each quantum (as a real device period
 //! would), so other work on the machine can evict the core's caches between quanta; unpaced runs
 //! render back to back (warmer caches, so lower numbers).
@@ -158,6 +163,31 @@ pub struct Scene {
     /// ADR 0158 E2: also time one extra `automation::begin_quantum` before each quantum (outside the timed work;
     /// the parameters then seek twice as fast) and report its percentiles: the control-rate pass on its own.
     pub probe_automation: bool,
+    /// ADR 0162 A7: beds hosted (`max_beds`; 0 = none). One bed is hosted by bus 0 (the root's child); with more, bus
+    /// 0 is a plain parent and bed `k` is hosted by bus `1 + k`, so `buses` is `1 + beds` and the bed voices spread
+    /// over buses `1..=beds`.
+    pub beds: u32,
+    /// The first `bed_voices` mixed voices use panner kind 2 (bed).
+    pub bed_voices: u32,
+    /// Load the committed MagLS filters (format 4) so beds decode through them; off decodes through the matrix.
+    pub magls: bool,
+    /// ADR 0162 A7 (`bed-xfade`): voices cross the HRTF/bed boundary continuously. Every batch, `xfade` voices enter
+    /// the HRTF window and `xfade` leave it ([`xfade_kind`]); the 45 ms crossfades overlap. `Some(0)`: the window
+    /// stays still (the sweep's baseline); `None`: no window, every bed voice stays a bed voice.
+    pub xfade: Option<u32>,
+}
+
+/// The voices in the HRTF window of `bed-xfade`'s rotating schedule.
+const XFADE_WINDOW: u32 = 16;
+
+/// Panner kind of mixed voice `k` (of `n`) at batch `b` in a crossing scene: HRTF while `(k + step * b) mod n` is
+/// inside the window, else bed. Each batch the window moves by `step` voices: `step` enter and `step` leave.
+fn xfade_kind(k: u32, b: u64, step: u32, n: u32) -> u8 {
+    if ((k as u64 + step as u64 * b) % n as u64) < XFADE_WINDOW as u64 {
+        wire::panner::HRTF as u8
+    } else {
+        wire::panner::BED as u8
+    }
 }
 
 impl Scene {
@@ -188,7 +218,17 @@ impl Scene {
             bus_automation: false,
             sustain: false,
             probe_automation: false,
+            beds: 0,
+            bed_voices: 0,
+            magls: false,
+            xfade: None,
         }
+    }
+
+    /// ADR 0162 A7: `voices` looping voices of kind 2 (bed) into `beds` beds, decoded through MagLS (`magls`) or the
+    /// matrix, each on its own clip of 64 MB ÷ `voices`, with per-frame direction updates (the voices drift).
+    fn bed(name: &str, voices: u32, beds: u32, magls: bool) -> Scene {
+        Scene { beds, bed_voices: voices, magls, buses: if beds > 1 { 1 + beds } else { 1 }, updates: true, ..Scene::looping(name, voices) }
     }
 
     /// `mixed` looping voices at pitch 1, each reading its own clip of 64 MB ÷ `mixed`, on one bus (the sweeps' base).
@@ -272,6 +312,12 @@ pub fn scene(name: &str) -> Option<Scene> {
         // Not gated: the timed control-rate pass of `automation`, and the virtual scene's twin without bindings.
         "automation-probe" => Scene { bindings: 3, probe_automation: true, ..Scene::looping(name, 256) },
         "automation-virtual-base" => Scene { virtual_voices: 256, ..Scene::looping(name, 16) },
+        // ADR 0162 A7 (bed bench): 64 voices into one bed and 256 into two (architecture §7.2's typical and full
+        // high), MagLS decode; `bed-xfade`: 64 voices, 2 entering and 2 leaving the 16-voice HRTF window every
+        // batch (12 or so crossfading at any time), the rest in one bed.
+        "bed-64" => Scene::bed(name, 64, 1, true),
+        "bed-256" => Scene::bed(name, 256, 2, true),
+        "bed-xfade" => Scene { xfade: Some(2), ..Scene::bed(name, 64, 1, true) },
         _ => return None,
     };
     Some(s)
@@ -404,6 +450,35 @@ pub fn sweeps() -> Vec<Sweep> {
         scenes: [false, true].iter().map(|&on| Scene { one_shots: on, ..looping(format!("oneshots-{on}"), 128) }).collect(),
         x: |r| r.starts_per_quantum,
     });
+    // ADR 0162 A7: kind 2 voices into one bed (one decode, MagLS): the slope is `BED_VOICE` (the encode per voice).
+    out.push(Sweep {
+        term: "bed_encode",
+        unit: "µs per bed voice (encode, one MagLS bed decoding)",
+        scenes: [16u32, 64, 128, 192, 256].iter().map(|&n| Scene::bed(&format!("bed-voices-{n}"), n, 1, true)).collect(),
+        x: |r| r.mean_bed_voices,
+    });
+    // 64 bed voices over 1..4 beds: the slope is `BED_DECODE` (MagLS: 16 forward FFTs, the partitions' MACs, 2 inverses).
+    out.push(Sweep {
+        term: "bed_decode",
+        unit: "µs per decoding bed (MagLS, 64 voices in all)",
+        scenes: [1u32, 2, 3, 4].iter().map(|&b| Scene::bed(&format!("bed-decode-{b}"), 64, b, true)).collect(),
+        x: |r| r.mean_beds,
+    });
+    // The same through the baked 16 → 2 matrix (the filters not loaded, or `audio.spatial: "equalPower"`).
+    out.push(Sweep {
+        term: "bed_decode_matrix",
+        unit: "µs per decoding bed (matrix, 64 voices in all)",
+        scenes: [1u32, 2, 3, 4].iter().map(|&b| Scene::bed(&format!("bed-decode-matrix-{b}"), 64, b, false)).collect(),
+        x: |r| r.mean_beds,
+    });
+    // Crossings: 0, 1, 2 and 4 voices enter (and as many leave) the HRTF window per batch; x = voices in transit
+    // (HRTF fading against the bed, both paths running).
+    out.push(Sweep {
+        term: "bed_xfade",
+        unit: "µs per crossfading voice (HRTF and bed paths both running)",
+        scenes: [0u32, 1, 2, 4].iter().map(|&x| Scene { xfade: Some(x), ..Scene::bed(&format!("bed-xfade-{x}"), 64, 1, true) }).collect(),
+        x: |r| r.mean_transit,
+    });
     out
 }
 
@@ -447,6 +522,13 @@ pub struct RunResult {
     pub mean_hrtf: f64,
     pub mean_crossfading: f64,
     pub mean_kernels: f64,
+    /// ADR 0162 A7: mean voices encoded into beds, mean beds decoding, mean `workBed` (work units).
+    pub mean_bed_voices: f64,
+    pub mean_beds: f64,
+    pub mean_work_bed: f64,
+    /// Crossing scenes: voices mid-crossfade between HRTF and bed, 2 × (HRTF slots held − the window): the leaving
+    /// voices hold their slot and the entering ones are in the window, so each direction counts as many.
+    pub mean_transit: f64,
     pub mean_source_frames: f64,
     pub mean_moving: f64,
     pub records_per_quantum: f64,
@@ -520,7 +602,7 @@ struct Bench {
 /// after the run (wasm memory can't shrink; runs would otherwise pile up past 4 GB).
 fn init_params(s: &Scene) -> InitParams {
     let arena_mb = s.clip_mb + s.clip_mb / 2 + 16;
-    InitParams { sample_rate: RATE, max_logical: s.max_logical, max_mixed: s.max_mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20, ..InitParams::default() }
+    InitParams { sample_rate: RATE, max_logical: s.max_logical, max_mixed: s.max_mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20, max_beds: s.beds, ..InitParams::default() }
 }
 
 /// A core over a fresh zeroed block; returns the block to free after the core is dropped.
@@ -568,6 +650,34 @@ fn hrir_table(rate: f32) -> Vec<u8> {
     let mut bytes = vec![0u8; out_header.byte_len()];
     encode(&out_header, &delays, &irs, &mut bytes).unwrap();
     bytes
+}
+
+/// The committed MagLS asset (44.1 kHz, 256 taps, `[16][2][taps]` f32).
+static MAGLS_ASSET: &[u8] = include_bytes!("../../../../../src/engine/audio/magls-o3.bin");
+
+/// The asset as main would send it for `RATE`: the header's rate set to the context's (the responses stay as they
+/// are: cost is independent of their values; listening needs `resampleMagls`).
+fn magls_blob(rate: f32) -> Vec<u8> {
+    let mut bytes = MAGLS_ASSET.to_vec();
+    let (mut head, _) = wire::MaglsHeader::read(&bytes, 0).expect("the MagLS header");
+    head.sample_rate = rate;
+    head.write(&mut bytes, 0).expect("the MagLS header fits");
+    bytes
+}
+
+/// Sends the blob as format 4 under `MAGLS_CLIP_ID` (CLIP_BEGIN with `frames` = bytes / 4, then chunks).
+fn load_magls(core: &mut Core, bytes: &[u8]) {
+    let id = wire::MAGLS_CLIP_ID;
+    assert_eq!(clips::reserve(core, id, (bytes.len() / 4) as u32, 1, RATE, wire::clip_format::MAG_LS), wire::ERR_OK);
+    for (k, chunk) in bytes.chunks(4096).enumerate() {
+        let at = (k * 4096 / 4) as u32;
+        let p = clips::chunk_ptr(core, id, at, chunk.len() as u32);
+        assert!(!p.is_null());
+        // SAFETY: chunk_ptr gave room for `chunk.len()` bytes.
+        unsafe { core::ptr::copy_nonoverlapping(chunk.as_ptr(), p, chunk.len()) };
+        assert_eq!(clips::commit(core, id, at, chunk.len() as u32), wire::ERR_OK);
+    }
+    assert!(status::counters(core).flags & audio_core::counters::flag::BED_DECODER_READY != 0, "the MagLS filters");
 }
 
 fn load_hrir(core: &mut Core, bytes: &[u8]) {
@@ -623,8 +733,11 @@ impl Bench {
             core.clips_mut().write(id, 0, &buf).expect("clip write");
             clip_frames.push(frames);
         }
-        if scene.hrtf > 0 {
+        if scene.hrtf > 0 || scene.xfade.is_some() {
             load_hrir(&mut core, hrir.expect("the HRIR table"));
+        }
+        if scene.magls {
+            load_magls(&mut core, &magls_blob(RATE));
         }
         let mut b = Bench {
             core,
@@ -685,6 +798,16 @@ impl Bench {
         let mix = wire::BusMix { voice_id: 0, frame_offset: wire::ASAP, ramp_frames: 0, buses: (0..s.buses).map(|_| wire::BusMixBuses { gain: 0.9, lp_hz: lp }).collect() };
         self.push(&mix);
         self.push(&wire::Master { voice_id: 0, frame_offset: wire::ASAP, volume: 0.5, muted: 0, ramp_frames: 0 });
+        if s.beds > 0 {
+            // One bed: hosted by bus 0. More: bed k by bus 1 + k (each a child of bus 0); bus 0 hosts none.
+            let (bed_slot, host_bus): (Vec<u8>, Vec<u16>) = if s.beds == 1 {
+                (vec![0], vec![0])
+            } else {
+                let none = wire::BED_SLOT_NONE as u8;
+                (std::iter::once(none).chain(0..s.beds as u8).collect(), (1..=s.beds as u16).collect())
+            };
+            self.push(&wire::BedConfig { voice_id: 0, frame_offset: wire::ASAP, bed_slot, host_bus });
+        }
         if s.bindings > 0 || s.bus_automation {
             self.push(&bench_curves());
             for slot in 0..2u16 {
@@ -791,7 +914,9 @@ impl Bench {
             None if mixed => self.next_clip(),
             None => 1 + self.rng.below((self.clip_frames.len() - 1) as u32),
         };
-        let bus = self.rng.below(s.buses) as u16;
+        // Bed scenes: with several beds the voices spread over their host buses (1..=beds).
+        let bus = if s.beds > 1 { 1 + self.rng.below(s.beds) as u16 } else { self.rng.below(s.buses) as u16 };
+        let ordinal = self.mixed_ids.len() as u32;
         let phase = self.rng.unit() * 6.283;
         let mut flags = wire::PLAY_FLAGS_SPATIAL;
         if looping {
@@ -805,6 +930,11 @@ impl Bench {
         }
         if hrtf {
             flags |= (wire::panner::HRTF as u16) << wire::PLAY_FLAGS_PANNER_SHIFT;
+        }
+        if let (true, Some(step)) = (mixed, s.xfade) {
+            flags |= (xfade_kind(ordinal, 0, step, s.mixed) as u16) << wire::PLAY_FLAGS_PANNER_SHIFT;
+        } else if mixed && ordinal < s.bed_voices {
+            flags |= (wire::panner::BED as u16) << wire::PLAY_FLAGS_PANNER_SHIFT;
         }
         let frames = if stream.is_some() { 0 } else { self.clip_frames[clip as usize] };
         // Looping and first voices start anywhere in their clip, so ends spread out.
@@ -936,7 +1066,15 @@ impl Bench {
             let id = self.mixed_ids[k];
             let v = self.voices[(id & 0xFFFF) as usize].unwrap();
             let turning = v.hrtf && s.moving;
-            if !(turning || (s.updates && !v.hrtf)) {
+            // The window crosses `xfade` voices each way every batch.
+            let crossing = if let Some(step) = s.xfade {
+                let b = q / BATCH_EVERY;
+                let (now, before) = (xfade_kind(k as u32, b, step, s.mixed), xfade_kind(k as u32, b.saturating_sub(1), step, s.mixed));
+                (b > 0 && now != before).then_some(now)
+            } else {
+                None
+            };
+            if !(turning || crossing.is_some() || (s.updates && !v.hrtf)) {
                 continue;
             }
             // Turning: 120° a second; otherwise a slow drift.
@@ -946,9 +1084,15 @@ impl Bench {
             if s.updates {
                 mask |= wire::SET_PARAMS_MASK_GAIN;
             }
+            let mut flags = 0;
+            if let Some(kind) = crossing {
+                mask |= wire::SET_PARAMS_MASK_FLAGS;
+                flags = wire::SET_PARAMS_FLAGS_MIXED | wire::SET_PARAMS_FLAGS_SPATIAL | wire::SET_PARAMS_FLAGS_LOOP | ((kind as u32) << wire::SET_PARAMS_FLAGS_PANNER_SHIFT);
+            }
             self.push(&wire::SetParams {
                 voice_id: id,
                 frame_offset: wire::ASAP,
+                flags,
                 mask,
                 gain: 0.25 + 0.05 * libm::sinf(a),
                 dir_x: libm::sinf(a),
@@ -991,7 +1135,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop);
+wire_record!(wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps).
@@ -1026,6 +1170,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     let (mut xf_v, mut k_v, mut h_v) = (Vec::with_capacity(rec_q), Vec::with_capacity(rec_q), Vec::with_capacity(rec_q));
     let mut r = RunResult { cap_min: u32::MAX, ..Default::default() };
     let (mut sum_mixed, mut sum_live, mut sum_src, mut sum_moving) = (0f64, 0f64, 0f64, 0f64);
+    let (mut sum_bed_voices, mut sum_beds, mut sum_work_bed) = (0f64, 0f64, 0f64);
     let mut status_buf = vec![0u8; 16 * 1024];
     let mut probe: Vec<f32> = Vec::new();
     let mut deadline = platform::now_us();
@@ -1080,6 +1225,9 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
             sum_moving += w.moving as f64;
             times.push(dt as f32);
             wus.push(b.core.work_units() as f32);
+            sum_bed_voices += c.spatial.bed_voices as f64;
+            sum_beds += c.spatial.beds_active as f64;
+            sum_work_bed += c.spatial.work_bed as f64;
             sum_mixed += c.mixed_voices as f64;
             sum_live += c.live_voices as f64;
             sum_src += src as f64;
@@ -1122,11 +1270,15 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     r.wu_max = *w.last().unwrap_or(&0.0) as f64;
     r.mean_mixed = sum_mixed / n;
     r.mean_live = sum_live / n;
+    r.mean_bed_voices = sum_bed_voices / n;
+    r.mean_beds = sum_beds / n;
+    r.mean_work_bed = sum_work_bed / n;
     r.mean_source_frames = sum_src / n;
     r.mean_moving = sum_moving / n;
     r.mean_hrtf = h_v.iter().map(|&x| x as f64).sum::<f64>() / n;
     r.mean_crossfading = xf_v.iter().map(|&x| x as f64).sum::<f64>() / n;
     r.mean_kernels = k_v.iter().map(|&x| x as f64).sum::<f64>() / n;
+    r.mean_transit = if scene.xfade.is_some() { 2.0 * (r.mean_hrtf - XFADE_WINDOW as f64).max(0.0) } else { 0.0 };
     r.records_per_quantum = (b.records_sent - records_at_warm) as f64 / n;
     r.starts_per_quantum = (b.starts - starts_at_warm) as f64 / n;
     r.demoted = b.core.cap().demoted;
@@ -1222,7 +1374,7 @@ fn num(args: &str, key: &str, default: f64) -> f64 {
 
 fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
     let mut line = format!(
-        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{}}}",
+        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{},\"bedVoices\":{:.1},\"beds\":{:.2},\"workBed\":{:.0},\"transit\":{:.2}}}",
         r.quanta,
         r.p50,
         r.p99,
@@ -1247,7 +1399,11 @@ fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
         r.wu_max,
         r.cap_min,
         r.cap_last,
-        r.demoted
+        r.demoted,
+        r.mean_bed_voices,
+        r.mean_beds,
+        r.mean_work_bed,
+        r.mean_transit
     );
     if r.automation[3] > 0.0 {
         line.pop();
@@ -1360,5 +1516,47 @@ pub fn main(args: &str) {
             }
         }
         _ => platform::print(&format!("{{\"error\":\"unknown mode {mode}\"}}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A short run of a bed scene (ADR 0162 A7): the counters say what the scene is for.
+    fn short(name: &str) -> RunResult {
+        let hrir = hrir_table(RATE);
+        run(&scene(name).unwrap(), 0.5, 0.25, 1, false, Some(&hrir))
+    }
+
+    #[test]
+    fn bed_64_encodes_64_voices_into_one_bed() {
+        let r = short("bed-64");
+        assert_eq!((r.mean_bed_voices, r.mean_beds, r.mean_hrtf), (64.0, 1.0, 0.0));
+        assert!(r.mean_work_bed > 0.0 && r.p50 > 0.0);
+    }
+
+    #[test]
+    fn bed_256_spreads_256_voices_over_two_beds() {
+        let r = short("bed-256");
+        assert_eq!((r.mean_bed_voices, r.mean_beds), (256.0, 2.0));
+    }
+
+    #[test]
+    fn bed_xfade_moves_voices_across_the_hrtf_bed_boundary() {
+        let r = short("bed-xfade");
+        // 16 in the window, plus the leaving voices still holding their slots; the rest in the bed or fading into it.
+        assert!(r.mean_hrtf > XFADE_WINDOW as f64 && r.mean_hrtf < 32.0, "hrtf {}", r.mean_hrtf);
+        assert!(r.mean_bed_voices > 40.0 && r.mean_bed_voices < 64.0, "bed voices {}", r.mean_bed_voices);
+        assert!(r.mean_transit > 0.0);
+        // Still window: no crossings.
+        let still = run(&Scene { xfade: Some(0), ..scene("bed-xfade").unwrap() }, 0.5, 0.25, 1, false, Some(&hrir_table(RATE)));
+        assert_eq!((still.mean_hrtf, still.mean_transit), (XFADE_WINDOW as f64, 0.0));
+    }
+
+    #[test]
+    fn the_matrix_twin_decodes_without_the_filters() {
+        let r = run(&Scene::bed("bed-matrix", 64, 1, false), 0.25, 0.25, 1, false, None);
+        assert_eq!((r.mean_bed_voices, r.mean_beds), (64.0, 1.0));
     }
 }
