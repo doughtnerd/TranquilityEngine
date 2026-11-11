@@ -31,6 +31,7 @@ import {
   FADE_FLAGS_STOP_AT_END,
   PLAY_FLAGS_FADE_ZERO,
   packGate,
+  gateGroupId,
   packShape,
   SET_PARAMS_MASK_SCORE,
   SET_PARAMS_MASK_FLAGS,
@@ -217,6 +218,10 @@ export class CommandWriter implements VoiceCommandSink {
   private offset = new Uint32Array(MAX_RECORDS);
   private length = new Uint16Array(MAX_RECORDS);
   private frame = new Float64Array(MAX_RECORDS);
+  /** Per record: its gate group id (`playGated`), 0 for every other record; a group's run stays in one BATCH (`flush`). */
+  private groupOf = new Uint16Array(MAX_RECORDS);
+  /** The group id `end` stamps on the record being written (set by `playGated` around its write). */
+  private curGroup = 0;
   /** Record indices in send order (sorted lazily). */
   private order = new Uint32Array(MAX_RECORDS);
   private sorted = true;
@@ -370,7 +375,10 @@ export class CommandWriter implements VoiceCommandSink {
    * together in one BATCH (a group never straddles two).
    */
   playGated(args: PlayArgs, groupId: number, groupSize: number, atFrame?: number): void {
-    this.playWith(args, packGate(groupId, groupSize), atFrame);
+    const gate = packGate(groupId, groupSize);
+    this.curGroup = gateGroupId(gate);
+    this.playWith(args, gate, atFrame);
+    this.curGroup = 0;
   }
 
   /**
@@ -678,6 +686,23 @@ export class CommandWriter implements VoiceCommandSink {
         bytes += len;
         end++;
       }
+      // ADR 0166 §3.2: a gate group never straddles two BATCHes. A run of one group id cut by the limit moves whole to
+      // the next batch (the records keep their absolute frames); a run that is itself the whole batch and still
+      // does not fit (a group is at most 64 x 56 B, so this cannot happen) is dropped like an oversize record.
+      if (end < this.count && end > next) {
+        const g = this.groupOf[this.order[end]!]!;
+        if (g !== 0 && this.groupOf[this.order[end - 1]!] === g) {
+          while (end > next && this.groupOf[this.order[end - 1]!] === g) end--;
+          if (end === next) {
+            let run = next;
+            while (run < this.count && this.groupOf[this.order[run]!] === g) run++;
+            this.stats.dropped += run - next;
+            this.overflowed = true;
+            next = run;
+            continue;
+          }
+        }
+      }
       if (end === next) {
         // One record bigger than a whole batch: it can never go out.
         this.stats.dropped++;
@@ -760,6 +785,7 @@ export class CommandWriter implements VoiceCommandSink {
     this.offset[i] = at;
     this.length[i] = len;
     this.frame[i] = f;
+    this.groupOf[i] = this.curGroup;
     this.order[i] = i;
     this.used = at + len;
     if (f < this.lastStamp) this.sorted = false;
@@ -796,6 +822,7 @@ export class CommandWriter implements VoiceCommandSink {
     const offset = new Uint32Array(keep);
     const length = new Uint16Array(keep);
     const frame = new Float64Array(keep);
+    const groups = new Uint16Array(keep);
     let used = 0;
     for (let k = 0; k < keep; k++) {
       const idx = this.order[from + k]!;
@@ -805,6 +832,7 @@ export class CommandWriter implements VoiceCommandSink {
       offset[k] = used;
       length[k] = len;
       frame[k] = this.frame[idx]!;
+      groups[k] = this.groupOf[idx]!;
       used += len;
     }
     const old = this.stage;
@@ -814,6 +842,7 @@ export class CommandWriter implements VoiceCommandSink {
     this.offset.set(offset);
     this.length.set(length);
     this.frame.set(frame);
+    this.groupOf.set(groups);
     for (let k = 0; k < keep; k++) this.order[k] = k;
     this.count = keep;
     this.used = used;

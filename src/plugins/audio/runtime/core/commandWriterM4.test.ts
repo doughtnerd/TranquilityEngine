@@ -189,7 +189,41 @@ describe("CommandWriter, ADR 0166 records (L-Z4b)", () => {
     expect(readSetParams(b.view, b.records[1]!.off).shape).toBe(0);
   });
 
-  it.skip("a gate group's records stay in one BATCH: with records of group 7 straddling the 64 KB limit, the whole group moves to the next batch and its absolute frame is kept", () => {});
+  it("a gate group's records stay in one BATCH: with records of group 7 straddling the 64 KB limit, the whole group moves to the next batch and its absolute frame is kept", () => {
+    const { writer, posted } = rig();
+    // 2330 asap FADEs (28 B) fill 65,240 of the batch's 65,504 B; six 56-byte PLAYs would need 336 B, 264 are left (4 fit).
+    for (let i = 0; i < 2330; i++) writer.fade(i + 1, 0, 0);
+    for (let m = 0; m < 6; m++) writer.playGated(play(100 + m), 7, 6, 5000);
+    writer.play(play(200), 5000); // an ungated PLAY after the group, same frame
+    expect(writer.flush(0)).toBe(2);
+    const first = records(posted[0]!);
+    const second = records(posted[1]!);
+    expect(first.records.length).toBe(2330);
+    expect(first.records.every((r) => r.op === Op.FADE)).toBe(true);
+    expect(second.records.map((r) => [r.op, r.voiceId, r.frameOffset])).toEqual([
+      ...[100, 101, 102, 103, 104, 105].map((id) => [Op.PLAY, id, 0]),
+      [Op.PLAY, 200, 0],
+    ]);
+    expect(second.header.firstFrame).toBe(5000);
+    expect(gateGroupId(readPlay(second.view, second.records[5]!.off).gate)).toBe(7);
+    expect(writer.pending).toBe(0);
+  });
+
+  it("a group carried to the next flush (the pool was empty) keeps its records together, in order", () => {
+    const { writer, pool, posted } = rig();
+    for (let i = 0; i < 2330; i++) writer.fade(i + 1, 0, 0);
+    for (let m = 0; m < 6; m++) writer.playGated(play(100 + m), 7, 6, 5000);
+    // Take every pool buffer but one, so only the first batch posts; the group stays staged with its ids.
+    const held = [pool.acquire(), pool.acquire(), pool.acquire()];
+    expect(held.every(Boolean)).toBe(true);
+    expect(writer.flush(0)).toBe(1);
+    expect(writer.pending).toBe(6);
+    expect(posted.length).toBe(1);
+    for (const b of held) pool.release(b!);
+    pool.release(posted[0]!);
+    expect(writer.flush(0)).toBe(1);
+    expect(records(posted[1]!).records.map((r) => r.voiceId)).toEqual([100, 101, 102, 103, 104, 105]);
+  });
 
   it("staging capacity is checked at the new sizes (28, 60, 24 B), not the old (24, 56, 20): a full staging area drops a FADE that no longer fits", () => {
     const { writer } = rig();
