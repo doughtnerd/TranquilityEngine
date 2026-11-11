@@ -20,12 +20,11 @@ Read: ADR 0166 (fully), goal.md, the spike README, and the rhythm, beat-clock an
 - **Decoded clip vs stream:** a decoded clip is in memory and always exact; a stream is read as it plays and is exact only if primed. This is the key choice for every stem, and the glossary never defines it.
 - **Voice, mixed-voice cap, preset (low/default/high):** one playing sound / the most sounds at once / the device class that sets the limits.
 - **Seam, sameTime, equal-power, grid(n):** a join between two pieces / enter at the same musical position / a fade law that keeps loudness steady / every n-th bar line.
-- **Latency:** the record uses five words for latency: output, base, lookahead, limiter, render lead. One line each would help, since rhythm mode lowers only one of them.
-- **"No absolute latency":** rhythm mode cannot tell you how late the player hears; calibration measures that.
+- **Latency:** five terms (output, base, lookahead, limiter, render lead). Rhythm mode lowers only one; "no absolute latency" means it cannot promise a number.
 
 ## Using it
 
-Nothing exists to copy yet. `src/engine/audio` has no music, `timeAt` or `horizon` (grep), and the only music is sound-lab's `music-intensity` event. What follows is the proposed API, so names may change.
+Nothing exists to copy yet: `src/engine/audio` has no music, `timeAt` or `horizon`. The code below is the proposed API; names may change.
 
 ```ts
 // Switch explore -> combat: the rules table (exit: bar) decides when it lands.
@@ -62,8 +61,8 @@ Open points in the code: `positionAt`'s return shape, and whether calibration is
 - **Grid maths** (≈1 person-week): tempo map ⇄ seconds ⇄ frames. Edge cases are tempo changes and rounding. Ask for property tests.
 - **`Calibration.fromTaps`** (part of the ≈2 week rhythm task): warm-up discard, median, MAD. Define the "confidence value" first.
 - **Format validation** (≈1.5): follow the checks in `eventFormat.ts`, plus the same-length and same-layout rule for stems.
-- **Rules table editor** (≈1.5): a grid with theme tokens (CLAUDE.md), similar to the existing event editor.
-- **Import hints** (≈0.5): WAV `acid`/`cue` chunks with fixture files. Binary parsing, so moderate.
+- **Rules table editor** (≈1.5): a grid with theme tokens (CLAUDE.md).
+- **Import hints** (≈0.5): WAV `acid`/`cue` chunks with fixture files.
 
 **Risky for me:**
 - In-voice ramps: Rust on the audio thread, plus a wasm rebuild. Not my level, and out of scope for this round.
@@ -76,19 +75,19 @@ Open points in the code: `positionAt`'s return shape, and whether calibration is
 
 **"The music didn't change."** Check in this order:
 1. Log `handle.music.segment`, `bar` and `beat` each beat. This shows whether the change is pending or never fired.
-2. The parameter value must match a child's `value` label exactly (`eventFormat.ts:110`, "the label it plays for").
+2. The parameter value must match a child's `value` label exactly (`eventFormat.ts:108`, "the label it plays for").
 3. It may be waiting. The default `*`→`*` rule exits at `bar`, so at 120 BPM in 4/4 a change can take up to 2 s to land.
 4. Which rule matched? Nothing in the record can answer that yet. Ask for a debug query.
 5. The next segment may not be primed, so the planner moved the start to a later grid point. Until the slip counter exists, nothing shows it.
-6. `Audio.status` is "locked" until a user gesture, and `at` is ignored while locked (`Audio.ts:33` doc).
+6. `Audio.status` is "locked" until a user gesture, and `at` is ignored while locked (`Audio.ts:33`, `Audio.ts:130`).
 7. With rhythm mode on, an asap music change is refused. The record does not say whether that produces a warning.
 
 **"The stems are out of sync."**
 1. Add the slip counter first. Until then, a stem that started late and stayed late is invisible (streams-align Q1).
 2. A constant offset that differs by device is output latency, which is calibration, not a sync bug.
 3. Check stem lengths, sample rates and channel layouts. A 44.1 kHz stem in a 48 kHz context is resampled, and the spike did not test that path.
-4. A segment that mixes decoded and streamed stems: decoded stems are always exact, so a skew points at the streamed ones.
-5. A re-plan under load sounds like a skipped bar, not a drift. Look for a missing bar before you look for a bug in the stems.
+4. In a mixed segment, decoded stems are always exact, so a skew points at the streamed ones.
+5. A re-plan under load sounds like a skipped bar, not drift.
 6. On Babylon, streams have no sample alignment. That is expected, not a bug.
 
 ## Cheaper alternatives
@@ -103,11 +102,3 @@ From my lens: expose `handle.music.beat` as a plain property first, and read it 
 4. Can one segment mix decoded and streamed stems?
 5. Which music counters appear in the debug panel in M4a?
 6. Is it `handle.music.positionAt` or `Music.positionAt`?
-
-## Summary
-
-1. Approve with changes; 5 issues (3 major, 2 minor).
-2. "Frame" needs two definitions and every field needs its unit.
-3. Failures need named counters before M4a ships.
-4. Rule precedence and the `positionAt` shape must be specified.
-5. Good first tasks: grid maths, `Calibration.fromTaps`, format validation.
