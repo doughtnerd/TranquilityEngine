@@ -16,6 +16,9 @@
 //!   direction's azimuth. Mono: `a = gainL, c = gainR`. Stereo, azimuth ≤ 0: `a = 1, b = gainL,
 //!   d = gainR`; azimuth > 0: `a = gainL, c = gainR, d = 1`, exactly Blink's `Pan`.
 //! - **HRTF** (kind 1, H3): the port of Blink's `HRTFPanner` (`audio_dsp::hrtf`), see below.
+//! - **Bed** (kind 2, ADR 0162 A4): encoded into the bus's bed slot (`bed.rs`) with an equal-power
+//!   crossfade against the two above when the kind changes ([`PannerState::mix_range`]); a bus
+//!   without a bed pans equal-power, M2's path bit for bit.
 //!
 //! A direction change from SET_PARAMS ramps the four coefficients linearly over its `rampFrames`
 //! (Blink's panner jumps per quantum; ramping the matrix is click-free and lands on Blink's values,

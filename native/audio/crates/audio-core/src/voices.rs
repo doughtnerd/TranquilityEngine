@@ -23,7 +23,9 @@
 //! the core-state region right after the status area (`status::STATUS_AREA_BYTES`).
 //!
 //! Each voice mixes into its bus's input buffer (`bus.rs`, A2.1; an unconfigured bus index goes to
-//! bus 0, the root). Not applied yet: `lpHz` (kept for the per-voice filter).
+//! bus 0, the root). ADR 0162 A4: a mixed spatial voice of panner kind 2 whose bus has a bed
+//! encodes into the bed instead (`panner.rs`, `bed.rs`), through its pool entry's bed share and
+//! last encode gains; `bed::begin_quantum` runs once a quantum before the voices.
 //!
 //! **Mixed and virtual** (A3.1; architecture §2.2, §4.7 "promote and demote 5 ms"). Main's selection
 //! decides which voices are mixed and sends SET_MIXED for changes ([`set_mixed`]); the adaptive cap
