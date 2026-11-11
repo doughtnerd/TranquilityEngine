@@ -32,7 +32,7 @@ const SECONDS = 2;
 const WARMUP = 1;
 const SEED = 1;
 
-/** The gated scenes (`audio-bench`'s `scene()`): the presets, the Stress sample's twins, and focused ones. */
+/** The gated scenes (`audio-bench`'s `scene()`): the presets, the Stress sample's twins, focused ones and the bed scenes. */
 const SCENES = [
   "low",
   "default",
@@ -54,6 +54,10 @@ const SCENES = [
   "automation-virtual",
   "bus-automation",
   "sustain",
+  // ADR 0162 A7: beds. 64 voices into one MagLS bed, 256 into two, and 64 voices crossing the HRTF/bed boundary.
+  "bed-64",
+  "bed-256",
+  "bed-xfade",
 ];
 
 function fail(message) {
