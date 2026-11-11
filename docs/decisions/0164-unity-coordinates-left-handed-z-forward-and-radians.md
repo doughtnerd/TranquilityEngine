@@ -49,7 +49,7 @@ left-handed) and its counter-clockwise front-face override; model import (glTF, 
 `facing: "back"` mirrors z instead, the old picture, and the samples' models use it), once at load through the import
 matrix in `models.ts` `bakeMeshes`, keeping index order: in Babylon's left-handed default a front face's right-hand
 normal points inward, which is what mirrored data gives (only nodes mirrored in the file itself are rewound). Built-in
-meshes are rewound to match. The bake cache's version and key change; Web Audio's listener and panners (right-handed) get z negated at the backend;
+meshes are mirrored in z (index order kept) to match. The bake cache's version and key change; Web Audio's listener and panners (right-handed) get z negated at the backend;
 navigation passes coordinates through (its crowd code, a Unity DOTS port, already uses +Z forward) and only flips
 triangle winding on the way in (`nav/geometry.ts`), and baked nav data is rebaked.
 Physics (Rapier) has no handedness and needs no change beyond mirrored scenes.

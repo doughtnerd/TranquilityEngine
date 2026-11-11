@@ -106,7 +106,7 @@ describe("list fields", () => {
     expect(c.targets[1]).toBeNull();
     expect(c.targets[2]).toBe(scene.find("A"));
     expect(c.letters).toEqual(["b"]);
-    expect(c.turn.toEuler().z).toBeCloseTo(90);
+    expect(c.turn.toEuler().z).toBeCloseTo(Math.PI / 2); // radians (ADR 0164)
     expect(c.mood).toBe(Mood.Angry);
   });
 

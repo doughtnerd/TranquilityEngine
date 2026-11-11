@@ -53,7 +53,7 @@ export interface MeshData {
   readonly uvs2?: Float32Array | null;
   /** r, g, b, a per vertex (linear), when the mesh's material uses vertex colours; null for none. */
   readonly colors?: Float32Array | null;
-  /** Three per triangle, counter-clockwise front faces. */
+  /** Three per triangle; front faces wind so their right-hand normal points inward, as Babylon's left-handed default (ADR 0164). */
   readonly indices: Uint32Array;
   /** Index ranges drawn with each surface (`surfaces[materialIndex]`); empty: one surface for all. */
   readonly groups: readonly { start: number; count: number; materialIndex: number }[];

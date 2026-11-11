@@ -61,7 +61,7 @@ class Mover extends GameBehavior {
   fixedUpdate() {
     const tick = this.time.network?.tick ?? 0;
     this.transform.position.x = tick * this.speed;
-    this.transform.rotation2D = tick * 2;
+    this.transform.rotation2D = (tick * 2 * Math.PI) / 180; // 2° per tick, in radians
   }
 }
 
@@ -207,7 +207,7 @@ describe("replication (T11)", () => {
         expect(x).toBeGreaterThanOrEqual(last.get(name) ?? -Infinity); // never steps back
         last.set(name, x);
         // The rotation follows too (2° per tick), within a degree.
-        const angle = ((ghost.transform!.rotation2D % 360) + 360) % 360;
+        const angle = (((ghost.transform!.rotation2D * 180) / Math.PI % 360) + 360) % 360;
         const expectedAngle = (((net.interpolationTick + net.interpolationFraction) * 2) % 360 + 360) % 360;
         expect(Math.min(Math.abs(angle - expectedAngle), 360 - Math.abs(angle - expectedAngle))).toBeLessThan(1);
       }
