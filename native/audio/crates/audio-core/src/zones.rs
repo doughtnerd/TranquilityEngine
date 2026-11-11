@@ -59,14 +59,15 @@
 //! already trimmed and cut, C9's steps 1-3) under the kernel's id; `clips.rs` gives it the block
 //! of the kernel it becomes, the samples at `kernel::pcm_offset`. A slot waiting on a committed
 //! format 5 clip starts its preparation, one clip at a time, one step per quantum after the buses
-//! mix ([`prepare`]): the sum of squares over both channels ([`PREP_SUM_SAMPLES`] samples a step,
-//! in the decoder's order, so `ir::blink_normalization_scale` gives the decoder's scale), the head
-//! partitions ([`PREP_HEAD_UNITS`] a step) and the tail partitions (one a step), transformed in
-//! place (`kernel::prepare_unit_in_place`, bit-identical to `prepare_ir` on the same samples),
-//! then the waiting slots' states cleared ([`PREP_CLEAR_BYTES`] a step), then the header: the clip
-//! becomes the format 3 kernel, `resident` is reported and the waiting slots start as they would
-//! for an uploaded kernel, without clearing their state again. A 2 s response takes ≈ 160 quanta
-//! (0.43 s at 48 kHz). RESET leaves a preparation running (`keepClips` keeps the clip; without it
+//! mix ([`prepare`]): the sum of squares over both channels ([`PREP_SUM_FRAMES`] frames of one
+//! channel a step, in the decoder's order, so `ir::blink_normalization_scale` gives the decoder's scale), then
+//! each partition, head and tail, one a step, transformed in place
+//! (`kernel::prepare_unit_in_place`, bit-identical to `prepare_ir` on the same samples), then the
+//! waiting slots' states cleared ([`PREP_CLEAR_BYTES`] a step), then the first slot's stagger plan
+//! (`stagger::plan_one_row`, a row a step), then the header: the clip becomes the format 3 kernel,
+//! `resident` is reported and the waiting slots start as they would for an uploaded kernel,
+//! without clearing their state or planning again. A 2 s response takes 230 quanta (0.61 s at
+//! 48 kHz; the design's 0.25-0.8 s). RESET leaves a preparation running (`keepClips` keeps the clip; without it
 //! the clip goes and so does the preparation).
 //!
 //! **Sizes (C8).** The region holds `max_zone_slots` slots of [`slot_state_bytes`]`(zone_max_frames)`
@@ -82,7 +83,7 @@
 
 use audio_dsp::convolver::instance::{self, Instance, Phase, SHARED_PHASE};
 use audio_dsp::convolver::kernel::{self, IrSpec, Kernel};
-use audio_dsp::convolver::stagger::{plan_one, plan_one_row, Load, MAX_PLANNED, PLAN_ROWS, PLAN_START};
+use audio_dsp::convolver::stagger::{plan_one, plan_one_row, Load, PlanBest, MAX_PLANNED, PLAN_ROWS, PLAN_START};
 use audio_dsp::convolver::{self, ir, Scratch};
 use audio_dsp::ramp::Ramp;
 use audio_wire::generated as wire;
@@ -113,10 +114,8 @@ pub const IDLE_MARGIN_QUANTA: u32 = 3 * convolver::CYCLE + 2;
 /// Modelled work units of one running slot per quantum (`zones-2x2s` ≈ 47 µs p50 for two slots,
 /// container est.; STATUS `workZones`).
 pub const SLOT_WU: u32 = 23_000;
-/// In-core preparation (C3b): samples of the sum of squares per step.
-pub const PREP_SUM_SAMPLES: usize = 8_192;
-/// In-core preparation: head partitions (256-point transforms) per step.
-pub const PREP_HEAD_UNITS: usize = 8;
+/// In-core preparation (C3b): frames of one channel the sum of squares takes per step.
+pub const PREP_SUM_FRAMES: usize = 4_096;
 /// In-core preparation: bytes of each waiting slot's state cleared per step.
 pub const PREP_CLEAR_BYTES: usize = 128 * 1024;
 /// [`ZoneArea::active_limit`] when the ladder hasn't lowered it.
@@ -352,9 +351,7 @@ pub struct ZoneArea {
     pub prep_scale: f32,
     pub prep_sum: f64,
     /// The stagger plan's search so far (`stagger::plan_one_row`): peak, sum of squares, phase.
-    pub prep_top: f64,
-    pub prep_sq: f64,
-    pub prep_phase: [u8; 4],
+    pub prep_plan: PlanBest,
 }
 
 /// Offset of [`ZoneArea`] in the core-state region (after the bus area).
@@ -730,13 +727,12 @@ pub fn kernel_resident(core: &mut Core, id: u32) {
 /// clear, plan]` (then one more, the finish).
 pub const fn prep_steps(frames: usize) -> [usize; 5] {
     let (head, tail) = (convolver::head_partitions(frames), convolver::tail_partitions(frames));
-    [(2 * frames).div_ceil(PREP_SUM_SAMPLES), (2 * head).div_ceil(PREP_HEAD_UNITS), 2 * tail, instance::state_bytes(tail).div_ceil(PREP_CLEAR_BYTES), PLAN_ROWS as usize]
+    [2 * frames.div_ceil(PREP_SUM_FRAMES), 2 * head, 2 * tail, instance::state_bytes(tail).div_ceil(PREP_CLEAR_BYTES), PLAN_ROWS as usize]
 }
 
 /// One step of the in-core preparation (C3b; the module comment): starts one for a slot waiting on
 /// a committed format 5 clip when none runs, or takes the running one's next step. Called once a
 /// quantum, after the buses mix (`after_render`). Never allocates.
-#[inline(never)]
 pub fn prepare(core: &mut Core) {
     let p = *core.params();
     let rate = p.sample_rate;
@@ -764,19 +760,17 @@ pub fn prepare(core: &mut Core) {
     let s = a.prep_step as usize;
     let regions = core.regions_mut();
     if s < sums {
-        for i in s * PREP_SUM_SAMPLES..((s + 1) * PREP_SUM_SAMPLES).min(2 * frames) {
-            let x = kernel::pcm_sample(buf, frames, i / frames, i % frames) as f64;
-            a.prep_sum += x * x;
+        let blocks = frames.div_ceil(PREP_SUM_FRAMES);
+        // Past the end `x` stays 0, which adds nothing.
+        let mut x = [0.0f32; PREP_SUM_FRAMES];
+        kernel::pcm_read(buf, frames, s / blocks, s % blocks * PREP_SUM_FRAMES, &mut x);
+        for v in &x {
+            a.prep_sum += *v as f64 * *v as f64;
         }
         a.prep_scale = ir::blink_normalization_scale(a.prep_sum, 2 * frames, rate);
     } else if s < sums + heads + tails {
         let Some(mut scratch) = convolver::shared_scratch(regions.reverb) else { return };
-        let u = s - sums;
-        let head_units = 2 * convolver::head_partitions(frames);
-        let units = if u < heads { u * PREP_HEAD_UNITS..((u + 1) * PREP_HEAD_UNITS).min(head_units) } else { head_units + u - heads..head_units + u - heads + 1 };
-        for unit in units {
-            let _ = kernel::prepare_unit_in_place(buf, &mut scratch, spec, unit);
-        }
+        let _ = kernel::prepare_unit_in_place(buf, &mut scratch, spec, s - sums);
     } else if s < sums + heads + tails + clears {
         let c = s - sums - heads - tails;
         let zones = &mut regions.zones[..];
@@ -793,17 +787,17 @@ pub fn prepare(core: &mut Core) {
         // The stagger plan of the first slot to start, a row a step (the format 3 path plans it at
         // once in `onmessage`). Slots that start meanwhile only make it less balanced, never wrong.
         let row = (s - sums - heads - tails - clears) as u32;
-        let mut best = if row == 0 { PLAN_START } else { (a.prep_top, a.prep_sq, [(a.prep_phase[0], a.prep_phase[1]), (a.prep_phase[2], a.prep_phase[3])]) };
+        if row == 0 {
+            a.prep_plan = PLAN_START;
+        }
         let (fixed, n) = fixed_loads(regions.zones, count, stride, shared_load(&p), usize::MAX);
-        plan_one_row(&fixed[..n], convolver::tail_partitions(frames), row, &mut best);
-        (a.prep_top, a.prep_sq, a.prep_phase) = (best.0, best.1, [best.2[0].0, best.2[0].1, best.2[1].0, best.2[1].1]);
+        plan_one_row(&fixed[..n], convolver::tail_partitions(frames), row, &mut a.prep_plan);
     } else {
         let _ = kernel::write_header(buf, spec);
         area_mut(regions.core_state).prep_id = 0;
         core.clips_mut().finish_zone_pcm(id);
         let mut events = Events::default();
-        let phase = [(a.prep_phase[0], a.prep_phase[1]), (a.prep_phase[2], a.prep_phase[3])];
-        start_waiting(core, Some(id), &mut events, a.prep_mask, Some(phase));
+        start_waiting(core, Some(id), &mut events, a.prep_mask, Some(a.prep_plan.2));
         events.flush(core);
         return;
     }

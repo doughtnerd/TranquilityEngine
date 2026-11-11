@@ -158,10 +158,12 @@ pub const PLAN_ROWS: u32 = N as u32 - 2;
 
 /// One row of [`plan_one`]'s search, the left pairs with forward slot `f0`, folded into `best`
 /// (from [`PLAN_START`]): after rows `0..`[`PLAN_ROWS`] in order, `best.2` is [`plan_one`]'s phase
-/// (ADR 0162 C3b spreads the search over quanta). Nothing without a tail or for an invalid fixed
-/// phase. At most 14 × 105 scores; no allocation.
+/// (ADR 0162 C3b spreads the search over quanta). Every fixed phase must be valid (`plan_one`
+/// checks; a running instance's always is). Nothing without a tail. At most 14 × 105 scores; no
+/// allocation.
+#[inline(never)]
 pub fn plan_one_row(fixed: &[Load], tail_parts: usize, f0: u32, best: &mut PlanBest) {
-    if tail_parts == 0 || fixed.iter().any(|ins| !phase_is_valid(ins.phase)) {
+    if tail_parts == 0 {
         return;
     }
     let base = modelled_load(fixed);

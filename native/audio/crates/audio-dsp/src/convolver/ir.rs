@@ -156,6 +156,7 @@ pub fn normalization_scale(sample_rate: f32) -> f32 {
 /// times `10^(-58 / 20)` times `44100 / sample_rate`. [`normalization_scale`] uses it for the
 /// seeded response; the decoder's IR preparation (task C2a) uses it for zone IRs, passing the
 /// result as `kernel::IrSpec::scale`.
+#[inline(never)]
 pub fn blink_normalization_scale(sum_squares: f64, samples: usize, sample_rate: f32) -> f32 {
     let sum = sum_squares;
     let mut power = if samples == 0 { 0.0 } else { libm::sqrt(sum / samples as f64) as f32 };

@@ -151,7 +151,7 @@ pub fn prepare_ir(out: &mut [u8], scratch: &mut Scratch<'_>, spec: IrSpec, mut n
         let mut drawn = 0;
         for p in 0..head + tail {
             let unit = if p < head { c * head + p } else { CHANNELS * head + c * tail + p - head };
-            prepare_unit(out, scratch, spec, unit, |_, _, _, block| {
+            prepare_unit(out, scratch, spec, unit, &mut |_, _, _, block| {
                 for x in block.iter_mut() {
                     *x = if drawn < frames {
                         drawn += 1;
@@ -189,10 +189,19 @@ pub const fn pcm_offset(frames: usize) -> usize {
     HEADER_BYTES + head_partitions(frames) * QUANTUM * 8 + tail_partitions(frames) * TAIL_BLOCK * 8
 }
 
-/// Frame `f` of channel `c` of the PCM held at [`pcm_offset`] in `buf` (`f < frames`).
-pub fn pcm_sample(buf: &[u8], frames: usize, c: usize, f: usize) -> f32 {
-    let at = pcm_offset(frames) + 8 * f + 4 * c;
-    f32::from_le_bytes([buf[at], buf[at + 1], buf[at + 2], buf[at + 3]])
+/// Reads channel `c`'s frames from `first` of the interleaved stereo PCM of `frames` frames held
+/// at [`pcm_offset`] in `buf` into `block` (as many as fit before the end; the rest of `block` is
+/// left alone).
+#[inline(never)]
+pub fn pcm_read(buf: &[u8], frames: usize, c: usize, first: usize, block: &mut [f32]) {
+    let n = frames.saturating_sub(first).min(block.len());
+    let at = pcm_offset(frames) + 4 * (2 * first + c);
+    if n > 0 && at + 8 * n - 4 <= buf.len() {
+        for (j, x) in block[..n].iter_mut().enumerate() {
+            // SAFETY: `at + 8 j + 4 <= at + 8 (n - 1) + 4 <= buf.len()` (checked above).
+            *x = f32::from_le_bytes(unsafe { buf.as_ptr().add(at + 8 * j).cast::<[u8; 4]>().read() });
+        }
+    }
 }
 
 /// Transforms unit `unit` (of [`units`]`(spec.frames)`: channel 0's head partitions, channel 1's,
@@ -202,7 +211,8 @@ pub fn pcm_sample(buf: &[u8], frames: usize, c: usize, f: usize) -> f32 {
 /// [`prepare_ir`] always did), and the zero-padded block is transformed (`scratch`'s twiddles
 /// must be filled). The order of units changes nothing in the result. `None` if `out` is too
 /// short or misaligned or `unit` is out of range. Allocates nothing.
-pub fn prepare_unit(out: &mut [u8], scratch: &mut Scratch<'_>, spec: IrSpec, unit: usize, fill: impl FnOnce(&[u8], usize, usize, &mut [f32])) -> Option<()> {
+#[inline(never)]
+pub fn prepare_unit(out: &mut [u8], scratch: &mut Scratch<'_>, spec: IrSpec, unit: usize, fill: &mut dyn FnMut(&[u8], usize, usize, &mut [f32])) -> Option<()> {
     let frames = spec.frames;
     let (head, tail) = (head_partitions(frames), tail_partitions(frames));
     if out.len() < kernel_bytes(frames) || !aligned(out) || unit >= units(frames) {
@@ -233,16 +243,13 @@ pub fn prepare_unit(out: &mut [u8], scratch: &mut Scratch<'_>, spec: IrSpec, uni
 /// bit-identical to [`prepare_ir`] on the same samples (ADR 0162 C3b).
 pub fn prepare_unit_in_place(buf: &mut [u8], scratch: &mut Scratch<'_>, spec: IrSpec, unit: usize) -> Option<()> {
     let frames = spec.frames;
-    prepare_unit(buf, scratch, spec, unit, |pcm, c, first, block| {
-        for (j, x) in block.iter_mut().enumerate() {
-            *x = if first + j < frames { pcm_sample(pcm, frames, c, first + j) } else { 0.0 };
-        }
-    })
+    prepare_unit(buf, scratch, spec, unit, &mut |pcm, c, first, block| pcm_read(pcm, frames, c, first, block))
 }
 
 /// Writes the header of `spec`'s kernel into `out` (after every unit) and returns the kernel's
 /// bytes; `None` if `out` is too short or misaligned or `spec.frames` is 0 or above `u32::MAX`.
 /// The magic goes last, so a kernel cut short never parses.
+#[inline(never)]
 pub fn write_header(out: &mut [u8], spec: IrSpec) -> Option<usize> {
     let frames = spec.frames;
     let n = kernel_bytes(frames);
@@ -314,7 +321,7 @@ mod tests {
         b[0] ^= 1;
         b[16] = 33;
         assert!(Kernel::parse(b).is_none(), "head parts");
-        assert_eq!(prepare_unit(bytes(&mut out), &mut sc, spec, units(frames), |_, _, _, _| {}), None, "unit out of range");
+        assert_eq!(prepare_unit(bytes(&mut out), &mut sc, spec, units(frames), &mut |_, _, _, _| {}), None, "unit out of range");
         let mut short = vec![0u64; 4];
         assert_eq!(prepare_ir(bytes(&mut short), &mut sc, spec, || 0.0), None);
         assert_eq!(prepare_ir(bytes(&mut out), &mut sc, IrSpec { frames: 0, ..spec }, || 0.0), None);
@@ -347,7 +354,9 @@ mod tests {
             for (i, x) in pcm.iter().enumerate() {
                 bytes(&mut got)[at + 4 * i..at + 4 * i + 4].copy_from_slice(&x.to_le_bytes());
             }
-            assert_eq!(pcm_sample(bytes(&mut got), frames, 1, frames - 1), pcm[2 * frames - 1]);
+            let mut last = [0.0f32; 2];
+            pcm_read(bytes(&mut got), frames, 1, frames - 1, &mut last);
+            assert_eq!(last, [pcm[2 * frames - 1], 0.0], "the last frame, and nothing past the end");
             for u in 0..units(frames) {
                 assert_eq!(prepare_unit_in_place(bytes(&mut got), &mut sc, spec, u), Some(()));
             }
