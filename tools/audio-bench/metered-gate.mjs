@@ -61,6 +61,8 @@ const SCENES = [
   // ADR 0162 D6: 256 voices each with a ramping low-pass and high-pass (D1's pool), and each preset's worst case: beds,
   // ambisonic clips (one private), filters and zone slots sized (these three have no sends: the slots idle; see C7's `-sends` twins below).
   "filters-256",
+  // ADR 0162 A7: four 3rd-order ambisonic clips rotated by a turning listener into one MagLS bed (B3's voice).
+  "ambi-o3",
   "m3-worst-high",
   "m3-worst-default",
   "m3-worst-low",
