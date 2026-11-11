@@ -171,7 +171,7 @@ fn every_m3_record_has_a_vector() {
     assert!(all.iter().any(|c| matches!(c.subject, Subject::BlobHeader("MaglsHeader"))));
 
     // The M3 STATUS: beds, zones and zoneEvents non-empty, flags bit 6, and the ADR 0162 header fields
-    // distinct and non-zero (`reserved` is zero by definition and left out).
+    // distinct and non-zero.
     let status = named("STATUS_adr0162_sections");
     let (st, _) = StatusBlock::read(&bytes(&status), 0).unwrap();
     assert!(!st.beds.is_empty() && !st.zones.is_empty() && !st.zone_events.is_empty());
@@ -186,6 +186,7 @@ fn every_m3_record_has_a_vector() {
         st.zone_events.len() as u32,
         st.beds_refused as u32,
         st.zones.len() as u32,
+        st.m3_shed as u32,
         st.zone_used_kb,
         st.work_bed,
         st.work_zones,
@@ -549,6 +550,7 @@ fn status_worst_case_is_15904_bytes() {
         zones_active: 3,
         zones_ringing: 1,
         beds_refused: 7,
+        m3_shed: 11,
         zone_used_kb: 4096,
         work_bed: 1500,
         work_zones: 2500,

@@ -100,6 +100,9 @@ pub struct SpatialCounters {
     /// `bedsRefused`: buses whose bed host failed validation, cumulative, saturating (core: A4,
     /// through `note_beds_refused`).
     pub beds_refused: u16,
+    /// `m3Shed`: the ladder's steps taken, bed plus zone (core: A4's `bed::m3_shed`, C3's `zones::shed_steps`;
+    /// set when a block is taken, D5).
+    pub m3_shed: u16,
     /// `zoneUsedKB`: zone kernels resident (core: C3).
     pub zone_used_kb: u32,
     /// `workBed`: work units of the last quantum's bed encode, decode and ambisonic voices (core: A4, B3).

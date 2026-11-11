@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: fbd70d16eedae8ed34006df376d6976c).
+/// First 16 bytes of the schema's SHA-256 (hex: 5b4cc14ab15d4099c443889815d94202).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0xfb,
-    0xd7,
-    0x0d,
-    0x16,
-    0xee,
-    0xda,
-    0xe8,
-    0xed,
-    0x34,
-    0x00,
-    0x6d,
-    0xf3,
-    0x76,
-    0xd6,
-    0x97,
-    0x6c,
+    0x5b,
+    0x4c,
+    0xc1,
+    0x4a,
+    0xb1,
+    0x5d,
+    0x40,
+    0x99,
+    0xc4,
+    0x43,
+    0x88,
+    0x98,
+    0x15,
+    0xd9,
+    0x42,
+    0x02,
 ];
-pub const SCHEMA_HASH_HEX: &str = "fbd70d16eedae8ed34006df376d6976c";
+pub const SCHEMA_HASH_HEX: &str = "5b4cc14ab15d4099c443889815d94202";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -3336,7 +3336,8 @@ pub struct StatusBlock {
     pub zones_ringing: u16,
     /// buses whose bed host failed validation (cumulative, saturating)
     pub beds_refused: u16,
-    pub reserved: u16,
+    /// the load-shedding ladder's steps taken: bed steps plus zone steps (ADR 0162 OD3, D5)
+    pub m3_shed: u16,
     /// zone kernels resident, KB
     pub zone_used_kb: u32,
     /// work units, last quantum: bed encode, decode, ambisonic voices
@@ -3449,7 +3450,7 @@ impl StatusBlock {
             return Err(ERR_OVERSIZE);
         }
         put_u16(out, base + 128, self.zones.len() as u16);
-        put_u16(out, base + 130, self.reserved);
+        put_u16(out, base + 130, self.m3_shed);
         put_u32(out, base + 132, self.zone_used_kb);
         put_u32(out, base + 136, self.work_bed);
         put_u32(out, base + 140, self.work_zones);
@@ -3581,7 +3582,7 @@ impl StatusBlock {
         let zone_event_count = get_u16(buf, base + 124);
         let beds_refused = get_u16(buf, base + 126);
         let zone_slots = get_u16(buf, base + 128);
-        let reserved = get_u16(buf, base + 130);
+        let m3_shed = get_u16(buf, base + 130);
         let zone_used_kb = get_u32(buf, base + 132);
         let work_bed = get_u32(buf, base + 136);
         let work_zones = get_u32(buf, base + 140);
@@ -3702,7 +3703,7 @@ impl StatusBlock {
             zones_active,
             zones_ringing,
             beds_refused,
-            reserved,
+            m3_shed,
             zone_used_kb,
             work_bed,
             work_zones,
