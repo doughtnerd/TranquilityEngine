@@ -44,11 +44,20 @@
 // (`zoneIr.ts`, K0's `ZoneIrService`), the occlusion and Doppler passes, the LISTENER stage and the per-voice fx staging.
 // Main's results come back through `_setOcclusion` (the dry gain is `gain × occGain`, the cutoff a `voiceFx` low-pass)
 // and `_setDopplerRate` (the pitch sent is `pitch × dopplerFactor`); both are 1 until their tasks, so M2's bytes stand.
+//
+// ADR 0166 (Q2, the M4 skeleton; this file is coordinator-only after W1): `music` is `musicOps` (`musicOps.ts`, P1 and
+// P9 fill it), built over a `MusicOpsHost` of closures so music work never edits this file. The hooks: `beginFrame`
+// (step 0 of the audio system: the clock map and this frame's music STATUS), `timeAt` (`Audio.timeAt`, the raw heard
+// clock), `latency` (`Audio.latency`; the context's part from `host.latency`, Rh1), a member's play
+// (`CorePlayRequest.music`: musicOps opened and primed its stream, its PLAY carries the gate), `Voice.fadeShaped`,
+// `onFree` for members, `reopenStreams` (music voices skipped, then `musicOps.reopenGroups`), and `musicOps` on the
+// `DebugSource` (P10).
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
 import type { AudioSettings, BusEffect } from "../../../../engine/audio/settings";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioPanner, AudioStatus, AudioVoice, ListenerPose, PlayRequest, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioPanner, AudioStatus, AudioVoice, ListenerPose, MusicBackend, PlayRequest, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import {
   BUS_LP_OFF_HZ,
   BUS_ROOT,
@@ -103,10 +112,13 @@ import type { ReplayBuilder, ReplaySpatial } from "./replay";
 import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { CoreAutomation, wrapPosition } from "./coreAutomation";
 import { MAX_GROUPS } from "../events/automation";
+import { CoreMusicOps, type MusicMemberTag } from "./musicOps";
 
 
 /** `PlayRequest` plus the core's World key. */
 export interface CorePlayRequest extends PlayRequest {
+  /** ADR 0166 (Q2; P1 sets it in `musicOps.stampGroup`): a music group member (`musicOps.ts` `MusicMemberTag`). */
+  music?: MusicMemberTag;
   /** The World key of the playing World (0 or omitted: none). */
   world?: number;
 }
@@ -138,6 +150,8 @@ export interface CoreBackendHost {
     readonly maxZoneSlots?: number;
     readonly zoneMaxSeconds?: number;
     readonly maxWide?: number;
+    /** ADR 0166 §4.5: the music ring pool (`audio.music.rings`, ABI 3.0; absent: 0, no streamed stems). */
+    readonly maxMusicRings?: number;
   };
   /** Worlds holding a share (an idle host has none). */
   readonly worldCount: number;
@@ -145,6 +159,11 @@ export interface CoreBackendHost {
   addLifecycleListener: AudioHost["addLifecycleListener"];
   /** Architecture §8 health counters (traps, recoveries, rebuilds) of the host, for `Audio.debug()` (A3.4a). */
   readonly health?: HostHealth;
+  /**
+   * ADR 0166 §1.3, §1.5 (Rh1 implements it in `context.ts`): the context's `baseLatency` and `outputLatency`, seconds, as
+   * read back after creation (0 where the browser reports none). Absent: both 0.
+   */
+  latency?(): { readonly base: number; readonly output: number };
 }
 
 /** What `createCoreBackend` takes beyond the host (tests inject fakes). */
@@ -260,6 +279,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   readonly streams: StreamManager;
   /** ADR 0158 (E3.1): the event runtime's automation sink on the core, and its mirror for a rebuild (`coreAutomation.ts`). */
   readonly automation: CoreAutomation;
+  /** ADR 0166 (Q2): the music group operations (`music`); P1 and P9 fill them in `musicOps.ts`. */
+  readonly musicOps: CoreMusicOps;
 
   private readonly clock: HostClock;
   private readonly reader = new StatusReader();
@@ -374,18 +395,19 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       replayVoiceFx: (b: ReplayBuilder, id: number, i: number) => this.voiceFx.replayVoice(b, id, i),
     };
     this.clockMap = new ClockMap(this.clock, host.sampleRate, limiterLatencyFrames(host.sampleRate, host.preset.limiterLookaheadMs));
+    const fetchBytes =
+      streamDeps.fetchBytes ??
+      (async (path: string) => {
+        const response = await fetch(Assets.url(path));
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.arrayBuffer();
+      });
     this.streams = new StreamManager({
       table: this.table,
       decoder,
       connectWorklet: () => {},
       worklet,
-      fetchBytes:
-        streamDeps.fetchBytes ??
-        (async (path) => {
-          const response = await fetch(Assets.url(path));
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return response.arrayBuffer();
-        }),
+      fetchBytes,
       onError: (id, asset, message, code) => this.streamFailed(id, asset, message, code),
       sendSeek: (id, frame, epoch) => this.writer.seek(id, frame, epoch),
       // ADR 0162 B4: a FuMa stream's headroom scale multiplies its volume, as a FuMa clip's import volume.
@@ -396,6 +418,24 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       rateOf: (id) => this.playheads.rate[id & 0xffff] ?? 0,
     });
     this.streams.afterSeek = (voice, frame) => this.reanchorSeek(voice, frame);
+    // ADR 0166 (Q2): the music group operations, over closures to what they need of the backend (P1, P9 fill them).
+    this.musicOps = new CoreMusicOps({
+      table: this.table,
+      writer: this.writer,
+      mirror: this.mirror,
+      clockMap: this.clockMap,
+      streams: this.streams,
+      worklet,
+      decoder,
+      fetchBytes,
+      play: (req) => this.play(req),
+      sending: () => !this.disposed && !this.recovering && this.host.status === "running",
+      musicRings: () => this.host.preset.maxMusicRings ?? 0,
+      sampleRate: () => this.clockMap.sampleRate,
+      warnOnce: this.warnOnce,
+    });
+    // ADR 0166 (Q2): stream event 4 and music members' stream events go to musicOps (`streams.ts`).
+    this.streams.music = this.musicOps;
     // Stream voices' positions are in their stream's frames, at its rate (B3).
     // M2 F1: the tracker reads only `sampleRate` (per voice start and retime), so a clip's comes without an info object.
     const rateInfo = { sampleRate: 0 };
@@ -552,7 +592,9 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     if (req.ambisonic === true && !this.admitAmbisonic(req.path, req.priority ?? 128)) return null;
     // B3: a stream voice takes a stream id where a clip voice takes a registry clip (no clip load).
     const stream = req.stream === true;
-    const clip = stream ? this.streams.allocate() : this.clips.acquire(req.path, world);
+    // ADR 0166 (Q2): a streamed group member plays the stream musicOps allocated and primed (P1).
+    const member = req.music;
+    const clip = stream ? (member?.stream ?? this.streams.allocate()) : this.clips.acquire(req.path, world);
     const bus = this.busIndex(req.bus);
     const priority = req.priority ?? 128;
     // A3.4a: while a hard rebuild runs, new plays wait in the locked queue and start once the new core is up.
@@ -571,7 +613,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.gainApplied[i] = req.ambisonic === true && !stream ? ambisonicImportGain(req.path) : 1;
     t.pitch[i] = req.pitch !== undefined && Number.isFinite(req.pitch) ? clamp(req.pitch, MIN_PITCH, MAX_PITCH) : 1;
     t.flags[i] = (req.loop ? VoiceFlag.LOOP : 0) | (req.oneShot ? VoiceFlag.ONE_SHOT : 0) | (stream ? VoiceFlag.STREAM | VoiceFlag.WANTS_PLAYHEAD : 0);
-    if (stream) this.streams.register(clip, id, req.path, req.loop === true);
+    if (member) this.musicOps.adoptMember(id, i, member);
+    else if (stream) this.streams.register(clip, id, req.path, req.loop === true);
     t.lpHz[i] = BUS_LP_OFF_HZ;
     t.dirX[i] = 0;
     t.dirY[i] = 0;
@@ -802,6 +845,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.table.freeEnded();
     this.mirror.drainClipEvents(this.clipSink);
     this.mirror.drainStreamEvents(this.streamSink);
+    this.musicOps.beginFrame(); // ADR 0166 (Q2): this frame's music STATUS when step 0 didn't run (P1)
     this.replayer.flush();
     this.automation.beginFrame();
     if (this.lockedQueue.size > 0 && this.host.status === "running" && !this.recovering) this.unlock();
@@ -983,6 +1027,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.disposed = true;
     this.lockedQueue.clear();
     for (const c of this.cleanups.splice(0)) c();
+    this.musicOps.dispose();
     this.streams.dispose();
     this.zones.dispose();
     this.table.onFree = null;
@@ -1004,6 +1049,50 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const now = clock.framesNow();
     if (!(now > 0)) return this.time;
     return Math.ceil(now + clock.lookaheadFrames()) / clock.sampleRate + clock.timeOffset;
+  }
+
+  // --- ADR 0166 (Q2): the music seam (`backend.ts` `MusicBackend`, `beginFrame`, `timeAt`, `latency`) ---
+
+  /** §4.6, C10: the music group operations (`musicOps.ts`). */
+  get music(): MusicBackend {
+    return this.musicOps;
+  }
+
+  /**
+   * §6 step 0 (R17): the clock map's frame start and this frame's music STATUS, before scripts run, so `update()` reads
+   * this frame's `Audio.time`. Idempotent per frame: `ClockMap.beginFrame` does nothing the second time at the same rAF
+   * time, and `frameAttenuate` repeats the same steps. The audio system calls it only while music plays.
+   */
+  beginFrame(): void {
+    if (this.disposed) return;
+    const clockMap = this.clockMap;
+    clockMap.beginFrame();
+    if (this.mirror.blocks > this.staleBlocks) clockMap.noteStatus(this.mirror.frameAudio, this.mirror.frameDateMs);
+    this.musicOps.beginFrame();
+  }
+
+  /**
+   * §1.3 `Audio.timeAt` (R18: the raw map, calibration never applied): the heard time of the `performance.now()` instant
+   * `performanceTime` (ms) by the clock map's offset filter. `Audio.time` while the clock has no output-timestamp estimate
+   * (the fallback, or a rebuild's carry).
+   */
+  timeAt(performanceTime: number): number {
+    const clock = this.clockMap;
+    if (!clock.anchored || clock.carryPending || !Number.isFinite(performanceTime)) return this.time;
+    const sr = clock.sampleRate;
+    return Math.max(0, ((performanceTime * sr) / 1000 + clock.offsetFrames - clock.outputLatencyFrames) / sr) + clock.timeOffset;
+  }
+
+  /**
+   * §1.3 `Audio.latency`, seconds: the context's base and output latency (`host.latency`, Rh1's read-back; 0 without it),
+   * the core's limiter look-ahead, their total, and `reliable` (0 < output < 0.5, S13).
+   */
+  latency(): AudioLatency {
+    const ctx = this.host.latency?.();
+    const base = ctx && Number.isFinite(ctx.base) ? Math.max(0, ctx.base) : 0;
+    const output = ctx && Number.isFinite(ctx.output) ? Math.max(0, ctx.output) : 0;
+    const limiter = this.clockMap.outputLatencyFrames / this.clockMap.sampleRate;
+    return { base, output, limiter, total: base + output + limiter, reliable: output > 0 && output < 0.5 };
   }
 
   // --- Voice operations (`Voice` calls these) ---
@@ -1396,18 +1485,21 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     t.state[i] = mixed ? VoiceState.PLAYING : VoiceState.VIRTUAL;
     t.reason[i] = VoiceReason.WAITING_FOR_DATA;
     this.sendPlay(id, i, startFrame);
-    this.streams.open(t.clip[i]!, startFrame);
+    // ADR 0166 (Q2): a music member's stream is already open and primed (musicOps, P1).
+    if (!this.musicOps.ownsVoice(id)) this.streams.open(t.clip[i]!, startFrame);
   }
 
   /**
    * B3, a hard rebuild (`Replayer.restore` hands over the live stream voices): each reopens on the new core with a new
    * stream id, from where its playhead is now (wrapped for loops; a finished one is dropped).
+   *
+   * ADR 0166 (Q2, C16): music group members are skipped: their groups reopen as groups (`musicOps.reopenGroups`, P9).
    */
   reopenStreams(ids: readonly number[]): void {
     const t = this.table;
     const frame = this.clockMap.framesNow();
     for (const id of ids) {
-      if (!t.isLive(id)) continue;
+      if (!t.isLive(id) || this.musicOps.ownsVoice(id)) continue;
       const i = id & 0xffff;
       const info = this.streams.clipInfo(t.clip[i]!);
       const frames = info?.frames ?? 0;
@@ -1420,6 +1512,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       t.clip[i] = this.streams.rekey(t.clip[i]!);
       this.launchStream(id, i, pos);
     }
+    this.musicOps.reopenGroups();
   }
 
   private sendPlay(id: number, i: number, startOffsetFrames = 0): void {
@@ -1448,6 +1541,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     a.lpHz = t.lpHz[i]!;
     a.score = t.audibility[i]!;
     this.selection.noteScoreSent(i, a.score);
+    // ADR 0166 (Q2): a group member's PLAY carries its gate; every other PLAY clears it (`a` is reused; P1).
+    this.musicOps.decoratePlay(id, i, a);
     const start = t.startFrame[i]!;
     // A3.2: stamped at its frame while that is ahead of F_now; past (or asap) goes asap (§1 `at`, `lookahead.ts`).
     const stamp = this.clockMap.stampFor(start);
@@ -1632,8 +1727,12 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const s = t.state[i]!;
     if (s === VoiceState.PLAYING || s === VoiceState.VIRTUAL || s === VoiceState.STOPPING) this.writer.stop(id, STEAL_FADE_SECONDS);
     // B3: a stream voice's stream closes on the worker (the worklet frees its ring); a clip voice drops its reference.
-    if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) this.streams.close(t.clip[i]!);
-    else this.clips.release(t.clip[i]!);
+    // ADR 0166 (Q2): a music member's stream is musicOps's to close (P1).
+    const member = this.musicOps.ownsVoice(id);
+    if (member) this.musicOps.memberFreed(id, i);
+    if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) {
+      if (!member) this.streams.close(t.clip[i]!);
+    } else this.clips.release(t.clip[i]!);
     this.panners.forget(i);
     this.automation.forget(i);
     // ADR 0162 (K4): the M3 per-slot state goes with the voice.
@@ -1699,6 +1798,11 @@ class Voice extends AudioHandle implements CoreVoice {
 
   seek(seconds: number): void {
     this.backend._seek(this.id, seconds);
+  }
+
+  /** ADR 0166 §4.2 (Q2): a shaped, stamped fade of the `fade` ramp (`musicOps.fadeShaped`, P1). */
+  fadeShaped(f: ShapedFade): void {
+    if (this.backend.table.isLive(this.id)) this.backend.musicOps.fadeShaped(this.id, f);
   }
 
   // ADR 0162 (K0, K4): main's M3 results and options.

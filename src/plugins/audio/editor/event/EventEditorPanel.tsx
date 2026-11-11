@@ -5,12 +5,14 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { editor, openAssetDocument } from "../../../../editor/sdk";
 import type { AudioEventAsset, EventNode } from "../../../../engine/audio/eventFormat";
+import type { MusicNode } from "../../../../engine/audio/musicFormat";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { Audition } from "./Audition";
 import { auditionValues } from "./eventParameters";
-import { getNode, parentPath, pathKey, setNode, type NodePath, type SustainSlot } from "./EventTree";
+import { getMusicNode, getNode, musicIdProblem, parentPath, pathKey, renameMusicId, setMusicNode, setNode, type NodePath, type SustainSlot } from "./EventTree";
 import { EventTree } from "./EventTree";
-import { EventProperties, NodeProperties, type FieldContext } from "./NodeProperties";
+import { EventProperties, MusicNodeProperties, NodeProperties, type FieldContext } from "./NodeProperties";
+import { openRulesTable, openSegmentView } from "../music";
 import { ParametersPane } from "./ParametersPane";
 import { openEvent } from "./openEventEditor";
 import "./eventEditor.css";
@@ -34,7 +36,9 @@ function EventEditor({ path }: { path: string }) {
 
   /** The selected node (null: the event row). A path that no longer leads anywhere (after an undo, say) falls back to the event. */
   const [picked, setPicked] = useState<NodePath | null>([]);
-  const selected = picked && getNode(event.root, picked) ? picked : null;
+  // A music event's tree is its `musicRoot` (D6): `root` is then the empty layer, and every edit goes to `musicRoot`.
+  const music = event.musicRoot;
+  const selected = picked && (music ? getMusicNode(music, picked) : getNode(event.root, picked)) ? picked : null;
   const [audition, setAudition] = useState<Record<string, number | string>>({});
   const values = auditionValues(event.parameters, audition);
   const [voices, setVoices] = useState(0);
@@ -56,9 +60,16 @@ function EventEditor({ path }: { path: string }) {
     setPicked(select);
   };
 
-  const node = selected ? getNode(event.root, selected) : undefined;
+  const changeMusicRoot = (musicRoot: MusicNode, select: NodePath | null, label: string) => {
+    change({ ...event, musicRoot }, false, label);
+    setPicked(select);
+  };
+
+  const node = selected && !music ? getNode(event.root, selected) : undefined;
+  const musicNode = selected && music ? getMusicNode(music, selected) : undefined;
   const parent = selected ? parentPath(selected) : null;
-  const parentNode = parent ? getNode(event.root, parent) ?? null : null;
+  const parentNode = parent && !music ? getNode(event.root, parent) ?? null : null;
+  const musicParent = parent && music ? getMusicNode(music, parent) ?? null : null;
   const last = selected?.[selected.length - 1];
   const slot = typeof last === "string" ? (last as SustainSlot) : undefined;
 
@@ -90,6 +101,7 @@ function EventEditor({ path }: { path: string }) {
             selected={selected}
             onSelect={setPicked}
             onEdit={changeRoot}
+            music={music ? { root: music, onEdit: changeMusicRoot, onOpenSegment: (id) => openSegmentView(path, id), onOpenRules: (id) => openRulesTable(path, id) } : undefined}
             onProblem={(text) => editor.messages.info(text)}
             readOnly={readOnly}
           />
@@ -106,7 +118,22 @@ function EventEditor({ path }: { path: string }) {
           </section>
         </div>
         <div class="event-editor-right" data-testid="event-properties">
-          {node ? (
+          {musicNode && music ? (
+            <MusicNodeProperties
+              key={`${pathKey(selected!)}:${musicNode.id}`}
+              root={music}
+              node={musicNode}
+              path={selected!}
+              parent={musicParent}
+              context={context}
+              onChange={(next, drag, label) => change({ ...event, musicRoot: setMusicNode(music, selected!, next) }, drag, label ? `Edit ${label.toLowerCase()}` : undefined)}
+              onRename={(id) => !musicIdProblem(music, selected!, id) && change({ ...event, musicRoot: renameMusicId(music, selected!, id) }, false, "Rename node")}
+              onOpenSegment={(id) => openSegmentView(path, id)}
+              onOpenRules={(id) => openRulesTable(path, id)}
+              // The audition keeps its handle to itself until Ed5's machinery shares it: no trigger target yet, so the stinger buttons stay disabled.
+              audition={null}
+            />
+          ) : node ? (
             <NodeProperties
               key={pathKey(selected!)}
               node={node}

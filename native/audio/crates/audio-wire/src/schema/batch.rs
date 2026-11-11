@@ -153,7 +153,7 @@ pub const OPCODES: &[Opcode] = &[
             Field::new("bus", Ty::U16).doc("bus index"),
             Field::new("flags", Ty::U16).flags(VOICE_FLAGS),
             Field::new("group", Ty::U16),
-            Field::new("reserved", Ty::U16),
+            Field::new("gate", Ty::U16).doc("ADR 0166 M4: bits 0-9 groupId 1..=1023 (0 = ungated), bits 10-15 groupSize - 1 (PLAY_GATE_*; pack_gate); every member of a group arrives in one BATCH with the same frameOffset"),
             Field::new("gain", Ty::F32),
             Field::new("pitch", Ty::F32),
             Field::new("dirX", Ty::F32),

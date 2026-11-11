@@ -58,3 +58,21 @@ pub const ENUMS: &[Enum] = &[Enum {
         ("EqualPowerOut", 3, "equal power, falling"),
     ],
 }];
+
+/// STATUS `musicRings` item (API section 4.4, 8 B): every open music ring, a level reported each STATUS
+/// so a lost report repairs itself. `epochFlags`: bits 0-29 the ring's current epoch
+/// (`MUSIC_RING_EPOCH_MASK`), bit 30 primed (`MUSIC_RING_PRIMED`), bit 31 bound (`MUSIC_RING_BOUND`).
+pub const MUSIC_RINGS_ITEM: &[Field] = &[
+    Field::new("streamId", Ty::U32),
+    Field::new("epochFlags", Ty::U32).doc("bits 0-29 epoch, bit 30 primed, bit 31 bound"),
+];
+
+/// STATUS `groupStarts` item (API section 4.4, 16 B): one per group. `flags`: bit 0 late, bit 1 held
+/// and resumed, bit 2 abandoned (`GROUP_START_*`).
+pub const GROUP_STARTS_ITEM: &[Field] = &[
+    Field::new("groupId", Ty::U16),
+    Field::new("flags", Ty::U16).doc("bit 0 late, bit 1 held and resumed, bit 2 abandoned"),
+    Field::new("slipFrames", Ty::U32),
+    Field::new("startFrameLo", Ty::U32).doc("low 32 bits of the start frame"),
+    Field::new("startFrameHi", Ty::U32).doc("high 32 bits of the start frame"),
+];

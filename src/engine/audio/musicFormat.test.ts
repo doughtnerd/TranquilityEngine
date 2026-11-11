@@ -143,3 +143,38 @@ describe("music containers in the event format (F1b)", () => {
     expect(formatAudioEvent(again.value)).toBe(text);
   });
 });
+
+describe("transitions, stingers and library in the writer (F2)", () => {
+  const seg = (id: string, extra: Record<string, unknown> = {}) => ({ type: "segment", id, tracks: [{ name: "a", clip: `${id}.ogg` }], ...extra });
+  const root = {
+    type: "musicSwitch", id: "world", parameter: "State", default: "explore",
+    children: [seg("explore", { value: "explore", cues: [{ name: "in", at: "1:1:0" }] }), seg("combat", { value: "combat", cues: [{ name: "in", at: "1:1:0" }] })],
+    transitions: [
+      { from: "explore", to: "combat", exit: { every: "bar", n: 2 }, enter: { cue: "in" }, fadeOut: { seconds: 0.5, offset: -0.1, curve: "linear" }, bridge: { segment: "riser", fadeIn: { beats: 2 } } },
+      { to: "explore", exit: "exitCue" },
+      {},
+    ],
+    stingers: [{ trigger: "secret", segment: "hit", at: { cue: "in" }, dontRepeat: 2, ifTooLate: "skip", volume: 0.5, bus: "Fx" }, { trigger: "t2", segment: "hit" }],
+    library: [seg("riser"), seg("hit")],
+  };
+
+  it("round-trips rules, stingers and library with no problems; the text is idempotent", () => {
+    const a = parseAudioEvent({ format: "myco.audioevent@1", root });
+    expect(a.problems).toEqual([]);
+    const text = formatAudioEvent(a.value);
+    const b = parseAudioEvent(JSON.parse(text));
+    expect(b.problems).toEqual([]);
+    expect(b.value).toEqual(a.value);
+    expect(formatAudioEvent(b.value)).toBe(text);
+  });
+
+  it("drops dangling ids and warns on duplicates and shadows", () => {
+    const r = parseAudioEvent({ format: "myco.audioevent@1", root: { ...root, transitions: [
+      { from: "nope" }, { from: "explore", to: "combat" }, { from: "explore", to: "combat" }, { bridge: { segment: "zzz" } }, {}, {},
+    ], stingers: [{ trigger: "x", segment: "zzz" }] } });
+    expect(r.problems.filter((p) => /dropped/.test(p))).toHaveLength(3);
+    expect(r.problems.filter((p) => /duplicates rule/.test(p))).toHaveLength(2);
+    const m = r.value.musicRoot!;
+    expect(m.type === "musicSwitch" && [m.transitions.length, m.stingers.length]).toEqual([4, 0]);
+  });
+});

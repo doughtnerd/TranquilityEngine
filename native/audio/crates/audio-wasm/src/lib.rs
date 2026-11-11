@@ -24,7 +24,9 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 
 /// ABI version, `(major << 8) | minor`. Bump the minor for an added export, the major for a change.
 /// 2.0 (ADR 0162 R6, C8): `myco_audio_init` takes nine parameters; `myco_audio_zone_kernel_budget_bytes`.
-pub const ABI_MAJOR: u32 = 2;
+/// 3.0 (ADR 0166 M4, API section 4.5): `myco_audio_init` and `myco_audio_layout_bytes` take a tenth,
+/// `max_music_rings` (0..16, `InitError::MusicRings`).
+pub const ABI_MAJOR: u32 = 3;
 pub const ABI_MINOR: u32 = 0;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
@@ -92,7 +94,8 @@ pub extern "C" fn myco_audio_source_hash() -> *const u8 {
 
 /// Deterministic init (see `Instance::init`). May grow memory: the shell refreshes its views after.
 /// ABI 2.0 (ADR 0162 C8): the four M3 counts size the `Beds`, `Zones` and `Wide` regions before the
-/// arena (0 is none); `INVALID_ARGUMENT` past their ranges (`InitParams::validate`).
+/// arena (0 is none); ABI 3.0: `max_music_rings` (0..16) sizes the music rings; `INVALID_ARGUMENT` past
+/// their ranges (`InitParams::validate`).
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn myco_audio_init(
@@ -105,8 +108,9 @@ pub extern "C" fn myco_audio_init(
     max_zone_slots: u32,
     zone_max_frames: u32,
     max_wide: u32,
+    max_music_rings: u32,
 ) -> i32 {
-    instance().init(InitParams { sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes, max_beds, max_zone_slots, zone_max_frames, max_wide })
+    instance().init(InitParams { sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes, max_beds, max_zone_slots, zone_max_frames, max_wide, max_music_rings })
 }
 
 /// ABI 2.0 (ADR 0162 C8): bytes the arena needs for `max_zone_slots` zone kernels of
@@ -132,8 +136,9 @@ pub extern "C" fn myco_audio_layout_bytes(
     max_zone_slots: u32,
     zone_max_frames: u32,
     max_wide: u32,
+    max_music_rings: u32,
 ) -> u32 {
-    let p = InitParams { sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes, max_beds, max_zone_slots, zone_max_frames, max_wide };
+    let p = InitParams { sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes, max_beds, max_zone_slots, zone_max_frames, max_wide, max_music_rings };
     if p.validate().is_err() {
         return 0;
     }
@@ -375,7 +380,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x200);
+        assert_eq!(myco_audio_abi_version(), 0x300);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);
@@ -385,15 +390,15 @@ mod tests {
     #[test]
     fn the_layout_and_kernel_budget_exports_are_pure() {
         // ADR 0162 C8: zero M3 counts give M2's layout plus the pool and scratch; refused parameters 0.
-        let m2 = myco_audio_layout_bytes(48_000.0, 4_096, 128, 32, 16 << 20, 0, 0, 0, 0);
-        let m3 = myco_audio_layout_bytes(48_000.0, 4_096, 128, 32, 16 << 20, 2, 3, 96_000, 1);
+        let m2 = myco_audio_layout_bytes(48_000.0, 4_096, 128, 32, 16 << 20, 0, 0, 0, 0, 0);
+        let m3 = myco_audio_layout_bytes(48_000.0, 4_096, 128, 32, 16 << 20, 2, 3, 96_000, 1, 0);
         assert_eq!(m2 as usize % 65_536, 0);
         let extra = audio_core::bed::region_bytes(&InitParams { max_beds: 2, max_wide: 1, ..InitParams::default() })
             + 3 * audio_core::zones::slot_state_bytes(96_000)
             + audio_core::stream::WIDE_RING_BYTES;
         // Whole pages around the arena: within a page either way.
         assert!(((m3 - m2) as i64 - extra as i64).abs() <= 65_536, "{m2} -> {m3}, regions {extra}");
-        assert_eq!(myco_audio_layout_bytes(48_000.0, 4_096, 128, 32, 0, 5, 0, 0, 0), 0, "5 beds are refused");
+        assert_eq!(myco_audio_layout_bytes(48_000.0, 4_096, 128, 32, 0, 5, 0, 0, 0, 0), 0, "5 beds are refused");
         assert_eq!(myco_audio_zone_kernel_budget_bytes(0, 96_000), 0);
         assert_eq!(myco_audio_zone_kernel_budget_bytes(3, 96_000) as usize, audio_core::zones::kernel_budget_bytes(3, 96_000));
     }

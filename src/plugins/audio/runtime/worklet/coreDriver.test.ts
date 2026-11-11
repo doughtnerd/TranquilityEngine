@@ -30,6 +30,10 @@ import {
   CoreLoadError,
   FLAG_TRAP_CAUGHT,
   fixedRegionsHeadroomBytes,
+  m4FixedRegionsBytes,
+  musicRingsBytes,
+  M2_REGIONS_HEADROOM_BYTES,
+  CORE_ABI_MAJOR,
   instantiateCore,
   MEMORY_INITIAL_PAGES,
   memoryMaximumPages,
@@ -47,7 +51,7 @@ import {
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio.wasm", import.meta.url)));
 const RATE = 48_000;
 const QUANTUM_MS = (128 / RATE) * 1000;
-const PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 1.5, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0 };
+const PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 1.5, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0, maxMusicRings: 0 };
 
 /** A driver and a link joined by queues; `recycle: false` makes main keep every STATUS buffer. */
 function rig(options: { recycle?: boolean; core?: CoreInstance } = {}) {
@@ -111,7 +115,7 @@ describe("coreDriver with the real wasm", () => {
   it("refuses a schema hash or ABI major mismatch with CoreLoadError", () => {
     expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: "00".repeat(16), abiMajor: 1 })).toThrow(CoreLoadError);
     expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: SCHEMA_HASH, abiMajor: 1 })).toThrow(/ABI/);
-    expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: SCHEMA_HASH, abiMajor: 3 })).toThrow(/ABI/);
+    expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: SCHEMA_HASH, abiMajor: 2 })).toThrow(/ABI/);
     expect(() => instantiateCore(WASM, { ...PRESET, maxBeds: 5 }, RATE)).toThrow(/init refused/);
     expect(() => instantiateCore(WASM, { ...PRESET, maxMixed: 0 }, RATE)).toThrow(/init refused/);
   });
@@ -124,7 +128,7 @@ describe("coreDriver with the real wasm", () => {
     expect(r.blocks).toHaveLength(1);
     const first = r.blocks[0]!;
     expect(first.flags & STATUS_FLAGS_READY).toBeTruthy();
-    expect(first.abiVersion).toBe(0x200);
+    expect(first.abiVersion).toBe(0x300);
     expect(first.currentFrame).toBe(6 * 128);
     await expect(r.link.ready).resolves.toBeUndefined();
     r.run(6);
@@ -384,9 +388,9 @@ describe("coreDriver clip routing with the real wasm", () => {
 describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
   const HIGH: CorePreset = { ...PRESET, maxBeds: 4, maxZoneSlots: 3, zoneMaxSeconds: 4, maxWide: 2 };
   const LOW: CorePreset = { ...PRESET, maxBeds: 0, maxZoneSlots: 1, zoneMaxSeconds: 1, maxWide: 1 };
-  const zero = (p: CorePreset): CorePreset => ({ ...p, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0 });
+  const zero = (p: CorePreset): CorePreset => ({ ...p, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0, maxMusicRings: 0 });
   const layoutBytes = (e: CoreExports, p: CorePreset, rate: number) =>
-    e.myco_audio_layout_bytes(rate, p.maxLogical, p.maxMixed, p.maxBuses, p.arenaInitialBytes, p.maxBeds, p.maxZoneSlots, zoneMaxFrames(p, rate), p.maxWide);
+    e.myco_audio_layout_bytes(rate, p.maxLogical, p.maxMixed, p.maxBuses, p.arenaInitialBytes, p.maxBeds, p.maxZoneSlots, zoneMaxFrames(p, rate), p.maxWide, p.maxMusicRings);
 
   it("the TypeScript mirror of the M3 regions matches the wasm's layout, within the arena's page rounding", () => {
     const { exports } = instantiateCore(WASM, PRESET, RATE);
@@ -399,6 +403,23 @@ describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
     }
     // An M2 preset: the pool, the scratch, and in Zones the aux accumulator (C3) and the sends area's chain gains (C4).
     expect(spatialRegionsBytes(PRESET, RATE)).toBe(32 * 448 + 8192 + PRESET.maxBuses * 1024 + (64 + PRESET.maxBuses * 512) + 64);
+  });
+
+  it("ABI 3.0: max_music_rings 0..16 is accepted, 17 refused, and the preset's count reaches init (ADR 0166 W1)", () => {
+    expect(CORE_ABI_MAJOR).toBe(3);
+    for (const maxMusicRings of [0, 8, 16]) expect(() => instantiateCore(WASM, { ...PRESET, maxMusicRings }, RATE)).not.toThrow();
+    expect(() => instantiateCore(WASM, { ...PRESET, maxMusicRings: 17 }, RATE)).toThrow(/refused/);
+    const { exports } = instantiateCore(WASM, PRESET, RATE);
+    expect(layoutBytes(exports, { ...PRESET, maxMusicRings: 17 }, RATE), "refused parameters lay out 0").toBe(0);
+  });
+
+  it("the M4 fixed regions (Due, Curves, Groups) span 29,184 B as Q1 aligns them; each music ring adds 307,200 B (C1)", () => {
+    expect(m4FixedRegionsBytes()).toBe(18_432 + 8_192 + 2_560);
+    expect(musicRingsBytes({ ...PRESET, maxMusicRings: 0 })).toBe(0);
+    expect(musicRingsBytes({ ...PRESET, maxMusicRings: 16 })).toBe(16 * 307_200);
+    const base = fixedRegionsHeadroomBytes(PRESET, RATE);
+    expect(base).toBe(M2_REGIONS_HEADROOM_BYTES + spatialRegionsBytes(PRESET, RATE) + m4FixedRegionsBytes() + zoneKernelBudgetBytes(0, 0));
+    expect(fixedRegionsHeadroomBytes({ ...PRESET, maxMusicRings: 12 }, RATE) - base).toBe(12 * 307_200);
   });
 
   it("the zone kernel budget mirror equals myco_audio_zone_kernel_budget_bytes", () => {

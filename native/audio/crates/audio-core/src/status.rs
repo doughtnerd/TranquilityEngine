@@ -14,7 +14,7 @@
 //! checks them in `audio-wasm/tests/status_wire.rs`, and `readStatus` does in `coreDriver.test.ts`,
 //! so a drift between this writer and the schema fails a test.
 
-use crate::counters::{flag, Counters};
+use crate::counters::{flag, Counters, MusicRing, MUSIC_RINGS_CAP};
 use crate::core::Core;
 use crate::layout::{CORE_STATE_BYTES, REGION_ALIGN};
 use crate::QUANTUM;
@@ -165,7 +165,23 @@ pub fn after_quantum(core: &mut Core) {
 pub fn take(core: &mut Core, out: &mut [u8], abi_version: u32) -> usize {
     // OD3 (D5): the ladder's steps, bed-idle plus the zone steps, into `m3Shed`.
     let shed = (crate::bed::m3_shed(core) + crate::zones::shed_steps(core)).min(u16::MAX as u32) as u16;
+    // 0166 M4 §4.4 (C1): the music pool's level, refilled before every take: every open music ring
+    // (`musicRings`, a lost report repairs itself), `musicRingsOpen`, and the refusals so far.
+    let mut rings = [MusicRing::default(); MUSIC_RINGS_CAP];
+    let mut open = 0;
+    for (id, flags) in core.streams().music_rings().take(MUSIC_RINGS_CAP) {
+        rings[open] = MusicRing { stream_id: id, epoch_flags: flags };
+        open += 1;
+    }
+    let refused = core.streams().music_refused();
     let area = area_mut(core);
+    let m = &mut area.counters.music;
+    m.music_rings.clear();
+    for r in &rings[..open] {
+        m.music_rings.push(*r);
+    }
+    m.music_rings_open = open as u16;
+    m.music_ring_refused = refused;
     area.counters.spatial.m3_shed = shed;
     area.counters.set_flag(flag::READY, true);
     area.counters.abi_version = if area.writer.blocks == 0 { abi_version } else { 0 };
@@ -187,6 +203,7 @@ pub fn message_bytes(c: &Counters) -> usize {
         + 8 * c.spatial.sent_beds().len()
         + 12 * c.spatial.sent_zones().len()
         + 4 * c.spatial.zone_events.len()
+        + 8 * c.music.music_rings.len()
 }
 
 /// Serialises `c` as one STATUS message with envelope `seq`. Pure: doesn't change `c`. Returns
@@ -245,10 +262,10 @@ pub fn write(c: &Counters, seq: u32, out: &mut [u8]) -> usize {
     put_u32(out, off::ZONE_USED_KB, s.zone_used_kb);
     put_u32(out, off::WORK_BED, s.work_bed);
     put_u32(out, off::WORK_ZONES, s.work_zones);
-    // 0166 M4 §4.4 (Q1). The two section counts stay 0 until their sections are written here (C1
-    // `musicRings`, C2b `groupStarts`; each adds its count, its bytes and `message_bytes` together).
+    // 0166 M4 §4.4 (Q1). C1 writes `musicRings`; the `groupStarts` count stays 0 until C2b writes
+    // its section here (adding its count, its bytes and `message_bytes` together).
     let m = &c.music;
-    put_u16(out, off::MUSIC_RING_COUNT, 0);
+    put_u16(out, off::MUSIC_RING_COUNT, m.music_rings.len() as u16);
     put_u16(out, off::GROUP_START_COUNT, 0);
     put_u16(out, off::MUSIC_RINGS_OPEN, m.music_rings_open);
     put_u16(out, off::STREAM_STARTS_LATE, m.stream_starts_late);
@@ -304,6 +321,12 @@ pub fn write(c: &Counters, seq: u32, out: &mut [u8]) -> usize {
         out[cur + 1] = e.code;
         put_u16(out, cur + 2, 0);
         cur += 4;
+    }
+    // 0166 M4 §4.4 (C1): `musicRings {u32 streamId; u32 epochFlags}`, after `zoneEvents`.
+    for r in m.music_rings.as_slice() {
+        put_u32(out, cur, r.stream_id);
+        put_u32(out, cur + 4, r.epoch_flags);
+        cur += 8;
     }
     debug_assert_eq!(cur, total);
     total
@@ -457,7 +480,7 @@ mod tests {
         assert_eq!(write(&c, 1, &mut out), HEADER_BYTES);
         let (s, read) = audio_wire::generated::StatusBlock::read(&out, 0).expect("the generated reader accepts the header");
         assert_eq!(read, HEADER_BYTES);
-        assert_eq!((s.music_ring_count, s.group_start_count, s.music_rings_open, s.stream_starts_late), (0, 0, 3, 4));
+        assert_eq!((s.music_rings.len(), s.group_starts.len(), s.music_rings_open, s.stream_starts_late), (0, 0, 3, 4));
         assert_eq!((s.groups_late, s.groups_held, s.groups_abandoned, s.curve_pool_full), (5, 6, 7, 8));
         assert_eq!((s.max_slip_frames, s.split_quanta, s.voice_splits, s.reserved), (0x0001_0009, 0x0002_000A, 0x0003_000B, 0));
         assert_eq!(u32_at(&out, off::VOICE_SPLITS), 0x0003_000B);
@@ -535,9 +558,15 @@ mod tests {
         for i in 0..ZONE_EVENTS_CAP {
             assert!(c.spatial.zone_events.push(ZoneEvent { slot: i as u8, code: 1 }));
         }
-        assert_eq!(message_bytes(&c), 15_936, "api-and-models §4.3's worst case plus the 32-B M4 header");
+        // 0166 M4 §4.4 (C1): 16 music rings; `groupStarts` (8 × 16 B) is C2b's.
+        for i in 0..MUSIC_RINGS_CAP as u32 {
+            assert!(c.music.music_rings.push(MusicRing { stream_id: i, epoch_flags: i }));
+        }
+        let worst = audio_wire::generated::STATUS_WORST_CASE_BYTES as usize - 8 * 16;
+        assert_eq!(message_bytes(&c), 16_064);
+        assert_eq!(message_bytes(&c), worst, "the generated worst case less C2b's groupStarts");
         let mut out = [0u8; BUFFER_BYTES];
-        assert_eq!(write(&c, 0, &mut out), 15_936);
+        assert_eq!(write(&c, 0, &mut out), worst);
     }
 
     #[test]

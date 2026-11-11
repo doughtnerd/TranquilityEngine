@@ -241,7 +241,7 @@ fn play_fade_zero_flag_round_trips() {
             ("bus", u(1)),
             ("flags", u(0x0139)),
             ("group", u(0)),
-            ("reserved", u(0)),
+            ("gate", u(0)),
             ("gain", f(0.5)),
             ("pitch", f(1.0)),
             ("dirX", f(0.0)),
@@ -271,8 +271,6 @@ fn status_header_is_176_bytes_with_every_m4_field_at_its_offset() {
     assert_eq!(STATUS_HEADER_BYTES, 176);
 
     let status = StatusBlock {
-        music_ring_count: 3,
-        group_start_count: 4,
         music_rings_open: 5,
         stream_starts_late: 6,
         groups_late: 7,
@@ -293,8 +291,8 @@ fn status_header_is_176_bytes_with_every_m4_field_at_its_offset() {
     assert_eq!(&buf[12..16], &[164, 0, 0, 0], "bodyBytes = 180 - 16");
     assert_eq!(&buf[64..66], &[1, 0], "endedCount, still at 64");
 
-    assert_eq!(&buf[144..146], &[3, 0], "144 musicRingCount");
-    assert_eq!(&buf[146..148], &[4, 0], "146 groupStartCount");
+    assert_eq!(&buf[144..146], &[0, 0], "144 musicRingCount (derived from the empty section)");
+    assert_eq!(&buf[146..148], &[0, 0], "146 groupStartCount (derived)");
     assert_eq!(&buf[148..150], &[5, 0], "148 musicRingsOpen");
     assert_eq!(&buf[150..152], &[6, 0], "150 streamStartsLate");
     assert_eq!(&buf[152..154], &[7, 0], "152 groupsLate");
@@ -312,13 +310,13 @@ fn status_header_is_176_bytes_with_every_m4_field_at_its_offset() {
     assert_eq!(back, status);
 }
 
-/// STATUS worst case. Merge 1 (header only): 15,936 B = `STATUS_WORST_CASE_BYTES`. After W1 adds the
-/// `musicRings` (16 x 8 B) and `groupStarts` (8 x 16 B) sections it is 16,192 B of 16,384; this case is
+/// STATUS worst case, 16,192 B = `STATUS_WORST_CASE_BYTES` (W1 added the
+/// `musicRings` (16 x 8 B) and `groupStarts` (8 x 16 B) sections to the 15,936 B of merge 1); of 16,384; this case is
 /// updated by L-W1a then. Here: a STATUS with every section at its cap writes exactly the constant and
 /// fits `STATUS_BUFFER_BYTES`.
 #[test]
 fn status_worst_case_matches_the_constant() {
-    assert_eq!(STATUS_WORST_CASE_BYTES, 15_936);
+    assert_eq!(STATUS_WORST_CASE_BYTES, 16_192);
     let full = StatusBlock {
         ended: vec![0; MAX_ENDED_PER_BLOCK as usize],
         demoted: vec![0; MAX_DEMOTED_PER_BLOCK as usize],
@@ -330,6 +328,8 @@ fn status_worst_case_matches_the_constant() {
         beds: vec![Default::default(); MAX_BEDS as usize],
         zones: vec![Default::default(); MAX_ZONE_SLOTS as usize],
         zone_events: vec![Default::default(); MAX_ZONE_EVENTS_PER_BLOCK as usize],
+        music_rings: vec![Default::default(); MAX_MUSIC_RINGS as usize],
+        group_starts: vec![Default::default(); MAX_GROUP_STARTS_PER_BLOCK as usize],
         ..Default::default()
     };
     let mut buf = vec![0u8; STATUS_BUFFER_BYTES as usize];

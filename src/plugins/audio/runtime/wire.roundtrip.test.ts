@@ -332,7 +332,7 @@ function playRec(over: Rec = {}): Rec {
     bus: 0,
     flags: 0,
     group: 0,
-    reserved: 0,
+    gate: 0,
     gain: 1,
     pitch: 1,
     dirX: 0,
@@ -375,14 +375,14 @@ describe("wire round trip", () => {
     expect((play.read(stamped, 0) as wire.Play).frameOffset).toBe(2147483649);
   });
 
-  it("PLAY panner bits 5-6 and the reserved group field survive a round trip", () => {
+  it("PLAY panner bits 5-6 and the group and gate fields survive a round trip", () => {
     expect(wire.PLAY_FLAGS_PANNER_SHIFT).toBe(5);
     expect(wire.PLAY_FLAGS_PANNER_MASK).toBe(0x60);
 
     for (const panner of Object.values(wire.Panner)) {
       const flags = wire.PLAY_FLAGS_SPATIAL | wire.PLAY_FLAGS_LOOP | (panner << wire.PLAY_FLAGS_PANNER_SHIFT);
       const view = newView();
-      const n = codecFor(OPCODES, "PLAY", "opcode").write(view, 0, playRec({ flags, group: 0xbeef, reserved: 0x1234 }) as never);
+      const n = codecFor(OPCODES, "PLAY", "opcode").write(view, 0, playRec({ flags, group: 0xbeef, gate: 0x1234 }) as never);
       expect(n).toBe(wire.PLAY_FIXED_END);
       expect(view.getUint16(18, true)).toBe(flags);
 
@@ -390,7 +390,7 @@ describe("wire round trip", () => {
       expect(back.flags).toBe(flags);
       expect((back.flags & wire.PLAY_FLAGS_PANNER_MASK) >> wire.PLAY_FLAGS_PANNER_SHIFT).toBe(panner);
       expect(back.group).toBe(0xbeef);
-      expect(back.reserved).toBe(0x1234);
+      expect(back.gate).toBe(0x1234);
     }
 
     // SET_PARAMS carries the same panner bits.
@@ -531,8 +531,6 @@ describe("wire round trip", () => {
       zoneUsedKB: 6144,
       workBed: 4000000001,
       workZones: 77,
-      musicRingCount: 0,
-      groupStartCount: 0,
       musicRingsOpen: 11,
       streamStartsLate: 12,
       groupsLate: 13,
@@ -569,6 +567,13 @@ describe("wire round trip", () => {
         { kernelId: 0, state: wire.ZoneState.Off, pad: 0, quantaSinceInput: 0, wetPeak: 0 },
       ],
       zoneEvents: [{ slot: 2, code: wire.ZoneEvent.RefusedKernel, reserved: 0 }],
+      musicRings: [
+        { streamId: 7, epochFlags: (3 | wire.MUSIC_RING_PRIMED | wire.MUSIC_RING_BOUND) >>> 0 },
+        { streamId: 9, epochFlags: wire.MUSIC_RING_EPOCH_MASK },
+      ],
+      groupStarts: [
+        { groupId: 1023, flags: wire.GROUP_START_LATE | wire.GROUP_START_ABANDONED, slipFrames: 4096, startFrameLo: 0xfffffff0, startFrameHi: 3 },
+      ],
     };
     const seq = 42;
     const bytes = handStatus(status, seq);
@@ -717,7 +722,9 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
     8 * (s.playheads.length + s.clipEvents.length + s.streamEvents.length + s.peaks.length) +
     8 * s.beds.length +
     12 * s.zones.length +
-    4 * s.zoneEvents.length;
+    4 * s.zoneEvents.length +
+    8 * s.musicRings.length +
+    16 * s.groupStarts.length;
   const view = new DataView(new ArrayBuffer(size));
   view.setUint32(0, 0x4d594131, true);
   view.setUint16(4, 0x0102, true);
@@ -766,8 +773,8 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
   view.setUint32(132, s.zoneUsedKB, true);
   view.setUint32(136, s.workBed, true);
   view.setUint32(140, s.workZones, true);
-  view.setUint16(144, s.musicRingCount, true);
-  view.setUint16(146, s.groupStartCount, true);
+  view.setUint16(144, s.musicRings.length, true);
+  view.setUint16(146, s.groupStarts.length, true);
   view.setUint16(148, s.musicRingsOpen, true);
   view.setUint16(150, s.streamStartsLate, true);
   view.setUint16(152, s.groupsLate, true);
@@ -823,6 +830,19 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
     view.setUint8(cur + 1, e.code);
     view.setUint16(cur + 2, e.reserved, true);
     cur += 4;
+  }
+  for (const r of s.musicRings) {
+    view.setUint32(cur, r.streamId, true);
+    view.setUint32(cur + 4, r.epochFlags, true);
+    cur += 8;
+  }
+  for (const g of s.groupStarts) {
+    view.setUint16(cur, g.groupId, true);
+    view.setUint16(cur + 2, g.flags, true);
+    view.setUint32(cur + 4, g.slipFrames, true);
+    view.setUint32(cur + 8, g.startFrameLo, true);
+    view.setUint32(cur + 12, g.startFrameHi, true);
+    cur += 16;
   }
   expect(cur).toBe(size);
   return new Uint8Array(view.buffer);

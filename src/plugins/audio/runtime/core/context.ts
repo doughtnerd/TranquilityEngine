@@ -10,7 +10,7 @@ import { MAX_BUSES, type AudioSettings } from "../../../../engine/audio/settings
 import { Kind, MAGIC, readStatus, STATUS_FLAGS_READY, writeEnvelope, writeTimePing, type StatusBlock } from "../wire.generated";
 import { CORE_ABI_MAJOR, PROCESSOR_NAME, type CoreControlMessage, type CorePreset, type CoreProcessorOptions, type CoreShellEvent } from "../worklet/coreDriver";
 import { createBatchPool, type BufferPool } from "./bufferPool";
-import { spatialInitParams } from "./initParams";
+import { musicInitParams, spatialInitParams } from "./initParams";
 import { loadCoreWasm, workletModuleUrl, type CoreWasm } from "./loader";
 import { Unlock } from "./unlock";
 import type { DeviceSnapshot } from "./deviceChange";
@@ -39,6 +39,8 @@ export function presetFromSettings(settings: AudioSettings): CorePreset {
     limiterLookaheadMs: settings.limiterLookaheadMs,
     // ADR 0162 C8: the ABI 2.0 parameters (`initParams.ts`: beds and zones 0 until their flips, wide from `audio.ambisonic.maxClips`).
     ...spatialInitParams(settings),
+    // ADR 0166 W1 (ABI 3.0): `audio.music.rings`, the music ring pool.
+    ...musicInitParams(settings),
   };
 }
 
@@ -317,7 +319,9 @@ const presetsEqual = (a: CorePreset, b: CorePreset): boolean =>
   a.maxBeds === b.maxBeds &&
   a.maxZoneSlots === b.maxZoneSlots &&
   a.zoneMaxSeconds === b.zoneMaxSeconds &&
-  a.maxWide === b.maxWide;
+  a.maxWide === b.maxWide &&
+  // ADR 0166 W1: the music ring pool sizes the `Streams` region (C1), so a change rebuilds the core.
+  a.maxMusicRings === b.maxMusicRings;
 
 const sameNames = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((n, i) => n === b[i]);
 

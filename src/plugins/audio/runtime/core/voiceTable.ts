@@ -66,6 +66,18 @@ export const VoiceFlag2 = {
   AUX: 1 << 3,
 } as const;
 
+/**
+ * @internal ADR 0166 (api-and-models §3.2, Z4): the kinds of stamped, shaped ramp the table logs per voice so a REPLAY
+ * can restore them. FADE: a FADE on the `fade` ramp (`flags` bit 0 = stop at the end); STOP: a shaped STOP; GAIN: a
+ * SET_PARAMS gain ramp (stem automation).
+ */
+export const StampedKind = { FADE: 1, STOP: 2, GAIN: 3 } as const;
+export type StampedKindCode = (typeof StampedKind)[keyof typeof StampedKind];
+/** @internal `stampedFlags` bit 0: the ramp stops the voice when it ends. */
+export const STAMPED_FLAG_STOP_AT_END = 1;
+/** @internal Most stamped ramps the table keeps per voice (a fifth drops the oldest). */
+export const MAX_STAMPED = 4;
+
 /** @internal §3 `rolloff`. */
 export const VoiceRolloff = { LINEAR: 0, INVERSE: 1, EXPONENTIAL: 2 } as const;
 
@@ -169,6 +181,31 @@ export class VoiceTable implements VoiceTableHandleApi {
   readonly sendCurve: Uint16Array;
   /** §1.2 `ambisonicYaw` / §1.3 `yaw`, radians [main]. */
   readonly yaw: Float32Array;
+  /**
+   * ADR 0166 (§3.2, Z4) [main, music]: the music group (1..1023) the voice is a member of, 0 for an ordinary voice. A
+   * member of a group is not replayed as a voice: its group is primed and stamped again (architecture §3.7).
+   */
+  readonly musicGroup: Uint16Array;
+  /**
+   * ADR 0166 (§3.2, Z4) [main]: the stamped ramps of the voice that have not finished, for REPLAY: up to `MAX_STAMPED`
+   * per slot at index `slot * MAX_STAMPED + k`, `k < stampedCount[slot]`, ascending by `stampedFrame`. An entry stays
+   * until `stampedEnd` (the frame its ramp finishes) has passed, so a fade under way is still there to replay with its
+   * current phase. `from` is the ramp's value when it began, `to` its target, `seconds` its length, `shape` the wire's
+   * shape word. While the carried context swap is under way (`stampedToTimeline`), frames hold `Audio.time` seconds.
+   */
+  readonly stampedCount: Uint8Array;
+  readonly stampedFrame: Float64Array;
+  readonly stampedEnd: Float64Array;
+  readonly stampedKind: Uint8Array;
+  readonly stampedFlags: Uint8Array;
+  readonly stampedFrom: Float32Array;
+  readonly stampedTo: Float32Array;
+  readonly stampedSeconds: Float32Array;
+  readonly stampedShape: Uint32Array;
+  /** Stamped entries across all slots (0 = nothing to replay or convert). */
+  stampedTotal = 0;
+  /** True between `stampedToTimeline` and `stampedFromTimeline`. */
+  private stampedInSeconds = false;
   readonly startFrame: Float64Array;
   readonly playhead: Uint32Array;
   readonly epoch: Uint32Array;
@@ -262,6 +299,16 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.reverbSend = new Float32Array(capacity).fill(1);
     this.sendCurve = new Uint16Array(capacity);
     this.yaw = new Float32Array(capacity);
+    this.musicGroup = new Uint16Array(capacity);
+    this.stampedCount = new Uint8Array(capacity);
+    this.stampedFrame = new Float64Array(capacity * MAX_STAMPED);
+    this.stampedEnd = new Float64Array(capacity * MAX_STAMPED);
+    this.stampedKind = new Uint8Array(capacity * MAX_STAMPED);
+    this.stampedFlags = new Uint8Array(capacity * MAX_STAMPED);
+    this.stampedFrom = new Float32Array(capacity * MAX_STAMPED);
+    this.stampedTo = new Float32Array(capacity * MAX_STAMPED);
+    this.stampedSeconds = new Float32Array(capacity * MAX_STAMPED);
+    this.stampedShape = new Uint32Array(capacity * MAX_STAMPED);
     this.startFrame = new Float64Array(capacity);
     this.playhead = new Uint32Array(capacity);
     this.epoch = new Uint32Array(capacity);
@@ -300,6 +347,110 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.stolenSize = 0;
     this.endedTop = 0;
     this.dirtyTop = 0;
+    this.musicGroup.fill(0);
+    this.stampedCount.fill(0);
+    this.stampedTotal = 0;
+    this.stampedInSeconds = false;
+  }
+
+  // --- ADR 0166 (Z4): the log of stamped ramps, for REPLAY ---
+
+  /**
+   * Logs a stamped ramp of live voice `id` that begins at `frame` (an absolute audio frame; a past or non-finite one
+   * is as soon as possible, so pass the frame it will really apply at) and lasts `seconds` at `rate` Hz. First drops
+   * the voice's entries that finished by `nowFrame`; a fifth live entry drops the oldest. Entries stay ascending by
+   * frame. Returns false (logging nothing) for a stale id, or while a context swap carries the log in seconds.
+   * Allocates nothing.
+   */
+  logStamped(id: number, kind: StampedKindCode, frame: number, rate: number, nowFrame: number, from: number, to: number, seconds: number, shape: number, flags: number): boolean {
+    const i = this.slotOf(id);
+    if (i < 0 || this.stampedInSeconds) return false;
+    this.pruneStamped(i, nowFrame);
+    if (this.stampedCount[i]! === MAX_STAMPED) this.removeStamped(i, 0);
+    const base = i * MAX_STAMPED;
+    let k = this.stampedCount[i]!;
+    // Insertion: shift later-frame entries up one.
+    while (k > 0 && this.stampedFrame[base + k - 1]! > frame) {
+      this.copyStamped(base + k - 1, base + k);
+      k--;
+    }
+    const e = base + k;
+    this.stampedFrame[e] = frame;
+    this.stampedEnd[e] = frame + (seconds > 0 ? seconds * rate : 0);
+    this.stampedKind[e] = kind;
+    this.stampedFlags[e] = flags;
+    this.stampedFrom[e] = from;
+    this.stampedTo[e] = to;
+    this.stampedSeconds[e] = seconds;
+    this.stampedShape[e] = shape >>> 0;
+    this.stampedCount[i]!++;
+    this.stampedTotal++;
+    return true;
+  }
+
+  /** Drops slot `i`'s entries whose ramp finished at or before `nowFrame`. */
+  pruneStamped(i: number, nowFrame: number): void {
+    const base = i * MAX_STAMPED;
+    for (let k = this.stampedCount[i]! - 1; k >= 0; k--) {
+      if (this.stampedEnd[base + k]! <= nowFrame) this.removeStamped(i, k);
+    }
+  }
+
+  /** Forgets slot `i`'s log. */
+  clearStamped(i: number): void {
+    this.stampedTotal -= this.stampedCount[i]!;
+    this.stampedCount[i] = 0;
+  }
+
+  private removeStamped(i: number, k: number): void {
+    const base = i * MAX_STAMPED;
+    const n = this.stampedCount[i]!;
+    for (let j = k; j < n - 1; j++) this.copyStamped(base + j + 1, base + j);
+    this.stampedCount[i] = n - 1;
+    this.stampedTotal--;
+  }
+
+  private copyStamped(from: number, to: number): void {
+    this.stampedFrame[to] = this.stampedFrame[from]!;
+    this.stampedEnd[to] = this.stampedEnd[from]!;
+    this.stampedKind[to] = this.stampedKind[from]!;
+    this.stampedFlags[to] = this.stampedFlags[from]!;
+    this.stampedFrom[to] = this.stampedFrom[from]!;
+    this.stampedTo[to] = this.stampedTo[from]!;
+    this.stampedSeconds[to] = this.stampedSeconds[from]!;
+    this.stampedShape[to] = this.stampedShape[from]!;
+  }
+
+  /**
+   * A context swap (architecture §3.7, A3.4c): every entry's frames go from the old context (`rate`, its clock's
+   * `timeOffset`) to `Audio.time` seconds, like the playhead anchors, so they survive the new context's frames
+   * starting at 0. A second call before `stampedFromTimeline` does nothing.
+   */
+  stampedToTimeline(rate: number, offset: number): void {
+    if (this.stampedInSeconds) return;
+    this.stampedInSeconds = true;
+    if (this.stampedTotal === 0) return;
+    for (let i = 0; i < this.capacity; i++) {
+      const base = i * MAX_STAMPED;
+      for (let k = 0; k < this.stampedCount[i]!; k++) {
+        this.stampedFrame[base + k] = this.stampedFrame[base + k]! / rate + offset;
+        this.stampedEnd[base + k] = this.stampedEnd[base + k]! / rate + offset;
+      }
+    }
+  }
+
+  /** The new context's clock is known: entries go to its frames (`rate`, its `timeOffset`). */
+  stampedFromTimeline(rate: number, offset: number): void {
+    if (!this.stampedInSeconds) return;
+    this.stampedInSeconds = false;
+    if (this.stampedTotal === 0) return;
+    for (let i = 0; i < this.capacity; i++) {
+      const base = i * MAX_STAMPED;
+      for (let k = 0; k < this.stampedCount[i]!; k++) {
+        this.stampedFrame[base + k] = (this.stampedFrame[base + k]! - offset) * rate;
+        this.stampedEnd[base + k] = (this.stampedEnd[base + k]! - offset) * rate;
+      }
+    }
   }
 
   // --- Slots ---
@@ -368,6 +519,8 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.playhead[i] = 0;
     this.epoch[i] = 0;
     this.owner[i] = -1;
+    this.musicGroup[i] = 0;
+    this.clearStamped(i);
     this.busLive[b]!++;
     this.liveCount++;
     return this.idOf(i);
@@ -636,6 +789,8 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.reason[i] = VoiceReason.NONE;
     this.freedReason[i] = reason;
     this.dirty[i]! &= DIRTY_LISTED;
+    this.musicGroup[i] = 0;
+    this.clearStamped(i);
     if (this.busLive[b]! > 0) this.busLive[b]!--;
     this.liveCount--;
     const g = this.gen[i]!;

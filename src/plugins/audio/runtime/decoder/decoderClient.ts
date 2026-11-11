@@ -10,7 +10,12 @@
 // and stream errors. Streams are not carried over to a respawned worker: a worker that dies (or is refused) fails its
 // open streams, an error each (the stream manager stops each voice with a fade and one warning), and the next worker
 // bumps `generation`, so the caller connects it to the worklet again (which closes the dead worker's rings there).
-import type { AmbisonicConvention, ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, IrFailedMessage, IrPreparedMessage, IrRequest, StreamClosedMessage, StreamOpenedMessage, StreamPortLike } from "./protocol";
+//
+// ADR 0166 (§4.6, C8; D1a, H3): `primeGroup` opens and primes a music group's member streams on the worker (each member
+// a stream like `openStream`'s: its `streamOpened`, `streamClosed` and errors reach `onStream`, and `closeStream` closes
+// it), `cancelGroup` closes a group's members, `protectMusic` and `releaseMusic` steer the worker's encoded cache, and
+// `onMusic` hears `groupOpened` (diagnostics only) and `needBytes` (Q0's miss rule: resend those members with `bytes`).
+import type { AmbisonicConvention, ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, IrFailedMessage, IrPreparedMessage, IrRequest, MusicReply, PrimeGroupMessage, StreamClosedMessage, StreamOpenedMessage, StreamPortLike } from "./protocol";
 import type { StreamLoopAt } from "./streams";
 
 /** What the client needs of a worker (a `Worker`, or an in-process stand-in in tests). */
@@ -127,6 +132,9 @@ export interface StreamOpenOptions {
 /** B3: the replies about streams. */
 export type StreamReply = StreamOpenedMessage | StreamClosedMessage | (ErrorMessage & { readonly streamId: number });
 
+/** ADR 0166 (D1a): what `primeGroup` takes: the message without its `type`. Every member's `bytes` is transferred. */
+export type PrimeGroupOptions = Omit<PrimeGroupMessage, "type">;
+
 export interface DecoderClient {
   /** Decodes a whole clip on the worker. `hint` is the container (see `hintFromName`); 0 lets the decoder probe. Rejects with the decoder's message on failure. */
   decodeClip(bytes: ArrayBuffer | Uint8Array, hint?: DecodeHint, options?: DecodeClipOptions): Promise<DecodedClip>;
@@ -156,6 +164,22 @@ export interface DecoderClient {
   onIr(listener: (reply: IrPreparedMessage | IrFailedMessage) => void): () => void;
   /** B3: every stream reply; returns the unsubscribe. */
   onStream(listener: (reply: StreamReply) => void): () => void;
+  /**
+   * ADR 0166 (§4.6, C8): opens and primes a music group (breadth-first on the worker), or with `retarget` restarts its
+   * open members at new start frames under new epochs. Each member is a stream: its replies reach `onStream`, and
+   * `closeStream` closes it. A member sent without `bytes` that the worker doesn't hold comes back in `needBytes`
+   * (through `onMusic`); resend those with `retarget: false` and `bytes`. Spawns the worker if needed; when none can
+   * run, every member fails through `onStream` as a stream on a dead worker does.
+   */
+  primeGroup(options: PrimeGroupOptions): void;
+  /** ADR 0166: closes every member stream of `group` (each answers `streamClosed`). Unknown groups are ignored. */
+  cancelGroup(group: number): void;
+  /** ADR 0166 (C8): replaces music instance `instance`'s protected paths in the worker's encoded cache. */
+  protectMusic(instance: number, paths: readonly string[]): void;
+  /** ADR 0166 (R16): the music instance ended: the worker drops its encoded-cache references. */
+  releaseMusic(instance: number): void;
+  /** ADR 0166: every `groupOpened` (diagnostics only, never the primed signal) and `needBytes`; returns the unsubscribe. */
+  onMusic(listener: (reply: MusicReply) => void): () => void;
   /** B3: bumped each time a worker is spawned or retired (crashed, refused, disposed); a worklet connected at another generation must be connected again. */
   readonly generation: number;
   /** Terminates the worker and rejects what is pending. The client may be used again (it respawns). */
@@ -204,6 +228,9 @@ class Client implements DecoderClient {
   /** ADR 0162 C2b: zone IR requests awaiting a reply (token to kernel id), and the listeners. */
   private readonly irPending = new Map<number, number>();
   private readonly irListeners = new Set<(reply: IrPreparedMessage | IrFailedMessage) => void>();
+  /** ADR 0166: each music member stream's group, and the music listeners. */
+  private readonly memberGroup = new Map<number, number>();
+  private readonly musicListeners = new Set<(reply: MusicReply) => void>();
   generation = 0;
 
   constructor(
@@ -336,8 +363,51 @@ class Client implements DecoderClient {
   }
 
   closeStream(streamId: number): void {
+    this.memberGroup.delete(streamId);
     if (!this.streams.delete(streamId) || !this.worker) return;
     this.worker.postMessage({ type: "streamClose", streamId });
+  }
+
+  primeGroup(o: PrimeGroupOptions): void {
+    let worker: WorkerLike;
+    try {
+      worker = this.ensureWorker();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      for (const m of o.members) this.emitStream({ type: "error", streamId: m.streamId, asset: m.asset, message });
+      return;
+    }
+    const transfer: Transferable[] = [];
+    for (const m of o.members) {
+      this.streams.set(m.streamId, m.asset);
+      this.memberGroup.set(m.streamId, o.group);
+      if (m.bytes) transfer.push(m.bytes);
+    }
+    worker.postMessage({ type: "primeGroup", ...o }, transfer);
+  }
+
+  cancelGroup(group: number): void {
+    let any = false;
+    for (const [streamId, g] of this.memberGroup) {
+      if (g !== group) continue;
+      this.memberGroup.delete(streamId);
+      this.streams.delete(streamId);
+      any = true;
+    }
+    if (any && this.worker) this.worker.postMessage({ type: "cancelGroup", group });
+  }
+
+  protectMusic(instance: number, paths: readonly string[]): void {
+    this.worker?.postMessage({ type: "protectMusic", instance, paths: [...paths] });
+  }
+
+  releaseMusic(instance: number): void {
+    this.worker?.postMessage({ type: "releaseMusic", instance });
+  }
+
+  onMusic(listener: (reply: MusicReply) => void): () => void {
+    this.musicListeners.add(listener);
+    return () => this.musicListeners.delete(listener);
   }
 
   postIr(request: IrRequest): void {
@@ -434,6 +504,10 @@ class Client implements DecoderClient {
       case "irFailed":
         if (this.irPending.delete(msg.token)) this.emitIr(msg);
         return;
+      case "groupOpened":
+      case "needBytes":
+        for (const listener of [...this.musicListeners]) listener(msg);
+        return;
       case "error": {
         if (msg.streamId !== undefined) {
           if (this.streams.has(msg.streamId)) this.emitStream({ ...msg, streamId: msg.streamId });
@@ -502,6 +576,7 @@ class Client implements DecoderClient {
   private failStreams(message: string): void {
     const streams = [...this.streams];
     this.streams.clear();
+    this.memberGroup.clear();
     for (const [streamId, asset] of streams) this.emitStream({ type: "error", streamId, asset, message });
   }
 
