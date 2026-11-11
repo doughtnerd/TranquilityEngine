@@ -115,7 +115,7 @@ describe("coreDriver with the real wasm", () => {
   it("refuses a schema hash or ABI major mismatch with CoreLoadError", () => {
     expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: "00".repeat(16), abiMajor: 1 })).toThrow(CoreLoadError);
     expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: SCHEMA_HASH, abiMajor: 1 })).toThrow(/ABI/);
-    expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: SCHEMA_HASH, abiMajor: 3 })).toThrow(/ABI/);
+    expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: SCHEMA_HASH, abiMajor: 2 })).toThrow(/ABI/);
     expect(() => instantiateCore(WASM, { ...PRESET, maxBeds: 5 }, RATE)).toThrow(/init refused/);
     expect(() => instantiateCore(WASM, { ...PRESET, maxMixed: 0 }, RATE)).toThrow(/init refused/);
   });
@@ -128,7 +128,7 @@ describe("coreDriver with the real wasm", () => {
     expect(r.blocks).toHaveLength(1);
     const first = r.blocks[0]!;
     expect(first.flags & STATUS_FLAGS_READY).toBeTruthy();
-    expect(first.abiVersion).toBe(0x200);
+    expect(first.abiVersion).toBe(0x300);
     expect(first.currentFrame).toBe(6 * 128);
     await expect(r.link.ready).resolves.toBeUndefined();
     r.run(6);
