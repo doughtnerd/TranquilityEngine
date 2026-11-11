@@ -11,7 +11,7 @@ import {
   type NumericParameter,
   type ParameterDef,
 } from "../../../../engine/audio/eventFormat";
-import { renameParameter } from "./eventTree";
+import { renameParameter } from "./EventTree";
 
 /** The first free name of the form "Parameter", "Parameter 2"… among `taken`. */
 export function freeParameterName(taken: readonly string[], base = "Parameter"): string {

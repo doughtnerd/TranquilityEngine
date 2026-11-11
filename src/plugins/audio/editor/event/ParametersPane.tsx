@@ -3,7 +3,7 @@
 // the asset: they set the values `onAudition` hands the panel, which passes them to Audition (E6.4, contract C4).
 import { TextField, editor } from "../../../../editor/sdk";
 import { MAX_LOCAL_PARAMETERS, isLabelled, type AudioEventAsset, type ParameterDef } from "../../../../engine/audio/eventFormat";
-import { parameterUses } from "./eventTree";
+import { parameterUses } from "./EventTree";
 import {
   addParameter,
   parameterNameProblem,

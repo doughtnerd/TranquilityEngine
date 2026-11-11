@@ -15,7 +15,7 @@ import {
 } from "../../../../engine/audio/eventFormat";
 import type { Curve, CurveKey } from "../../../../engine/core/curve";
 import { draggedClips } from "./assetDrop";
-import { nodeLabel } from "./eventTree";
+import { nodeLabel } from "./EventTree";
 import { coerceField, eventFields, nodeFields, readField, writeField, type FieldDescriptor, type GroupField } from "./nodeFields";
 
 /** What the fields choose from. */

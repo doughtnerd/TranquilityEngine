@@ -8,7 +8,7 @@ import { MemoryFileSystem, ROOT } from "../../../../editor/testing";
 import { formatAudioEvent, emptyAudioEvent, type AudioEventAsset, type LayerNode } from "../../../../engine/audio/eventFormat";
 import { useEditorPlugins } from "../../../testEditorPlugins";
 import { audioEditorPlugin } from "..";
-import { setNode } from "./eventTree";
+import { setNode } from "./EventTree";
 import { findField, nodeFields, writeField } from "./nodeFields";
 import { addNode } from "./treeActions";
 import { applyClipDrop } from "./treeDrop";

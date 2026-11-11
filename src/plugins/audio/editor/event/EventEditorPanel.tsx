@@ -8,7 +8,7 @@ import type { AudioEventAsset, EventNode } from "../../../../engine/audio/eventF
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { Audition } from "./Audition";
 import { auditionValues } from "./eventParameters";
-import { getNode, parentPath, pathKey, setNode, type NodePath, type SustainSlot } from "./eventTree";
+import { getNode, parentPath, pathKey, setNode, type NodePath, type SustainSlot } from "./EventTree";
 import { EventTree } from "./EventTree";
 import { EventProperties, NodeProperties, type FieldContext } from "./NodeProperties";
 import { ParametersPane } from "./ParametersPane";

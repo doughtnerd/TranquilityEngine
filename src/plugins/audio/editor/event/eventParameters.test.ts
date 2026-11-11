@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_LOCAL_PARAMETERS, emptyAudioEvent, parseAudioEvent, formatAudioEvent, type AudioEventAsset, type LabelledParameter, type NumericParameter, type SwitchNode } from "../../../../engine/audio/eventFormat";
-import { newNode } from "./eventTree";
+import { newNode } from "./EventTree";
 import {
   addParameter,
   auditionValues,

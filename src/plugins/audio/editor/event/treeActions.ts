@@ -12,7 +12,7 @@ import {
   type ListNodeType,
   type NodePath,
   type TreeEdit,
-} from "./eventTree";
+} from "./EventTree";
 
 /**
  * Where "Add" puts a new node with `selected` selected (`null`: the event row, which means the root): into a selected
