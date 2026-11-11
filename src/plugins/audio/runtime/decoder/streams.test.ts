@@ -116,10 +116,10 @@ describe("stream decoder (B3)", () => {
     expect(Array.from(got)).toEqual(want);
   });
 
-  it("a loop wraps inside a chunk and never sends a last chunk; more than two channels are cut to two", async () => {
+  it("a loop wraps inside a chunk and never sends a last chunk; more than two channels (a 4-channel file; 3 is refused since ADR 0162 B2) are cut to two", async () => {
     const { handler, toWorklet, credit } = await rig();
     const frames = 5_000;
-    const file = makeWav(frames, 3, 44_100, (k, c) => (k % 1000) * 10 + c);
+    const file = makeWav(frames, 4, 44_100, (k, c) => (k % 1000) * 10 + c);
     await handler.handle({ type: "streamOpen", streamId: 2, asset: "loop.wav", bytes: file, hint: 1, startFrame: 0, epoch: 1, loop: true });
     expect(readStreamOpen(new DataView(toWorklet[0]!), 0)).toMatchObject({ channels: 2, flags: 1, sampleRate: 44_100 });
     credit(2, 1, 3 * STREAM_CHUNK_FRAMES, []);
