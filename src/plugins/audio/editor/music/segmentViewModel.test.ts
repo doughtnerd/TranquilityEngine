@@ -142,4 +142,15 @@ describe("nearestGridTicks (L-Ed2a)", () => {
     // bar 2 starts at 2 s (3,840 ticks) and, in 3/4, bar 3 at 3.5 s (6,720 ticks): 3.3 s is nearer the second
     expect(nearestGridTicks(map, view(0, 100, 800), 330, "bar")).toBe(6720);
   });
+
+  it("is the true nearest bar line across a tempo-only marker mid-bar (the bar keeps its phase)", () => {
+    // bars of 3,840 ticks at 0, 3,840, 7,680; a 90 bpm marker at 2:2:0 (4,800 ticks, 2.5 s) splits bar 2.
+    const map = compileTempoMap([m("1:1:0", 120), m("2:2:0", 90)], 0);
+    // x 264 is 2.64 s = about 5,000 ticks, in the second span: bar 2 (3,840) is nearer than bar 3 (7,680)
+    expect(nearestGridTicks(map, view(0, 100, 800), 264, "bar")).toBe(3840);
+    // x 400 is 4.0 s = about 4,800 + 1.5 * 1,440 = 6,960 ticks: bar 3 is nearer
+    expect(nearestGridTicks(map, view(0, 100, 800), 400, "bar")).toBe(7680);
+    // just before the marker, in the first span, the next bar line is past the marker
+    expect(nearestGridTicks(map, view(0, 100, 800), 249, "bar")).toBe(3840);
+  });
 });

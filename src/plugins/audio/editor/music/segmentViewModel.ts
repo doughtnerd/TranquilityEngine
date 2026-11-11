@@ -257,26 +257,22 @@ export function positionAtX(map: TempoMap, view: Viewport, x: number): BarBeatTi
 export function nearestGridTicks(map: TempoMap, view: Viewport, x: number, kind: "bar" | "beat"): number {
   const t = secondsToTicks(map, xToSeconds(view, x));
   if (kind === "beat") return Math.max(0, Math.round(t / MUSIC_TICKS_PER_BEAT) * MUSIC_TICKS_PER_BEAT) + 0;
-  // Bar lines of the span x falls in, plus the next span's start when that start is a bar line (a metre change).
+  // The bar line at or before t and the first one after it, across span boundaries: a tempo-only marker mid-bar keeps the
+  // bar's phase (same metre, origin on the same lines) and a metre change starts a bar at its marker.
   const s = spanIndexAt(map, t);
-  const origin = map.barOriginTick[s];
-  const tpb = map.ticksPerBar[s];
-  const next = s + 1 < map.count ? map.startTick[s + 1] : Infinity;
-  const k0 = Math.ceil((map.startTick[s] - origin) / tpb);
-  const kMax = Number.isFinite(next) ? Math.ceil((next - origin) / tpb) - 1 : Infinity;
-  const candidates: number[] = [];
-  if (k0 <= kMax) {
-    candidates.push(origin + Math.min(kMax, Math.max(k0, Math.round((t - origin) / tpb))) * tpb);
+  const before = Math.max(0, map.barOriginTick[s] + Math.floor((t - map.barOriginTick[s]) / map.ticksPerBar[s]) * map.ticksPerBar[s]);
+  let from = t;
+  let after = Infinity;
+  for (let i = s; i < map.count; i++) {
+    const cand = map.barOriginTick[i] + (Math.floor((from - map.barOriginTick[i]) / map.ticksPerBar[i]) + 1) * map.ticksPerBar[i];
+    if (i + 1 < map.count && cand >= map.startTick[i + 1]) {
+      from = map.startTick[i + 1] - 1;
+      continue;
+    }
+    after = cand;
+    break;
   }
-  if (Number.isFinite(next) && map.startBeat[s + 1] === 1) candidates.push(next);
-  if (candidates.length === 0) {
-    // A span with no bar line of its own (tempo markers only, inside one bar): the grid's bar lines either side of x.
-    const f = Math.max(0, Math.floor((t - origin) / tpb));
-    candidates.push(origin + f * tpb, origin + (f + 1) * tpb);
-  }
-  let best = candidates[0];
-  for (const c of candidates) if (Math.abs(c - t) < Math.abs(best - t)) best = c;
-  return Math.max(0, best) + 0;
+  return Math.abs(t - before) <= Math.abs(after - t) ? before + 0 : after;
 }
 
 /** The ticks of one beat, re-exported so the view and Ed3 need not import the grid for the constant. */
