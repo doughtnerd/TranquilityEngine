@@ -1083,6 +1083,8 @@ fn report(core: &mut Core) {
     }
     c.live_voices = live.min(u16::MAX as u32) as u16;
     c.mixed_voices = mixed.min(u16::MAX as u32) as u16;
+    // ADR 0162 D1: STATUS `fxVoices`.
+    crate::fxpool::report(core);
 }
 
 /// B3: moves the rings' pending reports into STATUS: a starved voice into `starved` and stream

@@ -1,7 +1,9 @@
 //! ADR 0162 K2: the scheduler routes SET_VOICE_FX, BED_CONFIG, ZONE_CONFIG and LISTENER to their
 //! stub handlers (parsed, then dropped), and refuses a malformed one with the whole batch
-//! (api-and-models §9: "parse refusal for every new record"). Until A4, C3, D1 and B3 fill the
+//! (api-and-models §9: "parse refusal for every new record"). Until A4, C3 and B3 fill the
 //! handlers and hooks, a batch carrying them renders bit for bit what it renders without them.
+//! D1 applies SET_VOICE_FX (`tests/voice_filters.rs`), so this file's no-change check sends it
+//! with only `yaw`, which nothing reads before B3.
 
 mod common;
 
@@ -19,11 +21,15 @@ fn raw<F: Fn(&mut [u8]) -> usize>(write: F) -> Rec {
 }
 
 fn voice_fx() -> Rec {
+    voice_fx_masked(wire::SET_VOICE_FX_MASK_HP_HZ | wire::SET_VOICE_FX_MASK_SENDS | wire::SET_VOICE_FX_MASK_AUX)
+}
+
+fn voice_fx_masked(mask: u32) -> Rec {
     raw(|b| {
         wire::SetVoiceFx {
             voice_id: V1,
             frame_offset: wire::ASAP,
-            mask: wire::SET_VOICE_FX_MASK_HP_HZ | wire::SET_VOICE_FX_MASK_SENDS | wire::SET_VOICE_FX_MASK_AUX,
+            mask,
             ramp_frames: 128,
             hp_hz: 400.0,
             send: [0.5, 0.25, 0.0, 1.0],
@@ -73,7 +79,7 @@ fn render(with_m3: bool) -> Vec<f32> {
     m.submit(&[config(&[ROOT, 0])]);
     let mut recs = vec![dc(V1, 1, 0.5)];
     if with_m3 {
-        recs.extend([voice_fx(), bed_config(vec![0, 0xFF], vec![0]), zone_config(3), listener([0.0, 0.0, 0.0, 1.0])]);
+        recs.extend([voice_fx_masked(wire::SET_VOICE_FX_MASK_YAW), bed_config(vec![0, 0xFF], vec![0]), zone_config(3), listener([0.0, 0.0, 0.0, 1.0])]);
     }
     m.submit(&recs);
     let (l, r) = m.render_n(8);

@@ -9,7 +9,9 @@
 //!   its own threshold (`audio-core`'s `fx::lowpass_on`, below 24,000), which this module doesn't use.
 //! - **Ramps** ([`CutoffRamp`]): linear in log2(Hz), so a sweep moves at a constant rate in
 //!   octaves, as occlusion's smoothing does; monotone, ending exactly on the target in Hz. While a
-//!   ramp runs the coefficients are recomputed every [`UPDATE_FRAMES`] frames; a settled filter
+//!   ramp runs the coefficients are recomputed every [`UPDATE_FRAMES`] frames, and a ramp is
+//!   stretched so one update moves at most [`MAX_UPDATE_OCTAVES`] (1 octave; the click bound: a
+//!   1 kHz sine through a 10-octave sweep steps at most 1.23x its own largest step); a settled filter
 //!   processes its whole block in one kernel call (no extra history flushes, so a settled filter
 //!   is bit-identical to one `Biquad` pass over the block).
 //! - **Mono once** (C17): [`FxFilter::process`] with `right = None` filters only `left`, on the
@@ -33,7 +35,7 @@
 //! Q is [`Q_DB`] (1 dB, the bus snapshot low-pass's `SNAPSHOT_Q_DB`) for both filters.
 //! Transcendentals go through `libm`; nothing allocates.
 //!
-//! Skeleton by task D1; leaf L-D1a fills the bodies and the tests.
+//! Skeleton and the ramp stretch by task D1; leaf L-D1a filled the bodies and the tests.
 
 use crate::biquad::{kernel, Biquad};
 
@@ -53,9 +55,13 @@ pub const Q_DB: f32 = 1.0;
 pub const UPDATE_FRAMES: usize = 32;
 /// The shortest ramp a caller should ask of an audible filter ([`FxFilter::set_lowpass`] and
 /// [`FxFilter::set_highpass`] take what they're given; `audio-core` raises an audible voice's
-/// `rampFrames` to this, and jumps only on a silent voice). With [`UPDATE_FRAMES`] it bounds a
-/// coefficient step to a quarter of the sweep.
+/// `rampFrames` to this, and jumps only on a silent voice). A large sweep is stretched further by
+/// [`MAX_UPDATE_OCTAVES`].
 pub const MIN_RAMP_FRAMES: u32 = 128;
+
+/// The most a running ramp moves the cut-off between two coefficient updates, in octaves
+/// ([`CutoffRamp::set`] stretches a ramp that would move faster): the click bound.
+pub const MAX_UPDATE_OCTAVES: f32 = 1.0;
 
 /// A cut-off ramp, linear in log2(Hz). 16 B, `#[repr(C)]`.
 #[repr(C)]
@@ -78,12 +84,17 @@ impl CutoffRamp {
     }
 
     /// Ramps from the current cut-off to `hz` (> 0) over `frames` frames, linearly in log2: `step =
-    /// (log2f(hz) - log2) / frames`. `frames == 0` jumps (settled at `hz`).
+    /// (log2f(hz) - log2) / frames`. `frames == 0` jumps (settled at `hz`). A ramp is stretched so
+    /// it moves at most [`MAX_UPDATE_OCTAVES`] per [`UPDATE_FRAMES`] (a sweep of `d` octaves takes
+    /// at least `d × UPDATE_FRAMES / MAX_UPDATE_OCTAVES` frames: 10 octaves, 320 frames).
     pub fn set(&mut self, hz: f32, frames: u32) {
         if frames == 0 {
             *self = CutoffRamp::at(hz);
             return;
         }
+        let octaves = libm::fabsf(libm::log2f(hz) - self.log2);
+        let least = libm::ceilf(octaves * UPDATE_FRAMES as f32 / MAX_UPDATE_OCTAVES);
+        let frames = if least.is_finite() && least > frames as f32 { least as u32 } else { frames };
         self.step = (libm::log2f(hz) - self.log2) / frames as f32;
         self.remaining = frames;
         self.target = hz;
@@ -480,6 +491,7 @@ mod tests {
         let mut out = input.clone();
         hp.process(SR, None, &mut out, None);
         let hp_step = max_step(&out);
+        eprintln!("click bound: low-pass {:.3}x, high-pass {:.3}x of the input step", lp_step / in_step, hp_step / in_step);
         assert!(hp_step <= 2.0 * in_step, "high-pass: output step {hp_step} vs input step {in_step}");
     }
 
