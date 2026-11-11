@@ -53,6 +53,20 @@ Also unexplained by the clock error: 7.2 steady beats "2 or more frames off" in 
 3. Dispatch before `update`, deliver exact `time` and `heardIn` (as above), judge input by mapping `event.timeStamp`.
 4. Do **not** add a PLL on this evidence, and do not quote absolute clock accuracy from this VM. Before the design is fixed, a loopback on a real device must give the absolute latency and timestamp noise **[U]**.
 
+## Confirming run (coordinator, sliding-window truth fit, 1 x 60 s, interactive, idle machine)
+
+`node run.mjs --runs 1 --seconds 60 --raw 1` (results/run-60s-1794422519679.md, raw-60s-1794422585250-0.json), truth fitted with a sliding ±4 s window instead of one line per run. **This settles the question above: the single-line fit was the error.**
+
+| Measure | Single-line fit (5 x 60 s) | Sliding fit (1 x 60 s) |
+|---|---|---|
+| ClockMap vs audio clock, p50 / p99 | 1.67 / 6.80 ms | **0.04 / 4.21 ms** (the sliding fit's own residual p99 is 6.8 ms, so the p99 is bounded by the reference) |
+| Design A, steady beats in the ideal frame | 42.2 of 66 (7.2 "other") | **66 of 69** (3 one frame early by 1.66 ms; 0 other) |
+| Design A, tempo change / stamped transition | 3 of 5 / 26.8 of 38 | **5 of 5 / 35 of 35** |
+| Missed, doubled, phantom | 0 / 0 / 0 | 0 / 0 / 0 |
+| Input: ClockMap offset on `event.timeStamp` vs `Audio.time` in the handler, p50 | (shares the reference defect) | 0.04 ms vs 9.4 ms (p99 4.1 vs 16.9 ms) |
+
+Design A meets the owner's "within 1–2 frames" against Chromium's own heard clock with margin; whether that matches the frame the sound is actually heard needs a real device [U].
+
 ## Findings: SMOKE tables (1 x 10 s, interactive latency, shared VM; superseded by the timed section where they disagree)
 **Clock (Q2).** Against the audio-clock fit, in the null-sink setup:
 
