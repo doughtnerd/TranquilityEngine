@@ -32,8 +32,20 @@
 //! [`begin_quantum`], the gate in `voices.rs`'s SCHEDULED branch, ring binding, member STOP, RESET,
 //! `groupStarts`; hooks H2). The hold and the rebase are `group_hold.rs` (C2c) and
 //! `group_rebase.rs` (C2d). Bodies tagged `C2a:` or `C2b:` are inert stubs.
+//!
+//! **C2a's API (what C2b calls).** Everything below works on the table as a slice of entries, so the
+//! state machine is tested without a core (`tests/group_gate.rs`):
+//! - PLAY time: [`admit_in`] (or [`admit`] over the core's region), then [`note_admit`] for the
+//!   counters and [`flags2_with_group`] for the voice slot;
+//! - per quantum: [`decide`] per taken entry with each member's [`MemberState`], then
+//!   [`mark_started`] on `Start`, `group_hold::on_starve` on `Hold`, `group_hold::try_resume` on a
+//!   held entry, [`mark_abandoned`] on `Abandon` (and [`free`] once its event is reported);
+//! - a member's end or STOP: [`remove_member`] (frees the entry with its last member); RESET:
+//!   [`reset_entries`] (or [`reset`]);
+//! - the give-up at the core's rate: [`give_up_frames`].
 
 use crate::core::Core;
+use crate::counters::MusicCounters;
 
 /// Group table entries (api-and-models §4.5 `MAX_GROUPS`; R9).
 pub const MAX_GROUPS: usize = audio_wire::generated::MAX_GROUPS as usize;
@@ -173,18 +185,73 @@ pub enum Admit {
     Ungated,
     /// A member of the entry at `index`: the caller sets [`FLAG2_GATED`] and the index in `flags2`.
     Member { index: u8 },
-    /// No free entry: the voice starts ungated; `groupTableFull` was counted.
+    /// No free entry (or the group's entry can't take another member: it already holds `size`
+    /// members, or it has started): the voice starts ungated; the caller counts `groupTableFull`
+    /// ([`note_admit`]).
     TableFull,
-    /// The size is above `MAX_GROUP_MEMBERS`: the voice starts ungated; the refusal was counted.
+    /// The size is above `MAX_GROUP_MEMBERS`: the voice starts ungated; the caller counts
+    /// `groupSizeRefused` ([`note_admit`]).
     SizeRefused,
 }
 
-/// A PLAY with `gate` for voice `voice_id`, stamped at `stamp_frame` (§4.1, §4.3): the first PLAY
-/// of a group takes an entry; later ones join it. Called at PLAY time (`onmessage`), by C2b.
-pub fn admit(core: &mut Core, gate: u16, voice_id: u32, stamp_frame: u64) -> Admit {
+/// The give-up in frames at `sample_rate`: [`GIVE_UP_SECONDS`] (1 s; architecture §5.3, R11),
+/// rounded to the nearest frame (48,000 at 48 kHz, 44,100 at 44.1 kHz).
+pub fn give_up_frames(sample_rate: f32) -> u32 {
     // C2a.
-    let _ = (core, gate, voice_id, stamp_frame);
+    let _ = sample_rate;
+    0
+}
+
+/// The index of the taken entry with group id `id`, if any.
+pub fn find(entries: &[GroupEntry], id: u16) -> Option<u8> {
+    // C2a.
+    let _ = (entries, id);
+    None
+}
+
+/// A PLAY with `gate` for voice `voice_id`, stamped at `stamp_frame` (§4.1, §4.3), on the table
+/// `entries`: an ungated PLAY (id 0) is [`Admit::Ungated`]; a size above [`MAX_GROUP_MEMBERS`] is
+/// [`Admit::SizeRefused`]; the first PLAY of a group takes the lowest free entry (id, size, the
+/// stamp, state STAMPED, the voice as its first member); a later one joins its group's STAMPED
+/// entry while `present < size`; otherwise (no free entry, a full or started entry)
+/// [`Admit::TableFull`]. The table is left unchanged by every result but `Member`.
+pub fn admit_in(entries: &mut [GroupEntry], gate: u16, voice_id: u32, stamp_frame: u64) -> Admit {
+    // C2a.
+    let _ = (entries, gate, voice_id, stamp_frame);
     Admit::Ungated
+}
+
+/// [`admit_in`] over the core's `Groups` region. Called at PLAY time (`onmessage`), by C2b.
+pub fn admit(core: &mut Core, gate: u16, voice_id: u32, stamp_frame: u64) -> Admit {
+    admit_in(entries(core.regions_mut().groups), gate, voice_id, stamp_frame)
+}
+
+/// Counts an [`Admit`]: `groupTableFull` for `TableFull`, `groupSizeRefused` for `SizeRefused`
+/// (wrapping); nothing otherwise.
+pub fn note_admit(counters: &mut MusicCounters, admit: Admit) {
+    // C2a.
+    let _ = (counters, admit);
+}
+
+/// `flags2` with [`FLAG2_GATED`] set and the group index `index` (0..15) in bits 3–6; the other
+/// bits (ambisonic, due, bit 7) unchanged.
+pub fn flags2_with_group(flags2: u8, index: u8) -> u8 {
+    // C2a.
+    let _ = index;
+    flags2
+}
+
+/// The group index a voice's `flags2` carries: `Some(index)` while [`FLAG2_GATED`] is set.
+pub fn flags2_group(flags2: u8) -> Option<u8> {
+    // C2a.
+    let _ = flags2;
+    None
+}
+
+/// `flags2` with [`FLAG2_GATED`] and the group index cleared; the other bits unchanged.
+pub fn flags2_without_group(flags2: u8) -> u8 {
+    // C2a.
+    flags2
 }
 
 /// One member's readiness this quantum, as the caller (C2b, in `voices.rs`) reads it.
@@ -201,7 +268,8 @@ pub struct MemberState {
 /// The gate's decision for one entry this quantum.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Decision {
-    /// Not yet (stamp ahead, or a member missing or not ready): members stay SCHEDULED.
+    /// No change: a STAMPED entry waits (stamp ahead, or a member missing or not ready; members
+    /// stay SCHEDULED), a HELD entry stays held (a member not ready yet), a FREE entry stays free.
     Wait,
     /// Start every member at sample `offset` of this quantum; `slip` frames after the stamp (0 on
     /// time, then `offset` is the stamp's).
@@ -216,13 +284,69 @@ pub enum Decision {
     Abandon,
 }
 
-/// The gate's decision for `entry` in the quantum at `frame` (architecture §4.3's table), with
-/// `give_up_frames` = 1 s at the core's rate and `member(voice_id)` each member's state. Pure, so
-/// C2a tests every row of the state machine without a core.
+/// The gate's decision for `entry` in the quantum `[frame, frame + QUANTUM)` (architecture §4.3's
+/// table), with `give_up_frames` from [`give_up_frames`] and `member(voice_id)` each present
+/// member's state. Pure, so the state machine is tested without a core. In order:
+/// - FREE: `Wait`.
+/// - STAMPED: `Abandon` when `frame > stamp_frame + give_up_frames` (more than 1 s past the stamp,
+///   whatever the members); else `Wait` while the stamp is past this quantum
+///   (`stamp_frame >= frame + QUANTUM`), the group is incomplete (`present < size`) or a member
+///   isn't `present && ready`; else `Start` on time (`stamp_frame >= frame`: `offset = stamp_frame
+///   − frame`, `slip = 0`) or late (`offset = 0`, `slip = frame − stamp_frame`).
+/// - STARTED: `Hold` when any member is `starving` (the caller sets it only for a gated mixed
+///   member, the existing check), else `Play`.
+/// - HELD: `Abandon` when `held_frames > give_up_frames` (held more than 1 s); else `Resume { slip:
+///   held_frames }` when every member is `ready`, else `Wait`.
 pub fn decide(entry: &GroupEntry, frame: u64, give_up_frames: u32, member: impl Fn(u32) -> MemberState) -> Decision {
     // C2a.
     let _ = (entry, frame, give_up_frames, member);
     Decision::Wait
+}
+
+/// Applies `Decision::Start { offset, slip }` decided in the quantum at `frame`: state STARTED,
+/// `start_frame = frame + offset`, `slip`, [`flag::LATE`] when `slip > 0`, [`flag::EVENT_PENDING`]
+/// (C2b reports it in `groupStarts`, counts `groupsLate` and `note_slip`, and rebases).
+pub fn mark_started(entry: &mut GroupEntry, frame: u64, offset: u32, slip: u32) {
+    // C2a.
+    let _ = (entry, frame, offset, slip);
+}
+
+/// Applies `Decision::Abandon`: [`flag::ABANDONED`] and [`flag::EVENT_PENDING`] set, the state kept
+/// (C2b ends every member, counts `groupsAbandoned`, reports the event, then [`free`]s the entry).
+pub fn mark_abandoned(entry: &mut GroupEntry) {
+    // C2a.
+    let _ = entry;
+}
+
+/// Frees an entry (all zero).
+pub fn free(entry: &mut GroupEntry) {
+    // C2a.
+    let _ = entry;
+}
+
+/// What [`remove_member`] did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemberLeft {
+    /// `voice_id` isn't a member of that entry (or the index is out of range): nothing changed.
+    NotMember,
+    /// Removed; `present` and `size` each shrank by one, the other members keep their order.
+    Left,
+    /// It was the last member: the entry is free now.
+    Freed,
+}
+
+/// Voice `voice_id` left the entry at `index`: it ended, or it was STOPped (while held it leaves
+/// the group and the size shrinks, S2; while stamped too, so the others don't wait for it).
+pub fn remove_member(entries: &mut [GroupEntry], index: u8, voice_id: u32) -> MemberLeft {
+    // C2a.
+    let _ = (entries, index, voice_id);
+    MemberLeft::NotMember
+}
+
+/// RESET: every entry free.
+pub fn reset_entries(entries: &mut [GroupEntry]) {
+    // C2a.
+    let _ = entries;
 }
 
 /// Per quantum, before the voice loop (`voices::render`, C2b): decides every taken entry and acts
@@ -233,15 +357,13 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
     let _ = (core, frame);
 }
 
-/// A member left its group: stopped while held (the size shrinks), or ended. Frees the entry when
-/// no member is left. Called from `voices.rs` (C2b).
-pub fn member_gone(core: &mut Core, index: u8, voice_id: u32) {
-    // C2b.
-    let _ = (core, index, voice_id);
+/// [`remove_member`] over the core's `Groups` region: a member left its group (stopped, or ended).
+/// Frees the entry when no member is left. Called from `voices.rs` (C2b).
+pub fn member_gone(core: &mut Core, index: u8, voice_id: u32) -> MemberLeft {
+    remove_member(entries(core.regions_mut().groups), index, voice_id)
 }
 
 /// RESET: every entry free.
 pub fn reset(core: &mut Core) {
-    // C2b.
-    let _ = core;
+    reset_entries(entries(core.regions_mut().groups));
 }
