@@ -6,7 +6,7 @@
 import { mixer, type Bus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
-import { clipVolume, startClip, worldKeyOf, worldPlays } from "./AudioSource";
+import { clipVolume, isAmbisonicClip, startClip, worldKeyOf, worldPlays } from "./AudioSource";
 import { warnOnce } from "./core/handle";
 import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioPanner, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest, type SendCurve } from "./backend";
 import { events, type EventDebugRow, type EventInstance, type EventOptions } from "./events/eventRuntime";
@@ -130,7 +130,9 @@ export const Audio = {
         if (typeof o.at === "number" && Number.isFinite(o.at)) { if (audioBackend().status !== "locked") extra.at = o.at; }
         else warnOnce("at:nonfinite", "Audio.playOneShot: at must be a finite number of seconds; playing now.");
       }
-      if (o.position) {
+      const ambisonic = isAmbisonicClip(path);
+      if (o.position && ambisonic) warnOnce(`position:ambisonic:${path}`, `Audio.playOneShot: "${path}" is an ambisonic clip; position, distances, occlusion and dopplerLevel are ignored (ADR 0162).`);
+      else if (o.position) {
         const p = o.position;
         if (Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)) {
           // A streamed clip is spatial on the core; the Babylon fallback flattens it (and warns) itself.

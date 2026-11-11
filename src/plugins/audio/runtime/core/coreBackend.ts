@@ -74,7 +74,7 @@ import { limiterLatencyFrames } from "./limiterLatency";
 import { ClockMap } from "./clock";
 import { CommandWriter, type PlayArgs } from "./commandWriter";
 import { createHrirLoader, createMaglsLoader, type HrirLoader, type MaglsLoader } from "./hrir";
-import { createClipRegistry, type ClipInfo, type ClipRegistry } from "./clipRegistry";
+import { ambisonicImportGain, createClipRegistry, type ClipInfo, type ClipRegistry } from "./clipRegistry";
 import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink, type HostHealth } from "./context";
 import { PlayheadTracker, Replayer } from "./replay";
 import { buildDebugInfo, type AudioDebugInfo } from "./debug";
@@ -244,6 +244,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   readonly spatial: ReplaySpatial;
   /** The listener frame `update(dt)` stages LISTENER from (the audio system passes its own to `frameStageListener`). */
   private readonly idleFrame = new ListenerFrame();
+  /** B5: per slot, the FuMa import gain (`ambisonicImportGain`) the voice's volume already carries; 1 when none was known at its play. */
+  private readonly gainApplied: Float32Array;
   /** B3: the stream voices' main side (`streams.ts`). */
   readonly streams: StreamManager;
   /** ADR 0158 (E3.1): the event runtime's automation sink on the core, and its mirror for a rebuild (`coreAutomation.ts`). */
@@ -300,6 +302,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.magls = deps.magls ?? createMaglsLoader({ clips: deps.clips, sampleRate: host.sampleRate });
     this.table = deps.table ?? new VoiceTable(host.preset.maxLogical);
     this.spatialDirty = new Uint8Array(this.table.capacity);
+    this.gainApplied = new Float32Array(this.table.capacity).fill(1);
     this.selection = new Selection(this.table);
     this.panners = new PannerPick(this.table);
     this.pannerSink = { setPanner: (i, kind) => this.sendPanner(i, kind) };
@@ -507,6 +510,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     if (this.disposed || this.host.status === "failed") return null;
     const world = req.world ?? 0;
     const group = req.group !== undefined && Number.isInteger(req.group) && req.group >= 1 && req.group <= MAX_GROUPS ? req.group : 0;
+    // B5: `audio.ambisonic.maxClips` caps concurrent ambisonic voices; main steals the lowest priority first (the core's steal is a backstop).
+    if (req.ambisonic === true && !this.admitAmbisonic(req.path, req.priority ?? 128)) return null;
     // B3: a stream voice takes a stream id where a clip voice takes a registry clip (no clip load).
     const stream = req.stream === true;
     const clip = stream ? this.streams.allocate() : this.clips.acquire(req.path, world);
@@ -524,6 +529,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     t.clip[i] = clip;
     t.group[i] = group;
     t.volume[i] = req.volume !== undefined && Number.isFinite(req.volume) ? Math.max(0, req.volume) : 1;
+    this.gainApplied[i] = req.ambisonic === true && !stream ? ambisonicImportGain(req.path) : 1;
     t.pitch[i] = req.pitch !== undefined && Number.isFinite(req.pitch) ? clamp(req.pitch, MIN_PITCH, MAX_PITCH) : 1;
     t.flags[i] = (req.loop ? VoiceFlag.LOOP : 0) | (req.oneShot ? VoiceFlag.ONE_SHOT : 0) | (stream ? VoiceFlag.STREAM | VoiceFlag.WANTS_PLAYHEAD : 0);
     if (stream) this.streams.register(clip, id, req.path, req.loop === true);
@@ -1015,6 +1021,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private applyM3Request(i: number, req: PlayRequest): void {
     const t = this.table;
     t.flags2[i] = req.ambisonic === true ? VoiceFlag2.AMBISONIC : 0;
+    if (req.ambisonic === true) this.listener.noteAmbisonicPlay(); // B5: LISTENER goes with the next frame even if the rotation is unchanged (C4)
     this.applySpatialOptions(i, req, true);
     const f = req.filter;
     if (f) {
@@ -1226,22 +1233,60 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const clip = t.clip[i]!;
     const state = this.clips.state(clip);
     if (state === "ready") {
+      this.applyImportGain(i, clip);
       // A3.1: mixed when there is room under the cap; otherwise virtual, and this frame's selection may promote it.
       const mixed = this.selection.admit(i, this.mixedCap());
       t.state[i] = mixed ? VoiceState.PLAYING : VoiceState.VIRTUAL;
       t.reason[i] = mixed ? VoiceReason.NONE : VoiceReason.VIRTUAL;
       this.sendPlay(id, i);
     } else if (state === "failed") {
-      t.free(id, VoiceReason.FAILED);
+      this.clipFailed(id, i);
     } else {
       t.state[i] = VoiceState.WAITING_FOR_DATA;
       t.reason[i] = VoiceReason.WAITING_FOR_DATA;
       this.clips.onResident(clip, (info: ClipInfo) => {
         if (!t.isLive(id) || t.state[i] !== VoiceState.WAITING_FOR_DATA) return;
         if (info.state === "ready") this.launch(id);
-        else t.free(id, VoiceReason.FAILED);
+        else this.clipFailed(id, i);
       });
     }
+  }
+
+  /**
+   * B5 (§2.4): a FuMa clip's import gain is known only once its decode reported, so a voice played before that carries a
+   * volume without it (up to 3 dB too quiet). When the clip is ready, fold the gain in (the volume the caller gave
+   * already holds `gainApplied[i]`). Only an ambisonic clip voice has a gain other than 1.
+   */
+  private applyImportGain(i: number, clip: number): void {
+    const t = this.table;
+    if ((t.flags2[i]! & VoiceFlag2.AMBISONIC) === 0) return;
+    const path = this.clips.info(clip)?.path;
+    if (path === undefined) return;
+    const gain = ambisonicImportGain(path);
+    const had = this.gainApplied[i]!;
+    if (gain === had) return;
+    t.volume[i] = t.volume[i]! * (gain / had);
+    this.gainApplied[i] = gain;
+    this.refreshGain(i);
+  }
+
+  /**
+   * B5 (ADR 0162 §2.4): the voice's clip failed to load. A long ambisonic clip that was not decoded ("streamInstead")
+   * restarts the voice as a stream voice (the same slot, id and options); any other failure ends the voice.
+   */
+  private clipFailed(id: number, i: number): void {
+    const t = this.table;
+    const info = this.clips.info(t.clip[i]!);
+    if (info?.failure !== "streamInstead") {
+      t.free(id, VoiceReason.FAILED);
+      return;
+    }
+    this.clips.release(t.clip[i]!);
+    const stream = this.streams.allocate();
+    t.clip[i] = stream;
+    t.flags[i] = t.flags[i]! | VoiceFlag.STREAM | VoiceFlag.WANTS_PLAYHEAD;
+    this.streams.register(stream, id, info.path, (t.flags[i]! & VoiceFlag.LOOP) !== 0);
+    this.launch(id);
   }
 
   /**
@@ -1282,6 +1327,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
 
   private sendPlay(id: number, i: number, startOffsetFrames = 0): void {
     const t = this.table;
+    // B5: a sidecar on a 1-2 channel clip is ignored (the registry warned): the voice isn't ambisonic.
+    if ((t.flags2[i]! & VoiceFlag2.AMBISONIC) !== 0 && (t.flags[i]! & VoiceFlag.STREAM) === 0 && (this.clips.info(t.clip[i]!)?.channels ?? 3) <= 2) t.flags2[i] = t.flags2[i]! & ~VoiceFlag2.AMBISONIC;
     const a = this.playArgs;
     a.voiceId = id;
     a.clip = t.clip[i]!;
@@ -1419,6 +1466,44 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private sendScore(i: number, score: number): void {
     const t = this.table;
     this.writer.setScore(((t.gen[i]! << 16) | i) >>> 0, score);
+  }
+
+  /**
+   * B5 (architecture §2.3): whether a new ambisonic voice at `priority` may start. `min(max_wide laid out, audio.ambisonic.
+   * maxClips)` voices of either kind (a clip or a stream, mixed or virtual) may be live; past that the lowest priority is
+   * stolen (the lowest audibility among equals), unless every one of them is at or above `priority` (the play is refused,
+   * as `VoiceTable.allocate` does). A limit of 0 refuses with one warning.
+   */
+  private admitAmbisonic(path: string, priority: number): boolean {
+    const t = this.table;
+    const limit = Math.min(this.host.preset.maxWide ?? 0, this.mixer.audioSettings.ambisonic?.maxClips ?? 0);
+    if (limit <= 0) {
+      this.warnOnce(`${path}#ambisonic-refused`, `audio: "${path}" is an ambisonic clip, but ${this.mixer.audioSettings.ambisonic?.maxClips === 0 ? "audio.ambisonic.maxClips is 0" : "the audio core has no room for ambisonic voices"}; not played (ADR 0162)`);
+      return false;
+    }
+    let count = 0;
+    let victim = -1;
+    let victimPriority = 256;
+    let victimAudibility = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < t.capacity; i++) {
+      const s = t.state[i]!;
+      if (s === VoiceState.FREE || s === VoiceState.STOPPING || s === VoiceState.ENDING || (t.flags2[i]! & VoiceFlag2.AMBISONIC) === 0) continue;
+      count++;
+      const p = t.priority[i]!;
+      const a = t.audibility[i]!;
+      if (p < victimPriority || (p === victimPriority && a < victimAudibility)) {
+        victim = i;
+        victimPriority = p;
+        victimAudibility = a;
+      }
+    }
+    if (count < limit) return true;
+    if (victim < 0 || victimPriority >= priority) {
+      t.refusedCount++;
+      return false;
+    }
+    this.stealSlot(victim);
+    return true;
   }
 
   /** Selection stole slot `i` (its bus is past `maxVoices`): free it as STOLEN; `onFree` stops it on the core. */

@@ -305,6 +305,7 @@ export class ListenerFrame {
       this.upZ = pose.up.z;
     }
     this.dt = Number.isFinite(dt) && dt > 0 ? dt : 0;
+    this.cut = false; // a cut is a per-frame event: the Doppler pass (D3) sets it after this, the listener stage (B5) reads it
     this.frame++;
   }
 

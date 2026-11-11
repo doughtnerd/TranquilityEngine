@@ -17,8 +17,11 @@ import { i16ToF32 } from "./pcm";
 /** A clip's lifecycle (`copying -> ready` on the core's `resident` clip event, wire §4.3). */
 export type ClipState = "idle" | "fetching" | "decoding" | "copying" | "ready" | "failed" | "unloading";
 
-/** Why a clip failed, for warnings and `Audio.debug()`. */
-export type ClipFailure = "fetch" | "decode" | "refusedCeiling" | "refusedGrow";
+/**
+ * Why a clip failed, for warnings and `Audio.debug()`. `streamInstead` (ADR 0162 §2.4, B5) is not a failure of the file:
+ * a long ambisonic clip was not decoded into memory; the backend restarts the voices waiting on it as stream voices.
+ */
+export type ClipFailure = "fetch" | "decode" | "refusedCeiling" | "refusedGrow" | "streamInstead";
 
 /** What the registry knows about one clip. */
 export interface ClipInfo {
@@ -159,13 +162,6 @@ export interface ClipRegistryDeps {
   warnOnce?: WarnOnce;
 }
 
-/**
- * ADR 0162 §2.4: whether a decoded clip of `channels` channels is playable given its sidecar's `ambisonic` block. A clip
- * over 2 channels must be ambisonic (4, 9 or 16 channels: order 1, 2 or 3); a given `order` must agree with the
- * channel count; orders 2 and 3 are WAV only (FLAC stops at 8 channels and there is no Opus decoder). `error` is the
- * load failure's detail. 1-2 channel clips aren't checked here (a sidecar on one is ignored by the caller).
- * @internal
- */
 /** ADR 0162 §2.4 (B2): the import gain a FuMa clip's decode reported, by clip path (absent: 1). */
 const importGains = new Map<string, number>();
 const gainKey = (path: string): string => path.replace(/^asset:/, "").replace(/^\.?\//, "");
@@ -179,6 +175,34 @@ export function ambisonicImportGain(path: string): number {
   return importGains.get(gainKey(path)) ?? 1;
 }
 
+/** ADR 0162 §2.4: an ambisonic clip longer than this many seconds streams unless its sidecar says `stream` (a 3rd-order minute is ≈ 92 MB). */
+export const AMBISONIC_STREAM_OVER_SECONDS = 5;
+
+/** Ambisonic clips the registry found longer than `AMBISONIC_STREAM_OVER_SECONDS`, by `gainKey`. */
+const longAmbisonic = new Set<string>();
+
+/**
+ * ADR 0162 §2.4 (B5): whether `path` is a clip the registry learned to be a long ambisonic one (so its plays are stream
+ * voices). False until a first play has been decoded far enough to read the file's length; that first play is
+ * restarted as a stream by the backend (`ClipFailure` "streamInstead"), so no play runs from memory.
+ * @internal
+ */
+export function ambisonicStreamsByDefault(path: string): boolean {
+  return longAmbisonic.has(gainKey(path));
+}
+
+/** @internal Forgets what was learned about long ambisonic clips (tests; a project reload). */
+export function resetAmbisonicStreamDefaults(): void {
+  longAmbisonic.clear();
+}
+
+/**
+ * ADR 0162 §2.4: whether a decoded clip of `channels` channels is playable given its sidecar's `ambisonic` block. A clip
+ * over 2 channels must be ambisonic (4, 9 or 16 channels: order 1, 2 or 3); a given `order` must agree with the
+ * channel count; orders 2 and 3 are WAV only (FLAC stops at 8 channels and there is no Opus decoder). `error` is the
+ * load failure's detail. 1-2 channel clips aren't checked here (a sidecar on one is ignored by the caller).
+ * @internal
+ */
 export function checkAmbisonic(path: string, channels: number, ambisonic: AmbisonicImport | null): { readonly order: 1 | 2 | 3 } | { readonly error: string } {
   if (!ambisonic) return { error: `${channels}-channel audio needs an ambisonic import setting (ADR 0162); multichannel mixes aren't supported` };
   const inferred = channels === 4 ? 1 : channels === 9 ? 2 : channels === 16 ? 3 : null;
@@ -348,11 +372,13 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     if (slot.dead || slot.state === "failed") return;
     slot.state = "failed";
     slot.failure = failure;
-    if (failure === "decode" || failure === "fetch") setFileLoopPoints(slot.path, null); // nothing will ever report: resolve waiters
+    if (failure === "decode" || failure === "fetch" || failure === "streamInstead") setFileLoopPoints(slot.path, null); // nothing will ever report: resolve waiters
     slot.parts = null;
     slot.abort?.abort();
     pacer.cancel(idOf(slot));
-    if (codecWarning) warnOnce(slot.path, codecWarning);
+    if (failure === "streamInstead") {
+      // Not a failure of the file (B5): the voices waiting on it restart as streams; the stream's own open reports the length (loop points).
+    } else if (codecWarning) warnOnce(slot.path, codecWarning);
     else warn(`audio: clip "${slot.path}" failed to load (${detail})`);
     notify(slot);
   };
@@ -510,6 +536,12 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
             const checked = checkAmbisonic(slot.path, info.channels, ambisonic);
             if ("error" in checked) {
               fail(slot, "decode", checked.error); // nothing was begun yet; fail() also aborts this decode
+              return;
+            }
+            // B5 (§2.4): a clip over 5 s that the sidecar doesn't ask to stream isn't decoded into memory: the backend restarts its voices as streams.
+            if (info.frames > 0 && info.rate > 0 && info.frames / info.rate > AMBISONIC_STREAM_OVER_SECONDS) {
+              longAmbisonic.add(gainKey(slot.path));
+              fail(slot, "streamInstead", "longer than 5 s; streamed instead");
               return;
             }
             // B2: fold the FuMa headroom scale back into the clip's volume (ambisonicImportGain).
