@@ -1,8 +1,32 @@
 // The Project panel's Audio section (ADR 0097): the bus tree with per-bus effects, snapshots, ducking rules and
 // the backend. Edits go through the pure functions in `audioSettingsModel.ts` and the panel's undo history.
 import { useState } from "preact/hooks";
-import type { AudioBackground, AudioClipFormat, AudioSettings, AudioSpatialMode, BusEffect, BusSettings } from "../../../engine/audio/settings";
+import type { AudioBackground, AudioClipFormat, AudioSettings, AudioSpatialMode, BusBed, BusEffect, BusSettings } from "../../../engine/audio/settings";
+import { AMBISONIC_LIMITS, BED_LIMITS, BED_PRIORITY_LIMITS, BUS_BEDS, OCCLUSION_LIMITS, SPEED_OF_SOUND_LIMITS, ZONE_LIMITS, busBed, busBedPriority } from "../../../engine/audio/settings";
+import { MATERIAL_LIMITS, MAX_MATERIALS, type OccluderMaterial } from "../../../engine/audio/occlusionMaterials";
 import {
+  addMaterial,
+  bedPlan,
+  isBuiltinMaterial,
+  materialIsModified,
+  physicsLayerNames,
+  removeMaterial,
+  renameMaterial,
+  resetMaterial,
+  setBed,
+  setBusBed,
+  setBusBedPriority,
+  setDoppler,
+  setMaterial,
+  setMaxClips,
+  setOcclusion,
+  setZones,
+  toggleOcclusionLayer,
+  zoneMemory,
+  zoneSlots,
+  zoneWarnings,
+  type BedPlan,
+  type MaterialPatch,
   CLIP_MEMORY_LIMITS,
   EFFECT_TYPES,
   MAX_BUSES,
@@ -150,8 +174,8 @@ function AddEffect(props: { bus: BusSettings; draft: SettingsDraft; set: Set }) 
   );
 }
 
-function BusRow(props: { a: AudioSettings; bus: BusSettings; depth: number; draft: SettingsDraft; set: Set }) {
-  const { a, bus, depth, draft, set } = props;
+function BusRow(props: { a: AudioSettings; bus: BusSettings; depth: number; plan: BedPlan; draft: SettingsDraft; set: Set }) {
+  const { a, bus, depth, plan, draft, set } = props;
   const isRoot = bus === a.buses[0];
   const banned = new globalThis.Set([bus.name, ...descendants(a, bus.name)]);
   return (
@@ -186,6 +210,7 @@ function BusRow(props: { a: AudioSettings; bus: BusSettings; depth: number; draf
         )}
       </summary>
       <div class="audio-bus-body">
+        <BusBedRow a={a} bus={bus} plan={plan} draft={draft} set={set} />
         <span class="project-settings-hint">Effects{bus.effects.length === 0 ? ": none" : ""}</span>
         <Effects bus={bus} draft={draft} set={set} />
       </div>
@@ -482,6 +507,18 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
         </label>
       </div>
 
+      <div class="audio-row">
+        <label title="Doppler pitch shift treats a relative speed between a sound and the listener above this many world units per second as this speed. A sound opts in with its Doppler level (0 is off). Above 0">
+          Doppler max speed
+          <Num label="Doppler max speed" value={a.doppler.maxSpeed} step={10} min={1} onCommit={(n) => set("Set Doppler max speed", setDoppler(draft, { maxSpeed: n }))} />
+        </label>
+        <label title={`How fast sound travels in your world units per second (${SPEED_OF_SOUND_LIMITS[0]}..${SPEED_OF_SOUND_LIMITS[1]}); 343 if one unit is a metre. It sets how strong Doppler is`}>
+          Speed of sound
+          <Num label="Speed of sound" value={a.speedOfSound} step={1} min={SPEED_OF_SOUND_LIMITS[0]} max={SPEED_OF_SOUND_LIMITS[1]} onCommit={(n) => set("Set speed of sound", setDoppler(draft, { speedOfSound: n }))} />
+        </label>
+        {a.backend === "babylon" && <span class="audio-note">Babylon backend: Doppler changes the pitch of decoded clips only; streamed clips play flat.</span>}
+      </div>
+
       <div class="project-settings-list-head">
         <span>Backend</span>
         <span class="project-settings-hint">core (the default) is the Rust mixer; babylon is the fallback without effects or voice limits. macOS desktop builds default to babylon until macOS passes its gate</span>
@@ -497,6 +534,7 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
 export function AudioSettingsSection(props: { draft: SettingsDraft; problems: readonly string[]; set: Set }) {
   const { draft, set } = props;
   const a = audioOf(draft);
+  const plan = bedPlan(a);
   return (
     <div class={`project-settings-list audio-settings${props.problems.length ? " invalid" : ""}`} role="group" aria-label="Audio settings">
       {props.problems.length > 0 && (
@@ -512,7 +550,7 @@ export function AudioSettingsSection(props: { draft: SettingsDraft; problems: re
         <span class="project-settings-hint">a tree feeding Master; expand a bus for its effects (up to {MAX_BUSES})</span>
       </div>
       {busTree(a).map(({ bus, depth }) => (
-        <BusRow key={bus.name} a={a} bus={bus} depth={depth} draft={draft} set={set} />
+        <BusRow key={bus.name} a={a} bus={bus} depth={depth} plan={plan} draft={draft} set={set} />
       ))}
 
       <Parameters a={a} draft={draft} set={set} />
@@ -522,6 +560,221 @@ export function AudioSettingsSection(props: { draft: SettingsDraft; problems: re
       <Ducking a={a} draft={draft} set={set} />
 
       <Playback a={a} draft={draft} set={set} />
+
+      <Beds a={a} plan={plan} draft={draft} set={set} />
+      <Occlusion a={a} draft={draft} set={set} />
+      <Zones a={a} draft={draft} set={set} />
     </div>
+  );
+}
+
+const BED_HELP = "A bed is a shared surround field: distant or ambient sounds on a bus are mixed into one ambisonic bed and decoded to the speakers or headphones once, instead of each sound getting its own costly 3D voice. Only this many beds exist; a bus that asks for its own bed and loses to a higher priority shares the nearest bus above it that has one.";
+
+/** A bus's bed mode and priority, which bed it mixes into, and why it lost (api-and-models section 7). */
+function BusBedRow(props: { a: AudioSettings; bus: BusSettings; plan: BedPlan; draft: SettingsDraft; set: Set }) {
+  const { a, bus, plan, draft, set } = props;
+  const mode = busBed(a, bus.name);
+  const host = plan.hostOf[bus.name];
+  const lost = plan.lost.find((l) => l.bus === bus.name);
+  const where = plan.maxBeds === 0 ? "beds are off" : host === null ? "no bed (mixed flat, equal power)" : host === bus.name ? "has its own bed" : `shares ${host}'s bed`;
+  return (
+    <div class="audio-row" data-bus-bed={bus.name}>
+      <label title={`${BED_HELP} own: this bus gets its own bed (if it wins a slot). parent: its sounds go into the nearest bus above that has a bed. none: this bus is never in a bed.`}>
+        Bed
+        <Choice<BusBed> label={`${bus.name} bed`} value={mode} options={BUS_BEDS} onChange={(v) => set(`Set ${bus.name} bed ${v}`, setBusBed(draft, bus.name, v))} />
+      </label>
+      <label title="When more buses ask for their own bed than there are slots, the highest priority gets one (0..255; the root is 255, others 128; ties go to the bus nearest the root)">
+        Bed priority
+        <Num label={`${bus.name} bed priority`} value={busBedPriority(a, bus.name)} step={1} min={BED_PRIORITY_LIMITS[0]} max={BED_PRIORITY_LIMITS[1]} onCommit={(n) => set(`Set ${bus.name} bed priority`, setBusBedPriority(draft, bus.name, n))} />
+      </label>
+      <span class="project-settings-hint" data-bed-host>{where}</span>
+      {lost && (
+        <span class="audio-warning" role="alert" data-lost-bed={bus.name}>
+          Asked for its own bed and lost it ({lost.outrankedBy.map((n) => `"${n}"`).join(", ")} outrank it for {plan.maxBeds} slot{plan.maxBeds === 1 ? "" : "s"}). Raise its priority or allow more beds.
+        </span>
+      )}
+    </div>
+  );
+}
+
+function BackendNote(props: { a: AudioSettings; what: string }) {
+  return props.a.backend === "babylon" ? <p class="audio-note" role="note">The Babylon backend is selected: {props.what}</p> : null;
+}
+
+/** Beds and ambisonic clips (api-and-models section 2.1). */
+function Beds(props: { a: AudioSettings; plan: BedPlan; draft: SettingsDraft; set: Set }) {
+  const { a, plan, draft, set } = props;
+  return (
+    <>
+      <div class="project-settings-list-head">
+        <span>Beds</span>
+        <span class="project-settings-hint">distant sounds mixed into one shared surround field, decoded once (core backend)</span>
+      </div>
+      <p class="project-settings-hint">{BED_HELP}</p>
+      <BackendNote a={a} what="it has no beds, so sounds use its own panner and ambisonic clips play their first channel as mono." />
+      <div class="audio-row">
+        <label title={`How many beds can exist at once (${BED_LIMITS.maxBeds[0]}..${BED_LIMITS.maxBeds[1]}). 0 turns beds off: every sound is panned on its own`}>
+          Max beds
+          <Num label="Max beds" value={a.bed.maxBeds} step={1} min={BED_LIMITS.maxBeds[0]} max={BED_LIMITS.maxBeds[1]} onCommit={(n) => set("Set max beds", setBed(draft, n))} />
+        </label>
+        <label title={`How many ambisonic clips (recordings of a whole sound field: 4, 9 or 16 channels) can play at once (${AMBISONIC_LIMITS.maxClips[0]}..${AMBISONIC_LIMITS.maxClips[1]}). 0 refuses them with a warning`}>
+          Max ambisonic clips
+          <Num label="Max ambisonic clips" value={a.ambisonic.maxClips} step={1} min={AMBISONIC_LIMITS.maxClips[0]} max={AMBISONIC_LIMITS.maxClips[1]} onCommit={(n) => set("Set max ambisonic clips", setMaxClips(draft, n))} />
+        </label>
+        <span class="project-settings-hint">{plan.maxBeds === 0 ? "beds are off" : `hosts: ${plan.hosts.join(", ") || "none"}${plan.implicitRoot ? " (the root by default: no bus asked for its own)" : ""}`}</span>
+      </div>
+      {plan.lost.length > 0 && (
+        <ul class="audio-problems audio-lost-beds" role="alert" aria-label="Lost beds">
+          {plan.lost.map((l) => (
+            <li key={l.bus}>
+              Bus "{l.bus}" asked for its own bed and lost it to priority ({l.outrankedBy.map((n) => `"${n}"`).join(", ")} outrank it for {plan.maxBeds} slot{plan.maxBeds === 1 ? "" : "s"}); it {l.sharesWith ? `shares ${l.sharesWith}'s bed` : "is mixed flat (no bed above it)"}.
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+const fmtMB = (n: number) => `${n.toFixed(1)} MB`;
+
+/** Occlusion: which physics layers block sound, the ray budget, the default material and the material cards (sections 2.1, 2.2). */
+function Occlusion(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
+  const { a, draft, set } = props;
+  const o = a.occlusion;
+  const layers = physicsLayerNames(draft);
+  const off = o.layers !== null && o.layers.length === 0;
+  const extra = (o.layers ?? []).filter((l) => !layers.includes(l));
+  return (
+    <>
+      <div class="project-settings-list-head">
+        <span>Occlusion</span>
+        <span class="project-settings-hint">walls between a sound and the listener muffle it, found by casting rays through physics (core backend)</span>
+      </div>
+      <BackendNote a={a} what="walls only lower the volume (no muffling), and reverb zones do nothing." />
+      <div class="audio-row" role="group" aria-label="Occluding layers">
+        <span class="project-settings-hint" title="Physics layers whose colliders can block sound (sensors never do). All ticked is every layer; none ticked turns occlusion off">Layers</span>
+        {layers.map((l) => (
+          <label key={l} class="audio-bus-check">
+            <input type="checkbox" aria-label={`Occlude by layer ${l}`} checked={o.layers === null || o.layers.includes(l)} onChange={(e) => set(`${(e.currentTarget as HTMLInputElement).checked ? "Add" : "Remove"} occluding layer ${l}`, toggleOcclusionLayer(draft, l, (e.currentTarget as HTMLInputElement).checked, layers))} />
+            {l}
+          </label>
+        ))}
+        {extra.map((l) => (
+          <span key={l} class="audio-warning" role="alert">Layer "{l}" is not a physics layer</span>
+        ))}
+        {off && <span class="audio-note">Occlusion is off.</span>}
+      </div>
+      <div class="audio-row">
+        <label title={`Ray time per frame in ms (${OCCLUSION_LIMITS.budgetMs[0]}..${OCCLUSION_LIMITS.budgetMs[1]}). More time checks more sounds each frame; fewer rays means a wall takes longer to be noticed`}>
+          Budget (ms)
+          <Num label="Occlusion budget (ms)" value={o.budgetMs} step={0.05} min={OCCLUSION_LIMITS.budgetMs[0]} max={OCCLUSION_LIMITS.budgetMs[1]} onCommit={(n) => set("Set occlusion budget", setOcclusion(draft, { budgetMs: n }))} />
+        </label>
+        <label title={`How quickly a sound closes and opens as a wall appears or goes (${OCCLUSION_LIMITS.smoothingMs[0]}..${OCCLUSION_LIMITS.smoothingMs[1]} ms); a material can set its own`}>
+          Smoothing (ms)
+          <Num label="Occlusion smoothing (ms)" value={o.smoothingMs} step={10} min={OCCLUSION_LIMITS.smoothingMs[0]} max={OCCLUSION_LIMITS.smoothingMs[1]} onCommit={(n) => set("Set occlusion smoothing", setOcclusion(draft, { smoothingMs: n }))} />
+        </label>
+        <label title="The material an occluder uses when it doesn't name one">
+          Default material
+          <Choice<string> label="Default material" value={o.defaultMaterial} options={o.materials.map((m) => m.name)} onChange={(v) => set("Set default material", setOcclusion(draft, { defaultMaterial: v }))} />
+        </label>
+      </div>
+      <div class="project-settings-list-head">
+        <span>Materials</span>
+        <span class="project-settings-hint">what a wall does to sound passing through it; hits on one ray add their dB and take the lowest cutoff (up to {MAX_MATERIALS})</span>
+      </div>
+      {o.materials.map((m) => (
+        <MaterialCard key={m.name} a={a} m={m} draft={draft} set={set} />
+      ))}
+      <button disabled={o.materials.length >= MAX_MATERIALS} onClick={() => set("Add material", addMaterial(draft))}>
+        + Material
+      </button>
+    </>
+  );
+}
+
+function MaterialCard(props: { a: AudioSettings; m: OccluderMaterial; draft: SettingsDraft; set: Set }) {
+  const { a, m, draft, set } = props;
+  const builtin = isBuiltinMaterial(m.name);
+  const modified = materialIsModified(a, m.name);
+  const patch = (label: string, p: MaterialPatch) => set(`Set ${m.name} ${label}`, setMaterial(draft, m.name, p));
+  return (
+    <div class="audio-card" role="group" aria-label={`Material ${m.name}`} data-material={m.name} data-kind={builtin ? "builtin" : "custom"}>
+      <div class="audio-row">
+        {builtin ? <strong class="audio-grow">{m.name}</strong> : <TextField class="audio-grow" value={m.name} label={`Material ${m.name} name`} onCommit={(v) => set(`Rename material ${m.name} to ${v.trim()}`, renameMaterial(draft, m.name, v))} />}
+        {builtin && <span class="project-settings-hint">built-in{modified ? ", edited" : ""}</span>}
+        {a.occlusion.defaultMaterial === m.name && <span class="audio-hint-accent">default</span>}
+        {builtin ? (
+          <button disabled={!modified} aria-label={`Reset material ${m.name}`} title="Put this material back to its built-in values" onClick={() => set(`Reset material ${m.name}`, resetMaterial(draft, m.name))}>
+            Reset
+          </button>
+        ) : (
+          <button class="icon audio-remove" aria-label={`Remove material ${m.name}`} title="Remove this material (occluders that name it use the default)" onClick={() => set(`Remove material ${m.name}`, removeMaterial(draft, m.name))}>
+            ×
+          </button>
+        )}
+      </div>
+      <div class="audio-row">
+        <label title={`How much quieter sound is after passing through, in dB (${MATERIAL_LIMITS.transmissionDb[0]}..${MATERIAL_LIMITS.transmissionDb[1]}); 0 is no change`}>
+          Transmission (dB)
+          <Num label={`${m.name} transmission dB`} value={m.transmissionDb} step={1} min={MATERIAL_LIMITS.transmissionDb[0]} max={MATERIAL_LIMITS.transmissionDb[1]} onCommit={(n) => patch("transmission", { transmissionDb: n })} />
+        </label>
+        <label title={`Muffling: sound through the wall is low-passed at this frequency (${MATERIAL_LIMITS.cutoffHz[0]}..${MATERIAL_LIMITS.cutoffHz[1]} Hz); 20000 and above is no muffling`}>
+          Cutoff (Hz)
+          <Num label={`${m.name} cutoff Hz`} value={m.cutoffHz} step={100} min={MATERIAL_LIMITS.cutoffHz[0]} max={MATERIAL_LIMITS.cutoffHz[1]} onCommit={(n) => patch("cutoff", { cutoffHz: n })} />
+        </label>
+        <label title="How much of the reverb a sound sends is removed behind the wall (0..1)">
+          Wet occlusion
+          <Num label={`${m.name} wet occlusion`} value={m.wetOcclusion} step={0.05} min={MATERIAL_LIMITS.wetOcclusion[0]} max={MATERIAL_LIMITS.wetOcclusion[1]} onCommit={(n) => patch("wet occlusion", { wetOcclusion: n })} />
+        </label>
+        <label title="Milliseconds to close when the wall appears (0..2000); blank uses the smoothing time">
+          Attack (ms)
+          <OptionalNum label={`${m.name} attack ms`} value={m.attackMs} step={10} min={0} max={MATERIAL_LIMITS.attackMs[1]} placeholder={String(a.occlusion.smoothingMs)} onCommit={(n) => patch("attack", { attackMs: n ?? null })} />
+        </label>
+        <label title="Milliseconds to open when the wall goes (0..2000); blank uses the smoothing time">
+          Release (ms)
+          <OptionalNum label={`${m.name} release ms`} value={m.releaseMs} step={10} min={0} max={MATERIAL_LIMITS.releaseMs[1]} placeholder={String(a.occlusion.smoothingMs)} onCommit={(n) => patch("release", { releaseMs: n ?? null })} />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/** Reverb zones: slots, tail slot and IR length, with the memory they cost and the layout warnings (section 2.1; C6). */
+function Zones(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
+  const { a, draft, set } = props;
+  const mem = zoneMemory(a);
+  return (
+    <>
+      <div class="project-settings-list-head">
+        <span>Reverb zones</span>
+        <span class="project-settings-hint">volumes that give the room's reverb to sounds and the listener inside (core backend)</span>
+      </div>
+      <BackendNote a={a} what="reverb zones are ignored (one warning is logged)." />
+      <div class="audio-row">
+        <label title={`How many zones can be heard at once (${ZONE_LIMITS.maxActive[0]}..${ZONE_LIMITS.maxActive[1]}). 0 turns zones off`}>
+          Active zones
+          <Num label="Zones active" value={a.zones.maxActive} step={1} min={ZONE_LIMITS.maxActive[0]} max={ZONE_LIMITS.maxActive[1]} onCommit={(n) => set("Set active zones", setZones(draft, { maxActive: n }))} />
+        </label>
+        <label title="A spare slot where the zone you just left rings out its tail while the next one fades in (0 or 1)">
+          Tail slot
+          <Num label="Zones standby" value={a.zones.standby} step={1} min={ZONE_LIMITS.standby[0]} max={ZONE_LIMITS.standby[1]} onCommit={(n) => set("Set zone tail slot", setZones(draft, { standby: n }))} />
+        </label>
+        <label title={`The longest reverb tail kept, in seconds (${ZONE_LIMITS.maxIrSeconds[0]}..${ZONE_LIMITS.maxIrSeconds[1]}); longer impulse responses are cut with a 50 ms fade`}>
+          Max IR length (s)
+          <Num label="Zones max IR seconds" value={a.zones.maxIrSeconds} step={0.5} min={ZONE_LIMITS.maxIrSeconds[0]} max={ZONE_LIMITS.maxIrSeconds[1]} onCommit={(n) => set("Set zone IR length", setZones(draft, { maxIrSeconds: n }))} />
+        </label>
+      </div>
+      <p class="project-settings-hint" data-zone-memory>
+        {zoneSlots(a.zones) === 0 ? "No zone slots reserved." : `${mem.slots} slot${mem.slots === 1 ? "" : "s"}: about ${fmtMB(mem.totalMB)} at 48 kHz (${fmtMB(mem.stateMB)} state, ${fmtMB(mem.kernelMB)} kernels, outside the clip memory ceiling; double at 96 kHz).`}
+      </p>
+      {zoneWarnings(a).map((w) => (
+        <p key={w.code} class="audio-warning" role="alert" data-zone-warning={w.code}>
+          {w.code === "zonesOff"
+            ? "Zones are off: every Audio Reverb Zone is ignored."
+            : `No tail slot: a zone beyond ${w.maxActive} cuts off a ringing slot with a ${w.fadeMs} ms fade, and the new zone's reverb arrives 50 to 200 ms later.`}
+        </p>
+      ))}
+    </>
   );
 }
