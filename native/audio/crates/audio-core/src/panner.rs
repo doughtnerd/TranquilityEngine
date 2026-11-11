@@ -53,6 +53,20 @@ use crate::QUANTUM;
 pub mod kind {
     pub const EQUAL_POWER: u8 = 0;
     pub const HRTF: u8 = 1;
+    /// ADR 0162 C1: the bed (`bed.rs`), resolved through the voice's bus; equal-power when the bus
+    /// has none.
+    pub const BED: u8 = 2;
+}
+
+/// ADR 0162 A4: the pool entry's `bed_share` before the voice's first render with beds: the share
+/// then jumps to its target (a voice starts, or is promoted, silent) instead of crossfading.
+pub const BED_SHARE_UNSET: f32 = -1.0;
+
+/// ADR 0162 A4: what [`PannerState::mix_range`] needs for kind 2: the beds and the voice's
+/// mixed-voice pool entry (its bed share ramp and last quantum's encode gains).
+pub struct BedCtx<'a> {
+    pub beds: &'a mut crate::bed::Beds,
+    pub entry: &'a mut crate::fxpool::FxEntry,
 }
 
 /// One voice's panner.
@@ -130,10 +144,89 @@ impl PannerState {
     /// at context frame `frame`, into `out_l`/`out_r` (already offset to `from`). Without an HRTF
     /// slot this is [`mix`](Self::mix). With one, the equal-power matrix mixes with weight `1 - x`
     /// and the samples go to the slot's quantum buffer for [`flush`] (see the module comment).
+    ///
+    /// ADR 0162 A4: with `bed` (a spatial mixed voice of a core with beds), the voice's **bed share**
+    /// `y` (its pool entry's ramp) moves to 1 while it is kind 2 and its bus has a bed, else to 0,
+    /// over [`HRTF_CROSSFADE_SECONDS`]. Any change involving the bed uses the **equal-power** law
+    /// (architecture §3.1: MagLS doesn't match phase above 1.5 kHz, so a linear crossfade dips 1–4
+    /// dB): the panner above (HRTF and equal-power, linear between themselves as in M1) takes
+    /// weight `cos(y·π/2)` and the bed `sin(y·π/2)`, frame by frame. A voice with `y` settled at 0
+    /// takes exactly the M2 path. While a kind-2 voice still crossfades out of an HRTF slot the slot
+    /// is held at its share (so the HRTF half fades by the law alone) and freed once `y` reaches 1;
+    /// a voice coming back from the bed to HRTF claims its slot at full share (the bed half covers
+    /// the panner's first quantum).
     #[allow(clippy::too_many_arguments)]
-    pub fn mix_range(&mut self, hrtf: Option<&mut Hrtf<'_>>, voice: u32, bus: u16, frame: u64, from: usize, in_l: &[f32], in_r: &[f32], out_l: &mut [f32], out_r: &mut [f32]) {
+    pub fn mix_range(&mut self, hrtf: Option<&mut Hrtf<'_>>, bed: Option<BedCtx<'_>>, voice: u32, bus: u16, frame: u64, from: usize, in_l: &[f32], in_r: &[f32], out_l: &mut [f32], out_r: &mut [f32]) {
+        let Some(BedCtx { beds, entry }) = bed.filter(|_| self.spatial != 0) else {
+            self.mix_dry(hrtf, false, false, voice, bus, frame, from, in_l, in_r, out_l, out_r);
+            return;
+        };
+        let route = beds.route(bus);
+        let fade = beds.fade_frames();
+        let want = self.kind == kind::BED && route.cur != crate::bed::NONE;
+        let target = if want { 1.0 } else { 0.0 };
+        let share = &mut entry.bed_share;
+        if share.value < 0.0 {
+            *share = Ramp::at(target);
+        } else if share.target != target {
+            let frames = libm::ceilf((target - share.value).abs() * fade as f32) as u32;
+            share.set_target(target, frames.max(1));
+        }
+        if share.is_settled() && share.value == 0.0 {
+            // No bed share: M2's path, bit for bit.
+            self.mix_dry(hrtf, false, false, voice, bus, frame, from, in_l, in_r, out_l, out_r);
+            return;
+        }
+        let n = in_l.len();
+        let y0 = share.value;
+        let (mut wd, mut wb) = ([0.0f32; QUANTUM], [0.0f32; QUANTUM]);
+        let all_bed = share.is_settled() && share.value >= 1.0;
+        if all_bed {
+            wb[..n].fill(1.0);
+        } else {
+            for i in 0..n {
+                (wd[i], wb[i]) = crate::bed::equal_power(share.next());
+            }
+        }
+        // The dry half (HRTF and equal-power) with weight cos.
+        if all_bed {
+            self.advance(n as u32);
+        } else {
+            let (mut dl, mut dr) = ([0.0f32; QUANTUM], [0.0f32; QUANTUM]);
+            for i in 0..n {
+                dl[i] = in_l[i] * wd[i];
+                dr[i] = in_r[i] * wd[i];
+            }
+            let hold = self.kind == kind::BED;
+            let from_bed = self.kind == kind::HRTF && y0 > 0.0;
+            self.mix_dry(hrtf, hold, from_bed, voice, bus, frame, from, &dl[..n], &dr[..n], out_l, out_r);
+        }
+        // The bed half with weight sin: the voice's mid, its bus's fold, the direction's SN3D gains
+        // ramping from the last quantum's (or this one's, when the share starts from 0).
+        if route.any() {
+            let mut x = [0.0f32; QUANTUM];
+            for i in 0..n {
+                x[i] = 0.5 * (in_l[i] + in_r[i]) * wb[i];
+            }
+            beds.apply_fold(&route, from, &mut x[..n]);
+            let c1 = audio_dsp::ambisonic::encode_gains(audio_dsp::ambisonic::engine_to_ambix(self.dir), audio_dsp::ambisonic::MAX_ORDER);
+            let c0 = if y0 <= 0.0 { c1 } else { entry.bed_gains };
+            let last = from + n >= QUANTUM;
+            beds.encode(&route, from, &x[..n], &c0, &c1, last);
+            if last {
+                entry.bed_gains = c1;
+            }
+        }
+    }
+
+    /// The panner without the bed: M1's equal-power matrix and HRTF slot (see the module comment).
+    /// `hold`: a kind-2 voice keeps the HRTF slot it holds (at its share) instead of releasing it,
+    /// while its bed share crossfades; `from_bed`: a kind-1 voice coming back from the bed claims
+    /// its slot at full share.
+    #[allow(clippy::too_many_arguments)]
+    fn mix_dry(&mut self, hrtf: Option<&mut Hrtf<'_>>, hold: bool, from_bed: bool, voice: u32, bus: u16, frame: u64, from: usize, in_l: &[f32], in_r: &[f32], out_l: &mut [f32], out_r: &mut [f32]) {
         let slot = match hrtf {
-            Some(h) if self.spatial != 0 => h.touch(self, voice, bus, frame),
+            Some(h) if self.spatial != 0 => h.touch(self, voice, bus, frame, hold, from_bed),
             _ => None,
         };
         let Some(s) = slot else {
@@ -392,15 +485,16 @@ impl<'a> Hrtf<'a> {
 
     /// The voice's slot for this range, claiming one (or giving it back) as its kind asks; see the
     /// module comment. `None`: no slot, pan equal-power only.
-    fn touch(&mut self, p: &mut PannerState, voice: u32, bus: u16, frame: u64) -> Option<&mut HrtfSlot> {
-        let want = p.kind == kind::HRTF;
+    fn touch(&mut self, p: &mut PannerState, voice: u32, bus: u16, frame: u64, hold: bool, from_bed: bool) -> Option<&mut HrtfSlot> {
+        // ADR 0162 A4: a kind-2 voice crossfading to the bed keeps (never claims) its slot.
+        let want = p.kind == kind::HRTF || hold;
         let mut index = p.hrtf_slot as usize;
         if index != 0 && self.bank.slots.get(index - 1).is_none_or(|s| s.owner != voice) {
             index = 0;
         }
         if index == 0 {
             p.hrtf_slot = 0;
-            if !want {
+            if p.kind != kind::HRTF {
                 return None;
             }
             let free = self.bank.slots.iter().position(|s| s.owner == 0)?;
@@ -412,7 +506,8 @@ impl<'a> Hrtf<'a> {
             self.restart(free);
             let s = &mut self.bank.slots[free];
             s.owner = voice;
-            s.x = 0.0;
+            // ADR 0162 A4: back from the bed, the HRTF half starts whole (the law fades it in).
+            s.x = if from_bed { 1.0 } else { 0.0 };
             s.inc = 0.0;
             s.stamp = u64::MAX;
             s.fresh = 1;
