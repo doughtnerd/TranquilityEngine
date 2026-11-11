@@ -23,6 +23,7 @@ import { Camera } from "../../../engine/render/components";
 import type { GameObject } from "../../../engine/scene/GameObject";
 import { AudioListener, listenerPose } from "./AudioListener";
 import { isSpatialPassHost, isStagedFrameHost, ListenerFrame } from "./core/spatial";
+import type { OcclusionPass } from "./core/occlusion";
 import type { AudioBackend } from "./backend";
 import { AudioSource, worldKeyOf, worldPlays } from "./AudioSource";
 import { audioBackend, hasAudioBackend, isPendingCoreBackend } from "./backend";
@@ -70,6 +71,21 @@ const liveKeys = new Set<number>();
 
 /** ADR 0162 (K4): the listener frame main's passes share (one: only the World with the view runs the frame). */
 const frame = new ListenerFrame();
+
+/**
+ * ADR 0162 (D2a, C14): tells the occlusion pass which node plays each AudioSource's voice, so its rays exclude the
+ * source's subtree. Before the passes, every frame (a voice started this frame is bound before its first ray). An
+ * event-driven source's voices belong to its instance and stay unbound (their rays exclude the listener only).
+ */
+function bindOcclusionSources(world: World, pass: OcclusionPass): void {
+  const sources = world._componentsOfType(AudioSource);
+  for (let k = 0; k < sources.length; k++) {
+    const s = sources[k]!;
+    // The voice is private to the source; the audio system reads its id here only (bracket access).
+    const voice = s["voice"];
+    if (voice) pass.bindSource(voice.id, s.node);
+  }
+}
 
 /**
  * ADR 0162 (K4): one backend frame in the M3 order (see the header). The settings are read once; each pass takes what it
@@ -140,7 +156,9 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
       frame.set(world, worldKeyOf(world), listener, pose, dt);
       frame.setOverride(listenerComponent?._velocityOverride ?? null);
       mixer.update(dt);
-      runFrame(audioBackend(), dt);
+      const backend = audioBackend();
+      if (isSpatialPassHost(backend)) bindOcclusionSources(world, backend.occlusion);
+      runFrame(backend, dt);
       listenerComponent?._noteVelocity(frame.velX, frame.velY, frame.velZ);
       events().update(dt); // ADR 0158: due continuous-container timers; the fallback's automation
       for (const s of world._componentsOfType(AudioSource)) s._sync();
