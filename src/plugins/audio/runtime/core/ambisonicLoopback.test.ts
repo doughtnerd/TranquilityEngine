@@ -245,8 +245,10 @@ describe("ambisonic clips on the loopback host (B6)", () => {
     expect(ambisonicImportGain("first-fuma.wav")).toBe(1); // not decoded yet: the play's volume can't hold it
     const voice = fuma.backend.play({ path: "first-fuma.wav", url: "first-fuma.wav", loop: true, stream: false, bus: "Master", ambisonic: true, volume: 1 });
     expect(voice).not.toBeNull();
-    await fuma.step(60);
+    // The decode runs in real time on the in-process worker: step until the clip is on the core and playing.
+    for (let k = 0; k < 400 && fuma.backend.mirror.ambisonicVoices < 1; k++) await fuma.step(1);
     expect(ambisonicImportGain("first-fuma.wav")).toBeCloseTo(Math.SQRT2, 6);
+    await fuma.step(40);
     fuma.measure();
     await fuma.step(30);
     const got = fuma.measure();
