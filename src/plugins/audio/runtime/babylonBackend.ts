@@ -24,6 +24,8 @@ import type { StaticSound } from "@babylonjs/core/AudioV2/abstractAudio/staticSo
 import type { StaticSoundBuffer } from "@babylonjs/core/AudioV2/abstractAudio/staticSoundBuffer";
 import type { StreamingSound } from "@babylonjs/core/AudioV2/abstractAudio/streamingSound";
 import type { Vec3Like } from "../../../engine/core/math";
+import type { World } from "../../../engine/core/World";
+import { AudioReverbZone } from "./AudioReverbZone";
 import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
 import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type PlayRequest } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, type BusPlan } from "./babylonMapping";
@@ -928,6 +930,23 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
       this.applyMaster();
     }
   }
+
+  /**
+   * ADR 0162 F2 (api-and-models §8): reverb zones are inert on the fallback, because Babylon's V2 audio API has no
+   * public insertion point for a ConvolverNode. The audio system hands this backend the World with the view each frame;
+   * the first enabled `AudioReverbZone` in it gets one warning for the page. Nothing else happens: voices send nothing,
+   * and `debug()` has no `zones` (the fallback has none to list).
+   */
+  noteReverbZones(world: World): void {
+    if (this.zoneWarned) return;
+    for (const z of world._componentsOfType(AudioReverbZone)) {
+      if (!z.isActiveAndEnabled) continue;
+      this.zoneWarned = true;
+      warnOnce("babylon-reverb-zones", "reverb zones need the audio core: on the Babylon audio fallback they are inert and sounds play dry (ADR 0162).");
+      return;
+    }
+  }
+  private zoneWarned = false;
 
   /** Babylon updates its own listener and sounds. */
   update(dt: number): void {
