@@ -63,8 +63,7 @@ describe("music encoded cache on the worker (D1c)", () => {
     expect(needed(replies)).toHaveLength(1);
   });
 
-  // Skipped until L-D1ca merges (the stub keeps everything); un-skip on the merge.
-  it.skip("the budget evicts closed non-candidate files and keeps the protected ones (a miss re-fetches through main)", async () => {
+  it("the budget evicts closed non-candidate files and keeps the protected ones (a miss re-fetches through main)", async () => {
     const { handler, replies } = await rig();
     const file = makeWav(20_000, 2, 48_000, signal);
     const budgetBytes = file.byteLength + 16; // room for one file
