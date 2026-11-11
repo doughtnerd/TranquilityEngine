@@ -120,9 +120,22 @@ pub fn stream_count(p: &InitParams) -> usize {
     (p.max_mixed as usize / 16).clamp(MIN_STREAMS, MAX_STREAMS)
 }
 
-/// The `Streams` region's size (architecture §5.1: *S* × 32,768 × channels × 4 B, plus the tails).
+/// Most music rings (0166 M4, api-and-models §4.5: `max_music_rings` 0..16; the wire's
+/// `MAX_MUSIC_RINGS`).
+pub const MAX_MUSIC_RINGS: usize = wire::MAX_MUSIC_RINGS as usize;
+
+/// 0166 M4 (api-and-models §3.1): `M`, the music pool's rings for these parameters
+/// (`max_music_rings`, which init validates to 0..16; clamped here so a bad value can't size a
+/// region past the pool).
+pub fn music_count(p: &InitParams) -> usize {
+    (p.max_music_rings as usize).min(MAX_MUSIC_RINGS)
+}
+
+/// The `Streams` region's size (architecture §5.1: *S* × 32,768 × channels × 4 B, plus the tails;
+/// 0166 M4 api-and-models §4.5: `(G + M) × RING_BYTES`, the `G` general rings then the `M` music
+/// rings).
 pub fn region_bytes(p: &InitParams) -> usize {
-    stream_count(p) * RING_BYTES
+    (stream_count(p) + music_count(p)) * RING_BYTES
 }
 
 /// ADR 0162 R16 (§5.2): frames of a wide (3-16 channel) ring.
@@ -142,8 +155,8 @@ pub const fn wide_region_bytes(p: &InitParams) -> usize {
 
 /// Most wide rings (`InitParams::MAX_WIDE`).
 pub const MAX_WIDE: usize = InitParams::MAX_WIDE as usize;
-/// Most rings of both classes.
-const MAX_RINGS: usize = MAX_STREAMS + MAX_WIDE;
+/// Most rings of every pool: general and music (narrow), then wide.
+const MAX_RINGS: usize = MAX_STREAMS + MAX_MUSIC_RINGS + MAX_WIDE;
 
 /// A ring class's shape (B4): its frames, its largest chunk and the channels its storage holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -249,8 +262,11 @@ impl Ring {
 /// The rings and their storage. Built over the `Streams` and `Wide` regions by `Core::new`.
 pub struct StreamStore {
     rings: [Ring; MAX_RINGS],
-    /// Narrow rings (`0..count`), then wide rings (`count..count + wide`).
+    /// Narrow rings (`0..count`), then wide rings (`count..count + wide`). The narrow rings are the
+    /// general pool (`0..count - music`) then the music pool (`count - music..count`, 0166 M4).
     count: usize,
+    /// 0166 M4: `M`, the music pool's rings (the last `music` narrow rings).
+    music: usize,
     wide: usize,
     storage: &'static mut [f32],
     wide_storage: &'static mut [f32],
@@ -258,7 +274,7 @@ pub struct StreamStore {
 
 impl Default for StreamStore {
     fn default() -> StreamStore {
-        StreamStore { rings: [Ring::default(); MAX_RINGS], count: 0, wide: 0, storage: &mut [], wide_storage: &mut [] }
+        StreamStore { rings: [Ring::default(); MAX_RINGS], count: 0, music: 0, wide: 0, storage: &mut [], wide_storage: &mut [] }
     }
 }
 
@@ -275,23 +291,40 @@ fn floats(region: &'static mut [u8]) -> &'static mut [f32] {
 impl StreamStore {
     /// The store over the `Streams` region (`region_bytes` long: `len / RING_BYTES` narrow rings) and
     /// the `Wide` region (`wide_region_bytes`: `len / WIDE_RING_BYTES` wide rings), both 64-byte
-    /// aligned and zeroed. `music_rings` is `M`, the music pool's ring count (0166 M4, tree A27;
-    /// Q1 passes it through, C1 fills the pools; ignored until then).
+    /// aligned and zeroed. `music_rings` is `M` (0166 M4, api-and-models §3.1): the region's last
+    /// `M` rings (indices `G..G + M`, after the `G` general rings) are the music pool, which only a
+    /// `music` STREAM_OPEN takes (and which it alone takes).
     pub fn over(region: &'static mut [u8], wide: &'static mut [u8], music_rings: usize) -> StreamStore {
-        let _ = music_rings; // C1: the music pool (rings G..G+M of the region).
-        let count = (region.len() / RING_BYTES).min(MAX_STREAMS);
+        let total = region.len() / RING_BYTES;
+        let music = music_rings.min(MAX_MUSIC_RINGS).min(total);
+        let general = (total - music).min(MAX_STREAMS);
         let wide_count = (wide.len() / WIDE_RING_BYTES).min(MAX_WIDE);
-        StreamStore { rings: [Ring::default(); MAX_RINGS], count, wide: wide_count, storage: floats(region), wide_storage: floats(wide) }
+        StreamStore { rings: [Ring::default(); MAX_RINGS], count: general + music, music, wide: wide_count, storage: floats(region), wide_storage: floats(wide) }
     }
 
-    /// Rings available, both classes (ring indices are `0..capacity()`).
+    /// Rings available, every pool (ring indices are `0..capacity()`).
     pub fn capacity(&self) -> usize {
         self.count + self.wide
     }
 
-    /// Narrow rings: ring `i` is wide from here.
+    /// Narrow rings, general and music: ring `i` is wide from here.
     pub fn narrow_count(&self) -> usize {
         self.count
+    }
+
+    /// 0166 M4: `G`, the general narrow rings (`0..G`).
+    pub fn general_count(&self) -> usize {
+        self.count - self.music
+    }
+
+    /// 0166 M4: `M`, the music pool's rings (`G..G + M`).
+    pub fn music_count(&self) -> usize {
+        self.music
+    }
+
+    /// 0166 M4: ring `i` is in the music pool.
+    pub fn is_music(&self, i: usize) -> bool {
+        i >= self.count - self.music && i < self.count
     }
 
     /// Ring `i`'s class.
