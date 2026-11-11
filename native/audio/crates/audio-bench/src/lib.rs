@@ -450,25 +450,34 @@ pub fn sweeps() -> Vec<Sweep> {
         scenes: [false, true].iter().map(|&on| Scene { one_shots: on, ..looping(format!("oneshots-{on}"), 128) }).collect(),
         x: |r| r.starts_per_quantum,
     });
-    // ADR 0162 A7: kind 2 voices into one bed (one decode, MagLS): the slope is `BED_VOICE` (the encode per voice).
+    // ADR 0162 A7: kind 2 voices into one bed (one decode, MagLS). The slope is a whole mixed voice with its per-frame
+    // direction updates (source read, ramps, encode); `bed_ep_twin` is the same voices on the equal-power panner, and
+    // the difference of the two slopes is `BED_VOICE` (the encode against the pan matrix).
     out.push(Sweep {
         term: "bed_encode",
-        unit: "µs per bed voice (encode, one MagLS bed decoding)",
+        unit: "µs per bed voice (one MagLS bed decoding; includes the mixed voice's own cost)",
         scenes: [16u32, 64, 128, 192, 256].iter().map(|&n| Scene::bed(&format!("bed-voices-{n}"), n, 1, true)).collect(),
         x: |r| r.mean_bed_voices,
     });
-    // 64 bed voices over 1..4 beds: the slope is `BED_DECODE` (MagLS: 16 forward FFTs, the partitions' MACs, 2 inverses).
+    out.push(Sweep {
+        term: "bed_ep_twin",
+        unit: "µs per equal-power voice (same voices and updates, no bed)",
+        scenes: [16u32, 64, 128, 192, 256].iter().map(|&n| Scene { bed_voices: 0, ..Scene::bed(&format!("ep-voices-{n}"), n, 0, false) }).collect(),
+        x: |r| r.mean_mixed,
+    });
+    // 32 voices over 1..4 beds (every bed gets some): the slope is `BED_DECODE` (MagLS: 16 forward FFTs, the partitions'
+    // MACs, 2 inverses); 32 voices keep the base small so the decode shows above the run-to-run noise.
     out.push(Sweep {
         term: "bed_decode",
-        unit: "µs per decoding bed (MagLS, 64 voices in all)",
-        scenes: [1u32, 2, 3, 4].iter().map(|&b| Scene::bed(&format!("bed-decode-{b}"), 64, b, true)).collect(),
+        unit: "µs per decoding bed (MagLS, 32 voices in all)",
+        scenes: [1u32, 2, 3, 4].iter().map(|&b| Scene::bed(&format!("bed-decode-{b}"), 32, b, true)).collect(),
         x: |r| r.mean_beds,
     });
     // The same through the baked 16 → 2 matrix (the filters not loaded, or `audio.spatial: "equalPower"`).
     out.push(Sweep {
         term: "bed_decode_matrix",
-        unit: "µs per decoding bed (matrix, 64 voices in all)",
-        scenes: [1u32, 2, 3, 4].iter().map(|&b| Scene::bed(&format!("bed-decode-matrix-{b}"), 64, b, false)).collect(),
+        unit: "µs per decoding bed (matrix, 32 voices in all)",
+        scenes: [1u32, 2, 3, 4].iter().map(|&b| Scene::bed(&format!("bed-decode-matrix-{b}"), 32, b, false)).collect(),
         x: |r| r.mean_beds,
     });
     // Crossings: 0, 1, 2 and 4 voices enter (and as many leave) the HRTF window per batch; x = voices in transit
