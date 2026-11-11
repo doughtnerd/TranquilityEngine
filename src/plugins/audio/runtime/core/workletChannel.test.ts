@@ -54,7 +54,7 @@ function setup() {
   const failed: string[] = [];
   service.onPrepared = (e) => void prepared.push(e.kernelId);
   service.onFailed = (e) => void failed.push(e.message);
-  const irs = () => decoder.posted.filter((m): m is IrRequest => m.type === "generateIr" || m.type === "prepareIr");
+  const irs = () => decoder.posted.filter((m): m is Exclude<IrRequest, { type: "releaseIr" }> => m.type === "generateIr" || m.type === "prepareIr");
   const answerAll = () => irs().forEach((r) => decoder.reply(r));
   return { decoder, channel, worklets, service, prepared, failed, irs, answerAll };
 }
