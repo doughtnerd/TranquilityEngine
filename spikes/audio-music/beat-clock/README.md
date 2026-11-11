@@ -1,6 +1,6 @@
 # S3 beat-clock: beat/bar/cue callbacks to scripts (design A vs B), clock quality, rhythm-mode input
 
-Status: **harness built and smoke-tested (one 10 s run, shared VM). The timed runs are the coordinator's** (command below). Numbers in the smoke column are from `results/smoke.md` and are not the headline. Only p50/p99 are trustworthy on a loaded VM; every number from a real output device is **[U]**.
+Status: harness built; smoke (one 10 s run, shared VM) and the coordinator's timed runs (5 x 60 s, idle machine: `results/run-60s-1794420278776.{md,json}` interactive, `results/run-60s-1794420608467.{md,json}` hint 0) are both below. **Read 'Timed runs: what they do and do not show' first: the timed clock-error and frame-assignment numbers are dominated by a defect in my truth reference, not by ClockMap.** Only p50/p99 are trustworthy on a loaded VM; every number from a real output device is **[U]**.
 
 ## Question
 Scripts must hear beats, bars and cues "within about 1-2 frames" (goal.md, Sync target). Two designs:
@@ -25,7 +25,35 @@ Scripts must hear beats, bars and cues "within about 1-2 frames" (goal.md, Sync 
   - **B raw**: fire in the first rAF frame after the event arrives. **B held**: also wait until the beat is heard (A's rule on the received frame). Each over two channels: `imm` = its own `postMessage` at render time, `status` = carried in the next STATUS (up to 6 quanta later).
   - "Ideal" frame = the rAF frame whose interval [p_i, p_i+1) contains the beat's true heard time. `lead` = heard time - callback frame start; ideal lead is in (0, Δ]. Error = distance of `lead` from (0, Δ]. Display/compositor latency after the frame is **[U]**.
 
-## Findings (smoke, 1 x 10 s, interactive latency; replace with the timed runs)
+## Timed runs: what they do and do not show (5 x 60 s each, idle machine)
+
+Headline timed numbers as printed: ClockMap vs the audio-clock line p50 1.7 / p99 6.8 ms (interactive), 2.6 / 8.8 ms (hint 0); design A in the ideal frame for 42.2 of 66 steady beats (interactive), 55.2 of 68.6 (hint 0). The smoke said 0.02 / 0.09 ms and 100%.
+
+**Verdict: that error is an artefact of my truth reference (one straight line through the spinner-vs-audio-clock stamps per run), not a ClockMap or design-A error.** Evidence from the saved JSON (per-run, all 10 runs):
+1. **The line is not straight.** The fitted audio-clock rate differs from nominal by -6, **+3650**, -208, -114, -210 ppm (interactive) and 363-528 ppm (hint 0), against 3-7 ppm in every smoke. A crystal does not move 3650 ppm between runs; the null sink's pacing wanders against `performance.now`. The fit's own residual (quantum stamp minus line) is p99 8-17 ms in most runs, 94 ms in the 3650 ppm run.
+2. **The "ClockMap error" equals the fit residual, run by run.** Interactive run 2: fit residual p99 93.6 ms, ClockMap error p99 95.5 ms; run 3: 8.3 vs 4.6; run 1: 12.1 vs 9.2. Hint 0 run 4: 17.2 vs 16.1. The reference's own misfit is the same size as the "error".
+3. **ClockMap and the raw `getOutputTimestamp` agree with each other** (error p50 1.669 vs 1.685, p99 6.795 vs 6.836; frame-to-frame jitter std 0.23 ms; hint 0: 2.561 vs 2.553). A slow, bounded, common-mode deviation (p99 = p99.9 = max, drift only 0.25 ms/min) is a curve in the reference, not filter behaviour (a filter error would differ between filtered and unfiltered series).
+4. `currentTime` (an independent source) is also off the same line, by more.
+What is **not** settled: which clock is right, Chromium's reported output timestamp or the spinner-stamped render clock. The raw per-frame series were not saved, so a sliding-window refit could not be done on these files. I added it to `run.mjs` (`--window 4` = refit +-4 s around each frame, now the default; `--raw 1` saves each run's raw data; `--from a.json,b.json` re-analyses). On the 10 s smoke it agrees with the global fit (ClockMap p50 0.007 / p99 0.043 ms). One `--raw 1` run of 60 s (~70 s) would settle it; not run, per instruction.
+Also unexplained by the clock error: 7.2 steady beats "2 or more frames off" in the interactive A row. ClockMap-vs-reference error never exceeds 9.5 ms, so it cannot move a beat 2 frames (16.7 ms) by itself; this too points at the reference (a bent line moves K by more than the run-wide median assumes) or at post-hitch handling I did not isolate **[U]**.
+
+**What the timed data does support (independent of the line):**
+- **A and B-held are the same, beat for beat** (identical offset histograms, steady/tempo/transition/hitch), and all 6 designs fired all 116 beats in every run: 0 missed, 0 doubled, 0 phantom across 5 x (tempo change + stamped bar transition + 8 asap seeks) in both latency modes.
+- **B raw (fire on arrival) is early, B via STATUS is not even reliably early at hint 0.** Interactive: the beat is still 35 ms (p50; min 28) in the future on an immediate message and 31 ms (min 17) via STATUS. Hint 0 (outputLatency 0.008 s, K 8.8 ms): immediate 10.8 ms p50, **min -5.3 ms**; STATUS 3.9 ms p50, p1 -10, **min -12.5 ms**, i.e. some beats are reported after they were heard. These use K (a constant) but not the line's curvature, so the sign change is trustworthy within a few ms.
+- ClockMap tracks the raw `getOutputTimestamp` to 0.14-0.23 ms f2f jitter std; 0 backwards steps; 2-3 re-anchors and 10-20 rejected samples per 60 s run (the three hitches, and real >5 ms timestamp excursions the gate absorbed). Hitch rows in the timed `.md` show the same behaviour as smoke up to the reference's offset.
+- Input: `event.timeStamp` mapped with the ClockMap offset beats `Audio.time`-in-handler by the same margin as smoke (the line's curvature affects both mapped and stale equally, so only the *difference*, 5-7 ms p50 and ~13 ms p99, is evidence: stale `Audio.time` is up to a frame behind).
+
+**Design A's real frame-assignment figure, stated plainly:** A's decision is a pure function of ClockMap time, and ClockMap equals what Chromium reports to ~0.3 ms (f2f). So A places a callback in the frame in which Chromium's reported heard clock says the beat falls, to within 0.3 ms of a 16.7 ms frame (a beat within 0.3 ms of a frame edge, ~2% of beats, could flip by one frame). Whether that is the frame in which the sound is actually heard depends on the accuracy of `getOutputTimestamp`/latency on the real device, which this VM cannot answer **[U]**; against the owner's "within about 1-2 frames", the budget is 16.7-33 ms and A's own contribution (about 0.3 ms plus at most one frame of quantisation, plus the render, which is outside audio) uses a small part of it. The timed "42 of 66" must not be quoted.
+
+**Hint 0 / rhythm mode:** it changes things, through B and the margin, not through A. Render-ahead shrinks from ~35 ms to ~9 ms, so a beat-or-seek confirmation carried in STATUS no longer arrives before the beat is heard (min -12.5 ms): any design that learns of grid changes from STATUS only will be late for asap changes in rhythm mode. A phantom beat needs an old-grid beat inside (S, heard + one frame]; with ~9 ms of margin the chance per seek is ~1-2%, and 0 of 40 seeks showed one (consistent). Raw ClockMap error rose a little (offset-filter rejects) but the gap to raw `getOutputTimestamp` stayed 0.1 ms. Smaller buffers also mean more glitch risk, **[U]** and not measured here (no real device).
+
+**Updated recommendation.** Unchanged in shape, sharper in rules:
+1. A is the beat engine; B is the truth feed only for core-decided changes, and **never fires on arrival** (it would be 1-2 frames early at default latency; at hint 0 it can arrive after the beat).
+2. In rhythm mode **require stamped transitions** (main knows the frame, no confirmation round-trip) and treat an unconfirmed asap change as uncertain: suppress beat callbacks for the old grid in the window between the command and the confirm.
+3. Dispatch before `update`, deliver exact `time` and `heardIn` (as above), judge input by mapping `event.timeStamp`.
+4. Do **not** add a PLL on this evidence, and do not quote absolute clock accuracy from this VM. Before the design is fixed, a loopback on a real device must give the absolute latency and timestamp noise **[U]**.
+
+## Findings: SMOKE tables (1 x 10 s, interactive latency, shared VM; superseded by the timed section where they disagree)
 **Clock (Q2).** Against the audio-clock fit, in the null-sink setup:
 
 | estimator | const offset ms | abs dev p50 / p99 / max ms | frame-to-frame jitter std ms | notes |
@@ -71,7 +99,8 @@ A quantum is 2.9 ms; even 64 instances in the worst case is 0.03%. Tiny: not a b
 
 ## Unverified [U] / limits
 1. Real output latency, device clock quality, and `getOutputTimestamp` noise on Windows/Android/Safari: the harness uses a null sink with a smooth timestamp; errors here are a lower bound. K is a median, not a loopback.
-2. `latencyHint: 0` (the rhythm-mode setting) was tried once in smoke (`--hint 0`) and gave unusable data on this loaded VM (render stalls broke the fit; also OOM-killer messages from other agents). Not reported; rerun on an idle machine (`--hint 0`), where it is the interesting case for phantom beats.
+2. `latencyHint: 0` smoke on the loaded VM was unusable; the idle-machine timed hint-0 run exists (see above) but its clock error is subject to the same reference defect.
+2b. Which of Chromium's output timestamp and the spinner-stamped render clock is the true audio clock: undecided until a raw-series re-analysis (`--raw 1`) and, for absolute latency, a real device.
 3. The engine's `browserHostClock` samples rAF with its own sampler (`hostClock.ts:42-65`); if the engine's frame callback runs before the sampler's within a frame, `rafTime()` returns `performance.now()` of the call, not the vsync time. The offset filter absorbs this (EMA, 5 ms gate) but I did not test it; the harness feeds the rAF timestamp directly.
 4. The core is a copy of the STATUS cadence, not the real wasm core; stamped `S` is honoured exactly in the worklet by construction (late commands: 0).
 5. Display/compositor latency after a frame's callbacks; touch/key hardware latency; Android WebView.
@@ -87,4 +116,5 @@ node run.mjs --runs 1 --seconds 10                 # smoke, ~15 s
 # microbench (seconds):
 export CARGO_TARGET_DIR=...; cd cost && cargo run --release --offline --bin beatcost-native && cargo build --release --offline --target wasm32-unknown-unknown --lib && node run.mjs
 ```
+`--raw 1` saves raw data per run; `--from raw-a.json,raw-b.json` re-analyses it; `--window S` sets the sliding truth fit (default 4 s; 0 = the old one-line fit).
 Output: a markdown report to stdout and `results/run-60s-<time>.{json,md}` (per-run stats are in the JSON; the tables are medians over runs). Needs `/home/user/TranquilityEngine/node_modules` (playwright-core, typescript). Do not run it beside compiles: the spinner worker takes one core and Chromium another.
