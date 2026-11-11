@@ -25,6 +25,8 @@ dependencies = [
 name = "audio-decode"
 version = "0.1.0"
 dependencies = [
+ "audio-dsp",
+ "libm",
  "sha2",
  "symphonia",
 ]
