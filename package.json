@@ -24,6 +24,7 @@
     "build:nav": "node native/nav/build.mjs",
     "build:audio": "node native/audio/build.mjs",
     "check:audio-metered": "node tools/audio-bench/metered-gate.mjs",
+    "bench:audio-spatial": "node tools/audio-bench/spatial.mjs",
     "check:links": "node tools/check-doc-links.mjs",
     "bench:audio-events": "AUDIO_BENCH=1 vitest run src/plugins/audio/runtime/events/eventBench.test.ts --reporter=verbose",
     "test:e2e": "playwright test --project=chromium",
