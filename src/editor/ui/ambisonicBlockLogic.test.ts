@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { importSettingsJSON, parseImportSettings, type ImportSettings } from "../../engine/scene/importSettings";
-import { multichannelWarning, orderChoice, setAmbisonicConvention, setAmbisonicOrder, toggleAmbisonic } from "./ambisonicBlock";
+import { multichannelWarning, orderChoice, setAmbisonicConvention, setAmbisonicOrder, toggleAmbisonic } from "./ambisonicBlockLogic";
 
 const base = (): ImportSettings => parseImportSettings({ format: "myco.import@1" }).settings;
 const json = (s: ImportSettings) => importSettingsJSON(s);

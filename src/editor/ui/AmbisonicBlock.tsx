@@ -3,7 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { AmbisonicConvention } from "../../engine/scene/importSettings";
 import type { ImportSettingsViewProps } from "../sdk/contributions";
 import { audioSummaryFor } from "../thumbnails";
-import { AMBISONIC_HELP, multichannelWarning, orderChoice, setAmbisonicConvention, setAmbisonicOrder, toggleAmbisonic, type AmbisonicOrderChoice } from "./ambisonicBlock";
+import { AMBISONIC_HELP, multichannelWarning, orderChoice, setAmbisonicConvention, setAmbisonicOrder, toggleAmbisonic, type AmbisonicOrderChoice } from "./ambisonicBlockLogic";
 import "./assetInspector.css";
 
 /** The clip's channel count, once read; null while unknown. */
