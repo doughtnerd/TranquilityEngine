@@ -16,6 +16,7 @@ import { createLoopbackHost, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost }
 import hash from "../wasm/hash.json";
 import {
   ASAP,
+  CLIP_CHUNK_FIXED_END,
   Kind,
   PLAY_FLAGS_LOOP,
   PLAY_FLAGS_MIXED,
@@ -72,6 +73,8 @@ class Rig {
   private readonly rights: Float32Array[] = [];
   private readonly pending: Promise<void>[] = [];
   private readonly replies: (IrPreparedMessage | IrFailedMessage)[] = [];
+  /** Clip sample bytes handed to the worklet (the clip's and the kernels' chunks). */
+  private clipBytesSent = 0;
   private handler!: ReturnType<typeof createDecoderHandler>;
   host!: LoopbackHost;
 
@@ -88,7 +91,7 @@ class Rig {
       },
     });
     await r.handler.handle({ type: "init", wasmBytes: DECODER.buffer.slice(DECODER.byteOffset, DECODER.byteOffset + DECODER.byteLength) as ArrayBuffer });
-    const port: StreamPortLike = { onmessage: null, postMessage: (m: unknown) => r.host.send(m as ArrayBuffer) };
+    const port: StreamPortLike = { onmessage: null, postMessage: (m: unknown) => r.toWorklet(m as ArrayBuffer) };
     await r.handler.handle({ type: "connectWorklet", port } as never);
     r.loadClip();
     return r;
@@ -108,8 +111,19 @@ class Rig {
       writeEnvelope(cv, 0, { kind: Kind.CLIP_CHUNK, seq: this.seq++, bodyBytes: 16 + n * 4 });
       writeClipChunk(cv, 0, { clipId: CLIP, frameOffset: frame, frames: n, reserved: 0 });
       new Uint8Array(chunk, 32).set(new Uint8Array(data.buffer, frame * 4, n * 4));
-      this.host.send(chunk);
+      this.toWorklet(chunk);
     }
+  }
+
+  /** A clip message to the worklet, counting a chunk's sample bytes (what follows its header). */
+  toWorklet(buffer: ArrayBuffer): void {
+    if (new DataView(buffer).getUint16(6, true) === Kind.CLIP_CHUNK) this.clipBytesSent += buffer.byteLength - CLIP_CHUNK_FIXED_END;
+    this.host.send(buffer);
+  }
+
+  /** Clip bytes the worklet hasn't committed yet: it drains clip chunks at 256 KB a quantum (`CLIP_BYTES_PER_QUANTUM`). */
+  clipBytesPending(): number {
+    return this.clipBytesSent - this.host.driver.stats.clipBytes;
   }
 
   /** `generateIr`: the decoder worker prepares `preset`'s kernel and sends it to the worklet as format 3 chunks. Returns its frames. */
@@ -242,10 +256,10 @@ const energy = (x: Float32Array, from = 0, to = x.length): number => {
 /** Two voices (1 and 2) of the clip, dry gain 0.4, voice 1 sending `a` into slot 0 and voice 2 `b` into slot 1. */
 async function blend(zones: { a: boolean; b: boolean }): Promise<Rig> {
   const r = await Rig.create();
-  // Both kernels always go up, in the same order, so every run has the same arena. Found while writing this (C7): a slot's
-  // output moved by up to 5e-3 (about the wet peak) when the same kernels were uploaded in the other order, or when
-  // another kernel was absent from the arena, with the same table and the same sends; the native zone tests (kernels
-  // loaded whole, `clips::write`) show no such dependence. Reported to the lead; the additivity below holds for a fixed arena.
+  // Both kernels go up in every run, in the same order, and the table follows 4 quanta later, while the worklet is still
+  // draining the corridor's chunks (256 KB a quantum): slot 1 waits for its kernel and starts, fading in, when it lands
+  // (C5). Every run of the four has the same arrival times, so the additivity below is exact. Another order, or a kernel
+  // left out, moves an arrival and so the output, legitimately: see "kernel arrival" below.
   const fa = await r.kernel(K1, "room");
   const fb = await r.kernel(K2, "corridor");
   const slots: ZoneConfigSlots[] = [slot(zones.a ? K1 : 0, ZoneSlotState.Active, zones.a ? 1 : 0, zones.a ? fa : 0)];
@@ -256,6 +270,46 @@ async function blend(zones: { a: boolean; b: boolean }): Promise<Rig> {
   if (zones.a || zones.b) r.send(config(slots));
   r.run(200);
   return r;
+}
+
+const ARRIVAL_ORDERS = [
+  [
+    [K1, "room"],
+    [K2, "corridor"],
+  ],
+  [
+    [K2, "corridor"],
+    [K1, "room"],
+  ],
+] as const;
+type Order = (typeof ARRIVAL_ORDERS)[number];
+
+/**
+ * Blend's two zones (slot 0 room fed by voice 1, slot 1 corridor fed by voice 2), the kernels uploaded in `order`, the
+ * table sent 4 quanta later (`"blend"`, as `blend`) or once every kernel chunk is committed (`"resident"`). Notes the
+ * frame of the table, the frame by which the last kernel landed, and the longest kernel's IR support (its head and
+ * tail partitions, in frames).
+ */
+async function arrival(order: Order, when: "blend" | "resident", quanta: number): Promise<Rig & { configured: number; landed: number; support: number }> {
+  const r = await Rig.create();
+  const frames = new Map<number, number>();
+  for (const [id, preset] of order) frames.set(id, await r.kernel(id, preset));
+  r.run(4);
+  while (when === "resident" && r.clipBytesPending() > 0) r.run(1);
+  const configured = r.host.frame;
+  r.send(play(voice(1), 0.1), play(voice(2), 0.1));
+  r.send(sends(voice(1), [0.5, 0, 0, 0]), sends(voice(2), [0, 0.5, 0, 0]));
+  r.send(config([slot(K1, ZoneSlotState.Active, 1, frames.get(K1)!), slot(K2, ZoneSlotState.Active, 0.5, frames.get(K2)!)]));
+  let landed = configured;
+  for (let q = 0; q < quanta; q++) {
+    // A chunk committed while rendering this quantum makes its slot start before the convolution (drained first).
+    if (r.clipBytesPending() > 0) landed = r.host.frame + Q;
+    r.run(1);
+  }
+  expect(r.clipBytesPending()).toBe(0);
+  const partitions = (n: number): number => 4096 + Math.ceil(Math.max(0, n - 4096) / 2048) * 2048;
+  const support = Math.max(...[...frames.values()].map(partitions));
+  return Object.assign(r, { configured, landed, support });
 }
 
 describe("zones through the real wasm with real sends (C7)", () => {
@@ -277,6 +331,39 @@ describe("zones through the real wasm with real sends (C7)", () => {
     for (let i = 0; i < a.left.length; i++) diffAB += (a.left[i]! - c.left[i]!) ** 2;
     expect(diffAB).toBeGreaterThan(1e-3 * energy(d.left));
     checkGolden("zones-blend", both);
+  }, 60_000);
+
+  it("kernel order: with both kernels resident before ZONE_CONFIG, the upload order changes no bit", async () => {
+    const outs: { left: Float32Array; right: Float32Array }[] = [];
+    for (const order of [ARRIVAL_ORDERS[0], ARRIVAL_ORDERS[1]]) {
+      const r = await arrival(order, "resident", 200);
+      outs.push(r.output());
+    }
+    expect(Buffer.from(outs[0]!.left.buffer).equals(Buffer.from(outs[1]!.left.buffer))).toBe(true);
+    expect(Buffer.from(outs[0]!.right.buffer).equals(Buffer.from(outs[1]!.right.buffer))).toBe(true);
+  }, 60_000);
+
+  it("kernel arrival: a kernel landing after ZONE_CONFIG starts its slot then, so the output differs until that start's tail has passed", async () => {
+    // C7's finding, explained. The worklet commits clip chunks at 256 KB a quantum, so with blend's timing (the table 4
+    // quanta after both uploads) the kernel uploaded second is still arriving when ZONE_CONFIG lands: its slot waits
+    // (C5's table) and starts, fading in over 100 ms, a quantum or two later, without the sends of the quanta it waited
+    // through. Upload order decides which slot is late, so the outputs differ (by up to the wet level) and are both
+    // correct. Once every input a late slot missed has left its IR (the start, plus the IR's partitions), only f32
+    // rounding of the shared transform blocks is left, and two tail blocks (4,096 frames) later not one bit.
+    const runs = await Promise.all(ARRIVAL_ORDERS.map((order) => arrival(order, "blend", 470)));
+    const [a, b] = runs.map((r) => r.output()) as [{ left: Float32Array; right: Float32Array }, { left: Float32Array; right: Float32Array }];
+    const lateStart = Math.max(...runs.map((r) => r.landed));
+    expect(lateStart).toBeGreaterThan(runs[0]!.configured);
+    const support = Math.max(...runs.map((r) => r.support));
+    const worst = (from: number, to = a.left.length): number => {
+      let w = 0;
+      for (let i = from; i < to; i++) w = Math.max(w, Math.abs(a.left[i]! - b.left[i]!), Math.abs(a.right[i]! - b.right[i]!));
+      return w;
+    };
+    expect(worst(0, lateStart + 4800)).toBeGreaterThan(1e-3);
+    expect(worst(lateStart + support)).toBeLessThan(1e-6);
+    expect(worst(lateStart + support + 4096)).toBe(0);
+    expect(a.left.length - (lateStart + support + 4096)).toBeGreaterThan(4096);
   }, 60_000);
 
   it("ring-out: a released zone keeps its tail for the IR's length, ignores sends, then its slot is off", async () => {
