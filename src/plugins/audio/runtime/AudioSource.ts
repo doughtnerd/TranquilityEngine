@@ -6,13 +6,14 @@
 import { mixer } from "../../../engine/audio/mixer";
 import "./babylonBackend"; // registers the "babylon" backend: Babylon's AudioEngineV2 (ADR 0098, 0157 K3)
 import { Component } from "../../../engine/core/Component";
-import { AssetRef, component, field } from "../../../engine/core/registry";
+import { AssetRef, component, field, PlainObject } from "../../../engine/core/registry";
+import { Vector3 } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { _worldServiceOf } from "../../../engine/core/worldServices";
 import { AUDIO, type AudioWorldService } from "./core/service";
 import { ambisonicImportGain } from "./core/clipRegistry";
 import { Assets } from "../../../engine/scene/Assets";
-import { audioBackend, type AudioVoice, type PlayRequest, type Rolloff } from "./backend";
+import { audioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type AudioVoice, type PlayRequest, type Rolloff, type SendCurve } from "./backend";
 import { isAudioEventPath } from "../../../engine/audio/eventFormat";
 import { _setEventClipStarter, events, type EventInstance } from "./events/eventRuntime";
 
@@ -45,6 +46,8 @@ _setEventClipStarter({
 });
 
 const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math.max(0, Math.round(p))) : 128);
+/** Clamps `v` to lo..hi; a non-finite value gives `fallback`. */
+const clampOr = (v: number, lo: number, hi: number, fallback: number): number => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback);
 
 /** Whether the active World has the view: only it plays sound (ADR 0074). */
 export const worldPlays = (world: World | null): boolean => !!world?.render;
@@ -85,6 +88,13 @@ export class AudioSource extends Component {
   /** 0..255. Mostly decides who is stolen when a voice limit is hit. */
   @field(Number) priority = 128;
 
+  // ADR 0162 §1.2 (K4 declares them; the features they drive fill their own files).
+  @field(Boolean, { description: "Spatial sources: walls between the source and the listener muffle it. Inert in 2D worlds and without the 3D physics service." }) occlusion = true;
+  @field(Number, { description: "Spatial sources: scales the Doppler shift, 0..5; 0 is off." }) dopplerLevel = 1;
+  @field(Number, { description: "Spatial sources: how much of the source goes to the reverb zones that hold it, 0..2. Taken before the distance gain." }) reverbSend = 1;
+  @field(PlainObject, { description: "The reverb send against distance (x: 0 at minDistance to 1 at maxDistance; y multiplies the send), independent of the dry rolloff. reverbSend × curve is clamped to 4." }) reverbSendCurve: SendCurve = DEFAULT_SEND_CURVE.map((p) => [p[0], p[1]] as [number, number]);
+  @field(Number, { description: "Ambisonic clips: turns the recording about the vertical axis, degrees (-180..180), positive to the left seen from above." }) ambisonicYaw = 0;
+
   private voice: AudioVoice | null = null;
   /** ADR 0158: the playing event instance when `clip` is an event. */
   private instance: EventInstance | null = null;
@@ -92,6 +102,25 @@ export class AudioSource extends Component {
   private applied = "";
   /** The pitch last given to the playing event instance. */
   private appliedPitch = 1;
+  /** ADR 0162 (K4): the §1.2 options last applied, and the curve object they carried. */
+  private appliedM3 = "";
+  private appliedCurve: SendCurve | null = null;
+  private readonly zeroVelocity = new Vector3();
+
+  /** ADR 0162 §1.2: the source's velocity in world units per second (Doppler). Read-only. K4: zero until D3. */
+  get velocity(): Vector3 {
+    return this.zeroVelocity;
+  }
+
+  /** ADR 0162 §1.2 (`occlusionGain`: the field `occlusion` holds the switch): the playing sound's smoothed dry occlusion gain, 1 open. K4: 1 until D5. */
+  get occlusionGain(): number {
+    return 1;
+  }
+
+  /** ADR 0162 §1.2: the panner the playing sound uses, or null when not playing. K4: null until D5. */
+  get panner(): AudioPanner | null {
+    return null;
+  }
 
   get isPlaying(): boolean {
     if (this.instance) return this.instance.playing;
@@ -111,8 +140,10 @@ export class AudioSource extends Component {
       if (this.instance) this.applyEvent();
       return;
     }
-    this.voice = startClip(path, this.loop, this.output, { priority: clamp255(this.priority), world: worldKeyOf(this._world) });
+    this.voice = startClip(path, this.loop, this.output, { priority: clamp255(this.priority), world: worldKeyOf(this._world), ...this.spatialOptions() });
     this.applied = "";
+    this.appliedM3 = "";
+    this.appliedCurve = null;
     if (this.voice) this.apply(path);
   }
 
@@ -166,7 +197,25 @@ export class AudioSource extends Component {
     this.apply(this.clip.replace(/^asset:/, ""));
   }
 
-  /** An event's volume follows `volume` (as the instance's fade multiplier), its pitch follows `pitch`, and a spatial event follows the node. The rest applies at the next play. */
+  /**
+   * ADR 0162 §1.2, §1.3 (K4): the source's M3 options as K0's `PlayRequest` fields, clamped. `ambisonic` itself comes from
+   * the clip's sidecar (B5), not from the source.
+   */
+  private spatialOptions(): Pick<PlayRequest, "occlusion" | "dopplerLevel" | "reverbSend" | "reverbSendCurve" | "yaw"> {
+    return {
+      occlusion: this.occlusion !== false,
+      dopplerLevel: clampOr(this.dopplerLevel, 0, 5, 1),
+      reverbSend: clampOr(this.reverbSend, 0, 2, 1),
+      reverbSendCurve: Array.isArray(this.reverbSendCurve) ? this.reverbSendCurve : DEFAULT_SEND_CURVE,
+      yaw: clampOr(this.ambisonicYaw, -180, 180, 0),
+    };
+  }
+
+  /**
+   * An event's volume follows `volume` (as the instance's fade multiplier), its pitch follows `pitch`, and a spatial event
+   * follows the node. The rest applies at the next play. ADR 0162 (K4): §1.2's options for events (the event's own
+   * `spatial` additions, §2.5) reach its voices through the event runtime (D4); the source's fields don't apply to an event yet.
+   */
   private applyEvent(): void {
     const instance = this.instance!;
     const signature = `${this.volume}`;
@@ -193,6 +242,14 @@ export class AudioSource extends Component {
       voice.setVolume(this.volume * clipVolume(path));
       voice.setPitch(this.pitch);
       if (spatial) voice.setAttenuation(this);
+    }
+    // ADR 0162 §1.2 (K4): Play edits of the M3 options take effect next frame on a voice that takes them.
+    const m3 = `${this.occlusion}|${this.dopplerLevel}|${this.reverbSend}|${this.ambisonicYaw}`;
+    if (m3 !== this.appliedM3 || this.reverbSendCurve !== this.appliedCurve) {
+      const first = this.appliedM3 === "";
+      this.appliedM3 = m3;
+      this.appliedCurve = this.reverbSendCurve;
+      if (!first) voice.setSpatialOptions?.(this.spatialOptions());
     }
     if (spatial) voice.setPosition(this.node.transform!.worldPosition);
   }

@@ -13,6 +13,13 @@
 // ADR 0158 (E3.1): the core backend's automation mirror (`coreAutomation.ts`) rides along: the header REPLAY carries
 // every curve, parameter and bus binding after MASTER, and each replayed PLAY is followed by the voice's AUTOMATE and
 // SET_LOOP. A voice looping a region resumes inside it (`wrapPosition`); a released one plays on from where it was.
+//
+// ADR 0162 (K4; S10, architecture §3.4): the header REPLAY restores the M3 state in this order: RESET 0, BUS_CONFIG,
+// BED_CONFIG (`beds.ts`), BUS_MIX, MASTER, LISTENER (`listener.ts`, the last rotation, snapped), ZONE_CONFIG (`zones.ts`,
+// every wanted slot; the core holds each until its kernel is resident), then the automation mirror. Each replayed PLAY
+// carries the dry gain with occlusion (`gain × occGain`), the pitch with Doppler (`pitch × dopplerFactor`) and the
+// voice's `lpHz`, and is followed by its SET_VOICE_FX (`voiceFx.ts`) when non-default. Each hook writes nothing while its
+// feature is inert, so an M2 replay is byte-identical.
 import type { Mixer } from "../../../../engine/audio/mixer";
 import {
   ASAP,
@@ -101,7 +108,8 @@ export class PlayheadTracker {
   private rateOf(i: number): number {
     const t = this.table;
     if ((t.flags[i]! & VoiceFlag.PAUSED) !== 0) return 0;
-    return (t.pitch[i]! * t.autoPitch[i]! * this.clipRateOf(i)) / this.sampleRate;
+    // ADR 0162 (K4): times the Doppler factor folded into the pitch sent (1 without Doppler).
+    return (t.pitch[i]! * t.autoPitch[i]! * t.dopplerFactor[i]! * this.clipRateOf(i)) / this.sampleRate;
   }
 
   /** The voice in slot `i` starts at clip frame `pos` on context frame `frame` (its PLAY, or its replay). */
@@ -282,6 +290,23 @@ export interface ReplaySource {
   reopenStreams?(ids: readonly number[]): void;
   /** ADR 0158 (E3.1): the automation mirror the replay restores; absent: nothing to restore. */
   readonly automation?: ReplayAutomation;
+  /** ADR 0162 (K4): the M3 state the replay restores; absent: nothing to restore. */
+  readonly spatial?: ReplaySpatial;
+}
+
+/**
+ * @internal ADR 0162 (K4): the M3 replay hooks (`CoreBackend` provides them from `beds.ts`, `listener.ts`, `zones.ts` and
+ * `voiceFx.ts`). The order of the calls is the replay's (S10); each appends nothing while its feature is inert.
+ */
+export interface ReplaySpatial {
+  /** BED_CONFIG, right after BUS_CONFIG. */
+  replayBeds(b: ReplayBuilder): void;
+  /** LISTENER (the last rotation, snapped), after MASTER. */
+  replayListener(b: ReplayBuilder): void;
+  /** ZONE_CONFIG, after LISTENER. */
+  replayZones(b: ReplayBuilder): void;
+  /** Voice `id`'s SET_VOICE_FX, right after its replayed PLAY (a mixed, non-default voice). */
+  replayVoiceFx(b: ReplayBuilder, id: number, i: number): void;
 }
 
 /** @internal What the replay asks of the automation mirror (`CoreAutomation` satisfies it). */
@@ -440,7 +465,7 @@ export class Replayer {
     }
   }
 
-  /** RESET 0, BUS_CONFIG, BUS_MIX and MASTER in one REPLAY (§7's replay order), every record asap. */
+  /** RESET 0, BUS_CONFIG, (BED_CONFIG,) BUS_MIX, MASTER(, LISTENER, ZONE_CONFIG) in one REPLAY (§7's replay order, S10), every record asap. */
   private postHeader(): void {
     const b = this.builder;
     b.record(16, (view, off) => writeReset(view, off, { voiceId: 0, frameOffset: ASAP, keepClips: 0 }));
@@ -448,6 +473,7 @@ export class Replayer {
     let size = 16;
     for (const bus of buses) size += 4 + 32 * bus.effects.length;
     b.record(size, (view, off) => writeBusConfig(view, off, { voiceId: 0, frameOffset: ASAP, buses }));
+    this.src.spatial?.replayBeds(b);
     const resolved = this.src.mixer.resolveAll();
     const n = Math.min(resolved.length, MAX_BUS);
     const mix = this.busMix;
@@ -457,6 +483,8 @@ export class Replayer {
     const { masterVolume } = this.src;
     const muted = this.src.muted || this.src.hiddenMuted === true;
     b.record(24, (view, off) => writeMaster(view, off, { voiceId: 0, frameOffset: ASAP, volume: masterVolume, muted: muted ? 1 : 0, rampFrames: 0 }));
+    this.src.spatial?.replayListener(b);
+    this.src.spatial?.replayZones(b);
     this.src.automation?.replayHeader(b);
     this.stats.messages += b.post(this.port, this.src.mirror.frameAudio, true);
   }
@@ -519,17 +547,18 @@ export class Replayer {
           flags: playFlags,
           group: t.group[i]!,
           reserved: 0,
-          gain: t.gain[i]!,
-          pitch: t.pitch[i]!,
+          gain: t.gain[i]! * t.occGain[i]!,
+          pitch: t.pitch[i]! * t.dopplerFactor[i]!,
           dirX: t.dirX[i]!,
           dirY: t.dirY[i]!,
           dirZ: t.dirZ[i]!,
-          lpHz: BUS_LP_OFF_HZ,
+          lpHz: t.lpHz[i]!,
           score: t.audibility[i]!,
           startOffsetFrames: Math.floor(pos),
         }),
       );
       this.src.automation?.replayVoice(b, id, i);
+      if (s === VoiceState.PLAYING) this.src.spatial?.replayVoiceFx(b, id, i);
       const fade = t.fadeGain[i]!;
       if (fade !== 1) b.record(24, (view, off) => writeFade(view, off, { voiceId: id, frameOffset: ASAP, target: fade, frames: 0, flags: 0 }));
       if ((flags & VoiceFlag.PAUSED) !== 0) b.record(16, (view, off) => writeSetPaused(view, off, { voiceId: id, frameOffset: ASAP, paused: 1 }));

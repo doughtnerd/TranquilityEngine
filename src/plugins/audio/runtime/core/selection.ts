@@ -6,7 +6,8 @@
 //   (the handle's fade) times `autoGain` (ADR 0158: its automation's gain at the parameters' targets, 1 without
 //   bindings, `coreAutomation.ts`) times its bus's effective gain (volume, mute, solo, snapshot and ducking down the tree) times
 //   the priority weight `1 + priority/255` (at most 2x, +6 dB: §1 "it only mildly raises audibility"). Stored in the
-//   table's `audibility`, which stealing (`VoiceTable.allocate`) and `Audio.debug()` read.
+//   table's `audibility0`; ADR 0162 C20: times the voice's smoothed occlusion gain (`occGain`, 1 open) it is the
+//   table's `audibility`, which ranking, stealing (`VoiceTable.allocate`) and `Audio.debug()` read.
 // - **Forced virtual**: voices of an inaudible World (§3.9: the World lost the view) and paused voices are virtual
 //   whatever the room, at once (no dwell). A voice below `MIN_AUDIBILITY` (-100 dB) is never promoted.
 // - **Top N**: `selectTopK` (O(L), no sort, no allocation) keeps the `cap` best of the candidates mixed, where cap is
@@ -248,7 +249,10 @@ export class Selection {
   audibilityOf(i: number): number {
     const t = this.table;
     const forced = this.worldAudible[t.world[i]!] === 0 || (t.flags[i]! & VoiceFlag.PAUSED) !== 0;
-    const a = forced ? 0 : t.gain[i]! * t.fadeGain[i]! * t.autoGain[i]! * this.busGain[t.bus[i]!]! * PRIORITY_WEIGHTS[t.priority[i]!]!;
+    const a0 = forced ? 0 : t.gain[i]! * t.fadeGain[i]! * t.autoGain[i]! * this.busGain[t.bus[i]!]! * PRIORITY_WEIGHTS[t.priority[i]!]!;
+    t.audibility0[i] = a0;
+    // ADR 0162 C20: audibility = audibility0 × occGain (1 without occlusion, so M2's values are unchanged).
+    const a = a0 * t.occGain[i]!;
     t.audibility[i] = a;
     return a;
   }
@@ -296,6 +300,8 @@ export class Selection {
     const world = t.world;
     const flags = t.flags;
     const audibility = t.audibility;
+    const audibility0 = t.audibility0;
+    const occGain = t.occGain;
     const busGain = this.busGain;
     const worldAudible = this.worldAudible;
     const weight = PRIORITY_WEIGHTS;
@@ -312,7 +318,9 @@ export class Selection {
       if (s === S_FREE) continue;
       // `audibilityOf`, inlined (the hot loop: 4,096 voices per frame).
       const forced = worldAudible[world[i]!] === 0 || (flags[i]! & F_PAUSED) !== 0;
-      const a = forced ? 0 : gain[i]! * fadeGain[i]! * autoGain[i]! * busGain[bus[i]!]! * weight[priority[i]!]!;
+      const a0 = forced ? 0 : gain[i]! * fadeGain[i]! * autoGain[i]! * busGain[bus[i]!]! * weight[priority[i]!]!;
+      audibility0[i] = a0;
+      const a = a0 * occGain[i]!; // ADR 0162 C20
       audibility[i] = a;
       if (s !== S_PLAYING && s !== S_VIRTUAL) continue;
       const mixed = s === S_PLAYING;
