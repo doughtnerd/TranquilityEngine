@@ -24,6 +24,10 @@
  *   "stream": true,               // audio: decode in pieces while playing instead of up front (default false)
  *   "loopStart": 1.5,             // audio: loop region start in seconds; wins over the file's own points (ADR 0158 §4)
  *   "loopEnd": 7.25,              // audio: loop region end in seconds (exclusive); a lone key overrides just that end
+ *   "ambisonic": {                // audio: the clip is ambisonic (ADR 0162 §2.4); required for any clip over 2 channels
+ *     "order": 3,                 //   1 | 2 | 3, inferred from the channel count (4, 9, 16) when absent
+ *     "convention": "fuma"        //   "ambix" (default: ACN order, SN3D) | "fuma"
+ *   },
  *   "scale": 0.01,                // models: multiplies the model's size (default 1)
  *   "upAxis": "z",                // models: the axis that is up in the file, "y" (default) or "z" (ADR 0044)
  *   "normals": "calculate",       // models: "import" (default; calculated when the file has none) or "calculate"
@@ -64,6 +68,15 @@ export type ModelNormals = "import" | "calculate";
 /** Where a model's parts turn (ADR 0118): about the model's origin, or about their own node in the file. */
 export type ModelPivots = "model" | "node";
 
+/** An ambisonic clip's channel convention (ADR 0162 §2.4): AmbiX is ACN order with SN3D, FuMa the older B-format. */
+export type AmbisonicConvention = "ambix" | "fuma";
+export const AMBISONIC_CONVENTIONS: readonly AmbisonicConvention[] = ["ambix", "fuma"];
+/** Audio (ADR 0162 §2.4): marks a clip ambisonic. `order` is null when inferred from the channel count. */
+export interface AmbisonicImport {
+  order: 1 | 2 | 3 | null;
+  convention: AmbisonicConvention;
+}
+
 /** A named rectangle of an image, drawn as its own sprite. */
 export type SpriteFill = "stretch" | "tile";
 export const SPRITE_FILLS: readonly SpriteFill[] = ["stretch", "tile"];
@@ -101,6 +114,8 @@ export interface ImportSettings {
   loopStart: number | null;
   /** Audio (ADR 0158 §4): the loop region's end in seconds (exclusive), or null to use the file's own. */
   loopEnd: number | null;
+  /** Audio (ADR 0162 §2.4): the clip is ambisonic; null (absent) for an ordinary clip. */
+  ambisonic: AmbisonicImport | null;
   /** Models (ADR 0044): multiplies the model's size. */
   scale: number;
   upAxis: ModelUpAxis;
@@ -126,6 +141,7 @@ export const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<I
   stream: false,
   loopStart: null,
   loopEnd: null,
+  ambisonic: null,
   scale: 1,
   upAxis: "y",
   normals: "import",
@@ -260,6 +276,22 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
     problems.push(`${where}: loopEnd should be after loopStart; both ignored.`);
     settings.loopStart = null;
     settings.loopEnd = null;
+  }
+  if (raw.ambisonic !== undefined) {
+    const a = raw.ambisonic;
+    if (!isObject(a)) bad("ambisonic", 'an object like { "order": 3, "convention": "ambix" }');
+    else {
+      const amb: AmbisonicImport = { order: null, convention: "ambix" };
+      if (a.order !== undefined) {
+        if (a.order === 1 || a.order === 2 || a.order === 3) amb.order = a.order;
+        else problems.push(`${where}: ambisonic.order should be 1, 2 or 3; inferred from the channel count.`);
+      }
+      if (a.convention !== undefined) {
+        if (a.convention === "ambix" || a.convention === "fuma") amb.convention = a.convention;
+        else problems.push(`${where}: ambisonic.convention should be "ambix" or "fuma"; using "ambix".`);
+      }
+      settings.ambisonic = amb;
+    }
   }
   if (raw.scale !== undefined) {
     if (typeof raw.scale === "number" && raw.scale > 0 && Number.isFinite(raw.scale)) settings.scale = raw.scale;
@@ -398,6 +430,10 @@ export function importSettingsJSON(settings: ImportSettings): Record<string, unk
   if (settings.stream !== d.stream) out.stream = settings.stream;
   if (settings.loopStart !== d.loopStart) out.loopStart = settings.loopStart;
   if (settings.loopEnd !== d.loopEnd) out.loopEnd = settings.loopEnd;
+  if (settings.ambisonic) {
+    const a = settings.ambisonic;
+    out.ambisonic = { ...(a.order !== null ? { order: a.order } : {}), ...(a.convention !== "ambix" ? { convention: a.convention } : {}) };
+  }
   if (settings.scale !== d.scale) out.scale = settings.scale;
   if (settings.upAxis !== d.upAxis) out.upAxis = settings.upAxis;
   if (settings.normals !== d.normals) out.normals = settings.normals;
