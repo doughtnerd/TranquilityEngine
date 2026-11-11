@@ -34,58 +34,123 @@ export interface MusicCacheOptions {
   readonly warn?: (instance: number, message: string) => void;
 }
 
+/** One held file: its bytes, the open member streams over it, and its close order once it has none. */
+interface HeldFile {
+  bytes: ArrayBuffer;
+  /** Open member streams over the path; zero means closed. */
+  refs: number;
+  /** The close counter's value when the last reference dropped; null while open. */
+  closedAt: number | null;
+}
+
 /** The worker's music encoded cache (see the header). One per worker. */
 export class MusicCache {
-  /** STUB(D1c): the skeleton keeps bytes per instance and path with no refcount, budget or eviction. */
-  private readonly held = new Map<number, Map<string, ArrayBuffer>>();
+  /** Held files per instance, keyed by path. */
+  private readonly held = new Map<number, Map<string, HeldFile>>();
+  /** Each instance's protected paths (replaced by `protect`). */
+  private readonly protectedPaths = new Map<number, ReadonlySet<string>>();
+  /** Instances already warned as over budget (cleared when the instance is released). */
+  private readonly warned = new Set<number>();
+  private closeCounter = 0;
   private budget: number;
 
   constructor(readonly options: MusicCacheOptions = {}) {
     this.budget = options.budgetBytes ?? DEFAULT_MUSIC_BUDGET_BYTES;
   }
 
-  /** The bytes held for `path` in `instance`, or null (a miss). */
+  /** The bytes held for `path` in `instance`, or null (a miss). Lookup does not change eviction order. */
   lookup(instance: number, path: string): ArrayBuffer | null {
-    return this.held.get(instance)?.get(path) ?? null; // STUB(D1c): touch for eviction order
+    return this.held.get(instance)?.get(path)?.bytes ?? null;
   }
 
   /** A member stream of `instance` opened over `path`: one more reference; `bytes` (main sent them) are kept. */
   hold(instance: number, path: string, bytes?: ArrayBuffer): void {
-    if (!bytes) return; // STUB(D1c): count the reference
     let paths = this.held.get(instance);
-    if (!paths) this.held.set(instance, (paths = new Map()));
-    paths.set(path, bytes); // STUB(D1c): refcount, budget, evict
+    const file = paths?.get(path);
+    if (file) {
+      file.refs += 1;
+      file.closedAt = null;
+      if (bytes) file.bytes = bytes;
+    } else {
+      if (!bytes) return; // a path not held keeps nothing without bytes: the caller sends them
+      if (!paths) this.held.set(instance, (paths = new Map()));
+      paths.set(path, { bytes, refs: 1, closedAt: null });
+    }
+    this.enforce();
   }
 
   /** A member stream of `instance` over `path` closed: one reference less (the bytes stay until evicted or released). */
   release(instance: number, path: string): void {
-    void instance;
-    void path;
-    // STUB(D1c): drop a reference; at zero the path is closed (eviction order: least recently closed first)
+    const file = this.held.get(instance)?.get(path);
+    if (!file || file.refs === 0) return;
+    file.refs -= 1;
+    if (file.refs === 0) file.closedAt = ++this.closeCounter;
+    this.enforce();
   }
 
   /** Replace `instance`'s protected paths (never evicted). */
   protect(instance: number, paths: readonly string[]): void {
-    void instance;
-    void paths;
-    // STUB(D1c)
+    this.protectedPaths.set(instance, new Set(paths));
+    this.enforce();
   }
 
   /** The instance ended: forget its references and bytes (another instance's references to the same file stay). */
   releaseInstance(instance: number): void {
-    this.held.delete(instance); // STUB(D1c)
+    this.held.delete(instance);
+    this.protectedPaths.delete(instance);
+    this.warned.delete(instance);
   }
 
   /** A new budget in bytes (the preset's, from `primeGroup.budgetBytes`); may evict at once. */
   setBudget(bytes: number): void {
-    if (Number.isFinite(bytes) && bytes >= 0) this.budget = bytes; // STUB(D1c): evict down to it
+    if (!Number.isFinite(bytes) || bytes < 0) return;
+    this.budget = bytes;
+    this.enforce();
   }
 
   /** Bytes held now (for tests and the over-budget check). */
   get bytesHeld(): number {
     let n = 0;
-    for (const paths of this.held.values()) for (const b of paths.values()) n += b.byteLength;
+    for (const paths of this.held.values()) for (const f of paths.values()) n += f.bytes.byteLength;
     return n;
+  }
+
+  /** Evicts unprotected closed files, least recently closed first, while over budget; then warns if still over. */
+  private enforce(): void {
+    if (this.bytesHeld > this.budget) {
+      const candidates: [number, string, HeldFile][] = [];
+      for (const [instance, paths] of this.held) {
+        const protectedSet = this.protectedPaths.get(instance);
+        for (const [path, file] of paths) {
+          if (file.refs === 0 && !protectedSet?.has(path)) candidates.push([instance, path, file]);
+        }
+      }
+      candidates.sort((a, b) => (a[2].closedAt ?? 0) - (b[2].closedAt ?? 0));
+      let total = this.bytesHeld;
+      for (const [instance, path, file] of candidates) {
+        if (total <= this.budget) break;
+        this.held.get(instance)?.delete(path);
+        total -= file.bytes.byteLength;
+      }
+      for (const [instance, paths] of this.held) if (paths.size === 0) this.held.delete(instance);
+    }
+    if (this.bytesHeld > this.budget) this.warnOverBudget();
+  }
+
+  /** Warns once per instance that holds files which cannot be evicted (protected or open) while over budget. */
+  private warnOverBudget(): void {
+    const warn = this.options.warn;
+    for (const [instance, paths] of this.held) {
+      if (this.warned.has(instance)) continue;
+      const protectedSet = this.protectedPaths.get(instance);
+      const pinned = [...paths].some(([path, file]) => file.refs > 0 || protectedSet?.has(path));
+      if (!pinned) continue;
+      this.warned.add(instance);
+      warn?.(
+        instance,
+        `protected or open music files (${this.bytesHeld} bytes held in all) exceed the ${this.budget}-byte encoded budget`,
+      );
+    }
   }
 
   /** The budget in bytes. */
