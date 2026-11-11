@@ -4,7 +4,7 @@ Written 2026-11-11, at the end of the session that ran `plan-milestone-build` on
 
 ## Where things are
 
-- **Branch:** `claude/m4-milestone-plan-build-3225b2-3xrdg2`, started at `origin/master` `013d53c` (the design on master). It adds only the plan files below and a short write-back to the design. Merging it to master before the build is owner item O5.
+- **Branch:** `claude/m4-milestone-plan-build-3225b2-3xrdg2`, started at `origin/master` `013d53c` (the design on master). It adds only the plan files below and a short write-back to the design. It was fast-forwarded into master at the end of planning (owner item O5).
 - **Records:** 0166 Accepted, amended by **0167** (Accepted), which wins where they disagree. The next free number is **0168**; check master before allocating it. No record was added in planning.
 - **Safe to delete once the owner agrees:** `claude/eloquent-newton-v9xofb` (the design branch, fast-forwarded into master).
 
@@ -35,15 +35,17 @@ Written 2026-11-11, at the end of the session that ran `plan-milestone-build` on
 - **P1 starts in W3, ahead of C2a:** the pure dependency chain (47.5 d, plan est.) runs through the format, grid and player.
 - Tripwires (mixer size, metered gate, worst-case allowances, the worker cache budget) are never a flip's gate or a task's acceptance.
 
-## Open
+## Open (decided)
 
-| # | Decision | Recommendation | Needed by |
+All five decided by the owner on 2026-11-11 ("Confirmed"), as recommended.
+
+| # | Decision | Decided | Needed by |
 |---|---|---|---|
-| O1 | Up to **three strongest leads at once** (as M3's O6) and about eight mid leads | yes: with two strongest the staffing queue is ≈ 67 d against ≈ 54.5 d (plan est.), and P1 (pure chain) waits behind M4-0 | W2 |
-| O2 | Milestone merges to master: **merge commit** or squash | merge commit, so the integration branch continues without a force-push; with squash, merge master back with `-s ours` after each | M4-0's merge (end of W4) |
-| O3 | Charge the four milestone listening sections and their walker (2 d, plan est.) to reserve **RS1** (4 d) | yes: they save owner round trips; RS1 keeps 2 d | W4 |
-| O4 | The plan adds ≈ 6 d (plan est.) of contract and smoke work (Q0 1, Q1 1.5, Q2 2.5, S0 1) outside the table and the reserve | accept as added, as M3 did with its 5 d; re-measure after the pilot | W0 |
-| O5 | Merge this plan to master before the build | yes (fast-forward), as M3's O3 | W0 |
+| O1 | Up to **three strongest leads at once** (as M3's O6) and about eight mid leads | **yes**: with two strongest the staffing queue is ≈ 67 d against ≈ 54.5 d (plan est.), and P1 (pure chain) waits behind M4-0 | W2 |
+| O2 | Milestone merges to master: **merge commit** or squash | **merge commit**, so the integration branch continues without a force-push; with squash, merge master back with `-s ours` after each | M4-0's merge (end of W4) |
+| O3 | Charge the four milestone listening sections and their walker (2 d, plan est.) to reserve **RS1** (4 d) | **yes**: they save owner round trips; RS1 keeps 2 d | W4 |
+| O4 | The plan adds ≈ 6 d (plan est.) of contract and smoke work (Q0 1, Q1 1.5, Q2 2.5, S0 1) outside the table and the reserve | **accepted** as added, as M3 did with its 5 d; re-measure after the pilot | W0 |
+| O5 | Merge this plan to master before the build | **yes**; done at the end of planning (fast-forward), as M3's O3 | W0 |
 
 **Owner-only items** (unchanged from the design handoff): the M3 listening pass and lab-VM benches; for M4, the 9 real-device measurements in `spikes/audio-music/rhythm/README.md` §8, the phone prime lead, the lab-VM run of the music scenes, and a listening section per milestone (the waves plan's "Owner procedures"). Tripwire moves to record when they happen: the mixer (+10–14 KB est.) and the worst-case allowances (0.08 / 0.06 ms).
 

@@ -59,7 +59,7 @@ The table's milestone groups, unchanged. **Critical-path tasks** (the table's bo
 | **M4c** | beat callbacks and rhythm mode | **K1, K2**, K3, K4, K5, Rh1, Rh2, Rh3, B3, E3, D4 | callbacks within 1–2 display frames on the trace set (K4); calibration p95 < 10 ms on simulated taps (Rh2); owner: listening section M4c (beat feel), real-device items of `spikes/audio-music/rhythm/README.md` §8 | 34.5 | W9 |
 | **M4d** | editor, samples, listening pass | Ed1, **Ed2, Ed3**, Ed4–Ed11, L1, L2, L3, D5 | a composer imports eight stems, sets tempo, places cues, builds one rule and auditions it (Ed11 walks it); the owner's full listening pass signed off (L3) | 63 | W10 |
 
-Tasks 290.5 d + named reserve 58 d (RS1–RS10, §10.1) = 348.5 d ≈ 69.7 person-weeks, unchanged. This plan adds **plan-only work of ≈ 6 d (plan est.)**: Q0 1 (coordinator), Q1 1.5 and Q2 2.5 (strongest), S0 1 (mid). Some of it is work the rows would otherwise do (see "Contract days"); like M3, the rows keep their days until the pilot measures the shift, so the 6 d count as added. The four milestone listening sections (2 d, plan est.) are charged to the reserve's **RS1** (owner item O3 in the handoff).
+Tasks 290.5 d + named reserve 58 d (RS1–RS10, §10.1) = 348.5 d ≈ 69.7 person-weeks, unchanged. This plan adds **plan-only work of ≈ 6 d (plan est.)**: Q0 1 (coordinator), Q1 1.5 and Q2 2.5 (strongest), S0 1 (mid). Some of it is work the rows would otherwise do (see "Contract days"); like M3, the rows keep their days until the pilot measures the shift, so the 6 d count as added. The four milestone listening sections (2 d, plan est.) are charged to the reserve's **RS1** (owner item O3, decided).
 
 ```mermaid
 graph LR
@@ -98,7 +98,7 @@ Two chains, computed by script from the table (plan est.):
 - **Leads and leaves:** see the tree. The strongest model leads every S row, Q1 and Q2, and L3. The mid model leads the M and J rows (J rows with prose readers see, D2–D5, Z6 and L1, stay with a mid lead, the tree's rule). The cheapest model takes leaves where the leaf criteria hold.
 - **Isolation:** every lead and leaf works in its own git worktree. Leads branch from the integration branch at the wave's base (named in the brief: agent worktrees start at master unless told otherwise), leaves from their lead's skeleton commit. The **in-voice flip branch** (`m4/in-voice`) is the one exception: Z2a branches from it in W2, Z2b and Z2c from Z2a's merge into it in W3, and Z3 builds on it with both merged; the coordinator runs the wave-end checks on it and merges it to the integration branch once Z3 passes. The coordinator merges the integration branch into it at W2's end so it doesn't drift.
 - **Dispatch is flat** (subagents can't start subagents in this tool): the lead commits its skeleton and returns leaf briefs, the coordinator starts the leaves, then continues the lead with their branch names.
-- **Concurrency:** up to three strongest leads at once (owner item O1, recommended as M3's O6) and up to eight mid leads; leaves on top, as many as the wave has.
+- **Concurrency:** up to three strongest leads at once (owner item O1, decided yes) and up to eight mid leads; leaves on top, as many as the wave has.
 - **Owner-only items:** listed in the handoff ("Open").
 
 ### Single-writer files
@@ -158,7 +158,7 @@ No tripwire is a flip's gate or a task's acceptance. Where a row's acceptance na
 ### Branch and merge policy
 
 - **Integration branch:** the build session's designated branch, started from `origin/master` once this plan is merged (`013d53c` or later). Each wave's task branches merge into it with merge commits; the in-voice flip branch merges as one merge commit.
-- **To master, per milestone, with the owner's approval.** Recommended: a **merge commit** (not a squash), so the integration branch continues from master without a force-push (owner item O2). If the owner prefers squash as in M3, then after each squash the integration branch merges master back with `-s ours` once the trees are identical, since the build session can't force-push.
+- **To master, per milestone, with the owner's approval.** A **merge commit** (not a squash), so the integration branch continues from master without a force-push (owner item O2, decided).
 - The integration branch is never rebased. Task branches are deleted after their merge.
 
 ### Owner procedures
