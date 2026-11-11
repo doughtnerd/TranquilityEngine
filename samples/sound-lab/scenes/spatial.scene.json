@@ -1,0 +1,632 @@
+{
+  "format": "myco.scene@2",
+  "settings": {
+    "physics": "3d"
+  },
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Listener (W, S walk)",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.6,
+              2
+            ]
+          }
+        },
+        {
+          "type": "engine.Camera",
+          "data": {
+            "projection": "perspective",
+            "fieldOfView": 70
+          }
+        },
+        {
+          "type": "engine.AudioListener",
+          "data": {}
+        },
+        {
+          "type": "lab.Walker",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "sun",
+      "name": "Sun",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              8,
+              0
+            ],
+            "rotation": [
+              -60,
+              20,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "directional",
+            "intensity": 1.6
+          }
+        }
+      ]
+    },
+    {
+      "id": "title",
+      "name": "Title",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": {
+            "text": "Sound Lab: spatial audio (B goes back to the tour)\nClick the game view first. W / S walk, 1 2 3 jump to the room, corridor and cave,\nF opens and closes the door, V starts and stops the flyover.",
+            "anchor": "top-left",
+            "align": "left",
+            "offset": [
+              24,
+              20
+            ],
+            "fontSize": 20,
+            "outlineColor": "#000000",
+            "outlineWidth": 4
+          }
+        },
+        {
+          "type": "lab.SceneSwitch",
+          "data": {
+            "key": "b",
+            "scene": "scenes/main.scene.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "floor",
+      "name": "Floor",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              -0.1,
+              -4
+            ],
+            "scale": [
+              4.5,
+              0.2,
+              42
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube"
+          }
+        }
+      ]
+    },
+    {
+      "id": "walls",
+      "name": "Walls (concrete)",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.AudioOccluder",
+          "data": {
+            "material": "concrete"
+          }
+        }
+      ]
+    },
+    {
+      "id": "wall-west",
+      "name": "West wall",
+      "parent": "walls",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -2.25,
+              2,
+              -4
+            ],
+            "scale": [
+              0.5,
+              4,
+              40
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {
+            "layer": "Walls"
+          }
+        }
+      ]
+    },
+    {
+      "id": "wall-east",
+      "name": "East wall",
+      "parent": "walls",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              2.25,
+              2,
+              -4
+            ],
+            "scale": [
+              0.5,
+              4,
+              40
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {
+            "layer": "Walls"
+          }
+        }
+      ]
+    },
+    {
+      "id": "wall-room",
+      "name": "Room back wall",
+      "parent": "walls",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2,
+              16.25
+            ],
+            "scale": [
+              4,
+              4,
+              0.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {
+            "layer": "Walls"
+          }
+        }
+      ]
+    },
+    {
+      "id": "wall-cave",
+      "name": "Cave end wall",
+      "parent": "walls",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2,
+              -24.25
+            ],
+            "scale": [
+              4,
+              4,
+              0.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {
+            "layer": "Walls"
+          }
+        }
+      ]
+    },
+    {
+      "id": "door",
+      "name": "Door (key F)",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.5,
+              6
+            ]
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {
+            "size": [
+              4,
+              3,
+              0.3
+            ],
+            "layer": "Walls"
+          }
+        },
+        {
+          "type": "engine.AudioOccluder",
+          "data": {
+            "material": "wood"
+          }
+        },
+        {
+          "type": "lab.Door",
+          "data": {
+            "key": "f",
+            "seconds": 0.8,
+            "panel": "Panel",
+            "lift": 3
+          }
+        }
+      ]
+    },
+    {
+      "id": "door-panel",
+      "name": "Panel",
+      "parent": "door",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              4,
+              3,
+              0.3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube"
+          }
+        }
+      ]
+    },
+    {
+      "id": "curtain",
+      "name": "Curtain (cloth)",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.5,
+              -8
+            ],
+            "scale": [
+              4,
+              3,
+              0.1
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {
+            "layer": "Walls"
+          }
+        },
+        {
+          "type": "engine.AudioOccluder",
+          "data": {
+            "material": "cloth"
+          }
+        }
+      ]
+    },
+    {
+      "id": "zone-room",
+      "name": "Room zone",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2,
+              11
+            ]
+          }
+        },
+        {
+          "type": "engine.AudioReverbZone",
+          "data": {
+            "shape": "box",
+            "size": [
+              4,
+              4,
+              10
+            ],
+            "preset": "room",
+            "wet": 0.6,
+            "blendDistance": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "zone-corridor",
+      "name": "Corridor zone",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2,
+              -1
+            ]
+          }
+        },
+        {
+          "type": "engine.AudioReverbZone",
+          "data": {
+            "shape": "box",
+            "size": [
+              4,
+              4,
+              14
+            ],
+            "preset": "corridor",
+            "wet": 0.6,
+            "blendDistance": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "zone-cave",
+      "name": "Cave zone",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              2,
+              -16
+            ]
+          }
+        },
+        {
+          "type": "engine.AudioReverbZone",
+          "data": {
+            "shape": "box",
+            "size": [
+              4,
+              4,
+              16
+            ],
+            "preset": "cave",
+            "wet": 0.7,
+            "blendDistance": 3
+          }
+        }
+      ]
+    },
+    {
+      "id": "ambience",
+      "name": "Ambience (ambisonic, first order)",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/ambience-o1.wav",
+            "loop": true,
+            "volume": 0.8,
+            "playOnAwake": true,
+            "output": "Ambience"
+          }
+        }
+      ]
+    },
+    {
+      "id": "radio",
+      "name": "Radio (behind the door)",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1,
+              12.5
+            ],
+            "scale": [
+              0.4,
+              0.4,
+              0.4
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/music-loop.wav",
+            "loop": true,
+            "volume": 0.6,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 40,
+            "output": "SFX"
+          }
+        }
+      ]
+    },
+    {
+      "id": "machine",
+      "name": "Machine (in the cave)",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0.8,
+              1,
+              -18
+            ],
+            "scale": [
+              0.6,
+              0.6,
+              0.6
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/noise-loop.wav",
+            "loop": true,
+            "volume": 0.3,
+            "playOnAwake": true,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 30,
+            "output": "SFX"
+          }
+        }
+      ]
+    },
+    {
+      "id": "flyover",
+      "name": "Flyover (key V)",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              6,
+              40
+            ],
+            "scale": [
+              0.8,
+              0.8,
+              0.8
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/hum-loop.wav",
+            "loop": true,
+            "volume": 0.5,
+            "playOnAwake": false,
+            "spatial": true,
+            "minDistance": 4,
+            "maxDistance": 70,
+            "output": "SFX",
+            "dopplerLevel": 1
+          }
+        },
+        {
+          "type": "lab.PassBy",
+          "data": {
+            "from": 40,
+            "to": -40,
+            "speed": 30
+          }
+        },
+        {
+          "type": "lab.Toggle",
+          "data": {
+            "key": "v"
+          }
+        }
+      ]
+    }
+  ]
+}

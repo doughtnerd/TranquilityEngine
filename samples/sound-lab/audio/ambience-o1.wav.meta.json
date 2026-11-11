@@ -1,0 +1,4 @@
+{
+  "format": "myco.import@1",
+  "ambisonic": { "order": 1, "convention": "ambix" }
+}
