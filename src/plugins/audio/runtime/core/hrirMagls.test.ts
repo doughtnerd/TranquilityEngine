@@ -204,3 +204,36 @@ describe("createMaglsLoader", () => {
     expect(at96.frames).toBe((32 + RESPONSES * 512 * 4) / 4);
   });
 });
+
+describe("the committed magls-o3.bin (made by native/audio/tools/bake-magls)", () => {
+  const load = async (): Promise<ArrayBuffer> => {
+    const { readFile } = await import("node:fs/promises");
+    const bytes = await readFile(new URL("../../../../engine/audio/magls-o3.bin", import.meta.url));
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  };
+
+  it("is 32,800 B: the MYBD header (version 1, order 3, 256 taps, 44.1 kHz) then finite responses", async () => {
+    const asset = await load();
+    expect(asset.byteLength).toBe(32_800);
+    const head = readMaglsHeader(new DataView(asset), 0);
+    expect(head).toEqual({ magic: MAGLS_MAGIC, version: MAGLS_VERSION, order: MAGLS_ORDER, taps: 256, sampleRate: 44100, reserved: [0, 0, 0] });
+    const samples = new Float32Array(asset, 32);
+    expect(samples.every(Number.isFinite)).toBe(true);
+    expect(Math.max(...samples.map(Math.abs))).toBeGreaterThan(0.01);
+  });
+
+  it("loads unchanged at 44.1 kHz and resamples to 256 taps at 48 kHz and 512 at 96 kHz", async () => {
+    const asset = await load();
+    expect(new Uint8Array(resampleMagls(asset, 44100))).toEqual(new Uint8Array(asset));
+    for (const [rate, taps] of [[48000, 256], [96000, 512]] as const) {
+      const blob = resampleMagls(asset, rate);
+      expect(readMaglsHeader(new DataView(blob), 0)).toMatchObject({ taps, sampleRate: rate });
+      expect(blob.byteLength).toBe(32 + 32 * taps * 4);
+      // The W channel's left response keeps its energy within 1 dB (Chromium resamples HRIRs without a gain change, so
+      // the sum of squares scales with the rate ratio).
+      const energy = (b: ArrayBuffer, n: number) => new Float32Array(b, 32, n).reduce((s, x) => s + x * x, 0);
+      const ratio = energy(blob, taps) / energy(asset, 256) / (rate / 44100);
+      expect(Math.abs(10 * Math.log10(ratio))).toBeLessThan(1);
+    }
+  });
+});
