@@ -62,7 +62,7 @@ Reviewed: the senior engineer's revision 1 (`api-and-models.md`, **[API §n]**; 
 
 3. **major, [API §3.1, §11.2] Timed routing by field.**
    - `quantize` may target `lowpass` [API §2.3]. That is a stamped `lpHz`, which stays queued and splits every voice. A bar-quantised low-pass on 8 stems at 120 BPM is 0.5 splits/s, above S4's 0.375/s p99.9 threshold.
-   - Outside music, a stamped PLAY of a mixed voice with non-default sends is followed by a **stamped SET_VOICE_FX at the same frame** (`core/coreBackend.ts:1458`, A162 C3). So every `at`-scheduled spatial play inside a reverb zone splits today, and still will.
+   - Outside music, a stamped PLAY of a mixed voice with non-default sends is followed by a **stamped SET_VOICE_FX at the same frame** (`core/coreBackend.ts:1459`, A162 C3). So every `at`-scheduled spatial play inside a reverb zone splits today, and still will.
 
    **Change:** route by record. Every queued per-voice record (STOP, FADE, SET_PARAMS any mask, SET_PAUSED, SEEK, SET_LOOP, SET_VOICE_FX) goes to the voice's Timed entry. Gain and pitch use the shaped/linear ramp, and the rest use the in-voice split loop Z2b already builds (the voice renders `[from, k)`, applies, then `[k, to)`) [Arch §4.4 class S]. It is the same loop, so this is about +1 d in Z2a/Z2b, and `splitQuanta` then really reads 0.
 
