@@ -14,8 +14,8 @@
  * transitions with their `bridge`); with `edges` absent every ordered pair of distinct `segments` is a possible
  * succession, which can only over-count the need.
  *
- * Stubs tagged `F3` are the lead's (the stream-or-decode rule, the ring need, the lint walk); the tests are
- * `musicValidate.test.ts`, whose cases are L-F3a's.
+ * The tests are `musicValidate.test.ts` (L-F3a). The tempo walk below is local arithmetic until G1's compiled grid
+ * exists; swap it for G1's `musicGrid.ts` then.
  */
 
 import { MUSIC_RINGS_PRESETS } from "./settings";
