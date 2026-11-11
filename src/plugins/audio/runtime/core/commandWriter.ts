@@ -206,7 +206,7 @@ export class CommandWriter implements VoiceCommandSink {
   private sorted = true;
   private lastStamp = Number.NEGATIVE_INFINITY;
 
-  private readonly playRec: Play = { voiceId: 0, frameOffset: ASAP, clip: 0, bus: 0, flags: 0, group: 0, reserved: 0, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, startOffsetFrames: 0 };
+  private readonly playRec: Play = { voiceId: 0, frameOffset: ASAP, clip: 0, bus: 0, flags: 0, group: 0, gate: 0, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, startOffsetFrames: 0 };
   private readonly stopRec: Stop = { voiceId: 0, frameOffset: ASAP, fadeFrames: 0, reason: 0 };
   private readonly fadeRec: Fade = { voiceId: 0, frameOffset: ASAP, target: 0, frames: 0, flags: 0 };
   private readonly paramsRec: SetParams = { voiceId: 0, frameOffset: ASAP, mask: 0, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, bus: 0, rampFrames: 0, flags: 0 };

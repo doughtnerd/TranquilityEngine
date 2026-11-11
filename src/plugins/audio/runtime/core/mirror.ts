@@ -358,8 +358,6 @@ export function makeStatusBlock(fields: Partial<StatusBlock> = {}): StatusBlock 
     zoneUsedKB: 0,
     workBed: 0,
     workZones: 0,
-    musicRingCount: 0,
-    groupStartCount: 0,
     musicRingsOpen: 0,
     streamStartsLate: 0,
     groupsLate: 0,
@@ -380,6 +378,8 @@ export function makeStatusBlock(fields: Partial<StatusBlock> = {}): StatusBlock 
     beds: [],
     zones: [],
     zoneEvents: [],
+    musicRings: [],
+    groupStarts: [],
     ...fields,
   };
 }

@@ -178,7 +178,7 @@ class Rig {
 
 const play = (id: number, gain: number): Writer => (view, off) =>
   writePlay(view, off, {
-    voiceId: id, frameOffset: ASAP, clip: CLIP, bus: 0, flags: PLAY_FLAGS_MIXED | PLAY_FLAGS_LOOP | PLAY_FLAGS_SPATIAL, group: 0, reserved: 0, gain, pitch: 1,
+    voiceId: id, frameOffset: ASAP, clip: CLIP, bus: 0, flags: PLAY_FLAGS_MIXED | PLAY_FLAGS_LOOP | PLAY_FLAGS_SPATIAL, group: 0, gate: 0, gain, pitch: 1,
     dirX: 0, dirY: 0, dirZ: -1, lpHz: 20_000, score: 0, startOffsetFrames: 0,
   });
 
