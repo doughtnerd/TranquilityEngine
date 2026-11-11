@@ -324,7 +324,7 @@ fn stream_open(core: &mut Core, msg: &[u8]) -> i32 {
     if core.streams_mut().open(&o) {
         return wire::ERR_OK;
     }
-    let event = crate::counters::Event { id: o.stream_id, code: wire::stream_event::ERROR };
+    let event = crate::counters::Event { id: o.stream_id, code: core.streams().refusal_code(&o) };
     status::counters_mut(core).stream_events.push(event);
     wire::ERR_BAD_ARG
 }

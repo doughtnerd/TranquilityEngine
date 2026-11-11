@@ -250,6 +250,9 @@ pub struct Ring {
     pub tail_channels: u32,
     /// Splices taken (E4.4; see the module notes); for tests.
     pub splices: u32,
+    /// 0166 M4: `written` when the current epoch began (0 after an open or a restart, the splice
+    /// frame after a splice), so `written - epoch_base` is the current epoch's frames (primed).
+    pub epoch_base: u64,
 }
 
 impl Ring {
@@ -267,6 +270,8 @@ pub struct StreamStore {
     count: usize,
     /// 0166 M4: `M`, the music pool's rings (the last `music` narrow rings).
     music: usize,
+    /// 0166 M4: `music` opens refused with the pool full (cumulative, wrapping; kept over RESET).
+    music_refused: u32,
     wide: usize,
     storage: &'static mut [f32],
     wide_storage: &'static mut [f32],
@@ -274,7 +279,7 @@ pub struct StreamStore {
 
 impl Default for StreamStore {
     fn default() -> StreamStore {
-        StreamStore { rings: [Ring::default(); MAX_RINGS], count: 0, music: 0, wide: 0, storage: &mut [], wide_storage: &mut [] }
+        StreamStore { rings: [Ring::default(); MAX_RINGS], count: 0, music: 0, music_refused: 0, wide: 0, storage: &mut [], wide_storage: &mut [] }
     }
 }
 
@@ -299,7 +304,7 @@ impl StreamStore {
         let music = music_rings.min(MAX_MUSIC_RINGS).min(total);
         let general = (total - music).min(MAX_STREAMS);
         let wide_count = (wide.len() / WIDE_RING_BYTES).min(MAX_WIDE);
-        StreamStore { rings: [Ring::default(); MAX_RINGS], count: general + music, music, wide: wide_count, storage: floats(region), wide_storage: floats(wide) }
+        StreamStore { rings: [Ring::default(); MAX_RINGS], count: general + music, music, music_refused: 0, wide: wide_count, storage: floats(region), wide_storage: floats(wide) }
     }
 
     /// Rings available, every pool (ring indices are `0..capacity()`).
@@ -382,17 +387,27 @@ impl StreamStore {
     /// STREAM_OPEN: takes a free ring for the stream, or restarts its ring for a new epoch (a
     /// repeat, or an older epoch, changes nothing; a seek's SEEK may have restarted it already,
     /// then this gives the shape). Returns false when no ring is free or the shape is unusable
-    /// (the caller queues stream event 3).
+    /// (the caller queues the event [`StreamStore::refusal_code`] names: 3, or 4 for a full music
+    /// pool).
+    ///
+    /// 0166 M4 (api-and-models §4.3): a STREAM_OPEN with `STREAM_OPEN_FLAG_MUSIC` takes only a ring
+    /// of the music pool (`G..G + M`), and one without it never does; none free is refused (counted
+    /// in `music_refused`), never a fall back to the other pool. A music stream is 1-2 channels (the
+    /// pool's rings are narrow), and a restart can't move a stream between pools.
     pub fn open(&mut self, o: &StreamOpen) -> bool {
         if o.channels == 0 || o.channels as usize > WIDE_CHANNELS || !(o.sample_rate > 0.0) {
             return false;
         }
+        let music = o.flags & wire::STREAM_OPEN_FLAG_MUSIC != 0;
         // B4: 1-2 channels take a narrow ring, 3-16 a wide one.
         let wide = o.channels as usize > RING_CHANNELS;
+        if music && wide {
+            return false;
+        }
         match self.index_of(o.stream_id) {
             Some(i) => {
-                if wide != (i >= self.count) {
-                    return false; // a restart can't change the class
+                if wide != (i >= self.count) || music != self.is_music(i) {
+                    return false; // a restart can't change the class or the pool
                 }
                 let r = &mut self.rings[i];
                 if r.epoch == o.epoch {
@@ -411,7 +426,7 @@ impl StreamStore {
                 }
                 true
             }
-            None => match (if wide { self.count..self.capacity() } else { 0..self.count }).find(|&i| self.rings[i].open == 0) {
+            None => match self.pool(wide, music).find(|&i| self.rings[i].open == 0) {
                 Some(i) => {
                     self.rings[i] = Ring {
                         open: 1,
@@ -427,9 +442,65 @@ impl StreamStore {
                     };
                     true
                 }
-                None => false,
+                None => {
+                    if music {
+                        self.music_refused = self.music_refused.wrapping_add(1);
+                    }
+                    false
+                }
             },
         }
+    }
+
+    /// The ring indices of a pool: wide (`count..capacity`), music (`G..G + M`) or general narrow
+    /// (`0..G`).
+    fn pool(&self, wide: bool, music: bool) -> core::ops::Range<usize> {
+        if wide {
+            self.count..self.capacity()
+        } else if music {
+            self.general_count()..self.count
+        } else {
+            0..self.general_count()
+        }
+    }
+
+    /// The stream event a refused [`StreamStore::open`] of `o` reports (api-and-models §4.3):
+    /// `MUSIC_FULL` (4) for a well-formed `music` open of a new stream that found the music pool
+    /// full, `ERROR` (3) otherwise (no general or wide ring free, an unusable shape, a restart
+    /// that changes class or pool). Call it after `open` returned false.
+    pub fn refusal_code(&self, o: &StreamOpen) -> u32 {
+        let music = o.flags & wire::STREAM_OPEN_FLAG_MUSIC != 0;
+        let shape_ok = o.channels >= 1 && o.channels as usize <= RING_CHANNELS && o.sample_rate > 0.0;
+        if music && shape_ok && self.index_of(o.stream_id).is_none() && self.pool(false, true).all(|i| self.rings[i].open != 0) {
+            wire::stream_event::MUSIC_FULL
+        } else {
+            wire::stream_event::ERROR
+        }
+    }
+
+    /// 0166 M4: `music` STREAM_OPENs refused with the music pool full since init (wrapping; STATUS
+    /// copies it to `MusicCounters::music_ring_refused`).
+    pub fn music_refused(&self) -> u32 {
+        self.music_refused
+    }
+
+    /// 0166 M4 (api-and-models §4.4): every open music ring as a `musicRings` entry, in ring order:
+    /// the stream id and `epochFlags` (bits 0-29 the epoch, bit 30 primed: at least
+    /// [`START_FRAMES`] frames of the current epoch committed or the input ended, bit 31 bound: a
+    /// voice reads it and hasn't ended).
+    pub fn music_rings(&self) -> impl Iterator<Item = (u32, u32)> + '_ {
+        self.pool(false, true).filter_map(move |i| {
+            let r = &self.rings[i];
+            if r.open == 0 {
+                return None;
+            }
+            let primed = r.awaiting_open == 0 && (r.written - r.epoch_base >= START_FRAMES || r.input_done());
+            let bound = r.voice != 0 && r.orphan == 0;
+            let flags = (r.epoch & wire::MUSIC_RING_EPOCH_MASK)
+                | if primed { wire::MUSIC_RING_PRIMED } else { 0 }
+                | if bound { wire::MUSIC_RING_BOUND } else { 0 };
+            Some((r.id, flags))
+        })
     }
 
     /// SEEK of stream `id` (B3b): restarts its ring at `epoch` and stream frame `frame` now, ahead
@@ -517,6 +588,7 @@ impl StreamStore {
         }
         r.epoch = o.epoch;
         r.written = at;
+        r.epoch_base = at;
         r.reserved = 0;
         r.last = 0;
         r.flags = o.flags;
