@@ -1,6 +1,19 @@
 /**
  * The audio engine system (ADR 0074): the plugin's `activate` registers it (`registerEngineSystems`), so it
  * runs in every World and is listed with the engine's systems.
+ *
+ * ADR 0162 (K4): the frame runs main's M3 passes in one order for both backends (api-and-models §6, architecture §1):
+ *
+ * 1. **attenuation**: the core's `frameAttenuate` (gain, direction, `audibility0`); the Babylon fallback pans itself;
+ * 2. **Doppler** (`core/doppler.ts`, D3), 3. **zones** (`core/zones.ts`, C5, the core only: inert on the fallback),
+ *    4. **occlusion** (`core/occlusion.ts`, D2a): over the backend's `SpatialVoiceView`, results back through it;
+ * 5. **audibility × smoothed occlusion** and **selection**: the core's `frameSelect`;
+ * 6. **panner pick** (`core/pannerPick.ts`, A5), 7. **fx staging** (`core/voiceFx.ts`), 8. **listener** (LISTENER,
+ *    `core/listener.ts`, B5), then the core's BATCH (`frameCommit`).
+ *
+ * On a backend that implements only `SpatialPassHost` (the Babylon fallback, F1), Doppler and occlusion run on main the
+ * same way and its `update(dt)` follows; a backend with neither (the pending backend, test fakes) just gets `update(dt)`.
+ * Nothing in this file changes for a feature: each fills its own file.
  */
 import { mixer } from "../../../engine/audio/mixer";
 import type { BuiltinSystem } from "../../../engine/core/systems";
@@ -9,6 +22,8 @@ import { _startWorldService, _worldServiceIds, _worldServiceOf } from "../../../
 import { Camera } from "../../../engine/render/components";
 import type { GameObject } from "../../../engine/scene/GameObject";
 import { AudioListener, listenerPose } from "./AudioListener";
+import { isSpatialPassHost, isStagedFrameHost, ListenerFrame } from "./core/spatial";
+import type { AudioBackend } from "./backend";
 import { AudioSource, worldKeyOf, worldPlays } from "./AudioSource";
 import { audioBackend, hasAudioBackend, isPendingCoreBackend } from "./backend";
 import { events } from "./events/eventRuntime";
@@ -53,6 +68,39 @@ const reportOne = (key: number, owner: object): void => {
 /** The keys the host lists this frame (reused, so nothing allocates). */
 const liveKeys = new Set<number>();
 
+/** ADR 0162 (K4): the listener frame main's passes share (one: only the World with the view runs the frame). */
+const frame = new ListenerFrame();
+
+/**
+ * ADR 0162 (K4): one backend frame in the M3 order (see the header). The settings are read once; each pass takes what it
+ * needs from them.
+ */
+function runFrame(backend: AudioBackend, dt: number): void {
+  if (isStagedFrameHost(backend)) {
+    const settings = mixer.audioSettings;
+    const view = backend.spatialVoices;
+    backend.frameAttenuate(dt); // 1. attenuation
+    backend.collectSpatialVoices();
+    backend.doppler.run(frame, view, settings); // 2. Doppler
+    backend.zones.run(frame, view, settings); // 3. zones
+    backend.occlusion.run(frame, view, settings); // 4. occlusion
+    backend.frameSelect(); // 5. audibility × smoothed occlusion, selection
+    backend.framePickPanners(); // 6. panner pick
+    backend.frameStageFx(); // 7. fx staging
+    backend.frameStageListener(frame); // 8. listener
+    backend.frameCommit();
+    return;
+  }
+  if (isSpatialPassHost(backend)) {
+    // The Babylon fallback (F1, api-and-models §8): main's Doppler and occlusion, then its own frame. No zones (inert).
+    const settings = mixer.audioSettings;
+    backend.collectSpatialVoices();
+    backend.doppler.run(frame, backend.spatialVoices, settings);
+    backend.occlusion.run(frame, backend.spatialVoices, settings);
+  }
+  backend.update?.(dt);
+}
+
 /**
  * Per frame, in the World that has the view: place the backend's listener at the first enabled
  * AudioListener (else the main camera) and move the spatial sources to their nodes (ADR 0074).
@@ -73,9 +121,11 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
         _startWorldService(world, AUDIO).catch((err: unknown) => console.error(`[myco] World service "${AUDIO}" couldn't load:`, err));
       }
       let listener: GameObject | null = null;
+      let listenerComponent: AudioListener | null = null;
       for (const l of world._componentsOfType(AudioListener)) {
         if (l.isActiveAndEnabled) {
           listener = l.node;
+          listenerComponent = l;
           break;
         }
       }
@@ -84,12 +134,14 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
         for (const c of world._componentsOfType(Camera)) if (c.isActiveAndEnabled && (!best || c.depth < best.depth)) best = c;
         listener = best?.node ?? null;
       }
-      if (listener) {
-        const { position: p, forward: f, up: u } = listenerPose(listener);
-        audioBackend().setListener({ position: p, forward: f, up: u });
-      }
+      const pose = listener ? listenerPose(listener) : null;
+      if (pose) audioBackend().setListener({ position: pose.position, forward: pose.forward, up: pose.up });
+      // ADR 0162 (K4): the frame's listener for the passes (R14: this World has the view).
+      frame.set(world, worldKeyOf(world), listener, pose, dt);
+      frame.setOverride(listenerComponent?._velocityOverride ?? null);
       mixer.update(dt);
-      audioBackend().update?.(dt);
+      runFrame(audioBackend(), dt);
+      listenerComponent?._noteVelocity(frame.velX, frame.velY, frame.velZ);
       events().update(dt); // ADR 0158: due continuous-container timers; the fallback's automation
       for (const s of world._componentsOfType(AudioSource)) s._sync();
     },

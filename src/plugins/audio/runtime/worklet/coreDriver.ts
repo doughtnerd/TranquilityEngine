@@ -73,8 +73,30 @@ const MAX_PAGES = 65_536;
 // `myco_audio_layout_bytes` and `myco_audio_zone_kernel_budget_bytes`, so a drift fails a test.
 const REGION_ALIGN = 64;
 const QUANTUM = 128;
-/** `bed::BED_SLOT_BYTES`: one bed slot or private decoder. */
-const BED_SLOT_BYTES = 48 * 1024;
+/**
+ * The `Beds` region's parts (`bed::region_bytes`, A4): a header, the FFT scratch, the shared MagLS filters for P partitions,
+ * then one slot (16-channel accumulator + decoder) per bed or private decoder. P is the HRTF's partition count at the rate
+ * (2 up to 48 kHz, 4 from 88.2 kHz); at other counts MagLS can't run and a slot is its accumulator alone.
+ */
+const BEDS_HEADER_BYTES = 20_672;
+const BEDS_SCRATCH_BYTES = 33_792;
+const BEDS_FILTER_BYTES: Readonly<Record<number, number>> = { 2: 65_600, 4: 131_136 };
+const BEDS_SLOT_BYTES: Readonly<Record<number, number>> = { 2: 49_216, 4: 81_984 };
+const BEDS_ACC_ONLY_SLOT_BYTES = 8_192;
+
+/** `hrtf::partitions_for_sample_rate`: the HRTF's FFT size at the rate (as `core/hrir.ts`'s `hrtfFftSize`) over 256, at least 1. */
+function bedPartitions(sampleRate: number): number {
+  const ratio = Math.fround(Math.fround(sampleRate) / 44100);
+  const exponent = Math.min(Math.max(0, Math.floor(Math.log2(256 * ratio))), 29);
+  const fft = 2 * Math.max(2, 2 ** exponent);
+  return Math.max(1, fft / 256);
+}
+
+function bedsRegionBytes(slots: number, sampleRate: number): number {
+  if (slots === 0) return 0;
+  const p = bedPartitions(sampleRate);
+  return BEDS_HEADER_BYTES + BEDS_SCRATCH_BYTES + (BEDS_FILTER_BYTES[p] ?? 0) + slots * (BEDS_SLOT_BYTES[p] ?? BEDS_ACC_ONLY_SLOT_BYTES);
+}
 /** `stream::FADE_TAIL_FRAMES`. */
 const FADE_TAIL_FRAMES = 1_536;
 /** `stream::WIDE_RING_BYTES`: 16 × (16,384 + 2,048 + 1,536) × 4 B. */
@@ -117,7 +139,7 @@ export function zoneMaxFrames(preset: CorePreset, sampleRate: number): number {
  * scratch), each aligned as `layout.rs` aligns it. 0 for the first three when their parameter is 0.
  */
 export function spatialRegionsBytes(preset: CorePreset, sampleRate: number): number {
-  const beds = (preset.maxBeds + preset.maxWide) * BED_SLOT_BYTES;
+  const beds = bedsRegionBytes(preset.maxBeds + preset.maxWide, sampleRate);
   const zones = preset.maxZoneSlots * (preset.maxZoneSlots > 0 ? zoneSlotStateBytes(zoneMaxFrames(preset, sampleRate)) : 0);
   const wide = preset.maxWide * WIDE_RING_BYTES;
   const fx = alignUp(preset.maxMixed * FX_ENTRY_BYTES, REGION_ALIGN);

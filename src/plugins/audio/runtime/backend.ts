@@ -30,6 +30,10 @@ export interface AudioHandle {
   stop(fadeSeconds?: number): void;
   /** Ease this sound's own gain multiplier to `to` (linear, 0..4) over `seconds` (0 = at once). */
   fade(to: number, seconds: number): void;
+  /** ADR 0162 §1.1: the panner the sound uses ("flat", "equalPower", "hrtf", "bed" or "ambisonic"), read from the main-thread mirror; null once it has ended. */
+  readonly panner: AudioPanner | null;
+  /** ADR 0162 §1.1: the smoothed dry occlusion gain (1 open, lower as walls muffle it), read from the main-thread mirror. */
+  readonly occlusion: number;
 }
 
 /**
@@ -216,6 +220,19 @@ export interface PlayRequest {
   aux?: { bus: string; level: number };
 }
 
+/**
+ * ADR 0162 §1.2 (K4): the per-voice options a Play edit changes on a playing voice (`AudioSource.apply`). Omitted fields
+ * are kept. Ranges as `PlayRequest`'s; callers clamp.
+ */
+export interface VoiceSpatialOptions {
+  occlusion?: boolean;
+  dopplerLevel?: number;
+  reverbSend?: number;
+  reverbSendCurve?: SendCurve;
+  /** Degrees, -180..180 (ambisonic clips). */
+  yaw?: number;
+}
+
 /** One playing sound. */
 export interface AudioVoice {
   readonly playing: boolean;
@@ -263,6 +280,8 @@ export interface AudioVoice {
   setOcclusion?(gain: number, lpHz: number): void;
   /** §8, K4: main's clamped Doppler factor (1 none). The core folds it into pitch; Babylon into `playbackRate` (decoded clips only). */
   setDopplerRate?(factor: number): void;
+  /** §1.2, K4: Play edits of the source's M3 options (`VoiceSpatialOptions`); a backend without them leaves it out. */
+  setSpatialOptions?(o: VoiceSpatialOptions): void;
 }
 
 /**
@@ -452,6 +471,11 @@ class PendingVoice implements AudioVoice {
   private fadeTo: number | null = null;
   /** ADR 0158 §4: the loop region the event runtime asked for while waiting (the latest call wins). */
   private loop: { start: number; end: number; looping: boolean } | null = null;
+  /** ADR 0162 (K4): main's latest M3 values while waiting, applied at the hand-over where the real voice takes them. */
+  private velocity: Vec3Like | null = null;
+  private occlusionValue: { gain: number; lpHz: number } | null = null;
+  private dopplerRate: number | null = null;
+  private spatialOptions: VoiceSpatialOptions | null = null;
   private readonly localId = nextPendingId++;
   readonly queuedAt = performance.now();
 
@@ -496,6 +520,15 @@ class PendingVoice implements AudioVoice {
     // gets it from that re-send through the core's automation, by id.
     if (this.loop && voice.setLoop) voice.setLoop(this.loop.start, this.loop.end, this.loop.looping);
     this.loop = null;
+    // ADR 0162 (K4): the M3 values given while waiting, where the voice takes them.
+    if (this.spatialOptions && voice.setSpatialOptions) voice.setSpatialOptions(this.spatialOptions);
+    if (this.velocity && voice.setVelocity) voice.setVelocity(this.velocity);
+    if (this.occlusionValue && voice.setOcclusion) voice.setOcclusion(this.occlusionValue.gain, this.occlusionValue.lpHz);
+    if (this.dopplerRate !== null && voice.setDopplerRate) voice.setDopplerRate(this.dopplerRate);
+    this.spatialOptions = null;
+    this.velocity = null;
+    this.occlusionValue = null;
+    this.dopplerRate = null;
   }
   /** Left out at the hand-over (D5: an old or surplus one-shot). */
   drop(): void {
@@ -534,6 +567,23 @@ class PendingVoice implements AudioVoice {
   setLoop(start: number, end: number, looping: boolean): void {
     if (this.inner) this.inner.setLoop?.(start, end, looping);
     else this.loop = { start, end, looping };
+  }
+  setVelocity(v: Vec3Like): void {
+    if (this.inner) this.inner.setVelocity?.(v);
+    else this.velocity = { x: v.x, y: v.y, z: v.z };
+  }
+  setOcclusion(gain: number, lpHz: number): void {
+    if (this.inner) this.inner.setOcclusion?.(gain, lpHz);
+    else this.occlusionValue = { gain, lpHz };
+  }
+  setDopplerRate(factor: number): void {
+    if (this.inner) this.inner.setDopplerRate?.(factor);
+    else this.dopplerRate = factor;
+  }
+  /** Merged while waiting (omitted fields keep earlier values), as on a playing voice. */
+  setSpatialOptions(o: VoiceSpatialOptions): void {
+    if (this.inner) this.inner.setSpatialOptions?.(o);
+    else this.spatialOptions = { ...this.spatialOptions, ...o };
   }
   pause(): void {
     if (this.inner) this.inner.pause();

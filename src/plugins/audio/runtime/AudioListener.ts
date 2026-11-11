@@ -4,12 +4,42 @@
  * is +Y. Without one, the main camera is the listener.
  */
 import { Component } from "../../../engine/core/Component";
-import { Quaternion, Vector3 } from "../../../engine/core/math";
+import { Quaternion, Vector3, type Vec3Like } from "../../../engine/core/math";
 import { component } from "../../../engine/core/registry";
 import type { GameObject } from "../../../engine/scene/GameObject";
 
 @component("engine.AudioListener")
-export class AudioListener extends Component {}
+export class AudioListener extends Component {
+  private readonly estimated = new Vector3();
+  private readonly overridden = new Vector3();
+  /** @internal ADR 0162 §1.4: the velocity `setVelocity` gave, or null to estimate (the audio system passes it to the Doppler pass). */
+  _velocityOverride: Vector3 | null = null;
+
+  /**
+   * ADR 0162 §1.4: the listener's velocity in world units per second, from the node's motion (or `setVelocity`'s value).
+   * Doppler uses it. Read-only: change it with `setVelocity`.
+   */
+  get velocity(): Vector3 {
+    return this._velocityOverride ? this.overridden : this.estimated;
+  }
+
+  /**
+   * ADR 0162 §1.4: drive the listener's velocity from physics (world units per second), or set zero across a camera cut;
+   * null goes back to estimating it from the node's motion.
+   */
+  setVelocity(v: Vec3Like | null): void {
+    // D3 owns the body (the Doppler pass reads the override from the listener frame); K4 stores the value.
+    if (v && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)) {
+      this.overridden.set(v.x, v.y, v.z);
+      this._velocityOverride = this.overridden;
+    } else this._velocityOverride = null;
+  }
+
+  /** @internal The audio system, each frame: the listener velocity the Doppler pass estimated (0 until D3). */
+  _noteVelocity(x: number, y: number, z: number): void {
+    if (this.estimated.x !== x || this.estimated.y !== y || this.estimated.z !== z) this.estimated.set(x, y, z);
+  }
+}
 
 /** Rotate (x, y, z) by `q`. */
 function rotate(q: Quaternion, x: number, y: number, z: number): Vector3 {
