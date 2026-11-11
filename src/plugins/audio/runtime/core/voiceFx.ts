@@ -17,9 +17,25 @@
 //   core held (its pool entry is gone), so the next promotion sends again.
 //
 // Everything is preallocated in the constructor; staging and flushing allocate nothing.
-import { BUS_LP_OFF_HZ, AUX_BUS_NONE, LP_TOP } from "../wire.generated";
+import {
+  ASAP,
+  AUX_BUS_NONE,
+  BUS_LP_OFF_HZ,
+  HP_BOTTOM,
+  LP_TOP,
+  SET_PARAMS_MASK_LP_HZ,
+  SET_VOICE_FX_FIXED_END,
+  SET_VOICE_FX_MASK_AUX,
+  SET_VOICE_FX_MASK_HP_HZ,
+  SET_VOICE_FX_MASK_SENDS,
+  SET_VOICE_FX_MASK_YAW,
+  writeSetVoiceFx,
+  type SetVoiceFx,
+} from "../wire.generated";
 import type { CommandWriter, VoiceFxArgs } from "./commandWriter";
+import { encodeVoiceId } from "./ids";
 import type { ReplayBuilder } from "./replay";
+import { VoiceState } from "./voiceTable";
 
 /** @internal Who set a voice's low-pass (`lpBy`, S3): the lowest contribution wins. */
 export const LowpassBy = {
@@ -81,6 +97,20 @@ export class VoiceFx {
   private dirtyTop = 0;
   /** The record `setVoiceFx` copies from (reused). */
   private readonly args: VoiceFxArgs;
+  /** The REPLAY record `replayVoice` writes (reused) and its writer (one closure, made once). */
+  private readonly replayRec: SetVoiceFx = {
+    voiceId: 0,
+    frameOffset: ASAP,
+    mask: 0,
+    rampFrames: 0,
+    hpHz: 0,
+    send: [0, 0, 0, 0],
+    yaw: 0,
+    auxLevel: 0,
+    auxBus: AUX_BUS_NONE,
+    reserved: 0,
+  };
+  private readonly replayWrite = (view: DataView, off: number): number => writeSetVoiceFx(view, off, this.replayRec);
 
   constructor(
     readonly table: VoiceFxTable,
@@ -112,69 +142,83 @@ export class VoiceFx {
    * contribution and its source, and writes it into `table.lpHz[i]` at once (`BUS_LP_OFF_HZ` with none).
    */
   setLowpass(i: number, by: LowpassByCode, hz: number): void {
-    void i; void by; void hz; // L-K4a
+    if (by < LowpassBy.OCCLUSION || by > LOWPASS_SOURCES) return;
+    const base = i * LOWPASS_SOURCES;
+    this.lpBySource[base + by - 1] = Number.isFinite(hz) && hz < LP_TOP ? hz : LP_TOP;
+    let best = LP_TOP;
+    let winner: LowpassByCode = LowpassBy.NONE;
+    for (let s = 0; s < LOWPASS_SOURCES; s++) {
+      const v = this.lpBySource[base + s]!;
+      if (v < best) {
+        best = v;
+        winner = (s + 1) as LowpassByCode;
+      }
+    }
+    this.lpWinner[i] = winner;
+    this.table.lpHz[i] = winner === LowpassBy.NONE ? BUS_LP_OFF_HZ : best;
+    this.mark(i);
   }
 
-  /** Slot `i`'s high-pass, Hz; `HP_BOTTOM` (20) or less is off. */
+  /** Slot `i`'s high-pass, Hz; `HP_BOTTOM` (20) or less is off (stored as 0, the default). */
   setHighpass(i: number, hz: number): void {
-    void i; void hz; // L-K4a
+    this.hp[i] = Number.isFinite(hz) && hz > HP_BOTTOM ? hz : 0;
+    this.mark(i);
   }
 
   /** Slot `i`'s send into zone slot `slot` (0..3), linear, pre-distance (C3: main folds volume, curve, weight and wet factor). */
   setSend(i: number, slot: number, level: number): void {
-    void i; void slot; void level; // L-K4a
+    if (slot < 0 || slot >= FX_SENDS) return;
+    this.send4[i * FX_SENDS + slot] = Number.isFinite(level) && level > 0 ? level : 0;
+    this.mark(i);
   }
 
   /** Slot `i`'s yaw, radians (ambisonic voices). */
   setYaw(i: number, rad: number): void {
-    void i; void rad; // L-K4a
+    this.yawRad[i] = Number.isFinite(rad) ? rad : 0;
+    this.mark(i);
   }
 
   /** Slot `i`'s aux send: bus index and linear level (`AUX_BUS_NONE` or level 0: none). */
   setAux(i: number, bus: number, level: number): void {
-    void i; void bus; void level; // L-K4a
+    const on = bus !== AUX_BUS_NONE && Number.isFinite(level) && level > 0;
+    this.auxBusOf[i] = on ? bus : AUX_BUS_NONE;
+    this.auxLevelOf[i] = on ? level : 0;
+    this.mark(i);
   }
 
   // --- Reads (debug, replay, tests) ---
 
   /** Slot `i`'s merged low-pass target, Hz (`BUS_LP_OFF_HZ` with no contribution). */
   lowpass(i: number): number {
-    void i; // L-K4a
-    return BUS_LP_OFF_HZ;
+    const w = this.lpWinner[i]!;
+    return w === LowpassBy.NONE ? BUS_LP_OFF_HZ : this.lpBySource[i * LOWPASS_SOURCES + w - 1]!;
   }
 
   /** Who set slot `i`'s low-pass (`LowpassBy.NONE` with none). */
   lowpassBy(i: number): LowpassByCode {
-    void i; // L-K4a
-    return LowpassBy.NONE;
+    return this.lpWinner[i]! as LowpassByCode;
   }
 
   /** Slot `i`'s targets as C3 carries them. */
   highpass(i: number): number {
-    void i; // L-K4a
-    return 0;
+    return this.hp[i]!;
   }
   send(i: number, slot: number): number {
-    void i; void slot; // L-K4a
-    return 0;
+    return this.send4[i * FX_SENDS + slot]!;
   }
   yaw(i: number): number {
-    void i; // L-K4a
-    return 0;
+    return this.yawRad[i]!;
   }
   auxBus(i: number): number {
-    void i; // L-K4a
-    return AUX_BUS_NONE;
+    return this.auxBusOf[i]!;
   }
   auxLevel(i: number): number {
-    void i; // L-K4a
-    return 0;
+    return this.auxLevelOf[i]!;
   }
 
   /** True while slot `i`'s SET_VOICE_FX targets are C3's defaults (high-pass off, sends 0, yaw 0, no aux): nothing to send. */
   isDefault(i: number): boolean {
-    void i; // L-K4a
-    return true;
+    return this.activeMask(i) === 0;
   }
 
   // --- Sending ---
@@ -186,7 +230,22 @@ export class VoiceFx {
    * 0.5 dB), over `rampFrames`, asap. A virtual voice is sent nothing (its targets wait for its promotion). Clears the list.
    */
   flush(rampFrames: number): void {
-    void rampFrames; // L-K4a
+    const t = this.table;
+    for (let k = 0; k < this.dirtyTop; k++) {
+      const i = this.dirtyList[k]!;
+      this.listed[i] = 0;
+      if (t.state[i] !== VoiceState.PLAYING) continue;
+      if (Math.abs(t.lpHz[i]! - this.sentLp[i]!) > FX_HZ_THRESHOLD) {
+        this.writer.setParams(encodeVoiceId(i, t.gen[i]!), SET_PARAMS_MASK_LP_HZ, 0, 0, 0, 0, 0, t.lpHz[i]!, rampFrames);
+        this.sentLp[i] = t.lpHz[i]!;
+      }
+      const mask = this.movedMask(i);
+      if (mask !== 0) {
+        this.writer.setVoiceFx(this.fillArgs(i, mask, rampFrames));
+        this.commit(i, mask);
+      }
+    }
+    this.dirtyTop = 0;
   }
 
   /**
@@ -194,22 +253,36 @@ export class VoiceFx {
    * started mixed and its targets aren't default, SET_VOICE_FX follows at the same frame with every non-default field.
    */
   onPlay(i: number, atFrame?: number): void {
-    void i; void atFrame; // L-K4a
+    this.resetSent(i);
+    this.sentLp[i] = this.table.lpHz[i]!;
+    if (this.table.state[i] === VoiceState.PLAYING) this.sendActive(i, atFrame);
   }
 
   /** Selection promoted slot `i` (its SET_MIXED carried `table.lpHz[i]`): every non-default target is re-sent (C20). */
   onPromote(i: number): void {
-    void i; // L-K4a
+    this.resetSent(i);
+    this.sentLp[i] = this.table.lpHz[i]!;
+    this.sendActive(i, undefined);
   }
 
   /** Slot `i` went virtual (selection, or the core's demote): the core's pool entry is gone, so what was sent resets to the defaults. */
   onDemote(i: number): void {
-    void i; // L-K4a
+    this.resetSent(i);
   }
 
   /** Slot `i` was freed: every target and sent value back to its default, unlisted. */
   forget(i: number): void {
-    void i; // L-K4a
+    const base = i * LOWPASS_SOURCES;
+    for (let s = 0; s < LOWPASS_SOURCES; s++) this.lpBySource[base + s] = LP_TOP;
+    this.lpWinner[i] = LowpassBy.NONE;
+    this.table.lpHz[i] = BUS_LP_OFF_HZ;
+    this.hp[i] = 0;
+    this.send4.fill(0, i * FX_SENDS, i * FX_SENDS + FX_SENDS);
+    this.yawRad[i] = 0;
+    this.auxBusOf[i] = AUX_BUS_NONE;
+    this.auxLevelOf[i] = 0;
+    this.resetSent(i);
+    this.unlist(i);
   }
 
   /**
@@ -217,12 +290,125 @@ export class VoiceFx {
    * every non-default field, and the sent values follow. Nothing for a default voice.
    */
   replayVoice(b: ReplayBuilder, id: number, i: number): void {
-    void b; void id; void i; // L-K4a
+    // The rebuild's RESET emptied the core's pool, and the replayed PLAY carries `table.lpHz[i]`.
+    this.resetSent(i);
+    this.sentLp[i] = this.table.lpHz[i]!;
+    const mask = this.activeMask(i);
+    if (mask === 0) return;
+    const r = this.replayRec;
+    r.voiceId = id;
+    r.mask = mask;
+    r.rampFrames = 0;
+    r.hpHz = this.hp[i]!;
+    for (let k = 0; k < FX_SENDS; k++) r.send[k] = this.send4[i * FX_SENDS + k]!;
+    r.yaw = this.yawRad[i]!;
+    r.auxLevel = this.auxLevelOf[i]!;
+    r.auxBus = this.auxBusOf[i]!;
+    b.record(SET_VOICE_FX_FIXED_END, this.replayWrite);
+    this.commit(i, mask);
+  }
+
+  // --- Helpers (allocate nothing) ---
+
+  /** Lists slot `i` for the next flush (once). */
+  private mark(i: number): void {
+    if (this.listed[i] !== 0) return;
+    this.listed[i] = 1;
+    this.dirtyList[this.dirtyTop++] = i;
+  }
+
+  /** Removes slot `i` from the dirty list (swap with the last entry). */
+  private unlist(i: number): void {
+    if (this.listed[i] === 0) return;
+    this.listed[i] = 0;
+    for (let k = 0; k < this.dirtyTop; k++) {
+      if (this.dirtyList[k] !== i) continue;
+      this.dirtyList[k] = this.dirtyList[--this.dirtyTop]!;
+      return;
+    }
+  }
+
+  /** The SET_VOICE_FX mask of the groups that are non-default now (0: the voice is default). */
+  private activeMask(i: number): number {
+    let m = 0;
+    if (this.hp[i]! > HP_BOTTOM) m |= SET_VOICE_FX_MASK_HP_HZ;
+    for (let k = 0; k < FX_SENDS; k++) {
+      if (this.send4[i * FX_SENDS + k] !== 0) {
+        m |= SET_VOICE_FX_MASK_SENDS;
+        break;
+      }
+    }
+    if (this.yawRad[i] !== 0) m |= SET_VOICE_FX_MASK_YAW;
+    if (this.auxBusOf[i] !== AUX_BUS_NONE && this.auxLevelOf[i]! > 0) m |= SET_VOICE_FX_MASK_AUX;
+    return m;
+  }
+
+  /** The groups whose target moved past its threshold from what the core holds. */
+  private movedMask(i: number): number {
+    let m = 0;
+    if (Math.abs(this.hp[i]! - this.sentHp[i]!) > FX_HZ_THRESHOLD) m |= SET_VOICE_FX_MASK_HP_HZ;
+    for (let k = 0; k < FX_SENDS; k++) {
+      if (levelMoved(this.send4[i * FX_SENDS + k]!, this.sentSend4[i * FX_SENDS + k]!)) {
+        m |= SET_VOICE_FX_MASK_SENDS;
+        break;
+      }
+    }
+    if (Math.abs(this.yawRad[i]! - this.sentYaw[i]!) > FX_YAW_THRESHOLD) m |= SET_VOICE_FX_MASK_YAW;
+    if (this.auxBusOf[i] !== this.sentAuxBus[i] || levelMoved(this.auxLevelOf[i]!, this.sentAuxLevel[i]!)) m |= SET_VOICE_FX_MASK_AUX;
+    return m;
+  }
+
+  /** Sends the non-default groups of slot `i` as one SET_VOICE_FX (at `atFrame`, asap when undefined), if there are any. */
+  private sendActive(i: number, atFrame: number | undefined): void {
+    const mask = this.activeMask(i);
+    if (mask === 0) return;
+    this.writer.setVoiceFx(this.fillArgs(i, mask, 0), atFrame);
+    this.commit(i, mask);
+  }
+
+  /** The reused record, filled with slot `i`'s targets (every field; `mask` says which the core applies). */
+  private fillArgs(i: number, mask: number, rampFrames: number): VoiceFxArgs {
+    const a = this.args;
+    a.voiceId = encodeVoiceId(i, this.table.gen[i]!);
+    a.mask = mask;
+    a.rampFrames = rampFrames;
+    a.hpHz = this.hp[i]!;
+    const send = a.send as Float32Array; // the constructor's own array (typed read-only on the record)
+    for (let k = 0; k < FX_SENDS; k++) send[k] = this.send4[i * FX_SENDS + k]!;
+    a.yaw = this.yawRad[i]!;
+    a.auxLevel = this.auxLevelOf[i]!;
+    a.auxBus = this.auxBusOf[i]!;
+    return a;
+  }
+
+  /** Records that the core now holds the targets of the groups in `mask`. */
+  private commit(i: number, mask: number): void {
+    if ((mask & SET_VOICE_FX_MASK_HP_HZ) !== 0) this.sentHp[i] = this.hp[i]!;
+    if ((mask & SET_VOICE_FX_MASK_SENDS) !== 0) {
+      for (let k = 0; k < FX_SENDS; k++) this.sentSend4[i * FX_SENDS + k] = this.send4[i * FX_SENDS + k]!;
+    }
+    if ((mask & SET_VOICE_FX_MASK_YAW) !== 0) this.sentYaw[i] = this.yawRad[i]!;
+    if ((mask & SET_VOICE_FX_MASK_AUX) !== 0) {
+      this.sentAuxBus[i] = this.auxBusOf[i]!;
+      this.sentAuxLevel[i] = this.auxLevelOf[i]!;
+    }
+  }
+
+  /** The core's pool entry is fresh (or gone): what it holds is C3's defaults, and lpHz is BUS_LP_OFF_HZ until a PLAY carries one. */
+  private resetSent(i: number): void {
+    this.sentLp[i] = BUS_LP_OFF_HZ;
+    this.sentHp[i] = 0;
+    this.sentSend4.fill(0, i * FX_SENDS, i * FX_SENDS + FX_SENDS);
+    this.sentYaw[i] = 0;
+    this.sentAuxBus[i] = AUX_BUS_NONE;
+    this.sentAuxLevel[i] = 0;
   }
 }
 
 /** @internal C3's level threshold: whether `next` differs from `sent` by more than 0.5 dB (a change from or to 0 always does). */
 export function levelMoved(next: number, sent: number): boolean {
-  void next; void sent; // L-K4a
-  return false;
+  const nextOff = next <= 0;
+  const sentOff = sent <= 0;
+  if (nextOff || sentOff) return nextOff !== sentOff;
+  return Math.abs(20 * Math.log10(next / sent)) > FX_LEVEL_DB_THRESHOLD;
 }
