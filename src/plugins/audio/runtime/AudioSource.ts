@@ -120,7 +120,7 @@ export class AudioSource extends Component {
   private appliedPitch = 1;
   /** ADR 0162 (K4): the §1.2 options last applied, and the curve object they carried. */
   private appliedM3 = "";
-  private appliedCurve: SendCurve | null = null;
+  private readonly appliedCurve: number[] = [];
   private readonly zeroVelocity = new Vector3();
   /** ADR 0162 §2.4 (B5): the playing clip is ambisonic, so `spatial`, the distance fields, `occlusion` and `dopplerLevel` don't apply. */
   private ambisonicClip = false;
@@ -171,7 +171,7 @@ export class AudioSource extends Component {
     this.voice = startClip(path, this.loop, this.output, { priority: clamp255(this.priority), world: worldKeyOf(this._world), ...this.spatialOptions() });
     this.applied = "";
     this.appliedM3 = "";
-    this.appliedCurve = null;
+    this.appliedCurve.length = 0;
     if (this.voice) this.apply(path);
   }
 
@@ -296,13 +296,29 @@ export class AudioSource extends Component {
     }
     // ADR 0162 §1.2 (K4): Play edits of the M3 options take effect next frame on a voice that takes them.
     const m3 = `${this.occlusion}|${this.dopplerLevel}|${this.reverbSend}|${this.ambisonicYaw}`;
-    if (m3 !== this.appliedM3 || this.reverbSendCurve !== this.appliedCurve) {
+    if (this.curveEdited() || m3 !== this.appliedM3) {
       const first = this.appliedM3 === "";
       this.appliedM3 = m3;
-      this.appliedCurve = this.reverbSendCurve;
       if (!first) voice.setSpatialOptions?.(this.spatialOptions());
     }
     if (spatial) voice.setPosition(this.node.transform!.worldPosition);
+  }
+
+  /** ADR 0162 E7: whether `reverbSendCurve`'s points differ from the last applied ones (a point edited in place counts; replacing the array with equal points doesn't). Refreshes the copy; no allocation once it is the right size. */
+  private curveEdited(): boolean {
+    const curve = this.reverbSendCurve, copy = this.appliedCurve;
+    const n = Array.isArray(curve) ? curve.length : 0;
+    let edited = copy.length !== n * 2;
+    for (let k = 0; k < n; k++) {
+      const x = curve[k]?.[0] as number, y = curve[k]?.[1] as number;
+      if (!Object.is(copy[2 * k], x) || !Object.is(copy[2 * k + 1], y)) {
+        edited = true;
+        copy[2 * k] = x;
+        copy[2 * k + 1] = y;
+      }
+    }
+    copy.length = n * 2;
+    return edited;
   }
 
   override _onActivate(): void {
