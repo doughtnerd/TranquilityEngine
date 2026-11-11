@@ -4,3 +4,5 @@
 2026-11-11T01:44:56Z 1.00 1.00 0.85 conv native exit 0
 2026-11-11T01:44:58Z 1.00 1.00 0.85 conv wasm start
 2026-11-11T01:44:58Z 1.00 1.00 0.85 conv wasm exit 1
+2026-11-11T01:44:59Z 1.00 1.00 0.85 conv chromium start
+2026-11-11T01:44:59Z 1.00 1.00 0.85 conv chromium exit 1
