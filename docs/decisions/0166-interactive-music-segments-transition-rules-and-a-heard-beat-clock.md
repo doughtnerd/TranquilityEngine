@@ -1,6 +1,6 @@
 # 0166. Interactive music (M4): music is built from segments with tempo maps, arranged by playlist and switch containers under a transition matrix, started sample-exact by priming streams first, with a beat clock on the main thread
 
-- **Status:** Proposed
+- **Status:** Proposed (revision 2, 2026-11-11: the RFC round in `docs/rfc/0166/`, see "RFC round (revision 2)" at the end; where the end section and the text above disagree, the end section wins)
 - **Date:** 2026-11-11
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -45,8 +45,11 @@ Plain-language meanings of the terms this record uses.
 **How the engine plays it**
 - **Priming:** opening a streamed file and filling its buffer *before* it must start, so its start can be sample-exact.
 - **Stream ring:** the per-stream buffer in the audio thread, 32,768 frames ≈ 0.68 s.
+- **Audio frame vs display frame:** an *audio frame* is one sample per channel (1/48,000 s); a *display frame* is one game loop tick (≈ 16.7 ms at 60 Hz). This record says which wherever it matters.
+- **Quantum:** the audio thread's block of 128 audio frames (≈ 2.7 ms at 48 kHz). "Splitting the quantum" means rendering it in pieces so a command can apply mid-block.
+- **Decoded clip vs stream:** a decoded clip is held whole in memory and always starts exactly; a stream is decoded as it plays and starts exactly only if primed.
 - **Stamped record:** a command to the audio thread that carries the exact audio frame it applies at. **asap** records apply on arrival.
-- **Heard clock:** `Audio.time`, the audio clock corrected for output latency, so it says when a sound is *heard*, not when it is computed.
+- **Heard clock:** `Audio.time` (seconds), the audio clock mapped to the browser clock through the device's output timestamp and less the limiter's look-ahead, so it says when a sound is *heard*, not when it is computed. It is sampled once per display frame, so a read in `update()` today is one frame old (the audio system runs in `lateUpdate`).
 - **Beat callback:** script code the engine runs when a beat, bar or cue of the music is about to be heard.
 
 **Rhythm mode**
@@ -111,7 +114,7 @@ Plain-language meanings of the terms this record uses.
   | worst: 16 stems, 4 stingers | +99 µs |
 
   A stem costs ≈ 40% of an average high voice.
-- **Sample-exact fades by stamped record are a trap.** A stamped gain record **splits the quantum for every live voice** (`native/audio/crates/audio-core/src/voices.rs:310`), +538 µs per split quantum. In wasm, `libm` `sqrtf` and `sinf` per sample run 4.5× slower than natively.
+- **Sample-exact fades by stamped record are a trap.** Every stamped record (gain, PLAY or STOP) **splits the quantum for every live voice** (`native/audio/crates/audio-core/src/voices.rs:310`), +538 µs per split quantum. In wasm, `libm` `sqrtf` and `sinf` per sample run 4.5× slower than natively.
 - **Beat prediction on main is accurate.** Predicting beats on main from a tempo map plus `ClockMap` put 66 of 69 steady beats in the ideal frame (3 one frame early by 1.7 ms) and every tempo-change and transition beat in the ideal frame, with 0 missed, doubled or phantom over 6 timed runs. ClockMap tracks the audio clock to 0.04 ms p50.
 - **Events from the audio thread arrive early.** They arrive ≈ 31–35 ms before the beat is heard, so they must never fire on arrival.
 - **Rhythm mode is a thin layer.** The engine adds ≈ 4 ms to an asap hit sound; the platform adds 20–50 ms. Mapping `event.timeStamp` through ClockMap judges input to 0.04 ms p50, against 9.4 ms for reading `Audio.time` in a handler. `outputLatency` and `getOutputTimestamp` exist in Chromium, Firefox and Safari 18.4+. With 16 taps, median calibration has p95 ≈ 10 ms (simulated).
@@ -128,10 +131,10 @@ Music is part of the event format (`myco.audioevent@1`, 0158), not a new asset k
   - **`cues`:** named positions in seconds, with an `entry` and an `exit` cue by default at 0 and the end.
   - **`regions`:** loops between two cues, with `count` (0 = forever) or `while` (a parameter condition, FMOD's conditional loop).
   - **`length`.**
-  - Positions are stored in **seconds**, as events do, and the editor snaps them to the grid.
+  - Position units are owner decision 1 (revision 2): musical positions (bar:beat:tick against the tempo map) or audio frames.
   - A segment's stems must share one length and one channel layout. Validation enforces it.
 - **`playlist` node:** children (segments or containers) with `mode` `sequence` / `random` / `shuffle`, `avoidRepeat`, and a `loop` count per item and for the whole list. Music containers step at **exit cues**, not at clip ends.
-- **`switch` gains music behaviour** when its children are music (segments or music containers): a parameter change goes through the transition rules instead of M2's `onChange`. M2's non-music switch is unchanged.
+- **`musicSwitch` node** (revision 2: a distinct node, not an overloaded `switch`): children keyed by a labelled parameter's values; a parameter change goes through the transition rules. M2's `switch` is unchanged.
 - **`transitions`:** an ordered rule table on any music container. Each rule has:
   - `from`, `to`: a child id, or `*`;
   - `exit`: `immediate` | `beat` | `bar` | `grid(n)` | `cue(name?)` | `exitCue`;
@@ -152,7 +155,7 @@ This follows 0158's rule: main does event-driven work, and the core does everyth
   - playlist steps and rule lookup;
   - stinger scheduling;
   - **planning every start at a grid position at least the prime lead away.** The lead is max(horizon, 1.25 × the measured prime time), ≈ 100 ms by default. If the next allowed grid point is closer, it takes the following one.
-- **The core** gets only stamped PLAY and STOP records and **in-voice ramps** (§4). It reports the grid changes *it* decides (a loop wrap whose count main couldn't know in advance, a stream that slipped) with exact frames in STATUS.
+- **The core** gets only stamped PLAY and STOP records and **in-voice ramps** (§4). It reports what main can't know: a group that started late, per voice with its exact start frame (revision 2). Loop wraps are the worker's and main predicts them.
 - **No music state is added to the core** beyond the ramps and the counters. S4 measured a core-side music clock at 5–35 ns per quantum; it stays available if the technical design needs it for stamped transitions.
 
 ### 3. Streams: prime, then stamp; a music ring pool; a slip counter
@@ -283,7 +286,7 @@ This follows 0158's rule: main does event-driven work, and the core does everyth
 - **Memory:** streamed stems hold their encoded files in the worker (≈ 35 MiB for 8 MP3 stems). Lossless streamed stems are impractical on low. Range-request streaming is left for later (open question 3).
 - **The editor is the largest part:** the segment view needs waveforms, a grid and markers, and the rules table needs auditioning.
 - **The fallback is weaker:** no stem alignment for streams, and no rhythm mode on Babylon.
-- **Estimate (provisional; the technical design's task table sets the real one):** ≈ **38–46 person-weeks**. Calibrated from M3, where features priced at 22 person-weeks became a 36.7 person-week task table (×1.67) once tests, benches, tooling and a reserve were added.
+- **Estimate (provisional; the technical design's task table sets the real one):** ≈ **45–55 person-weeks** (revision 2, from the senior engineer's pricing of the unpriced work; the first draft said 38–46). Calibrated from M3, where features priced at 22 person-weeks became a 36.7 person-week task table (×1.67) once tests, benches, tooling and a reserve were added.
 
   | Feature (person-weeks) | Estimate |
   |---|---|
@@ -336,3 +339,100 @@ Owner decisions for step 8. The first two were confirmed by the owner below; the
   - `src/plugins/audio/runtime/audioSystem.ts`;
   - `native/audio/crates/audio-core/src/{voices,stream,scheduler}.rs`;
   - `native/audio/crates/audio-decode/src/lib.rs`.
+
+## RFC round (revision 2)
+
+Five reviews, all "approve with changes", are in `docs/rfc/0166/`:
+- `architect.md` (strong model);
+- `senior.md`;
+- `junior.md`;
+- `composer.md` (the user persona);
+- `challenger.md` (the premise challenger).
+
+The coordinator checked every code claim against the code before acting on it. Two record claims were wrong and are corrected:
+- **Every stamped record splits the quantum, not only gain records.** `render()` splits at any record with `offset > cursor` (`native/audio/crates/audio-core/src/voices.rs:310-325`). S4 had reported that stamped PLAY doesn't split.
+- **The worker wraps loops, not the core** (`native/audio/crates/audio-core/src/stream.rs:72-73`).
+
+The architect's claims all hold:
+- the worker posts `streamOpened` before any chunk, on a different port from the chunks (`src/plugins/audio/runtime/decoder/streams.ts:312-315`);
+- `pump` fills one stream's credit before returning (`:498-510`);
+- a hard rebuild relaunches each stream asap from its own playhead (`src/plugins/audio/runtime/core/coreBackend.ts:1406-1422`).
+
+This section wins over the text above it.
+
+### Changes to the decision
+
+1. **Stems are a group, kept together by a gate in the core** (architect, blocking).
+   - PLAY records carry a **group id**. The core starts a group's voices at their stamp if every member's ring holds at least 4,096 frames.
+   - Otherwise **all members wait together** and start at the same offset in the first quantum where all are ready.
+   - A late group stays aligned, and the core reports it per voice with the start frame (STATUS stream event).
+   - **Rebuild, seek and recovery reopen a group as a group**, with the music player owning it. They never reopen stem by stem.
+   - This replaces the first draft's bare slip counter. A `streamStartsLate` counter and the largest slip stay in `Audio.debug()`.
+2. **The prime acknowledgement is ring state seen by the worklet, not a worker message** (architect, blocking).
+   - STATUS carries a per-ring "primed" bit, at least 4,096 frames.
+   - Main stamps the group once every bit is set. The deadline is T − L − one display frame, because the batch leaves on the frame after the bits arrive.
+3. **The worker primes breadth-first** (architect). On a group open it sends each stem's first 4,096 frames before filling any ring further. Today `pump` fills each stream depth-first.
+4. **The prime lead is measured, not assumed** (architect, challenger).
+   - The planner's lead is max(horizon, 1.25 × an EMA of measured group prime times), starting at 100 ms.
+   - The phone lead is unverified (≈ 160–480 ms at an assumed 8× slowdown, est.). It is a milestone exit check, with a warning when the lead exceeds one beat.
+5. **Every stamped record that touches one voice applies inside that voice** (senior; replaces §4's "gain records only").
+   - Gain ramps and **start offsets for PLAY and STOP** carry their frame in the voice, so a stinger or transition no longer splits the quantum.
+   - Goldens stay bit-identical for unstamped work; stamped cases are re-recorded. REPLAY restores pending ramps and starts.
+   - **This is its own first milestone (M4-0)**, independent of the music player, which works with today's splits meanwhile (challenger: music alone doesn't need it; it fixes the engine for every stamped sound).
+6. **Loop wraps:** main predicts them (the worker wraps). A `while` region's condition is read when main must commit, one prime lead before the loop end, and released through the existing region-release splice. The record states that this is the condition's latency.
+7. **Music ring pool policy** (architect, senior, junior).
+   - The pool is a ring flag in `InitParams`, which is an ABI and layout change, priced.
+   - When it is full, the planner **refuses** the new start, keeps the current music, and counts and warns.
+   - Rings return as soon as the core reports the voice's end, not on the next display frame.
+8. **Hidden tabs** (architect). With `audio.background` `play`, the player commits the next step a whole segment ahead, and a playlist always holds its next segment primed, so music carries on without display frames. On resume it re-plans from the heard position. With `mute` it re-plans on resume.
+9. **No missed-beat bursts** (architect). After a gap longer than one beat, each callback kind fires **once** for the latest beat, with `missed: n`. Grid origins are stored as a musical position plus a heard time, never raw audio frames, so a context rebuild at a new rate recomputes them.
+10. **The format** (senior, composer, junior):
+    - **Nodes:**
+      - `musicSwitch` is distinct (§1, edited above);
+      - music nodes get an `id` (unique per event), and rules and stingers address ids or `*`;
+      - `playlist` stays a distinct node, because it steps at exit cues under the rules, with groups and loop counts per item (Wwise's Music Playlist Container), unlike `sequence` and `random`, which step at clip ends.
+    - **Limits:** tempo markers ≤ 64, cues ≤ 64, regions ≤ 16, rules ≤ 256, stingers ≤ 32, stems ≤ 16 per segment, alternatives ≤ 8 per stem.
+    - **Precedence:** the most specific rule wins (exact pair, then `from`, then `to`, then `*`→`*`). The first listed wins within a tier, and the validator warns on duplicates. A rule between children of different containers comes from their **nearest common parent's** table (Wwise). `exit: nextCue` replaces `cue(name?)`.
+    - **Pre-entry and post-exit (composer):**
+      - a segment's audio before its entry cue starts early (start = entry − pre-entry), and the prime lead applies to that earlier start;
+      - audio after the exit cue rings on under the next segment until it ends;
+      - a loop region may declare a tail that is mixed over the loop start.
+    - **Variation (composer):** a stem may list alternative clips of equal length, picked per pass by `random` or `sequence` (Wwise's random and sequence music tracks).
+    - **Quantised parameter changes (composer):** an automation binding on a music instance may set `quantize: beat | bar`, which applies as a stamped in-voice ramp at the next grid point.
+    - **Stingers (composer):** `ifTooLate: nextGrid | playNow | skip` for a stinger whose grid point is inside the lead. The default is `nextGrid`, with a warning.
+11. **Encoder padding** (composer): validation reads the LAME/Xing delay and the Vorbis granule trim (the decoder's gapless path, `native/audio/crates/audio-decode/tests/loop_seam.rs`). A stem without gapless metadata warns.
+12. **Visible failures** (junior, architect):
+    - `Audio.debug().music` lists each instance with:
+      - segment, bar and beat;
+      - the pending transition and **the rule that matched**;
+      - primed state, re-plans, refusals, late groups;
+      - the ring pool in use.
+    - The debug panel shows it, and each refusal warns once per cause.
+13. **The iteration loop** (composer): hot reload of a playing segment re-primes it and swaps at the next bar; the segment view auditions from any cue or bar; the debug panel is the live music monitor.
+14. **The API** (junior):
+    - `handle.music` is readable from M4a; callbacks arrive in M4c.
+    - `handle.music.positionAt(performanceTime)` returns `{ segment, bar, beat, beatFraction, nearestBeatTime, offset }` in seconds. `offset` is signed: positive means late.
+    - `heardIn` is seconds **until** the beat is heard (≥ 0 unless missed).
+    - `Audio.calibration` is **subtracted** from input offsets.
+    - Every field states its unit.
+15. **The estimate** (senior) is **≈ 45–55 person-weeks**, provisional. The senior priced ≈ 12 person-weeks of unpriced work: goldens and replay, wire and status plumbing, the prime protocol, benches, e2e, docs and listening-pass rework. Milestones: **M4-0** (in-voice stamped records), M4a, M4b, M4c, M4d.
+
+### Not taken, and why
+
+- **The challenger's 10–12 person-week grid layer.** It would make transitions, cues, bridges and playlists script recipes, against the owner's confirmed scope (goal.md). The milestones let the owner stop after any one.
+- **The challenger's 28–33 person-week middle cut.** It drops the Babylon fallback, rhythm calibration and drag editing, all of which the owner asked for. In-voice records are moved to M4-0 rather than cut.
+- **Tempo ramps (accelerando, composer).** Deferred. Neither Wwise segments nor the survey's verified FMOD data show ramps. A ramp is a stepwise tempo map for now.
+- **Signal-driven ducking for music (composer).** That is M5's live mix and LUFS work (0157 roadmap). Duck ramps on music buses may start on a stamped grid point through M4-0's in-voice records.
+- **Decoded stems on low (architect's cheaper alternative).** It is already the rule for loops ≲ 30 s. Long stems are 33 MiB each.
+- **Polling only, no callbacks (junior's cheaper alternative).** Taken as staging: `handle.music` in M4a, component messages in M4c.
+
+### Owner decisions (to bring after the RFC round)
+
+1. **Position units.** The composer and the senior engineer disagree:
+   - (a) **musical positions**: bar:beat:tick against the tempo map, seconds derived. Cues stay on the beat when tempo is corrected; this is how DAWs work and how Wwise and FMOD display positions (recommended);
+   - (b) **audio frames**: integers, exact. Cues stay on the audio when tempo is corrected; this is how Wwise stores ms.
+2. **Music ring pool sizes:** 8 / 12 / 16.
+3. **Music inside the mixed-voice cap** (recommended).
+4. **Whole encoded files in the worker for M4** (recommended), or range streaming now.
+5. **Callback API shape:** component messages plus `handle.music` (recommended).
+6. **The estimate:** ≈ 45–55 person-weeks provisional, in milestones M4-0, M4a–d.
