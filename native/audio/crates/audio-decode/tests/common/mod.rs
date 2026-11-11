@@ -160,3 +160,40 @@ pub fn check_lossy(name: &str, source: &str, min_db: f64, expect_lag: Option<isi
     eprintln!("{name}: {} frames decoded, lag {lag0}, SNR {worst:.1} dB", dec.len() / ch);
     (lag0, worst)
 }
+
+/// A WAV built in memory (ADR 0162 B2): `channels` channels of `frames` frames at 48 kHz with a
+/// plain 16-byte `fmt ` chunk. `bits` 16 writes PCM (`sample(frame, ch)` × 32768, rounded and
+/// clamped); `bits` 32 writes IEEE float (format 3).
+pub fn built_wav(channels: u16, frames: u32, bits: u16, sample: impl Fn(u32, u16) -> f32) -> Vec<u8> {
+    let bytes = u32::from(bits / 8);
+    let data = frames * u32::from(channels) * bytes;
+    let mut b = Vec::with_capacity(44 + data as usize);
+    b.extend_from_slice(b"RIFF");
+    b.extend_from_slice(&(36 + data).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    b.extend_from_slice(&16u32.to_le_bytes());
+    b.extend_from_slice(&(if bits == 32 { 3u16 } else { 1u16 }).to_le_bytes());
+    b.extend_from_slice(&channels.to_le_bytes());
+    b.extend_from_slice(&48_000u32.to_le_bytes());
+    b.extend_from_slice(&(48_000 * u32::from(channels) * bytes).to_le_bytes());
+    b.extend_from_slice(&(channels * bits / 8).to_le_bytes());
+    b.extend_from_slice(&bits.to_le_bytes());
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&data.to_le_bytes());
+    for f in 0..frames {
+        for c in 0..channels {
+            let s = sample(f, c);
+            if bits == 32 {
+                b.extend_from_slice(&s.to_le_bytes());
+            } else {
+                b.extend_from_slice(&((s * 32768.0).round().clamp(-32768.0, 32767.0) as i16).to_le_bytes());
+            }
+        }
+    }
+    b
+}
+
+/// [`built_wav`] at 16 bits from int16 samples.
+pub fn pcm16_wav(channels: u16, frames: u32, sample: impl Fn(u32, u16) -> i16) -> Vec<u8> {
+    built_wav(channels, frames, 16, |f, c| f32::from(sample(f, c)) / 32768.0)
+}

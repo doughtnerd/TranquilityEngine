@@ -35,6 +35,8 @@ interface Exports {
   myco_decode_read_f32(handle: number, out: number, frames: number): number;
   myco_decode_read_i16(handle: number, out: number, frames: number): number;
   myco_decode_seek(handle: number, frame: number): number;
+  /** ABI 1.2 (ADR 0162 B2). */
+  myco_decode_set_convention(handle: number, convention: number): number;
   myco_decode_error_ptr(): number;
   myco_decode_error_len(): number;
 }
@@ -157,6 +159,17 @@ export class DecoderWasm {
 
   readF32(handle: number, ptr: number, frames: number): number {
     return this.check(this.x.myco_decode_read_f32(handle, ptr, frames));
+  }
+
+  /**
+   * ADR 0162 §2.4 (B2, decoder ABI 1.2): converts a FuMa file (4, 9 or 16 channels) to AmbiX in every later read,
+   * scaled into int16 headroom before the rounding. Call once, before the first read or seek. Returns the import gain
+   * the clip's volume is multiplied by (√2 for orders 1-3; 1 when nothing is converted: AmbiX, or another channel count).
+   */
+  setConvention(handle: number, convention: "ambix" | "fuma"): number {
+    const r = this.x.myco_decode_set_convention(handle, convention === "fuma" ? 1 : 0);
+    if (r < 0) throw this.lastError(r);
+    return r;
   }
 
   seek(handle: number, frame: number): number {

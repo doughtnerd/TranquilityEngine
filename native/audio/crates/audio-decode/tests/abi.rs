@@ -48,7 +48,7 @@ fn info(h: i32) -> InfoRec {
 
 #[test]
 fn the_abi() {
-    assert_eq!(myco_decode_abi_version(), 0x101);
+    assert_eq!(myco_decode_abi_version(), 0x102);
     assert!(!myco_decode_source_hash().is_null());
     assert!(myco_decode_alloc(0).is_null());
 
@@ -122,6 +122,31 @@ fn the_abi() {
     let i = info(h);
     assert_eq!((i.loop_start, i.loop_end, i.flags & 2), (1000, 6000, 2));
     assert_eq!(myco_decode_close(h), 0);
+
+    // ADR 0162 B2: the convention, once, before the first read; 1 on a stereo file (nothing to
+    // convert), √2 on a 4-channel FuMa file; refused after a read and for an unknown code.
+    let h = open_abi(&flac, 2);
+    assert_eq!(myco_decode_set_convention(h, 2), f64::from(ERR_ARG));
+    assert_eq!(myco_decode_set_convention(h, 1), 1.0);
+    assert_eq!(myco_decode_set_convention(h, 1), f64::from(ERR_ARG), "only once");
+    assert_eq!(myco_decode_close(h), 0);
+    let h = open_abi(&flac, 2);
+    let out = myco_decode_alloc(4096 * 2 * 4).cast::<f32>();
+    // SAFETY: 4,096 stereo f32 frames.
+    unsafe {
+        assert_eq!(myco_decode_read_f32(h, out, 16), 16);
+        myco_decode_free(out.cast(), 4096 * 2 * 4);
+    }
+    assert_eq!(myco_decode_set_convention(h, 0), f64::from(ERR_ARG), "after a read");
+    assert!(last_error().contains("before the first read"), "{}", last_error());
+    assert_eq!(myco_decode_close(h), 0);
+    assert_eq!(myco_decode_set_convention(h, 0), f64::from(ERR_HANDLE));
+    let h = open_abi(&pcm16_wav(4, 64, |_, _| 0), 1);
+    assert!(h > 0, "open: {h} {}", last_error());
+    assert_eq!(myco_decode_set_convention(h, 1), f64::from(std::f32::consts::SQRT_2));
+    assert_eq!(myco_decode_close(h), 0);
+    assert_eq!(open_abi(&pcm16_wav(5, 64, |_, _| 0), 1), ERR_CODEC, "5 channels");
+    assert!(last_error().contains("5-channel"), "{}", last_error());
 
     // At most MAX_DECODERS open at once.
     let wav = fixture("tone-22050-stereo-s24.wav");

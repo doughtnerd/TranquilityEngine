@@ -7,9 +7,9 @@ import { DecoderError, type DecoderWasm, type RawInfo } from "./wasm";
 
 export interface ClipDecodeOptions {
   /**
-   * ADR 0162 §2.4 (B1): the clip's ambisonic sidecar convention, from the `decodeClip` message. Plumbed to here and
-   * not yet applied: B2 adds it to the wasm open/read call (`audio-decode/src/ambisonic.rs`), where FuMa is converted
-   * before the int16 rounding. It is set for any clip with the sidecar, so B2 applies it only to 4, 9 or 16 channels.
+   * ADR 0162 §2.4: the clip's ambisonic sidecar convention, from the `decodeClip` message. "fuma" converts a 4, 9 or
+   * 16-channel file to AmbiX inside the wasm's read, before the int16 rounding (B2), and the info reports `importGain`;
+   * it is ignored for other channel counts (it is sent before the count is known).
    */
   readonly convention?: AmbisonicConvention;
   /** Called once, before the first chunk, with what the container declares (`frames` -1 when unknown; B5 sizes CLIP_BEGIN from it). */
@@ -32,16 +32,19 @@ function loopFields(raw: RawInfo): Pick<ClipInfo, "loopStartFrame" | "loopEndFra
  * Throws `DecoderError` on a format error, a decode error, or a file shorter than its container stated.
  */
 export async function decodeClip(wasm: DecoderWasm, bytes: Uint8Array, hint: DecodeHint, options: ClipDecodeOptions): Promise<ClipInfo | null> {
-  // B2: `options.convention` goes into this open call (or the reads below) once the wasm takes it; today it is ignored.
   const handle = wasm.open(bytes, hint);
   let scratch = 0;
   let scratchBytes = 0;
   try {
     const raw = wasm.info(handle);
     if (raw.channels < 1 || raw.rate < 1) throw new DecoderError("audio decoder: the file reports no channels or rate");
+    // ADR 0162 §2.4 (B2): FuMa is converted in the reads; the samples come out scaled down by `importGain`, which main
+    // folds into the clip's volume. Only a FuMa file of 4, 9 or 16 channels reports a gain other than 1.
+    const importGain = options.convention === "fuma" ? wasm.setConvention(handle, "fuma") : 1;
+    const gainField = importGain !== 1 ? { importGain } : {};
     // A known length smaller than a chunk needs no bigger scratch.
     const chunkFrames = raw.frames >= 0 && raw.frames < CLIP_CHUNK_FRAMES ? Math.max(1, raw.frames) : CLIP_CHUNK_FRAMES;
-    options.onInfo?.({ rate: raw.rate, channels: raw.channels, frames: raw.frames, framesEstimate: raw.framesEstimate, codec: raw.codec, lengthKnown: raw.exact, ...loopFields(raw) });
+    options.onInfo?.({ rate: raw.rate, channels: raw.channels, frames: raw.frames, framesEstimate: raw.framesEstimate, codec: raw.codec, lengthKnown: raw.exact, ...loopFields(raw), ...gainField });
     scratchBytes = chunkFrames * raw.channels * 2;
     scratch = wasm.alloc(scratchBytes);
     let total = 0;
@@ -58,7 +61,7 @@ export async function decodeClip(wasm: DecoderWasm, bytes: Uint8Array, hint: Dec
     }
     if (raw.exact && total < raw.frames) throw new DecoderError(`audio decoder: the file ended after ${total} of ${raw.frames} frames (truncated?)`);
     if (total === 0) throw new DecoderError("audio decoder: the file holds no audio");
-    return { rate: raw.rate, channels: raw.channels, frames: total, framesEstimate: raw.framesEstimate, codec: raw.codec, lengthKnown: raw.exact, ...loopFields(raw) };
+    return { rate: raw.rate, channels: raw.channels, frames: total, framesEstimate: raw.framesEstimate, codec: raw.codec, lengthKnown: raw.exact, ...loopFields(raw), ...gainField };
   } finally {
     wasm.close(handle);
     if (scratch !== 0) wasm.free(scratch, scratchBytes);
