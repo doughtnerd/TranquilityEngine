@@ -40,14 +40,14 @@ function rig(root: MusicNode): void {
   player.run = createSegmentRun(player, a, 0);
   player.state = "playing";
   player.anchor = { segment: "a", ticks: 0, time: 0, pass: 1 };
-  b.time = 0.1;
+  (b as { time: number }).time = 0.1;
   b.horizonTime = 0.1;
   f = { backend: b, music: b.music ?? null, now: 0.1, dt: 1 / 60, hidden: false };
   tickStingers(player, f);
 }
 
 const at = (t: number, horizon = t): void => {
-  b.time = t;
+  (b as { time: number }).time = t;
   b.horizonTime = horizon;
 };
 const tick = (): void => tickStingers(player, f);
@@ -199,17 +199,23 @@ describe("dontRepeat", () => {
 });
 
 describe("at most 4 at once", () => {
+  // The fake backend only keeps voices for primed (streamed) groups, so these stingers stream.
+  const streamed = (): void => setSegmentClipSource({ url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master", facts: () => undefined });
+  const fire = (): boolean => {
+    const ok = triggerStinger(player, "hit");
+    b.music!.setPrimed(b.music!.admitted[b.music!.admitted.length - 1]!.group);
+    tick();
+    return ok;
+  };
+
   it("the fifth steals the oldest with a 5 ms fade", () => {
     rig(rootOf([stinger({ at: "immediate" })]));
-    for (let k = 0; k < 4; k++) {
-      expect(triggerStinger(player, "hit")).toBe(true);
-      tick();
-    }
+    streamed();
+    for (let k = 0; k < 4; k++) expect(fire()).toBe(true);
     expect(player.stingers!.sounding).toHaveLength(4);
     const oldest = player.stingers!.sounding[0]!;
     const calls = vi.spyOn(oldest.voices[0]!, "stop");
-    expect(triggerStinger(player, "hit")).toBe(true);
-    tick();
+    expect(fire()).toBe(true);
     expect(calls).toHaveBeenCalledWith(0.005);
     expect(player.stingers!.sounding).toHaveLength(4);
     expect(player.stingers!.sounding).not.toContain(oldest);
@@ -217,8 +223,8 @@ describe("at most 4 at once", () => {
 
   it("an ended stinger frees its slot", () => {
     rig(rootOf([stinger({ at: "immediate" })]));
-    expect(triggerStinger(player, "hit")).toBe(true);
-    tick();
+    streamed();
+    expect(fire()).toBe(true);
     const e = player.stingers!.sounding[0]!;
     at(5);
     for (const v of e.voices) v.stop();
