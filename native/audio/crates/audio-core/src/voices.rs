@@ -1345,7 +1345,7 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
 }
 
 /// ADR 0162 B3 (architecture §2.3: "`maxClips` caps concurrent ambisonic voices of either kind; the
-/// lowest priority is stolen"): after the PLAY of the ambisonic voice in slot `newcomer`, while more
+/// lowest priority is stolen"): after the PLAY of the ambisonic voice in slot `newcomer`, when more
 /// ambisonic voices are live than `max_wide` (the wide rings and private decoders `maxClips` sizes)
 /// the one with the lowest `score` is stolen; at equal scores an older voice goes before the
 /// newcomer. A voice not started (the newcomer, usually) or virtual ends at once; a mixed one fades
@@ -1356,7 +1356,8 @@ fn steal_ambisonic(core: &mut Core, newcomer: usize) {
     let limit = core.params().max_wide as usize;
     let frames = mix_fade_frames(core);
     let v = view(core.regions_mut());
-    loop {
+    // At most `limit` were live before this PLAY, so one steal restores the cap.
+    {
         let (mut count, mut victim) = (0usize, None::<usize>);
         let mut cursor = v.area.live_head;
         while cursor != 0 {

@@ -342,3 +342,19 @@ fn listener_without_a_beds_region_is_dropped_and_reset_restores_the_identity() {
     let out = m.render_n(3);
     expect_level(&out, want(FRONT, 4), "after RESET");
 }
+
+#[test]
+fn a_voice_starting_mid_quantum_rotates_only_its_frames() {
+    let mut m = mixer(core_with(0, 1));
+    m.submit(&[listener(head_left(90.0), 0, true)]);
+    m.render();
+    let Rec::Play(mut p) = amb(V1, 16, ROOT, 1.0) else { unreachable!() };
+    p.frame_offset = 64;
+    m.submit(&[Rec::Play(p)]);
+    let (l, r) = m.render();
+    assert!(l[..64].iter().chain(&r[..64]).all(|v| *v == 0.0), "silent before its start");
+    let (wl, wr) = want(turn(FRONT, -90.0), 16);
+    for i in 64..128 {
+        assert!(db(l[i], wl) < 0.05 && db(r[i], wr) < 0.05, "frame {i}: ({}, {})", l[i], r[i]);
+    }
+}
