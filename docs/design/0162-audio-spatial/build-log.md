@@ -173,3 +173,39 @@ Asked for by the tree ("The pilot") and the owner. Times are agent wall time fro
 | AAC decoder | 1,128,486 B | 1,280 KB | |
 | Metered cost | +1.39% all against M2's baseline | +10% per scene | baseline kept at M2; new scenes (bed, filters, m3-worst) have their own baselines |
 | M3 fixed memory | default ≈ 9.2 MB zones + beds + wide + `Fx` + `Zones` aux/gains | owner-accepted ≈ 20.9 / 10.7 / 3.0 MB (Revision 4) | Beds +60 KB over §3.1; wide rings +1 MiB each (D22); `Zones` aux/gains ≈ 48 KB fixed (D24) |
+
+## Milestone-end checks (2026-11-12, `3b46357`, a quiet machine)
+
+- `npm run typecheck` ✓; `npm run build` ✓; `cargo test` (all of `native/audio/`) ✓; `npm run check:audio-metered` ✓ (every scene within 10% of M2's baseline; the M3 scenes have their own baselines); `npm run check:links` ✓.
+- `npm test`: 462 of 463 files; `piratesSample.test.ts` timed out once and passed alone (a known flake).
+- `npm run test:e2e` (Chromium): **213 passed, 4 skipped, 1 failed**: `codefiles.spec.ts:38` (the code editor's background load, a 20 s `waitForFunction` timeout). **It fails the same way on master** (`76bbec4`, master plus the wave-0 import fix), so it predates M3. All 15 of E9's spatial specs pass, including the zone-active-in-Play case.
+- `npm run test:e2e:slow`: 27 passed, 2 failed in the full run: `audio-core.spec.ts:41` (a known flake beside other specs) and `audio-parity-hrtf.spec.ts:61`; **both pass when run alone** on the same tree.
+- **Not run here:** WebKit and Firefox (the WebKit browser isn't installed in this container, `/opt/pw-browsers/webkit-*` missing; Firefox needs Docker). They're owed for the browser-layer milestones (M3b, M3c, M3d, M3e) before master, or on the owner's machine.
+- The lab-VM benches and the listening pass are the owner's (`listening-pass.md`).
+
+## Milestone readiness (each needs the owner's approval to reach master)
+
+Everything is on one integration branch, so a merge to master brings all of it. Recommended order: decide P1 and the bed flip, do the listening pass, then merge once.
+
+| Milestone | Tasks | Exit check | State |
+|---|---|---|---|
+| M3a bed | A1–A7 merged; **A6b flip held** | shippable ✓; `bed-64/256/xfade` recorded ✓; mixer under 230 KB **✗ (260 KB)**; owner listening (needs the flip) | **blocked on the owner:** the bed flip and its 230 KB criterion (P1 would bring the mixer to ≈ 239 KB) |
+| M3b ambisonic clips | B1–B6 merged; wide flip on | 4/9/16-channel clips and a 16-channel stream play ✓ (tests); stall test ✓ (32,768-frame ring); owner listening (1st/3rd order turned on the spot) | ready except the listening item and WebKit/Firefox |
+| M3c zones | C1–C7 merged; zone memory flip on; C3b's main upload open | `zones-2x2s` recorded (68/125 µs, ≈ 1.45× the estimate); both slot paths' loopback ✓; zones active in editor Play ✓; owner listening (rooms A/B/C, 2 s and 4 s IRs) | ready except listening, WebKit/Firefox, and the owner's C3b decision |
+| M3d occlusion, Doppler, event effects | D0–D6 merged; occlusion and Doppler flips on | `filters-256`, `bench:audio-spatial` (ages 1/5/20 frames), `m3-worst-*` recorded ✓; owner listening (wall, door, corner, Doppler pass, teleport) | ready except listening and WebKit/Firefox |
+| F Babylon fallback | F1, F2 merged | §8 rows against the mocks ✓; the owner runs the Babylon backend once | ready except that run |
+| M3e editor, samples, listening | E1–E10 merged | Playwright specs ✓ (3 of 3 at E9; in the full run); samples load warning-free and non-silent ✓; `check:links` ✓; `listening-pass.md` ✓; lab-VM run of `m3-high` (= `m3-typical`) and `m3-worst-high`, sign-off | ready for the owner's runs |
+
+**Reserve:** no draw (R1, R2, R4 untouched). R2 (`wasm-opt`) is the subject of P1; R1 (SADIE II) is the likeliest next, if floor-below fails at M3a's listening.
+
+**Epics** #112–#117 stay open until their milestone reaches master; #118 (contracts) closes with M3a. Open tasks: #125 (A6b, held), #137 (C3b's main upload, owner).
+
+## Follow-ups found during the build (not scheduled)
+
+- An SDK hook to disable another field's Inspector row (E2 greys rows with a DOM attribute).
+- An SDK getter for play-session Worlds (E4's overlay uses two internal imports, allowlisted).
+- Build the listener's ambisonic rotation once per quantum, not per voice (≈ 3.5 µs a voice, A7).
+- Raise the cost model's zone and ambisonic terms after the lab-VM run (C7, A7), and update architecture §7.1 (c_wide, a matrix-pair term).
+- `belowHorizonVoices` has no source; `lowpassBy` "bus"/"parent" are never produced (D5).
+- `ImportSettings` can't express an explicit `stream: false` (B5: long ambisonic clips stream unless `stream: true`).
+- `codefiles.spec.ts:38` fails on master (outside M3).
