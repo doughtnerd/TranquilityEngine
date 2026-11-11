@@ -1,0 +1,12 @@
+[package]
+name = "bake-magls"
+description = "Bakes Myco's order-3 MagLS binaural decoder (src/engine/audio/magls-o3.bin, ADR 0162 A3) and the equal-power 16 to 2 bed matrix from the shipped HRIR set; --check re-bakes and compares."
+version.workspace = true
+edition.workspace = true
+# The filters are designed from the IRCAM Listen IRC_Composite_C data (docs/design/0157-audio-core/hrir-licence.md).
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+audio-dsp.workspace = true
+libm.workspace = true

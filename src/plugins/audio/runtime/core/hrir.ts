@@ -52,6 +52,7 @@
 // `fft_size / 2` frames per response, all the kernel reads (it truncates there and fades out), and the delays at the
 // context rate.
 
+import { MAGLS_CLIP_ID } from "../wire.generated";
 import type { ClipRegistry } from "./clipRegistry";
 
 /** The reserved HRIR clip id (generation 0xFF, index 0xFF0000); the range is 0xFFFF0000..0xFFFF00FF. */
@@ -435,4 +436,76 @@ export function createHrirLoader(deps: HrirLoaderDeps): HrirLoader {
       }
     },
   };
+}
+
+// --- ADR 0162 A3: the MagLS bed filters (clip format 4) -----------------------------------------------------------------
+//
+// The asset `src/engine/audio/magls-o3.bin` (made by `native/audio/tools/bake-magls`, designed from the HRIR set above,
+// so the IRCAM licence carries over) is the 32-byte `MaglsHeader` ("MYBD", version 1, order 3, taps 256, the HRIR's rate
+// 44.1 kHz, 12 reserved bytes) then f32 time responses `[16 channels][2 ears][taps]` (api-and-models 4.5, contract C6):
+// 32,800 B. Main resamples it for the context rate as it does the HRIR (C6: 256 taps up to 48 kHz, 512 from 88.2 kHz)
+// and loads it through the clip registry as CLIP_BEGIN format 4 under `MAGLS_CLIP_ID` (0xFFFF0100), `channels` 1,
+// `frames` = bytes / 4 (header included), on the first bed use; the registry keeps the blob so a rebuild re-sends it
+// (S5). Until the core reports it resident, or if it fails to load, beds decode through the baked 16 -> 2 matrix (R9).
+// `audio.spatial: "equalPower"` never fetches it.
+
+export { MAGLS_CLIP_ID };
+
+/**
+ * Turns the MagLS asset (responses at its own rate) into the format 4 blob for a context at `rate`: the header with
+ * `taps` = `hrtfFftSize(rate) / 2` and `sampleRate` = `Math.fround(rate)`, then every response, in the asset's order,
+ * resampled with `sincResample` (ratio = asset rate / context rate; skipped when the two rates are equal, so the blob
+ * then equals the asset), zero-padded or cut to `taps`; a response longer than `taps` is cut with a linear fade over
+ * its last `Math.trunc(rate / 4410)` frames (as the HRTF kernel, hrtf_kernel.cc). Returns a new blob; throws on an asset
+ * that isn't the documented layout (magic, version 1, order 3, taps > 0, a finite positive rate, byte length
+ * `32 + 16 * 2 * taps * 4`) or a rate that isn't finite and positive.
+ */
+export function resampleMagls(asset: ArrayBuffer, rate: number): ArrayBuffer {
+  void asset;
+  void rate;
+  throw new Error("not implemented: L-A3a");
+}
+
+/** Where the MagLS asset is served from (`src/engine/audio/magls-o3.bin`, resolved from this module). */
+export function maglsUrl(): URL {
+  return new URL("../../../../engine/audio/magls-o3.bin", import.meta.url);
+}
+
+export interface MaglsLoaderDeps {
+  /** The registry the filters are loaded through (reserved id `MAGLS_CLIP_ID`, format 4). */
+  readonly clips: ClipRegistry;
+  /** The context's sample rate. */
+  readonly sampleRate: number;
+  /** Fetches the asset (default: `fetch(maglsUrl())`). */
+  readonly fetchBytes?: () => Promise<ArrayBuffer>;
+  /** The single warning on failure (default `console.warn`). */
+  readonly warn?: (message: string) => void;
+}
+
+export interface MaglsLoader {
+  /** Starts the lazy fetch on the first bed use; later calls do nothing (a failed load is not retried). */
+  ensure(): void;
+  /** True once the core reported the filters resident (the registry's state for `MAGLS_CLIP_ID` is "ready"). */
+  readonly ready: boolean;
+  /** True once the fetch or the resampling failed (beds stay on the matrix decode). */
+  readonly failed: boolean;
+  /** True once `ensure` started the load. */
+  readonly started: boolean;
+  /**
+   * A rebuild into a context at `sampleRate`: the filters are resampled again from the original asset and the
+   * registry's kept blob replaced (`updateReserved`), so the rebuild's re-send carries them. A fetch still under way
+   * resamples for the new rate when it lands. A change under 0.5 Hz does nothing.
+   */
+  retarget(sampleRate: number): void;
+}
+
+/**
+ * The MagLS loader: `createHrirLoader`'s lifecycle for format 4. `ensure` fetches once, resamples with
+ * `resampleMagls(asset, rate)` and calls `clips.acquireReserved(MAGLS_CLIP_ID, { bytes, sampleRate, format: 4 })`
+ * (`sampleRate` read back from the blob's header); a failure sets `failed`, drops the kept asset and warns once:
+ * `audio: the MagLS bed filters failed to load, beds decode through the equal-power matrix (<message>)`.
+ */
+export function createMaglsLoader(deps: MaglsLoaderDeps): MaglsLoader {
+  void deps;
+  throw new Error("not implemented: L-A3a");
 }
