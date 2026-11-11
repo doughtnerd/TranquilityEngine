@@ -26,7 +26,7 @@ export interface DebugSource {
   readonly table: VoiceTable;
   readonly clips: { info(id: number): ClipInfo | null };
   /** B3: the stream voices' clip info (asset and rate) and counts; absent in hand-built sources. */
-  readonly streams?: { clipInfo(id: number): ClipInfo | null; readonly size: number; readonly stats: { readonly starves: number; readonly errors: number; readonly coreErrors: number } };
+  readonly streams?: { clipInfo(id: number): ClipInfo | null; readonly size: number; readonly stats: { readonly starves: number; readonly errors: number; readonly coreErrors: number; readonly wideStarved?: number } };
   readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings">;
   readonly lockedQueue: { readonly size: number; readonly droppedCount: number };
   /**
@@ -211,6 +211,8 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       hrtfVoices: m.hrtfVoices,
       // H3: 2 the core found the table invalid, 1 its fetch failed (main), 0 none.
       hrtfLoadFailure: backend.hrtfLoadFailure ?? m.hrtfLoadFailure,
+      // ADR 0162 B4 (C24): starves of wide (ambisonic) streams, from STATUS stream events.
+      ...(backend.streams?.stats.wideStarved !== undefined ? { wideStarved: backend.streams.stats.wideStarved } : {}),
     },
     buses,
     voices,

@@ -5,10 +5,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import hash from "../wasm/hash.json";
-import { Kind, readStreamChunk, readStreamOpen, STREAM_CHUNK_FIXED_END, STREAM_CHUNK_FLAGS_LAST, STREAM_CHUNK_FLAGS_WRAPPED, writeEnvelope, writeStreamCredit } from "../wire.generated";
+import { Kind, readStreamChunk, readStreamOpen, STREAM_CHUNK_FIXED_END, STREAM_CHUNK_FLAGS_LAST, STREAM_CHUNK_FLAGS_WRAPPED, STREAM_RING_FRAMES_WIDE, STREAM_WIDE_CHUNK_FRAMES, StreamConvention, writeEnvelope, writeStreamCredit } from "../wire.generated";
 import { STREAM_CHUNK_FRAMES, STREAM_WINDOW_FRAMES } from "./credit";
 import { createDecoderHandler } from "./handler";
 import type { DecoderReply, StreamPortLike } from "./protocol";
+import { STREAM_WIDE_CHUNK_BUFFER_BYTES } from "./streams";
 import { makeWav, signal } from "./testWav";
 import { DecoderWasm } from "./wasm";
 
@@ -116,12 +117,12 @@ describe("stream decoder (B3)", () => {
     expect(Array.from(got)).toEqual(want);
   });
 
-  it("a loop wraps inside a chunk and never sends a last chunk; more than two channels (a 4-channel file; 3 is refused since ADR 0162 B2) are cut to two", async () => {
+  it("a loop wraps inside a chunk and never sends a last chunk", async () => {
     const { handler, toWorklet, credit } = await rig();
     const frames = 5_000;
-    const file = makeWav(frames, 4, 44_100, (k, c) => (k % 1000) * 10 + c);
+    const file = makeWav(frames, 2, 44_100, (k, c) => (k % 1000) * 10 + c);
     await handler.handle({ type: "streamOpen", streamId: 2, asset: "loop.wav", bytes: file, hint: 1, startFrame: 0, epoch: 1, loop: true });
-    expect(readStreamOpen(new DataView(toWorklet[0]!), 0)).toMatchObject({ channels: 2, flags: 1, sampleRate: 44_100 });
+    expect(readStreamOpen(new DataView(toWorklet[0]!), 0)).toMatchObject({ channels: 2, flags: 1, sampleRate: 44_100, convention: StreamConvention.AmbiX });
     credit(2, 1, 3 * STREAM_CHUNK_FRAMES, []);
     const chunks = toWorklet.filter((b) => kindOf(b) === Kind.STREAM_CHUNK);
     expect(chunks.length).toBe(11);
@@ -133,6 +134,74 @@ describe("stream decoder (B3)", () => {
       const src = k % frames;
       expect(got[2 * k]).toBe(((src % 1000) * 10) / 32768);
       expect(got[2 * k + 1]).toBe(((src % 1000) * 10 + 1) / 32768);
+    }
+  });
+
+  it("B4: an ambisonic stream sends all 16 channels in 2,048-frame chunks within a 16,384-frame window, and loops", async () => {
+    const { handler, replies, toWorklet, credit } = await rig();
+    const frames = 5_000;
+    const file = makeWav(frames, 16, 48_000, (k, c) => (k % 1000) * 16 + c);
+    await handler.handle({ type: "streamOpen", streamId: 2, asset: "amb.wav", bytes: file, hint: 1, startFrame: 0, epoch: 1, loop: true, convention: "ambix" });
+    expect(readStreamOpen(new DataView(toWorklet[0]!), 0)).toMatchObject({ channels: 16, flags: 1, convention: StreamConvention.AmbiX });
+    expect(replies.find((r) => r.type === "streamOpened")).toMatchObject({ info: { channels: 16 } });
+    expect((replies.find((r) => r.type === "streamOpened") as { info: { importGain?: number } }).info.importGain).toBeUndefined();
+    let chunks = toWorklet.filter((b) => kindOf(b) === Kind.STREAM_CHUNK);
+    expect(chunks.length).toBe(STREAM_RING_FRAMES_WIDE / STREAM_WIDE_CHUNK_FRAMES); // the window: 8 chunks
+    expect(chunks.every((b) => b.byteLength === STREAM_WIDE_CHUNK_BUFFER_BYTES)).toBe(true);
+    const heads = chunks.map((b) => readStreamChunk(new DataView(b), 0));
+    expect(heads.every((h) => h.frames === STREAM_WIDE_CHUNK_FRAMES)).toBe(true);
+    expect(heads[2]!.flags & STREAM_CHUNK_FLAGS_WRAPPED).toBeTruthy(); // 5,000 frames: the third chunk wraps
+    const got = framesOf(chunks, 16);
+    for (let k = 0; k < got.length / 16; k += 37) for (let c = 0; c < 16; c += 5) expect(got[16 * k + c]).toBe((((k % frames) % 1000) * 16 + c) / 32768);
+    // A credit of 4,096 frames, with the emptied buffers: two more chunks, in those buffers.
+    const before = handler.streamStats.allocated;
+    toWorklet.length = 0;
+    credit(2, 1, 4_096, chunks.slice(0, 2));
+    chunks = toWorklet.filter((b) => kindOf(b) === Kind.STREAM_CHUNK);
+    expect(chunks.length).toBe(2);
+    expect(handler.streamStats.allocated).toBe(before);
+  });
+
+  it("B4: more than two channels need the ambisonic convention, and 4, 9 or 16 of them", async () => {
+    const { handler, replies, toWorklet } = await rig();
+    await handler.handle({ type: "streamOpen", streamId: 3, asset: "quad.wav", bytes: makeWav(3_000, 4, 48_000, signal), hint: 1, startFrame: 0, epoch: 1 });
+    expect(replies.at(-1)).toMatchObject({ type: "error", streamId: 3, asset: "quad.wav", message: expect.stringMatching(/4-channel audio needs an ambisonic import setting/) });
+    await handler.handle({ type: "streamOpen", streamId: 4, asset: "six.wav", bytes: makeWav(3_000, 6, 48_000, signal), hint: 1, startFrame: 0, epoch: 1, convention: "ambix" });
+    expect(replies.at(-1)).toMatchObject({ type: "error", streamId: 4, message: expect.stringMatching(/6-channel audio isn't (supported|ambisonic)/) }); // the decoder refuses it at open
+    expect(toWorklet.length).toBe(0);
+    // A stereo file with a sidecar convention streams as stereo (the setting is ignored).
+    await handler.handle({ type: "streamOpen", streamId: 5, asset: "st.wav", bytes: makeWav(3_000, 2, 48_000, signal), hint: 1, startFrame: 0, epoch: 1, convention: "fuma" });
+    expect(readStreamOpen(new DataView(toWorklet[0]!), 0)).toMatchObject({ channels: 2, convention: StreamConvention.AmbiX });
+  });
+
+  it("B4: a FuMa stream is converted to AmbiX in every chunk, as the decoder converts a clip, and reports its import gain", async () => {
+    for (const ch of [4, 9, 16]) {
+      const { handler, replies, toWorklet, credit } = await rig();
+      const frames = 9_000; // not a whole number of chunks; the stream runs to its end
+      const file = makeWav(frames, ch, 48_000, signal);
+      await handler.handle({ type: "streamOpen", streamId: 6, asset: "fuma.wav", bytes: file.slice(0), hint: 1, startFrame: 0, epoch: 1, convention: "fuma" });
+      expect(readStreamOpen(new DataView(toWorklet[0]!), 0)).toMatchObject({ channels: ch, convention: StreamConvention.FuMa });
+      const chunks: ArrayBuffer[] = [];
+      for (let guard = 0; guard < 20; guard++) {
+        const fresh = toWorklet.splice(0).filter((b) => kindOf(b) === Kind.STREAM_CHUNK);
+        chunks.push(...fresh);
+        if (chunks.length && readStreamChunk(new DataView(chunks.at(-1)!), 0).flags & STREAM_CHUNK_FLAGS_LAST) break;
+        credit(6, 1, STREAM_WIDE_CHUNK_FRAMES * fresh.length, []);
+      }
+      const got = framesOf(chunks, ch);
+      // The wasm's own converted read of the whole file, on a fresh instance.
+      const w = await DecoderWasm.load(wasmBytes());
+      const h = w.open(new Uint8Array(file), 1);
+      const gain = w.setConvention(h, "fuma");
+      const scratch = w.alloc(frames * ch * 4);
+      const n = w.readF32(h, scratch, frames);
+      const want = Array.from(w.f32(scratch, n * ch));
+      expect(n).toBe(frames);
+      expect(Array.from(got)).toEqual(want);
+      // Converted: AmbiX of FuMa reorders the channels (FuMa's X, Y, Z → ACN's Y, Z, X) and rescales W.
+      expect(Array.from(got).some((v, i) => v !== signal(Math.floor(i / ch), i % ch) / 32768)).toBe(true);
+      expect(gain).not.toBe(1);
+      expect(replies.find((r) => r.type === "streamOpened")).toMatchObject({ info: { channels: ch, importGain: gain } });
     }
   });
 

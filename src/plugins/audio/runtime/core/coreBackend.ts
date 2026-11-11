@@ -345,6 +345,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
         }),
       onError: (id, asset, message, code) => this.streamFailed(id, asset, message, code),
       sendSeek: (id, frame, epoch) => this.writer.seek(id, frame, epoch),
+      // ADR 0162 B4: a FuMa stream's headroom scale multiplies its volume, as a FuMa clip's import volume.
+      onImportGain: (id, gain) => this._setVolume(id, this.table.volume[id & 0xffff]! * gain),
       // E4.4: a stream loop's change lands at the end of the voice's current pass, predicted from its STATUS playhead
       // at the playhead estimate's rate (the estimate itself before the voice sounds).
       positionAt: (id, frame) => (this.table.isLive(id) ? this.playheads.positionNow(id & 0xffff, frame) : null),

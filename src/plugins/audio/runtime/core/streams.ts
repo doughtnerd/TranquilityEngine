@@ -27,6 +27,12 @@
 //   seeks, `reopenStreams` after a hard rebuild and the playhead wrap read it. The release lands on the predicted frame;
 //   the prediction is exact while the voice neither starves nor changes pitch between the last STATUS and the end of the
 //   pass.
+// - **Ambisonic streams** (ADR 0162 B4, §2.4, §4.6). The open carries the sidecar's `ambisonic.convention`, so the
+//   worker converts FuMa per chunk and streams all 4, 9 or 16 channels into a wide ring of the core. `streamOpened`
+//   checks the channel count against the sidecar as the registry checks a clip's (`checkAmbisonic`: a mismatch fails
+//   the stream), and a FuMa stream's `importGain` (the headroom scale) goes to the backend (`onImportGain`), which
+//   multiplies the voice's volume by it, as a FuMa clip's import volume is. A wide stream's starves also count in
+//   `wideStarved` (C24).
 // - **Close.** When the voice is freed (ended, stopped, stolen) the stream is closed on the worker, which sends
 //   STREAM_CLOSE to the worklet (the core frees the ring).
 // - **Errors** (architecture §7): a stream error from the worker, a failed fetch or a refused ring stops the voice with
@@ -34,12 +40,14 @@
 //   it for clip decodes only): each of its streams fails this way, and the next stream connects a new channel, on
 //   which the worklet closes the dead worker's rings.
 import { MAX_STARVED_PER_BLOCK, StreamEvent, type StatusBlock } from "../wire.generated";
+import { Assets } from "../../../../engine/scene/Assets";
+import type { AmbisonicImport } from "../../../../engine/scene/importSettings";
 import { setFileLoopPoints } from "../loopPoints";
 import { wrapPosition, type LoopRecord } from "./coreAutomation";
 import type { DecodeHint, StreamPortLike } from "../decoder/protocol";
 import { hintFromName } from "../decoder/protocol";
 import type { DecoderClient, StreamReply } from "../decoder/decoderClient";
-import type { ClipInfo } from "./clipRegistry";
+import { checkAmbisonic, type ClipInfo } from "./clipRegistry";
 import type { CoreLink } from "./context";
 import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
 
@@ -78,6 +86,10 @@ export interface StreamManagerDeps {
   readonly positionAt?: (voice: number, frame: number) => number | null;
   /** E4.4: voice `voice`'s stream frames per context frame now (pitch, rate; 0 paused). */
   readonly rateOf?: (voice: number) => number;
+  /** B4: an asset's sidecar `ambisonic` block (default: `Assets.importSettings`), for the convention and the check. */
+  readonly ambisonic?: (asset: string) => AmbisonicImport | null;
+  /** B4: a FuMa stream's import gain (from `streamOpened`): the backend multiplies voice `voice`'s volume by it. */
+  readonly onImportGain?: (voice: number, gain: number) => void;
 }
 
 /** E4.4: a loop region in file frames (`end` exclusive, resolved: never 0 once the file's length is known). */
@@ -115,9 +127,10 @@ interface Entry {
   sentRegion: boolean;
   /** The stream-frame → file-frame map, newest last (empty until `streamOpened`). */
   segments: Segment[];
-  /** From `streamOpened`: the file's rate and frames (0 until then, or when unknown). */
+  /** From `streamOpened`: the file's rate, frames (0 until then, or when unknown) and channels (B4: over 2, wide). */
   rate: number;
   frames: number;
+  channels?: number;
   /** The seek epoch: 1 at open, one more per seek (B3b). */
   epoch: number;
   /** A seek in seconds asked for before the file's rate was known (applied on `streamOpened`). */
@@ -139,11 +152,13 @@ export interface StreamStats {
   connections: number;
   /** Seeks sent to the worker and the core (B3b). */
   seeks: number;
+  /** B4 (C24): starves of wide (ambisonic) streams, also counted in `starves`. */
+  wideStarved: number;
 }
 
 /** @internal The main side of streaming; see the header. */
 export class StreamManager {
-  readonly stats: StreamStats = { opened: 0, closed: 0, errors: 0, starves: 0, eos: 0, coreErrors: 0, connections: 0, seeks: 0 };
+  readonly stats: StreamStats = { opened: 0, closed: 0, errors: 0, starves: 0, eos: 0, coreErrors: 0, connections: 0, seeks: 0, wideStarved: 0 };
   private readonly byStream = new Map<number, Entry>();
   /** Per slot: the playhead last seen in STATUS (the waiting reason clears when it moves). */
   private readonly seen: Float64Array;
@@ -258,7 +273,9 @@ export class StreamManager {
         // until `streamOpened` sends it.
         const region = e.loop && e.record && facts ? regionOf(e.record, facts.rate, facts.frames) : null;
         e.sentRegion = region !== null;
-        decoder.openStream({ streamId, asset: e.asset, bytes, hint, startFrame, epoch: e.epoch, loop: e.loop, ...(e.loop ? { loopStartFrame: region?.start ?? 0, loopEndFrame: region?.end ?? 0 } : {}) });
+        // B4: the sidecar's convention lets the worker stream an ambisonic file's channels (FuMa converted per chunk).
+        const convention = this.ambisonicOf(e.asset)?.convention;
+        decoder.openStream({ streamId, asset: e.asset, bytes, hint, startFrame, epoch: e.epoch, loop: e.loop, ...(e.loop ? { loopStartFrame: region?.start ?? 0, loopEndFrame: region?.end ?? 0 } : {}), ...(convention ? { convention } : {}) });
       },
       (err) => {
         if (this.byStream.get(streamId) === e) this.fail(streamId, err);
@@ -349,6 +366,13 @@ export class StreamManager {
     if (reply.type === "streamOpened") {
       e.rate = reply.info.rate;
       e.frames = reply.info.frames > 0 ? reply.info.frames : 0;
+      e.channels = reply.info.channels;
+      // B4 (ADR 0162 §2.4): over 2 channels the sidecar must agree (order, WAV for orders 2-3), as for a clip.
+      if (reply.info.channels > 2) {
+        const checked = checkAmbisonic(e.asset, reply.info.channels, this.ambisonicOf(e.asset));
+        if ("error" in checked) return this.fail(reply.streamId, `audio decoder: ${checked.error}`);
+      }
+      if (reply.info.importGain !== undefined && reply.info.importGain !== 1) this.deps.onImportGain?.(e.voice, reply.info.importGain);
       // E4.4: the file's own loop points, the asset's facts for the next open, and the map from here.
       const info = reply.info;
       e.fileLoop = info.loopStartFrame !== undefined && info.loopEndFrame !== undefined && info.loopEndFrame > info.loopStartFrame ? { start: info.loopStartFrame, end: info.loopEndFrame } : null;
@@ -438,6 +462,11 @@ export class StreamManager {
     this.subscribed?.loopStream?.(streamId, rec.looping, rec.looping ? region.start : undefined, rec.looping ? region.end : undefined, x);
   }
 
+  /** B4: `asset`'s sidecar `ambisonic` block, or null. */
+  private ambisonicOf(asset: string): AmbisonicImport | null {
+    return this.deps.ambisonic ? this.deps.ambisonic(asset) : Assets.importSettings(asset).ambisonic;
+  }
+
   private fail(streamId: number, err: unknown, code?: number): void {
     const e = this.byStream.get(streamId);
     if (!e || e.failed) return;
@@ -448,7 +477,10 @@ export class StreamManager {
 
   /** A STATUS stream event (drained per frame by the backend). Code 3 is the core refusing the stream (no ring free). */
   streamEvent(id: number, code: number): void {
-    if (code === StreamEvent.Starved) this.stats.starves++;
+    if (code === StreamEvent.Starved) {
+      this.stats.starves++;
+      if ((this.byStream.get(id)?.channels ?? 0) > 2) this.stats.wideStarved++;
+    }
     else if (code === StreamEvent.Eos) this.stats.eos++;
     else if (code === StreamEvent.Error) {
       this.stats.coreErrors++;
