@@ -1,4 +1,4 @@
-// Ed3: `snapTicks`. The `L-Ed3a` cases are skipped until that leaf fills the stub and un-skips them.
+// Ed3: `snapTicks`.
 import { describe, expect, it } from "vitest";
 import { compileTempoMap, nextBarTicks } from "../../../../engine/audio/musicGrid";
 import type { TempoMarker } from "../../../../engine/audio/musicFormat";
@@ -13,7 +13,7 @@ const changing = () => compileTempoMap([m("1:1:0", 120), m("3:1:0", 60, 3)], 0);
 const midBar = () => compileTempoMap([m("1:1:0", 120), m("1:3:0", 90)], 0);
 
 describe("snapTicks (L-Ed3a)", () => {
-  it.skip("L-Ed3a: off rounds to an integer and never goes negative", () => {
+  it("L-Ed3a: off rounds to an integer and never goes negative", () => {
     const map = steady();
     expect(snapTicks(map, 1234.4, "off")).toBe(1234);
     expect(snapTicks(map, 1234.5, "off")).toBe(1235);
@@ -21,7 +21,7 @@ describe("snapTicks (L-Ed3a)", () => {
     expect(snapTicks(map, NaN, "off")).toBe(0);
   });
 
-  it.skip("L-Ed3a: beat snaps to the nearest multiple of 960, a tie going later", () => {
+  it("L-Ed3a: beat snaps to the nearest multiple of 960, a tie going later", () => {
     const map = steady();
     expect(snapTicks(map, 1439, "beat")).toBe(960);
     expect(snapTicks(map, 1441, "beat")).toBe(1920);
@@ -31,7 +31,7 @@ describe("snapTicks (L-Ed3a)", () => {
     expect(snapTicks(compileTempoMap([m("1:1:0", 120)], 0.5), 1441, "beat")).toBe(1920); // gridOffset does not matter
   });
 
-  it.skip("L-Ed3a: half-beat and quarter-beat snap to multiples of 480 and 240", () => {
+  it("L-Ed3a: half-beat and quarter-beat snap to multiples of 480 and 240", () => {
     const map = steady();
     expect(SNAP_STEP_TICKS).toEqual({ beat: 960, "half-beat": 480, "quarter-beat": 240 });
     expect(snapTicks(map, 700, "half-beat")).toBe(480);
@@ -41,7 +41,7 @@ describe("snapTicks (L-Ed3a)", () => {
     expect(snapTicks(map, 120, "quarter-beat")).toBe(240); // tie
   });
 
-  it.skip("L-Ed3a: bar snaps to the nearest bar line of a steady metre, a tie going later", () => {
+  it("L-Ed3a: bar snaps to the nearest bar line of a steady metre, a tie going later", () => {
     const map = steady();
     expect(snapTicks(map, 1900, "bar")).toBe(0);
     expect(snapTicks(map, 1921, "bar")).toBe(3840);
@@ -50,7 +50,7 @@ describe("snapTicks (L-Ed3a)", () => {
     expect(snapTicks(map, -10, "bar")).toBe(0);
   });
 
-  it.skip("L-Ed3a: bar follows the metre in force: after a 3/4 change the lines are 7680, 10560, 13440", () => {
+  it("L-Ed3a: bar follows the metre in force: after a 3/4 change the lines are 7680, 10560, 13440", () => {
     const map = changing();
     expect(snapTicks(map, 7600, "bar")).toBe(7680); // across the change: the marker is a bar line
     expect(snapTicks(map, 9000, "bar")).toBe(7680);
@@ -59,14 +59,14 @@ describe("snapTicks (L-Ed3a)", () => {
     expect(snapTicks(map, 10000, "beat")).toBe(9600);
   });
 
-  it.skip("L-Ed3a: a tempo-only marker mid-bar does not move the bar lines", () => {
+  it("L-Ed3a: a tempo-only marker mid-bar does not move the bar lines", () => {
     const map = midBar();
     expect(snapTicks(map, 3000, "bar")).toBe(3840);
     expect(snapTicks(map, 2000, "bar")).toBe(3840);
     expect(snapTicks(map, 1800, "bar")).toBe(0);
   });
 
-  it.skip("L-Ed3a: every mode returns an integer on its grid that snaps to itself, and bar agrees with nextBarTicks", () => {
+  it("L-Ed3a: every mode returns an integer on its grid that snaps to itself, and bar agrees with nextBarTicks", () => {
     for (const map of [steady(), changing(), midBar()]) {
       for (let t = -100; t < 16000; t += 137.3) {
         for (const mode of SNAP_MODES) {
