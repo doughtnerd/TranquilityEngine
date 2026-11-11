@@ -12,14 +12,15 @@ const node = (id: string, name: string, position: number[], components: Comp[], 
 });
 
 /**
- * A listener, a box zone, an emitter beyond a wall (a collider with an occluder) from the listener, a bare occluder
+ * A camera looking along the scene, a listener at the far left, a box zone, an emitter at the far right with a wall (a collider with an occluder) between it and the listener, a bare occluder
  * (no collider), and an occluder over a child occluder with a collider (the overlap warning).
  */
 export const SPATIAL_SCENE = {
   format: "myco.scene@2",
   settings: { physics: "3d" },
   nodes: [
-    node("camera", "Camera", [0, 3, 14], [{ type: "engine.Camera", data: { projection: "perspective", fieldOfView: 55 } }, { type: "engine.AudioListener", data: {} }]),
+    node("camera", "Camera", [0, 3, 14], [{ type: "engine.Camera", data: { projection: "perspective", fieldOfView: 55 } }]),
+    node("ears", "Ears", [-8, 1, 0], [{ type: "engine.AudioListener", data: {} }]),
     node("zone", "Zone", [0, 1, 0], [{ type: "engine.AudioReverbZone", data: { shape: "box", size: [10, 4, 10], blendDistance: 2, wet: 0.5 } }]),
     node("wall", "Wall", [4, 1, 0], [{ type: "engine.BoxCollider", data: { size: [0.5, 4, 6] } }, { type: "engine.AudioOccluder", data: {} }]),
     node("emitter", "Emitter", [8, 1, 0], [{ type: "engine.AudioSource", data: { clip: "asset:music/foo.mp3", loop: true, volume: 0.3, playOnAwake: true, spatial: true } }]),
