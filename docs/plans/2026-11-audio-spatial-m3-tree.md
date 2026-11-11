@@ -14,7 +14,7 @@ E10 (level J) runs as a single leaf with no lead and reports to the coordinator.
 
 ## Collision audit
 
-Done before splitting, over every task's files (the waves plan lists them per wave). A **hotspot** is a file that two tasks in one wave would touch. **Rework** is a later task rewriting an earlier one's output.
+Done before splitting, over every task's files, and extended after the independent review (rows 36–41) (the waves plan lists them per wave). A **hotspot** is a file that two tasks in one wave would touch. **Rework** is a later task rewriting an earlier one's output.
 
 | # | Found | Where | Fix |
 |---|---|---|---|
@@ -44,7 +44,7 @@ Done before splitting, over every task's files (the waves plan lists them per wa
 | 24 | Hotspot: `voiceTable.ts`/`selection.ts`: occlusion gain into audibility (D2a) and the `hrtfPick` rename (A5) | W3–W5 | K4 adds `occGain` (default 1) and selection's product; A5 changes only imports; D2a writes `occGain` |
 | 25 | Hotspot: `AudioSource.ts`, `Audio.ts`: B5 (W5), D5 (W7); `core/listener.ts`: B5 (W5), D3 (W6); `core/debug.ts`: A5 (W4), D5 (W7); `babylonBackend.ts`: F2 (W5), F1 (W7) | | sequential; checked and left |
 | 26 | Hotspot: `golden/` and the `audio-bench` scene registry wanted by A7, B6, C7, D6 | W4–W6 | **separate files**: one golden file per scene; the registry has one writer per wave (A7, C7, D6) |
-| 27 | Rework: E8's sample settings (`stress` HRTF, occlusion layers, `dopplerLevel: 0` in bench scenes) would land in W7, leaving samples changed or benches moved for three waves | W4–W7 | each line moves into its flip (A6b, D2a, D3), the owner's "update the samples" rule; E8 keeps the spatial scene, scripts, guides and the rest of the settings |
+| 27 | Rework: E8's sample settings (`stress` HRTF, `pirates` occlusion, `dopplerLevel: 0` on the orbiting and bench sources, incl. `stress`'s generator) would land in W7, leaving samples changed or benches moved for three waves | W4–W7 | each line moves into its flip (A6b, D2a, D3), the owner's "update the samples" rule; E8 keeps the spatial scene, scripts, guides and the rest of the settings |
 | 28 | Hotspot: `audioSettingsModel.ts` wanted by A6a (W1), A6b (W4), E3 (W5) | | sequential; E3 is placed after the flip deliberately |
 | 29 | Hotspot: the audio editor's `index.ts` wanted by E1, E2, E4 | | different waves, additive lines; checked and left |
 | 30 | Hotspot: `native/audio/build.mjs` wanted by A3 (bake check, 230 KB warning) and C2a (decoder size, already gated) | W2 | A3 is its only writer; C2a reads the existing gate |
@@ -53,6 +53,12 @@ Done before splitting, over every task's files (the waves plan lists them per wa
 | 33 | Rework: E7 ("live tuning check") had no files; E9 writes the live-tuning spec | W6, W9 | E7 fixes fields that don't apply in Play (W6); E9's spec checks them (W9); neither rewrites the other |
 | 34 | Hotspot: `myco.ts`, `runtime/index.ts` wanted by D2b, C5 (components) and D5 (exports) | | coordinator single writer, from the tasks' reports |
 | 35 | Checked and left: `worldServices.ts` and the physics plugin (D0 only); `importSettings.ts` (B1 only); `AssetInspector.tsx` (E6 only); `eventFormat.ts`, `eventRuntime.ts` (D4 only); the event editor (E5 only); `hrir.ts` (A3 only); `convolver/` (C1 in W1, C2a's `presets.rs` in W2) | | no overlap |
+| 36 | Hotspot: `InitParams` struct literals (37, incl. `clips.rs:608`, `voices.rs`, `stream.rs`, `audio-bench`, tests) wanted by K2 and B2 in W1, and by every later region | W1 | K2's first commit adds a `Default` and changes every literal to `..InitParams::default()`; B2 and C1 branch after it. B2's N-channel resampler is a new function, so `lagrange`'s callers in `voices.rs` and `stream.rs` don't change (review) |
+| 37 | Rework and missing owner: the region sizes on main (`core/context.ts` preset and rebuild check, `coreDriver.ts`'s constant 16 MiB headroom, too small for high once zones and wide exist) | W1–W5 | K2 adds the preset fields and a headroom function; each feature's region function (beds A5, zones C5, wide B5) is its memory flip (review) |
+| 38 | Hotspot: `worklet/coreDriver.ts` wanted by B4 (16-channel chunks), C2b, A3 and C3 (frame sizes for formats 3–5) | W2–W3 | K2 handles both in W1; afterwards a coordinator-only file (review) |
+| 39 | Hotspot: `decoder/streams.ts` (STREAM_OPEN, the 2-channel clamp) wanted by B1 (per-chunk FuMa) and B4 (wide streams) | W1, W3 | B4 owns the stream path; B1 writes the per-chunk function in `decoder/ambisonic.ts` that B4 calls (review) |
+| 40 | Hotspot: Babylon needs main's occlusion and Doppler (F1), but K4 froze `audioSystem.ts` around core-only modules | W3, W7 | K0 adds `setOcclusion?`/`setDopplerRate?`; K4's order runs occlusion and Doppler for both backends (review) |
+| 41 | Missing owners: `mirror.ts`, `spatial.ts` (A5 and C5 would share them in W4), `AudioListener.setVelocity`'s body, the ambisonic stream default in `clipRegistry.ts`, the `zoneIr` interface K4 constructs while C2b writes it | W3–W6 | K4 takes `mirror.ts` and `spatial.ts`; D3 the `setVelocity` body; B5 the stream default; K0 declares `ZoneIrService` (review) |
 
 ## How a task runs
 
@@ -103,7 +109,7 @@ The spec excerpt is pasted from the design, not referenced. Use the section name
 
 | Task (days) | Lead | Lead keeps | Leaves (id: files; spec source) | Leaf days (est.) |
 |---|---|---|---|---|
-| A1 (5, + K1/K2 plan est. 1.5) | strongest | the schema (`spatial.rs` and the edits to `batch`/`status`/`envelope`/`schema.rs`), generation and hash, the module skeletons (K1); ABI 2.0, regions, dispatch stubs, counters struct, bus hook, `chain.rs` (K2); `coreDriver.ts` | **L-A1a**: `audio-wire/tests/spatial_vectors.rs` + golden vectors, round trip and fuzz of every new record; spec: C2–C7 byte tables, §4.2–§4.3. **L-A1b**: `core/statusReader.ts` M3 parse + `statusReaderM3.test.ts`; spec: C7, §4.3 (header 144 B, sections, worst case 15,904 B). **L-A1c**: the M3 methods in `core/commandWriter.ts` + `commandWriterM3.test.ts`; spec: C1–C5 tables and the existing methods as the model | 0.75 + 0.5 + 0.75 = 2.0 |
+| A1 (5, + K1/K2 plan est. 2.5) | strongest | the schema (`spatial.rs` and the edits to `batch`/`status`/`envelope`/`schema.rs`), generation and hash, the module skeletons (K1); `InitParams` `Default` and its literals (first commit), ABI 2.0, regions, dispatch stubs, counters struct, bus hook, `chain.rs`, the `context.ts` preset fields, `coreDriver.ts` headroom function, frame sizes and wide chunks (K2) | **L-A1a**: `audio-wire/tests/spatial_vectors.rs` + golden vectors, round trip and fuzz of every new record; spec: C2–C7 byte tables, §4.2–§4.3. **L-A1b**: `core/statusReader.ts` M3 parse + `statusReaderM3.test.ts`; spec: C7, §4.3 (header 144 B, sections, worst case 15,904 B). **L-A1c**: the M3 methods in `core/commandWriter.ts` + `commandWriterM3.test.ts`; spec: C1–C5 tables and the existing methods as the model | 0.75 + 0.5 + 0.75 = 2.0 |
 | A2 (5) | strongest | `bed_decoder.rs` (partitioned decode, 142 µs p50), bit-identity native vs wasm | **L-A2a**: `audio-dsp/src/ambisonic.rs` (SN3D/ACN encode orders 1–3, Ivanic–Ruedenberg rotation) + tests; spec: the real spherical harmonic formulas, the recurrence (paste the paper's tables), §9's two unit rows (64 directions per order, 1e-5). *The one numerics-heavy leaf: if it needs a second run, it moves back to the lead.* **L-A2b**: `audio-dsp/tests/bed_decoder.rs` (partitioned against direct convolution); spec: §9 row | 1.0 + 0.5 = 1.5 |
 | A3 (4) | strongest | `bake-magls` (the MagLS design from the HRIR set, the asset and `--check`), `bed_matrix.rs`, `build.mjs` | **L-A3a**: format 4 loader in `core/hrir.ts` + test; spec: C6 format 4, S5, the existing HRIR loader. **L-A3b**: `audio-dsp/tests/bed_matrix.rs`; spec: §9 (within 2 dB of `EqualPowerPanner` except within 10° of ±90°) | 0.5 + 0.25 = 0.75 |
 | A4 (7) | strongest | all | none: slot and host lifecycle, the crossfade law, decode order, gain fold, RESET and the ladder step are lifecycle and ordering | – |
@@ -115,10 +121,10 @@ The spec excerpt is pasted from the design, not referenced. Use the section name
 
 | Task (days) | Lead | Lead keeps | Leaves | Leaf days (est.) |
 |---|---|---|---|---|
-| B1 (3.5) | mid | registry validation in `clipRegistry.ts`, the per-chunk stream hookup | **L-B1a**: the `ambisonic` key in `importSettings.ts` (parse, serialise) + test; spec: §2.4. **L-B1b**: `decoder/ambisonic.ts`, FuMa → AmbiX for orders 1–3 (channel order and weights, int16 headroom scaling, f32 when a factor exceeds 4) + test (FuMa twin equals AmbiX within 1e-6); spec: §2.4, the FuMa table | 0.5 + 0.75 = 1.25 |
-| B2 (4) | strongest | the arena to 16 channels (`clips.rs`, the shared 8 KB planar scratch), the decoder limit | **L-B2a**: `resample.rs` to N ≤ 16 channels + tests; spec: port the existing two-channel code, same filters, bit-identical for 1 and 2 channels | 1.0 |
+| B1 (3.5) | mid | registry validation in `clipRegistry.ts`; the per-chunk FuMa function that B4 calls from `decoder/streams.ts` | **L-B1a**: the `ambisonic` key in `importSettings.ts` (parse, serialise) + test; spec: §2.4. **L-B1b**: `decoder/ambisonic.ts`, FuMa → AmbiX for orders 1–3 (channel order and weights, int16 headroom scaling, f32 when a factor exceeds 4) + test (FuMa twin equals AmbiX within 1e-6); spec: §2.4, the FuMa table | 0.5 + 0.75 = 1.25 |
+| B2 (4) | strongest | the arena to 16 channels (`clips.rs`, the shared 8 KB planar scratch), the decoder limit | **L-B2a**: a new N ≤ 16-channel function in `resample.rs` + tests (the stereo `lagrange` signature stays); spec: port the existing two-channel code, same filters, bit-identical for 1 and 2 channels | 1.0 |
 | B3 (6) | strongest | all | none: per-quantum rotation slerp, private decoders, stealing in the core | – |
-| B4 (5.5) | strongest | all | none: ring class, streaming, chunk timing, the stall test | – |
+| B4 (5.5) | strongest | all, incl. `decoder/streams.ts` (1–16 channels, `convention`, the call into B1's FuMa function) | none: ring class, streaming, chunk timing, the stall test | – |
 | B5 (3.5) | mid | all | none: wiring across `listener.ts`, `AudioSource.ts`, `Audio.ts`; the stealing rule is under a quarter day | – |
 | B6 (3) | mid | the loopback tests (image azimuth, bed and private decoder) | **L-B6a**: `samples/sound-lab/tools/makeAmbisonic.mjs` (a tone at a given azimuth and elevation encoded into 4/9/16-channel AmbiX WAVs, and a FuMa twin); spec: the SN3D formulas from L-A2a's merged `ambisonic.rs`, the WAV writer in `makeTones.mjs` | 0.75 |
 
@@ -141,9 +147,9 @@ The spec excerpt is pasted from the design, not referenced. Use the section name
 |---|---|---|---|---|
 | D0 (3.5) | mid | all | none: an engine-core interface with Rapier filters across the plugin boundary | – |
 | D1 (4) + K3 | strongest | `fxpool.rs`, the migration (bit-identical), the `voices.rs` order and K3 | **L-D1a**: `audio-dsp/src/fxfilter.rs` (a log-Hz ramped mono pair over `Biquad`) + tests (ramp monotone, `LP_TOP` 20,000, `HP_BOTTOM` 20); spec: C17, S20 | 0.75 |
-| D2a (5.5) | strongest | the ray scheduler (count from `budgetMs` and the EMA, overrun halving, ranking, round robin), sample layers | **L-D2aa**: `core/occlusionMath.ts` (attack/release smoothing, wet folding, lateral ray directions) + test; spec: §2.1 occlusion rows, S1 | 0.75 |
+| D2a (5.5) | strongest | the ray scheduler (count from `budgetMs` and the EMA, overrun halving, ranking, round robin), `pirates`' occlusion settings | **L-D2aa**: `core/occlusionMath.ts` (attack/release smoothing, wet folding, lateral ray directions) + test; spec: §2.1 occlusion rows, S1 | 0.75 |
 | D2b (3) | mid | compile, combine and cache in `occlusionMaterials.ts`, debug rows, the 2D note | **L-D2ba**: `runtime/AudioOccluder.ts` fields (`material`, `transmissionTrimDb`, `cutoffScale`, `openness`) with descriptions + test; spec: §1.5, R15 | 0.5 |
-| D3 (3) | mid | the velocity wiring in `listener.ts`, the hidden-tab reset, bench scenes at 0 | **L-D3a**: `core/doppler.ts` maths (the formula, the velocity estimator, the teleport guard, the `maxSpeed` clamp) + test; spec: §1.x Doppler rows, C10 | 0.75 |
+| D3 (3) | mid | the velocity wiring in `listener.ts` and `AudioListener.setVelocity`, the hidden-tab reset, `dopplerLevel: 0` in `sound-lab`'s main scene and `stress`'s generator | **L-D3a**: `core/doppler.ts` maths (the formula, the velocity estimator, the teleport guard, the `maxSpeed` clamp) + test; spec: §1.x Doppler rows, C10 | 0.75 |
 | D4 (3) | mid | the runtime path in `eventRuntime.ts` | **L-D4a**: the `filter`/`sends`/`spatial` additions to `eventFormat.ts` + test; spec: §2.5 rules | 0.75 |
 | D5 (3.5) | mid | handle bodies, debug additions, the export list | **L-D5a**: `audioApiM3.test.ts`, one case per §1 row and the `@field` description check; spec: §1 tables | 1.0 |
 | D6 (3.75) | mid | all | none: bench method and numbers | – |
@@ -152,7 +158,7 @@ The spec excerpt is pasted from the design, not referenced. Use the section name
 
 | Task (days) | Lead | Lead keeps | Leaves | Leaf days (est.) |
 |---|---|---|---|---|
-| F1 (3) | mid | the backend changes | **L-F1a**: `babylonBackendM3.test.ts`, one case per §8 row against the existing mocks; spec: §8 table | 0.75 |
+| F1 (3) | mid | the backend changes, incl. K0's `setOcclusion?` (gain only) and `setDopplerRate?` on Babylon voices | **L-F1a**: `babylonBackendM3.test.ts`, one case per §8 row against the existing mocks; spec: §8 table | 0.75 |
 | F2 (0.5) | mid | all | none: too small | – |
 
 ### M3e: editor, samples, listening pass
@@ -174,7 +180,7 @@ The spec excerpt is pasted from the design, not referenced. Use the section name
 
 | Task (plan est.) | Lead | Lead keeps | Leaves | Leaf days (est.) |
 |---|---|---|---|---|
-| K4 (2.5) | strongest | the frame order, construction, replay order, the §1 surface declarations | **L-K4a**: `core/voiceFx.ts` + test (staging, `lpHz` as the lowest contribution, thresholds 0.5 dB / 1 Hz / 0.001 rad, re-send on promotion); spec: S3, C3, C20. **L-K4b**: the K0 members in `testing.ts`; spec: K0's types (mocks from declarations) | 1.0 + 0.75 = 1.75 |
+| K4 (2.5) | strongest | the frame order for both backends, construction, `mirror.ts`, `spatial.ts`, replay order, the §1 surface declarations | **L-K4a**: `core/voiceFx.ts` + test (staging, `lpHz` as the lowest contribution, thresholds 0.5 dB / 1 Hz / 0.001 rad, re-send on promotion); spec: S3, C3, C20. **L-K4b**: the K0 members in `testing.ts`; spec: K0's types (mocks from declarations) | 1.0 + 0.75 = 1.75 |
 
 ## What it changes
 
@@ -182,10 +188,10 @@ All figures are estimates.
 
 | | Before the tree | After |
 |---|---|---|
-| Strongest model | 74.5 days (the S rows) | ≈ 71.5 (+ A1 5, K1/K2 1.5, K4 2.5; − 12 days of leaves) |
+| Strongest model | 74.5 days (the S rows) | ≈ 72.5 (+ A1 5, K1/K2 2.5, K4 2.5; − 12 days of leaves) |
 | Mid model | 95 days (M rows 93, E10 2) | ≈ 76.75 |
 | Cheapest model | 0 | ≈ 25.25 (34 leaves, E10 included) |
-| Total | 169.5 | ≈ 173.5 (+ 4 days of contracts, mostly moved from A5, C5, D4, D5) |
+| Total | 169.5 | ≈ 174.5 (+ 5 days of contracts, counted as added; part of it is work the rows would otherwise do, which the pilot measures) |
 | Pure critical path | 41 days | ≈ 41–42.5 with K1/K2, less ≈ 1–2 where leaves overlap their lead on A1, A2, D5 and E4 |
 
 **Leaves per wave:** W1 9, W2 8, W3 2, W4 4, W5 5, W6 1, W7 3, W8 2 (E10).
