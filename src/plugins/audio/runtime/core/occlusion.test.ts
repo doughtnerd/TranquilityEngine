@@ -159,7 +159,7 @@ const settings = (over: Partial<AudioSettings["occlusion"]> = {}): Pick<AudioSet
 
 function makeFrame(listener: GameObject | null = null): ListenerFrame {
   const f = new ListenerFrame();
-  f.set(WORLD, KEY, listener, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
+  f.set(WORLD, KEY, listener, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
   return f;
 }
 const step = (f: ListenerFrame) => f.set(WORLD, KEY, f.node, null, 1 / 60);

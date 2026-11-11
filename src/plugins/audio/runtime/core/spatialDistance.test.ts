@@ -242,27 +242,28 @@ describe("ConeEffect", () => {
 });
 
 describe("listenerSpaceDirection", () => {
+  // Engine world: left-handed, +Z forward (ADR 0164). Listener space stays right-handed: -Z ahead, +X right.
   const origin: Vec3 = [0, 0, 0];
-  const forward: Vec3 = [0, 0, -1];
+  const forward: Vec3 = [0, 0, 1];
   const up: Vec3 = [0, 1, 0];
 
-  it("a source ahead is -Z", () => {
-    const r = listenerSpaceDirection([0, 0, -5], origin, forward, up);
+  it("a source ahead (+Z) is -Z", () => {
+    const r = listenerSpaceDirection([0, 0, 5], origin, forward, up);
     nearVec(r.direction, [0, 0, -1]);
     near(r.distance, 5);
   });
-  it("a source to the right is +X", () => {
+  it("a source to the right (+X) is +X", () => {
     const r = listenerSpaceDirection([3, 0, 0], origin, forward, up);
     nearVec(r.direction, [1, 0, 0]);
     near(r.distance, 3);
   });
-  it("a source to the left is -X", () => {
+  it("a source to the left (-X) is -X", () => {
     const r = listenerSpaceDirection([-1, 0, 0], origin, forward, up);
     nearVec(r.direction, [-1, 0, 0]);
     near(r.distance, 1);
   });
-  it("a source behind is +Z", () => {
-    const r = listenerSpaceDirection([0, 0, 4], origin, forward, up);
+  it("a source behind (-Z) is +Z", () => {
+    const r = listenerSpaceDirection([0, 0, -4], origin, forward, up);
     nearVec(r.direction, [0, 0, 1]);
     near(r.distance, 4);
   });
@@ -272,25 +273,25 @@ describe("listenerSpaceDirection", () => {
     near(r.distance, 2);
   });
   it("is relative to the listener's position", () => {
-    const r = listenerSpaceDirection([1, 1, -4], [1, 1, 1], forward, up);
+    const r = listenerSpaceDirection([1, 1, 6], [1, 1, 1], forward, up);
     nearVec(r.direction, [0, 0, -1]);
     near(r.distance, 5);
   });
   it("normalises a non-unit forward", () => {
-    const r = listenerSpaceDirection([0, 0, -5], origin, [0, 0, -10], up);
+    const r = listenerSpaceDirection([0, 0, 5], origin, [0, 0, 10], up);
     nearVec(r.direction, [0, 0, -1]);
     near(r.distance, 5);
   });
-  it("follows a turned listener: facing +X, right is +Z", () => {
+  it("follows a turned listener: facing +X (turned right), right is -Z", () => {
     const facingX: Vec3 = [1, 0, 0];
     nearVec(listenerSpaceDirection([5, 0, 0], origin, facingX, up).direction, [0, 0, -1]); // ahead
-    nearVec(listenerSpaceDirection([0, 0, 3], origin, facingX, up).direction, [1, 0, 0]); // right
-    near(listenerSpaceDirection([0, 0, 3], origin, facingX, up).distance, 3);
+    nearVec(listenerSpaceDirection([0, 0, -3], origin, facingX, up).direction, [1, 0, 0]); // right
+    near(listenerSpaceDirection([0, 0, -3], origin, facingX, up).distance, 3);
   });
   it("orthonormalises an up vector that is not perpendicular to forward", () => {
-    const tilted: Vec3 = [0, 1, 1];
+    const tilted: Vec3 = [0, 1, -1];
     nearVec(listenerSpaceDirection([0, 2, 0], origin, forward, tilted).direction, [0, 1, 0]);
-    const r = listenerSpaceDirection([0, 1, 1], origin, forward, tilted);
+    const r = listenerSpaceDirection([0, 1, -1], origin, forward, tilted);
     nearVec(r.direction, [0, Math.SQRT1_2, Math.SQRT1_2]);
     near(r.distance, Math.SQRT2);
   });
@@ -300,7 +301,7 @@ describe("listenerSpaceDirection", () => {
     expect(r.distance).toBe(0);
   });
   it("gives a zero direction for a degenerate frame (up parallel to forward)", () => {
-    const r = listenerSpaceDirection([0, 0, -5], origin, forward, [0, 0, -1]);
+    const r = listenerSpaceDirection([0, 0, 5], origin, forward, [0, 0, 1]);
     nearVec(r.direction, [0, 0, 0]);
     near(r.distance, 5);
   });

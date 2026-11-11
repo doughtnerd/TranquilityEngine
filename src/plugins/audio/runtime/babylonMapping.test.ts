@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.pure";
-import { busCreationSteps, busVolume, listenerQuaternion, planBuses, playbackRate, spatialParams, spatialSoundOptions } from "./babylonMapping";
+import { busCreationSteps, busVolume, listenerQuaternion, planBuses, playbackRate, spatialParams, spatialSoundOptions, webAudioVector } from "./babylonMapping";
 
 describe("planBuses", () => {
   it("creates parents before children, in project order otherwise", () => {
@@ -82,26 +82,45 @@ describe("listenerQuaternion", () => {
     Vector3.TransformNormalToRef(Vector3.Up(), m, u);
     return { f, u };
   }
+  // Engine axes (ADR 0164: left-handed, +Z forward); Babylon's listener hands Web Audio the frame with z negated.
   const cases: [string, [number, number, number], [number, number, number]][] = [
-    ["the default frame", [0, 0, -1], [0, 1, 0]],
+    ["the default frame", [0, 0, 1], [0, 1, 0]],
     ["turned left", [-1, 0, 0], [0, 1, 0]],
     ["turned right", [1, 0, 0], [0, 1, 0]],
-    ["looking up", [0, 1, 0], [0, 0, 1]],
-    ["tilted", [0.3, -0.5, -0.8], [0.1, 0.9, -0.2]],
-    ["rolled over", [0, 0, -1], [1, 0, 0]],
+    ["looking up", [0, 1, 0], [0, 0, -1]],
+    ["tilted", [0.3, -0.5, 0.8], [0.1, 0.9, 0.2]],
+    ["rolled over", [0, 0, 1], [1, 0, 0]],
   ];
   for (const [name, f, u] of cases) {
-    it(`reproduces ${name} through Babylon's matrix maths`, () => {
+    it(`reproduces ${name} through Babylon's matrix maths, mirrored into Web Audio's axes`, () => {
       const q = listenerQuaternion({ x: f[0], y: f[1], z: f[2] }, { x: u[0], y: u[1], z: u[2] });
       expect(Math.hypot(q.x, q.y, q.z, q.w)).toBeCloseTo(1);
       const { f: gotF, u: gotU } = viaBabylon(q);
       const len = Math.hypot(...f);
-      expect([gotF.x, gotF.y, gotF.z].map((v) => +v.toFixed(5) + 0)).toEqual(f.map((v) => +(v / len).toFixed(5) + 0));
+      const wf = [f[0], f[1], -f[2]];
+      const wu = [u[0], u[1], -u[2]];
+      expect([gotF.x, gotF.y, gotF.z].map((v) => +v.toFixed(5) + 0)).toEqual(wf.map((v) => +(v / len).toFixed(5) + 0));
       // `up` comes back orthogonal to forward and on the same side as the given one.
-      expect(gotU.x * u[0] + gotU.y * u[1] + gotU.z * u[2]).toBeGreaterThan(0);
+      expect(gotU.x * wu[0]! + gotU.y * wu[1]! + gotU.z * wu[2]!).toBeGreaterThan(0);
       expect(gotF.x * gotU.x + gotF.y * gotU.y + gotF.z * gotU.z).toBeCloseTo(0);
     });
   }
+
+  it("pans a source on the right of a listener facing +Z to the right (left and right not swapped)", () => {
+    // Engine: listener at the origin facing +Z, source at +X (its right). Web Audio's right is forward × up.
+    const q = listenerQuaternion({ x: 0, y: 0, z: 1 }, { x: 0, y: 1, z: 0 });
+    const { f, u } = viaBabylon(q);
+    const right = Vector3.Cross(f, u);
+    const src = webAudioVector({ x: 1, y: 0, z: 0 });
+    expect(src.x * right.x + src.y * right.y + src.z * right.z).toBeCloseTo(1);
+    // A source ahead (+Z) is ahead in Web Audio too.
+    const ahead = webAudioVector({ x: 0, y: 0, z: 1 });
+    expect(ahead.x * f.x + ahead.y * f.y + ahead.z * f.z).toBeCloseTo(1);
+  });
+
+  it("negates z for Web Audio", () => {
+    expect(webAudioVector({ x: 1, y: 2, z: 3 })).toEqual({ x: 1, y: 2, z: -3 });
+  });
 
   it("copes with a zero or parallel vector", () => {
     const q = listenerQuaternion({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });

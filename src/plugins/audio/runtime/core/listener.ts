@@ -4,10 +4,12 @@
 // BATCH as the frame's direction changes so clips and point voices turn together. A hard rebuild replays the last
 // rotation, snapped, after BUS_MIX (C10's order).
 //
-// **Axes (S2).** Main sends the rotation in *engine* axes (listener space: +X right, +Y up, forward -Z); the core owns
-// the engine → AmbiX map, `(X, Y, Z)_ambix = (-z, -x, +y)_engine` (`audio-dsp` `quat_to_ambix`), and applies
-// R = R(q) · Rz(yaw) to each ambisonic voice. So `q` here is the rotation whose matrix has the rows (right, up, -forward)
-// of the listener's frame: it takes a world vector to listener space, which is what clip rotation applies directly.
+// **Axes (S2).** The core's axes are right-handed (listener space: +X right, +Y up, forward -Z); the core owns the
+// engine → AmbiX map, `(X, Y, Z)_ambix = (-z, -x, +y)_engine` (`audio-dsp` `quat_to_ambix`), and applies
+// R = R(q) · Rz(yaw) to each ambisonic voice. The engine's world is left-handed with +Z forward (ADR 0164), so main
+// mirrors it into the core's axes first (z negated: a world vector (x, y, z) is (x, y, -z) there, which puts an
+// ambisonic clip's front on world +Z). `q` is then the rotation whose matrix has the rows (right, up, -forward) of
+// the mirrored listener frame: it takes a mirrored world vector to listener space, which clip rotation applies directly.
 //
 // **Snaps.** The first LISTENER snaps (the core is at the identity until then; a ramp would sweep the whole scene
 // round), as does a frame with `ListenerFrame.cut`, a change of the listener's node or World (a camera cut, a scene
@@ -28,11 +30,15 @@ export const LISTENER_ROTATION_THRESHOLD = 0.001;
 const COS_HALF_THRESHOLD = Math.cos(LISTENER_ROTATION_THRESHOLD / 2);
 
 /**
- * @internal The world → listener quaternion `(x, y, z, w)` of a frame with `forward` and `up` (not necessarily unit or
- * perpendicular: they are orthonormalised as `listenerSpaceDirection` does), written to `out`. False when the frame is
+ * @internal The world → listener quaternion `(x, y, z, w)` of a frame with `forward` and `up` in engine world axes (not
+ * necessarily unit or perpendicular: they are orthonormalised as `listenerSpaceDirection` does), in the core's
+ * right-handed axes (the world mirrored in z, see S2 above), written to `out`. False when the frame is
  * degenerate (zero forward, or forward parallel to up) or not finite; `out` is untouched then.
  */
 export function worldToListenerQuaternion(fx: number, fy: number, fz: number, ux: number, uy: number, uz: number, out: [number, number, number, number]): boolean {
+  // Into the core's right-handed axes (ADR 0164).
+  fz = -fz;
+  uz = -uz;
   const fl = Math.hypot(fx, fy, fz);
   if (!(fl > 0) || !Number.isFinite(fl)) return false;
   fx /= fl;
@@ -51,7 +57,7 @@ export function worldToListenerQuaternion(fx: number, fy: number, fz: number, ux
   const vx = ry * fz - rz * fy;
   const vy = rz * fx - rx * fz;
   const vz = rx * fy - ry * fx;
-  // The matrix with rows (right, up', -forward) takes a world vector to listener space; its quaternion (Shepperd).
+  // The matrix with rows (right, up', -forward) takes a mirrored world vector to listener space; its quaternion (Shepperd).
   const m00 = rx, m01 = ry, m02 = rz;
   const m10 = vx, m11 = vy, m12 = vz;
   const m20 = -fx, m21 = -fy, m22 = -fz;

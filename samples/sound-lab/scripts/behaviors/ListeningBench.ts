@@ -51,7 +51,7 @@ export class ListeningBench extends GameBehavior {
   @field(Number) wallX = -3.2;
   @field(Number) wallZ = 0;
   @field(Number) cornerX = -2.6;
-  @field(Number) cornerZ = -20.5;
+  @field(Number) cornerZ = 20.5;
   private sweeping = false;
   private burstHandles: { stop(fade?: number): void }[] = [];
   private warnedNoOrbit = false;
@@ -85,7 +85,7 @@ export class ListeningBench extends GameBehavior {
     if (Input.getKeyDown(this.cornerKey)) this.teleport(this.cornerX, this.cornerZ);
     if (Input.getKeyDown(this.turnKey)) {
       const e = this.transform.eulerAngles;
-      this.transform.eulerAngles = { x: e.x, y: e.y + 90, z: e.z };
+      this.transform.eulerAngles = { x: e.x, y: e.y - Math.PI / 2, z: e.z };
     }
     if (Input.getKeyDown(this.silenceKey)) this.silence();
     if (Input.getKeyDown(this.pageQuietKey)) this.togglePageQuiet();
@@ -153,11 +153,11 @@ export class ListeningBench extends GameBehavior {
   private burst(): void {
     const t0 = Audio.time + 0.05;
     const p = this.transform.position;
-    this.burstHandles.push(Audio.playOneShot("audio/loud.wav", { volume: 1, position: { x: p.x + 0.9, y: p.y, z: p.z - 1.2 }, minDistance: 1, maxDistance: 30, at: t0 }));
+    this.burstHandles.push(Audio.playOneShot("audio/loud.wav", { volume: 1, position: { x: p.x + 0.9, y: p.y, z: p.z + 1.2 }, minDistance: 1, maxDistance: 30, at: t0 }));
     for (let i = 0; i < 200; i++) {
       const angle = Math.random() * Math.PI * 2;
       const distance = 4 + Math.random() * 21;
-      const position = { x: p.x + Math.cos(angle) * distance, y: p.y, z: p.z + Math.sin(angle) * distance };
+      const position = { x: p.x + Math.cos(angle) * distance, y: p.y, z: p.z - Math.sin(angle) * distance };
       this.burstHandles.push(Audio.playOneShot("audio/bright.wav", { volume: 0.02, position, minDistance: 1, maxDistance: 30, at: t0 }));
     }
   }
@@ -182,7 +182,7 @@ export class ListeningBench extends GameBehavior {
     if (!p) return;
     p.x = Math.cos(elevation) * radius * Math.cos(azimuth);
     p.y = Math.sin(elevation) * radius;
-    p.z = Math.cos(elevation) * radius * Math.sin(azimuth);
+    p.z = -Math.cos(elevation) * radius * Math.sin(azimuth);
   }
 
   private orbitSource(): AudioSource | null {

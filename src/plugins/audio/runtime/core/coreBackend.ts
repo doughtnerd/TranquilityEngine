@@ -274,7 +274,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private readonly spatialDirty: Uint8Array;
   private listenerDirty = true;
   private readonly listenerPos: [number, number, number] = [0, 0, 0];
-  private readonly listenerFwd: [number, number, number] = [0, 0, -1];
+  private readonly listenerFwd: [number, number, number] = [0, 0, 1];
   private readonly listenerUp: [number, number, number] = [0, 1, 0];
   private readonly distance = new DistanceEffect();
   private readonly basis = new ListenerBasis();

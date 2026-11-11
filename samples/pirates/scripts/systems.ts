@@ -4,7 +4,7 @@
 // - the server only: a ship per connection plus bots, broadsides, cannonballs and hits,
 //   collisions, the arena edge, sinking and respawning. The match, the flag, power-ups and the
 //   storm are in rules.ts.
-import { Connection, ConnectionState, GameObject, Mathf, Quaternion, Replicated, Transform, Water, defineSystem } from "myco";
+import { Connection, ConnectionState, GameObject, Mathf, Replicated, Transform, Water, defineSystem } from "myco";
 import { Actors } from "./behaviors/Actors";
 import {
   ARENA_RADIUS,
@@ -42,6 +42,7 @@ import {
   angleDelta,
   bearing,
   forward,
+  headingRotation,
   ships,
   starboard,
   type BallView,
@@ -67,12 +68,12 @@ function spawnPoint(world: object | null, slot: number, count = 8): { x: number;
     const r = arenaRadius() * (0.75 - ring * 0.08);
     for (let step = 0; step < 12; step++) {
       const a = base + (step % 2 ? 1 : -1) * Math.ceil(step / 2) * 0.05;
-      const x = Math.sin(a) * r, z = Math.cos(a) * r;
-      if (clear(x, z)) return { x, z, heading: bearing(x, z, 0, 0) + 90 };
+      const x = Math.sin(a) * r, z = -Math.cos(a) * r;
+      if (clear(x, z)) return { x, z, heading: bearing(x, z, 0, 0) - 90 };
     }
   }
-  const x = Math.sin(base) * arenaRadius() * 0.75, z = Math.cos(base) * arenaRadius() * 0.75;
-  return { x, z, heading: bearing(x, z, 0, 0) + 90 };
+  const x = Math.sin(base) * arenaRadius() * 0.75, z = -Math.cos(base) * arenaRadius() * 0.75;
+  return { x, z, heading: bearing(x, z, 0, 0) - 90 };
 }
 
 /** The helm a ship sails by this tick: its owner's input, or a bot's own fields. */
@@ -121,7 +122,7 @@ defineSystem({
       const f = forward(ship.heading);
       p.x += f.x * ship.speed * ctx.dt;
       p.z += f.z * ship.speed * ctx.dt;
-      row.transform.rotation = Quaternion.fromEuler(0, ship.heading, 0);
+      row.transform.rotation = headingRotation(ship.heading);
     }
   },
 });
@@ -138,7 +139,7 @@ function freeTeam(all: readonly ShipInfo[]): number {
 export function resetShip(node: GameObject, ship: ShipView, world: object | null = null): void {
   const s = spawnPoint(world, ship.team);
   node.transform!.position.set(s.x, 0, s.z);
-  node.transform!.rotation = Quaternion.fromEuler(0, s.heading, 0);
+  node.transform!.rotation = headingRotation(s.heading);
   ship.heading = angleDelta(s.heading, 0);
   ship.speed = 0;
   ship.hp = SHIP_HP;

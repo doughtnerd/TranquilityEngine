@@ -1,5 +1,6 @@
 // Pure mappings for the Babylon fallback backend (ADR 0157 BB1): the mixer's bus tree to AudioBus creation steps,
-// `Attenuation` to Babylon's spatial settings, and the listener's forward/up to the rotation quaternion Babylon takes.
+// `Attenuation` to Babylon's spatial settings, and engine positions and the listener's forward/up into Web Audio's
+// right-handed axes (ADR 0164) as Babylon takes them.
 // No Babylon imports, so the maths is testable without the library (the listener test uses Babylon's own maths to
 // confirm the convention).
 import type { Vec3Like } from "../../../engine/core/math";
@@ -110,8 +111,22 @@ export function soundVolume(v: number): number {
   return Number.isFinite(v) ? Math.max(0, v) : 1;
 }
 
-/** The unit quaternion (x, y, z, w) that turns the engine's listener frame (forward -Z, up +Y) into `forward` and `up`. */
-export function listenerQuaternion(forward: Vec3Like, up: Vec3Like): { x: number; y: number; z: number; w: number } {
+/**
+ * An engine (left-handed, +Z forward) point or direction in Web Audio's right-handed axes (ADR 0164): z negated. Babylon's
+ * audio engine passes positions straight to Web Audio, whatever the scene's handedness.
+ */
+export function webAudioVector(v: Vec3Like): { x: number; y: number; z: number } {
+  return { x: v.x, y: v.y, z: 0 - v.z }; // 0 - z: no -0
+}
+
+/**
+ * The unit quaternion (x, y, z, w) Babylon's listener takes for an engine listener facing `forward` with `up` (engine
+ * axes): Babylon's listener turns Web Audio's frame (forward -Z, up +Y) by it, so it is built from the two mirrored
+ * into Web Audio's axes (`webAudioVector`).
+ */
+export function listenerQuaternion(forwardEngine: Vec3Like, upEngine: Vec3Like): { x: number; y: number; z: number; w: number } {
+  const forward = webAudioVector(forwardEngine);
+  const up = webAudioVector(upEngine);
   const norm = (v: Vec3Like, fallback: Vec3Like): Vec3Like => {
     const len = Math.hypot(v.x, v.y, v.z);
     return len > 1e-9 && Number.isFinite(len) ? { x: v.x / len, y: v.y / len, z: v.z / len } : fallback;

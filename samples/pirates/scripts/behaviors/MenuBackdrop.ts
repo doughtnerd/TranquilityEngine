@@ -1,4 +1,4 @@
-import { Color, GameBehavior, MeshRenderer, Quaternion, Time, Water, behavior, field } from "myco";
+import { Color, GameBehavior, Mathf, MeshRenderer, Quaternion, Time, Water, behavior, field } from "myco";
 import { HULL_HALF_LENGTH, HULL_HALF_WIDTH, TEAM_COLORS } from "../data";
 
 /**
@@ -20,12 +20,12 @@ export class MenuBackdrop extends GameBehavior {
     const t = Time.time;
     const camera = this.node.find("Camera")?.transform;
     if (camera) {
-      const a = ((t * this.drift + 200) * Math.PI) / 180;
-      camera.position.set(Math.sin(a) * this.distance, this.height, Math.cos(a) * this.distance);
+      const a = (t * this.drift + 200) * Mathf.Deg2Rad;
+      camera.position.set(Math.sin(a) * this.distance, this.height, -Math.cos(a) * this.distance);
       // Look at a point beside the middle, so the menu's cards leave the ships in view.
-      // (A camera looks along -Z at yaw 0, so from (sin a, cos a) toward the middle is yaw a.)
-      const yaw = (a * 180) / Math.PI - 12;
-      camera.eulerAngles = [-12, yaw, 0]; // 12 degrees down, whatever the yaw (ZXY, ADR 0163)
+      // (A camera looks along +Z at yaw 0, so from (sin a, -cos a) toward the middle is yaw -a.)
+      const tilt = 12 * Mathf.Deg2Rad;
+      camera.eulerAngles = [tilt, tilt - a, 0]; // 12 degrees down, whatever the yaw (ZXY, ADR 0163)
     }
     let i = 0;
     for (const ship of this.node.children) {
@@ -34,10 +34,11 @@ export class MenuBackdrop extends GameBehavior {
       const radius = 14 + team * 7;
       const speed = (0.11 - team * 0.02) * (team % 2 ? -1 : 1);
       const a = t * speed + team * 2.1;
-      const x = Math.sin(a) * radius, z = Math.cos(a) * radius;
-      const heading = (a * 180) / Math.PI + (speed > 0 ? 90 : -90);
+      const x = Math.sin(a) * radius, z = -Math.cos(a) * radius;
+      // Along the circle: forward (sin yaw, cos yaw) is (cos a, sin a) times the direction of travel.
+      const yaw = Math.PI / 2 - a + (speed > 0 ? 0 : Math.PI);
       ship.transform!.position.set(x, 0, z);
-      ship.transform!.rotation = Quaternion.fromEuler(0, heading, 0);
+      ship.transform!.rotation = Quaternion.fromEuler(0, yaw, 0);
       const visual = ship.find("Visual")?.transform;
       if (!visual) continue;
       const at = (lx: number, lz: number) => {
@@ -45,9 +46,9 @@ export class MenuBackdrop extends GameBehavior {
         return Water.sample(w.x, w.z)?.height ?? 0;
       };
       const bow = at(0, HULL_HALF_LENGTH), stern = at(0, -HULL_HALF_LENGTH);
-      const port = at(HULL_HALF_WIDTH, 0), star = at(-HULL_HALF_WIDTH, 0);
+      const port = at(-HULL_HALF_WIDTH, 0), star = at(HULL_HALF_WIDTH, 0);
       visual.position.set(0, (bow + stern + port + star) / 4 - 0.1, 0);
-      visual.rotation = Quaternion.fromEuler((Math.atan2(stern - bow, HULL_HALF_LENGTH * 2) * 180) / Math.PI, 0, (Math.atan2(port - star, HULL_HALF_WIDTH * 2) * 180) / Math.PI * 0.6);
+      visual.rotation = Quaternion.fromEuler(Math.atan2(stern - bow, HULL_HALF_LENGTH * 2), 0, Math.atan2(star - port, HULL_HALF_WIDTH * 2) * 0.6);
       const sails = ship.find("Visual/Sails")?.getBehavior(MeshRenderer);
       if (sails && !this.tinted.has(sails)) {
         sails.setMaterialProperty("color", Color.from(TEAM_COLORS[(team * 3) % TEAM_COLORS.length]));
