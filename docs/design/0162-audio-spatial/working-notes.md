@@ -23,3 +23,17 @@ To save compute during the build:
 - **Wave end (coordinator, after merging the wave):** full `npm test`, `npm run build`, `npm run test:e2e` (non-slow), `npm run check:audio-metered`, and the benches a wave's tasks touch (short runs).
 - **Milestone end (before merging to master):** `npm run test:e2e:slow`, WebKit when the milestone touches the browser layer, long benches and soaks; the lab-VM run stays the owner's.
 - A failure at wave end goes back to the task that caused it; rerun only the failing spec or test file, not the whole suite, until the fix is in. Known flakes (see the M2 handoff) are rerun alone once before being treated as failures.
+
+## Lessons from the M3 design session (owner-requested retrospective, 2026-11-11)
+For the next design or build session; the same lessons are folded into the design-subsystem, coordinate-subagents, plan-milestone-build and run-milestone-build skills.
+1. **Plain language in chat.** Explain every domain term the first time a message uses it, with a "what this means for you" line per decision. A glossary in the record doesn't count.
+2. **Ask who uses it today** before proposing compatibility work. The engine is unpublished, so feature flags and "existing projects unchanged" defaults were wasted effort.
+3. **Read today's real values first** (settings, presets, limits). The record and spikes assumed 16 HRTF voices on high; the preset was 32.
+4. **Cost every long run** (what it decides, how long it takes) and skip duplicates; commit results per stage so a container restart loses nothing.
+5. **Calibrate provisional estimates** from the previous milestone's actuals and price tests, benches and tooling; the M3 estimate drifted 17 → 22 → 32.7 → 35.6 → 36.7 person-weeks.
+6. **One owner per shared contract** in a two-author design (the senior engineer owns wire, settings and formats); parallel drafts of the same layout cost a ruling round.
+7. **Short, section-level must-read lists, and check the "what I read" reply;** skipped reading came back as errors.
+8. **Don't edit files an author is still revising; send rulings in one batch;** have authors commit in their own worktrees so stop hooks don't commit half-written drafts.
+9. **One owner decision list, after verification,** so the numbers don't move after the owner decides.
+10. **Hand off after the owner accepts the direction** (step 5) instead of letting a long design session compact.
+11. **Keep verification scripts:** render Mermaid with the npm `mermaid` package (CDNs are blocked here) and re-sum task tables by script.
