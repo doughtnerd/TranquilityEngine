@@ -5,19 +5,18 @@ Written 2026-11-12 at the end of the build session that ran waves 0–9 unattend
 ## Where things are
 
 - **Every M3 task is built and merged** into the integration branch **`claude/inspiring-euler-5qf03k`** (the only branch this session could push; locally it was `claude/audio-spatial-m3`). It started at `origin/master` `918171a` and is a descendant of it, so a merge to master can fast-forward. **Nothing is on master.**
-- **Held:** the bed flip A6b (beds on, HRTF voices 32/16 → 8), kept as [`docs/design/0162-audio-spatial/flips/a6b-beds-on-hrtf-8.patch`](../design/0162-audio-spatial/flips/a6b-beds-on-hrtf-8.patch) (rebased and tested on the tip; apply with `git am`). Its gate's "mixer under 230 KB" can't be met as M3 stands.
+- **Morning update (owner, 2026-11-12):** the mixer's 256 KB gate is a tripwire, now 320 KB (D25); B3's size-for-CPU cuts reverted (D26); **the bed flip is applied** (D27, `3cd855c`).
 - **Merged flips** (plan-scheduled, gates passed, one-line reverts, logged D17, D18, D20 and C5's): wide memory, occlusion on, Doppler on, zone memory.
-- **Open issues:** #125 (A6b, held), #137 (C3b's main-side worker-less upload: owner decision), the epics #112–#118 (close at their milestone's master merge).
+- **Open issues:** #137 (C3b's main-side worker-less upload: owner decision), the epics #112–#118 (close at their milestone's master merge).
 - Status: the 0162 row in `docs/architecture/implementation-status.md`; the guide `docs/guide/spatial-audio.md`; the sample `samples/sound-lab` spatial page (key S from the tour).
 
 ## What needs the owner (in order)
 
-1. **P1: `wasm-opt`.** The mixer is 260,166 B of its 256 KB gate (1,978 B left). `binaryen` as a pinned dev dependency (a new dependency, so a decision) would save ≈ 21 KB measured; `build.mjs` already uses `wasm-opt` when installed. If approved, revert B3's size-for-CPU rotation (D21) and re-run the metered gate and goldens on the optimised wasm.
-2. **The bed flip.** Approve with "under the 256 KB gate" (or P1's size) replacing "under 230 KB", then `git am` the patch; or keep beds off.
-3. **C3b's worker-less IR upload** (#137): options (a) `decodeAudioData` for IRs, (b) the decoder wasm on main, (c) leave it (recommended).
-4. **The decisions log** (build log, D1–D24): especially D11 (bounded zone planner), D13 (filter sweeps), D17–D20 (merged flips), D19 (events keep their Doppler), and the A3 numbers (MagLS ILD margin 0.01 dB; floor-below risk → reserve R1).
-5. **Runs only the owner can do:** the listening pass ([`listening-pass.md`](../design/0162-audio-spatial/listening-pass.md); M3a's items need the bed flip applied), the lab-VM benches (`m3-high` = `m3-typical`, `m3-worst-high`, `-sends`; the container measured zone and ambisonic costs ≈ 1.5–2× the model), WebKit/Firefox (not installed here), the Babylon backend once.
-6. **Master:** see the build log's "Milestone readiness". Recommendation: decide 1–3, do the listening pass, then one merge.
+1. **C3b's worker-less IR upload** (#137): (a) `decodeAudioData` for IRs, (b) the decoder wasm on main, (c) leave it (recommended).
+2. **The decisions log** (build log, D1–D27).
+3. **Runs only the owner can do:** the listening pass ([`listening-pass.md`](../design/0162-audio-spatial/listening-pass.md)), the lab-VM benches (`m3-high` = `m3-typical`, `m3-worst-high`, `-sends`; zone and ambisonic costs ≈ 1.5–2× the model in the container), WebKit/Firefox (not installed here), the Babylon backend once.
+4. **Master:** the build log's "Milestone readiness"; recommendation: the listening pass, then one merge.
+5. Optional: P1 (`wasm-opt` via `binaryen`), ≈ 9% smaller mixer; not needed for headroom.
 
 ## Gotchas for the next session
 

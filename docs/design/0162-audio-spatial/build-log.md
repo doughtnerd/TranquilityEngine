@@ -8,12 +8,14 @@ The coordinator's log of each wave review ([waves plan, "Wave reviews"](../../pl
 
 The owner asked (2026-11-11, evening): "Go through each of the waves as instructed until the milestone is complete. If any decisions need to be made, use your judgement … and I will review everything in the morning." The coordinator reads that together with the earlier standing rules, which it keeps: **no merge to master, no draw on the 14-day reserve and no default change outside the plan's flips without the owner.** Milestones are left ready on the integration branch, with their checks run, as proposals.
 
-**Needs you:**
-1. **P1, the mixer size (recommendation: yes).** The mixer wasm is 254,039 B of its 256 KB gate. A `wasm-opt` pass would save ≈ 21 KB (measured: 230,348 → 209,149 B with `-O3`, 208,054 with `-Oz`); `build.mjs` already runs it when `wasm-opt` is installed. Making every machine build the same optimised wasm means adding `binaryen` (pinned) as a dev dependency, which needs you (a new dependency; reserve item R2). Without it, B3 already traded CPU for size (its rotation does ≈ 2× the work, est. 5 → 10 µs a voice) and C4 only fitted after a size-recovery pass (−8.8 KB, no behaviour change). If you approve, B3's rotation trade should be reverted (D21).
-2. **The bed flip (A6b), held.** Beds on and HRTF voices 32/16 → 8 for every project. Its plan gate includes "mixer under 230 KB", which can't be met as M3 stands (the mixer passed 230 KB at A4, which is the bed itself). Everything else in its gate passed (A3, A4's goldens, A7's bed bench). It's kept as `flips/a6b-beds-on-hrtf-8.patch`, rebased and tested on the tip (`git am` it). **Recommendation:** approve the flip with the 230 KB criterion replaced by "under the 256 KB gate" (or by P1's optimised size).
-3. **M3a, M3b, M3c to master:** see "Milestone readiness" at the end of this log.
-4. Review D11 (the bounded zone planner), D13 (filter sweeps), D17–D20 (the wide, zone, occlusion and Doppler flips merged under the plan's flip rule), the A3 numbers (the MagLS ILD margin and the floor-below listening risk), and D19 (events keep their own Doppler).
-5. Your runs: the lab-VM benches (the wasm MagLS decode is noisy here: ≈ 30 µs against the model's 20) and the listening items per milestone.
+**Needs you** (updated 2026-11-12 after the owner's answers):
+1. **C3b's worker-less IR upload** (#137): options on the issue; recommendation: leave it until a worker-less host exists.
+2. **Master:** see "Milestone readiness" at the end. Recommendation: the listening pass, then one merge.
+3. Review the decisions log (D1–D27), especially D11 (the bounded zone planner), D13 (filter sweeps), D17–D20 (merged flips), D19 (events keep their Doppler), D25–D27 (this morning), and the A3 numbers (the MagLS ILD margin; the floor-below listening risk → reserve R1).
+4. Your runs: the listening pass (`listening-pass.md`; the bed flip is now on, so M3a's items can be heard), the lab-VM benches (zone and ambisonic costs measured ≈ 1.5–2× the model in the container), WebKit/Firefox, the Babylon backend once.
+5. **Optional, P1:** a `wasm-opt` pass (`binaryen` as a dev dependency) would cut the mixer by ≈ 9% (measured −21 KB at 230 KB). Not needed for headroom any more (D25).
+
+**Resolved this morning (owner, 2026-11-12):** the mixer gate is a tripwire, raised to 320 KB (D25); B3's size-for-CPU rotation and its nlerp listener reverted (D26, supersedes D21); the bed flip applied with the 230 KB criterion dropped (D27).
 
 **Decisions taken (each with its revert):** see "Decisions" below, D1 onwards.
 
@@ -40,10 +42,13 @@ Numbered; superseded entries are marked, not rewritten.
 - **D18 (W5, D2a) the occlusion flip merged.** The pass is live by default (`AudioSource.occlusion` was already true, K4). `pirates` sets `audio.occlusion.layers: []`: its only colliders are navigation helpers (the sailable-water disc, 0.75 m footprint cylinders; the island meshes have no colliders), which would muffle sound at random. Gates passed (D0's exclusion, the no-physics path, overrun halving). *Revert:* one line in `core/occlusion.ts` (the environment default) and the `pirates` key.
 - **D19 (W4, D4) events keep their own Doppler.** A source playing a sound event passed its own default `dopplerLevel` 1, overriding the event's §2.5 default 0; the coordinator removed `dopplerLevel` from what a source passes to its events (Doppler is authored on the event, as in Wwise and FMOD). `occlusion` and `reverbSend` still pass through, with the event's own keys winning. *Revert:* `AudioSource.eventSpatialOptions`.
 - **D20 (W6, D3) the Doppler flip merged.** The pass went live in D3's first commit (`dopplerLevel` already defaulted to 1); the flip commit sets `dopplerLevel: 0` on `sound-lab`'s orbiting hum and crowd sources and in `stress`'s generator and regenerated scene (§1.6). Gates passed (teleport guard, `maxSpeed` clamp). *Revert:* the sample keys and the default.
-- **D21 (W4, B3) size for CPU in the ambisonic rotation.** To fit the mixer, B3 made A2's `rotate_ramp_add` run one encode pass per input channel (≈ 2× the rotation work, est. 5 → 10 µs a voice) and computes the Ivanic coefficients at run time; A2's identity digest changed on purpose (native = wasm still). *Revert* after P1 lands.
+- **D21 (W4, B3) [superseded by D26] size for CPU in the ambisonic rotation.** To fit the mixer, B3 made A2's `rotate_ramp_add` run one encode pass per input channel (≈ 2× the rotation work, est. 5 → 10 µs a voice) and computes the Ivanic coefficients at run time; A2's identity digest changed on purpose (native = wasm still). *Revert* after P1 lands.
 - **D22 (W3, B4 → coordinator) wide stream rings are 32,768 frames.** B4's 300 ms stall test starved at 19 of 32 credit phases with 16,384 frames and at none with 32,768: the plan's named response, applied by the coordinator (wire constant regenerated, +1 MiB per wide ring). *Revert:* the constant in `audio-wire/src/schema.rs`.
 - **D23 (W3, C3 + size task) the mixer under its gate.** C3 replaced `plan_stagger` in the core by `plan_one` (plans one new zone exhaustively; zones only ever start one at a time; 4 × 2 s started one by one peak 3.13 against 3.08 batched, sequential 5.87), and a size-recovery task saved 8.8 KB with no behaviour change (an explicit-tag core slot moves a 6.4 KB static to `.bss`; a resampler clamp without formatting; shared record readers). Metered counts went slightly down.
 - **D24 (W3, C3/C4) fixed `Zones` memory without zones.** The aux accumulator (`max_buses × 1 KB`) and C4's per-bus chain gains (`max_buses × 512 B`) live in `Zones`, so every core project pays ≈ 48 KB at 32 buses even with zones off (as the `Fx` pool). Aux sends work without zones.
+- **D25 (owner, 2026-11-12) the mixer tripwire is 320 KB.** The 256 KB gate was always a tripwire against accidental bloat, not a design limit (ADR 0158: "raising a gate is a one-line change with a line in the build log saying why"); the coordinator had treated it as a hard limit overnight, which the owner corrected. **Why raised:** M3's beds, zones, ambisonic voices and sends took the mixer to ≈ 260 KB, past a figure set before any of them existed. `MIXER_LIMIT` 320 KB, warning 300 KB (`native/audio/build.mjs`). *Revert:* the two constants.
+- **D26 (owner, 2026-11-12) B3's size cuts reverted; supersedes D21.** A2's dedicated block rotation kernel and baked Ivanic tables are back (B3 had run one encode pass per input channel, ≈ 2× the rotation work, and computed the coefficients at run time), and so is the listener's true slerp (B3's normalised lerp was 7% off speed on a 90° ramp). `ambi-o3` costs 14% fewer instructions; A2's bed identity digest `eb26320c` is back (native = wasm); the `ambi-o3` golden and its baseline entry were updated (an intended change). Mixer 260,166 → 265,952 B.
+- **D27 (owner, 2026-11-12) the bed flip is applied.** Beds on (Master hosts one; `maxBeds` 0 / 2 / 4 by preset), HRTF voices 8 by default (presets 4 / 8 / 8), `stress` takes the high preset's numbers. Its gate's "mixer under 230 KB" was dropped with D25; the rest had passed (A3, A4's goldens, A7's bed bench). With it: the full unit suite (465 files), the stress sample's minute-long e2e (the cap adapts, no stream starves), the core and spatial e2e specs all pass. *Revert:* `git revert 3cd855c`.
 - **D4 (W1, B1) B1 edited `decoder/decoderClient.ts` and `decoder/handler.ts`** (a few lines each) to carry `convention` from the registry to `decoder/clips.ts`; nothing else owns them in W1 (B4 takes `handler.ts` in W3). Accepted.
 
 ## Wave 0 (2026-11-11, base `origin/master` `918171a`)
@@ -168,7 +173,7 @@ Asked for by the tree ("The pilot") and the owner. Times are agent wall time fro
 
 | Budget | Now | Limit | Note |
 |---|---|---|---|
-| Mixer wasm | **260,166 B (99.2%; 1,978 B left)** | 256 KB gate, warning 230 KB | M2 178,598; by task: K1 +0.2, B2 +11.2, K2 +5.0, D1 +6.3, C1 +1.7, A4 +27.3, C3 +20.4 (after its own −14.7), B3 +7.1, B4 +1.6, C4 +3.4, size recovery −8.8. C3b +6.0 KB, D5 +0.1. **P1** ("Needs you" 1) restores ≈ 21 KB |
+| Mixer wasm | **265,952 B (81%)** | 320 KB tripwire (D25), warning 300 KB | M2 178,598; by task: K1 +0.2, B2 +11.2, K2 +5.0, D1 +6.3, C1 +1.7, A4 +27.3, C3 +20.4 (after its own −14.7), B3 +7.1, B4 +1.6, C4 +3.4, size recovery −8.8. C3b +6.0 KB, D5 +0.1, D26 +5.8. P1 (`wasm-opt`) would cut ≈ 9%, optional |
 | Decoder wasm | 804,255 B | 900 KB | C2a +52.8 KB (design est. +28) |
 | AAC decoder | 1,128,486 B | 1,280 KB | |
 | Metered cost | +1.39% all against M2's baseline | +10% per scene | baseline kept at M2; new scenes (bed, filters, m3-worst) have their own baselines |
@@ -185,11 +190,11 @@ Asked for by the tree ("The pilot") and the owner. Times are agent wall time fro
 
 ## Milestone readiness (each needs the owner's approval to reach master)
 
-Everything is on one integration branch, so a merge to master brings all of it. Recommended order: decide P1 and the bed flip, do the listening pass, then merge once.
+Everything is on one integration branch, so a merge to master brings all of it. Recommended order: the listening pass, then one merge.
 
 | Milestone | Tasks | Exit check | State |
 |---|---|---|---|
-| M3a bed | A1–A7 merged; **A6b flip held** | shippable ✓; `bed-64/256/xfade` recorded ✓; mixer under 230 KB **✗ (260 KB)**; owner listening (needs the flip) | **blocked on the owner:** the bed flip and its 230 KB criterion (P1 would bring the mixer to ≈ 239 KB) |
+| M3a bed | A1–A7 merged; the bed flip applied (D27) | shippable ✓; `bed-64/256/xfade` recorded ✓; the 230 KB criterion dropped (D25); owner listening | ready except the listening items and WebKit/Firefox |
 | M3b ambisonic clips | B1–B6 merged; wide flip on | 4/9/16-channel clips and a 16-channel stream play ✓ (tests); stall test ✓ (32,768-frame ring); owner listening (1st/3rd order turned on the spot) | ready except the listening item and WebKit/Firefox |
 | M3c zones | C1–C7 merged; zone memory flip on; C3b's main upload open | `zones-2x2s` recorded (68/125 µs, ≈ 1.45× the estimate); both slot paths' loopback ✓; zones active in editor Play ✓; owner listening (rooms A/B/C, 2 s and 4 s IRs) | ready except listening, WebKit/Firefox, and the owner's C3b decision |
 | M3d occlusion, Doppler, event effects | D0–D6 merged; occlusion and Doppler flips on | `filters-256`, `bench:audio-spatial` (ages 1/5/20 frames), `m3-worst-*` recorded ✓; owner listening (wall, door, corner, Doppler pass, teleport) | ready except listening and WebKit/Firefox |
@@ -198,7 +203,7 @@ Everything is on one integration branch, so a merge to master brings all of it. 
 
 **Reserve:** no draw (R1, R2, R4 untouched). R2 (`wasm-opt`) is the subject of P1; R1 (SADIE II) is the likeliest next, if floor-below fails at M3a's listening.
 
-**Epics** #112–#117 stay open until their milestone reaches master; #118 (contracts) closes with M3a. Open tasks: #125 (A6b, held), #137 (C3b's main upload, owner).
+**Epics** #112–#117 stay open until their milestone reaches master; #118 (contracts) closes with M3a. Open task: #137 (C3b's main upload, owner).
 
 ## Follow-ups found during the build (not scheduled)
 
