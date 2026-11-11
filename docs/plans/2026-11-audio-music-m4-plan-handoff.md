@@ -28,7 +28,8 @@ Written 2026-11-11, at the end of the session that ran `plan-milestone-build` on
 
 - Everything the design handoff lists as settled, and 0167.
 - **The order:** M4-0 → M4a → M4b → M4c → M4d to master, with later milestones' tasks allowed to merge early to the integration branch when they're not ungated flips (waves plan, shippable item 5).
-- **The in-voice flip** is Z2b + Z2c + Z3 merged together from a flip branch; nothing of Z2b/Z2c reaches the integration branch before Z3's goldens pass.
+- **The in-voice flip** is Z2a + Z2b + Z2c + Z3 merged together from the flip branch `m4/in-voice`; nothing of them reaches the integration branch before Z3's goldens pass.
+- **The independent review's ten findings are fixed** (the tree's last section); don't reopen the seams it led to (A27–A33).
 - **The whole M4 wire lands in W1** (Z1 then W1, one lead, two merges); the core skeleton (Q1) and the main-side skeleton with the whole public surface (Q2) land in W1 too.
 - **The core backend's group operations** go in a new `runtime/core/musicOps.ts`, filled by P1 (the table has no row of its own for them; P1's row describes the work).
 - **P1 starts in W3, ahead of C2a:** the pure dependency chain (47.5 d, plan est.) runs through the format, grid and player.
@@ -52,6 +53,6 @@ Written 2026-11-11, at the end of the session that ran `plan-milestone-build` on
 
 1. **Wave 0** (coordinator): `npm ci`; `rustup target add wasm32-unknown-unknown` if missing (rustc here is 1.97 against the pinned 1.99.1: metered counts read +1–4%); baseline typecheck, `npm test`, `npm run build`, `cargo test` in `native/audio/`, `npm run check:audio-metered`, recording failures as known. Create the integration branch from `origin/master`. Commit Q0. Start `docs/design/0166-audio-music/build-log.md` from the waves plan's "State at planning".
 2. **Free disk** before W1: about 3 GB per Rust worktree with its own target directory; W1 has three Rust-touching branches (the wire lead, Q1, and the wire leaves), W2 three (Z2a, C1, plus D1a's TS-only worktree). Check `df` against the session allowance and share a `CARGO_TARGET_DIR` per crate set if tight.
-3. **First leads (W1, the pilot):** Q1 and Q2 (strongest), the Z1 → W1 wire lead, F1a, Ed1 and S0 (mid). Each brief names its base commit (the integration branch after Q0), its files from the waves plan, its acceptance from the table, and points to the ground rules file.
+3. **First leads (W1, the pilot):** Q1 and Q2 (strongest), the Z1 → W1 wire lead, F1a, Ed1 and S0 (mid). Merge order inside W1: the wire's merge 1 (with every constant), Q1, the wire's merge 2 (with the TS init plumbing), then Q2 rebased over it. Cut the flip branch `m4/in-voice` after Q1 merges; Z2a starts there in W2. Each brief names its base commit (the integration branch after Q0), its files from the waves plan, its acceptance from the table, and points to the ground rules file.
 4. **Coordinator-only edits in W1:** none beyond merges, the wasm rebuild after the wire and Q1, and the build log.
 5. **First review:** at W1's end, the wave-review checklist plus the pilot's measures (the tree's table); adjust the briefs for W2 before starting it.

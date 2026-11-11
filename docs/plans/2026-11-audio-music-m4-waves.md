@@ -40,7 +40,7 @@ Every wave merges to the M4 integration branch, and every milestone to master, w
 
    | Flip | What changes for every project | Task | Gated on (safety net) |
    |---|---|---|---|
-   | **In-voice stamped records** | every queued per-voice stamped record (class G and S) applies inside its voice; `splitQuanta` drops to 0 for those; stamped M1–M3 cases move by the amounts Z3 records | **Z2b + Z2c + Z3, merged together** at W3's end (Z3 builds on a short-lived branch holding Z2b and Z2c; nothing of Z2b/Z2c reaches the integration branch before Z3's goldens pass) | Z3's goldens (exact fade start, power-complementary crossfade, stamped STOP, class S cases, native equals wasm) and the unchanged M1–M3 digests. The table makes Z3 depend on Z2b/Z2c; the plan keeps that and only holds their merge back |
+   | **In-voice stamped records** | every queued per-voice stamped record (class G and S) applies inside its voice; `splitQuanta` drops to 0 for those; stamped M1–M3 cases move by the amounts Z3 records | **Z2a + Z2b + Z2c + Z3, merged together** at W3's end. They build on the flip branch `m4/in-voice`, cut from the integration branch after Q1 and Z1's merge 1; nothing of Z2a, Z2b or Z2c reaches the integration branch before Z3's goldens pass. Z2a rewrites the split loop (`voices.rs:310–326`) and the per-voice loop, so it belongs under the same gate | Z3's goldens (exact fade start, power-complementary crossfade, stamped STOP, class S cases, native equals wasm) and the unchanged M1–M3 digests. The table's dependencies are kept; the plan only holds the merges back |
    | **M4 fixed regions** | `Due`, `Curves`, `Groups` (29,152 B) laid out on every preset | Q1 (W1) | Q1's layout test (offsets, sizes, `Arena` still last) and the unchanged digests; the M3 headroom function covers the extra bytes |
    | **Music ring memory** | `Streams` sized `(G + M) × RING_BYTES` with `M` = the preset's `music.rings` | C1 (W2) | W1's init validation (`InitError::MusicRings`, 0..16), the M3 headroom function (init can't overrun the Memory maximum) and C1's "music and general streams never take each other's rings" |
    | **`engine.AudioMusic` in the frame** | a new update-phase system runs every frame | Q2 (W1) | Q2's test that the step does nothing (no `beginFrame`, no allocation) in a World with no music and no subscribers |
@@ -70,8 +70,8 @@ graph LR
   W4x --> W5x[W5 C2b R1 P9 · P4 P7 P8 P10 B1 SM1]
   W5x --> W6x[W6 C2c+C2d R3a C3 · T1 E1 D2 R2 R5 R6 Ed5 Ed6 — M4a exits]
   W6x --> W7x[W7 R3b R4a K1 · R7 B2 SM2 Ed7]
-  W7x --> W8x[W8 T2 R4b Rh1 · T3 Bench1 E2 D3 K2 K3 K4 Ed11 — M4b exits]
-  W8x --> W9x[W9 Rh2→Rh3→E3 D4 · K5 B3 Ed10 — M4c exits]
+  W7x --> W8x[W8 T2 R4b Rh1 · T3 Bench1 E2 D3 K2 K3 K4 — M4b exits]
+  W8x --> W9x[W9 Rh2→Rh3→E3 D4 · K5 B3 Ed10→Ed11 — M4c exits]
   W9x --> W10x[W10 L1→L2 L3→D5 — M4d exits]
 ```
 
@@ -96,7 +96,7 @@ Two chains, computed by script from the table (plan est.):
 
 - **Coordinator** (main session, strongest model): wave 0 (baseline, branch, Q0, the build log); starting leads and leaves, merges and wasm rebuilds; the single-writer files; the wave reviews and global checks; the milestone merges (with the owner's approval); the build log and owner reports.
 - **Leads and leaves:** see the tree. The strongest model leads every S row, Q1 and Q2, and L3. The mid model leads the M and J rows (J rows with prose readers see, D2–D5, Z6 and L1, stay with a mid lead, the tree's rule). The cheapest model takes leaves where the leaf criteria hold.
-- **Isolation:** every lead and leaf works in its own git worktree. Leads branch from the integration branch at the wave's base (named in the brief: agent worktrees start at master unless told otherwise), leaves from their lead's skeleton commit. The **in-voice flip branch** (`m4/in-voice`, local) is the one exception: Z3 merges Z2b and Z2c into it and builds there, and the coordinator merges that branch to the integration branch once Z3 passes.
+- **Isolation:** every lead and leaf works in its own git worktree. Leads branch from the integration branch at the wave's base (named in the brief: agent worktrees start at master unless told otherwise), leaves from their lead's skeleton commit. The **in-voice flip branch** (`m4/in-voice`) is the one exception: Z2a branches from it in W2, Z2b and Z2c from Z2a's merge into it in W3, and Z3 builds on it with both merged; the coordinator runs the wave-end checks on it and merges it to the integration branch once Z3 passes. The coordinator merges the integration branch into it at W2's end so it doesn't drift.
 - **Dispatch is flat** (subagents can't start subagents in this tool): the lead commits its skeleton and returns leaf briefs, the coordinator starts the leaves, then continues the lead with their branch names.
 - **Concurrency:** up to three strongest leads at once (owner item O1, recommended as M3's O6) and up to eight mid leads; leaves on top, as many as the wave has.
 - **Owner-only items:** listed in the handoff ("Open").
@@ -110,17 +110,19 @@ Two chains, computed by script from the table (plan est.):
 | `native/audio/build.mjs` | coordinator (a size move is logged, never traded, CLAUDE.md) |
 | the metered baselines (`tools/audio-bench/metered/`) | coordinator, with a build-log line |
 | `audio-wire/src/schema/*`, `generated.rs`, `runtime/wire.generated.ts`, `vectors/wire.json` | the wire lead (Z1 → W1) in W1; afterwards the coordinator. The whole M4 wire lands in W1 ("generate the whole format first") |
-| `audio-core/src/layout.rs`, `lib.rs` module list, `counters.rs` field list | Q1 in W1; afterwards the coordinator (C1 changes the `Streams` size in `stream.rs`, not here) |
-| `audio-core/src/params.rs`, `audio-wasm/src/lib.rs`, `runtime/worklet/coreDriver.ts`, `runtime/core/initParams.ts` | the wire lead (W1's ABI 3.0) in W1; afterwards the coordinator |
-| `audio-core/src/voices.rs` | Z2a (W2), Z2b only if Z2a's hook proves too narrow (W3; Z2c never touches it), C2b (W5). Nobody else |
+| `audio-core/src/layout.rs`, `core.rs` (`Regions` slices for `Due`, `Curves`, `Groups`; `StreamStore::over` taking `M`), `lib.rs` module list, `counters.rs` field list | Q1 in W1; afterwards the coordinator (C1 changes the `Streams` size in `stream.rs`, not here) |
+| `audio-core/src/params.rs`, `audio-wasm/src/lib.rs`, `runtime/worklet/coreDriver.ts` (`fixedRegionsHeadroomBytes` and the layout mirror with `M × RING_BYTES` and the 29,152 B regions), `runtime/core/initParams.ts`, `runtime/core/context.ts` (`presetFromSettings` and the preset-equality check with `maxMusicRings`), the `CorePreset` field and every literal of it (`testing.ts:367`, `core/debug.ts:333`, `tests/e2e/audio-parity/coreRender.ts:34`, the tests) | the wire lead (W1's ABI 3.0) in W1; afterwards the coordinator; Rh1 takes `context.ts` in W8. C1 checks the headroom figures and asks the coordinator for any change |
+| `audio-core/src/voices.rs` | Z2a (W2, on the flip branch), Z2b only if Z2a's hook proves too narrow (W3; Z2c never touches it), C2b (W5). Nobody else |
 | `audio-core/src/due.rs`, `scheduler.rs` | Z2a (W2). C2d reaches parked records through Z2a's API, from `group_rebase.rs` |
 | `audio-core/src/groups.rs` | C2a (W4), C2b (W5). C2c and C2d fill `group_hold.rs` and `group_rebase.rs` |
 | `audio-core/src/status.rs` | Q1 (W1, the 176-B header from the counters struct), C1 (W2, `musicRings`), C2b (W5, `groupStarts`): additive, one per wave |
 | existing `golden/*.json` digests | Z3 (the in-voice flip's re-records); afterwards the coordinator. C3 and T2 add new files only |
 | `runtime/backend.ts` (the backend interface), `src/engine/audio/musicTypes.ts` | coordinator (Q0); a task that needs a member asks |
 | `src/engine/audio/settings.ts` | coordinator (Q0 parses `music.rings` and `rhythmMode`, inert); Rh1 consumes them |
-| `runtime/decoder/protocol.ts` | Q0 (W0, every M4 message incl. peaks), D1a (W2, refinements); afterwards the coordinator |
-| `runtime/core/coreBackend.ts`, `runtime/audioSystem.ts`, `runtime/testing.ts`, `runtime/index.ts` | Q2 in W1; afterwards the coordinator. Music work goes in `core/musicOps.ts` and `music/*` |
+| `runtime/decoder/protocol.ts` | Q0 (W0, every M4 message incl. peaks, and who decides an encoded-cache miss: the worker answers a member without `bytes` it doesn't hold with `needBytes`, and main resends); D1a (W2, refinements); afterwards the coordinator |
+| `runtime/decoder/decoderClient.ts`, `decoder/handler.ts` | Ed1 (W1: `computePeaks`, the peaks case); D1a (W2: every group method, `primeGroup`/`cancelGroup` cases and the `groupOpened` callback, stubs where D1b fills); afterwards the coordinator |
+| `runtime/core/streams.ts` (main's stream events) | Q2 (W1: routes code 4 and music members' events to `musicOps.onStreamEvent`); afterwards the coordinator |
+| `runtime/core/coreBackend.ts`, `runtime/audioSystem.ts`, `runtime/testing.ts`, `runtime/index.ts`, `src/engine/tests/systemCatalog.test.ts` (the update order) | Q2 in W1; afterwards the coordinator. Music work goes in `core/musicOps.ts` and `music/*`. Q2 leaves hooks for what later tasks need there: `reopenStreams` (`coreBackend.ts:1406`) skips music members and calls `musicOps.reopenGroups` (P9 fills), the stream-event route above (P1 fills), and the music `DebugSource` members (`debug.ts:26`, `coreBackend.ts:977`; P10 fills) |
 | `src/myco.ts`, `runtime/Audio.ts` surface (member list) | Q2 declares the whole §1 surface in W1; P7 (W5) fills `Audio.ts` bodies; later tasks fill the stubs Q2 delegated to and list any export they need in their reports |
 | `runtime/events/eventRuntime.ts`, `runtime/AudioSource.ts` | P6 (W4) only |
 | `runtime/babylonBackend.ts` | B1 (W5), B2 (W7), B3 (W9) |
@@ -131,7 +133,7 @@ Two chains, computed by script from the table (plan est.):
 | `src/engine/core/Component.ts` | K2 (W8) only |
 | `src/plugins/audio/editor/index.ts` | Ed2 (W3), one line registering `editor/music/index.ts` |
 | `editor/music/index.ts` (music panel registration) | Ed2 (W3), with stub panels for Ed4 and Ed6 to fill |
-| `tests/e2e/audio-music-smoke.spec.ts` | S0 (W1); grown by E1 (W6), E2 (W8), E3 (W9), Ed11 (W8), one case each |
+| `tests/e2e/audio-music-smoke.spec.ts` | S0 (W1); Z3 on the flip branch (W3: the expectation becomes `splitQuanta` 0); grown by E1 (W6), E2 (W8), E3 and Ed11 (W9, Ed11 after E3), one case each |
 | the `audio-bench` scene registry, `tools/audio-bench/*` | Z5 (W4), Bench1 (W8) |
 | `samples/*` (scenes, `project.json`, generators) | SM1 (W5), SM2 (W7), Rh3 (W9), L2 (W10) |
 | `docs/guide/interactive-music.md` | D2 (W6), D3 (W8), D4 (W9), D5 (W10) |
@@ -176,12 +178,12 @@ Test material able to show each effect: broadband stems for seams and crossfades
 | Id | Contract | Lands | Lets run in parallel |
 |---|---|---|---|
 | **Q0** | **Main-side types** (coordinator, plan est. 1 d): `backend.ts` every M4 member, optional: `MusicBackendCaps` (`primes`, `stampedFades`, `heardClock`, `rhythm`), admit/prime/primed/stamp/cancel group, group-start, starve, end and error events, `AudioDebugInfo.music` (C11's whole shape). `decoder/protocol.ts`: `primeGroup`, `cancelGroup`, `groupOpened`, `computePeaks`/`peaks` (Ed1). `src/engine/audio/musicTypes.ts`: `GridSpec`, `GridPoint`, `MusicEvent`, `MusicPositionAt`, `MusicHandle`, `Calibration`. `settings.ts`: parse `music.rings` and `rhythmMode` (inert) with tests | W0 | Q2, D1a, Ed1, P-rows code against final types; nobody adds a backend member or settings key later |
-| **Z1→W1** | **The whole M4 wire, generated first**: Z1's per-voice family (merge 1, ≈ day 3) then W1's gate family, sections, constants and ABI 3.0 (merge 2, ≈ day 6.5); one lead, two merges | W1 | Z2a branches after merge 1; C1, C2a, D1a and Z4 after merge 2; nobody touches the schema after W1 |
-| **Q1** | **The core skeleton** (strongest, plan est. 1.5 d): module declarations with doc-comment skeletons for `due.rs`, `curves.rs`, `groups.rs`, **`group_hold.rs`**, **`group_rebase.rs`**, **`voice_split.rs`** (`audio-core`) and **`equal_power.rs`**, **`curve_laws.rs`** (`audio-dsp`); regions `Due`, `Curves`, `Groups` in `layout.rs`; every M4 counter in `counters.rs` (`splitQuanta`, `voiceSplits`, slips, `musicRingsOpen`, refusals, holds, give-ups); `status.rs` writes the 176-B header from the counters struct (after Z1's merge 1) | W1 | Z2a, Z2b, Z2c, C1, C2a–C2d fill their own files; no task edits `layout.rs`, `lib.rs` or the counter list again |
-| **Q2** | **The main-side skeleton** (strongest, plan est. 2.5 d): every `runtime/music/*.ts` file of §6 plus **`music/seek.ts`**, with final signatures and stub bodies; **`core/musicOps.ts`** (the core backend's group operations) wired from `coreBackend.ts`; `audioSystem.ts` step 0 (`engine.AudioMusic`, registered in `runtime/index.ts`, calling `musicSystem` stubs) and step 9 (the planner); the **whole §1 public surface** declared in `Audio.ts`, `myco.ts` and the `AudioEventHandle` (`handle.music`, `seek`, `onMusic`, `trigger`, `positionAt`, `judged`, `Audio.horizon`, `timeAt`, `latency`, `calibration`), each delegating to a stub in its owner's file; fake backend members in `testing.ts` | W1 | P1–P10, R1–R7, K1–K5, Rh1–Rh2 fill stubs without touching `Audio.ts` (after P7), `myco.ts`, `audioSystem.ts`, `coreBackend.ts` or `testing.ts` |
-| **H1** | **In-voice hooks** in `voices.rs` (Z2a's skeleton commit): the gain-loop compare calls `curves::due_gain` (inline), per-voice class S records go to `voice_split::apply` | W2 | Z2b fills `curves.rs`, Z2c fills `voice_split.rs`, in parallel in W3 |
+| **Z1→W1** | **The whole M4 wire, generated first**: Z1's per-voice family **and every M4 constant of §4.5** (`MAX_GROUPS`, `DUE_RECORDS`, `CURVE_ENTRIES`, …) in merge 1 (≈ day 3), then W1's gate family, sections and ABI 3.0 with the TS init plumbing (merge 2, ≈ day 6.5); one lead, two merges | W1 | Q1's regions and Z2a after merge 1; C1, C2a, D1a and Z4 after merge 2; Q2 merges after merge 2 (it rebases over the `CorePreset` literal in `testing.ts`); nobody touches the schema after W1 |
+| **Q1** | **The core skeleton** (strongest, plan est. 1.5 d): module declarations with doc-comment skeletons for `due.rs`, `curves.rs`, `groups.rs`, **`group_hold.rs`**, **`group_rebase.rs`**, **`voice_split.rs`** (`audio-core`) and **`equal_power.rs`**, **`curve_laws.rs`** (`audio-dsp`); regions `Due`, `Curves`, `Groups` in `layout.rs` and their slices in `core.rs` `Regions`, and `StreamStore::over` taking `M` (C1 fills the pools); every M4 counter in `counters.rs` (`splitQuanta`, `voiceSplits`, slips, `musicRingsOpen`, refusals, holds, give-ups); `status.rs` writes the 176-B header from the counters struct (after Z1's merge 1) | W1 | Z2a, Z2b, Z2c, C1, C2a–C2d fill their own files; no task edits `layout.rs`, `lib.rs` or the counter list again |
+| **Q2** | **The main-side skeleton** (strongest, plan est. 2.5 d): every `runtime/music/*.ts` file of §6 plus **`music/seek.ts`**, with final signatures and stub bodies; **`core/musicOps.ts`** (the core backend's group operations) wired from `coreBackend.ts`; `audioSystem.ts` step 0 (`engine.AudioMusic`, registered in `runtime/index.ts`, calling `musicSystem` stubs) and step 9 (the planner); the **whole §1 public surface** declared in `Audio.ts`, `myco.ts` and the `AudioEventHandle` (`handle.music`, `seek`, `onMusic`, `trigger`, `positionAt`, `judged`, `Audio.horizon`, `timeAt`, `latency`, `calibration`), each delegating to a stub in its owner's file; fake backend members in `testing.ts`; `systemCatalog.test.ts`'s update order; the `coreBackend.ts` and `core/streams.ts` hooks of the single-writer table | W1 | P1–P10, R1–R7, K1–K5, Rh1–Rh2 fill stubs without touching `Audio.ts` (after P7), `myco.ts`, `audioSystem.ts`, `coreBackend.ts` or `testing.ts` |
+| **H1** | **In-voice hooks** in `voices.rs` (Z2a's skeleton commit, on the flip branch): the per-voice loop renders each voice in sub-ranges (`render_voice`, `voices.rs:521`) bounded by `voice_split::boundaries`, so the class S split needs no further `voices.rs` edit; the gain-loop compare calls `curves::due_gain` (inline). Z2a's own test: with no due records, one sub-range per voice and every digest bit-identical | W2 | Z2b fills `curves.rs`, Z2c fills `voice_split.rs`, in parallel in W3 |
 | **H2** | **Group hooks** in `voices.rs` and `groups.rs` (C2b's skeleton commit): the starve path calls `group_hold::on_starve`, the gate's start calls `group_rebase::apply(slip)` | W5 | C2c and C2d fill their own files in parallel in W6 |
-| **H3** | **Worker seam files** (D1a's skeleton commit): `decoder/musicGroups.ts` (group lifecycle; D1a writes open and prime, stubs cancel and retarget) and `decoder/musicCache.ts` (stub) | W2 | D1b (`musicGroups.ts`, `core/fakeDecoder.ts`) and D1c (`musicCache.ts`, `core/encodedCache.ts`) in parallel in W3 |
+| **H3** | **Worker seam files** (D1a's skeleton commit): `decoder/musicGroups.ts` (group lifecycle; D1a writes open and prime, stubs cancel and retarget; its open path calls `musicCache.lookup`/`hold`/`release`), `decoder/musicCache.ts` (stub), every `decoderClient.ts` group method and `handler.ts` case | W2 | D1b (`musicGroups.ts`, `core/fakeDecoder.ts`) and D1c (`musicCache.ts`, `core/encodedCache.ts`) in parallel in W3; P1 sends `bytes` per Q0's miss rule without waiting for D1c |
 | **H4** | `statusReader.ts` parses the whole M4 STATUS (Z4) | W2 | P10 and K1 read the parsed struct; nobody edits the reader again |
 | **H5** | `transition.planImmediate(to, fadeMs)` exported by R3a | W6 | R7 (`seek.ts`) beside R3b in W7 |
 | **H6** | `editor/music/index.ts` with stub `SegmentPanel` and `RulesTable` panels, and `SegmentView`'s drag hook calling `segmentDrag.ts` (Ed2's skeleton) | W3 | Ed3, Ed4, Ed6 fill their own files |
@@ -213,30 +215,30 @@ After every wave, before its files change owner, the coordinator:
 
 | Task | Level | Files (new unless marked) |
 |---|---|---|
-| Z1 → W1 (one lead, two merges) | mid | `audio-wire/src/schema/music.rs`; edits `schema/{batch,envelope,status}.rs`, `schema.rs`, `generated.rs`, `runtime/wire.generated.ts`, `vectors/wire.json`; tests `audio-wire/tests/m4_*.rs`, `runtime/wire.m4.test.ts`. W1 part also: edits `audio-core/src/params.rs` (`max_music_rings`, `InitError::MusicRings`), `audio-wasm/src/lib.rs` (ABI 3.0), `runtime/worklet/coreDriver.ts`, `runtime/core/initParams.ts` |
-| Q1 | strongest | the core skeleton (Contracts); edits `audio-core/src/{lib,layout,counters,status}.rs`, `audio-dsp/src/lib.rs`; new skeleton files listed there |
-| Q2 | strongest | the main-side skeleton (Contracts); edits `core/coreBackend.ts`, `audioSystem.ts`, `index.ts`, `Audio.ts`, `src/myco.ts`, `testing.ts`; new `runtime/music/*.ts`, `core/musicOps.ts` |
+| Z1 → W1 (one lead, two merges) | mid | `audio-wire/src/schema/music.rs`; edits `schema/{batch,envelope,status}.rs`, `schema.rs`, `generated.rs`, `runtime/wire.generated.ts`, `vectors/wire.json`; tests `audio-wire/tests/m4_*.rs`, `runtime/wire.m4.test.ts`. W1 part also: edits `audio-core/src/params.rs` (`max_music_rings`, `InitError::MusicRings`), `audio-wasm/src/lib.rs` (ABI 3.0), `runtime/worklet/coreDriver.ts` (headroom and layout mirror), `runtime/core/initParams.ts`, `runtime/core/context.ts` (preset and its equality), the `CorePreset` literals (`testing.ts:367`, `core/debug.ts:333`, `tests/e2e/audio-parity/coreRender.ts:34`, tests) |
+| Q1 | strongest | the core skeleton (Contracts); edits `audio-core/src/{lib,layout,core,counters,status}.rs`, `audio-dsp/src/lib.rs`; new skeleton files listed there; regions after the wire's merge 1 |
+| Q2 | strongest | the main-side skeleton (Contracts); edits `core/coreBackend.ts`, `core/streams.ts`, `audioSystem.ts`, `index.ts`, `Audio.ts`, `src/myco.ts`, `testing.ts`, `src/engine/tests/systemCatalog.test.ts`; new `runtime/music/*.ts`, `core/musicOps.ts`; merges after the wire's merge 2 |
 | F1a | mid | `src/engine/audio/musicFormat.ts`, `musicPosition.ts`, tests |
-| Ed1 | mid | `src/plugins/audio/editor/music/peaks.ts`, `peaksMip.ts`; edits `runtime/decoder/handler.ts` (the peaks request); tests |
+| Ed1 | mid | `src/plugins/audio/editor/music/peaks.ts`, `peaksMip.ts`; edits `runtime/decoder/handler.ts` (the peaks case), `decoder/decoderClient.ts` (`computePeaks`); tests |
 | S0 (plan task, plan est. 1 d) | mid | `tests/e2e/audio-music-smoke.spec.ts`: the real app (`?sample=` sound-lab), a stamped fade and a stamped spatial play with sends through the existing test hooks, reading `Audio.debug()`. Today it asserts the counters exist and records `splitQuanta`; the in-voice flip changes the expectation to 0 |
 
-**Hotspots checked:** `audio-core`: Q1 (`lib`, `layout`, `counters`, `status`) and the wire lead's W1 part (`params.rs`) are disjoint; `status.rs`'s header lands after Z1's merge 1 inside Q1. `audio-wasm/src/lib.rs` is the wire lead's alone. `decoder/protocol.ts` was Q0's in W0; Ed1 edits only `handler.ts`. Q2 is the only W1 task in `runtime/` outside `music/`, `worklet/coreDriver.ts` and `core/initParams.ts` (the wire lead's).
+**Hotspots checked:** `audio-core`: Q1 (`lib`, `layout`, `core`, `counters`, `status`) and the wire lead's W1 part (`params.rs`) are disjoint; Q1's regions and header land after Z1's merge 1 (which carries every constant). `audio-wasm/src/lib.rs` is the wire lead's alone. `decoder/protocol.ts` was Q0's in W0; Ed1 edits `handler.ts` and `decoderClient.ts`, which no other W1 task touches. `testing.ts`: the wire lead changes one `CorePreset` literal, Q2 adds fake members; Q2 merges second and rebases (an additive overlap, sequenced). Otherwise Q2 is the only W1 task in `runtime/` outside `music/` and the wire lead's init files (`worklet/coreDriver.ts`, `core/initParams.ts`, `core/context.ts`, `core/debug.ts:333`).
 **Exit:** the shippable checks; `wire.roundtrip`, `wire.schemaHash` and the stale-wasm check green; STATUS worst case 16,192 B; M1–M3 goldens bit-identical with the M4 regions laid out; `engine.AudioMusic` costs nothing without music (Q2); the smoke spec runs in Chromium.
 
 ## Wave 2: the due list, the worker head, the ring pool; main readers and the grid
 
 | Task | Level | Files |
 |---|---|---|
-| **Z2a** | strongest | fills `audio-core/src/due.rs`; edits `scheduler.rs` (`pop_due` into the due list), `voices.rs` (`flags2` and link bits, hooks H1); tests |
-| **D1a** | strongest | edits `runtime/decoder/streams.ts` (breadth-first prime), `decoder/protocol.ts` (refinements); new `decoder/musicGroups.ts`, `decoder/musicCache.ts` (H3); worker test |
-| **C1** | strongest | edits `audio-core/src/stream.rs` (pools, `region_bytes` with `M`, refusal event 4, `musicRings` with epoch, primed and bound), `status.rs` (the `musicRings` section) |
+| **Z2a** | strongest | **on the flip branch:** fills `audio-core/src/due.rs`; edits `scheduler.rs` (`pop_due` into the due list), `voices.rs` (`flags2` and link bits, the sub-range per-voice loop and hooks H1); tests |
+| **D1a** | strongest | edits `runtime/decoder/streams.ts` (breadth-first prime), `decoder/protocol.ts` (refinements), `decoder/decoderClient.ts` and `decoder/handler.ts` (every group method and case, H3); new `decoder/musicGroups.ts`, `decoder/musicCache.ts` (H3); worker test |
+| **C1** | strongest | edits `audio-core/src/stream.rs` (pools behind Q1's `StreamStore::over`, `region_bytes` with `M`, refusal event 4, `musicRings` with epoch, primed and bound), `status.rs` (the `musicRings` section) |
 | Z4 | mid | edits `core/commandWriter.ts`, `voiceTable.ts`, `replay.ts`, `statusReader.ts` (H4), tests |
 | F1b | mid | edits `src/engine/audio/eventFormat.ts`, `musicFormat.ts`, tests |
 | F3 | mid | `src/engine/audio/musicValidate.ts`, fixture clips under `src/engine/audio/__fixtures__/music/`, tests |
 | G1 | mid lead (J row) | `src/engine/audio/musicGrid.ts`, tests |
 
-**Hotspots checked:** `audio-core`: Z2a (`due`, `scheduler`, `voices`) and C1 (`stream`, `status`) are disjoint; C1 reads `params.rs` and doesn't write `layout.rs` (`Streams` is sized in `stream.rs`). `musicFormat.ts`: F1b writes it, F3 and G1 only read it. `decoder/`: D1a alone.
-**Exit:** the shippable checks; every per-voice record reaches its voice and non-voice records still split (Z2a); music and general streams never take each other's rings (C1); 8 stems primed inside S1's budget in the worker test (D1a).
+**Hotspots checked:** `audio-core`: Z2a (`due`, `scheduler`, `voices`, on the flip branch) and C1 (`stream`, `status`) are disjoint; neither edits `core.rs` (Q1 gave `Regions` its slices and `StreamStore::over` its `M`); C1 reads `params.rs` and doesn't write `layout.rs` (`Streams` is sized in `stream.rs`). `musicFormat.ts`: F1b writes it, F3 and G1 only read it. `decoder/`: D1a alone.
+**Exit:** the shippable checks on the integration branch; on the flip branch, Z2a's acceptance (every per-voice record reaches its voice, non-voice records still split) and H1's own test; music and general streams never take each other's rings (C1); 8 stems primed inside S1's budget in the worker test (D1a).
 
 ## Wave 3: the in-voice flip, the first segment, worker cancel and cache, rules format, the segment view
 
@@ -244,7 +246,7 @@ After every wave, before its files change owner, the coordinator:
 |---|---|---|
 | **Z2b** | strongest | fills `audio-core/src/curves.rs`, `audio-dsp/src/curve_laws.rs`, `equal_power.rs` (+ its generator under `native/audio/tools/gen-equal-power/`); edits `audio-dsp/src/ramp.rs`; `voices.rs` only if H1 is too narrow (then the sole `voices.rs` writer in W3) |
 | **Z2c** | strongest | fills `audio-core/src/voice_split.rs`; tests |
-| **Z3** | strongest (starts when Z2c's slot frees) | new `audio-core/tests/in_voice_*.rs`, new `golden/` cases, re-records existing stamped digests; on the flip branch with Z2b and Z2c; the three merge together |
+| **Z3** | strongest (starts when Z2c's slot frees) | new `audio-core/tests/in_voice_*.rs`, new `golden/` cases, re-records existing stamped digests, the smoke spec's expectation (`splitQuanta` 0); on the flip branch with Z2a, Z2b and Z2c; the four merge together |
 | **P1** | strongest | fills `runtime/music/segmentRun.ts`, `core/musicOps.ts`; loopback test |
 | D1b | mid | fills `decoder/musicGroups.ts` (cancel, retarget, `groupOpened`); edits `core/fakeDecoder.ts` |
 | D1c | mid | fills `decoder/musicCache.ts`; edits `core/encodedCache.ts` |
@@ -253,7 +255,7 @@ After every wave, before its files change owner, the coordinator:
 | Ed9 | mid lead (J row) | `editor/music/import.ts`, `importHints.ts` (RIFF and Ogg readers), tests |
 | R4c | mid | edits `core/clipRegistry.ts`, `decoder/clips.ts`, tests |
 
-**Hotspots checked:** `voices.rs`: Z2b only, and only if needed; Z2c works through H1. `ramp.rs`: Z2b. The flip branch holds Z2b, Z2c and Z3 together, so no other W3 task bases on half the flip. `decoder/`: D1b (`musicGroups.ts`), D1c (`musicCache.ts`), R4c (`clips.ts`) disjoint; `core/`: `fakeDecoder.ts` (D1b), `encodedCache.ts` (D1c), `clipRegistry.ts` (R4c), `musicOps.ts` (P1) disjoint. `musicFormat.ts`: F2 alone this wave.
+**Hotspots checked:** `voices.rs`: Z2b only, and only if needed; Z2c works through H1's sub-range loop and `voice_split.rs`. `ramp.rs`: Z2b. The flip branch holds Z2a–Z2c and Z3 together, so no other W3 task bases on half the flip. `decoder/`: D1b (`musicGroups.ts`), D1c (`musicCache.ts`, reached through H3's `lookup`/`hold`/`release` calls, so D1c doesn't edit `musicGroups.ts`), R4c (`clips.ts`) disjoint; D1c's "a second prime sends no bytes" is tested on the worker side against Q0's miss rule, P1's `musicOps.ts` sends per that rule; `core/`: `fakeDecoder.ts` (D1b), `encodedCache.ts` (D1c), `clipRegistry.ts` (R4c), `musicOps.ts` (P1) disjoint. `musicFormat.ts`: F2 alone this wave.
 **Exit:** the shippable checks with the flip in: a stamped FADE moves only its voice; `splitQuanta` 0 for a stamped spatial play with sends and a `lowpass` ramp (smoke spec now expects 0); parity digests identical except Z3's logged re-records; a segment starts on its planned frame (P1 loopback).
 
 ## Wave 4: the group table, planner, anchors; M4-0's benches and docs; the event runtime
@@ -296,7 +298,7 @@ After every wave, before its files change owner, the coordinator:
 | Task | Level | Files |
 |---|---|---|
 | C2c + C2d (one lead) | strongest | fills `audio-core/src/group_hold.rs`, `group_rebase.rs`; tests |
-| **C3** | strongest | new `audio-core/tests/gate_*.rs`, `alignment_harness.rs`, new `golden/` cases |
+| **C3** | strongest (an in-wave chain: the harness leaf, the mixed decoded/streamed and late-start cases start at once; the **held-group and rebased-late-group null cases start after C2c + C2d merge**) | new `audio-core/tests/gate_*.rs`, `alignment_harness.rs`, new `golden/` cases |
 | **R3a** | strongest | fills `runtime/music/transition.ts` (incl. `planImmediate`, H5) |
 | T1 | mid | new `runtime/music/*.loopback.test.ts` and a deterministic-clock fixture |
 | E1 | mid | `tests/e2e/audio-music-a.spec.ts`; one case in the smoke spec; listening section M4a (RS1) and its walker case |
@@ -339,9 +341,8 @@ After every wave, before its files change owner, the coordinator:
 | **K2** | mid | edits `runtime/music/musicSystem.ts`, `src/engine/core/Component.ts` |
 | K3 | mid | edits `runtime/music/handle.ts` (`positionAt`, `judged`) |
 | K4 | mid | new `runtime/music/beatClock.test.ts`, trace fixtures |
-| Ed11 | mid | `tests/e2e/audio-music-d.spec.ts`; one smoke case |
 
-**Hotspots checked:** `music/`: `regions.ts` (R4b), `musicSystem.ts` (K2), `handle.ts` (K3) each alone; T2, T3, K4 write new test files. `golden/`: T2 adds files only. Ed11 runs before Ed10 (W9) and its settings case is added by Ed10 in its own spec block (Ed10 owns the settings case only).
+**Hotspots checked:** `music/`: `regions.ts` (R4b), `musicSystem.ts` (K2), `handle.ts` (K3) each alone; T2, T3, K4 write new test files. `golden/`: T2 adds files only. Ed11 moved to W9 after Ed10, so its row's settings case (api-and-models §10) is tested as the table says.
 **Exit (M4b exits here):** the shippable checks; every seam nulls to 1e-5 (T2); never-fits refusal immediate, free-ring refusal retries (T3); Bench1 within the S7 allowance (logged if not); E2 3 of 3; milestone-end checks; owner listening section M4b; the merge to master with approval.
 
 ## Wave 9: calibration, the tap game; `onMusic`, Babylon callbacks, settings UI; M4c's e2e and guide
@@ -351,9 +352,9 @@ After every wave, before its files change owner, the coordinator:
 | Rh2 → Rh3 → E3, D4 (a chain inside the wave) | mid (Rh2 J row with a mid lead) | Rh2 fills `runtime/music/calibration.ts`; Rh3 `samples/sound-lab` tap scene; E3 `tests/e2e/audio-music-c.spec.ts`, one smoke case, listening section M4c (RS1); D4 edits `docs/guide/interactive-music.md` |
 | K5 | mid | edits `runtime/music/musicSystem.ts` |
 | B3 | mid | edits `runtime/babylonBackend.ts` |
-| Ed10 | mid | edits `editor/AudioSettingsSection.tsx`, `audioSettingsModel.ts`; the settings case in `audio-music-d.spec.ts` |
+| Ed10 → Ed11 (a chain) | mid | Ed10 edits `editor/AudioSettingsSection.tsx`, `audioSettingsModel.ts`; Ed11 (after Ed10) `tests/e2e/audio-music-d.spec.ts` (segment view, rules table, import, settings) and one smoke case after E3's |
 
-**Hotspots checked:** none: `musicSystem.ts` K5 alone (K2 merged in W8), `babylonBackend.ts` B3 alone, `samples/sound-lab` Rh3 alone.
+**Hotspots checked:** `musicSystem.ts` K5 alone (K2 merged in W8), `babylonBackend.ts` B3 alone, `samples/sound-lab` Rh3 alone; the smoke spec: E3 then Ed11, in that order.
 **Exit (M4c exits here):** the shippable checks; callbacks within 1–2 display frames on the trace set; calibration p95 < 10 ms; the offset persists across a reload (Rh3); milestone-end checks; owner listening section M4c and the real-device items; the merge to master with approval.
 
 ## Wave 10: the listening pass and close
@@ -376,7 +377,7 @@ See the section at the end of [the tree](2026-11-audio-music-m4-tree.md#independ
 | Risk | Where it shows | Response |
 |---|---|---|
 | H1's hook in the gain loop costs more than the design's compare (the loop is hot) | Z5's metered scene over +60k | Z2b takes `voices.rs` in W3 and writes the compare inline; Z2c is unaffected (`voice_split.rs`); RS4 (2.5 d) |
-| The flip branch drifts from the integration branch while Z3 runs | merge conflicts at W3's end | no W3 task besides Z2b/Z2c/Z3 touches `audio-core`; the flip merges last in W3 |
+| The flip branch drifts from the integration branch over W2–W3 | merge conflicts at W3's end | C1 (W2, `stream.rs`, `status.rs`) is the only other `audio-core` writer; the coordinator merges the integration branch into the flip branch at W2's end; the flip merges last in W3 |
 | The 1,408-case alignment harness runs too long as a test (M3's C1 lesson: a ported spike search never finished) | C3's leaf | C3's lead times it on the spike first and pastes the number into the leaf brief; if over a minute, it runs a sampled subset per wave and the full set at milestone end |
 | G1 (a J row) is on the pure chain | P1 starts late | a mid lead with two leaves (tree); the property test leaf runs in parallel with the lead |
 | The worker decode factor and cold fetch of 8 stems are unmeasured | D1a's S1 budget in the worker test | measured in D1a; a miss is logged and P2's lead (1.25 Ê + L + Δ̄) absorbs it; RS2 for the phone |
