@@ -36,7 +36,7 @@ export interface MusicCacheOptions {
 
 /** The worker's music encoded cache (see the header). One per worker. */
 export class MusicCache {
-  /** STUB(D1c): the skeleton keeps bytes per instance and path with no refcount, budget or eviction. */
+  /** STUB(L-D1ca): the skeleton keeps bytes per instance and path with no refcount, budget or eviction. */
   private readonly held = new Map<number, Map<string, ArrayBuffer>>();
   private budget: number;
 
@@ -46,39 +46,39 @@ export class MusicCache {
 
   /** The bytes held for `path` in `instance`, or null (a miss). */
   lookup(instance: number, path: string): ArrayBuffer | null {
-    return this.held.get(instance)?.get(path) ?? null; // STUB(D1c): touch for eviction order
+    return this.held.get(instance)?.get(path) ?? null; // STUB(L-D1ca): touch for eviction order
   }
 
   /** A member stream of `instance` opened over `path`: one more reference; `bytes` (main sent them) are kept. */
   hold(instance: number, path: string, bytes?: ArrayBuffer): void {
-    if (!bytes) return; // STUB(D1c): count the reference
+    if (!bytes) return; // STUB(L-D1ca): count the reference
     let paths = this.held.get(instance);
     if (!paths) this.held.set(instance, (paths = new Map()));
-    paths.set(path, bytes); // STUB(D1c): refcount, budget, evict
+    paths.set(path, bytes); // STUB(L-D1ca): refcount, budget, evict
   }
 
   /** A member stream of `instance` over `path` closed: one reference less (the bytes stay until evicted or released). */
   release(instance: number, path: string): void {
     void instance;
     void path;
-    // STUB(D1c): drop a reference; at zero the path is closed (eviction order: least recently closed first)
+    // STUB(L-D1ca): drop a reference; at zero the path is closed (eviction order: least recently closed first)
   }
 
   /** Replace `instance`'s protected paths (never evicted). */
   protect(instance: number, paths: readonly string[]): void {
     void instance;
     void paths;
-    // STUB(D1c)
+    // STUB(L-D1ca)
   }
 
   /** The instance ended: forget its references and bytes (another instance's references to the same file stay). */
   releaseInstance(instance: number): void {
-    this.held.delete(instance); // STUB(D1c)
+    this.held.delete(instance); // STUB(L-D1ca)
   }
 
   /** A new budget in bytes (the preset's, from `primeGroup.budgetBytes`); may evict at once. */
   setBudget(bytes: number): void {
-    if (Number.isFinite(bytes) && bytes >= 0) this.budget = bytes; // STUB(D1c): evict down to it
+    if (Number.isFinite(bytes) && bytes >= 0) this.budget = bytes; // STUB(L-D1ca): evict down to it
   }
 
   /** Bytes held now (for tests and the over-budget check). */
