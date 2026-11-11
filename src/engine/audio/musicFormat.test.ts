@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { eventClips, formatAudioEvent, parseAudioEvent } from "./eventFormat";
 import {
   formatMusicNode, isMusicError, musicClips, musicNodeToJson, newMusicContext, parseMusicSegment, parseSegmentNode,
   segmentEntryPosition, segmentExitPosition,
@@ -73,5 +74,72 @@ describe("musicFormat writer", () => {
     const ctx = newMusicContext();
     expect(parseSegmentNode({ type: "segment", id: "a", tracks: [] }, "root", ctx)).not.toBeNull();
     expect(parseSegmentNode({ type: "segment", id: "a", tracks: [] }, "library[0]", ctx)).toBeNull();
+  });
+});
+
+describe("music containers in the event format (F1b)", () => {
+  const seg = (id: string, extra: Record<string, unknown> = {}) => ({ type: "segment", id, tracks: [{ name: "a", clip: `${id}.ogg` }], ...extra });
+  const event = (root: unknown) => parseAudioEvent({ format: "myco.audioevent@1", root });
+
+  it("reads a playlist root into musicRoot and keeps root the empty layer", () => {
+    const r = event({ type: "playlist", id: "p", mode: "shuffle", rounds: 0, children: [seg("a"), seg("b", { plays: 3 })] });
+    expect(r.problems).toEqual([]);
+    expect(r.value.root.type).toBe("layer");
+    const m = r.value.musicRoot!;
+    expect(m.type === "playlist" && [m.mode, m.rounds, m.children.length]).toEqual(["shuffle", 0, 2]);
+    expect(eventClips(r.value)).toEqual(["a.ogg", "b.ogg"]);
+  });
+
+  it("drops a music node under a 0158 container and a 0158 node under a music container, each with a problem", () => {
+    const a = event({ type: "random", children: [seg("s"), { type: "clip", clip: "c.ogg" }] });
+    expect(a.problems).toContainEqual(expect.stringMatching(/^root\.children\[0\]: a segment is a music node/));
+    expect(a.value.root.type === "random" && a.value.root.children).toHaveLength(1);
+    const b = event({ type: "musicSwitch", id: "m", parameter: "S", children: [{ type: "clip", clip: "c.ogg" }, seg("s", { value: "x" })] });
+    expect(b.problems).toContainEqual(expect.stringMatching(/^root\.children\[0\]: a clip is not a music node/));
+    expect(b.value.musicRoot!.type === "musicSwitch" && b.value.musicRoot!.children).toHaveLength(1);
+    const c = event({ type: "sustain", loop: seg("s") });
+    expect(c.problems).toContainEqual(expect.stringMatching(/^root\.loop: a segment is a music node/));
+  });
+
+  it("requires unique ids across music nodes, library segments and 0158 ids", () => {
+    const r = event({ type: "playlist", id: "p", children: [seg("a"), seg("a")], library: [seg("p"), seg("lib")] });
+    expect(r.problems).toContainEqual(expect.stringMatching(/^root\.children\[1\]\.id: another node is already named "a"/));
+    expect(r.problems).toContainEqual(expect.stringMatching(/^root\.library\[0\]\.id: another node is already named "p"/));
+    const n = event({ type: "random", id: "x", children: [{ type: "clip", id: "x", clip: "c.ogg" }, { type: "clip", id: "bad id", clip: "d.ogg" }] });
+    expect(n.problems).toHaveLength(2);
+    const root = n.value.root;
+    expect(root.type === "random" && root.children.map((c) => c.id)).toEqual([undefined, undefined]);
+  });
+
+  it("applies the container limits: 256 children, 64 library segments, node budget, depth", () => {
+    const kids = Array.from({ length: 300 }, (_, i) => seg(`c${i}`));
+    const r = event({ type: "playlist", id: "p", children: kids });
+    expect(r.problems).toContainEqual(expect.stringMatching(/^root\.children: at most 256 entries/));
+    expect(r.value.musicRoot!.type === "playlist" && r.value.musicRoot!.children).toHaveLength(256);
+    const lib = event({ type: "playlist", id: "p", children: [seg("a")], library: Array.from({ length: 70 }, (_, i) => seg(`l${i}`)) });
+    expect(lib.problems).toContainEqual(expect.stringMatching(/^root\.library: at most 64 entries/));
+    let deep: unknown = seg("leaf");
+    for (let i = 0; i < 20; i++) deep = { type: "playlist", id: `p${i}`, children: [deep] };
+    expect(event(deep).problems).toContainEqual(expect.stringMatching(/nested deeper than 16/));
+  });
+
+  it("checks musicSwitch children (value) and caps avoidRepeat; reads an empty container with a problem", () => {
+    const r = event({ type: "musicSwitch", id: "m", parameter: "S", children: [seg("a", { value: "x" }), seg("b", { value: "x" }), seg("c")] });
+    expect(r.problems).toContainEqual(expect.stringMatching(/^root\.children\[1\]\.value: another child already has/));
+    expect(r.problems).toContainEqual(expect.stringMatching(/^root\.children\[2\]: a musicSwitch child needs a value/));
+    const p = event({ type: "playlist", id: "p", mode: "random", avoidRepeat: 5, children: [seg("a"), seg("b")] });
+    expect(p.problems).toContainEqual(expect.stringMatching(/^root\.avoidRepeat: 5 is outside 0\.\.1/));
+    expect(event({ type: "playlist", id: "e" }).problems).toContainEqual(expect.stringMatching(/^root: has no children/));
+  });
+
+  it("writes a music root through musicNodeToJson (no pitch or fade keys) and round-trips", () => {
+    const r = event({ type: "playlist", id: "p", pitch: 2, fade: 1, children: [seg("a", { pitch: 2 })], library: [seg("lib")] });
+    expect(r.problems.filter((p) => p.includes("not used on music"))).toHaveLength(3);
+    const text = formatAudioEvent(r.value);
+    expect(JSON.stringify(JSON.parse(text).root)).not.toMatch(/"pitch"|"fade"/);
+    const again = parseAudioEvent(JSON.parse(text));
+    expect(again.problems).toEqual([]);
+    expect(again.value).toEqual(r.value);
+    expect(formatAudioEvent(again.value)).toBe(text);
   });
 });
