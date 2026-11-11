@@ -11,7 +11,7 @@ Question: can M4's interactive music (4-8 stem layers of one piece, transitions 
 - Start frames are measured two ways: from the output (first non-zero frame, solo) and from each voice's playhead advance (concurrent voices).
 - `src/prime.rs` is the prime planner prototype. `src/bin/decode_lat.rs` times the (native) decoder: open, seek, first chunk, full ring.
 - Reproduce: `./run.sh` (correctness + timing), or `cargo run --release --bin align > results.md` (asserts; about 15 s; exit 0 = every "asserted" below holds). Full tables: [results.md](results.md). Timed decode run: [results-decode.md](results-decode.md) (coordinator's; expected 20-30 s (est.)).
-- Smoke-only on the shared VM: decode numbers below are a 2x5 smoke, not measurements.
+- Decode numbers below are the coordinator's timed run (idle machine, load 0.2, 9 runs x 200 iterations, native decoder, p50 = median of run p50s): [results-decode.md](results-decode.md).
 
 ## What the code does today (cited)
 
@@ -79,11 +79,11 @@ Today `Audio.play(at)` primes implicitly (PLAY and `streamOpen` go out together)
 | Component | Value | Source |
 |---|---|---|
 | main -> worker `streamOpen` postMessage (bytes transferred) | ~0.2 ms RTT p50 / 0.5 p99 (idle main); main jank adds its own stall | M1 `spikes/audio-worklet/messaging` section 2 |
-| decode: open + first 4,096-frame chunk, native | town.mp3 0.14 ms, FLAC 0.08, WAV 0.02, Ogg fixture 1.3; with a seek 0.2 / 0.18 / 0.03 / 1.1; full 8-chunk ring from mid-file 1.2 / 0.46 / 0.10 / 1.6 ms | `decode_lat` **smoke only (2x5, shared VM)**; wasm 1.5-3x (est.) |
+| decode, native, p50 / p99 ms: open + first 4,096-frame chunk | town.mp3 0.12 / 0.16, FLAC 0.08 / 0.12, WAV 0.02 / 0.04, Ogg 1.10 / 1.75; open + seek + first chunk 0.19 / 0.32, 0.17 / 0.23, 0.02 / 0.04, 1.13 / 1.61; open + seek + full 8-chunk ring 1.12 / 1.48, 0.46 / 0.57, 0.10 / 0.15, 1.62 / 2.38 | `results-decode.md` (timed, idle); wasm 1.5-3x (est.) |
 | worker -> worklet chunk delivery tail | one-way p50 1 quantum (2.7 ms), p99 4-5 quanta (11-13 ms) | M1 messaging section 2 |
 | encoded-file fetch | 0 if the bytes are cached; a network/disk read otherwise: unmeasured | [U] |
 
-N = 8 cached stems: about 8 x (0.5 to 4 ms) + 13 ms = 17 to 45 ms (est.), so a lead of 50-100 ms is enough in the best case; a cold fetch of 8 files can be hundreds of ms. The Q1c/Q2 tables show what one missed stem costs.
+N = 8 cached stems, serial in one worker: native seek + first chunk is 0.2 ms (MP3) to 1.1 ms (Vorbis) at p50, so 1.6 to 9 ms for 8 (p99 2.6 to 13 ms). With the wasm factor (est. 1.5-3x) that is about 2.4 to 27 ms (p99 up to ~40 ms), plus the delivery tail (p99 13 ms) and the 1.25 margin: a lead of about 20-60 ms (est.) for cached bytes, so 100 ms is comfortable. A cold fetch of 8 files can be hundreds of ms (unmeasured). The Q1c/Q2 tables show what one missed stem costs.
 
 **Ring size.** It bounds how much audio is *buffered* ahead (0.68 s), not how far ahead a start can be primed: a primed voice can sit SCHEDULED for as long as needed with its ring full and the worker idle. Priming earlier than about 0.68 s before the stamp adds no buffered audio, only holds a ring and a voice slot. Memory per stream: 307,200 B = **300 KiB** (`stream.rs:104-108`); low 4 rings 1.17 MiB, default 8 rings 2.34 MiB, high 16 rings 4.69 MiB. A decoded stereo f32 stem costs 69 MB per 3 minutes (34.6 MB as i16 [U], arena format not checked).
 
@@ -132,7 +132,7 @@ Asserted for 128 runs (stamp offset 0-127 in the quantum), 8 clip voices each at
 
 ## Unverified
 
-- Wasm decode and the real worker/Chromium path (fetch, `streamOpen` transfer, wasm copy, serial opens, worker -> worklet ordering relative to main's BATCH) are not measured; `decode_lat` is native only and smoke-run. Every prime-lead number in ms is **(est.)**.
+- Wasm decode and the real worker/Chromium path (fetch, `streamOpen` transfer, wasm copy, serial opens, worker -> worklet ordering relative to main's BATCH) are not measured; `decode_lat` is native only. Every prime-lead number in ms is **(est.)**.
 - M1's postMessage numbers are from Windows desktop Chromium, one run per cell.
 - That a worker -> main ack precedes the chunk's commit in the worklet is an assumption of the protocol [U]: the two travel on different ports; the stamp's margin (L plus the ack hop) is what covers it.
 - Splice with a different sample rate (stale `rate_ratio`) and stems at 44.1 kHz in a 48 kHz context (Lagrange-resampled; starts stay aligned, the bit-exact null does not apply) are from code reading, untested.
