@@ -146,6 +146,20 @@ pub const SECTIONS: &[Section] = &[
         max: 16,
         doc: "ZoneEvent codes: 1 refused kernel, 2 refused slot, 3 bad blob (ADR 0162)",
     },
+    Section {
+        name: "musicRings",
+        item: super::music::MUSIC_RINGS_ITEM,
+        count_field: "musicRingCount",
+        max: 16,
+        doc: "every open music ring: stream id, epoch and primed and bound bits (ADR 0166 M4)",
+    },
+    Section {
+        name: "groupStarts",
+        item: super::music::GROUP_STARTS_ITEM,
+        count_field: "groupStartCount",
+        max: 8,
+        doc: "one item per group start: slip, flags, start frame; the rest carry over like starved (ADR 0166 M4)",
+    },
 ];
 
 pub const STATUS: StatusSpec = StatusSpec { header_bytes: 176, fields: HEADER_FIELDS, sections: SECTIONS };
@@ -154,10 +168,8 @@ pub const STATUS: StatusSpec = StatusSpec { header_bytes: 176, fields: HEADER_FI
 mod tests {
     use super::*;
     use crate::model::Ty;
-    use crate::schema::CONSTANTS;
-
     fn constant(name: &str) -> u64 {
-        CONSTANTS.iter().find(|c| c.name == name).unwrap_or_else(|| panic!("no constant {name}")).value
+        crate::schema::schema().constants.iter().find(|c| c.name == name).unwrap_or_else(|| panic!("no constant {name}")).value
     }
 
     #[test]
@@ -254,12 +266,12 @@ mod tests {
     #[test]
     fn sections_and_caps() {
         let names: Vec<&str> = SECTIONS.iter().map(|s| s.name).collect();
-        assert_eq!(names, ["ended", "demoted", "starved", "playheads", "clipEvents", "streamEvents", "peaks", "beds", "zones", "zoneEvents"]);
+        assert_eq!(names, ["ended", "demoted", "starved", "playheads", "clipEvents", "streamEvents", "peaks", "beds", "zones", "zoneEvents", "musicRings", "groupStarts"]);
 
         let counts: Vec<&str> = SECTIONS.iter().map(|s| s.count_field).collect();
         assert_eq!(
             counts,
-            ["endedCount", "demotedCount", "starvedCount", "playheadCount", "clipEventCount", "streamEventCount", "busCount", "bedsActive", "zoneSlots", "zoneEventCount"]
+            ["endedCount", "demotedCount", "starvedCount", "playheadCount", "clipEventCount", "streamEventCount", "busCount", "bedsActive", "zoneSlots", "zoneEventCount", "musicRingCount", "groupStartCount"]
         );
         for s in SECTIONS {
             assert!(HEADER_FIELDS.iter().any(|f| f.name == s.count_field), "{}", s.name);
@@ -276,6 +288,8 @@ mod tests {
         assert_eq!(caps[7], constant("MAX_BEDS") as u32);
         assert_eq!(caps[8], constant("MAX_ZONE_SLOTS") as u32);
         assert_eq!(caps[9], constant("MAX_ZONE_EVENTS_PER_BLOCK") as u32);
+        assert_eq!(caps[10], constant("MAX_MUSIC_RINGS") as u32);
+        assert_eq!(caps[11], constant("MAX_GROUP_STARTS_PER_BLOCK") as u32);
 
         let item_fields = |s: &Section| -> Vec<(&str, Ty)> { s.item.iter().map(|f| (f.name, f.ty)).collect() };
         assert_eq!(item_fields(&SECTIONS[0]), vec![("id", Ty::U32)]);
@@ -286,15 +300,15 @@ mod tests {
     }
 
     #[test]
-    fn worst_case_is_15936_bytes_before_the_music_sections() {
+    fn worst_case_is_16192_bytes() {
         let worst: u32 = STATUS.header_bytes
             + SECTIONS
                 .iter()
                 .map(|s| s.max * s.item.iter().map(|f| f.bytes()).sum::<u32>())
                 .sum::<u32>();
-        // ADR 0162 §4.3: 15,728 - 112 + 144 + 32 + 48 + 64 = 15,904; the M4 header adds 32 B (the
-        // `musicRings` and `groupStarts` sections follow with W1: 16,192 B).
-        assert_eq!(worst, 15936);
+        // ADR 0162 §4.3: 15,728 - 112 + 144 + 32 + 48 + 64 = 15,904; API §4.4: - 144 + 176 (header)
+        // + 16 x 8 (musicRings) + 8 x 16 (groupStarts) = 16,192, 192 B under the buffer.
+        assert_eq!(worst, 16192);
         assert!(worst <= constant("STATUS_BUFFER_BYTES") as u32);
         assert_eq!(worst as u64, constant("STATUS_WORST_CASE_BYTES"));
     }

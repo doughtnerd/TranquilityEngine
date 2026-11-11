@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: d134301e035d535d27745724a78d2902).
+/// First 16 bytes of the schema's SHA-256 (hex: 287e5173cde33028cb09bd4bfbc4d2ec).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0xd1,
-    0x34,
+    0x28,
+    0x7e,
+    0x51,
+    0x73,
+    0xcd,
+    0xe3,
     0x30,
-    0x1e,
-    0x03,
-    0x5d,
-    0x53,
-    0x5d,
-    0x27,
-    0x74,
-    0x57,
-    0x24,
-    0xa7,
-    0x8d,
-    0x29,
-    0x02,
+    0x28,
+    0xcb,
+    0x09,
+    0xbd,
+    0x4b,
+    0xfb,
+    0xc4,
+    0xd2,
+    0xec,
 ];
-pub const SCHEMA_HASH_HEX: &str = "d134301e035d535d27745724a78d2902";
+pub const SCHEMA_HASH_HEX: &str = "287e5173cde33028cb09bd4bfbc4d2ec";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -49,8 +49,8 @@ pub const STATUS_HEADER_BYTES: u32 = 0xb0;
 pub const STATUS_POOL_BUFFERS: u32 = 0x8;
 /// size of each STATUS buffer
 pub const STATUS_BUFFER_BYTES: u32 = 0x4000;
-/// 176 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64
-pub const STATUS_WORST_CASE_BYTES: u32 = 0x3e40;
+/// 176 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 + 128 + 128
+pub const STATUS_WORST_CASE_BYTES: u32 = 0x3f40;
 /// STATUS cadence
 pub const STATUS_EVERY_QUANTA: u32 = 0x6;
 /// cadence when no batch arrived for 250 ms
@@ -943,7 +943,7 @@ pub struct StreamOpen {
     pub loop_start: u32,
     /// Loop end frame; 0 means the whole stream.
     pub loop_end: u32,
-    /// Flag bits, see `flags`.
+    /// Flag bits: bit 0 loop; bit 1 music (STREAM_OPEN_FLAG_MUSIC): the ring comes from the music pool, none free is refused as stream event 4.
     pub flags: u32,
     /// Stream epoch; a restart bumps it, so older-epoch messages are stale.
     pub epoch: u32,
@@ -1211,7 +1211,8 @@ pub struct Play {
     pub bus: u16,
     pub flags: u16,
     pub group: u16,
-    pub reserved: u16,
+    /// ADR 0166 M4: bits 0-9 groupId 1..=1023 (0 = ungated), bits 10-15 groupSize - 1 (PLAY_GATE_*; pack_gate); every member of a group arrives in one BATCH with the same frameOffset
+    pub gate: u16,
     pub gain: f32,
     pub pitch: f32,
     pub dir_x: f32,
@@ -1233,7 +1234,7 @@ impl Play {
         put_u16(out, base + 16, self.bus);
         put_u16(out, base + 18, self.flags);
         put_u16(out, base + 20, self.group);
-        put_u16(out, base + 22, self.reserved);
+        put_u16(out, base + 22, self.gate);
         put_f32(out, base + 24, self.gain);
         put_f32(out, base + 28, self.pitch);
         put_f32(out, base + 32, self.dir_x);
@@ -1273,7 +1274,7 @@ impl Play {
         let bus = get_u16(buf, base + 16);
         let flags = get_u16(buf, base + 18);
         let group = get_u16(buf, base + 20);
-        let reserved = get_u16(buf, base + 22);
+        let gate = get_u16(buf, base + 22);
         let gain = get_f32(buf, base + 24);
         let pitch = get_f32(buf, base + 28);
         let dir_x = get_f32(buf, base + 32);
@@ -1294,7 +1295,7 @@ impl Play {
             bus,
             flags,
             group,
-            reserved,
+            gate,
             gain,
             pitch,
             dir_x,
@@ -3436,6 +3437,94 @@ impl StatusZoneEventsItem {
     }
 }
 
+/// every open music ring: stream id, epoch and primed and bound bits (ADR 0166 M4)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StatusMusicRingsItem {
+    pub stream_id: u32,
+    /// bits 0-29 epoch, bit 30 primed, bit 31 bound
+    pub epoch_flags: u32,
+}
+
+impl StatusMusicRingsItem {
+    pub const FIXED_END: usize = 8;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 0, self.stream_id);
+        put_u32(out, base + 4, self.epoch_flags);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let stream_id = get_u32(buf, base + 0);
+        let epoch_flags = get_u32(buf, base + 4);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            stream_id,
+            epoch_flags,
+        }, cur - base))
+    }
+}
+
+/// one item per group start: slip, flags, start frame; the rest carry over like starved (ADR 0166 M4)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StatusGroupStartsItem {
+    pub group_id: u16,
+    /// bit 0 late, bit 1 held and resumed, bit 2 abandoned
+    pub flags: u16,
+    pub slip_frames: u32,
+    /// low 32 bits of the start frame
+    pub start_frame_lo: u32,
+    /// high 32 bits of the start frame
+    pub start_frame_hi: u32,
+}
+
+impl StatusGroupStartsItem {
+    pub const FIXED_END: usize = 16;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 0, self.group_id);
+        put_u16(out, base + 2, self.flags);
+        put_u32(out, base + 4, self.slip_frames);
+        put_u32(out, base + 8, self.start_frame_lo);
+        put_u32(out, base + 12, self.start_frame_hi);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let group_id = get_u16(buf, base + 0);
+        let flags = get_u16(buf, base + 2);
+        let slip_frames = get_u32(buf, base + 4);
+        let start_frame_lo = get_u32(buf, base + 8);
+        let start_frame_hi = get_u32(buf, base + 12);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            group_id,
+            flags,
+            slip_frames,
+            start_frame_lo,
+            start_frame_hi,
+        }, cur - base))
+    }
+}
+
 /// A whole STATUS message (kind 9), envelope included.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StatusBlock {
@@ -3478,10 +3567,6 @@ pub struct StatusBlock {
     pub work_bed: u32,
     /// work units, last quantum: zone convolvers, sends, aux
     pub work_zones: u32,
-    /// the musicRings section's count (at most 16)
-    pub music_ring_count: u16,
-    /// the groupStarts section's count (at most 8)
-    pub group_start_count: u16,
     /// music rings open
     pub music_rings_open: u16,
     /// voices that started after their stamp because a ring was not ready (cumulative, saturating)
@@ -3532,6 +3617,12 @@ pub struct StatusBlock {
     /// ZoneEvent codes: 1 refused kernel, 2 refused slot, 3 bad blob (ADR 0162)
     /// At most 16 per block.
     pub zone_events: Vec<StatusZoneEventsItem>,
+    /// every open music ring: stream id, epoch and primed and bound bits (ADR 0166 M4)
+    /// At most 16 per block.
+    pub music_rings: Vec<StatusMusicRingsItem>,
+    /// one item per group start: slip, flags, start frame; the rest carry over like starved (ADR 0166 M4)
+    /// At most 8 per block.
+    pub group_starts: Vec<StatusGroupStartsItem>,
 }
 
 impl StatusBlock {
@@ -3612,8 +3703,14 @@ impl StatusBlock {
         put_u32(out, base + 132, self.zone_used_kb);
         put_u32(out, base + 136, self.work_bed);
         put_u32(out, base + 140, self.work_zones);
-        put_u16(out, base + 144, self.music_ring_count);
-        put_u16(out, base + 146, self.group_start_count);
+        if self.music_rings.len() > 16 {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 144, self.music_rings.len() as u16);
+        if self.group_starts.len() > 8 {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 146, self.group_starts.len() as u16);
         put_u16(out, base + 148, self.music_rings_open);
         put_u16(out, base + 150, self.stream_starts_late);
         put_u16(out, base + 152, self.groups_late);
@@ -3694,6 +3791,20 @@ impl StatusBlock {
         for v in &self.zone_events {
             v.write(out, cur)?;
             cur += 4;
+        }
+        if cur + self.music_rings.len() * 8 > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        for v in &self.music_rings {
+            v.write(out, cur)?;
+            cur += 8;
+        }
+        if cur + self.group_starts.len() * 16 > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        for v in &self.group_starts {
+            v.write(out, cur)?;
+            cur += 16;
         }
         Envelope::new(kind::STATUS, seq, (cur - base - 16) as u32).write(out, base)?;
         Ok(cur - base)
@@ -3856,6 +3967,24 @@ impl StatusBlock {
             zone_events.push(v);
             cur += n;
         }
+        if music_ring_count as usize > 16 || (music_ring_count as usize) * 8 > limit - cur {
+            return Err(ERR_OVERSIZE);
+        }
+        let mut music_rings = Vec::with_capacity(music_ring_count as usize);
+        for _ in 0..music_ring_count {
+            let (v, n) = StatusMusicRingsItem::read(buf, cur)?;
+            music_rings.push(v);
+            cur += n;
+        }
+        if group_start_count as usize > 8 || (group_start_count as usize) * 16 > limit - cur {
+            return Err(ERR_OVERSIZE);
+        }
+        let mut group_starts = Vec::with_capacity(group_start_count as usize);
+        for _ in 0..group_start_count {
+            let (v, n) = StatusGroupStartsItem::read(buf, cur)?;
+            group_starts.push(v);
+            cur += n;
+        }
         Ok((Self {
             current_frame,
             date_ms,
@@ -3889,8 +4018,6 @@ impl StatusBlock {
             zone_used_kb,
             work_bed,
             work_zones,
-            music_ring_count,
-            group_start_count,
             music_rings_open,
             stream_starts_late,
             groups_late,
@@ -3911,6 +4038,8 @@ impl StatusBlock {
             beds,
             zones,
             zone_events,
+            music_rings,
+            group_starts,
         }, limit - base))
     }
 }

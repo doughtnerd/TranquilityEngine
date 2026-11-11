@@ -91,7 +91,7 @@ fn play(voice: u32, clip: u32, flags: u16) -> wire::Play {
         bus: 0,
         flags,
         group: 0,
-        reserved: 0,
+        gate: 0,
         gain: 1.0,
         pitch: 1.0,
         dir_x: FRONT[0],
