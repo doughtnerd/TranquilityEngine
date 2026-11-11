@@ -27,7 +27,7 @@ import type { Vec3Like } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { AudioReverbZone } from "./AudioReverbZone";
 import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
-import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type PlayRequest } from "./backend";
+import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioM3Counters, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type PlayRequest } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, type BusPlan } from "./babylonMapping";
 import { DistanceEffect, SendCurveTable, SpatialViewFlag, type SpatialPassHost, type SpatialVoiceView } from "./core/spatial";
 import { DopplerPass } from "./core/doppler";
@@ -962,11 +962,24 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
       sampleRate: this.ctx?.sampleRate ?? 0,
       time: this.time,
       background: this.background,
-      counters: { underruns: 0, lateCommands: 0, minSlackFrames: 0, workUnits: 0, workUnitsMax: 0, mixedVoices: n, mixedCap: 0, logicalVoices: n, queuedPlays: 0, droppedPlays: 0, traps: 0, refusedLoads: 0, hrtfVoices: 0, hrtfLoadFailure: 0 },
+      counters: { underruns: 0, lateCommands: 0, minSlackFrames: 0, workUnits: 0, workUnitsMax: 0, mixedVoices: n, mixedCap: 0, logicalVoices: n, queuedPlays: 0, droppedPlays: 0, traps: 0, refusedLoads: 0, hrtfVoices: 0, hrtfLoadFailure: 0, ...this.m3Counters() },
       buses: (this.mixerRef?.resolveAll() ?? []).map((b) => ({ name: b.name, gain: b.gain, effectiveGain: b.effectiveGain, peakL: 0, peakR: 0, voices: counts.get(b.name) ?? 0, maxVoices: this._cap(b.name) })),
       // Existing tests (and architecture 8 for this fallback) expect an empty list for plain voices: only event voices get rows.
       voices: [...this.voices].filter((v) => v.event !== null).map((v) => ({ id: v.id, clip: v.row.clip, bus: v.row.bus, world: null, state: "playing" as const, priority: 0, gain: v.row.gain, pitch: v.row.pitch, audibility: 1, playheadSeconds: null, owner: null, event: v.event })),
+      // ADR 0162 §1.6 (D5): what applies here. Beds, zones, ambisonic voices and the ladder don't exist on this fallback.
+      occlusion: this.occlusion.debug(),
       core: { backend: "babylon", voices: n, buffers: this.liveNow?.buffers.size ?? 0, context: this.ctx?.state ?? "none" },
+    };
+  }
+
+  /** ADR 0162 §1.6 (D5): the occlusion and Doppler counters (the passes run on main for this backend too). */
+  private m3Counters(): AudioM3Counters {
+    const o = this.occlusion.counters;
+    const d = this.doppler.counters;
+    return {
+      occlusionRays: o.occlusionRays, occlusionUsedMs: o.occlusionUsedMs, occlusionOverruns: o.occlusionOverruns, occlusionSources: o.occlusionSources,
+      occlusionNoPhysics: o.occlusionNoPhysics, oldestOcclusionAgeFrames: o.oldestOcclusionAgeFrames,
+      dopplerClamps: d.dopplerClamps, dopplerTeleports: d.dopplerTeleports, dopplerGuardTrips: d.dopplerGuardTrips,
     };
   }
 

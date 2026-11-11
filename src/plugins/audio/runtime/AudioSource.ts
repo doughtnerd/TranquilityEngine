@@ -81,24 +81,24 @@ export class AudioSource extends Component {
    * For an event, `loop`, `spatial` and the distance fields come from the event; `volume` and `pitch` still apply on top.
    */
   @field(AssetRef, { kind: ["audio", "audioEvent"], description: "A sound clip, or an audio event (`*.audioevent.json`) to play as an instance." }) clip = "";
-  @field(Number) volume = 1;
-  @field(Boolean) loop = false;
-  @field(Boolean) playOnAwake = true;
+  @field(Number, { description: "Linear gain, 1 is full volume." }) volume = 1;
+  @field(Boolean, { description: "Start again when the clip ends." }) loop = false;
+  @field(Boolean, { description: "Start playing when the node is enabled in play mode." }) playOnAwake = true;
   /** Playback speed and pitch: 1 is normal, 2 an octave up. */
-  @field(Number) pitch = 1;
+  @field(Number, { description: "Playback speed and pitch: 1 is normal, 2 an octave up." }) pitch = 1;
   /** Sound from the node's position instead of flat. On the Babylon fallback, clips that stream play flat. */
-  @field(Boolean) spatial = false;
+  @field(Boolean, { description: "Sound from the node's position, panned and faded by distance from the listener, instead of flat." }) spatial = false;
   /** Spatial: full volume inside this distance, in metres. */
-  @field(Number) minDistance = 1;
+  @field(Number, { description: "Spatial: full volume inside this distance, world units." }) minDistance = 1;
   /** Spatial: the distance where the falloff stops, in metres. */
-  @field(Number) maxDistance = 100;
+  @field(Number, { description: "Spatial: the distance where the falloff stops, world units." }) maxDistance = 100;
   /** Spatial: how volume falls between `minDistance` and `maxDistance`. */
-  @field(String, { choices: ["linear", "inverse", "exponential"] }) rolloff: Rolloff = "inverse";
+  @field(String, { choices: ["linear", "inverse", "exponential"], description: "Spatial: how volume falls between minDistance and maxDistance." }) rolloff: Rolloff = "inverse";
 
   /** The mixer bus this sound plays on (ADR 0097): a bus name from the project's Audio settings. Empty is Master. */
-  @field(String, { choices: (s) => s.audio.buses.map((b) => b.name) }) output = "";
+  @field(String, { choices: (s) => s.audio.buses.map((b) => b.name), description: "The mixer bus this sound plays on (a bus from Project Settings > Audio). Empty is Master." }) output = "";
   /** 0..255. Mostly decides who is stolen when a voice limit is hit. */
-  @field(Number) priority = 128;
+  @field(Number, { description: "0..255. Mostly decides who is stolen when a voice limit is hit." }) priority = 128;
 
   // ADR 0162 §1.2 (K4 declares them; the features they drive fill their own files).
   @field(Boolean, { description: "Spatial sources: walls between the source and the listener muffle it. Inert in 2D worlds and without the 3D physics service." }) occlusion = true;
@@ -135,14 +135,16 @@ export class AudioSource extends Component {
     return this.zeroVelocity;
   }
 
-  /** ADR 0162 §1.2 (`occlusionGain`: the field `occlusion` holds the switch): the playing sound's smoothed dry occlusion gain, 1 open. K4: 1 until D5. */
+  /** ADR 0162 §1.2 (`occlusionGain`: the field `occlusion` holds the switch): the playing sound's smoothed dry occlusion gain, 1 open (and while not playing). */
   get occlusionGain(): number {
-    return 1;
+    if (this.instance) return this.instance.playing ? this.instance.occlusion : 1;
+    return this.voice !== null && this.voice.playing ? (this.voice.occlusion ?? 1) : 1;
   }
 
-  /** ADR 0162 §1.2: the panner the playing sound uses, or null when not playing. K4: null until D5. */
+  /** ADR 0162 §1.2: the panner the playing sound uses, or null when not playing (or on a backend without panners). */
   get panner(): AudioPanner | null {
-    return null;
+    if (this.instance) return this.instance.playing ? this.instance.panner : null;
+    return this.voice !== null && this.voice.playing ? (this.voice.panner ?? null) : null;
   }
 
   get isPlaying(): boolean {

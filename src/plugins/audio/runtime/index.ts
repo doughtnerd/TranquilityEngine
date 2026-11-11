@@ -12,7 +12,8 @@ import { AUDIO_SERVICE } from "./core/service";
 import { AUDIO_SYSTEMS } from "./audioSystem";
 
 export { Audio, type OneShotOptions } from "./Audio";
-export type { AudioDebugInfo, AudioEventHandle, AudioHandle, AudioReason, AudioStatus } from "./backend";
+export type { AudioBedDebug, AudioDebugInfo, AudioEventHandle, AudioHandle, AudioM3Counters, AudioMemoryDebug, AudioOcclusionDebug, AudioPanner, AudioReason, AudioStatus, AudioVoiceM3Debug, AudioZoneDebug, SendCurve } from "./backend";
+export { DEFAULT_SEND_CURVE } from "./backend";
 export type { EventOptions } from "./events/eventRuntime";
 export { AudioSource, type Rolloff } from "./AudioSource";
 export { AudioOccluder } from "./AudioOccluder";

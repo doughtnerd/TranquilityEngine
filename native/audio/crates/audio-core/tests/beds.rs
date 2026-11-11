@@ -444,6 +444,10 @@ fn a_bed_idles_after_its_partitions_then_after_one_quantum_once_the_ladder_steps
     }
     assert_eq!(bed::ladder_steps(&mut core), bed::step::BED_IDLE);
     assert_eq!(bed::m3_shed(&mut core), 1, "m3Shed counts the step");
+    // D5: STATUS carries it (bed steps plus zone steps).
+    let mut out = vec![0u8; 20_000];
+    let n = status::take(&mut core, &mut out, 0);
+    assert_eq!(wire::StatusBlock::read(&out[..n], 0).unwrap().0.m3_shed, 1, "STATUS m3Shed");
     // More underruns: no further bed step (the zone steps are C3's).
     for k in second + 1..=3 * second {
         core.note_underruns(k);

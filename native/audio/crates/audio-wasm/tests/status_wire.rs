@@ -76,7 +76,7 @@ fn every_counter_reads_back_through_the_generated_reader() {
     assert_eq!((s.stream_events[0].id, s.stream_events[0].code), (106, 3));
     assert_eq!((s.peaks[0].l, s.peaks[0].r), (0.5, -0.25));
     assert_eq!((s.bed_voices, s.fx_voices, s.ambisonic_voices, s.zones_active, s.zones_ringing, s.beds_refused), (18, 19, 20, 21, 22, 23));
-    assert_eq!((s.zone_used_kb, s.work_bed, s.work_zones, s.reserved), (24, 25, 26, 0));
+    assert_eq!((s.zone_used_kb, s.work_bed, s.work_zones, s.m3_shed), (24, 25, 26, 0));
     assert_eq!((s.beds.len(), s.beds[0].bus, s.beds[0].voices, s.beds[0].work), (1, 27, 28, 29));
     assert_eq!(s.zones.len(), 2);
     assert_eq!((s.zones[0].kernel_id, s.zones[0].state), (0, 0));

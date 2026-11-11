@@ -19,6 +19,7 @@
 //   voice back to equal-power.
 //
 // The ordering is A3.1's `rankTop` (quickselect, O(n), no sort). Nothing here allocates after construction.
+import type { AudioPanner } from "../backend";
 import { HYSTERESIS, MIN_AUDIBILITY, rankTop } from "./selection";
 import { VoiceFlag, VoiceState, type VoiceTable } from "./voiceTable";
 
@@ -52,6 +53,16 @@ export interface PannerLimits {
   readonly nowMs: number;
 }
 
+/**
+ * @internal ADR 0162 §1.1: the public name of a voice's panner. "ambisonic" for a B-format clip, "flat" for a voice
+ * that isn't spatial, else the kind the pick holds ("equalPower", "hrtf", "bed").
+ */
+export function pannerName(kind: number, spatial: boolean, ambisonic: boolean): AudioPanner {
+  if (ambisonic) return "ambisonic";
+  if (!spatial) return "flat";
+  return kind === PannerKind.HRTF ? "hrtf" : kind === PannerKind.BED ? "bed" : "equalPower";
+}
+
 const NO_BED = 0xff;
 const S_PLAYING = VoiceState.PLAYING;
 const S_VIRTUAL = VoiceState.VIRTUAL;
@@ -70,6 +81,8 @@ export class PannerPick {
   private readonly kind: Uint8Array;
   /** The recorded voice's generation + 1 (0: no record), so a slot reused without `forget` isn't taken for it. */
   private readonly tag: Uint32Array;
+  /** `nowMs` of the last `run`. */
+  private lastNowMs = 0;
   /** Game time of the voice's last kind change, ms. */
   private readonly since: Float64Array;
   /** Voices HRTF after the last `run` (at most its limit) and voices on the bed. */
@@ -101,6 +114,12 @@ export class PannerPick {
     return this.tag[i] === this.table.gen[i]! + 1 ? (this.kind[i] as PannerKindCode) : EQ;
   }
 
+  /** Slot `i`'s time in its current kind at the last `run`, game milliseconds (0 before it has changed kind; `Audio.debug()` `kindDwellMs`). */
+  dwellMs(i: number): number {
+    const since = this.since[i]!;
+    return since === -Infinity || this.tag[i] !== this.table.gen[i]! + 1 ? 0 : Math.max(0, this.lastNowMs - since);
+  }
+
   /** Slot `i`'s kind, for the backend's snapshot low-pass (a voice on the bed). */
   kindOf(i: number): PannerKindCode {
     return this.panner(i);
@@ -111,6 +130,7 @@ export class PannerPick {
     const n0 = Math.floor(limits.hrtf);
     const cap = n0 > MAX_HRTF_VOICES ? MAX_HRTF_VOICES : n0 > 0 ? n0 : 0;
     const now = limits.nowMs;
+    this.lastNowMs = now;
     const bedSlot = limits.bedSlot;
     let bedsOn = false;
     for (let b = 0; b < bedSlot.length; b++) {

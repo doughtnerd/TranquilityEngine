@@ -48,7 +48,7 @@ import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
 import type { BusEffect } from "../../../../engine/audio/settings";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioStatus, AudioVoice, ListenerPose, PlayRequest, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioPanner, AudioStatus, AudioVoice, ListenerPose, PlayRequest, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import {
   BUS_LP_OFF_HZ,
   BUS_ROOT,
@@ -89,7 +89,7 @@ import { STREAM_ERROR_FADE_SECONDS, StreamManager, type StreamManagerDeps } from
 import { sharedDecoderClient } from "../decoder/decoderClient";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { effectiveMixedCap, ListenerBasis, Selection, type SelectionSink } from "./selection";
-import { PannerKind, PannerPick, type PannerKindCode, type PannerSink } from "./pannerPick";
+import { PannerKind, PannerPick, pannerName, type PannerKindCode, type PannerSink } from "./pannerPick";
 import { BedPlanner } from "./beds";
 import { ZoneManager } from "./zones";
 import { createZoneIrService } from "./zoneIr";
@@ -993,6 +993,20 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.writer.setParams(((t.gen[i]! << 16) | i) >>> 0, SET_PARAMS_MASK_PITCH, 0, this.sentPitch(i), 0, 0, 0, 0, this.clockMap.rampFrames());
   }
 
+  /** @internal ADR 0162 §1.1 `AudioHandle.panner`: voice `id`'s panner from the main-thread tables; null once it is gone. */
+  _pannerOf(id: number): AudioPanner | null {
+    const i = this.slot(id);
+    if (i < 0) return null;
+    const t = this.table;
+    return pannerName(this.panners.kindOf(i), (t.flags[i]! & VoiceFlag.SPATIAL) !== 0, (t.flags2[i]! & VoiceFlag2.AMBISONIC) !== 0);
+  }
+
+  /** @internal ADR 0162 §1.1 `AudioHandle.occlusion`: voice `id`'s smoothed dry occlusion gain (1 open, or the voice is gone). */
+  _occlusionOf(id: number): number {
+    const i = this.slot(id);
+    return i < 0 ? 1 : this.table.occGain[i]!;
+  }
+
   /** @internal D3 `AudioSource.velocity`: voice `id`'s velocity (the estimate, or `setVelocity`'s value) into `out`; false when the voice is gone. */
   _velocityOf(id: number, out: { x: number; y: number; z: number }): boolean {
     const i = this.slot(id);
@@ -1621,6 +1635,14 @@ class Voice extends AudioHandle implements CoreVoice {
 
   setOcclusion(gain: number, lpHz: number): void {
     this.backend._setOcclusion(this.id, gain, lpHz);
+  }
+
+  get panner(): AudioPanner | null {
+    return this.backend._pannerOf(this.id);
+  }
+
+  get occlusion(): number {
+    return this.backend._occlusionOf(this.id);
   }
 
   setDopplerRate(factor: number): void {

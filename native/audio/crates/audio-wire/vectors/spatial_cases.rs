@@ -627,6 +627,7 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 ("zonesActive", vu(3)),
                 ("zonesRinging", vu(1)),
                 ("bedsRefused", vu(7)),
+                ("m3Shed", vu(11)),
                 ("zoneUsedKB", vu(4096)),
                 ("workBed", vu(1500)),
                 ("workZones", vu(2500)),
@@ -704,7 +705,7 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 "0500", // 124 zoneEventCount 5 (derived)
                 "0700", // 126 bedsRefused 7
                 "0400", // 128 zoneSlots 4 (derived)
-                "0000", // 130 reserved 0
+                "0b00", // 130 m3Shed 11
                 "00100000", // 132 zoneUsedKB 4096
                 "dc050000", // 136 workBed 1500
                 "c4090000", // 140 workZones 2500

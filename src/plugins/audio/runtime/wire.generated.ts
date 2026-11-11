@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "fbd70d16eedae8ed34006df376d6976c";
+export const SCHEMA_HASH = "5b4cc14ab15d4099c443889815d94202";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -2503,7 +2503,8 @@ export interface StatusBlock {
   zonesRinging: number;
   /** buses whose bed host failed validation (cumulative, saturating) */
   bedsRefused: number;
-  reserved: number;
+  /** the load-shedding ladder's steps taken: bed steps plus zone steps (ADR 0162 OD3, D5) */
+  m3Shed: number;
   /** zone kernels resident, KB */
   zoneUsedKB: number;
   /** work units, last quantum: bed encode, decode, ambisonic voices */
@@ -2582,7 +2583,7 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
   view.setUint16(off + 126, rec.bedsRefused, true);
   if (rec.zones.length > 4) throw new WireError(ErrorCode.OVERSIZE, "STATUS: zones over its cap 4");
   view.setUint16(off + 128, rec.zones.length, true);
-  view.setUint16(off + 130, rec.reserved, true);
+  view.setUint16(off + 130, rec.m3Shed, true);
   view.setUint32(off + 132, rec.zoneUsedKB, true);
   view.setUint32(off + 136, rec.workBed, true);
   view.setUint32(off + 140, rec.workZones, true);
@@ -2659,7 +2660,7 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
   const zoneEventCount = view.getUint16(off + 124, true);
   const bedsRefused = view.getUint16(off + 126, true);
   const zoneSlots = view.getUint16(off + 128, true);
-  const reserved = view.getUint16(off + 130, true);
+  const m3Shed = view.getUint16(off + 130, true);
   const zoneUsedKB = view.getUint32(off + 132, true);
   const workBed = view.getUint32(off + 136, true);
   const workZones = view.getUint32(off + 140, true);
@@ -2724,5 +2725,5 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
     zoneEvents.push(readStatusZoneEventsItem(view, cur));
     cur += 4;
   }
-  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, reserved, zoneUsedKB, workBed, workZones, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents };
+  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, m3Shed, zoneUsedKB, workBed, workZones, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents };
 }

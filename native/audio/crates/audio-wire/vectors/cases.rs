@@ -818,6 +818,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("zonesActive", vu(0)),
                 ("zonesRinging", vu(0)),
                 ("bedsRefused", vu(0)),
+                ("m3Shed", vu(0)),
                 ("zoneUsedKB", vu(0)),
                 ("workBed", vu(0)),
                 ("workZones", vu(0)),
@@ -876,7 +877,7 @@ pub fn cases() -> Vec<VectorCase> {
                 "0400", // 108 hrtfVoices 4
                 "0200", // 110 hrtfLoadFailure 2
                 "0000000000000000", "0000000000000000", // 112..127 bed/zone counts, all 0
-                "0000000000000000", "0000000000000000", // 128..143 zoneSlots, reserved, zoneUsedKB, workBed, workZones
+                "0000000000000000", "0000000000000000", // 128..143 zoneSlots, m3Shed, zoneUsedKB, workBed, workZones
                 // sections, in order
                 "0b000000", "0c000000", // ended: 11, 12
                 "0d000000", // demoted: 13

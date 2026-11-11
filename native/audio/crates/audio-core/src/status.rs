@@ -74,7 +74,7 @@ pub mod off {
     pub const ZONE_EVENT_COUNT: usize = 124;
     pub const BEDS_REFUSED: usize = 126;
     pub const ZONE_SLOTS: usize = 128;
-    pub const RESERVED: usize = 130;
+    pub const M3_SHED: usize = 130;
     pub const ZONE_USED_KB: usize = 132;
     pub const WORK_BED: usize = 136;
     pub const WORK_ZONES: usize = 140;
@@ -147,7 +147,10 @@ pub fn after_quantum(core: &mut Core) {
 /// ends the block. Returns the bytes written, or 0 when `out` is shorter than the message (the
 /// block is then kept for the next take). `abi_version` goes in the first block only.
 pub fn take(core: &mut Core, out: &mut [u8], abi_version: u32) -> usize {
+    // OD3 (D5): the ladder's steps, bed-idle plus the zone steps, into `m3Shed`.
+    let shed = (crate::bed::m3_shed(core) + crate::zones::shed_steps(core)).min(u16::MAX as u32) as u16;
     let area = area_mut(core);
+    area.counters.spatial.m3_shed = shed;
     area.counters.set_flag(flag::READY, true);
     area.counters.abi_version = if area.writer.blocks == 0 { abi_version } else { 0 };
     let n = write(&area.counters, area.writer.seq, out);
@@ -222,7 +225,7 @@ pub fn write(c: &Counters, seq: u32, out: &mut [u8]) -> usize {
     put_u16(out, off::ZONE_EVENT_COUNT, s.zone_events.len() as u16);
     put_u16(out, off::BEDS_REFUSED, s.beds_refused);
     put_u16(out, off::ZONE_SLOTS, s.sent_zones().len() as u16);
-    put_u16(out, off::RESERVED, 0);
+    put_u16(out, off::M3_SHED, s.m3_shed);
     put_u32(out, off::ZONE_USED_KB, s.zone_used_kb);
     put_u32(out, off::WORK_BED, s.work_bed);
     put_u32(out, off::WORK_ZONES, s.work_zones);
