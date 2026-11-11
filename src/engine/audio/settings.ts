@@ -21,6 +21,7 @@
 import type { Curve } from "../core/curve";
 import { detectPlatform, type PlatformEnv } from "../core/graphics";
 import { audioCurve, parseParameters, type ParameterDef } from "./eventFormat";
+import { DEFAULT_MATERIAL_NAME, builtinMaterials, parseOccluderMaterials, resolveDefaultMaterial, type OccluderMaterial } from "./occlusionMaterials";
 
 export type BusEffect =
   | { type: "lowpass"; frequency: number; q: number }
@@ -43,7 +44,14 @@ export interface BusSettings {
   effects: BusEffect[];
   /** §2: at most this many sounds play on the bus at once (integer 1..`voices.logical`); absent is unlimited. Inert until the core (M1a). */
   maxVoices?: number;
+  /** ADR 0162 §2.1: how the bus gets an ambisonic bed. Absent (never written when default): the root `own`, others `parent`; read it with `busBed`. Inert until beds (A4). */
+  bed?: BusBed;
+  /** ADR 0162 §2.1: 0..255, higher wins a bed slot. Absent: the root 255, others 128; read it with `busBedPriority`. Inert until beds (A4). */
+  bedPriority?: number;
 }
+
+export type BusBed = "own" | "parent" | "none";
+export const BUS_BEDS = ["own", "parent", "none"] as const;
 
 /** A named mix: per-bus volume multipliers (and optional low-pass cutoffs in Hz) the mixer fades to. */
 export interface SnapshotSettings {
@@ -104,7 +112,61 @@ export interface AudioSettings {
    * instant attack. Read when the core starts (a reload or rebuild), never mid-session.
    */
   limiterLookaheadMs: number;
+  /** ADR 0162 §2.1 (all of the keys below are inert until the feature that uses them lands, M3). */
+  bed: BedSettings;
+  ambisonic: AmbisonicSettings;
+  occlusion: OcclusionSettings;
+  zones: ZoneSettings;
+  doppler: DopplerSettings;
+  /** World units per second, 10..100000, default 343. */
+  speedOfSound: number;
 }
+
+/** `audio.bed`: integer `maxBeds` 0..4, default 2 (0: no beds). */
+export interface BedSettings { maxBeds: number }
+/** `audio.ambisonic`: integer `maxClips` 0..4, default 1 (0 refuses ambisonic clips with a warning). */
+export interface AmbisonicSettings { maxClips: number }
+/** `audio.occlusion` (§2.1, §2.2). */
+export interface OcclusionSettings {
+  /** Physics layer names that occlude; null (default) is every layer, sensors excluded; an empty list turns occlusion off. */
+  layers: string[] | null;
+  /** Ray time per frame in ms, 0.02..2, default 0.25. */
+  budgetMs: number;
+  /** A name in `materials`, default "concrete". */
+  defaultMaterial: string;
+  /** 10..1000, default 100. */
+  smoothingMs: number;
+  /** The effective table: the built-ins, overridden or extended by the authored list (at most 32). */
+  materials: OccluderMaterial[];
+}
+/** `audio.zones`: reverb zone slots and IR length (§2.1). Slots = `maxActive + standby`. */
+export interface ZoneSettings {
+  /** Integer 0..2, default 2 (0: zones inert). */
+  maxActive: number;
+  /** Integer 0..1, default 1: the spare slot a released zone's tail rings out in. 0: a third zone evicts a ringing slot with a 150 ms fade. */
+  standby: number;
+  /** Seconds, 0.5..8, default 2; longer IRs are cut with a 50 ms fade. */
+  maxIrSeconds: number;
+}
+/** `audio.doppler`: `maxSpeed` in world units per second, above 0, default 150. */
+export interface DopplerSettings { maxSpeed: number }
+
+/** Ranges and defaults of the M3 keys (ADR 0162 §2.1), `[min, max]`. */
+export const BED_LIMITS = { maxBeds: [0, 4] } as const;
+export const AMBISONIC_LIMITS = { maxClips: [0, 4] } as const;
+export const OCCLUSION_LIMITS = { budgetMs: [0.02, 2], smoothingMs: [10, 1000] } as const;
+export const ZONE_LIMITS = { maxActive: [0, 2], standby: [0, 1], maxIrSeconds: [0.5, 8] } as const;
+export const SPEED_OF_SOUND_LIMITS = [10, 100000] as const;
+export const BED_PRIORITY_LIMITS = [0, 255] as const;
+export const DEFAULT_BED_MAX_BEDS = 2;
+export const DEFAULT_AMBISONIC_MAX_CLIPS = 1;
+export const DEFAULT_OCCLUSION_BUDGET_MS = 0.25;
+export const DEFAULT_OCCLUSION_SMOOTHING_MS = 100;
+export const DEFAULT_ZONES: Readonly<ZoneSettings> = { maxActive: 2, standby: 1, maxIrSeconds: 2 };
+export const DEFAULT_DOPPLER_MAX_SPEED = 150;
+export const DEFAULT_SPEED_OF_SOUND = 343;
+export const DEFAULT_BED_PRIORITY = 128;
+export const ROOT_BED_PRIORITY = 255;
 
 /** §2 `voices`: how many sounds the core mixes at once, tracks logically, and spatialises with HRTF. */
 export interface VoiceSettings {
@@ -174,7 +236,22 @@ export const defaultAudioSettings = (): AudioSettings => ({
   buses: defaultBuses(), snapshots: [], ducking: [], parameters: [], automation: [],
   voices: { ...DEFAULT_VOICES }, background: "mute", clipFormat: "i16", codecs: { aac: false }, spatial: "hrtf", backend: defaultBackend(),
   limiterLookaheadMs: DEFAULT_LIMITER_LOOKAHEAD_MS,
+  bed: { maxBeds: DEFAULT_BED_MAX_BEDS }, ambisonic: { maxClips: DEFAULT_AMBISONIC_MAX_CLIPS },
+  occlusion: { layers: null, budgetMs: DEFAULT_OCCLUSION_BUDGET_MS, defaultMaterial: DEFAULT_MATERIAL_NAME, smoothingMs: DEFAULT_OCCLUSION_SMOOTHING_MS, materials: builtinMaterials() },
+  zones: { ...DEFAULT_ZONES }, doppler: { maxSpeed: DEFAULT_DOPPLER_MAX_SPEED }, speedOfSound: DEFAULT_SPEED_OF_SOUND,
 });
+
+/** A bus's bed mode with the default applied: the root (first bus) `own`, others `parent`. Unknown bus: `parent`. */
+export function busBed(a: Pick<AudioSettings, "buses">, name: string): BusBed {
+  const bus = a.buses.find((b) => b.name === name);
+  return bus?.bed ?? (a.buses[0]?.name === name ? "own" : "parent");
+}
+
+/** A bus's bed priority with the default applied: the root 255, others 128. Unknown bus: 128. */
+export function busBedPriority(a: Pick<AudioSettings, "buses">, name: string): number {
+  const bus = a.buses.find((b) => b.name === name);
+  return bus?.bedPriority ?? (a.buses[0]?.name === name ? ROOT_BED_PRIORITY : DEFAULT_BED_PRIORITY);
+}
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const num = (v: unknown, fallback: number, min: number, max: number): number =>
@@ -198,7 +275,7 @@ function parseEffect(raw: unknown, where: string, problems: string[]): BusEffect
 }
 
 /** The `audio` section, read leniently: bad entries are dropped or clamped, and each is reported in `problems`. */
-export function parseAudioSettings(input: unknown): { settings: AudioSettings; problems: string[] } {
+export function parseAudioSettings(input: unknown, options: AudioParseOptions = {}): { settings: AudioSettings; problems: string[] } {
   const problems: string[] = [];
   if (input === undefined) return { settings: defaultAudioSettings(), problems };
   if (!isRecord(input)) return { settings: defaultAudioSettings(), problems: ["audio must be an object."] };
@@ -271,8 +348,15 @@ export function parseAudioSettings(input: unknown): { settings: AudioSettings; p
     }
   }
   parseCoreKeys(input, settings, problems);
+  parseSpatialKeys(input, settings, problems, options);
   parseEventKeys(input, settings, problems);
   return { settings, problems };
+}
+
+/** What the parse can't know from the `audio` section alone. */
+export interface AudioParseOptions {
+  /** The project's physics layer names. When given, `audio.occlusion.layers` entries not in it are dropped with a problem; when absent they are kept as authored. */
+  physicsLayers?: readonly string[];
 }
 
 /**
@@ -360,11 +444,99 @@ function parseCoreKeys(input: Record<string, unknown>, settings: AudioSettings, 
       if (!isRecord(raw) || typeof raw.name !== "string" || raw.name.trim() === "" || named.has(raw.name)) continue;
       named.add(raw.name);
       const bus = settings.buses.find((b) => b.name === raw.name);
-      if (!bus || raw.maxVoices === undefined || raw.maxVoices === null) continue;
-      const maxVoices = wholeNumber(raw.maxVoices, `audio.buses[${i}].maxVoices`, 1, settings.voices.logical, problems);
-      if (maxVoices !== undefined) bus.maxVoices = maxVoices;
+      if (!bus) continue;
+      if (raw.maxVoices !== undefined && raw.maxVoices !== null) {
+        const maxVoices = wholeNumber(raw.maxVoices, `audio.buses[${i}].maxVoices`, 1, settings.voices.logical, problems);
+        if (maxVoices !== undefined) bus.maxVoices = maxVoices;
+      }
+      // ADR 0162 §2.1: stored only when authored and valid; `busBed` and `busBedPriority` apply the defaults.
+      if (raw.bed !== undefined && raw.bed !== null) {
+        const fallback = bus === settings.buses[0] ? "own" : "parent";
+        const bed = pick(raw.bed, `audio.buses[${i}].bed`, BUS_BEDS, fallback, problems);
+        if (raw.bed === bed) bus.bed = bed;
+      }
+      if (raw.bedPriority !== undefined && raw.bedPriority !== null) {
+        const [lo, hi] = BED_PRIORITY_LIMITS;
+        const bedPriority = wholeNumber(raw.bedPriority, `audio.buses[${i}].bedPriority`, lo, hi, problems);
+        if (bedPriority !== undefined) bus.bedPriority = bedPriority;
+      }
     }
   }
+}
+
+/** A number `min`..`max`: clamped (a problem when clamping changed it); absent is `fallback`; a non-number or NaN is `fallback` plus a problem. */
+function rangedNumber(raw: unknown, key: string, min: number, max: number, fallback: number, problems: string[]): number {
+  if (raw === undefined) return fallback;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    problems.push(`${key}: must be a number from ${min} to ${max}; using ${fallback}.`);
+    return fallback;
+  }
+  const clamped = Math.min(max, Math.max(min, raw));
+  if (clamped !== raw) problems.push(`${key}: ${raw} is outside ${min}..${max}; using ${clamped}.`);
+  return clamped;
+}
+
+/** A section object (`audio.zones`…): `undefined` gives `undefined`, a non-object gives `undefined` plus a problem. */
+function section(raw: unknown, key: string, problems: string[]): Record<string, unknown> | undefined {
+  if (raw === undefined) return undefined;
+  if (isRecord(raw)) return raw;
+  problems.push(`${key} must be an object.`);
+  return undefined;
+}
+
+/**
+ * ADR 0162 §2.1: `bed`, `ambisonic`, `occlusion`, `zones`, `doppler`, `speedOfSound`, parsed leniently into `settings`
+ * (the bus `bed` and `bedPriority` are parsed with the buses in `parseCoreKeys`). Every key is inert until the feature
+ * that uses it lands.
+ */
+function parseSpatialKeys(input: Record<string, unknown>, settings: AudioSettings, problems: string[], options: AudioParseOptions): void {
+  const bed = section(input.bed, "audio.bed", problems);
+  if (bed) settings.bed.maxBeds = wholeNumber(bed.maxBeds, "audio.bed.maxBeds", ...BED_LIMITS.maxBeds, problems) ?? DEFAULT_BED_MAX_BEDS;
+  const ambisonic = section(input.ambisonic, "audio.ambisonic", problems);
+  if (ambisonic) settings.ambisonic.maxClips = wholeNumber(ambisonic.maxClips, "audio.ambisonic.maxClips", ...AMBISONIC_LIMITS.maxClips, problems) ?? DEFAULT_AMBISONIC_MAX_CLIPS;
+
+  const occ = section(input.occlusion, "audio.occlusion", problems);
+  if (occ) {
+    const o = settings.occlusion;
+    o.layers = occlusionLayers(occ.layers, options.physicsLayers, problems);
+    o.budgetMs = rangedNumber(occ.budgetMs, "audio.occlusion.budgetMs", ...OCCLUSION_LIMITS.budgetMs, DEFAULT_OCCLUSION_BUDGET_MS, problems);
+    o.smoothingMs = rangedNumber(occ.smoothingMs, "audio.occlusion.smoothingMs", ...OCCLUSION_LIMITS.smoothingMs, DEFAULT_OCCLUSION_SMOOTHING_MS, problems);
+    if (occ.materials !== undefined) o.materials = parseOccluderMaterials(occ.materials, "audio.occlusion.materials", problems);
+    o.defaultMaterial = resolveDefaultMaterial(occ.defaultMaterial, o.materials, "audio.occlusion.defaultMaterial", problems);
+  }
+
+  const zones = section(input.zones, "audio.zones", problems);
+  if (zones) {
+    settings.zones = {
+      maxActive: wholeNumber(zones.maxActive, "audio.zones.maxActive", ...ZONE_LIMITS.maxActive, problems) ?? DEFAULT_ZONES.maxActive,
+      standby: wholeNumber(zones.standby, "audio.zones.standby", ...ZONE_LIMITS.standby, problems) ?? DEFAULT_ZONES.standby,
+      maxIrSeconds: rangedNumber(zones.maxIrSeconds, "audio.zones.maxIrSeconds", ...ZONE_LIMITS.maxIrSeconds, DEFAULT_ZONES.maxIrSeconds, problems),
+    };
+  }
+
+  const doppler = section(input.doppler, "audio.doppler", problems);
+  if (doppler && doppler.maxSpeed !== undefined) {
+    const v = doppler.maxSpeed;
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) settings.doppler.maxSpeed = v;
+    else problems.push(`audio.doppler.maxSpeed: must be a number above 0; using ${DEFAULT_DOPPLER_MAX_SPEED}.`);
+  }
+  settings.speedOfSound = rangedNumber(input.speedOfSound, "audio.speedOfSound", ...SPEED_OF_SOUND_LIMITS, DEFAULT_SPEED_OF_SOUND, problems);
+}
+
+/** `audio.occlusion.layers`: null or absent is null (every layer); a list keeps its distinct strings (a problem for each other entry, and for each name outside `known` when given); an empty list is occlusion off; anything else is null plus a problem. */
+function occlusionLayers(raw: unknown, known: readonly string[] | undefined, problems: string[]): string[] | null {
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw)) {
+    problems.push("audio.occlusion.layers: must be a list of layer names or null; using null (every layer).");
+    return null;
+  }
+  const out: string[] = [];
+  raw.forEach((name, i) => {
+    if (typeof name !== "string" || name === "") return void problems.push(`audio.occlusion.layers[${i}]: must be a layer name; dropped.`);
+    if (known && !known.includes(name)) return void problems.push(`audio.occlusion.layers[${i}]: unknown layer "${name}"; dropped.`);
+    if (!out.includes(name)) out.push(name);
+  });
+  return out;
 }
 
 /** ADR 0158: `parameters`, `automation` and `seed`. Runs after the buses are parsed, so automation can check bus names. */
