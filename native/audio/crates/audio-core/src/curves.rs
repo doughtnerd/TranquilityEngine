@@ -29,8 +29,7 @@ use audio_dsp::ramp::Ramp;
 use crate::due::DueRecord;
 
 /// Curve-pool entries (api-and-models §4.5 `CURVE_ENTRIES`; R4: a link byte holds entry + 1).
-// Q1 stage B: from `audio_wire::generated::CURVE_ENTRIES`.
-pub const CURVE_ENTRIES: usize = 255;
+pub const CURVE_ENTRIES: usize = audio_wire::generated::CURVE_ENTRIES as usize;
 /// Bytes per entry.
 pub const CURVE_ENTRY_BYTES: usize = 32;
 /// The `Curves` region: `CURVE_ENTRIES × 32` = 8,160 B.
@@ -40,9 +39,20 @@ const _: () = assert!(REGION_BYTES == 8_160, "api-and-models §3.1");
 const _: () = assert!(CURVE_ENTRIES <= u8::MAX as usize, "the slot's link byte holds entry + 1");
 
 /// The `shape` word (api-and-models §4.2): bits 0–2 the law, bits 16–31 the start phase.
-// Q1 stage B: from the wire's shape-word masks.
-pub const SHAPE_LAW_MASK: u32 = 0b111;
-pub const SHAPE_PHASE_SHIFT: u32 = 16;
+pub const SHAPE_LAW_MASK: u32 = audio_wire::generated::SHAPE_LAW_MASK;
+pub const SHAPE_PHASE_SHIFT: u32 = audio_wire::generated::SHAPE_PHASE_SHIFT;
+
+const _: () = assert!(
+    audio_dsp::equal_power::FADE_CURVE_TABLE_POINTS == audio_wire::generated::FADE_CURVE_TABLE_POINTS as usize,
+    "the equal-power table has the wire's point count"
+);
+const _: () = assert!(audio_wire::generated::SHAPE_PHASE_SCALE == 65_536);
+// `audio_dsp::curve_laws::Law` carries the wire's `fade_law` values (audio-dsp doesn't depend on the wire).
+const _: () = {
+    use audio_wire::generated::fade_law;
+    assert!(Law::Linear as u32 == fade_law::LINEAR && Law::SCurve as u32 == fade_law::S_CURVE);
+    assert!(Law::EqualPowerIn as u32 == fade_law::EQUAL_POWER_IN && Law::EqualPowerOut as u32 == fade_law::EQUAL_POWER_OUT);
+};
 
 /// Which of the voice's ramps a curve drives.
 pub mod ramp_of {

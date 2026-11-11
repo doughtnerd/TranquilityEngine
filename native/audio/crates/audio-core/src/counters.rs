@@ -138,27 +138,27 @@ impl SpatialCounters {
 
 /// 0166 M4 (api-and-models §4.4): the `musicRings` and `groupStarts` section caps (the wire's
 /// `MAX_MUSIC_RINGS` and 8 group events per block).
-pub const MUSIC_RINGS_CAP: usize = 16;
-pub const GROUP_STARTS_CAP: usize = 8;
+pub const MUSIC_RINGS_CAP: usize = audio_wire::generated::MAX_MUSIC_RINGS as usize;
+pub const GROUP_STARTS_CAP: usize = audio_wire::generated::MAX_GROUP_STARTS_PER_BLOCK as usize;
 
-/// 0166 M4 §4.4: `musicRings` `epochFlags` bits (the wire's names in `music.rs`).
+/// 0166 M4 §4.4: `musicRings` `epochFlags` bits (the wire's `MUSIC_RING_*`).
 pub mod music_ring_flag {
     /// Bits 0–29: the ring's current epoch.
-    pub const EPOCH_MASK: u32 = (1 << 30) - 1;
+    pub const EPOCH_MASK: u32 = audio_wire::generated::MUSIC_RING_EPOCH_MASK;
     /// Bit 30: ≥ `START_FRAMES` (4,096) frames in the current epoch, or the input ended.
-    pub const PRIMED: u32 = 1 << 30;
+    pub const PRIMED: u32 = audio_wire::generated::MUSIC_RING_PRIMED;
     /// Bit 31: a voice reads the ring.
-    pub const BOUND: u32 = 1 << 31;
+    pub const BOUND: u32 = audio_wire::generated::MUSIC_RING_BOUND;
 }
 
-/// 0166 M4 §4.4: `groupStarts` `flags` bits.
+/// 0166 M4 §4.4: `groupStarts` `flags` bits (the wire's `GROUP_START_*`).
 pub mod group_start_flag {
     /// bit0: the group started after its stamp.
-    pub const LATE: u16 = 1 << 0;
+    pub const LATE: u16 = audio_wire::generated::GROUP_START_LATE as u16;
     /// bit1: the group was held by a starving member and resumed.
-    pub const HELD_RESUMED: u16 = 1 << 1;
+    pub const HELD_RESUMED: u16 = audio_wire::generated::GROUP_START_HELD as u16;
     /// bit2: the group was abandoned (give-up after 1 s).
-    pub const ABANDONED: u16 = 1 << 2;
+    pub const ABANDONED: u16 = audio_wire::generated::GROUP_START_ABANDONED as u16;
 }
 
 /// 0166 M4 §4.4: a `musicRings` entry, one per **open** music ring (a level, refilled every block).

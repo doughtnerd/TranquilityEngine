@@ -36,11 +36,9 @@
 use crate::core::Core;
 
 /// Group table entries (api-and-models §4.5 `MAX_GROUPS`; R9).
-// Q1 stage B: from `audio_wire::generated::MAX_GROUPS`.
-pub const MAX_GROUPS: usize = 16;
+pub const MAX_GROUPS: usize = audio_wire::generated::MAX_GROUPS as usize;
 /// Members an entry holds (§4.5 `MAX_GROUP_MEMBERS`).
-// Q1 stage B: from `audio_wire::generated::MAX_GROUP_MEMBERS`.
-pub const MAX_GROUP_MEMBERS: usize = 32;
+pub const MAX_GROUP_MEMBERS: usize = audio_wire::generated::MAX_GROUP_MEMBERS as usize;
 /// Bytes per entry.
 pub const GROUP_ENTRY_BYTES: usize = 160;
 /// The `Groups` region: `MAX_GROUPS × 160` = 2,560 B.
@@ -50,9 +48,8 @@ const _: () = assert!(REGION_BYTES == 2_560, "api-and-models §3.1");
 const _: () = assert!(MAX_GROUPS <= 16, "the group index rides in flags2 bits 3-6");
 
 /// PLAY `gate` (§4.1): bits 0–9 the group id (1..1023; 0 ungated), bits 10–15 the size − 1.
-// Q1 stage B: from the wire's `PLAY_GATE_ID_MASK` and `PLAY_GATE_SIZE_SHIFT`.
-pub const GATE_ID_MASK: u16 = 0x03FF;
-pub const GATE_SIZE_SHIFT: u16 = 10;
+pub const GATE_ID_MASK: u16 = audio_wire::generated::PLAY_GATE_ID_MASK as u16;
+pub const GATE_SIZE_SHIFT: u16 = audio_wire::generated::PLAY_GATE_SIZE_SHIFT as u16;
 
 /// The give-up: 1 s after the stamp, or 1 s held (architecture §5.3; R11).
 pub const GIVE_UP_SECONDS: f32 = 1.0;

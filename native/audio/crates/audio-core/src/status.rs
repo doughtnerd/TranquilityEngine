@@ -79,7 +79,22 @@ pub mod off {
     pub const ZONE_USED_KB: usize = 132;
     pub const WORK_BED: usize = 136;
     pub const WORK_ZONES: usize = 140;
+    // 0166 M4, api-and-models §4.4 (Q1: from `Counters::music`).
+    pub const MUSIC_RING_COUNT: usize = 144;
+    pub const GROUP_START_COUNT: usize = 146;
+    pub const MUSIC_RINGS_OPEN: usize = 148;
+    pub const STREAM_STARTS_LATE: usize = 150;
+    pub const GROUPS_LATE: usize = 152;
+    pub const GROUPS_HELD: usize = 154;
+    pub const GROUPS_ABANDONED: usize = 156;
+    pub const CURVE_POOL_FULL: usize = 158;
+    pub const MAX_SLIP_FRAMES: usize = 160;
+    pub const SPLIT_QUANTA: usize = 164;
+    pub const VOICE_SPLITS: usize = 168;
+    pub const M4_RESERVED: usize = 172;
 }
+
+const _: () = assert!(off::M4_RESERVED + 4 == HEADER_BYTES && HEADER_BYTES == audio_wire::generated::STATUS_HEADER_BYTES as usize);
 
 /// The writer's own state, kept beside the counters.
 #[repr(C)]
@@ -230,7 +245,21 @@ pub fn write(c: &Counters, seq: u32, out: &mut [u8]) -> usize {
     put_u32(out, off::ZONE_USED_KB, s.zone_used_kb);
     put_u32(out, off::WORK_BED, s.work_bed);
     put_u32(out, off::WORK_ZONES, s.work_zones);
-    out[off::WORK_ZONES + 4..HEADER_BYTES].fill(0); // the M4 header words (144..176)
+    // 0166 M4 §4.4 (Q1). The two section counts stay 0 until their sections are written here (C1
+    // `musicRings`, C2b `groupStarts`; each adds its count, its bytes and `message_bytes` together).
+    let m = &c.music;
+    put_u16(out, off::MUSIC_RING_COUNT, 0);
+    put_u16(out, off::GROUP_START_COUNT, 0);
+    put_u16(out, off::MUSIC_RINGS_OPEN, m.music_rings_open);
+    put_u16(out, off::STREAM_STARTS_LATE, m.stream_starts_late);
+    put_u16(out, off::GROUPS_LATE, m.groups_late);
+    put_u16(out, off::GROUPS_HELD, m.groups_held);
+    put_u16(out, off::GROUPS_ABANDONED, m.groups_abandoned);
+    put_u16(out, off::CURVE_POOL_FULL, m.curve_pool_full);
+    put_u32(out, off::MAX_SLIP_FRAMES, m.max_slip_frames);
+    put_u32(out, off::SPLIT_QUANTA, m.split_quanta);
+    put_u32(out, off::VOICE_SPLITS, m.voice_splits);
+    put_u32(out, off::M4_RESERVED, 0);
     // Sections, in §4.3's order.
     let mut cur = HEADER_BYTES;
     for list in [c.ended.as_slice(), c.demoted.as_slice(), c.starved.as_slice()] {
@@ -408,6 +437,30 @@ mod tests {
         assert_eq!(u32_at(&out, off::MAX_LATENESS_FRAMES), 19);
         assert_eq!(u16_at(&out, off::HRTF_VOICES), 20);
         assert_eq!(u16_at(&out, off::HRTF_LOAD_FAILURE), 2);
+    }
+
+    #[test]
+    fn the_m4_header_fields_come_from_the_music_counters() {
+        let mut c = Counters::default();
+        let m = &mut c.music;
+        m.music_rings_open = 3;
+        m.stream_starts_late = 4;
+        m.groups_late = 5;
+        m.groups_held = 6;
+        m.groups_abandoned = 7;
+        m.curve_pool_full = 8;
+        m.max_slip_frames = 0x0001_0009;
+        m.split_quanta = 0x0002_000A;
+        m.voice_splits = 0x0003_000B;
+        m.parked_overflow = 99; // core only: not in STATUS
+        let mut out = [0xAAu8; BUFFER_BYTES];
+        assert_eq!(write(&c, 1, &mut out), HEADER_BYTES);
+        let (s, read) = audio_wire::generated::StatusBlock::read(&out, 0).expect("the generated reader accepts the header");
+        assert_eq!(read, HEADER_BYTES);
+        assert_eq!((s.music_ring_count, s.group_start_count, s.music_rings_open, s.stream_starts_late), (0, 0, 3, 4));
+        assert_eq!((s.groups_late, s.groups_held, s.groups_abandoned, s.curve_pool_full), (5, 6, 7, 8));
+        assert_eq!((s.max_slip_frames, s.split_quanta, s.voice_splits, s.reserved), (0x0001_0009, 0x0002_000A, 0x0003_000B, 0));
+        assert_eq!(u32_at(&out, off::VOICE_SPLITS), 0x0003_000B);
     }
 
     #[test]

@@ -98,11 +98,10 @@ impl Core {
             wide: bytes(RegionKind::Wide),
             fx: bytes(RegionKind::Fx),
             scratch: bytes(RegionKind::Scratch),
-            // Q1 stage B: `bytes(RegionKind::Due)`, `Curves`, `Groups` once the layout carries them
-            // (after the wire's merge 1). Empty until then: every M4 view is empty and inert.
-            due: &mut [],
-            curves: &mut [],
-            groups: &mut [],
+            // 0166 M4: always laid out (Q1); zeroed, so every M4 table starts empty.
+            due: bytes(RegionKind::Due),
+            curves: bytes(RegionKind::Curves),
+            groups: bytes(RegionKind::Groups),
             arena: bytes(RegionKind::Arena),
         };
         // A1.3b: the clip store owns the directory and arena regions (they stay empty here).

@@ -41,11 +41,9 @@ use crate::layout::REGION_ALIGN;
 pub use crate::scheduler::PendingRecord as DueRecord;
 
 /// Due records per quantum (api-and-models §4.5 `DUE_RECORDS`; architecture §5.3).
-// Q1 stage B: from `audio_wire::generated::DUE_RECORDS`.
-pub const DUE_RECORDS: usize = 256;
+pub const DUE_RECORDS: usize = audio_wire::generated::DUE_RECORDS as usize;
 /// Parked records across the core (§4.5 `PARKED_RECORDS`; R10: 2 held groups × 16 members × 4).
-// Q1 stage B: from `audio_wire::generated::PARKED_RECORDS`.
-pub const PARKED_RECORDS: usize = 128;
+pub const PARKED_RECORDS: usize = audio_wire::generated::PARKED_RECORDS as usize;
 /// Bytes per due or parked record.
 pub const DUE_RECORD_BYTES: usize = crate::layout::PENDING_RECORD_BYTES;
 /// The `Due` region: `(DUE_RECORDS + PARKED_RECORDS) × 48` = 18,432 B.
@@ -132,8 +130,8 @@ pub struct DueList<'a> {
     pub area: &'a mut DueArea,
 }
 
-/// The `Due` region and the due area, viewed. An empty `Due` region (before Q1's stage B layout)
-/// gives empty lists: every push fails, so callers take today's path.
+/// The `Due` region and the due area, viewed. (An empty region, as in a hand-built test core, gives
+/// empty lists: every push fails, so callers take today's path.)
 pub fn view(regions: &mut Regions) -> DueList<'_> {
     let count = (regions.due.len() / DUE_RECORD_BYTES).min(DUE_RECORDS + PARKED_RECORDS);
     let area = &mut regions.core_state[DUE_AREA_OFFSET..DUE_AREA_OFFSET + DUE_AREA_BYTES];
