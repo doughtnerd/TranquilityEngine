@@ -16,6 +16,7 @@ import { Assets } from "../../../engine/scene/Assets";
 import { audioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type AudioVoice, type PlayRequest, type Rolloff, type SendCurve } from "./backend";
 import { isAudioEventPath } from "../../../engine/audio/eventFormat";
 import { _setEventClipStarter, events, type EventInstance, type EventOptions } from "./events/eventRuntime";
+import { setSegmentClipSource } from "./music/segmentRun";
 
 
 export type { Rolloff } from "./backend";
@@ -57,6 +58,20 @@ _setEventClipStarter({
   play: (req) => audioBackend().play(req),
 });
 
+// ADR 0166 P6: a music segment run resolves its stems' clips here (the event runtime's starter above is private to it):
+// the same URL, import settings (with the FuMa gain) and bus resolution. No clip facts source exists yet, so the
+// stream-or-decode rule falls back to the import setting `stream` until a backend reports them.
+setSegmentClipSource({
+  url: (path) => Assets.url(path),
+  settings: (path) => {
+    const settings = Assets.importSettings(path);
+    const gain = ambisonicImportGain(path);
+    return gain === 1 ? settings : { volume: settings.volume * gain, stream: settings.stream };
+  },
+  bus: (output) => mixer.resolveOutput(output),
+  facts: () => undefined,
+});
+
 const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math.max(0, Math.round(p))) : 128);
 /** Clamps `v` to lo..hi; a non-finite value gives `fallback`. */
 const clampOr = (v: number, lo: number, hi: number, fallback: number): number => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback);
@@ -79,6 +94,7 @@ export class AudioSource extends Component {
   /**
    * What to play: a clip (an audio file) or an audio event asset (`*.audioevent.json`, ADR 0158); the Inspector offers both.
    * For an event, `loop`, `spatial` and the distance fields come from the event; `volume` and `pitch` still apply on top.
+   * A music event (a segment, playlist or musicSwitch root, ADR 0166) plays the same way, but `pitch` is ignored (one warning).
    */
   @field(AssetRef, { kind: ["audio", "audioEvent"], description: "A sound clip, or an audio event (`*.audioevent.json`) to play as an instance." }) clip = "";
   @field(Number, { description: "Linear gain, 1 is full volume." }) volume = 1;

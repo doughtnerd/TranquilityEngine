@@ -13,12 +13,15 @@ import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
 import {
-  AUDIO_EVENT_FORMAT, REVERB_SEND_KEY, isLabelled, parameterDefault, parameterRange, parseAudioEvent, sustainReleaseFade,
-  type AudioEventAsset, type Automation, type EventNode, type ParameterDef, type SustainNode, type SwitchNode,
+  AUDIO_EVENT_FORMAT, REVERB_SEND_KEY, eventRootNode, isLabelled, parameterDefault, parameterRange, parseAudioEvent, sustainReleaseFade,
+  type AnyEventNode, type AudioEventAsset, type Automation, type EventNode, type ParameterDef, type SustainNode, type SwitchNode,
 } from "../../../../engine/audio/eventFormat";
+import { isMusicNodeType } from "../../../../engine/audio/musicFormat";
 import { audioBackend, type AudioBackend, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
 import { warnOnce } from "../core/handle";
 import { loopPointsFor, onLoopPoints } from "../loopPoints";
+import { _resetMusicPlayers, createMusicPlayer, disposeMusicPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "../music/musicSystem";
+import { stopPlayerRuns } from "../music/segmentRun";
 import {
   AutoTarget, LOWPASS_OFF, MAX_BINDINGS, MAX_CURVES, MAX_GROUPS, TsAutomation,
   type AutomationSink, type Binding, type ParamRef,
@@ -306,6 +309,7 @@ export class EventSystem {
   /** @internal Test hook: forget everything (a new page). */
   _reset(): void {
     this.stopAll();
+    _resetMusicPlayers();
     this.sink = null; this.sinkOf = null; this.ts = null;
     this.curvesById.length = 0;
     this.curveIds = new WeakMap(); // a parsed asset's curves outlive a reset (the asset cache), so their ids must go too
@@ -544,6 +548,7 @@ export class EventSystem {
   /** @internal An instance ended (stopped, or all its voices finished): its group can be reused. */
   retire(instance: EventInstance): void {
     if (!this.live.delete(instance)) return;
+    if (instance.music && !instance.hasVoices) instance.endMusic();
     if (instance.group > 0) {
       if (this.lingering.length >= LINGERING_MAX) this.lingering.splice(0, LINGERING_MAX >> 1);
       this.lingering.push(instance);
@@ -568,7 +573,7 @@ export class EventSystem {
     let w = 0;
     for (const i of this.holding) {
       if (i.hasVoices) this.holding[w++] = i;
-      else this.freeGroup(i.group);
+      else { i.endMusic(); this.freeGroup(i.group); }
     }
     this.holding.length = w;
   }
@@ -745,6 +750,8 @@ export class EventInstance {
   private fadeTo: number | null = null;
   /** The pitch option now (`AudioSource.pitch` changes it while playing); the clips' own pitches multiply onto it. */
   private pitchOption: number;
+  /** ADR 0166 P6: the music player, when the event's root is a segment, playlist or musicSwitch; null for a 0158 event. */
+  music: MusicPlayer | null = null;
 
   constructor(
     private readonly sys: EventSystem,
@@ -755,6 +762,11 @@ export class EventInstance {
     private readonly options: EventOptions,
   ) {
     this.pitchOption = Math.max(0.0625, options.pitch ?? 1);
+    if (asset.musicRoot) {
+      // ADR 0167 §3.2: no pitch on music (the beat clock needs a fixed rate): the option is ignored, with one warning.
+      if (this.pitchOption !== 1) this.warnMusicPitch();
+      this.pitchOption = 1;
+    }
     this.localDefs = localDefsOf(asset);
     const np = asset.parameters.length;
     this.locals = np === 0 ? NO_LOCALS : new Array<number>(np);
@@ -780,6 +792,7 @@ export class EventInstance {
   /** No side effects: an ended instance is retired by `EventSystem` (`play` and `update`). */
   get playing(): boolean {
     if (this.stopped) return false;
+    if (this.asset.musicRoot) return this.music !== null && this.musicPlaying(this.music);
     if (this.pending > 0) return true;
     for (const r of this.runners) if (!r.stopped) return true;
     for (const v of this.voices) if (v.voice.playing) return true;
@@ -788,6 +801,10 @@ export class EventInstance {
 
   /** ADR 0162 §1.1: the panner of the first playing voice that reports one (a backend without panners: null). */
   get panner(): AudioPanner | null {
+    if (this.music) {
+      for (const v of this.musicVoices()) if (v.playing && v.panner) return v.panner;
+      return null;
+    }
     for (const v of this.voices) {
       if (!v.voice.playing) continue;
       const p = v.voice.panner;
@@ -799,11 +816,24 @@ export class EventInstance {
   /** ADR 0162 §1.1: the lowest smoothed dry occlusion gain across the playing voices (1 open, or none playing). */
   get occlusion(): number {
     let g = 1;
+    if (this.music) {
+      for (const v of this.musicVoices()) if (v.playing) g = Math.min(g, v.occlusion ?? 1);
+      return g;
+    }
     for (const v of this.voices) if (v.voice.playing) g = Math.min(g, v.voice.occlusion ?? 1);
     return g;
   }
 
   get reason(): AudioReason | null {
+    if (this.music) {
+      let first: AudioReason | null = null;
+      for (const v of this.musicVoices()) {
+        if (!v.playing && v.reason === null) continue;
+        if (v.reason === null && v.playing) return null;
+        first ??= v.reason;
+      }
+      return first;
+    }
     let first: AudioReason | null = null;
     for (const v of this.voices) {
       if (!v.voice.playing && v.voice.reason === null) continue;
@@ -816,11 +846,60 @@ export class EventInstance {
 
   /** @internal Any voice of this instance still playing (a fading-out voice counts). */
   get hasVoices(): boolean {
+    if (this.music) for (const v of this.musicVoices()) if (v.alive ?? v.playing) return true;
     for (const v of this.voices) if (v.voice.alive ?? v.voice.playing) return true;
     return false;
   }
 
-  get voiceCount(): number { return this.voices.filter((v) => v.voice.playing).length; }
+  get voiceCount(): number {
+    let n = this.voices.filter((v) => v.voice.playing).length;
+    if (this.music) for (const v of this.musicVoices()) if (v.playing) n++;
+    return n;
+  }
+
+  /** ADR 0166 P6: the voices of the music player's playing and successor runs (their stems), in track order. Allocates one small array. */
+  private musicVoices(): AudioVoice[] {
+    const out: AudioVoice[] = [];
+    const p = this.music;
+    if (!p) return out;
+    for (const run of [p.run, p.next]) {
+      if (!run) continue;
+      for (const s of run.stems) if (s.voice) out.push(s.voice);
+    }
+    return out;
+  }
+
+  /**
+   * Whether the music instance still sounds or is about to: before its first group (`starting`, `waiting`), while a
+   * group primes or a transition is pending, or while any stem voice plays. A refused or stopped player is over.
+   */
+  private musicPlaying(p: MusicPlayer): boolean {
+    switch (p.state) {
+      case "stopped": case "refused": return false;
+      case "starting": case "waiting": case "committed": case "pending": case "transitioning": case "recovering": return true;
+      default: break; // playing, stopping: the voices say
+    }
+    if (p.state === "playing" && p.planned !== null) return true;
+    for (const run of [p.run, p.next]) {
+      if (!run) continue;
+      if (run.state === "new" || run.state === "admitted" || run.state === "priming") return p.state !== "stopping";
+      for (const s of run.stems) if (s.voice?.playing) return true;
+    }
+    return false;
+  }
+
+  private warnMusicPitch(): void {
+    warnOnce(`event:musicPitch:${this.path}`, `Audio.play("${this.path}"): pitch is ignored for music events (the beat clock needs a fixed rate); playing at 1.`);
+  }
+
+  /** @internal The event ended: its music player leaves the registry and the backend drops its encoded bytes (R16). */
+  endMusic(): void {
+    const p = this.music;
+    if (!p) return;
+    let backend: AudioBackend | null = null;
+    try { backend = audioBackend(); } catch { backend = null; }
+    disposeMusicPlayer(p, backend);
+  }
 
   get position(): Vec3Like | null { return this.pos; }
   set position(p: Vec3Like | null) {
@@ -841,7 +920,7 @@ export class EventInstance {
       sustain: null,
       owner: null,
     };
-    this.playNode(a.root, base);
+    this.playNode(eventRootNode(a), base);
   }
 
   stop(fadeSeconds = 0): void {
@@ -849,12 +928,26 @@ export class EventInstance {
     this.stopped = true;
     for (const r of this.runners) r.stopped = true;
     for (const v of this.voices) { v.pointsOff?.(); v.voice.stop(fadeSeconds); }
+    if (this.music) this.stopMusic(fadeSeconds);
     this.sys.retire(this);
+  }
+
+  /** Music: one in-voice fade on every stem at now plus the lookahead (not grid-quantised); groups still priming are cancelled. */
+  private stopMusic(fadeSeconds: number): void {
+    const p = this.music!;
+    let backend: AudioBackend | null = null;
+    try { backend = audioBackend(); } catch { backend = null; }
+    if (backend) {
+      const f: MusicFrame = { backend, music: backend.music ?? null, now: backend.time, dt: 0, hidden: false };
+      stopPlayerRuns(p, fadeSeconds, f);
+    }
+    if (p.state !== "stopped" && p.state !== "refused") p.state = "stopping";
   }
 
   /** Change the pitch option of the playing instance: every playing voice (and later clips) follows, automation still multiplying on top. */
   setPitch(ratio: number): void {
     const next = Math.max(0.0625, Number.isFinite(ratio) ? ratio : 1);
+    if (this.asset.musicRoot) { if (next !== 1) this.warnMusicPitch(); return; }
     if (next === this.pitchOption || this.stopped) return;
     this.pitchOption = next;
     const sink = this.sys.automation;
@@ -869,14 +962,17 @@ export class EventInstance {
   fade(to: number, seconds: number): void {
     this.fadeTo = to;
     for (const v of this.voices) if (v.voice.playing) v.voice.fade(to, seconds);
+    if (this.music) for (const v of this.musicVoices()) if (v.playing) v.fade(to, seconds);
   }
 
   pause(): void {
     for (const v of this.voices) if (v.voice.playing) v.voice.pause();
+    if (this.music) for (const v of this.musicVoices()) if (v.playing) v.pause();
   }
 
   resume(): void {
     for (const v of this.voices) if (v.voice.playing) v.voice.resume();
+    if (this.music) for (const v of this.musicVoices()) if (v.playing) v.resume();
   }
 
   /** Key-off (ADR 0158 §4): sustain clips and containers leave their loops and play their tails. */
@@ -956,8 +1052,15 @@ export class EventInstance {
   // --- the tree walk ----------------------------------------------------------------------------------------------
 
   /** Plays `node`; returns its estimated end on the audio clock (null: unknown or never, e.g. a loop). */
-  private playNode(node: EventNode, parent: Ctx, fadeIn = 0): number | null {
+  private playNode(anyNode: AnyEventNode, parent: Ctx, fadeIn = 0): number | null {
     if (this.stopped) return null;
+    if (isMusicNodeType(anyNode.type)) {
+      // ADR 0166 P6: a segment, playlist or musicSwitch root hands the event to its music player (`music/*` plans, primes and
+      // stamps the stems); nothing of the 0158 tree walk applies. `at` is `Audio.play`'s option.
+      if (!this.music) this.music = createMusicPlayer(this, anyNode as MusicNodeRef, parent.at !== null ? { at: parent.at } : {});
+      return null;
+    }
+    const node = anyNode as EventNode;
     const sys = this.sys;
     // The draws are taken even for a fixed range, so a node's picks don't depend on its neighbours' settings.
     const vol = parent.volume * node.volume * dbToGain(lerp(node.volumeRandom, sys.random(this.world)));
