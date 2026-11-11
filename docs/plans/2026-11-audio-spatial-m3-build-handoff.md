@@ -15,7 +15,7 @@ Written 2026-11-12 at the end of the build session that ran waves 0–9 unattend
 1. ~~C3b's worker-less IR upload (#137)~~: decided, option (c), closed as not needed.
 2. **The decisions log** (build log, D1–D27).
 3. **Runs only the owner can do:** the listening pass ([`listening-pass.md`](../design/0162-audio-spatial/listening-pass.md)), the lab-VM benches (`m3-high` = `m3-typical`, `m3-worst-high`, `-sends`; zone and ambisonic costs ≈ 1.5–2× the model in the container), WebKit/Firefox (not installed here), the Babylon backend once.
-4. **Master:** the build log's "Milestone readiness"; recommendation: the listening pass, then one merge.
+4. ~~Master~~: done, squash-merged 2026-11-12 (#164, #165).
 5. Optional: P1 (`wasm-opt` via `binaryen`), ≈ 9% smaller mixer; not needed for headroom.
 
 ## Gotchas for the next session

@@ -10,7 +10,7 @@ The owner asked (2026-11-11, evening): "Go through each of the waves as instruct
 
 **Needs you** (updated 2026-11-12 after the owner's answers):
 1. **C3b's worker-less IR upload** (#137): **decided 2026-11-12, closed as not needed** (option c). Every supported host runs the decoder worker and without it no clip loads at all; the core side stays, unused, for a worker-less host.
-2. **Master:** see "Milestone readiness" at the end. Recommendation: the listening pass, then one merge.
+2. **Master:** done, squash-merged 2026-11-12 (#164, then #165); see "Milestone readiness" at the end.
 3. Review the decisions log (D1–D27), especially D11 (the bounded zone planner), D13 (filter sweeps), D17–D20 (merged flips), D19 (events keep their Doppler), D25–D27 (this morning), and the A3 numbers (the MagLS ILD margin; the floor-below listening risk → reserve R1).
 4. Your runs: the listening pass (`listening-pass.md`; the bed flip is now on, so M3a's items can be heard), the lab-VM benches (zone and ambisonic costs measured ≈ 1.5–2× the model in the container), WebKit/Firefox, the Babylon backend once.
 5. **Optional, P1:** a `wasm-opt` pass (`binaryen` as a dev dependency) would cut the mixer by ≈ 9% (measured −21 KB at 230 KB). Not needed for headroom any more (D25).
@@ -188,22 +188,22 @@ Asked for by the tree ("The pilot") and the owner. Times are agent wall time fro
 - **Not run here:** WebKit and Firefox (the WebKit browser isn't installed in this container, `/opt/pw-browsers/webkit-*` missing; Firefox needs Docker). They're owed for the browser-layer milestones (M3b, M3c, M3d, M3e) before master, or on the owner's machine.
 - The lab-VM benches and the listening pass are the owner's (`listening-pass.md`).
 
-## Milestone readiness (each needs the owner's approval to reach master)
+## Milestone readiness
 
-Everything is on one integration branch, so a merge to master brings all of it. Recommended order: the listening pass, then one merge.
+**On master since 2026-11-12:** the owner approved one squash merge of the whole integration branch (#164), then the listening-pass follow-up (#165). What stays owed is the owner's runs: the listening pass, the lab-VM benches, WebKit/Firefox and the Babylon backend once.
 
 | Milestone | Tasks | Exit check | State |
 |---|---|---|---|
 | M3a bed | A1–A7 merged; the bed flip applied (D27) | shippable ✓; `bed-64/256/xfade` recorded ✓; the 230 KB criterion dropped (D25); owner listening | ready except the listening items and WebKit/Firefox |
 | M3b ambisonic clips | B1–B6 merged; wide flip on | 4/9/16-channel clips and a 16-channel stream play ✓ (tests); stall test ✓ (32,768-frame ring); owner listening (1st/3rd order turned on the spot) | ready except the listening item and WebKit/Firefox |
-| M3c zones | C1–C7 merged; zone memory flip on; C3b's main upload not needed (#137 closed) | `zones-2x2s` recorded (68/125 µs, ≈ 1.45× the estimate); both slot paths' loopback ✓; zones active in editor Play ✓; owner listening (rooms A/B/C, 2 s and 4 s IRs) | ready except listening, WebKit/Firefox, and the owner's C3b decision |
+| M3c zones | C1–C7 merged; zone memory flip on; C3b's main upload not needed (#137 closed) | `zones-2x2s` recorded (68/125 µs, ≈ 1.45× the estimate); both slot paths' loopback ✓; zones active in editor Play ✓; owner listening (rooms A/B/C, 2 s and 4 s IRs) | ready except listening and WebKit/Firefox |
 | M3d occlusion, Doppler, event effects | D0–D6 merged; occlusion and Doppler flips on | `filters-256`, `bench:audio-spatial` (ages 1/5/20 frames), `m3-worst-*` recorded ✓; owner listening (wall, door, corner, Doppler pass, teleport) | ready except listening and WebKit/Firefox |
 | F Babylon fallback | F1, F2 merged | §8 rows against the mocks ✓; the owner runs the Babylon backend once | ready except that run |
 | M3e editor, samples, listening | E1–E10 merged | Playwright specs ✓ (3 of 3 at E9; in the full run); samples load warning-free and non-silent ✓; `check:links` ✓; `listening-pass.md` ✓; lab-VM run of `m3-high` (= `m3-typical`) and `m3-worst-high`, sign-off | ready for the owner's runs |
 
 **Reserve:** no draw (R1, R2, R4 untouched). R2 (`wasm-opt`) is the subject of P1; R1 (SADIE II) is the likeliest next, if floor-below fails at M3a's listening.
 
-**Epics** #112–#117 stay open until their milestone reaches master; #118 (contracts) closes with M3a. #137 (C3b's main upload) closed as not needed.
+**Epics** #112–#118 closed when M3 reached master; #137 (C3b's main upload) closed as not needed.
 
 ## Follow-ups found during the build (not scheduled)
 
