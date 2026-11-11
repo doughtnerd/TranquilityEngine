@@ -78,8 +78,8 @@ describe("transitions: fields and defaults (§2.4)", () => {
       expect(problems).toEqual([]);
       expect(node.transitions[0]?.enter).toBe(enter);
     }
-    // `{ cue }` names no cue of the segments here: a dangling cue only warns (checkMusicRules), so only the key is checked.
-    const cue = parseRoot({ transitions: [{ enter: { cue: "hit" } }] });
+    // `{ cue }` names no cue of the incoming segment b: a dangling cue only warns (checkMusicRules), and the key is kept.
+    const cue = parseRoot({ transitions: [{ from: "a", to: "b", enter: { cue: "hit" } }] });
     expect(cue.node.transitions[0]?.enter).toEqual({ cue: "hit" });
     expect(at(cue.problems, "root.transitions[0].enter")).toHaveLength(1);
     const bad = parseRoot({ transitions: [{ enter: "later" }] });
@@ -91,7 +91,7 @@ describe("transitions: fields and defaults (§2.4)", () => {
     const { node, problems } = parseRoot({
       transitions: [
         { fadeOut: { seconds: 2, offset: -0.5, curve: "linear" }, fadeIn: { beats: 4, offset: 1, curve: "sCurve" } },
-        { fadeOut: { beats: 1, curve: "equalPower" }, fadeIn: { seconds: 0.25 } },
+        { from: "a", to: "b", fadeOut: { beats: 1, curve: "equalPower" }, fadeIn: { seconds: 0.25 } },
       ],
     });
     expect(problems).toEqual([]);
@@ -226,7 +226,7 @@ describe("transitions: precedence, duplicates and shadows (§2.4)", () => {
     const dup = problems.filter((p) => /duplicate/i.test(p));
     expect(dup).toHaveLength(1);
     expect(dup[0]).toContain("root.transitions[1]");
-    expect(dup[0]).toContain("root.transitions[0]");
+    expect(dup[0]).toContain("rule 0");
   });
 
   it("L-F2a: a rule shadowed by an earlier one warns (a later a>* when every a>x pair has its own tier-1 rule)", () => {
