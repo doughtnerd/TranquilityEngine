@@ -10,7 +10,7 @@
 // and stream errors. Streams are not carried over to a respawned worker: a worker that dies (or is refused) fails its
 // open streams, an error each (the stream manager stops each voice with a fade and one warning), and the next worker
 // bumps `generation`, so the caller connects it to the worklet again (which closes the dead worker's rings there).
-import type { ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, StreamClosedMessage, StreamOpenedMessage, StreamPortLike } from "./protocol";
+import type { AmbisonicConvention, ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, StreamClosedMessage, StreamOpenedMessage, StreamPortLike } from "./protocol";
 import type { StreamLoopAt } from "./streams";
 
 /** What the client needs of a worker (a `Worker`, or an in-process stand-in in tests). */
@@ -79,6 +79,8 @@ export interface DecodeClipOptions {
   readonly transfer?: boolean;
   /** Named in decoder errors. */
   readonly asset?: string;
+  /** ADR 0162 §2.4 (B1): the clip's ambisonic sidecar convention, sent with the request so the decoder can convert FuMa (B2 applies it). Absent for an ordinary clip. */
+  readonly convention?: AmbisonicConvention;
   /** B5: called once before the first chunk with what the container declares (`info.frames` -1 when unknown). */
   readonly onInfo?: (info: ClipInfo) => void;
   /** B5: false does not keep the chunks, so the result's `pcm` is empty: the caller took them through `onChunk` (a long clip is then not held twice). Default true. */
@@ -217,7 +219,7 @@ class Client implements DecoderClient {
         signal.addEventListener("abort", entry.abort, { once: true });
       }
       this.pending.set(id, entry);
-      worker.postMessage({ type: "decodeClip", id, asset: options?.asset, bytes: buffer, hint }, [buffer]);
+      worker.postMessage({ type: "decodeClip", id, asset: options?.asset, bytes: buffer, hint, convention: options?.convention }, [buffer]);
     });
   }
 
@@ -350,7 +352,7 @@ class Client implements DecoderClient {
     for (const [id, entry] of entries) {
       if (this.pending.get(id) !== entry) continue;
       const bytes = entry.bytes.slice(0);
-      next.postMessage({ type: "decodeClip", id, bytes, hint: entry.hint, asset: entry.options?.asset }, [bytes]);
+      next.postMessage({ type: "decodeClip", id, bytes, hint: entry.hint, asset: entry.options?.asset, convention: entry.options?.convention }, [bytes]);
     }
   }
 

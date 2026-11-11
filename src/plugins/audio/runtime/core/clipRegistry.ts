@@ -8,6 +8,8 @@ import { CLIP_BYTES_PER_QUANTUM, createChunkPacer, planChunks } from "./chunker"
 import { createEncodedCache } from "./encodedCache";
 import { createDecoderClient, DecodeFailedError, type DecoderClient } from "../decoder/decoderClient";
 import { hintFromName } from "../decoder/protocol";
+import { Assets } from "../../../../engine/scene/Assets";
+import type { AmbisonicImport } from "../../../../engine/scene/importSettings";
 import { setFileLoopFrames, setFileLoopPoints } from "../loopPoints";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { i16ToF32 } from "./pcm";
@@ -153,6 +155,28 @@ export interface ClipRegistryDeps {
    * however often the clip is reloaded. The host shares one with its streams; default: the registry's own over `warn`.
    */
   warnOnce?: WarnOnce;
+}
+
+/**
+ * ADR 0162 §2.4: whether a decoded clip of `channels` channels is playable given its sidecar's `ambisonic` block. A clip
+ * over 2 channels must be ambisonic (4, 9 or 16 channels: order 1, 2 or 3); a given `order` must agree with the
+ * channel count; orders 2 and 3 are WAV only (FLAC stops at 8 channels and there is no Opus decoder). `error` is the
+ * load failure's detail. 1-2 channel clips aren't checked here (a sidecar on one is ignored by the caller).
+ * @internal
+ */
+export function checkAmbisonic(path: string, channels: number, ambisonic: AmbisonicImport | null): { readonly order: 1 | 2 | 3 } | { readonly error: string } {
+  if (!ambisonic) return { error: `${channels}-channel audio needs an ambisonic import setting (ADR 0162); multichannel mixes aren't supported` };
+  const inferred = channels === 4 ? 1 : channels === 9 ? 2 : channels === 16 ? 3 : null;
+  if (ambisonic.order !== null) {
+    const needs = (ambisonic.order + 1) ** 2;
+    if (channels !== needs) return { error: `ambisonic order ${ambisonic.order} needs ${needs} channels, but the file has ${channels}` };
+  } else if (inferred === null) {
+    return { error: `${channels}-channel audio isn't ambisonic: first, second and third order need 4, 9 or 16 channels` };
+  }
+  const order = (ambisonic.order ?? inferred) as 1 | 2 | 3;
+  const hint = hintFromName(path);
+  if (order >= 2 && hint !== 1 && hint !== 0) return { error: `ambisonic order ${order} (${channels} channels) needs a WAV file; other formats stop at 8 channels` };
+  return { order };
 }
 
 /** Ids: index in the low 24 bits, an 8-bit generation in the high bits. */
@@ -443,13 +467,23 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     let channels = 0;
     let streamedFrames = 0; // the length CLIP_BEGIN promised; 0 when not streaming
     let received = 0;
+    const ambisonic = Assets.importSettings(slot.path).ambisonic;
     try {
       const result = await worker().decodeClip(encoded, hintFromName(slot.path), {
         signal: controller.signal,
         asset: slot.path,
         collect: false,
+        // ADR 0162 §2.4 (B1): the decoder (B2) converts FuMa while decoding; it ignores this for a clip of 1-2 channels.
+        convention: ambisonic?.convention,
         onInfo: (info) => {
           channels = info.channels;
+          if (info.channels > 2) {
+            const checked = checkAmbisonic(slot.path, info.channels, ambisonic);
+            if ("error" in checked) {
+              fail(slot, "decode", checked.error); // nothing was begun yet; fail() also aborts this decode
+              return;
+            }
+          } else if (ambisonic) warnOnce(`${slot.path}#ambisonic`, `audio: "${slot.path}" has an ambisonic import setting but ${info.channels} channel${info.channels === 1 ? "" : "s"}; ignored (ADR 0162)`);
           if (!early || stale() || !info.lengthKnown || info.frames <= 0) return;
           if (startClip(slot, info.frames, info.channels, info.rate)) streamedFrames = info.frames;
           else controller.abort(); // failed past the ceiling
