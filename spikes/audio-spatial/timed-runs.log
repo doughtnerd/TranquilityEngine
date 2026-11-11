@@ -2,3 +2,5 @@
 2026-11-11T01:28:39Z 2.03 1.17 0.49 bed chromium exit 0
 2026-11-11T01:28:41Z 2.03 1.17 0.49 conv native start
 2026-11-11T01:44:56Z 1.00 1.00 0.85 conv native exit 0
+2026-11-11T01:44:58Z 1.00 1.00 0.85 conv wasm start
+2026-11-11T01:44:58Z 1.00 1.00 0.85 conv wasm exit 1
