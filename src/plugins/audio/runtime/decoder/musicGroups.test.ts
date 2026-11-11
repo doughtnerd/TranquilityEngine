@@ -13,6 +13,8 @@ import { STREAM_CHUNK_FRAMES, STREAM_WINDOW_FRAMES } from "./credit";
 import { createDecoderClient, type StreamReply, type WorkerLike } from "./decoderClient";
 import { createDecoderHandler } from "./handler";
 import type { DecodeHint, DecoderReply, DecoderRequest, GroupOpenedMessage, MusicReply, PrimeGroupMember, StreamPortLike } from "./protocol";
+import { MusicCache } from "./musicCache";
+import { MusicGroups } from "./musicGroups";
 import { makeWav, signal } from "./testWav";
 
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
@@ -173,6 +175,107 @@ describe("music groups: open and breadth-first prime (D1a)", () => {
       expect(median).toBeLessThan(60);
     });
   }
+});
+
+describe("music groups: cancel and re-target (D1b)", () => {
+  const opensOf = (messages: ArrayBuffer[]) => messages.filter((b) => kindOf(b) === Kind.STREAM_OPEN).map((b) => readStreamOpen(new DataView(b), 0));
+  const closesOf = (messages: ArrayBuffer[]) => messages.filter((b) => kindOf(b) === Kind.STREAM_CLOSE);
+
+  it("cancelGroup closes every member (STREAM_CLOSE, streamClosed), releases each cache hold, and forgets the group; unknown ids are ignored", async () => {
+    const release = vi.spyOn(MusicCache.prototype, "release");
+    try {
+      const { handler, replies, toWorklet } = await rig();
+      const file = makeWav(100_000, 2, 48_000, signal);
+      await handler.handle({ type: "primeGroup", instance: 1, group: 7, retarget: false, members: [11, 12, 13].map((id) => member(id, file.slice(0))) });
+      toWorklet.length = 0;
+      replies.length = 0;
+      await handler.handle({ type: "cancelGroup", group: 7 });
+      expect(closesOf(toWorklet)).toHaveLength(3);
+      expect(replies.filter((r) => r.type === "streamClosed").map((r) => (r as { streamId: number }).streamId)).toEqual([11, 12, 13]);
+      expect(release.mock.calls).toEqual([1, 2, 3].map((n) => [1, `music/stem${10 + n}.wav`]));
+      // Gone: a second cancel, and one for an unknown group, post nothing.
+      replies.length = 0;
+      toWorklet.length = 0;
+      await handler.handle({ type: "cancelGroup", group: 7 });
+      await handler.handle({ type: "cancelGroup", group: 99 });
+      expect(replies).toEqual([]);
+      expect(toWorklet).toEqual([]);
+      expect(release).toHaveBeenCalledTimes(3);
+    } finally {
+      release.mockRestore();
+    }
+  });
+
+  it("a cancelled group leaves nothing in the group tables, and its stream ids can be reused", async () => {
+    const replies: DecoderReply[] = [];
+    const streams = { closeMember: vi.fn(), openMember: vi.fn(async () => true as const), prime: vi.fn() };
+    const cache = new MusicCache();
+    const groups = new MusicGroups({ post: (r) => void replies.push(r), streams: streams as never, cache });
+    const bytes = new ArrayBuffer(16);
+    await groups.handle({ type: "primeGroup", instance: 1, group: 7, retarget: false, members: [member(1, bytes), member(2, bytes.slice(0))] });
+    expect(groups.groupCount).toBe(1);
+    expect(groups.membersOf(7)).toEqual([1, 2]);
+    // The decoder reports each close back through `closed` (StreamHost.closed), as `closeMember` does.
+    streams.closeMember.mockImplementation((id: number) => groups.closed(id));
+    await groups.handle({ type: "cancelGroup", group: 7 });
+    expect(streams.closeMember.mock.calls).toEqual([[1], [2]]);
+    expect(groups.groupCount).toBe(0);
+    expect(groups.membersOf(7)).toEqual([]);
+    groups.closed(1); // a late close of a forgotten member is a no-op
+    expect(groups.groupCount).toBe(0);
+  });
+
+  it("a cancel that arrives while the group is still opening closes the member being opened and posts no groupOpened", async () => {
+    const { handler, replies, toWorklet } = await rig();
+    const file = makeWav(50_000, 2, 48_000, signal);
+    const primed = handler.handle({ type: "primeGroup", instance: 1, group: 5, retarget: false, members: [1, 2, 3].map((id) => member(id, file.slice(0))) });
+    const cancelled = handler.handle({ type: "cancelGroup", group: 5 });
+    await Promise.all([primed, cancelled]);
+    expect(closesOf(toWorklet)).toHaveLength(opensOf(toWorklet).length);
+    expect(replies.some((r) => r.type === "groupOpened")).toBe(false);
+    expect(toWorklet.some((b) => kindOf(b) === Kind.STREAM_CHUNK)).toBe(false);
+  });
+
+  it("re-target restarts open members at their new start frame and epoch, opens the new one, and primes all breadth-first once", async () => {
+    const { handler, replies, toWorklet } = await rig();
+    const file = makeWav(100_000, 2, 48_000, signal);
+    await handler.handle({ type: "primeGroup", instance: 1, group: 7, retarget: false, members: [1, 2].map((id) => member(id, file.slice(0), { epoch: 1 })) });
+    toWorklet.length = 0;
+    replies.length = 0;
+    await handler.handle({
+      type: "primeGroup",
+      instance: 1,
+      group: 7,
+      retarget: true,
+      members: [member(1, undefined, { epoch: 2, startFrame: 10_000 }), member(2, undefined, { epoch: 2, startFrame: 10_000 }), member(3, file.slice(0), { epoch: 2, startFrame: 10_000 })],
+    });
+    const t = trace(toWorklet);
+    expect(t.slice(0, 3)).toEqual(["open:1", "open:2", "open:3"]);
+    expect(t.slice(3, 6).map((s) => s.split(":").slice(0, 2).join(":"))).toEqual(["chunk:1", "chunk:2", "chunk:3"]);
+    for (const o of opensOf(toWorklet)) {
+      expect(o.epoch).toBe(2);
+      expect(o.startFrame).toBe(10_000);
+    }
+    const opened = replies.filter((r): r is GroupOpenedMessage => r.type === "groupOpened");
+    expect(opened).toHaveLength(1);
+    expect(opened[0]!.members.map((m) => [m.streamId, m.error])).toEqual([[1, undefined], [2, undefined], [3, undefined]]);
+
+    // An epoch that isn't newer is ignored (reported, nothing sent for that member).
+    toWorklet.length = 0;
+    replies.length = 0;
+    await handler.handle({ type: "primeGroup", instance: 1, group: 7, retarget: true, members: [member(1, undefined, { epoch: 2, startFrame: 500 })] });
+    expect(opensOf(toWorklet)).toEqual([]);
+    expect(replies.find((r): r is GroupOpenedMessage => r.type === "groupOpened")!.members[0]!.error).toBeDefined();
+  });
+
+  it("re-target of a new member without bytes the worker doesn't hold answers needBytes", async () => {
+    const { handler, replies } = await rig();
+    const file = makeWav(20_000, 2, 48_000, signal);
+    await handler.handle({ type: "primeGroup", instance: 1, group: 7, retarget: false, members: [member(1, file.slice(0))] });
+    replies.length = 0;
+    await handler.handle({ type: "primeGroup", instance: 1, group: 7, retarget: true, members: [member(1, undefined, { epoch: 2 }), member(2, undefined, { asset: "music/other.wav", epoch: 2 })] });
+    expect(replies.find((r) => r.type === "needBytes")).toEqual({ type: "needBytes", group: 7, members: [{ streamId: 2, asset: "music/other.wav" }] });
+  });
 });
 
 describe("decoder client: music group methods (H3)", () => {
