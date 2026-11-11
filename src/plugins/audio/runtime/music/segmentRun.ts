@@ -73,6 +73,8 @@ export type SegmentRunState = "new" | "admitted" | "priming" | "stamped" | "play
 export interface SegmentRun {
   /** The segment node. */
   readonly node: MusicNodeRef;
+  /** The player the run belongs to (P1: its counters, its instance). */
+  readonly player: MusicPlayer;
   state: SegmentRunState;
   /** The music group id (1..1023), 0 until admitted. */
   group: number;
@@ -97,6 +99,8 @@ export interface PrimeJob {
   /** Members primed in the current epoch, of `of`. */
   primed: number;
   readonly of: number;
+  /** `performance.now()` ms of the poll that first saw every member primed; NaN until then. */
+  readyMs: number;
 }
 
 /**
