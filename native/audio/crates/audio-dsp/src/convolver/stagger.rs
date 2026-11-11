@@ -132,6 +132,35 @@ pub fn plan_stagger(fixed: &[Load], tail_parts: &[usize], out: &mut [Phase]) -> 
     true
 }
 
+/// Plans one new instance of `tail_parts` around the `fixed` instances (ADR 0162 C3: a zone slot
+/// starts one at a time) by exhaustive search: every left pair, then the right pair that scores
+/// best on top of it, by `(peak, sum of squared slot loads, f, i)`. Optimal under the model, so
+/// never above [`plan_stagger`]'s plan for one instance nor the sequential one, and much smaller
+/// code (the mixer links this, not the bounded multi-instance search). `None` when a fixed phase
+/// is invalid; `(0, 2)` per channel without a tail. 105 + 105 × 105 O(1) scores; no allocation.
+pub fn plan_one(fixed: &[Load], tail_parts: usize) -> Option<Phase> {
+    if fixed.iter().any(|ins| !phase_is_valid(ins.phase)) {
+        return None;
+    }
+    if tail_parts == 0 {
+        return Some([(0, 2); 2]);
+    }
+    let base = modelled_load(fixed);
+    let mut best = (f64::INFINITY, f64::INFINITY, [(0u8, 2u8); 2]);
+    for f0 in 0..N as u32 - 2 {
+        for i0 in f0 + 2..N as u32 {
+            let mut l = base;
+            add_channel(&mut l, f0, i0, tail_parts, 1.0);
+            Eval::new(&l).each(tail_parts, |top, sq, f, i| {
+                if less((top, sq), (best.0, best.1)) {
+                    best = (top, sq, [(f0 as u8, i0 as u8), (f as u8, i as u8)]);
+                }
+            });
+        }
+    }
+    Some(best.2)
+}
+
 /// The plan for `parts` (all non-zero, largest first) around `fixed`.
 fn search(fixed: &[f64; N], parts: &[usize]) -> Plan {
     let channels = 2 * parts.len();
@@ -514,6 +543,40 @@ mod tests {
         let mut out = [SENTINEL; 2];
         assert!(plan_stagger(&[], &[], &mut out));
         assert_eq!(out, [SENTINEL; 2]);
+    }
+
+    #[test]
+    fn plan_one_is_never_worse_than_plan_stagger_or_sequential() {
+        const SIZES: [usize; 5] = [0, 6, 22, 45, 92];
+        let running: [Load; 3] = [
+            SHARED_REVERB,
+            Load { phase: [(5, 11), (7, 13)], tail_parts: 45 },
+            Load { phase: [(2, 9), (3, 15)], tail_parts: 92 },
+        ];
+        for k in 0..=running.len() {
+            let fixed = &running[..k];
+            for &p in &SIZES {
+                let one = plan_one(fixed, p).unwrap();
+                assert!(phase_is_valid(one));
+                let got = peak(&modelled_load(&with_planned(fixed, &[p], &[one])));
+                let staggered = planned_peak(fixed, &[p]);
+                let seq = peak(&modelled_load(&sequential_new(fixed, &[p])));
+                assert!(got <= staggered + 1e-9 && got <= seq + 1e-9, "{k} fixed, {p} parts: {got} vs {staggered} / {seq}");
+            }
+        }
+        assert_eq!(plan_one(&[], 0), Some([(0, 2); 2]));
+        assert_eq!(plan_one(&[Load { phase: [(3, 4), (0, 15)], tail_parts: 45 }], 45), None);
+        // Zones started one by one around the shared reverb stay close to planning them together.
+        let mut fixed = vec![SHARED_REVERB];
+        for _ in 0..4 {
+            let ph = plan_one(&fixed, 45).unwrap();
+            fixed.push(Load { phase: ph, tail_parts: 45 });
+        }
+        let one_by_one = peak(&modelled_load(&fixed));
+        let together = planned_peak(&[SHARED_REVERB], &[45; 4]);
+        let seq = peak(&modelled_load(&sequential_all(&[SHARED_REVERB], &[45; 4])));
+        eprintln!("4 x 45 around the shared reverb: one by one {one_by_one}, together {together}, sequential {seq}");
+        assert!(one_by_one < seq);
     }
 
     /// Time per plan for the busiest real case: four new 2 s zones around the shared reverb.

@@ -229,10 +229,7 @@ pub extern "C" fn myco_audio_clip_commit(clip: u32, frame_offset: u32, bytes: u3
 pub extern "C" fn myco_audio_clip_write(clip: u32, frame_offset: u32, len: u32) -> i32 {
     let Some(core) = instance().core_mut() else { return codes::NOT_INITIALIZED };
     let Some(bytes) = inbox(len) else { return codes::INVALID_ARGUMENT };
-    match core.clips_mut().write(clip, frame_offset, bytes) {
-        Ok(()) => codes::OK,
-        Err(e) => e,
-    }
+    audio_core::clips::write(core, clip, frame_offset, bytes)
 }
 
 /// Drops the clip and returns its block to the arena; `ERR_UNKNOWN_CLIP` when not held.
