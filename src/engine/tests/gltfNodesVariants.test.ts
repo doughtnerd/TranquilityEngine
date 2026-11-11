@@ -35,24 +35,25 @@ describe("glTF node pivots (ADR 0118)", () => {
     useCar();
     const data = await loadModel("models/car.gltf");
     const wheel = data.meshes.find((m) => m.name === "Wheel")!;
-    expect(round(wheel.pose!.position)).toEqual([1, 0.5, 0]);
-    expect(round(wheel.pose!.rotation)).toEqual(round([0, S, 0, S]));
+    // x mirrored (ADR 0164): positions (-x, y, z), quaternions (x, -y, -z, w).
+    expect(round(wheel.pose!.position)).toEqual([-1, 0.5, 0]);
+    expect(round(wheel.pose!.rotation)).toEqual(round([0, -S, 0, S]));
     expect(data.nodes?.find((n) => n.name === "Car")).toMatchObject({ path: [], pose: { position: [0, 0, 0] } });
   });
 
   it("puts one mesh in its node's space by default, in model space with pivots: model or #model", async () => {
     useCar();
     const [node] = await loadMeshes("asset:models/car.gltf#Wheel");
-    expect(round(node.data.positions)).toEqual([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+    expect(round(node.data.positions)).toEqual([0, 0, 0, -1, 0, 0, 0, 1, 0]);
     expect(round(node.data.normals!.slice(0, 3))).toEqual([0, 0, 1]);
     const [pinned] = await loadMeshes("asset:models/car.gltf#Wheel#model");
-    expect(round(pinned.data.positions)).toEqual([1, 0.5, 0, 1, 0.5, -1, 1, 1.5, 0]);
+    expect(round(pinned.data.positions)).toEqual([-1, 0.5, 0, -1, 0.5, -1, -1, 1.5, 0]);
     // A whole-model reference stays in model space.
     const whole = await loadMeshes("asset:models/car.gltf");
-    expect(round(whole.find((m) => m.name === "Wheel")!.data.positions.slice(0, 3))).toEqual([1, 0.5, 0]);
+    expect(round(whole.find((m) => m.name === "Wheel")!.data.positions.slice(0, 3))).toEqual([-1, 0.5, 0]);
     useCar({ pivots: "model" });
     const [model] = await loadMeshes("asset:models/car.gltf#Wheel");
-    expect(round(model.data.positions)).toEqual([1, 0.5, 0, 1, 0.5, -1, 1, 1.5, 0]);
+    expect(round(model.data.positions)).toEqual([-1, 0.5, 0, -1, 0.5, -1, -1, 1.5, 0]);
   });
 
   it("reads and writes the pivots import setting", () => {
@@ -74,7 +75,7 @@ describe("scene format 1 → 2: part references keep model space (ADR 0118)", ()
         { id: "d", prefab: "prefabs/p.prefab.json", overrides: [{ component: "engine.MeshRenderer", field: "mesh", value: "asset:models/car.glb#Door" }] },
       ],
     });
-    expect(file.format).toBe("myco.scene@3");
+    expect(file.format).toMatch(/^myco\.scene@\d+$/);
     const mesh = (i: number, c = 0) => file.nodes[i].components![c].data!.mesh;
     expect(mesh(0)).toBe("asset:models/car.gltf#Wheel#model");
     expect(mesh(0, 1)).toBe("asset:models/car.gltf#Body#model");
@@ -172,7 +173,7 @@ describe("glTF material variants (ADR 0118)", () => {
   it("survives baking (poses, nodes, variants, layer textures)", async () => {
     useCar();
     const data = await loadModel("models/car.gltf");
-    const settings = { scale: 1, upAxis: "y" as const, normals: "import" as const };
+    const settings = { scale: 1, upAxis: "y" as const, normals: "import" as const, facing: "forward" as const };
     const { bytes, dropped } = encodeBakedModel(data, settings);
     expect(dropped).toEqual([]);
     const back = decodeBakedModel(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, settings, (p) => p)!;

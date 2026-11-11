@@ -47,19 +47,20 @@ describe("dropping a glTF with lights, cameras and pivots (ADR 0118)", () => {
     expect(scene.doc.children(root).map((id) => scene.doc.node(id).name)).toEqual(["Body", "Wheel", "Lamp", "Spot", "Cam"]);
     expect(component("Wheel", "engine.Transform")!.data).toEqual({});
     expect(component("Wheel", "engine.MeshRenderer")!.data).toEqual({ mesh: "asset:models/car.gltf#Wheel" });
-    expect(component("Lamp", "engine.Transform")!.data).toEqual({ position: [0, 3, 0] });
+    // x mirrored (ADR 0164): glTF lights look along -Z, the engine's along +Z, hence the half turn.
+    expect(component("Lamp", "engine.Transform")!.data).toEqual({ position: [0, 3, 0], rotation: [0, 1, 0, 0] });
     expect(component("Lamp", "engine.Light")!.data).toEqual({ type: "point", color: "#ffbc00", intensity: 20, range: 8 });
     expect(component("Spot", "engine.Light")!.data).toMatchObject({ type: "spot", spotAngle: 90, spotSoftness: 0.5, range: 0 });
     const camera = component("Cam", "engine.Camera")!;
     expect(camera.enabled).toBe(false);
     expect(camera.data).toMatchObject({ projection: "perspective", near: 0.05, far: 1000 });
-    expect(child("Cam").components![0].data).toEqual({ position: [0, 2, 10] });
+    expect(child("Cam").components![0].data).toEqual({ position: [0, 2, 10], rotation: [0, 1, 0, 0] });
     expect(messageLog.value.slice(before).map((m) => m.text).join("\n")).toMatch(/models\/car\.gltf: its camera was added with the Camera component turned off/);
   });
 
   it("gives every node its own pose from the file by default (node pivots)", async () => {
     const { component } = await dropCar();
-    expect(component("Wheel", "engine.Transform")!.data).toEqual({ position: [1, 0.5, 0], rotation: [0, 0.7071068, 0, 0.7071068] });
+    expect(component("Wheel", "engine.Transform")!.data).toEqual({ position: [-1, 0.5, 0], rotation: [0, -0.7071068, 0, 0.7071068] });
     expect(component("Body", "engine.Transform")!.data).toEqual({ position: [0, 1, 0] });
   });
 });

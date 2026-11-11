@@ -34,6 +34,13 @@ export function ModelImportSettings(props: ImportSettingsViewProps) {
             <option value="z">Z up (Blender, 3ds Max…)</option>
           </select>
         </label>
+        <label class="import-row" title="Which way the file's front (+Z, glTF's) faces in the engine; Back keeps how models looked before ADR 0164">
+          <span>Facing</span>
+          <select aria-label="Facing" value={draft.facing} onChange={(e) => set({ facing: (e.currentTarget as HTMLSelectElement).value as ImportSettings["facing"] })}>
+            <option value="forward">Forward (+Z)</option>
+            <option value="back">Back (-Z)</option>
+          </select>
+        </label>
         <label class="import-row">
           <span>Normals</span>
           <select aria-label="Normals" value={draft.normals} onChange={(e) => set({ normals: (e.currentTarget as HTMLSelectElement).value as ImportSettings["normals"] })}>

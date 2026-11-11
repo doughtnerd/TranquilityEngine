@@ -45,9 +45,11 @@ and the Transforms guide say how to flip them.
 
 **Boundaries convert, the core doesn't.** The Babylon scene drops `useRightHandedSystem` (Babylon's default is
 left-handed) and its counter-clockwise front-face override; model import (glTF, FBX, OBJ, all right-handed) mirrors
-**x** (as Unity's importers do, so a glTF model, which faces +Z, still faces +Z, now forward) and flips winding once at
-load, through the import matrix in `models.ts` `bakeMeshes` (its determinant check rewinds), with the bake cache's key
-bumped; Web Audio's listener and panners (right-handed) get z negated at the backend;
+**x** by default (as Unity's importers do, so a glTF model, which faces +Z, faces +Z, now forward; the import setting
+`facing: "back"` mirrors z instead, the old picture, and the samples' models use it), once at load through the import
+matrix in `models.ts` `bakeMeshes`, keeping index order: in Babylon's left-handed default a front face's right-hand
+normal points inward, which is what mirrored data gives (only nodes mirrored in the file itself are rewound). Built-in
+meshes are rewound to match. The bake cache's version and key change; Web Audio's listener and panners (right-handed) get z negated at the backend;
 navigation (`native/nav`, Recast-style right-handed) gets z negated going in and out, and baked nav data is rebaked.
 Physics (Rapier) has no handedness and needs no change beyond mirrored scenes.
 

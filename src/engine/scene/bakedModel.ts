@@ -4,13 +4,13 @@
  * (`models/robot.fbx` → `models/robot.fbx.mycomesh`). Loading one needs no model loader, no parsing
  * and no three.js: typed arrays are views of the file's bytes. Internal: nothing here is public API.
  *
- * Layout (little-endian): the magic `MYCOMESH`, a u32 version (2), a u32 JSON length, the JSON
+ * Layout (little-endian): the magic `MYCOMESH`, a u32 version (3), a u32 JSON length, the JSON
  * (UTF-8, padded with spaces to 4 bytes), then the binary data every offset in the JSON points into
  * (each 4-byte aligned).
  *
  * ```jsonc
  * {
- *   "settings": { "scale": 1, "upAxis": "y", "normals": "import" },  // what it was baked with
+ *   "settings": { "scale": 1, "upAxis": "y", "normals": "import", "facing": "forward" },  // what it was baked with
  *   "meshes": [{ "name": "Body", "path": ["Robot"], "positions": [offset, count], "normals": …,
  *                "uvs": …, "uvs2": …, "colors": …, "indices": [offset, count], "groups": […], "surfaces": [0, 1],
  *                "pose": { … }, "variantSurfaces": { "Red": [2, 1] } }],          // pose, variants: ADR 0118
@@ -26,9 +26,9 @@ import { LAYER_MAP_KEYS, type MeshData, type ModelData, type ModelMesh, type Mod
 /** @internal The suffix of a baked model beside its model file. */
 export const BAKED_SUFFIX = ".mycomesh";
 const MAGIC = "MYCOMESH";
-const VERSION = 2; // 2: node poses, lights and cameras, layer textures, variants (ADR 0118)
+const VERSION = 3; // 2: node poses, lights and cameras, layer textures, variants (ADR 0118); 3: mirrored left-handed, `facing` (ADR 0164)
 
-type BakeSettings = Pick<ImportSettings, "scale" | "upAxis" | "normals">;
+type BakeSettings = Pick<ImportSettings, "scale" | "upAxis" | "normals" | "facing">;
 type Range = [offset: number, count: number];
 type BakedTexture = { path: string; mimeType?: string | null; uvSet?: number } | { image: number; mimeType?: string | null; uvSet?: number };
 
@@ -127,7 +127,7 @@ export function encodeBakedModel(data: ModelData, settings: BakeSettings): { byt
     ...(m.variantSurfaces ? { variantSurfaces: Object.fromEntries(Object.entries(m.variantSurfaces).map(([k, list]) => [k, list.map(surfaceOf)])) } : {}),
   }));
   const json: BakedJson = {
-    settings: { scale: settings.scale, upAxis: settings.upAxis, normals: settings.normals },
+    settings: { scale: settings.scale, upAxis: settings.upAxis, normals: settings.normals, facing: settings.facing },
     meshes,
     surfaces,
     images,
@@ -181,7 +181,7 @@ export function decodeBakedModel(bytes: ArrayBuffer, settings: BakeSettings, url
   if (version !== VERSION) throw new Error(`baked model version ${version}; this engine reads ${VERSION}`);
   const length = view.getUint32(12, true);
   const json = JSON.parse(new TextDecoder().decode(new Uint8Array(bytes, 16, length))) as BakedJson;
-  if (json.settings.scale !== settings.scale || json.settings.upAxis !== settings.upAxis || json.settings.normals !== settings.normals) return null;
+  if (json.settings.scale !== settings.scale || json.settings.upAxis !== settings.upAxis || json.settings.normals !== settings.normals || json.settings.facing !== settings.facing) return null;
   const base = 16 + length;
   const f32 = (r: Range | undefined) => (r ? new Float32Array(bytes, base + r[0], r[1]) : null);
   const images = json.images.map((i) => new Uint8Array(bytes, base + i.offset, i.length));

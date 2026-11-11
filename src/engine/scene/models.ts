@@ -816,20 +816,34 @@ export interface BakeOptions {
   readonly flipV?: boolean;
 }
 
-/** @internal The model's meshes with their place in the file and the import settings baked into copies of their geometry. */
-export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale" | "upAxis" | "normals">, options: BakeOptions = {}): ModelData {
+/**
+ * @internal The model's meshes with their place in the file and the import settings baked into copies of their geometry.
+ *
+ * Model files are right-handed; the engine is left-handed (ADR 0164). The import matrix mirrors x
+ * (`facing: "forward"`, the file's +Z faces forward) or z (`"back"`). Mirrored triangles keep their
+ * index order: front faces are then clockwise, the renderer's default. Node poses are the mirror on
+ * both sides of the node's matrix, so they stay proper rotations: positions mirrored, quaternions
+ * (x, -y, -z, w) for x, (-x, -y, z, w) for z.
+ */
+export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale" | "upAxis" | "normals"> & Partial<Pick<ImportSettings, "facing">>, options: BakeOptions = {}): ModelData {
   const { Matrix4 } = lib();
   root.updateMatrixWorld(true);
-  const importMatrix = new Matrix4().makeScale(settings.scale, settings.scale, settings.scale);
+  const back = settings.facing === "back";
+  const mirror = new Matrix4().makeScale(back ? 1 : -1, 1, back ? -1 : 1);
+  const importMatrix = mirror.clone().multiply(new Matrix4().makeScale(settings.scale, settings.scale, settings.scale));
   if (settings.upAxis === "z") importMatrix.multiply(new Matrix4().makeRotationX(-Math.PI / 2));
+  // Lights and cameras point along their node's -Z in the file and +Z in the engine. Mirroring z
+  // turns one into the other; mirroring x needs a half turn about the node's Y as well.
+  const lensTurn = back ? null : new Matrix4().makeRotationY(Math.PI);
   const meshes: ModelMesh[] = [];
   const used = new Set<string>();
   const converted = new Map<Material, Material>();
   const matrix = new Matrix4();
   const instance = new (lib().Matrix4)();
   // ADR 0118: every node's model-space pose, the group nodes on mesh paths, lights and cameras.
-  const poseOf = (o: Object3D): NodePose => {
-    matrix.multiplyMatrices(importMatrix, o.matrixWorld);
+  const poseOf = (o: Object3D, lens = false): NodePose => {
+    matrix.multiplyMatrices(importMatrix, o.matrixWorld).multiply(mirror);
+    if (lens && lensTurn) matrix.multiply(lensTurn);
     const { Vector3, Quaternion } = lib();
     const p = new Vector3(), q = new Quaternion(), sc = new Vector3();
     matrix.decompose(p, q, sc);
@@ -864,7 +878,7 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
       const k = settings.scale;
       const light = special.mycoLight && { ...special.mycoLight, range: special.mycoLight.range * k };
       const camera = special.mycoCamera && { ...special.mycoCamera, near: special.mycoCamera.near * k, far: special.mycoCamera.far * k, orthographicSize: special.mycoCamera.orthographicSize * k };
-      nodes.push({ name: safeName(o.name) || (light ? "Light" : "Camera"), path: ancestry(o, root), pose: poseOf(o), ...(light ? { light } : {}), ...(camera ? { camera } : {}) });
+      nodes.push({ name: safeName(o.name) || (light ? "Light" : "Camera"), path: ancestry(o, root), pose: poseOf(o, true), ...(light ? { light } : {}), ...(camera ? { camera } : {}) });
     }
   });
   root.traverse((o) => {
@@ -877,12 +891,19 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
     const uvTransforms = options.flipV ? uvTransformsOf(allSources, mesh.name) : null;
     // EXT_mesh_gpu_instancing: every instance baked into one geometry.
     const copies = mesh.isInstancedMesh && mesh.getMatrixAt ? Array.from({ length: mesh.count ?? 0 }, (_, i) => (mesh.getMatrixAt!(i, instance), instance.clone())) : [null];
+    const calculate = settings.normals === "calculate" || !mesh.geometry.getAttribute("normal");
     const parts = copies.map((at) => {
       const geometry = floatCopy(mesh.geometry);
+      // Normals from the file's winding, before the mirror (whose triangles keep their order).
+      if (calculate) {
+        geometry.deleteAttribute("normal");
+        geometry.computeVertexNormals();
+      }
       matrix.multiplyMatrices(importMatrix, mesh.matrixWorld);
       if (at) matrix.multiply(at);
       geometry.applyMatrix4(matrix);
-      if (matrix.determinant() < 0) flipWinding(geometry);
+      // The handedness mirror keeps index order; a node mirrored in the file (det < 0) rewinds.
+      if (matrix.determinant() > 0) flipWinding(geometry);
       return geometry;
     });
     let geometry = parts[0];
@@ -890,10 +911,6 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
     if (!parts.length) return;
     if (uvTransforms) applyUvTransforms(geometry, uvTransforms);
     if (options.flipV) for (const name of ["uv", "uv1"]) flipV(geometry.getAttribute(name) as BufferAttribute | undefined);
-    if (settings.normals === "calculate" || !geometry.getAttribute("normal")) {
-      geometry.deleteAttribute("normal");
-      geometry.computeVertexNormals();
-    }
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     const materials = sources.map(convert);

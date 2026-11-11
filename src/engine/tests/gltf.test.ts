@@ -110,7 +110,7 @@ describe("glTF models (ADR 0088)", () => {
       { start: 0, count: 3, materialIndex: 0 },
       { start: 3, count: 3, materialIndex: 1 },
     ]);
-    expect(round(wing.data.positions.slice(0, 9))).toEqual([0, 2, 0, 1, 2, 0, 0, 3, 0]); // node translation baked in
+    expect(round(wing.data.positions.slice(0, 9)).map((n) => n || 0)).toEqual([0, 2, 0, -1, 2, 0, 0, 3, 0]); // node translation baked in, x mirrored (ADR 0164)
     expect(meshTriangles(wing).indices.length).toBe(6);
   });
 
