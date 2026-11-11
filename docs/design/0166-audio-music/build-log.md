@@ -35,10 +35,10 @@ Numbered; superseded entries are marked, not rewritten.
 | Check | Result |
 |---|---|
 | `npm run typecheck` | pass (26 s) |
-| `npm test` | 2 failures of 4,993 (467 of 469 files): `piratesSample.test.ts` (a known flake) and `piratesNavigation.test.ts` "sails round an obstacle … rocky-maze". Both outside audio; see the reruns below. *Note: Q0's first edits were written while this run was in progress; none touch the pirates sample.* |
-| `cargo test --workspace` (`native/audio/`) | see below |
-| `npm run check:audio-metered` | see below |
-| `npm run build` | see below |
+| `npm test` | 2 failures of 4,993 (467 of 469 files). `piratesSample.test.ts`: a known flake, passes alone. **`piratesNavigation.test.ts` "sails round an obstacle to a goal on its far side in rocky-maze" fails on master every time (3 of 3 alone)**: a known failure outside audio (navigation, ADR 0164's coordinate change), not M4's; wave ends treat it as known. *Q0's first edits were written while this run was in progress; none touch the pirates sample.* |
+| `cargo test --workspace` (`native/audio/`) | pass, 707 tests (103 s) |
+| `npm run check:audio-metered` | pass, all scenes +0.82% against the baselines with the pinned 1.99.1 (40 s) |
+| `npm run build` | pass (59 s) |
 
 **Q0 (contract: main-side types)**, committed on the integration branch:
 - `src/engine/audio/musicTypes.ts` (new): `GridSpec`, `MusicKind`, `MusicSeekResult`, `GridPoint`, `MusicEventHandle`, `MusicEvent`, `MusicPositionAt`, `MusicHandle`, `CalibrationResult`, `CalibrationApi`, `AudioLatency` (§1.1, §1.2, §1.3, §1.5).
