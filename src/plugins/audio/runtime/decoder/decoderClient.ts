@@ -101,6 +101,8 @@ export interface StreamOpenOptions {
   /** ADR 0158 §4 (contract C2, sent by E4.4): the loop region in frames (end exclusive, 0 = the end). */
   readonly loopStartFrame?: number;
   readonly loopEndFrame?: number;
+  /** ADR 0162 B4: the sidecar's ambisonic convention, so the worker streams a 4, 9 or 16-channel file (FuMa converted). */
+  readonly convention?: AmbisonicConvention;
 }
 
 /** B3: the replies about streams. */
@@ -248,7 +250,7 @@ class Client implements DecoderClient {
     }
     this.streams.set(o.streamId, o.asset);
     const region = o.loopStartFrame !== undefined || o.loopEndFrame !== undefined ? { loopStartFrame: o.loopStartFrame ?? 0, loopEndFrame: o.loopEndFrame ?? 0 } : {};
-    worker.postMessage({ type: "streamOpen", streamId: o.streamId, asset: o.asset, bytes: o.bytes, hint: o.hint, startFrame: o.startFrame, epoch: o.epoch, loop: o.loop, ...region }, [o.bytes]);
+    worker.postMessage({ type: "streamOpen", streamId: o.streamId, asset: o.asset, bytes: o.bytes, hint: o.hint, startFrame: o.startFrame, epoch: o.epoch, loop: o.loop, ...region, ...(o.convention ? { convention: o.convention } : {}) }, [o.bytes]);
   }
 
   loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number): void {
