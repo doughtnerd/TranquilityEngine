@@ -45,10 +45,27 @@ export interface BuildMipsOptions {
  * (`bins` 0) returns `[base]`. Pure: `base.data` is not changed.
  */
 export function buildMips(base: PeakLevel, options?: BuildMipsOptions): PeakLevel[] {
-  // L-Ed1a
-  void base;
-  void options;
-  throw new Error("L-Ed1a: buildMips is not implemented");
+  // A level of one bin is the floor: halving it again would repeat it forever, so a smaller `minBins` stops there too.
+  const floor = Math.max(options?.minBins ?? 1, 1);
+  const levels: PeakLevel[] = [base];
+  let prev = base;
+  while (prev.bins > floor) {
+    const bins = Math.ceil(prev.bins / 2);
+    const data = new Int16Array(prev.channels * bins * 2);
+    for (let channel = 0; channel < prev.channels; channel++) {
+      for (let bin = 0; bin < bins; bin++) {
+        const a = (channel * prev.bins + 2 * bin) * 2;
+        // An odd last bin has no partner: its partner is itself, so it is copied.
+        const b = 2 * bin + 1 < prev.bins ? a + 2 : a;
+        const at = (channel * bins + bin) * 2;
+        data[at] = Math.min(prev.data[a], prev.data[b]);
+        data[at + 1] = Math.max(prev.data[a + 1], prev.data[b + 1]);
+      }
+    }
+    prev = { binFrames: prev.binFrames * 2, bins, channels: prev.channels, data };
+    levels.push(prev);
+  }
+  return levels;
 }
 
 /**
@@ -59,12 +76,15 @@ export function buildMips(base: PeakLevel, options?: BuildMipsOptions): PeakLeve
  * `levels`. `levels` is non-empty and ordered finest first, as `buildMips` returns it.
  */
 export function pickLevel(levels: readonly PeakLevel[], startFrame: number, endFrame: number, widthPx: number): number {
-  // L-Ed1a
-  void levels;
-  void startFrame;
-  void endFrame;
-  void widthPx;
-  throw new Error("L-Ed1a: pickLevel is not implemented");
+  const span = endFrame - startFrame;
+  if (!(span > 0) || !(widthPx >= 1)) return 0;
+  const framesPerPixel = span / widthPx;
+  // Levels are ordered finest first, so the last one whose bins fit is the coarsest that fits.
+  let pick = 0;
+  for (let i = 0; i < levels.length; i++) {
+    if (levels[i].binFrames <= framesPerPixel) pick = i;
+  }
+  return pick;
 }
 
 /**
@@ -73,11 +93,16 @@ export function pickLevel(levels: readonly PeakLevel[], startFrame: number, endF
  * clip, gives `{ first: n, end: n }` for some `n` (an empty run). The view draws only these.
  */
 export function binSpan(level: PeakLevel, startFrame: number, endFrame: number): BinSpan {
-  // L-Ed1a
-  void level;
-  void startFrame;
-  void endFrame;
-  throw new Error("L-Ed1a: binSpan is not implemented");
+  const { bins, binFrames } = level;
+  // NaN and negatives clamp to 0 (`v > 0` is false for NaN).
+  const clampBin = (v: number): number => (v > 0 ? Math.min(v, bins) : 0);
+  const first = clampBin(Math.floor(startFrame / binFrames));
+  const end = clampBin(Math.ceil(endFrame / binFrames));
+  if (end <= first) {
+    const n = Math.min(first, bins);
+    return { first: n, end: n };
+  }
+  return { first, end };
 }
 
 /** The `[min, max]` of bin `bin` of `channel` in `level`: a reading helper (`data[(channel * bins + bin) * 2]` and the next value). Out-of-range indexes are the caller's error. */
