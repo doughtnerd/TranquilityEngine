@@ -29,15 +29,21 @@ import {
   SET_PARAMS_MASK_FLAGS,
   SET_PARAMS_FLAGS_PANNER_SHIFT,
   Kind,
+  LISTENER_FLAGS_SNAP,
+  MAX_BEDS,
+  MAX_ZONE_SLOTS,
   Op,
   SET_LOOP_FLAGS_LOOPING,
+  SET_VOICE_FX_FIXED_END,
   writeAutomate,
   writeBatchHeader,
+  writeBedConfig,
   writeBusAutomate,
   writeBusConfig,
   writeBusMix,
   writeEnvelope,
   writeFade,
+  writeListener,
   writeMaster,
   writeParam,
   writePlay,
@@ -47,7 +53,9 @@ import {
   writeSetMixed,
   writeSetPaused,
   writeSetLoop,
+  writeSetVoiceFx,
   writeStop,
+  writeZoneConfig,
   type Automate,
   type AutomateBindings,
   type BusAutomate,
@@ -136,6 +144,11 @@ const BATCH_RECORD_BYTES = BATCH_MAX_BYTES - BATCH_PREFIX_BYTES;
 const MAX_FRAME_OFFSET = 0xfffffffe;
 /** The AUTOMATE record's bindings between records (never written to). */
 const NO_AUTOMATE_BINDINGS: AutomateBindings[] = [];
+/** The BED_CONFIG and ZONE_CONFIG scratch arrays between records (never written to). */
+const NO_NUMBERS: number[] = [];
+const NO_ZONE_SLOTS: ZoneSlotArgs[] = [];
+/** Pads a byte count to a multiple of 4 (the record and list padding of the M3 records). */
+const pad4 = (n: number): number => Math.ceil(n / 4) * 4;
 
 /**
  * ADR 0162 C3: SET_VOICE_FX, minus the head. `mask` is `SET_VOICE_FX_MASK_*` (hpHz, sends, yaw, aux); fields outside
@@ -490,10 +503,18 @@ export class CommandWriter implements VoiceCommandSink {
    * element by element, no new array); drops and flags like every record when the staging area is full.
    */
   setVoiceFx(args: VoiceFxArgs, atFrame?: number): void {
-    void args;
-    void atFrame;
-    void this.voiceFxRec;
-    throw new Error("not implemented: L-A1c");
+    const r = this.voiceFxRec;
+    r.voiceId = args.voiceId;
+    r.mask = args.mask;
+    r.rampFrames = args.rampFrames;
+    r.hpHz = args.hpHz;
+    for (let i = 0; i < 4; i++) r.send[i] = args.send[i]!;
+    r.yaw = args.yaw;
+    r.auxLevel = args.auxLevel;
+    r.auxBus = args.auxBus;
+    const at = this.begin(SET_VOICE_FX_FIXED_END);
+    if (at < 0) return;
+    this.end(at, writeSetVoiceFx(this.view, at, r), atFrame);
   }
 
   /**
@@ -502,10 +523,20 @@ export class CommandWriter implements VoiceCommandSink {
    * after BUS_CONFIG. More than `MAX_BEDS` slots is dropped and flagged (the record is never written).
    */
   bedConfig(bedSlot: ArrayLike<number>, hostBus: ArrayLike<number>): void {
-    void bedSlot;
-    void hostBus;
-    void this.bedConfigRec;
-    throw new Error("not implemented: L-A1c");
+    if (hostBus.length > MAX_BEDS) {
+      this.stats.dropped++;
+      this.overflowed = true;
+      return;
+    }
+    const r = this.bedConfigRec;
+    const at = this.begin(20 + pad4(bedSlot.length) + pad4(2 * hostBus.length));
+    if (at >= 0) {
+      r.bedSlot = bedSlot;
+      r.hostBus = hostBus;
+      this.end(at, writeBedConfig(this.view, at, r));
+    }
+    r.bedSlot = NO_NUMBERS; // the caller's lists are not kept (as `automate`)
+    r.hostBus = NO_NUMBERS;
   }
 
   /**
@@ -514,11 +545,20 @@ export class CommandWriter implements VoiceCommandSink {
    * `MAX_ZONE_SLOTS` slots is dropped and flagged.
    */
   zoneConfig(sharedReturnGain: number, rampFrames: number, slots: readonly ZoneSlotArgs[]): void {
-    void sharedReturnGain;
-    void rampFrames;
-    void slots;
-    void this.zoneConfigRec;
-    throw new Error("not implemented: L-A1c");
+    if (slots.length > MAX_ZONE_SLOTS) {
+      this.stats.dropped++;
+      this.overflowed = true;
+      return;
+    }
+    const r = this.zoneConfigRec;
+    const at = this.begin(24 + 16 * slots.length);
+    if (at >= 0) {
+      r.sharedReturnGain = sharedReturnGain;
+      r.rampFrames = rampFrames;
+      r.slots = slots as ZoneSlotArgs[];
+      this.end(at, writeZoneConfig(this.view, at, r));
+    }
+    r.slots = NO_ZONE_SLOTS;
   }
 
   /**
@@ -526,14 +566,16 @@ export class CommandWriter implements VoiceCommandSink {
    * `rampFrames`, or jumped to with `snap` (flags bit0, a camera cut). Asap.
    */
   listener(qx: number, qy: number, qz: number, qw: number, rampFrames: number, snap: boolean): void {
-    void qx;
-    void qy;
-    void qz;
-    void qw;
-    void rampFrames;
-    void snap;
-    void this.listenerRec;
-    throw new Error("not implemented: L-A1c");
+    const r = this.listenerRec;
+    r.qx = qx;
+    r.qy = qy;
+    r.qz = qz;
+    r.qw = qw;
+    r.rampFrames = rampFrames;
+    r.flags = snap ? LISTENER_FLAGS_SNAP : 0;
+    const at = this.begin(36);
+    if (at < 0) return;
+    this.end(at, writeListener(this.view, at, r));
   }
 
   /** RESET (§4.2): `keepClips` 0 also resets the arena and slab classes. */

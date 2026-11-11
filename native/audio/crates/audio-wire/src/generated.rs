@@ -3542,7 +3542,7 @@ impl StatusBlock {
         if env.kind != kind::STATUS {
             return Err(ERR_MALFORMED);
         }
-        let limit = base.checked_add(16 + env.body_bytes as usize).filter(|l| *l <= buf.len()).ok_or(ERR_TRUNCATED)?;
+        let limit = base.checked_add(16 + env.body_bytes as usize).filter(|l| *l <= buf.len() && *l >= base + 144).ok_or(ERR_TRUNCATED)?;
         let current_frame = get_f64(buf, base + 16);
         let date_ms = get_f64(buf, base + 24);
         let ping_seq = get_u32(buf, base + 32);

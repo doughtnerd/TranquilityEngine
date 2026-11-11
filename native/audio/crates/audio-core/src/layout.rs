@@ -41,6 +41,8 @@ pub const CLIP_DIRECTORY_ENTRIES: usize = 4_096;
 pub const CLIP_DIRECTORY_ENTRY_BYTES: usize = 32;
 pub const CLIP_CLASS_LISTS: usize = 32;
 pub const CLIP_CLASS_LIST_HEAD_BYTES: usize = 8;
+/// ADR 0162 C8: the shared planar scratch a source of up to 16 channels reads into (16 × 128 × f32).
+pub const PLANAR_SCRATCH_BYTES: usize = 16 * QUANTUM * core::mem::size_of::<f32>();
 
 /// The fixed regions, in the order they are laid out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -69,12 +71,22 @@ pub enum RegionKind {
     /// Parameters, curves, voice and bus automation and loop regions (ADR 0158 E2;
     /// `automation::region_bytes`).
     Automation,
+    /// ADR 0162 C8: bed slots and private decoders (`bed::region_bytes`; 0 without beds).
+    Beds,
+    /// ADR 0162 C8: zone convolver states (`zones::region_bytes`; 0 without zone slots).
+    Zones,
+    /// ADR 0162 C8: wide stream rings (`stream::wide_region_bytes`; 0 without wide rings).
+    Wide,
+    /// ADR 0162 C8: the mixed-voice pool (`fxpool::region_bytes`, from `max_mixed`).
+    Fx,
+    /// ADR 0162 C8: the 8 KB planar scratch for sources of up to 16 channels.
+    Scratch,
     /// The clip arena's initial reserve. Always last.
     Arena,
 }
 
 /// The layout order. Append-only before `Arena` (see the module comment).
-pub const REGION_ORDER: [RegionKind; 12] = [
+pub const REGION_ORDER: [RegionKind; 17] = [
     RegionKind::Output,
     RegionKind::CoreState,
     RegionKind::Pending,
@@ -86,6 +98,11 @@ pub const REGION_ORDER: [RegionKind; 12] = [
     RegionKind::Streams,
     RegionKind::ClipDirectory,
     RegionKind::Automation,
+    RegionKind::Beds,
+    RegionKind::Zones,
+    RegionKind::Wide,
+    RegionKind::Fx,
+    RegionKind::Scratch,
     RegionKind::Arena,
 ];
 
@@ -130,6 +147,12 @@ fn region_len(kind: RegionKind, p: &InitParams) -> usize {
         RegionKind::ClipDirectory => CLIP_DIRECTORY_ENTRIES * CLIP_DIRECTORY_ENTRY_BYTES + CLIP_CLASS_LISTS * CLIP_CLASS_LIST_HEAD_BYTES,
         // ADR 0158 E2: sized in its own module, like the streams.
         RegionKind::Automation => crate::automation::region_bytes(p),
+        // ADR 0162 C8: each sized in its feature's module, so A4, C3, B4 and D1 never edit this file.
+        RegionKind::Beds => crate::bed::region_bytes(p),
+        RegionKind::Zones => crate::zones::region_bytes(p),
+        RegionKind::Wide => crate::stream::wide_region_bytes(p),
+        RegionKind::Fx => crate::fxpool::region_bytes(p),
+        RegionKind::Scratch => PLANAR_SCRATCH_BYTES,
         RegionKind::Arena => align_up(p.arena_initial_bytes as usize, PAGE_BYTES),
     }
 }
@@ -218,6 +241,24 @@ mod tests {
         let fixed = fixed - streams - automation;
         assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF, streams and automation: {fixed}");
         eprintln!("default preset: automation {automation} B, total {} B", layout.total());
+    }
+
+    #[test]
+    fn the_m3_regions_are_zero_without_their_parameters_and_sized_per_c8() {
+        let m2 = Layout::new(&preset(4_096, 128, 16));
+        for kind in [RegionKind::Beds, RegionKind::Zones, RegionKind::Wide] {
+            assert_eq!(m2.region(kind).len, 0, "{kind:?}");
+        }
+        assert_eq!(m2.region(RegionKind::Fx).len, 128 * 448, "56 KB at 128 mixed");
+        assert_eq!(m2.region(RegionKind::Scratch).len, 8 * 1024);
+        let p = InitParams { max_beds: 2, max_zone_slots: 3, zone_max_frames: 96_000, max_wide: 1, ..preset(4_096, 128, 16) };
+        let m3 = Layout::new(&p);
+        assert_eq!(m3.region(RegionKind::Beds).len, 3 * 48 * 1024, "2 beds and 1 private decoder");
+        assert_eq!(m3.region(RegionKind::Zones).len, 3 * crate::zones::slot_state_bytes(96_000));
+        assert_eq!(m3.region(RegionKind::Wide).len, 16 * (16_384 + 2_048 + 1_536) * 4);
+        let wide_mib = m3.region(RegionKind::Wide).len as f64 / (1 << 20) as f64;
+        assert!((wide_mib - 1.22).abs() < 0.01, "{wide_mib} MiB");
+        assert!(m3.region(RegionKind::Arena).offset > m2.region(RegionKind::Arena).offset);
     }
 
     #[test]

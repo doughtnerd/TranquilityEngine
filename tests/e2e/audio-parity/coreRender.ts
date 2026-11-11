@@ -31,7 +31,7 @@ import type { BusEffect } from "../../../src/engine/audio/settings";
  * default. The reference graph has no such delay and the parity nulls are aligned at the frame, so the core renders
  * these scenes with 0 ms (no latency; the limiter never acts here anyway, see HEADROOM) rather than trimming a delay.
  */
-const PRESET: CorePreset = { maxLogical: 64, maxMixed: 16, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 0 };
+const PRESET: CorePreset = { maxLogical: 64, maxMixed: 16, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 0, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0 };
 const CHUNK_FRAMES = 8192;
 /**
  * Headroom for the master limiter (A2.8). The reference graph has no limiter, and some scenes (high-Q filters on

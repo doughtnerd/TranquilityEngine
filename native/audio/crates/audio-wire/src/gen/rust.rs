@@ -420,7 +420,9 @@ fn emit_status(o: &mut String, schema: &Schema) -> Result<(), String> {
     o.push_str("    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {\n");
     o.push_str(&format!("        if base.checked_add({}).map_or(true, |e| e > buf.len()) {{\n            return Err(ERR_TRUNCATED);\n        }}\n", st.header_bytes));
     o.push_str("        let (env, _) = Envelope::read(buf, base)?;\n        if env.magic != MAGIC {\n            return Err(ERR_BAD_MAGIC);\n        }\n        if (env.version >> 8) as u32 != VERSION_MAJOR {\n            return Err(ERR_VERSION_MISMATCH);\n        }\n        if env.kind != kind::STATUS {\n            return Err(ERR_MALFORMED);\n        }\n");
-    o.push_str("        let limit = base.checked_add(16 + env.body_bytes as usize).filter(|l| *l <= buf.len()).ok_or(ERR_TRUNCATED)?;\n");
+    // The body must hold the whole header: `limit - cur` below can't underflow (a short bodyBytes is
+    // refused, never a panic).
+    o.push_str(&format!("        let limit = base.checked_add(16 + env.body_bytes as usize).filter(|l| *l <= buf.len() && *l >= base + {}).ok_or(ERR_TRUNCATED)?;\n", st.header_bytes));
     for p in &placed {
         o.push_str(&format!("        let {} = {};\n", ident(p.field.name), read_expr(p)));
     }

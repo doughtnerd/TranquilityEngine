@@ -55,6 +55,13 @@ pub enum InitError {
     MaxLogical,
     MaxMixed,
     MaxBuses,
+    /// `max_beds` above [`InitParams::MAX_BEDS`].
+    MaxBeds,
+    /// `max_zone_slots` above [`InitParams::MAX_ZONE_SLOTS`], or zone slots with `zone_max_frames`
+    /// 0, or `zone_max_frames` past [`InitParams::MAX_ZONE_SECONDS`] at the rate.
+    Zones,
+    /// `max_wide` above [`InitParams::MAX_WIDE`].
+    MaxWide,
 }
 
 impl InitParams {
@@ -65,10 +72,18 @@ impl InitParams {
     pub const MAX_LOGICAL: u32 = 65_536;
     /// Most buses, master included.
     pub const MAX_BUSES: u32 = 256;
+    /// ABI 2.0 (C8): most beds (`audio.bed.maxBeds` 0..4; the wire's `MAX_BEDS`).
+    pub const MAX_BEDS: u32 = audio_wire::generated::MAX_BEDS;
+    /// Most zone slots (`maxActive + 1` with `maxActive` 0..2 needs 3; the wire carries 4).
+    pub const MAX_ZONE_SLOTS: u32 = audio_wire::generated::MAX_ZONE_SLOTS;
+    /// The longest zone IR (`audio.zones.maxIrSeconds` 0.5..8).
+    pub const MAX_ZONE_SECONDS: f32 = 8.0;
+    /// Most wide (3-16 channel) stream rings (`audio.ambisonic.maxClips` 0..4).
+    pub const MAX_WIDE: u32 = 4;
 
     /// Checks the ranges. Doesn't look at `arena_initial_bytes` (0 is allowed: the arena then
-    /// starts empty and grows on the first clip) nor, yet, at the four ABI 2.0 counts: zero is
-    /// always valid for them (no region); K2 adds their upper bounds.
+    /// starts empty and grows on the first clip). Zero is always valid for the four ABI 2.0 counts
+    /// (no region); `zone_max_frames` is ignored without zone slots.
     pub fn validate(&self) -> Result<(), InitError> {
         let (lo, hi) = Self::SAMPLE_RATE_RANGE;
         if !(self.sample_rate >= lo && self.sample_rate <= hi) {
@@ -82,6 +97,17 @@ impl InitParams {
         }
         if self.max_buses == 0 || self.max_buses > Self::MAX_BUSES {
             return Err(InitError::MaxBuses);
+        }
+        if self.max_beds > Self::MAX_BEDS {
+            return Err(InitError::MaxBeds);
+        }
+        if self.max_zone_slots > Self::MAX_ZONE_SLOTS
+            || (self.max_zone_slots > 0 && (self.zone_max_frames == 0 || self.zone_max_frames as f32 > (Self::MAX_ZONE_SECONDS * self.sample_rate).ceil()))
+        {
+            return Err(InitError::Zones);
+        }
+        if self.max_wide > Self::MAX_WIDE {
+            return Err(InitError::MaxWide);
         }
         Ok(())
     }
@@ -115,5 +141,19 @@ mod tests {
         assert_eq!(InitParams { max_logical: 0, ..p }.validate(), Err(InitError::MaxLogical));
         assert_eq!(InitParams { max_mixed: 5_000, ..p }.validate(), Err(InitError::MaxMixed));
         assert_eq!(InitParams { max_buses: 0, ..p }.validate(), Err(InitError::MaxBuses));
+        assert_eq!(InitParams { max_beds: 5, ..p }.validate(), Err(InitError::MaxBeds));
+        assert_eq!(InitParams { max_zone_slots: 5, zone_max_frames: 96_000, ..p }.validate(), Err(InitError::Zones));
+        assert_eq!(InitParams { max_zone_slots: 1, zone_max_frames: 0, ..p }.validate(), Err(InitError::Zones));
+        assert_eq!(InitParams { max_zone_slots: 1, zone_max_frames: 384_001, ..p }.validate(), Err(InitError::Zones));
+        assert_eq!(InitParams { max_wide: 5, ..p }.validate(), Err(InitError::MaxWide));
+    }
+
+    #[test]
+    fn the_m3_presets_are_valid() {
+        let p = default_preset();
+        // C10 high: 4 beds, 3 zone slots of 4 s, 2 wide rings; low: 0 beds, 1 slot of 1 s, 1 ring.
+        assert_eq!(InitParams { max_beds: 4, max_zone_slots: 3, zone_max_frames: 192_000, max_wide: 2, ..p }.validate(), Ok(()));
+        assert_eq!(InitParams { max_beds: 0, max_zone_slots: 1, zone_max_frames: 48_000, max_wide: 1, ..p }.validate(), Ok(()));
+        assert_eq!(InitParams { zone_max_frames: 1, ..p }.validate(), Ok(()), "frames are ignored without slots");
     }
 }

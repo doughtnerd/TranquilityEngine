@@ -2,6 +2,7 @@
 // The `test-hooks` wasm cases (decode_batch, schema hash export) belong to later tasks and stay out of this file.
 import { describe, expect, it } from "vitest";
 import * as wire from "./wire.generated";
+import { makeStatusBlock } from "./core/mirror";
 import wireVectors from "../../../../native/audio/crates/audio-wire/vectors/wire.json";
 
 type Json = number | string | Json[] | { [key: string]: Json };
@@ -53,6 +54,12 @@ const OPCODES: Record<string, Codec> = {
   BED_CONFIG: { write: wire.writeBedConfig, read: wire.readBedConfig },
   ZONE_CONFIG: { write: wire.writeZoneConfig, read: wire.readZoneConfig },
   LISTENER: { write: wire.writeListener, read: wire.readListener },
+};
+
+/** ADR 0162's blob headers (formats 3 and 4). */
+const BLOB_HEADERS: Record<string, Codec> = {
+  ZoneKernelHeader: { write: wire.writeZoneKernelHeader, read: wire.readZoneKernelHeader },
+  MaglsHeader: { write: wire.writeMaglsHeader, read: wire.readMaglsHeader },
 };
 
 /** Kind bodies: the writer fills offsets 16 and up of a whole message; the envelope is written after. */
@@ -203,6 +210,8 @@ function encodeVector(v: Vector): Uint8Array {
       return bytesOf(view, wire.writeEnvelope(view, 0, v.values as unknown as wire.Envelope));
     case "HrirHeader":
       return bytesOf(view, wire.writeHrirHeader(view, 0, v.values as unknown as wire.HrirHeader));
+    case "BlobHeader":
+      return bytesOf(view, codecFor(BLOB_HEADERS, subjectName(v), "blob header").write(view, 0, v.values as never));
     case "Opcode":
       return bytesOf(view, codecFor(OPCODES, subjectName(v), "opcode").write(view, 0, v.values as never));
     case "Kind":
@@ -268,6 +277,9 @@ function expectReadBack(v: Vector, bytes: Uint8Array): void {
       return;
     case "HrirHeader":
       expectMatch(wire.readHrirHeader(view, 0), v.values, label);
+      return;
+    case "BlobHeader":
+      expectMatch(codecFor(BLOB_HEADERS, subjectName(v), "blob header").read(view, 0), v.values, label);
       return;
     case "Opcode": {
       const name = subjectName(v);
@@ -560,6 +572,17 @@ describe("wire round trip", () => {
     padded.set(bytes, 8);
     expect(wire.readStatus(padded.subarray(8))).toEqual(status);
     expect(wire.readEnvelope(viewOf(bytes), 0).seq).toBe(seq);
+  });
+
+  it("a STATUS whose bodyBytes is shorter than the header is refused with a WireError, never a RangeError", () => {
+    const view = newView();
+    const n = wire.writeStatus(view, 0, makeStatusBlock(), 1);
+    const bytes = bytesOf(view, n);
+    for (const body of [0, 1, 95, 127, wire.STATUS_HEADER_BYTES - 17]) {
+      const short = bytes.slice();
+      new DataView(short.buffer).setUint32(12, body, true);
+      expect(() => wire.readStatus(short), `bodyBytes ${body}`).toThrow(wire.WireError);
+    }
   });
 
   it("truncated, oversize and unknown-opcode records are rejected or skipped by length, never read out of bounds", () => {
