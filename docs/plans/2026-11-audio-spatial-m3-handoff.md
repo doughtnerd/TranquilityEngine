@@ -11,7 +11,7 @@ Written 2026-11-11 at the end of the planning session. The plan is done and revi
 | Path | What it holds |
 |---|---|
 | `docs/plans/2026-11-audio-spatial-m3-waves.md` | milestones, shippable rules and flips, critical path, single-writer files, contracts K0–K4, waves W0–W9 with file lists and exits, risks, the independent review |
-| `docs/plans/2026-11-audio-spatial-m3-tree.md` | tiers, the collision audit (35 rows), how a task runs, the leaf brief, leads and leaves per task, model shares, the pilot's measures |
+| `docs/plans/2026-11-audio-spatial-m3-tree.md` | tiers, the collision audit (41 rows), how a task runs, the leaf brief, leads and leaves per task, model shares, the pilot's measures |
 | `docs/design/0162-audio-spatial/api-and-models.md` | the task table (§10), the authority on IDs, days, dependencies and acceptance; §5.1 and §6 now name the plan's seam files |
 | `docs/design/0162-audio-spatial/working-notes.md` | the owner's rules: no runs that can't change a decision, industry practice, no feature flags, the test cadence |
 | `docs/plans/2026-11-audio-m3-design-handoff.md` | the design session's handoff (gotchas still true) |
@@ -27,9 +27,10 @@ Written 2026-11-11 at the end of the planning session. The plan is done and revi
 
 - Everything the design handoff lists as settled: owner decisions 1–11, rulings R1–R17, follow industry practice, the test cadence.
 - The plan's choices, made under the task table's authority (the owner may still overrule any of them, item O1):
-  - The **bed flip is its own step, A6b**, merged last in W4 behind A3, A4's goldens and A7's bench. A6a parses the settings in W1 without changing the HRTF numbers.
+  - The **bed flip is A5 + A6b, merged together last in W4** behind A3, A4's goldens and A7's bench (A5 sends BED_CONFIG; A6b sets the HRTF numbers). A6a parses the settings in W1 without changing them.
+  - **Fixed memory turns on per feature:** each new region's init parameter stays zero until its flip (beds A5/A6b, zones C5, wide B5); K2 makes the Memory headroom a function of the parameters.
   - **One settings lead in W1 (A6a + C6) parses every §2.1 key**, including the occlusion, Doppler and speed-of-sound keys no row owned, and the §2.2 material table.
-  - **Samples are updated by the task that flips their default** (A6b `stress` HRTF, D2a occlusion layers, D3 `dopplerLevel: 0` in bench scenes); E8 keeps the rest.
+  - **Samples are updated by the task that flips their default** (A6b `stress` HRTF, D2a `pirates`, D3 `dopplerLevel: 0` on `sound-lab`'s orbiting sources and in `stress`'s generator); E8 keeps the rest.
   - **FuMa conversion is TypeScript** in the worker (`decoder/ambisonic.ts`), per B1's row; §5.1 is updated.
   - **Seam files:**
     - `audio-dsp/src/bed_matrix.rs` (A3);
