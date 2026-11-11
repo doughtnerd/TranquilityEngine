@@ -8,7 +8,11 @@ import type { Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
 import { clipVolume, isAmbisonicClip, startClip, worldKeyOf, worldPlays } from "./AudioSource";
 import { warnOnce } from "./core/handle";
-import type { MusicEvent, MusicHandle, MusicKind } from "../../../engine/audio/musicTypes";
+import type { AudioLatency, MusicEvent, MusicHandle, MusicKind } from "../../../engine/audio/musicTypes";
+import { audioHorizon, audioTimeAt, musicHandleOf } from "./music/handle";
+import { onMusicOf } from "./music/musicSystem";
+import { triggerOn } from "./music/stingers";
+import { audioLatency, getCalibration, isCalibrationStale, rhythmModeSetting, setCalibration } from "./music/calibration";
 import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioPanner, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest, type SendCurve } from "./backend";
 import { events, type EventDebugRow, type EventInstance, type EventOptions } from "./events/eventRuntime";
 
@@ -92,10 +96,11 @@ class EventHandle implements AudioEventHandle {
   setParameter(name: string, value: number | string): void { this.instance.setParameter(name, value); }
   getParameter(name: string): number | string | undefined { return this.instance.getParameter(name); }
   release(): void { this.instance.release(); }
-  // ADR 0166 §1.2 (Q0 placeholders; Q2 delegates them to `music/handle.ts` and `music/stingers.ts`).
-  get music(): MusicHandle | undefined { return undefined; }
-  onMusic(_kind: MusicKind, _fn: (e: MusicEvent) => void): () => void { return () => {}; }
-  trigger(_name: string): boolean { return false; }
+  // ADR 0166 §1.2 (Q2): each delegates to its owner's file: `music/handle.ts` (P7, K3), `music/musicSystem.ts` (K5),
+  // `music/stingers.ts` (R5). `music` is undefined, never an empty object, for a non-music event.
+  get music(): MusicHandle | undefined { return musicHandleOf(this.instance); }
+  onMusic(kind: MusicKind, fn: (e: MusicEvent) => void): () => void { return onMusicOf(this.instance, kind, fn); }
+  trigger(name: string): boolean { return triggerOn(this.instance, String(name)); }
 }
 
 /** @internal `AudioSource` plays events through this too. */
@@ -245,6 +250,48 @@ export const Audio = {
   /** "locked" until the browser allows audio, "running", or "failed". */
   get status(): AudioStatus {
     return audioBackend().status;
+  },
+
+  // ADR 0166 §1.3, §1.5 (Q2 declares the surface; each member delegates to its owner's file, so later tasks never edit
+  // this one: `music/handle.ts` P7, `music/calibration.ts` Rh1 and Rh2).
+
+  /**
+   * Seconds, read-only: the earliest heard time a stamped start is exact for a decoded clip (now + lookahead). Not a
+   * promise for a streamed clip (those need priming). On a backend without it: `Audio.time`.
+   */
+  get horizon(): number {
+    return audioHorizon();
+  },
+
+  /**
+   * The raw heard time (seconds, `Audio.time`'s base) of a `performance.now()` instant in ms, such as `event.timeStamp`.
+   * Calibration is never applied here. `Audio.time` before the clock has an estimate.
+   */
+  timeAt(performanceTime: number): number {
+    return audioTimeAt(performanceTime);
+  },
+
+  /** Seconds, default 0: subtracted from an input's offset (`judged = offset - calibration`). Kept per output device. */
+  get calibration(): number {
+    return getCalibration();
+  },
+  set calibration(seconds: number) {
+    setCalibration(seconds);
+  },
+
+  /** True after the output device changed, until a new calibration is set; the old value is kept meanwhile. */
+  get calibrationStale(): boolean {
+    return isCalibrationStale();
+  },
+
+  /** Seconds, read-only: base, output and limiter latency, their total, and whether the output figure is `reliable`. */
+  get latency(): AudioLatency {
+    return audioLatency();
+  },
+
+  /** Read-only: the project's `audio.rhythmMode` setting. */
+  get rhythmMode(): boolean {
+    return rhythmModeSetting();
   },
 
   /** A copy of the state for tools and "why is there no sound?". Allocates; never per frame. */
