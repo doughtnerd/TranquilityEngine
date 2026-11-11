@@ -1,6 +1,6 @@
 # 0162 spatial audio: the architect's contracts for `api-and-models.md` (round 2B)
 
-What [architecture.md](architecture.md) needs from the senior engineer's document, numbered **C1–C24**. This revision follows the coordinator's rulings R1–R17 ([rulings.md](rulings.md)). Byte offsets count from the record's first byte, head included (12 B: `u16 opcode; u16 words; u32 voiceId; u32 frameOffset`); everything is little-endian. Values that depend on an open owner decision are marked **OD1–OD3** (architecture "Owner decisions pending").
+What [architecture.md](architecture.md) needs from the senior engineer's document, numbered **C1–C24**. This revision follows the coordinator's rulings R1–R17 ([rulings.md](rulings.md)). Byte offsets count from the record's first byte, head included (12 B: `u16 opcode; u16 words; u32 voiceId; u32 frameOffset`); everything is little-endian. The owner's round-3 decisions OD1–OD5 are applied.
 
 ## Wire (`audio-wire/src/schema/`)
 
@@ -33,7 +33,7 @@ Sent after PLAY, and with SET_MIXED on promotion, when non-default; afterwards o
 **C5. ZONE_CONFIG, 0x17** (R4; idempotent; applies on arrival; matches [API §4.2]).
 - At 12: `u32 slotCount` (≤ 4). At 16: `f32 sharedReturnGain` (0..1, ramped). At 20: `u32 rampFrames`.
 - Then per slot, 16 B: `u32 kernelId` (0xFFFF0200..=0xFFFF02FF; 0 = off), `u16 returnBus` (the zone's `output`, R17), `u8 state` (1 active, 2 release: sends ignored, the tail rings out, then the slot is off), `u8` reserved, `f32 wet` (0..2), `u32 irFrames`. Total `24 + 16n`.
-- **OD2-B only:** `state` 3 = evict (sends ignored, wet fades out over 150 ms, then the slot is off). This is unused if the owner picks the standby slot.
+- `state` 3 = evict (sends ignored, wet fades out over 150 ms, then the slot is off). Used on the low preset, which has no standby slot (OD2).
 - The core holds an active slot whose kernel isn't resident as "waiting for kernel" and fades it in over 100 ms once the kernel arrives. It refuses a new `kernelId` in a slot that isn't off.
 - The stagger planner runs only when a slot starts, never for a `wet` or `sharedReturnGain` change.
 
@@ -51,7 +51,7 @@ Sent after PLAY, and with SET_MIXED on promotion, when non-default; afterwards o
 
 **C7. STATUS** (as [API §4.3]):
 - The header grows from 112 to 144 B: `bedVoices`, `bedsActive`, `fxVoices`, `ambisonicVoices`, `zonesActive`, `zonesRinging`, `zoneEventCount`, `bedsRefused`, `zoneUsedKB`, `workBed`, `workZones`.
-- Sections follow: `beds {u16 bus, u16 voices, u32 work}` (≤ 4), `zones {u32 kernelId, u8 state, u8 pad, u16 quantaSinceInput, f32 wetPeak}` (≤ 4; state 0 off, 1 waiting for kernel, 2 fading in, 3 active, 4 ringing out, plus 5 evicting under OD2-B), and `zoneEvents` (≤ 16).
+- Sections follow: `beds {u16 bus, u16 voices, u32 work}` (≤ 4), `zones {u32 kernelId, u8 state, u8 pad, u16 quantaSinceInput, f32 wetPeak}` (≤ 4; state 0 off, 1 waiting for kernel, 2 fading in, 3 active, 4 ringing out, plus 5 evicting, low preset), and `zoneEvents` (≤ 16).
 - Worst case 15,904 B of 16,384 B. Main adds `bedSwitches`, `zonesFaded` and the occlusion counters (C24).
 
 ## Core ABI and layout
@@ -62,7 +62,7 @@ Sent after PLAY, and with SET_MIXED on promotion, when non-default; afterwards o
   - `Zones`: `max_zone_slots` × convolver state at `zone_max_frames`;
   - `Wide`: `max_wide` × 16 × (16,384 + 2,048 + 1,536) × 4 B = 1.22 MiB each (2.22 MiB with a 32,768-frame ring if the R16 stall test fails), 2,048-frame chunks of 128 KB;
   - `Fx`: `max_mixed` × ≈ 448 B (the mixed-voice pool: 28 / 56 / 112 KB).
-- `max_zone_slots` = `maxActive + 1` (OD2-A; the standby slot includes its kernel) or `maxActive` (OD2-B; a third zone's kernel waits 50–200 ms for a free slot).
+- `max_zone_slots` = `maxActive + 1` on default and high (the standby slot includes its kernel) and `maxActive` on low (eviction fade; an incoming zone's kernel waits 50–200 ms for the free slot) (OD2).
 - ABI 2.0 (0x200); schema hash regenerated. `myco_audio_zone_kernel_budget_bytes(max_zone_slots, zone_max_frames)` lets the shell size the memory maximum (fixed regions + `clipMemoryMB` + the kernel budget).
 
 **C9. Decoder worker.**
@@ -79,7 +79,7 @@ Sent after PLAY, and with SET_MIXED on promotion, when non-default; afterwards o
 | `audio.bed.maxBeds` | 0..4 | 2 | 0 / 2 / 4 |
 | bus `bed` | `own` \| `parent` \| `none` | `parent`; the root `own` | — |
 | bus `bedPriority` | 0..255 | 128; the root 255 | — |
-| `audio.voices.hrtf` | 0..32 | 16 | 4 / **16 or 8 (OD1)** / 8 |
+| `audio.voices.hrtf` | 0..32 | 8 | 4 / 8 / 8 (OD1: 8 where beds exist) |
 | `audio.ambisonic.maxClips` | 0..4 | 1 | 1 / 1 / 2 |
 | `audio.occlusion.budgetMs` | 0.05..2 | 0.25 | 0.06 / 0.25 / 0.5 |
 | `audio.occlusion.layers`, `defaultMaterial`, `smoothingMs`, `materials` | as [API §2.1] | all layers, `concrete`, 100, [API §2.2] | — |
@@ -123,10 +123,10 @@ Sent after PLAY, and with SET_MIXED on promotion, when non-default; afterwards o
 
 **C20. Voice table (main):** [API §3.2]'s columns. Selection's audibility = `audibility0 × occGain`, with the no-gap rule. The panner pick enforces a 500 ms kind dwell in game time (R13 as clarified). Send, high-pass, yaw and aux targets are re-sent with SET_MIXED on promotion.
 
-**C21. Babylon fallback:** [API §8] (gain-only occlusion, `playbackRate` Doppler, W-only clips, **zones inert with one warning**; owner item 5 pending).
+**C21. Babylon fallback:** [API §8] (gain-only occlusion, `playbackRate` Doppler, W-only clips, **zones inert with one warning** (OD5)).
 
 **C22. Editor:** [API §7]'s `registerViewportTool` and Inspector contributions; no new SDK point.
 
 **C23. Presets:** each editor bundle writes C10's preset values together with M1's.
 
-**C24. Counters:** `bedsRefused`, `bedSwitches`, `bedFilterLoadFailure`, `belowHorizonVoices`, `zonesFaded`, `irTruncated`, `irFailures`, `kernelRefused`, `irPrepInCore`, `irPrepares`, `occlusionNoPhysics`, `occlusionRays`, `occlusionOverruns`, `oldestOcclusionAgeFrames`, `wideStarved`, `dopplerGuardTrips`, `dopplerClamps`, `m3Shed` (OD3-A).
+**C24. Counters:** `bedsRefused`, `bedSwitches`, `bedFilterLoadFailure`, `belowHorizonVoices`, `zonesFaded`, `irTruncated`, `irFailures`, `kernelRefused`, `irPrepInCore`, `irPrepares`, `occlusionNoPhysics`, `occlusionRays`, `occlusionOverruns`, `oldestOcclusionAgeFrames`, `wideStarved`, `dopplerGuardTrips`, `dopplerClamps`, `m3Shed` (the ladder, OD3).

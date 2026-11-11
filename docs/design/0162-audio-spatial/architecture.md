@@ -539,14 +539,14 @@ Settings are marked **S**, with defaults per preset (low / default / high). Pars
 | MagLS spectra (arena, 0xFFFF0100) | 64 KB at ≤ 48 kHz, 128 KB above 88.2 kHz | 0 (none hosted) / 64 / 64 KB |
 | Mixed-voice pool | `max_mixed` × ≈ 448 B | 28 / 56 / 112 KB |
 | Fold and chain tables | 256 buses × 12 B | 3 KB |
-| `Zones` region (state) | core slots × (whole zone − kernels) at `maxIrSeconds` | A: 2 × 0.9 / 3 × 1.6 / 3 × 3.1 MB; B: 1 × 0.9 / 2 × 1.6 / 2 × 3.1 MB [conv] |
-| Zone kernels (arena, outside `clipMemoryMB`) | kernel budget = core slots × kernel size | A: 1.5 / 4.4 / 8.8 MB; B: 0.8 / 2.9 / 5.9 MB [conv] |
-| **Zones total** | | **A (standby): 3.3 / 9.2 / 18.0 MB; B (eviction): 1.7 / 6.2 / 12.2 MB** (OD2) |
+| `Zones` region (state) | core slots × (whole zone − kernels) at `maxIrSeconds` | 1 × 0.9 / 3 × 1.6 / 3 × 3.1 MB [conv] |
+| Zone kernels (arena, outside `clipMemoryMB`) | kernel budget = core slots × kernel size | 0.8 / 4.4 / 8.8 MB [conv] |
+| **Zones total** | | **1.7 / 9.2 / 18.0 MB** (low: eviction fade, 1 slot; default and high: standby slot, OD2) |
 | `Wide` region | `maxClips` × 1.22 MiB (2.22 MiB at 32,768 frames) | 1.22 / 1.22 / 2.44 MiB |
 | Ambisonic arena clips | 16-ch int16: 1.5 MB/s | under `clipMemoryMB` |
-| **M3 total, fixed** | | **A: ≈ 4.6 / 10.7 / 20.9 MB; B: ≈ 3.0 / 7.7 / 15.1 MB** |
+| **M3 total, fixed** | | **≈ 3.0 / 10.7 / 20.9 MB** |
 
-Zone memory doubles at 96 kHz. Zones run at 44.1–96 kHz and are refused above that with a warning; 44.1 and 48 kHz are tested (S17). The kernel budget is one kernel per core slot (the standby slot includes its kernel, OD2-A). Kernels of zones that are Prepared but not in a slot stay resident (LRU) only while that budget has room, so walking back into the last room usually needs no new preparation. The arena is never compacted [A157 §5.2]. Zone state is never allocated there (R12).
+Zone memory doubles at 96 kHz. Zones run at 44.1–96 kHz and are refused above that with a warning; 44.1 and 48 kHz are tested (S17). The kernel budget is one kernel per core slot (on default and high the standby slot includes its kernel). Kernels of zones that are Prepared but not in a slot stay resident (LRU) only while that budget has room, so walking back into the last room usually needs no new preparation. The arena is never compacted [A157 §5.2]. Zone state is never allocated there (R12).
 
 **Wasm size.** Est. +40–50 KB on the mixer's 178.6 KB, under the 256 KB tripwire ([API §5.5]). The decoder gains ≈ +27 KB for IR preparation ([conv] `probe_zone`).
 
@@ -581,20 +581,20 @@ No credit is taken for bed voices skipping the moving equal-power matrix (`c_mov
 | *c*_aux | 0.3 µs (panned, est.) | `AUX_SEND` 300 | est. |
 | *c*_hrtf | 7.4 µs (lab VM) | `HRTF_VOICE` 7,400 | [A157 §6.1] |
 
-**HRTF room.** On high, 32 → 8 removes 24 × 7.4 ≈ **178 µs** (those 24 voices are counted in *N*_bed at 0.5 µs). Kernel computations are capped per quantum and don't change. On default, if OD1 picks 8: 8 × 7.4 ≈ 59 µs.
+**HRTF room.** On high, 32 → 8 removes 24 × 7.4 ≈ **178 µs** (those 24 voices are counted in *N*_bed at 0.5 µs). Kernel computations are capped per quantum and don't change. On default, 16 → 8 removes 8 × 7.4 ≈ 59 µs (OD1).
 
 ### 7.2 Scenes per preset (est.)
 
-Mono content is assumed for spatial voices. Event voices carry a high-pass. Zone slots follow OD2 (A standby / B eviction).
+Mono content is assumed for spatial voices. Event voices carry a high-pass. Zone slots follow OD2: standby on high and default, eviction on low.
 
 | Scene (wasm, container p50) | Terms (µs) | Net |
 |---|---|---|
 | **Typical high** (0162 §8): 2 beds, 240 bed voices, one 3rd-order clip into a bed, 2 blending 2 s zones, 32 filtered, 240 sends | 40 + 120 + 13 + 47 + 19 + 36 = 275; − 178 | **≈ 0.10 ms** (gross 0.28) |
-| **Worst high**: 4 beds, 248 bed voices, 2 clips (one private), A: 3 slots of 4 s (B: 2), 256 low-pass + 32 high-pass mono, 496 sends, 32 aux | 80 + 124 + (13 + 31) + 90 (B 60) + 173 + 74 + 10 = 595 (B 565); − 178 | **≈ 0.42 ms** (B 0.39; gross 0.60) |
-| **Typical default**: 2 beds, 112 bed voices, 1 clip into a bed, 2 blending 2 s zones, 16 filtered, 112 sends | 40 + 56 + 13 + 47 + 10 + 17 | **≈ 0.18 ms** (OD1 = 8: ≈ 0.13 ms) |
-| **Worst default**: 2 beds, 112 bed voices, 1 private clip, A: 3 slots of 2 s (B: 2), 128 + 16 filtered, 224 sends, 16 aux | 40 + 56 + 31 + 60 (B 40) + 86 + 34 + 5 | **≈ 0.31 ms** (B 0.29; OD1 = 8: −0.05) |
+| **Worst high**: 4 beds, 248 bed voices, 2 clips (one private), 3 slots of 4 s, 256 low-pass + 32 high-pass mono, 496 sends, 32 aux | 80 + 124 + (13 + 31) + 90 + 173 + 74 + 10 = 595; − 178 | **≈ 0.42 ms** (gross 0.60) |
+| **Typical default**: 2 beds, 120 bed voices, 1 clip into a bed, 2 blending 2 s zones, 16 filtered, 120 sends | 40 + 60 + 13 + 47 + 10 + 18 = 188; − 59 | **≈ 0.13 ms** (gross 0.19) |
+| **Worst default**: 2 beds, 120 bed voices, 1 private clip, 3 slots of 2 s, 128 + 16 filtered, 240 sends, 16 aux | 40 + 60 + 31 + 60 + 86 + 36 + 5 = 318; − 59 | **≈ 0.26 ms** (gross 0.32) |
 | **Typical low**: no beds, one 1st-order clip private, 1 zone of 1 s, 16 filtered, 60 sends | 9 + 13 + 10 + 9 | **≈ 0.04 ms** |
-| **Worst low**: one 3rd-order private clip, A: 2 slots of 1 s (B: 1), 64 + 8 filtered, 60 sends, 8 aux | 31 + 26 (B 13) + 43 + 9 + 2 | **≈ 0.11 ms** (B 0.10); phone unverified (owner) |
+| **Worst low**: one 3rd-order private clip, 1 slot of 1 s (eviction swaps), 64 + 8 filtered, 60 sends, 8 aux | 31 + 13 + 43 + 9 + 2 | **≈ 0.10 ms**; phone unverified (owner) |
 
 **Tails.** p99 on the container is roughly twice these numbers (summing component p99s, an upper estimate; typical high gross ≈ 0.54 ms). On the lab VM the high preset's p99.9 is 2.6× its p50 [A157 §6.1]; applied to the gross figure, M3's typical high adds ≈ 0.7 ms at p99.9 before the HRTF room and ≈ 0.26 ms net (est.).
 
@@ -605,10 +605,8 @@ Mono content is assumed for spatial voices. Event voices carry a high-pass. Zone
 The cap moves only on underruns and qualifying late commands ([A157 §6.3], owner 2026-11-10). M3 changes:
 - **Model.** The work-unit model gains the terms above. It is informational: STATUS `workUnits` and the per-bed `workUs` in debug (S12).
 - **Score order unchanged (S13).** The cap demotes by `score` as before; a bed voice is a voice like any other. **It never turns off a zone or a bed.**
-- **The floor the cap can't shed** grows by decodes, zone slots and clips: ≈ 0.21 ms at worst high (80 + 90 + 44 µs), ≈ 0.13 ms at worst default.
-- **Ladder: owner decision pending (OD3).**
-  - **Option A, the limited ladder (+2 days).** Triggered like the cap, and only once the cap sits at its floor of 16 with underruns continuing for 1 s: (1) cut releasing zones' tails with a 100 ms fade; (2) lower `maxActive` by 1 for the session. Each step is reported (`m3Shed`). It never changes beds or `voices.hrtf`.
-  - **Option B, none.** Under sustained underruns the cap already sheds voices, so zones and beds keep running at their floor cost.
+- **The floor the cap can't shed** grows by decodes, zone slots and clips: ≈ 0.21 ms at worst high (80 + 90 + 44 µs), ≈ 0.13 ms at worst default, ≈ 0.04 ms at worst low.
+- **The load-shedding ladder (OD3).** It is triggered like the cap, and only once the cap sits at its floor of 16 with underruns continuing for 1 s. Step 1 cuts releasing zones' tails with a 100 ms fade. Step 2 lowers `maxActive` by 1 for the session. Each step counts in `m3Shed`. It never touches beds or `voices.hrtf`, because those change where sounds are placed. Without it, sustained underruns would leave zones and beds running at their floor cost once the cap can shed nothing more.
 
 ### 7.4 Main thread
 
@@ -632,7 +630,7 @@ Main allocates nothing per frame ([A157 §6.4]). The ray query writes a reused r
 | Streams | a 16-channel stream through a 300 ms decoder stall (R16) | 0 starves, or rings grow to 32,768 |
 | Lab VM, phone | as M2's E5.5; the phone stays unverified (owner) | sets the presets |
 
-No long runs on the container: its p99.9 tracks the VM (working notes).
+No long runs on the container: its p99.9 tracks the VM (working notes). **Intensive tests run at wave end, not per task** (owner; [working-notes.md](working-notes.md)): e2e, `@slow` specs, long benches and soaks run once per wave on the merged result; a task runs its unit, golden, loopback and metered checks.
 
 ## 8. Failure modes
 
@@ -652,7 +650,7 @@ No long runs on the container: its p99.9 tracks the VM (working notes).
 | MagLS blob missing | fetch error | beds decode through the equal-power matrix | flatter distant placement | `bedFilterLoadFailure` |
 | Below −45° | main counts kind-2 voices below −45° | none in M3 (owner decision 5: SADIE II if the floor-below check fails) | below-listener sources approximate (8–20 dB above 4 kHz [bed]) | `belowHorizonVoices` |
 | Kind thrash | kind changes per voice-second (main) | the 500 ms dwell bounds it | debug warning above 2 per voice-second | `bedSwitches` |
-| M3 load under underruns | cap at floor, underruns continue | OD3: ladder or none | a tail cut or a zone fewer (ladder) | `m3Shed` |
+| M3 load under underruns | cap at floor, underruns continue | the ladder (§7.3): tails cut, then one active zone fewer | a tail cut or a zone fewer | `m3Shed` |
 
 ## 9. Observability
 
@@ -666,7 +664,7 @@ No long runs on the container: its p99.9 tracks the VM (working notes).
 | `irFailures`, `bedFilterLoadFailure` | 0 | — | non-zero |
 | `wideStarved` | 0 | — | any increment |
 | `bedSwitches` per voice-second | ≤ 2 | > 2 | — |
-| `m3Shed` (OD3-A) | 0 | — | any step |
+| `m3Shed` | 0 | — | any step |
 
 **What the panel shows:**
 - **Per voice:** panner kind and bed slot; occlusion gain, cutoff, age, material and hit node; the `occluded` reason; the low-pass in effect and **who set it** (`lowpassBy`: occlusion, event, automation, parent (sharing snapshot), bus snapshot); sends by zone; Doppler factor.
@@ -683,7 +681,7 @@ The field list is [API §1.6] (C15). STATUS carries the header counters and the 
 
 | | Core: Chromium (Chrome, Edge, WebView2, Android WebView) | Core: WebKit (Safari, WKWebView, WebKitGTK) | Core: Firefox | Babylon fallback (macOS desktop default) |
 |---|---|---|---|---|
-| Beds, ambisonic clips, occlusion with low-pass, zones, Doppler, event effects | full | full | full | best effort, [API §8]: `PannerNode` instead of beds, W-only clips, **gain-only occlusion** (owner decision 4), **zones inert with one warning** (pinned Babylon exposes bus nodes only through underscore members, which 0157 declined; **owner decision pending**, item 5: the alternative reaches into those members), `playbackRate` Doppler, filters and aux skipped with warnings |
+| Beds, ambisonic clips, occlusion with low-pass, zones, Doppler, event effects | full | full | full | best effort, [API §8]: `PannerNode` instead of beds, W-only clips, **gain-only occlusion** (owner decision 4), **zones inert with one warning** (OD5: the pinned Babylon exposes bus nodes only through underscore members, which 0157 declined to use), `playbackRate` Doppler, filters and aux skipped with warnings |
 | Evidence | M3 spikes in headless Chromium 153 (the bed in a worklet) [bed] | not run | not run | — |
 
 Tauri: Windows WebView2 takes the core path (M1's C3 soak passed); Linux WebKitGTK and macOS follow the WebKit and fallback columns. WebKit and Firefox runs of the M3 scenes are owed as release checks, as M1's were.
@@ -728,7 +726,7 @@ Tauri: Windows WebView2 takes the core path (M1's C3 soak passed); Linux WebKitG
 | 8 | sends see the occlusion low-pass | **Taken, stated** (R11 as clarified): the send taps after the voice's own filters and before the distance gain, then `wetOcclusion` and the curve (§3.3, §4) |
 | 9 | `maxClips` is three limits | **Taken:** it caps concurrent ambisonic voices and sizes rings and decoders; the lowest priority is stolen (§2.3) |
 | 10 | presets generated on main | **Taken:** generated in the worker (§2.2) |
-| 11 | Babylon `ConvolverNode` | **Taken:** zones are inert on the fallback with one warning; owner item 5 pending (§10) |
+| 11 | Babylon `ConvolverNode` | **Taken:** zones are inert on the fallback with one warning (OD5, §10) |
 | 12 | equal-power fold at ±90° | **Taken** (R9): acceptance within 2 dB except within 10° of the fold (§4.2) |
 | 13 | send curve default | **Taken with changes** (R11): the send is pre-distance with its own absolute curve, default 1 → 0.5 (§3.3) |
 | 14 | `LP_TOP` vs `lowpass_on` | **Taken with changes:** voice filters are off at ≥ 20,000 Hz (and high-pass ≤ 20 Hz, R2); the bus snapshot keeps `lowpass_on` (< 24,000) so M1/M2 goldens hold (§4.1) |
@@ -743,7 +741,7 @@ Tauri: Windows WebView2 takes the core path (M1's C3 soak passed); Linux WebKitG
 | S3 | **taken with changes:** gains fold in the core; the sharing snapshot low-pass folds on main (`lpBy` parent) (§4.3) |
 | S4 | **taken** (R16): a separate `Wide` region (the architect's design), 16,384 frames with the stall test, 2,048-frame chunks (§2.3) |
 | S5 | met: MagLS 0xFFFF0100 (R5); missing blob → the equal-power matrix (§4.2) |
-| S6 | **taken:** per-preset table with both OD2 options and the pool (§6) |
+| S6 | **taken:** per-preset table (eviction on low, standby on default and high) and the pool (§6) |
 | S7 | **taken:** mono passes, 0.15 µs sends, filters capped at mixed voices, 32 → 8 (§7) |
 | S8 | **taken:** health thresholds (§9) |
 | S9 | **taken:** their header and sections, 15,904 B worst case, 480 B headroom (§6) |
