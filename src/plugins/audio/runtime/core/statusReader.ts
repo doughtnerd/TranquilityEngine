@@ -324,10 +324,16 @@ export class StatusReader {
    * overrun")` or `"STATUS: groupStarts overrun"` exactly as the generated `readStatus` does. Touches nothing.
    */
   private validateM4(view: DataView, at: number, limit: number): void {
-    // L-Z4a: stub.
-    void view;
-    void at;
-    void limit;
+    const musicRingCount = view.getUint16(144, true);
+    const groupStartCount = view.getUint16(146, true);
+    let cur = at;
+    if (musicRingCount > MAX_MUSIC_RINGS || musicRingCount * MUSIC_RING_ITEM_BYTES > limit - cur) {
+      throw new WireError(ErrorCode.OVERSIZE, "STATUS: musicRings overrun");
+    }
+    cur += musicRingCount * MUSIC_RING_ITEM_BYTES;
+    if (groupStartCount > MAX_GROUP_STARTS_PER_BLOCK || groupStartCount * GROUP_START_ITEM_BYTES > limit - cur) {
+      throw new WireError(ErrorCode.OVERSIZE, "STATUS: groupStarts overrun");
+    }
   }
 
   /**
@@ -338,9 +344,40 @@ export class StatusReader {
    * each array's `length`. Allocates nothing. `validateM4` has already checked the bounds.
    */
   private readM4(view: DataView, at: number): void {
-    // L-Z4a: stub.
-    void view;
-    void at;
+    const b = this.block;
+    const musicRingCount = view.getUint16(144, true);
+    const groupStartCount = view.getUint16(146, true);
+    b.musicRingsOpen = view.getUint16(148, true);
+    b.streamStartsLate = view.getUint16(150, true);
+    b.groupsLate = view.getUint16(152, true);
+    b.groupsHeld = view.getUint16(154, true);
+    b.groupsAbandoned = view.getUint16(156, true);
+    b.curvePoolFull = view.getUint16(158, true);
+    b.maxSlipFrames = view.getUint32(160, true);
+    b.splitQuanta = view.getUint32(164, true);
+    b.voiceSplits = view.getUint32(168, true);
+    b.reserved = view.getUint32(172, true);
+
+    let cur = at;
+    const musicRings = b.musicRings;
+    for (let i = 0; i < musicRingCount; i++, cur += MUSIC_RING_ITEM_BYTES) {
+      const item = this.musicRingItems[i]!;
+      item.streamId = view.getUint32(cur, true);
+      item.epochFlags = view.getUint32(cur + 4, true);
+      musicRings[i] = item;
+    }
+    musicRings.length = musicRingCount;
+    const groupStarts = b.groupStarts;
+    for (let i = 0; i < groupStartCount; i++, cur += GROUP_START_ITEM_BYTES) {
+      const item = this.groupStartItems[i]!;
+      item.groupId = view.getUint16(cur, true);
+      item.flags = view.getUint16(cur + 2, true);
+      item.slipFrames = view.getUint32(cur + 4, true);
+      item.startFrameLo = view.getUint32(cur + 8, true);
+      item.startFrameHi = view.getUint32(cur + 12, true);
+      groupStarts[i] = item;
+    }
+    groupStarts.length = groupStartCount;
   }
 
   private ids(view: DataView, at: number, count: number, out: number[]): number {
