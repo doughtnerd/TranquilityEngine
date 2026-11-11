@@ -10,6 +10,7 @@ import {
   type EventNode,
   type SustainNode,
 } from "../../../engine/audio/eventFormat";
+import type { MusicNode, SegmentNode } from "../../../engine/audio/musicFormat";
 
 /**
  * The format registered with `registerAssetFormat` (id `"audioEvent"`): `parse` is `parseAudioEvent` (its problem
@@ -56,7 +57,21 @@ function renameNode(node: EventNode, moves: ReadonlyMap<string, string>): EventN
  * else is shared or copied unchanged. The input is not modified. Used when files are renamed or moved (ADR 0148).
  */
 export function renameEventClips(event: AudioEventAsset, moves: ReadonlyMap<string, string>): AudioEventAsset {
-  return { ...event, root: renameNode(event.root, moves) };
+  const renamed: AudioEventAsset = { ...event, root: renameNode(event.root, moves) };
+  // ADR 0166 (decision D6): a music event's tree is in `musicRoot`; its tracks' clips and alternatives move too.
+  if (event.musicRoot) renamed.musicRoot = renameMusicNode(event.musicRoot, moves);
+  return renamed;
+}
+
+const moved = (path: string, moves: ReadonlyMap<string, string>): string => moves.get(path) ?? path;
+
+function renameMusicSegment(seg: SegmentNode, moves: ReadonlyMap<string, string>): SegmentNode {
+  return { ...seg, tracks: seg.tracks.map((t) => ({ ...t, clip: moved(t.clip, moves), alternatives: t.alternatives.map((a) => moved(a, moves)) })) };
+}
+
+function renameMusicNode(node: MusicNode, moves: ReadonlyMap<string, string>): MusicNode {
+  if (node.type === "segment") return renameMusicSegment(node, moves);
+  return { ...node, children: node.children.map((c) => renameMusicNode(c, moves)), library: node.library.map((l) => renameMusicSegment(l, moves)) };
 }
 
 /**
