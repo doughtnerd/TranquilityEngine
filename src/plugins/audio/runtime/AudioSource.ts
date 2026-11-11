@@ -10,6 +10,7 @@ import { AssetRef, component, field } from "../../../engine/core/registry";
 import type { World } from "../../../engine/core/World";
 import { _worldServiceOf } from "../../../engine/core/worldServices";
 import { AUDIO, type AudioWorldService } from "./core/service";
+import { ambisonicImportGain } from "./core/clipRegistry";
 import { Assets } from "../../../engine/scene/Assets";
 import { audioBackend, type AudioVoice, type PlayRequest, type Rolloff } from "./backend";
 import { isAudioEventPath } from "../../../engine/audio/eventFormat";
@@ -23,13 +24,21 @@ export function startClip(path: string, loop: boolean, output: string | undefine
   return audioBackend().play({ path, url: Assets.url(path), loop, stream: Assets.importSettings(path).stream, bus: mixer.resolveOutput(output), ...extra });
 }
 
-/** @internal The clip's import volume (ADR 0040), which scales every playback of it. */
-export const clipVolume = (path: string) => Assets.importSettings(path).volume;
+/**
+ * @internal The clip's import volume (ADR 0040), which scales every playback of it. ADR 0162 §2.4: a FuMa clip was scaled
+ * down into int16 headroom by the decoder, and its import gain (1 for every other clip) restores the level.
+ */
+export const clipVolume = (path: string) => Assets.importSettings(path).volume * ambisonicImportGain(path);
 
 // ADR 0158: event clips start like every clip, with the import volume (and the bus resolved as for `output`). M2 F1: in
 // parts, so the event runtime reads a clip's import settings once per voice and builds its request in one object.
 _setEventClipStarter({
-  settings: (path) => Assets.importSettings(path),
+  settings: (path) => {
+    // ADR 0162 §2.4: as `clipVolume`; only a FuMa clip (import gain ≠ 1) costs an object.
+    const settings = Assets.importSettings(path);
+    const gain = ambisonicImportGain(path);
+    return gain === 1 ? settings : { volume: settings.volume * gain, stream: settings.stream };
+  },
   url: (path) => Assets.url(path),
   bus: (output) => mixer.resolveOutput(output),
   play: (req) => audioBackend().play(req),
