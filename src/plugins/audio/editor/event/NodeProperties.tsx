@@ -14,9 +14,16 @@ import {
   type ParameterDef,
 } from "../../../../engine/audio/eventFormat";
 import type { Curve, CurveKey } from "../../../../engine/core/curve";
+import { useState } from "preact/hooks";
+import { isMusicContainer, MUSIC_LIMITS, type MusicNode, type MusicSwitchNode, type PlaylistNode } from "../../../../engine/audio/musicFormat";
+import type { StingerDef } from "../../../../engine/audio/musicRules";
 import { draggedClips } from "./assetDrop";
-import { nodeLabel } from "./EventTree";
-import { coerceField, eventFields, nodeFields, readField, writeField, type AuxSend, type FieldDescriptor, type GroupField } from "./nodeFields";
+import { isLibraryPath, musicIdProblem, nodeLabel, type NodePath } from "./EventTree";
+import {
+  coerceField, eventFields, musicNodeFields, newStinger, nodeFields, patchStinger, readField, stingerAtFrom, stingerAtKind, writeField,
+  STINGER_AT_KINDS, STINGER_IF_TOO_LATE,
+  type AuxSend, type FieldDescriptor, type GroupField, type StingerAtKind,
+} from "./nodeFields";
 
 /** What the fields choose from. */
 export interface FieldContext {
@@ -206,6 +213,7 @@ function FieldRow(props: { field: FieldDescriptor; value: unknown; context: Fiel
     case "select":
       return row(
         <select aria-label={label} value={typeof value === "string" ? value : f.default} disabled={disabled} onChange={(e) => commit((e.currentTarget as HTMLSelectElement).value)}>
+          {f.optional && <option value="">{f.emptyLabel ?? "(none)"}</option>}
           {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>,
       );
@@ -379,6 +387,208 @@ export function EventProperties(props: { event: AudioEventAsset; context: FieldC
         <span class="ev-props-name">Event</span>
       </div>
       <FieldList fields={eventFields()} target={props.event} context={props.context} onChange={props.onChange} />
+    </div>
+  );
+}
+
+// --- music nodes (ADR 0166 §2.3, §2.5, §7) -------------------------------------------------------------------------------
+
+/** What an audition offers the stinger rows: `AudioEventHandle.trigger` of the playing instance. Absent: nothing is playing. */
+export interface StingerAudition {
+  trigger(name: string): boolean;
+}
+
+export interface MusicPropertiesProps {
+  /** The event's whole music tree, which the id check reads. */
+  root: MusicNode;
+  node: MusicNode;
+  path: NodePath;
+  parent: MusicNode | null;
+  context: FieldContext;
+  /** A change to the node's own fields or lists (never its id): the new node. */
+  onChange: OnChange<MusicNode>;
+  /** A new id for the node (already checked): the panel renames it and every rule, bridge and stinger naming it. */
+  onRename(id: string): void;
+  /** "Open segment view" on a segment (children and library segments alike). */
+  onOpenSegment?(id: string): void;
+  /** "Open rules table" on a container. */
+  onOpenRules?(id: string): void;
+  /** The playing audition, for the stinger trigger buttons; absent or null disables them. */
+  audition?: StingerAudition | null;
+}
+
+/** The id row: refuses (and says why) an id the format would reject or another node already has, keeping the old id. */
+function IdRow(props: { root: MusicNode; node: MusicNode; path: NodePath; disabled: boolean; onRename(id: string): void }) {
+  const { node } = props;
+  const [draft, setDraft] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const commit = (raw: string) => {
+    const id = raw.trim();
+    if (id === node.id) {
+      setDraft(null);
+      setProblem(null);
+      return;
+    }
+    const bad = musicIdProblem(props.root, props.path, id);
+    setProblem(bad);
+    setDraft(bad ? raw : null);
+    if (!bad) props.onRename(id);
+  };
+  return (
+    <div class="ev-field" title="The node's name in this event: 1 to 48 letters, digits, - or _, unique in the event." data-field="id">
+      <span class="ev-field-label">Id</span>
+      <span class="ev-field-value">
+        <input type="text" aria-label="Id" aria-invalid={problem !== null} value={draft ?? node.id} disabled={props.disabled} onChange={(e) => commit((e.currentTarget as HTMLInputElement).value)} />
+        {problem && <span class="ev-aud-notice" role="alert" data-testid="event-id-problem">{problem}</span>}
+      </span>
+    </div>
+  );
+}
+
+/** The button that opens a segment in the segment view, or a container's rules table. */
+function OpenButton(props: { node: MusicNode; onOpenSegment?(id: string): void; onOpenRules?(id: string): void }) {
+  const { node } = props;
+  return (
+    <div class="ev-field ev-field-wide" data-field="open">
+      {isMusicContainer(node) ? (
+        <button data-testid="open-rules-table" onClick={() => props.onOpenRules?.(node.id)} disabled={!props.onOpenRules} title="Rules for changing between this container's children">Open rules table</button>
+      ) : (
+        <button data-testid="open-segment-view" onClick={() => props.onOpenSegment?.(node.id)} disabled={!props.onOpenSegment} title="Edit this segment's stems, cues, regions and tempo">Open segment view</button>
+      )}
+    </div>
+  );
+}
+
+/** A container's stingers: one row each (trigger name, library segment, when, repeat guard, late rule) with a trigger button. */
+function StingerList(props: { node: PlaylistNode | MusicSwitchNode; context: FieldContext; onChange: OnChange<MusicNode>; audition?: StingerAudition | null }) {
+  const { node, context } = props;
+  const disabled = context.readOnly;
+  const library = node.library.map((s) => s.id);
+  const set = (list: StingerDef[], label: string) => props.onChange({ ...node, stingers: list }, false, label);
+  const patch = (i: number, p: Partial<StingerDef>, label: string) => set(node.stingers.map((s, j) => (j === i ? patchStinger(s, p) : s)), label);
+  const canTrigger = !!props.audition;
+  return (
+    <fieldset class="ev-group" data-field="stingers" title="One-shot segments played over the music when a script or the audition triggers their name.">
+      <legend>Stingers</legend>
+      {node.stingers.map((s, i) => {
+        const kind = stingerAtKind(s.at);
+        const label = `Stinger ${i + 1}`;
+        return (
+          <div class="ev-automation-item" key={i} data-testid="event-stinger" data-trigger={s.trigger}>
+            <div class="ev-automation-head">
+              <input type="text" aria-label={`${label} trigger`} placeholder="trigger name" value={s.trigger} disabled={disabled} onChange={(e) => {
+                const trigger = (e.currentTarget as HTMLInputElement).value.trim();
+                if (trigger !== "") patch(i, { trigger }, "Edit stinger");
+              }} />
+              <button
+                aria-label={`Trigger ${s.trigger}`}
+                data-testid="stinger-trigger"
+                disabled={!canTrigger}
+                title={canTrigger ? "Play this stinger now in the running audition" : "Start the audition (Play) to trigger a stinger"}
+                onClick={() => props.audition?.trigger(s.trigger)}
+              >
+                Trigger
+              </button>
+              <button class="icon" aria-label={`Remove ${label.toLowerCase()}`} title="Remove this stinger" disabled={disabled} onClick={() => set(node.stingers.filter((_, j) => j !== i), "Remove stinger")}>×</button>
+            </div>
+            <div class="ev-field" data-field="segment">
+              <span class="ev-field-label">Segment</span>
+              <span class="ev-field-value">
+                <select aria-label={`${label} segment`} value={s.segment} disabled={disabled} onChange={(e) => patch(i, { segment: (e.currentTarget as HTMLSelectElement).value }, "Edit stinger")}>
+                  {!library.includes(s.segment) && <option value={s.segment}>{s.segment} (unknown)</option>}
+                  {library.map((id) => <option key={id} value={id}>{id}</option>)}
+                </select>
+              </span>
+            </div>
+            <div class="ev-field" data-field="at">
+              <span class="ev-field-label">At</span>
+              <span class="ev-field-value">
+                <select aria-label={`${label} at`} value={kind} disabled={disabled} onChange={(e) => patch(i, { at: stingerAtFrom((e.currentTarget as HTMLSelectElement).value as StingerAtKind, s.at) }, "Edit stinger")}>
+                  {kind === "every" && <option value="every">every n (edit in the file)</option>}
+                  {STINGER_AT_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+                </select>
+                {typeof s.at === "object" && "cue" in s.at && (
+                  <input type="text" aria-label={`${label} cue`} placeholder="cue name" value={s.at.cue} disabled={disabled} onChange={(e) => patch(i, { at: { cue: (e.currentTarget as HTMLInputElement).value.trim() } }, "Edit stinger")} />
+                )}
+              </span>
+            </div>
+            <div class="ev-field" data-field="dontRepeat" title="Seconds during which the same stinger is not played again.">
+              <span class="ev-field-label">Don't repeat</span>
+              <span class="ev-field-value"><NumberInput value={s.dontRepeat} label={`${label} don't repeat`} step={0.1} disabled={disabled} onCommit={(v) => patch(i, { dontRepeat: Math.min(3600, Math.max(0, v)) }, "Edit stinger")} /></span>
+            </div>
+            <div class="ev-field" data-field="ifTooLate" title="What to do when the stinger's grid point has already passed.">
+              <span class="ev-field-label">If too late</span>
+              <span class="ev-field-value">
+                <select aria-label={`${label} if too late`} value={s.ifTooLate} disabled={disabled} onChange={(e) => patch(i, { ifTooLate: (e.currentTarget as HTMLSelectElement).value as StingerDef["ifTooLate"] }, "Edit stinger")}>
+                  {STINGER_IF_TOO_LATE.map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </span>
+            </div>
+            <div class="ev-field" data-field="volume" title="Linear gain 0 to 4; empty uses the segment's own.">
+              <span class="ev-field-label">Volume</span>
+              <span class="ev-field-value">
+                <OptionalNumberInput value={s.volume} label={`${label} volume`} step={0.05} placeholder="segment's" disabled={disabled} onCommit={(v) => patch(i, { volume: v === undefined ? undefined : Math.min(4, Math.max(0, v)) }, "Edit stinger")} />
+              </span>
+            </div>
+            <div class="ev-field" data-field="bus" title="The bus the stinger plays through; empty is the event's.">
+              <span class="ev-field-label">Bus</span>
+              <span class="ev-field-value">
+                <select aria-label={`${label} bus`} value={s.bus ?? ""} disabled={disabled} onChange={(e) => patch(i, { bus: (e.currentTarget as HTMLSelectElement).value }, "Edit stinger")}>
+                  <option value="">(event's)</option>
+                  {s.bus && !context.buses.includes(s.bus) && <option value={s.bus}>{s.bus} (unknown)</option>}
+                  {context.buses.map((b) => <option key={b} value={b}>{b}</option>)}
+                </select>
+              </span>
+            </div>
+          </div>
+        );
+      })}
+      <button
+        disabled={disabled || library.length === 0 || node.stingers.length >= MUSIC_LIMITS.stingers}
+        title={library.length === 0 ? "Add a library segment to the container first" : "Add a stinger that plays a library segment"}
+        onClick={() => set([...node.stingers, newStinger(node.stingers.map((s) => s.trigger), library[0])], "Add stinger")}
+      >
+        + Stinger
+      </button>
+    </fieldset>
+  );
+}
+
+/** The selected music node's properties: id, the type's fields, and for a container its stingers and library; segments and containers open their panels. */
+export function MusicNodeProperties(props: MusicPropertiesProps) {
+  const { node, parent, path } = props;
+  const inLibrary = isLibraryPath(path);
+  const where = parent === null ? "the root" : inLibrary ? "the library of its container" : `a child of ${parent.type}`;
+  // A music switch's labels: suggested for its children's `value` and for its own `default`.
+  const sw = node.type === "musicSwitch" ? node : parent?.type === "musicSwitch" ? parent : null;
+  const param = sw ? allParameters(props.context).find((p) => p.name === sw.parameter) : undefined;
+  const context = param && isLabelled(param) ? { ...props.context, labels: param.labels } : props.context;
+  const fields = musicNodeFields(node, parent, inLibrary).filter((f) => f.name !== "id");
+  return (
+    <div class="ev-props" data-testid="event-node-properties" data-node-type={node.type}>
+      <div class="ev-props-head">
+        <span class="ev-badge">{node.type}</span>
+        <span class="ev-props-name">{node.id}</span>
+        <span class="ev-props-where">{where}</span>
+      </div>
+      <IdRow root={props.root} node={node} path={path} disabled={context.readOnly} onRename={props.onRename} />
+      <OpenButton node={node} onOpenSegment={props.onOpenSegment} onOpenRules={props.onOpenRules} />
+      <FieldList fields={fields} target={node} context={context} onChange={props.onChange} />
+      {isMusicContainer(node) && (
+        <>
+          <StingerList node={node} context={props.context} onChange={props.onChange} audition={props.audition} />
+          <fieldset class="ev-group" data-field="library" title="Bridge and stinger segments of this container; they are not children. Add them from the tree.">
+            <legend>Library</legend>
+            {node.library.length === 0 && <p class="ev-empty">No library segments. Use + Add, Library segment in the tree.</p>}
+            {node.library.map((s) => (
+              <div class="ev-field" key={s.id} data-testid="event-library-item" data-library-id={s.id}>
+                <span class="ev-field-label">{s.id}</span>
+                <span class="ev-field-value"><button disabled={!props.onOpenSegment} onClick={() => props.onOpenSegment?.(s.id)}>Open segment view</button></span>
+              </div>
+            ))}
+          </fieldset>
+        </>
+      )}
     </div>
   );
 }

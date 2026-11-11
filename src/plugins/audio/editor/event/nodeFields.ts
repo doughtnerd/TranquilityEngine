@@ -3,6 +3,8 @@
 // limits match `parseAudioEvent`'s, so whatever the panel writes reads back unchanged. Pure: no Preact, no editor state.
 // `readField` / `writeField` / `coerceField` read and write a descriptor's value on a node or the event, immutably.
 import { REVERB_SEND_KEY, sustainReleaseFade, type AudioEventAsset, type EventNode, type SustainNode } from "../../../../engine/audio/eventFormat";
+import { IF_TOO_LATE, type StingerAt, type StingerDef } from "../../../../engine/audio/musicRules";
+import { MAX_GRID_OFFSET, MAX_PLAYLIST_ROUNDS, MUSIC_LIMITS, PLAYLIST_MODES, type MusicNode } from "../../../../engine/audio/musicFormat";
 import type { Curve } from "../../../../engine/core/curve";
 
 /**
@@ -68,6 +70,10 @@ export interface RangeField extends FieldBase {
 export interface SelectField extends FieldBase {
   kind: "select";
   options: readonly string[];
+  /** The key may be absent (a segment's `entry` and `exit`): the widget adds an `emptyLabel` choice that removes it. */
+  optional?: boolean;
+  /** The choice that leaves an optional select unset ("(default)"). */
+  emptyLabel?: string;
   default: string;
 }
 
@@ -232,7 +238,7 @@ function ownFields(node: EventNode): FieldDescriptor[] {
 /** Whether a field's key may be absent (its widget can clear it). */
 function isOptional(field: FieldDescriptor): boolean {
   switch (field.kind) {
-    case "range": case "text": case "group": case "number": case "boolean": return field.optional === true;
+    case "range": case "text": case "group": case "number": case "boolean": case "select": return field.optional === true;
     case "curve": case "aux": return true;
     default: return false;
   }
@@ -284,6 +290,85 @@ export function nodeFields(node: EventNode, parent: EventNode | null): FieldDesc
   }
   out.push(automationField());
   return out;
+}
+
+// --- music nodes (ADR 0166 §2.3) -----------------------------------------------------------------------------------
+
+const musicIdField = (): TextField => ({ kind: "text", name: "id", label: "Id", help: "The node's name in this event: 1 to 48 letters, digits, - or _, unique in the event (rules and stingers name it).", default: "" });
+const gridOffsetField = (): NumberField => ({ kind: "number", name: "gridOffset", label: "Grid offset", help: "Seconds of audio before bar 1, beat 1 (the pickup).", min: 0, max: MAX_GRID_OFFSET, step: 0.001, default: 0 });
+const cueSelectField = (name: "entry" | "exit", cues: readonly string[]): SelectField => ({
+  kind: "select", name, label: name === "entry" ? "Entry cue" : "Exit cue", optional: true, emptyLabel: "(default)", options: cues, default: "",
+  help: name === "entry" ? "The cue the segment is entered at; default is the cue named entry, else the grid start." : "The cue the segment is left at; default is the cue named exit, else the end.",
+});
+const playlistModeField = (): SelectField => ({ kind: "select", name: "mode", label: "Mode", help: "Sequence plays the children in order, random picks by weight, shuffle plays each once per round.", options: PLAYLIST_MODES, default: "sequence" });
+const roundsField = (): NumberField => ({ kind: "number", name: "rounds", label: "Rounds", help: "Whole passes through the list; 0 repeats forever.", min: 0, max: MAX_PLAYLIST_ROUNDS, step: 1, integer: true, default: 1 });
+const playsField = (): NumberField => ({ kind: "number", name: "plays", label: "Plays", help: "How many times this child plays per visit of its playlist.", min: 1, max: MUSIC_LIMITS.plays, step: 1, integer: true, default: 1 });
+const musicVolumeRandomField = (): RangeField => volumeRandomField();
+
+/**
+ * The fields of a music node, in panel order, given its parent (`null` for the root) and whether it is a `library`
+ * segment of its container (`inLibrary`: it is no child, so `plays`, `weight` and `value` mean nothing):
+ * 1. `id` (text; the panel checks it against the event's other ids).
+ * 2. The type's own: a segment's `gridOffset`, `entry` and `exit` (selects over its cue names, optional); a playlist's
+ *    `mode`, `rounds` and (random mode) `avoidRepeat`; a music switch's `parameter` (labelled) and `default`.
+ * 3. `volume` and `volumeRandom`. Pitch, delay, range, fade and automation are not read on music nodes, so they are not offered.
+ * 4. What the parent gives meaning to: `plays` under a playlist, `weight` under a random playlist, `value` (optional
+ *    text) under a music switch.
+ */
+export function musicNodeFields(node: MusicNode, parent: MusicNode | null, inLibrary = false): FieldDescriptor[] {
+  const out: FieldDescriptor[] = [musicIdField()];
+  switch (node.type) {
+    case "segment": {
+      const cues = node.cues.map((c) => c.name);
+      out.push(gridOffsetField(), cueSelectField("entry", cues), cueSelectField("exit", cues));
+      break;
+    }
+    case "playlist":
+      out.push(playlistModeField(), roundsField(), ...(node.mode === "random" ? [avoidRepeatField(node.children.length)] : []));
+      break;
+    case "musicSwitch":
+      out.push(switchParameterField(), switchDefaultField());
+      break;
+  }
+  out.push(volumeField(), musicVolumeRandomField());
+  if (!inLibrary) {
+    if (parent?.type === "playlist") out.push(playsField(), ...(parent.mode === "random" ? [weightField()] : []));
+    if (parent?.type === "musicSwitch") out.push(valueField());
+  }
+  return out;
+}
+
+// --- stingers (ADR 0166 §2.5) --------------------------------------------------------------------------------------
+
+/** What a stinger's `at` is, as a choice: a grid point (`beat`, `bar`), `immediate`, a named `cue`, or an `every` spec the panel keeps but doesn't edit. */
+export type StingerAtKind = "beat" | "bar" | "immediate" | "cue" | "every";
+export const STINGER_AT_KINDS: readonly StingerAtKind[] = ["beat", "bar", "immediate", "cue"];
+export const STINGER_IF_TOO_LATE = IF_TOO_LATE;
+
+export function stingerAtKind(at: StingerAt): StingerAtKind {
+  if (typeof at === "string") return at;
+  return "cue" in at ? "cue" : "every";
+}
+
+/** The `at` a choice makes; `cue` keeps the cue name the stinger had (else empty), `every` can't be chosen (the stinger keeps its own). */
+export function stingerAtFrom(kind: StingerAtKind, previous: StingerAt): StingerAt {
+  if (kind === "cue") return { cue: typeof previous === "object" && "cue" in previous ? previous.cue : "" };
+  return kind === "every" ? previous : kind;
+}
+
+/** A new stinger on library segment `segment`: a trigger name none of `taken` has (`stinger`, `stinger-2`…), the next beat, `nextGrid`. */
+export function newStinger(taken: readonly string[], segment: string): StingerDef {
+  let trigger = "stinger";
+  for (let n = 2; taken.includes(trigger); n++) trigger = `stinger-${n}`;
+  return { trigger, segment, at: "beat", dontRepeat: 0, ifTooLate: "nextGrid" };
+}
+
+/** `stinger` with `patch` applied; the optional `volume` and `bus` leave the stinger when `undefined` or empty (the file holds only what is set). */
+export function patchStinger(stinger: StingerDef, patch: Partial<StingerDef>): StingerDef {
+  const next = { ...stinger, ...patch };
+  if (next.volume === undefined) delete next.volume;
+  if (next.bus === undefined || next.bus === "") delete next.bus;
+  return next;
 }
 
 /**
@@ -339,7 +424,7 @@ function isSustain(target: object): target is SustainNode {
  * `target[field.name]`, or `undefined` when the key is absent. A sustain's `releaseFade` reads as `sustainReleaseFade`,
  * so a file without the key shows its `fade`.
  */
-export function readField(target: EventNode | AudioEventAsset | Record<string, unknown>, field: FieldDescriptor): unknown {
+export function readField(target: EventNode | MusicNode | AudioEventAsset | Record<string, unknown>, field: FieldDescriptor): unknown {
   if (field.name === "releaseFade" && isSustain(target)) return sustainReleaseFade(target);
   if (field.kind === "aux") {
     // The first non-reverb key is the aux send (the parser keeps one).
@@ -406,7 +491,8 @@ export function coerceField(field: FieldDescriptor, value: unknown): unknown {
       return a <= b ? [a, b] : [b, a];
     }
     case "select":
-      return typeof value === "string" && field.options.includes(value) ? value : field.default;
+      if (field.optional && (value === undefined || value === "")) return undefined;
+      return typeof value === "string" && field.options.includes(value) ? value : field.optional ? undefined : field.default;
     case "text": {
       if (value === undefined || value === null) return field.optional ? undefined : field.default;
       const s = String(value);
