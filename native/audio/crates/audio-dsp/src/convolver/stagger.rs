@@ -142,23 +142,40 @@ pub fn plan_one(fixed: &[Load], tail_parts: usize) -> Option<Phase> {
     if fixed.iter().any(|ins| !phase_is_valid(ins.phase)) {
         return None;
     }
-    if tail_parts == 0 {
-        return Some([(0, 2); 2]);
-    }
-    let base = modelled_load(fixed);
-    let mut best = (f64::INFINITY, f64::INFINITY, [(0u8, 2u8); 2]);
-    for f0 in 0..N as u32 - 2 {
-        for i0 in f0 + 2..N as u32 {
-            let mut l = base;
-            add_channel(&mut l, f0, i0, tail_parts, 1.0);
-            Eval::new(&l).each(tail_parts, |top, sq, f, i| {
-                if less((top, sq), (best.0, best.1)) {
-                    best = (top, sq, [(f0 as u8, i0 as u8), (f as u8, i as u8)]);
-                }
-            });
-        }
+    let mut best = PLAN_START;
+    for f0 in 0..PLAN_ROWS {
+        plan_one_row(fixed, tail_parts, f0, &mut best);
     }
     Some(best.2)
+}
+
+/// [`plan_one`]'s search so far: the best `(peak, sum of squares, phase)`.
+pub type PlanBest = (f64, f64, Phase);
+/// Where [`plan_one_row`]'s search starts.
+pub const PLAN_START: PlanBest = (f64::INFINITY, f64::INFINITY, [(0, 2); 2]);
+/// Rows of [`plan_one`]'s search (left forward slots `0..14`).
+pub const PLAN_ROWS: u32 = N as u32 - 2;
+
+/// One row of [`plan_one`]'s search, the left pairs with forward slot `f0`, folded into `best`
+/// (from [`PLAN_START`]): after rows `0..`[`PLAN_ROWS`] in order, `best.2` is [`plan_one`]'s phase
+/// (ADR 0162 C3b spreads the search over quanta). Every fixed phase must be valid (`plan_one`
+/// checks; a running instance's always is). Nothing without a tail. At most 14 × 105 scores; no
+/// allocation.
+#[inline(never)]
+pub fn plan_one_row(fixed: &[Load], tail_parts: usize, f0: u32, best: &mut PlanBest) {
+    if tail_parts == 0 {
+        return;
+    }
+    let base = modelled_load(fixed);
+    for i0 in f0 + 2..N as u32 {
+        let mut l = base;
+        add_channel(&mut l, f0, i0, tail_parts, 1.0);
+        Eval::new(&l).each(tail_parts, |top, sq, f, i| {
+            if less((top, sq), (best.0, best.1)) {
+                *best = (top, sq, [(f0 as u8, i0 as u8), (f as u8, i as u8)]);
+            }
+        });
+    }
 }
 
 /// The plan for `parts` (all non-zero, largest first) around `fixed`.

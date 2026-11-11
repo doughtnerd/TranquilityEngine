@@ -161,6 +161,16 @@ impl<'a> Instance<'a> {
         if state.len() >= n {
             state[..n].fill(0);
         }
+        Self::start_cleared(kernel, state, phase)
+    }
+
+    /// [`Instance::start`] on a state whose first [`state_bytes`] bytes are already zero, without
+    /// clearing them again (ADR 0162 C3b: a zone slot clears its state over several quanta while
+    /// its kernel is prepared, so starting it costs no quantum a megabyte-long fill).
+    pub fn start_cleared(kernel: Kernel<'a>, state: &'a mut [u8], phase: Phase) -> Option<Self> {
+        if !phase_is_valid(phase) {
+            return None;
+        }
         let inst = Self::view(kernel, state)?;
         inst.h.tail_parts = kernel.tail_parts() as u32;
         inst.h.phase = [phase[0].0, phase[0].1, phase[1].0, phase[1].1];

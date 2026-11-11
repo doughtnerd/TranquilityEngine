@@ -38,9 +38,14 @@
 //!   shell's addition to the Memory's maximum): a reserve past it is refusedCeiling. A format 3 clip
 //!   is `resident` when its last range is committed, and the zone slots waiting for it start
 //!   (`zones::kernel_resident`); its header is checked when a slot starts (a bad one is the zone
-//!   event `badBlob`). A format 5 clip is stored and stays silent: task C3b prepares its kernel in
-//!   the core and reports `resident` then.
+//!   event `badBlob`). A format 5 clip (task C3b) takes the block of the kernel it becomes
+//!   (`kernel::kernel_bytes(frames)`, so it costs the budget a format 3 kernel does) and its samples
+//!   go at `kernel::pcm_offset(frames)` in it; once committed, `zones.rs` prepares the kernel in
+//!   place over quanta ([`ClipStore::zone_pcm`]) and turns the clip into a format 3 one
+//!   ([`ClipStore::finish_zone_pcm`]), which reports `resident`. Its frames must be at most
+//!   `zone_max_frames` (main trims and cuts it first, C9's steps 1-3).
 
+use audio_dsp::convolver::kernel;
 use audio_dsp::hrtf::HrirDatabase;
 use audio_dsp::resample::{Samples, Source};
 use audio_wire::generated as wire;
@@ -156,7 +161,9 @@ impl Entry {
     }
 
     fn block(&self) -> Block {
-        Block { addr: self.addr, class: self.class }
+        // ADR 0162 C3b: a format 5 clip's samples sit inside its kernel's block.
+        let at = if self.format() == ClipFormat::ZoneIrPcm { kernel::pcm_offset(self.frames as usize) } else { 0 };
+        Block { addr: self.addr - at, class: self.class }
     }
 }
 
@@ -299,7 +306,8 @@ impl ClipStore {
             Ok(_) => return Err(wire::ERR_BAD_ARG),
             Err(at) => at,
         };
-        let bytes = (frames as usize).checked_mul(channels as usize * format.sample_bytes());
+        let pcm = format == ClipFormat::ZoneIrPcm;
+        let bytes = if pcm { Some(kernel::kernel_bytes(frames as usize)) } else { (frames as usize).checked_mul(channels as usize * format.sample_bytes()) };
         let block = match bytes {
             _ if self.len == self.entries.len() => Err(Refusal::Ceiling),
             None => Err(Refusal::Ceiling),
@@ -338,7 +346,7 @@ impl ClipStore {
             frames,
             sample_rate,
             committed: 0,
-            addr: block.addr,
+            addr: block.addr + if pcm { kernel::pcm_offset(frames as usize) } else { 0 },
             channels: channels as u8,
             format: format.to_wire(),
             class: block.class,
@@ -420,7 +428,7 @@ impl ClipStore {
             if e.format() == ClipFormat::Hrir {
                 self.finish_hrir(at);
             } else if e.format() == ClipFormat::ZoneIrPcm {
-                // Task C3b prepares the kernel and reports `resident` then.
+                // Task C3b: `zones.rs` prepares the kernel, then `finish_zone_pcm` reports `resident`.
             } else if e.format() == ClipFormat::MagLs {
                 // ADR 0162 A4: the core-level `commit` transforms it and queues the event.
             } else {
@@ -553,6 +561,28 @@ impl ClipStore {
         Some(unsafe { core::slice::from_raw_parts(e.addr as *const u8, e.frames as usize * 4) })
     }
 
+    /// A committed zone IR PCM clip (format 5, task C3b): its kernel block's address (the kernel is
+    /// prepared in place there, the samples at `kernel::pcm_offset`) and its frames; `None` when
+    /// `id` isn't held, isn't format 5 or isn't fully committed. Never allocates.
+    pub fn zone_pcm(&self, id: u32) -> Option<(usize, usize)> {
+        let e = &self.entries[self.find(id).ok()?];
+        (e.format() == ClipFormat::ZoneIrPcm && e.resident != 0).then(|| (e.block().addr, e.frames as usize))
+    }
+
+    /// The format 5 clip `id`'s kernel is prepared in its block (task C3b): the clip becomes the
+    /// format 3 kernel (one channel, `kernel_bytes / 4` frames, the same block) and `resident` is
+    /// queued. Nothing for an id that isn't a committed format 5 clip.
+    pub fn finish_zone_pcm(&mut self, id: u32) {
+        let Ok(at) = self.find(id) else { return };
+        let e = &mut self.entries[at];
+        if e.format() != ClipFormat::ZoneIrPcm || e.resident == 0 {
+            return;
+        }
+        let frames = (kernel::kernel_bytes(e.frames as usize) / 4) as u32;
+        *e = Entry { frames, committed: frames, addr: e.block().addr, channels: 1, format: ClipFormat::ZoneKernel.to_wire(), ..*e };
+        self.queue_event(id, wire::clip_event::RESIDENT);
+    }
+
     /// Arena bytes (block classes) held by zone kernels and zone IR PCM (formats 3 and 5).
     pub fn zone_bytes(&self) -> usize {
         self.zone_bytes
@@ -641,7 +671,16 @@ pub fn reserve(core: &mut Core, id: u32, frames: u32, channels: u32, sample_rate
         }
         let p = core.params();
         let budget = crate::zones::kernel_budget_bytes(p.max_zone_slots, p.zone_max_frames);
-        let bytes = (frames as usize).saturating_mul(channels as usize * 4);
+        let pcm = format == ClipFormat::ZoneIrPcm;
+        if pcm && frames > p.zone_max_frames {
+            // C3b: main trims and cuts the response to the slots' length first.
+            return wire::ERR_BAD_ARG;
+        }
+        if pcm {
+            // C3b: a preparation still running for this id was for a clip since freed.
+            crate::zones::cancel_prepare(core, id);
+        }
+        let bytes = if pcm { kernel::kernel_bytes(frames as usize) } else { (frames as usize).saturating_mul(channels as usize * 4) };
         let class = crate::arena::size_class::class_of(bytes).map(crate::arena::size_class::class_bytes);
         if class.is_none_or(|c| core.clips().zone_bytes() + c > budget) {
             core.clips_mut().queue_event(id, wire::clip_event::REFUSED_CEILING);
