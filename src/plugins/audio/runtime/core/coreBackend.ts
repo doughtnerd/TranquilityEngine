@@ -85,14 +85,15 @@ import { DistanceEffect } from "./spatial";
 import { StatusReader } from "./statusReader";
 import { UnlockQueue } from "./unlockQueue";
 import { connectVoiceTable, VoiceFlag, VoiceFlag2, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
-import { STREAM_ERROR_FADE_SECONDS, StreamManager, type StreamManagerDeps } from "./streams";
+import { STREAM_ERROR_FADE_SECONDS, StreamManager, type StreamDecoderLike, type StreamManagerDeps } from "./streams";
+import { WorkletChannel } from "./workletChannel";
 import { sharedDecoderClient } from "../decoder/decoderClient";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { effectiveMixedCap, ListenerBasis, Selection, type SelectionSink } from "./selection";
 import { PannerKind, PannerPick, pannerName, type PannerKindCode, type PannerSink } from "./pannerPick";
 import { BedPlanner } from "./beds";
 import { ZoneManager } from "./zones";
-import { createZoneIrService } from "./zoneIr";
+import { createZoneIrService, type ZoneIrChannel } from "./zoneIr";
 import { OcclusionPass } from "./occlusion";
 import { DopplerPass } from "./doppler";
 import { ListenerStage } from "./listener";
@@ -228,6 +229,13 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   readonly voiceFx: VoiceFx;
   /** ADR 0162 (K4, K0): zone IR preparation (`zoneIr.ts`). */
   readonly zoneIr: ZoneIrService;
+  /**
+   * B3, ADR 0162 C9: the decoder worker ↔ worklet channel (`workletChannel.ts`) streams and zone IRs share; whichever
+   * needs it first connects it, and a respawned worker or a rebuilt node gets a new one.
+   */
+  readonly worklet: WorkletChannel<StreamDecoderLike>;
+  /** This recovery's `onContextReplaced` ran (its channel went to the new node, after the link was rebound). */
+  private contextReplacedInRecovery = false;
   /** ADR 0162 (K4): the zone manager (`zones.ts`). */
   readonly zones: ZoneManager;
   /** ADR 0162 (K4): main's occlusion pass (`occlusion.ts`), run by the audio system. */
@@ -320,7 +328,37 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const preset = host.preset;
     this.voiceFx = new VoiceFx(this.table, this.writer);
     this.beds = new BedPlanner(this.writer, preset.maxBeds ?? 0);
-    this.zoneIr = deps.zoneIr ?? createZoneIrService({ sampleRate: host.sampleRate });
+    const streamDeps = deps.streams ?? {};
+    // B4: the AAC build's worker when the project decodes AAC, else the default one.
+    const decoder = streamDeps.decoder ?? (() => sharedDecoderClient(this.aac ? "aac" : "default"));
+    this.worklet = new WorkletChannel<StreamDecoderLike>({
+      decoder,
+      connectWorklet:
+        streamDeps.connectWorklet ??
+        ((port) => {
+          if (!host.link.connectStreamPort) throw new Error("audio: this host can't connect the decoder worker to the worklet");
+          host.link.connectStreamPort(port as MessagePort);
+        }),
+      channel: streamDeps.channel,
+    });
+    // ADR 0162 C9: kernels go to the worklet on that channel, from the streams' worker.
+    const worklet = this.worklet;
+    this.zoneIr =
+      deps.zoneIr ??
+      createZoneIrService({
+        sampleRate: host.sampleRate,
+        worklet: {
+          ensure: () => {
+            const decoder = worklet.ensure() as StreamDecoderLike & Partial<ZoneIrChannel>;
+            if (!decoder.postIr || !decoder.onIr) throw new Error("audio: this decoder can't prepare zone impulse responses");
+            return decoder as StreamDecoderLike & ZoneIrChannel;
+          },
+          get connections() {
+            return worklet.connections;
+          },
+          onConnect: (listener) => worklet.onConnect(listener),
+        },
+      });
     this.zones = new ZoneManager({ writer: this.writer, fx: this.voiceFx, irs: this.zoneIr, mirror: this.mirror, maxZoneSlots: preset.maxZoneSlots ?? 0, zoneMaxSeconds: preset.zoneMaxSeconds ?? 0, sampleRate: host.sampleRate, wet: this.occlusion.wet });
     this.listener = new ListenerStage(this.writer);
     this.spatialVoices = new TableSpatialView(this.table, this.sendCurves, {
@@ -334,18 +372,11 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       replayVoiceFx: (b: ReplayBuilder, id: number, i: number) => this.voiceFx.replayVoice(b, id, i),
     };
     this.clockMap = new ClockMap(this.clock, host.sampleRate, limiterLatencyFrames(host.sampleRate, host.preset.limiterLookaheadMs));
-    const streamDeps = deps.streams ?? {};
     this.streams = new StreamManager({
       table: this.table,
-      // B4: the AAC build's worker when the project decodes AAC, else the default one.
-      decoder: streamDeps.decoder ?? (() => sharedDecoderClient(this.aac ? "aac" : "default")),
-      connectWorklet:
-        streamDeps.connectWorklet ??
-        ((port) => {
-          if (!host.link.connectStreamPort) throw new Error("audio: this host can't connect streams to the worklet");
-          host.link.connectStreamPort(port as MessagePort);
-        }),
-      channel: streamDeps.channel,
+      decoder,
+      connectWorklet: () => {},
+      worklet,
       fetchBytes:
         streamDeps.fetchBytes ??
         (async (path) => {
@@ -827,8 +858,10 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private beginRecovery(): void {
     if (this.disposed) return;
     this.recovering = true;
-    // B3: the new core gets a new node; streams connect to it when they reopen (`reopenStreams`).
-    this.streams.disconnect();
+    // B3: the new core gets a new node; streams connect to it when they reopen (`reopenStreams`), zone IRs when the
+    // replay (or `contextReplaced`) asks for every kernel again.
+    this.worklet.disconnect();
+    this.contextReplacedInRecovery = false;
     this.replayer.begin();
   }
 
@@ -851,6 +884,10 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.writer.sampleRate = rate;
     this.hrir.retarget?.(rate);
     this.magls.retarget(rate);
+    // C9: the link is bound to the new node now. A channel made since the rebuild started (a zone asked for in the gap)
+    // went to the old one: the kernels asked for again below connect a new one.
+    this.worklet.disconnect();
+    this.contextReplacedInRecovery = true;
     this.zones.contextReplaced(rate);
     this.staleBlocks = this.mirror.blocks;
   }
@@ -860,6 +897,10 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     if (this.disposed) return;
     this.recovering = false;
     this.mirror.resetPeaks();
+    // C9: as in `contextReplaced`, unless that already ran after the rebind: the replay's kernels and reopened streams
+    // connect a channel to the new node.
+    if (!this.contextReplacedInRecovery) this.worklet.disconnect();
+    this.contextReplacedInRecovery = false;
     this.replayer.restore();
   }
 

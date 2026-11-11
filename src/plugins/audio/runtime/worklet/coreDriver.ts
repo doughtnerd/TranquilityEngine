@@ -12,6 +12,8 @@
 // and STREAM_CLOSE into the inbox, STREAM_CHUNK copied once into the stream's ring (`myco_audio_stream_chunk_ptr`,
 // `_commit`). After each quantum the shell asks the core what each stream consumed (`myco_audio_stream_consumed`) and
 // sends a STREAM_CREDIT every 4,096 frames, with the emptied chunk buffers in the same message.
+// ADR 0162 C9: the worker's zone kernels come on that port too (CLIP_BEGIN format 3, CLIP_CHUNK, CLIP_UNLOAD) and join
+// main's clip queue; a new port (a new worker) frees the kernels the old one brought.
 import { createStatusPool, type BufferPool } from "../core/bufferPool";
 import type { SpatialInitParams } from "../core/initParams";
 import { CreditAccumulator } from "../decoder/credit";
@@ -45,6 +47,7 @@ import {
   ZONE_KERNEL_HEADER_BYTES,
   ZONE_KERNEL_MAX_HEAD_PARTS,
   ZONE_TAIL_BINS,
+  writeClipUnload,
   writeEnvelope,
   writeStreamClose,
   writeStreamCredit,
@@ -511,6 +514,8 @@ export class CoreDriver {
   /** B3: open streams by id, and where credits go (null until the host connects the worker's port). */
   private readonly streams = new Map<number, StreamShape>();
   private streamPost: StreamPost | null = null;
+  /** ADR 0162 C9: zone kernels (format 3 clips) the decoder worker sent on the stream port and hasn't unloaded. */
+  private readonly portKernels = new Set<number>();
 
   /** `dateNow` is the wall clock at construction: the idle cadence counts 250 ms from it until a batch arrives. */
   constructor(
@@ -667,8 +672,31 @@ export class CoreDriver {
     // A new port means a new decoder worker (the old one died; main connects the next one before its first stream):
     // the old worker's streams will never send STREAM_CLOSE, so close them here and free their rings once their voices
     // end. Their chunk buffers belonged to the dead worker and are dropped.
-    if (this.streamPost && post && post !== this.streamPost) this.closeAllStreams();
+    // ADR 0162 C9: the same for the zone kernels the old worker sent: they're freed (after any clip message still
+    // queued), and main prepares every kernel again on the new worker.
+    if (this.streamPost && post && post !== this.streamPost) {
+      this.closeAllStreams();
+      this.unloadPortKernels();
+    }
     this.streamPost = post;
+  }
+
+  /** CLIP_UNLOAD, queued behind what is waiting, for every kernel the worker's port brought. */
+  private unloadPortKernels(): void {
+    for (const clipId of this.portKernels) {
+      const buffer = new ArrayBuffer(CLIP_UNLOAD_FIXED_END);
+      const view = new DataView(buffer);
+      writeEnvelope(view, 0, { kind: Kind.CLIP_UNLOAD, seq: 0, bodyBytes: CLIP_UNLOAD_FIXED_END - 16 });
+      writeClipUnload(view, 0, { clipId });
+      this.clipQueue.push(buffer);
+    }
+    this.portKernels.clear();
+    this.drainClips();
+  }
+
+  /** Zone kernels the decoder worker's port brought that are still loaded or loading (for tests). */
+  get workerClips(): number {
+    return this.portKernels.size;
   }
 
   /** STREAM_CLOSE for every open stream, through the inbox as the worker's would come. */
@@ -691,8 +719,10 @@ export class CoreDriver {
 
   /**
    * B3: a message from the decoder worker. STREAM_OPEN and STREAM_CLOSE go into the inbox (`myco_audio_submit`);
-   * STREAM_CHUNK is copied straight into its ring and its buffer kept for the next credit. A dead (trapped) core takes
-   * nothing; anything unreadable is dropped.
+   * STREAM_CHUNK is copied straight into its ring and its buffer kept for the next credit. ADR 0162 C9: the worker's
+   * zone kernels, CLIP_BEGIN format 3 then CLIP_CHUNKs (and CLIP_UNLOAD when released), join the clip queue as main's
+   * clips do (`drainClips`, `CLIP_BYTES_PER_QUANTUM` per quantum); no other clip format, and no clip the port didn't
+   * begin, is taken from it. A dead (trapped) core takes nothing; anything unreadable is dropped.
    */
   onStreamMessage(data: unknown, currentFrame: number, dateNow: number): void {
     void currentFrame;
@@ -718,6 +748,24 @@ export class CoreDriver {
       }
       case Kind.STREAM_CHUNK:
         return this.streamChunk(view);
+      case Kind.CLIP_BEGIN: {
+        if (data.byteLength < CLIP_BEGIN_FIXED_END) return;
+        const begin = readClipBegin(view, 0);
+        if (begin.format !== ClipFormat.ZoneKernel) return;
+        this.portKernels.add(begin.clipId);
+        this.clipQueue.push(data);
+        return this.drainClips();
+      }
+      case Kind.CLIP_CHUNK:
+      case Kind.CLIP_UNLOAD: {
+        const kind = view.getUint16(6, true);
+        if (data.byteLength < (kind === Kind.CLIP_CHUNK ? CLIP_CHUNK_FIXED_END : CLIP_UNLOAD_FIXED_END)) return;
+        const clipId = kind === Kind.CLIP_CHUNK ? readClipChunk(view, 0).clipId : readClipUnload(view, 0).clipId;
+        if (!this.portKernels.has(clipId)) return;
+        if (kind === Kind.CLIP_UNLOAD) this.portKernels.delete(clipId);
+        this.clipQueue.push(data);
+        return this.drainClips();
+      }
       case Kind.STREAM_CLOSE: {
         if (data.byteLength < STREAM_CLOSE_FIXED_END) return;
         const { streamId } = readStreamClose(view, 0);
@@ -874,6 +922,7 @@ export class CoreDriver {
     this.traps++;
     this.clipQueue.length = 0;
     this.streams.clear();
+    this.portKernels.clear();
     this.toneGain = 0;
     this.post({ type: "trap", message: error instanceof Error ? error.message : String(error) });
   }

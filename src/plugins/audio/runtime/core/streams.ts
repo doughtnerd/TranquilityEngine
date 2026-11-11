@@ -5,7 +5,8 @@
 //   it never collides with a clip registry id in `table.clip`; the core keeps stream ids in a namespace of their own.
 // - **Channel.** Before the first stream (and again after a hard rebuild or a new decoder worker) a `MessageChannel`
 //   connects the decoder worker to the worklet: one end to the worker (`connectWorklet`), the other to the node
-//   (`CoreLink.connectStreamPort`). Chunks and credits flow on it without main.
+//   (`CoreLink.connectStreamPort`). Chunks and credits flow on it without main. The channel is the backend's
+//   `WorkletChannel` (`workletChannel.ts`), shared with zone IRs (ADR 0162 C9): whichever needs it first connects it.
 // - **Open.** The backend sends the PLAY (flag `stream`) at once; the core holds the voice until data arrives. Here the
 //   file is fetched and handed to the worker (`openStream`, the bytes transferred), which posts STREAM_OPEN and chunks.
 // - **Waiting.** The voice reads `reason === "waitingForData"` from its play until it sounds, and again while starved:
@@ -50,6 +51,7 @@ import type { DecoderClient, StreamReply } from "../decoder/decoderClient";
 import { checkAmbisonic, type ClipInfo } from "./clipRegistry";
 import type { CoreLink } from "./context";
 import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
+import { WorkletChannel, type StreamChannel } from "./workletChannel";
 
 /** @internal The first stream id: past the HRIR clip ids (`0xFFFF0000..0xFFFF00FF`) in the reserved range. */
 export const STREAM_ID_FIRST = 0xffff0100;
@@ -61,11 +63,7 @@ export const STREAM_ERROR_FADE_SECONDS = 0.05;
 /** @internal What the manager needs of the decoder client. */
 export type StreamDecoderLike = Pick<DecoderClient, "connectWorklet" | "openStream" | "closeStream" | "onStream" | "generation"> & Partial<Pick<DecoderClient, "seekStream" | "loopStream">>;
 
-/** @internal The two ends of a channel. */
-export interface StreamChannel {
-  readonly worker: MessagePort | StreamPortLike;
-  readonly worklet: MessagePort | StreamPortLike;
-}
+export type { StreamChannel };
 
 /** @internal What `StreamManager` takes. */
 export interface StreamManagerDeps {
@@ -76,6 +74,8 @@ export interface StreamManagerDeps {
   readonly connectWorklet: (port: MessagePort | StreamPortLike) => void;
   /** Makes a channel; default `new MessageChannel()`. */
   readonly channel?: () => StreamChannel;
+  /** ADR 0162 C9: the channel shared with zone IRs (the backend's); default one of this manager's own on the three above. */
+  readonly worklet?: WorkletChannel<StreamDecoderLike>;
   /** B3b: sends the SEEK record for voice `id` (the backend's writer). */
   readonly sendSeek?: (id: number, frame: number, epoch: number) => void;
   /** Fetches an asset's encoded bytes. */
@@ -148,7 +148,7 @@ export interface StreamStats {
   starves: number;
   eos: number;
   coreErrors: number;
-  /** Channels made (one per decoder worker and core). */
+  /** Channels this manager made (one per decoder worker and core; one zone IRs made first isn't counted here). */
   connections: number;
   /** Seeks sent to the worker and the core (B3b). */
   seeks: number;
@@ -167,8 +167,8 @@ export class StreamManager {
   private nextId = 0;
   /** E4.4: what each asset's last `streamOpened` said. */
   private readonly facts = new Map<string, FileFacts>();
-  /** The decoder generation and core this manager connected, or -1 when a new channel is needed. */
-  private connectedGeneration = -1;
+  /** The worker ↔ worklet channel (shared with zone IRs in the backend). */
+  private readonly worklet: WorkletChannel<StreamDecoderLike>;
   /** B3b: told the frame a seek that waited for the file's rate landed on (the backend re-anchors the playhead). */
   afterSeek: ((voice: number, frame: number) => void) | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -176,6 +176,7 @@ export class StreamManager {
   private readonly starved: number[] = [];
 
   constructor(private readonly deps: StreamManagerDeps) {
+    this.worklet = deps.worklet ?? new WorkletChannel<StreamDecoderLike>({ decoder: deps.decoder, connectWorklet: deps.connectWorklet, channel: deps.channel });
     this.seen = new Float64Array(deps.table.capacity);
     this.seenFrame = new Float64Array(deps.table.capacity).fill(Number.NaN);
   }
@@ -333,7 +334,7 @@ export class StreamManager {
 
   /** The core is being replaced: the next open connects a new channel to the new node. */
   disconnect(): void {
-    this.connectedGeneration = -1;
+    this.worklet.disconnect();
   }
 
   /** Listens to STATUS (after the mirror): clears "waitingForData" for stream voices that are moving again. */
@@ -349,14 +350,10 @@ export class StreamManager {
       this.subscribed = decoder;
       this.unsubscribe = decoder.onStream((reply) => this.onReply(reply));
     }
-    // A worker spawned since (or never connected), or a new core: a new channel to both.
-    if (this.connectedGeneration === -1 || this.connectedGeneration !== decoder.generation) {
-      const channel = this.deps.channel?.() ?? defaultChannel();
-      decoder.connectWorklet(channel.worker);
-      this.deps.connectWorklet(channel.worklet);
-      this.connectedGeneration = decoder.generation;
-      this.stats.connections++;
-    }
+    // A worker spawned since (or never connected), or a new core: a new channel to both (unless zone IRs made it).
+    const before = this.worklet.connections;
+    this.worklet.ensure();
+    if (this.worklet.connections !== before) this.stats.connections++;
     return decoder;
   }
 
@@ -519,11 +516,6 @@ export class StreamManager {
     this.unsubscribe = null;
     this.subscribed = null;
   }
-}
-
-function defaultChannel(): StreamChannel {
-  const channel = new MessageChannel();
-  return { worker: channel.port1, worklet: channel.port2 };
 }
 
 /** A loop record (seconds) as a region of a file at `rate` with `frames` frames (0 unknown); null without a record. */

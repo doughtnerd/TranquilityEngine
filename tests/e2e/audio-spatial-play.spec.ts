@@ -1,5 +1,5 @@
 import { expect, type Page, play, test } from "./fixtures";
-import { inspector, openSpatial } from "./audioSpatial";
+import { inspector, openSpatial, SPATIAL_SCENE } from "./audioSpatial";
 import { showTab } from "./tabs";
 
 // The M3 editor work that needs a running game (ADR 0162 E4, E7, E9), on the spatial scene of audioSpatial.ts: the Audio
@@ -14,7 +14,7 @@ type Voice = {
   occlusion?: { gain: number; cutoffHz: number; hits: number; material: string; collider: string | null };
   filter?: { lowpassHz: number; lowpassBy: string | null };
 };
-type Debug = { voices: Voice[]; zones?: { node: string; ir: string }[]; occlusion?: { enabled: boolean; rays: number; note: string }; memory?: Record<string, number> };
+type Debug = { voices: Voice[]; zones?: { node: string; ir: string; state: string; why: string | null; irSeconds: number }[]; occlusion?: { enabled: boolean; rays: number; note: string }; memory?: Record<string, number> };
 type Drawing = { world: string; overlays: string[]; drawn: { segments: number } };
 type Hooks = { playEditorDrawing?: () => Drawing[]; playEngine?: { world: { name: string } } | null };
 
@@ -86,6 +86,25 @@ test("the occlusion overlay draws rays in the game view while the panel's toggle
   // The choice is remembered across a reload of the editor.
   await toggle.check();
   await expect.poll(async () => page.evaluate(() => localStorage.getItem("myco.editor.audioOcclusionOverlay"))).toBe("true");
+});
+
+test("a zone with a preset gets its kernel from the decoder worker in Play and goes active", async ({ page }) => {
+  // The spatial scene with the listener and the emitter inside the zone, so the zone wins a slot. Nothing streams
+  // here: the zone's kernel is the first thing on the decoder worker's channel to the worklet (ADR 0162 C9).
+  const scene = structuredClone(SPATIAL_SCENE);
+  const move = (id: string, position: number[]) => (scene.nodes.find((n) => n.id === id)!.components[0] = { type: "engine.Transform", data: { position } });
+  move("ears", [0, 1, 0]);
+  move("emitter", [2, 1, 0]);
+  await openSpatial(page, { "scenes/main.scene.json": JSON.stringify(scene) });
+  await play(page);
+  const zone = async () => {
+    const z = (await debug(page)).zones?.[0];
+    return z ? `${z.state}${z.why ? ` (${z.why})` : ""}` : "no zone";
+  };
+  await expect.poll(zone, { timeout: 20_000, message: "the hall preset's kernel reaches the core and its slot is active" }).toBe("active");
+  const z = (await debug(page)).zones![0];
+  expect(z.ir).toBe("hall");
+  expect(z.irSeconds).toBeGreaterThan(0);
 });
 
 // --- live tuning ----------------------------------------------------------------------------------------------------
