@@ -30,17 +30,18 @@ Sent after PLAY, and with SET_MIXED on promotion, when non-default; afterwards o
 
 **C4. LISTENER, 0x20, 36 B** (R3; asap). At 12: `f32 qx, qy, qz, qw`, the **world → listener** rotation (normalised by the core; non-finite or zero is ignored). At 28: `u32 rampFrames`, the core slerps per quantum. At 32: `u32 flags`, bit0 **snap** (jump, no ramp). Sent when the rotation moves more than 0.001 rad, on a cut, and on the first ambisonic play. Axis map: (X, Y, Z)_ambix = (−z, −x, +y)_engine.
 
-**C5. ZONE_CONFIG, 0x17** (R4; idempotent; applies on arrival).
+**C5. ZONE_CONFIG, 0x17** (R4; idempotent; applies on arrival; matches [API §4.2]).
 - At 12: `u32 slotCount` (≤ 4). At 16: `f32 sharedReturnGain` (0..1, ramped). At 20: `u32 rampFrames`.
-- Then per slot, 20 B: `u32 kernelId` (0xFFFF0200..=0xFFFF02FF; 0 = off), `u16 outputBus` (R17), `u16 state` (0 off, 1 active, 2 ring out, 3 evict with a 150 ms fade, the OD2-B option), `f32 wet` (0..2), `u32 irFrames` (at the context rate), `u32 reserved`.
-- The core holds an active slot whose kernel isn't resident as "waiting for kernel" and fades it in over 100 ms once the kernel is resident.
+- Then per slot, 16 B: `u32 kernelId` (0xFFFF0200..=0xFFFF02FF; 0 = off), `u16 returnBus` (the zone's `output`, R17), `u8 state` (1 active, 2 release: sends ignored, the tail rings out, then the slot is off), `u8` reserved, `f32 wet` (0..2), `u32 irFrames`. Total `24 + 16n`.
+- **OD2-B only:** `state` 3 = evict (sends ignored, wet fades out over 150 ms, then the slot is off). This is unused if the owner picks the standby slot.
+- The core holds an active slot whose kernel isn't resident as "waiting for kernel" and fades it in over 100 ms once the kernel arrives. It refuses a new `kernelId` in a slot that isn't off.
 - The stagger planner runs only when a slot starts, never for a `wet` or `sharedReturnGain` change.
 
 **C6. Clip formats and ids** (R5, R7).
 
 | Format | Id | Content |
 |---|---|---|
-| 3, prepared zone kernel | 0xFFFF0200..=0xFFFF02FF | `channels` 2; packed spectra as `convolver.rs` (head 32 partitions × 128 bins, tail partitions × 2,048 bins, bin 0 holding DC and Nyquist), normalisation baked in; header as [API §4.6] |
+| 3, prepared zone kernel | 0xFFFF0200..=0xFFFF02FF | `channels` 1, `frames` = bytes / 4; packed spectra as `convolver.rs` (head 32 partitions × 128 bins, tail partitions × 2,048 bins, bin 0 holding DC and Nyquist), normalisation baked in; header as [API §4.6] |
 | 4, MagLS filters | 0xFFFF0100 | time responses f32, 16 channels × 2 ears × taps (256 at ≤ 48 kHz, 512 above 88.2 kHz) at the context rate |
 | 5, zone IR PCM | 0xFFFF0200..=0xFFFF02FF | interleaved f32 at the context rate; the core prepares it into the same block, one unit per quantum (the worker-missing path) |
 
@@ -48,12 +49,10 @@ Sent after PLAY, and with SET_MIXED on promotion, when non-default; afterwards o
 - `clip_reserve` accepts 1, 2, 4, 9 and 16 channels for formats 0 and 1.
 - STREAM_OPEN accepts `channels` 1–16. More than 2 takes a wide ring (C8); with none free the open is refused with a stream event. A `convention` field gives AmbiX 0 or FuMa 1; the worker converts FuMa per chunk.
 
-**C7. STATUS `spatial` section** (replaces the 144 B header growth; ≈ 150 B at 4 beds and 4 slots).
-- Per bed slot, 12 B: `u16 hostBus, u16 voices, u16 clips, u16 flags (bit0 decoding), u32 workUnits`.
-- Per zone slot, 20 B: `u32 kernelId, u16 state (0 off, 1 waiting for kernel, 2 fading in, 3 active, 4 ringing out, 5 stopped, 6 evicting), u16 quantaSinceInput, f32 inPeak, f32 wetPeak, u8 f[2], u8 i[2]`.
-- Then `u16 wideStarved, u16 irPrepInCore, u16 m3Shed, u16 reserved`.
-- Kernel events go in the existing clip-event list (resident, refused).
-- Worst-case block ≈ 15,880 B of the 16,384 B buffers.
+**C7. STATUS** (as [API §4.3]):
+- The header grows from 112 to 144 B: `bedVoices`, `bedsActive`, `fxVoices`, `ambisonicVoices`, `zonesActive`, `zonesRinging`, `zoneEventCount`, `bedsRefused`, `zoneUsedKB`, `workBed`, `workZones`.
+- Sections follow: `beds {u16 bus, u16 voices, u32 work}` (≤ 4), `zones {u32 kernelId, u8 state, u8 pad, u16 quantaSinceInput, f32 wetPeak}` (≤ 4; state 0 off, 1 waiting for kernel, 2 fading in, 3 active, 4 ringing out, plus 5 evicting under OD2-B), and `zoneEvents` (≤ 16).
+- Worst case 15,904 B of 16,384 B. Main adds `bedSwitches`, `zonesFaded` and the occlusion counters (C24).
 
 ## Core ABI and layout
 
@@ -61,9 +60,9 @@ Sent after PLAY, and with SET_MIXED on promotion, when non-default; afterwards o
 - New regions go before `Arena` in `REGION_ORDER`, each a pure function of `InitParams`:
   - `Beds`: `max_beds` × 48 KB, plus `max_wide` × 48 KB of private decoders;
   - `Zones`: `max_zone_slots` × convolver state at `zone_max_frames`;
-  - `Wide`: `max_wide` × 16 × (16,384 + 4,096 + 1,536) × 4 B, or with 32,768 frames if the R16 stall test fails;
-  - `VoiceFx`: `max_mixed` × ≈ 380 B (the mixed-voice pool).
-- `max_zone_slots` = `maxActive + 1` (OD2-A) or `maxActive` (OD2-B).
+  - `Wide`: `max_wide` × 16 × (16,384 + 2,048 + 1,536) × 4 B = 1.22 MiB each (2.22 MiB with a 32,768-frame ring if the R16 stall test fails), 2,048-frame chunks of 128 KB;
+  - `Fx`: `max_mixed` × ≈ 448 B (the mixed-voice pool: 28 / 56 / 112 KB).
+- `max_zone_slots` = `maxActive + 1` (OD2-A; the standby slot includes its kernel) or `maxActive` (OD2-B; a third zone's kernel waits 50–200 ms for a free slot).
 - ABI 2.0 (0x200); schema hash regenerated. `myco_audio_zone_kernel_budget_bytes(max_zone_slots, zone_max_frames)` lets the shell size the memory maximum (fixed regions + `clipMemoryMB` + the kernel budget).
 
 **C9. Decoder worker.**
@@ -99,12 +98,11 @@ Sent after PLAY, and with SET_MIXED on promotion, when non-default; afterwards o
 
 **C13. One-shots and events:** [API §1.3, §2.5], with event `sends.reverb` as the zone send and `sends.<bus>` as the one aux send (R2).
 
-**C14. Physics ray query** (R12; the interface is in `src/engine/core/worldServices.ts`, so the audio plugin needs no physics import): `raycastInto(world, out: WorldRayHitOut, ox, oy, oz, dx, dy, dz, maxDistance, groups: number, flags: number, excludeNodes: readonly GameObject[]): boolean`.
-- `flags` bit0 means exclude sensors.
-- `out` is a reused `{ node, distance, px, py, pz }`. Nothing is allocated per call.
-- Exclusion of the given nodes' subtrees happens **inside the query**, so the first hit returned is never an excluded collider.
-- `groupsFor(layers?)` is computed once per settings change.
-- Audio never starts the service.
+**C14. Physics ray query** (R12; as [API §6]): a core-level interface in `src/engine/core/worldServices.ts`, so the audio plugin needs no physics import: `raycastInto(world, out, origin, dir, maxDistance, query): boolean`.
+- `out` is a preallocated `{ node, distance, point }`.
+- `query` is `{ groups, excludeNodes, includeSensors: false }`; `excludeNodes` holds the source's subtree and the listener's node.
+- Exclusion happens **inside the query** (Rapier's predicate filter), so the first hit returned is never an excluded collider.
+- No allocation per call. `groupsFor(layers?)` is computed once per settings change. Audio never starts the service.
 
 **C15. `AudioDebugInfo`:** [API §1.6], plus `beds[].denied`, `zones[].prepareMs` and `zones[].by` (`worker` | `core`), `occlusion.rayCostUs`, the `memory.*` fields and the C24 counters.
 
@@ -113,19 +111,19 @@ Sent after PLAY, and with SET_MIXED on promotion, when non-default; afterwards o
 ## Core internals the architecture relies on
 
 **C17. The mixed-voice pool.**
-- One entry per mixed slot (`max_mixed`): low-pass and high-pass `Biquad`, log2 cutoff ramps, `send[4]` and aux ramps, `auxBus`, `yaw`, bed share ramp. Reset on promotion.
+- One entry per mixed slot (`max_mixed`, ≈ 448 B): low-pass and high-pass `Biquad`, log2 cutoff ramps, `send[4]` and aux ramps, `auxBus`, `yaw`, bed share ramp, 16 f32 bed gains. Reset on promotion.
 - `VoiceAuto.filter` migrates here, bit-identically.
 - Mono voices are filtered once before the copy to two channels.
 - Ambisonic voices are never filtered.
-- A voice with sends runs filter → send tap → dry gain; one without keeps M2's order. Voice filters are off at ≥ 20,000 Hz and ≤ 20 Hz; the bus snapshot keeps `lowpass_on`.
+- **Send tap (R11 as clarified):** after the voice's own filters (occlusion low-pass, event filter, automation low-pass; mono-once) and before the distance gain. `send[k]` from main carries `wetOcclusion` and the send curve. A voice with sends runs filter → send tap → dry gain; one without keeps M2's order. [API §4.4] still says pre-filter and must change to match. Voice filters are off at ≥ 20,000 Hz and ≤ 20 Hz; the bus snapshot keeps `lowpass_on`.
 
 **C18. Work units** (`cap::wu`, informational): `BED_DECODE` 20,000, `BED_VOICE` 500, `AMBI_ROTATE` 5,000, `AMBI_READ` 8,000, `ZONE_BASE` 8,500, `ZONE_PER_S` 4,500, `BIQUAD` 1,200, `BIQUAD_MONO` 600, `REVERB_SEND` 150, `AUX_SEND` 300, `ZONE_PREP_UNIT` 20,000 (est.). Kind-2 voices don't count `MOVING_VOICE` and don't get credit for skipping it.
 
 **C19. Benchmarks:** [API §9]'s scenes plus `m3-worst-high`, `m3-worst-default`, `m3-worst-low`, all `pace=1`; `mode=fit` for every C18 term; a 16-channel stream test with a 300 ms decoder stall (R16).
 
-**C20. Voice table (main):** [API §3.2]'s columns. Selection's audibility = `audibility0 × occGain`, with the no-gap rule. The panner pick enforces the 30-frame kind dwell (R13). Send, high-pass, yaw and aux targets are re-sent with SET_MIXED on promotion.
+**C20. Voice table (main):** [API §3.2]'s columns. Selection's audibility = `audibility0 × occGain`, with the no-gap rule. The panner pick enforces a 500 ms kind dwell in game time (R13 as clarified). Send, high-pass, yaw and aux targets are re-sent with SET_MIXED on promotion.
 
-**C21. Babylon fallback:** [API §8] (gain-only occlusion, `playbackRate` Doppler, W-only clips, one `ConvolverNode` zone or inert per F2, warnings).
+**C21. Babylon fallback:** [API §8] (gain-only occlusion, `playbackRate` Doppler, W-only clips, **zones inert with one warning**; owner item 5 pending).
 
 **C22. Editor:** [API §7]'s `registerViewportTool` and Inspector contributions; no new SDK point.
 
