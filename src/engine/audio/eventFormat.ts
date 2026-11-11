@@ -22,6 +22,10 @@
  */
 
 import { parseCurve, type Curve } from "../core/curve";
+import {
+  finishMusicContainer, isMusicContainer, isMusicNodeType, MUSIC_ID_PATTERN, MUSIC_NODE_TYPES, musicChildrenList, musicClips,
+  musicNodeToJson, parseMusicContainerHead, parseMusicLibrary, parseSegmentNode, type MusicNode, type MusicParseContext,
+} from "./musicFormat";
 
 export const AUDIO_EVENT_FORMAT = "myco.audioevent@1";
 export const AUDIO_EVENT_SUFFIX = ".audioevent.json";
@@ -93,6 +97,8 @@ export type PlayMode = "step" | "continuous";
 
 /** What every node may carry. Child-specific keys are read only where they mean something. */
 export interface NodeBase {
+  /** `^[A-Za-z0-9_-]{1,48}$`, unique per event. Required on music nodes (ADR 0166 §2.3), optional on every other type. */
+  id?: string;
   volume: number;
   pitch: number;
   /** dB added per play, uniform in the range. */
@@ -197,6 +203,15 @@ export type EventNode = ClipNode | RandomNode | SequenceNode | SwitchNode | Blen
 export const NODE_TYPES = ["clip", "random", "sequence", "switch", "blend", "layer", "sustain"] as const;
 export type NodeType = (typeof NODE_TYPES)[number];
 
+/**
+ * Every node of an event tree: the 0158 nodes (`EventNode`, which hold only each other) and the music nodes, which may
+ * be the root or children of a music container (`placement` in `Reader.node`). `NODE_TYPES`, `NodeType` and `EventNode`
+ * stay the 0158 set so editor code that is exhaustive over them keeps compiling.
+ */
+export type AnyEventNode = EventNode | MusicNode;
+/** The type names the parser accepts: the 0158 ones, then the music ones. */
+export const EVENT_NODE_TYPES = [...NODE_TYPES, ...MUSIC_NODE_TYPES] as const;
+
 // --- the event ------------------------------------------------------------------------------------------------------
 
 export type Steal = "oldest" | "quietest" | "none";
@@ -245,8 +260,18 @@ export interface AudioEventAsset {
   cooldown: number;
   parameters: ParameterDef[];
   automation: Automation[];
+  /**
+   * A 0158 node. For an interactive-music event (root a segment, playlist or musicSwitch) this is the empty layer and
+   * `musicRoot` holds the tree: widening `root` itself would break every consumer that is exhaustive over `EventNode`
+   * (the 0158 runtime and the editor tree), and those files are not F1b's. `eventRootNode` gives whichever is set.
+   */
   root: EventNode;
+  /** The music tree, when the file's root is a music node (ADR 0166 §2.3); absent for every 0158 event. */
+  musicRoot?: MusicNode;
 }
+
+/** The root of the event's tree: the music root when it has one, else `root`. */
+export const eventRootNode = (event: AudioEventAsset): AnyEventNode => event.musicRoot ?? event.root;
 
 /** Nesting deeper than this is cut (a child at the limit is dropped). */
 export const MAX_EVENT_DEPTH = 16;
@@ -318,21 +343,42 @@ class Reader {
     return out;
   }
 
+  /** Node ids taken so far (every music node, and the optional ids of the others). */
+  readonly ids = new Set<string>();
+
   children(raw: unknown, where: string, depth: number): EventNode[] {
     if (raw === undefined) return [];
     if (!Array.isArray(raw)) { this.problems.push(`${where}: must be a list.`); return []; }
     const out: EventNode[] = [];
-    raw.forEach((c, i) => { const n = this.node(c, `${where}[${i}]`, depth + 1); if (n) out.push(n); });
+    raw.forEach((c, i) => { const n = this.plainNode(c, `${where}[${i}]`, depth + 1); if (n) out.push(n); });
     return out;
   }
 
-  node(raw: unknown, where: string, depth: number): EventNode | null {
+  /** A node where only 0158 nodes may sit (under a 0158 container): a music node is dropped by `node`. */
+  plainNode(raw: unknown, where: string, depth: number): EventNode | null {
+    return this.node(raw, where, depth, "plain") as EventNode | null;
+  }
+
+  /**
+   * One node. `placement` is the rule of ADR 0166 §2.3: `root` takes any node; `plain` (a child of a 0158 container)
+   * takes 0158 nodes only; `music` (a child of a playlist or musicSwitch) takes music nodes only. A node against the
+   * rule is dropped with a problem.
+   */
+  node(raw: unknown, where: string, depth: number, placement: "root" | "plain" | "music" = "root"): AnyEventNode | null {
     if (depth >= MAX_EVENT_DEPTH) { this.problems.push(`${where}: nested deeper than ${MAX_EVENT_DEPTH}; dropped.`); return null; }
     if (this.nodes >= MAX_EVENT_NODES) { this.problems.push(`${where}: more than ${MAX_EVENT_NODES} nodes; dropped.`); return null; }
-    if (!isRecord(raw) || typeof raw.type !== "string" || !(NODE_TYPES as readonly string[]).includes(raw.type)) {
-      this.problems.push(`${where}: type must be one of ${NODE_TYPES.join(", ")}; dropped.`);
+    const accepted: readonly string[] = placement === "plain" ? NODE_TYPES : placement === "music" ? MUSIC_NODE_TYPES : EVENT_NODE_TYPES;
+    if (!isRecord(raw) || typeof raw.type !== "string" || !(EVENT_NODE_TYPES as readonly string[]).includes(raw.type)) {
+      this.problems.push(`${where}: type must be one of ${accepted.join(", ")}; dropped.`);
       return null;
     }
+    if (isMusicNodeType(raw.type) ? placement === "plain" : placement === "music") {
+      this.problems.push(isMusicNodeType(raw.type)
+        ? `${where}: a ${raw.type} is a music node and sits only at the root or under a playlist or musicSwitch; dropped.`
+        : `${where}: a ${raw.type} is not a music node; a playlist or musicSwitch holds segments, playlists and musicSwitches only; dropped.`);
+      return null;
+    }
+    if (isMusicNodeType(raw.type)) return this.musicNode(raw, where, depth);
     this.nodes++;
     const base: NodeBase = {
       volume: this.num(raw.volume, `${where}.volume`, 1, 0, 4),
@@ -344,6 +390,11 @@ class Reader {
       weight: this.num(raw.weight, `${where}.weight`, 1, 0, 1e6),
       fade: this.num(raw.fade, `${where}.fade`, 0, 0, 1e6),
     };
+    if (raw.id !== undefined) {
+      if (typeof raw.id !== "string" || !MUSIC_ID_PATTERN.test(raw.id)) this.problems.push(`${where}.id: ${JSON.stringify(raw.id)} is not a valid id (1-48 letters, digits, "_" or "-"); ignored.`);
+      else if (this.ids.has(raw.id)) this.problems.push(`${where}.id: another node is already named "${raw.id}"; ignored.`);
+      else { this.ids.add(raw.id); base.id = raw.id; }
+    }
     if (raw.value !== undefined) base.value = this.str(raw.value, `${where}.value`, "");
     const range = this.pair(raw.range, `${where}.range`, undefined);
     if (range) base.range = range;
@@ -403,15 +454,37 @@ class Reader {
         return node;
       }
       case "sustain": {
-        const loop = this.node(raw.loop, `${where}.loop`, depth + 1);
+        const loop = this.plainNode(raw.loop, `${where}.loop`, depth + 1);
         if (!loop) { this.problems.push(`${where}: needs a loop node; dropped.`); return null; }
         const node: SustainNode = { ...base, type, loop, release: this.pick(raw.release, `${where}.release`, ["now", "loopEnd"] as const, "loopEnd") };
-        if (raw.start !== undefined) { const s = this.node(raw.start, `${where}.start`, depth + 1); if (s) node.start = s; }
-        if (raw.end !== undefined) { const e = this.node(raw.end, `${where}.end`, depth + 1); if (e) node.end = e; }
+        if (raw.start !== undefined) { const s = this.plainNode(raw.start, `${where}.start`, depth + 1); if (s) node.start = s; }
+        if (raw.end !== undefined) { const e = this.plainNode(raw.end, `${where}.end`, depth + 1); if (e) node.end = e; }
         if (raw.releaseFade !== undefined) node.releaseFade = this.num(raw.releaseFade, `${where}.releaseFade`, 0, 0, 1e6);
         return node;
       }
     }
+  }
+
+  /** A music node (placement already checked): a segment through `parseSegmentNode`, a container with its children. */
+  private musicNode(raw: Record<string, unknown>, where: string, depth: number): MusicNode | null {
+    const ctx: MusicParseContext = {
+      problems: this.problems, ids: this.ids,
+      admit: (w) => {
+        if (this.nodes >= MAX_EVENT_NODES) { this.problems.push(`${w}: more than ${MAX_EVENT_NODES} nodes; dropped.`); return false; }
+        this.nodes++;
+        return true;
+      },
+    };
+    if (raw.type === "segment") return parseSegmentNode(raw, where, ctx);
+    const node = parseMusicContainerHead(raw, where, ctx);
+    if (!node) return null;
+    musicChildrenList(raw.children, `${where}.children`, this.problems).forEach((c, i) => {
+      const child = this.node(c, `${where}.children[${i}]`, depth + 1, "music") as MusicNode | null;
+      if (child) node.children.push(child);
+    });
+    node.library = parseMusicLibrary(raw.library, `${where}.library`, ctx);
+    finishMusicContainer(node, where, this.problems);
+    return node;
   }
 }
 
@@ -451,19 +524,28 @@ export const emptyAudioEvent = (): AudioEventAsset => ({
 });
 
 /** Every node in the tree, depth first (sustain slots in start, loop, end order). */
-export function* eventNodes(node: EventNode): Generator<EventNode> {
+export function eventNodes(node: EventNode): Generator<EventNode>;
+export function eventNodes(node: AnyEventNode): Generator<AnyEventNode>;
+export function* eventNodes(node: AnyEventNode): Generator<AnyEventNode> {
   yield node;
   if (node.type === "sustain") {
     if (node.start) yield* eventNodes(node.start);
     yield* eventNodes(node.loop);
     if (node.end) yield* eventNodes(node.end);
-  } else if (node.type !== "clip") for (const c of node.children) yield* eventNodes(c);
+  } else if (isMusicContainer(node)) {
+    // Children first, then the `library` segments (bridges and stingers).
+    for (const c of node.children) yield* eventNodes(c);
+    for (const s of node.library) yield* eventNodes(s);
+  } else if (node.type !== "clip" && node.type !== "segment") for (const c of node.children) yield* eventNodes(c);
 }
 
 /** The clip paths an event references, once each, in tree order (for preloading, export and rename tracking). */
 export function eventClips(event: AudioEventAsset): string[] {
   const out = new Set<string>();
-  for (const n of eventNodes(event.root)) if (n.type === "clip" && n.clip) out.add(n.clip);
+  for (const n of eventNodes(eventRootNode(event))) {
+    if (n.type === "clip") { if (n.clip) out.add(n.clip); }
+    else if (n.type === "segment") for (const c of musicClips(n)) out.add(c);
+  }
   return [...out];
 }
 
@@ -535,12 +617,16 @@ export function parseAudioEvent(raw: unknown): { value: AudioEventAsset; problem
   value.parameters = parseParameters(raw.parameters, "parameters", problems, MAX_LOCAL_PARAMETERS);
   value.automation = r.automation(raw.automation, "automation");
   if (raw.root === undefined) problems.push("root: missing; the event plays nothing.");
-  else { const root = r.node(raw.root, "root", 0); if (root) value.root = root; }
+  else {
+    const root = r.node(raw.root, "root", 0);
+    if (root && isMusicNodeType(root.type)) value.musicRoot = root as MusicNode;
+    else if (root) value.root = root as EventNode;
+  }
 
   // Local checks: a switch must name a labelled parameter when it names a local one; automation on a local labelled
   // parameter reads its index. Unknown names may be global and are left to the runtime.
   const local = new Map(value.parameters.map((p) => [p.name, p]));
-  for (const n of eventNodes(value.root)) {
+  for (const n of eventNodes(eventRootNode(value))) {
     if (n.type === "switch") {
       const p = local.get(n.parameter);
       if (p && !isLabelled(p)) problems.push(`switch on "${n.parameter}": a switch needs a labelled parameter; it plays its default.`);
@@ -551,7 +637,9 @@ export function parseAudioEvent(raw: unknown): { value: AudioEventAsset; problem
 
 /** The asset as JSON text, `format` first, two-space indent (as the editor writes every asset). */
 export function formatAudioEvent(value: AudioEventAsset): string {
-  const { format: _f, filter, sends, root, ...rest } = value;
+  const { format: _f, filter, sends, root, musicRoot, ...rest } = value;
   // `filter` and `sends` only when set, ahead of `root` (which stays last).
-  return JSON.stringify({ format: AUDIO_EVENT_FORMAT, ...rest, ...(filter ? { filter } : {}), ...(sends ? { sends } : {}), root }, null, 2) + "\n";
+  // A music root goes through `musicNodeToJson` (a plain stringify would write the ignored pitch and fade keys).
+  const rootJson = musicRoot ? musicNodeToJson(musicRoot) : root;
+  return JSON.stringify({ format: AUDIO_EVENT_FORMAT, ...rest, ...(filter ? { filter } : {}), ...(sends ? { sends } : {}), root: rootJson }, null, 2) + "\n";
 }

@@ -28,7 +28,7 @@
  */
 
 import { parseCurve, type Curve } from "../core/curve";
-import type { NodeBase } from "./eventFormat";
+import type { Automation, NodeBase } from "./eventFormat";
 import {
   comparePositions, formatPosition, isBarBeatTick, parsePosition, positionProblem, snapToBeat, snapToNextBar,
   MAX_POSITION_BAR, type BarBeatTick,
@@ -183,10 +183,47 @@ export interface SegmentNode extends NodeBase {
   plays: number;
 }
 
-export const MUSIC_NODE_TYPES = ["segment"] as const;
+export const PLAYLIST_MODES = ["sequence", "random", "shuffle"] as const;
+export type PlaylistMode = (typeof PLAYLIST_MODES)[number];
+/** Largest `rounds` of a playlist (a sanity bound, not in the spec; 0 is forever). */
+export const MAX_PLAYLIST_ROUNDS = 1000;
+
+/** Fields the music containers share: children (music nodes), the `library` of bridge and stinger segments (§2.5). */
+interface MusicContainerBase extends NodeBase {
+  /** Required, `MUSIC_ID_PATTERN`, unique per event. */
+  id: string;
+  /** As a child of a playlist: how many times it plays per visit, 1..64 (default 1). */
+  plays: number;
+  /** <= 256 music nodes (`MUSIC_LIMITS.playlistChildren`). */
+  children: MusicNode[];
+  /** <= 64 segments that are bridges and stingers, not children (F2 adds the rules that name them). */
+  library: SegmentNode[];
+}
+
+/** A playlist: its children in `mode` order, `rounds` times (§2.3). */
+export interface PlaylistNode extends MusicContainerBase {
+  type: "playlist";
+  mode: PlaylistMode;
+  /** Whole-list repeats; 0 forever. */
+  rounds: number;
+  /** `random` mode: skip the last n picks (capped at children - 1). */
+  avoidRepeat: number;
+}
+
+/** A switch on a labelled parameter; the children are keyed by `value`; transitions are the rules' (F2). */
+export interface MusicSwitchNode extends MusicContainerBase {
+  type: "musicSwitch";
+  parameter: string;
+  /** The label to use when none matches; absent: the first child. */
+  default?: string;
+}
+
+export const MUSIC_NODE_TYPES = ["segment", "playlist", "musicSwitch"] as const;
 export type MusicNodeType = (typeof MUSIC_NODE_TYPES)[number];
-/** The music nodes. F1b extends this union with `PlaylistNode | MusicSwitchNode`. */
-export type MusicNode = SegmentNode;
+export type MusicNode = SegmentNode | PlaylistNode | MusicSwitchNode;
+/** The music containers: the only nodes that may hold music nodes. */
+export const isMusicContainer = (node: { type: string }): node is PlaylistNode | MusicSwitchNode =>
+  node.type === "playlist" || node.type === "musicSwitch";
 
 /** True when `type` is a music node type (F1b's dispatch in `eventFormat.ts`). */
 export const isMusicNodeType = (type: unknown): type is MusicNodeType =>
@@ -475,13 +512,12 @@ function parseTracks(raw: unknown, where: string, problems: string[]): MusicTrac
 const IGNORED_ON_MUSIC = ["pitch", "pitchRandom", "delay", "range", "fade", "automation"] as const;
 
 /**
- * Parse one `segment` node (`raw.type` is assumed to be `"segment"`; the caller dispatched on it). Null (with a problem)
- * when `raw` is not an object, has no valid id, repeats an id of `ctx.ids`, or the event's node budget is spent;
- * otherwise a node, with every bad field clamped or dropped and reported. `where` is the path used in messages.
+ * The shared start of every music node parse: object, valid unique id, node budget; claims the id and reports the
+ * ignored `NodeBase` keys. Null (with a problem) when the node is dropped.
  */
-export function parseSegmentNode(raw: unknown, where: string, ctx: MusicParseContext): SegmentNode | null {
+function openMusicNode(raw: unknown, where: string, ctx: MusicParseContext, what: string): { raw: Record<string, unknown>; id: string } | null {
   const p = ctx.problems;
-  if (!isRecord(raw)) { p.push(`${where}: a segment must be an object; dropped.`); return null; }
+  if (!isRecord(raw)) { p.push(`${where}: a ${what} must be an object; dropped.`); return null; }
   if (typeof raw.id !== "string" || !MUSIC_ID_PATTERN.test(raw.id)) {
     p.push(`${where}.id: ${raw.id === undefined ? "required on a music node" : `${JSON.stringify(raw.id)} is not a valid id`}; ids are 1-48 letters, digits, "_" or "-"; the node is dropped.`);
     return null;
@@ -493,6 +529,19 @@ export function parseSegmentNode(raw: unknown, where: string, ctx: MusicParseCon
   for (const key of IGNORED_ON_MUSIC) {
     if (raw[key] !== undefined) p.push(`${where}.${key}: ${key === "automation" ? "put automation on a track" : "not used on music (no pitch, delay, range or fade on a music node)"}; ignored.`);
   }
+  return { raw, id };
+}
+
+/**
+ * Parse one `segment` node (`raw.type` is assumed to be `"segment"`; the caller dispatched on it). Null (with a problem)
+ * when `raw` is not an object, has no valid id, repeats an id of `ctx.ids`, or the event's node budget is spent;
+ * otherwise a node, with every bad field clamped or dropped and reported. `where` is the path used in messages.
+ */
+export function parseSegmentNode(rawNode: unknown, where: string, ctx: MusicParseContext): SegmentNode | null {
+  const p = ctx.problems;
+  const open = openMusicNode(rawNode, where, ctx, "segment");
+  if (!open) return null;
+  const { raw, id } = open;
   const node: SegmentNode = {
     type: "segment", id,
     volume: num(raw.volume, `${where}.volume`, 1, p, 0, 4),
@@ -515,6 +564,83 @@ export function parseSegmentNode(raw: unknown, where: string, ctx: MusicParseCon
     else node[key] = name;
   }
   return node;
+}
+
+/**
+ * Parse the own fields of a `playlist` or `musicSwitch` (`raw.type` says which; the caller dispatched): id, budget,
+ * ignored keys, `plays`, and the kind's keys. Children and `library` are left empty: the caller (the event reader, which
+ * owns the recursion, depth and the placement rule) reads each child of `musicChildrenList`, then calls
+ * `parseMusicLibrary` and `finishMusicContainer`. Null (with a problem) when the node is dropped.
+ */
+export function parseMusicContainerHead(rawNode: unknown, where: string, ctx: MusicParseContext): PlaylistNode | MusicSwitchNode | null {
+  const p = ctx.problems;
+  const kind = isRecord(rawNode) && rawNode.type === "musicSwitch" ? "musicSwitch" : "playlist";
+  const open = openMusicNode(rawNode, where, ctx, kind);
+  if (!open) return null;
+  const { raw, id } = open;
+  const base = {
+    id, children: [] as MusicNode[], library: [] as SegmentNode[],
+    volume: num(raw.volume, `${where}.volume`, 1, p, 0, 4),
+    pitch: 1, pitchRandom: [0, 0] as [number, number], delay: 0, automation: [] as Automation[], fade: 0,
+    volumeRandom: pair(raw.volumeRandom, `${where}.volumeRandom`, p, -96, 24),
+    weight: num(raw.weight, `${where}.weight`, 1, p, 0, 1e6),
+    plays: int(raw.plays, `${where}.plays`, 1, p, 1, MUSIC_LIMITS.plays),
+  };
+  const value = raw.value !== undefined ? str(raw.value, `${where}.value`, "", p) : undefined;
+  if (kind === "playlist") {
+    const node: PlaylistNode = {
+      ...base, type: "playlist",
+      mode: pick(raw.mode, `${where}.mode`, PLAYLIST_MODES, "sequence", p),
+      rounds: int(raw.rounds, `${where}.rounds`, 1, p, 0, MAX_PLAYLIST_ROUNDS),
+      avoidRepeat: int(raw.avoidRepeat, `${where}.avoidRepeat`, 0, p, 0, MUSIC_LIMITS.playlistChildren),
+    };
+    if (value !== undefined) node.value = value;
+    return node;
+  }
+  const node: MusicSwitchNode = { ...base, type: "musicSwitch", parameter: str(raw.parameter, `${where}.parameter`, "", p) };
+  if (node.parameter === "") p.push(`${where}: parameter is empty; it plays its default.`);
+  if (raw.default !== undefined) node.default = str(raw.default, `${where}.default`, "", p);
+  if (value !== undefined) node.value = value;
+  return node;
+}
+
+/** The raw `children` list of a music container, cut at `MUSIC_LIMITS.playlistChildren` with one problem. */
+export function musicChildrenList(raw: unknown, where: string, problems: string[]): unknown[] {
+  return capped(raw, where, MUSIC_LIMITS.playlistChildren, problems);
+}
+
+/** `library`: <= 64 segments (ids shared with the event's, each counted as a node); anything else is dropped. */
+export function parseMusicLibrary(raw: unknown, where: string, ctx: MusicParseContext): SegmentNode[] {
+  const out: SegmentNode[] = [];
+  capped(raw, where, MUSIC_LIMITS.library, ctx.problems).forEach((s, i) => {
+    const w = `${where}[${i}]`;
+    if (isRecord(s) && s.type !== "segment") return void ctx.problems.push(`${w}: a library holds segments; this ${JSON.stringify(s.type)} is dropped.`);
+    const seg = parseSegmentNode(s, w, ctx);
+    if (seg) out.push(seg);
+  });
+  return out;
+}
+
+/**
+ * Checks that need the children: an empty container plays nothing; a musicSwitch child needs a `value` and values are
+ * unique; a playlist's `avoidRepeat` is capped at children - 1.
+ */
+export function finishMusicContainer(node: PlaylistNode | MusicSwitchNode, where: string, problems: string[]): void {
+  if (node.children.length === 0) problems.push(`${where}: has no children; it plays nothing.`);
+  if (node.type === "playlist") {
+    const max = Math.max(0, node.children.length - 1);
+    if (node.avoidRepeat > max) {
+      if (node.children.length > 0) problems.push(`${where}.avoidRepeat: ${node.avoidRepeat} is outside 0..${max}; using ${max}.`);
+      node.avoidRepeat = max;
+    }
+    return;
+  }
+  const seen = new Set<string>();
+  node.children.forEach((c, i) => {
+    if (c.value === undefined) return void problems.push(`${where}.children[${i}]: a musicSwitch child needs a value; it plays only as the default.`);
+    if (seen.has(c.value)) problems.push(`${where}.children[${i}].value: another child already has the value "${c.value}"; the first wins.`);
+    seen.add(c.value);
+  });
 }
 
 /** A stand-alone parse of one segment (tests, the editor): fresh ids, path `segment`. */
@@ -546,13 +672,24 @@ export function segmentExitPosition(seg: SegmentNode): string {
   return seg.cues.find((c) => c.name === name)?.at ?? "end";
 }
 
-/** The clip paths of a music node (each track's clip, then its alternatives), once each, in order (`eventClips`). */
+/**
+ * The clip paths of a music node (each track's clip, then its alternatives), once each, in order (`eventClips`). A
+ * container lists its children's clips depth first, then its `library` segments'.
+ */
 export function musicClips(node: MusicNode): string[] {
   const out = new Set<string>();
-  for (const t of node.tracks) {
-    if (t.clip) out.add(t.clip);
-    for (const a of t.alternatives) out.add(a);
-  }
+  const add = (n: MusicNode): void => {
+    if (n.type === "segment") {
+      for (const t of n.tracks) {
+        if (t.clip) out.add(t.clip);
+        for (const a of t.alternatives) if (a) out.add(a);
+      }
+    } else {
+      n.children.forEach(add);
+      n.library.forEach(add);
+    }
+  };
+  add(node);
   return [...out];
 }
 
@@ -582,6 +719,20 @@ export function musicNodeToJson(node: MusicNode): Record<string, unknown> {
   if (node.plays !== 1) out.plays = node.plays;
   if (node.volume !== 1) out.volume = node.volume;
   if (node.volumeRandom[0] !== 0 || node.volumeRandom[1] !== 0) out.volumeRandom = node.volumeRandom;
+  if (node.type === "playlist") {
+    if (node.mode !== "sequence") out.mode = node.mode;
+    if (node.rounds !== 1) out.rounds = node.rounds;
+    if (node.avoidRepeat !== 0) out.avoidRepeat = node.avoidRepeat;
+  }
+  if (node.type === "musicSwitch") {
+    out.parameter = node.parameter;
+    if (node.default !== undefined) out.default = node.default;
+  }
+  if (node.type !== "segment") {
+    out.children = node.children.map(musicNodeToJson);
+    if (node.library.length > 0) out.library = node.library.map(musicNodeToJson);
+    return out;
+  }
   if (node.gridOffset !== 0) out.gridOffset = node.gridOffset;
   if (!sameJson(node.tempo, DEFAULT_TEMPO)) out.tempo = node.tempo;
   if (node.cues.length > 0) out.cues = node.cues;
