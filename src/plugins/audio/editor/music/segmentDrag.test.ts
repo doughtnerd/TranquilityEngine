@@ -67,7 +67,7 @@ describe("cue drag", () => {
     expect(beginDrag({ kind: "cue", name: "zzz" }, ctx(seg()), 0)).toBeNull();
   });
 
-  it.skip("with the beat snap on lands on a beat, and Alt turns it off (needs L-Ed3a)", () => {
+  it("with the beat snap on lands on a beat, and Alt turns it off (needs L-Ed3a)", () => {
     const d = beginDrag(h, ctx(seg(), "beat"), 200)!;
     expect(d.move(222, still)!.text).toBe("2:1:0");
     expect(d.move(230, still)!.text).toBe("2:2:0");
