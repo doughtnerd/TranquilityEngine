@@ -5,7 +5,7 @@
 // never waits on anything but the wasm.
 import { decodeClip } from "./clips";
 import { IrPreparer } from "./irPrepare";
-import type { DecodeClipMessage, DecoderReply, DecoderRequest, InitMessage } from "./protocol";
+import type { ComputePeaksMessage, DecodeClipMessage, DecoderReply, DecoderRequest, InitMessage } from "./protocol";
 import { StreamDecoder } from "./streams";
 import { DecoderError, DecoderWasm } from "./wasm";
 
@@ -89,6 +89,88 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
     }
   };
 
+  // Ed1: a clip decoded in the same chunks as `clip`, each reduced at once to one [min, max] pair per `binFrames` frames
+  // per channel, so no more than one chunk of PCM exists at a time and the reply is `channels * bins * 2` int16.
+  const peaks = async (msg: ComputePeaksMessage): Promise<void> => {
+    const fail = (e: unknown) =>
+      post({ type: "error", id: msg.id, asset: msg.asset, message: describe(e), code: e instanceof DecoderError && e.code !== 0 ? e.code : undefined });
+    if (!wasm) return fail(new DecoderError("audio decoder: not initialised"));
+    let decoder: DecoderWasm;
+    try {
+      decoder = await wasm;
+    } catch {
+      return fail(new DecoderError(failure ?? "audio decoder: failed to load"));
+    }
+    const binFrames = Math.max(1, Math.floor(msg.binFrames));
+    active.add(msg.id);
+    try {
+      let channels = 0;
+      let bins = 0; // finished bins per channel
+      let filled = 0; // frames in the open bin
+      let capacity = 0; // bins per channel the buffers hold
+      let out = new Int16Array(0); // channel-major: [channel][bin][min, max]
+      let curMin: Int16Array = new Int16Array(0);
+      let curMax: Int16Array = new Int16Array(0);
+      const grow = (need: number) => {
+        if (need <= capacity) return;
+        const next = Math.max(need, capacity * 2, 64);
+        const bigger = new Int16Array(channels * next * 2);
+        for (let c = 0; c < channels; c++) bigger.set(out.subarray(c * capacity * 2, (c * capacity + bins) * 2), c * next * 2);
+        out = bigger;
+        capacity = next;
+      };
+      const closeBin = () => {
+        grow(bins + 1);
+        for (let c = 0; c < channels; c++) {
+          const at = (c * capacity + bins) * 2;
+          out[at] = curMin[c];
+          out[at + 1] = curMax[c];
+          curMin[c] = 32767;
+          curMax[c] = -32768;
+        }
+        bins++;
+        filled = 0;
+      };
+      const info = await decodeClip(decoder, new Uint8Array(msg.bytes), msg.hint, {
+        onInfo: (i) => {
+          channels = i.channels;
+          curMin = new Int16Array(channels).fill(32767);
+          curMax = new Int16Array(channels).fill(-32768);
+          if (i.frames > 0) grow(Math.ceil(i.frames / binFrames));
+        },
+        onChunk: (_index, pcm) => {
+          const frames = pcm.length / channels;
+          for (let f = 0; f < frames; f++) {
+            const base = f * channels;
+            for (let c = 0; c < channels; c++) {
+              const v = pcm[base + c];
+              if (v < curMin[c]) curMin[c] = v;
+              if (v > curMax[c]) curMax[c] = v;
+            }
+            if (++filled === binFrames) closeBin();
+          }
+        },
+        cancelled: () => cancelled.has(msg.id),
+        yieldToEvents,
+      });
+      if (!info) {
+        post({ type: "cancelled", id: msg.id });
+        return;
+      }
+      if (filled > 0) closeBin();
+      // Repack to exactly `bins` per channel (the buffers may hold spare capacity).
+      const packed = new Int16Array(channels * bins * 2);
+      for (let c = 0; c < channels; c++) packed.set(out.subarray(c * capacity * 2, (c * capacity + bins) * 2), c * bins * 2);
+      post({ type: "peaks", id: msg.id, rate: info.rate, channels, frames: info.frames, binFrames, bins, peaks: packed.buffer as ArrayBuffer }, [packed.buffer as ArrayBuffer]);
+    } catch (e) {
+      if (!(e instanceof DecoderError)) decoder.reset();
+      fail(e);
+    } finally {
+      active.delete(msg.id);
+      cancelled.delete(msg.id);
+    }
+  };
+
   return {
     streamStats: streams.stats,
     async handle(request) {
@@ -101,6 +183,8 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
           return;
         case "decodeClip":
           return clip(request);
+        case "computePeaks":
+          return peaks(request);
         case "cancel":
           if (active.has(request.id)) cancelled.add(request.id);
           return;

@@ -89,7 +89,26 @@ export interface DecodeClipOptions {
   readonly onChunk?: (pcm: Int16Array, index: number) => void;
 }
 
-/** B3: what `openStream` takes. `bytes` is transferred (the caller's buffer is detached afterwards). */
+/** Ed1: a clip's base peaks level: `peaks` is int16 `[min, max]` pairs per bin, channel-major (see `PeaksMessage`). */
+export interface DecodedPeaks {
+  readonly rate: number;
+  readonly channels: number;
+  readonly frames: number;
+  readonly binFrames: number;
+  readonly bins: number;
+  readonly peaks: Int16Array;
+}
+
+export interface ComputePeaksOptions {
+  /** Aborting rejects with `AbortError` and tells the worker to stop at its next chunk. */
+  readonly signal?: AbortSignal;
+  /** Moves the caller's buffer to the worker instead of copying it. Default: copy. */
+  readonly transfer?: boolean;
+  /** Named in decoder errors. */
+  readonly asset?: string;
+}
+
+/** B3: what `openStream` takes.`bytes` is transferred (the caller's buffer is detached afterwards). */
 export interface StreamOpenOptions {
   readonly streamId: number;
   readonly asset: string;
@@ -111,6 +130,8 @@ export type StreamReply = StreamOpenedMessage | StreamClosedMessage | (ErrorMess
 export interface DecoderClient {
   /** Decodes a whole clip on the worker. `hint` is the container (see `hintFromName`); 0 lets the decoder probe. Rejects with the decoder's message on failure. */
   decodeClip(bytes: ArrayBuffer | Uint8Array, hint?: DecodeHint, options?: DecodeClipOptions): Promise<DecodedClip>;
+  /** Ed1: decodes on the worker and reduces to one min/max pair per `binFrames` frames per channel (the editor asks 256). Rejects like `decodeClip`. */
+  computePeaks(bytes: ArrayBuffer | Uint8Array, hint: DecodeHint, binFrames: number, options?: ComputePeaksOptions): Promise<DecodedPeaks>;
   /** B3: the worker's end of the channel to the worklet (transferred). Spawns the worker if needed. */
   connectWorklet(port: MessagePort | StreamPortLike): void;
   /** B3: opens a stream; its PCM goes to the connected worklet, its replies to `onStream`. */
@@ -162,7 +183,11 @@ interface Pending {
   /** Chunks delivered to `onChunk`; a decode posted again skips the same ones (decoding is deterministic). */
   delivered: number;
   readonly options: DecodeClipOptions | undefined;
+  /** Ed1: set for a `computePeaks` request (frames per bin); the request is a peaks one, answered by `peaks`. */
+  readonly binFrames?: number;
   resolve(value: DecodedClip): void;
+  /** Ed1: how a peaks request resolves (its `resolve` is unused). */
+  resolvePeaks?(value: DecodedPeaks): void;
   reject(reason: unknown): void;
   abort?: () => void;
 }
@@ -232,6 +257,46 @@ class Client implements DecoderClient {
       }
       this.pending.set(id, entry);
       worker.postMessage({ type: "decodeClip", id, asset: options?.asset, bytes: buffer, hint, convention: options?.convention }, [buffer]);
+    });
+  }
+
+  computePeaks(bytes: ArrayBuffer | Uint8Array, hint: DecodeHint, binFrames: number, options?: ComputePeaksOptions): Promise<DecodedPeaks> {
+    const signal = options?.signal;
+    if (signal?.aborted) return Promise.reject(abortError());
+    let buffer: ArrayBuffer;
+    if (bytes instanceof ArrayBuffer) buffer = options?.transfer ? bytes : bytes.slice(0);
+    else buffer = options?.transfer && bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? (bytes.buffer as ArrayBuffer) : (bytes.slice().buffer as ArrayBuffer);
+    const kept = buffer.slice(0);
+    let worker: WorkerLike;
+    try {
+      worker = this.ensureWorker();
+    } catch (e) {
+      return Promise.reject(new DecoderUnavailableError(`audio decoder: no worker (${e instanceof Error ? e.message : String(e)})`));
+    }
+    const id = this.nextId++;
+    return new Promise<DecodedPeaks>((resolvePeaks, reject) => {
+      const entry: Pending = {
+        chunks: [],
+        bytes: kept,
+        hint,
+        informed: false,
+        delivered: 0,
+        options: options?.asset ? { asset: options.asset, signal } : { signal },
+        binFrames,
+        resolve: () => undefined,
+        resolvePeaks,
+        reject,
+      };
+      if (signal) {
+        entry.abort = () => {
+          if (!this.pending.delete(id)) return;
+          this.worker?.postMessage({ type: "cancel", id });
+          reject(abortError());
+        };
+        signal.addEventListener("abort", entry.abort, { once: true });
+      }
+      this.pending.set(id, entry);
+      worker.postMessage({ type: "computePeaks", id, asset: options?.asset, bytes: buffer, hint, binFrames }, [buffer]);
     });
   }
 
@@ -350,6 +415,11 @@ class Client implements DecoderClient {
         entry.resolve({ pcm, rate: msg.info.rate, channels, frames: msg.info.frames, info: msg.info });
         return;
       }
+      case "peaks": {
+        const entry = this.settle(msg.id);
+        entry?.resolvePeaks?.({ rate: msg.rate, channels: msg.channels, frames: msg.frames, binFrames: msg.binFrames, bins: msg.bins, peaks: new Int16Array(msg.peaks) });
+        return;
+      }
       case "cancelled":
         this.settle(msg.id);
         return;
@@ -401,7 +471,8 @@ class Client implements DecoderClient {
     for (const [id, entry] of entries) {
       if (this.pending.get(id) !== entry) continue;
       const bytes = entry.bytes.slice(0);
-      next.postMessage({ type: "decodeClip", id, bytes, hint: entry.hint, asset: entry.options?.asset, convention: entry.options?.convention }, [bytes]);
+      if (entry.binFrames !== undefined) next.postMessage({ type: "computePeaks", id, bytes, hint: entry.hint, asset: entry.options?.asset, binFrames: entry.binFrames }, [bytes]);
+      else next.postMessage({ type: "decodeClip", id, bytes, hint: entry.hint, asset: entry.options?.asset, convention: entry.options?.convention }, [bytes]);
     }
   }
 
