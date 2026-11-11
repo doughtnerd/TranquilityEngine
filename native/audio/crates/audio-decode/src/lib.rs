@@ -28,6 +28,15 @@
 //! 4. `myco_decode_seek(h, frame)` moves the next read to `frame` (sample-accurate) and returns it.
 //! 5. `myco_decode_close(h)`. Up to [`MAX_DECODERS`] decoders may be open at once.
 //!
+//! 6. **Zone impulse responses** (ABI 1.3, ADR 0162 C2a, [`ir`]): `frames = myco_ir_prepare(p, len,
+//!    hint, target_rate, max_frames)` takes an encoded file from `myco_decode_alloc` (owned from then
+//!    on, as `open`) and prepares its clip-format-3 kernel at `target_rate`;
+//!    `myco_ir_generate(preset, target_rate, max_frames)` does the same for a preset (0 room,
+//!    1 corridor, 2 hall, 3 cave, 4 open). Each returns the kernel's frames per channel (> 0) or an
+//!    `ERR_*` code; the kernel is then at `myco_ir_blob_ptr()` for `myco_ir_blob_len()` bytes, and
+//!    `myco_ir_truncated()` says whether it was cut at `max_frames`, all valid until the next
+//!    `myco_ir_*` call (a failed call leaves no blob: length 0). Independent of the decoders.
+//!
 //! Negative `i32` (or `f64`) results are the `ERR_*` codes; `myco_decode_error_ptr/len` give the
 //! last failure's message (UTF-8). No export panics on bad input: arguments are checked and
 //! symphonia's errors become codes. The release build is `panic = "abort"`, so a bug that does
@@ -48,7 +57,7 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// `(major << 8) | minor` of this ABI.
-pub const ABI_VERSION: u32 = 0x102;
+pub const ABI_VERSION: u32 = 0x103;
 /// Open decoders at once.
 pub const MAX_DECODERS: usize = 64;
 /// Bytes of the record `myco_decode_info` writes: `u32 sampleRate; u32 channels; f64 frames (-1
@@ -127,9 +136,11 @@ struct Slot {
 struct Table {
     slots: Vec<Slot>,
     error: String,
+    /// The last `myco_ir_*` call's kernel.
+    ir: Option<ir::Prepared>,
 }
 
-static TABLE: Mutex<Table> = Mutex::new(Table { slots: Vec::new(), error: String::new() });
+static TABLE: Mutex<Table> = Mutex::new(Table { slots: Vec::new(), error: String::new(), ir: None });
 
 fn table() -> MutexGuard<'static, Table> {
     // panic = "abort": a poisoned lock can't be observed in release; tests recover it.
@@ -208,8 +219,8 @@ fn valid_range(ptr: usize, bytes: usize, align: usize) -> bool {
 
 // --- Exports -----------------------------------------------------------------------------------
 
-/// `(major << 8) | minor`: 1.2 (1.1 added the loop fields to the info record, 1.2
-/// `myco_decode_set_convention`).
+/// `(major << 8) | minor`: 1.3 (1.1 added the loop fields to the info record, 1.2
+/// `myco_decode_set_convention`, 1.3 the `myco_ir_*` exports).
 #[no_mangle]
 pub extern "C" fn myco_decode_abi_version() -> u32 {
     ABI_VERSION
@@ -400,4 +411,68 @@ pub extern "C" fn myco_decode_error_ptr() -> *const u8 {
 #[no_mangle]
 pub extern "C" fn myco_decode_error_len() -> u32 {
     table().error.len() as u32
+}
+
+// --- Zone impulse responses (ABI 1.3, ADR 0162 C2a) -----------------------------------------------
+
+fn ir_result(t: &mut Table, r: Result<ir::Prepared, ir::IrError>) -> i32 {
+    match r {
+        Ok(p) => {
+            let frames = p.frames.min(i32::MAX as usize) as i32;
+            t.ir = Some(p);
+            frames
+        }
+        Err(e) => t.fail(e.code, &e.message),
+    }
+}
+
+/// Prepares the zone kernel (clip format 3, api-and-models §4.5) of the encoded file at `ptr`
+/// (`len` bytes from `myco_decode_alloc(len)`, which this call owns from now on, freed when it
+/// returns): decode (`hint` as `open`), resample to `target_rate`, trim, cut at `max_frames` with a
+/// 50 ms fade, normalise, partition, transform. Returns the frames per channel (> 0) or an `ERR_*`
+/// code (more than two channels is `ERR_CODEC`, a silent file `ERR_DECODE`). The kernel is at
+/// `myco_ir_blob_ptr` until the next `myco_ir_*` call.
+///
+/// # Safety
+/// `ptr` must come from `myco_decode_alloc(len)` and not be freed or opened already.
+#[no_mangle]
+pub unsafe extern "C" fn myco_ir_prepare(ptr: *mut u8, len: u32, hint: u32, target_rate: f32, max_frames: u32) -> i32 {
+    let mut t = table();
+    t.ir = None;
+    if !valid_range(ptr as usize, len as usize, ALLOC_ALIGN) || len == 0 {
+        return t.fail(ERR_ARG, "ir_prepare: null or invalid buffer");
+    }
+    let bytes: Bytes = Arc::new(OwnedBlock { ptr, len: len as usize });
+    let r = ir::prepare(bytes, FormatHint::from_code(hint), target_rate, max_frames as usize);
+    ir_result(&mut t, r)
+}
+
+/// Prepares preset `preset` (0 room, 1 corridor, 2 hall, 3 cave, 4 open; api-and-models §2.3) at
+/// `target_rate`, cut at `max_frames`, as `myco_ir_prepare` prepares a file. Returns the frames per
+/// channel or an `ERR_*` code (an unknown preset is `ERR_ARG`).
+#[no_mangle]
+pub extern "C" fn myco_ir_generate(preset: u32, target_rate: f32, max_frames: u32) -> i32 {
+    let mut t = table();
+    t.ir = None;
+    let r = ir::generate(preset, target_rate, max_frames as usize);
+    ir_result(&mut t, r)
+}
+
+/// The last prepared kernel's address (4-aligned; null when the last `myco_ir_*` call failed).
+#[no_mangle]
+pub extern "C" fn myco_ir_blob_ptr() -> *const u8 {
+    table().ir.as_ref().map_or(std::ptr::null(), |p| p.bytes().as_ptr())
+}
+
+/// The last prepared kernel's length in bytes (`32 + 8 x (headParts x 256 + tailParts x 4096)`; 0
+/// when the last `myco_ir_*` call failed).
+#[no_mangle]
+pub extern "C" fn myco_ir_blob_len() -> u32 {
+    table().ir.as_ref().map_or(0, |p| p.bytes().len() as u32)
+}
+
+/// 1 when the last prepared kernel was cut at `max_frames` (its trimmed response was longer), else 0.
+#[no_mangle]
+pub extern "C" fn myco_ir_truncated() -> u32 {
+    table().ir.as_ref().map_or(0, |p| u32::from(p.truncated))
 }
