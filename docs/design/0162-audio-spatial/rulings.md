@@ -53,3 +53,14 @@ These rulings settle the disagreements between `architecture.md` and `api-and-mo
 2. A **standby zone slot**, so a released zone's tail rings out (peak zone memory 18.0 / 9.2 / 3.3 MB on high / default / low; +3.5 days), or 2 slots with a 150 ms eviction fade (12.2 / 6.2 / 1.5 MB).
 3. **Load-shedding ladder:** whether to add the limited ladder (cut releasing tails, then one active zone fewer, triggered like the cap and never touching beds or HRTF; +2 days), or none.
 4. **The estimate:** ≈ 35.8 person-weeks (the senior engineer's round-2A figure, including the architecture's needs), against the record's provisional 22.
+
+## Clarifications after round 2B (senior engineer's questions)
+
+- **R13:** the dwell is 500 ms of game time (30 frames at 60 Hz), as the architect's issue 10 asked.
+- **R16:** the separate-region wide ring is the architect's design; the credit in R16 was wrong, and the content stands.
+- **R2/R12:** a mixed-voice pool entry is ≈ 448 B (two biquads plus send and bed state; 112 / 56 / 28 KB by preset). The ≈ 120 B figure was one biquad.
+- **R11, the send tap point:** sends are taken **after the voice's own filters (occlusion low-pass, event filter, automation low-pass; mono-once) and before the distance gain**, then scaled by `wetOcclusion` and the send curve. This is Wwise's model, where occlusion affects dry and wet and obstruction (later) affects dry only. The architect amends the "post-filter" wording in §3.3/§4 to match.
+- **Babylon zones:** the pinned Babylon exposes bus nodes only through underscore members, which 0157 declined to use, so zones on the fallback are inert with one warning. This narrows the record's §7, so it goes to the owner (item 5 below).
+- **Kernel budget:** a third zone's kernel waits 50–200 ms for a free slot. This is decided together with the standby slot (owner item 2): the standby slot includes its kernel.
+
+5. **Babylon fallback zones:** inert with one warning (recommended, since best effort is the owner's rule), or reach into Babylon's underscore members (against 0157).

@@ -1,176 +1,112 @@
-# 0162 spatial audio: API, data models, formats and plan (M3), round 1
+# 0162 spatial audio: API, data models, formats and plan (M3), revision 2
 
-Senior engineer's design for ADR 0162 (Accepted direction, revision 3). Companion to the architect's `architecture.md` (components, lifecycles, timing, memory, performance, failure, observability). This file owns the public API, settings and asset data, internal data models, byte formats, native and TypeScript layout, editor integration, the Babylon mapping, the test plan and the task table. It extends [0157's api-and-models.md](../0157-audio-core/api-and-models.md) and does not repeat it: section numbers `0157 §n` point there. Where the architect and this file must agree, the text says `(S<n>)`, a contract listed in `contracts-senior.md`.
+Senior engineer's design for ADR 0162 (Accepted direction, revision 3). Companion to `architecture.md` (cited **[ARCH §n]**: components, lifecycles, interactions, timing, memory, performance, failure, observability, platform matrix, industry practice), to 0157's `api-and-models.md` (**[0157 §n]**, not repeated) and to 0157's `architecture.md` (**[A157 §n]**). This file owns the public API, settings and asset data, internal data models, byte formats, native and TypeScript layout, editor integration, the Babylon mapping, the test plan and the task table. Revision 2 applies the coordinator's rulings (`rulings.md`, **R1-R17**) and both round-2A reviews; §12 lists every review item and what became of it.
 
-Units as in 0157: seconds, world units (the record says metres; the engine's unit is whatever the project uses, `audio.speedOfSound` is in units per second), linear gain, frames at the context rate, Hz, little-endian. Degrees only where a field says so (Inspector-facing angles). Line numbers cite the tree at 2026-11-11.
-
-**Owner rules applied.** Follow Wwise, FMOD, Unity and Unreal in shape and naming and say where M3 differs (the "Industry" column in §1.6 and the notes in each section). No feature flags and no compatibility defaults: every M3 feature is on in the presets that afford it, the three samples that use audio are updated (§1.7), and no migration code exists. No run that cannot change a decision: the only measurements this design asks for are the lab-VM run and the metered gate (§9).
+Units as in 0157: seconds, world units (`audio.speedOfSound` is in units per second), linear gain, frames at the context rate, Hz, little-endian; degrees only where a field says so. Byte offsets are from the first byte of a record, head included. Line numbers cite the tree at 2026-11-11. Owner rules applied: follow Wwise, FMOD, Unity and Unreal (industry notes are inline, the full map is [ARCH §12]); no feature flags, no migration (the samples change, §1.6); no run that cannot change a decision (§9).
 
 ## 1. Public API
 
-All additions are optional with defaults and exported from `src/myco.ts` (§6). Nothing here names Babylon, three.js, Rapier or Howler (ADR 0010).
+All additions are optional with defaults, exported from `src/myco.ts` (§6). Nothing names Babylon, three.js, Rapier or Howler (ADR 0010).
 
 ### 1.1 Types
 
 ```ts
-/** 0157 §1's AudioReason gains "occluded": virtual or inaudible mainly because a wall took it below the audibility floor. */
-export type AudioReason = "virtual" | "stolen" | "busMuted" | "locked" | "failed" | "waitingForData" | "occluded";
-
-/** How a voice reaches the stereo output (debug rows and `AudioHandle.panner`). */
+export type AudioReason = /* 0157's six */ | "occluded";   // virtual or inaudible mainly because a wall took it under the floor
 export type AudioPanner = "flat" | "equalPower" | "hrtf" | "bed" | "ambisonic";
-
-/** A curve of a send's level against distance (0158's `Curve`, `src/engine/core/curve.ts`): x is the distance as a fraction of
- *  minDistance..maxDistance (0 at minDistance, 1 at maxDistance, clamped), y multiplies the send (0..4). */
+/** A send's level against distance (0158 `Curve`): x = distance as a fraction of minDistance..maxDistance (clamped 0..1), y multiplies the send. */
 export type SendCurve = Curve;
-export const DEFAULT_SEND_CURVE: SendCurve = [[0, 1], [1, 3]];
+export const DEFAULT_SEND_CURVE: SendCurve = [[0, 1], [1, 0.5]];
 ```
 
-`AudioHandle` (0157 §1) gains two read-only members: `readonly panner: AudioPanner | null` (what the core last confirmed for this voice; null while virtual) and `readonly occlusion: number` (the voice's smoothed dry occlusion gain, 1 = open; 1 for flat voices and without physics). They are read from the main-thread mirror; no call into the core.
+`AudioHandle` gains `readonly panner: AudioPanner | null` and `readonly occlusion: number` (smoothed dry occlusion gain, 1 open), both read from the main-thread mirror.
 
 ### 1.2 `AudioSource` additions
 
-`AudioSource.ts` today (lines 45-90 plus 0157's `priority`) gains the fields below. Each carries `description` (ADR 0159). `apply()`'s change signature (`AudioSource.ts:179`) and `applyEvent()` (`:161-173`) include every new field, so editing one during Play takes effect at the next frame (live tuning).
+Each field carries `description` (ADR 0159). `apply()`'s change signature (`AudioSource.ts:179`) and `applyEvent()` (`:161-173`) include all of them, so Play edits take effect next frame.
 
-| Field | Type, range | Default | Meaning |
+| Field | Range | Default | Meaning |
 |---|---|---|---|
-| `occlusion` | boolean | `true` | Spatial sources only. Walls (colliders on the occlusion layers) between the source and the listener muffle the source. Inert in 2D worlds and without the 3D physics service. |
-| `dopplerLevel` | number 0..5 | `1` | Spatial sources only. Scales the Doppler pitch shift; 0 turns it off. |
-| `reverbSend` | number 0..2 | `1` | Spatial sources only. How much of the source goes to the reverb zones that hold it (1 = the zone's own wet level). |
-| `sendCurve` | `SendCurve` | `DEFAULT_SEND_CURVE` | Send level against distance (see §1.1). The default rises 1 to 3 (+9.5 dB) from `minDistance` to `maxDistance`, because the send follows the source's own distance gain (§4.5), so this keeps the wet-to-dry ratio rising with distance as in a real room. |
-| `ambisonicYaw` | number -180..180 | `0` | Ambisonic clips only. Turns the recording about the vertical axis, degrees, positive to the left seen from above, so its front lines up with the level. |
+| `occlusion` | boolean | `true` | Spatial sources: walls between source and listener muffle it. Inert in 2D worlds and without the 3D physics service |
+| `dopplerLevel` | 0..5 | `1` | Spatial sources: scales the Doppler shift; 0 off |
+| `reverbSend` | 0..2 | `1` | Spatial sources: how much of the source goes to the zones that hold it. The send is taken **before** the distance gain (R11, [ARCH §3.3] as amended in §4.5) |
+| `reverbSendCurve` | `SendCurve` | `DEFAULT_SEND_CURVE` | Send against distance, independent of the dry rolloff (Wwise's model). `reverbSend` x curve is clamped to 4 |
+| `ambisonicYaw` | -180..180 | `0` | Ambisonic clips: turns the recording about the vertical axis, degrees, positive to the left seen from above |
 
-Read-only members (not fields): `velocity: Vector3` (the node's world velocity in units per second, estimated from position deltas, §3.2), `panner` and `occlusion` as for the handle. An `AudioSource` whose clip has an `ambisonic` sidecar ignores `spatial`, `minDistance`, `maxDistance`, `rolloff`, `occlusion` and `dopplerLevel` (the Inspector greys them; one warning per source); `volume`, `pitch`, `loop`, `output`, `priority`, `reverbSend` and `ambisonicYaw` apply. `@field(PlainObject)` carries `sendCurve` (the registry has no curve kind); the editor draws it with the SDK's `CurveEditor` through an Inspector section (§7).
-
-**Industry.** `reverbSend` is Unity's `AudioSource.reverbZoneMix` and Wwise's game-defined aux send; `dopplerLevel` is Unity's; `occlusion` is Wwise's per-emitter occlusion switch. M3 differs: the send has a distance curve on the source (Wwise has one per aux bus, Unity none), and the send scale is 0..2, not Unity's 0..1.1.
+Read-only: `velocity: Vector3` (world units per second, §3.2), `panner`, `occlusion`. A source whose clip has an `ambisonic` sidecar ignores `spatial`, the distance fields, `occlusion` and `dopplerLevel` (the Inspector greys them; one warning per source). `reverbSendCurve` is `@field(PlainObject)` (the registry has no curve kind) and is drawn with the SDK's `CurveEditor` in an Inspector section (§7). **Industry:** `reverbSend` is Unity's `reverbZoneMix` and Wwise's game-defined aux send, scale 0..2 not Unity's 0..1.1.
 
 ### 1.3 `playOneShot` options
 
 ```ts
-export interface OneShotOptions {
-  // ... 0157 §1 fields unchanged ...
-  /** With `position`: walls between the sound and the listener muffle it. Default true. */
-  occlusion?: boolean;
-  /** With `position`: Doppler from the listener's motion (a one-shot's position is fixed). 0..5, default 0. */
-  dopplerLevel?: number;
-  /** With `position`: send to the reverb zones that hold the position. 0..2, default 1. */
-  reverbSend?: number;
-  /** With `position`: send level against distance. Default `DEFAULT_SEND_CURVE`. */
-  sendCurve?: SendCurve;
-  /** Low-pass and high-pass cutoffs in Hz for this sound (lowest low-pass wins over automation's). Default: none. */
-  lowpass?: number;
-  highpass?: number;
-  /** Ambisonic clips: turn the recording about the vertical axis, degrees. Default 0. */
-  yaw?: number;
+interface OneShotOptions { // + 0157 §1 fields
+  occlusion?: boolean;        // with position; default true
+  dopplerLevel?: number;      // with position, listener motion only; 0..5, default 0 (opt in)
+  reverbSend?: number;        // with position; 0..2, default 1
+  reverbSendCurve?: SendCurve;
+  lowpass?: number; highpass?: number;   // Hz; the lowest low-pass wins over automation's
+  yaw?: number;               // ambisonic clips, degrees
 }
 ```
-
-Doppler is opt-in for one-shots and events (the record): a footstep or UI click never glides. A flat one-shot (no `position`) has no occlusion, send, or Doppler; `lowpass` and `highpass` still apply. Unknown values clamp and warn once, as 0157's.
+A flat one-shot has no occlusion, send or Doppler; `lowpass` and `highpass` still apply. Bad values clamp and warn once.
 
 ### 1.4 `AudioListener`
 
 ```ts
-@component("engine.AudioListener")
-export class AudioListener extends Component {
-  /** World velocity in units per second, estimated from the node's motion (§3.2); read by Doppler. */
-  readonly velocity: Vector3;
-  /** Use `v` instead of the estimate (a physics body's own velocity, or zero across a camera cut). `null` goes back to the estimate. */
-  setVelocity(v: Vec3Like | null): void;
+class AudioListener extends Component {
+  readonly velocity: Vector3;                 // units/s, from the node's motion (§3.2)
+  setVelocity(v: Vec3Like | null): void;      // physics-driven velocity, or zero across a cut; null: estimate again
 }
 ```
-
-No new fields. The listener that counts is unchanged (the first enabled `AudioListener` in the World with the view, else the main camera, `AudioListener.ts:2-4`); without a component, `velocity` comes from the camera node. The same listener's pose feeds `LISTENER` (§4.4), occlusion rays and zone containment.
+No new fields. The listener is the first enabled `AudioListener` in the World with the view, else the main camera; that World alone sends LISTENER, casts rays and plans zones, and other Worlds' sources keep their last occlusion values (R14, S19).
 
 ### 1.5 New components
 
-Both are registered by the audio plugin (`engine.AudioReverbZone`, `engine.AudioOccluder`), work in the editor World and in play, and need no physics to exist (an occluder only does something when the 3D service runs).
+Registered by the audio plugin as `engine.AudioReverbZone` and `engine.AudioOccluder`; both exist in the editor World and in play, and need no physics to exist.
 
 ```ts
-/** A volume of the scene with its own reverb. Sources inside it (and, fading in, within `blendDistance` outside) send to it. */
 @component("engine.AudioReverbZone")
-export class AudioReverbZone extends Component {
-  @field(String, { choices: ["box", "sphere"], description: "The zone's shape." }) shape: "box" | "sphere" = "box";
-  @field(Vector3, { description: "Offset of the volume from the node, in local units." }) center = new Vector3(0, 0, 0);
+class AudioReverbZone extends Component {
+  @field(String, { choices: ["box", "sphere"], description: "The zone's shape." }) shape = "box";
+  @field(Vector3, { description: "Offset of the volume from the node, local units." }) center = new Vector3(0, 0, 0);
   @field(Vector3, { description: "Box zones: edge lengths in local units, scaled by the node's world scale." }) size = new Vector3(10, 4, 10);
   @field(Number, { description: "Sphere zones: radius in local units, scaled by the node's largest scale axis." }) radius = 5;
-  @field(String, { choices: ZONE_PRESETS, description: "The built-in reverb used when no impulse response is set." }) preset = "hall";
-  @field(AssetRef, { kind: "audio", description: "An impulse response (a mono or stereo WAV or FLAC). Overrides the preset. Longer than the preset's limit is cut with a fade." }) ir = "";
-  @field(Number, { description: "Wet level, linear 0..2 (1 is the impulse response's own calibrated level, as a reverb bus effect at send 1)." }) wet = 0.5;
-  @field(Number, { description: "Distance outside the volume over which the zone fades in, in world units. 0 is a hard edge." }) blendDistance = 2;
+  @field(String, { choices: ZONE_PRESETS, description: "Built-in reverb used when no impulse response is set." }) preset = "hall";
+  @field(AssetRef, { kind: "audio", description: "An impulse response (mono or stereo WAV or FLAC). Overrides the preset. Past the preset's length limit it is cut with a fade." }) ir = "";
+  @field(Number, { description: "Wet level, linear 0..2 (1 = the impulse response's calibrated level, as a reverb bus effect at send 1)." }) wet = 0.5;
+  @field(Number, { description: "Distance outside the volume over which the zone fades in, world units. 0 is a hard edge." }) blendDistance = 2;
   @field(Number, { description: "Higher wins when more zones are in play than the preset has reverbs (0..100)." }) priority = 0;
-  @field(Boolean, { description: "Let the reverb tail ring out after the zone stops being used, instead of cutting it." }) ringOut = true;
+  @field(String, { choices: (s) => ["", ...s.audio.buses.map((b) => b.name)], description: "The bus the reverb returns to (before its effects). Empty is Master." }) output = "";
 }
-export const ZONE_PRESETS = ["room", "corridor", "hall", "cave", "open"] as const;
+const ZONE_PRESETS = ["room", "corridor", "hall", "cave", "open"] as const;   // R10
 
-/** Tells audio what a wall is made of. Put it on a node with a collider, or on a parent of colliders. */
 @component("engine.AudioOccluder")
-export class AudioOccluder extends Component {
-  @field(String, { choices: (s) => ["", ...s.audio.occlusion.materials.map((m) => m.name)], description: "Material from Project Settings > Audio. Empty uses the project's default material." }) material = "";
-  @field(Number, { description: "Extra transmission loss for this wall in dB (negative muffles more), added to the material's." }) transmissionTrimDb = 0;
-  @field(Number, { description: "Multiplies the material's low-pass cutoff (1 = as the material, below 1 duller)." }) cutoffScale = 1;
-  @field(Number, { description: "0 closed, 1 open: blends the wall's effect away. Animate it for a door." }) openness = 0;
+class AudioOccluder extends Component {
+  @field(String, { choices: (s) => ["", ...s.audio.occlusion.materials.map((m) => m.name)], description: "Material from Project Settings > Audio. Empty is the project's default material." }) material = "";
+  @field(Number, { description: "Extra transmission loss for this wall, dB (negative muffles more), added to the material's." }) transmissionTrimDb = 0;
+  @field(Number, { description: "Multiplies the material's low-pass cutoff (below 1 duller)." }) cutoffScale = 1;
+  @field(Number, { description: "0 closed, 1 open: blends the wall's effect away. Script it for a door (R15)." }) openness = 0;
 }
 ```
 
-An `AudioOccluder` applies to every collider on its node and on descendants that have no occluder of their own (the nearest one up the parent chain wins, like `RigidBody` attachment, `Collider.ts:31-37`). `material = "none"` marks colliders (a character) as transparent. Colliders with no occluder anywhere above use `audio.occlusion.defaultMaterial`. A collider on a layer outside `audio.occlusion.layers` is never hit, whatever its node holds. Zones with `enabled = false` (the Component flag) are skipped; an occluder does the same.
+An occluder applies to the colliders of its node and of descendants without an occluder of their own (nearest up the parent chain, like `RigidBody`, `Collider.ts:31-37`); `material: "none"` makes colliders transparent. A collider on a layer outside `audio.occlusion.layers` is never hit. **R15:** a door is an `AudioOccluder` on the door's collider with a script moving `openness`; a moving collider uses the same rays, and a disabled collider is simply not hit. Transmission is per hit, not per metre. `enabled = false` skips a zone or occluder. **Industry:** the zone is Unity's `AudioReverbZone` crossed with Wwise's per-emitter room membership (weights **per source**, not per listener; no portals, [ARCH §12]); `AudioOccluder` is a Steam Audio material or Wwise acoustic texture with per-wall trims, one transmission figure rather than bands.
 
-**Industry.** The zone is Unity's `AudioReverbZone` (volume and fade-in) crossed with Wwise's per-emitter room membership: M3 weights **per source**, as Wwise rooms do, where Unity weights per listener. It is not a Wwise room: no portals, no room-to-room propagation (ADR open question). `AudioOccluder` is a Steam Audio material or Wwise acoustic texture on geometry, with per-wall trims; occlusion is a single transmission figure per hit, not frequency bands (later).
+### 1.6 Ambisonic playback, debug additions, compatibility
 
-### 1.6 Ambisonic clip playback, `Audio.debug()` additions, industry map
+An ambisonic clip is an ordinary clip path (`AudioSource.clip`, `playOneShot(path, { volume, bus, yaw, reverbSend, at })`); it is ambisonic only by its sidecar (§2.4). Behaviour: [ARCH §2.3]. Its `reverbSend` is its W channel sent to the zones that hold the **listener**.
 
-An ambisonic clip is an ordinary clip path: `AudioSource.clip` or `playOneShot(path, { volume, bus, yaw, reverbSend, at })`. The clip is ambisonic only by its sidecar (§2.4). It rotates with the listener's orientation, takes `ambisonicYaw`, and is added into its bus's bed (§3.1), or decoded on its own (§3.1's standalone decoders). Its `reverbSend` is the clip's W channel sent to the zones that hold the **listener**.
+`AudioDebugInfo` (a public type; 0157's versioning) gains: `counters` (`bedVoices, beds, bedDenied, bedSwitches, fxVoices, ambisonicVoices, zonesActive, zonesRinging, zonesFaded, zoneMemoryKB, kernelRefused, irFailures, irPrepInCore, occlusionRays, occlusionUsedMs, occlusionOverruns, occlusionSources, oldestOcclusionAgeFrames, dopplerClamps, dopplerTeleports, wideStarved, m3Shed`); `buses[]` (`bed`, `bedHost`, `bedLost`); `beds[]` (`slot, bus, sharing[], denied[{bus, reason}], voices, clips, costUs`); `zones[]` (`node, world, slot, state, ir, irSeconds, kernelKB, prepareMs, by: "worker" | "core", sendEnergy, rank, why`); `occlusion` (`enabled, note, budgetRays, rays, rayCostUs, oldestAgeFrames`); `memory` (`beds, zones, kernels, kernelBudget, wideRings`); `voices[]` (`panner, bed, kindDwellMs, doppler, occlusion{gain, cutoffHz, ageFrames, hits, material, collider}, filter{lowpassHz, highpassHz, lowpassBy: occlusion|event|automation|bus|snapshot|parent}, sends[{zone, level}], aux`). `zones[].why` carries the reason a zone is silent (`"faded: preset has 2 reverbs"`, `"IR failed: <message>"`, `"wet 0"`, `"no sources inside"`); the planner logs one warning when it fades a zone, naming it (mid review issue 3). Counters follow [ARCH §9] and its health thresholds (S8).
 
-```ts
-export interface AudioDebugInfo {
-  // ... 0157 §1 fields unchanged; counters gains:
-  counters: { /* ... */ bedVoices: number; beds: number; bedsRefused: number; fxVoices: number; fxPoolFull: number;
-              ambisonicVoices: number; zonesActive: number; zonesRinging: number; zoneMemoryKB: number;
-              occlusionRays: number; occlusionUsedMs: number; occlusionOverruns: number; occlusionSources: number; oldestOcclusionAgeFrames: number;
-              dopplerGuardTrips: number };
-  buses: { /* ... */ bed: "own" | "parent" | "none"; bedHost: string | null; bedLost: boolean }[];
-  /** One row per bed. `workUs` is modelled from work units (S12). */
-  beds: { bus: string; voices: number; workUs: number }[];
-  zones: { node: string; world: string | null; slot: number | null; state: "idle" | "loading" | "active" | "ringing" | "faded" | "failed"; ir: string; irSeconds: number; memoryKB: number; sendEnergy: number; why: string | null }[];
-  occlusion: { enabled: boolean; note: string | null; budgetMs: number; rays: number; oldestAgeFrames: number };
-  voices: { /* ... */ panner: AudioPanner | null; kindDwellMs: number; doppler: number;
-            occlusion: { gain: number; cutoffHz: number; ageFrames: number; hits: number; material: string | null; collider: string | null } | null;
-            filter: { lowpassHz: number | null; highpassHz: number | null; lowpassBy: "occlusion" | "event" | "bus" | "snapshot" | "automation" | "parent" | null };
-            sends: { zone: string | null; level: number }[]; aux: { bus: string; level: number } | null }[];
-}
-```
-
-`filter.lowpassBy` names the stage that set the lowest cutoff (mid review: "muffled, I don't know why"). `zones[].why` carries the reason a zone is not heard: `"faded: preset has 2 reverbs"`, `"no listener in range"`, `"IR failed: <message>"`, `"wet 0"`, `"no sources inside"`. A zone also logs one console warning when the planner fades it for lack of a slot (mid review issue 3). `AudioDebugInfo` is a public type, so this list is the API change 0157's versioning asks for.
-
-**Industry map.**
-
-| M3 name | Unity | Wwise | FMOD | Unreal | Differs |
-|---|---|---|---|---|---|
-| `AudioReverbZone` | AudioReverbZone | Room (emitter-side) | Reverb3D (listener-side) | Audio Volume | per source like Wwise; no portals |
-| `reverbSend` | `reverbZoneMix` | aux send | reverb level | submix send | plus a distance curve |
-| `dopplerLevel` | `dopplerLevel` | Doppler (attenuation) | `dopplerLevel` | Doppler (Attenuation) | teleport guard, listener velocity |
-| `AudioOccluder.material` | n/a | acoustic texture | n/a | physical material (UE5 Audio Occlusion) | one transmission figure, not bands |
-| bus `bed` own/parent/none | n/a | bus ambisonic config, child buses mix to parent | n/a | n/a | priority overflow rule |
-| `audio.speedOfSound` | fixed 343 | fixed | `set3DSettings` | project setting | world units per second |
-
-### 1.7 Compatibility with today's API, and what the samples change
-
-No migration exists; this table says what moves and which sample changes with it.
+**Compatibility and the samples** (no migration):
 
 | Item | Today | M3 | Sample impact |
 |---|---|---|---|
-| `AudioSource` fields | 0157 set | `+occlusion +dopplerLevel +reverbSend +sendCurve +ambisonicYaw`, all defaulted | Scenes load; `sound-lab`'s orbiting sources now Doppler-shift (set `dopplerLevel: 0` on the pitch and bench sources, `Orbit.ts` users in `sound-lab` and `stress`) |
-| `playOneShot` options | 0157 set | `+occlusion +dopplerLevel +reverbSend +sendCurve +lowpass +highpass +yaw` | none needed |
-| `AudioListener` | no members | `+velocity +setVelocity` | none |
-| `AudioReason` | six values | `+"occluded"` | none |
-| `AudioDebugInfo` | 0157 shape | §1.6 | `AudioDebugPanel` updated (§7) |
-| Distant spatial voices | equal-power beyond the nearest `voices.hrtf` | encoded into a bed (kind 2) where the bus has one | sound changes by design; listening pass items |
-| `voices.hrtf` presets | low 4, default 16, **high 32** (`audioSettingsModel.ts:210-214`) | low 4, default 16, high **8** | `stress` sets `hrtf: 32` explicitly: becomes the high preset's numbers (8, `maxBeds: 4`) |
-| `audio.bed`, bus `bed`, `bedPriority` | none | §2.1; Master defaults to `own` | `sound-lab` and `stress` get `audio.bed`; `sound-lab` marks Ambience `own` |
-| Positioned one-shots, `AudioSource` | no occlusion, no zone send | occlusion on, send 1 | nothing changes without colliders or zones |
-| `myco.audioevent@1` | 0158 keys | `+filter +sends +spatial.occlusion/dopplerLevel/reverbSend/sendCurve` (additive, stays `@1`) | `sound-lab` events unchanged |
-| Bus `reverb` effect | one shared convolver | unchanged; what a voice hears when no zone holds it | none |
-| `audio.spatial: "equalPower"` | no HRTF | no HRTF, **no beds** (kind 0 everywhere); ambisonic clips use the stereo decode | none |
-| Babylon fallback | 0157's | §8 | guides amended |
-| Guides | `playing-sound.md`, `audio-mixer.md`, `sound-events.md`, `why-no-sound.md`, `audio-minimum-versions.md` | amended, plus a new `spatial-audio.md` (task E8) | |
+| `AudioSource`, `OneShotOptions`, `AudioListener`, `AudioReason`, `AudioDebugInfo` | 0157 shapes | §1.1-§1.6, all defaulted | scenes load; `sound-lab` and `stress` orbiting sources now Doppler-shift: set `dopplerLevel: 0` on the pitch and bench sources |
+| Distant spatial voices | equal-power beyond `voices.hrtf` | bed (kind 2) where the bus has one | sound changes by design; listening-pass items |
+| `voices.hrtf` presets | low 4, default 16, **high 32** (`audioSettingsModel.ts:213`) | low 4, default 16 (owner item 1: 8 where beds exist), high **8** | `stress` sets `hrtf: 32`: becomes the high preset's numbers |
+| `audio.bed`, bus `bed`/`bedPriority`, `audio.ambisonic`, `audio.zones`, `audio.occlusion`, `audio.doppler` | none | §2.1; root defaults to `own` priority 255 | `sound-lab` and `stress` get the keys; `sound-lab` marks Ambience `own` |
+| `audio.spatial: "equalPower"` | no HRTF | no HRTF; **beds kept**, decoded by the baked 16 to 2 matrix (R9) | none |
+| Positioned one-shots and sources | no occlusion, no zone send | on, send 1 | no change without colliders or zones |
+| `myco.audioevent@1`, bus `reverb` effect | 0158 keys; shared convolver | additive keys (§2.5); the shared reverb stays and is the "outside any zone" reverb | `sound-lab` events unchanged |
+| Babylon fallback, guides | 0157 | §8; `playing-sound.md`, `audio-mixer.md`, `sound-events.md`, `why-no-sound.md`, `audio-minimum-versions.md` amended, `spatial-audio.md` new | task E8 |
 
 ## 2. Settings and asset data
 
@@ -178,242 +114,166 @@ No migration exists; this table says what moves and which sample changes with it
 
 ```jsonc
 "audio": {
-  "buses": [ { "name": "Master", "bed": "own", "bedPriority": 0 },
-             { "name": "Ambience", "parent": "Master", "bed": "own", "bedPriority": 5 },
-             { "name": "SFX", "parent": "Master" } ],           // bed absent: "parent"
-  "bed": { "maxBeds": 4 },
+  "buses": [ { "name": "Master", "bed": "own", "bedPriority": 255 },
+             { "name": "Ambience", "parent": "Master", "bed": "own", "bedPriority": 200 },
+             { "name": "SFX", "parent": "Master" } ],                     // bed absent: "parent"
+  "bed": { "maxBeds": 4 }, "ambisonic": { "maxClips": 2 },
   "occlusion": { "layers": null, "budgetMs": 0.5, "defaultMaterial": "concrete", "smoothingMs": 100, "materials": [ /* §2.2 */ ] },
-  "zones": { "maxActive": 2, "maxSeconds": 4 },
-  "doppler": { "maxSpeed": 100 },
-  "speedOfSound": 343,
+  "zones": { "maxActive": 2, "maxIrSeconds": 4 },
+  "doppler": { "maxSpeed": 150 }, "speedOfSound": 343,
   "voices": { "mixed": 256, "logical": 4096, "hrtf": 8 }
 }
 ```
 
-| Key | Type, range | Default | Parse rule (lenient, `problems[]`, as `settings.ts:101-176`) |
+| Key | Type, range | Default | Parse rule (lenient, `problems[]`, `settings.ts:101-176`) |
 |---|---|---|---|
-| `bed.maxBeds` | integer 0..4 | 2 (the default preset) | clamp, problem if clamped. 0: no beds anywhere |
-| `buses[].bed` | `own`, `parent`, `none` | root `own`, others `parent` | unknown: default plus problem. A root with `parent` is `own` without a problem |
-| `buses[].bedPriority` | integer -100..100 | 0 | round, clamp |
-| `occlusion.layers` | string list or null | null: every layer, triggers excluded | unknown layer names dropped plus problem (the list is checked against `physics.layers` when the physics section is known); an empty list turns occlusion off |
-| `occlusion.budgetMs` | number 0.05..2 | high 0.5, default 0.25, low 0.06 | clamp, problem if clamped |
-| `occlusion.defaultMaterial` | material name | `"concrete"` | unknown: the first material plus problem |
-| `occlusion.smoothingMs` | number 10..1000 | 100 | clamp; per-material `attackMs`/`releaseMs` override |
-| `occlusion.materials` | list | the table in §2.2 | names unique (later dropped plus problem), at most 32; the table is project data, edited in Settings |
-| `zones.maxActive` | integer 0..2 | high 2, default 2, low 1 | clamp. 0: zones are inert (a note in the debug panel) |
-| `zones.maxSeconds` | number 0.5..8 | high 4, default 2, low 1 | clamp. Longer IRs are cut with a 100 ms fade |
-| `doppler.maxSpeed` | number > 0 | 100 | non-positive: default plus problem |
-| `speedOfSound` | number 10..100000 | 343 | clamp. World units per second |
-| `voices.hrtf` | integer 0..32 | low 4, default 16, high 8 | as 0157 §2; with `maxBeds` 0 the number is used as set |
+| `bed.maxBeds` | integer 0..4 | 2 | clamp plus problem. 0: no beds |
+| `buses[].bed` | `own`, `parent`, `none` | root `own`, others `parent` | unknown: default plus problem |
+| `buses[].bedPriority` | integer 0..255 | 128; **root 255** (R8; no hard-coded "Master first") | round, clamp |
+| `ambisonic.maxClips` | integer 0..4 | 1 (low 1, default 1, high 2) | clamp. Caps concurrent ambisonic voices, wide rings and private decoders; 0 refuses ambisonic clips with a warning |
+| `occlusion.layers` | string list or null | null: every layer, sensors excluded | unknown names dropped plus problem; empty list: occlusion off |
+| `occlusion.budgetMs` | number 0.02..2 | high 0.5, default 0.25, low 0.06 | clamp. Converted to a ray **count** per frame [ARCH §3.2] |
+| `occlusion.defaultMaterial`, `smoothingMs`, `materials` | name, 10..1000, list (<= 32) | `"concrete"`, 100, §2.2 | unknown material: the first plus problem; duplicate names dropped |
+| `zones.maxActive` | integer 0..2 | 2 (low 1) | clamp. 0: zones inert |
+| `zones.maxIrSeconds` | number 0.5..8 | high 4, default 2, low 1 | clamp; longer IRs cut with a 50 ms fade |
+| `doppler.maxSpeed`, `speedOfSound` | number > 0, 10..100000 | 150, 343 | default plus problem / clamp |
+| `voices.hrtf` | integer 0..32 | low 4, default 16, high 8 | as 0157 §2; with `maxBeds` 0 used as set |
 
-The file stores numbers; presets stay bundles the editor offers (`VOICE_PRESETS`, `audioSettingsModel.ts:210`). M3's preset table: **low** `{ mixed 64, logical 1024, hrtf 4, clipMemoryMB 64, maxBeds 0, zones 1 x 1 s, budgetMs 0.06 }`; **default** `{ 128, 4096, 16, unset, maxBeds 2, zones 2 x 2 s, 0.25 }`; **high** `{ 256, 4096, 8, 256, maxBeds 4, zones 2 x 4 s, 0.5 }`. The default preset keeps `hrtf` 16 (the record fixes 8 only for high; flagged, §11).
+Presets stay editor bundles (`VOICE_PRESETS`, `audioSettingsModel.ts:210-214`, `as const`; `voicesPreset()` compares numbers exactly, so the new keys join the comparison). **low** `{ mixed 64, logical 1024, hrtf 4, clipMemoryMB 64, maxBeds 0, maxClips 1, zones 1 x 1 s, budgetMs 0.06 }`; **default** `{ 128, 4096, 16, unset, 2, 1, 2 x 2 s, 0.25 }`; **high** `{ 256, 4096, 8, 256, 4, 2, 2 x 4 s, 0.5 }`. Whether the default preset's `hrtf` becomes 8 (zero tasks, one number) is owner item 1; slots beyond `maxActive` are owner item 2 (§10.2).
 
-**Bed resolution** (`beds.ts`, pure, main). Input: the bus tree, each bus's `bed` and `bedPriority`, `maxBeds`. (1) `requests` = buses asking `own` (the root counts as `own` unless `none`). (2) If `maxBeds` is 0, every bus is `none`. (3) Sort requests by `bedPriority` descending, ties by bus index (tree order); the first `maxBeds` are **hosts**; the rest are **losers** and become `parent`. (4) For each bus `b`: `own` host: itself; `parent` (declared or lost): the nearest ancestor that is a host, else `none`; `none`: none. A bus with no ancestor host falls back to the root's bed if the root is a host (the nearest-ancestor walk reaches it anyway). (5) Output `hostOf[b]` (0xFFFF none) goes to the core as BED_CONFIG (§4.2); `bedLost[b]` (a requester that lost) goes to the debug rows and the Settings warning ("Footsteps asked for its own bed but only 2 are allowed; it shares Master's").
+**Bed resolution** is [ARCH §2.1] (candidates sorted by `bedPriority` then depth then index; losers share; `bedDenied`). Deltas: ties at the default 128 go to the shallowest bus, so Master wins by depth and by its default 255; when nobody asks `own` and `maxBeds > 0` the root is granted slot 0 implicitly. Output: `bedSlot[b]` per bus (0xFF none) and `hostBus[slot]` (§4.2).
 
 ### 2.2 Occluder materials
 
-A material is `{ name, transmissionDb, cutoffHz, wetOcclusion, attackMs?, releaseMs? }`. `transmissionDb` is the dry loss of one hit (-80..0); `cutoffHz` the dry low-pass behind it (100..22000); `wetOcclusion` how much of the dry loss also applies to the reverb send (0 = none, 1 = as dry; the record's default 0.5); `attackMs`/`releaseMs` (0..2000) override `smoothingMs` when the occlusion rises or falls (a door that slams wants a short attack). The default table; **values are starting points for the listening pass**, not measurements:
-
-| name | transmissionDb | cutoffHz | wetOcclusion |
-|---|---|---|---|
-| `none` | 0 | 22000 | 1 |
-| `cloth` | -3 | 6000 | 0.8 |
-| `glass` | -10 | 4000 | 0.6 |
-| `wood` | -14 | 2500 | 0.5 |
-| `metal` | -24 | 1500 | 0.4 |
-| `brick` | -28 | 900 | 0.3 |
-| `concrete` | -34 | 600 | 0.3 |
-
-Several hits on one ray (up to 3) add their dB (so two walls muffle twice) and take the lowest cutoff; the total is clamped at -60 dB, where the voice is silent and selection may virtualise it. Transmission is per hit, not per metre of thickness (documented; `transmissionTrimDb` is the per-wall control). `openness` blends a hit's dB toward 0 and its cutoff toward 22 kHz (log scale) linearly.
+`{ name, transmissionDb (-80..0), cutoffHz (100..22000), wetOcclusion (0..1), attackMs?, releaseMs? (0..2000, else `smoothingMs`) }`. Defaults, **starting points for the listening pass**: `none` 0 / 22000 / 1; `cloth` -4 / 8000 / 0.3; `glass` -8 / 5000 / 0.4; `wood` -12 / 2500 / 0.5; `metal` -25 / 1200 / 0.6; `concrete` -30 / 800 / 0.6 (the architect's numbers for the five shared rows; `none` is mine). Several hits on one ray add dB, take the lowest cutoff, floor -60 dB [ARCH §3.2]. `openness` blends a hit's dB toward 0 and its cutoff toward the top (log scale). The cutoff at or above 20,000 Hz means off.
 
 ### 2.3 Zone impulse responses
 
-An IR is an `audio` asset (0143's existing kind; no new kind, no `ir: true` sidecar key: a zone's `ir` field names a clip and the zone, not the clip, makes it an IR). Mono IRs feed both channels' kernels; stereo IRs use channel 0 for the left input and channel 1 for the right (as `convolver.rs` header). More than two channels is refused (the zone shows "IR failed"). **Procedural presets** are generated in the decoder worker from a seeded generator (the same `mulberry32` as `convolver/ir.rs`), each `{ rt60 (s), hfDamping, predelayMs }`: `room` 0.45 / 0.5 / 4, `corridor` 1.1 / 0.6 / 6, `hall` 2.2 / 0.4 / 18, `cave` 3.6 / 0.3 / 30, `open` 0.9 / 0.8 / 40 (a sparse tail: late echoes of a courtyard). `hfDamping` sweeps a one-pole low-pass down over the tail so highs decay faster. Every IR, file or preset, passes through the same normalisation as the shared reverb (`1/rms`, `-58 dB` calibration, `44100/rate`), so `wet = 1` is level-comparable across zones and with the bus reverb at send 1.
+An IR is an `audio` asset (0143; no new kind or sidecar key). Mono feeds both channels' kernels, stereo uses channel 0 left and 1 right, more than two channels is refused ("IR failed" in the zone). Presets are **generated in the decoder worker** (seeded `mulberry32` as `convolver/ir.rs`; main never holds a time-domain IR): `{ rt60 s, hfDamping, predelayMs }`: `room` 0.45 / 0.5 / 4, `corridor` 1.1 / 0.6 / 6, `hall` 2.2 / 0.4 / 18, `cave` 3.6 / 0.3 / 30, `open` 0.9 / 0.8 / 40. Every IR passes the shared reverb's normalisation (`1/rms`, -58 dB calibration, `44100/rate`), so `wet = 1` compares across zones and with the bus reverb.
 
 ### 2.4 Sidecar `ambisonic` (0040)
 
-`myco.import@1` gains one optional key (`importSettings.ts` header, `ImportSettings`, `parse`, `serialise` at lines 98-127, 243-261, 397-399):
-
-```jsonc
-"ambisonic": { "order": 3, "convention": "ambix" }   // convention: "ambix" (ACN order, SN3D) or "fuma"
-```
-
-Rules. The key is **required for any clip with more than 2 channels** (a 4-channel WAV without it is refused with "4-channel audio needs an ambisonic import setting (ADR 0162); multichannel mixes aren't supported"). `order` is optional and inferred from the file's channel count (4 gives 1, 9 gives 2, 16 gives 3); a given `order` whose `(order+1)^2` differs from the file's channels is a problem and the clip fails to load, with the message naming both numbers. `convention` defaults to `"ambix"`. Orders 2 and 3 are WAV only (FLAC stops at 8 channels, Opus has no decoder: loading either refuses with the same reason the registry gives for any unsupported combination). FuMa is converted in the decoder worker before the clip reaches the core (§5.4), at f32 (clips converted from FuMa are stored f32 whatever `clipFormat` says: the X, Y, Z scale factor exceeds 1). `stream` is honoured; **ambisonic clips stream by default**: when `ambisonic` is set and `stream` is absent the registry streams clips longer than 5 s (a 3rd-order minute is about 92 MB at 16-bit). A sidecar on a clip with 1 or 2 channels is ignored with a problem. The Asset Inspector's audio block gains an Ambisonic checkbox, order and convention (E6).
+`myco.import@1` gains `"ambisonic": { "order": 3, "convention": "ambix" | "fuma" }` (`importSettings.ts` header, `ImportSettings`, parse, serialise). **Required for any clip over 2 channels**: 4, 9 or 16 channels without it is refused ("4-channel audio needs an ambisonic import setting (ADR 0162); multichannel mixes aren't supported"). `order` is inferred (4 gives 1, 9 gives 2, 16 gives 3); a given `order` that disagrees with `(order+1)^2` fails the load with both numbers. Orders 2-3 are WAV only (FLAC stops at 8 channels; no Opus decoder). **FuMa** is converted in the decoder worker (clips and, per chunk, streams: `STREAM_OPEN.convention`): reorder, then scale to SN3D and **down by the order's largest factor into int16 headroom**, folding the inverse into the clip's import volume, so the clip stays `i16` (architect issue 9; orders whose factor exceeds 4 keep f32). `stream` is honoured; when `ambisonic` is set and `stream` absent the registry streams clips over 5 s. A sidecar on a 1-2 channel clip is ignored with a problem. The Asset Inspector gains the block (E6).
 
 ### 2.5 `myco.audioevent@1` additions
 
-Additive; the format stays `@1`. An older engine's lenient parser drops the new keys silently (0158 header), so a new event played by an old engine loses its filter and sends without error (stated, not defended: the engine is unpublished).
+Additive, format stays `@1`; an older engine's lenient parser drops the keys silently.
 
 ```jsonc
-{
-  "format": "myco.audioevent@1", "bus": "SFX", "volume": 1,
-  "spatial": { "minDistance": 1, "maxDistance": 30, "rolloff": "inverse",
-               "occlusion": true, "dopplerLevel": 0, "reverbSend": 1, "sendCurve": [[0, 1], [1, 3]] },
-  "filter": { "lowpass": 9000, "highpass": 80 },
-  "sends": { "reverb": 0.5, "Cave": 0.3 },
-  "root": { "type": "clip", "clip": "sfx/step.ogg" }
-}
+"spatial": { "minDistance": 1, "maxDistance": 30, "rolloff": "inverse",
+             "occlusion": true, "dopplerLevel": 0, "reverbSendCurve": [[0, 1], [1, 0.5]] },
+"filter": { "lowpass": 9000, "highpass": 80 },
+"sends": { "reverb": 0.5, "Cave": 0.3 }
 ```
-
-- `filter.lowpass` and `filter.highpass`: Hz 10..24000 (lowpass above 20000 and highpass below 20 are off). They apply **per voice** of the instance through the same per-voice filter as occlusion and `lowpass` automation (the lowest low-pass wins; `lowpassBy` says which).
-- `sends.reverb` (0..2, default absent: 1) is the event's `reverbSend`; any other key names a bus and is an **aux send**: `level` 0..2 added to that bus's input, post the voice's own bus gain chain, equal-power panned (§4.5). **One aux send per voice in M3**: with two named buses the first in key order is kept and the parse reports the other ("one aux send per event; <name> ignored"). An unknown bus name is dropped with a problem (the check happens when the event plays, as 0158's global parameter names).
-- `spatial.occlusion` (default true), `spatial.dopplerLevel` (0..5, default 0, per 1.3), `spatial.reverbSend` is **not** a key: the one send is `sends.reverb`; `spatial.sendCurve` as 1.1. The record names `occlusion` as an event-level key without a place; it lives in `spatial` here, as the senior review proposed (flagged, §11), since it only means anything for a spatial event.
-- A flat event (no `spatial`) takes `filter` and `sends.<bus>` and ignores the spatial ones.
-
-Parse rules follow `eventFormat.ts`: bad numbers clamp to the range and report in `problems`, an unknown key is ignored, nothing throws. `formatAudioEvent` writes the keys only when set. The Event editor's node properties gain the controls (E5).
+- `filter.lowpass`/`highpass` (Hz 10..24000; lowpass at or above 20000 and highpass at or below 20 are off) apply **per voice** through the shared per-voice filter (lowest low-pass wins; `lowpassBy` names the stage).
+- `sends.reverb` (0..2, default 1) is the event's `reverbSend`; any other key is an **aux send** to that bus (0..2), post the voice's bus-chain gain, **one per voice** (the first in key order; the parse reports the rest). An unknown bus is dropped with a problem when the event plays.
+- `spatial.occlusion` (default true), `spatial.dopplerLevel` (0..5, default 0), `spatial.reverbSendCurve` (§1.1). The record names `occlusion` as an event key without a place; it lives in `spatial` (flagged, §11). A flat event takes `filter` and `sends.<bus>` and ignores the spatial keys.
+Parse rules follow `eventFormat.ts` (clamp, `problems`, never throw); the writer emits keys only when set.
 
 ## 3. Internal data models
 
-Who writes: **main** (play, stop, per-frame audio system), **sys** (the per-frame audio system's passes: selection, occlusion, zones, Doppler), **status** (the mirror), **core** (the worklet, which owns every audio-thread table).
+Who writes: **main**, **sys** (the per-frame audio system's passes), **status** (the mirror), **core** (the worklet).
 
-### 3.1 Core tables (audio-thread; one writer, the core)
+### 3.1 Core tables (one writer, the core)
 
-**Beds** (`audio-core/src/bed.rs`, region `Beds`, sized from `max_beds`): one `BedSlot` per host bus.
+Behaviour is [ARCH §2.1, §2.2, §4]; the tables and their sizes are here. Regions are laid out by `InitParams` before the arena (R6; `layout.rs` is append-only, new regions go before `Arena`).
 
-| Field | Type | Meaning |
-|---|---|---|
-| `host` | u16 | the bus index the bed decodes into; 0xFFFF free |
-| `acc` | `[[f32;128];16]` | the 16 ACN/SN3D channels, cleared each quantum (8 KB) |
-| `history` | decoder partition history | frequency-domain history of the 16 channels for the partitioned decode (about 40 KB, S6) |
-| `voices`, `work` | u16, u32 | voices encoded and work units this quantum (STATUS) |
+| Table | Region | Contents | Size (high / default / low, 48 kHz) |
+|---|---|---|---|
+| Beds | `Beds` | per bed and per private decoder: `acc[16][128]` f32 (8 KB) + decoder history (40 KB); shared MagLS spectra 64 KB (16 ch x 2 ears x 2 partitions x 128 bins) | (4 + 2) x 48 + 64 = 352 KB / (2 + 1) x 48 + 64 = 208 KB / 1 x 48 + 64 = 112 KB |
+| Mixed-voice pool | `Fx` | one entry per **mixed** voice (R12), taken at promote, so it cannot run out: lp and hp `Biquad` (120 B each), their log-Hz ramps, 4 send ramps, aux ramp and bus, yaw, bed share ramp, 16 f32 bed gains: about 448 B | 112 / 56 / 28 KB |
+| Zones | `Zones` | `slots x state(maxIrSeconds)`: frequency-domain delay lines, input and accumulation rings, per-slot stereo input buffer, state, `ring_left`, stagger phase. Kernels stay in the IR clip blocks (arena), read in place | state 6.1 / 3.1 / 0.9 MiB with `maxActive` slots (12.0 / 6.1 / 1.6 MiB with kernels); owner item 2 adds a slot (18.0 / 9.2 / 3.3 MiB) |
+| Wide rings | `Wide` | `maxClips` rings of 16 ch x (16,384 + 2,048 chunk + 1,536 seek tail) f32 = 1.22 MiB each; 2.22 MiB if the ring grows to 32,768 (R16) | 2.44 / 1.22 / 1.22 MiB |
+| Listener, fold table | core state | quaternion, matrix, per-bus chain gains (<= 32 buses) | 3 KB |
 
-Shared across beds: the decoder spectra (16 channels x 2 ears x 2 partitions x 128 bins x 8 B = 64 KB), built when the bed-decoder blob (clip format 4, §4.6) is committed, and the rotation scratch. **Per bed voice** a `BedVoice` entry (64 B: 16 f32 last-quantum gains) from a free list of `max_mixed` entries; the voice slot holds `bed_slot: u16`. A voice enters the bed when its kind is 2 or it is an ambisonic clip; the entry is freed when the voice leaves the kind, goes virtual, or ends.
-
-The **standalone decoders** are the beds' decoder states not hosting a bus: a clip whose bus has no host takes a free one (up to `max_beds`), else it uses the **stereo decode** `L = 0.5(sqrt(2) W + Y)`, `R = 0.5(sqrt(2) W - Y)` (two cardioids at +-90 degrees, centre level equal to the equal-power centre; hard sides differ from `EqualPowerPanner` by up to about 2 dB, accepted: used only for ambisonic clips without a bed, and for everything on `maxBeds` 0). With `maxBeds` 0 (low preset) all ambisonic clips use the stereo decode (documented limitation, S10).
-
-**Voice slot** (`voices.rs`, `VOICE_SLOT_BYTES` 192): gains `bed_slot: u16`, `fx_slot: u16` (index into the fx pool plus 1, 0 none), `aux_bus: u16`, `send: [f32; 2]` with ramps (`Ramp` 16 B each: the 2 sends cost 32 B), `aux: Ramp`, `yaw: f32`, `hp_hz: f32`. If the slot's current size plus these does not fit 192 B the constant becomes 256 (the assert at `voices.rs:152` decides; every bench's memory line moves by 64 B x logical voices = 256 KB at 4,096; S6 asks the architect to carry the number). `PannerState` gains a `bed: Ramp` (the bed share, as the HRTF slot's `x`) and kind 2; for kinds 0, 1 and 2 `matrix` always holds the equal-power coefficients from the direction (also the sends' pan). `flag::AMBISONIC` is a new slot flag bit in a new `flags2: u8` (the 8 bits of `flags` are all used, `voices.rs:93-108`).
-
-**Voice filters** (`audio-core/src/fxpool.rs`, region `Fx`, `max_fx = max(16, max_mixed / 2)` entries): per entry `lp: Biquad`, `hp: Biquad`, `lp_ramp: Ramp` and `hp_ramp: Ramp` in log-Hz, `idle: u16` quanta since both went off. A mixed voice takes an entry the first quantum its target low-pass is below `LP_OFF` (`wire::BUS_LP_OFF_HZ`, 24000) or its high-pass above 20 Hz, or automation binds a lowpass; it frees the entry 8 quanta (21 ms) after both are off (so a closing filter finishes ramping to open before it vanishes). **The automation low-pass migrates here**: `VoiceAuto.filter` (`automation.rs:151`) goes; the cutoff is `min(lpHz, lpAuto)`; goldens of M2 must not change (same `Biquad`, same coefficients, same order of operations: the first acceptance check of D1). A full pool leaves the voice unfiltered and counts `fxPoolFull`.
-
-**Zone slots** (`audio-core/src/zones.rs`, region `Zones` for headers, state in the arena): `max_zones` (0..2) `ZoneSlot`: `state` (0 free, 1 active, 2 ringing, 3 fading), `ir_clip: u32`, `wet: Ramp`, `in_l/in_r: [f32;128]` (the quantum's summed sends, cleared each quantum), `state_block: Block` (the convolver's frequency-domain delay lines, input and accumulation rings, from the arena at ZONE_CREATE: 3.1 MB at 2 s, 6.1 MB at 4 s per the spike, S6), `ring_left: u32` (frames until a ringing tail ends), `phase: u8` (the stagger planner's offset, §5.2). The kernels are **not copied**: the slot reads them in place from the IR clip's arena block (the same way the HRIR bank reads its table).
-
-**Listener** (`listener.rs`): `q` (current unit quaternion), `q_target`, `ramp_left`, and the derived `R: [[f32;16];16]`-sparse block-diagonal rotation (1+3+5+7 blocks) recomputed once per quantum (about 2 us, spike: rotation 7 us at order 1 inclusive of decode, 23 us at order 3 with decode).
+The voice slot (`VoiceSlot`, `voices.rs:117`, 192 B) gains only `flags2: u8` (ambisonic) and `fx: u16` (pool entry plus 1); an assert decides whether `VOICE_SLOT_BYTES` must grow (S6). `PannerState` gains kind 2 and a `bed` ramp; the equal-power `matrix` is computed for every kind. The automation low-pass **migrates into the pool entry** (`VoiceAuto.filter` goes), cutoff `min(lpHz, lpAuto)`; M2's goldens must not change. **Mono-once** (R12): a mono clip is filtered on one channel before it is copied to both (bit-identical to M2's stereo biquad for mono input); clips are never filtered; the filtered-voice term is at most the mixed voices.
 
 ### 3.2 Main tables
 
-**Voice table additions** (`voiceTable.ts`, struct-of-arrays, allocated once at `L = voices.logical`; 0157 §3 conventions). New columns, with the writer of each:
+| Field (voice table, struct-of-arrays, 0157 §3) | Type | Writer |
+|---|---|---|
+| `panner` (0/1/2), `pannerSince` | u8, u32 | sys (`pannerPick.ts`) |
+| `flags2` (ambisonic, occlusion, zone sends, aux), `yaw` (rad), `dopplerLevel`, `dopplerFactor`, `velXYZ`, `prevXYZ` | | main, sys |
+| `occTargetGain/Cut`, `occGain/Cut` (smoothed), `occWet`, `occAge` u16, `occHits`, `occMaterial` | | sys (`occlusion.ts`) |
+| `audibility0` (pre-occlusion, from selection), `reverbSend`, `sendCurve` (interned index), `sendLevel[4]`, `sentSend[4]`, `auxBus`, `auxLevel` | | main, sys |
+| `lpHz` (the lowest of occlusion, event static, **sharing-chain snapshot low-pass folded by main**) + `lpBy`, `hpHz` | | sys |
 
-| Field | Type | Units / values | Writer |
-|---|---|---|---|
-| `panner` (existing) | Uint8Array | 0 equal-power, 1 HRTF, **2 bed** (the kind the core was last told); with `pannerSince` below | sys (`pannerPick.ts`) |
-| `pannerSince` | Uint32Array | frame number the kind last changed; kind changes need 30 frames (0.5 s) of dwell (sound-designer review item 8; the 1.2x hysteresis and 3-frame mixing dwell stay) | sys |
-| `flags2` | Uint8Array | bit0 ambisonic clip, bit1 occlusion wanted, bit2 zone sends wanted, bit3 aux send | main |
-| `yaw` | Float32Array | radians | main |
-| `dopplerLevel` | Float32Array | 0..5 | main |
-| `dopplerFactor` | Float32Array | 0.5..2, last sent | sys (`doppler.ts`) |
-| `velX/Y/Z`, `prevX/Y/Z` | Float32Array | world u/s; last position | sys |
-| `occTargetGain`, `occGain` | Float32Array | linear dry gain from the last ray; the smoothed value sent | sys (`occlusion.ts`) |
-| `occTargetCut`, `occCut` | Float32Array | Hz, same | sys |
-| `occWet` | Float32Array | wet-path factor from the hits' `wetOcclusion` | sys |
-| `occAge` | Uint16Array | frames since the last ray result (saturating) | sys |
-| `occHits`, `occMaterial` | Uint8Array | hits on the last ray (0..3); the first hit's material index (255 none) | sys |
-| `occCollider` | Int32Array | index into the occlusion system's collider-name ring (debug only) | sys |
-| `reverbSend` | Float32Array | 0..2 | main |
-| `sendCurve` | Uint16Array | index into the curve table (a source's curve is interned; 0 default) | main |
-| `zoneLevel0/1` | Float32Array | linear send into zone slot 0 and 1 as last sent (voice gain x curve x weight x wetOcc folded; the core multiplies the voice's chain gain) | sys (`zones.ts`) |
-| `auxBus`, `auxLevel` | Uint8Array, Float32Array | the aux send (events, one per voice) | main |
-| `lpHz`, `hpHz` (existing `lpHz`) | Float32Array | the **lowest** cutoff after the sources below; `lowpassBy` code | sys |
-| `lpBy` | Uint8Array | 0 none, 1 occlusion, 2 event, 3 bus, 4 snapshot, 5 automation, 6 parent (sharing) | sys |
-| `bedHostWhenSent` | Uint8Array | the bed host bus index the voice was placed for (to notice a re-plan) | sys |
-
-`occlusion` state is per **voice**, not per source component: a source that re-plays starts open (gain 1) and is among the next rays' first candidates (age 0xFFFF sorts first). Sources are not tracked across voices.
-
-**Velocity estimate** (`doppler.ts`): for each spatial voice and for the listener, `v = (p - prev) / dt` with `dt` the game frame's delta from `Time` (game time: when `Time.scale` is 0 nothing moves and velocity decays to 0; the audio clock is not used); smoothed by a one-pole with a 60 ms time constant; **teleport guard**: when `|p - prev| / dt` exceeds `audio.doppler.maxSpeed`, that entity's velocity is set to 0 and held for 3 frames and `dopplerGuardTrips` counts; a frame whose `dt` exceeds 0.25 s (a hidden tab, a debugger) resets every velocity to 0 (hidden-tab reset, record). A listener whose node has no motion over several frames reads 0. `AudioListener.setVelocity` bypasses the estimate and the guard.
-
-**Zone registry** (`zones.ts`): per World, the live `AudioReverbZone` components with their cached world-space volume: for a box, the centre, half extents and the node's world rotation inverse (a 3x3); for a sphere the centre and radius. Recomputed when the node's world matrix version changes. The registry also holds each zone's IR state (`idle`, `loading`, `ready`, `failed`), the interned blob id, and the **slot assignment** table (zone to slot 0/1 or none). Capacity: 64 zones per World (extra zones are inert with one warning; broad-phase is a linear AABB test per voice: 256 voices x 64 zones is about 16 k tests a frame, under 0.05 ms).
-
-**Occlusion state** (`occlusion.ts`): the candidate ranking (a fixed `Uint16Array` of voice indices, the top 16 by audibility-before-occlusion refreshed each frame by `selectTopK`, then a round-robin cursor over the rest), the **frame budget** timer (`performance.now()` around each ray, stop when `budgetMs` is spent, the cursor continues next frame), the collider-to-occluder cache (`WeakMap<collider, material index>`, cleared every 120 frames and on component add or remove), and the material table compiled to `Float32Array`s (transmission linear, cutoff, wet, attack and release coefficients).
+**Velocity estimate:** `(p - prev) / dt` with `dt` from game time (zero when `Time.scale` is 0), one-pole 60 ms; a step faster than `audio.doppler.maxSpeed` is a teleport (velocity 0 for 3 frames, `dopplerTeleports`); `dt` above 0.25 s resets every velocity (hidden tab). `setVelocity` bypasses both. **Panner kind dwell (R13, S14):** a voice keeps a kind for at least 500 ms of game time (30 frames at 60 Hz; main tests the later of the two) on top of the 1.2x hysteresis and the 3-frame mixing dwell; a promotion from bed to HRTF is exempt (a near source should sharpen).
+**Zone registry** (`zones.ts`): per World, live components with cached world volumes (box: centre, half extents, inverse rotation; sphere: centre, radius) recomputed on the node's world-matrix version; capacity 64, extra zones are inert with a warning naming each; IR state and slot assignment per zone. **Occlusion state** (`occlusion.ts`): top-16 candidate list, round-robin cursor, ray-cost EMA, collider-to-material cache (cleared every 120 frames and on component add or remove), compiled material arrays [ARCH §3.2].
 
 ## 4. Binary formats
 
-Everything here lives in the one schema (`audio-wire/src/schema/*.rs`) and is generated into Rust and TypeScript (§5.5). All records follow 0157 §4.2's head (12 B: `u16 opcode; u16 words; u32 voiceId; u32 frameOffset`), `frameOffset` 0xFFFFFFFF asap. Offsets below are from the record's first byte, head included, so the first payload word is at 12.
+One schema (`audio-wire/src/schema/*.rs`), generated into Rust and TypeScript. Record head 12 B as 0157 §4.2 (`u16 opcode; u16 words; u32 voiceId; u32 frameOffset`), asap = 0xFFFFFFFF.
 
-### 4.1 PLAY and SET_PARAMS (changed meanings, same layout)
+### 4.1 PLAY and SET_PARAMS
 
-PLAY's `flags` (u16 at offset 16, within the payload at 12: `u32 clip` 12..15, `u16 bus` 16..17, `u16 flags` 18..19) keeps bits 0-6 (`loop`, `stream`, `wantsPlayhead`, `mixed`, `spatial`, `panner` at bits 5-6). The record says panner "bits 2-3" in its Context; the code and 0157 have **bits 5-6** (`batch.rs:22`, two bits wide, values 0..3). M3:
+PLAY `flags` (u16 at 18) keeps bits 0-6 (`panner` at 5-6; the record's Context says bits 2-3, the code has 5-6, `batch.rs:22`). **Value 2 = bed**; 3 reserved. **Bit 7 `ambisonic`** (new): a B-format clip voice, 4, 9 or 16 channels; `spatial`, `panner`, `dir*` ignored; `lpHz`, `hpHz` and sends other than the W send ignored; stream voices may be ambisonic; read from PLAY only. Bits 8-15 reserved. SET_PARAMS is unchanged in layout; `flags` reads the panner bits (2 accepted); `lpHz` is **applied to every voice** below the top, ramped in log-Hz over `rampFrames`. Main puts occlusion in `gain` and `lpHz` and Doppler in `pitch`; no new field carries them.
 
-| Field | Bits | Change |
-|---|---|---|
-| `panner` | 5-6 | `2` = bed (encode into the bus's resolved bed); `3` reserved. Ignored for non-spatial voices |
-| **`ambisonic`** | **7** | **new: a B-format clip voice.** The clip must have 4, 9 or 16 channels; the core derives the order. `spatial`, `panner` and `dir*` are ignored; `lpHz`, SET_FX `hpHz` and sends other than the W send are ignored. A stream voice (`stream` bit 1) may also be ambisonic |
-| bits 8-15 | | reserved, 0 |
+### 4.2 New records
 
-SET_PARAMS (56 B) is unchanged in layout; `flags` still reads only the panner bits (value 2 now accepted). `lpHz` is **applied to every voice** whose target is below `LP_OFF`, ramped in log-Hz over `rampFrames` (§3.1). `gain` and `lpHz` are where main puts occlusion (the dry gain and cutoff after smoothing) and Doppler goes in `pitch`; no new fields carry them.
-
-### 4.2 New voice and bus records
-
-**0x0A SET_FX** (stamped like any voice record; 44 B, 11 words). Sent after PLAY when any field is non-default, and when a field moves past its epsilon (hp 1 Hz, sends 0.002, aux 0.002, yaw 0.001 rad).
+**0x0A SET_VOICE_FX** (52 B, stamped like SET_PARAMS; sent after PLAY when any value is non-default and when one moves past its epsilon: send 0.5 dB, hp 1 Hz, yaw 0.001 rad):
 
 | Off | Type | Field |
 |---|---|---|
-| 12 | u32 | `mask`: bit0 `hpHz`, bit1 `send0`, bit2 `send1`, bit3 `yaw`, bit4 `aux` |
-| 16 | f32 | `hpHz` (<= 20 off) |
-| 20 | f32 | `send0`: linear level into zone slot 0 |
-| 24 | f32 | `send1`: linear level into zone slot 1 |
-| 28 | f32 | `yaw`: radians, ambisonic voices |
-| 32 | f32 | `aux`: linear level into `auxBus` |
-| 36 | u16 | `auxBus` (0xFFFF none) |
-| 38 | u16 | reserved |
-| 40 | u32 | `rampFrames` (sends, aux, hp; yaw jumps with the next listener ramp) |
+| 12 | u32 | `mask`: bit0 `hpHz`, bit1 `sends`, bit2 `yaw`, bit3 `aux` |
+| 16 | u32 | `rampFrames` |
+| 20 | f32 | `hpHz` (<= 20 off) |
+| 24 | f32[4] | `send[0..3]`: linear level into zone slot `k` (R2: four, whatever the slot ruling) |
+| 40 | f32 | `yaw`, radians |
+| 44 | f32 | `auxLevel`, linear |
+| 48 | u16 | `auxBus` (0xFFFF none) |
+| 50 | u16 | reserved |
 
-**0x16 BED_CONFIG** (applies on arrival; 20 + 4 x ceil(busCount / 2) B): `u32 busCount` at 12, `u32 reserved` at 16, then `u16 host[busCount]` from 20, padded to 4 B. `host[b] == b` is an own bed, another index a share, 0xFFFF none. The core validates (a host must be the bus or an ancestor; invalid becomes none), allocates one `BedSlot` per distinct host up to `max_beds` (extra hosts are none and count `bedsRefused`), keeps the state of a host that stays, and frees a bed whose host left. Sent after BUS_CONFIG and again whenever the bus tree or `maxBeds` changes.
+**0x16 BED_CONFIG** (applies on arrival; R1): `u32 busCount` at 12, `u32 slotCount` (<= `MAX_BEDS` 4) at 16, `u8 bedSlot[busCount]` from 20 (0xFF none), padded to 4 B, then `u16 hostBus[slotCount]` padded to 4 B. Total `20 + pad4(busCount) + pad4(2 x slotCount)`. A bus's voices encode into slot `bedSlot[b]` and are folded through the buses from `b` up to, excluding, `hostBus[slot]`; the slot decodes into its host bus before that bus's effects. The core validates (host must be an ancestor of, or equal to, every bus using the slot; else those buses become 0xFF and `bedsRefused` counts), keeps the state of a slot whose number and host stay, and frees a slot whose host left after its history drains. Sent after BUS_CONFIG and whenever the tree or a bed setting changes. Stable slot ids carry decoder state across replans.
 
-**0x17 ZONE_CREATE** (28 B, applies on arrival; `voiceId` = zone slot 0..1): `u32 irClip` at 12 (a clip id of format 3), `f32 wet` at 16, `u32 fadeInFrames` at 20, `u32 reserved` at 24. Allocates the slot's state from the arena (refused: clip event code 3 `refusedGrow`, STATUS `zoneEvent` 3). **0x18 ZONE_UPDATE** (20 B): `f32 wet` at 12, `u32 rampFrames` at 16. **0x19 ZONE_DESTROY** (20 B): `u32 mode` at 12 (0 fade out and free, 1 ring out), `u32 fadeFrames` at 16 (mode 0 only). Ring-out closes the input at once (the slot's sends are ignored) and keeps the output at full wet until the IR's frames have played (`ring_left`), then frees the slot and reports `zoneEvent` 2. A ZONE_CREATE onto a slot that is not free is refused (main waits for `zoneEvent` 2 or 4: planner eviction costs the fade, at most 150 ms).
+**0x17 ZONE_CONFIG** (applies on arrival; R4): `u32 slotCount` (<= 4) at 12, `f32 sharedReturnGain` at 16 (the shared reverb's return, 1 minus the listener's zone weight), `u32 rampFrames` at 20, then per slot 16 B from 24: `u32 kernelId` (0 off), `u16 returnBus`, `u8 state` (1 active: sends accepted, wet fades in over 100 ms once the kernel is resident; 2 release: sends ignored, the tail rings out, then the slot is off), `u8` reserved, `f32 wet`, `u32 irFrames`. Total `24 + 16n` (n = 3: 72 B). **Idempotent**: the core diffs it, starts a slot (running `plan_stagger`) only when a `kernelId` appears in a free slot, and refuses a new `kernelId` in a slot that is not off (counted; main reads the slot state from STATUS before assigning). A missing kernel is the state "waiting for kernel", so REPLAY needs no ordering. The per-frame `sharedReturnGain` and `wet` ramps do not re-plan.
 
-**BUS_CONFIG and BUS_MIX** are unchanged. RESET clears beds, zone slots (state blocks freed), the fx pool and the listener (back to identity).
+**0x20 LISTENER** (36 B; R3): `f32 qx, qy, qz, qw` at 12..27 (the rotation **world to listener**, unit; non-finite or zero ignored), `u32 rampFrames` at 28 (slerped per quantum; the same `rampFrames` as that frame's directions, so clips and point voices turn together), `u32 flags` at 32 (bit0 **snap**: a camera cut, no ramp). Sent when the rotation moved more than 0.001 rad, on a listener change and when an ambisonic voice first plays. **Axis map** (S2): listener space is the engine's (forward -Z, up +Y, right +X); AmbiX is X forward, Y left, Z up, so `(X, Y, Z)_ambix = (-z, -x, +y)_engine`; a clip rotates by `Rz_ambix(yaw) x R_listener` (the world-to-listener rotation already is the inverse of the head's turn).
+
+BUS_CONFIG and BUS_MIX are unchanged. RESET clears beds, zone slots, the pool and the listener. Records for an inaudible World are unaffected.
 
 ### 4.3 STATUS growth
 
-The header grows from 112 to **144 bytes** (new `HEADER_BYTES`; the section offsets of 0157 §4.3 follow from it) and two sections are appended after `peaks`.
+Header 112 to **144 B** (`HEADER_BYTES`; the 0157 §4.3 section offsets follow):
 
 | Off | Type | Field |
 |---|---|---|
-| 112 | u16 | `bedVoices` (voices encoded, last quantum, all beds) |
+| 112 | u16 | `bedVoices` |
 | 114 | u16 | `bedsActive` |
-| 116 | u16 | `fxVoices` (pool entries in use) |
+| 116 | u16 | `fxVoices` (pool entries with an active filter) |
 | 118 | u16 | `ambisonicVoices` |
 | 120 | u16 | `zonesActive` |
 | 122 | u16 | `zonesRinging` |
 | 124 | u16 | `zoneEventCount` |
 | 126 | u16 | `bedsRefused` (cumulative, saturating) |
-| 128 | u32 | `fxPoolFull` (cumulative) |
-| 132 | u32 | `zoneUsedKB` (arena KB held by zone state) |
-| 136 | u32 | `workBed` (work units last quantum: encode, decode, ambisonic) |
+| 128 | u32 | reserved (there is no pool-full counter: the pool is one entry per mixed voice) |
+| 132 | u32 | `zoneUsedKB` (kernels resident) |
+| 136 | u32 | `workBed` (work units, last quantum: encode, decode, ambisonic) |
 | 140 | u32 | `workZones` (convolvers, sends, aux) |
 
-Sections in order after `peaks`: `beds {u16 bus; u16 voices; u32 work}[bedsActive]` (at most 4, 8 B each) and `zoneEvents {u8 slot; u8 code; u16 reserved}[zoneEventCount]` (at most 16, 4 B each; code 1 ready, 2 ringOutDone, 3 refused, 4 fadeDone). Clip event codes gain 5 `refusedFormat` (a malformed IR or decoder blob). Worst case 15,728 - 112 + 144 + 32 + 64 = **15,856 bytes**, inside the 16,384-byte pool buffer (S9: the architect confirms no other growth is planned). `flags` gains bit 6 `bedDecoderReady`.
+Sections after `peaks`: `beds {u16 bus; u16 voices; u32 work}[bedsActive]` (<= 4), `zones {u32 kernelId; u8 state; u8 pad; u16 quantaSinceInput; f32 wetPeak}[slotCount]` (state 0 off, 1 waiting kernel, 2 fading in, 3 active, 4 ringing out; <= 4), `zoneEvents {u8 slot; u8 code; u16 reserved}[zoneEventCount]` (<= 16; code 1 refused kernel, 2 refused slot, 3 bad blob). Clip event code 5 `refusedFormat`. Worst case 15,728 - 112 + 144 + 32 + 48 + 64 = **15,904 B** of 16,384 (S9). `flags` bit 6 `bedDecoderReady`.
 
-### 4.4 LISTENER (0x20), byte-exact
+### 4.4 What a send is
 
-36 B, 9 words, `voiceId` 0, applies on arrival, sent by the World with the view.
+A zone send into slot `k` is `send[k] x (raw resampled voice samples) x fade x automation gainMul`, mono-summed into **both** inputs of the slot (the voice's `gain` and low-pass are **not** applied: the tap is before the distance gain, R11), times the **bus-chain gain to the root** (volumes, mutes, ducking, automation of the voice's bus and ancestors, at the quantum; effects excluded). `send[k]` is computed on main: `volume x reverbSend x reverbSendCurve(d) x weight_k x wetFactor(occlusion)`, clamped to 4 in the product with the curve. An aux send is the same signal into `auxBus`'s input buffer. An ambisonic clip sends its W channel. This amends [ARCH §3.3, §4]: the sends see neither the dry distance gain nor the occlusion low-pass (the wet path carries occlusion only through `wetOcclusion`), nor the event's static filter (flagged for the architect, §11). The send of a voice on a sharing bus uses its own bus's chain gain to the root, not the fold.
 
-| Off | Type | Field |
+**Bed fold** is [ARCH §4.3] (gains and automation multipliers from the voice's bus to, excluding, the host, at the quantum's two ends); the sharing chain's **snapshot low-pass is folded by main into `lpHz`** (`lpBy` parent), so the core folds gains only (the two reviews both landed here, S3).
+
+### 4.5 Clip formats and ids (R5, R7)
+
+HRIR keeps format 2 and ids `0xFFFF0000..=0xFFFF00FF` (`envelope.rs:19`). None adds a CLIP_BEGIN word; each is a format value. None is a voice's source.
+
+| Format | Content | Ids |
 |---|---|---|
-| 12 | f32 | `qx` |
-| 16 | f32 | `qy` |
-| 20 | f32 | `qz` |
-| 24 | f32 | `qw`: the listener's world rotation as a unit quaternion (rotates listener-space vectors to world space); the core normalises, and a non-finite or zero quaternion is ignored |
-| 28 | u32 | `rampFrames`: the core slerps from the current to the new quaternion over this many frames (one game frame, about 800 at 60 Hz; 0 jumps) |
-| 32 | u32 | `flags`: bit0 snap (a camera cut: no ramp, no clip crossfade) |
+| 3 zone kernel (prepared) | header 32 B: `u32 magic 0x5249594D ("MYIR")`, `u32 version 1`, `u32 irFrames`, `f32 sampleRate`, `u32 headParts` (<= 32), `u32 tailParts`, `u32 flags` (bit0 source mono), `u32 reserved`; then f32 **packed** spectra: head kernels `[2 ch][headParts][128 bins][re, im]`, tail `[2][tailParts][2048 bins][re, im]` (bin 0 = DC in `re`, Nyquist in `im`, as `convolver.rs`); normalisation baked. `channels` 1, `frames` = bytes / 4 | `0xFFFF0200..=02FF` (256 kernels) |
+| 4 MagLS | header 32 B (`"MYBD"`, version 1, order 3, taps 256, `f32 sampleRate`, 12 reserved), then f32 `[16][2][taps]` time responses; the core transforms at commit (`bedDecoderReady`) | `0xFFFF0100` |
+| 5 zone IR PCM | interleaved stereo f32 at the context rate, `channels` 2: the core prepares the kernel itself, one prepare unit per quantum into the block reserved for the id, then reports `resident` | as format 3 |
 
-Position is not sent: voices keep listener-space directions from main (0157). Sent every frame in which the rotation moved more than 0.001 rad from the last sent, on the frame an ambisonic voice first plays, and on a listener change. **Axis convention** (S2): listener space is the engine's (forward -Z, up +Y, right +X); AmbiX is X forward, Y left, Z up. Ambisonic channel `ACN` vectors map by `(X, Y, Z)_ambix = (-z, -x, +y)_engine`. An ambisonic voice with `yaw` is rotated by `R = Rz_ambix(yaw) * R_listener^-1` (the inverse because turning the head right turns the field left). A **bed voice's** SH encode uses the listener-space direction through the same map. The 16x16 rotation is the Ivanic-Ruedenberg recurrence on the 3x3 matrix, applied block-wise (blocks 1, 3, 5, 7) once per quantum with the matrix interpolated linearly in the quaternion's slerp steps (one matrix per quantum, error under 0.1 dB at head-turn speeds, a golden checks it).
+Sizes: a format 3 blob is `32 + 8 x (headParts x 256 + tailParts x 4096)` B per channel pair: 1.5 MB at 2 s, 3.0 MB at 4 s. **The worker sends kernels straight to the worklet** over the worker-to-worklet port (as M1b clips), main gets `irPrepared` with timings only (R12, architect issue 6). `MagLS` is `engine/audio/magls-o3.bin` (32,800 B at the HRIR's rate; main resamples like the HRIR, sends on first bed use, re-sends on rebuild).
 
-### 4.5 What a send is (the signal the core adds)
+### 4.6 Streams, versioning, hash
 
-A voice's **zone send** into slot `k` is `send_k x (voice samples after resample, pitch and filter) x equalPowerMatrix(direction)`, added to the slot's `in_l/in_r`, where `send_k` (SET_FX) is what main computed and the core multiplies by the **bus-chain gain to the root** (the product of the gains and automation multipliers of the voice's bus and its ancestors, evaluated at the quantum like the bed fold below, effects not included): muting SFX mutes its reverb. The send is taken **after the voice's own gain and fade** (so it follows the dry distance gain; the default `sendCurve` compensates, §1.2) and uses the equal-power matrix whatever the panner kind. An ambisonic clip sends its W channel with the centre matrix. An **aux send** is the same signal with `aux` added to bus `auxBus`'s input buffer. Sends never see the occlusion low-pass (the wet path is dull anyway): main already folds `wetOcclusion` into `send_k`.
-
-**Bed fold** (the record's "sharing folds bus volume, mute and ducking into per-voice gain", exactness checked): for a voice on bus `b` encoding into host `h != b`, the core multiplies the encode gain by `F = product of gain(b'), automationMul(b')` over the buses from `b` up to but **excluding** `h`, with each factor taken at the quantum's start and end and the product interpolated linearly across the quantum. This is the same set of ramps the tree applies to a signal that reaches `h` through those buses, **minus their effects, their snapshot low-pass and their meters**. The product of two 45 ms ramps differs from the tree's per-frame product by under 0.05 dB (a unit test with a ducked sharing bus asserts it). Ducking is main-side (`Mixer.update`) and arrives as BUS_MIX gains, so it is in `gain(b')` already: no main fold is needed, which settles the record's check. A sharing bus's **snapshot low-pass** is folded by main into the voice's `lpHz` (the lowest wins, `lpBy` 6) because the cutoff is a filter, not a gain; its effects and meter are lost for the voice (the record's stated loss).
-
-### 4.6 Clip formats 3 and 4 (CLIP_BEGIN `format`, 0157 §4.1)
-
-Neither is a voice's source; they follow the HRIR precedent (the clip store parses at commit and reports an event).
-
-- **3, prepared IR** (any clip id outside the reserved range; `channels` 1, `frames` = blob bytes / 4, `sampleRate` the context rate). Blob header, 32 B: `u32 magic 0x5249594D ("MYIR")`, `u32 version 1`, `u32 irFrames`, `f32 sampleRate`, `u32 headParts` (at most 32), `u32 tailParts`, `u32 flags` (bit0 source was mono), `u32 reserved`. Then f32 spectra: head kernels `[2 channels][headParts][128 bins][re, im]` (256 f32 each), then tail kernels `[2][tailParts][2048 bins][re, im]` (4,096 f32 each, bin 0 packing DC in `re` and Nyquist in `im`, as `convolver.rs`). Normalisation is baked in. Size: `32 + 4 x 2 x (headParts x 256 + tailParts x 4096)`: 1.5 MB at 2 s, 3.2 MB at 4 s (48 kHz). The decoder worker produces it (§5.3); main sends it as ordinary CLIP_CHUNKs at the existing 256 KB per quantum.
-- **4, bed decoder** (reserved id 0xFFFF0100). Header, 32 B: `u32 magic 0x4442594D ("MYBD")`, `u32 version 1`, `u32 order 3`, `u32 taps 256`, `f32 sampleRate`, 12 B reserved. Then f32 time-domain responses `[16 channels][2 ears][taps]` (32 KB) at the context rate; the core partitions and transforms them at commit (`bedDecoderReady` flag and `resident` event). The asset is **`engine/audio/magls-o3.bin`**, baked offline from M1's HRIR set by `native/audio/tools/bake-magls` and committed beside `hrir` (S5); main resamples to the context rate (the same code path as the HRIR) and re-sends it on a rebuild.
-
-### 4.7 Versioning, hash, generation
-
-Envelope version **1.1** (minor: new opcodes, appended payload fields, header growth; the generated constant and a unit test pin it). **ABI export version 2.0 (0x200)**: `myco_audio_init` changes signature (§5.4), a major change by 0157's rule, harmless as both halves ship and hash together. Decoder ABI 0x102. `SCHEMA_HASH` regenerates with `npm run build:audio`; `wire.schemaHash.test.ts` and `sourceHash.test.ts` fail until it does. `gen_wire` emits the new packers (`packSetFx`, `packBedConfig`, `packZoneCreate/Update/Destroy`, `packListener`), constants (`MAX_BEDS = 4`, `MAX_ZONE_SLOTS = 2`, `BED_CHANNELS = 16`, `AMBI_FLAG`, `PANNER_BED`, `STATUS_HEADER_BYTES = 144`, `IR_MAGIC`, `BED_MAGIC`) and the status readers; `native/audio/vectors/wire.json` gains one golden record per new opcode and a golden status block. `wire.roundtrip.test.ts` adds the new records to its round trip and its 1,000-batch fuzz (truncated SET_FX, BED_CONFIG with a bad host, ZONE_* on a slot out of range, a LISTENER with NaN: each refused without an out-of-bounds read).
+`STREAM_OPEN` gains `u32 convention` (0 ambix, 1 fuma; the worker converts per chunk) and channels 1-16; a stream of more than 2 channels takes a **wide ring** (§3.1), refused (`streamEvent` 3 and a warning) when none is free. Envelope version **1.1**; **ABI 2.0 (0x200)** (init signature, R6); decoder ABI 0x102. `gen_wire` emits the new packers, constants (`MAX_BEDS` 4, `MAX_ZONE_SLOTS` 4, `BED_CHANNELS` 16, `PANNER_BED`, `AMBI_FLAG`, ids, magics, `HEADER_BYTES` 144, `LP_TOP` 20,000, `HP_BOTTOM` 20) and readers; `vectors/wire.json` gains one golden record per new opcode and a golden STATUS; the 1,000-batch fuzz adds truncated SET_VOICE_FX, BED_CONFIG with a bad host, ZONE_CONFIG with a slot count above 4, a LISTENER with NaN. The architect quotes constants by name (S20).
 
 ## 5. Native layout
 
@@ -421,212 +281,240 @@ Envelope version **1.1** (minor: new opcodes, appended payload fields, header gr
 
 | Where | New | Changed |
 |---|---|---|
-| `audio-wire/src/schema/` | `spatial.rs` (the new records, flags, constants, STATUS growth) | `batch.rs` (PLAY flags, LISTENER payload, opcode table, tests), `status.rs`, `envelope.rs` (clip formats 3, 4), `schema.rs` (versions) |
-| `audio-dsp/src/` | `ambisonic.rs` (SN3D real SH encode orders 1-3, rotation, stereo decode), `bed_decoder.rs` (partitioned 16 to 2 FFT-domain FIR), `convolver/kernel.rs` (`prepare_ir`, spectra layout), `convolver/instance.rs` (state with kernel references, `plan_stagger`), `convolver/presets.rs` (procedural generator), `fxfilter.rs` (log-Hz ramped lp/hp pair over `Biquad`) | `convolver.rs` (the shared reverb becomes one instance of `instance.rs`: **bit-identical output**), `convolver/ir.rs` (generator shared), `resample.rs` (N <= 16 channels), `biquad.rs` (highpass setter exists, kernel reused) |
-| `audio-core/src/` | `bed.rs`, `zones.rs`, `fxpool.rs`, `listener.rs` | `voices.rs` (ambisonic render path, per-voice filter, sends, aux), `panner.rs` (kind 2, three-way crossfade), `bus.rs` (bed decode before the host's effects, chain gain, zone output into the output after the bus tree and before MASTER), `clips.rs` (formats 3, 4, N channels), `stream.rs` (wide rings), `arena.rs` (zone budget), `status.rs`, `counters.rs`, `layout.rs` (regions `Beds`, `Zones`, `Fx`, `BedVoices` inserted before `Arena`; **append-only**), `params.rs` (`InitParams +max_beds +max_zones +zone_max_frames +max_fx`), `core.rs` |
-| `audio-decode/src/` | `ir.rs` (decode an IR, resample, normalise, trim, partition, FFT; presets), `ambisonic.rs` (FuMa to AmbiX; the channel-count check) | `lib.rs` (exports below), `decoder.rs` (channel limit 2 to 16) |
-| `audio-wasm/src/` | | `lib.rs` (init signature, ABI 0x200, exports), `memory.rs` (maximum = fixed regions + `clipMemoryMB` + zone budget) |
-| `audio-bench/src/` | scenes `m3-bed`, `m3-clip`, `m3-zones`, `m3-typical`, `m3-filters` | `lib.rs` memory mode lists the new regions |
-| `native/audio/tools/` | `bake-magls/` (Rust bin: the spike's solver over `hrir` data; deterministic; `--check` verifies the committed `magls-o3.bin`) | |
+| `audio-wire/src/schema/` | `spatial.rs` (records, flags, constants, STATUS growth) | `batch.rs`, `status.rs`, `envelope.rs` (formats, `STREAM_OPEN`), `schema.rs` |
+| `audio-dsp/src/` | `ambisonic.rs` (SN3D encode 1-3, Ivanic rotation, baked 16 to 2 matrix), `bed_decoder.rs`, `convolver/kernel.rs` (`prepare_ir`), `convolver/instance.rs` (state with kernel references, `plan_stagger`), `convolver/presets.rs`, `fxfilter.rs` (log-Hz ramped mono pair over `Biquad`) | `convolver.rs` (the shared reverb becomes instance 0, **bit-identical**), `convolver/ir.rs`, `resample.rs` (N <= 16 channels) |
+| `audio-core/src/` | `bed.rs`, `zones.rs`, `fxpool.rs`, `listener.rs` | `voices.rs`, `panner.rs` (kind 2, equal-power law for any change involving a bed [ARCH §3.1]), `bus.rs`, `clips.rs`, `stream.rs` (wide ring class), `status.rs`, `counters.rs`, `layout.rs`, `params.rs`, `automation.rs`, `core.rs` |
+| `audio-decode/src/` | `ir.rs` (decode, resample, normalise, trim, partition, presets), `ambisonic.rs` (FuMa) | `lib.rs`, `decoder.rs` (channels 2 to 16) |
+| `audio-wasm/src/` | | `lib.rs` (init, ABI), `memory.rs` (size function takes the new parameters) |
+| `audio-bench`, `tools/` | scenes `m3-high`, `m3-worst-high/default/low`, `bed-64`, `bed-256`, `bed-xfade`, `ambi-o3`, `zones-2x2s`, `zones-swap`, `filters-256` (C19); `native/audio/tools/bake-magls` | `mode=fit` sweeps for the `cap::wu` terms of C18, `mode=memory` |
 
-### 5.2 The convolver split and the stagger planner
+### 5.2 Convolver, IR preparation, ABI, arena, rings, size
 
-0157 `convolver.rs` is one global convolver with a **fixed schedule** over 16 quanta. M3 refactors it without changing its sound: `kernel.rs::prepare_ir` produces the spectra layout of §4.6 (the existing seeded 1.8 s reverb is prepared by the same function at `Core::new`, so the shared reverb's output stays **bit-identical**, which the existing goldens and parity digests prove); `instance.rs` holds one stereo convolver's mutable state (delay lines, rings, accumulation) with a `phase` that offsets its 16-quantum tail schedule. `plan_stagger(instances) -> phases` is the spike's load balancer (modelled work per quantum, minimising the peak, lowering p99 by 25-35% in `spikes/audio-spatial/convolution`), run in `submit` when a zone is created or destroyed. It **replaces** architecture §10's "never share a tail quantum" (the record's Deprecates). The shared reverb is instance 0 (always present when a bus has a reverb send); zones are instances 1 and 2.
+**Convolver** [ARCH §4.4]: `kernel.rs::prepare_ir` produces §4.5's layout (the seeded 1.8 s shared reverb is prepared by it at `Core::new`, so its output stays bit-identical); `instance.rs` holds one stereo convolver's mutable state with a stagger `phase`; `plan_stagger` (the spike's load balancer) runs when a slot starts and replaces architecture §10's "never share a tail quantum".
 
-### 5.3 Decoder worker and IR preparation
+**IR preparation:** decoder exports `myco_ir_prepare(src, len, hint, target_rate, max_frames)`, `myco_ir_generate(preset, target_rate, max_frames)`, `myco_ir_blob_ptr/len` (decode, mix to 2 channels or duplicate mono, resample, trim a tail under -80 dBFS, cut with a 50 ms fade, normalise, partition, transform). The worker keeps the encoded bytes so a rebuild or rate change re-prepares without main holding blobs. 1.3 / 2.5 / 5.3 ms for 1 / 2 / 4 s [S]; decode and resample unmeasured (C2a measures). `microfft`'s 4,096-point code adds about 28 KB to the decoder (749,095 B of 900 KB; AAC 1,073 KB of 1,280 KB). Without the worker, main uploads format 5 and the core prepares (task C3b).
 
-`audio-decode` gains `myco_ir_*` exports (decoder ABI 0x102): `myco_ir_prepare(src_ptr, src_len, hint, target_rate, max_frames) -> i32` (decode via the existing symphonia path to f32, mix to 2 channels or duplicate mono, resample with `audio_dsp::resample` to `target_rate`, trim a silent tail under -80 dBFS, cut to `max_frames` with a 100 ms fade, normalise as the shared reverb, then partition and transform), `myco_ir_generate(preset, target_rate, max_frames) -> i32`, `myco_ir_blob_ptr() -> *const u8`, `myco_ir_blob_len() -> u32`. The worker's wasm memory grows by the blob (up to 7 MB at 4 s) while preparing and releases it after posting (the transfer is the hand-off). Linking `microfft`'s 4,096-point transform adds about 28 KB to the decoder; the decoder gate (900 KB, 749,095 B today) and AAC gate (1,280 KB) are re-checked (§5.6). Preparation takes 1.3 / 2.5 / 5.3 ms for 1 / 2 / 4 s on the spike, plus decode and resample (unmeasured: the first thing task C2a measures). The worker keeps the **encoded bytes** (as the M1b clip path does) so a rebuild or a sample-rate change re-prepares without main holding 3 MB blobs; main keeps only the id and state.
+**ABI 2.0 (R6):** `myco_audio_init(sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes, max_beds, max_zone_slots, zone_max_frames, max_wide) -> i32`, deterministic. There is no second init call: regions sit before the arena. No other export changes: records go through `submit`, blobs through `clip_reserve`/`chunk_ptr`/`commit` with formats 3-5.
 
-### 5.4 ABI changes, clip arena and stream rings
+**Arena to 16 channels:** `clip_reserve` accepts 1, 2, 4, 9 and 16 channels (others refused with the registry's message); `Source` generalises to N <= 16 into one shared 8 KB planar scratch. **Wide rings (R16):** ring class `Wide`, 16-channel, 16,384 frames, chunks of 2,048 frames (128 KB), `maxClips` of them; B4's acceptance includes a **300 ms decoder stall** (14,400 frames) with no underrun, else the ring becomes 32,768 frames (memory in §3.1). `STREAM_RING_FRAMES_WIDE` is a wire constant.
 
-`myco_audio_init(sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes, max_beds, max_zones, zone_max_frames, max_fx) -> i32`, deterministic as before (regions in `REGION_ORDER`, new ones before `Arena`). New or changed exports: `myco_audio_abi_version` returns 0x200; `myco_audio_zone_budget_bytes(max_zones, zone_max_frames) -> u32` (the shell sizes the memory `maximum` from it: fixed regions + clip ceiling + this). No other export changes: BED_CONFIG, SET_FX, ZONE_* and LISTENER arrive through `submit`, the IR and bed-decoder blobs through the existing `clip_reserve`, `clip_chunk_ptr` and `clip_commit` with formats 3 and 4.
+**Size and gates:** mixer 178,598 B after M2 against `MIXER_LIMIT` 256 KB; estimate +40 to 50 KB (before `wasm-opt`, not installed here), warning at 230 KB in `build.mjs`, the M2 precedent (the owner may move a gate with a reason). `npm run build:audio` also runs `bake-magls --check`. The metered gate (`check:audio-metered`) gains C19's scenes at 10%.
 
-**Clip arena to 16 channels.** `clips.rs::Entry.channels: u8` already holds 16; `reserve` refuses `channels > 2` today and now accepts 1, 2, 4, 9 and 16 (and nothing else: a 5-channel clip is refused with the registry's message). `audio_dsp::resample::Source` generalises from 1-2 to N <= 16 channels and writes planar `[N][128]` into a voice scratch (`16 x 128 x 4 = 8 KB`, one, shared: ambisonic voices render one after another into it and add into their bed before the next). At pitch 1 and equal rates the resampler copies. Memory: a 10 s 3rd-order clip at i16 is 15.4 MB, against `clipMemoryMB`.
-
-**Wide stream rings.** `stream.rs` has `RING_CHANNELS = 2` and `RING_FRAMES = 32,768` (`STREAM_RING_FRAMES` in the wire), `RING_BYTES` about 270 KB per ring slot. Rule: a stream of more than 2 channels takes `k = ceil(channels x 16,384 x 4 / RING_BYTES)` **adjacent** ring slots (4 channels: 1, 9: 3, 16: 4) and a ring of **16,384 frames** (0.34 s at 48 kHz: a bounded latency budget for the worker round trip, S4), laid out as one interleaved ring across the slots. `chunkFramesFor(channels) = 4096 x 2 / channels` (512 frames at 16 channels, 64 KB buffers). The credit protocol (STREAM_CREDIT, `buffered + inFlight` against the ring) is unchanged, sized by the stream's own ring frames; the wire gains `STREAM_RING_FRAMES_WIDE = 16384`. Slot counts: high 16 rings (four 3rd-order streams at once), default 8 (two), low 4 (one 1st-order stream). A wide stream that finds no adjacent free slots fails to open with `streamEvent` 3 (error) and a warning naming the count.
-
-### 5.5 Build scripts and the size tripwire
-
-`npm run build:audio` (`native/audio/build.mjs`) additionally: runs `bake-magls --check` (fails if `magls-o3.bin` is stale against `hrir`), builds the new decoder exports into both decoder builds, writes the new hash. Gates stay: `MIXER_LIMIT` 256 KB (`build.mjs:23`; the mixer is **178,598 B** after M2), `DECODER_LIMIT` 900 KB, `DECODER_AAC_LIMIT` 1,280 KB. **Estimated** M3 mixer increase +40..50 KB (SH encode and rotation ~12, bed decode ~8, zone instances and sends ~10, voice filter pool ~5, N-channel resample ~6, wire parse ~8): 220-230 KB, 84-88% of the gate. The build prints a **warning above 230 KB** and fails at 256 KB; crossing the warning means the owner is told and the M2 precedent applies (size gates signal bloat; the owner may move the gate with a reason). `wasm-opt` is not installed here, so the figures are pre-optimisation upper bounds. The metered gate (`npm run check:audio-metered`, `tools/audio-bench/metered-gate.mjs`) gains the `m3-*` scenes' instruction counts with a 10% gate, baselines recorded in the build log.
-
-## 6. TypeScript module and file layout
-
-New files, then changed. Names follow the existing `runtime/core/` split (0157 §6).
+## 6. TypeScript layout
 
 ```
-src/engine/audio/
-  settings.ts                  + bed, occlusion (+ materials parse), zones, doppler, speedOfSound, bus bed/bedPriority
-  eventFormat.ts               + filter, sends, spatial.occlusion/dopplerLevel/sendCurve; format and parse
-  occlusionMaterials.ts        the default table, parse, compile to arrays (shared by settings and the runtime)
-src/engine/scene/importSettings.ts            + ambisonic
-src/engine/core/worldServices.ts              WorldRayHit + node, _worldRaycast(options) (D0)
+src/engine/audio/        settings.ts (+bed, ambisonic, occlusion, zones, doppler, speedOfSound, bus bed/bedPriority)
+                         eventFormat.ts (+filter, sends, spatial additions)   occlusionMaterials.ts (new: table, parse, compile)
+src/engine/scene/importSettings.ts   (+ambisonic)
+src/engine/core/worldServices.ts     the ray query interface (D0, R12)
 src/plugins/audio/runtime/
-  AudioReverbZone.ts  AudioOccluder.ts        the components (§1.5)
-  Audio.ts AudioSource.ts AudioListener.ts audioSystem.ts backend.ts    + the §1 members; the system runs the new passes in order:
-      attenuation, doppler, zones (weights), occlusion, audibility, selection, pannerPick, fx staging, listener
-  core/
-    beds.ts          bed resolution (§2.1), BED_CONFIG packing, host lookup per bus
-    pannerPick.ts    replaces hrtfPick.ts: HRTF top-N, then bed or equal-power, 30-frame kind dwell
-    zones.ts         registry, per-voice weights and send levels, slot planner (energy, hysteresis 1.5x, dwell 0.5 s, eviction wait), ZONE_* commands, REPLAY order
-    zoneIr.ts        IR preparation requests to the worker, blob cache by (path, rate, maxSeconds), re-prepare on rate change, failure states, memory accounting
-    occlusion.ts     rays on a frame budget, ranking, smoothing, material combine, age; reads the 3D service through `_worldRaycast`
-    doppler.ts       velocity estimates, factor (OpenAL form), teleport guard, folding into `pitch`
-    listener.ts      listener pose to LISTENER, velocity for Doppler
-    voiceFx.ts       stages lpHz (min of occlusion, event, bus, snapshot, automation) with `lpBy`, hpHz, sends, aux, yaw into SET_FX and SET_PARAMS
-    voiceTable.ts commandWriter.ts coreBackend.ts replay.ts mirror.ts statusReader.ts debug.ts spatial.ts   changed
-  decoder/ambisonic.ts   FuMa to AmbiX at f32, channel and order validation
-  decoder/irPrepare.ts   worker handler for `prepareIr` and `generateIr`, protocol messages added to protocol.ts
-  wire.generated.ts      regenerated
-src/plugins/audio/editor/  (see §7)
-src/myco.ts                exports AudioReverbZone, AudioOccluder, ZONE_PRESETS, DEFAULT_SEND_CURVE, SendCurve, AudioPanner
+  AudioReverbZone.ts AudioOccluder.ts   Audio.ts AudioSource.ts AudioListener.ts audioSystem.ts backend.ts   (§1)
+  core/ beds.ts pannerPick.ts (replaces hrtfPick.ts) zones.ts zoneIr.ts occlusion.ts doppler.ts listener.ts voiceFx.ts
+        voiceTable.ts commandWriter.ts coreBackend.ts replay.ts mirror.ts statusReader.ts debug.ts spatial.ts   (changed)
+  decoder/ ambisonic.ts irPrepare.ts protocol.ts    wire.generated.ts (regenerated)
+src/myco.ts   + AudioReverbZone, AudioOccluder, ZONE_PRESETS, DEFAULT_SEND_CURVE, SendCurve, AudioPanner
 ```
-
-`hrtfPick.ts` and its test become `pannerPick.ts`; the HRTF-only behaviour (top `voices.hrtf` with 1.2x hysteresis) is a subset: the test file keeps its cases and adds the bed cases. The audio system's order (the record, 0157: attenuation, then the occlusion slot, then audibility, then selection) is preserved: **audibility reads the smoothed occlusion gain with M2's no-gap rule**, so an occluded voice is not dropped before its fade-out completes, and the occlusion candidate ranking uses audibility **before** occlusion (the mid review's circularity point). `AudioBackend` (`backend.ts`) gains `listener(pose)`, `setReverbZones(zones)` and `occlusion` hooks only on the core backend; the Babylon backend implements §8's subset and ignores the rest.
-
-Plugin boundary (`plugins.test.ts`, build-log lesson 3): the audio plugin imports nothing from `src/plugins/physics`. It reaches physics through `_worldRaycast`, which today returns point, normal and distance and takes no layers and returns no collider (`worldServices.ts:36-41, 266`). Task D0 extends it: `_worldRaycast(world, origin, dir, maxDistance, options?: { layers?: readonly string[]; includeTriggers?: boolean })` and `WorldRayHit.node?: GameObject` (the collider's node), implemented in the physics service's `raycast` (Rapier groups from `layerGroups`, sensors excluded unless asked). That is an engine-core and physics-plugin change the record does not name (flagged, §11).
+The audio system's order keeps 0157's (attenuation, doppler, zones, occlusion slot, audibility from `audibility0` x smoothed occlusion with M2's no-gap rule, selection, `pannerPick`, fx staging, listener). `pannerPick` keeps `hrtfPick`'s tests and adds the bed cases. **Plugin boundary** (`plugins.test.ts`): the audio plugin imports nothing from `plugins/physics`; the ray query is a **core-level interface in `worldServices.ts`** beside `WorldRayHit`: `raycastInto(world, out, origin, dir, maxDistance, query)` with a preallocated `out { node, distance, point }`, `query { groups, excludeNodes (the source's subtree, the listener's node), includeSensors: false }`; `groupsFor(layers)` is computed once per settings change. Implemented by the physics service (`services.ts`, `systems3d.ts`) with Rapier's group, sensor and predicate filters; no allocation per call (`Physics.ts:83-85` allocates today). That is an engine-core and physics change the record does not name (flagged).
 
 ## 7. Editor integration
 
-The audio plugin's editor half (`src/plugins/audio/editor/`, registered through `src/editor/sdk`, never importing editor internals: `plugins.test.ts`) gains the entries below. **No new SDK contribution point is needed**: the Physics and Navigation plugins already draw gizmos with `registerViewportTool` (`ViewportToolContext.overlay` gives world-space polylines and pickable handles, `editorViewport.ts:51-58`; `onPress` claims a handle drag; `edit` makes one undo step) and show per-component controls with `registerComponentHeaderAction` and `registerInspectorSection`. The record's "a gizmo contribution the audio plugin doesn't have yet" means the plugin's own tool, not an SDK change.
+Through `src/editor/sdk` only. **No new SDK contribution point:** `registerViewportTool` (overlay polylines, pickable handles, `onPress` drags, undoable `edit`, `editorViewport.ts:51-58`), `registerComponentHeaderAction` and `registerInspectorSection` already carry physics' and navigation's gizmos.
 
-| Change | Contribution | Files |
+| Change | How | Files (`plugins/audio/editor/`) |
 |---|---|---|
-| Zone gizmo: the volume (box edges or three great circles of the sphere) in the accent colour, a second wireframe `blendDistance` outside it in a dimmer one, a size or radius handle per face while **Edit Zone** is active; drags are undoable edits of `size`, `radius`, `blendDistance`; the zone's state tints the volume (faded: warning colour) | `registerViewportTool` (`myco.audio.zones`), `registerComponentHeaderAction` for the Edit Zone button (as `EditColliderButton.tsx`) | `AudioReverbZoneGizmo.ts`, `EditZoneButton.tsx`, `zoneMath.ts` |
-| Occluder gizmo: the node's collider outlines (read from the physics plugin's editor outline through `selectable`'s data, not its code: the occluder tool draws the node's `BoxCollider`/`SphereCollider`/`CapsuleCollider` fields itself) tinted by material (a colour per material, from theme tokens), dimmed with `openness` | `registerViewportTool` (`myco.audio.occluders`) | `AudioOccluderGizmo.ts` |
-| Component Inspector sections: **zone** (IR name, length, memory MB, load state, the live `why` reason, a warning when more zones overlap than `zones.maxActive`, an audition button that plays a test burst through the IR on the editor listener); **occluder** (the material's transmission and cutoff as read-outs, a warning when the node or descendants have no collider or the 3D physics service is off); **AudioSource** (the `sendCurve` curve widget from the SDK's `CurveEditor`, the greyed fields of an ambisonic clip) | `registerInspectorSection("engine.AudioReverbZone" ...)` and the other two types | `ZoneInspector.tsx`, `OccluderInspector.tsx`, `AudioSourceSections.tsx` |
-| **Project Settings > Audio**: Beds (`maxBeds` with the preset's value, a list of buses with `own/parent/none` and priority, a warning per lost bed), Occlusion (layers as checkboxes from `physics.layers`, `budgetMs`, `defaultMaterial`, a **material table editor**: add, rename, edit the five numbers, delete; the first week's "tune concrete up 6 dB"), Zones (`maxActive`, `maxSeconds`, preset memory in MB), Doppler and speed of sound; the preset button sets every preset number (§2.1) | the existing section | `AudioSettingsSection.tsx`, `audioSettingsModel.ts` (`setBed`, `setBusBed`, `setOcclusion`, `setMaterial`, `setZones`, `setDoppler`; `VOICE_PRESETS` gains `bed`, `zones`, `occlusionBudgetMs`) |
-| **Bus inspector** `bed` and `bedPriority` (in the section's bus rows) with the resolved host shown ("shares Master's bed") | same | same |
-| **Audio Debug panel**: Beds (bus, voices, µs), Zones (state, slot, IR, memory, send energy, `why`), Occlusion (budget, rays, oldest age, the note when the 3D service is absent or `AudioOccluder` components exist in a 2D world), a voice table with panner kind, `kindDwellMs`, Doppler factor, occlusion gain and cutoff, `lowpassBy`, sends | `registerPanel` (existing) | `AudioDebugPanel.tsx`, `audioDebugPanel.css` |
-| **Occlusion debug overlay**: rays from the listener to occluded sources, hit points, coloured by age; toggled from the panel | `registerViewportTool` (`myco.audio.occlusionDebug`) | `OcclusionOverlay.ts` |
-| **Event editor**: `filter` (two Hz fields), `sends` (reverb level and one aux bus + level), `spatial` additions (occlusion, Doppler level, send curve); the audition shows which backend plays ("core" or "babylon (reduced)") and the listener is the editor camera | node properties | `nodeFields.ts`, `NodeProperties.tsx`, `Audition.tsx`, `auditionHost.ts` |
-| **Asset Inspector** audio block: Ambisonic checkbox, order (inferred, editable), convention; shown only for clips with 4, 9 or 16 channels | the shell's audio `importSettings` view (0143) | `src/editor/ui/AssetInspector.tsx` audio section |
+| Zone gizmo: volume and a `blendDistance` shell, face handles while **Edit Zone** is on, undoable edits, faded zones tinted | viewport tool `myco.audio.zones`, header action | `AudioReverbZoneGizmo.ts`, `EditZoneButton.tsx`, `zoneMath.ts` |
+| Occluder gizmo: the node's collider fields drawn and tinted by material, dimmed by `openness` | viewport tool `myco.audio.occluders` | `AudioOccluderGizmo.ts` |
+| Inspector sections: zone (IR state, length, memory, live `why`, overlap warning, audition burst on the editor listener), occluder (material read-outs, no-collider and no-service warnings), AudioSource (curve widget from the SDK's `CurveEditor`, greyed ambisonic fields) | `registerInspectorSection` | `ZoneInspector.tsx`, `OccluderInspector.tsx`, `AudioSourceSections.tsx` |
+| **Project Settings > Audio** (`AudioSettingsSection.tsx`): the file is a set of sub-components over `Num`, `OptionalNum`, `Choice`, `TextField` (`BusRow`, `Effects`, `Snapshots`, `Ducking`, `Parameters`, `Automation`, `Playback`). `BusRow` gains `bed` (a `Choice`) and `bedPriority` (a `Num`) with the resolved host ("shares Master's bed") and the lost-bed warning; new sub-components `Beds` (`maxBeds`, `ambisonic.maxClips`), `Occlusion` (layers as checkboxes from `physics.layers`, `budgetMs`, `defaultMaterial`, a **material table** as cards in the `Parameters` pattern), `Zones`, and Doppler and speed of sound in `Playback`; the "Voices preset" select (`applyVoicesPreset`) sets every §2.1 preset number | edit the section | `AudioSettingsSection.tsx`, `audioSettingsModel.ts` (`setBed`, `setBusBed`, `setMaxClips`, `setOcclusion`, `setMaterial`, `setZones`, `setDoppler`; `VOICE_PRESETS` and `voicesPreset` gain the keys) |
+| **Audio Debug panel** (`AudioDebugPanel.tsx`: a counters table, a `Buses` table, a `Voices` table limited to `voiceRows`' most audible, `groupByEvent`): new counter rows, `Beds`, `Zones` and `Occlusion` sections beside `Buses`, new voice columns (panner, dwell, occlusion gain and cutoff, `lowpassBy`, sends); its pure helpers keep their tests | edit the panel | `AudioDebugPanel.tsx`, `audioDebugPanel.css` |
+| Occlusion overlay: rays to occluded sources, hits, coloured by age, toggled from the panel | viewport tool | `OcclusionOverlay.ts` |
+| Event editor: `filter`, `sends` (reverb and one aux bus), `spatial` additions; the audition names its backend and listens from the editor camera | node properties | `event/nodeFields.ts`, `NodeProperties.tsx`, `Audition.tsx` |
+| Asset Inspector audio block: Ambisonic checkbox, order, convention (clips of 4, 9, 16 channels) | the shell's audio `importSettings` view (0143) | `src/editor/ui/AssetInspector.tsx` |
 
-**Live tuning.** Zone fields, material table values, occluder fields and `AudioSource` fields apply in Play as they change (the registry recomputes volumes on the node-version bump; the material table recompiles on settings change; `apply()` includes the new fields). A Playwright spec edits `wet`, `blendDistance` and a material's cutoff during Play and asserts the debug panel follows (E9).
+**Live tuning:** zone fields, material values, occluder fields and AudioSource fields apply during Play; a Playwright spec edits `wet`, `blendDistance` and a material cutoff in Play and watches the panel (E9).
 
-## 8. Babylon fallback mapping
+## 8. Babylon fallback
 
-Best effort (owner): the core gets the full feature set. `BabylonBackend` (`babylonBackend.ts`, mapping in `babylonMapping.ts`) after M3:
+Checked against `babylonBackend.ts` (785 lines, Babylon 9.32.0). Best effort (owner decision 4).
 
-| Feature | On the fallback | Notes |
+| Feature | On the fallback | What the file shows |
 |---|---|---|
-| Bed, `bed`/`bedPriority`, panner kinds | none: every spatial voice uses Babylon's own panner (HRTF where the browser has it) | settings parse as normal; the debug rows say `panner: "hrtf"` or `"equalPower"` |
-| Occlusion | **gain only**: `setVolume(volume x occGain)`; the cutoff is dropped | main still runs the rays and smoothing (they are TypeScript); one warning "occlusion on the fallback lowers volume only" |
-| Doppler | the factor multiplies `playbackRate` with the same ramp | |
-| Reverb zones | one zone, the one with the most send energy, through a `ConvolverNode` on the host context; wet blends by gain | **risk:** Babylon's V2 public API exposes bus nodes only through underscore members (0157 §6 declined them); task F2 first checks the pinned Babylon version for a public insertion point and, if none, zones are **inert on the fallback with one warning** (F2 shrinks to 0.5 d; flagged §11) |
-| Event `filter`, per-voice `lowpass`/`highpass` | skipped, one warning per event asset (as `lowpass` automation is today, `sound-events.md:319`) | |
-| Event `sends.<bus>` | skipped, one warning | the fallback has no aux sends |
-| Ambisonic clips | channel 0 (W) plays as mono at the clip's gain, one warning; no rotation | the editor audition shows "reduced" |
-| `reverbSend`, `sendCurve` | ignored (no zone, or one zone with the curve applied at the zone gain) | |
+| Bed, `bed`/`bedPriority`, panner kinds | none: Babylon's own panner (`spatialSoundOptions`) | settings parse; rows say `hrtf` or `equalPower` |
+| Occlusion | **gain only**: main runs the rays and smoothing, the backend takes `volume x occGain` through the existing `setVolume` (line 308); the cutoff is dropped; one warning | no filter code exists (header comment line 10: "effects, a snapshot's low-pass ... skipped") |
+| Doppler | the factor multiplies `playbackRate` (`setPitch`, line 329) | **only for decoded clips**: `playbackRate` is set `if (!this.req.stream)` (lines 193, 329), and a streamed clip plays flat as HTML5 audio (`warnFlatStream`), so streams get no Doppler |
+| Event filters, `lowpass`/`highpass`, aux sends | skipped, one warning per asset (as `lowpass` automation today, `sound-events.md:319`) | |
+| Ambisonic clips | channel 0 (W) as mono at the clip's gain, one warning; no rotation. **The backend must ignore `stream` for them**: HTML5 audio downmixes 4 or 16 channels unpredictably. It decodes with `decodeAudioData`, copies channel 0 into a mono `AudioBuffer` and passes that to `createSoundAsync` (which accepts an `AudioBuffer`). Peak memory is the decoded 16 channels (about 3.1 MB per second at 48 kHz, f32), so clips decoding to over 64 MB (about 21 s of 3rd order, 83 s of 1st) are **refused with a warning** | `createSoundAsync(name, ArrayBuffer \| AudioBuffer \| ...)` in the pinned `audioEngineV2.d.ts` |
+| Reverb zones | **inert, one warning** (F2). The record's "one `ConvolverNode`" needs a public insertion point: the V2 API exposes bus and sound nodes only as `_inNode`/`_outNode` (`webAudioBus.d.ts:21-23`), which 0157 declined to use; `audioEngineV2` has no send or node-insertion API. Recommend the owner confirms inert; the underscore route is a decision for the owner | grep of the pinned package |
 | LISTENER, `AudioListener.velocity` | listener pose as today; velocity feeds Doppler | |
 
-The guides `audio-mixer.md` (lines 42-48) and `sound-events.md` (line 319) already say the fallback has no effects; they gain a table of this section's rows (E8). macOS desktop defaults to this backend (`MACOS_DESKTOP_DEFAULT_BACKEND`), so those users get walls that lower volume only; the debug panel and the Event editor's audition say so.
+The guides' tables (`audio-mixer.md` 42-48, `sound-events.md` 319) gain these rows (E8). macOS desktop defaults to this backend, so those users get walls that only lower volume and no zones; the panel and the Event editor's audition say so [ARCH §10].
 
 ## 9. Test plan
 
-Layers as 0157 §8; only what M3 adds. Docker is not needed except where marked (WebKit and Firefox runs of the `@slow` specs).
+Layers as 0157 §8; M3 additions. WebKit and Firefox runs of `@slow` specs need Docker.
 
-| Layer | What | Where |
-|---|---|---|
-| Unit (cargo) | SN3D encode against analytic harmonics for 64 directions per order; rotation by Ivanic equals rotating the direction then encoding (1e-5); stereo decode against a hand table; partitioned decode against direct convolution; `prepare_ir` spectra against a naive DFT; `plan_stagger` never exceeds the sequential peak; fx pool take, free and idle delay; log-Hz ramp monotone; zone slot state machine (create, update, ring out, fade, evict, refused); bed host validation (cycle, non-ancestor); chain-gain fold against the tree for a ducked chain (< 0.05 dB); wire parse refusal for every new record | `native/audio/crates/*/tests` |
-| Bake check | `bake-magls --check` reproduces `magls-o3.bin` bit for bit; decode azimuth cues right at 12 of 12 azimuths and within 1.7 dB of M1's HRTF below 2 kHz (the spike's acceptance, re-run on the committed asset) | `audio-dsp/tests/bed_accuracy.rs` |
-| Wire | round trip and fuzz for the new records; golden vectors; schema and source hashes; the STATUS block's size at worst case (15,856 B) | `wire.roundtrip.test.ts`, `wire.schemaHash.test.ts`, `sourceHash.test.ts` |
-| Golden (Vitest, Node, real wasm) | scenes recorded as SHA-256 of f32 output plus RMS and peak: 256 voices into a bed (exact across native and wasm, as the spike); HRTF-to-bed-to-equal crossfade continuity (max step under 1.0x of the pure kinds, dip recorded not asserted); a sharing bus with ducking; a 3rd-order clip rotated by a 90 degree listener turn (the image moves, level constant); two blending zones across a boundary (no step above 1.0x); ring-out (tail energy decays over the IR length, then the slot frees); a rebuild REPLAY with zones and beds; per-voice filter ramp (no click: max sample step under a bound); **M2's automation goldens and every M1/M2 parity digest unchanged** (the shared reverb and the automation low-pass migrations are bit-identical) | `audioGolden.test.ts`, `golden/` |
-| Loopback | bed planner with the real wasm (`hostOf` follows a bus tree edit), ambisonic AudioSource rotating with the listener, zone planner (a source walks A to B to C with 2 slots: eviction waits for `zoneEvent`, no cut of a ringing tail except evicted), IR re-prepared on a sample-rate change, occlusion on a fake 3D service (a wall appears: age, smoothing, wet fraction, `occluded` reason, `lowpassBy`), Doppler (a passing source's pitch factor, teleport guard trips, hidden-tab reset), event `filter` and `sends` through `SET_FX`, `AudioListener.setVelocity` | `bedLoopback.test.ts`, `ambisonicLoopback.test.ts`, `zoneLoopback.test.ts`, `occlusionLoopback.test.ts`, `dopplerLoopback.test.ts`, `eventFxLoopback.test.ts` |
-| Fake backend (unit, Vitest) | `beds.ts` resolution table (maxBeds, priority, ties, losers, root default, `none`); `pannerPick` dwell and hysteresis; material combine (two hits, trim, openness, -60 dB clamp); send curve and zone weight maths (box, sphere, blend, equal-power normalisation); velocity estimator; settings and event parse rules (every row of §2); `AudioSource.apply` signature includes new fields; component field metadata (every `@field` has a `description`) | colocated `*.test.ts` |
-| Babylon | the mapping rows of §8 against the Babylon mocks: gain-only occlusion, Doppler rate, warnings once, W-only ambisonic | `babylonBackend.test.ts`, `babylonMapping.test.ts` |
-| Bench and metered | `audio-bench` scenes `m3-bed` (240 voices, 2 beds), `m3-clip`, `m3-zones` (2 x 2 s blending), `m3-filters` (32 filtered voices), **`m3-typical`** (the record's scene: 2 beds with about 240 voices, one 3rd-order clip, 2 blending 2 s zones, filters on about 32 voices; paced); metered-gate baselines with the 10% gate | `native/audio/crates/audio-bench`, `tools/audio-bench/metered-gate.mjs` |
-| Occlusion bench | `npm run bench:audio-spatial`: the occlusion system under the real `audioSystem.ts` with a fake 3D service at 3.7 us a ray: refresh ages at 64 / 256 / 1,024 sources against the spike (3 / 5 / 22 frames), main frame time at the budget | `occlusionBench.test.ts` |
-| Playwright (Chromium) | zone and occluder gizmos draw and drag (undoable), settings sections edit and persist, the debug panel shows beds, zones, occlusion, the Inspector sections warn, live tuning in Play | `audio-spatial.spec.ts`, `audio-settings.spec.ts` |
-| `@slow` Playwright | `audio-core.spec.ts` extended: sound-lab spatial scene through the real worklet, no underruns, `Audio.debug()` shape; `audio-babylon.spec.ts` reduced behaviour | Chromium; WebKit and Firefox: Docker |
-| **Lab-VM run (owner)** | `audio-bench mode=scene name=m3-typical seconds=20 runs=5` on the lab VM, p99.9 against 0157's 1.3 ms and the record's modelled 0.22 ms net; the presets' M3 numbers are set from it, not from the container's estimate. Container tails (p99.9, max) are not asked for: they track the VM's scheduling (working notes) | owner, as M2's E5.5 |
-| Listening pass (owner) | exit checks below, headphones, the M2 pass format and sign-off block (`m2-listening-pass.md`) | `docs/design/0162-audio-spatial/listening-pass.md` (E10) |
+| Layer | What |
+|---|---|
+| Unit (cargo) | SN3D encode against analytic harmonics (64 directions per order); Ivanic rotation equals rotating the direction then encoding (1e-5); the baked 16 to 2 matrix within 2 dB of `EqualPowerPanner` except within 10 degrees of the +-90 fold (an order-3 projection cannot follow the fold); partitioned decode against direct convolution; `prepare_ir` against a naive DFT; `plan_stagger` never above the sequential peak; pool entry take and free per mixed voice; log-Hz ramp monotone; zone slot machine (waiting kernel, fade in, active, release, ring out, off, refused); BED_CONFIG validation (cycle, non-ancestor host); chain-gain fold against the tree for a ducked chain (< 0.05 dB); parse refusal for every new record |
+| Bake check | `bake-magls --check` reproduces `magls-o3.bin`; cues right at 12 of 12 azimuths, within 1.7 dB of M1's HRTF below 2 kHz |
+| Wire | round trip, fuzz, golden vectors, hashes, STATUS worst case 15,904 B |
+| Golden (Node, real wasm) | 256 voices into a bed; HRTF to bed to equal-power crossfade continuity (dip recorded, not asserted); a sharing bus with ducking; a 3rd-order clip rotated by a 90 degree turn (image moves, level constant); two blending zones; ring-out then slot off; a rebuild REPLAY with zones and beds; per-voice filter ramp click bound; **M2 automation goldens and every M1/M2 parity digest unchanged** (shared reverb, automation low-pass and mono-once are bit-identical) |
+| Loopback | bed planner follows a bus edit; ambisonic AudioSource rotates with the listener; zone planner walks A to B to C (with and without the standby slot, owner item 2); IR re-prepared on a rate change; PCM IR prepared in the core (worker stopped); occlusion on a fake 3D service (a wall appears: age, smoothing, wet fraction, `occluded`, `lowpassBy`, own-collider exclusion); Doppler pass, teleport guard, hidden-tab reset; event `filter` and `sends`; `setVelocity` |
+| Fake backend | bed resolution table (maxBeds, priority, ties, losers, root default, `none`); kind dwell and hysteresis; material combine; send curve, weights and clamp; velocity estimator; settings and event parse rules; `apply` includes the new fields; every `@field` has a `description` |
+| Babylon | each §8 row against the Babylon mocks: gain-only occlusion, Doppler on decoded clips only, warnings once, W-only ambisonic and the size refusal, zones inert |
+| Bench, metered | C19's scenes, **`m3-typical`** (the record's scene) paced; `mode=fit` sweeps; the metered 10% gate; `bench:audio-spatial` runs `occlusion.ts` under the real `audioSystem.ts` with a fake 3.7 µs ray at 64 / 256 / 1,024 sources (ages near 3 / 5 / 22 frames) |
+| Stall test | wide ring with a 300 ms decoder stall: no underrun, else 32,768 frames (R16) |
+| Playwright | zone and occluder gizmos draw and drag (undoable), settings sections edit and persist, debug panel sections, Inspector warnings, live tuning |
+| Lab VM (owner) | `m3-typical` and `m3-worst-high`, p99.9 against 0157's 1.3 ms and the modelled net (§10.3); sets the presets. Container tails are not asked for |
+| Listening pass (owner) | per milestone below, headphones, the M2 format and sign-off block |
 
-**Exit checks by milestone** (the sound designer's list, owner decision 2: exit checks, not gates on defaults): **M3a** walk past a source crossing the 8-voice HRTF boundary both ways (no dip, no jump); a source above, below (the -45 degree gap: a floor-below sound; failure triggers reserve R1, SADIE II), behind and at the sides, bed against per-voice HRTF; a loud close source plus 200 quiet ones (the bed must not smear it); silence when idle (no decoder noise, no denormals). **M3b** an ambience turned on the spot at 1st and 3rd order. **M3c** rooms A, B, C with 2 s and 4 s IRs (no tail cut, no pop); a source in A heard from B. **M3d** wall, door open and closed, corner (no zipper, no late opening, the wet path); a fast Doppler pass and a teleport. **M3e** Babylon once, listing what is missing. No test is run on this container whose result cannot change a decision (working notes): the container serves goldens, p50/p99 and the occlusion bench only.
+**Exit checks:** **M3a** a source crossing the 8-voice HRTF boundary both ways (no dip or jump); above, below (the -45 degree gap: a floor-below sound, failure opens R1) behind and sides, bed against HRTF; a loud close source plus 200 quiet ones; idle silence. **M3b** an ambience turned on the spot at 1st and 3rd order. **M3c** rooms A, B, C with 2 s and 4 s IRs; a source in A heard from B. **M3d** wall, door open and closed, corner; a fast Doppler pass and a teleport. **M3e** Babylon once.
 
 ## 10. Task breakdown
 
-Level: S senior, M mid, J junior. Days are focused human effort, **not** agent-wave days (M2's plan gave 37.5 agent task-days against its record's 55; this table makes no such credit). Ids by milestone; the **critical path** is in bold in the Depends column. Every task's acceptance includes: `npm run typecheck`, `npm test`, `cargo test` in `native/audio/` green; M1 and M2 goldens and parity digests unchanged unless the task says why; the committed wasm matches its source hash.
+Level S/M/J. Days are focused human effort, not agent-wave days. **Critical path in bold.** Every task's acceptance includes typecheck, `npm test` and `cargo test` green, M1/M2 goldens and parity digests unchanged unless said, the committed wasm matching its hash.
 
-| ID | Task | Files | Depends | Lvl | Days | Acceptance |
+| ID | Task | Files | Depends | Lvl | d | Acceptance |
 |---|---|---|---|---|---|---|
 | **M3a bed** | | | | | | |
-| A1 | Wire schema and ABI 2.0: SET_FX, BED_CONFIG, ZONE_*, LISTENER payload, PLAY ambisonic bit, panner value 2, STATUS growth, clip formats 3 and 4, `InitParams`, constants, vectors | `audio-wire/schema/*`, `wire.generated.ts`, `vectors/wire.json`, wire tests | none | M | 4 | round trip and fuzz of every new record; stale wasm fails `npm test`; worst-case STATUS 15,856 B |
-| A2 | `audio-dsp::ambisonic` (SN3D encode 1-3, Ivanic rotation, stereo decode) and `bed_decoder` | `audio-dsp/src/ambisonic.rs`, `bed_decoder.rs` | **A1** | S | 5 | analytic tests; bit-identical native and wasm; decode of 256 voices within the spike's 142 us p50 on the container |
-| A3 | `bake-magls` tool, `magls-o3.bin`, loader (main resample, format 4 send), `--check` in `build:audio` | `native/audio/tools/bake-magls`, `engine/audio/magls-o3.bin`, `core/hrir.ts`, `build.mjs` | A1 | S | 3 | cues right at 12 of 12 azimuths, within 1.7 dB of M1's HRTF below 2 kHz |
-| A4 | Core bed: `bed.rs`, `BedVoice` pool, panner kind 2 and the three-way crossfade, decode into the host bus before its effects, chain-gain fold, BED_CONFIG, RESET, counters | `audio-core/src/bed.rs`, `panner.rs`, `bus.rs`, `voices.rs`, `layout.rs`, `status.rs` | **A2**, A3 | S | 6 | goldens: 256-voice bed, crossfade continuity, ducked sharing bus within 0.05 dB; per-bed work in STATUS |
-| A5 | Main bed: `beds.ts`, `pannerPick.ts` with the 30-frame kind dwell, command writer, replay, mirror, debug rows | `core/beds.ts`, `pannerPick.ts`, `commandWriter.ts`, `coreBackend.ts`, `replay.ts`, `debug.ts` | A1, A4 | M | 4 | resolution table tests; loopback: hosts follow a bus tree edit; `hrtfPick` cases kept |
-| A6 | Settings: `bed`, bus `bed`/`bedPriority`, presets (`hrtf` 8 on high), parse tests | `engine/audio/settings.ts`, `audioSettingsModel.ts` | none | M | 2 | every §2.1 row parsed and clamped; presets round trip |
-| A7 | Bed bench scene, goldens, metered baselines, size check | `audio-bench`, `golden/`, `metered-gate.mjs` | A4 | M | 3 | `m3-bed` p50 and p99 recorded; mixer under the 230 KB warning |
+| A1 | Wire: SET_VOICE_FX, BED_CONFIG (R1), ZONE_CONFIG (R4), LISTENER (R3), PLAY bit, STATUS growth, formats 3-5 and ids (R5, R7), single init (R6), `STREAM_OPEN.convention`, vectors, fuzz | `audio-wire/*`, `wire.generated.ts`, tests | none | M | 5 | round trip and fuzz of every record; stale wasm fails `npm test`; STATUS 15,904 B |
+| A2 | `ambisonic.rs`, `bed_decoder.rs` | `audio-dsp` | **A1** | S | 5 | analytic tests; bit-identical native and wasm; 256 voices decode within the spike's 142 µs p50 |
+| A3 | `bake-magls` + `magls-o3.bin` + loader + the baked 16 to 2 matrix (R9) and its test | `native/audio/tools`, `core/hrir.ts`, `build.mjs` | A1 | S | 4 | 12 of 12 azimuths; within 1.7 dB below 2 kHz; matrix test of §9 |
+| A4 | Core bed: slots and hosts, pool, kind 2, equal-power crossfade law, decode before host effects, gain fold, RESET, counters | `bed.rs`, `panner.rs`, `bus.rs`, `voices.rs`, `layout.rs`, `status.rs` | **A2**, A3 | S | 6.5 | bed, crossfade and ducked-chain goldens (< 0.05 dB) |
+| A5 | Main bed: `beds.ts`, `pannerPick.ts` with the 500 ms dwell, commands, replay, debug rows (the core resolves a bus without a bed to equal-power) | `core/*` | A1, A4 | M | 3.5 | resolution tests; loopback follows a bus edit |
+| A6 | Settings: bed, bus `bed`/`bedPriority` (0..255, root 255), `ambisonic.maxClips`, presets | `settings.ts`, `audioSettingsModel.ts` | none | M | 2.5 | every §2.1 row |
+| A7 | Bed bench, goldens, metered baselines, `mode=fit` sweeps for bed and ambisonic terms, size check | `audio-bench`, `golden/` | A4 | M | 4.5 | `bed-64/256/xfade` recorded; mixer under 230 KB |
 | **M3b clips** | | | | | | |
-| B1 | Sidecar `ambisonic`, registry validation, FuMa conversion in the worker | `importSettings.ts`, `decoder/ambisonic.ts`, `clipRegistry.ts` | none | M | 3 | parse rules of §2.4; FuMa twin of an AmbiX file decodes to the same samples within 1e-6 |
-| B2 | N-channel resampler and arena to 16 channels; decoder channel limit; a 16-channel WAV through `audio-decode` (the spike's open item) | `resample.rs`, `clips.rs`, `audio-decode/decoder.rs` | none | S | 4 | 4, 9, 16-channel WAV load and play at pitch 1 and 2; 5 channels refused with the message |
-| B3 | Core ambisonic voice: rotation by LISTENER, yaw, into bed, standalone decoder or stereo decode, W send hook, `listener.rs` | `audio-core/src/voices.rs`, `listener.rs`, `bed.rs` | **A4**, B2 | S | 5 | golden: 90 degree turn moves the image, level constant; rotation within 0.1 dB at head speeds |
-| B4 | Wide stream rings and the worker's chunk sizing | `stream.rs`, `decoder/streams.ts`, `wire` constants | B2 | S | 5 | a 16-channel stream plays 60 s with seeks and loops, zero underruns, no ring overrun |
-| B5 | Main: `listener.ts`, ambisonic `AudioSource` and one-shot `yaw`, stream default | `listener.ts`, `AudioSource.ts`, `Audio.ts`, `clipRegistry.ts` | B1, **B3** | M | 3 | an AudioSource of an ambisonic clip rotates with the camera; greyed fields warn once |
-| B6 | Test clip generator and tests: 1st and 3rd-order clips from known azimuths, FuMa twins, loopback | `samples/sound-lab/tools`, `ambisonicLoopback.test.ts` | **B3** | M | 3 | image at the right azimuth through bed and standalone decoder |
+| B1 | Sidecar `ambisonic`, registry validation, FuMa (int16 headroom scaling, per-chunk for streams) | `importSettings.ts`, `decoder/ambisonic.ts` | none | M | 3.5 | §2.4 rules; FuMa twin equals AmbiX within 1e-6 |
+| B2 | N-channel resampler, arena to 16, decoder channel limit, 16-channel WAV through `audio-decode` | `resample.rs`, `clips.rs`, `audio-decode` | none | S | 4 | 4, 9, 16 channels load and play; 5 refused |
+| B3 | Core ambisonic voice: rotation by LISTENER, yaw, into bed, **private decoders**, W send, `maxClips` stealing in the core | `voices.rs`, `listener.rs`, `bed.rs` | **A4**, B2 | S | 6 | 90 degree turn moves the image; rotation within 0.1 dB at head speeds |
+| B4 | `Wide` ring class, chunking, worker streams, 300 ms stall test | `stream.rs`, `decoder/streams.ts` | B2 | S | 5.5 | 16-channel stream 60 s with seeks and loops, no underrun, stall test passes (else 32,768) |
+| B5 | Main: `listener.ts`, ambisonic `AudioSource` and `yaw`, `maxClips` stealing by priority, stream default | `listener.ts`, `AudioSource.ts`, `Audio.ts` | B1, **B3** | M | 3.5 | source rotates with the camera; greyed fields warn once |
+| B6 | Test clip generator and tests | `samples/sound-lab/tools`, loopback | **B3** | M | 3 | image at the right azimuth, bed and private decoder |
 | **M3c zones** | | | | | | |
-| C1 | Convolver split: `prepare_ir`, `instance`, `plan_stagger`; the shared reverb unchanged | `audio-dsp/src/convolver*`, `core.rs` | none | S | 6 | shared reverb **bit-identical**; `plan_stagger` lowers modelled p99 as in the spike |
-| C2a | IR preparation in the decoder: decode, resample, normalise, trim, partition, presets, ABI 0x102 | `audio-decode/src/ir.rs`, `lib.rs` | C1 | S | 4 | blob equals `prepare_ir` of the same samples; preparation times measured (1, 2, 4 s); decoder under 900 KB |
-| C2b | Worker handler, `zoneIr.ts`, cache, re-prepare on rate change, failure states, memory accounting | `decoder/irPrepare.ts`, `core/zoneIr.ts`, `protocol.ts` | C2a | M | 3 | a rate change re-prepares and replaces; failure shows in the zone state |
-| C3 | Core zones: slots, arena state, ZONE_*, summed inputs, wet into the output, ring-out, eviction, RESET, STATUS, format 3 parse, budget export | `audio-core/src/zones.rs`, `clips.rs`, `arena.rs`, `bus.rs`, `audio-wasm/lib.rs` | A1, **C1** | S | 6 | goldens: blend continuity, ring-out then free, rebuild; memory 3.1 / 6.1 MB per slot at 2 / 4 s |
-| C4 | Core voice sends and aux: SET_FX apply, send ramps, bus-chain gain per quantum, aux add | `voices.rs`, `bus.rs`, `zones.rs` | **C3** | S | 3 | send follows a ducked bus; muted bus mutes its reverb; aux lands before the bus's effects |
-| C5 | Main zones: component, registry, volume maths, per-voice weights, curve, planner, commands, REPLAY order | `AudioReverbZone.ts`, `core/zones.ts`, `voiceFx.ts` | C2b, **C4** | S | 5 | loopback: A to B to C with 2 slots, no tail cut but evicted, each fade warning logged once |
-| C6 | Settings: zones keys, preset memory, the data the editor's warnings need | `settings.ts`, `audioSettingsModel.ts` | none | M | 2 | every §2.1 row |
-| C7 | Zone tests, bench `m3-zones`, metered | `golden/`, `zoneLoopback.test.ts`, `audio-bench` | **C5** | M | 4 | `m3-zones` p50 about 47 us, p99 about 107 us (spike) on the container |
-| **M3d occlusion, Doppler, event effects** | | | | | | |
-| D0 | `_worldRaycast` options (layers, triggers) and `WorldRayHit.node` through the physics service | `worldServices.ts`, `plugins/physics/runtime/services.ts`, `systems3d.ts` | none | M | 2 | a ray names the collider's node; layers filter; triggers skipped by default; particles' use unchanged |
-| D1 | Core per-voice filters: fx pool, log-Hz ramps, `lpHz` for every voice, `hpHz`, automation low-pass migrated | `audio-core/src/fxpool.rs`, `voices.rs`, `automation.rs`, `audio-dsp/src/fxfilter.rs` | A1 | S | 4 | M2 automation goldens unchanged; filter ramp click-free; pool full counted |
-| D2a | `OcclusionSystem`: budget, ranking by audibility before occlusion, round-robin, up to 3 hits, own-node skip, smoothing, age, wet folding | `core/occlusion.ts`, `audioSystem.ts` | D0, A5 | S | 4 | loopback of §9; ages near 3 / 5 / 22 frames at 64 / 256 / 1,024 sources |
-| D2b | `AudioOccluder`, `audio.occlusion` parse and material compile, openness, cache, debug rows, 2D note | `AudioOccluder.ts`, `occlusionMaterials.ts`, `settings.ts` | D0 | M | 3 | two-hit combine, trim, openness, none material; one note in a 2D world |
-| D3 | Doppler: estimates, factor, guard, hidden-tab reset, fields, settings | `core/doppler.ts`, `listener.ts`, `AudioSource.ts` | B5 | M | 3 | pitch ratio equals the formula; a teleport trips the guard; one-shots default 0 |
-| D4 | Event effects: format, formatter, runtime to SET_FX, lowest low-pass wins, problems | `eventFormat.ts`, `events/eventRuntime.ts`, `voiceFx.ts` | D1, C4 | M | 3 | every §2.5 rule; `lowpassBy` reads "event" or "automation" correctly |
-| D5 | API surface: `AudioSource` fields and `apply`, `OneShotOptions`, handle members, `AudioDebugInfo`, `AudioReason`, exports | `AudioSource.ts`, `Audio.ts`, `backend.ts`, `myco.ts`, `debug.ts` | D2a, C5, D3 | M | 3 | each row of §1 tested; every `@field` has a description |
-| D6 | Occlusion and filter tests and bench: `m3-filters`, `bench:audio-spatial`, metered | `occlusionBench.test.ts`, `audio-bench`, `golden/` | D2a, D1 | M | 3 | `m3-filters` and the bench recorded; refresh ages as the spike |
+| C1 | Convolver split (`prepare_ir`, `instance`, `plan_stagger`) | `audio-dsp/convolver*` | none | S | 6 | shared reverb **bit-identical**; planner as the spike |
+| C2a | IR preparation in the decoder, presets, ABI 0x102 | `audio-decode/ir.rs` | C1 | S | 4 | blob equals `prepare_ir`; times measured; decoder under 900 KB |
+| C2b | Worker handler, worker-to-worklet kernel send, `zoneIr.ts`, cache, rate change, failure | `decoder/irPrepare.ts`, `core/zoneIr.ts` | C2a | M | 3.5 | rate change re-prepares; kernels never touch main |
+| C3 | Core zones: fixed `Zones` region, ZONE_CONFIG table and state machine, return buses, shared-return scale, STATUS slots, formats 3 and 5 | `zones.rs`, `clips.rs`, `bus.rs`, `audio-wasm` | A1, **C1** | S | 7 | blend, ring-out, rebuild goldens; 3.1 / 6.1 MB per slot at 2 / 4 s |
+| C3b | In-core PCM IR preparation spread over quanta (was reserve R3) | `zones.rs` | C3 | S | 3 | a worker-less run prepares a 2 s IR, +23 µs a quantum at most |
+| C4 | Core sends and aux: pre-distance tap, bus-chain gain, aux add | `voices.rs`, `bus.rs`, `zones.rs` | **C3** | S | 3 | send follows a ducked bus; muted bus mutes its reverb |
+| C5 | Main zones: component, registry, weights, curve, planner, kernel LRU and proximity preload, 5 s timeout, listener weight for the shared return, commands | `AudioReverbZone.ts`, `core/zones.ts`, `voiceFx.ts` | C2b, **C4** | S | 6.5 | loopback A to B to C; each fade warning logged once |
+| C6 | Settings: zones keys, memory accounting, warning data | `settings.ts`, model | none | M | 2 | every row |
+| C7 | Zone tests, `zones-2x2s`/`zones-swap`, `m3-high`, fit sweeps | `golden/`, loopback, `audio-bench` | **C5** | M | 4.75 | `zones-2x2s` p50 about 47 µs, p99 about 107 µs |
+| **M3d** | | | | | | |
+| D0 | Ray query (R12): core interface, `raycastInto`, node exclusion, sensors off, reused `out`, `groupsFor` | `worldServices.ts`, physics `services.ts`, `systems3d.ts` | none | M | 3.5 | source's capsule never occludes it; no allocation per call; particles unchanged |
+| D1 | Core per-voice filters: mixed-voice pool, lp+hp, log-Hz ramps, mono-once, `lpHz` for every voice, automation migrated | `fxpool.rs`, `voices.rs`, `automation.rs`, `fxfilter.rs` | A1 | S | 4 | M2 goldens unchanged; click-free; clips never filtered |
+| D2a | `occlusion.ts`: ray count from `budgetMs` and EMA, overrun halving, ranking by `audibility0`, round-robin, lateral rays (top 4 on high), 3 hits, smoothing, wet folding | `core/occlusion.ts`, `audioSystem.ts` | D0, A5 | S | 5.5 | ages near 3 / 5 / 22 frames; overrun test |
+| D2b | `AudioOccluder`, materials, `openness`, cache, debug rows, 2D note | `AudioOccluder.ts`, `occlusionMaterials.ts` | D0 | M | 3 | two-hit combine, trims, `none`, openness |
+| D3 | Doppler | `core/doppler.ts`, `listener.ts` | B5 | M | 3 | formula; teleport guard; one-shots default 0 |
+| D4 | Event effects incl. aux | `eventFormat.ts`, `events/eventRuntime.ts`, `voiceFx.ts` | D1, C4 | M | 3 | every §2.5 rule |
+| D5 | API surface, handle members, debug additions, exports | `AudioSource.ts`, `Audio.ts`, `myco.ts`, `debug.ts` | D2a, C5, D3 | M | 3 | each §1 row tested; every `@field` described |
+| D6 | Occlusion and filter tests and benches (`filters-256`, `bench:audio-spatial`, `m3-worst-*`) | tests, `audio-bench` | D2a, D1 | M | 3.75 | recorded; ages as the spike |
 | **Fallback** | | | | | | |
-| F1 | Babylon: W-only ambisonic, filter and aux warnings, gain-only occlusion, Doppler rate | `babylonBackend.ts`, `babylonMapping.ts` | D2a, D3, B5 | M | 2.5 | the rows of §8 against the mocks; one warning each |
-| F2 | Babylon zone: check the pinned version's public surface; one `ConvolverNode` zone, or inert with a warning | `babylonBackend.ts` | C5 | M | 2 | decided and documented; mapped rows tested |
-| **M3e editor, samples, listening** | | | | | | |
-| E1 | Zone gizmo, handles, Edit Zone tool | `AudioReverbZoneGizmo.ts`, `EditZoneButton.tsx`, `zoneMath.ts` | C5 | M | 4 | draw, drag, undo; theme colours |
-| E2 | Occluder gizmo; Inspector sections (zone, occluder, AudioSource curve) | `AudioOccluderGizmo.ts`, `*Inspector.tsx` | D2b, E1 | M | 3 | warnings for no collider, no service, overlap above `maxActive` |
-| E3 | Project Settings > Audio: beds, occlusion and the material table, zones, Doppler, presets | `AudioSettingsSection.tsx`, `audioSettingsModel.ts` | A6, C6, D2b | M | 5 | edits persist; lost-bed warning; material table add, rename, delete |
-| E4 | Debug panel additions and the occlusion overlay | `AudioDebugPanel.tsx`, `OcclusionOverlay.ts` | D5, C5 | M | 4 | §7 rows present against the loopback host |
-| E5 | Event editor: filter, sends, spatial; audition backend label | `event/*` | D4 | M | 3 | round trip through `formatAudioEvent`; label shown |
-| E6 | Asset Inspector ambisonic block | `src/editor/ui/AssetInspector.tsx` | B1 | M | 2 | writes only non-default sidecar keys |
-| E7 | Live tuning in Play: verify and fix | components, registry | E1, E3 | M | 1 | the Playwright live-edit check passes |
-| E8 | Samples and guides: `sound-lab` spatial scene, `stress` and `sound-lab` settings, `dopplerLevel: 0` where benches need it, five guide edits and `spatial-audio.md`, `implementation-status.md`, 0157 architecture §10 note | `samples/*`, `docs/guide/*` | C7, D6, B6 | M | 6 | samples load with no warnings and a non-silent render; guide links check (`check:links`) |
-| E9 | Playwright specs | `tests/e2e/audio-spatial.spec.ts` | E1 to E4 | M | 4 | green 3 of 3 repeats |
-| E10 | Listening pass document and scenes (the sound designer's ten items, the below-horizon floor case), lab-VM run instructions | `listening-pass.md`, `ListeningBench.ts` | E8 | J | 2 | every item has a key or a scene and a pass or fail box |
+| F1 | Babylon: gain-only occlusion, Doppler on decoded clips, filter and aux warnings, W-only ambisonic via the decode path with the 64 MB refusal | `babylonBackend.ts`, `babylonMapping.ts` | D2a, D3, B5 | M | 3 | §8 rows against the mocks |
+| F2 | Babylon zones: inert plus one warning; document the underscore option for the owner | `babylonBackend.ts` | C5 | M | 0.5 | warning once; rows tested |
+| **M3e** | | | | | | |
+| E1 | Zone gizmo, handles, Edit Zone | `AudioReverbZoneGizmo.ts` | C5 | M | 4 | draw, drag, undo |
+| E2 | Occluder gizmo; Inspector sections; `output` bus field | `*Inspector.tsx` | D2b, E1 | M | 3.5 | warnings for no collider, no service, overlap |
+| E3 | Project Settings > Audio (§7) incl. `maxClips` and `bedPriority` | `AudioSettingsSection.tsx` | A6, C6, D2b | M | 5.5 | edits persist; lost-bed warning; material cards |
+| E4 | Debug panel sections and occlusion overlay | `AudioDebugPanel.tsx`, `OcclusionOverlay.ts` | D5, C5 | M | 4 | §7 rows against the loopback host |
+| E5 | Event editor | `event/*` | D4 | M | 3 | round trip; backend label |
+| E6 | Asset Inspector ambisonic block | `AssetInspector.tsx` | B1 | M | 2 | writes only non-default keys |
+| E7 | Live tuning check | | E1, E3 | M | 1 | spec passes |
+| E8 | Samples and guides: `sound-lab` spatial scene (zone corridor, occluders, **a door example with a script moving `openness`**, ambisonic ambience, Doppler pass-by), `stress` and `sound-lab` settings, `dopplerLevel: 0` where benches need it, guide edits and `spatial-audio.md` with the door recipe, `implementation-status.md` | `samples/*`, `docs/guide/*` | C7, D6, B6 | M | 6.5 | samples load warning-free and non-silent; `check:links` |
+| E9 | Playwright specs | `tests/e2e/` | E1 to E4 | M | 4 | 3 of 3 repeats |
+| E10 | Listening pass document, scenes, lab-VM instructions | `listening-pass.md`, `ListeningBench.ts` | E8 | J | 2 | every item has a key or scene |
 
-**Critical path (33 days):** A1 4, A2 5, A4 6, B3 5, B6 3 (the ambisonic spine, 23 days) feeds E8 and E10; the zone spine runs beside it: C1 6, C3 6, C4 3, C5 5, C7 4 = 24 days (C3 needs only A1, finished by day 6), then D5 3, E4 4, E9 4, E10 2. Seniors carry 60 days of tasks (A2 to A4, B2 to B4, C1 to C5, D1, D2a: the DSP and the planners), so two seniors are the floor: **about 8 calendar weeks to M3e with two seniors and three mid engineers**, 9 to 10 with the reserve and the owner's listening and lab-VM gates. Milestones ship in order A, B, C, D, E; D1 and D0 can land before B (no dependency), so occlusion can ship before zones if the owner wants the cheapest user-visible win first (the senior review's point).
+**Critical path (about 35 days):** A1 5, A2 5, A4 6.5, B3 6, B6 3 (spine, 25.5) feeding E8; the zone spine beside it: C1 6, C3 7, C4 3, C5 6.5, C7 4.75 = 27.25 (C3 needs A1, done by day 6), then D5 3, E4 4, E9 4, E10 2. Seniors carry about 66 days (A2-A4, B2-B4, C1-C5 incl. C3b, D1, D2a), so two seniors are the floor: **about 8 weeks to M3e with two seniors and three mids, 9 to 10 with the reserve and the owner's gates.** D0, D1 and D2 do not depend on B or C, so occlusion can ship first.
 
-### 10.1 Total and reserve against the record's ≈ 22 person-weeks
+### 10.1 Optional rows (owner items; not in the base total)
 
-| Line | Record (pw) | This table (tasks) | Days | pw |
+| Row | Item | Tasks | d |
+|---|---|---|---|
+| O1 | Standby zone slot (owner item 2): `maxActive + 1` slots, tails ring out, peak zone memory 18.0 / 9.2 / 3.3 MiB against 12.0 / 6.1 / 1.6; without it a third zone evicts a ringing slot with a 150 ms fade | C3 +1, C5 +2, C6 +0.5 | +3.5 |
+| O2 | Load-shedding ladder (owner item 3): cut releasing tails, one active zone fewer, beds idle faster, `m3Shed`; never touches beds or HRTF | C3 +1, A4 +0.5, D5 +0.5 | +2 |
+| O3 | Default-preset HRTF 8 (owner item 1) | one preset number and a test | about 0 |
+
+### 10.2 Total and reserve
+
+Base tasks (no optional rows): A 31, B 25.5, C 39.75 (incl. C3b), D 28.75, F 3.5, E 35.5 = **164 days**. **Named reserve 14 days:** R1 SADIE II below the horizon if the floor-below check fails 4 d; R2 lab-VM tuning of presets, the cap and wasm size (a `wasm-opt` pass) 5 d; R4 listening-pass fixes (kind dwell, crossfade length, material values, send curve default) 5 d. (Round 1's R3, the in-core IR fallback, is now task C3b.)
+
+| Case | Days | Person-weeks |
+|---|---|---|
+| **Base** (tasks + reserve) | 178 | **35.6** |
+| + O1 standby slot | 181.5 | 36.3 |
+| + O2 ladder | 180 | 36.0 |
+| **+ O1 + O2** | 183.5 | **36.7** |
+
+### 10.3 Line by line against round 1 (32.7 pw) and the record (22 pw)
+
+| Line | Record pw | Round 1 d | Round 2 d (base) | pw |
 |---|---|---|---|---|
-| Bed with per-bus beds | 4.5 | A1-A7 | 27 | 5.4 |
-| Ambisonic clips, 16-channel streaming | 3 | B1-B6 | 23 | 4.6 |
-| Reverb zones by source, off-thread IR, REPLAY | 5.5 | C1-C7 | 33 | 6.6 |
-| Occlusion with per-voice filters | 3 | D0, D1, D2a, D2b, D6 | 16 | 3.2 |
-| Doppler and event effects | 1 | D3, D4, D5 | 9 | 1.8 |
-| Fallback | 0.5 | F1, F2 | 4.5 | 0.9 |
-| Editor | 4 | E1-E7, E9 | 26 | 5.2 |
-| Sample, guides, listening pass (not estimated in the record) | (0) | E8, E10 | 8 | 1.6 |
-| Reserve | 0.5 | below | 17 | 3.4 |
-| **Total** | **22** | | **163.5** | **32.7** |
+| Bed (A1-A7) | 4.5 | 27 | 31 | 6.2 |
+| Ambisonic clips (B) | 3 | 23 | 25.5 | 5.1 |
+| Zones (C incl. C3b) | 5.5 | 33 | 39.75 | 7.95 |
+| Occlusion with filters (D0, D1, D2a, D2b, D6) | 3 | 16 | 19.75 | 3.95 |
+| Doppler and event effects (D3, D4, D5) | 1 | 9 | 9 | 1.8 |
+| Fallback (F) | 0.5 | 4.5 | 3.5 | 0.7 |
+| Editor (E1-E7, E9) | 4 | 26 | 27 | 5.4 |
+| Samples, guides, listening pass (E8, E10) | 0 | 8 | 8.5 | 1.7 |
+| Reserve | 0.5 | 17 | 14 | 2.8 |
+| **Total** | **22** | **163.5 (32.7)** | **178 (35.6)** | |
 
-Tasks alone are 146.5 days (29.3 pw); the **named reserve is 17 days (3.4 pw)**: R1 SADIE II instead of IRCAM below the horizon if the floor-below check fails (data, bake, re-listen) 4 d; R2 lab-VM tuning of the presets, the adaptive cap and wasm size (a `wasm-opt` pass, re-balanced budgets) 5 d; R3 the fallback for off-thread IR preparation if the worker measure (C2a) disappoints, spreading preparation over quanta in the core, 3 d; R4 listening-pass fixes (kind dwell, crossfade length, material values, default send curve) 5 d. **About 10 person-weeks more than the record.** The growth is not scope: the record folds tests, benches and tooling into features; this table prices them (A7, B6, C7, D6, E9 are 17 days); the wire is one task done once (A1, 4 days); the physics ray extension (D0), the convolver split with bit-identity (C1), the 16-channel generalisation (B2, B4) and the samples, guides and listening scaffolding (E8, E10) were not in the record's lines; and the reserve is named instead of 0.5. The record's per-line numbers hold within about 1 pw except clips (+1.6) and zones (+1.1), where the arena and ring generalisation and the planner carry the risk.
+Round 1 to round 2: +14.5 days net, roughly: the architecture's needs (private decoders and `maxClips` +2, separate wide rings and FuMa per chunk +1.5, shared-return scaling +1, baked equal-power matrix +1.2, the ray query with exclusion +1.5, lateral rays and ray-count EMA +1.5, the equal-power crossfade +0.5, zone return bus and STATUS telemetry +1, `mode=fit` sweeps and worst-case scenes +3) less in-core IR preparation moved from reserve (+3 / -3) less the mono-once and pool simplifications and the inert fallback zones (-1.5 net on F2). Against the record: **+13.6 pw**, of which about 5 is priced tests and tooling, 3.5 the wire, ray query, convolver split and 16-channel generalisation, 1.7 samples and listening, and the rest the architecture's additions; the reserve is named, not 0.5.
 
-## 11. Where the record is wrong or under-specified (flagged, not changed)
+**Cost model recomputed** (S7; [ARCH §7.2] stands except): filters are at most the mixed voices (clips are never filtered), 1.2 µs a biquad pass (mono-once about 0.7, est., C3 measures), sends 0.3 µs; HRTF 32 to 8 at high saves 24 x (7.4 - 0.5) = 166 µs. **Worst high:** 80 + 124 + 49 + 90 + 256 x 1.2 + 496 x 0.3 - 166 = **0.63 ms p50** (their 0.71 less the clip-count and HRTF corrections; mono-once would save about 0.13 more). **Typical high:** 40 + 120 + 13 + 47 + 38 + 72 = 0.33 ms before the saving, **0.16 ms net** (est.; the record's 0.22 assumed 16 to 8).
 
-1. **The high preset's `voices.hrtf` is 32 today, not 16** (`audioSettingsModel.ts:213`; `audio-bench` `high` scene `Scene::preset(..., 32, 16)`). The record's "16 to 8, saves about 55 us" was measured from 16. 32 to 8 saves more; this design sets high to 8 and leaves the default preset at 16 (the record is silent on default).
-2. **`AudioOccluder` needs a physics-service change the record does not name** (D0): `_worldRaycast` returns no collider and takes no layers.
-3. **The default occlusion layers (every non-trigger layer) make every collider an occluder**, characters, props and bullets included, until the project lists layers or marks nodes `material: none`. The own-node skip covers the source's and the listener's colliders only. Recommend the samples set `audio.occlusion.layers` explicitly and the Settings panel says so; the record's default stands.
-4. **The `reverbSend` curve's meaning** (relative to the dry distance gain, default 1 to 3) is not in the record; the listening pass tunes it.
-5. **`sends: { reverb, <bus> }` and `occlusion`** have no stated home in an event; this design puts `sends.reverb` as the one zone send, allows one aux bus per voice in M3, and puts `occlusion` in `spatial` (senior review).
-6. **Fallback zones may be impossible** through Babylon's public API (§8); F2 decides.
-7. **Zone tail versus slot count:** with 2 slots a ringing tail can occupy a slot a third zone needs; this design evicts with a fade (at most 150 ms before the new zone engages). The sound designer asked that tails ring out; they do, until evicted.
-8. **Beds memory:** the record's "beds and decoder about 110 KB" is one bed (48 KB state plus 64 KB decoder); 2 beds are about 160 KB and 4 about 256 KB (S6).
-9. **Root bed default:** the record does not say which bus owns a bed when no bus asks; this design makes the root `own` by default so distant voices are 3D out of the box.
-10. **Ambisonic standalone decoders** share the beds' decoder states, so with `maxBeds` 0 (low preset) an ambisonic clip uses the stereo decode (not binaural). The record says "decodes to binaural on its own".
-11. **Reserved PLAY bits:** the record's Context says panner "bits 2-3 reserved"; the code and 0157 have bits 5-6 (values 2-3 reserved); this design uses value 2 and adds bit 7.
-12. **Reverb return routing:** zone wet goes to the output before MASTER, as the shared reverb does, so zones bypass bus effects and meters; Wwise routes to an aux bus. A `zones.bus` setting is a later addition.
+## 11. Where the record is wrong, under-specified, or the rulings need a second look
+
+1. **High preset `voices.hrtf` is 32, not 16** (confirmed by the coordinator); with 32 to 8 the net cost is lower than the record's 0.22 ms.
+2. **Ray query and `WorldRayHit`**: the record's `Physics.raycast` is not reachable from the audio plugin; D0 adds a core interface (confirmed).
+3. **Default occlusion layers make every collider an occluder** (characters, props); the samples set layers explicitly and Settings says so.
+4. **Event keys**: `sends` holds `reverb` plus one aux bus; `occlusion` lives in `spatial`.
+5. **Babylon zones**: the record's `ConvolverNode` is not reachable through the public API (§8); inert unless the owner accepts underscore members.
+6. **Sends skip the dry gain, the occlusion low-pass and the event's static filter** (R11 consequences); [ARCH §3.3, §4] state the send "post-filter" and need the amendment of §4.4.
+7. **R13 says 30 frames; the architect's issue 10 asks 500 ms.** §3.2 uses 500 ms of game time (30 frames at 60 Hz), tested as the later of the two. Coordinator to confirm.
+8. **R16 labels "a separate region" as the senior engineer's design;** it was the architect's (mine reused the narrow slots). The ruling's content (a separate `Wide` region sized by `maxClips`) is what this file implements.
+9. **R2's "filter state in the pool at ≈ 120 B"** is one biquad; the entry holds two plus send and bed state (about 448 B, §3.1).
+10. **Beds memory:** the record's "about 110 KB" is one bed plus the decoder; §3.1 gives 112 / 208 / 352 KB by preset.
+11. **Kernel budget:** with a kernel per slot, a third zone's kernel cannot be prepared until a slot's kernel is released (an extra 50-200 ms); a spare kernel would add 3.0 MB at high. Accepted; owner item 2 interacts.
+12. **Reverb return** is now a per-zone bus (R17): the record's "added to the output" changes; reported to the owner as a ruling.
+
+## 12. Resolutions: every item of `review-round2-architect.md`
+
+| Item | Outcome | Reason |
+|---|---|---|
+| Issue 1: zone state from the arena | **Taken** (R12) | `Zones` is a fixed region sized at init (§3.1); only kernels live in the arena |
+| Issue 2: occlusion budget by timer | **Taken** (R12) | `budgetMs` becomes a ray count with an EMA of ray cost (§2.1, D2a) |
+| Issue 3: own-collider skip, allocation | **Taken** (R12) | D0 excludes nodes and sensors inside the query and fills a reused `out` (§6) |
+| Issue 4: pool `max_mixed / 2` | **Taken with changes** (R12) | one entry per mixed voice (taken at promote), so it cannot run out; about 448 B an entry, not 320 |
+| Issue 5: filter 0.85 µs | **Taken** | 1.2 µs per biquad pass; mono-once is an estimate until C3 measures |
+| Issue 6: IR blobs through main | **Taken** (R12) | worker to worklet; main gets timings (§4.5) |
+| Issue 7: send before the distance gain | **Taken** (R11) | §4.4; default curve 1 to 0.5; clamp 4 |
+| Issue 8: defaults agreed | **Taken** | no change |
+| Issue 9: FuMa f32 | **Taken with changes** | scaled into int16 headroom with the inverse in the import volume; orders whose factor exceeds 4 keep f32 (§2.4) |
+| Issue 10: 500 ms dwell | **Taken with changes** | 500 ms of game time, at least 30 frames' worth at 60 Hz (§3.2; §11 item 7) |
+| Issue 11: send scale to 8x | **Taken** (R8) | product with the curve clamped to 4 |
+| Issue 12: eviction cuts a ringing tail | **Taken** | priced as owner item O1; without it eviction fades 150 ms |
+| Issue 13: 64-zone cap | **Taken** | zones past 64 warn by name (§3.2) |
+| Section 3 S1: add "zone set re-plans every 4 frames" | **Taken with changes** | the active set re-plans every 4 frames with 1.5x for 500 ms; weights update each frame |
+| S2 axis map and 0.001 rad | **Taken** | §4.2 |
+| S3 foldLp to main | **Taken** | main folds the snapshot low-pass, the core folds gains (§4.4) |
+| S4 300 ms stall test | **Taken** (R16) | B4 and §9 |
+| S5 stereo decode when MagLS is missing | **Taken** (R9) | beds decode through the baked matrix until MagLS is resident |
+| S6 memory numbers | **Taken with changes** | §3.1 (pool 448 B an entry, rings 1.22 MiB, zones fixed region) |
+| S7 cost model | **Taken** | §10.3 |
+| S8 health column | **Taken** | [ARCH §9] carries it; counters in §1.6 |
+| S9 STATUS size | **Taken** | 15,904 B (§4.3) |
+| S10 one standalone decoder | **Taken** (R8) | private decoders sized by `maxClips`; low has one |
+| S11 rebuild gap | **Taken** | zones silent until resident, 100 ms fade (state "waiting for kernel") |
+| S12-S20 | **Taken** | S13 score order unchanged, no bed-first rule; S14 500 ms; S17 rates 44.1 to 96 kHz, zones refused above with a warning; S18 allocation-free and exclusion; S19 in §1.4; S20 constants named in `schema.rs` |
+| Section 2 C2-C5 (adopt my shapes) | **Taken with changes** (R1-R4) | BED_CONFIG per-bus slot plus per-slot host; SET_VOICE_FX 52 B with four sends and aux; LISTENER 36 B world-to-listener with a snap flag; one ZONE_CONFIG table, not CREATE/UPDATE/DESTROY |
+| C6 ids and formats | **Taken with changes** (R5, R7) | MagLS 0xFFFF0100, kernels 0xFFFF0200..02FF, formats 3-5, packed bins |
+| C7-C9, C14 | **Taken** | §4.3, §5.2, §6 |
+| C10 `maxClips` dropped | **Rejected** (R8) | ruled kept: caps private decoders and wide rings |
+| C10 `bedPriority`, `doppler.maxSpeed` | **Taken with changes** (R8) | 0..255 default 128, root 255; 150 (the architect's 100 proposal and my round-1 100 both rejected by ruling) |
+| C11, C12, C13 | **Taken with changes** | `output` bus field (R17); `reverbSendCurve`; `openness` (R15); materials as §2.2 |
+| C15-C24 | **Taken** | §1.6, §5.1; C18 coefficients (`SEND` 300, `AMBI_ROTATE` 2,000) adopted in the cost model |
+| Section 5 conflicts | **Taken** | all resolved by the rulings; the table at §4 reflects them |
+| Section 6 owner list | **Priced, not decided** | §10.1 |
