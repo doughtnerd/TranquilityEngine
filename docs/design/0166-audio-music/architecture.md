@@ -130,7 +130,7 @@ stateDiagram-v2
   Stopped --> [*]
 ```
 
-- **Starting:** the first streamed group needs a full prime, so `Audio.play` starts one lead later (≈ 100 ms at first, less once the worker caches the files, §4.2). With `at`, the entry lands on the first allowed grid point ≥ max(`at`, now + lead), never off the grid (R12). `handle.music` is readable from Starting on.
+- **Starting:** the first streamed group needs a full prime, so `Audio.play` starts one lead later (≈ 100 ms at first, less once the worker caches the files, §4.2). With `at`, the entry lands on the first allowed grid point ≥ max(`at`, now + lead), never off the grid (R12). The first segment has no grid yet, so its "next allowed point" is the earliest stampable frame ≥ max(`at`, now + lead), and that frame anchors the grid. `handle.music` is readable from Starting on.
 - **Pending:** at most one pending transition per container. A newer target replaces an unstarted one:
   - its rings are closed;
   - if it is already stamped, its SCHEDULED voices get STOP, which ends a voice that hasn't started at once and exactly (`voices.rs:1394-1396`).
@@ -305,6 +305,7 @@ sequenceDiagram
 - While a member is held, its stamped records stay in the pending queue across quanta; the due list doesn't consume them, and they aren't counted late.
 - When the group starts (or resumes after a hold, §4.3), every queued record of a member whose frame is ≥ the stamp (or ≥ the hold start) is shifted by the slip.
 - Fades therefore stay aligned to the music, not the clock.
+- Parked records (those of held voices) are capped at **128** across the core: 2 held groups × 16 members × 4 records. Past the cap a record applies at its own frame, unrebased, and counts `parkedOverflow`.
 - Records of non-members (the outgoing A's fade-out) aren't shifted, so a late start leaves a hole of the slip's length at the seam (§11: linked outgoing records).
 
 ### 3.7 Hard rebuild (REPLAY), worker crash, rate change
@@ -418,7 +419,9 @@ The phone run is a milestone exit check.
 - The worker keeps the encoded bytes of every file a music instance has opened, refcounted by path, until the instance ends (main posts the release).
 - A re-prime then moves nothing through main, and Ê becomes unimodal after the first prime.
 - Main's own cache (32 MB, `core/encodedCache.ts`) isn't used for music.
-- **Bound:** the cache grows with the distinct streamed files an instance has played. When it passes the preset's encoded threshold (§6), the least recently closed file is dropped and re-fetched on its next prime. Open point 1 explains this reading.
+- **Protected files:** files of a segment that is playing, primed, or a candidate successor (a rule target from the playing segment, or the playlist's next item) are never evicted.
+- **Budget:** 48 / 96 / 160 MiB (est.) on low / default / high (§6). Above it the worker evicts unprotected files, least recently closed first. If protected files alone exceed the budget, nothing protected is evicted, and one warning names the instance (`encodedOverBudget`).
+- **A miss:** a re-prime whose file was evicted re-fetches through main and transfers the bytes. Ê takes that slow sample like any other: its 0.5 up-gain raises the lead at once, and the 0.1 down-gain brings it back over about ten later primes.
 
 ### 4.3 The group table: gate, hold on starve, give-up
 
@@ -467,7 +470,7 @@ This replaces round 1's next-bar resync (R11): no second ring set is needed exac
 4. **Still queued:** records that aren't per voice (BUS_MIX, MASTER, LISTENER, configuration tables) keep splitting the quantum and count in `splitQuanta`. So does a due-list overflow. Voice-local splits count in `voiceSplits` (R3).
 
 **Crossfades on the `fade` ramp (R5).**
-- A fade-in is a PLAY flagged to start with `fade` at 0, then a stamped FADE to 1 with a law. A fade-out is a FADE to 0 with `stopAtEnd`.
+- A fade-in is a PLAY with the `fadeZero` flag (its `fade` ramp starts at 0), then a stamped FADE to 1 with a law. FADE (28 B), SET_PARAMS (60 B) and STOP (24 B) each carry one `shape` word, holding the law and u₀ [API §4.2]. A fade-out is a FADE to 0 with `stopAtEnd`.
 - `gain` stays free for automation, including `quantize` bindings (applied as a 20 ms class G `gain` ramp at the grid point, `QUANTIZE_RAMP_MS`, est.; a low-pass binding is class S).
 - FADE, SET_PARAMS gain and STOP-with-fade carry a **law** and a **start phase u₀** (C5). The FADE `from` field is gone.
 
@@ -602,7 +605,8 @@ Real devices are [U]; a loopback is owed.
 | | `QUANTIZE_RAMP_MS` | 20 | this design (est.) |
 | Stingers | concurrent per instance | 4 (format limit) | R20; [S4] worst scene |
 | Core | group entries (`MAX_GROUPS`) | 16 | R9, §4.3 |
-| | group give-up | 1 s after the stamp, or 1 s held | R11, this design (est.) |
+| | group give-up | 1 s after the stamp, or 1 s held: a ring holds 0.68 s, so a 1 s hold means the worker is > 1.7 s behind, and a re-prime is faster than waiting | R11, this design (est.) |
+| | parked records (held voices) | 128 (overflow applies unrebased, `parkedOverflow`) | R10, this design (est.) |
 | | hold fades | 5 ms out, 5 ms in (`STARVE_FADE_SECONDS`) | `stream.rs:116` |
 | | due list | 256 per quantum | this design (est.) |
 | | curve pool | 255 entries | R4 |
@@ -611,7 +615,7 @@ Real devices are [U]; a loopback is owed.
 | | rate limit | 3 per sliding 60 s | `core/recovery.ts` |
 | Clock | stall; offset EMA, reject, re-anchor | 250 ms; 0.1, 5 ms, 10 | `clock.ts:21-35` |
 | STATUS | cadence; idle; idle after | 6 quanta (16 ms); 48; 250 ms | `schema.rs:72-74` |
-| Worker | encoded cache | per instance, refcounted; above the §6 threshold, drop the least recently closed | R16 |
+| Worker | encoded cache | refcounted by path; protected: playing, primed, candidate successors; budget 48 / 96 / 160 MiB, evict unprotected least recently closed | R16 (senior's bound), this design (est.) |
 | Rhythm | `latencyHint`; reliable latency | 0; 0 < x < 0.5 s and changed or timestamp valid | [S5]; this design |
 
 ## 6. Memory
@@ -622,10 +626,10 @@ Real devices are [U]; a loopback is owed.
 | Narrow rings (unchanged) | 4 / 8 / 16 × 300 KiB | 1.17 / 2.34 / 4.69 MiB |
 | Worker encoded copies, two sets streaming (MP3 192 kbps, 3 min) | rings × 4.4 MiB | 35 / 53 / 70 MiB [S2] |
 | Same, Vorbis (+1.7 MB state per open stream) | rings × ≈ 6.1 MiB | 49 / 73 / 98 MiB (est.) |
-| **Encoded cache threshold** (lint warning, cache eviction) | | **48 / 96 / 160 MiB** (est.) |
+| **Encoded cache budget** (eviction of unprotected files; lint warning) | | **48 / 96 / 160 MiB** (est.) |
 | FLAC | 8 stems ≈ 190 MiB | warns on low |
-| Curve pool, group table, due list (core) | [API §3.1]; 256 × 48 B | ≈ 8 + 2.5 + 12 KiB |
-| STATUS growth | `musicRings` ≤ 16 × 12 B, ≤ 8 group events × 16 B | [API §4.4] recomputes the worst case |
+| Core regions `Due`, `Curves` (255), `Groups` (16) | [API §3.1] | 15,360 + 8,160 + 2,560 = 26,080 B on every preset |
+| STATUS growth | header 176 B; `musicRings` ≤ 16 × 12 B; ≤ 8 group events × 16 B | worst case 16,192 of 16,384 B (192 B spare) [API §4.4] |
 | Mixer wasm | due list, classes G and S, curve pool, 4 KiB table, group table with hold | +10–14 KB (est.; [API §5] says +14) from 265,952 B, against the 320 KB tripwire |
 | Main, per asset; per instance | tempo prefix sums, rule index; player state | < 16 KiB; ≈ 2 KiB (est.) |
 | Loop-tail span clips | tail × channels × 2 B per stem | 2 s stereo: 375 KiB each |
@@ -790,7 +794,7 @@ Tauri: WebView2 follows the Chromium column; macOS and Linux follow WebKit or th
 | 1 | The slot can't carry the due bit, curve state and group | **Taken** (R4): due, gated and group index in `flags2`; curve link in the spare byte; a 255-entry curve pool; the group table is its own region with membership (§4.3, §4.4, §6) |
 | 2 | A fade-in specified as FADE on `gain` 0 | **Taken with changes** (R5): the fade-in stays a FADE, on the `fade` ramp, from a PLAY flagged to start at 0; `gain` stays free for automation (§3.2, §4.4) |
 | 3 | Stamped records of a voice that hasn't started | **Taken, extended** (R10): held voices' records stay queued, aren't counted late, and are rebased by the slip at start and after a hold (§3.6) |
-| 4 | Every prime re-fetches the encoded bytes | **Taken** (R16): a per-instance worker cache, with an eviction bound (§4.2; open point 1) |
+| 4 | Every prime re-fetches the encoded bytes | **Taken** (R16): a worker cache refcounted by path; playing, primed and candidate-successor files are protected; budget 48 / 96 / 160 MiB (§4.2, §6) |
 | 5 | A refusal that can never resolve | **Taken** (R14): permanent refusals with N and M; temporary ones retry at each allowed point (§4.1) |
 | 6 | Starve resync details | **Superseded** (R11): a core group hold with a 1 s give-up replaces the next-bar resync and P12 (§4.3) |
 | 7 | `timeAt` minus calibration | **Taken** (R18): `timeAt` is raw; `judged` subtracts (§4.6) |
@@ -836,4 +840,4 @@ These come from the rulings' owner list; I don't decide them.
 
 ## Open points for the coordinator
 
-1. **R16's lifetime cache is unbounded by design.** "Keep every file an instance has opened until it ends" grows with the event's size: a switch over 4 segments × 8 MP3 stems is ≈ 141 MiB in the worker. I applied the ruling with a bound: past the preset's encoded threshold (48 / 96 / 160 MiB, est.), the least recently closed file is dropped and re-fetched on its next prime. That keeps the ruling's intent (no fetch for a segment that plays again soon) without an out-of-memory path on low. Confirm, or rule a different bound.
+None open. R16's bound is settled as the senior engineer relayed it: protected files, a 48 / 96 / 160 MiB budget, a re-fetch on a miss (§4.2).

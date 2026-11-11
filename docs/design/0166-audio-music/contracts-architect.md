@@ -15,7 +15,7 @@ This file lists what [architecture.md](architecture.md) needs from the senior en
 - Every STATUS lists every open music ring as `{streamId, epoch, flags}`.
   - Flag bit 0, **primed**: at least 4,096 frames committed in the ring's *current* epoch, or its input has ended.
   - Flag bit 1, **bound**: a voice has bound the ring.
-- At most 16 items.
+- At most 16 items. STATUS: header 176 B, worst case 16,192 B (192 B spare).
 - It is a level, not an event, so a lost report repairs itself.
 - Main accepts only its current epoch for each stream.
 - Written by: the core.
@@ -36,7 +36,7 @@ This file lists what [architecture.md](architecture.md) needs from the senior en
   - gate at the stamp;
   - hold every member on a would-be starve;
   - resume together;
-  - abandon after 1 s, either unstarted past the stamp or held;
+  - abandon after **1 s**, either unstarted past the stamp or held (the constant, replacing the 2 s placeholder);
   - a member STOPped leaves the group;
   - virtual members stay members.
 - Written by: main sends the PLAYs; the core owns the table.
@@ -57,13 +57,15 @@ This file lists what [architecture.md](architecture.md) needs from the senior en
 - They also carry a **start phase u₀** in [0, 1), with resolution of 1/65,536 or finer.
   - The ramp starts at law(u₀) and covers the remaining (1 − u₀) of the law over the record's frames.
   - REPLAY uses it to resume a running curve fade.
-- A PLAY flag starts the voice's `fade` ramp at 0. A crossfade-in is that PLAY plus a stamped FADE to 1.
+- PLAY's `fadeZero` flag starts the voice's `fade` ramp at 0. A crossfade-in is that PLAY plus a stamped FADE to 1.
+- Met by the senior engineer's 2B: one `shape` word (law + u₀) on FADE (28 B), SET_PARAMS (60 B) and STOP (24 B).
 - The FADE `from` field is dropped.
 - Written by: main (player, mixer, Replayer).
 
 **C6. Curve pool** (R4; Arch §4.4).
 - A pool of **255** entries for curve state (law, u, du), linked from the slot's spare byte.
 - A fade whose curve can't get an entry runs linear and counts `curvePoolFull`.
+- Met by the `Curves` region (8,160 B). With `Due` (15,360 B) and `Groups` (2,560 B), the new core regions total 26,080 B on every preset.
 - Freed when the fade settles, when the voice ends, or on RESET.
 
 **C7. Split counters** (R3; Arch §4.4, §9).
@@ -83,7 +85,11 @@ This file lists what [architecture.md](architecture.md) needs from the senior en
   - either the encoded bytes (transferred) or a reference to the bytes the worker holds for that path in that instance.
 - Order: every member's STREAM_OPEN and first chunk go out before any member's second chunk. Top-ups then go round-robin.
 - **Re-target:** the same message with new epochs restarts open members at new start frames, in the same breadth-first order.
-- **Cache:** the worker keeps each path's bytes, refcounted per instance, until main posts the instance's release. Past the preset's encoded threshold (48 / 96 / 160 MiB, est.), the least recently closed file is dropped (Arch open point 1).
+- **Cache:** the worker keeps each path's bytes, refcounted, until main posts the instance's release.
+  - Protected: files of a segment that is playing, primed, or a candidate successor (a rule target or the playlist's next item).
+  - Budget: 48 / 96 / 160 MiB (est.). Above it, unprotected files go, least recently closed first. If protected files alone exceed the budget, nothing protected is evicted, and one warning.
+  - Main tells the worker which paths are protected with each `primeGroup` and on each planner change of candidates.
+  - A miss re-fetches through main (Arch §4.2).
 - Worker → main: `groupOpened`, with open times per member and any errors. It is diagnostics only and never the primed signal; C2 is.
 
 ## Settings, format and public API
@@ -160,3 +166,4 @@ This file lists what [architecture.md](architecture.md) needs from the senior en
   - **class G**: FADE, gain-only SET_PARAMS, STOP;
   - **class S**: any other SET_PARAMS mask, SET_VOICE_FX, SET_PAUSED, SEEK, SET_LOOP.
 - The pending queue keeps a held voice's records across quanta. At a group's start or resume, it rebases a member's records stamped at or after the stamp (or after the hold start) by the slip (R10).
+- Parked records are capped at **128**, changed from the senior engineer's 64: 2 held groups × 16 members × 4 records. Past the cap a record applies at its own frame, unrebased, and counts `parkedOverflow`.
