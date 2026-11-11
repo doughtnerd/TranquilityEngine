@@ -209,8 +209,7 @@ pub const fn slot_state_bytes(frames: usize) -> usize {
     align_up(SLOT_HEADER_BYTES + instance::state_bytes(tail_parts(frames)), REGION_ALIGN)
 }
 
-/// Bytes of the region's tail: slot count, stride, aux buses, the aux accumulator's offset and size,
-/// the sends area's offset and size.
+/// Bytes of the region's tail: slot count, stride, aux buses, the aux accumulator's offset and size.
 pub const REGION_TAIL_BYTES: usize = REGION_ALIGN;
 
 /// The aux accumulator's bytes (coordinator ruling for C4): one planar stereo quantum per bus,
@@ -247,21 +246,39 @@ pub struct SendsHeader {
 
 const _: () = assert!(core::mem::size_of::<SendsHeader>() <= REGION_ALIGN && InitParams::MAX_BUSES as usize <= 8 * 32);
 
-/// The sends area: its header and the chain gains (per bus a quantum of `f32`, `buses × 128`);
-/// `None` for a region [`init`] didn't lay out.
-pub fn sends_area(zones: &mut [u8]) -> Option<(&mut SendsHeader, &mut [f32])> {
-    if zones.len() < REGION_TAIL_BYTES {
+/// The sends' view of the region (C4): the aux accumulator and, right after it, the sends area.
+pub struct SendsArea<'a> {
+    pub head: &'a mut SendsHeader,
+    /// Per bus a quantum of chain gains (`max_buses × 128` f32).
+    pub gains: &'a mut [f32],
+    /// [`aux_accumulator`]: per bus a planar stereo quantum (`max_buses × 256` f32).
+    pub aux: &'a mut [f32],
+}
+
+/// The aux accumulator and the sends area (one view, as `sends.rs` takes it), found from the
+/// region's end and its bus count (tail word 2): `[aux][header][gains][tail]`; `None` for a region
+/// [`init`] didn't lay out.
+#[inline(never)]
+pub fn sends_area(zones: &mut [u8]) -> Option<SendsArea<'_>> {
+    let end = zones.len().checked_sub(REGION_TAIL_BYTES)?;
+    let buses = tail_word(zones, 2);
+    if buses > InitParams::MAX_BUSES as usize {
         return None;
     }
-    let (at, len) = (tail_word(zones, 5), tail_word(zones, 6));
-    if at % REGION_ALIGN != 0 || len < REGION_ALIGN || at.checked_add(len).is_none_or(|e| e > zones.len() - REGION_TAIL_BYTES) {
-        return None;
+    let aux = buses * 2 * QUANTUM * 4;
+    let at = end.checked_sub(aux + REGION_ALIGN + buses * QUANTUM * 4)?;
+    let (acc, rest) = zones[at..end].split_at_mut(aux);
+    let (head, gains) = rest.split_at_mut(REGION_ALIGN);
+    // SAFETY: inside the region (checked); 64-byte aligned, since the region and every part's size
+    // are; every bit pattern is valid for the header's integers and the floats. Only `sends.rs`
+    // views these bytes (and the tests, through `aux_accumulator`).
+    unsafe {
+        Some(SendsArea {
+            head: &mut *(head.as_mut_ptr() as *mut SendsHeader),
+            gains: core::slice::from_raw_parts_mut(gains.as_mut_ptr() as *mut f32, gains.len() / 4),
+            aux: core::slice::from_raw_parts_mut(acc.as_mut_ptr() as *mut f32, acc.len() / 4),
+        })
     }
-    let (head, gains) = zones[at..at + len].split_at_mut(REGION_ALIGN);
-    // SAFETY: inside the region (checked), 64-byte aligned (the region is, and the offset a multiple
-    // of REGION_ALIGN); all-zero and every other bit pattern is valid for the header's integers and
-    // the gains' floats. Only `sends.rs` views these bytes.
-    unsafe { Some((&mut *(head.as_mut_ptr() as *mut SendsHeader), core::slice::from_raw_parts_mut(gains.as_mut_ptr() as *mut f32, gains.len() / 4))) }
 }
 
 /// The aux accumulator: per bus a planar stereo quantum `[L; 128][R; 128]`, as `f32`s
@@ -376,9 +393,9 @@ pub fn init(core: &mut Core) {
     if len >= REGION_TAIL_BYTES {
         // The region's tail: where a view of the region alone (`sends::tap`) finds its parts.
         let aux = aux_bytes(&p);
-        let words = [count as u32, stride as u32, p.max_buses, (count * stride) as u32, aux as u32, (count * stride + aux) as u32, sends_bytes(&p) as u32];
-        for (i, w) in words.iter().enumerate() {
-            regions.zones[len - REGION_TAIL_BYTES + 4 * i..len - REGION_TAIL_BYTES + 4 * i + 4].copy_from_slice(&w.to_ne_bytes());
+        let words = [count as u32, stride as u32, p.max_buses, (count * stride) as u32, aux as u32];
+        for (dst, w) in regions.zones[len - REGION_TAIL_BYTES..].chunks_exact_mut(4).zip(words) {
+            dst.copy_from_slice(&w.to_ne_bytes());
         }
     }
     let a = area_mut(regions.core_state);

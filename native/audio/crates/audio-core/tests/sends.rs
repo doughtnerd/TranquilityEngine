@@ -231,8 +231,12 @@ fn a_voice_with_sends_keeps_its_dry_path_to_float_rounding() {
 fn the_sends_area_is_there_with_or_without_zone_slots() {
     for slots in [0, 1] {
         let mut c = core(slots);
-        let (h, gains) = audio_core::zones::sends_area(&mut c.regions_mut().zones[..]).expect("laid out");
-        assert_eq!((h.buses, gains.len()), (0, 8 * QUANTUM));
-        let _ = bus::count(&c);
+        let area = audio_core::zones::sends_area(&mut c.regions_mut().zones[..]).expect("laid out");
+        assert_eq!((area.head.buses, area.gains.len(), area.aux.len()), (0, 8 * QUANTUM, 8 * 2 * QUANTUM), "{slots} slots");
+        let aux: *const f32 = area.aux.as_ptr();
+        assert_eq!(aux, audio_core::zones::aux_accumulator(&mut c.regions_mut().zones[..]).as_ptr(), "the same accumulator");
+        let zones = c.regions().zones.len();
+        assert_eq!(zones, audio_core::zones::region_bytes(c.params()), "{slots} slots");
     }
+    let _ = bus::count;
 }
