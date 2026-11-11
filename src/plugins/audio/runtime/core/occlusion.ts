@@ -508,13 +508,17 @@ export class OcclusionPass {
         this.seenGen[i] = g;
       }
       if (vworld[i] !== listenerWorld) continue; // R14: other Worlds keep their values
-      const occluding = (flags[i]! & SpatialViewFlag.OCCLUSION) !== 0;
-      if (!occluding || !live) {
+      if ((flags[i]! & SpatialViewFlag.OCCLUSION) === 0) {
         if (this.hasResult[i]) this.open(i, view);
         continue;
       }
-      if (this.age[i]! < MAX_AGE) this.age[i]!++;
       const a0 = a0s[i]!;
+      if (!live) {
+        if (this.hasResult[i]) this.open(i, view);
+        if (a0 > MIN_AUDIBILITY) candidates++;
+        continue;
+      }
+      if (this.age[i]! < MAX_AGE) this.age[i]!++;
       if (!(a0 > MIN_AUDIBILITY)) continue;
       candidates++;
       if (this.age[i]! > oldest) oldest = this.age[i]!;
