@@ -214,11 +214,16 @@ export class StatusReader {
    * before the block is written, so a refused message leaves the block as it was.
    */
   private validateM3(view: DataView, at: number, limit: number): void {
-    // Skeleton (A1): only the empty sections every core writes before K2 pass; L-A1b replaces this body.
-    void at;
-    void limit;
-    if (view.getUint16(114, true) !== 0 || view.getUint16(128, true) !== 0 || view.getUint16(124, true) !== 0) {
-      throw new Error("not implemented: L-A1b");
+    const bedCount = view.getUint16(114, true);
+    const zoneCount = view.getUint16(128, true);
+    const zoneEventCount = view.getUint16(124, true);
+    let cur = at;
+    if (bedCount > MAX_BEDS || bedCount * BED_ITEM_BYTES > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: beds overrun");
+    cur += bedCount * BED_ITEM_BYTES;
+    if (zoneCount > MAX_ZONE_SLOTS || zoneCount * ZONE_ITEM_BYTES > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: zones overrun");
+    cur += zoneCount * ZONE_ITEM_BYTES;
+    if (zoneEventCount > MAX_ZONE_EVENTS_PER_BLOCK || zoneEventCount * ZONE_EVENT_ITEM_BYTES > limit - cur) {
+      throw new WireError(ErrorCode.OVERSIZE, "STATUS: zoneEvents overrun");
     }
   }
 
@@ -230,18 +235,51 @@ export class StatusReader {
    * already checked the bounds.
    */
   private readM3(view: DataView, at: number): void {
-    // Skeleton (A1): M3 fields stay 0 and the sections empty; L-A1b replaces this body.
-    void view;
-    void at;
-    void BED_ITEM_BYTES;
-    void ZONE_ITEM_BYTES;
-    void ZONE_EVENT_ITEM_BYTES;
-    void this.bedItems;
-    void this.zoneItems;
-    void this.zoneEventItems;
-    this.block.beds.length = 0;
-    this.block.zones.length = 0;
-    this.block.zoneEvents.length = 0;
+    const b = this.block;
+    b.bedVoices = view.getUint16(112, true);
+    b.fxVoices = view.getUint16(116, true);
+    b.ambisonicVoices = view.getUint16(118, true);
+    b.zonesActive = view.getUint16(120, true);
+    b.zonesRinging = view.getUint16(122, true);
+    b.bedsRefused = view.getUint16(126, true);
+    b.reserved = view.getUint16(130, true);
+    b.zoneUsedKB = view.getUint32(132, true);
+    b.workBed = view.getUint32(136, true);
+    b.workZones = view.getUint32(140, true);
+
+    const bedCount = view.getUint16(114, true);
+    const zoneCount = view.getUint16(128, true);
+    const zoneEventCount = view.getUint16(124, true);
+    let cur = at;
+    const beds = b.beds;
+    for (let i = 0; i < bedCount; i++, cur += BED_ITEM_BYTES) {
+      const item = this.bedItems[i]!;
+      item.bus = view.getUint16(cur, true);
+      item.voices = view.getUint16(cur + 2, true);
+      item.work = view.getUint32(cur + 4, true);
+      beds[i] = item;
+    }
+    beds.length = bedCount;
+    const zones = b.zones;
+    for (let i = 0; i < zoneCount; i++, cur += ZONE_ITEM_BYTES) {
+      const item = this.zoneItems[i]!;
+      item.kernelId = view.getUint32(cur, true);
+      item.state = view.getUint8(cur + 4);
+      item.pad = view.getUint8(cur + 5);
+      item.quantaSinceInput = view.getUint16(cur + 6, true);
+      item.wetPeak = view.getFloat32(cur + 8, true);
+      zones[i] = item;
+    }
+    zones.length = zoneCount;
+    const zoneEvents = b.zoneEvents;
+    for (let i = 0; i < zoneEventCount; i++, cur += ZONE_EVENT_ITEM_BYTES) {
+      const item = this.zoneEventItems[i]!;
+      item.slot = view.getUint8(cur);
+      item.code = view.getUint8(cur + 1);
+      item.reserved = view.getUint16(cur + 2, true);
+      zoneEvents[i] = item;
+    }
+    zoneEvents.length = zoneEventCount;
   }
 
   private ids(view: DataView, at: number, count: number, out: number[]): number {
