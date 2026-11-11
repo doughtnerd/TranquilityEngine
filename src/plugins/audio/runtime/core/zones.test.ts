@@ -153,7 +153,7 @@ function rig(opts: { slots: number; maxActive: number; standby: number; wet?: Fl
       core.tick();
     }
   };
-  const zone = (name: string, x: number, fields: Partial<AudioReverbZone> = {}) => {
+  const zone = (name: string, x: number, fields: { preset?: string; wet?: number; ir?: string; priority?: number } = {}) => {
     const node = GameObject.create(name);
     node.transform!.position = [x, 0, 0];
     world = node.world;
