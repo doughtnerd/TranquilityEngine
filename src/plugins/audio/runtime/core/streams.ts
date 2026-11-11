@@ -60,6 +60,21 @@ const STREAM_ID_COUNT = 0xffffffff - STREAM_ID_FIRST + 1;
 /** @internal Architecture §7: a stream error stops its voice with a 50 ms fade. */
 export const STREAM_ERROR_FADE_SECONDS = 0.05;
 
+/**
+ * @internal ADR 0166 §4.3 (R7): stream event 4, `musicFull`: the core's music pool had no ring for a music STREAM_OPEN
+ * (the generated wire constant, ABI 3.0).
+ */
+export { STREAM_EVENT_MUSIC_FULL } from "../wire.generated";
+import { STREAM_EVENT_MUSIC_FULL } from "../wire.generated";
+
+/** @internal ADR 0166 (Q2): what `StreamManager.music` is (`core/musicOps.ts`). */
+export interface MusicStreamEventSink {
+  /** True when stream id `id` belongs to a music group member. */
+  ownsStream(id: number): boolean;
+  /** A STATUS stream event of a music member's stream, or code 4 for any stream. */
+  onStreamEvent(id: number, code: number): void;
+}
+
 /** @internal What the manager needs of the decoder client. */
 export type StreamDecoderLike = Pick<DecoderClient, "connectWorklet" | "openStream" | "closeStream" | "onStream" | "generation"> & Partial<Pick<DecoderClient, "seekStream" | "loopStream">>;
 
@@ -171,6 +186,11 @@ export class StreamManager {
   private readonly worklet: WorkletChannel<StreamDecoderLike>;
   /** B3b: told the frame a seek that waited for the file's rate landed on (the backend re-anchors the playhead). */
   afterSeek: ((voice: number, frame: number) => void) | null = null;
+  /**
+   * ADR 0166 (Q2): where music stream events go (the backend's `musicOps`, P1 fills it): stream event 4 (`musicFull`),
+   * and every event of a stream a music group member owns. Those never reach the counts and failures below.
+   */
+  music: MusicStreamEventSink | null = null;
   private unsubscribe: (() => void) | null = null;
   private subscribed: StreamDecoderLike | null = null;
   private readonly starved: number[] = [];
@@ -472,8 +492,16 @@ export class StreamManager {
     this.deps.onError(e.voice, e.asset, message, code);
   }
 
-  /** A STATUS stream event (drained per frame by the backend). Code 3 is the core refusing the stream (no ring free). */
+  /**
+   * A STATUS stream event (drained per frame by the backend). Code 3 is the core refusing the stream (no ring free).
+   * ADR 0166 (Q2): code 4 (`musicFull`, the music pool) and a music member's events go to `music`.
+   */
   streamEvent(id: number, code: number): void {
+    const music = this.music;
+    if (music !== null && (code === STREAM_EVENT_MUSIC_FULL || music.ownsStream(id))) {
+      music.onStreamEvent(id, code);
+      return;
+    }
     if (code === StreamEvent.Starved) {
       this.stats.starves++;
       if ((this.byStream.get(id)?.channels ?? 0) > 2) this.stats.wideStarved++;

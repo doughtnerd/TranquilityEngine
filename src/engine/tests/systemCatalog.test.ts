@@ -108,7 +108,7 @@ describe("the system catalog (T2)", () => {
   it("orders each World's members with after/before, built-ins first by default", () => {
     defineSystem({ name: "test.cat.Before", phase: "update", worlds: ["ordered"], before: ["engine.UpdateScripts"], run() {} });
     defineSystem({ name: "test.cat.After", phase: "update", worlds: ["ordered"], after: ["test.cat.Missing"], run() {} });
-    expect(world("O", ["ordered"]).scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "test.cat.Before", "engine.UpdateScripts", "test.cat.After"]);
+    expect(world("O", ["ordered"]).scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "engine.AudioMusic", "test.cat.Before", "engine.UpdateScripts", "test.cat.After"]);
   });
 
   it("the default World keeps today's system order", async () => {
@@ -119,8 +119,9 @@ describe("the system catalog (T2)", () => {
     // The physics and navigation systems come from first-party plugins (ADR 0135): 2D and 3D physics
     // each restore their interpolated bodies before the fixedUpdate scripts.
     // The UI document systems (ADR 0077) do nothing in a World without UIDocuments.
+    // `engine.AudioMusic` (ADR 0166/0167, the audio plugin) does nothing without music playing.
     expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.PhysicsRestoreInterpolated", "engine.Physics3DRestoreInterpolated", "engine.NetReceiveTick", "engine.NetInputTick", "engine.PredictionTick", "engine.FixedUpdateScripts", "engine.NavSync", "engine.NavStep", "engine.NavWriteBack", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents", "engine.Buoyancy", "engine.Physics3DPush", "engine.Physics3DStep", "engine.Physics3DWriteBack", "engine.Physics3DEvents"]);
-    expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "engine.UpdateScripts", "test.cat.Default"]);
+    expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "engine.AudioMusic", "engine.UpdateScripts", "test.cat.Default"]);
     expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.UIDocumentSync", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend", "engine.Audio"]);
     engine.dispose();
   });
