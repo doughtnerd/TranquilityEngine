@@ -64,6 +64,20 @@ pub mod off {
     pub const MAX_LATENESS_FRAMES: usize = 104;
     pub const HRTF_VOICES: usize = 108;
     pub const HRTF_LOAD_FAILURE: usize = 110;
+    // ADR 0162 §4.3.
+    pub const BED_VOICES: usize = 112;
+    pub const BEDS_ACTIVE: usize = 114;
+    pub const FX_VOICES: usize = 116;
+    pub const AMBISONIC_VOICES: usize = 118;
+    pub const ZONES_ACTIVE: usize = 120;
+    pub const ZONES_RINGING: usize = 122;
+    pub const ZONE_EVENT_COUNT: usize = 124;
+    pub const BEDS_REFUSED: usize = 126;
+    pub const ZONE_SLOTS: usize = 128;
+    pub const RESERVED: usize = 130;
+    pub const ZONE_USED_KB: usize = 132;
+    pub const WORK_BED: usize = 136;
+    pub const WORK_ZONES: usize = 140;
 }
 
 /// The writer's own state, kept beside the counters.
@@ -151,6 +165,9 @@ pub fn message_bytes(c: &Counters) -> usize {
     HEADER_BYTES
         + 4 * (c.ended.len() + c.demoted.len() + c.starved.len())
         + 8 * (c.playheads.len() + c.clip_events.len() + c.stream_events.len() + c.sent_peaks().len())
+        + 8 * c.spatial.sent_beds().len()
+        + 12 * c.spatial.sent_zones().len()
+        + 4 * c.spatial.zone_events.len()
 }
 
 /// Serialises `c` as one STATUS message with envelope `seq`. Pure: doesn't change `c`. Returns
@@ -194,9 +211,21 @@ pub fn write(c: &Counters, seq: u32, out: &mut [u8]) -> usize {
     put_u32(out, off::MAX_LATENESS_FRAMES, c.max_lateness_frames);
     put_u16(out, off::HRTF_VOICES, c.hrtf_voices);
     put_u16(out, off::HRTF_LOAD_FAILURE, c.hrtf_load_failure);
-    // ADR 0162 §4.3's header fields (112..144) and its `beds`/`zones`/`zoneEvents` sections: zero and
-    // empty until K2 serialises them from the counters.
-    out[112..HEADER_BYTES].fill(0);
+    // ADR 0162 §4.3.
+    let s = &c.spatial;
+    put_u16(out, off::BED_VOICES, s.bed_voices);
+    put_u16(out, off::BEDS_ACTIVE, s.sent_beds().len() as u16);
+    put_u16(out, off::FX_VOICES, s.fx_voices);
+    put_u16(out, off::AMBISONIC_VOICES, s.ambisonic_voices);
+    put_u16(out, off::ZONES_ACTIVE, s.zones_active);
+    put_u16(out, off::ZONES_RINGING, s.zones_ringing);
+    put_u16(out, off::ZONE_EVENT_COUNT, s.zone_events.len() as u16);
+    put_u16(out, off::BEDS_REFUSED, s.beds_refused);
+    put_u16(out, off::ZONE_SLOTS, s.sent_zones().len() as u16);
+    put_u16(out, off::RESERVED, 0);
+    put_u32(out, off::ZONE_USED_KB, s.zone_used_kb);
+    put_u32(out, off::WORK_BED, s.work_bed);
+    put_u32(out, off::WORK_ZONES, s.work_zones);
     // Sections, in §4.3's order.
     let mut cur = HEADER_BYTES;
     for list in [c.ended.as_slice(), c.demoted.as_slice(), c.starved.as_slice()] {
@@ -221,6 +250,26 @@ pub fn write(c: &Counters, seq: u32, out: &mut [u8]) -> usize {
         put_f32(out, cur, p.l);
         put_f32(out, cur + 4, p.r);
         cur += 8;
+    }
+    for b in s.sent_beds() {
+        put_u16(out, cur, b.bus);
+        put_u16(out, cur + 2, b.voices);
+        put_u32(out, cur + 4, b.work);
+        cur += 8;
+    }
+    for z in s.sent_zones() {
+        put_u32(out, cur, z.kernel_id);
+        out[cur + 4] = z.state;
+        out[cur + 5] = 0;
+        put_u16(out, cur + 6, z.quanta_since_input);
+        put_f32(out, cur + 8, z.wet_peak);
+        cur += 12;
+    }
+    for e in s.zone_events.as_slice() {
+        out[cur] = e.slot;
+        out[cur + 1] = e.code;
+        put_u16(out, cur + 2, 0);
+        cur += 4;
     }
     debug_assert_eq!(cur, total);
     total
@@ -249,7 +298,7 @@ fn put_f64(out: &mut [u8], at: usize, v: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::counters::{Event, Peak, Playhead, CLIP_EVENTS_CAP, ENDED_CAP, PEAKS_CAP, PLAYHEADS_CAP};
+    use crate::counters::{Event, Peak, Playhead, ZoneEvent, BEDS_CAP, CLIP_EVENTS_CAP, ENDED_CAP, PEAKS_CAP, PLAYHEADS_CAP, ZONES_CAP, ZONE_EVENTS_CAP};
     use crate::layout::{Layout, PAGE_BYTES};
     use crate::params::InitParams;
 
@@ -422,11 +471,15 @@ mod tests {
             c.set_peak(b, 1.0, 1.0);
         }
         assert_eq!(c.peaks[PEAKS_CAP - 1], Peak { l: 1.0, r: 1.0 });
-        // 0157's sections at their caps under ADR 0162's 144-byte header; K2 adds the beds, zones and
-        // zoneEvents sections (32 + 48 + 64) for the full worst case of 15,904 B.
-        assert_eq!(message_bytes(&c), 15_760, "api-and-models §4.3's worst case without M3's sections");
+        // ADR 0162 §4.3: the M3 sections at their caps too.
+        c.spatial.beds_active = BEDS_CAP as u16;
+        c.spatial.zone_slots = ZONES_CAP as u16;
+        for i in 0..ZONE_EVENTS_CAP {
+            assert!(c.spatial.zone_events.push(ZoneEvent { slot: i as u8, code: 1 }));
+        }
+        assert_eq!(message_bytes(&c), 15_904, "api-and-models §4.3's worst case");
         let mut out = [0u8; BUFFER_BYTES];
-        assert_eq!(write(&c, 0, &mut out), 15_760);
+        assert_eq!(write(&c, 0, &mut out), 15_904);
     }
 
     #[test]

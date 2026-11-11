@@ -70,3 +70,19 @@ fn generated_rust_round_trips() {
     let n = st.write(&mut buf, 0, 9).unwrap();
     assert_eq!(StatusBlock::read(&buf[..n], 0).unwrap(), (st, n));
 }
+
+/// A STATUS whose envelope's `bodyBytes` is shorter than the header is refused, never a panic
+/// (L-A1a found `limit - cur` underflowing; the TypeScript `readStatus` already refused it).
+#[test]
+fn status_with_a_short_body_is_refused() {
+    use crate::generated::*;
+    let mut buf = vec![0u8; STATUS_BUFFER_BYTES as usize];
+    let n = StatusBlock::default().write(&mut buf, 0, 1).unwrap();
+    assert_eq!(n, STATUS_HEADER_BYTES as usize);
+    for body in [0u32, 1, 95, 127, STATUS_HEADER_BYTES - 17] {
+        buf[12..16].copy_from_slice(&body.to_le_bytes());
+        assert_eq!(StatusBlock::read(&buf, 0).unwrap_err(), ERR_TRUNCATED, "bodyBytes {body}");
+    }
+    buf[12..16].copy_from_slice(&(STATUS_HEADER_BYTES - 16).to_le_bytes());
+    assert!(StatusBlock::read(&buf, 0).is_ok());
+}
