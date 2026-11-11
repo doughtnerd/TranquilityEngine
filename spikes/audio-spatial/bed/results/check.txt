@@ -1,0 +1,153 @@
+## 1. Layout and encoder
+Lebedev-26 quadrature, max |sum_k w_k (2l+1) Y_a Y_b - delta_ab| = 8.88e-16
+  [PASS] Lebedev-26 integrates all 16x16 harmonic products exactly (a 7-design)
+Encoder energy, sum of squared SN3D gains over 200,000 random directions: min 3.9999972, max 4.0000027 (exact: 4 = one per order 0..3)
+  [PASS] energy preserved: sum of squares = 4 within 2e-5 (f32)
+  order 0: 1.000000
+  order 1: 1.000000
+  order 2: 1.000000
+  order 3: 1.000000
+
+## 2. Rotation
+Rotate by random (yaw, pitch, roll) then by the inverse, 200 trials x 16 ch x 128 frames of noise: max |error| = 1.19e-6
+Rotation by yaw 90 deg then back is trial 0 of those. Y(Rd) = M Y(d) for random d, R: max |error| = 5.51e-7
+  [PASS] rotated and back equals the original to 1e-5
+  [PASS] matrix agrees with direct re-encoding to 1e-5
+yaw +90: encoded front becomes encoded left, max |diff| = 5.96e-8
+  [PASS] yaw +90 turns a front source to the left
+Ramped rotation, last frame equals the new matrix applied: max |diff| = 1.79e-7
+  [PASS] ramp lands on the new matrix
+FOA (4 ch) rotation equals the first 4 channels of the 16-ch rotation: max |diff| = 0.00e0
+  [PASS] FOA path identical to the order-1 block
+
+## 3. Decoders against each other and against M1's per-voice HRTF
+Filters: speakers 108160 B (26 feeds x 2 ears x 2 partitions, complex f32 spectra, plus the 16x26 gain matrix), SH-quad 65536 B, SH-LS 65536 B (16 x 2 x 2 partitions); truncated energy beyond 256 taps: speakers 5.1e-3, quad 2.4e-3, LS 3.3e-3, MagLS 5.9e-2
+Speaker decode vs SH-quad decode on a random bed: relative error 3.28e-7 (rms), max abs 5.96e-7
+  [PASS] Lebedev speakers and their SH-domain fold are the same decode
+
+### SH-LS vs M1 per-voice HRTF, white noise, 48 blocks of 1,024; 48 directions
+| band | mean abs dILD (dB) | max abs dILD | mean worst-ear level diff | max worst-ear level diff |
+|---|---|---|---|---|
+| 200-500 Hz | 0.26 | 1.03 | 0.32 | 0.85 |
+| 500-1000 Hz | 0.45 | 1.32 | 0.56 | 1.29 |
+| 1000-2000 Hz | 0.85 | 2.91 | 1.39 | 3.57 |
+| 2000-4000 Hz | 2.27 | 7.55 | 5.26 | 11.83 |
+| 4000-8000 Hz | 4.99 | 12.34 | 10.47 | 15.71 |
+| 8000-16000 Hz | 9.49 | 22.29 | 12.25 | 21.18 |
+ITD (200-1200 Hz group delay): mean abs diff 18.6 us, max 66.3 us (el 0 only: max 39.3 us over 12 dirs); worst 2-4 kHz ILD diff at az -120 el 30
+Points the right way at el 0: 12/12 azimuths (side sources: R louder and R earlier for az>0, |ITD|>150 us; front/back: |ILD|<3 dB, |ITD|<120 us)
+  [PASS] SH-LS: ILD and ITD point the right way at every azimuth
+
+### SH-MagLS vs M1 per-voice HRTF, white noise, 48 blocks of 1,024; 48 directions
+| band | mean abs dILD (dB) | max abs dILD | mean worst-ear level diff | max worst-ear level diff |
+|---|---|---|---|---|
+| 200-500 Hz | 0.26 | 1.05 | 0.32 | 0.84 |
+| 500-1000 Hz | 0.46 | 1.39 | 0.56 | 1.30 |
+| 1000-2000 Hz | 0.53 | 1.67 | 0.78 | 2.41 |
+| 2000-4000 Hz | 0.90 | 5.45 | 1.18 | 5.36 |
+| 4000-8000 Hz | 1.51 | 8.49 | 1.66 | 8.79 |
+| 8000-16000 Hz | 2.04 | 8.77 | 3.27 | 8.84 |
+ITD (200-1200 Hz group delay): mean abs diff 19.7 us, max 69.6 us (el 0 only: max 42.4 us over 12 dirs); worst 2-4 kHz ILD diff at az 90 el 30
+Points the right way at el 0: 12/12 azimuths (side sources: R louder and R earlier for az>0, |ITD|>150 us; front/back: |ILD|<3 dB, |ITD|<120 us)
+  [PASS] SH-MagLS: ILD and ITD point the right way at every azimuth
+
+### SH-quad (= 26 speakers) vs M1 per-voice HRTF, white noise, 48 blocks of 1,024; 48 directions
+    wrong-way: az 150 el 0: ILD2-4k -0.6 dB, ITD -291 us
+    wrong-way: az -150 el 0: ILD2-4k 0.6 dB, ITD 291 us
+| band | mean abs dILD (dB) | max abs dILD | mean worst-ear level diff | max worst-ear level diff |
+|---|---|---|---|---|
+| 200-500 Hz | 0.45 | 1.29 | 0.45 | 1.38 |
+| 500-1000 Hz | 0.51 | 1.74 | 0.64 | 1.25 |
+| 1000-2000 Hz | 0.91 | 4.20 | 1.65 | 5.20 |
+| 2000-4000 Hz | 4.94 | 9.57 | 4.99 | 9.20 |
+| 4000-8000 Hz | 5.40 | 19.53 | 4.61 | 15.46 |
+| 8000-16000 Hz | 7.46 | 17.39 | 6.54 | 14.70 |
+ITD (200-1200 Hz group delay): mean abs diff 27.1 us, max 83.4 us (el 0 only: max 66.5 us over 12 dirs); worst 2-4 kHz ILD diff at az 120 el -30
+Points the right way at el 0: 10/12 azimuths (side sources: R louder and R earlier for az>0, |ITD|>150 us; front/back: |ILD|<3 dB, |ITD|<120 us)
+  [INFO] SH-quad (= 26 speakers): 10/12 azimuths the right way (the plain-quadrature fit is not the one the design would ship)
+
+### Per-direction detail, SH-MagLS (the default), el 0 (R-L ILD in dB per band; ITD R-L in us; bed vs M1)
+| az | ILD 500-1k bed/M1 | ILD 1-2k | ILD 2-4k | ILD 4-8k | ITD bed/M1 |
+|---|---|---|---|---|---|
+| 0 | +0.0 / +0.0 | +0.0 / +0.0 | +0.0 / +0.0 | +0.0 / +0.0 | -0 / -0 |
+| 30 | +4.2 / +4.8 | +5.2 / +6.5 | +7.5 / +8.3 | +11.5 / +11.2 | -343 / -370 |
+| 60 | +6.9 / +5.8 | +11.0 / +10.8 | +13.2 / +13.6 | +17.9 / +20.3 | -642 / -625 |
+| 90 | +6.4 / +5.9 | +6.3 / +6.2 | +11.0 / +11.1 | +19.2 / +23.8 | -744 / -702 |
+| 120 | +6.9 / +7.4 | +12.7 / +12.5 | +12.4 / +11.0 | +18.5 / +22.2 | -633 / -612 |
+| 150 | +7.3 / +6.2 | +5.2 / +5.8 | +4.1 / +4.0 | +5.6 / +6.5 | -271 / -274 |
+| 180 | +0.0 / +0.0 | +0.0 / +0.0 | +0.0 / +0.0 | +0.0 / +0.0 | -0 / -0 |
+| -90 | -6.4 / -5.9 | -6.3 / -6.2 | -11.0 / -11.1 | -19.2 / -23.8 | +744 / +702 |
+| -45 | -6.1 / -5.8 | -9.0 / -9.5 | -10.2 / -11.1 | -15.7 / -17.3 | +504 / +516 |
+
+### Below the listener (the HRIR grid ends at -45 degrees)
+SH-LS (filled rows -60, -75, -90 from the -45 data):
+| source | ILD 2-4k bed/M1 | ITD bed/M1 us | worst-ear level diff per band 0.2-16 kHz (dB) |
+|---|---|---|---|
+| az 90 el -30 | +13.3 / +14.3 | -664 / -690 | 0.2 0.9 0.3 1.3 5.3 10.9 |
+| az 90 el -45 | +13.3 / +15.9 | -591 / -614 | 0.6 0.6 0.6 1.9 10.7 10.1 |
+| az 90 el -60 | +9.0 / +15.9 | -496 / -614 | 1.0 1.6 0.7 3.9 11.8 10.1 |
+| az 90 el -75 | +14.4 / +15.9 | -294 / -614 | 2.1 2.9 2.9 4.3 7.3 13.3 |
+| az 0 el -90 | -0.0 / +0.0 | +0 / -0 | 0.3 4.0 7.3 9.4 8.3 8.8 |
+| az 180 el -60 | -0.0 / +0.0 | -0 / -0 | 0.1 0.5 3.3 8.7 0.6 4.5 |
+SH-MagLS (same filled rows):
+| source | ILD 2-4k bed/M1 | ITD bed/M1 us | worst-ear level diff per band 0.2-16 kHz (dB) |
+|---|---|---|---|
+| az 90 el -30 | +17.5 / +14.3 | -663 / -690 | 0.2 1.0 0.5 3.5 8.8 8.7 |
+| az 90 el -45 | +14.8 / +15.9 | -586 / -614 | 0.6 0.6 1.2 1.4 10.3 16.8 |
+| az 90 el -60 | +15.3 / +15.9 | -489 / -614 | 0.9 1.7 0.2 1.2 3.0 13.7 |
+| az 90 el -75 | +8.3 / +15.9 | -290 / -614 | 2.1 3.0 1.7 7.8 14.9 19.8 |
+| az 0 el -90 | +0.0 / +0.0 | -0 / -0 | 0.2 4.1 4.0 1.7 1.6 1.0 |
+| az 180 el -60 | +0.0 / +0.0 | -0 / -0 | 0.1 0.6 1.4 0.1 2.6 3.3 |
+SH-quad (nadir and lower speakers read the -45 data):
+| source | ILD 2-4k bed/M1 | ITD bed/M1 us | worst-ear level diff per band 0.2-16 kHz (dB) |
+|---|---|---|---|
+| az 90 el -30 | +6.6 / +14.3 | -726 / -690 | 0.4 1.3 0.9 4.4 13.6 11.6 |
+| az 90 el -45 | +4.4 / +15.9 | -603 / -614 | 0.4 1.5 3.3 5.8 14.8 18.9 |
+| az 90 el -60 | -2.7 / +15.9 | -331 / -614 | 1.3 1.3 3.8 11.7 17.8 24.1 |
+| az 90 el -75 | -3.5 / +15.9 | -115 / -614 | 2.4 3.2 6.0 12.5 20.3 27.7 |
+| az 0 el -90 | +0.0 / +0.0 | +0 / -0 | 0.0 0.8 2.6 4.5 0.2 0.9 |
+| az 180 el -60 | +0.0 / +0.0 | +0 / -0 | 0.4 1.5 0.5 2.3 6.2 5.4 |
+
+## 4. Doppler (the same `DopplerVoice::rate_from_motion`, ramp and `lagrange` the case runs)
+| source velocity toward listener | expected Hz | FFT peak bin Hz | parabolic Hz | error (bins of 2.93 Hz) |
+|---|---|---|---|---|
+| +34.3 m/s | 1111.11 | 1110.35 | 1111.19 | 0.26 |
+  [PASS] v +34.3: peak within one bin of the expected 1111.1 Hz
+| +68.6 m/s | 1250.00 | 1250.98 | 1249.94 | 0.33 |
+  [PASS] v +68.6: peak within one bin of the expected 1250.0 Hz
+| -34.3 m/s | 909.09 | 908.20 | 909.12 | 0.30 |
+  [PASS] v -34.3: peak within one bin of the expected 909.1 Hz
+| +0.0 m/s | 1000.00 | 999.02 | 1000.05 | 0.33 |
+  [PASS] v +0.0: peak within one bin of the expected 1000.0 Hz
+| +10.0 m/s | 1030.03 | 1031.25 | 1030.00 | 0.42 |
+  [PASS] v +10.0: peak within one bin of the expected 1030.0 Hz
+
+## 5. Direction interpolation across the quantum
+interp true: Y channel (ACN1) value at frame 0 = 0.0078 (previous quantum ended at 0.0); jump 0.0078; frame 127 = 1.0000
+interp false: Y channel (ACN1) value at frame 0 = 1.0000 (previous quantum ended at 0.0); jump 1.0000; frame 127 = 1.0000
+
+## 6. Panner-kind crossfade, kind 1 (HRTF) -> kind 2 (bed)
+Both paths run for the crossfade; the voice enters the bed (gain ramp 0 to 1) while the HRTF output ramps 1 to 0, linearly over N quanta. The bed decoder starts with no history of this voice, so its first ~2 quanta build up (256-tap filters plus the ITD).
+| signal | N quanta | steady-state mismatch kind 2 - kind 1, L / R (dB) | lowest quantum level re kind 1, L / R (dB) | largest sample step in the transition vs in kind-1 quanta |
+|---|---|---|---|---|
+| 440 Hz tone, az 45 | 1 | +0.20 / +0.65 | -4.27 / -2.48 | 0.042 vs 0.039 |
+| 440 Hz tone, az 45 | 2 | +0.19 / +0.67 | -3.18 / -1.07 | 0.041 vs 0.039 |
+| 440 Hz tone, az 45 | 4 | +0.20 / +0.65 | -1.81 / -1.02 | 0.042 vs 0.039 |
+| 440 Hz tone, az 45 | 16 | +0.19 / +0.66 | -0.82 / -0.64 | 0.042 vs 0.039 |
+| white noise, az 45 | 1 | +1.06 / +0.78 | -1.01 / -2.24 | 1.402 vs 1.056 |
+| white noise, az 45 | 2 | +1.06 / +0.78 | -3.28 / -2.12 | 1.383 vs 1.056 |
+| white noise, az 45 | 4 | +0.99 / +0.78 | -2.32 / -1.90 | 1.477 vs 1.056 |
+| white noise, az 45 | 16 | +0.87 / +0.75 | -2.51 / -1.39 | 1.527 vs 1.056 |
+| white noise, az -120 | 1 | +1.38 / +1.41 | -1.61 / -0.74 | 0.986 vs 0.874 |
+| white noise, az -120 | 2 | +1.36 / +1.39 | -0.62 / -2.66 | 1.058 vs 0.874 |
+| white noise, az -120 | 4 | +1.38 / +1.29 | -1.07 / -1.69 | 1.181 vs 0.874 |
+| white noise, az -120 | 16 | +1.36 / +1.11 | -1.69 / -3.05 | 1.251 vs 0.874 |
+
+## 7. Footprint
+HRIR asset (shared with kind 1): 245776 B; M1 f32 table at 48 kHz built here: 269776 B
+SH decoder filter data (SH-LS): 65536 B as complex partition spectra (32768 B as 16 x 2 x 256-tap f32 time responses)
+Speaker decoder data: 108160 B
+Decoder state: SH 40960 B history+prev (16 ch x 2 partitions x 128 bins x 8 B + 16 x 128 x 4), speakers 66560 B
+Bed: 8192 B; BedVoices state per voice: ~120 B
+
+0 check(s) failed

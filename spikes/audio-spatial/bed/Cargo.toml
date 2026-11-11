@@ -11,6 +11,10 @@ publish = false
 name = "bedspike"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Runtime-only wasm for the size measurement: bed encode, SH decode and rotation, filters loaded as data.
+min = []
+
 [[bin]]
 name = "bench"
 path = "src/bin/bench.rs"
@@ -31,3 +35,7 @@ lto = true
 codegen-units = 1
 panic = "abort"
 debug = false
+
+[[bin]]
+name = "dumpfilters"
+path = "src/bin/dumpfilters.rs"
