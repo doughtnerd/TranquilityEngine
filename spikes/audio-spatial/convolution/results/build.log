@@ -1,0 +1,6 @@
+    Finished `release` profile [optimized] target(s) in 0.03s
+    Finished `release` profile [optimized] target(s) in 0.01s
+211157 wasm/convolution_spike.wasm
+18778 wasm/probe_empty.wasm
+38827 wasm/probe_m1.wasm
+45680 wasm/probe_zone.wasm

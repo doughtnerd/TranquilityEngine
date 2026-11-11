@@ -1,0 +1,10 @@
+node v22.23.4 wasm (+simd128), 7 runs x 20000 quanta per case, clock pair overhead 0.07 us
+  single_1s_noise              p50     13.7 us  p99.9    182.5  max   3850.7
+  single_1s_room               p50     12.5 us  p99.9     95.0  max   5122.0
+  single_2s_noise              p50     19.8 us  p99.9    142.3  max   1602.2
+  single_2s_room               p50     19.5 us  p99.9    139.9  max   4237.0
+  single_4s_noise              p50     31.2 us  p99.9    158.9  max   3579.4
+  single_4s_room               p50     30.5 us  p99.9    124.1  max   2845.2
+  m1_real_1.8s                 p50     19.2 us  p99.9    106.6  max   2892.4
+  zones_1x2s_unstaggered       p50     20.1 us  p99.9    112.9  max   1532.3
+  zones_1x2s_staggered         p50     19.5 us  p99.9    149.3  max   3393.4
