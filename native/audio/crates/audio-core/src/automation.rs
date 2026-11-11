@@ -19,12 +19,13 @@
 //!    `lpAuto` (their minimum; 24,000 Hz when none), each curve evaluated once (control rate).
 //!    The voices' render loop (`voices.rs`) multiplies the voice's gain by `gainMul` and its pitch
 //!    by `pitchMul`, both ramped linearly from the last quantum's value to this one across the
-//!    quantum (per frame), and filters a voice with a lowpass binding through its own biquad at
-//!    `min(lpHz, lpAuto)` (Q as the bus snapshot low-pass), set once per quantum. The first quantum
-//!    after an AUTOMATE starts at the evaluated values with no ramp. A local binding of a voice
-//!    whose PLAY `group` is 0 or out of range reads 0. Voices with no bindings pay nothing and
-//!    render bit for bit as before (the per-voice filter exists only for voices with a lowpass
-//!    binding; `lpHz` alone still isn't applied, as in M1).
+//!    quantum (per frame), and passes `lpAuto` of a voice with a lowpass binding to the voice's
+//!    low-pass as a cap: it runs at `min(lpHz, lpAuto)` (Q as the bus snapshot low-pass), its
+//!    coefficients set once per quantum. ADR 0162 D1 moved that filter into the voice's
+//!    mixed-voice pool entry (`fxpool.rs`, `audio_dsp::fxfilter`), shared with `lpHz` for every
+//!    voice, bit for bit as before. The first quantum after an AUTOMATE starts at the evaluated
+//!    values with no ramp. A local binding of a voice whose PLAY `group` is 0 or out of range reads
+//!    0. Voices with no bindings pay nothing here.
 //! 4. **Bus bindings** (BUS_AUTOMATE, global parameters only, up to 8 per bus): `gainMul` on top of
 //!    the bus's BUS_MIX gain, ramped the same way, and the snapshot low-pass at
 //!    `min(BUS_MIX lpHz, lpAuto)`.
@@ -41,7 +42,6 @@
 //! have bindings or a loop region, so a quantum touches only those. All-zero is valid (nothing
 //! bound, every parameter 0, every curve empty). RESET zeroes the region. Nothing allocates.
 
-use audio_dsp::biquad::Biquad;
 use audio_wire::generated as wire;
 
 use crate::core::{Core, Regions};
@@ -147,8 +147,6 @@ pub struct VoiceAuto {
     /// `lpAuto` for this quantum.
     pub lp: f32,
     pub bindings: [Binding; BINDINGS],
-    /// The voice's low-pass, used only while it has a lowpass binding.
-    pub filter: Biquad,
 }
 
 impl VoiceAuto {
@@ -553,11 +551,12 @@ pub fn automate(core: &mut Core, msg: &[u8], off: usize) {
     e.count = count;
     e.targets = targets;
     e.fresh = 1;
-    if targets & has::LOWPASS != 0 && !had_lowpass {
-        e.filter = Biquad::default();
-    }
     if count != 0 {
         enlist(v.header, v.active, e, index);
+    }
+    if targets & has::LOWPASS != 0 && !had_lowpass {
+        // The voice's low-pass starts from zeroed history (unless it is running for `lpHz`).
+        crate::voices::lowpass_bound(core, index);
     }
 }
 
