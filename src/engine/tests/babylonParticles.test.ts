@@ -468,6 +468,24 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     expect(asked.some(([path, sheet]) => path === "sheet.png" && !sheet)).toBe(false);
   });
 
+  it("lays horizontal quads flat with their top towards +Z, as the GPU path does, wound to face up (ADR 0164)", () => {
+    // Drawn by the engine's own quads (a material asset); plain ones are Babylon's particle system.
+    const material = new StandardMaterial("fx", scene);
+    const p = make(false, true, { material: (path) => (path ? material : null) });
+    const c = fakeSystem({ emitters: [still("H", { mode: "horizontal", material: "fx.mat" })] });
+    frames(p, c, 10);
+    const d = p.drawsOf(c)[0] as QuadDraw;
+    expect(d.quads).toBeGreaterThan(0);
+    const v = (i: number) => [d.positions[i * 3], d.positions[i * 3 + 1], d.positions[i * 3 + 2]];
+    const [c0, c1, c2, c3] = [v(0), v(1), v(2), v(3)];
+    for (const k of [c0, c1, c2, c3]) expect(k[1]).toBeCloseTo(c0[1], 5); // flat
+    expect(c3[2]).toBeGreaterThan(c0[2]); // V 1 (the image's top) towards +Z
+    expect(c1[0]).toBeGreaterThan(c0[0]); // U along +X
+    // Babylon's left-handed front face: the right-hand-rule normal points away from a viewer above.
+    const e1 = [c1[0] - c0[0], c1[1] - c0[1], c1[2] - c0[2]], e2 = [c2[0] - c0[0], c2[1] - c0[1], c2[2] - c0[2]];
+    expect(e1[2] * e2[0] - e1[0] * e2[2]).toBeLessThan(0);
+  });
+
   it("gives material-asset quads and trails normals facing the camera, and plain trails none", () => {
     // A graph material that reads the normal (a Fresnel node) didn't compile without one, and the
     // invalid pipeline voided the whole frame on WebGPU.

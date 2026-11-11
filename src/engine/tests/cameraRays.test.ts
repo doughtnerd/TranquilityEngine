@@ -36,7 +36,7 @@ describe("Camera screen points (ADR 0073)", () => {
     await SceneManager.load("s.json");
   });
 
-  const camera = (props: Record<string, unknown>, pos: [number, number, number] = [0, 0, 10], euler?: [number, number, number]) => {
+  const camera = (props: Record<string, unknown>, pos: [number, number, number] = [0, 0, -10], euler?: [number, number, number]) => {
     const node = GameObject.create("cam");
     node.transform!.position.set(...pos);
     if (euler) node.transform!.eulerAngles = euler;
@@ -51,12 +51,12 @@ describe("Camera screen points (ADR 0073)", () => {
   it("gives parallel rays from an orthographic camera", () => {
     const cam = camera({ projection: "orthographic", orthographicSize: 5 });
     const centre = cam.screenPointToRay(new Vector2(400, 200));
-    expect(centre.origin.toArray()).toEqual([0, 0, 10]);
-    expect(centre.direction.z).toBeCloseTo(-1);
+    expect(centre.origin.toArray()).toEqual([0, 0, -10]);
+    expect(centre.direction.z).toBeCloseTo(1); // cameras look along +Z (ADR 0164)
     const corner = cam.screenPointToRay(new Vector2(0, 0)); // top-left: x -10 (aspect 2 * 5), y +5
     expect(corner.origin.x).toBeCloseTo(-10);
     expect(corner.origin.y).toBeCloseTo(5);
-    expect(corner.direction.z).toBeCloseTo(-1);
+    expect(corner.direction.z).toBeCloseTo(1);
     const bottomRight = cam.viewportPointToRay(new Vector2(1, 0));
     expect(bottomRight.origin.x).toBeCloseTo(10);
     expect(bottomRight.origin.y).toBeCloseTo(-5);
@@ -65,11 +65,11 @@ describe("Camera screen points (ADR 0073)", () => {
   it("fans perspective rays out from the camera position", () => {
     const cam = camera({ projection: "perspective", fieldOfView: 90 });
     const top = cam.screenPointToRay(new Vector2(400, 0));
-    expect(top.origin.toArray()).toEqual([0, 0, 10]);
+    expect(top.origin.toArray()).toEqual([0, 0, -10]);
     expect(top.direction.y).toBeCloseTo(Math.SQRT1_2); // 45 degrees up at fov 90
-    expect(top.direction.z).toBeCloseTo(-Math.SQRT1_2);
+    expect(top.direction.z).toBeCloseTo(Math.SQRT1_2);
     const right = cam.screenPointToRay(new Vector2(800, 200));
-    expect(right.direction.x / -right.direction.z).toBeCloseTo(2); // tan(45) * aspect
+    expect(right.direction.x / right.direction.z).toBeCloseTo(2); // tan(45) * aspect: +X is on the right
   });
 
   it("round-trips screen points and world points, orthographic and perspective, on a turned camera", () => {
@@ -90,7 +90,7 @@ describe("Camera screen points (ADR 0073)", () => {
     expect(at.z).toBeCloseTo(10);
     expect(at.x).toBeCloseTo(400);
     expect(at.y).toBeCloseTo(200);
-    expect(cam.worldToScreenPoint(new Vector3(0, 0, 20)).z).toBeCloseTo(-10);
+    expect(cam.worldToScreenPoint(new Vector3(0, 0, -20)).z).toBeCloseTo(-10);
   });
 
   it("maps through a camera's viewport rectangle", () => {
@@ -112,8 +112,8 @@ describe("Camera screen points (ADR 0073)", () => {
     expect(hit?.collider.node.name).toBe("ball");
     expect(hit?.distance).toBeCloseTo(9);
     expect(Physics.raycast(cam.screenPointToRay(new Vector2(0, 0)))).toBeNull();
-    expect(Physics.raycast(new Ray([0, 0, 10], [0, 0, -1]), 5)).toBeNull(); // maxDistance as the second argument
-    expect(Physics.raycast({ x: 0, y: 0, z: 10 }, { x: 0, y: 0, z: -1 }, 100)?.distance).toBeCloseTo(9); // the old form still works
+    expect(Physics.raycast(new Ray([0, 0, -10], [0, 0, 1]), 5)).toBeNull(); // maxDistance as the second argument
+    expect(Physics.raycast({ x: 0, y: 0, z: -10 }, { x: 0, y: 0, z: 1 }, 100)?.distance).toBeCloseTo(9); // the old form still works
   });
 
   describe("with a render surface's canvas", () => {

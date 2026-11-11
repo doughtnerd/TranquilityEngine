@@ -525,10 +525,10 @@ describe("UICore text", () => {
 
 describe("UICore world canvases", () => {
   function setup() {
-    const camNode = GameObject.create("Cam"); // at the origin, looking down -z
+    const camNode = GameObject.create("Cam"); // at the origin, looking along +z (ADR 0164)
     const cam = camNode.addBehavior(Camera, {});
     const canvas = node("Sign", null, UICanvas, { mode: "world", referenceResolution: new Vector2(200, 100), pixelSize: 0.01 } as Partial<UICanvas>);
-    canvas.node.transform!.position.set(0, 0, -5);
+    canvas.node.transform!.position.set(0, 0, 5);
     const button = node("Button", canvas.node, UIButton, { width: "100%", height: "100%" } as Partial<UIButton>);
     engine.step(DT); // propagate the transform
     return { cam, canvas, button };
@@ -540,7 +540,7 @@ describe("UICore world canvases", () => {
     sync(c);
     const laid = c.canvases()[0];
     expect(laid).toMatchObject({ mode: "world", width: 200, height: 100, scale: 1, pixelSize: 0.01 });
-    expect(Array.from(laid.worldMatrix!.slice(12, 15))).toEqual([0, 0, -5]);
+    expect(Array.from(laid.worldMatrix!.slice(12, 15))).toEqual([0, 0, 5]);
     expect(c.rectOf(button)).toBeNull(); // rectangles are for screen canvases
     expect(c.elements().find((e) => e.comp === button)).toMatchObject({ x: 0, y: 0, width: 200, height: 100 });
     expect(c.hasScreenUI).toBe(false);
@@ -558,7 +558,7 @@ describe("UICore world canvases", () => {
     mouse("up", 640, 360);
     expect(button.clicked).toBe(true);
 
-    canvas.node.transform!.position.set(10, 0, -5); // moved out of view
+    canvas.node.transform!.position.set(10, 0, 5); // moved out of view
     engine.step(DT);
     sync(c);
     expect(c.hitTest(640, 360)).toBeNull();
@@ -567,7 +567,7 @@ describe("UICore world canvases", () => {
   it("picks the nearest of two world canvases, and nothing without a camera", async () => {
     const { cam, button } = setup();
     const near = node("Near", null, UICanvas, { mode: "world", referenceResolution: new Vector2(200, 100), pixelSize: 0.01 } as Partial<UICanvas>);
-    near.node.transform!.position.set(0, 0, -3);
+    near.node.transform!.position.set(0, 0, 3);
     const nearButton = node("NearButton", near.node, UIButton, { width: "100%", height: "100%" } as Partial<UIButton>);
     engine.step(DT);
     const c = await core({ interactive: true, host: { viewCamera: () => cam } });

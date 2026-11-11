@@ -56,7 +56,7 @@ describe("Babylon editor overlays (ADR 0075 stage 8)", () => {
     sprites = [];
     meshes = [];
     const node = GameObject.create("view");
-    node.transform!.position.set(0, 0, 10);
+    node.transform!.position.set(0, 0, -10); // looking along +Z (ADR 0164)
     view = node.addBehavior(Camera, { projection: "orthographic", orthographicSize: 5 });
     cameras = [view];
     make(true);

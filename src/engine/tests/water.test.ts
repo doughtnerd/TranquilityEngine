@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { Buoyancy, Engine, GameObject, Graphics, Quaternion, RigidBody, SceneManager, Assets, Vector3, Water, WaterSurface, type WaterWave } from "../../myco";
+import { Buoyancy, Engine, GameObject, Graphics, Mathf, Quaternion, RigidBody, SceneManager, Assets, Vector3, Water, WaterSurface, type WaterWave } from "../../myco";
 import type { World } from "../core/World";
 import {
   GERSTNER_BODY,
@@ -230,7 +230,7 @@ describe("Buoyancy (ADR 0072)", () => {
     steps(engine, 240);
     // Higher water at +X pushes that end up: a turn about +Z (counter-clockwise seen from +Z).
     const up = box.transform!.worldRotation.toEuler();
-    expect(up.z).toBeGreaterThan(1);
+    expect(up.z).toBeGreaterThan(1 * Mathf.Deg2Rad); // radians (ADR 0164)
     engine.dispose();
   });
 
@@ -242,7 +242,7 @@ describe("Buoyancy (ADR 0072)", () => {
     water.waves = [{ direction: 0, wavelength: 40, steepness: 0.3, speed: 1e-6 }];
     const ship = GameObject.create("ship");
     ship.transform!.position.set(0, 5, 0);
-    ship.transform!.rotation = Quaternion.fromEuler(0, 90, 0); // heading turned; tilt must still follow the world slope
+    ship.transform!.rotation = Quaternion.fromEuler(0, Math.PI / 2, 0); // heading turned; tilt must still follow the world slope
     const b = ship.addBehavior(Buoyancy);
     b.mode = "kinematic";
     b.follow = 0; // snap

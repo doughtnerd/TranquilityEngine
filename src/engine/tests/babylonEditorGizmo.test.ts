@@ -19,7 +19,11 @@ import type { BabylonEditorContext } from "../render/babylon/editorContext";
 import type { GizmoHandlers, GizmoOptions } from "../render/editorViewport";
 
 /** The Z angle (degrees) of a pose's quaternion rotation (ADR 0163). */
-const zAngle = (q: readonly number[]) => Quaternion.from(q).toEuler().z;
+/** The Z Euler angle in degrees, -180..180 (`toEuler` is in radians, 0..2π, since ADR 0164). */
+const zAngle = (q: readonly number[]) => {
+  const d = (Quaternion.from(q).toEuler().z * 180) / Math.PI;
+  return d > 180 ? d - 360 : d;
+};
 
 const base: GizmoOptions = { mode: "translate", planar: false, snap: false };
 
@@ -82,7 +86,7 @@ describe("the transform gizmo on the Babylon backend (ADR 0075 stage 8)", () => 
   const node = (name: string, pos: [number, number, number], euler?: [number, number, number]) => {
     const n = GameObject.create(name);
     n.transform!.position.set(...pos);
-    if (euler) n.transform!.eulerAngles = euler;
+    if (euler) n.transform!.eulerAngles = euler.map((d) => (d * Math.PI) / 180); // given in degrees
     return n;
   };
   const sync = () => {
