@@ -42,4 +42,5 @@ Design M3 before building it, using the repository's decision-record process (th
 - In a worktree, make node_modules a real directory of per-entry links to the main checkout's (a single symlink shares .vitest-cache and collides).
 - `playwright install` is blocked; the config falls back to /opt/pw-browsers/chromium.
 - Brief agents to use only file, shell and test tools.
+- Don't spend compute on runs that can't change a decision (owner): skip a long run another run already answers (same code, same engine, same host), measure in the real host once, don't chase p99.9/max on the shared container, and say a run's expected duration before starting it. See docs/design/0162-audio-spatial/working-notes.md.
 ```
