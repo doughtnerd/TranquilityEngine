@@ -24,3 +24,7 @@
 .audio-card[data-kind="labelled"] { border-left: 3px solid var(--accent); }
 .audio-row label.audio-grow { flex: 1 1 100%; min-width: 0; }
 .audio-row label.audio-grow input { flex: 1 1 auto; min-width: 0; width: 100%; }
+.audio-warning { color: var(--danger); font-size: 11px; }
+.audio-note { color: var(--muted); font-size: 11px; margin: 0; border-left: 3px solid var(--accent); padding-left: 6px; }
+.audio-card[data-kind="builtin"] { border-left: 3px solid var(--border); }
+.audio-card[data-kind="custom"] { border-left: 3px solid var(--accent); }
