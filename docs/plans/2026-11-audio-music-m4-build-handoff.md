@@ -13,7 +13,7 @@ Written 2026-11-11, at the end of the session that ran steps 6–10 of the desig
 
 - **Branch:** `claude/eloquent-newton-v9xofb`.
   - It started at master's `57015af` (ADR 0166 accepted, already on master) and adds the whole technical design and ADR 0167.
-  - **None of it is on master yet.** Merge it to master when the owner agrees, before any build, because build worktrees start at master.
+  - **Merged to master on 2026-11-11** (fast-forward to `3465751`), so build worktrees see it.
 - **Records:**
   - 0166 is Accepted.
   - **0167** (Accepted 2026-11-11) amends it. It holds the corrections from the design and the owner's design decisions, and it wins where the two disagree.
@@ -98,7 +98,6 @@ Everything in 0166's revision 2 and owner decisions, and everything in 0167. In 
 ## Open
 
 - **Owner:**
-  - merge this branch to master;
   - the M3 listening pass and lab-VM benches;
   - for M4, the 9 real-device measurements in `spikes/audio-music/rhythm/README.md` §8, the phone prime lead, the lab-VM run of the music scenes, and the listening pass (an exit check per milestone).
 - **Tripwire moves to record in the build log when they happen:**
