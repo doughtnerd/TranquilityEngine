@@ -8,7 +8,7 @@
  * Placement, id and limit cases are F1b's own (`musicFormat.test.ts`), not here.
  */
 import { describe, expect, it } from "vitest";
-import { eventClips, formatAudioEvent, parseAudioEvent } from "./eventFormat";
+import { eventClips, eventRootNode, formatAudioEvent, parseAudioEvent } from "./eventFormat";
 
 const FORMAT = "myco.audioevent@1";
 /** The labelled parameter the fixtures declare, so that a `musicSwitch` on it reads with no problems. */
@@ -41,7 +41,7 @@ describe("music writer round trip (L-F1ba)", () => {
     };
     const { first } = expectRoundTrip(raw);
     expect(first.problems).toEqual([]);
-    expect(first.value.root).toMatchObject({ type: "playlist", mode: "random", rounds: 2, avoidRepeat: 1 });
+    expect(eventRootNode(first.value)).toMatchObject({ type: "playlist", mode: "random", rounds: 2, avoidRepeat: 1 });
   });
 
   it("L-F1ba: a musicSwitch with a nested playlist child, a `library` and every optional key round-trips", () => {
@@ -134,7 +134,7 @@ describe("music writer round trip (L-F1ba)", () => {
     expect(first.value.root).toMatchObject({ id: "pick1" });
     expect(first.value.root.type === "random" && first.value.root.children[0]).toMatchObject({ id: "boom" });
     const json = JSON.parse(text).root;
-    expect(json).toMatchObject({ id: "pick1", children: [{ id: "boom", clip: "sfx/boom.ogg" }] });
+    expect(json).toMatchObject({ id: "pick1", children: [{ id: "boom", clip: "sfx/boom.ogg" }, { clip: "sfx/bang.ogg" }] });
     expect(json.children[1]).not.toHaveProperty("id");
   });
 
