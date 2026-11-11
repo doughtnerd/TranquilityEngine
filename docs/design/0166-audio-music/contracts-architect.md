@@ -65,7 +65,7 @@ This file lists what [architecture.md](architecture.md) needs from the senior en
 **C6. Curve pool** (R4; Arch §4.4).
 - A pool of **255** entries for curve state (law, u, du), linked from the slot's spare byte.
 - A fade whose curve can't get an entry runs linear and counts `curvePoolFull`.
-- Met by the `Curves` region (8,160 B). With `Due` (15,360 B) and `Groups` (2,560 B), the new core regions total 26,080 B on every preset.
+- Met by the `Curves` region (8,160 B). With `Due` (18,432 B: 256 due + 128 parked records) and `Groups` (2,560 B), the new core regions total 29,152 B on every preset.
 - Freed when the fade settles, when the voice ends, or on RESET.
 
 **C7. Split counters** (R3; Arch §4.4, §9).

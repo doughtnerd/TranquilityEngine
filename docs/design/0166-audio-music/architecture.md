@@ -628,8 +628,8 @@ Real devices are [U]; a loopback is owed.
 | Same, Vorbis (+1.7 MB state per open stream) | rings × ≈ 6.1 MiB | 49 / 73 / 98 MiB (est.) |
 | **Encoded cache budget** (eviction of unprotected files; lint warning) | | **48 / 96 / 160 MiB** (est.) |
 | FLAC | 8 stems ≈ 190 MiB | warns on low |
-| Core regions `Due`, `Curves` (255), `Groups` (16) | [API §3.1] | 15,360 + 8,160 + 2,560 = 26,080 B on every preset |
-| STATUS growth | header 176 B; `musicRings` ≤ 16 × 12 B; ≤ 8 group events × 16 B | worst case 16,192 of 16,384 B (192 B spare) [API §4.4] |
+| Core regions `Due`, `Curves` (255), `Groups` (16) | [API §3.1] | 18,432 + 8,160 + 2,560 = 29,152 B on every preset (`Due` holds 256 due + 128 parked records of 48 B) |
+| STATUS growth | header 176 B; `musicRings` ≤ 16 × 8 B; ≤ 8 group events × 16 B | worst case 16,192 of 16,384 B (192 B spare) [API §4.4] |
 | Mixer wasm | due list, classes G and S, curve pool, 4 KiB table, group table with hold | +10–14 KB (est.; [API §5] says +14) from 265,952 B, against the 320 KB tripwire |
 | Main, per asset; per instance | tempo prefix sums, rule index; player state | < 16 KiB; ≈ 2 KiB (est.) |
 | Loop-tail span clips | tail × channels × 2 B per stem | 2 s stereo: 375 KiB each |
