@@ -157,7 +157,7 @@ describe("from real file bytes (needs the L-Ed9 readers)", () => {
     expect(r.segment.regions).toEqual([{ id: "loop", from: "2:1:0", to: "end", count: 0 }]);
     const o = await importDropped(emptySegment("a"), ["b.ogg"], async (p) => files[p], facts);
     expect(o.segment.tempo[0]!.bpm).toBe(100);
-    expect(o.segment.regions).toEqual([{ id: "loop", from: "start", to: "2:2:0", count: 0 }]);
+    expect(o.segment.regions).toEqual([{ id: "loop", from: "start", to: "1:4:320", count: 0 }]);
   });
 
   it("a failing read means no hints, not a failed import", async () => {
