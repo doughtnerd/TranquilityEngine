@@ -630,11 +630,15 @@ pub fn sweeps() -> Vec<Sweep> {
         scenes: [0u32, 1, 2, 3].iter().map(|&n| zoned(format!("zone-count-{n}"), n, 2.0, if n == 0 { 0 } else { 8 }, 3, 0)).collect(),
         x: |r| r.mean_zones_active,
     });
-    // Zone sends: two active 2 s zones, 0..16 voices each sending into both: slope per (voice, slot) send, `REVERB_SEND`'s sibling.
+    // Zone sends: two active 2 s zones, 4..32 of 32 voices each sending into both: slope per (voice, slot) send (the sweep
+    // starts at 4 voices so that the one-off cost of the first send, the bus-gain table, is in the intercept).
     out.push(Sweep {
         term: "zone_send",
-        unit: "µs per (voice, slot) send (two 2 s zones active)",
-        scenes: [0u32, 4, 8, 16].iter().map(|&n| zoned(format!("zone-send-{n}"), 2, 2.0, n, 2, 0)).collect(),
+        unit: "µs per (voice, slot) send (two 2 s zones active; 32 voices, the first send also switches on the bus-gain table)",
+        scenes: [4u32, 8, 16, 32]
+            .iter()
+            .map(|&n| Scene::zoned(Scene { zone_slots: 3, zone_frames: 2 * RATE as u32, ..Scene::looping(&format!("zone-send-{n}"), 32) }, 2, n, 2, 0))
+            .collect(),
         x: |r| r.mean_senders * 2.0,
     });
     // Aux sends: no zones, 0..16 voices with an aux send (post-fader, panned): slope `AUX_SEND`.
