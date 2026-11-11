@@ -4,7 +4,7 @@
 
 ### Ring memory
 
-Narrow ring storage (`stream.rs:99-107`): (32768 ring + 4,096 chunk tail + 1,536 seek-fade copy) x 2 ch x 4 B = 307200 B = 300.0 KiB per stream; a ring holds 0.68 s at 48 kHz.
+Narrow ring storage (`stream.rs:104-108`): (32768 ring + 4,096 chunk tail + 1,536 seek-fade copy) x 2 ch x 4 B = 307200 B = 300.0 KiB per stream; a ring holds 0.68 s at 48 kHz.
 
 | preset | max_mixed | rings | Streams region |
 |---|---|---|---|
@@ -71,7 +71,7 @@ The decoder worker is one thread: it opens and primes the stems one after anothe
 
 Asserted: with every stem's data committed before S's quantum, all N voices start at S and the sum nulls against the reference (max residual shown is f32 summation order only). Any stem whose data lands later starts at its own quantum boundary: the stems are then shifted against each other by up to D*(N-1) and the sum is wrong for the whole piece (the offset never recovers).
 
-**8 stems on the low preset (max_mixed 64 -> 4 rings):** 4 streams open, 4 STREAM_OPEN refused, 4 of 8 voices ever started (the other four wait silent until main stops them: `stream.rs:41-43` "none free: stream event 3, and the voice stays waiting").
+**8 stems on the low preset (max_mixed 64 -> 4 rings):** 4 streams open, 4 STREAM_OPEN refused, 4 of 8 voices ever started (the other four wait silent until main stops them: `stream.rs:39-40` "none free: stream event 3, and the voice stays waiting").
 
 ### Q2: prime planner (`src/prime.rs`) against the core
 

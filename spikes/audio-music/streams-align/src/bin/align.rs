@@ -159,7 +159,7 @@ fn q1_stems() {
     // 8 stems on the low preset: 4 rings.
     let r = stems(8, 64, 37, |_, s| s - 20_000);
     let started = r.starts.iter().filter(|s| s.is_some()).count();
-    println!("**8 stems on the low preset (max_mixed 64 -> 4 rings):** {} streams open, {} STREAM_OPEN refused, {started} of 8 voices ever started (the other four wait silent until main stops them: `stream.rs:41-43` \"none free: stream event 3, and the voice stays waiting\").\n", r.streams_open, r.refused);
+    println!("**8 stems on the low preset (max_mixed 64 -> 4 rings):** {} streams open, {} STREAM_OPEN refused, {started} of 8 voices ever started (the other four wait silent until main stops them: `stream.rs:39-40` \"none free: stream event 3, and the voice stays waiting\").\n", r.streams_open, r.refused);
     assert_eq!((r.streams_open, started), (4, 4));
 }
 
@@ -419,7 +419,7 @@ fn q5_clips() {
 
 fn memory() {
     println!("### Ring memory\n");
-    println!("Narrow ring storage (`stream.rs:99-107`): ({RING_FRAMES} ring + 4,096 chunk tail + 1,536 seek-fade copy) x 2 ch x 4 B = {RING_BYTES} B = {:.1} KiB per stream; a ring holds {:.2} s at 48 kHz.\n", RING_BYTES as f64 / 1024.0, RING_FRAMES as f64 / 48_000.0);
+    println!("Narrow ring storage (`stream.rs:104-108`): ({RING_FRAMES} ring + 4,096 chunk tail + 1,536 seek-fade copy) x 2 ch x 4 B = {RING_BYTES} B = {:.1} KiB per stream; a ring holds {:.2} s at 48 kHz.\n", RING_BYTES as f64 / 1024.0, RING_FRAMES as f64 / 48_000.0);
     println!("| preset | max_mixed | rings | Streams region |\n|---|---|---|---|");
     for (n, m) in [("low", 64u32), ("default", 128), ("high", 256)] {
         let rings = (m as usize / 16).clamp(4, 16);
