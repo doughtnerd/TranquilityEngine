@@ -16,3 +16,10 @@ When a design choice comes up (bus routing, beds, reverb zones, occlusion, param
 
 ## No feature flags or compatibility defaults (owner, 2026-11-11)
 The engine is unpublished; the samples are the only projects. Don't add flags or "existing projects unchanged" defaults; update the samples instead.
+
+## Run intensive tests at wave end, not per task (owner, 2026-11-11)
+To save compute during the build:
+- **Per task (agents and leaves):** `npm run typecheck`, the tests for the files touched (`npx vitest related <files>` or the file's own tests), and `cargo test -p <crate>` for a touched crate. Only a single e2e spec that the task itself adds or changes, if any.
+- **Wave end (coordinator, after merging the wave):** full `npm test`, `npm run build`, `npm run test:e2e` (non-slow), `npm run check:audio-metered`, and the benches a wave's tasks touch (short runs).
+- **Milestone end (before merging to master):** `npm run test:e2e:slow`, WebKit when the milestone touches the browser layer, long benches and soaks; the lab-VM run stays the owner's.
+- A failure at wave end goes back to the task that caused it; rerun only the failing spec or test file, not the whole suite, until the fix is in. Known flakes (see the M2 handoff) are rerun alone once before being treated as failures.

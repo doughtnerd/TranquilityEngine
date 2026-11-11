@@ -1,6 +1,6 @@
 # 0162. Spatial audio (M3): distant voices share a 3rd-order ambisonic bed, sources are occluded through physics rays on a frame budget, and reverb zones run on M1's convolver
 
-- **Status:** Accepted (direction, 2026-11-11; revision 3: the RFC round in `docs/rfc/0162/` and the owner's decisions folded in. The schedule comes from the technical design in `docs/design/0162-audio-spatial/`, which may refine this record in a revision section)
+- **Status:** Accepted (2026-11-11; revision 3 folded in the RFC round in `docs/rfc/0162/` and the owner's decisions; revision 4, at the end, records the technical design in `docs/design/0162-audio-spatial/` and the owner's decisions on it)
 - **Date:** 2026-11-11
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -212,3 +212,29 @@ Five reviews in `docs/rfc/0162/` (architect, senior engineer, mid-level engineer
 | A half-size M3 (challenger: 5–7 + 2 person-weeks) | **Not taken as scope** (the owner's scope); each milestone ships on its own |
 | Estimate ≈ 20 person-weeks in milestones (senior) | **Taken with changes:** ≈ 22 with per-bus beds, per-voice filters, 16-channel streaming and source zones added |
 | Doppler and event filters not needed in M3 (challenger) | **Not taken:** in the roadmap and 0158; ≈ 1 person-week together |
+
+## Revision 4: the technical design (2026-11-11)
+
+The two-author technical design ([docs/design/0162-audio-spatial/](../design/0162-audio-spatial/README.md)) refines this record. Where this section and the text above differ, this section and the design win. The text above is left as accepted.
+
+**Owner decisions after the design** (the owner accepted every recommendation and the extra time):
+7. **HRTF voices on the default preset: 8 where beds exist**, as on high. Low stays 4.
+8. **Zone slots:** a **standby slot** on high and default, so a released zone's tail rings out. On low, a third zone **evicts with a 150 ms fade**.
+9. **The M3 load-shedding ladder is in.** Once the adaptive cap is at its floor and underruns continue, it first cuts releasing zone tails, then plays one active zone fewer. It never changes beds or HRTF voices, and counts in `m3Shed`.
+10. **Estimate accepted:** ≈ 36.7 person-weeks (≈ 169.5 days of tasks + a 14-day named reserve), against the provisional ≈ 22. The growth is tests, benches and tooling priced as tasks, the physics ray query, 16-channel streams, private ambisonic decoders, the equal-power bed matrix and the items below; it isn't new scope.
+11. **Babylon fallback zones are inert with one warning.** Babylon exposes bus nodes only through internal members, which 0157 declined to use; this narrows §7's "one `ConvolverNode`".
+
+**Facts and refinements from the design:**
+- **HRTF numbers.** The high preset was **32** HRTF voices, not 16 (`audioSettingsModel.ts:213`). Going to 8 saves ≈ 166–178 µs (net vs gross), not ≈ 55 µs. With it, a typical high M3 scene costs ≈ 0.10 ms net (est., container wasm p50; worst high ≈ 0.42 ms), not ≈ 0.22 ms.
+- **Zone memory.** The peak is higher with the standby slot: 18.0 / 9.2 MB on high / default; low (eviction) 1.7 MB. M3's fixed memory is ≈ 20.9 / 10.7 / 3.0 MB (high / default / low).
+- **Beds.** The root bus defaults to `bed: own` at `bedPriority` 255 (0..255, default 128, the same scale as voice `priority`); there is no hard-coded "Master first". The core folds a sharing bus's volume, mute and ducking into each voice's gain. Equal-power output keeps beds and decodes them with a baked 16 → 2 matrix. A voice changes panner kind at most once per 500 ms of game time.
+- **Ambisonic clips.** `audio.ambisonic.maxClips` (1 / 1 / 2) caps private decoders (a clip on a bus without a bed) and 16-channel stream rings. With `maxBeds` 0, a private decode is stereo, not binaural.
+- **Occlusion.** Occlusion needs a new engine-core ray query (`raycastInto`, task D0) that takes layers, excludes given nodes (the source's own colliders) and sensors, returns the collider and reuses its result; today's `_worldRaycast` does none of that. The budget is a **ray count** per frame, derived from `budgetMs` with a measured cost average. Only the World holding the active listener casts rays. Doors use `AudioOccluder.openness`.
+- **Filters.** Per-voice filters (low-pass and a high-pass for event `filter.highpass`) live in a pool sized to the mixed voices. Mono voices are filtered once before panning; ambisonic clips are never filtered.
+- **Reverb sends and routing.** A zone send is taken **after the voice's own filters and before the distance gain**, with its own send-versus-distance curve (Wwise's model), so occlusion reaches the wet path. Each zone has an `output` bus (default Master), and its wet signal is added before that bus's effects. The shared bus reverb's return is scaled by 1 − the listener's zone weight. An event's `sends.<bus>` is one post-fader aux send.
+- **Wire and ABI.**
+  - ABI 2.0 with one `myco_audio_init` and new fixed regions (`Beds`, `Zones`, `Wide`, `Fx`).
+  - `SET_VOICE_FX` (52 B), `LISTENER` (0x20, 36 B, with a snap flag), one idempotent `ZONE_CONFIG` table, and `BED_CONFIG`.
+  - Reserved clip ids: MagLS 0xFFFF0100; zone kernels 0xFFFF0200..02FF.
+  - The panner field is flags bits 5–6, with value 2 for the bed; PLAY bit 7 marks an ambisonic voice.
+- **Testing cadence (owner).** Per task: typecheck, the touched files' tests and the touched crate's tests. At wave end: the full unit suite, the build, e2e, the metered gate and short benches. At milestone end: `@slow` e2e, WebKit, soaks and long benches. See `docs/design/0162-audio-spatial/working-notes.md`.
