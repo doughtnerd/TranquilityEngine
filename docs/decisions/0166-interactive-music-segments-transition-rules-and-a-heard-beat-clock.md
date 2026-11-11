@@ -318,7 +318,7 @@ This follows 0158's rule: main does event-driven work, and the core does everyth
 
 ## Open questions
 
-Owner decisions for step 8. The first two were confirmed by the owner below; the rest come back after the technical design.
+Owner decisions. Revision 2's list at the end supersedes this one.
 
 1. **Ring pool sizes:** music rings of 8 / 12 / 16, or larger.
 2. **Music inside the mixed-voice cap** (recommended) or on top of it.
