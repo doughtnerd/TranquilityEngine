@@ -599,9 +599,11 @@ fn newer(a: u32, b: u32) -> bool {
 /// shorter than either, and its frames (under 1,536) are below both rings' lengths.
 #[inline(always)]
 fn slot_at(samples: &[f32], ch: usize, f: u64) -> usize {
-    let frames = if samples.len() > NARROW.floats() { WIDE_RING_FRAMES } else { RING_FRAMES };
-    (f % frames as u64) as usize * ch
+    // Both lengths are powers of two: the index is a mask.
+    let frames = if samples.len() > NARROW.floats() { WIDE_RING_FRAMES } else { RING_FRAMES } as u64;
+    (f & (frames - 1)) as usize * ch
 }
+const _: () = assert!(RING_FRAMES.is_power_of_two() && WIDE_RING_FRAMES.is_power_of_two());
 
 /// Reads ring frame `f` (`< written`) of a ring with `ch` channels: `(left, right)`, mono copied
 /// (and channel 0 of a wide ring, B4: its W).
