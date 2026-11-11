@@ -37,6 +37,8 @@ import {
   EffectType,
   Kind,
   MAGLS_CLIP_ID,
+  LISTENER_FLAGS_SNAP,
+  PLAY_FLAGS_AMBISONIC,
   PLAY_FLAGS_LOOP,
   PLAY_FLAGS_MIXED,
   PLAY_FLAGS_PANNER_SHIFT,
@@ -50,6 +52,7 @@ import {
   SET_PARAMS_MASK_GAIN,
   SET_PARAMS_MASK_LP_HZ,
   SET_VOICE_FX_MASK_HP_HZ,
+  SET_VOICE_FX_MASK_YAW,
   SET_PARAMS_MASK_PITCH,
   writeAutomate,
   writeBatchHeader,
@@ -60,6 +63,7 @@ import {
   writeClipBegin,
   writeClipChunk,
   writeEnvelope,
+  writeListener,
   writeFade,
   writeCurves,
   writeMaster,
@@ -299,9 +303,28 @@ function stereoI16(frames: number): Int16Array {
   return out;
 }
 
+/**
+ * ADR 0162 A7: an interleaved `channels`-channel (4, 9 or 16) int16 clip of ambisonic harmonics: channel c a sine at
+ * 150 + 70 c Hz, quieter with the order (W loudest), so every block of the rotation has something to rotate.
+ */
+function ambisonicI16(frames: number, channels: number): Int16Array {
+  const out = new Int16Array(frames * channels);
+  for (let c = 0; c < channels; c++) {
+    const order = Math.floor(Math.sqrt(c));
+    const amp = 9_000 / (1 + order);
+    for (let i = 0; i < frames; i++) out[i * channels + c] = Math.round(amp * Math.sin((2 * Math.PI * (150 + 70 * c) * i) / LOOPBACK_RATE));
+  }
+  return out;
+}
+
 const CLIP = 1;
 const CLIP_FRAMES = 12_000;
 const STEREO = 2;
+/** The ambisonic clips of `ambi-o3`: 3rd order (16 channels) and 1st order (4). */
+const AMBI_O3 = 5;
+const AMBI_O1 = 6;
+/** PLAY flags of an ambisonic voice (never spatial). */
+const AMBISONIC = PLAY_FLAGS_AMBISONIC;
 
 async function stage(preset?: CorePreset): Promise<Stage> {
   const s = await Stage.create(preset);
@@ -550,6 +573,32 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     }
     s.run(10);
   },
+  // ADR 0162 A7 (the bench's `ambi-o3`): ambisonic clips rotated by a turning listener (LISTENER, ramped over 12 quanta a step,
+  // 0 to 90 degrees of yaw with a nod, then a snap back) into a bed (a 3rd-order and a 1st-order clip, the second also
+  // yawed 30 degrees by its own SET_VOICE_FX) and into a private decoder (a 3rd-order clip on a bus with no bed), MagLS.
+  async "ambi-o3"(s) {
+    await s.loadMagls();
+    s.loadI16(AMBI_O3, ambisonicI16(CLIP_FRAMES, 16), 16);
+    s.loadI16(AMBI_O1, ambisonicI16(CLIP_FRAMES, 4), 4);
+    s.host.renderQuanta(40); // not part of the output: the core copies the clips in over these
+    s.send(busConfig([BUS_ROOT, 0]), busMix(0, [[1, OFF], [1, OFF]]), bedConfig([0, BED_SLOT_NONE], [0]));
+    s.send(
+      play(voice(1), AMBI_O3, { flags: MIXED | LOOP | AMBISONIC, gain: 0.5, bus: 0 }),
+      play(voice(2), AMBI_O1, { flags: MIXED | LOOP | AMBISONIC, gain: 0.5, bus: 0, pitch: 1.25, startOffsetFrames: 3_000 }),
+      play(voice(3), AMBI_O3, { flags: MIXED | LOOP | AMBISONIC, gain: 0.5, bus: 1, pitch: 0.8, startOffsetFrames: 5_000 }),
+    );
+    s.send((view, off) => writeSetVoiceFx(view, off, { voiceId: voice(2), frameOffset: ASAP, mask: SET_VOICE_FX_MASK_YAW, rampFrames: 0, hpHz: 0, send: [0, 0, 0, 0], yaw: Math.PI / 6, auxLevel: 0, auxBus: 0xffff, reserved: 0 }));
+    s.run(24);
+    for (let step = 1; step <= 6; step++) {
+      const yaw = (step * Math.PI) / 12; // 15 degrees a step, 90 in all
+      const nod = 0.2 * Math.sin(step);
+      const [sy, cy, sx, cx] = [Math.sin(yaw / 2), Math.cos(yaw / 2), Math.sin(nod / 2), Math.cos(nod / 2)];
+      s.send((view, off) => writeListener(view, off, { voiceId: 0, frameOffset: ASAP, qx: cy * sx, qy: sy * cx, qz: -sy * sx, qw: cy * cx, rampFrames: 12 * 128, flags: 0 }));
+      s.run(12);
+    }
+    s.send((view, off) => writeListener(view, off, { voiceId: 0, frameOffset: ASAP, qx: 0, qy: 0, qz: 0, qw: 1, rampFrames: 0, flags: LISTENER_FLAGS_SNAP }));
+    s.run(16);
+  },
   // ADR 0162 D6 (D1's per-voice filters): 256 mixed voices, each with its own low-pass and high-pass (mono and stereo
   // clips, so the mono-once and the stereo paths both run), retargeted twice with log-Hz ramps: closed down, then
   // opened to the filters' off values (low-pass 20 kHz and over, high-pass 20 Hz and under).
@@ -620,6 +669,7 @@ const PRESETS: Record<string, CorePreset> = {
   "bed-256": { ...LOOPBACK_PRESET, maxMixed: 256, maxBeds: 2 },
   "bed-xfade": { ...LOOPBACK_PRESET, maxMixed: 16, maxBeds: 1 },
   "filters-256": { ...LOOPBACK_PRESET, maxMixed: 256 },
+  "ambi-o3": { ...LOOPBACK_PRESET, maxBeds: 1, maxWide: 3 },
 };
 
 /** The panner bits for the bed (kind 2) in a PLAY's flags and in a SET_PARAMS's. */
