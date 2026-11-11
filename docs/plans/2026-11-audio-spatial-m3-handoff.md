@@ -5,7 +5,7 @@ Written 2026-11-11 at the end of the planning session. The plan is done and revi
 ## Where things are
 
 - **Master** (`origin/master`) has the whole M3 design at `523190a`. The design branch `claude/sweet-ritchie-miy6jm` was fast-forwarded into it and is safe to delete once the owner agrees. The local `master` ref in the container is stale (`ea19930`): use `origin/master`.
-- **The plan** is on `claude/festive-brahmagupta-bpxdwr` until the owner merges it to master. Build worktrees start at master, so merge it before wave 1, or name this branch's tip as the base in every brief.
+- **The plan** is on master (merged from `claude/festive-brahmagupta-bpxdwr` at the end of planning, owner O3), so build worktrees that start at master see it.
 - **Next record number: 0163.** `origin/claude/ecstatic-heisenberg-xg0fvc` has its own 0151–0163 and renumbers when it merges (owner: later).
 
 | Path | What it holds |
@@ -31,7 +31,7 @@ Written 2026-11-11 at the end of the planning session. The plan is done and revi
   - **Fixed memory turns on per feature:** each new region's init parameter stays zero until its flip (beds A5/A6b, zones C5, wide B5); K2 makes the Memory headroom a function of the parameters.
   - **One settings lead in W1 (A6a + C6) parses every §2.1 key**, including the occlusion, Doppler and speed-of-sound keys no row owned, and the §2.2 material table.
   - **Samples are updated by the task that flips their default** (A6b `stress` HRTF, D2a `pirates`, D3 `dopplerLevel: 0` on `sound-lab`'s orbiting sources and in `stress`'s generator); E8 keeps the rest.
-  - **FuMa conversion is TypeScript** in the worker (`decoder/ambisonic.ts`), per B1's row; §5.1 is updated.
+  - **FuMa conversion is Rust** (`audio-decode/src/ambisonic.rs`, owner O1): the int16 headroom scale must come before the decoder's rounding. B2 owns it; B1 keeps the sidecar and validation.
   - **Seam files:**
     - `audio-dsp/src/bed_matrix.rs` (A3);
     - `audio-dsp/src/convolver/stagger.rs` (C1);
@@ -45,19 +45,19 @@ Written 2026-11-11 at the end of the planning session. The plan is done and revi
 
 | # | Item | Recommendation | Needed by |
 |---|---|---|---|
-| O1 | Approve the plan's changes to the table's split of work (the "Settled" plan choices above) | approve | W0 |
-| O2 | When each milestone reaches master | after W4 (M3a), W5 (M3b, M3c), W7 (M3d, F), W9 (M3e), each with the owner's approval, as M1 and M2 did | W4 |
-| O3 | Merge this plan to master before the build | yes, before W1 | W0 |
+| O1 | The plan's changes to the table's split of work | **decided (owner, 2026-11-11): approved**, with FuMa moved to Rust (the int16 headroom scale must come before the decoder's rounding) | – |
+| O2 | When each milestone reaches master | **decided: yes**, after W4 (M3a), W5 (M3b, M3c), W7 (M3d, F), W9 (M3e), each with the owner's approval at the time | – |
+| O3 | Merge this plan to master before the build | **decided: yes**; done at the end of planning (fast-forward) | – |
 | O4 | Tickets: an epic per milestone, a sub-issue per task, leaves as checklist lines | only if the owner wants M3 tracked as M1 was | W0 |
 | O5 | The owner's runs: the lab-VM runs (each milestone's benches; `m3-typical` and `m3-worst-high` at M3e) and the listening items per milestone | as §9 | each milestone end |
-| O6 | Up to three strongest-model leads at once in W2–W4 (cost) | yes: with two, the chain is ≈ 49–54 days instead of ≈ 42.5 (plan est.) | W2 |
+| O6 | Up to three strongest-model leads at once in W2–W4 (cost) | **decided: yes** (with two, the chain would be ≈ 49–54 days instead of ≈ 42.5, plan est.) | – |
 | O7 | Draws on the named reserve (R1 SADIE II, R2 lab-VM tuning and `wasm-opt`, R4 listening fixes) | only on a failed exit check | as they arise |
 
 Still open from the design handoff, unchanged: the M2 lab-VM run, listening re-check and sign-off; ADR 0161 (Proposed); renumbering `ecstatic-heisenberg`; the `selection.spec.ts:77` e2e failure; the phone (unverified).
 
 ## Starting the build
 
-1. **Wave 0** (coordinator): `npm ci`; baseline typecheck, `npm test`, `npm run build`, `cargo test` in `native/audio/` and `npm run check:audio-metered`, recording failures as known. Create the M3 integration branch from `origin/master` with this plan merged. Commit K0. Start `docs/design/0162-audio-spatial/build-log.md`.
+1. **Wave 0** (coordinator): `npm ci`; baseline typecheck, `npm test`, `npm run build`, `cargo test` in `native/audio/` and `npm run check:audio-metered`, recording failures as known. Create the M3 integration branch from `origin/master` (which has this plan). Commit K0. Start `docs/design/0162-audio-spatial/build-log.md`.
 2. **Wave 1 (pilot)**, six leads at once:
    - strongest: A1 (+K1, K2), B2, C1;
    - mid: A6a + C6 (one lead), B1, D0.
