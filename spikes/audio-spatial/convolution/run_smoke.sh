@@ -3,6 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p results
+./build_wasm.sh > /dev/null
 cargo build --release --offline
 ./target/release/spike check > results/check-native.txt
 node run_wasm.mjs check --stride 24 --secs 3 > results/check-wasm.txt

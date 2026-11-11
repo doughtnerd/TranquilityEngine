@@ -1,3 +1,4 @@
 target/
 node_modules/
 results/*.tmp
+wasm/
