@@ -413,11 +413,13 @@ describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
     expect(layoutBytes(exports, { ...PRESET, maxMusicRings: 17 }, RATE), "refused parameters lay out 0").toBe(0);
   });
 
-  it("the M4 fixed regions (Due, Curves, Groups) span 29,184 B as Q1 aligns them; the music rings add nothing until C1", () => {
+  it("the M4 fixed regions (Due, Curves, Groups) span 29,184 B as Q1 aligns them; each music ring adds 307,200 B (C1)", () => {
     expect(m4FixedRegionsBytes()).toBe(18_432 + 8_192 + 2_560);
-    expect(musicRingsBytes({ ...PRESET, maxMusicRings: 16 })).toBe(0);
+    expect(musicRingsBytes({ ...PRESET, maxMusicRings: 0 })).toBe(0);
+    expect(musicRingsBytes({ ...PRESET, maxMusicRings: 16 })).toBe(16 * 307_200);
     const base = fixedRegionsHeadroomBytes(PRESET, RATE);
     expect(base).toBe(M2_REGIONS_HEADROOM_BYTES + spatialRegionsBytes(PRESET, RATE) + m4FixedRegionsBytes() + zoneKernelBudgetBytes(0, 0));
+    expect(fixedRegionsHeadroomBytes({ ...PRESET, maxMusicRings: 12 }, RATE) - base).toBe(12 * 307_200);
   });
 
   it("the zone kernel budget mirror equals myco_audio_zone_kernel_budget_bytes", () => {
