@@ -20,8 +20,9 @@ export type ClipState = "idle" | "fetching" | "decoding" | "copying" | "ready" |
 /**
  * Why a clip failed, for warnings and `Audio.debug()`. `streamInstead` (ADR 0162 §2.4, B5) is not a failure of the file:
  * a long ambisonic clip was not decoded into memory; the backend restarts the voices waiting on it as stream voices.
+ * `refusedSpan` (C14, R4c): a span clip whose range is not a valid frame range or is longer than `MAX_SPAN_SECONDS`.
  */
-export type ClipFailure = "fetch" | "decode" | "refusedCeiling" | "refusedGrow" | "streamInstead";
+export type ClipFailure = "fetch" | "decode" | "refusedCeiling" | "refusedGrow" | "streamInstead" | "refusedSpan";
 
 /** What the registry knows about one clip. */
 export interface ClipInfo {
@@ -57,6 +58,21 @@ export interface ClipRegistry {
   acquire(path: string, holder?: number): number;
   /** Drops one reference. At 0 refs with no holding World, the clip unloads one frame later. Unknown ids are ignored. */
   release(id: number): void;
+  /**
+   * C14 (R4c): takes a reference to the span `[startFrame, endFrame)` (frames of the file at its own rate) of the asset at
+   * `path`, decoded as its own clip id (one slot per path and range while referenced; it never aliases the whole clip).
+   * At most `MAX_SPAN_SECONDS` long, counted in the arena ceiling like any clip, and an end past the file's end is
+   * clamped. A refused span (bad range, over 30 s, over the ceiling) gives an id whose state becomes "failed" with
+   * `failure` "refusedSpan" or "refusedCeiling", so the caller can drop it with one warning. Never throws. `holder` as `acquire`.
+   * Frees like any clip: at 0 refs it unloads one frame later. Optional so fakes still satisfy K9.
+   */
+  acquireSpan?(path: string, startFrame: number, endFrame: number, holder?: number): number;
+  /**
+   * C14, a reload of the asset at `path`: its kept encoded bytes are dropped and every clip of it (whole or span) is
+   * detached, so the next `acquire` or `acquireSpan` decodes the new file. Ids already handed out keep their (old) audio
+   * until released, then unload. Optional so fakes still satisfy K9.
+   */
+  invalidate?(path: string): void;
   /** The clip's state; "idle" for an unknown id. */
   state(id: number): ClipState;
   /** Everything known about the clip, or null for an unknown id. */
@@ -115,6 +131,9 @@ export interface ReservedClipData {
   /** 2 (HRIR, reserved ids 0xFFFF0000..0xFFFF00FF) or 4 (MagLS filters, `MAGLS_CLIP_ID`). */
   readonly format: 2 | 4;
 }
+
+/** C14: the longest span clip, in seconds of the file's own rate. */
+export const MAX_SPAN_SECONDS = 30;
 
 /** The reserved HRIR clip id range (api-and-models 4.1). */
 export const RESERVED_CLIP_FIRST = 0xffff0000;
@@ -239,6 +258,12 @@ interface Slot {
   readonly index: number;
   readonly generation: number;
   readonly path: string;
+  /** `byPath`'s key: the path, or the path and the span's range (`spanKey`). */
+  readonly key: string;
+  /** C14: the frame range `[start, end)` this clip holds of the file, or null for the whole file. */
+  readonly span: { readonly start: number; readonly end: number } | null;
+  /** C14: the asset was reloaded; no new acquire reaches this slot, it unloads when released. */
+  invalidated: boolean;
   state: ClipState;
   /** Acquires not yet released (voices and pending plays). */
   refs: number;
@@ -287,6 +312,8 @@ interface ReservedSlot {
   begun: boolean;
   readonly listeners: Set<ClipResidentListener>;
 }
+
+const spanKey = (path: string, start: number, end: number): string => `${path}\u0000${start}:${end}`;
 
 const defaultNextFrame = (cb: () => void): void => {
   if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => cb());
@@ -372,7 +399,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     if (slot.dead || slot.state === "failed") return;
     slot.state = "failed";
     slot.failure = failure;
-    if (failure === "decode" || failure === "fetch" || failure === "streamInstead") setFileLoopPoints(slot.path, null); // nothing will ever report: resolve waiters
+    if (!slot.span && (failure === "decode" || failure === "fetch" || failure === "streamInstead")) setFileLoopPoints(slot.path, null); // nothing will ever report: resolve waiters
     slot.parts = null;
     slot.abort?.abort();
     pacer.cancel(idOf(slot));
@@ -409,7 +436,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
 
   const loadedBytes = (): number => {
     let total = 0;
-    for (const slot of byPath.values()) if (slot.state === "copying" || slot.state === "ready") total += slot.bytes;
+    for (const slot of byId.values()) if (slot.state === "copying" || slot.state === "ready") total += slot.bytes;
     return total;
   };
 
@@ -522,6 +549,11 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     let channels = 0;
     let streamedFrames = 0; // the length CLIP_BEGIN promised; 0 when not streaming
     let received = 0;
+    const span = slot.span;
+    let rate = 0;
+    let spanDone = false; // C14: the span's end was reached and the rest of the file isn't wanted
+    const kept: Int16Array[] = [];
+    let keptFrames = 0;
     const ambisonic = Assets.importSettings(slot.path).ambisonic;
     try {
       const result = await worker().decodeClip(encoded, hintFromName(slot.path), {
@@ -532,6 +564,11 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
         convention: ambisonic?.convention,
         onInfo: (info) => {
           channels = info.channels;
+          rate = info.rate;
+          if (span && (span.end - span.start) / info.rate > MAX_SPAN_SECONDS) {
+            fail(slot, "refusedSpan", `a span clip is at most ${MAX_SPAN_SECONDS} s`);
+            return;
+          }
           if (info.channels > 2) {
             const checked = checkAmbisonic(slot.path, info.channels, ambisonic);
             if ("error" in checked) {
@@ -539,7 +576,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
               return;
             }
             // B5 (§2.4): a clip over 5 s that the sidecar doesn't ask to stream isn't decoded into memory: the backend restarts its voices as streams.
-            if (info.frames > 0 && info.rate > 0 && info.frames / info.rate > AMBISONIC_STREAM_OVER_SECONDS) {
+            if (!span && info.frames > 0 && info.rate > 0 && info.frames / info.rate > AMBISONIC_STREAM_OVER_SECONDS) {
               longAmbisonic.add(gainKey(slot.path));
               fail(slot, "streamInstead", "longer than 5 s; streamed instead");
               return;
@@ -548,19 +585,35 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
             if (info.importGain !== undefined) importGains.set(gainKey(slot.path), info.importGain);
             else importGains.delete(gainKey(slot.path));
           } else if (ambisonic) warnOnce(`${slot.path}#ambisonic`, `audio: "${slot.path}" has an ambisonic import setting but ${info.channels} channel${info.channels === 1 ? "" : "s"}; ignored (ADR 0162)`);
-          if (!early || stale() || !info.lengthKnown || info.frames <= 0) return;
+          if (span || !early || stale() || !info.lengthKnown || info.frames <= 0) return;
           if (startClip(slot, info.frames, info.channels, info.rate)) streamedFrames = info.frames;
           else controller.abort(); // failed past the ceiling
         },
         onChunk: (pcm) => {
           if (stale() || slot.state === "failed") return;
           const frames = pcm.length / channels;
+          if (span) {
+            // Whole-file decode keeping `[start, end)`: this chunk covers frames [received, received + frames).
+            const from = Math.max(span.start, received);
+            const to = Math.min(span.end, received + frames);
+            if (to > from) {
+              kept.push(from === received && to === received + frames ? pcm : pcm.slice((from - received) * channels, (to - received) * channels));
+              keptFrames += to - from;
+            }
+            received += frames;
+            if (received >= span.end && !spanDone) {
+              spanDone = true;
+              controller.abort(); // the worker stops at its next chunk; nothing past the span is decoded further
+            }
+            return;
+          }
           if (streamedFrames === 0) pieces.push(pcm);
           else if (received < streamedFrames) enqueuePiece(slot, frames > streamedFrames - received ? pcm.subarray(0, (streamedFrames - received) * channels) : pcm, received);
           received += frames;
         },
       });
       if (stale() || slot.state === "failed") return null;
+      if (span) return { frames: keptFrames, channels: result.channels, sampleRate: result.rate, pieces: kept };
       // ADR 0158 §4 (C2): the file's own loop region, in frames; clips without one report null so waiters resolve.
       const { loopStartFrame: ls, loopEndFrame: le } = result.info;
       setFileLoopFrames(slot.path, ls !== undefined && le !== undefined ? { start: ls, end: le } : null, result.rate);
@@ -568,6 +621,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       return { frames: result.frames, channels: result.channels, sampleRate: result.rate, pieces };
     } catch (err) {
       if (stale() || slot.state === "failed") return null;
+      if (span && spanDone) return { frames: keptFrames, channels, sampleRate: rate, pieces: kept }; // our own abort at the span's end
       retract(slot);
       // A worker that cannot run (DecoderUnavailableError) fails the clip like a bad file: one warning for this asset.
       // B4: a file the decoder can't read at all names its format and what is supported, once per asset.
@@ -601,7 +655,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       else {
         encoded = await fetchBytes(slot.path);
         if (stale()) return null;
-        cache.set(slot.path, encoded);
+        if (!slot.invalidated) cache.set(slot.path, encoded);
       }
     } catch (err) {
       if (!stale()) fail(slot, "fetch", message(err));
@@ -625,13 +679,17 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     }
   };
 
-  const allocate = (path: string): Slot => {
+  const allocate = (path: string, span: Slot["span"] = null): Slot => {
+    const key = span ? spanKey(path, span.start, span.end) : path;
     const index = freeIndices.length > 0 ? freeIndices.shift()! : nextIndex++;
     if (index >= CLIP_INDEX_LIMIT) throw new Error("audio: clip slots exhausted");
     const slot: Slot = {
       index,
       generation: generations[index] ?? 0,
       path,
+      key,
+      span,
+      invalidated: false,
       state: "idle",
       refs: 0,
       holders: new Set(),
@@ -649,7 +707,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       abort: null,
       listeners: new Set(),
     };
-    byPath.set(path, slot);
+    byPath.set(key, slot);
     byId.set(idOf(slot), slot);
     return slot;
   };
@@ -671,8 +729,11 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
         writeClipUnload(view, 0, { clipId: id });
       });
     }
-    cache.delete(slot.path);
-    byPath.delete(slot.path);
+    // The encoded bytes stay while another clip of the same file (a sibling span) is still loaded.
+    let sibling = false;
+    for (const other of byId.values()) if (other !== slot && other.path === slot.path) sibling = true;
+    if (!sibling) cache.delete(slot.path);
+    if (byPath.get(slot.key) === slot) byPath.delete(slot.key);
     byId.delete(id);
     generations[slot.index] = (slot.generation + 1) & 0xff;
     freeIndices.push(slot.index);
@@ -684,21 +745,46 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     nextFrame(() => unload(slot));
   };
 
+  const take = (path: string, span: Slot["span"], holder: number): number => {
+    const key = span ? spanKey(path, span.start, span.end) : path;
+    let slot = byPath.get(key);
+    if (!slot) {
+      slot = allocate(path, span);
+      void load(slot);
+    }
+    slot.unloadScheduled = false;
+    slot.refs++;
+    if (holder > 0) slot.holders.add(holder);
+    return idOf(slot);
+  };
+
   return {
     duration(path) {
       const slot = byPath.get(path);
       return slot && slot.frames > 0 && slot.sampleRate > 0 ? slot.frames / slot.sampleRate : null;
     },
     acquire(path, holder = 0) {
-      let slot = byPath.get(path);
-      if (!slot) {
-        slot = allocate(path);
-        void load(slot);
-      }
+      return take(path, null, holder);
+    },
+    acquireSpan(path, startFrame, endFrame, holder = 0) {
+      const valid = Number.isInteger(startFrame) && Number.isInteger(endFrame) && startFrame >= 0 && endFrame > startFrame;
+      if (valid) return take(path, { start: startFrame, end: endFrame }, holder);
+      // A range that can't be a span: a failed clip of its own, reported like any refusal.
+      const slot = byPath.get(spanKey(path, startFrame, endFrame)) ?? allocate(path, { start: startFrame, end: endFrame });
+      if (slot.state === "idle") fail(slot, "refusedSpan", `span [${startFrame}, ${endFrame}) is not a frame range`);
       slot.unloadScheduled = false;
       slot.refs++;
       if (holder > 0) slot.holders.add(holder);
       return idOf(slot);
+    },
+    invalidate(path) {
+      cache.delete(path);
+      for (const slot of [...byId.values()]) {
+        if (slot.path !== path || slot.invalidated) continue;
+        slot.invalidated = true;
+        if (byPath.get(slot.key) === slot) byPath.delete(slot.key);
+        maybeUnload(slot);
+      }
     },
     release(id) {
       const res = reserved.get(id);
@@ -757,7 +843,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       return () => void slot.listeners.delete(listener);
     },
     releaseWorld(key) {
-      for (const slot of [...byPath.values()]) {
+      for (const slot of [...byId.values()]) {
         if (slot.holders.delete(key)) maybeUnload(slot);
       }
     },
@@ -821,7 +907,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
         slots.push(slot);
       };
       for (const id of order) add(byId.get(id));
-      for (const slot of byPath.values()) add(slot);
+      for (const slot of byId.values()) add(slot);
       const jobs = slots.map((slot) => {
         pacer.cancel(idOf(slot));
         slot.parts = null;
@@ -841,7 +927,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     residentIds() {
       const ids: number[] = [];
       for (const res of reserved.values()) if (res.state === "ready") ids.push(res.id);
-      for (const slot of byPath.values()) if (slot.state === "ready") ids.push(idOf(slot));
+      for (const slot of byId.values()) if (slot.state === "ready") ids.push(idOf(slot));
       return ids;
     },
   };
