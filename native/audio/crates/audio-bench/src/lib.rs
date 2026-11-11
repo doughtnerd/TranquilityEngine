@@ -19,7 +19,7 @@
 //! `bed_decode_matrix`, `bed_xfade`): kind 2 voices encode into beds hosted on buses, decoded with the committed MagLS
 //! filters (loaded as format 4, as main does) or the baked matrix. The ambisonic terms (`AMBI_ROTATE`, `AMBI_READ`):
 //! `ambi-o3` (4 looping 3rd-order clips rotated by a turning listener into a bed), `ambi-o3-private` (into a private
-//! decoder), the sweeps `ambi_o3`, `ambi_o1` and `ambi_o3_private` over 1 to 8 clips, and `mode=fit term=ambi_rotate`
+//! decoder), the sweeps `ambi_o3`, `ambi_o1` and `ambi_o3_private` over 1 to 16 clips, and `mode=fit term=ambi_rotate`
 //! (the rotation alone, against the dedicated kernel B3 traded away).
 //!
 //! `pace=1` sleeps to the next 2.667 ms deadline after each quantum (as a real device period
@@ -669,7 +669,7 @@ pub fn sweeps() -> Vec<Sweep> {
             .collect(),
         x: |r| r.mean_senders * 2.0,
     });
-    // ADR 0162 A7: the ambisonic voice (§7.1's `AMBI_READ` + `AMBI_ROTATE`): 1..8 looping clips rotated by a turning listener
+    // ADR 0162 A7: the ambisonic voice (§7.1's `AMBI_READ` + `AMBI_ROTATE`): 1..16 looping clips rotated by a turning listener
     // into one MagLS bed at 3rd order and 1st order, and 3rd order into a private decoder. The slope is the whole voice (the
     // N-channel read and resample, the ramps, the gain, the rotation into the bed); the intercept holds the decode. The
     // rotation alone is `ambi_rotate` (`mode=fit term=ambi_rotate`, timed without the core), so READ is the slope less it.
@@ -681,7 +681,7 @@ pub fn sweeps() -> Vec<Sweep> {
         out.push(Sweep {
             term,
             unit,
-            scenes: [1u32, 2, 4, 8].iter().map(|&n| Scene { ambi_order: order, ..Scene::ambient(&format!("{term}-{n}"), n, order, private) }).collect(),
+            scenes: [1u32, 2, 4, 8, 16].iter().map(|&n| Scene { ambi_order: order, ..Scene::ambient(&format!("{term}-{n}"), n, order, private) }).collect(),
             x: |r| r.mean_ambisonic,
         });
     }
@@ -1403,12 +1403,13 @@ impl Bench {
         let looping = looping || ambi;
         let clip = match stream {
             Some(sid) => sid,
+            // (A7: the ambisonic arm comes first: in a looping scene the next arm would give them a stereo clip.)
+            None if ambi => self.stereo_clips + 1 + self.ambi_now,
             None if mixed && !s.one_shots => {
                 // Looping mixed voices each read their own clip.
                 let n = self.stereo_clips;
                 1 + (self.mixed_ids.len() as u32 % n)
             }
-            None if ambi => self.stereo_clips + 1 + self.ambi_now,
             None if mixed => self.next_clip(),
             None => 1 + self.rng.below(self.stereo_clips),
         };
@@ -2147,11 +2148,14 @@ fn ambi_rotate_micro(target: &str, reps: usize, runs: usize) {
             *v = rng.unit() - 0.5;
         }
     }
-    let turn = |k: usize| {
-        let (a, b) = (0.01 * k as f32, 0.15 * libm::sinf(0.007 * k as f32));
-        let (sa, ca, sb, cb) = (libm::sinf(a / 2.0), libm::cosf(a / 2.0), libm::sinf(b / 2.0), libm::cosf(b / 2.0));
-        mat3_mul(&quat_to_ambix([ca * sb, sa * cb, -sa * sb, ca * cb]).unwrap(), &yaw_ambix(0.003 * k as f32))
-    };
+    // The listener's turn, a rotation per quantum (built outside the timing).
+    let turns: Vec<_> = (0..=reps)
+        .map(|k| {
+            let (a, b) = (0.01 * k as f32, 0.15 * libm::sinf(0.007 * k as f32));
+            let (sa, ca, sb, cb) = (libm::sinf(a / 2.0), libm::cosf(a / 2.0), libm::sinf(b / 2.0), libm::cosf(b / 2.0));
+            mat3_mul(&quat_to_ambix([ca * sb, sa * cb, -sa * sb, ca * cb]).unwrap(), &yaw_ambix(0.003 * k as f32))
+        })
+        .collect();
     for run_i in 0..runs {
         for order in [1usize, 3] {
             let ch = (order + 1) * (order + 1);
@@ -2160,8 +2164,8 @@ fn ambi_rotate_micro(target: &str, reps: usize, runs: usize) {
             let mut out_ref = [[0.0f32; QUANTUM]; CHANNELS];
             for k in 0..reps {
                 let t0 = platform::now_us();
-                let m0 = ShRotation::from_mat3(&core::hint::black_box(turn(k)));
-                let m1 = ShRotation::from_mat3(&core::hint::black_box(turn(k + 1)));
+                let m0 = ShRotation::from_mat3(core::hint::black_box(&turns[k]));
+                let m1 = ShRotation::from_mat3(core::hint::black_box(&turns[k + 1]));
                 let t1 = platform::now_us();
                 rotate_ramp_add(core::hint::black_box(&input), &mut out, ch, &m0, &m1);
                 let t2 = platform::now_us();
@@ -2175,11 +2179,40 @@ fn ambi_rotate_micro(target: &str, reps: usize, runs: usize) {
                     out_ref = [[0.0; QUANTUM]; CHANNELS];
                 }
             }
+            // The same without a clock read between calls: blocks of 50 quanta timed whole (the per-call p50 above
+            // includes two clock reads), the median block's per-call time.
+            let (m0, m1) = (ShRotation::from_mat3(&turns[0]), ShRotation::from_mat3(&turns[1]));
+            for (what, f) in [("rotate_ramp_add", 0), ("dedicated", 1), ("matrices", 2)] {
+                let mut blocks = Vec::with_capacity(reps / 50);
+                for _ in 0..reps / 50 {
+                    let t0 = platform::now_us();
+                    for k in 0..50 {
+                        match f {
+                            0 => rotate_ramp_add(core::hint::black_box(&input), &mut out, ch, &m0, &m1),
+                            1 => rotate_dedicated(core::hint::black_box(&input), &mut out_ref, ch, &m0, &m1),
+                            _ => {
+                                core::hint::black_box(ShRotation::from_mat3(core::hint::black_box(&turns[k])));
+                                core::hint::black_box(ShRotation::from_mat3(core::hint::black_box(&turns[k + 1])));
+                            }
+                        }
+                    }
+                    blocks.push(((platform::now_us() - t0) / 50.0) as f32);
+                    out = [[0.0; QUANTUM]; CHANNELS];
+                    out_ref = [[0.0; QUANTUM]; CHANNELS];
+                }
+                blocks.sort_by(|a, b| a.total_cmp(b));
+                platform::print(&format!(
+                    "{{\"target\":\"{target}\",\"micro\":\"ambi_rotate_block\",\"what\":\"{what}\",\"order\":{order},\"run\":{run_i},\"p50\":{:.3},\"p99\":{:.3}}}",
+                    percentile(&blocks, 0.5),
+                    percentile(&blocks, 0.99)
+                ));
+            }
             core::hint::black_box((&out, &out_ref));
             for (what, mut t) in [("matrices", t_mat), ("rotate_ramp_add", t_kernel), ("dedicated", t_ref)] {
+                let mean = t.iter().sum::<f32>() as f64 / t.len() as f64;
                 t.sort_by(|a, b| a.total_cmp(b));
                 platform::print(&format!(
-                    "{{\"target\":\"{target}\",\"micro\":\"ambi_rotate\",\"what\":\"{what}\",\"order\":{order},\"run\":{run_i},\"reps\":{reps},\"p50\":{:.3},\"p99\":{:.3}}}",
+                    "{{\"target\":\"{target}\",\"micro\":\"ambi_rotate\",\"what\":\"{what}\",\"order\":{order},\"run\":{run_i},\"reps\":{reps},\"p50\":{:.3},\"p99\":{:.3},\"mean\":{mean:.3}}}",
                     percentile(&t, 0.5),
                     percentile(&t, 0.99)
                 ));
