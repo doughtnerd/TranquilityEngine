@@ -21,7 +21,8 @@
 //! ringing out, evicting, or past `max_zone_slots`) gets nothing; its ramp still moves.
 //!
 //! **Aux send** ([`tap_aux`]): post-fader, `aux × chain gain ×` the voice's equal-power matrix
-//! (stepped as the panner will step it, without moving the panner's ramps) into `auxBus`'s
+//! (its value where the panner starts the rendered range: a pan ramp moves the aux per range, not
+//! per frame, for code size) into `auxBus`'s
 //! accumulator (`zones::aux_accumulator`); an `auxBus` past the configured buses is dropped (main
 //! reports it). [`add_aux`] adds it into the bus's input before its effects and clears it, so the
 //! aux bus's own effects, fader and chain apply on top. Aux sends work without zone slots.
@@ -50,9 +51,10 @@ use crate::QUANTUM;
 /// configured bus's chain gain to the root (`chain::fill`) into the sends area, when some mixed
 /// voice's pool entry has a send that isn't settled at 0 or an aux bus (SET_VOICE_FX applies on
 /// arrival, so no voice starts sending inside the render); otherwise the area says "none".
+#[inline(never)]
 pub fn begin_quantum(core: &mut Core) {
     // A send that is moving or not at +0 (a superset of `FxEntry::sending`, cheaper), or an aux bus.
-    let active = crate::fxpool::entries(&mut core.regions_mut().fx[..]).iter().any(|e| e.owner != 0 && (e.aux_bus != AUX_BUS_NONE as u16 || e.send.iter().any(|s| s.remaining | s.value.to_bits() != 0)));
+    let active = crate::fxpool::entries(&mut core.regions_mut().fx[..]).iter().any(|e| e.owner != 0 && (e.aux_bus != AUX_BUS_NONE as u16 || e.send.iter().fold(0, |a, s| a | s.remaining | s.value.to_bits()) != 0));
     let count = if active { crate::bus::count(core).max(1).min(core.params().max_buses as usize) } else { 0 };
     let Some(area) = sends_area(&mut core.regions_mut().zones[..]) else {
         return;
@@ -72,133 +74,96 @@ pub fn begin_quantum(core: &mut Core) {
     }
 }
 
-/// `dst[i] += a[i] × b[i]` over the shortest of the three: every product the sends sum goes
-/// through this one loop (code size).
+/// The one loop of every send: `dst[i] += g[i] · (a·l[i] + b·r[i])` over the shortest slice
+/// (½ and ½ for a zone send's mono sum, a panner matrix row for an aux send).
 #[inline(never)]
-fn mac(dst: &mut [f32], a: &[f32], b: &[f32]) {
-    for (d, (a, b)) in dst.iter_mut().zip(a.iter().zip(b)) {
-        *d += *a * *b;
-    }
-}
-
-/// `dst[i] += src[i]`, then `src[i] = 0`.
-#[inline(never)]
-fn drain_into(dst: &mut [f32], src: &mut [f32]) {
-    for (d, s) in dst.iter_mut().zip(src) {
-        *d += core::mem::take(s);
-    }
-}
-
-/// The ramp's next `n` values (`n` at most a quantum) into `out`; the ramp moves.
-#[inline(never)]
-fn ramp_into(r: &mut Ramp, out: &mut [f32; QUANTUM], n: usize) {
-    for x in out.iter_mut().take(n) {
-        *x = r.next();
+fn weigh_into(dst: &mut [f32], g: &[f32], a: f32, b: f32, l: &[f32], r: &[f32]) {
+    for (d, ((g, l), r)) in dst.iter_mut().zip(g.iter().zip(l).zip(r)) {
+        *d += *g * (a * *l + b * *r);
     }
 }
 
 /// The chain gains of `bus` (a bus past the configured ones is bus 0, as the voices route it) for
-/// frames `from..from + n`, times `level` stepped per frame, into `out` (zeroed); `false` when this
+/// frames `from..from + n`, times `level` stepped per frame, into `out`; `false` when this
 /// quantum has no chain gains (then `level` still moves).
 #[inline(never)]
 fn scaled_gains(zones: &mut [u8], bus: u16, level: &mut Ramp, from: usize, n: usize, out: &mut [f32; QUANTUM]) -> bool {
-    let mut steps = [0.0f32; QUANTUM];
-    ramp_into(level, &mut steps, n);
     let table = match sends_area(zones) {
         Some(a) if a.head.buses != 0 => a.gains.get(if (bus as u32) < a.head.buses { bus as usize } else { 0 } * QUANTUM + from..),
         _ => None,
     };
     let Some(g) = table else {
+        level.advance(n as u32);
         return false;
     };
-    mac(&mut out[..n], &steps, g);
+    for (o, g) in out.iter_mut().zip(g).take(n) {
+        *o = level.next() * *g;
+    }
     true
-}
-
-/// `level × mono` into slot `k`'s inputs at `from` when it takes sends (and `ok`: the quantum has
-/// chain gains); the ramp moves either way.
-#[inline(never)]
-fn send_one(s: &mut Ramp, zones: &mut [u8], ok: bool, k: usize, from: usize, n: usize, mono: &[f32]) {
-    if s.is_settled() && (s.value == 0.0 || !ok) {
-        return;
-    }
-    let mut level = [0.0f32; QUANTUM];
-    ramp_into(s, &mut level, n);
-    if let Some((il, ir)) = if ok { zones::slot_input(zones, k) } else { None } {
-        for input in [il, ir] {
-            if let Some(dst) = input.get_mut(from..) {
-                mac(dst, &level[..n], mono);
-            }
-        }
-    }
 }
 
 /// The zone send tap (step 4): `l`, `r` are frames `from..from + l.len()` of the quantum of a mixed
 /// voice on `bus`, after its own filters and before its dry gain (a mono voice has the same samples
 /// in both). `send` is the voice's four send ramps (SET_VOICE_FX `send[k]`, ramped over its
 /// `rampFrames`), which the tap advances one step per frame. `zones` is the `Zones` region, where
-/// the slot inputs and the chain gains live: `send[k] × ½(l + r) × chain gain` into both inputs of
-/// slot `k`, when it takes sends.
+/// the slot inputs and the chain gains live: `send[k] × chain gain × (½l + ½r)` into both inputs
+/// of slot `k`, when it takes sends (a mono voice, `l = r`, sends exactly its sample).
+#[inline(never)]
 pub fn tap(send: &mut [Ramp; 4], zones: &mut [u8], bus: u16, from: usize, l: &[f32], r: &[f32]) {
-    let from = from.min(QUANTUM);
-    let n = l.len().min(r.len()).min(QUANTUM - from);
-    let mut half = [0.0f32; QUANTUM];
-    let ok = scaled_gains(zones, bus, &mut Ramp::at(0.5), from, n, &mut half);
-    // ½g·l + ½g·r: a mono voice (l = r) sends exactly g·l.
-    let mut mono = [0.0f32; QUANTUM];
-    mac(&mut mono, &half, l);
-    mac(&mut mono, &half, r);
     for (k, s) in send.iter_mut().enumerate() {
-        send_one(s, zones, ok, k, from, n, &mono[..n]);
+        send_into(s, zones, bus, from, l, r, k, [0.5; 4]);
     }
 }
 
 /// The aux tap (step 6): `l`, `r` as in [`tap`] but after the dry gain (post-fader) and before the
 /// panner; `aux` is the aux level ramp and `aux_bus` its bus (never `AUX_BUS_NONE`: the caller skips
-/// those); `panner` is the voice's panner state, whose equal-power matrix pans the send. Adds
-/// `aux × chain gain × matrix (l, r)` into `aux_bus`'s accumulator for [`add_aux`].
+/// those); `panner` is the voice's panner state, whose equal-power matrix `[a, b, c, d]` pans the
+/// send, `aux × chain gain × (a·l + b·r, c·l + d·r)`, into `aux_bus`'s accumulator for
+/// [`add_aux`]. The matrix is taken where the panner starts this range (a pan ramp moves the aux
+/// send per rendered range, not per frame).
 #[allow(clippy::too_many_arguments)]
+#[inline(never)]
 pub fn tap_aux(aux: &mut Ramp, aux_bus: u16, zones: &mut [u8], bus: u16, from: usize, l: &[f32], r: &[f32], panner: &PannerState) {
-    if aux.is_settled() && aux.value == 0.0 {
+    let m = &panner.matrix;
+    send_into(aux, zones, bus, from, l, r, SLOTS + aux_bus as usize, [m[0].value, m[1].value, m[2].value, m[3].value]);
+}
+
+/// Zone send slots (SET_VOICE_FX `send[4]`): [`send_into`]'s targets below this are slots, the rest
+/// aux buses.
+const SLOTS: usize = 4;
+
+/// One send of a voice's block (frames `from..` of the quantum): `level × chain gain of bus ×
+/// (w0·l + w1·r, w2·l + w3·r)` into target `to`'s stereo input (zone slot `to`, or aux bus
+/// `to - SLOTS`'s accumulator), when it takes sends; `level` moves either way.
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn send_into(level: &mut Ramp, zones: &mut [u8], bus: u16, from: usize, l: &[f32], r: &[f32], to: usize, w: [f32; 4]) {
+    if level.is_settled() && level.value == 0.0 {
         return;
     }
     let from = from.min(QUANTUM);
-    let n = l.len().min(r.len()).min(QUANTUM - from);
-    let b = aux_bus as usize;
     let mut g = [0.0f32; QUANTUM];
-    if !scaled_gains(zones, bus, aux, from, n, &mut g) {
+    if !scaled_gains(zones, bus, level, from, l.len().min(QUANTUM - from), &mut g) {
         return;
     }
-    let Some(area) = sends_area(zones).filter(|a| b < a.head.buses as usize) else {
-        return;
+    let (dl, dr) = if to < SLOTS {
+        let Some(input) = zones::slot_input(zones, to) else {
+            return;
+        };
+        input
+    } else {
+        let b = to - SLOTS;
+        let Some(area) = sends_area(zones).filter(|a| b < a.head.buses as usize) else {
+            return;
+        };
+        area.head.aux_dirty[b / 32 % 8] |= 1 << (b % 32);
+        let Some(acc) = area.aux.get_mut(b * 2 * QUANTUM..(b + 1) * 2 * QUANTUM) else {
+            return;
+        };
+        acc.split_at_mut(QUANTUM)
     };
-    area.head.aux_dirty[b / 32 % 8] |= 1 << (b % 32);
-    let Some(acc) = area.aux.get_mut(b * 2 * QUANTUM..(b + 1) * 2 * QUANTUM) else {
-        return;
-    };
-    // The panner's equal-power matrix `[a, b, c, d]`, stepped as `PannerState::mix` will step it
-    // (on a copy): L += g·(a·l + b·r), R += g·(c·l + d·r).
-    let mut m = panner.matrix;
-    let (acc_l, acc_r) = acc.split_at_mut(QUANTUM);
-    let (ab, cd) = m.split_at_mut(2);
-    pan_one(acc_l, ab, from, n, &g, l, r);
-    pan_one(acc_r, cd, from, n, &g, l, r);
-}
-
-/// One channel of the aux tap: `acc[from + i] += g[i] · (w0[i]·l[i] + w1[i]·r[i])`, the two matrix
-/// ramps `w` stepped per frame.
-#[inline(never)]
-fn pan_one(acc: &mut [f32], w: &mut [Ramp], from: usize, n: usize, g: &[f32; QUANTUM], l: &[f32], r: &[f32]) {
-    let (mut w0, mut w1, mut x) = ([0.0f32; QUANTUM], [0.0f32; QUANTUM], [0.0f32; QUANTUM]);
-    if let [a, b] = w {
-        ramp_into(a, &mut w0, n);
-        ramp_into(b, &mut w1, n);
-    }
-    mac(&mut x[..n], &w0, l);
-    mac(&mut x[..n], &w1, r);
-    if let Some(dst) = acc.get_mut(from..) {
-        mac(dst, &g[..n], &x);
-    }
+    weigh_into(&mut dl[from..], &g, w[0], w[1], l, r);
+    weigh_into(&mut dr[from..], &g, w[2], w[3], l, r);
 }
 
 /// The pre-effects input hook (`bus::mixdown`): adds this quantum's aux sends aimed at `bus` into
@@ -210,9 +175,15 @@ pub fn add_aux(zones: &mut [u8], bus: usize, l: &mut [f32], r: &mut [f32]) {
         return;
     };
     area.head.aux_dirty[bus / 32] &= !bit;
-    if let Some(acc) = area.aux.get_mut(bus * 2 * QUANTUM..(bus + 1) * 2 * QUANTUM) {
-        let (acc_l, acc_r) = acc.split_at_mut(QUANTUM);
-        drain_into(l, acc_l);
-        drain_into(r, acc_r);
+    for (dst, src) in [l, r].into_iter().zip(area.aux.chunks_exact_mut(QUANTUM).skip(2 * bus)) {
+        drain_into(dst, src);
+    }
+}
+
+/// `dst[i] += src[i]`, then `src[i] = 0`.
+#[inline(never)]
+fn drain_into(dst: &mut [f32], src: &mut [f32]) {
+    for (d, s) in dst.iter_mut().zip(src) {
+        *d += core::mem::take(s);
     }
 }
