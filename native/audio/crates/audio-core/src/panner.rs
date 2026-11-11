@@ -166,7 +166,8 @@ impl PannerState {
         let want = self.kind == kind::BED && route.cur != crate::bed::NONE;
         let target = if want { 1.0 } else { 0.0 };
         let share = &mut entry.bed_share;
-        if share.value < 0.0 {
+        let fresh = share.value < 0.0;
+        if fresh {
             *share = Ramp::at(target);
         } else if share.target != target {
             let frames = libm::ceilf((target - share.value).abs() * fade as f32) as u32;
@@ -210,7 +211,11 @@ impl PannerState {
             }
             beds.apply_fold(&route, from, &mut x[..n]);
             let c1 = audio_dsp::ambisonic::encode_gains(audio_dsp::ambisonic::engine_to_ambix(self.dir), audio_dsp::ambisonic::MAX_ORDER);
-            let c0 = if y0 <= 0.0 { c1 } else { entry.bed_gains };
+            if y0 <= 0.0 || fresh {
+                // Entering the bed: no ramp from stale gains (later ranges of the quantum start here too).
+                entry.bed_gains = c1;
+            }
+            let c0 = entry.bed_gains;
             let last = from + n >= QUANTUM;
             beds.encode(&route, from, &x[..n], &c0, &c1, last);
             if last {
