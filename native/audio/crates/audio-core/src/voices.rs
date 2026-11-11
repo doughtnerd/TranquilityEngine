@@ -61,6 +61,7 @@
 //!
 //! `process` never allocates: every buffer is a region or a fixed-size stack array.
 
+use audio_dsp::ambisonic::{mat3_mul, yaw_ambix, Mat3, ShRotation, CHANNELS, MAT3_IDENTITY};
 use audio_dsp::ramp::Ramp;
 use audio_dsp::resample;
 use audio_wire::generated as wire;
@@ -301,6 +302,8 @@ pub fn render(core: &mut Core, frame: u64) {
     crate::sends::begin_quantum(core);
     // ADR 0162 A4: the beds' per-quantum state (counters, the ladder, moves, the sharing buses' folds).
     crate::bed::begin_quantum(core);
+    // ADR 0162 B3: the listener's rotation moves on one quantum (ambisonic voices ramp across it).
+    crate::listener::begin_quantum(core);
     core.regions_mut().output[..2 * QUANTUM].fill(0.0);
     let mut cursor = 0usize;
     let (mut source_frames, mut moving) = (0.0f32, 0u32);
@@ -359,6 +362,8 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
     // ADR 0162 A4: the beds kind-2 voices encode into, another region again (`None` without beds).
     // SAFETY: the `Beds` region is distinct from every region borrowed here.
     let mut beds = crate::bed::view(unsafe { &mut *(&mut regions.beds[..] as *mut [u8]) });
+    // ADR 0162 B3: the listener's rotation at the quantum's ends, for the ambisonic voices.
+    let listener = beds.as_ref().map_or([MAT3_IDENTITY; 2], |b| b.listener().ends());
     let mut v = view(regions);
     let (mut source_frames, mut moving) = (0.0f32, 0u32);
     let mut cursor = v.area.live_head;
@@ -404,7 +409,7 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
         let auto = autos.and_then(|a| unsafe { (&mut *a).get_mut(index) }).filter(|a| a.active_for(slot.id));
         // SAFETY: `zones` views the `Zones` region, distinct from every region borrowed here; one
         // voice holds it at a time.
-        let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones }, beds: beds.as_mut() };
+        let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones }, beds: beds.as_mut(), listener: &listener };
         // `AUTO = false` compiles the automation away: a voice without bindings or a loop region takes
         // exactly the M1 code (0158 E2: it costs nothing and renders bit for bit as before).
         match (slot.flags & flag::STREAM != 0, auto.is_some()) {
@@ -578,7 +583,21 @@ fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceA
             }
         }
     }
-    if slot.flags & flag::MIXED != 0 {
+    if slot.flags & flag::MIXED != 0 && slot.flags2 & flag2::AMBISONIC != 0 {
+        // ADR 0162 B3: an ambisonic voice reads its 4, 9 or 16 channels and is rotated into its
+        // bus's bed or a private decoder; it never reaches the panner.
+        let ch = ambisonic_channels(clip.source.channels);
+        let mut planar = [0.0f32; resample::PLANAR_SCRATCH_FLOATS];
+        if let Some((start, end)) = region {
+            resample::lagrange_region_n(&clip.source, &mut slot.position, &steps[..n], start, end, ch, &mut planar);
+        } else {
+            resample::lagrange_n(&clip.source, &mut slot.position, &steps[..n], looping, ch, &mut planar);
+        }
+        ambisonic_mix(slot, auto.as_deref(), &mut fx, from, n, ch, &planar);
+        if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
+            slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
+        }
+    } else if slot.flags & flag::MIXED != 0 {
         let mut l = [0.0f32; QUANTUM];
         let mut r = [0.0f32; QUANTUM];
         if let Some((start, end)) = region {
@@ -925,11 +944,13 @@ struct VoiceFx<'a> {
     zones: &'a mut [u8],
     /// ADR 0162 A4: the beds (`bed.rs`), `None` for a core without them.
     beds: Option<&'a mut crate::bed::Beds>,
+    /// ADR 0162 B3: the listener's rotation at the quantum's start and end (AmbiX).
+    listener: &'a [Mat3; 2],
 }
 
 impl VoiceFx<'_> {
     fn reborrow(&mut self) -> VoiceFx<'_> {
-        VoiceFx { entry: self.entry.as_deref_mut(), zones: &mut *self.zones, beds: self.beds.as_deref_mut() }
+        VoiceFx { entry: self.entry.as_deref_mut(), zones: &mut *self.zones, beds: self.beds.as_deref_mut(), listener: self.listener }
     }
 
     /// ADR 0162 A4: the panner's kind-2 context, when the core has beds and the voice an entry.
@@ -1032,6 +1053,79 @@ fn auto_gain(a: &VoiceAuto, l: &mut [f32], r: &mut [f32], from: usize) {
     }
 }
 
+/// ADR 0162 B3: the channels an ambisonic voice reads from a clip of `channels`: the whole orders it
+/// holds (16, 9 or 4), or its W alone for a clip with fewer than 4 (main refuses those).
+#[inline]
+fn ambisonic_channels(channels: u32) -> usize {
+    match channels {
+        16.. => 16,
+        9..=15 => 9,
+        4..=8 => 4,
+        _ => 1,
+    }
+}
+
+/// ADR 0162 B3 (architecture §2.3, §3.5, §4; api-and-models §1.6, §4.4): an ambisonic voice's
+/// resampled block `planar` (`ch` rows of `n` frames, frames `from..from + n` of the quantum),
+/// through its chain and into the beds:
+/// - the fade and mix ramps and automation `gainMul`; never filtered (C17);
+/// - the **zone send** taps W (channel 0) there, before the dry gain, as a mono voice's signal (the
+///   other sends and the aux don't apply to an ambisonic voice, C1);
+/// - the dry `gain` ramp;
+/// - rotated by `R = R(listener) · Rz(yaw)` (the listener's rotation at the quantum's start and end,
+///   the yaw the last quantum ended on and the current one), ramped per sample across the quantum,
+///   and added into its bus's **bed** (after the bus's fold, as a kind-2 voice), or, with no bed on
+///   its bus, into a **private decoder** hosted by its bus. A core without a `Beds` region has
+///   neither: the voice keeps time silently (main gives it `maxClips` 0 there, and the core steals
+///   it at PLAY, [`steal_ambisonic`]).
+fn ambisonic_mix(slot: &mut VoiceSlot, auto: Option<&VoiceAuto>, fx: &mut VoiceFx<'_>, from: usize, n: usize, ch: usize, planar: &[f32]) {
+    let mut g = [0.0f32; QUANTUM];
+    for g in g[..n].iter_mut() {
+        *g = slot.fade.next() * slot.mix.next();
+    }
+    if let Some(a) = auto.filter(|a| a.count != 0 && a.targets & automation::has::GAIN != 0) {
+        for (i, g) in g[..n].iter_mut().enumerate() {
+            *g *= a.gain_at(from + i);
+        }
+    }
+    let VoiceFx { entry, zones, beds, listener } = fx;
+    let mut yaw = [0.0f32; 2];
+    if let Some(e) = entry.as_deref_mut() {
+        if e.sending() {
+            let mut w = [0.0f32; QUANTUM];
+            for i in 0..n {
+                w[i] = planar[i] * g[i];
+            }
+            crate::sends::tap(&mut e.send, zones, slot.bus, from, &w[..n], &w[..n]);
+        }
+        yaw = [if e.yaw_last.is_nan() { e.yaw } else { e.yaw_last }, e.yaw];
+        if from + n >= QUANTUM {
+            e.yaw_last = e.yaw;
+        }
+    }
+    for g in g[..n].iter_mut() {
+        *g *= slot.gain.next();
+    }
+    slot.panner.advance(n as u32);
+    let Some(beds) = beds.as_deref_mut() else { return };
+    let route = beds.route(slot.bus);
+    let target = if route.cur != crate::bed::NONE {
+        beds.apply_fold(&route, from, &mut g[..n]);
+        Some(route.cur as usize)
+    } else {
+        beds.private_decoder(route.bus)
+    };
+    let Some(s) = target else { return };
+    let mut x: crate::bed::Acc = [[0.0; QUANTUM]; CHANNELS];
+    for (c, row) in x.iter_mut().enumerate().take(ch) {
+        for i in 0..n {
+            row[from + i] = planar[c * n + i] * g[i];
+        }
+    }
+    let m = |k: usize| ShRotation::from_mat3(&mat3_mul(&listener[k], &yaw_ambix(yaw[k])));
+    beds.rotate_add(s, &x, ch, &m(0), &m(1));
+}
+
 /// A clip voice's pending SEEK (its target in `start_frame`'s low bits) lands: moves it there
 /// (wrapped for a loop, clamped to the end otherwise) and ends the pending state.
 fn clip_seek_jump(slot: &mut VoiceSlot, frames: u32, looping: bool) {
@@ -1047,11 +1141,12 @@ fn report(core: &mut Core) {
     // B3: first, while the rings of voices that ended this quantum still hold their reports.
     report_streams(core);
     let room = (ENDED_CAP - status::counters(core).ended.len()).min(ENDED_SCRATCH);
-    let (live, mixed, ended, playheads, late_count, late_max) = {
+    let (live, mixed, ambisonic, ended, playheads, late_count, late_max) = {
         let (regions, _, streams) = core.render_parts();
         let mut v = view(regions);
         v.area.ended_len = 0;
         let mut mixed = 0u32;
+        let mut ambisonic = 0u32;
         let mut wants = 0u32;
         let mut cursor = v.area.live_head;
         while cursor != 0 {
@@ -1074,6 +1169,7 @@ fn report(core: &mut Core) {
                 state::PLAYING => {
                     if s.flags & flag::MIXED != 0 {
                         mixed += 1;
+                        ambisonic += (s.flags2 & flag2::AMBISONIC != 0) as u32;
                     }
                     if s.flags & flag::WANTS_PLAYHEAD != 0 {
                         wants += 1;
@@ -1087,7 +1183,7 @@ fn report(core: &mut Core) {
         v.area.late_count = 0;
         v.area.late_max = 0;
         v.area.mixed_count = mixed;
-        (v.area.live_count, mixed, v.area.ended_len as usize, v.area.playheads_len as usize, late.0, late.1)
+        (v.area.live_count, mixed, ambisonic, v.area.ended_len as usize, v.area.playheads_len as usize, late.0, late.1)
     };
     for i in 0..ended {
         let id = view(core.regions_mut()).area.ended[i];
@@ -1104,6 +1200,8 @@ fn report(core: &mut Core) {
     }
     c.live_voices = live.min(u16::MAX as u32) as u16;
     c.mixed_voices = mixed.min(u16::MAX as u32) as u16;
+    // ADR 0162 B3: STATUS `ambisonicVoices`, the mixed ambisonic voices.
+    c.spatial.ambisonic_voices = ambisonic.min(u16::MAX as u32) as u16;
     // ADR 0162 D1: STATUS `fxVoices`.
     crate::fxpool::report(core);
 }
@@ -1230,7 +1328,9 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         s.mix = Ramp::at(if flags & flag::MIXED != 0 { 1.0 } else { 0.0 });
         let spatial = play.flags & wire::PLAY_FLAGS_SPATIAL != 0;
         let kind = ((play.flags & wire::PLAY_FLAGS_PANNER_MASK) >> wire::PLAY_FLAGS_PANNER_SHIFT) as u8;
-        s.panner.start(spatial, kind, [play.dir_x, play.dir_y, play.dir_z], channels);
+        // A plain voice on an ambisonic clip plays its W (`resample::lagrange`): pan it as mono. An
+        // ambisonic voice never reaches the panner (ADR 0162 B3).
+        s.panner.start(spatial, kind, [play.dir_x, play.dir_y, play.dir_z], if channels > 2 { 1 } else { channels });
         if flags & flag::MIXED != 0 && ensure_fx(&mut v, index) {
             set_entry_lowpass(&mut v, index, play.lp_hz, 0);
         }
@@ -1242,6 +1342,47 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         status::counters_mut(core).ended.push(old);
         if stream {
             core.streams_mut().release(clip, old);
+        }
+    }
+    if play.flags & wire::PLAY_FLAGS_AMBISONIC != 0 {
+        steal_ambisonic(core, index);
+    }
+}
+
+/// ADR 0162 B3 (architecture §2.3: "`maxClips` caps concurrent ambisonic voices of either kind; the
+/// lowest priority is stolen"): after the PLAY of the ambisonic voice in slot `newcomer`, while more
+/// ambisonic voices are live than `max_wide` (the wide rings and private decoders `maxClips` sizes)
+/// the one with the lowest `score` is stolen; at equal scores an older voice goes before the
+/// newcomer. A voice not started (the newcomer, usually) or virtual ends at once; a mixed one fades
+/// out over the 5 ms mix fade and ends. Voices already stopping don't count. Main steals by
+/// priority first (B5), so this is the core's guarantee, not its usual path.
+fn steal_ambisonic(core: &mut Core, newcomer: usize) {
+    let limit = core.params().max_wide as usize;
+    let frames = mix_fade_frames(core);
+    let v = view(core.regions_mut());
+    loop {
+        let (mut count, mut victim) = (0usize, None::<usize>);
+        let mut cursor = v.area.live_head;
+        while cursor != 0 {
+            let i = cursor as usize - 1;
+            let s = &v.slots[i];
+            cursor = s.next;
+            if !is_live_state(s.state) || s.flags2 & flag2::AMBISONIC == 0 || s.flags & flag::STOP_ON_FADE_END != 0 {
+                continue;
+            }
+            count += 1;
+            let lower = victim.is_none_or(|b| s.score < v.slots[b].score || (s.score == v.slots[b].score && b == newcomer));
+            if lower {
+                victim = Some(i);
+            }
+        }
+        let Some(i) = victim.filter(|_| count > limit) else { return };
+        let s = &mut v.slots[i];
+        if s.state == state::SCHEDULED || s.flags & flag::MIXED == 0 {
+            s.state = state::ENDED;
+        } else {
+            s.fade.set_target(0.0, frames);
+            s.flags |= flag::STOP_ON_FADE_END;
         }
     }
 }

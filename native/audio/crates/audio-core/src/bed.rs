@@ -49,6 +49,15 @@
 //! `onmessage`, into this region, and sets STATUS flags bit 6 `bedDecoderReady`. Freeing the clip,
 //! or a RESET that drops clips, clears them ([`clear_filters`]).
 //!
+//! **Ambisonic voices** (B3; architecture §2.3, api-and-models §1.6): `voices.rs` rotates an
+//! ambisonic clip voice by the listener and its yaw straight into its bus's bed slot
+//! ([`Beds::rotate_add`], after the bus's fold), or, when its bus has no bed, into a **private
+//! decoder** ([`Beds::private_decoder`]): one of `max_wide` slots past the beds, claimed for the
+//! voice's bus and decoding into that bus before its effects exactly as a bed does (MagLS when
+//! resident, else the matrix). Voices on one bus share one; an idle private decoder is freed. Their
+//! work goes into `workBed`; they aren't in the `beds` section. The listener's rotation lives in the
+//! header too (`listener.rs`).
+//!
 //! **Load shedding** (architecture §7.3, OD3, api-and-models §10.1): the ladder runs only once the
 //! adaptive cap sits at its floor and underruns go on for [`LADDER_SUSTAIN_SECONDS`]; each step
 //! counts in `m3Shed` ([`m3_shed`]). This module's step is the **bed-idle** step: beds go idle after
@@ -78,6 +87,9 @@ use crate::QUANTUM;
 
 /// Most bed slots (the wire's `MAX_BEDS`).
 pub const MAX_SLOTS: usize = wire::MAX_BEDS as usize;
+/// Most private decoders (`InitParams::MAX_WIDE`: one per ambisonic clip, B3). Their states follow
+/// the bed slots' in `Header::slots`, and their slots follow the beds' in the region.
+pub const MAX_PRIVATE: usize = InitParams::MAX_WIDE as usize;
 /// "No slot" in the bus table (the wire's `BED_SLOT_NONE`).
 pub const NONE: u8 = wire::BED_SLOT_NONE as u8;
 /// The bus table's size: `InitParams::MAX_BUSES`.
@@ -96,6 +108,9 @@ pub mod wu {
     pub const ENCODE: u32 = 900;
     pub const DECODE_MAGLS: u32 = 20_000;
     pub const DECODE_MATRIX: u32 = 2_000;
+    /// An ambisonic voice's rotation into a bed or private decoder (architecture §2.3: ≈ 5 µs at
+    /// 3rd order, the 16-channel read ≈ 8 µs beside it; B3).
+    pub const ROTATE: u32 = 5_000;
 }
 
 /// Ladder steps (bits of [`ladder_steps`]).
@@ -138,7 +153,8 @@ struct SlotState {
     dirty: u8,
     /// The slot decoded in the last quantum (reported by the next `begin_quantum`).
     decoded_last: u8,
-    _pad: u16,
+    /// Ambisonic voices rotated in this quantum (B3; counted in `work_last`, not in `voices`).
+    ambisonic: u16,
     work_last: u32,
 }
 
@@ -198,7 +214,10 @@ struct Header {
     /// Frames of [`LADDER_SUSTAIN_SECONDS`].
     sustain_frames: u32,
     ladder: Ladder,
-    slots: [SlotState; MAX_SLOTS],
+    /// The bed slots, then the private decoders (B3).
+    slots: [SlotState; MAX_SLOTS + MAX_PRIVATE],
+    /// The listener's rotation (`listener.rs`, B3).
+    listener: crate::listener::ListenerState,
     buses: [BusBed; MAX_BED_BUSES],
     /// Per-frame folds of the sharing buses, this quantum.
     fold: [[f32; QUANTUM]; FOLD_CAP],
@@ -210,8 +229,8 @@ const fn align64(n: usize) -> usize {
 
 const HEADER_BYTES: usize = align64(core::mem::size_of::<Header>());
 const SCRATCH_BYTES: usize = align64(core::mem::size_of::<HrtfScratch>());
-/// The 16-channel accumulator, channel-major.
-type Acc = [[f32; QUANTUM]; CHANNELS];
+/// The 16-channel accumulator, channel-major (also an ambisonic voice's rotation input, B3).
+pub type Acc = [[f32; QUANTUM]; CHANNELS];
 const ACC_BYTES: usize = core::mem::size_of::<Acc>();
 
 /// The decoder's partitions at `sample_rate` (as the HRTF bank's: 2 below 88.2 kHz, 4 up to
@@ -446,6 +465,56 @@ impl Beds {
             }
         }
     }
+
+    /// B3: the listener's rotation.
+    pub fn listener(&self) -> &crate::listener::ListenerState {
+        &self.header_ref().listener
+    }
+
+    /// B3: the private decoder an ambisonic voice on bus `bus` (a route's bus, so configured) adds
+    /// into when its bus has no bed: the one already decoding into `bus` (voices on one bus share
+    /// it: decoding is linear), else a free one, claimed for `bus` from silence. `None` when every
+    /// private decoder decodes into another bus (more buses than `max_wide` play ambisonic clips at
+    /// once, during a steal's fade-out): the voice is silent for that quantum.
+    pub fn private_decoder(&mut self, bus: u16) -> Option<usize> {
+        let h = self.header_ref();
+        let (first, n) = (h.max_beds as usize, h.max_wide as usize);
+        let range = first..first + n.min(MAX_PRIVATE);
+        if let Some(s) = range.clone().find(|&s| h.slots[s].state == slot_state::ACTIVE && h.slots[s].host == bus) {
+            return Some(s);
+        }
+        let s = range.clone().find(|&s| h.slots[s].state == slot_state::FREE)?;
+        reset_slot(self, s);
+        self.header().slots[s] = SlotState { host: bus, state: slot_state::ACTIVE, since: u32::MAX, ..SlotState::default() };
+        Some(s)
+    }
+
+    /// B3: adds `M(t) · input` into slot `s` (a bed slot or a private decoder) for the first
+    /// `channels` channels, `M(t)` ramping per sample from `m0` to `m1` across the quantum
+    /// (`ambisonic::rotate_ramp_add`; `input` is zero outside the frames the voice rendered).
+    pub fn rotate_add(&mut self, s: usize, input: &Acc, channels: usize, m0: &ambisonic::ShRotation, m1: &ambisonic::ShRotation) {
+        let h = self.header_ref();
+        if s >= h.max_beds as usize + (h.max_wide as usize).min(MAX_PRIVATE) {
+            return;
+        }
+        ambisonic::rotate_ramp_add(input, self.acc(s), channels, m0, m1);
+        let st = &mut self.header().slots[s];
+        st.dirty = 1;
+        st.since = 0;
+        st.ambisonic = st.ambisonic.saturating_add(1);
+    }
+}
+
+/// B3: the listener's state in the `Beds` region's header (written first if it wasn't); `None` for
+/// a core without the region.
+pub(crate) fn listener_mut(core: &mut Core) -> Option<&mut crate::listener::ListenerState> {
+    if !ensure_init(core) {
+        return None;
+    }
+    let region = &mut core.regions_mut().beds[..];
+    // SAFETY: see `view`; the header is written (`ensure_init`), and the borrow of the region keeps
+    // any other view out while it lives.
+    Some(unsafe { &mut (*(region.as_mut_ptr() as *mut Header)).listener })
 }
 
 /// The equal-power pair `(cos, sin)` of `t · π/2` for `t` in 0..=1 (`libm`, so native and wasm
@@ -489,9 +558,9 @@ fn ensure_init(core: &mut Core) -> bool {
     true
 }
 
-/// Every bus without a bed, every slot free (RESET and init).
+/// Every bus without a bed, every slot and private decoder free (RESET and init).
 fn clear_config(h: &mut Header) {
-    h.slots = [SlotState::default(); MAX_SLOTS];
+    h.slots = [SlotState::default(); MAX_SLOTS + MAX_PRIVATE];
     h.buses = [BUS_NONE; MAX_BED_BUSES];
     h.bus_count = 1;
 }
@@ -598,6 +667,11 @@ pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
     crate::status::counters_mut(core).spatial.note_beds_refused(refused.min(u16::MAX as usize) as u16);
 }
 
+/// Bed slots and private decoders in the region.
+fn slot_count(h: &Header) -> usize {
+    h.max_beds as usize + (h.max_wide as usize).min(MAX_PRIVATE)
+}
+
 /// Silences slot `s`: its accumulator and its decoder history.
 fn reset_slot(beds: &mut Beds, s: usize) {
     let p = beds.partitions;
@@ -623,14 +697,14 @@ pub fn begin_quantum(core: &mut Core) {
     let mut n = 0usize;
     {
         let Some(mut beds) = view(&mut core.regions_mut().beds[..]) else { return };
-        let max_beds = beds.header_ref().max_beds as usize;
-        for s in 0..max_beds {
+        for s in 0..slot_count(beds.header_ref()) {
             if beds.header_ref().slots[s].dirty != 0 {
                 // Encoded but not decoded (its host wasn't mixed): drop it.
                 beds.acc(s).iter_mut().for_each(|c| c.fill(0.0));
                 let st = &mut beds.header().slots[s];
                 st.dirty = 0;
                 st.voices = 0;
+                st.ambisonic = 0;
             }
         }
         let h = beds.header();
@@ -688,17 +762,24 @@ pub fn begin_quantum(core: &mut Core) {
     }
 }
 
-/// The last quantum's bed counters into STATUS (`bedVoices`, `bedsActive`, `beds`, `workBed`).
+/// The last quantum's bed counters into STATUS (`bedVoices`, `bedsActive`, `beds`, `workBed`); the
+/// private decoders' work goes into `workBed` only (B3).
 fn report(core: &mut Core) {
     let Some(mut beds) = view(&mut core.regions_mut().beds[..]) else { return };
     let h = beds.header();
     let mut items = [BedStatus::default(); MAX_SLOTS];
     let (mut active, mut voices, mut work) = (0usize, 0u32, 0u32);
-    for st in h.slots.iter_mut().take(h.max_beds as usize) {
+    let n = slot_count(h);
+    let max_beds = h.max_beds as usize;
+    for (s, st) in h.slots.iter_mut().enumerate().take(n) {
         if st.decoded_last == 0 {
             continue;
         }
         st.decoded_last = 0;
+        if s >= max_beds {
+            work = work.saturating_add(st.work_last);
+            continue;
+        }
         voices += st.voices_last as u32;
         work = work.saturating_add(st.work_last);
         items[active] = BedStatus { bus: st.host, voices: st.voices_last, work: st.work_last };
@@ -708,7 +789,6 @@ fn report(core: &mut Core) {
     c.bed_voices = voices.min(u16::MAX as u32) as u16;
     c.beds_active = active as u16;
     c.beds[..active].copy_from_slice(&items[..active]);
-    // B3 adds its ambisonic voices' work to the same field.
     c.work_bed = work;
 }
 
@@ -772,15 +852,15 @@ pub fn decode_into(beds: &mut [u8], bus: usize, l: &mut [f32], r: &mut [f32]) {
     let h = b.header_ref();
     let max_beds = h.max_beds as usize;
     let idle = if h.ladder.steps & step::BED_IDLE != 0 { 1 } else { (h.partitions as u32).max(2) };
-    for s in 0..max_beds {
+    for s in 0..slot_count(h) {
         let st = b.header_ref().slots[s];
         if st.state == slot_state::FREE || st.host as usize != bus {
             continue;
         }
         let since = if st.dirty != 0 { 0 } else { st.since.saturating_add(1) };
         if since > idle {
-            // Idle (or drained): reset once, then nothing.
-            if st.state == slot_state::DRAINING {
+            // Idle (or drained): reset once, then nothing. An idle private decoder is freed (B3).
+            if st.state == slot_state::DRAINING || s >= max_beds {
                 reset_slot(&mut b, s);
                 b.header().slots[s] = SlotState::default();
             } else if st.since <= idle {
@@ -810,8 +890,9 @@ pub fn decode_into(beds: &mut [u8], bus: usize, l: &mut [f32], r: &mut [f32]) {
         x.dirty = 0;
         x.decoded_last = 1;
         x.voices_last = x.voices;
-        x.work_last = work.saturating_add(wu::ENCODE.saturating_mul(x.voices as u32));
+        x.work_last = work.saturating_add(wu::ENCODE.saturating_mul(x.voices as u32)).saturating_add(wu::ROTATE.saturating_mul(x.ambisonic as u32));
         x.voices = 0;
+        x.ambisonic = 0;
     }
 }
 
@@ -917,8 +998,7 @@ pub fn reset(core: &mut Core) {
         return;
     }
     let Some(mut beds) = view(&mut core.regions_mut().beds[..]) else { return };
-    let slots = beds.header_ref().max_beds as usize + beds.header_ref().max_wide as usize;
-    for s in 0..slots {
+    for s in 0..slot_count(beds.header_ref()) {
         reset_slot(&mut beds, s);
     }
     clear_config(beds.header());
