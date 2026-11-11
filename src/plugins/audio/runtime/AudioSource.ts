@@ -235,9 +235,14 @@ export class AudioSource extends Component {
   }
 
   /** ADR 0162 §1.2 (D4): the options an event the source plays gets (the event's own `spatial` keys win; a flat event ignores them). */
-  private eventSpatialOptions(): Pick<EventOptions, "occlusion" | "dopplerLevel" | "reverbSend" | "reverbSendCurve"> {
-    const { occlusion, dopplerLevel, reverbSend, reverbSendCurve } = this.spatialOptions();
-    return { occlusion, dopplerLevel, reverbSend, reverbSendCurve };
+  /**
+   * ADR 0162 D4: the source's §1.2 options an event it plays inherits where the event leaves them unset. Not
+   * `dopplerLevel`: Doppler is authored on the event (§2.5 default 0, as in Wwise and FMOD), so a source's default 1
+   * doesn't override it (coordinator ruling, build log).
+   */
+  private eventSpatialOptions(): Pick<EventOptions, "occlusion" | "reverbSend" | "reverbSendCurve"> {
+    const { occlusion, reverbSend, reverbSendCurve } = this.spatialOptions();
+    return { occlusion, reverbSend, reverbSendCurve };
   }
 
   /**
