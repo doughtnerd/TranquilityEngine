@@ -54,10 +54,10 @@ export const VoiceFlag = {
 } as const;
 
 /**
- * @internal ADR 0162 (K4, api-and-models §3.2 `flags2`): the M3 per-voice bits, set at play from the request.
- * OCCLUSION: walls muffle it (a positioned voice with `occlusion` not false). AMBISONIC: an ambisonic clip (spatial
- * fields, occlusion and Doppler ignored). SENDS: it may send to zones (`reverbSend` > 0, positioned or ambisonic). AUX:
- * an event aux send.
+ * @internal ADR 0162 (K4, api-and-models §3.2 `flags2`): the M3 per-voice bits, what the voice asks for (set at play
+ * from the request, changed by Play edits). OCCLUSION: walls may muffle it (`occlusion` not false; only a positioned,
+ * non-ambisonic voice is cast). AMBISONIC: an ambisonic clip (spatial fields, occlusion and Doppler ignored). SENDS:
+ * `reverbSend` > 0 (only positioned and ambisonic voices send). AUX: an event aux send.
  */
 export const VoiceFlag2 = {
   OCCLUSION: 1 << 0,

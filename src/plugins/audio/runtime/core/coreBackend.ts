@@ -1007,26 +1007,22 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   }
 
   /**
-   * §1.2 options at play (`initial`: omitted fields take K0's defaults: occlusion on for a positioned voice, Doppler 0,
-   * send 1, the default curve, yaw 0) or as a Play edit (omitted fields are kept). Callers clamp; this clamps again.
+   * §1.2 options at play (`initial`: omitted fields take K0's defaults: occlusion on, Doppler 0, send 1, the default
+   * curve, yaw 0) or as a Play edit (omitted fields are kept). Callers clamp; this clamps again.
    */
   private applySpatialOptions(i: number, o: VoiceSpatialOptions, initial: boolean): void {
     const t = this.table;
-    const ambisonic = (t.flags2[i]! & VoiceFlag2.AMBISONIC) !== 0;
-    const positioned = (t.flags[i]! & VoiceFlag.SPATIAL) !== 0;
     let f2 = t.flags2[i]!;
-    if (initial || o.occlusion !== undefined) {
-      const on = o.occlusion ?? true;
-      f2 = positioned && !ambisonic && on ? f2 | VoiceFlag2.OCCLUSION : f2 & ~VoiceFlag2.OCCLUSION;
-    }
+    // The bits say what the voice asks for; the view adds whether it is positioned (a source's position comes after its play).
+    if (initial || o.occlusion !== undefined) f2 = (o.occlusion ?? true) ? f2 | VoiceFlag2.OCCLUSION : f2 & ~VoiceFlag2.OCCLUSION;
     if (o.dopplerLevel !== undefined && Number.isFinite(o.dopplerLevel)) t.dopplerLevel[i] = clamp(o.dopplerLevel, 0, 5);
     if (o.reverbSend !== undefined && Number.isFinite(o.reverbSend)) t.reverbSend[i] = clamp(o.reverbSend, 0, 2);
     if (o.reverbSendCurve !== undefined) t.sendCurve[i] = this.sendCurves.intern(o.reverbSendCurve);
     if (o.yaw !== undefined && Number.isFinite(o.yaw)) {
       t.yaw[i] = (clamp(o.yaw, -180, 180) * Math.PI) / 180;
-      if (ambisonic) this.voiceFx.setYaw(i, t.yaw[i]!);
+      if ((f2 & VoiceFlag2.AMBISONIC) !== 0) this.voiceFx.setYaw(i, t.yaw[i]!);
     }
-    f2 = (positioned || ambisonic) && t.reverbSend[i]! > 0 ? f2 | VoiceFlag2.SENDS : f2 & ~VoiceFlag2.SENDS;
+    f2 = t.reverbSend[i]! > 0 ? f2 | VoiceFlag2.SENDS : f2 & ~VoiceFlag2.SENDS;
     t.flags2[i] = f2;
   }
 
@@ -1557,12 +1553,14 @@ class TableSpatialView implements SpatialVoiceView {
         if (s !== VoiceState.PLAYING && s !== VoiceState.VIRTUAL) continue;
         const f = flags[i]!;
         const f2 = flags2[i]!;
+        const spatial = (f & VoiceFlag.SPATIAL) !== 0;
+        const ambisonic = (f2 & VoiceFlag2.AMBISONIC) !== 0;
         this.viewFlags[i] =
-          (f & VoiceFlag.SPATIAL ? SpatialViewFlag.SPATIAL : 0) |
+          (spatial && !ambisonic ? SpatialViewFlag.SPATIAL : 0) |
           (s === VoiceState.PLAYING ? SpatialViewFlag.MIXED : 0) |
-          (f2 & VoiceFlag2.OCCLUSION ? SpatialViewFlag.OCCLUSION : 0) |
-          (f2 & VoiceFlag2.AMBISONIC ? SpatialViewFlag.AMBISONIC : 0) |
-          (f2 & VoiceFlag2.SENDS ? SpatialViewFlag.SENDS : 0);
+          (spatial && !ambisonic && f2 & VoiceFlag2.OCCLUSION ? SpatialViewFlag.OCCLUSION : 0) |
+          (ambisonic ? SpatialViewFlag.AMBISONIC : 0) |
+          ((spatial || ambisonic) && f2 & VoiceFlag2.SENDS ? SpatialViewFlag.SENDS : 0);
         this.slots[n++] = i;
       }
     }
