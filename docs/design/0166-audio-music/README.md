@@ -35,12 +35,15 @@ The owner's working rules from M3 still apply: [../0162-audio-spatial/working-no
 | Task table | Re-summed by script: 79 rows; M4-0 25, M4a 108, M4b 58, M4c 34, M4d 63 = **288 d** (S 99.5, M 162, J 26.5). Both reserve columns re-sum (96 and 58). The critical chain, summed per milestone, is 109.5 d. Every dependency names an existing task | matches the document |
 | Numbers vs spikes | High allowances: S4's +43 / +99 µs native ÷ 1.45 = 30 / 68 µs, as in architecture §7. The first lead is 100 ms (Ê seed 40 ms; S1's 20–60 ms prime estimate). The splice needs ≥ 325 frames (S1 Q4) and the margin is 480 | — |
 | Spot re-measurement | Not run. The one claim that moved during the design (a stamped PLAY doesn't split) is settled by the code, and no measured number changed. Per the owner's rule, no run that can't change a decision | — |
-| Stale decisions | The record says PLAY splits; its lead formula is max(horizon, 1.25 × EMA); its default and low worst allowances are 0.06 / 0.04 ms | write back at step 9 (lead = 1.25 Ê + L + Δ̄; allowances 0.08 / 0.06 ms as tripwire moves) |
+| Stale decisions | The record says PLAY splits; its lead formula is max(horizon, 1.25 × EMA); its default and low worst allowances are 0.06 / 0.04 ms | written back in [ADR 0167](../../decisions/0167-interactive-music-design-corrections-and-owner-decisions.md) (lead = 1.25 Ê + L + Δ̄; allowances 0.08 / 0.06 ms as tripwire moves) |
 
 **Estimate, line by line:**
 - the record's provisional 45–55 pw;
 - round 1: 291 d of tasks + a 96 d reserve = 77.4 pw;
-- round 2B: 288 d of tasks (−3 d: the architect's duplication cuts −21 d, then +18 d for the rows the rulings made firm: the voice-local split, span clips, the worker cache, the group hold and the slip rebase) + a reserve of **96 d (a third) = 76.8 pw**, or **58 d (20%) = 69.2 pw**.
+- round 2B: 288 d of tasks (−3 d: the architect's duplication cuts −21 d, then +18 d for the rows the rulings made firm: the voice-local split, span clips, the worker cache, the group hold and the slip rebase) + a reserve of **96 d (a third) = 76.8 pw**, or **58 d (20%) = 69.2 pw**;
+- round 3 (owner decisions): **290.5 d** of tasks (+2.5 d: pitch validation in P6 +0.5, `handle.onMusic` K5 +0.5, public seek R7 +1.5) + the chosen **58 d (20%)** reserve = **348.5 d ≈ 69.7 pw**. Re-summed by script: 81 rows, M4-0 25, M4a 108.5, M4b 59.5, M4c 34.5, M4d 63.
+
+After round 3 the two documents disagreed on one point: whether seek may name another segment. Ruling R25 settled it (seek stays within the playing segment, as in Wwise and FMOD).
 
 ## Owner decisions on the design (2026-11-11)
 

@@ -117,3 +117,7 @@ The owner accepted every recommendation, recorded in [ADR 0167](../../decisions/
 5. **A hidden tab under `mute` commits ahead, as under `play`** (0 d).
 6. **The starve group hold (R11) stands.**
 7. **0166's corrections go into ADR 0167, an amending record**, not a revision section. The owner asked whether every recommendation follows industry standards. This one didn't (CLAUDE.md and ADR practice keep accepted records immutable), so it was changed. Item 6 is the project's own design: the middleware surveyed treats starvation as a fault, and its handling is unverified.
+
+## Ruling after round 3
+
+- **R25. Seek stays within the playing segment.** The architect's C20 says that seeking to another item is not a seek. The senior engineer's first signature also accepted `{ segment, at }`. The architect's rule stands, because Wwise's `SeekOnEvent` and FMOD's `setTimelinePosition` both seek within what is playing. Going to another segment is a switch or playlist change under the transition rules. So `handle.music.seek(to: string)` takes a musical position, and the `unknownSegment` refusal is dropped. The cost is unchanged (R7, 1.5 d).
