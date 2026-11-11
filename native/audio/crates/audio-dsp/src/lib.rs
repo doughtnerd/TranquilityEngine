@@ -9,6 +9,9 @@
 //!   `microfft`), `hrtf` (H1). A2.1 (contract K5) left `biquad`, `compressor` and `convolver` as
 //!   stubs with their final signatures, so A2.2a and A2.2b fill only their own file.
 //!
+//! - 0166 M4-0 (Q1's skeletons, Z2b fills): `equal_power` (the 1,024-point quarter-sine table) and
+//!   `curve_laws` (the fade laws at control rate).
+//!
 //! Rules for every module: transcendentals go through `libm` (never `f32::sin` and friends), so
 //! native tests and the wasm build give bit-identical results; nothing allocates while processing.
 
@@ -18,6 +21,8 @@ pub mod bed_matrix;
 pub mod biquad;
 pub mod compressor;
 pub mod convolver;
+pub mod curve_laws;
+pub mod equal_power;
 pub mod fxfilter;
 pub mod hrtf;
 pub mod limiter;

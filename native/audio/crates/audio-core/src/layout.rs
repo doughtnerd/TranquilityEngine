@@ -81,12 +81,19 @@ pub enum RegionKind {
     Fx,
     /// ADR 0162 C8: the 8 KB planar scratch for sources of up to 16 channels.
     Scratch,
+    /// 0166 M4-0: the due list and the parked records (`due::REGION_BYTES`: `(DUE_RECORDS +
+    /// PARKED_RECORDS) × 48` = 18,432 B on every preset).
+    Due,
+    /// 0166 M4-0: the curve pool (`curves::REGION_BYTES`: `CURVE_ENTRIES × 32` = 8,160 B).
+    Curves,
+    /// 0166 M4a: the group table (`groups::REGION_BYTES`: `MAX_GROUPS × 160` = 2,560 B).
+    Groups,
     /// The clip arena's initial reserve. Always last.
     Arena,
 }
 
 /// The layout order. Append-only before `Arena` (see the module comment).
-pub const REGION_ORDER: [RegionKind; 17] = [
+pub const REGION_ORDER: [RegionKind; 20] = [
     RegionKind::Output,
     RegionKind::CoreState,
     RegionKind::Pending,
@@ -103,8 +110,21 @@ pub const REGION_ORDER: [RegionKind; 17] = [
     RegionKind::Wide,
     RegionKind::Fx,
     RegionKind::Scratch,
+    RegionKind::Due,
+    RegionKind::Curves,
+    RegionKind::Groups,
     RegionKind::Arena,
 ];
+
+/// 0166 M4 (api-and-models §3.1, architecture §6): the bytes `Due`, `Curves` and `Groups` add on
+/// every preset, 18,432 + 8,160 + 2,560. `Curves` (8,160 B) isn't a multiple of `REGION_ALIGN`, so
+/// `Groups` starts 32 B after its end: the three span [`M4_REGIONS_SPAN`] = 29,184 B.
+pub const M4_REGIONS_BYTES: usize = crate::due::REGION_BYTES + crate::curves::REGION_BYTES + crate::groups::REGION_BYTES;
+/// The bytes from `Due`'s start to `Groups`' end, alignment included (`Due` starts aligned).
+pub const M4_REGIONS_SPAN: usize = align_up(align_up(crate::due::REGION_BYTES, REGION_ALIGN) + crate::curves::REGION_BYTES, REGION_ALIGN) + crate::groups::REGION_BYTES;
+
+const _: () = assert!(M4_REGIONS_BYTES == 29_152, "api-and-models §3.1");
+const _: () = assert!(M4_REGIONS_SPAN == 29_184);
 
 /// A region's place in the block: `offset` bytes from the block's base, `len` bytes long.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -153,6 +173,10 @@ fn region_len(kind: RegionKind, p: &InitParams) -> usize {
         RegionKind::Wide => crate::stream::wide_region_bytes(p),
         RegionKind::Fx => crate::fxpool::region_bytes(p),
         RegionKind::Scratch => PLANAR_SCRATCH_BYTES,
+        // 0166 M4: always laid out, sized in their modules from the generated constants (Q1).
+        RegionKind::Due => crate::due::REGION_BYTES,
+        RegionKind::Curves => crate::curves::REGION_BYTES,
+        RegionKind::Groups => crate::groups::REGION_BYTES,
         RegionKind::Arena => align_up(p.arena_initial_bytes as usize, PAGE_BYTES),
     }
 }
