@@ -52,7 +52,7 @@
 // `fft_size / 2` frames per response, all the kernel reads (it truncates there and fades out), and the delays at the
 // context rate.
 
-import { MAGLS_CLIP_ID } from "../wire.generated";
+import { MAGLS_CLIP_ID, MAGLS_HEADER_FIXED_END, MAGLS_MAGIC, MAGLS_ORDER, MAGLS_VERSION, readMaglsHeader, writeMaglsHeader } from "../wire.generated";
 import type { ClipRegistry } from "./clipRegistry";
 
 /** The reserved HRIR clip id (generation 0xFF, index 0xFF0000); the range is 0xFFFF0000..0xFFFF00FF. */
@@ -461,9 +461,41 @@ export { MAGLS_CLIP_ID };
  * `32 + 16 * 2 * taps * 4`) or a rate that isn't finite and positive.
  */
 export function resampleMagls(asset: ArrayBuffer, rate: number): ArrayBuffer {
-  void asset;
-  void rate;
-  throw new Error("not implemented: L-A3a");
+  if (!(rate > 0) || !Number.isFinite(rate)) throw new Error(`audio: bad MagLS target rate ${rate}`);
+  const bad = (why: string): never => {
+    throw new Error(`audio: the MagLS asset is not the documented layout (${why})`);
+  };
+  if (asset.byteLength < MAGLS_HEADER_FIXED_END) bad("shorter than its header");
+  const view = new DataView(asset);
+  const head = readMaglsHeader(view, 0);
+  if (head.magic !== MAGLS_MAGIC || head.version !== MAGLS_VERSION || head.order !== MAGLS_ORDER) bad("magic, version or order");
+  if (!(head.taps > 0)) bad("no taps");
+  const assetRate = head.sampleRate;
+  if (!(assetRate > 0) || !Number.isFinite(assetRate)) bad("rate");
+  const responses = 16 * 2; // [16 channels][2 ears]
+  if (asset.byteLength !== MAGLS_HEADER_FIXED_END + responses * head.taps * 4) bad("byte length");
+
+  const contextRate = Math.fround(rate);
+  const taps = hrtfFftSize(contextRate) / 2;
+  const out = new ArrayBuffer(MAGLS_HEADER_FIXED_END + responses * taps * 4);
+  const outView = new DataView(out);
+  writeMaglsHeader(outView, 0, { magic: MAGLS_MAGIC, version: MAGLS_VERSION, order: MAGLS_ORDER, taps, sampleRate: contextRate, reserved: [0, 0, 0] });
+  const ioRatio = assetRate / contextRate;
+  const kernels = assetRate === contextRate ? null : sincKernels(ioRatio);
+  // The fade of the cut: the last trunc(rate / 4410) frames, as the HRTF kernel's raw_response.
+  const fade = Math.trunc(rate / 4410);
+  const source = new Float32Array(head.taps);
+  for (let r = 0; r < responses; r++) {
+    for (let i = 0; i < head.taps; i++) source[i] = view.getFloat32(MAGLS_HEADER_FIXED_END + (r * head.taps + i) * 4, true);
+    const converted = kernels ? sincResample(source, ioRatio, kernels) : source;
+    const length = converted.length;
+    for (let j = 0; j < taps; j++) {
+      let v = j < length ? converted[j]! : 0;
+      if (length > taps && j >= taps - fade) v *= 1 - (j - (taps - fade)) / fade;
+      outView.setFloat32(MAGLS_HEADER_FIXED_END + (r * taps + j) * 4, v, true);
+    }
+  }
+  return out;
 }
 
 /** Where the MagLS asset is served from (`src/engine/audio/magls-o3.bin`, resolved from this module). */
@@ -506,6 +538,58 @@ export interface MaglsLoader {
  * `audio: the MagLS bed filters failed to load, beds decode through the equal-power matrix (<message>)`.
  */
 export function createMaglsLoader(deps: MaglsLoaderDeps): MaglsLoader {
-  void deps;
-  throw new Error("not implemented: L-A3a");
+  const warn = deps.warn ?? ((m: string) => console.warn(m));
+  const fetchBytes =
+    deps.fetchBytes ??
+    (async () => {
+      const response = await fetch(maglsUrl());
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.arrayBuffer();
+    });
+  let started = false;
+  let failed = false;
+  let rate = deps.sampleRate;
+  /** The asset as fetched (at its own rate), kept for a rebuild at another rate. */
+  let original: ArrayBuffer | null = null;
+  const fail = (err: unknown): void =>
+    warn(`audio: the MagLS bed filters failed to load, beds decode through the equal-power matrix (${err instanceof Error ? err.message : String(err)})`);
+  const blobFor = (asset: ArrayBuffer): { bytes: ArrayBuffer; sampleRate: number; format: 4 } => {
+    const bytes = resampleMagls(asset, rate);
+    return { bytes, sampleRate: readMaglsHeader(new DataView(bytes), 0).sampleRate, format: 4 };
+  };
+  return {
+    ensure() {
+      if (started) return;
+      started = true;
+      void (async () => {
+        try {
+          original = await fetchBytes();
+          deps.clips.acquireReserved(MAGLS_CLIP_ID, blobFor(original));
+        } catch (err) {
+          original = null;
+          failed = true;
+          fail(err);
+        }
+      })();
+    },
+    get ready() {
+      return deps.clips.state(MAGLS_CLIP_ID) === "ready";
+    },
+    get failed() {
+      return failed;
+    },
+    get started() {
+      return started;
+    },
+    retarget(sampleRate) {
+      if (Math.abs(sampleRate - rate) < 0.5) return;
+      rate = sampleRate;
+      if (!original || deps.clips.state(MAGLS_CLIP_ID) === "idle") return;
+      try {
+        deps.clips.updateReserved?.(MAGLS_CLIP_ID, blobFor(original));
+      } catch (err) {
+        fail(err);
+      }
+    },
+  };
 }
