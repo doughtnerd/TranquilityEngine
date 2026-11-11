@@ -7,7 +7,7 @@ const tmpS = [1, 1, 1];
 /**
  * A node's local-to-world matrix and what it tells you (ADR 0163), after Unity ECS's `LocalToWorld`:
  * `value` (the matrix), `position`, `rotation`, and the world directions `right` (+X), `up` (+Y) and
- * `forward` (-Z, where cameras look). Read from `transform.localToWorld`, which takes a snapshot: it
+ * `forward` (+Z, where cameras look; Unity's coordinates, ADR 0164). Read from `transform.localToWorld`, which takes a snapshot: it
  * doesn't follow later moves.
  */
 export class LocalToWorld {
@@ -36,8 +36,8 @@ export class LocalToWorld {
   get right(): Vector3 { return this.axis(0, 1); }
   /** The node's +Y axis in world space, unit length. */
   get up(): Vector3 { return this.axis(4, 1); }
-  /** The node's forward (-Z) in world space, unit length. */
-  get forward(): Vector3 { return this.axis(8, -1); }
+  /** The node's forward (+Z) in world space, unit length. */
+  get forward(): Vector3 { return this.axis(8, 1); }
 
   /** A point in the node's local space, in world space. */
   transformPoint(point: Vec3Input): Vector3 {

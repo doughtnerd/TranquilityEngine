@@ -10,6 +10,11 @@ export const DEG2RAD = Math.PI / 180;
 export const RAD2DEG = 180 / Math.PI;
 
 export const Mathf = {
+  /** Multiply degrees by this for radians (Unity's `Mathf.Deg2Rad`). */
+  Deg2Rad: DEG2RAD,
+  /** Multiply radians by this for degrees (Unity's `Mathf.Rad2Deg`). */
+  Rad2Deg: RAD2DEG,
+  PI: Math.PI,
   clamp(value: number, min: number, max: number): number {
     return value < min ? min : value > max ? max : value;
   },
@@ -165,8 +170,9 @@ export class Vector3 implements Vec3Like {
   static get down(): Vector3 { return new Vector3(0, -1, 0); }
   static get left(): Vector3 { return new Vector3(-1, 0, 0); }
   static get right(): Vector3 { return new Vector3(1, 0, 0); }
-  static get forward(): Vector3 { return new Vector3(0, 0, -1); }
-  static get back(): Vector3 { return new Vector3(0, 0, 1); }
+  /** +Z: where an unrotated node, and a camera, faces (Unity's coordinates, ADR 0164). */
+  static get forward(): Vector3 { return new Vector3(0, 0, 1); }
+  static get back(): Vector3 { return new Vector3(0, 0, -1); }
 
   get x(): number { return this._a[this._o]; }
   set x(value: number) { this._a[this._o] = value; this._onChange?.(); }
@@ -223,7 +229,7 @@ export class Ray {
   readonly origin: Vector3;
   readonly direction: Vector3;
 
-  constructor(origin: Vec3Input = [0, 0, 0], direction: Vec3Input = [0, 0, -1]) {
+  constructor(origin: Vec3Input = [0, 0, 0], direction: Vec3Input = [0, 0, 1]) {
     this.origin = Vector3.from(origin);
     this.direction = Vector3.from(direction).normalize();
   }
@@ -277,21 +283,25 @@ export class Plane {
 /**
  * The order Euler angles are applied in, as in Unity.Mathematics' `RotationOrder`: `"ZXY"` turns about Z,
  * then X, then Y, each about the parent's (fixed) axes, so `q = qY · qX · qZ`. `"ZXY"` (yaw outermost) is
- * the default everywhere (ADR 0163).
+ * the default everywhere (ADR 0163). Angles are radians (ADR 0164).
  */
 export type RotationOrder = "XYZ" | "XZY" | "YXZ" | "YZX" | "ZXY" | "ZYX";
 
 const AXIS_INDEX = { X: 0, Y: 1, Z: 2 } as const;
 
-/** Wrap degrees into [0, 360), as Unity's `eulerAngles` reads back (float32 noise next to 0 or 360 reads as 0). */
-const wrap360 = (deg: number): number => {
-  const r = deg - Math.floor(deg / 360) * 360;
-  return r > 360 - 1e-4 || r < 1e-4 ? 0 : r;
+const TAU = Math.PI * 2;
+
+/** Wrap radians into [0, 2π), as Unity's `eulerAngles` reads back (float32 noise next to 0 or 2π reads as 0). */
+const wrapTau = (rad: number): number => {
+  const r = rad - Math.floor(rad / TAU) * TAU;
+  return r > TAU - 2e-6 || r < 2e-6 ? 0 : r;
 };
 
 /**
  * A rotation, stored as a unit quaternion `(x, y, z, w)`: the data a Transform holds, as Unity ECS's
- * `LocalTransform.Rotation` (ADR 0163). Euler angles (degrees, ADR 0019) only build or describe one.
+ * `LocalTransform.Rotation` (ADR 0163). Euler angles (radians, as Unity.Mathematics, ADR 0164) only build or
+ * describe one. Coordinates are Unity's: left-handed, +Y up, +Z forward; positive turns follow the left hand
+ * (yaw turns right, pitch looks down).
  * Static builders return new quaternions; instance methods named as verbs change this one.
  */
 export class Quaternion {
@@ -317,7 +327,7 @@ export class Quaternion {
   static get identity(): Quaternion { return new Quaternion(0, 0, 0, 1); }
 
   /**
-   * A quaternion from `[x, y, z, w]` (a raw quaternion, as scene files store rotations), Euler degrees
+   * A quaternion from `[x, y, z, w]` (a raw quaternion, as scene files store rotations), Euler radians
    * `[x, y, z]` (in `order`), or another Quaternion (copied).
    */
   static from(value: Quaternion | QuatLike | readonly number[], order: RotationOrder = "ZXY"): Quaternion {
@@ -331,7 +341,7 @@ export class Quaternion {
   }
 
   /**
-   * From Euler angles in degrees, applied in `order` (default `"ZXY"`: roll about Z, then pitch about X,
+   * From Euler angles in radians, applied in `order` (default `"ZXY"`: roll about Z, then pitch about X,
    * then yaw about Y, as Unity's `quaternion.Euler` and `Quaternion.Euler`). Takes three numbers or a vector.
    */
   static euler(x: number, y: number, z: number, order?: RotationOrder): Quaternion;
@@ -347,37 +357,37 @@ export class Quaternion {
     return new Quaternion().setFromEuler(x, y, z, order);
   }
 
-  /** A turn of `degrees` about the X axis. */
-  static rotateX(degrees: number): Quaternion { return Quaternion.axisAngle([1, 0, 0], degrees); }
-  /** A turn of `degrees` about the Y axis. */
-  static rotateY(degrees: number): Quaternion { return Quaternion.axisAngle([0, 1, 0], degrees); }
-  /** A turn of `degrees` about the Z axis. */
-  static rotateZ(degrees: number): Quaternion { return Quaternion.axisAngle([0, 0, 1], degrees); }
+  /** A turn of `angle` radians about the X axis (positive pitches forward down). */
+  static rotateX(angle: number): Quaternion { return Quaternion.axisAngle([1, 0, 0], angle); }
+  /** A turn of `angle` radians about the Y axis (positive yaws right). */
+  static rotateY(angle: number): Quaternion { return Quaternion.axisAngle([0, 1, 0], angle); }
+  /** A turn of `angle` radians about the Z axis (positive is counter-clockwise on screen). */
+  static rotateZ(angle: number): Quaternion { return Quaternion.axisAngle([0, 0, 1], angle); }
 
-  /** Rotation of `degrees` around the Z axis (the 2D rotation axis). */
-  static fromAngle2D(degrees: number): Quaternion {
-    return Quaternion.rotateZ(degrees);
+  /** Rotation of `angle` radians around the Z axis (the 2D rotation axis). */
+  static fromAngle2D(angle: number): Quaternion {
+    return Quaternion.rotateZ(angle);
   }
 
-  /** A turn of `degrees` about `axis` (normalized here; a zero axis gives the identity). */
-  static axisAngle(axis: Vec3Input, degrees: number): Quaternion {
+  /** A turn of `angle` radians about `axis` (normalized here; a zero axis gives the identity). */
+  static axisAngle(axis: Vec3Input, angle: number): Quaternion {
     const [ax, ay, az] = readVec3(axis);
     const l = Math.hypot(ax, ay, az);
     if (l === 0) return Quaternion.identity;
-    const h = (degrees * DEG2RAD) / 2, s = Math.sin(h) / l;
+    const h = angle / 2, s = Math.sin(h) / l;
     return new Quaternion(ax * s, ay * s, az * s, Math.cos(h));
   }
 
   /**
-   * The rotation that points a node's forward (-Z, where cameras look) along `forward`, with its up (+Y)
+   * The rotation that points a node's forward (+Z, where cameras look) along `forward`, with its up (+Y)
    * as close to `up` as it can be. Both need not be unit length; they must not be parallel or zero
    * (see {@link Quaternion.lookRotationSafe}).
    */
   static lookRotation(forward: Vec3Input, up: Vec3Input = [0, 1, 0]): Quaternion {
     const [fx, fy, fz] = readVec3(forward);
     const [ux, uy, uz] = readVec3(up);
-    // Basis columns: right (X), up (Y), back (Z = -forward).
-    let zx = -fx, zy = -fy, zz = -fz;
+    // Basis columns: right (X = up × forward), up (Y = forward × right), forward (Z), as Unity's LookRotation.
+    let zx = fx, zy = fy, zz = fz;
     const zl = Math.hypot(zx, zy, zz) || 1;
     zx /= zl; zy /= zl; zz /= zl;
     let xx = uy * zz - uz * zy, xy = uz * zx - ux * zz, xz = ux * zy - uy * zx;
@@ -421,10 +431,10 @@ export class Quaternion {
     return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
   }
 
-  /** The angle in degrees between two rotations (0..180). */
+  /** The angle in radians between two rotations (0..π). */
   static angle(a: QuatLike, b: QuatLike): number {
     const d = Math.min(Math.abs(Quaternion.dot(a, b)), 1);
-    return 2 * Math.acos(d) * RAD2DEG;
+    return 2 * Math.acos(d);
   }
 
   /** `v` turned by `q` (a new Vector3). */
@@ -474,14 +484,14 @@ export class Quaternion {
   copy(q: QuatLike): this { return this.set(q.x, q.y, q.z, q.w); }
   clone(): Quaternion { return new Quaternion(this.x, this.y, this.z, this.w); }
 
-  /** Set from Euler angles in degrees, applied in `order` (default `"ZXY"`, see {@link Quaternion.euler}). */
-  setFromEuler(xDeg: number, yDeg: number, zDeg: number, order: RotationOrder = "ZXY"): this {
-    const angles = [xDeg, yDeg, zDeg];
+  /** Set from Euler angles in radians, applied in `order` (default `"ZXY"`, see {@link Quaternion.euler}). */
+  setFromEuler(x: number, y: number, z: number, order: RotationOrder = "ZXY"): this {
+    const angles = [x, y, z];
     let rx = 0, ry = 0, rz = 0, rw = 1;
     // Each turn about a fixed axis goes on the left: q = q3 · q2 · q1.
     for (const axis of order) {
       const i = AXIS_INDEX[axis as "X" | "Y" | "Z"];
-      const h = (angles[i] * DEG2RAD) / 2, s = Math.sin(h), c = Math.cos(h);
+      const h = angles[i] / 2, s = Math.sin(h), c = Math.cos(h);
       const ax = i === 0 ? s : 0, ay = i === 1 ? s : 0, az = i === 2 ? s : 0;
       const nx = c * rx + ax * rw + ay * rz - az * ry;
       const ny = c * ry + ay * rw + az * rx - ax * rz;
@@ -493,8 +503,8 @@ export class Quaternion {
   }
 
   /**
-   * Euler angles in degrees that rebuild this rotation in `order` (default `"ZXY"`). The middle axis of the
-   * order (X for `"ZXY"`) is in -90..90, the others in -180..180. Returns a new Vector3.
+   * Euler angles in radians that rebuild this rotation in `order` (default `"ZXY"`). The middle axis of the
+   * order (X for `"ZXY"`) is in -π/2..π/2, the others in -π..π. Returns a new Vector3.
    */
   toEuler(order: RotationOrder = "ZXY"): Vector3 {
     const { x, y, z, w } = this;
@@ -517,25 +527,26 @@ export class Quaternion {
       out[i] = 0;
       out[k] = Math.atan2(-e * R[i][j], R[j][j]);
     }
-    return new Vector3(out[0] * RAD2DEG + 0, out[1] * RAD2DEG + 0, out[2] * RAD2DEG + 0);
+    return new Vector3(out[0] + 0, out[1] + 0, out[2] + 0);
   }
 
   /**
-   * Euler angles in degrees, order `"ZXY"`, each in [0, 360), as Unity's `eulerAngles`. Returns a new
-   * Vector3; assigning sets the rotation from them.
+   * Euler angles in radians, order `"ZXY"`, each in [0, 2π). Returns a new Vector3; assigning sets the
+   * rotation from them.
    */
   get eulerAngles(): Vector3 {
     const e = this.toEuler("ZXY");
-    return new Vector3(wrap360(e.x), wrap360(e.y), wrap360(e.z));
+    return new Vector3(wrapTau(e.x), wrapTau(e.y), wrapTau(e.z));
   }
   set eulerAngles(v: Vec3Input) {
     const [x, y, z] = readVec3(v);
     this.setFromEuler(x, y, z, "ZXY");
   }
 
-  /** Rotation around Z in degrees, assuming a 2D (Z-only) rotation. */
+  /** Rotation around Z in radians (-π..π), assuming a 2D (Z-only) rotation. */
   get angle2D(): number {
-    return 2 * Math.atan2(this.z, this.w) * RAD2DEG;
+    const a = 2 * Math.atan2(this.z, this.w);
+    return a > Math.PI ? a - TAU : a < -Math.PI ? a + TAU : a;
   }
 
   /** `this = this · q`: turn by `q` about this rotation's own axes. */

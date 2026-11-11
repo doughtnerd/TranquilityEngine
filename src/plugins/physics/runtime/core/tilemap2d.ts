@@ -11,7 +11,6 @@
  *   (capability `oneWayPlatforms`; without it they're solid).
  * Everything is rebuilt when the source's signature, the collider's settings or the node's scale change.
  */
-import { DEG2RAD } from "../../../../engine/core/math";
 import type { World } from "../../../../engine/core/World";
 import type { BackendCollider, Dim2, PhysicsWorld2DBackend, Point2, ShapeDesc2D, Vec2 } from "../backend";
 import type { RigidBody2D } from "../RigidBody2D";
@@ -70,14 +69,14 @@ export class TilemapColliders2D {
 
     // Node pose (and the body's, when attached).
     const p = t ? t.worldPosition : { x: 0, y: 0 };
-    const angle = t ? t.worldRotation2D * DEG2RAD : 0;
+    const angle = t ? t.worldRotation2D : 0;
     const cos = Math.cos(angle), sin = Math.sin(angle);
     const rb = st.body;
     let tx = p.x, ty = p.y, ta = angle;
     if (rb) {
       const bt = rb.node.transform;
       const bp = bt ? bt.worldPosition : { x: 0, y: 0 };
-      const ba = bt ? bt.worldRotation2D * DEG2RAD : 0;
+      const ba = bt ? bt.worldRotation2D : 0;
       const dx = p.x - bp.x, dy = p.y - bp.y, bc = Math.cos(-ba), bs = Math.sin(-ba);
       tx = dx * bc - dy * bs;
       ty = dx * bs + dy * bc;

@@ -11,7 +11,7 @@
  *
  * Pure and synchronous, so it runs wherever scene files are read (editor, game, server, rewrite CLI).
  */
-import { Quaternion } from "../core/math";
+import { DEG2RAD, Quaternion } from "../core/math";
 import type { ComponentEntry, NodeEntry, OverrideEntry, SceneFile } from "./SceneLoader";
 
 const TRANSFORM = "engine.Transform";
@@ -22,8 +22,8 @@ const tidy = (n: number) => Math.round(n * 1e7) / 1e7 + 0;
 /** A version 2 Transform rotation as a version 3 quaternion array; anything else unchanged. */
 export function rotationToQuaternion(value: unknown): unknown {
   let q: Quaternion;
-  if (typeof value === "number") q = Quaternion.rotateZ(value);
-  else if (Array.isArray(value) && value.length === 3 && value.every((n) => typeof n === "number")) q = Quaternion.euler(value[0], value[1], value[2], "ZYX");
+  if (typeof value === "number") q = Quaternion.rotateZ(value * DEG2RAD);
+  else if (Array.isArray(value) && value.length === 3 && value.every((n) => typeof n === "number")) q = Quaternion.euler(value[0] * DEG2RAD, value[1] * DEG2RAD, value[2] * DEG2RAD, "ZYX");
   else return value;
   if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w); // the same rotation; keep w ≥ 0 so files read alike
   return q.toArray().map(tidy);

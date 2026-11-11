@@ -1,6 +1,6 @@
 # 0019. Public API conventions: names, angles, live vectors
 
-- **Status:** Accepted, amended by 0163 (Euler angles use Unity's ZXY order; rotations are quaternions in data)
+- **Status:** Accepted, amended by 0163 (Euler angles use Unity's ZXY order; rotations are quaternions in data) and 0164 (the rotation API takes radians; component angle fields stay degrees)
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

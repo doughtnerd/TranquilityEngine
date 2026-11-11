@@ -1,12 +1,12 @@
 {
-  "format": "myco.scene@3",
+  "format": "myco.scene@4",
   "settings": { "physics": "3d" },
   "nodes": [
     {
       "id": "camera",
       "name": "Camera",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [0, 5, 12], "rotation": [-0.1736482, 0, 0, 0.9848078] } },
+        { "type": "engine.Transform", "data": { "position": [0, 5, -12], "rotation": [0.1736482, 0, 0, 0.9848078] } },
         { "type": "engine.Camera", "data": { "projection": "perspective", "fieldOfView": 55 } },
         { "type": "engine.AudioListener", "data": {} }
       ]
@@ -15,7 +15,7 @@
       "id": "sun",
       "name": "Sun",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [0, 8, 0], "rotation": [-0.4403775, 0.2667293, -0.1388505, 0.8459573] } },
+        { "type": "engine.Transform", "data": { "position": [0, 8, 0], "rotation": [0.4403775, -0.2667293, -0.1388505, 0.8459573] } },
         { "type": "engine.Light", "data": { "type": "directional", "intensity": 1.4 } }
       ]
     },
@@ -125,13 +125,13 @@
       "id": "crowd1",
       "name": "Crowd 1 (key H)",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [3, 5, 12] } },
+        { "type": "engine.Transform", "data": { "position": [3, 5, -12] } },
         { "type": "engine.MeshRenderer", "data": { "mesh": "builtin:sphere" } },
         {
           "type": "engine.AudioSource",
           "data": { "clip": "asset:audio/noise-loop.wav", "loop": true, "volume": 0.5, "playOnAwake": false, "spatial": true, "minDistance": 2, "maxDistance": 30, "dopplerLevel": 0 }
         },
-        { "type": "lab.Orbit", "data": { "radius": 3, "speed": 0.1, "phase": 0, "centerX": 0, "centerZ": 12 } },
+        { "type": "lab.Orbit", "data": { "radius": 3, "speed": 0.1, "phase": 0, "centerX": 0, "centerZ": -12 } },
         { "type": "lab.Toggle", "data": { "key": "h" } }
       ]
     },
@@ -139,13 +139,13 @@
       "id": "crowd2",
       "name": "Crowd 2 (key J)",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [7, 4, 12] } },
+        { "type": "engine.Transform", "data": { "position": [7, 4, -12] } },
         { "type": "engine.MeshRenderer", "data": { "mesh": "builtin:sphere" } },
         {
           "type": "engine.AudioSource",
           "data": { "clip": "asset:audio/noise-loop.wav", "loop": true, "volume": 0.5, "playOnAwake": false, "spatial": true, "minDistance": 2, "maxDistance": 30, "dopplerLevel": 0 }
         },
-        { "type": "lab.Orbit", "data": { "radius": 7, "speed": -0.18, "phase": 0.33, "centerX": 0, "centerZ": 12 } },
+        { "type": "lab.Orbit", "data": { "radius": 7, "speed": -0.18, "phase": 0.33, "centerX": 0, "centerZ": -12 } },
         { "type": "lab.Toggle", "data": { "key": "j" } }
       ]
     },
@@ -153,13 +153,13 @@
       "id": "crowd3",
       "name": "Crowd 3 (key J)",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [11, 6, 12] } },
+        { "type": "engine.Transform", "data": { "position": [11, 6, -12] } },
         { "type": "engine.MeshRenderer", "data": { "mesh": "builtin:sphere" } },
         {
           "type": "engine.AudioSource",
           "data": { "clip": "asset:audio/noise-loop.wav", "loop": true, "volume": 0.5, "playOnAwake": false, "spatial": true, "minDistance": 2, "maxDistance": 30, "dopplerLevel": 0 }
         },
-        { "type": "lab.Orbit", "data": { "radius": 11, "speed": 0.27, "phase": 0.66, "centerX": 0, "centerZ": 12 } },
+        { "type": "lab.Orbit", "data": { "radius": 11, "speed": 0.27, "phase": 0.66, "centerX": 0, "centerZ": -12 } },
         { "type": "lab.Toggle", "data": { "key": "j" } }
       ]
     }

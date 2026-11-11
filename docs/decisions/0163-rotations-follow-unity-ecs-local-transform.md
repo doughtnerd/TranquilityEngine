@@ -1,6 +1,6 @@
 # 0163. Rotations follow Unity ECS's LocalTransform and LocalToWorld: quaternions as data, ZXY Euler angles
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0164 (+Z forward, left-handed, radians)
 - **Date:** 2026-11-11
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

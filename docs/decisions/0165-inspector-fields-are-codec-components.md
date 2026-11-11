@@ -1,6 +1,6 @@
 # 0165. Inspector fields with invariants are components built from a codec; rotations first
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-11
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

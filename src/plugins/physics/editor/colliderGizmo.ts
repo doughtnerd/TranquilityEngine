@@ -9,6 +9,7 @@
 // instances). Editing a collider is the tool being active: picking a transform tool, Escape, play or
 // another tool ends it, and so do selecting another node and switching scenes. 2D collider outlines are
 // also selectable: a click inside one picks its node.
+import { RAD2DEG } from "../../../engine/core/math";
 import { effect, signal } from "@preact/signals";
 import type { World } from "../../../engine/core/World";
 import { GameObject, type Engine } from "../../../engine";
@@ -87,7 +88,7 @@ const HANDLE_INSERT = 0x9a7bd8;
 export function poseOf(node: GameObject): Pose2D {
   const t = node.transform!;
   const p = t.worldPosition, s = t.worldScale;
-  return { position: [p.x, p.y, p.z], rotation: t.worldRotation2D, scale: [s.x, s.y] };
+  return { position: [p.x, p.y, p.z], rotation: t.worldRotation2D * RAD2DEG, scale: [s.x, s.y] }; // Pose2D is in degrees
 }
 
 /** A node's 3D world pose for collider math. */

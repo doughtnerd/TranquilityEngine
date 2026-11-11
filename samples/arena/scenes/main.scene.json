@@ -1,11 +1,11 @@
 {
-  "format": "myco.scene@3",
+  "format": "myco.scene@4",
   "nodes": [
     {
       "id": "camera",
       "name": "Camera",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [0, 0, 10] } },
+        { "type": "engine.Transform", "data": { "position": [0, 0, -10] } },
         { "type": "engine.Camera", "data": { "projection": "orthographic", "orthographicSize": 6, "backgroundColor": "#14161b" } }
       ]
     },

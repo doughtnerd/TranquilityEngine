@@ -1,6 +1,6 @@
 # 0164. The engine uses Unity's coordinates (left-handed, +Y up, +Z forward) and radians in its rotation API
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-11
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0014 in part (coordinate conventions)

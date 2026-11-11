@@ -1,5 +1,5 @@
 {
-  "format": "myco.scene@3",
+  "format": "myco.scene@4",
   "nodes": [
     {
       "id": "camera",
@@ -11,11 +11,11 @@
             "position": [
               0,
               20,
-              -13
+              13
             ],
             "rotation": [
               0,
-              0.8788171,
+              -0.8788171,
               0.4771588,
               0
             ]

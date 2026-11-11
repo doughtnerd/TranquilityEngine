@@ -17,7 +17,7 @@ export interface InstantiateOptions {
   parent?: GameObject | null;
   /** Local position of the new node's root. */
   position?: Vec3Input;
-  /** Local Z rotation in degrees. */
+  /** Local Z rotation in radians. */
   rotation2D?: number;
   name?: string;
 }

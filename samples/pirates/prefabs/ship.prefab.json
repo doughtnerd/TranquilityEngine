@@ -1,5 +1,5 @@
 {
-  "format": "myco.scene@3",
+  "format": "myco.scene@4",
   "nodes": [
     {
       "id": "ship",
@@ -106,7 +106,7 @@
             "position": [
               0,
               3.2,
-              -0.4
+              0.4
             ],
             "scale": [
               0.9,

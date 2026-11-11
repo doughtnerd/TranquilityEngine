@@ -1,4 +1,4 @@
-import { Mat4, Quaternion, RAD2DEG, Vector2, Vector3, type Vec3Input, type Vec3Like } from "../core/math";
+import { Mat4, Quaternion, Vector2, Vector3, type Vec3Input, type Vec3Like } from "../core/math";
 import type { World } from "../core/World";
 import type { GameObject } from "./GameObject";
 import { LocalToWorld } from "./LocalToWorld";
@@ -63,10 +63,10 @@ export class Transform {
   set scale(v: Vec3Input) { this._scale.copy(v); }
 
   /**
-   * Local rotation as Euler angles in degrees, as Unity's `localEulerAngles`: order ZXY (roll, then pitch,
-   * then yaw), each read back in [0, 360). Returns a copy. Reading, changing and writing back works for
-   * yaw (y) all the way round but not for pitch (x) past ±90, which reads back flipped; turn with
-   * `rotate`, `rotateX/Y/Z` instead.
+   * Local rotation as Euler angles in radians, as Unity's `localEulerAngles` (but radians, ADR 0164): order
+   * ZXY (roll, then pitch, then yaw), each read back in [0, 2π). Returns a copy. Reading, changing and writing
+   * back works for yaw (y) all the way round but not for pitch (x) past ±π/2, which reads back flipped; turn
+   * with `rotate`, `rotateX/Y/Z` instead.
    */
   get eulerAngles(): Vector3 { return this._rotation.eulerAngles; }
   set eulerAngles(v: Vec3Input) {
@@ -83,16 +83,16 @@ export class Transform {
     else this._rotation.premultiply(rotation).normalize();
   }
 
-  /** Turn `degrees` about the X axis (the parent's, or the node's own with `"self"`). */
-  rotateX(degrees: number, space: "parent" | "self" = "parent"): void { this.rotate(Quaternion.rotateX(degrees), space); }
-  /** Turn `degrees` about the Y axis (the parent's, or the node's own with `"self"`). */
-  rotateY(degrees: number, space: "parent" | "self" = "parent"): void { this.rotate(Quaternion.rotateY(degrees), space); }
-  /** Turn `degrees` about the Z axis (the parent's, or the node's own with `"self"`). */
-  rotateZ(degrees: number, space: "parent" | "self" = "parent"): void { this.rotate(Quaternion.rotateZ(degrees), space); }
+  /** Turn `angle` radians about the X axis (the parent's, or the node's own with `"self"`); positive pitches down. */
+  rotateX(angle: number, space: "parent" | "self" = "parent"): void { this.rotate(Quaternion.rotateX(angle), space); }
+  /** Turn `angle` radians about the Y axis (the parent's, or the node's own with `"self"`); positive yaws right. */
+  rotateY(angle: number, space: "parent" | "self" = "parent"): void { this.rotate(Quaternion.rotateY(angle), space); }
+  /** Turn `angle` radians about the Z axis (the parent's, or the node's own with `"self"`). */
+  rotateZ(angle: number, space: "parent" | "self" = "parent"): void { this.rotate(Quaternion.rotateZ(angle), space); }
 
-  /** Local rotation around Z in degrees. */
+  /** Local rotation around Z in radians (-π..π); positive is counter-clockwise on screen. */
   get rotation2D(): number { return this._rotation.angle2D; }
-  set rotation2D(degrees: number) { this._rotation.setFromEuler(0, 0, degrees); }
+  set rotation2D(angle: number) { this._rotation.setFromEuler(0, 0, angle); }
 
   /** World-space position. Returns a copy; assigning moves the node. */
   get worldPosition(): Vector3 {
@@ -110,15 +110,15 @@ export class Transform {
     this._position.set(...Mat4.transformPoint(tmpA, 0, p.x, p.y, p.z));
   }
 
-  /** World-space rotation around Z in degrees (2D). */
+  /** World-space rotation around Z in radians (2D). */
   get worldRotation2D(): number {
     const m = this.world.worldMatrix(this.e), o = this.e * 16;
-    return Math.atan2(m[o + 1], m[o]) * RAD2DEG;
+    return Math.atan2(m[o + 1], m[o]);
   }
-  set worldRotation2D(degrees: number) {
+  set worldRotation2D(angle: number) {
     const parent = this.world.parentEntity(this.e);
-    const parentRot = parent < 0 ? 0 : Math.atan2(this.world.worldMatrix(parent)[parent * 16 + 1], this.world.tWorld[parent * 16]) * RAD2DEG;
-    this.rotation2D = degrees - parentRot;
+    const parentRot = parent < 0 ? 0 : Math.atan2(this.world.worldMatrix(parent)[parent * 16 + 1], this.world.tWorld[parent * 16]);
+    this.rotation2D = angle - parentRot;
   }
 
   /** World-space rotation. Returns a copy; assigning turns the node. */
@@ -149,9 +149,9 @@ export class Transform {
     else this.worldPosition = Vector3.add(this.worldPosition, delta);
   }
 
-  /** Rotate around Z by `degrees`. */
-  rotate2D(degrees: number): void {
-    this.rotation2D = this.rotation2D + degrees;
+  /** Rotate around Z by `angle` radians. */
+  rotate2D(angle: number): void {
+    this.rotation2D = this.rotation2D + angle;
   }
 
   /**
@@ -164,7 +164,7 @@ export class Transform {
   }
 
   /** @internal Set world x/y and Z rotation in one go (used by physics write-back). */
-  _setWorldPose2D(x: number, y: number, degrees: number): void {
+  _setWorldPose2D(x: number, y: number, angle: number): void {
     const parent = this.world.parentEntity(this.e);
     const a = this.world.tPos, o = this.e * 3;
     if (parent <= 0 || !this.world.hasTransform[parent]) {
@@ -176,11 +176,11 @@ export class Transform {
         a[o] = x;
         a[o + 1] = y;
       }
-      this._rotation.setFromEuler(0, 0, degrees); // marks dirty
+      this._rotation.setFromEuler(0, 0, angle); // marks dirty
       return;
     }
     this.worldPosition = [x, y, this.worldPosition.z];
-    this.worldRotation2D = degrees;
+    this.worldRotation2D = angle;
   }
 
   /** @internal Set world position and rotation in one go (used by 3D physics write-back). */

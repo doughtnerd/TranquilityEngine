@@ -33,7 +33,7 @@ export class ${name} extends GameBehavior {
   }
 
   update(): void {
-    // Runs every frame. For example (import Time too): this.transform.rotation2D += this.speed * 90 * Time.deltaTime;
+    // Runs every frame. For example (import Time too): this.transform.rotation2D += this.speed * Math.PI / 2 * Time.deltaTime; (radians)
   }
 }
 `;
