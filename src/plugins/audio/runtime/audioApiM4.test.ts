@@ -3,7 +3,19 @@
 // tagged `L-P7a` (the lead fills the one tagged `P7-lead`). Fixtures: build a player as `music/planner.test.ts` does
 // (fake backend, `setSegmentClipSource`, a parsed segment, `planTick` until it plays) and read through `Audio` and
 // `player.handle`.
-import { describe, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import type { World } from "../../../engine/core/World";
+import { Audio } from "./Audio";
+import { AUDIO_SYSTEMS } from "./audioSystem";
+import { setAudioBackend } from "./backend";
+import type { EventInstance } from "./events/eventRuntime";
+import { _resetMusicPlayers, createMusicPlayer } from "./music/musicSystem";
+import { makeFakeBackend } from "./testing";
+
+afterEach(() => {
+  _resetMusicPlayers();
+  setAudioBackend(null);
+});
 
 describe("L-P7a: handle.music getters (§1.2)", () => {
   it.skip("L-P7a handle.music is undefined for an event that isn't music, and a MusicHandle for a segment, playlist or musicSwitch root", () => {});
@@ -33,5 +45,27 @@ describe("L-P7a: Audio.play(music, { at }) (§1.3)", () => {
 });
 
 describe("P7-lead: Audio.time in update() (§1.7, §6 step 0)", () => {
-  it.skip("P7-lead engine.AudioMusic calls beginFrame before scripts read Audio.time; with no music it does not", () => {});
+  it("P7-lead engine.AudioMusic calls beginFrame before scripts read Audio.time; with no music it does not", () => {
+    const step = AUDIO_SYSTEMS.find((s) => s.name === "engine.AudioMusic")!;
+    const world = { render: {}, _componentsOfType: () => [] } as unknown as World;
+    const b = makeFakeBackend();
+    // As the core: `time` is last frame's until `beginFrame` advances the clock map to this frame's.
+    let frameTime = 1;
+    (b as { beginFrame: () => void }).beginFrame = () => { b.beginFrameCalls++; (b as { time: number }).time = frameTime; };
+    setAudioBackend(b);
+    // No music: the step leaves the clock alone, so `update()` reads the old value.
+    frameTime = 2;
+    step.run(world, 1 / 60);
+    expect(b.beginFrameCalls).toBe(0);
+    expect(Audio.time).toBe(0);
+    // Music playing: the early step runs `beginFrame` before `UpdateScripts`, so `update()` reads this frame's time.
+    createMusicPlayer({ group: 3 } as unknown as EventInstance, { id: "s", type: "segment" });
+    step.run(world, 1 / 60);
+    expect(b.beginFrameCalls).toBe(1);
+    expect(Audio.time).toBe(2);
+    frameTime = 2.0167;
+    step.run(world, 1 / 60);
+    expect(Audio.time).toBe(2.0167);
+    expect(step.before).toContain("engine.UpdateScripts");
+  });
 });
