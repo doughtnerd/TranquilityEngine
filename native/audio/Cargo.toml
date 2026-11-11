@@ -8,7 +8,7 @@
 # it doesn't inherit from [workspace.package] or [workspace.dependencies].
 [workspace]
 resolver = "2"
-members = ["crates/*", "tools/bake-magls"]
+members = ["crates/*", "tools/bake-magls", "tools/gen-equal-power"]
 
 [workspace.package]
 version = "0.1.0"
