@@ -33,17 +33,15 @@ From the record (2026-11-11): zone weights per source; no feature flags; HRTF vo
 | Task table | groups re-summed: A 31, B 25.5, C 39.75, D 28.75, F 3.5, E 35.5 = 164 d, plus a 14 d named reserve = 178 d ≈ 35.6 pw | matches the document |
 | Stale decisions | the record's "existing projects unchanged" and flags removed earlier; "16 → 8 saves 55 µs" in the record is superseded (high is 32 → 8, ≈ 166–178 µs) | write back to the record at step 9 |
 
-**Estimate, line by line:** record 22 pw → round 1 32.7 pw (tests, benches and tooling priced; the physics query D0; 16-channel streams; a named reserve) → round 2B 35.6 pw (+14.5 d: private ambisonic decoders, wide rings, the equal-power matrix, the allocation-free ray query, the shared-return scaling, fit sweeps and worst-case scenes, the in-core IR fallback moved from reserve to tasks). Optional: standby zone slot +3.5 d, load-shedding ladder +2 d (both: 36.7 pw). Critical path ≈ 33 days; about 8–10 calendar weeks with two seniors and three mids.
+**Estimate, line by line:** record 22 pw → round 1 32.7 pw (tests, benches and tooling priced; the physics query D0; 16-channel streams; a named reserve) → round 2B 35.6 pw (+14.5 d: private ambisonic decoders, wide rings, the equal-power matrix, the allocation-free ray query, the shared-return scaling, fit sweeps and worst-case scenes, the in-core IR fallback moved from reserve to tasks). Optional: standby zone slot +3.5 d, load-shedding ladder +2 d (both: 36.7 pw). (Superseded by the final figures below.)
 
 **Cost (container wasm p50, est.; p99.9 needs the lab VM):** typical high ≈ 0.10 ms net (gross 0.28), worst high ≈ 0.42 ms; typical default ≈ 0.18 ms (≈ 0.13 if its HRTF goes to 8); low ≈ 0.04–0.11 ms. M1's high preset is already over 0157's 1.3 ms p99.9 on the lab VM; the adaptive cap keeps protecting it.
 
-## Open owner items
+## Owner decisions on the design (2026-11-11)
 
-1. Default-preset HRTF voices: 8 where beds exist, or 16.
-2. Standby zone slot (tails ring out; +3.5 d; peak zone memory 18 / 9.2 / 3.3 MB) or a 150 ms eviction fade (12.2 / 6.2 / 1.5 MB).
-3. The M3 load-shedding ladder (+2 d) or none.
-4. The estimate (≈ 35.6 pw base).
-5. Babylon fallback zones: inert with one warning, or Babylon's underscore members (against 0157).
+All recommendations accepted, and the extra time: default-preset HRTF 8 where beds exist; a standby zone slot on high and default (stored as `zones.standby`, 1 / 1 / 0) and a 150 ms eviction fade on low; the M3 load-shedding ladder; the estimate; Babylon zones inert with one warning. Plus the test cadence: intensive tests at wave and milestone end (working-notes.md). Recorded in the record's "Revision 4".
+
+**Final figures:** 169.5 days of tasks (A 31.5, B 25.5, C 44.25, D 29.25, F 3.5, E 35.5; re-summed by the coordinator) + a 14-day named reserve = **183.5 days ≈ 36.7 pw**. Critical path ≈ 45 days of chain; about 9 calendar weeks to M3e with two seniors and three mids, 10–11 with the reserve and the owner's gates. Cost (container wasm p50 net, est.): typical high / default / low ≈ 0.10 / 0.13 / 0.04 ms, worst ≈ 0.42 / 0.26 / 0.10 ms. M3 fixed memory ≈ 20.9 / 10.7 / 3.0 MB.
 
 ## Notes for the build
 

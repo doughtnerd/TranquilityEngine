@@ -516,7 +516,7 @@ Settings are marked **S**, with defaults per preset (low / default / high). Pars
 | Zones | **S** `zones.maxActive` | 1 / 2 / 2 (range 0..2) | R8 |
 | | **S** `zones.maxIrSeconds` | 1 / 2 / 4 | R8 |
 | | wire slots (`MAX_ZONE_SLOTS`) | 4 | R2, R4 |
-| | core slots | low `maxActive` (1); default and high `maxActive + 1` (standby) | OD2 |
+| | core slots | `maxActive` + **S** `zones.standby` (low 0, default and high 1; [API §2]): low 1, default and high 3 | OD2 |
 | | eviction fade (low) | 150 ms | OD2 |
 | | swap hysteresis; fade in | 1.5× for 500 ms (est.); 100 ms | this design |
 | | `blendDistance` default | 2 m | sound designer RFC |
