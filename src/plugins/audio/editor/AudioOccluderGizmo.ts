@@ -6,11 +6,12 @@
 // colliders count, not their exact shape (the Physics gizmo draws that).
 import { GameObject, type Engine } from "../../../engine";
 import { type EditorOverlay, meshTriangleData } from "../../../engine/editor";
-import { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider } from "../../physics/runtime";
+import type { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider } from "../../physics/runtime";
+import { getComponentId } from "../../../engine/core/registry";
 import { nearestOccluder } from "../runtime/AudioOccluder";
 import { zoneGeometry, zoneVolumeWire, type ZoneGeometry } from "./zoneMath";
 import { zonePoseOf } from "./AudioReverbZoneGizmo";
-import { audioOfProject, blendColor, materialTint } from "./audioInspectorModel";
+import { audioOfProject, blendColor, colliderClass, materialTint } from "./audioInspectorModel";
 import { editor, type ViewportToolContribution } from "../../../editor/sdk";
 
 /** The tool's id: also its overlay id. */
@@ -46,14 +47,20 @@ export function colliderVolume(c: Collider): ZoneGeometry | null {
   const node = c.node;
   const pose = zonePoseOf(node);
   const center = [c.center.x, c.center.y, c.center.z];
-  if (c instanceof BoxCollider) return zoneGeometry(pose, "box", center, [c.size.x, c.size.y, c.size.z], 0);
-  if (c instanceof SphereCollider) return zoneGeometry(pose, "sphere", center, [0, 0, 0], c.radius);
-  if (c instanceof CapsuleCollider) {
-    const d = 2 * c.radius, h = Math.max(c.height, d);
-    return zoneGeometry(pose, "box", center, c.direction === "x" ? [h, d, d] : c.direction === "z" ? [d, d, h] : [d, h, d], 0);
+  const id = getComponentId(c.constructor as never);
+  if (id === "engine.BoxCollider") {
+    const { size } = c as BoxCollider;
+    return zoneGeometry(pose, "box", center, [size.x, size.y, size.z], 0);
   }
-  if (c instanceof MeshCollider) {
-    const data = meshTriangleData(c.mesh, node);
+  if (id === "engine.SphereCollider") return zoneGeometry(pose, "sphere", center, [0, 0, 0], (c as SphereCollider).radius);
+  if (id === "engine.CapsuleCollider" || id === "engine.CharacterController") {
+    const { radius, height, direction } = c as CapsuleCollider; // a CharacterController is a vertical capsule
+    const d = 2 * radius, h = Math.max(height, d);
+    const dir = id === "engine.CharacterController" ? "y" : direction;
+    return zoneGeometry(pose, "box", center, dir === "x" ? [h, d, d] : dir === "z" ? [d, d, h] : [d, h, d], 0);
+  }
+  if (id === "engine.MeshCollider") {
+    const data = meshTriangleData((c as MeshCollider).mesh, node);
     const box = data && meshBounds(data);
     return box ? zoneGeometry(pose, "box", [center[0]! + box.center[0], center[1]! + box.center[1], center[2]! + box.center[2]], box.size, 0) : null;
   }
@@ -63,7 +70,8 @@ export function colliderVolume(c: Collider): ZoneGeometry | null {
 /** What to draw this frame: every collider an occluder applies to, in the occluder's material tint. */
 export function occluderOverlay(engine: Engine): EditorOverlay {
   const overlay: EditorOverlay = { lines: [], handles: [] };
-  const colliders = GameObject.findObjectsOfType(Collider);
+  const base = colliderClass();
+  const colliders = base ? GameObject.findObjectsOfType(base) : [];
   if (colliders.length === 0) return overlay;
   const selected = new Set(editor.scene.selection.nodes().map((s) => s.node));
   const audio = audioOfProject(editor.project.current?.settings);

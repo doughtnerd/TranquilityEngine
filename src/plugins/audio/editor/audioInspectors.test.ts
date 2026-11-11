@@ -6,6 +6,7 @@ import { AudioOccluder, AudioReverbZone, AudioSource, Engine } from "../../../my
 import { AddComponent, RenameNode, SetField } from "../../../editor/document";
 import { createNode } from "../../../editor/nodeCreate";
 import { openSceneFile } from "../../../editor/project";
+import { componentNotes } from "../../../editor/sdk";
 import { choicesFor } from "../../../editor/fieldValues";
 import { getFields } from "../../../engine/core/registry";
 import { openScene, playState, selection } from "../../../editor/state";
@@ -21,6 +22,7 @@ import {
   describeCost,
   materialTint,
   occluderCost,
+  physics3dAvailable,
   sendCurveOf,
   zoneCostLine,
   zoneNotices,
@@ -78,6 +80,14 @@ describe("audio inspector sections", () => {
       const wall = node([[OCC], [BOX]]);
       expect(codes(occluderOf(wall), false)).toEqual(["noService"]);
       expect(analyzeOccluder(occluderOf(wall), { physics3d: false, audio: defaults }).warnings[0]!.text).toMatch(/no 3D physics service/);
+    });
+
+    it("finds the 3D physics service through the Physics plugin's 'no physics backend' note", () => {
+      expect(physics3dAvailable()).toBe(true);
+      const undo = componentNotes.register({ id: "test.no-backend", note: (type) => (type === "engine.BoxCollider" ? "(no physics backend)" : null) });
+      expect(physics3dAvailable()).toBe(false);
+      undo();
+      expect(physics3dAvailable()).toBe(true);
     });
 
     it("warns about an overriding occluder below, naming it and its material", () => {

@@ -4,8 +4,10 @@
 // AudioSource fields an ambisonic clip greys. The components are thin views over these.
 import { AudioOccluder, nearestOccluder } from "../runtime/AudioOccluder";
 import { AudioReverbZone } from "../runtime/AudioReverbZone";
-import { Collider, physicsBackends } from "../../physics/runtime";
-import { isRuntimePluginActive } from "../../runtimeContext";
+import type { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider } from "../../physics/runtime";
+import { getComponentClass } from "../../../engine/core/registry";
+import type { ComponentClass } from "../../../engine/core/registry";
+import { componentNotes } from "../../../editor/sdk";
 import { compileHit, type HitCost } from "../../../engine/audio/occlusionMaterials";
 import { parseAudioSettings, type AudioSettings } from "../../../engine/audio/settings";
 import type { GameObject } from "../../../engine";
@@ -14,19 +16,35 @@ import { zoneMemory, zoneSlots, zoneWarnings } from "./audioSettingsModel";
 /** The project's `audio` section, read leniently (defaults when absent). */
 export const audioOfProject = (settings: { audio?: unknown } | undefined): AudioSettings => parseAudioSettings(settings?.audio).settings;
 
+/** The 3D `Collider` base class the Physics plugin registered, or null while it is off. The audio plugin doesn't depend on Physics, so it finds the class through the registry (every 3D collider's parent). */
+export function colliderClass(): ComponentClass<Collider> | null {
+  const box = getComponentClass("engine.BoxCollider");
+  return box ? (Object.getPrototypeOf(box) as ComponentClass<Collider>) : null;
+}
+
+/** The kind of 3D collider a component is (its registered id), for drawing; null for any other. */
+export const COLLIDER_KINDS = { "engine.BoxCollider": "box", "engine.SphereCollider": "sphere", "engine.CapsuleCollider": "capsule", "engine.MeshCollider": "mesh", "engine.CharacterController": "character" } as const;
+export type ColliderShapes = { box: BoxCollider; sphere: SphereCollider; capsule: CapsuleCollider; mesh: MeshCollider };
+
 /**
- * Whether a 3D physics service can run in the project: the Physics plugin is on and a 3D backend is registered. Occlusion
- * casts its rays through that service, so without it every occluder is inert (the audio core notes "no 3D physics service").
+ * Whether a 3D physics service can run in the project: the Physics plugin is on and a 3D backend is available. Occlusion
+ * casts its rays through that service, so without it every occluder is inert (the audio core notes "no 3D physics
+ * service"). The editor World runs no physics outside Play, so this asks the Add Component notes, where the Physics
+ * plugin says "(no physics backend)" for its 3D components while none is registered.
  */
-export const physics3dAvailable = (): boolean => isRuntimePluginActive("myco.physics") && physicsBackends("3d").length > 0;
+export function physics3dAvailable(): boolean {
+  return getComponentClass("engine.BoxCollider") !== undefined && !componentNotes.list().some((n) => n.note("engine.BoxCollider"));
+}
 
 // --- occluders -------------------------------------------------------------------------------------------------------
 
 /** Every 3D collider on `node` and below it, the node's first. */
 export function subtreeColliders(node: GameObject): Collider[] {
   const out: Collider[] = [];
+  const base = colliderClass();
+  if (!base) return out;
   const visit = (n: GameObject) => {
-    for (const c of n.getBehaviors(Collider)) out.push(c);
+    for (const c of n.getBehaviors(base)) out.push(c);
     for (const child of n.children) visit(child);
   };
   visit(node);
