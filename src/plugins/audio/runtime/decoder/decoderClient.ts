@@ -266,7 +266,6 @@ class Client implements DecoderClient {
     let buffer: ArrayBuffer;
     if (bytes instanceof ArrayBuffer) buffer = options?.transfer ? bytes : bytes.slice(0);
     else buffer = options?.transfer && bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? (bytes.buffer as ArrayBuffer) : (bytes.slice().buffer as ArrayBuffer);
-    const kept = buffer.slice(0);
     let worker: WorkerLike;
     try {
       worker = this.ensureWorker();
@@ -277,7 +276,9 @@ class Client implements DecoderClient {
     return new Promise<DecodedPeaks>((resolvePeaks, reject) => {
       const entry: Pending = {
         chunks: [],
-        bytes: kept,
+        // Unlike a clip decode, the bytes are not kept for a repeat after a crash (a 3-minute stem is 30 MB, and the copy
+        // costs the main thread about 80 ms): a crash fails the request and the caller asks again.
+        bytes: new ArrayBuffer(0),
         hint,
         informed: false,
         delivered: 0,
@@ -470,9 +471,12 @@ class Client implements DecoderClient {
     }
     for (const [id, entry] of entries) {
       if (this.pending.get(id) !== entry) continue;
+      if (entry.binFrames !== undefined) {
+        this.settle(id)?.reject(new DecoderUnavailableError(`${message}; the peaks were not computed`));
+        continue;
+      }
       const bytes = entry.bytes.slice(0);
-      if (entry.binFrames !== undefined) next.postMessage({ type: "computePeaks", id, bytes, hint: entry.hint, asset: entry.options?.asset, binFrames: entry.binFrames }, [bytes]);
-      else next.postMessage({ type: "decodeClip", id, bytes, hint: entry.hint, asset: entry.options?.asset, convention: entry.options?.convention }, [bytes]);
+      next.postMessage({ type: "decodeClip", id, bytes, hint: entry.hint, asset: entry.options?.asset, convention: entry.options?.convention }, [bytes]);
     }
   }
 

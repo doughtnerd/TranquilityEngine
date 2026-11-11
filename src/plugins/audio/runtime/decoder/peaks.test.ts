@@ -178,4 +178,24 @@ describe("DecoderClient.computePeaks", () => {
     expect(posted.some((m) => m.type === "cancel")).toBe(true);
     client.dispose();
   });
+
+  it("a worker crash fails the request with DecoderUnavailableError (the bytes are not kept for a repeat)", async () => {
+    const posted: DecoderRequest[] = [];
+    const factory = (): WorkerLike => {
+      const worker: WorkerLike = {
+        onmessage: null,
+        onerror: null,
+        postMessage(message) {
+          posted.push(message);
+          if (message.type === "computePeaks") queueMicrotask(() => worker.onerror?.({ message: "boom" }));
+        },
+        terminate() {},
+      };
+      return worker;
+    };
+    const client = createDecoderClient({ workerFactory: factory, wasmBytes: wasmBytes() });
+    await expect(client.computePeaks(new ArrayBuffer(16), 1, 256, { transfer: true })).rejects.toMatchObject({ name: "DecoderUnavailableError" });
+    expect(posted.filter((m) => m.type === "computePeaks")).toHaveLength(1);
+    client.dispose();
+  });
 });
