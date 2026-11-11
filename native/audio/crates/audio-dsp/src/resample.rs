@@ -22,7 +22,19 @@
 //! little more of the top octave than linear does. Rejecting folds needs band-limited copies of the
 //! clip (an octave mipmap built by a half-band filter at load) or a pre-filter scaled with pitch.
 //!
-//! Clips are interleaved, 1 or 2 channels, f32 or int16 (architecture §5.2). Nothing allocates.
+//! Clips are interleaved, f32 or int16 (architecture §5.2), with 1 or 2 channels, or 4, 9 or 16
+//! for an ambisonic clip of order 1-3 (ADR 0162, api-and-models §5.2 "Arena to 16 channels").
+//! [`lagrange`] and [`lagrange_region`] render a stereo pair; [`lagrange_n`] and
+//! [`lagrange_region_n`] render up to [`MAX_CHANNELS`] channels planar into one shared scratch of
+//! [`PLANAR_SCRATCH_FLOATS`] (8 KB), with the same filters, bit-identical for 1 and 2 channels.
+//! Nothing allocates.
+
+/// Most channels a clip has: an ambisonic clip of order 3 (ADR 0162).
+pub const MAX_CHANNELS: usize = 16;
+
+/// Floats in the shared planar scratch an N-channel render fills: [`MAX_CHANNELS`] channels of one
+/// 128-frame quantum, 8 KB (api-and-models §5.2).
+pub const PLANAR_SCRATCH_FLOATS: usize = MAX_CHANNELS * 128;
 
 /// A clip's samples, interleaved (`frames * channels` values).
 #[derive(Clone, Copy, Debug)]
@@ -36,7 +48,7 @@ pub enum Samples<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct Source<'a> {
     pub samples: Samples<'a>,
-    /// 1 or 2.
+    /// 1, 2, 4, 9 or 16 (at most [`MAX_CHANNELS`]).
     pub channels: u32,
     /// Frames in the clip; `samples` holds at least `frames * channels` values.
     pub frames: u32,
@@ -163,9 +175,16 @@ impl Sample for i16 {
 /// [`linear`]'s last-frame hold is). Nothing is read outside `samples`, whatever `frames` claims
 /// (the frame count used is at most `samples.len() / channels`).
 ///
-/// Mono clips are copied to both outputs; stereo clips keep their channels. A clip with
+/// Mono clips are copied to both outputs; stereo clips keep their channels. A clip of more than 2
+/// channels (ambisonic, ADR 0162) renders its channel 0 (W, the omnidirectional component) to both
+/// outputs through [`lagrange_n`], until task B3's ambisonic voice decodes it. A clip with
 /// `frames == 0` writes zeros and returns 0. Nothing allocates and nothing panics.
 pub fn lagrange(src: &Source<'_>, pos: &mut f64, steps: &[f32], looping: bool, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
+    if src.channels > 2 {
+        let n = lagrange_n(src, pos, steps, looping, 1, out_l);
+        out_r.copy_from_slice(out_l);
+        return n;
+    }
     match (src.samples, src.channels == 2) {
         (Samples::F32(d), false) => render4::<f32, false>(d, src.frames, pos, steps, looping, out_l, out_r),
         (Samples::F32(d), true) => render4::<f32, true>(d, src.frames, pos, steps, looping, out_l, out_r),
@@ -303,8 +322,14 @@ pub fn advance(pos: &mut f64, steps: &[f32], frames: u32, looping: bool) -> usiz
 /// other neighbours are the clip's own frames, held at its edges. A step that crosses `end` from
 /// below wraps the position back by the region's length. A position already at or past `end`
 /// (a voice started there) plays on, unwrapped, to the clip's end and stops there, as a
-/// non-looping clip does. Returns the frames written (fewer only when the clip ran out).
+/// non-looping clip does. Returns the frames written (fewer only when the clip ran out). A clip of
+/// more than 2 channels renders its channel 0 to both outputs, as [`lagrange`] does.
 pub fn lagrange_region(src: &Source<'_>, pos: &mut f64, steps: &[f32], start: u32, end: u32, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
+    if src.channels > 2 {
+        let n = lagrange_region_n(src, pos, steps, start, end, 1, out_l);
+        out_r.copy_from_slice(out_l);
+        return n;
+    }
     match (src.samples, src.channels == 2) {
         (Samples::F32(d), false) => region4::<f32, false>(d, src.frames, pos, steps, start, end, out_l, out_r),
         (Samples::F32(d), true) => region4::<f32, true>(d, src.frames, pos, steps, start, end, out_l, out_r),
@@ -367,6 +392,33 @@ fn region4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64
         }
     }
     len
+}
+
+/// [`lagrange`] for a clip of any channel count up to [`MAX_CHANNELS`] (ADR 0162 task B2): renders
+/// the clip's first `channels` channels (`1 ..= src.channels`) of `steps.len()` frames **planar**
+/// into `out`: channel `c`'s frame `i` at `out[c * steps.len() + i]` (`out` holds at least
+/// `channels * steps.len()` floats; the shared scratch is [`PLANAR_SCRATCH_FLOATS`]). Returns the
+/// frames written; the rest of each channel's row is zero-filled when a non-looping clip ends.
+///
+/// The position arithmetic, the edges (wrapped when `looping`, else held) and the filter are
+/// [`lagrange`]'s exactly. The kernel is the Horner form when the clip has **one** channel, else
+/// the shared [`weights`] (so channels 0 and 1 of a stereo clip are bit-identical to `lagrange`'s
+/// `out_l` and `out_r`, and a mono clip's channel 0 to its `out_l`). Interleaved frame `j`'s channel
+/// `c` is `samples[j * src.channels + c]`. `channels` of 0, above `src.channels` or above
+/// [`MAX_CHANNELS`], or a short `out`, writes nothing and returns 0. Nothing allocates or panics.
+pub fn lagrange_n(src: &Source<'_>, pos: &mut f64, steps: &[f32], looping: bool, channels: usize, out: &mut [f32]) -> usize {
+    let _ = (src, pos, steps, looping, channels, out);
+    todo!("L-B2a")
+}
+
+/// [`lagrange_region`] for a clip of any channel count up to [`MAX_CHANNELS`]: the loop region's
+/// position arithmetic and seam reads of [`lagrange_region`], the kernel choice and planar output
+/// of [`lagrange_n`] (bit-identical to `lagrange_region` for 1 and 2 channels). The same refusals
+/// as [`lagrange_n`] (nothing written, 0), and an empty region zero-fills the rows and returns 0.
+#[allow(clippy::too_many_arguments)]
+pub fn lagrange_region_n(src: &Source<'_>, pos: &mut f64, steps: &[f32], start: u32, end: u32, channels: usize, out: &mut [f32]) -> usize {
+    let _ = (src, pos, steps, start, end, channels, out);
+    todo!("L-B2a")
 }
 
 /// [`advance`] over a loop region, with [`lagrange_region`]'s position arithmetic (virtual voices).
@@ -955,5 +1007,57 @@ mod tests {
         let (mut l, mut r) = ([1.0f32; 3], [1.0f32; 3]);
         assert_eq!(lagrange(&src, &mut pos, &[1.0f32; 3], true, &mut l, &mut r), 0);
         assert_eq!((l, r, pos), ([0.0; 3], [0.0; 3], 1.5));
+    }
+
+    // ---- lagrange_n, lagrange_region_n (ADR 0162 B2, leaf L-B2a) ----
+
+    /// Mono and stereo, f32 and int16, looping or not, unit / fractional / per-frame steps, starts
+    /// at the edges and past the end: `lagrange_n` equals `lagrange` bit for bit (`to_bits`), the
+    /// final positions and the returned counts too.
+    #[test]
+    #[ignore = "L-B2a"]
+    fn lagrange_n_is_bit_identical_to_lagrange_for_mono_and_stereo() {
+        todo!("L-B2a")
+    }
+
+    /// The same for `lagrange_region_n` against `lagrange_region` (regions inside the clip, at its
+    /// edges, a position past the region's end, an empty region).
+    #[test]
+    #[ignore = "L-B2a"]
+    fn lagrange_region_n_is_bit_identical_to_lagrange_region_for_mono_and_stereo() {
+        todo!("L-B2a")
+    }
+
+    /// A 16-channel clip (channel `c` a distinct signal): channels `c` and `c + 1` of the planar
+    /// output equal `lagrange` on a stereo clip of those two channels, bit for bit, for every even
+    /// `c`; the same for 4 and 9 channels (the odd last channel paired with a copy of itself).
+    #[test]
+    #[ignore = "L-B2a"]
+    fn every_channel_of_a_16_channel_clip_matches_the_stereo_kernel() {
+        todo!("L-B2a")
+    }
+
+    /// `channels` below the clip's renders only those rows (the rest of `out` untouched);
+    /// `channels` 0, above the clip's, above 16, or a short `out` returns 0 and writes nothing.
+    #[test]
+    #[ignore = "L-B2a"]
+    fn lagrange_n_renders_the_channels_asked_and_refuses_bad_arguments() {
+        todo!("L-B2a")
+    }
+
+    /// A non-looping 9-channel clip ending mid-block zero-fills every row past the end and returns
+    /// the frames written; the position matches `advance` (and `advance_region` for the region form).
+    #[test]
+    #[ignore = "L-B2a"]
+    fn an_n_channel_clip_ends_like_a_stereo_one_and_keeps_time_with_advance() {
+        todo!("L-B2a")
+    }
+
+    /// `lagrange` and `lagrange_region` on a 4-, 9- and 16-channel clip give channel 0 (W) on both
+    /// outputs, equal to `lagrange_n` with `channels` 1.
+    #[test]
+    #[ignore = "L-B2a"]
+    fn the_stereo_entry_points_render_w_for_an_ambisonic_clip() {
+        todo!("L-B2a")
     }
 }
