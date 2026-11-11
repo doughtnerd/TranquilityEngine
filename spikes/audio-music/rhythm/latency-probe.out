@@ -1,0 +1,87 @@
+{
+ "rows": [
+  {
+   "hint": "interactive",
+   "state": "running",
+   "sr": 44100,
+   "baseLatencyMs": 10,
+   "outputLatencyMs": 32,
+   "hasGetOutputTimestamp": true,
+   "ts": {
+    "contextTime": 0.370027,
+    "performanceTime": 454.3999999999651
+   },
+   "lagMs": 42.13
+  },
+  {
+   "hint": "balanced",
+   "state": "running",
+   "sr": 44100,
+   "baseLatencyMs": 10,
+   "outputLatencyMs": 32,
+   "hasGetOutputTimestamp": true,
+   "ts": {
+    "contextTime": 0.370029,
+    "performanceTime": 852.5999999999767
+   },
+   "lagMs": 42.13
+  },
+  {
+   "hint": "playback",
+   "state": "running",
+   "sr": 44100,
+   "baseLatencyMs": 23.22,
+   "outputLatencyMs": 72,
+   "hasGetOutputTimestamp": true,
+   "ts": {
+    "contextTime": 0.34839418367346936,
+    "performanceTime": 1258.2000000000116
+   },
+   "lagMs": 92.78
+  },
+  {
+   "hint": 0.005,
+   "state": "running",
+   "sr": 44100,
+   "baseLatencyMs": 10,
+   "outputLatencyMs": 32,
+   "hasGetOutputTimestamp": true,
+   "ts": {
+    "contextTime": 0.370025,
+    "performanceTime": 1654.399999999965
+   },
+   "lagMs": 42.13
+  },
+  {
+   "hint": 0.02,
+   "state": "running",
+   "sr": 44100,
+   "baseLatencyMs": 20.317,
+   "outputLatencyMs": 64,
+   "hasGetOutputTimestamp": true,
+   "ts": {
+    "contextTime": 0.34545920634920635,
+    "performanceTime": 2051.5
+   },
+   "lagMs": 81.21
+  },
+  {
+   "hint": 0,
+   "state": "running",
+   "sr": 44100,
+   "baseLatencyMs": 2.902,
+   "outputLatencyMs": 8,
+   "hasGetOutputTimestamp": true,
+   "ts": {
+    "contextTime": 0.39183821768707483,
+    "performanceTime": 2464
+   },
+   "lagMs": 11.61
+  }
+ ],
+ "perf": {
+  "res": 99.99999997671694,
+  "crossOriginIsolated": false
+ },
+ "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36"
+}
