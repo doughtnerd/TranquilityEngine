@@ -70,6 +70,9 @@ use crate::automation::{self, VoiceAuto};
 use crate::clips::ClipStore;
 use crate::core::{Core, Regions};
 use crate::counters::{Playhead, ENDED_CAP, PLAYHEADS_CAP};
+use crate::curves::{ramp_of, CurveEntry, DueGain, Shape};
+use crate::due::DueRecord;
+use crate::voice_split::Pieces;
 use crate::fxpool::FxEntry;
 use crate::layout::VOICE_SLOT_BYTES;
 use crate::panner::{Hrtf, PannerState};
@@ -208,6 +211,8 @@ struct View<'a> {
     area: &'a mut VoiceArea,
     /// ADR 0162 D1: the mixed-voice pool (the `Fx` region).
     pool: &'a mut [FxEntry],
+    /// 0166 M4-0: the curve pool (the `Curves` region), linked from `VoiceSlot::reserved`.
+    curves: &'a mut [CurveEntry],
 }
 
 fn view(regions: &mut Regions) -> View<'_> {
@@ -223,6 +228,7 @@ fn view(regions: &mut Regions) -> View<'_> {
             slots: core::slice::from_raw_parts_mut(regions.voices.as_mut_ptr() as *mut VoiceSlot, count),
             area: &mut *(state.as_mut_ptr() as *mut VoiceArea),
             pool: crate::fxpool::entries(&mut regions.fx[..]),
+            curves: crate::curves::entries(&mut regions.curves[..]),
         }
     }
 }
@@ -279,6 +285,8 @@ fn unlink_and_free(v: &mut View<'_>, index: usize) {
         v.slots[next as usize - 1].prev = prev;
     }
     crate::fxpool::release(v.pool, v.slots[index].fx, index);
+    // 0166 M4-0: its curve (a shaped fade still running) goes with it.
+    crate::curves::release(v.curves, v.slots[index].reserved, index);
     v.slots[index] = VoiceSlot::default();
     v.area.live_count -= 1;
 }
@@ -294,6 +302,15 @@ fn find(v: &View<'_>, voice_id: u32) -> Option<usize> {
 /// `Core::process`): applies the scheduler's records due in this quantum at their sample offsets,
 /// renders every live voice, then reports ended voices, late records, the live and mixed counts
 /// and playheads through the counters (K12). Never allocates.
+///
+/// **0166 M4-0 (ADR 0167 §1.1; api-and-models §3.1; architecture §4.4).** `pop_due` still pops
+/// every record due in the quantum, and `due::route` sends each **per-voice** record into the
+/// quantum's due list (setting its voice's `due` bit, `due::FLAG2_DUE`) or parks it (a voice held
+/// by its group's gate); the quantum then renders once. Only what `route` returns as
+/// `Route::Split` (records that aren't per voice, a full due list) still splits the whole quantum
+/// at the record's offset, as before, and the quantum counts once in `splitQuanta`. A flagged voice
+/// applies its own records inside its render ([`render_due_voice`], hook H1); a voice without the
+/// bit renders exactly as before, so unstamped work is bit-identical.
 pub fn render(core: &mut Core, frame: u64) {
     let end = frame + QUANTUM as u64;
     // ADR 0158 E2: parameters move and bindings are evaluated before any voice renders.
@@ -305,20 +322,28 @@ pub fn render(core: &mut Core, frame: u64) {
     // ADR 0162 B3: the listener's rotation moves on one quantum (ambisonic voices ramp across it).
     crate::listener::begin_quantum(core);
     core.regions_mut().output[..2 * QUANTUM].fill(0.0);
+    // 0166 M4-0: last quantum's due list and `due` bits go; parked records whose voice the gate let
+    // go and whose frame falls before this quantum's end come back into the list.
+    crate::due::begin_quantum(core, frame);
+    crate::due::release_parked(core, end);
     let mut cursor = 0usize;
+    let mut split = false;
     let (mut source_frames, mut moving) = (0.0f32, 0u32);
     while let Some(record) = crate::scheduler::pop_due(core, end) {
-        let offset = if record.frame < frame {
+        if record.frame < frame {
             note_late(core, frame - record.frame);
-            0
-        } else {
-            (record.frame - frame) as usize
-        };
+        }
+        if crate::due::route(core, &record, frame) != crate::due::Route::Split {
+            continue;
+        }
+        let offset = crate::due::offset(&record, frame);
         if offset > cursor {
             let (f, m) = render_range(core, frame, cursor, offset);
             source_frames += f;
             moving = moving.max(m);
             cursor = offset;
+            // A record at offset 0 (or late) applies before the quantum's only range: no split.
+            split = true;
         }
         crate::scheduler::apply(core, &record);
     }
@@ -326,6 +351,9 @@ pub fn render(core: &mut Core, frame: u64) {
         let (f, m) = render_range(core, frame, cursor, QUANTUM);
         source_frames += f;
         moving = moving.max(m);
+    }
+    if split {
+        status::counters_mut(core).music.note_split_quantum();
     }
     // A3.5: the source frames the mixed voices read and the moving ones, for the work-unit model.
     core.cap_mut().note_voices(source_frames, moving);
@@ -345,7 +373,36 @@ fn note_late(core: &mut Core, lateness: u64) {
 /// ratio at the range's start × its frames; the work-unit model's pitch term) and how many mixed
 /// voices were moving (their pan matrix ramping, which takes the per-frame path). Reading them
 /// changes nothing rendered.
+///
+/// 0166 M4-0 (hook H1): the live list is walked in order as before; the voices without the `due`
+/// bit render in one walk, and each flagged voice, where the walk reaches it, renders through
+/// [`render_due_voice`] in its own sub-ranges. With no due record that is one walk, exactly the
+/// code that ran before.
 fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u32) {
+    let mut acc = (0.0f32, 0u32);
+    let mut cursor = view(core.regions_mut()).area.live_head;
+    while cursor != 0 {
+        match render_voices(core, frame, from, to, Walk::List(&mut cursor), &mut acc) {
+            Some(index) => render_due_voice(core, frame, from, to, index, &mut acc),
+            None => break,
+        }
+    }
+    acc
+}
+
+/// What [`render_voices`] renders.
+enum Walk<'w> {
+    /// The live list from this cursor (slot index + 1), up to and past the first voice with the
+    /// `due` bit, whose index it returns unrendered; the cursor is left after it.
+    List(&'w mut u32),
+    /// Slot `0` alone, with a class G record due in the gain loop (`DueGain::NONE` for none).
+    One(usize, &'w DueGain),
+}
+
+/// Renders the voices `walk` names over `from..to` of the quantum at `frame`, adding their source
+/// frames and moving count into `acc` (see [`render_range`]). Returns the flagged voice that
+/// stopped a [`Walk::List`].
+fn render_voices(core: &mut Core, frame: u64, from: usize, to: usize, mut walk: Walk<'_>, acc: &mut (f32, u32)) -> Option<usize> {
     let sample_rate = core.params().sample_rate;
     let fade_frames = mix_fade_frames(core);
     let (regions, clips, streams) = core.render_parts();
@@ -363,11 +420,29 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
     // SAFETY: the `Beds` region is distinct from every region borrowed here.
     let mut beds = crate::bed::view(unsafe { &mut *(&mut regions.beds[..] as *mut [u8]) });
     let mut v = view(regions);
-    let (mut source_frames, mut moving) = (0.0f32, 0u32);
-    let mut cursor = v.area.live_head;
-    while cursor != 0 {
-        let index = cursor as usize - 1;
-        cursor = v.slots[index].next;
+    let (source_frames, moving) = (&mut acc.0, &mut acc.1);
+    let mut once = true;
+    loop {
+        let (index, due) = match &mut walk {
+            Walk::List(cursor) => {
+                if **cursor == 0 {
+                    break;
+                }
+                let index = **cursor as usize - 1;
+                **cursor = v.slots[index].next;
+                if v.slots[index].flags2 & crate::due::FLAG2_DUE != 0 {
+                    return Some(index);
+                }
+                (index, &DueGain::NONE)
+            }
+            Walk::One(index, due) => {
+                if !once {
+                    break;
+                }
+                once = false;
+                (*index, *due)
+            }
+        };
         // ADR 0162 D1: the pool entry follows the mixed flag (`fxpool.rs`).
         sync_fx(&mut v, index);
         let slot = &mut v.slots[index];
@@ -399,15 +474,26 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
         };
         let Some((out_l, out_r)) = inputs.get(slot.bus) else { continue };
         if slot.flags & flag::MIXED != 0 {
-            source_frames += slot.pitch.value * slot.rate_ratio * (to - start) as f32;
-            moving += !slot.panner.matrix.iter().all(|r| r.is_settled()) as u32;
+            *source_frames += slot.pitch.value * slot.rate_ratio * (to - start) as f32;
+            *moving += !slot.panner.matrix.iter().all(|r| r.is_settled()) as u32;
         }
+        // 0166 M4-0: a class G record's sample is relative to `from`; the voice's own frames start
+        // at `start` (the caller starts a flagged voice's first piece at its start, so this shift is
+        // 0 there).
+        let shifted;
+        let due = if start > from && due.at != u32::MAX {
+            let d = (start - from) as u32;
+            shifted = DueGain { at: due.at.saturating_sub(d), truncate_at: due.truncate_at.saturating_sub(d), ..*due };
+            &shifted
+        } else {
+            due
+        };
         // SAFETY: `autos` views the automation region, distinct from the voices, core-state and
         // buses regions borrowed here, and one entry is borrowed at a time.
         let auto = autos.and_then(|a| unsafe { (&mut *a).get_mut(index) }).filter(|a| a.active_for(slot.id));
         // SAFETY: `zones` views the `Zones` region, distinct from every region borrowed here; one
         // voice holds it at a time.
-        let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones }, beds: beds.as_mut() };
+        let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones }, beds: beds.as_mut(), due };
         // `AUTO = false` compiles the automation away: a voice without bindings or a loop region takes
         // exactly the M1 code (0158 E2: it costs nothing and renders bit for bit as before).
         match (slot.flags & flag::STREAM != 0, auto.is_some()) {
@@ -423,7 +509,189 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
             s.fx = 0;
         }
     }
-    (source_frames, moving)
+    None
+}
+
+/// 0166 M4-0 (hook H1; api-and-models §3.1; architecture §4.4 step 3): renders voice slot `index`,
+/// which has records in this quantum's due list, over `from..to` of the quantum at `frame`,
+/// applying each of its records at its own sample, and adds into `acc`. The other voices never
+/// see its records.
+/// - The voice's **first sample** in the range is its start offset when it starts inside the range,
+///   else `from`. Records at or before it (a late record at offset 0, one at the voice's own start
+///   frame) apply before it renders (api-and-models §3.1). A voice that doesn't render in this
+///   range (not started, paused before its start, ended) still gets its records here, in order.
+/// - `voice_split::boundaries` (Z2c) cuts the range into pieces; before each piece, the records
+///   due at or before its first sample apply through `scheduler::apply` (the per-voice apply).
+/// - Inside a piece, a **class G** record that is the next record of the voice and alone at its
+///   sample goes to the gain loop's compare: `curves::prepare` (Z2b) turns it into a [`DueGain`]
+///   for the piece and the gain loop retargets the ramp at its sample (`curves::due_gain`). Any
+///   other record inside a piece, or a class G record `prepare` doesn't take (it returns
+///   `DueGain::NONE`), splits the piece at its sample and applies there, exactly as the whole
+///   quantum split before: so with Z2b's and Z2c's stubs every record still lands on its sample.
+/// - Each render past the first in the range counts once in `voiceSplits`.
+fn render_due_voice(core: &mut Core, frame: u64, from: usize, to: usize, index: usize, acc: &mut (f32, u32)) {
+    let s = view(core.regions_mut()).slots[index];
+    let id = s.id;
+    let Some(first) = first_sample(&s, frame, from, to) else {
+        // Not rendering in this range: its records in the range apply, in order.
+        apply_due_through(core, id, frame, to - 1);
+        return;
+    };
+    let mut pieces = Pieces::whole(first, to);
+    {
+        let list = crate::due::view(core.regions_mut());
+        crate::voice_split::boundaries(list.for_voice(id), frame, first, to, &mut pieces);
+    }
+    let mut renders = 0u32;
+    for (a, b) in pieces.ranges() {
+        let mut pos = a;
+        while pos < b {
+            apply_due_through(core, id, frame, pos);
+            let (stop, due, record) = next_piece(core, index, id, frame, pos, b);
+            render_voices(core, frame, pos, stop, Walk::One(index, &due), acc);
+            renders += 1;
+            if due.at != u32::MAX {
+                after_gain_record(core, index, &record, &due);
+            }
+            pos = stop;
+        }
+    }
+    // Records left in the range (the voice ended inside it): they apply, in order, to no effect.
+    apply_due_through(core, id, frame, to - 1);
+    let c = &mut status::counters_mut(core).music;
+    for _ in 1..renders {
+        c.note_voice_split();
+    }
+}
+
+/// Where voice `index` (id `id`) stops rendering from `pos` (inside a piece ending at `b`), and the
+/// class G record the gain loop takes on the way, if any (see [`render_due_voice`]). Takes that
+/// record out of the due list.
+fn next_piece(core: &mut Core, index: usize, id: u32, frame: u64, pos: usize, b: usize) -> (usize, DueGain, DueRecord) {
+    let mut next = None;
+    for (at, r) in crate::due::view(core.regions_mut()).records().iter().enumerate() {
+        if r.voice_id != id {
+            continue;
+        }
+        let k = crate::due::offset(r, frame);
+        if k >= b {
+            break;
+        }
+        match next {
+            None => next = Some((at, k, *r, b)),
+            Some((i, k0, r0, _)) => {
+                next = Some((i, k0, r0, k));
+                break;
+            }
+        }
+    }
+    let Some((at, k, record, follow)) = next else { return (b, DueGain::NONE, DueRecord::default()) };
+    // `apply_due_through(pos)` ran first, so `k > pos`.
+    if crate::due::classify(&record) != crate::due::Class::G || follow == k {
+        return (k, DueGain::NONE, record);
+    }
+    let due = gain_record(core, index, &record, frame, pos, k);
+    if due.at == u32::MAX {
+        // Not taken by the gain loop: it applies at its sample, after a split there.
+        return (k, DueGain::NONE, record);
+    }
+    crate::due::view(core.regions_mut()).take(at);
+    // A stopping fade that ends inside the piece ends the voice there (`after_gain_record`).
+    let end = if crate::due::stops_at_end(&record) { follow.min(k + record.frames as usize) } else { follow };
+    (end, due, record)
+}
+
+/// `curves::prepare` for voice slot `index`'s class G `record` at sample `k` of the quantum at
+/// `frame`, in the piece starting at sample `pos` (the ramp's value at `k` is found by stepping a
+/// copy of it, at control rate). A full curve pool counts `curvePoolFull`.
+fn gain_record(core: &mut Core, index: usize, record: &DueRecord, frame: u64, pos: usize, k: usize) -> DueGain {
+    let mut full = 0u16;
+    let due = {
+        let v = view(core.regions_mut());
+        let s = &mut v.slots[index];
+        let mut ramp = if crate::due::ramp_of(record) == ramp_of::GAIN { s.gain } else { s.fade };
+        for _ in pos..k {
+            ramp.next();
+        }
+        let shape = Shape::from_word(crate::scheduler::shape_word(record));
+        crate::curves::prepare(v.curves, index, s.id, &mut s.reserved, record, shape, record.frame.max(frame), frame + pos as u64, ramp.value, &mut full)
+    };
+    if full != 0 {
+        let c = &mut status::counters_mut(core).music;
+        c.curve_pool_full = c.curve_pool_full.saturating_add(full);
+    }
+    due
+}
+
+/// After a piece in which the gain loop took a class G record (`due`): a STOP with fade 0 ended the
+/// voice at its sample (`due.truncate_at`), and a stopping fade (STOP with a fade, FADE with "stop
+/// at end") marks the voice to end when its fade settles, as `stop` and `fade` do.
+fn after_gain_record(core: &mut Core, index: usize, record: &DueRecord, due: &DueGain) {
+    let v = view(core.regions_mut());
+    let s = &mut v.slots[index];
+    if !is_live_state(s.state) {
+        return;
+    }
+    if due.truncate_at != u32::MAX {
+        s.state = state::ENDED;
+    } else if crate::due::stops_at_end(record) {
+        s.flags |= flag::STOP_ON_FADE_END;
+        if s.fade.is_settled() {
+            s.state = state::ENDED;
+        }
+    }
+}
+
+/// Applies, in frame order, voice `id`'s records in the due list with a sample at or before `pos`
+/// of the quantum at `frame` (taking each out of the list first).
+fn apply_due_through(core: &mut Core, id: u32, frame: u64, pos: usize) {
+    let mut from = 0usize;
+    loop {
+        let record = {
+            let mut list = crate::due::view(core.regions_mut());
+            let Some(at) = list.records().iter().skip(from).position(|r| r.voice_id == id).map(|i| i + from) else { return };
+            let r = list.records()[at];
+            if crate::due::offset(&r, frame) > pos {
+                return;
+            }
+            list.take(at);
+            from = at + 1;
+            r
+        };
+        crate::scheduler::apply(core, &record);
+    }
+}
+
+/// The first sample voice `s` renders over `from..to` of the quantum at `frame`, or `None` when it
+/// doesn't render there (the same decision as [`render_voices`]' `SCHEDULED` branch, without its
+/// effects).
+fn first_sample(s: &VoiceSlot, frame: u64, from: usize, to: usize) -> Option<usize> {
+    match s.state {
+        state::SCHEDULED if s.flags & flag::PAUSED == 0 => {
+            if s.start_frame == ASAP || s.start_frame < frame + from as u64 {
+                Some(from)
+            } else if s.start_frame < frame + to as u64 {
+                Some((s.start_frame - frame) as usize)
+            } else {
+                None
+            }
+        }
+        state::PLAYING => Some(from),
+        _ => None,
+    }
+}
+
+/// Steps `ramp` over `n` frames of a voice that doesn't render (virtual), retargeting it at
+/// `due.at` when `due` drives it ([`curves::due_gain`]'s compare, done once rather than per frame).
+#[inline]
+fn advance_due(ramp: &mut Ramp, which: u8, due: &DueGain, n: u32) {
+    if due.ramp != which || due.at >= n {
+        ramp.advance(n);
+    } else {
+        ramp.advance(due.at);
+        crate::curves::due_gain(ramp, due.at, due);
+        ramp.advance(n - due.at - 1);
+    }
 }
 
 /// ADR 0162 D1: a live mixed voice holds a pool entry, any other slot none. A mixed voice without
@@ -547,6 +815,8 @@ fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceA
         // voice holds at exactly the frame the fade ended on (A3.7).
         n = n.min(slot.mix.remaining as usize);
     }
+    // 0166 M4-0 (H1): a class G STOP with fade 0 ends the voice's frames at its sample.
+    n = n.min(fx.due.truncate_at as usize);
     let looping = slot.flags & flag::LOOP != 0;
     if slot.start_frame >> 62 == 1 {
         // A SEEK is pending (B3b): a virtual voice (silent) or one whose fade-out has settled moves
@@ -618,8 +888,8 @@ fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceA
         } else {
             resample::advance(&mut slot.position, &steps[..n], clip.source.frames, looping);
         }
-        slot.gain.advance(n as u32);
-        slot.fade.advance(n as u32);
+        advance_due(&mut slot.gain, ramp_of::GAIN, fx.due, n as u32);
+        advance_due(&mut slot.fade, ramp_of::FADE, fx.due, n as u32);
         slot.mix.advance(n as u32);
         slot.panner.advance(n as u32);
     }
@@ -741,6 +1011,7 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
     if slot.flags & flag::PAUSED != 0 {
         n = n.min(slot.mix.remaining as usize);
     }
+    n = n.min(fx.due.truncate_at as usize);
     let mut steps = [0.0f32; QUANTUM];
     let mut max_step = 0.0f32;
     for step in steps[..n].iter_mut() {
@@ -798,8 +1069,8 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
             slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
         }
     } else {
-        slot.gain.advance(done as u32);
-        slot.fade.advance(done as u32);
+        advance_due(&mut slot.gain, ramp_of::GAIN, fx.due, done as u32);
+        advance_due(&mut slot.fade, ramp_of::FADE, fx.due, done as u32);
         slot.mix.advance(done as u32);
         slot.panner.advance(done as u32);
     }
@@ -852,6 +1123,7 @@ fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut Vo
     if slot.flags & flag::PAUSED != 0 {
         n = n.min(slot.mix.remaining as usize);
     }
+    n = n.min(fx.due.truncate_at as usize);
     let mut steps = [0.0f32; QUANTUM];
     let mut max_step = 0.0f32;
     for step in steps[..n].iter_mut() {
@@ -935,11 +1207,14 @@ struct VoiceFx<'a> {
     zones: &'a mut [u8],
     /// ADR 0162 A4: the beds (`bed.rs`), `None` for a core without them.
     beds: Option<&'a mut crate::bed::Beds>,
+    /// 0166 M4-0 (H1): the class G record the gain loop applies in this range (sample relative to
+    /// the range's first frame), or `DueGain::NONE`: then every gain loop runs exactly as before.
+    due: &'a DueGain,
 }
 
 impl VoiceFx<'_> {
     fn reborrow(&mut self) -> VoiceFx<'_> {
-        VoiceFx { entry: self.entry.as_deref_mut(), zones: &mut *self.zones, beds: self.beds.as_deref_mut() }
+        VoiceFx { entry: self.entry.as_deref_mut(), zones: &mut *self.zones, beds: self.beds.as_deref_mut(), due: self.due }
     }
 
     /// ADR 0162 A4: the panner's kind-2 context, when the core has beds and the voice an entry.
@@ -959,12 +1234,16 @@ impl VoiceFx<'_> {
 ///   send tap (`sends::tap`), then the dry `gain` ramp;
 /// - either way, with an aux bus, the post-fader aux tap (`sends::tap_aux`) last.
 fn voice_chain(slot: &mut VoiceSlot, mut auto: Option<&mut VoiceAuto>, fx: &mut VoiceFx<'_>, sample_rate: f32, from: usize, l: &mut [f32], r: &mut [f32]) {
-    let VoiceFx { entry, zones, .. } = fx;
+    let VoiceFx { entry, zones, due, .. } = fx;
+    let due: &DueGain = due;
     let zones: &mut [u8] = zones;
     let sending = entry.as_deref().is_some_and(FxEntry::sending);
     let n = l.len();
     let settled_mix = slot.mix.is_settled() && slot.mix.value == 1.0;
-    if !sending {
+    if due.at != u32::MAX {
+        // 0166 M4-0 (H1): a class G record in this range: the same products, through the compare.
+        due_gain_loop(slot, due, sending, l, r);
+    } else if !sending {
         if settled_mix {
             for i in 0..n {
                 let g = slot.gain.next() * slot.fade.next();
@@ -1009,15 +1288,43 @@ fn voice_chain(slot: &mut VoiceSlot, mut auto: Option<&mut VoiceAuto>, fx: &mut 
         }
         if sending {
             crate::sends::tap(&mut e.send, zones, slot.bus, from, l, r);
-            for i in 0..n {
-                let g = slot.gain.next();
-                l[i] *= g;
-                r[i] *= g;
+            if due.at != u32::MAX && due.ramp == ramp_of::GAIN {
+                for i in 0..n {
+                    let g = crate::curves::due_gain(&mut slot.gain, i as u32, due);
+                    l[i] *= g;
+                    r[i] *= g;
+                }
+            } else {
+                for i in 0..n {
+                    let g = slot.gain.next();
+                    l[i] *= g;
+                    r[i] *= g;
+                }
             }
         }
         if e.aux_bus != wire::AUX_BUS_NONE as u16 {
             crate::sends::tap_aux(&mut e.aux, e.aux_bus, zones, slot.bus, from, l, r, &slot.panner);
         }
+    }
+}
+
+/// 0166 M4-0 (H1): [`voice_chain`]'s first gain loop for a range with a class G record (`due`): the
+/// ramp `due.ramp` names steps through `curves::due_gain`'s compare (it retargets at `due.at`), the
+/// other ramps as before. The products are the plain loops' (`gain · fade · mix`, or `fade · mix`
+/// while sending; a settled mix multiplies by exactly 1). Out of line: only flagged voices run it.
+#[inline(never)]
+fn due_gain_loop(slot: &mut VoiceSlot, due: &DueGain, sending: bool, l: &mut [f32], r: &mut [f32]) {
+    let on_fade = due.ramp != ramp_of::GAIN;
+    for i in 0..l.len() {
+        let f = if on_fade { crate::curves::due_gain(&mut slot.fade, i as u32, due) } else { slot.fade.next() };
+        let g = if sending {
+            f * slot.mix.next()
+        } else {
+            let gain = if on_fade { slot.gain.next() } else { crate::curves::due_gain(&mut slot.gain, i as u32, due) };
+            gain * f * slot.mix.next()
+        };
+        l[i] *= g;
+        r[i] *= g;
     }
 }
 
@@ -1074,11 +1381,15 @@ fn ambisonic_mix(slot: &mut VoiceSlot, auto: Option<&VoiceAuto>, fx: &mut VoiceF
         resample::lagrange_n(src, &mut slot.position, steps, looping, ch, &mut planar);
     }
     let gain_mul = auto.filter(|a| a.count != 0 && a.targets & automation::has::GAIN != 0);
+    // 0166 M4-0 (H1): the ramp a class G record drives steps through the compare (one copy of this
+    // function, so no branch outside the loops: with `NONE` the compare never matches).
+    let none = DueGain::NONE;
+    let (fade_due, gain_due) = if fx.due.ramp == ramp_of::GAIN { (&none, fx.due) } else { (fx.due, &none) };
     let mut g = [0.0f32; QUANTUM];
     for (i, g) in g[..n].iter_mut().enumerate() {
-        *g = slot.fade.next() * slot.mix.next() * gain_mul.map_or(1.0, |a| a.gain_at(from + i));
+        *g = crate::curves::due_gain(&mut slot.fade, i as u32, fade_due) * slot.mix.next() * gain_mul.map_or(1.0, |a| a.gain_at(from + i));
     }
-    let VoiceFx { entry, zones, beds } = fx;
+    let VoiceFx { entry, zones, beds, .. } = fx;
     let mut yaw = [0.0f32; 2];
     if let Some(e) = entry.as_deref_mut() {
         if e.sending() {
@@ -1093,8 +1404,8 @@ fn ambisonic_mix(slot: &mut VoiceSlot, auto: Option<&VoiceAuto>, fx: &mut VoiceF
             e.yaw_last = e.yaw;
         }
     }
-    for g in g[..n].iter_mut() {
-        *g *= slot.gain.next();
+    for (i, g) in g[..n].iter_mut().enumerate() {
+        *g *= crate::curves::due_gain(&mut slot.gain, i as u32, gain_due);
     }
     let Some(beds) = beds.as_deref_mut() else { return };
     let route = beds.route(slot.bus);
@@ -1317,6 +1628,9 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         // ADR 0162 D1: the old voice's pool entry goes; a mixed voice takes a fresh one.
         crate::fxpool::release(v.pool, old.fx, index);
         s.fx = 0;
+        // 0166 M4-0: so does the old voice's curve; the new voice starts with no link (R4).
+        crate::curves::release(v.curves, old.reserved, index);
+        s.reserved = 0;
         s.gain = Ramp::at(play.gain);
         s.pitch = Ramp::at(play.pitch);
         s.fade = Ramp::at(1.0);

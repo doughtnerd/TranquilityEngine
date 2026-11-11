@@ -84,9 +84,37 @@ pub enum Route {
     /// Its voice is held but the parked records are full: the caller applies it at its own frame,
     /// unrebased; `parkedOverflow` was counted.
     Overflow,
-    /// Not per voice, or the due list is full, or its voice is gone: the caller splits the quantum
-    /// at the record's offset and applies it there, as today (`splitQuanta` counts once per quantum).
+    /// Not per voice, or the due list is full: the caller splits the quantum at the record's offset
+    /// and applies it there, as today (`splitQuanta` counts once per quantum that splits).
     Split,
+    /// Per voice, but its voice is gone (a stale id, an ended voice): applying it would change
+    /// nothing, so it is dropped without a split (Z2a: today's apply drops it too).
+    Dropped,
+}
+
+/// The sample of `record` in the quantum at `frame`: its offset, or 0 for a record already late.
+#[inline]
+pub fn offset(record: &DueRecord, frame: u64) -> usize {
+    record.frame.saturating_sub(frame).min(crate::QUANTUM as u64 - 1) as usize
+}
+
+/// The ramp a class G `record` drives (`curves::ramp_of`): SET_PARAMS the `gain` ramp, FADE and
+/// STOP the `fade` ramp (R5).
+#[inline]
+pub fn ramp_of(record: &DueRecord) -> u8 {
+    if record.op as u16 == audio_wire::generated::op::SET_PARAMS { crate::curves::ramp_of::GAIN } else { crate::curves::ramp_of::FADE }
+}
+
+/// `true` for a class G record that ends its voice when its fade settles: a STOP with a fade, or a
+/// FADE with "stop at end" over at least one frame (over 0 frames it ends the voice at once).
+#[inline]
+pub fn stops_at_end(record: &DueRecord) -> bool {
+    use audio_wire::generated::op;
+    match record.op as u16 {
+        op::STOP => record.frames > 0,
+        op::FADE => record.flags & 1 != 0 && record.frames > 0,
+        _ => false,
+    }
 }
 
 /// What [`rebase`] moved.
@@ -173,7 +201,16 @@ impl DueList<'_> {
         false
     }
 
-    /// Voice `voice_id`'s due records in this quantum, in frame order.
+    /// Takes due record `at` out of the list: it has applied (or the gain loop has it). Its slot
+    /// stays, with voice id 0 (never a live voice's), so the other records keep their places;
+    /// [`for_voice`](Self::for_voice) no longer yields it.
+    pub fn take(&mut self, at: usize) {
+        if at < self.records().len() {
+            self.records[at].voice_id = 0;
+        }
+    }
+
+    /// Voice `voice_id`'s due records in this quantum not yet taken, in frame order.
     pub fn for_voice(&self, voice_id: u32) -> impl Iterator<Item = &DueRecord> + '_ {
         // Z2a may index per voice; the contract is the order.
         self.records().iter().filter(move |r| r.voice_id == voice_id)

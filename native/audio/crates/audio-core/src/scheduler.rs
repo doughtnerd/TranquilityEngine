@@ -54,7 +54,18 @@ use crate::layout::{PENDING_CAPACITY, PENDING_RECORD_BYTES};
 use crate::{automation, bed, bus, fxpool, listener, status, voices, zones};
 
 /// One stamped record waiting for its frame: 48 bytes (`PENDING_RECORD_BYTES`), all-zero valid.
-/// STOP, SET_PARAMS, FADE and SET_PAUSED only (PLAY is written to its slot at once).
+/// STOP, SET_PARAMS, FADE, SET_PAUSED, SEEK and SET_LOOP only (PLAY is written to its slot at once).
+///
+/// **The `shape` word** (api-and-models §4.2; 0166 M4-0, Z2a) rides in a value the record doesn't
+/// otherwise use, so the record stays 48 B ([`shape_word`] reads it back):
+/// - FADE: `values[1]`'s bits;
+/// - STOP: `values[0]`'s bits;
+/// - SET_PARAMS with the gain bit alone: `values[1]`'s bits (the pitch slot, outside its mask).
+///
+/// A shaped SET_PARAMS whose mask holds the gain bit **and** others (60 B on the wire, with all seven
+/// values) is queued as two records at the same frame, in this order: the gain alone with its shape
+/// (class G), then the other bits with no shape (class S). An unshaped one stays one record. The
+/// word only shapes a gain ramp, so on a SET_PARAMS without the gain bit it is dropped.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PendingRecord {
@@ -222,13 +233,25 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             }
             wire::op::STOP => {
                 if let Ok((s, _)) = Stop::read(msg, off) {
-                    let record = PendingRecord { voice_id: s.voice_id, op: wire::op::STOP as u8, frames: s.fade_frames, ..Default::default() };
+                    let record = PendingRecord {
+                        voice_id: s.voice_id,
+                        op: wire::op::STOP as u8,
+                        frames: s.fade_frames,
+                        values: [f32::from_bits(s.shape), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        ..Default::default()
+                    };
                     schedule(core, record, at);
                 }
             }
             wire::op::SET_PARAMS => {
                 if let Ok((p, _)) = SetParams::read(msg, off) {
-                    schedule(core, set_params_record(&p), at);
+                    let (gain, rest) = set_params_records(&p);
+                    if let Some(gain) = gain {
+                        schedule(core, gain, at);
+                    }
+                    if let Some(rest) = rest {
+                        schedule(core, rest, at);
+                    }
                 }
             }
             wire::op::FADE => {
@@ -237,7 +260,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
                         voice_id: f.voice_id,
                         op: wire::op::FADE as u8,
                         flags: (f.flags & wire::FADE_FLAGS_STOP_AT_END) as u8,
-                        values: [f.target, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        values: [f.target, f32::from_bits(f.shape), 0.0, 0.0, 0.0, 0.0, 0.0],
                         frames: f.frames,
                         ..Default::default()
                     };
@@ -340,6 +363,10 @@ pub fn reset(core: &mut Core, keep_clips: bool) {
     regions.voices.fill(0);
     let area_end = SCHEDULER_AREA_OFFSET + core::mem::size_of::<SchedulerArea>();
     regions.core_state[voices::VOICE_AREA_OFFSET..area_end].fill(0);
+    // 0166 M4-0: the due list and the parked records go, and every curve-pool entry with the slots
+    // that linked them (all-zero is a free pool).
+    crate::due::reset(core);
+    core.regions_mut().curves.fill(0);
     let c = status::counters_mut(core);
     c.live_voices = 0;
     c.mixed_voices = 0;
@@ -366,8 +393,12 @@ fn absolute(first_frame: f64, offset: u32) -> u64 {
     base.saturating_add(offset as u64)
 }
 
-fn set_params_record(p: &SetParams) -> PendingRecord {
-    PendingRecord {
+/// SET_PARAMS as pending records (see [`PendingRecord`] on the shape word): `(gain, rest)`, where
+/// `gain` is the gain-only record carrying the shape (for a gain-only mask, or a shaped mask with the
+/// gain bit and others) and `rest` the record of every other bit (the whole record for an unshaped
+/// mixed mask, or one without the gain bit). At least one is `Some`.
+fn set_params_records(p: &SetParams) -> (Option<PendingRecord>, Option<PendingRecord>) {
+    let whole = PendingRecord {
         voice_id: p.voice_id,
         op: wire::op::SET_PARAMS as u8,
         mask: (p.mask & 0x7F) as u8,
@@ -376,6 +407,24 @@ fn set_params_record(p: &SetParams) -> PendingRecord {
         values: [p.gain, p.pitch, p.dir_x, p.dir_y, p.dir_z, p.lp_hz, p.score],
         frames: p.ramp_frames,
         frame: 0,
+    };
+    let gain_bit = wire::SET_PARAMS_MASK_GAIN as u8;
+    if whole.mask & gain_bit == 0 || (p.shape == 0 && whole.mask != gain_bit) {
+        return (None, Some(whole));
+    }
+    let gain = PendingRecord { mask: gain_bit, values: [p.gain, f32::from_bits(p.shape), 0.0, 0.0, 0.0, 0.0, 0.0], ..whole };
+    let rest = whole.mask & !gain_bit;
+    (Some(gain), (rest != 0).then_some(PendingRecord { mask: rest, ..whole }))
+}
+
+/// A pending record's `shape` word (api-and-models §4.2: bits 0–2 the law, bits 16–31 the start
+/// phase), or 0 (linear from phase 0) for a record that carries none. See [`PendingRecord`].
+pub fn shape_word(record: &PendingRecord) -> u32 {
+    match record.op as u16 {
+        wire::op::FADE => record.values[1].to_bits(),
+        wire::op::STOP => record.values[0].to_bits(),
+        wire::op::SET_PARAMS if record.mask == wire::SET_PARAMS_MASK_GAIN as u8 => record.values[1].to_bits(),
+        _ => 0,
     }
 }
 
@@ -432,7 +481,42 @@ pub fn pop_due(core: &mut Core, before: u64) -> Option<PendingRecord> {
     Some(record)
 }
 
+/// R10, for `due::rebase` (C2d through it): shifts by `slip` frames every record still in the
+/// pending queue whose voice satisfies `is_member` and whose frame is ≥ `from_frame`, then sorts
+/// the queue by frame again, stable (records of one frame keep their queue order). Returns how many
+/// moved. Control rate: a group start or resume, never per quantum.
+pub fn rebase_pending(core: &mut Core, is_member: &dyn Fn(u32) -> bool, from_frame: u64, slip: u64) -> u32 {
+    let q = queue(core.regions_mut());
+    let (head, len) = (q.area.head as usize, q.area.len as usize);
+    let live = &mut q.records[head..head + len];
+    let mut moved = 0u32;
+    for r in live.iter_mut() {
+        if r.frame >= from_frame && is_member(r.voice_id) {
+            r.frame = r.frame.saturating_add(slip);
+            moved += 1;
+        }
+    }
+    if moved == 0 || slip == 0 {
+        return moved;
+    }
+    // Stable insertion sort by frame (records arrived in order; the shift broke it only forwards).
+    for i in 1..live.len() {
+        let r = live[i];
+        let mut j = i;
+        while j > 0 && live[j - 1].frame > r.frame {
+            live[j] = live[j - 1];
+            j -= 1;
+        }
+        live[j] = r;
+    }
+    moved
+}
+
 /// Applies one record that came due (or arrived asap, or found the queue full) to its voice.
+///
+/// 0166 M4-0: a per-voice record touches only its own voice, so this is also the **per-voice apply**
+/// the in-voice path uses between a voice's sub-ranges (`voices.rs`, hook H1): `voices::render`
+/// calls it with the core between two pieces of one voice's render, never inside a piece.
 pub fn apply(core: &mut Core, record: &PendingRecord) {
     match record.op as u16 {
         wire::op::STOP => voices::stop(core, record.voice_id, record.frames),
@@ -456,7 +540,7 @@ pub fn apply(core: &mut Core, record: &PendingRecord) {
                 bus: record.bus as u32,
                 ramp_frames: record.frames,
                 flags: (record.flags as u32) << wire::SET_PARAMS_FLAGS_PANNER_SHIFT,
-                shape: 0,
+                shape: shape_word(record),
             };
             voices::set_params(core, &p);
         }
