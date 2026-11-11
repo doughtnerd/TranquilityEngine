@@ -1,8 +1,14 @@
-// ADR 0162 (K2; api-and-models §5.2, contract C8): the ABI 2.0 init parameters `myco_audio_init` takes after the
+// ADR 0162 (K2, K4; api-and-models §5.2, contract C8): the ABI 2.0 init parameters `myco_audio_init` takes after the
 // M2 five, one function per feature, read by `presetFromSettings` (context.ts) into the `CorePreset`. Each sizes a
-// region the core lays out before the arena; 0 lays out nothing. They return 0 until their feature's flip (K4 owns
-// this file from then): beds `audio.bed.maxBeds`, zones `maxActive + standby` slots of `maxIrSeconds`, wide rings
-// `audio.ambisonic.maxClips`. No settings key is read before then, so an M2 project's core is laid out as before.
+// region the core lays out before the arena; 0 lays out nothing. They return 0 until their feature's flip, so an M2
+// project's core is laid out as before. **Each flip edits only its own function:** A5 `bedInitParams`
+// (`audio.bed.maxBeds`), C5 `zoneInitParams` (`maxActive + standby` slots of `maxIrSeconds`), B5 `wideInitParams`
+// (`audio.ambisonic.maxClips`).
+//
+// K4 kept the three functions here rather than in `beds.ts`, `zones.ts` and `listener.ts`: this file must stay a leaf
+// (it imports only the settings type), because `worklet/coreDriver.ts` imports it and `tests/e2e/audio-parity/
+// coreRender.ts` puts coreDriver in `tsconfig.node.json`'s program; the feature files reach `context.ts` (and its
+// `?worker&url` import) through the voice table, which that program can't type.
 import type { AudioSettings } from "../../../../engine/audio/settings";
 
 /** @internal The four ABI 2.0 parameters as the preset carries them (`zoneMaxSeconds` becomes frames at init). */
@@ -17,19 +23,19 @@ export interface SpatialInitParams {
   readonly maxWide: number;
 }
 
-/** @internal `max_beds`. K2: 0 (beds aren't laid out before their flip). */
+/** @internal `max_beds` (A5's flip: `audio.bed.maxBeds`). 0 until then: no bed is laid out. */
 export function bedInitParams(settings: AudioSettings): Pick<SpatialInitParams, "maxBeds"> {
   void settings;
   return { maxBeds: 0 };
 }
 
-/** @internal `max_zone_slots` and the IR length. K2: 0 (zones aren't laid out before their flip). */
+/** @internal `max_zone_slots` and the IR length (C5's flip: `audio.zones`). 0 until then: no zone slot is laid out. */
 export function zoneInitParams(settings: AudioSettings): Pick<SpatialInitParams, "maxZoneSlots" | "zoneMaxSeconds"> {
   void settings;
   return { maxZoneSlots: 0, zoneMaxSeconds: 0 };
 }
 
-/** @internal `max_wide`. K2: 0 (wide rings aren't laid out before their flip). */
+/** @internal `max_wide` (B5's flip: `audio.ambisonic.maxClips`). 0 until then: no wide ring is laid out. */
 export function wideInitParams(settings: AudioSettings): Pick<SpatialInitParams, "maxWide"> {
   void settings;
   return { maxWide: 0 };

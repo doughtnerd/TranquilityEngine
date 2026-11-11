@@ -30,14 +30,27 @@
 // AUTOMATE, BUS_AUTOMATE, SET_LOOP and their mirror for a rebuild), so events' automation runs in the core and the
 // runtime makes no `TsAutomation`. PLAY carries the request's `group`; `clipDuration` and `horizon` let continuous
 // containers schedule gapless with `at`.
+//
+// ADR 0162 (K4, the M3 skeleton): the frame is split at main's passes (`StagedFrameHost`, `spatial.ts`) so the audio
+// system runs the M3 order in one place: `frameAttenuate` (everything up to and including the spatial move: gain,
+// direction, `audibility0`), then the passes on `spatialVoices` (Doppler, zones, occlusion: `doppler.ts`, `zones.ts`,
+// `occlusion.ts`), then `frameSelect` (audibility = `audibility0` × `occGain`), `framePickPanners` (`pannerPick.ts`),
+// `frameStageFx` (`voiceFx.ts`), `frameStageListener` (`listener.ts`) and `frameCommit` (idle, queued commands, the
+// BATCH). `update(dt)` runs the same stages without the passes. The backend constructs every M3 part here: the bed
+// planner (`beds.ts`, planned after each BUS_CONFIG), the panner pick, the zone manager over the zone IR service
+// (`zoneIr.ts`, K0's `ZoneIrService`), the occlusion and Doppler passes, the LISTENER stage and the per-voice fx staging.
+// Main's results come back through `_setOcclusion` (the dry gain is `gain × occGain`, the cutoff a `voiceFx` low-pass)
+// and `_setDopplerRate` (the pitch sent is `pitch × dopplerFactor`); both are 1 until their tasks, so M2's bytes stand.
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
 import type { BusEffect } from "../../../../engine/audio/settings";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioStatus, AudioVoice, ListenerPose, PlayRequest } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioStatus, AudioVoice, ListenerPose, PlayRequest, SendCurve, ZoneIrService } from "../backend";
 import {
   BUS_LP_OFF_HZ,
   BUS_ROOT,
+  AUX_BUS_NONE,
+  PLAY_FLAGS_AMBISONIC,
   PLAY_FLAGS_LOOP,
   PLAY_FLAGS_MIXED,
   PLAY_FLAGS_SPATIAL,
@@ -47,6 +60,7 @@ import {
   SET_PARAMS_MASK_BUS,
   SET_PARAMS_MASK_DIR,
   SET_PARAMS_MASK_GAIN,
+  SET_PARAMS_MASK_LP_HZ,
   SET_PARAMS_MASK_PITCH,
   type BusConfigBuses,
   type BusConfigBusesEffects,
@@ -67,12 +81,22 @@ import { StatusMirror } from "./mirror";
 import { DistanceEffect } from "./spatial";
 import { StatusReader } from "./statusReader";
 import { UnlockQueue } from "./unlockQueue";
-import { connectVoiceTable, VoiceFlag, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
+import { connectVoiceTable, VoiceFlag, VoiceFlag2, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
 import { STREAM_ERROR_FADE_SECONDS, StreamManager, type StreamManagerDeps } from "./streams";
 import { sharedDecoderClient } from "../decoder/decoderClient";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { effectiveMixedCap, ListenerBasis, Selection, type SelectionSink } from "./selection";
-import { HrtfPick, type HrtfSink } from "./hrtfPick";
+import { PannerPick, type PannerKindCode, type PannerSink } from "./pannerPick";
+import { BedPlanner } from "./beds";
+import { ZoneManager } from "./zones";
+import { createZoneIrService } from "./zoneIr";
+import { OcclusionPass } from "./occlusion";
+import { DopplerPass } from "./doppler";
+import { ListenerStage } from "./listener";
+import { LowpassBy, VoiceFx } from "./voiceFx";
+import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView, type StagedFrameHost } from "./spatial";
+import type { ReplayBuilder, ReplaySpatial } from "./replay";
+import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { CoreAutomation, wrapPosition } from "./coreAutomation";
 import { MAX_GROUPS } from "../events/automation";
 
@@ -101,7 +125,16 @@ export interface CoreBackendHost {
    * `maxMixed` is `voices.mixed` (selection's configured cap; absent: every logical voice may be mixed).
    * `limiterLookaheadMs` sets the core's output latency the clock map allows for (absent: the 1.5 ms default).
    */
-  readonly preset: { readonly maxLogical: number; readonly maxMixed?: number; readonly limiterLookaheadMs?: number };
+  readonly preset: {
+    readonly maxLogical: number;
+    readonly maxMixed?: number;
+    readonly limiterLookaheadMs?: number;
+    /** ADR 0162 C8: the regions the core laid out (`initParams.ts`; absent: 0, as an M2 preset). */
+    readonly maxBeds?: number;
+    readonly maxZoneSlots?: number;
+    readonly zoneMaxSeconds?: number;
+    readonly maxWide?: number;
+  };
   /** Worlds holding a share (an idle host has none). */
   readonly worldCount: number;
   readonly sampleRate: number;
@@ -127,6 +160,20 @@ export interface CoreBackendDeps {
   streams?: Partial<Pick<StreamManagerDeps, "decoder" | "connectWorklet" | "channel" | "fetchBytes">>;
   /** B4: warns once per asset the core can't decode (shared with the clip registry); default: the backend's own over `console.warn`. */
   warnOnce?: WarnOnce;
+  /** ADR 0162 (K0, C9): zone IR preparation; default `createZoneIrService` (`zoneIr.ts`). Tests inject a fake. */
+  zoneIr?: ZoneIrService;
+}
+
+/**
+ * ADR 0162 (K4): §1.2's per-voice options a Play edit changes on a playing voice (`AudioSource.apply`). Not yet a K0
+ * member of `AudioVoice`: the core's voices take it, and `AudioSource` calls it where present.
+ */
+export interface VoiceSpatialOptions {
+  occlusion?: boolean;
+  dopplerLevel?: number;
+  reverbSend?: number;
+  reverbSendCurve?: SendCurve;
+  yaw?: number;
 }
 
 const DIR_EPSILON = 0.005;
@@ -165,7 +212,7 @@ function wireEffect(e: BusEffect): BusConfigBusesEffects {
   }
 }
 
-export class CoreBackend implements AudioBackend {
+export class CoreBackend implements AudioBackend, StagedFrameHost {
   readonly name = "core";
   readonly table: VoiceTable;
   readonly mirror: StatusMirror;
@@ -179,9 +226,31 @@ export class CoreBackend implements AudioBackend {
   readonly playheads: PlayheadTracker;
   /** The hard rebuild's replay (A3.4a; `replay.ts`). */
   readonly replayer: Replayer;
-  /** H3: which voices the core pans with HRTF. */
-  readonly hrtf: HrtfPick;
-  private readonly hrtfSink: HrtfSink;
+  /** ADR 0162 (K4): each voice's panner kind (`pannerPick.ts`; H3's HRTF pick until A5). */
+  readonly panners: PannerPick;
+  private readonly pannerSink: PannerSink;
+  /** ADR 0162 (K4): the bed planner (`beds.ts`). */
+  readonly beds: BedPlanner;
+  /** ADR 0162 (K4): per-voice fx staging (`voiceFx.ts`: lpHz, SET_VOICE_FX). */
+  readonly voiceFx: VoiceFx;
+  /** ADR 0162 (K4, K0): zone IR preparation (`zoneIr.ts`). */
+  readonly zoneIr: ZoneIrService;
+  /** ADR 0162 (K4): the zone manager (`zones.ts`). */
+  readonly zones: ZoneManager;
+  /** ADR 0162 (K4): main's occlusion pass (`occlusion.ts`), run by the audio system. */
+  readonly occlusion: OcclusionPass;
+  /** ADR 0162 (K4): main's Doppler pass (`doppler.ts`), run by the audio system. */
+  readonly doppler: DopplerPass;
+  /** ADR 0162 (K4): LISTENER staging (`listener.ts`). */
+  readonly listener: ListenerStage;
+  /** ADR 0162 (K4): the interned send curves (`spatial.ts`). */
+  readonly sendCurves = new SendCurveTable();
+  /** ADR 0162 (K4): the voices as main's passes see them (`spatial.ts`). */
+  readonly spatialVoices: TableSpatialView;
+  /** ADR 0162 (K4): the M3 replay hooks, in the replay's order (`replay.ts`). */
+  readonly spatial: ReplaySpatial;
+  /** The listener frame `update(dt)` stages LISTENER from (the audio system passes its own to `frameStageListener`). */
+  private readonly idleFrame = new ListenerFrame();
   /** B3: the stream voices' main side (`streams.ts`). */
   readonly streams: StreamManager;
   /** ADR 0158 (E3.1): the event runtime's automation sink on the core, and its mirror for a rebuild (`coreAutomation.ts`). */
@@ -237,8 +306,10 @@ export class CoreBackend implements AudioBackend {
     this.table = deps.table ?? new VoiceTable(host.preset.maxLogical);
     this.spatialDirty = new Uint8Array(this.table.capacity);
     this.selection = new Selection(this.table);
-    this.hrtf = new HrtfPick(this.table);
-    this.hrtfSink = { setPanner: (i, on) => this.sendPanner(i, on) };
+    this.panners = new PannerPick(this.table);
+    this.pannerSink = { setPanner: (i, kind) => this.sendPanner(i, kind) };
+    this.occlusion = new OcclusionPass(this.table.capacity);
+    this.doppler = new DopplerPass(this.table.capacity);
     this.basis.set(this.listenerPos, this.listenerFwd, this.listenerUp);
     this.selectionSink = {
       setMixed: (i, mixed) => this.sendMixed(i, mixed),
@@ -247,6 +318,23 @@ export class CoreBackend implements AudioBackend {
     };
     this.mirror = new StatusMirror(this.table);
     this.writer = new CommandWriter(host.link, host.sampleRate);
+    // ADR 0162 (K4): the M3 parts that write through the writer and read the mirror.
+    const preset = host.preset;
+    this.voiceFx = new VoiceFx(this.table, this.writer);
+    this.beds = new BedPlanner(this.writer, preset.maxBeds ?? 0);
+    this.zoneIr = deps.zoneIr ?? createZoneIrService({ sampleRate: host.sampleRate });
+    this.zones = new ZoneManager({ writer: this.writer, fx: this.voiceFx, irs: this.zoneIr, mirror: this.mirror, maxZoneSlots: preset.maxZoneSlots ?? 0, zoneMaxSeconds: preset.zoneMaxSeconds ?? 0 });
+    this.listener = new ListenerStage(this.writer);
+    this.spatialVoices = new TableSpatialView(this.table, this.sendCurves, {
+      setOcclusion: (i, gain, lpHz) => this.occlusionAt(i, gain, lpHz),
+      setDopplerRate: (i, factor) => this.dopplerAt(i, factor),
+    });
+    this.spatial = {
+      replayBeds: (b: ReplayBuilder) => this.beds.replay(b),
+      replayListener: (b: ReplayBuilder) => this.listener.replay(b),
+      replayZones: (b: ReplayBuilder) => this.zones.replay(b),
+      replayVoiceFx: (b: ReplayBuilder, id: number, i: number) => this.voiceFx.replayVoice(b, id, i),
+    };
     this.clockMap = new ClockMap(this.clock, host.sampleRate, limiterLatencyFrames(host.sampleRate, host.preset.limiterLookaheadMs));
     const streamDeps = deps.streams ?? {};
     this.streams = new StreamManager({
@@ -448,6 +536,7 @@ export class CoreBackend implements AudioBackend {
     t.dirZ[i] = -1;
     if (req.attenuation) this.applyAttenuation(i, req.attenuation);
     if (req.position) this.applyPosition(i, req.position);
+    this.applyM3Request(i, req);
     this.refreshGain(i);
     // `at` is ignored while locked (API §1); the stamp-or-asap choice is made when the PLAY is sent (`sendPlay`).
     t.startFrame[i] = running ? this.clockMap.frameOfTime(req.at) : 0;
@@ -530,6 +619,14 @@ export class CoreBackend implements AudioBackend {
     this.lastBusName = null;
     this.selAuto.fill(1);
     this.writer.busConfig(this.busConfigWire(mixer));
+    // ADR 0162 (K4, C2): the bed plan for the new tree, BED_CONFIG right after BUS_CONFIG (none while no bed is laid out).
+    const parents = this.planParents;
+    parents.fill(-1);
+    for (let b = 0; b < settings.length && b < MAX_BUSES; b++) {
+      const parent = settings[b]!.parent;
+      parents[b] = parent === undefined ? -1 : (this.busIndexByName.get(parent) ?? 0);
+    }
+    this.beds.plan(mixer.audioSettings, this.names, parents);
     // ADR 0158: bus bindings follow their buses to the new indices.
     this.automation.onBusesConfigured();
     // The mixer's counts restart at 0 when it is reconfigured; the table knows every live voice (virtual and locked
@@ -596,8 +693,19 @@ export class CoreBackend implements AudioBackend {
     t.requestStop(id, STREAM_ERROR_FADE_SECONDS);
   }
 
-  /** The per-frame step; see the header. */
+  /** The per-frame step; see the header. The audio system runs the same stages with main's M3 passes between them. */
   update(dt: number): void {
+    if (this.disposed) return;
+    this.frameAttenuate(dt);
+    this.frameSelect();
+    this.framePickPanners();
+    this.frameStageFx();
+    this.frameStageListener(this.idleFrame);
+    this.frameCommit();
+  }
+
+  /** ADR 0162 (K4) `StagedFrameHost`: frame start through attenuation (gain, direction, `audibility0`). */
+  frameAttenuate(dt: number): void {
     void dt;
     if (this.disposed) return;
     const clockMap = this.clockMap;
@@ -613,13 +721,46 @@ export class CoreBackend implements AudioBackend {
     this.automation.beginFrame();
     if (this.lockedQueue.size > 0 && this.host.status === "running" && !this.recovering) this.unlock();
     if (this.spatialCount > 0) this.moveSpatial();
+  }
+
+  /** ADR 0162 (K4) `SpatialPassHost`: this frame's voices for main's passes (after attenuation, before Doppler). */
+  collectSpatialVoices(): void {
+    if (this.disposed) return;
+    this.spatialVoices.collect();
+  }
+
+  /** ADR 0162 (K4) `StagedFrameHost`: audibility = `audibility0` × `occGain`, and the selection. */
+  frameSelect(): void {
+    if (this.disposed) return;
     this.select();
+  }
+
+  /** ADR 0162 (K4) `StagedFrameHost`: the panner kinds. */
+  framePickPanners(): void {
+    if (this.disposed) return;
     this.pickHrtf();
+  }
+
+  /** ADR 0162 (K4) `StagedFrameHost`: per-voice fx changes past their thresholds. */
+  frameStageFx(): void {
+    if (this.disposed) return;
+    this.voiceFx.flush(this.clockMap.rampFrames());
+  }
+
+  /** ADR 0162 (K4) `StagedFrameHost`: LISTENER when the rotation moved. */
+  frameStageListener(frame: ListenerFrame): void {
+    if (this.disposed) return;
+    this.listener.stage(frame, this.clockMap.rampFrames());
+  }
+
+  /** ADR 0162 (K4) `StagedFrameHost`: idle check, the table's queued commands, and the frame's BATCH. */
+  frameCommit(): void {
+    if (this.disposed) return;
     if (this.idlePending) this.checkIdle();
     this.table.drainCommands(this.writer);
     // A3.4a: during a rebuild (or after recovery gave up) no core keeps what is sent; the replay re-derives it all.
     if (this.recovering || this.host.status === "failed") this.writer.clear();
-    else if (this.writer.pending > 0) this.writer.flush(clockMap.nextFirstFrame());
+    else if (this.writer.pending > 0) this.writer.flush(this.clockMap.nextFirstFrame());
   }
 
   // --- The hard rebuild (A3.4a; `recovery.ts` drives the host, `replay.ts` restores the voices) ---
@@ -658,6 +799,7 @@ export class CoreBackend implements AudioBackend {
     clock.rebase(rate, limiterLatencyFrames(rate, this.host.preset.limiterLookaheadMs), clock.carryPoint());
     this.writer.sampleRate = rate;
     this.hrir.retarget?.(rate);
+    this.zones.contextReplaced(rate);
     this.staleBlocks = this.mirror.blocks;
   }
 
@@ -722,7 +864,12 @@ export class CoreBackend implements AudioBackend {
 
   /** H3: the panner kind the core holds for slot `i` (0 equal-power, 1 HRTF), which a rebuild's replayed PLAY carries. */
   hrtfPanner(i: number): number {
-    return this.hrtf.panner(i);
+    return this.panners.panner(i);
+  }
+
+  /** H3's name for the panner pick (`debug.ts`, tests). */
+  get hrtf(): PannerPick {
+    return this.panners;
   }
 
   /** `Audio.debug()` (K10): delegates to `debug.ts`. */
@@ -736,6 +883,7 @@ export class CoreBackend implements AudioBackend {
     this.lockedQueue.clear();
     for (const c of this.cleanups.splice(0)) c();
     this.streams.dispose();
+    this.zones.dispose();
     this.table.onFree = null;
     this.host.link.statusDecoder = readStatus;
     this.writer.clear();
@@ -774,7 +922,112 @@ export class CoreBackend implements AudioBackend {
     if (i < 0 || !Number.isFinite(rate)) return;
     this.table.pitch[i] = clamp(rate, MIN_PITCH, MAX_PITCH);
     if (this.onCore(i)) this.playheads.retime(i, this.clockMap.framesNow());
-    if (this.onCore(i)) this.writer.setParams(id, SET_PARAMS_MASK_PITCH, 0, this.table.pitch[i]!, 0, 0, 0, 0, this.clockMap.rampFrames());
+    if (this.onCore(i)) this.writer.setParams(id, SET_PARAMS_MASK_PITCH, 0, this.sentPitch(i), 0, 0, 0, 0, this.clockMap.rampFrames());
+  }
+
+  // --- ADR 0162 (K4): main's M3 results and options for one voice ---
+
+  /** @internal K0 `AudioVoice.setOcclusion` on a core voice (the view's `setOcclusion` comes here too). */
+  _setOcclusion(id: number, gain: number, lpHz: number): void {
+    const i = this.slot(id);
+    if (i >= 0) this.occlusionAt(i, gain, lpHz);
+  }
+
+  /**
+   * Slot `i`'s smoothed occlusion (D2a hands it over through the view): `occGain` for selection and the dry gain (sent to
+   * a mixed voice when it moved), the cutoff as the voice's occlusion low-pass (`voiceFx`, sent at the fx stage).
+   */
+  private occlusionAt(i: number, gain: number, lpHz: number): void {
+    const t = this.table;
+    if (t.state[i] === VoiceState.FREE || !Number.isFinite(gain)) return;
+    const old = t.occGain[i]!;
+    t.occGain[i] = clamp(gain, 0, 1);
+    this.voiceFx.setLowpass(i, LowpassBy.OCCLUSION, lpHz);
+    if (Math.abs(t.occGain[i]! - old) > GAIN_EPSILON) this.sendGain(((t.gen[i]! << 16) | i) >>> 0, i);
+  }
+
+  /** @internal K0 `AudioVoice.setDopplerRate` on a core voice (the view's `setDopplerRate` comes here too). */
+  _setDopplerRate(id: number, factor: number): void {
+    const i = this.slot(id);
+    if (i >= 0) this.dopplerAt(i, factor);
+  }
+
+  /** Slot `i`'s Doppler factor (D3 hands it over through the view): folded into the pitch sent; the playhead estimate follows. */
+  private dopplerAt(i: number, factor: number): void {
+    const t = this.table;
+    if (t.state[i] === VoiceState.FREE || !Number.isFinite(factor) || factor <= 0) return;
+    if (t.dopplerFactor[i] === factor) return;
+    t.dopplerFactor[i] = factor;
+    if (!this.onCore(i)) return;
+    this.playheads.retime(i, this.clockMap.framesNow());
+    this.writer.setParams(((t.gen[i]! << 16) | i) >>> 0, SET_PARAMS_MASK_PITCH, 0, this.sentPitch(i), 0, 0, 0, 0, this.clockMap.rampFrames());
+  }
+
+  /** @internal K0 `AudioVoice.setVelocity` on a core voice: the source's velocity from physics (Doppler, D3). */
+  _setVelocity(id: number, v: Vec3Like | null): void {
+    const i = this.slot(id);
+    if (i >= 0) this.doppler.setVelocity(i, v);
+  }
+
+  /** @internal §1.2 Play edits on a playing voice (`VoiceSpatialOptions`): the table's options (the passes read them next frame). */
+  _setSpatialOptions(id: number, o: VoiceSpatialOptions): void {
+    const i = this.slot(id);
+    if (i >= 0) this.applySpatialOptions(i, o, false);
+  }
+
+  /** The pitch the core gets: the voice's pitch times its Doppler factor, clamped (exactly the pitch at factor 1). */
+  private sentPitch(i: number): number {
+    const t = this.table;
+    const f = t.dopplerFactor[i]!;
+    return f === 1 ? t.pitch[i]! : clamp(t.pitch[i]! * f, MIN_PITCH, MAX_PITCH);
+  }
+
+  /** The dry gain the core gets: volume × distance gain × occlusion (`occGain`, 1 open). */
+  private dryGain(i: number): number {
+    return this.table.gain[i]! * this.table.occGain[i]!;
+  }
+
+  /** ADR 0162 (K4): a new voice's M3 request fields (K0's `PlayRequest` members) into the table and the fx staging. */
+  private applyM3Request(i: number, req: PlayRequest): void {
+    const t = this.table;
+    t.flags2[i] = req.ambisonic === true ? VoiceFlag2.AMBISONIC : 0;
+    this.applySpatialOptions(i, req, true);
+    const f = req.filter;
+    if (f) {
+      if (f.lowpass !== undefined) this.voiceFx.setLowpass(i, LowpassBy.EVENT, f.lowpass);
+      if (f.highpass !== undefined) this.voiceFx.setHighpass(i, f.highpass);
+    }
+    if (req.aux) {
+      const bus = this.busIndexByName.get(req.aux.bus);
+      if (bus !== undefined) {
+        this.voiceFx.setAux(i, bus, req.aux.level);
+        t.flags2[i]! |= VoiceFlag2.AUX;
+      }
+    }
+  }
+
+  /**
+   * §1.2 options at play (`initial`: omitted fields take K0's defaults: occlusion on for a positioned voice, Doppler 0,
+   * send 1, the default curve, yaw 0) or as a Play edit (omitted fields are kept). Callers clamp; this clamps again.
+   */
+  private applySpatialOptions(i: number, o: VoiceSpatialOptions, initial: boolean): void {
+    const t = this.table;
+    const ambisonic = (t.flags2[i]! & VoiceFlag2.AMBISONIC) !== 0;
+    const positioned = (t.flags[i]! & VoiceFlag.SPATIAL) !== 0;
+    let f2 = t.flags2[i]!;
+    if (initial || o.occlusion !== undefined) {
+      const on = o.occlusion ?? true;
+      f2 = positioned && !ambisonic && on ? f2 | VoiceFlag2.OCCLUSION : f2 & ~VoiceFlag2.OCCLUSION;
+    }
+    if (o.dopplerLevel !== undefined && Number.isFinite(o.dopplerLevel)) t.dopplerLevel[i] = clamp(o.dopplerLevel, 0, 5);
+    if (o.reverbSend !== undefined && Number.isFinite(o.reverbSend)) t.reverbSend[i] = clamp(o.reverbSend, 0, 2);
+    if (o.reverbSendCurve !== undefined) t.sendCurve[i] = this.sendCurves.intern(o.reverbSendCurve);
+    if (o.yaw !== undefined && Number.isFinite(o.yaw)) {
+      t.yaw[i] = (clamp(o.yaw, -180, 180) * Math.PI) / 180;
+      if (ambisonic) this.voiceFx.setYaw(i, t.yaw[i]!);
+    }
+    f2 = (positioned || ambisonic) && t.reverbSend[i]! > 0 ? f2 | VoiceFlag2.SENDS : f2 & ~VoiceFlag2.SENDS;
+    t.flags2[i] = f2;
   }
 
   /** @internal */
@@ -889,6 +1142,8 @@ export class CoreBackend implements AudioBackend {
     return index;
   }
   private lastBusName: string | null = null;
+  /** ADR 0162 (K4): each bus's parent index for the bed planner (-1: the root), reused. */
+  private readonly planParents = new Int16Array(MAX_BUSES);
   private lastBusIndex = 0;
 
   private applyAttenuation(i: number, a: Attenuation): void {
@@ -930,7 +1185,7 @@ export class CoreBackend implements AudioBackend {
 
   private sendGain(id: number, i: number): void {
     // Only a mixed voice is heard; a virtual one gets its gain with SET_MIXED when it is promoted (A3.1).
-    if (this.table.state[i] === VoiceState.PLAYING) this.writer.setParams(id, SET_PARAMS_MASK_GAIN | SET_PARAMS_MASK_DIR, this.table.gain[i]!, 0, this.table.dirX[i]!, this.table.dirY[i]!, this.table.dirZ[i]!, 0, this.clockMap.rampFrames());
+    if (this.table.state[i] === VoiceState.PLAYING) this.writer.setParams(id, SET_PARAMS_MASK_GAIN | SET_PARAMS_MASK_DIR, this.dryGain(i), 0, this.table.dirX[i]!, this.table.dirY[i]!, this.table.dirZ[i]!, 0, this.clockMap.rampFrames());
   }
 
   /** The voice's clip decides what happens next: play now, wait for the data, or fail. */
@@ -1017,14 +1272,16 @@ export class CoreBackend implements AudioBackend {
       (t.state[i] === VoiceState.PLAYING ? PLAY_FLAGS_MIXED : 0) |
       (f & VoiceFlag.LOOP ? PLAY_FLAGS_LOOP : 0) |
       (f & VoiceFlag.SPATIAL ? PLAY_FLAGS_SPATIAL : 0) |
-      (f & VoiceFlag.STREAM ? PLAY_FLAGS_STREAM | PLAY_FLAGS_WANTS_PLAYHEAD : 0);
+      (f & VoiceFlag.STREAM ? PLAY_FLAGS_STREAM | PLAY_FLAGS_WANTS_PLAYHEAD : 0) |
+      (t.flags2[i]! & VoiceFlag2.AMBISONIC ? PLAY_FLAGS_AMBISONIC : 0);
     a.startOffsetFrames = startOffsetFrames;
-    a.gain = t.gain[i]!;
-    a.pitch = t.pitch[i]!;
+    // ADR 0162 (K4): the dry gain with occlusion, the pitch with Doppler, and main's lpHz (`voiceFx`), all M2's values at the defaults.
+    a.gain = this.dryGain(i);
+    a.pitch = this.sentPitch(i);
     a.dirX = t.dirX[i]!;
     a.dirY = t.dirY[i]!;
     a.dirZ = t.dirZ[i]!;
-    a.lpHz = BUS_LP_OFF_HZ;
+    a.lpHz = t.lpHz[i]!;
     a.score = t.audibility[i]!;
     this.selection.noteScoreSent(i, a.score);
     const start = t.startFrame[i]!;
@@ -1034,6 +1291,8 @@ export class CoreBackend implements AudioBackend {
     this.playheads.start(i, stamp ?? this.clockMap.framesNow(), a.startOffsetFrames);
     // ADR 0158: the voice's bindings and loop, right behind its PLAY.
     this.automation.onPlaySent(id, i, stamp);
+    // ADR 0162 (C3): its SET_VOICE_FX at the same frame, when mixed and non-default.
+    this.voiceFx.onPlay(i, stamp);
     // A3.7: paused before it reached the core (locked, or its clip loading): it waits there, paused, until resumed.
     if (f & VoiceFlag.PAUSED) this.writer.setPaused(id, true);
     if (start > 0) t.startFrame[i] = 0;
@@ -1075,7 +1334,7 @@ export class CoreBackend implements AudioBackend {
       this.refreshGain(i);
       if (Math.abs(t.gain[i]! - g) > GAIN_EPSILON || Math.abs(t.dirX[i]! - x) > DIR_EPSILON || Math.abs(t.dirY[i]! - y) > DIR_EPSILON || Math.abs(t.dirZ[i]! - z) > DIR_EPSILON) {
         const id = ((t.gen[i]! << 16) | i) >>> 0;
-        this.writer.setParams(id, SET_PARAMS_MASK_GAIN | SET_PARAMS_MASK_DIR, t.gain[i]!, 0, t.dirX[i]!, t.dirY[i]!, t.dirZ[i]!, 0, ramp);
+        this.writer.setParams(id, SET_PARAMS_MASK_GAIN | SET_PARAMS_MASK_DIR, this.dryGain(i), 0, t.dirX[i]!, t.dirY[i]!, t.dirZ[i]!, 0, ramp);
       } else {
         t.gain[i] = g;
         t.dirX[i] = x;
@@ -1096,7 +1355,10 @@ export class CoreBackend implements AudioBackend {
     const t = this.table;
     const id = ((t.gen[i]! << 16) | i) >>> 0;
     if (mixed) this.spatialDirty[i] = 0;
-    this.writer.setMixed(id, mixed, t.gain[i]!, t.dirX[i]!, t.dirY[i]!, t.dirZ[i]!, t.lpHz[i]!);
+    this.writer.setMixed(id, mixed, this.dryGain(i), t.dirX[i]!, t.dirY[i]!, t.dirZ[i]!, t.lpHz[i]!);
+    // ADR 0162 (C20): a promote re-sends the voice's send, high-pass, yaw and aux targets with its SET_MIXED.
+    if (mixed) this.voiceFx.onPromote(i);
+    else this.voiceFx.onDemote(i);
   }
 
   /**
@@ -1108,16 +1370,22 @@ export class CoreBackend implements AudioBackend {
     const settings = this.mixer.audioSettings;
     const limit = settings.spatial === "hrtf" && this.hrtfLoadFailure === 0 ? settings.voices.hrtf : 0;
     if (limit <= 0 || this.spatialCount === 0) {
-      if (this.hrtf.count > 0) this.hrtf.clear(this.hrtfSink);
+      if (this.panners.count > 0) this.panners.clear(this.pannerSink);
       return;
     }
-    if (this.hrtf.run(limit, this.hrtfSink) > 0) this.hrir.ensure();
+    const limits = this.pannerLimits;
+    limits.hrtf = limit;
+    limits.nowMs = performance.now();
+    limits.bedSlot = this.beds.bedSlot;
+    if (this.panners.run(limits, this.pannerSink) > 0) this.hrir.ensure();
   }
+  /** ADR 0162 (K4): the panner pick's inputs, reused (`bedSlot` is the bed planner's live map). */
+  private readonly pannerLimits: { hrtf: number; nowMs: number; bedSlot: ArrayLike<number> } = { hrtf: 0, nowMs: 0, bedSlot: new Uint8Array(0) };
 
-  /** H3: SET_PARAMS `flags` for slot `i`'s panner kind. */
-  private sendPanner(i: number, hrtf: boolean): void {
+  /** H3, ADR 0162 C1: SET_PARAMS `flags` for slot `i`'s panner kind (0 equal-power, 1 HRTF, 2 bed). */
+  private sendPanner(i: number, kind: PannerKindCode): void {
     const t = this.table;
-    this.writer.setPanner(((t.gen[i]! << 16) | i) >>> 0, hrtf ? 1 : 0);
+    this.writer.setPanner(((t.gen[i]! << 16) | i) >>> 0, kind);
   }
 
   /** A3.3: selection re-sends slot `i`'s score (its audibility moved), the core's key for its own lowest-score demote. */
@@ -1157,8 +1425,13 @@ export class CoreBackend implements AudioBackend {
     // B3: a stream voice's stream closes on the worker (the worklet frees its ring); a clip voice drops its reference.
     if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) this.streams.close(t.clip[i]!);
     else this.clips.release(t.clip[i]!);
-    this.hrtf.forget(i);
+    this.panners.forget(i);
     this.automation.forget(i);
+    // ADR 0162 (K4): the M3 per-slot state goes with the voice.
+    this.voiceFx.forget(i);
+    this.occlusion.forget(i);
+    this.doppler.forget(i);
+    this.zones.forget(i);
     this.mixer.voiceEnded(this.names[bus] ?? "");
     if ((t.flags[i]! & VoiceFlag.SPATIAL) !== 0) this.spatialCount--;
     t.flags[i] = 0;
@@ -1217,6 +1490,91 @@ class Voice extends AudioHandle implements CoreVoice {
 
   seek(seconds: number): void {
     this.backend._seek(this.id, seconds);
+  }
+
+  // ADR 0162 (K0, K4): main's M3 results and options.
+  setVelocity(v: Vec3Like): void {
+    this.backend._setVelocity(this.id, v);
+  }
+
+  setOcclusion(gain: number, lpHz: number): void {
+    this.backend._setOcclusion(this.id, gain, lpHz);
+  }
+
+  setDopplerRate(factor: number): void {
+    this.backend._setDopplerRate(this.id, factor);
+  }
+
+  setSpatialOptions(o: VoiceSpatialOptions): void {
+    this.backend._setSpatialOptions(this.id, o);
+  }
+}
+
+/**
+ * ADR 0162 (K4): the core's `SpatialVoiceView` over its voice table (`spatial.ts`). `collect` lists the voices on the core
+ * (PLAYING or VIRTUAL) once per frame and computes their view flags; the per-slot arrays are the table's own. Results go
+ * to the backend (`occlusionAt`, `dopplerAt`), so the passes never touch the table.
+ */
+class TableSpatialView implements SpatialVoiceView {
+  readonly capacity: number;
+  readonly slots: Uint16Array;
+  count = 0;
+  readonly viewFlags: Uint8Array;
+
+  constructor(
+    private readonly table: VoiceTable,
+    readonly curves: SendCurveTable,
+    private readonly sink: Pick<SpatialVoiceView, "setOcclusion" | "setDopplerRate">,
+  ) {
+    this.capacity = table.capacity;
+    this.slots = new Uint16Array(table.capacity);
+    this.viewFlags = new Uint8Array(table.capacity);
+  }
+
+  get gen(): ArrayLike<number> { return this.table.gen; }
+  get world(): ArrayLike<number> { return this.table.world; }
+  get posX(): ArrayLike<number> { return this.table.posX; }
+  get posY(): ArrayLike<number> { return this.table.posY; }
+  get posZ(): ArrayLike<number> { return this.table.posZ; }
+  get minDist(): ArrayLike<number> { return this.table.minDist; }
+  get maxDist(): ArrayLike<number> { return this.table.maxDist; }
+  get volume(): ArrayLike<number> { return this.table.volume; }
+  get audibility0(): ArrayLike<number> { return this.table.audibility0; }
+  get dopplerLevel(): ArrayLike<number> { return this.table.dopplerLevel; }
+  get reverbSend(): ArrayLike<number> { return this.table.reverbSend; }
+  get sendCurve(): ArrayLike<number> { return this.table.sendCurve; }
+
+  /** This frame's list: every voice on the core, with its view flags. Allocates nothing. */
+  collect(): void {
+    const t = this.table;
+    let n = 0;
+    if (t.liveCount > 0) {
+      const state = t.state;
+      const flags = t.flags;
+      const flags2 = t.flags2;
+      for (let i = 0; i < t.capacity; i++) {
+        const s = state[i]!;
+        if (s !== VoiceState.PLAYING && s !== VoiceState.VIRTUAL) continue;
+        const f = flags[i]!;
+        const f2 = flags2[i]!;
+        this.viewFlags[i] =
+          (f & VoiceFlag.SPATIAL ? SpatialViewFlag.SPATIAL : 0) |
+          (s === VoiceState.PLAYING ? SpatialViewFlag.MIXED : 0) |
+          (f2 & VoiceFlag2.OCCLUSION ? SpatialViewFlag.OCCLUSION : 0) |
+          (f2 & VoiceFlag2.AMBISONIC ? SpatialViewFlag.AMBISONIC : 0) |
+          (f2 & VoiceFlag2.SENDS ? SpatialViewFlag.SENDS : 0);
+        this.slots[n++] = i;
+      }
+    }
+    this.count = n;
+  }
+
+  setOcclusion(i: number, gain: number, lpHz: number): void {
+    this.sink.setOcclusion(i, gain, lpHz);
+  }
+
+  setDopplerRate(i: number, factor: number): void {
+    this.sink.setDopplerRate(i, factor);
   }
 }
 

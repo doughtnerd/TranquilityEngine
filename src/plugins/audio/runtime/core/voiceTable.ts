@@ -53,6 +53,19 @@ export const VoiceFlag = {
   STOP_ON_FADE_END: 1 << 6,
 } as const;
 
+/**
+ * @internal ADR 0162 (K4, api-and-models §3.2 `flags2`): the M3 per-voice bits, set at play from the request.
+ * OCCLUSION: walls muffle it (a positioned voice with `occlusion` not false). AMBISONIC: an ambisonic clip (spatial
+ * fields, occlusion and Doppler ignored). SENDS: it may send to zones (`reverbSend` > 0, positioned or ambisonic). AUX:
+ * an event aux send.
+ */
+export const VoiceFlag2 = {
+  OCCLUSION: 1 << 0,
+  AMBISONIC: 1 << 1,
+  SENDS: 1 << 2,
+  AUX: 1 << 3,
+} as const;
+
 /** @internal §3 `rolloff`. */
 export const VoiceRolloff = { LINEAR: 0, INVERSE: 1, EXPONENTIAL: 2 } as const;
 
@@ -138,6 +151,24 @@ export class VoiceTable implements VoiceTableHandleApi {
    */
   readonly autoGain: Float32Array;
   readonly autoPitch: Float32Array;
+
+  // --- ADR 0162 (K4; api-and-models §3.2, C20): the M3 columns. Writers in brackets. ---
+  /** Selection's audibility before occlusion [sys, selection]; `audibility` is this × `occGain` (C20). */
+  readonly audibility0: Float32Array;
+  /** The smoothed dry occlusion gain, 1 open [sys, D2a through `CoreBackend._setOcclusion`]. Default 1. */
+  readonly occGain: Float32Array;
+  /** The clamped Doppler factor folded into the pitch sent to the core, 1 none [sys, D3 through `_setDopplerRate`]. Default 1. */
+  readonly dopplerFactor: Float32Array;
+  /** `VoiceFlag2` bits [main, at play: the request's occlusion, ambisonic, sends and aux]. */
+  readonly flags2: Uint8Array;
+  /** §1.2 `dopplerLevel`, 0..5 [main]. Default 0 (the caller applies the source or one-shot default). */
+  readonly dopplerLevel: Float32Array;
+  /** §1.2 `reverbSend`, 0..2 [main]. Default 1. */
+  readonly reverbSend: Float32Array;
+  /** §1.2 `reverbSendCurve`, interned (`SendCurveTable`, 0 = `DEFAULT_SEND_CURVE`) [main]. */
+  readonly sendCurve: Uint16Array;
+  /** §1.2 `ambisonicYaw` / §1.3 `yaw`, radians [main]. */
+  readonly yaw: Float32Array;
   readonly startFrame: Float64Array;
   readonly playhead: Uint32Array;
   readonly epoch: Uint32Array;
@@ -223,6 +254,14 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.audibility = new Float32Array(capacity);
     this.autoGain = new Float32Array(capacity).fill(1);
     this.autoPitch = new Float32Array(capacity).fill(1);
+    this.audibility0 = new Float32Array(capacity);
+    this.occGain = new Float32Array(capacity).fill(1);
+    this.dopplerFactor = new Float32Array(capacity).fill(1);
+    this.flags2 = new Uint8Array(capacity);
+    this.dopplerLevel = new Float32Array(capacity);
+    this.reverbSend = new Float32Array(capacity).fill(1);
+    this.sendCurve = new Uint16Array(capacity);
+    this.yaw = new Float32Array(capacity);
     this.startFrame = new Float64Array(capacity);
     this.playhead = new Uint32Array(capacity);
     this.epoch = new Uint32Array(capacity);
@@ -317,6 +356,14 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.audibility[i] = 0;
     this.autoGain[i] = 1;
     this.autoPitch[i] = 1;
+    this.audibility0[i] = 0;
+    this.occGain[i] = 1;
+    this.dopplerFactor[i] = 1;
+    this.flags2[i] = 0;
+    this.dopplerLevel[i] = 0;
+    this.reverbSend[i] = 1;
+    this.sendCurve[i] = 0;
+    this.yaw[i] = 0;
     this.startFrame[i] = 0;
     this.playhead[i] = 0;
     this.epoch[i] = 0;
