@@ -1,6 +1,6 @@
 # 0166 interactive music: system architecture (M4)
 
-The architect's design for ADR 0166 (Accepted, revision 2 with the owner's decisions of 2026-11-11). **Round 2B**, revised under the coordinator's rulings R1–R24 ([rulings.md](rulings.md)) and the senior engineer's review (`review-round2-senior.md`; resolutions in §13). It extends [0157's architecture](../0157-audio-core/architecture.md) (**[A157 §n]**) and [0162's](../0162-audio-spatial/architecture.md) (**[A162 §n]**) and doesn't repeat them: the host, the batch, STATUS, the clock map, streams, the hard rebuild and the adaptive cap work as there unless a section here says otherwise.
+The architect's design for ADR 0166 (Accepted, revision 2 with the owner's decisions of 2026-11-11). **Revision 3 (owner decisions, 2026-11-11)**, on top of round 2B (the coordinator's rulings R1–R24, [rulings.md](rulings.md), and the senior engineer's review, `review-round2-senior.md`; resolutions in §13). The record's corrections (PLAY doesn't split; the lead formula; the default and low worst-case tripwire moves) are in ADR 0167. The owner's answers are at the end. It extends [0157's architecture](../0157-audio-core/architecture.md) (**[A157 §n]**) and [0162's](../0162-audio-spatial/architecture.md) (**[A162 §n]**) and doesn't repeat them: the host, the batch, STATUS, the clock map, streams, the hard rebuild and the adaptive cap work as there unless a section here says otherwise.
 
 Its companion, `api-and-models.md` (**[API §n]**), owns:
 - the public API and its signatures;
@@ -9,7 +9,7 @@ Its companion, `api-and-models.md` (**[API §n]**), owns:
 - byte layouts, the wire and the ABI (**[API §4]**);
 - the Babylon mapping (**[API §8]**), the tests and the task table.
 
-This file owns components, state machines, timing, constants, memory, performance, failure handling, observability and platforms. What it needs from [API] is listed in [contracts-architect.md](contracts-architect.md) as **C1–C19**.
+This file owns components, state machines, timing, constants, memory, performance, failure handling, observability and platforms. What it needs from [API] is listed in [contracts-architect.md](contracts-architect.md) as **C1–C20**.
 
 **Evidence.** **[S]** is `spikes/audio-music/README.md`; **[S1]** `streams-align/`, **[S2]** `stream-throughput/`, **[S3]** `beat-clock/`, **[S4]** `cost/`, **[S5]** `rhythm/`, **[S0]** `research/`. They were measured on the shared 4-vCPU container, where **p50 and p99 are usable and p99.9 and max are not** [S]. **(est.)** marks an unmeasured number. A quantum is 128 frames, 2,667 µs at 48 kHz. Times are at 48 kHz and a 60 Hz display unless stated.
 
@@ -263,7 +263,7 @@ At most **4 stingers sound at once per instance**, a format limit (R20, [API §2
 
 ### 3.5 Loop region exit with `while`
 
-The worker loops a region by wrapping inside a chunk (`decoder/streams.ts:22-34`). Main **predicts** each pass end E_k from the group's start frame and the region length. The prediction is exact because a held group's hold time is reported and added (§4.3), and pitch is 1 (owner list item 2).
+The worker loops a region by wrapping inside a chunk (`decoder/streams.ts:22-34`). Main **predicts** each pass end E_k from the group's start frame and the region length. The prediction is exact because a held group's hold time is reported and added (§4.3), and pitch is 1 (owner decision 2).
 
 ```mermaid
 sequenceDiagram
@@ -335,16 +335,43 @@ sequenceDiagram
 ### 3.8 Hidden tab
 
 rAF stops while hidden. STATUS keeps flowing under `mute` and `play` (`core/background.ts:4-10`), at 128 ms once no batch has arrived for 250 ms.
-- **`play`:** when a segment starts, the player commits its successor at once: a playlist's next item is primed and stamped at the current exit cue, and stays cancellable while SCHEDULED. While hidden the tick runs from the STATUS handler, with Δ̄ replaced by the STATUS interval, and the player flushes its own batch, as `background.ts` flushes MASTER. A `count: 0` loop needs nothing. Scripts don't run while rAF is stopped, so switch changes while hidden are rare; one that comes from a message handler is planned the same way.
-- **`mute`:** the record re-plans on resume. The playing segment plays out silently, and a playlist with nothing committed stops at its exit cue. The resume gap is up to one bar + lead. Commit-ahead under `mute` too is owner list item 5.
+- **`play` and `mute`** (owner decision 5: `mute` behaves as `play`, so the music keeps its place). When a segment starts, the player commits its successor at once: a playlist's next item is primed and stamped at the current exit cue, and stays cancellable while SCHEDULED. While hidden the tick runs from the STATUS handler, with Δ̄ replaced by the STATUS interval, and the player flushes its own batch, as `background.ts` flushes MASTER. A `count: 0` loop needs nothing. Scripts don't run while rAF is stopped, so switch changes while hidden are rare; one that comes from a message handler is planned the same way.
+- Under `mute`, MASTER is at 0 (`core/background.ts:4-10`) and everything else runs exactly as under `play`. On resume the music is where it would have been, and there is no resume gap. The cost is a second primed set of rings while silent.
 - **`pause`:** the context freezes. On resume the ClockMap re-anchors (`STALL_MS` 250, `clock.ts:35`), and the player re-plans from the heard position with no backlog.
 - **Ê** isn't sampled while hidden (R12). On resume, missed callbacks coalesce (§4.5).
 
 A primed-but-unstarted successor is **evictable**: a transition outranks it.
 
-### 3.9 Music seek (internal; public seek is owner list item 4)
+### 3.9 Music seek (public: `handle.music.seek(position)`, owner decision 4)
 
-Audition and hot reload seek: exit `immediate`, enter at a position, the incoming group primed there, T = now + lead, and a 5 ms crossfade (`STARVE_FADE_SECONDS`, `stream.rs:116`). Per-stem SEEK epochs (`core/streams.ts:15-18`) are never used for music, because they skew stems the way a rebuild does.
+The same path serves games, the segment view's audition and hot reload. The signature is [API §1.2]. A seek is a transition:
+- exit `immediate`, enter at the position;
+- the incoming group is primed there;
+- T = the earliest stampable frame ≥ now + lead (not quantised);
+- a 5 ms crossfade (`STARVE_FADE_SECONDS`, `stream.rs:116`).
+
+Per-stem SEEK epochs (`core/streams.ts:15-18`) are never used for music, because they skew stems the way a rebuild does.
+
+**Rules the API must state:**
+- **Target.** The position is in the segment that will be playing when the seek lands. It is clamped to [the start of the file, the segment's end]. A position at or past the exit cue plays on from there, and the container then advances as at a natural end.
+- **Pre-entry.** A position before the entry cue (in the pickup, `gridOffset`) is allowed. It enters exactly there with no extra pre-entry, as `sameTime` does.
+- **Pending transition.**
+  - Before its cancel point (T − L), the seek replaces it: one pending change per container, and the seek is the newer one.
+  - After the cancel point, the transition is committed. The seek is planned after T and addresses the incoming segment.
+- **Loops.**
+  - A seek into a `count` region starts that region's pass count again at the landing pass.
+  - A seek into a `while` region reads the condition at the next commit point.
+  - A seek past a region leaves it.
+- **Playlists and switches.** A seek moves only the playing item's position. The playlist cursor, the item's `plays` count and the switch value don't change. Seeking to another item is a switch or playlist change, not a seek.
+- **Alternatives** keep the current pass's pick.
+- **Beat clock.**
+  - The anchor moves to the target at T.
+  - Events between the old and new positions aren't fired and aren't reported as `missed` or `skippedCues`, because a seek is a jump, not a gap.
+  - Callbacks resume from the target's next event.
+- **Rhythm mode.** The seek is stamped like every change. Callbacks for the instance are held from the call until T.
+- **Pool.** A seek needs a second set of rings while it primes. Content that can never hold two sets on the preset is refused permanently (§4.1), and the call reports the refusal. A temporary refusal retries each display frame until the target changes (there is no grid point to wait for).
+- **Return.** The call reports the planned heard landing time, or a refusal. The API names the shape.
+- **Babylon fallback:** decoded stems restart at the offset (`waitTime` and an offset); streamed stems seek their HTML5 element (best effort, unaligned) [API §8].
 
 ### 3.10 Hot reload
 
@@ -359,7 +386,7 @@ Audition and hot reload seek: exit `immediate`, enter at a position, the incomin
 **Lead (R12).**
 - For a group with unprimed streamed members: **lead = 1.25 Ê + L + Δ̄**.
 - For a group that is decoded or already primed: **lead = L**.
-- Ê is seeded at **40 ms**, so the first lead is 1.25 × 40 + 33.3 + 16.7 = **100 ms** at 60 Hz, the record's figure. The record's max(horizon, 1.25 × EMA) is corrected at step 9.
+- Ê is seeded at **40 ms**, so the first lead is 1.25 × 40 + 33.3 + 16.7 = **100 ms** at 60 Hz, the record's figure. The record's max(horizon, 1.25 × EMA) is corrected by ADR 0167.
 
 **Grid point.**
 - T is the first point of the rule's `exit` kind with T − preEntry_B ≥ now + lead and A's fade start ≥ now + L.
@@ -452,7 +479,7 @@ Other rules:
 - **Events:** one event per group per start, resume or abandon, with group id, kind, slip and start frame (C4, ≤ 8 per STATUS). Main adds each slip to the anchor's heard time.
 - **Cost:** the check is one compare per member per quantum while a group waits or holds, and one flag read once it plays.
 
-This replaces round 1's next-bar resync (R11): no second ring set is needed exactly when the worker is slow. When one stem runs dry, the whole music dips and resumes together (owner list item 6).
+This replaces round 1's next-bar resync (R11): no second ring set is needed exactly when the worker is slow. When one stem runs dry, the whole music dips and resumes together (owner decision 6).
 
 **Practice.** Wwise and FMOD start a segment's tracks inside their own scheduler and stream with per-track prefetch [S0, U]; neither documents a gate. M4 needs one because its stems are separate rings fed by a worker.
 
@@ -513,7 +540,7 @@ Heard time of position p = t₀ + sec(p) − sec(p₀). Loop passes add k × the
 
 **Dispatch (R17).** `engine.AudioMusic` runs in the update phase before `engine.UpdateScripts` [API §1.4, §6].
 1. It calls `clockMap.beginFrame()`, which does nothing the second time at the same rAF time (`clock.ts:148`), so `update()` reads this frame's `Audio.time`. Nothing reads the clock between it and `engine.Audio`'s call.
-2. Per instance, it fires each event with heard time < `Audio.time` + Δ̄ past the last fired index.
+2. Per instance, it fires each event with heard time < `Audio.time` + Δ̄ past the last fired index: first to the component messages on the `AudioSource`'s node, then to `handle.onMusic` listeners in subscription order (owner decision 3). A listener added during a dispatch first hears the next event. An instance with no hook and no listener isn't predicted.
 
 `MusicEvent` fields are [API §1.1].
 
@@ -666,7 +693,7 @@ Worst case: every music ring streaming, the most stingers, every music voice aut
 | default | same (est.) | 12 stems + 3 stingers | 53 µs | 0.05 / **0.08** ms (tripwire move) |
 | low | same (est.) | 8 stems + 2 stingers | 40 µs | 0.04 / **0.06** ms (tripwire move) |
 
-Music counts inside the mixed-voice cap (owner decision 3): each stem displaces an average voice of ≈ 130k instructions [S4 Q5], so preset totals don't grow. Music's own line is gated at the worst scene; totals are gated by the existing benches. Both tripwire moves and the mixer size go in the build log (R23).
+Music counts inside the mixed-voice cap (owner decision 3): each stem displaces an average voice of ≈ 130k instructions [S4 Q5], so preset totals don't grow. Music's own line is gated at the worst scene; totals are gated by the existing benches. Both tripwire moves (ADR 0167) and the mixer size go in the build log (R23).
 
 ### 7.3 Main thread and worker
 
@@ -724,6 +751,9 @@ Targets:
 | Curve pool full | core | the fade runs linear | a slightly different fade shape | `curvePoolFull` |
 | Due-list overflow | core | the old whole-quantum split | none (cost only) | `splitQuanta` |
 | Hot reload invalid | validator | keep the old version | one error | `reloadRejected` |
+| Hidden tab (`play` or `mute`) | `visibilitychange` | commit a segment ahead; tick from STATUS; Ê not sampled (§3.8) | none; `mute` is silent and keeps its place | `hiddenCommits` |
+| Seek refused | admission | permanent: report and drop; temporary: retry each display frame | the seek doesn't happen, or happens late | `refusals.*` |
+| Pitch set on a music instance | `AudioSource` or `EventOptions` | ignored | one warning | — |
 
 ## 9. Observability
 
@@ -753,6 +783,8 @@ The panel's Music section is the composer's live monitor (record rev. 2 #13).
 | Stamped fades with laws | full (M4-0) | full | full | full | linear, starting on the frame (`babylonBackend.ts:317`) |
 | Beat callbacks | heard clock | heard clock; `getOutputTimestamp` noise [U] | heard clock; `outputLatency` Safari 18.4+ [S5] | heard clock | `currentTime` (`babylonBackend.ts:873-875`), early by the output latency |
 | Rhythm mode | full | `latencyHint` effect device-dependent [S5, U] | where `outputLatency` exists; else `reliable` false | full | unavailable, one warning |
+| Hidden tab, `play` and `mute` | commit ahead, STATUS-driven | same | same | same | Babylon's own timers; best effort |
+| Public seek | full (§3.9) | full | full | full | decoded: restart at the offset; streamed: HTML5 seek, unaligned |
 | Evidence | S1–S5 headless Chromium | none (phone unverified) | not run | not run | — |
 
 Tauri: WebView2 follows the Chromium column; macOS and Linux follow WebKit or the fallback, as 0157 places them. WebKit and Firefox runs are owed at milestone ends.
@@ -802,10 +834,10 @@ Tauri: WebView2 follows the Chromium column; macOS and Linux follow WebKit or th
 | 9 | Ê double counts Δ̄; hidden and cold samples | **Taken** (R12, R16): Ê excludes Δ̄ and isn't sampled while hidden; the cache removes cold samples (§4.2) |
 | 10 | The core gives up on a group | **Taken** (R11): 1 s after the stamp or 1 s held; abandon reported (§4.3) |
 | 11 | ÷ 1.45 is soft; allowances from measurements | **Taken** (R23): high from measured deltas, default and low est.; the factor marked est. (intro, §7.2) |
-| 12 | Pitch on `AudioSource` and `EventOptions` too | **Taken**, as owner list item 2 (C13) |
-| 13 | Music seek has no API | **Taken**: internal only (§3.9); public seek is owner list item 4 |
+| 12 | Pitch on `AudioSource` and `EventOptions` too | **Taken**: owner decision 2 (C13) |
+| 13 | Music seek has no API | **Taken**: public `handle.music.seek` (owner decision 4, §3.9) |
 | 14 | `skippedCues` | **Taken** (R20, §4.5, C15) |
-| 15 | Hidden tab under `mute` | **Open**: owner list item 5 (§3.8) |
+| 15 | Hidden tab under `mute` | **Taken**: commit ahead as under `play` (owner decision 5, §3.8) |
 | 16 | Four stingers is a format limit | **Taken** (R20, §3.4) |
 
 ### 13.2 Their contract statuses
@@ -820,7 +852,7 @@ Tauri: WebView2 follows the Chromium column; macOS and Linux follow WebKit or th
 | S6 partly (group table, curve state, wasm size) | §4.3, §6 (curve pool, group region, mixer +10–14 KB) |
 | S7 met; 10% gate | §7.4 |
 | S8 met | §8 |
-| S9 mostly (resume gap under `mute`) | §3.8: ≤ one bar + lead; owner list item 5 |
+| S9 mostly (resume gap under `mute`) | §3.8: no gap (owner decision 5) |
 | S10 mostly (44.1/48 splice) | §10 "Mixed rates" |
 | S12 met (the name) | R17: `engine.AudioMusic` (§4.5) |
 | S13 partly (sanity rule, clamp, glitches) | §4.6 |
@@ -828,16 +860,28 @@ Tauri: WebView2 follows the Chromium column; macOS and Linux follow WebKit or th
 | C1 event 4 | **Taken** (§2.3, §8) |
 | C12 disagreement | **Taken**, theirs (R18) |
 
-## Owner list (open; my recommendations)
+## Owner decisions (2026-11-11)
 
-These come from the rulings' owner list; I don't decide them.
-1. **Estimate and reserve:** I recommend 20%, because M3 drew none of its 14 reserve days.
-2. **No pitch on music** (pitch automation on tracks, plus `pitch` on `AudioSource` and `EventOptions` ignored for music): **take it.** The beat clock, loop prediction and group hold need rate 1, and Wwise music tracks don't pitch.
-3. **`handle.onMusic(kind, fn)`** (+0.5 d): **take it.** Otherwise a script-played music event gets no callbacks.
-4. **Public seek** (`handle.music.seek(position)`, +1.5 d): **take it.** Wwise seeks on music events and FMOD sets timeline position, and the internal path (§3.9) exists.
-5. **Hidden tab under `mute`:** **commit ahead as under `play`.** Music resumes in place; the cost is holding a second set of rings while silent.
-6. **Starve behaviour (R11):** **keep the group hold.** A brief dip of the whole music is better than one stem permanently out of step, and it needs no extra rings.
+The owner accepted every recommendation:
+1. **Estimate and reserve:** a 20% reserve, and no scope cuts. `while` regions, loop tails, the rules table's audition and lint, the rhythm sample and Babylon beat callbacks all stay.
+2. **No pitch on music:**
+   - validation refuses pitch automation on music tracks (C13);
+   - `pitch` on `AudioSource` and `EventOptions` is ignored for music instances, with one warning;
+   - the beat clock, loop prediction and group hold rely on rate 1.
+3. **`handle.onMusic(kind, fn)`** exists; the signature is [API §1.2]. It is delivered in the same `engine.AudioMusic` dispatch as the component messages:
+   - the same window rule and coalescing (`missed`, `skippedCues`);
+   - per instance and kind, component messages go first, then `onMusic` listeners in subscription order;
+   - a listener added during a dispatch first hears the next event;
+   - an instance with neither subscribers nor listeners costs nothing (§4.5).
+4. **Public seek:** `handle.music.seek(position)`, with the rules in §3.9.
+5. **Hidden tab under `mute`:** commits ahead as under `play`, so music keeps its place (§3.8, §8, §10).
+6. **The starve group hold (R11) stands** (§4.3).
+
+The record's corrections are in **ADR 0167**:
+- a stamped PLAY doesn't split the quantum;
+- lead = 1.25 Ê + L + Δ̄;
+- the default and low worst-case allowances are 0.08 / 0.06 ms, as tripwire moves.
 
 ## Open points for the coordinator
 
-None open. R16's bound is settled as the senior engineer relayed it: protected files, a 48 / 96 / 160 MiB budget, a re-fetch on a miss (§4.2).
+None.

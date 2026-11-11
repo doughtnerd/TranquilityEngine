@@ -1,6 +1,6 @@
-# 0166 interactive music: the architect's contracts for `api-and-models.md` (round 2B)
+# 0166 interactive music: the architect's contracts for `api-and-models.md` (revision 3, owner decisions 2026-11-11)
 
-This file lists what [architecture.md](architecture.md) needs from the senior engineer's document, numbered **C1–C19**. It is revised under the coordinator's rulings R1–R24 ([rulings.md](rulings.md)). Each contract states fields, ranges, semantics, who writes them and when. Byte layouts, names, opcodes, ids and parse rules are the senior engineer's. "Arch §n" points to the section that relies on the contract.
+This file lists what [architecture.md](architecture.md) needs from the senior engineer's document, numbered **C1–C20**. It is revised under the coordinator's rulings R1–R24 ([rulings.md](rulings.md)) and the owner's decisions of 2026-11-11 (revision 3). Each contract states fields, ranges, semantics, who writes them and when. Byte layouts, names, opcodes, ids and parse rules are the senior engineer's. "Arch §n" points to the section that relies on the contract.
 
 ## Core, wire and STATUS
 
@@ -138,7 +138,7 @@ This file lists what [architecture.md](architecture.md) needs from the senior en
 - Alternatives have the stem's length.
 - Pre-entry is at most the entry cue.
 - The ring lint counts a sequence's peak rings, and decoded bridges count none (R15).
-- Pitch automation on music tracks is dropped. `pitch` on `AudioSource` and `EventOptions` is ignored for music with one warning; this is owner list item 2.
+- Pitch automation on music tracks is **refused** by validation. `pitch` on `AudioSource` and `EventOptions` is ignored for music instances, with one warning (owner decision 2).
 - At most 4 concurrent stingers per instance, as a format limit (R20).
 
 **C14. Span clips for loop tails** (R15; Arch §3.5).
@@ -147,6 +147,7 @@ This file lists what [architecture.md](architecture.md) needs from the senior en
 
 **C15. Callback fields.**
 - `MusicEvent` as in [API §1.1], plus `skippedCues: string[]` on a coalesced cue event (R20).
+- `handle.onMusic(kind, fn)` (owner decision 3) gets the same events in the same dispatch: component messages first, then listeners in subscription order. A listener added during a dispatch first hears the next event. It returns an unsubscribe.
 
 **C16. Replayer hand-off** (Arch §3.7, §4.4).
 - `Replayer.restore` passes music-group voices to the player by group, never to `reopenStreams` (`core/replay.ts:500`).
@@ -167,3 +168,14 @@ This file lists what [architecture.md](architecture.md) needs from the senior en
   - **class S**: any other SET_PARAMS mask, SET_VOICE_FX, SET_PAUSED, SEEK, SET_LOOP.
 - The pending queue keeps a held voice's records across quanta. At a group's start or resume, it rebases a member's records stamped at or after the stamp (or after the hold start) by the slip (R10).
 - Parked records are capped at **128**, changed from the senior engineer's 64: 2 held groups × 16 members × 4 records. Past the cap a record applies at its own frame, unrebased, and counts `parkedOverflow`.
+
+**C20. Public seek** (owner decision 4; Arch §3.9).
+- `handle.music.seek(position)` with a musical position in the segment playing at landing.
+- It returns the planned heard landing time, or a refusal with a reason (permanent pool, temporary).
+- The API documents the rules in Arch §3.9:
+  - clamp to [start of file, segment end];
+  - pre-entry allowed;
+  - before T − L it replaces a pending transition, after it addresses the incoming segment;
+  - it doesn't change the playlist cursor, `plays` or the switch;
+  - no `missed` for the skipped span;
+  - stamped in rhythm mode.
