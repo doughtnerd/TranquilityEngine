@@ -1251,10 +1251,9 @@ class BabylonMusic implements MusicBackend {
     this.warm(req);
   }
 
-  /** Decode the group's non-streamed clips ahead of the stamp, so the stamp only has to make the sounds. */
+  /** Start the engine and decode the group's non-streamed clips ahead of the stamp, so the stamp only has to make the sounds. */
   private warm(req: MusicGroupRequest): void {
     const wanted = req.members.filter((m) => !m.play.stream);
-    if (wanted.length === 0) return;
     void this.backend._ready().then((live) => {
       if (!live) return;
       for (const m of wanted) this.backend._buffer(live, m.play.url).catch(() => {});
