@@ -69,7 +69,7 @@ class VoiceHandle implements AudioHandle {
 
 /** A handle for an event that didn't play. */
 const INERT_EVENT: AudioEventHandle = Object.freeze({
-  playing: false, reason: null, position: null,
+  playing: false, reason: null, position: null, panner: null, occlusion: 1,
   stop() {}, fade() {}, setParameter() {}, getParameter: () => undefined, release() {},
 });
 
@@ -80,6 +80,10 @@ class EventHandle implements AudioEventHandle {
   get reason(): AudioReason | null { return this.instance.reason; }
   get position(): Vec3Like | null { return this.instance.position; }
   set position(p: Vec3Like | null) { this.instance.position = p; }
+  /** ADR 0162 §1.1 across the instance's voices. K4: null until D5. */
+  get panner(): AudioPanner | null { return null; }
+  /** ADR 0162 §1.1 across the instance's voices. K4: 1 until D5. */
+  get occlusion(): number { return 1; }
   stop(fadeSeconds = 0): void { this.instance.stop(fadeSeconds); }
   fade(to: number, seconds: number): void { this.instance.fade(Math.min(4, Math.max(0, to)), Math.max(0, seconds)); }
   setParameter(name: string, value: number | string): void { this.instance.setParameter(name, value); }

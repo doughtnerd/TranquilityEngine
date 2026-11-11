@@ -45,7 +45,7 @@ import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
 import type { BusEffect } from "../../../../engine/audio/settings";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioStatus, AudioVoice, ListenerPose, PlayRequest, SendCurve, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioStatus, AudioVoice, ListenerPose, PlayRequest, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import {
   BUS_LP_OFF_HZ,
   BUS_ROOT,
@@ -162,18 +162,6 @@ export interface CoreBackendDeps {
   warnOnce?: WarnOnce;
   /** ADR 0162 (K0, C9): zone IR preparation; default `createZoneIrService` (`zoneIr.ts`). Tests inject a fake. */
   zoneIr?: ZoneIrService;
-}
-
-/**
- * ADR 0162 (K4): §1.2's per-voice options a Play edit changes on a playing voice (`AudioSource.apply`). Not yet a K0
- * member of `AudioVoice`: the core's voices take it, and `AudioSource` calls it where present.
- */
-export interface VoiceSpatialOptions {
-  occlusion?: boolean;
-  dopplerLevel?: number;
-  reverbSend?: number;
-  reverbSendCurve?: SendCurve;
-  yaw?: number;
 }
 
 const DIR_EPSILON = 0.005;

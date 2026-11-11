@@ -14,7 +14,6 @@ import { AUDIO, type AudioWorldService } from "./core/service";
 import { ambisonicImportGain } from "./core/clipRegistry";
 import { Assets } from "../../../engine/scene/Assets";
 import { audioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type AudioVoice, type PlayRequest, type Rolloff, type SendCurve } from "./backend";
-import type { VoiceSpatialOptions } from "./core/coreBackend";
 import { isAudioEventPath } from "../../../engine/audio/eventFormat";
 import { _setEventClipStarter, events, type EventInstance } from "./events/eventRuntime";
 
@@ -49,12 +48,6 @@ _setEventClipStarter({
 const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math.max(0, Math.round(p))) : 128);
 /** Clamps `v` to lo..hi; a non-finite value gives `fallback`. */
 const clampOr = (v: number, lo: number, hi: number, fallback: number): number => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback);
-
-/**
- * ADR 0162 (K4): a voice that takes §1.2's options while playing (the core's voices). Not yet a K0 member of `AudioVoice`
- * (the coordinator's `backend.ts`); a voice without it takes the options at its next play.
- */
-type SpatialOptionsVoice = AudioVoice & { setSpatialOptions?(o: VoiceSpatialOptions): void };
 
 /** Whether the active World has the view: only it plays sound (ADR 0074). */
 export const worldPlays = (world: World | null): boolean => !!world?.render;
@@ -117,6 +110,11 @@ export class AudioSource extends Component {
   /** ADR 0162 §1.2: the source's velocity in world units per second (Doppler). Read-only. K4: zero until D3. */
   get velocity(): Vector3 {
     return this.zeroVelocity;
+  }
+
+  /** ADR 0162 §1.2 (`occlusionGain`: the field `occlusion` holds the switch): the playing sound's smoothed dry occlusion gain, 1 open. K4: 1 until D5. */
+  get occlusionGain(): number {
+    return 1;
   }
 
   /** ADR 0162 §1.2: the panner the playing sound uses, or null when not playing. K4: null until D5. */
@@ -251,7 +249,7 @@ export class AudioSource extends Component {
       const first = this.appliedM3 === "";
       this.appliedM3 = m3;
       this.appliedCurve = this.reverbSendCurve;
-      if (!first) (voice as SpatialOptionsVoice).setSpatialOptions?.(this.spatialOptions());
+      if (!first) voice.setSpatialOptions?.(this.spatialOptions());
     }
     if (spatial) voice.setPosition(this.node.transform!.worldPosition);
   }

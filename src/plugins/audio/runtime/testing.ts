@@ -155,7 +155,7 @@ let nextFakeVoiceId = 1;
 function makeFakeVoice(request: PlayRequest): FakeVoice {
   const events: FakeVoiceEvent[] = [];
   let counted = true;
-  const state = { volume: 1, pitch: 1, attenuation: null as Attenuation | null, position: null as Vec3Like | null, bus: request.bus, paused: false, stopped: false, playing: true, alive: true };
+  const state = { volume: 1, pitch: 1, attenuation: null as Attenuation | null, position: null as Vec3Like | null, bus: request.bus, paused: false, stopped: false, playing: true, alive: true, velocity: null as Vec3Like | null, occlusionGain: 1, occlusionLpHz: 24_000, dopplerRate: 1 };
   const uncount = (): void => {
     if (counted) mixer.voiceEnded(state.bus);
     counted = false;
@@ -210,15 +210,24 @@ function makeFakeVoice(request: PlayRequest): FakeVoice {
       if (!(fadeSeconds && fadeSeconds > 0)) uncount(); // a fading voice is freed (and uncounted) at `end()`
     },
     end() { state.playing = false; uncount(); },
-    // ADR 0162 (K0 members): L-K4b fills these.
-    // (Getters return the defaults so a test that inspects a whole voice doesn't throw.)
-    get velocity(): Vec3Like | null { return null; }, // L-K4b
-    get occlusionGain(): number { return 1; }, // L-K4b
-    get occlusionLpHz(): number { return 24_000; }, // L-K4b
-    get dopplerRate(): number { return 1; }, // L-K4b
-    setVelocity(v) { void v; throw new Error("not implemented: L-K4b"); },
-    setOcclusion(gain, lpHz) { void gain; void lpHz; throw new Error("not implemented: L-K4b"); },
-    setDopplerRate(factor) { void factor; throw new Error("not implemented: L-K4b"); },
+    // ADR 0162 (K0 members), recorded like the other setters.
+    get velocity() { return state.velocity; },
+    get occlusionGain() { return state.occlusionGain; },
+    get occlusionLpHz() { return state.occlusionLpHz; },
+    get dopplerRate() { return state.dopplerRate; },
+    setVelocity(v) {
+      state.velocity = { x: v.x, y: v.y, z: v.z };
+      events.push({ kind: "velocity", value: state.velocity });
+    },
+    setOcclusion(gain, lpHz) {
+      state.occlusionGain = gain;
+      state.occlusionLpHz = lpHz;
+      events.push({ kind: "occlusion", gain, lpHz });
+    },
+    setDopplerRate(factor) {
+      state.dopplerRate = factor;
+      events.push({ kind: "doppler", factor });
+    },
   };
 }
 
@@ -255,7 +264,46 @@ export interface FakeZoneIrService extends ZoneIrService {
  * nothing is answered until the test calls `prepared` or `failed`. An unknown token is ignored.
  */
 export function makeFakeZoneIrService(): FakeZoneIrService {
-  throw new Error("not implemented: L-K4b");
+  const requests: FakeZoneIrRequest[] = [];
+  const released: number[] = [];
+  const reprepared: number[] = [];
+  let disposed = false;
+  const find = (token: number) => requests.find((r) => r.token === token);
+  const service: FakeZoneIrService = {
+    requests,
+    released,
+    reprepared,
+    get disposed() {
+      return disposed;
+    },
+    onPrepared: null,
+    onFailed: null,
+    prepare(request) {
+      const token = requests.length + 1;
+      requests.push({ token, ...request });
+      return token;
+    },
+    release(kernelId) {
+      released.push(kernelId);
+    },
+    reprepareAll(contextRate) {
+      reprepared.push(contextRate);
+    },
+    dispose() {
+      disposed = true;
+    },
+    prepared(token, fields = {}) {
+      const r = find(token);
+      if (!r) return;
+      service.onPrepared?.({ token, kernelId: r.kernelId, frames: fields.frames ?? r.maxFrames, truncated: fields.truncated ?? false, prepareMs: fields.prepareMs ?? 1 });
+    },
+    failed(token, message, code = 1) {
+      const r = find(token);
+      if (!r) return;
+      service.onFailed?.({ token, kernelId: r.kernelId, code, message });
+    },
+  };
+  return service;
 }
 
 // --- The loopback host ----------------------------------------------------------------------------------------
