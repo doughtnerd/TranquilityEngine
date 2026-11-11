@@ -29,6 +29,7 @@
 
 import { parseCurve, type Curve } from "../core/curve";
 import type { Automation, NodeBase } from "./eventFormat";
+import type { StingerDef, TransitionRule } from "./musicRules";
 import {
   comparePositions, formatPosition, isBarBeatTick, parsePosition, positionProblem, snapToBeat, snapToNextBar,
   MAX_POSITION_BAR, type BarBeatTick,
@@ -198,6 +199,10 @@ interface MusicContainerBase extends NodeBase {
   children: MusicNode[];
   /** <= 64 segments that are bridges and stingers, not children (F2 adds the rules that name them). */
   library: SegmentNode[];
+  /** Transition rules in list order, <= 256 (F2, §2.4); resolve with `musicRules.ts`. */
+  transitions: TransitionRule[];
+  /** Stingers, <= 32 (F2, §2.5). */
+  stingers: StingerDef[];
 }
 
 /** A playlist: its children in `mode` order, `rounds` times (§2.3). */
@@ -217,6 +222,9 @@ export interface MusicSwitchNode extends MusicContainerBase {
   /** The label to use when none matches; absent: the first child. */
   default?: string;
 }
+
+/** A music container: a playlist or a musicSwitch. */
+export type MusicContainerNode = PlaylistNode | MusicSwitchNode;
 
 export const MUSIC_NODE_TYPES = ["segment", "playlist", "musicSwitch"] as const;
 export type MusicNodeType = (typeof MUSIC_NODE_TYPES)[number];
@@ -579,7 +587,7 @@ export function parseMusicContainerHead(rawNode: unknown, where: string, ctx: Mu
   if (!open) return null;
   const { raw, id } = open;
   const base = {
-    id, children: [] as MusicNode[], library: [] as SegmentNode[],
+    id, children: [] as MusicNode[], library: [] as SegmentNode[], transitions: [] as TransitionRule[], stingers: [] as StingerDef[],
     volume: num(raw.volume, `${where}.volume`, 1, p, 0, 4),
     pitch: 1, pitchRandom: [0, 0] as [number, number], delay: 0, automation: [] as Automation[], fade: 0,
     volumeRandom: pair(raw.volumeRandom, `${where}.volumeRandom`, p, -96, 24),
