@@ -11,6 +11,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '../../..');
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
 const RUNS = +arg('runs', 5), SECONDS = +arg('seconds', 60), KEYS = +arg('keys', 1);
+const WINDOW_S = +arg('window', 4); // sliding-window fit half-width in seconds for the truth line (0 = one global fit per run)
+const RAW = arg('raw', '0') === '1', FROM = arg('from', '');
 const HINT = arg('hint', 'interactive'); // AudioContext latencyHint: 'interactive' | 'playback' | seconds (0 = the smallest the platform allows, the rhythm-mode setting)
 const latencyHint = Number.isFinite(+HINT) ? +HINT : HINT;
 const OUT = arg('out', join(here, 'results', `run-${SECONDS}s-${Date.now()}.json`));
@@ -48,10 +50,26 @@ function analyse(R) {
   // truth: the audio clock as the worklet saw it, vs a wall clock (spinner), least squares over every quantum
   const n = R.qf.length, mf = R.qf.reduce((a, b) => a + b, 0) / n, mt = R.qt.reduce((a, b) => a + b, 0) / n;
   let sxy = 0, sxx = 0; for (let i = 0; i < n; i++) { sxy += (R.qf[i] - mf) * (R.qt[i] - mt); sxx += (R.qf[i] - mf) ** 2; }
-  const b = sxy / sxx, a = mt - b * mf;                       // ms per frame
-  const Etime = (f) => a + b * f, frameAtE = (t) => (t - a) / b;
-  const fitResid = R.qf.map((f, i) => R.qt[i] - Etime(f));
-  const out = { sr, D, baseLatency: R.baseLatency, outputLatency: R.outputLatency, fit: { msPerFrame: b, nominalMsPerFrame: 1000 / sr, ppm: (b * sr / 1000 - 1) * 1e6, residual_ms: dist(fitResid.map(Math.abs)) } };
+  const b = sxy / sxx, a = mt - b * mf;                       // ms per frame (global fit)
+  const gE = (f) => a + b * f, gF = (t) => (t - a) / b;
+  // Sliding fit: the audio clock vs the wall clock is not one straight line over 60 s on a VM (the global fit's
+  // residual is ms-sized), so the truth line is refit over +-WINDOW_S around each frame (prefix sums).
+  const f0 = R.qf[0], pf = [0], pt = [0], pff = [0], pft = [0];
+  for (let i = 0; i < n; i++) { const x = R.qf[i] - f0, y = R.qt[i] - R.qt[0]; pf.push(pf[i] + x); pt.push(pt[i] + y); pff.push(pff[i] + x * x); pft.push(pft[i] + x * y); }
+  const halfFrames = WINDOW_S * sr;
+  const lowerBound = (v) => { let lo = 0, hi = n; while (lo < hi) { const m = (lo + hi) >> 1; if (R.qf[m] < v) lo = m + 1; else hi = m; } return lo; };
+  const local = (f) => { // returns [slope, intercept] of qt = s*(qf-f0) + c near frame f
+    const i0 = lowerBound(f - halfFrames), i1 = lowerBound(f + halfFrames);
+    const m = i1 - i0; if (WINDOW_S <= 0 || m < 50) return [b, a + b * f0 - R.qt[0] + R.qt[0] - b * 0, null];
+    const sx = pf[i1] - pf[i0], sy = pt[i1] - pt[i0], sxx2 = pff[i1] - pff[i0], sxy2 = pft[i1] - pft[i0];
+    const s = (m * sxy2 - sx * sy) / (m * sxx2 - sx * sx), c = (sy - s * sx) / m;
+    return [s, c, true];
+  };
+  const Etime = (f) => { if (WINDOW_S <= 0) return gE(f); const [s, c] = local(f); return R.qt[0] + c + s * (f - f0); };
+  const frameAtE = (t) => { if (WINDOW_S <= 0) return gF(t); let f = gF(t); for (let k = 0; k < 3; k++) { const [s, c] = local(f); f = f0 + (t - R.qt[0] - c) / s; } return f; };
+  const fitResid = R.qf.map((f, i) => R.qt[i] - gE(f));
+  const slideResid = R.qf.map((f, i) => R.qt[i] - Etime(f));
+  const out = { sr, D, baseLatency: R.baseLatency, outputLatency: R.outputLatency, fit: { msPerFrame: b, nominalMsPerFrame: 1000 / sr, ppm: (b * sr / 1000 - 1) * 1e6, residual_ms: dist(fitResid.map(Math.abs)), sliding_residual_ms: dist(slideResid.map(Math.abs)), window_s: WINDOW_S } };
   // frames
   const warmEnd = R.frames.p[0] + 1500;
   const idx = []; for (let i = 0; i < R.frames.p.length; i++) if (R.frames.p[i] >= warmEnd && Number.isFinite(R.frames.hot[i])) idx.push(i);
@@ -158,9 +176,12 @@ async function once(browser, port, i) {
   if (KEYS) { await new Promise((r) => setTimeout(r, 2500)); while (live) { await pg.keyboard.press('a').catch(() => {}); await new Promise((r) => setTimeout(r, 400 + Math.random() * 100)); } }
   const raw = await p;
   await pg.close();
+  if (RAW) { mkdirSync(join(here, 'results'), { recursive: true }); writeFileSync(join(here, 'results', `raw-${SECONDS}s-${Date.now()}-${i}.json`), JSON.stringify(raw)); }
   return analyse(raw);
 }
 
+let runs = [];
+if (FROM) { runs = FROM.split(',').map((f) => analyse(JSON.parse(readFileSync(f, 'utf8')))); } else {
 const exe = process.env.E2E_CHROMIUM || ['/opt/pw-browsers/chromium', '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome'].find(existsSync);
 const srv = http.createServer((req, res) => {
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin'); res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp'); res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
@@ -171,17 +192,18 @@ await new Promise((r) => srv.listen(0, '127.0.0.1', r));
 const port = srv.address().port;
 const flags = (process.env.CHROMIUM_FLAGS || '--autoplay-policy=no-user-gesture-required').split(' ').filter(Boolean);
 const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox', ...flags] });
-const runs = [];
 try {
   for (let i = 0; i < RUNS; i++) { const t = Date.now(); runs.push(await once(browser, port, i)); console.error(`run ${i + 1}/${RUNS} done in ${((Date.now() - t) / 1000).toFixed(0)} s`); }
 } finally { await browser.close(); srv.close(); }
 
+}
 // ---------- report
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, JSON.stringify({ seconds: SECONDS, runs }, null, 1));
 const med = (f) => median(runs.map(f).filter(Number.isFinite));
 const L = [];
 L.push(`# beat-clock results: ${RUNS} runs x ${SECONDS} s, latencyHint ${HINT} (baseLatency ${f3(med((r) => r.baseLatency))} s, outputLatency ${f3(med((r) => r.outputLatency))} s), sr ${runs[0].sr}, limiter D = ${runs[0].D} frames, frame interval ${f3(med((r) => r.frame.intervalMs))} ms (${f3(med((r) => r.frame.hz))} Hz)`);
+L.push(`\ntruth line: ${WINDOW_S > 0 ? `sliding fit +-${WINDOW_S} s` : 'one global fit'}; sliding-fit residual p99 ${f3(med((r) => r.fit.sliding_residual_ms.p99))} ms;`);
 L.push(`\nrender-clock fit: ${f3(med((r) => r.fit.ppm))} ppm vs nominal, residual p99 ${f3(med((r) => r.fit.residual_ms.p99))} ms; K (heard minus render clock) median ${f3(med((r) => r.K_ms))} ms; STATUS period ${f3(med((r) => r.core.status_period_ms))} ms\n`);
 L.push('## Q2 clock error vs the audio clock (ms; offset removed; steady frames; per run then median over runs)');
 L.push('| estimator | const offset ms | p50 | p99 | p99.9 | max | f2f jitter std | f2f |d| p99 | drift ms/min |'); L.push('|---|---|---|---|---|---|---|---|---|');

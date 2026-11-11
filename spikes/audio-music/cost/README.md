@@ -85,19 +85,36 @@ Metered, 16 voices on one bus, 48 vs 44.1 kHz, spatial vs non-spatial, minus the
 
 Findings: (1) **44.1 kHz music costs the same as 48 kHz**: `voices.rs:595-597` runs the 4-point Lagrange for every clip voice at any ratio (a ratio of 1.0 is not special-cased), and a stream reads through the same kernel (`voices.rs:645`). (2) Non-spatial voices cost the same as equal-power spatial ones: both go through `mix_range` -> `mix_dry` (`panner.rs:162-163`); there is nothing to save by marking stems non-spatial, and there is no cheaper stereo path today. (3) A stream voice costs ~25% more than a decoded one (ring wrap, tail, start/starve bookkeeping; `voices.rs:645-760`), plus the copy of each 4,096-frame chunk into the ring. (4) Smoke timings agree in order (native 2.2 us decoded, 2.9 us stream per voice, loaded; wasm ~3.0 us decoded, ~2.4 us stream: noisy). Cache effects of arena reads vs ring reads are not in instruction counts [U]; the timed run's native iso rows measure them.
 
-### Q5. M4 audio-thread allowance (proposal)
+### Q5. M4 audio-thread allowance (proposal, from the timed run)
 
-Drivers: voices = 51.6k per stem + 40k per stinger instructions; **automation costs ~245k fixed when any binding is live** (shared with M2: a game already automating SFX pays it once, not per music scene); ramps and fades are ~2.5k per voice; stamped records are what is expensive. Convert at ~1.19 ms / 33.4M instructions (est.): 1 stem ~1.8 us, 1 stinger ~1.4 us, automation ~9 us.
+Reference machine assumed 2x faster than this container (est.). Measured container cost (max of native d p50 and d mean): typical 63 us, transition 79, worst 99; reference (est.) 32 / 40 / 50 us; allowance = reference x 1.5 or more (>= 50% headroom), rounded up.
 
-| preset | rings | typical scene | typical allowance | worst scene | worst allowance | measured (metered / est.) |
-|---|---:|---|---:|---|---:|---|
-| high | 16 | 4 stems, 1 fade | **0.03 ms** | 16 stems + 4 stingers, all fading, no splits | **0.08 ms** | 0.45M (~16 us) / 1.32M (~60 us) |
-| default | 8 | 4 stems, 1 fade | 0.03 ms | 8 stems + 2 stingers, fading | 0.05 ms | ~0.45M / ~0.85M (model; not run) (est.) |
-| low | 4 | 3 stems + 1 stinger, 1 fade | 0.03 ms | 4 stems, fading | 0.03 ms | ~0.40M / ~0.45M (model) (est.) |
+| preset | rings | typical scene | typical allowance | worst scene | worst allowance |
+|---|---:|---|---:|---|---:|
+| high | 16 | 4 stems, 1 fade (ref. est. 32 us) | **0.05 ms** | 16 stems + 4 stingers, all fading (ref. est. 50 us) | **0.08 ms** |
+| default | 8 | 4 stems, 1 fade (32 us) | 0.05 ms | 8 stems + 2 stingers (model: ~35 us) | 0.06 ms |
+| low | 4 | 4 stems, 1 fade (~28 us, model) | 0.04 ms | 4 stems + 1 stinger (~25 us, model) | 0.04 ms |
 
-Allowances are about 1.5x the measured/modelled cost, for p99.9 and memory effects. Phone costs are **unverified** (goal). Allowance excludes stamped splits: **budget them separately: 0.6 ms (est.) on a split quantum, at most 1 split per second keeps p99.9 clean**.
+Default and low rows come from the cost model (instructions per voice), not runs. Stamped splits are outside the allowance: ~270 us (est., reference) on each split quantum (538 us measured native here); keep them under about 1 per second. Phone cost unverified.
 
-What it means for high: ADR 0157's total is 1.3 ms p99.9; after M1 it was 1.19, M3 adds 0.10 typical / 0.42 worst, so typical high is 1.29 before music. **Music on top of that takes typical to ~1.32 (0.02 over 1.3) and worst to ~1.69 ms.** That is the owner's "higher total on high or fewer voices": with music voices counted in the 256 cap the net is lower than 0.03 (est.), because an average high-preset voice costs about 130k instructions (33.4M / 256) against 52k for a stem, so 4 stems displacing 4 SFX voices is about -0.3M instructions (-1%); worst (20 music voices of 256) about -1.5M (est.). Recommendation: count music voices in the mixed cap and the stream rings (reserve rings for music: 4 low is too few for stems plus voice-over, consider min 6), keep the allowances above as the cap for what music adds when it does not displace, and keep sample-accurate fades inside the voice (Q2).
+Effect on the high total (ADR 0157: 1.3 ms p99.9; M1 1.19; M3 +0.10 typical / +0.42 worst): typical 1.29 + 0.05 = **1.34 ms (0.04 over)**; worst 1.61 + 0.08 = **1.69 ms**. If music voices count inside the 256 cap, 4 stems displacing 4 average voices (~130k vs 52k instructions each) gives about -1% net (est.), so the overshoot disappears; that, plus reserving rings for music (4 on low is too few), is the recommendation. The owner's own-budget decision is needed only if music is added on top of 256 SFX voices.
+
+## Timed run (coordinator, idle container, RUNS=5, SECONDS=10; `results/2026-11-11T18-15-37-670Z/summary.md`)
+
+Medians over 5 runs of each run's statistic, us per quantum. p99.9 and max are VM tails (idle container, 4 vCPUs, other tenants): not usable as budget numbers. Base scenes run 1.64-1.91 ms p50 here against the ADR's 1.19 ms, so this container is about 1.45x slower than the ADR's reference (ADR 1.19 ms is a p99.9 figure, so the real gap is [U]).
+
+| music scene minus its twin | native d p50 | native d p99 | native d mean | wasm d p50 | wasm d p99 | wasm d mean | metered est. on this container's base (us) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `mus-typ` | 43 | 174 | 63 | 39 | -7 | 31 | 23 |
+| `mus-trans` | 75 | 145 | 79 | 68 | 141 | 36 | 52 |
+| `mus-worst` | 99 | 29 | 91 | 96 | 39 | 92 | 74 |
+| `mus-worst-split` | 538 | 1,119 | 570 | 810 | 1,117 | 813 | 741 |
+| `mus-typ-nofade` | 53 | -137 | 29 | 39 | 537 | 151 | 11 |
+| `mus-typ-ramp` | 12 | 113 | 17 | 9 | 210 | 56 | 11 |
+
+**Measured vs the metered-model estimate.** My first est. column (16/36/60/600 us) used the ADR's 1.19 ms as the base; the container's own base is 1.73/1.71/1.97 ms, so the same ratios give 23/52/74/741 us (last column). Against that, native p50 deltas are 1.9x (typical), 1.4x (transition), 1.3x (worst) and 0.73x (split). The gap that remains in the typical row is mostly noise: `mus-typ-nofade` (+206k instructions) measures +53 us p50 while `mus-typ-ramp` (+213k, the same instructions) measures +12 us, and the wasm typical-nofade mean is +151 us against typical +31, so a 10 s run resolves a delta only to about +-30 us. What is real: (1) instructions are not time: stems read 32,768-frame rings and clips from cold arena memory, and cache misses are not in the count; (2) the split quantum is cheaper per instruction than average (SIMD-heavy, warm) so it comes in below the estimate. The bench's 32 HRTF voices do not explain it: HRTF changes the base, not the absolute cost of a non-spatial stem (iso-clip 2.3 us native per voice either way); with the editor's 8 HRTF voices the base is lower and music's share of the total is higher, its microseconds the same. The Q4 iso rows confirm per-voice cost: decoded 2.27-2.30 us native (3.0-3.2 us wasm), stream 2.86-2.91 us native (2.46 us wasm); 44.1 kHz = 48 kHz and non-spatial = spatial in time too. Stream vs decoded flips in wasm (stream cheaper), unexplained [U]; the instruction counts say stream +25%.
+
+**sqrt in wasm.** Timed micro (ns per voice per quantum, full ramp, per-sample): sqrt native 241, wasm 1,080 (4.5x); sinf native 1,826, wasm 861; smoothstep native 288, wasm 446; table native 534, wasm 683. `libm::sqrtf` is slow in wasm (no `f32.sqrt` instruction in the no_std build [U]) and `sinf` is slower native than wasm. So the sqrt law, the best native choice, is the worst wasm choice. Fade-law choice: do not use `libm::sqrtf` or `sinf` per sample. Use an S-curve polynomial (0.29 native / 0.45 us wasm per fading voice; amplitude-complementary, not power-complementary) or a 1,024-point equal-power table (0.53 / 0.68 us; power-complementary, error 3.6e-7), or evaluate the law at control rate (every 8-16 samples) and interpolate linearly [est., not measured]. 20 fading voices cost 9-14 us per quantum in wasm with the table: more than all the other fade work, so keep fades per-voice and short.
 
 ## Findings in one list
 
@@ -111,7 +128,7 @@ What it means for high: ADR 0157's total is 1.3 ms p99.9; after M1 it was 1.19, 
 
 ## Unverified [U]
 
-- All timed numbers (p50/p99/p99.9/max, native and Node wasm): smoke only until the coordinator's idle-machine run.
+- Timed numbers are from the coordinator's 10 s x 5 run (not 20 s); deltas resolve to about +-30 us; p99.9/max are VM tails. The 2x reference-machine factor is an assumption (est.).
 - (est.) microseconds: derived from metered ratios and the ADR's quoted totals, not measured here.
 - Instruction counts exclude cache and memory effects (arena vs ring reads, 44.1 kHz source strides).
 - Why automation has a ~245k fixed cost (candidates: `advance_params` over the seeking globals, the per-voice automation lookup in `render_range`); not profiled.
