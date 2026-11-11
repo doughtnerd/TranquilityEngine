@@ -1,4 +1,4 @@
-import { Audio, GameBehavior, Input, behavior, field } from "myco";
+import { Audio, AudioSource, GameBehavior, Input, Time, behavior, field } from "myco";
 
 /** Seconds between the sounds of a sequence. Each is scheduled with `at` on the audio clock, so the spacing is exact. */
 const ladderGap = 1.25;
@@ -13,9 +13,20 @@ const ladderGap = 1.25;
  * - Q: the "Sweep" snapshot on and off over 4 s (the snapshot low-pass sweeps the Tape and Music buses).
  * - O: the sawtooth stopped with a 0.25 s fade, then again stopped at once.
  * - I / K: block the main thread for 300 ms / 800 ms (the core and streams keep playing).
+ *
+ * `mode: "spatial"` is the spatial page's set for the M3 pass (docs/design/0162-audio-spatial/listening-pass.md),
+ * on the listener node, and it replaces the keys above:
+ * - 4: a loud source 1.5 m away and 200 quiet ones at 4 to 25 m, all at once (the 8-voice HRTF boundary, a bed under load).
+ * - 5: starts and stops the "Bed orbit" child node: a hum going round the head at 3 m, overhead (+70 degrees) and
+ *   below the floor (-70 degrees) once every 12 s. It moves with the listener.
+ * - 6 / 7: jump the listener behind the west wall (the wall between it and the corridor) and to the corner of the cave.
+ * - 8: turns the listener 90 degrees on the spot (an ambience's orientation).
+ * - 9: stops the orbit and the key-4 sounds (the silence check).
  */
 @behavior("lab.ListeningBench")
 export class ListeningBench extends GameBehavior {
+  /** "listening" (the M1 keys above) or "spatial" (the M3 keys). */
+  @field(String) mode = "listening";
   @field(String) pitchKey = "7";
   @field(String) limiterKey = "8";
   @field(String) loadKey = "9";
@@ -24,9 +35,34 @@ export class ListeningBench extends GameBehavior {
   @field(String) stopKey = "o";
   @field(String) stallKey = "i";
   @field(String) longStallKey = "k";
+  /** Spatial mode: the keys for the burst, the orbit, the two stations, the turn and the stop. */
+  @field(String) burstKey = "4";
+  @field(String) orbitKey = "5";
+  @field(String) wallKey = "6";
+  @field(String) cornerKey = "7";
+  @field(String) turnKey = "8";
+  @field(String) silenceKey = "9";
+  /** Spatial mode: the child node the orbit moves, with an AudioSource. */
+  @field(String) orbitNode = "Bed orbit";
+  /** Spatial mode: the listener's stations (x, z in metres; the eye stays at its height). */
+  @field(Number) wallX = -3.2;
+  @field(Number) wallZ = 0;
+  @field(Number) cornerX = -2.6;
+  @field(Number) cornerZ = -20.5;
   private sweeping = false;
+  private burstHandles: { stop(fade?: number): void }[] = [];
+  private warnedNoOrbit = false;
 
   update(): void {
+    if (this.mode !== "spatial") {
+      this.listeningKeys();
+      return;
+    }
+    this.spatialKeys();
+    this.moveOrbit();
+  }
+
+  private listeningKeys(): void {
     if (Input.getKeyDown(this.pitchKey)) this.pitchLadder();
     if (Input.getKeyDown(this.limiterKey)) this.stack();
     if (Input.getKeyDown(this.loadKey)) this.load();
@@ -35,6 +71,18 @@ export class ListeningBench extends GameBehavior {
     if (Input.getKeyDown(this.stopKey)) void this.stops();
     if (Input.getKeyDown(this.stallKey)) stall(300);
     if (Input.getKeyDown(this.longStallKey)) stall(800);
+  }
+
+  private spatialKeys(): void {
+    if (Input.getKeyDown(this.burstKey)) this.burst();
+    if (Input.getKeyDown(this.orbitKey)) this.toggleOrbit();
+    if (Input.getKeyDown(this.wallKey)) this.teleport(this.wallX, this.wallZ);
+    if (Input.getKeyDown(this.cornerKey)) this.teleport(this.cornerX, this.cornerZ);
+    if (Input.getKeyDown(this.turnKey)) {
+      const e = this.transform.eulerAngles;
+      this.transform.eulerAngles = { x: e.x, y: e.y + 90, z: e.z };
+    }
+    if (Input.getKeyDown(this.silenceKey)) this.silence();
   }
 
   private pitchLadder(): void {
@@ -81,6 +129,64 @@ export class ListeningBench extends GameBehavior {
     const cut = Audio.playOneShot("audio/bright.wav", { bus: "UI", volume: 0.6 });
     await this.wait.realtime(0.4);
     cut.stop();
+  }
+
+  /** One loud source close to the listener and 200 quiet ones spread out around it, all starting together. */
+  private burst(): void {
+    const t0 = Audio.time + 0.05;
+    const p = this.transform.position;
+    this.burstHandles.push(Audio.playOneShot("audio/loud.wav", { volume: 1, position: { x: p.x + 0.9, y: p.y, z: p.z - 1.2 }, minDistance: 1, maxDistance: 30, at: t0 }));
+    for (let i = 0; i < 200; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 4 + Math.random() * 21;
+      const position = { x: p.x + Math.cos(angle) * distance, y: p.y, z: p.z + Math.sin(angle) * distance };
+      this.burstHandles.push(Audio.playOneShot("audio/bright.wav", { volume: 0.02, position, minDistance: 1, maxDistance: 30, at: t0 }));
+    }
+  }
+
+  private toggleOrbit(): void {
+    const source = this.orbitSource();
+    if (!source) return;
+    if (source.isPlaying) source.stop();
+    else source.play();
+  }
+
+  /** Moves the orbit node: a full turn every 24 s, its height swinging from overhead (+70 degrees) to below the floor (-70). */
+  private moveOrbit(): void {
+    const orbit = this.node.find(this.orbitNode);
+    const source = orbit?.getComponent(AudioSource);
+    if (!orbit || !source) return;
+    if (!source.isPlaying) return;
+    const radius = 3;
+    const elevation = (70 * Math.PI / 180) * Math.cos((2 * Math.PI * Time.time) / 12);
+    const azimuth = (2 * Math.PI * Time.time) / 24;
+    const p = orbit.transform?.position;
+    if (!p) return;
+    p.x = Math.cos(elevation) * radius * Math.cos(azimuth);
+    p.y = Math.sin(elevation) * radius;
+    p.z = Math.cos(elevation) * radius * Math.sin(azimuth);
+  }
+
+  private orbitSource(): AudioSource | null {
+    const source = this.node.find(this.orbitNode)?.getComponent(AudioSource) ?? null;
+    if (!source && !this.warnedNoOrbit) {
+      this.warnedNoOrbit = true;
+      console.warn(`[sound-lab] The listening bench has no "${this.orbitNode}" child with an AudioSource: key ${this.orbitKey} does nothing.`);
+    }
+    return source;
+  }
+
+  private teleport(x: number, z: number): void {
+    const p = this.transform.position;
+    p.x = x;
+    p.z = z;
+  }
+
+  /** Stops the orbit and the burst (the sounds this bench started). */
+  private silence(): void {
+    this.orbitSource()?.stop();
+    for (const handle of this.burstHandles) handle.stop(0.05);
+    this.burstHandles = [];
   }
 }
 

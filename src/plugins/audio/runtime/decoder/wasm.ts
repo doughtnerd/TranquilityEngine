@@ -35,12 +35,35 @@ interface Exports {
   myco_decode_read_f32(handle: number, out: number, frames: number): number;
   myco_decode_read_i16(handle: number, out: number, frames: number): number;
   myco_decode_seek(handle: number, frame: number): number;
+  /** ABI 1.2 (ADR 0162 B2). */
+  myco_decode_set_convention(handle: number, convention: number): number;
   myco_decode_error_ptr(): number;
   myco_decode_error_len(): number;
+  /** ABI 1.3 (ADR 0162 C2a): zone impulse responses. */
+  myco_ir_prepare(ptr: number, len: number, hint: number, targetRate: number, maxFrames: number): number;
+  myco_ir_generate(preset: number, targetRate: number, maxFrames: number): number;
+  myco_ir_blob_ptr(): number;
+  myco_ir_blob_len(): number;
+  myco_ir_truncated(): number;
+}
+
+/** The generated zone IRs (R10, api-and-models §2.3), in `myco_ir_generate`'s code order. */
+export const IR_PRESETS = ["room", "corridor", "hall", "cave", "open"] as const;
+
+/** A prepared zone kernel (clip format 3, api-and-models §4.5): what C2b sends to the worklet. */
+export interface PreparedIr {
+  /** The kernel's bytes (a copy, owned by the caller). */
+  readonly kernel: Uint8Array;
+  /** Frames per channel after trimming and cutting. */
+  readonly frames: number;
+  /** The response was cut at `maxFrames`. */
+  readonly truncated: boolean;
 }
 
 /** The ABI major this code speaks. */
 export const DECODER_ABI_MAJOR = 1;
+/** The lowest ABI minor this code needs (1.3: the `myco_ir_*` exports, ADR 0162 C2a). */
+export const DECODER_ABI_MINOR = 3;
 /** Size of the info record `myco_decode_info` writes (ABI 1.1; 1.0 wrote 32 bytes without the loop fields). */
 const INFO_BYTES = 40;
 
@@ -69,8 +92,8 @@ export class DecoderWasm {
       throw new DecoderError(`audio decoder: myco_audio_decode.wasm does not compile (${e instanceof Error ? e.message : String(e)})`);
     }
     const { instance, abiVersion, sourceHash } = DecoderWasm.instantiate(module);
-    if (abiVersion >>> 8 !== DECODER_ABI_MAJOR) {
-      throw new DecoderError(`audio decoder: ABI version ${abiVersion >>> 8}.${abiVersion & 0xff} is not supported (this engine speaks ${DECODER_ABI_MAJOR}.x)`);
+    if (abiVersion >>> 8 !== DECODER_ABI_MAJOR || (abiVersion & 0xff) < DECODER_ABI_MINOR) {
+      throw new DecoderError(`audio decoder: ABI version ${abiVersion >>> 8}.${abiVersion & 0xff} is not supported (this engine speaks ${DECODER_ABI_MAJOR}.${DECODER_ABI_MINOR} or a later 1.x); run npm run build:audio`);
     }
     if (expectedHash !== undefined && sourceHash !== expectedHash) {
       throw new DecoderError(`audio decoder: myco_audio_decode.wasm was built from other sources (hash ${sourceHash}, expected ${expectedHash}); run npm run build:audio`);
@@ -157,6 +180,43 @@ export class DecoderWasm {
 
   readF32(handle: number, ptr: number, frames: number): number {
     return this.check(this.x.myco_decode_read_f32(handle, ptr, frames));
+  }
+
+  /**
+   * ADR 0162 §2.4 (B2, decoder ABI 1.2): converts a FuMa file (4, 9 or 16 channels) to AmbiX in every later read,
+   * scaled into int16 headroom before the rounding. Call once, before the first read or seek. Returns the import gain
+   * the clip's volume is multiplied by (√2 for orders 1-3; 1 when nothing is converted: AmbiX, or another channel count).
+   */
+  setConvention(handle: number, convention: "ambix" | "fuma"): number {
+    const r = this.x.myco_decode_set_convention(handle, convention === "fuma" ? 1 : 0);
+    if (r < 0) throw this.lastError(r);
+    return r;
+  }
+
+  /**
+   * ADR 0162 C2a (decoder ABI 1.3): prepares the zone kernel of an encoded IR file (`hint` as `open`) at `targetRate`,
+   * at most `maxFrames` frames per channel: decode, resample, trim the tail under -80 dBFS, cut with a 50 ms fade,
+   * normalise as the shared reverb, partition, transform. Throws a `DecoderError` (more than two channels is
+   * `ERR_CODEC`, -4; a silent file `ERR_DECODE`, -5).
+   */
+  prepareIr(bytes: Uint8Array, hint: number, targetRate: number, maxFrames: number): PreparedIr {
+    const ptr = this.x.myco_decode_alloc(bytes.length);
+    if (ptr === 0) throw new DecoderError("audio decoder: out of memory for the encoded file", -8);
+    new Uint8Array(this.x.memory.buffer, ptr, bytes.length).set(bytes);
+    return this.preparedIr(this.x.myco_ir_prepare(ptr, bytes.length, hint, targetRate, maxFrames));
+  }
+
+  /** As `prepareIr`, for a generated preset (`IR_PRESETS`); an unknown name throws `ERR_ARG` (-2). */
+  generateIr(preset: string, targetRate: number, maxFrames: number): PreparedIr {
+    const index = (IR_PRESETS as readonly string[]).indexOf(preset);
+    return this.preparedIr(this.x.myco_ir_generate(index < 0 ? 0xffffffff : index, targetRate, maxFrames));
+  }
+
+  private preparedIr(frames: number): PreparedIr {
+    this.check(frames);
+    const ptr = this.x.myco_ir_blob_ptr();
+    const len = this.x.myco_ir_blob_len();
+    return { kernel: new Uint8Array(this.x.memory.buffer, ptr, len).slice(), frames, truncated: this.x.myco_ir_truncated() !== 0 };
   }
 
   seek(handle: number, frame: number): number {

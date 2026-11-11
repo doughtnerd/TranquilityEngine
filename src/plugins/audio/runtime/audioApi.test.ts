@@ -562,6 +562,47 @@ describe("Audio public surface (api-and-models §1)", () => {
     });
   });
 
+  describe("ambisonic playback (ADR 0162 B5)", () => {
+    const ambisonicClip = () => Assets.addSource(Assets.fromObject({ "amb.wav": "data:audio/wav;base64,AAAA", "amb.wav.meta.json": { format: "myco.import@1", ambisonic: { convention: "ambix" } } }));
+
+    it("a source plays an ambisonic clip with the ambisonic flag, its yaw and no position; greyed fields warn once", () => {
+      ambisonicClip();
+      const node = GameObject.create("amb");
+      const src = node.addBehavior(AudioSource, { clip: "asset:amb.wav", playOnAwake: false, spatial: true, minDistance: 2, ambisonicYaw: 30 });
+      src.play();
+      const req = fake.plays.at(-1)!;
+      expect(req.ambisonic).toBe(true);
+      expect(req.yaw).toBe(30);
+      src._sync();
+      src._sync();
+      expect(fake.voices.at(-1)!.position).toBeNull();
+      src.stop();
+      src.play();
+      expect(warnings("ambisonic")).toHaveLength(1);
+    });
+
+    it("a source with none of the ignored fields set doesn't warn; an ordinary clip is not ambisonic", () => {
+      ambisonicClip();
+      const src = GameObject.create("quiet").addBehavior(AudioSource, { clip: "asset:amb.wav", playOnAwake: false });
+      src.play();
+      expect(warnings("ambisonic")).toHaveLength(0);
+      const plain = GameObject.create("plain").addBehavior(AudioSource, { clip: "asset:a.wav", playOnAwake: false });
+      plain.play();
+      expect(fake.plays.at(-1)!.ambisonic).toBeUndefined();
+    });
+
+    it("playOneShot of an ambisonic clip takes its yaw, ignores a position with one warning", () => {
+      ambisonicClip();
+      Audio.playOneShot("asset:amb.wav", { yaw: -45, position: { x: 1, y: 0, z: 2 } });
+      Audio.playOneShot("asset:amb.wav", { position: { x: 1, y: 0, z: 2 } });
+      const req = fake.plays.at(-2)!;
+      expect(req.ambisonic).toBe(true);
+      expect(req.yaw).toBe(-45);
+      expect(req.position).toBeUndefined();
+      expect(warnings("ambisonic clip")).toHaveLength(1);
+    });
+  });
+
   describe("exports from src/myco.ts", () => {
     it("Audio, AudioSource, AudioListener are exported", () => {
       expect(myco.Audio).toBe(Audio);

@@ -23,7 +23,10 @@
 //!
 //! **Render** ([`mixdown`], once per quantum after the voices): voices have mixed into their bus's
 //! stereo buffer (a voice whose bus index isn't configured goes to bus 0, the root, as main's remap
-//! does). Then, deepest bus first: the effect chain (`fx.rs`, K5; reverb sends feed the shared
+//! does). Then, deepest bus first: the **pre-effects input hook** (ADR 0162 K2: `bed::decode_into`,
+//! `zones::add_returns`, `sends::add_aux` add the bus's bed decodes, zone returns and aux sends into
+//! its input, so its effects, snapshot, gain, meter and ducking apply to them; no-ops until A4, C3
+//! and C4), the effect chain (`fx.rs`, K5; reverb sends feed the shared
 //! convolver's input), the snapshot low-pass, the gain ramp, the meter (`meters.rs`), and the sum
 //! into the parent's buffer, or into the output for a root. Then the shared reverb's wet signal is
 //! added to the output (`audio_dsp::convolver`, A2.2b), then the MASTER gain ramp, and last the
@@ -67,6 +70,7 @@ use crate::fx::{self, FxChain};
 use crate::layout::REGION_ALIGN;
 use crate::meters::{self, Meter};
 use crate::params::InitParams;
+use crate::wire_read::{u16_at, u32_at};
 use crate::{status, QUANTUM};
 
 /// `parent` of a root bus (the wire's `BUS_ROOT`).
@@ -210,6 +214,8 @@ pub fn init(core: &mut Core) {
         v.area.count = 1;
     }
     // STATUS `busCount` stays 0 (no peaks sent) until main's first BUS_CONFIG names the buses.
+    // ADR 0162 C3: the zone slots' layout and the shared return at unity.
+    crate::zones::init(core);
 }
 
 /// Sets the master limiter's look-ahead to `ms` (clamped to 0..=5; NaN is the 1.5 ms default),
@@ -233,14 +239,6 @@ pub fn output_latency_frames(core: &Core) -> u32 {
 }
 
 // --- Record parsing (in `onmessage`, from `scheduler::submit`) ---
-
-fn u16_at(msg: &[u8], off: usize) -> u16 {
-    u16::from_le_bytes([msg[off], msg[off + 1]])
-}
-
-fn u32_at(msg: &[u8], off: usize) -> u32 {
-    u32::from_le_bytes([msg[off], msg[off + 1], msg[off + 2], msg[off + 3]])
-}
 
 /// `true` when the BUS_CONFIG record at `msg[off..off + len]` is well formed: every bus entry and
 /// every effect lies inside the record. (Pass 1 of `submit`; the generated reader would allocate.)
@@ -496,11 +494,23 @@ impl Inputs {
 /// Mixes the bus tree into the output region (see the module comment). Called by `Core::process`
 /// after the voices rendered into the buses' buffers. Never allocates.
 pub fn mixdown(core: &mut Core) {
+    // ADR 0162 C3: the zone slots convolve first, so their returns are ready for the hook.
+    let frame = core.frame();
+    let bus_count = count(core);
+    let zone_note = {
+        let (regions, clips, _) = core.render_parts();
+        crate::zones::render(regions, clips, frame, bus_count)
+    };
+    // The shared reverb's return scale (`sharedReturnGain`), or `None` at unity (M1's path).
+    let shared_return = crate::zones::shared_return(&mut core.regions_mut().core_state[..]);
     let regions = core.regions_mut();
     let output: &mut [f32] = &mut regions.output[..];
     let output: *mut [f32] = output;
     let reverb: &mut [u8] = &mut regions.reverb[..];
     let reverb: *mut [u8] = reverb;
+    // ADR 0162 K2: the regions the pre-effects input hook reads.
+    let beds: *mut [u8] = &mut regions.beds[..];
+    let zones: *mut [u8] = &mut regions.zones[..];
     // ADR 0158 E2: the buses' automation, or `None` when no bus has bindings (the M1 path).
     let autos: Option<*mut [crate::automation::BusAuto]> = crate::automation::bus_entries(&mut regions.automation[..]).map(|a| a as *mut _);
     let v = view(regions);
@@ -508,6 +518,8 @@ pub fn mixdown(core: &mut Core) {
     // `v` views (Layout), so these views don't alias it.
     let (out_l, out_r) = unsafe { &mut *output }[..2 * QUANTUM].split_at_mut(QUANTUM);
     let reverb = unsafe { &mut *reverb };
+    // SAFETY: the beds and zones regions are distinct from every region viewed here (Layout).
+    let (beds, zones) = unsafe { (&mut *beds, &mut *zones) };
     let count = (v.area.count as usize).min(v.slots.len());
     let sample_rate = v.area.sample_rate;
     let decay = v.area.meter_decay;
@@ -521,6 +533,10 @@ pub fn mixdown(core: &mut Core) {
         let auto = autos.and_then(|a| unsafe { (&*a).get(b) }).filter(|a| a.count != 0);
         {
             let (l, r) = slot.buf.split_at_mut(QUANTUM);
+            // ADR 0162 K2: the pre-effects input hook (no-ops until A4, C3 and C4).
+            crate::bed::decode_into(beds, b, l, r);
+            crate::zones::add_returns(zones, b, l, r);
+            crate::sends::add_aux(zones, b, l, r);
             sent |= slot.fx.process(l, r, rev_l, rev_r);
             let lp = match auto {
                 Some(a) if a.targets & crate::automation::has::LOWPASS != 0 => slot.lp.value.min(a.lp),
@@ -567,7 +583,18 @@ pub fn mixdown(core: &mut Core) {
         }
     }
     if v.area.has_reverb != 0 || sent {
-        convolver::process(reverb, rev_l, rev_r, out_l, out_r);
+        match shared_return {
+            None => convolver::process(reverb, rev_l, rev_r, out_l, out_r),
+            Some(g) => {
+                // ADR 0162 C3: scaled by 1 minus the listener's zone weight, ramped per frame.
+                let (mut wet_l, mut wet_r) = ([0.0f32; QUANTUM], [0.0f32; QUANTUM]);
+                convolver::process(reverb, rev_l, rev_r, &mut wet_l, &mut wet_r);
+                for i in 0..QUANTUM {
+                    out_l[i] += g[i] * wet_l[i];
+                    out_r[i] += g[i] * wet_r[i];
+                }
+            }
+        }
         rev_l.fill(0.0);
         rev_r.fill(0.0);
     }
@@ -596,6 +623,8 @@ pub fn mixdown(core: &mut Core) {
         let m = view(core.regions_mut()).slots[b].meter;
         status::counters_mut(core).set_peak(b, m.l, m.r);
     }
+    // ADR 0162 C3: the load-shedding ladder's check and the STATUS zone fields.
+    crate::zones::after_render(core, zone_note);
 }
 
 #[cfg(test)]

@@ -36,10 +36,10 @@ npm run check:audio-metered                        # the cost gate: instruction 
 
 `npm run build:audio` (`build.mjs`) does, in order:
 
-1. Runs `gen_wire` (regenerates the wire; below).
+1. Runs `gen_wire` (regenerates the wire; below), then `bake-magls --check` (ADR 0162 A3: re-bakes `src/engine/audio/magls-o3.bin` and the 16 → 2 bed matrix and fails if either differs from what is committed; run `cargo run -p bake-magls --release` to rewrite the asset after changing the design or the HRIR set).
 2. Builds `audio-wasm` for `wasm32` in release with `+simd128`, and again with the `test-hooks` feature into the test-hooks wasm.
 3. Builds `audio-decode`, default and `aac`, and decodes a few fixtures with the built wasm as a smoke test.
-4. Enforces the size gates: mixer 256 KB (a tripwire since ADR 0158, not a design limit), default decoder 900 KB, AAC decoder 1,100 KB. A build over a gate fails.
+4. Enforces the size gates: mixer 320 KB (a tripwire since ADR 0158, not a design limit; raised from 256 KB after ADR 0162 M3), default decoder 900 KB, AAC decoder 1,100 KB. A build over a gate fails. The mixer also warns past 300 KB, so a milestone sees its headroom shrink before the gate.
 5. Reads the source hash and ABI version out of the wasm and writes `hash.json`.
 6. Builds `audio-bench` for `wasm32` the same way, injects an instruction counter (`tools/audio-bench/meter.mjs`) and writes the metered test wasm and `metered.json` to `tools/audio-bench/metered/`. It is never shipped and not size-gated.
 

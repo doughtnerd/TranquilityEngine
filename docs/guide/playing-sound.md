@@ -17,6 +17,10 @@ Audio.playOneShot("sfx/cannon.wav", {
   position: ship.worldPosition,                          // set: 3D sound; left out: flat
   minDistance: 5, maxDistance: 150,                      // metres, with position
   priority: 200,                                         // 0 to 255, default 128
+  dopplerLevel: 1,                                       // with position: opt in to the pitch shift of a moving sound (default 0)
+  occlusion: true, reverbSend: 1,                        // with position: walls and reverb zones (the defaults)
+  lowpass: 4000, highpass: 80,                           // Hz, any sound; the lowest low-pass wins
+  yaw: 90,                                               // ambisonic clips: degrees
 });
 ```
 
@@ -28,6 +32,8 @@ engine.fade(0.3, 1);       // ease this sound's own volume to 0.3 over 1 s
 engine.stop(0.5);          // fade out over 0.5 s, then stop
 engine.playing;            // false once it ended or was stopped
 engine.reason;             // why it isn't audible (or why it ended early), else null
+engine.panner;             // "flat", "equalPower", "hrtf", "bed" or "ambisonic" (null before it plays)
+engine.occlusion;          // how much of the dry sound a wall lets through: 1 is clear
 ```
 
 `at` starts a sound at an exact time on the audio clock, for music that has to line up: `Audio.playOneShot("music/hat.wav", { at: Audio.time + 0.5 })`. `Audio.time` is the clock the player hears, in seconds, and doesn't stop when the game pauses.
@@ -47,6 +53,10 @@ Add an `AudioSource` component to a node and pick its `clip`, or drag an audio f
 | `output` | The bus it plays on; empty is Master |
 | `priority` | 0 to 255, as above |
 | `spatial`, `minDistance`, `maxDistance`, `rolloff` | 3D sound, below |
+| `occlusion` | On (default): walls between the sound and the listener muffle it ([Spatial audio](spatial-audio.md#occlusion-and-materials)) |
+| `dopplerLevel` | 0 to 5, default 1: how much a moving source or listener shifts the pitch; 0 is off |
+| `reverbSend`, `reverbSendCurve` | How much goes to the reverb zones that hold the source (0 to 2, default 1), and how that changes with distance |
+| `ambisonicYaw` | Ambisonic clips: turns the recording about the vertical axis, degrees |
 
 ```ts
 const source = this.node.getBehavior(AudioSource)!;
@@ -56,7 +66,7 @@ source.play();      // also pause(), resume(), stop()
 source.isPlaying;
 ```
 
-Changing `volume`, `pitch` or the 3D fields while it plays takes effect on the next frame. A deactivated node pauses its sound; destroying the node stops it.
+Read-only: `velocity` (world units per second, from the node's motion), `panner` and `occlusionGain` (1 is clear). Changing `volume`, `pitch` or the 3D fields while it plays takes effect on the next frame. A deactivated node pauses its sound; destroying the node stops it.
 
 ## Buses and master volume
 
@@ -89,13 +99,15 @@ Turn on `spatial` on an `AudioSource`, or pass `position` to `playOneShot`. Soun
 On the audio core, the nearest spatial sounds are rendered with **HRTF**: over headphones they seem to come from outside the head, in front or behind, above or below. The rest are panned left to right only (equal power). In Project Settings > Audio > Playback:
 
 - **Spatial** is `hrtf` (default) or `equal power` (no HRTF at all, cheapest).
-- **Voices > HRTF** is how many spatial sounds get HRTF at once (0 to 32, default 16). 0 means equal power for all.
+- **Voices > HRTF** is how many spatial sounds get HRTF at once (0 to 32, default 8; the presets give 4 / 8 / 8 for low / default / high). 0 means equal power for all. With beds on (the default: **Max beds** 2), 8 is enough, because the rest go to a bed instead of being panned flat.
 
-If the HRTF data can't load, spatial sounds stay equal-power and the Audio Debug panel says so. The Babylon fallback uses the browser's own panner, so 3D sound there differs between browsers. More in [spatial audio](atmosphere-and-sound.md#spatial-audio-0074).
+Sounds beyond the HRTF count are mixed into a shared **bed** instead of being panned flat (the Master bus has one by default; a bus without one uses its parent's) (see [spatial audio](spatial-audio.md#beds)). If the HRTF data can't load, spatial sounds stay equal-power and the Audio Debug panel says so. The Babylon fallback uses the browser's own panner, so 3D sound there differs between browsers. More in [spatial audio](atmosphere-and-sound.md#spatial-audio-0074).
+
+**Walls, rooms and moving sources.** Spatial sounds are also muffled by walls (`AudioOccluder`), can take the echo of a room (`AudioReverbZone`) and shift in pitch as they pass (`dopplerLevel`), and recorded surroundings can be played as ambisonic clips. All of it is in [Spatial audio](spatial-audio.md), with a recipe for doors. A listener that moves quickly (a vehicle) can say so with `AudioListener.setVelocity(v)`; otherwise its speed is read from the node's motion.
 
 ## Which backend plays
 
-The audio core is the default. The Babylon fallback plays instead when you set `audio.backend` to `"babylon"`, on macOS desktop builds (until macOS passes its check), and on engines too old to run the core (one warning in the console). It plays the same API with no effects, priorities or HRTF; the full list is in [the mixer guide](audio-mixer.md#limits) and the browser versions are in [audio-minimum-versions.md](audio-minimum-versions.md).
+The audio core is the default. The Babylon fallback plays instead when you set `audio.backend` to `"babylon"`, on macOS desktop builds (until macOS passes its check), and on engines too old to run the core (one warning in the console). It plays the same API with no effects, priorities, HRTF, reverb zones or beds, and walls only lower the volume (see [Spatial audio](spatial-audio.md#the-babylon-fallback)); the full list is in [the mixer guide](audio-mixer.md#limits) and the browser versions are in [audio-minimum-versions.md](audio-minimum-versions.md).
 
 ## Testing and tuning
 

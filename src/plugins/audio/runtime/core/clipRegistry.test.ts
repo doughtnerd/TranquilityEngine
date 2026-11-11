@@ -1,9 +1,11 @@
 // A1.3a: the clip registry against fakes for send / fetchBytes / decode and manual frame and quantum clocks.
 import { fakeDecoder, type PlanarClip } from "./fakeDecoder";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Assets } from "../../../../engine/scene/Assets";
+import type { DecodeClipOptions } from "../decoder/decoderClient";
 import { ClipEvent, ClipFormat, Kind, readClipBegin, readClipChunk, readClipUnload } from "../wire.generated";
 import { CLIP_BYTES_PER_QUANTUM } from "./chunker";
-import { CLIP_INDEX_LIMIT, clipGeneration, clipIndex, createClipRegistry, makeClipId, type ClipRegistryDeps } from "./clipRegistry";
+import { CLIP_INDEX_LIMIT, checkAmbisonic, clipGeneration, clipIndex, createClipRegistry, makeClipId, type ClipRegistryDeps } from "./clipRegistry";
 
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -325,5 +327,71 @@ describe("clipRegistry acquireReserved (H2)", () => {
     h.registry.release(ID);
     expect(h.kind(h.sent[h.sent.length - 1]!)).toBe(Kind.CLIP_UNLOAD);
     expect(h.registry.state(ID)).toBe("idle");
+  });
+});
+
+describe("clipRegistry ambisonic sidecar (ADR 0162 §2.4, B1)", () => {
+  afterEach(() => Assets.clearSources());
+  const sidecar = (path: string, ambisonic?: unknown) => Assets.addSource(Assets.fromObject({ [`${path}.meta.json`]: { format: "myco.import@1", ...(ambisonic === undefined ? {} : { ambisonic }) } }));
+  const clipOf = (channels: number) => ({ frames: 100, channels, channelData: Array.from({ length: channels }, () => new Float32Array(100)) });
+  /** A harness whose decoder records the options each decode got. */
+  const ambiHarness = (path: string, channels: number) => {
+    const seen: DecodeClipOptions[] = [];
+    const inner = fakeDecoder(async () => ({ ...clipOf(channels), sampleRate: 48_000 }));
+    const h = harness({ decodeWorker: { decodeClip: (bytes, hint, options) => (seen.push(options ?? {}), inner.decodeClip(bytes, hint, options)) } });
+    const id = h.registry.acquire(path);
+    return { h, id, seen };
+  };
+
+  it("refuses a clip over 2 channels without the sidecar, with the real channel count", async () => {
+    for (const channels of [4, 6, 9, 16]) {
+      const { h, id } = ambiHarness(`plain${channels}.wav`, channels);
+      await settle();
+      expect(h.registry.info(id)).toMatchObject({ state: "failed", failure: "decode" });
+      expect(h.warn.mock.calls[0]![0]).toContain(`${channels}-channel audio needs an ambisonic import setting (ADR 0162); multichannel mixes aren't supported`);
+      expect(h.sent).toEqual([]);
+    }
+  });
+
+  it("loads 4, 9 and 16 channels with the sidecar, inferring the order, and hands the convention to the decoder", async () => {
+    sidecar("a4.wav", {});
+    sidecar("a9.wav", { convention: "fuma" });
+    sidecar("a16.wav", { order: 3, convention: "ambix" });
+    for (const [path, channels, convention] of [["a4.wav", 4, "ambix"], ["a9.wav", 9, "fuma"], ["a16.wav", 16, "ambix"]] as const) {
+      const { h, id, seen } = ambiHarness(path, channels);
+      await settle();
+      expect(h.warn).not.toHaveBeenCalled();
+      expect(h.registry.info(id)).toMatchObject({ state: "copying", channels });
+      expect(seen[0]!.convention).toBe(convention);
+    }
+  });
+
+  it("an ordinary clip sends no convention; a sidecar on a 1-2 channel clip is ignored with one warning", async () => {
+    const plain = ambiHarness("plain.wav", 2);
+    await settle();
+    expect(plain.seen[0]!.convention).toBeUndefined();
+    sidecar("mono.wav", { order: 1 });
+    const mono = ambiHarness("mono.wav", 1);
+    await settle();
+    expect(mono.h.registry.state(mono.id)).toBe("copying");
+    expect(mono.h.warn).toHaveBeenCalledTimes(1);
+    expect(mono.h.warn.mock.calls[0]![0]).toContain("ignored");
+  });
+
+  it("a given order that disagrees with the channel count fails naming both numbers", async () => {
+    sidecar("bad.wav", { order: 2 });
+    const { h, id } = ambiHarness("bad.wav", 4);
+    await settle();
+    expect(h.registry.info(id)).toMatchObject({ state: "failed", failure: "decode" });
+    expect(h.warn.mock.calls[0]![0]).toMatch(/order 2 needs 9 channels.*has 4/);
+    expect(h.sent).toEqual([]);
+  });
+
+  it("checkAmbisonic: a count that is no order, and orders 2-3 off WAV", () => {
+    expect(checkAmbisonic("a.wav", 6, { order: null, convention: "ambix" })).toHaveProperty("error");
+    expect(checkAmbisonic("a.wav", 16, { order: null, convention: "ambix" })).toEqual({ order: 3 });
+    expect(checkAmbisonic("a.flac", 4, { order: null, convention: "ambix" })).toEqual({ order: 1 });
+    expect(checkAmbisonic("a.flac", 9, { order: null, convention: "ambix" })).toMatchObject({ error: expect.stringContaining("WAV") });
+    expect(checkAmbisonic("a.ogg", 16, { order: 3, convention: "fuma" })).toMatchObject({ error: expect.stringContaining("WAV") });
   });
 });

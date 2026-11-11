@@ -25,7 +25,7 @@ pub const SPATIAL: u16 = wire::PLAY_FLAGS_SPATIAL;
 pub const DC: u32 = 1;
 
 pub fn params(max_buses: u32) -> InitParams {
-    InitParams { sample_rate: RATE, max_logical: 64, max_mixed: 16, max_buses, arena_initial_bytes: 0 }
+    InitParams { sample_rate: RATE, max_logical: 64, max_mixed: 16, max_buses, arena_initial_bytes: 0, ..InitParams::default() }
 }
 
 /// A core over a leaked, zeroed, page-aligned block, as `myco_audio_init` would get it.

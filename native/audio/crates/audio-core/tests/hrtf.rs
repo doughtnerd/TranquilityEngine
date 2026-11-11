@@ -25,7 +25,7 @@ const STEREO: u32 = 2;
 const HRTF_FLAGS: u32 = (wire::panner::HRTF as u32) << wire::SET_PARAMS_FLAGS_PANNER_SHIFT;
 
 fn new_core(rate: f32, max_mixed: u32) -> Core {
-    let p = InitParams { sample_rate: rate, max_logical: 256, max_mixed, max_buses: 4, arena_initial_bytes: 4 << 20 };
+    let p = InitParams { sample_rate: rate, max_logical: 256, max_mixed, max_buses: 4, arena_initial_bytes: 4 << 20, ..InitParams::default() };
     let layout = Layout::new(&p);
     let block = std::alloc::Layout::from_size_align(layout.total(), PAGE_BYTES).unwrap();
     // SAFETY: non-zero size, zeroed, page-aligned; leaked on purpose ('static).

@@ -1,10 +1,12 @@
 # Audio core: minimum browser and webview versions (ADR 0157)
 
-The audio core (`audio.backend: "core"`, the default) runs in an `AudioWorklet` and uses WebAssembly SIMD. Before it loads, the engine probes for the features it needs (never version strings). An engine that lacks one logs **one warning** naming the missing feature and these minimums, then plays sound through the `"babylon"` backend instead: basic playback, no effects (the other limits are listed in [audio-mixer.md](audio-mixer.md#limits)).
+The audio core (`audio.backend: "core"`, the default) runs in an `AudioWorklet` and uses WebAssembly SIMD. Before it loads, the engine probes for the features it needs (never version strings). An engine that lacks one logs **one warning** naming the missing feature and these minimums, then plays sound through the `"babylon"` backend instead: basic playback, no effects, and a reduced spatial audio (the limits are listed in [audio-mixer.md](audio-mixer.md#limits)).
 
 If you got that warning and want to see what is playing instead, see [Why is there no sound?](why-no-sound.md#3-corebackend-is-babylon).
 
 The core also needs a `Worker` and WebAssembly: clips decode on a worker running the engine's own decoder (`myco_audio_decode.wasm`), never with the browser's `decodeAudioData`. If that worker crashes, the engine restarts it and retries the decodes in flight (up to 3 times a minute). If it can't run at all, or its wasm doesn't match the engine build, clips fail to load with one warning each. Once the core has started it does not switch to the browser's decoder; only the choice made at load, the Babylon fallback above, uses the browser to decode.
+
+Spatial audio (ADR 0162: beds, reverb zones, occlusion, Doppler, ambisonic clips) runs inside the same worklet and worker and needs **no further browser feature**, so the minimums below are unchanged. It reserves more fixed memory when the core starts (roughly 3 MB on the `low` Voices preset, 10 MB on `default` and 21 MB on `high`). The Babylon fallback has a reduced form of it (walls lower the volume only, no reverb zones, no beds, ambisonic clips play mono): [Spatial audio](spatial-audio.md#the-babylon-fallback). The M3 scenes have been run on Chromium; runs on WebKit and Firefox are still to do.
 
 ## What the core needs
 

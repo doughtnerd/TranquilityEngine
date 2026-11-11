@@ -217,6 +217,12 @@ impl CapState {
         self.ctl.cap()
     }
 
+    /// Whether the shell's probe noted an underrun since the last step (ADR 0162 OD3: the
+    /// load-shedding ladder reads it in the render, before [`after_render`] consumes it).
+    pub fn underrun_pending(&self) -> bool {
+        self.underrun_pending
+    }
+
     /// The configured cap and budget.
     pub fn config(&self) -> &CapConfig {
         &self.cfg
@@ -225,6 +231,11 @@ impl CapState {
     /// The last quantum's modelled work units.
     pub fn work_units(&self) -> u32 {
         self.last_wu
+    }
+
+    /// The shell's underrun total as last noted (ADR 0162 A4: the load shedding ladder, `bed.rs`).
+    pub fn underruns_total(&self) -> u32 {
+        self.underruns_total
     }
 
     /// The last complete window's work-unit p99.

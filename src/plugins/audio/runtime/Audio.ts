@@ -6,9 +6,9 @@
 import { mixer, type Bus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
-import { clipVolume, startClip, worldKeyOf, worldPlays } from "./AudioSource";
+import { clipVolume, isAmbisonicClip, startClip, worldKeyOf, worldPlays } from "./AudioSource";
 import { warnOnce } from "./core/handle";
-import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest } from "./backend";
+import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioPanner, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest, type SendCurve } from "./backend";
 import { events, type EventDebugRow, type EventInstance, type EventOptions } from "./events/eventRuntime";
 
 /** `Audio.debug()`: the backend's state plus the event runtime's rows (`AudioDebugInfo.events` with the late-start count each row carries). */
@@ -32,14 +32,33 @@ export interface OneShotOptions {
   priority?: number;
   /** Start at this audio-clock time (seconds, the base of `Audio.time`). Past or omitted: as soon as possible. Ignored while `Audio.status` is "locked". Non-finite: warns, plays now. */
   at?: number;
+  // ADR 0162 §1.3. A flat one-shot (no `position`) has no occlusion, reverb send or Doppler; `lowpass` and `highpass` still apply.
+  /** With a position: walls between the sound and the listener muffle it. Default true. */
+  occlusion?: boolean;
+  /** With a position: scales the Doppler shift from the listener's motion, 0..5. Default 0 (opt in). */
+  dopplerLevel?: number;
+  /** With a position: how much goes to the reverb zones that hold it, 0..2. Default 1. */
+  reverbSend?: number;
+  /** With a position: the reverb send against distance. Default: full send up close, half at `maxDistance`. */
+  reverbSendCurve?: SendCurve;
+  /** Low-pass cutoff, Hz (10..24000; 20000 and above is none). The lowest low-pass wins over automation's. */
+  lowpass?: number;
+  /** High-pass cutoff, Hz (10..24000; 20 and below is none). */
+  highpass?: number;
+  /** Ambisonic clips: turns the recording about the vertical axis, degrees (-180..180), positive to the left seen from above. */
+  yaw?: number;
 }
 
 /** A handle for a play that didn't happen: `playing` false, every call a no-op. */
-const INERT: AudioHandle = Object.freeze({ playing: false, reason: null, stop() {}, fade() {} });
+const INERT: AudioHandle = Object.freeze({ playing: false, reason: null, panner: null, occlusion: 1, stop() {}, fade() {} });
 
 /** The public handle over a backend voice: only the four §1 members, none of the voice's setters. */
 class VoiceHandle implements AudioHandle {
   constructor(private readonly voice: AudioVoice) {}
+  /** ADR 0162 §1.1: the panner the sound uses, from the main-thread mirror; null once it has ended or on a backend without panners. */
+  get panner(): AudioPanner | null { try { return this.voice.alive === false ? null : (this.voice.panner ?? null); } catch { return null; } }
+  /** ADR 0162 §1.1: the smoothed dry occlusion gain (1 open), from the main-thread mirror. */
+  get occlusion(): number { try { return this.voice.occlusion ?? 1; } catch { return 1; } }
   get playing(): boolean { try { return this.voice.playing; } catch { return false; } }
   get reason(): AudioReason | null { try { return this.voice.reason; } catch { return null; } }
   // The voice clamps and warns once (`AudioHandle`), so the values go through as given.
@@ -50,7 +69,7 @@ class VoiceHandle implements AudioHandle {
 
 /** A handle for an event that didn't play. */
 const INERT_EVENT: AudioEventHandle = Object.freeze({
-  playing: false, reason: null, position: null,
+  playing: false, reason: null, position: null, panner: null, occlusion: 1,
   stop() {}, fade() {}, setParameter() {}, getParameter: () => undefined, release() {},
 });
 
@@ -61,6 +80,10 @@ class EventHandle implements AudioEventHandle {
   get reason(): AudioReason | null { return this.instance.reason; }
   get position(): Vec3Like | null { return this.instance.position; }
   set position(p: Vec3Like | null) { this.instance.position = p; }
+  /** ADR 0162 §1.1 across the instance's voices: the first playing voice's panner. */
+  get panner(): AudioPanner | null { return this.instance.panner; }
+  /** ADR 0162 §1.1 across the instance's voices: the lowest (most occluded) smoothed dry gain. */
+  get occlusion(): number { return this.instance.occlusion; }
   stop(fadeSeconds = 0): void { this.instance.stop(fadeSeconds); }
   fade(to: number, seconds: number): void { this.instance.fade(Math.min(4, Math.max(0, to)), Math.max(0, seconds)); }
   setParameter(name: string, value: number | string): void { this.instance.setParameter(name, value); }
@@ -107,7 +130,9 @@ export const Audio = {
         if (typeof o.at === "number" && Number.isFinite(o.at)) { if (audioBackend().status !== "locked") extra.at = o.at; }
         else warnOnce("at:nonfinite", "Audio.playOneShot: at must be a finite number of seconds; playing now.");
       }
-      if (o.position) {
+      const ambisonic = isAmbisonicClip(path);
+      if (o.position && ambisonic) warnOnce(`position:ambisonic:${path}`, `Audio.playOneShot: "${path}" is an ambisonic clip; position, distances, occlusion and dopplerLevel are ignored (ADR 0162).`);
+      else if (o.position) {
         const p = o.position;
         if (Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)) {
           // A streamed clip is spatial on the core; the Babylon fallback flattens it (and warns) itself.
@@ -115,8 +140,20 @@ export const Audio = {
           const max = Math.max(min, finiteOr("maxDistance", o.maxDistance, 100));
           extra.attenuation = { minDistance: min, maxDistance: max, rolloff: "inverse" };
           extra.position = p;
+          // ADR 0162 §1.3: occlusion, Doppler and the reverb send apply to positioned one-shots only.
+          extra.occlusion = o.occlusion !== false;
+          extra.dopplerLevel = clampWarn("dopplerLevel", finiteOr("dopplerLevel", o.dopplerLevel, 0), 0, 5);
+          extra.reverbSend = clampWarn("reverbSend", finiteOr("reverbSend", o.reverbSend, 1), 0, 2);
+          if (Array.isArray(o.reverbSendCurve)) extra.reverbSendCurve = o.reverbSendCurve;
         } else warnOnce("position:nonfinite", "Audio.playOneShot: position must be finite; playing flat.");
       }
+      // ADR 0162 §1.3: the one-shot's own filter (flat or positioned) and an ambisonic clip's yaw.
+      if (o.lowpass !== undefined || o.highpass !== undefined) {
+        extra.filter = {};
+        if (o.lowpass !== undefined) extra.filter.lowpass = clampWarn("lowpass", finiteOr("lowpass", o.lowpass, 24000), 10, 24000);
+        if (o.highpass !== undefined) extra.filter.highpass = clampWarn("highpass", finiteOr("highpass", o.highpass, 10), 10, 24000);
+      }
+      if (o.yaw !== undefined) extra.yaw = clampWarn("yaw", finiteOr("yaw", o.yaw, 0), -180, 180);
       const v = startClip(path, false, o.bus, extra);
       return v ? new VoiceHandle(v) : INERT;
     } catch (e) {

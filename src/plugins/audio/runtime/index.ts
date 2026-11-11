@@ -6,13 +6,18 @@ import type { RuntimePlugin } from "../../runtimeContext";
 import { audioManifest } from "../manifest";
 import { AudioListener } from "./AudioListener";
 import { AudioSource } from "./AudioSource";
+import { AudioOccluder } from "./AudioOccluder";
+import { AudioReverbZone } from "./AudioReverbZone";
 import { AUDIO_SERVICE } from "./core/service";
 import { AUDIO_SYSTEMS } from "./audioSystem";
 
 export { Audio, type OneShotOptions } from "./Audio";
-export type { AudioDebugInfo, AudioEventHandle, AudioHandle, AudioReason, AudioStatus } from "./backend";
+export type { AudioBedDebug, AudioDebugInfo, AudioEventHandle, AudioHandle, AudioM3Counters, AudioMemoryDebug, AudioOcclusionDebug, AudioPanner, AudioReason, AudioStatus, AudioVoiceM3Debug, AudioZoneDebug, SendCurve } from "./backend";
+export { DEFAULT_SEND_CURVE } from "./backend";
 export type { EventOptions } from "./events/eventRuntime";
 export { AudioSource, type Rolloff } from "./AudioSource";
+export { AudioOccluder } from "./AudioOccluder";
+export { AudioReverbZone, ZONE_PRESETS } from "./AudioReverbZone";
 export { AudioListener } from "./AudioListener";
 export type { Bus } from "../../../engine/audio/mixer";
 /** @internal B2: the decoder worker's client (B5 wires the clip registry to it). Not part of the public API (`src/myco.ts` does not export it). */
@@ -22,7 +27,7 @@ export { hintFromName } from "./decoder/protocol";
 export const audioRuntimePlugin: RuntimePlugin = {
   manifest: audioManifest,
   activate(context) {
-    context.registerComponents([AudioSource, AudioListener]);
+    context.registerComponents([AudioSource, AudioListener, AudioOccluder, AudioReverbZone]);
     context.registerEngineSystems(AUDIO_SYSTEMS);
     context.registerWorldService(AUDIO_SERVICE);
   },

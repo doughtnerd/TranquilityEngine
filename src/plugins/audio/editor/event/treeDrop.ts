@@ -16,7 +16,7 @@ import {
   type NodePath,
   type SustainSlot,
   type TreeEdit,
-} from "./eventTree";
+} from "./EventTree";
 
 /** A drop: into a list or an empty sustain slot (`DropTarget`), or (clips only) onto a clip row, replacing its clip. */
 export type TreeDrop = DropTarget | { replace: NodePath };

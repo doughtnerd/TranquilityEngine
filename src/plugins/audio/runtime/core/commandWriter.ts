@@ -14,6 +14,11 @@
 //
 // ADR 0158 E2 adds the automation records (`setLoop`, `automate`, `param`, `curves`, `busAutomate`; byte layouts in
 // api-and-models §4.2). They write what they are given; the event runtime (E3) decides when to send them.
+//
+// ADR 0162 K1 adds the spatial records (`setVoiceFx`, `bedConfig`, `zoneConfig`, `listener`; layouts in
+// docs/design/0162-audio-spatial/api-and-models.md §4.2 and contracts C2-C5) and PLAY's bit 7 (`PLAY_FLAGS_AMBISONIC`,
+// passed in `PlayArgs.flags`). Like the others they write what they are given, from preallocated scratch records;
+// K4 and the feature tasks decide when to send them.
 import {
   ASAP,
   AUTOMATE_BINDINGS_FIXED_END,
@@ -24,15 +29,21 @@ import {
   SET_PARAMS_MASK_FLAGS,
   SET_PARAMS_FLAGS_PANNER_SHIFT,
   Kind,
+  LISTENER_FLAGS_SNAP,
+  MAX_BEDS,
+  MAX_ZONE_SLOTS,
   Op,
   SET_LOOP_FLAGS_LOOPING,
+  SET_VOICE_FX_FIXED_END,
   writeAutomate,
   writeBatchHeader,
+  writeBedConfig,
   writeBusAutomate,
   writeBusConfig,
   writeBusMix,
   writeEnvelope,
   writeFade,
+  writeListener,
   writeMaster,
   writeParam,
   writePlay,
@@ -42,7 +53,9 @@ import {
   writeSetMixed,
   writeSetPaused,
   writeSetLoop,
+  writeSetVoiceFx,
   writeStop,
+  writeZoneConfig,
   type Automate,
   type AutomateBindings,
   type BusAutomate,
@@ -59,6 +72,11 @@ import {
   type SetPaused,
   type SetLoop,
   type Stop,
+  type BedConfig,
+  type Listener,
+  type SetVoiceFx,
+  type ZoneConfig,
+  type ZoneConfigSlots,
 } from "../wire.generated";
 import { CURVE_INTERPS, type Curve } from "../../../../engine/core/curve";
 import type { BufferPool } from "./bufferPool";
@@ -80,7 +98,11 @@ export interface PlayArgs {
   voiceId: number;
   clip: number;
   bus: number;
-  /** `PLAY_FLAGS_*` from wire.generated (loop, stream, wantsPlayhead, mixed, spatial, panner). */
+  /**
+   * `PLAY_FLAGS_*` from wire.generated (loop, stream, wantsPlayhead, mixed, spatial, panner, ambisonic). ADR 0162 C1:
+   * panner 2 (`PANNER_BED`) is the bus's bed; bit 7 (`PLAY_FLAGS_AMBISONIC`, `AMBI_FLAG`) a B-format voice of 4, 9 or 16
+   * channels, whose spatial, panner and dir the core ignores.
+   */
   flags: number;
   group: number;
   gain: number;
@@ -122,6 +144,34 @@ const BATCH_RECORD_BYTES = BATCH_MAX_BYTES - BATCH_PREFIX_BYTES;
 const MAX_FRAME_OFFSET = 0xfffffffe;
 /** The AUTOMATE record's bindings between records (never written to). */
 const NO_AUTOMATE_BINDINGS: AutomateBindings[] = [];
+/** The BED_CONFIG and ZONE_CONFIG scratch arrays between records (never written to). */
+const NO_NUMBERS: number[] = [];
+const NO_ZONE_SLOTS: ZoneSlotArgs[] = [];
+/** Pads a byte count to a multiple of 4 (the record and list padding of the M3 records). */
+const pad4 = (n: number): number => Math.ceil(n / 4) * 4;
+
+/**
+ * ADR 0162 C3: SET_VOICE_FX, minus the head. `mask` is `SET_VOICE_FX_MASK_*` (hpHz, sends, yaw, aux); fields outside
+ * the mask are written as given and ignored by the core.
+ */
+export interface VoiceFxArgs {
+  voiceId: number;
+  /** `SET_VOICE_FX_MASK_HP_HZ | _SENDS | _YAW | _AUX`. */
+  mask: number;
+  rampFrames: number;
+  /** High-pass cutoff in Hz; `HP_BOTTOM` (20) or less is off. */
+  hpHz: number;
+  /** Linear send level into zone slots 0..3 (pre-distance; main folds volume, curve, weight and wet factor). Exactly 4 read. */
+  send: ArrayLike<number>;
+  /** Radians, ambisonic voices. */
+  yaw: number;
+  auxLevel: number;
+  /** The aux send's bus; `AUX_BUS_NONE` (0xFFFF) is none. */
+  auxBus: number;
+}
+
+/** ADR 0162 C5: one ZONE_CONFIG slot, as on the wire (`kernelId` 0 is off; `state` is `ZoneSlotState`). */
+export type ZoneSlotArgs = ZoneConfigSlots;
 
 /** Counters for `Audio.debug()` and the tests. */
 export interface CommandWriterStats {
@@ -169,6 +219,10 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly paramRec: Param = { voiceId: 0, frameOffset: ASAP, group: 0, slot: 0, value: 0, seekPerSecond: 0 };
   private readonly automateRec: Automate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
   private readonly busAutomateRec: BusAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
+  private readonly voiceFxRec: SetVoiceFx = { voiceId: 0, frameOffset: ASAP, mask: 0, rampFrames: 0, hpHz: 0, send: [0, 0, 0, 0], yaw: 0, auxLevel: 0, auxBus: 0xffff, reserved: 0 };
+  private readonly bedConfigRec: BedConfig = { voiceId: 0, frameOffset: ASAP, bedSlot: [], hostBus: [] };
+  private readonly zoneConfigRec: ZoneConfig = { voiceId: 0, frameOffset: ASAP, sharedReturnGain: 1, rampFrames: 0, slots: [] };
+  private readonly listenerRec: Listener = { voiceId: 0, frameOffset: ASAP, qx: 0, qy: 0, qz: 0, qw: 1, rampFrames: 0, flags: 0 };
 
   /** `sampleRate` converts the table's seconds to frames (STOP and FADE take frames); a context swap sets it again (A3.4c). */
   constructor(
@@ -441,6 +495,87 @@ export class CommandWriter implements VoiceCommandSink {
     const at = this.begin(16 + AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
     if (at >= 0) this.end(at, writeBusAutomate(this.view, at, r));
     r.bindings = [];
+  }
+
+  /**
+   * SET_VOICE_FX (ADR 0162 C3, 52 B) for `args.voiceId` at `atFrame` (absolute, stamped) or asap (omitted): stamped like
+   * SET_PARAMS, so send it after the voice's PLAY with the same frame. Copies `args` into the scratch record (`send`
+   * element by element, no new array); drops and flags like every record when the staging area is full.
+   */
+  setVoiceFx(args: VoiceFxArgs, atFrame?: number): void {
+    const r = this.voiceFxRec;
+    r.voiceId = args.voiceId;
+    r.mask = args.mask;
+    r.rampFrames = args.rampFrames;
+    r.hpHz = args.hpHz;
+    for (let i = 0; i < 4; i++) r.send[i] = args.send[i]!;
+    r.yaw = args.yaw;
+    r.auxLevel = args.auxLevel;
+    r.auxBus = args.auxBus;
+    const at = this.begin(SET_VOICE_FX_FIXED_END);
+    if (at < 0) return;
+    this.end(at, writeSetVoiceFx(this.view, at, r), atFrame);
+  }
+
+  /**
+   * BED_CONFIG (ADR 0162 C2): `bedSlot[b]` per bus, root first (`BED_SLOT_NONE` 0xFF for none), and `hostBus[s]` per
+   * slot (`BED_HOST_NONE` 0xFFFF for unused; at most `MAX_BEDS`). Size `20 + pad4(buses) + pad4(2 x slots)`. Asap; send
+   * after BUS_CONFIG. More than `MAX_BEDS` slots is dropped and flagged (the record is never written).
+   */
+  bedConfig(bedSlot: ArrayLike<number>, hostBus: ArrayLike<number>): void {
+    if (hostBus.length > MAX_BEDS) {
+      this.stats.dropped++;
+      this.overflowed = true;
+      return;
+    }
+    const r = this.bedConfigRec;
+    const at = this.begin(20 + pad4(bedSlot.length) + pad4(2 * hostBus.length));
+    if (at >= 0) {
+      r.bedSlot = bedSlot;
+      r.hostBus = hostBus;
+      this.end(at, writeBedConfig(this.view, at, r));
+    }
+    r.bedSlot = NO_NUMBERS; // the caller's lists are not kept (as `automate`)
+    r.hostBus = NO_NUMBERS;
+  }
+
+  /**
+   * ZONE_CONFIG (ADR 0162 C5, `24 + 16n` B): the shared reverb's return gain, the ramp, and up to `MAX_ZONE_SLOTS` slots
+   * (each `kernelId`, `returnBus`, `state`, `wet`, `irFrames`; `reserved` 0). Asap; idempotent in the core. More than
+   * `MAX_ZONE_SLOTS` slots is dropped and flagged.
+   */
+  zoneConfig(sharedReturnGain: number, rampFrames: number, slots: readonly ZoneSlotArgs[]): void {
+    if (slots.length > MAX_ZONE_SLOTS) {
+      this.stats.dropped++;
+      this.overflowed = true;
+      return;
+    }
+    const r = this.zoneConfigRec;
+    const at = this.begin(24 + 16 * slots.length);
+    if (at >= 0) {
+      r.sharedReturnGain = sharedReturnGain;
+      r.rampFrames = rampFrames;
+      r.slots = slots as ZoneSlotArgs[];
+      this.end(at, writeZoneConfig(this.view, at, r));
+    }
+    r.slots = NO_ZONE_SLOTS;
+  }
+
+  /**
+   * LISTENER (ADR 0162 C4, 36 B): the world-to-listener rotation `(qx, qy, qz, qw)`, slerped by the core over
+   * `rampFrames`, or jumped to with `snap` (flags bit0, a camera cut). Asap.
+   */
+  listener(qx: number, qy: number, qz: number, qw: number, rampFrames: number, snap: boolean): void {
+    const r = this.listenerRec;
+    r.qx = qx;
+    r.qy = qy;
+    r.qz = qz;
+    r.qw = qw;
+    r.rampFrames = rampFrames;
+    r.flags = snap ? LISTENER_FLAGS_SNAP : 0;
+    const at = this.begin(36);
+    if (at < 0) return;
+    this.end(at, writeListener(this.view, at, r));
   }
 
   /** RESET (§4.2): `keepClips` 0 also resets the arena and slab classes. */

@@ -12,9 +12,13 @@
 //! Rules for every module: transcendentals go through `libm` (never `f32::sin` and friends), so
 //! native tests and the wasm build give bit-identical results; nothing allocates while processing.
 
+pub mod ambisonic;
+pub mod bed_decoder;
+pub mod bed_matrix;
 pub mod biquad;
 pub mod compressor;
 pub mod convolver;
+pub mod fxfilter;
 pub mod hrtf;
 pub mod limiter;
 pub mod pan;

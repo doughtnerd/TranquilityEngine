@@ -52,13 +52,15 @@ export interface RigOptions {
   readonly clipFiles?: Record<string, ArrayBuffer>;
   /** `audio.codecs.aac` for the registry and the backend's settings (B4). */
   readonly aac?: boolean;
+  /** ADR 0162 zone slots for the core and the backend (default none). */
+  readonly zones?: { readonly maxZoneSlots: number; readonly zoneMaxSeconds: number };
 }
 
 export async function rig(files: Record<string, ArrayBuffer>, options: RigOptions = {}) {
   const testing = await import("../runtime/testing");
   let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
   try {
-    loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0 } })) as typeof loop;
+    loop = (await testing.createLoopbackHost({ preset: { ...testing.LOOPBACK_PRESET, limiterLookaheadMs: 0, ...options.zones } })) as typeof loop;
   } catch {
     return null;
   }
@@ -89,7 +91,7 @@ export async function rig(files: Record<string, ArrayBuffer>, options: RigOption
   const host: CoreBackendHost = {
     link,
     status: "running",
-    preset: { maxLogical: 16, maxMixed: 8 },
+    preset: { maxLogical: 16, maxMixed: 8, ...options.zones },
     worldCount: 1,
     sampleRate: RATE,
     addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],

@@ -8,6 +8,7 @@ import { createDecoderHandler, type DecoderHandler } from "./handler";
 import { createDecoderClient, type WorkerLike } from "./decoderClient";
 import { CLIP_CHUNK_FRAMES, hintFromName, type DecodeHint, type DecoderReply, type DecoderRequest } from "./protocol";
 import hash from "../wasm/hash.json";
+import { makeWav, signal } from "./testWav";
 
 const FIXTURES = fileURLToPath(new URL("../../../../../native/audio/crates/audio-decode/tests/fixtures/", import.meta.url));
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
@@ -326,6 +327,27 @@ describe("decoder client", () => {
     expect(clip).toMatchObject({ rate: 48000, channels: 2, frames: 48000 });
     expect(clip.pcm.length).toBe(src.samples.length);
     for (let i = 0; i < clip.pcm.length; i++) if (clip.pcm[i] !== src.samples[i]) throw new Error(`sample ${i}`);
+    client.dispose();
+  });
+
+  it("a 16-channel FuMa WAV comes out as AmbiX scaled into int16 headroom, with importGain √2 (ADR 0162 B2)", async () => {
+    const { client } = make();
+    // FuMa W X Y Z R S T U V K L M N O P Q; ACN n reads FuMa FUMA[n] with weight W[n].
+    const FUMA = [0, 2, 3, 1, 8, 6, 4, 5, 7, 15, 13, 11, 9, 10, 12, 14];
+    const W = [Math.SQRT2, 1, 1, 1, Math.sqrt(3) / 2, Math.sqrt(3) / 2, 1, Math.sqrt(3) / 2, Math.sqrt(3) / 2, Math.sqrt(5 / 8), Math.sqrt(5) / 3, Math.sqrt(32 / 45), 1, Math.sqrt(32 / 45), Math.sqrt(5) / 3, Math.sqrt(5 / 8)];
+    const wavBytes = new Uint8Array(makeWav(3000, 16, 48000, signal));
+    const fuma = await client.decodeClip(wavBytes, 1, { convention: "fuma" });
+    expect(fuma).toMatchObject({ channels: 16, frames: 3000 });
+    expect(fuma.info.importGain).toBeCloseTo(Math.SQRT2, 6);
+    for (let k = 0; k < 3000; k += 7) {
+      for (let n = 0; n < 16; n++) {
+        const want = Math.round(((signal(k, FUMA[n]!) / 32768) * W[n]!) / Math.SQRT2 * 32768);
+        expect(Math.abs(fuma.pcm[k * 16 + n]! - want)).toBeLessThanOrEqual(1);
+      }
+    }
+    const ambix = await client.decodeClip(new Uint8Array(makeWav(64, 16, 48000, signal)), 1, { convention: "ambix" });
+    expect(ambix.info.importGain).toBeUndefined();
+    expect(ambix.pcm[17]).toBe(signal(1, 1));
     client.dispose();
   });
 

@@ -11,21 +11,28 @@
 
 pub mod arena;
 pub mod automation;
+pub mod bed;
 pub mod bus;
 pub mod cap;
 pub mod cap_controller;
+pub mod chain;
 pub mod clips;
 pub mod core;
 pub mod counters;
 pub mod fx;
+pub mod fxpool;
 pub mod layout;
+pub mod listener;
 pub mod meters;
 pub mod panner;
 pub mod params;
 pub mod scheduler;
+pub mod sends;
 pub mod status;
 pub mod stream;
 pub mod voices;
+mod wire_read;
+pub mod zones;
 
 pub use crate::core::Core;
 pub use crate::layout::{Layout, Region, RegionKind, REGION_ALIGN, REGION_ORDER};

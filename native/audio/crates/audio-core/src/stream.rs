@@ -58,6 +58,17 @@
 //! target frame. A seek during a seek fade keeps the first tail; a seek while starved, waiting or
 //! virtual has nothing to fade. The playhead jumps to the target when the fade-out ends.
 //!
+//! **Ring classes** (ADR 0162 B4, R16; api-and-models §4.6, §5.2). A stream of 1-2 channels takes a
+//! **narrow** ring (above); one of 3-16 channels (an ambisonic stream: 4, 9 or 16) takes a **wide**
+//! ring in the `Wide` region: [`WIDE_RING_FRAMES`] frames (16,384) of up to 16 channels, chunks of at
+//! most [`WIDE_CHUNK_FRAMES`] (2,048, 128 KB at 16 channels), `max_wide` of them. STREAM_OPEN with no
+//! wide ring free is refused like one with no narrow ring free (stream event 3). Both classes are one
+//! store and one code path: ring `i` is narrow below [`StreamStore::narrow_count`] and wide from
+//! there, and every ring operation takes its frames, chunk limit and storage from its [`Class`]. A
+//! ring's storage holds its frames interleaved at the stream's channel count in either class.
+//! [`frame_at`] tells the classes apart by the storage's length; [`tail`] finds a ring's seek-fade
+//! copy and [`frame_n`] / [`read_planar`] read N channels (the ambisonic voice's read, B3).
+//!
 //! Loops never leave PLAYING: the worker wraps to the loop start, so the ring sees one continuous
 //! signal (the `wrapped` flag is B4's, for gapless trimming). `process` never allocates.
 //!
@@ -84,7 +95,7 @@ use crate::params::InitParams;
 pub const RING_FRAMES: usize = wire::STREAM_RING_FRAMES as usize;
 /// Most frames in one STREAM_CHUNK (architecture §4.7: 4,096-frame chunks).
 pub const MAX_CHUNK_FRAMES: usize = 4_096;
-/// Channels a ring stores at most (a stream of more is downmixed by the worker).
+/// Channels a narrow ring stores at most (a stream of more takes a wide ring, B4).
 pub const RING_CHANNELS: usize = 2;
 /// Frames of the seek fade's copy (B3b): the 5 ms fade at 48 kHz is 240 frames, read at up to
 /// 6x steps with the resampler's neighbours (a bigger step shortens the fade, never clicks).
@@ -113,6 +124,50 @@ pub fn stream_count(p: &InitParams) -> usize {
 pub fn region_bytes(p: &InitParams) -> usize {
     stream_count(p) * RING_BYTES
 }
+
+/// ADR 0162 R16 (§5.2): frames of a wide (3-16 channel) ring.
+pub const WIDE_RING_FRAMES: usize = wire::STREAM_RING_FRAMES_WIDE as usize;
+/// Frames in one chunk of a wide stream (128 KB at 16 channels).
+pub const WIDE_CHUNK_FRAMES: usize = wire::STREAM_WIDE_CHUNK_FRAMES as usize;
+/// Channels a wide ring stores.
+pub const WIDE_CHANNELS: usize = wire::STREAM_MAX_CHANNELS as usize;
+/// Bytes of one wide ring's storage: the ring, a chunk's tail and the seek fade's copy, 16 channels
+/// of f32 (C8: 16 × (16,384 + 2,048 + 1,536) × 4 B = 1.22 MiB).
+pub const WIDE_RING_BYTES: usize = WIDE_CHANNELS * (WIDE_RING_FRAMES + WIDE_CHUNK_FRAMES + FADE_TAIL_FRAMES) * 4;
+
+/// The `Wide` region's size (C8): `max_wide` wide rings. K2 lays it out; B4 gives it its ring class.
+pub const fn wide_region_bytes(p: &InitParams) -> usize {
+    p.max_wide as usize * WIDE_RING_BYTES
+}
+
+/// Most wide rings (`InitParams::MAX_WIDE`).
+pub const MAX_WIDE: usize = InitParams::MAX_WIDE as usize;
+/// Most rings of both classes.
+const MAX_RINGS: usize = MAX_STREAMS + MAX_WIDE;
+
+/// A ring class's shape (B4): its frames, its largest chunk and the channels its storage holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Class {
+    pub frames: usize,
+    pub chunk: usize,
+    pub channels: usize,
+}
+
+impl Class {
+    /// f32s of one ring's storage: the ring, a chunk's tail, the seek fade's copy.
+    pub const fn floats(self) -> usize {
+        (self.frames + self.chunk + FADE_TAIL_FRAMES) * self.channels
+    }
+    /// Where the seek fade's copy starts (f32 index).
+    pub const fn tail_offset(self) -> usize {
+        (self.frames + self.chunk) * self.channels
+    }
+}
+
+/// The narrow class: 1-2 channels, 32,768 frames, 4,096-frame chunks.
+pub const NARROW: Class = Class { frames: RING_FRAMES, chunk: MAX_CHUNK_FRAMES, channels: RING_CHANNELS };
+/// The wide class (R16): 3-16 channels, 16,384 frames, 2,048-frame chunks.
+pub const WIDE: Class = Class { frames: WIDE_RING_FRAMES, chunk: WIDE_CHUNK_FRAMES, channels: WIDE_CHANNELS };
 
 /// A ring's phase for its voice (see the module notes).
 pub mod phase {
@@ -191,37 +246,71 @@ impl Ring {
     }
 }
 
-/// The rings and their storage. Built over the `Streams` region by `Core::new`.
+/// The rings and their storage. Built over the `Streams` and `Wide` regions by `Core::new`.
 pub struct StreamStore {
-    rings: [Ring; MAX_STREAMS],
+    rings: [Ring; MAX_RINGS],
+    /// Narrow rings (`0..count`), then wide rings (`count..count + wide`).
     count: usize,
+    wide: usize,
     storage: &'static mut [f32],
+    wide_storage: &'static mut [f32],
 }
 
 impl Default for StreamStore {
     fn default() -> StreamStore {
-        StreamStore { rings: [Ring::default(); MAX_STREAMS], count: 0, storage: &mut [] }
+        StreamStore { rings: [Ring::default(); MAX_RINGS], count: 0, wide: 0, storage: &mut [], wide_storage: &mut [] }
     }
 }
 
+/// `region` (64-byte aligned, zeroed, a whole number of f32s) as f32s.
+fn floats(region: &'static mut [u8]) -> &'static mut [f32] {
+    if region.len() < 4 {
+        return &mut []; // an empty region's pointer needn't be aligned
+    }
+    // SAFETY: the region is 64-byte aligned (Layout) and a whole number of f32s; all-zero bytes are
+    // valid f32s; only this store views it.
+    unsafe { core::slice::from_raw_parts_mut(region.as_mut_ptr() as *mut f32, region.len() / 4) }
+}
+
 impl StreamStore {
-    /// The store over `region` (`region_bytes` long, 64-byte aligned, zeroed): `region.len() / RING_BYTES` rings.
-    pub fn over(region: &'static mut [u8]) -> StreamStore {
+    /// The store over the `Streams` region (`region_bytes` long: `len / RING_BYTES` narrow rings) and
+    /// the `Wide` region (`wide_region_bytes`: `len / WIDE_RING_BYTES` wide rings), both 64-byte
+    /// aligned and zeroed.
+    pub fn over(region: &'static mut [u8], wide: &'static mut [u8]) -> StreamStore {
         let count = (region.len() / RING_BYTES).min(MAX_STREAMS);
-        // SAFETY: the region is 64-byte aligned (Layout) and a whole number of f32s; all-zero bytes
-        // are valid f32s; only this store views it.
-        let storage = unsafe { core::slice::from_raw_parts_mut(region.as_mut_ptr() as *mut f32, region.len() / 4) };
-        StreamStore { rings: [Ring::default(); MAX_STREAMS], count, storage }
+        let wide_count = (wide.len() / WIDE_RING_BYTES).min(MAX_WIDE);
+        StreamStore { rings: [Ring::default(); MAX_RINGS], count, wide: wide_count, storage: floats(region), wide_storage: floats(wide) }
     }
 
-    /// Rings available.
+    /// Rings available, both classes (ring indices are `0..capacity()`).
     pub fn capacity(&self) -> usize {
+        self.count + self.wide
+    }
+
+    /// Narrow rings: ring `i` is wide from here.
+    pub fn narrow_count(&self) -> usize {
         self.count
+    }
+
+    /// Ring `i`'s class.
+    pub fn class(&self, i: usize) -> Class {
+        if i < self.count {
+            NARROW
+        } else {
+            WIDE
+        }
+    }
+
+    /// Ring `i`'s class and storage.
+    fn parts(&mut self, i: usize) -> (&mut Ring, &mut [f32], Class) {
+        let (storage, k, c) = if i < self.count { (&mut *self.storage, i, NARROW) } else { (&mut *self.wide_storage, i - self.count, WIDE) };
+        let n = c.floats();
+        (&mut self.rings[i], &mut storage[k * n..(k + 1) * n], c)
     }
 
     /// The open ring of stream `id`.
     pub fn index_of(&self, id: u32) -> Option<usize> {
-        self.rings[..self.count].iter().position(|r| r.open != 0 && r.id == id)
+        self.rings[..self.capacity()].iter().position(|r| r.open != 0 && r.id == id)
     }
 
     pub fn ring(&self, index: usize) -> &Ring {
@@ -239,19 +328,20 @@ impl StreamStore {
 
     /// Open rings.
     pub fn open_count(&self) -> usize {
-        self.rings[..self.count].iter().filter(|r| r.open != 0).count()
+        self.rings[..self.capacity()].iter().filter(|r| r.open != 0).count()
     }
 
-    /// Ring `index`'s samples (`RING_STORAGE_FRAMES * RING_CHANNELS` f32).
+    /// Ring `index`'s samples (its class's [`Class::floats`] f32).
     pub fn samples(&self, index: usize) -> &[f32] {
-        let n = RING_STORAGE_FRAMES * RING_CHANNELS;
-        &self.storage[index * n..(index + 1) * n]
+        let (storage, k) = if index < self.count { (&*self.storage, index) } else { (&*self.wide_storage, index - self.count) };
+        let n = self.class(index).floats();
+        &storage[k * n..(k + 1) * n]
     }
 
     /// The ring `index` and its samples at once (the render loop).
     pub fn split(&mut self, index: usize) -> (&mut Ring, &[f32]) {
-        let n = RING_STORAGE_FRAMES * RING_CHANNELS;
-        (&mut self.rings[index], &self.storage[index * n..(index + 1) * n])
+        let (ring, samples, _) = self.parts(index);
+        (ring, samples)
     }
 
     /// STREAM_OPEN: takes a free ring for the stream, or restarts its ring for a new epoch (a
@@ -259,11 +349,16 @@ impl StreamStore {
     /// then this gives the shape). Returns false when no ring is free or the shape is unusable
     /// (the caller queues stream event 3).
     pub fn open(&mut self, o: &StreamOpen) -> bool {
-        if o.channels == 0 || o.channels as usize > RING_CHANNELS || !(o.sample_rate > 0.0) {
+        if o.channels == 0 || o.channels as usize > WIDE_CHANNELS || !(o.sample_rate > 0.0) {
             return false;
         }
+        // B4: 1-2 channels take a narrow ring, 3-16 a wide one.
+        let wide = o.channels as usize > RING_CHANNELS;
         match self.index_of(o.stream_id) {
             Some(i) => {
+                if wide != (i >= self.count) {
+                    return false; // a restart can't change the class
+                }
                 let r = &mut self.rings[i];
                 if r.epoch == o.epoch {
                     if r.awaiting_open != 0 {
@@ -281,7 +376,7 @@ impl StreamStore {
                 }
                 true
             }
-            None => match self.rings[..self.count].iter().position(|r| r.open == 0) {
+            None => match (if wide { self.count..self.capacity() } else { 0..self.count }).find(|&i| self.rings[i].open == 0) {
                 Some(i) => {
                     self.rings[i] = Ring {
                         open: 1,
@@ -323,7 +418,6 @@ impl StreamStore {
         if old.closed != 0 {
             return;
         }
-        let n = RING_STORAGE_FRAMES * RING_CHANNELS;
         let mut ring = Ring {
             open: 1,
             id: old.id,
@@ -359,11 +453,10 @@ impl StreamStore {
             let from = old.consumed;
             let len = (old.written - from).min(FADE_TAIL_FRAMES as u64);
             let ch = old.channels as usize;
-            let base = i * n;
+            let (_, storage, c) = self.parts(i);
             for f in 0..len as usize {
-                let src = base + ((from + f as u64) % RING_FRAMES as u64) as usize * ch;
-                let dst = base + TAIL_OFFSET + f * ch;
-                self.storage.copy_within(src..src + ch, dst);
+                let src = ((from + f as u64) % c.frames as u64) as usize * ch;
+                storage.copy_within(src..src + ch, c.tail_offset() + f * ch);
             }
             ring.seeking = 1;
             ring.tail_len = len as u32;
@@ -439,20 +532,18 @@ impl StreamStore {
     /// `ERR_OVERSIZE` past the credit window).
     pub fn chunk_ptr(&mut self, id: u32, frames: u32) -> Result<*mut u8, i32> {
         let Some(i) = self.index_of(id) else { return Err(wire::ERR_UNKNOWN_STREAM) };
-        let n = RING_STORAGE_FRAMES * RING_CHANNELS;
-        let r = &mut self.rings[i];
-        if frames == 0 || frames as usize > MAX_CHUNK_FRAMES || r.input_done() || r.awaiting_open != 0 {
+        let (r, storage, c) = self.parts(i);
+        if frames == 0 || frames as usize > c.chunk || r.input_done() || r.awaiting_open != 0 {
             r.refused += 1;
             return Err(wire::ERR_BAD_ARG);
         }
-        if r.written + frames as u64 - r.consumed > RING_FRAMES as u64 {
+        if r.written + frames as u64 - r.consumed > c.frames as u64 {
             r.refused += 1;
             return Err(wire::ERR_OVERSIZE);
         }
         r.reserved = frames;
-        let slot = (r.written % RING_FRAMES as u64) as usize;
-        let at = i * n + slot * r.channels as usize;
-        Ok(self.storage[at..].as_mut_ptr() as *mut u8)
+        let slot = (r.written % c.frames as u64) as usize;
+        Ok(storage[slot * r.channels as usize..].as_mut_ptr() as *mut u8)
     }
 
     /// `myco_audio_stream_commit`: the `frames` copied at the last `chunk_ptr` are the stream's next
@@ -460,8 +551,7 @@ impl StreamStore {
     /// of another epoch is dropped (`ERR_STALE_EPOCH`). `flags` bit0 is `last`.
     pub fn commit(&mut self, id: u32, frames: u32, epoch: u32, flags: u32) -> i32 {
         let Some(i) = self.index_of(id) else { return wire::ERR_UNKNOWN_STREAM };
-        let n = RING_STORAGE_FRAMES * RING_CHANNELS;
-        let r = &mut self.rings[i];
+        let (r, storage, c) = self.parts(i);
         let reserved = core::mem::replace(&mut r.reserved, 0);
         if epoch != r.epoch {
             r.refused += 1;
@@ -472,14 +562,12 @@ impl StreamStore {
             return wire::ERR_BAD_ARG;
         }
         let ch = r.channels as usize;
-        let slot = (r.written % RING_FRAMES as u64) as usize;
+        let slot = (r.written % c.frames as u64) as usize;
         let end = slot + frames as usize;
-        if end > RING_FRAMES {
+        if end > c.frames {
             // The part past the ring went to the tail: move it to the ring's start.
-            let base = i * n;
-            self.storage.copy_within(base + RING_FRAMES * ch..base + end * ch, base);
+            storage.copy_within(c.frames * ch..end * ch, 0);
         }
-        let r = &mut self.rings[i];
         r.written += frames as u64;
         if r.orphan != 0 {
             r.consumed = r.written;
@@ -506,10 +594,22 @@ fn newer(a: u32, b: u32) -> bool {
     a != b && (a.wrapping_sub(b) as i32) > 0
 }
 
-/// Reads ring frame `f` (`< written`) of a ring with `ch` channels: `(left, right)`, mono copied.
+/// Where ring frame `f` of a ring's storage `samples` starts (f32 index, `ch` channels). The class
+/// follows from the storage's length (a wide ring's is the longer); a seek-fade copy ([`tail`]) is
+/// shorter than either, and its frames (under 1,536) are below both rings' lengths.
+#[inline(always)]
+fn slot_at(samples: &[f32], ch: usize, f: u64) -> usize {
+    // Both lengths are powers of two: the index is a mask.
+    let frames = if samples.len() > NARROW.floats() { WIDE_RING_FRAMES } else { RING_FRAMES } as u64;
+    (f & (frames - 1)) as usize * ch
+}
+const _: () = assert!(RING_FRAMES.is_power_of_two() && WIDE_RING_FRAMES.is_power_of_two());
+
+/// Reads ring frame `f` (`< written`) of a ring with `ch` channels: `(left, right)`, mono copied
+/// (and channel 0 of a wide ring, B4: its W).
 #[inline(always)]
 pub fn frame_at(samples: &[f32], ch: usize, f: u64) -> (f32, f32) {
-    let at = (f % RING_FRAMES as u64) as usize * ch;
+    let at = slot_at(samples, ch, f);
     if ch == 2 {
         (samples[at], samples[at + 1])
     } else {
@@ -518,16 +618,55 @@ pub fn frame_at(samples: &[f32], ch: usize, f: u64) -> (f32, f32) {
     }
 }
 
+/// B4: ring frame `f`'s `ch` interleaved samples, either class (the N-channel [`frame_at`]).
+#[inline(always)]
+pub fn frame_n(samples: &[f32], ch: usize, f: u64) -> &[f32] {
+    let at = slot_at(samples, ch, f);
+    &samples[at..at + ch]
+}
+
+/// B4: the seek fade's copy in a ring's storage `samples`, either class (a voice reads it with
+/// [`frame_at`] / [`frame_n`] at the ring's `tail_channels`). The narrow class's is `TAIL_OFFSET`.
+pub fn tail(samples: &[f32]) -> &[f32] {
+    &samples[if samples.len() > NARROW.floats() { WIDE.tail_offset() } else { TAIL_OFFSET }..]
+}
+
+/// B4 (for B3's ambisonic stream voice): one output frame `i` of an N-channel stream read, the
+/// stream voice's 4-point Lagrange (`resample::weights(t)`) over ring frames `idx - 1 ..= idx + 2`
+/// (clamped to `0..=last`), times `g`, channel `c` into `out[c * len + i]` (planar rows of `len`, as
+/// `resample::lagrange_n`). `samples` is a ring's storage (or its [`tail`]) holding `ch` channels.
+#[allow(clippy::too_many_arguments)]
+pub fn read_planar(samples: &[f32], ch: usize, idx: u64, t: f32, last: u64, g: f32, out: &mut [f32], len: usize, i: usize) {
+    let w = audio_dsp::resample::weights(t);
+    let a = frame_n(samples, ch, idx.saturating_sub(1).min(last));
+    let b = frame_n(samples, ch, idx.min(last));
+    let c = frame_n(samples, ch, (idx + 1).min(last));
+    let d = frame_n(samples, ch, (idx + 2).min(last));
+    for k in 0..ch {
+        out[k * len + i] = (w[0] * a[k] + w[1] * b[k] + w[2] * c[k] + w[3] * d[k]) * g;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn store(rings: usize) -> StreamStore {
-        let bytes = rings * RING_BYTES;
+    /// A zeroed, 64-byte aligned region of `bytes`, leaked ('static).
+    fn region(bytes: usize) -> &'static mut [u8] {
+        if bytes == 0 {
+            return &mut [];
+        }
         let l = std::alloc::Layout::from_size_align(bytes, 64).unwrap();
         // SAFETY: non-zero, zeroed, leaked on purpose ('static).
-        let region = unsafe { core::slice::from_raw_parts_mut(std::alloc::alloc_zeroed(l), bytes) };
-        StreamStore::over(region)
+        unsafe { core::slice::from_raw_parts_mut(std::alloc::alloc_zeroed(l), bytes) }
+    }
+
+    fn store(rings: usize) -> StreamStore {
+        StreamStore::over(region(rings * RING_BYTES), &mut [])
+    }
+
+    fn stores(narrow: usize, wide: usize) -> StreamStore {
+        StreamStore::over(region(narrow * RING_BYTES), region(wide * WIDE_RING_BYTES))
     }
 
     fn open_rec(id: u32, channels: u32, epoch: u32) -> StreamOpen {
@@ -548,7 +687,7 @@ mod tests {
 
     #[test]
     fn counts_follow_the_preset() {
-        let p = |m| InitParams { sample_rate: 48_000.0, max_logical: 4_096, max_mixed: m, max_buses: 32, arena_initial_bytes: 0 };
+        let p = |m| InitParams { sample_rate: 48_000.0, max_logical: 4_096, max_mixed: m, max_buses: 32, arena_initial_bytes: 0, ..InitParams::default() };
         assert_eq!(stream_count(&p(64)), 4);
         assert_eq!(stream_count(&p(128)), 8);
         assert_eq!(stream_count(&p(256)), 16);
@@ -563,10 +702,99 @@ mod tests {
         assert!(s.open(&open_rec(7, 2, 1)));
         assert!(s.open(&open_rec(8, 1, 1)));
         assert!(!s.open(&open_rec(9, 2, 1)), "no free ring");
-        assert!(!s.open(&open_rec(10, 3, 1)), "three channels are the worker's to downmix");
+        assert!(!s.open(&open_rec(10, 3, 1)), "three channels need a wide ring, and there is none");
         assert!(s.close(7));
         assert!(s.open(&open_rec(9, 2, 1)));
         assert_eq!(s.open_count(), 2);
+    }
+
+    #[test]
+    fn wide_streams_take_wide_rings_and_narrow_ones_narrow_rings() {
+        let mut s = stores(1, 2);
+        assert_eq!((s.capacity(), s.narrow_count()), (3, 1));
+        assert!(s.open(&open_rec(1, 16, 1)));
+        assert!(s.open(&open_rec(2, 2, 1)));
+        assert!(s.open(&open_rec(3, 4, 1)));
+        assert_eq!((s.index_of(1), s.index_of(2), s.index_of(3)), (Some(1), Some(0), Some(2)));
+        assert!(!s.open(&open_rec(4, 9, 1)), "no wide ring free");
+        assert!(!s.open(&open_rec(5, 1, 1)), "no narrow ring free");
+        assert!(!s.open(&open_rec(6, 17, 1)), "17 channels");
+        assert!(!s.open(&open_rec(1, 2, 2)), "a restart can't move a stream to the other class");
+        assert_eq!(s.class(1), WIDE);
+        s.close(1);
+        assert!(s.open(&open_rec(4, 9, 1)));
+        // Without a `Wide` region, a wide stream is refused.
+        assert!(!store(2).open(&open_rec(1, 4, 1)));
+    }
+
+    #[test]
+    fn wide_chunks_are_2048_frames_at_most_wrap_and_keep_within_the_window() {
+        let mut s = stores(0, 1);
+        assert!(s.open(&open_rec(1, 16, 1)));
+        let ch = 16;
+        assert_eq!(write(&mut s, 1, &vec![0.0; 2_049 * ch], ch, 1, 0), wire::ERR_BAD_ARG, "more than a wide chunk");
+        let mut total = 0u64;
+        // 1,500-frame chunks don't divide the ring: some run into the tail.
+        for _ in 0..60 {
+            let chunk: Vec<f32> = (0..1_500 * ch as u64).map(|k| (total * ch as u64 + k) as f32).collect();
+            assert_eq!(write(&mut s, 1, &chunk, ch, 1, 0), wire::ERR_OK);
+            total += 1_500;
+            let samples = s.samples(0);
+            assert_eq!(samples.len(), WIDE.floats());
+            for f in (total - 1_500)..total {
+                let want: Vec<f32> = (0..ch as u64).map(|c| (f * ch as u64 + c) as f32).collect();
+                assert_eq!(frame_n(samples, ch, f), &want[..], "frame {f}");
+                assert_eq!(frame_at(samples, ch, f).0, want[0]);
+            }
+            s.ring_mut(0).consumed = total.saturating_sub(12_000);
+        }
+        // The window: STREAM_RING_FRAMES_WIDE (32,768, R16) frames unconsumed at most.
+        s.ring_mut(0).consumed = total - 30_000;
+        assert_eq!(write(&mut s, 1, &vec![0.0; 2_048 * ch], ch, 1, 0), wire::ERR_OK);
+        assert_eq!(write(&mut s, 1, &vec![0.0; 1_000 * ch], ch, 1, 0), wire::ERR_OVERSIZE);
+    }
+
+    #[test]
+    fn a_wide_restart_copies_the_unread_frames_to_its_own_tail() {
+        let mut s = stores(1, 1);
+        assert!(s.open(&open_rec(1, 9, 1)));
+        let ch = 9;
+        let ramp: Vec<f32> = (0..2_000 * ch).map(|k| k as f32).collect();
+        assert_eq!(write(&mut s, 1, &ramp, ch, 1, 0), wire::ERR_OK);
+        let r = s.ring_mut(1);
+        r.voice = 0x0001_0003;
+        r.phase = phase::PLAYING;
+        r.consumed = 100;
+        assert!(s.seek(1, 2, 9_000));
+        let r = *s.ring(1);
+        assert_eq!((r.seeking, r.tail_len, r.tail_frame0, r.tail_channels), (1, FADE_TAIL_FRAMES as u32, 100, 9));
+        let t = tail(s.samples(1));
+        for f in 0..FADE_TAIL_FRAMES as u64 {
+            let want: Vec<f32> = (0..ch).map(|c| ((100 + f as usize) * ch + c) as f32).collect();
+            assert_eq!(frame_n(t, ch, f), &want[..], "tail frame {f}");
+        }
+        assert_eq!(tail(s.samples(0)).len(), FADE_TAIL_FRAMES * RING_CHANNELS, "a narrow ring's tail is TAIL_OFFSET on");
+    }
+
+    #[test]
+    fn read_planar_is_the_stream_voices_lagrange_per_channel() {
+        let mut s = stores(0, 1);
+        assert!(s.open(&open_rec(1, 4, 1)));
+        let data: Vec<f32> = (0..64 * 4).map(|k| libm::sinf(k as f32 * 0.37)).collect();
+        assert_eq!(write(&mut s, 1, &data, 4, 1, 0), wire::ERR_OK);
+        let samples = s.samples(0);
+        let mut out = [0.0f32; 4 * 8];
+        for i in 0..8 {
+            read_planar(samples, 4, 10 + i as u64, 0.25, 63, 0.5, &mut out, 8, i);
+        }
+        let w = audio_dsp::resample::weights(0.25);
+        for c in 0..4 {
+            for i in 0..8 {
+                let x = |f: usize| data[f * 4 + c];
+                let want = (w[0] * x(9 + i) + w[1] * x(10 + i) + w[2] * x(11 + i) + w[3] * x(12 + i)) * 0.5;
+                assert_eq!(out[c * 8 + i], want, "channel {c} frame {i}");
+            }
+        }
     }
 
     #[test]

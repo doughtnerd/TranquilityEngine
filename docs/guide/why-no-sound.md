@@ -39,7 +39,7 @@ The Babylon fallback plays when:
 - `audio.backend` is `"babylon"` in `project.json` or Project Settings > Audio (the macOS desktop app defaults to it), or
 - the engine can't run the audio core. The console shows one warning, for example `Audio core unavailable: this engine lacks WebAssembly simd128 …`, or `audio core couldn't load (…)`, or `audio core couldn't start (…)`. The browser versions the core needs are in [audio-minimum-versions.md](audio-minimum-versions.md): Chrome and Edge 91, Firefox 89, Safari 16.4, Android System WebView 91.
 
-Sound still plays there, but without bus effects, priorities or HRTF, and the browser decodes the files. If a sound is missing only on the fallback, check [the limits](audio-mixer.md#limits): a streamed clip plays flat, a snapshot's low-pass does nothing, and `maxVoices` stops the oldest sound. To stay on the core, update the browser or webview.
+Sound still plays there, but without bus effects, priorities, HRTF, beds or reverb zones, with walls that only lower the volume, and the browser decodes the files. If a sound is missing only on the fallback, check [the limits](audio-mixer.md#limits): a streamed clip plays flat, a snapshot's low-pass does nothing, and `maxVoices` stops the oldest sound. To stay on the core, update the browser or webview.
 
 ## 4. A sound's reason
 
@@ -50,6 +50,7 @@ Each entry in `Audio.debug().voices` has a `state`; `handle.reason` (from `Audio
 | `"locked"` | No user gesture yet (section 1) | Wait for a click or key |
 | `"busMuted"` | Its bus is silent: muted, volume 0, another bus is soloed, or a snapshot or duck took it to 0 | Check the bus rows: `gain` and `effectiveGain`; `Audio.bus("SFX").mute`, `.solo`, `.volume`; `Audio.clearSnapshot()` |
 | `"virtual"` | Alive and keeping time, but not mixed: the mixed-voice limit is full and this one is quieter than the rest, it is too quiet to hear (far away, or volume near 0), it is paused, or its World doesn't have the view | Raise **Voices > Mixed**, raise its `priority`, or look at `volume`, `maxDistance` and the listener position |
+| `"occluded"` | Alive but silent for the moment: a wall (an `AudioOccluder` collider) between the sound and the listener took it below what can be heard | Walk round, open the door (`openness`), pick a thinner material, or turn off `occlusion` on the source (section 9) |
 | `"stolen"` | Ended early: a limit was hit and a higher-priority sound took its place (`handle.playing` is false) | Raise its `priority`, raise `maxVoices` on its bus, or play it less often |
 | `"waitingForData"` | A streamed file isn't keeping up (slow disk or network, or a seek) | It fades back in when data arrives; check the network tab for the file |
 | `"failed"` | It could not play: the file failed to load, its format isn't supported, AAC is off, or the core failed (section 2) | Read the console warning naming the file (below) |
@@ -86,7 +87,7 @@ Rule out the plain things: `Audio.muted`, `Audio.volume` (or `masterVolume`), th
 
 ## 9. A spatial sound that's missing
 
-A spatial sound beyond `maxDistance` is silent, and one far from the listener is very quiet. Check where the `AudioListener` is (without one the main camera listens), `minDistance`, `maxDistance` and `rolloff`. A World that has no view doesn't play; only the World that renders is heard. If the HRTF data failed to load, the panel says `(HRTF data failed to load)` and spatial sounds stay equal-power; that's a quality change, not silence.
+A spatial sound beyond `maxDistance` is silent, and one far from the listener is very quiet. Check where the `AudioListener` is (without one the main camera listens), `minDistance`, `maxDistance` and `rolloff`. Walls count: a sound behind a thick wall (a `concrete` occluder takes 30 dB) can fall to nothing and read `reason` `"occluded"`. The voice row's `occlusion` shows the gain and cutoff, how many walls it crossed and which collider, and the Occlusion section of the panel shows the rays; the **Beds** and **Zones** sections answer questions about beds and reverb. A World that has no view doesn't play; only the World that renders is heard. If the HRTF data failed to load, the panel says `(HRTF data failed to load)` and spatial sounds stay equal-power; that's a quality change, not silence.
 
 ## Crackling instead of silence
 

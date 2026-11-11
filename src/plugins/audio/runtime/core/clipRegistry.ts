@@ -3,11 +3,13 @@
 // signatures without the coordinator. H2 later loads the HRIR through it under the reserved ids 0xFFFF0000..0xFFFF00FF
 // (so A3.4a's rebuild re-sends it with every other clip).
 
-import { ClipEvent, ClipFormat, CLIP_BEGIN_FIXED_END, CLIP_CHUNK_FIXED_END, CLIP_UNLOAD_FIXED_END, Kind, writeClipBegin, writeClipChunk, writeClipUnload, writeEnvelope } from "../wire.generated";
+import { ClipEvent, ClipFormat, CLIP_BEGIN_FIXED_END, CLIP_CHUNK_FIXED_END, CLIP_UNLOAD_FIXED_END, Kind, MAGLS_CLIP_ID, writeClipBegin, writeClipChunk, writeClipUnload, writeEnvelope } from "../wire.generated";
 import { CLIP_BYTES_PER_QUANTUM, createChunkPacer, planChunks } from "./chunker";
 import { createEncodedCache } from "./encodedCache";
 import { createDecoderClient, DecodeFailedError, type DecoderClient } from "../decoder/decoderClient";
 import { hintFromName } from "../decoder/protocol";
+import { Assets } from "../../../../engine/scene/Assets";
+import type { AmbisonicImport } from "../../../../engine/scene/importSettings";
 import { setFileLoopFrames, setFileLoopPoints } from "../loopPoints";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { i16ToF32 } from "./pcm";
@@ -15,8 +17,11 @@ import { i16ToF32 } from "./pcm";
 /** A clip's lifecycle (`copying -> ready` on the core's `resident` clip event, wire §4.3). */
 export type ClipState = "idle" | "fetching" | "decoding" | "copying" | "ready" | "failed" | "unloading";
 
-/** Why a clip failed, for warnings and `Audio.debug()`. */
-export type ClipFailure = "fetch" | "decode" | "refusedCeiling" | "refusedGrow";
+/**
+ * Why a clip failed, for warnings and `Audio.debug()`. `streamInstead` (ADR 0162 §2.4, B5) is not a failure of the file:
+ * a long ambisonic clip was not decoded into memory; the backend restarts the voices waiting on it as stream voices.
+ */
+export type ClipFailure = "fetch" | "decode" | "refusedCeiling" | "refusedGrow" | "streamInstead";
 
 /** What the registry knows about one clip. */
 export interface ClipInfo {
@@ -31,7 +36,7 @@ export interface ClipInfo {
   readonly frames: number;
   readonly channels: number;
   readonly sampleRate: number;
-  /** Wire `ClipFormat`: 0 f32, 1 i16, 2 HRIR. */
+  /** Wire `ClipFormat`: 0 f32, 1 i16, 2 HRIR, 4 MagLS filters (ADR 0162). */
   readonly format: number;
   /** Bytes in the core's arena, for the `clipMemoryMB` ceiling. */
   readonly bytes: number;
@@ -85,9 +90,10 @@ export interface ClipRegistry {
    */
   resend?(order: readonly number[]): void;
   /**
-   * H2: loads an HRIR table (wire format 2) under a reserved id in 0xFFFF0000..0xFFFF00FF (anything else throws).
-   * No fetch or decode: `bytes` is the finished blob (api-and-models 4.1), sent as CLIP_BEGIN (`channels` 1, `frames`
-   * = bytes / 2 int16 samples, `format` 2) and paced CLIP_CHUNKs like any clip. It completes on the core's clip event
+   * H2: loads an HRIR table (wire format 2) under a reserved id in 0xFFFF0000..0xFFFF00FF, or (ADR 0162 A3, C6) the
+   * MagLS filters (format 4) under `MAGLS_CLIP_ID` 0xFFFF0100; any other id or pairing throws. No fetch or decode:
+   * `bytes` is the finished blob (api-and-models 4.1, 0162 §4.5), sent as CLIP_BEGIN (`channels` 1, `frames` = bytes / 2
+   * int16 words for format 2, bytes / 4 f32 words for format 4, header included) and paced CLIP_CHUNKs like any clip. It completes on the core's clip event
    * 4 (hrtfReady) or 1, is never counted in the ceiling (`clipMemoryMB`), is listed by `residentIds()` once ready so a
    * rebuild re-sends it, and stays loaded until `release(id)`. A second call for an id already held is ignored.
    */
@@ -102,11 +108,12 @@ export interface ClipRegistry {
 
 /** What `acquireReserved` takes. */
 export interface ReservedClipData {
-  /** The finished format = 2 blob; its length must be even. */
+  /** The finished blob: format 2, an even length; format 4, a multiple of 4. */
   readonly bytes: ArrayBuffer;
   /** The rate the blob's responses are at (the context rate). */
   readonly sampleRate: number;
-  readonly format: 2;
+  /** 2 (HRIR, reserved ids 0xFFFF0000..0xFFFF00FF) or 4 (MagLS filters, `MAGLS_CLIP_ID`). */
+  readonly format: 2 | 4;
 }
 
 /** The reserved HRIR clip id range (api-and-models 4.1). */
@@ -155,6 +162,62 @@ export interface ClipRegistryDeps {
   warnOnce?: WarnOnce;
 }
 
+/** ADR 0162 §2.4 (B2): the import gain a FuMa clip's decode reported, by clip path (absent: 1). */
+const importGains = new Map<string, number>();
+const gainKey = (path: string): string => path.replace(/^asset:/, "").replace(/^\.?\//, "");
+
+/**
+ * ADR 0162 §2.4 (B2): the factor the decoder scaled a FuMa clip down by to keep it int16 (√2 for orders 1-3), which
+ * multiplies the clip's import volume; 1 for every other clip and before its decode reports.
+ * @internal
+ */
+export function ambisonicImportGain(path: string): number {
+  return importGains.get(gainKey(path)) ?? 1;
+}
+
+/** ADR 0162 §2.4: an ambisonic clip longer than this many seconds streams unless its sidecar says `stream` (a 3rd-order minute is ≈ 92 MB). */
+export const AMBISONIC_STREAM_OVER_SECONDS = 5;
+
+/** Ambisonic clips the registry found longer than `AMBISONIC_STREAM_OVER_SECONDS`, by `gainKey`. */
+const longAmbisonic = new Set<string>();
+
+/**
+ * ADR 0162 §2.4 (B5): whether `path` is a clip the registry learned to be a long ambisonic one (so its plays are stream
+ * voices). False until a first play has been decoded far enough to read the file's length; that first play is
+ * restarted as a stream by the backend (`ClipFailure` "streamInstead"), so no play runs from memory.
+ * @internal
+ */
+export function ambisonicStreamsByDefault(path: string): boolean {
+  return longAmbisonic.has(gainKey(path));
+}
+
+/** @internal Forgets what was learned about long ambisonic clips (tests; a project reload). */
+export function resetAmbisonicStreamDefaults(): void {
+  longAmbisonic.clear();
+}
+
+/**
+ * ADR 0162 §2.4: whether a decoded clip of `channels` channels is playable given its sidecar's `ambisonic` block. A clip
+ * over 2 channels must be ambisonic (4, 9 or 16 channels: order 1, 2 or 3); a given `order` must agree with the
+ * channel count; orders 2 and 3 are WAV only (FLAC stops at 8 channels and there is no Opus decoder). `error` is the
+ * load failure's detail. 1-2 channel clips aren't checked here (a sidecar on one is ignored by the caller).
+ * @internal
+ */
+export function checkAmbisonic(path: string, channels: number, ambisonic: AmbisonicImport | null): { readonly order: 1 | 2 | 3 } | { readonly error: string } {
+  if (!ambisonic) return { error: `${channels}-channel audio needs an ambisonic import setting (ADR 0162); multichannel mixes aren't supported` };
+  const inferred = channels === 4 ? 1 : channels === 9 ? 2 : channels === 16 ? 3 : null;
+  if (ambisonic.order !== null) {
+    const needs = (ambisonic.order + 1) ** 2;
+    if (channels !== needs) return { error: `ambisonic order ${ambisonic.order} needs ${needs} channels, but the file has ${channels}` };
+  } else if (inferred === null) {
+    return { error: `${channels}-channel audio isn't ambisonic: first, second and third order need 4, 9 or 16 channels` };
+  }
+  const order = (ambisonic.order ?? inferred) as 1 | 2 | 3;
+  const hint = hintFromName(path);
+  if (order >= 2 && hint !== 1 && hint !== 0) return { error: `ambisonic order ${order} (${channels} channels) needs a WAV file; other formats stop at 8 channels` };
+  return { order };
+}
+
 /** Ids: index in the low 24 bits, an 8-bit generation in the high bits. */
 export const CLIP_INDEX_BITS = 24;
 /**
@@ -201,7 +264,20 @@ interface Slot {
   readonly listeners: Set<ClipResidentListener>;
 }
 
-/** A reserved (HRIR) clip: its blob stays here for paced sending and for a rebuild's re-send. */
+/** Bytes per wire word of a reserved blob: int16 for format 2 (HRIR), f32 for format 4 (MagLS). */
+const reservedWordBytes = (format: number): number => (format === ClipFormat.MagLS ? 4 : 2);
+
+/** Throws unless `data` is a valid reserved blob for `id` (format 2 in the HRIR range, format 4 at `MAGLS_CLIP_ID`). */
+function checkReserved(id: number, data: ReservedClipData): void {
+  const hrir = Number.isInteger(id) && id >= RESERVED_CLIP_FIRST && id <= RESERVED_CLIP_LAST;
+  if (!hrir && id !== MAGLS_CLIP_ID) throw new Error(`audio: ${id} is not a reserved clip id`);
+  const format = hrir ? ClipFormat.HRIR : ClipFormat.MagLS;
+  if (data.format !== format || data.bytes.byteLength === 0 || data.bytes.byteLength % reservedWordBytes(format) !== 0) {
+    throw new Error(hrir ? "audio: a reserved clip needs an even-length format 2 blob" : "audio: the MagLS clip needs a format 4 blob whose length is a multiple of 4");
+  }
+}
+
+/** A reserved (HRIR or MagLS) clip: its blob stays here for paced sending and for a rebuild's re-send. */
 interface ReservedSlot {
   readonly id: number;
   state: ClipState;
@@ -296,11 +372,13 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     if (slot.dead || slot.state === "failed") return;
     slot.state = "failed";
     slot.failure = failure;
-    if (failure === "decode" || failure === "fetch") setFileLoopPoints(slot.path, null); // nothing will ever report: resolve waiters
+    if (failure === "decode" || failure === "fetch" || failure === "streamInstead") setFileLoopPoints(slot.path, null); // nothing will ever report: resolve waiters
     slot.parts = null;
     slot.abort?.abort();
     pacer.cancel(idOf(slot));
-    if (codecWarning) warnOnce(slot.path, codecWarning);
+    if (failure === "streamInstead") {
+      // Not a failure of the file (B5): the voices waiting on it restart as streams; the stream's own open reports the length (loop points).
+    } else if (codecWarning) warnOnce(slot.path, codecWarning);
     else warn(`audio: clip "${slot.path}" failed to load (${detail})`);
     notify(slot);
   };
@@ -309,9 +387,10 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     res.begun = true;
     post(CLIP_BEGIN_FIXED_END, (view) => {
       envelope(view, Kind.CLIP_BEGIN, CLIP_BEGIN_FIXED_END);
-      writeClipBegin(view, 0, { clipId: res.id, frames: res.samples, channels: 1, sampleRate: res.data.sampleRate, format: ClipFormat.HRIR });
+      writeClipBegin(view, 0, { clipId: res.id, frames: res.samples, channels: 1, sampleRate: res.data.sampleRate, format: res.data.format });
     });
-    pacer.enqueue(res.id, planChunks(res.samples, 1, 2), 1, 2);
+    const word = reservedWordBytes(res.data.format);
+    pacer.enqueue(res.id, planChunks(res.samples, 1, word), 1, word);
     schedulePump();
   };
 
@@ -323,7 +402,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     frames: res.samples,
     channels: 1,
     sampleRate: res.data.sampleRate,
-    format: ClipFormat.HRIR,
+    format: res.data.format,
     bytes: 0,
     failure: null,
   });
@@ -340,12 +419,12 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     for (const chunk of chunks) {
       const res = reserved.get(chunk.clipId);
       if (res) {
-        // Raw int16 words of the blob (channels 1), word aligned: the blob's length is even, padded to 4 on the wire.
+        // Raw words of the blob (channels 1; int16 for format 2, f32 for format 4), padded to 4 bytes on the wire.
         const total = CLIP_CHUNK_FIXED_END + ((chunk.bytes + 3) & ~3);
         post(total, (view) => {
           envelope(view, Kind.CLIP_CHUNK, total);
           writeClipChunk(view, 0, { clipId: chunk.clipId, frameOffset: chunk.frameOffset, frames: chunk.frames, reserved: 0 });
-          new Uint8Array(view.buffer, CLIP_CHUNK_FIXED_END, chunk.bytes).set(new Uint8Array(res.data.bytes, chunk.frameOffset * 2, chunk.bytes));
+          new Uint8Array(view.buffer, CLIP_CHUNK_FIXED_END, chunk.bytes).set(new Uint8Array(res.data.bytes, chunk.frameOffset * reservedWordBytes(res.data.format), chunk.bytes));
         });
         continue;
       }
@@ -443,13 +522,32 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     let channels = 0;
     let streamedFrames = 0; // the length CLIP_BEGIN promised; 0 when not streaming
     let received = 0;
+    const ambisonic = Assets.importSettings(slot.path).ambisonic;
     try {
       const result = await worker().decodeClip(encoded, hintFromName(slot.path), {
         signal: controller.signal,
         asset: slot.path,
         collect: false,
+        // ADR 0162 §2.4 (B1): the decoder (B2) converts FuMa while decoding; it ignores this for a clip of 1-2 channels.
+        convention: ambisonic?.convention,
         onInfo: (info) => {
           channels = info.channels;
+          if (info.channels > 2) {
+            const checked = checkAmbisonic(slot.path, info.channels, ambisonic);
+            if ("error" in checked) {
+              fail(slot, "decode", checked.error); // nothing was begun yet; fail() also aborts this decode
+              return;
+            }
+            // B5 (§2.4): a clip over 5 s that the sidecar doesn't ask to stream isn't decoded into memory: the backend restarts its voices as streams.
+            if (info.frames > 0 && info.rate > 0 && info.frames / info.rate > AMBISONIC_STREAM_OVER_SECONDS) {
+              longAmbisonic.add(gainKey(slot.path));
+              fail(slot, "streamInstead", "longer than 5 s; streamed instead");
+              return;
+            }
+            // B2: fold the FuMa headroom scale back into the clip's volume (ambisonicImportGain).
+            if (info.importGain !== undefined) importGains.set(gainKey(slot.path), info.importGain);
+            else importGains.delete(gainKey(slot.path));
+          } else if (ambisonic) warnOnce(`${slot.path}#ambisonic`, `audio: "${slot.path}" has an ambisonic import setting but ${info.channels} channel${info.channels === 1 ? "" : "s"}; ignored (ADR 0162)`);
           if (!early || stale() || !info.lengthKnown || info.frames <= 0) return;
           if (startClip(slot, info.frames, info.channels, info.rate)) streamedFrames = info.frames;
           else controller.abort(); // failed past the ceiling
@@ -694,20 +792,19 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       else if (code === ClipEvent.RefusedGrow) fail(slot, "refusedGrow", "the core could not grow its clip memory");
     },
     acquireReserved(id, data) {
-      if (!(Number.isInteger(id) && id >= RESERVED_CLIP_FIRST && id <= RESERVED_CLIP_LAST)) throw new Error(`audio: ${id} is not a reserved clip id`);
-      if (data.format !== ClipFormat.HRIR || data.bytes.byteLength === 0 || data.bytes.byteLength % 2 !== 0) throw new Error("audio: a reserved clip needs an even-length format 2 blob");
+      checkReserved(id, data);
       if (reserved.has(id)) return;
-      const res: ReservedSlot = { id, state: "copying", data, samples: data.bytes.byteLength / 2, begun: false, listeners: new Set() };
+      const res: ReservedSlot = { id, state: "copying", data, samples: data.bytes.byteLength / reservedWordBytes(data.format), begun: false, listeners: new Set() };
       reserved.set(id, res);
       beginReserved(res);
     },
     updateReserved(id, data) {
       const res = reserved.get(id);
       if (!res) return;
-      if (data.format !== ClipFormat.HRIR || data.bytes.byteLength === 0 || data.bytes.byteLength % 2 !== 0) throw new Error("audio: a reserved clip needs an even-length format 2 blob");
+      checkReserved(id, data);
       pacer.cancel(id);
       res.data = data;
-      res.samples = data.bytes.byteLength / 2;
+      res.samples = data.bytes.byteLength / reservedWordBytes(data.format);
     },
     resend(order) {
       for (const res of reserved.values()) {

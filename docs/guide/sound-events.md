@@ -61,12 +61,28 @@ Everything except `root` is optional. Clip paths are asset paths, and they follo
 | `volumeRandom` | dB added per play, uniform in `[low, high]` (`[0, 0]`) |
 | `pitchRandom` | Semitones added per play, uniform in `[low, high]` (`[0, 0]`) |
 | `priority` | 0 to 255 (128); a higher value is kept longer when a voice limit is hit |
-| `spatial` | `minDistance`, `maxDistance`, `rolloff` (`linear`, `inverse`, `exponential`). Left out: the event plays flat. `"enabled": false` also means flat |
+| `spatial` | `minDistance`, `maxDistance`, `rolloff` (`linear`, `inverse`, `exponential`), and `occlusion` (default true), `dopplerLevel` (0 to 5, default 0) and `reverbSendCurve` ([Spatial audio](spatial-audio.md)). Left out: the event plays flat. `"enabled": false` also means flat |
+| `filter` | `lowpass` and `highpass` in Hz, applied to each voice of the event ([Sends and filters](#sends-and-filters)) |
+| `sends` | `reverb` (0 to 2, default 1) and at most one other key naming a bus ([Sends and filters](#sends-and-filters)) |
 | `limit`, `cooldown` | [Limits and cooldown](#limits-and-cooldown) |
 | `parameters`, `automation` | [Parameters](#parameters) and [automation](#automation-and-curves) |
 | `root` | The container tree |
 
 The file is read leniently. A wrong value is replaced by its default, an unknown node type is dropped, and each problem is written once to the console as `[myco] <path>: ...`, so a typo never throws and never silences the rest of the event.
+
+## Sends and filters
+
+Two optional blocks shape a voice after it is positioned (ADR 0162). A flat event ignores the spatial keys, but `filter` and `sends.<bus>` still apply to it.
+
+```json
+"spatial": { "minDistance": 1, "maxDistance": 30, "occlusion": true, "dopplerLevel": 0, "reverbSendCurve": [[0, 1], [1, 0.5]] },
+"filter": { "lowpass": 9000, "highpass": 80 },
+"sends": { "reverb": 0.5, "Cave": 0.3 }
+```
+
+- `filter.lowpass` and `filter.highpass` (10 to 24,000 Hz) cut the high or low tones of every voice of the event. A low-pass at 20,000 Hz or more, or a high-pass at 20 Hz or less, is off. When several things low-pass a voice (a wall, automation, the bus, a snapshot) the **lowest cutoff wins**; the Audio Debug panel's `lowpassBy` says which.
+- `sends.reverb` is how much of the event goes to the reverb zones that hold it (the `reverbSend` of an `AudioSource`). Any other key is an **aux send**: a copy of the voice into that bus (after the voice's own bus gain), so one sound can feed an echo or a radio effect bus. **One aux send per voice**: if you list more, the first in file order is used and the parse reports the rest. An unknown bus is dropped with a problem when the event plays.
+- `spatial.dopplerLevel` defaults to 0 on an event, unlike an `AudioSource`'s 1, and an `AudioSource` playing the event does not override it.
 
 ## Containers
 
@@ -316,7 +332,9 @@ Each [World](worlds.md) gets its own generator derived from the seed, so a test 
 
 On the Babylon fallback ([which backend plays](playing-sound.md#which-backend-plays)) events play, with these differences:
 
-- **No per-voice low-pass.** `lowpass` automation is ignored, with one warning.
+- **No per-voice low-pass.** `lowpass` automation, the `filter` block and a one-shot's `lowpass` and `highpass` are ignored, with one warning per asset.
+- **No aux sends** (`sends.<bus>`), with one warning per asset. `sends.reverb` does nothing there, because reverb zones are inert on the fallback.
+- **Occlusion lowers the volume only** (no low-pass), and **Doppler** changes the playback rate of decoded clips only (a streamed clip gets none). More in [Spatial audio](spatial-audio.md#the-babylon-fallback).
 - **Streamed clips loop whole.** A clip with `stream` on cannot loop a region there; it loops the whole clip, with one warning. Keep clips that need a `loopRegion` or `sustain` out of `stream`.
 - Parameters, curves and blends are calculated once per frame on the game's thread instead of in the audio core, so automation steps at the frame rate rather than every 2.67 ms.
 - The Audio Debug panel lists only the voices that belong to events.

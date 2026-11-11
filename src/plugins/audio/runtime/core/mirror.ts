@@ -8,7 +8,7 @@
 // (`readStatus`, which `CoreLink` runs before calling listeners, still builds a `StatusBlock` per block; that object
 // is the link's, not the mirror's.)
 import { MAX_BUSES } from "../../../../engine/audio/settings";
-import type { StatusBlock } from "../wire.generated";
+import { MAX_BEDS, MAX_ZONE_SLOTS, type StatusBlock } from "../wire.generated";
 import type { CoreLink } from "./context";
 import type { VoiceTable } from "./voiceTable";
 
@@ -61,6 +61,32 @@ export class StatusMirror {
   frameAudio = 0;
   frameDateMs = 0;
 
+  // --- ADR 0162 (K4; §4.3, C7): the M3 header fields, newest block ---
+  bedVoices = 0;
+  fxVoices = 0;
+  ambisonicVoices = 0;
+  zonesActive = 0;
+  zonesRinging = 0;
+  bedsRefused = 0;
+  /** D5: the load-shedding ladder's steps taken, bed plus zone (STATUS `m3Shed`). */
+  m3Shed = 0;
+  zoneUsedKB = 0;
+  workBed = 0;
+  workZones = 0;
+
+  // --- ADR 0162 (K4; §4.3, C7): the `beds` and `zones` sections, newest block (index = item; `bedCount` / `zoneCount` valid) ---
+  /** Per active bed slot: host bus, voices encoded, work units last quantum. The bed planner and `Audio.debug()` read them. */
+  readonly bedBus = new Uint16Array(MAX_BEDS);
+  readonly bedVoiceCount = new Uint16Array(MAX_BEDS);
+  readonly bedWork = new Uint32Array(MAX_BEDS);
+  bedCount = 0;
+  /** Per zone slot: kernel id, `ZoneState`, quanta since a send fed it, wet peak. The zone manager reads them. */
+  readonly zoneKernel = new Uint32Array(MAX_ZONE_SLOTS);
+  readonly zoneState = new Uint8Array(MAX_ZONE_SLOTS);
+  readonly zoneQuantaSinceInput = new Uint16Array(MAX_ZONE_SLOTS);
+  readonly zoneWetPeak = new Float32Array(MAX_ZONE_SLOTS);
+  zoneCount = 0;
+
   // --- Peaks (§4.3 `peaks`, newest block; index = bus) ---
   readonly peakL = new Float32Array(MAX_BUSES);
   readonly peakR = new Float32Array(MAX_BUSES);
@@ -78,6 +104,11 @@ export class StatusMirror {
   private readonly streamCodes = new Uint32Array(MIRROR_EVENT_CAPACITY);
   private streamHead = 0;
   private streamCount = 0;
+  /** ADR 0162 (K4): `zoneEvents` (slot, `ZoneEvent` code), queued for the zone manager like clip events. */
+  private readonly zoneEventSlots = new Uint8Array(MIRROR_EVENT_CAPACITY);
+  private readonly zoneEventCodes = new Uint8Array(MIRROR_EVENT_CAPACITY);
+  private zoneEventHead = 0;
+  private zoneEventCount = 0;
 
   private readonly listener = (status: StatusBlock): void => this.apply(status);
 
@@ -125,6 +156,26 @@ export class StatusMirror {
       this.peakR[b] = peaks[b]!.r;
     }
     this.peakCount = n;
+    // ADR 0162 (K4): the M3 sections.
+    const beds = status.beds;
+    const nb = beds.length < MAX_BEDS ? beds.length : MAX_BEDS;
+    for (let k = 0; k < nb; k++) {
+      this.bedBus[k] = beds[k]!.bus;
+      this.bedVoiceCount[k] = beds[k]!.voices;
+      this.bedWork[k] = beds[k]!.work;
+    }
+    this.bedCount = nb;
+    const zones = status.zones;
+    const nz = zones.length < MAX_ZONE_SLOTS ? zones.length : MAX_ZONE_SLOTS;
+    for (let k = 0; k < nz; k++) {
+      this.zoneKernel[k] = zones[k]!.kernelId;
+      this.zoneState[k] = zones[k]!.state;
+      this.zoneQuantaSinceInput[k] = zones[k]!.quantaSinceInput;
+      this.zoneWetPeak[k] = zones[k]!.wetPeak;
+    }
+    this.zoneCount = nz;
+    const zoneEvents = status.zoneEvents;
+    for (let k = 0; k < zoneEvents.length; k++) this.pushZoneEvent(zoneEvents[k]!.slot, zoneEvents[k]!.code);
     // Header: the newest block wins.
     this.currentFrame = status.currentFrame;
     this.dateMs = status.dateMs;
@@ -146,6 +197,16 @@ export class StatusMirror {
     this.maxLatenessFrames = status.maxLatenessFrames;
     this.hrtfVoices = status.hrtfVoices;
     this.hrtfLoadFailure = status.hrtfLoadFailure;
+    this.bedVoices = status.bedVoices;
+    this.fxVoices = status.fxVoices;
+    this.ambisonicVoices = status.ambisonicVoices;
+    this.m3Shed = status.m3Shed;
+    this.zonesActive = status.zonesActive;
+    this.zonesRinging = status.zonesRinging;
+    this.bedsRefused = status.bedsRefused;
+    this.zoneUsedKB = status.zoneUsedKB;
+    this.workBed = status.workBed;
+    this.workZones = status.workZones;
     if (this.abiVersion === 0 && status.abiVersion !== 0) this.abiVersion = status.abiVersion;
     this.minSlackFrames = status.minSlackFrames;
     if (status.minSlackFrames < this.minSlackSinceFrame) this.minSlackSinceFrame = status.minSlackFrames;
@@ -189,6 +250,37 @@ export class StatusMirror {
       head = (head + 1) % MIRROR_EVENT_CAPACITY;
     }
     return n;
+  }
+
+  /** ADR 0162 (K4): sends every queued zone event (`slot`, `ZoneEvent` code), oldest first, to `sink` and empties the queue (the zone manager, per frame). */
+  drainZoneEvents(sink: MirrorEventSink): number {
+    const n = this.zoneEventCount;
+    let head = this.zoneEventHead;
+    this.zoneEventCount = 0;
+    this.zoneEventHead = (head + n) % MIRROR_EVENT_CAPACITY;
+    for (let k = 0; k < n; k++) {
+      sink.event(this.zoneEventSlots[head]!, this.zoneEventCodes[head]!);
+      head = (head + 1) % MIRROR_EVENT_CAPACITY;
+    }
+    return n;
+  }
+
+  /** Queues a zone event; a full queue drops its oldest (counted in `droppedEvents`). */
+  private pushZoneEvent(slot: number, code: number): void {
+    if (this.zoneEventCount === MIRROR_EVENT_CAPACITY) {
+      this.zoneEventHead = (this.zoneEventHead + 1) % MIRROR_EVENT_CAPACITY;
+      this.zoneEventCount--;
+      this.droppedEvents++;
+    }
+    const at = (this.zoneEventHead + this.zoneEventCount) % MIRROR_EVENT_CAPACITY;
+    this.zoneEventSlots[at] = slot;
+    this.zoneEventCodes[at] = code;
+    this.zoneEventCount++;
+  }
+
+  /** Queued zone events. */
+  get pendingZoneEvents(): number {
+    return this.zoneEventCount;
   }
 
   /** Queues a clip event; a full queue drops its oldest (counted in `droppedEvents`). */
@@ -256,6 +348,16 @@ export function makeStatusBlock(fields: Partial<StatusBlock> = {}): StatusBlock 
     maxLatenessFrames: 0,
     hrtfVoices: 0,
     hrtfLoadFailure: 0,
+    bedVoices: 0,
+    fxVoices: 0,
+    ambisonicVoices: 0,
+    zonesActive: 0,
+    zonesRinging: 0,
+    bedsRefused: 0,
+    m3Shed: 0,
+    zoneUsedKB: 0,
+    workBed: 0,
+    workZones: 0,
     ended: [],
     demoted: [],
     starved: [],
@@ -263,6 +365,9 @@ export function makeStatusBlock(fields: Partial<StatusBlock> = {}): StatusBlock 
     clipEvents: [],
     streamEvents: [],
     peaks: [],
+    beds: [],
+    zones: [],
+    zoneEvents: [],
     ...fields,
   };
 }

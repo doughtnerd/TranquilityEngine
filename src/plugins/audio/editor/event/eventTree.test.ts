@@ -39,7 +39,7 @@ import {
   wrapNode,
   type ListNodeType,
   type NodePath,
-} from "./eventTree";
+} from "./EventTree";
 
 // --- helpers --------------------------------------------------------------------------------------------------------
 

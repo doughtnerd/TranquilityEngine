@@ -23,8 +23,9 @@ use crate::instance::Instance;
 use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 
 /// ABI version, `(major << 8) | minor`. Bump the minor for an added export, the major for a change.
-pub const ABI_MAJOR: u32 = 1;
-pub const ABI_MINOR: u32 = 4;
+/// 2.0 (ADR 0162 R6, C8): `myco_audio_init` takes nine parameters; `myco_audio_zone_kernel_budget_bytes`.
+pub const ABI_MAJOR: u32 = 2;
+pub const ABI_MINOR: u32 = 0;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -90,9 +91,53 @@ pub extern "C" fn myco_audio_source_hash() -> *const u8 {
 // --- Lifecycle ------------------------------------------------------------------------------
 
 /// Deterministic init (see `Instance::init`). May grow memory: the shell refreshes its views after.
+/// ABI 2.0 (ADR 0162 C8): the four M3 counts size the `Beds`, `Zones` and `Wide` regions before the
+/// arena (0 is none); `INVALID_ARGUMENT` past their ranges (`InitParams::validate`).
 #[no_mangle]
-pub extern "C" fn myco_audio_init(sample_rate: f32, max_logical: u32, max_mixed: u32, max_buses: u32, arena_initial_bytes: u32) -> i32 {
-    instance().init(InitParams { sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes })
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn myco_audio_init(
+    sample_rate: f32,
+    max_logical: u32,
+    max_mixed: u32,
+    max_buses: u32,
+    arena_initial_bytes: u32,
+    max_beds: u32,
+    max_zone_slots: u32,
+    zone_max_frames: u32,
+    max_wide: u32,
+) -> i32 {
+    instance().init(InitParams { sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes, max_beds, max_zone_slots, zone_max_frames, max_wide })
+}
+
+/// ABI 2.0 (ADR 0162 C8): bytes the arena needs for `max_zone_slots` zone kernels of
+/// `zone_max_frames` (format 3 blobs, outside `clipMemoryMB`), which the shell adds to the Memory's
+/// maximum. Pure; callable before `init`. Saturates at `u32::MAX`.
+#[no_mangle]
+pub extern "C" fn myco_audio_zone_kernel_budget_bytes(max_zone_slots: u32, zone_max_frames: u32) -> u32 {
+    audio_core::zones::kernel_budget_bytes(max_zone_slots, zone_max_frames).min(u32::MAX as usize) as u32
+}
+
+/// ABI 2.0 (ADR 0162 C8): bytes of the block `myco_audio_init` would take for these parameters (every
+/// fixed region and the arena's initial reserve, in whole pages), or 0 when they are refused. Pure;
+/// callable before `init`. The shell's TypeScript mirror of the layout is tested against it.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn myco_audio_layout_bytes(
+    sample_rate: f32,
+    max_logical: u32,
+    max_mixed: u32,
+    max_buses: u32,
+    arena_initial_bytes: u32,
+    max_beds: u32,
+    max_zone_slots: u32,
+    zone_max_frames: u32,
+    max_wide: u32,
+) -> u32 {
+    let p = InitParams { sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes, max_beds, max_zone_slots, zone_max_frames, max_wide };
+    if p.validate().is_err() {
+        return 0;
+    }
+    audio_core::Layout::new(&p).total().min(u32::MAX as usize) as u32
 }
 
 /// Sets the master limiter's look-ahead in ms (A2.9, ABI 1.1; the project's
@@ -184,10 +229,7 @@ pub extern "C" fn myco_audio_clip_commit(clip: u32, frame_offset: u32, bytes: u3
 pub extern "C" fn myco_audio_clip_write(clip: u32, frame_offset: u32, len: u32) -> i32 {
     let Some(core) = instance().core_mut() else { return codes::NOT_INITIALIZED };
     let Some(bytes) = inbox(len) else { return codes::INVALID_ARGUMENT };
-    match core.clips_mut().write(clip, frame_offset, bytes) {
-        Ok(()) => codes::OK,
-        Err(e) => e,
-    }
+    audio_core::clips::write(core, clip, frame_offset, bytes)
 }
 
 /// Drops the clip and returns its block to the arena; `ERR_UNKNOWN_CLIP` when not held.
@@ -333,11 +375,27 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x104);
+        assert_eq!(myco_audio_abi_version(), 0x200);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);
         assert!(!myco_audio_source_hash().is_null());
+    }
+
+    #[test]
+    fn the_layout_and_kernel_budget_exports_are_pure() {
+        // ADR 0162 C8: zero M3 counts give M2's layout plus the pool and scratch; refused parameters 0.
+        let m2 = myco_audio_layout_bytes(48_000.0, 4_096, 128, 32, 16 << 20, 0, 0, 0, 0);
+        let m3 = myco_audio_layout_bytes(48_000.0, 4_096, 128, 32, 16 << 20, 2, 3, 96_000, 1);
+        assert_eq!(m2 as usize % 65_536, 0);
+        let extra = audio_core::bed::region_bytes(&InitParams { max_beds: 2, max_wide: 1, ..InitParams::default() })
+            + 3 * audio_core::zones::slot_state_bytes(96_000)
+            + audio_core::stream::WIDE_RING_BYTES;
+        // Whole pages around the arena: within a page either way.
+        assert!(((m3 - m2) as i64 - extra as i64).abs() <= 65_536, "{m2} -> {m3}, regions {extra}");
+        assert_eq!(myco_audio_layout_bytes(48_000.0, 4_096, 128, 32, 0, 5, 0, 0, 0), 0, "5 beds are refused");
+        assert_eq!(myco_audio_zone_kernel_budget_bytes(0, 96_000), 0);
+        assert_eq!(myco_audio_zone_kernel_budget_bytes(3, 96_000) as usize, audio_core::zones::kernel_budget_bytes(3, 96_000));
     }
 
     #[test]

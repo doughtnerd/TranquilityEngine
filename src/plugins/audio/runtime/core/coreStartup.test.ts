@@ -126,4 +126,63 @@ describe("audio.backend core: start-up order", () => {
     expect(voice.playing).toBe(true);
     expect(warn).not.toHaveBeenCalled();
   });
+
+  it("ADR 0162 (K4): M3 values given while pending reach the real voice at the hand-over where it takes them, and are forwarded after", () => {
+    const pending = audioBackend();
+    const voice = pending.play(loop())!;
+    voice.setVelocity!({ x: 1, y: 0, z: 0 });
+    voice.setVelocity!({ x: 2, y: 0, z: 0 });
+    voice.setOcclusion!(0.5, 3000);
+    voice.setDopplerRate!(1.2);
+    voice.setSpatialOptions!({ dopplerLevel: 2 });
+    voice.setSpatialOptions!({ reverbSend: 0.5 });
+
+    const core = makeFakeBackend();
+    const options: unknown[] = [];
+    const play = core.play.bind(core);
+    // A voice that also takes Play edits (as the core's do); the fake's own voices don't.
+    core.play = (req) => Object.assign(play(req)!, { setSpatialOptions: (o: unknown) => options.push(o) });
+    undoCore = registerCoreBackend(() => core);
+    expect(audioBackend()).toBe(core);
+    const onCore = core.voices[0]!;
+    // Only the latest of each, applied once.
+    expect(onCore.events.filter((e) => e.kind === "velocity" || e.kind === "occlusion" || e.kind === "doppler")).toEqual([
+      { kind: "velocity", value: { x: 2, y: 0, z: 0 } },
+      { kind: "occlusion", gain: 0.5, lpHz: 3000 },
+      { kind: "doppler", factor: 1.2 },
+    ]);
+    expect(options).toEqual([{ dopplerLevel: 2, reverbSend: 0.5 }]);
+    // Forwarded after the hand-over.
+    voice.setOcclusion!(0.25, 1000);
+    voice.setDopplerRate!(0.9);
+    voice.setVelocity!({ x: 0, y: 3, z: 0 });
+    voice.setSpatialOptions!({ occlusion: false });
+    expect([onCore.occlusionGain, onCore.occlusionLpHz, onCore.dopplerRate, onCore.velocity]).toEqual([0.25, 1000, 0.9, { x: 0, y: 3, z: 0 }]);
+    expect(options).toEqual([{ dopplerLevel: 2, reverbSend: 0.5 }, { occlusion: false }]);
+    voice.stop();
+  });
+
+  it("ADR 0162 (K4): a real voice without the M3 setters is handed over without them", () => {
+    const pending = audioBackend();
+    const voice = pending.play(loop())!;
+    voice.setOcclusion!(0.5, 3000);
+    voice.setVelocity!({ x: 1, y: 0, z: 0 });
+    voice.setDopplerRate!(1.5);
+    voice.setSpatialOptions!({ reverbSend: 0 });
+    const core = makeFakeBackend();
+    const play = core.play.bind(core);
+    core.play = (req) => {
+      const v = play(req)! as unknown as Record<string, unknown>;
+      delete v.setOcclusion;
+      delete v.setVelocity;
+      delete v.setDopplerRate;
+      return v as never;
+    };
+    undoCore = registerCoreBackend(() => core);
+    expect(audioBackend()).toBe(core);
+    expect(core.plays).toHaveLength(1);
+    expect(() => voice.setOcclusion!(0.2, 100)).not.toThrow();
+    expect(core.voices[0]!.events.some((e) => e.kind === "occlusion" || e.kind === "velocity" || e.kind === "doppler")).toBe(false);
+    voice.stop();
+  });
 });

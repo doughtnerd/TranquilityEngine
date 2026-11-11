@@ -1,7 +1,7 @@
 {
   "note": "Wasm instructions per quantum of audio-bench scenes in the metered build (ADR 0157 C1b). Rewrite with UPDATE_METERED_BASELINE=1 node tools/audio-bench/metered-gate.mjs.",
   "meterVersion": 1,
-  "sourceHash": "03485e239d32c694a002038107044dff",
+  "sourceHash": "33cb4fbcd479063180060a887c36ce44",
   "settings": {
     "seconds": 2,
     "warmup": 1,
@@ -151,6 +151,118 @@
       "p99": 6062241,
       "max": 6077047,
       "wuMean": 439777
+    },
+    "bed-64": {
+      "quanta": 750,
+      "perQuantum": 4443867,
+      "total": 3332900528,
+      "p99": 4547550,
+      "max": 4548108,
+      "wuMean": 278427
+    },
+    "bed-256": {
+      "quanta": 750,
+      "perQuantum": 16223370,
+      "total": 12167527605,
+      "p99": 16640876,
+      "max": 16641353,
+      "wuMean": 1106907
+    },
+    "bed-xfade": {
+      "quanta": 750,
+      "perQuantum": 9250044,
+      "total": 6937533203,
+      "p99": 10218678,
+      "max": 10385475,
+      "wuMean": 536527
+    },
+    "filters-256": {
+      "quanta": 750,
+      "perQuantum": 20970916,
+      "total": 15728187308,
+      "p99": 21682752,
+      "max": 21683484,
+      "wuMean": 1109573
+    },
+    "m3-worst-high": {
+      "quanta": 750,
+      "perQuantum": 36796313,
+      "total": 27597234938,
+      "p99": 38658600,
+      "max": 38741736,
+      "wuMean": 2090222
+    },
+    "m3-worst-default": {
+      "quanta": 750,
+      "perQuantum": 21916691,
+      "total": 16437518130,
+      "p99": 23519576,
+      "max": 23565648,
+      "wuMean": 1282213
+    },
+    "m3-worst-low": {
+      "quanta": 750,
+      "perQuantum": 9856364,
+      "total": 7392272910,
+      "p99": 10982591,
+      "max": 11059050,
+      "wuMean": 676419
+    },
+    "zones-2x2s": {
+      "quanta": 750,
+      "perQuantum": 2477774,
+      "total": 1858330380,
+      "p99": 2946537,
+      "max": 2946537,
+      "wuMean": 57680
+    },
+    "zones-swap": {
+      "quanta": 750,
+      "perQuantum": 3077626,
+      "total": 2308219568,
+      "p99": 3626524,
+      "max": 5705404,
+      "wuMean": 57687
+    },
+    "m3-high": {
+      "quanta": 750,
+      "perQuantum": 35748495,
+      "total": 26811371265,
+      "p99": 37478176,
+      "max": 37502248,
+      "wuMean": 2090924
+    },
+    "m3-worst-high-sends": {
+      "quanta": 750,
+      "perQuantum": 44928616,
+      "total": 33696462330,
+      "p99": 46438540,
+      "max": 46490312,
+      "wuMean": 2090267
+    },
+    "m3-worst-default-sends": {
+      "quanta": 750,
+      "perQuantum": 26769242,
+      "total": 20076931793,
+      "p99": 28249636,
+      "max": 28316532,
+      "wuMean": 1282259
+    },
+    "m3-worst-low-sends": {
+      "quanta": 750,
+      "perQuantum": 11172199,
+      "total": 8379148913,
+      "p99": 12779892,
+      "max": 12840864,
+      "wuMean": 676461
+    },
+    "ambi-o3": {
+      "quanta": 750,
+      "perQuantum": 2532534,
+      "total": 1899400500,
+      "p99": 2533390,
+      "max": 2533403,
+      "wuMean": 16537
     }
   }
 }

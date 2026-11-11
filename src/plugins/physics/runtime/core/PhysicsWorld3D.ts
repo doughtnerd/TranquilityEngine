@@ -9,7 +9,8 @@ import { MeshRenderer } from "../../../../engine/render/components";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import { meshesIfLoaded, meshTriangles, type ModelMesh } from "../../../../engine/scene/models";
 import type { Transform } from "../../../../engine/scene/Transform";
-import type { CharacterSettings, Dim3, JointDesc, JointSettings, PhysicsBackend3D, Pose, Quat as Q, ShapeDesc3D, Vec3 } from "../backend";
+import type { WorldRayInto, WorldRayQuery } from "../../../../engine/core/worldServices";
+import type { BackendRayInto, CharacterSettings, Dim3, PhysicsWorld3DBackend, JointDesc, JointSettings, PhysicsBackend3D, Pose, Quat as Q, ShapeDesc3D, Vec3 } from "../backend";
 import { CharacterController, type ControllerColliderHit } from "../CharacterController";
 import { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider } from "../Collider";
 import { AxisJoint, BallJoint, FixedJoint, HingeJoint, Joint, RopeJoint, SliderJoint, SpringJoint } from "../Joint";
@@ -65,9 +66,47 @@ export class PhysicsWorld3D extends PhysicsCore<Dim3, Types3D> {
   protected readonly down = { x: 0, y: -1, z: 0 };
   protected readonly identity: Q = { x: 0, y: 0, z: 0, w: 1 };
 
+  declare readonly backend: PhysicsWorld3DBackend;
+
+  // `raycastInto`'s reused state (ADR 0162, C14): nothing here is allocated per call.
+  private rayExclude: ReadonlySet<GameObject> | null = null;
+  private readonly rayDir: Vec3 = { x: 0, y: 0, z: 1 };
+  private readonly rayHit: BackendRayInto = { collider: 0, distance: 0, point: { x: 0, y: 0, z: 0 } };
+  /** The backend's predicate: a collider is skipped when its node is excluded. Made once. */
+  private readonly rayAccept = (id: number): boolean => {
+    const exclude = this.rayExclude;
+    if (exclude === null || exclude.size === 0) return true;
+    const c = this.colliderById.get(id);
+    return c === undefined || !exclude.has(c.node);
+  };
+
   constructor(world: World, backend: PhysicsBackend3D) {
     const g = world.settings.physics.gravity as readonly number[];
     super(world, backend, { x: g[0] ?? 0, y: g[1] ?? -9.81, z: g[2] ?? 0 });
+  }
+
+  /**
+   * @internal The first non-sensor collider a ray hits whose node isn't in `query.excludeNodes`, written into
+   * `out` (audio occlusion). Allocates nothing in this code: the exclusion runs inside the backend's query.
+   */
+  raycastInto(out: WorldRayInto, origin: Vec3, dir: Vec3, maxDistance: number, query: WorldRayQuery): boolean {
+    const len = Math.hypot(dir.x, dir.y, dir.z);
+    if (!(len > 0)) return false;
+    const d = this.rayDir;
+    d.x = dir.x / len;
+    d.y = dir.y / len;
+    d.z = dir.z / len;
+    this.rayExclude = query.excludeNodes;
+    const hit = this.rayHit;
+    const found = this.backend.raycastInto(origin, d, maxDistance, query.groups, !query.includeSensors, this.rayAccept, hit);
+    this.rayExclude = null;
+    if (!found) return false;
+    out.node = this.colliderById.get(hit.collider)?.node ?? null;
+    out.distance = hit.distance;
+    out.point.x = hit.point.x;
+    out.point.y = hit.point.y;
+    out.point.z = hit.point.z;
+    return true;
   }
 
   protected vec(a: readonly number[]): Vec3 {

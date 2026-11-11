@@ -2,7 +2,7 @@
 //! TypeScript: `gen_wire` turns it into `src/generated.rs` and `wire.generated.ts`.
 //!
 //! This file (lead-owned) holds the constants, enums and **error codes** (section 5), and assembles
-//! the three transcribed tables: `envelope` (4.1), `batch` (4.2), `status` (4.3).
+//! the transcribed tables: `envelope` (4.1), `batch` (4.2), `status` (4.3) and ADR 0162's `spatial`.
 //!
 //! **Schema hash.** First 16 bytes of SHA-256 over `SCHEMA_SOURCES` (see `schema_hash`). The generated
 //! TypeScript embeds it, the wasm exports `myco_audio_schema_hash()`, and `wire.schemaHash.test.ts`
@@ -11,6 +11,7 @@
 
 pub mod batch;
 pub mod envelope;
+pub mod spatial;
 pub mod status;
 
 use crate::model::{Const, Enum, ErrorCode, Schema};
@@ -21,6 +22,7 @@ pub const SCHEMA_SOURCES: &[(&str, &str)] = &[
     ("src/schema.rs", include_str!("schema.rs")),
     ("src/schema/batch.rs", include_str!("schema/batch.rs")),
     ("src/schema/envelope.rs", include_str!("schema/envelope.rs")),
+    ("src/schema/spatial.rs", include_str!("schema/spatial.rs")),
     ("src/schema/status.rs", include_str!("schema/status.rs")),
 ];
 
@@ -55,7 +57,7 @@ macro_rules! c {
 pub const CONSTANTS: &[Const] = &[
     c!("MAGIC", 0x4D59_4131u32, "envelope magic, 'MYA1'"),
     c!("VERSION_MAJOR", 1, "a core refuses a different major"),
-    c!("VERSION_MINOR", 0, "new opcodes or appended payload words are minor"),
+    c!("VERSION_MINOR", 1, "new opcodes or appended payload words are minor (1.1: ADR 0162)"),
     c!("ENVELOPE_BYTES", 16, "envelope size"),
     c!("BATCH_HEADER_BYTES", 16, "f64 firstFrame; u32 count; u32 flags"),
     c!("RECORD_HEAD_BYTES", 12, "u16 opcode; u16 words; u32 voiceId; u32 frameOffset"),
@@ -63,10 +65,10 @@ pub const CONSTANTS: &[Const] = &[
     c!("BATCH_MAX_BYTES", 64 * 1024, "a BATCH is capped at 64 KB; the excess carries over"),
     c!("INBOX_BYTES", 1024 * 1024, "the fixed 1 MiB inbox"),
     c!("REPLAY_CHUNK_MAX_BYTES", 1024 * 1024 - 32, "each REPLAY message: 1 MiB minus 32 bytes"),
-    c!("STATUS_HEADER_BYTES", 112, "STATUS header, envelope included"),
+    c!("STATUS_HEADER_BYTES", 144, "STATUS header, envelope included (ADR 0162 §4.3)"),
     c!("STATUS_POOL_BUFFERS", 8, "the shell's pool of STATUS buffers"),
     c!("STATUS_BUFFER_BYTES", 16384, "size of each STATUS buffer"),
-    c!("STATUS_WORST_CASE_BYTES", 15728, "112 + 4096*3 + 2048 + 512 + 512 + 256"),
+    c!("STATUS_WORST_CASE_BYTES", 15904, "144 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64"),
     c!("STATUS_EVERY_QUANTA", 6, "STATUS cadence"),
     c!("STATUS_IDLE_EVERY_QUANTA", 48, "cadence when no batch arrived for 250 ms"),
     c!("STATUS_IDLE_AFTER_MS", 250, "idle threshold"),
@@ -78,6 +80,35 @@ pub const CONSTANTS: &[Const] = &[
     c!("HRIR_CLIP_ID_LAST", 0xFFFF_00FFu32, "reserved clip ids for format = 2"),
     c!("CLIP_ID_RESERVED_FIRST", 0xFFFF_0000u32, "ids from here up are not allocated to ordinary clips"),
     c!("STREAM_RING_FRAMES", 32768, "stream ring size (section 5)"),
+    c!("STREAM_RING_FRAMES_WIDE", 32768, "wide (3-16 channel) stream ring size (ADR 0162 R16, §5.2; 32,768 after B4's 300 ms stall test failed at 16,384)"),
+    c!("STREAM_WIDE_CHUNK_FRAMES", 2048, "frames per chunk of a wide stream (128 KB at 16 channels)"),
+    c!("STREAM_MAX_CHANNELS", 16, "most channels of a stream (STREAM_OPEN)"),
+    c!("MAX_BEDS", 4, "most bed slots (BED_CONFIG slotCount, STATUS beds)"),
+    c!("MAX_ZONE_SLOTS", 4, "most zone slots (ZONE_CONFIG slotCount, SET_VOICE_FX send, STATUS zones)"),
+    c!("MAX_ZONE_EVENTS_PER_BLOCK", 16, "STATUS zoneEvents cap"),
+    c!("BED_CHANNELS", 16, "channels of a bed: third-order ambisonics, ACN/SN3D"),
+    c!("BED_SLOT_NONE", 0xFF, "BED_CONFIG bedSlot: the bus has no bed"),
+    c!("BED_HOST_NONE", 0xFFFF, "BED_CONFIG hostBus: the slot is unused"),
+    c!("AUX_BUS_NONE", 0xFFFF, "SET_VOICE_FX auxBus: no aux send"),
+    c!("PANNER_BED", 2, "the panner value 2 (bed) of PLAY and SET_PARAMS flags bits 5-6"),
+    c!("AMBI_FLAG", 0x80, "PLAY flags bit 7: an ambisonic voice"),
+    c!("LP_TOP", 20000, "lpHz at or above this is no low-pass"),
+    c!("HP_BOTTOM", 20, "SET_VOICE_FX hpHz at or below this is no high-pass"),
+    c!("MAGLS_CLIP_ID", 0xFFFF_0100u32, "the reserved clip id of the MagLS filters (format 4)"),
+    c!("ZONE_KERNEL_ID_FIRST", 0xFFFF_0200u32, "reserved clip ids of zone kernels (formats 3 and 5)"),
+    c!("ZONE_KERNEL_ID_LAST", 0xFFFF_02FFu32, "reserved clip ids of zone kernels (formats 3 and 5)"),
+    c!("ZONE_KERNEL_MAGIC", 0x5249_594Du32, "format 3 header magic, 'MYIR'"),
+    c!("ZONE_KERNEL_VERSION", 1, "format 3 header version"),
+    c!("ZONE_KERNEL_HEADER_BYTES", 32, "format 3 header size"),
+    c!("ZONE_KERNEL_MAX_HEAD_PARTS", 32, "format 3 headParts cap"),
+    c!("ZONE_HEAD_BINS", 128, "bins per head partition of a zone kernel"),
+    c!("ZONE_TAIL_BINS", 2048, "bins per tail partition of a zone kernel"),
+    c!("MAGLS_MAGIC", 0x4442_594Du32, "format 4 header magic, 'MYBD'"),
+    c!("MAGLS_VERSION", 1, "format 4 header version"),
+    c!("MAGLS_HEADER_BYTES", 32, "format 4 header size"),
+    c!("MAGLS_ORDER", 3, "ambisonic order of the MagLS filters"),
+    c!("MAGLS_TAPS", 256, "taps per MagLS response at up to 48 kHz"),
+    c!("MAGLS_TAPS_HIGH_RATE", 512, "taps per MagLS response above 88.2 kHz"),
     c!("MAX_ENDED_PER_BLOCK", 1024, "STATUS ended section cap"),
     c!("MAX_DEMOTED_PER_BLOCK", 1024, "STATUS demoted section cap"),
     c!("MAX_STARVED_PER_BLOCK", 1024, "STATUS starved section cap"),
@@ -99,12 +130,16 @@ pub const ENUMS: &[Enum] = &[
         ("F32", 0, "float samples"),
         ("I16", 1, "int16 samples"),
         ("HRIR", 2, "HRIR: int16, already at the context rate; ids 0xFFFF0000..0xFFFF00FF"),
+        ("ZoneKernel", 3, "prepared zone kernel: ZoneKernelHeader then packed spectra; channels 1, frames = bytes / 4"),
+        ("MagLS", 4, "MagLS filters: MaglsHeader then f32 [16][2][taps]; id 0xFFFF0100"),
+        ("ZoneIrPcm", 5, "zone IR PCM: interleaved stereo f32 at the context rate; the core prepares it"),
     ]),
     en!("ClipEvent", "STATUS clipEvents code", [
         ("Resident", 1, "the last range was committed"),
         ("RefusedCeiling", 2, "clipMemoryMB ceiling"),
         ("RefusedGrow", 3, "the arena could not grow"),
         ("HrtfReady", 4, "the HRIR load completed"),
+        ("RefusedFormat", 5, "the clip's format or channel count is not accepted (ADR 0162)"),
     ]),
     en!("StreamEvent", "STATUS streamEvents code", [
         ("Starved", 1, "the ring ran dry"),
@@ -119,8 +154,30 @@ pub const ENUMS: &[Enum] = &[
     en!("Panner", "PLAY and SET_PARAMS flags bits 5-6", [
         ("EqualPower", 0, "equal-power"),
         ("Hrtf", 1, "HRTF"),
-        ("Reserved2", 2, "reserved for M3's ambisonic bed"),
-        ("Reserved3", 3, "reserved for M3's ambisonic bed"),
+        ("Bed", 2, "encode into the bus's bed slot; equal-power when it has none (ADR 0162 C1)"),
+        ("Reserved3", 3, "reserved"),
+    ]),
+    en!("StreamConvention", "STREAM_OPEN convention", [
+        ("AmbiX", 0, "ACN order, SN3D"),
+        ("FuMa", 1, "Furse-Malham; the worker converts to AmbiX per chunk"),
+    ]),
+    en!("ZoneSlotState", "ZONE_CONFIG slot state", [
+        ("Active", 1, "sends accepted; wet fades in over 100 ms once the kernel is resident"),
+        ("Release", 2, "sends ignored; the tail rings out, then the slot is off"),
+        ("Evict", 3, "sends ignored; wet fades out over 150 ms, then the slot is off (low preset)"),
+    ]),
+    en!("ZoneState", "STATUS zones state", [
+        ("Off", 0, "no kernel"),
+        ("WaitingKernel", 1, "active, the kernel is not resident yet"),
+        ("FadingIn", 2, "fading in over 100 ms"),
+        ("Active", 3, "active"),
+        ("RingingOut", 4, "released; the tail rings out"),
+        ("Evicting", 5, "evicted; wet fades out over 150 ms"),
+    ]),
+    en!("ZoneEvent", "STATUS zoneEvents code", [
+        ("RefusedKernel", 1, "a new kernelId in a slot that is not off"),
+        ("RefusedSlot", 2, "a slot past max_zone_slots"),
+        ("BadBlob", 3, "a zone kernel blob that does not fit its header"),
     ]),
     en!("EffectType", "BUS_CONFIG effect type", [
         ("Lowpass", 0, "p0 frequency Hz, p1 q in dB"),
@@ -167,6 +224,7 @@ pub fn schema() -> Schema {
         opcodes: batch::OPCODES,
         status: status::STATUS,
         hrir_header: envelope::HRIR_HEADER,
+        blob_headers: spatial::BLOB_HEADERS,
         constants: CONSTANTS,
         enums: ENUMS,
         errors: ERRORS,

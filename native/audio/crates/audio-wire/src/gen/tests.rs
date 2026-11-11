@@ -38,7 +38,7 @@ fn all_opcodes_and_kinds_are_exposed() {
     let s = schema();
     let rust = rust::emit(&s, &schema_hash_hex()).unwrap();
     let ts = ts::emit(&s, &schema_hash_hex()).unwrap();
-    for op in s.opcodes.iter().filter(|o| o.sent_in_m1) {
+    for op in s.opcodes.iter().filter(|o| o.sent) {
         let name = layout::pascal(op.name);
         assert!(rust.contains(&format!("pub struct {name} ")), "{name}");
         assert!(ts.contains(&format!("export function write{name}(")), "{name}");
@@ -69,4 +69,20 @@ fn generated_rust_round_trips() {
     let st = StatusBlock { current_frame: 1.5, min_slack_frames: -3, flags: STATUS_FLAGS_READY, ended: vec![1, 2], peaks: vec![StatusPeaksItem { l: 0.25, r: 0.5 }], ..Default::default() };
     let n = st.write(&mut buf, 0, 9).unwrap();
     assert_eq!(StatusBlock::read(&buf[..n], 0).unwrap(), (st, n));
+}
+
+/// A STATUS whose envelope's `bodyBytes` is shorter than the header is refused, never a panic
+/// (L-A1a found `limit - cur` underflowing; the TypeScript `readStatus` already refused it).
+#[test]
+fn status_with_a_short_body_is_refused() {
+    use crate::generated::*;
+    let mut buf = vec![0u8; STATUS_BUFFER_BYTES as usize];
+    let n = StatusBlock::default().write(&mut buf, 0, 1).unwrap();
+    assert_eq!(n, STATUS_HEADER_BYTES as usize);
+    for body in [0u32, 1, 95, 127, STATUS_HEADER_BYTES - 17] {
+        buf[12..16].copy_from_slice(&body.to_le_bytes());
+        assert_eq!(StatusBlock::read(&buf, 0).unwrap_err(), ERR_TRUNCATED, "bodyBytes {body}");
+    }
+    buf[12..16].copy_from_slice(&(STATUS_HEADER_BYTES - 16).to_le_bytes());
+    assert!(StatusBlock::read(&buf, 0).is_ok());
 }

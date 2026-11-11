@@ -8,6 +8,10 @@ import { AUDIO_EVENT_SUFFIX, emptyAudioEvent, formatAudioEvent } from "../../../
 import { createEventFromClips } from "./createEventFromClips";
 import { audioEventFormat, audioEventReferences } from "./eventAsset";
 import { EVENT_EDITOR_PANEL, openEventEditor } from "./event/openEventEditor";
+import { zoneTool } from "./AudioReverbZoneGizmo";
+import { editZoneAction } from "./EditZoneButton";
+import { occluderTool } from "./AudioOccluderGizmo";
+import { occlusionTool } from "./OcclusionOverlay";
 
 /** A speaker with waves over a page corner: an event is a sound that plays one of several. */
 const EVENT_ICON = "M5 9v6h4l5 4V5L9 9zM17.5 8.5a5 5 0 0 1 0 7M20 6a8.5 8.5 0 0 1 0 12";
@@ -80,5 +84,15 @@ export const audioEditorPlugin: EditorPlugin = {
       onDemand: true,
       view: () => import("./event/EventEditorPanel").then((m) => m.EventEditorPanel),
     });
+    // The reverb zone gizmo (E1): volume and blend shell in the scene view, face, radius and blend handles under Edit Zone.
+    context.registerViewportTool(zoneTool);
+    context.registerComponentHeaderAction(editZoneAction);
+    // The occluder gizmo and the Inspector sections under the zone, occluder and audio source cards (E2).
+    context.registerViewportTool(occluderTool);
+    // The occlusion overlay (E4): rays to occluded sources while playing, switched on in the Audio Debug panel.
+    context.registerViewportTool(occlusionTool);
+    context.registerInspectorSection("engine.AudioReverbZone", () => import("./ZoneInspector").then((m) => m.ZoneSection), { single: true });
+    context.registerInspectorSection("engine.AudioOccluder", () => import("./OccluderInspector").then((m) => m.OccluderSection), { single: true });
+    context.registerInspectorSection("engine.AudioSource", () => import("./AudioSourceSections").then((m) => m.AudioSourceSection), { single: true });
   },
 };

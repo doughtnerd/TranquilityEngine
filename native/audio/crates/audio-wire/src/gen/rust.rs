@@ -103,6 +103,10 @@ fn emit_item(out: &mut String, it: &Item, head: Option<(u16, &str)>, text: &str)
     if let Some(g) = &it.group {
         out.push_str(&format!("    pub {}: Vec<{}>,\n", ident(g.name), g.item.name));
     }
+    for a in &it.arrays {
+        doc(out, "    ", a.doc);
+        out.push_str(&format!("    pub {}: Vec<{}>,\n", ident(a.name), rty(a.ty)));
+    }
     out.push_str("}\n\n");
 
     out.push_str(&format!("impl {} {{\n    pub const FIXED_END: usize = {};\n", it.name, it.fixed_end));
@@ -114,12 +118,21 @@ fn emit_item(out: &mut String, it: &Item, head: Option<(u16, &str)>, text: &str)
     out.push_str("        if base + Self::FIXED_END > out.len() {\n            return Err(ERR_OVERSIZE);\n        }\n");
     for p in &it.fields {
         if it.is_derived(p.field.name) {
-            let g = it.group.as_ref().unwrap();
+            let (list, max) = match it.array_of(p.field.name) {
+                Some(a) => (a.name, a.max),
+                None => {
+                    let g = it.group.as_ref().unwrap();
+                    (g.name, g.max)
+                }
+            };
             let t = rty(p.field.ty);
+            if max > 0 {
+                out.push_str(&format!("        if self.{}.len() > {max} {{\n            return Err(ERR_OVERSIZE);\n        }}\n", ident(list)));
+            }
             out.push_str(&format!(
                 "        put_{t}(out, base + {}, {t}::try_from(self.{}.len()).map_err(|_| ERR_OVERSIZE)?);\n",
                 p.offset,
-                ident(g.name)
+                ident(list)
             ));
         } else {
             out.push_str(&write_line(p, &format!("self.{}", ident(p.field.name))));
@@ -128,6 +141,14 @@ fn emit_item(out: &mut String, it: &Item, head: Option<(u16, &str)>, text: &str)
     out.push_str("        let mut cur = base + Self::FIXED_END;\n");
     if let Some(g) = &it.group {
         out.push_str(&format!("        for item in &self.{} {{\n            cur += item.write(out, cur)?;\n        }}\n", ident(g.name)));
+    }
+    for a in &it.arrays {
+        let t = rty(a.ty);
+        let sz = a.ty.bytes();
+        out.push_str(&format!(
+            "        let padded = (self.{n}.len() * {sz} + 3) & !3;\n        if cur + padded > out.len() {{\n            return Err(ERR_OVERSIZE);\n        }}\n        for (i, v) in self.{n}.iter().enumerate() {{\n            put_{t}(out, cur + i * {sz}, *v);\n        }}\n        out[cur + self.{n}.len() * {sz}..cur + padded].fill(0);\n        cur += padded;\n",
+            n = ident(a.name)
+        ));
     }
     if head.is_some() {
         out.push_str(
@@ -159,6 +180,9 @@ fn emit_item(out: &mut String, it: &Item, head: Option<(u16, &str)>, text: &str)
     out.push_str("        let mut cur = base + Self::FIXED_END;\n");
     if let Some(g) = &it.group {
         let cnt = ident(g.count_field);
+        if g.max > 0 {
+            out.push_str(&format!("        if {cnt} as usize > {} {{\n            return Err(ERR_MALFORMED);\n        }}\n", g.max));
+        }
         out.push_str(&format!(
             "        let count = {cnt} as usize;\n        if count.checked_mul({}).map_or(true, |n| n > limit - cur) {{\n            return Err(ERR_TRUNCATED);\n        }}\n",
             g.item.fixed_end
@@ -168,6 +192,18 @@ fn emit_item(out: &mut String, it: &Item, head: Option<(u16, &str)>, text: &str)
             "        for _ in 0..count {{\n            let (item, n) = {}::read_to(buf, cur, limit)?;\n            cur += n;\n            {}.push(item);\n        }}\n",
             g.item.name,
             ident(g.name)
+        ));
+    }
+    for a in &it.arrays {
+        let t = rty(a.ty);
+        let sz = a.ty.bytes();
+        let cnt = ident(a.count_field);
+        if a.max > 0 {
+            out.push_str(&format!("        if {cnt} as usize > {} {{\n            return Err(ERR_MALFORMED);\n        }}\n", a.max));
+        }
+        out.push_str(&format!(
+            "        let padded = ({cnt} as usize).checked_mul({sz}).and_then(|n| n.checked_add(3)).map(|n| n & !3).ok_or(ERR_TRUNCATED)?;\n        if padded > limit - cur {{\n            return Err(ERR_TRUNCATED);\n        }}\n        let mut {n} = Vec::with_capacity({cnt} as usize);\n        for i in 0..{cnt} as usize {{\n            {n}.push(get_{t}(buf, cur + i * {sz}));\n        }}\n        cur += padded;\n",
+            n = ident(a.name)
         ));
     }
     if head.is_some() {
@@ -182,6 +218,9 @@ fn emit_item(out: &mut String, it: &Item, head: Option<(u16, &str)>, text: &str)
     }
     if let Some(g) = &it.group {
         out.push_str(&format!("            {},\n", ident(g.name)));
+    }
+    for a in &it.arrays {
+        out.push_str(&format!("            {},\n", ident(a.name)));
     }
     out.push_str("        }, cur - base))\n    }\n}\n\n");
 }
@@ -234,7 +273,7 @@ pub fn emit(schema: &Schema, hash_hex: &str) -> Result<String, String> {
     let mut o = String::new();
     o.push_str("// @generated by `gen_wire` (task A0.2, contract K1). Do not edit: change the schema and rerun\n");
     o.push_str("// `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.\n");
-    o.push_str("#![allow(clippy::all, dead_code)]\n\n");
+    o.push_str("#![allow(clippy::all, dead_code, unused_mut)]\n\n");
     o.push_str(&format!("/// First 16 bytes of the schema's SHA-256 (hex: {hash_hex}).\npub const SCHEMA_HASH: [u8; 16] = [\n"));
     for i in 0..16 {
         o.push_str(&format!("    0x{},\n", &hash_hex[i * 2..i * 2 + 2]));
@@ -281,12 +320,12 @@ pub fn emit(schema: &Schema, hash_hex: &str) -> Result<String, String> {
 
     // Envelope, record head, batch header, HRIR header.
     let (env, _) = resolve(0, schema.envelope)?;
-    let env_item = Item { name: "Envelope".into(), fields: env, fixed_end: 16, group: None };
+    let env_item = Item::plain("Envelope", env, 16);
     emit_item(&mut o, &env_item, None, "The 16-byte envelope of every message.");
     o.push_str("impl Envelope {\n    /// An envelope for `kind` with this version, `seq` and `body_bytes`.\n    pub fn new(kind: u16, seq: u32, body_bytes: u32) -> Envelope {\n        Envelope { magic: MAGIC, version: ((VERSION_MAJOR << 8) | VERSION_MINOR) as u16, kind, seq, body_bytes }\n    }\n}\n\n");
 
     let (head, _) = resolve(0, schema.record_head)?;
-    let head_item = Item { name: "RecordHead".into(), fields: head.clone(), fixed_end: 12, group: None };
+    let head_item = Item::plain("RecordHead", head.clone(), 12);
     emit_item(&mut o, &head_item, None, "The 12-byte head of every command record.");
     o.push_str("impl RecordHead {\n");
     for p in &head {
@@ -299,6 +338,10 @@ pub fn emit(schema: &Schema, hash_hex: &str) -> Result<String, String> {
     emit_bits(&mut o, "BATCH_HEADER", schema.batch_header);
     let hrir = build_item("HrirHeader", 0, schema.hrir_header, None)?;
     emit_item(&mut o, &hrir, None, "First-chunk header of a format = 2 (HRIR) CLIP_CHUNK payload.");
+    for b in schema.blob_headers {
+        emit_bits(&mut o, &screaming(b.name), b.fields);
+        emit_item(&mut o, &build_item(b.name, 0, b.fields, None)?, None, b.doc);
+    }
 
     for k in schema.kinds {
         emit_bits(&mut o, k.name, k.body.fields);
@@ -309,7 +352,7 @@ pub fn emit(schema: &Schema, hash_hex: &str) -> Result<String, String> {
     }
     for p in schema.opcodes {
         emit_bits(&mut o, p.name, p.payload.fields);
-        if !p.sent_in_m1 {
+        if !p.sent {
             continue;
         }
         emit_item(&mut o, &opcode_item(p)?, Some((p.id, p.name)), p.doc);
@@ -377,7 +420,9 @@ fn emit_status(o: &mut String, schema: &Schema) -> Result<(), String> {
     o.push_str("    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {\n");
     o.push_str(&format!("        if base.checked_add({}).map_or(true, |e| e > buf.len()) {{\n            return Err(ERR_TRUNCATED);\n        }}\n", st.header_bytes));
     o.push_str("        let (env, _) = Envelope::read(buf, base)?;\n        if env.magic != MAGIC {\n            return Err(ERR_BAD_MAGIC);\n        }\n        if (env.version >> 8) as u32 != VERSION_MAJOR {\n            return Err(ERR_VERSION_MISMATCH);\n        }\n        if env.kind != kind::STATUS {\n            return Err(ERR_MALFORMED);\n        }\n");
-    o.push_str("        let limit = base.checked_add(16 + env.body_bytes as usize).filter(|l| *l <= buf.len()).ok_or(ERR_TRUNCATED)?;\n");
+    // The body must hold the whole header: `limit - cur` below can't underflow (a short bodyBytes is
+    // refused, never a panic).
+    o.push_str(&format!("        let limit = base.checked_add(16 + env.body_bytes as usize).filter(|l| *l <= buf.len() && *l >= base + {}).ok_or(ERR_TRUNCATED)?;\n", st.header_bytes));
     for p in &placed {
         o.push_str(&format!("        let {} = {};\n", ident(p.field.name), read_expr(p)));
     }

@@ -2,6 +2,7 @@
 // The `test-hooks` wasm cases (decode_batch, schema hash export) belong to later tasks and stay out of this file.
 import { describe, expect, it } from "vitest";
 import * as wire from "./wire.generated";
+import { makeStatusBlock } from "./core/mirror";
 import wireVectors from "../../../../native/audio/crates/audio-wire/vectors/wire.json";
 
 type Json = number | string | Json[] | { [key: string]: Json };
@@ -49,6 +50,16 @@ const OPCODES: Record<string, Codec> = {
   BUS_MIX: { write: wire.writeBusMix, read: wire.readBusMix },
   MASTER: { write: wire.writeMaster, read: wire.readMaster },
   RESET: { write: wire.writeReset, read: wire.readReset },
+  SET_VOICE_FX: { write: wire.writeSetVoiceFx, read: wire.readSetVoiceFx },
+  BED_CONFIG: { write: wire.writeBedConfig, read: wire.readBedConfig },
+  ZONE_CONFIG: { write: wire.writeZoneConfig, read: wire.readZoneConfig },
+  LISTENER: { write: wire.writeListener, read: wire.readListener },
+};
+
+/** ADR 0162's blob headers (formats 3 and 4). */
+const BLOB_HEADERS: Record<string, Codec> = {
+  ZoneKernelHeader: { write: wire.writeZoneKernelHeader, read: wire.readZoneKernelHeader },
+  MaglsHeader: { write: wire.writeMaglsHeader, read: wire.readMaglsHeader },
 };
 
 /** Kind bodies: the writer fills offsets 16 and up of a whole message; the envelope is written after. */
@@ -199,6 +210,8 @@ function encodeVector(v: Vector): Uint8Array {
       return bytesOf(view, wire.writeEnvelope(view, 0, v.values as unknown as wire.Envelope));
     case "HrirHeader":
       return bytesOf(view, wire.writeHrirHeader(view, 0, v.values as unknown as wire.HrirHeader));
+    case "BlobHeader":
+      return bytesOf(view, codecFor(BLOB_HEADERS, subjectName(v), "blob header").write(view, 0, v.values as never));
     case "Opcode":
       return bytesOf(view, codecFor(OPCODES, subjectName(v), "opcode").write(view, 0, v.values as never));
     case "Kind":
@@ -264,6 +277,9 @@ function expectReadBack(v: Vector, bytes: Uint8Array): void {
       return;
     case "HrirHeader":
       expectMatch(wire.readHrirHeader(view, 0), v.values, label);
+      return;
+    case "BlobHeader":
+      expectMatch(codecFor(BLOB_HEADERS, subjectName(v), "blob header").read(view, 0), v.values, label);
       return;
     case "Opcode": {
       const name = subjectName(v);
@@ -492,7 +508,8 @@ describe("wire round trip", () => {
       mixedVoices: 40,
       liveVoices: 96,
       flags: wire.STATUS_FLAGS_VERSION_MISMATCH | wire.STATUS_FLAGS_ARENA_FULL | wire.STATUS_FLAGS_INBOX_OVERFLOW |
-        wire.STATUS_FLAGS_ADAPTIVE_CAP_ACTIVE | wire.STATUS_FLAGS_READY | wire.STATUS_FLAGS_TRAP_CAUGHT,
+        wire.STATUS_FLAGS_ADAPTIVE_CAP_ACTIVE | wire.STATUS_FLAGS_READY | wire.STATUS_FLAGS_TRAP_CAUGHT |
+        wire.STATUS_FLAGS_BED_DECODER_READY,
       mixedCap: 32,
       loadPermille: 870,
       traps: 1,
@@ -504,6 +521,16 @@ describe("wire round trip", () => {
       maxLatenessFrames: 99,
       hrtfVoices: 5,
       hrtfLoadFailure: wire.HrtfLoadFailure.Data,
+      bedVoices: 256,
+      fxVoices: 31,
+      ambisonicVoices: 2,
+      zonesActive: 3,
+      zonesRinging: 1,
+      bedsRefused: 65535,
+      m3Shed: 3,
+      zoneUsedKB: 6144,
+      workBed: 4000000001,
+      workZones: 77,
       ended: [1, 2, 9],
       demoted: [4],
       starved: [5, 6],
@@ -520,6 +547,16 @@ describe("wire round trip", () => {
         { l: 0.5, r: 0.25 },
         { l: 0, r: 1 },
       ],
+      beds: [
+        { bus: 0, voices: 200, work: 1000 },
+        { bus: 3, voices: 56, work: 400 },
+      ],
+      zones: [
+        { kernelId: 0xffff0200, state: wire.ZoneState.Active, pad: 0, quantaSinceInput: 0, wetPeak: 0.5 },
+        { kernelId: 0xffff0201, state: wire.ZoneState.RingingOut, pad: 0, quantaSinceInput: 65535, wetPeak: 0.125 },
+        { kernelId: 0, state: wire.ZoneState.Off, pad: 0, quantaSinceInput: 0, wetPeak: 0 },
+      ],
+      zoneEvents: [{ slot: 2, code: wire.ZoneEvent.RefusedKernel, reserved: 0 }],
     };
     const seq = 42;
     const bytes = handStatus(status, seq);
@@ -535,6 +572,17 @@ describe("wire round trip", () => {
     padded.set(bytes, 8);
     expect(wire.readStatus(padded.subarray(8))).toEqual(status);
     expect(wire.readEnvelope(viewOf(bytes), 0).seq).toBe(seq);
+  });
+
+  it("a STATUS whose bodyBytes is shorter than the header is refused with a WireError, never a RangeError", () => {
+    const view = newView();
+    const n = wire.writeStatus(view, 0, makeStatusBlock(), 1);
+    const bytes = bytesOf(view, n);
+    for (const body of [0, 1, 95, 127, wire.STATUS_HEADER_BYTES - 17]) {
+      const short = bytes.slice();
+      new DataView(short.buffer).setUint32(12, body, true);
+      expect(() => wire.readStatus(short), `bodyBytes ${body}`).toThrow(wire.WireError);
+    }
   });
 
   it("truncated, oversize and unknown-opcode records are rejected or skipped by length, never read out of bounds", () => {
@@ -649,15 +697,18 @@ function lcg(seed: number): () => number {
   };
 }
 
-/** Writes a STATUS message by hand at the spec offsets (header 112 bytes including the envelope). */
+/** Writes a STATUS message by hand at the spec offsets (header 144 bytes including the envelope, ADR 0162 §4.3). */
 function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
   const size =
-    112 +
+    144 +
     4 * (s.ended.length + s.demoted.length + s.starved.length) +
-    8 * (s.playheads.length + s.clipEvents.length + s.streamEvents.length + s.peaks.length);
+    8 * (s.playheads.length + s.clipEvents.length + s.streamEvents.length + s.peaks.length) +
+    8 * s.beds.length +
+    12 * s.zones.length +
+    4 * s.zoneEvents.length;
   const view = new DataView(new ArrayBuffer(size));
   view.setUint32(0, 0x4d594131, true);
-  view.setUint16(4, 0x0100, true);
+  view.setUint16(4, 0x0101, true);
   view.setUint16(6, wire.Kind.STATUS, true);
   view.setUint32(8, seq, true);
   view.setUint32(12, size - 16, true);
@@ -690,8 +741,21 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
   view.setUint32(104, s.maxLatenessFrames, true);
   view.setUint16(108, s.hrtfVoices, true);
   view.setUint16(110, s.hrtfLoadFailure, true);
+  view.setUint16(112, s.bedVoices, true);
+  view.setUint16(114, s.beds.length, true);
+  view.setUint16(116, s.fxVoices, true);
+  view.setUint16(118, s.ambisonicVoices, true);
+  view.setUint16(120, s.zonesActive, true);
+  view.setUint16(122, s.zonesRinging, true);
+  view.setUint16(124, s.zoneEvents.length, true);
+  view.setUint16(126, s.bedsRefused, true);
+  view.setUint16(128, s.zones.length, true);
+  view.setUint16(130, s.m3Shed, true);
+  view.setUint32(132, s.zoneUsedKB, true);
+  view.setUint32(136, s.workBed, true);
+  view.setUint32(140, s.workZones, true);
 
-  let cur = 112;
+  let cur = 144;
   for (const v of [...s.ended, ...s.demoted, ...s.starved]) {
     view.setUint32(cur, v, true);
     cur += 4;
@@ -715,6 +779,26 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
     view.setFloat32(cur, p.l, true);
     view.setFloat32(cur + 4, p.r, true);
     cur += 8;
+  }
+  for (const b of s.beds) {
+    view.setUint16(cur, b.bus, true);
+    view.setUint16(cur + 2, b.voices, true);
+    view.setUint32(cur + 4, b.work, true);
+    cur += 8;
+  }
+  for (const z of s.zones) {
+    view.setUint32(cur, z.kernelId, true);
+    view.setUint8(cur + 4, z.state);
+    view.setUint8(cur + 5, z.pad);
+    view.setUint16(cur + 6, z.quantaSinceInput, true);
+    view.setFloat32(cur + 8, z.wetPeak, true);
+    cur += 12;
+  }
+  for (const e of s.zoneEvents) {
+    view.setUint8(cur, e.slot);
+    view.setUint8(cur + 1, e.code);
+    view.setUint16(cur + 2, e.reserved, true);
+    cur += 4;
   }
   expect(cur).toBe(size);
   return new Uint8Array(view.buffer);

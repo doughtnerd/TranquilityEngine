@@ -1,0 +1,441 @@
+From 18d9366bfb0d2241276462e868f0cab499746c30 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 07:02:06 +0000
+Subject: [PATCH] The flip: beds on, HRTF voices to 8 (ADR 0162 A5 + A6b, #123,
+ #125)
+
+bedInitParams lays out audio.bed.maxBeds slots, so the planner sends BED_CONFIG and the voices past voices.hrtf mix into
+their bus's bed. DEFAULT_VOICES.hrtf 16 -> 8; VOICE_PRESETS HRTF 4/8/8 with maxBeds 0/2/4 and maxClips 1/1/2 (the
+comparison reads them); the stress sample takes the high preset's numbers (hrtf 8, maxBeds 4, maxClips 2). Tests that
+assumed 16 or 32 HRTF voices updated; a loopback test follows a bus edit with the real wasm. Not to merge until A7's bed
+bench is recorded and the gates are checked.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01QjpoPsrMm54T1mEmV5vciB
+---
+ samples/stress/project.json                   |   8 +-
+ src/engine/audio/settings.ts                  |   4 +-
+ src/engine/tests/audioSettings.test.ts        |  12 +-
+ src/engine/tests/audioSettingsSamples.test.ts |  16 ++
+ src/engine/tests/audioSettingsSpatial.test.ts |   8 +-
+ .../audio/editor/audioSettingsModel.test.ts   |  16 +-
+ .../audio/editor/audioSettingsModel.ts        |  14 +-
+ .../audio/runtime/core/bedLoopback.test.ts    | 159 ++++++++++++++++++
+ src/plugins/audio/runtime/core/initParams.ts  |   8 +-
+ tests/e2e/audio-stress.spec.ts                |   3 +-
+ 10 files changed, 224 insertions(+), 24 deletions(-)
+ create mode 100644 src/engine/tests/audioSettingsSamples.test.ts
+ create mode 100644 src/plugins/audio/runtime/core/bedLoopback.test.ts
+
+diff --git a/samples/stress/project.json b/samples/stress/project.json
+index a1194b7d..12551e67 100644
+--- a/samples/stress/project.json
++++ b/samples/stress/project.json
+@@ -28,9 +28,15 @@
+     "voices": {
+       "mixed": 256,
+       "logical": 4096,
+-      "hrtf": 32
++      "hrtf": 8
+     },
+     "clipMemoryMB": 256,
++    "bed": {
++      "maxBeds": 4
++    },
++    "ambisonic": {
++      "maxClips": 2
++    },
+     "buses": [
+       {
+         "name": "Master",
+diff --git a/src/engine/audio/settings.ts b/src/engine/audio/settings.ts
+index b5edade3..856d221f 100644
+--- a/src/engine/audio/settings.ts
++++ b/src/engine/audio/settings.ts
+@@ -174,7 +174,7 @@ export interface VoiceSettings {
+   mixed: number;
+   /** Integer `mixed`..8192, default 4096. */
+   logical: number;
+-  /** Integer 0..32, default 16 (low preset 4). 0 behaves as `spatial: "equalPower"`. */
++  /** Integer 0..32, default 8 (low preset 4; ADR 0162: the voices past it go to the bed, where the bus has one). 0 behaves as `spatial: "equalPower"`. */
+   hrtf: number;
+ }
+ 
+@@ -225,7 +225,7 @@ export function defaultBackend(env?: BackendEnv): "babylon" | "core" {
+   return isMacOSDesktop(env) ? MACOS_DESKTOP_DEFAULT_BACKEND : DEFAULT_BACKEND;
+ }
+ 
+-export const DEFAULT_VOICES: Readonly<VoiceSettings> = { mixed: 128, logical: 4096, hrtf: 16 };
++export const DEFAULT_VOICES: Readonly<VoiceSettings> = { mixed: 128, logical: 4096, hrtf: 8 };
+ 
+ /** `audio.limiterLookaheadMs` when absent (`DEFAULT_LOOKAHEAD_MS` in `audio-dsp/src/limiter.rs`). */
+ export const DEFAULT_LIMITER_LOOKAHEAD_MS = 1.5;
+diff --git a/src/engine/tests/audioSettings.test.ts b/src/engine/tests/audioSettings.test.ts
+index 642fc506..87d8af40 100644
+--- a/src/engine/tests/audioSettings.test.ts
++++ b/src/engine/tests/audioSettings.test.ts
+@@ -4,10 +4,10 @@ import { DEFAULT_BACKEND, defaultAudioSettings, defaultBackend, isMacOSDesktop,
+ // §2 of docs/design/0157-audio-core/api-and-models.md, one block per key (K13).
+ describe("audio settings: the §2 keys (ADR 0157)", () => {
+   describe("defaults", () => {
+-    it("no audio section gives every default: voices 128/4096/16, background mute, clipFormat i16, codecs.aac false, spatial hrtf, backend core, no clipMemoryMB", () => {
++    it("no audio section gives every default: voices 128/4096/8, background mute, clipFormat i16, codecs.aac false, spatial hrtf, backend core, no clipMemoryMB", () => {
+       const { settings, problems } = parseAudioSettings(undefined);
+       expect(problems).toEqual([]);
+-      expect(settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 16 });
++      expect(settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 8 });
+       expect(settings.background).toBe("mute");
+       expect(settings.clipFormat).toBe("i16");
+       expect(settings.codecs).toEqual({ aac: false });
+@@ -35,7 +35,7 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
+       ]);
+       expect(settings.snapshots).toEqual([{ name: "Paused", volumes: { Music: 0.3 }, lowpass: { Music: 800 } }]);
+       expect(settings.ducking).toEqual([{ target: "Music", trigger: "Voice", amount: 0.4, attack: 0.1, release: 0.6 }]);
+-      expect(settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 16 });
++      expect(settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 8 });
+       expect(settings.background).toBe("mute");
+       expect(settings.backend).toBe("core");
+       expect(settings.buses.every((b) => !("maxVoices" in b))).toBe(true);
+@@ -101,7 +101,7 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
+       expect(high.settings.voices.logical).toBe(8192);
+       expect(high.problems).toHaveLength(1);
+       const below = parseAudioSettings({ voices: { mixed: 256, logical: 100 } });
+-      expect(below.settings.voices).toEqual({ mixed: 256, logical: 256, hrtf: 16 });
++      expect(below.settings.voices).toEqual({ mixed: 256, logical: 256, hrtf: 8 });
+       expect(below.problems).toEqual(["audio.voices.logical: 100 is outside 256..8192; using 256."]);
+     });
+     it("hrtf clamps to 0..32 with a problem when clamped; 0 is kept", () => {
+@@ -114,10 +114,10 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
+     });
+     it("a non-object voices, or a non-number member, gives the default plus a problem", () => {
+       const notObject = parseAudioSettings({ voices: 5 });
+-      expect(notObject.settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 16 });
++      expect(notObject.settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 8 });
+       expect(notObject.problems).toEqual(["audio.voices must be an object."]);
+       const member = parseAudioSettings({ voices: { mixed: "big" } });
+-      expect(member.settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 16 });
++      expect(member.settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 8 });
+       expect(member.problems).toHaveLength(1);
+       expect(member.problems[0]).toMatch(/^audio\.voices\.mixed: /);
+     });
+diff --git a/src/engine/tests/audioSettingsSamples.test.ts b/src/engine/tests/audioSettingsSamples.test.ts
+new file mode 100644
+index 00000000..04129d69
+--- /dev/null
++++ b/src/engine/tests/audioSettingsSamples.test.ts
+@@ -0,0 +1,16 @@
++// ADR 0162 A6b: the `stress` sample carries the high preset's numbers (HRTF 8, `maxBeds` 4, `maxClips` 2) and its audio
++// section parses without a problem.
++import { describe, expect, it } from "vitest";
++import stress from "../../../samples/stress/project.json";
++import { parseAudioSettings } from "../audio/settings";
++
++describe("sample audio settings", () => {
++  it("stress: the high preset's numbers, no problems", () => {
++    const { settings, problems } = parseAudioSettings(stress.audio);
++    expect(problems).toEqual([]);
++    expect(settings.voices).toEqual({ mixed: 256, logical: 4096, hrtf: 8 });
++    expect(settings.clipMemoryMB).toBe(256);
++    expect(settings.bed.maxBeds).toBe(4);
++    expect(settings.ambisonic.maxClips).toBe(2);
++  });
++});
+diff --git a/src/engine/tests/audioSettingsSpatial.test.ts b/src/engine/tests/audioSettingsSpatial.test.ts
+index 4b9a315b..110e1d01 100644
+--- a/src/engine/tests/audioSettingsSpatial.test.ts
++++ b/src/engine/tests/audioSettingsSpatial.test.ts
+@@ -23,9 +23,11 @@ describe("audio settings: the M3 keys (ADR 0162 §2.1)", () => {
+       expect(settings.speedOfSound).toBe(343);
+       expect(defaultAudioSettings().speedOfSound).toBe(343);
+     });
+-    it("voices.hrtf stays 16 (the A6b flip is not this task)", () => {
+-      expect(parseAudioSettings(undefined).settings.voices.hrtf).toBe(16);
+-      expect(parseAudioSettings({}).settings.voices.hrtf).toBe(16);
++    it("voices.hrtf defaults to 8 (the A6b flip: the voices past it go to the bed)", () => {
++      expect(parseAudioSettings(undefined).settings.voices.hrtf).toBe(8);
++      expect(parseAudioSettings({}).settings.voices.hrtf).toBe(8);
++      expect(parseAudioSettings({ voices: { mixed: 64 } }).settings.voices.hrtf).toBe(8);
++      expect(defaultAudioSettings().voices.hrtf).toBe(8);
+     });
+     it("a section with only the old keys gives every M3 default and no problem", () => {
+       const { settings, problems } = parseAudioSettings({
+diff --git a/src/plugins/audio/editor/audioSettingsModel.test.ts b/src/plugins/audio/editor/audioSettingsModel.test.ts
+index 7668e9bd..7b8dbfeb 100644
+--- a/src/plugins/audio/editor/audioSettingsModel.test.ts
++++ b/src/plugins/audio/editor/audioSettingsModel.test.ts
+@@ -3,7 +3,7 @@ import { parseAudioSettings } from "../../../engine/audio/settings";
+ import { MAX_PARAMETERS } from "../../../engine/audio/eventFormat";
+ import { readDraft, withSettings } from "../../../editor/projectSettingsModel";
+ import {
+-  addBus, addDucking, addEffect, addSnapshot, applyVoicesPreset, audioOf, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue,
++  addBus, addDucking, addEffect, addSnapshot, applyVoicesPreset, audioOf, VOICE_PRESETS, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue,
+   addBusAutomation, addParameter, removeBusAutomation, removeParameter, renameParameter, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter,
+   setBusAutomationTarget, setParameterDefaultLabel, setParameterLabelled, setParameterLabels, setParameterRange,
+   setClipFormat, setClipMemory, setCodec, setLimiterLookahead, setSnapshotVolume, setSpatial, setVoices, voicesPreset,
+@@ -88,6 +88,20 @@ describe("audio settings model, the core keys (ADR 0157 §2, K13)", () => {
+     expect(voicesPreset(audioOf(back))).toBe("default");
+     expect(voicesPreset(audioOf(setVoices(low, { hrtf: 5 })))).toBe("custom");
+   });
++  it("the presets carry ADR 0162's numbers: HRTF 4/8/8, maxBeds 0/2/4, maxClips 1/1/2, and the comparison reads them", () => {
++    expect(VOICE_PRESETS.low).toMatchObject({ voices: { hrtf: 4 }, maxBeds: 0, maxClips: 1 });
++    expect(VOICE_PRESETS.default).toMatchObject({ voices: { hrtf: 8 }, maxBeds: 2, maxClips: 1 });
++    expect(VOICE_PRESETS.high).toMatchObject({ voices: { hrtf: 8 }, maxBeds: 4, maxClips: 2 });
++    const high = audioOf(applyVoicesPreset(empty(), "high"));
++    expect(high.bed.maxBeds).toBe(4);
++    expect(high.ambisonic.maxClips).toBe(2);
++    expect(voicesPreset(high)).toBe("high");
++    expect(voicesPreset({ ...high, bed: { maxBeds: 3 } })).toBe("custom");
++    expect(voicesPreset({ ...high, ambisonic: { maxClips: 1 } })).toBe("custom");
++    const low = audioOf(applyVoicesPreset(empty(), "low"));
++    expect(low.bed.maxBeds).toBe(0);
++    expect(voicesPreset(audioOf(applyVoicesPreset(applyVoicesPreset(empty(), "high"), "default")))).toBe("default");
++  });
+   it("sets background, clip memory, clip format, codec, spatial and backend; the result re-parses without problems", () => {
+     let d = setBackground(empty(), "pause");
+     d = setClipMemory(d, 5000);
+diff --git a/src/plugins/audio/editor/audioSettingsModel.ts b/src/plugins/audio/editor/audioSettingsModel.ts
+index b7125a24..8f0ba3a6 100644
+--- a/src/plugins/audio/editor/audioSettingsModel.ts
++++ b/src/plugins/audio/editor/audioSettingsModel.ts
+@@ -232,9 +232,9 @@ export function setVoices(d: SettingsDraft, patch: Partial<VoiceSettings>): Sett
+ 
+ /** Named bundles of the voice numbers and the clip ceiling (architecture 5.3); the file stores the numbers. "low" is provisional until the low-end soak (C3) sizes it. */
+ export const VOICE_PRESETS = {
+-  low: { voices: { mixed: 64, logical: 1024, hrtf: 4 }, clipMemoryMB: 64 },
+-  default: { voices: { mixed: 128, logical: 4096, hrtf: 16 }, clipMemoryMB: undefined },
+-  high: { voices: { mixed: 256, logical: 4096, hrtf: 32 }, clipMemoryMB: 256 },
++  low: { voices: { mixed: 64, logical: 1024, hrtf: 4 }, clipMemoryMB: 64, maxBeds: 0, maxClips: 1 },
++  default: { voices: { mixed: 128, logical: 4096, hrtf: 8 }, clipMemoryMB: undefined, maxBeds: 2, maxClips: 1 },
++  high: { voices: { mixed: 256, logical: 4096, hrtf: 8 }, clipMemoryMB: 256, maxBeds: 4, maxClips: 2 },
+ } as const;
+ export type VoicePresetName = keyof typeof VOICE_PRESETS;
+ export const VOICE_PRESET_NAMES = Object.keys(VOICE_PRESETS) as VoicePresetName[];
+@@ -243,15 +243,17 @@ export const VOICE_PRESET_NAMES = Object.keys(VOICE_PRESETS) as VoicePresetName[
+ export function voicesPreset(a: AudioSettings): VoicePresetName | "custom" {
+   for (const name of VOICE_PRESET_NAMES) {
+     const p = VOICE_PRESETS[name];
+-    if (p.voices.mixed === a.voices.mixed && p.voices.logical === a.voices.logical && p.voices.hrtf === a.voices.hrtf && p.clipMemoryMB === a.clipMemoryMB) return name;
++    if (p.voices.mixed === a.voices.mixed && p.voices.logical === a.voices.logical && p.voices.hrtf === a.voices.hrtf && p.clipMemoryMB === a.clipMemoryMB && p.maxBeds === a.bed.maxBeds && p.maxClips === a.ambisonic.maxClips) return name;
+   }
+   return "custom";
+ }
+ 
+-/** Apply a preset: voices and the clip ceiling (the default preset leaves the ceiling unset). Per-bus limits are kept, clamped to `logical`. */
++/** Apply a preset: voices, the clip ceiling (the default preset leaves it unset), `bed.maxBeds` and `ambisonic.maxClips`. Per-bus limits are kept, clamped to `logical`. */
+ export function applyVoicesPreset(d: SettingsDraft, name: VoicePresetName): SettingsDraft {
+   const p = VOICE_PRESETS[name];
+-  return setClipMemory(setVoices(d, p.voices), p.clipMemoryMB);
++  const voiced = setClipMemory(setVoices(d, p.voices), p.clipMemoryMB);
++  const a = audioOf(voiced);
++  return a.bed.maxBeds === p.maxBeds && a.ambisonic.maxClips === p.maxClips ? voiced : withAudio(voiced, { ...a, bed: { ...a.bed, maxBeds: p.maxBeds }, ambisonic: { ...a.ambisonic, maxClips: p.maxClips } });
+ }
+ 
+ export function setBackground(d: SettingsDraft, background: AudioBackground): SettingsDraft {
+diff --git a/src/plugins/audio/runtime/core/bedLoopback.test.ts b/src/plugins/audio/runtime/core/bedLoopback.test.ts
+new file mode 100644
+index 00000000..d2648445
+--- /dev/null
++++ b/src/plugins/audio/runtime/core/bedLoopback.test.ts
+@@ -0,0 +1,159 @@
++// ADR 0162 A5 + A6b end to end on the loopback host (the real wasm with beds laid out, the shell, the clip registry, the
++// core backend): the bed planner's BED_CONFIG reaches the core, the voices past `voices.hrtf` mix into their bus's bed
++// (`Audio.debug()` shows `beds[]`, `counters.bedVoices` and the bus rows), and the plan follows a bus edit. `audio.spatial:
++// "equalPower"` keeps beds and fetches neither table (R9); the MagLS filters load once, the first time a bed is hosted.
++import { describe, expect, it } from "vitest";
++import { Mixer } from "../../../../engine/audio/mixer";
++import { defaultAudioSettings, parseAudioSettings } from "../../../../engine/audio/settings";
++import { fakeDecoder } from "./fakeDecoder";
++import type { AudioHost } from "./context";
++import { CoreBackend, type CoreBackendHost } from "./coreBackend";
++import { createHrirLoader, createMaglsLoader, maglsUrl } from "./hrir";
++
++const att = { minDistance: 1, maxDistance: 400, rolloff: "inverse" as const };
++const req = (path: string, x: number, z: number, bus = "SFX") => ({ path, url: path, loop: true, stream: false, bus, attenuation: att, position: { x, y: 0, z } });
++
++async function readBytes(url: URL): Promise<ArrayBuffer> {
++  const nodeFs = "node:fs/promises";
++  const { readFile } = (await import(/* @vite-ignore */ nodeFs)) as { readFile(url: URL): Promise<Uint8Array> };
++  const bytes = await readFile(url);
++  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
++}
++
++async function rig(opts: { spatial?: "hrtf" | "equalPower"; hrtf?: number; maxBeds?: number } = {}) {
++  const testing = await import("../testing");
++  const preset = { ...testing.LOOPBACK_PRESET, maxBeds: 4 };
++  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
++  try {
++    loop = await testing.createLoopbackHost({ preset });
++  } catch {
++    return null;
++  }
++  const { createClipRegistry } = await import("./clipRegistry");
++  const link = loop.link;
++  const frames = 48_000;
++  const tone = new Float32Array(frames).map((_, i) => 0.2 * Math.sin((2 * Math.PI * 440 * i) / 48_000));
++  const clips = createClipRegistry({
++    send: (m) => link.post(m),
++    nextSeq: () => link.nextSeq(),
++    fetchBytes: async () => new ArrayBuffer(8),
++    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [tone] })),
++    nextFrame: (cb) => cb(),
++    nextQuantum: (cb) => cb(),
++  });
++  const fetches = { hrir: 0, magls: 0 };
++  const hrir = createHrirLoader({ clips, sampleRate: 48_000, fetchBytes: async () => (fetches.hrir++, readBytes(new URL("../wasm/myco_hrir.bin", import.meta.url))) });
++  const magls = createMaglsLoader({ clips, sampleRate: 48_000, fetchBytes: async () => (fetches.magls++, readBytes(maglsUrl())) });
++  const host: CoreBackendHost = {
++    link: link as CoreBackendHost["link"],
++    status: "running",
++    preset,
++    worldCount: 1,
++    sampleRate: 48_000,
++    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
++  };
++  const settings = defaultAudioSettings();
++  Object.assign(
++    settings,
++    parseAudioSettings({
++      buses: [{ name: "Master" }, { name: "Ambience", parent: "Master", bed: "own", bedPriority: 200 }, { name: "SFX", parent: "Master" }],
++      bed: { maxBeds: opts.maxBeds ?? 2 },
++    }).settings,
++  );
++  settings.spatial = opts.spatial ?? "hrtf";
++  settings.voices = { ...settings.voices, hrtf: opts.hrtf ?? 1 };
++  const mixer = new Mixer(settings);
++  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer, hrir, magls });
++  const step = async (n: number) => {
++    for (let f = 0; f < n; f++) {
++      mixer.update(0.003);
++      backend.update(0.003);
++      loop.renderQuanta(4);
++      await new Promise((r) => setTimeout(r, 0));
++    }
++  };
++  return { loop, backend, mixer, settings, step, fetches };
++}
++
++describe("beds on the loopback host (A5 + A6b)", () => {
++  it("BED_CONFIG reaches the core, and the voice past voices.hrtf mixes into its bus's bed", async (ctx) => {
++    const r = await rig();
++    if (!r) return ctx.skip();
++    const { backend, step } = r;
++    backend.play(req("near.wav", -1, -1));
++    backend.play(req("far.wav", -60, -60));
++    await step(40);
++    const d = backend.debug();
++    expect(d.counters.hrtfVoices).toBe(1);
++    expect(d.counters.bedVoices).toBe(1);
++    expect(d.counters.beds).toBeGreaterThanOrEqual(1);
++    expect(d.counters.bedsRefused).toBe(0);
++    // Master (255) hosts slot 0, Ambience (200) slot 1; SFX shares Master's.
++    expect(d.beds).toEqual([
++      expect.objectContaining({ slot: 0, bus: "Master", sharing: ["SFX"], denied: [], voices: 1 }),
++      expect.objectContaining({ slot: 1, bus: "Ambience", sharing: [], denied: [] }),
++    ]);
++    expect(d.buses.find((b) => b.name === "SFX")).toMatchObject({ bed: "parent", bedHost: "Master", bedLost: false });
++    expect(backend.beds.bedSlotOf(2)).toBe(0);
++    expect(backend.panners.bedCount).toBe(1);
++    // The MagLS filters were fetched once, the first time a bed was hosted.
++    expect(r.fetches.magls).toBe(1);
++    backend.dispose();
++  });
++
++  it("follows a bus edit: SFX asks for its own bed and the far voice moves into it", async (ctx) => {
++    const r = await rig();
++    if (!r) return ctx.skip();
++    const { backend, step, settings, mixer } = r;
++    backend.play(req("near.wav", -1, -1));
++    backend.play(req("far.wav", -60, -60));
++    await step(30);
++    expect(backend.debug().beds?.find((b) => b.bus === "Master")?.voices).toBe(1);
++    // SFX (index 2) now asks own at priority 230: it outranks Ambience, which loses its slot (maxBeds 2).
++    settings.buses[2]!.bed = "own";
++    settings.buses[2]!.bedPriority = 230;
++    backend.configureBuses(mixer);
++    await step(30);
++    const d = backend.debug();
++    expect(d.beds?.map((b) => b.bus)).toEqual(["Master", "SFX"]);
++    expect(d.beds?.find((b) => b.bus === "SFX")?.voices).toBe(1);
++    expect(d.beds?.find((b) => b.bus === "Master")?.voices).toBe(0);
++    expect(d.buses.find((b) => b.name === "Ambience")).toMatchObject({ bed: "own", bedHost: "Master", bedLost: true });
++    expect(d.buses.find((b) => b.name === "SFX")).toMatchObject({ bed: "own", bedHost: "SFX", bedLost: false });
++    expect(d.counters.bedDenied).toBe(1);
++    expect(d.counters.bedsRefused).toBe(0);
++    // maxBeds 0 frees every bed: the far voice pans equal-power again.
++    settings.bed.maxBeds = 0;
++    backend.configureBuses(mixer);
++    await step(30);
++    expect(backend.debug().counters.bedVoices).toBe(0);
++    expect(backend.panners.bedCount).toBe(0);
++    backend.dispose();
++  });
++
++  it('"equalPower" keeps the beds and fetches neither the HRIR nor the MagLS filters (R9)', async (ctx) => {
++    const r = await rig({ spatial: "equalPower" });
++    if (!r) return ctx.skip();
++    r.backend.play(req("a.wav", -1, -1));
++    r.backend.play(req("b.wav", -60, -60));
++    await r.step(30);
++    const d = r.backend.debug();
++    expect(d.counters.hrtfVoices).toBe(0);
++    expect(d.counters.bedVoices).toBe(2);
++    expect(r.fetches).toEqual({ hrir: 0, magls: 0 });
++    r.backend.dispose();
++  });
++
++  it("maxBeds 0 hosts no bed: nothing is sent, every voice stays equal-power past the HRTF limit", async (ctx) => {
++    const r = await rig({ maxBeds: 0 });
++    if (!r) return ctx.skip();
++    r.backend.play(req("a.wav", -1, -1));
++    r.backend.play(req("b.wav", -60, -60));
++    await r.step(30);
++    const d = r.backend.debug();
++    expect(d.counters.bedVoices).toBe(0);
++    expect(d.beds).toEqual([]);
++    expect(r.fetches.magls).toBe(0);
++    r.backend.dispose();
++  });
++});
+diff --git a/src/plugins/audio/runtime/core/initParams.ts b/src/plugins/audio/runtime/core/initParams.ts
+index 388662ad..f3d18ff6 100644
+--- a/src/plugins/audio/runtime/core/initParams.ts
++++ b/src/plugins/audio/runtime/core/initParams.ts
+@@ -1,6 +1,6 @@
+ // ADR 0162 (K2, K4; api-and-models §5.2, contract C8): the ABI 2.0 init parameters `myco_audio_init` takes after the
+ // M2 five, one function per feature, read by `presetFromSettings` (context.ts) into the `CorePreset`. Each sizes a
+-// region the core lays out before the arena; 0 lays out nothing. They return 0 until their feature's flip, so an M2
++// region the core lays out before the arena; 0 lays out nothing. They return 0 until their feature's flip (`bedInitParams` has flipped, A5), so an M2
+ // project's core is laid out as before. **Each flip edits only its own function:** A5 `bedInitParams`
+ // (`audio.bed.maxBeds`), C5 `zoneInitParams` (`maxActive + standby` slots of `maxIrSeconds`), B5 `wideInitParams`
+ // (`audio.ambisonic.maxClips`).
+@@ -23,10 +23,10 @@ export interface SpatialInitParams {
+   readonly maxWide: number;
+ }
+ 
+-/** @internal `max_beds` (A5's flip: `audio.bed.maxBeds`). 0 until then: no bed is laid out. */
++/** @internal `max_beds` (A5's flip, on: `audio.bed.maxBeds`, 0..4). 0 lays out no bed, as M2. */
+ export function bedInitParams(settings: AudioSettings): Pick<SpatialInitParams, "maxBeds"> {
+-  void settings;
+-  return { maxBeds: 0 };
++  const n = Math.floor(settings.bed.maxBeds);
++  return { maxBeds: n > 0 ? Math.min(n, 4) : 0 };
+ }
+ 
+ /** @internal `max_zone_slots` and the IR length (C5's flip: `audio.zones`). 0 until then: no zone slot is laid out. */
+diff --git a/tests/e2e/audio-stress.spec.ts b/tests/e2e/audio-stress.spec.ts
+index 6a9c3295..806d0b9a 100644
+--- a/tests/e2e/audio-stress.spec.ts
++++ b/tests/e2e/audio-stress.spec.ts
+@@ -100,7 +100,8 @@ test("the stress sample runs for a minute: thousands of voices, the cap adapts,
+     // The beds' prefill fills the logical voices: well into the thousands (the limit is 4,096).
+     expect(s.logicalMax).toBeGreaterThan(2000);
+     expect(s.mixedMax).toBeGreaterThan(32);
+-    expect(s.hrtfMax).toBeGreaterThan(8);
++    expect(s.hrtfMax).toBeGreaterThan(0);
++    expect(s.hrtfMax).toBeLessThanOrEqual(8); // the high preset's 8 (ADR 0162); the voices past it go to the bed
+     // Eight looping streams, open the whole time.
+     expect(c.streams).toBe(8);
+   });
+-- 
+2.43.0
+

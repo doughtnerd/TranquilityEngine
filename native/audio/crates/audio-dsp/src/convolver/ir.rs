@@ -148,7 +148,18 @@ pub fn normalization_scale(sample_rate: f32) -> f32 {
         let x = g.next_sample() as f64;
         sum += x * x;
     }
-    let mut power = if n == 0 { 0.0 } else { libm::sqrt(sum / (CHANNELS * n) as f64) as f32 };
+    blink_normalization_scale(sum, CHANNELS * n, sample_rate)
+}
+
+/// Blink's `CalculateNormalizationScale` from a response's sum of squares (`f64`, every channel's
+/// samples) over `samples` samples in all, at `sample_rate`: `1 / rms` (rms at least `kMinPower`)
+/// times `10^(-58 / 20)` times `44100 / sample_rate`. [`normalization_scale`] uses it for the
+/// seeded response; the decoder's IR preparation (task C2a) uses it for zone IRs, passing the
+/// result as `kernel::IrSpec::scale`.
+#[inline(never)]
+pub fn blink_normalization_scale(sum_squares: f64, samples: usize, sample_rate: f32) -> f32 {
+    let sum = sum_squares;
+    let mut power = if samples == 0 { 0.0 } else { libm::sqrt(sum / samples as f64) as f32 };
     // Protect against accidental overload.
     if !power.is_finite() || power < MIN_POWER {
         power = MIN_POWER;

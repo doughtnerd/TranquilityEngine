@@ -32,7 +32,7 @@ const SECONDS = 2;
 const WARMUP = 1;
 const SEED = 1;
 
-/** The gated scenes (`audio-bench`'s `scene()`): the presets, the Stress sample's twins, and focused ones. */
+/** The gated scenes (`audio-bench`'s `scene()`): the presets, the Stress sample's twins, focused ones, the bed scenes and M3's filter and worst-case scenes. */
 const SCENES = [
   "low",
   "default",
@@ -54,6 +54,26 @@ const SCENES = [
   "automation-virtual",
   "bus-automation",
   "sustain",
+  // ADR 0162 A7: beds. 64 voices into one MagLS bed, 256 into two, and 64 voices crossing the HRTF/bed boundary.
+  "bed-64",
+  "bed-256",
+  "bed-xfade",
+  // ADR 0162 D6: 256 voices each with a ramping low-pass and high-pass (D1's pool), and each preset's worst case: beds,
+  // ambisonic clips (one private), filters and zone slots sized (these three have no sends: the slots idle; see C7's `-sends` twins below).
+  "filters-256",
+  // ADR 0162 A7: four 3rd-order ambisonic clips rotated by a turning listener into one MagLS bed (B3's voice).
+  "ambi-o3",
+  "m3-worst-high",
+  "m3-worst-default",
+  "m3-worst-low",
+  // ADR 0162 C7: zones with C4's sends. Two 2 s zones fed by 16 voices; zones swapping slots through the standby and eviction
+  // paths (kernels uploaded as they go); the high preset's typical M3 scene; and D6's worst scenes with their slots convolving.
+  "zones-2x2s",
+  "zones-swap",
+  "m3-high",
+  "m3-worst-high-sends",
+  "m3-worst-default-sends",
+  "m3-worst-low-sends",
 ];
 
 function fail(message) {

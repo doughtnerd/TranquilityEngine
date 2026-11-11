@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { auditionNotice, buttonStates, instanceAlive, instanceVoices, isStale, limitRows, newInstanceId, nextPhase, parameterChanges } from "./auditionHost";
+import { auditionBackend, auditionNotice, buttonStates, instanceAlive, instanceVoices, isStale, limitRows, newInstanceId, nextPhase, parameterChanges } from "./auditionHost";
 
 describe("audition state machine", () => {
   it("plays, releases once, and ends", () => {
@@ -66,4 +66,21 @@ describe("notice", () => {
   it("explains locked audio", () => expect(auditionNotice("locked", "playing", "locked", true)).toMatch(/locked/));
   it("explains a play that made nothing", () => expect(auditionNotice("running", "ended", null, false)).toMatch(/Nothing played/));
   it("is quiet while playing normally", () => expect(auditionNotice("running", "playing", null, true)).toBeNull());
+});
+
+describe("backend label", () => {
+  it("names the core without a note", () => {
+    expect(auditionBackend("core")).toEqual({ label: "Audio core", skipsFilterAndSends: false, note: null });
+  });
+  it("names the Babylon fallback and says filters and aux sends are skipped", () => {
+    const b = auditionBackend("babylon");
+    expect(b.label).toBe("Babylon fallback");
+    expect(b.skipsFilterAndSends).toBe(true);
+    expect(b.note).toMatch(/filters and aux sends/);
+  });
+  it("says the core is loading while the stand-in plays, and falls back to a name for a fake", () => {
+    expect(auditionBackend("pending").label).toBe("Audio core loading");
+    expect(auditionBackend("fake").label).toBe("fake");
+    expect(auditionBackend(undefined).label).toBe("Audio core");
+  });
 });

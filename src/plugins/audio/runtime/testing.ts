@@ -3,8 +3,12 @@
 //
 // `makeFakeBackend()` replaces the per-test fakes and the library mocks: an `AudioBackend` that records what the
 // engine tells it. `createLoopbackHost()` runs the real committed wasm in Node with no AudioContext.
+//
+// ADR 0162 (K4 owns this file in M3; the coordinator afterwards): the fake implements every K0 member: fake voices take
+// `setVelocity`, `setOcclusion` and `setDopplerRate` (recorded like the other setters, latest values readable), and
+// `makeFakeZoneIrService()` is a `ZoneIrService` a test drives by hand.
 
-import type { AudioBackend, Attenuation, AudioVoice, ListenerPose, PlayRequest } from "./backend";
+import type { AudioBackend, AudioPanner, Attenuation, AudioVoice, ListenerPose, PlayRequest, VoiceSpatialOptions, ZoneIrService } from "./backend";
 import { mixer, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { CoreLink, type LinkPort } from "./core/context";
@@ -27,7 +31,12 @@ export type FakeVoiceEvent =
   | { readonly kind: "stop"; readonly fadeSeconds?: number }
   | { readonly kind: "fade"; readonly to: number; readonly seconds: number }
   | { readonly kind: "priority"; readonly value: number }
-  | { readonly kind: "loop"; readonly start: number; readonly end: number; readonly looping: boolean };
+  | { readonly kind: "loop"; readonly start: number; readonly end: number; readonly looping: boolean }
+  // ADR 0162 (K0 members).
+  | { readonly kind: "velocity"; readonly value: Vec3Like }
+  | { readonly kind: "occlusion"; readonly gain: number; readonly lpHz: number }
+  | { readonly kind: "doppler"; readonly factor: number }
+  | { readonly kind: "spatialOptions"; readonly options: VoiceSpatialOptions };
 
 /** A voice the fake handed out. Fields hold the latest value; `events` the whole history. */
 export interface FakeVoice extends AudioVoice {
@@ -44,6 +53,26 @@ export interface FakeVoice extends AudioVoice {
   readonly alive: boolean;
   /** Ends the voice the way a finished clip does: `playing` goes false and the bus count drops. */
   end(): void;
+  // ADR 0162 (K0): the latest values main's passes handed over (defaults: no velocity, open, factor 1).
+  /** The latest `setVelocity`, or null before one. */
+  readonly velocity: Vec3Like | null;
+  /** The latest `setOcclusion` gain (1 before one). */
+  readonly occlusionGain: number;
+  /** The latest `setOcclusion` cutoff, Hz (24000 before one). */
+  readonly occlusionLpHz: number;
+  /** The latest `setDopplerRate` (1 before one). */
+  readonly dopplerRate: number;
+  setVelocity(v: Vec3Like): void;
+  setOcclusion(gain: number, lpHz: number): void;
+  setDopplerRate(factor: number): void;
+  /** ADR 0162 §1.2 (D5): Play edits of the source's M3 options, recorded as `spatialOptions` events. */
+  setSpatialOptions(o: VoiceSpatialOptions): void;
+  /** ADR 0162 D5: the panner the voice reports (the public handle's `panner`): "ambisonic", "equalPower" for a positioned play, else "flat", until `setPanner`. Null once freed. */
+  readonly panner: AudioPanner | null;
+  /** ADR 0162 D5: the smoothed dry occlusion gain (the public handle's `occlusion`): the latest `setOcclusion` gain. */
+  readonly occlusion: number;
+  /** Test hook: the panner pick's answer (a spatial voice moving to "hrtf" or "bed"). */
+  setPanner(kind: AudioPanner): void;
 }
 
 /** The fake backend: an `AudioBackend` plus what a test inspects. */
@@ -135,7 +164,7 @@ let nextFakeVoiceId = 1;
 function makeFakeVoice(request: PlayRequest): FakeVoice {
   const events: FakeVoiceEvent[] = [];
   let counted = true;
-  const state = { volume: 1, pitch: 1, attenuation: null as Attenuation | null, position: null as Vec3Like | null, bus: request.bus, paused: false, stopped: false, playing: true, alive: true };
+  const state = { volume: 1, pitch: 1, attenuation: null as Attenuation | null, position: null as Vec3Like | null, bus: request.bus, paused: false, stopped: false, playing: true, alive: true, panner: null as AudioPanner | null, velocity: null as Vec3Like | null, occlusionGain: 1, occlusionLpHz: 24_000, dopplerRate: 1 };
   const uncount = (): void => {
     if (counted) mixer.voiceEnded(state.bus);
     counted = false;
@@ -190,7 +219,104 @@ function makeFakeVoice(request: PlayRequest): FakeVoice {
       if (!(fadeSeconds && fadeSeconds > 0)) uncount(); // a fading voice is freed (and uncounted) at `end()`
     },
     end() { state.playing = false; uncount(); },
+    // ADR 0162 (K0 members), recorded like the other setters.
+    get velocity() { return state.velocity; },
+    get occlusionGain() { return state.occlusionGain; },
+    get occlusion() { return state.occlusionGain; },
+    get panner() { return !state.alive ? null : (state.panner ?? (request.ambisonic ? "ambisonic" : request.position || state.position ? "equalPower" : "flat")); },
+    setPanner(kind) { state.panner = kind; },
+    get occlusionLpHz() { return state.occlusionLpHz; },
+    get dopplerRate() { return state.dopplerRate; },
+    setVelocity(v) {
+      state.velocity = { x: v.x, y: v.y, z: v.z };
+      events.push({ kind: "velocity", value: state.velocity });
+    },
+    setOcclusion(gain, lpHz) {
+      state.occlusionGain = gain;
+      state.occlusionLpHz = lpHz;
+      events.push({ kind: "occlusion", gain, lpHz });
+    },
+    setDopplerRate(factor) {
+      state.dopplerRate = factor;
+      events.push({ kind: "doppler", factor });
+    },
+    setSpatialOptions(o) { events.push({ kind: "spatialOptions", options: { ...o } }); },
   };
+}
+
+// --- ADR 0162 (K0, C9): the fake zone IR service --------------------------------------------------------------------
+
+/** A request the fake zone IR service received. */
+export interface FakeZoneIrRequest {
+  readonly token: number;
+  readonly kernelId: number;
+  readonly assetUrl?: string;
+  readonly preset?: string;
+  readonly contextRate: number;
+  readonly maxFrames: number;
+}
+
+/** A `ZoneIrService` a test drives: it records requests and answers only when told. */
+export interface FakeZoneIrService extends ZoneIrService {
+  /** Every `prepare`, in order. */
+  readonly requests: FakeZoneIrRequest[];
+  /** Every `release`d kernel id, in order. */
+  readonly released: number[];
+  /** Every `reprepareAll` rate, in order. */
+  readonly reprepared: number[];
+  /** True after `dispose`. */
+  readonly disposed: boolean;
+  /** Answers request `token` as prepared (`onPrepared`), with `frames` (default `maxFrames`), `truncated` false and `prepareMs` 1 unless given. */
+  prepared(token: number, fields?: Partial<{ frames: number; truncated: boolean; prepareMs: number }>): void;
+  /** Answers request `token` as failed (`onFailed`) with `message` and `code` (default 1). */
+  failed(token: number, message: string, code?: number): void;
+}
+
+/**
+ * The fake zone IR service (K0's `ZoneIrService`): `prepare` records the request and returns a token (1, 2, ...);
+ * nothing is answered until the test calls `prepared` or `failed`. An unknown token is ignored.
+ */
+export function makeFakeZoneIrService(): FakeZoneIrService {
+  const requests: FakeZoneIrRequest[] = [];
+  const released: number[] = [];
+  const reprepared: number[] = [];
+  let disposed = false;
+  const find = (token: number) => requests.find((r) => r.token === token);
+  const service: FakeZoneIrService = {
+    requests,
+    released,
+    reprepared,
+    get disposed() {
+      return disposed;
+    },
+    onPrepared: null,
+    onFailed: null,
+    prepare(request) {
+      const token = requests.length + 1;
+      requests.push({ token, ...request });
+      return token;
+    },
+    release(kernelId) {
+      released.push(kernelId);
+    },
+    reprepareAll(contextRate) {
+      reprepared.push(contextRate);
+    },
+    dispose() {
+      disposed = true;
+    },
+    prepared(token, fields = {}) {
+      const r = find(token);
+      if (!r) return;
+      service.onPrepared?.({ token, kernelId: r.kernelId, frames: fields.frames ?? r.maxFrames, truncated: fields.truncated ?? false, prepareMs: fields.prepareMs ?? 1 });
+    },
+    failed(token, message, code = 1) {
+      const r = find(token);
+      if (!r) return;
+      service.onFailed?.({ token, kernelId: r.kernelId, code, message });
+    },
+  };
+  return service;
 }
 
 // --- The loopback host ----------------------------------------------------------------------------------------
@@ -238,7 +364,7 @@ export interface LoopbackHost {
 }
 
 /** The default preset: roomy enough for the §8 loopback cases. */
-export const LOOPBACK_PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: DEFAULT_LIMITER_LOOKAHEAD_MS };
+export const LOOPBACK_PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: DEFAULT_LIMITER_LOOKAHEAD_MS, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0 };
 /** The loopback rate (the shell's `sampleRate`). */
 export const LOOPBACK_RATE = 48_000;
 

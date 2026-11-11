@@ -1,13 +1,22 @@
 // `Audio.debug()` for the core (K10; api-and-models §1 `AudioDebugInfo`; architecture §8). `coreBackend.debug()` calls
 // `buildDebugInfo`, which reads the voice table, the status mirror, the mixer and the clip registry: nothing is
 // stored here, so every call is a fresh copy.
-import type { AudioBackground, AudioDebugInfo, AudioStatus } from "../backend";
+import type { AudioBackground, AudioDebugInfo, AudioMemoryDebug, AudioM3Counters, AudioStatus, AudioVoiceM3Debug } from "../backend";
 import type { Mixer } from "../../../../engine/audio/mixer";
+import { MAX_BUSES } from "../../../../engine/audio/settings";
+import { AUX_BUS_NONE } from "../wire.generated";
+import { spatialRegionsBytes, zoneKernelBudgetBytes, zoneMaxFrames, zonesRegionBytes, type CorePreset } from "../worklet/coreDriver";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
+import type { BedPlanner } from "./beds";
 import type { StatusMirror } from "./mirror";
+import type { DopplerPass } from "./doppler";
+import type { OcclusionPass } from "./occlusion";
+import { pannerName, PannerKind, type PannerPick } from "./pannerPick";
+import { LowpassBy, type VoiceFx } from "./voiceFx";
+import type { ZoneManager } from "./zones";
 import type { PlayheadTracker } from "./replay";
-import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
+import { VoiceFlag, VoiceFlag2, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
 
 export type { AudioDebugInfo };
 
@@ -16,7 +25,12 @@ type VoiceStateName = AudioDebugInfo["voices"][number]["state"];
 /** What `buildDebugInfo` reads of the backend: `CoreBackend` satisfies it, and tests build it by hand. */
 export interface DebugSource {
   /** `health` (A3.4a): the host's traps, recoveries and rebuilds over every core it ran; absent in hand-built sources. */
-  readonly host: { readonly sampleRate: number; readonly health?: { readonly traps: number; readonly recoveries: number; readonly rebuilds: number } };
+  readonly host: {
+    readonly sampleRate: number;
+    readonly health?: { readonly traps: number; readonly recoveries: number; readonly rebuilds: number };
+    /** ADR 0162 D5: the regions the core was laid out with, for `memory`; absent in hand-built sources. */
+    readonly preset?: { readonly maxMixed?: number; readonly maxBeds?: number; readonly maxZoneSlots?: number; readonly zoneMaxSeconds?: number; readonly maxWide?: number };
+  };
   readonly status: AudioStatus;
   readonly time: number;
   readonly backgroundMode: AudioBackground;
@@ -26,7 +40,7 @@ export interface DebugSource {
   readonly table: VoiceTable;
   readonly clips: { info(id: number): ClipInfo | null };
   /** B3: the stream voices' clip info (asset and rate) and counts; absent in hand-built sources. */
-  readonly streams?: { clipInfo(id: number): ClipInfo | null; readonly size: number; readonly stats: { readonly starves: number; readonly errors: number; readonly coreErrors: number } };
+  readonly streams?: { clipInfo(id: number): ClipInfo | null; readonly size: number; readonly stats: { readonly starves: number; readonly errors: number; readonly coreErrors: number; readonly wideStarved?: number } };
   readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings">;
   readonly lockedQueue: { readonly size: number; readonly droppedCount: number };
   /**
@@ -43,8 +57,22 @@ export interface DebugSource {
   readonly hrtfReady: boolean;
   /** H3: STATUS `hrtfLoadFailure` with main's fetch failure (1); absent in hand-built sources (STATUS's alone). */
   readonly hrtfLoadFailure?: number;
-  /** H3: voices main flags for HRTF this frame (at most `voices.hrtf`); absent in hand-built sources. */
-  readonly hrtf?: { readonly count: number };
+  /** H3: voices main flags for HRTF this frame (at most `voices.hrtf`); absent in hand-built sources. A5 adds the bed's. */
+  readonly hrtf?: { readonly count: number; readonly bedCount?: number; readonly bedSwitches?: number };
+  /** ADR 0162 (A5): the bed planner (`beds.ts`); absent in hand-built sources. Nothing is reported while no bed is laid out. */
+  readonly beds?: Pick<BedPlanner, "maxBeds" | "counters" | "debug" | "busDebug" | "bedSlot">;
+  /** ADR 0162 D5: the panner pick (voice rows' `panner`, `bed`, `kindDwellMs`); absent in hand-built sources. */
+  readonly panners?: Pick<PannerPick, "kindOf" | "dwellMs">;
+  /** ADR 0162 D5: per-voice fx targets (voice rows' `filter`, `sends`, `aux`); absent in hand-built sources. */
+  readonly voiceFx?: Pick<VoiceFx, "lowpass" | "lowpassBy" | "highpass" | "send" | "auxBus" | "auxLevel">;
+  /** ADR 0162 C5 (D5): the zone manager (`zones[]`, the zone counters); absent in hand-built sources. */
+  readonly zones?: Pick<ZoneManager, "debug" | "counters">;
+  /** ADR 0162 D2a (D5): the occlusion pass (`occlusion`, voice rows' `occlusion`, its counters); absent in hand-built sources. */
+  readonly occlusion?: Pick<OcclusionPass, "debug" | "voiceDebug" | "counters">;
+  /** ADR 0162 D3 (D5): the Doppler pass (`doppler` per voice, its counters); absent in hand-built sources. */
+  readonly doppler?: Pick<DopplerPass, "counters" | "factor">;
+  /** ADR 0162 (A5): the MagLS loader's failure (`bedFilterLoadFailure`); absent in hand-built sources. */
+  readonly maglsFailed?: boolean;
   /** A3.4b: the background controller's counters (§8 `backgroundEnters`, `interruptions`); absent without one. */
   readonly health?: { readonly backgroundEnters: number; readonly interruptions: number } | null;
   /** A3.4b: whether the page is hidden. */
@@ -136,10 +164,13 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       peakR: b < m.peakCount ? m.peakR[b]! : 0,
       voices: table.busLive[b] ?? 0,
       maxVoices: settingsBuses[b]?.maxVoices ?? null,
+      // ADR 0162 (A5): the bed rows, once a bed is laid out.
+      ...(backend.beds && backend.beds.maxBeds > 0 ? backend.beds.busDebug(b) : {}),
     };
   });
 
   const voices: AudioDebugInfo["voices"] = [];
+  const zoneRows = backend.zones?.debug();
   const auto = { gain: 1, pitch: 1, lowpass: 0 };
   for (let i = 0; i < table.capacity; i++) {
     if (table.state[i] === VoiceState.FREE) continue;
@@ -163,6 +194,8 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       owner: owner < 0 ? null : String(owner),
       // ADR 0158 §5 (C3): the voice's event instance, from PLAY's `group`.
       event: table.group[i]! === 0 ? null : table.group[i]!,
+      // ADR 0162 §1.6 (D5): the voice's M3 columns.
+      ...voiceM3(backend, i, zoneRows, automated ? auto.lowpass : 0),
     });
   }
 
@@ -211,12 +244,174 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       hrtfVoices: m.hrtfVoices,
       // H3: 2 the core found the table invalid, 1 its fetch failed (main), 0 none.
       hrtfLoadFailure: backend.hrtfLoadFailure ?? m.hrtfLoadFailure,
+      ...bedCounters(backend),
+      ...m3Counters(backend),
+      // ADR 0162 B4 (C24): starves of wide (ambisonic) streams, from STATUS stream events.
+      ...(backend.streams?.stats.wideStarved !== undefined ? { wideStarved: backend.streams.stats.wideStarved } : {}),
     },
     buses,
     voices,
+    ...bedRows(backend),
+    ...m3Rows(backend, zoneRows),
     // `backend` names the backend the way babylonBackend does, so the panel can show it for either.
-    core: { backend: "core", hrtfReady: backend.hrtfReady, ...hrtf(backend), ...timing(backend), ...hostHealth(backend), ...health(backend), ...streamHealth(backend), ...automation(backend) },
+    core: { backend: "core", hrtfReady: backend.hrtfReady, ...hrtf(backend), ...timing(backend), ...hostHealth(backend), ...health(backend), ...streamHealth(backend), ...automation(backend), ...ladder(backend) },
   };
+}
+
+/** ADR 0162 (A5, C24): the bed counters (`bedVoices`, `beds`, `bedsRefused` from STATUS; `bedDenied`, `bedSwitches`, `bedFilterLoadFailure` main's), once a bed is laid out. */
+function bedCounters(backend: DebugSource): Record<string, number> {
+  const planner = backend.beds;
+  if (!planner || planner.maxBeds <= 0) return {};
+  const m = backend.mirror;
+  return {
+    bedVoices: m.bedVoices,
+    beds: m.bedCount,
+    bedDenied: planner.counters.bedDenied,
+    bedsRefused: m.bedsRefused,
+    bedSwitches: backend.hrtf?.bedSwitches ?? 0,
+    bedFilterLoadFailure: backend.maglsFailed ? 1 : 0,
+  };
+}
+
+/** ADR 0162 (A5): `AudioDebugInfo.beds` (one row per hosted slot), left out while no bed is laid out. */
+function bedRows(backend: DebugSource): { beds?: NonNullable<AudioDebugInfo["beds"]> } {
+  const rows = backend.beds?.debug(backend.mirror);
+  return rows ? { beds: rows } : {};
+}
+
+/**
+ * ADR 0162 §1.6, C24 (D5): the counters of the parts that run on every core backend: `fxVoices`, `ambisonicVoices` and
+ * `m3Shed` from STATUS, and each pass's own (zones, occlusion, Doppler) when the backend has it.
+ */
+function m3Counters(backend: DebugSource): AudioM3Counters {
+  const m = backend.mirror;
+  const out: AudioM3Counters = { fxVoices: m.fxVoices, ambisonicVoices: m.ambisonicVoices, m3Shed: m.m3Shed };
+  const z = backend.zones;
+  if (z) {
+    out.zonesActive = m.zonesActive;
+    out.zonesRinging = m.zonesRinging;
+    out.zonesFaded = z.counters.zonesFaded;
+    out.zoneMemoryKB = m.zoneUsedKB;
+    out.kernelRefused = z.counters.kernelRefused;
+    out.irFailures = z.counters.irFailures;
+    out.irTruncated = z.counters.irTruncated;
+    out.irPrepares = z.counters.irPrepares;
+    // Kernels are always prepared by the decoder worker (`zones[].by`); the core's own path doesn't exist on main yet.
+    out.irPrepInCore = 0;
+  }
+  const o = backend.occlusion?.counters;
+  if (o) {
+    out.occlusionRays = o.occlusionRays;
+    out.occlusionUsedMs = o.occlusionUsedMs;
+    out.occlusionOverruns = o.occlusionOverruns;
+    out.occlusionSources = o.occlusionSources;
+    out.occlusionNoPhysics = o.occlusionNoPhysics;
+    out.oldestOcclusionAgeFrames = o.oldestOcclusionAgeFrames;
+  }
+  const d = backend.doppler?.counters;
+  if (d) {
+    out.dopplerClamps = d.dopplerClamps;
+    out.dopplerTeleports = d.dopplerTeleports;
+    out.dopplerGuardTrips = d.dopplerGuardTrips;
+  }
+  return out;
+}
+
+/** ADR 0162 §1.6 (D5): `zones[]` (while a zone slot is laid out), `occlusion` and `memory`. */
+function m3Rows(backend: DebugSource, zoneRows: ReturnType<ZoneManager["debug"]>): Pick<AudioDebugInfo, "zones" | "occlusion" | "memory"> {
+  const out: Pick<AudioDebugInfo, "zones" | "occlusion" | "memory"> = {};
+  if (zoneRows) out.zones = zoneRows;
+  if (backend.occlusion) out.occlusion = backend.occlusion.debug();
+  const memory = memoryRow(backend);
+  if (memory) out.memory = memory;
+  return out;
+}
+
+/** A preset with nothing laid out, which `spatialRegionsBytes` takes the parts of (it reads only the fields set here). */
+function emptyPreset(maxBeds: number, maxWide: number): CorePreset {
+  return { maxBeds, maxWide, maxZoneSlots: 0, zoneMaxSeconds: 0, maxMixed: 0, maxBuses: MAX_BUSES, maxLogical: 0, arenaInitialBytes: 0, clipCeilingBytes: 0, limiterLookaheadMs: 0 };
+}
+
+/**
+ * ADR 0162 §1.6 `memory` (D5), bytes, from the preset the core was laid out with and `coreDriver.ts`'s layout mirror
+ * (which `coreDriver.test.ts` checks against the wasm's own figures). The mirror exports the regions' sum, so the parts
+ * are differences of it: `beds` is the `Beds` region for the bed slots and the private decoders (a wide stream's),
+ * `wideRings` the rings without those decoders, `zones` the `Zones` region, `kernels` the kernels resident now (STATUS
+ * `zoneUsedKB`) and `kernelBudget` the arena the preset reserves for them.
+ */
+function memoryRow(backend: DebugSource): AudioMemoryDebug | undefined {
+  const p = backend.host.preset;
+  if (!p) return undefined;
+  const rate = backend.host.sampleRate;
+  const maxBeds = p.maxBeds ?? 0;
+  const maxWide = p.maxWide ?? 0;
+  const slots = p.maxZoneSlots ?? 0;
+  const base = spatialRegionsBytes(emptyPreset(0, 0), rate);
+  const bedSlots = spatialRegionsBytes(emptyPreset(maxBeds + maxWide, 0), rate) - base;
+  const wideRings = spatialRegionsBytes(emptyPreset(0, maxWide), rate) - spatialRegionsBytes(emptyPreset(maxWide, 0), rate);
+  const frames = zoneMaxFrames({ ...emptyPreset(0, 0), maxZoneSlots: slots, zoneMaxSeconds: p.zoneMaxSeconds ?? 0 }, rate);
+  return {
+    beds: bedSlots,
+    zones: zonesRegionBytes(slots, frames, MAX_BUSES),
+    kernels: backend.mirror.zoneUsedKB * 1024,
+    kernelBudget: zoneKernelBudgetBytes(slots, frames),
+    wideRings,
+  };
+}
+
+/** ADR 0162 §1.6 (D5): voice `i`'s M3 columns. `automationLowpass` is the event automation's low-pass now (0: none). */
+function voiceM3(backend: DebugSource, i: number, zoneRows: ReturnType<ZoneManager["debug"]>, automationLowpass: number): AudioVoiceM3Debug {
+  const table = backend.table;
+  const out: AudioVoiceM3Debug = {};
+  const panners = backend.panners;
+  if (panners) {
+    const kind = panners.kindOf(i);
+    out.panner = pannerName(kind, (table.flags[i]! & VoiceFlag.SPATIAL) !== 0, (table.flags2[i]! & VoiceFlag2.AMBISONIC) !== 0);
+    const slot = kind === PannerKind.BED ? (backend.beds?.bedSlot[table.bus[i]!] ?? 0xff) : 0xff;
+    out.bed = slot === 0xff ? null : slot;
+    out.kindDwellMs = panners.dwellMs(i);
+  }
+  if (backend.doppler) out.doppler = backend.doppler.factor[i]!;
+  const occ = backend.occlusion?.voiceDebug(i);
+  if (occ) out.occlusion = occ;
+  const fx = backend.voiceFx;
+  if (fx) {
+    let lowpassHz = fx.lowpass(i);
+    let by: NonNullable<AudioVoiceM3Debug["filter"]>["lowpassBy"] = null;
+    switch (fx.lowpassBy(i)) {
+      case LowpassBy.OCCLUSION: by = "occlusion"; break;
+      case LowpassBy.EVENT: by = "event"; break;
+      case LowpassBy.SNAPSHOT: by = "snapshot"; break;
+    }
+    if (automationLowpass > 0 && automationLowpass < lowpassHz) {
+      lowpassHz = automationLowpass;
+      by = "automation";
+    }
+    out.filter = { lowpassHz, highpassHz: fx.highpass(i), lowpassBy: by };
+    const sends: { zone: string; level: number }[] = [];
+    for (let k = 0; k < 4; k++) {
+      const level = fx.send(i, k);
+      if (!(level > 0)) continue;
+      sends.push({ zone: zoneRows?.find((z) => z.slot === k)?.node ?? `slot ${k}`, level });
+    }
+    out.sends = sends;
+    const auxBus = fx.auxBus(i);
+    const auxLevel = fx.auxLevel(i);
+    out.aux = auxBus !== AUX_BUS_NONE && auxLevel > 0 ? { bus: backend.busNames[auxBus] ?? "", level: auxLevel } : null;
+  }
+  return out;
+}
+
+/** @internal The adaptive cap's floor: the ladder only runs once the cap sits here (architecture §7.3). */
+const LADDER_FLOOR = 16;
+
+/** ADR 0162 OD3 (D5): the load-shedding ladder for `core`: "idle", "cap at floor" (its precondition), or "shedding" with the step count. */
+function ladder(backend: DebugSource): Record<string, string> {
+  const steps = backend.mirror.m3Shed;
+  if (steps > 0) return { ladderState: `shedding (${steps} ${steps === 1 ? "step" : "steps"})` };
+  const cap = backend.mixedCap ? backend.mixedCap() : backend.mirror.mixedCap;
+  const configured = backend.host.preset?.maxMixed ?? Infinity;
+  return { ladderState: cap > 0 && cap <= Math.min(LADDER_FLOOR, configured) ? "cap at floor" : "idle" };
 }
 
 /** ADR 0158 (E3.1): curves defined, voices with bindings or a loop, and resync records still waiting, for `core`. */

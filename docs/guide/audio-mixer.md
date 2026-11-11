@@ -17,9 +17,11 @@ Sound plays on **buses**: a tree that starts at `Master` (default children `Musi
 }
 ```
 
-- `volume` is linear 0..2. Effects run in order: `lowpass`/`highpass` (`frequency`, `q`), `compressor` (`threshold`, `knee`, `ratio`, `attack`, `release`), `reverb` (`send` 0..1 into one shared reverb).
+- `volume` is linear 0..2. A bus can also take a spatial **bed** (`"bed": "own" | "parent" | "none"` and `"bedPriority"` 0 to 255): see [Spatial audio](spatial-audio.md#beds). Effects run in order: `lowpass`/`highpass` (`frequency`, `q`), `compressor` (`threshold`, `knee`, `ratio`, `attack`, `release`), `reverb` (`send` 0..1 into one shared reverb).
 - **AudioSource**: set `output` (a dropdown of your buses). Empty means Master. **One-shots**: `Audio.playOneShot("asset:boom.wav", { bus: "SFX" })`.
 - **Snapshots** multiply bus volumes and can low-pass a bus; **ducking** lowers `target` while `trigger` has sounds playing.
+
+Occlusion, reverb zones and Doppler, which shape spatial sounds before they reach their bus, are in [Spatial audio](spatial-audio.md). The `reverb` effect above stays: it is the shared reverb for sounds outside every zone.
 
 A bus's volume and low-pass can also follow a global parameter through a curve (`audio.automation`); see [Sound events](sound-events.md). `bus.effectiveGain` includes that automation on both backends (the volume curve at the parameter's smoothed value), multiplied with the bus's volume, snapshots, ducking and its parents' gains.
 
@@ -50,7 +52,10 @@ Buses, volume, mute, solo, snapshots (their volumes) and ducking work on every b
 - No priorities and no virtual voices. Sounds are never stolen by priority.
 - `maxVoices` is approximate: when a bus is over its limit, the oldest sound on it is stopped.
 - Clips with `stream` on in their import settings play through a streaming source (the browser's own HTML5 audio): flat (a spatial one plays flat, with a warning) and with no pitch change. The fallback decodes clips with the browser, not the engine's decoder, so the formats it supports are the browser's.
-- Spatial sound uses the browser's own panner, so 3D sound differs from browser to browser.
+- Spatial sound uses the browser's own panner, so 3D sound differs from browser to browser. Beds, `bed` and `bedPriority` have no effect (the settings still load).
+- Occlusion lowers the volume only, with one warning: there is no low-pass. Doppler changes the playback rate of decoded clips, never of a streamed clip.
+- Reverb zones do nothing, with one warning. Event filters, a one-shot's `lowpass` and `highpass`, and aux sends are skipped with one warning per asset.
+- An ambisonic clip plays only its omnidirectional channel as mono, with one warning and no turning (a clip too big to decode, over about 21 s at 3rd order, is refused).
 
 On the audio core (`audio.backend` `"core"`), clips decode on a worker (WAV, FLAC, MP3 and Ogg Vorbis, each at its file's own rate; AAC too with `audio.codecs.aac` on, which loads a larger decoder, otherwise AAC assets don't play there and warn once each); a clip with `stream` on decodes in pieces while it plays instead of loading whole, and is otherwise a voice like any other (spatial, pitched, on its bus and its effects). Loops are gapless, clips and streams alike, wherever the file states its encoder delay and padding (see [Gapless loops](atmosphere-and-sound.md#sound-files-and-decoding)); the Babylon fallback loops whatever the browser decoded. A bus runs its first 4 effects and at most one `compressor` (the first in its list). Further effects, and a second compressor, are skipped.
 

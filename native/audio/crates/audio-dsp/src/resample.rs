@@ -22,7 +22,19 @@
 //! little more of the top octave than linear does. Rejecting folds needs band-limited copies of the
 //! clip (an octave mipmap built by a half-band filter at load) or a pre-filter scaled with pitch.
 //!
-//! Clips are interleaved, 1 or 2 channels, f32 or int16 (architecture §5.2). Nothing allocates.
+//! Clips are interleaved, f32 or int16 (architecture §5.2), with 1 or 2 channels, or 4, 9 or 16
+//! for an ambisonic clip of order 1-3 (ADR 0162, api-and-models §5.2 "Arena to 16 channels").
+//! [`lagrange`] and [`lagrange_region`] render a stereo pair; [`lagrange_n`] and
+//! [`lagrange_region_n`] render up to [`MAX_CHANNELS`] channels planar into one shared scratch of
+//! [`PLANAR_SCRATCH_FLOATS`] (8 KB), with the same filters, bit-identical for 1 and 2 channels.
+//! Nothing allocates.
+
+/// Most channels a clip has: an ambisonic clip of order 3 (ADR 0162).
+pub const MAX_CHANNELS: usize = 16;
+
+/// Floats in the shared planar scratch an N-channel render fills: [`MAX_CHANNELS`] channels of one
+/// 128-frame quantum, 8 KB (api-and-models §5.2).
+pub const PLANAR_SCRATCH_FLOATS: usize = MAX_CHANNELS * 128;
 
 /// A clip's samples, interleaved (`frames * channels` values).
 #[derive(Clone, Copy, Debug)]
@@ -36,7 +48,7 @@ pub enum Samples<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct Source<'a> {
     pub samples: Samples<'a>,
-    /// 1 or 2.
+    /// 1, 2, 4, 9 or 16 (at most [`MAX_CHANNELS`]).
     pub channels: u32,
     /// Frames in the clip; `samples` holds at least `frames * channels` values.
     pub frames: u32,
@@ -163,9 +175,16 @@ impl Sample for i16 {
 /// [`linear`]'s last-frame hold is). Nothing is read outside `samples`, whatever `frames` claims
 /// (the frame count used is at most `samples.len() / channels`).
 ///
-/// Mono clips are copied to both outputs; stereo clips keep their channels. A clip with
+/// Mono clips are copied to both outputs; stereo clips keep their channels. A clip of more than 2
+/// channels (ambisonic, ADR 0162) renders its channel 0 (W, the omnidirectional component) to both
+/// outputs through [`lagrange_n`], until task B3's ambisonic voice decodes it. A clip with
 /// `frames == 0` writes zeros and returns 0. Nothing allocates and nothing panics.
 pub fn lagrange(src: &Source<'_>, pos: &mut f64, steps: &[f32], looping: bool, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
+    if src.channels > 2 {
+        let n = lagrange_n(src, pos, steps, looping, 1, out_l);
+        out_r.copy_from_slice(out_l);
+        return n;
+    }
     match (src.samples, src.channels == 2) {
         (Samples::F32(d), false) => render4::<f32, false>(d, src.frames, pos, steps, looping, out_l, out_r),
         (Samples::F32(d), true) => render4::<f32, true>(d, src.frames, pos, steps, looping, out_l, out_r),
@@ -193,6 +212,23 @@ fn horner(x: [f32; 4], t: f32) -> f32 {
     ((c3 * t + c2) * t + c1) * t + x[1]
 }
 
+/// `j.clamp(0, last) as usize`, the edge neighbour of a non-looping read. Not `isize::clamp`: its min > max
+/// assert formats both values, and that panic path was inlined into every copy of the four kernels (about
+/// 2.9 KB of the wasm). The plain assert keeps what it tells the optimiser (`last >= 0`, without which the
+/// metered count rises up to 0.9%) and panics on the same condition, which can't happen: `last` is
+/// `frames - 1` with `1 <= frames <= data.len() <= isize::MAX`.
+#[inline(always)]
+fn clamp_edge(j: isize, last: isize) -> usize {
+    assert!(last >= 0);
+    (if j < 0 {
+        0
+    } else if j > last {
+        last
+    } else {
+        j
+    }) as usize
+}
+
 #[inline(always)]
 fn render4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64, steps: &[f32], looping: bool, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
     let len = out_l.len();
@@ -218,7 +254,7 @@ fn render4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64
         if looping {
             j.rem_euclid(frames as isize) as usize
         } else {
-            j.clamp(0, last as isize) as usize
+            clamp_edge(j, last as isize)
         }
     };
     for i in 0..len {
@@ -303,8 +339,14 @@ pub fn advance(pos: &mut f64, steps: &[f32], frames: u32, looping: bool) -> usiz
 /// other neighbours are the clip's own frames, held at its edges. A step that crosses `end` from
 /// below wraps the position back by the region's length. A position already at or past `end`
 /// (a voice started there) plays on, unwrapped, to the clip's end and stops there, as a
-/// non-looping clip does. Returns the frames written (fewer only when the clip ran out).
+/// non-looping clip does. Returns the frames written (fewer only when the clip ran out). A clip of
+/// more than 2 channels renders its channel 0 to both outputs, as [`lagrange`] does.
 pub fn lagrange_region(src: &Source<'_>, pos: &mut f64, steps: &[f32], start: u32, end: u32, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
+    if src.channels > 2 {
+        let n = lagrange_region_n(src, pos, steps, start, end, 1, out_l);
+        out_r.copy_from_slice(out_l);
+        return n;
+    }
     match (src.samples, src.channels == 2) {
         (Samples::F32(d), false) => region4::<f32, false>(d, src.frames, pos, steps, start, end, out_l, out_r),
         (Samples::F32(d), true) => region4::<f32, true>(d, src.frames, pos, steps, start, end, out_l, out_r),
@@ -343,7 +385,7 @@ fn region4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64
             if before && j >= end as isize {
                 start + (j as usize - end) % (end - start)
             } else {
-                j.clamp(0, last as isize) as usize
+                clamp_edge(j, last as isize)
             }
         };
         let j = [at(-1), idx, at(1), at(2)];
@@ -357,6 +399,176 @@ fn region4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64
             let y = horner(j.map(|j| data[j].get()), t);
             out_l[i] = y;
             out_r[i] = y;
+        }
+        let was = *pos;
+        *pos += steps[i] as f64;
+        if was < end_f {
+            while *pos >= end_f {
+                *pos -= span;
+            }
+        }
+    }
+    len
+}
+
+/// [`lagrange`] for a clip of any channel count up to [`MAX_CHANNELS`] (ADR 0162 task B2): renders
+/// the clip's first `channels` channels (`1 ..= src.channels`) of `steps.len()` frames **planar**
+/// into `out`: channel `c`'s frame `i` at `out[c * steps.len() + i]` (`out` holds at least
+/// `channels * steps.len()` floats; the shared scratch is [`PLANAR_SCRATCH_FLOATS`]). Returns the
+/// frames written; the rest of each channel's row is zero-filled when a non-looping clip ends.
+///
+/// The position arithmetic, the edges (wrapped when `looping`, else held) and the filter are
+/// [`lagrange`]'s exactly. The kernel is the Horner form when the clip has **one** channel, else
+/// the shared [`weights`] (so channels 0 and 1 of a stereo clip are bit-identical to `lagrange`'s
+/// `out_l` and `out_r`, and a mono clip's channel 0 to its `out_l`). Interleaved frame `j`'s channel
+/// `c` is `samples[j * src.channels + c]`. `channels` of 0, above `src.channels` or above
+/// [`MAX_CHANNELS`], or a short `out`, writes nothing and returns 0. Nothing allocates or panics.
+pub fn lagrange_n(src: &Source<'_>, pos: &mut f64, steps: &[f32], looping: bool, channels: usize, out: &mut [f32]) -> usize {
+    if !planar_ok(src, channels, steps.len(), out) {
+        return 0;
+    }
+    let out = &mut out[..channels * steps.len()];
+    let stride = src.channels as usize;
+    match (src.samples, stride == 1) {
+        (Samples::F32(d), false) => render_n::<f32, false>(d, stride, src.frames, pos, steps, looping, channels, out),
+        (Samples::F32(d), true) => render_n::<f32, true>(d, stride, src.frames, pos, steps, looping, channels, out),
+        (Samples::I16(d), false) => render_n::<i16, false>(d, stride, src.frames, pos, steps, looping, channels, out),
+        (Samples::I16(d), true) => render_n::<i16, true>(d, stride, src.frames, pos, steps, looping, channels, out),
+    }
+}
+
+/// The refusals of the N-channel entry points: `channels` in `1 ..= min(src.channels, MAX_CHANNELS)`
+/// and `out` holding `channels` rows of `len`. When false, nothing is written.
+#[inline(always)]
+fn planar_ok(src: &Source<'_>, channels: usize, len: usize, out: &[f32]) -> bool {
+    (1..=(src.channels as usize).min(MAX_CHANNELS)).contains(&channels) && out.len() >= channels * len
+}
+
+/// Zero-fills frames `from..len` of every planar row (`out` holds `channels` rows of `len`).
+#[inline(always)]
+fn zero_rows_from(out: &mut [f32], len: usize, channels: usize, from: usize) {
+    for c in 0..channels {
+        out[c * len + from..(c + 1) * len].fill(0.0);
+    }
+}
+
+/// [`render4`] for `channels` planar rows: the same position arithmetic and edges, with the kernel
+/// of [`lagrange_n`] (Horner for a mono clip, else the shared weights). `stride` is the clip's
+/// channel count (the interleave), `out` is exactly `channels * steps.len()` long.
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn render_n<S: Sample, const MONO: bool>(data: &[S], stride: usize, frames: u32, pos: &mut f64, steps: &[f32], looping: bool, channels: usize, out: &mut [f32]) -> usize {
+    let len = steps.len();
+    debug_assert!(out.len() == channels * len);
+    // Never read past the samples, whatever `frames` claims.
+    let frames = (frames as usize).min(data.len() / stride);
+    if frames == 0 {
+        out.fill(0.0);
+        return 0;
+    }
+    let frames_f = frames as f64;
+    if looping {
+        while *pos >= frames_f {
+            *pos -= frames_f;
+        }
+    }
+    let last = frames - 1;
+    // The neighbour `idx + d` (d in -1..=2) at the clip's edges: wrapped when looping, else clamped.
+    let edge = |idx: usize, d: isize| -> usize {
+        let j = idx as isize + d;
+        if looping {
+            j.rem_euclid(frames as isize) as usize
+        } else {
+            clamp_edge(j, last as isize)
+        }
+    };
+    for i in 0..len {
+        if !looping && *pos >= frames_f {
+            zero_rows_from(out, len, channels, i);
+            return i;
+        }
+        let idx = (*pos as usize).min(last);
+        let t = (*pos - idx as f64) as f32;
+        let j = [edge(idx, -1), idx, edge(idx, 1), edge(idx, 2)];
+        if MONO {
+            out[i] = horner(j.map(|j| data[j].get()), t);
+        } else {
+            // Every channel shares the four weights, as render4's stereo path does.
+            let w = weights(t);
+            for c in 0..channels {
+                let x = j.map(|j| data[j * stride + c].get());
+                out[c * len + i] = w[0] * x[0] + w[1] * x[1] + w[2] * x[2] + w[3] * x[3];
+            }
+        }
+        *pos += steps[i] as f64;
+        if looping {
+            while *pos >= frames_f {
+                *pos -= frames_f;
+            }
+        }
+    }
+    len
+}
+
+/// [`lagrange_region`] for a clip of any channel count up to [`MAX_CHANNELS`]: the loop region's
+/// position arithmetic and seam reads of [`lagrange_region`], the kernel choice and planar output
+/// of [`lagrange_n`] (bit-identical to `lagrange_region` for 1 and 2 channels). The same refusals
+/// as [`lagrange_n`] (nothing written, 0), and an empty region zero-fills the rows and returns 0.
+#[allow(clippy::too_many_arguments)]
+pub fn lagrange_region_n(src: &Source<'_>, pos: &mut f64, steps: &[f32], start: u32, end: u32, channels: usize, out: &mut [f32]) -> usize {
+    if !planar_ok(src, channels, steps.len(), out) {
+        return 0;
+    }
+    let out = &mut out[..channels * steps.len()];
+    let stride = src.channels as usize;
+    match (src.samples, stride == 1) {
+        (Samples::F32(d), false) => region_n::<f32, false>(d, stride, src.frames, pos, steps, start, end, channels, out),
+        (Samples::F32(d), true) => region_n::<f32, true>(d, stride, src.frames, pos, steps, start, end, channels, out),
+        (Samples::I16(d), false) => region_n::<i16, false>(d, stride, src.frames, pos, steps, start, end, channels, out),
+        (Samples::I16(d), true) => region_n::<i16, true>(d, stride, src.frames, pos, steps, start, end, channels, out),
+    }
+}
+
+/// [`region4`] for `channels` planar rows (see [`render_n`] for the layout and the kernel).
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn region_n<S: Sample, const MONO: bool>(data: &[S], stride: usize, frames: u32, pos: &mut f64, steps: &[f32], start: u32, end: u32, channels: usize, out: &mut [f32]) -> usize {
+    let len = steps.len();
+    debug_assert!(out.len() == channels * len);
+    let frames = (frames as usize).min(data.len() / stride);
+    let end = (end as usize).min(frames);
+    let start = (start as usize).min(end);
+    if frames == 0 || end <= start {
+        out.fill(0.0);
+        return 0;
+    }
+    let (frames_f, end_f, span) = (frames as f64, end as f64, (end - start) as f64);
+    let last = frames - 1;
+    for i in 0..len {
+        if *pos >= frames_f {
+            zero_rows_from(out, len, channels, i);
+            return i;
+        }
+        let idx = (*pos as usize).min(last);
+        let t = (*pos - idx as f64) as f32;
+        let before = idx < end;
+        let at = |d: isize| -> usize {
+            let j = idx as isize + d;
+            if before && j >= end as isize {
+                start + (j as usize - end) % (end - start)
+            } else {
+                clamp_edge(j, last as isize)
+            }
+        };
+        let j = [at(-1), idx, at(1), at(2)];
+        if MONO {
+            out[i] = horner(j.map(|j| data[j].get()), t);
+        } else {
+            let w = weights(t);
+            for c in 0..channels {
+                let x = j.map(|j| data[j * stride + c].get());
+                out[c * len + i] = w[0] * x[0] + w[1] * x[1] + w[2] * x[2] + w[3] * x[3];
+            }
         }
         let was = *pos;
         *pos += steps[i] as f64;
@@ -955,5 +1167,264 @@ mod tests {
         let (mut l, mut r) = ([1.0f32; 3], [1.0f32; 3]);
         assert_eq!(lagrange(&src, &mut pos, &[1.0f32; 3], true, &mut l, &mut r), 0);
         assert_eq!((l, r, pos), ([0.0; 3], [0.0; 3], 1.5));
+    }
+
+    // ---- lagrange_n, lagrange_region_n (ADR 0162 B2, leaf L-B2a) ----
+
+    /// Mono and stereo, f32 and int16, looping or not, unit / fractional / per-frame steps, starts
+    /// at the edges and past the end: `lagrange_n` equals `lagrange` bit for bit (`to_bits`), the
+    /// final positions and the returned counts too.
+    #[test]
+    fn lagrange_n_is_bit_identical_to_lagrange_for_mono_and_stereo() {
+        let x = noise(64, 21);
+        let xi: Vec<i16> = x.iter().map(|&v| (v * 32767.0) as i16).collect();
+        let sources = [
+            Source { samples: Samples::F32(&x), channels: 1, frames: 64 },
+            Source { samples: Samples::F32(&x), channels: 2, frames: 32 },
+            Source { samples: Samples::I16(&xi), channels: 1, frames: 64 },
+            Source { samples: Samples::I16(&xi), channels: 2, frames: 32 },
+        ];
+        let unit = [1.0f32; 40];
+        let fractional = [0.43f32; 40];
+        let per_frame: Vec<f32> = (0..40).map(|i| 0.3 + (i % 7) as f32 * 0.35).collect();
+        let step_sets: [&[f32]; 3] = [&unit, &fractional, &per_frame];
+        for src in &sources {
+            let ch = src.channels as usize;
+            for steps in step_sets {
+                let n = steps.len();
+                for &looping in &[false, true] {
+                    // Inside the clip, on its edges, and past its end (wrapped when looping).
+                    for &start in &[0.0f64, 0.5, 5.0, 31.0, 31.9, 63.5, 70.0] {
+                        let (mut pl, mut pn) = (start, start);
+                        let (mut l, mut r) = ([9.0f32; 40], [9.0f32; 40]);
+                        let mut planar = [5.0f32; PLANAR_SCRATCH_FLOATS];
+                        let a = lagrange(src, &mut pl, steps, looping, &mut l, &mut r);
+                        let b = lagrange_n(src, &mut pn, steps, looping, ch, &mut planar);
+                        assert_eq!((a, pl.to_bits()), (b, pn.to_bits()), "ch {ch} loop {looping} start {start}");
+                        for c in 0..ch {
+                            let want = if c == 0 { &l } else { &r };
+                            for k in 0..n {
+                                assert_eq!(planar[c * n + k].to_bits(), want[k].to_bits(), "ch {ch} row {c} loop {looping} start {start} frame {k}");
+                            }
+                        }
+                        // Channel 0 alone is `out_l` too.
+                        let mut p1 = start;
+                        let mut one = [0.0f32; 40];
+                        assert_eq!(lagrange_n(src, &mut p1, steps, looping, 1, &mut one), a);
+                        assert!(one[..a].iter().zip(&l[..a]).all(|(x, y)| x.to_bits() == y.to_bits()));
+                    }
+                }
+            }
+        }
+    }
+
+    /// The same for `lagrange_region_n` against `lagrange_region` (regions inside the clip, at its
+    /// edges, a position past the region's end, an empty region).
+    #[test]
+    fn lagrange_region_n_is_bit_identical_to_lagrange_region_for_mono_and_stereo() {
+        let x = noise(64, 22);
+        let xi: Vec<i16> = x.iter().map(|&v| (v * 32767.0) as i16).collect();
+        let sources = [
+            Source { samples: Samples::F32(&x), channels: 1, frames: 64 },
+            Source { samples: Samples::F32(&x), channels: 2, frames: 32 },
+            Source { samples: Samples::I16(&xi), channels: 1, frames: 64 },
+            Source { samples: Samples::I16(&xi), channels: 2, frames: 32 },
+        ];
+        let unit = [1.0f32; 40];
+        let fractional = [0.43f32; 40];
+        let per_frame: Vec<f32> = (0..40).map(|i| 0.3 + (i % 7) as f32 * 0.35).collect();
+        let step_sets: [&[f32]; 3] = [&unit, &fractional, &per_frame];
+        // Whole clip, inside, at both edges, a region that ends at the clip's end, empty, and
+        // inverted (empty after the clamp).
+        let regions = [(0u32, u32::MAX), (4, 20), (0, 3), (25, 31), (30, 30), (20, 100), (40, 10)];
+        for src in &sources {
+            let ch = src.channels as usize;
+            for steps in step_sets {
+                let n = steps.len();
+                for &(s, e) in &regions {
+                    for &start in &[0.0f64, 0.5, 2.25, 19.5, 31.0, 40.0, 63.5, 70.0] {
+                        let (mut pl, mut pn) = (start, start);
+                        let (mut l, mut r) = ([9.0f32; 40], [9.0f32; 40]);
+                        let mut planar = [5.0f32; PLANAR_SCRATCH_FLOATS];
+                        let a = lagrange_region(src, &mut pl, steps, s, e, &mut l, &mut r);
+                        let b = lagrange_region_n(src, &mut pn, steps, s, e, ch, &mut planar);
+                        assert_eq!((a, pl.to_bits()), (b, pn.to_bits()), "ch {ch} region {s}..{e} start {start}");
+                        for c in 0..ch {
+                            let want = if c == 0 { &l } else { &r };
+                            for k in 0..n {
+                                assert_eq!(planar[c * n + k].to_bits(), want[k].to_bits(), "ch {ch} row {c} region {s}..{e} start {start} frame {k}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// A 16-channel clip (channel `c` a distinct signal): channels `c` and `c + 1` of the planar
+    /// output equal `lagrange` on a stereo clip of those two channels, bit for bit, for every even
+    /// `c`; the same for 4 and 9 channels (the odd last channel paired with a copy of itself).
+    #[test]
+    fn every_channel_of_a_16_channel_clip_matches_the_stereo_kernel() {
+        const FRAMES: usize = 24;
+        const N: usize = 40;
+        let steps: Vec<f32> = (0..N).map(|i| 0.4 + (i % 5) as f32 * 0.35).collect();
+        for &ch in &[4usize, 9, 16] {
+            let data = noise(FRAMES * ch, 40 + ch as u32);
+            let clip = Source { samples: Samples::F32(&data), channels: ch as u32, frames: FRAMES as u32 };
+            for &looping in &[false, true] {
+                // Starts inside, and near the end, so the non-looping clip runs out mid-block.
+                for &start in &[0.0f64, 3.7, 23.5] {
+                    let mut planar = [0.0f32; PLANAR_SCRATCH_FLOATS];
+                    let mut p = start;
+                    let got = lagrange_n(&clip, &mut p, &steps, looping, ch, &mut planar);
+                    for c in (0..ch).step_by(2) {
+                        // The odd last channel of an odd clip pairs with a copy of itself.
+                        let c2 = (c + 1).min(ch - 1);
+                        let mut pair = Vec::with_capacity(2 * FRAMES);
+                        for j in 0..FRAMES {
+                            pair.push(data[j * ch + c]);
+                            pair.push(data[j * ch + c2]);
+                        }
+                        let pair_src = Source { samples: Samples::F32(&pair), channels: 2, frames: FRAMES as u32 };
+                        let mut pp = start;
+                        let (mut l, mut r) = ([0.0f32; N], [0.0f32; N]);
+                        assert_eq!(lagrange(&pair_src, &mut pp, &steps, looping, &mut l, &mut r), got, "ch {ch} pair {c}");
+                        assert_eq!(pp.to_bits(), p.to_bits());
+                        for k in 0..got {
+                            assert_eq!(planar[c * N + k].to_bits(), l[k].to_bits(), "ch {ch} channel {c} loop {looping} start {start} frame {k}");
+                            assert_eq!(planar[c2 * N + k].to_bits(), r[k].to_bits(), "ch {ch} channel {c2} loop {looping} start {start} frame {k}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// `channels` below the clip's renders only those rows (the rest of `out` untouched);
+    /// `channels` 0, above the clip's, above 16, or a short `out` returns 0 and writes nothing.
+    #[test]
+    fn lagrange_n_renders_the_channels_asked_and_refuses_bad_arguments() {
+        const N: usize = 8;
+        let data = noise(16 * 9, 9);
+        let nine = Source { samples: Samples::F32(&data), channels: 9, frames: 16 };
+        let steps = [0.6f32, 1.0, 1.3, 0.8, 1.0, 0.5, 1.1, 0.9];
+        let mut full = [0.0f32; PLANAR_SCRATCH_FLOATS];
+        let mut p_full = 2.5;
+        assert_eq!(lagrange_n(&nine, &mut p_full, &steps, true, 9, &mut full), N);
+
+        // Three channels of nine: rows 0..3 match the full render; the rest of `out` is untouched.
+        let mut out = [7.0f32; PLANAR_SCRATCH_FLOATS];
+        let mut p = 2.5;
+        assert_eq!(lagrange_n(&nine, &mut p, &steps, true, 3, &mut out), N);
+        assert_eq!(p.to_bits(), p_full.to_bits());
+        assert!(out[..3 * N].iter().zip(&full[..3 * N]).all(|(a, b)| a.to_bits() == b.to_bits()));
+        assert!(out[3 * N..].iter().all(|&v| v == 7.0));
+
+        // Refused: nothing written, position kept, 0 returned.
+        let refused = |f: &mut dyn FnMut(&mut f64, &mut [f32]) -> usize| {
+            let mut out = [7.0f32; PLANAR_SCRATCH_FLOATS];
+            let mut p = 2.5;
+            assert_eq!(f(&mut p, &mut out), 0);
+            assert_eq!(p, 2.5);
+            assert!(out.iter().all(|&v| v == 7.0));
+        };
+        refused(&mut |p, out| lagrange_n(&nine, p, &steps, true, 0, out));
+        refused(&mut |p, out| lagrange_n(&nine, p, &steps, true, 10, out));
+        refused(&mut |p, out| lagrange_region_n(&nine, p, &steps, 2, 12, 0, out));
+        refused(&mut |p, out| lagrange_region_n(&nine, p, &steps, 2, 12, 10, out));
+        refused(&mut |p, out| lagrange_n(&nine, p, &steps, true, 4, &mut out[..4 * N - 1]));
+        refused(&mut |p, out| lagrange_region_n(&nine, p, &steps, 2, 12, 4, &mut out[..4 * N - 1]));
+        // A 17-channel clip is above MAX_CHANNELS.
+        let big = noise(4 * 17, 17);
+        let seventeen = Source { samples: Samples::F32(&big), channels: 17, frames: 4 };
+        refused(&mut |p, out| lagrange_n(&seventeen, p, &steps, true, 17, out));
+        refused(&mut |p, out| lagrange_region_n(&seventeen, p, &steps, 0, 4, 17, out));
+        // Exactly `channels * len` is enough.
+        let mut exact = [0.0f32; 4 * N];
+        let mut p = 2.5;
+        assert_eq!(lagrange_n(&nine, &mut p, &steps, true, 4, &mut exact), N);
+    }
+
+    /// A non-looping 9-channel clip ending mid-block zero-fills every row past the end and returns
+    /// the frames written; the position matches `advance` (and `advance_region` for the region form).
+    #[test]
+    fn an_n_channel_clip_ends_like_a_stereo_one_and_keeps_time_with_advance() {
+        const N: usize = 16;
+        const FRAMES: usize = 10;
+        let data = noise(FRAMES * 9, 31);
+        let nine = Source { samples: Samples::F32(&data), channels: 9, frames: FRAMES as u32 };
+        // Channels 0 and 1 as a stereo clip.
+        let pair: Vec<f32> = (0..FRAMES).flat_map(|j| [data[j * 9], data[j * 9 + 1]]).collect();
+        let stereo = Source { samples: Samples::F32(&pair), channels: 2, frames: FRAMES as u32 };
+        let steps = [0.8f32, 0.9, 1.1, 0.6, 0.7, 1.3, 1.0, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+
+        // Non-looping, starting at 6.5: the reads at 6.5, 7.3, 8.2, 9.3 and 9.9 are inside; the next
+        // position (10.6) is past the end, so the block stops after 5 frames.
+        let mut p = 6.5;
+        let mut planar = [7.0f32; PLANAR_SCRATCH_FLOATS];
+        let got = lagrange_n(&nine, &mut p, &steps, false, 9, &mut planar);
+        let mut ps = 6.5;
+        let (mut l, mut r) = ([0.0f32; N], [0.0f32; N]);
+        let got_stereo = lagrange(&stereo, &mut ps, &steps, false, &mut l, &mut r);
+        let mut pa = 6.5;
+        assert_eq!(advance(&mut pa, &steps, FRAMES as u32, false), got);
+        assert_eq!((got, got_stereo), (5, 5));
+        assert!(p > FRAMES as f64 && p == ps && p.to_bits() == pa.to_bits());
+        for c in 0..9 {
+            assert!(planar[c * N + got..(c + 1) * N].iter().all(|&v| v == 0.0), "row {c} not zero-filled");
+        }
+        for k in 0..got {
+            assert_eq!(planar[k].to_bits(), l[k].to_bits(), "frame {k}");
+            assert_eq!(planar[N + k].to_bits(), r[k].to_bits(), "frame {k}");
+        }
+
+        // A block that ends mid-clip keeps every row's tail at zero and stops at the clip's end.
+        let mut p = 8.0;
+        let mut planar = [7.0f32; PLANAR_SCRATCH_FLOATS];
+        assert_eq!(lagrange_n(&nine, &mut p, &[1.0; N], false, 9, &mut planar), 2);
+        assert_eq!(p, 10.0);
+        assert!((0..9).all(|c| planar[c * N + 2..(c + 1) * N].iter().all(|&v| v == 0.0)));
+
+        // The region form: a region 2..6 and a position already past it (6.5) plays on to the end.
+        let mut p = 6.5;
+        let mut planar = [7.0f32; PLANAR_SCRATCH_FLOATS];
+        let got = lagrange_region_n(&nine, &mut p, &steps, 2, 6, 9, &mut planar);
+        let mut pa = 6.5;
+        assert_eq!(advance_region(&mut pa, &steps, 2, 6, FRAMES as u32), got);
+        assert_eq!(got, 5);
+        assert_eq!((p.to_bits(), pa.to_bits()), (pa.to_bits(), pa.to_bits()));
+        for c in 0..9 {
+            assert!(planar[c * N + got..(c + 1) * N].iter().all(|&v| v == 0.0), "region row {c} not zero-filled");
+        }
+    }
+
+    /// `lagrange` and `lagrange_region` on a 4-, 9- and 16-channel clip give channel 0 (W) on both
+    /// outputs, equal to `lagrange_n` with `channels` 1.
+    #[test]
+    fn the_stereo_entry_points_render_w_for_an_ambisonic_clip() {
+        const N: usize = 30;
+        let steps: Vec<f32> = (0..N).map(|i| 0.45 + (i % 4) as f32 * 0.3).collect();
+        for &ch in &[4usize, 9, 16] {
+            let data = noise(20 * ch, 50 + ch as u32);
+            let clip = Source { samples: Samples::F32(&data), channels: ch as u32, frames: 20 };
+            for &looping in &[false, true] {
+                let (mut pa, mut pb) = (1.2, 1.2);
+                let (mut l, mut r) = ([0.0f32; N], [0.0f32; N]);
+                let mut w = [0.0f32; N];
+                let n = lagrange(&clip, &mut pa, &steps, looping, &mut l, &mut r);
+                assert_eq!(n, lagrange_n(&clip, &mut pb, &steps, looping, 1, &mut w));
+                assert_eq!(pa.to_bits(), pb.to_bits());
+                assert!(l[..n].iter().zip(&w[..n]).all(|(a, b)| a.to_bits() == b.to_bits()), "ch {ch} out_l is not W");
+                assert!(r[..n].iter().zip(&w[..n]).all(|(a, b)| a.to_bits() == b.to_bits()), "ch {ch} out_r is not W");
+
+                let (mut pa, mut pb) = (1.2, 1.2);
+                let n = lagrange_region(&clip, &mut pa, &steps, 3, 15, &mut l, &mut r);
+                assert_eq!(n, lagrange_region_n(&clip, &mut pb, &steps, 3, 15, 1, &mut w));
+                assert_eq!(pa.to_bits(), pb.to_bits());
+                assert!(l[..n].iter().zip(&w[..n]).all(|(a, b)| a.to_bits() == b.to_bits()), "ch {ch} region out_l is not W");
+                assert!(r[..n].iter().zip(&w[..n]).all(|(a, b)| a.to_bits() == b.to_bits()), "ch {ch} region out_r is not W");
+            }
+        }
     }
 }

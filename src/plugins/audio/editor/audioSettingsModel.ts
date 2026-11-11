@@ -2,6 +2,17 @@
 // edited by pure functions like navigation and graphics. Edits start from the leniently parsed section and
 // write the whole section back, so the rest of the panel's undo/save machinery works unchanged.
 import {
+  AMBISONIC_LIMITS,
+  BED_LIMITS,
+  BED_PRIORITY_LIMITS,
+  DEFAULT_BED_PRIORITY,
+  OCCLUSION_LIMITS,
+  ROOT_BED_PRIORITY,
+  SPEED_OF_SOUND_LIMITS,
+  ZONE_LIMITS,
+  busBed,
+  busBedPriority,
+  type BusBed,
   DEFAULT_LIMITER_LOOKAHEAD_MS,
   EFFECT_TYPES,
   LIMITER_LOOKAHEAD_LIMITS,
@@ -19,6 +30,9 @@ import {
   type AudioSpatialMode,
   type VoiceSettings,
 } from "../../../engine/audio/settings";
+import { BUILTIN_MATERIALS, DEFAULT_MATERIAL_NAME, MATERIAL_LIMITS, MAX_MATERIALS, type OccluderMaterial } from "../../../engine/audio/occlusionMaterials";
+import { defaultSettings } from "../../../engine/core/settings";
+import { resolveBeds } from "../runtime/core/beds";
 import type { Curve } from "../../../engine/core/curve";
 import { isLabelled, MAX_CURVE_KEYS, MAX_PARAMETERS, parameterDefault, parameterRange, type ParameterDef } from "../../../engine/audio/eventFormat";
 import type { SettingsDraft } from "../../../editor/sdk";
@@ -33,7 +47,17 @@ export { EFFECT_TYPES, LIMITER_LOOKAHEAD_LIMITS, MAX_BUSES };
 
 export const audioOf = (d: SettingsDraft): AudioSettings => parseAudioSettings(d.audio).settings;
 export const audioProblems = (d: SettingsDraft): string[] => parseAudioSettings(d.audio).problems;
-const withAudio = (d: SettingsDraft, a: AudioSettings): SettingsDraft => ({ ...d, audio: a as unknown as Record<string, unknown> });
+const sameMaterial = (a: OccluderMaterial, b: OccluderMaterial): boolean =>
+  a.name === b.name && a.transmissionDb === b.transmissionDb && a.cutoffHz === b.cutoffHz && a.wetOcclusion === b.wetOcclusion && a.attackMs === b.attackMs && a.releaseMs === b.releaseMs;
+
+/**
+ * The section as written to `project.json`: `occlusion.materials` keeps only the rows that differ from the built-ins (the
+ * parse re-adds the others), so a later retune of a built-in reaches projects that never edited it.
+ */
+function withAudio(d: SettingsDraft, a: AudioSettings): SettingsDraft {
+  const materials = a.occlusion.materials.filter((m) => { const b = BUILTIN_MATERIALS.find((x) => x.name === m.name); return !b || !sameMaterial(m, b); });
+  return { ...d, audio: { ...a, occlusion: { ...a.occlusion, materials } } as unknown as Record<string, unknown> };
+}
 
 /** Buses in tree order (each bus after its parent), with their depth, for an indented list. */
 export function busTree(a: AudioSettings): { bus: BusSettings; depth: number }[] {
@@ -208,9 +232,9 @@ export function setVoices(d: SettingsDraft, patch: Partial<VoiceSettings>): Sett
 
 /** Named bundles of the voice numbers and the clip ceiling (architecture 5.3); the file stores the numbers. "low" is provisional until the low-end soak (C3) sizes it. */
 export const VOICE_PRESETS = {
-  low: { voices: { mixed: 64, logical: 1024, hrtf: 4 }, clipMemoryMB: 64 },
-  default: { voices: { mixed: 128, logical: 4096, hrtf: 16 }, clipMemoryMB: undefined },
-  high: { voices: { mixed: 256, logical: 4096, hrtf: 32 }, clipMemoryMB: 256 },
+  low: { voices: { mixed: 64, logical: 1024, hrtf: 4 }, clipMemoryMB: 64, maxBeds: 0, maxClips: 1 },
+  default: { voices: { mixed: 128, logical: 4096, hrtf: 8 }, clipMemoryMB: undefined, maxBeds: 2, maxClips: 1 },
+  high: { voices: { mixed: 256, logical: 4096, hrtf: 8 }, clipMemoryMB: 256, maxBeds: 4, maxClips: 2 },
 } as const;
 export type VoicePresetName = keyof typeof VOICE_PRESETS;
 export const VOICE_PRESET_NAMES = Object.keys(VOICE_PRESETS) as VoicePresetName[];
@@ -219,15 +243,17 @@ export const VOICE_PRESET_NAMES = Object.keys(VOICE_PRESETS) as VoicePresetName[
 export function voicesPreset(a: AudioSettings): VoicePresetName | "custom" {
   for (const name of VOICE_PRESET_NAMES) {
     const p = VOICE_PRESETS[name];
-    if (p.voices.mixed === a.voices.mixed && p.voices.logical === a.voices.logical && p.voices.hrtf === a.voices.hrtf && p.clipMemoryMB === a.clipMemoryMB) return name;
+    if (p.voices.mixed === a.voices.mixed && p.voices.logical === a.voices.logical && p.voices.hrtf === a.voices.hrtf && p.clipMemoryMB === a.clipMemoryMB && p.maxBeds === a.bed.maxBeds && p.maxClips === a.ambisonic.maxClips) return name;
   }
   return "custom";
 }
 
-/** Apply a preset: voices and the clip ceiling (the default preset leaves the ceiling unset). Per-bus limits are kept, clamped to `logical`. */
+/** Apply a preset: voices, the clip ceiling (the default preset leaves it unset), `bed.maxBeds` and `ambisonic.maxClips`. Per-bus limits are kept, clamped to `logical`. */
 export function applyVoicesPreset(d: SettingsDraft, name: VoicePresetName): SettingsDraft {
   const p = VOICE_PRESETS[name];
-  return setClipMemory(setVoices(d, p.voices), p.clipMemoryMB);
+  const voiced = setClipMemory(setVoices(d, p.voices), p.clipMemoryMB);
+  const a = audioOf(voiced);
+  return a.bed.maxBeds === p.maxBeds && a.ambisonic.maxClips === p.maxClips ? voiced : withAudio(voiced, { ...a, bed: { ...a.bed, maxBeds: p.maxBeds }, ambisonic: { ...a.ambisonic, maxClips: p.maxClips } });
 }
 
 export function setBackground(d: SettingsDraft, background: AudioBackground): SettingsDraft {
@@ -427,3 +453,274 @@ export function setBusAutomationCurve(d: SettingsDraft, index: number, curve: Cu
 
 /** The parameter a name refers to, or undefined. */
 export const parameterOf = (a: AudioSettings, name: string): ParameterDef | undefined => a.parameters.find((p) => p.name === name);
+
+// --- ADR 0162 C6: zone slots, memory accounting and warning data -------------------------------------------------------
+
+/** Core zone slots: `maxActive + standby` (0 when `maxActive` is 0: zones are inert and nothing is reserved). */
+export function zoneSlots(zones: Pick<AudioSettings["zones"], "maxActive" | "standby">): number {
+  return zones.maxActive <= 0 ? 0 : zones.maxActive + zones.standby;
+}
+
+/** What the zone slots cost at 48 kHz (doubles at 96 kHz), in MB: the `Zones` region's state plus the kernels in the arena (outside `clipMemoryMB`). */
+export interface ZoneMemory { slots: number; stateMB: number; kernelMB: number; totalMB: number }
+
+/** Per-slot cost at `maxIrSeconds` (architecture section 6, the convolver spike): `[seconds, state MB, kernel MB]`. */
+export const ZONE_SLOT_COST = [[1, 0.9, 0.8], [2, 1.6, 4.4 / 3], [4, 3.1, 8.8 / 3]] as const;
+
+/** Piecewise-linear in IR length through `ZONE_SLOT_COST`, continuing the first and last slope outside it. */
+function slotCost(seconds: number, column: 1 | 2): number {
+  const pts = ZONE_SLOT_COST;
+  const i = seconds <= pts[1][0] ? 0 : 1;
+  const [x0, x1] = [pts[i][0], pts[i + 1][0]];
+  const [y0, y1] = [pts[i][column], pts[i + 1][column]];
+  return Math.max(0, y0 + ((seconds - x0) / (x1 - x0)) * (y1 - y0));
+}
+
+/** The zone memory of a section: low (1 x 1 s) 1.7 MB, default (3 x 2 s) 9.2, high (3 x 4 s) 18.0, as the architecture's table. */
+export function zoneMemory(a: Pick<AudioSettings, "zones">): ZoneMemory {
+  const slots = zoneSlots(a.zones);
+  const stateMB = slots * slotCost(a.zones.maxIrSeconds, 1);
+  const kernelMB = slots * slotCost(a.zones.maxIrSeconds, 2);
+  return { slots, stateMB, kernelMB, totalMB: stateMB + kernelMB };
+}
+
+export const ZONE_EVICTION_FADE_MS = 150;
+
+/** A zone-layout notice for the Settings UI (E3 words it). */
+export type ZoneWarning =
+  /** `maxActive` 0: zones are inert; every AudioReverbZone is ignored. */
+  | { code: "zonesOff" }
+  /** No standby slot: a zone beyond `maxActive` evicts a ringing slot with a 150 ms fade, and the incoming kernel loads 50..200 ms later. */
+  | { code: "evictionFade"; maxActive: number; fadeMs: typeof ZONE_EVICTION_FADE_MS };
+
+/** Notices for a zone layout: off, or no standby slot (swaps cut a tail). */
+export function zoneWarnings(a: Pick<AudioSettings, "zones">): ZoneWarning[] {
+  if (a.zones.maxActive <= 0) return [{ code: "zonesOff" }];
+  return a.zones.standby === 0 ? [{ code: "evictionFade", maxActive: a.zones.maxActive, fadeMs: ZONE_EVICTION_FADE_MS }] : [];
+}
+
+/** `zones.standby`: rounded and clamped to 0..1. Non-finite changes nothing. */
+export function setZoneStandby(d: SettingsDraft, standby: number): SettingsDraft {
+  const a = audioOf(d);
+  if (!Number.isFinite(standby)) return d;
+  const v = clampInt(standby, 0, 1);
+  return a.zones.standby === v ? d : withAudio(d, { ...a, zones: { ...a.zones, standby: v } });
+}
+
+// --- ADR 0162 E3: beds, ambisonic clips, occlusion, zones, Doppler (api-and-models section 7, 2.1, 2.2) -------------------
+
+/** `audio.bed.maxBeds`: rounded, clamped 0..4 (0 turns beds off). Non-finite changes nothing. */
+export function setBed(d: SettingsDraft, maxBeds: number): SettingsDraft {
+  const a = audioOf(d);
+  if (!Number.isFinite(maxBeds)) return d;
+  const v = clampInt(maxBeds, ...BED_LIMITS.maxBeds);
+  return a.bed.maxBeds === v ? d : withAudio(d, { ...a, bed: { ...a.bed, maxBeds: v } });
+}
+
+/** A bus's bed mode. The default (the root `own`, others `parent`) is stored as absent. Unknown buses change nothing. */
+export function setBusBed(d: SettingsDraft, name: string, bed: BusBed): SettingsDraft {
+  const a = audioOf(d);
+  if (!a.buses.some((b) => b.name === name) || busBed(a, name) === bed) return d;
+  const isDefault = bed === (a.buses[0].name === name ? "own" : "parent");
+  return withAudio(d, { ...a, buses: a.buses.map((b) => {
+    if (b.name !== name) return b;
+    const { bed: _drop, ...rest } = b;
+    return isDefault ? rest : { ...rest, bed };
+  }) });
+}
+
+/** A bus's `bedPriority`: rounded, clamped 0..255; `undefined` (or the bus's default: root 255, others 128) is stored as absent. */
+export function setBusBedPriority(d: SettingsDraft, name: string, priority: number | undefined): SettingsDraft {
+  const a = audioOf(d);
+  if (!a.buses.some((b) => b.name === name)) return d;
+  const def = a.buses[0].name === name ? ROOT_BED_PRIORITY : DEFAULT_BED_PRIORITY;
+  const v = priority === undefined || !Number.isFinite(priority) ? undefined : clampInt(priority, ...BED_PRIORITY_LIMITS);
+  const next = v === undefined || v === def ? undefined : v;
+  if (busBedPriority(a, name) === (next ?? def)) return d;
+  return withAudio(d, { ...a, buses: a.buses.map((b) => {
+    if (b.name !== name) return b;
+    const { bedPriority: _drop, ...rest } = b;
+    return next === undefined ? rest : { ...rest, bedPriority: next };
+  }) });
+}
+
+/** `audio.ambisonic.maxClips`: rounded, clamped 0..4 (0 refuses ambisonic clips with a warning). Non-finite changes nothing. */
+export function setMaxClips(d: SettingsDraft, maxClips: number): SettingsDraft {
+  const a = audioOf(d);
+  if (!Number.isFinite(maxClips)) return d;
+  const v = clampInt(maxClips, ...AMBISONIC_LIMITS.maxClips);
+  return a.ambisonic.maxClips === v ? d : withAudio(d, { ...a, ambisonic: { ...a.ambisonic, maxClips: v } });
+}
+
+/** What the bed resolution gives a section: who hosts a bed, who asked for one and lost it, and where each bus mixes. */
+export interface BedPlan {
+  /** Hosts in rank order (the best first). */
+  hosts: string[];
+  /** Buses that asked `own` and were outranked, in rank order, each with the winners that outranked it and the bus whose bed it now shares (null: none, so it is flat). */
+  lost: { bus: string; outrankedBy: string[]; sharesWith: string | null }[];
+  /** Per bus, the host whose bed it mixes into (null: no bed). A host is its own. */
+  hostOf: Record<string, string | null>;
+  /** Nobody asked for `own` and the root was granted a bed implicitly. */
+  implicitRoot: boolean;
+  /** `bed.maxBeds`. */
+  maxBeds: number;
+}
+
+/** Run the planner's own `resolveBeds` over the section (the editor knows `bed.maxBeds`, not the slots the core laid out). */
+export function bedPlan(a: AudioSettings): BedPlan {
+  const names = a.buses.map((b) => b.name);
+  const res = resolveBeds({
+    busCount: names.length,
+    parents: a.buses.map((b) => (b.parent === undefined ? -1 : names.indexOf(b.parent))),
+    modes: names.map((n) => busBed(a, n)),
+    priorities: names.map((n) => busBedPriority(a, n)),
+    maxBeds: a.bed.maxBeds,
+  });
+  const hostOf: Record<string, string | null> = {};
+  names.forEach((n, i) => { const s = res.bedSlot[i]; hostOf[n] = s === undefined || s === 0xff ? null : (names[res.hostBus[s]] ?? null); });
+  const winners = res.winners.map((w) => names[w]);
+  return {
+    hosts: winners,
+    lost: res.denied.map((b) => ({ bus: names[b], outrankedBy: winners, sharesWith: hostOf[names[b]] })),
+    hostOf,
+    implicitRoot: res.implicitRoot,
+    maxBeds: a.bed.maxBeds,
+  };
+}
+
+/** The buses that asked for their own bed and lost it to priority: the lost-bed warning's rows (empty when `maxBeds` is 0). */
+export const lostBeds = (a: AudioSettings): BedPlan["lost"] => bedPlan(a).lost;
+
+export interface OcclusionPatch {
+  /** Physics layer names; `null` is every layer, an empty list turns occlusion off. Repeats and blanks are dropped. */
+  layers?: readonly string[] | null;
+  budgetMs?: number;
+  smoothingMs?: number;
+  /** Must name a material in the table, else ignored. */
+  defaultMaterial?: string;
+}
+
+/** `audio.occlusion`'s scalar keys and layers: a partial update, numbers clamped (`OCCLUSION_LIMITS`), non-finite ignored. */
+export function setOcclusion(d: SettingsDraft, patch: OcclusionPatch): SettingsDraft {
+  const a = audioOf(d);
+  const o = a.occlusion;
+  const num = (v: number | undefined, [min, max]: readonly [number, number], old: number) => (v === undefined || !Number.isFinite(v) ? old : Math.min(max, Math.max(min, v)));
+  const layers = patch.layers === undefined ? o.layers : patch.layers === null ? null : [...new Set(patch.layers.map((l) => l.trim()).filter((l) => l !== ""))];
+  const defaultMaterial = patch.defaultMaterial !== undefined && o.materials.some((m) => m.name === patch.defaultMaterial) ? patch.defaultMaterial : o.defaultMaterial;
+  const next = { ...o, layers, budgetMs: num(patch.budgetMs, OCCLUSION_LIMITS.budgetMs, o.budgetMs), smoothingMs: num(patch.smoothingMs, OCCLUSION_LIMITS.smoothingMs, o.smoothingMs), defaultMaterial };
+  return JSON.stringify(next) === JSON.stringify(o) ? d : withAudio(d, { ...a, occlusion: next });
+}
+
+/** Turn one physics layer on or off in `occlusion.layers`. From "every layer" (null), `all` (the draft's layers) is the starting list; ticking every layer goes back to null. */
+export function toggleOcclusionLayer(d: SettingsDraft, layer: string, on: boolean, all: readonly string[]): SettingsDraft {
+  const current = audioOf(d).occlusion.layers ?? [...all];
+  const next = on ? (current.includes(layer) ? current : [...current, layer]) : current.filter((l) => l !== layer);
+  const ordered = all.filter((l) => next.includes(l)).concat(next.filter((l) => !all.includes(l)));
+  return setOcclusion(d, { layers: all.every((l) => ordered.includes(l)) && ordered.length === all.length ? null : ordered });
+}
+
+// Material table (section 2.2). The section holds the effective table: the built-ins, overridden or extended.
+
+export const isBuiltinMaterial = (name: string): boolean => BUILTIN_MATERIALS.some((m) => m.name === name);
+/** True when a built-in row has been changed (it can be reset). Custom materials are never "modified". */
+export function materialIsModified(a: AudioSettings, name: string): boolean {
+  const b = BUILTIN_MATERIALS.find((m) => m.name === name);
+  const m = a.occlusion.materials.find((x) => x.name === name);
+  return !!b && !!m && !sameMaterial(m, b);
+}
+
+/** What `setMaterial` may change; `attackMs`/`releaseMs` of `null` go back to "use the smoothing time". */
+export interface MaterialPatch { transmissionDb?: number; cutoffHz?: number; wetOcclusion?: number; attackMs?: number | null; releaseMs?: number | null }
+
+const withMaterials = (d: SettingsDraft, a: AudioSettings, materials: OccluderMaterial[], defaultMaterial = a.occlusion.defaultMaterial): SettingsDraft =>
+  withAudio(d, { ...a, occlusion: { ...a.occlusion, materials, defaultMaterial } });
+
+/** Append a custom material "Material" (unique: "Material 2"…) with concrete's values. At `MAX_MATERIALS`, returns `d`. */
+export function addMaterial(d: SettingsDraft): SettingsDraft {
+  const a = audioOf(d);
+  const table = a.occlusion.materials;
+  if (table.length >= MAX_MATERIALS) return d;
+  const base = table.find((m) => m.name === DEFAULT_MATERIAL_NAME) ?? table[0];
+  const name = uniqueName("Material", table.map((m) => m.name));
+  return withMaterials(d, a, [...table, { name, transmissionDb: base.transmissionDb, cutoffHz: base.cutoffHz, wetOcclusion: base.wetOcclusion }]);
+}
+
+/** Edit a material's numbers, each clamped to `MATERIAL_LIMITS`; non-finite ignored. Unknown names return `d`. */
+export function setMaterial(d: SettingsDraft, name: string, patch: MaterialPatch): SettingsDraft {
+  const a = audioOf(d);
+  const old = a.occlusion.materials.find((m) => m.name === name);
+  if (!old) return d;
+  const pick = (v: number | undefined, [min, max]: readonly [number, number], was: number) => (v === undefined || !Number.isFinite(v) ? was : Math.min(max, Math.max(min, v)));
+  const next: OccluderMaterial = {
+    name,
+    transmissionDb: pick(patch.transmissionDb, MATERIAL_LIMITS.transmissionDb, old.transmissionDb),
+    cutoffHz: pick(patch.cutoffHz, MATERIAL_LIMITS.cutoffHz, old.cutoffHz),
+    wetOcclusion: pick(patch.wetOcclusion, MATERIAL_LIMITS.wetOcclusion, old.wetOcclusion),
+  };
+  for (const key of ["attackMs", "releaseMs"] as const) {
+    const v = patch[key];
+    const kept = v === undefined ? old[key] : v === null || !Number.isFinite(v) ? undefined : Math.min(MATERIAL_LIMITS[key][1], Math.max(MATERIAL_LIMITS[key][0], v));
+    if (kept !== undefined) next[key] = kept;
+  }
+  return sameMaterial(next, old) ? d : withMaterials(d, a, a.occlusion.materials.map((m) => (m.name === name ? next : m)));
+}
+
+/** Rename a custom material (built-ins keep their names). Trimmed; empty, taken or unknown names return `d`. `defaultMaterial` follows. */
+export function renameMaterial(d: SettingsDraft, from: string, to: string): SettingsDraft {
+  const a = audioOf(d);
+  const name = to.trim();
+  const table = a.occlusion.materials;
+  if (isBuiltinMaterial(from) || name === "" || name === from || table.some((m) => m.name === name) || !table.some((m) => m.name === from)) return d;
+  return withMaterials(d, a, table.map((m) => (m.name === from ? { ...m, name } : m)), a.occlusion.defaultMaterial === from ? name : a.occlusion.defaultMaterial);
+}
+
+/** Remove a custom material (a built-in is reset instead: returns `d`). If it was the default, `concrete` becomes it. */
+export function removeMaterial(d: SettingsDraft, name: string): SettingsDraft {
+  const a = audioOf(d);
+  const table = a.occlusion.materials;
+  if (isBuiltinMaterial(name) || !table.some((m) => m.name === name)) return d;
+  return withMaterials(d, a, table.filter((m) => m.name !== name), a.occlusion.defaultMaterial === name ? DEFAULT_MATERIAL_NAME : a.occlusion.defaultMaterial);
+}
+
+/** Put a built-in material back to its shipped values (custom, unchanged or unknown names return `d`). */
+export function resetMaterial(d: SettingsDraft, name: string): SettingsDraft {
+  const a = audioOf(d);
+  const b = BUILTIN_MATERIALS.find((m) => m.name === name);
+  if (!b || !materialIsModified(a, name)) return d;
+  return withMaterials(d, a, a.occlusion.materials.map((m) => (m.name === name ? { ...b } : m)));
+}
+
+export interface ZonesPatch { maxActive?: number; standby?: number; maxIrSeconds?: number }
+
+/** `audio.zones`: a partial update; the integers are rounded and clamped, `maxIrSeconds` clamped to 0.5..8 (not rounded); non-finite ignored. */
+export function setZones(d: SettingsDraft, patch: ZonesPatch): SettingsDraft {
+  const a = audioOf(d);
+  const z = a.zones;
+  const int = (v: number | undefined, [min, max]: readonly [number, number], old: number) => (v === undefined || !Number.isFinite(v) ? old : clampInt(v, min, max));
+  const [lo, hi] = ZONE_LIMITS.maxIrSeconds;
+  const next = {
+    maxActive: int(patch.maxActive, ZONE_LIMITS.maxActive, z.maxActive),
+    standby: int(patch.standby, ZONE_LIMITS.standby, z.standby),
+    maxIrSeconds: patch.maxIrSeconds === undefined || !Number.isFinite(patch.maxIrSeconds) ? z.maxIrSeconds : Math.min(hi, Math.max(lo, patch.maxIrSeconds)),
+  };
+  return next.maxActive === z.maxActive && next.standby === z.standby && next.maxIrSeconds === z.maxIrSeconds ? d : withAudio(d, { ...a, zones: next });
+}
+
+export interface DopplerPatch {
+  /** World units per second; must be above 0 (others ignored). */
+  maxSpeed?: number;
+  /** World units per second, clamped 10..100000. */
+  speedOfSound?: number;
+}
+
+/** `audio.doppler.maxSpeed` and `audio.speedOfSound`. */
+export function setDoppler(d: SettingsDraft, patch: DopplerPatch): SettingsDraft {
+  const a = audioOf(d);
+  const maxSpeed = patch.maxSpeed !== undefined && Number.isFinite(patch.maxSpeed) && patch.maxSpeed > 0 ? patch.maxSpeed : a.doppler.maxSpeed;
+  const [lo, hi] = SPEED_OF_SOUND_LIMITS;
+  const speedOfSound = patch.speedOfSound !== undefined && Number.isFinite(patch.speedOfSound) ? Math.min(hi, Math.max(lo, patch.speedOfSound)) : a.speedOfSound;
+  return maxSpeed === a.doppler.maxSpeed && speedOfSound === a.speedOfSound ? d : withAudio(d, { ...a, doppler: { maxSpeed }, speedOfSound });
+}
+
+/** The project's physics layer names (what `occlusion.layers` chooses from). */
+export const physicsLayerNames = (d: SettingsDraft): string[] => d.physics?.layers ?? defaultSettings.physics.layers;

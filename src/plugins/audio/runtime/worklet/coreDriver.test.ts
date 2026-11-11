@@ -25,14 +25,21 @@ import {
 } from "../wire.generated";
 import {
   CLIP_BYTES_PER_QUANTUM,
+  clipSampleBytes,
   CoreDriver,
   CoreLoadError,
   FLAG_TRAP_CAUGHT,
+  fixedRegionsHeadroomBytes,
   instantiateCore,
   MEMORY_INITIAL_PAGES,
   memoryMaximumPages,
   SHELL_FIELD,
+  spatialRegionsBytes,
   UnderrunProbe,
+  zoneKernelBlobBytes,
+  zoneKernelBudgetBytes,
+  zoneMaxFrames,
+  type CoreExports,
   type CoreInstance,
   type CorePreset,
 } from "./coreDriver";
@@ -40,7 +47,7 @@ import {
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio.wasm", import.meta.url)));
 const RATE = 48_000;
 const QUANTUM_MS = (128 / RATE) * 1000;
-const PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 1.5 };
+const PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 1.5, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0 };
 
 /** A driver and a link joined by queues; `recycle: false` makes main keep every STATUS buffer. */
 function rig(options: { recycle?: boolean; core?: CoreInstance } = {}) {
@@ -98,12 +105,14 @@ describe("coreDriver with the real wasm", () => {
     const addresses = (c: CoreInstance) => [c.exports.myco_audio_inbox_ptr(), c.exports.myco_audio_status_ptr(), c.exports.myco_audio_process(0, 0), c.memory.buffer.byteLength];
     expect(addresses(a)).toEqual(addresses(b));
     expect(a.exports.myco_audio_process(0, 0)).toBeGreaterThanOrEqual(MEMORY_INITIAL_PAGES * 65_536);
-    expect(memoryMaximumPages(PRESET)).toBe(64 + (16 << 20) / 65_536 + (16 << 20) / 65_536);
+    expect(memoryMaximumPages(PRESET, RATE)).toBe(64 + Math.ceil(((16 << 20) + spatialRegionsBytes(PRESET, RATE) + (16 << 20)) / 65_536));
   });
 
   it("refuses a schema hash or ABI major mismatch with CoreLoadError", () => {
     expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: "00".repeat(16), abiMajor: 1 })).toThrow(CoreLoadError);
-    expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: SCHEMA_HASH, abiMajor: 2 })).toThrow(/ABI/);
+    expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: SCHEMA_HASH, abiMajor: 1 })).toThrow(/ABI/);
+    expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: SCHEMA_HASH, abiMajor: 3 })).toThrow(/ABI/);
+    expect(() => instantiateCore(WASM, { ...PRESET, maxBeds: 5 }, RATE)).toThrow(/init refused/);
     expect(() => instantiateCore(WASM, { ...PRESET, maxMixed: 0 }, RATE)).toThrow(/init refused/);
   });
 
@@ -115,7 +124,7 @@ describe("coreDriver with the real wasm", () => {
     expect(r.blocks).toHaveLength(1);
     const first = r.blocks[0]!;
     expect(first.flags & STATUS_FLAGS_READY).toBeTruthy();
-    expect(first.abiVersion).toBe(0x104);
+    expect(first.abiVersion).toBe(0x200);
     expect(first.currentFrame).toBe(6 * 128);
     await expect(r.link.ready).resolves.toBeUndefined();
     r.run(6);
@@ -369,6 +378,53 @@ describe("coreDriver clip routing with the real wasm", () => {
     r.run(6);
     expect(clipEvents(r.blocks)).toEqual([[11, ClipEvent.RefusedGrow]]);
     expect(r.driver.stats.clipBytes).toBe(0);
+  });
+});
+
+describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
+  const HIGH: CorePreset = { ...PRESET, maxBeds: 4, maxZoneSlots: 3, zoneMaxSeconds: 4, maxWide: 2 };
+  const LOW: CorePreset = { ...PRESET, maxBeds: 0, maxZoneSlots: 1, zoneMaxSeconds: 1, maxWide: 1 };
+  const zero = (p: CorePreset): CorePreset => ({ ...p, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0 });
+  const layoutBytes = (e: CoreExports, p: CorePreset, rate: number) =>
+    e.myco_audio_layout_bytes(rate, p.maxLogical, p.maxMixed, p.maxBuses, p.arenaInitialBytes, p.maxBeds, p.maxZoneSlots, zoneMaxFrames(p, rate), p.maxWide);
+
+  it("the TypeScript mirror of the M3 regions matches the wasm's layout, within the arena's page rounding", () => {
+    const { exports } = instantiateCore(WASM, PRESET, RATE);
+    for (const rate of [44_100, 48_000, 96_000]) {
+      for (const p of [PRESET, HIGH, LOW]) {
+        const wasm = layoutBytes(exports, p, rate) - layoutBytes(exports, zero(p), rate);
+        const mirror = spatialRegionsBytes(p, rate) - spatialRegionsBytes(zero(p), rate);
+        expect(Math.abs(wasm - mirror), `${rate} Hz`).toBeLessThanOrEqual(65_536);
+      }
+    }
+    // An M2 preset: the pool, the scratch, and in Zones the aux accumulator (C3) and the sends area's chain gains (C4).
+    expect(spatialRegionsBytes(PRESET, RATE)).toBe(32 * 448 + 8192 + PRESET.maxBuses * 1024 + (64 + PRESET.maxBuses * 512) + 64);
+  });
+
+  it("the zone kernel budget mirror equals myco_audio_zone_kernel_budget_bytes", () => {
+    const { exports } = instantiateCore(WASM, PRESET, RATE);
+    for (const [slots, frames] of [[0, 96_000], [1, 48_000], [3, 96_000], [3, 192_000], [4, 1_536_000]] as const) {
+      expect(zoneKernelBudgetBytes(slots, frames), `${slots} x ${frames}`).toBe(exports.myco_audio_zone_kernel_budget_bytes(slots, frames));
+    }
+    expect(zoneKernelBlobBytes(96_000) / 1e6).toBeCloseTo(1.54, 2); // §4.5: 1.5 MB at 2 s
+  });
+
+  it("an M3 preset initialises with the nine parameters, its block fits under the Memory's maximum", () => {
+    for (const p of [PRESET, HIGH, LOW]) {
+      const core = instantiateCore(WASM, p, RATE);
+      const grown = core.memory.buffer.byteLength - MEMORY_INITIAL_PAGES * 65_536;
+      expect(grown).toBe(layoutBytes(core.exports, p, RATE));
+      const headroom = fixedRegionsHeadroomBytes(p, RATE);
+      expect(grown - p.arenaInitialBytes).toBeLessThanOrEqual(headroom);
+      expect(headroom - fixedRegionsHeadroomBytes(zero(p), RATE)).toBeGreaterThanOrEqual(zoneKernelBudgetBytes(p.maxZoneSlots, zoneMaxFrames(p, RATE)));
+      expect(core.memory.buffer.byteLength / 65_536).toBeLessThanOrEqual(memoryMaximumPages(p, RATE));
+    }
+    expect(zoneMaxFrames(HIGH, 44_100)).toBe(176_400);
+    expect(zoneMaxFrames({ ...HIGH, maxZoneSlots: 0 }, 48_000)).toBe(0);
+  });
+
+  it("clip frames are sized for formats 0-5 (3-5 are f32)", () => {
+    expect([0, 1, 2, 3, 4, 5, 6].map(clipSampleBytes)).toEqual([4, 2, 2, 4, 4, 4, 0]);
   });
 });
 

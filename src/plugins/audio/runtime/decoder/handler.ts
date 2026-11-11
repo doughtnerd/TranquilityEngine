@@ -1,8 +1,10 @@
 // The decoder worker's message handler, factored out of the worker so Node tests drive it in-process (K7): it routes
-// `decodeClip` and `cancel` to `clips.ts` and `stream*` (E4.4: `streamLoop` too) and `connectWorklet` to `streams.ts` (B3), loads the
+// `decodeClip` and `cancel` to `clips.ts`, `stream*` (E4.4: `streamLoop` too) and `connectWorklet` to `streams.ts` (B3), and the
+// zone IR messages (ADR 0162 K0: `prepareIr`, `generateIr`, `releaseIr`) to `irPrepare.ts` (C2b), loads the
 // wasm on `init` (requests that arrive first wait for it), and turns every failure into an `error` reply. Never throws,
 // never waits on anything but the wasm.
 import { decodeClip } from "./clips";
+import { IrPreparer } from "./irPrepare";
 import type { DecodeClipMessage, DecoderReply, DecoderRequest, InitMessage } from "./protocol";
 import { StreamDecoder } from "./streams";
 import { DecoderError, DecoderWasm } from "./wasm";
@@ -37,6 +39,9 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
   const active = new Set<number>();
   // B3: the streams, on their own instance of the wasm once it loaded.
   const streams = new StreamDecoder({ post, wasm: () => wasm });
+  // ADR 0162 (K0): zone IR preparation, filled by C2b in irPrepare.ts. It sends kernels over the worklet port that
+  // `connectWorklet` hands the stream decoder too, so it hears about each new port.
+  const ir = new IrPreparer({ post, wasm: () => wasm, fetchBytes: options.fetchBytes });
 
   const load = async (msg: InitMessage): Promise<DecoderWasm> => {
     try {
@@ -71,6 +76,7 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
         onChunk: (index, pcm) => post({ type: "clipChunk", id: msg.id, index, pcm: pcm.buffer as ArrayBuffer }, [pcm.buffer as ArrayBuffer]),
         cancelled: () => cancelled.has(msg.id),
         yieldToEvents,
+        convention: msg.convention,
       });
       post(info ? { type: "clipDone", id: msg.id, info } : { type: "cancelled", id: msg.id });
     } catch (e) {
@@ -103,8 +109,14 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
         case "streamSeek":
         case "streamClose":
         case "streamLoop":
-        case "connectWorklet":
           return streams.handle(request);
+        case "connectWorklet":
+          ir.connectWorklet(request.port);
+          return streams.handle(request);
+        case "prepareIr":
+        case "generateIr":
+        case "releaseIr":
+          return ir.handle(request);
       }
     },
   };

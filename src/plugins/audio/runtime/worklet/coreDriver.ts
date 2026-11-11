@@ -12,7 +12,10 @@
 // and STREAM_CLOSE into the inbox, STREAM_CHUNK copied once into the stream's ring (`myco_audio_stream_chunk_ptr`,
 // `_commit`). After each quantum the shell asks the core what each stream consumed (`myco_audio_stream_consumed`) and
 // sends a STREAM_CREDIT every 4,096 frames, with the emptied chunk buffers in the same message.
+// ADR 0162 C9: the worker's zone kernels come on that port too (CLIP_BEGIN format 3, CLIP_CHUNK, CLIP_UNLOAD) and join
+// main's clip queue; a new port (a new worker) frees the kernels the old one brought.
 import { createStatusPool, type BufferPool } from "../core/bufferPool";
+import type { SpatialInitParams } from "../core/initParams";
 import { CreditAccumulator } from "../decoder/credit";
 import {
   CLIP_BEGIN_FIXED_END,
@@ -36,7 +39,15 @@ import {
   STATUS_EVERY_QUANTA,
   STATUS_IDLE_AFTER_MS,
   STATUS_IDLE_EVERY_QUANTA,
+  STREAM_MAX_CHANNELS,
+  STREAM_RING_FRAMES_WIDE,
+  STREAM_WIDE_CHUNK_FRAMES,
   VERSION_MAJOR,
+  ZONE_HEAD_BINS,
+  ZONE_KERNEL_HEADER_BYTES,
+  ZONE_KERNEL_MAX_HEAD_PARTS,
+  ZONE_TAIL_BINS,
+  writeClipUnload,
   writeEnvelope,
   writeStreamClose,
   writeStreamCredit,
@@ -45,20 +56,148 @@ import {
 /** @internal The name `processor.ts` registers and the host creates its node with. */
 export const PROCESSOR_NAME = "myco-audio-core";
 
-/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5). */
-export const CORE_ABI_MAJOR = 1;
+/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5; 2 since ADR 0162 R6). */
+export const CORE_ABI_MAJOR = 2;
 
 /** @internal Pages the shell's Memory starts with: the same every time (`native/audio/build.mjs` uses 64), which is what makes init deterministic (A0.1). */
 export const MEMORY_INITIAL_PAGES = 64;
 /** @internal WebAssembly's page size. */
 export const PAGE_BYTES = 65_536;
-/** @internal Headroom in the Memory's `maximum` for the fixed regions past the arena (architecture §5.1: ≈ 7.7 MB, 9.6 MB high, plus the 0.75 MB HRIR). */
-export const FIXED_REGIONS_HEADROOM_BYTES = 16 << 20;
+/**
+ * @internal Headroom in the Memory's `maximum` for M2's fixed regions past the arena (architecture §5.1: ≈ 7.7 MB, 9.6 MB
+ * high, plus the 0.75 MB HRIR). ADR 0162's regions and the zone kernels come on top: `fixedRegionsHeadroomBytes`.
+ */
+export const M2_REGIONS_HEADROOM_BYTES = 16 << 20;
 /** wasm32's limit: 4 GiB. */
 const MAX_PAGES = 65_536;
 
+// ADR 0162 C8: a TypeScript mirror of the layout of the regions ABI 2.0 adds (audio-core `bed.rs`, `zones.rs`,
+// `stream.rs`, `fxpool.rs`, `layout.rs`). `coreDriver.test.ts` checks it against the wasm's own
+// `myco_audio_layout_bytes` and `myco_audio_zone_kernel_budget_bytes`, so a drift fails a test.
+const REGION_ALIGN = 64;
+const QUANTUM = 128;
+/**
+ * The `Beds` region's parts (`bed::region_bytes`, A4): a header, the FFT scratch, the shared MagLS filters for P partitions,
+ * then one slot (16-channel accumulator + decoder) per bed or private decoder. P is the HRTF's partition count at the rate
+ * (2 up to 48 kHz, 4 from 88.2 kHz); at other counts MagLS can't run and a slot is its accumulator alone.
+ */
+const BEDS_HEADER_BYTES = 20_800;
+const BEDS_SCRATCH_BYTES = 33_792;
+const BEDS_FILTER_BYTES: Readonly<Record<number, number>> = { 2: 65_600, 4: 131_136 };
+const BEDS_SLOT_BYTES: Readonly<Record<number, number>> = { 2: 49_216, 4: 81_984 };
+const BEDS_ACC_ONLY_SLOT_BYTES = 8_192;
+
+/** `hrtf::partitions_for_sample_rate`: the HRTF's FFT size at the rate (as `core/hrir.ts`'s `hrtfFftSize`) over 256, at least 1. */
+function bedPartitions(sampleRate: number): number {
+  const ratio = Math.fround(Math.fround(sampleRate) / 44100);
+  const exponent = Math.min(Math.max(0, Math.floor(Math.log2(256 * ratio))), 29);
+  const fft = 2 * Math.max(2, 2 ** exponent);
+  return Math.max(1, fft / 256);
+}
+
+function bedsRegionBytes(slots: number, sampleRate: number): number {
+  if (slots === 0) return 0;
+  const p = bedPartitions(sampleRate);
+  return BEDS_HEADER_BYTES + BEDS_SCRATCH_BYTES + (BEDS_FILTER_BYTES[p] ?? 0) + slots * (BEDS_SLOT_BYTES[p] ?? BEDS_ACC_ONLY_SLOT_BYTES);
+}
+/** `stream::FADE_TAIL_FRAMES`. */
+const FADE_TAIL_FRAMES = 1_536;
+/** `stream::WIDE_RING_BYTES`: 16 × (32,768 + 2,048 + 1,536) × 4 B (R16 after B4's stall test). */
+const WIDE_RING_BYTES = STREAM_MAX_CHANNELS * (STREAM_RING_FRAMES_WIDE + STREAM_WIDE_CHUNK_FRAMES + FADE_TAIL_FRAMES) * 4;
+/** `fxpool::FX_ENTRY_BYTES`. */
+const FX_ENTRY_BYTES = 448;
+/** `layout::PLANAR_SCRATCH_BYTES`. */
+const PLANAR_SCRATCH_BYTES = 16 * QUANTUM * 4;
+
+const alignUp = (n: number, to: number): number => Math.ceil(n / to) * to;
+const headParts = (frames: number): number => Math.min(Math.ceil(frames / QUANTUM), ZONE_KERNEL_MAX_HEAD_PARTS);
+const tailParts = (frames: number): number => Math.ceil(Math.max(0, frames - ZONE_KERNEL_MAX_HEAD_PARTS * QUANTUM) / ZONE_TAIL_BINS);
+
+/** @internal `zones::kernel_blob_bytes`: a format 3 blob for an IR of `frames`. */
+export function zoneKernelBlobBytes(frames: number): number {
+  return ZONE_KERNEL_HEADER_BYTES + 2 * headParts(frames) * ZONE_HEAD_BINS * 8 + 2 * tailParts(frames) * ZONE_TAIL_BINS * 8;
+}
+
+/** @internal `zones::kernel_budget_bytes` (`myco_audio_zone_kernel_budget_bytes`). */
+export function zoneKernelBudgetBytes(maxZoneSlots: number, zoneMaxFrames: number): number {
+  return maxZoneSlots === 0 ? 0 : maxZoneSlots * arenaBlockBytes(zoneKernelBlobBytes(zoneMaxFrames));
+}
+
+/** @internal `zones::arena_block_bytes`: the arena size class a request takes (four per doubling from 4 KB). */
+export function arenaBlockBytes(bytes: number): number {
+  for (let d = 0; d < 20; d++) {
+    for (let s = 0; s < 4; s++) {
+      const block = 1024 * 2 ** d * (4 + s);
+      if (block >= bytes) return block;
+    }
+  }
+  return Infinity;
+}
+
+/** `zones::SLOT_HEADER_BYTES`: a slot's header (state, ramps, stereo input and wet buffers), 32 past a 64-byte boundary. */
+const ZONE_SLOT_HEADER_BYTES = 2_208;
+
+
+/** @internal `zones::slot_state_bytes`: one zone slot's convolver state. */
+export function zoneSlotStateBytes(frames: number): number {
+  // `instance::state_bytes`: header, per channel the head input (32 x 128 bins + a quantum), the tail delay line,
+  // the accumulator, the 8,192-frame input ring and the 4,096-frame accumulation buffer.
+  const instance = 32 + 2 * (ZONE_KERNEL_MAX_HEAD_PARTS * ZONE_HEAD_BINS * 8 + QUANTUM * 4) + 2 * tailParts(frames) * ZONE_TAIL_BINS * 8 + 2 * ZONE_TAIL_BINS * 8 + 2 * 8_192 * 4 + 2 * 4_096 * 4;
+  return alignUp(ZONE_SLOT_HEADER_BYTES + instance, REGION_ALIGN);
+}
+
+/**
+ * @internal `zones::region_bytes`: the slots, the aux accumulator (`max_buses` x 1 KB, with or without slots), the sends
+ * area (`zones::sends_bytes`: a 64-byte header and `max_buses` x 512 B of chain gains) and a 64-byte tail.
+ */
+export function zonesRegionBytes(maxZoneSlots: number, zoneMaxFrames: number, maxBuses: number): number {
+  const slots = maxZoneSlots > 0 ? maxZoneSlots * zoneSlotStateBytes(zoneMaxFrames) : 0;
+  return slots + maxBuses * 2 * QUANTUM * 4 + (REGION_ALIGN + maxBuses * QUANTUM * 4) + REGION_ALIGN;
+}
+
+/** @internal `zone_max_frames`: the preset's longest zone IR at the context rate (0 without zone slots). */
+export function zoneMaxFrames(preset: CorePreset, sampleRate: number): number {
+  return preset.maxZoneSlots > 0 ? Math.ceil(preset.zoneMaxSeconds * sampleRate) : 0;
+}
+
+/**
+ * @internal ADR 0162 C8: bytes of the regions ABI 2.0 adds before the arena (`Beds`, `Zones`, `Wide`, `Fx` and the planar
+ * scratch), each aligned as `layout.rs` aligns it. 0 for the first three when their parameter is 0.
+ */
+export function spatialRegionsBytes(preset: CorePreset, sampleRate: number): number {
+  const beds = bedsRegionBytes(preset.maxBeds + preset.maxWide, sampleRate);
+  const zones = zonesRegionBytes(preset.maxZoneSlots, zoneMaxFrames(preset, sampleRate), preset.maxBuses);
+  const wide = preset.maxWide * WIDE_RING_BYTES;
+  const fx = alignUp(preset.maxMixed * FX_ENTRY_BYTES, REGION_ALIGN);
+  return [beds, zones, wide, fx, PLANAR_SCRATCH_BYTES].reduce((sum, n) => sum + alignUp(n, REGION_ALIGN), 0);
+}
+
+/**
+ * @internal The Memory's headroom past the arena for these parameters (replaces M2's constant): M2's regions, ADR 0162's
+ * regions (`spatialRegionsBytes`) and the zone kernel budget (kernels are arena clips outside `clipMemoryMB`, C8).
+ */
+export function fixedRegionsHeadroomBytes(preset: CorePreset, sampleRate: number): number {
+  return M2_REGIONS_HEADROOM_BYTES + spatialRegionsBytes(preset, sampleRate) + zoneKernelBudgetBytes(preset.maxZoneSlots, zoneMaxFrames(preset, sampleRate));
+}
+
+/** @internal Bytes per sample of a CLIP_BEGIN format (0 for a format the shell doesn't know): ADR 0162 C6 adds 3-5, all f32. */
+export function clipSampleBytes(format: number): number {
+  switch (format) {
+    case ClipFormat.F32:
+    case ClipFormat.ZoneKernel:
+    case ClipFormat.MagLS:
+    case ClipFormat.ZoneIrPcm:
+      return 4;
+    case ClipFormat.I16:
+    case ClipFormat.HRIR:
+      return 2;
+    default:
+      return 0;
+  }
+}
+
 /** @internal `myco_audio_init`'s parameters, less the rate (the worklet's `sampleRate`), plus the clip ceiling. */
-export interface CorePreset {
+export interface CorePreset extends SpatialInitParams {
   readonly maxLogical: number;
   readonly maxMixed: number;
   readonly maxBuses: number;
@@ -93,7 +232,32 @@ export type CoreShellEvent = { readonly type: "error"; readonly message: string 
 export interface CoreExports {
   myco_audio_abi_version(): number;
   myco_audio_schema_hash(): number;
-  myco_audio_init(sampleRate: number, maxLogical: number, maxMixed: number, maxBuses: number, arenaInitialBytes: number): number;
+  /** ABI 2.0 (ADR 0162 C8): the M2 five, then `max_beds`, `max_zone_slots`, `zone_max_frames`, `max_wide`. */
+  myco_audio_init(
+    sampleRate: number,
+    maxLogical: number,
+    maxMixed: number,
+    maxBuses: number,
+    arenaInitialBytes: number,
+    maxBeds: number,
+    maxZoneSlots: number,
+    zoneMaxFrames: number,
+    maxWide: number,
+  ): number;
+  /** ABI 2.0: bytes the zone kernels need in the arena. Pure. */
+  myco_audio_zone_kernel_budget_bytes(maxZoneSlots: number, zoneMaxFrames: number): number;
+  /** ABI 2.0: bytes of the block `myco_audio_init` takes for these parameters (0 when refused). Pure. */
+  myco_audio_layout_bytes(
+    sampleRate: number,
+    maxLogical: number,
+    maxMixed: number,
+    maxBuses: number,
+    arenaInitialBytes: number,
+    maxBeds: number,
+    maxZoneSlots: number,
+    zoneMaxFrames: number,
+    maxWide: number,
+  ): number;
   /** ABI 1.1 (A2.9): once after init, before the first `process`. */
   myco_audio_set_limiter_lookahead(ms: number): number;
   myco_audio_inbox_ptr(): number;
@@ -127,10 +291,13 @@ export class CoreLoadError extends Error {
   override readonly name = "CoreLoadError";
 }
 
-/** @internal The Memory's `maximum` in pages: the initial pages, the fixed regions and the arena up to its ceiling (architecture §5.1). */
-export function memoryMaximumPages(preset: CorePreset): number {
+/**
+ * @internal The Memory's `maximum` in pages: the initial pages, the fixed regions (`fixedRegionsHeadroomBytes`, with the
+ * zone kernel budget) and the arena up to its ceiling (architecture §5.1, ADR 0162 C8).
+ */
+export function memoryMaximumPages(preset: CorePreset, sampleRate: number): number {
   const arena = Math.max(preset.arenaInitialBytes, preset.clipCeilingBytes);
-  return Math.min(MAX_PAGES, MEMORY_INITIAL_PAGES + Math.ceil((FIXED_REGIONS_HEADROOM_BYTES + arena) / PAGE_BYTES));
+  return Math.min(MAX_PAGES, MEMORY_INITIAL_PAGES + Math.ceil((fixedRegionsHeadroomBytes(preset, sampleRate) + arena) / PAGE_BYTES));
 }
 
 /** What `instantiateCore` checks the module against; tests pass other values to see the refusals. */
@@ -154,7 +321,7 @@ function hex(bytes: Uint8Array): string {
  * mismatch, a module without that export, or when init refuses.
  */
 export function instantiateCore(wasm: BufferSource | WebAssembly.Module, preset: CorePreset, sampleRate: number, expected: CoreExpectations = EXPECTED): CoreInstance {
-  const memory = new WebAssembly.Memory({ initial: MEMORY_INITIAL_PAGES, maximum: memoryMaximumPages(preset) });
+  const memory = new WebAssembly.Memory({ initial: MEMORY_INITIAL_PAGES, maximum: memoryMaximumPages(preset, sampleRate) });
   let exports: CoreExports;
   try {
     const module = wasm instanceof WebAssembly.Module ? wasm : new WebAssembly.Module(wasm);
@@ -163,10 +330,21 @@ export function instantiateCore(wasm: BufferSource | WebAssembly.Module, preset:
     throw new CoreLoadError(`audio core: instantiating myco_audio.wasm failed: ${error instanceof Error ? error.message : String(error)}`);
   }
   // Init first: it's the one call that grows memory, and it must land on the same pages every time.
-  const code = exports.myco_audio_init(sampleRate, preset.maxLogical, preset.maxMixed, preset.maxBuses, preset.arenaInitialBytes);
-  if (code !== 0) throw new CoreLoadError(`audio core: myco_audio_init refused (code ${code})`);
+  // The ABI comes first: an ABI 1 module's init takes five parameters and would ignore the M3 four.
   const abi = exports.myco_audio_abi_version();
   if (abi >> 8 !== expected.abiMajor) throw new CoreLoadError(`audio core: ABI ${abi >> 8}.${abi & 0xff} where ${expected.abiMajor}.x was expected`);
+  const code = exports.myco_audio_init(
+    sampleRate,
+    preset.maxLogical,
+    preset.maxMixed,
+    preset.maxBuses,
+    preset.arenaInitialBytes,
+    preset.maxBeds,
+    preset.maxZoneSlots,
+    zoneMaxFrames(preset, sampleRate),
+    preset.maxWide,
+  );
+  if (code !== 0) throw new CoreLoadError(`audio core: myco_audio_init refused (code ${code})`);
   const schema = hex(new Uint8Array(memory.buffer, exports.myco_audio_schema_hash(), 16));
   if (schema !== expected.schemaHash) throw new CoreLoadError(`audio core: wire schema ${schema} where ${expected.schemaHash} was expected`);
   // The limiter's look-ahead fixes the core's output latency for its life, so it goes in before anything renders.
@@ -336,6 +514,8 @@ export class CoreDriver {
   /** B3: open streams by id, and where credits go (null until the host connects the worker's port). */
   private readonly streams = new Map<number, StreamShape>();
   private streamPost: StreamPost | null = null;
+  /** ADR 0162 C9: zone kernels (format 3 clips) the decoder worker sent on the stream port and hasn't unloaded. */
+  private readonly portKernels = new Set<number>();
 
   /** `dateNow` is the wall clock at construction: the idle cadence counts 250 ms from it until a batch arrives. */
   constructor(
@@ -460,7 +640,8 @@ export class CoreDriver {
     const code = this.core.exports.myco_audio_clip_reserve(begin.clipId, begin.frames, begin.channels, begin.sampleRate, begin.format);
     this.views();
     // A refusal is reported by the core as a STATUS clip event (refusedCeiling / refusedGrow).
-    if (code === 0) this.clips.set(begin.clipId, { frameBytes: begin.channels * (begin.format === ClipFormat.F32 ? 4 : 2) });
+    // ADR 0162 C6: formats 3-5 are f32 (a format 3 kernel is `channels` 1, `frames` = bytes / 4).
+    if (code === 0) this.clips.set(begin.clipId, { frameBytes: begin.channels * clipSampleBytes(begin.format) });
   }
 
   /** CLIP_CHUNK → `clip_chunk_ptr`, one copy from the message, `clip_commit`; the last range makes the clip resident. */
@@ -491,8 +672,31 @@ export class CoreDriver {
     // A new port means a new decoder worker (the old one died; main connects the next one before its first stream):
     // the old worker's streams will never send STREAM_CLOSE, so close them here and free their rings once their voices
     // end. Their chunk buffers belonged to the dead worker and are dropped.
-    if (this.streamPost && post && post !== this.streamPost) this.closeAllStreams();
+    // ADR 0162 C9: the same for the zone kernels the old worker sent: they're freed (after any clip message still
+    // queued), and main prepares every kernel again on the new worker.
+    if (this.streamPost && post && post !== this.streamPost) {
+      this.closeAllStreams();
+      this.unloadPortKernels();
+    }
     this.streamPost = post;
+  }
+
+  /** CLIP_UNLOAD, queued behind what is waiting, for every kernel the worker's port brought. */
+  private unloadPortKernels(): void {
+    for (const clipId of this.portKernels) {
+      const buffer = new ArrayBuffer(CLIP_UNLOAD_FIXED_END);
+      const view = new DataView(buffer);
+      writeEnvelope(view, 0, { kind: Kind.CLIP_UNLOAD, seq: 0, bodyBytes: CLIP_UNLOAD_FIXED_END - 16 });
+      writeClipUnload(view, 0, { clipId });
+      this.clipQueue.push(buffer);
+    }
+    this.portKernels.clear();
+    this.drainClips();
+  }
+
+  /** Zone kernels the decoder worker's port brought that are still loaded or loading (for tests). */
+  get workerClips(): number {
+    return this.portKernels.size;
   }
 
   /** STREAM_CLOSE for every open stream, through the inbox as the worker's would come. */
@@ -515,8 +719,10 @@ export class CoreDriver {
 
   /**
    * B3: a message from the decoder worker. STREAM_OPEN and STREAM_CLOSE go into the inbox (`myco_audio_submit`);
-   * STREAM_CHUNK is copied straight into its ring and its buffer kept for the next credit. A dead (trapped) core takes
-   * nothing; anything unreadable is dropped.
+   * STREAM_CHUNK is copied straight into its ring and its buffer kept for the next credit. ADR 0162 C9: the worker's
+   * zone kernels, CLIP_BEGIN format 3 then CLIP_CHUNKs (and CLIP_UNLOAD when released), join the clip queue as main's
+   * clips do (`drainClips`, `CLIP_BYTES_PER_QUANTUM` per quantum); no other clip format, and no clip the port didn't
+   * begin, is taken from it. A dead (trapped) core takes nothing; anything unreadable is dropped.
    */
   onStreamMessage(data: unknown, currentFrame: number, dateNow: number): void {
     void currentFrame;
@@ -528,6 +734,8 @@ export class CoreDriver {
       case Kind.STREAM_OPEN: {
         if (data.byteLength < STREAM_OPEN_FIXED_END) return;
         const open = readStreamOpen(view, 0);
+        // ADR 0162 §4.6: 1-16 channels (more than 2 take a wide ring in the core); anything else is never copied.
+        if (open.channels < 1 || open.channels > STREAM_MAX_CHANNELS) return;
         if (this.submitSmall(data) !== 0) return; // no ring: the core reports a stream error
         const known = this.streams.get(open.streamId);
         if (known) {
@@ -540,6 +748,24 @@ export class CoreDriver {
       }
       case Kind.STREAM_CHUNK:
         return this.streamChunk(view);
+      case Kind.CLIP_BEGIN: {
+        if (data.byteLength < CLIP_BEGIN_FIXED_END) return;
+        const begin = readClipBegin(view, 0);
+        if (begin.format !== ClipFormat.ZoneKernel) return;
+        this.portKernels.add(begin.clipId);
+        this.clipQueue.push(data);
+        return this.drainClips();
+      }
+      case Kind.CLIP_CHUNK:
+      case Kind.CLIP_UNLOAD: {
+        const kind = view.getUint16(6, true);
+        if (data.byteLength < (kind === Kind.CLIP_CHUNK ? CLIP_CHUNK_FIXED_END : CLIP_UNLOAD_FIXED_END)) return;
+        const clipId = kind === Kind.CLIP_CHUNK ? readClipChunk(view, 0).clipId : readClipUnload(view, 0).clipId;
+        if (!this.portKernels.has(clipId)) return;
+        if (kind === Kind.CLIP_UNLOAD) this.portKernels.delete(clipId);
+        this.clipQueue.push(data);
+        return this.drainClips();
+      }
       case Kind.STREAM_CLOSE: {
         if (data.byteLength < STREAM_CLOSE_FIXED_END) return;
         const { streamId } = readStreamClose(view, 0);
@@ -696,6 +922,7 @@ export class CoreDriver {
     this.traps++;
     this.clipQueue.length = 0;
     this.streams.clear();
+    this.portKernels.clear();
     this.toneGain = 0;
     this.post({ type: "trap", message: error instanceof Error ? error.message : String(error) });
   }

@@ -16,6 +16,10 @@ crate-type = ["cdylib", "rlib"]
 aac = ["symphonia/aac", "symphonia/isomp4"]
 
 [dependencies]
+# Zone IR preparation (ADR 0162 C2a): `convolver::kernel::prepare_ir`, the normalisation, presets.
+audio-dsp.workspace = true
+# The resampler table and the cut fade, bit-identical native and wasm (as audio-dsp).
+libm.workspace = true
 # Exactly 0.6.1, the version the decode spike measured. No metadata readers (ID3, APE): the probe
 # skips tags it doesn't read.
 symphonia = { version = "=0.6.1", default-features = false, features = ["wav", "pcm", "flac", "mp3", "ogg", "vorbis"] }

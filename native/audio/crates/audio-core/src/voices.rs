@@ -23,7 +23,9 @@
 //! the core-state region right after the status area (`status::STATUS_AREA_BYTES`).
 //!
 //! Each voice mixes into its bus's input buffer (`bus.rs`, A2.1; an unconfigured bus index goes to
-//! bus 0, the root). Not applied yet: `lpHz` (kept for the per-voice filter).
+//! bus 0, the root). ADR 0162 A4: a mixed spatial voice of panner kind 2 whose bus has a bed
+//! encodes into the bed instead (`panner.rs`, `bed.rs`), through its pool entry's bed share and
+//! last encode gains; `bed::begin_quantum` runs once a quantum before the voices.
 //!
 //! **Mixed and virtual** (A3.1; architecture §2.2, §4.7 "promote and demote 5 ms"). Main's selection
 //! decides which voices are mixed and sends SET_MIXED for changes ([`set_mixed`]); the adaptive cap
@@ -59,6 +61,7 @@
 //!
 //! `process` never allocates: every buffer is a region or a fixed-size stack array.
 
+use audio_dsp::ambisonic::{mat3_mul, yaw_ambix, Mat3, ShRotation, CHANNELS};
 use audio_dsp::ramp::Ramp;
 use audio_dsp::resample;
 use audio_wire::generated as wire;
@@ -67,6 +70,7 @@ use crate::automation::{self, VoiceAuto};
 use crate::clips::ClipStore;
 use crate::core::{Core, Regions};
 use crate::counters::{Playhead, ENDED_CAP, PLAYHEADS_CAP};
+use crate::fxpool::FxEntry;
 use crate::layout::VOICE_SLOT_BYTES;
 use crate::panner::{Hrtf, PannerState};
 use crate::stream::StreamStore;
@@ -108,6 +112,12 @@ pub mod flag {
     pub const STREAM: u8 = 1 << 7;
 }
 
+/// Second slot flag bits (ADR 0162).
+pub mod flag2 {
+    /// PLAY flag `ambisonic` (bit 7): a B-format clip voice, never filtered (C17).
+    pub const AMBISONIC: u8 = 1 << 0;
+}
+
 /// The promote and demote fade (architecture §4.7: "promote and demote 5 ms").
 pub const MIX_FADE_SECONDS: f32 = 0.005;
 
@@ -135,8 +145,13 @@ pub struct VoiceSlot {
     pub start_frame: u64,
     /// Read position in clip frames.
     pub position: f64,
-    /// PLAY / SET_PARAMS `lpHz`, kept for the per-voice filter (not applied yet).
-    pub lp_hz: f32,
+    /// ADR 0162: [`flag2`] bits (from PLAY).
+    pub flags2: u8,
+    pub reserved: u8,
+    /// ADR 0162 D1: the voice's mixed-voice pool entry (`fxpool.rs`) plus 1; 0 none. PLAY,
+    /// SET_PARAMS and SET_MIXED `lpHz` go straight to the entry's low-pass (a virtual voice keeps
+    /// none: main sends `lpHz` again with the promote), so the slot keeps no `lpHz` of its own.
+    pub fx: u16,
     /// PLAY / SET_PARAMS `score` (the adaptive cap's ranking, A3.3).
     pub score: f32,
     pub gain: Ramp,
@@ -191,6 +206,8 @@ const _: () = assert!(
 struct View<'a> {
     slots: &'a mut [VoiceSlot],
     area: &'a mut VoiceArea,
+    /// ADR 0162 D1: the mixed-voice pool (the `Fx` region).
+    pool: &'a mut [FxEntry],
 }
 
 fn view(regions: &mut Regions) -> View<'_> {
@@ -205,6 +222,7 @@ fn view(regions: &mut Regions) -> View<'_> {
         View {
             slots: core::slice::from_raw_parts_mut(regions.voices.as_mut_ptr() as *mut VoiceSlot, count),
             area: &mut *(state.as_mut_ptr() as *mut VoiceArea),
+            pool: crate::fxpool::entries(&mut regions.fx[..]),
         }
     }
 }
@@ -260,6 +278,7 @@ fn unlink_and_free(v: &mut View<'_>, index: usize) {
     if next != 0 {
         v.slots[next as usize - 1].prev = prev;
     }
+    crate::fxpool::release(v.pool, v.slots[index].fx, index);
     v.slots[index] = VoiceSlot::default();
     v.area.live_count -= 1;
 }
@@ -279,6 +298,12 @@ pub fn render(core: &mut Core, frame: u64) {
     let end = frame + QUANTUM as u64;
     // ADR 0158 E2: parameters move and bindings are evaluated before any voice renders.
     automation::begin_quantum(core);
+    // ADR 0162 K3: the sends' per-quantum state (C4: the buses' chain gains) before any voice renders.
+    crate::sends::begin_quantum(core);
+    // ADR 0162 A4: the beds' per-quantum state (counters, the ladder, moves, the sharing buses' folds).
+    crate::bed::begin_quantum(core);
+    // ADR 0162 B3: the listener's rotation moves on one quantum (ambisonic voices ramp across it).
+    crate::listener::begin_quantum(core);
     core.regions_mut().output[..2 * QUANTUM].fill(0.0);
     let mut cursor = 0usize;
     let (mut source_frames, mut moving) = (0.0f32, 0u32);
@@ -332,12 +357,19 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
     // ADR 0158 E2: the voices' automation and loop entries, or `None` when no voice has any (then
     // every voice takes exactly the M1 path below). Another region than the ones `v` views.
     let autos: Option<*mut [VoiceAuto]> = automation::voice_entries(&mut regions.automation[..]).map(|a| a as *mut _);
-    let v = view(regions);
+    // ADR 0162 K3: the zone slot inputs the send tap writes (`sends::tap`), another region again.
+    let zones: *mut [u8] = &mut regions.zones[..];
+    // ADR 0162 A4: the beds kind-2 voices encode into, another region again (`None` without beds).
+    // SAFETY: the `Beds` region is distinct from every region borrowed here.
+    let mut beds = crate::bed::view(unsafe { &mut *(&mut regions.beds[..] as *mut [u8]) });
+    let mut v = view(regions);
     let (mut source_frames, mut moving) = (0.0f32, 0u32);
     let mut cursor = v.area.live_head;
     while cursor != 0 {
         let index = cursor as usize - 1;
         cursor = v.slots[index].next;
+        // ADR 0162 D1: the pool entry follows the mixed flag (`fxpool.rs`).
+        sync_fx(&mut v, index);
         let slot = &mut v.slots[index];
         let start = match slot.state {
             state::SCHEDULED => {
@@ -373,22 +405,120 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
         // SAFETY: `autos` views the automation region, distinct from the voices, core-state and
         // buses regions borrowed here, and one entry is borrowed at a time.
         let auto = autos.and_then(|a| unsafe { (&mut *a).get_mut(index) }).filter(|a| a.active_for(slot.id));
+        // SAFETY: `zones` views the `Zones` region, distinct from every region borrowed here; one
+        // voice holds it at a time.
+        let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones }, beds: beds.as_mut() };
         // `AUTO = false` compiles the automation away: a voice without bindings or a loop region takes
         // exactly the M1 code (0158 E2: it costs nothing and renders bit for bit as before).
         match (slot.flags & flag::STREAM != 0, auto.is_some()) {
-            (true, true) => render_stream_voice::<true>(slot, auto, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
-            (true, false) => render_stream_voice::<false>(slot, None, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
-            (false, true) => render_voice::<true>(slot, auto, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
-            (false, false) => render_voice::<false>(slot, None, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+            (true, true) => render_stream_voice::<true>(slot, auto, fx, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+            (true, false) => render_stream_voice::<false>(slot, None, fx, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+            (false, true) => render_voice::<true>(slot, auto, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+            (false, false) => render_voice::<false>(slot, None, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+        }
+        // A voice that left the mix (a demote or pause fade settled) or ended gives its entry back.
+        let s = &mut v.slots[index];
+        if s.fx != 0 && (s.flags & flag::MIXED == 0 || s.state == state::ENDED) {
+            crate::fxpool::release(v.pool, s.fx, index);
+            s.fx = 0;
         }
     }
     (source_frames, moving)
 }
 
+/// ADR 0162 D1: a live mixed voice holds a pool entry, any other slot none. A mixed voice without
+/// one (the pool was full when it became mixed) tries again, starting with its filters off.
+fn sync_fx(v: &mut View<'_>, index: usize) {
+    let s = &v.slots[index];
+    if s.flags & flag::MIXED != 0 && is_live_state(s.state) {
+        if crate::fxpool::owned(v.pool, s.fx, index).is_none() {
+            ensure_fx(v, index);
+        }
+    } else if s.fx != 0 {
+        crate::fxpool::release(v.pool, s.fx, index);
+        v.slots[index].fx = 0;
+    }
+}
+
+/// ADR 0162 D1: gives slot `index` a pool entry if it holds none (a fresh one; when the pool is
+/// full, the entry of a voice fading out to virtual or to a pause, which loses its effects for the
+/// rest of that fade). Returns whether it holds one now.
+fn ensure_fx(v: &mut View<'_>, index: usize) -> bool {
+    if crate::fxpool::owned(v.pool, v.slots[index].fx, index).is_some() {
+        return true;
+    }
+    v.slots[index].fx = 0;
+    if let Some(fx) = crate::fxpool::acquire(v.pool, index) {
+        v.slots[index].fx = fx;
+        // ADR 0162 A4: the bed share jumps to its target at the first render (silent there).
+        v.pool[fx as usize - 1].bed_share = Ramp::at(crate::panner::BED_SHARE_UNSET);
+        return true;
+    }
+    for at in 0..v.pool.len() {
+        let owner = v.pool[at].owner as usize;
+        if owner == 0 || owner - 1 == index {
+            continue;
+        }
+        let o = &mut v.slots[owner - 1];
+        if o.fx as usize == at + 1 && o.flags & (flag::DEMOTING | flag::PAUSING) != 0 {
+            o.fx = 0;
+            v.pool[at] = FxEntry::fresh(index);
+            v.pool[at].bed_share = Ramp::at(crate::panner::BED_SHARE_UNSET);
+            v.slots[index].fx = at as u16 + 1;
+            return true;
+        }
+    }
+    false
+}
+
+/// `true` while slot `s` is silent for its effects (not started, or its mix at 0: a promote just
+/// begun), so new values jump rather than ramp.
+#[inline]
+fn fx_silent(s: &VoiceSlot) -> bool {
+    s.state == state::SCHEDULED || s.mix.value == 0.0
+}
+
+/// ADR 0162 D1 (`fxpool::set_voice_fx`): the pool entry of the live mixed voice `voice_id` (taken
+/// now if it holds none and one can be had), with whether the voice is silent (values jump) and
+/// ambisonic. `None` for a stale id, a virtual voice or a full pool.
+pub(crate) fn fx_entry(core: &mut Core, voice_id: u32) -> Option<(&mut FxEntry, bool, bool)> {
+    let mut v = view(core.regions_mut());
+    let index = find(&v, voice_id)?;
+    if v.slots[index].flags & flag::MIXED == 0 || !ensure_fx(&mut v, index) {
+        return None;
+    }
+    let s = v.slots[index];
+    let View { pool, .. } = v;
+    crate::fxpool::owned(pool, s.fx, index).map(|e| (e, fx_silent(&s), s.flags2 & flag2::AMBISONIC != 0))
+}
+
+/// ADR 0158 E2 / 0162 D1 (`automation::automate`): slot `index` gained a lowpass binding; its
+/// entry's low-pass restarts from zeroed history unless it is running (as M2 reset its filter).
+pub(crate) fn lowpass_bound(core: &mut Core, index: usize) {
+    let v = view(core.regions_mut());
+    let Some(s) = v.slots.get(index) else { return };
+    let fx = s.fx;
+    if let Some(e) = crate::fxpool::owned(v.pool, fx, index) {
+        e.filter.lowpass_bound();
+    }
+}
+
+/// ADR 0162 D1: the voice's low-pass target `lp_hz` into its entry (ambisonic voices keep none):
+/// at once while silent, else over `frames` (at least `MIN_RAMP_FRAMES`).
+fn set_entry_lowpass(v: &mut View<'_>, index: usize, lp_hz: f32, frames: u32) {
+    let s = v.slots[index];
+    if s.flags2 & flag2::AMBISONIC != 0 {
+        return;
+    }
+    if let Some(e) = crate::fxpool::owned(v.pool, s.fx, index) {
+        e.filter.set_lowpass(lp_hz, crate::fxpool::cutoff_frames(fx_silent(&s), frames));
+    }
+}
+
 /// Renders one playing voice over frames `from..to` of the quantum at `frame` (mixed) or keeps its
 /// time (virtual), and ends it when its clip runs out or its stopping fade settles.
 #[allow(clippy::too_many_arguments)]
-fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, clips: &ClipStore, hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
+fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, mut fx: VoiceFx<'_>, clips: &ClipStore, hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
     let mut auto = if AUTO { auto } else { None };
     if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
         // Paused and out of the mix (A3.7): holds its position, ramps and panner exactly. A stop
@@ -451,7 +581,14 @@ fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceA
             }
         }
     }
-    if slot.flags & flag::MIXED != 0 {
+    if slot.flags & flag::MIXED != 0 && slot.flags2 & flag2::AMBISONIC != 0 {
+        // ADR 0162 B3: an ambisonic voice reads its 4, 9 or 16 channels and is rotated into its
+        // bus's bed or a private decoder; it never reaches the panner.
+        ambisonic_mix(slot, auto.as_deref(), &mut fx, &clip.source, &steps[..n], region, looping, from);
+        if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
+            slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
+        }
+    } else if slot.flags & flag::MIXED != 0 {
         let mut l = [0.0f32; QUANTUM];
         let mut r = [0.0f32; QUANTUM];
         if let Some((start, end)) = region {
@@ -459,25 +596,9 @@ fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceA
         } else {
             resample::lagrange(&clip.source, &mut slot.position, &steps[..n], looping, &mut l[..n], &mut r[..n]);
         }
-        if slot.mix.is_settled() && slot.mix.value == 1.0 {
-            for i in 0..n {
-                let g = slot.gain.next() * slot.fade.next();
-                l[i] *= g;
-                r[i] *= g;
-            }
-        } else {
-            // A promote or demote (A3.1) or a seek fade (B3b) under way: the mix ramp on top of the gain and fade.
-            for i in 0..n {
-                let g = slot.gain.next() * slot.fade.next() * slot.mix.next();
-                l[i] *= g;
-                r[i] *= g;
-            }
-        }
-        if let Some(a) = auto.as_deref_mut() {
-            auto_gain_and_filter(a, slot.lp_hz, sample_rate, &mut l[..n], &mut r[..n], from);
-        }
+        voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..n], &mut r[..n]);
         let (id, bus) = (slot.id, slot.bus);
-        slot.panner.mix_range(hrtf, id, bus, frame, from, &l[..n], &r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
+        slot.panner.mix_range(hrtf, fx.bed(), id, bus, frame, from, &l[..n], &r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
         if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
             // The demote (or pause) fade is done: virtual from the next frame, keeping time (or,
             // paused, holding from here).
@@ -526,7 +647,7 @@ fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceA
 /// frame is `position - start_frame`. Afterwards the ring's `consumed` follows the position, less
 /// the one frame behind it the resampler still reads.
 #[allow(clippy::too_many_arguments)]
-fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, streams: &mut StreamStore, mut hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
+fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, mut fx: VoiceFx<'_>, streams: &mut StreamStore, mut hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
     use crate::stream::{frame_at, pending, phase, START_FRAMES};
     let mut auto = if AUTO { auto } else { None };
     if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
@@ -562,7 +683,7 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
             slot.panner.start(p.spatial != 0, p.kind, p.dir, ring.channels);
         }
     }
-    if ring.seeking != 0 && render_seek_tail::<AUTO>(slot, auto.as_deref_mut(), ring, samples, hrtf.as_deref_mut(), frame, sample_rate, fade_frames, from, to, out_l, out_r) {
+    if ring.seeking != 0 && render_seek_tail::<AUTO>(slot, auto.as_deref_mut(), fx.reborrow(), ring, samples, hrtf.as_deref_mut(), frame, sample_rate, fade_frames, from, to, out_l, out_r) {
         return;
     }
     let ch = ring.channels as usize;
@@ -670,16 +791,9 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
         done += 1;
     }
     if mixed {
-        for i in 0..done {
-            let g = slot.gain.next() * slot.fade.next() * slot.mix.next();
-            l[i] *= g;
-            r[i] *= g;
-        }
-        if let Some(a) = auto.as_deref_mut() {
-            auto_gain_and_filter(a, slot.lp_hz, sample_rate, &mut l[..done], &mut r[..done], from);
-        }
+        voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..done], &mut r[..done]);
         let (id, bus) = (slot.id, slot.bus);
-        slot.panner.mix_range(hrtf, id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
+        slot.panner.mix_range(hrtf, fx.bed(), id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
         if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
             slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
         }
@@ -713,8 +827,8 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
 /// Returns true when it rendered (the quantum is done), false when the voice moved with nothing
 /// left to fade (the caller goes on with the new epoch).
 #[allow(clippy::too_many_arguments)]
-fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, ring: &mut crate::stream::Ring, samples: &[f32], hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) -> bool {
-    use crate::stream::{frame_at, TAIL_OFFSET};
+fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, mut fx: VoiceFx<'_>, ring: &mut crate::stream::Ring, samples: &[f32], hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) -> bool {
+    use crate::stream::frame_at;
     let mut auto = if AUTO { auto } else { None };
     let finish = |slot: &mut VoiceSlot, ring: &mut crate::stream::Ring| {
         ring.seeking = 0;
@@ -728,7 +842,7 @@ fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut Vo
     }
     let stopping = slot.flags & flag::STOP_ON_FADE_END != 0;
     let ch = ring.tail_channels.max(1) as usize;
-    let tail = &samples[TAIL_OFFSET..];
+    let tail = crate::stream::tail(samples); // B4: the tail sits at a different offset in a wide ring
     let len = ring.tail_len as u64;
     let t0 = ring.tail_frame0 as f64;
     let mut n = to - from;
@@ -776,16 +890,9 @@ fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut Vo
         slot.position += steps[i] as f64;
         done += 1;
     }
-    for i in 0..done {
-        let g = slot.gain.next() * slot.fade.next() * slot.mix.next();
-        l[i] *= g;
-        r[i] *= g;
-    }
-    if let Some(a) = auto.as_deref_mut() {
-        auto_gain_and_filter(a, slot.lp_hz, sample_rate, &mut l[..done], &mut r[..done], from);
-    }
+    voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..done], &mut r[..done]);
     let (id, bus) = (slot.id, slot.bus);
-    slot.panner.mix_range(hrtf, id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
+    slot.panner.mix_range(hrtf, fx.bed(), id, bus, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
     if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
         slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
     }
@@ -821,33 +928,197 @@ fn auto_pitch(a: &VoiceAuto, steps: &mut [f32], from: usize) -> f32 {
     max
 }
 
-/// ADR 0158 §3: multiplies a mixed voice's block (frames `from..` of the quantum) by its
-/// `gainMul`, ramped across the quantum, and filters it at `min(lpHz, lpAuto)` when it has a
-/// lowpass binding (the coefficients change at most once per quantum).
-fn auto_gain_and_filter(a: &mut VoiceAuto, lp_hz: f32, sample_rate: f32, l: &mut [f32], r: &mut [f32], from: usize) {
-    if a.count == 0 {
-        return;
+/// A mixed voice's pool entry (`fxpool.rs`) and the `Zones` region its send tap writes, handed to
+/// the render paths (ADR 0162 K3). `entry` is `None` for a voice without one.
+struct VoiceFx<'a> {
+    entry: Option<&'a mut FxEntry>,
+    zones: &'a mut [u8],
+    /// ADR 0162 A4: the beds (`bed.rs`), `None` for a core without them.
+    beds: Option<&'a mut crate::bed::Beds>,
+}
+
+impl VoiceFx<'_> {
+    fn reborrow(&mut self) -> VoiceFx<'_> {
+        VoiceFx { entry: self.entry.as_deref_mut(), zones: &mut *self.zones, beds: self.beds.as_deref_mut() }
     }
-    if a.targets & automation::has::GAIN != 0 {
-        if a.g0 == a.g1 {
-            let g = a.g1;
-            for i in 0..l.len() {
+
+    /// ADR 0162 A4: the panner's kind-2 context, when the core has beds and the voice an entry.
+    fn bed(&mut self) -> Option<crate::panner::BedCtx<'_>> {
+        match (self.beds.as_deref_mut(), self.entry.as_deref_mut()) {
+            (Some(beds), Some(entry)) => Some(crate::panner::BedCtx { beds, entry }),
+            _ => None,
+        }
+    }
+}
+
+/// Architecture §4 steps 2 to 6 on a mixed voice's resampled block `l`, `r` (frames `from..` of the
+/// quantum), before the panner:
+/// - **no zone send** (M2's order, bit for bit): the dry `gain` ramp with the fade and mix ramps,
+///   then automation `gainMul`, then the voice's filters;
+/// - **a zone send** (R11 as clarified, K3): the fade and mix ramps, `gainMul`, the filters, the
+///   send tap (`sends::tap`), then the dry `gain` ramp;
+/// - either way, with an aux bus, the post-fader aux tap (`sends::tap_aux`) last.
+fn voice_chain(slot: &mut VoiceSlot, mut auto: Option<&mut VoiceAuto>, fx: &mut VoiceFx<'_>, sample_rate: f32, from: usize, l: &mut [f32], r: &mut [f32]) {
+    let VoiceFx { entry, zones, .. } = fx;
+    let zones: &mut [u8] = zones;
+    let sending = entry.as_deref().is_some_and(FxEntry::sending);
+    let n = l.len();
+    let settled_mix = slot.mix.is_settled() && slot.mix.value == 1.0;
+    if !sending {
+        if settled_mix {
+            for i in 0..n {
+                let g = slot.gain.next() * slot.fade.next();
                 l[i] *= g;
                 r[i] *= g;
             }
         } else {
-            for i in 0..l.len() {
-                let g = a.gain_at(from + i);
+            // A promote or demote (A3.1) or a seek fade (B3b) under way: the mix ramp on top of the gain and fade.
+            for i in 0..n {
+                let g = slot.gain.next() * slot.fade.next() * slot.mix.next();
                 l[i] *= g;
                 r[i] *= g;
             }
         }
+    } else {
+        for i in 0..n {
+            let g = slot.fade.next() * slot.mix.next();
+            l[i] *= g;
+            r[i] *= g;
+        }
     }
-    if a.targets & automation::has::LOWPASS != 0 {
-        let base = if crate::fx::lowpass_on(lp_hz) { lp_hz } else { automation::LP_OFF_HZ };
-        a.filter.set_lowpass(sample_rate, base.min(a.lp), crate::fx::SNAPSHOT_Q_DB);
-        a.filter.process(l, r);
+    // ADR 0158 §3: automation's lowpass binding caps the voice's low-pass ("lowest wins", 0162 §4.1).
+    let mut cap = None;
+    if let Some(a) = auto.as_deref_mut() {
+        auto_gain(a, l, r, from);
+        if a.count != 0 && a.targets & automation::has::LOWPASS != 0 {
+            cap = Some(a.lp);
+        }
     }
+    if let Some(e) = entry.as_deref_mut() {
+        // Step 3, the voice's filters (C17): never on an ambisonic voice; a mono voice once, on
+        // the left channel, then copied (both channels hold the same samples before).
+        if slot.flags2 & flag2::AMBISONIC == 0 {
+            if slot.panner.channels == 2 {
+                e.filter.process(sample_rate, cap, l, Some(r));
+            } else {
+                let was = e.filter.running();
+                if e.filter.process(sample_rate, cap, l, None) || was {
+                    r.copy_from_slice(l);
+                }
+            }
+        }
+        if sending {
+            crate::sends::tap(&mut e.send, zones, slot.bus, from, l, r);
+            for i in 0..n {
+                let g = slot.gain.next();
+                l[i] *= g;
+                r[i] *= g;
+            }
+        }
+        if e.aux_bus != wire::AUX_BUS_NONE as u16 {
+            crate::sends::tap_aux(&mut e.aux, e.aux_bus, zones, slot.bus, from, l, r, &slot.panner);
+        }
+    }
+}
+
+/// ADR 0158 §3: multiplies a mixed voice's block (frames `from..` of the quantum) by its `gainMul`,
+/// ramped across the quantum.
+fn auto_gain(a: &VoiceAuto, l: &mut [f32], r: &mut [f32], from: usize) {
+    if a.count == 0 || a.targets & automation::has::GAIN == 0 {
+        return;
+    }
+    if a.g0 == a.g1 {
+        let g = a.g1;
+        for i in 0..l.len() {
+            l[i] *= g;
+            r[i] *= g;
+        }
+    } else {
+        for i in 0..l.len() {
+            let g = a.gain_at(from + i);
+            l[i] *= g;
+            r[i] *= g;
+        }
+    }
+}
+
+/// ADR 0162 B3 (architecture §2.3, §3.5, §4; api-and-models §1.6, §4.4): renders an ambisonic clip
+/// voice over frames `from..from + steps.len()` of the quantum and adds it into the beds:
+/// - reads its whole orders (16, 9 or 4 channels; W alone for a clip of fewer than 4, which main
+///   refuses) through the N-channel resampler (`resample::lagrange_n`, or its loop-region form);
+/// - the fade and mix ramps and automation `gainMul`; never filtered (C17);
+/// - the **zone send** taps W (channel 0) there, before the dry gain, as a mono voice's signal (the
+///   other sends and the aux don't apply to an ambisonic voice, C1);
+/// - the dry `gain` ramp;
+/// - rotated by `R = R(listener) · Rz(yaw)` (the listener's rotation at the quantum's start and end,
+///   the yaw the last quantum ended on and the current one), ramped per sample across the quantum,
+///   and added into its bus's **bed** (after the bus's fold, as a kind-2 voice), or, with no bed on
+///   its bus, into a **private decoder** hosted by its bus. A core without a `Beds` region has
+///   neither: the voice keeps time silently (the core steals it at PLAY, [`steal_ambisonic`]).
+///
+/// One copy, outside the generic render paths (the mixer's size budget). It never reaches the panner.
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn ambisonic_mix(slot: &mut VoiceSlot, auto: Option<&VoiceAuto>, fx: &mut VoiceFx<'_>, src: &resample::Source<'_>, steps: &[f32], region: Option<(u32, u32)>, looping: bool, from: usize) {
+    let n = steps.len();
+    let ch = match src.channels {
+        16.. => 16,
+        9..=15 => 9,
+        4..=8 => 4,
+        _ => 1,
+    };
+    let mut planar = [0.0f32; resample::PLANAR_SCRATCH_FLOATS];
+    if let Some((start, end)) = region {
+        resample::lagrange_region_n(src, &mut slot.position, steps, start, end, ch, &mut planar);
+    } else {
+        resample::lagrange_n(src, &mut slot.position, steps, looping, ch, &mut planar);
+    }
+    let gain_mul = auto.filter(|a| a.count != 0 && a.targets & automation::has::GAIN != 0);
+    let mut g = [0.0f32; QUANTUM];
+    for (i, g) in g[..n].iter_mut().enumerate() {
+        *g = slot.fade.next() * slot.mix.next() * gain_mul.map_or(1.0, |a| a.gain_at(from + i));
+    }
+    let VoiceFx { entry, zones, beds } = fx;
+    let mut yaw = [0.0f32; 2];
+    if let Some(e) = entry.as_deref_mut() {
+        if e.sending() {
+            let mut w = [0.0f32; QUANTUM];
+            for i in 0..n {
+                w[i] = planar[i] * g[i];
+            }
+            crate::sends::tap(&mut e.send, zones, slot.bus, from, &w[..n], &w[..n]);
+        }
+        yaw = [if e.yaw_last.is_nan() { e.yaw } else { e.yaw_last }, e.yaw];
+        if from + n >= QUANTUM {
+            e.yaw_last = e.yaw;
+        }
+    }
+    for g in g[..n].iter_mut() {
+        *g *= slot.gain.next();
+    }
+    let Some(beds) = beds.as_deref_mut() else { return };
+    let route = beds.route(slot.bus);
+    let target = if route.cur != crate::bed::NONE {
+        beds.apply_fold(&route, from, &mut g[..n]);
+        Some(route.cur as usize)
+    } else {
+        beds.private_decoder(route.bus)
+    };
+    let Some(s) = target else { return };
+    let mut x: crate::bed::Acc = [[0.0; QUANTUM]; CHANNELS];
+    for (c, row) in x.iter_mut().enumerate().take(ch) {
+        for i in 0..n {
+            row[from + i] = planar[c * n + i] * g[i];
+        }
+    }
+    let listener = beds.listener().ends();
+    beds.rotate_add(s, &x, ch, &clip_rotation(&listener[0], yaw[0]), &clip_rotation(&listener[1], yaw[1]));
+}
+
+/// ADR 0162 B3: an ambisonic clip's rotation `R(listener) · Rz(yaw)` as a spherical-harmonic matrix.
+#[inline(never)]
+fn clip_rotation(listener: &Mat3, yaw: f32) -> ShRotation {
+    ShRotation::from_mat3(&mat3_mul(listener, &yaw_ambix(yaw)))
 }
 
 /// A clip voice's pending SEEK (its target in `start_frame`'s low bits) lands: moves it there
@@ -865,11 +1136,12 @@ fn report(core: &mut Core) {
     // B3: first, while the rings of voices that ended this quantum still hold their reports.
     report_streams(core);
     let room = (ENDED_CAP - status::counters(core).ended.len()).min(ENDED_SCRATCH);
-    let (live, mixed, ended, playheads, late_count, late_max) = {
+    let (live, mixed, ambisonic, ended, playheads, late_count, late_max) = {
         let (regions, _, streams) = core.render_parts();
         let mut v = view(regions);
         v.area.ended_len = 0;
         let mut mixed = 0u32;
+        let mut ambisonic = 0u32;
         let mut wants = 0u32;
         let mut cursor = v.area.live_head;
         while cursor != 0 {
@@ -892,6 +1164,7 @@ fn report(core: &mut Core) {
                 state::PLAYING => {
                     if s.flags & flag::MIXED != 0 {
                         mixed += 1;
+                        ambisonic += (s.flags2 & flag2::AMBISONIC != 0) as u32;
                     }
                     if s.flags & flag::WANTS_PLAYHEAD != 0 {
                         wants += 1;
@@ -905,7 +1178,7 @@ fn report(core: &mut Core) {
         v.area.late_count = 0;
         v.area.late_max = 0;
         v.area.mixed_count = mixed;
-        (v.area.live_count, mixed, v.area.ended_len as usize, v.area.playheads_len as usize, late.0, late.1)
+        (v.area.live_count, mixed, ambisonic, v.area.ended_len as usize, v.area.playheads_len as usize, late.0, late.1)
     };
     for i in 0..ended {
         let id = view(core.regions_mut()).area.ended[i];
@@ -922,6 +1195,10 @@ fn report(core: &mut Core) {
     }
     c.live_voices = live.min(u16::MAX as u32) as u16;
     c.mixed_voices = mixed.min(u16::MAX as u32) as u16;
+    // ADR 0162 B3: STATUS `ambisonicVoices`, the mixed ambisonic voices.
+    c.spatial.ambisonic_voices = ambisonic.min(u16::MAX as u32) as u16;
+    // ADR 0162 D1: STATUS `fxVoices`.
+    crate::fxpool::report(core);
 }
 
 /// B3: moves the rings' pending reports into STATUS: a starved voice into `starved` and stream
@@ -1035,15 +1312,23 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         s.start_frame = start_frame;
         s.position = play.start_offset_frames as f64;
         s.rate_ratio = clip_rate / sample_rate;
-        s.lp_hz = play.lp_hz;
         s.score = play.score;
+        s.flags2 = if play.flags & wire::PLAY_FLAGS_AMBISONIC != 0 { flag2::AMBISONIC } else { 0 };
+        // ADR 0162 D1: the old voice's pool entry goes; a mixed voice takes a fresh one.
+        crate::fxpool::release(v.pool, old.fx, index);
+        s.fx = 0;
         s.gain = Ramp::at(play.gain);
         s.pitch = Ramp::at(play.pitch);
         s.fade = Ramp::at(1.0);
         s.mix = Ramp::at(if flags & flag::MIXED != 0 { 1.0 } else { 0.0 });
         let spatial = play.flags & wire::PLAY_FLAGS_SPATIAL != 0;
         let kind = ((play.flags & wire::PLAY_FLAGS_PANNER_MASK) >> wire::PLAY_FLAGS_PANNER_SHIFT) as u8;
-        s.panner.start(spatial, kind, [play.dir_x, play.dir_y, play.dir_z], channels);
+        // A plain voice on an ambisonic clip plays its W (`resample::lagrange`): pan it as mono. An
+        // ambisonic voice never reaches the panner (ADR 0162 B3).
+        s.panner.start(spatial, kind, [play.dir_x, play.dir_y, play.dir_z], if channels > 2 { 1 } else { channels });
+        if flags & flag::MIXED != 0 && ensure_fx(&mut v, index) {
+            set_entry_lowpass(&mut v, index, play.lp_hz, 0);
+        }
         (old.state != state::FREE && old.id != play.voice_id).then_some((old.id, old.flags & flag::STREAM != 0, old.clip))
     };
     // ADR 0158 E2: the slot's automation entry now belongs to this voice and its group.
@@ -1052,6 +1337,49 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         status::counters_mut(core).ended.push(old);
         if stream {
             core.streams_mut().release(clip, old);
+        }
+    }
+    if play.flags & wire::PLAY_FLAGS_AMBISONIC != 0 {
+        steal_ambisonic(core, index);
+    }
+}
+
+/// ADR 0162 B3 (architecture §2.3: "`maxClips` caps concurrent ambisonic voices of either kind; the
+/// lowest priority is stolen"): after the PLAY of the ambisonic voice in slot `newcomer`, when more
+/// ambisonic voices are live than `max_wide` (the wide rings and private decoders `maxClips` sizes)
+/// the one with the lowest `score` is stolen; at equal scores an older voice goes before the
+/// newcomer. A voice not started (the newcomer, usually) or virtual ends at once; a mixed one fades
+/// out over the 5 ms mix fade and ends. Voices already stopping don't count. Main steals by
+/// priority first (B5), so this is the core's guarantee, not its usual path.
+#[inline(never)]
+fn steal_ambisonic(core: &mut Core, newcomer: usize) {
+    let limit = core.params().max_wide as usize;
+    let frames = mix_fade_frames(core);
+    let v = view(core.regions_mut());
+    // At most `limit` were live before this PLAY, so one steal restores the cap.
+    {
+        let (mut count, mut victim) = (0usize, None::<usize>);
+        let mut cursor = v.area.live_head;
+        while cursor != 0 {
+            let i = cursor as usize - 1;
+            let s = &v.slots[i];
+            cursor = s.next;
+            if !is_live_state(s.state) || s.flags2 & flag2::AMBISONIC == 0 || s.flags & flag::STOP_ON_FADE_END != 0 {
+                continue;
+            }
+            count += 1;
+            let lower = victim.is_none_or(|b| s.score < v.slots[b].score || (s.score == v.slots[b].score && b == newcomer));
+            if lower {
+                victim = Some(i);
+            }
+        }
+        let Some(i) = victim.filter(|_| count > limit) else { return };
+        let s = &mut v.slots[i];
+        if s.state == state::SCHEDULED || s.flags & flag::MIXED == 0 {
+            s.state = state::ENDED;
+        } else {
+            s.fade.set_target(0.0, frames);
+            s.flags |= flag::STOP_ON_FADE_END;
         }
     }
 }
@@ -1121,7 +1449,7 @@ pub fn seek(core: &mut Core, voice_id: u32, frame: u32, epoch: u32) {
 
 /// SET_PARAMS: applies the masked fields; gain, pitch and direction ramp over `ramp_frames`.
 pub fn set_params(core: &mut Core, p: &wire::SetParams) {
-    let v = view(core.regions_mut());
+    let mut v = view(core.regions_mut());
     let Some(index) = find(&v, p.voice_id) else { return };
     let s = &mut v.slots[index];
     if p.mask & wire::SET_PARAMS_MASK_GAIN != 0 {
@@ -1133,9 +1461,7 @@ pub fn set_params(core: &mut Core, p: &wire::SetParams) {
     if p.mask & wire::SET_PARAMS_MASK_DIR != 0 {
         s.panner.set_direction([p.dir_x, p.dir_y, p.dir_z], p.ramp_frames);
     }
-    if p.mask & wire::SET_PARAMS_MASK_LP_HZ != 0 {
-        s.lp_hz = p.lp_hz;
-    }
+    let lp = p.mask & wire::SET_PARAMS_MASK_LP_HZ != 0;
     if p.mask & wire::SET_PARAMS_MASK_SCORE != 0 {
         s.score = p.score;
     }
@@ -1144,6 +1470,10 @@ pub fn set_params(core: &mut Core, p: &wire::SetParams) {
     }
     if p.mask & wire::SET_PARAMS_MASK_FLAGS != 0 {
         s.panner.set_kind(((p.flags & wire::SET_PARAMS_FLAGS_PANNER_MASK) >> wire::SET_PARAMS_FLAGS_PANNER_SHIFT) as u8);
+    }
+    if lp {
+        // ADR 0162 D1: `lpHz` for every mixed voice, ramped in log-Hz.
+        set_entry_lowpass(&mut v, index, p.lp_hz, p.ramp_frames);
     }
 }
 
@@ -1180,22 +1510,29 @@ pub fn mix_fade_frames(core: &Core) -> u32 {
 /// Never reported in `demoted`: main asked for it.
 pub fn set_mixed(core: &mut Core, m: &wire::SetMixed) {
     let frames = mix_fade_frames(core);
-    let v = view(core.regions_mut());
+    let mut v = view(core.regions_mut());
     let Some(index) = find(&v, m.voice_id) else { return };
     let s = &mut v.slots[index];
     if m.mixed != 0 {
-        promote_slot(s, m.gain, [m.dir_x, m.dir_y, m.dir_z], m.lp_hz, frames);
+        promote_slot(s, m.gain, [m.dir_x, m.dir_y, m.dir_z], frames);
+        if v.slots[index].flags & flag::MIXED != 0 {
+            // ADR 0162 D1: a voice turning round keeps its entry and ramps to the new `lpHz` over
+            // the fade; one becoming mixed takes a fresh entry at it (silent there).
+            let had = crate::fxpool::owned(v.pool, v.slots[index].fx, index).is_some();
+            if ensure_fx(&mut v, index) {
+                set_entry_lowpass(&mut v, index, m.lp_hz, if had { frames } else { 0 });
+            }
+        }
     } else {
         demote_slot(s, frames);
     }
 }
 
-fn promote_slot(s: &mut VoiceSlot, gain: f32, dir: [f32; 3], lp_hz: f32, frames: u32) {
+fn promote_slot(s: &mut VoiceSlot, gain: f32, dir: [f32; 3], frames: u32) {
     if s.flags & flag::PAUSED != 0 {
         // Main never promotes a paused voice (selection forces it virtual); dropped (A3.7).
         return;
     }
-    s.lp_hz = lp_hz;
     if s.state == state::SCHEDULED {
         // Not started: start mixed at its gain, no fade (a clean onset).
         s.flags = (s.flags | flag::MIXED) & !flag::DEMOTING;
@@ -1366,7 +1703,7 @@ pub(crate) mod tests {
 
     /// A small core over a zeroed, page-aligned, leaked block.
     pub(crate) fn core() -> Core {
-        let p = InitParams { sample_rate: 48_000.0, max_logical: 16, max_mixed: 8, max_buses: 4, arena_initial_bytes: 0 };
+        let p = InitParams { sample_rate: 48_000.0, max_logical: 16, max_mixed: 8, max_buses: 4, arena_initial_bytes: 0, ..InitParams::default() };
         let layout = Layout::new(&p);
         let l = std::alloc::Layout::from_size_align(layout.total(), PAGE_BYTES).unwrap();
         // SAFETY: non-zero size, zeroed, page-aligned, leaked on purpose.

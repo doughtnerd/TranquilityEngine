@@ -25,6 +25,16 @@ pub struct Regions {
     pub clip_directory: &'static mut [u8],
     /// Parameters, curves and automation (`automation.rs`, ADR 0158 E2).
     pub automation: &'static mut [u8],
+    /// ADR 0162 C8: bed slots and private decoders (`bed.rs`).
+    pub beds: &'static mut [u8],
+    /// ADR 0162 C8: zone convolver states (`zones.rs`).
+    pub zones: &'static mut [u8],
+    /// ADR 0162 C8: wide stream rings (B4: the stream store owns them; empty here after `new`).
+    pub wide: &'static mut [u8],
+    /// ADR 0162 C8: the mixed-voice pool (`fxpool.rs`).
+    pub fx: &'static mut [u8],
+    /// ADR 0162 C8: the 8 KB planar scratch (sources of up to 16 channels).
+    pub scratch: &'static mut [u8],
     /// Empty: the clip store owns the arena region (A1.3b).
     pub arena: &'static mut [u8],
 }
@@ -77,13 +87,18 @@ impl Core {
             streams: bytes(RegionKind::Streams),
             clip_directory: bytes(RegionKind::ClipDirectory),
             automation: bytes(RegionKind::Automation),
+            beds: bytes(RegionKind::Beds),
+            zones: bytes(RegionKind::Zones),
+            wide: bytes(RegionKind::Wide),
+            fx: bytes(RegionKind::Fx),
+            scratch: bytes(RegionKind::Scratch),
             arena: bytes(RegionKind::Arena),
         };
         // A1.3b: the clip store owns the directory and arena regions (they stay empty here).
         let clips = ClipStore::over(core::mem::take(&mut regions.clip_directory), core::mem::take(&mut regions.arena));
         let cap = CapState::new(params.max_mixed, params.sample_rate);
-        // B3: the stream store owns the streams region (it stays empty here).
-        let streams = StreamStore::over(core::mem::take(&mut regions.streams));
+        // B3, B4: the stream store owns the streams and wide regions (they stay empty here).
+        let streams = StreamStore::over(core::mem::take(&mut regions.streams), core::mem::take(&mut regions.wide));
         let mut core = Core { params, layout, base: base as usize, regions, frame: 0, clips, cap, streams };
         // A2.1: one root bus at unity and MASTER at unity until BUS_CONFIG, BUS_MIX and MASTER.
         crate::bus::init(&mut core);
@@ -199,7 +214,7 @@ mod tests {
     }
 
     fn params() -> InitParams {
-        InitParams { sample_rate: 48_000.0, max_logical: 256, max_mixed: 32, max_buses: 8, arena_initial_bytes: 1 << 20 }
+        InitParams { sample_rate: 48_000.0, max_logical: 256, max_mixed: 32, max_buses: 8, arena_initial_bytes: 1 << 20, ..InitParams::default() }
     }
 
     #[test]

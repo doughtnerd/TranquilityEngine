@@ -1,10 +1,10 @@
-//! A0.2-L3: the STATUS body (ADR 0157 section 4.3). Transcribe the 112-byte header (absolute offsets,
-//! envelope counted: use `.at(off)` on every field) and the sections. Fill the tables marked
-//! A0.2-L3 and the ignored tests.
+//! The STATUS body (ADR 0157 section 4.3; ADR 0162 §4.3 and C7 for M3): the 144-byte header
+//! (absolute offsets, envelope counted: `.at(off)` on every field) and the sections. M3's section
+//! items are in `spatial.rs`.
 
 use crate::model::*;
 
-/// Header fields at the spec's offsets (16..=111), `flags` with its six named bits. A0.2-L3: fill.
+/// Header fields at the spec's offsets (16..=143), `flags` with its seven named bits.
 pub const HEADER_FIELDS: &[Field] = &[
     Field::new("currentFrame", Ty::F64).at(16),
     Field::new("dateMs", Ty::F64).at(24),
@@ -23,6 +23,7 @@ pub const HEADER_FIELDS: &[Field] = &[
         Bits::bit("adaptiveCapActive", 3, "the adaptive voice cap is limiting voices"),
         Bits::bit("ready", 4, "the core is initialised and rendering"),
         Bits::bit("trapCaught", 5, "a trap was caught in the render path"),
+        Bits::bit("bedDecoderReady", 6, "the MagLS filters (format 4) are committed and transformed (ADR 0162)"),
     ]),
     Field::new("endedCount", Ty::U16).at(64),
     Field::new("demotedCount", Ty::U16).at(66),
@@ -42,6 +43,20 @@ pub const HEADER_FIELDS: &[Field] = &[
     Field::new("maxLatenessFrames", Ty::U32).at(104),
     Field::new("hrtfVoices", Ty::U16).at(108),
     Field::new("hrtfLoadFailure", Ty::U16).at(110),
+    // ADR 0162 §4.3 (C7): 112..=143.
+    Field::new("bedVoices", Ty::U16).at(112).doc("voices encoded into a bed"),
+    Field::new("bedsActive", Ty::U16).at(114).doc("bed slots decoding; the beds section's count"),
+    Field::new("fxVoices", Ty::U16).at(116).doc("mixed-voice pool entries with an active filter"),
+    Field::new("ambisonicVoices", Ty::U16).at(118),
+    Field::new("zonesActive", Ty::U16).at(120),
+    Field::new("zonesRinging", Ty::U16).at(122),
+    Field::new("zoneEventCount", Ty::U16).at(124),
+    Field::new("bedsRefused", Ty::U16).at(126).doc("buses whose bed host failed validation (cumulative, saturating)"),
+    Field::new("zoneSlots", Ty::U16).at(128).doc("zone slots reported; the zones section's count (max_zone_slots, at most 4)"),
+    Field::new("m3Shed", Ty::U16).at(130).doc("the load-shedding ladder's steps taken: bed steps plus zone steps (ADR 0162 OD3, D5)"),
+    Field::new("zoneUsedKB", Ty::U32).at(132).doc("zone kernels resident, KB"),
+    Field::new("workBed", Ty::U32).at(136).doc("work units, last quantum: bed encode, decode, ambisonic voices"),
+    Field::new("workZones", Ty::U32).at(140).doc("work units, last quantum: zone convolvers, sends, aux"),
 ];
 
 /// Sections in order: ended, demoted, starved, playheads, clipEvents, streamEvents, peaks. A0.2-L3: fill.
@@ -79,7 +94,7 @@ pub const SECTIONS: &[Section] = &[
         item: &[Field::new("clipId", Ty::U32), Field::new("code", Ty::U32)],
         count_field: "clipEventCount",
         max: 64,
-        doc: "ClipEvent codes: 1 resident, 2 refusedCeiling, 3 refusedGrow, 4 hrtfReady",
+        doc: "ClipEvent codes: 1 resident, 2 refusedCeiling, 3 refusedGrow, 4 hrtfReady, 5 refusedFormat",
     },
     Section {
         name: "streamEvents",
@@ -97,9 +112,30 @@ pub const SECTIONS: &[Section] = &[
         max: 32,
         doc: "peak level per bus, left and right",
     },
+    Section {
+        name: "beds",
+        item: super::spatial::BEDS_ITEM,
+        count_field: "bedsActive",
+        max: 4,
+        doc: "per active bed slot: host bus, voices and work (ADR 0162)",
+    },
+    Section {
+        name: "zones",
+        item: super::spatial::ZONES_ITEM,
+        count_field: "zoneSlots",
+        max: 4,
+        doc: "per zone slot: kernel, state, quanta since input, wet peak (ADR 0162)",
+    },
+    Section {
+        name: "zoneEvents",
+        item: super::spatial::ZONE_EVENTS_ITEM,
+        count_field: "zoneEventCount",
+        max: 16,
+        doc: "ZoneEvent codes: 1 refused kernel, 2 refused slot, 3 bad blob (ADR 0162)",
+    },
 ];
 
-pub const STATUS: StatusSpec = StatusSpec { header_bytes: 112, fields: HEADER_FIELDS, sections: SECTIONS };
+pub const STATUS: StatusSpec = StatusSpec { header_bytes: 144, fields: HEADER_FIELDS, sections: SECTIONS };
 
 #[cfg(test)]
 mod tests {
@@ -143,6 +179,19 @@ mod tests {
             ("maxLatenessFrames", 104, Ty::U32),
             ("hrtfVoices", 108, Ty::U16),
             ("hrtfLoadFailure", 110, Ty::U16),
+            ("bedVoices", 112, Ty::U16),
+            ("bedsActive", 114, Ty::U16),
+            ("fxVoices", 116, Ty::U16),
+            ("ambisonicVoices", 118, Ty::U16),
+            ("zonesActive", 120, Ty::U16),
+            ("zonesRinging", 122, Ty::U16),
+            ("zoneEventCount", 124, Ty::U16),
+            ("bedsRefused", 126, Ty::U16),
+            ("zoneSlots", 128, Ty::U16),
+            ("m3Shed", 130, Ty::U16),
+            ("zoneUsedKB", 132, Ty::U32),
+            ("workBed", 136, Ty::U32),
+            ("workZones", 140, Ty::U32),
         ];
         assert_eq!(HEADER_FIELDS.len(), expected.len());
         let mut end = 16;
@@ -156,11 +205,11 @@ mod tests {
             end = offset + field.bytes();
         }
         assert_eq!(end, constant("STATUS_HEADER_BYTES") as u32);
-        assert_eq!(STATUS.header_bytes, 112);
+        assert_eq!(STATUS.header_bytes, 144);
     }
 
     #[test]
-    fn flags_bits_0_to_5() {
+    fn flags_bits_0_to_6() {
         let flags = HEADER_FIELDS.iter().find(|f| f.name == "flags").unwrap();
         let names: Vec<(&str, u8, u8)> = flags.bits.iter().map(|b| (b.name, b.lo, b.width)).collect();
         assert_eq!(
@@ -172,6 +221,7 @@ mod tests {
                 ("adaptiveCapActive", 3, 1),
                 ("ready", 4, 1),
                 ("trapCaught", 5, 1),
+                ("bedDecoderReady", 6, 1),
             ]
         );
     }
@@ -179,12 +229,12 @@ mod tests {
     #[test]
     fn sections_and_caps() {
         let names: Vec<&str> = SECTIONS.iter().map(|s| s.name).collect();
-        assert_eq!(names, ["ended", "demoted", "starved", "playheads", "clipEvents", "streamEvents", "peaks"]);
+        assert_eq!(names, ["ended", "demoted", "starved", "playheads", "clipEvents", "streamEvents", "peaks", "beds", "zones", "zoneEvents"]);
 
         let counts: Vec<&str> = SECTIONS.iter().map(|s| s.count_field).collect();
         assert_eq!(
             counts,
-            ["endedCount", "demotedCount", "starvedCount", "playheadCount", "clipEventCount", "streamEventCount", "busCount"]
+            ["endedCount", "demotedCount", "starvedCount", "playheadCount", "clipEventCount", "streamEventCount", "busCount", "bedsActive", "zoneSlots", "zoneEventCount"]
         );
         for s in SECTIONS {
             assert!(HEADER_FIELDS.iter().any(|f| f.name == s.count_field), "{}", s.name);
@@ -198,6 +248,9 @@ mod tests {
         assert_eq!(caps[0], constant("MAX_ENDED_PER_BLOCK") as u32);
         assert_eq!(caps[1], constant("MAX_DEMOTED_PER_BLOCK") as u32);
         assert_eq!(caps[2], constant("MAX_STARVED_PER_BLOCK") as u32);
+        assert_eq!(caps[7], constant("MAX_BEDS") as u32);
+        assert_eq!(caps[8], constant("MAX_ZONE_SLOTS") as u32);
+        assert_eq!(caps[9], constant("MAX_ZONE_EVENTS_PER_BLOCK") as u32);
 
         let item_fields = |s: &Section| -> Vec<(&str, Ty)> { s.item.iter().map(|f| (f.name, f.ty)).collect() };
         assert_eq!(item_fields(&SECTIONS[0]), vec![("id", Ty::U32)]);
@@ -208,13 +261,15 @@ mod tests {
     }
 
     #[test]
-    fn worst_case_is_15728_bytes() {
+    fn worst_case_is_15904_bytes() {
         let worst: u32 = STATUS.header_bytes
             + SECTIONS
                 .iter()
                 .map(|s| s.max * s.item.iter().map(|f| f.bytes()).sum::<u32>())
                 .sum::<u32>();
-        assert_eq!(worst, 15728);
+        // ADR 0162 §4.3: 15,728 - 112 + 144 + 32 + 48 + 64.
+        assert_eq!(worst, 15904);
+        assert!(worst <= constant("STATUS_BUFFER_BYTES") as u32);
         assert_eq!(worst as u64, constant("STATUS_WORST_CASE_BYTES"));
     }
 }

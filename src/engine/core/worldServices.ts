@@ -11,6 +11,8 @@
  * Plugins register services through their runtime context (`registerWorldService`). Other plugins reach
  * one through a typed key (`defineWorldService`, `worldService`) for optional coupling (ADR 0133).
  */
+import { layerGroups } from "../physics/layers";
+import type { GameObject } from "../scene/GameObject";
 import { getComponentId, type ComponentClass } from "./registry";
 import type { World } from "./World";
 import type { WorldHandle, WorldTag } from "./worlds";
@@ -39,6 +41,27 @@ export interface WorldRayHit {
   readonly distance: number;
 }
 
+/**
+ * @internal The reused result of `raycastInto` (ADR 0162, C14). The caller allocates it once; a hit
+ * writes `node`, `distance` and `point` into it, a miss leaves it untouched.
+ */
+export interface WorldRayInto {
+  /** The node that owns the collider hit. */
+  node: GameObject | null;
+  distance: number;
+  point: { x: number; y: number; z: number };
+}
+
+/** @internal What `raycastInto` may hit (ADR 0162, C14). The caller reuses one query object across calls. */
+export interface WorldRayQuery {
+  /** Which colliders can be hit: `rayGroupsFor(world, layers)`, computed when settings change; undefined: every layer. */
+  groups: number | undefined;
+  /** Colliders on these nodes are never hit (the source's subtree, the listener's node); tested inside the query. */
+  excludeNodes: ReadonlySet<GameObject>;
+  /** Sensors (trigger colliders) never hit. */
+  includeSensors: false;
+}
+
 /** @internal A lazily loaded per-World subsystem (ADR 0135). `L` is what `load` gives, `I` one World's instance. */
 export interface WorldServiceDef<L = unknown, I = unknown> {
   /** Unique, e.g. `myco.physics3d`. */
@@ -65,6 +88,8 @@ export interface WorldServiceDef<L = unknown, I = unknown> {
   interpolate?(instance: I, alpha: number): void;
   /** A world-space 3D ray query (`dir` need not be unit length), for core code such as particle collisions. */
   raycast?(instance: I, origin: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, maxDistance: number): WorldRayHit | null;
+  /** The allocation-free ray query behind `raycastInto` (ADR 0162, C14): the first hit that isn't excluded, written into `out`. */
+  raycastInto?(instance: I, out: WorldRayInto, origin: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, maxDistance: number, query: WorldRayQuery): boolean;
 }
 
 interface Load {
@@ -271,6 +296,41 @@ export function _worldRaycast(world: World, origin: { x: number; y: number; z: n
     if (def?.raycast) return def.raycast(s.instances.get(id), origin, dir, maxDistance);
   }
   return null;
+}
+
+/**
+ * @internal The first collider a 3D ray hits that `query` allows, written into `out` (ADR 0162, C14; audio
+ * occlusion): excluded nodes and sensors are skipped inside the query, so the first hit is never one of
+ * them. `dir` need not be unit length. Allocates nothing; a World with no running 3D physics service
+ * (never started by this call), or a 2D one, answers false.
+ */
+export function raycastInto(world: World, out: WorldRayInto, origin: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, maxDistance: number, query: WorldRayQuery): boolean {
+  const s = states.get(world);
+  if (!s) return false;
+  const order = s.order;
+  for (let i = 0; i < order.length; i++) {
+    const id = order[i];
+    const def = services.get(id)?.def;
+    if (def?.raycastInto) return def.raycastInto(s.instances.get(id), out, origin, dir, maxDistance, query);
+  }
+  return false;
+}
+
+/**
+ * @internal The `WorldRayQuery.groups` mask for colliders on any of `layers` (physics layer names; none:
+ * every layer), read from the World's physics settings, so it needs no running service. Compute it when
+ * settings change, not per call. Throws on a layer the project doesn't define.
+ */
+export function rayGroupsFor(world: World, layers?: readonly string[]): number | undefined {
+  if (!layers?.length) return undefined;
+  const map = layerGroups(world.settings.physics);
+  let membership = 0;
+  for (const l of layers) {
+    const g = map.get(l);
+    if (g === undefined) throw new Error(`rayGroupsFor: unknown physics layer "${l}".`);
+    membership |= g >>> 16;
+  }
+  return (0xffff << 16) | membership;
 }
 
 /**

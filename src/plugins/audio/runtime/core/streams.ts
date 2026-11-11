@@ -5,7 +5,8 @@
 //   it never collides with a clip registry id in `table.clip`; the core keeps stream ids in a namespace of their own.
 // - **Channel.** Before the first stream (and again after a hard rebuild or a new decoder worker) a `MessageChannel`
 //   connects the decoder worker to the worklet: one end to the worker (`connectWorklet`), the other to the node
-//   (`CoreLink.connectStreamPort`). Chunks and credits flow on it without main.
+//   (`CoreLink.connectStreamPort`). Chunks and credits flow on it without main. The channel is the backend's
+//   `WorkletChannel` (`workletChannel.ts`), shared with zone IRs (ADR 0162 C9): whichever needs it first connects it.
 // - **Open.** The backend sends the PLAY (flag `stream`) at once; the core holds the voice until data arrives. Here the
 //   file is fetched and handed to the worker (`openStream`, the bytes transferred), which posts STREAM_OPEN and chunks.
 // - **Waiting.** The voice reads `reason === "waitingForData"` from its play until it sounds, and again while starved:
@@ -27,6 +28,12 @@
 //   seeks, `reopenStreams` after a hard rebuild and the playhead wrap read it. The release lands on the predicted frame;
 //   the prediction is exact while the voice neither starves nor changes pitch between the last STATUS and the end of the
 //   pass.
+// - **Ambisonic streams** (ADR 0162 B4, §2.4, §4.6). The open carries the sidecar's `ambisonic.convention`, so the
+//   worker converts FuMa per chunk and streams all 4, 9 or 16 channels into a wide ring of the core. `streamOpened`
+//   checks the channel count against the sidecar as the registry checks a clip's (`checkAmbisonic`: a mismatch fails
+//   the stream), and a FuMa stream's `importGain` (the headroom scale) goes to the backend (`onImportGain`), which
+//   multiplies the voice's volume by it, as a FuMa clip's import volume is. A wide stream's starves also count in
+//   `wideStarved` (C24).
 // - **Close.** When the voice is freed (ended, stopped, stolen) the stream is closed on the worker, which sends
 //   STREAM_CLOSE to the worklet (the core frees the ring).
 // - **Errors** (architecture §7): a stream error from the worker, a failed fetch or a refused ring stops the voice with
@@ -34,14 +41,17 @@
 //   it for clip decodes only): each of its streams fails this way, and the next stream connects a new channel, on
 //   which the worklet closes the dead worker's rings.
 import { MAX_STARVED_PER_BLOCK, StreamEvent, type StatusBlock } from "../wire.generated";
+import { Assets } from "../../../../engine/scene/Assets";
+import type { AmbisonicImport } from "../../../../engine/scene/importSettings";
 import { setFileLoopPoints } from "../loopPoints";
 import { wrapPosition, type LoopRecord } from "./coreAutomation";
 import type { DecodeHint, StreamPortLike } from "../decoder/protocol";
 import { hintFromName } from "../decoder/protocol";
 import type { DecoderClient, StreamReply } from "../decoder/decoderClient";
-import type { ClipInfo } from "./clipRegistry";
+import { checkAmbisonic, type ClipInfo } from "./clipRegistry";
 import type { CoreLink } from "./context";
 import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
+import { WorkletChannel, type StreamChannel } from "./workletChannel";
 
 /** @internal The first stream id: past the HRIR clip ids (`0xFFFF0000..0xFFFF00FF`) in the reserved range. */
 export const STREAM_ID_FIRST = 0xffff0100;
@@ -53,11 +63,7 @@ export const STREAM_ERROR_FADE_SECONDS = 0.05;
 /** @internal What the manager needs of the decoder client. */
 export type StreamDecoderLike = Pick<DecoderClient, "connectWorklet" | "openStream" | "closeStream" | "onStream" | "generation"> & Partial<Pick<DecoderClient, "seekStream" | "loopStream">>;
 
-/** @internal The two ends of a channel. */
-export interface StreamChannel {
-  readonly worker: MessagePort | StreamPortLike;
-  readonly worklet: MessagePort | StreamPortLike;
-}
+export type { StreamChannel };
 
 /** @internal What `StreamManager` takes. */
 export interface StreamManagerDeps {
@@ -68,6 +74,8 @@ export interface StreamManagerDeps {
   readonly connectWorklet: (port: MessagePort | StreamPortLike) => void;
   /** Makes a channel; default `new MessageChannel()`. */
   readonly channel?: () => StreamChannel;
+  /** ADR 0162 C9: the channel shared with zone IRs (the backend's); default one of this manager's own on the three above. */
+  readonly worklet?: WorkletChannel<StreamDecoderLike>;
   /** B3b: sends the SEEK record for voice `id` (the backend's writer). */
   readonly sendSeek?: (id: number, frame: number, epoch: number) => void;
   /** Fetches an asset's encoded bytes. */
@@ -78,6 +86,10 @@ export interface StreamManagerDeps {
   readonly positionAt?: (voice: number, frame: number) => number | null;
   /** E4.4: voice `voice`'s stream frames per context frame now (pitch, rate; 0 paused). */
   readonly rateOf?: (voice: number) => number;
+  /** B4: an asset's sidecar `ambisonic` block (default: `Assets.importSettings`), for the convention and the check. */
+  readonly ambisonic?: (asset: string) => AmbisonicImport | null;
+  /** B4: a FuMa stream's import gain (from `streamOpened`): the backend multiplies voice `voice`'s volume by it. */
+  readonly onImportGain?: (voice: number, gain: number) => void;
 }
 
 /** E4.4: a loop region in file frames (`end` exclusive, resolved: never 0 once the file's length is known). */
@@ -115,9 +127,10 @@ interface Entry {
   sentRegion: boolean;
   /** The stream-frame → file-frame map, newest last (empty until `streamOpened`). */
   segments: Segment[];
-  /** From `streamOpened`: the file's rate and frames (0 until then, or when unknown). */
+  /** From `streamOpened`: the file's rate, frames (0 until then, or when unknown) and channels (B4: over 2, wide). */
   rate: number;
   frames: number;
+  channels?: number;
   /** The seek epoch: 1 at open, one more per seek (B3b). */
   epoch: number;
   /** A seek in seconds asked for before the file's rate was known (applied on `streamOpened`). */
@@ -135,15 +148,17 @@ export interface StreamStats {
   starves: number;
   eos: number;
   coreErrors: number;
-  /** Channels made (one per decoder worker and core). */
+  /** Channels this manager made (one per decoder worker and core; one zone IRs made first isn't counted here). */
   connections: number;
   /** Seeks sent to the worker and the core (B3b). */
   seeks: number;
+  /** B4 (C24): starves of wide (ambisonic) streams, also counted in `starves`. */
+  wideStarved: number;
 }
 
 /** @internal The main side of streaming; see the header. */
 export class StreamManager {
-  readonly stats: StreamStats = { opened: 0, closed: 0, errors: 0, starves: 0, eos: 0, coreErrors: 0, connections: 0, seeks: 0 };
+  readonly stats: StreamStats = { opened: 0, closed: 0, errors: 0, starves: 0, eos: 0, coreErrors: 0, connections: 0, seeks: 0, wideStarved: 0 };
   private readonly byStream = new Map<number, Entry>();
   /** Per slot: the playhead last seen in STATUS (the waiting reason clears when it moves). */
   private readonly seen: Float64Array;
@@ -152,8 +167,8 @@ export class StreamManager {
   private nextId = 0;
   /** E4.4: what each asset's last `streamOpened` said. */
   private readonly facts = new Map<string, FileFacts>();
-  /** The decoder generation and core this manager connected, or -1 when a new channel is needed. */
-  private connectedGeneration = -1;
+  /** The worker ↔ worklet channel (shared with zone IRs in the backend). */
+  private readonly worklet: WorkletChannel<StreamDecoderLike>;
   /** B3b: told the frame a seek that waited for the file's rate landed on (the backend re-anchors the playhead). */
   afterSeek: ((voice: number, frame: number) => void) | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -161,6 +176,7 @@ export class StreamManager {
   private readonly starved: number[] = [];
 
   constructor(private readonly deps: StreamManagerDeps) {
+    this.worklet = deps.worklet ?? new WorkletChannel<StreamDecoderLike>({ decoder: deps.decoder, connectWorklet: deps.connectWorklet, channel: deps.channel });
     this.seen = new Float64Array(deps.table.capacity);
     this.seenFrame = new Float64Array(deps.table.capacity).fill(Number.NaN);
   }
@@ -258,7 +274,9 @@ export class StreamManager {
         // until `streamOpened` sends it.
         const region = e.loop && e.record && facts ? regionOf(e.record, facts.rate, facts.frames) : null;
         e.sentRegion = region !== null;
-        decoder.openStream({ streamId, asset: e.asset, bytes, hint, startFrame, epoch: e.epoch, loop: e.loop, ...(e.loop ? { loopStartFrame: region?.start ?? 0, loopEndFrame: region?.end ?? 0 } : {}) });
+        // B4: the sidecar's convention lets the worker stream an ambisonic file's channels (FuMa converted per chunk).
+        const convention = this.ambisonicOf(e.asset)?.convention;
+        decoder.openStream({ streamId, asset: e.asset, bytes, hint, startFrame, epoch: e.epoch, loop: e.loop, ...(e.loop ? { loopStartFrame: region?.start ?? 0, loopEndFrame: region?.end ?? 0 } : {}), ...(convention ? { convention } : {}) });
       },
       (err) => {
         if (this.byStream.get(streamId) === e) this.fail(streamId, err);
@@ -316,7 +334,7 @@ export class StreamManager {
 
   /** The core is being replaced: the next open connects a new channel to the new node. */
   disconnect(): void {
-    this.connectedGeneration = -1;
+    this.worklet.disconnect();
   }
 
   /** Listens to STATUS (after the mirror): clears "waitingForData" for stream voices that are moving again. */
@@ -332,14 +350,10 @@ export class StreamManager {
       this.subscribed = decoder;
       this.unsubscribe = decoder.onStream((reply) => this.onReply(reply));
     }
-    // A worker spawned since (or never connected), or a new core: a new channel to both.
-    if (this.connectedGeneration === -1 || this.connectedGeneration !== decoder.generation) {
-      const channel = this.deps.channel?.() ?? defaultChannel();
-      decoder.connectWorklet(channel.worker);
-      this.deps.connectWorklet(channel.worklet);
-      this.connectedGeneration = decoder.generation;
-      this.stats.connections++;
-    }
+    // A worker spawned since (or never connected), or a new core: a new channel to both (unless zone IRs made it).
+    const before = this.worklet.connections;
+    this.worklet.ensure();
+    if (this.worklet.connections !== before) this.stats.connections++;
     return decoder;
   }
 
@@ -349,6 +363,13 @@ export class StreamManager {
     if (reply.type === "streamOpened") {
       e.rate = reply.info.rate;
       e.frames = reply.info.frames > 0 ? reply.info.frames : 0;
+      e.channels = reply.info.channels;
+      // B4 (ADR 0162 §2.4): over 2 channels the sidecar must agree (order, WAV for orders 2-3), as for a clip.
+      if (reply.info.channels > 2) {
+        const checked = checkAmbisonic(e.asset, reply.info.channels, this.ambisonicOf(e.asset));
+        if ("error" in checked) return this.fail(reply.streamId, `audio decoder: ${checked.error}`);
+      }
+      if (reply.info.importGain !== undefined && reply.info.importGain !== 1) this.deps.onImportGain?.(e.voice, reply.info.importGain);
       // E4.4: the file's own loop points, the asset's facts for the next open, and the map from here.
       const info = reply.info;
       e.fileLoop = info.loopStartFrame !== undefined && info.loopEndFrame !== undefined && info.loopEndFrame > info.loopStartFrame ? { start: info.loopStartFrame, end: info.loopEndFrame } : null;
@@ -438,6 +459,11 @@ export class StreamManager {
     this.subscribed?.loopStream?.(streamId, rec.looping, rec.looping ? region.start : undefined, rec.looping ? region.end : undefined, x);
   }
 
+  /** B4: `asset`'s sidecar `ambisonic` block, or null. */
+  private ambisonicOf(asset: string): AmbisonicImport | null {
+    return this.deps.ambisonic ? this.deps.ambisonic(asset) : Assets.importSettings(asset).ambisonic;
+  }
+
   private fail(streamId: number, err: unknown, code?: number): void {
     const e = this.byStream.get(streamId);
     if (!e || e.failed) return;
@@ -448,7 +474,10 @@ export class StreamManager {
 
   /** A STATUS stream event (drained per frame by the backend). Code 3 is the core refusing the stream (no ring free). */
   streamEvent(id: number, code: number): void {
-    if (code === StreamEvent.Starved) this.stats.starves++;
+    if (code === StreamEvent.Starved) {
+      this.stats.starves++;
+      if ((this.byStream.get(id)?.channels ?? 0) > 2) this.stats.wideStarved++;
+    }
     else if (code === StreamEvent.Eos) this.stats.eos++;
     else if (code === StreamEvent.Error) {
       this.stats.coreErrors++;
@@ -487,11 +516,6 @@ export class StreamManager {
     this.unsubscribe = null;
     this.subscribed = null;
   }
-}
-
-function defaultChannel(): StreamChannel {
-  const channel = new MessageChannel();
-  return { worker: channel.port1, worklet: channel.port2 };
 }
 
 /** A loop record (seconds) as a region of a file at `rate` with `frames` frames (0 unknown); null without a record. */

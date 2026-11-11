@@ -13,10 +13,10 @@ import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
 import {
-  AUDIO_EVENT_FORMAT, isLabelled, parameterDefault, parameterRange, parseAudioEvent, sustainReleaseFade,
+  AUDIO_EVENT_FORMAT, REVERB_SEND_KEY, isLabelled, parameterDefault, parameterRange, parseAudioEvent, sustainReleaseFade,
   type AudioEventAsset, type Automation, type EventNode, type ParameterDef, type SustainNode, type SwitchNode,
 } from "../../../../engine/audio/eventFormat";
-import { audioBackend, type AudioBackend, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
+import { audioBackend, type AudioBackend, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
 import { warnOnce } from "../core/handle";
 import { loopPointsFor, onLoopPoints } from "../loopPoints";
 import {
@@ -43,6 +43,14 @@ export interface EventOptions {
   at?: number;
   /** Initial values of the event's local parameters (labelled ones by label). */
   parameters?: Record<string, number | string>;
+  /**
+   * ADR 0162 §1.2 (D4): the playing `AudioSource`'s options, for a spatial event. The event's own `spatial` keys (§2.5)
+   * win; these apply where the asset sets none. A flat event ignores them. Callers clamp.
+   */
+  occlusion?: boolean;
+  dopplerLevel?: number;
+  reverbSend?: number;
+  reverbSendCurve?: Curve;
 }
 
 // --- loading ------------------------------------------------------------------------------------------------------
@@ -759,8 +767,12 @@ export class EventInstance {
         if (n !== null) this.locals[l.slot] = n;
       }
     }
+    this.fx = voiceFxOf(asset, options, path);
     this.pos = asset.spatial && options.position ? { x: options.position.x, y: options.position.y, z: options.position.z } : null;
   }
+
+  /** The event's per-voice effect fields (ADR 0162 §2.5), resolved once: every voice's request carries them. */
+  private readonly fx: VoiceFx;
 
   /** A rough level for `steal: "quietest"`: the event's volume times the option's. */
   get loudness(): number { return this.asset.volume * (this.options.volume ?? 1); }
@@ -772,6 +784,23 @@ export class EventInstance {
     for (const r of this.runners) if (!r.stopped) return true;
     for (const v of this.voices) if (v.voice.playing) return true;
     return false;
+  }
+
+  /** ADR 0162 §1.1: the panner of the first playing voice that reports one (a backend without panners: null). */
+  get panner(): AudioPanner | null {
+    for (const v of this.voices) {
+      if (!v.voice.playing) continue;
+      const p = v.voice.panner;
+      if (p) return p;
+    }
+    return null;
+  }
+
+  /** ADR 0162 §1.1: the lowest smoothed dry occlusion gain across the playing voices (1 open, or none playing). */
+  get occlusion(): number {
+    let g = 1;
+    for (const v of this.voices) if (v.voice.playing) g = Math.min(g, v.voice.occlusion ?? 1);
+    return g;
   }
 
   get reason(): AudioReason | null {
@@ -1000,7 +1029,14 @@ export class EventInstance {
     if (a.spatial) {
       req.attenuation = attenuationOf(a.spatial);
       if (this.pos) req.position = this.pos;
+      const fx = this.fx;
+      if (fx.occlusion !== undefined) req.occlusion = fx.occlusion;
+      if (fx.dopplerLevel !== undefined) req.dopplerLevel = fx.dopplerLevel;
+      if (fx.reverbSend !== undefined) req.reverbSend = fx.reverbSend;
+      if (fx.reverbSendCurve !== undefined) req.reverbSendCurve = fx.reverbSendCurve;
     }
+    if (this.fx.filter) req.filter = this.fx.filter;
+    if (this.fx.aux) req.aux = this.fx.aux;
     const voice = starter.play(req);
     if (!voice) return null;
     const base = { volume, pitch };
@@ -1226,13 +1262,55 @@ interface ClipStarter {
   url(path: string): string;
   /** A mixer bus name for `output` (empty or unknown: Master). */
   bus(output: string | undefined): string;
+  /** Whether a mixer bus of this exact name exists (an aux send names one; no fallback to Master). */
+  hasBus(name: string): boolean;
   play(req: PlayRequest): AudioVoice | null;
 }
-let starter: ClipStarter = { settings: () => ({ volume: 1, stream: false }), url: () => "", bus: (o) => o ?? "", play: () => null };
+let starter: ClipStarter = { settings: () => ({ volume: 1, stream: false }), url: () => "", bus: (o) => o ?? "", hasBus: () => true, play: () => null };
 
 /** @internal `AudioSource.ts` provides the clip starter (it owns `startClip` and the import settings). */
 export function _setEventClipStarter(s: ClipStarter): void {
   starter = s;
+}
+
+/** An event's per-voice effect fields as K0's `PlayRequest` wants them (ADR 0162 §2.5); absent members are not sent. */
+interface VoiceFx {
+  occlusion?: boolean;
+  dopplerLevel?: number;
+  reverbSend?: number;
+  reverbSendCurve?: Curve;
+  filter?: { lowpass?: number; highpass?: number };
+  aux?: { bus: string; level: number };
+}
+
+/**
+ * §2.5 applied: `filter` and `sends.<bus>` for every event; `occlusion`, `dopplerLevel`, `sends.reverb` and
+ * `reverbSendCurve` only for a spatial one (a flat event ignores them). The asset's keys win over the source's options.
+ * An aux send names a bus that must exist: an unknown one is dropped with one warning per event and bus.
+ */
+function voiceFxOf(a: AudioEventAsset, options: EventOptions, path: string): VoiceFx {
+  const fx: VoiceFx = {};
+  const sp = a.spatial;
+  if (sp) {
+    const occlusion = sp.occlusion ?? options.occlusion;
+    if (occlusion !== undefined) fx.occlusion = occlusion;
+    const doppler = sp.dopplerLevel ?? options.dopplerLevel;
+    if (doppler !== undefined) fx.dopplerLevel = doppler;
+    const send = a.sends?.[REVERB_SEND_KEY] ?? options.reverbSend;
+    if (send !== undefined) fx.reverbSend = send;
+    const curve = sp.reverbSendCurve ?? options.reverbSendCurve;
+    if (curve !== undefined) fx.reverbSendCurve = curve;
+  }
+  if (a.filter) fx.filter = { ...a.filter };
+  if (a.sends) {
+    for (const [bus, level] of Object.entries(a.sends)) {
+      if (bus === REVERB_SEND_KEY) continue;
+      if (starter.hasBus(bus)) fx.aux = { bus, level };
+      else warnOnce(`event:aux:${path}:${bus}`, `[myco] ${path}: sends.${bus}: no audio bus named "${bus}"; the aux send is dropped.`);
+      break; // one aux send per voice: the first key (the parse dropped the rest)
+    }
+  }
+  return fx;
 }
 
 /** A spatial event's attenuation as the request wants it, built once per asset (backends only read it). */

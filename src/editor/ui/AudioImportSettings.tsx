@@ -1,6 +1,7 @@
 // An audio clip's import settings (ADR 0040): the core `audio` kind's `importSettings` (ADR 0143),
 // loaded the first time a clip is inspected. Its preview is the clip player (`AudioPreview`).
 import type { ImportSettingsViewProps } from "../sdk/contributions";
+import { AmbisonicBlock } from "./AmbisonicBlock";
 import "./assetInspector.css";
 
 /** The Import Settings card's rows for an audio clip. */
@@ -26,6 +27,7 @@ export function AudioImportSettings(props: ImportSettingsViewProps) {
           <span>Stream</span>
           <input type="checkbox" aria-label="Stream" title="Decode in pieces while it plays instead of loading whole, for long music" checked={draft.stream} onChange={(e) => set({ stream: (e.currentTarget as HTMLInputElement).checked })} />
         </label>
+        <AmbisonicBlock path={props.path} draft={draft} set={set} />
     </>
   );
 }

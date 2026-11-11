@@ -21,6 +21,11 @@ pub const CLIP_EVENTS_CAP: usize = 64;
 pub const STREAM_EVENTS_CAP: usize = 64;
 /// One peak per bus; the bus tree has at most 32 buses (`settings.ts` MAX_BUSES, the wire's cap).
 pub const PEAKS_CAP: usize = 32;
+/// ADR 0162 §4.3: the `beds`, `zones` and `zoneEvents` caps (the wire's `MAX_BEDS`,
+/// `MAX_ZONE_SLOTS`, `MAX_ZONE_EVENTS_PER_BLOCK`).
+pub const BEDS_CAP: usize = 4;
+pub const ZONES_CAP: usize = 4;
+pub const ZONE_EVENTS_CAP: usize = 16;
 
 /// STATUS `flags` bits (api-and-models §4.3; the wire's `STATUS_FLAGS_*`).
 pub mod flag {
@@ -36,6 +41,99 @@ pub mod flag {
     pub const READY: u32 = 1 << 4;
     /// bit5: a trap was caught (shell).
     pub const TRAP_CAUGHT: u32 = 1 << 5;
+    /// bit6: the MagLS filters are committed and transformed (core: A3/A4, ADR 0162).
+    pub const BED_DECODER_READY: u32 = 1 << 6;
+}
+
+/// ADR 0162 §4.3: a `beds` entry, one per active bed slot.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BedStatus {
+    /// The slot's host bus.
+    pub bus: u16,
+    /// Voices encoded into it.
+    pub voices: u16,
+    /// Work units, last quantum.
+    pub work: u32,
+}
+
+/// ADR 0162 §4.3: a `zones` entry, one per zone slot.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ZoneStatus {
+    pub kernel_id: u32,
+    /// The wire's `ZoneState`: 0 off, 1 waiting for kernel, 2 fading in, 3 active, 4 ringing out,
+    /// 5 evicting.
+    pub state: u8,
+    pub _pad: u8,
+    /// Quanta since a send last fed the slot (saturating).
+    pub quanta_since_input: u16,
+    /// The slot's wet peak, last block.
+    pub wet_peak: f32,
+}
+
+/// ADR 0162 §4.3: a `zoneEvents` entry.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ZoneEvent {
+    pub slot: u8,
+    /// The wire's `ZoneEvent`: 1 refused kernel, 2 refused slot, 3 bad blob.
+    pub code: u8,
+}
+
+/// ADR 0162 §4.3 (K2): the M3 STATUS fields, header 112..143 and the `beds`, `zones` and
+/// `zoneEvents` sections. The writer serialises every one; each stays 0 (and each section empty)
+/// until the task named sets it from its own module.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SpatialCounters {
+    /// `bedVoices`: voices encoded into a bed (core: A4).
+    pub bed_voices: u16,
+    /// `fxVoices`: pool entries with an active filter (core: D1).
+    pub fx_voices: u16,
+    /// `ambisonicVoices` (core: B3).
+    pub ambisonic_voices: u16,
+    /// `zonesActive` (core: C3).
+    pub zones_active: u16,
+    /// `zonesRinging` (core: C3).
+    pub zones_ringing: u16,
+    /// `bedsRefused`: buses whose bed host failed validation, cumulative, saturating (core: A4,
+    /// through `note_beds_refused`).
+    pub beds_refused: u16,
+    /// `m3Shed`: the ladder's steps taken, bed plus zone (core: A4's `bed::m3_shed`, C3's `zones::shed_steps`;
+    /// set when a block is taken, D5).
+    pub m3_shed: u16,
+    /// `zoneUsedKB`: zone kernels resident (core: C3).
+    pub zone_used_kb: u32,
+    /// `workBed`: work units of the last quantum's bed encode, decode and ambisonic voices (core: A4, B3).
+    pub work_bed: u32,
+    /// `workZones`: work units of the last quantum's zone convolvers, sends and aux (core: C3, C4).
+    pub work_zones: u32,
+    /// `beds` section: `beds[..beds_active]` (core: A4). Instant: not cleared per block.
+    pub beds_active: u16,
+    /// `zones` section: `zones[..zone_slots]` (core: C3; `max_zone_slots` once C3 runs). Instant.
+    pub zone_slots: u16,
+    pub beds: [BedStatus; BEDS_CAP],
+    pub zones: [ZoneStatus; ZONES_CAP],
+    /// `zoneEvents` section (core: C3), with `zoneEventCount`; cleared per block.
+    pub zone_events: List<ZoneEvent, ZONE_EVENTS_CAP>,
+}
+
+impl SpatialCounters {
+    /// The beds that are sent: `beds[..beds_active]` (clamped to the cap).
+    pub fn sent_beds(&self) -> &[BedStatus] {
+        &self.beds[..(self.beds_active as usize).min(BEDS_CAP)]
+    }
+
+    /// The zones that are sent: `zones[..zone_slots]` (clamped to the cap).
+    pub fn sent_zones(&self) -> &[ZoneStatus] {
+        &self.zones[..(self.zone_slots as usize).min(ZONES_CAP)]
+    }
+
+    /// Adds `n` to `bedsRefused`, saturating.
+    pub fn note_beds_refused(&mut self, n: u16) {
+        self.beds_refused = self.beds_refused.saturating_add(n);
+    }
 }
 
 /// A `playheads` entry: a voice and its frame in its clip.
@@ -184,6 +282,8 @@ pub struct Counters {
     pub hrtf_voices: u16,
     /// `hrtfLoadFailure`: 0 none, 1 fetch, 2 data (core: H2).
     pub hrtf_load_failure: u16,
+    /// ADR 0162's fields and sections (K2).
+    pub spatial: SpatialCounters,
 }
 
 impl Counters {
@@ -259,6 +359,7 @@ impl Counters {
         self.playheads.clear();
         self.clip_events.clear();
         self.stream_events.clear();
+        self.spatial.zone_events.clear();
         self.work_units_max = 0;
         self.slack_noted = 0;
         self.min_slack = 0;

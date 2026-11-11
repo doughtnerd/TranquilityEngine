@@ -10,6 +10,7 @@ import { MAX_BUSES, type AudioSettings } from "../../../../engine/audio/settings
 import { Kind, MAGIC, readStatus, STATUS_FLAGS_READY, writeEnvelope, writeTimePing, type StatusBlock } from "../wire.generated";
 import { CORE_ABI_MAJOR, PROCESSOR_NAME, type CoreControlMessage, type CorePreset, type CoreProcessorOptions, type CoreShellEvent } from "../worklet/coreDriver";
 import { createBatchPool, type BufferPool } from "./bufferPool";
+import { spatialInitParams } from "./initParams";
 import { loadCoreWasm, workletModuleUrl, type CoreWasm } from "./loader";
 import { Unlock } from "./unlock";
 import type { DeviceSnapshot } from "./deviceChange";
@@ -36,6 +37,8 @@ export function presetFromSettings(settings: AudioSettings): CorePreset {
     arenaInitialBytes: Math.min(ARENA_INITIAL_BYTES, clipCeilingBytes),
     clipCeilingBytes,
     limiterLookaheadMs: settings.limiterLookaheadMs,
+    // ADR 0162 C8: the ABI 2.0 parameters (`initParams.ts`: beds and zones 0 until their flips, wide from `audio.ambisonic.maxClips`).
+    ...spatialInitParams(settings),
   };
 }
 
@@ -304,7 +307,17 @@ export function busRemap(from: readonly string[], to: readonly string[]): Uint8A
 }
 
 const presetsEqual = (a: CorePreset, b: CorePreset): boolean =>
-  a.maxLogical === b.maxLogical && a.maxMixed === b.maxMixed && a.maxBuses === b.maxBuses && a.arenaInitialBytes === b.arenaInitialBytes && a.clipCeilingBytes === b.clipCeilingBytes && a.limiterLookaheadMs === b.limiterLookaheadMs;
+  a.maxLogical === b.maxLogical &&
+  a.maxMixed === b.maxMixed &&
+  a.maxBuses === b.maxBuses &&
+  a.arenaInitialBytes === b.arenaInitialBytes &&
+  a.clipCeilingBytes === b.clipCeilingBytes &&
+  a.limiterLookaheadMs === b.limiterLookaheadMs &&
+  // ADR 0162 C8: each sizes a fixed region, so a change rebuilds the core.
+  a.maxBeds === b.maxBeds &&
+  a.maxZoneSlots === b.maxZoneSlots &&
+  a.zoneMaxSeconds === b.zoneMaxSeconds &&
+  a.maxWide === b.maxWide;
 
 const sameNames = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((n, i) => n === b[i]);
 
