@@ -29,10 +29,17 @@ export function bedInitParams(settings: AudioSettings): Pick<SpatialInitParams, 
   return { maxBeds: 0 };
 }
 
-/** @internal `max_zone_slots` and the IR length (C5's flip: `audio.zones`). 0 until then: no zone slot is laid out. */
+/**
+ * @internal `max_zone_slots` and the IR length (C5, the zone memory flip: `audio.zones`): `maxActive + standby` slots
+ * (OD2: 3 on high and default, the standby slot letting a released zone ring out; 1 on low) of `maxIrSeconds` each.
+ * `maxActive` 0 makes zones inert: no slot is laid out.
+ */
 export function zoneInitParams(settings: AudioSettings): Pick<SpatialInitParams, "maxZoneSlots" | "zoneMaxSeconds"> {
-  void settings;
-  return { maxZoneSlots: 0, zoneMaxSeconds: 0 };
+  const z = settings.zones;
+  const active = Math.max(0, Math.min(2, Math.floor(z.maxActive)));
+  if (active === 0) return { maxZoneSlots: 0, zoneMaxSeconds: 0 };
+  const slots = Math.min(4, active + Math.max(0, Math.min(1, Math.floor(z.standby))));
+  return { maxZoneSlots: slots, zoneMaxSeconds: z.maxIrSeconds };
 }
 
 /** @internal `max_wide` (B5, the wide memory flip: `audio.ambisonic.maxClips`, 0..4): that many wide stream rings and private decoders are laid out; 0 lays out none and refuses ambisonic clips. */
