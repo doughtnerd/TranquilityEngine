@@ -256,12 +256,12 @@ export class OcclusionPass {
   private readonly worlds = new WeakMap<World, WorldOcclusion>();
 
   /**
-   * `env` null leaves the pass inert (no rays, every voice open, nothing handed back); the backends pass the engine's
-   * environment.
+   * `env` is the engine (D0's ray query, the World's services, `AudioOccluder`s) unless a test passes a fake; null leaves
+   * the pass inert (no rays, nothing handed back).
    */
   constructor(
     readonly capacity: number,
-    private readonly env: OcclusionEnvironment | null = null,
+    private readonly env: OcclusionEnvironment | null = engineOcclusionEnvironment(),
   ) {
     this.gain = new Float32Array(capacity).fill(1);
     this.cutoff = new Float32Array(capacity).fill(LP_TOP);

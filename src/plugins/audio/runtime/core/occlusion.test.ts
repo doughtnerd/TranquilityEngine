@@ -484,7 +484,7 @@ describe("worlds, switches and the no-physics path", () => {
   it("is inert without an environment (nothing handed back)", () => {
     const view = new FakeView(4);
     view.add(0, 10, 0, 0.5);
-    const pass = new OcclusionPass(4);
+    const pass = new OcclusionPass(4, null);
     const f = makeFrame();
     step(f);
     pass.run(f, view, settings());
