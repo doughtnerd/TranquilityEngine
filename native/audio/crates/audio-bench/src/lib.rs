@@ -17,8 +17,10 @@
 //!
 //! ADR 0162 A7 adds the bed scenes (`bed-64`, `bed-256`, `bed-xfade`) and the bed sweeps (`bed_encode`, `bed_decode`,
 //! `bed_decode_matrix`, `bed_xfade`): kind 2 voices encode into beds hosted on buses, decoded with the committed MagLS
-//! filters (loaded as format 4, as main does) or the baked matrix. The ambisonic terms (`AMBI_ROTATE`, `AMBI_READ`) wait
-//! for task B3's ambisonic voice.
+//! filters (loaded as format 4, as main does) or the baked matrix. The ambisonic terms (`AMBI_ROTATE`, `AMBI_READ`):
+//! `ambi-o3` (4 looping 3rd-order clips rotated by a turning listener into a bed), `ambi-o3-private` (into a private
+//! decoder), the sweeps `ambi_o3`, `ambi_o1` and `ambi_o3_private` over 1 to 8 clips, and `mode=fit term=ambi_rotate`
+//! (the rotation alone, against the dedicated kernel B3 traded away).
 //!
 //! `pace=1` sleeps to the next 2.667 ms deadline after each quantum (as a real device period
 //! would), so other work on the machine can evict the core's caches between quanta; unpaced runs
@@ -186,6 +188,10 @@ pub struct Scene {
     pub ambi: u32,
     pub ambi_private: u32,
     pub max_wide: u32,
+    /// ADR 0162 A7 (`ambi-o3`): the ambisonic clips' order (1: 4 channels, 2: 9, 3: 16) and a listener that turns (yaw and
+    /// a slow pitch, a LISTENER every batch ramped over it), so every ambisonic voice rotates through a moving matrix.
+    pub ambi_order: u32,
+    pub listener: bool,
     /// ADR 0162 D6: configured zone slots and the longest kernel they hold (frames). C4's sends are not on this base
     /// (`sends::tap` is a no-op), so the slots are sized (the `Zones` region) but never fed: they idle at no cost.
     pub zone_slots: u32,
@@ -275,6 +281,8 @@ impl Scene {
             ambi: 0,
             ambi_private: 0,
             max_wide: 0,
+            ambi_order: 3,
+            listener: false,
             zone_slots: 0,
             zone_frames: 0,
             zones_active: 0,
@@ -289,6 +297,21 @@ impl Scene {
     /// matrix, each on its own clip of 64 MB ÷ `voices`, with per-frame direction updates (the voices drift).
     fn bed(name: &str, voices: u32, beds: u32, magls: bool) -> Scene {
         Scene { beds, bed_voices: voices, magls, buses: if beds > 1 { 1 + beds } else { 1 }, updates: true, ..Scene::looping(name, voices) }
+    }
+
+    /// ADR 0162 A7: `n` looping ambisonic clips of `order` (so `n` is `maxClips`), rotated by a turning listener into the
+    /// bus's bed (MagLS) or, with `private`, into the private decoder of a bus that has none (MagLS too).
+    fn ambient(name: &str, n: u32, order: u32, private: bool) -> Scene {
+        Scene {
+            beds: !private as u32,
+            magls: true,
+            ambi: n,
+            ambi_private: if private { n } else { 0 },
+            max_wide: n,
+            ambi_order: order,
+            listener: true,
+            ..Scene::looping(name, n)
+        }
     }
 
     /// ADR 0162 D6 (architecture §7.2 "Worst" rows): a preset's full scene with M3's terms at their limits. The HRTF
@@ -410,6 +433,11 @@ pub fn scene(name: &str) -> Option<Scene> {
         "bed-xfade" => Scene { xfade: Some(2), ..Scene::bed(name, 64, 1, true) },
         // ADR 0162 D6: 256 looping voices, each with a low-pass and a high-pass ramping every batch (D1's pool); its
         // twin without filters is `updates`.
+        // ADR 0162 A7 (architecture §7.1's `AMBI_ROTATE` and `AMBI_READ`): 4 looping 3rd-order (16-channel) clips rotated by a
+        // turning listener into one MagLS bed (the clips are the only voices: the intercept is the bed's decode), and the same
+        // clips into one private decoder (no bed; they share the bus's decoder).
+        "ambi-o3" => Scene::ambient(name, 4, 3, false),
+        "ambi-o3-private" => Scene::ambient(name, 4, 3, true),
         "filters-256" => Scene { updates: true, voice_lp: 256, voice_hp: 256, ..Scene::looping(name, 256) },
         // ADR 0162 D6 (architecture §7.2): each preset's worst case on top of its M1/M2 content. High: 8 HRTF, 4 beds,
         // 2 ambisonic clips (1 private), 256 low-pass, 32 high-pass, 3 slots of 4 s. Default: 8 HRTF, 2 beds, 1 private
@@ -641,6 +669,22 @@ pub fn sweeps() -> Vec<Sweep> {
             .collect(),
         x: |r| r.mean_senders * 2.0,
     });
+    // ADR 0162 A7: the ambisonic voice (§7.1's `AMBI_READ` + `AMBI_ROTATE`): 1..8 looping clips rotated by a turning listener
+    // into one MagLS bed at 3rd order and 1st order, and 3rd order into a private decoder. The slope is the whole voice (the
+    // N-channel read and resample, the ramps, the gain, the rotation into the bed); the intercept holds the decode. The
+    // rotation alone is `ambi_rotate` (`mode=fit term=ambi_rotate`, timed without the core), so READ is the slope less it.
+    for (term, unit, order, private) in [
+        ("ambi_o3", "µs per 3rd-order ambisonic voice (16 channels, into a bed)", 3, false),
+        ("ambi_o1", "µs per 1st-order ambisonic voice (4 channels, into a bed)", 1, false),
+        ("ambi_o3_private", "µs per 3rd-order ambisonic voice (into a private decoder)", 3, true),
+    ] {
+        out.push(Sweep {
+            term,
+            unit,
+            scenes: [1u32, 2, 4, 8].iter().map(|&n| Scene { ambi_order: order, ..Scene::ambient(&format!("{term}-{n}"), n, order, private) }).collect(),
+            x: |r| r.mean_ambisonic,
+        });
+    }
     // Aux sends: no zones, 0..16 voices with an aux send (post-fader, panned): slope `AUX_SEND`.
     out.push(Sweep {
         term: "aux_send",
@@ -996,13 +1040,15 @@ impl Bench {
             core.clips_mut().write(id, 0, &buf).expect("clip write");
             clip_frames.push(frames);
         }
-        // ADR 0162 D6: ambisonic clips, 1 s of 16-channel int16 noise each (looping), at ids after the stereo ones.
+        // ADR 0162 D6: ambisonic clips, 1 s of 16-channel int16 noise each (looping), at ids after the stereo ones
+        // (A7: 4 or 9 channels at order 1 or 2).
+        let ambi_ch = (scene.ambi_order as usize + 1).pow(2);
         for k in 0..scene.ambi {
             let id = count as u32 + 1 + k;
             let frames = RATE as u32;
-            core.clips_mut().reserve(id, frames, 16, RATE, ClipFormat::I16).expect("ambisonic clip reserve");
+            core.clips_mut().reserve(id, frames, ambi_ch as u32, RATE, ClipFormat::I16).expect("ambisonic clip reserve");
             buf.clear();
-            for _ in 0..frames as usize * 16 {
+            for _ in 0..frames as usize * ambi_ch {
                 let s = (rng.next() >> 16) as i16 / 32;
                 buf.extend_from_slice(&s.to_le_bytes());
             }
@@ -1539,6 +1585,13 @@ impl Bench {
             }
         }
         let t = q as f32 * QUANTUM as f32 / RATE;
+        if s.listener && q % BATCH_EVERY == 0 {
+            // ADR 0162 A7: the head turns 0.5 rad/s in yaw with a slow nod (0.3 rad at 0.7 rad/s), q = qy(yaw) * qx(pitch),
+            // slerped over the batch's frames (the next LISTENER arrives as the ramp ends).
+            let (ha, hb) = (0.25 * t, 0.15 * libm::sinf(0.7 * t));
+            let (sa, ca, sb, cb) = (libm::sinf(ha), libm::cosf(ha), libm::sinf(hb), libm::cosf(hb));
+            self.push(&wire::Listener { voice_id: 0, frame_offset: wire::ASAP, qx: ca * sb, qy: sa * cb, qz: -sa * sb, qw: ca * cb, ramp_frames: BATCH_EVERY as u32 * QUANTUM as u32, flags: 0 });
+        }
         if s.bindings > 0 || s.bus_automation {
             // ADR 0158 E2: the globals seek toward new targets every batch (≈ 0.25 s to cross), and 32 groups' locals.
             for slot in 0..2u16 {
@@ -1656,7 +1709,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps).
@@ -2038,6 +2091,9 @@ pub fn main(args: &str) {
             let only = arg(args, "term");
             let hrir = hrir_table(RATE);
             let mut static_hrtf: Option<(f64, f64)> = None;
+            if only.is_none_or(|t| t.split(',').any(|x| x == "ambi_rotate")) {
+                ambi_rotate_micro(target, num(args, "reps", 20_000.0) as usize, runs);
+            }
             for sw in sweeps() {
                 if only.is_some_and(|t| !t.split(',').any(|x| x == sw.term)) {
                     continue;
@@ -2074,6 +2130,96 @@ pub fn main(args: &str) {
             }
         }
         _ => platform::print(&format!("{{\"error\":\"unknown mode {mode}\"}}")),
+    }
+}
+
+/// ADR 0162 A7: the rotation of one ambisonic voice on its own, timed without the core (`mode=fit term=ambi_rotate`): per
+/// quantum the core builds two matrices (`ShRotation::from_mat3` of the listener's and the clip's rotation at the quantum's
+/// ends) and calls `rotate_ramp_add`; this times each at orders 1 and 3 over `reps` quanta of a turning listener, and
+/// `rotate_dedicated`, the dedicated block kernel that B3's per-channel form replaced (84 row passes at order 3 against
+/// 170): the difference of the two kernels is what that trade costs. Prints p50 and p99 (µs per call) per run.
+fn ambi_rotate_micro(target: &str, reps: usize, runs: usize) {
+    use audio_dsp::ambisonic::{mat3_mul, quat_to_ambix, rotate_ramp_add, yaw_ambix, ShRotation, CHANNELS};
+    let mut rng = Rng(0x2545_f491);
+    let mut input = [[0.0f32; QUANTUM]; CHANNELS];
+    for row in input.iter_mut() {
+        for v in row.iter_mut() {
+            *v = rng.unit() - 0.5;
+        }
+    }
+    let turn = |k: usize| {
+        let (a, b) = (0.01 * k as f32, 0.15 * libm::sinf(0.007 * k as f32));
+        let (sa, ca, sb, cb) = (libm::sinf(a / 2.0), libm::cosf(a / 2.0), libm::sinf(b / 2.0), libm::cosf(b / 2.0));
+        mat3_mul(&quat_to_ambix([ca * sb, sa * cb, -sa * sb, ca * cb]).unwrap(), &yaw_ambix(0.003 * k as f32))
+    };
+    for run_i in 0..runs {
+        for order in [1usize, 3] {
+            let ch = (order + 1) * (order + 1);
+            let (mut t_mat, mut t_kernel, mut t_ref) = (Vec::with_capacity(reps), Vec::with_capacity(reps), Vec::with_capacity(reps));
+            let mut out = [[0.0f32; QUANTUM]; CHANNELS];
+            let mut out_ref = [[0.0f32; QUANTUM]; CHANNELS];
+            for k in 0..reps {
+                let t0 = platform::now_us();
+                let m0 = ShRotation::from_mat3(&core::hint::black_box(turn(k)));
+                let m1 = ShRotation::from_mat3(&core::hint::black_box(turn(k + 1)));
+                let t1 = platform::now_us();
+                rotate_ramp_add(core::hint::black_box(&input), &mut out, ch, &m0, &m1);
+                let t2 = platform::now_us();
+                rotate_dedicated(core::hint::black_box(&input), &mut out_ref, ch, &m0, &m1);
+                let t3 = platform::now_us();
+                t_mat.push((t1 - t0) as f32);
+                t_kernel.push((t2 - t1) as f32);
+                t_ref.push((t3 - t2) as f32);
+                if k % 64 == 63 {
+                    out = [[0.0; QUANTUM]; CHANNELS];
+                    out_ref = [[0.0; QUANTUM]; CHANNELS];
+                }
+            }
+            core::hint::black_box((&out, &out_ref));
+            for (what, mut t) in [("matrices", t_mat), ("rotate_ramp_add", t_kernel), ("dedicated", t_ref)] {
+                t.sort_by(|a, b| a.total_cmp(b));
+                platform::print(&format!(
+                    "{{\"target\":\"{target}\",\"micro\":\"ambi_rotate\",\"what\":\"{what}\",\"order\":{order},\"run\":{run_i},\"reps\":{reps},\"p50\":{:.3},\"p99\":{:.3}}}",
+                    percentile(&t, 0.5),
+                    percentile(&t, 0.99)
+                ));
+            }
+        }
+    }
+}
+
+/// The dedicated block-diagonal rotation kernel: each order's `n x n` block applied once (1 + 9 + 25 + 49 MACs per frame at
+/// order 3), the matrix ramped per sample as in [`audio_dsp::ambisonic::rotate_ramp_add`] (frame `i` uses `m0 + (m1 - m0)(i + 1)/128`).
+fn rotate_dedicated(
+    input: &[[f32; QUANTUM]; audio_dsp::ambisonic::CHANNELS],
+    out: &mut [[f32; QUANTUM]; audio_dsp::ambisonic::CHANNELS],
+    channels: usize,
+    m0: &audio_dsp::ambisonic::ShRotation,
+    m1: &audio_dsp::ambisonic::ShRotation,
+) {
+    let mut ramp = [0.0f32; QUANTUM];
+    for (i, w) in ramp.iter_mut().enumerate() {
+        *w = (i + 1) as f32 / QUANTUM as f32;
+    }
+    let blocks: [(usize, usize, &[f32], &[f32]); 4] = [
+        (0, 1, core::slice::from_ref(&m0.b0), core::slice::from_ref(&m1.b0)),
+        (1, 3, m0.b1.as_flattened(), m1.b1.as_flattened()),
+        (4, 5, m0.b2.as_flattened(), m1.b2.as_flattened()),
+        (9, 7, m0.b3.as_flattened(), m1.b3.as_flattened()),
+    ];
+    for (base, n, a, b) in blocks {
+        if base + n > channels.max(1) {
+            break;
+        }
+        for i in 0..n {
+            for j in 0..n {
+                let (c0, dc) = (a[i * n + j], b[i * n + j] - a[i * n + j]);
+                let x = &input[base + j];
+                for (f, o) in out[base + i].iter_mut().enumerate() {
+                    *o += (c0 + dc * ramp[f]) * x[f];
+                }
+            }
+        }
     }
 }
 
@@ -2180,6 +2326,29 @@ mod tests {
             assert_eq!(r.mean_zones_active, slots, "{name}");
             assert!(r.mean_aux >= 0.9 * aux && r.mean_aux <= aux, "{name}: aux {}", r.mean_aux);
             assert!(r.mean_senders > 30.0 && r.zone_wet_peak > 0.0 && r.zone_events == 0, "{name}: senders {} peak {}", r.mean_senders, r.zone_wet_peak);
+        }
+    }
+
+    /// ADR 0162 A7: `ambi-o3` rotates four 3rd-order clips into one bed, `ambi-o3-private` into a private decoder (no bed);
+    /// both under a turning listener, and the dedicated reference kernel computes what `rotate_ramp_add` does.
+    #[test]
+    fn ambi_o3_rotates_clips_into_a_bed_and_a_private_decoder() {
+        let r = short("ambi-o3");
+        assert_eq!((r.mean_ambisonic, r.mean_beds, r.mean_bed_voices), (4.0, 1.0, 0.0));
+        let p = short("ambi-o3-private");
+        assert_eq!((p.mean_ambisonic, p.mean_beds), (4.0, 0.0));
+        assert!(r.p50 > 0.0 && p.p50 > 0.0);
+        use audio_dsp::ambisonic::{rotate_ramp_add, yaw_ambix, ShRotation, CHANNELS};
+        let mut x = [[0.0f32; QUANTUM]; CHANNELS];
+        let mut rng = Rng(7);
+        x.iter_mut().flatten().for_each(|v| *v = rng.unit() - 0.5);
+        let (m0, m1) = (ShRotation::from_mat3(&yaw_ambix(0.3)), ShRotation::from_mat3(&yaw_ambix(0.5)));
+        for ch in [4, 16] {
+            let (mut a, mut b) = ([[0.0f32; QUANTUM]; CHANNELS], [[0.0f32; QUANTUM]; CHANNELS]);
+            rotate_ramp_add(&x, &mut a, ch, &m0, &m1);
+            rotate_dedicated(&x, &mut b, ch, &m0, &m1);
+            let worst = a.iter().flatten().zip(b.iter().flatten()).map(|(p, q)| (p - q).abs()).fold(0.0f32, f32::max);
+            assert!(worst < 1e-5, "{ch} channels: kernels differ by {worst}");
         }
     }
 
