@@ -32,7 +32,7 @@
 use audio_core::clips::{self, ClipFormat};
 use audio_core::layout::{Layout, RegionKind, PAGE_BYTES};
 use audio_core::params::InitParams;
-use audio_core::{scheduler, status, Core, QUANTUM};
+use audio_core::{scheduler, status, zones, Core, QUANTUM};
 use audio_wire::generated as wire;
 
 // --- Platform ------------------------------------------------------------------------------
@@ -190,7 +190,33 @@ pub struct Scene {
     /// (`sends::tap` is a no-op), so the slots are sized (the `Zones` region) but never fed: they idle at no cost.
     pub zone_slots: u32,
     pub zone_frames: u32,
+    /// ADR 0162 C7 (C4's sends are on the base now): slots made active at setup, each holding its own prepared kernel of
+    /// `zone_frames` (decaying noise, as `zones_common::kernel_blob`), returning to bus 0 at wet 1; the shared reverb's
+    /// return at 0.5 (the listener inside a zone, so the scaled path runs).
+    pub zones_active: u32,
+    /// Mixed voices (streams and ambisonic ones excepted) carrying zone sends, each into `sends_per_voice` of the
+    /// accepting slots (voice `k` takes slots `k, k+1, ...` modulo them), 0.3 each; and mixed voices with an aux send
+    /// (0.2, post-fader) into bus [`AUX_BUS`].
+    pub zone_sends: u32,
+    pub sends_per_voice: u32,
+    pub aux_voices: u32,
+    /// Zones swap slots ([`SWAP_FIRST_S`], then every [`SWAP_EVERY_S`]): alternately through the standby path (a zone
+    /// is released and rings out beside the incoming one) and the eviction path (a zone is evicted with the 150 ms
+    /// fade, its kernel freed, the incoming kernel uploaded into its slot, 256 KB a quantum). Main's side is scripted
+    /// here (`ZoneMain`); the core's side (`configure`, `start_waiting`, kernel reserve and free) is timed.
+    pub swap: bool,
 }
+
+/// ADR 0162 C7: the bus aux sends go to (one of the presets' 32 buses).
+const AUX_BUS: u16 = 2;
+/// ADR 0162 C7 (`zones-swap`): seconds before the first swap, and between swaps. A ring-out lasts the IR (2 s) plus the
+/// idle margin (0.13 s), and the standby path needs a free slot, so alternate swaps (standby, then eviction) 1.25 s
+/// apart never find all three slots busy.
+const SWAP_FIRST_S: f64 = 0.25;
+const SWAP_EVERY_S: f64 = 1.25;
+/// Send level into a zone slot, and aux level.
+const ZONE_SEND_LEVEL: f32 = 0.3;
+const AUX_LEVEL: f32 = 0.2;
 
 /// ADR 0162 D6: where a filtered voice's cutoffs start, Hz (they sweep between [`LP_RANGE`] and [`HP_RANGE`] after).
 const LP_START_HZ: f32 = 4_000.0;
@@ -251,6 +277,11 @@ impl Scene {
             max_wide: 0,
             zone_slots: 0,
             zone_frames: 0,
+            zones_active: 0,
+            zone_sends: 0,
+            sends_per_voice: 1,
+            aux_voices: 0,
+            swap: false,
         }
     }
 
@@ -282,6 +313,12 @@ impl Scene {
             zone_frames: zone_s * RATE as u32,
             ..base
         }
+    }
+
+    /// ADR 0162 C7: `base` with its zone slots live: `active` slots convolving `zone_s`-second kernels, `voices` mixed
+    /// voices sending into `per_voice` slots each, `aux` voices with an aux send.
+    fn zoned(base: Scene, active: u32, voices: u32, per_voice: u32, aux: u32) -> Scene {
+        Scene { zones_active: active, zone_sends: voices, sends_per_voice: per_voice, aux_voices: aux, ..base }
     }
 
     /// `mixed` looping voices at pitch 1, each reading its own clip of 64 MB ÷ `mixed`, on one bus (the sweeps' base).
@@ -380,6 +417,28 @@ pub fn scene(name: &str) -> Option<Scene> {
         "m3-worst-high" => Scene::worst(name, Scene::preset(name, 8_192, 256, 32, 16), 8, 4, 2, 1, 256, 32, 3, 4),
         "m3-worst-default" => Scene::worst(name, Scene::preset(name, 4_096, 128, 16, 8), 8, 2, 1, 1, 128, 16, 3, 2),
         "m3-worst-low" => Scene::worst(name, Scene::preset(name, 1_024, 48, 4, 4), 4, 0, 1, 1, 64, 8, 1, 1),
+        // ADR 0162 C7 (architecture §7.2, `zones-2x2s` of the model's c_zone row): 16 looping voices, every one sending into
+        // both of two 2 s zones (S = 32), 3 slots (the high preset's standby slot idle); its twin is the same voices with the
+        // zones left out (`zones-2x2s-dry`), so the difference of the two is the zones' cost.
+        "zones-2x2s" => Scene::zoned(Scene { zone_slots: 3, zone_frames: 2 * RATE as u32, ..Scene::looping(name, 16) }, 2, 16, 2, 0),
+        "zones-2x2s-dry" => Scene::looping(name, 16),
+        // Zones swapping slots through the standby and the eviction paths, kernels uploaded as they go (see `Scene::swap`).
+        "zones-swap" => Scene { swap: true, ..Scene::zoned(Scene { zone_slots: 3, zone_frames: 2 * RATE as u32, ..Scene::looping(name, 16) }, 2, 16, 2, 0) },
+        // The high preset's typical M3 scene (§7.2): 8 HRTF voices (32 → 8), 2 beds with the rest of the voices in them,
+        // one 3rd-order clip into a bed, 32 low-passes, 2 blending 2 s zones in 3 slots, 240 voices sending to one zone each.
+        "m3-high" => Scene::zoned(
+            Scene { zone_slots: 3, zone_frames: 2 * RATE as u32, ..Scene::worst(name, Scene::preset(name, 8_192, 256, 32, 16), 8, 2, 1, 0, 32, 0, 3, 2) },
+            2,
+            240,
+            1,
+            0,
+        ),
+        // D6's worst scenes with their zones convolving and sends flowing (the same scene content, §7.2's send and aux
+        // counts): the zone cost D6 couldn't model without sends. High: 3 slots of 4 s all active, 248 voices into 2 slots
+        // each, 32 aux. Default: 3 slots of 2 s, 120 voices into 2, 16 aux. Low: 1 slot of 1 s, 60 voices, 8 aux.
+        "m3-worst-high-sends" => Scene::zoned(Scene { name: name.into(), ..scene("m3-worst-high").unwrap() }, 3, 248, 2, 32),
+        "m3-worst-default-sends" => Scene::zoned(Scene { name: name.into(), ..scene("m3-worst-default").unwrap() }, 3, 120, 2, 16),
+        "m3-worst-low-sends" => Scene::zoned(Scene { name: name.into(), ..scene("m3-worst-low").unwrap() }, 1, 60, 1, 8),
         _ => return None,
     };
     Some(s)
@@ -550,6 +609,45 @@ pub fn sweeps() -> Vec<Sweep> {
         scenes: [0u32, 1, 2, 4].iter().map(|&x| Scene { xfade: Some(x), ..Scene::bed(&format!("bed-xfade-{x}"), 64, 1, true) }).collect(),
         x: |r| r.mean_transit,
     });
+    // ADR 0162 C7: the zone terms of §7.1. 16 looping voices, 8 of them sending into the zone(s) (the sends are `c_send`'s,
+    // so the base of each sweep holds them constant), 3 slots.
+    let zoned = |name: String, active: u32, seconds: f32, senders: u32, per_voice: u32, aux: u32| {
+        let frames = (seconds * RATE) as u32;
+        Scene::zoned(Scene { zone_slots: 3, zone_frames: frames.max(RATE as u32 / 2), ..Scene::looping(&name, 16) }, active, senders, per_voice, aux)
+    };
+    // One active zone of 0.5, 1, 2, 4 s (the slot-region and kernel sized to each, 8 senders): intercept `ZONE_BASE`,
+    // slope `ZONE_PER_S`.
+    out.push(Sweep {
+        term: "zone_len",
+        unit: "µs per second of IR (one active zone, 8 senders)",
+        scenes: [0.5f32, 1.0, 2.0, 4.0].iter().map(|&sec| zoned(format!("zone-len-{sec}"), 1, sec, 8, 1, 0)).collect(),
+        x: |r| r.zone_seconds,
+    });
+    // 0..3 active 2 s zones, every sender into each of them (8 senders × the zones: the sends' share is fitted on its own below).
+    out.push(Sweep {
+        term: "zone_count",
+        unit: "µs per active 2 s zone (8 senders into each, so includes 8 sends)",
+        scenes: [0u32, 1, 2, 3].iter().map(|&n| zoned(format!("zone-count-{n}"), n, 2.0, if n == 0 { 0 } else { 8 }, 3, 0)).collect(),
+        x: |r| r.mean_zones_active,
+    });
+    // Zone sends: two active 2 s zones, 4..32 of 32 voices each sending into both: slope per (voice, slot) send (the sweep
+    // starts at 4 voices so that the one-off cost of the first send, the bus-gain table, is in the intercept).
+    out.push(Sweep {
+        term: "zone_send",
+        unit: "µs per (voice, slot) send (two 2 s zones active; 32 voices, the first send also switches on the bus-gain table)",
+        scenes: [4u32, 8, 16, 32]
+            .iter()
+            .map(|&n| Scene::zoned(Scene { zone_slots: 3, zone_frames: 2 * RATE as u32, ..Scene::looping(&format!("zone-send-{n}"), 32) }, 2, n, 2, 0))
+            .collect(),
+        x: |r| r.mean_senders * 2.0,
+    });
+    // Aux sends: no zones, 0..16 voices with an aux send (post-fader, panned): slope `AUX_SEND`.
+    out.push(Sweep {
+        term: "aux_send",
+        unit: "µs per aux send (no zones)",
+        scenes: [0u32, 4, 8, 16].iter().map(|&n| Scene { buses: 32, aux_voices: n, ..Scene::looping(&format!("aux-send-{n}"), 16) }).collect(),
+        x: |r| r.mean_aux,
+    });
     out
 }
 
@@ -605,6 +703,18 @@ pub struct RunResult {
     /// ADR 0162 D6: mean STATUS `fxVoices` (pool entries whose filter ran) and `ambisonicVoices`.
     pub mean_fx_voices: f64,
     pub mean_ambisonic: f64,
+    /// ADR 0162 C7: mean STATUS `zonesActive`, `zonesRinging` and `workZones` (work units), the largest slot wet peak seen,
+    /// the zone IR seconds, mean mixed voices sending and with an aux send, and zone events (all kinds) seen.
+    pub mean_zones_active: f64,
+    pub mean_zones_ringing: f64,
+    pub mean_work_zones: f64,
+    pub zone_wet_peak: f64,
+    pub zone_seconds: f64,
+    pub mean_senders: f64,
+    pub mean_aux: f64,
+    pub zone_events: u32,
+    pub standby_swaps: u32,
+    pub evict_swaps: u32,
     pub records_per_quantum: f64,
     pub starts_per_quantum: f64,
     pub wu_mean: f64,
@@ -648,6 +758,38 @@ struct Voice {
     private: bool,
     lp: bool,
     hp: bool,
+    /// ADR 0162 C7: carries zone sends / an aux send while mixed, and its ordinal among the senders (which slots it takes).
+    send: bool,
+    aux: bool,
+    send_ord: u32,
+}
+
+/// ADR 0162 C7: main's picture of the zone table (`zones-swap` and the initial ZONE_CONFIG), and the kernel upload in flight.
+struct ZoneMain {
+    /// Prepared kernels (format 3 blobs), one per kernel id `ZONE_KERNEL_ID_FIRST + index`.
+    blobs: Vec<Vec<u8>>,
+    /// Per core slot: the kernel id it holds (0 none) and the ZONE_CONFIG state last sent for it.
+    table: Vec<(u32, u32)>,
+    /// Slots that were told active, oldest first.
+    order: Vec<usize>,
+    /// Slots taking sends, in order.
+    accepting: Vec<usize>,
+    swaps: u32,
+    next_swap_q: u64,
+    upload: Option<Upload>,
+    /// Kernels to free (their slot is off).
+    to_free: Vec<u32>,
+    /// A slot being evicted: when it reads off, its kernel is freed and the next one uploaded into it.
+    evicting: Option<usize>,
+    /// Swaps performed by path, for the tests.
+    standby_swaps: u32,
+    evict_swaps: u32,
+}
+
+struct Upload {
+    blob: usize,
+    sent: usize,
+    reserved: bool,
 }
 
 struct Bench {
@@ -684,13 +826,17 @@ struct Bench {
     ambi_private_now: u32,
     lp_now: u32,
     hp_now: u32,
+    sends_now: u32,
+    aux_now: u32,
+    zone: ZoneMain,
 }
 
 /// The scene's init parameters. The arena's initial reserve holds all of the scene's clips (with
 /// the size classes' rounding) and the HRTF bank, so it never grows and the block can be freed
 /// after the run (wasm memory can't shrink; runs would otherwise pile up past 4 GB).
 fn init_params(s: &Scene) -> InitParams {
-    let arena_mb = s.clip_mb + s.clip_mb / 2 + 16 + 2 * s.ambi;
+    let kernel_mb = (audio_core::zones::kernel_budget_bytes(s.zone_slots, s.zone_frames) >> 20) as u32 + 1;
+    let arena_mb = s.clip_mb + s.clip_mb / 2 + 16 + 2 * s.ambi + kernel_mb;
     InitParams { sample_rate: RATE, max_logical: s.max_logical, max_mixed: s.max_mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20, max_beds: s.beds, max_wide: s.max_wide, max_zone_slots: s.zone_slots, zone_max_frames: s.zone_frames, ..InitParams::default() }
 }
 
@@ -783,6 +929,34 @@ fn load_hrir(core: &mut Core, bytes: &[u8]) {
     assert!(core.clips().hrtf_bank().is_some(), "the HRTF bank");
 }
 
+fn bytes_of(v: &mut [u64]) -> &mut [u8] {
+    // SAFETY: a u64 buffer viewed as its bytes.
+    unsafe { core::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut u8, v.len() * 8) }
+}
+
+/// A prepared zone kernel (format 3) of a decaying noise IR of `frames`, seeded: what C2a's preparation would send for a
+/// preset's IR (the cost of a slot depends on the kernel's length, not its values).
+fn zone_kernel_blob(frames: u32, seed: u32) -> Vec<u8> {
+    use audio_dsp::convolver::kernel::{kernel_bytes, prepare_ir, IrSpec};
+    use audio_dsp::convolver::{Scratch, SCRATCH_BYTES};
+    let mut sb = vec![0u64; SCRATCH_BYTES / 8];
+    let mut scratch = Scratch::from_bytes(bytes_of(&mut sb)).unwrap();
+    scratch.fill_twiddles();
+    let n = kernel_bytes(frames as usize);
+    let mut kb = vec![0u64; n.div_ceil(8)];
+    let mut rng = Rng(seed.wrapping_mul(2_654_435_761) | 1);
+    let mut i = 0u32;
+    let mut next = move || {
+        let t = (i % frames) as f32 / frames as f32;
+        i += 1;
+        (rng.unit() * 2.0 - 1.0) * (1.0 - t) * (1.0 - t)
+    };
+    prepare_ir(bytes_of(&mut kb), &mut scratch, IrSpec { frames: frames as usize, sample_rate: RATE, scale: 0.004, flags: 0 }, &mut next).unwrap();
+    let mut out = bytes_of(&mut kb).to_vec();
+    out.truncate(n);
+    out
+}
+
 impl Bench {
     fn new(scene: &Scene, seed: u32, hrir: Option<&[u8]>) -> Bench {
         let (mut core, base, block) = new_core(init_params(scene));
@@ -868,6 +1042,21 @@ impl Bench {
             ambi_private_now: 0,
             lp_now: 0,
             hp_now: 0,
+            sends_now: 0,
+            aux_now: 0,
+            zone: ZoneMain {
+                blobs: Vec::new(),
+                table: vec![(0, wire::zone_slot_state::ACTIVE); scene.zone_slots as usize],
+                order: Vec::new(),
+                accepting: Vec::new(),
+                swaps: 0,
+                next_swap_q: (SWAP_FIRST_S * RATE as f64 / QUANTUM as f64).ceil() as u64,
+                upload: None,
+                to_free: Vec::new(),
+                evicting: None,
+                standby_swaps: 0,
+                evict_swaps: 0,
+            },
         };
         b.stream_data = (0..STREAM_CHUNK as usize * 2).map(|_| (b.rng.unit() - 0.5) * 0.1).collect();
         b.configure();
@@ -916,6 +1105,9 @@ impl Bench {
             };
             self.push(&wire::BedConfig { voice_id: 0, frame_offset: wire::ASAP, bed_slot, host_bus });
         }
+        if s.zones_active > 0 {
+            self.zones_init();
+        }
         if s.bindings > 0 || s.bus_automation {
             self.push(&bench_curves());
             for slot in 0..2u16 {
@@ -952,6 +1144,146 @@ impl Bench {
             }
         }
         self.flush_setup();
+    }
+
+    /// ADR 0162 C7: prepares the scene's kernels (four for `swap`, else one per active slot), loads the first ones whole (resident
+    /// before the first quantum, so their slots plan and start at once) and sends the ZONE_CONFIG that makes them active.
+    fn zones_init(&mut self) {
+        let s = self.scene.clone();
+        let n = if s.swap { 4 } else { s.zones_active } as usize;
+        self.zone.blobs = (0..n).map(|i| zone_kernel_blob(s.zone_frames, 1 + i as u32)).collect();
+        for k in 0..s.zones_active as usize {
+            let id = wire::ZONE_KERNEL_ID_FIRST + k as u32;
+            let blob = &self.zone.blobs[k];
+            assert_eq!(clips::reserve(&mut self.core, id, (blob.len() / 4) as u32, 1, RATE, wire::clip_format::ZONE_KERNEL), wire::ERR_OK, "reserve kernel {k}");
+            assert_eq!(clips::write(&mut self.core, id, 0, blob), wire::ERR_OK, "write kernel {k}");
+            self.zone.table[k] = (id, wire::zone_slot_state::ACTIVE);
+            self.zone.order.push(k);
+            self.zone.accepting.push(k);
+        }
+        self.push_zone_config();
+    }
+
+    /// The whole ZONE_CONFIG table as main last decided it (shared return at 0.5, no ramp).
+    fn push_zone_config(&mut self) {
+        let frames = self.scene.zone_frames;
+        let slots = self
+            .zone
+            .table
+            .iter()
+            .map(|&(kernel_id, state)| wire::ZoneConfigSlots { kernel_id, return_bus: 0, state: state as u8, reserved: 0, wet: 1.0, ir_frames: if kernel_id == 0 { 0 } else { frames } })
+            .collect();
+        self.push(&wire::ZoneConfig { voice_id: 0, frame_offset: wire::ASAP, shared_return_gain: 0.5, ramp_frames: 0, slots });
+    }
+
+    /// The send levels voice ordinal `ord` takes: `sends_per_voice` of the accepting slots, starting at `ord`.
+    fn send_levels(&self, ord: u32) -> [f32; 4] {
+        let acc = &self.zone.accepting;
+        let mut v = [0.0f32; 4];
+        for j in 0..self.scene.sends_per_voice.min(acc.len() as u32) {
+            v[acc[(ord + j) as usize % acc.len()]] = ZONE_SEND_LEVEL;
+        }
+        v
+    }
+
+    /// SET_VOICE_FX sends for every sending mixed voice (after the accepting slots changed), ramped over the frame.
+    fn resend_sends(&mut self) {
+        let ramp = BATCH_EVERY as u32 * QUANTUM as u32;
+        for k in 0..self.mixed_ids.len() {
+            let id = self.mixed_ids[k];
+            let v = self.voices[(id & 0xFFFF) as usize].unwrap();
+            if v.send {
+                let send = self.send_levels(v.send_ord);
+                self.push(&wire::SetVoiceFx { voice_id: id, frame_offset: wire::ASAP, mask: wire::SET_VOICE_FX_MASK_SENDS, ramp_frames: ramp, send, ..Default::default() });
+            }
+        }
+    }
+
+    /// `zones-swap`, main's side once a batch (not timed): frees the kernels of slots that went off, starts the eviction
+    /// path's upload when its slot is off, and (when due and idle) starts the next swap: even swaps release the oldest
+    /// active zone into the standby slot's ring-out and upload the incoming kernel into the free slot; odd swaps evict it.
+    fn zone_step(&mut self, q: u64) {
+        let slots = self.zone.table.len();
+        let every = (SWAP_EVERY_S * RATE as f64 / QUANTUM as f64) as u64;
+        let mut changed = false;
+        for k in 0..slots {
+            let (id, state) = self.zone.table[k];
+            if id != 0 && state != wire::zone_slot_state::ACTIVE && zones::slot_state(&self.core, k) == wire::zone_state::OFF as u8 {
+                self.zone.to_free.push(id);
+                self.zone.table[k] = (0, wire::zone_slot_state::ACTIVE);
+                if self.zone.evicting == Some(k) {
+                    self.zone.evicting = None;
+                    self.start_upload(k);
+                    changed = true;
+                }
+            }
+        }
+        if self.scene.swap && q >= self.zone.next_swap_q && self.zone.upload.is_none() && self.zone.evicting.is_none() && self.zone.order.len() >= 2 {
+            let victim = self.zone.order[0];
+            if self.zone.swaps % 2 == 0 {
+                // Standby path: a slot with no kernel takes the incoming zone while the victim rings out.
+                if let Some(free) = (0..slots).find(|&k| self.zone.table[k].0 == 0 && !self.zone.order.contains(&k)) {
+                    self.zone.order.remove(0);
+                    self.zone.accepting.retain(|&k| k != victim);
+                    self.zone.table[victim].1 = wire::zone_slot_state::RELEASE;
+                    self.start_upload(free);
+                    self.zone.standby_swaps += 1;
+                    self.zone.swaps += 1;
+                    self.zone.next_swap_q += every;
+                    changed = true;
+                }
+            } else {
+                // Eviction path: the victim fades out in 150 ms; its slot takes the incoming kernel once it is off.
+                self.zone.order.remove(0);
+                self.zone.accepting.retain(|&k| k != victim);
+                self.zone.table[victim].1 = wire::zone_slot_state::EVICT;
+                self.zone.evicting = Some(victim);
+                self.zone.evict_swaps += 1;
+                self.zone.swaps += 1;
+                self.zone.next_swap_q += every;
+                changed = true;
+            }
+        }
+        if changed {
+            self.push_zone_config();
+            self.resend_sends();
+        }
+    }
+
+    /// Starts uploading the next kernel no slot holds into slot `k` (told active at once: it waits for the kernel).
+    fn start_upload(&mut self, k: usize) {
+        let blob = (0..self.zone.blobs.len()).find(|&i| !self.zone.table.iter().any(|t| t.0 == wire::ZONE_KERNEL_ID_FIRST + i as u32)).expect("a free kernel id");
+        self.zone.table[k] = (wire::ZONE_KERNEL_ID_FIRST + blob as u32, wire::zone_slot_state::ACTIVE);
+        self.zone.order.push(k);
+        self.zone.accepting.push(k);
+        self.zone.upload = Some(Upload { blob, sent: 0, reserved: false });
+    }
+
+    /// The kernel traffic of a swap, per quantum (timed: the audio thread's `onmessage` work): frees, then the reserve, then
+    /// one chunk of the kernel a quantum; the chunk that completes it starts the waiting slot (`zones::kernel_resident`).
+    fn pump_zones(&mut self) {
+        for id in std::mem::take(&mut self.zone.to_free) {
+            assert_eq!(clips::free(&mut self.core, id), wire::ERR_OK, "free kernel");
+        }
+        let Some(u) = self.zone.upload.as_mut() else { return };
+        let id = wire::ZONE_KERNEL_ID_FIRST + u.blob as u32;
+        let blob = &self.zone.blobs[u.blob];
+        if !u.reserved {
+            assert_eq!(clips::reserve(&mut self.core, id, (blob.len() / 4) as u32, 1, RATE, wire::clip_format::ZONE_KERNEL), wire::ERR_OK, "reserve swapped kernel");
+            u.reserved = true;
+            return;
+        }
+        let n = (blob.len() - u.sent).min(clips::MAX_CHUNK_BYTES);
+        let at = (u.sent / 4) as u32;
+        let p = clips::chunk_ptr(&mut self.core, id, at, n as u32);
+        assert!(!p.is_null(), "kernel chunk");
+        // SAFETY: chunk_ptr gave room for `n` bytes.
+        unsafe { core::ptr::copy_nonoverlapping(blob[u.sent..].as_ptr(), p, n) };
+        assert_eq!(clips::commit(&mut self.core, id, at, n as u32), wire::ERR_OK, "commit kernel chunk");
+        u.sent += n;
+        if u.sent >= blob.len() {
+            self.zone.upload = None;
+        }
     }
 
     fn flush_setup(&mut self) {
@@ -1019,6 +1351,9 @@ impl Bench {
         let bed = eligible && !ambi && !hrtf && self.bed_now < s.bed_voices;
         let lp = eligible && !ambi && self.lp_now < s.voice_lp;
         let hp = eligible && !ambi && self.hp_now < s.voice_hp;
+        let send = eligible && !ambi && self.sends_now < s.zone_sends;
+        let aux = eligible && !ambi && self.aux_now < s.aux_voices;
+        let send_ord = self.sends_now;
         let looping = looping || ambi;
         let clip = match stream {
             Some(sid) => sid,
@@ -1094,6 +1429,26 @@ impl Bench {
         if hp {
             self.push(&wire::SetVoiceFx { voice_id: id, frame_offset: wire::ASAP, mask: wire::SET_VOICE_FX_MASK_HP_HZ, hp_hz: HP_START_HZ, ..Default::default() });
         }
+        if send || aux {
+            let mut mask = 0;
+            let mut levels = [0.0f32; 4];
+            if send {
+                mask |= wire::SET_VOICE_FX_MASK_SENDS;
+                levels = self.send_levels(send_ord);
+            }
+            if aux {
+                mask |= wire::SET_VOICE_FX_MASK_AUX;
+            }
+            self.push(&wire::SetVoiceFx {
+                voice_id: id,
+                frame_offset: wire::ASAP,
+                mask,
+                send: levels,
+                aux_level: if aux { AUX_LEVEL } else { 0.0 },
+                aux_bus: if aux { AUX_BUS } else { wire::AUX_BUS_NONE as u16 },
+                ..Default::default()
+            });
+        }
         if s.bindings > 0 && stream.is_none() {
             let all = [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2)];
             let bindings = all[..s.bindings.min(3) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect();
@@ -1103,7 +1458,7 @@ impl Bench {
             // A region in the clip's middle third; the voice starts before it.
             self.push(&wire::SetLoop { voice_id: id, frame_offset: wire::ASAP, loop_start_frame: frames / 3, loop_end_frame: 2 * frames / 3, flags: wire::SET_LOOP_FLAGS_LOOPING });
         }
-        let mut v = Voice { id, mixed, hrtf, at: u32::MAX, phase, bed, ambi, private: ambi_private, lp, hp };
+        let mut v = Voice { id, mixed, hrtf, at: u32::MAX, phase, bed, ambi, private: ambi_private, lp, hp, send, aux, send_ord };
         if mixed {
             v.at = self.mixed_ids.len() as u32;
             self.mixed_ids.push(id);
@@ -1113,6 +1468,8 @@ impl Bench {
             self.ambi_private_now += ambi_private as u32;
             self.lp_now += lp as u32;
             self.hp_now += hp as u32;
+            self.sends_now += send as u32;
+            self.aux_now += aux as u32;
         }
         self.voices[index as usize] = Some(v);
     }
@@ -1124,15 +1481,17 @@ impl Bench {
             return;
         }
         v.mixed = false;
-        let (at, hrtf, bed, ambi, private, lp, hp) = (v.at as usize, v.hrtf, v.bed, v.ambi, v.private, v.lp, v.hp);
+        let (at, hrtf, bed, ambi, private, lp, hp, send, aux) = (v.at as usize, v.hrtf, v.bed, v.ambi, v.private, v.lp, v.hp, v.send, v.aux);
         v.hrtf = false;
-        (v.bed, v.ambi, v.private, v.lp, v.hp) = (false, false, false, false, false);
+        (v.bed, v.ambi, v.private, v.lp, v.hp, v.send, v.aux) = (false, false, false, false, false, false, false);
         self.hrtf_now -= hrtf as u32;
         self.bed_now -= bed as u32;
         self.ambi_now -= ambi as u32;
         self.ambi_private_now -= private as u32;
         self.lp_now -= lp as u32;
         self.hp_now -= hp as u32;
+        self.sends_now -= send as u32;
+        self.aux_now -= aux as u32;
         self.mixed_ids.swap_remove(at);
         if at < self.mixed_ids.len() {
             let moved = (self.mixed_ids[at] & 0xFFFF) as usize;
@@ -1166,6 +1525,9 @@ impl Bench {
     /// (`min(mixed, mixedCap)` with the cap), HRTF directions, parameter updates.
     fn build_batch(&mut self, q: u64) {
         let s = self.scene.clone();
+        if s.zones_active > 0 {
+            self.zone_step(q);
+        }
         let mut target = s.mixed;
         if s.cap {
             target = target.min(status::counters(&self.core).mixed_cap as u32);
@@ -1294,7 +1656,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps).
@@ -1331,6 +1693,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     let (mut sum_mixed, mut sum_live, mut sum_src, mut sum_moving) = (0f64, 0f64, 0f64, 0f64);
     let (mut sum_bed_voices, mut sum_beds, mut sum_work_bed) = (0f64, 0f64, 0f64);
     let (mut sum_fx, mut sum_ambi) = (0f64, 0f64);
+    let (mut sum_zact, mut sum_zring, mut sum_zwork, mut sum_senders, mut sum_aux) = (0f64, 0f64, 0f64, 0f64, 0f64);
     let mut status_buf = vec![0u8; 16 * 1024];
     let mut probe: Vec<f32> = Vec::new();
     let mut deadline = platform::now_us();
@@ -1360,6 +1723,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
             assert_eq!(rc, 0, "batch refused");
         }
         b.feed_streams(frame);
+        b.pump_zones();
         if scene.probe_automation {
             let t1 = platform::now_us();
             audio_core::automation::begin_quantum(&mut b.core);
@@ -1373,6 +1737,9 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
         clips::flush_events(&mut b.core);
         let mut dt = platform::now_us() - t0;
         if q % BATCH_EVERY == BATCH_EVERY - 1 {
+            if recording {
+                r.zone_events += status::counters(&b.core).spatial.zone_events.as_slice().len() as u32;
+            }
             b.read_status();
             let t1 = platform::now_us();
             status::take(&mut b.core, &mut status_buf, 1);
@@ -1390,6 +1757,14 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
             sum_work_bed += c.spatial.work_bed as f64;
             sum_fx += c.spatial.fx_voices as f64;
             sum_ambi += c.spatial.ambisonic_voices as f64;
+            sum_zact += c.spatial.zones_active as f64;
+            sum_zring += c.spatial.zones_ringing as f64;
+            sum_zwork += c.spatial.work_zones as f64;
+            sum_senders += b.sends_now as f64;
+            sum_aux += b.aux_now as f64;
+            for z in c.spatial.sent_zones() {
+                r.zone_wet_peak = r.zone_wet_peak.max(z.wet_peak as f64);
+            }
             sum_mixed += c.mixed_voices as f64;
             sum_live += c.live_voices as f64;
             sum_src += src as f64;
@@ -1437,6 +1812,14 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     r.mean_work_bed = sum_work_bed / n;
     r.mean_fx_voices = sum_fx / n;
     r.mean_ambisonic = sum_ambi / n;
+    r.mean_zones_active = sum_zact / n;
+    r.mean_zones_ringing = sum_zring / n;
+    r.mean_work_zones = sum_zwork / n;
+    r.mean_senders = sum_senders / n;
+    r.mean_aux = sum_aux / n;
+    r.zone_seconds = if scene.zones_active > 0 { scene.zone_frames as f64 / RATE as f64 } else { 0.0 };
+    r.standby_swaps = b.zone.standby_swaps;
+    r.evict_swaps = b.zone.evict_swaps;
     r.mean_source_frames = sum_src / n;
     r.mean_moving = sum_moving / n;
     r.mean_hrtf = h_v.iter().map(|&x| x as f64).sum::<f64>() / n;
@@ -1538,7 +1921,7 @@ fn num(args: &str, key: &str, default: f64) -> f64 {
 
 fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
     let mut line = format!(
-        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{},\"bedVoices\":{:.1},\"beds\":{:.2},\"workBed\":{:.0},\"transit\":{:.2},\"fxVoices\":{:.1},\"ambisonic\":{:.1}}}",
+        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{},\"bedVoices\":{:.1},\"beds\":{:.2},\"workBed\":{:.0},\"transit\":{:.2},\"fxVoices\":{:.1},\"ambisonic\":{:.1},\"zonesActive\":{:.2},\"zonesRinging\":{:.2},\"workZones\":{:.0},\"zoneWetPeak\":{:.4},\"senders\":{:.1},\"aux\":{:.1},\"zoneEvents\":{},\"standbySwaps\":{},\"evictSwaps\":{}}}",
         r.quanta,
         r.p50,
         r.p99,
@@ -1569,7 +1952,16 @@ fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
         r.mean_work_bed,
         r.mean_transit,
         r.mean_fx_voices,
-        r.mean_ambisonic
+        r.mean_ambisonic,
+        r.mean_zones_active,
+        r.mean_zones_ringing,
+        r.mean_work_zones,
+        r.zone_wet_peak,
+        r.mean_senders,
+        r.mean_aux,
+        r.zone_events,
+        r.standby_swaps,
+        r.evict_swaps
     );
     if r.automation[3] > 0.0 {
         line.pop();
@@ -1744,6 +2136,50 @@ mod tests {
             if beds > 0.0 {
                 assert!(r.mean_bed_voices > 0.0, "{name}: bed voices");
             }
+        }
+    }
+
+    /// ADR 0162 C7: two active 2 s zones fed by 16 voices sending into both, a quiet twin without them.
+    #[test]
+    fn zones_2x2s_convolves_two_zones_from_sending_voices() {
+        let r = short("zones-2x2s");
+        assert_eq!((r.mean_zones_active, r.mean_senders, r.mean_zones_ringing, r.zone_events), (2.0, 16.0, 0.0, 0));
+        assert!(r.zone_wet_peak > 0.0, "the zones are heard");
+        assert!(r.mean_work_zones >= 2.0 * audio_core::zones::SLOT_WU as f64, "work units {}", r.mean_work_zones);
+        let dry = short("zones-2x2s-dry");
+        assert_eq!((dry.mean_zones_active, dry.mean_work_zones, dry.zone_wet_peak), (0.0, 0.0, 0.0));
+    }
+
+    /// ADR 0162 C7: a run long enough for a standby swap and an eviction swap (0.25 s, 1.5 s): no refused kernel or slot,
+    /// a zone rang out beside two active ones, and two zones were convolving at the end.
+    #[test]
+    fn zones_swap_goes_through_the_standby_and_the_eviction_paths() {
+        let hrir = hrir_table(RATE);
+        let r = run(&scene("zones-swap").unwrap(), 1.75, 0.25, 1, false, Some(&hrir));
+        assert_eq!((r.standby_swaps, r.evict_swaps), (1, 1));
+        assert_eq!(r.zone_events, 0, "no refused kernel, refused slot or bad blob");
+        assert!(r.mean_zones_ringing > 0.0 && r.zone_wet_peak > 0.0);
+    }
+
+    /// ADR 0162 C7: `m3-high` is §7.2's typical high scene, with its sends.
+    #[test]
+    fn m3_high_holds_its_typical_terms() {
+        let r = short("m3-high");
+        assert_eq!((r.mean_beds, r.mean_ambisonic, r.mean_zones_active), (2.0, 1.0, 2.0));
+        assert!(r.mean_hrtf >= 7.5 && r.mean_hrtf <= 8.0, "hrtf {}", r.mean_hrtf);
+        assert!(r.mean_senders >= 200.0, "senders {}", r.mean_senders);
+        assert!(r.mean_fx_voices >= 20.0 && r.zone_wet_peak > 0.0);
+    }
+
+    /// ADR 0162 C7: the worst scenes with zones convolving, sends flowing and aux sends.
+    #[test]
+    fn the_worst_scenes_with_sends_run_their_slots() {
+        for (name, slots, aux) in [("m3-worst-low-sends", 1.0, 8.0), ("m3-worst-default-sends", 3.0, 16.0), ("m3-worst-high-sends", 3.0, 32.0)] {
+            let r = short(name);
+            // One-shots end and are replaced (a replacement takes its send at the next batch), so the counts sit just under.
+            assert_eq!(r.mean_zones_active, slots, "{name}");
+            assert!(r.mean_aux >= 0.9 * aux && r.mean_aux <= aux, "{name}: aux {}", r.mean_aux);
+            assert!(r.mean_senders > 30.0 && r.zone_wet_peak > 0.0 && r.zone_events == 0, "{name}: senders {} peak {}", r.mean_senders, r.zone_wet_peak);
         }
     }
 
