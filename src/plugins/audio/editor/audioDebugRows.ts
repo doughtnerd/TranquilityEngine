@@ -60,7 +60,7 @@ const RATE_WINDOW = 1;
 export const HEALTH = { occlusionAgeAmber: 8, occlusionAgeRed: 30, overrunsPerSecondRed: 1, bedSwitchesPerVoiceSecond: 2 } as const;
 
 type Counters = AudioDebugInfo["counters"];
-type CounterKey = Exclude<keyof Counters, never>;
+type CounterKey = keyof Counters;
 
 /**
  * Remembers recent samples of the counters whose health is a rate or an increment: `occlusionOverruns` (per second),
@@ -115,8 +115,8 @@ const fmt = (v: number, digits = 0): string => v.toLocaleString("en-US", { maxim
 /** Bytes as KB or MB. */
 export function formatBytes(bytes: number): string {
   if (!(bytes > 0)) return "0";
-  if (bytes < 1024 * 1024) return `${fmt(bytes / 1024, bytes < 10 * 1024 ? 1 : 0)} KB`;
-  return `${fmt(bytes / (1024 * 1024), 1)} MB`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** Hz as "800 Hz" or "5.0 kHz"; at or above 20 kHz the filter is open. */
@@ -182,7 +182,7 @@ function counterRows(info: AudioDebugInfo, watch: CounterWatch | undefined): Row
   if (typeof c.occlusionOverruns === "number") {
     const rate = watch?.rate("occlusionOverruns") ?? 0;
     const health: Health = rate > HEALTH.overrunsPerSecondRed ? "bad" : rate > 0 ? "warn" : "ok";
-    rows.push(kv("occlusionOverruns", "Occlusion overruns", "Passes that took more than twice the ray budget; the next pass casts fewer rays. Amber up to 1 per second, red above.", `${fmt(c.occlusionOverruns)} (${fmt(rate, 1)}/s)`, health));
+    rows.push(kv("occlusionOverruns", "Occlusion overruns", `${fmt(c.occlusionOverruns)} (${fmt(rate, 1)}/s)`, "Passes that took more than twice the ray budget; the next pass casts fewer rays. Amber up to 1 per second, red above.", health));
   }
   if (typeof c.bedSwitches === "number") {
     const voices = Math.max(1, num(c.bedVoices));
@@ -194,7 +194,7 @@ function counterRows(info: AudioDebugInfo, watch: CounterWatch | undefined): Row
   }
   if (typeof c.wideStarved === "number") {
     const bad = watch?.rose("wideStarved") === true;
-    rows.push(kv("wideStarved", "Wide streams starved", "A 16-channel ambisonic stream ran out of decoded data and dropped out. Red for a few seconds after any increase.", fmt(c.wideStarved), bad ? "bad" : "ok"));
+    rows.push(kv("wideStarved", "Wide streams starved", fmt(c.wideStarved), "A 16-channel ambisonic stream ran out of decoded data and dropped out. Red for a few seconds after any increase.", bad ? "bad" : "ok"));
   }
   return rows;
 }
@@ -206,7 +206,7 @@ function ladderRows(info: AudioDebugInfo, watch: CounterWatch | undefined): Row[
   const shed = steps > 0 || watch?.rose("m3Shed") === true;
   return [
     kv("ladderState", "Ladder", state, "The load-shedding ladder. idle: nothing shed. cap at floor: the mixer is already at its lowest voice cap, so the ladder is the next resort. shedding: reverb tails were cut, then one active zone fewer.", shed ? "bad" : state === "cap at floor" ? "warn" : "ok"),
-    kv("m3Shed", "Shed steps", "How many steps the ladder has taken (tails cut, then zones fewer) because the audio thread was running late. Red on any step.", fmt(steps), shed ? "bad" : "ok"),
+    kv("m3Shed", "Shed steps", fmt(steps), "How many steps the ladder has taken (tails cut, then zones fewer) because the audio thread was running late. Red on any step.", shed ? "bad" : "ok"),
   ];
 }
 
