@@ -1,0 +1,4 @@
+    Finished `release` profile [optimized] target(s) in 0.87s
+    Finished `release` profile [optimized] target(s) in 0.01s
+chromium bed64: p50 55.0 us (k=1, 4.8 s)
+chromium bed256: p50 180.0 us (k=1, 9.5 s)
