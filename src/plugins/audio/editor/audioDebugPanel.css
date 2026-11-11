@@ -13,8 +13,18 @@
 .audio-debug-table th { text-align: left; font-weight: 600; color: var(--muted); padding: 2px 4px 2px 0; border-bottom: 1px solid var(--border); }
 .audio-debug-table td { padding: 1px 4px 1px 0; white-space: nowrap; }
 .audio-debug-table td:nth-child(n + 2) { text-align: right; }
-.audio-debug-voices { display: block; max-height: 240px; overflow: auto; }
-.audio-debug-voices thead, .audio-debug-voices tbody { display: table; width: 100%; table-layout: fixed; }
+.audio-debug-scroll { max-height: 240px; overflow: auto; }
+.audio-debug-voices { min-width: 760px; table-layout: fixed; }
+.audio-debug-voices td:nth-child(n + 6), .audio-debug-wide td { text-align: left; }
+.audio-debug-wide { min-width: 420px; }
+.audio-debug-wide td { overflow: hidden; text-overflow: ellipsis; }
+.audio-debug h5[title], .audio-debug th[title] { cursor: help; }
+.audio-debug-toggle { display: flex; gap: 4px; align-items: center; margin: 8px 0 0; color: var(--muted); }
+/* Health (architecture 9, S8): green, amber, red from the theme's status tokens; "info" is a plain number. */
+.audio-debug td[data-health="ok"] { color: var(--success); }
+.audio-debug td[data-health="warn"] { color: var(--warning); }
+.audio-debug td[data-health="bad"] { color: var(--danger); font-weight: 600; }
+.audio-debug .audio-debug-summary td[data-health="info"] { color: var(--muted); }
 .audio-debug-clip { max-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left !important; }
 .audio-debug-table td[data-state="waitingForData"] { color: var(--warning); }
 .audio-debug-table td[data-state="stolen"],
