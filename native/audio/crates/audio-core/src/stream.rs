@@ -275,8 +275,10 @@ fn floats(region: &'static mut [u8]) -> &'static mut [f32] {
 impl StreamStore {
     /// The store over the `Streams` region (`region_bytes` long: `len / RING_BYTES` narrow rings) and
     /// the `Wide` region (`wide_region_bytes`: `len / WIDE_RING_BYTES` wide rings), both 64-byte
-    /// aligned and zeroed.
-    pub fn over(region: &'static mut [u8], wide: &'static mut [u8]) -> StreamStore {
+    /// aligned and zeroed. `music_rings` is `M`, the music pool's ring count (0166 M4, tree A27;
+    /// Q1 passes it through, C1 fills the pools; ignored until then).
+    pub fn over(region: &'static mut [u8], wide: &'static mut [u8], music_rings: usize) -> StreamStore {
+        let _ = music_rings; // C1: the music pool (rings G..G+M of the region).
         let count = (region.len() / RING_BYTES).min(MAX_STREAMS);
         let wide_count = (wide.len() / WIDE_RING_BYTES).min(MAX_WIDE);
         StreamStore { rings: [Ring::default(); MAX_RINGS], count, wide: wide_count, storage: floats(region), wide_storage: floats(wide) }
@@ -662,11 +664,11 @@ mod tests {
     }
 
     fn store(rings: usize) -> StreamStore {
-        StreamStore::over(region(rings * RING_BYTES), &mut [])
+        StreamStore::over(region(rings * RING_BYTES), &mut [], 0)
     }
 
     fn stores(narrow: usize, wide: usize) -> StreamStore {
-        StreamStore::over(region(narrow * RING_BYTES), region(wide * WIDE_RING_BYTES))
+        StreamStore::over(region(narrow * RING_BYTES), region(wide * WIDE_RING_BYTES), 0)
     }
 
     fn open_rec(id: u32, channels: u32, epoch: u32) -> StreamOpen {

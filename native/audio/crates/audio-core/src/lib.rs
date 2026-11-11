@@ -8,6 +8,9 @@
 //! M1a.0 (task A0.1) is the skeleton: the init parameters, the deterministic memory layout and a
 //! `process` that renders silence. Later tasks add modules beside these (A0.3 `status`/`counters`,
 //! A1.2 `voices`/`scheduler`/`panner`/`clips`, A1.3b `arena`, A2.1 `bus`/`fx`), each in its own file.
+//!
+//! 0166 M4 (Q1's skeletons; tree A1–A5, A27): `due` (Z2a), `curves` (Z2b), `voice_split` (Z2c),
+//! `groups` (C2a, C2b), `group_hold` (C2c), `group_rebase` (C2d). This module list is final for M4.
 
 pub mod arena;
 pub mod automation;
@@ -19,8 +22,13 @@ pub mod chain;
 pub mod clips;
 pub mod core;
 pub mod counters;
+pub mod curves;
+pub mod due;
 pub mod fx;
 pub mod fxpool;
+pub mod group_hold;
+pub mod group_rebase;
+pub mod groups;
 pub mod layout;
 pub mod listener;
 pub mod meters;
@@ -30,6 +38,7 @@ pub mod scheduler;
 pub mod sends;
 pub mod status;
 pub mod stream;
+pub mod voice_split;
 pub mod voices;
 mod wire_read;
 pub mod zones;
