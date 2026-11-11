@@ -1,10 +1,13 @@
 // The decoder worker's message handler, factored out of the worker so Node tests drive it in-process (K7): it routes
 // `decodeClip` and `cancel` to `clips.ts`, `stream*` (E4.4: `streamLoop` too) and `connectWorklet` to `streams.ts` (B3), and the
-// zone IR messages (ADR 0162 K0: `prepareIr`, `generateIr`, `releaseIr`) to `irPrepare.ts` (C2b), loads the
+// zone IR messages (ADR 0162 K0: `prepareIr`, `generateIr`, `releaseIr`) to `irPrepare.ts` (C2b), the music messages
+// (ADR 0166 §4.6, H3: `primeGroup`, `cancelGroup`, `protectMusic`, `releaseMusic`) to `musicGroups.ts` (D1a, D1b), loads the
 // wasm on `init` (requests that arrive first wait for it), and turns every failure into an `error` reply. Never throws,
 // never waits on anything but the wasm.
 import { decodeClip } from "./clips";
 import { IrPreparer } from "./irPrepare";
+import { MusicCache } from "./musicCache";
+import { MusicGroups } from "./musicGroups";
 import type { ComputePeaksMessage, DecodeClipMessage, DecoderReply, DecoderRequest, InitMessage } from "./protocol";
 import { StreamDecoder } from "./streams";
 import { DecoderError, DecoderWasm } from "./wasm";
@@ -38,7 +41,9 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
   const cancelled = new Set<number>();
   const active = new Set<number>();
   // B3: the streams, on their own instance of the wasm once it loaded.
-  const streams = new StreamDecoder({ post, wasm: () => wasm });
+  // ADR 0166 (D1a, H3): music groups open their members on the same streams; a closed stream leaves its group.
+  const streams = new StreamDecoder({ post, wasm: () => wasm, closed: (id) => groups.closed(id) });
+  const groups = new MusicGroups({ post, streams, cache: new MusicCache() });
   // ADR 0162 (K0): zone IR preparation, filled by C2b in irPrepare.ts. It sends kernels over the worklet port that
   // `connectWorklet` hands the stream decoder too, so it hears about each new port.
   const ir = new IrPreparer({ post, wasm: () => wasm, fetchBytes: options.fetchBytes });
@@ -201,6 +206,11 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
         case "generateIr":
         case "releaseIr":
           return ir.handle(request);
+        case "primeGroup":
+        case "cancelGroup":
+        case "protectMusic":
+        case "releaseMusic":
+          return groups.handle(request);
       }
     },
   };

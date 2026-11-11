@@ -39,6 +39,14 @@
 //   takes the new epoch from there, gapless. Without a frame the change applies where the worker is decoding (a release
 //   then lands up to a ring late).
 //
+// - **Music group members** (ADR 0166 §4.6, architecture §4.2, C8; D1a). `musicGroups.ts` opens a group's member
+//   streams with `openMember` (STREAM_OPEN carries the `music` flag: the core takes the ring from the music pool) and
+//   they are **held**: nothing is pumped for them, not even on a credit, until `prime` runs over the whole group. `prime`
+//   is breadth-first: every member gets its first `MUSIC_PRIME_FRAMES` (the core's START_FRAMES, 4,096: one narrow
+//   chunk, two wide ones) before any member gets more, then the windows are topped up round-robin, a chunk per member
+//   per turn. After that a member is an ordinary stream: credits from the worklet refill it one stream at a time.
+//   `restartMember` (D1b's retarget) restarts an open member at a new frame and epoch, held, for the next `prime`.
+//
 // Streams decode on their own instance of the wasm (`DecoderWasm.fork`), so a clip decode that traps can't take them
 // with it. Never throws: every failure becomes an `error` reply.
 import {
@@ -50,6 +58,7 @@ import {
   STREAM_CHUNK_FLAGS_WRAPPED,
   STREAM_OPEN_FIXED_END,
   STREAM_OPEN_FLAGS_LOOP,
+  STREAM_OPEN_FLAG_MUSIC,
   STREAM_MAX_CHANNELS,
   STREAM_RING_FRAMES_WIDE,
   STREAM_WIDE_CHUNK_FRAMES,
@@ -106,7 +115,12 @@ export interface StreamHost {
   post(reply: DecoderReply, transfer?: Transferable[]): void;
   /** The loaded wasm (rejects when it failed to load), or null before `init`. Defaults to none (every open fails). */
   wasm?(): Promise<DecoderWasm> | null;
+  /** D1a: stream `streamId` was closed (`streamClose`, `closeMember`), known or not; `musicGroups.ts` releases its member. */
+  closed?(streamId: number): void;
 }
+
+/** ADR 0166 (D1a): frames each music member gets before any member gets more: the core's START_FRAMES, its primed mark. */
+export const MUSIC_PRIME_FRAMES = 4096;
 
 /** Bytes of a pooled chunk buffer: the envelope and header, then 4,096 stereo f32 frames. */
 export const STREAM_CHUNK_BUFFER_BYTES = STREAM_CHUNK_FIXED_END + STREAM_CHUNK_FRAMES * 2 * 4;
@@ -172,6 +186,10 @@ interface Stream {
   /** The last chunk was sent. */
   done: boolean;
   failed: boolean;
+  /** ADR 0166 (D1a): a music group member (STREAM_OPEN's `music` flag). */
+  readonly music: boolean;
+  /** D1a: opened or restarted for a group and not primed yet: `pump` sends nothing until `prime` clears it. */
+  held: boolean;
 }
 
 const describe = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -235,6 +253,73 @@ export class StreamDecoder {
   }
 
   private async open(m: StreamOpenMessage): Promise<void> {
+    const s = await this.openStream(m, false);
+    if (typeof s === "object" && s) this.pump(s);
+  }
+
+  /**
+   * D1a: opens a music group member (`musicGroups.ts`): STREAM_OPEN with the `music` flag and `streamOpened` as for any
+   * stream, but **held**: nothing is sent until `prime`. Resolves true when open, else the error already reported to
+   * main (`error` with the stream id), or "closed" when a `streamClose` came while it waited for the wasm.
+   */
+  async openMember(m: StreamOpenMessage): Promise<true | string> {
+    const s = await this.openStream(m, true);
+    return typeof s === "object" ? (s ? true : "closed before it opened") : s;
+  }
+
+  /**
+   * D1a (§4.2 step 2): primes the open members `ids`, breadth-first: each, in order, gets chunks until it holds
+   * `MUSIC_PRIME_FRAMES` of its epoch (or its last chunk) before the next is touched, so every member's STREAM_OPEN and
+   * first chunk reach the worklet before any member's second; then the windows are topped up round-robin, one chunk per
+   * member per turn. `onPrimed(id)` runs as each member's prime frames are posted. Unknown or failed ids are skipped.
+   */
+  prime(ids: readonly number[], onPrimed?: (id: number) => void): void {
+    const members: Stream[] = [];
+    for (const id of ids) {
+      const s = this.streams.get(id);
+      if (!s || s.failed) continue;
+      s.held = false;
+      members.push(s);
+    }
+    if (!this.decoder || !this.port) return;
+    for (const s of members) {
+      while (!s.done && !s.failed && s.sent < MUSIC_PRIME_FRAMES && this.sendChunk(s));
+      if (!s.failed) onPrimed?.(s.id);
+    }
+    for (let more = true; more; ) {
+      more = false;
+      for (const s of members) if (this.sendChunk(s)) more = true;
+    }
+  }
+
+  /**
+   * D1a, for D1b's retarget: restarts the open member `streamId` at stream frame `startFrame` under `epoch` (newer than
+   * its own, else ignored), with its loop and region as given (region `undefined`: kept), and holds it for the next
+   * `prime`: STREAM_OPEN of the new epoch goes now, its chunks with the prime. False when the stream isn't open (or the
+   * seek failed: then reported as an error).
+   */
+  restartMember(streamId: number, startFrame: number, epoch: number, loop?: { looping: boolean; loopStartFrame?: number; loopEndFrame?: number }): boolean {
+    const s = this.streams.get(streamId);
+    if (!s || !this.decoder || ((epoch - s.epoch) | 0) <= 0) return false;
+    s.pending = null;
+    if (loop) {
+      s.loop = loop.looping;
+      if (loop.looping) s.region = resolveRegion(loop.loopStartFrame, loop.loopEndFrame, s.fileLoop, s.frames);
+    }
+    s.held = true;
+    return this.restart(s, Math.max(0, startFrame), epoch);
+  }
+
+  /** D1a, for D1b's cancel: closes stream `id` as `streamClose` does (STREAM_CLOSE to the worklet, `streamClosed` to main). */
+  closeMember(id: number): void {
+    this.close(id);
+  }
+
+  /**
+   * Opens `m`'s stream and posts STREAM_OPEN and `streamOpened`; a `music` member is held (see `openMember`). The stream,
+   * or the error reported, or null when it was closed while waiting for the wasm.
+   */
+  private async openStream(m: StreamOpenMessage, music: boolean): Promise<Stream | string | null> {
     const loading = this.host.wasm?.() ?? null;
     if (!loading) return this.fail(m.streamId, m.asset, new DecoderError("audio decoder: not initialised"));
     this.opening.add(m.streamId);
@@ -251,7 +336,8 @@ export class StreamDecoder {
     this.opening.delete(m.streamId);
     if (this.cancelled.delete(m.streamId)) {
       this.host.post({ type: "streamClosed", streamId: m.streamId });
-      return;
+      this.host.closed?.(m.streamId);
+      return null;
     }
     if (this.streams.has(m.streamId)) this.drop(this.streams.get(m.streamId)!);
     if (!this.port) return this.fail(m.streamId, m.asset, new DecoderError("audio decoder: no worklet port for streams"));
@@ -301,6 +387,8 @@ export class StreamDecoder {
         scratchBytes,
         done: false,
         failed: false,
+        music,
+        held: music,
       };
       this.streams.set(m.streamId, stream);
       info = importGain !== 1 ? { ...infoOf(raw), importGain } : infoOf(raw);
@@ -312,7 +400,7 @@ export class StreamDecoder {
     // STREAM_OPEN first: main may answer `streamOpened` with a `streamLoop` at once (E4.4), which may send chunks.
     this.postOpen(stream, m.startFrame);
     this.host.post({ type: "streamOpened", streamId: m.streamId, epoch: m.epoch, info });
-    this.pump(stream);
+    return stream;
   }
 
   /**
@@ -330,7 +418,7 @@ export class StreamDecoder {
       totalFrames: s.frames >= 0 && s.frames < STREAM_TOTAL_FRAMES_UNKNOWN ? s.frames : STREAM_TOTAL_FRAMES_UNKNOWN,
       loopStart: splice ? splice.start : 0,
       loopEnd: splice ? splice.end || (s.frames > 0 ? s.frames : 0xfffffffe) : 0,
-      flags: s.loop ? STREAM_OPEN_FLAGS_LOOP : 0,
+      flags: (s.loop ? STREAM_OPEN_FLAGS_LOOP : 0) | (s.music ? STREAM_OPEN_FLAG_MUSIC : 0),
       epoch: s.epoch,
       startFrame,
       convention: s.convention,
@@ -351,25 +439,31 @@ export class StreamDecoder {
       if (s.pending.looping) s.region = s.pending.region;
       s.pending = null;
     }
-    const frame = s.loop ? wrapInto(Math.max(0, m.frame), s.region, s.frames) : Math.max(0, m.frame);
+    if (this.restart(s, Math.max(0, m.frame), m.epoch)) this.pump(s);
+  }
+
+  /** Restarts `s` at stream frame `start` (wrapped into a loop) under `epoch` and posts its STREAM_OPEN; false when the seek failed (reported). */
+  private restart(s: Stream, start: number, epoch: number): boolean {
+    const frame = s.loop ? wrapInto(start, s.region, s.frames) : start;
     try {
-      this.decoder.seek(s.handle, frame);
+      this.decoder!.seek(s.handle, frame);
     } catch (e) {
-      return this.failStream(s, e);
+      this.failStream(s, e);
+      return false;
     }
     s.base = frame;
     s.sent = 0;
     s.pos = frame;
     s.marks.length = 0;
     s.marks.push({ stream: frame, file: frame });
-    s.epoch = m.epoch;
-    s.prevEpoch = m.epoch;
+    s.epoch = epoch;
+    s.prevEpoch = epoch;
     s.chunkSeq = 0;
     s.done = false;
     s.failed = false;
     s.credit.reset();
     this.postOpen(s, frame);
-    this.pump(s);
+    return true;
   }
 
   /**
@@ -454,6 +548,7 @@ export class StreamDecoder {
     writeStreamClose(view, 0, { streamId: id });
     this.port?.postMessage(buffer, [buffer]);
     this.host.post({ type: "streamClosed", streamId: id });
+    this.host.closed?.(id);
   }
 
   /** Frees `s`'s decoder and scratch and forgets it. */
@@ -497,67 +592,76 @@ export class StreamDecoder {
    * change), up to the file's end (then a wrap, or the last chunk).
    */
   private pump(s: Stream): void {
+    while (this.sendChunk(s));
+  }
+
+  /**
+   * Sends one chunk of `s` if it may (open, not held, done or failed, and the window has room for a whole chunk). True
+   * when it sent one and may send more; false when it didn't, or sent its last, or failed (reported).
+   */
+  private sendChunk(s: Stream): boolean {
     const w = this.decoder;
     const port = this.port;
-    if (!w || !port || s.done || s.failed) return;
+    if (!w || !port || s.done || s.failed || s.held) return false;
     const fc = s.fileChannels;
     const chunkFrames = s.cls.chunkFrames;
+    if (!s.credit.canSend(chunkFrames)) return false;
     try {
-      while (s.credit.canSend(chunkFrames)) {
-        let n = 0;
-        let flags = 0;
-        let empty = 0;
-        while (n < chunkFrames) {
-          const at = s.base + s.sent + n;
-          const p = s.pending;
-          if (p && at >= p.at) {
-            s.pending = null;
-            this.apply(s, p.looping, p.region, at);
-            continue;
-          }
-          let want = chunkFrames - n;
-          if (p) want = Math.min(want, p.at - at);
-          const end = s.loop && s.region.end > 0 ? s.region.end : 0;
-          if (end > 0) want = Math.min(want, end - s.pos);
-          if (want <= 0) {
-            this.wrap(s, at);
-            flags |= STREAM_CHUNK_FLAGS_WRAPPED;
-            continue;
-          }
-          const got = w.readF32(s.handle, s.scratch + n * fc * 4, want);
-          s.pos += got;
-          n += got;
-          if (got > 0) empty = 0;
-          if (got < want) {
-            // The file's end.
-            if (!s.loop) {
-              flags |= STREAM_CHUNK_FLAGS_LAST;
-              break;
-            }
-            if (got === 0 && ++empty > 1) throw new DecoderError("audio decoder: the looping stream holds no audio");
-            this.wrap(s, s.base + s.sent + n);
-            flags |= STREAM_CHUNK_FLAGS_WRAPPED;
-          }
+      let n = 0;
+      let flags = 0;
+      let empty = 0;
+      while (n < chunkFrames) {
+        const at = s.base + s.sent + n;
+        const p = s.pending;
+        if (p && at >= p.at) {
+          s.pending = null;
+          this.apply(s, p.looping, p.region, at);
+          continue;
         }
-        const buffer = this.take(s.cls.bufferBytes);
-        const view = new DataView(buffer);
-        const ch = s.channels;
-        writeEnvelope(view, 0, { kind: Kind.STREAM_CHUNK, seq: this.nextSeq(), bodyBytes: STREAM_CHUNK_FIXED_END - 16 + n * ch * 4 });
-        writeStreamChunk(view, 0, { streamId: s.id, chunkSeq: s.chunkSeq++ >>> 0, frames: n, flags, epoch: s.epoch });
-        if (n > 0) {
-          new Float32Array(buffer, STREAM_CHUNK_FIXED_END, n * ch).set(w.f32(s.scratch, n * fc));
+        let want = chunkFrames - n;
+        if (p) want = Math.min(want, p.at - at);
+        const end = s.loop && s.region.end > 0 ? s.region.end : 0;
+        if (end > 0) want = Math.min(want, end - s.pos);
+        if (want <= 0) {
+          this.wrap(s, at);
+          flags |= STREAM_CHUNK_FLAGS_WRAPPED;
+          continue;
         }
-        port.postMessage(buffer, [buffer]);
-        this.stats.chunks++;
-        s.credit.sent(n);
-        s.sent += n;
-        if (flags & STREAM_CHUNK_FLAGS_LAST) {
-          s.done = true;
-          return;
+        const got = w.readF32(s.handle, s.scratch + n * fc * 4, want);
+        s.pos += got;
+        n += got;
+        if (got > 0) empty = 0;
+        if (got < want) {
+          // The file's end.
+          if (!s.loop) {
+            flags |= STREAM_CHUNK_FLAGS_LAST;
+            break;
+          }
+          if (got === 0 && ++empty > 1) throw new DecoderError("audio decoder: the looping stream holds no audio");
+          this.wrap(s, s.base + s.sent + n);
+          flags |= STREAM_CHUNK_FLAGS_WRAPPED;
         }
       }
+      const buffer = this.take(s.cls.bufferBytes);
+      const view = new DataView(buffer);
+      const ch = s.channels;
+      writeEnvelope(view, 0, { kind: Kind.STREAM_CHUNK, seq: this.nextSeq(), bodyBytes: STREAM_CHUNK_FIXED_END - 16 + n * ch * 4 });
+      writeStreamChunk(view, 0, { streamId: s.id, chunkSeq: s.chunkSeq++ >>> 0, frames: n, flags, epoch: s.epoch });
+      if (n > 0) {
+        new Float32Array(buffer, STREAM_CHUNK_FIXED_END, n * ch).set(w.f32(s.scratch, n * fc));
+      }
+      port.postMessage(buffer, [buffer]);
+      this.stats.chunks++;
+      s.credit.sent(n);
+      s.sent += n;
+      if (flags & STREAM_CHUNK_FLAGS_LAST) {
+        s.done = true;
+        return false;
+      }
+      return true;
     } catch (e) {
       this.failStream(s, e);
+      return false;
     }
   }
 
@@ -593,18 +697,21 @@ export class StreamDecoder {
         other.failed = true;
         if (other !== s) this.fail(other.id, other.asset, new DecoderError("audio decoder: the stream decoder was reset"));
       }
-      return this.failed(s.id, s.asset, e);
+      this.failed(s.id, s.asset, e);
+      return;
     }
     s.failed = true;
     this.failed(s.id, s.asset, e);
   }
 
-  private failed(id: number, asset: string, e: unknown): void {
-    this.fail(id, asset, e instanceof DecoderError ? e : new DecoderError(describe(e)));
+  /** Reports `e` as stream `id`'s error; returns its message. */
+  private failed(id: number, asset: string, e: unknown): string {
+    return this.fail(id, asset, e instanceof DecoderError ? e : new DecoderError(describe(e)));
   }
 
-  private fail(streamId: number, asset: string, e: DecoderError): void {
+  private fail(streamId: number, asset: string, e: DecoderError): string {
     this.host.post({ type: "error", streamId, asset, message: e.message, code: e.code !== 0 ? e.code : undefined });
+    return e.message;
   }
 }
 

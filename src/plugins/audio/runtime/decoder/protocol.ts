@@ -218,7 +218,19 @@ export interface PrimeGroupMessage {
   readonly retarget: boolean;
   readonly members: readonly PrimeGroupMember[];
   readonly protect?: readonly string[];
+  /**
+   * D1a (refinement): the preset's encoded-cache budget in bytes (`MUSIC_ENCODED_BUDGET_MIB` × 2^20, by the preset's
+   * music rings). The worker doesn't know the preset; the latest value sent wins, absent keeps the last one (initially
+   * the default preset's).
+   */
+  readonly budgetBytes?: number;
 }
+
+/**
+ * D1a (refinement): the worker's encoded-cache budget per voice preset, MiB (architecture §4.2, §6; est.), keyed like
+ * `MUSIC_RINGS_PRESETS` (8 / 12 / 16 rings). Main sends the bytes as `PrimeGroupMessage.budgetBytes`.
+ */
+export const MUSIC_ENCODED_BUDGET_MIB = { low: 48, default: 96, high: 160 } as const;
 
 /** Cancel a group: close every member stream it opened (each answers `streamClosed`). Unknown ids are ignored. */
 export interface CancelGroupMessage {
