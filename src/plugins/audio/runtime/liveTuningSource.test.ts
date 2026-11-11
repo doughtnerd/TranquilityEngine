@@ -107,11 +107,11 @@ describe("AudioSource M3 fields reach a backend voice on the next frame (fake ba
     const src = spatialSource();
     src.play();
     frame();
-    src.reverbSendCurve[1]![1] = 0.25;
+    (src.reverbSendCurve[1] as [number, number])[1] = 0.25;
     frame();
     expect(edits).toHaveLength(1);
     expect(edits[0]!.reverbSendCurve![1]![1]).toBe(0.25);
-    src.reverbSendCurve.push([1, 0]);
+    (src.reverbSendCurve as [number, number][]).push([1, 0]);
     frame();
     expect(edits).toHaveLength(2);
     frame();
@@ -228,7 +228,7 @@ describe("AudioSource M3 fields reach the core's voice table on the next frame",
     expect(t.reverbSend[i]).toBe(0.5);
     expect(core.spatialVoices.curves.get(t.sendCurve[i]!)).toEqual([[0, 1], [1, 0]]);
     // The in-place edit of that curve takes another entry in the table.
-    src.reverbSendCurve[1]![1] = 0.5;
+    (src.reverbSendCurve[1] as [number, number])[1] = 0.5;
     frame();
     expect(core.spatialVoices.curves.get(t.sendCurve[i]!)).toEqual([[0, 1], [1, 0.5]]);
     // Back on: the flag returns; a send of 0 clears SENDS and a send above 0 sets it.

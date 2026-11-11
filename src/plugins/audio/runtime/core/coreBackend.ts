@@ -46,7 +46,7 @@
 // and `_setDopplerRate` (the pitch sent is `pitch × dopplerFactor`); both are 1 until their tasks, so M2's bytes stand.
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
-import type { BusEffect } from "../../../../engine/audio/settings";
+import type { AudioSettings, BusEffect } from "../../../../engine/audio/settings";
 import { Assets } from "../../../../engine/scene/Assets";
 import type { Attenuation, AudioBackend, AudioBackground, AudioStatus, AudioVoice, ListenerPose, PlayRequest, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import {
@@ -427,7 +427,12 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
         onRecoveryFailed: () => this.recoveryFailed(),
       }),
     );
-    this.cleanups.push(this.mixer.onChange(() => this.applyMix(this.mixer.resolveAll())));
+    this.cleanups.push(
+      this.mixer.onChange(() => {
+        this.replanBedsOnSettings();
+        this.applyMix(this.mixer.resolveAll());
+      }),
+    );
     this.configureBuses(this.mixer);
   }
 
@@ -633,6 +638,34 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     }
   }
 
+  /** The settings object the beds were last planned from (E7: a settings change that keeps the bus names plans them again). */
+  private bedsPlannedFrom: AudioSettings | null = null;
+
+  /** ADR 0162 (C2, E7): plans the beds for the current tree and `audio.bed` / each bus's `bed` and `bedPriority`; BED_CONFIG goes with the next batch. */
+  private planBeds(mixer: Mixer): void {
+    const settings = mixer.audioSettings;
+    const buses = settings.buses;
+    const parents = this.planParents;
+    parents.fill(-1);
+    for (let b = 0; b < buses.length && b < MAX_BUSES; b++) {
+      const parent = buses[b]!.parent;
+      parents[b] = parent === undefined ? -1 : (this.busIndexByName.get(parent) ?? 0);
+    }
+    this.bedsPlannedFrom = settings;
+    this.beds.plan(settings, this.names, parents);
+  }
+
+  /**
+   * E7: `Engine.create` gave the mixer a new settings object and the bus names are the same, so the host reported no remap
+   * and `configureBuses` didn't run. The bed settings (`bed.maxBeds`, a bus's `bed`, `bedPriority`) still apply to the
+   * running core: plan the beds again. A changed tree is `configureBuses`' (the remap runs before the mixer's next update).
+   */
+  private replanBedsOnSettings(): void {
+    const settings = this.mixer.audioSettings;
+    if (settings === this.bedsPlannedFrom || settings.buses.length !== this.names.length || settings.buses.some((b, i) => b.name !== this.names[i])) return;
+    this.planBeds(this.mixer);
+  }
+
   /** Rebuilds the core's bus tree: BUS_CONFIG, the table's per-bus limits, and BUS_MIX. */
   configureBuses(mixer: Mixer): void {
     const settings = mixer.audioSettings.buses;
@@ -643,13 +676,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.selAuto.fill(1);
     this.writer.busConfig(this.busConfigWire(mixer));
     // ADR 0162 (K4, C2): the bed plan for the new tree, BED_CONFIG right after BUS_CONFIG (none while no bed is laid out).
-    const parents = this.planParents;
-    parents.fill(-1);
-    for (let b = 0; b < settings.length && b < MAX_BUSES; b++) {
-      const parent = settings[b]!.parent;
-      parents[b] = parent === undefined ? -1 : (this.busIndexByName.get(parent) ?? 0);
-    }
-    this.beds.plan(mixer.audioSettings, this.names, parents);
+    this.planBeds(mixer);
     // ADR 0158: bus bindings follow their buses to the new indices.
     this.automation.onBusesConfigured();
     // The mixer's counts restart at 0 when it is reconfigured; the table knows every live voice (virtual and locked
