@@ -17,8 +17,9 @@ const ladderGap = 1.25;
  * `mode: "spatial"` is the spatial page's set for the M3 pass (docs/design/0162-audio-spatial/listening-pass.md),
  * on the listener node, and it replaces the keys above:
  * - 4: a loud source 1.5 m away and 200 quiet ones at 4 to 25 m, all at once (the 8-voice HRTF boundary, a bed under load).
- * - 5: starts and stops the "Bed orbit" child node: a hum going round the head at 3 m, overhead (+70 degrees) and
- *   below the floor (-70 degrees) once every 12 s. It moves with the listener.
+ * - 5: cycles the "Bed orbit" child node (pulses of pink noise 3 m from the head, moving with the listener): first a
+ *   level circle at ear height, front, right, behind, left, once every 12 s (behind and the sides); press again for a
+ *   vertical circle, front, overhead, behind, below the floor, once every 12 s (above and below); again to stop it.
  * - 6 / 7: jump the listener behind the west wall (the wall between it and the corridor) and to the corner of the cave.
  * - 8: turns the listener 90 degrees on the spot (an ambience's orientation).
  * - 9: stops the orbit and the key-4 sounds.
@@ -47,6 +48,8 @@ export class ListeningBench extends GameBehavior {
   @field(String) pageQuietKey = "0";
   /** Spatial mode: the child node the orbit moves, with an AudioSource. */
   @field(String) orbitNode = "Bed orbit";
+  /** Spatial mode: seconds for one turn of the orbit. */
+  @field(Number) orbitSeconds = 12;
   /** Spatial mode: the listener's stations (x, z in metres; the eye stays at its height). */
   @field(Number) wallX = -3.2;
   @field(Number) wallZ = 0;
@@ -55,6 +58,9 @@ export class ListeningBench extends GameBehavior {
   private sweeping = false;
   private burstHandles: { stop(fade?: number): void }[] = [];
   private warnedNoOrbit = false;
+  /** Key 5's orbit: off, a level circle ("level") or a vertical one ("vertical"), and the seconds since it started. */
+  private orbitMode: "off" | "level" | "vertical" = "off";
+  private orbitTime = 0;
   /** The page's sources key 0 stopped, to start again on the next press. */
   private quieted: AudioSource[] | null = null;
 
@@ -162,27 +168,40 @@ export class ListeningBench extends GameBehavior {
     }
   }
 
+  /** Key 5: off → level circle → vertical circle → off. Each circle starts in front of the listener. */
   private toggleOrbit(): void {
     const source = this.orbitSource();
     if (!source) return;
-    if (source.isPlaying) source.stop();
-    else source.play();
+    this.orbitMode = this.orbitMode === "off" ? "level" : this.orbitMode === "level" ? "vertical" : "off";
+    this.orbitTime = 0;
+    this.placeOrbit();
+    if (this.orbitMode === "off") source.stop();
+    else if (!source.isPlaying) source.play();
   }
 
-  /** Moves the orbit node: a full turn every 24 s, its height swinging from overhead (+70 degrees) to below the floor (-70). */
   private moveOrbit(): void {
-    const orbit = this.node.find(this.orbitNode);
-    const source = orbit?.getComponent(AudioSource);
-    if (!orbit || !source) return;
-    if (!source.isPlaying) return;
-    const radius = 3;
-    const elevation = (70 * Math.PI / 180) * Math.cos((2 * Math.PI * Time.time) / 12);
-    const azimuth = (2 * Math.PI * Time.time) / 24;
-    const p = orbit.transform?.position;
+    if (this.orbitMode === "off") return;
+    this.orbitTime += Time.deltaTime;
+    this.placeOrbit();
+  }
+
+  /**
+   * Puts the orbit node on its circle, 3 m from the listener in the listener's own axes (it is a child, so it turns with
+   * the listener): +Z ahead, +X right, +Y up (ADR 0164). One turn every `orbitSeconds`.
+   */
+  private placeOrbit(): void {
+    const p = this.node.find(this.orbitNode)?.transform?.position;
     if (!p) return;
-    p.x = Math.cos(elevation) * radius * Math.cos(azimuth);
-    p.y = Math.sin(elevation) * radius;
-    p.z = -Math.cos(elevation) * radius * Math.sin(azimuth);
+    const r = 3, a = (2 * Math.PI * this.orbitTime) / this.orbitSeconds;
+    if (this.orbitMode === "vertical") {
+      p.x = 0;
+      p.y = r * Math.sin(a); // front → overhead → behind → below
+      p.z = r * Math.cos(a);
+    } else {
+      p.x = r * Math.sin(a); // front → right → behind → left
+      p.y = 0;
+      p.z = r * Math.cos(a);
+    }
   }
 
   private orbitSource(): AudioSource | null {
@@ -203,6 +222,7 @@ export class ListeningBench extends GameBehavior {
   /** Stops the orbit and the burst (the sounds this bench started). */
   private silence(): void {
     this.orbitSource()?.stop();
+    this.orbitMode = "off";
     for (const handle of this.burstHandles) handle.stop(0.05);
     this.burstHandles = [];
   }

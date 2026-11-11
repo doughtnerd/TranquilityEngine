@@ -85,11 +85,12 @@ describe("the Sound Lab spatial page (ADR 0162 E8)", () => {
     expect(errors).toEqual([]);
     const paths = fake.plays.map((p) => p.path);
     expect(paths).toContain("audio/ambience-o1.wav");
-    expect(paths).toContain("audio/music-loop.wav");
+    expect(paths).toContain("audio/radio-loop.wav");
     expect(paths).toContain("audio/noise-loop.wav");
     expect(paths).not.toContain("audio/hum-loop.wav");
+    expect(paths).not.toContain("audio/orbit-pulse-loop.wav"); // the orbit waits for key 5
     // The spatial sources are positioned and keep the default Doppler.
-    const radio = fake.voices.find((v) => v.request.path === "audio/music-loop.wav")!;
+    const radio = fake.voices.find((v) => v.request.path === "audio/radio-loop.wav")!;
     expect(radio.position).toMatchObject({ x: 0, y: 1, z: -12.5 });
     expect(radio.request.dopplerLevel ?? 1).toBe(1);
     // Audio Debug's Source column: each AudioSource's voice carries its node's name.
@@ -207,5 +208,58 @@ describe("the Sound Lab spatial page (ADR 0162 E8)", () => {
     expect(seen).toEqual([270, 180, 90, 0]);
     const q = bench.transform.rotation;
     expect(Math.abs(q.x * start.x + q.y * start.y + q.z * start.z + q.w * start.w)).toBeCloseTo(1, 6);
+  });
+  it("key 5 moves the orbit on a level circle (front, right, behind, left), then a vertical one, then stops it", async () => {
+    await boot("scenes/spatial.scene.json");
+    const press = (k: string) => {
+      Input.simulate("down", k);
+      engine!.step(1 / 60);
+      Input.simulate("up", k);
+    };
+    // Where the orbit is in the listener's own axes (it is the listener's child): +Z ahead, +X right, +Y up.
+    const at = () => {
+      const p = fake.voices.filter((v) => v.request.path === "audio/orbit-pulse-loop.wav").at(-1)!.position!;
+      const l = fake.listener!;
+      const o = { x: p.x - l.position.x, y: p.y - l.position.y, z: p.z - l.position.z };
+      const right = { x: l.up.y * l.forward.z - l.up.z * l.forward.y, y: l.up.z * l.forward.x - l.up.x * l.forward.z, z: l.up.x * l.forward.y - l.up.y * l.forward.x };
+      const dot = (a: typeof o, b: typeof o) => a.x * b.x + a.y * b.y + a.z * b.z;
+      return [dot(o, right), dot(o, l.up), dot(o, l.forward)].map((n) => Math.round(n) + 0); // + 0: no -0
+    };
+    press("5");
+    advance(0.05);
+    expect(at()).toEqual([0, 0, 3]); // in front
+    advance(3);
+    expect(at()).toEqual([3, 0, 0]); // right, at ear height
+    advance(3);
+    expect(at()).toEqual([0, 0, -3]); // behind
+    advance(3);
+    expect(at()).toEqual([-3, 0, 0]); // left
+    press("5");
+    advance(3.05);
+    expect(at()).toEqual([0, 3, 0]); // vertical: overhead
+    advance(6);
+    expect(at()).toEqual([0, -3, 0]); // below the floor (the eye is at 1.6 m)
+    press("5");
+    advance(0.1);
+    expect(fake.voices.filter((v) => v.request.path === "audio/orbit-pulse-loop.wav").at(-1)!.playing).toBe(false);
+  });
+
+  it("the sounds the pass places by ear are broadband: a pure low tone can't be placed", () => {
+    // Energy of the first difference over the signal's: about (2·sin(π·f/rate))², so 0.002 for a 330 Hz tone, far more
+    // with content at 4-16 kHz (where the up/down and front/back cues are).
+    const brightness = (name: string) => {
+      const b = readFileSync(`${SAMPLE}/audio/${name}`);
+      const n = (b.length - 44) >> 1;
+      let e = 0, d = 0, last = 0;
+      for (let i = 0; i < n; i++) {
+        const v = b.readInt16LE(44 + 2 * i) / 32768;
+        e += v * v;
+        d += (v - last) ** 2;
+        last = v;
+      }
+      return d / e;
+    };
+    for (const name of ["orbit-pulse-loop.wav", "radio-loop.wav", "noise-loop.wav"]) expect(brightness(name), name).toBeGreaterThan(0.05);
+    expect(brightness("music-loop.wav")).toBeLessThan(0.01); // the old Radio clip, for scale
   });
 });
