@@ -198,8 +198,8 @@ export function m4FixedRegionsBytes(): number {
 
 /**
  * @internal The music rings' part of the `Streams` region: C1 sizes it `(G + M) x RING_BYTES` with `M` = `maxMusicRings`
- * (RING_BYTES 307,200). W1 only passes the count, and the core lays out no music ring until C1, so this is 0 now.
- * **C1 switches this function** to `preset.maxMusicRings * 307_200` and nothing else in the headroom changes.
+ * (RING_BYTES 307,200). C1 lays them out after the general rings in the `Streams` region (`stream::region_bytes`).
+ * C1 switched this function on (it returned 0 while W1 only passed the count); nothing else in the headroom changed.
  */
 export function musicRingsBytes(preset: CorePreset): number {
   return preset.maxMusicRings * 307_200;
