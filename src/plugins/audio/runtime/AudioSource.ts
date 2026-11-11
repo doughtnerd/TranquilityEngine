@@ -107,6 +107,10 @@ export class AudioSource extends Component {
   @field(Number, { description: "Ambisonic clips: turns the recording about the vertical axis, degrees (-180..180), positive to the left seen from above." }) ambisonicYaw = 0;
 
   private voice: AudioVoice | null = null;
+  /** @internal ADR 0162 D2a: the playing voice's id (0 while none), so the occlusion pass can exclude the source's own colliders. */
+  get _voiceId(): number {
+    return this.voice?.id ?? 0;
+  }
   /** ADR 0158: the playing event instance when `clip` is an event. */
   private instance: EventInstance | null = null;
   /** What was last applied to the playing sound, so a frame only touches the backend for changes. */

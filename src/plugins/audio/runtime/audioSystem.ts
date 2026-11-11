@@ -81,9 +81,8 @@ function bindOcclusionSources(world: World, pass: OcclusionPass): void {
   const sources = world._componentsOfType(AudioSource);
   for (let k = 0; k < sources.length; k++) {
     const s = sources[k]!;
-    // The voice is private to the source; the audio system reads its id here only (bracket access).
-    const voice = s["voice"];
-    if (voice) pass.bindSource(voice.id, s.node);
+    const id = s._voiceId;
+    if (id !== 0) pass.bindSource(id, s.node);
   }
 }
 
