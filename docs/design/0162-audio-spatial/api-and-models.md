@@ -289,6 +289,14 @@ Sizes: a format 3 blob is `32 + 8 x (headParts x 256 + tailParts x 4096)` B per 
 | `audio-wasm/src/` | | `lib.rs` (init, ABI), `memory.rs` (size function takes the new parameters) |
 | `audio-bench`, `tools/` | scenes `m3-high`, `m3-worst-high/default/low`, `bed-64`, `bed-256`, `bed-xfade`, `ambi-o3`, `zones-2x2s`, `zones-swap`, `filters-256` (C19); `native/audio/tools/bake-magls` | `mode=fit` sweeps for the `cap::wu` terms of C18, `mode=memory` |
 
+**Build plan additions (2026-11-11, [waves plan](../../plans/2026-11-audio-spatial-m3-waves.md)).** The plan splits a few files so tasks in one wave don't share them. The table above stays as the design's content; these files hold parts of it:
+- `audio-dsp/src/bed_matrix.rs`: the baked 16 to 2 matrix (A3), out of `ambisonic.rs`.
+- `audio-dsp/src/convolver/stagger.rs`: `plan_stagger` (C1), out of `instance.rs`.
+- `audio-core/src/sends.rs`: the send tap and aux add (C4), called from `voices.rs` and `bus.rs` hooks.
+- `audio-core/src/chain.rs`: the bus-chain gain to the root, shared by the bed's gain fold (A4) and the sends (C4).
+
+`audio-decode/src/ambisonic.rs` is **not** created: FuMa conversion is TypeScript in the worker (`runtime/decoder/ambisonic.ts`, task B1; architecture §3).
+
 ### 5.2 Convolver, IR preparation, ABI, arena, rings, size
 
 **Convolver** [ARCH §4.4]: `kernel.rs::prepare_ir` produces §4.5's layout (the seeded 1.8 s shared reverb is prepared by it at `Core::new`, so its output stays bit-identical); `instance.rs` holds one stereo convolver's mutable state with a stagger `phase`; `plan_stagger` (the spike's load balancer) runs when a slot starts and replaces architecture §10's "never share a tail quantum".
@@ -316,6 +324,14 @@ src/plugins/audio/runtime/
 src/myco.ts   + AudioReverbZone, AudioOccluder, ZONE_PRESETS, DEFAULT_SEND_CURVE, SendCurve, AudioPanner
 ```
 The audio system's order keeps 0157's (attenuation, doppler, zones, occlusion slot, audibility from `audibility0` x smoothed occlusion with M2's no-gap rule, selection, `pannerPick`, fx staging, listener). `pannerPick` keeps `hrtfPick`'s tests and adds the bed cases. **Plugin boundary** (`plugins.test.ts`): the audio plugin imports nothing from `plugins/physics`; the ray query is a **core-level interface in `worldServices.ts`** beside `WorldRayHit`: `raycastInto(world, out, origin, dir, maxDistance, query)` with a preallocated `out { node, distance, point }`, `query { groups, excludeNodes (the source's subtree, the listener's node), includeSensors: false }`; `groupsFor(layers)` is computed once per settings change. Implemented by the physics service (`services.ts`, `systems3d.ts`) with Rapier's group, sensor and predicate filters; no allocation per call (`Physics.ts:83-85` allocates today). That is an engine-core and physics change the record does not name (flagged).
+
+**Build plan additions (2026-11-11).** New main-side files from the plan's seams:
+- `runtime/core/initParams.ts`: ABI 2.0 init parameters, one region function per feature file.
+- `runtime/core/zoneWeights.ts`: zone weights and the send curve (C5).
+- `runtime/core/occlusionMath.ts`: smoothing, wet folding, lateral rays (D2a).
+- `plugins/audio/editor/audioDebugRows.ts`: the debug panel's new rows (E4).
+
+`src/engine/audio/occlusionMaterials.ts` is created in wave 1 (table and parse) and extended by D2b (compile, combine).
 
 ## 7. Editor integration
 
