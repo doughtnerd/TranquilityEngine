@@ -192,6 +192,44 @@ fn past_the_due_list_a_quantum_splits_and_counts_once() {
     assert_eq!(voices::slots(&m.core)[1].score, (n - 1) as f32, "the last record applied last");
 }
 
+fn gain_at(voice_id: u32, gain: f32, frame_offset: u32) -> Rec {
+    stamped(set_params(voice_id, wire::SET_PARAMS_MASK_GAIN, gain, 0.0, [0.0; 3], 0), frame_offset)
+}
+
+/// One frame's records keep their order across the due list and a quantum split: the last record
+/// the list takes and the first one past it, both for one voice at one sample, apply in that order.
+#[test]
+fn one_frames_records_keep_their_order_across_the_list_and_a_split() {
+    let mut m = mixer();
+    m.submit(&[play(voice(1), CLIPS[0], ROOT, MIXED | LOOP), play(voice(2), CLIPS[1], ROOT, MIXED | LOOP)]);
+    m.render();
+    let mut recs: Vec<Rec> = (0..audio_core::due::DUE_RECORDS - 1).map(|_| gain_at(voice(2), 0.5, 5)).collect();
+    recs.push(gain_at(voice(1), 0.3, 20)); // the list's last record
+    recs.push(gain_at(voice(1), 0.6, 20)); // past the list: splits at 20
+    m.submit(&recs);
+    m.render();
+    assert_eq!(status::counters(&m.core).music.split_quanta, 1);
+    assert_eq!(voices::slots(&m.core)[1].gain.target, 0.6, "the later record wins");
+}
+
+/// A PLAY that replaces a held voice drops that voice's parked records (R10).
+#[test]
+fn a_play_replacing_a_held_voice_drops_its_parked_records() {
+    use audio_core::layout::VOICE_SLOT_BYTES;
+    let mut m = mixer();
+    m.submit(&[play(voice(1), CLIPS[0], ROOT, MIXED | LOOP), play(voice(2), CLIPS[0], ROOT, MIXED | LOOP)]);
+    m.render();
+    for v in [1usize, 2] {
+        m.core.regions_mut().voices[v * VOICE_SLOT_BYTES + core::mem::offset_of!(voices::VoiceSlot, flags2)] |= audio_core::groups::FLAG2_GATED;
+    }
+    m.submit(&[gain_at(voice(1), 0.3, 10), gain_at(voice(2), 0.4, 10)]);
+    m.render();
+    assert_eq!(audio_core::due::view(m.core.regions_mut()).parked().len(), 2);
+    m.submit(&[play(0x0002_0001, CLIPS[1], ROOT, MIXED)]);
+    let list = audio_core::due::view(m.core.regions_mut());
+    assert_eq!(list.parked().iter().map(|r| r.voice_id).collect::<Vec<_>>(), vec![voice(2)], "only the replaced voice's went");
+}
+
 /// ADR 0167 §1.1 says a stamped spatial play with non-default effects splits the quantum because
 /// its SET_VOICE_FX goes at the same frame (`coreBackend.ts` `sendPlay`, `voiceFx.ts` `onPlay`).
 /// It doesn't, before or after M4-0: PLAY writes its slot at once and SET_VOICE_FX applies at once

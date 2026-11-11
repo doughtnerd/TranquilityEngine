@@ -365,6 +365,9 @@ pub fn render(core: &mut Core, frame: u64) {
             // A record at offset 0 (or late) applies before the quantum's only range: no split.
             split = true;
         }
+        // Its voice's records still in the due list at this sample were popped before it: they
+        // apply first, so one frame's records keep their order across the two paths.
+        apply_due_through(core, record.voice_id, frame, offset);
         crate::scheduler::apply(core, &record);
     }
     if cursor < QUANTUM {
