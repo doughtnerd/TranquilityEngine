@@ -48,7 +48,7 @@ Done before splitting, over every task's files, and extended after the independe
 | 28 | Hotspot: `audioSettingsModel.ts` wanted by A6a (W1), A6b (W4), E3 (W5) | | sequential; E3 is placed after the flip deliberately |
 | 29 | Hotspot: the audio editor's `index.ts` wanted by E1, E2, E4 | | different waves, additive lines; checked and left |
 | 30 | Hotspot: `native/audio/build.mjs` wanted by A3 (bake check, 230 KB warning) and C2a (decoder size, already gated) | W2 | A3 is its only writer; C2a reads the existing gate |
-| 31 | Inconsistency: FuMa in `audio-decode/src/ambisonic.rs` (§5.1) or `decoder/ambisonic.ts` (B1's row) | W1 | the table wins: TypeScript, in the worker per chunk (architecture §3); §5.1 written back |
+| 31 | Inconsistency: FuMa in `audio-decode/src/ambisonic.rs` (§5.1) or `decoder/ambisonic.ts` (B1's row) | W1 | owner (O1): **Rust**, because the int16 headroom scale must come before the decoder's rounding in `read_i16`; owned by B2 (it owns `audio-decode` in W1), module declared in K2's first commit |
 | 32 | Hotspot: the wide ring's size, if B4's stall test fails, changes the wire constant (A1's) and K2's region | W3 | the coordinator regenerates; B4 reports the measured result |
 | 33 | Rework: E7 ("live tuning check") had no files; E9 writes the live-tuning spec | W6, W9 | E7 fixes fields that don't apply in Play (W6); E9's spec checks them (W9); neither rewrites the other |
 | 34 | Hotspot: `myco.ts`, `runtime/index.ts` wanted by D2b, C5 (components) and D5 (exports) | | coordinator single writer, from the tasks' reports |
@@ -56,7 +56,7 @@ Done before splitting, over every task's files, and extended after the independe
 | 36 | Hotspot: `InitParams` struct literals (37, incl. `clips.rs:608`, `voices.rs`, `stream.rs`, `audio-bench`, tests) wanted by K2 and B2 in W1, and by every later region | W1 | K2's first commit adds a `Default` and changes every literal to `..InitParams::default()`; B2 and C1 branch after it. B2's N-channel resampler is a new function, so `lagrange`'s callers in `voices.rs` and `stream.rs` don't change (review) |
 | 37 | Rework and missing owner: the region sizes on main (`core/context.ts` preset and rebuild check, `coreDriver.ts`'s constant 16 MiB headroom, too small for high once zones and wide exist) | W1–W5 | K2 adds the preset fields and a headroom function; each feature's region function (beds A5, zones C5, wide B5) is its memory flip (review) |
 | 38 | Hotspot: `worklet/coreDriver.ts` wanted by B4 (16-channel chunks), C2b, A3 and C3 (frame sizes for formats 3–5) | W2–W3 | K2 handles both in W1; afterwards a coordinator-only file (review) |
-| 39 | Hotspot: `decoder/streams.ts` (STREAM_OPEN, the 2-channel clamp) wanted by B1 (per-chunk FuMa) and B4 (wide streams) | W1, W3 | B4 owns the stream path; B1 writes the per-chunk function in `decoder/ambisonic.ts` that B4 calls (review) |
+| 39 | Hotspot: `decoder/streams.ts` (STREAM_OPEN, the 2-channel clamp) wanted by B1 (FuMa) and B4 (wide streams) | W1, W3 | B4 owns the stream path and passes `convention` to the decoder; the conversion itself is B2's Rust (review, O1) |
 | 40 | Hotspot: Babylon needs main's occlusion and Doppler (F1), but K4 froze `audioSystem.ts` around core-only modules | W3, W7 | K0 adds `setOcclusion?`/`setDopplerRate?`; K4's order runs occlusion and Doppler for both backends (review) |
 | 41 | Missing owners: `mirror.ts`, `spatial.ts` (A5 and C5 would share them in W4), `AudioListener.setVelocity`'s body, the ambisonic stream default in `clipRegistry.ts`, the `zoneIr` interface K4 constructs while C2b writes it | W3–W6 | K4 takes `mirror.ts` and `spatial.ts`; D3 the `setVelocity` body; B5 the stream default; K0 declares `ZoneIrService` (review) |
 
@@ -121,8 +121,8 @@ The spec excerpt is pasted from the design, not referenced. Use the section name
 
 | Task (days) | Lead | Lead keeps | Leaves | Leaf days (est.) |
 |---|---|---|---|---|
-| B1 (3.5) | mid | registry validation in `clipRegistry.ts`; the per-chunk FuMa function that B4 calls from `decoder/streams.ts` | **L-B1a**: the `ambisonic` key in `importSettings.ts` (parse, serialise) + test; spec: §2.4. **L-B1b**: `decoder/ambisonic.ts`, FuMa → AmbiX for orders 1–3 (channel order and weights, int16 headroom scaling, f32 when a factor exceeds 4) + test (FuMa twin equals AmbiX within 1e-6); spec: §2.4, the FuMa table | 0.5 + 0.75 = 1.25 |
-| B2 (4) | strongest | the arena to 16 channels (`clips.rs`, the shared 8 KB planar scratch), the decoder limit | **L-B2a**: a new N ≤ 16-channel function in `resample.rs` + tests (the stereo `lagrange` signature stays); spec: port the existing two-channel code, same filters, bit-identical for 1 and 2 channels | 1.0 |
+| B1 (3.5) | mid | registry validation in `clipRegistry.ts`; passing `convention` in `decoder/clips.ts` | **L-B1a**: the `ambisonic` key in `importSettings.ts` (parse, serialise) + test; spec: §2.4 | 0.5 |
+| B2 (4, + FuMa from B1) | strongest | the arena to 16 channels (`clips.rs`, the shared 8 KB planar scratch), the decoder limit, applying the conversion in `decoder.rs`'s read loop before rounding, the convention export | **L-B2a**: a new N ≤ 16-channel function in `resample.rs` + tests (the stereo `lagrange` signature stays); spec: port the existing two-channel code, same filters, bit-identical for 1 and 2 channels. **L-B2b**: `audio-decode/src/ambisonic.rs`, FuMa → AmbiX for orders 1–3 (channel order and weights, the int16 headroom factor, f32 kept when a factor exceeds 4) + test (FuMa twin equals AmbiX within 1e-6); spec: §2.4, the FuMa table | 1.0 + 0.75 = 1.75 |
 | B3 (6) | strongest | all | none: per-quantum rotation slerp, private decoders, stealing in the core | – |
 | B4 (5.5) | strongest | all, incl. `decoder/streams.ts` (1–16 channels, `convention`, the call into B1's FuMa function) | none: ring class, streaming, chunk timing, the stall test | – |
 | B5 (3.5) | mid | all | none: wiring across `listener.ts`, `AudioSource.ts`, `Audio.ts`; the stealing rule is under a quarter day | – |
@@ -188,8 +188,8 @@ All figures are estimates.
 
 | | Before the tree | After |
 |---|---|---|
-| Strongest model | 74.5 days (the S rows) | ≈ 72.5 (+ A1 5, K1/K2 2.5, K4 2.5; − 12 days of leaves) |
-| Mid model | 95 days (M rows 93, E10 2) | ≈ 76.75 |
+| Strongest model | 74.5 days (the S rows) | ≈ 71.75 (+ A1 5, K1/K2 2.5, K4 2.5; − 12.75 days of leaves) |
+| Mid model | 95 days (M rows 93, E10 2) | ≈ 77.5 |
 | Cheapest model | 0 | ≈ 25.25 (34 leaves, E10 included) |
 | Total | 169.5 | ≈ 174.5 (+ 5 days of contracts, counted as added; part of it is work the rows would otherwise do, which the pilot measures) |
 | Pure critical path | 41 days | ≈ 41–42.5 with K1/K2, less ≈ 1–2 where leaves overlap their lead on A1, A2, D5 and E4 |
@@ -208,7 +208,7 @@ All figures are estimates.
 - tests from a table: L-A1a, L-A6a;
 - byte-layout readers and writers: L-A1b, L-A1c;
 - ports of existing code: L-B2a, L-C1a;
-- small specified maths or parsing: L-A6b, L-B1a, L-B1b.
+- small specified maths or parsing: L-A6b, L-B1a, L-B2b.
 
 Measure and log in the build log:
 - each leaf's first-pass success (merged without a re-run);

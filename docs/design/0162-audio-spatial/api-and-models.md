@@ -295,7 +295,7 @@ Sizes: a format 3 blob is `32 + 8 x (headParts x 256 + tailParts x 4096)` B per 
 - `audio-core/src/sends.rs`: the send tap and aux add (C4), called from `voices.rs` and `bus.rs` hooks.
 - `audio-core/src/chain.rs`: the bus-chain gain to the root, shared by the bed's gain fold (A4) and the sends (C4).
 
-`audio-decode/src/ambisonic.rs` is **not** created: FuMa conversion is TypeScript in the worker (`runtime/decoder/ambisonic.ts`, task B1; architecture §3).
+FuMa conversion is in `audio-decode/src/ambisonic.rs` as the table above says (owner, 2026-11-11), applied in the decode loop before the int16 rounding so the headroom scale of §2.4 doesn't lose precision; task B2 owns it, and B1's `decoder/ambisonic.ts` isn't created.
 
 ### 5.2 Convolver, IR preparation, ABI, arena, rings, size
 
