@@ -1,0 +1,16 @@
+# decode_lat (native), 2026-11-11T18:03:50Z, load: 0.21 0.61 0.69
+
+| file | stage | start frame | runs | p50 ms (median of runs) | p99 ms | p99.9 ms | max ms |
+|---|---|---|---|---|---|---|---|
+| town.mp3 (3.3 MB, real music) | open + first chunk | 0 | 9x200 | 0.116 | 0.156 | 0.166 | 0.548 |
+| town.mp3 (3.3 MB, real music) | open + seek + first chunk | 1000000 | 9x200 | 0.194 | 0.319 | 0.370 | 4.268 |
+| town.mp3 (3.3 MB, real music) | open + seek + full ring (8 chunks) | 1000000 | 9x200 | 1.121 | 1.480 | 1.727 | 3.491 |
+| tone-48000-stereo.ogg (Vorbis) | open + first chunk | 0 | 9x200 | 1.101 | 1.747 | 2.034 | 3.828 |
+| tone-48000-stereo.ogg (Vorbis) | open + seek + first chunk | 24000 | 9x200 | 1.126 | 1.611 | 1.890 | 9.980 |
+| tone-48000-stereo.ogg (Vorbis) | open + seek + full ring (8 chunks) | 24000 | 9x200 | 1.617 | 2.380 | 2.434 | 7.450 |
+| tone-48000-stereo.flac | open + first chunk | 0 | 9x200 | 0.075 | 0.121 | 0.142 | 0.331 |
+| tone-48000-stereo.flac | open + seek + first chunk | 24000 | 9x200 | 0.167 | 0.232 | 0.354 | 1.476 |
+| tone-48000-stereo.flac | open + seek + full ring (8 chunks) | 24000 | 9x200 | 0.458 | 0.574 | 0.656 | 3.550 |
+| tone-48000-stereo.wav | open + first chunk | 0 | 9x200 | 0.020 | 0.043 | 0.073 | 0.154 |
+| tone-48000-stereo.wav | open + seek + first chunk | 24000 | 9x200 | 0.024 | 0.041 | 0.054 | 0.103 |
+| tone-48000-stereo.wav | open + seek + full ring (8 chunks) | 24000 | 9x200 | 0.098 | 0.154 | 0.183 | 0.278 |
