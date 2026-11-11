@@ -68,7 +68,10 @@
 //! through `libm`; [`process`] and [`reset`] are safe on a zeroed region of any size (silence then).
 
 pub mod fft;
+pub mod instance;
 pub mod ir;
+pub mod kernel;
+pub mod stagger;
 
 use core::mem::{align_of, size_of};
 
@@ -89,7 +92,7 @@ pub const TAIL_BLOCK: usize = fft::BINS;
 const HEAD_FFT: usize = 2 * QUANTUM;
 const HEAD_BINS: usize = QUANTUM;
 /// Quanta per tail block: the period of the tail's schedule.
-const CYCLE: u32 = (TAIL_BLOCK / QUANTUM) as u32;
+pub const CYCLE: u32 = (TAIL_BLOCK / QUANTUM) as u32;
 /// Input history per channel: the tail transforms the last 4,096 frames up to one quantum late.
 const INPUT_RING: usize = 2 * fft::SIZE;
 /// Blink's `ReverbAccumulationBuffer`, per channel: the tail adds a block at most 2,432 frames
@@ -98,6 +101,33 @@ const OUTPUT_RING: usize = fft::SIZE;
 const CHANNELS: usize = ir::CHANNELS;
 const ALIGN: usize = 64;
 const ZERO_BIN: Complex32 = Complex32 { re: 0.0, im: 0.0 };
+
+/// Bytes of a [`Scratch`]: the twiddle table, a 4,096-frame time buffer and two 2,048-bin spectra.
+pub const SCRATCH_BYTES: usize = 4 * fft::BINS * size_of::<Complex32>();
+
+/// The FFT buffers every kernel preparation and instance uses (one set per core: instances run
+/// one after another on the audio thread). Views of [`SCRATCH_BYTES`] caller-owned bytes.
+pub struct Scratch<'a> {
+    twiddles: &'a mut fft::Twiddles,
+    time: &'a mut [f32; fft::SIZE],
+    z: &'a mut TailSpectrum,
+    work: &'a mut TailSpectrum,
+}
+
+impl<'a> Scratch<'a> {
+    /// Views `bytes` (at least [`SCRATCH_BYTES`], 4-byte aligned) as a scratch, or `None`. The
+    /// twiddles are whatever the bytes hold: call [`Scratch::fill_twiddles`] once first.
+    pub fn from_bytes(bytes: &'a mut [u8]) -> Option<Self> {
+        let _ = bytes;
+        todo!("C1")
+    }
+
+    /// Fills the twiddle table (`libm`; not in the process path).
+    pub fn fill_twiddles(&mut self) {
+        let _ = (&self.time, &self.z, &self.work);
+        fft::twiddles(self.twiddles);
+    }
+}
 
 type HeadSpectrum = [Complex32; HEAD_BINS];
 type TailSpectrum = [Complex32; fft::BINS];
@@ -205,11 +235,11 @@ struct View<'a> {
     acc: &'a mut [TailSpectrum],
     input: &'a mut [f32],
     output: &'a mut [f32],
-    scratch: Scratch<'a>,
+    scratch: RegionScratch<'a>,
 }
 
 /// The shared FFT buffers and twiddles.
-struct Scratch<'a> {
+struct RegionScratch<'a> {
     twiddles: &'a mut fft::Twiddles,
     time: &'a mut [f32; fft::SIZE],
     z: &'a mut TailSpectrum,
@@ -253,7 +283,7 @@ fn view(region: &mut [u8], tail: usize) -> Option<View<'_>> {
             acc: part(base, o.acc, CHANNELS),
             input: part(base, o.input, CHANNELS * INPUT_RING),
             output: part(base, o.output, CHANNELS * OUTPUT_RING),
-            scratch: Scratch {
+            scratch: RegionScratch {
                 twiddles: &mut *(base.add(o.twiddles) as *mut fft::Twiddles),
                 time: &mut *(base.add(o.time) as *mut [f32; fft::SIZE]),
                 z: &mut *(base.add(o.z) as *mut TailSpectrum),
@@ -290,7 +320,7 @@ pub fn init(region: &mut [u8], sample_rate: f32) {
     let (head, tail) = (head_partitions(frames), tail_partitions(frames));
     let Some(v) = view(region, tail) else { return };
     *v.h = Header { ready: 0, head_parts: head as u32, tail_parts: tail as u32, quantum: 0, newest: [0; CHANNELS], head_newest: [0; CHANNELS] };
-    let Scratch { twiddles, time, work, .. } = v.scratch;
+    let RegionScratch { twiddles, time, work, .. } = v.scratch;
     fft::twiddles(twiddles);
 
     let scale = ir::normalization_scale(sample_rate);
@@ -354,7 +384,7 @@ pub fn process(region: &mut [u8], in_l: &[f32], in_r: &[f32], out_l: &mut [f32],
     }
     let Some(v) = ready_view(region) else { return };
     let View { h, head_kernel, head_input, tail_kernel, fdl, acc, input, output, scratch } = v;
-    let Scratch { twiddles, time, z, work } = scratch;
+    let RegionScratch { twiddles, time, z, work } = scratch;
     let (head, tail) = (h.head_parts as usize, h.tail_parts as usize);
     let k = h.quantum;
     let at = (k as usize).wrapping_mul(QUANTUM);
