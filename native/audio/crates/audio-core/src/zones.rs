@@ -3,7 +3,7 @@
 //! the ZONE_CONFIG table and slot state machine, the return buses ([`add_returns`], called from
 //! `bus.rs`'s pre-effects input hook), the shared-return scale ([`shared_return`]), the STATUS zone
 //! slots and the load-shedding ladder's zone steps. Task C4 fills the slot inputs (`sends::tap`,
-//! through [`slot_input`]); task C3b prepares format 5 PCM in the core.
+//! through [`slot_input`]); task C3b prepares format 5 PCM in the core ([`prepare`]).
 //!
 //! **Slots (OD2).** The core has `max_zone_slots` slots: `maxActive + standby` (3 on high and
 //! default, the standby slot letting a released zone ring out while the incoming one takes the
@@ -54,6 +54,21 @@
 //! active slot with the lowest wet is evicted; a start past the limit is `refusedSlot`). Each step
 //! counts in [`shed_steps`] (main's `m3Shed`). It never touches beds or HRTF.
 //!
+//! **In-core preparation (task C3b, architecture §2.2 "Worker missing").** Without the decoder
+//! worker, main uploads the response as clip format 5 (interleaved stereo f32 at the context rate,
+//! already trimmed and cut, C9's steps 1-3) under the kernel's id; `clips.rs` gives it the block
+//! of the kernel it becomes, the samples at `kernel::pcm_offset`. A slot waiting on a committed
+//! format 5 clip starts its preparation, one clip at a time, one step per quantum after the buses
+//! mix ([`prepare`]): the sum of squares over both channels ([`PREP_SUM_SAMPLES`] samples a step,
+//! in the decoder's order, so `ir::blink_normalization_scale` gives the decoder's scale), the head
+//! partitions ([`PREP_HEAD_UNITS`] a step) and the tail partitions (one a step), transformed in
+//! place (`kernel::prepare_unit_in_place`, bit-identical to `prepare_ir` on the same samples),
+//! then the waiting slots' states cleared ([`PREP_CLEAR_BYTES`] a step), then the header: the clip
+//! becomes the format 3 kernel, `resident` is reported and the waiting slots start as they would
+//! for an uploaded kernel, without clearing their state again. A 2 s response takes ≈ 160 quanta
+//! (0.43 s at 48 kHz). RESET leaves a preparation running (`keepClips` keeps the clip; without it
+//! the clip goes and so does the preparation).
+//!
 //! **Sizes (C8).** The region holds `max_zone_slots` slots of [`slot_state_bytes`]`(zone_max_frames)`
 //! (a header with the slot's stereo input and wet buffers, then the instance state), then the aux
 //! accumulator ([`aux_accumulator`], C4's, `max_buses × 1 KB`, also without slots), the sends
@@ -66,8 +81,8 @@
 //! bus area.
 
 use audio_dsp::convolver::instance::{self, Instance, Phase, SHARED_PHASE};
-use audio_dsp::convolver::kernel::Kernel;
-use audio_dsp::convolver::stagger::{plan_one, Load, MAX_PLANNED};
+use audio_dsp::convolver::kernel::{self, IrSpec, Kernel};
+use audio_dsp::convolver::stagger::{plan_one, plan_one_row, Load, MAX_PLANNED, PLAN_ROWS, PLAN_START};
 use audio_dsp::convolver::{self, ir, Scratch};
 use audio_dsp::ramp::Ramp;
 use audio_wire::generated as wire;
@@ -98,6 +113,12 @@ pub const IDLE_MARGIN_QUANTA: u32 = 3 * convolver::CYCLE + 2;
 /// Modelled work units of one running slot per quantum (`zones-2x2s` ≈ 47 µs p50 for two slots,
 /// container est.; STATUS `workZones`).
 pub const SLOT_WU: u32 = 23_000;
+/// In-core preparation (C3b): samples of the sum of squares per step.
+pub const PREP_SUM_SAMPLES: usize = 8_192;
+/// In-core preparation: head partitions (256-point transforms) per step.
+pub const PREP_HEAD_UNITS: usize = 8;
+/// In-core preparation: bytes of each waiting slot's state cleared per step.
+pub const PREP_CLEAR_BYTES: usize = 128 * 1024;
 /// [`ZoneArea::active_limit`] when the ladder hasn't lowered it.
 pub const NO_LIMIT: u32 = u32::MAX;
 
@@ -322,6 +343,18 @@ pub struct ZoneArea {
     pub active_limit: u32,
     /// Kernels and slots refused, cumulative (main's `kernelRefused` counts from the events).
     pub refused: u32,
+    /// The in-core preparation (C3b, one at a time): the format 5 clip's id (0: none), its next
+    /// step, the slots whose state its clear steps zero (bit `k`; a slot started another way drops
+    /// out), the scale once the sum of squares is done, and that sum so far.
+    pub prep_id: u32,
+    pub prep_step: u32,
+    pub prep_mask: u32,
+    pub prep_scale: f32,
+    pub prep_sum: f64,
+    /// The stagger plan's search so far (`stagger::plan_one_row`): peak, sum of squares, phase.
+    pub prep_top: f64,
+    pub prep_sq: f64,
+    pub prep_phase: [u8; 4],
 }
 
 /// Offset of [`ZoneArea`] in the core-state region (after the bus area).
@@ -605,18 +638,40 @@ pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
         }
         area_mut(regions.core_state).refused += refused;
     }
-    start_waiting(core, None, &mut events);
+    start_waiting(core, None, &mut events, 0, None);
     events.flush(core);
+}
+
+/// The shared reverb's load for the stagger planner (instance 0, M1's phase).
+fn shared_load(p: &InitParams) -> Load {
+    Load { phase: SHARED_PHASE, tail_parts: convolver::tail_partitions(ir::frames(p.sample_rate)) }
+}
+
+/// The loads a slot starting now plans around: the shared reverb and every running slot but `skip`.
+#[inline(never)]
+fn fixed_loads(zones: &[u8], count: usize, stride: usize, shared: Load, skip: usize) -> ([Load; 1 + MAX_PLANNED], usize) {
+    let mut fixed = [shared; 1 + MAX_PLANNED];
+    let mut n = 1;
+    for j in 0..count {
+        let o = header(zones, j, stride);
+        if j != skip && o.started != 0 && is_running(o.state) && n < fixed.len() {
+            fixed[n] = Load { phase: [(o.phase[0], o.phase[1]), (o.phase[2], o.phase[3])], tail_parts: o.tail_parts as usize };
+            n += 1;
+        }
+    }
+    (fixed, n)
 }
 
 /// Starts every slot waiting for kernel `only` (or for any kernel) whose kernel is resident: parses
 /// it, plans its stagger phase around the shared reverb and the running slots (`stagger::plan_one`, exhaustive for one instance), and starts its
-/// instance (clearing its state), fading in. In `onmessage`.
+/// instance (clearing its state, except a slot in `cleared`, whose state the in-core preparation
+/// zeroed; the first of those takes the phase `planned` there), fading in. In `onmessage`, and once
+/// at the end of an in-core preparation.
 #[inline(never)]
-fn start_waiting(core: &mut Core, only: Option<u32>, events: &mut Events) {
+fn start_waiting(core: &mut Core, only: Option<u32>, events: &mut Events, cleared: u32, mut planned: Option<Phase>) {
     let p = *core.params();
     let max_tail = tail_parts(p.zone_max_frames as usize);
-    let shared = Load { phase: SHARED_PHASE, tail_parts: convolver::tail_partitions(ir::frames(p.sample_rate)) };
+    let shared = shared_load(&p);
     let fade_in = area(core).fade_in_frames;
     let (regions, clips, _) = core.render_parts();
     let (count, stride) = geometry(regions.zones);
@@ -636,20 +691,22 @@ fn start_waiting(core: &mut Core, only: Option<u32>, events: &mut Events) {
             }
             continue;
         };
-        let mut fixed = [shared; 1 + MAX_PLANNED];
-        let mut n = 1;
-        for j in 0..count {
-            let o = header(zones, j, stride);
-            if j != k && o.started != 0 && is_running(o.state) && n < fixed.len() {
-                fixed[n] = Load { phase: [(o.phase[0], o.phase[1]), (o.phase[2], o.phase[3])], tail_parts: o.tail_parts as usize };
-                n += 1;
+        let phase: [Phase; 1] = [match planned.filter(|_| cleared & (1 << k) != 0) {
+            Some(phase) => {
+                planned = None;
+                phase
             }
-        }
-        let phase: [Phase; 1] = [plan_one(&fixed[..n], kernel.tail_parts()).unwrap_or(SHARED_PHASE)];
+            None => {
+                let (fixed, n) = fixed_loads(zones, count, stride, shared, k);
+                plan_one(&fixed[..n], kernel.tail_parts()).unwrap_or(SHARED_PHASE)
+            }
+        }];
         let (h, state) = slot(zones, k, stride);
-        if Instance::start(kernel, state, phase[0]).is_none() {
+        let started = if cleared & (1 << k) != 0 { Instance::start_cleared(kernel, state, phase[0]) } else { Instance::start(kernel, state, phase[0]) };
+        if started.is_none() {
             continue;
         }
+        area_mut(regions.core_state).prep_mask &= !(1 << k);
         h.started = 1;
         h.clocked = 0;
         h.tail_parts = kernel.tail_parts() as u32;
@@ -665,8 +722,108 @@ fn start_waiting(core: &mut Core, only: Option<u32>, events: &mut Events) {
 /// A zone kernel became resident (`clips::commit`, `clips::write`): the slots waiting for it start.
 pub fn kernel_resident(core: &mut Core, id: u32) {
     let mut events = Events::default();
-    start_waiting(core, Some(id), &mut events);
+    start_waiting(core, Some(id), &mut events, 0, None);
     events.flush(core);
+}
+
+/// Steps of the in-core preparation of `frames` per channel: `[sum of squares, head, tail,
+/// clear, plan]` (then one more, the finish).
+pub const fn prep_steps(frames: usize) -> [usize; 5] {
+    let (head, tail) = (convolver::head_partitions(frames), convolver::tail_partitions(frames));
+    [(2 * frames).div_ceil(PREP_SUM_SAMPLES), (2 * head).div_ceil(PREP_HEAD_UNITS), 2 * tail, instance::state_bytes(tail).div_ceil(PREP_CLEAR_BYTES), PLAN_ROWS as usize]
+}
+
+/// One step of the in-core preparation (C3b; the module comment): starts one for a slot waiting on
+/// a committed format 5 clip when none runs, or takes the running one's next step. Called once a
+/// quantum, after the buses mix (`after_render`). Never allocates.
+#[inline(never)]
+pub fn prepare(core: &mut Core) {
+    let p = *core.params();
+    let rate = p.sample_rate;
+    let (count, stride) = geometry(&core.regions().zones[..]);
+    let mut a = *area(core);
+    if a.prep_id == 0 {
+        let zones = &core.regions().zones[..];
+        let clips = core.clips();
+        let waiting = (0..count).map(|k| header(zones, k, stride).kernel_id).zip(0..count).find(|&(id, k)| header(zones, k, stride).state as u32 == zone_state::WAITING_KERNEL && clips.zone_pcm(id).is_some());
+        let Some((id, _)) = waiting else { return };
+        (a.prep_id, a.prep_step, a.prep_sum, a.prep_mask) = (id, 0, 0.0, 0);
+    }
+    let id = a.prep_id;
+    let Some((addr, frames)) = core.clips().zone_pcm(id) else {
+        // Freed (or the core reset without its clips): nothing to finish.
+        area_mut(core.regions_mut().core_state).prep_id = 0;
+        return;
+    };
+    // SAFETY: a format 5 clip's block holds its kernel's bytes (`clips.rs` reserves
+    // `kernel_bytes(frames)`), in the arena, apart from every region; no voice reads it, and only
+    // `onmessage` frees it, never while this runs.
+    let buf = unsafe { core::slice::from_raw_parts_mut(addr as *mut u8, kernel::kernel_bytes(frames)) };
+    let spec = IrSpec { frames, sample_rate: rate, scale: a.prep_scale, flags: 0 };
+    let [sums, heads, tails, clears, plans] = prep_steps(frames);
+    let s = a.prep_step as usize;
+    let regions = core.regions_mut();
+    if s < sums {
+        for i in s * PREP_SUM_SAMPLES..((s + 1) * PREP_SUM_SAMPLES).min(2 * frames) {
+            let x = kernel::pcm_sample(buf, frames, i / frames, i % frames) as f64;
+            a.prep_sum += x * x;
+        }
+        a.prep_scale = ir::blink_normalization_scale(a.prep_sum, 2 * frames, rate);
+    } else if s < sums + heads + tails {
+        let Some(mut scratch) = convolver::shared_scratch(regions.reverb) else { return };
+        let u = s - sums;
+        let head_units = 2 * convolver::head_partitions(frames);
+        let units = if u < heads { u * PREP_HEAD_UNITS..((u + 1) * PREP_HEAD_UNITS).min(head_units) } else { head_units + u - heads..head_units + u - heads + 1 };
+        for unit in units {
+            let _ = kernel::prepare_unit_in_place(buf, &mut scratch, spec, unit);
+        }
+    } else if s < sums + heads + tails + clears {
+        let c = s - sums - heads - tails;
+        let zones = &mut regions.zones[..];
+        if c == 0 {
+            a.prep_mask = (0..count).filter(|&k| header(zones, k, stride).state as u32 == zone_state::WAITING_KERNEL && header(zones, k, stride).kernel_id == id).fold(0, |m, k| m | 1 << k);
+        }
+        let len = instance::state_bytes(convolver::tail_partitions(frames));
+        for k in (0..count).filter(|&k| a.prep_mask & (1 << k) != 0) {
+            let (_, state) = slot(zones, k, stride);
+            let end = len.min(state.len());
+            state[(c * PREP_CLEAR_BYTES).min(end)..((c + 1) * PREP_CLEAR_BYTES).min(end)].fill(0);
+        }
+    } else if s < sums + heads + tails + clears + plans {
+        // The stagger plan of the first slot to start, a row a step (the format 3 path plans it at
+        // once in `onmessage`). Slots that start meanwhile only make it less balanced, never wrong.
+        let row = (s - sums - heads - tails - clears) as u32;
+        let mut best = if row == 0 { PLAN_START } else { (a.prep_top, a.prep_sq, [(a.prep_phase[0], a.prep_phase[1]), (a.prep_phase[2], a.prep_phase[3])]) };
+        let (fixed, n) = fixed_loads(regions.zones, count, stride, shared_load(&p), usize::MAX);
+        plan_one_row(&fixed[..n], convolver::tail_partitions(frames), row, &mut best);
+        (a.prep_top, a.prep_sq, a.prep_phase) = (best.0, best.1, [best.2[0].0, best.2[0].1, best.2[1].0, best.2[1].1]);
+    } else {
+        let _ = kernel::write_header(buf, spec);
+        area_mut(regions.core_state).prep_id = 0;
+        core.clips_mut().finish_zone_pcm(id);
+        let mut events = Events::default();
+        let phase = [(a.prep_phase[0], a.prep_phase[1]), (a.prep_phase[2], a.prep_phase[3])];
+        start_waiting(core, Some(id), &mut events, a.prep_mask, Some(phase));
+        events.flush(core);
+        return;
+    }
+    a.prep_step += 1;
+    *area_mut(regions.core_state) = a;
+}
+
+/// Drops the in-core preparation of clip `id`, if one runs: a format 5 clip of that id is being
+/// reserved, so the one it was preparing was freed (`clips::reserve`). In `onmessage`.
+pub fn cancel_prepare(core: &mut Core, id: u32) {
+    let a = area_mut(core.regions_mut().core_state);
+    if a.prep_id == id {
+        a.prep_id = 0;
+    }
+}
+
+/// The in-core preparation running (C3b): its clip id and next step, or `None` (tests, a debugger).
+pub fn preparing(core: &Core) -> Option<(u32, u32)> {
+    let a = area(core);
+    (a.prep_id != 0).then_some((a.prep_id, a.prep_step))
 }
 
 /// Quanta after which slot input silence leaves the state at exact zeros.
@@ -825,6 +982,7 @@ pub(crate) fn after_render(core: &mut Core, note: RenderNote) {
     if count == 0 {
         return;
     }
+    prepare(core);
     let cap = core.cap();
     let at_floor = cap.cap() <= cap.config().floor;
     let underrun = cap.underrun_pending();
