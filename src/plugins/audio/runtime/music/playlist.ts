@@ -26,10 +26,9 @@
  * next item asked instead; with nothing planned and the playing run ended, the next item starts as soon as the lead
  * allows (`grid: "immediate"`). The rule's fades and bridge are not applied to a natural advance yet (R3a's plumbing).
  */
-import { ticksToSeconds } from "../../../../engine/audio/musicGrid";
-import type { PlaylistNode } from "../../../../engine/audio/musicFormat";
+import { compileSegmentGrid, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
+import type { PlaylistNode, SegmentNode } from "../../../../engine/audio/musicFormat";
 import { playingGridOf, predictWrap, anchorRun, heardTimeOf, ticksAt } from "./anchors";
-import { segmentGrid } from "./handle";
 import type { MusicFrame, MusicNodeRef, MusicPlayer } from "./musicSystem";
 import { childFor, createSwitchState } from "./musicSwitch";
 import { requestStart, type PlanRequest } from "./planner";
@@ -223,6 +222,23 @@ function naturalExit(player: MusicPlayer, now: number): number {
   if (!Number.isFinite(last)) return heardTimeOf(a, pg.grid.exitTicks);
   const pos = ticksAt(a, last + WRAP_PROBE);
   return last + WRAP_PROBE + ticksToSeconds(pg.grid, pg.grid.exitTicks) - ticksToSeconds(pg.grid, pos);
+}
+
+const grids = new WeakMap<object, SegmentGrid | null>();
+
+/** A segment's compiled grid (G1) cached per node (the same compile as the planner's, whose cache is private). */
+function segmentGrid(node: MusicNodeRef): SegmentGrid | null {
+  const cached = grids.get(node);
+  if (cached !== undefined) return cached;
+  let grid: SegmentGrid | null = null;
+  const seg = node as Partial<SegmentNode>;
+  if (node.type === "segment" && Array.isArray(seg.tempo) && Array.isArray(seg.cues)) {
+    const clip = seg.tracks?.[0]?.clip;
+    const facts = clip ? segmentClipSource().facts(clip) : undefined;
+    grid = compileSegmentGrid(node as SegmentNode, facts && facts.rate > 0 ? { endSeconds: facts.frames / facts.rate } : {});
+  }
+  grids.set(node, grid);
+  return grid;
 }
 
 function clipRate(node: MusicNodeRef): number {
