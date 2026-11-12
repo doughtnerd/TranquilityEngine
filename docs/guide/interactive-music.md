@@ -19,7 +19,7 @@ This page documents the first part of interactive music (milestone M4a plus the 
 
 | Built and public | Coming later |
 | --- | --- |
-| Segments with a tempo map, cues and stems; simple forever loops | Counted loops (`count`), `while` loops, loop tails (`tailBeats`): the format reads them, the player ignores them |
+| Segments with a tempo map, cues and stems; forever and counted loops (`count`), several regions, loop tails (`tailBeats`) | `while` loops: the format reads them, the player loops the region by its `count` |
 | Playlists (sequence, random, shuffle) | The transition rule's fades on a playlist's own advance |
 | Music switches on a labelled parameter | Bridges (`bridge` in a rule): read and validated, but the change plays as a direct one |
 | Transition rules: exit, enter, quantised cut, crossfade, curves; `handle.music.seek` within the playing segment | |
@@ -130,11 +130,21 @@ A **region** loops a part of the segment:
 "regions": [{ "id": "loop", "from": "1:1:0", "to": "end", "count": 0 }]
 ```
 
-`count: 0` loops forever. **Today only the simple forever loop plays**: exactly one region, `count` 0, no `while`. Both samples use it, for the whole clip. The loop is sample-exact, the grid keeps counting bars through the passes, and every stem of the segment wraps on the same frame.
+`count: 0` loops forever; `count` from 2 to 64 plays that many passes in all and then plays on past the region (`count: 1` is one pass, no loop). The loop is sample-exact, the grid keeps counting bars through the passes, and every stem of the segment wraps on the same frame. Both samples use a forever loop over the whole clip.
 
-A segment with no region plays once. Then it ends, or hands over to the next item of a [playlist](#playlists).
+A segment may have several regions (up to 16). They play in file order: the music loops the first region its passes, then plays on into the next one and loops that, and so on. A region at or after the exit cue is never reached.
 
-*Coming later:* `count` from 1 to 64 for a counted pass total, `while` (`{ "parameter": "Boss", "is": "alive" }`, or `atLeast` or `below` for a numeric parameter) to keep looping while a condition holds, and `tailBeats` (0 to 16) to let the end of a pass ring over the start of the next. They are read, validated and written back by the editor, but the player treats the region as a plain forever loop. One consequence: a forever loop never reaches its exit by itself, so a playlist never advances past a segment with one. Leave a looping item for last, or change segments with a [switch or a script](#transitions).
+**Loop tails.** `tailBeats` (0 to 16) lets the end of a pass ring over the start of the next:
+
+```json
+"regions": [{ "id": "loop", "from": "1:1:0", "to": "9:1:0", "count": 0, "tailBeats": 4 }]
+```
+
+Bounce the stems with the audio after the loop end left in (the reverb and decay of the last bar). At each wrap the player plays those `tailBeats` beats after `to`, from the stems' own files, on the wrap's exact sample, while the next pass starts from `from` on the grid. The last pass of a counted loop needs no tail: the music plays on into that audio by itself. A change that leaves the loop exactly at its end (for example a bar exit on the region's last bar line) keeps the tail ringing under the new segment; a change earlier in the pass plays no tail. Tails are decoded into memory (each up to 30 s, counted against the clip memory limit) and need no music ring. A tail the clip memory can't hold is dropped with one warning, `tailRefused`, and the loop goes on without it. `handle.stop` fades the tails with the stems. A tail plays at the stem's level, without its quantised automation. The Babylon fallback plays no tails.
+
+A segment with no region plays once. Then it ends, or hands over to the next item of a [playlist](#playlists). A forever loop never reaches its exit by itself, so a playlist never advances past a segment with one: leave a looping item for last, use a counted loop, or change segments with a [switch or a script](#transitions).
+
+*Coming later:* `while` (`{ "parameter": "Boss", "is": "alive" }`, or `atLeast` or `below` for a numeric parameter) to keep looping while a condition holds. It is read, validated and written back by the editor, but today the player loops the region by its `count` (forever for 0) whatever the condition.
 
 ## Quantised automation
 
