@@ -1,4 +1,6 @@
-import { expect, type Page, play, test } from "./fixtures";
+import { expect, openTestProject, type Page, play, test } from "./fixtures";
+import { pickCategory } from "./projectCategory";
+import { showTab } from "./tabs";
 import { bootSample, musicRows, peakOver as peakOverMusic, readLate } from "./audioMusic";
 
 // M4 smoke (ADR 0166/0167, plan task S0): the milestone's path in the real app, through the Sound Lab sample. One playing
@@ -259,4 +261,20 @@ test("M4c smoke: a calibration run on the rhythm page reads the injected offset 
   const late = await readLate(page);
   expect(late, "no group late, held or abandoned; no slip; no split").toEqual({ groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0 });
   expect(errors).toEqual([]);
+});
+
+test("M4 editor smoke: Project Settings > Audio shows the Music block, and a ring edit is saved with the preset reading custom", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await openTestProject(page);
+  await showTab(page, /^Project/);
+  await pickCategory(page, "Audio");
+  const audio = page.locator(".panel.project").getByRole("group", { name: "Audio settings" });
+  await expect(audio.locator(".project-settings-list-head", { hasText: /^Music/ })).toBeVisible();
+  const rings = audio.getByLabel("Music rings", { exact: true });
+  await expect(rings).toHaveValue("12");
+  await rings.fill("10");
+  await rings.press("Enter");
+  const saved = () => page.evaluate(() => JSON.parse((window as unknown as { testFolder: { read(p: string): string | undefined } }).testFolder.read("project.json")!).audio?.music?.rings as number | undefined);
+  await expect.poll(saved).toBe(10);
+  await expect(audio.getByLabel("Voices preset", { exact: true })).toHaveValue("custom");
 });
