@@ -1,4 +1,5 @@
 import { expect, type Page, play, test } from "./fixtures";
+import { bootSample, musicRows, readLate } from "./audioMusic";
 
 // M4 smoke (ADR 0166/0167, plan task S0): the milestone's path in the real app, through the Sound Lab sample. One playing
 // voice gets a stamped, shaped fade (`AudioVoice.fadeShaped` with `at`: a FADE with a frame offset) and a spatial one-shot
@@ -129,4 +130,27 @@ test("M4 smoke: a stamped fade and a stamped spatial play with sends in the Soun
     expect(errors).toEqual([]);
     expect(after.status).toBe("running");
   });
+});
+
+// M4a (E1): a segment starts on the core and its group reports `start`: the sound-lab's `music-intensity` segment (three stems,
+// 120 bpm) is played through `Audio.play`; the music row reaches `playing`, its one group is `playing` with all three stems primed,
+// no group is late and no quantum is split. The full M4a path (stems, playlists, transitions, stingers) is audio-music-a.spec.ts.
+test("M4a smoke: a segment starts and its group reports start", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await bootSample(page, LAB);
+  await page.evaluate(() => {
+    const { Audio } = (globalThis as unknown as { __myco: Api }).__myco;
+    (globalThis as unknown as { __m4a: unknown }).__m4a = Audio.play("audio/events/music-intensity.audioevent.json");
+  });
+  await expect.poll(async () => (await musicRows(page)).find((r) => r.asset.includes("music-intensity"))?.state, { timeout: 30_000 }).toBe("playing");
+  const row = (await musicRows(page)).find((r) => r.asset.includes("music-intensity"))!;
+  expect(row.segment).toBe("intensity");
+  expect(row.groups.map((g) => ({ state: g.state, primed: g.primed, of: g.of }))).toEqual([{ state: "playing", primed: 3, of: 3 }]);
+  const late = await readLate(page);
+  expect(late, "no group late, held or abandoned; no slip; no split").toEqual({ groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0 });
+  expect(errors).toEqual([]);
 });
