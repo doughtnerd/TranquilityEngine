@@ -11,7 +11,7 @@
 // ADR 0166 (Q2 owns this file in W1; the coordinator afterwards): the fake has the music seam: `music` (a recording
 // `MusicBackend`, `FakeMusicBackend`), a counting `beginFrame`, `timeAt` over `rafTime` and `latency` over `latencyValue`.
 
-import type { AudioBackend, AudioPanner, Attenuation, AudioVoice, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, PlayRequest, VoiceSpatialOptions, ZoneIrService } from "./backend";
+import type { AudioBackend, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, PlayRequest, VoiceSpatialOptions, ZoneIrService } from "./backend";
 import type { AudioLatency } from "../../../engine/audio/musicTypes";
 import { mixer, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
@@ -34,6 +34,8 @@ export type FakeVoiceEvent =
   | { readonly kind: "resume" }
   | { readonly kind: "stop"; readonly fadeSeconds?: number }
   | { readonly kind: "fade"; readonly to: number; readonly seconds: number }
+  // ADR 0166 (G-1): a stamped gain and/or low-pass ramp.
+  | { readonly kind: "paramsShaped"; readonly gain?: number; readonly lowpassHz?: number; readonly seconds: number; readonly law?: FadeLaw; readonly at?: number }
   | { readonly kind: "priority"; readonly value: number }
   | { readonly kind: "loop"; readonly start: number; readonly end: number; readonly looping: boolean }
   // ADR 0162 (K0 members).
@@ -97,6 +99,12 @@ export interface FakeBackend extends AudioBackend {
   readonly durations: Map<string, number>;
   /** ADR 0158: what `horizon()` returns; null: no `horizon` (as on the Babylon fallback). */
   horizonTime: number | null;
+  /** ADR 0166 (G-1): what `clipFacts` reports per path; unlisted clips are unknown (undefined). */
+  readonly facts: Map<string, { frames: number; rate: number; channels: number; gapless: boolean }>;
+  /** ADR 0166 (G-1): whether the fake's voices have `paramsShaped` (default false: like the Babylon fallback, stem gain goes on `fade`). */
+  stampedRamps: boolean;
+  /** ADR 0166 (G-1): Δ̄ in seconds; set it to give the fake a `frameInterval` (absent by default, as on a backend without one). */
+  frameIntervalSeconds: number | null;
 
   // ADR 0166 (Q2): the music seam, so the P rows' loopback tests run on the fake.
   /** The fake's `MusicBackend`; set it to undefined for a backend without music. */
@@ -122,6 +130,8 @@ interface FakeGroup {
  */
 export interface FakeMusicBackend extends MusicBackend {
   caps: MusicBackendCaps;
+  /** ADR 0166 (G-1): the ring pool size (default 0: unknown, the planner's pool check is off); tests set it. */
+  ringPool: number;
   /** What `admitGroup` answers (default `{ ok: true }`). */
   admitResult: MusicAdmitResult;
   primeEmaMs: number;
@@ -155,6 +165,7 @@ function makeFakeMusicBackend(backend: FakeBackend): FakeMusicBackend {
   const music: FakeMusicBackend = {
     caps: { primes: true, stampedFades: true, heardClock: true, rhythm: true },
     admitResult: { ok: true },
+    ringPool: 0,
     primeEmaMs: 40,
     onGroupEvent: null,
     admitted: [],
@@ -242,6 +253,9 @@ export function makeFakeBackend(): FakeBackend {
     update() {},
     durations: new Map(),
     horizonTime: null,
+    facts: new Map(),
+    frameIntervalSeconds: null,
+    stampedRamps: false,
     music: undefined,
     beginFrameCalls: 0,
     rafTime: 0,
@@ -250,10 +264,12 @@ export function makeFakeBackend(): FakeBackend {
     timeAt(performanceTime: number) { return backend.time + (performanceTime - backend.rafTime) / 1000; },
     latency() { return { ...backend.latencyValue }; },
     clipDuration(path: string) { return backend.durations.get(path) ?? null; },
+    clipFacts(path: string) { return backend.facts.get(path); },
     play(request) {
       plays.push(request);
       if (!backend.ready) return null;
       const voice = makeFakeVoice(request);
+      if (!backend.stampedRamps) delete (voice as { paramsShaped?: unknown }).paramsShaped;
       voices.push(voice);
       return voice;
     },
@@ -279,6 +295,7 @@ export function makeFakeBackend(): FakeBackend {
     },
   };
   Object.defineProperty(backend, "horizon", { get: () => (backend.horizonTime === null ? undefined : () => backend.horizonTime!) });
+  Object.defineProperty(backend, "frameInterval", { get: () => (backend.frameIntervalSeconds === null ? undefined : () => backend.frameIntervalSeconds!) });
   backend.music = makeFakeMusicBackend(backend);
   return backend;
 }
@@ -305,6 +322,7 @@ function makeFakeVoice(request: PlayRequest): FakeVoice {
     id: nextFakeVoiceId++,
     reason: null,
     fade(to, seconds) { events.push({ kind: "fade", to, seconds }); },
+    paramsShaped(r) { events.push({ kind: "paramsShaped", ...r }); },
     setPriority(value) { events.push({ kind: "priority", value }); },
     events,
     get volume() { return state.volume; },

@@ -44,7 +44,7 @@ import { MAX_STAMPED, StampedKind, STAMPED_FLAG_STOP_AT_END, type VoiceTable } f
 import type { WorkletChannel } from "./workletChannel";
 import type { WarnOnce } from "./codecs";
 import type { CorePlayRequest, CoreVoice } from "./coreBackend";
-import { FadeLaw, packGate, packShape, StreamEvent } from "../wire.generated";
+import { FadeLaw, packGate, packShape, SET_PARAMS_MASK_GAIN, SET_PARAMS_MASK_LP_HZ, StreamEvent } from "../wire.generated";
 import { hintFromName, MUSIC_ENCODED_BUDGET_MIB, type MusicReply, type PrimeGroupMember } from "../decoder/protocol";
 import type { StreamReply } from "../decoder/decoderClient";
 import { MUSIC_RINGS_PRESETS } from "../../../../engine/audio/settings";
@@ -176,6 +176,10 @@ export function encodedBudgetBytes(rings: number): number {
 /** The core's `MusicBackend` (see the header). One per `CoreBackend`. */
 export class CoreMusicOps implements MusicBackend {
   readonly caps: MusicBackendCaps = CORE_MUSIC_CAPS;
+  /** G-1: the music ring pool's size (`preset.maxMusicRings`; 0 before the preset carries it). */
+  get ringPool(): number {
+    return this.host.musicRings();
+  }
   onGroupEvent: ((e: MusicGroupEvent) => void) | null = null;
 
   private readonly groups = new Map<number, Group>();
@@ -417,6 +421,52 @@ export class CoreMusicOps implements MusicBackend {
     this.host.writer.fadeShaped(id, to, seconds, law, u0, stamp, stopAtEnd);
     t.logStamped(id, StampedKind.FADE, applyAt, clock.sampleRate, now, from, to, seconds, packShape(law, Math.min(65535, Math.round(u0 * 65536))), stopAtEnd ? STAMPED_FLAG_STOP_AT_END : 0);
     t.fadeGain[i] = to;
+  }
+
+  /**
+   * G-1: a stamped ramp of the voice's own gain (`r.gain` × its dry gain, `SET_PARAMS` gain with the law's shape) and/or
+   * low-pass cutoff, at heard time `r.at` (or asap). A gain ramp is logged as a `GAIN` stamped ramp for REPLAY.
+   */
+  paramsShaped(id: number, r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLawName; at?: number }): void {
+    const t = this.host.table;
+    if (!t.isLive(id) || !this.host.sending()) return;
+    const hasGain = r.gain !== undefined && Number.isFinite(r.gain);
+    const hasLp = r.lowpassHz !== undefined && Number.isFinite(r.lowpassHz);
+    if (!hasGain && !hasLp) return;
+    const i = id & 0xffff;
+    const clock = this.host.clockMap;
+    const law = LAW_CODE[r.law ?? "linear"] ?? FadeLaw.Linear;
+    const seconds = Number.isFinite(r.seconds) ? Math.max(0, r.seconds) : 0;
+    const rampFrames = Math.round(seconds * clock.sampleRate);
+    const stamp = r.at !== undefined && Number.isFinite(r.at) ? clock.stampFor(clock.frameOfTime(r.at)) : undefined;
+    const dry = t.gain[i]! * t.occGain[i]!;
+    const mult = hasGain ? Math.min(4, Math.max(0, r.gain!)) : 1;
+    const lp = hasLp ? Math.max(0, r.lowpassHz!) : 0;
+    const mask = (hasGain ? SET_PARAMS_MASK_GAIN : 0) | (hasLp ? SET_PARAMS_MASK_LP_HZ : 0);
+    const shape = packShape(law, 0);
+    this.host.writer.setParams(id, mask, mult * dry, 0, 0, 0, 0, lp, rampFrames, 0, shape, stamp);
+    if (hasGain) {
+      const now = clock.framesNow();
+      const applyAt = stamp ?? now + clock.lookaheadFrames();
+      const from = this.gainLevelAt(i, applyAt, dry);
+      t.logStamped(id, StampedKind.GAIN, applyAt, clock.sampleRate, now, from, mult * dry, seconds, shape, 0);
+    }
+  }
+
+  /** The gain ramp's level at `at` from the log (the voice's dry gain before any ramp). */
+  private gainLevelAt(i: number, at: number, dry: number): number {
+    const t = this.host.table;
+    for (let k = t.stampedCount[i]! - 1; k >= 0; k--) {
+      const e = i * MAX_STAMPED + k;
+      if (t.stampedKind[e] !== StampedKind.GAIN || t.stampedFrame[e]! > at) continue;
+      const start = t.stampedFrame[e]!;
+      const end = t.stampedEnd[e]!;
+      if (end <= at || end <= start) return t.stampedTo[e]!;
+      const from = t.stampedFrom[e]!;
+      const w = lawWeight(t.stampedShape[e]! & 7, (at - start) / (end - start));
+      return from + (t.stampedTo[e]! - from) * w;
+    }
+    return dry;
   }
 
   onStreamEvent(id: number, code: number): void {

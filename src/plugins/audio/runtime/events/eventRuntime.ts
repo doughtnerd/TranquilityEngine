@@ -16,14 +16,16 @@ import {
   AUDIO_EVENT_FORMAT, REVERB_SEND_KEY, eventRootNode, isLabelled, parameterDefault, parameterRange, parseAudioEvent, sustainReleaseFade,
   type AnyEventNode, type AudioEventAsset, type Automation, type EventNode, type ParameterDef, type SustainNode, type SwitchNode,
 } from "../../../../engine/audio/eventFormat";
-import { isMusicNodeType } from "../../../../engine/audio/musicFormat";
+import { isMusicNodeType, type MusicAutomation } from "../../../../engine/audio/musicFormat";
 import { audioBackend, type AudioBackend, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
 import { warnOnce } from "../core/handle";
 import { loopPointsFor, onLoopPoints } from "../loopPoints";
 import { _resetMusicPlayers, createMusicPlayer, disposeMusicPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "../music/musicSystem";
-import { stopPlayerRuns } from "../music/segmentRun";
+import { segmentClipSource, stopPlayerRuns, type StemRun } from "../music/segmentRun";
+import { quantizedRamp } from "../music/stems";
+import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import {
-  AutoTarget, LOWPASS_OFF, MAX_BINDINGS, MAX_CURVES, MAX_GROUPS, TsAutomation,
+  AutoTarget, continuousBindings, evaluateQuantized, LOWPASS_OFF, MAX_BINDINGS, MAX_CURVES, MAX_GROUPS, QUANTIZED_RAMP_SECONDS, quantizedBindings, TsAutomation,
   type AutomationSink, type Binding, type ParamRef,
 } from "./automation";
 
@@ -200,6 +202,8 @@ export class EventSystem {
   private ts: TsAutomation | null = null;
   private curveIds = new WeakMap<Curve, number>();
   private readonly curvesById: Curve[] = [];
+  /** G-1: `curvesById` as a map, what `evaluateQuantized` reads (kept in step with it). */
+  private readonly curveMap = new Map<number, Curve>();
   /**
    * Free groups, longest-free first (FIFO from `freeHead`; M2 F1: a head index, not `shift`, which moved up to 1,024
    * entries per play); never-used ones come from `nextGroup` before any of these.
@@ -296,6 +300,17 @@ export class EventSystem {
       if (!timer.instance.stopped) timer.run();
     }
     this.ts?.update(dt);
+    for (const i of this.live) if (i.music) i.tickMusicAutomation();
+  }
+
+  /** @internal G-1: the quantised bindings' level for `instance` (`evaluateQuantized` over this system's curves and parameters). */
+  quantizedLevel(instance: EventInstance, bindings: readonly Binding[]): { gain: number; grid: "beat" | "bar" | null } {
+    const r = evaluateQuantized(bindings, this.curveMap, (p) => {
+      if (!p.global) return instance.localValue(p.slot);
+      for (const g of this.globals.values()) if (g.slot === p.slot) return g.value;
+      return 0;
+    });
+    return { gain: r.gain, grid: r.grid };
   }
 
   /** Stop every instance (scene change, tests). */
@@ -312,6 +327,7 @@ export class EventSystem {
     _resetMusicPlayers();
     this.sink = null; this.sinkOf = null; this.ts = null;
     this.curvesById.length = 0;
+    this.curveMap.clear();
     this.curveIds = new WeakMap(); // a parsed asset's curves outlive a reset (the asset cache), so their ids must go too
     this.freeGroups.length = 0; this.freeHead = 0; this.holding.length = 0; this.nextGroup = 1;
     this.lastPlay.clear();
@@ -455,6 +471,7 @@ export class EventSystem {
     }
     id = this.curvesById.length;
     this.curvesById.push(curve);
+    this.curveMap.set(id, curve);
     this.curveIds.set(curve, id);
     this.sink?.defineCurve(id, curve);
     return id;
@@ -886,6 +903,67 @@ export class EventInstance {
       for (const s of run.stems) if (s.voice?.playing) return true;
     }
     return false;
+  }
+
+  /** @internal G-1: a local parameter's value by slot (0 for a slot the event doesn't have). */
+  localValue(slot: number): number { return this.locals[slot] ?? 0; }
+
+  /** G-1: per music stem, the voice its automation is bound to and the level its quantised ramp last asked for. */
+  private readonly stemAuto = new WeakMap<StemRun, { voice: AudioVoice; bindings: Binding[]; level: number }>();
+
+  /**
+   * @internal G-1 (R6's note): automation on a music track's stems. Continuous bindings go to the sink's `bindVoice` once
+   * per stem voice (the core follows the parameter itself); quantised ones (`quantize`) are evaluated here each frame
+   * (`evaluateQuantized`) and a changed level becomes a stamped in-voice ramp at the next grid point (`quantizedRamp`).
+   * Only the playing run takes quantised ramps; a successor's stems are bound as soon as they have voices.
+   */
+  tickMusicAutomation(): void {
+    const p = this.music;
+    if (!p || this.stopped) return;
+    let backend: AudioBackend;
+    try { backend = audioBackend(); } catch { return; }
+    let frame: MusicFrame | null = null;
+    for (const run of [p.run, p.next]) {
+      if (!run || run.state === "ending" || run.state === "cancelled") continue;
+      const tracks = (run.node as SegmentNode).tracks;
+      for (const stem of run.stems) {
+        const voice = stem.voice;
+        if (!voice || !(voice.alive ?? voice.playing)) continue;
+        let st = this.stemAuto.get(stem);
+        if (!st || st.voice !== voice) {
+          const track = tracks.find((t) => t.name === stem.track);
+          if (!track || track.automation.length === 0) continue;
+          const all = this.musicBindings(track.automation);
+          const continuous = continuousBindings(all);
+          if (continuous.length > 0) {
+            const base = { volume: (track.volume ?? 1) * segmentClipSource().settings(stem.clip).volume, pitch: 1 };
+            this.sys.automation.bindVoice(voice, this.group, continuous, base);
+          }
+          st = { voice, bindings: quantizedBindings(all), level: 1 };
+          this.stemAuto.set(stem, st);
+        }
+        if (st.bindings.length === 0 || run !== p.run || run.state !== "playing") continue;
+        const q = this.sys.quantizedLevel(this, st.bindings);
+        if (q.grid === null || Math.abs(q.gain - st.level) < 1e-4) continue;
+        frame ??= { backend, music: backend.music ?? null, now: backend.time, dt: 0, hidden: false };
+        const at = quantizedRamp(p, stem.track, q.gain, q.grid, QUANTIZED_RAMP_SECONDS, frame);
+        if (Number.isFinite(at)) st.level = q.gain;
+      }
+    }
+  }
+
+  /** G-1: a music track's automation as bindings (volume and lowpass; `quantize` kept). Parameters or curves that don't resolve are dropped. */
+  private musicBindings(list: readonly MusicAutomation[]): Binding[] {
+    const out: Binding[] = [];
+    for (const a of list) {
+      const param = this.paramRef(a.parameter);
+      const id = param ? this.sys.curveId(a.curve) : null;
+      if (!param || id === null) continue;
+      const b: Binding = { param, curve: id, target: a.target === "volume" ? AutoTarget.Volume : AutoTarget.Lowpass };
+      if (a.quantize !== undefined) b.quantize = a.quantize;
+      out.push(b);
+    }
+    return out.length > MAX_BINDINGS ? out.slice(0, MAX_BINDINGS) : out;
   }
 
   private warnMusicPitch(): void {
