@@ -622,7 +622,7 @@ K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.t
   - `kitchen-sink`: 2.47e-5 → 2.66e-6;
   - `bed-64`: 3.83e-7 → 2.88e-7.
   The M1–M3 proofs replay each scene's ramp records on a DC voice against the exact line, since those digests have no native reference. C3's gate goldens and the zones goldens didn't move.
-- **Missed by F-21:** `eventGolden`'s `event-layered` and `event-continuous` also moved. F-21 is proving them closer before re-recording them; they fail on the branch until then.
+- **Missed by F-21 and fixed in a follow-up** (`0d3c569e`): `eventGolden`'s `event-layered` (stops over 4,800 frames at gains 0.48 and 0.4: 1.74e-5 → 9.58e-7 and 1.45e-5 → 8.00e-7) and `event-continuous` (a stop over 2,400 at gain 1: 3.53e-5 → 3.77e-6), proven the same way and re-recorded through the test's own update path. Block RMS moved in the sixth digit. `src/plugins/audio` 2,705 pass on the committed wasm.
 - **Coordinator rebuild** (`edd77f98`): mixer 317,891 → **318,306 B** (1.7 KB under the 320 KB tripwire); metered `virtual` +1.17% (one compare per voice), all +0.23%; baseline rewritten; cargo 899 pass.
 
 **F-22 merged** (`m4/f22` `d27f86b6`), **the owner's spatial orbit bug.**
