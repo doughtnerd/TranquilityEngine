@@ -33,6 +33,7 @@ Numbered; superseded entries are marked, not rewritten.
 - **D8 (W2) Older shapeless records read with shape 0.** Z2a found STOP/FADE/SET_PARAMS below 24/28/60 B were refused by the scheduler's first pass; the envelope 1.2 rule (appended words are minor) says they read as shape 0. Z2a fixes it with the generated `MIN_END`. Revert: none wanted.
 - **D10 (W5) The metered baseline was rewritten at the in-voice flip** (`29619224`): `virtual` +11.79% (7,102,981 → 7,940,135 instructions per quantum); every other scene within +1.2%; total +2.29%. Why: the cost is H1's per-voice hook, the feature itself, paid by every voice; CLAUDE.md makes the gate a tripwire, not a limit. F-8 profiles it. Revert: restore `baseline.json` from `7f75fe72` once F-8 brings `virtual` back near its M3 figure.
 - **D11 (W6) The editor tells the runtime about changed assets through `Assets.onChanged`/`Assets.notifyChanged`** (`engine/scene/Assets.ts`, both `@internal`, not exported from `src/engine/index.ts`). The editor project's `writeText`/`writeFile`/`writeBinary` call `notifyChanged` after the content is served. G-2 found no existing editor-to-runtime channel; music hot reload (P8) and `clipRegistry.invalidate` (R4c) subscribe to it. Renames, moves and deletes don't notify yet. Revert: move the hook to an editor-owned service, if a later editor record defines one.
+- **D12 (W6) The metered baseline was rewritten from F-8's merge, and D10's revert is withdrawn.** F-8 found that `7f75fe72`'s baseline was stale: many scenes hadn't been rewritten since M1/M2 (`virtual` 7,102,981 dates from `142a03dc`). The same bench built from M3's source (`1ef1c615`, toolchain 1.99.1) gives `virtual` 7,482,907. So D10's +11.79% was about +5.3% earlier drift plus about +6.1% from H1. After F-8, `virtual` is +1.20% over true M3 (about 11 instructions per virtual voice, all attributed); every other scene is within ±0.15%, and `streams` is −9%. Revert: none wanted.
 
 ## Wave 0 (2026-11-11, base `origin/master` `c3f2e9b`)
 
@@ -349,4 +350,16 @@ Single-writer edits granted by name: `coreBackend.ts` (`clips` passed to `MusicO
 - `src/editor/assetDelete.test.ts` expected `town.mp3`'s user to be the prefab. Since SM1 the prefab plays `town.audioevent.json`, which uses the clip; fixed. The earlier full run predates SM1's merge.
 - `selectionBench` failed for G-2 alone and passed for me alone (3 of 3) at a load average of 16: the known flake.
 - Checks: typecheck 0; vitest over `src/plugins/audio`, `src/editor` and `src/engine`: 5,394 pass plus the fixed test.
+
+**F-8 merged** (`m4/f8` `b8980684`, four exact (bit-identical) commits; cargo 858 at each):
+1. The stream voice's ring read specialised by channel count (`streams` −8.87%).
+2. Z5's `render_voices<LIST>` / `render_voice<AUTO, DUE>`, ported onto C2b's walk (`virtual` −4.48%, `high` −1.07%).
+3. **F-10 found and fixed:** `voice_chain` tested `due.at` twice, and the wasm carried constant locals and a branch through every frame of the gain loops (about 780 instructions per mixed voice per quantum). Now one test picks M3's loops or an out-of-line due path (`automation-base` −1.92%, `pitch4` −1.91%, `updates` −1.35%).
+4. `ambisonic_mix` skips `due_gain` with no record.
+
+Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). Left as is, by choice:
+- folding the curves byte into the walk's flag test (about 5 instructions per voice): it would push every voice mid-crossfade off the fast walk;
+- passing `due` outside `VoiceFx` (3 instructions per voice): it changes five signatures for about 0.3%.
+
+**Mixer 300,144 → 312,626 B** (305.3 KB): past the design's 300 KB warning, under the 320 KB tripwire; logged, not traded. F-8 measured a single-copy alternative at −3,637 B and +0.37% on `streams`, and kept the speed per CLAUDE.md. Coordinator checks: core, wasm and music vitest 114 files, 1,144 tests.
 
