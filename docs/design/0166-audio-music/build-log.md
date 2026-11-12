@@ -479,3 +479,14 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 
 **Coordinator:** after B2, an audio vitest run under load (4 agents) failed `hrtfLoopback`, `streamRebuild` and `zoneIr`; all 14 tests pass alone.
 
+
+**SM2 merged** (`m4/sm2` `535513b5`): the sound-lab music scene.
+- **Keys:** M on the tour opens `scenes/music.scene.json` (B goes back; the behaviour is `scripts/behaviors/MusicLab.ts`).
+  - **1/2/3** set State. explore→combat is a cut; combat→explore a 2-beat equalPower crossfade; explore→calm 4-beat linear; calm→explore 4-beat sCurve; calm→combat a 1-beat equalPower crossfade with the bridge `riser`; combat→calm takes `*→*`.
+  - **T/Y** fire stingers on the beat and the bar.
+  - **L** starts the loop (region with `tailBeats: 4`, `while Loop is hold`); **L** again releases it.
+  - **P** toggles the playlist; **O** stops.
+- **Files:** `tools/makeMusic.mjs` (deterministic; `--check`) writes 9 mono 16-bit 22.05 kHz WAVs (1.46 MB) and three events: `music-world`, `music-loop`, `music-playlist`.
+- **Tests:** `makeMusic.test.mjs` (the committed clips match the generator); `soundLabMusic.test.ts` (`validateMusic` clean); one `soundLabEvents` case; one `audio-music-a` case.
+- **Not audible until other W7/W8 work lands:** the bridge plays as a plain crossfade until R3b; the tail and the `while` release do nothing audible until R4a and R4b. R3b was asked to settle which fades apply on a bridge's two seams and to align the sample rule.
+- Checks: `test:tools` 22 pass; sound-lab tests 19 pass; typecheck 0.
