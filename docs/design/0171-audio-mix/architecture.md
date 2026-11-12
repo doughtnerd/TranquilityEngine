@@ -114,7 +114,7 @@ stateDiagram-v2
   Paused --> Analysing: resume()
   Analysing --> Shed: ladder step 1 (non-master only)
   Shed --> Analysing: step given back (ADR 0170, last)
-  Analysing --> Analysing: reset(integrated | maxPeak | all)
+  Analysing --> Analysing: reset (integrated, maxPeak or all)
   Analysing --> Rebased: EPOCH (rebuild)
   Rebased --> Analysing: new core's first sub-block
   Analysing --> [*]: meter removed live / Stop
@@ -157,14 +157,14 @@ sequenceDiagram
   R-->>G: resolved
   loop every STATUS (16 ms, 128 ms idle)
     L->>R: raw bytes (before RECYCLE)
-    R->>R: copy words into ring; keyframe if 1 s of frames passed
+    R->>R: copy words into ring, keyframe if 1 s of frames passed
   end
   M->>R: voice / event / music / mix-op / marker records
   G->>R: stop()
   G->>R: save(name?)
   R->>R: copy live span (one allocation, not per block)
   R->>S: deflate-raw in 256 KB chunks, async
-  S-->>G: path or file name (Promise<string>)
+  S-->>G: path or file name (the save Promise resolves)
 ```
 
 - **The tap** sits in `CoreLink.handleMessage` between the decode and the RECYCLE (`core/context.ts:239-247`), the only place where the raw bytes exist; after the transfer the buffer is gone. The copy goes through the `DataView` the handler already has, in 32-bit words, so it adds no allocation (a typed-array view per block would); NaN payloads survive because nothing is read as a float.
@@ -212,8 +212,8 @@ sequenceDiagram
   T->>K: one batch: gate lanes of roots to 0 over 20 ms from F0
   T->>K: BUS_CONFIG diff stamped at F0 + 960 (structural, quantum-aligned)
   T->>K: gate lanes back to 1 over 20 ms from the apply quantum
-  K->>K: ramps run; at the first quantum boundary at or after F0 + 960 the diff applies
-  K->>K: no split, no rebuild; only the edited subtree dips
+  K->>K: ramps run, and at the first quantum boundary at or after F0 + 960 the diff applies
+  K->>K: no split, no rebuild, only the edited subtree dips
   K-->>T: STATUS (duck gains, peaks by slot)
 ```
 
@@ -237,7 +237,7 @@ sequenceDiagram
   T->>K: rules, presence flags, loudness config, voices with slot indices
   K-->>Rc: first STATUS (counters from 0, frames from 0 on a new context)
   Rc->>R: EPOCH (epoch+1, reason, rate, latency, timeOffset), gap closes, keyframe
-  Rc->>Rc: CPU window and loudness feeds restart; integrated continues
+  Rc->>Rc: CPU window and loudness feeds restart, integrated continues
 ```
 
 - **End state, never half** (record change 17): a lane mid-ramp is replayed at its target; a dip in flight is replayed as applied with the gate at 1. A rebuild is already an audible gap ([A157 §3.6]), so a fade-in isn't owed.
@@ -283,13 +283,13 @@ sequenceDiagram
   participant W as Capture Worker
   U->>E: File (untrusted)
   E->>W: transfer bytes
-  W->>W: header: magic, format, wire hash; mismatch -> refuse with both versions
+  W->>W: header: magic, format, wire hash, a mismatch is refused with both versions
   W->>W: inflate streaming, stop at 64 MB decompressed
-  W->>W: walk records with bounds checks; build segment index; names as data
+  W->>W: walk records with bounds checks, build the segment index, names as data
   W-->>E: summary, overview tracks (downsampled), audio section, warnings
   E->>E: warn if the open project's audio section differs (never refuse on that)
   E->>W: seek(t)
-  W->>W: nearest keyframe <= t, replay records to t
+  W->>W: nearest keyframe at or before t, replay records to t
   W-->>E: snapshot at t (voice table with reasons, bus gain factors, loudness)
 ```
 
