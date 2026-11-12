@@ -211,6 +211,25 @@ pub struct Scene {
     /// fade, its kernel freed, the incoming kernel uploaded into its slot, 256 KB a quantum). Main's side is scripted
     /// here (`ZoneMain`); the core's side (`configure`, `start_waiting`, kernel reserve and free) is timed.
     pub swap: bool,
+    /// ADR 0166 M4-0 (Z5): per-quantum per-voice records, one batch every quantum ([`Per`]), stamped inside the quantum
+    /// (`stamped`: each record at its own frame, so the core applies it in its voice) or, for the twin, `ASAP` (the same
+    /// records applied at the quantum's start). A stamped scene asserts at its end that no quantum split.
+    pub per_quantum: Option<Per>,
+    pub stamped: bool,
+}
+
+/// The per-quantum record streams of M4-0's metered scenes (`stamped-*` and their `-twin`s).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Per {
+    /// One FADE (class G) on the next mixed voice, alternating down and up.
+    Fade,
+    /// A stamped spatial PLAY with zone and aux sends (one voice a quantum), and a low-pass ramp on one live voice.
+    Spatial,
+    /// One SET_LOOP (class S: a voice-local split) on the next looping voice, alternating two regions.
+    Loop,
+    /// Music: 8 stems, an equal-power crossfade of one every 32 quanta (a PLAY with `fadeZero` and a FADE in, a FADE out
+    /// with `stopAtEnd`), and a stinger voice started and stopped by a stamped STOP.
+    Music,
 }
 
 /// ADR 0162 C7: the bus aux sends go to (one of the presets' 32 buses).
@@ -290,7 +309,14 @@ impl Scene {
             sends_per_voice: 1,
             aux_voices: 0,
             swap: false,
+            per_quantum: None,
+            stamped: false,
         }
+    }
+
+    /// ADR 0166 M4-0 (Z5): `base` sending `per` every quantum, stamped or (the twin) `ASAP`.
+    fn per(base: Scene, per: Per, stamped: bool) -> Scene {
+        Scene { per_quantum: Some(per), stamped, ..base }
     }
 
     /// ADR 0162 A7: `voices` looping voices of kind 2 (bed) into `beds` beds, decoded through MagLS (`magls`) or the
@@ -342,6 +368,13 @@ impl Scene {
     /// voices sending into `per_voice` slots each, `aux` voices with an aux send.
     fn zoned(base: Scene, active: u32, voices: u32, per_voice: u32, aux: u32) -> Scene {
         Scene { zones_active: active, zone_sends: voices, sends_per_voice: per_voice, aux_voices: aux, ..base }
+    }
+
+    /// ADR 0166 M4-0 (`stamped-spatial`): 64 spatial one-shots, one started every quantum, each with a low-pass, two zone
+    /// sends and (16 of them) an aux send, into 2 convolving 0.25 s zones.
+    fn spatial_plays(name: &str) -> Scene {
+        let base = Scene { one_shots: true, starts_per_sec: 375.0, pitch: (0.5, 2.0), voice_lp: 64, zone_slots: 2, zone_frames: RATE as u32 / 4, ..Scene::looping(name, 64) };
+        Scene::zoned(base, 2, 64, 2, 16)
     }
 
     /// `mixed` looping voices at pitch 1, each reading its own clip of 64 MB ÷ `mixed`, on one bus (the sweeps' base).
@@ -467,6 +500,19 @@ pub fn scene(name: &str) -> Option<Scene> {
         "m3-worst-high-sends" => Scene::zoned(Scene { name: name.into(), ..scene("m3-worst-high").unwrap() }, 3, 248, 2, 32),
         "m3-worst-default-sends" => Scene::zoned(Scene { name: name.into(), ..scene("m3-worst-default").unwrap() }, 3, 120, 2, 16),
         "m3-worst-low-sends" => Scene::zoned(Scene { name: name.into(), ..scene("m3-worst-low").unwrap() }, 1, 60, 1, 8),
+        // ADR 0166 M4-0 (Z5): per-quantum per-voice records stamped inside their quantum (applied in the voice, no quantum
+        // split) beside the same records unstamped (`-twin`). `stamped-g`: a FADE on one of 256 voices every quantum;
+        // `stamped-spatial`: a spatial play with 2 zone sends and an aux send every quantum (one-shots, 0.25 s zones in 2
+        // slots) and a low-pass ramp; `stamped-loop`: a SET_LOOP (class S) on one of 128 voices every quantum;
+        // `stamped-music`: 8 stems with equal-power crossfades and stamped stops.
+        "stamped-g" => Scene::per(Scene::looping(name, 256), Per::Fade, true),
+        "stamped-g-twin" => Scene::per(Scene::looping(name, 256), Per::Fade, false),
+        "stamped-spatial" => Scene::per(Scene::spatial_plays(name), Per::Spatial, true),
+        "stamped-spatial-twin" => Scene::per(Scene::spatial_plays(name), Per::Spatial, false),
+        "stamped-loop" => Scene::per(Scene::looping(name, 128), Per::Loop, true),
+        "stamped-loop-twin" => Scene::per(Scene::looping(name, 128), Per::Loop, false),
+        "stamped-music" => Scene::per(Scene::looping(name, 8), Per::Music, true),
+        "stamped-music-twin" => Scene::per(Scene::looping(name, 8), Per::Music, false),
         _ => return None,
     };
     Some(s)
@@ -769,6 +815,9 @@ pub struct RunResult {
     /// Most kernel computations the bank's budget counted in one quantum.
     pub budget_max: u32,
     pub demoted: u32,
+    /// ADR 0166 M4-0: the core's `splitQuanta` and `voiceSplits` at the run's end (cumulative since init).
+    pub split_quanta: u32,
+    pub voice_splits: u32,
     pub buses: u32,
     pub clip_mb: u32,
     pub biquads: u32,
@@ -873,6 +922,12 @@ struct Bench {
     sends_now: u32,
     aux_now: u32,
     zone: ZoneMain,
+    /// ADR 0166 M4-0 (Z5): the frame offset the next records carry (`wire::ASAP` unless the scene is stamped), the
+    /// extra PLAY flags of the next start, the music scene's stems and stinger.
+    stamp: u32,
+    extra_flags: u16,
+    stems: Vec<u32>,
+    stinger: Option<u32>,
 }
 
 /// The scene's init parameters. The arena's initial reserve holds all of the scene's clips (with
@@ -1089,6 +1144,10 @@ impl Bench {
             lp_now: 0,
             hp_now: 0,
             sends_now: 0,
+            stamp: wire::ASAP,
+            extra_flags: 0,
+            stems: Vec::new(),
+            stinger: None,
             aux_now: 0,
             zone: ZoneMain {
                 blobs: Vec::new(),
@@ -1382,8 +1441,8 @@ impl Bench {
 
     /// Starts a voice: a stream voice (`stream`), a mixed voice (one-shot or looping by the scene)
     /// or a looping virtual one.
-    fn start(&mut self, stream: Option<u32>, mixed: bool) {
-        let Some(index) = self.free.pop() else { return };
+    fn start(&mut self, stream: Option<u32>, mixed: bool) -> Option<u32> {
+        let index = self.free.pop()?;
         let g = &mut self.gens[index as usize];
         *g = g.wrapping_add(1).max(1);
         let id = ((*g as u32) << 16) | index;
@@ -1424,7 +1483,7 @@ impl Bench {
         };
         let ordinal = self.mixed_ids.len() as u32;
         let phase = self.rng.unit() * 6.283;
-        let mut flags = if ambi { 0 } else { wire::PLAY_FLAGS_SPATIAL };
+        let mut flags = if ambi { 0 } else { wire::PLAY_FLAGS_SPATIAL } | self.extra_flags;
         if ambi {
             flags |= wire::PLAY_FLAGS_AMBISONIC;
         }
@@ -1458,7 +1517,7 @@ impl Bench {
         let score = self.rng.unit();
         self.push(&wire::Play {
             voice_id: id,
-            frame_offset: wire::ASAP,
+            frame_offset: self.stamp,
             clip,
             bus,
             flags,
@@ -1488,7 +1547,7 @@ impl Bench {
             }
             self.push(&wire::SetVoiceFx {
                 voice_id: id,
-                frame_offset: wire::ASAP,
+                frame_offset: self.stamp,
                 mask,
                 send: levels,
                 aux_level: if aux { AUX_LEVEL } else { 0.0 },
@@ -1519,6 +1578,7 @@ impl Bench {
             self.aux_now += aux as u32;
         }
         self.voices[index as usize] = Some(v);
+        Some(id)
     }
 
     /// Main's view loses a mixed voice (ended or demoted).
@@ -1568,9 +1628,92 @@ impl Bench {
         }
     }
 
+    /// ADR 0166 M4-0 (Z5), main's work for one quantum of a `stamped-*` scene or its twin: the quantum's records, each at
+    /// its own frame inside the quantum when stamped (varied across it, so the due list takes them in any order of
+    /// arrival), else `ASAP`.
+    fn build_per_quantum(&mut self, q: u64, per: Per) {
+        let s = self.scene.clone();
+        let stamped = s.stamped;
+        let at = |k: u64| if stamped { 8 + ((q * 53 + k * 29) % 112) as u32 } else { wire::ASAP };
+        match per {
+            Per::Fade => {
+                let id = self.mixed_ids[q as usize % self.mixed_ids.len()];
+                // Down to 0.4 and back up, each over 6 quanta, so a voice's fade is mostly moving.
+                let target = if (q / self.mixed_ids.len() as u64) % 2 == 0 { 0.4 } else { 1.0 };
+                self.push(&wire::Fade { voice_id: id, frame_offset: at(0), target, frames: 6 * QUANTUM as u32, flags: 0, shape: 0 });
+            }
+            Per::Spatial => {
+                self.stamp = at(0);
+                while (self.mixed_ids.len() as u32) < s.mixed && !self.free.is_empty() {
+                    self.start(None, true);
+                    self.starts += 1;
+                    self.stamp = at(self.starts);
+                }
+                // A low-pass ramp on one voice with a filter, over the next 6 quanta.
+                for k in 0..self.mixed_ids.len() {
+                    let id = self.mixed_ids[(q as usize + k) % self.mixed_ids.len()];
+                    if self.voices[(id & 0xFFFF) as usize].is_some_and(|v| v.lp) {
+                        let u = 0.5 + 0.5 * libm::sinf(0.03 * q as f32 + k as f32);
+                        let lp_hz = LP_RANGE.0 * libm::powf(LP_RANGE.1 / LP_RANGE.0, u);
+                        self.push(&wire::SetParams { voice_id: id, frame_offset: at(1), mask: wire::SET_PARAMS_MASK_LP_HZ, lp_hz, ramp_frames: 6 * QUANTUM as u32, ..Default::default() });
+                        break;
+                    }
+                }
+                self.stamp = wire::ASAP;
+            }
+            Per::Loop => {
+                let id = self.mixed_ids[q as usize % self.mixed_ids.len()];
+                let frames = self.clip_frames[(1 + (id & 0xFFFF) % self.stereo_clips) as usize].max(8);
+                // Two nested regions, alternately (the voice is wherever it is: it wraps into the new region).
+                let (a, b) = if (q / self.mixed_ids.len() as u64) % 2 == 0 { (frames / 4, 3 * frames / 4) } else { (frames / 8, 7 * frames / 8) };
+                self.push(&wire::SetLoop { voice_id: id, frame_offset: at(0), loop_start_frame: a, loop_end_frame: b, flags: wire::SET_LOOP_FLAGS_LOOPING });
+            }
+            Per::Music => {
+                if self.stems.is_empty() {
+                    self.stems = self.mixed_ids.clone();
+                }
+                let equal_in = wire::pack_shape(wire::fade_law::EQUAL_POWER_IN, 0);
+                let equal_out = wire::pack_shape(wire::fade_law::EQUAL_POWER_OUT, 0);
+                match q % 32 {
+                    // An equal-power crossfade of one stem into its replacement over 2,048 frames (16 quanta).
+                    4 => {
+                        let stem = (q / 32) as usize % self.stems.len();
+                        let old = self.stems[stem];
+                        self.stamp = at(0);
+                        self.extra_flags = wire::PLAY_FLAGS_FADE_ZERO;
+                        let new = self.start(None, true);
+                        self.extra_flags = 0;
+                        self.stamp = wire::ASAP;
+                        if let Some(new) = new {
+                            self.push(&wire::Fade { voice_id: old, frame_offset: at(0), target: 0.0, frames: 2_048, flags: wire::FADE_FLAGS_STOP_AT_END, shape: equal_out });
+                            self.push(&wire::Fade { voice_id: new, frame_offset: at(0), target: 1.0, frames: 2_048, flags: 0, shape: equal_in });
+                            self.stems[stem] = new;
+                        }
+                    }
+                    // A stinger starts.
+                    20 => {
+                        self.stamp = at(2);
+                        self.stinger = self.start(None, true);
+                        self.stamp = wire::ASAP;
+                    }
+                    // And is stopped with a 600-frame equal-power fade.
+                    28 => {
+                        if let Some(id) = self.stinger.take() {
+                            self.push(&wire::Stop { voice_id: id, frame_offset: at(3), fade_frames: 600, reason: 0, shape: equal_out });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     /// The frame's batch (main's work, not timed): replacement one-shots up to the mixed target
     /// (`min(mixed, mixedCap)` with the cap), HRTF directions, parameter updates.
     fn build_batch(&mut self, q: u64) {
+        if let Some(per) = self.scene.per_quantum {
+            return self.build_per_quantum(q, per);
+        }
         let s = self.scene.clone();
         if s.zones_active > 0 {
             self.zone_step(q);
@@ -1710,7 +1853,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps).
@@ -1762,7 +1905,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
         // Main's side (not timed): the frame's batch.
         let msg = if let Some(m) = (!b.setup.is_empty()).then(|| b.setup.remove(0)) {
             Some(m)
-        } else if q % BATCH_EVERY == 0 {
+        } else if q % BATCH_EVERY == 0 || scene.per_quantum.is_some() {
             b.build_batch(q);
             (b.rec_count > 0).then(|| {
                 b.records_sent += b.rec_count as u64;
@@ -1883,6 +2026,14 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     r.records_per_quantum = (b.records_sent - records_at_warm) as f64 / n;
     r.starts_per_quantum = (b.starts - starts_at_warm) as f64 / n;
     r.demoted = b.core.cap().demoted;
+    let music = &status::counters(&b.core).music;
+    (r.split_quanta, r.voice_splits) = (music.split_quanta, music.voice_splits);
+    if scene.stamped {
+        // M4-0's exit: stamped per-voice records apply inside their voice. A whole-quantum split here is a regression, and
+        // so is a stamped scene whose records never reached the due list (a class S scene splits voices, class G does not).
+        assert_eq!(r.split_quanta, 0, "{}: a stamped scene must not split the quantum", scene.name);
+        assert_eq!(r.voice_splits > 0, matches!(scene.per_quantum, Some(Per::Loop | Per::Spatial)), "{}: voiceSplits {} (only the class S scenes, a loop region and a low-pass ramp, split voices)", scene.name, r.voice_splits);
+    }
     r.buses = scene.buses;
     r.clip_mb = scene.clip_mb;
     r.biquads = scene.biquads;
@@ -1975,7 +2126,7 @@ fn num(args: &str, key: &str, default: f64) -> f64 {
 
 fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
     let mut line = format!(
-        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{},\"bedVoices\":{:.1},\"beds\":{:.2},\"workBed\":{:.0},\"transit\":{:.2},\"fxVoices\":{:.1},\"ambisonic\":{:.1},\"zonesActive\":{:.2},\"zonesRinging\":{:.2},\"workZones\":{:.0},\"zoneWetPeak\":{:.4},\"senders\":{:.1},\"aux\":{:.1},\"zoneEvents\":{},\"standbySwaps\":{},\"evictSwaps\":{}}}",
+        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{},\"bedVoices\":{:.1},\"beds\":{:.2},\"workBed\":{:.0},\"transit\":{:.2},\"fxVoices\":{:.1},\"ambisonic\":{:.1},\"zonesActive\":{:.2},\"zonesRinging\":{:.2},\"workZones\":{:.0},\"zoneWetPeak\":{:.4},\"senders\":{:.1},\"aux\":{:.1},\"zoneEvents\":{},\"standbySwaps\":{},\"evictSwaps\":{},\"splitQuanta\":{},\"voiceSplits\":{}}}",
         r.quanta,
         r.p50,
         r.p99,
@@ -2015,7 +2166,9 @@ fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
         r.mean_aux,
         r.zone_events,
         r.standby_swaps,
-        r.evict_swaps
+        r.evict_swaps,
+        r.split_quanta,
+        r.voice_splits
     );
     if r.automation[3] > 0.0 {
         line.pop();
