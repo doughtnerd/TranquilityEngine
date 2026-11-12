@@ -9,7 +9,7 @@ var __esm = (fn, res, err) => function __init() {
   }
 };
 
-// ../../../../src/plugins/audio/runtime/wire.generated.ts
+// ../../../src/plugins/audio/runtime/wire.generated.ts
 function writeEnvelope(view, off, rec) {
   view.setUint32(off + 0, rec.magic ?? MAGIC, true);
   view.setUint16(off + 4, rec.version ?? VERSION_MAJOR << 8 | VERSION_MINOR, true);
@@ -510,7 +510,7 @@ function readStatus(buf) {
 }
 var SCHEMA_HASH, MAGIC, VERSION_MAJOR, VERSION_MINOR, ASAP, BATCH_MAX_BYTES, STATUS_POOL_BUFFERS, STATUS_BUFFER_BYTES, STATUS_EVERY_QUANTA, STATUS_IDLE_EVERY_QUANTA, STATUS_IDLE_AFTER_MS, QUANTUM_FRAMES, STREAM_RING_FRAMES_WIDE, STREAM_WIDE_CHUNK_FRAMES, STREAM_MAX_CHANNELS, ZONE_KERNEL_HEADER_BYTES, ZONE_KERNEL_MAX_HEAD_PARTS, ZONE_HEAD_BINS, ZONE_TAIL_BINS, ErrorCode, WireError, Kind, ClipFormat, CLIP_BEGIN_FIXED_END, CLIP_CHUNK_FIXED_END, CLIP_UNLOAD_FIXED_END, STREAM_OPEN_FIXED_END, STREAM_CHUNK_FIXED_END, STREAM_CLOSE_FIXED_END, STREAM_CREDIT_FIXED_END, PLAY_FLAGS_LOOP, PLAY_FLAGS_MIXED, SET_PARAMS_MASK_BUS, STATUS_FLAGS_READY;
 var init_wire_generated = __esm({
-  "../../../../src/plugins/audio/runtime/wire.generated.ts"() {
+  "../../../src/plugins/audio/runtime/wire.generated.ts"() {
     "use strict";
     SCHEMA_HASH = "287e5173cde33028cb09bd4bfbc4d2ec";
     MAGIC = 1297695025;
@@ -593,7 +593,7 @@ var init_wire_generated = __esm({
   }
 });
 
-// ../../../../src/plugins/audio/runtime/core/bufferPool.ts
+// ../../../src/plugins/audio/runtime/core/bufferPool.ts
 function createStatusPool() {
   return new BufferPool(STATUS_POOL_BUFFERS, STATUS_BUFFER_BYTES);
 }
@@ -602,7 +602,7 @@ function createBatchPool() {
 }
 var BATCH_POOL_BUFFERS, BufferPool;
 var init_bufferPool = __esm({
-  "../../../../src/plugins/audio/runtime/core/bufferPool.ts"() {
+  "../../../src/plugins/audio/runtime/core/bufferPool.ts"() {
     "use strict";
     init_wire_generated();
     BATCH_POOL_BUFFERS = 4;
@@ -662,10 +662,10 @@ var init_bufferPool = __esm({
   }
 });
 
-// ../../../../src/plugins/audio/runtime/decoder/credit.ts
+// ../../../src/plugins/audio/runtime/decoder/credit.ts
 var STREAM_CREDIT_FRAMES, CreditAccumulator;
 var init_credit = __esm({
-  "../../../../src/plugins/audio/runtime/decoder/credit.ts"() {
+  "../../../src/plugins/audio/runtime/decoder/credit.ts"() {
     "use strict";
     STREAM_CREDIT_FRAMES = 4096;
     CreditAccumulator = class {
@@ -690,7 +690,7 @@ var init_credit = __esm({
   }
 });
 
-// ../../../../src/plugins/audio/runtime/worklet/coreDriver.ts
+// ../../../src/plugins/audio/runtime/worklet/coreDriver.ts
 function bedPartitions(sampleRate) {
   const ratio = Math.fround(Math.fround(sampleRate) / 44100);
   const exponent = Math.min(Math.max(0, Math.floor(Math.log2(256 * ratio))), 29);
@@ -800,7 +800,7 @@ function instantiateCore(wasm, preset, sampleRate, expected = EXPECTED) {
 }
 var CORE_ABI_MAJOR, MEMORY_INITIAL_PAGES, PAGE_BYTES, M2_REGIONS_HEADROOM_BYTES, MAX_PAGES, REGION_ALIGN, QUANTUM, BEDS_HEADER_BYTES, BEDS_SCRATCH_BYTES, BEDS_FILTER_BYTES, BEDS_SLOT_BYTES, BEDS_ACC_ONLY_SLOT_BYTES, FADE_TAIL_FRAMES, WIDE_RING_BYTES, FX_ENTRY_BYTES, PLANAR_SCRATCH_BYTES, alignUp, headParts, tailParts, ZONE_SLOT_HEADER_BYTES, CoreLoadError, EXPECTED, SHELL_FIELD, FLAG_TRAP_CAUGHT, PROBE_BUCKETS, PROBE_BUCKET_MS, PROBE_WARM_MS, PROBE_JUMP_MS, PROBE_THRESHOLD_S, PROBE_SAWTOOTH_COVERED_S, UnderrunProbe, CLIP_BYTES_PER_QUANTUM, OUTPUT_SAMPLES, TWO_PI, CoreDriver;
 var init_coreDriver = __esm({
-  "../../../../src/plugins/audio/runtime/worklet/coreDriver.ts"() {
+  "../../../src/plugins/audio/runtime/worklet/coreDriver.ts"() {
     "use strict";
     init_bufferPool();
     init_credit();
@@ -1384,7 +1384,7 @@ var init_coreDriver = __esm({
   }
 });
 
-// ../../../../src/engine/core/graphics.ts
+// ../../../src/engine/core/graphics.ts
 function detectPlatform(env = globalThis) {
   if ("__TAURI_INTERNALS__" in env) return "desktop";
   const ua = env.navigator?.userAgent ?? "";
@@ -1393,14 +1393,14 @@ function detectPlatform(env = globalThis) {
   return "web";
 }
 
-// ../../../../src/engine/audio/musicFormat.ts
+// ../../../src/engine/audio/musicFormat.ts
 var MUSIC_NODE_TYPES = ["segment", "playlist", "musicSwitch"];
 
-// ../../../../src/engine/audio/eventFormat.ts
+// ../../../src/engine/audio/eventFormat.ts
 var NODE_TYPES = ["clip", "random", "sequence", "switch", "blend", "layer", "sustain"];
 var EVENT_NODE_TYPES = [...NODE_TYPES, ...MUSIC_NODE_TYPES];
 
-// ../../../../src/engine/audio/occlusionMaterials.ts
+// ../../../src/engine/audio/occlusionMaterials.ts
 var DEFAULT_MATERIAL_NAME = "concrete";
 var BUILTIN_MATERIALS = [
   { name: "none", transmissionDb: 0, cutoffHz: 22e3, wetOcclusion: 1 },
@@ -1414,7 +1414,7 @@ var builtinMaterials = () => BUILTIN_MATERIALS.map((m) => ({ ...m }));
 var CUTOFF_OPEN_HZ = 22e3;
 var OPEN_LOG = Math.log(CUTOFF_OPEN_HZ);
 
-// ../../../../src/engine/audio/settings.ts
+// ../../../src/engine/audio/settings.ts
 var DEFAULT_MUSIC_RINGS = 12;
 var DEFAULT_BED_MAX_BEDS = 2;
 var DEFAULT_AMBISONIC_MAX_CLIPS = 1;
@@ -1461,7 +1461,7 @@ var defaultAudioSettings = () => ({
   rhythmMode: false
 });
 
-// ../../../../src/engine/audio/mixer.ts
+// ../../../src/engine/audio/mixer.ts
 var OFF_HZ = 24e3;
 var Bus = class {
   /** @internal */
@@ -1768,7 +1768,7 @@ function approach(cur, from, to, step, useCur = false) {
   return progress >= 1 ? to : start + span * progress;
 }
 
-// ../../../../src/plugins/audio/runtime/core/context.ts
+// ../../../src/plugins/audio/runtime/core/context.ts
 init_wire_generated();
 init_coreDriver();
 init_bufferPool();
@@ -1932,7 +1932,7 @@ var CoreLink = class {
   }
 };
 
-// ../../../../src/plugins/audio/runtime/core/hostClock.ts
+// ../../../src/plugins/audio/runtime/core/hostClock.ts
 function fakeHostClock(start = {}) {
   let raf = start.rafTime ?? 1e3;
   let current = start.currentTime ?? 0;
@@ -1958,7 +1958,7 @@ function fakeHostClock(start = {}) {
   };
 }
 
-// ../../../../src/plugins/audio/runtime/testing.ts
+// ../../../src/plugins/audio/runtime/testing.ts
 init_wire_generated();
 init_coreDriver();
 var LOOPBACK_PRESET = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: DEFAULT_LIMITER_LOOKAHEAD_MS, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0, maxMusicRings: 0 };
@@ -2062,7 +2062,7 @@ async function createLoopbackHost(options = {}) {
   };
 }
 
-// live.ts
+// live/live.ts
 init_wire_generated();
 var Q = 128;
 var FRAMES = 48e3;
