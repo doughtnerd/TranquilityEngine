@@ -243,6 +243,11 @@ test("M4a: a stinger plays on the next bar, over the music, which carries on", a
   expect(seen.warnings).toEqual([]);
 });
 
+/** The meter's lag behind the core: the 20 ms ramp, a STATUS block and a display frame. */
+const METER_LAG = 0.1;
+/** The main thread's estimate of the audio clock (`Audio.time`) is good to about this much (it read 6 ms ahead of the line in a loaded run). */
+const CLOCK_SLACK = 0.03;
+
 test("M4a: quantised automation brings a stem in on the beat, not when the parameter moves", async ({ page }) => {
   const seen = watchConsole(page);
   await bootSample(page, LAB);
@@ -254,7 +259,8 @@ test("M4a: quantised automation brings a stem in on the beat, not when the param
   const base = await peakOver(page, "Tape", 500);
   expect(base, "the base stem alone").toBeGreaterThan(0.05);
 
-  // Sets Layer and watches the Tape meter against the audio clock for `ms`; returns when the level first rose past 1.4 x base.
+  // Sets Layer and watches the Tape meter against the audio clock for `ms`; returns when the level first rose past 1.4 x base,
+  // with the audio-clock reading of the last poll before it (`quiet`): the rise began in (quiet - METER_LAG, crossed].
   const raise = (ms: number) =>
     page.evaluate(
       async ([span, floor]) => {
@@ -263,15 +269,18 @@ test("M4a: quantised automation brings a stem in on the beat, not when the param
         g.__e1.m!.setParameter("Layer", 1);
         const t0 = performance.now();
         let crossed: number | null = null;
+        let quiet = calledAt;
         while (performance.now() - t0 < (span as number)) {
-          if (crossed === null && g.__myco.Audio.bus("Tape").peak > (floor as number)) crossed = g.__myco.Audio.time;
+          const now = g.__myco.Audio.time;
+          if (crossed === null && g.__myco.Audio.bus("Tape").peak > (floor as number)) crossed = now;
+          else if (crossed === null) quiet = now;
           await new Promise((r) => setTimeout(r, 4));
         }
-        return { calledAt, crossed };
+        return { calledAt, crossed, quiet };
       },
       [ms, base * 1.4] as const,
     );
-  const rises: { calledAt: number; crossed: number }[] = [];
+  const rises: { calledAt: number; crossed: number; quiet: number }[] = [];
   for (const wait of [0, 170]) {
     // Back to the base alone (the meter holds a peak briefly), then a wait that moves the call to another phase of the beat.
     await page.evaluate(() => (globalThis as unknown as G).__e1.m!.setParameter("Layer", 0));
@@ -279,12 +288,16 @@ test("M4a: quantised automation brings a stem in on the beat, not when the param
     await page.waitForTimeout(wait);
     const r = await raise(2200);
     expect(r.crossed, "the layer entered").not.toBeNull();
-    rises.push({ calledAt: r.calledAt, crossed: r.crossed! });
+    rises.push({ calledAt: r.calledAt, crossed: r.crossed!, quiet: r.quiet });
   }
   for (const r of rises) {
     expect(r.crossed - r.calledAt, "not at once: it waited for a beat line").toBeGreaterThan(0.01);
     expect(r.crossed - r.calledAt, "and no longer than a beat plus the lead").toBeLessThan(0.5 + 1.2);
-    expect(offGrid(r.crossed - T, 0.5), `entered on a beat line (${r.crossed.toFixed(3)} against the start ${T.toFixed(3)})`).toBeLessThan(0.12);
+    // The stamp is exact in the core's frames (stems.quantized.test.ts, loopback host); here the meter is read on the main
+    // thread, so a slow poll adds its own gap. A beat line must fall inside the window the readings allow: the poll before the
+    // rise saw nothing (so the line is not before it less the meter's lag), the poll that saw it came after the line, give or take the clock estimate.
+    const line = T + Math.ceil((r.quiet - METER_LAG - T) / 0.5 - 1e-9) * 0.5;
+    expect(line, `a beat line (${line.toFixed(3)}) lies in the window the rise began in (${(r.quiet - METER_LAG).toFixed(3)}..${r.crossed.toFixed(3)} + ${CLOCK_SLACK}, ${((r.crossed - r.quiet) * 1000).toFixed(0)} ms wide)`).toBeLessThanOrEqual(r.crossed + CLOCK_SLACK);
   }
   await expectClean(page, "quantised automation");
   expect(seen.errors).toEqual([]);
