@@ -257,7 +257,10 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     expect(r.ops.debugView().poolUsed).toBe(0);
     expect(r.ops.debugView().poolHighWater).toBe(6);
     for (let g = 1; g <= 16; g++) expect(r.ops.admitGroup(request(g, 0, 1)).ok).toBe(true);
+    expect(r.ops.debugView().groupTableFull).toBe(0);
     expect(r.ops.admitGroup(request(17, 0, 1))).toEqual({ ok: false, reason: "groupTableFull", permanent: false });
+    expect(r.ops.admitGroup(request(18, 0, 1)).ok).toBe(false);
+    expect(r.ops.debugView().groupTableFull).toBe(2);
     r.backend.dispose();
   });
 

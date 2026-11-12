@@ -131,6 +131,8 @@ export interface MusicOpsDebugView {
   readonly poolHighWater: number;
   /** Stream event 4 (`musicFull`) count: a bug signal with main's admission (architecture §2.3). */
   readonly musicRingRefused: number;
+  /** Admissions refused because the 16-entry group table was full (P10's `groupTableFull`). */
+  readonly groupTableFull: number;
   /** Live groups: id, state, primed members of `of`. */
   readonly groups: readonly { readonly id: number; readonly state: "admitted" | "priming" | "stamped" | "playing" | "held" | "ending"; readonly primed: number; readonly of: number }[];
 }
@@ -271,7 +273,10 @@ export class CoreMusicOps implements MusicBackend {
     const pool = this.host.musicRings();
     if (need > 0 && pool === 0) return { ok: false, reason: "noMusicRings", permanent: true };
     if (need > pool) return { ok: false, reason: "neverFits", permanent: true };
-    if (this.groups.size >= MUSIC_GROUP_TABLE) return { ok: false, reason: "groupTableFull", permanent: false };
+    if (this.groups.size >= MUSIC_GROUP_TABLE) {
+      this.tableFull++;
+      return { ok: false, reason: "groupTableFull", permanent: false };
+    }
     if (need > pool - this.ringsUsed) return { ok: false, reason: "poolFull", permanent: false };
     const members: Member[] = req.members.map((m, index) => {
       const streamed = m.play.stream === true;
@@ -604,7 +609,7 @@ export class CoreMusicOps implements MusicBackend {
       const s = this.primedState(g.id)!;
       groups.push({ id: g.id, state: g.state, primed: s.primed, of: s.of });
     }
-    return { poolUsed: this.ringsUsed, poolSize: this.host.musicRings(), poolHighWater: this.highWater, musicRingRefused: this.refusedRings, groups };
+    return { poolUsed: this.ringsUsed, poolSize: this.host.musicRings(), poolHighWater: this.highWater, musicRingRefused: this.refusedRings, groupTableFull: this.tableFull, groups };
   }
 
   /** The backend was disposed: every group closes. */
@@ -618,6 +623,9 @@ export class CoreMusicOps implements MusicBackend {
   }
 
   // --- Internals ---
+
+  /** Admissions refused at `MUSIC_GROUP_TABLE`. */
+  private tableFull = 0;
 
   private takeRings(n: number): void {
     this.ringsUsed += n;
