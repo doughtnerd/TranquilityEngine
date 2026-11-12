@@ -796,3 +796,38 @@ The round merges to master.
 
 **M4 complete** (owner, 2026-11-12). Every wave (W0–W10) and every follow-up the owner asked for is merged to master. The owner's listening pass passed on desktop; the two issues it found were fixed (F-35, the silent export; the walker's late key 2). L3 had nothing left to fix. Deferred: the real-device items (P1, R1–R9; no real device, the floor is an emulated Pixel 8, ADR 0169) and a WebKit run. Left open by the owner: F-13 (the allocation tripwire's headroom) and F-36 (no music rows on the pending stand-in), both notes. Start-up clicks under load stay as they are until a real device shows them (D21).
 
+
+**Owner bug (after M4), F-40: clicks on the Doppler pass-by.** Sound Lab spatial page, listener in room 2 (or room 1, other timing), 0 then V: once the ball has gone to room 1 and reaches room 3, a click or two. `PassBy.ts` ping-pongs z between −40 and 40 at 30 m/s, so the velocity flips instantly at each end (Doppler about ±9% in one frame), and the ball crosses walls and zones on the way. F-40 (strongest) locates the click by measurement (turnaround Doppler step, occlusion, zone send, HRTF↔bed handover or a voice restart) and fixes the engine.
+
+**Owner bug, F-41 merged** (`m4/f41` `ec31aa08`): the segment view's "start from" skipped back for every choice but Start (the entry cue, even at 1:1:0, other cues, bars). The transport started the music at file frame 0 and then called `music.seek`, a 5 ms crossfade into a new group, which restarted the playhead audibly. Now `planner.requestStart` starts the first segment at the chosen position (`runtime/music/startPosition.ts`, `editorHooks.startAtPosition`, `preEntry` adjusted; 1:1:0 is the plain start); the transport seeks only if the hook refuses; `TransportHost` gains `startAtPosition`. Tests: transport units (start, bars 1 and 2, the entry cue, a later cue, a drop cue, seconds), `editorHooks`; an `audio-music-d` case on entry cues at 1:1:0 and 2:1:0 (Start, the entry cue, a mid cue, bars 1, 2, 4), failing before; 27 of 27 on `--repeat-each 3`. Coordinator: typecheck 0; music and editor vitest 964 pass; `audio-music-a`, `-b`, `-d` 30 of 32 beside F-40's run (load ~14), the two (`a:163`, `b:126`) 6 of 6 alone. The exit cue at `end` isn't a tested start.
+
+**Owner bug, F-40 merged** (`m4/f40` `50100ce8`): **the click is the cave zone's reverb send, not Doppler.** On the loopback host (real wasm, physics, zones, HRTF; the flyover clip replaced by a 200 Hz sine), the largest second difference after 0.25 s is 1.6e-3 without the click; spikes of 0.155 (listener in room 2) and 0.129 (room 1) came when the ball's send settled at 0 leaving the zone (1.755 s, 3.355 s), ~8e-3 when it started. They vanish without occlusion or its low-pass, and stay with Doppler off, at the turnarounds, and with equal-power panning. **Cause:** `voices.rs` applies the dry gain before the filters with no zone send and after them with one; when the send starts or settles at 0 the order flips while the filter state stays scaled for the old order, and through the occlusion low-pass that is a step up to the voice's pre-gain level. **Fix:** `FxFilter::rescale_history` rescales the filter state by the dry gain at each flip, from `FxEntry::apply` (a SET_VOICE_FX starting or stopping the send) and from the render when the send settles at 0. Tests failing before: `audio-core/tests/send_order_switch.rs` (0.231 / 0.078 → < 1e-5) and `passByLoopback.test.ts` (0.155 / 0.129 against 5e-3). No golden moved. **Coordinator rebuild:** mixer identical at **319,799 B** (+777 B; 312.3 KB of the 320 KB gate); the metered bench wasm rebuilt; cargo 908 pass; metered pass (−0.01% all; agent: largest +0.09% p99 `filters-256`); audio vitest 2,793 pass; `audio-spatial-*` 17 of 17; typecheck 0.
+
+## Retrospective (coordinator, 2026-11-12, at the owner's request)
+
+Covers the session from M4a's merge (`ed37b347`) to the close, about 18 hours; M4-0 and M4a merged earlier in the same build.
+
+**Outcome.** All five milestones merged to master; the owner's listening pass signed off on desktop, the real-device items deferred (emulators only). 57 merges and 180 commits since M4a (18 of the merges follow-ups or owner bugs), about 22,000 lines in 242 files. 22 decisions logged; ADRs 0168, 0169 and 0170 new, 0155, 0158, 0097 and 0162 amended. Mixer 312.3 KB of the 320 KB gate; metered flat.
+
+**What went well.**
+- Every milestone met its exit criteria before merging, and a failing check was traced to a cause, not loosened.
+- Agent claims were verified, not trusted: F-33's "fails before" (the agent hadn't checked), E3's single-worker spec sent back, D5's "the gate moved" corrected, F-33's ADR 0147 breach caught by the full checks, and stale expectations fixed at milestone checks.
+- Measurement artefacts were fixed at the measurement (F-11, F-28, F-37, F-34) and real defects in the engine (F-25, F-35, F-40, F-41).
+- Owner decisions were asked for and logged with a revert line each.
+
+**What went less well.**
+1. **Test flakiness took about a third of the follow-up work** (F-11, F-28, F-29, F-32, F-34, E3's rework): specs timed things with wall-clock tolerances, and the coordinator ran several agents with Playwright on a 4-core machine. What worked was measuring in the frames that ran or on the audio clock; it should have been a ground rule from W0.
+2. **Three real bugs reached the owner** that the build should have caught: exported games were silent (F-35; every test ran in the editor, where Play is the unlocking gesture, and no milestone check exported a game); the reverb-send click (F-40; no check listened for discontinuities); "start from" (F-41; Ed11 tested only the default option).
+3. **Check order:** M4b's checks ran before F-25 merged and only its spec was re-run after, so a playlist timing flake in M4c sent F-28 bisecting F-25 first.
+4. **Docs drifted:** the owner had to ask whether the listening instructions matched master (M4a's prompt was stale), and the walker failed on the owner's own late key in listen mode, a path headless runs never take.
+5. **The device question came late:** "Android 34, 2 GB, 4 cores" read as an emulator from the start.
+6. Housekeeping: one unsafe worktree clean-up early (stopped before harm), a stop hook had to prompt a push, two stale worktrees left (`m4/k2` locked, `m4/f9b` with stray deletions).
+
+**For the next build.**
+- Ground rule: timing assertions use the audio clock or the frames that ran, never a fixed wall-clock tolerance.
+- Milestone checks add an exported-game smoke (load, gesture, sound plays) and a discontinuity check on the spatial and music scenes (a sample-to-sample step threshold on the loopback host, as F-40's test does).
+- At most two concurrent agents running Playwright on this machine; final verifications with none running.
+- After any merge that follows the milestone checks, re-run the specs covering the changed code before the master merge.
+- Editor specs exercise every option a control offers, not the default.
+- The coordinator runs the listening walker once in listen mode (slow, scripted keys) before handing it to the owner.
+- Ask what hardware is available at the start of any device-testing phase.

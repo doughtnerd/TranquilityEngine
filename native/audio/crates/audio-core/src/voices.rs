@@ -870,7 +870,7 @@ fn fx_silent(s: &VoiceSlot) -> bool {
 /// ADR 0162 D1 (`fxpool::set_voice_fx`): the pool entry of the live mixed voice `voice_id` (taken
 /// now if it holds none and one can be had), with whether the voice is silent (values jump) and
 /// ambisonic. `None` for a stale id, a virtual voice or a full pool.
-pub(crate) fn fx_entry(core: &mut Core, voice_id: u32) -> Option<(&mut FxEntry, bool, bool)> {
+pub(crate) fn fx_entry(core: &mut Core, voice_id: u32) -> Option<(&mut FxEntry, bool, bool, f32)> {
     let mut v = view(core.regions_mut());
     let index = find(&v, voice_id)?;
     if v.slots[index].flags & flag::MIXED == 0 || !ensure_fx(&mut v, index) {
@@ -878,7 +878,7 @@ pub(crate) fn fx_entry(core: &mut Core, voice_id: u32) -> Option<(&mut FxEntry, 
     }
     let s = v.slots[index];
     let View { pool, .. } = v;
-    crate::fxpool::owned(pool, s.fx, index).map(|e| (e, fx_silent(&s), s.flags2 & flag2::AMBISONIC != 0))
+    crate::fxpool::owned(pool, s.fx, index).map(|e| (e, fx_silent(&s), s.flags2 & flag2::AMBISONIC != 0, s.gain.value))
 }
 
 /// ADR 0158 E2 / 0162 D1 (`automation::automate`): slot `index` gained a lowpass binding; its
@@ -1503,6 +1503,12 @@ fn voice_chain_body<const DUE: bool>(slot: &mut VoiceSlot, mut auto: Option<&mut
                     l[i] *= g;
                     r[i] *= g;
                 }
+            }
+            // F-40: the sends settled at 0 in this range, so the next one takes M2's order (the dry
+            // gain before the filters): their history moves to the gained signal's units, or the
+            // change of order clicks (by up to the ungained level, through a running low-pass).
+            if !e.sending() {
+                e.dry_gain_moved(false, slot.gain.value);
             }
         }
         if e.aux_bus != wire::AUX_BUS_NONE as u16 {

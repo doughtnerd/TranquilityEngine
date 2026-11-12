@@ -99,7 +99,7 @@ describe("runTransitionAudition", () => {
     const host: TransportHost = {
       play: (path, parameters) => { played.push({ path, parameters }); return handle; },
       flush: async () => undefined,
-      reload: () => undefined, startAt: () => true, stems: () => undefined,
+      reload: () => undefined, startAt: () => true, startAtPosition: () => false, stems: () => undefined,
     };
     const transport = createTransport(host);
     const event = switchEvent([{ from: "a", to: "b" }], { children });
@@ -120,7 +120,7 @@ describe("runTransitionAudition", () => {
     const handle = fakeHandle();
     let first = true;
     (handle.music as { seek: (t: string) => unknown }).seek = () => (first ? ((first = false), { ok: false, reason: "poolFull", permanent: false }) : { ok: true, time: 1 });
-    const transport = createTransport({ play: () => handle, flush: async () => undefined, reload: () => undefined, startAt: () => true, stems: () => undefined });
+    const transport = createTransport({ play: () => handle, flush: async () => undefined, reload: () => undefined, startAt: () => true, startAtPosition: () => false, stems: () => undefined });
     const event = switchEvent([{ from: "a", to: "b" }], { children });
     const plan = planTransitionAudition(PATH, event, containerOf(event), 0);
     if (!plan.ok) throw new Error(plan.reason);
@@ -134,7 +134,7 @@ describe("runTransitionAudition", () => {
     const handle = fakeHandle();
     const music = handle.music as unknown as { segment: string | null };
     music.segment = null;
-    const transport = createTransport({ play: () => handle, flush: async () => undefined, reload: () => undefined, startAt: () => true, stems: () => undefined });
+    const transport = createTransport({ play: () => handle, flush: async () => undefined, reload: () => undefined, startAt: () => true, startAtPosition: () => false, stems: () => undefined });
     const event = switchEvent([{ from: "a", to: "b" }], { children: [segmentRaw("a"), segmentRaw("b")] });
     const plan = planTransitionAudition(PATH, event, containerOf(event), 0);
     if (!plan.ok) throw new Error(plan.reason);
@@ -150,7 +150,7 @@ describe("runTransitionAudition", () => {
   });
   it("sets nothing for a playlist and says so for a handle that can't set parameters", async () => {
     const handle = fakeHandle();
-    const transport = createTransport({ play: () => handle, flush: async () => undefined, reload: () => undefined, startAt: () => true, stems: () => undefined });
+    const transport = createTransport({ play: () => handle, flush: async () => undefined, reload: () => undefined, startAt: () => true, startAtPosition: () => false, stems: () => undefined });
     const event = switchEvent([{ from: "a", to: "b" }], { type: "playlist" });
     const plan = planTransitionAudition(PATH, event, containerOf(event), 0);
     if (!plan.ok) throw new Error(plan.reason);

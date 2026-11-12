@@ -101,7 +101,12 @@ impl FxEntry {
     }
 
     /// SET_VOICE_FX's masked fields. `silent`: jump instead of ramping. `ambisonic`: no high-pass.
-    pub fn apply(&mut self, fx: &SetVoiceFx, silent: bool, ambisonic: bool) {
+    /// `dry_gain`: the voice's dry `gain` ramp's current value. When the sends start (or stop at
+    /// once, on a silent voice) the voice chain moves that gain from before the filters to after
+    /// them (or back), so the filters' history is rescaled to match (F-40; `voices::voice_chain`
+    /// does the same when the sends settle at 0 while it renders).
+    pub fn apply(&mut self, fx: &SetVoiceFx, silent: bool, ambisonic: bool, dry_gain: f32) {
+        let was_sending = self.sending();
         let frames = if silent { 0 } else { fx.ramp_frames };
         if fx.mask & wire::SET_VOICE_FX_MASK_HP_HZ != 0 && !ambisonic {
             self.filter.set_highpass(fx.hp_hz, cutoff_frames(silent, fx.ramp_frames));
@@ -118,6 +123,21 @@ impl FxEntry {
             self.aux.set_target(finite_or_zero(fx.aux_level), frames);
             self.aux_bus = fx.aux_bus;
         }
+        let sending = self.sending();
+        if sending != was_sending {
+            self.dry_gain_moved(sending, dry_gain);
+        }
+    }
+
+    /// F-40: the voice chain's order changed (`sending`: the dry gain now comes after the filters;
+    /// otherwise before them), with the dry gain at `dry_gain`. The filters' history, in the units
+    /// of their old input, is rescaled to the new input's, so the output stays continuous. A zero
+    /// (or non-finite) gain leaves it: the voice is silent through the change either way.
+    pub fn dry_gain_moved(&mut self, sending: bool, dry_gain: f32) {
+        if !(dry_gain.is_finite() && dry_gain > 0.0) {
+            return;
+        }
+        self.filter.rescale_history(if sending { 1.0 / dry_gain } else { dry_gain });
     }
 }
 
@@ -183,8 +203,8 @@ pub fn release(pool: &mut [FxEntry], fx: u16, index: usize) {
 /// SET_VOICE_FX (C3) for `fx.voice_id`, applied on arrival whatever `at` (see the module notes).
 pub fn set_voice_fx(core: &mut Core, fx: &SetVoiceFx, at: Option<u64>) {
     let _ = at;
-    if let Some((entry, silent, ambisonic)) = crate::voices::fx_entry(core, fx.voice_id) {
-        entry.apply(fx, silent, ambisonic);
+    if let Some((entry, silent, ambisonic, dry_gain)) = crate::voices::fx_entry(core, fx.voice_id) {
+        entry.apply(fx, silent, ambisonic, dry_gain);
     }
 }
 

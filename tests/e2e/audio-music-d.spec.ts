@@ -492,3 +492,87 @@ test("segment view transport: Play starts the playlist at the open segment, and 
   await expect.poll(async () => (await eventRows(page))[0]?.parameters.Intensity, { timeout: 15_000 }).toBeCloseTo(0.8, 5);
   expect(problems.filter((p) => !/prime lead/.test(p))).toEqual([]); // the lead warning depends on the CPU the software GL leaves
 });
+
+// F-41: "start from" anything but Start used to start the music at the file's start and seek a moment later, so the playhead
+// jumped back (or restarted its voices) right after Play. Every choice now starts at its position once. A single segment as in
+// the Sound Lab's rhythm game (cues entry and exit, a forever loop over the whole file), 120 bpm 4/4 over a 16 s clip.
+const ONE = "music/one.audioevent.json";
+const oneEvent = (entry: string) =>
+  event(
+    segment("one", [{ name: "foo", clip: "music/foo.mp3", volume: 0.3 }], false, {
+      cues: [{ name: "entry", at: entry }, { name: "mid", at: "3:1:0" }, { name: "exit", at: "end" }],
+      entry: "entry",
+      exit: "exit",
+      regions: [{ id: "loop", from: "1:1:0", to: "end", count: 0 }],
+    }),
+    { bus: "Music" },
+  );
+
+type PosSample = { pos: number | null; ids: number[] };
+const sampleFor = (page: Page, ms: number): Promise<PosSample[]> =>
+  page.evaluate(
+    ([asset, span]) =>
+      new Promise<PosSample[]>((resolve) => {
+        type Dbg = { music?: { asset: string; segment: string | null; state: string; bar: number; beat: number; tick: number }[]; voices: { id: number; clip: string; state: string }[] };
+        const out: PosSample[] = [];
+        const t0 = performance.now();
+        const timer = setInterval(() => {
+          const d = (globalThis as unknown as { __myco: { Audio: { debug(): Dbg } } }).__myco.Audio.debug();
+          const row = d.music?.find((r) => r.asset === asset);
+          const playing = row && row.segment !== null && row.state === "playing";
+          out.push({
+            pos: playing ? ((row.bar - 1) * 4 + (row.beat - 1) + row.tick / 960) * 0.5 : null,
+            ids: d.voices.filter((v) => /music\/foo\.mp3/.test(v.clip)).map((v) => v.id).sort((a, b) => a - b),
+          });
+          if (performance.now() - t0 >= (span as number)) { clearInterval(timer); resolve(out); }
+        }, 40);
+      }),
+    [ONE, ms] as const,
+  );
+const eventRowsOf = (page: Page, asset: string) =>
+  page.evaluate((a) => (globalThis as unknown as { __myco: { Audio: { debug(): { events: { asset: string }[] } } } }).__myco.Audio.debug().events.filter((e) => e.asset === a), asset);
+
+for (const entry of ["1:1:0", "2:1:0"]) {
+  test(`segment view transport: every "start from" choice starts there once, with no jump back or voice restart (entry cue at ${entry})`, async ({ page }) => {
+    const problems = watch(page);
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await openTestProject(page, { [ONE]: JSON.stringify(oneEvent(entry)) });
+    await page.locator(".dock-tab", { hasText: "Assets" }).click();
+    const assets = page.locator(".panel.assets");
+    await assets.locator(".asset-folder", { hasText: /^music$/ }).click();
+    await assets.locator(".asset-item", { has: page.locator(".asset-name", { hasText: "one.audioevent.json" }) }).dblclick();
+    await expect(page.getByTestId("event-editor")).toHaveAttribute("data-asset-document", ONE);
+    await page.locator('[data-testid="event-tree-row"][data-event-path=""]').click();
+    await page.getByTestId("open-segment-view").click();
+
+    const entrySeconds = (Number(entry.split(":")[0]) - 1) * 2;
+    const choices: { label: string; bar?: string; at: number }[] = [
+      { label: "start", at: 0 },
+      { label: "cue:entry", at: entrySeconds },
+      { label: "cue:mid", at: 4 },
+      { label: "bar", bar: "1", at: 0 },
+      { label: "bar", bar: "2", at: 2 },
+      { label: "bar", bar: "4", at: 6 },
+    ];
+    for (const c of choices) {
+      await page.getByTestId("transport-from").selectOption(c.label);
+      if (c.bar) await page.getByTestId("transport-bar").fill(c.bar);
+      const sampling = sampleFor(page, 1800);
+      await page.getByTestId("transport-play").click();
+      const samples = await sampling;
+      const at = `${c.label}${c.bar ?? ""}`;
+      const heard = samples.filter((s) => s.pos !== null) as { pos: number; ids: number[] }[];
+      expect(heard.length, `${at}: the music sounds`).toBeGreaterThan(5);
+      // Starts at its position (a little past it: the first sample is a frame or two late), never behind it.
+      expect(heard[0]!.pos, at).toBeGreaterThanOrEqual(c.at - 0.05);
+      expect(heard[0]!.pos, at).toBeLessThan(c.at + 0.6);
+      // The playhead never goes backwards (no jump to the clip's start, no restart), and the voices are the same ones throughout.
+      for (let i = 1; i < heard.length; i++) expect(heard[i]!.pos, `${at} sample ${i}`).toBeGreaterThanOrEqual(heard[i - 1]!.pos - 0.03);
+      expect(new Set(heard.map((s) => s.ids.join(","))).size, `${at}: voice ids stable`).toBe(1);
+      expect((await eventRowsOf(page, ONE)).length).toBe(1);
+      await page.getByTestId("transport-stop").click();
+      await expect.poll(async () => (await eventRowsOf(page, ONE)).length, { timeout: 15_000 }).toBe(0);
+    }
+    expect(problems.filter((p) => !/prime lead/.test(p))).toEqual([]);
+  });
+}
