@@ -27,7 +27,7 @@ import type { Vec3Like } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { AudioReverbZone } from "./AudioReverbZone";
 import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
-import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioM3Counters, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicGroupRequest, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade } from "./backend";
+import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioM3Counters, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicGroupRequest, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type FadeLaw } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
 import { DistanceEffect, SendCurveTable, SpatialViewFlag, type SpatialPassHost, type SpatialVoiceView } from "./core/spatial";
 import { DopplerPass } from "./core/doppler";
@@ -171,10 +171,17 @@ class BabylonVoice implements AudioVoice {
   private startedAtTime: number | null = null;
   /** A streamed music member waits for its stamp on a timer (a `StreamingSound` has no `waitTime`). */
   private startTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Pending steps and the end of a shaped fade. */
+  /** Pending steps and the end of a shaped fade (the `fade` ramp). */
   private readonly shapedTimers = new Set<ReturnType<typeof setTimeout>>();
-  /** Stamped fades with a law; present on decoded music members only (`MusicBackendCaps.stampedFades`, §8). */
+  /** Pending steps of a stamped params ramp (the stem's own gain, a second factor beside `fade`). */
+  private readonly paramTimers = new Set<ReturnType<typeof setTimeout>>();
+  /** Music: the stem's own gain (quantised automation, solo), a factor of the voice's volume beside `fade`. */
+  private param = 1;
+  private appliedParam = 1;
+  /** Stamped fades with a law; on every music member (`MusicBackendCaps.stampedFades`, §8). */
   fadeShaped?: (f: ShapedFade) => void;
+  /** Stamped gain ramps of a music member (quantised automation); the low-pass has no home here (warned once). */
+  paramsShaped?: (r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLaw; at?: number }) => void;
 
   constructor(private readonly backend: BabylonBackend, private readonly req: PlayRequest, private readonly music?: VoiceMusic) {
     this.stream = req.stream && req.ambisonic !== true;
@@ -189,7 +196,9 @@ class BabylonVoice implements AudioVoice {
         this.gain = 0;
         this.appliedGain = 0;
       }
-      if (!this.stream) this.fadeShaped = (f) => this.shapedFade(f);
+      // Streamed members ramp too (HTML5 volume steps on timers), so a switch fades them with its law, not a late cut.
+      this.fadeShaped = (f) => this.shapedFade(f);
+      this.paramsShaped = (r) => this.shapedParams(r);
     }
     // E4.5 (ADR 0158 §4): a plain looping clip or stream loops its sidecar's or file's loop points; they are read
     // from the file once per path (`loadFileLoopPoints`) and applied when known (`pointsArrived`).
@@ -220,7 +229,7 @@ class BabylonVoice implements AudioVoice {
 
   /** @internal Debug row fields. */
   get row(): { clip: string; bus: string; gain: number; pitch: number } {
-    return { clip: this.req.path, bus: this.bus, gain: this.volume * this.gain, pitch: this.pitch };
+    return { clip: this.req.path, bus: this.bus, gain: this.volume * this.param * this.gain, pitch: this.pitch };
   }
 
   /** @internal The bus this voice counts on. */
@@ -246,6 +255,8 @@ class BabylonVoice implements AudioVoice {
     this.startTimer = null;
     for (const t of this.shapedTimers) clearTimeout(t);
     this.shapedTimers.clear();
+    for (const t of this.paramTimers) clearTimeout(t);
+    this.paramTimers.clear();
     this.music?.onEnd(this);
     this.unsubPoints?.();
     this.unsubPoints = null;
@@ -282,7 +293,7 @@ class BabylonVoice implements AudioVoice {
       const cap = this.backend._cap(this.bus);
       const options: Record<string, unknown> = {
         outBus: this.backend._busNode(live, this.bus),
-        volume: occludedVolume(this.volume, this.appliedGain, this.occGain),
+        volume: occludedVolume(this.volume * this.appliedParam, this.appliedGain, this.occGain),
         loop: this.req.loop,
         ...(cap !== null ? { maxInstances: cap } : {}),
       };
@@ -332,7 +343,7 @@ class BabylonVoice implements AudioVoice {
     if (this.position) this.applyPosition();
     if (this.region || this.looping !== this.req.loop) this.applyLoop();
     if (!this.paused) this.start();
-    if (this.gain !== this.appliedGain || this.occGain !== this.appliedOcc) this.applyVolume(this.rampSeconds);
+    if (this.gain !== this.appliedGain || this.param !== this.appliedParam || this.occGain !== this.appliedOcc) this.applyVolume(this.rampSeconds);
   }
 
   /** Music: the member's start offset and loop region, from file frames at the context's rate. */
@@ -392,48 +403,82 @@ class BabylonVoice implements AudioVoice {
   /**
    * Music (§8): a shaped fade of this voice's `fade` ramp. It starts at `f.at` (a timer, since a Babylon ramp starts when
    * it is set) and runs `setVolume` ramps: one for a linear law, up to eight for the others. It replaces a fade under
-   * way and starts from the fade gain as it is when it begins.
+   * way and starts from the fade gain as it is when it begins. A timer that fires late joins the law at the phase the
+   * stamp's time implies, so the fade still ends when it was planned to.
    */
   private shapedFade(f: ShapedFade): void {
     if (this.ended) return;
-    for (const t of this.shapedTimers) clearTimeout(t);
-    this.shapedTimers.clear();
-    const live = this.backend._live;
-    const wait = f.at !== undefined && Number.isFinite(f.at) && live ? f.at - live.engine.currentTime : 0;
-    if (wait > MUSIC_LATE_SECONDS) this.later(() => this.runShaped(f), wait);
-    else this.runShaped(f);
+    this.startRamp(this.shapedTimers, f.at, () => this.runShaped(f, this.shapedTimers, "fade"));
   }
 
-  private later(fn: () => void, seconds: number): void {
+  /** G-1 (§8): a stem's own gain ramp, stamped at `r.at` on a timer; the cutoff is skipped. */
+  private shapedParams(r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLaw; at?: number }): void {
+    if (this.ended) return;
+    if (r.lowpassHz !== undefined) warnOnce("babylon-music-lowpass", "a music stem's low-pass automation is skipped by the Babylon audio fallback (api-and-models §8).");
+    if (r.gain === undefined) return;
+    const f: ShapedFade = { to: r.gain, seconds: r.seconds, law: r.law ?? "linear", ...(r.at !== undefined ? { at: r.at } : {}) };
+    this.startRamp(this.paramTimers, r.at, () => this.runShaped(f, this.paramTimers, "param"));
+  }
+
+  private startRamp(timers: Set<ReturnType<typeof setTimeout>>, at: number | undefined, run: () => void): void {
+    for (const t of timers) clearTimeout(t);
+    timers.clear();
+    const live = this.backend._live;
+    const wait = at !== undefined && Number.isFinite(at) && live ? at - live.engine.currentTime : 0;
+    if (wait > MUSIC_LATE_SECONDS) this.later(timers, run, wait);
+    else run();
+  }
+
+  private later(timers: Set<ReturnType<typeof setTimeout>>, fn: () => void, seconds: number): void {
     const t = setTimeout(() => {
-      this.shapedTimers.delete(t);
+      timers.delete(t);
       fn();
     }, seconds * 1000);
-    this.shapedTimers.add(t);
+    timers.add(t);
   }
 
-  private runShaped(f: ShapedFade): void {
+  private runShaped(f: ShapedFade, timers: Set<ReturnType<typeof setTimeout>>, which: "fade" | "param"): void {
     if (this.ended) return;
-    const from = this.gain;
+    const param = which === "param";
+    const set = (v: number, seconds: number): void => {
+      if (param) this.setParam(v, seconds);
+      else this.fade(v, seconds);
+    };
+    const from = param ? this.param : this.gain;
     const to = Math.min(4, Math.max(0, Number.isFinite(f.to) ? f.to : 1));
-    const u0 = f.startPhase !== undefined && Number.isFinite(f.startPhase) ? Math.min(1, Math.max(0, f.startPhase)) : 0;
-    const remaining = Math.max(0, Number.isFinite(f.seconds) ? f.seconds : 0) * (1 - u0);
+    const total = Math.max(0, Number.isFinite(f.seconds) ? f.seconds : 0);
+    let u0 = f.startPhase !== undefined && Number.isFinite(f.startPhase) ? Math.min(1, Math.max(0, f.startPhase)) : 0;
+    // A timer fires after its stamp: the fade joins the law where the stamp's time puts it.
+    const live = this.backend._live;
+    if (total > 0 && f.at !== undefined && Number.isFinite(f.at) && live) {
+      const late = live.engine.currentTime - f.at;
+      if (late > MUSIC_LATE_SECONDS) u0 = Math.min(1, u0 + (late / total) * (1 - u0));
+    }
+    const remaining = total * (1 - u0);
     const at = (u: number): number => from + (to - from) * lawWeight(f.law, u);
     if (remaining <= 0) {
-      this.fade(to, 0);
+      set(to, 0);
       if (f.stopAtEnd) this.stop();
       return;
     }
-    if (u0 > 0) this.fade(at(u0), 0);
+    if (u0 > 0) set(at(u0), 0);
     const steps = f.law === "linear" ? 1 : Math.max(1, Math.min(SHAPED_STEPS, Math.floor(remaining / SHAPED_STEP_MIN_SECONDS)));
     const dur = remaining / steps;
     const step = (i: number): void => {
       if (this.ended) return;
-      this.fade(i === steps ? to : at(u0 + ((1 - u0) * i) / steps), dur);
-      if (i < steps) this.later(() => step(i + 1), dur);
-      else if (f.stopAtEnd) this.later(() => this.stop(), dur);
+      set(i === steps ? to : at(u0 + ((1 - u0) * i) / steps), dur);
+      if (i < steps) this.later(timers, () => step(i + 1), dur);
+      else if (f.stopAtEnd) this.later(timers, () => this.stop(), dur);
     };
     step(1);
+  }
+
+  /** Music: ease the stem's own gain to `to` over `seconds` (a factor of the volume beside `fade`). */
+  private setParam(to: number, seconds: number): void {
+    if (this.ended) return;
+    this.param = Math.min(4, Math.max(0, Number.isFinite(to) ? to : 1));
+    if (this.sound) this.applyVolume(seconds);
+    else this.rampSeconds = seconds;
   }
 
   /**
@@ -460,9 +505,10 @@ class BabylonVoice implements AudioVoice {
     const sound = this.sound;
     if (!sound) return;
     this.appliedGain = this.gain;
+    this.appliedParam = this.param;
     this.appliedOcc = this.occGain;
     this.rampSeconds = 0;
-    const target = occludedVolume(this.volume, this.gain, this.occGain);
+    const target = occludedVolume(this.volume * this.param, this.gain, this.occGain);
     if (seconds > 0) sound.setVolume(target, { duration: seconds, shape: RAMP });
     else sound.volume = target;
   }
@@ -560,7 +606,7 @@ class BabylonVoice implements AudioVoice {
     view.maxDist[i] = att.maxDistance;
     view.volume[i] = this.volume;
     view.dopplerLevel[i] = this.req.dopplerLevel ?? 0;
-    let a0 = this.volume * this.gain;
+    let a0 = this.volume * this.param * this.gain;
     if (pos) {
       view.posX[i] = pos.x;
       view.posY[i] = pos.y;
