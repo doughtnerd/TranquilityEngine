@@ -60,6 +60,10 @@ export interface TransportHost {
   flush(path: string): Promise<void>;
   /** The event or a stem changed on disk: re-prime the playing segment (P8's `noteAssetChanged`). */
   reload(path: string): void;
+  /** F-15: start the playing music at segment `segmentId` of its playlist (before its first plan); false when it can't. */
+  startAt(handle: TransportHandle, segmentId: string): boolean;
+  /** F-14: only the stems of `segmentId` named in `audible` sound (null: all). Editor-only; never written to the event. */
+  stems(handle: TransportHandle, segmentId: string, audible: readonly string[] | null): void;
 }
 
 export type TransportHandle = MusicEventHandle & { stop(fade?: number): void; setParameter?(name: string, value: number | string): void };
@@ -79,6 +83,8 @@ export interface PlayRequest {
   readonly grid: SegmentGrid;
   readonly parameters?: Record<string, number | string>;
   readonly from?: TransportTarget;
+  /** Start the playlist at `segmentId` rather than its first segment (the segment view's open segment). */
+  readonly startAtSegment?: boolean;
 }
 
 /** A refused-for-now seek is retried this many ticks (about two seconds at the default tick) before giving up. */
@@ -98,6 +104,8 @@ export interface Transport {
    * its change; "audition this transition"). False, with a message, when nothing plays or the handle can't set one.
    */
   requestParameter(name: string, value: number | string): boolean;
+  /** The stems that sound in the open segment (solo and mute of the segment panel); null: all. Applies now and to later plays. */
+  setAudibleStems(segmentId: string, audible: readonly string[] | null): void;
   /** Fire a stinger of the playing event; false (with a message) when nothing plays or it is refused. */
   trigger(name: string): boolean;
   /** Hot reload: flush the edit and tell the runtime, which swaps the playing segment at the next bar. */
@@ -118,6 +126,7 @@ export function createTransport(host: TransportHost): Transport {
   let pendingSeek: { text: string; retries: number } | null = null;
   let pendingParameter: { name: string; value: number | string } | null = null;
   let grid: SegmentGrid | null = null;
+  let stems: { segmentId: string; audible: readonly string[] | null } | null = null;
   /** Bumped by every play and stop, so a flush that resolves after a newer one does nothing. */
   let epoch = 0;
 
@@ -162,11 +171,15 @@ export function createTransport(host: TransportHost): Transport {
     }
     handle = h;
     setActiveAudition(request.event, h);
+    // Before the first plan tick: the playlist starts at the open segment, and the stems with the panel's solo and mute.
+    let startMessage: string | null = null;
+    if (request.startAtSegment && !host.startAt(h, request.segmentId)) startMessage = "This segment can't be started on its own here; playing from the event's start.";
+    if (stems) host.stems(h, stems.segmentId, stems.audible);
     pendingSeek = text === null ? null : { text, retries: SEEK_RETRIES };
     set({
       event: request.event,
       segmentId: request.segmentId,
-      message: request.from && request.from.kind !== "start" && text === null ? "That position is not on the grid." : null,
+      message: request.from && request.from.kind !== "start" && text === null ? "That position is not on the grid." : startMessage,
     });
     move("play");
     trySeek();
@@ -203,6 +216,10 @@ export function createTransport(host: TransportHost): Transport {
       pendingParameter = { name, value };
       set({ message: null });
       return true;
+    },
+    setAudibleStems(segmentId, audible) {
+      stems = { segmentId, audible };
+      if (handle?.playing) host.stems(handle, segmentId, audible);
     },
     trigger(name) {
       if (!handle?.playing) {
