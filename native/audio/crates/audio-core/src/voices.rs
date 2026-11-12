@@ -1409,14 +1409,33 @@ impl VoiceFx<'_> {
 /// - **a zone send** (R11 as clarified, K3): the fade and mix ramps, `gainMul`, the filters, the
 ///   send tap (`sends::tap`), then the dry `gain` ramp;
 /// - either way, with an aux bus, the post-fader aux tap (`sends::tap_aux`) last.
-fn voice_chain(slot: &mut VoiceSlot, mut auto: Option<&mut VoiceAuto>, fx: &mut VoiceFx<'_>, sample_rate: f32, from: usize, l: &mut [f32], r: &mut [f32]) {
+///
+/// F-8: a range with a class G record (`fx.due`) takes its own copy ([`voice_chain_due`]), so the
+/// common copy's gain loops are M3's, with nothing of the due record's compare around them.
+fn voice_chain(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, fx: &mut VoiceFx<'_>, sample_rate: f32, from: usize, l: &mut [f32], r: &mut [f32]) {
+    if fx.due.at != u32::MAX {
+        voice_chain_due(slot, auto, fx, sample_rate, from, l, r);
+    } else {
+        voice_chain_body::<false>(slot, auto, fx, sample_rate, from, l, r);
+    }
+}
+
+/// [`voice_chain`] for a range with a class G record. Out of line: only flagged voices run it.
+#[inline(never)]
+fn voice_chain_due(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, fx: &mut VoiceFx<'_>, sample_rate: f32, from: usize, l: &mut [f32], r: &mut [f32]) {
+    voice_chain_body::<true>(slot, auto, fx, sample_rate, from, l, r);
+}
+
+/// [`voice_chain`]'s steps; `DUE = false` when `fx.due` is `DueGain::NONE` (the compare compiles away).
+#[inline(always)]
+fn voice_chain_body<const DUE: bool>(slot: &mut VoiceSlot, mut auto: Option<&mut VoiceAuto>, fx: &mut VoiceFx<'_>, sample_rate: f32, from: usize, l: &mut [f32], r: &mut [f32]) {
     let VoiceFx { entry, zones, due, .. } = fx;
     let due: &DueGain = due;
     let zones: &mut [u8] = zones;
     let sending = entry.as_deref().is_some_and(FxEntry::sending);
     let n = l.len();
     let settled_mix = slot.mix.is_settled() && slot.mix.value == 1.0;
-    if due.at != u32::MAX {
+    if DUE {
         // 0166 M4-0 (H1): a class G record in this range: the same products, through the compare.
         due_gain_loop(slot, due, sending, l, r);
     } else if !sending {
@@ -1464,7 +1483,7 @@ fn voice_chain(slot: &mut VoiceSlot, mut auto: Option<&mut VoiceAuto>, fx: &mut 
         }
         if sending {
             crate::sends::tap(&mut e.send, zones, slot.bus, from, l, r);
-            if due.at != u32::MAX && due.ramp == ramp_of::GAIN {
+            if DUE && due.ramp == ramp_of::GAIN {
                 for i in 0..n {
                     let g = crate::curves::due_gain(&mut slot.gain, i as u32, due);
                     l[i] *= g;
@@ -1506,6 +1525,8 @@ fn due_gain_loop(slot: &mut VoiceSlot, due: &DueGain, sending: bool, l: &mut [f3
 
 /// ADR 0158 §3: multiplies a mixed voice's block (frames `from..` of the quantum) by its `gainMul`,
 /// ramped across the quantum.
+/// Inlined (F-8): it was in M3, before `voice_chain` had two copies.
+#[inline(always)]
 fn auto_gain(a: &VoiceAuto, l: &mut [f32], r: &mut [f32], from: usize) {
     if a.count == 0 || a.targets & automation::has::GAIN == 0 {
         return;
