@@ -300,7 +300,10 @@ export class EventSystem {
       if (!timer.instance.stopped) timer.run();
     }
     this.ts?.update(dt);
-    for (const i of this.live) if (i.music) i.tickMusicAutomation();
+    // F-9: music stems' automation is not ticked here. This runs after the frame's BATCH has committed, so a quantised
+    // ramp written here waited a whole frame (100 ms at 10 fps) past the horizon it was planned against and landed late,
+    // or, for the bind-time level, after the member had already started. `music/stems.ts` `tickStems` calls
+    // `tickMusicAutomation` in the music plan step instead, before the commit.
   }
 
   /** @internal G-1: the quantised bindings' level for `instance` (`evaluateQuantized` over this system's curves and parameters). */
@@ -923,6 +926,8 @@ export class EventInstance {
    * per stem voice (the core follows the parameter itself); quantised ones (`quantize`) are evaluated here each frame
    * (`evaluateQuantized`) and a changed level becomes a stamped in-voice ramp at the next grid point (`quantizedRamp`).
    * Only the playing run takes quantised ramps; a successor's stems are bound as soon as they have voices.
+   * F-9: called from the music plan step (`music/stems.ts` `tickStems`, before the frame's BATCH commits), so what it
+   * writes goes out this frame, inside the horizon `quantizedRamp` planned against.
    */
   tickMusicAutomation(): void {
     const p = this.music;
@@ -951,10 +956,14 @@ export class EventInstance {
           // A quantised stem must not sound at full until its first grid point: send the evaluated level to the voice now
           // (the voice is new, so nothing has been heard). `st.level` stays 1 so the stamped ramp below still goes out,
           // which also records the level in the stem's gain state (solo recomposes from it).
+          // F-9: stamped at the run's start. A member's PLAY is stamped at the group's start, so on the core an asap
+          // SET_PARAMS sent before that frame finds no voice and is dropped, and the stem sounded at full until the
+          // first grid ramp landed. At the start frame it applies right after the PLAY; a start already past goes asap.
           if (st.bindings.length > 0) {
             const q0 = this.sys.quantizedLevel(this, st.bindings);
             if (q0.grid !== null && Math.abs(q0.gain - 1) >= 1e-4) {
-              if (voice.paramsShaped) voice.paramsShaped({ gain: q0.gain, seconds: 0, law: "linear" });
+              const at = Number.isFinite(run.startAt) ? { at: run.startAt } : {};
+              if (voice.paramsShaped) voice.paramsShaped({ gain: q0.gain, seconds: 0, law: "linear", ...at });
               else voice.fade(q0.gain, 0);
             }
           }
