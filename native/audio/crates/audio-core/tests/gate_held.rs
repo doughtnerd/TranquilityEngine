@@ -27,8 +27,9 @@ use gate_common::*;
 
 const TOL: f32 = 1e-6;
 const HELD: u16 = wire::GROUP_START_HELD as u16;
-/// The 5 ms starve fade at 48 kHz (`stream::STARVE_FADE_SECONDS`).
-const FADE: u64 = 240;
+/// The hold's fade at 48 kHz: the 5 ms starve fade rounded up to whole quanta
+/// (`group_hold::hold_fade_frames`), and the resume's fade-in fits in it.
+const FADE: u64 = 256;
 
 /// One quantum's record: its frame and every member's (state, position) after it.
 struct Tick {
@@ -43,23 +44,23 @@ struct Held {
     stamp: u64,
 }
 
-/// Two decoded and two streamed members (stream 102 is the dry one: its first chunk only, then
-/// nothing until `refill`), stamped on time at `stamp`, rendered to `until`.
-fn held_scene(mut r: Rig, stamp: u64, refill: u64, until: u64, seed: u32) -> Held {
+/// Four members, `clips` decoded and the rest streamed (stream 104 is the dry one: its first chunk
+/// only, then nothing until `refill`), stamped on time at `stamp`, rendered to `until`.
+fn held_scene(mut r: Rig, clips: u32, stamp: u64, refill: u64, until: u64, seed: u32) -> Held {
     let mut members = Vec::new();
-    for k in 0..2u32 {
+    for k in 0..clips {
         r.clip(1 + k, seed + k, 48_000);
         members.push(Member { voice: voice(k), source: Source::Clip { id: 1 + k, seed: seed + k }, gain: 0.25 });
     }
-    for k in 0..2u32 {
+    for k in clips..4 {
         let id = 101 + k;
         let s = seed ^ 0x7E1D_0000 ^ k;
         let mut f = Feed::new(id, s, 0);
-        if id == 102 {
+        if id == 104 {
             f.stall_until = refill;
         }
         r.feeds.push(f);
-        members.push(Member { voice: voice(2 + k), source: Source::Stream { id, seed: s }, gain: 0.25 });
+        members.push(Member { voice: voice(k), source: Source::Stream { id, seed: s }, gain: 0.25 });
     }
     r.run_to(8 * Q);
     let gate = wire::pack_gate(51, 4);
@@ -75,7 +76,7 @@ fn held_scene(mut r: Rig, stamp: u64, refill: u64, until: u64, seed: u32) -> Hel
 }
 
 /// The checks; returns the resume's `(groupId, flags, slip, start)` events and the worst null.
-fn check_held(h: &mut Held, what: &str) -> (Vec<(u16, u16, u32, u64)>, f32) {
+fn check_held(h: &mut Held, what: &str, joint: bool) -> (Vec<(u16, u16, u32, u64)>, f32) {
     let (r, members, stamp) = (&h.r, &h.members, h.stamp);
     // The dip: the first frame the output leaves the uninterrupted reference.
     let first_off = (stamp..r.frame).find(|&t| {
@@ -108,7 +109,7 @@ fn check_held(h: &mut Held, what: &str) -> (Vec<(u16, u16, u32, u64)>, f32) {
         quiet_from -= 1;
     }
     assert!(quiet_from < resume, "{what}: silent before the resume");
-    assert!(quiet_from <= dip + FADE, "{what}: the fade-out lasts at most 5 ms (dip {dip}, silent from {quiet_from})");
+    assert!(quiet_from <= dip + FADE, "{what}: the fade-out lasts at most the hold fade (dip {dip}, silent from {quiet_from})");
     // The heard reference: before the dip from the stamp; from the resume, continued from `pinned`.
     let start_after = resume - pinned as u64;
     let post = r.null(members, start_after, resume + FADE, r.frame, TOL);
@@ -133,8 +134,10 @@ fn check_held(h: &mut Held, what: &str) -> (Vec<(u16, u16, u32, u64)>, f32) {
             last = gl;
         }
     };
-    common_gain(dip, quiet_from, stamp, true);
-    common_gain(resume, resume + FADE, start_after, false);
+    if joint {
+        common_gain(dip, quiet_from, stamp, true);
+        common_gain(resume, resume + FADE, start_after, false);
+    }
     let worst = pre.0.max(post.0);
     let st = h.r.take();
     let starts = group_starts(&st);
@@ -149,26 +152,41 @@ fn check_held(h: &mut Held, what: &str) -> (Vec<(u16, u16, u32, u64)>, f32) {
 }
 
 #[test]
-#[ignore = "waits for C2c + C2d: the hold and the rebase are stubs at this base"]
 fn a_dry_ring_dips_the_whole_group_and_it_resumes_aligned() {
     // The stamp at sample 77 of the quantum at 2,304; the dry ring's 4,096 frames run out 4,096
     // frames after it, and its worker sends again 20 quanta later.
     let stamp = 18 * Q + 77;
-    let mut h = held_scene(Rig::recording(), stamp, stamp + 4_096 + 20 * Q, stamp + 24_000, 0x0C3_4001);
-    let (starts, worst) = check_held(&mut h, "one dry ring");
+    let mut h = held_scene(Rig::recording(), 2, stamp, stamp + 4_096 + 20 * Q, stamp + 24_000, 0x0C3_4001);
+    let (starts, worst) = check_held(&mut h, "one dry ring", false);
     h.r.finish("gate-held", "2 decoded and 2 streamed stems start on time; one ring runs dry: the whole group dips together, holds pinned, and resumes aligned when the ring refills", &starts, (worst, TOL));
 }
 
 #[test]
-#[ignore = "waits for C2c + C2d: the hold and the rebase are stubs at this base"]
 fn every_hold_length_and_stamp_offset_dips_together_and_resumes_aligned() {
     // The worker sends again `refill_q` quanta after the dry ring's data runs out (0: during the
     // fade-out).
     for (n, refill_q) in [0u64, 2, 9, 40].into_iter().enumerate() {
         for s_mod in [0u64, 63, 127] {
             let stamp = 18 * Q + s_mod;
-            let mut h = held_scene(Rig::new(48_000.0), stamp, stamp + 4_096 + refill_q * Q, stamp + 16_000, 0x0C3_4100 + n as u32);
-            check_held(&mut h, &format!("refill {refill_q} quanta after the dry point, s_mod {s_mod}"));
+            let mut h = held_scene(Rig::new(48_000.0), 2, stamp, stamp + 4_096 + refill_q * Q, stamp + 16_000, 0x0C3_4100 + n as u32);
+            check_held(&mut h, &format!("refill {refill_q} quanta after the dry point, s_mod {s_mod}"), false);
         }
     }
+}
+
+#[test]
+fn a_held_all_streamed_group_fades_out_and_in_with_one_gain() {
+    for s_mod in [0u64, 77] {
+        let stamp = 18 * Q + s_mod;
+        let mut h = held_scene(Rig::new(48_000.0), 0, stamp, stamp + 4_096 + 9 * Q, stamp + 16_000, 0x0C3_4200);
+        check_held(&mut h, &format!("all streamed, s_mod {s_mod}"), true);
+    }
+}
+
+#[test]
+#[ignore = "C3 found: a held group's decoded members don't take the joint fade; they play the hold's fade-out at full and are cut when it ends, and step back in at full on the resume (group_hold.rs 'Decoded members', C2c's voices.rs patch pending), against architecture §4.3 'every gated member takes the 5 ms starve fade together' and 'resume every member ... with a 5 ms fade-in'"]
+fn a_held_mixed_groups_decoded_members_fade_out_and_in_with_the_rest() {
+    let stamp = 18 * Q + 77;
+    let mut h = held_scene(Rig::new(48_000.0), 2, stamp, stamp + 4_096 + 9 * Q, stamp + 16_000, 0x0C3_4300);
+    check_held(&mut h, "2 decoded, 2 streamed", true);
 }

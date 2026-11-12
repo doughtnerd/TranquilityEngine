@@ -8,7 +8,8 @@
 //! - analytically: step fades (FADE, 0 frames) null against the reference with each gain change at
 //!   start + offset;
 //! - against the same scene rendered on time: shaped fades (linear, S-curve, equal power with
-//!   stop-at-end) and a stamped STOP, heard late, null against the on-time render shifted by the slip;
+//!   stop-at-end) and a stamped STOP, heard late, null against the on-time render shifted by the slip
+//!   (to 1e-4: the control-rate knots move with the quantum grid);
 //! - a non-member's fade applies at its own frame while the group still waits.
 //!
 //! `a_parked_step_fade_lands_at_the_late_start_plus_its_offset` is also a fixture
@@ -20,6 +21,11 @@ use audio_wire::generated::{self as wire, fade_law};
 use gate_common::*;
 
 const TOL: f32 = 1e-6;
+/// The late render against the on-time one: the shaped laws run at control rate (architecture
+/// §4.4), with knots counted from each quantum, so a slip that isn't a whole number of quanta moves
+/// the knots against the music. Each render is within 1e-4 of the exact curve (Z3's bound), so
+/// their difference is held to that; measured 1.2e-5. A misplaced fade errs by about 1e-2.
+const SHIFT_TOL: f32 = 1e-4;
 const LATE: u16 = wire::GROUP_START_LATE as u16;
 
 fn eight(r: &mut Rig, slow: u32, slow_at: u64, seed: u32) -> Vec<Member> {
@@ -65,7 +71,6 @@ fn reference_with(r: &Rig, members: &[Member], start: u64, steps: &[(usize, u64,
 }
 
 #[test]
-#[ignore = "waits for C2c + C2d: the hold and the rebase are stubs at this base"]
 fn a_parked_step_fade_lands_at_the_late_start_plus_its_offset() {
     let mut r = Rig::recording();
     let stamp = 18 * Q + 77;
@@ -121,7 +126,6 @@ fn shaped(slow_at: u64, stamp: u64, until: u64) -> Rig {
 }
 
 #[test]
-#[ignore = "waits for C2c + C2d: the hold and the rebase are stubs at this base"]
 fn shaped_fades_and_a_stop_of_a_late_group_null_against_the_on_time_render_shifted_by_the_slip() {
     let stamp = 10 * Q + 45;
     let on_time = shaped(0, stamp, 12_000);
@@ -136,7 +140,7 @@ fn shaped_fades_and_a_stop_of_a_late_group_null_against_the_on_time_render_shift
             let (c, d) = late.out(t + slip);
             let e = (a - c).abs().max((b - d).abs());
             worst = worst.max(e);
-            if e > TOL {
+            if e > SHIFT_TOL {
                 over += 1;
                 first.get_or_insert(t);
             }
@@ -147,7 +151,6 @@ fn shaped_fades_and_a_stop_of_a_late_group_null_against_the_on_time_render_shift
 }
 
 #[test]
-#[ignore = "waits for C2c + C2d: the hold and the rebase are stubs at this base"]
 fn a_non_members_fade_is_not_rebased() {
     let mut r = Rig::new(48_000.0);
     let stamp = 10 * Q + 45;

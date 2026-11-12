@@ -1,5 +1,5 @@
 // ADR 0166 M4a, task C3 (api-and-models §9 "Golden (Node, real wasm)", §10 row C3). The gate goldens are rendered twice:
-// natively by `native/audio/crates/audio-core/tests/gate_mixed.rs` and `gate_late.rs` (which null each scene against the
+// natively by `native/audio/crates/audio-core/tests/gate_{mixed,late,held,rebased}.rs` (which null each scene against the
 // offline reference and write the fixture, `gate_common/mod.rs`), and here by the real committed wasm on the loopback
 // host (`testing.ts`). Both must give the same bits and the same `groupStarts`.
 //
@@ -59,8 +59,8 @@ interface GateFixture {
   readonly null: { readonly maxError: number; readonly tolerance: number };
 }
 
-/** Primed decoded and streamed stems (`gate_mixed.rs`); a slow ring's late start (`gate_late.rs`). */
-export const GATE_CASES = ["gate-mixed", "gate-late"] as const;
+/** Primed decoded and streamed stems (`gate_mixed.rs`), a slow ring's late start (`gate_late.rs`), a held group's dip and aligned resume (`gate_held.rs`), a rebased late group (`gate_rebased.rs`). */
+export const GATE_CASES = ["gate-mixed", "gate-late", "gate-held", "gate-rebased"] as const;
 
 /** A streamed member's amplitude (`gate_common::STREAM_AMP`). */
 const STREAM_AMP = 0.25;
@@ -183,7 +183,7 @@ describe("gate goldens: native equals wasm (C3)", () => {
 
   it.for(GATE_CASES)("%s: the wasm output equals the native fixture's digest and group starts", async (name) => {
     const fixture = readFixture(name);
-    if (fixture === undefined) throw new Error(`no golden/${name}.json: run UPDATE_GOLDENS=1 cargo test -p audio-core --test gate_mixed --test gate_late (native/audio)`);
+    if (fixture === undefined) throw new Error(`no golden/${name}.json: run UPDATE_GOLDENS=1 cargo test -p audio-core --test gate_mixed --test gate_late --test gate_held --test gate_rebased (native/audio)`);
     const { left, right, host } = await renderFixture(fixture);
     expect(left.length, `${fixture.scene}: frames`).toBe(fixture.frames);
     let peak = 0;

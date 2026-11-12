@@ -413,7 +413,7 @@ impl Rig {
             std::fs::write(&path, json).unwrap();
             return;
         }
-        let want = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("{scene}: no fixture; run UPDATE_GOLDENS=1 cargo test -p audio-core --test gate_mixed --test gate_late (native/audio)"));
+        let want = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("{scene}: no fixture; run UPDATE_GOLDENS=1 cargo test -p audio-core --test gate_mixed --test gate_late --test gate_held --test gate_rebased (native/audio)"));
         assert!(want == json, "{scene}: the scene no longer matches golden/{scene}.json (rerun with UPDATE_GOLDENS=1 and review the diff)");
     }
 }
