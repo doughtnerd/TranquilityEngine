@@ -1,0 +1,86 @@
+S3 capture spike. node v22.23.4, FULL: 5 run(s), capture 600s, op slice 60s
+checks: 376545 passed
+  ok: roundtrip N=64 quant=true: 1250 statuses, 1913 events, 20 keyframes max peak error 0.0050 dB
+  ok: roundtrip N=64 quant=false: 1250 statuses, 1913 events, 20 keyframes 
+  ok: roundtrip N=1024 quant=true: 1250 statuses, 23854 events, 20 keyframes max peak error 0.0050 dB
+  ok: roundtrip N=1024 quant=false: 1250 statuses, 23854 events, 20 keyframes 
+  ok: ring wrapped head 2518010 cap 1048576
+  ok: evicted ring decodes cleanly to the end 13203 records, 910 KiB kept
+  ok: header refuses another schema wire schema 287e5173cde33028cb09bd4bfbc4d2ec differs from this build's 00000000000000000000000000000000: STATUS cannot be decoded
+  ok: header refuses bad magic 
+  ok: header refuses newer format capture format 2, this editor reads 1
+  run 1/5 N=64 done (8 s)
+  run 2/5 N=64 done (8 s)
+  run 3/5 N=64 done (9 s)
+  run 4/5 N=64 done (10 s)
+  run 5/5 N=64 done (11 s)
+  run 1/5 N=256 done (13 s)
+  run 2/5 N=256 done (15 s)
+  run 3/5 N=256 done (17 s)
+  run 4/5 N=256 done (18 s)
+  run 5/5 N=256 done (20 s)
+  run 1/5 N=1024 done (24 s)
+  run 2/5 N=1024 done (27 s)
+  run 3/5 N=1024 done (31 s)
+  run 4/5 N=1024 done (35 s)
+  run 5/5 N=1024 done (39 s)
+
+== DATA RATE (per minute of capture; 10 min capture, compression on a 60 s window) ==
+voices | STATUS raw | STATUS delta(q) | events | keyframes(1/s) | TOTAL raw | TOTAL delta | delta lossless | JSON total | events/s
+    64 | 1.62 MB | 0.40 MB | 0.05 MB | 0.07 MB | 1.74 MB | 0.53 MB | 0.70 MB | 8.64 MB | 88.2
+   256 | 3.57 MB | 1.15 MB | 0.14 MB | 0.29 MB | 4.01 MB | 1.58 MB | 1.85 MB | 18.74 MB | 262
+  1024 | 9.18 MB | 3.43 MB | 0.60 MB | 1.18 MB | 10.96 MB | 5.21 MB | 5.56 MB | 51.03 MB | 1144
+
+Compressed per minute (60 s window): raw stream | delta(q) | delta lossless  [gzip / deflate-raw / 10s chunks of deflate-raw]
+    64 | 0.56/0.56/0.56 MB | 0.11/0.11/0.12 MB | 0.25/0.25/0.26 MB | CompressionStream==zlib: 111673 vs 111673
+   256 | 1.66/1.66/1.66 MB | 0.15/0.15/0.16 MB | 0.27/0.27/0.27 MB | CompressionStream==zlib: 150737 vs 150737
+  1024 | 4.94/4.94/4.95 MB | 0.25/0.25/0.26 MB | 0.31/0.31/0.31 MB | CompressionStream==zlib: 253208 vs 253208
+
+10-minute capture in memory / gzip'd:
+    64 | 5.26 MB | 1.60 MB  (bytes per STATUS: raw 431, delta 108)
+   256 | 15.83 MB | 4.07 MB  (bytes per STATUS: raw 953, delta 306)
+  1024 | 52.08 MB | 20.03 MB  (bytes per STATUS: raw 2449, delta 915)
+
+== COST per operation, us (median over runs of p50 / p99 / p99.9 / max); GC events per loop ==
+-- 64 voices
+  timer overhead                     p50 0.05  p99 0.10  p99.9 0.37  max 42.0   gc 0 (0.0 ms)
+  STATUS raw copy                    p50 0.64  p99 1.37  p99.9 21.12  max 53.1   gc 1 (2.1 ms)
+  STATUS delta (binary, q peaks)     p50 2.79  p99 6.64  p99.9 39.75  max 87.7   gc 0 (0.0 ms)
+  STATUS delta (binary, lossless)    p50 2.18  p99 4.56  p99.9 28.59  max 87.0   gc 0 (0.0 ms)
+  STATUS JSON.stringify              p50 6.65  p99 18.10  p99.9 37.75  max 940   gc 2 (1.7 ms)
+  event binary                       p50 0.14  p99 0.35  p99.9 2.06  max 80.9   gc 0 (0.0 ms)
+  event JSON                         p50 0.52  p99 1.25  p99.9 15.23  max 48.5   gc 0 (0.0 ms)
+  keyframe binary                    p50 5.49  p99 14.68  p99.9 54.97  max 55.0   gc 0 (0.0 ms)
+  keyframe JSON                      p50 21.99  p99 49.87  p99.9 1100  max 1100   gc 1 (1.0 ms)
+-- 256 voices
+  timer overhead                     p50 0.05  p99 0.12  p99.9 0.27  max 31.9   gc 0 (0.0 ms)
+  STATUS raw copy                    p50 1.32  p99 2.20  p99.9 22.02  max 67.2   gc 0 (0.0 ms)
+  STATUS delta (binary, q peaks)     p50 4.93  p99 17.01  p99.9 43.47  max 132   gc 1 (2.8 ms)
+  STATUS delta (binary, lossless)    p50 4.43  p99 11.83  p99.9 35.85  max 201   gc 0 (0.0 ms)
+  STATUS JSON.stringify              p50 13.64  p99 35.67  p99.9 122  max 1632   gc 3 (3.0 ms)
+  event binary                       p50 0.10  p99 0.41  p99.9 0.74  max 41.3   gc 0 (0.0 ms)
+  event JSON                         p50 0.51  p99 1.27  p99.9 7.16  max 684   gc 1 (0.7 ms)
+  keyframe binary                    p50 17.73  p99 40.34  p99.9 58.83  max 58.8   gc 0 (0.0 ms)
+  keyframe JSON                      p50 110  p99 193  p99.9 2563  max 2563   gc 5 (11.6 ms)
+-- 1024 voices
+  timer overhead                     p50 0.06  p99 0.21  p99.9 0.32  max 60.8   gc 0 (0.0 ms)
+  STATUS raw copy                    p50 3.17  p99 8.45  p99.9 35.83  max 126   gc 0 (0.0 ms)
+  STATUS delta (binary, q peaks)     p50 10.70  p99 31.16  p99.9 93.70  max 599   gc 0 (0.0 ms)
+  STATUS delta (binary, lossless)    p50 10.01  p99 32.75  p99.9 80.45  max 2139   gc 1 (2.3 ms)
+  STATUS JSON.stringify              p50 31.97  p99 88.43  p99.9 962  max 1817   gc 8 (9.2 ms)
+  event binary                       p50 0.12  p99 0.50  p99.9 1.12  max 389   gc 0 (0.0 ms)
+  event JSON                         p50 0.50  p99 1.12  p99.9 9.16  max 805   gc 1 (0.8 ms)
+  keyframe binary                    p50 63.22  p99 97.68  p99.9 112  max 112   gc 0 (0.0 ms)
+  keyframe JSON                      p50 503  p99 867  p99.9 1912  max 1912   gc 4 (4.4 ms)
+
+Allocation, bytes per op (heapUsed delta, semi-space 256 MB so no scavenge hides it):
+  64: status.delta 378, status.json 2444, event.bin 112, event.json 528, keyframe.bin 1041
+  256: status.delta 372, status.json 4671, event.bin 112, event.json 512, keyframe.bin 16
+  1024: status.delta 368, status.json 10660, event.bin 96, event.json 503, keyframe.bin 16
+
+== EDITOR SIDE (10 min capture; median over runs) ==
+   64 voices: gunzip 12.4 ms | header-scan index 2.18 ms (600 keyframes) | full decode+overview 241 ms (37500 blocks) | reconstruct at random t: p50 196 us, p99 702 us, max 1151 us
+  256 voices: gunzip 34.7 ms | header-scan index 4.95 ms (600 keyframes) | full decode+overview 413 ms (37500 blocks) | reconstruct at random t: p50 340 us, p99 977 us, max 2287 us
+ 1024 voices: gunzip 170 ms | header-scan index 14.69 ms (600 keyframes) | full decode+overview 834 ms (37500 blocks) | reconstruct at random t: p50 732 us, p99 1864 us, max 5461 us
+
+total 40 s; wrote results.json
