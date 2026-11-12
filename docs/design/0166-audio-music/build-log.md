@@ -600,3 +600,9 @@ K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.t
 - **For Rh2:** a mode rebuild keeps the output device, so calibration doesn't go stale; key calibrations by `host.snapshot().sink`.
 
 **Owner bug report (2026-11-12):** in the Sound Lab's spatial page, after key 0 (quiet) and one full cycle of key 5 (level orbit, vertical orbit, off), the orbit's second cycle isn't spatial any more: equal in both ears, a quiet dip, then a slow return to full level, until the engine restarts. **F-22 task** (strongest) is reproducing it through `Audio.debug()`, classifying it (sample or engine; M4 regression or older, by testing `0a024003` and `c25eb624`), and fixing the root cause with a failing test and an e2e regression case.
+
+**D3 merged** (`m4/d3` `29d1d76c`): `interactive-music.md` rewritten for M4b.
+- Loops are one chapter (counted, tails, `while`). Playlists state D14. The sound-lab music page is the worked example for transitions (keys 1/2/3, the bridge fade table, the calm→combat riser) and stingers. Scripting covers seek, `positionAt`/`judged`, callbacks (D15) and rhythm mode. The Babylon fallback is one section.
+- **"Coming later":** `handle.onMusic` (K5); calibration from taps, storage and the tap game (Rh2, Rh3); Babylon callbacks (B3); the settings UI (Ed10); stem solo/mute and start-at-segment (F-14, F-15); held-group resync. Each was checked in the code.
+- **Corrected:** the old guide said the editor's voice presets write `music.rings`; no such UI exists, so it now says to edit `project.json`. F-21 is left out (−95 dB, inaudible).
+- **D3's unsure claims, to check when their tasks land:** Babylon callbacks absent (B3); "most fallback gaps warn once"; an explicit `*→*` on a natural advance fades in without fading out the old segment. The bridge landing at the riser's end is confirmed by R3b's loopback of the shipped rule.
