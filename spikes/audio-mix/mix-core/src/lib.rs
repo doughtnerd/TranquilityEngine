@@ -718,9 +718,9 @@ fn blend(_args: &str) {
                     let tail = (n - (0.05 * fs) as usize)..n;
                     let e_end = rms(&y[tail.clone()].iter().zip(&refy[tail.clone()]).map(|(a, b)| a - b).collect::<Vec<_>>());
                     print(&format!(
-                        "{{\"blend\":\"{name}\",\"qDb\":{q_db},\"transitionMs\":{dur_ms},\"scheme\":\"{scheme}\",\"glitchRatioD2VsExactLogHz\":{:.2},\"glitchRatioD2VsOwnPerSample\":{:.2},\"errDuringDbVsExact\":{:.1},\"errAtEndDb\":{:.1},\"maxPoleRadiusOnLerpPath\":{:.4}}}",
+                        "{{\"blend\":\"{name}\",\"qDb\":{q_db},\"transitionMs\":{dur_ms},\"scheme\":\"{scheme}\",\"glitchRatioD2VsExactLogHz\":{:.2},\"glitchRatioD2VsOwnPerSample\":{},\"errDuringDbVsExact\":{:.1},\"errAtEndDb\":{:.1},\"maxPoleRadiusOnLerpPath\":{:.4}}}",
                         max_d2(&y[w.clone()]) / ref_d2,
-                        own_ratio,
+                        if own_ratio.is_finite() { format!("{own_ratio:.2}") } else { "null".to_string() },
                         db(e_tr / rms(&refy[w.clone()])),
                         db(e_end / rms(&refy[tail])),
                         worst_pole
@@ -731,13 +731,47 @@ fn blend(_args: &str) {
     }
 }
 
+
+/// The compressor: its threshold moved by `configure` once per quantum (all the core's `Compressor` offers) against one hard step,
+/// on tones. `abrupt` = max |step of d| / max |d| with d = y - y(unedited): about 0.2 or less is a smooth change, 1 is a jump.
+fn blend_compressor() {
+    let fs = RATE;
+    let n = (0.6 * fs) as usize;
+    let x: Vec<f32> = (0..n).map(|i| 0.3 * libm::sinf(2.0 * core::f32::consts::PI * 220.0 * i as f32 / fs) + 0.2 * libm::sinf(2.0 * core::f32::consts::PI * 880.0 * i as f32 / fs) + 0.1 * libm::sinf(2.0 * core::f32::consts::PI * 1760.0 * i as f32 / fs)).collect();
+    let t0 = (0.2 * fs) as usize / Q * Q;
+    let run = |thr_at: &dyn Fn(usize) -> f32| -> Vec<f32> {
+        let mut c = Compressor::default();
+        let mut y = x.clone();
+        for q in 0..n / Q {
+            c.configure(fs, thr_at(q * Q), 6.0, 4.0, 0.003, 0.25);
+            let (mut l, mut r) = (y[q * Q..(q + 1) * Q].to_vec(), y[q * Q..(q + 1) * Q].to_vec());
+            c.process(&mut l, &mut r);
+            y[q * Q..(q + 1) * Q].copy_from_slice(&l);
+        }
+        y
+    };
+    let base = run(&|_| -24.0);
+    for to in [-30.0f32, -40.0] {
+        for (name, dur) in [("hard step", 0usize), ("blend per quantum over 20 ms", (0.02 * fs) as usize), ("blend per quantum over 100 ms", (0.1 * fs) as usize), ("blend per quantum over 500 ms", (0.5 * fs) as usize)] {
+            let y = run(&|i| if i < t0 { -24.0 } else if dur == 0 { to } else { -24.0 + (to + 24.0) * ((i - t0) as f32 / dur as f32).min(1.0) });
+            let d: Vec<f32> = y.iter().zip(&base).map(|(a, b)| a - b).collect();
+            let dpk = d.iter().fold(0.0f32, |m, v| m.max(v.abs())) as f64;
+            let dstep = d.windows(2).fold(0.0f32, |m, w| m.max((w[1] - w[0]).abs())) as f64;
+            print(&format!("{{\"blend\":\"compressor threshold -24 -> {to} dB\",\"scheme\":\"{name}\",\"abrupt\":{:.2},\"largestStepDbfs\":{:.1},\"peakDifferenceDbfs\":{:.1}}}", dstep / dpk, db(dstep), db(dpk)));
+        }
+    }
+}
+
 pub fn main(args: &str) {
     match arg(args, "mode").unwrap_or("micro") {
         "check" => check(),
         "micro" => micro(args),
         "zipper" => zipper(args),
         "delay" => delay(args),
-        "blend" => blend(args),
+        "blend" => {
+            blend(args);
+            blend_compressor()
+        }
         m => print(&format!("{{\"error\":\"unknown mode {m}\"}}")),
     }
 }

@@ -2087,8 +2087,8 @@ var Rig = class _Rig {
   static async create() {
     const r = new _Rig();
     r.host = await createLoopbackHost({ preset: { ...LOOPBACK_PRESET, limiterLookaheadMs: 0, maxBuses: 8 } });
-    r.clip(1, clipData([[220, 0.2], [1760, 0.08]]));
-    r.clip(2, clipData([[440, 0.2], [3520, 0.08]]));
+    r.clip(1, clipData([[220, 0.15], [880, 0.1], [1760, 0.05]]));
+    r.clip(2, clipData([[330, 0.15], [990, 0.1], [1650, 0.05]]));
     return r;
   }
   clip(id, data) {
@@ -2144,8 +2144,9 @@ var sc = [
   { name: "control: bus gain jump, rampFrames 0", note: "positive control for the click metric", level: true, edit: (r) => r.send(busMix([1, 0.4, 1], 0)) },
   { name: "bus volume 0.8->0.4, rampFrames 800 (60 fps)", note: "BUS_MIX", level: true, edit: (r) => r.send(busMix([1, 0.4, 1], RAMP)) },
   { name: "bus volume 0.8->0.4, rampFrames 128", note: "BUS_MIX", level: true, edit: (r) => r.send(busMix([1, 0.4, 1], Q)) },
-  { name: "lowpass cutoff 8000->1000 Hz", note: "BUS_CONFIG, same slot kind", edit: (r) => r.send(busConfig([base()[0], { parent: 0, fx: [LP(1e3)] }, base()[2]]), busMix(GAINS, RAMP)) },
+  { name: "lowpass cutoff 8000->1200 Hz", note: "BUS_CONFIG, same slot kind", edit: (r) => r.send(busConfig([base()[0], { parent: 0, fx: [LP(1200)] }, base()[2]]), busMix(GAINS, RAMP)) },
   { name: "lowpass cutoff 8000->300 Hz, Q 12 dB", note: "BUS_CONFIG, resonant", edit: (r) => r.send(busConfig([base()[0], { parent: 0, fx: [LP(300, 12)] }, base()[2]]), busMix(GAINS, RAMP)) },
+  { name: "compressor threshold -24->-30 dB", note: "BUS_CONFIG, same slot", level: true, edit: (r) => r.send(busConfig([base()[0], base()[1], { parent: 0, fx: [COMP(-30)] }]), busMix(GAINS, RAMP)) },
   { name: "compressor threshold -24->-50 dB", note: "BUS_CONFIG, same slot", level: true, edit: (r) => r.send(busConfig([base()[0], base()[1], { parent: 0, fx: [COMP(-50)] }]), busMix(GAINS, RAMP)) },
   { name: "add effect: highpass 400 Hz after the lowpass", note: "BUS_CONFIG, new slot", edit: (r) => r.send(busConfig([base()[0], { parent: 0, fx: [LP(8e3), HP(400)] }, base()[2]]), busMix(GAINS, RAMP)) },
   { name: "remove effect: lowpass 8000 off the bus", note: "BUS_CONFIG, slot dropped", edit: (r) => r.send(busConfig([base()[0], { parent: 0, fx: [] }, base()[2]]), busMix(GAINS, RAMP)) },
@@ -2192,8 +2193,8 @@ function analyse(ref, got, from, level) {
     preEditIdentical: prePeak === 0,
     refMaxStep: +refStep.toFixed(5),
     jumpRatio: +(gotStep / refStep).toFixed(2),
-    clickRatio: +(dStep / refStep).toFixed(2),
-    clickDbRelSignalStep: +(20 * Math.log10(Math.max(dStep, 1e-9) / refStep)).toFixed(1),
+    abrupt: dPeak > 1e-5 ? +(dStep / dPeak).toFixed(2) : 0,
+    stepDbfs: dStep > 0 ? +(20 * Math.log10(dStep)).toFixed(1) : -200,
     onsetFrames: onset,
     diffPeak: +dPeak.toFixed(4),
     settleMs: level && maxDev >= 1 ? +(settleQ * Q / LOOPBACK_RATE * 1e3).toFixed(1) : null
@@ -2207,13 +2208,13 @@ async function runOne(s, withEdit, warm) {
   if (withEdit) s.edit(r);
   else if (s.name.startsWith("control: no-op")) {
   }
-  r.run(60 - warm);
+  r.run(64 - warm);
   return r.output();
 }
 var rows = [];
 for (const s of sc) {
   const rs = [];
-  for (const warm of [12, 13, 14, 15]) {
+  for (const warm of [12, 13, 14, 15, 16, 17, 18, 19]) {
     const ref = await runOne(s, false, warm);
     const got = await runOne(s, true, warm);
     rs.push(analyse(ref, got, warm * Q, !!s.level));
@@ -2223,8 +2224,9 @@ for (const s of sc) {
     edit: s.name,
     via: s.note,
     preEditIdentical: rs.every((r) => r.preEditIdentical),
-    clickRatio: worst("clickRatio"),
-    clickDbRelSignalStep: worst("clickDbRelSignalStep"),
+    abrupt: worst("abrupt"),
+    stepDbfs: worst("stepDbfs"),
+    verdict: worst("abrupt") > 0.3 ? "CLICK" : worst("abrupt") === 0 ? "identical" : "smooth",
     jumpRatio: worst("jumpRatio"),
     diffPeak: worst("diffPeak"),
     onsetFramesMin: Math.min(...rs.map((r) => r.onsetFrames)),
@@ -2232,29 +2234,31 @@ for (const s of sc) {
   });
 }
 {
-  const r = await Rig.create();
   const withRev = [{ parent: ROOT, fx: [] }, base()[1], { parent: 0, fx: [COMP(-24), REV(0.5)] }];
-  r.send(busConfig(withRev), busMix(GAINS, 0), play(1, 1, 1), play(2, 2, 2));
-  r.run(60);
-  r.send(busConfig(base()), busMix(GAINS, RAMP), stop(1), stop(2));
-  r.run(20);
-  const mid = r.left.length;
-  r.send(busConfig(withRev), busMix(GAINS, RAMP));
-  r.run(8);
-  const out = r.output();
-  if (process.env.DBG) {
-    const pk = [];
-    for (let q = 55; q < 88; q++) {
-      let m = 0;
-      for (let i = q * Q; i < (q + 1) * Q; i++) m = Math.max(m, Math.abs(out[i]));
-      pk.push(+m.toFixed(4));
-    }
-    console.error(pk.join(" "));
-  }
-  let tail = 0;
-  for (let i = out.length - 8 * Q; i < out.length; i++) tail = Math.max(tail, Math.abs(out[i]));
-  let silent = 0;
-  for (let i = out.length - 28 * Q; i < out.length - 8 * Q; i++) silent = Math.max(silent, Math.abs(out[i]));
-  rows.push({ edit: "stale tail: send removed, dry stopped, send re-added 20 quanta later (silent input)", peakWhileSendOff: +silent.toExponential(2), peakAfterReAdd: +tail.toExponential(2), staleTailReplays: tail > 1e-4, note: "a tail left in the convolver when the last send goes is frozen, not rung out", quantaBeforeReAdd: mid });
+  const go = async (remove) => {
+    const r = await Rig.create();
+    r.send(busConfig(withRev), busMix(GAINS, 0), play(1, 1, 1), play(2, 2, 2));
+    r.run(60);
+    r.send(remove ? busConfig(base()) : busConfig(withRev), busMix(GAINS, RAMP), stop(1), stop(2));
+    r.run(20);
+    r.send(busConfig(withRev), busMix(GAINS, RAMP));
+    r.run(8);
+    return r.output();
+  };
+  const ref = await go(false), got = await go(true);
+  const peak = (a, q0, q1) => {
+    let m = 0;
+    for (let i = q0 * Q; i < q1 * Q; i++) m = Math.max(m, Math.abs(a[i]));
+    return +m.toExponential(2);
+  };
+  rows.push({
+    edit: "reverb tail when the last send is removed (dry stopped), then the send returns 20 quanta later",
+    tailRingingInReference_q64to70: peak(ref, 64, 70),
+    tailAfterRemoval_q64to70: peak(got, 64, 70),
+    outputWhileSendIsBack_afterReAdd_q80to88: peak(got, 80, 88),
+    referenceSameWindow: peak(ref, 80, 88),
+    verdict: peak(got, 64, 70) === 0 && peak(ref, 64, 70) > 1e-3 ? "tail cut to silence in one quantum" : "tail rings out",
+    staleTailReplaysOnReAdd: peak(got, 80, 88) > 1e-3
+  });
 }
 console.log(JSON.stringify(rows));
