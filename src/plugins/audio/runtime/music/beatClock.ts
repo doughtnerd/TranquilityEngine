@@ -263,23 +263,29 @@ function nextOn(src: Source, kind: MusicKind, after: number, out: Found): boolea
   for (let guard = 0; guard < 64; guard++) {
     // The position heard at `from`, linear within the pass (no wrap between the scratch anchor and it).
     const x = from <= work.time ? work.ticks : secondsToTicks(g, ticksToSeconds(g, work.ticks) + (from - work.time));
+    // No line left in the segment (NaN) is only no line left in this pass: a wrap brings the region's lines back.
     let c = lineAtOrAfter(g, kind, Math.max(x, work.ticks), out);
-    if (Number.isNaN(c)) return false;
-    let h = heardTimeOf(work, c);
+    let h = Number.isNaN(c) ? Number.POSITIVE_INFINITY : heardTimeOf(work, c);
     if (!(h > after + TIME_EPS)) {
       // The cursor's own event: the one after it.
       c = lineAtOrAfter(g, kind, c + 1, out);
-      if (Number.isNaN(c)) return false;
-      h = heardTimeOf(work, c);
+      h = Number.isNaN(c) ? Number.POSITIVE_INFINITY : heardTimeOf(work, c);
     }
-    const wrap = predictWrap(view, Math.max(from, work.time));
-    if (Number.isFinite(wrap) && h >= wrap - TIME_EPS) {
+    // The end of the scratch anchor's own pass, the wrap `advanceAnchor` takes next. Not the first wrap after `from`:
+    // when `from` is a wrap's heard time (the cursor on a pass's first line), the two sums for that wrap can differ in
+    // the last bit, and the walk would see the pass after next while reading the old pass's end line as an event.
+    const wrap = predictWrap(view, work.time);
+    // The worker wraps on the clip's frame grid (`anchors.ts` rounds the region's end to a frame), so the region's end
+    // line can be heard up to half a frame before the wrap: it is the wrap's own line (the next pass's first), not this
+    // pass's. No other line is that close: lines are a tick apart, a tick is over half a frame.
+    if (Number.isFinite(wrap) && h >= wrap - (0.5 / work.rate + TIME_EPS)) {
       // The pass ends first: go on from the region's start, one pass later.
       advanceAnchor(view, wrap);
       if (!(work.time >= wrap - TIME_EPS)) return false;
       from = wrap;
       continue;
     }
+    if (Number.isNaN(c)) return false;
     // Beats and bars stop before the exit cue; a cue on it is still reached. At a seam the successor wins.
     if (kind === "cue" ? c > exit + TICK_EPS : c >= exit - TICK_EPS) return false;
     if (!Number.isFinite(h) || !(h < src.until - TIME_EPS)) return false;
@@ -325,6 +331,13 @@ function follow(c: BeatCursor): void {
   c.startAt = r.startAt;
 }
 
+/** At a recovery's re-entry: a cursor on no live run (seated, or last fed by an ended run) continues on the lost run. */
+function adoptLost(c: BeatCursor, lost: SegmentRun, run: SegmentRun): void {
+  if (c.run === lost || c.run === run || (c.run !== null && liveRunState(c.run))) return;
+  c.run = lost;
+  c.startAt = lost.startAt;
+}
+
 /**
  * K1: re-seat the cursors after a slip, a seek, a transition or a recovery so the next dispatch neither doubles nor
  * skips (see the header). `predictDue` calls it itself; a caller needs it only to bring the state up to date without
@@ -349,8 +362,13 @@ export function resyncBeats(player: MusicPlayer, now: number): void {
     if (run !== st.liveRun) {
       if (st.liveRun && rec !== st.recoveries) {
         // A recovery re-entered (architecture §3.7): keep the lost timeline for the gap.
-        st.lostRun = st.liveRun;
+        const lost = (st.lostRun = st.liveRun);
         Object.assign(st.lostAnchor, st.liveAnchor);
+        // Every cursor is behind on the lost timeline now, whether or not its kind had fired from the lost run: one still
+        // seated (nothing fired yet) or last fed by an ended run sits there too, so its gap is counted.
+        adoptLost(st.beat, lost, run);
+        adoptLost(st.bar, lost, run);
+        adoptLost(st.cue, lost, run);
       }
       st.liveRun = run;
     }
