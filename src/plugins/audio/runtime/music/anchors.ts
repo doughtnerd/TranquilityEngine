@@ -22,7 +22,7 @@
  * heard(t) = t0 + file(t) - file(p0) linearly (the planner's `defaultPoint`, R1's `PlayingGrid`, R6's `nextGridHeard`)
  * are right only within the anchor's pass: `advanceAnchor(player, now)` moves the anchor to the pass heard at `now`.
  */
-import type { MusicGroupEvent } from "../backend";
+import { audioBackend, type MusicGroupEvent } from "../backend";
 import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import {
   compileSegmentGrid, positionTextToTicks, secondsToTicks, ticksToSeconds, type SegmentGrid,
@@ -77,11 +77,27 @@ interface Compiled {
 
 const compiled = new WeakMap<object, Compiled>();
 
-function factsOf(node: MusicNodeRef): { frames: number; rate: number } | undefined {
+/**
+ * The file's length: the clip facts (frames at its own rate), else the backend's decoded length in seconds
+ * (`clipDuration`: a decoded clip loops at its buffer's end, so the seconds are the pass length itself). Undefined
+ * while neither is known.
+ */
+function factsOf(node: MusicNodeRef): { frames: number; rate: number } | { seconds: number } | undefined {
   const clip = (node as Partial<SegmentNode>).tracks?.find((t) => t.clip)?.clip;
-  const f = clip ? segmentClipSource().facts(clip) : undefined;
-  return f && f.rate > 0 ? f : undefined;
+  if (!clip) return undefined;
+  const f = segmentClipSource().facts(clip);
+  if (f && f.rate > 0) return f;
+  let d: number | null | undefined;
+  try {
+    d = audioBackend().clipDuration?.(clip);
+  } catch {
+    d = undefined;
+  }
+  return typeof d === "number" && d > 0 ? { seconds: d } : undefined;
 }
+
+const endSecondsOf = (f: { frames: number; rate: number } | { seconds: number }): number =>
+  "seconds" in f ? f.seconds : f.frames / f.rate;
 
 /** The segment's grid and loop regions, cached per node object (recompiled once when the clip's facts arrive). */
 function compile(node: MusicNodeRef, rate?: number): Compiled | null {
@@ -90,14 +106,18 @@ function compile(node: MusicNodeRef, rate?: number): Compiled | null {
   if (cached && (cached.endKnown || !facts) && (rate === undefined || cached.rate === rate)) return cached;
   const seg = node as Partial<SegmentNode>;
   if (node.type !== "segment" || !Array.isArray(seg.tempo)) return null;
-  const r = rate ?? facts?.rate ?? FALLBACK_RATE;
-  const endSeconds = facts ? facts.frames / facts.rate : Number.NaN;
+  const r = rate ?? (facts && "rate" in facts ? facts.rate : FALLBACK_RATE);
+  const endSeconds = facts ? endSecondsOf(facts) : Number.NaN;
   const grid = compileSegmentGrid({ ...seg, cues: seg.cues ?? [] } as SegmentNode, facts ? { endSeconds } : {});
   const exitT = grid.exitTicks;
   const exit = Number.isFinite(exitT) ? ticksToSeconds(grid, exitT) : Number.POSITIVE_INFINITY;
+  // Region bounds in frames of `r` (what the worker loops); the end of a file known only in seconds stays exact.
   const frameOf = (text: string): number => {
     if (text === "start") return 0;
-    if (text === "end") return facts ? Math.round(facts.frames * (r / facts.rate)) : Number.NaN;
+    if (text === "end") {
+      if (!facts) return Number.NaN;
+      return "rate" in facts ? Math.round(facts.frames * (r / facts.rate)) : endSeconds * r;
+    }
     const t = positionTextToTicks(grid, text);
     return t === null ? Number.NaN : Math.round(ticksToSeconds(grid, t) * r);
   };
@@ -114,6 +134,40 @@ function compile(node: MusicNodeRef, rate?: number): Compiled | null {
 }
 
 const compiledOf = (a: GridAnchor): Compiled | null => compile(a.node, a.rate);
+
+/** A member's loop region in file frames of its clip's own rate (`MusicGroupMember.loopStartFrame`/`loopEndFrame`). */
+export interface MemberLoop {
+  /** File frame the loop starts at (`from`; `"start"` is 0). */
+  readonly startFrame: number;
+  /** File frame it wraps at, exclusive; 0 = the file's end (`to: "end"`). */
+  readonly endFrame: number;
+  /** True when the region is the whole file (`0..end`): a decoded voice's own loop flag covers it. */
+  readonly wholeFile: boolean;
+}
+
+/**
+ * P3: the loop of a segment the worker (or a decoded voice) runs by itself: **exactly one region with `count: 0` and
+ * no `while`** (the simple forever loop). Counted passes, `while` and several regions are R4a/R4b's: null. Frames are
+ * at the clip's own `rate`, rounded as the anchor's pass walk rounds them (`compile`), so `predictWrap` and the grid
+ * agree with the looping member; null too when a bound isn't a position or the region is empty.
+ */
+export function simpleLoopOf(node: MusicNodeRef, rate: number): MemberLoop | null {
+  const regions = (node as Partial<SegmentNode>).regions;
+  if (!Array.isArray(regions) || regions.length !== 1) return null;
+  const reg = regions[0]!;
+  if (reg.count !== 0 || reg.while !== undefined) return null;
+  const c = compile(node);
+  if (!c || !(rate > 0)) return null;
+  const frameOf = (text: string): number => {
+    if (text === "start") return 0;
+    if (text === "end") return 0;
+    const t = positionTextToTicks(c.grid, text);
+    return t === null ? Number.NaN : Math.round(ticksToSeconds(c.grid, t) * rate);
+  };
+  const start = frameOf(reg.from), end = frameOf(reg.to);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || (end !== 0 && end <= start) || start < 0) return null;
+  return { startFrame: start, endFrame: end, wholeFile: start === 0 && end === 0 };
+}
 
 /** The clip rate of a run: its first stem's facts, else 48 kHz. */
 function runRate(run: SegmentRun): number {
