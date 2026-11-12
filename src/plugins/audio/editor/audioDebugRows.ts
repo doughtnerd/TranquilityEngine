@@ -41,11 +41,11 @@ export interface Column {
 
 /** A panel section. `columns` absent: a label/value list. */
 export interface Section {
-  id: "m3Counters" | "ladder" | "beds" | "zones" | "occlusion" | "memory";
+  id: "m3Counters" | "ladder" | "beds" | "zones" | "occlusion" | "memory" | "musicTotals" | "music";
   title: string;
   /** What the section is, for a tooltip on its header. */
   tip: string;
-  columns?: Column[];
+  columns?: readonly Column[];
   rows: Row[];
   /** Shown instead of the table when there are no rows. */
   empty: string;
@@ -278,7 +278,8 @@ function memoryRows(info: AudioDebugInfo): Row[] {
 }
 
 /** All M3 sections, in the order the panel shows them. A section the backend has no data for is still returned (with `empty` set). */
-export function debugSections(info: AudioDebugInfo, watch?: CounterWatch): Section[] {
+export function debugSections(info: AudioDebugInfo, watch?: CounterWatch, musicWatch?: MusicWatch): Section[] {
+  const music = info.music ?? [];
   return [
     {
       id: "m3Counters",
@@ -342,6 +343,21 @@ export function debugSections(info: AudioDebugInfo, watch?: CounterWatch): Secti
       tip: "Memory the spatial features laid out when the core started, chosen by the Voices preset.",
       rows: memoryRows(info),
       empty: "No memory figures on this backend",
+    },
+    {
+      id: "musicTotals",
+      title: "Music totals",
+      tip: "Engine-wide interactive music counters: the stream pool, late starts, split quanta and refusals. Red and amber follow architecture 9.",
+      rows: info.musicTotals ? musicTotalsRows(music, info.musicTotals, musicWatch) : [],
+      empty: "No music on this backend",
+    },
+    {
+      id: "music",
+      title: "Music",
+      tip: "Each playing music event: where it is, the pending change and the rule that chose it, priming, re-plans and refusals.",
+      columns: MUSIC_COLUMNS,
+      rows: musicInstanceRows(music, info.sampleRate, musicWatch),
+      empty: "No music playing",
     },
   ];
 }
