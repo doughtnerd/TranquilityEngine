@@ -1,6 +1,6 @@
 # 0171. Audio M5: a profiler built on one recorded stream, loudness metering on chosen buses, live mixing that edits the project, and the mix's timing moved into the core
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-12; "RFC round (revision 2)" and "Owner decisions (accepted)" at the end win over the text above them)
 - **Date:** 2026-11-12
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0157's roadmap item M5, 0097's ducking rules and 0158's mixer timing)
@@ -435,3 +435,21 @@ Snapshot stacking (owner decision 7) would add ≈ 1.5 person-weeks of tasks (�
 6. **Default ducking mode for new rules:** `level` (recommended) or `presence`.
 7. **Snapshot stacking:** several active snapshots blending by priority and intensity, as FMOD and Wwise do (≈ +1.8 person-weeks), or one at a time as today (recommended for M5, with stacking on the roadmap).
 8. **The estimate:** ≈ 62–75 person-weeks provisional, in milestones M5-0, M5a–d.
+
+## Owner decisions (accepted, 2026-11-12)
+
+The owner accepted the direction with every recommendation of the list above ("Your recommendations sound fine to me"):
+
+1. **Recording trigger:** `Audio.capture` plus the export option's key combination and touch gesture.
+2. **Release builds:** the capture API works in every build; the recorder loads only when a capture starts; the built-in trigger comes only with the export option.
+3. **Android:** adb on debug builds in M5. A share-sheet plugin is a later record of its own.
+4. **Default loudness targets:** `console` -24 LUFS ±2 LU, -1 dBTP; `mobile` -18 LUFS ±2 LU, -1 dBTP (published guidance, unverified here).
+5. **Mixer panel:** the strip without effect editing; effects stay live in Project Settings.
+6. **Default ducking mode for new rules:** `level`.
+7. **Snapshots:** one at a time in M5; stacking by priority and intensity on the roadmap.
+8. **Estimate:** ≈ 62–75 person-weeks, provisional until the technical design's task table, in milestones M5-0, M5a, M5b, M5c, M5d.
+
+**Owner note: the audio editor's UI/UX will be reworked** to fit a sound designer's workflow; today it is scattered across Project Settings > Audio, the debug panel, the event and music editors and the Inspector. For M5 this means:
+- **Behaviour is decided here; placement is not.** Where the Profiler, the Mixer strip, the loudness readouts and the capture controls live (panels, tabs, a dedicated audio workspace) follows the owner's rework, not this record.
+- **The technical design keeps every M5 view a thin layer** over pure, tested models (timeline state, capture decoding, mixer operations, loudness readings), so the rework can rehome or regroup them without touching the logic, as the music editor's `*Logic`/model modules already do.
+- **M5 adds no new scattered entry points:** new audio UI registers through the editor SDK in one place the rework can reorganise, and the technical design asks the owner whether the rework comes before, alongside or after M5's editor tasks.
