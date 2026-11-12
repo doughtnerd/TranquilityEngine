@@ -2,7 +2,7 @@ import { expect, type Page, play, test } from "./fixtures";
 import { addAssets, audioDebug as fullDebug, bootSample, FLAPPY, pauseWorkers, peakOver as peakOverFull, playlist3, readLate, startEvent, stems8, watchConsole } from "./audioMusic";
 
 // The interactive-music milestones' listening sections (ADR 0166/0167; waves plan, "Owner procedures"): one case per
-// milestone, grown a case at a time (M4a and M4b are here, M4c follows). Each case is an owner-run page and a headless walker in one:
+// milestone, grown a case at a time (M4a, M4b and M4c are here). Each case is an owner-run page and a headless walker in one:
 //
 //   headless (the smoke check, default):  npm run test:e2e:slow -- audio-music-listening
 //   owner (headphones, a headed window):   E2E_LISTEN=1 npm run test:e2e:slow -- audio-music-listening --headed --workers 1
@@ -670,6 +670,183 @@ test.describe("listening M4b: transitions, stingers and loop exits", () => {
     await test.step("key O: stops", async () => {
       await m4bKey(page, "o", "stops the music.");
       await expect.poll(async () => (await m4bRows(page)).filter((r) => r.state !== "ending").length, { timeout: 15_000, message: "the music stops" }).toBe(0);
+    });
+
+    for (const a of info.annotations) console.log(`[music-listen] ${a.type}: ${a.description}`);
+    expect(seen.errors).toEqual([]);
+    expect(seen.warnings).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// M4c: beat feel, calibration and the tap game (E3), on Rh3's scene: the Sound Lab's rhythm page (key R on the tour; its own keys are
+// the item keys: C calibrate, G tap game, X reset, O stop, SPACE tap). The owner clicks the game view first (the spec does it) and
+// taps with SPACE; the page times the press with the key event's own time stamp. The music plays on the Music bus; the Ambience,
+// SFX, Engine and Tape buses are muted. The items, in this order (the card lists them; the spec waits for each):
+//   1  C         the click track: 120 bpm, a click on every beat, beat 1 higher; the page's beat marker (*) flashes in step. Listen first.
+//   2  SPACE x20  tap on every click (the first 4 are warm-up). The page shows the offset (ms, + is late) and spread; a steady run is
+//                 applied to Audio.calibration and stored. The spec reloads the page and reads the offset back.
+//   3  G         the tap game, a drum and bass loop: tap on the beat; the page grades each tap (perfect <= 30 ms, good <= 80 ms against
+//                 the calibration) and shows early or late in ms
+//   4  X         the calibration goes back to 0; the same taps now read differently (the zero changed)
+//   5  O         stops
+// The clips are decoded first by silent one-shots. Headless, the spec presses C, G, X and O itself and injects the taps through
+// `__rhythmLab.tap(performanceTime)` on known offsets from the beat (+35 ms for the calibration run, then +35 ms, -20 ms and +120 ms
+// in the game); the owner's taps are read from the page's state instead.
+type M4cState = { keys: Record<string, number> };
+const m4cCard =
+  "M4c: beat feel, calibration and the tap game (the Sound Lab's rhythm page; Music bus)\n" +
+  "C click track: listen first, then tap SPACE on every click (20 taps)   G tap game: tap SPACE on the beat\n" +
+  "X resets the calibration to 0   O stops. Press a key when asked, listen, then the test reads the page.";
+
+async function installM4cCard(page: Page, listen: boolean): Promise<void> {
+  await page.evaluate(
+    ([showCard, text]) => {
+      const g = globalThis as unknown as { __m4c?: M4cState };
+      g.__m4c ??= { keys: {} };
+      const state = g.__m4c;
+      window.addEventListener("keydown", (e) => (state.keys[e.key.toLowerCase()] = (state.keys[e.key.toLowerCase()] ?? 0) + 1));
+      if (showCard) {
+        const card = document.createElement("pre");
+        card.style.cssText = "position:fixed;z-index:99999;left:12px;bottom:12px;margin:0;padding:10px 14px;background:#000d;color:#fff;font:14px/1.45 monospace;border-radius:6px;pointer-events:none;max-width:90vw;white-space:pre-wrap";
+        card.textContent = text as string;
+        document.body.append(card);
+      }
+    },
+    [listen, m4cCard] as const,
+  );
+}
+
+/** The owner's key (waited for) or the spec's own press (headless): resolves once the key has been pressed. */
+async function m4cKey(page: Page, key: string, what: string): Promise<void> {
+  const k = key.toLowerCase();
+  const before = await page.evaluate((x) => (globalThis as unknown as { __m4c: M4cState }).__m4c.keys[x] ?? 0, k);
+  if (LISTEN) process.stdout.write(`\n[listen] M4c: press ${key.toUpperCase()} in the page: ${what}\n`);
+  else await page.keyboard.press(key);
+  await page.waitForFunction(([x, n]) => ((globalThis as unknown as { __m4c: M4cState }).__m4c.keys[x as string] ?? 0) > (n as number), [k, before] as const, { timeout: LISTEN ? 3_600_000 : 20_000 });
+}
+
+type M4cLab = {
+  mode: string;
+  taps: number;
+  tapsWanted: number;
+  beats: number;
+  lastBeat: string;
+  calibrationMs: number;
+  result: { offsetMs: number; spreadMs: number; steady: boolean; applied: boolean; used: number } | null;
+  last: { offsetMs: number; judgedMs: number; grade: string } | null;
+  hits: number;
+  misses: number;
+};
+const m4cState = (page: Page) => page.evaluate(() => (globalThis as unknown as { __rhythmLab: { state(): M4cLab } }).__rhythmLab.state());
+/** Headless taps: each aimed `off` ms from the next beat's heard time, through `__rhythmLab.tap(performanceTime)`. */
+const m4cTaps = (page: Page, offsets: number[]) =>
+  page.evaluate((offs) => {
+    const g = globalThis as unknown as { __myco: { Audio: { timeAt(p: number): number } }; __rhythmLab: { tap(t: number): unknown; page: { handle: { music: { nextGrid(k: string): { time: number } } } } } };
+    for (const off of offs) {
+      const T = g.__rhythmLab.page.handle.music.nextGrid("beat").time;
+      const p0 = performance.now();
+      g.__rhythmLab.tap(p0 + (T - g.__myco.Audio.timeAt(p0)) * 1000 + off);
+    }
+  }, offsets);
+
+test.describe("listening M4c: beat feel, calibration and the tap game", () => {
+  test("M4c: the click track, a calibration run and its offset read back after a reload, the tap game, and X", { tag: "@slow" }, async ({ page }, info) => {
+    info.setTimeout(LISTEN ? 3_600_000 : 240_000);
+    const seen = watchConsole(page);
+    holdBase = null; // a new page: its counters start at 0
+    const prepare = async () => {
+      await bootSample(page, LAB);
+      await page.evaluate((clips) => {
+        const { Audio } = (globalThis as unknown as { __myco: { Audio: { buses: readonly string[]; bus(n: string): { volume: number }; playOneShot(c: string, o?: object): unknown } } }).__myco;
+        for (const n of Audio.buses) if (!["UI", "Music", "Master"].includes(n)) Audio.bus(n).volume = 0;
+        for (const c of clips) Audio.playOneShot(`audio/music/${c}.wav`, { volume: 0.0001, bus: "UI" });
+      }, ["click-track", "combat-drums", "combat-bass"]);
+      await page.waitForTimeout(2_500);
+      await page.keyboard.press("r"); // the rhythm page; the spec opens it, the owner presses the page's keys from here
+      await page.waitForFunction(() => !!(globalThis as unknown as { __rhythmLab?: unknown }).__rhythmLab, undefined, { timeout: 15_000 });
+      await installM4cCard(page, LISTEN);
+    };
+    await prepare();
+
+    let stored = 0;
+    await test.step("key C: the click track, then 20 taps", async () => {
+      await m4cKey(page, "c", "the click track: 120 bpm, a click on every beat, beat 1 (the first of four) higher than the others. Listen for a few bars: even, steady, and the page's beat marker (*) flashes with each click.");
+      await expect.poll(async () => (await m4cState(page)).mode, { timeout: 20_000 }).toBe("calibrate");
+      await expect.poll(async () => (await m4cState(page)).beats, { timeout: 20_000, message: "the page counts the click track's beats" }).toBeGreaterThan(2);
+      const row = (await fullDebug(page))?.music?.find((r) => r.asset.includes("rhythm-click"));
+      expect({ segment: row?.segment, tempo: row?.tempo, state: row?.state }, "the click track plays at 120 bpm").toEqual({ segment: "click", tempo: 120, state: "playing" });
+      expect(await peakOverFull(page, "Music", 800), "the click track is audible").toBeGreaterThan(0.01);
+      await hear(page, 8_000);
+      const b0 = await m4cState(page);
+      await page.waitForTimeout(2_000);
+      const b1 = await m4cState(page);
+      if (!LISTEN || b1.mode === "calibrate") {
+        expect(b1.beats - b0.beats, "the beat marker counts two beats a second").toBeGreaterThanOrEqual(3);
+        expect(b1.lastBeat, "the last beat is named bar:beat").toMatch(/^\d+:[1-4]$/);
+      }
+      if (LISTEN) process.stdout.write(`\n[listen] M4c: tap SPACE on every click, 20 times (the first 4 are warm-up). The page shows the offset and the spread when you are done.\n`);
+      else await m4cTaps(page, [...Array(4).fill(100), ...[29, 41, 35, 33, 37, 35, 31, 39, 35, 34, 36, 35, 30, 40, 35, 35]]);
+      await expect.poll(async () => (await m4cState(page)).result, { timeout: LISTEN ? 3_600_000 : 20_000, message: "the run ends with a result" }).not.toBeNull();
+      const s = await m4cState(page);
+      info.annotations.push({ type: "calibration", description: `offset ${s.result!.offsetMs.toFixed(1)} ms, spread ${s.result!.spreadMs.toFixed(1)} ms, ${s.result!.used} taps used, steady ${s.result!.steady}` });
+      if (LISTEN) expect(s.result!.steady, "(owner) the run was steady; if it was not, the offset was not applied: press C and tap more evenly").toBe(true);
+      else {
+        expect(s.result, "the injected run is steady and applied").toMatchObject({ steady: true, applied: true, used: 16 });
+        expect(s.result!.offsetMs, "the result reads the injected +35 ms").toBeGreaterThan(30);
+        expect(s.result!.offsetMs).toBeLessThan(40);
+      }
+      stored = s.calibrationMs;
+      expect(stored, "Audio.calibration is the result").toBeCloseTo(s.result!.offsetMs, 6);
+      await hear(page, 3_000);
+      await cleanCounters(page, "calibration");
+    });
+
+    await test.step("reload: the offset persists", async () => {
+      await prepare();
+      await expect.poll(async () => (await m4cState(page)).calibrationMs, { timeout: 10_000, message: "the stored offset is read back after the reload" }).toBeCloseTo(stored, 6);
+      if (LISTEN) process.stdout.write(`\n[listen] M4c: the page was reloaded: the line "Audio.calibration" shows ${stored >= 0 ? "+" : ""}${stored.toFixed(1)} ms again.\n`);
+      await hear(page, 3_000);
+    });
+
+    await test.step("key G: the tap game", async () => {
+      await m4cKey(page, "g", "the tap game, a drum and bass loop: tap SPACE on the beat, at least 8 taps. Each tap is graded PERFECT (within 30 ms), GOOD (within 80 ms) or MISS, with early or late in ms, against your calibration: a calibrated player taps at 0.");
+      await expect.poll(async () => (await m4cState(page)).mode, { timeout: 20_000 }).toBe("game");
+      await expect.poll(async () => (await m4cState(page)).beats, { timeout: 20_000, message: "the page counts the game's beats" }).toBeGreaterThan(2);
+      expect(await peakOverFull(page, "Music", 800), "the game is audible").toBeGreaterThan(0.01);
+      if (LISTEN) {
+        await expect.poll(async () => { const s = await m4cState(page); return s.hits + s.misses; }, { timeout: 3_600_000, message: "(owner) 8 taps" }).toBeGreaterThanOrEqual(8);
+        const s = await m4cState(page);
+        info.annotations.push({ type: "tap game", description: `${s.hits} hits, ${s.misses} misses, last ${s.last?.grade} ${s.last?.judgedMs.toFixed(1)} ms` });
+      } else {
+        // The stored +35 ms: a tap 35 ms late is on the calibrated zero (perfect), 20 ms early is 55 ms off it (good), 120 ms late is a miss.
+        const grades: [number, string][] = [[stored, "perfect"], [stored - 20, "perfect"], [stored + 55, "good"], [stored + 120, "miss"]];
+        for (const [off, grade] of grades) {
+          await m4cTaps(page, [off]);
+          expect((await m4cState(page)).last!.grade, `a tap ${off.toFixed(0)} ms late`).toBe(grade);
+        }
+        const s = await m4cState(page);
+        expect({ hits: s.hits, misses: s.misses }).toEqual({ hits: 3, misses: 1 });
+      }
+      await hear(page, 3_000);
+      await cleanCounters(page, "tap game");
+    });
+
+    await test.step("key X: the zero changes", async () => {
+      await m4cKey(page, "x", "the calibration goes back to 0 (the page's line Audio.calibration reads +0.0 ms). Tap the game again: the same taps are now judged by their raw offset, so a tap that was PERFECT with your calibration reads as early or late by that much.");
+      await expect.poll(async () => (await m4cState(page)).calibrationMs, { timeout: 10_000, message: "X resets the calibration" }).toBe(0);
+      if (!LISTEN) {
+        // The raw +35 ms that was perfect is now 35 ms late: good.
+        await m4cTaps(page, [stored]);
+        const last = (await m4cState(page)).last!;
+        expect(last.grade, "after X the same tap is only good").toBe("good");
+        expect(last.judgedMs, "judged = raw").toBeCloseTo(stored, -1);
+      } else await hear(page, 10_000);
+    });
+
+    await test.step("key O: stops", async () => {
+      await m4cKey(page, "o", "stops the music.");
+      await expect.poll(async () => ((await fullDebug(page))?.music ?? []).filter((r) => r.state !== "ending").length, { timeout: 15_000, message: "the music stops" }).toBe(0);
     });
 
     for (const a of info.annotations) console.log(`[music-listen] ${a.type}: ${a.description}`);
