@@ -304,6 +304,7 @@ export function musicPlanStep(backend: AudioBackend, dt: number): void {
     tickPlayer(p, f);
     if (players[k] !== p) k--;
   }
+  planStepSerial = frameSerial;
 }
 
 /**
@@ -346,6 +347,18 @@ let frameSerial = 0;
 /** P7: counts the early steps; a handle's snapshot is recomputed on the first read after it moves. */
 export function musicFrameSerial(): number {
   return frameSerial;
+}
+
+/** F-25: the `frameSerial` of the last step 9 (-1: none yet). */
+let planStepSerial = -1;
+
+/**
+ * F-25: true when this frame's music plan step (step 9) has already run, so a group planned now is stamped no earlier
+ * than the next frame's: a call from outside the frame (an editor transport, a page script, a timer) or from after
+ * step 9. False from the early step to step 9, where a plan made in `update()` is stamped in this frame's batch.
+ */
+export function planStepDone(): boolean {
+  return planStepSerial === frameSerial;
 }
 
 const warnedRoots = new WeakSet<MusicPlayer>();

@@ -198,7 +198,10 @@ test("M4b: stingers fire on the next beat (T) and the next bar (Y), over the mus
   // to the next one, with a warning), on a chosen beat of the bar. The stinger then starts on the next beat, or the next bar.
   const fire = async (key: string, beatInBar: number, grid: number, what: string) => {
     let head: number | null = null;
-    await expect.poll(async () => { head = await headNow(page); return head !== null && Math.floor((head % 2) / 0.5) === beatInBar && head % 0.5 < 0.05; }, { timeout: 20_000, intervals: [10], message: `${what}: waiting for beat ${beatInBar + 1}` }).toBe(true);
+    // `Audio.time` moves once a frame, so `head` steps by a frame (0.1 s, capped): a window narrower than that is reached
+    // only while the frames' phase drifts into it, which took over 20 s in 1 run of 3 (F-25). A frame's width (plus
+    // jitter) is reached every beat, and still leaves the stinger 0.38 s for its lead.
+    await expect.poll(async () => { head = await headNow(page); return head !== null && Math.floor((head % 2) / 0.5) === beatInBar && head % 0.5 < 0.12; }, { timeout: 20_000, intervals: [10], message: `${what}: waiting for beat ${beatInBar + 1}` }).toBe(true);
     const i0 = await recLength(page);
     const before = (await lastSample(page)).played;
     await page.keyboard.press(key);
@@ -258,7 +261,9 @@ test("M4b: a seek lands at the position asked for, in the playing segment, and t
   expect(res.ok, `seek accepted (${JSON.stringify(res)})`).toBe(true);
   expect(res.time!, "it lands in the future").toBeGreaterThan(res.now);
   expect(res.time! - res.now, "within a bar and the lead").toBeLessThan(3.5);
-  await expect.poll(async () => (await lastSample(page)).t, { timeout: 15_000 }).toBeGreaterThan(res.time! + 0.6);
+  // Polled every 50 ms, so `after` is read a few tenths after the landing: the default back-off (up to 1 s between
+  // tries) read it as late as 1.7 s after, past the loop's wrap, and the bar check below failed (F-25).
+  await expect.poll(async () => (await lastSample(page)).t, { timeout: 15_000, intervals: [50] }).toBeGreaterThan(res.time! + 0.6);
   const after = await lastSample(page);
   const want = 3 + (after.t - res.time!);
   const head = after.heads["explore-pad"]!;

@@ -71,6 +71,38 @@ describe("music seek on the core (R7)", () => {
     r.dispose();
   });
 
+  // F-25: the e2e seek case read `groupsLate` 1 now and then, with the clip resident: the group was stamped at F_now + L
+  // exactly, and at the e2e's 10 frames a second L is one frame interval (100 ms, its cap), so a BATCH that reached the
+  // core a little late started the group late. A seek now keeps a frame of slack, and lands where it said it would.
+  it("starts on the reported frame, on time, though its BATCH reaches the core more than L late (10 frames a second)", async (ctx) => {
+    const r = await musicLoopback({ clips, events: { "m.audioevent.json": event }, quantaPerFrame: 38 });
+    if (!r) return ctx.skip();
+    r.play("m.audioevent.json");
+    await r.stepUntil(() => r.player()?.run?.state === "playing");
+    await r.step(15);
+    const player = r.player()!;
+    const L = (r.backend as unknown as { clockMap: { lookaheadFrames(): number } }).clockMap.lookaheadFrames();
+    expect(L, "L is at its 100 ms cap: one frame interval").toBe(0.1 * RATE);
+
+    // Asked between frames (as a page script or the editor transport asks): stamped in the next frame, whose BATCH is
+    // held back 50 quanta (133 ms), longer than L.
+    const res = seekMusic(player, "2:1:0");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    r.delayBatches(50);
+    await r.stepUntil(() => player.transition === null, 100);
+    await r.step(3);
+    expect(r.late(), "the core started the group on its stamp").toEqual({ groupsLate: 0, maxSlipFrames: 0 });
+    expect(r.frameOfTime(player.run!.startAt), "it starts on the frame the seek reported").toBe(r.frameOfTime(res.time));
+    expect(player.counters.lateGroups).toBe(0);
+    expect(player.run?.startFrame).toBe(2 * RATE);
+    // The new position sounds from that frame on.
+    const seam = r.frameOfTime(res.time);
+    await r.stepUntil(() => r.out.length > seam + 3000);
+    expect(r.maxError(seam + 400, seam + 3000, (i) => ramp(2 * RATE + (i - seam)))).toBeLessThan(2e-3);
+    r.dispose();
+  });
+
   it("replaces a seek that has not passed its cancel point", async (ctx) => {
     const r = await playing(ctx);
     const player = r.player()!;

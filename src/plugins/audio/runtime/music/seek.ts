@@ -118,7 +118,8 @@ const refusals = (player: MusicPlayer, cause: string): number => player.counters
  * that isn't playing `notPlaying` (permanent; temporary until the first segment sounds); a group that never fits
  * `neverFits` (permanent); no free rings now `poolFull` (temporary, retried each display frame until the target changes).
  * Success carries the planned heard landing time (a seek queued behind a committed change: that change's landing T,
- * the earliest it can land).
+ * the earliest it can land). T is now + lead and a frame of slack, one frame more when asked outside the frame (the
+ * planner's `slackOf`, F-25), so the group is stamped with room to reach the core and starts on T itself.
  *
  * Only the playing item's position moves, across loop passes included. Seeking to another segment is a switch or a
  * playlist change, not a seek (ruling R25), so a position is never read in a segment other than the one playing when

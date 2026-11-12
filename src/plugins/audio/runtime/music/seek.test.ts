@@ -89,7 +89,8 @@ describe("seekMusic", () => {
     rig();
     const player = playing(root());
     const res = seekMusic(player, "3:2:0"); // bar 3 beat 2: 4 s + 0.5 s
-    expect(res).toEqual({ ok: true, time: expect.closeTo(1.2 + 0.1, 9) });
+    // The lead (1.25 Ê + L + Δ̄ for streamed stems not primed yet: 0.1 s) and an asap start's frame of slack (Δ̄, F-25).
+    expect(res).toEqual({ ok: true, time: expect.closeTo(1.2 + 0.1 + DT, 9) });
     expect(player.transition?.immediate?.fadeSeconds).toBe(0.005);
     expect(player.planned?.run.startFrame).toBe(Math.round(4.5 * RATE));
     expect(player.planned?.run.node.id).toBe("A");
