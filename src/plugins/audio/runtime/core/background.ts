@@ -94,6 +94,8 @@ export interface BackgroundDeps {
   rebuild?: (reason: RebuildReason) => Promise<RebuildOutcome>;
   /** Defaults to `performance.now()`, ms. */
   now?: () => number;
+  /** Called on each device event (`devicechange`, `sinkchange`) before the controller evaluates it (Rh2's calibration). */
+  onDevice?: () => void;
 }
 
 /** @internal The §3.8 / §3.7 controller. `start()` attaches it; `dispose()` detaches. */
@@ -117,6 +119,7 @@ export class BackgroundController {
   private lastBlocks = 0;
   private lastBlockAt = 0;
   private lastSnapshot: DeviceSnapshot;
+  private readonly onDevice: (() => void) | undefined;
   private interruptedSince: number | null = null;
   private busy = false;
   private again = false;
@@ -137,6 +140,7 @@ export class BackgroundController {
     this.target = deps.target;
     this.visibility = deps.visibility === undefined ? pageVisibility() : deps.visibility;
     this.rebuildFn = deps.rebuild ?? rebuildCore;
+    this.onDevice = deps.onDevice;
     this.now = deps.now ?? (() => performance.now());
     this.lastSnapshot = this.host.snapshot();
     this.lastBlocks = this.target.statusBlocks;
@@ -153,7 +157,10 @@ export class BackgroundController {
     if (this.started || this.disposed) return this;
     this.started = true;
     this.visibility?.addEventListener("visibilitychange", this.onVisibility);
-    this.offDevice = this.host.onDeviceEvent((kind) => void this.evaluate(kind === "device"));
+    this.offDevice = this.host.onDeviceEvent((kind) => {
+      if (kind === "device") this.onDevice?.();
+      void this.evaluate(kind === "device");
+    });
     this.healthTimer = setInterval(() => void this.evaluate(false), HEALTH_CHECK_MS);
     // A timer must never keep Node (tests, the export tool) alive.
     (this.healthTimer as { unref?: () => void }).unref?.();
