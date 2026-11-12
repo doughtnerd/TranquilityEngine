@@ -52,6 +52,11 @@ export interface MusicLoopbackOptions {
   settleFrames?: number;
   /** F-23: leave the clips cold (not decoded until the first play asks for them); default false (every clip preloaded). */
   cold?: boolean;
+  /**
+   * F-35: sound is locked, as in a page before its first gesture: the core isn't registered, so `Audio.play` gets the
+   * pending backend, until `unlock()` registers the core (the hand-over). The core renders (silence) all along.
+   */
+  locked?: boolean;
 }
 
 export interface MusicLoopback {
@@ -85,6 +90,8 @@ export interface MusicLoopback {
    * `once`: only the next frame's batches (default true).
    */
   delayBatches(quanta: number, once?: boolean): void;
+  /** F-35 (`locked`): register the core now; the pending backend hands its sound over. Does nothing when not locked. */
+  unlock(): void;
   dispose(): void;
 }
 
@@ -163,7 +170,8 @@ export async function musicLoopback(options: MusicLoopbackOptions): Promise<Musi
   });
   const host: CoreBackendHost = { link, status: "running", preset: { maxLogical: 32, maxMixed: 16 }, worldCount: 1, sampleRate: RATE, addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"] };
   const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer: globalMixer });
-  undo = registerCoreBackend(() => backend);
+  const register = (): void => { undo ??= registerCoreBackend(() => backend); };
+  if (!options.locked) register();
 
   const out: number[] = [];
   const dt = frameFrames / RATE;
@@ -236,6 +244,7 @@ export async function musicLoopback(options: MusicLoopbackOptions): Promise<Musi
     delayBatches(quanta, once = true) {
       delay = quanta > 0 ? { quanta: Math.round(quanta), once } : null;
     },
+    unlock: register,
     dispose() {
       backend.dispose();
       resetMusicLoopback();
