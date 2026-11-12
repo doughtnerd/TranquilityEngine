@@ -22,7 +22,7 @@ import type { PlayArgs } from "./commandWriter";
 import { fakeDecoder } from "./fakeDecoder";
 
 /** Just what the backend's constructor and these tests touch of a registry. */
-function fakeClips(): ClipRegistry {
+function fakeClips(over: Partial<ClipRegistry> = {}): ClipRegistry {
   const info = (id: number): ClipInfo => ({ id, path: "", state: "ready" as ClipState, refs: 0, frames: 0, channels: 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null });
   return {
     acquire: () => 1,
@@ -34,6 +34,7 @@ function fakeClips(): ClipRegistry {
     applyClipEvent() {},
     residentIds: () => [],
     acquireReserved() {},
+    ...over,
   } as unknown as ClipRegistry;
 }
 
@@ -152,7 +153,7 @@ describe("the core's music seam (ADR 0166 §4.6, Q2)", () => {
 // --- P1: the group lifecycle on a fake host (no wasm) -----------------------------------------------------------------
 
 /** A backend on a fake host with a music pool of `rings` and an in-process decoder that records `primeGroup`s. */
-function musicRig(rings = 8) {
+function musicRig(rings = 8, clips: ClipRegistry = fakeClips()) {
   const port: LinkPort = { onmessage: null, postMessage: () => {} };
   const link = new CoreLink(port);
   let raf = 1000;
@@ -203,7 +204,7 @@ function musicRig(rings = 8) {
   };
   const dummyPort = () => ({ onmessage: null, postMessage() {} });
   const backend = new CoreBackend(host, {
-    clips: fakeClips(),
+    clips,
     clock,
     mixer: new Mixer(defaultAudioSettings()),
     streams: {
@@ -227,7 +228,7 @@ function musicRig(rings = 8) {
   const say = (r: MusicReply) => {
     for (const l of music) l(r);
   };
-  return { backend, ops: backend.musicOps, clock, primes, cancels, closes, fetched, events, ringsOf, say };
+  return { backend, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say };
 }
 
 const flush = async () => {
@@ -257,8 +258,121 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     expect(r.ops.debugView().poolUsed).toBe(0);
     expect(r.ops.debugView().poolHighWater).toBe(6);
     for (let g = 1; g <= 16; g++) expect(r.ops.admitGroup(request(g, 0, 1)).ok).toBe(true);
+    expect(r.ops.debugView().groupTableFull).toBe(0);
     expect(r.ops.admitGroup(request(17, 0, 1))).toEqual({ ok: false, reason: "groupTableFull", permanent: false });
+    expect(r.ops.admitGroup(request(18, 0, 1)).ok).toBe(false);
+    expect(r.ops.debugView().groupTableFull).toBe(2);
     r.backend.dispose();
+  });
+
+  it("a decoded member isn't primed until its clip is resident, and its PLAY goes out only then (F-7b)", () => {
+    const acquired: string[] = [];
+    const released: number[] = [];
+    const states = new Map<number, ClipState>();
+    let next = 100;
+    const ids = new Map<string, number>();
+    const clips = fakeClips({
+      acquire: ((path: string) => {
+        acquired.push(path);
+        let id = ids.get(path);
+        if (id === undefined) ids.set(path, (id = next++));
+        if (!states.has(id)) states.set(id, "fetching" as ClipState);
+        return id;
+      }) as ClipRegistry["acquire"],
+      release: ((id: number) => void released.push(id)) as ClipRegistry["release"],
+      state: ((id: number) => states.get(id) ?? "idle") as ClipRegistry["state"],
+    });
+    const r = musicRig(8, clips);
+    const req = request(7, 1, 2); // one streamed, two decoded
+    expect(r.ops.admitGroup(req).ok).toBe(true);
+    expect(acquired).toEqual(["music/d0.wav", "music/d1.wav"]); // loading starts at admission, not at the PLAY
+    r.ops.primeGroup(req);
+    expect(r.ops.primedState(7)).toMatchObject({ of: 3, ready: false });
+    states.set(ids.get("music/d0.wav")!, "ready");
+    expect(r.ops.primedState(7)!.primed).toBe(1);
+    states.set(ids.get("music/d1.wav")!, "failed"); // a failed clip must not hold the group for ever
+    expect(r.ops.primedState(7)).toMatchObject({ primed: 2, of: 3, ready: false }); // the stream still waits for its ring
+    // Holds are dropped by a cancel.
+    r.ops.cancelGroup(7);
+    expect(released.sort()).toEqual([...ids.values()].sort());
+    r.backend.dispose();
+  });
+
+  it("a decoded-only group is ready once resident; the stamp's PLAYs take their own references and the holds go (F-7b)", () => {
+    const states = new Map<number, ClipState>();
+    const released: number[] = [];
+    let acquires = 0;
+    const clips = fakeClips({
+      acquire: (() => {
+        acquires++;
+        const id = 50 + (acquires % 2);
+        if (!states.has(id)) states.set(id, "fetching" as ClipState);
+        return id;
+      }) as ClipRegistry["acquire"],
+      release: ((id: number) => void released.push(id)) as ClipRegistry["release"],
+      state: ((id: number) => states.get(id) ?? "idle") as ClipRegistry["state"],
+    });
+    const r = musicRig(8, clips);
+    const req = request(8, 0, 2);
+    r.ops.admitGroup(req);
+    expect(acquires).toBe(2);
+    expect(r.ops.primedState(8)).toMatchObject({ primed: 0, of: 2, ready: false });
+    states.set(50, "ready");
+    states.set(51, "ready");
+    expect(r.ops.primedState(8)).toMatchObject({ primed: 2, of: 2, ready: true });
+    expect(released).toEqual([]);
+    r.ops.stampGroup({ group: 8, at: 1 });
+    expect(acquires).toBe(4); // two PLAYs, each with its own reference
+    expect(released).toHaveLength(2); // the admission holds
+    r.ops.cancelGroup(8);
+    expect(released).toHaveLength(2); // nothing released twice
+    r.backend.dispose();
+  });
+
+  it("invalidateClip tells the worker and forgets the path as held, so the next prime sends its bytes (P8)", async () => {
+    const r = musicRig(8);
+    const a = request(3, 2);
+    r.ops.admitGroup(a);
+    r.ops.primeGroup(a);
+    await flush();
+    r.ops.cancelGroup(3);
+    r.fetched.length = 0;
+    const b = request(4, 2);
+    r.ops.admitGroup(b);
+    r.ops.primeGroup(b);
+    await flush();
+    expect(r.fetched).toEqual([]); // both paths are held by the worker
+    r.ops.cancelGroup(4);
+    r.backend.invalidateClip("music/s0.ogg");
+    expect(r.invalidated).toEqual(["music/s0.ogg"]);
+    const c = request(5, 2);
+    r.ops.admitGroup(c);
+    r.ops.primeGroup(c);
+    await flush();
+    expect(r.fetched).toEqual(["music/s0.ogg"]);
+    r.backend.dispose();
+  });
+
+  it("a worker musicWarn warns once per instance and counts (F-5)", () => {
+    const r = musicRig(8);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const req = request(3, 1);
+      r.ops.admitGroup(req);
+      r.ops.primeGroup(req); // subscribes the decoder's replies
+      expect(r.ops.debugView().encodedOverBudget).toBe(0);
+      const msg = { type: "musicWarn", cause: "encodedOverBudget", instance: 9, bytes: 200, budget: 100 } as const;
+      r.say(msg);
+      r.say(msg);
+      r.say({ ...msg, instance: 10 });
+      expect(r.ops.debugView().encodedOverBudget).toBe(3);
+      const ours = warn.mock.calls.filter((c) => String(c[0]).includes("encoded cache budget"));
+      expect(ours).toHaveLength(2);
+      expect(String(ours[0]![0])).toContain("200 bytes");
+    } finally {
+      warn.mockRestore();
+      r.backend.dispose();
+    }
   });
 
   it("primeGroup: one message per group, bytes only for paths the worker doesn't hold, protect and budget; needBytes resends", async () => {

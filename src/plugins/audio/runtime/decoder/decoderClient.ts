@@ -178,6 +178,8 @@ export interface DecoderClient {
   protectMusic(instance: number, paths: readonly string[]): void;
   /** ADR 0166 (R16): the music instance ended: the worker drops its encoded-cache references. */
   releaseMusic(instance: number): void;
+  /** ADR 0166 (P8): the music file at `path` was edited: the worker drops its encoded bytes for every instance. No worker, nothing to drop. */
+  invalidateMusic(path: string): void;
   /** ADR 0166: every `groupOpened` (diagnostics only, never the primed signal) and `needBytes`; returns the unsubscribe. */
   onMusic(listener: (reply: MusicReply) => void): () => void;
   /** B3: bumped each time a worker is spawned or retired (crashed, refused, disposed); a worklet connected at another generation must be connected again. */
@@ -405,6 +407,10 @@ class Client implements DecoderClient {
     this.worker?.postMessage({ type: "releaseMusic", instance });
   }
 
+  invalidateMusic(path: string): void {
+    this.worker?.postMessage({ type: "invalidateMusic", path });
+  }
+
   onMusic(listener: (reply: MusicReply) => void): () => void {
     this.musicListeners.add(listener);
     return () => this.musicListeners.delete(listener);
@@ -506,6 +512,7 @@ class Client implements DecoderClient {
         return;
       case "groupOpened":
       case "needBytes":
+      case "musicWarn":
         for (const listener of [...this.musicListeners]) listener(msg);
         return;
       case "error": {

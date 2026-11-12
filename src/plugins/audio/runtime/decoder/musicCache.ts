@@ -31,7 +31,7 @@ export interface MusicCacheOptions {
   /** The budget in bytes; default `DEFAULT_MUSIC_BUDGET_BYTES`. */
   readonly budgetBytes?: number;
   /** Called once per instance whose protected files alone exceed the budget (`encodedOverBudget`). */
-  readonly warn?: (instance: number, message: string) => void;
+  readonly warn?: (instance: number, message: string, bytes: number, budget: number) => void;
 }
 
 /** One held file: its bytes, the open member streams over it, and its close order once it has none. */
@@ -101,6 +101,17 @@ export class MusicCache {
     this.warned.delete(instance);
   }
 
+  /**
+   * P8: the file at `path` was edited. Every instance forgets its bytes (open streams hold their own copy in the wasm, so
+   * they play on); the next prime without bytes is a miss and main resends the new file. Nothing is evicted by size here.
+   */
+  invalidatePath(path: string): void {
+    for (const [instance, paths] of this.held) {
+      paths.delete(path);
+      if (paths.size === 0) this.held.delete(instance);
+    }
+  }
+
   /** A new budget in bytes (the preset's, from `primeGroup.budgetBytes`); may evict at once. */
   setBudget(bytes: number): void {
     if (!Number.isFinite(bytes) || bytes < 0) return;
@@ -149,6 +160,8 @@ export class MusicCache {
       warn?.(
         instance,
         `protected or open music files (${this.bytesHeld} bytes held in all) exceed the ${this.budget}-byte encoded budget`,
+        this.bytesHeld,
+        this.budget,
       );
     }
   }

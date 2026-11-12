@@ -76,7 +76,7 @@ export interface MusicStreamEventSink {
 }
 
 /** @internal What the manager needs of the decoder client. */
-export type StreamDecoderLike = Pick<DecoderClient, "connectWorklet" | "openStream" | "closeStream" | "onStream" | "generation"> & Partial<Pick<DecoderClient, "seekStream" | "loopStream" | "primeGroup" | "cancelGroup" | "protectMusic" | "releaseMusic" | "onMusic">>;
+export type StreamDecoderLike = Pick<DecoderClient, "connectWorklet" | "openStream" | "closeStream" | "onStream" | "generation"> & Partial<Pick<DecoderClient, "seekStream" | "loopStream" | "primeGroup" | "cancelGroup" | "protectMusic" | "releaseMusic" | "invalidateMusic" | "onMusic">>;
 
 export type { StreamChannel };
 

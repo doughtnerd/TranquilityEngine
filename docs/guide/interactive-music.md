@@ -27,7 +27,7 @@ This page documents the first part of interactive music (milestone M4a plus the 
 | Quantised stem automation | `handle.music.positionAt`, `Calibration`, a working `Audio.calibration`, and the rhythm-game helpers |
 | `handle.music` position, tempo and `nextGrid` | Resyncing a group whose stream starved (it is silenced and held today, see [the debug panel](#the-debug-panels-music-section)) |
 | `Audio.horizon`, `Audio.timeAt` | The editor's transport and audition for music |
-| `music.rings` and the presets, streaming and decoding | Hot reload from the editor's asset-change event (the swap is built, the wiring is not) |
+| `music.rings` and the presets, streaming and decoding | Hot reload of a playing music event (wired; see [Hot reload](#hot-reload)) |
 | The Audio Debug panel's Music sections | |
 
 Where a section below depends on something in the right-hand column, it says so.
@@ -375,6 +375,8 @@ The editor's Audio Debug panel (the same one [Why is there no sound?](why-no-sou
 | Quantum splits (music) | Whole-block splits caused by music. Red on any; it should stay 0 |
 | Voice splits, Largest slip | Informational |
 | Curve pool full | Fades that found the shaped-fade pool full (255) and fell back to linear. Amber |
+| Group table full | Groups refused because the core's 16-entry group table was full. Red on any |
+| Encoded cache over budget | Times the decoder's encoded-file cache exceeded its budget with nothing it could drop (every file in use or about to be). Amber; it also logs one warning per music event. Use smaller or fewer stems, or a higher voice preset |
 | Groups abandoned, Late groups, Groups held, Music recoveries | Summed over instances; the first and last also show a per-minute rate |
 | Deadline re-plans | Re-plans per 100 transitions over the last minute: green below 1, amber to 10, red above |
 
@@ -398,9 +400,9 @@ Each refusal, re-plan and slip also logs one warning for its cause, so a console
 
 ## Hot reload
 
-Editing a stem or the event file while the music plays is meant to swap the music at the next bar, without a gap: the changed segment is prepared in the background and the old stems fade out over a few milliseconds as the new ones start, at the same file position when the tempo map has not changed, otherwise at the entry cue. An event file that is gone or invalid keeps the old version with one warning. The debug panel counts such a swap under Recoveries, as `reload`.
+Editing a stem or the event file while the music plays swaps the music at the next bar, without a gap: the changed segment is prepared in the background and the old stems fade out over a few milliseconds as the new ones start, at the same file position when the tempo map has not changed, otherwise at the entry cue. An event file that is gone or invalid keeps the old version with one warning. The debug panel counts such a swap under Recoveries, as `reload`.
 
-The swap is built and tested in the player (`src/plugins/audio/runtime/music/reload.ts`), but **the editor does not call it yet**, so today a change to a music asset is picked up the next time the event starts. Stop and play the music again to hear an edit.
+In the editor this fires when the project saves a file: saving a stem's audio file or the event asset tells the audio runtime, which drops its cached copy of the file (the decoded clip and the decoder's encoded bytes) and swaps every playing instance that uses it. A change to the event file that leaves the playing segment as it was only replaces the rules, playlists, switches and stingers, which apply at the next decision. A second edit that arrives while a swap is being prepared waits until the first one has started. The wiring is `Assets.onChanged` (fired by the editor project's writes) to `noteAssetChanged` in `src/plugins/audio/runtime/music/reload.ts`; a game running outside the editor never changes its files, so nothing fires there.
 
 ## Limits
 

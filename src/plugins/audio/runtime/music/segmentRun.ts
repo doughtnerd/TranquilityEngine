@@ -289,7 +289,8 @@ export function primeRun(player: MusicPlayer, run: SegmentRun, f: MusicFrame): b
 
 /** P1: the run's primed state from the backend's last STATUS (updates `stems[].primed` and `prime`). True when every member is primed. */
 export function pollPrimed(run: SegmentRun, f: MusicFrame): boolean {
-  if (run.state === "admitted") return true;
+  // F-7b: a decoded-only run is ready once its clips are resident (no backend, or a backend that doesn't say: ready).
+  if (run.state === "admitted") return f.music?.primedState(run.group)?.ready ?? true;
   if (run.state !== "priming" || !f.music) return false;
   const job = run.prime;
   const st = f.music.primedState(run.group);
