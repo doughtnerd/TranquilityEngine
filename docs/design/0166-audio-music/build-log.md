@@ -490,3 +490,14 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 - **Tests:** `makeMusic.test.mjs` (the committed clips match the generator); `soundLabMusic.test.ts` (`validateMusic` clean); one `soundLabEvents` case; one `audio-music-a` case.
 - **Not audible until other W7/W8 work lands:** the bridge plays as a plain crossfade until R3b; the tail and the `while` release do nothing audible until R4a and R4b. R3b was asked to settle which fades apply on a bridge's two seams and to align the sample rule.
 - Checks: `test:tools` 22 pass; sound-lab tests 19 pass; typecheck 0.
+
+**R4a merged** (`m4/r4a` `ec0920ee`).
+- **Loop tails:** at each wrap of a region with `tailBeats`, each stem gets a decoded voice playing the audio after the region's end, starting on the wrap's exact sample. Spans are held from the stamp. A refused span drops that tail (`tailRefused`, one warning); a span still loading or a wrap inside the lead is skipped (`tailLate`). A transition at the wrap keeps the tail ringing under the new segment; the last pass gets none.
+- **Counted loops and several regions:** members loop the region of their first wrap (`anchors.firstLoopOf`), and move on or release through the voice's loop record (`anchors.nextWrapOf`, which honours R4b's `released`). Until R4b, a `while` region loops by its `count` (forever for 0).
+- **Tracking:** tail voices and old runs still sounding (P4's open point) stop with `handle.stop` and count in `hasVoices`/`voiceCount` (closes F-7e).
+- **Single-writer edits granted after the fact:** `backend.ts` (`PlayRequest.span`, `ClipSpanHold`, optional `AudioBackend.holdSpan`) and `coreBackend.ts` (`holdSpan`; a span play uses R4c's `acquireSpan`). The core couldn't play a span otherwise.
+- **Also edited:** `anchors.ts`, `segmentRun.ts`, `eventRuntime.ts`, the guide, and the status row.
+- **Limits:** no tails on Babylon (no `holdSpan`); a tail plays at the stem's base level (no automation).
+- **Tests:** `loopTail.loopback.test.ts`, 5 cases on the real core, each within 1e-6 of a reference built from the clip: a counted loop with tails; two regions; a refused span; `handle.stop`; a ringing playlist item.
+- **For R4b:** set `player.regions.released` at the commit point in `tickRegions` (it runs before `tickLoopTails`). The streamed members' release goes through `sink.setLoop` → `streams.setLoop`, which no test covers yet; check it. Holding spans at prime time would avoid a skipped first tail after a slow decode.
+- Checks: typecheck 0; `src/plugins/audio` 2,476 pass (`audioDebugRows` hit a vitest cache collision; 16 of 16 pass on retry); check:links passes.
