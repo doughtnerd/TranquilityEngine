@@ -118,6 +118,25 @@
     },
 
     {
+      "id": "music-readout",
+      "name": "MusicReadout (key M)",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": {
+            "anchor": "top-left",
+            "align": "left",
+            "offset": [12, 12],
+            "fontSize": 18,
+            "outlineColor": "#3b2b1a",
+            "outlineWidth": 4
+          }
+        }
+      ]
+    },
+
+    {
       "id": "game",
       "name": "GameManager",
       "transform": false,
@@ -129,7 +148,8 @@
             "bird": { "$node": "bird" },
             "spawner": { "$node": "spawner" },
             "scoreLabel": { "$node": "score" },
-            "messageLabel": { "$node": "message" }
+            "messageLabel": { "$node": "message" },
+            "musicLabel": { "$node": "music-readout" }
           }
         }
       ]

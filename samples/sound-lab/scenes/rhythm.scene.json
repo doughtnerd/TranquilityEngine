@@ -45,7 +45,7 @@
         {
           "type": "engine.Text",
           "data": {
-            "text": "Sound Lab: rhythm (B goes back to the tour)\nClick the game view first. Tap SPACE: C calibrates on a click track, G is the tap game.",
+            "text": "Sound Lab: rhythm (B goes back to the tour)\nClick the game view first. Tap SPACE or press the view: C calibrates on a click track, G is the tap game.",
             "anchor": "top-left",
             "align": "left",
             "offset": [
@@ -68,7 +68,7 @@
     },
     {
       "id": "rhythm",
-      "name": "Rhythm (keys C, G, X, O, SPACE)",
+      "name": "Rhythm (keys C, G, X, O, D, SPACE; a press on the view is a tap)",
       "transform": false,
       "components": [
         {

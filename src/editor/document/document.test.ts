@@ -71,7 +71,7 @@ describe("SceneDocument", () => {
     expect(doc.isPrefabInstance("bg-b")).toBe(true);
     expect(doc.fieldValue("bird", "engine.Transform", "position")).toEqual([-4, 1, 0]);
     expect(doc.overrideValue("bg-b", [], "engine.Transform", "position")).toEqual([32, 3, 0]);
-    expect(doc.references().filter((r) => r.path[0] === "game").map((r) => r.to)).toEqual(["bird", "spawner", "score", "message"]);
+    expect(doc.references().filter((r) => r.path[0] === "game").map((r) => r.to)).toEqual(["bird", "spawner", "score", "message", "music-readout"]);
   });
 
   it("never modifies the caller's JSON", () => {

@@ -1,4 +1,5 @@
 import { Audio, GameBehavior, Input, behavior, field } from "myco";
+import { exposeKeyScopes, keysClaimed } from "../keyScope";
 
 /** Key 2: toggle the Music bus's mute. Key 3 fades its volume down and back up. Buses are the project's mixer groups. */
 @behavior("lab.Buses")
@@ -8,6 +9,7 @@ export class Buses extends GameBehavior {
   private faded = false;
 
   update(): void {
+    if (keysClaimed()) return;
     const music = Audio.bus("Music");
     if (Input.getKeyDown(this.muteKey)) music.mute = !music.mute;
     if (Input.getKeyDown(this.fadeKey)) {

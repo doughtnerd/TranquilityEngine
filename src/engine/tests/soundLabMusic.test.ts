@@ -70,4 +70,33 @@ describe("the Sound Lab's music events", () => {
     expect(root.children.map((c) => [c.id, (c as SegmentNode).plays])).toEqual([["tour-explore", 2], ["tour-calm", 2], ["tour-combat", 2]]);
     expect(root.rounds).toBe(0);
   });
+
+  // L2: the events the music page starts with 4 and 5 (the same ones the M4a listening items build), on the lab's 4 s stems.
+  it("the eight-stem event: one looping segment of pad, pulse, lead and melody twice, the lint finds nothing", () => {
+    const { asset, problems } = load("music-stems8");
+    expect(problems).toEqual([]);
+    const seg = asset.musicRoot as SegmentNode;
+    expect(seg.tracks.map((t) => t.name)).toEqual(["pad-a", "pulse-a", "lead-a", "melody-a", "pad-b", "pulse-b", "lead-b", "melody-b"]);
+    expect(seg.regions).toEqual([{ id: "loop", from: "1:1:0", to: "end", count: 0 }]);
+    expect(validateMusic({ segments: [seg], library: [] }, facts).issues).toEqual([]);
+    // The melody streams (its sidecar), so two stems take music rings.
+    const meta = JSON.parse(readFileSync(`${SAMPLE}audio/melody-loop.wav.meta.json`, "utf8")) as { stream?: boolean };
+    expect(meta.stream).toBe(true);
+    expect(seg.tracks.filter((t) => t.clip.endsWith("melody-loop.wav"))).toHaveLength(2);
+  });
+
+  it("the A, B, C event: a playlist of three one-pass segments, run once", () => {
+    const { asset, problems } = load("music-list3");
+    expect(problems).toEqual([]);
+    const root = asset.musicRoot;
+    if (root?.type !== "playlist") throw new Error("the event's root is a playlist");
+    expect(root.rounds).toBe(1);
+    expect(root.children.map((c) => [c.id, (c as SegmentNode).tracks.map((t) => t.name), (c as SegmentNode).regions ?? []])).toEqual([
+      ["A", ["pad", "pulse"], []],
+      ["B", ["lead", "pulse"], []],
+      ["C", ["melody", "pad"], []],
+    ]);
+    const v = validateMusic({ segments: main(root), library: [] }, facts);
+    expect(v.issues).toEqual([]);
+  });
 });
