@@ -1,6 +1,6 @@
 # 0155. Games export to Android through Tauri 2's mobile support, as the web build in a generated Tauri project
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by 0169 (the supported mobile floor is Android 14 with Chrome 113; `minSdk` 24 kept)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

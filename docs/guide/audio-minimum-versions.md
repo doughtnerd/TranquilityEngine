@@ -17,7 +17,7 @@ Spatial audio (ADR 0162: beds, reverb zones, occlusion, Doppler, ambisonic clips
 | `AudioContext.getOutputTimestamp` | 57 (Edge 79) | 70 | 14.1 | 57 |
 | Transferable `ArrayBuffer` (`MessageChannel`) | long supported | 41 | 5 | 4.4 |
 
-**Effective minimums: Chrome and Edge 91, Firefox 89, Safari 16.4, Android System WebView 91.** Source: [MDN browser-compat-data 8.1.8](https://github.com/mdn/browser-compat-data) (`api.AudioWorklet`, `api.AudioContext.getOutputTimestamp`, `webassembly.fixed-width-SIMD`); the engine's own probe is `src/plugins/audio/runtime/core/probe.ts`.
+**Effective minimums: Chrome and Edge 91, Firefox 89, Safari 16.4, Android System WebView 91.** These are what the audio core can run on; the engine's *supported* mobile floor is higher, Android 14 with Chrome or WebView 113 ([ADR 0169](../decisions/0169-the-supported-mobile-floor-is-android-14-with-chrome-113.md)). Source: [MDN browser-compat-data 8.1.8](https://github.com/mdn/browser-compat-data) (`api.AudioWorklet`, `api.AudioContext.getOutputTimestamp`, `webassembly.fixed-width-SIMD`); the engine's own probe is `src/plugins/audio/runtime/core/probe.ts`.
 
 Desktop shells: WebView2 is evergreen and follows Edge, so it passes. WKWebView (macOS) follows the system Safari, so it needs macOS with Safari 16.4 or later. WebKitGTK needs the release matching Safari 16.4 or later (likely 2.40; A0.7 confirms on a real build).
 
