@@ -2242,6 +2242,15 @@ for (const s of sc) {
   r.send(busConfig(withRev), busMix(GAINS, RAMP));
   r.run(8);
   const out = r.output();
+  if (process.env.DBG) {
+    const pk = [];
+    for (let q = 55; q < 88; q++) {
+      let m = 0;
+      for (let i = q * Q; i < (q + 1) * Q; i++) m = Math.max(m, Math.abs(out[i]));
+      pk.push(+m.toFixed(4));
+    }
+    console.error(pk.join(" "));
+  }
   let tail = 0;
   for (let i = out.length - 8 * Q; i < out.length; i++) tail = Math.max(tail, Math.abs(out[i]));
   let silent = 0;
