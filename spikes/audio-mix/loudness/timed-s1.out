@@ -22,3 +22,64 @@
 [run] 18:43:54 native both_gated hot k=8
 [run] 18:43:55 native ebur_add music k=1
 [run] 18:43:56 native ebur_add music k=4
+[run] 18:43:58 native ebur_add music k=8
+[run] 18:44:02 native ebur_full music k=1
+[run] 18:44:03 native ebur_full music k=4
+[run] 18:44:07 native ebur_full music k=8
+[run] 18:44:15 native ebur_i music k=1
+[run] 18:44:15 native ebur_tp music k=1
+[run] 18:44:15 wasm floor music k=1
+[run] 18:44:15 wasm peak music k=1
+[run] 18:44:15 wasm peak music k=8
+[run] 18:44:16 wasm kw music k=1
+[run] 18:44:16 wasm kw music k=4
+[run] 18:44:16 wasm kw music k=8
+[run] 18:44:17 wasm kw burst k=1
+[run] 18:44:17 wasm tp music k=1
+[run] 18:44:18 wasm tp music k=4
+[run] 18:44:18 wasm tp music k=8
+[run] 18:44:20 wasm both music k=1
+[run] 18:44:20 wasm both music k=4
+[run] 18:44:21 wasm both music k=8
+[run] 18:44:24 wasm both_gated music k=1
+[run] 18:44:24 wasm both_gated music k=4
+[run] 18:44:25 wasm both_gated music k=8
+[run] 18:44:26 wasm both_gated hot k=1
+[run] 18:44:26 wasm both_gated hot k=8
+[run] 18:44:28 wasm ebur_add music k=1
+[run] 18:44:29 wasm ebur_add music k=4
+[run] 18:44:32 wasm ebur_add music k=8
+[run] 18:44:37 wasm ebur_full music k=1
+[run] 18:44:38 wasm ebur_full music k=4
+[run] 18:44:43 wasm ebur_full music k=8
+[run] 18:44:52 wasm ebur_i music k=1
+[run] 18:44:52 wasm ebur_tp music k=1
+[run] 18:44:53 metered wasm
+[run] 18:44:53 size probes
+   Compiling myco-loudness-spike v0.0.0 (/home/user/TranquilityEngine/spikes/audio-mix/loudness)
+   Compiling loudspike-size v0.0.0 (/home/user/TranquilityEngine/spikes/audio-mix/loudness/size)
+warning: unused imports: `Loudness` and `TpMode`
+ --> size/src/lib.rs:3:23
+  |
+3 | use loudspike::loud::{Loudness, TpMode};
+  |                       ^^^^^^^^  ^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `loudspike-size` (lib) generated 1 warning (run `cargo fix --lib -p loudspike-size` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 1.32s
+   Compiling loudspike-size v0.0.0 (/home/user/TranquilityEngine/spikes/audio-mix/loudness/size)
+    Finished `release` profile [optimized] target(s) in 0.46s
+   Compiling myco-loudness-spike v0.0.0 (/home/user/TranquilityEngine/spikes/audio-mix/loudness)
+   Compiling loudspike-size v0.0.0 (/home/user/TranquilityEngine/spikes/audio-mix/loudness/size)
+warning: unused imports: `Loudness` and `TpMode`
+ --> size/src/lib.rs:3:23
+  |
+3 | use loudspike::loud::{Loudness, TpMode};
+  |                       ^^^^^^^^  ^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `loudspike-size` (lib) generated 1 warning (run `cargo fix --lib -p loudspike-size` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 1.81s
+[run] 18:44:57 wrote /home/user/TranquilityEngine/spikes/audio-mix/loudness/results/2026-11-12T18-43-39-839Z/summary.md
