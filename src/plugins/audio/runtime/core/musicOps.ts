@@ -60,7 +60,7 @@ import type { StreamDecoderLike, StreamManager } from "./streams";
 import { MAX_STAMPED, StampedKind, STAMPED_FLAG_STOP_AT_END, VoiceReason, type VoiceTable } from "./voiceTable";
 import type { WorkletChannel } from "./workletChannel";
 import type { WarnOnce } from "./codecs";
-import type { ClipRegistry } from "./clipRegistry";
+import type { ClipInfo, ClipRegistry } from "./clipRegistry";
 import type { CorePlayRequest, CoreVoice } from "./coreBackend";
 import { FadeLaw, packGate, packShape, SET_PARAMS_MASK_GAIN, SET_PARAMS_MASK_LP_HZ, StreamEvent } from "../wire.generated";
 import { hintFromName, MUSIC_ENCODED_BUDGET_MIB, type MusicReply, type PrimeGroupMember } from "../decoder/protocol";
@@ -163,6 +163,9 @@ interface Member {
   fadeZero: boolean;
   /** F-7b: a decoded member's clip id held from admission until its PLAY took its own reference (0: none held). */
   clip: number;
+  /** F-16: a streamed member's file rate and length from the worker's `streamOpened` (absent until then; 0 unknown). */
+  rate?: number;
+  frames?: number;
 }
 
 /** One live group. */
@@ -442,6 +445,7 @@ export class CoreMusicOps implements MusicBackend {
     this.byVoice.set(id, m as Member & { group: number });
     (m as Member & { group: number }).group = tag.group;
     this.host.table.musicGroup[i] = tag.group;
+    if (m.streamed) this.host.streams.watchMember(id, m.startFrame); // F-16
     // PLAY's `fadeZero` (§4.1): the voice starts with its `fade` ramp at 0; the mirror says so (selection, REPLAY).
     if (m.fadeZero) this.host.table.fadeGain[i] = 0;
   }
@@ -621,6 +625,16 @@ export class CoreMusicOps implements MusicBackend {
     }
   }
 
+  /**
+   * F-16: a `ClipInfo` for a live streamed member's stream `id` (its path; its rate and length once the worker opened
+   * it), or null. The stream manager holds no entry for a member's stream, so `Audio.debug()` asks here.
+   */
+  clipInfo(id: number): ClipInfo | null {
+    const m = this.byStream.get(id);
+    if (!m) return null;
+    return { id, path: m.path, state: "ready", refs: 1, frames: m.frames ?? 0, channels: 0, sampleRate: m.rate ?? 0, format: 0, bytes: 0, failure: null };
+  }
+
   debugView(): MusicOpsDebugView {
     const groups: MusicOpsDebugView["groups"][number][] = [];
     for (const g of this.groups.values()) {
@@ -770,6 +784,15 @@ export class CoreMusicOps implements MusicBackend {
   }
 
   private onStreamReply(r: StreamReply): void {
+    if (r.type === "streamOpened") {
+      // F-16: the file's rate and length, for the member's debug row (clip, playhead).
+      const m = this.byStream.get(r.streamId);
+      if (m) {
+        m.rate = r.info.rate;
+        m.frames = r.info.frames > 0 ? r.info.frames : 0;
+      }
+      return;
+    }
     if (r.type !== "error") return;
     const m = this.byStream.get(r.streamId);
     if (!m) return;

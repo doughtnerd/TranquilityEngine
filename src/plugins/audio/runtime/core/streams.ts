@@ -264,6 +264,16 @@ export class StreamManager {
   }
 
   /**
+   * F-16: voice `voice` (a music group member, whose stream musicOps opens and primes) starts at stream frame
+   * `startFrame`: its waiting reason clears, as an ordinary stream voice's does, once a STATUS playhead moves past it.
+   */
+  watchMember(voice: number, startFrame: number): void {
+    const i = voice & 0xffff;
+    this.seen[i] = startFrame;
+    this.seenFrame[i] = Number.NaN;
+  }
+
+  /**
    * Starts stream `streamId` on the worker from stream frame `startFrame`: connects the channel if needed, fetches the
    * file and opens it. The voice reads "waitingForData" until it sounds.
    */
@@ -516,7 +526,9 @@ export class StreamManager {
   }
 
   private onStatus(status: StatusBlock): void {
-    if (this.byStream.size === 0) return;
+    // F-16: not `byStream.size`: a music group member's stream (musicOps's, never registered here) clears its reason
+    // here too, and with no other stream open this guard skipped it, so a playing stem read "waitingForData" for ever.
+    if (status.playheads.length === 0) return;
     const t = this.deps.table;
     const starved = this.starved;
     starved.length = 0;
