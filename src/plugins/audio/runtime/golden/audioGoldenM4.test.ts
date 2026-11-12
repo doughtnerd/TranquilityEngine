@@ -209,9 +209,9 @@ describe("in-voice goldens: native equals wasm (Z3)", () => {
     expect(lcg[0]).toBe((1015568748 >>> 8) / 16777216 - 0.5);
   });
 
-  it.for(M4_CASES)("%s: the wasm output equals the native fixture's digest and split counts", async (name, ctx) => {
+  it.for(M4_CASES)("%s: the wasm output equals the native fixture's digest and split counts", async (name) => {
     const fixture = readFixture(name);
-    if (fixture === undefined) return ctx.skip();
+    if (fixture === undefined) throw new Error(`no golden/${name}.json: run UPDATE_GOLDENS=1 cargo test -p audio-core --test in_voice_goldens (native/audio)`);
     const { left, right, host } = await renderFixture(fixture);
     expect(left.length, `${fixture.scene}: frames`).toBe(fixture.frames);
     expect(left.every(Number.isFinite) && right.every(Number.isFinite), `${fixture.scene}: finite samples`).toBe(true);
@@ -219,6 +219,9 @@ describe("in-voice goldens: native equals wasm (Z3)", () => {
     for (const s of [left, right]) for (const v of s) peak = Math.max(peak, Math.abs(v));
     const digest = fnv1a64(left, right);
     expect(digest, `${fixture.scene}: wasm digest ${digest} != native ${fixture.fnv1a64} (output peak ${peak})`).toBe(fixture.fnv1a64);
+    // STATUS arrives every 6 quanta: render one more period (not part of the output; with no records left, the
+    // cumulative counters can't move) so a scene shorter than that still reports them.
+    host.renderQuanta(6);
     const last = host.statuses.at(-1);
     expect(last && { splitQuanta: last.splitQuanta, voiceSplits: last.voiceSplits }, `${fixture.scene}: split counters`).toEqual(fixture.splits);
   });
