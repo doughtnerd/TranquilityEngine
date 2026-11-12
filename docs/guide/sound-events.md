@@ -339,6 +339,23 @@ On the Babylon fallback ([which backend plays](playing-sound.md#which-backend-pl
 - Parameters, curves and blends are calculated once per frame on the game's thread instead of in the audio core, so automation steps at the frame rate rather than every 2.67 ms.
 - The Audio Debug panel lists only the voices that belong to events.
 
+## Fades and stops
+
+`handle.fade(to, seconds)` and `handle.stop(fadeSeconds)` are the same on an event handle as on every other handle: they start as soon as the call reaches the audio core, and the fade is **linear**. The public handle has no start time and no fade law.
+
+What the engine does for a *stamped* fade or stop, one with a start time on the audio clock, is used by the interactive-music system (transitions, stingers, reloads) rather than by a script call:
+
+- It lands on its own sample. The audio core applies it inside the one voice it targets, so it doesn't cut the other voices' blocks short or cost them anything. Gain and stop records do it with a compare against the record's start sample; a record that changes something else of that voice (pitch, a low-pass, a loop) renders only that voice in two pieces.
+- Records that aren't about one voice (bus mixes, master, listener, configuration) still split the block of 128 frames for every voice.
+- The fade laws are `linear`, `sCurve` and `equalPowerIn` / `equalPowerOut`. They are not a script option: they are the internal `ShapedFade` (`src/plugins/audio/runtime/backend.ts`), and music rules reach them through a transition's `curve`.
+
+Caveats:
+
+- A law runs at control rate: the voice's linear ramp is re-aimed at the law's value at the start sample and again at every 128-frame block, so a curved fade is a chain of short straight segments. The error against the exact curve is below audibility, and a crossfade of `equalPower` fades keeps its power constant.
+- At most 255 shaped fades run at once. Past that a new one fades linearly and counts in `Audio.debug().musicTotals.curvePoolFull`.
+- On the Babylon fallback (no audio core) a stamped fade is approximated by main-thread timers and steps of the voice's volume: it is not sample-exact.
+- `Audio.debug().musicTotals.splitQuanta` counts blocks split for every voice and `voiceSplits` counts splits of one voice. Music keeps `splitQuanta` at 0; `voiceSplits` is informational.
+
 ## The Audio Debug panel
 
 The Audio Debug panel groups the voices of an event instance under one row, with the event's path and its parameters' current values, so a layered or blended sound reads as one thing. It also counts the clips of continuous containers that started a frame late (their length was not known yet when the next one had to be scheduled); a steady non-zero count means a clip is loading or streaming too slowly. `Audio.debug().events` holds the same rows for tools, and each voice row has an `event` field, the instance id or null.
