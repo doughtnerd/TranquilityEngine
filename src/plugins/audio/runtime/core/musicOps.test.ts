@@ -453,6 +453,43 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     vi.restoreAllMocks();
     r.backend.dispose();
   });
+
+  it("F-9b: paramsShaped keeps the stem's level in the table; its multiplier is over the dry gain without it", async () => {
+    const r = musicRig(8);
+    r.ops.admitGroup(request(7, 0, 1));
+    const [v] = r.ops.stampGroup({ group: 7, at: 0 });
+    const id = (v as { id: number }).id;
+    const i = id & 0xffff;
+    const t = r.backend.table;
+    t.gain[i] = 0.8;
+    const sent: { gain: number; at?: number }[] = [];
+    vi.spyOn(r.backend.writer, "setParams").mockImplementation((_id, _mask, gain, _p, _x, _y, _z, _lp, _ramp, _bus, _shape, at) => void sent.push({ gain, at }));
+    // Asap: the level at once, for the dry gain and audibility.
+    r.ops.paramsShaped(id, { gain: 0.5, seconds: 0 });
+    expect(t.stemDry[i]).toBe(0.5);
+    expect(t.stemGain[i]).toBe(0.5);
+    expect(sent[0]!.gain).toBeCloseTo(0.4, 6); // 0.5 x 0.8, not x 0.5 again
+    // Stamped fall: pending until its frame (dry and audibility stay 0.5); the multiplier is still over 0.8 alone.
+    const now = r.backend.clockMap.framesNow();
+    vi.spyOn(r.backend.clockMap, "stampFor").mockImplementation((f) => f);
+    vi.spyOn(r.backend.clockMap, "frameOfTime").mockImplementation(() => now + 48_000);
+    r.ops.paramsShaped(id, { gain: 0.25, seconds: 0.02, at: 1 });
+    expect(sent[1]).toEqual({ gain: expect.closeTo(0.2, 6), at: now + 48_000 });
+    expect(t.stemDry[i]).toBe(0.5);
+    expect(t.stemGain[i]).toBe(0.5);
+    expect(t.stemCount[i]).toBe(1);
+    expect(t.stemRamp[i * 4]).toBe(Math.round(0.02 * r.backend.clockMap.sampleRate));
+    // The logged ramp starts from the stem's level (0.5 x 0.8).
+    expect(t.stampedFrom[i * 4 + t.stampedCount[i]! - 1]).toBeCloseTo(0.4, 6);
+    // A stamped rise counts for audibility at once.
+    r.ops.paramsShaped(id, { gain: 2, seconds: 0, at: 1 });
+    expect(t.stemGain[i]).toBe(2);
+    expect(t.stemDry[i]).toBe(0.5);
+    t.resolveStems(now + 48_000);
+    expect(t.stemDry[i]).toBe(2);
+    vi.restoreAllMocks();
+    r.backend.dispose();
+  });
 });
 
 // --- P1: the real core (loopback host): a decoded group starts on its stamp's frame --------------------------------

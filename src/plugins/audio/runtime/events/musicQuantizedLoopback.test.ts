@@ -1,6 +1,6 @@
 // F-9: quantised automation on a music segment's stems, on the real core (the loopback host's wasm), through the whole
 // runtime: `Audio.play` of the Sound Lab's `music-intensity` event (a copy, with its pulse and lead automation quantised
-// to the beat as R6 means it; the sample itself dropped `quantize` until this was fixed), the music player, the event
+// to the beat as R6 means it; the sample has it again since F-9b), the music player, the event
 // runtime and the CoreBackend, driven by the engine's own audio systems at 10 frames a second (the e2e frame cap; a frame
 // is 38 quanta). The stems are DC clips at levels that tell them apart in the mono output: pad 0.125 (x its track volume
 // 0.8), pulse 0.25, lead 0.5. 120 bpm 4/4, so a beat is 24,000 frames.

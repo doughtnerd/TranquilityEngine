@@ -483,6 +483,11 @@ export class CoreMusicOps implements MusicBackend {
   /**
    * G-1: a stamped ramp of the voice's own gain (`r.gain` × its dry gain, `SET_PARAMS` gain with the law's shape) and/or
    * low-pass cutoff, at heard time `r.at` (or asap). A gain ramp is logged as a `GAIN` stamped ramp for REPLAY.
+   *
+   * F-9b: `r.gain` is the stem's level, and the table keeps it (`stemDry`, `stemGain`; `VoiceTable.setStemLevel`): from
+   * the stamp for the dry-gain writes (which multiply it in, so a promote or a volume change keeps it), and for
+   * audibility at once on a rise and at the stamp on a fall (R3a, as `fadeShaped` treats `fadeGain`). The multiplier
+   * sent here is over the dry gain without the stem level (`gain × occGain`), so the level is never applied twice.
    */
   paramsShaped(id: number, r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLawName; at?: number }): void {
     const t = this.host.table;
@@ -505,12 +510,14 @@ export class CoreMusicOps implements MusicBackend {
     if (hasGain) {
       const now = clock.framesNow();
       const applyAt = stamp ?? now + clock.lookaheadFrames();
-      const from = this.gainLevelAt(i, applyAt, dry);
+      const from = this.gainLevelAt(i, applyAt, dry * t.stemDry[i]!);
       t.logStamped(id, StampedKind.GAIN, applyAt, clock.sampleRate, now, from, mult * dry, seconds, shape, 0);
+      // Asap records apply on arrival, at about `framesNow` (the scheduler's asap rule), so that is where this lands.
+      t.setStemLevel(i, mult, stamp, now, rampFrames, shape);
     }
   }
 
-  /** The gain ramp's level at `at` from the log (the voice's dry gain before any ramp). */
+  /** The gain ramp's level at `at` from the log (`dry`, the voice's dry gain with its stem level, before any ramp). */
   private gainLevelAt(i: number, at: number, dry: number): number {
     const t = this.host.table;
     for (let k = t.stampedCount[i]! - 1; k >= 0; k--) {
