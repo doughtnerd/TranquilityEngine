@@ -46,6 +46,8 @@ Numbered; superseded entries are marked, not rewritten.
 - **D18 (owner, 2026-11-12) A playlist's debug row doesn't read `transitioning` for every item.** F-28 showed the row reads `pending`/`transitioning` for nearly all of each item, since the next one is stamped as soon as one plays; the owner called that clutter, and it isn't how FMOD or Wwise present a scheduled change. `playing` holds while an item plays, a scheduled next item shows in its own field, and `transitioning` covers only two segments audible together. Task D18. Revert: restore the state per §2.1 as built.
 - **D19 (owner, 2026-11-12) The music types are exported from `myco` as types** (F-31), for scripts' type annotations. Recorded in its own ADR.
 - **D20 (owner, 2026-11-12) A loop region with no `count` loops forever, as FMOD's loop regions do** (Wwise makes infinite an explicit choice; the owner kept the FMOD behaviour). No change: `count` 0 or omitted is forever, 1 one pass, 2–64 that many passes, as built and as `docs/guide/interactive-music-api.md` states. Revert: make `count` required, with an explicit forever value.
+- **D21 (owner, 2026-11-12) Start-up clicks under load are left as they are for now** (F-37): no master fade-in and no larger loading buffer until a real device shows them (the evidence so far is an emulator, whose audio runs through the host). Revert: implement either option F-37 measured.
+- **D22 (owner, 2026-11-12) The shedding ladder recovers once underruns stop**, step by step after a sustained clean period, instead of holding its steps for the session (ADR 0162 OD3). Task F-39, with its own amending record.
 
 ## Wave 0 (2026-11-11, base `origin/master` `c3f2e9b`)
 
