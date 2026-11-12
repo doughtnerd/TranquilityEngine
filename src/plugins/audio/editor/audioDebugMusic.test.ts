@@ -1,14 +1,14 @@
 // ADR 0166 P10 acceptance: every §1.6 counter reaches `Audio.debug().music` / `musicTotals` and the panel's Music sections.
 import { afterEach, describe, expect, it } from "vitest";
-import { Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import { debugSections } from "../../editor/audioDebugRows";
-import type { EventInstance } from "../events/eventRuntime";
-import { _resetMusicPlayers, createMusicPlayer } from "../music/musicSystem";
-import { buildDebugInfo, type DebugSource } from "./debug";
-import { StatusMirror } from "./mirror";
-import { UnlockQueue } from "./unlockQueue";
-import { VoiceTable } from "./voiceTable";
+import { Mixer } from "../../../engine/audio/mixer";
+import { defaultAudioSettings } from "../../../engine/audio/settings";
+import { debugSections } from "./audioDebugRows";
+import type { EventInstance } from "../runtime/events/eventRuntime";
+import { _resetMusicPlayers, createMusicPlayer } from "../runtime/music/musicSystem";
+import { buildDebugInfo, type DebugSource } from "../runtime/core/debug";
+import { StatusMirror } from "../runtime/core/mirror";
+import { UnlockQueue } from "../runtime/core/unlockQueue";
+import { VoiceTable } from "../runtime/core/voiceTable";
 
 afterEach(() => _resetMusicPlayers());
 
