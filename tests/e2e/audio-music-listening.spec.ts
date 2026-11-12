@@ -333,7 +333,7 @@ const hear = (page: Page, ms: number) => page.waitForTimeout(LISTEN ? ms : Math.
 type M4aRow = { id: number; asset: string; state: string; segment: string | null; tempo: number; stems: { streamed: boolean; ring: number | null }[]; groups: { state: string; primed: number; of: number }[]; groupsHeld: number; lateGroups: number };
 const m4aRow = async (page: Page, asset: string): Promise<M4aRow | undefined> => ((await fullDebug(page)) as unknown as { music?: M4aRow[] }).music?.find((r) => r.asset.includes(asset));
 const stopItem = (page: Page, name: string) => page.evaluate((n) => (globalThis as unknown as { __e1?: Record<string, { stop(s?: number): void }> }).__e1?.[n as string]?.stop(0.2), name);
-/** A stopped music event is over: none of its voices is left and its rings are back (its row may linger as "ending", F-15). */
+/** A stopped music event is over: none of its voices is left and its rings are back (its row may linger as "ending", F-17). */
 const stopped = (page: Page, asset: string) =>
   expect
     .poll(
@@ -345,8 +345,12 @@ const stopped = (page: Page, asset: string) =>
       { timeout: 15_000, message: `${asset} stopped` },
     )
     .toBe(true);
+/** The counters since the last `holdBase` (the held-group key moves the cumulative ones on purpose): nothing late, held or abandoned, no new slip, no split. */
+let holdBase: Awaited<ReturnType<typeof readLate>> = null;
 const cleanCounters = async (page: Page, what: string) => {
-  expect(await readLate(page), `${what}: groupsLate, groupsHeld, groupsAbandoned, slip and splits`).toEqual({ groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0 });
+  const now = (await readLate(page))!;
+  const b = holdBase ?? { groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0 };
+  expect(now, `${what}: groupsLate, groupsHeld, groupsAbandoned, slip and splits`).toEqual(b);
 };
 
 test.describe("listening M4a: segments, stems and playlists", () => {
@@ -421,27 +425,24 @@ test.describe("listening M4a: segments, stems and playlists", () => {
       await m4aKey(page, "3", "eight stems; the decoder worker is paused for 6 s");
       await startEvent(page, "held", "e1/stems8.audioevent.json");
       await checkEight("stems8", "held group");
-      const starvesBefore = Number((await fullDebug(page))!.core.streamStarves ?? 0);
-      let paused: Awaited<ReturnType<typeof pauseWorkers>> | null = null;
-      try {
-        paused = await pauseWorkers(page, true, null);
-      } catch (err) {
-        info.annotations.push({ type: "held group", description: `the worker could not be paused (${(err as Error).message.split("\n")[0]})` });
-      }
-      if (paused && paused.ids.length > 0) {
-        await page.waitForTimeout(Number(process.env.E2E_HOLD_MS ?? 6_000));
-        await pauseWorkers(page, false, paused);
-        await paused.cdp.detach();
-        const d = (await fullDebug(page))!;
-        const row = (await m4aRow(page, "stems8"))!;
-        const starves = Number(d.core.streamStarves ?? 0) - starvesBefore;
-        // What the walker can state today: the pause starved the streamed stems (or the rings outlasted it). Whether the group was
-        // held is C2c's (groupsHeld stays 0 until it merges); both numbers are reported.
-        info.annotations.push({ type: "held group", description: `${paused.ids.length} worker(s) paused; stream starves ${starves}; groupsHeld ${row.groupsHeld}` });
-        await expect.poll(async () => (await m4aRow(page, "stems8"))?.state, { timeout: 15_000, message: "the music plays on after the worker resumes" }).toBe("playing");
-      }
+      const paused = await pauseWorkers(page, true, null);
+      expect(paused.ids.length, "the decoder worker was reached").toBeGreaterThan(0);
+      // The rings drain, a streamed stem runs dry and the core holds the whole group: silence, position pinned. Resumed at once: a hold over 1 s is given up on.
+      await expect.poll(async () => (await readLate(page))?.groupsHeld, { timeout: 45_000, intervals: [50], message: "the group was held" }).toBeGreaterThanOrEqual(1);
+      await pauseWorkers(page, false, paused);
+      await paused.cdp.detach();
+      // It resumes together: the six decoded stems are back on one playhead, the group was not given up on.
+      const playheads = async () => (await fullDebug(page))!.voices.filter((v) => v.playheadSeconds !== null && v.state === "playing").map((v) => v.playheadSeconds!);
+      await expect.poll(async () => (await playheads()).length, { timeout: 30_000, message: "the music plays on after the worker resumes" }).toBe(6);
+      const heads = await playheads();
+      expect(Math.max(...heads) - Math.min(...heads), "resumed on one playhead").toBe(0);
+      const late = (await readLate(page))!;
+      expect(late.groupsHeld, "held").toBeGreaterThanOrEqual(1);
+      expect({ abandoned: late.groupsAbandoned, split: late.splitQuanta }, "resumed, not abandoned").toEqual({ abandoned: 0, split: 0 });
+      info.annotations.push({ type: "held group", description: `groupsHeld ${late.groupsHeld}, largest slip ${late.maxSlipFrames} frames` });
       await stopItem(page, "held");
       await stopped(page, "stems8");
+      holdBase = (await readLate(page))!;
     });
 
     await test.step("key 4: a playlist of three items, 30 s", async () => {
@@ -467,6 +468,7 @@ test.describe("listening M4a: segments, stems and playlists", () => {
     await test.step("key 5: the flappy sample's streamed segment, 20 s", async () => {
       await m4aKey(page, "5", "opens the Flappy sample: its town music, 20 s");
       await bootSample(page, FLAPPY);
+      holdBase = null; // a new page: its counters start at 0
       await installM4aCard(page, LISTEN, "M4a: the flappy sample's town music, a streamed segment (105 bpm). Listen for 20 s: steady, no gap at the loop.");
       await expect.poll(async () => (await m4aRow(page, "town"))?.state, { timeout: 60_000 }).toBe("playing");
       const row = (await m4aRow(page, "town"))!;

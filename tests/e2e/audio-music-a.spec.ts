@@ -81,7 +81,7 @@ test("M4a: eight stems start together: one group, one start, no slip, streamed a
   expect(row.groups.map((g) => ({ of: g.of, primed: g.primed }))).toEqual([{ of: 8, primed: 8 }]);
 
   // One snapshot of the voice table: every stem is a playing voice of the event and they are at the same position.
-  // The streamed stems' rows are not read here (F-14: they read waitingForData for as long as they play, see the fixme below).
+  // The streamed stems' rows are not read here (F-16: they read waitingForData for as long as they play, see the fixme below).
   const decodedPlaying = async () => {
     const d = (await audioDebug(page))!;
     return d.voices.filter((v) => v.event === row.id && v.state === "playing" && v.playheadSeconds !== null);
@@ -114,12 +114,12 @@ test("M4a: eight stems start together: one group, one start, no slip, streamed a
   expect(seen.warnings).toEqual([]);
 });
 
-// F-14 (found by E1): the voice rows of a streamed music stem. The stem plays (its music ring is bound and the Music bus carries it,
+// F-16 (found by E1): the voice rows of a streamed music stem. The stem plays (its music ring is bound and the Music bus carries it,
 // the flappy case above), but `Audio.debug().voices` lists it as `waitingForData` with clip "" and no playhead for as long as it plays.
 // Diagnosis: a gated music member's stream is opened by the group (`primeGroup`), so it is not in `StreamStore.byStream`; the
 // store's `onStatus` is what clears `VoiceReason.WAITING_FOR_DATA` (core/streams.ts), and `debug.ts` finds the clip path through the
 // clip registry, which has no entry for it. The Audio Debug panel's voice table shows the same wrong row.
-test.fixme("M4a: a streamed stem's voice row reads playing, with its clip and a playhead (F-14)", async ({ page }) => {
+test.fixme("M4a: a streamed stem's voice row reads playing, with its clip and a playhead (F-16)", async ({ page }) => {
   await bootSample(page, LAB);
   await addAssets(page, { "e1/stems8.audioevent.json": stems8() });
   await startEvent(page, "m", "e1/stems8.audioevent.json");
@@ -342,25 +342,31 @@ test("M4a on Babylon: a segment plays and a playlist advances", async ({ page })
 });
 
 // The held group (R11, C2c): when a streamed stem runs dry the whole group dips together and resumes together. Pausing the decoder
-// worker through the DevTools protocol (`pauseWorkers`) starves the music rings. Fixme until C2c merges: `group_hold.rs`'s hooks
-// are inert stubs on this base (`on_starve` returns `Alone`, `must_hold` false), so `groupsHeld` stays 0. Enable it with C2c.
-test.fixme("M4a: a starved streamed stem holds the whole group, and it resumes together (C2c)", async ({ page }) => {
+// worker through the DevTools protocol (`pauseWorkers`) stops the rings refilling; once they drain the core holds the group.
+test("M4a: a starved streamed stem holds the whole group, and it resumes together (C2c)", async ({ page }) => {
   await bootSample(page, LAB);
   await addAssets(page, { "e1/stems8.audioevent.json": stems8() });
   await startEvent(page, "m", "e1/stems8.audioevent.json");
   await expect.poll(async () => (await rowOf(page, "stems8"))?.state, { timeout: 30_000 }).toBe("playing");
+  await page.waitForTimeout(1_500);
   const held = await pauseWorkers(page, true, null);
-  await expect.poll(async () => (await readLate(page))?.groupsHeld, { timeout: 30_000, message: "the group was held" }).toBeGreaterThanOrEqual(1);
+  await expect.poll(async () => (await readLate(page))?.groupsHeld, { timeout: 45_000, intervals: [50], message: "the group was held" }).toBeGreaterThanOrEqual(1);
+  expect((await rowOf(page, "stems8"))!.state, "the music instance is still there").not.toBeUndefined();
   await pauseWorkers(page, false, held);
-  await expect.poll(async () => (await audioDebug(page))!.voices.filter((v) => v.playheadSeconds !== null && v.state === "playing").length, { timeout: 20_000, message: "it resumed" }).toBeGreaterThanOrEqual(6);
-  const heads = (await audioDebug(page))!.voices.filter((v) => v.playheadSeconds !== null).map((v) => v.playheadSeconds!);
+  await held.cdp.detach();
+  const decoded = async () => (await audioDebug(page))!.voices.filter((v) => v.playheadSeconds !== null && v.state === "playing").map((v) => v.playheadSeconds!);
+  await expect.poll(async () => (await decoded()).length, { timeout: 30_000, message: "it resumed" }).toBe(6);
+  const heads = await decoded();
   expect(Math.max(...heads) - Math.min(...heads), "the decoded stems resumed on one playhead").toBe(0);
+  const late = (await readLate(page))!;
+  expect({ abandoned: late.groupsAbandoned, split: late.splitQuanta }, "resumed, not given up").toEqual({ abandoned: 0, split: 0 });
+  expect((await audioDebug(page))!.musicTotals!.maxSlipFrames, "the slip is the hold's length").toBeGreaterThan(0);
 });
 
-// F-15 (found by E1): a stopped music event's row stays in `Audio.debug().music`, state "ending", for good. Its voices are gone, its
+// F-17 (found by E1): a stopped music event's row stays in `Audio.debug().music`, state "ending", for good. Its voices are gone, its
 // rings are back and `Audio.debug().events` no longer lists it, but the MusicPlayer is not disposed (a playlist that ends by itself
 // does leave the table), so the panel's Music section keeps a dead row for every `stop()`.
-test.fixme("M4a: a stopped music event leaves the Music table (F-15)", async ({ page }) => {
+test.fixme("M4a: a stopped music event leaves the Music table (F-17)", async ({ page }) => {
   await bootSample(page, LAB);
   await addAssets(page, { "e1/stems8.audioevent.json": stems8() });
   await startEvent(page, "m", "e1/stems8.audioevent.json");
