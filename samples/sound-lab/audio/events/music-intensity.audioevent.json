@@ -4,20 +4,28 @@
   "priority": 200,
   "limit": { "maxInstances": 1, "steal": "oldest" },
   "root": {
-    "type": "layer",
-    "children": [
-      { "type": "clip", "clip": "audio/events/music-pad.wav", "loop": true, "volume": 0.8 },
+    "type": "segment",
+    "id": "intensity",
+    "gridOffset": 0,
+    "tempo": [{ "at": "1:1:0", "bpm": 120, "beatsPerBar": 4, "beatUnit": 4 }],
+    "cues": [
+      { "name": "entry", "at": "1:1:0" },
+      { "name": "exit", "at": "end" }
+    ],
+    "entry": "entry",
+    "exit": "exit",
+    "regions": [{ "id": "loop", "from": "1:1:0", "to": "end", "count": 0 }],
+    "tracks": [
+      { "name": "pad", "clip": "audio/events/music-pad.wav", "volume": 0.8 },
       {
-        "type": "clip",
+        "name": "pulse",
         "clip": "audio/events/music-pulse.wav",
-        "loop": true,
-        "automation": [{ "parameter": "Intensity", "target": "volume", "curve": [[0.2, 0], [0.6, 1]] }]
+        "automation": [{ "parameter": "Intensity", "target": "volume", "curve": [[0.2, 0], [0.6, 1]], "quantize": "beat" }]
       },
       {
-        "type": "clip",
+        "name": "lead",
         "clip": "audio/events/music-lead.wav",
-        "loop": true,
-        "automation": [{ "parameter": "Intensity", "target": "volume", "curve": [[0.6, 0], [1, 1]] }]
+        "automation": [{ "parameter": "Intensity", "target": "volume", "curve": [[0.6, 0], [1, 1]], "quantize": "beat" }]
       }
     ]
   }

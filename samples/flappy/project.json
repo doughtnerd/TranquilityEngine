@@ -19,5 +19,8 @@
     "sortingLayers": ["Background", "Pipes", "Default", "Foreground", "Player"],
     "pixelsPerUnit": 100
   },
+  "audio": {
+    "music": { "rings": 12 }
+  },
   "autoload": ["prefabs/music.prefab.json"]
 }
