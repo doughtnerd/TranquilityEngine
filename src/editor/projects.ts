@@ -167,6 +167,7 @@ class MapProject implements EditorProject {
     if (!this.values.has(path)) this.sortedFiles = null;
     this.texts.set(path, text);
     this.values.set(path, value);
+    Assets.notifyChanged(path);
   }
 
   async writeFile(path: string, text: string): Promise<void> {
@@ -183,6 +184,7 @@ class MapProject implements EditorProject {
     if (!this.values.has(path)) this.sortedFiles = null;
     this.texts.set(path, text);
     this.values.set(path, text);
+    Assets.notifyChanged(path);
   }
 
   async writeBinary(path: string, bytes: Uint8Array): Promise<void> {
@@ -196,6 +198,7 @@ class MapProject implements EditorProject {
     this.texts.delete(path);
     this.values.set(path, blobUrl(path, bytes));
     this.sizes.set(path, bytes.length);
+    Assets.notifyChanged(path);
   }
 
   async deleteFile(path: string): Promise<void> {

@@ -43,7 +43,7 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
   // B3: the streams, on their own instance of the wasm once it loaded.
   // ADR 0166 (D1a, H3): music groups open their members on the same streams; a closed stream leaves its group.
   const streams = new StreamDecoder({ post, wasm: () => wasm, closed: (id) => groups.closed(id) });
-  const groups = new MusicGroups({ post, streams, cache: new MusicCache() });
+  const groups = new MusicGroups({ post, streams, cache: new MusicCache({ warn: (instance, _message, bytes, budget) => post({ type: "musicWarn", cause: "encodedOverBudget", instance, bytes, budget }) }) });
   // ADR 0162 (K0): zone IR preparation, filled by C2b in irPrepare.ts. It sends kernels over the worklet port that
   // `connectWorklet` hands the stream decoder too, so it hears about each new port.
   const ir = new IrPreparer({ post, wasm: () => wasm, fetchBytes: options.fetchBytes });
@@ -210,6 +210,7 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
         case "cancelGroup":
         case "protectMusic":
         case "releaseMusic":
+        case "invalidateMusic":
           return groups.handle(request);
       }
     },

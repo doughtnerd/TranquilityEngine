@@ -13,10 +13,11 @@ import { _worldServiceOf } from "../../../engine/core/worldServices";
 import { AUDIO, type AudioWorldService } from "./core/service";
 import { ambisonicImportGain, ambisonicStreamsByDefault } from "./core/clipRegistry";
 import { Assets } from "../../../engine/scene/Assets";
-import { audioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type AudioVoice, type PlayRequest, type Rolloff, type SendCurve } from "./backend";
+import { audioBackend, hasAudioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type AudioVoice, type PlayRequest, type Rolloff, type SendCurve } from "./backend";
 import { isAudioEventPath } from "../../../engine/audio/eventFormat";
-import { _setEventClipStarter, events, type EventInstance, type EventOptions } from "./events/eventRuntime";
+import { _setEventClipStarter, events, loadAudioEvent, type EventInstance, type EventOptions } from "./events/eventRuntime";
 import { setSegmentClipSource } from "./music/segmentRun";
+import { noteAssetChanged, setReloadHost } from "./music/reload";
 
 
 export type { Rolloff } from "./backend";
@@ -71,6 +72,18 @@ setSegmentClipSource({
   bus: (output) => mixer.resolveOutput(output),
   facts: (path) => audioBackend().clipFacts?.(path),
 });
+
+// ADR 0166 P8: the editor saving an asset reaches the music runtime here. `invalidateClip` drops the decoded clips and the
+// worker's encoded bytes of the file (only when a backend exists: an edit before any sound needs nothing dropped), and
+// `eventRoot` re-reads the saved event asset's music tree; `noteAssetChanged` then marks the playing instances that use
+// the path, and each swaps at its next bar (`music/reload.ts`).
+setReloadHost({
+  invalidateClip: (path) => {
+    if (hasAudioBackend()) audioBackend().invalidateClip?.(path);
+  },
+  eventRoot: (path) => (isAudioEventPath(path) ? loadAudioEvent(path)?.musicRoot ?? null : null),
+});
+Assets.onChanged((path) => noteAssetChanged(path));
 
 const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math.max(0, Math.round(p))) : 128);
 /** Clamps `v` to lo..hi; a non-finite value gives `fallback`. */

@@ -251,7 +251,13 @@ export interface ReleaseMusicMessage {
   readonly instance: number;
 }
 
-export type MusicRequest = PrimeGroupMessage | CancelGroupMessage | ProtectMusicMessage | ReleaseMusicMessage;
+/** P8: the music file at `path` was edited: the worker's encoded cache drops it for every instance, so a re-prime is a miss and main resends the new bytes. */
+export interface InvalidateMusicMessage {
+  readonly type: "invalidateMusic";
+  readonly path: string;
+}
+
+export type MusicRequest = PrimeGroupMessage | CancelGroupMessage | ProtectMusicMessage | ReleaseMusicMessage | InvalidateMusicMessage;
 
 /**
  * Editor waveform peaks (Ed1; api-and-models §7): decode `bytes` (transferred) and reduce it to one min/max pair per
@@ -402,7 +408,21 @@ export interface PeaksMessage {
   readonly peaks: ArrayBuffer;
 }
 
-export type MusicReply = GroupOpenedMessage | NeedBytesMessage;
+/**
+ * F-5 (P10's shape): the worker's encoded cache holds more than its budget and every excess file is protected or open,
+ * so nothing could be evicted. Sent once per instance (until it is released); main warns once and counts it.
+ */
+export interface MusicWarnMessage {
+  readonly type: "musicWarn";
+  readonly cause: "encodedOverBudget";
+  readonly instance: number;
+  /** Bytes the cache holds, in all. */
+  readonly bytes: number;
+  /** The cache's budget in bytes. */
+  readonly budget: number;
+}
+
+export type MusicReply = GroupOpenedMessage | NeedBytesMessage | MusicWarnMessage;
 
 export type DecoderReply = ReadyMessage | ClipInfoMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage | IrPreparedMessage | IrFailedMessage | MusicReply | PeaksMessage;
 

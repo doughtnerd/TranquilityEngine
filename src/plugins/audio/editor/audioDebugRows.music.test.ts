@@ -44,6 +44,7 @@ const totals = (over: Partial<MusicDebugTotals> = {}): MusicDebugTotals => ({
   voiceSplits: 0,
   curvePoolFull: 0,
   groupTableFull: 0,
+  encodedOverBudget: 0,
   ...over,
 });
 
@@ -112,6 +113,8 @@ describe("L-P10a music health (architecture §9)", () => {
     expect(totalsHealth([row({ stingers: { played: 0, late: 0, skipped: 1, dropped: 0 } })], totals(), "stingersSkipped")).toBe("warn");
     expect(totalsHealth([], totals({ curvePoolFull: 0 }), "curvePoolFull")).toBe("ok");
     expect(totalsHealth([], totals({ curvePoolFull: 1 }), "curvePoolFull")).toBe("warn");
+    expect(totalsHealth([], totals({ encodedOverBudget: 0 }), "encodedOverBudget")).toBe("ok");
+    expect(totalsHealth([], totals({ encodedOverBudget: 2 }), "encodedOverBudget")).toBe("warn");
   });
 
   it("refusals.neverFits (permanent) is red on any count", () => {

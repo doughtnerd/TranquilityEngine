@@ -698,6 +698,8 @@ export function musicTotalsRows(rows: readonly MusicDebugRow[], totals: MusicDeb
     out.push(kv("curvePoolFull", "Curve pool full", fmt(curve), "Fade curves that found the curve pool full (counts). Amber when non-zero.", nonZeroWarn(curve)));
     const table = num(totals.groupTableFull);
     out.push(kv("groupTableFull", "Group table full", fmt(table), "A PLAY whose group found no core table entry (counts). Red on any: a bug.", nonZeroBad(table)));
+    const over = num(totals.encodedOverBudget);
+    out.push(kv("encodedOverBudget", "Encoded cache over budget", fmt(over), "Times the worker's encoded music cache exceeded its budget with nothing evictable (counts). Amber when non-zero.", nonZeroWarn(over)));
   }
   const timeouts = sum((r) => r.groupTimeouts);
   const timeoutRate = watch?.groupTimeoutsPerMinute();

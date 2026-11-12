@@ -18,10 +18,10 @@ import {
 import { compileSegmentGrid, positionTextToTicks } from "../../../../engine/audio/musicGrid";
 import { canonicalPosition, comparePositions, isBarBeatTick, parsePosition, positionProblem } from "../../../../engine/audio/musicPosition";
 import { validateSegment, type MusicClipFacts, type MusicLintIssue } from "../../../../engine/audio/musicValidate";
-import { createDecoderClient } from "../../runtime/decoder/decoderClient";
 import { importDropped } from "./import";
 import { openSegment } from "./index";
-import { createPeaksService, type PeaksService } from "./peaks";
+import { peaksFor } from "./peaksHost";
+import type { PeaksService } from "./peaks";
 import { findSegment, replaceSegment } from "./segmentViewModel";
 import { barCountCandidates, tapTempo, tempoFromLength } from "./tempoTools";
 import "./segmentPanel.css";
@@ -282,32 +282,6 @@ export function audibleStems(tracks: readonly MusicTrack[], state: StemAudition)
 // --- the component ------------------------------------------------------------------------------------------------------
 
 const AUDIO_EXT = /\.(wav|ogg|oga|opus|mp3|flac|m4a|aac)$/i;
-
-const peaksByProject = new WeakMap<object, PeaksService>();
-function peaksFor(project: NonNullable<typeof editor.project.current>): PeaksService {
-  let service = peaksByProject.get(project);
-  if (!service) {
-    const urlOf = (path: string): string => {
-      const url = project.assets.get(path);
-      if (typeof url !== "string") throw new Error(`${path} is not an audio file in the project`);
-      return url;
-    };
-    const versions = new Map<string, number>();
-    service = createPeaksService({
-      client: createDecoderClient(),
-      source: {
-        mtime: async (path) => {
-          const url = urlOf(path);
-          if (!versions.has(url)) versions.set(url, versions.size + 1);
-          return versions.get(url)!;
-        },
-        read: async (path) => (await fetch(urlOf(path))).arrayBuffer(),
-      },
-    });
-    peaksByProject.set(project, service);
-  }
-  return service;
-}
 
 export function SegmentPanel() {
   const open = openSegment.value;

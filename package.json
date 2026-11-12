@@ -19,6 +19,7 @@
     "nav:bake": "node src/nav-cli/cli.mjs",
     "rewrite": "node src/rewrite-cli/cli.mjs",
     "test": "vitest run",
+    "test:tools": "node --test tools/*.test.mjs",
     "bench": "vitest bench --run",
     "bench:memory": "node --expose-gc bench/memory.mjs",
     "build:nav": "node native/nav/build.mjs",

@@ -12,6 +12,8 @@ The coordinator's log of each wave review ([waves plan, "Wave reviews"](../../pl
 
 **Needs you:** the M4-0 listening section ([listening-pass.md](listening-pass.md), about 10 minutes with headphones) and a WebKit run of the e2e suite (`npm run test:e2e:webkit`; WebKit isn't installed in this container). Neither holds the merge.
 
+**M4a merged to master** (2026-11-12): music segments, stems, playlists, switches, transitions, stingers and quantised automation on the grid; every group starts on one frame, holds and resumes together. Needs you: the M4a listening section too.
+
 **M4-0 merged to master** (2026-11-12): every queued per-voice stamped record now applies inside its voice. The integration branch also carries M4a work, all inert or opt-in for existing projects (D9).
 
 **Decisions taken (each with its revert):** see "Decisions" below.
@@ -32,6 +34,8 @@ Numbered; superseded entries are marked, not rewritten.
 - **D7 (W2) Correction to ADR 0167 §1.1 (found by Z2a, measured natively):** a stamped spatial play with non-default effects does **not** split the quantum today. The stamped PLAY writes its slot at once and SET_VOICE_FX applies at once (`fxpool::set_voice_fx` ignores its frame; the scheduler's comment "D1 schedules it" was never implemented); AUTOMATE also applies at once. Of the records main stamps (PLAY, SET_VOICE_FX, SET_LOOP), only SET_LOOP enters the pending queue, so **a stamped SET_LOOP is today's only source of quantum splits from main**. `in_voice_hooks.rs` holds the scene: the pending queue is empty after submit on `92969c11` and on the flip branch, and `splitQuanta`/`voiceSplits` read 0. Consequences: M4-0's exit check is already met for that scene; M4-0's value is music's own stamped fades, stops and loop changes (and any later stamped per-voice record). The decision stands; only its motivating example was wrong. Accepted records aren't rewritten (CLAUDE.md): this correction lives here and goes into Z6's text for ADR 0157's amendment and the status document. Side effect noted: a stamped SET_VOICE_FX lands early, harmless at play time (the voice hasn't started).
 - **D8 (W2) Older shapeless records read with shape 0.** Z2a found STOP/FADE/SET_PARAMS below 24/28/60 B were refused by the scheduler's first pass; the envelope 1.2 rule (appended words are minor) says they read as shape 0. Z2a fixes it with the generated `MIN_END`. Revert: none wanted.
 - **D10 (W5) The metered baseline was rewritten at the in-voice flip** (`29619224`): `virtual` +11.79% (7,102,981 → 7,940,135 instructions per quantum); every other scene within +1.2%; total +2.29%. Why: the cost is H1's per-voice hook, the feature itself, paid by every voice; CLAUDE.md makes the gate a tripwire, not a limit. F-8 profiles it. Revert: restore `baseline.json` from `7f75fe72` once F-8 brings `virtual` back near its M3 figure.
+- **D11 (W6) The editor tells the runtime about changed assets through `Assets.onChanged`/`Assets.notifyChanged`** (`engine/scene/Assets.ts`, both `@internal`, not exported from `src/engine/index.ts`). The editor project's `writeText`/`writeFile`/`writeBinary` call `notifyChanged` after the content is served. G-2 found no existing editor-to-runtime channel; music hot reload (P8) and `clipRegistry.invalidate` (R4c) subscribe to it. Renames, moves and deletes don't notify yet. Revert: move the hook to an editor-owned service, if a later editor record defines one.
+- **D12 (W6) The metered baseline was rewritten from F-8's merge, and D10's revert is withdrawn.** F-8 found that `7f75fe72`'s baseline was stale: many scenes hadn't been rewritten since M1/M2 (`virtual` 7,102,981 dates from `142a03dc`). The same bench built from M3's source (`1ef1c615`, toolchain 1.99.1) gives `virtual` 7,482,907. So D10's +11.79% was about +5.3% earlier drift plus about +6.1% from H1. After F-8, `virtual` is +1.20% over true M3 (about 11 instructions per virtual voice, all attributed); every other scene is within ±0.15%, and `streams` is −9%. Revert: none wanted.
 
 ## Wave 0 (2026-11-11, base `origin/master` `c3f2e9b`)
 
@@ -106,7 +110,14 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 - **F-9 (from SM1):** quantised event automation on a music segment's stems has no audible effect on core. The stamped `paramsShaped` ramp and the level sent at bind leave the Music bus peak unchanged (≈ 0.24); it works on Babylon. Continuous automation works on core. SM1 kept the sound-lab sample unquantised. **F-9 task** (strongest) is finding the root cause, with `voices.rs`/`groups.rs`/`status.rs` off limits while C2b holds them; it restores `quantize` in the sample once fixed.
 - **F-9b (from F-9):** the main side doesn't know a quantised stem's level. Audibility ignores the stamped in-voice ramp, so a stem at 0 stays mixed. Any dry-gain write to a stem (promote SET_MIXED, `_setVolume`, occlusion) resets the core's gain ramp to the plain dry gain, which is latent today. **F-9b task** (strongest): a per-voice stem level in the voice table, read by selection and every dry-gain write; it then restores `quantize` in the sound-lab sample.
 - **F-10 (from Z5):** mixed-voice scenes rose about 1,000–2,300 instructions per mixed voice per quantum between M3 and now: `updates` +595k, `automation-base` +585k, `pitch4` +297k, `bed-256` +247k, each 1–4% of its scene. It's taken with F-8 in the **F-8 task** (strongest), which ports Z5's tested `const LIST`/`const DUE` patch onto C2b's `voices.rs` (`virtual` −331k measured before C2b) and profiles F-10.
-- **F-11 (seen at M4-0's milestone end):** `audio-stress.spec.ts` once read the core's `hrtfVoices` peak as 9 against the high preset's 8. That was under heavy load (three agents plus the full slow suite); it passed alone. Probably a voice counted on both sides of the 45 ms HRTF↔bed handover in a slow frame (M3 behaviour; M4 didn't touch the panner). To check: can the counter exceed the cap during a handover, and should the spec allow for it?
+- **F-11 (seen at M4-0's milestone end):** `audio-stress.spec.ts` once read the core's `hrtfVoices` peak as 9 against the high preset's 8. That was under heavy load (three agents plus the full slow suite); it passed alone. Probably a voice counted on both sides of the 45 ms HRTF↔bed handover in a slow frame (M3 behaviour; M4 didn't touch the panner). To check: can the counter exceed the cap during a handover, and should the spec allow for it? **Seen again at M4a's milestone end** (a peak of 10, in the full slow suite on a quiet machine; 8 alone). Twice now, so worth a task after M4a.
+- **F-12 (from F-9b, predates it):** a stamped SET_PARAMS carries the dry gain as it was when sent. A volume or occlusion change between the send and the stamp lands with the old dry gain until the next dry write. Rare for music stems.
+- **F-13 (from F-9b):** the eventBench allocation tripwire "core voice start allocations" reads 1,136 B against its 1,150 B ceiling (1,120 B before F-9b). It's a tripwire: when the next change crosses it, raise the ceiling with the reason here rather than contort the code.
+- **F-14 (from Ed5):** the editor's stem solo and mute (Ed4's `stemAudition`) doesn't reach the runtime: the handle has no API and `soloStem` is main-side only. It overlaps F-6; for Ed10 or Ed11 with a handle hook.
+- **F-15 (from Ed5):** the segment view's transport plays the whole event. It can't start at a later playlist segment (needs a start-at-segment option, or R7's seek across segments), and it passes no parameter values (the event editor's sliders don't reach it). Transition audition is Ed7's.
+- **F-16 (from E1):** `Audio.debug().voices` shows a streamed music stem as `waitingForData`, clip `""`, playhead null, while it plays. The panel shows the same.
+- **F-17 (from E1):** after `handle.stop(fade)` a music event's row stays in `Audio.debug().music` as `ending` forever, though its voices and rings are gone. It may be a player leak. **F-16/F-17 task** (strongest) is on both, plus the debug row's `pending` going null once a transition passes T − L.
+- **F-18 (from F-16/F-17):** the playhead tracker in `coreBackend.ts` reads a music member's rate from the context, because `streams.clipInfo` doesn't fall back to `musicOps.clipInfo`. The sound-lab stems are 24 kHz, so a streamed stem's tracked playhead there runs at the wrong rate. The audio and the grid (anchors) are unaffected. A `coreBackend.ts` change, for K1/K3 (playhead and position) or a small task before them.
 
 **Started (rolling, D5), base `92969c11`:** Z2a (strongest) on the flip branch `m4/in-voice`, cut locally at `92969c11` after Q1 and the wire's merge 1 (the flip branch stays local: this session pushes only the integration branch); F2, Ed2, Ed9 and R4c (mid; each depends only on merged tasks and touches no running task's files). Waiting for the wire's merge 2: Z4, C1, D1a, then Q2's merge.
 
@@ -280,4 +291,151 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
   - `test:e2e:slow` 28 of 30 under load. `lighting.spec.ts:58` timed out and `audio-stress.spec.ts` read an HRTF peak of 9 (F-11); both pass alone (2 of 2);
   - **WebKit couldn't run here**: the browser isn't installed (`/opt/pw-browsers/webkit-2370` missing, and this environment mustn't install Playwright browsers). It's left to the owner with the listening section.
 - **Merged to master** as a merge commit (O2), per the standing instruction. Owner items open: the listening section M4-0 and WebKit.
+
+**F-9b merged** (`m4/f9b` `852c364e`): quantised stem levels on the main side.
+- `voiceTable.ts` holds two values per voice. `stemDry` is the level the core's gain ramp holds when an asap write lands; every dry-gain write in `coreBackend.dryGain` multiplies it in. `stemGain` is what audibility reads: a rise counts at once, a fall at its stamp.
+- Up to 4 pending stamped changes per voice resolve once a frame (`resolveStems(framesNow)`, before selection).
+- After a dry write or promote, a pending change due within one lookahead is re-sent stamped, which closes the race with the estimate of `framesNow`.
+- `paramsShaped` still sends the gain without the stem level, so nothing applies twice. `autoGain` (continuous) and `stemGain` (quantised) are separate stages on the core.
+- `Audio.debug()` `gain` includes `stemGain`.
+- **Tests:**
+  - `musicStemLevelLoopback.test.ts` (real core): a stem at 0 goes virtual; a stem at 0.5 stays at 0.5 after a promote, `_setVolume` and occlusion. It fails without the fix.
+  - F-9's beat test still passes sample-exact with stems going virtual.
+- **The sound-lab sample's Intensity automation is quantised to the beat again**; `audio-events.spec.ts` passes on both backends.
+- Coordinator checks: typecheck 0; `src/plugins/audio` 2,387 pass; `zoneIr` flaked once under load and passed alone (with eventBench, 16 of 16).
+
+
+**Wave 6 started** (rolling, base `03138580`, after M4-0's merge to master):
+- C2c + C2d (strongest, one lead): `group_hold.rs`, `group_rebase.rs`. No `voices.rs` edits while F-8 holds it; a needed `voices.rs` change comes back as a patch.
+- C3 (strongest): the alignment harness, mixed and late-start goldens now; the held and rebased null cases after C2c + C2d merge.
+- T1 (mid): music loopback tests on a deterministic-clock fixture.
+- D2 (mid, prose): `docs/guide/interactive-music.md`.
+- Ed5 (mid): transport, audition and the Trigger button.
+- G-2 (mid): the coordinator's wiring list.
+- F-8 continues in `voices.rs`.
+- E1 waits for T1's fixture.
+
+**D2 merged** (`m4/d2` `c81ddaef`): `docs/guide/interactive-music.md`, M4a's part.
+- It covers segments and the grid, simple forever loops, quantised automation, playlists, switches, transitions and rules, stingers, streaming and `music.rings`, the script API, the debug panel and hot reload.
+- A status table marks what's coming later: counted and `while` loops, tails, bridges, seek, music callbacks, rhythm and calibration, editor audition, held-group resync.
+- Links from `docs/README.md` and `sound-events.md`.
+- **Coordinator:** added the guide to `tools/check-doc-links.mjs`' defaults, so `check:links` scans it.
+- **Keep it current:** whoever merges G-2 updates its hot-reload section (it says the editor doesn't call the reload yet), and each K, R3b, R4 or R7 merge updates the status table. D2 flagged its own unsure claims: the playlist advance applies `enter` without the rule's fades (R3a's `natural` plumbing), and the crossfade timing came from the design without tracing `transition.ts`.
+
+
+**T1 merged** (`m4/t1` `f037b13d`): the deterministic-clock fixture `music/testing/loopbackClock.ts` (`musicLoopback({clips, events, quantaPerFrame, …})`, no wall clock). New loopback tests on the real core:
+- a segment's first sample lands on its planned frame;
+- 8 stems start on one sample with no slip, including at the e2e rate;
+- a 12-item playlist advances exactly 96,000 frames per item with no late group;
+- 40 loop passes are identical to the first, sample for sample;
+- cuts on the beat and the bar land sample-exact;
+- a linear crossfade starts on its grid point;
+- stingers on the beat and the bar land on their grid point.
+Quantised automation and recovery are already covered (F-9, P9), so not repeated. **No engine bugs found.** Music vitest: 22 files, 226 tests. For later tasks: call `resetMusicLoopback()` in `afterEach`; levels go through int16, so compare with `toBeCloseTo(x, 3)`.
+
+**Ed5 merged** (`m4/ed5` `15f8d8f2`):
+- `music/transport.ts`, over an injected host so it's testable: play from the start, a cue, a bar or a ruler click (a seek after the start, retried for about 2 s on a temporary refusal); Stop; Loop; a stinger Trigger; Reload; the playhead from `handle.music`.
+- `transportHost.ts` is the real host; `TransportBar.tsx` sits above `OpenSegment` in the segment view.
+- `event/auditionHost.ts` has one `activeAudition` signal shared with `Audition.tsx`, so starting either stops the other. The stinger Trigger buttons in `NodeProperties` are live while the event plays (closes F-3).
+- `music/peaksHost.ts` shares one peaks worker per project (closes F-2).
+- Tests: 12 transport tests and 3 audition tests; editor vitest 32 files, 435 tests. Not yet run against a real music event (seek is R7's).
+- Open items: F-14 and F-15. Reload needs a registered reload host, which is G-2's item 1.
+- (Ed5's own build-log entry was dropped at merge: the log is coordinator-owned.)
+
+**G-2 merged** (`m4/g2` `6bca63d1`, one commit per item):
+1. **Music hot reload:** `AudioSource.ts` registers the reload host and subscribes `noteAssetChanged` to `Assets.onChanged` (D11). `invalidateMusic {path}` reaches the worker's cache; `CoreBackend.invalidateClip` also invalidates the clip registry; `AudioBackend.invalidateClip?` is optional.
+2. **F-5:** the worker's `musicWarn {encodedOverBudget, bytes, budget}` warns once per instance; there's a `musicTotals.encodedOverBudget` counter and an amber panel row.
+3. **F-7b:** admission acquires a decoded member's clip, so loading starts early. `primedState` counts it once it's ready or failed, so a failed clip can't stall the group. The PLAY takes its own reference; cancel releases the hold.
+4. **`npm run test:tools`:** `node --test tools/*.test.mjs`, 12 of 12 pass.
+5. **`groupTableFull`** counts `admitGroup`'s refusals.
+
+Single-writer edits granted by name: `coreBackend.ts` (`clips` passed to `MusicOpsHost`), `backend.ts` (the optional `invalidateClip`, the counter type), and `editor/projects.ts` (the notify calls). The guide's hot-reload section and debug rows were updated, and check:links passes.
+
+**Coordinator:**
+- `src/editor/assetDelete.test.ts` expected `town.mp3`'s user to be the prefab. Since SM1 the prefab plays `town.audioevent.json`, which uses the clip; fixed. The earlier full run predates SM1's merge.
+- `selectionBench` failed for G-2 alone and passed for me alone (3 of 3) at a load average of 16: the known flake.
+- Checks: typecheck 0; vitest over `src/plugins/audio`, `src/editor` and `src/engine`: 5,394 pass plus the fixed test.
+
+**F-8 merged** (`m4/f8` `b8980684`, four exact (bit-identical) commits; cargo 858 at each):
+1. The stream voice's ring read specialised by channel count (`streams` −8.87%).
+2. Z5's `render_voices<LIST>` / `render_voice<AUTO, DUE>`, ported onto C2b's walk (`virtual` −4.48%, `high` −1.07%).
+3. **F-10 found and fixed:** `voice_chain` tested `due.at` twice, and the wasm carried constant locals and a branch through every frame of the gain loops (about 780 instructions per mixed voice per quantum). Now one test picks M3's loops or an out-of-line due path (`automation-base` −1.92%, `pitch4` −1.91%, `updates` −1.35%).
+4. `ambisonic_mix` skips `due_gain` with no record.
+
+Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). Left as is, by choice:
+- folding the curves byte into the walk's flag test (about 5 instructions per voice): it would push every voice mid-crossfade off the fast walk;
+- passing `due` outside `VoiceFx` (3 instructions per voice): it changes five signatures for about 0.3%.
+
+**Mixer 300,144 → 312,626 B** (305.3 KB): past the design's 300 KB warning, under the 320 KB tripwire; logged, not traded. F-8 measured a single-copy alternative at −3,637 B and +0.37% on `streams`, and kept the speed per CLAUDE.md. Coordinator checks: core, wasm and music vitest 114 files, 1,144 tests.
+
+**C2c + C2d merged** (`m4/c2cd` `59bbb741`), with C2c's `voices.rs` patch applied by the coordinator after F-8:
+- **`group_hold.rs`:**
+  - A look-ahead before the voice loop (`begin_started`) catches a stream member holding less than the fade plus one quantum. Then every member fades out together from that quantum's first sample: streams by the ring's gain, decoded members by their mix ramp (`voices.rs` `hold_fade`). A member's own starve check fires mid-walk, too late for the others to join its fade.
+  - The entry stays STARTED with `FLAG_FADING` while the fade runs, then turns HELD.
+  - Resume needs every ring to hold 4,096 frames past its pinned position (`member_ready`). All members restart together with a 5 ms fade-in.
+  - `on_starve` is the idempotent fallback. The give-up is C2b's.
+- **`group_rebase.rs`:** moves members' parked and pending records at or after the start through `due::rebase`.
+- **`groups.rs` edits:** the STARTED look-ahead arm, `member_ready` in `held()`, and `resume_members` on resume.
+- **Deviations:**
+  - The hold's fade is 5 ms rounded up to whole quanta (256 frames at 44.1 and 48 kHz), so every member stops on one frame. The fade-in is a true 5 ms.
+  - In the look-ahead path the starving member shows in `groupsHeld`, not in `starved`.
+  - Virtual stream members are looked ahead too.
+- **Tests** (`tests/group_rig/mod.rs`, distinct sines per member):
+  - `group_hold.rs`, 8 tests: one dry ring dips the whole group and it resumes aligned, null (max difference 0.0) against the reference delayed by the slip; decoded and streamed members together; refilled mid-fade; abandon; an ungated voice starving alone.
+  - `group_rebase.rs`, 4 tests: a late group's parked and pending FADEs land at start + offset, null.
+  - Each acceptance test fails when the code is broken on purpose (no fade rounding, the wrong resume test, a no-op rebase).
+- **Coordinator checks:** cargo `--no-fail-fast` 870 pass; core, wasm, music and events vitest 133 files, 1,317 tests; typecheck 0; metered pass (`stamped-music` +0.14%), baseline rewritten.
+- **Mixer 312,626 → 317,891 B (310.4 KB):** 9.6 KB under the 320 KB tripwire, logged. The next growth that crosses it raises the gate with a reason, per CLAUDE.md. A real store cap isn't at stake.
+- **For C3:** `group_rig` has `hold_run`, `check_null` and `group`. A hold shows as `groupStarts` with `GROUP_START_HELD` (start = the resume, slip = the time held) and in `groupsHeld`. A record stamped in the hold's 256-frame fade-out isn't rebased.
+
+
+**C3 merged** (`m4/c3` `1467fd3c`, new files only):
+- **`tests/alignment_harness.rs`:** the spike's 1,408 cases (stamp offset 0–127 × 11 arrival quanta), ported to gated groups. Each case adds a group size of 1–8, a decoded/streamed mix and a rate (44.1, 48 or 96 kHz). One frame per group; the output nulls to 1e-6; the start event carries the right slip. 3–13 s, so it runs every time.
+- **`gate_mixed.rs`** (5): includes ring wraps, an ended short stream and overlapping groups.
+- **`gate_late.rs`** (5): slips up to 0.5 s; a late group beside an on-time one.
+- **`gate_held.rs`** (3 tests, 96 grid cases): the dip on a quantum's sample 0; one gain through the fade-out and the 5 ms fade-in, decoded members included; members pinned on one frame; resume nulls; one held event with slip = the time held; records in the fade-out keep their frame, later ones land at resume + offset.
+- **`gate_rebased.rs`** (4): 54 grid cases. Shaped fades and a STOP in a late group match the on-time render to 1.2e-5 (control-rate knots move with the quantum grid; bound 1e-4).
+- **Goldens:** `gate-mixed`, `gate-late`, `gate-held`, `gate-rebased` (`golden/audioGoldenGate.test.ts`, native = wasm on the digest and the group-start events).
+- **Bug found:** decoded members of a held group were cut instead of faded. Fixed by C2c's `voices.rs` patch before the merge, and now in the grid.
+- **Coordinator:** `audioGolden.test.ts`' file check skips `gate-*.json`, as it does `m4-*.json`. Checks: cargo `--no-fail-fast` 889 pass; golden and wasm vitest 65 pass; typecheck 0.
+
+**M4a's exit check, core half, met:** C3's nulls after a late start and the held-group null. E1's 10-minute playlist remains.
+
+**E1 reported, merge held for its finish** (`m4/e1` `fce2ba2e`, based before C2c merged):
+- **`tests/e2e/audio-music-a.spec.ts`:** 8 of 8 headless on the core, each case asserting `groupsLate`, `groupsHeld`, `groupsAbandoned`, `maxSlipFrames` and `splitQuanta` all 0. It covers: a segment starts on the grid; 8 stems start as one group; a playlist advances; a quantised crossfade and cut on bar lines (rule tier 1); a stinger on a bar line; quantised automation on the beat; flappy's streamed segment (no warnings, 0 underruns); Babylon plays and advances.
+- **One smoke case** for M4a.
+- **The M4a listening case** (walker = headless key presses).
+- **M4a exit check met: the 10-minute playlist passes 3 of 3** (`--repeat-each 3`, 10.1 min each; 149 items per run, late 0, slip 0, splitQuanta 0, re-plans 0; 2–6 underruns at start-up, logged). One earlier 60 s trial lost the music row at one sample and was never seen again; the spec now re-checks for 3 s and logs it, and the log line appeared 0 times in the full runs.
+- **Sent back to:** merge C2c + C2d; enable the held-group case and listening key 3 with `groupsHeld >= 1`; rename its fixme labels to F-16 and F-17.
+- **Scene note:** the 8-stem scene doubles the lab's 4 stems (the same clips, so a misalignment would show as phasing). Kept: C3's grid proves alignment with distinct signals.
+
+**F-16/F-17 merged** (`m4/f1617` `7961ea84`):
+- **F-16:** `core/streams.ts` `onStatus` returned early when `byStream` was empty, and a gated member's stream is never in it (it's musicOps'). So with only music streaming, `WAITING_FOR_DATA` never cleared. Fix:
+  - the guard is now "no playheads";
+  - `StreamManager.watchMember` is called from `musicOps.adoptMember`;
+  - musicOps keeps each member's rate and length, and `debug.ts` falls back to `musicOps.clipInfo` for the clip and playhead.
+  Beyond the display, `handle.reason` and selection's reason label were also stuck; mixing decisions weren't affected.
+- **F-17, a real leak on the core:** `eventRuntime.update()` returned early with nothing live, no fallback evaluator (always null on the core) and no timers. A music event stopped while nothing else played was retired and held, but never reaped. Its player kept stepping every frame, the worker kept its encoded bytes, and its group stayed held, until the next `Audio.play`. A music instance without a group was never held at all, so it leaked for good. Fix:
+  - `update()` also runs while anything is held;
+  - music instances are held even without a group.
+  Non-music events stopped while idle freed their group late too; this covers them.
+- **`pending`:** the debug row shows the transition in every state except done and cancelled.
+- **Tests** (each fails before its fix): a streamed stem's voice row (the core rig: `musicLoopback` can't stream); `music/stop.loopback.test.ts`; the `pending` states.
+- Coordinator checks: typecheck 0; `src/plugins/audio` 204 files, 2,430 tests.
+
+**M4a milestone-end checks** (on `6294c8e2`, no agents running):
+- typecheck 0; `cargo test --workspace --no-fail-fast` 889 pass; `check:audio-metered` pass; `test:tools` 12 pass; `check:links` pass; `npm run build` passes.
+- Vitest 5,859 pass, 1 fail: `piratesSample.test.ts`, a timing assertion (3.0 against > 5); passes alone (3 of 3).
+- `test:e2e` (Chromium): 226 pass, 4 skipped, 1 fail. **`codefiles.spec.ts:38` is a regression since `c0009afd`:** the background TypeScript worker never starts. It fails alone too. **F-19 task** bisects and fixes it; the M4a merge waits for it.
+- `test:e2e:slow`: 30 pass, 2 fail, both passing alone:
+  - `audio-core.spec.ts:41` read 2 start-up underruns (0 expected);
+  - `audio-stress.spec.ts` read an HRTF peak of 10 (F-11).
+- WebKit is the owner's, as at M4-0.
+
+**F-19 merged** (`m4/f19` `6d910ee8`): **not a regression.** `codefiles.spec.ts:38` read the Resource Timing list, which stops at 250 entries, and the editor's start now loads more than 250 chunks, so the `ts.worker` entry was dropped although the worker ran. It fails the same way at `c0009afd`; the earlier pass was luck. The spec now waits for Playwright's worker event, armed before the project opens. 4 of 4 pass.
+
+**M4a milestone end:**
+- **Exit checks:** C3's nulls after a late start and the held-group null (plus the 1,408-case harness); E1's 10-minute playlist with no late group, 3 of 3; every §1 row of M4a tested (P7, T1, E1).
+- **Milestone-end checks** (above): every failure explained. `codefiles` (F-19) fixed in the spec; `piratesSample`, `audio-core` and `audio-stress` pass alone; F-11 is open.
+- **Merged to master** as a merge commit (O2), per the standing instruction. Owner items open: the listening sections M4-0 and M4a, and WebKit.
 

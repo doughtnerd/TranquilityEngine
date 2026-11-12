@@ -42,7 +42,7 @@ describe("Audio.debug() music (P10, §1.6)", () => {
     const { src, mirror } = source({ poolUsed: 2, poolSize: 8, poolHighWater: 5, musicRingRefused: 1, groupTableFull: 4 });
     Object.assign(mirror, { streamStartsLate: 3, maxSlipFrames: 700, splitQuanta: 9, voiceSplits: 11, curvePoolFull: 2 });
     expect(buildDebugInfo(src).musicTotals).toEqual({
-      poolUsed: 2, poolSize: 8, poolHighWater: 5, musicRingRefused: 1, streamStartsLate: 3, maxSlipFrames: 700, splitQuanta: 9, voiceSplits: 11, curvePoolFull: 2, groupTableFull: 4,
+      poolUsed: 2, poolSize: 8, poolHighWater: 5, musicRingRefused: 1, streamStartsLate: 3, maxSlipFrames: 700, splitQuanta: 9, voiceSplits: 11, curvePoolFull: 2, groupTableFull: 4, encodedOverBudget: 0,
     });
   });
 

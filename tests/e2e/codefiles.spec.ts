@@ -36,9 +36,11 @@ async function typeAtEnd(page: Page, text: string): Promise<void> {
 }
 
 test("the code editor loads in the background, says when it's opening a file, and opens files quickly", async ({ page }) => {
+  // The TypeScript worker starts once the editor is idle (the project has a script). Watched as a
+  // worker, not in the Resource Timing list: that holds 250 entries and the editor loads more chunks.
+  const tsWorker = page.waitForEvent("worker", { predicate: (w) => /ts\.worker/.test(w.url()), timeout: 30_000 });
   await openProject(page);
-  // The TypeScript worker starts once the editor is idle (the project has a script).
-  await page.waitForFunction(() => performance.getEntriesByType("resource").some((e) => /ts\.worker/.test(e.name)), null, { timeout: 20_000 });
+  await tsWorker;
   await page.evaluate(() => {
     (window as unknown as { overlaySeen: boolean }).overlaySeen = false;
     new MutationObserver(() => {

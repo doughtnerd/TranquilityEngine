@@ -22,7 +22,7 @@ import type { PlayArgs } from "./commandWriter";
 import { fakeDecoder } from "./fakeDecoder";
 
 /** Just what the backend's constructor and these tests touch of a registry. */
-function fakeClips(): ClipRegistry {
+function fakeClips(over: Partial<ClipRegistry> = {}): ClipRegistry {
   const info = (id: number): ClipInfo => ({ id, path: "", state: "ready" as ClipState, refs: 0, frames: 0, channels: 1, sampleRate: 48_000, format: 1, bytes: 0, failure: null });
   return {
     acquire: () => 1,
@@ -34,6 +34,7 @@ function fakeClips(): ClipRegistry {
     applyClipEvent() {},
     residentIds: () => [],
     acquireReserved() {},
+    ...over,
   } as unknown as ClipRegistry;
 }
 
@@ -152,7 +153,7 @@ describe("the core's music seam (ADR 0166 §4.6, Q2)", () => {
 // --- P1: the group lifecycle on a fake host (no wasm) -----------------------------------------------------------------
 
 /** A backend on a fake host with a music pool of `rings` and an in-process decoder that records `primeGroup`s. */
-function musicRig(rings = 8) {
+function musicRig(rings = 8, clips: ClipRegistry = fakeClips()) {
   const port: LinkPort = { onmessage: null, postMessage: () => {} };
   const link = new CoreLink(port);
   let raf = 1000;
@@ -203,7 +204,7 @@ function musicRig(rings = 8) {
   };
   const dummyPort = () => ({ onmessage: null, postMessage() {} });
   const backend = new CoreBackend(host, {
-    clips: fakeClips(),
+    clips,
     clock,
     mixer: new Mixer(defaultAudioSettings()),
     streams: {
@@ -227,7 +228,7 @@ function musicRig(rings = 8) {
   const say = (r: MusicReply) => {
     for (const l of music) l(r);
   };
-  return { backend, ops: backend.musicOps, clock, primes, cancels, closes, fetched, events, ringsOf, say };
+  return { backend, link, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say };
 }
 
 const flush = async () => {
@@ -257,8 +258,121 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     expect(r.ops.debugView().poolUsed).toBe(0);
     expect(r.ops.debugView().poolHighWater).toBe(6);
     for (let g = 1; g <= 16; g++) expect(r.ops.admitGroup(request(g, 0, 1)).ok).toBe(true);
+    expect(r.ops.debugView().groupTableFull).toBe(0);
     expect(r.ops.admitGroup(request(17, 0, 1))).toEqual({ ok: false, reason: "groupTableFull", permanent: false });
+    expect(r.ops.admitGroup(request(18, 0, 1)).ok).toBe(false);
+    expect(r.ops.debugView().groupTableFull).toBe(2);
     r.backend.dispose();
+  });
+
+  it("a decoded member isn't primed until its clip is resident, and its PLAY goes out only then (F-7b)", () => {
+    const acquired: string[] = [];
+    const released: number[] = [];
+    const states = new Map<number, ClipState>();
+    let next = 100;
+    const ids = new Map<string, number>();
+    const clips = fakeClips({
+      acquire: ((path: string) => {
+        acquired.push(path);
+        let id = ids.get(path);
+        if (id === undefined) ids.set(path, (id = next++));
+        if (!states.has(id)) states.set(id, "fetching" as ClipState);
+        return id;
+      }) as ClipRegistry["acquire"],
+      release: ((id: number) => void released.push(id)) as ClipRegistry["release"],
+      state: ((id: number) => states.get(id) ?? "idle") as ClipRegistry["state"],
+    });
+    const r = musicRig(8, clips);
+    const req = request(7, 1, 2); // one streamed, two decoded
+    expect(r.ops.admitGroup(req).ok).toBe(true);
+    expect(acquired).toEqual(["music/d0.wav", "music/d1.wav"]); // loading starts at admission, not at the PLAY
+    r.ops.primeGroup(req);
+    expect(r.ops.primedState(7)).toMatchObject({ of: 3, ready: false });
+    states.set(ids.get("music/d0.wav")!, "ready");
+    expect(r.ops.primedState(7)!.primed).toBe(1);
+    states.set(ids.get("music/d1.wav")!, "failed"); // a failed clip must not hold the group for ever
+    expect(r.ops.primedState(7)).toMatchObject({ primed: 2, of: 3, ready: false }); // the stream still waits for its ring
+    // Holds are dropped by a cancel.
+    r.ops.cancelGroup(7);
+    expect(released.sort()).toEqual([...ids.values()].sort());
+    r.backend.dispose();
+  });
+
+  it("a decoded-only group is ready once resident; the stamp's PLAYs take their own references and the holds go (F-7b)", () => {
+    const states = new Map<number, ClipState>();
+    const released: number[] = [];
+    let acquires = 0;
+    const clips = fakeClips({
+      acquire: (() => {
+        acquires++;
+        const id = 50 + (acquires % 2);
+        if (!states.has(id)) states.set(id, "fetching" as ClipState);
+        return id;
+      }) as ClipRegistry["acquire"],
+      release: ((id: number) => void released.push(id)) as ClipRegistry["release"],
+      state: ((id: number) => states.get(id) ?? "idle") as ClipRegistry["state"],
+    });
+    const r = musicRig(8, clips);
+    const req = request(8, 0, 2);
+    r.ops.admitGroup(req);
+    expect(acquires).toBe(2);
+    expect(r.ops.primedState(8)).toMatchObject({ primed: 0, of: 2, ready: false });
+    states.set(50, "ready");
+    states.set(51, "ready");
+    expect(r.ops.primedState(8)).toMatchObject({ primed: 2, of: 2, ready: true });
+    expect(released).toEqual([]);
+    r.ops.stampGroup({ group: 8, at: 1 });
+    expect(acquires).toBe(4); // two PLAYs, each with its own reference
+    expect(released).toHaveLength(2); // the admission holds
+    r.ops.cancelGroup(8);
+    expect(released).toHaveLength(2); // nothing released twice
+    r.backend.dispose();
+  });
+
+  it("invalidateClip tells the worker and forgets the path as held, so the next prime sends its bytes (P8)", async () => {
+    const r = musicRig(8);
+    const a = request(3, 2);
+    r.ops.admitGroup(a);
+    r.ops.primeGroup(a);
+    await flush();
+    r.ops.cancelGroup(3);
+    r.fetched.length = 0;
+    const b = request(4, 2);
+    r.ops.admitGroup(b);
+    r.ops.primeGroup(b);
+    await flush();
+    expect(r.fetched).toEqual([]); // both paths are held by the worker
+    r.ops.cancelGroup(4);
+    r.backend.invalidateClip("music/s0.ogg");
+    expect(r.invalidated).toEqual(["music/s0.ogg"]);
+    const c = request(5, 2);
+    r.ops.admitGroup(c);
+    r.ops.primeGroup(c);
+    await flush();
+    expect(r.fetched).toEqual(["music/s0.ogg"]);
+    r.backend.dispose();
+  });
+
+  it("a worker musicWarn warns once per instance and counts (F-5)", () => {
+    const r = musicRig(8);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const req = request(3, 1);
+      r.ops.admitGroup(req);
+      r.ops.primeGroup(req); // subscribes the decoder's replies
+      expect(r.ops.debugView().encodedOverBudget).toBe(0);
+      const msg = { type: "musicWarn", cause: "encodedOverBudget", instance: 9, bytes: 200, budget: 100 } as const;
+      r.say(msg);
+      r.say(msg);
+      r.say({ ...msg, instance: 10 });
+      expect(r.ops.debugView().encodedOverBudget).toBe(3);
+      const ours = warn.mock.calls.filter((c) => String(c[0]).includes("encoded cache budget"));
+      expect(ours).toHaveLength(2);
+      expect(String(ours[0]![0])).toContain("200 bytes");
+    } finally {
+      warn.mockRestore();
+      r.backend.dispose();
+    }
   });
 
   it("primeGroup: one message per group, bytes only for paths the worker doesn't hold, protect and budget; needBytes resends", async () => {
@@ -453,6 +567,43 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     vi.restoreAllMocks();
     r.backend.dispose();
   });
+
+  it("F-9b: paramsShaped keeps the stem's level in the table; its multiplier is over the dry gain without it", async () => {
+    const r = musicRig(8);
+    r.ops.admitGroup(request(7, 0, 1));
+    const [v] = r.ops.stampGroup({ group: 7, at: 0 });
+    const id = (v as { id: number }).id;
+    const i = id & 0xffff;
+    const t = r.backend.table;
+    t.gain[i] = 0.8;
+    const sent: { gain: number; at?: number }[] = [];
+    vi.spyOn(r.backend.writer, "setParams").mockImplementation((_id, _mask, gain, _p, _x, _y, _z, _lp, _ramp, _bus, _shape, at) => void sent.push({ gain, at }));
+    // Asap: the level at once, for the dry gain and audibility.
+    r.ops.paramsShaped(id, { gain: 0.5, seconds: 0 });
+    expect(t.stemDry[i]).toBe(0.5);
+    expect(t.stemGain[i]).toBe(0.5);
+    expect(sent[0]!.gain).toBeCloseTo(0.4, 6); // 0.5 x 0.8, not x 0.5 again
+    // Stamped fall: pending until its frame (dry and audibility stay 0.5); the multiplier is still over 0.8 alone.
+    const now = r.backend.clockMap.framesNow();
+    vi.spyOn(r.backend.clockMap, "stampFor").mockImplementation((f) => f);
+    vi.spyOn(r.backend.clockMap, "frameOfTime").mockImplementation(() => now + 48_000);
+    r.ops.paramsShaped(id, { gain: 0.25, seconds: 0.02, at: 1 });
+    expect(sent[1]).toEqual({ gain: expect.closeTo(0.2, 6), at: now + 48_000 });
+    expect(t.stemDry[i]).toBe(0.5);
+    expect(t.stemGain[i]).toBe(0.5);
+    expect(t.stemCount[i]).toBe(1);
+    expect(t.stemRamp[i * 4]).toBe(Math.round(0.02 * r.backend.clockMap.sampleRate));
+    // The logged ramp starts from the stem's level (0.5 x 0.8).
+    expect(t.stampedFrom[i * 4 + t.stampedCount[i]! - 1]).toBeCloseTo(0.4, 6);
+    // A stamped rise counts for audibility at once.
+    r.ops.paramsShaped(id, { gain: 2, seconds: 0, at: 1 });
+    expect(t.stemGain[i]).toBe(2);
+    expect(t.stemDry[i]).toBe(0.5);
+    t.resolveStems(now + 48_000);
+    expect(t.stemDry[i]).toBe(2);
+    vi.restoreAllMocks();
+    r.backend.dispose();
+  });
 });
 
 // --- P1: the real core (loopback host): a decoded group starts on its stamp's frame --------------------------------
@@ -509,6 +660,63 @@ describe("a stamped group on the loopback host (ADR 0166 P1)", () => {
     // Both members from that frame on: twice the clip's level (bus and master at unity).
     expect(out[first]).toBeCloseTo(out[first + 1000]!, 6);
     expect(out[first]!).toBeGreaterThan(0.25 * 1.5);
+    backend.dispose();
+  });
+});
+
+// --- F-16: a streamed stem's voice row (the core backend's `debug().voices`) ----------------------------------------------
+
+describe("a streamed music stem's voice (F-16)", () => {
+  /** One STATUS through the link, as the host's `onmessage` delivers it (the mirror, then the stream manager). */
+  const status = (link: CoreLink, fields: Parameters<typeof makeStatusBlock>[0]) => (link as unknown as { receive(s: ReturnType<typeof makeStatusBlock>): void }).receive(makeStatusBlock(fields));
+
+  it("reads playing, with its clip and playhead, once STATUS shows it moving; a starve reads waitingForData until it moves again", async () => {
+    const r = musicRig(8);
+    const req = request(3, 1);
+    r.ops.admitGroup(req);
+    r.ops.primeGroup(req);
+    await flush();
+    const [v] = r.ops.stampGroup({ group: 3, at: 0 }) as { id: number }[];
+    const id = v!.id;
+    const row = () => r.backend.debug().voices.find((x) => x.id === id)!;
+    // Before it sounds: waiting for its data (the core holds the gated member until the group starts).
+    expect(row().state).toBe("waitingForData");
+    // Held at its start frame (the gate not yet open): still waiting.
+    status(r.link, { currentFrame: 1024, playheads: [{ id, clipFrame: 4800 }] });
+    expect(row().state).toBe("waitingForData");
+    status(r.link, { currentFrame: 2048, playheads: [{ id, clipFrame: 4800 + 1024 }] });
+    expect(row().state).toBe("playing");
+    expect(row().clip).toBe("music/s0.ogg");
+    expect(row().playheadSeconds).toBeCloseTo((4800 + 1024) / 48_000, 9);
+    expect(r.backend.table.reason[id & 0xffff]).toBe(0);
+    // A starve: waiting again (the mirror), and playing once the playhead moves on.
+    status(r.link, { currentFrame: 3072, starved: [id], playheads: [{ id, clipFrame: 4800 + 1024 }] });
+    expect(row().state).toBe("waitingForData");
+    status(r.link, { currentFrame: 4096, playheads: [{ id, clipFrame: 4800 + 2048 }] });
+    expect(row().state).toBe("playing");
+    r.backend.dispose();
+  });
+});
+
+// --- The debug row's `pending` through a transition's states ------------------------------------------------------------
+
+describe("a music debug row's pending change", () => {
+  it("is set while the transition is pending, stamped or running (past T - L), and null once done", async () => {
+    const { createMusicPlayer, _resetMusicPlayers } = await import("../music/musicSystem");
+    const { backend } = rig();
+    const player = createMusicPlayer({ group: 4, path: "m.audioevent.json" } as never, { id: "A", type: "segment" });
+    const match = { rule: 1, ruleKey: "A>B", tier: 2, parent: null, exit: "nextBar", enter: "start" };
+    player.transition = { to: { id: "B", type: "segment" }, match, state: "pending", exitAt: Number.NaN, cancelBy: Number.NaN, incoming: null, bridge: null, outgoing: null, after: null, immediate: null } as never;
+    const pending = () => backend.debug().music![0]!.pending;
+    for (const state of ["pending", "stamped", "running", "bridging"]) {
+      (player.transition as { state: string }).state = state;
+      expect(pending()?.to, state).toBe("B");
+    }
+    for (const state of ["done", "cancelled"]) {
+      (player.transition as { state: string }).state = state;
+      expect(pending(), state).toBeNull();
+    }
+    _resetMusicPlayers();
     backend.dispose();
   });
 });

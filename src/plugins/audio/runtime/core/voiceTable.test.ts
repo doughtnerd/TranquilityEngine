@@ -4,7 +4,7 @@ import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { AudioHost, CoreLink, presetFromSettings } from "./context";
 import { makeStatusBlock, StatusMirror } from "./mirror";
 import { Unlock, type UnlockContext } from "./unlock";
-import { connectVoiceTable, VoiceFlag, VoiceReason, VoiceState, VoiceTable, WORLD_RELEASE_FADE_SECONDS, type VoiceCommandSink } from "./voiceTable";
+import { connectVoiceTable, MAX_STEM_PENDING, VoiceFlag,VoiceReason, VoiceState, VoiceTable, WORLD_RELEASE_FADE_SECONDS, type VoiceCommandSink } from "./voiceTable";
 
 // A1.1 (lead): the voice table's slots, free list, generations, stealing, command queue and lifecycle hooks
 // (api-and-models §3; architecture §3.9; A0.8's host listener). Ids are decoded inline here (`ids.ts` is a leaf's).
@@ -332,3 +332,98 @@ function fakeHost(): AudioHost {
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+// F-9b: a music stem's level (`stemDry` for dry-gain writes, `stemGain` for audibility; `musicOps.paramsShaped` sets it).
+describe("VoiceTable stem level (F-9b)", () => {
+  it("is 1 by default and again for the slot's next voice", () => {
+    const t = new VoiceTable(8);
+    const id = t.allocate(0, 128, 0, P);
+    const i = indexOf(id);
+    expect(t.stemGain[i]).toBe(1);
+    expect(t.stemDry[i]).toBe(1);
+    t.setStemLevel(i, 0.25, undefined, 100);
+    t.setStemLevel(i, 0.5, 1000, 100);
+    t.free(id, VoiceReason.NONE);
+    expect(t.stemPendingTotal).toBe(0);
+    const next = t.allocate(0, 128, 0, P);
+    expect(indexOf(next)).toBe(i);
+    expect(t.stemGain[i]).toBe(1);
+    expect(t.stemDry[i]).toBe(1);
+    expect(t.stemCount[i]).toBe(0);
+  });
+
+  it("an asap level applies at once; a stamp not after now is asap", () => {
+    const t = new VoiceTable(8);
+    const i = indexOf(t.allocate(0, 128, 0, P));
+    t.setStemLevel(i, 0.5, undefined, 100);
+    expect(t.stemDry[i]).toBe(0.5);
+    expect(t.stemGain[i]).toBe(0.5);
+    t.setStemLevel(i, 0.25, 100, 100);
+    expect(t.stemDry[i]).toBe(0.25);
+    expect(t.stemCount[i]).toBe(0);
+  });
+
+  it("a stamped rise counts for audibility at once and for the dry gain at its stamp", () => {
+    const t = new VoiceTable(8);
+    const i = indexOf(t.allocate(0, 128, 0, P));
+    t.setStemLevel(i, 0, undefined, 0);
+    t.setStemLevel(i, 1, 1000, 100, 960, 1);
+    expect(t.stemGain[i]).toBe(1);
+    expect(t.stemDry[i]).toBe(0);
+    expect(t.stemRamp[i * MAX_STEM_PENDING]).toBe(960);
+    expect(t.stemShape[i * MAX_STEM_PENDING]).toBe(1);
+    t.resolveStems(999);
+    expect(t.stemDry[i]).toBe(0);
+    t.resolveStems(1000);
+    expect(t.stemDry[i]).toBe(1);
+    expect(t.stemGain[i]).toBe(1);
+    expect(t.stemPendingTotal).toBe(0);
+  });
+
+  it("a stamped fall keeps audibility and the dry gain up until its stamp (R3a)", () => {
+    const t = new VoiceTable(8);
+    const i = indexOf(t.allocate(0, 128, 0, P));
+    t.setStemLevel(i, 0.5, 1000, 100);
+    expect(t.stemGain[i]).toBe(1);
+    expect(t.stemDry[i]).toBe(1);
+    t.resolveStems(1500);
+    expect(t.stemGain[i]).toBe(0.5);
+    expect(t.stemDry[i]).toBe(0.5);
+  });
+
+  it("pending changes land in frame order (equal frames: the latest wins); a fifth applies the earliest", () => {
+    const t = new VoiceTable(8);
+    const i = indexOf(t.allocate(0, 128, 0, P));
+    t.setStemLevel(i, 0.2, 3000, 0);
+    t.setStemLevel(i, 0.4, 2000, 0);
+    t.setStemLevel(i, 0.6, 2000, 0);
+    expect(t.stemGain[i]).toBe(1);
+    t.resolveStems(2000);
+    expect(t.stemDry[i]).toBeCloseTo(0.6, 6);
+    expect(t.stemGain[i]).toBeCloseTo(0.6, 6); // max(0.6, the 0.2 still to come)
+    t.setStemLevel(i, 0.1, 4000, 2000);
+    t.setStemLevel(i, 0.3, 5000, 2000);
+    t.setStemLevel(i, 0.7, 6000, 2000);
+    t.setStemLevel(i, 0.9, 7000, 2000); // a fifth: the earliest (0.2 at 3000) applies now
+    expect(t.stemCount[i]).toBe(MAX_STEM_PENDING);
+    expect(t.stemDry[i]).toBeCloseTo(0.2, 6);
+    t.resolveStems(10_000);
+    expect(t.stemDry[i]).toBeCloseTo(0.9, 6);
+    expect(t.stemPendingTotal).toBe(0);
+  });
+
+  it("a context swap carries pending frames through seconds, landing nothing meanwhile", () => {
+    const t = new VoiceTable(8);
+    const i = indexOf(t.allocate(0, 128, 0, P));
+    t.setStemLevel(i, 0.5, 48_000, 0);
+    t.stampedToTimeline(48_000, 10); // frame 48,000 is Audio.time 11
+    t.resolveStems(1e9);
+    expect(t.stemDry[i]).toBe(1);
+    t.stampedFromTimeline(44_100, 5); // the new context: Audio.time 11 is its frame 264,600
+    expect(t.stemAt[i * MAX_STEM_PENDING]).toBeCloseTo(264_600, 6);
+    t.resolveStems(264_599);
+    expect(t.stemDry[i]).toBe(1);
+    t.resolveStems(264_600);
+    expect(t.stemDry[i]).toBe(0.5);
+  });
+});

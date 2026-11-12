@@ -1,4 +1,5 @@
 import { expect, type Page, play, test } from "./fixtures";
+import { addAssets, audioDebug as fullDebug, bootSample, FLAPPY, pauseWorkers, peakOver as peakOverFull, playlist3, readLate, startEvent, stems8, watchConsole } from "./audioMusic";
 
 // The interactive-music milestones' listening sections (ADR 0166/0167; waves plan, "Owner procedures"): one case per
 // milestone, grown a case at a time (M4a, M4b, M4c follow). Each case is an owner-run page and a headless walker in one:
@@ -279,5 +280,210 @@ test.describe("listening M4-0: in-voice stamped records", () => {
 
     info.annotations.push({ type: "splitQuanta", description: `${await splitOf()} (before: ${splitBefore})` });
     expect(errors).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// M4a: segments, stems and playlists (E1). The music events are built in the spec from the Sound Lab's stems (`audioMusic.ts`), on
+// the Tape bus with the Music, Ambience, SFX and Engine buses muted so only the item is heard. The keys (the owner presses them,
+// the headless run presses them itself):
+//   1  eight stems start together on a cue (pad, pulse, lead, melody, each twice; the two melodies stream): they sound as one
+//      band, entering on the same instant, no flam, no phasing between the doubled stems
+//   2  the same, with a slow ring: the melody file is held back 1.5 s, so the music starts late, and every stem starts late together
+//   3  a held group: the decoder worker is paused for 6 s while the eight stems play, the streamed stems run dry and the whole
+//      group should dip together and come back together, aligned (the worker is paused through the DevTools protocol, Chromium
+//      only; the check that the group was held waits for C2c, see the step)
+//   4  a playlist of three 4 s items (A, B, C) plays for 30 s: each change lands on the beat with no gap and no click
+//   5  the flappy sample's town music (a streamed segment) for 20 s
+// The 10-minute playlist is the exit check of M4a (audio-music-a.spec.ts, `@slow`, `E2E_PLAYLIST_SECONDS`); item 4 is its ear's
+// sample.
+type M4aState = { keys: Record<string, number> };
+const m4aKeys = (page: Page) => page.evaluate(() => (globalThis as unknown as { __m4a: M4aState }).__m4a.keys);
+
+/** The page's card of keys and a counter of the keys pressed. Installed on every page the case opens (the Flappy page too). */
+async function installM4aCard(page: Page, listen: boolean, text: string): Promise<void> {
+  await page.evaluate(
+    ([showCard, lines]) => {
+      const g = globalThis as unknown as { __m4a?: M4aState };
+      g.__m4a ??= { keys: {} };
+      const state = g.__m4a;
+      window.addEventListener("keydown", (e) => (state.keys[e.key] = (state.keys[e.key] ?? 0) + 1));
+      if (showCard) {
+        const card = document.createElement("pre");
+        card.style.cssText = "position:fixed;z-index:99999;left:12px;top:12px;margin:0;padding:10px 14px;background:#000d;color:#fff;font:14px/1.45 monospace;border-radius:6px;pointer-events:none;max-width:70vw;white-space:pre-wrap";
+        card.textContent = lines as string;
+        document.body.append(card);
+      }
+    },
+    [listen, text] as const,
+  );
+}
+
+/** The owner's key (waited for) or the spec's own press (headless): resolves once the key has been pressed. */
+async function m4aKey(page: Page, key: string, what: string): Promise<void> {
+  const before = (await m4aKeys(page))[key] ?? 0;
+  if (LISTEN) process.stdout.write(`\n[listen] M4a: press ${key} in the page (${what}), listen, then the spec checks it.\n`);
+  else await page.keyboard.press(key);
+  await page.waitForFunction(([k, n]) => ((globalThis as unknown as { __m4a: M4aState }).__m4a.keys[k as string] ?? 0) > (n as number), [key, before] as const, { timeout: LISTEN ? 3_600_000 : 20_000 });
+}
+
+/** How long the owner listens to an item in a headed run, and the headless run's wait (shorter: nothing to hear). */
+const hear = (page: Page, ms: number) => page.waitForTimeout(LISTEN ? ms : Math.min(ms, 6_000));
+
+type M4aRow = { id: number; asset: string; state: string; segment: string | null; tempo: number; stems: { streamed: boolean; ring: number | null }[]; groups: { state: string; primed: number; of: number }[]; groupsHeld: number; lateGroups: number };
+const m4aRow = async (page: Page, asset: string): Promise<M4aRow | undefined> => ((await fullDebug(page)) as unknown as { music?: M4aRow[] }).music?.find((r) => r.asset.includes(asset));
+const stopItem = (page: Page, name: string) => page.evaluate((n) => (globalThis as unknown as { __e1?: Record<string, { stop(s?: number): void }> }).__e1?.[n as string]?.stop(0.2), name);
+/** A stopped music event is over: none of its voices is left and its rings are back (its row may linger as "ending", F-17). */
+const stopped = (page: Page, asset: string) =>
+  expect
+    .poll(
+      async () => {
+        const d = (await fullDebug(page))!;
+        const row = d.music?.find((r) => r.asset.includes(asset));
+        return (!row || (row.state === "ending" && d.voices.every((v) => v.event !== row.id))) && d.musicTotals!.poolUsed === 0;
+      },
+      { timeout: 15_000, message: `${asset} stopped` },
+    )
+    .toBe(true);
+/** The counters since the last `holdBase` (the held-group key moves the cumulative ones on purpose): nothing late, held or abandoned, no new slip, no split. */
+let holdBase: Awaited<ReturnType<typeof readLate>> = null;
+const cleanCounters = async (page: Page, what: string) => {
+  const now = (await readLate(page))!;
+  const b = holdBase ?? { groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0 };
+  expect(now, `${what}: groupsLate, groupsHeld, groupsAbandoned, slip and splits`).toEqual(b);
+};
+
+test.describe("listening M4a: segments, stems and playlists", () => {
+  test("M4a: eight stems, a slow ring, a held group, a playlist and the flappy streamed segment", { tag: "@slow" }, async ({ page, context }, info) => {
+    info.setTimeout(LISTEN ? 3_600_000 : 240_000);
+    const seen = watchConsole(page);
+    await bootSample(page, LAB);
+    await installM4aCard(page, LISTEN, "M4a: segments, stems, playlists (Tape bus alone)\n1 eight stems   2 slow ring   3 held group (worker paused)   4 playlist   5 flappy town music\nPress a key, listen. The test then reads the music rows and the counters.");
+    await page.evaluate(() => {
+      const { Audio } = (globalThis as unknown as { __myco: { Audio: { buses: readonly string[]; bus(n: string): { volume: number } } } }).__myco;
+      for (const n of Audio.buses) if (!["UI", "Tape", "Master"].includes(n)) Audio.bus(n).volume = 0;
+    });
+    // The slow ring's file: the melody under another URL (so nothing is cached for it), held back when asked.
+    let slowHits = 0;
+    let slowMs = 0;
+    await context.route("**/melody-loop.wav?slow=1", async (route) => {
+      slowHits++;
+      await new Promise((r) => setTimeout(r, slowMs));
+      await route.continue();
+    });
+    const slowUrl = await page.evaluate(() => `${(globalThis as unknown as { __myco: { Assets: { url(p: string): string } } }).__myco.Assets.url("audio/melody-loop.wav")}?slow=1`);
+    await page.evaluate(
+      ([url]) => {
+        const { Assets } = (globalThis as unknown as { __myco: { Assets: { addSource(s: unknown): void; fromObject(m: Record<string, unknown>): unknown } } }).__myco;
+        Assets.addSource(Assets.fromObject({ "e1/slow-melody.wav": url, "e1/slow-melody.wav.meta.json": { format: "myco.import@1", stream: true } }));
+      },
+      [slowUrl] as const,
+    );
+    const slow8 = JSON.parse(JSON.stringify(stems8())) as { root: { tracks: { clip: string }[] } };
+    for (const t of slow8.root.tracks) if (t.clip === "audio/melody-loop.wav") t.clip = "e1/slow-melody.wav";
+    await addAssets(page, { "e1/stems8.audioevent.json": stems8(), "e1/slow8.audioevent.json": slow8, "e1/list.audioevent.json": playlist3(0) });
+
+    /** The eight-stem item once it plays: the group is one, the six decoded stems share a playhead, it is audible. */
+    const checkEight = async (asset: string, what: string) => {
+      await expect.poll(async () => (await m4aRow(page, asset))?.state, { timeout: 30_000, message: `${what}: playing` }).toBe("playing");
+      const row = (await m4aRow(page, asset))!;
+      expect(row.groups.map((g) => ({ primed: g.primed, of: g.of })), `${what}: one group of eight`).toEqual([{ primed: 8, of: 8 }]);
+      await expect.poll(async () => (await fullDebug(page))!.voices.filter((v) => v.event === row.id && v.state === "playing" && v.playheadSeconds !== null).length, { timeout: 15_000, message: `${what}: all eight stems play` }).toBe(8);
+      const heads = (await fullDebug(page))!.voices.filter((v) => v.event === row.id && v.playheadSeconds !== null && !v.clip.includes("melody")).map((v) => v.playheadSeconds!);
+      expect(Math.max(...heads) - Math.min(...heads), `${what}: the decoded stems share a playhead`).toBe(0);
+      expect(await peakOverFull(page, "Tape", 600), `${what}: audible`).toBeGreaterThan(0.01);
+    };
+    const audioTime = () => page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { time: number } } }).__myco.Audio.time);
+
+    await test.step("key 1: eight stems start together", async () => {
+      await m4aKey(page, "1", "eight stems, 10 s");
+      await startEvent(page, "eight", "e1/stems8.audioevent.json", { at: (await audioTime()) + 1 });
+      await checkEight("stems8", "eight stems");
+      await hear(page, 10_000);
+      await cleanCounters(page, "eight stems");
+      await stopItem(page, "eight");
+      await stopped(page, "stems8");
+    });
+
+    await test.step("key 2: a slow ring starts the music late, every stem together", async () => {
+      slowMs = 1_500;
+      await m4aKey(page, "2", "eight stems with a slow ring, 10 s");
+      const t0 = Date.now();
+      await startEvent(page, "slow", "e1/slow8.audioevent.json");
+      await checkEight("slow8", "slow ring");
+      const took = Date.now() - t0;
+      expect(slowHits, "the held-back file was asked for").toBeGreaterThan(0);
+      expect(took, "the music began after the held-back file arrived").toBeGreaterThan(slowMs - 200);
+      info.annotations.push({ type: "slow ring", description: `${took} ms from play to playing with the file held back ${slowMs} ms` });
+      await hear(page, 10_000);
+      await stopItem(page, "slow");
+      await stopped(page, "slow8");
+      slowMs = 0;
+    });
+
+    await test.step("key 3: a held group (the decoder worker paused)", async () => {
+      await m4aKey(page, "3", "eight stems; the decoder worker is paused for 6 s");
+      await startEvent(page, "held", "e1/stems8.audioevent.json");
+      await checkEight("stems8", "held group");
+      const paused = await pauseWorkers(page, true, null);
+      expect(paused.ids.length, "the decoder worker was reached").toBeGreaterThan(0);
+      // The rings drain, a streamed stem runs dry and the core holds the whole group: silence, position pinned. Resumed at once: a hold over 1 s is given up on.
+      await expect.poll(async () => (await readLate(page))?.groupsHeld, { timeout: 45_000, intervals: [50], message: "the group was held" }).toBeGreaterThanOrEqual(1);
+      await pauseWorkers(page, false, paused);
+      await paused.cdp.detach();
+      // It resumes together: the six decoded stems are back on one playhead, the group was not given up on.
+      const playheads = async () => (await fullDebug(page))!.voices.filter((v) => v.playheadSeconds !== null && v.state === "playing" && !v.clip.includes("melody")).map((v) => v.playheadSeconds!);
+      await expect.poll(async () => (await playheads()).length, { timeout: 30_000, message: "the music plays on after the worker resumes" }).toBe(6);
+      const heads = await playheads();
+      expect(Math.max(...heads) - Math.min(...heads), "resumed on one playhead").toBe(0);
+      const late = (await readLate(page))!;
+      expect(late.groupsHeld, "held").toBeGreaterThanOrEqual(1);
+      expect({ abandoned: late.groupsAbandoned, split: late.splitQuanta }, "resumed, not abandoned").toEqual({ abandoned: 0, split: 0 });
+      info.annotations.push({ type: "held group", description: `groupsHeld ${late.groupsHeld}, largest slip ${late.maxSlipFrames} frames` });
+      await stopItem(page, "held");
+      await stopped(page, "stems8");
+      holdBase = (await readLate(page))!;
+    });
+
+    await test.step("key 4: a playlist of three items, 30 s", async () => {
+      await m4aKey(page, "4", "playlist A, B, C forever, 30 s");
+      await startEvent(page, "list", "e1/list.audioevent.json");
+      await expect.poll(async () => (await m4aRow(page, "list"))?.state, { timeout: 30_000 }).toBe("playing");
+      const order: string[] = [];
+      const until = Date.now() + (LISTEN ? 30_000 : 17_000);
+      while (Date.now() < until) {
+        const seg = (await m4aRow(page, "list"))?.segment;
+        if (seg && order[order.length - 1] !== seg) order.push(seg);
+        await page.waitForTimeout(100);
+      }
+      expect(order.length, "the playlist advanced").toBeGreaterThanOrEqual(3);
+      const next: Record<string, string> = { A: "B", B: "C", C: "A" };
+      for (let i = 1; i < order.length; i++) expect(order[i], `item ${i} follows ${order[i - 1]}`).toBe(next[order[i - 1]!]);
+      expect((await m4aRow(page, "list"))!.lateGroups, "no late group").toBe(0);
+      await cleanCounters(page, "playlist");
+      await stopItem(page, "list");
+      await stopped(page, "list");
+    });
+
+    await test.step("key 5: the flappy sample's streamed segment, 20 s", async () => {
+      await m4aKey(page, "5", "opens the Flappy sample: its town music, 20 s");
+      await bootSample(page, FLAPPY);
+      holdBase = null; // a new page: its counters start at 0
+      await installM4aCard(page, LISTEN, "M4a: the flappy sample's town music, a streamed segment (105 bpm). Listen for 20 s: steady, no gap at the loop.");
+      await expect.poll(async () => (await m4aRow(page, "town"))?.state, { timeout: 60_000 }).toBe("playing");
+      const row = (await m4aRow(page, "town"))!;
+      expect(row.stems[0]!.streamed).toBe(true);
+      expect(row.stems[0]!.ring).not.toBeNull();
+      expect(row.tempo).toBe(105);
+      await hear(page, 20_000);
+      expect((await m4aRow(page, "town"))!.state).toBe("playing");
+      await cleanCounters(page, "flappy");
+    });
+
+    for (const a of info.annotations) console.log(`[music-listen] ${a.type}: ${a.description}`);
+    expect(seen.errors).toEqual([]);
+    // The slow ring (key 2) and the paused worker (key 3) raise the engine's estimate of the prime time, and it says so once per
+    // event ("the prime lead is longer than one beat"): that is the right warning there. Nothing else may be warned.
+    expect(seen.warnings.filter((w) => !/prime lead \(\d+ ms\) is longer than one beat/.test(w))).toEqual([]);
   });
 });

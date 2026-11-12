@@ -8,6 +8,7 @@ import type { AudioEventAsset, EventNode } from "../../../../engine/audio/eventF
 import type { MusicNode } from "../../../../engine/audio/musicFormat";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { Audition } from "./Audition";
+import { activeAudition, stingerAuditionFor } from "./auditionHost";
 import { auditionValues } from "./eventParameters";
 import { getMusicNode, getNode, musicIdProblem, parentPath, pathKey, renameMusicId, setMusicNode, setNode, type NodePath, type SustainSlot } from "./EventTree";
 import { EventTree } from "./EventTree";
@@ -130,8 +131,7 @@ function EventEditor({ path }: { path: string }) {
               onRename={(id) => !musicIdProblem(music, selected!, id) && change({ ...event, musicRoot: renameMusicId(music, selected!, id) }, false, "Rename node")}
               onOpenSegment={(id) => openSegmentView(path, id)}
               onOpenRules={(id) => openRulesTable(path, id)}
-              // The audition keeps its handle to itself until Ed5's machinery shares it: no trigger target yet, so the stinger buttons stay disabled.
-              audition={null}
+              audition={stingerAuditionFor(path, activeAudition.value)}
             />
           ) : node ? (
             <NodeProperties
