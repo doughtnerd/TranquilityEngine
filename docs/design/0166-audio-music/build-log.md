@@ -775,3 +775,5 @@ K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.t
 - **`plugins.test.ts` (ADR 0147):** F-33's `transportServiceHost.ts` imported `editor/state`'s `playing`. Coordinator fix: play mode through the SDK, `editor.scene.playState` (truthy while not editing); 226 pass; `audio-music-d` 7 of 7.
 - `eventBench`'s allocation tripwire (F-13) under the full run; passes alone.
 The round merges to master.
+
+**Owner's listening pass, M4b "keys 3 then 2" failed** (Windows, `E2E_LISTEN=1`): "a change was pending when key 2 was read", `at.to` null. The owner's key 2 came after the change to calm had landed, so no change was pending; F-32's step noted a key after the cancel point but failed one after the landing. Coordinator fix: in listen mode a key 2 read with nothing pending is noted (calm plays, 2 asks for combat afresh) and the step ends; headless keeps the strict check (it presses 2 a quarter second after 3). Headless M4b passes. Pushed to master as well, since the owner runs the pass from it.

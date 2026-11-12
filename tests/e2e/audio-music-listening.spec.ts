@@ -726,6 +726,14 @@ test.describe("listening M4b: transitions, stingers and loop exits", () => {
       });
       expect(read.length, "the frame that read key 2 was logged").toBeGreaterThan(0);
       const at = read[0]!;
+      // Headless presses 2 a quarter second after 3, so the change to calm is always still pending. An owner's key 2 can
+      // come after calm has landed (no change pending any more): calm plays, and 2 asks for combat afresh. Noted, not failed.
+      if (LISTEN && at.to === null) {
+        info.annotations.push({ type: "switch", description: `key 2 was read after the change to calm had landed (${JSON.stringify(at)}): press 2 within a second of 3 to hear calm skipped` });
+        await hear(page, 4_000);
+        await cleanCounters(page, "switch");
+        return;
+      }
       expect(at.to, "a change was pending when key 2 was read").not.toBeNull();
       // The handler may run before the log (the change to calm, not yet past its cancel point) or after it (replaced: the
       // change to combat). Past the cancel point the change to calm is `running`, with combat queued behind it.
