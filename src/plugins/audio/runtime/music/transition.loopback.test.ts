@@ -236,3 +236,104 @@ describe("R3a seams on the loopback host (ADR 0166 §10 R3a)", () => {
     rig.backend.dispose();
   });
 });
+
+/**
+ * T3: A plays; the change to B is asked while the first `refusals` admissions answer a temporary `poolFull` (the rings
+ * are busy), so the planner retries it at its next allowed points. Frames run until it lands and `after` seconds more.
+ * `first` is the point the request was refused for; `t.exitAt` ends as the point it landed on.
+ */
+async function refusedTransition(rig: Rig, rule: Raw, refusals: number, after = 0.15): Promise<{ t: Transition; player: MusicPlayer; first: number; admits: number; seam: number; startA: number }> {
+  const r = root(rule);
+  const player = createMusicPlayer(instance(), r);
+  requestStart(player, { to: child(r, "A"), reason: "start", grid: "immediate", notBefore: Number.NaN, startFrame: 0 }, rig.frame());
+  planTick(player, rig.frame());
+  expect(player.run?.node.id).toBe("A");
+  const startA = rig.backend.clockMap.frameOfTime(player.run!.startAt);
+  for (const s of player.run!.stems) keepMirror(rig, s.voice!);
+  await rig.step(10);
+  planTick(player, rig.frame());
+  const music = rig.backend.music;
+  const admit = music.admitGroup.bind(music);
+  let admits = 0;
+  music.admitGroup = (req) => (++admits <= refusals ? { ok: false, reason: "poolFull", permanent: false } : admit(req));
+  const t = requestTransition(player, child(r, "B"), rig.frame())!;
+  expect(t).not.toBeNull();
+  const first = t.exitAt;
+  expect(player.planned?.status).toBe("waiting");
+  expect(player.planned?.refusal).toBe("poolFull");
+  for (let i = 0; i < 1500 && t.state !== "done" && t.state !== "cancelled"; i++) {
+    tickTransition(player, rig.frame());
+    planTick(player, rig.frame());
+    await rig.step(1);
+  }
+  expect(t.state).toBe("done");
+  const end = t.exitAt + after;
+  for (let i = 0; i < 400 && rig.backend.time < end; i++) {
+    tickTransition(player, rig.frame());
+    planTick(player, rig.frame());
+    await rig.step(1);
+  }
+  expect(player.run?.node.id).toBe("B");
+  return { t, player, first, admits, seam: rig.backend.clockMap.frameOfTime(t.exitAt), startA };
+}
+
+describe("T3 transitions after a refusal on the loopback host (ADR 0166 §10 T3)", () => {
+  const cut = { exit: "beat", fadeOut: { beats: 0 }, fadeIn: { beats: 0 } };
+  const BEAT = RATE / 2; // 120 bpm
+
+  it("a cut lands on the predicted frame after a poolFull refusal and one retry: A through frame(T) - 1, B from frame(T)", async (ctx) => {
+    const rig = await loopbackRig();
+    if (!rig) return ctx.skip();
+    const { player, first, admits, seam, startA } = await refusedTransition(rig, cut, 1);
+    const { out } = rig;
+    expect(admits).toBe(2); // refused once, admitted on the retry
+    expect(player.counters.refusals.poolFull).toBe(1);
+    // The retry moved T to a later beat of A's grid: the prediction the request gave is not where it landed.
+    expect(seam).toBeGreaterThan(rig.backend.clockMap.frameOfTime(first));
+    expect((seam - startA) % BEAT).toBe(0);
+    // The group was stamped on the predicted frame (no pickup: the group starts at T), and the output switches there.
+    expect(rig.backend.clockMap.frameOfTime(player.run!.startAt)).toBe(seam);
+    const a = out[startA]!, b = out[seam]!;
+    expect(a).toBeCloseTo(LEVEL.A, 4);
+    expect(b).toBeCloseTo(LEVEL.B, 4);
+    expect(maxError(out, startA, seam, () => a)).toBe(0);
+    expect(maxError(out, seam, seam + 0.1 * RATE, () => b)).toBe(0);
+    rig.backend.dispose();
+  });
+
+  it("two refusals in a row, then the rings free: still sample-exact on the frame of the point it finally lands on", async (ctx) => {
+    const rig = await loopbackRig();
+    if (!rig) return ctx.skip();
+    const { player, first, admits, seam, startA } = await refusedTransition(rig, cut, 2);
+    const { out } = rig;
+    expect(admits).toBe(3);
+    expect(player.counters.refusals.poolFull).toBe(2);
+    expect(seam).toBeGreaterThan(rig.backend.clockMap.frameOfTime(first) + BEAT);
+    expect((seam - startA) % BEAT).toBe(0);
+    const a = out[startA]!, b = out[seam]!;
+    expect(maxError(out, startA, seam, () => a)).toBe(0);
+    expect(maxError(out, seam, seam + 0.1 * RATE, () => b)).toBe(0);
+    rig.backend.dispose();
+  });
+
+  it("a linear crossfade after a refusal still starts both ramps on frame(T) and nulls against the reference within 1e-5", async (ctx) => {
+    const rig = await loopbackRig();
+    if (!rig) return ctx.skip();
+    const seconds = 0.05;
+    const n = Math.round(seconds * RATE);
+    const { seam, startA } = await refusedTransition(rig, { exit: "beat", fadeOut: { seconds, curve: "linear" }, fadeIn: { seconds, curve: "linear" } }, 1);
+    const { out } = rig;
+    const a = out[startA]!;
+    const b = out[seam + n + 10]!;
+    expect(b).toBeCloseTo(LEVEL.B, 4);
+    expect(maxError(out, startA, seam, () => a)).toBe(0);
+    const ref = (i: number): number => {
+      const u = Math.min(1, Math.max(0, (i - seam + 1) / n));
+      return a * (1 - u) + b * u;
+    };
+    const err = maxError(out, seam, seam + n + 200, ref);
+    console.info(`T3 linear crossfade after a refusal and retry: max error ${err.toExponential(2)}`);
+    expect(err).toBeLessThanOrEqual(1e-5);
+    rig.backend.dispose();
+  });
+});
