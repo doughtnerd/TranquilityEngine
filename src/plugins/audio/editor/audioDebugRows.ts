@@ -13,7 +13,7 @@
 //   m3Shed                                      green 0         -                 red on any step
 //
 // "Per second" and "any increment" need the previous samples, so a `CounterWatch` sees every sample the panel takes.
-import type { AudioDebugInfo } from "../runtime/backend";
+import type { AudioDebugInfo, MusicDebugRow, MusicDebugTotals } from "../runtime/backend";
 
 /** green, amber, red; "info" is a number with no threshold (a gauge, not a fault). */
 export type Health = "ok" | "warn" | "bad" | "info";
@@ -379,4 +379,78 @@ export function voiceCells(v: DebugVoice): Cell[] {
   const parts = [...(v.sends ?? []).map((s) => `${s.zone} ${s.level.toFixed(2)}`), ...(v.aux ? [`aux ${v.aux.bus} ${v.aux.level.toFixed(2)}`] : [])];
   const sends: Cell = v.sends === undefined && v.aux === undefined ? dash : { text: parts.join(", ") || "-" };
   return [panner, doppler, occlusion, lowpass, sends];
+}
+
+// --- ADR 0166 interactive music (M4, P10): the Music section's rows -----------------------------------------------
+//
+// STUBS tagged L-P10a: leaf L-P10a fills them. Spec: api-and-models §1.6 (the row and totals shape, `MusicDebugRow` and
+// `MusicDebugTotals` in `runtime/backend.ts`) and architecture §9 (the thresholds in `MUSIC_HEALTH` below). Pure, like the
+// builders above. P10's lead wires them into `debugSections` (a "music" and a "musicTotals" section) and the panel.
+
+/** The architecture §9 music thresholds, exported so tests and docs name the numbers. */
+export const MUSIC_HEALTH = {
+  /** `replans.deadline` per 100 transitions: green below `deadlineAmber`, amber up to `deadlineRed`, red above. */
+  deadlineAmber: 1,
+  deadlineRed: 10,
+  /** `groupTimeouts` and the recoveries total: amber up to this many per minute, red above. */
+  perMinuteAmber: 1,
+  /** Lead (`leadMs`): green up to `leadGreenMs`, amber up to one beat (`60000 / tempo` ms), red above the beat. */
+  leadGreenMs: 150,
+  leadAmberMs: 330,
+} as const;
+
+/**
+ * Remembers recent samples of the music counters whose health is a rate (`replans.deadline` per 100 transitions,
+ * `groupTimeouts` and `recoveries` per minute). Feed it every `Audio.debug()` the panel takes. STUB(L-P10a).
+ */
+export class MusicWatch {
+  /** Records one sample (`time` is the audio clock, seconds); a clock that went backwards clears the history. */
+  observe(_time: number, _rows: readonly MusicDebugRow[], _totals: MusicDebugTotals | undefined): void {
+    throw new Error("STUB(L-P10a)");
+  }
+  /** `groupTimeouts` rise per minute, summed over rows, over the last minute or so. */
+  groupTimeoutsPerMinute(): number {
+    throw new Error("STUB(L-P10a)");
+  }
+  /** Recoveries (every cause, every row) rise per minute. */
+  recoveriesPerMinute(): number {
+    throw new Error("STUB(L-P10a)");
+  }
+  /** `replans.deadline` per 100 transitions; a transition is a rise of any row's `pass` or a change of its `segment`. 0 before the first. */
+  deadlineReplansPer100(): number {
+    throw new Error("STUB(L-P10a)");
+  }
+}
+
+/** Lead health (§9: <= 150 ms green, 150-330 amber, > one beat red): green to 150, red above `60000 / tempo`, amber between (the table leaves 330 to the beat open when a beat is longer; this reading is the lead's). STUB(L-P10a). */
+export function leadHealth(_leadMs: number, _tempo: number): Health {
+  throw new Error("STUB(L-P10a)");
+}
+
+/** One-line text of `pending` ("verse at 5:1, tier 2 rule intro>verse from parent, exit nextBar, enter cue:in") or "none". STUB(L-P10a). */
+export function pendingText(_p: MusicDebugRow["pending"]): string {
+  throw new Error("STUB(L-P10a)");
+}
+
+/**
+ * The "Music instances" section's rows: one per `MusicDebugRow`, cells per `MUSIC_COLUMNS` (event, state, segment and
+ * pass, bar:beat:tick, tempo, pending, groups primed n/N, stems primed n/N, prime last / Ê / lead in ms with lead health,
+ * re-plans, refusals, late / held / timeouts, last slip in frames and ms, recoveries, missed beats, stingers). STUB(L-P10a).
+ */
+export function musicInstanceRows(_rows: readonly MusicDebugRow[], _sampleRate: number, _watch?: MusicWatch): Row[] {
+  throw new Error("STUB(L-P10a)");
+}
+
+/** Column headers (label and tooltip) for `musicInstanceRows`; STUB(L-P10a) fills the list. */
+export const MUSIC_COLUMNS: readonly Column[] = [];
+
+/**
+ * The "Music totals" section's label/value rows with the §9 health: pool used of size and high-water (info; amber at
+ * `poolUsed >= poolSize`), `musicRingRefused`, `splitQuanta`, `groupTableFull` (red when non-zero), `streamStartsLate`
+ * (red), `curvePoolFull` (amber), `voiceSplits` and `maxSlipFrames` (info), plus rows summed from the instance rows:
+ * late groups (red), holds (red), timeouts and recoveries (`watch`), `refusals.poolFull` / `leadOverBeat` / `tailRefused`
+ * and `stingers.skipped` (amber), `refusals.neverFits` and other permanent refusals (red). STUB(L-P10a).
+ */
+export function musicTotalsRows(_rows: readonly MusicDebugRow[], _totals: MusicDebugTotals | undefined, _watch?: MusicWatch): Row[] {
+  throw new Error("STUB(L-P10a)");
 }
