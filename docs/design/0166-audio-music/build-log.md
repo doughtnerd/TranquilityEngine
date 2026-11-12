@@ -575,3 +575,14 @@ E2 (M4b's browser specs and listening section) and D3 (the guide) start when the
 3. **Phantom region-end calls:** the wrap checked is the scratch anchor's own pass end, the same path `advanceAnchor` takes. The old path summed the wrap differently by one bit. A second case K4 didn't hit was also fixed: when the frame-rounded pass is longer than the grid's, the end line is heard up to half a frame before the wrap (462 and 390 phantom calls over 15 minutes at 117.77 and 87.31 bpm before the fix).
 K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.ts` is 52 of 52; K1's S4 trace tests and K2's and K3's tests pass unchanged. **Coordinator:** renamed K4's three `BUG:` tests to regression tests.
 
+
+**Bench1 merged** (`m4/bench1` `98d81206`).
+- **Scenes:** six music metered scenes plus three music-free twins: `music-typ`, `music-trans` and `music-worst`, each also `-streamed`, with twins `music-typ-twin`, `music-trans-twin`, `music-worst-twin`.
+- **Music's own cost** (scene less twin) against the S7 allowance, converted to instructions at ×1.45 with S4's 0.075 µs per 1k:
+  - typical, decoded and streamed: 36% / 37% of 966,667;
+  - transition (held to the worst allowance): 14% / 15% of 1,546,667;
+  - worst (16 groups: 12 stems and 4 stingers, every voice fading): 50% / 53%.
+  - S4's worst also had automation bindings (≈ +295k, which would make 72%).
+- No late group, split, ring refusal or full table; STATUS at most 1,148 B. The gate fails on an allowance miss, like the twin limit (a tripwire: a miss is raised and logged, not traded).
+- **Wall-clock:** `musicBench.test.ts` (best of 4; p99 gates with about 40× headroom): `musicPlanStep` p99 2.4 µs for 1 player, 22 µs for 16; a seam p50 18 µs.
+- **Coordinator rebuild:** the bench source is in the mixer's source hash, so `hash.json` and the metered bench were regenerated and the baseline written for the 9 scenes. Mixer unchanged at 317,891 B; existing scenes +0.00%; cargo 892 pass.
