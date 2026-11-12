@@ -67,6 +67,12 @@
       "components": [{ "type": "lab.SceneSwitch", "data": { "key": "s", "scene": "scenes/spatial.scene.json" } }]
     },
     {
+      "id": "music-page",
+      "name": "Music page (key M)",
+      "transform": false,
+      "components": [{ "type": "lab.SceneSwitch", "data": { "key": "m", "scene": "scenes/music.scene.json" } }]
+    },
+    {
       "id": "oneshots",
       "name": "OneShots (key 1)",
       "transform": false,

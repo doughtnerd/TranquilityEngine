@@ -1,0 +1,47 @@
+{
+  "format": "myco.scene@4",
+  "settings": { "physics": "3d" },
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 5, -12], "rotation": [0.1736482, 0, 0, 0.9848078] } },
+        { "type": "engine.Camera", "data": { "projection": "perspective", "fieldOfView": 55 } },
+        { "type": "engine.AudioListener", "data": {} }
+      ]
+    },
+    {
+      "id": "title",
+      "name": "Title",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": {
+            "text": "Sound Lab: interactive music (B goes back to the tour)\nClick the game view first. One tempo, 120 bpm: every change lands on a bar line.",
+            "anchor": "top-left",
+            "align": "left",
+            "offset": [24, 20],
+            "fontSize": 22,
+            "outlineColor": "#000000",
+            "outlineWidth": 4
+          }
+        },
+        { "type": "lab.SceneSwitch", "data": { "key": "b", "scene": "scenes/main.scene.json" } }
+      ]
+    },
+    {
+      "id": "music",
+      "name": "Music (keys 1-3, T, Y, L, P, O)",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": { "anchor": "top-left", "align": "left", "offset": [24, 110], "fontSize": 24, "outlineColor": "#000000", "outlineWidth": 4 }
+        },
+        { "type": "lab.MusicLab", "data": {} }
+      ]
+    }
+  ]
+}

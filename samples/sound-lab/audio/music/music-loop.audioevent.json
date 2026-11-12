@@ -1,0 +1,63 @@
+{
+  "format": "myco.audioevent@1",
+  "bus": "Music",
+  "priority": 200,
+  "limit": {
+    "maxInstances": 1,
+    "steal": "oldest"
+  },
+  "parameters": [
+    {
+      "name": "Loop",
+      "labels": [
+        "hold",
+        "release"
+      ],
+      "default": "hold"
+    }
+  ],
+  "root": {
+    "type": "segment",
+    "id": "loopexit",
+    "tempo": [
+      {
+        "at": "1:1:0",
+        "bpm": 120,
+        "beatsPerBar": 4,
+        "beatUnit": 4
+      }
+    ],
+    "cues": [
+      {
+        "name": "entry",
+        "at": "1:1:0"
+      },
+      {
+        "name": "exit",
+        "at": "end"
+      }
+    ],
+    "entry": "entry",
+    "exit": "exit",
+    "regions": [
+      {
+        "id": "body",
+        "from": "1:1:0",
+        "to": "3:1:0",
+        "count": 0,
+        "tailBeats": 4,
+        "while": {
+          "parameter": "Loop",
+          "is": "hold"
+        }
+      }
+    ],
+    "tracks": [
+      {
+        "name": "body",
+        "clip": "audio/music/loop-body.wav",
+        "volume": 0.9
+      }
+    ]
+  }
+}

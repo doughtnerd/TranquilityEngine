@@ -452,3 +452,25 @@ test("M4a: the 10-minute playlist runs with no late group", { tag: "@slow" }, as
   expect(seen.errors).toEqual([]);
   expect(seen.warnings).toEqual([]);
 });
+
+// M4b (SM2): the Sound Lab's music page (key M on the tour page) loads and plays without a warning: the world switch starts
+// on its explore segment, key 2 asks for combat and the change lands on a bar, the other two events start on their keys.
+test("SM2: the sound-lab music page loads, plays the world switch and changes state on a key", async ({ page }) => {
+  const seen = watchConsole(page);
+  await bootSample(page, LAB);
+  await page.keyboard.press("m");
+  await expect.poll(async () => (await rowOf(page, "music-world"))?.state, { timeout: 30_000, message: "the world event is primed and playing" }).toBe("playing");
+  const row = (await rowOf(page, "music-world"))!;
+  expect(row.segment).toBe("explore");
+  expect(row.tempo).toBe(120);
+  expect(row.stems.map((s) => s.name).sort()).toEqual(["arp", "pad"]);
+  expect(await peakOver(page, "Music", 600), "the Music bus meter").toBeGreaterThan(0.01);
+  await page.keyboard.press("2");
+  await expect.poll(async () => (await rowOf(page, "music-world"))?.segment, { timeout: 15_000, message: "the change to combat landed" }).toBe("combat");
+  await page.keyboard.press("l");
+  await expect.poll(async () => (await rowOf(page, "music-loop"))?.state, { timeout: 30_000 }).toBe("playing");
+  await page.keyboard.press("p");
+  await expect.poll(async () => (await rowOf(page, "music-playlist"))?.state, { timeout: 30_000 }).toBe("playing");
+  expect(seen.errors).toEqual([]);
+  expect(seen.warnings).toEqual([]);
+});
