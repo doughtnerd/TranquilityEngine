@@ -712,3 +712,5 @@ K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.t
 
 **M4c milestone end.** Exit criteria met: every M4c task merged; callbacks within their delivering frame's gap (E3; K4's trace set in unit tests); calibration p95 < 10 ms (8.39 ms at 24 taps); the offset persists across a reload (Rh3, E3 end to end); the milestone checks above, every remaining failure passing alone. Owner items, not holding the merge: the listening sections M4-0 to M4c, the real-device items of `spikes/audio-music/rhythm/README.md` §8, WebKit. Merged to master directly (D13).
 
+
+**Wave 10 (M4d) started** on `6f425493` (master after M4c): L1 (mid: the consolidated listening pass with the real-device items and an owner sign-off block, and the walker spec completed) and F-29 (mid, test files only). L2 follows L1, D5 follows L2; L3 waits for the owner's pass.
