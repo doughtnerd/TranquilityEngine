@@ -10,7 +10,7 @@ The owner's listening pass for M4 in one sitting. It joins the four milestone se
 |---|---|---|
 | **Headphones, on a desktop** (**H**) | all 25 listening items (Z, A, B, C), real-device items R1 to R7 and R9 | Wired is best (a Bluetooth output adds 100 ms or more and is item R6's job). Chromium (Chrome or Edge) for the walker; Safari and Firefox are R7's. |
 | **The lab VM** (**V**) | the same 25 items walked again, plus four benches (V1 to V4) | If the VM has no output device, run the headless walker (V0) and the benches only, and say so. |
-| **A phone** (**P**) | the Flappy town music (A5), the device probe (R1, R2, R3, R5, R6, R7, R8, R9) and the prime lead (P1) | The Sound Lab pages are keyboard-only (see the limits below), so the phone runs Flappy and the probe page. Two phones for R8. |
+| **A phone** (**P**) | the Flappy town music (A5), the Sound Lab's music page (A1 and A4 by hand, B1 to B10) and rhythm page (C1 to C5) through their on-screen buttons, the device probe (R1, R2, R3, R5, R6, R7, R8, R9) and the prime lead (P1) | The Z items and A2 and A3 stay on the desktop (the spec's own keys and the paused decoder). Two phones for R8. |
 
 Total: **25 listening items** (5 + 5 + 10 + 5), **9 real-device items** (R1 to R9), **1 prime-lead item** (P1), **4 VM benches** (V1 to V4): 40 rows in the sign-off block (V0, the walker on the VM, included).
 
@@ -50,6 +50,18 @@ cd /tmp/flappy-web && node serve.mjs 8080
 
 Android: `adb reverse tcp:8080 tcp:8080`, open `http://localhost:8080/`. On iOS the page needs HTTPS too, or the audio core's AudioWorklet is not available and the engine falls back to the Babylon backend (no music).
 
+The Sound Lab is an export too (the same kind of page as Flappy; tap once to unlock the audio):
+
+```bash
+npm run export -- samples/sound-lab --out /tmp/lab-web --target web
+```
+
+```bash
+cd /tmp/lab-web && node serve.mjs 8083
+```
+
+Android: `adb reverse tcp:8083 tcp:8083`, open `http://localhost:8083/`. The tour page has four buttons along the bottom (Events, Spatial, Music, Rhythm); the music and rhythm pages have a button for each of their keys, Back included. On the rhythm page a press anywhere on the game view is a tap (SPACE's form), timed from the pointer event's time stamp. A phone has a big, slow audio path: calibrate (C2) on the phone before the tap game (C4).
+
 ## Part 1. M4-0: in-voice stamped records (task Z5)
 
 **Scene:** the Sound Lab main page, loaded by the spec (no sample is edited). The Music, Ambience, SFX and Engine buses are muted; 64 quiet looping voices play on UI as a crowd; the item's voices play on the Tape bus. Every record is stamped 1 s ahead of `Audio.time`. The spec takes keys 0 to 5 before the Sound Lab's own handlers see them (on this page 1 is a click and a beep, 4 the Underwater snapshot, 5 a burst), so only the item and the crowd are heard.
@@ -67,7 +79,7 @@ Android: `adb reverse tcp:8080 tcp:8080`, open `http://localhost:8080/`. On iOS 
 
 ## Part 2. M4a: segments, stems and playlists (task E1)
 
-**Scene:** the Sound Lab main page again (the Music, Ambience, SFX and Engine buses muted; the item plays alone on the Tape bus). The spec builds the music events from the lab's 4 s stems (pad, pulse, lead and a streamed melody) at 120 bpm and starts them itself when you press the key; the keys are the spec's own. Item A5 opens the Flappy sample. The 10-minute playlist is a separate exit check: `npm run test:e2e:slow -- audio-music-a --repeat-each 3`.
+**Scene:** the Sound Lab main page again (the Music, Ambience, SFX and Engine buses muted; the item plays alone on the Tape bus). The spec builds the music events from the lab's 4 s stems (pad, pulse, lead and a streamed melody) at 120 bpm and starts them itself when you press the key; the keys are the spec's own. Item A5 opens the Flappy sample. The music page (M from the tour) also starts two of these itself: **4** plays the eight-stem event (`audio/music/music-stems8.audioevent.json`: A1's eight stems, on the Music bus, looping) and **5** the A, B, C playlist (`music-list3.audioevent.json`: A4's items, once through, about 12 s). That is how a phone runs A1 and A4. A2 (the held-back ring) and A3 (the paused decoder) have no page. The 10-minute playlist is a separate exit check: `npm run test:e2e:slow -- audio-music-a --repeat-each 3`.
 
 | Id | Key | Item | Listen for | Devices |
 |---|---|---|---|---|
@@ -75,7 +87,7 @@ Android: `adb reverse tcp:8080 tcp:8080`, open `http://localhost:8080/`. On iOS 
 | A2 | 2 | The same with a slow ring: the melody file is held back 1.5 s | The music starts about 1.5 to 3 s after the key, and all eight stems begin together; none enters ahead of the others. | H, V |
 | A3 | 3 | A held group: the eight stems play, the decoder worker is paused until the core holds the group, then resumed at once (Chromium) | The streamed stems run dry, the whole band dips together over about 5 ms and every stem, decoded and streamed, goes silent at the same instant, none left playing alone. After the worker resumes (well under a second) the band returns together and aligned: no stem ahead of or behind the others, no phasing or flam. The music then plays on as before. | H, V |
 | A4 | 4 | A playlist of three 4 s items (A pad and pulse, B lead and pulse, C melody and pad), 30 s | Each change on the beat; no gap, no click, no doubled or missing beat. | H, V |
-| A5 | 5 | The Flappy sample's town music, 20 s (the spec opens the sample). **On a phone:** the exported game | A steady 105 bpm piece that loops without a gap or click; no warbling. On the phone also: no dropout while you tap to flap or scroll. | H, V, P |
+| A5 | 5 | The Flappy sample's town music, 20 s (the spec opens the sample). **On a phone:** the exported game | A steady 105 bpm piece that loops without a gap or click; no warbling. On the phone also: no dropout while you tap to flap or scroll. At game over the town music dips to about a third of its level (0.4 s) and comes back when the next run starts; it never restarts or gaps across the restart. | H, V, P |
 
 **The spec confirms (not by ear):**
 - **A1 and A2:** one group of 8 primed stems, all eight `playing` with a playhead, the six decoded stems on one playhead; the Tape bus audible; no group late, held or abandoned; no slip; no split. A2 also checks the file was requested and that play-to-playing exceeds the delay.
@@ -85,7 +97,7 @@ Android: `adb reverse tcp:8080 tcp:8080`, open `http://localhost:8080/`. On iOS 
 
 ## Part 3. M4b: transitions, stingers and loop exits (task E2)
 
-**Scene:** the Sound Lab's music page, opened by the spec with M from the tour (B comes back); the keys are the page's own (`MusicLab.ts`). The world switch starts in explore at 120 bpm, so every change lands on a bar line (2 s). The music plays on the Music bus; Ambience, SFX, Engine and Tape are muted. The items run in this order, because each starts from where the last left the music:
+**Scene:** the Sound Lab's music page, opened by the spec with M from the tour (B comes back); the keys are the page's own (`MusicLab.ts`). Every key has a button along the bottom of the view (B is Back); **D** shows the music readout under the label. The world switch starts in explore at 120 bpm, so every change lands on a bar line (2 s). The music plays on the Music bus; Ambience, SFX, Engine and Tape are muted. The items run in this order, because each starts from where the last left the music:
 
 | Id | Key | Item | Listen for | Devices |
 |---|---|---|---|---|
@@ -110,7 +122,7 @@ Android: `adb reverse tcp:8080 tcp:8080`, open `http://localhost:8080/`. On iOS 
 
 ## Part 4. M4c: beat feel, calibration and the tap game (task E3)
 
-**Scene:** the Sound Lab's rhythm page, opened by the spec with R from the tour (B comes back). Click the game view first (the spec does). The keys are the page's own (`RhythmLab.ts`): **C** calibrate, **SPACE** tap, **G** tap game, **X** reset the calibration to 0, **O** stop. The music plays on the Music bus; Ambience, SFX, Engine and Tape are muted. `Audio.rhythmMode` is off in this sample (the page says "rhythm mode off"); the line `Audio.latency` shows what the browser reports and whether it can be trusted. You tap with the SPACE bar, timed by the key event's own time stamp.
+**Scene:** the Sound Lab's rhythm page, opened by the spec with R from the tour (B comes back). Click the game view first (the spec does). The keys are the page's own (`RhythmLab.ts`): **C** calibrate, **SPACE** tap, **G** tap game, **X** reset the calibration to 0, **O** stop. Every key has a button along the bottom of the view; a press on the game view is a tap, like SPACE, timed from the pointer event's own time stamp (a mouse click does the same). **D** shows the music readout under the label. The music plays on the Music bus; Ambience, SFX, Engine and Tape are muted. `Audio.rhythmMode` is off in this sample (the page says "rhythm mode off"); the line `Audio.latency` shows what the browser reports and whether it can be trusted. You tap with the SPACE bar or by pressing the game view, timed by the event's own time stamp.
 
 | Id | Key | Item | Listen for / do | Devices |
 |---|---|---|---|---|
@@ -155,9 +167,9 @@ Buttons on the page: **1 Hints** (R1, R7, R8), **2 Click + flash** (R2), **5 Hit
 
 | Id | Item | Do | Record | Devices |
 |---|---|---|---|---|
-| P1 | The prime lead on a phone, with the Flappy town music running | Export Flappy (above), open it on the phone, tap to start; after the town music has played 30 s read the music row through remote DevTools: Android `chrome://inspect` on the desktop, console of the page; iOS Safari's Web Inspector from a Mac. In the console: `JSON.stringify(__myco.Audio.debug().music.map(r => ({asset: r.asset, lead: r.leadMs, ema: r.primeEmaMs, last: r.primeLastMs, late: r.lateGroups, held: r.groupsHeld})))` | `leadMs`, `primeEmaMs`, `primeLastMs`, `lateGroups`, `groupsHeld`, with the phone model and the browser. Expect the lead to settle near 100 ms at 60 Hz on a fast desktop (seed 40 ms); a phone's is the finding. `lateGroups` and `groupsHeld` should stay 0; a "prime lead is longer than one beat" warning in the console is expected where the estimate is large | P |
+| P1 | The prime lead on a phone, with the Flappy town music running | Export Flappy (above), open it on the phone, tap to start. Press the round note button in the bottom-right corner (a keyboard's **M** does the same): the top-left of the view shows `music town`, `lead`, `prime` (the smoothed prime time, with the last one) and `late`, `held`, refreshed four times a second. After the town music has played 30 s read it (a photo of the screen will do). Remote DevTools still works: `JSON.stringify(__myco.Audio.debug().music.map(r => ({asset: r.asset, lead: r.leadMs, ema: r.primeEmaMs, last: r.primeLastMs, late: r.lateGroups, held: r.groupsHeld})))` | `lead`, `prime` (`primeEmaMs`, and the last), `late`, `held`, with the phone model and the browser. Expect the lead to settle near 100 ms at 60 Hz on a fast desktop (seed 40 ms); a phone's is the finding. `late` and `held` should stay 0; a "prime lead is longer than one beat" warning in the console is expected where the estimate is large | P |
 
-The one streamed town stem is the lightest group the engine primes; an 8-stem group (A1, M4a) has no phone page yet (see "Gaps"), so P1's number is the floor of the phone's lead, not its worst case.
+The one streamed town stem is the lightest group the engine primes. The eight-stem group (music page, key 4, then **D**) is the heavier one: run it on the phone too and note its `lead`, `prime`, `late` and `held` beside P1's.
 
 ## Part 7. The lab VM
 
@@ -174,9 +186,10 @@ Each run prints one JSON line. The container's own measurements are in the [buil
 ## Limits and gaps
 
 - **The walker never hears.** Headless Chromium has no sound output, so it reads the core's meters, voice tables, rows and counters. Every "listen for" line is yours.
-- **Z, A (except A5) and the B and C pages are desktop-only.** The Sound Lab's pages read the keyboard (`Input.getKeyDown`); on a phone a touch is only mouse button 0, so the music and rhythm pages cannot be driven there without a Bluetooth or USB keyboard (and the rhythm page's SPACE tap has no touch form). On a phone the pass runs Flappy (a tap flaps) and the probe page (it takes touches).
-- **No on-screen prime lead readout.** P1 reads the lead through remote DevTools; no sample page shows `leadMs`.
-- **No 8-stem page for a phone.** The eight-stem and playlist events (A1 to A4) are built by the spec, not shipped in the sample.
+- **Z, A2 and A3 are desktop-only.** Z's keys and A2's delayed ring and A3's paused decoder are the spec's own (the main page, the DevTools protocol). The music and rhythm pages, and A1, A4 and A5, run on a phone through their buttons and taps.
+- **The prime lead has an on-screen readout** on Flappy (M, or the note button on a touch screen) and on the music and rhythm pages (D, or the button). The numbers come from `Audio.debug().music`; the readout refreshes four times a second and only while it is on.
+- **A phone page for the 8-stem group exists** (music page, key 4); A2's held-back ring and A3's pause still have none.
+- **Touch taps are timed from the pointer event's stamp, not the frame's,** like SPACE; whether a touch screen's `event.timeStamp` lags is R3's measurement.
 - **A3 is Chromium only** (the decoder worker is paused through the DevTools protocol); WebKit and Firefox are run for the other items if you want them signed.
 - **R5's SAB ring half and R4 on a device** need a host that sends COOP and COEP; none of the repo's servers (the dev server, the export's `serve.mjs`, the Tauri shell) does yet.
 
