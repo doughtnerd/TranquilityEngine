@@ -1035,7 +1035,7 @@ fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceA
 /// the one frame behind it the resampler still reads.
 #[allow(clippy::too_many_arguments)]
 fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, mut fx: VoiceFx<'_>, streams: &mut StreamStore, mut hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
-    use crate::stream::{frame_at, pending, phase, START_FRAMES};
+    use crate::stream::{pending, phase, START_FRAMES};
     let mut auto = if AUTO { auto } else { None };
     if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
         // Paused and out of the mix: held, as a clip voice (A3.7); a stop ends it now.
@@ -1141,33 +1141,20 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
     }
     let mut l = [0.0f32; QUANTUM];
     let mut r = [0.0f32; QUANTUM];
-    let mut done = 0usize;
-    let mut starved = false;
-    for i in 0..n {
-        let p = slot.position - start;
-        if input_done && p >= written as f64 {
-            break;
+    // F-8: the read loop for a narrow ring (1 or 2 channels, a fixed length) with its channel count
+    // a constant, so the ring index is a mask and a shift with no bounds checks wherever the
+    // optimiser places this function; a wide ring takes the general loop. The same reads either way.
+    let rd = StreamRead { start, written, input_done, mixed, steps: &steps[..n] };
+    let (done, starved) = if samples.len() == crate::stream::NARROW.floats() {
+        let samples = &samples[..crate::stream::NARROW.floats()];
+        if ch == 2 {
+            stream_frames(slot, ring, samples, 2, &rd, &mut l, &mut r)
+        } else {
+            stream_frames(slot, ring, samples, 1, &rd, &mut l, &mut r)
         }
-        let idx = p.max(0.0) as u64;
-        if (!input_done && idx + 3 > written) || (ring.phase == phase::STARVING && ring.gain.is_settled()) {
-            starved = true;
-            break;
-        }
-        let g = ring.gain.next();
-        if mixed {
-            let last = written - 1;
-            let t = (p - idx as f64) as f32;
-            let w = resample::weights(t);
-            let a = frame_at(samples, ch, idx.saturating_sub(1).min(last));
-            let b = frame_at(samples, ch, idx.min(last));
-            let c = frame_at(samples, ch, (idx + 1).min(last));
-            let d = frame_at(samples, ch, (idx + 2).min(last));
-            l[i] = (w[0] * a.0 + w[1] * b.0 + w[2] * c.0 + w[3] * d.0) * g;
-            r[i] = (w[0] * a.1 + w[1] * b.1 + w[2] * c.1 + w[3] * d.1) * g;
-        }
-        slot.position += steps[i] as f64;
-        done += 1;
-    }
+    } else {
+        stream_frames(slot, ring, samples, ch, &rd, &mut l, &mut r)
+    };
     if mixed {
         voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..done], &mut r[..done]);
         let (id, bus) = (slot.id, slot.bus);
@@ -1196,6 +1183,53 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
     } else if stopping && slot.fade.is_settled() {
         slot.state = state::ENDED;
     }
+}
+
+/// What [`stream_frames`] reads a stream voice's ring with over one range.
+struct StreamRead<'a> {
+    /// The ring's start frame (its epoch's first stream frame).
+    start: f64,
+    written: u64,
+    input_done: bool,
+    mixed: bool,
+    /// The voice's steps over the range (pitch × rate ratio, and `pitchMul`).
+    steps: &'a [f32],
+}
+
+/// B3: a stream voice's frames from its ring (`ch` channels, interleaved; the 4-point Lagrange of
+/// `resample::lagrange`) into `l`, `r` (mixed only), moving its position; stops where the input
+/// ended or the data runs out (starved), or where a starving fade settled. Returns the frames done
+/// and whether it starved. Inlined at each call so `ch` and the ring length are constants there.
+#[inline(always)]
+fn stream_frames(slot: &mut VoiceSlot, ring: &mut crate::stream::Ring, samples: &[f32], ch: usize, rd: &StreamRead<'_>, l: &mut [f32; QUANTUM], r: &mut [f32; QUANTUM]) -> (usize, bool) {
+    use crate::stream::{frame_at, phase};
+    let (start, written, input_done) = (rd.start, rd.written, rd.input_done);
+    let mut done = 0usize;
+    for (i, &step) in rd.steps.iter().enumerate() {
+        let p = slot.position - start;
+        if input_done && p >= written as f64 {
+            break;
+        }
+        let idx = p.max(0.0) as u64;
+        if (!input_done && idx + 3 > written) || (ring.phase == phase::STARVING && ring.gain.is_settled()) {
+            return (done, true);
+        }
+        let g = ring.gain.next();
+        if rd.mixed {
+            let last = written - 1;
+            let t = (p - idx as f64) as f32;
+            let w = resample::weights(t);
+            let a = frame_at(samples, ch, idx.saturating_sub(1).min(last));
+            let b = frame_at(samples, ch, idx.min(last));
+            let c = frame_at(samples, ch, (idx + 1).min(last));
+            let d = frame_at(samples, ch, (idx + 2).min(last));
+            l[i] = (w[0] * a.0 + w[1] * b.0 + w[2] * c.0 + w[3] * d.0) * g;
+            r[i] = (w[0] * a.1 + w[1] * b.1 + w[2] * c.1 + w[3] * d.1) * g;
+        }
+        slot.position += step as f64;
+        done += 1;
+    }
+    (done, false)
 }
 
 /// The ring stream voice `slot` reads: its stream's, unless another voice holds it.
