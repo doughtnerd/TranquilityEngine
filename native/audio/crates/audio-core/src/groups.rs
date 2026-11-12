@@ -512,7 +512,8 @@ fn report_event(core: &mut Core, index: usize) -> bool {
 ///   more than 1 s held abandons; else `group_hold::try_resume` with every member ready resumes it:
 ///   the flag clears, `maxSlipFrames` counts the slip, the records are rebased by it and the resume
 ///   is reported;
-/// - **STARTED**: nothing (the starve path's hook H2 holds it). One flag read per entry.
+/// - **STARTED**: `group_hold::begin_started` (C2c) looks ahead for a member about to starve and
+///   runs the joint fade-out; when it has run, the entry is HELD from this quantum (as above).
 pub fn begin_quantum(core: &mut Core, frame: u64) {
     if entries_of(core.regions().groups).iter().all(|e| e.state == state::FREE) {
         return;
@@ -526,9 +527,12 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
         if !report_event(core, index) || e.flags & flag::ABANDONED != 0 {
             continue;
         }
-        match entries_of(core.regions().groups)[index].state {
+        let now = entries_of(core.regions().groups)[index].state;
+        match now {
             state::STAMPED => stamped(core, index, frame, give_up),
             state::HELD => held(core, index, frame, give_up),
+            // C2c: the hold's look-ahead and joint fade; a fade that ran out holds from this quantum.
+            state::STARTED if crate::group_hold::begin_started(core, index, frame) => held(core, index, frame, give_up),
             _ => {}
         }
     }
@@ -575,7 +579,7 @@ fn stamped(core: &mut Core, index: usize, frame: u64, give_up: u32) {
     }
 }
 
-/// [`begin_quantum`] for the HELD entry at `index` (C2c's hold; inert until `group_hold` fills it).
+/// [`begin_quantum`] for the HELD entry at `index` (C2c's hold).
 fn held(core: &mut Core, index: usize, frame: u64, give_up: u32) {
     let mut e = entries(core.regions_mut().groups)[index];
     for &v in e.present_members() {
@@ -585,16 +589,14 @@ fn held(core: &mut Core, index: usize, frame: u64, give_up: u32) {
         abandon(core, index, frame, e.held_frames);
         return;
     }
-    let all_ready = e.present_members().iter().all(|&v| {
-        let m = crate::voices::member_state(core, v);
-        m.present && m.ready
-    });
+    let all_ready = e.present_members().iter().all(|&v| crate::group_hold::member_ready(core, v));
     let resumed = crate::group_hold::try_resume(&mut e, frame, all_ready);
     entries(core.regions_mut().groups)[index] = e;
     if let Some(slip) = resumed {
         for &v in e.present_members() {
             crate::voices::set_gated(core, v, false);
         }
+        crate::group_hold::resume_members(core, index);
         crate::status::counters_mut(core).music.note_slip(slip);
         crate::group_rebase::apply(core, index as u8, frame.saturating_sub(slip as u64), slip);
         report_event(core, index);
