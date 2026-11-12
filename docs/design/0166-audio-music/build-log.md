@@ -109,6 +109,8 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 - **F-11 (seen at M4-0's milestone end):** `audio-stress.spec.ts` once read the core's `hrtfVoices` peak as 9 against the high preset's 8. That was under heavy load (three agents plus the full slow suite); it passed alone. Probably a voice counted on both sides of the 45 ms HRTF↔bed handover in a slow frame (M3 behaviour; M4 didn't touch the panner). To check: can the counter exceed the cap during a handover, and should the spec allow for it?
 - **F-12 (from F-9b, predates it):** a stamped SET_PARAMS carries the dry gain as it was when sent. A volume or occlusion change between the send and the stamp lands with the old dry gain until the next dry write. Rare for music stems.
 - **F-13 (from F-9b):** the eventBench allocation tripwire "core voice start allocations" reads 1,136 B against its 1,150 B ceiling (1,120 B before F-9b). It's a tripwire: when the next change crosses it, raise the ceiling with the reason here rather than contort the code.
+- **F-14 (from Ed5):** the editor's stem solo and mute (Ed4's `stemAudition`) doesn't reach the runtime: the handle has no API and `soloStem` is main-side only. It overlaps F-6; for Ed10 or Ed11 with a handle hook.
+- **F-15 (from Ed5):** the segment view's transport plays the whole event. It can't start at a later playlist segment (needs a start-at-segment option, or R7's seek across segments), and it passes no parameter values (the event editor's sliders don't reach it). Transition audition is Ed7's.
 
 **Started (rolling, D5), base `92969c11`:** Z2a (strongest) on the flip branch `m4/in-voice`, cut locally at `92969c11` after Q1 and the wire's merge 1 (the flip branch stays local: this session pushes only the integration branch); F2, Ed2, Ed9 and R4c (mid; each depends only on merged tasks and touches no running task's files). Waiting for the wire's merge 2: Z4, C1, D1a, then Q2's merge.
 
@@ -294,4 +296,42 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
   - F-9's beat test still passes sample-exact with stems going virtual.
 - **The sound-lab sample's Intensity automation is quantised to the beat again**; `audio-events.spec.ts` passes on both backends.
 - Coordinator checks: typecheck 0; `src/plugins/audio` 2,387 pass; `zoneIr` flaked once under load and passed alone (with eventBench, 16 of 16).
+
+
+**Wave 6 started** (rolling, base `03138580`, after M4-0's merge to master):
+- C2c + C2d (strongest, one lead): `group_hold.rs`, `group_rebase.rs`. No `voices.rs` edits while F-8 holds it; a needed `voices.rs` change comes back as a patch.
+- C3 (strongest): the alignment harness, mixed and late-start goldens now; the held and rebased null cases after C2c + C2d merge.
+- T1 (mid): music loopback tests on a deterministic-clock fixture.
+- D2 (mid, prose): `docs/guide/interactive-music.md`.
+- Ed5 (mid): transport, audition and the Trigger button.
+- G-2 (mid): the coordinator's wiring list.
+- F-8 continues in `voices.rs`.
+- E1 waits for T1's fixture.
+
+**D2 merged** (`m4/d2` `c81ddaef`): `docs/guide/interactive-music.md`, M4a's part.
+- It covers segments and the grid, simple forever loops, quantised automation, playlists, switches, transitions and rules, stingers, streaming and `music.rings`, the script API, the debug panel and hot reload.
+- A status table marks what's coming later: counted and `while` loops, tails, bridges, seek, music callbacks, rhythm and calibration, editor audition, held-group resync.
+- Links from `docs/README.md` and `sound-events.md`.
+- **Coordinator:** added the guide to `tools/check-doc-links.mjs`' defaults, so `check:links` scans it.
+- **Keep it current:** whoever merges G-2 updates its hot-reload section (it says the editor doesn't call the reload yet), and each K, R3b, R4 or R7 merge updates the status table. D2 flagged its own unsure claims: the playlist advance applies `enter` without the rule's fades (R3a's `natural` plumbing), and the crossfade timing came from the design without tracing `transition.ts`.
+
+
+**T1 merged** (`m4/t1` `f037b13d`): the deterministic-clock fixture `music/testing/loopbackClock.ts` (`musicLoopback({clips, events, quantaPerFrame, …})`, no wall clock). New loopback tests on the real core:
+- a segment's first sample lands on its planned frame;
+- 8 stems start on one sample with no slip, including at the e2e rate;
+- a 12-item playlist advances exactly 96,000 frames per item with no late group;
+- 40 loop passes are identical to the first, sample for sample;
+- cuts on the beat and the bar land sample-exact;
+- a linear crossfade starts on its grid point;
+- stingers on the beat and the bar land on their grid point.
+Quantised automation and recovery are already covered (F-9, P9), so not repeated. **No engine bugs found.** Music vitest: 22 files, 226 tests. For later tasks: call `resetMusicLoopback()` in `afterEach`; levels go through int16, so compare with `toBeCloseTo(x, 3)`.
+
+**Ed5 merged** (`m4/ed5` `15f8d8f2`):
+- `music/transport.ts`, over an injected host so it's testable: play from the start, a cue, a bar or a ruler click (a seek after the start, retried for about 2 s on a temporary refusal); Stop; Loop; a stinger Trigger; Reload; the playhead from `handle.music`.
+- `transportHost.ts` is the real host; `TransportBar.tsx` sits above `OpenSegment` in the segment view.
+- `event/auditionHost.ts` has one `activeAudition` signal shared with `Audition.tsx`, so starting either stops the other. The stinger Trigger buttons in `NodeProperties` are live while the event plays (closes F-3).
+- `music/peaksHost.ts` shares one peaks worker per project (closes F-2).
+- Tests: 12 transport tests and 3 audition tests; editor vitest 32 files, 435 tests. Not yet run against a real music event (seek is R7's).
+- Open items: F-14 and F-15. Reload needs a registered reload host, which is G-2's item 1.
+- (Ed5's own build-log entry was dropped at merge: the log is coordinator-owned.)
 

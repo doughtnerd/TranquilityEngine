@@ -32,3 +32,30 @@
 .segment-readout { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; white-space: pre; }
 .segment-canvas { display: block; flex: none; touch-action: none; cursor: default; }
 .segment-problems { margin: 0; padding: 4px 8px 4px 24px; color: var(--warning); font-size: 11px; }
+.segment-transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+}
+.segment-transport button,
+.segment-transport select,
+.segment-transport input[type="number"] {
+  background: var(--button);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 8px;
+}
+.segment-transport button:hover:not(:disabled) { background: var(--button-hover); }
+.segment-transport button:disabled { opacity: 0.5; }
+.segment-transport label { color: var(--muted); font-size: 11px; }
+.segment-transport-bar { width: 4.5em; }
+.segment-transport-stinger { display: inline-flex; gap: 4px; }
+.segment-transport-phase { color: var(--muted); font-size: 11px; }
+.segment-transport-message { color: var(--warning); font-size: 11px; }
+.segment-panel-root { display: flex; flex-direction: column; height: 100%; min-width: 0; }
