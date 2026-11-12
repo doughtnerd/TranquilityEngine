@@ -143,6 +143,34 @@ test.describe("Flappy web build", { tag: "@slow" }, () => {
     expect(errors).toEqual([]);
   });
 
+  test("on a device with a 40 ms period (an Android emulator's) the probe counts no underruns: the cap and the ladder stay idle (F-37)", async ({ page, browserName }) => {
+    test.skip(browserName !== "chromium", "Chromium's device period follows latencyHint");
+    // Chromium sizes its device buffer from latencyHint, so forcing 40 ms gives process() in 40 ms bursts, as on the
+    // owner's phone. Before F-37 the underrun probe counted one a second there (its 24 ms threshold assumed a 10 ms
+    // period), driving the adaptive cap to its floor in ~12 s and the shedding ladder on after.
+    await page.addInitScript(() => {
+      const Base = globalThis.AudioContext;
+      const g = globalThis as unknown as { AudioContext: typeof AudioContext; __baseLatency?: number };
+      g.AudioContext = class extends Base {
+        constructor(options?: AudioContextOptions) {
+          super({ ...options, latencyHint: 0.04 });
+          g.__baseLatency = this.baseLatency;
+        }
+      };
+    });
+    await page.goto(served!.url);
+    await expect.poll(async () => (await audioDebug(page))?.core?.backend ?? null, { timeout: 20_000 }).toBe("core");
+    expect(await page.evaluate(() => (globalThis as unknown as { __baseLatency?: number }).__baseLatency)).toBeGreaterThanOrEqual(0.03);
+    await page.waitForTimeout(8_000); // before F-37: ~7 underruns by now, the cap down to ~33
+    const debug = (await page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { debug(): unknown } } }).__myco.Audio.debug())) as {
+      counters: { underruns: number; mixedCap: number };
+      core: { ladderState: string };
+    };
+    expect(debug.counters.underruns).toBe(0);
+    expect(debug.core.ladderState).toBe("idle");
+    expect(debug.counters.mixedCap).toBeGreaterThan(16);
+  });
+
   test("a file:// page explains how to serve it", async ({ page }) => {
     await page.goto(`file://${join(served!.dir, "web", "index.html").replace(/\\/g, "/").replace(/^\/?/, "/")}`);
     await expect(page.getByRole("alert")).toContainText("served over HTTP");

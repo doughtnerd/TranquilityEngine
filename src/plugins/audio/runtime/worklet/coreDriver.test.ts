@@ -490,4 +490,45 @@ describe("UnderrunProbe", () => {
     drive(probe, 200, -1, 0, at);
     expect(probe.underruns).toBe(1);
   });
+
+  /**
+   * F-37: a device that asks for `burst` quanta at a time calls `process()` that many times back to back (at one
+   * whole-millisecond `Date.now`, as in the worklet), once per period; `stallAt` (a burst index) delays that burst.
+   */
+  function bursts(probe: UnderrunProbe, burst: number, count: number, stallAt = -1, stallMs = 0) {
+    const periodMs = burst * QUANTUM_MS;
+    let frame = 0;
+    let late = 0;
+    for (let k = 0; k < count; k++) {
+      if (k === stallAt) late += stallMs;
+      const now = Math.floor(5_000 + k * periodMs + late);
+      for (let q = 0; q < burst; q++, frame += 128) probe.step(frame, now);
+    }
+  }
+
+  it("a long device period (40 and 80 ms bursts, an Android emulator's) counts no underrun (F-37)", () => {
+    for (const burst of [15, 30]) {
+      const probe = new UnderrunProbe(RATE);
+      bursts(probe, burst, Math.round(30_000 / (burst * QUANTUM_MS))); // 30 s; before F-37 one a second
+      expect(probe.underruns).toBe(0);
+      // The spread runs from a burst's first call to its last: a period less one quantum, give or take the 1 ms clock.
+      expect(Math.abs(probe.sawtoothFrames(5_000 + 30_000) - (burst - 1) * 128)).toBeLessThanOrEqual(48);
+    }
+  });
+
+  it("on a 40 ms device a burst 60 ms late still counts one underrun; on desktop's ~10 ms one 30 ms late does (F-37)", () => {
+    const long = new UnderrunProbe(RATE);
+    bursts(long, 15, 200, 100, 60); // 40 ms × 100 = 4 s in
+    expect(long.underruns).toBe(1);
+    expect(long.underrunFrames).toBeGreaterThanOrEqual(0.09 * RATE); // the sawtooth's 40 ms plus the 60 ms stall
+    const desktop = new UnderrunProbe(RATE);
+    bursts(desktop, 4, 600, 300, 30);
+    expect(desktop.underruns).toBe(1);
+  });
+
+  it("desktop bursts keep the 24 ms threshold: a lag of 26 ms past the window's minimum counts (F-37)", () => {
+    const probe = new UnderrunProbe(RATE);
+    bursts(probe, 4, 600, 300, 16); // a 10.7 ms sawtooth + 16 ms late ≈ 26.7 ms
+    expect(probe.underruns).toBe(1);
+  });
 });
