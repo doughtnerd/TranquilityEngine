@@ -80,6 +80,11 @@ export interface MusicStreamEventSink {
    * so the change goes there.
    */
   setLoop?(id: number, loop: LoopRecord, at: number): void;
+  /**
+   * F-18: a `ClipInfo` for a music member's stream `id` (its rate once the worker opened it), or null. `clipInfo` falls
+   * back to it, so the playhead tracker reads a streamed stem's own rate, not the context's.
+   */
+  clipInfo?(id: number): ClipInfo | null;
 }
 
 /** @internal What the manager needs of the decoder client. */
@@ -266,7 +271,8 @@ export class StreamManager {
   /** A `ClipInfo` for stream `id` (the playhead tracker's rate and the replay's loop length), or null. */
   clipInfo(id: number): ClipInfo | null {
     const e = this.byStream.get(id);
-    if (!e) return null;
+    // F-18: a music member's stream isn't registered here; musicOps knows its rate.
+    if (!e) return this.music?.clipInfo?.(id) ?? null;
     return { id, path: e.asset, state: "ready", refs: 1, frames: e.frames, channels: 0, sampleRate: e.rate, format: 0, bytes: 0, failure: null };
   }
 

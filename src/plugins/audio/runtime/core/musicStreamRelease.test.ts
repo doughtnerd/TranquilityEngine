@@ -106,3 +106,41 @@ describe("a streamed music member's region release (R4b, the worker's region-rel
     expect(m.playing).toBe(false);
   });
 });
+
+// F-18: the playhead tracker reads a voice's rate through `streams.clipInfo`, which knew nothing of a music member's
+// stream (musicOps opens it), so a streamed stem's tracked playhead ran at the context's rate. The Sound Lab's stems
+// are 24 kHz on a 48 kHz context: the tracked playhead must advance 24,000 stream frames a second.
+describe("a streamed music member's tracked playhead runs at its stream's rate (F-18)", () => {
+  it("a 24 kHz member on a 48 kHz context advances half a stream frame per context frame", async (ctx) => {
+    const STEM_RATE = 24_000;
+    const r = await rig({ "music/s24.wav": makeWav(2 * STEM_RATE, 2, STEM_RATE, signal) }, { musicRings: 2 });
+    if (!r) return ctx.skip();
+    const music = r.backend.music;
+    const req: MusicGroupRequest = {
+      instance: 1,
+      group: 4,
+      members: [{ stem: "s0", play: { path: "music/s24.wav", url: "", loop: true, stream: true, bus: "Music" }, startFrame: 0, loop: true, loopStartFrame: 0, loopEndFrame: 2 * STEM_RATE }],
+    };
+    expect(music.admitGroup(req).ok).toBe(true);
+    music.primeGroup(req);
+    await vi.waitFor(
+      async () => {
+        r.streamPort?.()?.pump();
+        await r.step(1);
+        expect(music.primedState(4)?.ready).toBe(true);
+      },
+      { timeout: 5_000, interval: 5 },
+    );
+    const [voice] = music.stampGroup({ group: 4, at: r.backend.time + 0.05 });
+    expect(voice).toBeTruthy();
+    await r.step(12);
+    const i = voice!.id & 0xffff;
+    expect(r.backend.playheads.rate[i]).toBeCloseTo(STEM_RATE / RATE, 9);
+    // biome-ignore lint: test-only access to the backend's clock
+    const clock = (r.backend as unknown as { clockMap: { framesNow(): number } }).clockMap;
+    const f0 = clock.framesNow();
+    const p0 = r.backend.playheads.positionNow(i, f0);
+    expect(r.backend.playheads.positionNow(i, f0 + RATE) - p0).toBeCloseTo(STEM_RATE, 3);
+    r.backend.dispose();
+  });
+});
