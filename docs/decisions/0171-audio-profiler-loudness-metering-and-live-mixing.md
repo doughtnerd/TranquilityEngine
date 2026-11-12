@@ -83,6 +83,8 @@ Reach: the editor's play mode plus capture files. A live link from the editor to
 
 ## Decision (proposed)
 
+> **Revision 2 (after the RFC round, at the end of this record) changes parts of this section. Where the two differ, revision 2 wins.**
+
 ### 1. One recorded stream: the profiler, captures and a later live link are the same data
 
 - **The profile stream** is binary records with timestamps on the audio clock:
@@ -218,7 +220,7 @@ Reach: the editor's play mode plus capture files. A live link from the editor to
 - **The editor UI is the largest part** (profiler timeline, Mixer panel), as 0157 predicted for authoring.
 - **Getting captures off Android release builds** needs either a plugin or a limitation (owner decision 3).
 - **Unverified:** real devices, Firefox and WebKit worklet clocks, the game loudness targets, true peak against BS.1770's own filter table, capture sizes on real scenes.
-- **Estimate (provisional; the technical design's task table sets the real one):** ≈ **50–65 person-weeks**. Calibrated from the last two milestones: M3's features grew ×1.67 into its task table and M4's provisional 45–55 person-weeks became 69.7. The features below sum to ≈ 31 person-weeks; tests, goldens, benches, e2e and tooling add ≈ 40% (≈ 12.5), and a reserve of a quarter to a third of the total sits on top.
+- **Estimate (provisional; the technical design's task table sets the real one):** revision 2 raises it to ≈ **62–75 person-weeks** (≈ 70 central); the first draft said 50–65. Calibrated from the last two milestones: M3's features grew ×1.67 into its task table and M4's provisional 45–55 person-weeks became 69.7. The features below sum to ≈ 31 person-weeks; tests, goldens, benches, e2e and tooling add ≈ 40% (≈ 12.5), and a reserve of a quarter to a third of the total sits on top.
 
   | Feature | Person-weeks (est.) |
   |---|---|
@@ -258,3 +260,178 @@ Reach: the editor's play mode plus capture files. A live link from the editor to
 - ITU-R BS.1770 and EBU R128 / Tech 3341 / 3342 (loudness); libebur128 (MIT) and the Rust `ebur128` crate (MIT), studied in S0 and S1.
 - FMOD Core headers (vendored in a public repository), Unity's C# reference source, and Godot's audio server, read in S0.
 - ADR 0157 (the core and its roadmap), 0097 (the mixer and ducking), 0158 (parameters and automation), 0162 (the shedding ladder), 0166/0167 (M4-0's in-voice stamped records), 0170 (the ladder recovers), 0024 (storage), 0155 and 0169 (Android).
+
+## RFC round (revision 2)
+
+Five reviews, in [docs/rfc/0171/](../rfc/0171/): an architect, a senior engineer, a mid-level engineer, a sound designer and mixer (Wwise and FMOD; `mixer.md`), and a premise challenger. All five said **approve with changes**. Every code claim the reviews rest on was checked by the coordinator and holds:
+- STATUS has 192 B spare (`audio-wire/src/schema.rs:73-74`);
+- the master meter misses the reverb return and the limiter (`audio-core/src/bus.rs:575, 586-600`);
+- a bus's index is its position in `project.json` (`coreBackend.ts:765-770`);
+- `mixer.configure` clears script volumes, fades and the snapshot (`mixer.ts:80-91`);
+- frames restart at 0 on a rebuild (`clock.ts:116-122`);
+- `workUnits` is the last quantum's only (`counters.rs:392-393`);
+- solo isn't in `BusSettings` (`settings.ts:36-51`);
+- one snapshot is active at a time (`mixer.ts:72`);
+- the samples change bus volume from scripts with `fadeTo` (`samples/flappy/scripts/behaviors/GameManager.ts:17`, `samples/sound-lab/scripts/behaviors/Buses.ts:17`, `samples/stress/scripts/behaviors/Stress.ts:208`), so the authored/runtime split is needed.
+
+### Changes to the decision
+
+**The stream (§1)**
+1. **Every record carries (epoch, frame, seq)** (architect). A main event carries the frame of the command it causes (or the frame now) and `performance.now`.
+   - An **EPOCH** record (reason, new sample rate) is written at every context rebuild, followed by a keyframe.
+   - A **gap** record covers dead time (a trap, a stall, a hidden tab).
+   - Records are ordered by (epoch, frame, seq). The heard clock trails rendered frames by the limiter's latency (`clock.ts:7-9`).
+   - These fields are also what a later live link needs to resync; the technical design writes that framing on paper (challenger: the "link is a transport" claim had no framing check).
+2. **STATUS blocks are recorded raw, with no delta encoder** (challenger, A'). The raw copy costs 0.6–3.2 µs and allocates nothing in a preallocated ring, which removes the encoder's 370 B per block.
+   - Keyframes stay, keyed on the STATUS count rather than rAF, which stops in a hidden tab (architect 11). They carry main-side state, and the ring evicts by keyframe segment.
+   - The recorder copies each block inside the STATUS callback, since the reader reuses one buffer (`statusReader.ts:54`).
+   - The ring then holds about 3 minutes at 1,024 voices and about 18 at 64 on 32 MB (from S3's raw rates). It's sized from the preset and `navigator.deviceMemory`.
+3. **A capture records the `audio` section at its start** and every mix edit as an operation (senior 5), plus the project's name and version. The editor warns when the open project's mix differs, and refuses only on a different wire.
+   - A capture from another ABI is refused with a message naming both versions and "re-record with this build". The editor carries only the current wire's decoder, an accepted limitation (senior 6).
+   - A capture whose ring wrapped is marked truncated (junior 5).
+4. **Captures are untrusted input** (architect 12):
+   - decompressed size is capped;
+   - decoding runs in a bounds-checked Worker;
+   - the name table is read as data only;
+   - the export's built-in trigger caps the number of saved files.
+5. **Markers:** `Audio.capture.mark(text)` adds a timeline marker (mixer).
+
+**The CPU figure (§2)**
+6. **STATUS carries cumulative counters** (architect 5): `busyMsTotal`, `quantaTotal`, and a work-unit total per section.
+   - Main forms the 256 ms window by quantum count, so cadence changes (6 vs 48 quanta) and skipped posts don't bias it.
+   - Deltas are clamped, because `Date.now` is a wall clock and can step.
+   - The live refit stays on main and never feeds the voice cap (`cap.rs:99-108`).
+7. **Coarse clocks:** the core detects the clock's step (the smallest non-zero delta). If it is too coarse for the window (Firefox with resistFingerprinting; WebKit [U]), the line is hidden with a reason. The desktop editor on macOS and Linux runs WebKit, so the CPU line there is unverified.
+8. **The profiler's headline for clicks is underruns, late commands and `minSlackFrames`,** with `loadPermille` labelled "256 ms average" and the section split "estimated share" (challenger 8, mixer). A click inside one quantum shows in the counters, not in the average.
+
+**The profiler (§3)**
+9. **Additions:**
+   - jump to the previous or next underrun;
+   - a name filter for voices and events (mixer);
+   - each bus's gain factors (authored, runtime, snapshot, duck, automation) at the cursor (mixer 5; they come from change 15);
+   - empty states for every view: "Not playing", "recording starts when the panel opens in Play", "CPU not yet measured" before the first window, "not metered" (junior).
+   - **Replay against the engine** (as FMOD's API capture replay) is a non-goal.
+10. **The editor's drawing budget** in Play is ≤ 2 ms a frame: canvas drawing, and no Preact render per STATUS block (architect).
+
+**Loudness (§4)**
+11. **Master is metered on the final output, after the reverb return and the limiter** (architect 1). That is what a true-peak ceiling is about.
+    - The stream records MASTER volume and the hidden-tab mute.
+    - The target check is suspended while MASTER ≠ 1 or muted.
+12. **Names** (senior):
+    - the bus field is **`meter: "loudness"`** (absent = off, never written when default, as `bed` is);
+    - the project target is **`audio.loudnessTargets`**;
+    - the reader is **`Bus.loudness`**.
+
+    Master is always metered, **plus up to 8** buses chosen by name.
+13. **`Bus.loudness` is a stable object** allocated once per bus, like `peak`, beside `Bus` in `engine/audio/mixer.ts` (senior):
+    - **readings:** `momentary`, `shortTerm`, `integrated`, `lra`, `maxTruePeak`, `maxMomentary`, `elapsed`;
+    - **state:** `paused`, `incomplete`, `tainted`, `metered`;
+    - **controls:** `reset("integrated" | "maxPeak" | "all")`, `pause()`, `resume()`;
+    - **empty values:** `-Infinity` while gated, empty or unmetered, never `NaN`. An unmetered bus has `metered = false` and doesn't throw. The Babylon fallback reports the same shape with `metered = false`.
+14. **Data integrity:**
+    - the core keeps a **32-entry** sub-block ring and sends only the sub-blocks since the last *successful* STATUS take, so a main stall of up to 3.2 s loses nothing (architect 7);
+    - an older loss sets `incomplete`;
+    - true peak reports **max(true peak, sample peak)**, gated at the **ceiling − 6 dB** rather than a fixed -6 dBFS, and the gated quanta are counted (architect 9);
+    - after a rebuild, integrated loudness continues on main and the gap is marked.
+
+**Live mixing (§5)**
+15. **Gain composition is defined** (architect 2). The core holds one stamped lane per factor and multiplies them per sample:
+    - authored volume;
+    - runtime (script `volume`, `fadeTo`);
+    - snapshot;
+    - duck;
+    - automation (0158; already evaluated in the core, `bus.rs:556-571`, so "automation becomes ramps" applies to Babylon only, architect 10).
+
+    Both ducking modes combine in the core by **min**, with presence fed by a per-bus flag. STATUS reports each bus's duck gain, so main's audibility estimate (`coreBackend.ts:690-692`) sees it.
+16. **`Bus.volume` becomes the runtime multiplier** (default 1, 0..2). **`Bus.authoredVolume`** is read-only to scripts and written by the editor (senior). Authored 2 × runtime 2 = 4 is legal and the limiter catches it. The editor's fader shows the authored value, with the effective gain drawn beside it.
+17. **Edits travel as operations, not diffs** (senior 2, architect 3): set, add, remove, rename, move, from the model functions the settings section already uses (`AudioSettingsSection.tsx`).
+    - `mixer.apply(op)` changes the mixer without clearing script state, unlike `configure`.
+    - A **session slot table** (name → core slot, with tombstones) in `coreBackend` keeps indices stable. Rename is explicit.
+    - A tombstone is recycled once its tail has faded and no voice references it.
+    - An addition past the preset's `max_buses` is **refused visibly** in the editor.
+    - The table is replayed on a context rebuild or hard rebuild (the end state of an in-flight edit, never half of it) and compacted at Stop.
+18. **An editor SDK hook carries saved audio edits into the play Engine** (senior 4): `editor.project.changed(sectionKey, ops)`. It amends **0147**'s SDK list. The audio panels import `editor/sdk` only.
+19. **Structural edits dip instead of crossfading** (architect, challenger F). Re-parenting, reordering or removing effects, removing a send and moving a sound to another bus all go the same way: fade the affected subtree out over 20 ms, apply, fade back in. This is one code path, and only the edited subtree dips.
+    - Direct edits (volume, filter parameters, send levels, appends) apply in place.
+    - Compressor parameters are smoothed over ≥ 20 ms in the core.
+20. **Monitor state** (mixer 1, 2):
+    - **the Mixer panel's mute and solo are monitor controls,** never written to `project.json` (shipping a soloed bus would be a bug). The authored `mute` stays editable in Project Settings;
+    - while any monitor control is active, a banner says so, and every meter that saw it since its last reset is **`tainted`**.
+21. **Session controls** (mixer 3, 8, 9):
+    - loudness resets at Play start by default (a project option);
+    - Pause, Reset and elapsed time are in the panel;
+    - a fader drag is one undo step, committed on release, and the heard value follows the drag;
+    - **"Compare with Play start"** swaps in the `audio` section as it was at Play start, and back;
+    - a measured gate: a fader move is heard **≤ 50 ms** after the input event.
+22. **The Mixer panel is a strip** (challenger I, mixer): per bus, a fader, monitor mute and solo, a peak meter with hold and a clip latch, momentary and short-term LUFS (integrated on metered buses), a gain-reduction meter on level-ducked buses, and snapshot buttons. It reuses `BusMeters`' drawing. Buses past the first 32 show "not metered" (`meters.rs`). Effect editing stays in Project Settings, which applies live (owner decision 5).
+23. **Per-platform loudness targets:** `audio.loudnessTargets` is a small table, for example `console` and `mobile`, each with an integrated target, tolerance and true-peak ceiling. Play picks one in the Mixer panel (mixer; defaults are owner decision 4).
+
+**The mix's timing (§6)**
+24. **Ducking rule format** (junior 1, senior):
+    ```jsonc
+    { "target": "Music", "trigger": "Voice", "mode": "level", "detector": "rms",
+      "threshold": -30,   // dBFS, the trigger level where ducking starts
+      "amount": 0.4,      // the multiplier the target heads for, as today
+      "attack": 0.05, "release": 0.4 }   // seconds, as today
+    { "target": "Music", "trigger": "Voice", "mode": "presence", "amount": 0.4, "attack": 0.1, "release": 0.6 }
+    ```
+    - `mode` is required in the format, and the samples are rewritten.
+    - Validation refuses a trigger that is the target's ancestor, as well as `target === trigger` (`settings.ts:367`). The error shows in the editor's settings section and the load log.
+25. **The sidechain tap is the trigger bus's signal before its fader, mute and solo,** so monitoring doesn't change the duck.
+26. **Staging** (challenger D): M5-0 ships the trigger-first sort, which fixes presence mode's one-quantum delay. Level mode lands in M5c, so the ABI and editor changes are checked one at a time.
+27. **Bus ramps are a third stamped class in M4-0's due list** (`due.rs`), not a second mechanism, and `splitQuanta` stays 0 (senior). The benefit is stated as exactness and one shared clock for ducking and live edits, not an audible fix: S4 found no audible step today (challenger E).
+
+**Budgets, wire, robustness (§8, §10)**
+28. **STATUS grows to 20 KB** (`STATUS_BUFFER_BYTES`; +32 KB across the pool of 8) to carry the loudness ring, the cumulative counters and duck gains. The new worst case, the hash and the vectors are a wire task at the head of M5-0 (architect 6, senior 1).
+29. **A new first step on the shedding ladder pauses non-master loudness metering** (flagged in the stream and in `Bus.loudness.paused`) before beds or zones are touched. Under 0170 it is given back last. Sidechain is never shed. This **amends 0162 and 0170** (architect 8). It also settles open question 7: every preset may meter chosen buses, and a struggling device sheds them first.
+30. **Budgets are stated in metered instructions as well,** converted with ADR 0169's floor profile, beside the container µs (architect). Gated loudness is content-dependent: a hot mix costs 13.8 / 36.3 µs, not 10.3 / 24.7. The worst allowance uses the hot figure.
+31. **Methodology gaps, re-measured in the technical design:**
+    - S3's main-thread timings ran at load ≈ 2.0 after S2;
+    - S2's truth was partly validated with `Date.now`;
+    - no run measured the real core with M5 added end to end. The design adds M5 metered scenes on the real core and re-runs S3 idle.
+32. **Capability flags in `Audio.debug()`** (`loudness`, `levelDucking`, `cpu`, `stampedBusRamps`) report what the backend supports, as music does (senior).
+33. **`Audio.capture.start()` returns a Promise** (the recorder loads lazily) and **`save(name?)`** returns `Promise<string>`, the path or file name. `save()` with nothing recorded rejects with a message. The editor's panel and a game capture share one ring (senior, junior).
+34. **Glossary additions:** sub-block, presence and level mode, authored and runtime value, edit operation, monitor control, tombstone, epoch, tainted (junior 4).
+35. **Records amended at acceptance:**
+    - **0097:** ducking modes and `Bus.volume`'s meaning;
+    - **0147:** the SDK hook;
+    - **0157 §4.7:** `loadPermille` filled, cumulative counters;
+    - **0158:** automation is one gain lane;
+    - **0162 and 0170:** the ladder's new first step.
+
+### Estimate (revised, provisional)
+
+The senior engineer's bottom-up, adjusted for the changes above:
+
+| | Person-weeks |
+|---|---|
+| The senior's tasks: M5-0 7, stream 5, CPU 1.5, profiler 11, loudness 5, live apply 7, Mixer panel 4, sidechain 2.5, captures 2.5, Babylon / samples / guides 2.5, plus 9 unpriced (wire, goldens incl. EBU files, metered scenes, e2e, docs, listening pass) | 57 |
+| Added by this round: the mixer persona's must-haves (monitor state and taint, session controls, per-platform targets, gain factors at the cursor, markers, underrun jump, name filter, Compare, hold / clip / gain-reduction meters) ≈ 3; the architect's robustness (epochs and gaps, cumulative counters, the slot table's replay and recycling, a decode Worker, the ladder step) ≈ 2 | +5 |
+| Cut by this round: raw STATUS instead of the delta encoder −1.5; the subtree dip instead of crossfades −1.5; the Mixer panel as a strip without effect editing −1.5 | −4.5 |
+| **Tasks** | **≈ 58** |
+| Reserve, 20% as M4 chose | ≈ 12 |
+| **Total** | **≈ 70 (range 62–75)** |
+
+Snapshot stacking (owner decision 7) would add ≈ 1.5 person-weeks of tasks (≈ 1.8 with reserve).
+
+### Not taken, and why
+
+- **A 4 Hz history ring on the debug panel instead of the stream** (challenger A). Underruns and late commands between samples vanish, and so do event reasons on the audio clock and the capture file the owner put in scope. The raw-STATUS middle path (change 2) takes the saving that doesn't cost those.
+- **Loudness on master only** (challenger B) and **dropping captures in exports or level-mode ducking** (challenger D, G): settled scope. Their costs are noted in the record.
+- **Chromium DevTools for CPU, AnalyserNode meters on Babylon** (challenger C, H): no figure in exports or devices, and no LUFS without our own filters.
+- **Running old and new routing side by side for structural edits:** replaced by the subtree dip (change 19), which is simpler and was proposed by two reviewers. The cost is a 40 ms dip of the edited subtree.
+- **Structural live edits applied at Stop** (senior's cheaper option): it contradicts hearing the edit straight away. The dip makes them live for little more.
+- **Stable bus ids in `project.json`** (senior's alternative to the slot table): the session table keeps the file format unchanged and needs no migration.
+- **Presence as the default for new rules until a detector meter exists** (junior): change 22 adds a gain-reduction meter, so level mode is visible from the start. The default stays an owner decision.
+- **HDR audio, Soundcaster-style audition, a Voices Graph, a speaker simulator** (mixer, nice-to-haves): out of M5. HDR audio and a speaker simulator go to the roadmap note.
+
+### Owner decisions (to bring after this round)
+
+1. **Recording trigger in exports:** `Audio.capture` plus the export option's key combination and touch gesture (recommended), or the API only.
+2. **Captures in release builds:** the API works in every build, loading the recorder only when used, and the built-in trigger comes only with the export option (recommended); or debug builds only.
+3. **Getting a capture off Android:** adb on debug builds in M5, with a share-sheet plugin as its own later record (recommended); or the plugin in M5 (a new dependency, ≈ +1 person-week).
+4. **Default loudness targets:** a `console` entry of -24 LUFS ±2 LU with a -1 dBTP ceiling and a `mobile` entry of -18 LUFS ±2 LU with -1 dBTP (recommended; the figures are published game-audio guidance, unverified here), or no default until a project sets one.
+5. **Mixer panel scope:** the strip without effect editing (recommended; effects stay live in Project Settings), or effect editing in the panel (≈ +1.5 person-weeks).
+6. **Default ducking mode for new rules:** `level` (recommended) or `presence`.
+7. **Snapshot stacking:** several active snapshots blending by priority and intensity, as FMOD and Wwise do (≈ +1.8 person-weeks), or one at a time as today (recommended for M5, with stacking on the roadmap).
+8. **The estimate:** ≈ 62–75 person-weeks provisional, in milestones M5-0, M5a–d.
