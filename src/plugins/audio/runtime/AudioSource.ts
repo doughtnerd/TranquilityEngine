@@ -59,8 +59,8 @@ _setEventClipStarter({
 });
 
 // ADR 0166 P6: a music segment run resolves its stems' clips here (the event runtime's starter above is private to it):
-// the same URL, import settings (with the FuMa gain) and bus resolution. No clip facts source exists yet, so the
-// stream-or-decode rule falls back to the import setting `stream` until a backend reports them.
+// the same URL, import settings (with the FuMa gain) and bus resolution. The clip facts come from the backend
+// (`AudioBackend.clipFacts`, G-1); until a clip is loaded the stream-or-decode rule falls back to the import setting `stream`.
 setSegmentClipSource({
   url: (path) => Assets.url(path),
   settings: (path) => {
@@ -69,7 +69,7 @@ setSegmentClipSource({
     return gain === 1 ? settings : { volume: settings.volume * gain, stream: settings.stream };
   },
   bus: (output) => mixer.resolveOutput(output),
-  facts: () => undefined,
+  facts: (path) => audioBackend().clipFacts?.(path),
 });
 
 const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math.max(0, Math.round(p))) : 128);

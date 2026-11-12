@@ -88,7 +88,7 @@ describe("planner: the lead (ADR 0167 §1.2)", () => {
     rig();
     expect(lookaheadSeconds(at(5))).toBeCloseTo(L, 12);
     expect(frameIntervalSeconds(at(5))).toBeCloseTo(DT, 12);
-    (b as unknown as { frameInterval: () => number }).frameInterval = () => 1 / 144;
+    b.frameIntervalSeconds = 1 / 144;
     expect(frameIntervalSeconds(at(5))).toBeCloseTo(1 / 144, 12);
     b.horizonTime = null;
     expect(lookaheadSeconds(f as unknown as MusicFrame)).toBeCloseTo(L, 12);
@@ -352,7 +352,7 @@ describe("planner: refusals (R14)", () => {
     rig();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const player = playingPlayer();
-    (b.music as unknown as { ringPool: number }).ringPool = 3;
+    b.music!.ringPool = 3;
     const admitted = b.music!.admitted.length;
     expect(requestStart(player, toB(), at(1.35))).toBeNull();
     expect(b.music!.admitted.length).toBe(admitted);
@@ -363,7 +363,7 @@ describe("planner: refusals (R14)", () => {
   it("a first segment that can never fit leaves the player refused", () => {
     rig();
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    (b.music as unknown as { ringPool: number }).ringPool = 1;
+    b.music!.ringPool = 1;
     const player = createMusicPlayer(instance(), segment("A", ["music/a1.ogg", "music/a2.ogg"]));
     planTick(player, at(1));
     expect(player.state).toBe("refused");

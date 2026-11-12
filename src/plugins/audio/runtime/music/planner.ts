@@ -130,7 +130,7 @@ export function lookaheadSeconds(f: MusicFrame): number {
  * clamp(2 Δ̄, 1,024 frames, 100 ms), so this is exact at 60 Hz and errs long, the safe side, at high refresh rates).
  */
 export function frameIntervalSeconds(f: MusicFrame): number {
-  const fi = (f.backend as { frameInterval?: () => number }).frameInterval?.();
+  const fi = f.backend.frameInterval?.();
   if (fi !== undefined && Number.isFinite(fi) && fi > 0) return fi;
   return lookaheadSeconds(f) / 2;
 }
@@ -257,6 +257,7 @@ const probeMusic: MusicBackend = {
   get onGroupEvent() { return probe.inner!.onGroupEvent; },
   set onGroupEvent(fn) { probe.inner!.onGroupEvent = fn; },
   get primeEmaMs() { return probe.inner!.primeEmaMs; },
+  get ringPool() { return probe.inner!.ringPool; },
 };
 const probeFrame = { backend: null as unknown as MusicFrame["backend"], music: probeMusic as MusicBackend | null, now: 0, dt: 0, hidden: false };
 
@@ -278,10 +279,10 @@ function tryPrime(player: MusicPlayer, run: SegmentRun, f: MusicFrame): MusicAdm
   return last && !last.ok ? last : NO_GROUP_ID;
 }
 
-/** The pool size when the backend reports it (`MusicBackend.ringPool`, asked of the coordinator), else undefined. */
+/** The pool size (`MusicBackend.ringPool`), or undefined when the backend has none (0: no priming, nothing to check). */
 function ringPoolOf(music: MusicBackend): number | undefined {
-  const n = (music as { ringPool?: number }).ringPool;
-  return typeof n === "number" && Number.isFinite(n) ? n : undefined;
+  const n = music.ringPool;
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 function streamedCount(run: SegmentRun | null): number {

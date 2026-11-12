@@ -13,6 +13,9 @@ import type { AudioVoice, MusicGroupEvent, MusicGroupMember, MusicGroupRequest, 
 import type { MusicTrack, SegmentNode } from "../../../../engine/audio/musicFormat";
 import { stemMode, type MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import type { MusicFrame, MusicNodeRef, MusicPlayer } from "./musicSystem";
+import type { EventOptions } from "../events/eventRuntime";
+import { audioBackend } from "../backend";
+import { applySlip } from "./anchors";
 
 /** The highest music group id (§3.2: ids 1..1023). */
 export const MAX_MUSIC_GROUP_ID = 1023;
@@ -147,10 +150,20 @@ export function pickAlternative(t: MusicTrack, instance: number, segment: string
   return (h >>> 0) % n;
 }
 
-/** P1: the group request of a run (one member per stem, `play` requests on the event's bus, `world`, `group`). */
+/**
+ * P1: the group request of a run (one member per stem, `play` requests on the event's bus, `world`, `group`). P3
+ * (F-7c): the instance's `EventOptions` count as for any event voice (`eventRuntime.ts` `playClip`): `bus` overrides
+ * the event's bus (a track's own `bus` still wins), `priority` the event's priority, and the volume is the event's
+ * `volume` times the option's (clamped at 0) times the track's and the clip's import volume.
+ */
 export function groupRequest(player: MusicPlayer, run: SegmentRun): MusicGroupRequest {
   const inst = player.instance;
-  const asset = inst.asset as { bus?: string; priority?: number } | undefined;
+  const asset = inst.asset as { bus?: string; priority?: number; volume?: number } | undefined;
+  // `options` is private to the event runtime (a coordinator file); read it as data, as `playClip` does.
+  const options = (inst as unknown as { options?: EventOptions }).options;
+  const bus = options?.bus ?? (asset?.bus || undefined);
+  const priority = options?.priority ?? asset?.priority;
+  const level = (asset?.volume ?? 1) * Math.max(0, options?.volume ?? 1);
   const tracks = (run.node as SegmentNode).tracks;
   const members: MusicGroupMember[] = [];
   for (const s of run.stems) {
@@ -161,9 +174,9 @@ export function groupRequest(player: MusicPlayer, run: SegmentRun): MusicGroupRe
       url: clipSource.url(s.clip),
       loop: false,
       stream: s.streamed,
-      bus: clipSource.bus(t?.bus || asset?.bus || undefined),
-      volume: (t?.volume ?? 1) * settings.volume,
-      priority: asset?.priority,
+      bus: clipSource.bus(t?.bus || bus),
+      volume: level * (t?.volume ?? 1) * settings.volume,
+      priority,
       world: inst.world,
       group: inst.group,
     };
@@ -301,19 +314,46 @@ export function stopPlayerRuns(player: MusicPlayer, fadeSeconds: number, f: Musi
   }
 }
 
+/** What the router reads of the core backend's clock map (absent on other backends). */
+interface EventClock {
+  readonly sampleRate?: number;
+  readonly timeOffset?: number;
+  readonly carryPending?: boolean;
+}
+
+/** The core backend's clock map (a rebuild may change its rate), or null. */
+function eventClock(): EventClock | null {
+  try {
+    return (audioBackend() as unknown as { clockMap?: EventClock }).clockMap ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * P1 (P3 applies slips to anchors): the backend's group and member events (`MusicBackend.onGroupEvent`), delivered after
- * the status mirror is read. `musicSystem.ts` binds this once per backend.
+ * P1, P3: the backend's group and member events (`MusicBackend.onGroupEvent`), delivered after the status mirror is
+ * read. `musicSystem.ts` binds this once per backend. A `start`, `resume` or `abandon` goes to P3's `applySlip` first
+ * (the anchor's heard time moves by the slip, architecture §3.6; the counters count it). `sampleRate` is the context
+ * rate of the event's frames (default: the core backend's clock map, else 48 kHz); with the clock map a `start` also
+ * pins the anchor to its start frame's heard time (t0 = f0 / sr, §4.5).
  */
-export function routeGroupEvent(e: MusicGroupEvent): void {
+export function routeGroupEvent(e: MusicGroupEvent, sampleRate?: number): void {
   const run = live.get(e.group);
   if (!run) return;
   switch (e.kind) {
     case "start":
-    case "resume":
+    case "resume": {
+      const clock = sampleRate === undefined ? eventClock() : null;
+      const sr = sampleRate ?? (clock?.sampleRate && clock.sampleRate > 0 ? clock.sampleRate : 48_000);
+      const heard = e.kind === "start" && clock && !clock.carryPending && Number.isFinite(clock.timeOffset)
+        ? e.startFrame / sr + clock.timeOffset!
+        : undefined;
+      applySlip(run.player, e, sr, heard);
       if (run.state === "stamped") run.state = "playing";
       return;
+    }
     case "abandon":
+      applySlip(run.player, e, 0);
       // The core ended every member; the planner re-plans (§8).
       for (const s of run.stems) s.voice = null;
       release(run);
@@ -331,7 +371,7 @@ export function routeGroupEvent(e: MusicGroupEvent): void {
       return;
     }
     case "starve":
-      return; // P3 counts holds from the group's own resume report
+      return; // P3 counts holds from the group's own resume report (`applySlip`)
   }
 }
 

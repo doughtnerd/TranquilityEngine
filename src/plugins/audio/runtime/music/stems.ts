@@ -21,7 +21,7 @@ import { segmentClipSource, type SegmentRun, type StemRun } from "./segmentRun";
 /**
  * R6: what a stem's in-voice ramp asks of a voice (a stamped SET_PARAMS: `gain` is a multiplier on the voice's own dry
  * gain, `lowpassHz` a cutoff; `at` the heard time it starts, omitted: as soon as possible). `AudioVoice.paramsShaped` is
- * the backend's side (coordinator: `backend.ts`, `coreBackend.ts` -> `musicOps`); until it is there, `RampVoice` names it.
+ * the backend's side (`coreBackend.ts` -> `musicOps.paramsShaped`).
  */
 export interface StampedRamp {
   gain?: number;
@@ -30,7 +30,6 @@ export interface StampedRamp {
   law?: FadeLaw;
   at?: number;
 }
-export type RampVoice = AudioVoice & { paramsShaped?(r: StampedRamp): void };
 
 /** One stem's gain parts. `auto` is in effect now; `next` is a quantised level waiting for its grid point. */
 interface StemGain {
@@ -72,7 +71,7 @@ export function releaseSilentRing(stem: StemRun, f: MusicFrame): boolean {
 
 /** Send the stem's gain (`auto × solo`) over `seconds`, starting at heard `at` when the voice can stamp it. */
 function sendStemGain(stem: StemRun, auto: number, seconds: number, now: number, at?: number): void {
-  const v = stem.voice as RampVoice | null;
+  const v = stem.voice;
   if (!v || !voiceAlive(stem)) return;
   const to = auto * gainOf(stem).solo;
   if (v.paramsShaped) v.paramsShaped({ gain: to, seconds, law: "linear", ...(at !== undefined ? { at } : {}) });
@@ -172,7 +171,7 @@ export function quantizedRamp(player: MusicPlayer, track: string, to: number, gr
   const at = nextGridHeard(player, run, grid, horizon);
   if (!Number.isFinite(at)) return Number.NaN;
   const g = gainOf(stem);
-  const stamped = typeof (stem.voice as RampVoice).paramsShaped === "function";
+  const stamped = typeof stem.voice.paramsShaped === "function";
   g.next = { to: level, at, seconds: dur, stamped };
   if (stamped) sendStemGain(stem, level, dur, f.now, at);
   else if (level * g.solo <= 0) silentAt.set(stem, at + dur);
