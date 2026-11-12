@@ -16,7 +16,7 @@
  * A player is made by the event runtime (P6, `EventInstance.playNode` on a `segment`, `playlist` or `musicSwitch` root)
  * through `createMusicPlayer`, and ends through `disposeMusicPlayer`. `handle.music` finds it with `playerOf`.
  */
-import type { AudioBackend, MusicBackend } from "../backend";
+import { isPendingCoreBackend, type AudioBackend, type MusicBackend } from "../backend";
 import type { MusicEvent, MusicEventHandle, MusicHandle, MusicKind } from "../../../../engine/audio/musicTypes";
 import { GameBehavior } from "../../../../engine/core/Component";
 import type { EventInstance } from "../events/eventRuntime";
@@ -281,7 +281,7 @@ let boundGroupEvents: MusicBackend | null = null;
  * music player: no `beginFrame`, no allocation.
  */
 export function musicEarlyStep(backend: AudioBackend, dt: number): void {
-  if (players.length === 0) return;
+  if (players.length === 0 || isPendingCoreBackend(backend)) return; // F-35: see `musicPlanStep`
   _musicStepStats.early++;
   const music = backend.music ?? null;
   if (music !== null && boundGroupEvents !== music) {
@@ -293,9 +293,17 @@ export function musicEarlyStep(backend: AudioBackend, dt: number): void {
   dispatchMusic(setFrame(backend, dt, false));
 }
 
-/** Step 9, the music plan (`engine.Audio`, before `frameCommit`). Nothing without a music player. */
+/**
+ * Step 9, the music plan (`engine.Audio`, before `frameCommit`). Nothing without a music player.
+ *
+ * F-35: nothing either while the backend is the pending stand-in (the core still loading, sound locked until the first
+ * gesture). It has no clock and no music yet, but it isn't a backend without music, so nothing is refused: the players
+ * wait in `starting` (the debug row's `priming`) as plain events wait as locked voices, and the first step on the
+ * backend the load settles on plans their first start on its clock, as soon as the music can (R12). Only a resolved
+ * backend without `music` refuses (the planner's one warning). Beat callbacks begin with the music (step 0 waits too).
+ */
 export function musicPlanStep(backend: AudioBackend, dt: number): void {
-  if (players.length === 0) return;
+  if (players.length === 0 || isPendingCoreBackend(backend)) return;
   _musicStepStats.plan++;
   const f = setFrame(backend, dt, false);
   // In creation order; a player disposed during its own tick leaves the array, so its index is visited again.
