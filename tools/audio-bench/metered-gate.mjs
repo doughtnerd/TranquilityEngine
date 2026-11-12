@@ -86,12 +86,41 @@ const SCENES = [
   "stamped-loop-twin",
   "stamped-music",
   "stamped-music-twin",
+  // ADR 0166 M4b (Bench1): music on the default preset (8 music rings, 16 groups), decoded and streamed, each beside its
+  // music-free twin. Music's own cost is a scene less its twin; `MUSIC_PAIRS` holds each one's allowance.
+  "music-typ-twin",
+  "music-typ",
+  "music-typ-streamed",
+  "music-trans-twin",
+  "music-trans",
+  "music-trans-streamed",
+  "music-worst-twin",
+  "music-worst",
+  "music-worst-streamed",
 ];
 
 /** Stamped scene -> its unstamped twin: the stamped one may cost at most this many more instructions per quantum
  *  (the waves plan's tripwire; a miss is logged and raised with the owner, not fixed by trading CPU or quality). */
 const STAMPED_TWINS = Object.fromEntries(SCENES.filter((n) => n.startsWith("stamped-") && !n.endsWith("-twin")).map((n) => [n, `${n}-twin`]));
 const TWIN_LIMIT = 60_000;
+
+/** ADR 0166 M4b (Bench1): each music scene -> its music-free twin and the S7 allowance for music's own cost (scene less twin),
+ *  in instructions per quantum. The design's allowances are reference microseconds (architecture §7.2, R23: default preset,
+ *  typical 0.05 ms, worst 0.08 ms); a reference microsecond is 1.45 container microseconds (R23), and S4 measured the container
+ *  at 0.075 microseconds per 1k instructions, so 0.05 ms = 966,667 and 0.08 ms = 1,546,667. The transition scene has no row of
+ *  its own and is held to the worst one (a seam is never dearer than every voice fading). A miss is a tripwire move for the
+ *  owner (CLAUDE.md), logged in the build log; it isn't fixed by trading CPU or quality. */
+const REF_US_INSTRUCTIONS = (1.45 * 1000) / 0.075;
+const MUSIC_TYPICAL_LIMIT = Math.round(50 * REF_US_INSTRUCTIONS);
+const MUSIC_WORST_LIMIT = Math.round(80 * REF_US_INSTRUCTIONS);
+const MUSIC_PAIRS = {
+  "music-typ": { twin: "music-typ-twin", limit: MUSIC_TYPICAL_LIMIT },
+  "music-typ-streamed": { twin: "music-typ-twin", limit: MUSIC_TYPICAL_LIMIT },
+  "music-trans": { twin: "music-trans-twin", limit: MUSIC_WORST_LIMIT },
+  "music-trans-streamed": { twin: "music-trans-twin", limit: MUSIC_WORST_LIMIT },
+  "music-worst": { twin: "music-worst-twin", limit: MUSIC_WORST_LIMIT },
+  "music-worst-streamed": { twin: "music-worst-twin", limit: MUSIC_WORST_LIMIT },
+};
 
 function fail(message) {
   console.error(`[metered] ${message}`);
@@ -175,6 +204,15 @@ function main() {
     const delta = a.perQuantum - b.perQuantum;
     console.log(`[metered] ${stamped} vs ${twin}: ${a.perQuantum.toLocaleString("en-US")} vs ${b.perQuantum.toLocaleString("en-US")}, ${delta >= 0 ? "+" : ""}${delta.toLocaleString("en-US")} instructions per quantum (limit +${TWIN_LIMIT.toLocaleString("en-US")})`);
     if (delta > TWIN_LIMIT) twinFailures.push(`${stamped} costs ${delta.toLocaleString("en-US")} instructions per quantum more than ${twin} (limit ${TWIN_LIMIT.toLocaleString("en-US")})`);
+  }
+  // M4b: each music scene's own cost against its S7 allowance.
+  for (const [scene, { twin, limit }] of Object.entries(MUSIC_PAIRS)) {
+    const a = results[scene];
+    const b = results[twin];
+    if (!a || !b) continue;
+    const delta = a.perQuantum - b.perQuantum;
+    console.log(`[metered] ${scene} less ${twin}: ${delta >= 0 ? "+" : ""}${delta.toLocaleString("en-US")} instructions per quantum, ${((delta / limit) * 100).toFixed(0)}% of the S7 allowance (${limit.toLocaleString("en-US")})`);
+    if (delta > limit) twinFailures.push(`${scene} costs ${delta.toLocaleString("en-US")} instructions per quantum over ${twin}, above its S7 allowance of ${limit.toLocaleString("en-US")}`);
   }
   if (twinFailures.length > 0 && !update) {
     fail(`stamped scenes against their twins:\n  ${twinFailures.join("\n  ")}`);
