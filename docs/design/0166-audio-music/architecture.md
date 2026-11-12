@@ -115,7 +115,7 @@ stateDiagram-v2
   Committed --> Playing: T passed
   Playing --> Pending: switch change, playlist step, stinger, seek, hot reload
   Pending --> Pending: re-plan (deadline missed, newer target replaces an unstarted one)
-  Pending --> Transitioning: incoming group stamped (cancellable until T - L)
+  Pending --> Transitioning: crossfade or bridge audible, from the overlap's start (build log D18; was: incoming group stamped, cancellable until T - L)
   Transitioning --> Playing: outgoing group ended, rings returned
   Playing --> Recovering: rebuild, worker crash, rate change, group abandoned
   Pending --> Recovering
