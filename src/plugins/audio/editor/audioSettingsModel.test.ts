@@ -3,10 +3,10 @@ import { parseAudioSettings } from "../../../engine/audio/settings";
 import { MAX_PARAMETERS } from "../../../engine/audio/eventFormat";
 import { readDraft, withSettings } from "../../../editor/projectSettingsModel";
 import {
-  addBus, addDucking, addEffect, addSnapshot, applyVoicesPreset, audioOf, VOICE_PRESETS, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue,
+  addBus, addDucking, addEffect, addSnapshot, applyVoicesPreset, audioOf, audioProblems, VOICE_PRESETS, busTree, removeBus, renameBus, setBackend, setBackground, setBusMaxVoices, setBusParent, setBusValue,
   addBusAutomation, addParameter, removeBusAutomation, removeParameter, renameParameter, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter,
   setBusAutomationTarget, setParameterDefaultLabel, setParameterLabelled, setParameterLabels, setParameterRange,
-  setClipFormat, setClipMemory, setCodec, setLimiterLookahead, setSnapshotVolume, setSpatial, setVoices, voicesPreset,
+  setClipFormat, setClipMemory, setCodec, setLimiterLookahead, setSnapshotVolume, setSpatial, setVoices, voicesPreset, setMusicRings, setRhythmMode,
   addMaterial, bedPlan, lostBeds, materialIsModified, physicsLayerNames, removeMaterial, renameMaterial, resetMaterial, setBed, setBusBed, setBusBedPriority, setDoppler, setMaterial, setMaxClips, setOcclusion, setZones, toggleOcclusionLayer, zoneMemory, zoneWarnings,
 } from "./audioSettingsModel";
 
@@ -101,6 +101,33 @@ describe("audio settings model, the core keys (ADR 0157 §2, K13)", () => {
     const low = audioOf(applyVoicesPreset(empty(), "low"));
     expect(low.bed.maxBeds).toBe(0);
     expect(voicesPreset(audioOf(applyVoicesPreset(applyVoicesPreset(empty(), "high"), "default")))).toBe("default");
+  });
+  it("music rings: presets write 8/12/16, the comparison includes them, edits clamp, persist and re-parse", () => {
+    expect(VOICE_PRESETS.low.musicRings).toBe(8);
+    expect(VOICE_PRESETS.high.musicRings).toBe(16);
+    expect(audioOf(applyVoicesPreset(empty(), "low")).music.rings).toBe(8);
+    expect(audioOf(applyVoicesPreset(applyVoicesPreset(empty(), "high"), "default")).music.rings).toBe(12);
+    const high = applyVoicesPreset(empty(), "high");
+    const odd = setMusicRings(high, 10);
+    expect(audioOf(odd).music.rings).toBe(10);
+    expect(voicesPreset(audioOf(odd))).toBe("custom");
+    expect(voicesPreset(audioOf(applyVoicesPreset(odd, "high")))).toBe("high");
+    expect((odd.audio as { music: { rings: number } }).music.rings).toBe(10);
+    expect(audioOf(setMusicRings(empty(), 99)).music.rings).toBe(16);
+    expect(audioOf(setMusicRings(empty(), -3)).music.rings).toBe(0);
+    expect(audioOf(setMusicRings(empty(), 6.6)).music.rings).toBe(7);
+    const same = empty();
+    expect(setMusicRings(same, NaN)).toBe(same);
+    expect(setMusicRings(same, 12)).toBe(same);
+    expect(audioProblems(odd)).toEqual([]);
+  });
+  it("rhythm mode persists and re-parses", () => {
+    const on = setRhythmMode(empty(), true);
+    expect(audioOf(on).rhythmMode).toBe(true);
+    expect((on.audio as { rhythmMode: boolean }).rhythmMode).toBe(true);
+    expect(audioProblems(on)).toEqual([]);
+    expect(audioOf(setRhythmMode(on, false)).rhythmMode).toBe(false);
+    expect(setRhythmMode(on, true)).toBe(on);
   });
   it("sets background, clip memory, clip format, codec, spatial and backend; the result re-parses without problems", () => {
     let d = setBackground(empty(), "pause");
