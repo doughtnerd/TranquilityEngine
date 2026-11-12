@@ -23,6 +23,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Audio mixer](guide/audio-mixer.md) | Buses, effects, snapshots, ducking, `AudioSource.output`, `Audio.bus(...)` |
 | [Spatial audio](guide/spatial-audio.md) | Beds, reverb zones, occlusion and materials (the door recipe), Doppler, ambisonic clips, the Babylon fallback's limits, how it compares with Wwise, FMOD and Unity |
 | [Sound events](guide/sound-events.md) | Audio event assets (`*.audioevent.json`): containers, parameters, automation curves, `Audio.play`, sustain and release, limits |
+| [Interactive music](guide/interactive-music.md) | Music events: segments, tempo grid, stems and quantised automation, playlists, music switches, transition rules, stingers, streaming and `music.rings`, `handle.music`, the debug panel's Music sections; what is still to come |
 | [Audio core minimum versions](guide/audio-minimum-versions.md) | Browser and webview versions the `"core"` audio backend needs (AudioWorklet, `simd128`), the one-warning fallback to `"babylon"`, Android WebView |
 | [Writing a plugin](guide/plugins.md) | Third-party plugins: the folder layout, `plugin.json`, runtime and editor halves, a physics backend, enabling, reloading, npm packages, what refuses a plugin, trust |
 | [Materials, shaders and batching](guide/materials-and-shaders.md) | Hand-written shader assets (WGSL/GLSL), keywords and variants, changing materials from scripts, GPU instancing and sprite batching, pixel-perfect cameras |

@@ -84,6 +84,8 @@ Two optional blocks shape a voice after it is positioned (ADR 0162). A flat even
 - `sends.reverb` is how much of the event goes to the reverb zones that hold it (the `reverbSend` of an `AudioSource`). Any other key is an **aux send**: a copy of the voice into that bus (after the voice's own bus gain), so one sound can feed an echo or a radio effect bus. **One aux send per voice**: if you list more, the first in file order is used and the parse reports the rest. An unknown bus is dropped with a problem when the event plays.
 - `spatial.dopplerLevel` defaults to 0 on an event, unlike an `AudioSource`'s 1, and an `AudioSource` playing the event does not override it.
 
+Music that has to line up with itself (a tempo grid, stems that stay in step, changes that land on a bar) uses the music nodes `segment`, `playlist` and `musicSwitch` instead: see [Interactive music](interactive-music.md).
+
 ## Containers
 
 `root` is a tree of nodes. Every node can also carry `volume`, `pitch`, `volumeRandom`, `pitchRandom`, `delay` (seconds before it starts) and its own `automation`. A tree may have up to 1,024 nodes and nest 16 deep; more are dropped with a problem.
@@ -347,7 +349,7 @@ What the engine does for a *stamped* fade or stop, one with a start time on the 
 
 - It lands on its own sample. The audio core applies it inside the one voice it targets, so it doesn't cut the other voices' blocks short or cost them anything. Gain and stop records do it with a compare against the record's start sample; a record that changes something else of that voice (pitch, a low-pass, a loop) renders only that voice in two pieces.
 - Records that aren't about one voice (bus mixes, master, listener, configuration) still split the block of 128 frames for every voice.
-- The fade laws are `linear`, `sCurve` and `equalPowerIn` / `equalPowerOut`. They are not a script option: they are the internal `ShapedFade` (`src/plugins/audio/runtime/backend.ts`), and music rules reach them through a transition's `curve`.
+- The fade laws are `linear`, `sCurve` and `equalPowerIn` / `equalPowerOut`. They are not a script option: they are the internal `ShapedFade` (`src/plugins/audio/runtime/backend.ts`), and music rules reach them through a transition's `curve` ([Interactive music](interactive-music.md#transitions)).
 
 Caveats:
 
