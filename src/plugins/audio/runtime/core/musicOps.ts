@@ -420,7 +420,9 @@ export class CoreMusicOps implements MusicBackend {
     const from = this.fadeLevelAt(i, applyAt);
     this.host.writer.fadeShaped(id, to, seconds, law, u0, stamp, stopAtEnd);
     t.logStamped(id, StampedKind.FADE, applyAt, clock.sampleRate, now, from, to, seconds, packShape(law, Math.min(65535, Math.round(u0 * 65536))), stopAtEnd ? STAMPED_FLAG_STOP_AT_END : 0);
-    t.fadeGain[i] = to;
+    // R3a: a stamped fade-down mustn't drop the mirror's gain before it is heard (selection would cut the voice about
+    // one lookahead early, and `handle.stop(fade)` would cut at once); a fade-up or an asap fade updates it now.
+    if (stamp === undefined || to >= t.fadeGain[i]!) t.fadeGain[i] = to;
   }
 
   /**
