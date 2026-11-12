@@ -442,3 +442,51 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 - **Milestone-end checks** (above): every failure explained. `codefiles` (F-19) fixed in the spec; `piratesSample`, `audio-core` and `audio-stress` pass alone; F-11 is open.
 - **Merged to master** as a merge commit (O2), per the standing instruction. Owner items open: the listening sections M4-0 and M4a, and WebKit.
 
+
+**Wave 7 started** (base `08aaa694`, M4a on master): R3b (strongest: bridges, and natural playlist advances through the rule; granted `playlist.ts`), R4a (strongest: loop tails, counted loops, tail voices tracked; F-7e), K1 (strongest: beat clock), R7 (mid: seek on H5; may help F-15), B2 (mid: Babylon music), SM2 (mid: the sound-lab music scene and `tools/makeMusic.mjs`), Ed7 (mid: rule editor, lint, transition audition). Each task updates `interactive-music.md`'s "coming later" entries for what it builds.
+
+**Listening pass checked against the spec** (owner's question): the commands, `E2E_LISTEN`, the `@slow` tags, the keys and the values of both sections match `tests/e2e/audio-music-listening.spec.ts` on master. One stale spot was in the spec, not the doc: M4a key 3's comment and the prompt it prints in the owner run still said "paused for 6 s … waits for C2c". Fixed on the integration branch to "paused until the group is held, then resumed at once". Both cases pass headless (2 of 2, 1.7 min). The fix reaches master with M4b.
+
+**R7 merged** (`m4/r7` `5455191b`): `seek.ts`.
+- `parseSeekPosition` reads `bar[:beat[:tick]]`, the design's only format; Ed5's transport already converts cues and seconds to it.
+- `seekMusic` reads against the target segment's tempo map: the playing one, or the incoming one once a change is past T − L. It clamps to the file and lands through `planImmediate` with `SEEK_FADE_MS`. A seek replaces a pending change and queues behind a committed one.
+- Refusals: permanent `invalid`, `notPlaying` (stopped) and `neverFits`; temporary `poolFull` (the plan is cancelled) and `notPlaying` before the first segment sounds (so Ed5's retry works).
+- **Not done:** seeking across playlist items. The design says that's a switch or playlist change, so F-15 still needs a start-at-segment option.
+- The guide gained a "Seeking" section.
+- Tests: 11 unit and 3 loopback. The landing can slip one display frame when a decoded group isn't ready at its stamp (planner behaviour).
+
+**B2 merged** (`m4/b2` `739e29cd`, `babylonBackend.ts` only).
+- **The fallback now has:**
+  - `fadeShaped` on streamed (HTML5) stems, as stepped volume;
+  - a late ramp timer joins the law at the phase its stamp implies;
+  - `paramsShaped` on every music voice, so quantised stem automation starts on the grid point;
+  - stingers stamped, and faded with `stopAtEnd` on a steal.
+- **Still skipped:** priming, the gate and the ring pool; sample-exact stamps (`setTimeout` steps, no latency correction); region loops and alignment on streamed stems; stem low-pass (warned once); beat callbacks (B3); music debug rows.
+- **Limit:** a stem's fade and params ramps share one native volume, so overlapping ramps cut each other short.
+- Tests: 5 unit cases and one Babylon e2e case (a switch on a bar line, a stinger).
+
+**Ed7 merged** (`m4/ed7` `cbfa7f48`):
+- **`RuleEditor.tsx`** edits one rule: from and to, exit and enter, fades with curve and offset, and the bridge with its own fades. The edits are pure, checked against the parser's limits and round-tripped through the format, with refusals shown inline. Add, duplicate, move and remove; one undo step per edit.
+- **`ruleLint.ts`:**
+  - errors: `missingFrom`, `missingTo`, `missingBridge`, `missingCue`;
+  - warnings: `duplicate`, `shadowed`, `unreachable`, `noCues`, `bridgeEmpty`, `bridgeMetre`, `bridgeTempo`, `bridgeLength`, `fadeTooLong`;
+  - notes: `wildcardOnly`, `exitIgnored`.
+  The badges and list are in `RulesTable.tsx`.
+- **`ruleAudition.ts`** plays from two bars before the exit cue (or a chosen bar) through Ed5's transport and asks for the target once the seek lands (`Transport.requestParameter`).
+- **Limits:** root containers only; a playlist only for its first two items (F-15); the segment view's unmount also stops a Rules-panel audition. `shadowed` almost never fires, because `duplicate` is the practical shadow check; kept as Ed6 asked.
+- Tests: editor vitest 35 files, 473 tests. Not driven in a browser yet (E2 in W8).
+- (Ed7's own build-log entry was dropped at merge.)
+
+**Coordinator:** after B2, an audio vitest run under load (4 agents) failed `hrtfLoopback`, `streamRebuild` and `zoneIr`; all 14 tests pass alone.
+
+
+**SM2 merged** (`m4/sm2` `535513b5`): the sound-lab music scene.
+- **Keys:** M on the tour opens `scenes/music.scene.json` (B goes back; the behaviour is `scripts/behaviors/MusicLab.ts`).
+  - **1/2/3** set State. explore→combat is a cut; combat→explore a 2-beat equalPower crossfade; explore→calm 4-beat linear; calm→explore 4-beat sCurve; calm→combat a 1-beat equalPower crossfade with the bridge `riser`; combat→calm takes `*→*`.
+  - **T/Y** fire stingers on the beat and the bar.
+  - **L** starts the loop (region with `tailBeats: 4`, `while Loop is hold`); **L** again releases it.
+  - **P** toggles the playlist; **O** stops.
+- **Files:** `tools/makeMusic.mjs` (deterministic; `--check`) writes 9 mono 16-bit 22.05 kHz WAVs (1.46 MB) and three events: `music-world`, `music-loop`, `music-playlist`.
+- **Tests:** `makeMusic.test.mjs` (the committed clips match the generator); `soundLabMusic.test.ts` (`validateMusic` clean); one `soundLabEvents` case; one `audio-music-a` case.
+- **Not audible until other W7/W8 work lands:** the bridge plays as a plain crossfade until R3b; the tail and the `while` release do nothing audible until R4a and R4b. R3b was asked to settle which fades apply on a bridge's two seams and to align the sample rule.
+- Checks: `test:tools` 22 pass; sound-lab tests 19 pass; typecheck 0.

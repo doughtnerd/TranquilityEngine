@@ -340,6 +340,33 @@ test("M4a on Babylon: a segment plays and a playlist advances", async ({ page })
 
 // The held group (R11, C2c): when a streamed stem runs dry the whole group dips together and resumes together. Pausing the decoder
 // worker through the DevTools protocol (`pauseWorkers`) stops the rings refilling; once they drain the core holds the group.
+test("M4b on Babylon: a switch lands on a bar line and a stinger plays over the music", async ({ page }) => {
+  const seen = watchConsole(page);
+  await bootSample(page, LAB, "babylon");
+  await addAssets(page, { "e1/switch.audioevent.json": switchAB(), "e1/stinger.audioevent.json": withStinger() }, SINES);
+  const T = (await audioTime(page)) + 3;
+  await startEvent(page, "m", "e1/switch.audioevent.json", { at: T });
+  await expect.poll(async () => (await snap(page, "m"))?.segment, { timeout: 30_000 }).toBe("A");
+  await page.evaluate(() => (globalThis as unknown as G).__e1.m!.setParameter("State", "B"));
+  await expect.poll(async () => (await snap(page, "m"))?.transition?.to, { timeout: 10_000 }).toBe("B");
+  const s = (await snap(page, "m"))!;
+  // The fallback plans from Audio.time without the latency correction: a looser bar-line tolerance than the core's.
+  expect(offGrid(s.transition!.time - T, 2), "lands on a bar line").toBeLessThan(0.05);
+  await expect.poll(async () => (await snap(page, "m"))?.segment, { timeout: 15_000 }).toBe("B");
+  expect((await snap(page, "m"))!.now, "not early").toBeGreaterThanOrEqual(s.transition!.time - 0.2);
+  await expect.poll(async () => (await snap(page, "m"))?.transition, { timeout: 10_000 }).toBeNull();
+  await startEvent(page, "st", "e1/stinger.audioevent.json", { at: (await audioTime(page)) + 1 });
+  await expect.poll(async () => (await snap(page, "st"))?.segment, { timeout: 30_000 }).toBe("A");
+  await expect.poll(async () => { const x = (await snap(page, "st"))!; return x.nextBar! - x.now; }, { timeout: 10_000, intervals: [30] }).toBeGreaterThan(1.5);
+  // The fallback has no music rows (core only): the stinger shows as one more voice, then the music carries on alone.
+  const before = ((await audioDebug(page))?.voices ?? []).length;
+  expect(await page.evaluate(() => (globalThis as unknown as G).__e1.st!.trigger("hit"))).toBe(true);
+  await expect.poll(async () => ((await audioDebug(page))?.voices ?? []).length, { timeout: 8_000, intervals: [30], message: "the stinger is a voice on Babylon" }).toBeGreaterThan(before);
+  await expect.poll(async () => ((await audioDebug(page))?.voices ?? []).length, { timeout: 10_000, message: "and it ends" }).toBeLessThanOrEqual(before);
+  expect((await snap(page, "st"))!.segment).toBe("A");
+  expect(seen.errors).toEqual([]);
+});
+
 test("M4a: a starved streamed stem holds the whole group, and it resumes together (C2c)", async ({ page }) => {
   await bootSample(page, LAB);
   await addAssets(page, { "e1/stems8.audioevent.json": stems8() });
@@ -422,6 +449,28 @@ test("M4a: the 10-minute playlist runs with no late group", { tag: "@slow" }, as
   expect(long.items, "items played").toBeGreaterThanOrEqual(Math.floor(SECONDS / 4) - 4);
   expect(long.badOrder, "every advance went to the next item in the list").toBe(0);
   await expectClean(page, "10-minute playlist");
+  expect(seen.errors).toEqual([]);
+  expect(seen.warnings).toEqual([]);
+});
+
+// M4b (SM2): the Sound Lab's music page (key M on the tour page) loads and plays without a warning: the world switch starts
+// on its explore segment, key 2 asks for combat and the change lands on a bar, the other two events start on their keys.
+test("SM2: the sound-lab music page loads, plays the world switch and changes state on a key", async ({ page }) => {
+  const seen = watchConsole(page);
+  await bootSample(page, LAB);
+  await page.keyboard.press("m");
+  await expect.poll(async () => (await rowOf(page, "music-world"))?.state, { timeout: 30_000, message: "the world event is primed and playing" }).toBe("playing");
+  const row = (await rowOf(page, "music-world"))!;
+  expect(row.segment).toBe("explore");
+  expect(row.tempo).toBe(120);
+  expect(row.stems.map((s) => s.name).sort()).toEqual(["arp", "pad"]);
+  expect(await peakOver(page, "Music", 600), "the Music bus meter").toBeGreaterThan(0.01);
+  await page.keyboard.press("2");
+  await expect.poll(async () => (await rowOf(page, "music-world"))?.segment, { timeout: 15_000, message: "the change to combat landed" }).toBe("combat");
+  await page.keyboard.press("l");
+  await expect.poll(async () => (await rowOf(page, "music-loop"))?.state, { timeout: 30_000 }).toBe("playing");
+  await page.keyboard.press("p");
+  await expect.poll(async () => (await rowOf(page, "music-playlist"))?.state, { timeout: 30_000 }).toBe("playing");
   expect(seen.errors).toEqual([]);
   expect(seen.warnings).toEqual([]);
 });

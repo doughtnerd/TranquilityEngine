@@ -1,0 +1,295 @@
+{
+  "format": "myco.audioevent@1",
+  "bus": "Music",
+  "priority": 200,
+  "limit": {
+    "maxInstances": 1,
+    "steal": "oldest"
+  },
+  "parameters": [
+    {
+      "name": "State",
+      "labels": [
+        "explore",
+        "combat",
+        "calm"
+      ],
+      "default": "explore"
+    }
+  ],
+  "root": {
+    "type": "musicSwitch",
+    "id": "world",
+    "parameter": "State",
+    "default": "explore",
+    "children": [
+      {
+        "type": "segment",
+        "id": "explore",
+        "value": "explore",
+        "tempo": [
+          {
+            "at": "1:1:0",
+            "bpm": 120,
+            "beatsPerBar": 4,
+            "beatUnit": 4
+          }
+        ],
+        "cues": [
+          {
+            "name": "entry",
+            "at": "1:1:0"
+          },
+          {
+            "name": "exit",
+            "at": "end"
+          }
+        ],
+        "entry": "entry",
+        "exit": "exit",
+        "regions": [
+          {
+            "id": "loop",
+            "from": "1:1:0",
+            "to": "end",
+            "count": 0
+          }
+        ],
+        "tracks": [
+          {
+            "name": "pad",
+            "clip": "audio/music/explore-pad.wav",
+            "volume": 0.8
+          },
+          {
+            "name": "arp",
+            "clip": "audio/music/explore-arp.wav",
+            "volume": 0.7
+          }
+        ]
+      },
+      {
+        "type": "segment",
+        "id": "combat",
+        "value": "combat",
+        "tempo": [
+          {
+            "at": "1:1:0",
+            "bpm": 120,
+            "beatsPerBar": 4,
+            "beatUnit": 4
+          }
+        ],
+        "cues": [
+          {
+            "name": "entry",
+            "at": "1:1:0"
+          },
+          {
+            "name": "exit",
+            "at": "end"
+          }
+        ],
+        "entry": "entry",
+        "exit": "exit",
+        "regions": [
+          {
+            "id": "loop",
+            "from": "1:1:0",
+            "to": "end",
+            "count": 0
+          }
+        ],
+        "tracks": [
+          {
+            "name": "drums",
+            "clip": "audio/music/combat-drums.wav",
+            "volume": 0.9
+          },
+          {
+            "name": "bass",
+            "clip": "audio/music/combat-bass.wav",
+            "volume": 0.8
+          }
+        ]
+      },
+      {
+        "type": "segment",
+        "id": "calm",
+        "value": "calm",
+        "tempo": [
+          {
+            "at": "1:1:0",
+            "bpm": 120,
+            "beatsPerBar": 4,
+            "beatUnit": 4
+          }
+        ],
+        "cues": [
+          {
+            "name": "entry",
+            "at": "1:1:0"
+          },
+          {
+            "name": "exit",
+            "at": "end"
+          }
+        ],
+        "entry": "entry",
+        "exit": "exit",
+        "regions": [
+          {
+            "id": "loop",
+            "from": "1:1:0",
+            "to": "end",
+            "count": 0
+          }
+        ],
+        "tracks": [
+          {
+            "name": "pad",
+            "clip": "audio/music/calm-pad.wav",
+            "volume": 0.8
+          },
+          {
+            "name": "bells",
+            "clip": "audio/music/calm-bells.wav",
+            "volume": 0.7
+          }
+        ]
+      }
+    ],
+    "transitions": [
+      {
+        "from": "explore",
+        "to": "combat",
+        "exit": "bar",
+        "enter": "entryCue",
+        "fadeOut": {
+          "beats": 0,
+          "curve": "equalPower"
+        },
+        "fadeIn": {
+          "beats": 0,
+          "curve": "equalPower"
+        }
+      },
+      {
+        "from": "combat",
+        "to": "explore",
+        "exit": "bar",
+        "fadeOut": {
+          "beats": 2,
+          "curve": "equalPower"
+        },
+        "fadeIn": {
+          "beats": 2,
+          "curve": "equalPower"
+        }
+      },
+      {
+        "from": "explore",
+        "to": "calm",
+        "exit": "bar",
+        "fadeOut": {
+          "beats": 4,
+          "curve": "linear"
+        },
+        "fadeIn": {
+          "beats": 4,
+          "curve": "linear"
+        }
+      },
+      {
+        "from": "calm",
+        "to": "explore",
+        "exit": "bar",
+        "fadeOut": {
+          "beats": 4,
+          "curve": "sCurve"
+        },
+        "fadeIn": {
+          "beats": 4,
+          "curve": "sCurve"
+        }
+      },
+      {
+        "from": "calm",
+        "to": "combat",
+        "exit": "bar",
+        "fadeOut": {
+          "beats": 1,
+          "curve": "equalPower"
+        },
+        "fadeIn": {
+          "beats": 1,
+          "curve": "equalPower"
+        },
+        "bridge": {
+          "segment": "riser"
+        }
+      },
+      {
+        "from": "*",
+        "to": "*",
+        "exit": "bar"
+      }
+    ],
+    "stingers": [
+      {
+        "trigger": "hit",
+        "segment": "hit",
+        "at": "beat",
+        "dontRepeat": 0.25,
+        "ifTooLate": "nextGrid",
+        "volume": 0.8
+      },
+      {
+        "trigger": "hitBar",
+        "segment": "hit",
+        "at": "bar",
+        "dontRepeat": 0.25,
+        "ifTooLate": "nextGrid",
+        "volume": 0.8
+      }
+    ],
+    "library": [
+      {
+        "type": "segment",
+        "id": "riser",
+        "tempo": [
+          {
+            "at": "1:1:0",
+            "bpm": 120,
+            "beatsPerBar": 4,
+            "beatUnit": 4
+          }
+        ],
+        "tracks": [
+          {
+            "name": "riser",
+            "clip": "audio/music/bridge-riser.wav"
+          }
+        ]
+      },
+      {
+        "type": "segment",
+        "id": "hit",
+        "tempo": [
+          {
+            "at": "1:1:0",
+            "bpm": 120,
+            "beatsPerBar": 4,
+            "beatUnit": 4
+          }
+        ],
+        "tracks": [
+          {
+            "name": "hit",
+            "clip": "audio/music/stinger-hit.wav"
+          }
+        ]
+      }
+    ]
+  }
+}

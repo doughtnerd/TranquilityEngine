@@ -1,15 +1,22 @@
 // Ed6 (api-and-models §7, contract H6): the rules table of a music container: a from-by-to grid over the container's
 // direct children plus `*`, every cell showing the rule that wins the pair (the same answer R1 gives at run time, read
 // through `rulesModel.ts`), the chosen cell's rule highlighted in the rule list, and a "why" readout of tier and index.
-// Read-only here; Ed7 adds the rule editor, lint and audition beside it.
+// Ed7 adds beside it: the rule editor (`RuleEditor.tsx`), the lint rows and badges (`ruleLint.ts`) and "audition this
+// transition" (`ruleAudition.ts`, through Ed5's shared transport).
 import { signal } from "@preact/signals";
-import { useMemo } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import { editor, openAssetDocument } from "../../../../editor/sdk";
 import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import { isMusicContainer, type MusicContainerNode, type MusicNode } from "../../../../engine/audio/musicFormat";
-import { buildRulesGrid, explainPair, ruleMatchesPair } from "./rulesModel";
+import { buildRulesGrid, explainPair, replaceContainer, ruleMatchesPair } from "./rulesModel";
 import { openRules } from "./index";
+import { peaksFor } from "./peaksHost";
+import { addRule, duplicateRule, moveRule, removeRule, RuleEditor, type RuleEdit } from "./RuleEditor";
+import { issuesOfRule, leafSegments, lintTransitionRules, worstSeverity } from "./ruleLint";
+import { planTransitionAudition, runTransitionAudition } from "./ruleAudition";
+import { musicTransport } from "./transportHost";
 import "./rulesTable.css";
+import "./ruleEditor.css";
 
 /** The pair chosen in the grid, per container (`event` + `nodeId`); a pair that no longer exists is ignored. */
 const chosen = signal<{ readonly key: string; readonly from: string; readonly to: string } | null>(null);
@@ -24,6 +31,9 @@ function findContainer(root: MusicNode | undefined, id: string): MusicContainerN
   }
   return null;
 }
+
+/** The rule being edited, per container (`event#nodeId`). */
+const editing = signal<{ readonly key: string; readonly index: number } | null>(null);
 
 export function RulesTable() {
   const open = openRules.value;
@@ -40,6 +50,20 @@ function OpenRules(props: { path: string; nodeId: string }) {
   const event = doc.value.value;
   const container = useMemo(() => findContainer(event.musicRoot, props.nodeId), [event.musicRoot, props.nodeId]);
   const grid = useMemo(() => (container ? buildRulesGrid(container) : null), [container]);
+  const peaks = peaksFor(project);
+  const [version, setVersion] = useState(0);
+  const [auditionText, setAuditionText] = useState<string | null>(null);
+  const clips = useMemo(() => (container ? [...container.children, ...container.library].flatMap(leafSegments).map((s) => s.tracks[0]?.clip ?? "").filter((c) => c !== "") : []), [container]);
+  useEffect(() => {
+    let live = true;
+    for (const c of clips) if (!peaks.peek(c)) peaks.get(c).then(() => live && setVersion((v) => v + 1), () => {});
+    return () => void (live = false);
+  }, [clips.join("\n")]);
+  // The panel keeps the shared transport ticking while an audition it started plays (the seek retry, the queued parameter).
+  useEffect(() => {
+    const t = setInterval(() => musicTransport.tick(), 50);
+    return () => clearInterval(t);
+  }, []);
   if (!container || !grid) return <p class="empty">{props.path} has no playlist or music switch “{props.nodeId}”.</p>;
 
   const key = `${props.path}#${props.nodeId}`;
@@ -51,6 +75,33 @@ function OpenRules(props: { path: string; nodeId: string }) {
   const winner = readout ? readout.rule : null;
   const winsCell = new Set(grid.cells.flat().map((c) => c.rule));
   const winsChild = new Set(grid.effective);
+
+  void version;
+  const lengthOf = (id: string): number | undefined => {
+    const seg = [...container.children, ...container.library].flatMap(leafSegments).find((s) => s.id === id);
+    const clip = seg?.tracks[0]?.clip;
+    const m = clip ? peaks.peek(clip) : undefined;
+    return m && m.rate > 0 ? m.frames / m.rate : undefined;
+  };
+  const issues = lintTransitionRules(container, { lengthOf });
+  const sel = editing.value && editing.value.key === key && editing.value.index < container.transitions.length ? editing.value.index : null;
+  const readOnly = doc.readOnly;
+  const apply = (edit: RuleEdit, label: string): boolean => {
+    if ("error" in edit) return false;
+    if (event.musicRoot) doc.edit({ ...event, musicRoot: replaceContainer(event.musicRoot, container.id, edit.container) }, { label });
+    return true;
+  };
+  const tool = (edit: RuleEdit, label: string, select?: number): void => {
+    if (apply(edit, label) && select !== undefined) editing.value = select < 0 ? null : { key, index: select };
+  };
+  const plan = sel === null ? null : planTransitionAudition(props.path, event, container, sel, from !== null && to !== null ? { pair: { from, to } } : {});
+  const audition = (bar: number | undefined): void => {
+    if (sel === null) return;
+    const p = planTransitionAudition(props.path, event, container, sel, { ...(from !== null && to !== null ? { pair: { from, to } } : {}), ...(bar !== undefined ? { bar } : {}) });
+    if (!p.ok) return void setAuditionText(p.reason);
+    setAuditionText(p.note);
+    void runTransitionAudition(musicTransport, p);
+  };
 
   return (
     <div class="rules-table">
@@ -112,21 +163,58 @@ function OpenRules(props: { path: string; nodeId: string }) {
       </div>
 
       <h3>Rules, in list order</h3>
+      <div class="rt-toolbar">
+        <button type="button" disabled={readOnly} onClick={() => tool(addRule(container, from !== null && to !== null ? { from, to } : {}), "Add transition rule", container.transitions.length)}>Add rule</button>
+        <button type="button" disabled={readOnly || sel === null} onClick={() => sel !== null && tool(duplicateRule(container, sel), "Duplicate transition rule", sel + 1)}>Duplicate</button>
+        <button type="button" disabled={readOnly || sel === null || sel === 0} onClick={() => sel !== null && tool(moveRule(container, sel, -1), "Move rule up", sel - 1)}>Up</button>
+        <button type="button" disabled={readOnly || sel === null || sel === container.transitions.length - 1} onClick={() => sel !== null && tool(moveRule(container, sel, 1), "Move rule down", sel + 1)}>Down</button>
+        <button type="button" disabled={readOnly || sel === null} onClick={() => sel !== null && tool(removeRule(container, sel), "Remove transition rule", -1)}>Remove</button>
+      </div>
       {container.transitions.length === 0 ? (
         <p class="rt-muted">No rules: every change uses the default rule (bar exit, entry cue, 1 beat equal-power fades).</p>
       ) : (
         <ol class="rt-rules">
           {container.transitions.map((r, i) => {
+            const mine = issuesOfRule(issues, i);
+            const worst = worstSeverity(mine);
             const matches = from !== null && to !== null && ruleMatchesPair(r, from, to);
             return (
-              <li key={i} class={`${winner === i ? "rt-win" : ""}${matches && winner !== i ? " rt-beaten" : ""}${winsCell.has(i) ? "" : " rt-unused"}`}>
+              <li
+                key={i}
+                data-rule={i}
+                aria-current={sel === i}
+                tabIndex={0}
+                onClick={() => (editing.value = { key, index: i })}
+                onKeyDown={(e) => { if (e.key === "Enter") editing.value = { key, index: i }; }}
+                class={`${sel === i ? "rt-edit " : ""}${winner === i ? "rt-win" : ""}${matches && winner !== i ? " rt-beaten" : ""}${winsCell.has(i) ? "" : " rt-unused"}`}>
                 <span class="rt-idx">#{i}</span> {r.from} to {r.to}
                 <span class="rt-muted"> {typeof r.exit === "string" ? r.exit : `${r.exit.n} ${r.exit.every}s`}, {typeof r.enter === "string" ? r.enter : `cue:${r.enter.cue}`}{r.bridge ? `, bridge ${r.bridge.segment}` : ""}</span>
                 {!winsChild.has(i) && <span class="rt-muted">{winsCell.has(i) ? " (wins no child pair; only * cells, so it applies to new children)" : " (wins no pair)"}</span>}
+                {worst && <span class={`rt-badge ${worst}`} title={mine.map((x) => x.message).join("\n")}>{mine.length} {worst === "info" ? "note" : worst}{mine.length > 1 ? "s" : ""}</span>}
               </li>
             );
           })}
         </ol>
+      )}
+      {sel !== null && (
+        <RuleEditor
+          container={container}
+          index={sel}
+          issues={issuesOfRule(issues, sel)}
+          readOnly={readOnly}
+          apply={apply}
+          onAudition={audition}
+          auditionText={auditionText}
+          auditionBlocked={plan && !plan.ok ? plan.reason : null}
+        />
+      )}
+      {issues.some((x) => x.severity !== "info") && sel === null && (
+        <>
+          <h3>Lint</h3>
+          <ul class="re-lint rule-editor" aria-label="Lint">
+            {issues.filter((x) => x.severity !== "info").map((x, i) => <li key={i} class={x.severity} data-code={x.code}>Rule #{x.rule}: {x.message}</li>)}
+          </ul>
+        </>
       )}
     </div>
   );

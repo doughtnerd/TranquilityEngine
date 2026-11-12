@@ -98,6 +98,21 @@ describe("the Sound Lab events page (ADR 0158)", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("the music page (SM2) loads without a warning and starts the world switch on its explore segment", async () => {
+    await boot("scenes/music.scene.json");
+    advance(0.5);
+    const players = musicPlayers();
+    expect(players).toHaveLength(1);
+    expect(players[0].root.type).toBe("musicSwitch");
+    expect(players[0].root.id).toBe("world");
+    const group = fake.music!.admitted[0];
+    expect(group.members.map((m) => m.stem)).toEqual(["pad", "arp"]);
+    expect(group.members.map((m) => m.play.path)).toEqual(["audio/music/explore-pad.wav", "audio/music/explore-arp.wav"]);
+    for (const m of group.members) expect(m.play.bus).toBe("Music");
+    expect(warnings).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
   it("plays footsteps from the clips of the current Surface", async () => {
     await boot("scenes/events.scene.json");
     clearPlays();

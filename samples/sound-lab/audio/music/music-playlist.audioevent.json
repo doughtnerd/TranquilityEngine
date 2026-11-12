@@ -1,0 +1,128 @@
+{
+  "format": "myco.audioevent@1",
+  "bus": "Music",
+  "priority": 200,
+  "limit": {
+    "maxInstances": 1,
+    "steal": "oldest"
+  },
+  "root": {
+    "type": "playlist",
+    "id": "tour",
+    "mode": "sequence",
+    "rounds": 0,
+    "children": [
+      {
+        "type": "segment",
+        "id": "tour-explore",
+        "tempo": [
+          {
+            "at": "1:1:0",
+            "bpm": 120,
+            "beatsPerBar": 4,
+            "beatUnit": 4
+          }
+        ],
+        "cues": [
+          {
+            "name": "entry",
+            "at": "1:1:0"
+          },
+          {
+            "name": "exit",
+            "at": "end"
+          }
+        ],
+        "entry": "entry",
+        "exit": "exit",
+        "tracks": [
+          {
+            "name": "pad",
+            "clip": "audio/music/explore-pad.wav",
+            "volume": 0.8
+          },
+          {
+            "name": "arp",
+            "clip": "audio/music/explore-arp.wav",
+            "volume": 0.7
+          }
+        ],
+        "plays": 2
+      },
+      {
+        "type": "segment",
+        "id": "tour-calm",
+        "tempo": [
+          {
+            "at": "1:1:0",
+            "bpm": 120,
+            "beatsPerBar": 4,
+            "beatUnit": 4
+          }
+        ],
+        "cues": [
+          {
+            "name": "entry",
+            "at": "1:1:0"
+          },
+          {
+            "name": "exit",
+            "at": "end"
+          }
+        ],
+        "entry": "entry",
+        "exit": "exit",
+        "tracks": [
+          {
+            "name": "pad",
+            "clip": "audio/music/calm-pad.wav",
+            "volume": 0.8
+          },
+          {
+            "name": "bells",
+            "clip": "audio/music/calm-bells.wav",
+            "volume": 0.7
+          }
+        ],
+        "plays": 2
+      },
+      {
+        "type": "segment",
+        "id": "tour-combat",
+        "tempo": [
+          {
+            "at": "1:1:0",
+            "bpm": 120,
+            "beatsPerBar": 4,
+            "beatUnit": 4
+          }
+        ],
+        "cues": [
+          {
+            "name": "entry",
+            "at": "1:1:0"
+          },
+          {
+            "name": "exit",
+            "at": "end"
+          }
+        ],
+        "entry": "entry",
+        "exit": "exit",
+        "tracks": [
+          {
+            "name": "drums",
+            "clip": "audio/music/combat-drums.wav",
+            "volume": 0.9
+          },
+          {
+            "name": "bass",
+            "clip": "audio/music/combat-bass.wav",
+            "volume": 0.8
+          }
+        ],
+        "plays": 2
+      }
+    ]
+  }
+}
