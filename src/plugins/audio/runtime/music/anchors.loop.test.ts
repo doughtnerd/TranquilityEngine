@@ -93,24 +93,28 @@ describe("a simple forever loop is looped by its members (P3 follow-up)", () => 
     expect(Math.abs(ticksAt(player.anchor!, w1) - 3840)).toBeLessThan(0.03);
   });
 
-  it("counted passes, `while` and several regions stay R4a/R4b's: no member loop", () => {
+  it("R4a: counted passes, `while` and several regions loop their first wrapping region; nothing to wrap: no member loop", () => {
     rig(48_000, 60);
-    const cases: unknown[][] = [
-      [{ id: "r", from: "1:1:0", to: "3:1:0", count: 3 }],
-      [{ id: "r", from: "1:1:0", to: "3:1:0", count: 0, while: { parameter: "Boss", is: "alive" } }],
-      [{ id: "r", from: "1:1:0", to: "3:1:0", count: 0 }, { id: "s", from: "5:1:0", to: "6:1:0", count: 0 }],
-      [],
+    const bar = 96_000; // 120 bpm 4/4 at 48 kHz
+    const cases: [unknown[], [number, number] | null][] = [
+      [[{ id: "r", from: "1:1:0", to: "3:1:0", count: 3 }], [0, 2 * bar]],
+      [[{ id: "r", from: "1:1:0", to: "3:1:0", count: 0, while: { parameter: "Boss", is: "alive" } }], [0, 2 * bar]],
+      [[{ id: "r", from: "1:1:0", to: "3:1:0", count: 0 }, { id: "s", from: "5:1:0", to: "6:1:0", count: 0 }], [0, 2 * bar]],
+      [[{ id: "r", from: "1:1:0", to: "3:1:0", count: 1 }, { id: "s", from: "5:1:0", to: "6:1:0", count: 2 }], [4 * bar, 5 * bar]],
+      [[{ id: "r", from: "1:1:0", to: "3:1:0", count: 1 }], null],
+      [[], null],
     ];
-    for (const regions of cases) {
+    for (const [regions, want] of cases) {
       const node = segment(regions);
-      expect(simpleLoopOf(node, 48_000)).toBeNull();
       const player = createMusicPlayer(instance(), node);
       for (const mem of groupRequest(player, createSegmentRun(player, node, 0)!).members) {
-        expect(mem.loop).toBe(false);
-        expect(mem.play.loop).toBe(false);
-        expect(mem.loopStartFrame).toBeUndefined();
+        expect(mem.loop).toBe(want !== null);
+        expect(mem.play.loop).toBe(want !== null);
+        expect(want === null ? mem.loopStartFrame : [mem.loopStartFrame, mem.loopEndFrame]).toEqual(want ?? undefined);
       }
     }
+    // `simpleLoopOf` still answers only the simple forever loop.
+    expect(simpleLoopOf(segment([{ id: "r", from: "1:1:0", to: "3:1:0", count: 3 }]), 48_000)).toBeNull();
   });
 
   it("decoded members: the whole file loops by the PLAY flag; a region inside it goes to the voice as a loop in seconds", () => {
