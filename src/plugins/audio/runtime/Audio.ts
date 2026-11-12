@@ -10,7 +10,7 @@ import { clipVolume, isAmbisonicClip, startClip, worldKeyOf, worldPlays } from "
 import { warnOnce } from "./core/handle";
 import type { AudioLatency, MusicEvent, MusicHandle, MusicKind } from "../../../engine/audio/musicTypes";
 import { audioHorizon, audioTimeAt, musicHandleOf } from "./music/handle";
-import { onMusicOf } from "./music/musicSystem";
+import { onMusicOf, _setMusicHandleFactory } from "./music/musicSystem";
 import { triggerOn } from "./music/stingers";
 import { audioLatency, getCalibration, isCalibrationStale, rhythmModeSetting, setCalibration } from "./music/calibration";
 import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioPanner, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest, type SendCurve } from "./backend";
@@ -102,6 +102,9 @@ class EventHandle implements AudioEventHandle {
   onMusic(kind: MusicKind, fn: (e: MusicEvent) => void): () => void { return onMusicOf(this.instance, kind, fn); }
   trigger(name: string): boolean { return triggerOn(this.instance, String(name)); }
 }
+
+// ADR 0166 K2: `MusicEvent.handle` for the music an `AudioSource` plays is the same public handle `Audio.play` returns.
+_setMusicHandleFactory((instance) => new EventHandle(instance));
 
 /** @internal `AudioSource` plays events through this too. */
 export function _playEvent(path: string, options: EventOptions, world: World | null, sourceKey?: string): EventInstance | null {

@@ -363,12 +363,16 @@ export function resyncBeats(player: MusicPlayer, now: number): void {
  * K1: forget the backlog: every cursor seated at `now`, so the events owed are those heard from `now` on. For a
  * subscription that starts (K2: the mask goes from 0 to a kind) or a stretch the caller chooses not to report.
  */
-export function seatBeats(player: MusicPlayer, now: number): void {
+export function seatBeats(player: MusicPlayer, now: number, kind?: MusicKind): void {
   if (!player.beats) {
     resyncBeats(player, now);
     return;
   }
   const st = player.beats;
+  if (kind) {
+    seat(st[kind], now); // K2: one kind's subscription starts while the others run on
+    return;
+  }
   seat(st.beat, now);
   seat(st.bar, now);
   seat(st.cue, now);

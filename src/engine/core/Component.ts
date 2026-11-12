@@ -1,5 +1,6 @@
 import type { GameObject, InstantiateOptions } from "../scene/GameObject";
 import type { Transform } from "../scene/Transform";
+import type { MusicEvent } from "../audio/musicTypes";
 import type { TimeState, World } from "./World";
 import type { WorldHandle } from "./worlds";
 
@@ -162,6 +163,17 @@ export interface LifecycleHooks {
   onJointBreak?(joint: Component, force: number, torque: number): void;
   /** A CharacterController or CharacterController2D on this node ran into a collider during `move` (ADR 0091): a ControllerColliderHit or ControllerColliderHit2D. */
   onControllerColliderHit?(hit: PhysicsControllerHit): void;
+  /**
+   * A beat of the music an `AudioSource` on this node plays, called in the update phase just before `update`, on the frame
+   * whose window holds the beat's heard time (`e.heardIn` is in [0, one frame)). After a gap of more than one beat the
+   * beats coalesce into one call with `e.missed` set (ADR 0166). Defining the hook is the subscription. `e` is reused:
+   * read it during the call, don't keep it.
+   */
+  onMusicBeat?(e: MusicEvent): void;
+  /** The first beat of each bar of that music (`e.beat` is 1), delivered as `onMusicBeat` is. */
+  onMusicBar?(e: MusicEvent): void;
+  /** A cue of that music (`e.cue` is its name); coalesced cues are named in `e.skippedCues`. */
+  onMusicCue?(e: MusicEvent): void;
 }
 
 export type FrameHook = "fixedUpdate" | "update" | "lateUpdate";
