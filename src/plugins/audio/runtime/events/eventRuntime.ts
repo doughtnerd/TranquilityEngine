@@ -291,7 +291,9 @@ export class EventSystem {
 
   /** Once per frame: due timers (continuous containers, sustain hand-offs), and the fallback evaluator. */
   update(dt: number): void {
-    if (this.live.size === 0 && !this.ts && this.timers.length === 0) return;
+    // F-17: not while a retired instance is held: its release (and a music player's disposal) waits on `reapIfEnded`,
+    // and on the core (no `ts`) a music event stopped with nothing else live otherwise stayed in the registry for ever.
+    if (this.live.size === 0 && !this.ts && this.timers.length === 0 && this.holding.length === 0) return;
     this.refresh();
     this.reapIfEnded();
     const t = this.clock();
@@ -573,11 +575,10 @@ export class EventSystem {
       if (this.lingering.length >= LINGERING_MAX) this.lingering.splice(0, LINGERING_MAX >> 1);
       this.lingering.push(instance);
     }
-    if (instance.group > 0) {
-      // A stopped instance's fading voices still carry its group: it is free only once the last of them has ended.
-      if (instance.hasVoices) this.holding.push(instance);
-      else this.freeGroup(instance.group);
-    }
+    // A stopped instance's fading voices still carry its group: it is free only once the last of them has ended. F-17:
+    // a music instance is held without a group too, so its player is disposed (`endMusic`) when the last stem ends.
+    if (instance.hasVoices && (instance.group > 0 || instance.music)) this.holding.push(instance);
+    else if (instance.group > 0) this.freeGroup(instance.group);
   }
 
   private freeGroup(group: number): void {
@@ -593,7 +594,7 @@ export class EventSystem {
     let w = 0;
     for (const i of this.holding) {
       if (i.hasVoices) this.holding[w++] = i;
-      else { i.endMusic(); this.freeGroup(i.group); }
+      else { i.endMusic(); if (i.group > 0) this.freeGroup(i.group); }
     }
     this.holding.length = w;
   }
