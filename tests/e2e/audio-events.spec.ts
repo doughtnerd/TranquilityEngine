@@ -92,6 +92,14 @@ let onCore = true;
 const live = async (page: Page, re: string) =>
   (await audioDebug(page))!.voices.filter((v) => new RegExp(re).test(v.clip) && v.event != null).map((v) => ({ ...v, level: onCore ? v.audibility : v.gain }));
 
+/** `handle.music.segment` of the playing music event, read from the AudioSource that plays it (the page's only one with a music player). */
+const musicSegment = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as unknown as { playEngine?: { world: unknown }; engine?: { world: unknown }; __myco: { AudioSource: unknown } };
+    const world = (w.playEngine ?? w.engine)!.world as { _componentsOfType(t: unknown): { instance?: { music?: { handle: { segment: string | null } } } }[] };
+    return world._componentsOfType(w.__myco.AudioSource).map((c) => c.instance?.music?.handle.segment ?? null).find((x) => x !== null) ?? null;
+  });
+
 /** On Babylon: the native nodes the sample's sounds play through, and a level tap on the output. Installed before the page's scripts. */
 function tapWebAudio(): void {
   type Rec = { node: AudioBufferSourceNode; clip: number; at: number; ended: boolean };
@@ -167,7 +175,9 @@ for (const backend of ["core", "babylon"] as const) {
       // The events page's footsteps are on key 1..4 and the music event comes from an AudioSource there.
       await expect.poll(async () => (await eventRows(page, "music-intensity")).length, { timeout: 30_000 }).toBe(1);
       await startSampler(page);
+      // The event is a segment (ADR 0166): its three stems are voices of one music group, and `handle.music` names the segment.
       await expect.poll(async () => (await live(page, "music-(pad|pulse|lead)")).length, { timeout: 15_000 }).toBe(3);
+      await expect.poll(() => musicSegment(page), { timeout: 15_000 }).toBe("intensity");
     });
     const startUnderruns = (await audioDebug(page))!.counters.underruns;
 
