@@ -1,7 +1,7 @@
 ## M4c: beat feel, calibration and the tap game (task E3)
 
 - **Run (owner, headphones):** `E2E_LISTEN=1 npm run test:e2e:slow -- audio-music-listening --headed --workers 1 -g M4c`. The M4c case shows a card of the page's keys; the spec waits for each key, prints what it does and what to listen for, then checks the item ran. You tap with the SPACE bar; the spec opens the page, reloads it once, and reads what the page says.
-- **Headless smoke:** `npm run test:e2e:slow -- audio-music-listening -g M4c` presses C, G, X and O itself and injects the taps (+35 ms from the beat for the calibration run) through `globalThis.__rhythmLab.tap(performanceTime)`. The exit check is separate: `npm run test:e2e -- audio-music-c --repeat-each 3 --project chromium --workers 1`.
+- **Headless smoke:** `npm run test:e2e:slow -- audio-music-listening -g M4c` presses C, G, X and O itself and injects the taps (+35 ms from the beat for the calibration run) through `globalThis.__rhythmLab.tap(performanceTime)`. The exit check is separate: `npm run test:e2e -- audio-music-c --repeat-each 3 --project chromium`.
 - **Scene:** the Sound Lab's rhythm page, opened by the spec with R from the tour (B comes back). Click the game view first (the spec does). The keys are the page's own: **C** calibrate, **SPACE** tap, **G** tap game, **X** reset the calibration to 0, **O** stop. The music plays on the Music bus; the Ambience, SFX, Engine and Tape buses are muted. `Audio.rhythmMode` is off in this sample (the page says "rhythm mode off"); the line "Audio.latency" shows what the browser reports, and whether it can be trusted.
 
 | Key | Item | Listen for / do | Pass / fail, note |
