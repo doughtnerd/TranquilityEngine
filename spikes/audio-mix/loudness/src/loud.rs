@@ -197,20 +197,7 @@ impl Loudness {
             let h = &mut self.hist[ch];
             h[TAIL..TAIL + n].copy_from_slice(&x[..n]);
             if run {
-                let mut m = [0.0f32; 4];
-                for i in 0..n {
-                    let w: &[f32; 12] = h[i..i + 12].try_into().unwrap(); // w[11 - t] = x[i - t + 0]
-                    let mut acc = [0.0f32; 4];
-                    for t in 0..12 {
-                        let s = w[11 - t];
-                        for p in 0..4 {
-                            acc[p] += s * self.taps[t][p];
-                        }
-                    }
-                    for p in 0..4 {
-                        m[p] = m[p].max(acc[p].abs());
-                    }
-                }
+                let m = tp_fir(&self.taps, h, n);
                 let mx = m[0].max(m[1]).max(m[2].max(m[3]));
                 self.tp[ch] = self.tp[ch].max(mx);
             }
@@ -218,7 +205,7 @@ impl Loudness {
         }
     }
 
-    /// One quantum, everything.
+    
     pub fn process(&mut self, l: &[f32], r: &[f32]) {
         self.process_energy(l, r);
         self.process_tp(l, r);
@@ -228,6 +215,49 @@ impl Loudness {
     pub fn take_peak(&mut self) -> [f32; 2] {
         core::mem::take(&mut self.tp)
     }
+}
+
+
+/// The oversampling FIR over `h[..TAIL + n]`: the largest |output| of the 4 phases over `n` samples.
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+#[inline(always)]
+fn tp_fir(taps: &[[f32; 4]; 12], h: &[f32; TAIL + QUANTUM], n: usize) -> [f32; 4] {
+    use core::arch::wasm32::*;
+    // One v128 per tap holds that tap's four phase coefficients; each input sample is splatted and multiply-added.
+    let mut c = [f32x4_splat(0.0); 12];
+    for t in 0..12 {
+        c[t] = f32x4(taps[t][0], taps[t][1], taps[t][2], taps[t][3]);
+    }
+    let mut mx = f32x4_splat(0.0);
+    for i in 0..n {
+        let w: &[f32; 12] = h[i..i + 12].try_into().unwrap();
+        let mut acc = f32x4_splat(0.0);
+        for t in 0..12 {
+            acc = f32x4_add(acc, f32x4_mul(f32x4_splat(w[11 - t]), c[t]));
+        }
+        mx = f32x4_max(mx, f32x4_abs(acc));
+    }
+    [f32x4_extract_lane::<0>(mx), f32x4_extract_lane::<1>(mx), f32x4_extract_lane::<2>(mx), f32x4_extract_lane::<3>(mx)]
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+#[inline(always)]
+fn tp_fir(taps: &[[f32; 4]; 12], h: &[f32; TAIL + QUANTUM], n: usize) -> [f32; 4] {
+    let mut m = [0.0f32; 4];
+    for i in 0..n {
+        let w: &[f32; 12] = h[i..i + 12].try_into().unwrap(); // w[11 - t] = x[i - t]
+        let mut acc = [0.0f32; 4];
+        for t in 0..12 {
+            let s = w[11 - t];
+            for p in 0..4 {
+                acc[p] += s * taps[t][p];
+            }
+        }
+        for p in 0..4 {
+            m[p] = m[p].max(acc[p].abs());
+        }
+    }
+    m
 }
 
 /// Bytes per metered bus in STATUS: seq u32 + ring 4 x f32 + true peak 2 x f32.

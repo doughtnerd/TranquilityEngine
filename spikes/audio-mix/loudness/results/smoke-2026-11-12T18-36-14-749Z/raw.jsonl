@@ -1,0 +1,392 @@
+{"tag":"check-native","check":"k-coef-48k","what":"b0","expect":1.5351,"tol":1e-8,"own":1.5351,"ebur":null,"pass":true}
+{"tag":"check-native","check":"k-coef-48k","what":"b1","expect":-2.6917,"tol":1e-8,"own":-2.6917,"ebur":null,"pass":true}
+{"tag":"check-native","check":"k-coef-48k","what":"b2","expect":1.1984,"tol":1e-8,"own":1.1984,"ebur":null,"pass":true}
+{"tag":"check-native","check":"k-coef-48k","what":"a1","expect":-1.6907,"tol":1e-8,"own":-1.6907,"ebur":null,"pass":true}
+{"tag":"check-native","check":"k-coef-48k","what":"a2","expect":0.7325,"tol":1e-8,"own":0.7325,"ebur":null,"pass":true}
+{"tag":"check-native","check":"k-coef-48k","what":"hp a1","expect":-1.99,"tol":1e-8,"own":-1.99,"ebur":null,"pass":true}
+{"tag":"check-native","check":"k-coef-48k","what":"hp a2","expect":0.9901,"tol":1e-8,"own":0.9901,"ebur":null,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@48000","what":"I","expect":-23,"tol":0.1,"own":-22.9933,"ebur":-22.9933,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@48000","what":"I hist vs exact (own)","a":-22.9933,"b":-22.9933,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@48000","what":"M","expect":-23,"tol":0.1,"own":-22.9933,"ebur":-22.9933,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@48000","what":"S","expect":-23,"tol":0.1,"own":-22.9933,"ebur":-22.9933,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@48000","what":"own vs ebur I","a":-22.9933,"b":-22.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@48000","what":"own vs ebur M","a":-22.9933,"b":-22.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@48000","what":"own vs ebur S","a":-22.9933,"b":-22.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@48000","what":"own vs ebur LRA","a":0,"b":0,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@48000","what":"own vs ebur TP dB","a":-23,"b":-23,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@48000","what":"I","expect":-33,"tol":0.1,"own":-32.9933,"ebur":-32.9933,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@48000","what":"I hist vs exact (own)","a":-32.9933,"b":-32.9933,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@48000","what":"M","expect":-33,"tol":0.1,"own":-32.9933,"ebur":-32.9933,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@48000","what":"S","expect":-33,"tol":0.1,"own":-32.9933,"ebur":-32.9933,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@48000","what":"own vs ebur I","a":-32.9933,"b":-32.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@48000","what":"own vs ebur M","a":-32.9933,"b":-32.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@48000","what":"own vs ebur S","a":-32.9933,"b":-32.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@48000","what":"own vs ebur LRA","a":0,"b":0,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@48000","what":"own vs ebur TP dB","a":-33,"b":-33,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@48000","what":"I","expect":-20,"tol":0.1,"own":-19.9933,"ebur":-19.9933,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@48000","what":"I hist vs exact (own)","a":-19.9933,"b":-19.9933,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@48000","what":"M","expect":-20,"tol":0.1,"own":-19.9933,"ebur":-19.9933,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@48000","what":"S","expect":-20,"tol":0.1,"own":-19.9933,"ebur":-19.9933,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@48000","what":"own vs ebur I","a":-19.9933,"b":-19.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@48000","what":"own vs ebur M","a":-19.9933,"b":-19.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@48000","what":"own vs ebur S","a":-19.9933,"b":-19.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@48000","what":"own vs ebur LRA","a":0,"b":0,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@48000","what":"own vs ebur TP dB","a":-20,"b":-20,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"I","expect":-23,"tol":0.1,"own":-23.0139,"ebur":-23.0139,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"I hist vs exact (own)","a":-23.01387,"b":-23.01387,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"own vs ebur I","a":-23.01387,"b":-23.01387,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"own vs ebur M","a":-35.9933,"b":-35.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"own vs ebur S","a":-35.9933,"b":-35.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"own vs ebur LRA","a":13,"b":13,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"own vs ebur TP dB","a":-23,"b":-23,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"I","expect":-23,"tol":0.1,"own":-23.026,"ebur":-23.026,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"I hist vs exact (own)","a":-23.026,"b":-23.026,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"own vs ebur I","a":-23.026,"b":-23.026,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"own vs ebur M","a":-22.9933,"b":-22.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"own vs ebur S","a":-22.9933,"b":-22.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"own vs ebur LRA","a":0.00004,"b":0.00004,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"own vs ebur TP dB","a":-23,"b":-23,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"I","expect":-22.0371,"tol":0.1,"own":-22.0304,"ebur":-22.0304,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"I hist vs exact (own)","a":-22.03036,"b":-22.03036,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"own vs ebur I","a":-22.03036,"b":-22.03036,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"own vs ebur M","a":-25.9933,"b":-25.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"own vs ebur S","a":-25.9933,"b":-25.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"own vs ebur LRA","a":6,"b":6,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"own vs ebur TP dB","a":-20,"b":-20,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@48000","what":"LRA","expect":10,"tol":1,"own":10,"ebur":10,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@48000","what":"LRA hist vs exact (own)","a":9.99998,"b":10,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@48000","what":"own vs ebur I","a":-22.58967,"b":-22.58967,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@48000","what":"own vs ebur M","a":-29.9933,"b":-29.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@48000","what":"own vs ebur S","a":-29.9933,"b":-29.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@48000","what":"own vs ebur LRA","a":10,"b":10,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@48000","what":"own vs ebur TP dB","a":-20,"b":-20,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@48000","what":"LRA","expect":5,"tol":1,"own":5,"ebur":5,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@48000","what":"LRA hist vs exact (own)","a":5,"b":5,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@48000","what":"own vs ebur I","a":-16.81029,"b":-16.81029,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@48000","what":"own vs ebur M","a":-14.9933,"b":-14.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@48000","what":"own vs ebur S","a":-14.9933,"b":-14.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@48000","what":"own vs ebur LRA","a":5,"b":5,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@48000","what":"own vs ebur TP dB","a":-15,"b":-15,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@48000","what":"LRA","expect":20,"tol":1,"own":20,"ebur":20,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@48000","what":"LRA hist vs exact (own)","a":20,"b":20,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@48000","what":"own vs ebur I","a":-20.02567,"b":-20.02567,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@48000","what":"own vs ebur M","a":-19.9933,"b":-19.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@48000","what":"own vs ebur S","a":-19.9933,"b":-19.9933,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@48000","what":"own vs ebur LRA","a":20,"b":20,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@48000","what":"own vs ebur TP dB","a":-20,"b":-20,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"tp fs/4 45deg A=0.5 (sample peak -9.03 dBFS)@48000","what":"TP dBTP","expect":-6.0206,"tol":0.3,"own":-5.9171,"ebur":-5.9171,"pass":true}
+{"tag":"check-native","check":"tp fs/4 45deg A=1 (sample peak -3.01 dBFS)@48000","what":"TP dBTP","expect":0,"tol":0.3,"own":0.1035,"ebur":0.1035,"pass":true}
+{"tag":"check-native","check":"tp fs/4 45deg A=1.4125 (sample peak -0.01 dBFS)@48000","what":"TP dBTP","expect":3,"tol":0.3,"own":3.1033,"ebur":3.1033,"pass":true}
+{"tag":"check-native","check":"music 60s@48000","what":"gated TP (>= -6 dBFS) vs full TP dB","a":-4.60688,"b":-4.60688,"tol":0.000001,"pass":true}
+{"tag":"check-native","check":"music 60s@48000","what":"idle STATUS cadence (48 quanta) I vs 6","a":-17.18298,"b":-17.18298,"tol":0,"pass":true}
+{"tag":"check-native","check":"music 60s@48000","what":"I hist vs exact","a":-17.18298,"b":-17.18298,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"music 60s@48000","what":"LRA hist vs exact","a":12.45181,"b":12.48273,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"music 60s@48000","what":"I own vs ebur","a":-17.18298,"b":-17.18298,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"music 60s@48000","what":"M own vs ebur","a":-25.09157,"b":-25.09157,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"music 60s@48000","what":"S own vs ebur","a":-16.01757,"b":-16.01757,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"music 60s@48000","what":"LRA own vs ebur","a":12.48273,"b":12.48273,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"music 60s@48000","what":"TP dB own vs ebur","a":-4.60688,"b":-4.60688,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"music 60s@48000","what":"NaN burst: energy still finite","a":1,"b":1,"tol":0,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@44100","what":"I","expect":-23,"tol":0.1,"own":-22.9905,"ebur":-22.9905,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@44100","what":"I hist vs exact (own)","a":-22.99054,"b":-22.99054,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@44100","what":"M","expect":-23,"tol":0.1,"own":-22.9905,"ebur":-22.9905,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@44100","what":"S","expect":-23,"tol":0.1,"own":-22.9905,"ebur":-22.9905,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@44100","what":"own vs ebur I","a":-22.99054,"b":-22.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@44100","what":"own vs ebur M","a":-22.99054,"b":-22.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@44100","what":"own vs ebur S","a":-22.99054,"b":-22.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@44100","what":"own vs ebur LRA","a":0,"b":0,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@44100","what":"own vs ebur TP dB","a":-22.99501,"b":-22.99501,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t1 1k stereo -23 20s@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@44100","what":"I","expect":-33,"tol":0.1,"own":-32.9905,"ebur":-32.9905,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@44100","what":"I hist vs exact (own)","a":-32.99054,"b":-32.99054,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@44100","what":"M","expect":-33,"tol":0.1,"own":-32.9905,"ebur":-32.9905,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@44100","what":"S","expect":-33,"tol":0.1,"own":-32.9905,"ebur":-32.9905,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@44100","what":"own vs ebur I","a":-32.99054,"b":-32.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@44100","what":"own vs ebur M","a":-32.99054,"b":-32.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@44100","what":"own vs ebur S","a":-32.99054,"b":-32.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@44100","what":"own vs ebur LRA","a":0,"b":0,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@44100","what":"own vs ebur TP dB","a":-32.99501,"b":-32.99501,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2 1k stereo -33 20s@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@44100","what":"I","expect":-20,"tol":0.1,"own":-19.9905,"ebur":-19.9905,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@44100","what":"I hist vs exact (own)","a":-19.99054,"b":-19.99054,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@44100","what":"M","expect":-20,"tol":0.1,"own":-19.9905,"ebur":-19.9905,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@44100","what":"S","expect":-20,"tol":0.1,"own":-19.9905,"ebur":-19.9905,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@44100","what":"own vs ebur I","a":-19.99054,"b":-19.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@44100","what":"own vs ebur M","a":-19.99054,"b":-19.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@44100","what":"own vs ebur S","a":-19.99054,"b":-19.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@44100","what":"own vs ebur LRA","a":0,"b":0,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@44100","what":"own vs ebur TP dB","a":-19.99501,"b":-19.99501,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t2b 1k stereo -20 20s@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"I","expect":-23,"tol":0.1,"own":-23.0111,"ebur":-23.0111,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"I hist vs exact (own)","a":-23.01111,"b":-23.01111,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"own vs ebur I","a":-23.01111,"b":-23.01111,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"own vs ebur M","a":-35.99054,"b":-35.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"own vs ebur S","a":-35.99054,"b":-35.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"own vs ebur LRA","a":13,"b":13,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"own vs ebur TP dB","a":-22.99501,"b":-22.99501,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"I","expect":-23,"tol":0.1,"own":-23.0232,"ebur":-23.0232,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"I hist vs exact (own)","a":-23.02324,"b":-23.02324,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"own vs ebur I","a":-23.02324,"b":-23.02324,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"own vs ebur M","a":-22.99054,"b":-22.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"own vs ebur S","a":-22.99054,"b":-22.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"own vs ebur LRA","a":0.00004,"b":0.00004,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"own vs ebur TP dB","a":-22.99501,"b":-22.99501,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"I","expect":-22.0371,"tol":0.1,"own":-22.0276,"ebur":-22.0276,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"I hist vs exact (own)","a":-22.02761,"b":-22.02761,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"own vs ebur I","a":-22.02761,"b":-22.02761,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"own vs ebur M","a":-25.99054,"b":-25.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"own vs ebur S","a":-25.99054,"b":-25.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"own vs ebur LRA","a":6,"b":6,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"own vs ebur TP dB","a":-19.99501,"b":-19.99501,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@44100","what":"LRA","expect":10,"tol":1,"own":10,"ebur":10,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@44100","what":"LRA hist vs exact (own)","a":9.99998,"b":10,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@44100","what":"own vs ebur I","a":-22.58691,"b":-22.58691,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@44100","what":"own vs ebur M","a":-29.99054,"b":-29.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@44100","what":"own vs ebur S","a":-29.99054,"b":-29.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@44100","what":"own vs ebur LRA","a":10,"b":10,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@44100","what":"own vs ebur TP dB","a":-19.99501,"b":-19.99501,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l1 -20 20s,-30 20s@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@44100","what":"LRA","expect":5,"tol":1,"own":5,"ebur":5,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@44100","what":"LRA hist vs exact (own)","a":5,"b":5,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@44100","what":"own vs ebur I","a":-16.80753,"b":-16.80753,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@44100","what":"own vs ebur M","a":-14.99054,"b":-14.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@44100","what":"own vs ebur S","a":-14.99054,"b":-14.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@44100","what":"own vs ebur LRA","a":5,"b":5,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@44100","what":"own vs ebur TP dB","a":-14.99501,"b":-14.99501,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l2 -20 20s,-15 20s@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@44100","what":"LRA","expect":20,"tol":1,"own":20,"ebur":20,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@44100","what":"LRA hist vs exact (own)","a":20,"b":20,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@44100","what":"own vs ebur I","a":-20.02291,"b":-20.02291,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@44100","what":"own vs ebur M","a":-19.99054,"b":-19.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@44100","what":"own vs ebur S","a":-19.99054,"b":-19.99054,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@44100","what":"own vs ebur LRA","a":20,"b":20,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@44100","what":"own vs ebur TP dB","a":-19.99501,"b":-19.99501,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"l3 -40 20s,-20 20s@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-native","check":"tp fs/4 45deg A=0.5 (sample peak -9.03 dBFS)@44100","what":"TP dBTP","expect":-6.0206,"tol":0.3,"own":-5.9171,"ebur":-5.9171,"pass":true}
+{"tag":"check-native","check":"tp fs/4 45deg A=1 (sample peak -3.01 dBFS)@44100","what":"TP dBTP","expect":0,"tol":0.3,"own":0.1035,"ebur":0.1035,"pass":true}
+{"tag":"check-native","check":"tp fs/4 45deg A=1.4125 (sample peak -0.01 dBFS)@44100","what":"TP dBTP","expect":3,"tol":0.3,"own":3.1033,"ebur":3.1033,"pass":true}
+{"tag":"check-native","check":"music 60s@44100","what":"gated TP (>= -6 dBFS) vs full TP dB","a":-4.63229,"b":-4.63229,"tol":0.000001,"pass":true}
+{"tag":"check-native","check":"music 60s@44100","what":"idle STATUS cadence (48 quanta) I vs 6","a":-17.24959,"b":-17.24959,"tol":0,"pass":true}
+{"tag":"check-native","check":"music 60s@44100","what":"I hist vs exact","a":-17.25878,"b":-17.24959,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"music 60s@44100","what":"LRA hist vs exact","a":12.52156,"b":12.52066,"tol":0.11,"pass":true}
+{"tag":"check-native","check":"music 60s@44100","what":"I own vs ebur","a":-17.24959,"b":-17.24959,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"music 60s@44100","what":"M own vs ebur","a":-25.09859,"b":-25.09859,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"music 60s@44100","what":"S own vs ebur","a":-16.09341,"b":-16.09341,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"music 60s@44100","what":"LRA own vs ebur","a":12.52066,"b":12.52066,"tol":0.01,"pass":true}
+{"tag":"check-native","check":"music 60s@44100","what":"TP dB own vs ebur","a":-4.63229,"b":-4.63229,"tol":0.001,"pass":true}
+{"tag":"check-native","check":"music 60s@44100","what":"NaN burst: energy still finite","a":1,"b":1,"tol":0,"pass":true}
+{"tag":"check-native","check":"ALL","target":"native","pass":true}
+{"tag":"check-wasm","check":"k-coef-48k","what":"b0","expect":1.5351,"tol":1e-8,"own":1.5351,"ebur":null,"pass":true}
+{"tag":"check-wasm","check":"k-coef-48k","what":"b1","expect":-2.6917,"tol":1e-8,"own":-2.6917,"ebur":null,"pass":true}
+{"tag":"check-wasm","check":"k-coef-48k","what":"b2","expect":1.1984,"tol":1e-8,"own":1.1984,"ebur":null,"pass":true}
+{"tag":"check-wasm","check":"k-coef-48k","what":"a1","expect":-1.6907,"tol":1e-8,"own":-1.6907,"ebur":null,"pass":true}
+{"tag":"check-wasm","check":"k-coef-48k","what":"a2","expect":0.7325,"tol":1e-8,"own":0.7325,"ebur":null,"pass":true}
+{"tag":"check-wasm","check":"k-coef-48k","what":"hp a1","expect":-1.99,"tol":1e-8,"own":-1.99,"ebur":null,"pass":true}
+{"tag":"check-wasm","check":"k-coef-48k","what":"hp a2","expect":0.9901,"tol":1e-8,"own":0.9901,"ebur":null,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@48000","what":"I","expect":-23,"tol":0.1,"own":-22.9933,"ebur":-22.9933,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@48000","what":"I hist vs exact (own)","a":-22.9933,"b":-22.9933,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@48000","what":"M","expect":-23,"tol":0.1,"own":-22.9933,"ebur":-22.9933,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@48000","what":"S","expect":-23,"tol":0.1,"own":-22.9933,"ebur":-22.9933,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@48000","what":"own vs ebur I","a":-22.9933,"b":-22.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@48000","what":"own vs ebur M","a":-22.9933,"b":-22.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@48000","what":"own vs ebur S","a":-22.9933,"b":-22.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@48000","what":"own vs ebur LRA","a":0,"b":0,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@48000","what":"own vs ebur TP dB","a":-23,"b":-23,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@48000","what":"I","expect":-33,"tol":0.1,"own":-32.9933,"ebur":-32.9933,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@48000","what":"I hist vs exact (own)","a":-32.9933,"b":-32.9933,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@48000","what":"M","expect":-33,"tol":0.1,"own":-32.9933,"ebur":-32.9933,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@48000","what":"S","expect":-33,"tol":0.1,"own":-32.9933,"ebur":-32.9933,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@48000","what":"own vs ebur I","a":-32.9933,"b":-32.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@48000","what":"own vs ebur M","a":-32.9933,"b":-32.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@48000","what":"own vs ebur S","a":-32.9933,"b":-32.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@48000","what":"own vs ebur LRA","a":0,"b":0,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@48000","what":"own vs ebur TP dB","a":-33,"b":-33,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@48000","what":"I","expect":-20,"tol":0.1,"own":-19.9933,"ebur":-19.9933,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@48000","what":"I hist vs exact (own)","a":-19.9933,"b":-19.9933,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@48000","what":"M","expect":-20,"tol":0.1,"own":-19.9933,"ebur":-19.9933,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@48000","what":"S","expect":-20,"tol":0.1,"own":-19.9933,"ebur":-19.9933,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@48000","what":"own vs ebur I","a":-19.9933,"b":-19.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@48000","what":"own vs ebur M","a":-19.9933,"b":-19.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@48000","what":"own vs ebur S","a":-19.9933,"b":-19.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@48000","what":"own vs ebur LRA","a":0,"b":0,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@48000","what":"own vs ebur TP dB","a":-20,"b":-20,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"I","expect":-23,"tol":0.1,"own":-23.0139,"ebur":-23.0139,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"I hist vs exact (own)","a":-23.01387,"b":-23.01387,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"own vs ebur I","a":-23.01387,"b":-23.01387,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"own vs ebur M","a":-35.9933,"b":-35.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"own vs ebur S","a":-35.9933,"b":-35.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"own vs ebur LRA","a":13,"b":13,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"own vs ebur TP dB","a":-23,"b":-23,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"I","expect":-23,"tol":0.1,"own":-23.026,"ebur":-23.026,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"I hist vs exact (own)","a":-23.026,"b":-23.026,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"own vs ebur I","a":-23.026,"b":-23.026,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"own vs ebur M","a":-22.9933,"b":-22.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"own vs ebur S","a":-22.9933,"b":-22.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"own vs ebur LRA","a":0.00004,"b":0.00004,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"own vs ebur TP dB","a":-23,"b":-23,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"I","expect":-22.0371,"tol":0.1,"own":-22.0304,"ebur":-22.0304,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"I hist vs exact (own)","a":-22.03036,"b":-22.03036,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"own vs ebur I","a":-22.03036,"b":-22.03036,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"own vs ebur M","a":-25.9933,"b":-25.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"own vs ebur S","a":-25.9933,"b":-25.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"own vs ebur LRA","a":6,"b":6,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"own vs ebur TP dB","a":-20,"b":-20,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@48000","what":"LRA","expect":10,"tol":1,"own":10,"ebur":10,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@48000","what":"LRA hist vs exact (own)","a":9.99998,"b":10,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@48000","what":"own vs ebur I","a":-22.58967,"b":-22.58967,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@48000","what":"own vs ebur M","a":-29.9933,"b":-29.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@48000","what":"own vs ebur S","a":-29.9933,"b":-29.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@48000","what":"own vs ebur LRA","a":10,"b":10,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@48000","what":"own vs ebur TP dB","a":-20,"b":-20,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@48000","what":"LRA","expect":5,"tol":1,"own":5,"ebur":5,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@48000","what":"LRA hist vs exact (own)","a":5,"b":5,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@48000","what":"own vs ebur I","a":-16.81029,"b":-16.81029,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@48000","what":"own vs ebur M","a":-14.9933,"b":-14.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@48000","what":"own vs ebur S","a":-14.9933,"b":-14.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@48000","what":"own vs ebur LRA","a":5,"b":5,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@48000","what":"own vs ebur TP dB","a":-15,"b":-15,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@48000","what":"LRA","expect":20,"tol":1,"own":20,"ebur":20,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@48000","what":"LRA hist vs exact (own)","a":20,"b":20,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@48000","what":"own vs ebur I","a":-20.02567,"b":-20.02567,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@48000","what":"own vs ebur M","a":-19.9933,"b":-19.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@48000","what":"own vs ebur S","a":-19.9933,"b":-19.9933,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@48000","what":"own vs ebur LRA","a":20,"b":20,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@48000","what":"own vs ebur TP dB","a":-20,"b":-20,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@48000","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"tp fs/4 45deg A=0.5 (sample peak -9.03 dBFS)@48000","what":"TP dBTP","expect":-6.0206,"tol":0.3,"own":-5.9171,"ebur":-5.9171,"pass":true}
+{"tag":"check-wasm","check":"tp fs/4 45deg A=1 (sample peak -3.01 dBFS)@48000","what":"TP dBTP","expect":0,"tol":0.3,"own":0.1035,"ebur":0.1035,"pass":true}
+{"tag":"check-wasm","check":"tp fs/4 45deg A=1.4125 (sample peak -0.01 dBFS)@48000","what":"TP dBTP","expect":3,"tol":0.3,"own":3.1033,"ebur":3.1033,"pass":true}
+{"tag":"check-wasm","check":"music 60s@48000","what":"gated TP (>= -6 dBFS) vs full TP dB","a":-4.60688,"b":-4.60688,"tol":0.000001,"pass":true}
+{"tag":"check-wasm","check":"music 60s@48000","what":"idle STATUS cadence (48 quanta) I vs 6","a":-17.18298,"b":-17.18298,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"music 60s@48000","what":"I hist vs exact","a":-17.18298,"b":-17.18298,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"music 60s@48000","what":"LRA hist vs exact","a":12.45181,"b":12.48273,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"music 60s@48000","what":"I own vs ebur","a":-17.18298,"b":-17.18298,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"music 60s@48000","what":"M own vs ebur","a":-25.09157,"b":-25.09157,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"music 60s@48000","what":"S own vs ebur","a":-16.01757,"b":-16.01757,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"music 60s@48000","what":"LRA own vs ebur","a":12.48273,"b":12.48273,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"music 60s@48000","what":"TP dB own vs ebur","a":-4.60688,"b":-4.60688,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"music 60s@48000","what":"NaN burst: energy still finite","a":1,"b":1,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@44100","what":"I","expect":-23,"tol":0.1,"own":-22.9905,"ebur":-22.9905,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@44100","what":"I hist vs exact (own)","a":-22.99054,"b":-22.99054,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@44100","what":"M","expect":-23,"tol":0.1,"own":-22.9905,"ebur":-22.9905,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@44100","what":"S","expect":-23,"tol":0.1,"own":-22.9905,"ebur":-22.9905,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@44100","what":"own vs ebur I","a":-22.99054,"b":-22.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@44100","what":"own vs ebur M","a":-22.99054,"b":-22.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@44100","what":"own vs ebur S","a":-22.99054,"b":-22.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@44100","what":"own vs ebur LRA","a":0,"b":0,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@44100","what":"own vs ebur TP dB","a":-22.99501,"b":-22.99501,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t1 1k stereo -23 20s@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@44100","what":"I","expect":-33,"tol":0.1,"own":-32.9905,"ebur":-32.9905,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@44100","what":"I hist vs exact (own)","a":-32.99054,"b":-32.99054,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@44100","what":"M","expect":-33,"tol":0.1,"own":-32.9905,"ebur":-32.9905,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@44100","what":"S","expect":-33,"tol":0.1,"own":-32.9905,"ebur":-32.9905,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@44100","what":"own vs ebur I","a":-32.99054,"b":-32.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@44100","what":"own vs ebur M","a":-32.99054,"b":-32.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@44100","what":"own vs ebur S","a":-32.99054,"b":-32.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@44100","what":"own vs ebur LRA","a":0,"b":0,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@44100","what":"own vs ebur TP dB","a":-32.99501,"b":-32.99501,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2 1k stereo -33 20s@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@44100","what":"I","expect":-20,"tol":0.1,"own":-19.9905,"ebur":-19.9905,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@44100","what":"I hist vs exact (own)","a":-19.99054,"b":-19.99054,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@44100","what":"M","expect":-20,"tol":0.1,"own":-19.9905,"ebur":-19.9905,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@44100","what":"S","expect":-20,"tol":0.1,"own":-19.9905,"ebur":-19.9905,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@44100","what":"own vs ebur I","a":-19.99054,"b":-19.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@44100","what":"own vs ebur M","a":-19.99054,"b":-19.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@44100","what":"own vs ebur S","a":-19.99054,"b":-19.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@44100","what":"own vs ebur LRA","a":0,"b":0,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@44100","what":"own vs ebur TP dB","a":-19.99501,"b":-19.99501,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t2b 1k stereo -20 20s@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"I","expect":-23,"tol":0.1,"own":-23.0111,"ebur":-23.0111,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"I hist vs exact (own)","a":-23.01111,"b":-23.01111,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"own vs ebur I","a":-23.01111,"b":-23.01111,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"own vs ebur M","a":-35.99054,"b":-35.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"own vs ebur S","a":-35.99054,"b":-35.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"own vs ebur LRA","a":13,"b":13,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"own vs ebur TP dB","a":-22.99501,"b":-22.99501,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t3 -36 10s,-23 60s,-36 10s (relative gate)@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"I","expect":-23,"tol":0.1,"own":-23.0232,"ebur":-23.0232,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"I hist vs exact (own)","a":-23.02324,"b":-23.02324,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"own vs ebur I","a":-23.02324,"b":-23.02324,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"own vs ebur M","a":-22.99054,"b":-22.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"own vs ebur S","a":-22.99054,"b":-22.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"own vs ebur LRA","a":0.00004,"b":0.00004,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"own vs ebur TP dB","a":-22.99501,"b":-22.99501,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t4 -80 20s,-23 20s (absolute gate)@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"I","expect":-22.0371,"tol":0.1,"own":-22.0276,"ebur":-22.0276,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"I hist vs exact (own)","a":-22.02761,"b":-22.02761,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"own vs ebur I","a":-22.02761,"b":-22.02761,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"own vs ebur M","a":-25.99054,"b":-25.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"own vs ebur S","a":-25.99054,"b":-25.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"own vs ebur LRA","a":6,"b":6,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"own vs ebur TP dB","a":-19.99501,"b":-19.99501,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"t5 -20 10s,-26 10s (no gating effect)@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@44100","what":"LRA","expect":10,"tol":1,"own":10,"ebur":10,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@44100","what":"LRA hist vs exact (own)","a":9.99998,"b":10,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@44100","what":"own vs ebur I","a":-22.58691,"b":-22.58691,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@44100","what":"own vs ebur M","a":-29.99054,"b":-29.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@44100","what":"own vs ebur S","a":-29.99054,"b":-29.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@44100","what":"own vs ebur LRA","a":10,"b":10,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@44100","what":"own vs ebur TP dB","a":-19.99501,"b":-19.99501,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l1 -20 20s,-30 20s@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@44100","what":"LRA","expect":5,"tol":1,"own":5,"ebur":5,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@44100","what":"LRA hist vs exact (own)","a":5,"b":5,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@44100","what":"own vs ebur I","a":-16.80753,"b":-16.80753,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@44100","what":"own vs ebur M","a":-14.99054,"b":-14.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@44100","what":"own vs ebur S","a":-14.99054,"b":-14.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@44100","what":"own vs ebur LRA","a":5,"b":5,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@44100","what":"own vs ebur TP dB","a":-14.99501,"b":-14.99501,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l2 -20 20s,-15 20s@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@44100","what":"LRA","expect":20,"tol":1,"own":20,"ebur":20,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@44100","what":"LRA hist vs exact (own)","a":20,"b":20,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@44100","what":"own vs ebur I","a":-20.02291,"b":-20.02291,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@44100","what":"own vs ebur M","a":-19.99054,"b":-19.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@44100","what":"own vs ebur S","a":-19.99054,"b":-19.99054,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@44100","what":"own vs ebur LRA","a":20,"b":20,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@44100","what":"own vs ebur TP dB","a":-19.99501,"b":-19.99501,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"l3 -40 20s,-20 20s@44100","what":"ring lost","a":0,"b":0,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"tp fs/4 45deg A=0.5 (sample peak -9.03 dBFS)@44100","what":"TP dBTP","expect":-6.0206,"tol":0.3,"own":-5.9171,"ebur":-5.9171,"pass":true}
+{"tag":"check-wasm","check":"tp fs/4 45deg A=1 (sample peak -3.01 dBFS)@44100","what":"TP dBTP","expect":0,"tol":0.3,"own":0.1035,"ebur":0.1035,"pass":true}
+{"tag":"check-wasm","check":"tp fs/4 45deg A=1.4125 (sample peak -0.01 dBFS)@44100","what":"TP dBTP","expect":3,"tol":0.3,"own":3.1033,"ebur":3.1033,"pass":true}
+{"tag":"check-wasm","check":"music 60s@44100","what":"gated TP (>= -6 dBFS) vs full TP dB","a":-4.63229,"b":-4.63229,"tol":0.000001,"pass":true}
+{"tag":"check-wasm","check":"music 60s@44100","what":"idle STATUS cadence (48 quanta) I vs 6","a":-17.24959,"b":-17.24959,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"music 60s@44100","what":"I hist vs exact","a":-17.25878,"b":-17.24959,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"music 60s@44100","what":"LRA hist vs exact","a":12.52156,"b":12.52066,"tol":0.11,"pass":true}
+{"tag":"check-wasm","check":"music 60s@44100","what":"I own vs ebur","a":-17.24959,"b":-17.24959,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"music 60s@44100","what":"M own vs ebur","a":-25.09859,"b":-25.09859,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"music 60s@44100","what":"S own vs ebur","a":-16.09341,"b":-16.09341,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"music 60s@44100","what":"LRA own vs ebur","a":12.52066,"b":12.52066,"tol":0.01,"pass":true}
+{"tag":"check-wasm","check":"music 60s@44100","what":"TP dB own vs ebur","a":-4.63229,"b":-4.63229,"tol":0.001,"pass":true}
+{"tag":"check-wasm","check":"music 60s@44100","what":"NaN burst: energy still finite","a":1,"b":1,"tol":0,"pass":true}
+{"tag":"check-wasm","check":"ALL","target":"wasm","pass":true}
+{"tag":"metered","target":"wasm","case":"peak","sig":"music","k":1,"run":0,"quanta":800,"p50":7071,"p99":7093,"p999":7093,"max":7093,"mean":7074.658,"allocs":0,"allocs_all":0,"built_bytes_per_bus":1512,"state_bytes":1512,"tp_ran":0,"sink":0}
+{"tag":"metered","target":"wasm","case":"kw","sig":"music","k":1,"run":0,"quanta":800,"p50":16924,"p99":17083,"p999":17083,"max":17083,"mean":16930.231,"allocs":0,"allocs_all":0,"built_bytes_per_bus":1512,"state_bytes":1512,"tp_ran":0,"sink":0}
+{"tag":"metered","target":"wasm","case":"tp","sig":"music","k":1,"run":0,"quanta":800,"p50":25775,"p99":25797,"p999":25797,"max":25797,"mean":25778.658,"allocs":0,"allocs_all":0,"built_bytes_per_bus":1512,"state_bytes":1512,"tp_ran":1,"sink":0}
+{"tag":"metered","target":"wasm","case":"both","sig":"music","k":1,"run":0,"quanta":800,"p50":42557,"p99":42716,"p999":42716,"max":42716,"mean":42563.231,"allocs":0,"allocs_all":0,"built_bytes_per_bus":1512,"state_bytes":1512,"tp_ran":1,"sink":0}
+{"tag":"metered","target":"wasm","case":"both","sig":"music","k":8,"run":0,"quanta":800,"p50":340267,"p99":341539,"p999":341539,"max":341539,"mean":340316.85,"allocs":0,"allocs_all":0,"built_bytes_per_bus":1512,"state_bytes":1512,"tp_ran":1,"sink":0}
+{"tag":"metered","target":"wasm","case":"both_gated","sig":"music","k":1,"run":0,"quanta":800,"p50":23857,"p99":24016,"p999":24016,"max":24016,"mean":23863.231,"allocs":0,"allocs_all":0,"built_bytes_per_bus":1512,"state_bytes":1512,"tp_ran":0,"sink":0}
+{"tag":"metered","target":"wasm","case":"both_gated","sig":"hot","k":1,"run":0,"quanta":800,"p50":23857,"p99":49444,"p999":49581,"max":49581,"mean":30861.65,"allocs":0,"allocs_all":0,"built_bytes_per_bus":1512,"state_bytes":1512,"tp_ran":0.249,"sink":1}
+{"tag":"metered","target":"wasm","case":"ebur_add","sig":"music","k":1,"run":0,"quanta":800,"p50":133660,"p99":475652,"p999":475656,"max":475660,"mean":142200.07,"allocs":0,"allocs_all":0,"built_bytes_per_bus":2386112,"state_bytes":0,"tp_ran":0,"sink":0}
+{"tag":"metered","target":"wasm","case":"ebur_full","sig":"music","k":1,"run":0,"quanta":800,"p50":133669,"p99":550308,"p999":816187,"max":816187,"mean":199731.656,"allocs":0,"allocs_all":0,"built_bytes_per_bus":2386112,"state_bytes":0,"tp_ran":0,"sink":0}
+{"tag":"size","name":"base","bytes":385}
+{"tag":"size","name":"own","bytes":21216}
+{"tag":"size","name":"ebur128 crate","bytes":86171}

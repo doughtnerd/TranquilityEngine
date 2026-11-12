@@ -170,10 +170,16 @@ fn micro(args: &str) {
         });
     }
     {
+        let mut sc = [0.0f32; 2 * Q];
+        bench("sidechain", "copy-only-baseline", calls, &mut |i| {
+            sc = tgt[i % 64];
+            black_box(&sc);
+        });
         let g = [0.7f32; Q];
-        let mut t = tgt.clone();
+        let mut sc = [0.0f32; 2 * Q];
         bench("sidechain", "apply-curve", calls, &mut |i| {
-            let (l, r) = t[i % 64].split_at_mut(Q);
+            sc = tgt[i % 64];
+            let (l, r) = sc.split_at_mut(Q);
             sidechain::apply(l, r, black_box(&g));
         });
     }
@@ -181,7 +187,7 @@ fn micro(args: &str) {
     {
         let mut rules: Vec<Rule> = (0..8).map(|_| Rule::new(p(Detect::Peak))).collect();
         let mut gs = [[1.0f32; Q]; 8];
-        let mut t = tgt.clone();
+        let mut sc = [0.0f32; 2 * Q];
         bench("sidechain", "rules8-peak-tick128+apply", calls, &mut |i| {
             for (k, r) in rules.iter_mut().enumerate() {
                 let (l, rr) = split(&trig[(i + k * 5) % 64]);
@@ -191,22 +197,25 @@ fn micro(args: &str) {
             for g in rest.iter() {
                 sidechain::combine_min(&mut first[0], g);
             }
-            let (l, r) = t[i % 64].split_at_mut(Q);
+            sc = tgt[i % 64];
+            let (l, r) = sc.split_at_mut(Q);
             sidechain::apply(l, r, &first[0]);
         });
     }
     // --- bus ramps ---
     {
-        let mut t = tgt.clone();
+        let mut sc = [0.0f32; 2 * Q];
         bench("busramp", "apply-settled-gain", calls, &mut |i| {
             let mut r = Ramp::at(0.8);
-            let (l, rr) = t[i % 64].split_at_mut(Q);
+            sc = tgt[i % 64];
+            let (l, rr) = sc.split_at_mut(Q);
             busramp::apply_ramp(&mut r, l, rr);
         });
         bench("busramp", "ramp-today-mid-ramp", calls, &mut |i| {
             let mut r = Ramp::at(1.0);
             r.set_target(0.0, 1 << 20);
-            let (l, rr) = t[i % 64].split_at_mut(Q);
+            sc = tgt[i % 64];
+            let (l, rr) = sc.split_at_mut(Q);
             busramp::apply_ramp(&mut r, l, rr);
         });
         let mut g = [1.0f32; Q];
@@ -214,7 +223,8 @@ fn micro(args: &str) {
             let rec = busramp::Stamped { start, frames, from: 1.0, to: 0.0 };
             let q0 = if name == "stamped-mid-ramp" || name == "stamped-ends-at-64" { 0 } else { 0 };
             bench("busramp", name, calls, &mut |i| {
-                let (l, rr) = t[i % 64].split_at_mut(Q);
+                sc = tgt[i % 64];
+            let (l, rr) = sc.split_at_mut(Q);
                 black_box(rec.fill(black_box(q0), &mut g));
                 busramp::apply_curve(l, rr, &g);
             });
@@ -224,14 +234,16 @@ fn micro(args: &str) {
             for k in 0..8 {
                 let mut r = Ramp::at(1.0);
                 r.set_target(0.0, 1 << 20);
-                let (l, rr) = t[(i + k) % 64].split_at_mut(Q);
+                sc = tgt[(i + k) % 64];
+                let (l, rr) = sc.split_at_mut(Q);
                 busramp::apply_ramp(&mut r, l, rr);
             }
         });
         let rec = busramp::Stamped { start: 0, frames: 1 << 20, from: 1.0, to: 0.0 };
         bench("busramp", "x8-stamped", calls, &mut |i| {
             for k in 0..8 {
-                let (l, rr) = t[(i + k) % 64].split_at_mut(Q);
+                sc = tgt[(i + k) % 64];
+                let (l, rr) = sc.split_at_mut(Q);
                 rec.fill(0, &mut g);
                 busramp::apply_curve(l, rr, &g);
             }
@@ -239,18 +251,20 @@ fn micro(args: &str) {
     }
     // --- blending ---
     {
-        let mut t = tgt.clone();
+        let mut sc = [0.0f32; 2 * Q];
         let mut b = Biquad::default();
         b.set_lowpass(RATE, 2000.0, 1.0);
         bench("blend", "lowpass-settled", calls, &mut |i| {
-            let (l, r) = t[i % 64].split_at_mut(Q);
+            sc = tgt[i % 64];
+            let (l, r) = sc.split_at_mut(Q);
             b.set_lowpass(RATE, 2000.0, 1.0);
             b.process(l, r);
         });
         let mut b = Biquad::default();
         let mut f = 2000.0f32;
         bench("blend", "lowpass-step-recompute-per-quantum", calls, &mut |i| {
-            let (l, r) = t[i % 64].split_at_mut(Q);
+            sc = tgt[i % 64];
+            let (l, r) = sc.split_at_mut(Q);
             f = if f > 1990.0 { 500.0 } else { f + 1.0 };
             b.set_lowpass(RATE, f, 1.0);
             b.process(l, r);
@@ -258,7 +272,8 @@ fn micro(args: &str) {
         let mut hist = [[0.0f64; 4]; 2];
         let (ca, cb) = (blend::coefs(blend::Kind::Lowpass, RATE, 18000.0, 1.0), blend::coefs(blend::Kind::Lowpass, RATE, 500.0, 1.0));
         bench("blend", "lowpass-coef-lerp-per-sample", calls, &mut |i| {
-            let (l, r) = t[i % 64].split_at_mut(Q);
+            sc = tgt[i % 64];
+            let (l, r) = sc.split_at_mut(Q);
             let u0 = (i % 64) as f64 / 64.0;
             let du = 1.0 / 64.0 / Q as f64;
             let mut c = blend::lerp_coefs(&ca, &cb, u0);
@@ -287,13 +302,15 @@ fn micro(args: &str) {
         });
         let mut hist = [[0.0f64; 4]; 2];
         bench("blend", "lowpass-coef-lerp-per-quantum", calls, &mut |i| {
-            let (l, r) = t[i % 64].split_at_mut(Q);
+            sc = tgt[i % 64];
+            let (l, r) = sc.split_at_mut(Q);
             let c = blend::lerp_coefs(&ca, &cb, (i % 64) as f64 / 64.0);
             kernel::process_stereo(&c, &mut hist, l, r);
         });
         let mut hist = [[0.0f64; 4]; 2];
         bench("blend", "lowpass-exact-recompute-per-sample", calls, &mut |i| {
-            let (l, r) = t[i % 64].split_at_mut(Q);
+            sc = tgt[i % 64];
+            let (l, r) = sc.split_at_mut(Q);
             let f0 = blend::log_hz(18000.0, 500.0, (i % 64) as f32 / 64.0);
             for k in 0..Q {
                 let f = f0 * libm::powf(500.0f32 / 18000.0, k as f32 / (64.0 * Q as f32));
@@ -305,13 +322,15 @@ fn micro(args: &str) {
         let mut c = Compressor::default();
         c.configure(RATE, -24.0, 30.0, 8.0, 0.003, 0.25);
         bench("blend", "compressor-settled", calls, &mut |i| {
-            let (l, r) = t[i % 64].split_at_mut(Q);
+            sc = tgt[i % 64];
+            let (l, r) = sc.split_at_mut(Q);
             c.process(l, r);
         });
         let mut c = Compressor::default();
         let mut th = -24.0f32;
         bench("blend", "compressor-threshold-blend-per-quantum", calls, &mut |i| {
-            let (l, r) = t[i % 64].split_at_mut(Q);
+            sc = tgt[i % 64];
+            let (l, r) = sc.split_at_mut(Q);
             th = if th > -10.0 { -40.0 } else { th + 0.01 };
             c.configure(RATE, th, 30.0, 8.0, 0.003, 0.25);
             c.process(l, r);
