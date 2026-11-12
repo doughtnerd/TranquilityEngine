@@ -8,19 +8,19 @@
  * `handle.music` is `undefined`, never an empty object, for a non-music event (`musicHandleOf`). The getters share one
  * snapshot per display frame, recomputed on first read, with no allocation after it; none of them calls the core.
  *
- * P7's readings: the position is read through the player's anchor linearly (heard(t) = anchor.time + file(t) -
- * file(anchor.ticks), as the planner does); a loop wrap moves the anchor (P3). `segment` is null until the first run's
+ * P7's readings: the position is read through the player's anchor with P3's `ticksAt` and `heardTimeOf`
+ * (one heard-time definition, loop passes unrolled). `segment` is null until the first run's
  * stamped start is heard. Grid points are at or after `Audio.time`.
  */
 import type { GridPoint, GridSpec, MusicHandle, MusicPositionAt, MusicSeekResult } from "../../../../engine/audio/musicTypes";
 import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import {
-  compileSegmentGrid, entrySeconds, exitSeconds, nextGridSeconds, secondsToNearestTick, secondsToTicks, spanAtTicks, ticksToPosition,
+  compileSegmentGrid, entrySeconds, exitSeconds, nextGridSeconds, secondsToNearestTick, spanAtTicks, ticksToPosition,
   ticksToSeconds, type SegmentGrid,
 } from "../../../../engine/audio/musicGrid";
 import { MUSIC_TICKS_PER_BEAT, type BarBeatTick } from "../../../../engine/audio/musicPosition";
 import { audioBackend } from "../backend";
-import type { GridAnchor } from "./anchors";
+import { heardTimeOf, ticksAt, type GridAnchor } from "./anchors";
 import { getCalibration } from "./calibration";
 import { musicFrameSerial, playerOf, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
 import { seekMusic } from "./seek";
@@ -51,8 +51,6 @@ export function segmentGrid(node: MusicNodeRef): SegmentGrid | null {
   return grid;
 }
 
-/** File seconds of the anchor's own position on `g`. */
-const anchorFileSeconds = (g: SegmentGrid, a: GridAnchor): number => ticksToSeconds(g, a.ticks);
 
 /** The playing run with its anchor and grid at heard `now`; null while priming, before its stamped start, or stopped. */
 function playing(player: MusicPlayer, now: number): { run: SegmentRun; anchor: GridAnchor; grid: SegmentGrid } | null {
@@ -123,8 +121,7 @@ function refresh(player: MusicPlayer, s: Snapshot, now: number): void {
   s.transitionState = player.transition?.state ?? "";
   const cur = playing(player, now);
   if (cur) {
-    const file = anchorFileSeconds(cur.grid, cur.anchor) + (now - cur.anchor.time);
-    const exact = Math.max(0, secondsToTicks(cur.grid, file));
+    const exact = Math.max(0, ticksAt(cur.anchor, now));
     const whole = Math.floor(exact);
     const pos = ticksToPosition(cur.grid, whole, s.scratch);
     if (pos) {
@@ -216,14 +213,15 @@ export function nextGrid(player: MusicPlayer, spec: GridSpec): GridPoint | null 
   const cur = playing(player, now);
   if (!cur) return null;
   const { grid: g, anchor: a } = cur;
-  const base = anchorFileSeconds(g, a);
+  const here = ticksAt(a, now);
+  if (!Number.isFinite(here)) return null;
   const tr = player.transition;
   const pending = tr !== null && tr.state !== "done" && tr.state !== "cancelled" ? tr : null;
   const landing = pending ? landingTime(pending) : Number.NaN;
   // The playing segment's own next point, kept while it is inside the exit and not after the change lands.
-  const p = nextGridSeconds(g, base + (now - a.time), spec);
+  const p = nextGridSeconds(g, ticksToSeconds(g, here), spec);
   const exit = exitSeconds(g);
-  const heard = a.time + (p - base);
+  const heard = heardTimeOf(a, secondsToNearestTick(g, p));
   if ((exit === null || p <= exit + EPS) && !(heard > landing + EPS)) return gridPoint(g, p, heard, cur.run.node.id);
   if (!pending || !Number.isFinite(landing)) return null;
   // After the change: the incoming segment's grid, anchored at its entry on the landing time.
