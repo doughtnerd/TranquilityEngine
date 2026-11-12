@@ -452,6 +452,15 @@ pub fn leave(entries: &mut [GroupEntry], flags2: u8, voice_id: u32) -> MemberLef
     left
 }
 
+/// [`leave`] for voice `voice_id` whose `flags2` is gone (its slot was freed): finds its entry by
+/// its members. Called only while some entry is taken.
+pub fn leave_any(entries: &mut [GroupEntry], voice_id: u32) -> MemberLeft {
+    match entries.iter().position(|e| e.state != state::FREE && e.has_member(voice_id)) {
+        Some(index) => leave(entries, flags2_with_group(0, index as u8), voice_id),
+        None => MemberLeft::NotMember,
+    }
+}
+
 /// The `groupStarts` item for `entry`'s pending event (architecture §4.3 "Events"; api-and-models
 /// §4.4): its id, the late / held-and-resumed / abandoned bits, the slip and the frame.
 pub fn event_of(entry: &GroupEntry) -> GroupStart {

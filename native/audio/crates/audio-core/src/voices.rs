@@ -482,8 +482,6 @@ fn render_voices(core: &mut Core, frame: u64, from: usize, to: usize, mut walk: 
     // ADR 0162 A4: the beds kind-2 voices encode into, another region again (`None` without beds).
     // SAFETY: the `Beds` region is distinct from every region borrowed here.
     let mut beds = crate::bed::view(unsafe { &mut *(&mut regions.beds[..] as *mut [u8]) });
-    // 0166 M4a (H2): the group table, for a gated stream voice that starts to starve (another region).
-    let groups: *mut [u8] = &mut regions.groups[..];
     let mut v = view(regions);
     let (source_frames, moving) = (&mut acc.0, &mut acc.1);
     let mut once = true;
@@ -573,21 +571,8 @@ fn render_voices(core: &mut Core, frame: u64, from: usize, to: usize, mut walk: 
         // `AUTO = false` compiles the automation away: a voice without bindings or a loop region takes
         // exactly the M1 code (0158 E2: it costs nothing and renders bit for bit as before).
         match (slot.flags & flag::STREAM != 0, auto.is_some()) {
-            (true, auto_on) => {
-                let starving = if auto_on {
-                    render_stream_voice::<true>(slot, auto, fx, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r)
-                } else {
-                    render_stream_voice::<false>(slot, None, fx, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r)
-                };
-                if starving {
-                    // 0166 M4a (hook H2): a member of a started group would starve; C2c holds the group.
-                    // SAFETY: `groups` views the `Groups` region, distinct from every region borrowed here.
-                    let entries = crate::groups::entries(unsafe { &mut *groups });
-                    if let Some(g) = crate::groups::member_index(entries, slot.flags2, slot.id) {
-                        let _ = crate::group_hold::on_starve(entries, g, slot.id, frame, &mut v.area.groups_held);
-                    }
-                }
-            }
+            (true, true) => render_stream_voice::<true>(slot, auto, fx, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+            (true, false) => render_stream_voice::<false>(slot, None, fx, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
             (false, true) => render_voice::<true>(slot, auto, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
             (false, false) => render_voice::<false>(slot, None, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
         }
@@ -1048,11 +1033,8 @@ fn render_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceA
 /// read the ring bit for bit). The voice's position is in stream frames (its playhead); its ring
 /// frame is `position - start_frame`. Afterwards the ring's `consumed` follows the position, less
 /// the one frame behind it the resampler still reads.
-///
-/// Returns `true` when the voice started to starve in this range (it was playing and is now
-/// fading out or starved): the starve path's hook H2 (`group_hold::on_starve`, for a group member).
 #[allow(clippy::too_many_arguments)]
-fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, mut fx: VoiceFx<'_>, streams: &mut StreamStore, mut hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) -> bool {
+fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, mut fx: VoiceFx<'_>, streams: &mut StreamStore, mut hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
     use crate::stream::{frame_at, pending, phase, START_FRAMES};
     let mut auto = if AUTO { auto } else { None };
     if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
@@ -1060,26 +1042,26 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
         if slot.flags & flag::STOP_ON_FADE_END != 0 {
             slot.state = state::ENDED;
         }
-        return false;
+        return;
     }
     let stopping = slot.flags & flag::STOP_ON_FADE_END != 0;
     if stopping && slot.fade.is_settled() {
         slot.state = state::ENDED;
-        return false;
+        return;
     }
     let Some(index) = ring_of(streams, slot) else {
         // No STREAM_OPEN yet (or none could be taken): waiting, silent. A stop ends it now.
         if stopping {
             slot.state = state::ENDED;
         }
-        return false;
+        return;
     };
     let (ring, samples) = streams.split(index);
     if ring.voice == 0 {
         bind_ring(slot, ring, sample_rate);
     }
     if ring.seeking != 0 && render_seek_tail::<AUTO>(slot, auto.as_deref_mut(), fx.reborrow(), ring, samples, hrtf.as_deref_mut(), frame, sample_rate, fade_frames, from, to, out_l, out_r) {
-        return false;
+        return;
     }
     let ch = ring.channels as usize;
     let start = ring.start_frame as f64;
@@ -1102,7 +1084,7 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
                 // (After a seek the playhead is already at the target.)
                 slot.position = start;
                 hold(slot);
-                return false;
+                return;
             }
             ring.phase = phase::PLAYING;
             ring.gain = Ramp::at(1.0);
@@ -1116,7 +1098,7 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
         phase::STARVED => {
             if !input_done && buffered < START_FRAMES {
                 hold(slot);
-                return false;
+                return;
             }
             ring.phase = phase::PLAYING;
             ring.gain = Ramp::at(if mixed { 0.0 } else { 1.0 });
@@ -1129,7 +1111,6 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
         }
         _ => {}
     }
-    let playing = ring.phase == phase::PLAYING;
     let mut n = to - from;
     if stopping {
         n = n.min(slot.fade.remaining as usize);
@@ -1215,7 +1196,6 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
     } else if stopping && slot.fade.is_settled() {
         slot.state = state::ENDED;
     }
-    playing && ring.phase != phase::PLAYING
 }
 
 /// The ring stream voice `slot` reads: its stream's, unless another voice holds it.
@@ -1603,11 +1583,10 @@ fn clip_seek_jump(slot: &mut VoiceSlot, frames: u32, looping: bool) {
 fn report(core: &mut Core) {
     // B3: first, while the rings of voices that ended this quantum still hold their reports.
     report_streams(core);
+    starve_hook(core);
     let room = (ENDED_CAP - status::counters(core).ended.len()).min(ENDED_SCRATCH);
     let (live, mixed, ambisonic, ended, playheads, late_count, late_max, starts_late, held) = {
         let (regions, _, streams) = core.render_parts();
-        // 0166 M4a (C2b): the group table, another region than the ones `v` views.
-        let groups: *mut [u8] = &mut regions.groups[..];
         let mut v = view(regions);
         v.area.ended_len = 0;
         let mut mixed = 0u32;
@@ -1628,10 +1607,6 @@ fn report(core: &mut Core) {
                             // B3: its ring is freed (closed) or orphaned until STREAM_CLOSE.
                             streams.release(s.clip, s.id);
                         }
-                        // 0166 M4a (C2b, architecture §4.3): a member that ended or was stopped leaves
-                        // its group (the size shrinks; the last one frees the entry).
-                        // SAFETY: `groups` views the `Groups` region, distinct from the regions `v` views.
-                        crate::groups::leave(crate::groups::entries(unsafe { &mut *groups }), s.flags2, s.id);
                         unlink_and_free(&mut v, index);
                     }
                 }
@@ -1658,8 +1633,15 @@ fn report(core: &mut Core) {
         (v.area.live_count, mixed, ambisonic, v.area.ended_len as usize, v.area.playheads_len as usize, late.0, late.1, music.0, music.1)
     };
     let parked = !crate::due::view(core.regions_mut()).parked().is_empty();
+    // 0166 M4a (C2b, architecture §4.3): a member that ended or was stopped leaves its group (the
+    // size shrinks; the last one frees the entry). Looked up here, after the walk, and only while a
+    // group is live, so the walk over the voices pays nothing for it.
+    let grouped = ended > 0 && !crate::groups::entries_of(core.regions().groups).iter().all(|e| e.state == crate::groups::state::FREE);
     for i in 0..ended {
         let id = view(core.regions_mut()).area.ended[i];
+        if grouped {
+            crate::groups::leave_any(crate::groups::entries(core.regions_mut().groups), id);
+        }
         status::counters_mut(core).ended.push(id);
         if parked {
             // 0166 M4-0 (R10): an ended voice's parked records go with it.
@@ -1688,6 +1670,34 @@ fn report(core: &mut Core) {
     c.spatial.ambisonic_voices = ambisonic.min(u16::MAX as u32) as u16;
     // ADR 0162 D1: STATUS `fxVoices`.
     crate::fxpool::report(core);
+}
+
+/// 0166 M4a (hook H2, the starve path): every stream voice that is starving (fading out for lack of
+/// data, or starved) and a member of a group goes to `group_hold::on_starve` (C2c holds a started
+/// group; today the voice starves alone, as before). One look per ring, and none while the group
+/// table is empty, so voices pay nothing.
+fn starve_hook(core: &mut Core) {
+    use crate::stream::phase;
+    if crate::groups::entries_of(core.regions().groups).iter().all(|e| e.state == crate::groups::state::FREE) {
+        return;
+    }
+    let frame = core.frame();
+    for i in 0..core.streams().narrow_count() {
+        let r = *core.streams().ring(i);
+        if r.open == 0 || r.voice == 0 || r.orphan != 0 || (r.phase != phase::STARVING && r.phase != phase::STARVED) {
+            continue;
+        }
+        let v = view(core.regions_mut());
+        let Some(index) = find(&v, r.voice) else { continue };
+        let flags2 = v.slots[index].flags2;
+        let mut held = 0u16;
+        let entries = crate::groups::entries(core.regions_mut().groups);
+        if let Some(g) = crate::groups::member_index(entries, flags2, r.voice) {
+            let _ = crate::group_hold::on_starve(entries, g, r.voice, frame, &mut held);
+        }
+        let area = view(core.regions_mut()).area;
+        area.groups_held = area.groups_held.saturating_add(held);
+    }
 }
 
 /// B3: moves the rings' pending reports into STATUS: a starved voice into `starved` and stream
