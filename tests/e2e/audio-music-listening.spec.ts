@@ -1,5 +1,5 @@
 import { expect, type Page, play, test } from "./fixtures";
-import { addAssets, audioDebug as fullDebug, bootSample, FLAPPY, pauseWorkers, peakOver as peakOverFull, playlist3, readLate, startEvent, stems8, watchConsole } from "./audioMusic";
+import { addAssets, audioDebug as fullDebug, bootSample, FLAPPY, pauseWorkers, peakOver as peakOverFull, playlist3, readLate, sampleMusicState, musicStates, startEvent, stems8, watchConsole } from "./audioMusic";
 
 // The interactive-music milestones' listening sections (ADR 0166/0167; waves plan, "Owner procedures"): one case per
 // milestone, grown a case at a time (M4a, M4b and M4c are here). Each case is an owner-run page and a headless walker in one:
@@ -447,8 +447,9 @@ test.describe("listening M4a: segments, stems and playlists", () => {
 
     await test.step("key 4: a playlist of three items, 30 s", async () => {
       await m4aKey(page, "4", "playlist A, B, C forever, 30 s");
+      await sampleMusicState(page, "list"); // F-29: a playlist's row reads `playing` for 100-200 ms per item
       await startEvent(page, "list", "e1/list.audioevent.json");
-      await expect.poll(async () => (await m4aRow(page, "list"))?.state, { timeout: 30_000 }).toBe("playing");
+      await expect.poll(() => musicStates(page, "list"), { timeout: 30_000 }).toContain("playing");
       const order: string[] = [];
       const until = Date.now() + (LISTEN ? 30_000 : 17_000);
       while (Date.now() < until) {
