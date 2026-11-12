@@ -149,6 +149,8 @@ export class AudioSource extends Component {
   private appliedPitch = 1;
   /** ADR 0162 (K4): the §1.2 options last applied, and the curve object they carried. */
   private appliedM3 = "";
+  /** F-22: the play request carried the attenuation, so the first `apply` doesn't send it again. */
+  private playedAttenuation = false;
   private readonly appliedCurve: number[] = [];
   private readonly zeroVelocity = new Vector3();
   /** ADR 0162 §2.4 (B5): the playing clip is ambisonic, so `spatial`, the distance fields, `occlusion` and `dopplerLevel` don't apply. */
@@ -200,10 +202,17 @@ export class AudioSource extends Component {
     }
     this.ambisonicClip = isAmbisonicClip(path);
     if (this.ambisonicClip) this.warnAmbisonicIgnored(path);
-    this.voice = startClip(path, this.loop, this.output, { priority: clamp255(this.priority), world: worldKeyOf(this._world), owner: this.node.name, ...this.spatialOptions() });
+    // F-22: a spatial source starts positioned. With its clip resident the core sends the PLAY inside `play`, and a voice
+    // can't turn spatial on the core after its PLAY, so a position given only afterwards (`apply`) left every replay flat.
+    const spatial = this.spatial && !this.ambisonicClip && this.node.transform !== null;
+    this.voice = startClip(path, this.loop, this.output, {
+      priority: clamp255(this.priority), world: worldKeyOf(this._world), owner: this.node.name, ...this.spatialOptions(),
+      ...(spatial ? { attenuation: { minDistance: this.minDistance, maxDistance: this.maxDistance, rolloff: this.rolloff }, position: this.node.transform!.worldPosition } : null),
+    });
     this.applied = "";
     this.appliedM3 = "";
     this.appliedCurve.length = 0;
+    this.playedAttenuation = spatial;
     if (this.voice) this.apply(path);
   }
 
@@ -324,7 +333,8 @@ export class AudioSource extends Component {
       voice.setPriority(clamp255(this.priority));
       voice.setVolume(this.volume * clipVolume(path));
       voice.setPitch(this.pitch);
-      if (spatial) voice.setAttenuation(this);
+      if (spatial && !this.playedAttenuation) voice.setAttenuation(this);
+      this.playedAttenuation = false;
     }
     // ADR 0162 §1.2 (K4): Play edits of the M3 options take effect next frame on a voice that takes them.
     const m3 = `${this.occlusion}|${this.dopplerLevel}|${this.reverbSend}|${this.ambisonicYaw}`;
