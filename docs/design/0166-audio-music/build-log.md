@@ -115,6 +115,7 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 - **F-15 (from Ed5):** the segment view's transport plays the whole event. It can't start at a later playlist segment (needs a start-at-segment option, or R7's seek across segments), and it passes no parameter values (the event editor's sliders don't reach it). Transition audition is Ed7's.
 - **F-16 (from E1):** `Audio.debug().voices` shows a streamed music stem as `waitingForData`, clip `""`, playhead null, while it plays. The panel shows the same.
 - **F-17 (from E1):** after `handle.stop(fade)` a music event's row stays in `Audio.debug().music` as `ending` forever, though its voices and rings are gone. It may be a player leak. **F-16/F-17 task** (strongest) is on both, plus the debug row's `pending` going null once a transition passes T − L.
+- **F-18 (from F-16/F-17):** the playhead tracker in `coreBackend.ts` reads a music member's rate from the context, because `streams.clipInfo` doesn't fall back to `musicOps.clipInfo`. The sound-lab stems are 24 kHz, so a streamed stem's tracked playhead there runs at the wrong rate. The audio and the grid (anchors) are unaffected. A `coreBackend.ts` change, for K1/K3 (playhead and position) or a small task before them.
 
 **Started (rolling, D5), base `92969c11`:** Z2a (strongest) on the flip branch `m4/in-voice`, cut locally at `92969c11` after Q1 and the wire's merge 1 (the flip branch stays local: this session pushes only the integration branch); F2, Ed2, Ed9 and R4c (mid; each depends only on merged tasks and touches no running task's files). Waiting for the wire's merge 2: Z4, C1, D1a, then Q2's merge.
 
@@ -405,4 +406,18 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 - **M4a exit check met: the 10-minute playlist passes 3 of 3** (`--repeat-each 3`, 10.1 min each; 149 items per run, late 0, slip 0, splitQuanta 0, re-plans 0; 2–6 underruns at start-up, logged). One earlier 60 s trial lost the music row at one sample and was never seen again; the spec now re-checks for 3 s and logs it, and the log line appeared 0 times in the full runs.
 - **Sent back to:** merge C2c + C2d; enable the held-group case and listening key 3 with `groupsHeld >= 1`; rename its fixme labels to F-16 and F-17.
 - **Scene note:** the 8-stem scene doubles the lab's 4 stems (the same clips, so a misalignment would show as phasing). Kept: C3's grid proves alignment with distinct signals.
+
+**F-16/F-17 merged** (`m4/f1617` `7961ea84`):
+- **F-16:** `core/streams.ts` `onStatus` returned early when `byStream` was empty, and a gated member's stream is never in it (it's musicOps'). So with only music streaming, `WAITING_FOR_DATA` never cleared. Fix:
+  - the guard is now "no playheads";
+  - `StreamManager.watchMember` is called from `musicOps.adoptMember`;
+  - musicOps keeps each member's rate and length, and `debug.ts` falls back to `musicOps.clipInfo` for the clip and playhead.
+  Beyond the display, `handle.reason` and selection's reason label were also stuck; mixing decisions weren't affected.
+- **F-17, a real leak on the core:** `eventRuntime.update()` returned early with nothing live, no fallback evaluator (always null on the core) and no timers. A music event stopped while nothing else played was retired and held, but never reaped. Its player kept stepping every frame, the worker kept its encoded bytes, and its group stayed held, until the next `Audio.play`. A music instance without a group was never held at all, so it leaked for good. Fix:
+  - `update()` also runs while anything is held;
+  - music instances are held even without a group.
+  Non-music events stopped while idle freed their group late too; this covers them.
+- **`pending`:** the debug row shows the transition in every state except done and cancelled.
+- **Tests** (each fails before its fix): a streamed stem's voice row (the core rig: `musicLoopback` can't stream); `music/stop.loopback.test.ts`; the `pending` states.
+- Coordinator checks: typecheck 0; `src/plugins/audio` 204 files, 2,430 tests.
 
