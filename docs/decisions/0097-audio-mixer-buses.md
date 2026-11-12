@@ -1,6 +1,6 @@
 # 0097. Audio mixer buses, snapshots and ducking over one shared AudioContext
 
-- **Status:** Proposed; amended by 0157 (the model is kept, the Web Audio bus graph is replaced by the core) and 0166 (presets gain the music ring pool)
+- **Status:** Proposed; amended by 0157 (the model is kept, the Web Audio bus graph is replaced by the core) and 0166 and 0167 (presets gain the music ring pool and the rhythm-mode setting)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -45,6 +45,15 @@ The "no mixer buses" limitation in 0074.
 ## Open questions
 
 - Level-based ducking; per-bus metering for the editor; reverb zones; persisting `Audio.bus` volumes automatically.
+
+## Amendment (0166, 0167): the presets gain music settings
+
+The bus graph, snapshots and ducking are unchanged: music plays on the `Music` bus (or the bus a stem names) like any sound, and ducks, fades and snapshots with it. What changes is the voice preset.
+
+- **`audio.music.rings`.** Each voice preset carries a music ring pool, the streamed stems a music instance can hold open at once, including those of the next segment while it is prepared: **low 8, default 12, high 16** (the project value is a whole number 0 to 16, written in `project.json` and edited in Project Settings > Audio > Playback > Music; the preset comparison includes it, and a value that differs from the preset's makes the preset read `custom`). The rings are the last entries of the core's stream table, so general streams and music streams cannot take each other's slots. Each ring is a buffer of about 300 KB, so a preset's stream memory grows by `rings x 300 KB` (low 3.69 MB, default 6.14 MB, high 9.83 MB in all with the general streams).
+- **Music voices count inside the preset's mixed-voice cap** (0166 owner decision 3). A stem is a voice and is selected by priority like any other; no voice is added to a preset for music, and the per-preset worst-case allowances were re-set in 0167 §1 item 3.
+- **`audio.rhythmMode`** (default `false`), also in Project Settings > Audio > Playback > Music. While it is true the audio context is built with `latencyHint: 0`. It is a project-wide mixer setting, not a per-bus one; a change at run time rebuilds the context, and the music re-enters on the next bar (0167 §2). It refuses nothing.
+- **Ducking and the music bus.** Beat callbacks are timed on the heard clock, so a bus fade, snapshot or duck on `Music` never moves a beat. The Flappy sample dips the `Music` bus to 35% over 0.4 s on game over with `Audio.bus("Music").fadeTo`, which is the intended use of this record's API on music.
 
 ## References
 

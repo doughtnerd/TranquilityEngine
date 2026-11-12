@@ -23,7 +23,7 @@ Interactive music is complete for its first release (milestone M4). Everything i
 | Playlists (sequence, random, shuffle) and music switches on a labelled parameter | **A starved stream** is silenced and held, with its whole group, and the core gives up after a second; it is not resynced in place (see [the debug panel](#the-debug-panels-music-section)) |
 | Transition rules: exit, enter, quantised cut, crossfade, curves, bridges | **Saved calibration on the Babylon fallback:** it is per session there ([below](#the-babylon-fallback)) |
 | Stingers and `handle.trigger` | **A 192 kHz output** is short of the audio core's fixed memory on the default and high presets (the low preset fits); use a 44.1, 48 or 96 kHz context |
-| Quantised stem automation | **Touch on a `UIButton`:** a touch press hit-tests a stale pointer position (engine bug F-30), so the Sound Lab's phone buttons are plain DOM |
+| Quantised stem automation | |
 | `handle.music` position, tempo, `nextGrid`, `seek` and `positionAt` (with `judged`) | **Real-device checks** (phone prime lead, other browsers' output latency, the lab VM) are the owner's [listening pass](../design/0166-audio-music/listening-pass.md); this guide's numbers come from tests and a desktop browser |
 | The component callbacks `onMusicBeat`, `onMusicBar`, `onMusicCue`, and `handle.onMusic` for music started with `Audio.play` | |
 | `Calibration.fromTaps`, `Audio.calibration` (saved per output device), `Audio.calibrationStale` | |
