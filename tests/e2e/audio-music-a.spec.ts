@@ -469,8 +469,20 @@ test("SM2: the sound-lab music page loads, plays the world switch and changes st
   await expect.poll(async () => (await rowOf(page, "music-world"))?.segment, { timeout: 15_000, message: "the change to combat landed" }).toBe("combat");
   await page.keyboard.press("l");
   await expect.poll(async () => (await rowOf(page, "music-loop"))?.state, { timeout: 30_000 }).toBe("playing");
+  // F-28: a playlist reads `playing` only between an advance landing and its successor's stamp, a frame or two every item
+  // (architecture §2.1: Pending, then Transitioning from the stamp, a whole item ahead), so a page-side sampler watches the
+  // row every 20 ms: `expect.poll`'s 1 s reads land outside those windows, in step with the 4 s items, every time.
+  await page.evaluate(() => {
+    const { Audio } = (globalThis as unknown as { __myco: { Audio: { debug(): { music?: { asset: string; state: string }[] } } } }).__myco;
+    const states: string[] = [];
+    (globalThis as unknown as { __sm2: string[] }).__sm2 = states;
+    setInterval(() => {
+      const s = Audio.debug().music?.find((m) => m.asset.includes("music-playlist"))?.state;
+      if (s && s !== states[states.length - 1]) states.push(s);
+    }, 20);
+  });
   await page.keyboard.press("p");
-  await expect.poll(async () => (await rowOf(page, "music-playlist"))?.state, { timeout: 30_000 }).toBe("playing");
+  await expect.poll(() => page.evaluate(() => (globalThis as unknown as { __sm2: string[] }).__sm2), { timeout: 30_000, message: "the playlist plays" }).toContain("playing");
   expect(seen.errors).toEqual([]);
   expect(seen.warnings).toEqual([]);
 });
