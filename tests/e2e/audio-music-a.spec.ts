@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "./fixtures";
 import {
-  addAssets, audioDebug, bootSample, event, FLAPPY, INTENSITY_EVENT, LAB, layered, musicRows, musicStates, offGrid, pauseWorkers, peakOver, playingEntries, playlist3, readLate, sampleMusicState, SINES, snap, startEvent, stems8, switchAB, watchConsole, withStinger,
+  addAssets, audioDebug, bootSample, event, FLAPPY, INTENSITY_EVENT, LAB, layered, musicRows, offGrid, pauseWorkers, peakOver, playlist3, readLate, SINES, snap, startEvent, stems8, switchAB, watchConsole, withStinger,
   type Row,
 } from "./audioMusic";
 
@@ -243,6 +243,11 @@ test("M4a: a stinger plays on the next bar, over the music, which carries on", a
   expect(seen.warnings).toEqual([]);
 });
 
+/** The meter's lag behind the core: the 20 ms ramp, a STATUS block and a display frame. */
+const METER_LAG = 0.1;
+/** The main thread's estimate of the audio clock (`Audio.time`) is good to about this much (it read 6 ms ahead of the line in a loaded run). */
+const CLOCK_SLACK = 0.03;
+
 test("M4a: quantised automation brings a stem in on the beat, not when the parameter moves", async ({ page }) => {
   const seen = watchConsole(page);
   await bootSample(page, LAB);
@@ -254,7 +259,8 @@ test("M4a: quantised automation brings a stem in on the beat, not when the param
   const base = await peakOver(page, "Tape", 500);
   expect(base, "the base stem alone").toBeGreaterThan(0.05);
 
-  // Sets Layer and watches the Tape meter against the audio clock for `ms`; returns when the level first rose past 1.4 x base.
+  // Sets Layer and watches the Tape meter against the audio clock for `ms`; returns when the level first rose past 1.4 x base,
+  // with the audio-clock reading of the last poll before it (`quiet`): the rise began in (quiet - METER_LAG, crossed].
   const raise = (ms: number) =>
     page.evaluate(
       async ([span, floor]) => {
@@ -263,15 +269,18 @@ test("M4a: quantised automation brings a stem in on the beat, not when the param
         g.__e1.m!.setParameter("Layer", 1);
         const t0 = performance.now();
         let crossed: number | null = null;
+        let quiet = calledAt;
         while (performance.now() - t0 < (span as number)) {
-          if (crossed === null && g.__myco.Audio.bus("Tape").peak > (floor as number)) crossed = g.__myco.Audio.time;
+          const now = g.__myco.Audio.time;
+          if (crossed === null && g.__myco.Audio.bus("Tape").peak > (floor as number)) crossed = now;
+          else if (crossed === null) quiet = now;
           await new Promise((r) => setTimeout(r, 4));
         }
-        return { calledAt, crossed };
+        return { calledAt, crossed, quiet };
       },
       [ms, base * 1.4] as const,
     );
-  const rises: { calledAt: number; crossed: number }[] = [];
+  const rises: { calledAt: number; crossed: number; quiet: number }[] = [];
   for (const wait of [0, 170]) {
     // Back to the base alone (the meter holds a peak briefly), then a wait that moves the call to another phase of the beat.
     await page.evaluate(() => (globalThis as unknown as G).__e1.m!.setParameter("Layer", 0));
@@ -279,12 +288,16 @@ test("M4a: quantised automation brings a stem in on the beat, not when the param
     await page.waitForTimeout(wait);
     const r = await raise(2200);
     expect(r.crossed, "the layer entered").not.toBeNull();
-    rises.push({ calledAt: r.calledAt, crossed: r.crossed! });
+    rises.push({ calledAt: r.calledAt, crossed: r.crossed!, quiet: r.quiet });
   }
   for (const r of rises) {
     expect(r.crossed - r.calledAt, "not at once: it waited for a beat line").toBeGreaterThan(0.01);
     expect(r.crossed - r.calledAt, "and no longer than a beat plus the lead").toBeLessThan(0.5 + 1.2);
-    expect(offGrid(r.crossed - T, 0.5), `entered on a beat line (${r.crossed.toFixed(3)} against the start ${T.toFixed(3)})`).toBeLessThan(0.12);
+    // The stamp is exact in the core's frames (stems.quantized.test.ts, loopback host); here the meter is read on the main
+    // thread, so a slow poll adds its own gap. A beat line must fall inside the window the readings allow: the poll before the
+    // rise saw nothing (so the line is not before it less the meter's lag), the poll that saw it came after the line, give or take the clock estimate.
+    const line = T + Math.ceil((r.quiet - METER_LAG - T) / 0.5 - 1e-9) * 0.5;
+    expect(line, `a beat line (${line.toFixed(3)}) lies in the window the rise began in (${(r.quiet - METER_LAG).toFixed(3)}..${r.crossed.toFixed(3)} + ${CLOCK_SLACK}, ${((r.crossed - r.quiet) * 1000).toFixed(0)} ms wide)`).toBeLessThanOrEqual(r.crossed + CLOCK_SLACK);
   }
   await expectClean(page, "quantised automation");
   expect(seen.errors).toEqual([]);
@@ -404,10 +417,8 @@ test("M4a: the 10-minute playlist runs with no late group", { tag: "@slow" }, as
   await bootSample(page, LAB);
   // 3 one-pass segments of 4 s (decoded, and one with a streamed stem) forever: an item every 4 s, a group per item.
   await addAssets(page, { "e1/long.audioevent.json": playlist3(0) });
-  // F-29: the row reads `playing` for 100-200 ms per item, so a page-side sampler watches it (installed before the start).
-  await sampleMusicState(page, "long");
   await startEvent(page, "m", "e1/long.audioevent.json");
-  await expect.poll(() => musicStates(page, "long"), { timeout: 30_000, message: "the playlist plays" }).toContain("playing");
+  await expect.poll(async () => (await rowOf(page, "long"))?.state, { timeout: 30_000, message: "the playlist plays" }).toBe("playing");
   // A sampler in the page counts the items (the playing segment's id changes at each advance) every 50 ms.
   await page.evaluate(() => {
     const { Audio } = (globalThis as unknown as { __myco: { Audio: { debug(): { music?: { segment: string | null; asset: string }[] } } } }).__myco;
@@ -441,9 +452,7 @@ test("M4a: the 10-minute playlist runs with no late group", { tag: "@slow" }, as
     if (!r) {
       // Between two reads the row was not there: look again for a moment before calling the playlist over (and say so).
       console.log(`[music-a] no music row at t=${Math.round((Date.now() - t0) / 1000)}s; looking again`);
-      // The row reads `playing` once per 4 s item, so the window is 6 s, not 3 (a 3 s one can fall between two items' windows).
-      const before = await playingEntries(page, "long");
-      await expect.poll(() => playingEntries(page, "long"), { timeout: 6_000, message: `the playlist is still playing (${log[log.length - 1]})` }).toBeGreaterThan(before);
+      await expect.poll(async () => (await rowOf(page, "long"))?.state, { timeout: 3_000, message: `the playlist is still playing (${log[log.length - 1]})` }).toBe("playing");
     }
   }
   const long = await page.evaluate(() => (globalThis as unknown as { __long: { items: number; badOrder: number } }).__long);
@@ -473,11 +482,8 @@ test("SM2: the sound-lab music page loads, plays the world switch and changes st
   await expect.poll(async () => (await rowOf(page, "music-world"))?.segment, { timeout: 15_000, message: "the change to combat landed" }).toBe("combat");
   await page.keyboard.press("l");
   await expect.poll(async () => (await rowOf(page, "music-loop"))?.state, { timeout: 30_000 }).toBe("playing");
-  // F-28: a playlist reads `playing` only between an advance landing and its successor's stamp, a frame or two every item
-  // (architecture §2.1), so the row is sampled in the page every 20 ms (`sampleMusicState`), not read 1 s apart.
-  await sampleMusicState(page, "music-playlist");
   await page.keyboard.press("p");
-  await expect.poll(() => musicStates(page, "music-playlist"), { timeout: 30_000, message: "the playlist plays" }).toContain("playing");
+  await expect.poll(async () => (await rowOf(page, "music-playlist"))?.state, { timeout: 30_000, message: "the playlist plays" }).toBe("playing");
   expect(seen.errors).toEqual([]);
   expect(seen.warnings).toEqual([]);
 });

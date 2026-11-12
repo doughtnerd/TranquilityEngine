@@ -181,33 +181,6 @@ export const startEvent = (page: Page, name: string, path: string, options: obje
     [name, path, options] as const,
   );
 
-/**
- * Watches a music row's `state` from inside the page every 20 ms and keeps each change in order (F-28, F-29). A playlist's
- * row reads `playing` only between an advance landing and its successor's stamp, 100-200 ms of each item (architecture
- * §2.1: Pending, then Transitioning from the stamp, a whole item ahead), so `expect.poll`'s reads, 1 s apart, can miss
- * every window in step with the items. Install it before the event starts; `musicStates` reads the history back.
- * `asset` is a substring of the row's asset path; installing again for the same `asset` restarts its history.
- */
-export const sampleMusicState = (page: Page, asset: string) =>
-  page.evaluate((a) => {
-    const g = globalThis as unknown as { __myco: Api; __musicStates?: Record<string, { states: string[]; timer: ReturnType<typeof setInterval> }> };
-    const all = (g.__musicStates ??= {});
-    if (all[a]) clearInterval(all[a]!.timer);
-    const states: string[] = [];
-    const timer = setInterval(() => {
-      const s = (g.__myco.Audio.debug() as Debug | undefined)?.music?.find((m) => m.asset.includes(a))?.state;
-      if (s && s !== states[states.length - 1]) states.push(s);
-    }, 20);
-    all[a] = { states, timer };
-  }, asset);
-
-/** The states `sampleMusicState` has seen for `asset`, each change once, in order (empty before it is installed). */
-export const musicStates = (page: Page, asset: string): Promise<string[]> =>
-  page.evaluate((a) => (globalThis as unknown as { __musicStates?: Record<string, { states: string[] }> }).__musicStates?.[a]?.states.slice() ?? [], asset);
-
-/** How many times the sampled row has entered `playing` (a playlist enters it once per item). */
-export const playingEntries = async (page: Page, asset: string): Promise<number> => (await musicStates(page, asset)).filter((s) => s === "playing").length;
-
 /** Reads the named handle's music state: position, pending change and the next bar and beat. */
 export const snap = (page: Page, name: string): Promise<Snap | null> =>
   page.evaluate((n) => {

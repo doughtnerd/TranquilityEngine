@@ -6,7 +6,7 @@ import type { EventInstance } from "../events/eventRuntime";
 import { newMusicContext, parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
 import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { _resetSegmentRuns, createSegmentRun, pollPrimed, primeRun, routeGroupEvent, setSegmentClipSource, stampRun, type SegmentRun } from "./segmentRun";
-import { releaseSilentRing, soloStem, tickStems } from "./stems";
+import { releaseSilentRing, setAudibleStems, soloStem, tickStems } from "./stems";
 
 function rig(): { b: FakeBackend; player: MusicPlayer; run: SegmentRun; f: MusicFrame; voices: FakeVoice[] } {
   const b = makeFakeBackend();
@@ -60,6 +60,19 @@ describe("stems (ADR 0166 P5)", () => {
     voices[0]!.end();
     tickStems(player, { ...f, now: 5 });
     expect(run.stems[0]!.voice).toBe(voices[0]);
+  });
+
+  it("setAudibleStems (editor solo and mute) keeps only the named stems of its segment audible, and null restores all (F-14)", () => {
+    const { player, f, voices } = rig();
+    setAudibleStems(player, ["drums", "pad"], "s", 0.1); // bass muted
+    expect(voices.map((v) => v.events.filter((e) => e.kind === "fade").pop())).toEqual([
+      { kind: "fade", to: 1, seconds: 0.1 }, { kind: "fade", to: 0, seconds: 0.1 }, { kind: "fade", to: 1, seconds: 0.1 },
+    ]);
+    setAudibleStems(player, null, null, 0.1);
+    for (const v of voices) expect(v.events.filter((e) => e.kind === "fade").pop()).toMatchObject({ to: 1 });
+    // Another segment's stems are untouched by a set for "s".
+    setAudibleStems(player, [], "other", 0.1);
+    for (const v of voices) expect(v.events.filter((e) => e.kind === "fade").pop()).toMatchObject({ to: 1 });
   });
 
   it("clearing the solo brings every stem back to 1", () => {

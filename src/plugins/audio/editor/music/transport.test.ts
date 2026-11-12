@@ -33,10 +33,17 @@ function fakeHandle(playing = true): Fake {
   return h;
 }
 
-function fakeHost(handles: Fake[]): TransportHost & { flushed: string[]; reloaded: string[]; played: string[] } {
+type FakeHost = TransportHost & {
+  flushed: string[]; reloaded: string[]; played: string[]; params: Record<string, number | string>[]; started: string[]; stemCalls: (readonly string[] | null)[];
+};
+
+function fakeHost(handles: Fake[]): FakeHost {
   const host = {
-    flushed: [] as string[], reloaded: [] as string[], played: [] as string[],
-    play: (path: string) => { host.played.push(path); return handles.shift() ?? fakeHandle(); },
+    flushed: [] as string[], reloaded: [] as string[], played: [] as string[], params: [] as Record<string, number | string>[],
+    started: [] as string[], stemCalls: [] as (readonly string[] | null)[],
+    play: (path: string, parameters: Record<string, number | string>) => { host.played.push(path); host.params.push(parameters); return handles.shift() ?? fakeHandle(); },
+    startAt: (_h: TransportHandle, id: string) => { host.started.push(id); return id !== "nope"; },
+    stems: (_h: TransportHandle, _id: string, audible: readonly string[] | null) => void host.stemCalls.push(audible),
     flush: async (path: string) => void host.flushed.push(path),
     reload: (path: string) => void host.reloaded.push(path),
   };
@@ -196,5 +203,34 @@ describe("transport", () => {
     await t.play(req());
     expect(a.stops).toBe(1);
     expect(activeAudition.value?.handle).toBe(b);
+  });
+
+  it("passes the request's parameters to the played instance and starts the playlist at the segment (F-15)", async () => {
+    const host = fakeHost([fakeHandle()]);
+    const t = createTransport(host);
+    await t.play(req({ parameters: { intensity: 0.75 }, startAtSegment: true }));
+    expect(host.params).toEqual([{ intensity: 0.75 }]);
+    expect(host.started).toEqual(["a"]);
+    expect(t.state.value.message).toBeNull();
+  });
+
+  it("starts at a segment only when asked, and says so when the runtime can't (F-15)", async () => {
+    const host = fakeHost([fakeHandle(), fakeHandle()]);
+    const t = createTransport(host);
+    await t.play(req());
+    expect(host.started).toEqual([]);
+    await t.play(req({ segmentId: "nope", startAtSegment: true }));
+    expect(t.state.value.message).toMatch(/can't be started on its own/);
+  });
+
+  it("applies the audible stems at play and when they change while playing (F-14)", async () => {
+    const host = fakeHost([fakeHandle()]);
+    const t = createTransport(host);
+    t.setAudibleStems("a", ["drums"]);
+    expect(host.stemCalls).toEqual([]); // nothing plays yet
+    await t.play(req());
+    expect(host.stemCalls).toEqual([["drums"]]);
+    t.setAudibleStems("a", null);
+    expect(host.stemCalls).toEqual([["drums"], null]);
   });
 });

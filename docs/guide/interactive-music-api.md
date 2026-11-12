@@ -99,6 +99,20 @@ type MusicSeekResult =
 
 `seek` takes `"bar:beat:tick"` (`"5:3"` and `"5"` fill in the rest). It crossfades over 5 ms and lands on the earliest frame the core can stamp, not on a beat. A position past the end goes to the end; one in the pickup enters exactly there; at or past the exit cue the segment plays on from there. A refused seek did not happen, though a pending change it would have replaced is gone. It never moves to another segment, and fires no beats or cues for the span it skips.
 
+### Importable types
+
+Every type in this reference is importable from `"myco"` as a type, so a script can name it in annotations (ADR 0168): the handle and event types (`MusicEventHandle`, `MusicEvent`, `MusicHandle`, `MusicPositionAt`, `MusicSeekResult`, `GridSpec`, `GridPoint`, `MusicKind`, `CalibrationResult`, `CalibrationApi`, `AudioLatency`) and the format's node model (`SegmentNode`, `PlaylistNode`, `MusicSwitchNode`, `MusicNode`, `TempoMarker`, `MusicCue`, `MusicRegion`, `MusicTrack`, `MusicAutomation`, `TransitionRule`, `TransitionFade`, `StingerDef` and their field types). Use `import type`: the exports are types only, so they add nothing to the bundle. Constants, parsers and the writer are not exported.
+
+```ts
+import { Component } from "myco";
+import type { MusicEvent, MusicEventHandle } from "myco";
+
+class Pulse extends Component {
+  private music?: MusicEventHandle;
+  onMusicBeat(e: MusicEvent) { this.music = e.handle; }
+}
+```
+
 ### Value types
 
 ```ts
@@ -156,7 +170,7 @@ They run in the update phase just before `update`, in the frame whose window hol
 
 ### Debug types
 
-`Audio.debug().music` is a `MusicDebugRow[]` and `Audio.debug().musicTotals` a `MusicDebugTotals`; `MusicDebugState` is `"priming" | "playing" | "transitioning" | "recovering" | "ending"` and `MusicDebugPending` is the waiting change with its rule (`to`, `time` as `"bar:beat"`, `rule` index or -1 for the default, `ruleKey` as `"from>to"`). The columns are described in [the debug panel's Music section](interactive-music.md#the-debug-panels-music-section); the fields are in `src/plugins/audio/runtime/backend.ts`.
+`Audio.debug().music` is a `MusicDebugRow[]` and `Audio.debug().musicTotals` a `MusicDebugTotals`; `MusicDebugState` is `"priming" | "playing" | "transitioning" | "recovering" | "ending"` (`transitioning` only while two segments are audible together, a crossfade or a bridge; a scheduled change leaves the state at `playing` and is the row's `pending`) and `MusicDebugPending` is the waiting change with its rule (`to`, `time` as `"bar:beat"`, `rule` index or -1 for the default, `ruleKey` as `"from>to"`). The columns are described in [the debug panel's Music section](interactive-music.md#the-debug-panels-music-section); the fields are in `src/plugins/audio/runtime/backend.ts`.
 
 ## Project settings
 

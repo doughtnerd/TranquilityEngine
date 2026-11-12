@@ -251,6 +251,7 @@ export class Stress extends GameBehavior {
       workUnits: c.workUnits,
       workUnitsMax: c.workUnitsMax,
       hrtfVoices: c.hrtfVoices,
+      hrtfFlagged: core.hrtfFlagged ?? 0,
       droppedPlays: c.droppedPlays,
       minSlackFrames: c.minSlackFrames,
       streams: core.streams ?? 0,

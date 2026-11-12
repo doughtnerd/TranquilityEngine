@@ -14,7 +14,10 @@ export interface Sample {
   mixedCap: number;
   workUnits: number;
   workUnitsMax: number;
+  /** The core's voices rendered with HRTF this quantum: those flagged, plus any still crossfading out after a handover (45 ms). */
   hrtfVoices: number;
+  /** Main's HRTF choice (`Audio.debug().core.hrtfFlagged`): at most `voices.hrtf` (ADR 0162). */
+  hrtfFlagged: number;
   droppedPlays: number;
   minSlackFrames: number;
   streams: number;
@@ -88,6 +91,7 @@ export class Hud {
   private logicalMax = 0;
   private mixedMax = 0;
   private hrtfMax = 0;
+  private hrtfFlaggedMax = 0;
   private wuMax = 0;
   private stalls = 0;
   private maxGapMs = 0;
@@ -184,6 +188,7 @@ export class Hud {
       this.logicalMax = Math.max(this.logicalMax, s.logicalVoices);
       this.mixedMax = Math.max(this.mixedMax, s.mixedVoices);
       this.hrtfMax = Math.max(this.hrtfMax, s.hrtfVoices);
+      this.hrtfFlaggedMax = Math.max(this.hrtfFlaggedMax, s.hrtfFlagged);
       this.wuMax = Math.max(this.wuMax, s.workUnitsMax);
       this.rowCapMin = Math.min(this.rowCapMin, s.mixedCap);
       this.rowWuMax = Math.max(this.rowWuMax, s.workUnitsMax);
@@ -210,6 +215,7 @@ export class Hud {
           logicalMax: this.logicalMax,
           mixedMax: this.mixedMax,
           hrtfMax: this.hrtfMax,
+          hrtfFlaggedMax: this.hrtfFlaggedMax,
           wuMax: this.wuMax,
           stalls: this.stalls,
           maxGapMs: this.maxGapMs,
@@ -284,7 +290,7 @@ export class Hud {
       ...this.rows.map((r) => this.rowText(r)),
       "",
       `total since the storm started: underruns ${underruns}, late commands ${s.lateCommands - b.lateCommands}, dropped plays ${s.droppedPlays - b.droppedPlays}, stream starves ${starves}, stream errors ${s.streamErrors - b.streamErrors}, traps ${s.traps}, rebuilds ${s.rebuilds}`,
-      `peaks: logical ${num(this.logicalMax)}, mixed ${this.mixedMax}, hrtf ${this.hrtfMax}, cap ${this.capMin} to ${this.capMax}, work units max ${num(this.wuMax)}, main-thread stalls over ${STALL_MS} ms: ${this.stalls} (longest ${Math.round(this.maxGapMs)} ms)`,
+      `peaks: logical ${num(this.logicalMax)}, mixed ${this.mixedMax}, hrtf ${this.hrtfFlaggedMax} flagged (${this.hrtfMax} rendering, handovers included), cap ${this.capMin} to ${this.capMax}, work units max ${num(this.wuMax)}, main-thread stalls over ${STALL_MS} ms: ${this.stalls} (longest ${Math.round(this.maxGapMs)} ms)`,
       `gate (0 underruns, 0 starves, no trap or rebuild): ${pass ? "PASS" : "FAIL"}`,
     ];
     this.report = lines.join("\n");

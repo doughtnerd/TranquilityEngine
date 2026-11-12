@@ -382,3 +382,113 @@ test("music import: a clip dropped on the Assets panel and onto a segment's stem
   expect(back.tempo).toBeUndefined();
   expect(problems).toEqual([]);
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The segment view's transport (F-14, F-15): stem solo and mute, starting at a later playlist segment, and the Event editor's
+// parameter values, on a playlist of A (one stem) and B (two stems on different clips) that loop, so none advances by itself.
+
+const LIST = "music/list.audioevent.json";
+const listEvent = () =>
+  event(
+    {
+      type: "playlist",
+      id: "list",
+      mode: "sequence",
+      rounds: 0,
+      children: [
+        segment("A", [{ name: "foo", clip: "music/foo.mp3", volume: 0.3 }], true),
+        segment("B", [{ name: "town", clip: "music/town.mp3", volume: 0.3 }, { name: "bell", clip: "music/foo.mp3", volume: 0.3 }], true),
+      ],
+    },
+    { bus: "Music", parameters: [{ name: "Intensity", min: 0, max: 1, default: 0.2 }] },
+  );
+
+type VoiceRow = { clip: string; gain: number; state: string };
+const voiceRows = (page: Page) =>
+  page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { debug(): { voices: VoiceRow[] } } } }).__myco.Audio.debug().voices.filter((v) => /music\/(foo|town)\.mp3/.test(v.clip)).map((v) => ({ clip: v.clip, gain: v.gain, state: v.state })));
+const musicRow = (page: Page) =>
+  page.evaluate((asset) => (globalThis as unknown as { __myco: { Audio: { debug(): { music?: { asset: string; segment: string | null; state: string }[] } } } }).__myco.Audio.debug().music?.find((r) => r.asset === asset) ?? null, LIST);
+const eventRows = (page: Page) =>
+  page.evaluate((asset) => (globalThis as unknown as { __myco: { Audio: { debug(): { events: { asset: string; parameters: Record<string, number | string> }[] } } } }).__myco.Audio.debug().events.filter((e) => e.asset === asset), LIST);
+
+/** Open the list event in the Event editor, select its item `index` and open that segment in the segment view. */
+async function openListSegment(page: Page, index: number, beforeOpen?: () => Promise<void>): Promise<void> {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await openTestProject(page, { [LIST]: JSON.stringify(listEvent()) });
+  await page.locator(".dock-tab", { hasText: "Assets" }).click();
+  const assets = page.locator(".panel.assets");
+  await assets.locator(".asset-folder", { hasText: /^music$/ }).click();
+  await assets.locator(".asset-item", { has: page.locator(".asset-name", { hasText: "list.audioevent.json" }) }).dblclick();
+  await expect(page.getByTestId("event-editor")).toHaveAttribute("data-asset-document", LIST);
+  await page.locator(`[data-testid="event-tree-row"][data-event-path="${index}"]`).click();
+  await beforeOpen?.();
+  await page.getByTestId("open-segment-view").click();
+}
+
+test("segment view transport: solo and mute of the stem list are audible in the played segment, and are never written to the event", async ({ page }) => {
+  const problems = watch(page);
+  await openListSegment(page, 1);
+  const before = await page.evaluate((p) => (window as unknown as Hooks).testFolder.read(p), LIST);
+  const gainOf = async (clip: string) => Math.max(0, ...(await voiceRows(page)).filter((v) => v.clip.includes(clip)).map((v) => v.gain));
+  const stem = (name: string, kind: "Solo" | "Mute") => page.locator(`.sp-stem[data-stem="${name}"] button[title="${kind} (audition only)"]`);
+  // The stem list and the view share one dock here and hiding the view closes its sound, so set the buttons, then play.
+  const playB = async () => {
+    await showTab(page, /^Segment$/);
+    await page.getByTestId("transport-play").click();
+    await expect.poll(async () => (await musicRow(page))?.segment, { timeout: 30_000 }).toBe("B");
+  };
+
+  // Solo "town": only its voice is audible; the other stem of B (the foo clip) is silent.
+  await showTab(page, /^Segment Properties/);
+  await stem("town", "Solo").click();
+  await playB();
+  await expect.poll(async () => [(await gainOf("town")) > 0, (await gainOf("foo")) === 0], { timeout: 15_000 }).toEqual([true, true]);
+
+  // Clear it and mute "town": now the foo clip is the audible one.
+  await showTab(page, /^Segment Properties/);
+  await stem("town", "Solo").click();
+  await stem("town", "Mute").click();
+  await playB();
+  await expect.poll(async () => [(await gainOf("foo")) > 0, (await gainOf("town")) === 0], { timeout: 15_000 }).toEqual([true, true]);
+
+  // Neither wrote to the event.
+  expect(await page.evaluate((p) => (window as unknown as Hooks).testFolder.read(p), LIST)).toBe(before);
+  expect(problems.filter((p) => !/prime lead/.test(p))).toEqual([]); // the lead warning depends on the CPU the software GL leaves
+});
+
+// F-33: Segment and Segment Properties share a dock tab group; the tab switch unmounts the view and must not stop the audition.
+test("segment view transport: the audition keeps playing across a switch to Segment Properties, and a solo there is heard at once", async ({ page }) => {
+  const problems = watch(page);
+  await openListSegment(page, 1);
+  const gainOf = async (clip: string) => Math.max(0, ...(await voiceRows(page)).filter((v) => v.clip.includes(clip)).map((v) => v.gain));
+  await page.getByTestId("transport-play").click();
+  await expect.poll(async () => (await musicRow(page))?.segment, { timeout: 30_000 }).toBe("B");
+  await expect.poll(async () => [(await gainOf("town")) > 0, (await gainOf("foo")) > 0], { timeout: 15_000 }).toEqual([true, true]);
+
+  await showTab(page, /^Segment Properties/);
+  await page.locator('.sp-stem[data-stem="town"] button[title="Solo (audition only)"]').click();
+  // Still the same running music (not restarted), and now only "town" sounds.
+  await expect.poll(async () => [(await gainOf("town")) > 0, (await gainOf("foo")) === 0], { timeout: 15_000 }).toEqual([true, true]);
+  expect((await musicRow(page))?.segment).toBe("B");
+  expect(await eventRows(page)).toHaveLength(1);
+
+  // Back to the view: the transport still shows playing, and Stop ends it.
+  await showTab(page, /^Segment$/);
+  await expect(page.getByTestId("transport-stop")).toBeEnabled();
+  await page.getByTestId("transport-stop").click();
+  await expect.poll(async () => (await eventRows(page)).length, { timeout: 15_000 }).toBe(0);
+  expect(problems.filter((p) => !/prime lead/.test(p))).toEqual([]);
+});
+
+test("segment view transport: Play starts the playlist at the open segment, and the Event editor's parameter values reach the instance", async ({ page }) => {
+  const problems = watch(page);
+  // The Event editor's slider (not saved) is read by the transport when it plays.
+  await openListSegment(page, 1, () => page.getByLabel("Audition Intensity").fill("0.8"));
+  await showTab(page, /^Segment$/);
+  await page.getByTestId("transport-play").click();
+  // The second item plays first: its clips sound, the segment row says B.
+  await expect.poll(async () => (await musicRow(page))?.segment, { timeout: 30_000 }).toBe("B");
+  await expect.poll(async () => (await voiceRows(page)).some((v) => v.clip.includes("town")), { timeout: 15_000 }).toBe(true);
+  await expect.poll(async () => (await eventRows(page))[0]?.parameters.Intensity, { timeout: 15_000 }).toBeCloseTo(0.8, 5);
+  expect(problems.filter((p) => !/prime lead/.test(p))).toEqual([]); // the lead warning depends on the CPU the software GL leaves
+});

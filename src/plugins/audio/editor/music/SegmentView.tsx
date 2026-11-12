@@ -18,7 +18,8 @@ import { peaksFor } from "./peaksHost";
 import type { PeaksService } from "./peaks";
 import { TransportBar } from "./TransportBar";
 import { musicTransport } from "./transportHost";
-import { stingerNames } from "../event/auditionHost";
+import { auditionOverrides, NO_OVERRIDES, stingerNames } from "../event/auditionHost";
+import { auditionValues } from "../event/eventParameters";
 import { binAt, binSpan, pickLevel, type PeakMips } from "./peaksMip";
 import "./segmentView.css";
 
@@ -436,18 +437,17 @@ function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
   const event = doc.value.value;
   const segment = useMemo(() => findSegment(event.musicRoot, segmentId), [event.musicRoot, segmentId]);
   const grid = useMemo(() => (segment ? compileSegmentGrid(segment, { endSeconds: NaN }) : null), [segment]);
-  // The transport ticks on a light timer while this panel is open; closing it stops the sound.
-  useEffect(() => {
-    const t = setInterval(() => musicTransport.tick(), TRANSPORT_TICK_MS);
-    return () => { clearInterval(t); musicTransport.dispose(); };
-  }, [path, segmentId]);
+  // The transport (ticking, solo and mute, its lifetime) is the transport service's (F-33): a tab switch to Segment
+  // Properties unmounts this view, and the audition goes on.
   useEffect(() => { if (grid) musicTransport.tick(grid); }, [grid]);
+  // F-15: the Event editor's slider values (moved ones over the defaults) reach the played instance.
+  const parameters = auditionValues(event.parameters, auditionOverrides.value[path] ?? NO_OVERRIDES);
   if (!segment || !grid) return <p class="empty">{path} has no segment “{segmentId}”.</p>;
   const onChange: SegmentChange = (next, o) => {
     if (!event.musicRoot) return;
     doc.edit({ ...event, musicRoot: replaceSegment(event.musicRoot, segmentId, next) }, o.drag ? { coalesce: true, label: o.label } : { label: o.label });
   };
-  const request = (seconds: number) => ({ event: path, segmentId, grid, from: { kind: "seconds", seconds } as const });
+  const request = (seconds: number) => ({ event: path, segmentId, grid, parameters, startAtSegment: true, from: { kind: "seconds", seconds } as const });
   return (
     <div class="segment-panel-root" data-asset-document={doc.path}>
       <TransportBar
@@ -457,6 +457,7 @@ function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
         grid={grid}
         cues={segment.cues.map((c) => c.name)}
         stingers={stingerNames(event.musicRoot)}
+        parameters={parameters}
       />
       <SegmentView
         segment={segment}
@@ -470,5 +471,3 @@ function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
   );
 }
 
-/** How often the transport reads the music's position, ms. */
-const TRANSPORT_TICK_MS = 50;

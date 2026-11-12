@@ -183,6 +183,32 @@ describe("HRTF for the nearest voices on the loopback host (H3)", () => {
     backend.dispose();
   });
 
+  it("a handover: main never flags past the limit; the core pans the outgoing voice for its 45 ms crossfade, then the limit (F-11)", async (ctx) => {
+    const r = await rig({ hrtf: 1 });
+    if (!r) return ctx.skip();
+    const { backend, step, hrtfSeen } = r;
+    backend.play(req("far.wav", -4, 0));
+    await step(40);
+    expect(backend.debug().counters.hrtfVoices).toBe(1);
+    // A nearer voice outranks it: the far one is unflagged and the near one flagged in the same frame (unflags first).
+    hrtfSeen.length = 0;
+    const flagged: number[] = [];
+    backend.play(req("near.wav", -1, 0));
+    for (let f = 0; f < 30; f++) {
+      await step(1);
+      flagged.push(backend.debug().core.hrtfFlagged as number);
+    }
+    expect(Math.max(...flagged)).toBe(1);
+    // The core: 2 while the far voice crossfades out beside the near one crossfading in, for 45 ms (17 quanta, about
+    // 5 of these 4-quantum frames), then 1. The count is the panners that ran (the work-unit model's HRTF term).
+    const over = hrtfSeen.filter((n) => n === 2).length;
+    expect(Math.max(...hrtfSeen)).toBe(2);
+    expect(over).toBeGreaterThanOrEqual(4);
+    expect(over).toBeLessThanOrEqual(6);
+    expect(hrtfSeen.slice(-10).every((n) => n === 1)).toBe(true);
+    backend.dispose();
+  });
+
   it('never fetches the table with "equalPower" or voices.hrtf 0', async (ctx) => {
     for (const opts of [{ spatial: "equalPower" as const }, { hrtf: 0 }]) {
       const r = await rig(opts);

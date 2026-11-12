@@ -8,7 +8,7 @@ import type { AudioEventAsset, EventNode } from "../../../../engine/audio/eventF
 import type { MusicNode } from "../../../../engine/audio/musicFormat";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { Audition } from "./Audition";
-import { activeAudition, stingerAuditionFor } from "./auditionHost";
+import { activeAudition, auditionOverrides, NO_OVERRIDES, setAuditionValue, stingerAuditionFor } from "./auditionHost";
 import { auditionValues } from "./eventParameters";
 import { getMusicNode, getNode, musicIdProblem, parentPath, pathKey, renameMusicId, setMusicNode, setNode, type NodePath, type SustainSlot } from "./EventTree";
 import { EventTree } from "./EventTree";
@@ -40,7 +40,7 @@ function EventEditor({ path }: { path: string }) {
   // A music event's tree is its `musicRoot` (D6): `root` is then the empty layer, and every edit goes to `musicRoot`.
   const music = event.musicRoot;
   const selected = picked && (music ? getMusicNode(music, picked) : getNode(event.root, picked)) ? picked : null;
-  const [audition, setAudition] = useState<Record<string, number | string>>({});
+  const audition = auditionOverrides.value[path] ?? NO_OVERRIDES;
   const values = auditionValues(event.parameters, audition);
   const [voices, setVoices] = useState(0);
 
@@ -110,7 +110,7 @@ function EventEditor({ path }: { path: string }) {
             event={event}
             onChange={change}
             values={values}
-            onAudition={(name, value) => setAudition((a) => ({ ...a, [name]: value }))}
+            onAudition={(name, value) => setAuditionValue(path, name, value)}
             readOnly={readOnly}
           />
           <section class="ev-audition" aria-label="Audition" data-testid="event-audition">

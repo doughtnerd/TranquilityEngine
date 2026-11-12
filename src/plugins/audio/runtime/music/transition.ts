@@ -580,7 +580,6 @@ function stamped(player: MusicPlayer, t: Transition, leg: Leg, p: PlannedStart, 
   if (ctx.legs.length === 2) t.bridge = p;
   else t.incoming = p;
   t.state = "stamped";
-  if (player.state === "pending" || player.state === "playing") player.state = "transitioning";
   if (ctx.legs.length === 2) {
     askLeg2(player, t, ctx, f);
     if (!isOpen(t)) return; // B was refused for good: the change is dropped, A plays on
@@ -698,6 +697,7 @@ function commit(player: MusicPlayer, t: Transition, leg: Leg, f: MusicFrame): vo
   const T = p.point;
   if (ringsOn(player, t, leg, T)) return; // the post-exit tail rings on, ramp-free
   const fades = fadesAt(player, t, leg, T);
+  noteAudible(player, ctx, leg, T, fades);
   const fo = fades?.out ?? { seconds: 0, offset: 0, curve: "linear" as const };
   const horizon = f.now + lookaheadSeconds(f);
   const shaped = clampFade(T + fo.offset, Math.max(0, fo.seconds), horizon) ?? { at: horizon, seconds: 0, startPhase: 0 };
@@ -713,6 +713,39 @@ function commit(player: MusicPlayer, t: Transition, leg: Leg, f: MusicFrame): vo
       unstamped.set(leg, { at: shaped.at, seconds: shaped.seconds });
     }
   }
+}
+
+/**
+ * The heard span in which two segments are audible together (a crossfade, or a bridge from its start to its end), per
+ * player. `player.state` reads `transitioning` only inside it (D18); a scheduled change is `pending` and the debug row's
+ * `pending` field carries it. A cut or a gapless advance has no span.
+ */
+const audible = new WeakMap<MusicPlayer, { from: number; to: number }>();
+
+/** Record the span of a committed leg: B is heard from its fade-in until A's fade-out ends. */
+function noteAudible(player: MusicPlayer, ctx: PlanContext, leg: Leg, T: number, fades: { out: ResolvedFade; in: ResolvedFade } | null): void {
+  const from = fades ? T + fades.in.offset : T;
+  const end = fades ? T + fades.out.offset + fades.out.seconds : T;
+  if (ctx.legs.length === 2) {
+    // A bridge plays between the two overlaps: one span from the bridge's entry to B's.
+    const w = audible.get(player);
+    if (leg.index === 0 || !w) audible.set(player, { from, to: Number.POSITIVE_INFINITY });
+    else w.to = Math.max(end, T);
+    return;
+  }
+  if (end > from + EPS) audible.set(player, { from, to: end });
+  else audible.delete(player);
+}
+
+/** After the tick: `transitioning` while the span is on, else `playing` (`pending` while a change is still planned). */
+function syncAudible(player: MusicPlayer, f: MusicFrame): void {
+  const s = player.state;
+  if (s !== "playing" && s !== "pending" && s !== "transitioning") return;
+  const w = audible.get(player);
+  const on = !!w && f.now >= w.from - EPS && f.now < w.to - EPS;
+  if (on) player.state = "transitioning";
+  else if (s === "transitioning") player.state = isOpen(player.transition) ? "pending" : "playing";
+  if (w && !on && f.now >= w.to - EPS) audible.delete(player);
 }
 
 /** A backend without stamped fades: the leg's outgoing fade starts at the first frame at or after its time. */
@@ -741,13 +774,14 @@ function land(player: MusicPlayer, t: Transition, leg: Leg, f: MusicFrame): void
   }
   if (leg !== lastLeg(ctx) && !ctx.legs[1]!.failed) {
     t.state = "bridging";
-    if (player.state === "pending" || player.state === "playing" || player.state === "committed") player.state = "transitioning";
     refresh(player, t, f);
     return;
   }
   t.state = "done";
   if (player.transition === t) player.transition = null;
-  if (player.state === "pending" || player.state === "transitioning" || player.state === "committed") player.state = "playing";
+  if (player.state === "pending" || player.state === "committed") player.state = "playing";
+  const win = audible.get(player);
+  if (win && win.to === Number.POSITIVE_INFINITY) win.to = Math.max(f.now, win.from); // a bridge that failed to chain: it ends the change
   const after = t.after;
   t.after = null;
   if (after && isOpen(after)) {
@@ -907,6 +941,11 @@ function stopTransition(player: MusicPlayer, t: Transition, f: MusicFrame): void
 
 /** R3a, R3b, step 9: stamp the incoming group when primed, fade the outgoing, chain the bridge, end the outgoing run. */
 export function tickTransition(player: MusicPlayer, f: MusicFrame): void {
+  tickChange(player, f);
+  syncAudible(player, f);
+}
+
+function tickChange(player: MusicPlayer, f: MusicFrame): void {
   // An outgoing left ringing as `player.next` leaves once its voices end.
   const next = player.next;
   if (next && ringing.has(next) && !sounding(next)) {

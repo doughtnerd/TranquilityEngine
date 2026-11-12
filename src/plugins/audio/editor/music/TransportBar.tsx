@@ -12,9 +12,11 @@ export interface TransportBarProps {
   readonly grid: SegmentGrid;
   readonly cues: readonly string[];
   readonly stingers: readonly string[];
+  /** The Event editor's parameter values, passed to the played instance. */
+  readonly parameters?: Record<string, number | string>;
 }
 
-export function TransportBar({ transport, event, segmentId, grid, cues, stingers }: TransportBarProps) {
+export function TransportBar({ transport, event, segmentId, grid, cues, stingers, parameters }: TransportBarProps) {
   const { phase, loop, message } = transport.state.value;
   const [from, setFrom] = useState("start");
   const [bar, setBar] = useState("1");
@@ -27,7 +29,7 @@ export function TransportBar({ transport, event, segmentId, grid, cues, stingers
     if (from === "bar") return { kind: "bar", bar: Number.parseInt(bar, 10) };
     return { kind: "cue", name: from.slice(4) };
   };
-  const request = (): PlayRequest => ({ event, segmentId, grid, from: target() });
+  const request = (): PlayRequest => ({ event, segmentId, grid, parameters, startAtSegment: true, from: target() });
   const chosen = stingers.includes(stinger) ? stinger : (stingers[0] ?? "");
 
   return (

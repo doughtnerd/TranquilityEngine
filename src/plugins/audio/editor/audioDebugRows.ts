@@ -584,7 +584,7 @@ export function musicInstanceRows(rows: readonly MusicDebugRow[], sampleRate: nu
     const { stingers } = r;
     const cells: Cell[] = [
       { text: `${r.id}: ${r.asset}`, tip: "The event instance id and its asset path." },
-      { text: r.state, tip: "priming, playing, transitioning, recovering or ending." },
+      { text: r.state, tip: "priming, playing, transitioning (two segments audible together: a crossfade or a bridge), recovering or ending. A scheduled change keeps it at playing: see Pending." },
       { text: `${r.segment ?? "none yet"}, pass ${fmt(r.pass)}`, tip: "The playing segment's node id, and its pass (its loop count, from 1)." },
       { text: `${fmt(r.bar)}:${fmt(r.beat)}:${fmt(r.tick)}`, tip: `bar:beat:tick (960 ticks per beat); heard at ${fmt(r.time, 3)} s.` },
       { text: `${fmt(r.tempo, 1)} BPM, ${fmt(r.beatsPerBar)} per bar`, tip: "Beats per minute (BPM) and beats per bar." },
@@ -647,7 +647,7 @@ export function musicInstanceRows(rows: readonly MusicDebugRow[], sampleRate: nu
 /** Column headers (label and tooltip) for `musicInstanceRows`, one per cell. */
 export const MUSIC_COLUMNS: readonly Column[] = [
   { label: "Event", tip: "The event instance id and its asset path." },
-  { label: "State", tip: "priming (the first segment's streams are filling), playing, transitioning, recovering (after a rebuild, hide or reload), or ending." },
+  { label: "State", tip: "priming (the first segment's streams are filling), playing (a scheduled change shows under Pending), transitioning (two segments audible together: a crossfade or a bridge), recovering (after a rebuild, hide or reload), or ending." },
   { label: "Segment", tip: "The playing segment and its pass (its loop count, from 1)." },
   { label: "Position", tip: "Bar:beat:tick of the heard position (960 ticks per beat), with the heard time in seconds." },
   { label: "Tempo", tip: "Beats per minute (BPM) and beats per bar." },

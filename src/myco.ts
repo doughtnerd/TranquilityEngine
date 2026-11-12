@@ -177,6 +177,19 @@ export { Audio, AudioSource, AudioListener, AudioOccluder, AudioReverbZone, DEFA
 // Interactive music (ADR 0166 §1, amended by 0167): handle.music, beat callbacks, calibration.
 export { Calibration, type GridSpec, type GridPoint, type MusicEvent, type MusicKind, type MusicHandle, type MusicPositionAt, type MusicSeekResult, type CalibrationResult, type AudioLatency, type MusicDebugRow, type MusicDebugPending, type MusicDebugState, type MusicDebugTotals } from "./plugins/audio/runtime";
 
+// Interactive-music types, exported as types only (ADR 0168): a script can name them in annotations, and nothing
+// reaches the runtime bundle. The handle and event types, then the music format's node model and rules.
+export type { MusicEventHandle, CalibrationApi } from "./engine/audio/musicTypes";
+export type {
+  TempoMarker, MusicCue, RegionCondition, MusicRegion, MusicAutomation, MusicTrack, SegmentNode, PlaylistNode,
+  MusicSwitchNode, MusicContainerNode, MusicNode, MusicNodeType, TrackPick, PlaylistMode, MusicAutomationTarget,
+  AutomationQuantize,
+} from "./engine/audio/musicFormat";
+export type {
+  TransitionRule, TransitionFade, TransitionExit, TransitionEnter, TransitionBridge, StingerDef, StingerAt, FadeCurve,
+  IfTooLate,
+} from "./engine/audio/musicRules";
+
 // The Navigation plugin (ADR 0065, 0135). Its settings types (`NavigationSettings`…) are core exports.
 export {
   NavAgent,

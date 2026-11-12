@@ -5,7 +5,8 @@
 //
 // - HRTF candidates: mixed (PLAYING) spatial voices at or above `MIN_AUDIBILITY`. Virtual, stopping and paused (forced
 //   virtual) voices lose the flag at once (the core drops a virtual voice's HRTF state anyway). Unflags go first, so the
-//   core never holds more than `limit` HRTF voices from one frame's changes.
+//   core never holds more than `limit` flagged HRTF voices from one frame's changes. An unflagged voice still pans
+//   HRTF while it crossfades out (45 ms), so the core's `hrtfVoices` reads the limit plus those tails (F-11).
 // - **The 500 ms kind dwell (R13, S14), in game time** (`PannerLimits.nowMs`): a voice that left HRTF for the bed stays
 //   HRTF until 500 ms after its last kind change, on top of the hysteresis and selection's 3-frame dwell. A promotion
 //   from bed to HRTF is exempt (a near source should sharpen), and so is a voice's first kind. The dwell guards the
