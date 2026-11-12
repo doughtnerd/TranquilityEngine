@@ -152,7 +152,7 @@ describe("cues at the edges", () => {
   // NaN), before looking at the wrap. A cue in a looping region so fires on the first pass only, then never again (the cursor
   // sits on it); beats and bars are unaffected (a later line always exists, and the wrap check catches it). The fix is to
   // treat NaN as "no line this pass" and go on to the wrap check (I checked: a 4-line change in `nextOn`).
-  it.skip("BUG: a cue inside a loop fires on every pass, and a long frame over several passes counts them", () => {
+  it("BUG: a cue inside a loop fires on every pass, and a long frame over several passes counts them", () => {
     const node = musicSegment({
       tempo: T120, cues: [{ name: "x", at: "1:3:0" }], regions: [{ id: "r", from: "1:1:0", to: "2:1:0", count: 0 }],
     });
@@ -401,7 +401,7 @@ describe("recovery re-entry", () => {
   // consumed an event from the lost run. A cursor still seated (run null: nothing of that kind fired since the state was
   // made, or since `seatBeats`) skips the gap's events silently: here the cue cursor has fired nothing, so a, b and c (all
   // heard-then-lost or lost) vanish and the first cue call after the re-entry says missed 0.
-  it.skip("BUG: a gap's events are counted even when that kind's cursor had fired nothing before the recovery", () => {
+  it("BUG: a gap's events are counted even when that kind's cursor had fired nothing before the recovery", () => {
     const node = musicSegment({ tempo: T120, cues: [{ name: "a", at: "1:3:0" }, { name: "b", at: "2:1:0" }, { name: "c", at: "2:2:0" }, { name: "d", at: "3:1:0" }] });
     const { player, run } = playingRun(node, 0, 0);
     const list = frames(-0.05, 6, DT);
@@ -492,7 +492,7 @@ describe("long runs without drift", () => {
   // are walked. 149 of 6900 beat calls over an hour; the bars likewise. Looks like `nextOn`'s `h >= wrap - TIME_EPS` (0.1 us)
   // against a tick-linear end time that is off the frame-rounded wrap by a fraction of a frame (not verified further).
   // Hearing is unaffected; the call's fields and the counter are wrong. Whole-frame passes (every K1 test) don't show it.
-  it.skip("BUG: a loop whose pass isn't a whole number of frames fires no beat of the region's end, and no beat is counted missed", () => {
+  it("BUG: a loop whose pass isn't a whole number of frames fires no beat of the region's end, and no beat is counted missed", () => {
     const bpm = 133.37;
     const node = musicSegment({
       tempo: [{ at: "1:1:0", bpm, beatsPerBar: 4, beatUnit: 4 }, { at: "2:1:0", bpm: 97.13, beatsPerBar: 3, beatUnit: 4 }],
@@ -506,6 +506,21 @@ describe("long runs without drift", () => {
     const bars = of(drive(playingRun(node, 0, 0).player, frames(-0.05, 3600, 1 / 59.94), ["bar"]), "bar");
     expect(bars.every((f) => f.e.missed === 0 && f.e.bar < 3)).toBe(true);
   }, 180_000);
+
+  // F-20: the other rounding direction. At 117.77 bpm the frame-rounded pass is 5.6 us longer than the grid's, so the
+  // region's end line is heard just before the wrap; it is the wrap's line, not a phantom of the old pass.
+  it("a loop whose frame-rounded pass is longer than the grid's: the region's end line isn't fired before the wrap", () => {
+    const node = musicSegment({
+      tempo: [{ at: "1:1:0", bpm: 117.77, beatsPerBar: 4, beatUnit: 4 }, { at: "2:1:0", bpm: 97.13, beatsPerBar: 3, beatUnit: 4 }],
+      regions: [{ id: "r", from: "1:1:0", to: "3:1:0", count: 0 }],
+    });
+    const { player } = playingRun(node, 0, 0);
+    const fired = drive(player, frames(-0.05, 300, 1 / 59.94), ["beat", "bar"]);
+    expect(fired.filter((f) => f.e.bar === 3 || f.e.missed !== 0)).toEqual([]);
+    expect(delivered(fired, "bar")).toBe(of(fired, "bar").length);
+    expect(player.counters.missedBeats).toBe(0);
+    strictlyIncreasing(fired);
+  }, 60_000);
 
   it("ten minutes through the real ClockMap on a rough synthesised trace: nothing missed, doubled or phantom", () => {
     const tr = synthTrace({ name: "10 min, rough, seed 11", seed: 11, seconds: 600, ppm: -150, wanderMs: 1.5, noiseMs: 0.4, quantumMs: 5, excursions: 150 });
