@@ -130,7 +130,7 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
   Hearing is unaffected; the callbacks' fields and the counter are wrong. **Fixed by F-20** (below).
 - **F-21 (from T2):** a linear FADE runs as one f32 ramp over the whole fade, never re-aimed at a quantum boundary (`curves.rs`: "a linear record fires as set_target at its sample"), so `value += step` drifts. A 500 ms linear crossfade nulls only to 1.68e-5 against the 1e-5 seam bound (`it.skip` in `seam.test.ts`); the 50 ms golden passes at 9.04e-6. The shaped laws are re-aimed at each knot and don't drift. **F-21 task** (strongest) re-aims linear fades in the core before M4b's merge; any golden re-record must be logged with its reason.
 - **F-22 (owner's bug, fixed):** a spatial `AudioSource` played again with its clip resident started flat on the core. See F-22 below.
-- **F-23 (from E2, blocks M4b):** the first play of a decoded looping segment whose clips were never decoded ends at its first loop end (no warning, counters 0), e.g. sound-lab `music-world` and `music-intensity` played cold. Warming the clips avoids it. **F-23 task** (strongest) is on it.
+- **F-23 (from E2, blocks M4b):** the first play of a decoded looping segment whose clips were never decoded ends at its first loop end (no warning, counters 0), e.g. sound-lab `music-world` and `music-intensity` played cold. Warming the clips avoids it. **Fixed by F-23** (below).
 - **F-24 (from F-22):** the core backend still accepts `setPosition` on a voice whose PLAY went out flat: main marks it spatial while the core plays it flat. F-22 removed the trigger, but switching `spatial` on for a source already playing would hit it. It needs a wire flag, or a restart of the voice on the core.
 
 **Started (rolling, D5), base `92969c11`:** Z2a (strongest) on the flip branch `m4/in-voice`, cut locally at `92969c11` after Q1 and the wire's merge 1 (the flip branch stays local: this session pushes only the integration branch); F2, Ed2, Ed9 and R4c (mid; each depends only on merged tasks and touches no running task's files). Waiting for the wire's merge 2: Z4, C1, D1a, then Q2's merge.
@@ -644,4 +644,13 @@ K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.t
   - Babylon.
 - Also one smoke case and the M4b listening case.
 - **Found:** F-23. One cold-loop case is `test.fixme`; the other cases warm clips first. Also seen: `heardIn` −6.8 ms on one beat call under load (documented ≥ 0); the spec tolerates −30 ms. To check with K5.
+
+**F-23 merged** (`m4/f23` `7506659b`), **an M4b regression from R4a (`ec0920ee`).**
+- **Cause:** each stem's loop is decided when the group is admitted (`segmentRun.groupRequest` → `memberLoop` → `anchors.firstLoopOf`), before the clip has been decoded. Without clip facts, `anchors.compile` dropped any region bounded by `"end"`, so the members went out with `loop: false`, played to the clip end, and the instance ended silently. Every looping segment in the Sound Lab uses `to: "end"`. R4a had switched `memberLoop` from `simpleLoopOf`, which maps `"end"` to 0 and needs no facts.
+- **Fix:** `compile(…, openEnd)` places an `"end"` bound at `OPEN_END_SECONDS` before the facts arrive, uncached; only `firstLoopOf` uses it, and wrap prediction recompiles once the facts arrive.
+- **Tests:** `coldLoop.loopback.test.ts` (cold and preloaded; the cold case fails before the fix, dropping at the first loop end); `musicLoopback` gained a `cold` option. E2's cold-loop e2e case is enabled.
+- **Bisect:** passes at `ed37b347` (M4a) and `bd9c19dc`, fails at `ec0920ee`.
+- Coordinator checks: typecheck 0; music, events and core vitest 1,536 pass; `audio-music-b` 10 of 10.
+
+**M4b listening section** added to `listening-pass.md` (E2's text, without its "known issue", which F-23 fixed).
 
