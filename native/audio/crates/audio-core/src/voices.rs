@@ -1578,13 +1578,21 @@ fn ambisonic_mix(slot: &mut VoiceSlot, auto: Option<&VoiceAuto>, fx: &mut VoiceF
         resample::lagrange_n(src, &mut slot.position, steps, looping, ch, &mut planar);
     }
     let gain_mul = auto.filter(|a| a.count != 0 && a.targets & automation::has::GAIN != 0);
-    // 0166 M4-0 (H1): the ramp a class G record drives steps through the compare (one copy of this
-    // function, so no branch outside the loops: with `NONE` the compare never matches).
+    // 0166 M4-0 (H1): the ramp a class G record drives steps through the compare (with `NONE` the
+    // compare never matches). F-8: a range without one runs the loops without the compare (the
+    // same products: `due_gain` with `NONE` is `next`).
     let none = DueGain::NONE;
+    let due = fx.due.at != u32::MAX;
     let (fade_due, gain_due) = if fx.due.ramp == ramp_of::GAIN { (&none, fx.due) } else { (fx.due, &none) };
     let mut g = [0.0f32; QUANTUM];
-    for (i, g) in g[..n].iter_mut().enumerate() {
-        *g = crate::curves::due_gain(&mut slot.fade, i as u32, fade_due) * slot.mix.next() * gain_mul.map_or(1.0, |a| a.gain_at(from + i));
+    if due {
+        for (i, g) in g[..n].iter_mut().enumerate() {
+            *g = crate::curves::due_gain(&mut slot.fade, i as u32, fade_due) * slot.mix.next() * gain_mul.map_or(1.0, |a| a.gain_at(from + i));
+        }
+    } else {
+        for (i, g) in g[..n].iter_mut().enumerate() {
+            *g = slot.fade.next() * slot.mix.next() * gain_mul.map_or(1.0, |a| a.gain_at(from + i));
+        }
     }
     let VoiceFx { entry, zones, beds, .. } = fx;
     let mut yaw = [0.0f32; 2];
@@ -1601,8 +1609,14 @@ fn ambisonic_mix(slot: &mut VoiceSlot, auto: Option<&VoiceAuto>, fx: &mut VoiceF
             e.yaw_last = e.yaw;
         }
     }
-    for (i, g) in g[..n].iter_mut().enumerate() {
-        *g *= crate::curves::due_gain(&mut slot.gain, i as u32, gain_due);
+    if due {
+        for (i, g) in g[..n].iter_mut().enumerate() {
+            *g *= crate::curves::due_gain(&mut slot.gain, i as u32, gain_due);
+        }
+    } else {
+        for g in g[..n].iter_mut() {
+            *g *= slot.gain.next();
+        }
     }
     let Some(beds) = beds.as_deref_mut() else { return };
     let route = beds.route(slot.bus);
