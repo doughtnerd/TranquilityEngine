@@ -74,8 +74,12 @@ export class StatusMirror {
   zonesActive = 0;
   zonesRinging = 0;
   bedsRefused = 0;
-  /** D5: the load-shedding ladder's steps taken, bed plus zone (STATUS `m3Shed`). */
+  /** D5: the load-shedding ladder's steps in force, bed plus zone (STATUS `m3Shed`; ADR 0170: they come back). */
   m3Shed = 0;
+  /** ADR 0170: steps the ladder gave back (each fall of `m3Shed` within one core), cumulative. */
+  m3Recoveries = 0;
+  /** ADR 0170: `currentFrame` of the newest block whose `underruns` rose (-Infinity: none yet). */
+  underrunFrame = Number.NEGATIVE_INFINITY;
   zoneUsedKB = 0;
   workBed = 0;
   workZones = 0;
@@ -230,6 +234,7 @@ export class StatusMirror {
     this.dateMs = status.dateMs;
     this.pingSeq = status.pingSeq;
     this.pingFrameLo = status.pingFrameLo;
+    if (status.underruns > this.underruns) this.underrunFrame = status.currentFrame;
     this.underruns = status.underruns;
     this.lateCommands = status.lateCommands;
     this.workUnits = status.workUnits;
@@ -249,6 +254,8 @@ export class StatusMirror {
     this.bedVoices = status.bedVoices;
     this.fxVoices = status.fxVoices;
     this.ambisonicVoices = status.ambisonicVoices;
+    // A new core's first block (it carries `abiVersion`) starts its own ladder: a fall there isn't a recovery.
+    if (status.m3Shed < this.m3Shed && status.abiVersion === 0) this.m3Recoveries += this.m3Shed - status.m3Shed;
     this.m3Shed = status.m3Shed;
     this.zonesActive = status.zonesActive;
     this.zonesRinging = status.zonesRinging;

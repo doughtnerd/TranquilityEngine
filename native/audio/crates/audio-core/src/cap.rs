@@ -34,7 +34,7 @@
 //! here allocates; the per-quantum cost is a pass over the configured buses (at most 32) and a few
 //! comparisons, plus [`demote_lowest`]'s pass over the slots only while voices must be demoted.
 
-use crate::cap_controller::{CapConfig, CapController, Change, Signals, WINDOW_MS};
+use crate::cap_controller::{CapConfig, CapController, Change, LadderMove, LadderRecovery, Signals, WINDOW_MS};
 use crate::core::Core;
 use crate::counters::flag;
 use crate::{bus, fx, status, voices, QUANTUM};
@@ -171,6 +171,9 @@ pub struct CapState {
     pub decreases: u32,
     pub increases: u32,
     pub demoted: u32,
+    /// The load-shedding ladder's way back (ADR 0170): stepped in [`after_render`] while the
+    /// ladder has a step in force or an underrun came.
+    ladder: LadderRecovery,
 }
 
 impl CapState {
@@ -209,6 +212,7 @@ impl CapState {
             decreases: 0,
             increases: 0,
             demoted: 0,
+            ladder: LadderRecovery::new(sample_rate),
         }
     }
 
@@ -236,6 +240,11 @@ impl CapState {
     /// The shell's underrun total as last noted (ADR 0162 A4: the load shedding ladder, `bed.rs`).
     pub fn underruns_total(&self) -> u32 {
         self.underruns_total
+    }
+
+    /// The load-shedding ladder's recovery clock (ADR 0170).
+    pub fn ladder(&self) -> &LadderRecovery {
+        &self.ladder
     }
 
     /// The last complete window's work-unit p99.
@@ -379,6 +388,7 @@ fn model(core: &Core, records: u32) -> u32 {
 /// steps the controller, reports `mixedCap` and flag bit3, and demotes when the cap requires it.
 /// Never allocates.
 pub fn after_render(core: &mut Core, frame: u64) {
+    recover_ladder(core, frame);
     let records = core.cap().pending_records;
     let units = model(core, records);
     let (late_total, mixed_now) = {
@@ -410,6 +420,27 @@ pub fn after_render(core: &mut Core, frame: u64) {
     if active && (mixed_now > cap || change == Change::Decreased) {
         let n = demote_lowest(core, cap);
         core.cap_mut().demoted += n;
+    }
+}
+
+/// ADR 0170 (amending ADR 0162 OD3): the load-shedding ladder's way back. Before the cap
+/// consumes the quantum's underrun signal, the recovery clock sees it and the steps in force
+/// (`bed.rs`'s bed-idle step, `zones.rs`'s two); after a clean hold it gives back the step taken
+/// last: the zone steps first (the active-slot limit, then the tail cut), the bed-idle step last.
+/// While the ladder is idle and no underrun comes, this is two compares.
+fn recover_ladder(core: &mut Core, frame: u64) {
+    let underrun = core.cap().underrun_pending;
+    if !underrun && !core.cap().ladder.busy() {
+        return;
+    }
+    let zone_steps = crate::zones::shed_steps(core);
+    let steps = crate::bed::m3_shed(core) + zone_steps;
+    if core.cap_mut().ladder.step(frame, underrun, steps) == LadderMove::Restore {
+        if zone_steps > 0 {
+            crate::zones::restore_step(core);
+        } else {
+            crate::bed::restore_step(core);
+        }
     }
 }
 

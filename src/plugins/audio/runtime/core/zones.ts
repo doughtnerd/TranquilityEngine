@@ -194,8 +194,10 @@ export class ZoneManager {
   private sinceReplan = 0;
   private replanDt = 0;
   private rate: number;
-  /** Active places the core's load ladder took away (refusedSlot), for the session. */
+  /** Active places the core's load ladder took away (refusedSlot), until it gives its zone step back (ADR 0170). */
   private shed = 0;
+  /** The ladder's steps in force (STATUS `m3Shed`) as last seen. */
+  private ladderSteps = 0;
   private maxActive = 0;
   /** The last ZONE_CONFIG sent. */
   private sentShared = 1;
@@ -238,6 +240,11 @@ export class ZoneManager {
   run(frame: ListenerFrame, view: SpatialVoiceView, settings: Pick<AudioSettings, "zones" | "buses">): void {
     if (this.slots.length === 0) return;
     this.frameNo++;
+    // ADR 0170: the core gives its ladder steps back one at a time, the active-slot limit first, so any fall in
+    // `m3Shed` means every place is allowed again; the next plan fills it (the core fades the zone in over 100 ms).
+    const steps = this.deps.mirror.m3Shed;
+    if (steps < this.ladderSteps) this.shed = 0;
+    this.ladderSteps = steps;
     this.maxActive = Math.max(0, Math.min(settings.zones.maxActive | 0, this.slots.length) - this.shed);
     this.syncRegistry(frame, settings);
     this.drainEvents();
@@ -420,7 +427,7 @@ export class ZoneManager {
           if (z) z.why = "kernel refused: the slot was busy";
         }
       } else if (code === ZoneEvent.RefusedSlot) {
-        // The core's load ladder allows one active zone fewer (its step 2): follow it for the session.
+        // The core's load ladder allows one active zone fewer (its step 2): follow it until it gives the step back.
         if (slot && slot.phase === Phase.Active) {
           const z = slot.zone;
           this.freeSlot(slot);

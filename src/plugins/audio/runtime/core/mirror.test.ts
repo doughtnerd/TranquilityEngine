@@ -77,6 +77,21 @@ describe("StatusMirror (§3, §4.3)", () => {
     expect(mirror.beginFrame()).toBe(Number.POSITIVE_INFINITY);
   });
 
+  it("ADR 0170: the ladder's steps given back count, a new core's first block doesn't, and the last underrun's frame is kept", () => {
+    const { mirror } = setup();
+    expect(mirror.underrunFrame).toBe(Number.NEGATIVE_INFINITY);
+    mirror.apply(makeStatusBlock({ currentFrame: 128, underruns: 3, m3Shed: 3, abiVersion: 0x100 }));
+    mirror.apply(makeStatusBlock({ currentFrame: 256, underruns: 3, m3Shed: 3 }));
+    expect([mirror.underrunFrame, mirror.m3Recoveries]).toEqual([128, 0]);
+    mirror.apply(makeStatusBlock({ currentFrame: 384, underruns: 3, m3Shed: 2 }));
+    mirror.apply(makeStatusBlock({ currentFrame: 512, underruns: 5, m3Shed: 3 }));
+    mirror.apply(makeStatusBlock({ currentFrame: 640, underruns: 5, m3Shed: 1 }));
+    expect([mirror.underrunFrame, mirror.m3Recoveries]).toEqual([512, 3]);
+    // A rebuilt core starts at 0 steps: not a recovery.
+    mirror.apply(makeStatusBlock({ currentFrame: 128, underruns: 5, m3Shed: 0, abiVersion: 0x100 }));
+    expect(mirror.m3Recoveries).toBe(3);
+  });
+
   it("clip and stream events queue in order and drain once; overflow drops the oldest and counts", () => {
     const { mirror } = setup();
     mirror.apply(makeStatusBlock({ clipEvents: [{ clipId: 7, code: 1 }, { clipId: 8, code: 2 }], streamEvents: [{ id: 3, code: 2 }] }));
