@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Device probe</title>
+<style>
+  :root { --bg: #fff; --fg: #111; --mut: #555; --line: #ccc; --btn: #e8eefc; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #14161a; --fg: #eee; --mut: #9aa; --line: #333; --btn: #243049; } }
+  body { margin: 0; padding: 12px 16px; background: var(--bg); color: var(--fg); font: 15px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p { margin: 4px 0 10px; color: var(--mut); }
+  button { font: inherit; padding: 12px 14px; margin: 4px 6px 4px 0; border: 1px solid var(--line); background: var(--btn); color: var(--fg); border-radius: 6px; touch-action: manipulation; }
+  pre { white-space: pre-wrap; word-break: break-word; border: 1px solid var(--line); padding: 8px; font: 12px/1.35 ui-monospace, monospace; min-height: 4em; }
+  #flash { position: fixed; inset: 0; background: #fff; display: none; z-index: 9; }
+</style>
+</head>
+<body>
+<div id="flash"></div>
+<h1>Device probe (spikes/audio-music/rhythm/README.md section 8)</h1>
+<p>Tap a button once to unlock audio, then run the items in order. Every result lands in the box below as JSON lines; copy it into the sign-off block. Query: <code>?seconds=10</code> (hints run length), <code>?taps=32</code>.</p>
+<div>
+  <button id="b-hints">1 Hints (items 1, 7, 8)</button>
+  <button id="b-click">2 Click + flash (item 2)</button>
+  <button id="b-hit">5 Hit (item 5)</button>
+  <button id="b-input">3 Input timing (items 3, 4)</button>
+  <button id="b-tap">9 Tap spread (item 9)</button>
+  <button id="b-dump">Show results</button>
+</div>
+<pre id="status">ready</pre>
+<pre id="out"></pre>
+<script>
+"use strict";
+const params = new URLSearchParams(location.search);
+const SECONDS = Number(params.get("seconds") ?? 10);
+const TAPS = Number(params.get("taps") ?? 32);
+const WARMUP = 4;
+const results = [];
+const out = document.getElementById("out");
+const status = document.getElementById("status");
+const say = (s) => { status.textContent = s; };
+const record = (kind, data) => { const row = { kind, at: new Date().toISOString(), ...data }; results.push(row); out.textContent = results.map((r) => JSON.stringify(r)).join("\n"); return row; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const pct = (xs, p) => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
+const median = (xs) => pct(xs, 0.5);
+const mad = (xs) => { const m = median(xs); return median(xs.map((x) => Math.abs(x - m))); };
+const r2 = (x) => (x === null || x === undefined ? x : Math.round(x * 100) / 100);
+
+let ctx = null;
+const context = async (hint = "interactive") => { const c = new AudioContext({ latencyHint: hint }); await c.resume(); return c; };
+// getOutputTimestamp() is {0, 0} until the output stream has started: wait for a real pair before using one.
+const ready = async (c) => { for (let i = 0; i < 40 && !(c.getOutputTimestamp().performanceTime > 0); i++) await sleep(50); return c; };
+const shared = async () => { if (!ctx || ctx.state === "closed") ctx = await context(); if (ctx.state !== "running") await ctx.resume(); return ready(ctx); };
+
+/** Heard performance time of context time `t`, from the context's own (contextTime, performanceTime) pair. */
+const heardAt = (c, t) => { const o = c.getOutputTimestamp(); return o.performanceTime + (t - o.contextTime) * 1000; };
+
+const clickBuffer = (c) => { const b = c.createBuffer(1, Math.round(c.sampleRate * 0.01), c.sampleRate); const d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.sin(i * 0.6) * Math.exp(-i / 60) * 0.9; return b; };
+const play = (c, when) => { const s = c.createBufferSource(); s.buffer = clickBuffer(c); s.connect(c.destination); s.start(when); return s; };
+const flashAt = (perf, ms = 120) => new Promise((resolve) => {
+  const el = document.getElementById("flash");
+  const tick = () => { if (performance.now() >= perf) { el.style.display = "block"; setTimeout(() => { el.style.display = "none"; resolve(); }, ms); } else requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+});
+
+/** Items 1, 7, 8: per hint, the reported latencies over `seconds` and whether getOutputTimestamp is monotonic. */
+async function hints(seconds = SECONDS) {
+  const rows = [];
+  for (const hint of ["interactive", 0.005, 0, "balanced", "playback"]) {
+    say(`hint ${hint}: ${seconds} s`);
+    const c = await context(hint);
+    const lags = [], outs = [];
+    let mono = true, last = null;
+    const end = performance.now() + seconds * 1000;
+    do {
+      const o = c.getOutputTimestamp();
+      lags.push((c.currentTime - o.contextTime) * 1000);
+      outs.push(c.outputLatency);
+      if (last && (o.contextTime < last.contextTime || o.performanceTime < last.performanceTime)) mono = false;
+      last = o;
+      await sleep(100);
+    } while (performance.now() < end);
+    const distinct = new Set(outs.map(String));
+    const outputKind = outs.every((x) => x === undefined) ? "undefined" : outs.every((x) => x === 0) ? "0" : distinct.size === 1 ? "constant" : "varies";
+    rows.push(record("hint", {
+      hint, sampleRate: c.sampleRate, baseLatencyMs: r2((c.baseLatency ?? NaN) * 1000), outputLatencyMs: c.outputLatency === undefined ? null : r2(c.outputLatency * 1000), outputKind,
+      lagMsMin: r2(Math.min(...lags)), lagMsMean: r2(lags.reduce((a, b) => a + b, 0) / lags.length), lagMsMax: r2(Math.max(...lags)), samples: lags.length, monotonic: mono, sinkId: typeof c.sinkId === "string" ? c.sinkId || "default" : null,
+    }));
+    await c.close();
+  }
+  say("hints done");
+  return rows;
+}
+
+/** Item 2: a click at a known context time and a screen flash at the time the clock says it is heard. */
+async function click() {
+  const pressed = performance.now();
+  const c = await shared();
+  const T = c.currentTime + 1;
+  const sched = performance.now();
+  play(c, T);
+  const heard = heardAt(c, T);
+  const o = c.getOutputTimestamp();
+  say("click scheduled; flash at the predicted heard time");
+  const row = record("click", { contextTime: r2(T), pairContext: r2(o.contextTime), pairPerformance: r2(o.performanceTime), predictedHeardPerf: r2(heard), predictedPressToHeardMs: r2(heard - pressed), setupMs: r2(sched - pressed) });
+  await flashAt(heard);
+  return row;
+}
+
+/** Item 5: an asap click from the input handler (the floor the engine's asap path adds to). */
+function hit(e) {
+  const t0 = performance.now();
+  const c = ctx;
+  if (!c || c.state !== "running") { say("unlock first (any other button)"); return null; }
+  play(c, 0);
+  const el = document.getElementById("flash");
+  el.style.display = "block"; setTimeout(() => { el.style.display = "none"; }, 100);
+  return record("hit", { eventLagMs: r2(t0 - (e && e.timeStamp ? e.timeStamp : t0)), playCallMs: r2(performance.now() - t0), predictedHeardMs: r2((c.outputLatency || 0) * 1000 + c.baseLatency * 1000) });
+}
+
+/** Items 3, 4: event.timeStamp against performance.now() in the handler, for each input kind, plus clock resolution and isolation. */
+const input = { lags: {}, coalesced: { pointermove: [0, 0], touchmove: [0, 0] }, pad: [], on: false };
+function startInput() {
+  if (input.on) return;
+  input.on = true;
+  const add = (kind, e) => { (input.lags[kind] ??= []).push(performance.now() - e.timeStamp); };
+  for (const k of ["keydown", "pointerdown", "mousedown", "touchstart", "click"]) addEventListener(k, (e) => add(k, e), { capture: true, passive: true });
+  addEventListener("pointermove", (e) => { add("pointermove", e); const co = e.getCoalescedEvents ? e.getCoalescedEvents().length : 1; input.coalesced.pointermove[0]++; input.coalesced.pointermove[1] += co; }, { passive: true });
+  addEventListener("touchmove", (e) => { add("touchmove", e); input.coalesced.touchmove[0]++; input.coalesced.touchmove[1] += e.touches.length; }, { passive: true });
+  let prev = {};
+  const poll = () => {
+    for (const p of navigator.getGamepads ? navigator.getGamepads() : []) {
+      if (!p) continue;
+      if (prev[p.index] !== p.timestamp) { prev[p.index] = p.timestamp; (input.lags.gamepad ??= []).push(performance.now() - p.timestamp); }
+    }
+    requestAnimationFrame(poll);
+  };
+  requestAnimationFrame(poll);
+  say("input timing is on: press keys, click or touch, move the pointer, press gamepad buttons, then 'Show results'");
+}
+function resolution() { let min = Infinity; for (let i = 0; i < 20000; i++) { const a = performance.now(), b = performance.now(); if (b > a) min = Math.min(min, b - a); } return min === Infinity ? null : min; }
+function inputReport() {
+  const kinds = {};
+  for (const [k, xs] of Object.entries(input.lags)) kinds[k] = { n: xs.length, p50Ms: r2(pct(xs, 0.5)), p99Ms: r2(pct(xs, 0.99)), maxMs: r2(Math.max(...xs)) };
+  return record("input", { crossOriginIsolated: self.crossOriginIsolated === true, performanceNowResolutionMs: r2(resolution()), kinds, coalesced: input.coalesced, userAgent: navigator.userAgent });
+}
+
+/** Item 9: 120 bpm click track, `taps` taps after WARMUP warm-up taps; the offset of each tap from the nearest click. */
+const tapRun = { on: false, offsets: [], beats: [] };
+async function tapStart() {
+  const c = await shared();
+  tapRun.on = true; tapRun.offsets = []; tapRun.beats = [];
+  const T0 = c.currentTime + 1;
+  for (let k = 0; k < (WARMUP + TAPS + 8) ; k++) { play(c, T0 + k * 0.5); }
+  tapRun.T0 = T0;
+  say(`tap on every click, ${WARMUP + TAPS} taps (the first ${WARMUP} are warm-up). Any key, mouse or touch.`);
+}
+function tap(perf) {
+  if (!tapRun.on) return null;
+  const c = ctx;
+  const o = c.getOutputTimestamp();
+  // The context time heard at `perf`, then the nearest click on the 0.5 s grid.
+  const ct = o.contextTime + (perf - o.performanceTime) / 1000;
+  const k = Math.round((ct - tapRun.T0) / 0.5);
+  const offsetMs = (ct - (tapRun.T0 + k * 0.5)) * 1000;
+  tapRun.offsets.push(offsetMs);
+  say(`tap ${tapRun.offsets.length}/${WARMUP + TAPS}: ${offsetMs >= 0 ? "late" : "early"} ${r2(Math.abs(offsetMs))} ms`);
+  if (tapRun.offsets.length >= WARMUP + TAPS) {
+    tapRun.on = false;
+    const used = tapRun.offsets.slice(WARMUP);
+    const m = median(used), sd = Math.sqrt(used.reduce((a, b) => a + (b - m) ** 2, 0) / used.length);
+    return record("tapSpread", { taps: used.length, medianMs: r2(m), madMs: r2(mad(used)), sdMs: r2(sd), minMs: r2(Math.min(...used)), maxMs: r2(Math.max(...used)), rawMs: used.map(r2) });
+  }
+  return null;
+}
+
+// Devices: the output device changing (item 6). Logged whenever it happens.
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener("devicechange", () => record("devicechange", { sinkId: ctx && typeof ctx.sinkId === "string" ? ctx.sinkId || "default" : null }));
+
+const guard = (fn) => async (e) => { try { await fn(e); } catch (err) { record("error", { message: String(err && err.message || err) }); } };
+document.getElementById("b-hints").onclick = guard(() => hints());
+document.getElementById("b-click").onclick = guard(click);
+document.getElementById("b-hit").addEventListener("pointerdown", guard(async (e) => { await shared(); hit(e); }));
+document.getElementById("b-input").onclick = guard(() => { startInput(); inputReport(); });
+document.getElementById("b-tap").onclick = guard(tapStart);
+document.getElementById("b-dump").onclick = () => { if (input.on) inputReport(); out.textContent = results.map((r) => JSON.stringify(r)).join("\n"); };
+addEventListener("keydown", (e) => { if (tapRun.on && !e.repeat) tap(e.timeStamp); });
+addEventListener("pointerdown", (e) => { if (tapRun.on && !(e.target instanceof HTMLButtonElement)) tap(e.timeStamp); });
+
+// The walker's handle (the owner never needs it).
+self.__probe = { hints, click, hit, startInput, inputReport, tapStart, tap, tapRun, results, shared };
+</script>
+</body>
+</html>
