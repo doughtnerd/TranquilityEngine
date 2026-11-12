@@ -264,6 +264,28 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     r.backend.dispose();
   });
 
+  it("a worker musicWarn warns once per instance and counts (F-5)", () => {
+    const r = musicRig(8);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const req = request(3, 1);
+      r.ops.admitGroup(req);
+      r.ops.primeGroup(req); // subscribes the decoder's replies
+      expect(r.ops.debugView().encodedOverBudget).toBe(0);
+      const msg = { type: "musicWarn", cause: "encodedOverBudget", instance: 9, bytes: 200, budget: 100 } as const;
+      r.say(msg);
+      r.say(msg);
+      r.say({ ...msg, instance: 10 });
+      expect(r.ops.debugView().encodedOverBudget).toBe(3);
+      const ours = warn.mock.calls.filter((c) => String(c[0]).includes("encoded cache budget"));
+      expect(ours).toHaveLength(2);
+      expect(String(ours[0]![0])).toContain("200 bytes");
+    } finally {
+      warn.mockRestore();
+      r.backend.dispose();
+    }
+  });
+
   it("primeGroup: one message per group, bytes only for paths the worker doesn't hold, protect and budget; needBytes resends", async () => {
     const r = musicRig(8);
     const req = request(3, 3);

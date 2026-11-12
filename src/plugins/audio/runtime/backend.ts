@@ -249,6 +249,8 @@ export interface MusicDebugTotals {
   curvePoolFull: number;
   /** A PLAY whose group found no core table entry (a bug signal, architecture §4.3). */
   groupTableFull: number;
+  /** The worker's encoded music cache went over its budget with nothing evictable (F-5; counts). */
+  encodedOverBudget: number;
 }
 
 // --- ADR 0166 interactive music (M4): the backend seam (§4.6, C10; contract Q0) ------------------------------------

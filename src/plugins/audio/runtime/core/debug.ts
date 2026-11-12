@@ -547,7 +547,7 @@ function positionText(grid: Parameters<typeof ticksToPosition>[0], ticks: number
   return pos ? `${pos.bar}:${pos.beat}` : "";
 }
 
-type MusicView = { poolUsed: number; poolSize: number; poolHighWater: number; musicRingRefused: number; groups: readonly { id: number; state: MusicDebugRow["groups"][number]["state"]; primed: number; of: number }[]; primeEmaMs: number; groupTableFull?: number };
+type MusicView = { poolUsed: number; poolSize: number; poolHighWater: number; musicRingRefused: number; groups: readonly { id: number; state: MusicDebugRow["groups"][number]["state"]; primed: number; of: number }[]; primeEmaMs: number; groupTableFull?: number; encodedOverBudget?: number };
 
 /** The core's music view merged with Ê; an empty view when the source has no music ops. */
 function musicView(backend: DebugSource): MusicView {
@@ -576,5 +576,6 @@ function musicTotals(backend: DebugSource): MusicDebugTotals {
     voiceSplits: m.voiceSplits,
     curvePoolFull: m.curvePoolFull,
     groupTableFull: v.groupTableFull ?? 0,
+    encodedOverBudget: v.encodedOverBudget ?? 0,
   };
 }

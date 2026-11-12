@@ -506,6 +506,7 @@ class Client implements DecoderClient {
         return;
       case "groupOpened":
       case "needBytes":
+      case "musicWarn":
         for (const listener of [...this.musicListeners]) listener(msg);
         return;
       case "error": {

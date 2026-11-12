@@ -31,7 +31,7 @@ export interface MusicCacheOptions {
   /** The budget in bytes; default `DEFAULT_MUSIC_BUDGET_BYTES`. */
   readonly budgetBytes?: number;
   /** Called once per instance whose protected files alone exceed the budget (`encodedOverBudget`). */
-  readonly warn?: (instance: number, message: string) => void;
+  readonly warn?: (instance: number, message: string, bytes: number, budget: number) => void;
 }
 
 /** One held file: its bytes, the open member streams over it, and its close order once it has none. */
@@ -149,6 +149,8 @@ export class MusicCache {
       warn?.(
         instance,
         `protected or open music files (${this.bytesHeld} bytes held in all) exceed the ${this.budget}-byte encoded budget`,
+        this.bytesHeld,
+        this.budget,
       );
     }
   }

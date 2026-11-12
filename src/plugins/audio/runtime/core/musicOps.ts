@@ -133,6 +133,8 @@ export interface MusicOpsDebugView {
   readonly musicRingRefused: number;
   /** Admissions refused because the 16-entry group table was full (P10's `groupTableFull`). */
   readonly groupTableFull: number;
+  /** Worker `musicWarn {encodedOverBudget}` replies received (F-5). */
+  readonly encodedOverBudget: number;
   /** Live groups: id, state, primed members of `of`. */
   readonly groups: readonly { readonly id: number; readonly state: "admitted" | "priming" | "stamped" | "playing" | "held" | "ending"; readonly primed: number; readonly of: number }[];
 }
@@ -609,7 +611,7 @@ export class CoreMusicOps implements MusicBackend {
       const s = this.primedState(g.id)!;
       groups.push({ id: g.id, state: g.state, primed: s.primed, of: s.of });
     }
-    return { poolUsed: this.ringsUsed, poolSize: this.host.musicRings(), poolHighWater: this.highWater, musicRingRefused: this.refusedRings, groupTableFull: this.tableFull, groups };
+    return { poolUsed: this.ringsUsed, poolSize: this.host.musicRings(), poolHighWater: this.highWater, musicRingRefused: this.refusedRings, groupTableFull: this.tableFull, encodedOverBudget: this.encodedOverBudget, groups };
   }
 
   /** The backend was disposed: every group closes. */
@@ -626,6 +628,8 @@ export class CoreMusicOps implements MusicBackend {
 
   /** Admissions refused at `MUSIC_GROUP_TABLE`. */
   private tableFull = 0;
+  /** F-5: `musicWarn` replies (the worker's encoded cache over budget with nothing evictable). */
+  private encodedOverBudget = 0;
 
   private takeRings(n: number): void {
     this.ringsUsed += n;
@@ -713,6 +717,14 @@ export class CoreMusicOps implements MusicBackend {
   }
 
   private onMusicReply(r: MusicReply): void {
+    if (r.type === "musicWarn") {
+      this.encodedOverBudget++;
+      this.host.warnOnce(
+        `music:encodedOverBudget:${r.instance}`,
+        `audio: the music files in use (${r.bytes} bytes) exceed the ${r.budget}-byte encoded cache budget, and none can be evicted; use smaller or fewer stems, or a higher voice preset.`,
+      );
+      return;
+    }
     if (r.type !== "needBytes") return; // groupOpened: diagnostics only
     const g = this.groups.get(r.group);
     if (!g || g.state !== "priming") return;

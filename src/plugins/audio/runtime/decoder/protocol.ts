@@ -402,7 +402,21 @@ export interface PeaksMessage {
   readonly peaks: ArrayBuffer;
 }
 
-export type MusicReply = GroupOpenedMessage | NeedBytesMessage;
+/**
+ * F-5 (P10's shape): the worker's encoded cache holds more than its budget and every excess file is protected or open,
+ * so nothing could be evicted. Sent once per instance (until it is released); main warns once and counts it.
+ */
+export interface MusicWarnMessage {
+  readonly type: "musicWarn";
+  readonly cause: "encodedOverBudget";
+  readonly instance: number;
+  /** Bytes the cache holds, in all. */
+  readonly bytes: number;
+  /** The cache's budget in bytes. */
+  readonly budget: number;
+}
+
+export type MusicReply = GroupOpenedMessage | NeedBytesMessage | MusicWarnMessage;
 
 export type DecoderReply = ReadyMessage | ClipInfoMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage | IrPreparedMessage | IrFailedMessage | MusicReply | PeaksMessage;
 
