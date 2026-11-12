@@ -8,7 +8,7 @@
       "components": [
         {
           "type": "engine.AudioSource",
-          "data": { "clip": "asset:music/town.mp3", "loop": true, "volume": 0.35, "playOnAwake": true }
+          "data": { "clip": "asset:music/town.audioevent.json", "playOnAwake": true }
         }
       ]
     }

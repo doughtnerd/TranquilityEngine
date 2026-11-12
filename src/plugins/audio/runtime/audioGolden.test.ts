@@ -96,7 +96,7 @@ const SPATIAL = PLAY_FLAGS_SPATIAL;
 /** A PLAY of `clip`: mixed, gain 1, pitch 1, facing forward, asap, on bus 0. Override what a scene needs. */
 function play(voiceId: number, clip: number, over: Partial<Play> = {}): Writer {
   const rec: Play = {
-    voiceId, frameOffset: ASAP, clip, bus: 0, flags: MIXED, group: 0, reserved: 0, gain: 1, pitch: 1,
+    voiceId, frameOffset: ASAP, clip, bus: 0, flags: MIXED, group: 0, gate: 0, gain: 1, pitch: 1,
     dirX: 0, dirY: 0, dirZ: -1, lpHz: OFF, score: 0, startOffsetFrames: 0, ...over,
   };
   return (view, off) => writePlay(view, off, rec);
@@ -843,7 +843,7 @@ describe("wasm goldens: the committed core's output, scene by scene", () => {
   });
 
   it("golden/ holds exactly the scenes' files", () => {
-    const files = existsSync(GOLDEN_DIR) ? readdirSync(GOLDEN_DIR).filter((f) => f.endsWith(".json") && !f.startsWith("event-") && !f.startsWith("zones-")).sort() /* event-*.json: events/eventGolden.test.ts; zones-*.json: core/zonesLoopback.test.ts */ : [];
+    const files = existsSync(GOLDEN_DIR) ? readdirSync(GOLDEN_DIR).filter((f) => f.endsWith(".json") && !f.startsWith("event-") && !f.startsWith("zones-") && !f.startsWith("m4-")).sort() /* event-*.json: events/eventGolden.test.ts; zones-*.json: core/zonesLoopback.test.ts; m4-*.json: golden/audioGoldenM4.test.ts */ : [];
     if (UPDATE) return;
     expect(files).toEqual(Object.keys(SCENES).map((n) => `${n}.json`).sort());
   });

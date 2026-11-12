@@ -2,7 +2,8 @@
 //! TypeScript: `gen_wire` turns it into `src/generated.rs` and `wire.generated.ts`.
 //!
 //! This file (lead-owned) holds the constants, enums and **error codes** (section 5), and assembles
-//! the transcribed tables: `envelope` (4.1), `batch` (4.2), `status` (4.3) and ADR 0162's `spatial`.
+//! the transcribed tables: `envelope` (4.1), `batch` (4.2), `status` (4.3), ADR 0162's `spatial` and
+//! ADR 0166's `music` (the M4 constants and enums; the M4 fields are in `batch` and `status`).
 //!
 //! **Schema hash.** First 16 bytes of SHA-256 over `SCHEMA_SOURCES` (see `schema_hash`). The generated
 //! TypeScript embeds it, the wasm exports `myco_audio_schema_hash()`, and `wire.schemaHash.test.ts`
@@ -11,6 +12,7 @@
 
 pub mod batch;
 pub mod envelope;
+pub mod music;
 pub mod spatial;
 pub mod status;
 
@@ -22,6 +24,7 @@ pub const SCHEMA_SOURCES: &[(&str, &str)] = &[
     ("src/schema.rs", include_str!("schema.rs")),
     ("src/schema/batch.rs", include_str!("schema/batch.rs")),
     ("src/schema/envelope.rs", include_str!("schema/envelope.rs")),
+    ("src/schema/music.rs", include_str!("schema/music.rs")),
     ("src/schema/spatial.rs", include_str!("schema/spatial.rs")),
     ("src/schema/status.rs", include_str!("schema/status.rs")),
 ];
@@ -57,7 +60,7 @@ macro_rules! c {
 pub const CONSTANTS: &[Const] = &[
     c!("MAGIC", 0x4D59_4131u32, "envelope magic, 'MYA1'"),
     c!("VERSION_MAJOR", 1, "a core refuses a different major"),
-    c!("VERSION_MINOR", 1, "new opcodes or appended payload words are minor (1.1: ADR 0162)"),
+    c!("VERSION_MINOR", 2, "new opcodes or appended payload words are minor (1.1: ADR 0162; 1.2: the shape word, ADR 0166)"),
     c!("ENVELOPE_BYTES", 16, "envelope size"),
     c!("BATCH_HEADER_BYTES", 16, "f64 firstFrame; u32 count; u32 flags"),
     c!("RECORD_HEAD_BYTES", 12, "u16 opcode; u16 words; u32 voiceId; u32 frameOffset"),
@@ -65,10 +68,10 @@ pub const CONSTANTS: &[Const] = &[
     c!("BATCH_MAX_BYTES", 64 * 1024, "a BATCH is capped at 64 KB; the excess carries over"),
     c!("INBOX_BYTES", 1024 * 1024, "the fixed 1 MiB inbox"),
     c!("REPLAY_CHUNK_MAX_BYTES", 1024 * 1024 - 32, "each REPLAY message: 1 MiB minus 32 bytes"),
-    c!("STATUS_HEADER_BYTES", 144, "STATUS header, envelope included (ADR 0162 §4.3)"),
+    c!("STATUS_HEADER_BYTES", 176, "STATUS header, envelope included (ADR 0162 §4.3; 176 B with the M4 fields, ADR 0166)"),
     c!("STATUS_POOL_BUFFERS", 8, "the shell's pool of STATUS buffers"),
     c!("STATUS_BUFFER_BYTES", 16384, "size of each STATUS buffer"),
-    c!("STATUS_WORST_CASE_BYTES", 15904, "144 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64"),
+    c!("STATUS_WORST_CASE_BYTES", 16192, "176 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 + 128 + 128"),
     c!("STATUS_EVERY_QUANTA", 6, "STATUS cadence"),
     c!("STATUS_IDLE_EVERY_QUANTA", 48, "cadence when no batch arrived for 250 ms"),
     c!("STATUS_IDLE_AFTER_MS", 250, "idle threshold"),
@@ -145,6 +148,7 @@ pub const ENUMS: &[Enum] = &[
         ("Starved", 1, "the ring ran dry"),
         ("Eos", 2, "end of stream"),
         ("Error", 3, "decode error"),
+        ("MusicFull", 4, "a music STREAM_OPEN found no free music ring (ADR 0167 R7)"),
     ]),
     en!("HrtfLoadFailure", "STATUS hrtfLoadFailure", [
         ("None", 0, "no failure"),
@@ -214,6 +218,18 @@ pub const ERRORS: &[ErrorCode] = &[
     er!("MALFORMED", -16, "a record's fields are inconsistent (count versus length)"),
 ];
 
+/// `CONSTANTS` followed by `music::CONSTANTS`.
+fn all_constants() -> &'static [Const] {
+    static ALL: std::sync::OnceLock<Vec<Const>> = std::sync::OnceLock::new();
+    ALL.get_or_init(|| CONSTANTS.iter().chain(music::CONSTANTS).copied().collect())
+}
+
+/// `ENUMS` followed by `music::ENUMS`.
+fn all_enums() -> &'static [Enum] {
+    static ALL: std::sync::OnceLock<Vec<Enum>> = std::sync::OnceLock::new();
+    ALL.get_or_init(|| ENUMS.iter().chain(music::ENUMS).copied().collect())
+}
+
 /// The assembled schema. Cheap (static slices); the generator and tests call it freely.
 pub fn schema() -> Schema {
     Schema {
@@ -225,8 +241,8 @@ pub fn schema() -> Schema {
         status: status::STATUS,
         hrir_header: envelope::HRIR_HEADER,
         blob_headers: spatial::BLOB_HEADERS,
-        constants: CONSTANTS,
-        enums: ENUMS,
+        constants: all_constants(),
+        enums: all_enums(),
         errors: ERRORS,
     }
 }
@@ -249,6 +265,14 @@ mod tests {
         found.sort();
         let listed: Vec<String> = SCHEMA_SOURCES.iter().map(|(p, _)| p.to_string()).collect();
         assert_eq!(found, listed);
+    }
+
+    #[test]
+    fn constant_names_are_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for c in all_constants() {
+            assert!(seen.insert(c.name), "duplicate constant {}", c.name);
+        }
     }
 
     #[test]

@@ -61,6 +61,9 @@ pub struct Item {
     pub fields: Vec<Placed>,
     /// End of the fixed fields (absolute for bodies and records, relative for group items).
     pub fixed_end: u32,
+    /// Offset of the first appended field (`Field::appended`), else `fixed_end`: the shortest record
+    /// the readers accept.
+    pub min_end: u32,
     pub group: Option<Group>,
     /// Padded scalar arrays after the fixed fields (never with a group).
     pub arrays: Vec<PaddedArray>,
@@ -69,7 +72,7 @@ pub struct Item {
 impl Item {
     /// A plain item: fixed fields only.
     pub fn plain(name: &str, fields: Vec<Placed>, fixed_end: u32) -> Item {
-        Item { name: name.to_string(), fields, fixed_end, group: None, arrays: Vec::new() }
+        Item { name: name.to_string(), fields, fixed_end, min_end: fixed_end, group: None, arrays: Vec::new() }
     }
     /// Fields that are the count of this item's group or of one of its arrays: derived on write,
     /// not stored.
@@ -122,7 +125,19 @@ pub fn build_item(name: &str, start: u32, fields: &[Field], tail: Option<&Repeat
             Some(Group { name: r.name, count_field: r.count_field, item: Box::new(item), max: r.max })
         }
     };
-    Ok(Item { name: name.to_string(), fields: placed, fixed_end: end, group, arrays: Vec::new() })
+    // Appended words are a contiguous tail of the fixed fields, on a plain record.
+    let first = placed.iter().position(|p| p.field.appended);
+    let mut min_end = end;
+    if let Some(i) = first {
+        if placed[i..].iter().any(|p| !p.field.appended) || group.is_some() {
+            return Err(format!("{name}: appended fields must be a tail of the fixed fields, with no group"));
+        }
+        if placed[i..].iter().any(|p| p.field.count != 1 || p.field.ty.bytes() != 4) {
+            return Err(format!("{name}: an appended field is one 32-bit word"));
+        }
+        min_end = placed[i].offset;
+    }
+    Ok(Item { name: name.to_string(), fields: placed, fixed_end: end, min_end, group, arrays: Vec::new() })
 }
 
 /// The tail's group, if it is a `Repeat`.

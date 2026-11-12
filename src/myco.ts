@@ -174,6 +174,8 @@ export {
 
 // The Audio plugin (ADR 0157). Its settings types (`AudioSettings`…) stay in the core.
 export { Audio, AudioSource, AudioListener, AudioOccluder, AudioReverbZone, DEFAULT_SEND_CURVE, type AudioHandle, type AudioEventHandle, type EventOptions, type AudioStatus, type AudioReason, type AudioPanner, type SendCurve, type AudioDebugInfo, type AudioBedDebug, type AudioZoneDebug, type AudioOcclusionDebug, type AudioMemoryDebug, type AudioVoiceM3Debug, type AudioM3Counters, type OneShotOptions, type Rolloff, type Bus } from "./plugins/audio/runtime";
+// Interactive music (ADR 0166 §1, amended by 0167): handle.music, beat callbacks, calibration.
+export { Calibration, type GridSpec, type GridPoint, type MusicEvent, type MusicKind, type MusicHandle, type MusicPositionAt, type MusicSeekResult, type CalibrationResult, type AudioLatency, type MusicDebugRow, type MusicDebugPending, type MusicDebugState, type MusicDebugTotals } from "./plugins/audio/runtime";
 
 // The Navigation plugin (ADR 0065, 0135). Its settings types (`NavigationSettings`…) are core exports.
 export {

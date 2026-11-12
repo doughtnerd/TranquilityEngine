@@ -20,6 +20,14 @@
 // carries the dry gain with occlusion (`gain × occGain`), the pitch with Doppler (`pitch × dopplerFactor`) and the
 // voice's `lpHz`, and is followed by its SET_VOICE_FX (`voiceFx.ts`) when non-default. Each hook writes nothing while its
 // feature is inert, so an M2 replay is byte-identical.
+//
+// ADR 0166 M4 (Z4; api-and-models §3.1, §3.2, architecture §3.7): a voice's un-finished stamped ramps (`VoiceTable`'s
+// `stamped*` log) go out after its PLAY and base FADE: a ramp not yet begun is set up (the `fade` ramp, or the gain for
+// a gain ramp, set to its `from` asap) and re-sent at its own frame; one under way is re-sent asap with the remaining
+// frames and the startPhase of its current progress (`phase0 + (1 - phase0) * elapsed / total`), so the curve carries
+// on from where it was; one that finished during the gap is applied as its final value, and a stop that finished ends
+// the voice (it is freed, not replayed). A music group member is never replayed as a voice: its group is primed and
+// stamped again (`reopenStreams` hands them to `musicOps.reopenGroups`, so a decoded member is listed with the streams).
 import type { Mixer } from "../../../../engine/audio/mixer";
 import {
   ASAP,
@@ -29,9 +37,14 @@ import {
   PLAY_FLAGS_MIXED,
   PLAY_FLAGS_PANNER_SHIFT,
   PLAY_FLAGS_SPATIAL,
+  FADE_FLAGS_STOP_AT_END,
   REPLAY_CHUNK_MAX_BYTES,
   REPLAY_FLAGS_FIRST_CHUNK,
   REPLAY_FLAGS_LAST_CHUNK,
+  SET_PARAMS_MASK_GAIN,
+  packShape,
+  shapeLaw,
+  shapeStartPhase,
   writeBatchHeader,
   writeBusConfig,
   writeBusMix,
@@ -40,14 +53,16 @@ import {
   writeMaster,
   writePlay,
   writeReset,
+  writeSetParams,
   writeSetPaused,
+  writeStop,
   type BusConfigBuses,
   type BusMixBuses,
 } from "../wire.generated";
 import type { ClipInfo, ClipRegistry } from "./clipRegistry";
 import type { ClockMap } from "./clock";
 import type { StatusMirror } from "./mirror";
-import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
+import { MAX_STAMPED, StampedKind, STAMPED_FLAG_STOP_AT_END, VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
 import { wrapPosition } from "./coreAutomation";
 
 
@@ -346,6 +361,8 @@ export class Replayer {
   private readonly back: number[] = [];
   /** B3: live stream voices, reopened at the next `flush` (once the clock, and a new context's timeline, is known). */
   private streams: number[] = [];
+  /** ADR 0166 P9: `reopenStreams` is still owed for this rebuild (the music groups' hand-off), voices or not. */
+  private handOff = false;
   private readonly builder: ReplayBuilder;
   private trapFrame = 0;
   /** Bumped by each `restore`, so clip listeners from an earlier rebuild do nothing. */
@@ -385,6 +402,7 @@ export class Replayer {
     if (!this.timelinePending) this.trapFrame = this.trapFrame / oldRate + oldOffset;
     this.timelinePending = true;
     this.src.playheads.toTimeline(oldOffset);
+    this.src.table.stampedToTimeline(oldRate, oldOffset);
   }
 
   /** True while voices wait for the new context's clock (A3.4c). */
@@ -399,6 +417,7 @@ export class Replayer {
     if (clock.carryPending) return false;
     this.trapFrame = (this.trapFrame - clock.timeOffset) * clock.sampleRate;
     this.src.playheads.fromTimeline(clock.sampleRate, clock.timeOffset);
+    this.src.table.stampedFromTimeline(clock.sampleRate, clock.timeOffset);
     this.timelinePending = false;
     return true;
   }
@@ -430,8 +449,9 @@ export class Replayer {
         continue;
       }
       if (s !== VoiceState.PLAYING && s !== VoiceState.VIRTUAL) continue;
-      if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) {
-        // B3: no clip to wait for; reopened from its playhead once the header is out.
+      if ((t.flags[i]! & VoiceFlag.STREAM) !== 0 || t.musicGroup[i]! !== 0) {
+        // B3: no clip to wait for; reopened from its playhead once the header is out. ADR 0166: a music member (decoded
+        // or streamed) is listed too: `reopenStreams` skips it and hands its group to `musicOps.reopenGroups`.
         streams.push(this.idOf(i));
         continue;
       }
@@ -444,6 +464,9 @@ export class Replayer {
 
     this.postHeader();
     this.streams = streams;
+    // ADR 0166 P9 (C16): the hand-off runs once per rebuild even with no member voice listed, so a group still priming
+    // (no voice yet) is re-primed too (`reopenStreams([])` reopens no stream and calls `musicOps.reopenGroups`).
+    this.handOff = true;
 
     // §3.6: resident clips go back ordered by their live voices' priority (the registry puts the HRIR first).
     const order = [...priorityOf.keys()].sort((a, b) => priorityOf.get(b)! - priorityOf.get(a)!);
@@ -494,9 +517,10 @@ export class Replayer {
    * F = *F*_now + L, each PLAY starting where the voice would be at F. Returns how many voices it replayed.
    */
   flush(): number {
-    if (this.streams.length > 0 && this.settleTimeline()) {
+    if ((this.streams.length > 0 || this.handOff) && this.settleTimeline()) {
       const streams = this.streams;
       this.streams = [];
+      this.handOff = false;
       this.src.reopenStreams?.(streams);
       this.stats.replayed += streams.length;
     }
@@ -532,6 +556,12 @@ export class Replayer {
         this.stats.dropped++;
         continue;
       }
+      if (t.stampedCount[i]! > 0 && this.stoppedInGap(i, frame)) {
+        // A stamped stop-at-end ramp finished during the gap: the voice is over, nothing to replay.
+        t.free(id, VoiceReason.NONE);
+        this.stats.dropped++;
+        continue;
+      }
       if (region && loop) pos = wrapPosition(pos, region.start, region.end, frames);
       else if (loop && frames > 0) pos %= frames;
       playheads.start(i, frame, pos);
@@ -546,7 +576,7 @@ export class Replayer {
           bus: t.bus[i]!,
           flags: playFlags,
           group: t.group[i]!,
-          reserved: 0,
+          gate: 0,
           gain: t.gain[i]! * t.occGain[i]!,
           pitch: t.pitch[i]! * t.dopplerFactor[i]!,
           dirX: t.dirX[i]!,
@@ -560,7 +590,8 @@ export class Replayer {
       this.src.automation?.replayVoice(b, id, i);
       if (s === VoiceState.PLAYING) this.src.spatial?.replayVoiceFx(b, id, i);
       const fade = t.fadeGain[i]!;
-      if (fade !== 1) b.record(24, (view, off) => writeFade(view, off, { voiceId: id, frameOffset: ASAP, target: fade, frames: 0, flags: 0 }));
+      if (fade !== 1) b.record(28, (view, off) => writeFade(view, off, { voiceId: id, frameOffset: ASAP, target: fade, frames: 0, flags: 0 }));
+      if (t.stampedCount[i]! > 0) this.replayStamped(b, id, i, frame, rate);
       if ((flags & VoiceFlag.PAUSED) !== 0) b.record(16, (view, off) => writeSetPaused(view, off, { voiceId: id, frameOffset: ASAP, paused: 1 }));
       replayed++;
     }
@@ -568,6 +599,81 @@ export class Replayer {
     if (b.count > 0) this.stats.messages += b.post(this.port, frame, false);
     this.stats.replayed += replayed;
     return replayed;
+  }
+
+  /**
+   * ADR 0166 (§3.1, §3.2): appends voice `id`'s (slot `i`) stamped ramps for a REPLAY applying at `frame` (see the
+   * header; `stoppedInGap` has already ruled out a voice whose stop finished). Entries are in frame order.
+   */
+  private replayStamped(b: ReplayBuilder, id: number, i: number, frame: number, rate: number): void {
+    const t = this.src.table;
+    const n = t.stampedCount[i]!;
+    for (let k = 0; k < n; k++) {
+      const e = i * MAX_STAMPED + k;
+      const kind = t.stampedKind[e]!;
+      const stops = kind === StampedKind.STOP || (t.stampedFlags[e]! & STAMPED_FLAG_STOP_AT_END) !== 0;
+      const start = t.stampedFrame[e]!;
+      const end = t.stampedEnd[e]!;
+      const from = t.stampedFrom[e]!;
+      const to = t.stampedTo[e]!;
+      const shape = t.stampedShape[e]!;
+      if (end <= frame) {
+        this.writeSetTo(b, id, kind, to);
+        continue;
+      }
+      this.writeSetTo(b, id, kind, from);
+      let offset = 0;
+      let frames = Math.round(t.stampedSeconds[e]! * rate);
+      let ramp = shape;
+      if (start > frame) {
+        offset = Math.round(start - frame);
+      } else {
+        // Under way: the remaining frames, from the phase the curve has reached.
+        const total = end - start;
+        const u = total > 0 ? (frame - start) / total : 1;
+        const p0 = shapeStartPhase(shape) / 65536;
+        const phase = Math.min(65535, Math.max(0, Math.round((p0 + (1 - p0) * u) * 65536)));
+        ramp = packShape(shapeLaw(shape), phase);
+        frames = Math.max(0, Math.round(end - frame));
+      }
+      this.writeRamp(b, id, kind, stops, offset, to, frames, ramp);
+    }
+  }
+
+  /** Whether a stop-at-end ramp (a STOP, or a FADE with the flag) of slot `i` finished by `frame`. */
+  private stoppedInGap(i: number, frame: number): boolean {
+    const t = this.src.table;
+    for (let k = 0; k < t.stampedCount[i]!; k++) {
+      const e = i * MAX_STAMPED + k;
+      const stops = t.stampedKind[e] === StampedKind.STOP || (t.stampedFlags[e]! & STAMPED_FLAG_STOP_AT_END) !== 0;
+      if (stops && t.stampedEnd[e]! <= frame) return true;
+    }
+    return false;
+  }
+
+  /** A ramp of length 0 to `value` on the ramp `kind` ramps (the `fade` ramp, or the gain for a gain ramp), asap. */
+  private writeSetTo(b: ReplayBuilder, id: number, kind: number, value: number): void {
+    if (kind === StampedKind.GAIN) {
+      b.record(60, (view, off) =>
+        writeSetParams(view, off, { voiceId: id, frameOffset: ASAP, mask: SET_PARAMS_MASK_GAIN, gain: value, pitch: 1, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, bus: 0, rampFrames: 0, flags: 0, shape: 0 }),
+      );
+    } else {
+      b.record(28, (view, off) => writeFade(view, off, { voiceId: id, frameOffset: ASAP, target: value, frames: 0, flags: 0, shape: 0 }));
+    }
+  }
+
+  /** The shaped ramp itself, at `offset` frames after the REPLAY's frame (0 = asap for one under way). */
+  private writeRamp(b: ReplayBuilder, id: number, kind: number, stops: boolean, offset: number, to: number, frames: number, shape: number): void {
+    const frameOffset = offset > 0 ? offset : ASAP;
+    if (kind === StampedKind.STOP) {
+      b.record(24, (view, off) => writeStop(view, off, { voiceId: id, frameOffset, fadeFrames: frames, reason: 0, shape }));
+    } else if (kind === StampedKind.GAIN) {
+      b.record(60, (view, off) =>
+        writeSetParams(view, off, { voiceId: id, frameOffset, mask: SET_PARAMS_MASK_GAIN, gain: to, pitch: 1, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, bus: 0, rampFrames: frames, flags: 0, shape }),
+      );
+    } else {
+      b.record(28, (view, off) => writeFade(view, off, { voiceId: id, frameOffset, target: to, frames, flags: stops ? FADE_FLAGS_STOP_AT_END : 0, shape }));
+    }
   }
 
   private idOf(i: number): number {

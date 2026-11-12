@@ -7,6 +7,8 @@
 
 use crate::model::*;
 
+// Bit 1 is `music` (ADR 0166 M4): the constant is `STREAM_OPEN_FLAG_MUSIC` (`music.rs`), not a `Bits`
+// entry, so the one name API section 4.5 quotes is the only one.
 const STREAM_OPEN_FLAGS: &[Bits] = &[Bits::bit("loop", 0, "1 = loop between loop_start and loop_end")];
 
 const STREAM_CHUNK_FLAGS: &[Bits] = &[
@@ -95,7 +97,7 @@ pub const KINDS: &[Kind] = &[
             Field::new("totalFrames", Ty::U32).doc("Total sample frames; 0xFFFFFFFF if unknown."),
             Field::new("loopStart", Ty::U32).doc("Loop start frame."),
             Field::new("loopEnd", Ty::U32).doc("Loop end frame; 0 means the whole stream."),
-            Field::new("flags", Ty::U32).flags(STREAM_OPEN_FLAGS).doc("Flag bits, see `flags`."),
+            Field::new("flags", Ty::U32).flags(STREAM_OPEN_FLAGS).doc("Flag bits: bit 0 loop; bit 1 music (STREAM_OPEN_FLAG_MUSIC): the ring comes from the music pool, none free is refused as stream event 4."),
             EPOCH,
             Field::new("startFrame", Ty::U32).doc("Frame the stream starts playing from."),
             Field::new("convention", Ty::U32)

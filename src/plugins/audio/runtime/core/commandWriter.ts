@@ -19,12 +19,20 @@
 // docs/design/0162-audio-spatial/api-and-models.md §4.2 and contracts C2-C5) and PLAY's bit 7 (`PLAY_FLAGS_AMBISONIC`,
 // passed in `PlayArgs.flags`). Like the others they write what they are given, from preallocated scratch records;
 // K4 and the feature tasks decide when to send them.
+//
+// ADR 0166 M4 (Z4, leaf L-Z4b; api-and-models §4.1, §4.2, §3.2): PLAY's `gate` (`playGated`, `PlayArgs.gate`) and bit 8
+// `fadeZero` (`PlayArgs.fadeZero`); the `shape` word on FADE, SET_PARAMS and STOP, which makes them 28, 60 and 24 B
+// (`fadeShaped`, `stopShaped`, `setParams`' `shape`), each stampable; and a gate group's records stay in one BATCH.
 import {
   ASAP,
   AUTOMATE_BINDINGS_FIXED_END,
   BATCH_HEADER_FLAGS_OVERFLOWED,
   BATCH_MAX_BYTES,
   FADE_FLAGS_STOP_AT_END,
+  PLAY_FLAGS_FADE_ZERO,
+  packGate,
+  gateGroupId,
+  packShape,
   SET_PARAMS_MASK_SCORE,
   SET_PARAMS_MASK_FLAGS,
   SET_PARAMS_FLAGS_PANNER_SHIFT,
@@ -113,6 +121,13 @@ export interface PlayArgs {
   lpHz: number;
   score: number;
   startOffsetFrames: number;
+  /**
+   * ADR 0166 §4.1: the PLAY `gate` word as `packGate(groupId, groupSize)` makes it (0 = ungated). Optional: absent is 0.
+   * Prefer `playGated`, which packs it and keeps the group in one BATCH.
+   */
+  gate?: number;
+  /** ADR 0166 §4.1: start with the `fade` ramp at 0 (sets `PLAY_FLAGS_FADE_ZERO`, bit 8, on top of `flags`). */
+  fadeZero?: boolean;
 }
 
 /**
@@ -149,6 +164,8 @@ const NO_NUMBERS: number[] = [];
 const NO_ZONE_SLOTS: ZoneSlotArgs[] = [];
 /** Pads a byte count to a multiple of 4 (the record and list padding of the M3 records). */
 const pad4 = (n: number): number => Math.ceil(n / 4) * 4;
+/** A ramp's start phase, 0..1, as the u0.16 the shape word carries (clamped). */
+const phase16 = (p: number): number => Math.min(65535, Math.max(0, Math.round(p * 65536)));
 
 /**
  * ADR 0162 C3: SET_VOICE_FX, minus the head. `mask` is `SET_VOICE_FX_MASK_*` (hpHz, sends, yaw, aux); fields outside
@@ -201,15 +218,19 @@ export class CommandWriter implements VoiceCommandSink {
   private offset = new Uint32Array(MAX_RECORDS);
   private length = new Uint16Array(MAX_RECORDS);
   private frame = new Float64Array(MAX_RECORDS);
+  /** Per record: its gate group id (`playGated`), 0 for every other record; a group's run stays in one BATCH (`flush`). */
+  private groupOf = new Uint16Array(MAX_RECORDS);
+  /** The group id `end` stamps on the record being written (set by `playGated` around its write). */
+  private curGroup = 0;
   /** Record indices in send order (sorted lazily). */
   private order = new Uint32Array(MAX_RECORDS);
   private sorted = true;
   private lastStamp = Number.NEGATIVE_INFINITY;
 
-  private readonly playRec: Play = { voiceId: 0, frameOffset: ASAP, clip: 0, bus: 0, flags: 0, group: 0, reserved: 0, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, startOffsetFrames: 0 };
-  private readonly stopRec: Stop = { voiceId: 0, frameOffset: ASAP, fadeFrames: 0, reason: 0 };
-  private readonly fadeRec: Fade = { voiceId: 0, frameOffset: ASAP, target: 0, frames: 0, flags: 0 };
-  private readonly paramsRec: SetParams = { voiceId: 0, frameOffset: ASAP, mask: 0, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, bus: 0, rampFrames: 0, flags: 0 };
+  private readonly playRec: Play = { voiceId: 0, frameOffset: ASAP, clip: 0, bus: 0, flags: 0, group: 0, gate: 0, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, startOffsetFrames: 0 };
+  private readonly stopRec: Stop = { voiceId: 0, frameOffset: ASAP, fadeFrames: 0, reason: 0, shape: 0 };
+  private readonly fadeRec: Fade = { voiceId: 0, frameOffset: ASAP, target: 0, frames: 0, flags: 0, shape: 0 };
+  private readonly paramsRec: SetParams = { voiceId: 0, frameOffset: ASAP, mask: 0, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: 0, score: 0, bus: 0, rampFrames: 0, flags: 0, shape: 0 };
   private readonly mixedRec: SetMixed = { voiceId: 0, frameOffset: ASAP, mixed: 0, gain: 1, dirX: 0, dirY: 0, dirZ: -1, lpHz: 0 };
   private readonly pausedRec: SetPaused = { voiceId: 0, frameOffset: ASAP, paused: 0 };
   private readonly seekRec: Seek = { voiceId: 0, frameOffset: ASAP, clipFrame: 0, epoch: 0 };
@@ -237,12 +258,22 @@ export class CommandWriter implements VoiceCommandSink {
 
   /** PLAY at `atFrame` (an absolute audio frame, stamped) or asap (omitted). */
   play(args: PlayArgs, atFrame?: number): void {
+    // A gated PLAY joins its group's run so `flush` never splits the group across two BATCHes (P1).
+    const gate = args.gate ?? 0;
+    this.curGroup = gateGroupId(gate);
+    this.playWith(args, gate, atFrame);
+    this.curGroup = 0;
+  }
+
+  /** Writes a PLAY with the given `gate` word (the scratch record; `args.gate` is not read here). */
+  private playWith(args: PlayArgs, gate: number, atFrame?: number): void {
     const r = this.playRec;
     r.voiceId = args.voiceId;
     r.clip = args.clip;
     r.bus = args.bus;
-    r.flags = args.flags;
+    r.flags = args.fadeZero ? args.flags | PLAY_FLAGS_FADE_ZERO : args.flags;
     r.group = args.group;
+    r.gate = gate;
     r.gain = args.gain;
     r.pitch = args.pitch;
     r.dirX = args.dirX;
@@ -261,7 +292,8 @@ export class CommandWriter implements VoiceCommandSink {
     const r = this.stopRec;
     r.voiceId = id;
     r.fadeFrames = this.frames(fadeSeconds);
-    const at = this.begin(20);
+    r.shape = 0;
+    const at = this.begin(24);
     if (at < 0) return;
     this.end(at, writeStop(this.view, at, r));
   }
@@ -273,7 +305,8 @@ export class CommandWriter implements VoiceCommandSink {
     r.target = to;
     r.frames = this.frames(seconds);
     r.flags = 0;
-    const at = this.begin(24);
+    r.shape = 0;
+    const at = this.begin(28);
     if (at < 0) return;
     this.end(at, writeFade(this.view, at, r));
   }
@@ -285,7 +318,8 @@ export class CommandWriter implements VoiceCommandSink {
     r.target = 0;
     r.frames = this.frames(seconds);
     r.flags = FADE_FLAGS_STOP_AT_END;
-    const at = this.begin(24);
+    r.shape = 0;
+    const at = this.begin(28);
     if (at < 0) return;
     this.end(at, writeFade(this.view, at, r));
   }
@@ -296,7 +330,8 @@ export class CommandWriter implements VoiceCommandSink {
     r.voiceId = id;
     r.mask = SET_PARAMS_MASK_SCORE;
     r.score = score;
-    const at = this.begin(56);
+    r.shape = 0;
+    const at = this.begin(60);
     if (at < 0) return;
     this.end(at, writeSetParams(this.view, at, r));
     r.score = 0;
@@ -308,14 +343,18 @@ export class CommandWriter implements VoiceCommandSink {
     r.voiceId = id;
     r.mask = SET_PARAMS_MASK_FLAGS;
     r.flags = (panner & 3) << SET_PARAMS_FLAGS_PANNER_SHIFT;
-    const at = this.begin(56);
+    r.shape = 0;
+    const at = this.begin(60);
     if (at < 0) return;
     this.end(at, writeSetParams(this.view, at, r));
     r.flags = 0;
   }
 
-  /** SET_PARAMS (§4.2); `mask` is `SET_PARAMS_MASK_*`, other fields only matter where the mask says. `bus` only with the bus bit. */
-  setParams(id: number, mask: number, gain: number, pitch: number, dirX: number, dirY: number, dirZ: number, lpHz: number, rampFrames: number, bus = 0): void {
+  /**
+   * SET_PARAMS (§4.2); `mask` is `SET_PARAMS_MASK_*`, other fields only matter where the mask says. `bus` only with the bus bit.
+   * `shape` (ADR 0166 §4.2) is the ramp's `packShape` word, read with the mask's gain ramp; stamped at `atFrame` when given.
+   */
+  setParams(id: number, mask: number, gain: number, pitch: number, dirX: number, dirY: number, dirZ: number, lpHz: number, rampFrames: number, bus = 0, shape = 0, atFrame?: number): void {
     const r = this.paramsRec;
     r.voiceId = id;
     r.mask = mask;
@@ -327,9 +366,51 @@ export class CommandWriter implements VoiceCommandSink {
     r.lpHz = lpHz;
     r.bus = bus;
     r.rampFrames = rampFrames;
-    const at = this.begin(56);
+    r.shape = shape;
+    const at = this.begin(60);
     if (at < 0) return;
-    this.end(at, writeSetParams(this.view, at, r));
+    this.end(at, writeSetParams(this.view, at, r), atFrame);
+  }
+
+  /**
+   * ADR 0166 §4.1 (L-Z4b): PLAY as one member of gate group `groupId` (1..1023) of `groupSize` members (1..64, clamped by
+   * `packGate`): `args.gate` becomes `packGate(groupId, groupSize)`. Stamped at `atFrame` like `play`. Every member of a
+   * group must be written with the same `atFrame` and the same `groupSize`; `flush` keeps the records of one `groupId`
+   * together in one BATCH (a group never straddles two).
+   */
+  playGated(args: PlayArgs, groupId: number, groupSize: number, atFrame?: number): void {
+    const gate = packGate(groupId, groupSize);
+    this.curGroup = gateGroupId(gate);
+    this.playWith(args, gate, atFrame);
+    this.curGroup = 0;
+  }
+
+  /**
+   * ADR 0166 §4.2 (L-Z4b): FADE `id`'s `fade` ramp to `to` over `seconds` with `law` (`FadeLaw`) starting at phase
+   * `startPhase` (0..1, packed u0.16 by `packShape`), stamped at `atFrame` (absolute audio frame) or asap when omitted;
+   * `stopAtEnd` sets `FADE_FLAGS_STOP_AT_END`. A 28-byte FADE.
+   */
+  fadeShaped(id: number, to: number, seconds: number, law: number, startPhase: number, atFrame?: number, stopAtEnd = false): void {
+    const r = this.fadeRec;
+    r.voiceId = id;
+    r.target = to;
+    r.frames = this.frames(seconds);
+    r.flags = stopAtEnd ? FADE_FLAGS_STOP_AT_END : 0;
+    r.shape = packShape(law, phase16(startPhase));
+    const at = this.begin(28);
+    if (at < 0) return;
+    this.end(at, writeFade(this.view, at, r), atFrame);
+  }
+
+  /** ADR 0166 §4.2 (L-Z4b): STOP `id` with a `fadeSeconds` fade of `law` from `startPhase`, stamped at `atFrame` or asap. A 24-byte STOP. */
+  stopShaped(id: number, fadeSeconds: number, law: number, startPhase: number, atFrame?: number): void {
+    const r = this.stopRec;
+    r.voiceId = id;
+    r.fadeFrames = this.frames(fadeSeconds);
+    r.shape = packShape(law, phase16(startPhase));
+    const at = this.begin(24);
+    if (at < 0) return;
+    this.end(at, writeStop(this.view, at, r), atFrame);
   }
 
   /** SET_MIXED `id` (§4.2, A3.1): mixed or virtual; a promote carries the voice's gain, direction and `lpHz`. Always asap. */
@@ -609,6 +690,23 @@ export class CommandWriter implements VoiceCommandSink {
         bytes += len;
         end++;
       }
+      // ADR 0166 §3.2: a gate group never straddles two BATCHes. A run of one group id cut by the limit moves whole to
+      // the next batch (the records keep their absolute frames); a run that is itself the whole batch and still
+      // does not fit (a group is at most 64 x 56 B, so this cannot happen) is dropped like an oversize record.
+      if (end < this.count && end > next) {
+        const g = this.groupOf[this.order[end]!]!;
+        if (g !== 0 && this.groupOf[this.order[end - 1]!] === g) {
+          while (end > next && this.groupOf[this.order[end - 1]!] === g) end--;
+          if (end === next) {
+            let run = next;
+            while (run < this.count && this.groupOf[this.order[run]!] === g) run++;
+            this.stats.dropped += run - next;
+            this.overflowed = true;
+            next = run;
+            continue;
+          }
+        }
+      }
       if (end === next) {
         // One record bigger than a whole batch: it can never go out.
         this.stats.dropped++;
@@ -691,6 +789,7 @@ export class CommandWriter implements VoiceCommandSink {
     this.offset[i] = at;
     this.length[i] = len;
     this.frame[i] = f;
+    this.groupOf[i] = this.curGroup;
     this.order[i] = i;
     this.used = at + len;
     if (f < this.lastStamp) this.sorted = false;
@@ -727,6 +826,7 @@ export class CommandWriter implements VoiceCommandSink {
     const offset = new Uint32Array(keep);
     const length = new Uint16Array(keep);
     const frame = new Float64Array(keep);
+    const groups = new Uint16Array(keep);
     let used = 0;
     for (let k = 0; k < keep; k++) {
       const idx = this.order[from + k]!;
@@ -736,6 +836,7 @@ export class CommandWriter implements VoiceCommandSink {
       offset[k] = used;
       length[k] = len;
       frame[k] = this.frame[idx]!;
+      groups[k] = this.groupOf[idx]!;
       used += len;
     }
     const old = this.stage;
@@ -745,6 +846,7 @@ export class CommandWriter implements VoiceCommandSink {
     this.offset.set(offset);
     this.length.set(length);
     this.frame.set(frame);
+    this.groupOf.set(groups);
     for (let k = 0; k < keep; k++) this.order[k] = k;
     this.count = keep;
     this.used = used;

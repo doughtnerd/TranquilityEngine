@@ -2,14 +2,23 @@
  * The audio engine system (ADR 0074): the plugin's `activate` registers it (`registerEngineSystems`), so it
  * runs in every World and is listed with the engine's systems.
  *
- * ADR 0162 (K4): the frame runs main's M3 passes in one order for both backends (api-and-models §6, architecture §1):
+ * ADR 0162 (K4): the frame runs main's M3 passes in one order for both backends (api-and-models §6, architecture §1).
+ * ADR 0166 (Q2) adds step 0, a system of its own, and step 9:
+ *
+ * 0. **`engine.AudioMusic`** (update phase, after `engine.Lobby` and `engine.PredictionSmooth`, before
+ *    `engine.UpdateScripts`; only in the World that has the view): `music/musicSystem.ts` `musicEarlyStep`: the backend's
+ *    idempotent `beginFrame` and the beat, bar and cue dispatch, so scripts read this frame's `Audio.time` and music
+ *    callbacks arrive before `update`. With no music playing it returns at once (no `beginFrame`, no allocation).
+ *
+ * Then `engine.Audio` (lateUpdate):
  *
  * 1. **attenuation**: the core's `frameAttenuate` (gain, direction, `audibility0`); the Babylon fallback pans itself;
  * 2. **Doppler** (`core/doppler.ts`, D3), 3. **zones** (`core/zones.ts`, C5, the core only: inert on the fallback),
  *    4. **occlusion** (`core/occlusion.ts`, D2a): over the backend's `SpatialVoiceView`, results back through it;
  * 5. **audibility × smoothed occlusion** and **selection**: the core's `frameSelect`;
  * 6. **panner pick** (`core/pannerPick.ts`, A5), 7. **fx staging** (`core/voiceFx.ts`), 8. **listener** (LISTENER,
- *    `core/listener.ts`, B5), then the core's BATCH (`frameCommit`).
+ *    `core/listener.ts`, B5), 9. **music plan** (`musicPlanStep`: each music player's tick commits groups, stingers and
+ *    quantised ramps into this frame's batch; nothing without music), then the core's BATCH (`frameCommit`).
  *
  * On a backend that implements only `SpatialPassHost` (the Babylon fallback, F1), Doppler and occlusion run on main the
  * same way and its `update(dt)` follows; a backend with neither (the pending backend, test fakes) just gets `update(dt)`.
@@ -29,6 +38,7 @@ import { AudioSource, worldKeyOf, worldPlays } from "./AudioSource";
 import { audioBackend, hasAudioBackend, isPendingCoreBackend } from "./backend";
 import { events } from "./events/eventRuntime";
 import { AUDIO, type AudioWorldService } from "./core/service";
+import { musicActive, musicEarlyStep, musicPlanStep } from "./music/musicSystem";
 
 /** Worlds whose audio system already asked for the core's World service. */
 const askedCore = new WeakSet<World>();
@@ -103,6 +113,7 @@ function runFrame(backend: AudioBackend, dt: number): void {
     backend.framePickPanners(); // 6. panner pick
     backend.frameStageFx(); // 7. fx staging
     backend.frameStageListener(frame); // 8. listener
+    musicPlanStep(backend, dt); // 9. music plan (ADR 0166): nothing without music
     backend.frameCommit();
     return;
   }
@@ -114,6 +125,7 @@ function runFrame(backend: AudioBackend, dt: number): void {
     backend.doppler.run(frame, backend.spatialVoices, settings);
     backend.occlusion.run(frame, backend.spatialVoices, settings);
   }
+  musicPlanStep(backend, dt); // 9. music plan (ADR 0166), before the backend's own frame commits
   backend.update?.(dt);
 }
 
@@ -162,6 +174,17 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
       listenerComponent?._noteVelocity(frame.velX, frame.velY, frame.velZ);
       events().update(dt); // ADR 0158: due continuous-container timers; the fallback's automation
       for (const s of world._componentsOfType(AudioSource)) s._sync();
+    },
+  },
+  {
+    // ADR 0166 step 0 (R17, ADR 0167 §2): see the header. `engine.Audio` stays first in this list (tests index it).
+    name: "engine.AudioMusic",
+    phase: "update",
+    after: ["engine.Lobby", "engine.PredictionSmooth"],
+    before: ["engine.UpdateScripts"],
+    run(world: World, dt: number): void {
+      if (!musicActive() || !worldPlays(world) || !hasAudioBackend()) return;
+      musicEarlyStep(audioBackend(), dt);
     },
   },
 ];

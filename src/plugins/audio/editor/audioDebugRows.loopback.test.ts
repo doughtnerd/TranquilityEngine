@@ -151,7 +151,7 @@ describe("E4: the §7 debug rows against the loopback host", () => {
         watch.observe(info);
       }
       const sections = debugSections(info, watch);
-      expect(sections.map((s) => s.id)).toEqual(["m3Counters", "ladder", "beds", "zones", "occlusion", "memory"]);
+      expect(sections.map((s) => s.id)).toEqual(["m3Counters", "ladder", "beds", "zones", "occlusion", "memory", "musicTotals", "music"]);
       for (const s of sections) expect(s.tip.length, s.id).toBeGreaterThan(20);
 
       // Counters: the numbers the loopback run produced, each with a health.

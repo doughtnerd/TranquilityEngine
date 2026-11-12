@@ -11,6 +11,7 @@ import { setAudioBackend } from "../backend";
 import { _resetHandleWarningsForTests } from "../core/handle";
 import { makeFakeBackend } from "../testing";
 import { Audio } from "../index";
+import { musicPlayers } from "../music/musicSystem";
 import { events } from "./eventRuntime";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab", import.meta.url));
@@ -79,24 +80,21 @@ describe("the Sound Lab events page (ADR 0158)", () => {
     expect(errors).toEqual([]);
   });
 
-  it("starts the music event on the Music bus; global Intensity drives the layers' node automation", async () => {
+  it("starts the music event as a segment with stems on the Music bus; Intensity is a global parameter", async () => {
     await boot("scenes/events.scene.json");
     advance(2.5); // the page sets Intensity to 0 and its music starts once the 2 s glide from the default 1 is over
     expect(Audio.getParameter("Intensity")).toBe(0);
-    for (const layer of ["pad", "pulse", "lead"]) {
-      const plays = playsOf(new RegExp(`music-${layer}\\.wav`));
-      expect(plays).toHaveLength(1);
-      expect(plays[0].bus).toBe("Music");
-      expect(plays[0].loop).toBe(true);
-    }
-    advance(0.1);
-    expect(voiceOf(/music-pulse/).volume).toBeCloseTo(0, 2);
-    expect(voiceOf(/music-lead/).volume).toBeCloseTo(0, 2);
-    Audio.setParameter("Intensity", 1);
-    advance(3); // seekSpeed 0.5 per second: a full swing takes 2 s
-    expect(voiceOf(/music-pulse/).volume).toBeCloseTo(1, 2);
-    expect(voiceOf(/music-lead/).volume).toBeCloseTo(1, 2);
-    expect(voiceOf(/music-pad/).volume).toBeCloseTo(0.8, 2);
+    // A segment plays through the music player, not through per-clip plays: the stems are the members of one group.
+    expect(playsOf(/music-/)).toHaveLength(0);
+    const players = musicPlayers();
+    expect(players).toHaveLength(1);
+    expect(players[0].root.type).toBe("segment");
+    expect(players[0].root.id).toBe("intensity");
+    const group = fake.music!.admitted[0];
+    expect(group.members.map((m) => m.stem)).toEqual(["pad", "pulse", "lead"]);
+    expect(group.members.map((m) => m.play.path)).toEqual(["audio/events/music-pad.wav", "audio/events/music-pulse.wav", "audio/events/music-lead.wav"]);
+    for (const m of group.members) expect(m.play.bus).toBe("Music");
+    expect(group.members[0].play.volume).toBeCloseTo(0.8, 2);
     expect(warnings).toEqual([]);
   });
 

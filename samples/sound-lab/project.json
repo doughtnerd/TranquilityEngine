@@ -71,6 +71,7 @@
       { "name": "Sweep", "volumes": {}, "lowpass": { "Tape": 250, "Music": 400 } }
     ],
     "voices": { "mixed": 128, "logical": 4096, "hrtf": 8 },
+    "music": { "rings": 12 },
     "bed": { "maxBeds": 2 },
     "ambisonic": { "maxClips": 1 },
     "occlusion": {

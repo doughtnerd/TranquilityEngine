@@ -1,6 +1,6 @@
 # 0157. Audio runs on an engine-owned Rust core in an AudioWorklet, replacing Howler
 
-- **Status:** Accepted, amended by 0158 (size gates are tripwires; M2 is 0158) and 0166 (M4: a music stream pool; stamped records that touch one voice apply inside it instead of splitting the quantum) (revision 3: refined by the approved technical design in `docs/design/0157-audio-core/`; see "Revision 3" at the end. Revision 2 followed the RFC round in `docs/rfc/0157/`)
+- **Status:** Accepted, amended by 0158 (size gates are tripwires; M2 is 0158) and 0166 (M4: a music stream pool; every queued per-voice stamped record applies inside its voice instead of splitting the quantum, built in M4-0; see 0167 and `docs/design/0166-audio-music/build-log.md` D7) (revision 3: refined by the approved technical design in `docs/design/0157-audio-core/`; see "Revision 3" at the end. Revision 2 followed the RFC round in `docs/rfc/0157/`)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0006, 0099

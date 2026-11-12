@@ -35,6 +35,12 @@ pub struct Regions {
     pub fx: &'static mut [u8],
     /// ADR 0162 C8: the 8 KB planar scratch (sources of up to 16 channels).
     pub scratch: &'static mut [u8],
+    /// 0166 M4-0: the due list and the parked records (`due.rs`; 18,432 B on every preset).
+    pub due: &'static mut [u8],
+    /// 0166 M4-0: the curve pool (`curves.rs`; 8,160 B on every preset).
+    pub curves: &'static mut [u8],
+    /// 0166 M4a: the group table (`groups.rs`; 2,560 B on every preset).
+    pub groups: &'static mut [u8],
     /// Empty: the clip store owns the arena region (A1.3b).
     pub arena: &'static mut [u8],
 }
@@ -92,13 +98,21 @@ impl Core {
             wide: bytes(RegionKind::Wide),
             fx: bytes(RegionKind::Fx),
             scratch: bytes(RegionKind::Scratch),
+            // 0166 M4: always laid out (Q1); zeroed, so every M4 table starts empty.
+            due: bytes(RegionKind::Due),
+            curves: bytes(RegionKind::Curves),
+            groups: bytes(RegionKind::Groups),
             arena: bytes(RegionKind::Arena),
         };
         // A1.3b: the clip store owns the directory and arena regions (they stay empty here).
         let clips = ClipStore::over(core::mem::take(&mut regions.clip_directory), core::mem::take(&mut regions.arena));
         let cap = CapState::new(params.max_mixed, params.sample_rate);
         // B3, B4: the stream store owns the streams and wide regions (they stay empty here).
-        let streams = StreamStore::over(core::mem::take(&mut regions.streams), core::mem::take(&mut regions.wide));
+        // 0166 M4 (tree A27): `M`, the music ring count, goes to `StreamStore::over` with the
+        // regions, so C1 fills the pools in `stream.rs` without editing this file. `max_music_rings`
+        // arrives with the wire's merge 2 (ABI 3.0); 0 until then.
+        let music_rings: usize = params.max_music_rings as usize;
+        let streams = StreamStore::over(core::mem::take(&mut regions.streams), core::mem::take(&mut regions.wide), music_rings);
         let mut core = Core { params, layout, base: base as usize, regions, frame: 0, clips, cap, streams };
         // A2.1: one root bus at unity and MASTER at unity until BUS_CONFIG, BUS_MIX and MASTER.
         crate::bus::init(&mut core);

@@ -17,9 +17,15 @@
 //
 // Everything it touches comes in through `BackgroundHost` and `BackgroundTarget`, so Node tests drive it with fakes and
 // vitest's fake timers.
-import type { AudioBackground } from "../backend";
+//
+// ADR 0166 P9 (architecture §3.8, ADR 0167 owner decision 5): music keeps its place while hidden under `play` and
+// `mute`. Each visibility change goes to `music/background.ts` (`noteHidden`), and while hidden under either mode the
+// controller listens to the host's STATUS (after the mirror applied it) and hands each block to `tickHidden`, which
+// ticks the music players and flushes their batch. A target without `music` (a fake) or a host without a link skips it.
+import type { AudioBackend, AudioBackground } from "../backend";
 import { classifyDeviceChange, INTERRUPTED_RETRY_MS, type DeviceSnapshot, type DeviceVerdict } from "./deviceChange";
 import { rebuild as rebuildCore, type RebuildOutcome, type RebuildReason } from "./recovery";
+import { noteHidden, tickHidden } from "../music/background";
 
 /** §3.8: MASTER ramp when muting or unmuting for `mute`, ms. */
 export const MUTE_RAMP_MS = 50;
@@ -65,6 +71,8 @@ export interface BackgroundHost {
   resumeFromBackground(): Promise<boolean>;
   resumeContext(): Promise<boolean>;
   readonly pageSuspended: boolean;
+  /** ADR 0166 P9: the host's link, whose STATUS ticks the music while hidden (absent on fakes: no hidden music tick). */
+  readonly link?: { onStatus(listener: () => void): () => void };
 }
 
 /** §8 counters this controller owns. */
@@ -115,6 +123,8 @@ export class BackgroundController {
   private disposed = false;
   private offDevice: (() => void) | null = null;
   private started = false;
+  /** ADR 0166 P9: the STATUS subscription that ticks the music while hidden, or null. */
+  private offHiddenStatus: (() => void) | null = null;
 
   private readonly onVisibility = (): void => {
     if (this.disposed) return;
@@ -162,7 +172,27 @@ export class BackgroundController {
     this.healthTimer = null;
     this.clearPauseTimer();
     this.clearInterruptTimer();
-    if (this.hiddenNow) this.target.setHidden(false);
+    if (this.hiddenNow) {
+      this.target.setHidden(false);
+      this.stopHiddenMusic();
+    }
+  }
+
+  /** ADR 0166 P9: from here on each STATUS ticks the music players (see the header). */
+  private startHiddenMusic(): void {
+    noteHidden(true);
+    const backend = this.target as Partial<AudioBackend>;
+    const link = this.host.link;
+    if (!link || backend.music === undefined || this.offHiddenStatus !== null) return;
+    this.offHiddenStatus = link.onStatus(() => {
+      if (this.hiddenNow && !this.disposed) tickHidden(backend as AudioBackend);
+    });
+  }
+
+  private stopHiddenMusic(): void {
+    noteHidden(false);
+    this.offHiddenStatus?.();
+    this.offHiddenStatus = null;
   }
 
   // --- Visibility (§3.8) ---
@@ -176,6 +206,7 @@ export class BackgroundController {
     this.target.setHidden(true);
     const mode = this.target.backgroundMode;
     this.applied = mode;
+    if (mode === "play" || mode === "mute") this.startHiddenMusic();
     if (mode === "mute") {
       this.target.hiddenMute(true, MUTE_RAMP_MS);
     } else if (mode === "pause") {
@@ -195,6 +226,7 @@ export class BackgroundController {
     const mode = this.applied;
     this.applied = null;
     this.target.setHidden(false);
+    this.stopHiddenMusic();
     if (mode === "pause") {
       await this.host.resumeFromBackground();
       if (epoch !== this.epoch || this.disposed) return;

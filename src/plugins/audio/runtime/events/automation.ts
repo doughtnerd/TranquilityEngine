@@ -28,6 +28,25 @@ export interface Binding {
   /** A curve id given to `defineCurve`. */
   curve: number;
   target: AutoTarget;
+  /**
+   * ADR 0166 §2.3 (R6): a music stem's binding that moves only at the next `beat` or `bar` line. The core evaluates its
+   * bindings continuously, so a quantised binding is never given to `bindVoice`: the music player evaluates it on main at
+   * the grid point (`evaluateQuantized`) and stamps an in-voice ramp (`music/stems.ts` `quantizedRamp`).
+   */
+  quantize?: "beat" | "bar";
+}
+
+/** R6: the seconds of the stamped in-voice ramp a quantised binding makes (api-and-models §2.3: 20 ms). */
+export const QUANTIZED_RAMP_SECONDS = 0.02;
+
+/** R6: the bindings that follow their parameter continuously (what a sink's `bindVoice` takes). */
+export function continuousBindings(bindings: readonly Binding[]): Binding[] {
+  return bindings.filter((b) => b.quantize === undefined);
+}
+
+/** R6: the quantised bindings, which the music player evaluates at grid points. */
+export function quantizedBindings(bindings: readonly Binding[]): Binding[] {
+  return bindings.filter((b) => b.quantize !== undefined);
 }
 
 /** Global parameter slots, local slots per instance, instance ids, curves and bindings per voice or bus: the core's capacities (ADR 0158, E2). */
@@ -90,6 +109,19 @@ export function evaluate(bindings: readonly Binding[], curves: ReadonlyMap<numbe
     else lowpass = Math.min(lowpass, Math.max(10, y));
   }
   return { gain, pitch, lowpass };
+}
+
+/**
+ * R6: the volume gain and low-pass of the quantised `bindings` at the parameter values `read` gives now: the same rules
+ * as `evaluate`, over only the bindings with `quantize`. `grid` is the coarsest grid among them that applies (`bar`
+ * beats `beat` when both are present: the stem moves when the slower grid arrives, so one ramp carries every binding).
+ * `grid` is null when none is quantised.
+ */
+export function evaluateQuantized(bindings: readonly Binding[], curves: ReadonlyMap<number, Curve>, read: (p: ParamRef) => number): { gain: number; lowpass: number; grid: "beat" | "bar" | null } {
+  const q = quantizedBindings(bindings);
+  if (q.length === 0) return { gain: 1, lowpass: LOWPASS_OFF, grid: null };
+  const r = evaluate(q, curves, read);
+  return { gain: r.gain, lowpass: r.lowpass, grid: q.some((b) => b.quantize === "bar") ? "bar" : "beat" };
 }
 
 /** What `evaluateInto` writes: the same three numbers `evaluate` returns. */
@@ -157,6 +189,7 @@ export class TsAutomation implements AutomationSink {
   bindVoice(voice: AudioVoice, group: number, bindings: readonly Binding[], base: { volume: number; pitch: number }): void {
     const i = this.voices.findIndex((v) => v.voice === voice);
     if (i >= 0) this.voices.splice(i, 1);
+    bindings = continuousBindings(bindings); // R6: a quantised binding is the music player's, never followed per frame
     if (bindings.length === 0) return;
     if (bindings.some((b) => b.target === AutoTarget.Lowpass)) warnOnce("events:lowpass-fallback", "Audio events: low-pass automation needs the audio core; it is ignored on the Babylon fallback.");
     const v: BoundVoice = { voice, group, bindings: bindings.slice(0, MAX_BINDINGS), base: { ...base }, gain: NaN, pitch: NaN };

@@ -1,10 +1,10 @@
-//! The STATUS body (ADR 0157 section 4.3; ADR 0162 §4.3 and C7 for M3): the 144-byte header
+//! The STATUS body (ADR 0157 section 4.3; ADR 0162 §4.3 and C7 for M3; ADR 0166 M4, API section 4.4): the 176-byte header
 //! (absolute offsets, envelope counted: `.at(off)` on every field) and the sections. M3's section
 //! items are in `spatial.rs`.
 
 use crate::model::*;
 
-/// Header fields at the spec's offsets (16..=143), `flags` with its seven named bits.
+/// Header fields at the spec's offsets (16..=175), `flags` with its seven named bits.
 pub const HEADER_FIELDS: &[Field] = &[
     Field::new("currentFrame", Ty::F64).at(16),
     Field::new("dateMs", Ty::F64).at(24),
@@ -57,6 +57,19 @@ pub const HEADER_FIELDS: &[Field] = &[
     Field::new("zoneUsedKB", Ty::U32).at(132).doc("zone kernels resident, KB"),
     Field::new("workBed", Ty::U32).at(136).doc("work units, last quantum: bed encode, decode, ambisonic voices"),
     Field::new("workZones", Ty::U32).at(140).doc("work units, last quantum: zone convolvers, sends, aux"),
+    // ADR 0166 M4 (API section 4.4): 144..=175. The layout lands once (task Z1); the fields read 0 until their tasks fill them.
+    Field::new("musicRingCount", Ty::U16).at(144).doc("the musicRings section's count (at most 16)"),
+    Field::new("groupStartCount", Ty::U16).at(146).doc("the groupStarts section's count (at most 8)"),
+    Field::new("musicRingsOpen", Ty::U16).at(148).doc("music rings open"),
+    Field::new("streamStartsLate", Ty::U16).at(150).doc("voices that started after their stamp because a ring was not ready (cumulative, saturating)"),
+    Field::new("groupsLate", Ty::U16).at(152).doc("groups that started late (cumulative, saturating)"),
+    Field::new("groupsHeld", Ty::U16).at(154).doc("groups held by a starving member (cumulative)"),
+    Field::new("groupsAbandoned", Ty::U16).at(156).doc("group give-ups (cumulative)"),
+    Field::new("curvePoolFull", Ty::U16).at(158).doc("curve pool refusals (cumulative)"),
+    Field::new("maxSlipFrames", Ty::U32).at(160).doc("largest group slip since init"),
+    Field::new("splitQuanta", Ty::U32).at(164).doc("whole-quantum splits (cumulative; R3)"),
+    Field::new("voiceSplits", Ty::U32).at(168).doc("voice-local splits (cumulative; R3)"),
+    Field::new("reserved", Ty::U32).at(172).doc("reserved, 0"),
 ];
 
 /// Sections in order: ended, demoted, starved, playheads, clipEvents, streamEvents, peaks. A0.2-L3: fill.
@@ -133,18 +146,30 @@ pub const SECTIONS: &[Section] = &[
         max: 16,
         doc: "ZoneEvent codes: 1 refused kernel, 2 refused slot, 3 bad blob (ADR 0162)",
     },
+    Section {
+        name: "musicRings",
+        item: super::music::MUSIC_RINGS_ITEM,
+        count_field: "musicRingCount",
+        max: 16,
+        doc: "every open music ring: stream id, epoch and primed and bound bits (ADR 0166 M4)",
+    },
+    Section {
+        name: "groupStarts",
+        item: super::music::GROUP_STARTS_ITEM,
+        count_field: "groupStartCount",
+        max: 8,
+        doc: "one item per group start: slip, flags, start frame; the rest carry over like starved (ADR 0166 M4)",
+    },
 ];
 
-pub const STATUS: StatusSpec = StatusSpec { header_bytes: 144, fields: HEADER_FIELDS, sections: SECTIONS };
+pub const STATUS: StatusSpec = StatusSpec { header_bytes: 176, fields: HEADER_FIELDS, sections: SECTIONS };
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::Ty;
-    use crate::schema::CONSTANTS;
-
     fn constant(name: &str) -> u64 {
-        CONSTANTS.iter().find(|c| c.name == name).unwrap_or_else(|| panic!("no constant {name}")).value
+        crate::schema::schema().constants.iter().find(|c| c.name == name).unwrap_or_else(|| panic!("no constant {name}")).value
     }
 
     #[test]
@@ -192,6 +217,18 @@ mod tests {
             ("zoneUsedKB", 132, Ty::U32),
             ("workBed", 136, Ty::U32),
             ("workZones", 140, Ty::U32),
+            ("musicRingCount", 144, Ty::U16),
+            ("groupStartCount", 146, Ty::U16),
+            ("musicRingsOpen", 148, Ty::U16),
+            ("streamStartsLate", 150, Ty::U16),
+            ("groupsLate", 152, Ty::U16),
+            ("groupsHeld", 154, Ty::U16),
+            ("groupsAbandoned", 156, Ty::U16),
+            ("curvePoolFull", 158, Ty::U16),
+            ("maxSlipFrames", 160, Ty::U32),
+            ("splitQuanta", 164, Ty::U32),
+            ("voiceSplits", 168, Ty::U32),
+            ("reserved", 172, Ty::U32),
         ];
         assert_eq!(HEADER_FIELDS.len(), expected.len());
         let mut end = 16;
@@ -205,7 +242,7 @@ mod tests {
             end = offset + field.bytes();
         }
         assert_eq!(end, constant("STATUS_HEADER_BYTES") as u32);
-        assert_eq!(STATUS.header_bytes, 144);
+        assert_eq!(STATUS.header_bytes, 176);
     }
 
     #[test]
@@ -229,12 +266,12 @@ mod tests {
     #[test]
     fn sections_and_caps() {
         let names: Vec<&str> = SECTIONS.iter().map(|s| s.name).collect();
-        assert_eq!(names, ["ended", "demoted", "starved", "playheads", "clipEvents", "streamEvents", "peaks", "beds", "zones", "zoneEvents"]);
+        assert_eq!(names, ["ended", "demoted", "starved", "playheads", "clipEvents", "streamEvents", "peaks", "beds", "zones", "zoneEvents", "musicRings", "groupStarts"]);
 
         let counts: Vec<&str> = SECTIONS.iter().map(|s| s.count_field).collect();
         assert_eq!(
             counts,
-            ["endedCount", "demotedCount", "starvedCount", "playheadCount", "clipEventCount", "streamEventCount", "busCount", "bedsActive", "zoneSlots", "zoneEventCount"]
+            ["endedCount", "demotedCount", "starvedCount", "playheadCount", "clipEventCount", "streamEventCount", "busCount", "bedsActive", "zoneSlots", "zoneEventCount", "musicRingCount", "groupStartCount"]
         );
         for s in SECTIONS {
             assert!(HEADER_FIELDS.iter().any(|f| f.name == s.count_field), "{}", s.name);
@@ -251,6 +288,8 @@ mod tests {
         assert_eq!(caps[7], constant("MAX_BEDS") as u32);
         assert_eq!(caps[8], constant("MAX_ZONE_SLOTS") as u32);
         assert_eq!(caps[9], constant("MAX_ZONE_EVENTS_PER_BLOCK") as u32);
+        assert_eq!(caps[10], constant("MAX_MUSIC_RINGS") as u32);
+        assert_eq!(caps[11], constant("MAX_GROUP_STARTS_PER_BLOCK") as u32);
 
         let item_fields = |s: &Section| -> Vec<(&str, Ty)> { s.item.iter().map(|f| (f.name, f.ty)).collect() };
         assert_eq!(item_fields(&SECTIONS[0]), vec![("id", Ty::U32)]);
@@ -261,14 +300,15 @@ mod tests {
     }
 
     #[test]
-    fn worst_case_is_15904_bytes() {
+    fn worst_case_is_16192_bytes() {
         let worst: u32 = STATUS.header_bytes
             + SECTIONS
                 .iter()
                 .map(|s| s.max * s.item.iter().map(|f| f.bytes()).sum::<u32>())
                 .sum::<u32>();
-        // ADR 0162 §4.3: 15,728 - 112 + 144 + 32 + 48 + 64.
-        assert_eq!(worst, 15904);
+        // ADR 0162 §4.3: 15,728 - 112 + 144 + 32 + 48 + 64 = 15,904; API §4.4: - 144 + 176 (header)
+        // + 16 x 8 (musicRings) + 8 x 16 (groupStarts) = 16,192, 192 B under the buffer.
+        assert_eq!(worst, 16192);
         assert!(worst <= constant("STATUS_BUFFER_BYTES") as u32);
         assert_eq!(worst as u64, constant("STATUS_WORST_CASE_BYTES"));
     }

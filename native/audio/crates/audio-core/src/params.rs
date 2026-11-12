@@ -27,6 +27,9 @@ pub struct InitParams {
     /// ABI 2.0 (C8): 16-channel wide stream rings and their private bed decoders
     /// (`audio.ambisonic.maxClips`, 0..4). Sizes the `Wide` region. 0 leaves it empty.
     pub max_wide: u32,
+    /// ABI 3.0 (ADR 0166 M4, API section 4.5): music stream rings (`audio.music.rings`, 0..16). C1
+    /// sizes the `Streams` region to `(G + M) x RING_BYTES` with it. 0 leaves no music ring.
+    pub max_music_rings: u32,
 }
 
 impl Default for InitParams {
@@ -44,6 +47,7 @@ impl Default for InitParams {
             max_zone_slots: 0,
             zone_max_frames: 0,
             max_wide: 0,
+            max_music_rings: 0,
         }
     }
 }
@@ -62,6 +66,8 @@ pub enum InitError {
     Zones,
     /// `max_wide` above [`InitParams::MAX_WIDE`].
     MaxWide,
+    /// `max_music_rings` above [`InitParams::MAX_MUSIC_RINGS`] (ABI 3.0).
+    MusicRings,
 }
 
 impl InitParams {
@@ -80,6 +86,8 @@ impl InitParams {
     pub const MAX_ZONE_SECONDS: f32 = 8.0;
     /// Most wide (3-16 channel) stream rings (`audio.ambisonic.maxClips` 0..4).
     pub const MAX_WIDE: u32 = 4;
+    /// ABI 3.0: most music rings (`audio.music.rings`; the wire's `MAX_MUSIC_RINGS`).
+    pub const MAX_MUSIC_RINGS: u32 = audio_wire::generated::MAX_MUSIC_RINGS;
 
     /// Checks the ranges. Doesn't look at `arena_initial_bytes` (0 is allowed: the arena then
     /// starts empty and grows on the first clip). Zero is always valid for the four ABI 2.0 counts
@@ -109,6 +117,9 @@ impl InitParams {
         if self.max_wide > Self::MAX_WIDE {
             return Err(InitError::MaxWide);
         }
+        if self.max_music_rings > Self::MAX_MUSIC_RINGS {
+            return Err(InitError::MusicRings);
+        }
         Ok(())
     }
 }
@@ -126,6 +137,7 @@ mod tests {
         let p = InitParams::default();
         assert_eq!((p.sample_rate, p.max_logical, p.max_mixed, p.max_buses, p.arena_initial_bytes), (48_000.0, 4_096, 128, 32, 16 << 20));
         assert_eq!((p.max_beds, p.max_zone_slots, p.zone_max_frames, p.max_wide), (0, 0, 0, 0));
+        assert_eq!(p.max_music_rings, 0);
     }
 
     #[test]
@@ -146,6 +158,9 @@ mod tests {
         assert_eq!(InitParams { max_zone_slots: 1, zone_max_frames: 0, ..p }.validate(), Err(InitError::Zones));
         assert_eq!(InitParams { max_zone_slots: 1, zone_max_frames: 384_001, ..p }.validate(), Err(InitError::Zones));
         assert_eq!(InitParams { max_wide: 5, ..p }.validate(), Err(InitError::MaxWide));
+        assert_eq!(InitParams { max_music_rings: 17, ..p }.validate(), Err(InitError::MusicRings));
+        assert_eq!(InitParams { max_music_rings: 16, ..p }.validate(), Ok(()));
+        assert_eq!(InitParams { max_music_rings: 0, ..p }.validate(), Ok(()));
     }
 
     #[test]

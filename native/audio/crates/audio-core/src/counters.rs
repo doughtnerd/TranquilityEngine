@@ -136,6 +136,169 @@ impl SpatialCounters {
     }
 }
 
+/// 0166 M4 (api-and-models §4.4): the `musicRings` and `groupStarts` section caps (the wire's
+/// `MAX_MUSIC_RINGS` and 8 group events per block).
+pub const MUSIC_RINGS_CAP: usize = audio_wire::generated::MAX_MUSIC_RINGS as usize;
+pub const GROUP_STARTS_CAP: usize = audio_wire::generated::MAX_GROUP_STARTS_PER_BLOCK as usize;
+
+/// 0166 M4 §4.4: `musicRings` `epochFlags` bits (the wire's `MUSIC_RING_*`).
+pub mod music_ring_flag {
+    /// Bits 0–29: the ring's current epoch.
+    pub const EPOCH_MASK: u32 = audio_wire::generated::MUSIC_RING_EPOCH_MASK;
+    /// Bit 30: ≥ `START_FRAMES` (4,096) frames in the current epoch, or the input ended.
+    pub const PRIMED: u32 = audio_wire::generated::MUSIC_RING_PRIMED;
+    /// Bit 31: a voice reads the ring.
+    pub const BOUND: u32 = audio_wire::generated::MUSIC_RING_BOUND;
+}
+
+/// 0166 M4 §4.4: `groupStarts` `flags` bits (the wire's `GROUP_START_*`).
+pub mod group_start_flag {
+    /// bit0: the group started after its stamp.
+    pub const LATE: u16 = audio_wire::generated::GROUP_START_LATE as u16;
+    /// bit1: the group was held by a starving member and resumed.
+    pub const HELD_RESUMED: u16 = audio_wire::generated::GROUP_START_HELD as u16;
+    /// bit2: the group was abandoned (give-up after 1 s).
+    pub const ABANDONED: u16 = audio_wire::generated::GROUP_START_ABANDONED as u16;
+}
+
+/// 0166 M4 §4.4: a `musicRings` entry, one per **open** music ring (a level, refilled every block).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MusicRing {
+    pub stream_id: u32,
+    /// [`music_ring_flag`] bits.
+    pub epoch_flags: u32,
+}
+
+/// 0166 M4 §4.4: a `groupStarts` entry, one per group per start, resume or abandon (16 B on the wire).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GroupStart {
+    /// The wire's 10-bit group id (1..1023).
+    pub group_id: u16,
+    /// [`group_start_flag`] bits.
+    pub flags: u16,
+    /// Frames between the stamp (or the hold's start) and the start (or resume); 0 on time.
+    pub slip_frames: u32,
+    /// The context frame the members started (or resumed, or were abandoned) at.
+    pub start_frame: u64,
+}
+
+/// 0166 M4 (api-and-models §3.1, §4.4; architecture §4.3, §4.4; ADR 0167 §1): **every** M4 counter,
+/// declared once by Q1 (tree A5) so later tasks only set them from their own module:
+/// - the STATUS header fields 144..175 (the writer serialises them from the wire lead's merge 1);
+/// - the `musicRings` and `groupStarts` sections;
+/// - the core-only counts the design names that STATUS doesn't carry (`parkedOverflow`,
+///   `groupTableFull`, the refusals): tests and the debug hooks read them here.
+///
+/// Cumulative u16 fields saturate; cumulative u32 fields wrap (as `lateCommands`). All-zero valid.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MusicCounters {
+    /// `musicRingsOpen` (instant): open rings of the music pool (core: C1).
+    pub music_rings_open: u16,
+    /// `streamStartsLate`: ungated stream voices that started after their stamp because their ring
+    /// wasn't ready (cumulative, saturating; core: C2b, through `note_stream_start_late`).
+    pub stream_starts_late: u16,
+    /// `groupsLate`: groups started after their stamp (cumulative, saturating; core: C2b).
+    pub groups_late: u16,
+    /// `groupsHeld`: groups held by a starving member (cumulative, saturating; core: C2c).
+    pub groups_held: u16,
+    /// `groupsAbandoned`: give-ups (cumulative, saturating; core: C2a's give-up, reported by C2b).
+    pub groups_abandoned: u16,
+    /// `curvePoolFull`: shaped fades that degraded to linear for want of a pool entry (cumulative,
+    /// saturating; core: Z2b).
+    pub curve_pool_full: u16,
+    /// `maxSlipFrames`: the largest slip since init (core: C2b and C2c, through `note_slip`).
+    pub max_slip_frames: u32,
+    /// `splitQuanta`: whole-quantum splits (records that aren't per voice, or a due-list overflow),
+    /// cumulative (core: Z2a, through `note_split_quantum`; R3).
+    pub split_quanta: u32,
+    /// `voiceSplits`: voice-local splits (class S, or two class G records at different offsets in
+    /// one voice), cumulative (core: Z2c, through `note_voice_split`; R3).
+    pub voice_splits: u32,
+    /// Core only: due records of held voices past the 128 parked ones, applied at their own frame
+    /// unrebased (cumulative, wrapping; core: Z2a's `due::park`; R10).
+    pub parked_overflow: u32,
+    /// Core only: gated PLAYs whose group found no free table entry and started ungated (cumulative,
+    /// wrapping; core: C2a; a bug signal, architecture §4.3).
+    pub group_table_full: u32,
+    /// Core only: gated PLAYs refused for a group size above `MAX_GROUP_MEMBERS` (32) (cumulative,
+    /// wrapping; core: C2a; §4.1 "a larger size is refused and counted").
+    pub group_size_refused: u32,
+    /// Core only: `music` STREAM_OPENs refused with the pool full (stream event 4 `musicFull`;
+    /// cumulative, wrapping; core: C1; main's `musicRingRefused` counts from the events).
+    pub music_ring_refused: u32,
+    /// `musicRings` section, with `musicRingCount` (core: C1). A level: cleared per block, refilled
+    /// before every take.
+    pub music_rings: List<MusicRing, MUSIC_RINGS_CAP>,
+    /// `groupStarts` section, with `groupStartCount` (core: C2b, C2c). Cleared per block; a producer
+    /// whose push fails keeps the event for the next block (as `starved`).
+    pub group_starts: List<GroupStart, GROUP_STARTS_CAP>,
+}
+
+impl MusicCounters {
+    /// One whole-quantum split (`splitQuanta` + 1, wrapping).
+    pub fn note_split_quantum(&mut self) {
+        self.split_quanta = self.split_quanta.wrapping_add(1);
+    }
+
+    /// One voice-local split (`voiceSplits` + 1, wrapping).
+    pub fn note_voice_split(&mut self) {
+        self.voice_splits = self.voice_splits.wrapping_add(1);
+    }
+
+    /// A start or resume `slip` frames late: raises `maxSlipFrames` (since init).
+    pub fn note_slip(&mut self, slip: u32) {
+        self.max_slip_frames = self.max_slip_frames.max(slip);
+    }
+
+    /// `streamStartsLate` + 1, saturating.
+    pub fn note_stream_start_late(&mut self) {
+        self.stream_starts_late = self.stream_starts_late.saturating_add(1);
+    }
+
+    /// `groupsLate` + 1, saturating.
+    pub fn note_group_late(&mut self) {
+        self.groups_late = self.groups_late.saturating_add(1);
+    }
+
+    /// `groupsHeld` + 1, saturating.
+    pub fn note_group_held(&mut self) {
+        self.groups_held = self.groups_held.saturating_add(1);
+    }
+
+    /// `groupsAbandoned` + 1, saturating.
+    pub fn note_group_abandoned(&mut self) {
+        self.groups_abandoned = self.groups_abandoned.saturating_add(1);
+    }
+
+    /// `curvePoolFull` + 1, saturating.
+    pub fn note_curve_pool_full(&mut self) {
+        self.curve_pool_full = self.curve_pool_full.saturating_add(1);
+    }
+
+    /// `parkedOverflow` + 1, wrapping.
+    pub fn note_parked_overflow(&mut self) {
+        self.parked_overflow = self.parked_overflow.wrapping_add(1);
+    }
+
+    /// `groupTableFull` + 1, wrapping.
+    pub fn note_group_table_full(&mut self) {
+        self.group_table_full = self.group_table_full.wrapping_add(1);
+    }
+
+    /// A refused group size + 1, wrapping.
+    pub fn note_group_size_refused(&mut self) {
+        self.group_size_refused = self.group_size_refused.wrapping_add(1);
+    }
+
+    /// A refused `music` STREAM_OPEN + 1, wrapping.
+    pub fn note_music_ring_refused(&mut self) {
+        self.music_ring_refused = self.music_ring_refused.wrapping_add(1);
+    }
+}
+
 /// A `playheads` entry: a voice and its frame in its clip.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -284,6 +447,8 @@ pub struct Counters {
     pub hrtf_load_failure: u16,
     /// ADR 0162's fields and sections (K2).
     pub spatial: SpatialCounters,
+    /// 0166 M4's fields and sections (Q1, tree A5).
+    pub music: MusicCounters,
 }
 
 impl Counters {
@@ -360,6 +525,8 @@ impl Counters {
         self.clip_events.clear();
         self.stream_events.clear();
         self.spatial.zone_events.clear();
+        self.music.music_rings.clear();
+        self.music.group_starts.clear();
         self.work_units_max = 0;
         self.slack_noted = 0;
         self.min_slack = 0;
@@ -488,6 +655,26 @@ mod tests {
         assert!(c.set_peak(1, 0.1, 0.2));
         c.set_bus_count(2);
         assert_eq!(c.sent_peaks(), &[Peak::default(), Peak { l: 0.1, r: 0.2 }]);
+    }
+
+    #[test]
+    fn music_counters_saturate_wrap_and_keep_the_max_slip() {
+        let mut c = Counters::default();
+        let m = &mut c.music;
+        m.groups_late = u16::MAX;
+        m.note_group_late();
+        assert_eq!(m.groups_late, u16::MAX, "u16 counts saturate");
+        m.split_quanta = u32::MAX;
+        m.note_split_quantum();
+        assert_eq!(m.split_quanta, 0, "u32 counts wrap");
+        m.note_slip(40);
+        m.note_slip(10);
+        assert_eq!(m.max_slip_frames, 40);
+        assert!(m.music_rings.push(MusicRing { stream_id: 3, epoch_flags: 2 | music_ring_flag::PRIMED }));
+        assert!(m.group_starts.push(GroupStart { group_id: 7, flags: group_start_flag::LATE, slip_frames: 40, start_frame: 1 << 33 }));
+        c.end_block();
+        assert!(c.music.music_rings.is_empty() && c.music.group_starts.is_empty(), "sections drain per block");
+        assert_eq!((c.music.max_slip_frames, c.music.groups_late), (40, u16::MAX), "cumulative fields stay");
     }
 
     #[test]

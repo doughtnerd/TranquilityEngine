@@ -535,9 +535,9 @@ fn fuzz_m3_records_never_panic() {
 
 /// STATUS worst case (api-and-models §4.3): every section at its cap (ended, demoted, starved 1,024;
 /// playheads 256; clip and stream events 64; peaks 32; beds 4; zones 4; zoneEvents 16) writes exactly
-/// `STATUS_WORST_CASE_BYTES` (15,904 B, at most `STATUS_BUFFER_BYTES`) and reads back equal.
+/// `STATUS_WORST_CASE_BYTES` (16,192 B, at most `STATUS_BUFFER_BYTES`) and reads back equal.
 #[test]
-fn status_worst_case_is_15904_bytes() {
+fn status_worst_case_is_16192_bytes() {
     let st = StatusBlock {
         current_frame: 1000.0,
         date_ms: 1.5,
@@ -566,6 +566,8 @@ fn status_worst_case_is_15904_bytes() {
             .map(|i| StatusZonesItem { kernel_id: 0xFFFF_0200 + i, state: 3, pad: 0, quanta_since_input: 1, wet_peak: 0.5 })
             .collect(),
         zone_events: (0..16u32).map(|i| StatusZoneEventsItem { slot: (i % 4) as u8, code: 1 + (i % 3) as u8, reserved: 0 }).collect(),
+        music_rings: (0..16u32).map(|i| StatusMusicRingsItem { stream_id: 100 + i, epoch_flags: i | MUSIC_RING_PRIMED | if i % 2 == 0 { MUSIC_RING_BOUND } else { 0 } }).collect(),
+        group_starts: (0..8u32).map(|i| StatusGroupStartsItem { group_id: 1 + i as u16, flags: (i % 8) as u16, slip_frames: i * 128, start_frame_lo: 1000 + i, start_frame_hi: i }).collect(),
         ..StatusBlock::default()
     };
     let mut buf = vec![0u8; STATUS_BUFFER_BYTES as usize];

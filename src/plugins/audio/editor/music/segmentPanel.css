@@ -1,0 +1,68 @@
+/* Ed4: the segment panel. Theme tokens only (CLAUDE.md). */
+.segment-panel {
+  height: 100%;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 8px 12px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+}
+.segment-panel .sp-section { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.segment-panel .sp-section:last-of-type { border-bottom: 0; }
+.segment-panel h3 { margin: 0 0 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.segment-panel .sp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 3px 0; }
+.segment-panel .sp-row label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.segment-panel .sp-muted { color: var(--muted); }
+.segment-panel .sp-hint { margin: 4px 0 0; font-size: 11px; }
+.segment-panel .sp-suffix { color: var(--faint); font-size: 11px; }
+.segment-panel .sp-num { display: inline-flex; align-items: center; gap: 3px; }
+.segment-panel input[type="text"] {
+  min-width: 0;
+  width: 9em;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 5px;
+}
+.segment-panel input[type="text"].narrow { width: 4.5em; }
+.segment-panel input[type="text"]:focus-visible,
+.segment-panel select:focus-visible,
+.segment-panel button:focus-visible { outline: 1px solid var(--focus-ring); }
+.segment-panel select {
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+.segment-panel button {
+  background: var(--button);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 8px;
+}
+.segment-panel button:hover:not(:disabled) { background: var(--button-hover); }
+.segment-panel button:disabled { color: var(--faint); }
+.segment-panel .sp-list { list-style: none; margin: 0 0 4px; padding: 0; }
+.segment-panel .sp-stem { padding: 3px 0; border-top: 1px solid var(--border); }
+.segment-panel .sp-stem:first-child { border-top: 0; }
+.segment-panel .sp-stem.silent .sp-clip,
+.segment-panel .sp-stem.silent input { color: var(--faint); }
+.segment-panel .sp-toggle { width: 22px; padding: 2px 0; text-align: center; font-weight: 600; }
+.segment-panel .sp-toggle.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.segment-panel .sp-clip { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.segment-panel .sp-alts { margin: 2px 0 0 28px; }
+.segment-panel .sp-alts ul { list-style: none; margin: 2px 0 0; padding: 0; }
+.segment-panel .sp-alts li { display: flex; align-items: center; gap: 6px; }
+.segment-panel .sp-alts li .sp-clip { flex: 1; min-width: 0; }
+.segment-panel .sp-region { padding: 3px 0; border-top: 1px solid var(--border); }
+.segment-panel .sp-region:first-child { border-top: 0; }
+.segment-panel-error { margin: 6px 0 0; padding: 3px 6px; background: var(--danger-soft); color: var(--danger); border-radius: 3px; font-size: 11px; }
+.segment-panel .sp-lint { list-style: none; margin: 0; padding: 0; font-size: 11px; }
+.segment-panel .sp-lint li { padding: 2px 6px; margin: 2px 0; border-radius: 3px; }
+.segment-panel .sp-lint li.warn { background: var(--warning-soft); color: var(--warning); }
+.segment-panel .sp-lint li.error { background: var(--danger-soft); color: var(--danger); }

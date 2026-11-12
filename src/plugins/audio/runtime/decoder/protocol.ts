@@ -178,8 +178,98 @@ export interface ReleaseIrMessage {
 
 export type IrRequest = PrepareIrMessage | GenerateIrMessage | ReleaseIrMessage;
 
+// --- ADR 0166 interactive music (contract Q0; api-and-models §4.6, C8; D1a/D1b/D1c fill the worker side) -----------
+
+/**
+ * One stem of a `primeGroup`. The worker opens it as a stream on the music pool (STREAM_OPEN `music` flag, §4.3) under
+ * `epoch`, starting at `startFrame` (file frames).
+ *
+ * **Encoded bytes and the cache miss rule (Q0):** main sends `bytes` (transferred) when it doesn't know the worker holds
+ * this path for this instance. A member without `bytes` whose path the worker doesn't hold (never sent, or evicted) is
+ * not opened: the worker answers `needBytes` for it, and main resends a `primeGroup` with `retarget: false` carrying
+ * only those members, with `bytes`. The worker never fetches.
+ */
+export interface PrimeGroupMember {
+  readonly streamId: number;
+  readonly epoch: number;
+  readonly asset: string;
+  readonly bytes?: ArrayBuffer;
+  readonly hint: DecodeHint;
+  readonly startFrame: number;
+  readonly loop: boolean;
+  /** With `loop`: the region in file frames (`loopEndFrame` exclusive; 0 = the end). */
+  readonly loopStartFrame?: number;
+  readonly loopEndFrame?: number;
+  /** Always true here: the ring comes from the music pool. */
+  readonly music: true;
+  readonly convention?: AmbisonicConvention;
+}
+
+/**
+ * Prime a music group (§4.6, C8): every member's STREAM_OPEN and first chunk go to the worklet before any member's
+ * second chunk, then top-ups go round-robin. With `retarget`, members already open restart at their new `startFrame`
+ * under their new `epoch`, in the same breadth-first order. `protect` (optional) replaces the instance's protected
+ * paths for the encoded cache (playing, primed, candidate successors).
+ */
+export interface PrimeGroupMessage {
+  readonly type: "primeGroup";
+  readonly instance: number;
+  readonly group: number;
+  readonly retarget: boolean;
+  readonly members: readonly PrimeGroupMember[];
+  readonly protect?: readonly string[];
+  /**
+   * D1a (refinement): the preset's encoded-cache budget in bytes (`MUSIC_ENCODED_BUDGET_MIB` × 2^20, by the preset's
+   * music rings). The worker doesn't know the preset; the latest value sent wins, absent keeps the last one (initially
+   * the default preset's).
+   */
+  readonly budgetBytes?: number;
+}
+
+/**
+ * D1a (refinement): the worker's encoded-cache budget per voice preset, MiB (architecture §4.2, §6; est.), keyed like
+ * `MUSIC_RINGS_PRESETS` (8 / 12 / 16 rings). Main sends the bytes as `PrimeGroupMessage.budgetBytes`.
+ */
+export const MUSIC_ENCODED_BUDGET_MIB = { low: 48, default: 96, high: 160 } as const;
+
+/** Cancel a group: close every member stream it opened (each answers `streamClosed`). Unknown ids are ignored. */
+export interface CancelGroupMessage {
+  readonly type: "cancelGroup";
+  readonly group: number;
+}
+
+/** Replace a music instance's protected paths (C8: on each planner change of candidates). */
+export interface ProtectMusicMessage {
+  readonly type: "protectMusic";
+  readonly instance: number;
+  readonly paths: readonly string[];
+}
+
+/** The music instance ended: drop its refcounts on the encoded cache (R16). Unknown ids are ignored. */
+export interface ReleaseMusicMessage {
+  readonly type: "releaseMusic";
+  readonly instance: number;
+}
+
+export type MusicRequest = PrimeGroupMessage | CancelGroupMessage | ProtectMusicMessage | ReleaseMusicMessage;
+
+/**
+ * Editor waveform peaks (Ed1; api-and-models §7): decode `bytes` (transferred) and reduce it to one min/max pair per
+ * `binFrames` frames per channel, the base level the editor's mip levels are built from (`editor/music/peaksMip.ts`).
+ * Answered with `peaks`, or `error` with this `id`. Cancelled with `cancel` like a clip decode.
+ */
+export interface ComputePeaksMessage {
+  readonly type: "computePeaks";
+  readonly id: number;
+  readonly asset?: string;
+  readonly bytes: ArrayBuffer;
+  readonly hint: DecodeHint;
+  /** Frames per bin, >= 1 (the editor asks 256). */
+  readonly binFrames: number;
+}
+
 export type StreamRequest = StreamOpenMessage | StreamCreditMessage | StreamSeekMessage | StreamCloseMessage | StreamLoopMessage | ConnectWorkletMessage;
-export type DecoderRequest = InitMessage | DecodeClipMessage | CancelMessage | StreamRequest | IrRequest;
+export type DecoderRequest = InitMessage | DecodeClipMessage | CancelMessage | StreamRequest | IrRequest | MusicRequest | ComputePeaksMessage;
 
 // --- Worker to main ----------------------------------------------------------------------------
 
@@ -278,7 +368,43 @@ export interface IrFailedMessage {
   readonly message: string;
 }
 
-export type DecoderReply = ReadyMessage | ClipInfoMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage | IrPreparedMessage | IrFailedMessage;
+/**
+ * ADR 0166 §4.6 (Q0): a group's members were opened (or failed). **Diagnostics only**, never the primed signal: that is
+ * the core's STATUS `musicRings` primed bit for the current epoch (R7). `openMs` is from the message's arrival to the
+ * member's first chunk posted.
+ */
+export interface GroupOpenedMessage {
+  readonly type: "groupOpened";
+  readonly group: number;
+  readonly members: readonly { readonly streamId: number; readonly openMs: number; readonly error?: string }[];
+}
+
+/** ADR 0166 (Q0's miss rule): these members of `group` came without `bytes` and the worker doesn't hold their paths. */
+export interface NeedBytesMessage {
+  readonly type: "needBytes";
+  readonly group: number;
+  readonly members: readonly { readonly streamId: number; readonly asset: string }[];
+}
+
+/**
+ * Ed1 (Q0): the base peaks level of a `computePeaks`. `peaks` (transferred) is int16 pairs `[min, max]` per bin,
+ * channel-major (every bin of channel 0, then channel 1, ...): `channels × bins × 2` values. `bins` is
+ * `ceil(frames / binFrames)`.
+ */
+export interface PeaksMessage {
+  readonly type: "peaks";
+  readonly id: number;
+  readonly rate: number;
+  readonly channels: number;
+  readonly frames: number;
+  readonly binFrames: number;
+  readonly bins: number;
+  readonly peaks: ArrayBuffer;
+}
+
+export type MusicReply = GroupOpenedMessage | NeedBytesMessage;
+
+export type DecoderReply = ReadyMessage | ClipInfoMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage | IrPreparedMessage | IrFailedMessage | MusicReply | PeaksMessage;
 
 /** Frames per `clipChunk`: 65,536 (1.5 s at 44.1 kHz), 128 KiB per channel, so a long clip is never one huge message. */
 export const CLIP_CHUNK_FRAMES = 65536;

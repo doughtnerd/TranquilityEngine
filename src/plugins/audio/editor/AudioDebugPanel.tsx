@@ -8,7 +8,7 @@ import type { AudioDebugInfo } from "../runtime/backend";
 import type { AudioDebugState } from "../runtime/Audio";
 import type { EventDebugRow } from "../runtime/events/eventRuntime";
 import { editor } from "../../../editor/sdk";
-import { CounterWatch, VOICE_COLUMNS, debugSections, voiceCells, type Cell, type Section } from "./audioDebugRows";
+import { CounterWatch, MusicWatch, VOICE_COLUMNS, debugSections, voiceCells, type Cell, type Section } from "./audioDebugRows";
 import { occlusionOverlayOn } from "./OcclusionOverlay";
 import "./audioDebugPanel.css";
 
@@ -128,9 +128,11 @@ export function AudioDebugPanel() {
   const [info, setInfo] = useState<AudioDebugState | null>(null);
   // The rate-based health (overruns per second, a rise in m3Shed) needs every sample.
   const watch = useRef(new CounterWatch());
+  const musicWatch = useRef(new MusicWatch());
   const sample = () => {
     const next = Audio.debug();
     watch.current.observe(next);
+    musicWatch.current.observe(next.time, next.music ?? [], next.musicTotals);
     setInfo(next);
   };
   useEffect(() => {
@@ -153,7 +155,7 @@ export function AudioDebugPanel() {
   const shown = voiceRows(info.voices);
   const grouped = groupByEvent(shown.rows, info.events);
   const late = lateStartCount(info.events);
-  const sections = debugSections(info, watch.current);
+  const sections = debugSections(info, watch.current, musicWatch.current);
   const section = (id: Section["id"]) => <SectionView section={sections.find((x) => x.id === id)!} />;
   const voiceRow = (v: DebugVoice, inEvent: boolean) => (
     <tr key={v.id} class={inEvent ? "audio-debug-in-event" : undefined}>
@@ -259,6 +261,8 @@ export function AudioDebugPanel() {
       {section("zones")}
       {section("occlusion")}
       {section("memory")}
+      {section("musicTotals")}
+      {section("music")}
 
       <h5>Voices{shown.hidden > 0 ? ` (the ${shown.rows.length} most audible of ${info.voices.length})` : ""}</h5>
       {info.voices.length === 0 ? (
