@@ -74,7 +74,24 @@ const SCENES = [
   "m3-worst-high-sends",
   "m3-worst-default-sends",
   "m3-worst-low-sends",
+  // ADR 0166 M4-0 (Z5): per-quantum per-voice records stamped inside their quantum (applied in the voice; the bench asserts
+  // `splitQuanta == 0` at the end of a stamped scene) beside the same records unstamped, one pair each: a FADE on one of
+  // 256 voices; spatial plays with zone and aux sends and a low-pass ramp; a SET_LOOP (class S) on one of 128 voices; and
+  // music (8 stems, equal-power crossfades, stamped stops). `STAMPED_TWINS` holds each pair's +60k instruction limit.
+  "stamped-g",
+  "stamped-g-twin",
+  "stamped-spatial",
+  "stamped-spatial-twin",
+  "stamped-loop",
+  "stamped-loop-twin",
+  "stamped-music",
+  "stamped-music-twin",
 ];
+
+/** Stamped scene -> its unstamped twin: the stamped one may cost at most this many more instructions per quantum
+ *  (the waves plan's tripwire; a miss is logged and raised with the owner, not fixed by trading CPU or quality). */
+const STAMPED_TWINS = Object.fromEntries(SCENES.filter((n) => n.startsWith("stamped-") && !n.endsWith("-twin")).map((n) => [n, `${n}-twin`]));
+const TWIN_LIMIT = 60_000;
 
 function fail(message) {
   console.error(`[metered] ${message}`);
@@ -117,6 +134,8 @@ function runScene(module, scene) {
     p99: Math.round(result.p99),
     max: Math.round(result.max),
     wuMean: result.wuMean,
+    splitQuanta: result.splitQuanta,
+    voiceSplits: result.voiceSplits,
   };
 }
 
@@ -141,7 +160,24 @@ function main() {
     const t0 = performance.now();
     results[scene] = runScene(module, scene);
     const r = results[scene];
-    console.log(`[metered] ${scene}: ${r.perQuantum.toLocaleString("en-US")} instructions per quantum (p99 ${r.p99.toLocaleString("en-US")}, max ${r.max.toLocaleString("en-US")}; ${r.quanta} quanta; ${((performance.now() - t0) / 1000).toFixed(1)} s)`);
+    const splits = scene in STAMPED_TWINS ? `; splitQuanta ${r.splitQuanta}, voiceSplits ${r.voiceSplits}` : "";
+    console.log(`[metered] ${scene}: ${r.perQuantum.toLocaleString("en-US")} instructions per quantum${splits} (p99 ${r.p99.toLocaleString("en-US")}, max ${r.max.toLocaleString("en-US")}; ${r.quanta} quanta; ${((performance.now() - t0) / 1000).toFixed(1)} s)`);
+  }
+
+  // M4-0: each stamped scene against its twin (when both ran), and no stamped scene splitting the quantum.
+  const twinFailures = [];
+  for (const [stamped, twin] of Object.entries(STAMPED_TWINS)) {
+    const a = results[stamped];
+    if (!a) continue;
+    if (a.splitQuanta !== 0) twinFailures.push(`${stamped} split ${a.splitQuanta} quanta (stamped per-voice records apply in their voice)`);
+    const b = results[twin];
+    if (!b) continue;
+    const delta = a.perQuantum - b.perQuantum;
+    console.log(`[metered] ${stamped} vs ${twin}: ${a.perQuantum.toLocaleString("en-US")} vs ${b.perQuantum.toLocaleString("en-US")}, ${delta >= 0 ? "+" : ""}${delta.toLocaleString("en-US")} instructions per quantum (limit +${TWIN_LIMIT.toLocaleString("en-US")})`);
+    if (delta > TWIN_LIMIT) twinFailures.push(`${stamped} costs ${delta.toLocaleString("en-US")} instructions per quantum more than ${twin} (limit ${TWIN_LIMIT.toLocaleString("en-US")})`);
+  }
+  if (twinFailures.length > 0 && !update) {
+    fail(`stamped scenes against their twins:\n  ${twinFailures.join("\n  ")}`);
   }
 
   if (update) {
