@@ -20,12 +20,12 @@
       {
         "name": "pulse",
         "clip": "audio/events/music-pulse.wav",
-        "automation": [{ "parameter": "Intensity", "target": "volume", "curve": [[0.2, 0], [0.6, 1]], "quantize": "beat" }]
+        "automation": [{ "parameter": "Intensity", "target": "volume", "curve": [[0.2, 0], [0.6, 1]] }]
       },
       {
         "name": "lead",
         "clip": "audio/events/music-lead.wav",
-        "automation": [{ "parameter": "Intensity", "target": "volume", "curve": [[0.6, 0], [1, 1]], "quantize": "beat" }]
+        "automation": [{ "parameter": "Intensity", "target": "volume", "curve": [[0.6, 0], [1, 1]] }]
       }
     ]
   }
