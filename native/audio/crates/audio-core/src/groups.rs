@@ -31,7 +31,7 @@
 //! Owners: **C2a** (W4: table, [`admit`], [`decide`], give-up, state-machine tests) and **C2b** (W5:
 //! [`begin_quantum`], the gate in `voices.rs`'s SCHEDULED branch, ring binding, member STOP, RESET,
 //! `groupStarts`; hooks H2). The hold and the rebase are `group_hold.rs` (C2c) and
-//! `group_rebase.rs` (C2d). Bodies tagged `C2a:` or `C2b:` are inert stubs.
+//! `group_rebase.rs` (C2d).
 //!
 //! **C2a's API (what C2b calls).** Everything below works on the table as a slice of entries, so the
 //! state machine is tested without a core (`tests/group_gate.rs`):
@@ -45,7 +45,7 @@
 //! - the give-up at the core's rate: [`give_up_frames`].
 
 use crate::core::Core;
-use crate::counters::MusicCounters;
+use crate::counters::{group_start_flag, GroupStart, MusicCounters};
 
 /// Group table entries (api-and-models §4.5 `MAX_GROUPS`; R9).
 pub const MAX_GROUPS: usize = audio_wire::generated::MAX_GROUPS as usize;
@@ -428,12 +428,197 @@ pub fn reset_entries(entries: &mut [GroupEntry]) {
     entries.iter_mut().for_each(free);
 }
 
-/// Per quantum, before the voice loop (`voices::render`, C2b): decides every taken entry and acts
-/// (start, hold through `group_hold`, resume, abandon, rebase through `group_rebase`), frees the
-/// entries whose members are all gone, and pushes the `groupStarts` events and slip counters.
+/// The index of the entry `voice_id` is a member of, read from its `flags2` (bits 3–6, kept after
+/// the start while [`FLAG2_GATED`] is clear) and checked against the entry's members, so a voice
+/// that never joined a group (index bits 0) is never taken for entry 0's member.
+#[inline]
+pub fn member_index(entries: &[GroupEntry], flags2: u8, voice_id: u32) -> Option<u8> {
+    let index = (flags2 & FLAG2_GROUP_MASK) >> FLAG2_GROUP_SHIFT;
+    entries.get(index as usize).filter(|e| e.state != state::FREE && e.has_member(voice_id)).map(|_| index)
+}
+
+/// Voice `voice_id` (with `flags2`) ended, was stopped or was replaced: it leaves its group, if it
+/// is a member ([`remove_member`]). An entry whose last member leaves with an event still waiting
+/// for room in `groupStarts` is kept, memberless, until [`begin_quantum`] reports it, then freed.
+pub fn leave(entries: &mut [GroupEntry], flags2: u8, voice_id: u32) -> MemberLeft {
+    let Some(index) = member_index(entries, flags2, voice_id) else {
+        return MemberLeft::NotMember;
+    };
+    let before = entries[index as usize];
+    let left = remove_member(entries, index, voice_id);
+    if left == MemberLeft::Freed && before.flags & flag::EVENT_PENDING != 0 {
+        entries[index as usize] = GroupEntry { present: 0, size: 0, members: [0; MAX_GROUP_MEMBERS], ..before };
+    }
+    left
+}
+
+/// [`leave`] for voice `voice_id` whose `flags2` is gone (its slot was freed): finds its entry by
+/// its members. Called only while some entry is taken.
+pub fn leave_any(entries: &mut [GroupEntry], voice_id: u32) -> MemberLeft {
+    match entries.iter().position(|e| e.state != state::FREE && e.has_member(voice_id)) {
+        Some(index) => leave(entries, flags2_with_group(0, index as u8), voice_id),
+        None => MemberLeft::NotMember,
+    }
+}
+
+/// The `groupStarts` item for `entry`'s pending event (architecture §4.3 "Events"; api-and-models
+/// §4.4): its id, the late / held-and-resumed / abandoned bits, the slip and the frame.
+pub fn event_of(entry: &GroupEntry) -> GroupStart {
+    let mut flags = 0u16;
+    if entry.flags & flag::LATE != 0 {
+        flags |= group_start_flag::LATE;
+    }
+    if entry.flags & flag::RESUMED != 0 {
+        flags |= group_start_flag::HELD_RESUMED;
+    }
+    if entry.flags & flag::ABANDONED != 0 {
+        flags |= group_start_flag::ABANDONED;
+    }
+    GroupStart { group_id: entry.id, flags, slip_frames: entry.slip, start_frame: entry.start_frame }
+}
+
+/// Pushes the entry at `index`'s pending event into `groupStarts`; with no room it stays pending
+/// for the next block (as `starved`). A reported abandon, or a reported entry with no member left,
+/// frees the entry. Returns `true` when the event went out.
+fn report_event(core: &mut Core, index: usize) -> bool {
+    let e = entries(core.regions_mut().groups)[index];
+    if e.flags & flag::EVENT_PENDING == 0 {
+        return true;
+    }
+    if !crate::status::counters_mut(core).music.group_starts.push(event_of(&e)) {
+        return false;
+    }
+    let slot = &mut entries(core.regions_mut().groups)[index];
+    slot.flags &= !flag::EVENT_PENDING;
+    if slot.flags & flag::ABANDONED != 0 || slot.present == 0 {
+        free(slot);
+    }
+    true
+}
+
+/// Per quantum, before the voice loop and before the parked records come back (`voices::render`,
+/// C2b; architecture §4.3's table): for every taken entry,
+/// - an event still waiting for room in `groupStarts` goes first (an abandoned entry waits for its
+///   report and is then freed);
+/// - **STAMPED** (an asap stamp becomes this quantum's frame): a member no longer live leaves (a STOP
+///   before the start, a steal); then [`decide`] with each member's [`MemberState`]:
+///   - `Start { offset, slip }`: every member starts at this quantum's frame + `offset` (on time: the
+///     stamp; late: offset 0), each stream member binding its ring ([`mark_started`],
+///     `voices::gate_start`); `groupsLate` and `maxSlipFrames` count it; the members' records are
+///     rebased by the slip (`group_rebase::apply`, hook H2, C2d's); the start is reported;
+///   - `Abandon` (more than 1 s past the stamp): every member ends ([`abandon`]);
+///   - `Wait`: every member stays SCHEDULED;
+/// - **HELD** (C2c's hold): every member is held by the gate (`FLAG2_GATED`, so its records park);
+///   more than 1 s held abandons; else `group_hold::try_resume` with every member ready resumes it:
+///   the flag clears, `maxSlipFrames` counts the slip, the records are rebased by it and the resume
+///   is reported;
+/// - **STARTED**: nothing (the starve path's hook H2 holds it). One flag read per entry.
 pub fn begin_quantum(core: &mut Core, frame: u64) {
-    // C2b.
-    let _ = (core, frame);
+    if entries_of(core.regions().groups).iter().all(|e| e.state == state::FREE) {
+        return;
+    }
+    let give_up = give_up_frames(core.params().sample_rate);
+    for index in 0..entries_of(core.regions().groups).len() {
+        let e = entries_of(core.regions().groups)[index];
+        if e.state == state::FREE {
+            continue;
+        }
+        if !report_event(core, index) || e.flags & flag::ABANDONED != 0 {
+            continue;
+        }
+        match entries_of(core.regions().groups)[index].state {
+            state::STAMPED => stamped(core, index, frame, give_up),
+            state::HELD => held(core, index, frame, give_up),
+            _ => {}
+        }
+    }
+}
+
+/// [`begin_quantum`] for the STAMPED entry at `index`.
+fn stamped(core: &mut Core, index: usize, frame: u64, give_up: u32) {
+    let mut e = entries(core.regions_mut().groups)[index];
+    if e.stamp_frame == crate::voices::ASAP {
+        // An asap gated PLAY: the group starts in the first quantum every member is ready.
+        e.stamp_frame = frame;
+        entries(core.regions_mut().groups)[index].stamp_frame = frame;
+    }
+    // Members no longer live (stopped before the start, stolen) leave, so the rest don't wait.
+    let mut i = 0;
+    while i < e.present as usize {
+        let v = e.members[i];
+        if crate::voices::member_state(core, v).present {
+            i += 1;
+            continue;
+        }
+        if remove_member(entries(core.regions_mut().groups), index as u8, v) == MemberLeft::Freed {
+            return;
+        }
+        e = entries(core.regions_mut().groups)[index];
+    }
+    match decide(&e, frame, give_up, |v| crate::voices::member_state(core, v)) {
+        Decision::Start { offset, slip } => {
+            mark_started(&mut e, frame, offset, slip);
+            entries(core.regions_mut().groups)[index] = e;
+            for &v in e.present_members() {
+                crate::voices::gate_start(core, v, frame + offset as u64);
+            }
+            let m = &mut crate::status::counters_mut(core).music;
+            if slip > 0 {
+                m.note_group_late();
+            }
+            m.note_slip(slip);
+            crate::group_rebase::apply(core, index as u8, e.stamp_frame, slip);
+            report_event(core, index);
+        }
+        Decision::Abandon => abandon(core, index, frame, frame.saturating_sub(e.stamp_frame).min(u32::MAX as u64) as u32),
+        _ => {}
+    }
+}
+
+/// [`begin_quantum`] for the HELD entry at `index` (C2c's hold; inert until `group_hold` fills it).
+fn held(core: &mut Core, index: usize, frame: u64, give_up: u32) {
+    let mut e = entries(core.regions_mut().groups)[index];
+    for &v in e.present_members() {
+        crate::voices::set_gated(core, v, true);
+    }
+    if e.held_frames > give_up {
+        abandon(core, index, frame, e.held_frames);
+        return;
+    }
+    let all_ready = e.present_members().iter().all(|&v| {
+        let m = crate::voices::member_state(core, v);
+        m.present && m.ready
+    });
+    let resumed = crate::group_hold::try_resume(&mut e, frame, all_ready);
+    entries(core.regions_mut().groups)[index] = e;
+    if let Some(slip) = resumed {
+        for &v in e.present_members() {
+            crate::voices::set_gated(core, v, false);
+        }
+        crate::status::counters_mut(core).music.note_slip(slip);
+        crate::group_rebase::apply(core, index as u8, frame.saturating_sub(slip as u64), slip);
+        report_event(core, index);
+    }
+}
+
+/// Abandons the entry at `index` in the quantum at `frame`, `slip` frames past its stamp (or held):
+/// every member leaves and ends (`voices::gate_abandon`: at once if silent, else a 5 ms fade; the
+/// ended voices give their rings back as any voice does), `groupsAbandoned` counts it, and the
+/// abandon is reported (the entry is freed once it is).
+fn abandon(core: &mut Core, index: usize, frame: u64, slip: u32) {
+    let mut e = entries(core.regions_mut().groups)[index];
+    for &v in e.present_members() {
+        crate::voices::gate_abandon(core, v);
+    }
+    mark_abandoned(&mut e);
+    e.start_frame = frame;
+    e.slip = slip;
+    e.present = 0;
+    e.size = 0;
+    e.members = [0; MAX_GROUP_MEMBERS];
+    entries(core.regions_mut().groups)[index] = e;
+    crate::status::counters_mut(core).music.note_group_abandoned();
+    report_event(core, index);
 }
 
 /// [`remove_member`] over the core's `Groups` region: a member left its group (stopped, or ended).

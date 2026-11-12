@@ -185,6 +185,12 @@ pub struct VoiceArea {
     /// Stamped records applied late since the last report, and the most late (frames).
     pub late_count: u32,
     pub late_max: u32,
+    /// 0166 M4a (C2b): ungated stamped stream voices that reached their start with their ring not
+    /// ready since the last report (`streamStartsLate`).
+    pub stream_starts_late: u32,
+    /// 0166 M4a (H2): `groupsHeld` counted by `group_hold::on_starve` since the last report.
+    pub groups_held: u16,
+    pub _pad: u16,
     /// Round-robin cursor over `wantsPlayhead` voices (a count into the live list).
     pub playhead_cursor: u32,
     /// Ended ids moved out of their slots this quantum, reported right after the render.
@@ -345,6 +351,10 @@ pub fn render(core: &mut Core, frame: u64) {
     // 0166 M4-0: last quantum's due list and `due` bits go; parked records whose voice the gate let
     // go and whose frame falls before this quantum's end come back into the list.
     crate::due::begin_quantum(core, frame);
+    // 0166 M4a (C2b, architecture §4.3): the gate's pass, before the voice loop and before the
+    // parked records come back: a group that starts this quantum releases its members (and their
+    // parked records, rebased by `group_rebase::apply`) here.
+    crate::groups::begin_quantum(core, frame);
     crate::due::release_parked(core, end);
     let mut cursor = 0usize;
     let mut split = false;
@@ -406,6 +416,7 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
     let mut cursor = view(core.regions_mut()).area.live_head;
     while cursor != 0 {
         match render_voices(core, frame, from, to, Walk::List(&mut cursor), &mut acc) {
+            Some(index) if view(core.regions_mut()).slots[index].flags2 & crate::groups::FLAG2_GATED != 0 => render_gated_voice(core, frame, from, to, index, &mut acc),
             Some(index) => render_due_voice(core, frame, from, to, index, &mut acc),
             None => break,
         }
@@ -413,10 +424,39 @@ fn render_range(core: &mut Core, frame: u64, from: usize, to: usize) -> (f32, u3
     acc
 }
 
+/// 0166 M4a (C2b; architecture §4.3): slot `index`, held by its group's gate (`groups::FLAG2_GATED`),
+/// over `from..to` of the quantum at `frame`. The fast walk hands it here by the same flag test that
+/// finds a due voice, so the gate costs the voices it doesn't hold nothing.
+/// - **Scheduled** (its group is stamped, waiting for its stamp, its members or their rings): it
+///   doesn't start; `groups::begin_quantum` clears the flag and sets its start frame when the whole
+///   group starts. Its stamped records are parked (`due::route`); one past the parked cap
+///   (`parkedOverflow`) applies at its own frame, unrebased.
+/// - **Playing** (its group is held, C2c): `group_hold::must_hold` says whether it holds silent with
+///   its position pinned; otherwise it renders as any voice.
+fn render_gated_voice(core: &mut Core, frame: u64, from: usize, to: usize, index: usize, acc: &mut (f32, u32)) {
+    let s = view(core.regions_mut()).slots[index];
+    let due = s.flags2 & crate::due::FLAG2_DUE != 0;
+    if s.state == state::PLAYING {
+        let held = crate::groups::member_index(crate::groups::entries_of(core.regions().groups), s.flags2, s.id).is_some_and(|g| crate::group_hold::must_hold(crate::groups::entries_of(core.regions().groups), g));
+        if !held {
+            if due {
+                render_due_voice(core, frame, from, to, index, acc);
+            } else {
+                render_voices(core, frame, from, to, Walk::One(index, &DueGain::NONE), acc);
+            }
+            return;
+        }
+    }
+    if due {
+        apply_due_through(core, s.id, frame, to - 1);
+    }
+}
+
 /// What [`render_voices`] renders.
 enum Walk<'w> {
     /// The live list from this cursor (slot index + 1), up to and past the first voice with the
-    /// `due` bit, whose index it returns unrendered; the cursor is left after it.
+    /// `due` bit or held by the gate (`groups::FLAG2_GATED`), whose index it returns unrendered; the
+    /// cursor is left after it.
     List(&'w mut u32),
     /// Slot `0` alone, with a class G record due in the gain loop (`DueGain::NONE` for none).
     One(usize, &'w DueGain),
@@ -453,7 +493,7 @@ fn render_voices(core: &mut Core, frame: u64, from: usize, to: usize, mut walk: 
                 }
                 let index = **cursor as usize - 1;
                 **cursor = v.slots[index].next;
-                if v.slots[index].flags2 & crate::due::FLAG2_DUE != 0 {
+                if v.slots[index].flags2 & (crate::due::FLAG2_DUE | crate::groups::FLAG2_GATED) != 0 {
                     return Some(index);
                 }
                 (index, &DueGain::NONE)
@@ -489,6 +529,12 @@ fn render_voices(core: &mut Core, frame: u64, from: usize, to: usize, mut walk: 
                 } else {
                     continue;
                 };
+                if slot.flags & flag::STREAM != 0 && slot.start_frame != ASAP && !stream_ready(streams, slot) {
+                    // 0166 M4a (C2b, api-and-models §4.4 `streamStartsLate`): a stamped stream voice
+                    // whose ring isn't ready at its start waits for it (as today) and so starts late.
+                    // A gated member never does: its group starts only with every ring ready.
+                    v.area.stream_starts_late += 1;
+                }
                 slot.state = state::PLAYING;
                 start
             }
@@ -1003,11 +1049,7 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
         slot.state = state::ENDED;
         return;
     }
-    let index = streams.index_of(slot.clip).filter(|&i| {
-        let v = streams.ring(i).voice;
-        v == 0 || v == slot.id
-    });
-    let Some(index) = index else {
+    let Some(index) = ring_of(streams, slot) else {
         // No STREAM_OPEN yet (or none could be taken): waiting, silent. A stop ends it now.
         if stopping {
             slot.state = state::ENDED;
@@ -1016,13 +1058,7 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
     };
     let (ring, samples) = streams.split(index);
     if ring.voice == 0 {
-        // Binds: the stream's rate and channels are known now.
-        ring.voice = slot.id;
-        slot.rate_ratio = ring.rate / sample_rate;
-        if slot.panner.channels as u32 != ring.channels {
-            let p = slot.panner;
-            slot.panner.start(p.spatial != 0, p.kind, p.dir, ring.channels);
-        }
+        bind_ring(slot, ring, sample_rate);
     }
     if ring.seeking != 0 && render_seek_tail::<AUTO>(slot, auto.as_deref_mut(), fx.reborrow(), ring, samples, hrtf.as_deref_mut(), frame, sample_rate, fade_frames, from, to, out_l, out_r) {
         return;
@@ -1160,6 +1196,36 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
     } else if stopping && slot.fade.is_settled() {
         slot.state = state::ENDED;
     }
+}
+
+/// The ring stream voice `slot` reads: its stream's, unless another voice holds it.
+#[inline]
+fn ring_of(streams: &StreamStore, slot: &VoiceSlot) -> Option<usize> {
+    streams.index_of(slot.clip).filter(|&i| {
+        let v = streams.ring(i).voice;
+        v == 0 || v == slot.id
+    })
+}
+
+/// Binds an unbound `ring` to stream voice `slot`: the stream's rate and channels are known now.
+#[inline]
+fn bind_ring(slot: &mut VoiceSlot, ring: &mut crate::stream::Ring, sample_rate: f32) {
+    ring.voice = slot.id;
+    slot.rate_ratio = ring.rate / sample_rate;
+    if slot.panner.channels as u32 != ring.channels {
+        let p = slot.panner;
+        slot.panner.start(p.spatial != 0, p.kind, p.dir, ring.channels);
+    }
+}
+
+/// 0166 M4a (api-and-models §4.4 primed; architecture §4.3 "ready"): stream voice `slot`'s ring
+/// would start it now: it holds at least `START_FRAMES` (4,096) frames of its current epoch, or its
+/// input ended (the same test as the ring's `WAITING` start and STATUS `musicRings`' primed bit).
+fn stream_ready(streams: &StreamStore, slot: &VoiceSlot) -> bool {
+    ring_of(streams, slot).is_some_and(|i| {
+        let r = streams.ring(i);
+        r.awaiting_open == 0 && (r.written - r.epoch_base >= crate::stream::START_FRAMES || r.input_done())
+    })
 }
 
 /// B3b: the seek fade of a stream voice (`stream.rs`, "The seek fade"): while `ring.seeking`, a
@@ -1517,8 +1583,9 @@ fn clip_seek_jump(slot: &mut VoiceSlot, frames: u32, looping: bool) {
 fn report(core: &mut Core) {
     // B3: first, while the rings of voices that ended this quantum still hold their reports.
     report_streams(core);
+    starve_hook(core);
     let room = (ENDED_CAP - status::counters(core).ended.len()).min(ENDED_SCRATCH);
-    let (live, mixed, ambisonic, ended, playheads, late_count, late_max) = {
+    let (live, mixed, ambisonic, ended, playheads, late_count, late_max, starts_late, held) = {
         let (regions, _, streams) = core.render_parts();
         let mut v = view(regions);
         v.area.ended_len = 0;
@@ -1560,11 +1627,21 @@ fn report(core: &mut Core) {
         v.area.late_count = 0;
         v.area.late_max = 0;
         v.area.mixed_count = mixed;
-        (v.area.live_count, mixed, ambisonic, v.area.ended_len as usize, v.area.playheads_len as usize, late.0, late.1)
+        let music = (v.area.stream_starts_late, v.area.groups_held);
+        v.area.stream_starts_late = 0;
+        v.area.groups_held = 0;
+        (v.area.live_count, mixed, ambisonic, v.area.ended_len as usize, v.area.playheads_len as usize, late.0, late.1, music.0, music.1)
     };
     let parked = !crate::due::view(core.regions_mut()).parked().is_empty();
+    // 0166 M4a (C2b, architecture §4.3): a member that ended or was stopped leaves its group (the
+    // size shrinks; the last one frees the entry). Looked up here, after the walk, and only while a
+    // group is live, so the walk over the voices pays nothing for it.
+    let grouped = ended > 0 && !crate::groups::entries_of(core.regions().groups).iter().all(|e| e.state == crate::groups::state::FREE);
     for i in 0..ended {
         let id = view(core.regions_mut()).area.ended[i];
+        if grouped {
+            crate::groups::leave_any(crate::groups::entries(core.regions_mut().groups), id);
+        }
         status::counters_mut(core).ended.push(id);
         if parked {
             // 0166 M4-0 (R10): an ended voice's parked records go with it.
@@ -1580,12 +1657,47 @@ fn report(core: &mut Core) {
     for _ in 0..late_count {
         c.note_late(late_max);
     }
+    // 0166 M4a: `streamStartsLate` (C2b) and `groupsHeld` (H2, counted by C2c's `on_starve`).
+    if (starts_late | held as u32) != 0 {
+        for _ in 0..starts_late.min(u16::MAX as u32) {
+            c.music.note_stream_start_late();
+        }
+        c.music.groups_held = c.music.groups_held.saturating_add(held);
+    }
     c.live_voices = live.min(u16::MAX as u32) as u16;
     c.mixed_voices = mixed.min(u16::MAX as u32) as u16;
     // ADR 0162 B3: STATUS `ambisonicVoices`, the mixed ambisonic voices.
     c.spatial.ambisonic_voices = ambisonic.min(u16::MAX as u32) as u16;
     // ADR 0162 D1: STATUS `fxVoices`.
     crate::fxpool::report(core);
+}
+
+/// 0166 M4a (hook H2, the starve path): every stream voice that is starving (fading out for lack of
+/// data, or starved) and a member of a group goes to `group_hold::on_starve` (C2c holds a started
+/// group; today the voice starves alone, as before). One look per ring, and none while the group
+/// table is empty, so voices pay nothing.
+fn starve_hook(core: &mut Core) {
+    use crate::stream::phase;
+    if crate::groups::entries_of(core.regions().groups).iter().all(|e| e.state == crate::groups::state::FREE) {
+        return;
+    }
+    let frame = core.frame();
+    for i in 0..core.streams().narrow_count() {
+        let r = *core.streams().ring(i);
+        if r.open == 0 || r.voice == 0 || r.orphan != 0 || (r.phase != phase::STARVING && r.phase != phase::STARVED) {
+            continue;
+        }
+        let v = view(core.regions_mut());
+        let Some(index) = find(&v, r.voice) else { continue };
+        let flags2 = v.slots[index].flags2;
+        let mut held = 0u16;
+        let entries = crate::groups::entries(core.regions_mut().groups);
+        if let Some(g) = crate::groups::member_index(entries, flags2, r.voice) {
+            let _ = crate::group_hold::on_starve(entries, g, r.voice, frame, &mut held);
+        }
+        let area = view(core.regions_mut()).area;
+        area.groups_held = area.groups_held.saturating_add(held);
+    }
 }
 
 /// B3: moves the rings' pending reports into STATUS: a starved voice into `starved` and stream
@@ -1720,11 +1832,13 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         if flags & flag::MIXED != 0 && ensure_fx(&mut v, index) {
             set_entry_lowpass(&mut v, index, play.lp_hz, 0);
         }
-        (old.state != state::FREE && old.id != play.voice_id).then_some((old.id, old.flags & flag::STREAM != 0, old.clip))
+        (old.state != state::FREE && old.id != play.voice_id).then_some((old.id, old.flags & flag::STREAM != 0, old.clip, old.flags2))
     };
     // ADR 0158 E2: the slot's automation entry now belongs to this voice and its group.
     automation::on_play(core, index, play.voice_id, play.group);
-    if let Some((old, stream, clip)) = replaced {
+    if let Some((old, stream, clip, old_flags2)) = replaced {
+        // 0166 M4a (C2b): a replaced member leaves its group.
+        crate::groups::leave(crate::groups::entries(core.regions_mut().groups), old_flags2, old);
         status::counters_mut(core).ended.push(old);
         // 0166 M4-0 (R10): so do the replaced voice's parked records.
         crate::due::view(core.regions_mut()).drop_parked(old);
@@ -1732,8 +1846,90 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
             core.streams_mut().release(clip, old);
         }
     }
+    if play.gate != 0 {
+        admit_gated(core, index, play.voice_id, play.gate, start_frame);
+    }
     if play.flags & wire::PLAY_FLAGS_AMBISONIC != 0 {
         steal_ambisonic(core, index);
+    }
+}
+
+/// 0166 M4a (C2b; api-and-models §4.1 PLAY `gate`; architecture §4.3): the PLAY of voice `voice_id`
+/// (slot `index`) carries a gate: it joins its group's entry (taking a free one for the group's
+/// first PLAY) and is held SCHEDULED (`groups::FLAG2_GATED` and the entry's index in `flags2`) until
+/// the whole group starts. No free entry, or a size the table can't hold, starts it ungated and
+/// counts (`groupTableFull`, `groupSizeRefused`).
+#[inline(never)]
+fn admit_gated(core: &mut Core, index: usize, voice_id: u32, gate: u16, start_frame: u64) {
+    let admit = crate::groups::admit(core, gate, voice_id, start_frame);
+    crate::groups::note_admit(&mut status::counters_mut(core).music, admit);
+    if let crate::groups::Admit::Member { index: g } = admit {
+        let s = &mut view(core.regions_mut()).slots[index];
+        s.flags2 = crate::groups::flags2_with_group(s.flags2, g);
+    }
+}
+
+/// 0166 M4a (C2b, for `groups::begin_quantum`): group member `voice_id`'s state this quantum. Present:
+/// live (scheduled or playing). Ready: a decoded voice always; a stream voice when its ring would
+/// start it now ([`stream_ready`]). `starving` is never set here (the starve path reports it, H2).
+pub(crate) fn member_state(core: &Core, voice_id: u32) -> crate::groups::MemberState {
+    let slots = slots(core);
+    let Some(s) = slots.get((voice_id & 0xFFFF) as usize).filter(|s| voice_id != 0 && s.id == voice_id && is_live_state(s.state)) else {
+        return crate::groups::MemberState::default();
+    };
+    let ready = s.flags & flag::STREAM == 0 || stream_ready(core.streams(), s);
+    crate::groups::MemberState { present: true, ready, starving: false }
+}
+
+/// 0166 M4a (C2b): the gate lets member `voice_id` go: it is no longer held (`groups::FLAG2_GATED`
+/// clears; its group index stays for the hold and its leaving) and starts at `start_frame` (this
+/// quantum's frame plus the start offset, so a late start isn't counted in `lateCommands`). A stream
+/// member binds its ring now (it was found ready).
+pub(crate) fn gate_start(core: &mut Core, voice_id: u32, start_frame: u64) {
+    let sample_rate = core.params().sample_rate;
+    let (regions, _, streams) = core.render_parts();
+    let v = view(regions);
+    let Some(index) = find(&v, voice_id) else { return };
+    let s = &mut v.slots[index];
+    s.flags2 &= !crate::groups::FLAG2_GATED;
+    if s.state == state::SCHEDULED {
+        s.start_frame = start_frame;
+    }
+    if s.flags & flag::STREAM != 0 {
+        if let Some(i) = ring_of(streams, s) {
+            let ring = streams.ring_mut(i);
+            if ring.voice == 0 {
+                bind_ring(s, ring, sample_rate);
+            }
+        }
+    }
+}
+
+/// 0166 M4a (C2b, for a held group, C2c): member `voice_id` is held by the gate (`on`) or let go.
+pub(crate) fn set_gated(core: &mut Core, voice_id: u32, on: bool) {
+    let v = view(core.regions_mut());
+    let Some(index) = find(&v, voice_id) else { return };
+    let s = &mut v.slots[index];
+    if on {
+        s.flags2 |= crate::groups::FLAG2_GATED;
+    } else {
+        s.flags2 &= !crate::groups::FLAG2_GATED;
+    }
+}
+
+/// 0166 M4a (C2b, architecture §4.3 "abandon"): the group gave up on member `voice_id`: it leaves the
+/// group and ends, now if it isn't sounding (scheduled or virtual), else over the 5 ms fade.
+pub(crate) fn gate_abandon(core: &mut Core, voice_id: u32) {
+    let frames = mix_fade_frames(core);
+    let v = view(core.regions_mut());
+    let Some(index) = find(&v, voice_id) else { return };
+    let s = &mut v.slots[index];
+    s.flags2 = crate::groups::flags2_without_group(s.flags2);
+    if s.state == state::SCHEDULED || s.flags & flag::MIXED == 0 {
+        s.state = state::ENDED;
+    } else {
+        s.fade.set_target(0.0, frames);
+        s.flags |= flag::STOP_ON_FADE_END;
     }
 }
 

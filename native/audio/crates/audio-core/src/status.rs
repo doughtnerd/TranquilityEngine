@@ -204,6 +204,7 @@ pub fn message_bytes(c: &Counters) -> usize {
         + 12 * c.spatial.sent_zones().len()
         + 4 * c.spatial.zone_events.len()
         + 8 * c.music.music_rings.len()
+        + 16 * c.music.group_starts.len()
 }
 
 /// Serialises `c` as one STATUS message with envelope `seq`. Pure: doesn't change `c`. Returns
@@ -262,11 +263,10 @@ pub fn write(c: &Counters, seq: u32, out: &mut [u8]) -> usize {
     put_u32(out, off::ZONE_USED_KB, s.zone_used_kb);
     put_u32(out, off::WORK_BED, s.work_bed);
     put_u32(out, off::WORK_ZONES, s.work_zones);
-    // 0166 M4 §4.4 (Q1). C1 writes `musicRings`; the `groupStarts` count stays 0 until C2b writes
-    // its section here (adding its count, its bytes and `message_bytes` together).
+    // 0166 M4 §4.4 (Q1). C1 writes `musicRings`, C2b `groupStarts`.
     let m = &c.music;
     put_u16(out, off::MUSIC_RING_COUNT, m.music_rings.len() as u16);
-    put_u16(out, off::GROUP_START_COUNT, 0);
+    put_u16(out, off::GROUP_START_COUNT, m.group_starts.len() as u16);
     put_u16(out, off::MUSIC_RINGS_OPEN, m.music_rings_open);
     put_u16(out, off::STREAM_STARTS_LATE, m.stream_starts_late);
     put_u16(out, off::GROUPS_LATE, m.groups_late);
@@ -328,6 +328,16 @@ pub fn write(c: &Counters, seq: u32, out: &mut [u8]) -> usize {
         put_u32(out, cur + 4, r.epoch_flags);
         cur += 8;
     }
+    // 0166 M4 §4.4 (C2b): `groupStarts {u16 groupId; u16 flags; u32 slipFrames; u32 startFrameLo;
+    // u32 startFrameHi}`, after `musicRings`.
+    for g in m.group_starts.as_slice() {
+        put_u16(out, cur, g.group_id);
+        put_u16(out, cur + 2, g.flags);
+        put_u32(out, cur + 4, g.slip_frames);
+        put_u32(out, cur + 8, g.start_frame as u32);
+        put_u32(out, cur + 12, (g.start_frame >> 32) as u32);
+        cur += 16;
+    }
     debug_assert_eq!(cur, total);
     total
 }
@@ -355,7 +365,7 @@ fn put_f64(out: &mut [u8], at: usize, v: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::counters::{Event, Peak, Playhead, ZoneEvent, BEDS_CAP, CLIP_EVENTS_CAP, ENDED_CAP, PEAKS_CAP, PLAYHEADS_CAP, ZONES_CAP, ZONE_EVENTS_CAP};
+    use crate::counters::{Event, GroupStart, Peak, Playhead, ZoneEvent, BEDS_CAP, GROUP_STARTS_CAP, CLIP_EVENTS_CAP, ENDED_CAP, PEAKS_CAP, PLAYHEADS_CAP, ZONES_CAP, ZONE_EVENTS_CAP};
     use crate::layout::{Layout, PAGE_BYTES};
     use crate::params::InitParams;
 
@@ -487,6 +497,23 @@ mod tests {
     }
 
     #[test]
+    fn group_starts_follow_the_music_rings_and_read_back() {
+        let mut c = Counters::default();
+        c.music.music_rings.push(MusicRing { stream_id: 9, epoch_flags: 3 });
+        c.music.group_starts.push(GroupStart { group_id: 1023, flags: 1, slip_frames: 384, start_frame: 0x0000_0002_0000_0080 });
+        c.music.group_starts.push(GroupStart { group_id: 4, flags: 4, slip_frames: 0, start_frame: 48_000 });
+        let mut out = [0u8; BUFFER_BYTES];
+        let n = write(&c, 0, &mut out);
+        assert_eq!(n, HEADER_BYTES + 8 + 2 * 16);
+        assert_eq!(u16_at(&out, off::GROUP_START_COUNT), 2);
+        let (s, _) = audio_wire::generated::StatusBlock::read(&out, 0).expect("the generated reader accepts it");
+        assert_eq!(s.music_rings.len(), 1);
+        let g = &s.group_starts;
+        assert_eq!((g.len(), g[0].group_id, g[0].flags, g[0].slip_frames, g[0].start_frame_lo, g[0].start_frame_hi), (2, 1023, 1, 384, 0x80, 2));
+        assert_eq!((g[1].group_id, g[1].flags, g[1].start_frame_lo, g[1].start_frame_hi), (4, 4, 48_000, 0));
+    }
+
+    #[test]
     fn sections_follow_the_header_in_order_and_are_drained() {
         let mut core = core();
         {
@@ -558,13 +585,16 @@ mod tests {
         for i in 0..ZONE_EVENTS_CAP {
             assert!(c.spatial.zone_events.push(ZoneEvent { slot: i as u8, code: 1 }));
         }
-        // 0166 M4 §4.4 (C1): 16 music rings; `groupStarts` (8 × 16 B) is C2b's.
+        // 0166 M4 §4.4: 16 music rings (C1) and 8 group starts (C2b).
         for i in 0..MUSIC_RINGS_CAP as u32 {
             assert!(c.music.music_rings.push(MusicRing { stream_id: i, epoch_flags: i }));
         }
-        let worst = audio_wire::generated::STATUS_WORST_CASE_BYTES as usize - 8 * 16;
-        assert_eq!(message_bytes(&c), 16_064);
-        assert_eq!(message_bytes(&c), worst, "the generated worst case less C2b's groupStarts");
+        for i in 0..GROUP_STARTS_CAP as u16 {
+            assert!(c.music.group_starts.push(GroupStart { group_id: i + 1, flags: 1, slip_frames: 7, start_frame: 1 << 33 }));
+        }
+        let worst = audio_wire::generated::STATUS_WORST_CASE_BYTES as usize;
+        assert_eq!(message_bytes(&c), 16_192);
+        assert_eq!(message_bytes(&c), worst, "the generated worst case");
         let mut out = [0u8; BUFFER_BYTES];
         assert_eq!(write(&c, 0, &mut out), worst);
     }
