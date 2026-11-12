@@ -197,3 +197,66 @@ test("M4b smoke: a state key changes the music on a bar by the named rule, and a
   expect(late, "no group late, held or abandoned; no slip; no split").toEqual({ groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0 });
   expect(errors).toEqual([]);
 });
+
+// M4c smoke (E3): the Sound Lab's rhythm page (key R on the tour). C starts a calibration on the click track; 20 taps are injected
+// through `__rhythmLab.tap(performanceTime)` on a known +30 ms from the beat, and the page's result reads that offset and applies it to
+// `Audio.calibration`; G starts the tap game, where a tap on the calibrated zero is a PERFECT; a script's `handle.onMusic("beat")`
+// is called. The full M4c path (hooks, cues, unsubscribe, reload, the stale flag, the grades) is audio-music-c.spec.ts.
+test("M4c smoke: a calibration run on the rhythm page reads the injected offset and sets Audio.calibration, and a tap on it is perfect", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await bootSample(page, LAB);
+  await page.evaluate(() => {
+    const { Audio } = (globalThis as unknown as { __myco: Api }).__myco;
+    for (const c of ["click-track", "combat-drums", "combat-bass"]) Audio.playOneShot(`audio/music/${c}.wav`, { volume: 0.0001, bus: "UI" });
+  });
+  await page.waitForTimeout(2_500);
+  await page.keyboard.press("r");
+  type Lab = { state(): { mode: string; beats: number; result: { offsetMs: number; steady: boolean; applied: boolean } | null; calibrationMs: number; last: { grade: string; judgedMs: number } | null }; tap(t: number): unknown; page: { handle: { music: { nextGrid(k: string): { time: number } } } } };
+  const state = () => page.evaluate(() => (globalThis as unknown as { __rhythmLab: Lab }).__rhythmLab.state());
+  await expect.poll(() => page.evaluate(() => !!(globalThis as unknown as { __rhythmLab?: unknown }).__rhythmLab), { timeout: 15_000 }).toBe(true);
+  await page.keyboard.press("c");
+  await expect.poll(async () => (await state()).beats, { timeout: 20_000, message: "the click track plays and its beats are counted" }).toBeGreaterThan(1);
+  // Twenty taps (the page drops the first 4), each aimed 30 +- 4 ms after the next beat's heard time.
+  const tapAll = (offsets: number[]) =>
+    page.evaluate((offs) => {
+      const g = globalThis as unknown as { __myco: { Audio: { timeAt(p: number): number } }; __rhythmLab: Lab };
+      for (const off of offs) {
+        const T = g.__rhythmLab.page.handle.music.nextGrid("beat").time;
+        const p0 = performance.now();
+        g.__rhythmLab.tap(p0 + (T - g.__myco.Audio.timeAt(p0)) * 1000 + off);
+      }
+    }, offsets);
+  await tapAll([...Array(4).fill(100), ...[26, 34, 30, 28, 32, 30, 27, 33, 30, 29, 31, 30, 26, 34, 30, 30]]);
+  const done = await state();
+  expect(done.result, "a steady run is applied").toMatchObject({ steady: true, applied: true });
+  expect(done.result!.offsetMs, "the result reads the injected offset").toBeGreaterThan(26);
+  expect(done.result!.offsetMs).toBeLessThan(34);
+  expect(done.calibrationMs, "Audio.calibration is the result").toBeCloseTo(done.result!.offsetMs, 6);
+  // The tap game: a tap at the calibrated offset is on the zero.
+  await page.keyboard.press("g");
+  await expect.poll(async () => (await state()).mode, { timeout: 20_000 }).toBe("game");
+  await expect.poll(async () => (await state()).beats, { timeout: 20_000 }).toBeGreaterThan(1);
+  await tapAll([done.result!.offsetMs]);
+  const last = (await state()).last!;
+  expect(last.grade, "a tap on the calibrated zero").toBe("perfect");
+  expect(Math.abs(last.judgedMs), "judged against the calibration").toBeLessThan(5);
+  // handle.onMusic: a script that plays music itself hears its beats.
+  const beats = await page.evaluate(async () => {
+    const { Audio } = (globalThis as unknown as { __myco: Api }).__myco;
+    const h = Audio.play("audio/music/rhythm-click.audioevent.json") as unknown as { onMusic(k: string, f: () => void): () => void; stop(s?: number): void };
+    let n = 0;
+    const off = h.onMusic("beat", () => n++);
+    await new Promise((r) => setTimeout(r, 4_000));
+    off();
+    h.stop();
+    return n;
+  });
+  expect(beats, "about two beats a second reach the script").toBeGreaterThanOrEqual(3);
+  const late = await readLate(page);
+  expect(late, "no group late, held or abandoned; no slip; no split").toEqual({ groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0 });
+  expect(errors).toEqual([]);
+});
