@@ -49,10 +49,13 @@
 //!
 //! **The load-shedding ladder (OD3, architecture §7.3).** Only when the adaptive cap sits at its
 //! floor (16, or `max_mixed` below that) and underruns continue for [`LADDER_MS`]: step 1 cuts
-//! the releasing slots' tails with a 100 ms fade (and every release after it, for the session);
-//! step 2, after another second of underruns, allows one active slot fewer for the session (the
+//! the releasing slots' tails with a 100 ms fade (and every release after it, while the step is in force);
+//! step 2, after another second of underruns, allows one active slot fewer (the
 //! active slot with the lowest wet is evicted; a start past the limit is `refusedSlot`). Each step
-//! counts in [`shed_steps`] (main's `m3Shed`). It never touches beds or HRTF.
+//! in force counts in [`shed_steps`] (main's `m3Shed`). It never touches beds or HRTF. ADR 0170:
+//! once underruns stop, `cap.rs`'s recovery clock gives the steps back one at a time, step 2 first
+//! ([`restore_step`]): the limit lifts, so main's next ZONE_CONFIG starts the zone again with its
+//! 100 ms fade-in; then releases ring out in full again (a tail already cut stays cut).
 //!
 //! **In-core preparation (task C3b, architecture §2.2 "Worker missing").** Without the decoder
 //! worker, main uploads the response as clip format 5 (interleaved stereo f32 at the context rate,
@@ -335,8 +338,8 @@ pub struct ZoneArea {
     pub pressure: u32,
     pub pressure_since: u64,
     pub last_underrun: u64,
-    /// Steps taken (0..=2, main's `m3Shed`), whether releases are cut (step 1), and the most
-    /// active slots allowed (step 2; [`NO_LIMIT`] before).
+    /// Steps in force (0..=2, main's `m3Shed`), whether releases are cut (step 1), and the most
+    /// active slots allowed (step 2; [`NO_LIMIT`] before and once it is given back, ADR 0170).
     pub shed_steps: u32,
     pub cut_tails: u32,
     pub active_limit: u32,
@@ -1044,7 +1047,7 @@ fn ladder(core: &mut Core, frame: u64, at_floor: bool, underrun: bool) {
         }
         return;
     }
-    // Step 2: one active slot fewer, for the session.
+    // Step 2: one active slot fewer, until the recovery clock gives it back (ADR 0170).
     let (mut active, mut weakest) = (0u32, None::<usize>);
     for k in 0..count {
         let h = header(zones, k, stride);
@@ -1066,9 +1069,25 @@ fn ladder(core: &mut Core, frame: u64, at_floor: bool, underrun: bool) {
     }
 }
 
-/// Ladder steps taken this session (0..=2): main's `m3Shed` for zones (`Audio.debug()`).
+/// Ladder steps in force (0..=2): main's `m3Shed` for zones (`Audio.debug()`).
 pub fn shed_steps(core: &Core) -> u32 {
     area(core).shed_steps
+}
+
+/// ADR 0170: gives the zone step taken last back (`cap.rs`'s recovery clock). Step 2: the
+/// active-slot limit lifts; the evicted zone comes back when main next starts it (ZONE_CONFIG, its
+/// 100 ms fade-in). Step 1: releases ring out in full again; a tail already cut stays cut. Neither
+/// changes what is playing, so nothing jumps. Returns whether a step was in force.
+pub fn restore_step(core: &mut Core) -> bool {
+    let a = area_mut(core.regions_mut().core_state);
+    match a.shed_steps {
+        0 => return false,
+        1 => a.cut_tails = 0,
+        _ => a.active_limit = NO_LIMIT,
+    }
+    a.shed_steps -= 1;
+    a.pressure = 0;
+    true
 }
 
 /// Slot `k`'s input buffers, planar `[L; 128]`, `[R; 128]`, when the slot accepts sends (waiting
@@ -1123,7 +1142,8 @@ pub fn shared_return_gain(core: &Core) -> f32 {
 }
 
 /// RESET (§4.2: "RESET clears … zone slots"): every slot off, the shared return back to 1. The
-/// ladder's steps stay (they are for the session); kernels go with the clips unless `keepClips`.
+/// ladder's steps stay (the recovery clock gives them back, ADR 0170); kernels go with the clips
+/// unless `keepClips`.
 pub fn reset(core: &mut Core) {
     let regions = core.regions_mut();
     let (count, stride) = geometry(regions.zones);

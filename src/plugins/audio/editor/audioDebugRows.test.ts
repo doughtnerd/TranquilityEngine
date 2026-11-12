@@ -52,6 +52,15 @@ describe("S8 health thresholds", () => {
     expect(health(base({ m3Shed: 0 }), "m3Shed", new CounterWatch(), "ladder")).toBe("ok");
   });
 
+  it("ADR 0170: a recovering ladder is amber, and its steps given back are shown", () => {
+    const info = base({ m3Shed: 2 });
+    info.core = { ...info.core, ladderState: "recovering (2 steps)", ladderRecoveries: 1 };
+    expect(health(info, "m3Shed", new CounterWatch(), "ladder")).toBe("warn");
+    expect(health(info, "ladderState", new CounterWatch(), "ladder")).toBe("warn");
+    const rows = debugSections(info).find((s) => s.id === "ladder")!.rows;
+    expect(rows.find((r) => r.id === "ladderRecoveries")!.cells[1]!.text).toBe("1");
+  });
+
   it("bedSwitches: amber above 2 per voice-second", () => {
     const run = (perSecond: number, voices: number) => {
       const w = new CounterWatch();

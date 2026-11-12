@@ -328,6 +328,60 @@ fn the_ladder_cuts_releasing_tails_then_allows_one_active_zone_fewer() {
 }
 
 #[test]
+fn the_ladder_gives_its_steps_back_one_per_hold_and_a_re_trip_doubles_the_hold() {
+    // ADR 0170. 16 mixed voices: the cap sits at its floor from the start.
+    let mut z = Zones::over(core_with(zone_params(3, IR_FRAMES)));
+    load_kernel(&mut z.core, K1, &kernel_blob(IR_FRAMES, 13));
+    load_kernel(&mut z.core, K2, &kernel_blob(IR_FRAMES, 14));
+    z.config(1.0, 0, &[active(K1, 1.0)]);
+    z.run(10, |q| Some((0, noise(q as u32))));
+    let mut underruns = 0;
+    let mut shed_to = |z: &mut Zones, steps: u32| {
+        let mut n = 0;
+        while zones::shed_steps(&z.core) < steps {
+            n += 1;
+            assert!(n < 3 * quanta(1000), "the ladder steps within 3 s");
+            underruns += 1;
+            z.core.note_underruns(underruns);
+            z.render();
+        }
+    };
+    shed_to(&mut z, 2);
+    assert_eq!(zones::area(&z.core).active_limit, 0);
+    z.run(quanta(150) + 1, |_| None);
+    assert_eq!(z.state(0), zone_state::OFF, "the active zone was evicted");
+    // 20 s clean: step 2 comes back, step 1 stays.
+    let hold = quanta(20_000);
+    z.run(hold - quanta(150) - 3, |_| None);
+    assert_eq!(zones::shed_steps(&z.core), 2, "held for 20 s");
+    z.run(3, |_| None);
+    assert_eq!(zones::shed_steps(&z.core), 1, "step 2 given back");
+    assert_eq!(zones::area(&z.core).active_limit, zones::NO_LIMIT);
+    assert_eq!(zones::area(&z.core).cut_tails, 1, "step 1 still in force");
+    // Main's next ZONE_CONFIG starts the zone again, fading in over 100 ms (no jump).
+    z.config(1.0, 0, &[active(K1, 1.0)]);
+    assert_eq!(z.state(0), zone_state::FADING_IN);
+    z.run(quanta(100) + 2, |q| Some((0, noise(q as u32))));
+    assert_eq!(z.state(0), zone_state::ACTIVE);
+    // Underruns again before the next give-back: a re-trip takes step 2 again and doubles the hold.
+    shed_to(&mut z, 2);
+    assert_eq!(z.core.cap().ladder().retrips, 1);
+    assert_eq!(z.core.cap().ladder().hold(), (2 * 20 * RATE as u32) as u64, "40 s");
+    z.run(quanta(20_000) + 2, |_| None);
+    assert_eq!(zones::shed_steps(&z.core), 2, "not after 20 s now");
+    z.run(quanta(20_000), |_| None);
+    assert_eq!(zones::shed_steps(&z.core), 1, "after 40 s");
+    // 40 s more: step 1 comes back, and a release rings out in full again.
+    z.config(1.0, 0, &[active(K2, 1.0)]);
+    z.run(quanta(40_000) + 2, |q| Some((0, noise(q as u32))));
+    assert_eq!(zones::shed_steps(&z.core), 0, "idle");
+    assert_eq!(zones::area(&z.core).cut_tails, 0);
+    assert_eq!(z.core.cap().ladder().restores, 3);
+    z.config(1.0, 0, &[(K2, 0, zone_slot_state::RELEASE as u8, 1.0, IR_FRAMES)]);
+    assert_eq!(z.state(0), zone_state::RINGING_OUT, "the tail rings out again");
+}
+
+#[test]
 fn the_ladder_waits_for_the_cap_floor_and_continuing_underruns() {
     // 64 mixed voices: the cap is above its floor until underruns bring it down.
     let mut p = zone_params(1, IR_FRAMES);

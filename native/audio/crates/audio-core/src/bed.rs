@@ -59,11 +59,13 @@
 //! header too (`listener.rs`).
 //!
 //! **Load shedding** (architecture §7.3, OD3, api-and-models §10.1): the ladder runs only once the
-//! adaptive cap sits at its floor and underruns go on for [`LADDER_SUSTAIN_SECONDS`]; each step
-//! counts in `m3Shed` ([`m3_shed`]). This module's step is the **bed-idle** step: beds go idle after
-//! 1 silent quantum instead of the decoder's partition count (the last partition of a source's
-//! tail, at most 128 taps of the MagLS response, is cut). It never turns a bed off or moves a
-//! source. C3 adds the zone steps after it.
+//! adaptive cap sits at its floor and underruns go on for [`LADDER_SUSTAIN_SECONDS`]; each step in
+//! force counts in `m3Shed` ([`m3_shed`]). This module's step is the **bed-idle** step: beds go idle
+//! after 1 silent quantum instead of the decoder's partition count (the last partition of a
+//! source's tail, at most 128 taps of the MagLS response, is cut). It never turns a bed off or moves
+//! a source. C3 adds the zone steps after it. ADR 0170: once underruns stop, `cap.rs`'s recovery
+//! clock gives the steps back, this one last ([`restore_step`]: beds idle after their partitions
+//! again, from the next silence on; nothing playing changes, so nothing is heard).
 //!
 //! **Region** (C8): a header, the decoder's FFT scratch, the shared filters, then `max_beds` bed
 //! slots and `max_wide` private decoders (B3) of [`slot_bytes`] each: the accumulator (8 KB) and a
@@ -186,7 +188,7 @@ struct Ladder {
     underruns_seen: u32,
     /// [`step`] bits taken.
     steps: u32,
-    /// `m3Shed`: steps taken, cumulative.
+    /// Steps taken, cumulative (ADR 0170: `m3Shed` is the steps in force, [`m3_shed`]).
     m3_shed: u32,
     _pad: u32,
     /// The frame the current run of underrun-at-floor started ([`NO_STREAK`]: none).
@@ -786,7 +788,8 @@ fn report(core: &mut Core) {
 
 /// The load shedding ladder (see the module comment): watches the adaptive cap and the shell's
 /// underrun total, and takes the next step once underruns went on for [`LADDER_SUSTAIN_SECONDS`]
-/// with the cap at its floor. Steps are for the session (RESET keeps them).
+/// with the cap at its floor. RESET keeps the steps; `cap.rs`'s recovery clock gives them back
+/// once underruns stop (ADR 0170, [`restore_step`]).
 fn ladder(core: &mut Core) {
     let (cap, floor, total) = {
         let c = core.cap();
@@ -798,7 +801,9 @@ fn ladder(core: &mut Core) {
     let sustain = h.sustain_frames as u64;
     let max_beds = h.max_beds;
     let l = &mut h.ladder;
-    let fresh = total != l.underruns_seen;
+    // A rise, as `cap::note_underruns` counts one (a lower total is a restarted probe's new base),
+    // so every step is taken in a quantum whose underrun signal the recovery clock sees.
+    let fresh = total > l.underruns_seen;
     l.underruns_seen = total;
     if cap > floor {
         l.streak_start = NO_STREAK;
@@ -822,10 +827,22 @@ fn ladder(core: &mut Core) {
     }
 }
 
-/// `m3Shed`: the ladder steps taken (0 without a `Beds` region). Not on the wire yet (see the A4
-/// report: STATUS has no field for it; main's debug view needs one).
+/// `m3Shed`'s bed part: the ladder steps in force (0 without a `Beds` region; STATUS adds the zone
+/// steps).
 pub fn m3_shed(core: &mut Core) -> u32 {
-    view(&mut core.regions_mut().beds[..]).map_or(0, |mut b| b.header().ladder.m3_shed)
+    view(&mut core.regions_mut().beds[..]).map_or(0, |mut b| b.header().ladder.steps.count_ones())
+}
+
+/// ADR 0170: gives the bed-idle step back (`cap.rs`'s recovery clock, after the zone steps). An
+/// active slot keeps decoding; slots already idle stay reset until something encodes into them, so
+/// nothing playing changes. Returns whether a step was in force.
+pub fn restore_step(core: &mut Core) -> bool {
+    let Some(mut beds) = view(&mut core.regions_mut().beds[..]) else { return false };
+    let l = &mut beds.header().ladder;
+    let had = l.steps & step::BED_IDLE != 0;
+    l.steps &= !step::BED_IDLE;
+    l.streak_start = NO_STREAK;
+    had
 }
 
 /// The ladder's [`step`] bits taken.

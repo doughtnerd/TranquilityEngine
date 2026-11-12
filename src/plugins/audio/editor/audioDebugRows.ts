@@ -10,7 +10,7 @@
 //   irFailures, bedFilterLoadFailure            green 0         -                 red non-zero
 //   wideStarved                                 green 0         -                 red on any increment
 //   bedSwitches per voice-second                green <= 2      amber > 2         -
-//   m3Shed                                      green 0         -                 red on any step
+//   m3Shed                                      green 0         amber recovering  red on any step
 //
 // "Per second" and "any increment" need the previous samples, so a `CounterWatch` sees every sample the panel takes.
 import type { AudioDebugInfo, MusicDebugRow, MusicDebugTotals } from "../runtime/backend";
@@ -199,14 +199,17 @@ function counterRows(info: AudioDebugInfo, watch: CounterWatch | undefined): Row
   return rows;
 }
 
-/** The load-shedding ladder and `m3Shed` (OD3, architecture §7.3). */
+/** The load-shedding ladder and `m3Shed` (OD3, architecture §7.3; ADR 0170: the steps come back). */
 function ladderRows(info: AudioDebugInfo, watch: CounterWatch | undefined): Row[] {
   const steps = num(info.counters.m3Shed);
   const state = typeof info.core.ladderState === "string" ? info.core.ladderState : "unknown";
-  const shed = steps > 0 || watch?.rose("m3Shed") === true;
+  const recovering = state.startsWith("recovering");
+  const shed = (steps > 0 && !recovering) || watch?.rose("m3Shed") === true;
+  const health: Health = shed ? "bad" : recovering ? "warn" : "ok";
   return [
-    kv("ladderState", "Ladder", state, "The load-shedding ladder. idle: nothing shed. cap at floor: the mixer is already at its lowest voice cap, so the ladder is the next resort. shedding: reverb tails were cut, then one active zone fewer.", shed ? "bad" : state === "cap at floor" ? "warn" : "ok"),
-    kv("m3Shed", "Shed steps", fmt(steps), "How many steps the ladder has taken (tails cut, then zones fewer) because the audio thread was running late. Red on any step.", shed ? "bad" : "ok"),
+    kv("ladderState", "Ladder", state, "The load-shedding ladder. idle: nothing shed. cap at floor: the mixer is already at its lowest voice cap, so the ladder is the next resort. shedding: beds idle sooner, reverb tails are cut, then one active zone fewer. recovering: the underruns stopped, and a step comes back after each 20 s without one (longer after a step that tripped again).", shed ? "bad" : recovering || state === "cap at floor" ? "warn" : "ok"),
+    kv("m3Shed", "Shed steps", fmt(steps), "How many of the ladder's steps are in force (beds idle sooner, tails cut, zones fewer) because the audio thread was running late. Red while underruns go on, amber while the steps come back.", health),
+    kv("ladderRecoveries", "Steps back", fmt(typeof info.core.ladderRecoveries === "number" ? info.core.ladderRecoveries : 0), "How many steps the ladder has given back since the page loaded, one after each clean hold.", "info"),
   ];
 }
 

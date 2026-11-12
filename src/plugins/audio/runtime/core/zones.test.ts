@@ -33,6 +33,7 @@ function fakeCore(slots: number, ringFrames = 30, evictFrames = 9) {
   const events: [number, number][] = [];
   const mirror = {
     blocks: 0,
+    m3Shed: 0,
     zoneCount: slots,
     zoneKernel: new Uint32Array(4),
     zoneState: new Uint8Array(4),
@@ -296,6 +297,28 @@ describe("planning", () => {
     r.step(4);
     expect(stateOf(r, "C").slot).toBeGreaterThanOrEqual(0);
     void b;
+  });
+
+  it("the core's ladder takes a place away (refusedSlot) and gives it back when its steps fall (ADR 0170)", () => {
+    const r = rig({ slots: 3, maxActive: 2, standby: 1 });
+    r.zone("A", 0);
+    r.zone("B", 30);
+    r.place(0, 0);
+    r.place(1, 30);
+    r.view.audibility0[1] = 0.5;
+    r.step(20);
+    expect([stateOf(r, "A").slot, stateOf(r, "B").slot].every((s) => s >= 0)).toBe(true);
+    // Step 2 of the core's ladder: B's slot is refused; main follows with one place fewer.
+    r.core.mirror.m3Shed = 2;
+    r.core.events.push([stateOf(r, "B").slot, ZoneEvent.RefusedSlot]);
+    r.step(40);
+    expect(stateOf(r, "B").slot).toBe(-1);
+    expect(stateOf(r, "A").slot).toBeGreaterThanOrEqual(0);
+    // The core gives the step back (m3Shed falls): B takes a place again.
+    r.core.mirror.m3Shed = 1;
+    r.step(20);
+    expect(stateOf(r, "B").slot).toBeGreaterThanOrEqual(0);
+    expect(stateOf(r, "B").why).toBe("");
   });
 
   it("zones with wet 0, no sources or a failed IR say why", () => {
