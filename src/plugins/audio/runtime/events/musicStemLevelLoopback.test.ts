@@ -251,4 +251,38 @@ describe("a quantised stem's level on main (F-9b, loopback host)", () => {
     expect(settled(out)).toBeCloseTo(half, 5);
     backend.dispose();
   });
+
+  // F-12: a stamped stem change carries the dry gain as it was when sent. A volume change between the send and the stamp
+  // (further out than a lookahead, so F-9b's re-send doesn't catch it) must still win once the stamp lands.
+  it("a volume change between a stamped level's send and its stamp lands with the new volume", { timeout: 60_000 }, async (ctx) => {
+    const r = await rig();
+    if (!r) return ctx.skip();
+    const { backend, out, step } = r;
+    Audio.setParameter("Intensity", 0.4);
+    Audio.play("music-intensity.audioevent.json");
+    await step(12);
+    const start = firstSound(out, 0);
+    const pulse = stem(backend, "pulse");
+    expect(settled(out)).toBeCloseTo(LEVEL.pad + LEVEL.pulse * 0.5, 5);
+    // Ask for the pulse at 1 with its beat at least three frames out (well past a lookahead).
+    for (let k = 0; k < 20; k++) {
+      const horizon = backend.clockMap.frameOfTime(backend.horizon()) + FRAME_FRAMES;
+      const beat = start + Math.ceil((horizon - start) / BEAT) * BEAT;
+      if (beat - horizon > 3 * FRAME_FRAMES) break;
+      await step(1);
+    }
+    Audio.setParameter("Intensity", 0.6);
+    await step(1);
+    expect(backend.table.stemCount[pulse.i]).toBe(1); // sent, stamped at the beat, not landed
+    backend._setVolume(pulse.id, 0.4);
+    await step(1);
+    expect(backend.table.stemCount[pulse.i]).toBe(1);
+    expect(settled(out)).toBeCloseTo(LEVEL.pad + LEVEL.pulse * 0.5 * 0.4, 5); // the old level at the new volume
+    await step(Math.ceil((2 * BEAT) / FRAME_FRAMES));
+    expect(backend.table.stemCount[pulse.i]).toBe(0);
+    expect(backend.table.stemDry[pulse.i]).toBeCloseTo(1, 6);
+    // The pulse at level 1 times volume 0.4 (before F-12, the stamp put it back at volume 1).
+    expect(settled(out)).toBeCloseTo(LEVEL.pad + LEVEL.pulse * 0.4, 5);
+    backend.dispose();
+  });
 });
