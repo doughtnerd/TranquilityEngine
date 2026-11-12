@@ -106,4 +106,42 @@ describe("onMusicBeat / onMusicBar on the core (K2)", () => {
     for (const h of listener.beats) expect(h.e.missed).toBe(0);
     r.dispose();
   });
+
+  it("handle.onMusic (K5): a script on Audio.play hears each beat once, on time, plus bars and a cue; none after unsubscribe", async (ctx) => {
+    const files = beatsAt(120, 0, 24);
+    const r = await musicLoopback({
+      clips: { "a.wav": clicking(files, 12) },
+      events: {
+        "m.audioevent.json": {
+          format: "myco.audioevent@1", bus: "Music",
+          root: { type: "segment", id: "A", value: "A", cues: [{ name: "drop", at: "2:1:0" }], tempo: [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }], tracks: [{ name: "t", clip: "a.wav" }] },
+        },
+      },
+    });
+    if (!r) return ctx.skip();
+    const beats: Call[] = [];
+    const bars: number[] = [];
+    const cues: (string | undefined)[] = [];
+    const h = r.play("m.audioevent.json");
+    const call = (e: MusicEvent): Call => ({ e: { ...e }, now: r.backend.time, interval: r.backend.frameInterval(), frame: r.frameOfTime(e.time) });
+    const offBeat = h.onMusic("beat", (e) => beats.push(call(e)));
+    h.onMusic("bar", (e) => bars.push(e.bar));
+    h.onMusic("cue", (e) => cues.push(e.cue));
+    await r.stepUntil(() => beats.length >= 12);
+    const start = beats[0]!.frame;
+    for (const b of beats) {
+      expect(b.e.missed).toBe(0);
+      expect(b.e.time).toBeGreaterThanOrEqual(b.now - 1e-9);
+      expect(b.e.time).toBeLessThan(b.now + b.interval);
+    }
+    expect(beats.map((b) => b.frame)).toEqual(files.slice(0, beats.length).map((f) => start + f));
+    offBeat();
+    offBeat();
+    const heardBeats = beats.length;
+    await r.step(500); // 8 s more: bars and the cue keep coming, beats do not
+    expect(beats.length).toBe(heardBeats);
+    expect(bars.slice(0, 5)).toEqual([1, 2, 3, 4, 5]);
+    expect(cues).toContain("drop");
+    r.dispose();
+  });
 });

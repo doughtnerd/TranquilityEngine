@@ -25,6 +25,9 @@ let _resetMusicPlayers: typeof import("./musicSystem")._resetMusicPlayers;
 let _setMusicHandleFactory: typeof import("./musicSystem")._setMusicHandleFactory;
 let createMusicPlayer: typeof import("./musicSystem").createMusicPlayer;
 let dispatchMusic: typeof import("./musicSystem").dispatchMusic;
+let subscribeMusic: typeof import("./musicSystem").subscribeMusic;
+let disposeMusicPlayer: typeof import("./musicSystem").disposeMusicPlayer;
+let onMusicOf: typeof import("./musicSystem").onMusicOf;
 type Frame = Parameters<typeof import("./musicSystem").dispatchMusic>[0];
 type GameBehavior = GameBehaviorType;
 
@@ -49,7 +52,7 @@ function rig(comps: GameBehavior[]) {
 
 beforeEach(async () => {
   vi.resetModules();
-  ({ _resetMusicPlayers, _setMusicHandleFactory, createMusicPlayer, dispatchMusic } = await import("./musicSystem"));
+  ({ _resetMusicPlayers, _setMusicHandleFactory, createMusicPlayer, dispatchMusic, subscribeMusic, disposeMusicPlayer, onMusicOf } = await import("./musicSystem"));
   const { GameBehavior } = await import("../../../../engine/core/Component");
   Plain = class extends GameBehavior {};
   Beater = class extends GameBehavior {
@@ -163,5 +166,80 @@ describe("dispatchMusic (K2)", () => {
     asked.length = 0;
     dispatchMusic(frame(2));
     expect(asked).toEqual([]);
+  });
+
+  describe("subscribeMusic (K5)", () => {
+    it("subscribes per kind, the unsubscribe stops it, a double unsubscribe is a no-op, the kind leaves the mask", () => {
+      const p = rig([]);
+      const got: string[] = [];
+      const offBeat = subscribeMusic(p, "beat", (e) => got.push(`beat ${e.beat}`));
+      subscribeMusic(p, "cue", () => got.push("cue"));
+      expect(p.subscribed).toBe(1 | 4);
+      script.set("beat", [{ beat: 2 }, { beat: 3 }]);
+      dispatchMusic(frame(1));
+      expect(got).toEqual(["beat 2"]);
+      offBeat();
+      offBeat();
+      expect(p.subscribed).toBe(4);
+      asked.length = 0;
+      dispatchMusic(frame(2));
+      expect(asked.map((a) => a.kind)).toEqual(["cue"]); // beat is no longer predicted
+      expect(got).toEqual(["beat 2"]);
+    });
+
+    it("a kind joining the mask is seated at now; a re-subscribe owes no backlog", () => {
+      const p = rig([]);
+      const off = subscribeMusic(p, "bar", () => {});
+      dispatchMusic(frame(1));
+      expect(seated).toEqual([{ now: 1, kind: undefined }]);
+      subscribeMusic(p, "beat", () => {});
+      dispatchMusic(frame(2));
+      expect(seated[1]).toEqual({ now: 2, kind: "beat" });
+      off();
+    });
+
+    it("unsubscribing during dispatch: the caller's call finishes, a later listener unsubscribed by it is not called, others still are", () => {
+      const p = rig([]);
+      const order: string[] = [];
+      let offC = () => {};
+      const offA = subscribeMusic(p, "beat", () => { order.push("a"); offA(); offC(); });
+      subscribeMusic(p, "beat", () => order.push("b"));
+      offC = subscribeMusic(p, "beat", () => order.push("c"));
+      script.set("beat", [{}, {}]);
+      dispatchMusic(frame(1));
+      expect(order).toEqual(["a", "b"]);
+      dispatchMusic(frame(2));
+      expect(order).toEqual(["a", "b", "b"]);
+    });
+
+    it("a listener added during dispatch first hears the next event", () => {
+      const p = rig([]);
+      const order: string[] = [];
+      subscribeMusic(p, "beat", () => { order.push("a"); if (order.length === 1) subscribeMusic(p, "beat", () => order.push("late")); });
+      script.set("beat", [{}, {}]);
+      dispatchMusic(frame(1));
+      dispatchMusic(frame(2));
+      expect(order).toEqual(["a", "a", "late"]);
+    });
+
+    it("the same event object is reused per kind; the instance ending drops listeners and makes later unsubscribes and subscribes no-ops", () => {
+      const p = rig([]);
+      const seen: MusicEvent[] = [];
+      const off = subscribeMusic(p, "beat", (e) => seen.push(e));
+      script.set("beat", [{}, {}]);
+      dispatchMusic(frame(1));
+      dispatchMusic(frame(2));
+      expect(seen[0]).toBe(seen[1]);
+      disposeMusicPlayer(p, null);
+      expect(p.listeners).toBeNull();
+      expect(() => off()).not.toThrow();
+      expect(p.subscribed).toBe(0);
+      subscribeMusic(p, "beat", () => {})();
+      expect(p.listeners).toBeNull();
+    });
+
+    it("onMusicOf on a non-music instance returns a no-op", () => {
+      expect(onMusicOf({}, "beat", () => {})).toBeTypeOf("function");
+    });
   });
 });
