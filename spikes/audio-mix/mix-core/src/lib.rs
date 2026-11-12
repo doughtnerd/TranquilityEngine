@@ -664,19 +664,23 @@ fn blend(_args: &str) {
                 // Exact reference: coefficients from log-Hz parameters at every sample.
                 let mut h = [0.0; 4];
                 let refy = blend::run(&x, &mut h, |i| blend::coefs(kind, fs, blend::log_hz(a_hz, b_hz, u(i)), q_db));
-                let mut out: Vec<(&str, Vec<f32>)> = vec![];
+                let mut out: Vec<(&str, Vec<f32>, Option<Vec<f32>>)> = vec![];
                 let mut h = [0.0; 4];
                 let lin = |i: usize| a_hz + (b_hz - a_hz) * u((i / Q) * Q);
-                out.push(("step per quantum, linear Hz (today)", blend::run(&x, &mut h, |i| blend::coefs(kind, fs, lin(i), q_db))));
+                let y = blend::run(&x, &mut h, |i| blend::coefs(kind, fs, lin(i), q_db));
                 let mut h = [0.0; 4];
-                out.push(("step per quantum, log Hz", blend::run(&x, &mut h, |i| blend::coefs(kind, fs, blend::log_hz(a_hz, b_hz, u((i / Q) * Q)), q_db))));
+                let own = blend::run(&x, &mut h, |i| blend::coefs(kind, fs, a_hz + (b_hz - a_hz) * u(i), q_db));
+                out.push(("step per quantum, linear Hz (today)", y, Some(own)));
+                let mut h = [0.0; 4];
+                out.push(("step per quantum, log Hz", blend::run(&x, &mut h, |i| blend::coefs(kind, fs, blend::log_hz(a_hz, b_hz, u((i / Q) * Q)), q_db)), Some(refy.clone())));
                 let (ca, cb) = (blend::coefs(kind, fs, a_hz, q_db), blend::coefs(kind, fs, b_hz, q_db));
                 let mut h = [0.0; 4];
-                out.push(("coefficient lerp per sample", blend::run(&x, &mut h, |i| blend::lerp_coefs(&ca, &cb, u(i) as f64))));
+                let lerp_ps = blend::run(&x, &mut h, |i| blend::lerp_coefs(&ca, &cb, u(i) as f64));
                 let mut h = [0.0; 4];
-                out.push(("coefficient lerp per quantum", blend::run(&x, &mut h, |i| blend::lerp_coefs(&ca, &cb, u((i / Q) * Q) as f64))));
+                out.push(("coefficient lerp per sample", lerp_ps.clone(), None));
+                out.push(("coefficient lerp per quantum", blend::run(&x, &mut h, |i| blend::lerp_coefs(&ca, &cb, u((i / Q) * Q) as f64)), Some(lerp_ps)));
                 let mut h = [0.0; 4];
-                out.push(("hard switch (no blend)", blend::run(&x, &mut h, |i| if i >= t0 { cb } else { ca })));
+                out.push(("hard switch (no blend)", blend::run(&x, &mut h, |i| if i >= t0 { cb } else { ca }), None));
                 // Largest pole radius along the coefficient-lerp path (< 1: stable all the way).
                 let mut worst_pole = 0.0f64;
                 for k in 0..=100 {
@@ -689,13 +693,15 @@ fn blend(_args: &str) {
                 let w = t0.saturating_sub(64)..(t0 + len + 256).min(n);
                 let ref_d2 = max_d2(&refy[w.clone()]);
                 let rms = |v: &[f32]| (v.iter().map(|&a| (a as f64).powi(2)).sum::<f64>() / v.len() as f64).sqrt();
-                for (scheme, y) in out {
+                for (scheme, y, own) in out {
+                    let own_ratio = own.map_or(f64::NAN, |o| max_d2(&y[w.clone()]) / max_d2(&o[w.clone()]));
                     let e_tr = rms(&y[w.clone()].iter().zip(&refy[w.clone()]).map(|(a, b)| a - b).collect::<Vec<_>>());
                     let tail = (n - (0.05 * fs) as usize)..n;
                     let e_end = rms(&y[tail.clone()].iter().zip(&refy[tail.clone()]).map(|(a, b)| a - b).collect::<Vec<_>>());
                     print(&format!(
-                        "{{\"blend\":\"{name}\",\"qDb\":{q_db},\"transitionMs\":{dur_ms},\"scheme\":\"{scheme}\",\"glitchRatioD2\":{:.2},\"errDuringDbVsExact\":{:.1},\"errAtEndDb\":{:.1},\"maxPoleRadiusOnLerpPath\":{:.4}}}",
+                        "{{\"blend\":\"{name}\",\"qDb\":{q_db},\"transitionMs\":{dur_ms},\"scheme\":\"{scheme}\",\"glitchRatioD2VsExactLogHz\":{:.2},\"glitchRatioD2VsOwnPerSample\":{:.2},\"errDuringDbVsExact\":{:.1},\"errAtEndDb\":{:.1},\"maxPoleRadiusOnLerpPath\":{:.4}}}",
                         max_d2(&y[w.clone()]) / ref_d2,
+                        own_ratio,
                         db(e_tr / rms(&refy[w.clone()])),
                         db(e_end / rms(&refy[tail])),
                         worst_pole

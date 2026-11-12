@@ -123,11 +123,11 @@ fn cost(args: &str) {
     let gate = TpMode::Gated(0.5);
     for run in 0..runs {
         let c0 = ALLOC_BYTES.load(Relaxed);
-        let mut buses: Vec<Loudness> = (0..k)
+        let mut buses: Vec<Loudness> = (0..if case.starts_with("ebur") { 0 } else { k })
             .map(|_| Loudness::new(RATE, match case { "both" | "tp" => TpMode::Full, "both_gated" => gate, _ => TpMode::Off }))
             .collect();
         #[cfg(feature = "ebur")]
-        let mut refs: Vec<ebur::Ref> = (0..k)
+        let mut refs: Vec<ebur::Ref> = (0..if case.starts_with("ebur") { k } else { 0 })
             .map(|_| match case {
                 "ebur_i" => ebur::Ref::new(48000, ebur128::Mode::I),
                 "ebur_tp" => ebur::Ref::new(48000, ebur128::Mode::TRUE_PEAK),
@@ -167,7 +167,7 @@ fn cost(args: &str) {
                     }
                     _ => {}
                 }
-                if case.starts_with("kw") || case.starts_with("both") || case == "tp" {
+                if !buses.is_empty() {
                     if q % 6 == 5 {
                         sink += buses[b].take_peak()[0] as f64; // STATUS take
                     }
@@ -181,6 +181,7 @@ fn cost(args: &str) {
         let allocs = ALLOCS.load(Relaxed) - a0;
         let allocs_all = ALLOCS.load(Relaxed) - a_all;
         let ran: f64 = buses.iter().map(|b| b.tp_ran as f64).sum::<f64>() / (k * (warm + quanta)) as f64;
+        let state = if case.starts_with("ebur") { 0 } else { core::mem::size_of::<Loudness>() };
         samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let mean = samples.iter().sum::<f64>() / samples.len() as f64;
         print(&format!(
@@ -190,7 +191,7 @@ fn cost(args: &str) {
             pct(&samples, 0.999),
             samples[samples.len() - 1],
             mean,
-            core::mem::size_of::<Loudness>(),
+            state,
             (sink as i64 & 1),
         ));
     }
