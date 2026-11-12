@@ -13,7 +13,7 @@ Written 2026-11-12, at the end of the session that ran steps 1–5 of the `desig
 
 ## Where things are
 
-- **Branch:** `claude/loving-fermi-g98916`. It merged `origin/master` at `10f8de8` and again after ADR 0170 (F-37's ladder recovery), then added M5's work. **None of M5's design is on master yet.** Merge it to master when the owner agrees, before any build, so build worktrees (which start at master) see it.
+- **Branch:** `claude/loving-fermi-g98916`. It merged `origin/master` at `10f8de8` and again after ADR 0170 (F-37's ladder recovery), then added M5's work. Merged to master on 2026-11-12 (owner), so build worktrees see it.
 - **Record numbers:** 0170 went to the shedding-ladder fix the same day. **0171 is M5's.** Check master again before allocating the next number.
 
 | Path | What it holds |
@@ -67,7 +67,7 @@ Written 2026-11-12, at the end of the session that ran steps 1–5 of the `desig
   8. ≈ 62–75 pw provisional.
 
   **These were accepted as the recommended answers, from a plain "sound fine".** If the owner revisits any of them, update the record's last section first.
-- **The owner's UI/UX note:** the audio editor UI will be reworked for a sound designer's workflow. M5 decides behaviour, not placement. Views stay thin over pure models, and new UI registers through the SDK in one place. **Ask the owner** whether the rework comes before, alongside or after M5's editor tasks; the task table's editor rows depend on it.
+- **The owner's UI/UX note:** the audio editor UI will be reworked for a sound designer's workflow. M5 decides behaviour, not placement. Views stay thin over pure models, and new UI registers through the SDK in one place. **The rework comes after audio is feature complete** (owner, 2026-11-12): M5's editor tasks build in today's layout, kept easy to rehome.
 
 ## Gotchas found
 
@@ -94,8 +94,6 @@ Written 2026-11-12, at the end of the session that ran steps 1–5 of the `desig
 ## Open
 
 - **Owner:**
-  - merge this branch to master;
-  - the timing of the UI/UX rework relative to M5;
   - from M4, the listening-pass sign-off and the deferred real-device items (0169);
   - the lab-VM runs.
 - **Unverified (record and spike README):**
