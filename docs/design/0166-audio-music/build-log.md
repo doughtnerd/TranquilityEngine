@@ -32,6 +32,7 @@ Numbered; superseded entries are marked, not rewritten.
 - **D7 (W2) Correction to ADR 0167 §1.1 (found by Z2a, measured natively):** a stamped spatial play with non-default effects does **not** split the quantum today. The stamped PLAY writes its slot at once and SET_VOICE_FX applies at once (`fxpool::set_voice_fx` ignores its frame; the scheduler's comment "D1 schedules it" was never implemented); AUTOMATE also applies at once. Of the records main stamps (PLAY, SET_VOICE_FX, SET_LOOP), only SET_LOOP enters the pending queue, so **a stamped SET_LOOP is today's only source of quantum splits from main**. `in_voice_hooks.rs` holds the scene: the pending queue is empty after submit on `92969c11` and on the flip branch, and `splitQuanta`/`voiceSplits` read 0. Consequences: M4-0's exit check is already met for that scene; M4-0's value is music's own stamped fades, stops and loop changes (and any later stamped per-voice record). The decision stands; only its motivating example was wrong. Accepted records aren't rewritten (CLAUDE.md): this correction lives here and goes into Z6's text for ADR 0157's amendment and the status document. Side effect noted: a stamped SET_VOICE_FX lands early, harmless at play time (the voice hasn't started).
 - **D8 (W2) Older shapeless records read with shape 0.** Z2a found STOP/FADE/SET_PARAMS below 24/28/60 B were refused by the scheduler's first pass; the envelope 1.2 rule (appended words are minor) says they read as shape 0. Z2a fixes it with the generated `MIN_END`. Revert: none wanted.
 - **D10 (W5) The metered baseline was rewritten at the in-voice flip** (`29619224`): `virtual` +11.79% (7,102,981 → 7,940,135 instructions per quantum); every other scene within +1.2%; total +2.29%. Why: the cost is H1's per-voice hook, the feature itself, paid by every voice; CLAUDE.md makes the gate a tripwire, not a limit. F-8 profiles it. Revert: restore `baseline.json` from `7f75fe72` once F-8 brings `virtual` back near its M3 figure.
+- **D11 (W6) The editor tells the runtime about changed assets through `Assets.onChanged`/`Assets.notifyChanged`** (`engine/scene/Assets.ts`, both `@internal`, not exported from `src/engine/index.ts`). The editor project's `writeText`/`writeFile`/`writeBinary` call `notifyChanged` after the content is served. G-2 found no existing editor-to-runtime channel; music hot reload (P8) and `clipRegistry.invalidate` (R4c) subscribe to it. Renames, moves and deletes don't notify yet. Revert: move the hook to an editor-owned service, if a later editor record defines one.
 
 ## Wave 0 (2026-11-11, base `origin/master` `c3f2e9b`)
 
@@ -334,4 +335,18 @@ Quantised automation and recovery are already covered (F-9, P9), so not repeated
 - Tests: 12 transport tests and 3 audition tests; editor vitest 32 files, 435 tests. Not yet run against a real music event (seek is R7's).
 - Open items: F-14 and F-15. Reload needs a registered reload host, which is G-2's item 1.
 - (Ed5's own build-log entry was dropped at merge: the log is coordinator-owned.)
+
+**G-2 merged** (`m4/g2` `6bca63d1`, one commit per item):
+1. **Music hot reload:** `AudioSource.ts` registers the reload host and subscribes `noteAssetChanged` to `Assets.onChanged` (D11). `invalidateMusic {path}` reaches the worker's cache; `CoreBackend.invalidateClip` also invalidates the clip registry; `AudioBackend.invalidateClip?` is optional.
+2. **F-5:** the worker's `musicWarn {encodedOverBudget, bytes, budget}` warns once per instance; there's a `musicTotals.encodedOverBudget` counter and an amber panel row.
+3. **F-7b:** admission acquires a decoded member's clip, so loading starts early. `primedState` counts it once it's ready or failed, so a failed clip can't stall the group. The PLAY takes its own reference; cancel releases the hold.
+4. **`npm run test:tools`:** `node --test tools/*.test.mjs`, 12 of 12 pass.
+5. **`groupTableFull`** counts `admitGroup`'s refusals.
+
+Single-writer edits granted by name: `coreBackend.ts` (`clips` passed to `MusicOpsHost`), `backend.ts` (the optional `invalidateClip`, the counter type), and `editor/projects.ts` (the notify calls). The guide's hot-reload section and debug rows were updated, and check:links passes.
+
+**Coordinator:**
+- `src/editor/assetDelete.test.ts` expected `town.mp3`'s user to be the prefab. Since SM1 the prefab plays `town.audioevent.json`, which uses the clip; fixed. The earlier full run predates SM1's merge.
+- `selectionBench` failed for G-2 alone and passed for me alone (3 of 3) at a load average of 16: the known flake.
+- Checks: typecheck 0; vitest over `src/plugins/audio`, `src/editor` and `src/engine`: 5,394 pass plus the fixed test.
 

@@ -45,7 +45,9 @@ describe("what uses an asset", () => {
     expect(assetUsers(project, "prefabs/music.prefab.json")).toEqual(["project.json"]);
     expect(assetUsers(project, "prefabs/pipe-pair.prefab.json")).toEqual(["scripts/Spawner2.ts"]);
     expect(assetUsers(project, "prefabs/background.prefab.json")).toEqual(["scenes/main.scene.json"]);
-    expect(assetUsers(project, "music/town.mp3")).toEqual(["prefabs/music.prefab.json"]);
+    // Since SM1 the prefab plays the town music event, and the event uses the clip.
+    expect(assetUsers(project, "music/town.mp3")).toEqual(["music/town.audioevent.json"]);
+    expect(assetUsers(project, "music/town.audioevent.json")).toEqual(["prefabs/music.prefab.json"]);
   });
 });
 
