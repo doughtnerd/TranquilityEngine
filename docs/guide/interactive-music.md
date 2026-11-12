@@ -13,25 +13,27 @@ music.setParameter("State", "combat");   // the music changes on the next bar
 
 Nothing plays until the player has clicked or pressed a key once; see [Why is there no sound?](why-no-sound.md).
 
-## What works today, and what is coming later
+## What is built, and what is a follow-up
 
-| Built and public | Coming later |
+Interactive music is complete for its first release (milestone M4). Everything in the left column is built, public and tested; the right column is what is known to be missing, with where the guide says more. The reference for every name is [Interactive music: API reference](interactive-music-api.md).
+
+| Built and public | Follow-ups (not built) |
 | --- | --- |
-| Segments with a tempo map, cues and stems; forever, counted and `while` loops, several regions, loop tails | In the editor's transport: stem solo and mute do not change what you hear, and playback cannot start at a later playlist item |
-| Playlists (sequence, random, shuffle) and music switches on a labelled parameter | Resyncing a group whose stream starved (it is silenced and held today, see [the debug panel](#the-debug-panels-music-section)) |
-| Transition rules: exit, enter, quantised cut, crossfade, curves, bridges | Loading and re-keying the saved calibration on the Babylon fallback (it is per session there, see [below](#the-babylon-fallback)) |
-| Stingers and `handle.trigger` | |
-| Quantised stem automation | |
-| `handle.music` position, tempo, `nextGrid`, `seek` and `positionAt` (with `judged`) | |
+| Segments with a tempo map, cues and stems; forever, counted and `while` loops, several regions, loop tails | **Editor transport:** stem solo and mute change nothing you hear (they have no runtime API), and playback cannot start at a later playlist item |
+| Playlists (sequence, random, shuffle) and music switches on a labelled parameter | **A starved stream** is silenced and held, with its whole group, and the core gives up after a second; it is not resynced in place (see [the debug panel](#the-debug-panels-music-section)) |
+| Transition rules: exit, enter, quantised cut, crossfade, curves, bridges | **Saved calibration on the Babylon fallback:** it is per session there ([below](#the-babylon-fallback)) |
+| Stingers and `handle.trigger` | **A 192 kHz output** is short of the audio core's fixed memory on the default and high presets (the low preset fits); use a 44.1, 48 or 96 kHz context |
+| Quantised stem automation | **Touch on a `UIButton`:** a touch press hit-tests a stale pointer position (engine bug F-30), so the Sound Lab's phone buttons are plain DOM |
+| `handle.music` position, tempo, `nextGrid`, `seek` and `positionAt` (with `judged`) | **Real-device checks** (phone prime lead, other browsers' output latency, the lab VM) are the owner's [listening pass](../design/0166-audio-music/listening-pass.md); this guide's numbers come from tests and a desktop browser |
 | The component callbacks `onMusicBeat`, `onMusicBar`, `onMusicCue`, and `handle.onMusic` for music started with `Audio.play` | |
 | `Calibration.fromTaps`, `Audio.calibration` (saved per output device), `Audio.calibrationStale` | |
-| `audio.rhythmMode` and its Project Settings > Audio checkbox; `Audio.latency`, `Audio.horizon`, `Audio.timeAt` | |
+| `audio.rhythmMode` and `music.rings`, both in Project Settings > Audio; `Audio.latency`, `Audio.horizon`, `Audio.timeAt` | |
 | Beat, bar and cue callbacks on the Babylon fallback (not corrected for output latency; no rhythm mode there) | |
-| `music.rings` (also in Project Settings > Audio), streaming and decoding; hot reload; the Audio Debug panel's Music sections | |
+| Streaming and decoding; hot reload; the Audio Debug panel's Music sections | |
 | Editor: segment view and properties, transition rules table and rule editor, audition | |
-| The Sound Lab's rhythm page: calibration and a tap game | |
+| Samples: the Sound Lab's music and rhythm pages (keyboard or on-screen buttons), Flappy's town music with a game-over dip and a readout | |
 
-Where a section below depends on something in the right-hand column, it says so. The Sound Lab's rhythm page is the worked example for [callbacks](#beat-bar-and-cue-callbacks) and [calibration](#rhythm-mode-and-calibration); it is described [below](#the-sound-lab-rhythm-page).
+Where a section below depends on something in the right-hand column, it says so. The Sound Lab's [music page](#the-sound-lab-music-page) is the worked example for switches, rules, stingers and loops, and its [rhythm page](#the-sound-lab-rhythm-page) for [callbacks](#beat-bar-and-cue-callbacks) and [calibration](#rhythm-mode-and-calibration).
 
 ## A first music event
 
@@ -59,7 +61,7 @@ The flappy sample's town music (`samples/flappy/music/town.audioevent.json`) is 
 }
 ```
 
-A node in the sample's `music.prefab.json` has an `AudioSource` whose `clip` is that event and `playOnAwake` is on. That is all a game needs to start music. The common event keys (`bus`, `priority`, `limit`, `volume`, `parameters`) are the ones in [Sound events](sound-events.md#the-file).
+A node in the sample's `music.prefab.json` has an `AudioSource` whose `clip` is that event and `playOnAwake` is on. That is all a game needs to start music. The same instance plays through the start, the run, game over and the restart. On game over `GameManager` dips the `Music` bus to 35% over 0.4 s (`Audio.bus("Music").fadeTo`) and the next run brings it back; a bus fade moves no beat. In the sample, **M** (or the round ♪ button on a touch screen) shows a readout of the music's health: the prime lead, the prime time and the late and held group counts (the same numbers as the [debug panel](#the-debug-panels-music-section)). The common event keys (`bus`, `priority`, `limit`, `volume`, `parameters`) are the ones in [Sound events](sound-events.md#the-file).
 
 The `root` of a music event is a **segment**, a **playlist** or a **musicSwitch**. The rest of this page builds up from the segment. Its worked example for switches, rules, bridges, stingers and loops is the Sound Lab's music page, described [below](#the-sound-lab-music-page).
 
@@ -251,7 +253,7 @@ A switch child may itself be a playlist or another switch.
 
 ## The Sound Lab music page
 
-The Sound Lab sample has a music page (key M on its main scene, B goes back; `samples/sound-lab/scripts/behaviors/MusicLab.ts`) that plays three events from `samples/sound-lab/audio/music/`. Every clip is a stem made by `tools/makeMusic.mjs` at 120 bpm in 4/4, so a bar is 2 seconds and any piece can follow any other on the grid. The rest of this page uses it as its example.
+The Sound Lab sample has a music page (key M on its main scene, B goes back; `samples/sound-lab/scripts/behaviors/MusicLab.ts`) that plays five events from `samples/sound-lab/audio/music/`. Every clip is a stem made by `tools/makeMusic.mjs` at 120 bpm in 4/4, so a bar is 2 seconds and any piece can follow any other on the grid. The rest of this page uses it as its example.
 
 | Key | Event | What it shows |
 | --- | --- | --- |
@@ -259,9 +261,13 @@ The Sound Lab sample has a music page (key M on its main scene, B goes back; `sa
 | T, Y | the same event | A stinger on the next beat (`hit`) and on the next bar (`hitBar`) |
 | L | `music-loop`: one segment with a looping region | A tail, and a `while` loop that is released by a parameter |
 | P | `music-playlist` | Gapless natural advances |
+| 4 | `music-stems8`: one 4 s segment of eight stems that loops, the two melody stems streamed | Eight stems starting on one instant, two of them through music rings |
+| 5 | `music-list3`: a playlist of three one-pass 4 s items (A, B, C), once through | Each change on the beat, then the music ends |
+| D | | Shows or hides the music health readout: prime lead, prime time, late and held groups (from `Audio.debug().music`) |
 | O | | Stops the music |
+| B | | Back to the tour |
 
-The page's label shows the playing segment and position, and the change that is waiting (`handle.music.transition`). The Pending column in the [debug panel's](#the-debug-panels-music-section) Music section names the rule that was chosen.
+A row of buttons along the bottom of the view stands in for every key, so the page works on a phone; a button press goes through the same code as its key. Starting one event stops the one before it. The page's label shows the playing segment and position, and the change that is waiting (`handle.music.transition`). The Pending column in the [debug panel's](#the-debug-panels-music-section) Music section names the rule that was chosen.
 
 ## Transitions
 
@@ -382,7 +388,7 @@ Every stem is either **decoded** (the whole clip is decoded into memory before i
 "audio": { "music": { "rings": 12 } }
 ```
 
-Each streamed stem sounding, or being prepared for the next change, uses one ring (about 300 KB each). The default is 12; the voice presets are **low 8, default 12, high 16**. Music rings are part of the preset's voice budget, not an addition to it. The editor's Project Settings > Audio does not offer this setting yet, so write the number in `project.json`. With 0 streamed stems are refused with a warning, and decoded ones still play.
+Each streamed stem sounding, or being prepared for the next change, uses one ring (about 300 KB each). The default is 12; the voice presets are **low 8, default 12, high 16**. Music rings are part of the preset's voice budget, not an addition to it. It is also in Project Settings > Audio > Playback > Music, where the voice presets set it. With 0 streamed stems are refused with a warning, and decoded ones still play.
 
 Count the rings you need at the busiest moment: all the streamed stems of the playing segment, plus those of the next one while it is being prepared (a crossfade has both). A segment of 4 streamed stems changing to another of 4 needs 8. If the pool cannot hold the change, the segment is refused and the debug panel says `poolFull`, or `neverFits` when it can never fit (the lint says "needs N rings; this preset has M" before you play). Either keep some stems under 30 s, merge stems, or raise the number.
 
@@ -415,7 +421,7 @@ if (m) {
 music.trigger("hit");                 // fire a stinger
 ```
 
-Everything is exported from `"myco"` (`GridSpec`, `GridPoint`, `MusicHandle`, `MusicEvent`, `MusicKind`, `MusicPositionAt`, `MusicSeekResult`, `AudioLatency`, `CalibrationResult`, `Calibration`).
+Everything is exported from `"myco"` (`GridSpec`, `GridPoint`, `MusicHandle`, `MusicEvent`, `MusicKind`, `MusicPositionAt`, `MusicSeekResult`, `AudioLatency`, `CalibrationResult`, `Calibration`, and the debug types `MusicDebugRow`, `MusicDebugPending`, `MusicDebugState`, `MusicDebugTotals`). Every member, type and default is listed in the [API reference](interactive-music-api.md).
 
 | Member | What it does |
 | --- | --- |
@@ -572,15 +578,16 @@ The first `warmup` taps (default 4) are dropped, since people settle into the be
 
 ### The Sound Lab rhythm page
 
-The Sound Lab's rhythm page (key R from the tour page, B goes back; `samples/sound-lab/scripts/behaviors/RhythmLab.ts`, scene `samples/sound-lab/scenes/rhythm.scene.json`) puts the above together. Click the game view first, then:
+The Sound Lab's rhythm page (key R from the tour page, B goes back; `samples/sound-lab/scripts/behaviors/RhythmLab.ts`, scene `samples/sound-lab/scenes/rhythm.scene.json`) puts the above together. Click the game view first (on a phone, the buttons along the bottom stand in for the keys), then:
 
 | Key | What it does |
 | --- | --- |
 | C | Calibrate: a 120 bpm click track plays; tap SPACE on every click. The first 4 of 20 taps are warm-up, then `Calibration.fromTaps` runs. A steady result is applied and saved; an unsteady one is shown and not applied |
 | G | The tap game: a drum and bass loop; SPACE on the beat. Judged by `judged`: within 30 ms is perfect, within 80 ms good, else a miss; the page shows early or late, hits, misses and the streak |
-| SPACE | A tap, timed from the `keydown` event's own time stamp rather than the frame's, so a tap is not up to a frame late |
+| SPACE | A tap, timed from the `keydown` event's own time stamp rather than the frame's, so a tap is not up to a frame late. A press or touch on the game view is a tap too, timed from the `pointerdown` event |
 | X | Resets `Audio.calibration` to 0 |
 | O | Stops the music |
+| D | Shows or hides the music health readout |
 | B | Back to the tour page |
 
 Each tap goes through `handle.music.positionAt(timeStamp)`, which gives `offset` and `judged`; the beat marker is moved by `handle.onMusic("beat", ...)`. The label shows `Audio.calibration`, a STALE note when `Audio.calibrationStale` is true, `Audio.latency` with its `reliable` flag, and whether rhythm mode is on. **Rhythm mode is off in the Sound Lab.** The setting is project-wide and would change the context of every other page, so the sample leaves it off; the calibration and the tap game work without it. Turn it on in Project Settings > Audio to see the difference in `Audio.latency`. The page's state is on `globalThis.__rhythmLab.state()` for tests.
@@ -655,7 +662,9 @@ Past a limit the extras are dropped with a problem. Music nodes read and ignore 
 
 ## See also
 
+- [Interactive music: API reference](interactive-music-api.md): every member, type, format field and limit.
 - [Sound events](sound-events.md): the file, parameters, automation curves, `Audio.play`.
 - [Playing sound](playing-sound.md) and [Audio mixer](audio-mixer.md): buses, formats, streaming.
 - [Why is there no sound?](why-no-sound.md): the debug panel.
+- [Listening pass](../design/0166-audio-music/listening-pass.md): the by-ear and real-device checks.
 - Design: `docs/decisions/0166-interactive-music-segments-transition-rules-and-a-heard-beat-clock.md` and `0167-interactive-music-design-corrections-and-owner-decisions.md`.
