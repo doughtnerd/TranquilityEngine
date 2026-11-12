@@ -228,7 +228,7 @@ function musicRig(rings = 8, clips: ClipRegistry = fakeClips()) {
   const say = (r: MusicReply) => {
     for (const l of music) l(r);
   };
-  return { backend, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say };
+  return { backend, link, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say };
 }
 
 const flush = async () => {
@@ -660,6 +660,63 @@ describe("a stamped group on the loopback host (ADR 0166 P1)", () => {
     // Both members from that frame on: twice the clip's level (bus and master at unity).
     expect(out[first]).toBeCloseTo(out[first + 1000]!, 6);
     expect(out[first]!).toBeGreaterThan(0.25 * 1.5);
+    backend.dispose();
+  });
+});
+
+// --- F-16: a streamed stem's voice row (the core backend's `debug().voices`) ----------------------------------------------
+
+describe("a streamed music stem's voice (F-16)", () => {
+  /** One STATUS through the link, as the host's `onmessage` delivers it (the mirror, then the stream manager). */
+  const status = (link: CoreLink, fields: Parameters<typeof makeStatusBlock>[0]) => (link as unknown as { receive(s: ReturnType<typeof makeStatusBlock>): void }).receive(makeStatusBlock(fields));
+
+  it("reads playing, with its clip and playhead, once STATUS shows it moving; a starve reads waitingForData until it moves again", async () => {
+    const r = musicRig(8);
+    const req = request(3, 1);
+    r.ops.admitGroup(req);
+    r.ops.primeGroup(req);
+    await flush();
+    const [v] = r.ops.stampGroup({ group: 3, at: 0 }) as { id: number }[];
+    const id = v!.id;
+    const row = () => r.backend.debug().voices.find((x) => x.id === id)!;
+    // Before it sounds: waiting for its data (the core holds the gated member until the group starts).
+    expect(row().state).toBe("waitingForData");
+    // Held at its start frame (the gate not yet open): still waiting.
+    status(r.link, { currentFrame: 1024, playheads: [{ id, clipFrame: 4800 }] });
+    expect(row().state).toBe("waitingForData");
+    status(r.link, { currentFrame: 2048, playheads: [{ id, clipFrame: 4800 + 1024 }] });
+    expect(row().state).toBe("playing");
+    expect(row().clip).toBe("music/s0.ogg");
+    expect(row().playheadSeconds).toBeCloseTo((4800 + 1024) / 48_000, 9);
+    expect(r.backend.table.reason[id & 0xffff]).toBe(0);
+    // A starve: waiting again (the mirror), and playing once the playhead moves on.
+    status(r.link, { currentFrame: 3072, starved: [id], playheads: [{ id, clipFrame: 4800 + 1024 }] });
+    expect(row().state).toBe("waitingForData");
+    status(r.link, { currentFrame: 4096, playheads: [{ id, clipFrame: 4800 + 2048 }] });
+    expect(row().state).toBe("playing");
+    r.backend.dispose();
+  });
+});
+
+// --- The debug row's `pending` through a transition's states ------------------------------------------------------------
+
+describe("a music debug row's pending change", () => {
+  it("is set while the transition is pending, stamped or running (past T - L), and null once done", async () => {
+    const { createMusicPlayer, _resetMusicPlayers } = await import("../music/musicSystem");
+    const { backend } = rig();
+    const player = createMusicPlayer({ group: 4, path: "m.audioevent.json" } as never, { id: "A", type: "segment" });
+    const match = { rule: 1, ruleKey: "A>B", tier: 2, parent: null, exit: "nextBar", enter: "start" };
+    player.transition = { to: { id: "B", type: "segment" }, match, state: "pending", exitAt: Number.NaN, cancelBy: Number.NaN, incoming: null, bridge: null, outgoing: null, after: null, immediate: null } as never;
+    const pending = () => backend.debug().music![0]!.pending;
+    for (const state of ["pending", "stamped", "running", "bridging"]) {
+      (player.transition as { state: string }).state = state;
+      expect(pending()?.to, state).toBe("B");
+    }
+    for (const state of ["done", "cancelled"]) {
+      (player.transition as { state: string }).state = state;
+      expect(pending(), state).toBeNull();
+    }
+    _resetMusicPlayers();
     backend.dispose();
   });
 });

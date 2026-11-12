@@ -91,7 +91,7 @@ export interface DebugSource {
    * ADR 0166 §1.6, C11 (Q2's hook; P10 builds `music` and `musicTotals` from it and the players, `music/musicSystem.ts`
    * `musicPlayers()`): the core's side of music (pool, groups); absent in hand-built sources.
    */
-  readonly musicOps?: Pick<CoreMusicOps, "debugView" | "primeEmaMs">;
+  readonly musicOps?: Pick<CoreMusicOps, "debugView" | "primeEmaMs"> & Partial<Pick<CoreMusicOps, "clipInfo">>;
 }
 
 const clamp01 = (v: number): number => (Number.isFinite(v) ? (v < 0 ? 0 : v > 1 ? 1 : v) : 0);
@@ -186,7 +186,8 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
   for (let i = 0; i < table.capacity; i++) {
     if (table.state[i] === VoiceState.FREE) continue;
     const stream = (table.flags[i]! & VoiceFlag.STREAM) !== 0 && backend.streams;
-    const clip = stream ? backend.streams!.clipInfo(table.clip[i]!) : backend.clips.info(table.clip[i]!);
+    // F-16: a music group member's stream is musicOps's, not the stream manager's.
+    const clip = stream ? (backend.streams!.clipInfo(table.clip[i]!) ?? backend.musicOps?.clipInfo?.(table.clip[i]!) ?? null) : backend.clips.info(table.clip[i]!);
     const world = table.world[i]!;
     // E3.9: an event voice's automated gain and pitch (main's estimate of the core's smoothed parameters) multiply in.
     const automated = backend.automation?.voiceAutomation?.(i, auto) === true;
@@ -521,7 +522,8 @@ function musicRow(p: MusicPlayer, now: number, groups: MusicView): MusicDebugRow
     pass: a?.pass ?? 1,
     bar, beat, tick, tempo, beatsPerBar,
     time: now,
-    pending: t && m && (t.state === "pending" || t.state === "stamped")
+    // Past T - L (`running`, `bridging`) the change is still on its way until it lands, as `handle.music.transition` says.
+    pending: t && m && t.state !== "done" && t.state !== "cancelled"
       ? { to: t.to.id, time: pg && Number.isFinite(t.exitAt) ? positionText(pg.grid, ticksAt(a!, t.exitAt)) : "", rule: m.rule, ruleKey: m.ruleKey, tier: m.tier, parent: m.parent, exit: m.exit, enter: m.enter }
       : null,
     groups: groups.groups.filter((g) => groupIds.has(g.id)).map((g) => ({ id: g.id, state: g.state, primed: g.primed, of: g.of })),
