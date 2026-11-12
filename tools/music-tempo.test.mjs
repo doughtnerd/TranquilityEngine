@@ -36,8 +36,8 @@ test("readWavLength: frames, rate, seconds; garbage and truncation", { skip: "L-
 
 test("readTempoHint: acid chunk and Ogg BPM tag", { skip: "L-SM1a" }, () => {
   const f32 = (x) => [...new Uint8Array(new Float32Array([x]).buffer)];
-  const acid = [[...Buffer.from("acid"), 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, ...f32(120)].slice(0, 8 + 24)];
-  // acid body offsets: tempo f32 at 20 (type, root, unk, unkf, beats, den, num, tempo)
+  // acid chunk, 24-byte body: type u32, root u16, unk u16, unk f32, numBeats u32, meterDen u16, meterNum u16, tempo f32
+  const acid = [[...Buffer.from("acid"), 24, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 4, 0, 4, 0, ...f32(120)]];
   assert.equal(readTempoHint(wav({ extra: acid }))?.source, "acid");
   assert.equal(readTempoHint(Buffer.from("OggS....vorbis...BPM=96.5...")).bpm, 96.5);
   assert.equal(readTempoHint(wav()), null);
