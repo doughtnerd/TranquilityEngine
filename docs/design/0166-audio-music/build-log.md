@@ -295,3 +295,9 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 - **The sound-lab sample's Intensity automation is quantised to the beat again**; `audio-events.spec.ts` passes on both backends.
 - Coordinator checks: typecheck 0; `src/plugins/audio` 2,387 pass; `zoneIr` flaked once under load and passed alone (with eventBench, 16 of 16).
 
+
+**Ed5 merged** (`m4/ed5`, mid lead): the transport on the real runtime.
+- `music/transport.ts`: `createTransport(host)` over an injected host (play, flush, reload), so the tests use a fake. Play from the start, a cue, a bar or a clicked ruler second (a `handle.music.seek` after the start, a temporary refusal retried about two seconds), Stop, Loop (restarts when the instance ends), stinger Trigger, Reload (flush, then P8's `noteAssetChanged`), and the playhead from `handle.music` bar, beat and fraction. `transportHost.ts` is the real host; `TransportBar.tsx` the controls above the segment view.
+- `event/auditionHost.ts`: one shared `activeAudition` signal. The Event editor's `Audition.tsx` and the transport both register their handle there; starting one stops the other. `EventEditorPanel` now passes `stingerAuditionFor(path, activeAudition.value)` to `MusicNodeProperties`, so F-3 is closed: the stinger Trigger buttons are live while that event plays.
+- F-2 closed: `music/peaksHost.ts` holds one peaks service (one decoder worker) per project for the view and the panel.
+- **Not done:** solo and mute (`stemAudition`) do not reach the runtime, which has no handle API for them (`soloStem` is main-side only); the transport plays the event, so a segment that is not first in its playlist is reached only when the music gets there; "audition this transition" is Ed7's. No e2e (the plan's row asks for none).

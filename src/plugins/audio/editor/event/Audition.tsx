@@ -13,7 +13,7 @@ import { Audio } from "../../runtime/Audio";
 import type { AudioEventHandle, AudioReason, AudioStatus } from "../../runtime/backend";
 import { editor, openAssetDocument } from "../../../../editor/sdk";
 import {
-  auditionBackend, auditionNotice, buttonStates, instanceAlive, instanceVoices, isStale, limitRows, newInstanceId, nextPhase, parameterChanges,
+  auditionBackend, auditionNotice, clearActiveAudition, setActiveAudition, buttonStates, instanceAlive, instanceVoices, isStale, limitRows, newInstanceId, nextPhase, parameterChanges,
   type AuditionAction, type AuditionPhase,
 } from "./auditionHost";
 
@@ -71,6 +71,7 @@ export function Audition({ path, parameters, onVoices }: AuditionProps) {
     const h = handle.current;
     handle.current = null;
     instance.current = null;
+    if (h) clearActiveAudition(h);
     try { h?.stop(fade); } catch { /* already gone */ }
   };
 
@@ -86,6 +87,7 @@ export function Audition({ path, parameters, onVoices }: AuditionProps) {
     applied.current = { ...latest.current.parameters };
     const ok = h.playing;
     handle.current = ok ? h : null;
+    if (ok) setActiveAudition(path, h);
     instance.current = ok ? newInstanceId(before, Audio.debug().events, path) : null;
     setPlayed(ok);
     setReason(h.reason);
@@ -127,6 +129,7 @@ export function Audition({ path, parameters, onVoices }: AuditionProps) {
       const info = Audio.debug();
       const alive = instance.current !== null ? instanceAlive(info.events, instance.current) : h.playing;
       if (!alive && !h.playing) {
+        clearActiveAudition(h);
         handle.current = null;
         instance.current = null;
         move("finished");
