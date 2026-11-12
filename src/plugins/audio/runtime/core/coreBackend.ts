@@ -305,6 +305,11 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private readonly stemStaleAfter: Float64Array;
   private readonly stemStaleTo: Float64Array;
   private stemStaleCount = 0;
+  /**
+   * F-24: per slot, the id of the voice whose PLAY went out flat (non-spatial, not ambisonic), else 0. The core reads
+   * `spatial` from PLAY only, so such a voice stays flat: a position given afterwards is refused (`_setPosition`).
+   */
+  private readonly flatPlayId: Uint32Array;
   private listenerDirty = true;
   private readonly listenerPos: [number, number, number] = [0, 0, 0];
   private readonly listenerFwd: [number, number, number] = [0, 0, 1];
@@ -345,6 +350,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.spatialDirty = new Uint8Array(this.table.capacity);
     this.stemStaleAfter = new Float64Array(this.table.capacity);
     this.stemStaleTo = new Float64Array(this.table.capacity);
+    this.flatPlayId = new Uint32Array(this.table.capacity);
     this.gainApplied = new Float32Array(this.table.capacity).fill(1);
     this.selection = new Selection(this.table);
     this.panners = new PannerPick(this.table);
@@ -1334,6 +1340,14 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   _setPosition(id: number, p: Vec3Like): void {
     const i = this.slot(id);
     if (i < 0) return;
+    // F-24: the core reads `spatial` from PLAY only (SET_PARAMS carries the panner kind, not the flag), so a voice that
+    // started flat stays flat there. Marking it spatial here would have main pan, attenuate and report a voice the core
+    // plays flat; it's refused, with one warning per voice. (A source that turns `spatial` on while playing is spatial
+    // from its next play.)
+    if (this.flatPlayId[i] === id) {
+      this.warnFlatPosition(id, i);
+      return;
+    }
     this.applyPosition(i, p);
     this.spatialDirty[i] = 1;
   }
@@ -1388,6 +1402,14 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     if (info.frames > 0) frame = (t.flags[i]! & VoiceFlag.LOOP) !== 0 ? frame % info.frames : Math.min(frame, info.frames);
     this.writer.seek(id, frame, 0);
     this.reanchorSeek(id, frame);
+  }
+
+  private warnFlatPosition(id: number, i: number): void {
+    const t = this.table;
+    const asset = ((t.flags[i]! & VoiceFlag.STREAM) !== 0 ? this.streams.assetOf(t.clip[i]!) : this.clips.info(t.clip[i]!)?.path) ?? "";
+    const owner = this.owners[i];
+    const who = owner ? `"${asset}" on "${owner}"` : `"${asset}"`;
+    this.warnOnce(`flatPosition:${id}`, `[myco] audio: ${who} started flat (non-spatial), so its position is ignored until it plays again; a voice can't turn spatial while it plays (play it with a position to make it spatial)`);
   }
 
   /** E4.4: the playhead tracker's wrap (see the constructor). */
@@ -1688,6 +1710,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     // A3.2: stamped at its frame while that is ahead of F_now; past (or asap) goes asap (§1 `at`, `lookahead.ts`).
     const stamp = this.clockMap.stampFor(start);
     this.writer.play(a, stamp);
+    this.flatPlayId[i] = (a.flags & (PLAY_FLAGS_SPATIAL | PLAY_FLAGS_AMBISONIC)) === 0 ? id : 0;
     this.playheads.start(i, stamp ?? this.clockMap.framesNow(), a.startOffsetFrames);
     // ADR 0158: the voice's bindings and loop, right behind its PLAY.
     this.automation.onPlaySent(id, i, stamp);
