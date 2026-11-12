@@ -1168,9 +1168,18 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
   }
   private zoneWarned = false;
 
+  private rhythmWarned = false;
+
   /** Babylon updates its own listener and sounds. */
   update(dt: number): void {
     void dt;
+    // M4c (api-and-models §8): rhythm mode (a numeric latencyHint, latency read-back, held callbacks) needs the core. The
+    // context keeps "interactive" and music runs as without it; beat callbacks come from `time` (the context clock) in
+    // `music/beatClock.ts`, uncorrected for output latency, since `caps.heardClock` and `caps.rhythm` are false.
+    if (!this.rhythmWarned && mixer.audioSettings.rhythmMode === true) {
+      this.rhythmWarned = true;
+      warnOnce("babylon-rhythm-mode", "audio.rhythmMode needs the audio core: the Babylon audio fallback keeps its default latency, so rhythm mode is unavailable and beat callbacks are not corrected for output latency (api-and-models §8). Calibration.fromTaps still works.");
+    }
     (this.music as BabylonMusic).pump();
   }
 
