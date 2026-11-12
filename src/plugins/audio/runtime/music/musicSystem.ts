@@ -31,6 +31,7 @@ import { tickLoopTails, type LoopTailState } from "./loopTail";
 import { tickStingers, type StingerState } from "./stingers";
 import { tickStems } from "./stems";
 import { routeGroupEvent, type SegmentRun } from "./segmentRun";
+import { updateBeatHolds } from "./background";
 import type { GridAnchor } from "./anchors";
 import type { BeatState } from "./beatClock";
 
@@ -324,6 +325,7 @@ export function hiddenFrame(backend: AudioBackend): MusicFrame {
  */
 export function beginMusicFrame(backend: AudioBackend): void {
   backend.beginFrame?.(); // advances the clock map and reads the status mirror (group events go to `onGroupEvent`)
+  updateBeatHolds(backend); // Rh1: rhythm mode holds callbacks through a recovery, before the dispatch
   frameSerial++; // the handles' snapshots are this frame's from here
 }
 

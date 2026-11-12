@@ -22,6 +22,62 @@ export type HostStatus = "locked" | "running" | "failed";
 export const FIRST_STATUS_TIMEOUT_MS = 5_000;
 /** @internal §5.1 default preset: the clip arena's initial reserve. */
 export const ARENA_INITIAL_BYTES = 16 << 20;
+/**
+ * @internal ADR 0166 §4.6 (Rh1): what `latencyHint` a context is made with. `"interactive"` normally; rhythm mode
+ * (`audio.rhythmMode`) asks for `0` seconds, which the browser clamps to its smallest output buffer (Chromium's fake
+ * sink: 2.9 ms base and 8 ms output, against 10 / 32 ms at `"interactive"`, S5). What it gave is read back
+ * (`AudioHost.latency`), never warned about.
+ */
+export type LatencyHint = AudioContextLatencyCategory | number;
+/** @internal §4.6: rhythm mode's numeric hint, seconds. */
+export const RHYTHM_LATENCY_HINT = 0;
+/** @internal §3.1: the hint outside rhythm mode. */
+export const DEFAULT_LATENCY_HINT: AudioContextLatencyCategory = "interactive";
+/** @internal §4.6: a change of `outputLatency` this soon (ms) after the context was made counts as evidence it is live. */
+export const LATENCY_EVIDENCE_WINDOW_MS = 10_000;
+/**
+ * @internal §4.6 "rate-limited": a change of the rhythm-mode setting rebuilds the context at most once per this (ms);
+ * a later change waits for the rest of it, and only the last one counts. Every rebuild also takes one from the
+ * recovery limit (`recovery.ts`), but a mode rebuild never spends the last one: it waits instead.
+ */
+export const MODE_REBUILD_INTERVAL_MS = 1_000;
+/** @internal A mode rebuild the recovery limit deferred is tried again after this (ms). */
+export const MODE_REBUILD_RETRY_MS = 5_000;
+
+/** @internal The `latencyHint` for a context in rhythm mode (`0`) or not (`"interactive"`). */
+export function latencyHintFor(rhythmMode: boolean): LatencyHint {
+  return rhythmMode ? RHYTHM_LATENCY_HINT : DEFAULT_LATENCY_HINT;
+}
+
+/** @internal How a context is made (`HostParts.recreate`'s argument). */
+export interface ContextOptions {
+  readonly latencyHint: LatencyHint;
+}
+
+/**
+ * @internal §1.3, §4.6: the context's latency as read back, seconds. `base` and `output` are `baseLatency` and
+ * `outputLatency` (0 where the browser reports none or nonsense). `reliable`: `output` is in (0, 0.5) s **and** either it
+ * changed at least once within `LATENCY_EVIDENCE_WINDOW_MS` of the context's creation or `getOutputTimestamp()` is valid
+ * (both times positive). A constant 0 or an absurd value is unreliable: the debug panel then says to calibrate.
+ */
+export interface ContextLatency {
+  readonly base: number;
+  readonly output: number;
+  readonly reliable: boolean;
+}
+
+/** What the reliability rule remembers of one context's `outputLatency`. */
+interface LatencyTrack {
+  /** When the context was made (the host's clock, ms). */
+  readonly since: number;
+  /** The first `outputLatency` read, NaN before any. */
+  first: number;
+  /** It changed within the evidence window. */
+  changed: boolean;
+}
+
+const finiteNonNegative = (x: unknown): number => (typeof x === "number" && Number.isFinite(x) && x > 0 ? x : 0);
+
 /** @internal §5.3: the clip ceiling when `audio.clipMemoryMB` is absent (the default preset's). */
 export const DEFAULT_CLIP_CEILING_MB = 128;
 
@@ -359,9 +415,14 @@ export interface HostParts {
   /**
    * A3.4c: makes a new AudioContext at the device's rate (the browser's default), adds the worklet module, makes a
    * node (a new core initialised with the running preset at the new rate) connected to its output, and an unlock layer
-   * on it. The host closes the old context first. Absent: device and rate rebuilds fail.
+   * on it. The host closes the old context first. Absent: device and rate rebuilds fail. ADR 0166 §4.6: `options` carry
+   * the `latencyHint` for the rhythm mode the host wants now (fakes may ignore it).
    */
-  readonly recreate?: () => Promise<ContextParts>;
+  readonly recreate?: (options: ContextOptions) => Promise<ContextParts>;
+  /** ADR 0166 §4.6: whether `context` was made in rhythm mode (`latencyHint: 0`). Absent: false. */
+  readonly rhythmMode?: boolean;
+  /** The host's clock, ms (the latency evidence window and the mode rebuild interval); default `performance.now`. */
+  readonly now?: () => number;
 }
 
 /** @internal A3.4c: what `HostParts.recreate` gives: a new context with its first node, port, unlock layer and `respawn`. */
@@ -420,6 +481,20 @@ export class AudioHost {
   private recoveryFailed = false;
   /** §8 health counters (A3.4a's `recovery.ts` writes them). */
   readonly health: HostHealth = { traps: 0, recoveries: 0, rebuilds: 0 };
+  // --- ADR 0166 §4.6 rhythm mode (Rh1) ---
+  private readonly now: () => number;
+  /** The mode the current context was made with. */
+  private contextRhythm: boolean;
+  /** The mode the settings ask for (`reconfigure`); differs from `contextRhythm` until the mode rebuild lands. */
+  private wantRhythm: boolean;
+  private latencyTrack: LatencyTrack;
+  /** Starts a mode rebuild (`recovery.ts` installs it with `watchForTraps`); null: a change waits until one is installed. */
+  private modeRebuild: (() => Promise<string>) | null = null;
+  /** A mode rebuild is queued (a microtask, or a timer for the interval's rest or a deferred retry). */
+  private modeQueued: ReturnType<typeof setTimeout> | true | null = null;
+  private lastModeRebuildAt = Number.NEGATIVE_INFINITY;
+  /** Mode rebuilds started (tests and diagnostics). */
+  modeRebuilds = 0;
 
   private constructor(parts: HostParts) {
     this.currentContext = parts.context;
@@ -429,6 +504,10 @@ export class AudioHost {
     this.link = parts.link;
     this.currentUnlock = parts.unlock;
     this.currentPreset = parts.preset;
+    this.now = parts.now ?? (() => performance.now());
+    this.contextRhythm = parts.rhythmMode === true;
+    this.wantRhythm = this.contextRhythm;
+    this.latencyTrack = { since: this.now(), first: Number.NaN, changed: false };
     this.listenOnContext("statechange", this.onStateChange);
     this.startTimeout();
     void this.link.ready.then(
@@ -486,7 +565,7 @@ export class AudioHost {
   }
 
   /**
-   * §3.1: creates the AudioContext (`latencyHint: "interactive"`; suspended when autoplay is blocked), adds the
+   * §3.1: creates the AudioContext (`latencyHint: "interactive"`, `0` in rhythm mode; suspended when autoplay is blocked), adds the
    * worklet module, creates the node with the wasm bytes and the preset, connects it, and arms the unlock layer on
    * `unlockTarget` when the context isn't running. Resolves once the node exists, before the first STATUS (a
    * locked context renders nothing until the gesture).
@@ -494,12 +573,103 @@ export class AudioHost {
    * Every call makes a new AudioContext, so only `startAudioHost` calls it, through `acquireAudioHost` (the page's
    * one host, architecture §1). Get the host with `startAudioHost` or `currentAudioHost`, never with this.
    */
-  static async _startNew(wasm: CoreWasm, moduleUrl: string, preset: CorePreset, unlockTarget: EventTarget): Promise<AudioHost> {
-    // A3.4c: a device or rate rebuild makes the next context the same way (no rate asked for: the device's).
-    const recreate = () => openCoreContext(wasm, moduleUrl, preset, unlockTarget);
-    const { context, node, port, unlock, respawn } = await recreate();
+  static async _startNew(wasm: CoreWasm, moduleUrl: string, preset: CorePreset, unlockTarget: EventTarget, rhythmMode = false): Promise<AudioHost> {
+    // A3.4c: a device or rate rebuild makes the next context the same way (no rate asked for: the device's), with the
+    // hint for the rhythm mode wanted then (ADR 0166 §4.6).
+    const recreate = (options: ContextOptions) => openCoreContext(wasm, moduleUrl, preset, unlockTarget, options.latencyHint);
+    const { context, node, port, unlock, respawn } = await recreate({ latencyHint: latencyHintFor(rhythmMode) });
     const link = new CoreLink(port);
-    return AudioHost._create({ context, node, link, unlock, preset, respawn, recreate });
+    return AudioHost._create({ context, node, link, unlock, preset, respawn, recreate, rhythmMode });
+  }
+
+  // --- Rhythm mode (ADR 0166 §1.5, §4.6; Rh1) ---
+
+  /** Whether the running context was made in rhythm mode (`latencyHint: 0`). */
+  get rhythmMode(): boolean {
+    return this.contextRhythm;
+  }
+
+  /** The rhythm mode the settings ask for while it differs from the running context's (a mode rebuild is due), else null. */
+  get pendingRhythmMode(): boolean | null {
+    return this.wantRhythm === this.contextRhythm ? null : this.wantRhythm;
+  }
+
+  /** The `latencyHint` the running context was made with. */
+  get latencyHint(): LatencyHint {
+    return latencyHintFor(this.contextRhythm);
+  }
+
+  /**
+   * §1.3, §4.6: the running context's `baseLatency` and `outputLatency` read back now, and the `reliable` rule
+   * (`ContextLatency`). Each read also feeds the rule's evidence (a change of `outputLatency` within the first 10 s).
+   * Allocates one small object.
+   */
+  latency(): ContextLatency {
+    const c = this.currentContext as AudioContext & { baseLatency?: unknown; outputLatency?: unknown; getOutputTimestamp?: () => AudioTimestamp };
+    const base = finiteNonNegative(c.baseLatency);
+    const output = finiteNonNegative(c.outputLatency);
+    const t = this.latencyTrack;
+    if (Number.isNaN(t.first)) t.first = output;
+    else if (!t.changed && output !== t.first && this.now() - t.since <= LATENCY_EVIDENCE_WINDOW_MS) t.changed = true;
+    let stamped = false;
+    try {
+      const ts = typeof c.getOutputTimestamp === "function" ? c.getOutputTimestamp() : undefined;
+      stamped = ts !== undefined && (ts.contextTime ?? 0) > 0 && (ts.performanceTime ?? 0) > 0;
+    } catch {
+      /* a closed context may throw: no evidence */
+    }
+    return { base, output, reliable: output > 0 && output < 0.5 && (t.changed || stamped) };
+  }
+
+  /**
+   * @internal `recovery.ts` (`watchForTraps`) installs how a mode rebuild starts: `rebuildHost(host, "latency")`, a new
+   * context on the device path, rate-limited. A change already waiting starts now.
+   */
+  _setModeRebuild(start: (() => Promise<string>) | null): void {
+    this.modeRebuild = start;
+    this.queueModeRebuild();
+  }
+
+  /**
+   * §4.6 "toggling the setting rebuilds the context": queues a mode rebuild when the settings' mode differs from the
+   * context's. The first one in `MODE_REBUILD_INTERVAL_MS` starts in a microtask (not inside the Engine's `create`); a
+   * later one waits for the rest of the interval, and whatever the settings say then is what is built (toggling back
+   * before it runs builds nothing). A host that can't make a new context, or has nobody to start the rebuild, waits.
+   */
+  private queueModeRebuild(): void {
+    if (this.modeQueued !== null || this.isClosed || this.recoveryFailed || !this.recreate || !this.modeRebuild) return;
+    if (this.wantRhythm === this.contextRhythm) return;
+    const run = () => {
+      this.modeQueued = null;
+      const start = this.modeRebuild;
+      if (!start || this.isClosed || this.recoveryFailed || this.wantRhythm === this.contextRhythm) return;
+      this.lastModeRebuildAt = this.now();
+      this.modeRebuilds++;
+      void start().then((outcome) => {
+        if (this.modeQueued !== null || this.isClosed || this.recoveryFailed) return;
+        if (outcome === "deferred") {
+          // The recovery limit had no room to spare: try again later (the context keeps its old hint meanwhile).
+          this.modeQueued = setTimeout(() => {
+            this.modeQueued = null;
+            this.queueModeRebuild();
+          }, MODE_REBUILD_RETRY_MS);
+          return;
+        }
+        // The setting changed again meanwhile, or a rebuild already in flight kept the context: after the interval.
+        this.queueModeRebuild();
+      });
+    };
+    const wait = this.lastModeRebuildAt + MODE_REBUILD_INTERVAL_MS - this.now();
+    if (wait > 0) this.modeQueued = setTimeout(run, wait);
+    else {
+      this.modeQueued = true;
+      queueMicrotask(run);
+    }
+  }
+
+  private cancelModeRebuild(): void {
+    if (this.modeQueued !== null && this.modeQueued !== true) clearTimeout(this.modeQueued);
+    this.modeQueued = null;
   }
 
   /** §2.1: Locked and Starting are `"locked"`, Failed `"failed"`, the rest `"running"`. */
@@ -704,11 +874,15 @@ export class AudioHost {
    * `Engine.ts` reconfigured the one mixer (each Engine's `create`: the editor's, then play mode's). Takes the bus
    * names from `settings.buses`; if they differ from `busNames`, bumps `busEpoch`, runs every `onBusRemap` with
    * `busRemap(old, new)` and returns the remap (the first call, from no names, remaps nothing but still bumps). Returns
-   * null when the names are unchanged. Also sets `pendingPreset` from `presetFromSettings(settings)`.
+   * null when the names are unchanged. Also sets `pendingPreset` from `presetFromSettings(settings)`, and queues a
+   * mode rebuild when `audio.rhythmMode` differs from the running context's (ADR 0166 §4.6).
    */
   reconfigure(settings: AudioSettings): BusRemap | null {
     const preset = presetFromSettings(settings);
     this.nextPreset = presetsEqual(preset, this.currentPreset) ? null : preset;
+    // ADR 0166 §4.6: a change of `audio.rhythmMode` rebuilds the context with the other hint (rate-limited).
+    this.wantRhythm = settings.rhythmMode === true;
+    this.queueModeRebuild();
     const to = settings.buses.map((b) => b.name);
     if (this.epoch > 0 && sameNames(this.names, to)) return null;
     const from = this.names;
@@ -809,7 +983,9 @@ export class AudioHost {
     for (const { type, fn } of this.contextListeners) old.removeEventListener(type, fn);
     this.currentUnlock.dispose();
     if (old.state !== "closed") await old.close().catch(() => {});
-    const parts = await this.recreate();
+    // ADR 0166 §4.6: the new context gets the hint for the mode the settings ask for now (a device or rate rebuild too).
+    const rhythm = this.wantRhythm;
+    const parts = await this.recreate({ latencyHint: latencyHintFor(rhythm) });
     if (this.isClosed) {
       void parts.context.close().catch(() => {});
       throw new Error("audio core: the host is closed");
@@ -818,6 +994,8 @@ export class AudioHost {
     this.currentNode = parts.node;
     this.respawn = parts.respawn;
     this.currentUnlock = parts.unlock;
+    this.contextRhythm = rhythm;
+    this.latencyTrack = { since: this.now(), first: Number.NaN, changed: false };
     for (const { type, fn } of this.contextListeners) parts.context.addEventListener(type, fn);
     if (parts.context.state !== "running") parts.unlock.arm();
     parts.unlock.watch(() => this.pageSuspended);
@@ -833,6 +1011,8 @@ export class AudioHost {
   _endRebuild(): void {
     this.recovering = false;
     each(this.listeners, (l) => l.onRebuilt?.());
+    // ADR 0166 §4.6: a mode change that arrived during a rebuild that kept the context (a trap) is built now.
+    this.queueModeRebuild();
   }
 
   /**
@@ -864,6 +1044,7 @@ export class AudioHost {
     this.listeners.clear();
     for (const remove of [...this.deviceRemovals]) remove();
     this.clearTimeout();
+    this.cancelModeRebuild();
     // A rebuild waiting for its new core's first STATUS ends now rather than never (A3.4a).
     if (this.recovering) this.link.fail(new Error("audio core: the host closed"));
     for (const { type, fn } of this.contextListeners) this.context.removeEventListener(type, fn);
@@ -876,13 +1057,13 @@ export class AudioHost {
 }
 
 /**
- * §3.1 (and §3.7's new context, A3.4c): creates an AudioContext (`latencyHint: "interactive"`, no `sampleRate`: the
- * output device's), adds the worklet module, makes the first node with the wasm bytes and the preset, connected to the
- * output, and an unlock layer on `unlockTarget` (armed by the host when the context isn't running). Closes the context
- * again when any step fails.
+ * §3.1 (and §3.7's new context, A3.4c): creates an AudioContext (`latencyHint` `"interactive"`, or `0` in rhythm mode,
+ * ADR 0166 §4.6; no `sampleRate`: the output device's), adds the worklet module, makes the first node with the wasm
+ * bytes and the preset, connected to the output, and an unlock layer on `unlockTarget` (armed by the host when the
+ * context isn't running). Closes the context again when any step fails.
  */
-async function openCoreContext(wasm: CoreWasm, moduleUrl: string, preset: CorePreset, unlockTarget: EventTarget): Promise<ContextParts> {
-  const context = new AudioContext({ latencyHint: "interactive" });
+async function openCoreContext(wasm: CoreWasm, moduleUrl: string, preset: CorePreset, unlockTarget: EventTarget, latencyHint: LatencyHint = DEFAULT_LATENCY_HINT): Promise<ContextParts> {
+  const context = newAudioContext(latencyHint);
   try {
     await context.audioWorklet.addModule(moduleUrl);
     // The module stays added to the context, so a same-context rebuild (A3.4a) only makes another node:
@@ -902,6 +1083,21 @@ async function openCoreContext(wasm: CoreWasm, moduleUrl: string, preset: CorePr
     void context.close().catch(() => {});
     throw error;
   }
+}
+
+/**
+ * An AudioContext with `latencyHint`. A browser that refuses a numeric hint (the spec allows one; an old engine may
+ * throw) gets `"interactive"`, and `AudioHost.latency` reports what that gave.
+ */
+function newAudioContext(latencyHint: LatencyHint): AudioContext {
+  if (typeof latencyHint === "number") {
+    try {
+      return new AudioContext({ latencyHint });
+    } catch {
+      return new AudioContext({ latencyHint: DEFAULT_LATENCY_HINT });
+    }
+  }
+  return new AudioContext({ latencyHint });
 }
 
 // --- The page singleton (architecture §1: one host per page serves every Engine and World) ---
@@ -953,7 +1149,7 @@ let pageStart: Promise<AudioHost> | null = null;
 export async function startAudioHost(settings: AudioSettings, unlockTarget: EventTarget = document): Promise<AudioHost> {
   return acquireAudioHost(async () => {
     const [wasm, moduleUrl] = await Promise.all([loadCoreWasm(), workletModuleUrl()]);
-    return AudioHost._startNew(wasm, moduleUrl, presetFromSettings(settings), unlockTarget);
+    return AudioHost._startNew(wasm, moduleUrl, presetFromSettings(settings), unlockTarget, settings.rhythmMode === true);
   });
 }
 
