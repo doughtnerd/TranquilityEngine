@@ -64,7 +64,7 @@ Android: `adb reverse tcp:8083 tcp:8083`, open `http://localhost:8083/`. The tou
 
 ## Part 1. M4-0: in-voice stamped records (task Z5)
 
-**Scene:** the Sound Lab main page, loaded by the spec (no sample is edited). The Music, Ambience, SFX and Engine buses are muted; 64 quiet looping voices play on UI as a crowd; the item's voices play on the Tape bus. Every record is stamped 1 s ahead of `Audio.time`. The spec takes keys 0 to 5 before the Sound Lab's own handlers see them (on this page 1 is a click and a beep, 4 the Underwater snapshot, 5 a burst), so only the item and the crowd are heard.
+**Scene:** the Sound Lab main page, loaded by the spec (no sample is edited). The Music, Ambience, SFX and Engine buses are muted; 64 quiet looping voices play on UI as a crowd (the noise, hum, music, orbit-pulse and bright loops at spread pitches: **a steady, quiet buzz and hiss under every item is expected**; it is the "many" that the item's one voice is among, and it must not dip, click or pump when an item fades or stops; 0 stops it too); the item's voices play on the Tape bus. Every record is stamped 1 s ahead of `Audio.time`. The spec takes keys 0 to 5 before the Sound Lab's own handlers see them (on this page 1 is a click and a beep, 4 the Underwater snapshot, 5 a burst), so only the item and the crowd are heard.
 
 | Id | Key | Item | Listen for | Devices |
 |---|---|---|---|---|
