@@ -24,7 +24,13 @@
  * P4's readings: a `musicSwitch` inside a playlist plays its default child (the switch isn't ticked below the root); a
  * leaf without a playable track is skipped; a successor the planner drops (the exit is inside the lead) is skipped, the
  * next item asked instead; with nothing planned and the playing run ended, the next item starts as soon as the lead
- * allows (`grid: "immediate"`). The rule's fades and bridge are not applied to a natural advance yet (R3a's plumbing).
+ * allows (`grid: "immediate"`).
+ *
+ * **R3b: the natural advance is a transition.** Once an item plays, its successor is asked through R3a's
+ * `requestTransition(player, leaf, f, {natural: true})`, so the matched rule's `enter`, fades and bridge apply (the exit
+ * is the exit cue whatever the rule says, §2.4); the transition lands it (it becomes the run at its entry), and the
+ * advance is adopted when its run is the player's. The first item and the gap after an ended item still start through
+ * `requestStart` (nothing plays to leave).
  */
 import { compileSegmentGrid, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
 import type { PlaylistNode, SegmentNode } from "../../../../engine/audio/musicFormat";
@@ -32,9 +38,9 @@ import { playingGridOf, predictWrap, anchorRun, heardTimeOf, ticksAt } from "./a
 import type { MusicFrame, MusicNodeRef, MusicPlayer } from "./musicSystem";
 import { childFor, createSwitchState } from "./musicSwitch";
 import { requestStart, type PlanRequest } from "./planner";
+import { requestTransition, ringingOut, type Transition } from "./transition";
 import { createOrder, nextIndex, type PlaylistOrder } from "./playlistOrder";
 import { segmentClipSource, type SegmentRun } from "./segmentRun";
-import { enterFrame, enterPoint, findRule } from "./transitionRules";
 
 /** One playlist container's cursor (nesting keeps one per playlist node). P4 may add fields here. */
 export interface PlaylistCursor {
@@ -61,10 +67,12 @@ interface Advance {
 /** The successor asked of the planner: adopted when it plays (or is skipped when it can't). */
 interface Request {
   readonly advance: Advance;
-  /** The `PlanRequest` handed to the planner (identity tells whether `player.planned` is still ours). */
-  readonly request: PlanRequest;
+  /** The `PlanRequest` handed to the planner (identity tells whether `player.planned` is still ours); null for a transition. */
+  readonly request: PlanRequest | null;
   /** Set when the planner stamped it. */
   run: SegmentRun | null;
+  /** R3b: a natural advance's transition (R3a's `requestTransition`). */
+  transition: Transition | null;
 }
 
 /** A player's playlist state: the cursors from the root playlist down. P4 may add fields here. */
@@ -241,56 +249,59 @@ function segmentGrid(node: MusicNodeRef): SegmentGrid | null {
   return grid;
 }
 
-function clipRate(node: MusicNodeRef): number {
-  const tracks = (node as unknown as { tracks?: { clip?: string }[] }).tracks ?? [];
-  for (const t of tracks) {
-    const facts = t.clip ? segmentClipSource().facts(t.clip) : undefined;
-    if (facts && facts.rate > 0) return facts.rate;
-  }
-  return 48_000;
-}
-
-/** Ask the planner for the next leaf: at the playing segment's exit cue, or as soon as possible when nothing plays. */
+/**
+ * Ask for the next leaf: a natural advance at the playing segment's exit cue (a transition, R3b), or as soon as possible
+ * when nothing plays (the planner).
+ */
 function request(player: MusicPlayer, state: PlaylistState, f: MusicFrame, natural: boolean): boolean {
   const advance = advanceOf(state);
   const leaf = advance.leaf;
   if (!leaf) return false;
   const toGrid = segmentGrid(leaf);
-  let startFrame = 0;
-  let preEntry = toGrid ? Math.max(0, ticksToSeconds(toGrid, toGrid.entryTicks)) : 0;
-  let points: PlanRequest["points"];
+  const preEntry = toGrid ? Math.max(0, ticksToSeconds(toGrid, toGrid.entryTicks)) : 0;
   if (natural) {
     const a = player.anchor;
     const run = player.run;
     const playing = a && run && a.segment === run.node.id ? playingGridOf(a) : null;
     if (!playing || !run || !Number.isFinite(naturalExit(player, f.now))) return false; // no grid yet, or a forever loop
-    const match = findRule(player.root, run.node.id, leaf.id);
-    if (toGrid) {
-      const from = { grid: playing.grid, ticks: playing.grid.exitTicks };
-      startFrame = enterFrame(match, toGrid, from, clipRate(leaf));
-      preEntry = enterPoint(match, toGrid, from).preEntry;
+    // R3b: through the transition, so the rule's enter, fades and bridge apply; it lands the item at the exit cue.
+    const req: Request = { advance, request: null, run: null, transition: null };
+    state.req = req;
+    const t = requestTransition(player, leaf, f, {
+      natural: true,
+      reason: "playlist",
+      onDropped: (cause) => {
+        if (state.req !== req) return;
+        state.req = null;
+        if (cause === "noPoint") {
+          state.lateFor = player.run; // the exit is inside the lead: no retry (it would only skip items); start it in the gap
+          return;
+        }
+        commit(state, req.advance, state.currentRun); // the music plays on; this item is skipped
+      },
+    });
+    if (state.req !== req) return true; // dropped at once (handled above)
+    if (!t) {
+      state.req = null;
+      return false;
     }
-    points = () => naturalExit(player, state.now); // re-asked at every re-plan
+    req.transition = t;
+    return true;
   }
-  const req: Request = { advance, request: null as unknown as PlanRequest, run: null };
+  const req: Request = { advance, request: null, run: null, transition: null };
   const planRequest: PlanRequest = {
     to: leaf,
     reason: player.run === null ? "start" : "playlist",
-    grid: natural ? "exitCue" : "immediate",
+    grid: "immediate",
     notBefore: Number.NaN,
-    startFrame,
+    startFrame: 0,
     preEntry,
-    ...(points ? { points } : {}),
     onStamped: (planned) => {
       req.run = planned.run;
     },
-    onDropped: (_planned, cause) => {
+    onDropped: () => {
       if (state.req !== req) return;
       state.req = null;
-      if (natural && cause === "noPoint") {
-        state.lateFor = player.run; // the exit is inside the lead: no retry (it would only skip items); start it in the gap
-        return;
-      }
       commit(state, req.advance, state.currentRun); // the music plays on; this item is skipped (a first start's refusal leaves `refused`)
     },
   };
@@ -320,7 +331,16 @@ export function tickPlaylist(player: MusicPlayer, f: MusicFrame): void {
   state.now = f.now;
 
   const req = state.req;
-  if (req) {
+  if (req?.transition) {
+    const t = req.transition;
+    if (t.state === "done") {
+      // The transition landed the item: it is the player's run (with a bridge, after the bridge).
+      state.req = null;
+      commit(state, req.advance, t.incoming?.run ?? player.run);
+    } else if (t.state === "cancelled") {
+      state.req = null; // replaced (a switch's change) or stopped; a drop was handled by its `onDropped`
+    }
+  } else if (req) {
     if (req.run === null && player.planned?.request !== req.request) {
       state.req = null; // replaced or cancelled by someone else (a switch's change): nothing of ours is in flight
     } else if (req.run !== null) {
@@ -351,7 +371,7 @@ export function tickPlaylist(player: MusicPlayer, f: MusicFrame): void {
     return;
   }
   if (state.currentRun === null || state.currentRun !== run) return; // not our run (a switch moved on)
-  if (player.planned || player.next || player.transition) return; // a change of someone else's is in flight
+  if (player.planned || (player.next && !ringingOut(player)) || player.transition) return; // a change of someone else's is in flight
   if (finished(run)) {
     state.lateFor = null;
     request(player, state, f, false); // gap: nothing sounds, start the next item as soon as the lead allows
