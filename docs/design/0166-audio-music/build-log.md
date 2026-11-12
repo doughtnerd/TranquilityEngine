@@ -699,3 +699,11 @@ K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.t
 - **Bug fixed:** `MusicEvent.handle` was a new `EventHandle`, not the one `Audio.play` returned. `Audio.ts` keeps one handle per `EventInstance` (`_handleOf`, a WeakMap) for both; unit test in `audioApiM4.test.ts`; the e2e asserts `e.handle === h`.
 - **Listening section M4c** added to `listening-pass.md` (E3's text).
 - **Coordinator:** Ed11's smoke case, written from its settings case (the Music block, a ring edit saved, the preset reads custom); smoke spec 5 of 5. Typecheck 0; `src/plugins/audio/runtime` vitest 2,129 pass.
+
+**M4c milestone-end checks** (on `6cb16a89`, no agents running):
+- typecheck 0; cargo pass; metered pass; `check:links` pass; build pass.
+- **`test:tools` failed:** the music generator's test (`tools/makeMusic.test.mjs`) rejected Rh3's `click-track.wav`, which `samples/sound-lab/tools/makeClick.mjs` writes. Coordinator fix: the test lists clips from other generators (checks they're committed, skips the shared-length check); 22 of 22.
+- **Vitest 6,191 pass, 1 fail:** `eventBench`'s allocation ceiling (1,552 against 1,150) under the full run's load; 8 of 8 alone.
+- **`test:e2e` 250 pass, 3 fail:** `audio-music-a:68` (streamed stems 0.37 s apart under load) and `:246` (0.154 s against 0.12) pass 3 of 3 alone. **`audio-music-a:458` (SM2) fails 4 of 4 alone:** after `p` the playlist stays `transitioning`. It passed in M4b's checks, which ran before F-25. **F-28** (strongest) is bisecting; the M4c merge waits for it.
+- **`test:e2e:slow` 31 pass, 3 fail:** `audio-core`, `audio-stress` (F-11) and listening M4b, all passing alone.
+- **Repeats** (`audio-music-b`, `-c`, `-d`, 3 each): 56 of 57. `audio-music-b:378` (the default-rule playlist) failed its group counters once, perhaps F-28's cause; 3 of 3 alone.
