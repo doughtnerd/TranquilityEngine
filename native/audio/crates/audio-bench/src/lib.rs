@@ -216,7 +216,44 @@ pub struct Scene {
     /// records applied at the quantum's start). A stamped scene asserts at its end that no quantum split.
     pub per_quantum: Option<Per>,
     pub stamped: bool,
+    /// ADR 0166 M4b (Bench1): music on top of the preset (stems, groups, rings; [`Music`]). The scene's mixed voices
+    /// exclude music's, so the scene less its `music: None` twin is music's own cost.
+    pub music: Option<Music>,
+    /// The core's `max_music_rings` (the music scenes and their twins lay the pool out, whether or not they open a ring).
+    pub music_rings: u32,
 }
+
+/// ADR 0166 M4b (Bench1): what the music scenes play ([`Scene::music`]), on the default preset (8 music rings, 16 groups).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Music {
+    pub kind: MusicKind,
+    /// Stems read music rings (a stream each; the worst scene's other stems and stingers stay decoded), else every stem is a
+    /// decoded clip.
+    pub streamed: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MusicKind {
+    /// 8 stems in one gated group; one stem fading at a time; a held group (streamed: a ring runs dry and the group
+    /// holds, then resumes; decoded: a group missing a member waits and is given up).
+    Typical,
+    /// A transition every [`MUSIC_CYCLE_Q`] quanta: the next segment's 4 stems start as a stamped group (rings opened and
+    /// primed first) and fade in, the last segment's fade out and stop, a bridge and a tail span play over the seam.
+    Transition,
+    /// The most the default preset allows at once: 16 groups (the table's cap, one member each), 12 stems and 4 stingers,
+    /// every voice fading all the time; streamed, the 8 music rings carry the first 8 stems.
+    Worst,
+}
+
+/// The default preset's music pool (`max_music_rings`: `max_mixed / 16`, 128 -> 8).
+const MUSIC_RINGS: u32 = 8;
+/// Ids of the music rings main opens (one per stem per segment; a retired ring's id is never reused).
+const MUSIC_STREAM_ID: u32 = 0xFFFF_0400;
+/// Music starts at this quantum (its rings primed by then); a transition cycle's length.
+const MUSIC_START_Q: u64 = 8;
+const MUSIC_CYCLE_Q: u64 = 240;
+/// Frames of a stem crossfade (16 quanta), a stinger's stop fade, a tail's fade.
+const MUSIC_XFADE: u32 = 2_048;
 
 /// The per-quantum record streams of M4-0's metered scenes (`stamped-*` and their `-twin`s).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -311,12 +348,26 @@ impl Scene {
             swap: false,
             per_quantum: None,
             stamped: false,
+            music: None,
+            music_rings: 0,
         }
     }
 
     /// ADR 0166 M4-0 (Z5): `base` sending `per` every quantum, stamped or (the twin) `ASAP`.
     fn per(base: Scene, per: Per, stamped: bool) -> Scene {
         Scene { per_quantum: Some(per), stamped, ..base }
+    }
+
+    /// ADR 0166 M4b (Bench1): the default preset with `kind` of music on top. Music's voices are not among the scene's `mixed`
+    /// (they take the preset's cap beyond it), so the scene less its `-twin` (`music: None`) is music's own cost.
+    fn music(name: &str, kind: MusicKind, streamed: bool, with: bool) -> Scene {
+        let base = Scene::preset(name, 4_096, 128, 16, 8);
+        let peak = match kind {
+            MusicKind::Typical => 8 + 2,
+            MusicKind::Transition => 4 + 4 + 2,
+            MusicKind::Worst => 16,
+        };
+        Scene { mixed: 128 - peak, virtual_voices: 4_096 - 128 - 64, music: with.then_some(Music { kind, streamed }), music_rings: MUSIC_RINGS, ..base }
     }
 
     /// ADR 0162 A7: `voices` looping voices of kind 2 (bed) into `beds` beds, decoded through MagLS (`magls`) or the
@@ -513,6 +564,17 @@ pub fn scene(name: &str) -> Option<Scene> {
         "stamped-loop-twin" => Scene::per(Scene::looping(name, 128), Per::Loop, false),
         "stamped-music" => Scene::per(Scene::looping(name, 8), Per::Music, true),
         "stamped-music-twin" => Scene::per(Scene::looping(name, 8), Per::Music, false),
+        // ADR 0166 M4b (Bench1): music on the default preset, decoded and streamed, each beside its music-free twin (the
+        // twin is shared: music's voices are on top of the same SFX). `MUSIC_PAIRS` in the gate holds the allowances.
+        "music-typ-twin" => Scene::music(name, MusicKind::Typical, false, false),
+        "music-typ" => Scene::music(name, MusicKind::Typical, false, true),
+        "music-typ-streamed" => Scene::music(name, MusicKind::Typical, true, true),
+        "music-trans-twin" => Scene::music(name, MusicKind::Transition, false, false),
+        "music-trans" => Scene::music(name, MusicKind::Transition, false, true),
+        "music-trans-streamed" => Scene::music(name, MusicKind::Transition, true, true),
+        "music-worst-twin" => Scene::music(name, MusicKind::Worst, false, false),
+        "music-worst" => Scene::music(name, MusicKind::Worst, false, true),
+        "music-worst-streamed" => Scene::music(name, MusicKind::Worst, true, true),
         _ => return None,
     };
     Some(s)
@@ -818,6 +880,16 @@ pub struct RunResult {
     /// ADR 0166 M4-0: the core's `splitQuanta` and `voiceSplits` at the run's end (cumulative since init).
     pub split_quanta: u32,
     pub voice_splits: u32,
+    /// ADR 0166 M4b (Bench1): the core's music counters at the run's end, the largest STATUS block taken, and the mixed voices
+    /// (last quantum).
+    pub groups_held: u16,
+    pub groups_late: u16,
+    pub groups_abandoned: u16,
+    pub group_table_full: u32,
+    pub music_ring_refused: u32,
+    pub music_rings_open: u16,
+    pub status_max: usize,
+    pub mixed_last: u16,
     pub buses: u32,
     pub clip_mb: u32,
     pub biquads: u32,
@@ -928,6 +1000,33 @@ struct Bench {
     extra_flags: u16,
     stems: Vec<u32>,
     stinger: Option<u32>,
+    /// ADR 0166 M4b (Bench1): the next PLAY's gate, whether the next start is a plain music voice (no spatial, filter or send
+    /// terms; unity pitch; off main's mixed list so the SFX top-up and updates leave it alone), and the music scene's state.
+    gate: u16,
+    plain: bool,
+    mus: MusicState,
+}
+
+/// A music scene's main side.
+#[derive(Default)]
+struct MusicState {
+    /// Open music rings main keeps fed: stream id, frames fed.
+    rings: Vec<(u32, u64)>,
+    next_ring: u32,
+    /// The ring whose feed is withheld (the held-group event), and `groupsHeld` when it was.
+    withheld: Option<u32>,
+    held_at: u16,
+    /// The current segment's voices and rings (a transition's), the one before, and the bridge and tail.
+    segment: Vec<u32>,
+    segment_rings: Vec<u32>,
+    voices: Vec<u32>,
+    bridge: Option<u32>,
+    tail: Option<u32>,
+    /// Rings opened ahead for the next segment.
+    next_rings: Vec<u32>,
+    segments: u64,
+    /// The largest STATUS block taken (bytes).
+    status_max: usize,
 }
 
 /// The scene's init parameters. The arena's initial reserve holds all of the scene's clips (with
@@ -936,7 +1035,7 @@ struct Bench {
 fn init_params(s: &Scene) -> InitParams {
     let kernel_mb = (audio_core::zones::kernel_budget_bytes(s.zone_slots, s.zone_frames) >> 20) as u32 + 1;
     let arena_mb = s.clip_mb + s.clip_mb / 2 + 16 + 2 * s.ambi + kernel_mb;
-    InitParams { sample_rate: RATE, max_logical: s.max_logical, max_mixed: s.max_mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20, max_beds: s.beds, max_wide: s.max_wide, max_zone_slots: s.zone_slots, zone_max_frames: s.zone_frames, ..InitParams::default() }
+    InitParams { sample_rate: RATE, max_logical: s.max_logical, max_mixed: s.max_mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20, max_beds: s.beds, max_wide: s.max_wide, max_zone_slots: s.zone_slots, zone_max_frames: s.zone_frames, max_music_rings: s.music_rings, ..InitParams::default() }
 }
 
 /// A core over a fresh zeroed block; returns the block to free after the core is dropped.
@@ -1148,6 +1247,9 @@ impl Bench {
             extra_flags: 0,
             stems: Vec::new(),
             stinger: None,
+            gate: 0,
+            plain: false,
+            mus: MusicState::default(),
             aux_now: 0,
             zone: ZoneMain {
                 blobs: Vec::new(),
@@ -1448,9 +1550,10 @@ impl Bench {
         let id = ((*g as u32) << 16) | index;
         let s = self.scene.clone();
         let looping = stream.is_some() || !mixed || !(s.one_shots || s.sustain);
-        let hrtf = mixed && self.hrtf_now < s.hrtf;
+        let plain = self.plain;
+        let hrtf = mixed && !plain && self.hrtf_now < s.hrtf;
         // ADR 0162 D6: the scene's M3 counts are kept by what the mixed voices stand for (streams stay plain).
-        let eligible = mixed && stream.is_none();
+        let eligible = mixed && stream.is_none() && !plain;
         let ambi = eligible && self.ambi_now < s.ambi;
         let ambi_private = ambi && self.ambi_private_now < s.ambi_private;
         let bed = eligible && !ambi && !hrtf && self.bed_now < s.bed_voices;
@@ -1473,7 +1576,9 @@ impl Bench {
             None => 1 + self.rng.below(self.stereo_clips),
         };
         // Bed scenes: with several beds the voices spread over their host buses (1..=beds).
-        let bus = if ambi_private {
+        let bus = if plain {
+            3 % s.buses as u16
+        } else if ambi_private {
             assert!(s.beds != 1, "a private ambisonic voice needs a bus with no bed");
             0
         } else if s.beds > 1 && (bed || ambi) {
@@ -1483,7 +1588,7 @@ impl Bench {
         };
         let ordinal = self.mixed_ids.len() as u32;
         let phase = self.rng.unit() * 6.283;
-        let mut flags = if ambi { 0 } else { wire::PLAY_FLAGS_SPATIAL } | self.extra_flags;
+        let mut flags = if ambi || plain { 0 } else { wire::PLAY_FLAGS_SPATIAL } | self.extra_flags;
         if ambi {
             flags |= wire::PLAY_FLAGS_AMBISONIC;
         }
@@ -1513,7 +1618,7 @@ impl Bench {
         } else {
             0
         };
-        let pitch = if stream.is_some() { 1.0 } else { self.pitch() };
+        let pitch = if stream.is_some() || plain { 1.0 } else { self.pitch() };
         let score = self.rng.unit();
         self.push(&wire::Play {
             voice_id: id,
@@ -1530,6 +1635,7 @@ impl Bench {
             score,
             start_offset_frames: offset,
             group: if s.bindings > 0 { 1 + (index % 1_024) as u16 } else { 0 },
+            gate: self.gate,
             ..Default::default()
         });
         if hp {
@@ -1564,8 +1670,9 @@ impl Bench {
             // A region in the clip's middle third; the voice starts before it.
             self.push(&wire::SetLoop { voice_id: id, frame_offset: wire::ASAP, loop_start_frame: frames / 3, loop_end_frame: 2 * frames / 3, flags: wire::SET_LOOP_FLAGS_LOOPING });
         }
-        let mut v = Voice { id, mixed, hrtf, at: u32::MAX, phase, bed, ambi, private: ambi_private, lp, hp, send, aux, send_ord };
-        if mixed {
+        // A plain music voice stays off main's mixed list (the core counts it in the cap all the same).
+        let mut v = Voice { id, mixed: mixed && !plain, hrtf, at: u32::MAX, phase, bed, ambi, private: ambi_private, lp, hp, send, aux, send_ord };
+        if mixed && !plain {
             v.at = self.mixed_ids.len() as u32;
             self.mixed_ids.push(id);
             self.hrtf_now += hrtf as u32;
@@ -1714,6 +1821,13 @@ impl Bench {
         if let Some(per) = self.scene.per_quantum {
             return self.build_per_quantum(q, per);
         }
+        if let Some(music) = self.scene.music {
+            // Music's records every quantum; the preset's SFX work (below) only on a batch frame.
+            self.build_music(q, music);
+            if q % BATCH_EVERY != 0 {
+                return;
+            }
+        }
         let s = self.scene.clone();
         if s.zones_active > 0 {
             self.zone_step(q);
@@ -1821,6 +1935,176 @@ impl Bench {
         }
     }
 
+    /// Opens a music ring main will feed; returns its stream id.
+    fn open_music_ring(&mut self) -> u32 {
+        let id = MUSIC_STREAM_ID + self.mus.next_ring;
+        self.mus.next_ring += 1;
+        let o = wire::StreamOpen { stream_id: id, channels: 2, sample_rate: RATE, total_frames: wire::STREAM_TOTAL_FRAMES_UNKNOWN, flags: wire::STREAM_OPEN_FLAG_MUSIC, epoch: 1, ..Default::default() };
+        assert!(self.core.streams_mut().open(&o), "music stream open");
+        self.mus.rings.push((id, 0));
+        id
+    }
+
+    /// STREAM_CLOSE of a retired ring: freed when its voice ends. Main stops feeding it.
+    fn close_music_ring(&mut self, id: u32) {
+        self.mus.rings.retain(|r| r.0 != id);
+        assert!(self.core.streams_mut().close(id), "music stream close");
+    }
+
+    /// A plain music voice: on a ring (`ring`) or a decoded looping clip, gated (`gate`, 0 none), stamped at `at` (a frame in
+    /// this quantum), fading from zero when `fade_zero`.
+    fn start_music(&mut self, ring: Option<u32>, gate: u16, at: u32, fade_zero: bool) -> u32 {
+        (self.plain, self.gate, self.stamp) = (true, gate, at);
+        self.extra_flags = wire::PLAY_FLAGS_LOOP | if fade_zero { wire::PLAY_FLAGS_FADE_ZERO } else { 0 };
+        let id = self.start(ring, true).expect("a free voice for music");
+        (self.plain, self.gate, self.stamp, self.extra_flags) = (false, 0, wire::ASAP, 0);
+        id
+    }
+
+    fn fade_music(&mut self, id: u32, at: u32, target: f32, frames: u32, stop: bool, law_in: bool) {
+        let law = if law_in { wire::fade_law::EQUAL_POWER_IN } else { wire::fade_law::EQUAL_POWER_OUT };
+        let flags = if stop { wire::FADE_FLAGS_STOP_AT_END } else { 0 };
+        self.push(&wire::Fade { voice_id: id, frame_offset: at, target, frames, flags, shape: wire::pack_shape(law, 0) });
+    }
+
+    /// ADR 0166 M4b (Bench1), main's work for one quantum of a music scene: starts, fades and stops stamped inside the
+    /// quantum (varied across it), rings opened ahead of the groups that use them. [`MusicKind`] says what each plays.
+    fn build_music(&mut self, q: u64, m: Music) {
+        let at = |k: u64| 8 + ((q * 53 + k * 29) % 112) as u32;
+        match m.kind {
+            MusicKind::Typical => {
+                if q == MUSIC_START_Q - 4 && m.streamed {
+                    for _ in 0..8 {
+                        let id = self.open_music_ring();
+                        self.mus.next_rings.push(id);
+                    }
+                }
+                if q == MUSIC_START_Q {
+                    let stamp = at(0);
+                    for k in 0..8 {
+                        let ring = m.streamed.then(|| self.mus.next_rings[k]);
+                        let id = self.start_music(ring, wire::pack_gate(1, 8), stamp, false);
+                        self.mus.voices.push(id);
+                    }
+                }
+                if q > MUSIC_START_Q && q % 16 == 0 {
+                    // One stem fading at a time: down to 0.4 and back, over 16 quanta each.
+                    let id = self.mus.voices[(q / 16) as usize % 8];
+                    let down = (q / 128) % 2 == 0;
+                    self.fade_music(id, at(1), if down { 0.4 } else { 1.0 }, MUSIC_XFADE, false, !down);
+                }
+                // The held group. Streamed: ring 0's feed stops until it runs dry (a ring holds 32,768 frames), the group
+                // holds and resumes once it is fed again. Decoded: a group of three with two members present waits for the
+                // third, and the core gives it up after a second.
+                if m.streamed {
+                    if q == 300 {
+                        self.mus.withheld = Some(self.mus.next_rings[0]);
+                        self.mus.held_at = status::counters(&self.core).music.groups_held;
+                    }
+                    if self.mus.withheld.is_some() && (status::counters(&self.core).music.groups_held > self.mus.held_at || q >= 700) {
+                        self.mus.withheld = None;
+                    }
+                } else if q >= 20 && (q - 20) % 480 == 0 {
+                    let stamp = at(2);
+                    for _ in 0..2 {
+                        let id = self.start_music(None, wire::pack_gate(2, 3), stamp, false);
+                        self.mus.tail = Some(id);
+                    }
+                }
+            }
+            MusicKind::Transition => {
+                let t = q.wrapping_sub(MUSIC_START_Q) % MUSIC_CYCLE_Q;
+                if q + 4 >= MUSIC_START_Q && (q + 4 - MUSIC_START_Q) % MUSIC_CYCLE_Q == 0 && m.streamed {
+                    // Rings for the next segment, primed from now.
+                    self.mus.next_rings.clear();
+                    for _ in 0..4 {
+                        let id = self.open_music_ring();
+                        self.mus.next_rings.push(id);
+                    }
+                }
+                if q >= MUSIC_START_Q && t == 0 {
+                    // The seam: the next segment's group starts stamped and fades in, the last one fades out and stops, a
+                    // bridge starts, a tail span of the last segment starts.
+                    let n = self.mus.segments;
+                    self.mus.segments += 1;
+                    let gid = 1 + (n % 2) as u32;
+                    let stamp = at(0);
+                    let rings = std::mem::take(&mut self.mus.next_rings);
+                    let mut next = Vec::new();
+                    for k in 0..4 {
+                        let ring = m.streamed.then(|| rings[k]);
+                        let id = self.start_music(ring, wire::pack_gate(gid, 4), stamp, n > 0);
+                        if n > 0 {
+                            self.fade_music(id, stamp, 1.0, MUSIC_XFADE, false, true);
+                        }
+                        next.push(id);
+                    }
+                    for id in std::mem::replace(&mut self.mus.segment, next) {
+                        self.fade_music(id, stamp, 0.0, MUSIC_XFADE, true, false);
+                    }
+                    for id in std::mem::replace(&mut self.mus.segment_rings, rings) {
+                        self.close_music_ring(id);
+                    }
+                    self.mus.bridge = Some(self.start_music(None, 0, at(2), false));
+                    self.mus.tail = (n > 0).then(|| self.start_music(None, 0, at(3), false));
+                }
+                if t == 40 {
+                    if let Some(id) = self.mus.bridge.take() {
+                        self.push(&wire::Stop { voice_id: id, frame_offset: at(4), fade_frames: 600, reason: 0, shape: wire::pack_shape(wire::fade_law::EQUAL_POWER_OUT, 0) });
+                    }
+                }
+                if t == 60 {
+                    if let Some(id) = self.mus.tail.take() {
+                        self.push(&wire::Stop { voice_id: id, frame_offset: at(5), fade_frames: MUSIC_XFADE, reason: 0, shape: wire::pack_shape(wire::fade_law::EQUAL_POWER_OUT, 0) });
+                    }
+                }
+            }
+            MusicKind::Worst => {
+                if q == MUSIC_START_Q - 4 && m.streamed {
+                    for _ in 0..MUSIC_RINGS {
+                        let id = self.open_music_ring();
+                        self.mus.next_rings.push(id);
+                    }
+                }
+                if q == MUSIC_START_Q {
+                    // 12 stems and 4 stingers, each its own group: the table's 16 entries. Streamed, the rings take the
+                    // first 8 stems.
+                    for k in 0..16usize {
+                        let ring = (m.streamed && k < MUSIC_RINGS as usize).then(|| self.mus.next_rings[k]);
+                        let id = self.start_music(ring, wire::pack_gate(1 + k as u32, 1), at(k as u64), false);
+                        self.mus.voices.push(id);
+                    }
+                }
+                if q > MUSIC_START_Q {
+                    // Every voice fading all the time: each voice a new 6-quantum fade every 6 quanta.
+                    let down = (q / 6) % 2 == 0;
+                    for k in 0..16usize {
+                        if (q + k as u64) % 6 == 0 {
+                            let id = self.mus.voices[k];
+                            self.fade_music(id, at(k as u64), if down { 0.4 } else { 1.0 }, 6 * QUANTUM as u32, false, !down);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Feeds the music rings: a chunk a quantum while the ring has room (the credit window), except the withheld one.
+    fn feed_music(&mut self) {
+        for k in 0..self.mus.rings.len() {
+            let id = self.mus.rings[k].0;
+            if self.mus.withheld == Some(id) {
+                continue;
+            }
+            let Ok(p) = self.core.streams_mut().chunk_ptr(id, STREAM_CHUNK) else { continue };
+            // SAFETY: room for STREAM_CHUNK stereo f32 frames.
+            unsafe { core::ptr::copy_nonoverlapping(self.stream_data.as_ptr(), p as *mut f32, self.stream_data.len()) };
+            if self.core.streams_mut().commit(id, STREAM_CHUNK, 1, 0) == wire::ERR_OK {
+                self.mus.rings[k].1 += STREAM_CHUNK as u64;
+            }
+        }
+    }
+
     /// Feeds each stream up to about 16,384 frames ahead of the context (main's worker would
     /// keep its ring near full; the copy is audio-thread work, so it is timed).
     fn feed_streams(&mut self, frame: u64) {
@@ -1905,7 +2189,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
         // Main's side (not timed): the frame's batch.
         let msg = if let Some(m) = (!b.setup.is_empty()).then(|| b.setup.remove(0)) {
             Some(m)
-        } else if q % BATCH_EVERY == 0 || scene.per_quantum.is_some() {
+        } else if q % BATCH_EVERY == 0 || scene.per_quantum.is_some() || scene.music.is_some() {
             b.build_batch(q);
             (b.rec_count > 0).then(|| {
                 b.records_sent += b.rec_count as u64;
@@ -1920,6 +2204,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
             assert_eq!(rc, 0, "batch refused");
         }
         b.feed_streams(frame);
+        b.feed_music();
         b.pump_zones();
         if scene.probe_automation {
             let t1 = platform::now_us();
@@ -1939,8 +2224,9 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
             }
             b.read_status();
             let t1 = platform::now_us();
-            status::take(&mut b.core, &mut status_buf, 1);
+            let taken = status::take(&mut b.core, &mut status_buf, 1);
             dt += platform::now_us() - t1;
+            b.mus.status_max = b.mus.status_max.max(taken);
         }
         if recording {
             let c = status::counters(&b.core);
@@ -2027,6 +2313,9 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     r.starts_per_quantum = (b.starts - starts_at_warm) as f64 / n;
     r.demoted = b.core.cap().demoted;
     let music = &status::counters(&b.core).music;
+    (r.groups_held, r.groups_late, r.groups_abandoned, r.group_table_full, r.music_ring_refused, r.music_rings_open) = (music.groups_held, music.groups_late, music.groups_abandoned, music.group_table_full, music.music_ring_refused, music.music_rings_open);
+    r.status_max = b.mus.status_max;
+    r.mixed_last = status::counters(&b.core).mixed_voices;
     (r.split_quanta, r.voice_splits) = (music.split_quanta, music.voice_splits);
     if scene.stamped {
         // M4-0's exit: stamped per-voice records apply inside their voice. A whole-quantum split here is a regression, and
@@ -2126,7 +2415,7 @@ fn num(args: &str, key: &str, default: f64) -> f64 {
 
 fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
     let mut line = format!(
-        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{},\"bedVoices\":{:.1},\"beds\":{:.2},\"workBed\":{:.0},\"transit\":{:.2},\"fxVoices\":{:.1},\"ambisonic\":{:.1},\"zonesActive\":{:.2},\"zonesRinging\":{:.2},\"workZones\":{:.0},\"zoneWetPeak\":{:.4},\"senders\":{:.1},\"aux\":{:.1},\"zoneEvents\":{},\"standbySwaps\":{},\"evictSwaps\":{},\"splitQuanta\":{},\"voiceSplits\":{}}}",
+        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{},\"bedVoices\":{:.1},\"beds\":{:.2},\"workBed\":{:.0},\"transit\":{:.2},\"fxVoices\":{:.1},\"ambisonic\":{:.1},\"zonesActive\":{:.2},\"zonesRinging\":{:.2},\"workZones\":{:.0},\"zoneWetPeak\":{:.4},\"senders\":{:.1},\"aux\":{:.1},\"zoneEvents\":{},\"standbySwaps\":{},\"evictSwaps\":{},\"splitQuanta\":{},\"voiceSplits\":{},\"groupsHeld\":{},\"groupsLate\":{},\"groupsAbandoned\":{},\"groupTableFull\":{},\"musicRingRefused\":{},\"musicRingsOpen\":{},\"statusMax\":{}}}",
         r.quanta,
         r.p50,
         r.p99,
@@ -2168,7 +2457,14 @@ fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
         r.standby_swaps,
         r.evict_swaps,
         r.split_quanta,
-        r.voice_splits
+        r.voice_splits,
+        r.groups_held,
+        r.groups_late,
+        r.groups_abandoned,
+        r.group_table_full,
+        r.music_ring_refused,
+        r.music_rings_open,
+        r.status_max
     );
     if r.automation[3] > 0.0 {
         line.pop();
@@ -2542,5 +2838,34 @@ mod tests {
     fn the_matrix_twin_decodes_without_the_filters() {
         let r = run(&Scene::bed("bed-matrix", 64, 1, false), 0.25, 0.25, 1, false, None);
         assert_eq!((r.mean_bed_voices, r.mean_beds), (64.0, 1.0));
+    }
+
+    /// ADR 0166 M4b (Bench1): each music scene does what its doc says, by the core's own counters: no refusal, no table
+    /// overflow, no late group, no split, and a STATUS that fits its buffer.
+    #[test]
+    fn the_music_scenes_play_their_groups_and_rings() {
+        let hrir = hrir_table(RATE);
+        let long = |name: &str| run(&scene(name).unwrap(), 3.0, 1.0, 1, false, Some(&hrir));
+        let mut results = Vec::new();
+        for name in ["music-typ", "music-typ-streamed", "music-trans", "music-trans-streamed", "music-worst", "music-worst-streamed"] {
+            let r = long(name);
+            assert_eq!((r.group_table_full, r.music_ring_refused, r.groups_late, r.split_quanta), (0, 0, 0, 0), "{name}");
+            assert!(r.status_max > 0 && r.status_max <= audio_core::status::BUFFER_BYTES, "{name}: STATUS {} B", r.status_max);
+            results.push((name, r));
+        }
+        let find = |n: &str| &results.iter().find(|(m, _)| *m == n).unwrap().1;
+        // Streamed scenes hold music rings; decoded ones none.
+        assert_eq!((find("music-typ").music_rings_open, find("music-worst").music_rings_open), (0, 0));
+        assert_eq!((find("music-typ-streamed").music_rings_open, find("music-worst-streamed").music_rings_open), (8, 8));
+        // Transition: one segment's 4 rings stay open (the retired ones are freed as their voices end).
+        assert_eq!(find("music-trans-streamed").music_rings_open, 4);
+        // The held group: a streamed ring runs dry and the group holds; a decoded group missing a member is given up.
+        assert!(find("music-typ-streamed").groups_held >= 1, "held {}", find("music-typ-streamed").groups_held);
+        assert_eq!(find("music-typ-streamed").groups_abandoned, 0);
+        assert!(find("music-typ").groups_abandoned >= 1 && find("music-typ").groups_held == 0);
+        // The twins play no music at all.
+        let twin = long("music-worst-twin");
+        assert_eq!((twin.music_rings_open, twin.groups_held, twin.groups_abandoned), (0, 0, 0));
+        assert!(find("music-worst").mean_mixed - twin.mean_mixed > 15.5, "worst adds its 16 voices to the twin's {}", twin.mean_mixed);
     }
 }
