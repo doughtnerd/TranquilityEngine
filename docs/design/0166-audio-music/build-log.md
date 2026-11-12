@@ -33,6 +33,7 @@ Numbered; superseded entries are marked, not rewritten.
 - **D8 (W2) Older shapeless records read with shape 0.** Z2a found STOP/FADE/SET_PARAMS below 24/28/60 B were refused by the scheduler's first pass; the envelope 1.2 rule (appended words are minor) says they read as shape 0. Z2a fixes it with the generated `MIN_END`. Revert: none wanted.
 - **D10 (W5) The metered baseline was rewritten at the in-voice flip** (`29619224`): `virtual` +11.79% (7,102,981 → 7,940,135 instructions per quantum); every other scene within +1.2%; total +2.29%. Why: the cost is H1's per-voice hook, the feature itself, paid by every voice; CLAUDE.md makes the gate a tripwire, not a limit. F-8 profiles it. Revert: restore `baseline.json` from `7f75fe72` once F-8 brings `virtual` back near its M3 figure.
 - **D11 (W6) The editor tells the runtime about changed assets through `Assets.onChanged`/`Assets.notifyChanged`** (`engine/scene/Assets.ts`, both `@internal`, not exported from `src/engine/index.ts`). The editor project's `writeText`/`writeFile`/`writeBinary` call `notifyChanged` after the content is served. G-2 found no existing editor-to-runtime channel; music hot reload (P8) and `clipRegistry.invalidate` (R4c) subscribe to it. Renames, moves and deletes don't notify yet. Revert: move the hook to an editor-owned service, if a later editor record defines one.
+- **D12 (W6) The metered baseline was rewritten from F-8's merge, and D10's revert is withdrawn.** F-8 found that `7f75fe72`'s baseline was stale: many scenes hadn't been rewritten since M1/M2 (`virtual` 7,102,981 dates from `142a03dc`). The same bench built from M3's source (`1ef1c615`, toolchain 1.99.1) gives `virtual` 7,482,907. So D10's +11.79% was about +5.3% earlier drift plus about +6.1% from H1. After F-8, `virtual` is +1.20% over true M3 (about 11 instructions per virtual voice, all attributed); every other scene is within ±0.15%, and `streams` is −9%. Revert: none wanted.
 
 ## Wave 0 (2026-11-11, base `origin/master` `c3f2e9b`)
 
@@ -350,3 +351,47 @@ Single-writer edits granted by name: `coreBackend.ts` (`clips` passed to `MusicO
 - `selectionBench` failed for G-2 alone and passed for me alone (3 of 3) at a load average of 16: the known flake.
 - Checks: typecheck 0; vitest over `src/plugins/audio`, `src/editor` and `src/engine`: 5,394 pass plus the fixed test.
 
+**F-8 merged** (`m4/f8` `b8980684`, four exact (bit-identical) commits; cargo 858 at each):
+1. The stream voice's ring read specialised by channel count (`streams` −8.87%).
+2. Z5's `render_voices<LIST>` / `render_voice<AUTO, DUE>`, ported onto C2b's walk (`virtual` −4.48%, `high` −1.07%).
+3. **F-10 found and fixed:** `voice_chain` tested `due.at` twice, and the wasm carried constant locals and a branch through every frame of the gain loops (about 780 instructions per mixed voice per quantum). Now one test picks M3's loops or an out-of-line due path (`automation-base` −1.92%, `pitch4` −1.91%, `updates` −1.35%).
+4. `ambisonic_mix` skips `due_gain` with no record.
+
+Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). Left as is, by choice:
+- folding the curves byte into the walk's flag test (about 5 instructions per voice): it would push every voice mid-crossfade off the fast walk;
+- passing `due` outside `VoiceFx` (3 instructions per voice): it changes five signatures for about 0.3%.
+
+**Mixer 300,144 → 312,626 B** (305.3 KB): past the design's 300 KB warning, under the 320 KB tripwire; logged, not traded. F-8 measured a single-copy alternative at −3,637 B and +0.37% on `streams`, and kept the speed per CLAUDE.md. Coordinator checks: core, wasm and music vitest 114 files, 1,144 tests.
+
+**C2c + C2d merged** (`m4/c2cd` `59bbb741`), with C2c's `voices.rs` patch applied by the coordinator after F-8:
+- **`group_hold.rs`:**
+  - A look-ahead before the voice loop (`begin_started`) catches a stream member holding less than the fade plus one quantum. Then every member fades out together from that quantum's first sample: streams by the ring's gain, decoded members by their mix ramp (`voices.rs` `hold_fade`). A member's own starve check fires mid-walk, too late for the others to join its fade.
+  - The entry stays STARTED with `FLAG_FADING` while the fade runs, then turns HELD.
+  - Resume needs every ring to hold 4,096 frames past its pinned position (`member_ready`). All members restart together with a 5 ms fade-in.
+  - `on_starve` is the idempotent fallback. The give-up is C2b's.
+- **`group_rebase.rs`:** moves members' parked and pending records at or after the start through `due::rebase`.
+- **`groups.rs` edits:** the STARTED look-ahead arm, `member_ready` in `held()`, and `resume_members` on resume.
+- **Deviations:**
+  - The hold's fade is 5 ms rounded up to whole quanta (256 frames at 44.1 and 48 kHz), so every member stops on one frame. The fade-in is a true 5 ms.
+  - In the look-ahead path the starving member shows in `groupsHeld`, not in `starved`.
+  - Virtual stream members are looked ahead too.
+- **Tests** (`tests/group_rig/mod.rs`, distinct sines per member):
+  - `group_hold.rs`, 8 tests: one dry ring dips the whole group and it resumes aligned, null (max difference 0.0) against the reference delayed by the slip; decoded and streamed members together; refilled mid-fade; abandon; an ungated voice starving alone.
+  - `group_rebase.rs`, 4 tests: a late group's parked and pending FADEs land at start + offset, null.
+  - Each acceptance test fails when the code is broken on purpose (no fade rounding, the wrong resume test, a no-op rebase).
+- **Coordinator checks:** cargo `--no-fail-fast` 870 pass; core, wasm, music and events vitest 133 files, 1,317 tests; typecheck 0; metered pass (`stamped-music` +0.14%), baseline rewritten.
+- **Mixer 312,626 → 317,891 B (310.4 KB):** 9.6 KB under the 320 KB tripwire, logged. The next growth that crosses it raises the gate with a reason, per CLAUDE.md. A real store cap isn't at stake.
+- **For C3:** `group_rig` has `hold_run`, `check_null` and `group`. A hold shows as `groupStarts` with `GROUP_START_HELD` (start = the resume, slip = the time held) and in `groupsHeld`. A record stamped in the hold's 256-frame fade-out isn't rebased.
+
+
+**C3 merged** (`m4/c3` `1467fd3c`, new files only):
+- **`tests/alignment_harness.rs`:** the spike's 1,408 cases (stamp offset 0–127 × 11 arrival quanta), ported to gated groups. Each case adds a group size of 1–8, a decoded/streamed mix and a rate (44.1, 48 or 96 kHz). One frame per group; the output nulls to 1e-6; the start event carries the right slip. 3–13 s, so it runs every time.
+- **`gate_mixed.rs`** (5): includes ring wraps, an ended short stream and overlapping groups.
+- **`gate_late.rs`** (5): slips up to 0.5 s; a late group beside an on-time one.
+- **`gate_held.rs`** (3 tests, 96 grid cases): the dip on a quantum's sample 0; one gain through the fade-out and the 5 ms fade-in, decoded members included; members pinned on one frame; resume nulls; one held event with slip = the time held; records in the fade-out keep their frame, later ones land at resume + offset.
+- **`gate_rebased.rs`** (4): 54 grid cases. Shaped fades and a STOP in a late group match the on-time render to 1.2e-5 (control-rate knots move with the quantum grid; bound 1e-4).
+- **Goldens:** `gate-mixed`, `gate-late`, `gate-held`, `gate-rebased` (`golden/audioGoldenGate.test.ts`, native = wasm on the digest and the group-start events).
+- **Bug found:** decoded members of a held group were cut instead of faded. Fixed by C2c's `voices.rs` patch before the merge, and now in the grid.
+- **Coordinator:** `audioGolden.test.ts`' file check skips `gate-*.json`, as it does `m4-*.json`. Checks: cargo `--no-fail-fast` 889 pass; golden and wasm vitest 65 pass; typecheck 0.
+
+**M4a's exit check, core half, met:** C3's nulls after a late start and the held-group null. E1's 10-minute playlist remains.
