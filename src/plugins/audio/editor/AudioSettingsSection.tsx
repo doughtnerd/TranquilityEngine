@@ -487,7 +487,7 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
           Music rings
           <Num label="Music rings" value={a.music.rings} step={1} min={MUSIC_RINGS_LIMITS[0]} max={MUSIC_RINGS_LIMITS[1]} onCommit={(n) => set("Set music rings", setMusicRings(draft, n))} />
         </label>
-        <label class="audio-bus-check" title="Creates the audio context with the lowest latency the device allows and reads its latency back, for rhythm games. It costs battery and may crackle on slow devices. Applies when the core next starts.">
+        <label class="audio-bus-check" title="Creates the audio context with the lowest latency the device allows and reads its latency back, for rhythm games. It costs battery and may crackle on slow devices. Applies at the next Play, which rebuilds the audio context.">
           <input type="checkbox" aria-label="Rhythm mode" checked={a.rhythmMode} onChange={(e) => set(`${a.rhythmMode ? "Disable" : "Enable"} rhythm mode`, setRhythmMode(draft, (e.currentTarget as HTMLInputElement).checked))} />
           Rhythm mode
         </label>
