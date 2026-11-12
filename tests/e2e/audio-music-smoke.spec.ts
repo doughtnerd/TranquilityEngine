@@ -1,10 +1,10 @@
 import { expect, type Page, play, test } from "./fixtures";
 
 // M4 smoke (ADR 0166/0167, plan task S0): the milestone's path in the real app, through the Sound Lab sample. One playing
-// voice gets a fade (a stamped FADE record) and a spatial one-shot with sends and non-default effects is played at a future
-// audio-clock time (a stamped PLAY, with its SET_VOICE_FX at the same frame, coreBackend.ts "its SET_VOICE_FX at the same
-// frame"). Both split the quantum today. The spec asserts the sound path worked as far as `Audio.debug()` shows, and records
-// `splitQuanta` as an annotation. Later waves grow this file by one case each.
+// voice gets a stamped, shaped fade (`AudioVoice.fadeShaped` with `at`: a FADE with a frame offset) and a spatial one-shot
+// with sends and non-default effects is played at a future audio-clock time (a stamped PLAY, with its SET_VOICE_FX at the
+// same frame, coreBackend.ts "its SET_VOICE_FX at the same frame"). Since the in-voice flip (Z3) both apply inside their
+// voices, so `splitQuanta` reads 0 (M4-0's exit check). Later waves grow this file by one case each.
 const LAB = "/editor.html?sample=sound-lab";
 
 test.describe.configure({ timeout: 120_000 });
@@ -39,7 +39,19 @@ const peakOver = (page: Page, bus: string, ms = 300) =>
   );
 
 /** `splitQuanta` where the debug output reports it (M4's totals, else the core group), or null while it is not reported. */
-const readSplitQuanta = (d: Debug): number | null => d.musicTotals?.splitQuanta ?? (typeof d.core.splitQuanta === "number" ? d.core.splitQuanta : null);
+const reportedSplitQuanta = (d: Debug): number | null => d.musicTotals?.splitQuanta ?? (typeof d.core.splitQuanta === "number" ? d.core.splitQuanta : null);
+
+/**
+ * The core's `splitQuanta`: `Audio.debug()`'s field once P10 reports it, else the STATUS mirror `Audio.debug()` itself reads
+ * (`CoreBackend.mirror`, reached through the faded voice's backend, `__smokeBackend`; TypeScript-private, a plain property
+ * at run time). Null only when neither exists.
+ */
+const readSplitQuanta = async (page: Page, d: Debug): Promise<number | null> =>
+  reportedSplitQuanta(d) ??
+  (await page.evaluate(() => {
+    const backend = (globalThis as unknown as { __smokeBackend?: { mirror?: { splitQuanta?: number } } }).__smokeBackend;
+    return typeof backend?.mirror?.splitQuanta === "number" ? backend.mirror.splitQuanta : null;
+  }));
 
 test("M4 smoke: a stamped fade and a stamped spatial play with sends in the Sound Lab", async ({ page }, info) => {
   const errors: string[] = [];
@@ -56,7 +68,7 @@ test("M4 smoke: a stamped fade and a stamped spatial play with sends in the Soun
   expect((await audioDebug(page))!.core.backend).toBe("core");
   await expect.poll(async () => (await voice(page, "music-loop"))?.state, { timeout: 30_000 }).toBe("playing");
   const base = (await audioDebug(page))!;
-  const splitBefore = readSplitQuanta(base);
+  const splitBefore = reportedSplitQuanta(base);
 
   await test.step("a fade on one playing voice takes effect", async () => {
     // A sustained looping event, so the voice is still there when the fade has run; a fade on its handle is a stamped FADE.
@@ -69,7 +81,25 @@ test("M4 smoke: a stamped fade and a stamped spatial play with sends in the Soun
     // The voice row's gain is main's own; the core applies the fade, so the Engine bus meter is what shows it.
     await expect.poll(() => peakOver(page, "Engine"), { timeout: 15_000, message: "the voice is audible on its bus" }).toBeGreaterThan(0.01);
     const before = await peakOver(page, "Engine");
-    await page.evaluate(() => (globalThis as unknown as { __smokeFade: { fade(to: number, s: number): void } }).__smokeFade.fade(0, 0.3));
+    // Stamped (Z3): `AudioVoice.fadeShaped` with `at` ahead of the audio clock writes a FADE with a frame offset, which
+    // the in-voice flip applies inside the voice. No public call stamps a fade yet, so the spec reaches the event
+    // instance's voices (`EventHandle.instance`, `EventInstance.voices`, both TypeScript-private, plain properties at run time).
+    const stamped = await page.evaluate(() => {
+      type ShapedVoice = { fadeShaped?(f: { to: number; seconds: number; law: string; at?: number }): void; backend?: unknown };
+      const { Audio } = (globalThis as unknown as { __myco: Api }).__myco;
+      const h = (globalThis as unknown as { __smokeFade: { instance?: { voices?: { voice: ShapedVoice }[] } } }).__smokeFade;
+      const voices = h.instance?.voices ?? [];
+      const at = Audio.time + 0.2;
+      let n = 0;
+      for (const { voice } of voices) {
+        if (!voice.fadeShaped) continue;
+        voice.fadeShaped({ to: 0, seconds: 0.3, law: "linear", at });
+        (globalThis as unknown as { __smokeBackend?: unknown }).__smokeBackend ??= voice.backend;
+        n++;
+      }
+      return n;
+    });
+    expect(stamped, "the core voice takes a stamped, shaped fade").toBeGreaterThan(0);
     await expect.poll(() => peakOver(page, "Engine"), { timeout: 15_000, message: "the fade silences the bus" }).toBeLessThan(before * 0.1);
     expect(["playing", "virtual"], "a silent voice stays listed, virtualized by selection").toContain((await voice(page, "engine-single"))?.state);
     // The other voice is unaffected by it.
@@ -89,13 +119,13 @@ test("M4 smoke: a stamped fade and a stamped spatial play with sends in the Soun
     expect(v.filter?.highpassHz ?? 0, "high-pass reaches the voice row").toBeGreaterThan(20);
   });
 
-  await test.step("splitQuanta is recorded", async () => {
+  await test.step("splitQuanta reads 0 (M4-0's exit check)", async () => {
     const after = (await audioDebug(page))!;
-    const split = readSplitQuanta(after);
-    info.annotations.push({ type: "splitQuanta", description: split === null ? "not reported yet" : `${split} (before the plays: ${splitBefore})` });
-    // TODO(Z3, in-voice flip): the stamped records apply inside their voices, so replace this with
-    // `expect(split).toBe(0)` (and fail on null). Until the counter exists, nothing is asserted about it.
-    if (split !== null) expect(split).toBeGreaterThanOrEqual(0);
+    const split = await readSplitQuanta(page, after);
+    info.annotations.push({ type: "splitQuanta", description: `${split} (before the plays: ${splitBefore})` });
+    // The in-voice flip (Z2a-Z2c): the stamped fade and the stamped play with sends apply inside their voices.
+    expect(split, "Audio.debug() reports splitQuanta (musicTotals, else the core group)").not.toBeNull();
+    expect(split).toBe(0);
     expect(errors).toEqual([]);
     expect(after.status).toBe("running");
   });
