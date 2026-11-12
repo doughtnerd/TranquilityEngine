@@ -59,10 +59,10 @@ test("the Asset Inspector edits an image's import settings and applies them to i
 
   // Audio has its own settings.
   await panel(page).locator(".asset-folder", { hasText: /^music$/ }).click();
-  await tile(page, "town.mp3").click();
+  await tile(page, "foo.mp3").click(); // town.mp3 ships streamed (its sidecar sets stream)
   await inspector(page).getByLabel("Stream").check();
   await inspector(page).getByRole("button", { name: "Apply" }).click();
-  await expect.poll(() => sidecar(page, "music/town.mp3.meta.json")).toEqual({ format: "myco.import@1", stream: true });
+  await expect.poll(() => sidecar(page, "music/foo.mp3.meta.json")).toEqual({ format: "myco.import@1", stream: true });
 });
 
 test("the sidecar's pixels per unit sizes sprites in the scene", async ({ page }) => {

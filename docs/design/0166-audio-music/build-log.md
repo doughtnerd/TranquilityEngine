@@ -229,5 +229,6 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
   - `zoneIr` is the known flake under load; it passes alone;
   - `plugins.test.ts`'s import-direction check is a real failure: P10's `runtime/core/debug.music.test.ts` imported `editor/audioDebugRows`. **Coordinator fix** `2c26c6a4`: the test moved to `editor/audioDebugMusic.test.ts`; 17 of 17 pass.
 - `check:audio-metered` passes after D10.
-- `npm run build` and `test:e2e` (Chromium) are running.
+- `npm run build` passes;
+- `test:e2e` (Chromium): 214 passed, 4 skipped, 1 failed. `spriteeditor.spec.ts:36` is a real failure from SM1: flappy's `town.mp3` now ships a sidecar with `stream: true`, so checking Stream changed nothing and Apply stayed disabled. **Coordinator fix:** the step uses `foo.mp3`, which has no sidecar; the spec passes 5 of 5.
 
