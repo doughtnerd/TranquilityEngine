@@ -102,6 +102,8 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 - **F-1 (from Q1, pre-existing, M3):** at a 192 kHz context the default and larger presets exceed the shell's 16 MiB fixed-region headroom (`M2_REGIONS_HEADROOM_BYTES` in `worklet/coreDriver.ts`) once the HRIR is counted, before M4. Fix by raising the headroom (a tripwire move with its measured reason) or sizing the reverb region per rate. Owner of `coreDriver.ts` after W1: the coordinator.
 - **F-8 (coordinator, at the flip):** the in-voice hook (H1) costs about 104 instructions per virtual voice per quantum (the due bit, the curves byte, the start shift, the wider `VoiceFx`, two `advance_due` calls instead of plain advances). The metered `virtual` scene (8,064 virtual voices) rose +11.79%. **Z5** profiles it while adding its scenes. Candidates: a `const DUE: bool` specialisation of `render_voice`, so a voice off the due list takes the M3 path, and skipping the shift when `due` is `NONE`. Not traded for accuracy.
 - **F-9 (from SM1):** quantised event automation on a music segment's stems has no audible effect on core. The stamped `paramsShaped` ramp and the level sent at bind leave the Music bus peak unchanged (≈ 0.24); it works on Babylon. Continuous automation works on core. SM1 kept the sound-lab sample unquantised. **F-9 task** (strongest) is finding the root cause, with `voices.rs`/`groups.rs`/`status.rs` off limits while C2b holds them; it restores `quantize` in the sample once fixed.
+- **F-9b (from F-9):** the main side doesn't know a quantised stem's level. Audibility ignores the stamped in-voice ramp, so a stem at 0 stays mixed. Any dry-gain write to a stem (promote SET_MIXED, `_setVolume`, occlusion) resets the core's gain ramp to the plain dry gain, which is latent today. **F-9b task** (strongest): a per-voice stem level in the voice table, read by selection and every dry-gain write; it then restores `quantize` in the sound-lab sample.
+- **F-10 (from Z5):** mixed-voice scenes rose about 1,000–2,300 instructions per mixed voice per quantum between M3 and now: `updates` +595k, `automation-base` +585k, `pitch4` +297k, `bed-256` +247k, each 1–4% of its scene. It's taken with F-8 in the **F-8 task** (strongest), which ports Z5's tested `const LIST`/`const DUE` patch onto C2b's `voices.rs` (`virtual` −331k measured before C2b) and profiles F-10.
 
 **Started (rolling, D5), base `92969c11`:** Z2a (strongest) on the flip branch `m4/in-voice`, cut locally at `92969c11` after Q1 and the wire's merge 1 (the flip branch stays local: this session pushes only the integration branch); F2, Ed2, Ed9 and R4c (mid; each depends only on merged tasks and touches no running task's files). Waiting for the wire's merge 2: Z4, C1, D1a, then Q2's merge.
 
@@ -231,4 +233,36 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 - `check:audio-metered` passes after D10.
 - `npm run build` passes;
 - `test:e2e` (Chromium): 214 passed, 4 skipped, 1 failed. `spriteeditor.spec.ts:36` is a real failure from SM1: flappy's `town.mp3` now ships a sidecar with `stream: true`, so checking Stream changed nothing and Apply stayed disabled. **Coordinator fix:** the step uses `foo.mp3`, which has no sidecar; the spec passes 5 of 5.
+
+**Z5 merged** (`m4/z5` `c1d67d7e`):
+- **Four stamped metered scenes against twins** that send the same records asap. Each stamped scene traps unless `splitQuanta == 0`, and the gate (`STAMPED_TWINS`) fails past +60k. Results:
+  - `stamped-g` +6,375;
+  - `stamped-spatial` −19,371 (`voiceSplits` 1,066: its lowpass ramp is class S);
+  - `stamped-loop` +4,541;
+  - `stamped-music` +474.
+- **M4-0's 256-voice exit case:** `audio-core/tests/in_voice_isolation.rs`. A stamped FADE on voice 131 of 256: the other 255 slots match the twin byte for byte in every quantum; output matches the twin before the stamp and the 255-voice mixer after the fade settles; both counters stay 0.
+- **Listening section M4-0:** `tests/e2e/audio-music-listening.spec.ts`, `@slow`, `E2E_LISTEN=1` for the owner; passes headless. The text is in `listening-pass.md` at the milestone merge. Limit: the law check reads the page's own `fadeShaped` log; core proof is the goldens and the bench.
+- **F-8 profile** (see F-8, F-10).
+- **Coordinator:** baselines written for the 8 new scenes; the 21 old scenes are bit-identical (`de190ecf`).
+
+**C2b merged** (`m4/c2b` `39a0c133`): the group gate in the render loop.
+- A gated PLAY joins its group and holds SCHEDULED. `groups::begin_quantum` starts every member on one frame, at the stamp or at the first quantum where all are ready, and binds the streamed members' rings then.
+- Give-up after 1 s; member STOP, steal or end shrinks the group; RESET clears the table (**one line in `scheduler.rs`, granted after the fact**).
+- Held members' stamped records stay parked and apply before the first sample.
+- `groupStarts` is written, with carry-over past 8 events; the worst-case STATUS asserts are back to the full 16,192 B.
+- Counters `groupsLate`, `maxSlipFrames`, `groupsAbandoned`, `streamStartsLate`.
+- Hooks H2 are wired as no-ops: `group_rebase::apply` on start and resume, `group_hold::on_starve` per starving member ring, `must_hold`.
+- **Deviations:**
+  - the gate test shares the walk's due-bit test, so ungated voices pay nothing;
+  - a member keeps its group index after it starts (gated means held);
+  - the starve hook runs at quantum end and must be idempotent, which keeps `virtual` at +0.01%.
+- **Main side unchanged:** group starts now reach `routeGroupEvent`, so runs turn "playing".
+- **Coordinator rebuild** (`93c703e6`): **mixer 290,597 → 300,144 B** (C2a's table is now live). That's past the design's 300 KB warning but under the 320 KB tripwire; logged, not traded. Metered all +0.00%. cargo `--no-fail-fast` 858 pass; `zones_prepare` failed once under load and passed alone twice. Audio vitest 203 files, 2,489 tests pass; typecheck 0.
+- **For C2c:** members of a hold get the gated flag in the next quantum, then `must_hold` silences them with the position pinned; a joint 5 ms fade-out needs a `voices.rs` edit. **For C2d:** `apply` gets the stamp, or `frame − slip` on a resume. **For C3:** `group_start.rs` is the rig.
+
+**F-9 merged** (`m4/f9` `5230923f`):
+- **Finding:** quantised stem automation is audible on core. The Music bus peak at Intensity 0 versus 1 is about 0.13–0.22 versus 0.56; the ≈ 0.24 SM1 saw was the pad's own peak. What fails is main's audibility (F-9b).
+- **Real bug fixed:** stem automation went out one frame late. `tickMusicAutomation` ran in `EventSystem.update`, after the frame's commit, so a bind-time level sent asap reached the core before the stamped PLAYs and was dropped, and pulse and lead sounded at full for up to a frame.
+  - Now `tickStems` calls it in the music plan step, and the bind-time level is stamped at `run.startAt`.
+  - `musicQuantizedLoopback.test.ts` drives the sound-lab event with `quantize` through the whole runtime on the core and checks every level change lands on its beat. It fails before the fix.
 
