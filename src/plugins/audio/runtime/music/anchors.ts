@@ -15,8 +15,10 @@
  * (the stems' clip facts, else 48 kHz as `stems.ts`): independent of the context's rate. Regions play in file order:
  * the playhead enters a region at its `from` (pass 1), wraps back to `from` at its `to` until it has played `count`
  * passes (0: forever; 1: no wrap, `musicValidate`'s `isLooping`), then plays on. A `while` region is capped by its
- * `count` and stops wrapping once R4b marks it released (`RegionState.released`); `predictWrap` honours that for wraps
- * after `now`, `ticksAt` (which sees only the anchor) doesn't. Regions at or past the exit cue are never reached.
+ * `count` and stops wrapping once R4b marks it released (`RegionState.released`): with the release's last pass
+ * (`RegionState.lastPass`, what `tickRegions` sets) the wraps after that pass never happen, before or after `now`, in
+ * every query (`ticksAt` finds the release through `bindRelease`); without one (a bare `released`) only the wraps
+ * after `now` are dropped. Regions at or past the exit cue are never reached.
  *
  * **Re-anchoring.** Nothing here needs it (every query unrolls the passes from the anchor), but readers that apply
  * heard(t) = t0 + file(t) - file(p0) linearly (the planner's `defaultPoint`, R1's `PlayingGrid`, R6's `nextGridHeard`)
@@ -28,6 +30,7 @@ import {
   compileSegmentGrid, positionTextToTicks, secondsToTicks, ticksToSeconds, type SegmentGrid,
 } from "../../../../engine/audio/musicGrid";
 import type { MusicNodeRef, MusicPlayer } from "./musicSystem";
+import type { RegionState } from "./regions";
 import { segmentClipSource, type SegmentRun } from "./segmentRun";
 import { heardTimeAt, type PlayingGrid } from "./transitionRules";
 
@@ -99,11 +102,22 @@ function factsOf(node: MusicNodeRef): { frames: number; rate: number } | { secon
 const endSecondsOf = (f: { frames: number; rate: number } | { seconds: number }): number =>
   "seconds" in f ? f.seconds : f.frames / f.rate;
 
-/** The segment's grid and loop regions, cached per node object (recompiled once when the clip's facts arrive). */
-function compile(node: MusicNodeRef, rate?: number): Compiled | null {
+/**
+ * F-23: where `compile(…, openEnd)` puts an `"end"` bound while the file's length is unknown: far past any real file
+ * (about 116 days), so a region to the file's end is still a region and its first wrap is still ahead.
+ */
+const OPEN_END_SECONDS = 1e7;
+
+/**
+ * The segment's grid and loop regions, cached per node object (recompiled once when the clip's facts arrive). F-23:
+ * with `openEnd` and no facts yet, an `"end"` bound is `OPEN_END_SECONDS` instead of dropping its region, and the
+ * result isn't cached (only `firstLoopOf` asks: which region wraps first doesn't depend on where the file ends).
+ */
+function compile(node: MusicNodeRef, rate?: number, openEnd = false): Compiled | null {
   const cached = compiled.get(node);
   const facts = factsOf(node);
-  if (cached && (cached.endKnown || !facts) && (rate === undefined || cached.rate === rate)) return cached;
+  const provisional = openEnd && !facts;
+  if (!provisional && cached && (cached.endKnown || !facts) && (rate === undefined || cached.rate === rate)) return cached;
   const seg = node as Partial<SegmentNode>;
   if (node.type !== "segment" || !Array.isArray(seg.tempo)) return null;
   const r = rate ?? (facts && "rate" in facts ? facts.rate : FALLBACK_RATE);
@@ -115,7 +129,7 @@ function compile(node: MusicNodeRef, rate?: number): Compiled | null {
   const frameOf = (text: string): number => {
     if (text === "start") return 0;
     if (text === "end") {
-      if (!facts) return Number.NaN;
+      if (!facts) return provisional ? Math.round(OPEN_END_SECONDS * r) : Number.NaN;
       return "rate" in facts ? Math.round(facts.frames * (r / facts.rate)) : endSeconds * r;
     }
     const t = positionTextToTicks(grid, text);
@@ -129,11 +143,35 @@ function compile(node: MusicNodeRef, rate?: number): Compiled | null {
   });
   regions.sort((x, y) => x.from - y.from);
   const c: Compiled = { grid, regions, exit, rate: r, endKnown: facts !== undefined };
-  compiled.set(node, c);
+  if (!provisional) compiled.set(node, c);
   return c;
 }
 
 const compiledOf = (a: GridAnchor): Compiled | null => compile(a.node, a.rate);
+
+// --- R4b's release ------------------------------------------------------------------------------------------------------
+
+/** The release `advance` honours: a `regions` index of the node (-1 none) and its last pass (NaN: only wraps after the limit drop). */
+let relRegion = -1;
+let relPass = Number.NaN;
+
+/** Sets `relRegion`/`relPass` from a region state (none when it isn't released). */
+function readRelease(rs: RegionState | null | undefined): void {
+  relRegion = rs && rs.released ? rs.region : -1;
+  relPass = rs && rs.released ? rs.lastPass : Number.NaN;
+}
+
+/** The region state whose release an anchor plays under (`ticksAt`, which sees only the anchor). */
+const anchorRegions = new WeakMap<GridAnchor, RegionState>();
+
+/**
+ * R4b: `ticksAt(anchor, …)` honours `regions`' release from now on (the release is read when asked, so clearing
+ * `regions.released` ends it). `null` unbinds.
+ */
+export function bindRelease(anchor: GridAnchor, regions: RegionState | null): void {
+  if (regions) anchorRegions.set(anchor, regions);
+  else anchorRegions.delete(anchor);
+}
 
 /** A member's loop region in file frames of its clip's own rate (`MusicGroupMember.loopStartFrame`/`loopEndFrame`). */
 export interface MemberLoop {
@@ -167,6 +205,85 @@ export function simpleLoopOf(node: MusicNodeRef, rate: number): MemberLoop | nul
   const start = frameOf(reg.from), end = frameOf(reg.to);
   if (!Number.isFinite(start) || !Number.isFinite(end) || (end !== 0 && end <= start) || start < 0) return null;
   return { startFrame: start, endFrame: end, wholeFile: start === 0 && end === 0 };
+}
+
+/**
+ * R4a: a region of the node (`index` in its `regions`) in file frames of `rate`, rounded as `simpleLoopOf` rounds them
+ * (`"start"` 0, `"end"` 0 = the file's end); null when a bound isn't a position or the region is empty.
+ */
+export function regionFramesOf(node: MusicNodeRef, index: number, rate: number): MemberLoop | null {
+  const reg = (node as Partial<SegmentNode>).regions?.[index];
+  const c = reg ? compile(node) : null;
+  if (!reg || !c || !(rate > 0)) return null;
+  const frameOf = (text: string): number => {
+    if (text === "start" || text === "end") return 0;
+    const t = positionTextToTicks(c.grid, text);
+    return t === null ? Number.NaN : Math.round(ticksToSeconds(c.grid, t) * rate);
+  };
+  const start = frameOf(reg.from), end = frameOf(reg.to);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || (end !== 0 && end <= start) || start < 0) return null;
+  return { startFrame: start, endFrame: end, wholeFile: start === 0 && end === 0 };
+}
+
+/**
+ * R4a: the loop the members of a run starting at file frame `startFrame` (frames of `rate`) run first: the region of
+ * the first wrap ahead (a region they start in or reach later that has a wrap to come: `count` 0 or >= 2; a `while`
+ * region loops by its `count` until R4b releases it). Null when no wrap is ahead. Later regions are set as the walk
+ * reaches them (`loopTail.ts`).
+ */
+export function firstLoopOf(node: MusicNodeRef, rate: number, startFrame: number): (MemberLoop & { region: number }) | null {
+  // F-23: a run is admitted (and its PLAYs' loops decided) before its decoded clips are, so the file's length may be
+  // unknown here: a region to `"end"` must still loop its members (`regionFramesOf` gives the end as 0, the file's end).
+  const c = compile(node, undefined, true);
+  if (!c || c.regions.length === 0 || !(rate > 0)) return null;
+  const s = Math.max(0, startFrame) / rate;
+  const r = regionAt(c, s);
+  const cur: Cursor = { s, h: 0, region: r ? c.regions.indexOf(r) : -1, passes: 1, wrapped: false, wrapH: Number.NaN, wrapS: Number.NaN, wrapPass: 1 };
+  const w = advance(cur, c, Number.NEGATIVE_INFINITY, -1);
+  if (!Number.isFinite(w) || cur.region < 0) return null;
+  const index = c.regions[cur.region]!.index;
+  const frames = regionFramesOf(node, index, rate);
+  return frames ? { ...frames, region: index } : null;
+}
+
+/** R4a: `nextWrapOf`'s answer (one reused object). */
+export interface NextWrap {
+  /** Heard time (seconds) of the next wrap after `now`; NaN: none. */
+  at: number;
+  /** The wrapping region's index in the node's `regions`; -1: none. */
+  region: number;
+  /** The pass that wrap ends (1 for the region's first). */
+  pass: number;
+  /** The anchored segment node. */
+  node: MusicNodeRef | null;
+}
+
+const nextWrapScratch: NextWrap = { at: Number.NaN, region: -1, pass: 0, node: null };
+
+/**
+ * R4a: `predictWrap` with the region it wraps: the heard time of the playing run's next wrap after `now`, the region
+ * (index in the node's `regions`) and the pass it ends. Honours R4b's `released`. Returns one reused object.
+ */
+export function nextWrapOf(player: MusicPlayer, now: number): NextWrap {
+  const out = nextWrapScratch;
+  out.at = Number.NaN;
+  out.region = -1;
+  out.pass = 0;
+  out.node = null;
+  const a = anchorOfPlaying(player);
+  if (!a || !Number.isFinite(now)) return out;
+  const c = compiledOf(a);
+  if (!c || c.regions.length === 0) return out;
+  readRelease(player.regions);
+  const cur = cursorOf(a, c);
+  const at = advance(cur, c, Math.max(now, a.time - EPS), relRegion, relPass);
+  if (!Number.isFinite(at) || cur.region < 0) return out;
+  out.at = at;
+  out.region = c.regions[cur.region]!.index;
+  // `advance` returns either a region's first wrap (the cursor's pass) or the wrap after its last taken one.
+  out.pass = cur.passes;
+  out.node = a.node;
+  return out;
 }
 
 /** The clip rate of a run: its first stem's facts, else 48 kHz. */
@@ -230,13 +347,14 @@ export function heardTimeAtPass(anchor: GridAnchor, ticks: number, pass: number)
 /**
  * P3: the position (ticks, fractional) heard at `time` (seconds) on the anchor's segment, NaN when unknown. Loop passes
  * after the anchor are unrolled (a time three passes on reads the region's position, not past its end); before the
- * anchor it extrapolates linearly. A released `while` region isn't known here (re-anchor after the release).
+ * anchor it extrapolates linearly. A released `while` region is known through `bindRelease` (R4b binds the player's anchor).
  */
 export function ticksAt(anchor: GridAnchor, time: number): number {
   const c = compiledOf(anchor);
   if (!c || !Number.isFinite(time) || !Number.isFinite(anchor.time)) return Number.NaN;
   const cur = cursorOf(anchor, c);
-  if (time > anchor.time) advance(cur, c, time, -1);
+  readRelease(anchorRegions.get(anchor));
+  if (time > anchor.time) advance(cur, c, time, relRegion, relPass);
   return secondsToTicks(c.grid, cur.s + (time - cur.h));
 }
 
@@ -250,10 +368,9 @@ export function predictWrap(player: MusicPlayer, now: number): number {
   if (!a || !Number.isFinite(now)) return Number.NaN;
   const c = compiledOf(a);
   if (!c || c.regions.length === 0) return Number.NaN;
-  const rs = player.regions;
-  const released = rs && rs.released ? rs.region : -1;
+  readRelease(player.regions);
   const cur = cursorOf(a, c);
-  return advance(cur, c, Math.max(now, a.time - EPS), released);
+  return advance(cur, c, Math.max(now, a.time - EPS), relRegion, relPass);
 }
 
 /**
@@ -267,7 +384,8 @@ export function advanceAnchor(player: MusicPlayer, now: number): boolean {
   const c = compiledOf(a);
   if (!c || c.regions.length === 0) return false;
   const cur = cursorOf(a, c);
-  advance(cur, c, now, -1);
+  readRelease(player.regions);
+  advance(cur, c, now, relRegion, relPass);
   if (!cur.wrapped) return false;
   const exact = secondsToTicks(c.grid, cur.wrapS);
   const near = Math.round(exact);
@@ -275,6 +393,28 @@ export function advanceAnchor(player: MusicPlayer, now: number): boolean {
   a.ticks = ticks;
   a.time = cur.wrapH + (ticksToSeconds(c.grid, ticks) - cur.wrapS);
   a.pass = cur.wrapPass;
+  return true;
+}
+
+/**
+ * R4b: once a released region's last pass has been heard, move the player's anchor to that region's end (the first
+ * integer tick at or after its `to`, at the heard time it plays, pass 1), so nothing needs the release after that.
+ * `region` is an index in the node's `regions`, `releaseAt` the heard time of the region's end. False when the anchor
+ * isn't on a segment with that region, or that time isn't reached by `now` yet.
+ */
+export function anchorPastRegion(player: MusicPlayer, region: number, releaseAt: number, now: number): boolean {
+  const a = player.anchor;
+  const c = a ? compiledOf(a) : null;
+  const r = c?.regions.find((x) => x.index === region);
+  if (!a || !c || !r || !Number.isFinite(releaseAt)) return false;
+  const exact = secondsToTicks(c.grid, r.to);
+  const near = Math.round(exact);
+  const ticks = Math.abs(exact - near) < 1e-6 ? near : Math.ceil(exact);
+  const time = releaseAt + (ticksToSeconds(c.grid, ticks) - r.to);
+  if (!(now >= time)) return false;
+  a.ticks = ticks;
+  a.time = time;
+  a.pass = 1;
   return true;
 }
 
@@ -377,10 +517,11 @@ function cursorOf(a: GridAnchor, c: Compiled): Cursor {
 
 /**
  * Takes every wrap heard at or before `limit` (moving the cursor to the last one) and returns the heard time of the
- * first wrap after `limit`, NaN when none. Wraps of region `released` (a `regions` index of the node) after `limit`
+ * first wrap after `limit`, NaN when none. Region `released` (a `regions` index of the node) wraps for the last time at
+ * the end of pass `lastPass - 1` (R4b: pass `lastPass` plays through); with `lastPass` NaN its wraps after `limit`
  * don't happen.
  */
-function advance(cur: Cursor, c: Compiled, limit: number, released: number): number {
+function advance(cur: Cursor, c: Compiled, limit: number, released: number, lastPass = Number.NaN): number {
   const regions = c.regions;
   for (let guard = 0; guard < 4 * regions.length + 4; guard++) {
     // The region the playhead is in, or the next one it enters.
@@ -403,11 +544,15 @@ function advance(cur: Cursor, c: Compiled, limit: number, released: number): num
       cur.passes = 1;
     }
     const len = r.to - r.from;
-    const left = r.count === 0 ? Number.POSITIVE_INFINITY : r.count - cur.passes; // wraps still to come
+    let left = r.count === 0 ? Number.POSITIVE_INFINITY : r.count - cur.passes; // wraps still to come
+    const isReleased = r.index === released;
+    const byPass = isReleased && lastPass === lastPass;
+    if (byPass) left = Math.min(left, Math.max(0, lastPass - cur.passes));
+    const dropsLater = isReleased && !byPass; // a bare `released`: the wraps after `limit` don't happen
     const first = cur.h + (r.to - cur.s);
     if (left > 0) {
       if (first > limit) {
-        if (r.index !== released) return first;
+        if (!dropsLater) return first;
       } else {
         // Every wrap at or before `limit`, in closed form (a forever loop may have run for hours).
         let n = Math.floor((limit - first) / len) + 1;
@@ -423,7 +568,7 @@ function advance(cur: Cursor, c: Compiled, limit: number, released: number): num
         cur.wrapPass = cur.passes;
         if (n < left) {
           const next = cur.h + len;
-          if (r.index !== released) return next;
+          if (!dropsLater) return next;
         } else {
           continue; // passes used up: play through this pass, then on
         }

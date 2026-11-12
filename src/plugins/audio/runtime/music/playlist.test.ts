@@ -8,6 +8,7 @@ import { newMusicContext, parseSegmentNode, type SegmentNode } from "../../../..
 import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
 import { planTick } from "./planner";
+import { tickTransition } from "./transition";
 import { createPlaylistState, enterPlaylist, peekNext, tickPlaylist } from "./playlist";
 import { _resetSegmentRuns, setSegmentClipSource } from "./segmentRun";
 
@@ -78,6 +79,7 @@ function run(player: MusicPlayer, from: number, until: number): number {
     }
     for (const [g, first] of seen) if (frame - first >= PRIME_FRAMES) b.music!.setPrimed(g);
     tickPlaylist(player, f as unknown as MusicFrame);
+    tickTransition(player, f as unknown as MusicFrame); // R3b: the natural advance lands through the transition
     planTick(player, f as unknown as MusicFrame);
   }
   return t;

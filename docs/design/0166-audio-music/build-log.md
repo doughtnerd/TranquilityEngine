@@ -12,6 +12,8 @@ The coordinator's log of each wave review ([waves plan, "Wave reviews"](../../pl
 
 **Needs you:** the M4-0 listening section ([listening-pass.md](listening-pass.md), about 10 minutes with headphones) and a WebKit run of the e2e suite (`npm run test:e2e:webkit`; WebKit isn't installed in this container). Neither holds the merge.
 
+**Branch rule:** both milestone pushes to master (M4-0 `c25eb624`, M4a `ed37b347`) **bypassed the repository rule "Changes must be made through a pull request"** (GitHub: "Bypassed rule violations for refs/heads/master"). The session's credentials may bypass it, so the push went through. The coordinator asked the owner; **the owner chose to keep pushing milestone merges directly to master** (D13).
+
 **M4a merged to master** (2026-11-12): music segments, stems, playlists, switches, transitions, stingers and quantised automation on the grid; every group starts on one frame, holds and resumes together. Needs you: the M4a listening section too.
 
 **M4-0 merged to master** (2026-11-12): every queued per-voice stamped record now applies inside its voice. The integration branch also carries M4a work, all inert or opt-in for existing projects (D9).
@@ -36,6 +38,10 @@ Numbered; superseded entries are marked, not rewritten.
 - **D10 (W5) The metered baseline was rewritten at the in-voice flip** (`29619224`): `virtual` +11.79% (7,102,981 → 7,940,135 instructions per quantum); every other scene within +1.2%; total +2.29%. Why: the cost is H1's per-voice hook, the feature itself, paid by every voice; CLAUDE.md makes the gate a tripwire, not a limit. F-8 profiles it. Revert: restore `baseline.json` from `7f75fe72` once F-8 brings `virtual` back near its M3 figure.
 - **D11 (W6) The editor tells the runtime about changed assets through `Assets.onChanged`/`Assets.notifyChanged`** (`engine/scene/Assets.ts`, both `@internal`, not exported from `src/engine/index.ts`). The editor project's `writeText`/`writeFile`/`writeBinary` call `notifyChanged` after the content is served. G-2 found no existing editor-to-runtime channel; music hot reload (P8) and `clipRegistry.invalidate` (R4c) subscribe to it. Renames, moves and deletes don't notify yet. Revert: move the hook to an editor-owned service, if a later editor record defines one.
 - **D12 (W6) The metered baseline was rewritten from F-8's merge, and D10's revert is withdrawn.** F-8 found that `7f75fe72`'s baseline was stale: many scenes hadn't been rewritten since M1/M2 (`virtual` 7,102,981 dates from `142a03dc`). The same bench built from M3's source (`1ef1c615`, toolchain 1.99.1) gives `virtual` 7,482,907. So D10's +11.79% was about +5.3% earlier drift plus about +6.1% from H1. After F-8, `virtual` is +1.20% over true M3 (about 11 instructions per virtual voice, all attributed); every other scene is within ±0.15%, and `streams` is −9%. Revert: none wanted.
+- **D13 (owner, 2026-11-12) Milestone merges keep going straight to master**, as a merge commit pushed by the coordinator, although that bypasses master's "changes must be made through a pull request" rule. Asked after the M4a push showed the bypass; the owner chose a direct push over a pull request or holding for them. Revert: open a pull request per milestone instead.
+- **D14 (W7, R3b's reading) A playlist's natural advance under the default rule is a gapless cut.** Explicit rules, including a written `*→*`, apply their fades and bridge. Why: read literally, §2.4's default 1-beat fade-in would fade every item of a rule-less playlist in from silence (T1's playlist loopback would fail, and no one wants that). Also: a bridge's exit at its exit cue is faded (otherwise `bridge.fadeOut` could never act), unlike R3a's direct exit at the exit cue, whose tail rings on. Revert: apply the default rule's fades to natural advances too.
+- **D15 (W8, K2) The beat callbacks' shape.** `onMusicBeat`/`onMusicBar`/`onMusicCue` on `LifecycleHooks` (0166 §1.4), run in the update phase just before `update`, on active `GameBehavior`s on the node of the `AudioSource` playing the music (and its owner node). Defining a hook is the subscription. The `MusicEvent` is one reused object per kind, valid only during the call: no per-frame allocation, documented. Music started with `Audio.play` reaches listeners only through `handle.onMusic` (K5). A hook disabled and re-enabled owes no backlog, while a hitch coalesces into `missed`. Revert: allocate per call, or dispatch to every component.
+- **D16 (F-25) An asap start keeps one frame of slack at its stamp.** Every "now + lead" start after the first (a seek, an `immediate` exit, a playlist's immediate start, a bridge's fallback) is placed one frame interval (Δ̄) beyond now + lead, two when planned after this frame's music plan step, and is stamped while half a frame of slack remains. Reading of §3.9's "earliest stampable frame ≥ now + lead": a frame the batch can be counted on to reach in time, which F_now + L alone isn't when L clamps to one frame interval (below 20 frames a second). Cost: these starts land one display frame later (16 ms at 60 fps). First starts keep the bare horizon; nothing has shown them late. Revert: drop `slackOf` in `planner.ts` and accept the slip under a hitch.
 
 ## Wave 0 (2026-11-11, base `origin/master` `c3f2e9b`)
 
@@ -118,6 +124,15 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 - **F-16 (from E1):** `Audio.debug().voices` shows a streamed music stem as `waitingForData`, clip `""`, playhead null, while it plays. The panel shows the same.
 - **F-17 (from E1):** after `handle.stop(fade)` a music event's row stays in `Audio.debug().music` as `ending` forever, though its voices and rings are gone. It may be a player leak. **F-16/F-17 task** (strongest) is on both, plus the debug row's `pending` going null once a transition passes T − L.
 - **F-18 (from F-16/F-17):** the playhead tracker in `coreBackend.ts` reads a music member's rate from the context, because `streams.clipInfo` doesn't fall back to `musicOps.clipInfo`. The sound-lab stems are 24 kHz, so a streamed stem's tracked playhead there runs at the wrong rate. The audio and the grid (anchors) are unaffected. A `coreBackend.ts` change, for K1/K3 (playhead and position) or a small task before them.
+- **F-20 (from K4): three beat-clock bugs** in `music/beatClock.ts`, each a skipped test in `beatClock.test.ts`:
+  1. A cue inside a looping region fires on the first pass only: `nextOn`'s `lineAtOrAfter` returns NaN and returns before the wrap check.
+  2. A recovery's gap is dropped for a kind whose cursor had fired nothing yet (`cur.run === st.lostRun` fails while `run` is null).
+  3. A loop pass that isn't a whole number of frames makes phantom region-end calls (149 of 6,900 over an hour with a 3.6526 s pass), and over-counts `missedBeats`. It's probably `h >= wrap - TIME_EPS` against a tick-linear end that's off the frame-rounded wrap.
+  Hearing is unaffected; the callbacks' fields and the counter are wrong. **Fixed by F-20** (below).
+- **F-21 (from T2):** a linear FADE runs as one f32 ramp over the whole fade, never re-aimed at a quantum boundary (`curves.rs`: "a linear record fires as set_target at its sample"), so `value += step` drifts. A 500 ms linear crossfade nulls only to 1.68e-5 against the 1e-5 seam bound (`it.skip` in `seam.test.ts`); the 50 ms golden passes at 9.04e-6. The shaped laws are re-aimed at each knot and don't drift. **F-21 task** (strongest) re-aims linear fades in the core before M4b's merge; any golden re-record must be logged with its reason.
+- **F-22 (owner's bug, fixed):** a spatial `AudioSource` played again with its clip resident started flat on the core. See F-22 below.
+- **F-23 (from E2, blocks M4b):** the first play of a decoded looping segment whose clips were never decoded ends at its first loop end (no warning, counters 0), e.g. sound-lab `music-world` and `music-intensity` played cold. Warming the clips avoids it. **Fixed by F-23** (below).
+- **F-24 (from F-22):** the core backend still accepts `setPosition` on a voice whose PLAY went out flat: main marks it spatial while the core plays it flat. F-22 removed the trigger, but switching `spatial` on for a source already playing would hit it. It needs a wire flag, or a restart of the voice on the core.
 
 **Started (rolling, D5), base `92969c11`:** Z2a (strongest) on the flip branch `m4/in-voice`, cut locally at `92969c11` after Q1 and the wire's merge 1 (the flip branch stays local: this session pushes only the integration branch); F2, Ed2, Ed9 and R4c (mid; each depends only on merged tasks and touches no running task's files). Waiting for the wire's merge 2: Z4, C1, D1a, then Q2's merge.
 
@@ -439,3 +454,219 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 - **Milestone-end checks** (above): every failure explained. `codefiles` (F-19) fixed in the spec; `piratesSample`, `audio-core` and `audio-stress` pass alone; F-11 is open.
 - **Merged to master** as a merge commit (O2), per the standing instruction. Owner items open: the listening sections M4-0 and M4a, and WebKit.
 
+
+**Wave 7 started** (base `08aaa694`, M4a on master): R3b (strongest: bridges, and natural playlist advances through the rule; granted `playlist.ts`), R4a (strongest: loop tails, counted loops, tail voices tracked; F-7e), K1 (strongest: beat clock), R7 (mid: seek on H5; may help F-15), B2 (mid: Babylon music), SM2 (mid: the sound-lab music scene and `tools/makeMusic.mjs`), Ed7 (mid: rule editor, lint, transition audition). Each task updates `interactive-music.md`'s "coming later" entries for what it builds.
+
+**Listening pass checked against the spec** (owner's question): the commands, `E2E_LISTEN`, the `@slow` tags, the keys and the values of both sections match `tests/e2e/audio-music-listening.spec.ts` on master. One stale spot was in the spec, not the doc: M4a key 3's comment and the prompt it prints in the owner run still said "paused for 6 s … waits for C2c". Fixed on the integration branch to "paused until the group is held, then resumed at once". Both cases pass headless (2 of 2, 1.7 min). The fix reaches master with M4b.
+
+**R7 merged** (`m4/r7` `5455191b`): `seek.ts`.
+- `parseSeekPosition` reads `bar[:beat[:tick]]`, the design's only format; Ed5's transport already converts cues and seconds to it.
+- `seekMusic` reads against the target segment's tempo map: the playing one, or the incoming one once a change is past T − L. It clamps to the file and lands through `planImmediate` with `SEEK_FADE_MS`. A seek replaces a pending change and queues behind a committed one.
+- Refusals: permanent `invalid`, `notPlaying` (stopped) and `neverFits`; temporary `poolFull` (the plan is cancelled) and `notPlaying` before the first segment sounds (so Ed5's retry works).
+- **Not done:** seeking across playlist items. The design says that's a switch or playlist change, so F-15 still needs a start-at-segment option.
+- The guide gained a "Seeking" section.
+- Tests: 11 unit and 3 loopback. The landing can slip one display frame when a decoded group isn't ready at its stamp (planner behaviour).
+
+**B2 merged** (`m4/b2` `739e29cd`, `babylonBackend.ts` only).
+- **The fallback now has:**
+  - `fadeShaped` on streamed (HTML5) stems, as stepped volume;
+  - a late ramp timer joins the law at the phase its stamp implies;
+  - `paramsShaped` on every music voice, so quantised stem automation starts on the grid point;
+  - stingers stamped, and faded with `stopAtEnd` on a steal.
+- **Still skipped:** priming, the gate and the ring pool; sample-exact stamps (`setTimeout` steps, no latency correction); region loops and alignment on streamed stems; stem low-pass (warned once); beat callbacks (B3); music debug rows.
+- **Limit:** a stem's fade and params ramps share one native volume, so overlapping ramps cut each other short.
+- Tests: 5 unit cases and one Babylon e2e case (a switch on a bar line, a stinger).
+
+**Ed7 merged** (`m4/ed7` `cbfa7f48`):
+- **`RuleEditor.tsx`** edits one rule: from and to, exit and enter, fades with curve and offset, and the bridge with its own fades. The edits are pure, checked against the parser's limits and round-tripped through the format, with refusals shown inline. Add, duplicate, move and remove; one undo step per edit.
+- **`ruleLint.ts`:**
+  - errors: `missingFrom`, `missingTo`, `missingBridge`, `missingCue`;
+  - warnings: `duplicate`, `shadowed`, `unreachable`, `noCues`, `bridgeEmpty`, `bridgeMetre`, `bridgeTempo`, `bridgeLength`, `fadeTooLong`;
+  - notes: `wildcardOnly`, `exitIgnored`.
+  The badges and list are in `RulesTable.tsx`.
+- **`ruleAudition.ts`** plays from two bars before the exit cue (or a chosen bar) through Ed5's transport and asks for the target once the seek lands (`Transport.requestParameter`).
+- **Limits:** root containers only; a playlist only for its first two items (F-15); the segment view's unmount also stops a Rules-panel audition. `shadowed` almost never fires, because `duplicate` is the practical shadow check; kept as Ed6 asked.
+- Tests: editor vitest 35 files, 473 tests. Not driven in a browser yet (E2 in W8).
+- (Ed7's own build-log entry was dropped at merge.)
+
+**Coordinator:** after B2, an audio vitest run under load (4 agents) failed `hrtfLoopback`, `streamRebuild` and `zoneIr`; all 14 tests pass alone.
+
+
+**SM2 merged** (`m4/sm2` `535513b5`): the sound-lab music scene.
+- **Keys:** M on the tour opens `scenes/music.scene.json` (B goes back; the behaviour is `scripts/behaviors/MusicLab.ts`).
+  - **1/2/3** set State. explore→combat is a cut; combat→explore a 2-beat equalPower crossfade; explore→calm 4-beat linear; calm→explore 4-beat sCurve; calm→combat a 1-beat equalPower crossfade with the bridge `riser`; combat→calm takes `*→*`.
+  - **T/Y** fire stingers on the beat and the bar.
+  - **L** starts the loop (region with `tailBeats: 4`, `while Loop is hold`); **L** again releases it.
+  - **P** toggles the playlist; **O** stops.
+- **Files:** `tools/makeMusic.mjs` (deterministic; `--check`) writes 9 mono 16-bit 22.05 kHz WAVs (1.46 MB) and three events: `music-world`, `music-loop`, `music-playlist`.
+- **Tests:** `makeMusic.test.mjs` (the committed clips match the generator); `soundLabMusic.test.ts` (`validateMusic` clean); one `soundLabEvents` case; one `audio-music-a` case.
+- **Not audible until other W7/W8 work lands:** the bridge plays as a plain crossfade until R3b; the tail and the `while` release do nothing audible until R4a and R4b. R3b was asked to settle which fades apply on a bridge's two seams and to align the sample rule.
+- Checks: `test:tools` 22 pass; sound-lab tests 19 pass; typecheck 0.
+
+**R4a merged** (`m4/r4a` `ec0920ee`).
+- **Loop tails:** at each wrap of a region with `tailBeats`, each stem gets a decoded voice playing the audio after the region's end, starting on the wrap's exact sample. Spans are held from the stamp. A refused span drops that tail (`tailRefused`, one warning); a span still loading or a wrap inside the lead is skipped (`tailLate`). A transition at the wrap keeps the tail ringing under the new segment; the last pass gets none.
+- **Counted loops and several regions:** members loop the region of their first wrap (`anchors.firstLoopOf`), and move on or release through the voice's loop record (`anchors.nextWrapOf`, which honours R4b's `released`). Until R4b, a `while` region loops by its `count` (forever for 0).
+- **Tracking:** tail voices and old runs still sounding (P4's open point) stop with `handle.stop` and count in `hasVoices`/`voiceCount` (closes F-7e).
+- **Single-writer edits granted after the fact:** `backend.ts` (`PlayRequest.span`, `ClipSpanHold`, optional `AudioBackend.holdSpan`) and `coreBackend.ts` (`holdSpan`; a span play uses R4c's `acquireSpan`). The core couldn't play a span otherwise.
+- **Also edited:** `anchors.ts`, `segmentRun.ts`, `eventRuntime.ts`, the guide, and the status row.
+- **Limits:** no tails on Babylon (no `holdSpan`); a tail plays at the stem's base level (no automation).
+- **Tests:** `loopTail.loopback.test.ts`, 5 cases on the real core, each within 1e-6 of a reference built from the clip: a counted loop with tails; two regions; a refused span; `handle.stop`; a ringing playlist item.
+- **For R4b:** set `player.regions.released` at the commit point in `tickRegions` (it runs before `tickLoopTails`). The streamed members' release goes through `sink.setLoop` → `streams.setLoop`, which no test covers yet; check it. Holding spans at prime time would avoid a skipped first tail after a slow decode.
+- Checks: typecheck 0; `src/plugins/audio` 2,476 pass (`audioDebugRows` hit a vitest cache collision; 16 of 16 pass on retry); check:links passes.
+
+**K1 merged** (`m4/k1` `2a6876b3`): `music/beatClock.ts`.
+- **API for K2:** `predictDue(player, kind, now, Δ̄, out)` fires the latest due event per kind (`missed` counts the rest; `skippedCues`), re-syncs its own cursors and adds to `counters.missedBeats`. Also `seatBeats` (on the first subscription), `resyncBeats`, and `player.beats.held` (Rh1's flag; the backlog arrives as one call on release).
+- **For K3:** `heardRunAt(player, time)` returns `{run, anchor, grid}`; K3 then calls `ticksAt`.
+- **S4 met on the spike's recorded S3 trace** (`spikes/audio-music/beat-clock/extract-trace.mjs` → `testing/traces/s3-interactive-60s.json`, replayed through the real `ClockMap`), matching the spike exactly: steady beats 66 of 69 in the ideal frame (3 one frame early); tempo-change 5 of 5; transition 35 of 35; 0 missed, doubled or phantom; grid error 0.0 µs.
+- Synthesised traces from S3's distributions: 100% ideal. Rougher-than-measured cases: within one frame, 0/0/0. Loopback: each click predicted once, on its sample, in the right frame, across a tempo change and a switch.
+- F-18 doesn't affect it (K1 never reads playheads). Test rigs `testing/beatRig.ts` and `jitterTrace.ts` are for K4.
+
+**R3b merged** (`m4/r3b` `94a97209`).
+- **Bridges** run as two legs chained through the planner. A → bridge lands on A's exit with the rule's fades; bridge → B is asked for once the bridge is stamped, lands on the bridge's exit cue with `bridge.fadeOut`/`fadeIn` (each left out is the rule's). States: `pending` → `stamped` → `running` → `bridging` → `done`.
+- **Pool full keeps A:** B must be admitted at leg 1's cancel point, or the change is dropped (the bridge's group cancelled, one warning). A streamed bridge that frees enough rings commits and asks for B when A's voices end.
+- Playlist targets go through `enterPlaylist`. **Natural playlist advances go through `requestTransition({natural: true})`** (D14). Additive API: `TransitionOptions.onDropped`, `Transition.cause`, `ringingOut(player)`.
+- **SM2's question settled:** the A→bridge seam takes the rule's fades, the bridge→B seam the bridge's (a table in the guide). The sample's calm→combat bridge has 0-beat bridge fades, so combat lands at full level on the riser's last sample.
+- **Tests:** 8 unit tests and `bridge.loopback.test.ts` (4): the A→bridge cut exact; bridge→B crossfade 1.30e-5 (limit 2e-5); pool full keeps A; natural-advance fade-in 1.74e-5; the sample's rule as shipped.
+- **Coordinator at merge:** resolved the guide's status table (R4a's and R3b's rows), and updated the sound-lab's "coming later" comments in `MusicLab.ts` and `soundLabMusic.test.ts`. Checks: typecheck 0; music, events and sound-lab vitest 477 pass; check:links passes.
+
+**Wave 7 exit met:** a bridge seam is exact and pool-full keeps A (R3b); a tail rings over the wrap (R4a); S4 on recorded traces (K1). No Rust changed in W7, so the wasm is unchanged; the full suites run at M4b's milestone end.
+
+
+**Wave 8 started** (base `49ed12a9`):
+- T2 (strongest): seam goldens, every seam to 1e-5.
+- R4b (strongest): `while` regions; test the streamed release path.
+- Rh1 (strongest): the numeric `latencyHint`, `Audio.latency`/`rhythmMode`, holding the beat clock across a rebuild.
+- T3 (mid): precedence and refusal tests.
+- Bench1 (mid): music metered scenes against S7.
+- K2 (mid): `onMusicBeat`/`Bar`/`Cue` dispatch, which changes the public API on `Component.ts` (as 0166 §1.4 designed).
+- K3 (mid): `positionAt`, `judged`.
+- K4 (mid): beat-clock edge and trace tests.
+E2 (M4b's browser specs and listening section) and D3 (the guide) start when these land.
+
+**K3 merged** (`m4/k3` `fd88d8df`): `handle.ts`.
+- `positionAt(time)` uses K1's `heardRunAt` and `ticksAt`, from anchors only, so F-18 isn't a dependency. It returns segment, bar, beat, fraction and the nearest beat actually heard (change-aware: just before a cut, the incoming segment's first beat can win), plus `offset` and `judged = offset − calibration`.
+- **Limit:** once a change lands, the old segment's position is gone, so judge recent inputs (a frame or two old). The guide says so.
+- Calibration is still Rh2's stub (0); Rh2 only makes `getCalibration` return the stored value. No subdivisions; Rh3 can compute them from `nearestBeatTime` and tempo.
+- Tests: 6 unit, and a loopback that's exact at each beat and ±1 sample across a tempo and metre change and a cut.
+
+**T3 merged** (`m4/t3` `4b9f2d3c`, tests only):
+- `transitionPrecedence.test.ts` (19): the tiers, exact over wildcard, nested containers and common-parent tables, `*→*` over the default, the bridge from `match.parent`'s library, D14.
+- `transitionRefusal.test.ts` (14, a file the plan didn't list; kept as is): `neverFits` refused at the request with no retry; `poolFull` retries each allowed point and lands on A's grid; replace before T − L, queue after; the latest queued ask wins.
+- 3 loopback cases appended to `transition.loopback.test.ts`: a cut after 1 and 2 refusals lands on the predicted frame (error 0); a crossfade after a refusal 9.04e-6.
+- **M4b exit check "never-fits immediate, free-ring retries" met.** No bugs found.
+
+**K2 merged** (`m4/k2` `606108fd`): `dispatchMusic` predicts per subscribed kind (component hooks OR'd with K5's `subscribed`), delivers to the hooks, then to `player.listeners` (K5 fills them), each call caught. A kind joining the mask is seated at `now`. `MusicEvent.handle` is the `Audio.play` handle (a factory registered by `Audio.ts`, to avoid an import cycle); `AudioSource.play` sets `EventInstance.musicSource`; `seatBeats` gained an optional `kind`. Shape: D15. Tests: 8 unit, plus 2 loopback (each click once, on its sample, in the right frame across 120 → 90 bpm; a hook enabled mid-play gets no backlog). **Coordinator at merge:** resolved the guide's conflict with K3 (both sections kept; the status table rows merged). `piratesSample` flaked once and passes alone.
+
+**K4 merged** (`m4/k4` `c982ecce`): `beatClock.test.ts`, 48 passing tests and 3 skipped (F-20). It covers tempo and metre changes on and between beats, cues at the edges, transitions in long frames, loop wraps, the held backlog, recovery re-entry, an hour at 60 Hz (7,201 beats in their ideal frames), an hour of an awkward-tempo loop, and refresh rates from 30 to 240 Hz, variable refresh, a hidden tab, stalls, clock steps and NaN.
+
+**T2 merged** (`m4/t2` `1a97ce2c`): seam goldens.
+- **Method:** every seam is played through the runtime on the loopback core and nulled against an offline reference: clip levels × Z3's same-knot control-rate law (`golden/seamReference.ts`).
+- **Results:** cut 0; linear (50 ms) 9.04e-6; S-curve 1.85e-6; equal power 1.88e-6; bridge, both legs, 1.75e-6; loop exit with tail 0; stinger 0; switch under the default rule 2.67e-6. Extra live cases: 500 ms S-curve 2.03e-6, 500 ms equal power 2.38e-6.
+- **Fixtures:** `golden/seams/seam-*.json`, recorded from the runtime (`UPDATE_GOLDENS=1`, written only after a wasm replay matches the live output). They replay to the same digest on wasm (`audioGoldenSeams.test.ts`) and natively (`audio-core/tests/seam_goldens.rs`, through the shell's copy budget): **native = wasm, 8 of 8**.
+- **Open:** a 500 ms linear crossfade, 1.68e-5 (F-21). The M4b exit check "every seam nulls to 1e-5" waits for F-21 (now met: see F-21 below).
+
+**R4b merged** (`m4/r4b` `8cfa2334`).
+- **`while` regions:** the condition is read once per wrap at E − L − Δ̄ − 10 ms. A false condition releases the region with its last pass, which every anchor query honours (`bindRelease` for `ticksAt`). A late frame, or a flag set after the commit, waits one pass. Once the release is heard, the anchor moves past the region. `is`/`atLeast`/`below`; a missing parameter warns once and leaves the region to its `count`.
+- **Bug found and fixed:** a streamed music member's loop record was dropped by the stream manager (musicOps' streams have no entry there), so a streamed stem looped for ever. It's now forwarded to `musicOps.setLoop`, which uses E4.4's `applyLoopChange` and the worker's region-release splice.
+- **Coordinator-file edit granted after the fact:** `core/streams.ts` (the forward, the extracted helper, `playheadOf`), whose header calls it frozen after W1.
+- **Not built:** moving the commit point back by a prime lead for a stem that changes file at the wrap (no per-pass alternatives exist yet).
+- **Tests:** 9 unit; 3 loopback within 1e-6 of a reference (a decoded release with tails; a late flag; the sound-lab loop event); 3 streamed releases through the real decoder worker (lateness 0, no underruns). The guide and the sound-lab comments were updated.
+- Checks: typecheck 0; music, core, events and sound-lab vitest 1,513 pass; check:links passes.
+
+**F-20 merged** (`m4/f20` `f3a15951`), in `beatClock.ts`; `anchors.ts` unchanged.
+1. **Cue in a loop:** a NaN line now falls through to the wrap check.
+2. **Recovery gap:** `adoptLost` moves seated or ended cursors onto the lost run when the recovery is detected.
+3. **Phantom region-end calls:** the wrap checked is the scratch anchor's own pass end, the same path `advanceAnchor` takes. The old path summed the wrap differently by one bit. A second case K4 didn't hit was also fixed: when the frame-rounded pass is longer than the grid's, the end line is heard up to half a frame before the wrap (462 and 390 phantom calls over 15 minutes at 117.77 and 87.31 bpm before the fix).
+K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.ts` is 52 of 52; K1's S4 trace tests and K2's and K3's tests pass unchanged. **Coordinator:** renamed K4's three `BUG:` tests to regression tests.
+
+
+**Bench1 merged** (`m4/bench1` `98d81206`).
+- **Scenes:** six music metered scenes plus three music-free twins: `music-typ`, `music-trans` and `music-worst`, each also `-streamed`, with twins `music-typ-twin`, `music-trans-twin`, `music-worst-twin`.
+- **Music's own cost** (scene less twin) against the S7 allowance, converted to instructions at ×1.45 with S4's 0.075 µs per 1k:
+  - typical, decoded and streamed: 36% / 37% of 966,667;
+  - transition (held to the worst allowance): 14% / 15% of 1,546,667;
+  - worst (16 groups: 12 stems and 4 stingers, every voice fading): 50% / 53%.
+  - S4's worst also had automation bindings (≈ +295k, which would make 72%).
+- No late group, split, ring refusal or full table; STATUS at most 1,148 B. The gate fails on an allowance miss, like the twin limit (a tripwire: a miss is raised and logged, not traded).
+- **Wall-clock:** `musicBench.test.ts` (best of 4; p99 gates with about 40× headroom): `musicPlanStep` p99 2.4 µs for 1 player, 22 µs for 16; a seam p50 18 µs.
+- **Coordinator rebuild:** the bench source is in the mixer's source hash, so `hash.json` and the metered bench were regenerated and the baseline written for the 9 scenes. Mixer unchanged at 317,891 B; existing scenes +0.00%; cargo 892 pass.
+
+**Rh1 merged** (`m4/rh1` `29602713`, with glue `f7a761d9` in `coreBackend.ts`, a single-writer file, accepted).
+- **Rhythm mode:** the context is made with `latencyHint: 0` (falling back to `"interactive"` if refused), and `AudioHost.latency` applies §4.6's `reliable` rule.
+- **A change of `audio.rhythmMode`** goes through `reconfigure` to a `latency` rebuild into a new context: at most one per second, the last change wins. It never uses the recovery limit's last rebuild (outcome `deferred`, retried after 5 s).
+- `Audio.latency` and `rhythmMode` have real bodies.
+- **Beat callbacks are held** from a rebuild's start until the re-entry is stamped (`updateBeatHolds`), so the gap arrives as one call.
+- **Edits outside its list, accepted:** `core/recovery.ts`, `deviceChange.ts`, `music/background.ts`, and one line in `musicSystem.ts`.
+- **Headless Chromium:** 43.5 ms at `interactive` (base 10, output 32, limiter 1.5) against 12.4 ms at hint 0 (2.9, 8, 1.5), matching S5.
+- **Loopback:** the mode change re-enters 0 frames off; the held gap arrives as one call (`missed` 4).
+- **Tests:** 14 core, 8 music, 3 loopback, plus `tests/e2e/audio-rhythm-latency.spec.ts`.
+- **Coordinator at merge:** resolved the guide's "coming later" conflict with K2 and K3. Checks: typecheck 0; core and music vitest 1,433 pass; `selectionBench` flaked under load.
+- **For Rh2:** a mode rebuild keeps the output device, so calibration doesn't go stale; key calibrations by `host.snapshot().sink`.
+
+**Owner bug report (2026-11-12):** in the Sound Lab's spatial page, after key 0 (quiet) and one full cycle of key 5 (level orbit, vertical orbit, off), the orbit's second cycle isn't spatial any more: equal in both ears, a quiet dip, then a slow return to full level, until the engine restarts. **F-22 task** (strongest) is reproducing it through `Audio.debug()`, classifying it (sample or engine; M4 regression or older, by testing `0a024003` and `c25eb624`), and fixing the root cause with a failing test and an e2e regression case.
+
+**D3 merged** (`m4/d3` `29d1d76c`): `interactive-music.md` rewritten for M4b.
+- Loops are one chapter (counted, tails, `while`). Playlists state D14. The sound-lab music page is the worked example for transitions (keys 1/2/3, the bridge fade table, the calm→combat riser) and stingers. Scripting covers seek, `positionAt`/`judged`, callbacks (D15) and rhythm mode. The Babylon fallback is one section.
+- **"Coming later":** `handle.onMusic` (K5); calibration from taps, storage and the tap game (Rh2, Rh3); Babylon callbacks (B3); the settings UI (Ed10); stem solo/mute and start-at-segment (F-14, F-15); held-group resync. Each was checked in the code.
+- **Corrected:** the old guide said the editor's voice presets write `music.rings`; no such UI exists, so it now says to edit `project.json`. F-21 is left out (−95 dB, inaudible).
+- **D3's unsure claims, to check when their tasks land:** Babylon callbacks absent (B3); "most fallback gaps warn once"; an explicit `*→*` on a natural advance fades in without fading out the old segment. The bridge landing at the riser's end is confirmed by R3b's loopback of the shipped rule.
+
+**F-21 merged** (`m4/f21` `43fac15d`).
+- **The fix:** at each quantum boundary the voice loop puts a linear gain or fade ramp back on its line (`target − step·remaining`, in f64, from fields the ramp already holds; `curves::linear_knot`). No new state, idempotent. It covers stamped and unstamped FADEs, the SET_PARAMS gain ramp, and the stop, pause and seek fades, on mixed and virtual voices. It skips a ramp that a class G record fires on in the same render. A ramp is corrected only past 2^-22 drift, so short fades render bit for bit as before.
+- **Bound:** one quantum's f32 drift, 2^-18 below 1.0. Long fades measured 2.8e-7 to 1.9e-6 (up to 1.1e-3 before). **The 500 ms linear crossfade nulls to 2.80e-7 (was 1.68e-5): M4b's exit check "every seam nulls to 1e-5" is met.**
+- **Goldens re-recorded, each proven closer to the exact line** (maximum error, before → after):
+  - `seam-crossfade-linear`: 9.04e-6 → 1.98e-6;
+  - `m4-fade-start`: 2.05e-6 → 9.24e-7;
+  - `m4-two-class-g`: 3.95e-7 → 2.46e-7;
+  - the `in_voice_hooks` unstamped digest: 7.96e-6 → 3.37e-6 (each longer ramp drops);
+  - M1–M3 `stop-and-fade`: 3.62e-5 → 3.12e-6;
+  - `kitchen-sink`: 2.47e-5 → 2.66e-6;
+  - `bed-64`: 3.83e-7 → 2.88e-7.
+  The M1–M3 proofs replay each scene's ramp records on a DC voice against the exact line, since those digests have no native reference. C3's gate goldens and the zones goldens didn't move.
+- **Missed by F-21 and fixed in a follow-up** (`0d3c569e`): `eventGolden`'s `event-layered` (stops over 4,800 frames at gains 0.48 and 0.4: 1.74e-5 → 9.58e-7 and 1.45e-5 → 8.00e-7) and `event-continuous` (a stop over 2,400 at gain 1: 3.53e-5 → 3.77e-6), proven the same way and re-recorded through the test's own update path. Block RMS moved in the sixth digit. `src/plugins/audio` 2,705 pass on the committed wasm.
+- **Coordinator rebuild** (`edd77f98`): mixer 317,891 → **318,306 B** (1.7 KB under the 320 KB tripwire); metered `virtual` +1.17% (one compare per voice), all +0.23%; baseline rewritten; cargo 899 pass.
+
+**F-22 merged** (`m4/f22` `d27f86b6`), **the owner's spatial orbit bug.**
+- **Signature:** on the second cycle the voice row read `panner: hrtf` while the core's `hrtfVoices` was 0 and the SFX bus's `peakL == peakR`. The "quiet dip, slow return" was the East wall's occlusion, heard without panning.
+- **Root cause:** `AudioSource.play()` started the clip without a position or attenuation and set them after. On a first play the clip wasn't loaded yet, so the PLAY waited and went out spatial. Once resident, `CoreBackend.sendPlay` wrote the PLAY at once without the spatial flag, and the core sets a voice's spatial state only from its PLAY.
+- **Scope:** every spatial `AudioSource` played a second time. **Older than M4:** it reproduces at `0a024003`.
+- **Fix:** a spatial source's play request carries its attenuation and world position (`AudioSource.ts` only).
+- **Tests:** a unit case in `liveTuningSource.test.ts`, and `tests/e2e/audio-spatial-replay.spec.ts` (the owner's steps, twice over), both failing before the fix. Coordinator checks: spatial unit 23 pass; spatial e2e 5 of 5. Follow-up: F-24.
+
+**E2 merged** (`m4/e2` `1df6762f`).
+- **`audio-music-b.spec.ts`** passes 27 of 27 on `--repeat-each 3` (**M4b exit "E2 3 of 3" met**), each case asserting zero late, held, abandoned, slip and split, with no warnings. Cases:
+  - every seam by its key, the rule row named, landing on a bar line (cut, three curves, the bridge, the default `*>*` tier 4);
+  - stingers on the beat and the bar;
+  - a switch that changes its mind;
+  - a seek;
+  - beat callbacks (22 beats and 6 bars in 10 s, none missed);
+  - the `while` release with tail;
+  - playlists;
+  - Babylon.
+- Also one smoke case and the M4b listening case.
+- **Found:** F-23. One cold-loop case is `test.fixme`; the other cases warm clips first. Also seen: `heardIn` −6.8 ms on one beat call under load (documented ≥ 0); the spec tolerates −30 ms. To check with K5.
+
+**F-23 merged** (`m4/f23` `7506659b`), **an M4b regression from R4a (`ec0920ee`).**
+- **Cause:** each stem's loop is decided when the group is admitted (`segmentRun.groupRequest` → `memberLoop` → `anchors.firstLoopOf`), before the clip has been decoded. Without clip facts, `anchors.compile` dropped any region bounded by `"end"`, so the members went out with `loop: false`, played to the clip end, and the instance ended silently. Every looping segment in the Sound Lab uses `to: "end"`. R4a had switched `memberLoop` from `simpleLoopOf`, which maps `"end"` to 0 and needs no facts.
+- **Fix:** `compile(…, openEnd)` places an `"end"` bound at `OPEN_END_SECONDS` before the facts arrive, uncached; only `firstLoopOf` uses it, and wrap prediction recompiles once the facts arrive.
+- **Tests:** `coldLoop.loopback.test.ts` (cold and preloaded; the cold case fails before the fix, dropping at the first loop end); `musicLoopback` gained a `cold` option. E2's cold-loop e2e case is enabled.
+- **Bisect:** passes at `ed37b347` (M4a) and `bd9c19dc`, fails at `ec0920ee`.
+- Coordinator checks: typecheck 0; music, events and core vitest 1,536 pass; `audio-music-b` 10 of 10.
+
+**M4b listening section** added to `listening-pass.md` (E2's text, without its "known issue", which F-23 fixed).
+
+
+**M4b milestone-end checks** (on `c669fd7d`, no agents running):
+- typecheck 0; cargo 899 pass; metered pass; `test:tools` pass; `check:links` pass; **Vitest 6,145 pass, 0 fail**.
+- **`npm run build` failed:** the engine library's typecheck (`tsconfig.engine.json`) reads `src/engine/audio/` without Node types, and SM2's `soundLabMusic.test.ts` used `node:fs`. **Coordinator fix:** moved it to `src/engine/tests/` (excluded from the library build) with its imports adjusted; 6 of 6 pass; `tsc -p tsconfig.engine.json` passes.
+- **`test:e2e` 240 pass, 2 fail, both passing alone:** `audio-music-a:246` (a stem 0.127 s off the beat against 0.12 under load) and `collider:61`.
+- **`test:e2e:slow` 30 pass, 3 fail, all passing alone (3 of 3):** `audio-core:41`, `audio-stress` (F-11), and listening M4b (under load the walker's second key of "a switch that changes its mind" came after the bar line).
+- **`audio-music-b --repeat-each 3`: 29 of 30.** Its seek case is intermittent even alone (1 fail in 3; then 4 of 4): `groupsLate` 1 with a non-zero slip, so the seek's group sometimes starts late, with its clip resident. **F-25 task** (strongest) is investigating; the M4b merge waits for it, since its exit is "E2 3 of 3".
+
+**F-25 merged** (`m4/f25` `5d5e30dd`), **the seek that sometimes started late.**
+- **Root cause:** not the clips. `planImmediate` stamped the seek's group at exactly F_now + L, and at 10 frames a second L is capped at one frame interval, so a batch reaching the core more than L after the clock map's F_now (a hitch, or a render lead the map hadn't caught up with) started the group a quantum late, with a slip. Only "now + lead" starts had the problem; grid starts are stamped a beat or more ahead. A seek asked between frames also landed a frame after the `time` it reported.
+- **Fix:** D16 (`planner.ts`, `musicSystem.planStepDone()`).
+- **Tests:** a `seek.loopback.test.ts` case with the seek's batch held back 50 quanta (new `musicLoopback.delayBatches`), failing before the fix (`groupsLate` 1, slip 1,727 frames); two unit expectations moved by Δ̄. Spec timing, no assertion loosened: the seek case polls every 50 ms (the default back-off read past the loop's wrap), and the stinger case's press window is 0.12 s (`Audio.time` steps a frame, 0.1 s, so the old 0.05 s window was sometimes never reached: 2 of 6 failed on the unchanged base).
+- Coordinator checks: typecheck 0; `src/plugins/audio/runtime` vitest 2,098 pass; **`audio-music-b --repeat-each 3` on Chromium 30 of 30 (M4b exit "E2 3 of 3" met)**.
+
+**M4b milestone end.** Exit criteria met: every M4b task merged; E2 3 of 3; the milestone checks above, with every failure outside F-25 passing alone. Owner items, not holding the merge: the listening sections M4-0, M4a and M4b, and a WebKit run. Merged to master directly (D13).

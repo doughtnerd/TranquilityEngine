@@ -16,6 +16,10 @@
 // then the same restore. A stall first tries the same context with a shorter first-STATUS wait; if that core never
 // answers, or the heartbeat stops again within `STALL_ESCALATE_WINDOW_MS` of a same-context stall rebuild, it escalates
 // to a new context. Every core made, the escalation included, takes one from the rate limit.
+//
+// ADR 0166 §4.6 (Rh1): a change of `audio.rhythmMode` is a `latency` rebuild: a new context with the other
+// `latencyHint`, on the device path. It takes from the same limit, but never the last one: with fewer than two left it
+// is `"deferred"` (the host tries again later) rather than leaving the page silent over a settings toggle.
 import { currentAudioHost, type AudioHost } from "./context";
 import { RateLimit, RECOVERY_LIMIT, RECOVERY_WINDOW_MS } from "./rateLimit";
 
@@ -33,22 +37,27 @@ export type RebuildReason =
   /** The output device changed and the classifier (§3.7) decided the node must be rebuilt. */
   | "device"
   /** The context's sample rate changed. */
-  | "rate";
+  | "rate"
+  /** ADR 0166 §4.6: the rhythm-mode setting changed: a new context with the other `latencyHint` (`AudioHost` asks). */
+  | "latency";
 
 /**
  * @internal What a rebuild ended as:
  * - `"rebuilt"`: a new node runs, clips and live voices restored;
  * - `"limited"`: refused by the rate limit (the 4th within 60 s); the host is now Failed and silent, with one warning;
  * - `"unavailable"`: nothing to rebuild (no host, or the host is closed or already Failed), or the new core never
- *   answered (the host is then Failed and silent too, with the same one warning).
+ *   answered (the host is then Failed and silent too, with the same one warning);
+ * - `"deferred"`: a `latency` rebuild the limit had no room to spare for (ADR 0166 §4.6): nothing changed; the host
+ *   tries again later.
  */
-export type RebuildOutcome = "rebuilt" | "limited" | "unavailable";
+export type RebuildOutcome = "rebuilt" | "limited" | "unavailable" | "deferred";
 
 /** @internal What the rebuild needs of the host (`AudioHost`; tests may pass a fake). */
 export type RebuildableHost = Pick<
   AudioHost,
   "closed" | "recoveryHasFailed" | "health" | "link" | "_beginRebuild" | "_replaceCore" | "_endRebuild" | "_markRecoveryFailed" | "_replaceContext" | "contextClosed" | "canRecreate"
->;
+> &
+  Partial<Pick<AudioHost, "_setModeRebuild">>;
 
 /** @internal Per host options: the rate limit's clock and numbers, and the warning (tests inject them). */
 export interface RecoveryOptions {
@@ -110,11 +119,17 @@ function stateOf(host: RebuildableHost, options: RecoveryOptions = {}): Recovery
  */
 export function watchForTraps(host: RebuildableHost, options: RecoveryOptions = {}): () => void {
   stateOf(host, options);
-  return host.link.onShellEvent((event) => {
+  // ADR 0166 §4.6: the host starts its rhythm-mode rebuilds through here, so they share the rate limit.
+  host._setModeRebuild?.(() => rebuildHost(host, "latency"));
+  const off = host.link.onShellEvent((event) => {
     if (event.type !== "trap") return;
     host.health.traps++;
     void rebuildHost(host, "trap");
   });
+  return () => {
+    off();
+    host._setModeRebuild?.(null);
+  };
 }
 
 /**
@@ -139,6 +154,8 @@ export function rebuildHost(host: RebuildableHost, reason: RebuildReason): Promi
     }
     return state.inFlight;
   }
+  // A settings toggle never spends the limit's last rebuild (the host retries; a trap may still need it).
+  if (reason === "latency" && state.limit.count >= state.limit.limit - 1) return Promise.resolve("deferred");
   if (!state.limit.take()) {
     giveUp(host, state, `audio core: more than ${state.limit.limit} recoveries within ${state.limit.windowMs / 1000} s (the last: ${reason}); audio stays silent ("failed") for this session.`);
     return Promise.resolve("limited");
@@ -184,7 +201,7 @@ async function replace(host: RebuildableHost, state: RecoveryState, reason: Rebu
     state.contexts++;
   };
   if (!host.canRecreate) return host._replaceCore();
-  if (reason === "device" || reason === "rate" || host.contextClosed) return fresh();
+  if (reason === "device" || reason === "rate" || reason === "latency" || host.contextClosed) return fresh();
   if (reason !== "stall") return host._replaceCore();
   const last = state.lastStallAt;
   if (last === null || state.now() - last >= STALL_ESCALATE_WINDOW_MS) {

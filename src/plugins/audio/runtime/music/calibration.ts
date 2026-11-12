@@ -3,9 +3,9 @@
  *
  * Owners: **Q2** (skeleton); **Rh2** (W9) fills `fromTaps`, `getCalibration`/`setCalibration` with persistence through
  * `Storage` (namespace `settings`, key `audio.calibration.<sinkId or "default">`) and `isCalibrationStale` (true after a
- * device change until a new calibration is set; the value is kept); **Rh1** (W8) owns `audioLatency` and
- * `rhythmModeSetting` (the numeric `latencyHint`, the read-back and the `reliable` rule are in `core/context.ts` and
- * the backend's `latency()`).
+ * device change until a new calibration is set; the value is kept); **Rh1** (W8) filled `audioLatency` and
+ * `rhythmModeSetting` (the numeric `latencyHint`, the read-back, the `reliable` rule and the mode rebuild are in
+ * `core/context.ts`; the hold of beat callbacks through a recovery in `music/background.ts`).
  */
 import { mixer } from "../../../../engine/audio/mixer";
 import type { AudioLatency, CalibrationApi, CalibrationResult } from "../../../../engine/audio/musicTypes";
@@ -41,18 +41,33 @@ export function isCalibrationStale(): boolean {
   return false; // STUB(Rh2)
 }
 
-const NO_LATENCY: AudioLatency = Object.freeze({ base: 0, output: 0, limiter: 0, total: 0, reliable: false });
+/** A latency figure in seconds: finite and not negative, else 0. */
+const seconds = (x: unknown): number => (typeof x === "number" && Number.isFinite(x) && x > 0 ? x : 0);
 
 /**
- * Rh1: `Audio.latency` (seconds, read-only): the context's `baseLatency` and `outputLatency`, the core's limiter
- * look-ahead, their total, and `reliable` (0 < output < 0.5, not exactly 0; S13). A backend without `latency()`: zeros,
- * not reliable.
+ * Rh1: `Audio.latency` (seconds, read-only; a new object per read): the context's `baseLatency` and `outputLatency` as
+ * read back (`core/context.ts` `AudioHost.latency`, through the backend's `latency()`), the core's limiter look-ahead,
+ * their total, and `reliable`. `reliable` needs the backend's own verdict (the core's: `outputLatency` live, architecture
+ * §4.6) **and** 0 < output < 0.5 (S13), so a constant 0 or an absurd value is never reliable. Each part is sanitised (a
+ * non-finite or negative figure reads 0) and `total` is their sum. A backend without `latency()` (the Babylon fallback
+ * reports none): zeros, not reliable. Rhythm mode promises no absolute latency (§1.5): this is what the browser gave.
  */
 export function audioLatency(): AudioLatency {
-  return audioBackend().latency?.() ?? NO_LATENCY; // Q2 delegation; Rh1 owns and tests it
+  const l = audioBackend().latency?.();
+  if (!l) return { base: 0, output: 0, limiter: 0, total: 0, reliable: false };
+  const base = seconds(l.base);
+  const output = seconds(l.output);
+  const limiter = seconds(l.limiter);
+  return { base, output, limiter, total: base + output + limiter, reliable: l.reliable === true && output > 0 && output < 0.5 };
 }
 
-/** Rh1: `Audio.rhythmMode`: the project setting `audio.rhythmMode` (read-only). */
+/**
+ * Rh1: `Audio.rhythmMode` (read-only): the project setting `audio.rhythmMode`, as the running mixer has it. The core
+ * builds its context with `latencyHint: 0` while it is true, and a change rebuilds the context (`core/context.ts`
+ * `AudioHost.reconfigure`); music recovery re-entry is stamped in both modes, and in rhythm mode beat callbacks are held
+ * through a recovery (`music/background.ts` `updateBeatHolds`). It reports the setting even on a backend without rhythm
+ * support (`MusicBackendCaps.rhythm` false: the Babylon fallback warns, B3).
+ */
 export function rhythmModeSetting(): boolean {
-  return mixer.audioSettings.rhythmMode === true; // Q2 delegation; Rh1 owns and tests it
+  return mixer.audioSettings.rhythmMode === true;
 }

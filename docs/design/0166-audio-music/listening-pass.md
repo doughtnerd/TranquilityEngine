@@ -43,4 +43,32 @@ The owner's listening pass for M4, the interactive music milestone. It takes the
 
 **Limit:** headless Chromium has no sound output, so the walker reads the core's meters and counters, not the signal.
 
+## M4b: transitions, stingers and loop exits (task E2)
+
+- **Run (owner, headphones):** `E2E_LISTEN=1 npm run test:e2e:slow -- audio-music-listening --headed --workers 1 -g M4b`. The M4b case shows a card of the page's keys; the spec waits for each key, prints what it does and what to listen for, then checks the item ran.
+- **Headless smoke:** `npm run test:e2e:slow -- audio-music-listening -g M4b` presses the keys itself. The exit check is separate: `npm run test:e2e -- audio-music-b --repeat-each 3`.
+- **Scene:** the Sound Lab's music page, opened by the spec with M; the keys are the page's own. The world switch starts in explore at 120 bpm, so every change lands on a bar line. The music plays on the Music bus; the Ambience, SFX, Engine and Tape buses are muted.
+
+| Key | Item | Listen for | Pass / fail, note |
+|---|---|---|---|
+| 2 | Explore to combat: a cut on the next bar line | the old music stops and combat starts at the same instant; no gap, no click, no overlap | |
+| 1 | Combat to explore: a 2-beat (1 s) equal-power crossfade on the next bar line | the level stays steady through the hand-over, no dip, no jump | |
+| 3 | Explore to calm: a 4-beat (2 s) linear crossfade | a slight dip in the middle of the hand-over; no jump at either end | |
+| 1 | Calm to explore: a 4-beat (2 s) S-curve crossfade | slow at both ends, quick in the middle; no jump at either end | |
+| 3, then 2 | Explore to calm (the way to the bridge), then calm to combat through the bridge, a one-bar noise riser | on the bar line, calm crossfades (1 beat) into the riser, which plays one bar; combat starts at full level on the riser's last sample; no gap, no click, no doubled beat | |
+| 3 | Combat to calm: no rule of its own, so the default rule, a 1-beat (0.5 s) equal-power crossfade | a short, level hand-over on the bar line | |
+| L, then L again | The loop: a 2-bar body (4 s) with a 1-bar tail (a crash and a chord); press L again after two or more passes | a steady loop, the tail ringing over the start of each pass and never cut. After the second L, the pass in progress finishes, the tail rings out whole, and the music ends without a click | |
+| 1, then T, then Y | Back to the world in explore; a stinger on the next beat (T) and on the next bar line (Y) | the hit lands on the beat, then on the bar line; the music carries on unchanged under it | |
+| 3, then 2 within a second | A switch that changes its mind: calm is asked for, then combat before the bar line | the music goes to combat on the bar line, and calm is never heard (if your second press comes after the bar line, the spec notes it rather than failing) | |
+| O | Stops | the music stops cleanly | |
+
+**What the spec confirms (not by ear):**
+- **Each change:** the debug row's pending change names the rule that chose it (pair, index, tier, parent `world`; the default rule is `*>*`, tier 4), and the new segment lands on a bar line. The bridge goes through `riser`. The Music bus is audible after each change.
+- **Headless only:** the crossfade overlaps measure 0 s (cut), 1.1 s, 2.0 s and 0.5 s.
+- **Loop exit:** the body's playhead runs past its 4 s loop end after the release (to 5.9 s), so the tail rang out.
+- **Stingers:** each is counted as played.
+- **Counters:** `groupsLate`, `groupsHeld`, `groupsAbandoned`, `maxSlipFrames` and `splitQuanta` are 0 after every change; no errors, no warnings.
+
+**Limit:** headless Chromium has no sound output, so the walker reads the engine's rows, voice playheads and counters, not the signal.
+
 Signed: ________ Date: ________

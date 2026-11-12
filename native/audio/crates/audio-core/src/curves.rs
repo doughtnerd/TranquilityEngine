@@ -26,6 +26,13 @@
 //! interpolation between the two knots (the first frame after a knot already moves; frame `F` is
 //! the first frame after `t0`'s value, so the output at frame `F + j` is the value at `F + j + 1`).
 //!
+//! **Linear knots (F-21).** A linear fade needs no pool entry: its knot is on the line its ramp
+//! already holds, `target − step·remaining` ([`linear_knot`]). At every quantum boundary the voice
+//! loop puts each gain and fade ramp no shaped curve drives back on that line when it has drifted
+//! more than [`LINEAR_DRIFT`] ([`linear_knots`]), so `value += step` drifts one quantum's worth at
+//! most (2^-18 below 1) however long the fade: FADE, a STOP's fade and a SET_PARAMS gain ramp,
+//! stamped or not. Before, a 500 ms crossfade drifted 1.68e-5 and a 5 s fade 1e-3.
+//!
 //! **The pool.** A shaped fade takes an entry linked from the slot's spare byte (`VoiceSlot::reserved`
 //! = entry + 1, R4); a voice holds at most one. A new class G record on the same ramp replaces the
 //! running curve; a shaped record that finds no entry (the pool full, or the voice's link held by a
@@ -380,6 +387,46 @@ pub fn step(pool: &mut [CurveEntry], index: usize, link: &mut u8, fade: &mut Ram
     false
 }
 
+/// F-21: how far a linear ramp may drift from its line before [`linear_knot`] puts it back:
+/// 2^-22 (4 ulps at 1.0). Below it the ramp runs bit for bit as before, so a short fade renders as
+/// it always did; the bound on a long fade's error is this plus one quantum's accumulation.
+pub const LINEAR_DRIFT: f32 = 1.0 / 4_194_304.0;
+
+/// F-21: a linear ramp's knot. A ramp that `set_target` started from `a` to `b` over `N` frames
+/// lies, `r` frames before its end, on `b − (b − a)·r/N`; its `step` is that slope rounded to f32,
+/// so `target − step·remaining` (in f64) is the exact line's value there to within
+/// `2^-24·|b − a|` plus the f32 rounding, whatever the fade's length. `value += step` drifts from
+/// it by a rounding per frame, the same one frame after frame (the 500 ms seam's 1.68e-5); put back
+/// on the line at every quantum boundary, it drifts at most one quantum's worth. The knot depends
+/// only on `target`, `step` and `remaining`, so it is idempotent, and exact for a ramp paused or
+/// split anywhere. A ramp with one frame left lands on `target` anyway.
+#[inline]
+pub fn linear_knot(ramp: &mut Ramp) {
+    if ramp.remaining > 1 {
+        let knot = (ramp.target as f64 - ramp.step as f64 * ramp.remaining as f64) as f32;
+        if (ramp.value - knot).abs() > LINEAR_DRIFT {
+            ramp.value = knot;
+        }
+    }
+}
+
+/// F-21: [`linear_knot`] on slot `index`'s fade and gain ramps at a quantum boundary (the voice
+/// renders from the quantum's first sample), except the ramp a shaped curve drives (`link`, the
+/// slot's spare byte; that curve takes its own knots, [`step`], which runs first) and the ramp
+/// `skip` names: the one a class G record fires on in this render (`DueGain::ramp`). Until it fires
+/// that ramp may still carry the step of a shaped curve [`prepare`] just replaced, which is no line
+/// to its target; the record's `set_target` starts a new one.
+#[inline(never)]
+pub fn linear_knots(pool: &mut [CurveEntry], index: usize, link: u8, skip: Option<u8>, fade: &mut Ramp, gain: &mut Ramp) {
+    let shaped = if link == 0 { None } else { owned(pool, link, index).map(|e| e.ramp) };
+    if shaped != Some(ramp_of::FADE) && skip != Some(ramp_of::FADE) {
+        linear_knot(fade);
+    }
+    if shaped != Some(ramp_of::GAIN) && skip != Some(ramp_of::GAIN) {
+        linear_knot(gain);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -562,6 +609,58 @@ mod tests {
         assert!(!step(&mut p, 0, &mut link, &mut fade, &mut gain, 128));
         assert_eq!(link, 0);
         assert_eq!(fade.remaining, 5, "left alone");
+    }
+
+    /// F-21: a long linear ramp put back on its line at every quantum boundary stays within one
+    /// quantum's drift of it; left alone it drifts with its length.
+    #[test]
+    fn linear_knots_keep_a_long_ramp_on_its_line() {
+        let n = 240_000u32;
+        let line = |k: u32| 1.0 - 0.8 * (k + 1) as f64 / n as f64;
+        let (mut free, mut knotted) = (Ramp::at(1.0), Ramp::at(1.0));
+        free.set_target(0.2, n);
+        knotted.set_target(0.2, n);
+        let (mut e_free, mut e_knot) = (0.0f64, 0.0f64);
+        for k in 0..n {
+            if k % QUANTUM as u32 == 0 {
+                linear_knot(&mut knotted);
+                let once = knotted;
+                linear_knot(&mut knotted);
+                assert_eq!(knotted, once, "idempotent");
+            }
+            e_free = e_free.max((free.next() as f64 - line(k)).abs());
+            e_knot = e_knot.max((knotted.next() as f64 - line(k)).abs());
+        }
+        assert_eq!(knotted.value, 0.2);
+        assert!(e_knot < 2f64.powi(-18) + 2f64.powi(-21), "knotted {e_knot:e}");
+        assert!(e_free > 1e-4, "the drift it fixes ({e_free:e})");
+    }
+
+    #[test]
+    fn linear_knots_leave_shaped_and_firing_ramps_alone() {
+        let mut p = pool();
+        let (mut link, mut full) = (0u8, 0u16);
+        let mut fade = Ramp::at(1.0);
+        let mut gain = Ramp::at(1.0);
+        fade.set_target(0.0, 300);
+        applied(&mut p, 0, 1, &mut link, &mut fade, &fade_record(0.0, 300, false), Shape { law: Law::SCurve, u0: 0.0 }, &mut full);
+        step(&mut p, 0, &mut link, &mut fade, &mut gain, 128);
+        gain.set_target(0.5, 1_000);
+        gain.value += 1e-3; // off its line
+        let shaped = fade;
+        linear_knots(&mut p, 0, link, None, &mut fade, &mut gain);
+        assert_eq!(fade, shaped, "the shaped curve's ramp is its own");
+        assert!((gain.value - (0.5 - gain.step * 1_000.0)).abs() < 1e-7, "the linear one is back on its line");
+        gain.value += 1e-3;
+        let firing = gain;
+        linear_knots(&mut p, 0, link, Some(ramp_of::GAIN), &mut fade, &mut gain);
+        assert_eq!(gain, firing, "a ramp a record fires on in this render is left to it");
+        let mut close = Ramp::at(1.0);
+        close.set_target(0.0, 1_000);
+        close.value += LINEAR_DRIFT / 2.0;
+        let before = close;
+        linear_knot(&mut close);
+        assert_eq!(close, before, "drift under the tolerance: bit for bit as before");
     }
 
     #[test]

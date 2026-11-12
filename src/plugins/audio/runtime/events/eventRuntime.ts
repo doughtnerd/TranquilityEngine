@@ -8,6 +8,7 @@
  * `TsAutomation` on a backend without them.
  */
 
+import type { Component } from "../../../../engine/core/Component";
 import type { Curve } from "../../../../engine/core/curve";
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer } from "../../../../engine/audio/mixer";
@@ -23,6 +24,7 @@ import { loopPointsFor, onLoopPoints } from "../loopPoints";
 import { _resetMusicPlayers, createMusicPlayer, disposeMusicPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "../music/musicSystem";
 import { segmentClipSource, stopPlayerRuns, type StemRun } from "../music/segmentRun";
 import { quantizedRamp } from "../music/stems";
+import { loopTailVoices } from "../music/loopTail";
 import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import {
   AutoTarget, continuousBindings, evaluateQuantized, LOWPASS_OFF, MAX_BINDINGS, MAX_CURVES, MAX_GROUPS, QUANTIZED_RAMP_SECONDS, quantizedBindings, TsAutomation,
@@ -773,6 +775,8 @@ export class EventInstance {
   private pitchOption: number;
   /** ADR 0166 P6: the music player, when the event's root is a segment, playlist or musicSwitch; null for a 0158 event. */
   music: MusicPlayer | null = null;
+  /** ADR 0166 K2: the `AudioSource` that plays this instance, whose node's `onMusic*` hooks hear its music; null for `Audio.play`. */
+  musicSource: Component | null = null;
 
   constructor(
     private readonly sys: EventSystem,
@@ -889,6 +893,8 @@ export class EventInstance {
     }
     // R5: stinger voices count too, so `hasVoices` and the panner/occlusion reads see them.
     for (const e of p.stingers?.sounding ?? []) for (const v of e.voices) out.push(v);
+    // R4a (F-7e): loop tail voices and outgoing runs still ringing past their turn.
+    loopTailVoices(p, out);
     return out;
   }
 
@@ -912,6 +918,12 @@ export class EventInstance {
     if (p.stingers) {
       if (p.stingers.queued.length > 0) return true;
       for (const e of p.stingers.sounding) for (const v of e.voices) if (v.alive ?? v.playing) return true;
+    }
+    // R4a: a ringing loop tail, or an outgoing run's post-exit audio, keeps it alive too.
+    if (p.tails) {
+      const tails: AudioVoice[] = [];
+      loopTailVoices(p, tails);
+      for (const v of tails) if (v.playing) return true;
     }
     return false;
   }

@@ -540,6 +540,14 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
             // boundaries); one byte compare for every other voice, nothing per sample.
             crate::curves::step(v.curves, index, &mut slot.reserved, &mut slot.fade, &mut slot.gain, (QUANTUM - start) as u32);
         }
+        if start == 0 && (slot.fade.remaining | slot.gain.remaining) > 1 {
+            // F-21: a linear fade's knot at each quantum boundary (the gain and fade ramps no shaped
+            // curve drives), so a long linear fade never drifts from its line. The ramp a class G
+            // record fires on in this render is left to it (its `set_target` starts a new line).
+            // One compare for a voice whose ramps are settled (either `remaining` above 1).
+            let skip = if due.at != u32::MAX { Some(due.ramp) } else { None };
+            crate::curves::linear_knots(v.curves, index, slot.reserved, skip, &mut slot.fade, &mut slot.gain);
+        }
         let Some((out_l, out_r)) = inputs.get(slot.bus) else { continue };
         if slot.flags & flag::MIXED != 0 {
             *source_frames += slot.pitch.value * slot.rate_ratio * (to - start) as f32;

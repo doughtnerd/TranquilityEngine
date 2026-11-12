@@ -5,7 +5,8 @@
 //! (`splitQuanta` stays 0), and the output is bit for bit what the core rendered before the hook.
 //!
 //! The digest below was recorded on the flip branch's base (`m4/in-voice` at `92969c11`, before
-//! H1) by this same scene; a change to it is a change to unstamped rendering.
+//! H1) by this same scene; a change to it is a change to unstamped rendering (F-21 made one: see
+//! [`UNSTAMPED_DIGEST`]).
 
 mod common;
 
@@ -126,8 +127,13 @@ fn with_no_due_records_every_voice_renders_in_one_range_bit_identical() {
     assert_eq!(digest, UNSTAMPED_DIGEST, "unstamped rendering changed");
 }
 
-/// Recorded before H1 (see the module comment).
-const UNSTAMPED_DIGEST: u64 = 0xfc25_84c0_769b_5f4b;
+/// Recorded before H1 (see the module comment), as `0xfc25_84c0_769b_5f4b`; re-recorded by F-21,
+/// whose linear knots (`curves::linear_knot`) put the scene's gain and fade ramps back on their
+/// lines at each quantum boundary: their worst error against the exact line at a quantum's end
+/// went from 7.96e-6 to 3.37e-6 (the 1,000-frame fade, 7.96e-6 to 1.70e-6; the 700-frame gain ramp,
+/// 5.99e-6 to 1.23e-6; the 500-frame fade, 4.03e-6 to 1.35e-6; the 400-frame stop, 8.8e-7 to 3.1e-7;
+/// the worst, the 200-frame gain ramp's first quantum, is unchanged).
+const UNSTAMPED_DIGEST: u64 = 0xfadf_8234_65e2_a3c9;
 
 fn stamped(rec: Rec, frame_offset: u32) -> Rec {
     match rec {

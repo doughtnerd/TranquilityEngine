@@ -56,7 +56,7 @@ import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
 import type { AudioSettings, BusEffect } from "../../../../engine/audio/settings";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioPanner, AudioStatus, AudioVoice, FadeLaw, ListenerPose, MusicBackend, PlayRequest, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, FadeLaw, ListenerPose, MusicBackend, PlayRequest, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import {
   BUS_LP_OFF_HZ,
@@ -161,9 +161,10 @@ export interface CoreBackendHost {
   readonly health?: HostHealth;
   /**
    * ADR 0166 §1.3, §1.5 (Rh1 implements it in `context.ts`): the context's `baseLatency` and `outputLatency`, seconds, as
-   * read back after creation (0 where the browser reports none). Absent: both 0.
+   * read back after creation (0 where the browser reports none), and the host's `reliable` rule (§4.6; absent: the
+   * range check alone). Absent: both 0.
    */
-  latency?(): { readonly base: number; readonly output: number };
+  latency?(): { readonly base: number; readonly output: number; readonly reliable?: boolean };
 }
 
 /** What `createCoreBackend` takes beyond the host (tests inject fakes). */
@@ -595,7 +596,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const stream = req.stream === true;
     // ADR 0166 (Q2): a streamed group member plays the stream musicOps allocated and primed (P1).
     const member = req.music;
-    const clip = stream ? (member?.stream ?? this.streams.allocate()) : this.clips.acquire(req.path, world);
+    const clip = stream ? (member?.stream ?? this.streams.allocate()) : this.acquireClip(req, world);
     const bus = this.busIndex(req.bus);
     const priority = req.priority ?? 128;
     // A3.4a: while a hard rebuild runs, new plays wait in the locked queue and start once the new core is up.
@@ -1050,6 +1051,34 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     return info ? { frames: info.frames, rate: info.sampleRate, channels: info.channels, gapless: true } : undefined;
   }
 
+  /** A clip voice's registry reference: the whole clip, or (C14, R4a) its decoded span when the request names one. */
+  private acquireClip(req: CorePlayRequest, world: number): number {
+    const span = req.span;
+    if (span && this.clips.acquireSpan) return this.clips.acquireSpan(req.path, span.startFrame, span.endFrame, world);
+    return this.clips.acquire(req.path, world);
+  }
+
+  /** ADR 0166 C14 (R4a): a reference to the decoded span `[startFrame, endFrame)` of `path`, so a later play of it starts on its stamp. */
+  holdSpan(path: string, startFrame: number, endFrame: number): ClipSpanHold {
+    const clips = this.clips;
+    if (!clips.acquireSpan) return { state: "failed", failure: "refusedSpan", release: () => {} };
+    let id = clips.acquireSpan(path, startFrame, endFrame);
+    return {
+      get state() {
+        if (id === 0) return "failed";
+        const st = clips.state(id);
+        return st === "ready" ? "ready" : st === "failed" ? "failed" : "loading";
+      },
+      get failure() {
+        return id === 0 ? null : (clips.info(id)?.failure ?? null);
+      },
+      release() {
+        if (id !== 0) clips.release(id);
+        id = 0;
+      },
+    };
+  }
+
   /** ADR 0166 (P8): the file at `path` was edited: the registry's clips of it and the worker's encoded music bytes are dropped; the next use loads the new file. */
   invalidateClip(path: string): void {
     this.clips.invalidate?.(path);
@@ -1113,7 +1142,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const base = ctx && Number.isFinite(ctx.base) ? Math.max(0, ctx.base) : 0;
     const output = ctx && Number.isFinite(ctx.output) ? Math.max(0, ctx.output) : 0;
     const limiter = this.clockMap.outputLatencyFrames / this.clockMap.sampleRate;
-    return { base, output, limiter, total: base + output + limiter, reliable: output > 0 && output < 0.5 };
+    return { base, output, limiter, total: base + output + limiter, reliable: output > 0 && output < 0.5 && ctx?.reliable !== false };
   }
 
   // --- Voice operations (`Voice` calls these) ---
@@ -2006,6 +2035,8 @@ export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): 
     },
     addLifecycleListener: (listener) => host.addLifecycleListener(listener),
     health: host.health,
+    // ADR 0166 §4.6 (Rh1): the current context's latency read-back and its `reliable` rule.
+    latency: () => host.latency(),
   };
   const backend = new CoreBackend(backendHost, { ...deps, clips, warnOnce, clock: deps.clock ?? browserHostClock(() => host.context) });
   attachBackground(backend, host);

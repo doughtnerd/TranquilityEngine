@@ -21,3 +21,7 @@ The same script writes `../audio/events/` (23 files, about 1.3 MB), the clips of
 - `music-{pad,pulse,lead}.wav`: 24 kHz, 4 s, 120 bpm in A minor, the same length so the layers stay in time. The pad is always on; Intensity fades the pulse and the lead in.
 
 What the page does, and what to listen for, is in the comments of `scripts/behaviors/Footsteps.ts`, `EngineBench.ts` and `MusicIntensity.ts`. Press E in the main scene to open it, B to come back.
+
+## Music page clips
+
+`../audio/music/` (9 clips, about 1.46 MB, mono 16-bit, 22.05 kHz) holds the stems of the music page (key M on the tour page, `scenes/music.scene.json`, `scripts/behaviors/MusicLab.ts`). They are written by `tools/makeMusic.mjs` at the repository root, not by `makeTones.mjs` (`node tools/makeMusic.mjs`; `--check` tells whether the files are current; `node --test tools/makeMusic.test.mjs` tests it). Every clip is on one grid, 120 bpm in 4/4 (a bar is 2 s), so any segment can follow any other. The three `*.audioevent.json` files beside them are hand-written to the format in `docs/guide/interactive-music.md`: `music-world` (a switch on State with a rule for every pair, a bridge and two stingers), `music-loop` (a loop region with a tail that loops while Loop is hold) and `music-playlist`.

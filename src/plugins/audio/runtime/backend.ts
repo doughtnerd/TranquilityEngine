@@ -448,6 +448,23 @@ export interface PlayRequest {
   // ADR 0166 (contract Q0). Optional; a backend without music ignores it.
   /** §4.1 `fadeZero`: the voice starts with its `fade` ramp at 0, silent until a stamped fade opens it. */
   fadeZero?: boolean;
+  /**
+   * C14 (R4a): play only the span `[startFrame, endFrame)` of the file (frames at the file's own rate), decoded as its
+   * own clip (a loop tail). Decoded clips only; a backend without span clips (`holdSpan` absent) ignores it.
+   */
+  span?: { startFrame: number; endFrame: number };
+}
+
+/**
+ * C14 (R4a): a reference to a decoded span clip, taken ahead of its plays so the span is resident when a voice is
+ * stamped on it (`AudioBackend.holdSpan`). A refused span (bad range, over 30 s, over the clip ceiling) reads `failed`.
+ */
+export interface ClipSpanHold {
+  readonly state: "loading" | "ready" | "failed";
+  /** Why it failed (`refusedSpan`, `refusedCeiling`, `fetch`, `decode`, ...), null otherwise. */
+  readonly failure: string | null;
+  /** Drop the reference (once; later calls do nothing). Voices playing the span keep their own. */
+  release(): void;
 }
 
 /**
@@ -593,6 +610,11 @@ export interface AudioBackend {
   invalidateClip?(path: string): void;
   /** ADR 0158: the earliest audio-clock time (`time`'s base) a play with `at` lands on exactly, for gapless chains. */
   horizon?(): number;
+  /**
+   * ADR 0166 C14 (R4a): hold the decoded span `[startFrame, endFrame)` of the asset at `path` (frames at its own rate)
+   * so a play with `PlayRequest.span` finds it resident. Absent: no span clips (no loop tails).
+   */
+  holdSpan?(path: string, startFrame: number, endFrame: number): ClipSpanHold;
 
   // ADR 0166 (contract Q0). Optional: a backend without the feature leaves them out.
   /** §4.6, C10: the music operations; absent: no music. */

@@ -15,7 +15,8 @@ import { stemMode, type MusicClipFacts } from "../../../../engine/audio/musicVal
 import type { MusicFrame, MusicNodeRef, MusicPlayer } from "./musicSystem";
 import type { EventOptions } from "../events/eventRuntime";
 import { audioBackend } from "../backend";
-import { applySlip, simpleLoopOf, type MemberLoop } from "./anchors";
+import { applySlip, firstLoopOf, type MemberLoop } from "./anchors";
+import { stopLoopTails } from "./loopTail";
 
 /** The highest music group id (§3.2: ids 1..1023). */
 export const MAX_MUSIC_GROUP_ID = 1023;
@@ -169,7 +170,7 @@ export function groupRequest(player: MusicPlayer, run: SegmentRun): MusicGroupRe
   for (const s of run.stems) {
     const t = tracks.find((x) => x.name === s.track);
     const settings = clipSource.settings(s.clip);
-    const loop = memberLoop(run.node, s.clip);
+    const loop = memberLoop(run, s.clip);
     const play: PlayRequest = {
       path: s.clip,
       url: clipSource.url(s.clip),
@@ -197,11 +198,22 @@ function clipRate(clip: string): number {
 }
 
 /**
- * P3: the member's loop when the segment is a simple forever loop (`simpleLoopOf`: one region, `count: 0`, no
- * `while`), in file frames of the clip's own rate; null otherwise (R4a/R4b's counted and `while` regions).
+ * P3, R4a: the member's first loop, in file frames of the clip's own rate: the region of the first wrap ahead of the
+ * run's start frame (`firstLoopOf`: a forever or counted region, or a `while` region by its count); null when nothing
+ * wraps. `loopTail.ts` moves the members on to the next region, or releases them, as the passes are used up.
  */
-function memberLoop(node: MusicNodeRef, clip: string): MemberLoop | null {
-  return simpleLoopOf(node, clipRate(clip));
+function memberLoop(run: SegmentRun, clip: string): MemberLoop | null {
+  const rate = clipRate(clip);
+  return firstLoopOf(run.node, rate, run.startFrame * (rate / runRate(run)));
+}
+
+/** The rate a run's `startFrame` is in: its first stem's (as `anchors.ts`). */
+function runRate(run: SegmentRun): number {
+  for (const s of run.stems) {
+    const r = clipSource.facts(s.clip)?.rate;
+    if (r !== undefined && r > 0) return r;
+  }
+  return 48_000;
 }
 
 /**
@@ -212,7 +224,7 @@ function memberLoop(node: MusicNodeRef, clip: string): MemberLoop | null {
 function loopDecodedMembers(run: SegmentRun, f: MusicFrame): void {
   for (const s of run.stems) {
     if (s.streamed || !s.voice) continue;
-    const loop = memberLoop(run.node, s.clip);
+    const loop = memberLoop(run, s.clip);
     if (!loop || loop.wholeFile) continue;
     const rate = clipRate(s.clip);
     const start = loop.startFrame / rate, end = loop.endFrame / rate;
@@ -332,7 +344,8 @@ export function cancelRun(run: SegmentRun, f: MusicFrame): void {
 
 /**
  * P1: stop every stem of the player with one in-voice fade stamped at now plus the lookahead (`handle.stop(fade)`,
- * §1.2: not grid-quantised, allowed in rhythm mode; R19: no music record is asap).
+ * §1.2: not grid-quantised, allowed in rhythm mode; R19: no music record is asap). R4a: its ringing loop tails and
+ * outgoing runs too.
  */
 export function stopPlayerRuns(player: MusicPlayer, fadeSeconds: number, f: MusicFrame): void {
   const at = Math.max(f.now, f.backend.horizon?.() ?? f.now);
@@ -351,6 +364,7 @@ export function stopPlayerRuns(player: MusicPlayer, fadeSeconds: number, f: Musi
     }
     run.state = "ending";
   }
+  stopLoopTails(player, seconds, at); // R4a: loop tails and outgoing runs still ringing stop with the same fade
 }
 
 /** What the router reads of the core backend's clock map (absent on other backends). */

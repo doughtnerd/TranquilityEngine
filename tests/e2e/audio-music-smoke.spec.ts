@@ -1,5 +1,5 @@
 import { expect, type Page, play, test } from "./fixtures";
-import { bootSample, musicRows, readLate } from "./audioMusic";
+import { bootSample, musicRows, peakOver as peakOverMusic, readLate } from "./audioMusic";
 
 // M4 smoke (ADR 0166/0167, plan task S0): the milestone's path in the real app, through the Sound Lab sample. One playing
 // voice gets a stamped, shaped fade (`AudioVoice.fadeShaped` with `at`: a FADE with a frame offset) and a spatial one-shot
@@ -150,6 +150,49 @@ test("M4a smoke: a segment starts and its group reports start", async ({ page })
   const row = (await musicRows(page)).find((r) => r.asset.includes("music-intensity"))!;
   expect(row.segment).toBe("intensity");
   expect(row.groups.map((g) => ({ state: g.state, primed: g.primed, of: g.of }))).toEqual([{ state: "playing", primed: 3, of: 3 }]);
+  const late = await readLate(page);
+  expect(late, "no group late, held or abandoned; no slip; no split").toEqual({ groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0 });
+  expect(errors).toEqual([]);
+});
+
+// M4b smoke (E2): the Sound Lab's music page (SM2; key M on the tour). A state key changes the world switch on a bar line by the
+// rule for the pair and the debug row names that rule, a stinger plays over the music, and the core's counters stay clean. The
+// page's clips are decoded by silent one-shots first: a segment's first play, with its clips never decoded, ends at its first
+// loop end (the fixme in audio-music-b.spec.ts). The full M4b path is audio-music-b.spec.ts.
+test("M4b smoke: a state key changes the music on a bar by the named rule, and a stinger plays over it", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await bootSample(page, LAB);
+  await page.evaluate(() => {
+    const { Audio } = (globalThis as unknown as { __myco: Api }).__myco;
+    for (const c of ["bridge-riser", "calm-bells", "calm-pad", "combat-bass", "combat-drums", "explore-arp", "explore-pad", "loop-body", "stinger-hit"]) Audio.playOneShot(`audio/music/${c}.wav`, { volume: 0.0001, bus: "UI" });
+  });
+  await page.waitForTimeout(2_500);
+  await page.keyboard.press("m");
+  const world = async () => (await musicRows(page)).find((r) => r.asset.includes("music-world"));
+  await expect.poll(async () => (await world())?.state, { timeout: 30_000, message: "the world switch plays" }).toBe("playing");
+  expect((await world())!.segment).toBe("explore");
+  await page.keyboard.press("2");
+  let rule: { to: string; ruleKey: string; rule: number; tier: number } | null = null;
+  await expect
+    .poll(
+      async () => {
+        const row = await world();
+        if (row?.pending) rule = { to: row.pending.to, ruleKey: row.pending.ruleKey, rule: row.pending.rule, tier: row.pending.tier };
+        return row?.segment;
+      },
+      { timeout: 20_000, intervals: [50], message: "the change to combat lands" },
+    )
+    .toBe("combat");
+  expect(rule, "the row named the rule that chose the change").toEqual({ to: "combat", ruleKey: "explore>combat", rule: 0, tier: 1 });
+  await expect.poll(async () => (await world())?.pending ?? null, { timeout: 10_000 }).toBeNull();
+  await page.keyboard.press("t");
+  await expect.poll(async () => (await world())?.stingers.played, { timeout: 10_000, message: "the stinger is played" }).toBe(1);
+  expect((await world())!.segment, "the music carries on").toBe("combat");
+  expect(await peakOverMusic(page, "Music", 600), "the Music bus is audible").toBeGreaterThan(0.01);
   const late = await readLate(page);
   expect(late, "no group late, held or abandoned; no slip; no split").toEqual({ groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0 });
   expect(errors).toEqual([]);

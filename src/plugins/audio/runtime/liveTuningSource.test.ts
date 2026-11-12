@@ -16,6 +16,7 @@ import { voiceIndex } from "./core/ids";
 import { VoiceFlag2 } from "./core/voiceTable";
 import { mixer } from "../../../engine/audio/mixer";
 import { makeFakeBackend } from "./testing";
+import { PLAY_FLAGS_SPATIAL } from "./wire.generated";
 
 let world: World;
 const system = AUDIO_SYSTEMS[0]!;
@@ -256,6 +257,50 @@ describe("AudioSource M3 fields reach the core's voice table on the next frame",
     src.ambisonicYaw = -180;
     frame();
     expect(core.table.yaw[i]).toBeCloseTo(Math.PI, 5);
+  });
+});
+
+// F-22: with its clip resident (every play after the first), the core sends a voice's PLAY inside `backend.play`, and a
+// voice can't turn spatial on the core after its PLAY. A spatial source must start with its position and attenuation in
+// the request, or its replays play flat while main reports them as panned (HRTF).
+describe("a spatial AudioSource starts spatial on the core when its clip is resident (F-22)", () => {
+  it("every PLAY carries the spatial flag, the distance gain and the direction, the replays too", () => {
+    const core = useCore();
+    const plays: { flags: number; gain: number; dir: number[] }[] = [];
+    const write = core.writer.play.bind(core.writer);
+    core.writer.play = (a, at) => {
+      plays.push({ flags: a.flags, gain: a.gain, dir: [a.dirX, a.dirY, a.dirZ] });
+      write(a, at);
+    };
+    const src = spatialSource({ minDistance: 1, maxDistance: 30 }); // 3 m to the right of the listener
+    frame();
+    for (let k = 0; k < 3; k++) {
+      src.play();
+      frame();
+      src.stop();
+      frame();
+    }
+    expect(plays).toHaveLength(3);
+    for (const p of plays) {
+      expect(p.flags & PLAY_FLAGS_SPATIAL).toBe(PLAY_FLAGS_SPATIAL);
+      expect(p.gain).toBeCloseTo(1 / 3, 5); // inverse distance at 3 m from a 1 m minDistance
+      expect(Math.abs(p.dir[0]!)).toBeCloseTo(1, 5); // to the side, not the flat default (0, 0, -1)
+    }
+  });
+
+  it("a flat source's PLAY stays flat", () => {
+    const core = useCore();
+    const flags: number[] = [];
+    const write = core.writer.play.bind(core.writer);
+    core.writer.play = (a, at) => {
+      flags.push(a.flags);
+      write(a, at);
+    };
+    const src = spatialSource({ spatial: false });
+    src.play();
+    frame();
+    expect(flags).toHaveLength(1);
+    expect(flags[0]! & PLAY_FLAGS_SPATIAL).toBe(0);
   });
 });
 

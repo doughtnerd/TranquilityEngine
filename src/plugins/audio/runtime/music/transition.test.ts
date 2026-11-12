@@ -14,6 +14,7 @@ import type { MusicClipFacts } from "../../../../engine/audio/musicValidate";
 import { _resetMusicPlayers, createMusicPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
 import { _resetSegmentRuns, setSegmentClipSource } from "./segmentRun";
 import { planTick, requestStart } from "./planner";
+import { tickPlaylist } from "./playlist";
 import { cancelTransition, planImmediate, requestTransition, tickTransition, type Transition } from "./transition";
 
 const RATE = 48_000;
@@ -326,17 +327,19 @@ describe("R3a: planImmediate (H5)", () => {
     const t = planImmediate(player, child(r, "A"), 96_000, 5, at(2))!;
     expect(t.state).toBe("pending");
     const p = t.incoming!;
-    expect(p.at).toBeCloseTo(2.1, 9); // streamed: lead 1.25 x 40 ms + L + Δ̄ = 100 ms
+    // Streamed: lead 1.25 x 40 ms + L + Δ̄ = 100 ms, and an asap start's frame of slack (Δ̄, F-25).
+    const T = 2.1 + DT;
+    expect(p.at).toBeCloseTo(T, 9);
     expect(p.run.startFrame).toBe(96_000);
     expect(b.music!.admitted.at(-1)!.members[0]!.startFrame).toBe(96_000);
     b.music!.setPrimed(p.run.group);
     tick(player, 2.02);
     const stamp = b.music!.stamps.at(-1)!;
-    expect(stamp.at).toBeCloseTo(2.1, 9);
-    expect(stamp.fades![1]!.fade).toEqual({ to: 1, seconds: 0.005, law: "equalPowerIn", at: expect.closeTo(2.1, 9) });
-    runFrames(player, 2.02 + DT, 2.09);
-    tick(player, 2.1);
-    for (const x of fades) expect(x.fade).toEqual({ to: 0, seconds: 0.005, law: "equalPowerOut", at: expect.closeTo(2.1, 9), stopAtEnd: true });
+    expect(stamp.at).toBeCloseTo(T, 9);
+    expect(stamp.fades![1]!.fade).toEqual({ to: 1, seconds: 0.005, law: "equalPowerIn", at: expect.closeTo(T, 9) });
+    runFrames(player, 2.02 + DT, T - DT);
+    tick(player, T);
+    for (const x of fades) expect(x.fade).toEqual({ to: 0, seconds: 0.005, law: "equalPowerOut", at: expect.closeTo(T, 9), stopAtEnd: true });
     expect(fades).toHaveLength(2);
     expect(player.run?.startFrame).toBe(96_000);
     expect(player.transition).toBeNull();
@@ -348,5 +351,249 @@ describe("R3a: planImmediate (H5)", () => {
     const player = createMusicPlayer(instance(), r);
     expect(planImmediate(player, child(r, "A"), 0, 5, at(1))).toBeNull();
     expect(requestTransition(player, child(r, "A"), at(1))).toBeNull();
+  });
+});
+
+// --- R3b ----------------------------------------------------------------------------------------------------------------
+
+/** Clips whose name `short` picks are 10 s (decoded, no ring); the rest 120 s (streamed). */
+function clipFacts(short: (clip: string) => boolean): void {
+  setSegmentClipSource({
+    url: (p) => p, settings: () => ({ volume: 1, stream: true }), bus: (o) => o ?? "Master",
+    facts: (clip) => (short(clip) ? { frames: 10 * RATE, rate: RATE, channels: 2, gapless: true } : long()),
+  });
+}
+
+/** The bridge R: its exit cue at bar 2 (2 s after its start). */
+const bridgeSeg = (): Raw => ({ type: "segment", id: "R", tracks: [{ name: "t0", clip: "music/R0.ogg" }, { name: "t1", clip: "music/R1.ogg" }], cues: [{ name: "out", at: "2:1:0" }], exit: "out" });
+
+/** A switch over A, B, C with a library holding R and the rule A to B through R. */
+function bridged(rule: Raw = {}): MusicSwitchNode {
+  const { value } = parseAudioEvent({
+    format: "myco.audioevent@1", bus: "Music",
+    root: {
+      type: "musicSwitch", id: "sw", parameter: "zone", children: [seg("A"), seg("B"), seg("C")], library: [bridgeSeg()],
+      transitions: [{ from: "A", to: "B", exit: "bar", fadeOut: { beats: 1 }, fadeIn: { beats: 1 }, bridge: { segment: "R", fadeOut: { beats: 2 } }, ...rule }],
+    },
+  });
+  return value.musicRoot as MusicSwitchNode;
+}
+
+describe("R3b: bridges", () => {
+  it("A → bridge → B: the bridge on A's bar with the rule's fades, B on the bridge's exit cue with the bridge leg's fades", () => {
+    rig(); // every stem streamed (the fake only plays the voices of a group it was asked to prime)
+    const r = bridged();
+    const player = playing(r);
+    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    expect(t.state).toBe("pending");
+    expect(t.bridge?.run.node.id).toBe("R");
+    expect(t.bridge?.point).toBeCloseTo(3.1, 9);
+    expect(t.incoming).toBeNull();
+    expect(t.exitAt).toBeCloseTo(3.1, 9);
+
+    // The bridge primed: stamped with a silent start and the rule's 1-beat fade-in; B is asked.
+    b.music!.setPrimed(t.bridge!.run.group);
+    tick(player, 1.6);
+    expect(t.state).toBe("stamped");
+    const rs = b.music!.stamps.at(-1)!;
+    expect(rs.group).toBe(t.bridge!.run.group);
+    expect(rs.fades![1]!.fade).toEqual({ to: 1, seconds: expect.closeTo(0.5, 9), law: "equalPowerIn", at: expect.closeTo(3.1, 9) });
+    expect(t.incoming?.run.node.id).toBe("B");
+    expect(t.incoming?.point).toBeCloseTo(5.1, 9);
+    expect(t.cancelBy).toBeCloseTo(3.1 - L, 9);
+
+    // B primed: stamped at the bridge's exit cue, silent, then the rule's fade-in (the bridge sets none).
+    b.music!.setPrimed(t.incoming!.run.group);
+    tick(player, 1.7);
+    const bs = b.music!.stamps.at(-1)!;
+    expect(bs.group).toBe(t.incoming!.run.group);
+    expect(bs.at).toBeCloseTo(5.1, 9);
+    expect(bs.fades![1]!.fade).toEqual({ to: 1, seconds: expect.closeTo(0.5, 9), law: "equalPowerIn", at: expect.closeTo(5.1, 9) });
+
+    // Leg 1's cancel point: A fades out over the rule's beat at T1.
+    const aVoices = voicesOf(player, "A");
+    runFrames(player, 1.7 + DT, 3.1 - L - DT + 1e-6);
+    expect(t.state).toBe("running");
+    expect(fades.map((x) => x.voice)).toEqual(aVoices);
+    for (const x of fades) expect(x.fade).toEqual({ to: 0, seconds: expect.closeTo(0.5, 9), law: "equalPowerOut", at: expect.closeTo(3.1, 9), stopAtEnd: true });
+
+    // T1: the bridge plays; the transition is bridging toward T2.
+    tick(player, 3.1);
+    expect(t.state).toBe("bridging");
+    expect(player.run?.node.id).toBe("R");
+    expect(player.anchor?.segment).toBe("R");
+    expect(player.state).toBe("transitioning");
+    expect(t.exitAt).toBeCloseTo(5.1, 9);
+    expect(player.transition).toBe(t);
+
+    // Leg 2's cancel point: the bridge fades out over its own 2 beats (1 s) at T2.
+    fades = [];
+    const rVoices = player.run!.stems.map((s) => s.voice!);
+    runFrames(player, 3.1 + DT, 5.1 - L - DT + 1e-6);
+    expect(fades.map((x) => x.voice)).toEqual(rVoices);
+    for (const x of fades) expect(x.fade).toEqual({ to: 0, seconds: expect.closeTo(1, 9), law: "equalPowerOut", at: expect.closeTo(5.1, 9), stopAtEnd: true });
+
+    tick(player, 5.1);
+    expect(t.state).toBe("done");
+    expect(player.transition).toBeNull();
+    expect(player.state).toBe("playing");
+    expect(player.run?.node.id).toBe("B");
+    expect(player.next?.node.id).toBe("R");
+  });
+
+  it("before the cancel point a newer target replaces it: the bridge's group and B's plan are cancelled, A untouched", () => {
+    rig();
+    clipFacts((c) => c.includes("/R"));
+    const r = bridged();
+    const player = playing(r);
+    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    tick(player, 1.6);
+    const bridgeGroup = t.bridge!.run.group;
+    const bGroup = t.incoming!.run.group;
+    const tc = requestTransition(player, child(r, "C"), at(2))!;
+    expect(t.state).toBe("cancelled");
+    expect(b.music!.cancelled).toEqual(expect.arrayContaining([bridgeGroup, bGroup]));
+    expect(player.transition).toBe(tc);
+    expect(tc.bridge).toBeNull();
+    expect(fades).toEqual([]);
+  });
+
+  it("pool full keeps A: B still refused at the bridge's cancel point drops the change with one warning", () => {
+    rig();
+    clipFacts((c) => c.includes("/R"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const r = bridged();
+    const player = playing(r);
+    const causes: string[] = [];
+    const t = requestTransition(player, child(r, "B"), at(1.5), { onDropped: (c) => causes.push(c) })!;
+    b.music!.admitResult = { ok: false, reason: "poolFull", permanent: false };
+    tick(player, 1.6);
+    expect(t.state).toBe("stamped");
+    expect(player.planned?.status).toBe("waiting");
+    runFrames(player, 1.6 + DT, 3.1 - L - DT + 1e-6);
+    expect(t.state).toBe("cancelled");
+    expect(t.cause).toBe("poolFull");
+    expect(causes).toEqual(["poolFull"]);
+    expect(b.music!.cancelled).toContain(t.bridge!.run.group);
+    expect(player.planned).toBeNull();
+    expect(player.transition).toBeNull();
+    expect(player.run?.node.id).toBe("A");
+    expect(player.state).toBe("playing");
+    expect(fades).toEqual([]);
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes("pool full"))).toHaveLength(1);
+    runFrames(player, 3.1 - L, 3.3);
+    expect(player.run?.node.id).toBe("A");
+  });
+
+  it("a permanent refusal of B drops the change as soon as the bridge is stamped; A plays on", () => {
+    rig();
+    clipFacts((c) => c.includes("/R"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const r = bridged();
+    const player = playing(r);
+    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    b.music!.admitResult = { ok: false, reason: "poolFull", permanent: true };
+    tick(player, 1.6);
+    expect(t.state).toBe("cancelled");
+    expect(t.cause).toBe("refused");
+    expect(b.music!.cancelled).toContain(t.bridge!.run.group);
+    expect(player.run?.node.id).toBe("A");
+    expect(player.state).toBe("playing");
+  });
+
+  it("a streamed bridge with room for B once A's rings return commits, and asks for B when A's voices end", () => {
+    rig();
+    clipFacts(() => false); // everything streamed: A 2 rings, R 2, B 2, in a pool of 4
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    b.music!.ringPool = 4;
+    const r = bridged();
+    const player = playing(r);
+    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    expect(t.bridge?.point).toBeCloseTo(3.1, 9);
+    b.music!.setPrimed(t.bridge!.run.group);
+    b.music!.admitResult = { ok: false, reason: "poolFull", permanent: false };
+    tick(player, 1.6);
+    expect(player.planned?.status).toBe("waiting");
+    runFrames(player, 1.6 + DT, 3.1 - L - DT + 1e-6);
+    expect(t.state).toBe("running"); // A's fade (over at 3.6) + a STATUS + B's 100 ms lead fit before B's 5.1
+    expect(fades).toHaveLength(2);
+    runFrames(player, 3.1 - L, 3.7);
+    expect(t.state).toBe("bridging");
+    b.music!.admitResult = { ok: true };
+    for (const v of t.outgoing!.stems) (v.voice as unknown as { end(): void }).end();
+    tick(player, 3.7 + DT);
+    expect(player.planned?.status).toBe("priming");
+    expect(t.incoming?.point).toBeCloseTo(5.1, 9);
+    b.music!.setPrimed(t.incoming!.run.group);
+    runFrames(player, 3.7 + 2 * DT, 5.1);
+    expect(t.state).toBe("done");
+    expect(player.run?.node.id).toBe("B");
+  });
+
+  it("a streamed bridge too short for B to prime after A's rings return is refused (the degrade): A plays on", () => {
+    rig();
+    clipFacts(() => false);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    b.music!.ringPool = 4;
+    // A 4-beat fade-out: A's rings come back at 5.1, B's start.
+    const r = bridged({ fadeOut: { beats: 4 } });
+    const player = playing(r);
+    const t = requestTransition(player, child(r, "B"), at(1.5))!;
+    b.music!.setPrimed(t.bridge!.run.group);
+    b.music!.admitResult = { ok: false, reason: "poolFull", permanent: false };
+    tick(player, 1.6);
+    runFrames(player, 1.6 + DT, 3.1 - L - DT + 1e-6);
+    expect(t.state).toBe("cancelled");
+    expect(t.cause).toBe("poolFull");
+    expect(player.run?.node.id).toBe("A");
+  });
+});
+
+describe("R3b: target resolution and natural advances", () => {
+  it("a playlist target starts the item its order picks first (P4's enterPlaylist)", () => {
+    rig();
+    const r = root([], [seg("A"), { type: "playlist", id: "P", value: "P", children: [seg("C"), seg("D")] }]);
+    const player = playing(r);
+    const t = requestTransition(player, child(r, "P"), at(1.5))!;
+    expect(t.incoming?.run.node.id).toBe("C");
+    expect(t.match.ruleKey).toBe("*>*");
+  });
+
+  /** A playlist root over A and B (exit cues at bar 2) with `transitions`; frames prime every group. */
+  function playlistRun(transitions: Raw[]) {
+    const short = (id: string): Raw => ({ ...seg(id), cues: [{ name: "out", at: "2:1:0" }], exit: "out" });
+    const { value } = parseAudioEvent({ format: "myco.audioevent@1", bus: "Music", root: { type: "playlist", id: "p", mode: "sequence", children: [short("A"), short("B")], transitions } });
+    const player = createMusicPlayer(instance(), value.musicRoot as MusicNode);
+    for (let now = 1; now <= 4; now += DT) {
+      for (const a of b.music!.admitted) b.music!.setPrimed(a.group);
+      tickPlaylist(player, at(now));
+      tickTransition(player, at(now));
+      planTick(player, at(now));
+    }
+    const stampOf = (id: string) => {
+      const g = b.music!.admitted.find((a) => a.members[0]!.play.path === `music/${id}0.ogg`)!.group;
+      return b.music!.stamps.find((s) => s.group === g)!;
+    };
+    return { player, stampOf };
+  }
+
+  it("a natural advance goes through the transition and applies the rule's fade-in at the exit cue", () => {
+    rig();
+    const { player, stampOf } = playlistRun([{ from: "A", to: "B", exit: "beat", fadeIn: { beats: 1, curve: "linear" } }]);
+    const a = stampOf("A"), s = stampOf("B");
+    expect(s.at).toBeCloseTo(a.at + 2, 9); // A's exit cue (the rule's beat exit is ignored)
+    expect(s.fades![0]!.fade).toEqual({ to: 0, seconds: 0, law: "linear", at: s.at });
+    expect(s.fades![1]!.fade).toEqual({ to: 1, seconds: expect.closeTo(0.5, 9), law: "linear", at: expect.closeTo(s.at, 9) });
+    expect(fades).toEqual([]); // at the exit cue A's tail rings on, unfaded
+    expect(player.run?.node.id).toBe("B");
+    expect(player.playlist?.current?.id).toBe("B");
+  });
+
+  it("with no rule written (the default rule) a natural advance stays gapless: no fades either side", () => {
+    rig();
+    const { player, stampOf } = playlistRun([]);
+    expect(stampOf("B").fades).toBeUndefined();
+    expect(fades).toEqual([]);
+    expect(player.run?.node.id).toBe("B");
   });
 });

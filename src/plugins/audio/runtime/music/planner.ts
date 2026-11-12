@@ -9,8 +9,9 @@
  *   has one, else L / 2 (exact while L is the unclamped 2 Δ̄, as at 60 Hz).
  * - **Grid point:** the first point of the rule's `exit` kind (`PlanRequest.points`, else the playing segment's grid
  *   through its anchor) with T - preEntry ≥ now + lead and the outgoing fade start ≥ now + L; `immediate` takes
- *   now + lead exactly; the first segment anchors the grid at its earliest stampable frame ≥ `Audio.play`'s `at`
- *   (closer than the lead: now + lead with one warning).
+ *   now + lead plus one frame of slack (Δ̄; two when planned after this frame's step 9, F-25: `slackOf`); the first
+ *   segment anchors the grid at its earliest stampable frame ≥ `Audio.play`'s `at` (closer than the lead: now + lead
+ *   with one warning).
  * - **Deadline:** every member primed in its epoch and T_start ≥ F_now + L: stamp now; not primed and
  *   T_start < F_now + L + Δ̄ (or primed but already inside L): re-plan. The rule's own kind picks the next point; when
  *   the prime so far took more than half the gap it aims at the point after next; a start frame that moved with T
@@ -28,7 +29,7 @@ import {
 } from "../../../../engine/audio/musicGrid";
 import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import { segmentRingNeed } from "../../../../engine/audio/musicValidate";
-import { musicPlayers, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
+import { musicPlayers, planStepDone, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
 import { anchorRun } from "./anchors";
 import {
   cancelRun, createSegmentRun, groupRequest, pollPrimed, primeRun, segmentClipSource, stampRun, type SegmentRun,
@@ -215,6 +216,26 @@ function onGrid(p: PlannedStart): boolean {
   return !p.first && p.request.grid !== "immediate";
 }
 
+/**
+ * F-25: a "now + lead" plan after the first (a seek, an `immediate` exit, a playlist's immediate start, a bridge's
+ * fallback). Every other start is stamped as soon as it is primed, a beat or more ahead of its point; these are the
+ * starts stamped right at the horizon, so they alone keep the stamp slack below.
+ */
+function asap(p: PlannedStart): boolean {
+  return !p.first && p.request.grid === "immediate";
+}
+
+/**
+ * F-25: the slack an `asap` start keeps over F_now + L, seconds: one display frame (Δ̄). L is clamp(2 Δ̄, 1,024 frames,
+ * 100 ms): below 20 frames a second it is less than two frame intervals (one at the e2e cap of 10), so a group stamped
+ * at F_now + L exactly had no margin for its BATCH reaching the core late (a main or audio thread hitch, or a render
+ * lead the clock map hasn't caught up with), and the core's gate started it late, with a slip (C2b). The grid starts
+ * never had the problem: they are stamped a beat or more early.
+ */
+function slackOf(p: PlannedStart, f: MusicFrame): number {
+  return asap(p) ? frameIntervalSeconds(f) : 0;
+}
+
 // --- Per-instance warnings and counters --------------------------------------------------------------------------------
 
 const warned = new WeakMap<MusicPlayer, Set<string>>();
@@ -386,7 +407,11 @@ function place(player: MusicPlayer, p: PlannedStart, f: MusicFrame, after: numbe
   const L = lookaheadSeconds(f);
   const lead = leadFor(p.run, f);
   const preEntry = Math.max(0, req.preEntry ?? 0);
-  const earliest = Math.max(f.now + lead + preEntry, f.now + L + Math.max(0, req.fadeLead ?? 0));
+  // F-25: an asap start keeps one frame of slack at its stamp; planned outside the frame (or after step 9) it is stamped
+  // in the next frame, whose F_now is about one frame on, so it is placed one frame further out. Stamped in that frame
+  // it lands where it was placed (`planTick` keeps it while it has half a frame of slack left).
+  const slack = slackOf(p, f) * (asap(p) && planStepDone() ? 2 : 1);
+  const earliest = Math.max(f.now + lead + slack + preEntry, f.now + L + Math.max(0, req.fadeLead ?? 0));
   let nb = earliest;
   if (Number.isFinite(req.notBefore) && req.notBefore > nb) nb = req.notBefore;
   if (onGrid(p) && Number.isFinite(after)) nb = Math.max(nb, after + NEXT_POINT_SECONDS);
@@ -597,13 +622,17 @@ export function planTick(player: MusicPlayer, f: MusicFrame): void {
     stamp(player, p, f);
     return;
   }
-  if (ready && p.at >= horizon - EPS) {
+  // F-25: an asap start is stamped while it keeps at least half a frame of slack over F_now + L (it was placed with one,
+  // or two from outside the frame); closer, it is placed again (one frame of slack) and stamped in this frame.
+  const keep = horizon + slackOf(p, f) / 2;
+  if (ready && p.at >= keep - EPS) {
     stamp(player, p, f);
     return;
   }
-  if ((!ready && p.at < horizon + frameIntervalSeconds(f) - EPS) || (ready && p.at < horizon - EPS)) {
+  if ((!ready && p.at < horizon + frameIntervalSeconds(f) - EPS) || (ready && p.at < keep - EPS)) {
     replan(player, p, f);
-    // A primed group re-planned with the short lead (now + L) stamps in this frame, or it would be inside L again.
-    if (ready && player.planned === p && p.run.state !== "cancelled" && p.at >= horizon - EPS && pollPrimed(p.run, f)) stamp(player, p, f);
+    // A primed group re-planned with the short lead (now + L, an asap start's slack on top) stamps in this frame, or it
+    // would be inside L again.
+    if (ready && player.planned === p && p.run.state !== "cancelled" && p.at >= keep - EPS && pollPrimed(p.run, f)) stamp(player, p, f);
   }
 }

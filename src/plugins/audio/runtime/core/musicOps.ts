@@ -18,6 +18,8 @@
 // - `fadeShaped(id, f)` from `Voice.fadeShaped` (§4.2: a FADE on the `fade` ramp with a law, `u0`, a stamp);
 // - `onStreamEvent(id, code)` from `streams.ts`: stream event 4 (`musicFull`) and every event of a music member's stream;
 // - `ownsStream(id)` from `streams.ts`: which stream ids are music members';
+// - `setLoop(id, loop, at)` from `streams.ts` (R4b): a member's loop record changed (a region release or the next
+//   region, `loopTail.ts`): sent to the worker as E4.4's change at the end of the voice's current pass;
 // - `reopenGroups()` from `reopenStreams` after a hard rebuild (music voices skipped there).
 //
 // P1's model (architecture §2.2, §2.3, §4.2):
@@ -56,7 +58,8 @@ import type { AudioBackend, MusicAdmitResult, MusicBackend, MusicBackendCaps, Mu
 import type { CommandWriter, PlayArgs } from "./commandWriter";
 import type { ClockMap } from "./clock";
 import type { StatusMirror } from "./mirror";
-import type { StreamDecoderLike, StreamManager } from "./streams";
+import { applyLoopChange, regionOf, type Segment, type StreamDecoderLike, type StreamManager } from "./streams";
+import type { LoopRecord } from "./coreAutomation";
 import { MAX_STAMPED, StampedKind, STAMPED_FLAG_STOP_AT_END, VoiceReason, type VoiceTable } from "./voiceTable";
 import type { WorkletChannel } from "./workletChannel";
 import type { WarnOnce } from "./codecs";
@@ -166,6 +169,11 @@ interface Member {
   /** F-16: a streamed member's file rate and length from the worker's `streamOpened` (absent until then; 0 unknown). */
   rate?: number;
   frames?: number;
+  /**
+   * R4b: a streamed member's stream-frame → file-frame map once its loop changed (a release or a new region,
+   * `setLoop`): what the worker plays from each change on, newest last. Absent until the first change.
+   */
+  segs?: Segment[];
 }
 
 /** One live group. */
@@ -315,6 +323,7 @@ export class CoreMusicOps implements MusicBackend {
       m.startFrame = startFrame;
       m.epoch = (m.epoch % RING_EPOCH_MASK) + 1;
       m.primed = false;
+      m.segs = undefined; // R4b: the stream restarts (its loop changes, if any, start over)
       send.push(m);
     }
     g.state = "priming";
@@ -436,6 +445,38 @@ export class CoreMusicOps implements MusicBackend {
 
   ownsStream(id: number): boolean {
     return this.byStream.has(id);
+  }
+
+  /**
+   * R4b (`streams.ts` hands it over): a streamed member's loop record changed (`AutomationSink.setLoop` on its voice:
+   * a region release, `looping: false`, or a new region), asked for at context frame `at`. As for any stream voice
+   * (E4.4), the change lands at the end of the voice's current pass, predicted from its playhead then: the worker gets
+   * that stream frame (`loopStream`) and stops wrapping there, or splices the core's ring there when it already sent
+   * past it. The change reserves the stream's next epoch, which a splice takes (a later re-target stays newer).
+   */
+  setLoop(id: number, loop: LoopRecord, at: number): void {
+    const m = this.byStream.get(id);
+    const g = m ? this.groups.get(m.group) : undefined;
+    if (!m || !g || !m.streamed || !m.ring) return;
+    const decoder = this.subscribed;
+    if (!decoder?.loopStream) return;
+    const frames = m.frames ?? 0;
+    const rate = m.rate !== undefined && m.rate > 0 ? m.rate : this.host.sampleRate();
+    const region = regionOf(loop, rate, frames) ?? { start: 0, end: frames };
+    if (!m.segs) {
+      // What the worker opened: from the member's start frame, looping its first region (`primeGroup`'s member).
+      const def = g.req.members[m.index];
+      const looping = def?.loop === true;
+      const start = Math.max(0, Math.floor(def?.loopStartFrame ?? 0));
+      const end = def && def.loopEndFrame !== undefined && def.loopEndFrame > 0 && (frames === 0 || def.loopEndFrame <= frames) ? Math.floor(def.loopEndFrame) : frames;
+      const first = start < end ? { start, end } : { start: 0, end: frames };
+      const file = looping && first.end > first.start && m.startFrame >= first.end ? first.start + ((m.startFrame - first.start) % (first.end - first.start)) : m.startFrame;
+      m.segs = [{ stream: m.startFrame, file, loop: looping, region: first }];
+    }
+    const p = m.voice !== 0 && Number.isFinite(at) ? this.host.streams.playheadOf(m.voice, at) : null;
+    const x = applyLoopChange(m.segs, p, frames, region, loop.looping);
+    m.epoch = (m.epoch % RING_EPOCH_MASK) + 1;
+    decoder.loopStream(id, loop.looping, loop.looping ? region.start : undefined, loop.looping ? region.end : undefined, x);
   }
 
   adoptMember(id: number, i: number, tag: MusicMemberTag): void {
