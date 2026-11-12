@@ -314,35 +314,44 @@ export function stopPlayerRuns(player: MusicPlayer, fadeSeconds: number, f: Musi
   }
 }
 
-/**
- * The context rate group events' frames are in: the core backend's clock map (a rebuild may change it), else 48 kHz.
- * Read only for an event with a slip.
- */
-function contextRate(): number {
-  let r: unknown;
+/** What the router reads of the core backend's clock map (absent on other backends). */
+interface EventClock {
+  readonly sampleRate?: number;
+  readonly timeOffset?: number;
+  readonly carryPending?: boolean;
+}
+
+/** The core backend's clock map (a rebuild may change its rate), or null. */
+function eventClock(): EventClock | null {
   try {
-    r = (audioBackend() as unknown as { clockMap?: { sampleRate?: number } }).clockMap?.sampleRate;
+    return (audioBackend() as unknown as { clockMap?: EventClock }).clockMap ?? null;
   } catch {
-    r = undefined;
+    return null;
   }
-  return typeof r === "number" && r > 0 ? r : 48_000;
 }
 
 /**
  * P1, P3: the backend's group and member events (`MusicBackend.onGroupEvent`), delivered after the status mirror is
  * read. `musicSystem.ts` binds this once per backend. A `start`, `resume` or `abandon` goes to P3's `applySlip` first
  * (the anchor's heard time moves by the slip, architecture §3.6; the counters count it). `sampleRate` is the context
- * rate of the event's frames (default: the backend's clock map).
+ * rate of the event's frames (default: the core backend's clock map, else 48 kHz); with the clock map a `start` also
+ * pins the anchor to its start frame's heard time (t0 = f0 / sr, §4.5).
  */
 export function routeGroupEvent(e: MusicGroupEvent, sampleRate?: number): void {
   const run = live.get(e.group);
   if (!run) return;
   switch (e.kind) {
     case "start":
-    case "resume":
-      applySlip(run.player, e, e.slipFrames !== 0 ? (sampleRate ?? contextRate()) : 0);
+    case "resume": {
+      const clock = sampleRate === undefined ? eventClock() : null;
+      const sr = sampleRate ?? (clock?.sampleRate && clock.sampleRate > 0 ? clock.sampleRate : 48_000);
+      const heard = e.kind === "start" && clock && !clock.carryPending && Number.isFinite(clock.timeOffset)
+        ? e.startFrame / sr + clock.timeOffset!
+        : undefined;
+      applySlip(run.player, e, sr, heard);
       if (run.state === "stamped") run.state = "playing";
       return;
+    }
     case "abandon":
       applySlip(run.player, e, 0);
       // The core ended every member; the planner re-plans (§8).

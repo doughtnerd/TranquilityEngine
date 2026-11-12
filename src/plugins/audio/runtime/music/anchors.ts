@@ -240,8 +240,14 @@ function anchorOfPlaying(player: MusicPlayer): GridAnchor | null {
  * "Corrections"). The run's `startAt` moves too (a successor's anchor is made from it), and the counters count it:
  * a late `start` in `lateGroups`, a `resume` in `groupsHeld` (its slip is the hold), an `abandon` in `groupTimeouts`
  * (no shift: the core ended the members and the planner re-plans). `sampleRate` is the context's rate the slip is in.
+ *
+ * `heardStart` (a `start` only): the heard time of the event's `startFrame` (`startFrame / sr + timeOffset`, the
+ * clock map's), when the caller knows it. Then t0 = f0 / sr exactly (architecture §4.5), which also takes out the stamp's
+ * rounding to a frame (up to half a frame); it is used only when it agrees with the slip within one frame.
  */
-export function applySlip(player: MusicPlayer, e: Extract<MusicGroupEvent, { slipFrames: number }>, sampleRate: number): void {
+export function applySlip(
+  player: MusicPlayer, e: Extract<MusicGroupEvent, { slipFrames: number }>, sampleRate: number, heardStart?: number,
+): void {
   const c = player.counters;
   if (e.kind === "abandon") {
     c.groupTimeouts++;
@@ -249,12 +255,18 @@ export function applySlip(player: MusicPlayer, e: Extract<MusicGroupEvent, { sli
   }
   if (e.kind === "resume") c.groupsHeld++;
   else if (e.late) c.lateGroups++;
-  if (e.slipFrames === 0 || !(sampleRate > 0)) return;
-  c.lastSlipFrames = e.slipFrames;
-  counterRate.set(player, sampleRate);
-  const dt = e.slipFrames / sampleRate;
+  if (!(sampleRate > 0)) return;
   const run = player.run?.group === e.group ? player.run : player.next?.group === e.group ? player.next : null;
-  if (!run) return;
+  let dt = e.slipFrames / sampleRate;
+  if (e.kind === "start" && run && heardStart !== undefined && Number.isFinite(heardStart) && Number.isFinite(run.startAt)) {
+    const exact = heardStart - run.startAt;
+    if (Math.abs(exact - dt) <= 1 / sampleRate) dt = exact;
+  }
+  if (e.slipFrames !== 0) {
+    c.lastSlipFrames = e.slipFrames;
+    counterRate.set(player, sampleRate);
+  }
+  if (!run || dt === 0) return;
   if (Number.isFinite(run.startAt)) run.startAt += dt;
   const a = player.anchor;
   if (a && run === player.run && a.segment === run.node.id) a.time += dt;
