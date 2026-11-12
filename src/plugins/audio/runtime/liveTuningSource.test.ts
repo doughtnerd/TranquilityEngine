@@ -13,7 +13,7 @@ import { CoreLink, type AudioHost, type HostLifecycleListener, type LinkPort } f
 import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./core/clipRegistry";
 import { voiceIndex } from "./core/ids";
-import { VoiceFlag2 } from "./core/voiceTable";
+import { VoiceFlag, VoiceFlag2 } from "./core/voiceTable";
 import { mixer } from "../../../engine/audio/mixer";
 import { makeFakeBackend } from "./testing";
 import { PLAY_FLAGS_SPATIAL } from "./wire.generated";
@@ -301,6 +301,38 @@ describe("a spatial AudioSource starts spatial on the core when its clip is resi
     frame();
     expect(flags).toHaveLength(1);
     expect(flags[0]! & PLAY_FLAGS_SPATIAL).toBe(0);
+  });
+
+  // F-24: the core reads `spatial` from PLAY only, so a source that turns `spatial` on while playing flat stays flat on
+  // the core. Main mustn't mark it spatial (pan, attenuate and report it), and says why once.
+  it("turning spatial on while playing flat leaves the voice flat on main, with one warning; the next play is spatial", () => {
+    const core = useCore();
+    const flags: number[] = [];
+    const write = core.writer.play.bind(core.writer);
+    core.writer.play = (a, at) => {
+      flags.push(a.flags);
+      write(a, at);
+    };
+    const warn = vi.mocked(console.warn);
+    const src = spatialSource({ spatial: false });
+    src.play();
+    frame();
+    const i = voiceIndex(src._voiceId);
+    src.spatial = true;
+    frame();
+    frame();
+    expect(core.table.flags[i]! & VoiceFlag.SPATIAL).toBe(0);
+    expect(core.table.gain[i]).toBeCloseTo(1, 6); // no distance gain on main for a voice the core plays flat
+    expect(src.panner).toBe("flat");
+    const warned = warn.mock.calls.filter((c) => String(c[0]).includes("started flat"));
+    expect(warned).toHaveLength(1);
+    expect(String(warned[0]![0])).toContain('"src"');
+    src.stop();
+    frame();
+    src.play();
+    frame();
+    expect(flags).toHaveLength(2);
+    expect(flags[1]! & PLAY_FLAGS_SPATIAL).toBe(PLAY_FLAGS_SPATIAL);
   });
 });
 

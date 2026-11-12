@@ -297,6 +297,19 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   });
   private spatialCount = 0;
   private readonly spatialDirty: Uint8Array;
+  /**
+   * F-12: per slot, pending stem changes the core holds with an old dry gain (sent before a later dry write, further out
+   * than its lookahead): those stamped after `stemStaleAfter` and not after `stemStaleTo` (0: none) go again, with the
+   * dry gain as it is then, once each comes within a lookahead (`resendStaleStems`).
+   */
+  private readonly stemStaleAfter: Float64Array;
+  private readonly stemStaleTo: Float64Array;
+  private stemStaleCount = 0;
+  /**
+   * F-24: per slot, the id of the voice whose PLAY went out flat (non-spatial, not ambisonic), else 0. The core reads
+   * `spatial` from PLAY only, so such a voice stays flat: a position given afterwards is refused (`_setPosition`).
+   */
+  private readonly flatPlayId: Uint32Array;
   private listenerDirty = true;
   private readonly listenerPos: [number, number, number] = [0, 0, 0];
   private readonly listenerFwd: [number, number, number] = [0, 0, 1];
@@ -335,6 +348,9 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.magls = deps.magls ?? createMaglsLoader({ clips: deps.clips, sampleRate: host.sampleRate });
     this.table = deps.table ?? new VoiceTable(host.preset.maxLogical);
     this.spatialDirty = new Uint8Array(this.table.capacity);
+    this.stemStaleAfter = new Float64Array(this.table.capacity);
+    this.stemStaleTo = new Float64Array(this.table.capacity);
+    this.flatPlayId = new Uint32Array(this.table.capacity);
     this.gainApplied = new Float32Array(this.table.capacity).fill(1);
     this.selection = new Selection(this.table);
     this.panners = new PannerPick(this.table);
@@ -892,6 +908,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   frameCommit(): void {
     if (this.disposed) return;
     if (this.idlePending) this.checkIdle();
+    if (this.stemStaleCount > 0) this.resendStaleStems();
     this.table.drainCommands(this.writer);
     // A3.4a: during a rebuild (or after recovery gave up) no core keeps what is sent; the replay re-derives it all.
     if (this.recovering || this.host.status === "failed") this.writer.clear();
@@ -911,6 +928,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private beginRecovery(): void {
     if (this.disposed) return;
     this.recovering = true;
+    this.clearStaleStems(); // F-12: the replay sends every voice's gain again, and the pending frames change meaning
     // B3: the new core gets a new node; streams connect to it when they reopen (`reopenStreams`), zone IRs when the
     // replay (or `contextReplaced`) asks for every kernel again.
     this.worklet.disconnect();
@@ -1322,6 +1340,14 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   _setPosition(id: number, p: Vec3Like): void {
     const i = this.slot(id);
     if (i < 0) return;
+    // F-24: the core reads `spatial` from PLAY only (SET_PARAMS carries the panner kind, not the flag), so a voice that
+    // started flat stays flat there. Marking it spatial here would have main pan, attenuate and report a voice the core
+    // plays flat; it's refused, with one warning per voice. (A source that turns `spatial` on while playing is spatial
+    // from its next play.)
+    if (this.flatPlayId[i] === id) {
+      this.warnFlatPosition(id, i);
+      return;
+    }
     this.applyPosition(i, p);
     this.spatialDirty[i] = 1;
   }
@@ -1376,6 +1402,14 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     if (info.frames > 0) frame = (t.flags[i]! & VoiceFlag.LOOP) !== 0 ? frame % info.frames : Math.min(frame, info.frames);
     this.writer.seek(id, frame, 0);
     this.reanchorSeek(id, frame);
+  }
+
+  private warnFlatPosition(id: number, i: number): void {
+    const t = this.table;
+    const asset = ((t.flags[i]! & VoiceFlag.STREAM) !== 0 ? this.streams.assetOf(t.clip[i]!) : this.clips.info(t.clip[i]!)?.path) ?? "";
+    const owner = this.owners[i];
+    const who = owner ? `"${asset}" on "${owner}"` : `"${asset}"`;
+    this.warnOnce(`flatPosition:${id}`, `[myco] audio: ${who} started flat (non-spatial), so its position is ignored until it plays again; a voice can't turn spatial while it plays (play it with a position to make it spatial)`);
   }
 
   /** E4.4: the playhead tracker's wrap (see the constructor). */
@@ -1481,6 +1515,53 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       if (t.stemAt[e]! > until) break;
       this.writer.setParams(id, SET_PARAMS_MASK_GAIN, t.stemNext[e]! * dry, 0, 0, 0, 0, 0, t.stemRamp[e]!, 0, t.stemShape[e]!, t.stemAt[e]!);
     }
+    // F-12: the changes further out still carry the old dry gain on the core; each goes again once within a lookahead.
+    const last = t.stemAt[base + n - 1]!;
+    if (last > until) {
+      if (this.stemStaleTo[i] === 0) this.stemStaleCount++;
+      this.stemStaleAfter[i] = until;
+      this.stemStaleTo[i] = Math.max(this.stemStaleTo[i]!, last);
+    }
+  }
+
+  /**
+   * F-12: once a frame, the stale stem changes (see `stemStaleTo`) now within a lookahead go again, stamped as before,
+   * carrying the dry gain as it is now, so a volume or occlusion change made after the original send wins when the
+   * stamp lands. Each goes once; a virtual voice sends none (its promote's SET_MIXED carries the level that landed).
+   */
+  private resendStaleStems(): void {
+    const t = this.table;
+    if (this.recovering || this.replayer.waitingForClock) return;
+    const until = this.clockMap.framesNow() + this.clockMap.lookaheadFrames();
+    for (let i = 0; i < t.capacity; i++) {
+      const to = this.stemStaleTo[i]!;
+      if (to === 0) continue;
+      const n = t.stemCount[i]!;
+      if (t.state[i] === VoiceState.PLAYING && n > 0) {
+        const after = this.stemStaleAfter[i]!;
+        const id = ((t.gen[i]! << 16) | i) >>> 0;
+        const dry = t.gain[i]! * t.occGain[i]!;
+        const base = i * MAX_STEM_PENDING;
+        for (let k = 0; k < n; k++) {
+          const e = base + k;
+          const at = t.stemAt[e]!;
+          if (at > until || at > to) break;
+          if (at <= after) continue;
+          this.writer.setParams(id, SET_PARAMS_MASK_GAIN, t.stemNext[e]! * dry, 0, 0, 0, 0, 0, t.stemRamp[e]!, 0, t.stemShape[e]!, at);
+        }
+      }
+      if (until >= to || n === 0 || t.state[i] === VoiceState.FREE) {
+        this.stemStaleTo[i] = 0;
+        this.stemStaleCount--;
+      } else this.stemStaleAfter[i] = until;
+    }
+  }
+
+  /** F-12: forgets every stale stem change (a rebuild). */
+  private clearStaleStems(): void {
+    if (this.stemStaleCount === 0) return;
+    this.stemStaleTo.fill(0);
+    this.stemStaleCount = 0;
   }
 
   /** The voice's clip decides what happens next: play now, wait for the data, or fail. */
@@ -1629,6 +1710,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     // A3.2: stamped at its frame while that is ahead of F_now; past (or asap) goes asap (§1 `at`, `lookahead.ts`).
     const stamp = this.clockMap.stampFor(start);
     this.writer.play(a, stamp);
+    this.flatPlayId[i] = (a.flags & (PLAY_FLAGS_SPATIAL | PLAY_FLAGS_AMBISONIC)) === 0 ? id : 0;
     this.playheads.start(i, stamp ?? this.clockMap.framesNow(), a.startOffsetFrames);
     // ADR 0158: the voice's bindings and loop, right behind its PLAY.
     this.automation.onPlaySent(id, i, stamp);
