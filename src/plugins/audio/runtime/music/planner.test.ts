@@ -146,39 +146,39 @@ describe("planner: the first segment", () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it("a late prime re-plans to now + lead and stamps on the new start", () => {
+  it("a first start whose prime takes 400 ms stamps once, at prime-ready + L, with no re-plan and no warning", () => {
     rig();
-    const player = createMusicPlayer(instance(), segment("A", ["music/a1.ogg"]));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const player = createMusicPlayer(instance(), segment("A", ["music/a1.ogg"], 0.5));
     planTick(player, at(1));
     const p = player.planned!;
-    const first = p.at; // 1.1
-    // Deadline: not primed and T_start < now + L + Δ̄, i.e. now > 1.05.
-    planTick(player, at(1.04));
-    expect(p.replans).toBe(0);
-    planTick(player, at(1.06));
-    expect(p.replans).toBe(1);
-    expect(player.counters.replans.deadline).toBe(1);
-    expect(p.at).toBeCloseTo(1.16, 9);
-    expect(p.at).toBeGreaterThan(first);
+    expect(p.at).toBeCloseTo(1.1, 9);
+    // A cold first prime: 400 ms of frames pass the planned start, with no deadline to miss.
+    for (let t = 1 + DT; t < 1.4; t += DT) planTick(player, at(t));
     expect(b.music!.stamps).toHaveLength(0);
     expect(b.music!.cancelled).toHaveLength(0); // the rings keep priming
-
     b.music!.setPrimed(p.run.group);
-    planTick(player, at(1.07));
-    expect(b.music!.stamps[0]!.at).toBeCloseTo(1.16, 9);
+    planTick(player, at(1.4));
+    expect(b.music!.stamps).toHaveLength(1);
+    expect(b.music!.stamps[0]!.at).toBeCloseTo(1.4 + L, 9);
+    expect(p.point).toBeCloseTo(1.4 + L + 0.5, 9); // the entry, after the pickup
+    expect(player.anchor?.time).toBeDefined();
+    expect(p.replans).toBe(0);
+    expect(player.counters.replans).toEqual({});
+    expect(warn).not.toHaveBeenCalled();
+    expect(player.state).toBe("committed");
+    for (let t = 1.4 + DT; t < 1.6; t += DT) planTick(player, at(t));
+    expect(b.music!.stamps).toHaveLength(1);
   });
 
-  it("a primed group already inside L re-plans with the short lead instead of stamping late", () => {
+  it("a first start primed in time keeps its planned start (a later Audio.play at included)", () => {
     rig();
-    const player = createMusicPlayer(instance(), segment("A", ["music/a1.ogg"]));
+    const player = createMusicPlayer(instance(), segment("A", ["music/a1.ogg"]), { at: 3 });
     planTick(player, at(1));
     const p = player.planned!;
     b.music!.setPrimed(p.run.group);
-    planTick(player, at(1.09)); // a hitch: T_start 1.1 < horizon 1.123
-    expect(p.replans).toBe(1);
-    expect(p.at).toBeCloseTo(1.09 + L, 9);
-    expect(b.music!.stamps).toHaveLength(1);
-    expect(b.music!.stamps[0]!.at).toBeCloseTo(1.09 + L, 9);
+    planTick(player, at(1.05));
+    expect(b.music!.stamps[0]!.at).toBeCloseTo(3, 9);
   });
 });
 
