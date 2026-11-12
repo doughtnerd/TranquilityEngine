@@ -20,7 +20,6 @@ import { TransportBar } from "./TransportBar";
 import { musicTransport } from "./transportHost";
 import { auditionOverrides, NO_OVERRIDES, stingerNames } from "../event/auditionHost";
 import { auditionValues } from "../event/eventParameters";
-import { audibleStems, auditionKey, auditionOf } from "./SegmentPanel";
 import { binAt, binSpan, pickLevel, type PeakMips } from "./peaksMip";
 import "./segmentView.css";
 
@@ -438,17 +437,9 @@ function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
   const event = doc.value.value;
   const segment = useMemo(() => findSegment(event.musicRoot, segmentId), [event.musicRoot, segmentId]);
   const grid = useMemo(() => (segment ? compileSegmentGrid(segment, { endSeconds: NaN }) : null), [segment]);
-  // The transport ticks on a light timer while this panel is open; closing it stops the sound.
-  useEffect(() => {
-    const t = setInterval(() => musicTransport.tick(), TRANSPORT_TICK_MS);
-    return () => { clearInterval(t); musicTransport.dispose(); };
-  }, [path, segmentId]);
+  // The transport (ticking, solo and mute, its lifetime) is the transport service's (F-33): a tab switch to Segment
+  // Properties unmounts this view, and the audition goes on.
   useEffect(() => { if (grid) musicTransport.tick(grid); }, [grid]);
-  // F-14: the segment panel's solo and mute reach the playing music (audition only; nothing is written to the event).
-  const stemState = auditionOf(auditionKey(path, segmentId));
-  const audible = segment && (stemState.solo.length > 0 || stemState.mute.length > 0) ? audibleStems(segment.tracks, stemState) : null;
-  const audibleKey = audible === null ? null : audible.join("\u0000");
-  useEffect(() => { musicTransport.setAudibleStems(segmentId, audibleKey === null ? null : audibleKey === "" ? [] : audibleKey.split("\u0000")); }, [segmentId, audibleKey]);
   // F-15: the Event editor's slider values (moved ones over the defaults) reach the played instance.
   const parameters = auditionValues(event.parameters, auditionOverrides.value[path] ?? NO_OVERRIDES);
   if (!segment || !grid) return <p class="empty">{path} has no segment “{segmentId}”.</p>;
@@ -480,5 +471,3 @@ function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
   );
 }
 
-/** How often the transport reads the music's position, ms. */
-const TRANSPORT_TICK_MS = 50;

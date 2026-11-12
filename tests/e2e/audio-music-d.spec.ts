@@ -456,6 +456,30 @@ test("segment view transport: solo and mute of the stem list are audible in the 
   expect(problems.filter((p) => !/prime lead/.test(p))).toEqual([]); // the lead warning depends on the CPU the software GL leaves
 });
 
+// F-33: Segment and Segment Properties share a dock tab group; the tab switch unmounts the view and must not stop the audition.
+test("segment view transport: the audition keeps playing across a switch to Segment Properties, and a solo there is heard at once", async ({ page }) => {
+  const problems = watch(page);
+  await openListSegment(page, 1);
+  const gainOf = async (clip: string) => Math.max(0, ...(await voiceRows(page)).filter((v) => v.clip.includes(clip)).map((v) => v.gain));
+  await page.getByTestId("transport-play").click();
+  await expect.poll(async () => (await musicRow(page))?.segment, { timeout: 30_000 }).toBe("B");
+  await expect.poll(async () => [(await gainOf("town")) > 0, (await gainOf("foo")) > 0], { timeout: 15_000 }).toEqual([true, true]);
+
+  await showTab(page, /^Segment Properties/);
+  await page.locator('.sp-stem[data-stem="town"] button[title="Solo (audition only)"]').click();
+  // Still the same running music (not restarted), and now only "town" sounds.
+  await expect.poll(async () => [(await gainOf("town")) > 0, (await gainOf("foo")) === 0], { timeout: 15_000 }).toEqual([true, true]);
+  expect((await musicRow(page))?.segment).toBe("B");
+  expect(await eventRows(page)).toHaveLength(1);
+
+  // Back to the view: the transport still shows playing, and Stop ends it.
+  await showTab(page, /^Segment$/);
+  await expect(page.getByTestId("transport-stop")).toBeEnabled();
+  await page.getByTestId("transport-stop").click();
+  await expect.poll(async () => (await eventRows(page)).length, { timeout: 15_000 }).toBe(0);
+  expect(problems.filter((p) => !/prime lead/.test(p))).toEqual([]);
+});
+
 test("segment view transport: Play starts the playlist at the open segment, and the Event editor's parameter values reach the instance", async ({ page }) => {
   const problems = watch(page);
   // The Event editor's slider (not saved) is read by the transport when it plays.

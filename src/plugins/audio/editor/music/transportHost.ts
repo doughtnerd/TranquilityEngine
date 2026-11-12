@@ -6,6 +6,7 @@ import { Audio } from "../../runtime/Audio";
 import { auditionStems, startAtSegment } from "../../runtime/music/editorHooks";
 import { noteAssetChanged } from "../../runtime/music/reload";
 import { createTransport, type TransportHost } from "./transport";
+import { startMusicTransportService } from "./transportServiceHost";
 
 export const realTransportHost: TransportHost = {
   play: (path, parameters) => Audio.play(path, { parameters }),
@@ -19,3 +20,5 @@ export const realTransportHost: TransportHost = {
 };
 
 export const musicTransport = createTransport(realTransportHost);
+// F-33: the audition outlives the panels; the service ticks it, syncs solo/mute and stops it on the event closing.
+startMusicTransportService(musicTransport);
