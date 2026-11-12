@@ -444,3 +444,23 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 
 
 **Wave 7 started** (base `08aaa694`, M4a on master): R3b (strongest: bridges, and natural playlist advances through the rule; granted `playlist.ts`), R4a (strongest: loop tails, counted loops, tail voices tracked; F-7e), K1 (strongest: beat clock), R7 (mid: seek on H5; may help F-15), B2 (mid: Babylon music), SM2 (mid: the sound-lab music scene and `tools/makeMusic.mjs`), Ed7 (mid: rule editor, lint, transition audition). Each task updates `interactive-music.md`'s "coming later" entries for what it builds.
+
+**Listening pass checked against the spec** (owner's question): the commands, `E2E_LISTEN`, the `@slow` tags, the keys and the values of both sections match `tests/e2e/audio-music-listening.spec.ts` on master. One stale spot was in the spec, not the doc: M4a key 3's comment and the prompt it prints in the owner run still said "paused for 6 s … waits for C2c". Fixed on the integration branch to "paused until the group is held, then resumed at once". Both cases pass headless (2 of 2, 1.7 min). The fix reaches master with M4b.
+
+**R7 merged** (`m4/r7` `5455191b`): `seek.ts`.
+- `parseSeekPosition` reads `bar[:beat[:tick]]`, the design's only format; Ed5's transport already converts cues and seconds to it.
+- `seekMusic` reads against the target segment's tempo map: the playing one, or the incoming one once a change is past T − L. It clamps to the file and lands through `planImmediate` with `SEEK_FADE_MS`. A seek replaces a pending change and queues behind a committed one.
+- Refusals: permanent `invalid`, `notPlaying` (stopped) and `neverFits`; temporary `poolFull` (the plan is cancelled) and `notPlaying` before the first segment sounds (so Ed5's retry works).
+- **Not done:** seeking across playlist items. The design says that's a switch or playlist change, so F-15 still needs a start-at-segment option.
+- The guide gained a "Seeking" section.
+- Tests: 11 unit and 3 loopback. The landing can slip one display frame when a decoded group isn't ready at its stamp (planner behaviour).
+
+**B2 merged** (`m4/b2` `739e29cd`, `babylonBackend.ts` only).
+- **The fallback now has:**
+  - `fadeShaped` on streamed (HTML5) stems, as stepped volume;
+  - a late ramp timer joins the law at the phase its stamp implies;
+  - `paramsShaped` on every music voice, so quantised stem automation starts on the grid point;
+  - stingers stamped, and faded with `stopAtEnd` on a steal.
+- **Still skipped:** priming, the gate and the ring pool; sample-exact stamps (`setTimeout` steps, no latency correction); region loops and alignment on streamed stems; stem low-pass (warned once); beat callbacks (B3); music debug rows.
+- **Limit:** a stem's fade and params ramps share one native volume, so overlapping ramps cut each other short.
+- Tests: 5 unit cases and one Babylon e2e case (a switch on a bar line, a stinger).
