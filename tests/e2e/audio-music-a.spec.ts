@@ -81,19 +81,20 @@ test("M4a: eight stems start together: one group, one start, no slip, streamed a
   expect(row.groups.map((g) => ({ of: g.of, primed: g.primed }))).toEqual([{ of: 8, primed: 8 }]);
 
   // One snapshot of the voice table: every stem is a playing voice of the event and they are at the same position.
-  // The streamed stems' rows are not read here (F-16: they read waitingForData for as long as they play, see the fixme below).
   const decodedPlaying = async () => {
     const d = (await audioDebug(page))!;
     return d.voices.filter((v) => v.event === row.id && v.state === "playing" && v.playheadSeconds !== null);
   };
-  await expect.poll(async () => (await decodedPlaying()).length, { timeout: 15_000, message: "the six decoded stems are playing" }).toBe(6);
+  await expect.poll(async () => (await decodedPlaying()).length, { timeout: 15_000, message: "all eight stems are playing, the streamed ones too (F-16)" }).toBe(8);
   const d = (await audioDebug(page))!;
   const mine = d.voices.filter((v) => v.event === row.id);
   expect(mine, "eight voices of the music event").toHaveLength(8);
   // Started together and kept together: the decoded stems' playheads, in one snapshot of the table, are the same frame.
-  const heads = mine.filter((v) => v.playheadSeconds !== null).map((v) => v.playheadSeconds!);
-  expect(heads).toHaveLength(6);
-  expect(Math.max(...heads) - Math.min(...heads), "six decoded stems, one playhead").toBe(0);
+  const decodedHeads = mine.filter((v) => !v.clip.includes("melody")).map((v) => v.playheadSeconds!);
+  expect(decodedHeads).toHaveLength(6);
+  expect(Math.max(...decodedHeads) - Math.min(...decodedHeads), "six decoded stems, one playhead").toBe(0);
+  const all = mine.map((v) => v.playheadSeconds!);
+  expect(Math.max(...all) - Math.min(...all), "the streamed stems are at the same place, within a few frames").toBeLessThan(0.1);
   expect(row.groups[0]!.state, "the group is playing, as one").toBe("playing");
   expect(d.musicTotals!.poolUsed, "two music rings in use").toBe(2);
   expect(d.musicTotals!.poolHighWater).toBeGreaterThanOrEqual(2);
@@ -103,7 +104,7 @@ test("M4a: eight stems start together: one group, one start, no slip, streamed a
   const seen6: number[] = [];
   for (let i = 0; i < 6; i++) {
     await page.waitForTimeout(1_500);
-    const now = (await audioDebug(page))!.voices.filter((v) => v.event === row.id && v.playheadSeconds !== null).map((v) => v.playheadSeconds!);
+    const now = (await audioDebug(page))!.voices.filter((v) => v.event === row.id && v.playheadSeconds !== null && !v.clip.includes("melody")).map((v) => v.playheadSeconds!);
     expect(now.length, "decoded stems playing").toBe(6);
     expect(Math.max(...now) - Math.min(...now), "still one playhead").toBe(0);
     seen6.push(now[0]!);
@@ -114,12 +115,8 @@ test("M4a: eight stems start together: one group, one start, no slip, streamed a
   expect(seen.warnings).toEqual([]);
 });
 
-// F-16 (found by E1): the voice rows of a streamed music stem. The stem plays (its music ring is bound and the Music bus carries it,
-// the flappy case above), but `Audio.debug().voices` lists it as `waitingForData` with clip "" and no playhead for as long as it plays.
-// Diagnosis: a gated music member's stream is opened by the group (`primeGroup`), so it is not in `StreamStore.byStream`; the
-// store's `onStatus` is what clears `VoiceReason.WAITING_FOR_DATA` (core/streams.ts), and `debug.ts` finds the clip path through the
-// clip registry, which has no entry for it. The Audio Debug panel's voice table shows the same wrong row.
-test.fixme("M4a: a streamed stem's voice row reads playing, with its clip and a playhead (F-16)", async ({ page }) => {
+// F-16 (found by E1, fixed): the voice rows of a streamed music stem read playing, with their clip and a playhead.
+test("M4a: a streamed stem's voice row reads playing, with its clip and a playhead (F-16)", async ({ page }) => {
   await bootSample(page, LAB);
   await addAssets(page, { "e1/stems8.audioevent.json": stems8() });
   await startEvent(page, "m", "e1/stems8.audioevent.json");
@@ -354,7 +351,7 @@ test("M4a: a starved streamed stem holds the whole group, and it resumes togethe
   expect((await rowOf(page, "stems8"))!.state, "the music instance is still there").not.toBeUndefined();
   await pauseWorkers(page, false, held);
   await held.cdp.detach();
-  const decoded = async () => (await audioDebug(page))!.voices.filter((v) => v.playheadSeconds !== null && v.state === "playing").map((v) => v.playheadSeconds!);
+  const decoded = async () => (await audioDebug(page))!.voices.filter((v) => v.playheadSeconds !== null && v.state === "playing" && !v.clip.includes("melody")).map((v) => v.playheadSeconds!);
   await expect.poll(async () => (await decoded()).length, { timeout: 30_000, message: "it resumed" }).toBe(6);
   const heads = await decoded();
   expect(Math.max(...heads) - Math.min(...heads), "the decoded stems resumed on one playhead").toBe(0);
@@ -363,10 +360,8 @@ test("M4a: a starved streamed stem holds the whole group, and it resumes togethe
   expect((await audioDebug(page))!.musicTotals!.maxSlipFrames, "the slip is the hold's length").toBeGreaterThan(0);
 });
 
-// F-17 (found by E1): a stopped music event's row stays in `Audio.debug().music`, state "ending", for good. Its voices are gone, its
-// rings are back and `Audio.debug().events` no longer lists it, but the MusicPlayer is not disposed (a playlist that ends by itself
-// does leave the table), so the panel's Music section keeps a dead row for every `stop()`.
-test.fixme("M4a: a stopped music event leaves the Music table (F-17)", async ({ page }) => {
+// F-17 (found by E1, fixed): a stopped music event's row leaves Audio.debug().music once its stems have faded.
+test("M4a: a stopped music event leaves the Music table (F-17)", async ({ page }) => {
   await bootSample(page, LAB);
   await addAssets(page, { "e1/stems8.audioevent.json": stems8() });
   await startEvent(page, "m", "e1/stems8.audioevent.json");

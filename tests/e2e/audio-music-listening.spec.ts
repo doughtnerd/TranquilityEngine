@@ -388,8 +388,8 @@ test.describe("listening M4a: segments, stems and playlists", () => {
       await expect.poll(async () => (await m4aRow(page, asset))?.state, { timeout: 30_000, message: `${what}: playing` }).toBe("playing");
       const row = (await m4aRow(page, asset))!;
       expect(row.groups.map((g) => ({ primed: g.primed, of: g.of })), `${what}: one group of eight`).toEqual([{ primed: 8, of: 8 }]);
-      await expect.poll(async () => (await fullDebug(page))!.voices.filter((v) => v.event === row.id && v.state === "playing" && v.playheadSeconds !== null).length, { timeout: 15_000, message: `${what}: the decoded stems play` }).toBe(6);
-      const heads = (await fullDebug(page))!.voices.filter((v) => v.event === row.id && v.playheadSeconds !== null).map((v) => v.playheadSeconds!);
+      await expect.poll(async () => (await fullDebug(page))!.voices.filter((v) => v.event === row.id && v.state === "playing" && v.playheadSeconds !== null).length, { timeout: 15_000, message: `${what}: all eight stems play` }).toBe(8);
+      const heads = (await fullDebug(page))!.voices.filter((v) => v.event === row.id && v.playheadSeconds !== null && !v.clip.includes("melody")).map((v) => v.playheadSeconds!);
       expect(Math.max(...heads) - Math.min(...heads), `${what}: the decoded stems share a playhead`).toBe(0);
       expect(await peakOverFull(page, "Tape", 600), `${what}: audible`).toBeGreaterThan(0.01);
     };
@@ -432,7 +432,7 @@ test.describe("listening M4a: segments, stems and playlists", () => {
       await pauseWorkers(page, false, paused);
       await paused.cdp.detach();
       // It resumes together: the six decoded stems are back on one playhead, the group was not given up on.
-      const playheads = async () => (await fullDebug(page))!.voices.filter((v) => v.playheadSeconds !== null && v.state === "playing").map((v) => v.playheadSeconds!);
+      const playheads = async () => (await fullDebug(page))!.voices.filter((v) => v.playheadSeconds !== null && v.state === "playing" && !v.clip.includes("melody")).map((v) => v.playheadSeconds!);
       await expect.poll(async () => (await playheads()).length, { timeout: 30_000, message: "the music plays on after the worker resumes" }).toBe(6);
       const heads = await playheads();
       expect(Math.max(...heads) - Math.min(...heads), "resumed on one playhead").toBe(0);
