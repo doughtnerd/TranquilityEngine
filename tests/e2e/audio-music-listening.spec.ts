@@ -745,9 +745,14 @@ test.describe("listening M4b: transitions, stingers and loop exits", () => {
       await expect.poll(async () => (await m4bRows(page)).filter((r) => r.state !== "ending").length, { timeout: 15_000, message: "the music stops" }).toBe(0);
     });
 
+    // A stinger key read inside the lead of the next beat (a frame that came late, F-32) moves the stinger to the grid point
+    // after it, with this warning (`ifTooLate: "nextGrid"`, the design's answer): it still plays, on the grid (checked above).
+    const tooLate = /Stinger "hit" was triggered too late for its point and moved to the next grid point/;
+    const moved = seen.warnings.filter((w) => tooLate.test(w)).length;
+    if (moved) info.annotations.push({ type: "stinger", description: `${moved} stinger key(s) read too late for the next point; moved to the one after` });
     for (const a of info.annotations) console.log(`[music-listen] ${a.type}: ${a.description}`);
     expect(seen.errors).toEqual([]);
-    expect(seen.warnings).toEqual([]);
+    expect(seen.warnings.filter((w) => !tooLate.test(w))).toEqual([]);
   });
 });
 

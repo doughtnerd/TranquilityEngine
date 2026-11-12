@@ -31,8 +31,13 @@ const busApi = (page: Page, name: string) =>
     return { peak: b.peak, mute: b.mute, effectiveGain: b.effectiveGain, activeVoices: b.activeVoices };
   }, name);
 
-/** The underrun probe's threshold (`coreDriver.ts` `PROBE_THRESHOLD_S`): the audio thread this far behind the wall clock. */
-const STARVED_MS = 24;
+/**
+ * A tick of the monitor's 10 ms timer this much late: the host ran none of a thread with nothing else to do for twice its
+ * period. On a quiet machine ticks are a millisecond or two late; the underrun probe counts the audio thread 24 ms behind
+ * (`coreDriver.ts` `PROBE_THRESHOLD_S`), which a host that doesn't run the worker for 10 ms past its slot can cause, since the
+ * two threads aren't descheduled in step (at 24 ms, one underrun in nine at the start had no starved tick beside it).
+ */
+const STARVED_MS = 10;
 
 type HostLog = { starved: [number, number][]; underruns: { t: number; prev: number; n: number }[] };
 
@@ -40,7 +45,7 @@ type HostLog = { starved: [number, number][]; underruns: { t: number; prev: numb
  * Host starvation, measured beside the core (F-32). The underrun probe counts the audio thread falling behind the wall clock,
  * which a core that can't keep up does, and so does a machine that doesn't run the page's threads (other workers, other
  * agents: under the full slow suite the audio thread missed its slot during the page's start). A worker thread with nothing
- * else to do times its own 10 ms timer and logs each late tick past the probe's threshold (wall-clock ms, late by); the page
+ * else to do times its own 10 ms timer and logs each tick late by more than `STARVED_MS` (wall-clock ms, late by); the page
  * logs each rise in `counters.underruns` with the poll before it. An underrun with no starved tick from a second before the
  * previous poll (the probe's 1 s window) to the poll that saw it is the core's; one beside a starved tick is the machine's.
  */
