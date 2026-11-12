@@ -160,7 +160,7 @@ describe("musicOps recovery (ADR 0166 P9)", () => {
     r.ops.admitGroup(a);
     r.ops.primeGroup(a);
     await flush();
-    r.lifecycle().onRebuildStart?.();
+    r.lifecycle().onRebuildStart?.("trap");
     r.lifecycle().onRebuilt?.();
     r.clock.advance(16);
     r.backend.update(0.016);
