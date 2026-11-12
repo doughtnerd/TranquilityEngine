@@ -1,7 +1,7 @@
 {
   "note": "Wasm instructions per quantum of audio-bench scenes in the metered build (ADR 0157 C1b). Rewrite with UPDATE_METERED_BASELINE=1 node tools/audio-bench/metered-gate.mjs.",
   "meterVersion": 1,
-  "sourceHash": "69e5f5089e232e73b7c41a70fd4ae438",
+  "sourceHash": "2986f38ce6465c11b061223459e31806",
   "settings": {
     "seconds": 2,
     "warmup": 1,
@@ -11,50 +11,62 @@
     "low": {
       "quanta": 750,
       "perQuantum": 8797369,
-      "total": 6598026945,
-      "p99": 9938357,
-      "max": 10006944,
-      "wuMean": 676694
+      "total": 6598026818,
+      "p99": 9938356,
+      "max": 10006943,
+      "wuMean": 676694,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "default": {
       "quanta": 750,
-      "perQuantum": 20195752,
-      "total": 15146813648,
+      "perQuantum": 20195751,
+      "total": 15146813535,
       "p99": 21187224,
-      "max": 21217354,
-      "wuMean": 1415736
+      "max": 21217352,
+      "wuMean": 1415736,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "high": {
       "quanta": 750,
       "perQuantum": 33850469,
-      "total": 25387851998,
+      "total": 25387851893,
       "p99": 35051736,
       "max": 35141648,
-      "wuMean": 2343672
+      "wuMean": 2343672,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "high-pitch16": {
       "quanta": 750,
-      "perQuantum": 33595017,
-      "total": 25196262412,
+      "perQuantum": 33595016,
+      "total": 25196262315,
       "p99": 34988660,
       "max": 35142840,
-      "wuMean": 2343643
+      "wuMean": 2343643,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "stress": {
       "quanta": 750,
-      "perQuantum": 29399131,
-      "total": 22049347973,
+      "perQuantum": 29399130,
+      "total": 22049347845,
       "p99": 30676788,
       "max": 30726424,
-      "wuMean": 2082680
+      "wuMean": 2082680,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "stress-cap": {
       "quanta": 750,
       "perQuantum": 25555943,
-      "total": 19166957183,
+      "total": 19166957078,
       "p99": 27854968,
-      "max": 28418400,
-      "wuMean": 1791275
+      "max": 28418398,
+      "wuMean": 1791275,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "fx": {
       "quanta": 750,
@@ -62,7 +74,9 @@
       "total": 3856175895,
       "p99": 5704883,
       "max": 5707362,
-      "wuMean": 459760
+      "wuMean": 459760,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "hrtf-static": {
       "quanta": 750,
@@ -70,15 +84,19 @@
       "total": 4796140020,
       "p99": 6395676,
       "max": 6395718,
-      "wuMean": 349360
+      "wuMean": 349360,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "hrtf-moving": {
       "quanta": 750,
       "perQuantum": 9005357,
-      "total": 6754018005,
-      "p99": 9274092,
-      "max": 9280726,
-      "wuMean": 527413
+      "total": 6754017885,
+      "p99": 9274091,
+      "max": 9280725,
+      "wuMean": 527413,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "streams": {
       "quanta": 750,
@@ -86,7 +104,9 @@
       "total": 1123933980,
       "p99": 1511150,
       "max": 1511150,
-      "wuMean": 112560
+      "wuMean": 112560,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "pitch4": {
       "quanta": 750,
@@ -94,7 +114,9 @@
       "total": 3852498195,
       "p99": 5137541,
       "max": 5137771,
-      "wuMean": 453360
+      "wuMean": 453360,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "virtual": {
       "quanta": 750,
@@ -102,23 +124,29 @@
       "total": 5955101370,
       "p99": 7940946,
       "max": 7940988,
-      "wuMean": 581840
+      "wuMean": 581840,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "updates": {
       "quanta": 750,
       "perQuantum": 14569945,
-      "total": 10927458983,
-      "p99": 15041092,
-      "max": 15041569,
-      "wuMean": 1105307
+      "total": 10927458855,
+      "p99": 15041091,
+      "max": 15041568,
+      "wuMean": 1105307,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "automation": {
       "quanta": 750,
       "perQuantum": 13685343,
-      "total": 10264007138,
-      "p99": 13920097,
-      "max": 13922293,
-      "wuMean": 881447
+      "total": 10264007010,
+      "p99": 13920096,
+      "max": 13922292,
+      "wuMean": 881447,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "automation-base": {
       "quanta": 750,
@@ -126,95 +154,119 @@
       "total": 7674157845,
       "p99": 10233487,
       "max": 10234141,
-      "wuMean": 880880
+      "wuMean": 880880,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "automation-virtual": {
       "quanta": 750,
       "perQuantum": 1440268,
-      "total": 1080200963,
-      "p99": 1474304,
-      "max": 1475857,
-      "wuMean": 74887
+      "total": 1080200835,
+      "p99": 1474303,
+      "max": 1475856,
+      "wuMean": 74887,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "bus-automation": {
       "quanta": 750,
       "perQuantum": 2190836,
-      "total": 1643127218,
-      "p99": 2201572,
-      "max": 2201588,
-      "wuMean": 175793
+      "total": 1643127090,
+      "p99": 2201571,
+      "max": 2201587,
+      "wuMean": 175793,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "sustain": {
       "quanta": 750,
       "perQuantum": 5506691,
-      "total": 4130018100,
+      "total": 4130017980,
       "p99": 6230224,
-      "max": 6251429,
-      "wuMean": 439777
+      "max": 6251428,
+      "wuMean": 439777,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "bed-64": {
       "quanta": 750,
       "perQuantum": 4510039,
-      "total": 3382529033,
-      "p99": 4627406,
-      "max": 4627964,
-      "wuMean": 278427
+      "total": 3382528905,
+      "p99": 4627405,
+      "max": 4627963,
+      "wuMean": 278427,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "bed-256": {
       "quanta": 750,
       "perQuantum": 16470751,
-      "total": 12353063603,
-      "p99": 16943062,
-      "max": 16943540,
-      "wuMean": 1106907
+      "total": 12353063468,
+      "p99": 16943060,
+      "max": 16943538,
+      "wuMean": 1106907,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "bed-xfade": {
       "quanta": 750,
-      "perQuantum": 9316216,
-      "total": 6987161700,
+      "perQuantum": 9316215,
+      "total": 6987161573,
       "p99": 10282068,
       "max": 10448865,
-      "wuMean": 536527
+      "wuMean": 536527,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "filters-256": {
       "quanta": 750,
       "perQuantum": 21217985,
-      "total": 15913489110,
+      "total": 15913488990,
       "p99": 21989528,
       "max": 21990260,
-      "wuMean": 1109573
+      "wuMean": 1109573,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "ambi-o3": {
       "quanta": 750,
       "perQuantum": 2546363,
-      "total": 1909772423,
-      "p99": 2547198,
-      "max": 2547211,
-      "wuMean": 16537
+      "total": 1909772295,
+      "p99": 2547197,
+      "max": 2547210,
+      "wuMean": 16537,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "m3-worst-high": {
       "quanta": 750,
       "perQuantum": 37363391,
-      "total": 28022543205,
+      "total": 28022543093,
       "p99": 39281396,
       "max": 39364732,
-      "wuMean": 2090222
+      "wuMean": 2090222,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "m3-worst-default": {
       "quanta": 750,
       "perQuantum": 22201125,
-      "total": 16650843555,
+      "total": 16650843435,
       "p99": 23832488,
-      "max": 23878528,
-      "wuMean": 1282213
+      "max": 23878526,
+      "wuMean": 1282213,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "m3-worst-low": {
       "quanta": 750,
       "perQuantum": 9866680,
-      "total": 7400009798,
-      "p99": 11003957,
-      "max": 11080416,
-      "wuMean": 676419
+      "total": 7400009678,
+      "p99": 11003956,
+      "max": 11080415,
+      "wuMean": 676419,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "zones-2x2s": {
       "quanta": 750,
@@ -222,7 +274,9 @@
       "total": 1859889128,
       "p99": 2948792,
       "max": 2948792,
-      "wuMean": 57680
+      "wuMean": 57680,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "zones-swap": {
       "quanta": 750,
@@ -230,39 +284,129 @@
       "total": 2309735430,
       "p99": 3628567,
       "max": 5691346,
-      "wuMean": 57687
+      "wuMean": 57687,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "m3-high": {
       "quanta": 750,
       "perQuantum": 36123824,
-      "total": 27092868128,
+      "total": 27092867978,
       "p99": 37907928,
       "max": 37931884,
-      "wuMean": 2090924
+      "wuMean": 2090924,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "m3-worst-high-sends": {
       "quanta": 750,
       "perQuantum": 45202731,
-      "total": 33902048438,
+      "total": 33902048325,
       "p99": 46767536,
       "max": 46819232,
-      "wuMean": 2090267
+      "wuMean": 2090267,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "m3-worst-default-sends": {
       "quanta": 750,
       "perQuantum": 26905024,
-      "total": 20178768113,
+      "total": 20178767978,
       "p99": 28412824,
       "max": 28480004,
-      "wuMean": 1282259
+      "wuMean": 1282259,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     },
     "m3-worst-low-sends": {
       "quanta": 750,
-      "perQuantum": 11130699,
-      "total": 8348023973,
-      "p99": 12748873,
-      "max": 12809944,
-      "wuMean": 676461
+      "perQuantum": 11130698,
+      "total": 8348023853,
+      "p99": 12748872,
+      "max": 12809943,
+      "wuMean": 676461,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "stamped-g": {
+      "quanta": 750,
+      "perQuantum": 10249805,
+      "total": 7687353540,
+      "p99": 10251521,
+      "max": 10251935,
+      "wuMean": 880980,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "stamped-g-twin": {
+      "quanta": 750,
+      "perQuantum": 10243430,
+      "total": 7682572342,
+      "p99": 10244707,
+      "max": 10245361,
+      "wuMean": 880980,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "stamped-spatial": {
+      "quanta": 750,
+      "perQuantum": 5475800,
+      "total": 4106850360,
+      "p99": 6103481,
+      "max": 6107782,
+      "wuMean": 212001,
+      "splitQuanta": 0,
+      "voiceSplits": 1066
+    },
+    "stamped-spatial-twin": {
+      "quanta": 750,
+      "perQuantum": 5495171,
+      "total": 4121378528,
+      "p99": 6096816,
+      "max": 6102909,
+      "wuMean": 211864,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "stamped-loop": {
+      "quanta": 750,
+      "perQuantum": 4624011,
+      "total": 3468007905,
+      "p99": 5265237,
+      "max": 5266185,
+      "wuMean": 295896,
+      "splitQuanta": 0,
+      "voiceSplits": 1119
+    },
+    "stamped-loop-twin": {
+      "quanta": 750,
+      "perQuantum": 4619470,
+      "total": 3464602628,
+      "p99": 5260680,
+      "max": 5261628,
+      "wuMean": 295896,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "stamped-music": {
+      "quanta": 750,
+      "perQuantum": 403271,
+      "total": 302453325,
+      "p99": 413125,
+      "max": 416802,
+      "wuMean": 33329,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "stamped-music-twin": {
+      "quanta": 750,
+      "perQuantum": 402797,
+      "total": 302097960,
+      "p99": 413385,
+      "max": 413544,
+      "wuMean": 33144,
+      "splitQuanta": 0,
+      "voiceSplits": 0
     }
   }
 }
