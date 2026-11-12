@@ -1991,6 +1991,20 @@ pub(crate) fn set_gated(core: &mut Core, voice_id: u32, on: bool) {
     }
 }
 
+/// 0166 M4a (C2c, architecture §4.3 "hold"): decoded group member `voice_id`'s part in its group's
+/// hold: its `mix` ramp to `target` over `frames`, the joint fade-out to 0 or the resume's fade-in
+/// to 1 (a streamed member fades by its ring's gain instead, `group_hold`). Nothing for a virtual
+/// voice or one already demoting or pausing (those own the ramp).
+pub(crate) fn hold_fade(core: &mut Core, voice_id: u32, target: f32, frames: u32) {
+    let v = view(core.regions_mut());
+    let Some(index) = find(&v, voice_id) else { return };
+    let s = &mut v.slots[index];
+    if s.flags & (flag::STREAM | flag::DEMOTING | flag::PAUSING) != 0 || s.flags & flag::MIXED == 0 {
+        return;
+    }
+    s.mix.set_target(target, frames);
+}
+
 /// 0166 M4a (C2b, architecture §4.3 "abandon"): the group gave up on member `voice_id`: it leaves the
 /// group and ends, now if it isn't sounding (scheduled or virtual), else over the 5 ms fade.
 pub(crate) fn gate_abandon(core: &mut Core, voice_id: u32) {
