@@ -1,0 +1,11 @@
+[package]
+name = "gen-equal-power"
+description = "Writes the 1,024-point quarter-sine table of audio-dsp/src/equal_power.rs (0166 M4-0, R6); --check compares it with the checked-in table."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+audio-dsp.workspace = true
+libm.workspace = true
