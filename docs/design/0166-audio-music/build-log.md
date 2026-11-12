@@ -383,3 +383,15 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 - **Mixer 312,626 → 317,891 B (310.4 KB):** 9.6 KB under the 320 KB tripwire, logged. The next growth that crosses it raises the gate with a reason, per CLAUDE.md. A real store cap isn't at stake.
 - **For C3:** `group_rig` has `hold_run`, `check_null` and `group`. A hold shows as `groupStarts` with `GROUP_START_HELD` (start = the resume, slip = the time held) and in `groupsHeld`. A record stamped in the hold's 256-frame fade-out isn't rebased.
 
+
+**C3 merged** (`m4/c3` `1467fd3c`, new files only):
+- **`tests/alignment_harness.rs`:** the spike's 1,408 cases (stamp offset 0–127 × 11 arrival quanta), ported to gated groups. Each case adds a group size of 1–8, a decoded/streamed mix and a rate (44.1, 48 or 96 kHz). One frame per group; the output nulls to 1e-6; the start event carries the right slip. 3–13 s, so it runs every time.
+- **`gate_mixed.rs`** (5): includes ring wraps, an ended short stream and overlapping groups.
+- **`gate_late.rs`** (5): slips up to 0.5 s; a late group beside an on-time one.
+- **`gate_held.rs`** (3 tests, 96 grid cases): the dip on a quantum's sample 0; one gain through the fade-out and the 5 ms fade-in, decoded members included; members pinned on one frame; resume nulls; one held event with slip = the time held; records in the fade-out keep their frame, later ones land at resume + offset.
+- **`gate_rebased.rs`** (4): 54 grid cases. Shaped fades and a STOP in a late group match the on-time render to 1.2e-5 (control-rate knots move with the quantum grid; bound 1e-4).
+- **Goldens:** `gate-mixed`, `gate-late`, `gate-held`, `gate-rebased` (`golden/audioGoldenGate.test.ts`, native = wasm on the digest and the group-start events).
+- **Bug found:** decoded members of a held group were cut instead of faded. Fixed by C2c's `voices.rs` patch before the merge, and now in the grid.
+- **Coordinator:** `audioGolden.test.ts`' file check skips `gate-*.json`, as it does `m4-*.json`. Checks: cargo `--no-fail-fast` 889 pass; golden and wasm vitest 65 pass; typecheck 0.
+
+**M4a's exit check, core half, met:** C3's nulls after a late start and the held-group null. E1's 10-minute playlist remains.
