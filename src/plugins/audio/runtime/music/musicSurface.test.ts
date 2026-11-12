@@ -56,7 +56,7 @@ describe("the ADR 0166 §1 surface (Q2)", () => {
     const off = onMusicOf(instance, "beat", (e) => (heard = e)); // K5 fills the subscription
     off();
     expect(heard).toBeNull();
-    expect(music.seek("2:1:0")).toEqual({ ok: false, reason: "notPlaying", permanent: true });
+    expect(music.seek("2:1:0")).toEqual({ ok: false, reason: "notPlaying", permanent: false });
   });
 
   it("Audio.horizon, timeAt, latency, calibration, calibrationStale and rhythmMode", () => {
