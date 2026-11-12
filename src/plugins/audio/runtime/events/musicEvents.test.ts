@@ -148,8 +148,9 @@ describe("quantised stem automation on a stamped run (G-1)", () => {
     (fake as { time: number }).time = 1.2;
     const inst = [...(events() as unknown as { live: Set<{ tickMusicAutomation(): void }> }).live][0]!;
     inst.tickMusicAutomation();
-    expect(calls[0]).toEqual({ gain: 0, seconds: 0, law: "linear" }); // the level at bind, before the first beat
-    const ramp = calls.find((c) => c.at !== undefined)!; // the stamped ramp (absent without the "stamped" guard)
+    // The level at bind, before the first beat, stamped at the run's start (F-9: the members' PLAYs are stamped there).
+    expect(calls[0]).toEqual({ gain: 0, seconds: 0, law: "linear", at: 1 });
+    const ramp = calls.slice(1).find((c) => c.at !== undefined)!; // the stamped ramp (absent without the "stamped" guard)
     expect(ramp).toBeDefined();
     expect(ramp.gain).toBe(0);
     expect(ramp.at).toBeGreaterThanOrEqual(1.2);

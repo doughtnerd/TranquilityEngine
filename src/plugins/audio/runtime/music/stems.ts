@@ -189,9 +189,12 @@ function commitDueRamp(stem: StemRun, f: MusicFrame): void {
   if (!n.stamped) sendStemGain(stem, n.to, n.seconds, f.now);
 }
 
-/** P5, R6, step 9: release silent stems' rings, commit due quantised ramps. */
+/** P5, R6, step 9: the event's stem automation (F-9), release silent stems' rings, commit due quantised ramps. */
 export function tickStems(player: MusicPlayer, f: MusicFrame): void {
   lastNow.set(player, f.now);
+  // F-9: the event's automation on its stems (bind-time levels, quantised ramps) in the plan step, so its records go out
+  // in this frame's BATCH. From the event runtime's own update (after the commit) they went a frame late.
+  (player.instance as { tickMusicAutomation?: () => void } | null)?.tickMusicAutomation?.();
   const solo = solos.get(player);
   for (const run of liveRuns(player)) {
     // A run stamped after the solo was set (the next segment) takes it at once.
