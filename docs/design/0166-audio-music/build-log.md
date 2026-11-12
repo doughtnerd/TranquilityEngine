@@ -586,3 +586,17 @@ K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.t
 - No late group, split, ring refusal or full table; STATUS at most 1,148 B. The gate fails on an allowance miss, like the twin limit (a tripwire: a miss is raised and logged, not traded).
 - **Wall-clock:** `musicBench.test.ts` (best of 4; p99 gates with about 40× headroom): `musicPlanStep` p99 2.4 µs for 1 player, 22 µs for 16; a seam p50 18 µs.
 - **Coordinator rebuild:** the bench source is in the mixer's source hash, so `hash.json` and the metered bench were regenerated and the baseline written for the 9 scenes. Mixer unchanged at 317,891 B; existing scenes +0.00%; cargo 892 pass.
+
+**Rh1 merged** (`m4/rh1` `29602713`, with glue `f7a761d9` in `coreBackend.ts`, a single-writer file, accepted).
+- **Rhythm mode:** the context is made with `latencyHint: 0` (falling back to `"interactive"` if refused), and `AudioHost.latency` applies §4.6's `reliable` rule.
+- **A change of `audio.rhythmMode`** goes through `reconfigure` to a `latency` rebuild into a new context: at most one per second, the last change wins. It never uses the recovery limit's last rebuild (outcome `deferred`, retried after 5 s).
+- `Audio.latency` and `rhythmMode` have real bodies.
+- **Beat callbacks are held** from a rebuild's start until the re-entry is stamped (`updateBeatHolds`), so the gap arrives as one call.
+- **Edits outside its list, accepted:** `core/recovery.ts`, `deviceChange.ts`, `music/background.ts`, and one line in `musicSystem.ts`.
+- **Headless Chromium:** 43.5 ms at `interactive` (base 10, output 32, limiter 1.5) against 12.4 ms at hint 0 (2.9, 8, 1.5), matching S5.
+- **Loopback:** the mode change re-enters 0 frames off; the held gap arrives as one call (`missed` 4).
+- **Tests:** 14 core, 8 music, 3 loopback, plus `tests/e2e/audio-rhythm-latency.spec.ts`.
+- **Coordinator at merge:** resolved the guide's "coming later" conflict with K2 and K3. Checks: typecheck 0; core and music vitest 1,433 pass; `selectionBench` flaked under load.
+- **For Rh2:** a mode rebuild keeps the output device, so calibration doesn't go stale; key calibrations by `host.snapshot().sink`.
+
+**Owner bug report (2026-11-12):** in the Sound Lab's spatial page, after key 0 (quiet) and one full cycle of key 5 (level orbit, vertical orbit, off), the orbit's second cycle isn't spatial any more: equal in both ears, a quiet dip, then a slow return to full level, until the engine restarts. **F-22 task** (strongest) is reproducing it through `Audio.debug()`, classifying it (sample or engine; M4 regression or older, by testing `0a024003` and `c25eb624`), and fixing the root cause with a failing test and an e2e regression case.
