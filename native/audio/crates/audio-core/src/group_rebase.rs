@@ -13,7 +13,11 @@
 //! [`apply`]; it reaches the parked and pending records only through `due::rebase` (Z2a's API), so
 //! C2d edits neither `due.rs` nor `groups.rs`.
 //!
-//! Owner: **C2d** (W6). Q1 left the signature; the body tagged `C2d:` is an inert stub.
+//! **What lands where (C2d).** A record stamped at the group's stamp + `k` lands at the actual start
+//! + `k`; one stamped at the hold's start + `k` lands at the resume + `k`. Records stamped before
+//! the stamp (or during the hold's fade-out, while the members still play) keep their frames.
+//!
+//! Owner: **C2d** (W6).
 
 use crate::core::Core;
 use crate::due::Rebased;
@@ -22,7 +26,11 @@ use crate::due::Rebased;
 /// `from_frame` (the stamp for a late start, the hold's start for a resume). A zero slip moves
 /// nothing. Called by the gate's start and resume (H2).
 pub fn apply(core: &mut Core, index: u8, from_frame: u64, slip: u32) -> Rebased {
-    // C2d: read the entry's members (`groups::entries`), then `due::rebase(core, is_member, from_frame, slip)`.
-    let _ = (core, index, from_frame, slip);
-    Rebased::default()
+    if slip == 0 {
+        return Rebased::default();
+    }
+    let Some(&entry) = crate::groups::entries_of(core.regions().groups).get(index as usize) else {
+        return Rebased::default();
+    };
+    crate::due::rebase(core, |voice_id| entry.has_member(voice_id), from_frame, slip as u64)
 }
