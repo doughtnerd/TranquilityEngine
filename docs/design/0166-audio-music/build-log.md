@@ -770,3 +770,8 @@ K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.t
 
 
 **F-34 merged** (`m4/f34` `b75fd179`): the engine isn't late (`stems.quantized.test.ts` already shows `quantizedRamp` stamps on the grid frame; loaded main-thread reads of `Audio.time` ran from 6 ms early to 158 ms late). `audio-music-a:246` now records `Audio.time` at every 4 ms poll, so the last quiet poll and the first that saw the rise bracket the entry, and asserts a beat line lies in (quiet − 0.1 s meter lag, crossed + 0.03 s clock slack], about 130 ms against a 500 ms beat; the fixed 0.12 is gone. 5 of 5 at 5 workers; 3 of 3 beside a concurrent full `test:e2e` (which itself passed 259).
+
+**Follow-up round checks** (on the F-34 merge, quiet machine): typecheck 0; cargo, metered, tools, links, build pass; **`test:e2e` 260 of 260; `test:e2e:slow` 36 of 36** (F-32's three green in a full run); repeats of `audio-music-a`, `-b`, `-d` 90 of 90. Vitest 6,228 pass, 2 fail:
+- **`plugins.test.ts` (ADR 0147):** F-33's `transportServiceHost.ts` imported `editor/state`'s `playing`. Coordinator fix: play mode through the SDK, `editor.scene.playState` (truthy while not editing); 226 pass; `audio-music-d` 7 of 7.
+- `eventBench`'s allocation tripwire (F-13) under the full run; passes alone.
+The round merges to master.
