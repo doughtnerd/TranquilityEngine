@@ -22,6 +22,7 @@ function setup() {
     flush: async () => undefined,
     reload: () => undefined,
     startAt: () => true,
+    startAtPosition: () => false,
     stems: (_h: TransportHandle, _id: string, a: readonly string[] | null) => void stems.push(a),
   };
   const transport = createTransport(host);

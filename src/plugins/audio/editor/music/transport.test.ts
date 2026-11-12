@@ -6,7 +6,7 @@ import type { MusicSeekResult } from "../../../../engine/audio/musicTypes";
 import { activeAudition } from "../event/auditionHost";
 import { createTransport, playheadSeconds, seekText, type TransportHandle, type TransportHost } from "./transport";
 
-const segment = { ...emptySegment("a"), tempo: [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }], cues: [{ name: "drop", at: "3:1:0" }] };
+const segment = { ...emptySegment("a"), tempo: [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }], cues: [{ name: "entry", at: "1:1:0" }, { name: "late", at: "2:3:0" }, { name: "drop", at: "3:1:0" }] };
 const grid = compileSegmentGrid(segment, { endSeconds: 60 });
 
 interface Fake extends TransportHandle {
@@ -34,15 +34,16 @@ function fakeHandle(playing = true): Fake {
 }
 
 type FakeHost = TransportHost & {
-  flushed: string[]; reloaded: string[]; played: string[]; params: Record<string, number | string>[]; started: string[]; stemCalls: (readonly string[] | null)[];
+  flushed: string[]; reloaded: string[]; played: string[]; positions: string[]; positionOk: boolean; params: Record<string, number | string>[]; started: string[]; stemCalls: (readonly string[] | null)[];
 };
 
 function fakeHost(handles: Fake[]): FakeHost {
   const host = {
-    flushed: [] as string[], reloaded: [] as string[], played: [] as string[], params: [] as Record<string, number | string>[],
+    flushed: [] as string[], reloaded: [] as string[], played: [] as string[], positions: [] as string[], positionOk: false, params: [] as Record<string, number | string>[],
     started: [] as string[], stemCalls: [] as (readonly string[] | null)[],
     play: (path: string, parameters: Record<string, number | string>) => { host.played.push(path); host.params.push(parameters); return handles.shift() ?? fakeHandle(); },
     startAt: (_h: TransportHandle, id: string) => { host.started.push(id); return id !== "nope"; },
+    startAtPosition: (_h: TransportHandle, position: string) => { host.positions.push(position); return host.positionOk; },
     stems: (_h: TransportHandle, _id: string, audible: readonly string[] | null) => void host.stemCalls.push(audible),
     flush: async (path: string) => void host.flushed.push(path),
     reload: (path: string) => void host.reloaded.push(path),
@@ -81,6 +82,47 @@ describe("transport", () => {
     expect(t.state.value.phase).toBe("playing");
     expect(h.seeks).toEqual(["3:1:0"]);
     expect(activeAudition.value?.handle).toBe(h);
+  });
+
+  // F-41: every "start from" choice starts the music there once; a seek after the start restarted the playhead.
+  it.each([
+    ["bar 1", { kind: "bar", bar: 1 }, "1:1:0"],
+    ["bar 2", { kind: "bar", bar: 2 }, "2:1:0"],
+    ["the entry cue at 1:1:0", { kind: "cue", name: "entry" }, "1:1:0"],
+    ["a later cue", { kind: "cue", name: "late" }, "2:3:0"],
+    ["the drop cue", { kind: "cue", name: "drop" }, "3:1:0"],
+    ["a time", { kind: "seconds", seconds: 4 }, "3:1:0"],
+  ] as const)("starts from %s at the position, without a seek after the start", async (_n, from, text) => {
+    const h = fakeHandle();
+    const host = fakeHost([h]);
+    host.positionOk = true;
+    const t = createTransport(host);
+    await t.play(req({ from, startAtSegment: true }));
+    expect(host.positions).toEqual([text]);
+    t.tick();
+    t.tick();
+    expect(h.seeks).toEqual([]);
+    expect(h.stops).toBe(0);
+    expect(t.state.value.message).toBeNull();
+  });
+
+  it("starts from the start with no position and no seek", async () => {
+    const h = fakeHandle();
+    const host = fakeHost([h]);
+    host.positionOk = true;
+    const t = createTransport(host);
+    await t.play(req({ from: { kind: "start" } }));
+    expect(host.positions).toEqual([]);
+    expect(h.seeks).toEqual([]);
+  });
+
+  it("falls back to a seek when the music can't be started at the position", async () => {
+    const h = fakeHandle();
+    const host = fakeHost([h]);
+    const t = createTransport(host);
+    await t.play(req({ from: { kind: "bar", bar: 2 } }));
+    expect(host.positions).toEqual(["2:1:0"]);
+    expect(h.seeks).toEqual(["2:1:0"]);
   });
 
   it("reports a play that made no instance", async () => {

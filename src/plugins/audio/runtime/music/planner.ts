@@ -31,6 +31,7 @@ import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import { segmentRingNeed } from "../../../../engine/audio/musicValidate";
 import { musicPlayers, planStepDone, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
 import { anchorRun } from "./anchors";
+import { withStartPosition } from "./startPosition";
 import {
   cancelRun, createSegmentRun, groupRequest, pollPrimed, primeRun, segmentClipSource, stampRun, type SegmentRun,
 } from "./segmentRun";
@@ -475,12 +476,13 @@ function drop(player: MusicPlayer, p: PlannedStart, cause: string, f: MusicFrame
  * `onDropped`), a temporary one leaves `player.planned` `waiting`, retried by `planTick` at each allowed point. A
  * refusal never touches the playing segment.
  */
-export function requestStart(player: MusicPlayer, req: PlanRequest, f: MusicFrame): PlannedStart | null {
+export function requestStart(player: MusicPlayer, plain: PlanRequest, f: MusicFrame): PlannedStart | null {
   // F-35: the core is still loading (sound locked until the first gesture): no music yet, but no refusal either. The
   // request is dropped without a word; a first start stays `starting` and its tick asks again on the real backend.
   if (!f.music && isPendingCoreBackend(f.backend)) return null;
   if (player.planned) cancelPlanned(player, f);
   const first = player.run === null;
+  const req = first ? withStartPosition(player, plain) : plain; // F-41: the editor transport's "play from"
   const run = createSegmentRun(player, req.to, req.startFrame);
   const p: PlannedStart = {
     request: req, run: run as SegmentRun, at: Number.NaN, deadline: Number.NaN, leadSeconds: 0, replans: 0,

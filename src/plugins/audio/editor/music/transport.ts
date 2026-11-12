@@ -62,6 +62,8 @@ export interface TransportHost {
   reload(path: string): void;
   /** F-15: start the playing music at segment `segmentId` of its playlist (before its first plan); false when it can't. */
   startAt(handle: TransportHandle, segmentId: string): boolean;
+  /** F-41: start the playing music at `position` of its first segment (before its first plan), so a "play from" is one start, not a start and a seek; false when it can't. */
+  startAtPosition(handle: TransportHandle, position: string): boolean;
   /** F-14: only the stems of `segmentId` named in `audible` sound (null: all). Editor-only; never written to the event. */
   stems(handle: TransportHandle, segmentId: string, audible: readonly string[] | null): void;
 }
@@ -175,7 +177,9 @@ export function createTransport(host: TransportHost): Transport {
     let startMessage: string | null = null;
     if (request.startAtSegment && !host.startAt(h, request.segmentId)) startMessage = "This segment can't be started on its own here; playing from the event's start.";
     if (stems) host.stems(h, stems.segmentId, stems.audible);
-    pendingSeek = text === null ? null : { text, retries: SEEK_RETRIES };
+    // F-41: a position the music can start at is started there once; only a refused one falls back to a seek after the start.
+    const placed = text !== null && startMessage === null && host.startAtPosition(h, text);
+    pendingSeek = text === null || placed ? null : { text, retries: SEEK_RETRIES };
     set({
       event: request.event,
       segmentId: request.segmentId,
