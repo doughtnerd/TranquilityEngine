@@ -24,7 +24,8 @@ This page documents the first part of interactive music (milestone M4a plus the 
 | Music switches on a labelled parameter | |
 | Transition rules: exit, enter, quantised cut, crossfade, curves, bridges; `handle.music.seek` within the playing segment | |
 | Stingers and `handle.trigger` | Beat, bar and cue callbacks: `onMusicBeat`, `onMusicBar`, `onMusicCue`, `handle.onMusic` (subscribing does nothing yet) |
-| Quantised stem automation | `handle.music.positionAt`, `Calibration`, a working `Audio.calibration`, and the rhythm-game helpers |
+| Quantised stem automation | `Calibration`, a working (saved) `Audio.calibration`, and the rhythm-game helpers |
+| `handle.music.positionAt` and its `judged` offset (calibration still reads 0 until it is saved) | |
 | `handle.music` position, tempo and `nextGrid` | Resyncing a group whose stream starved (it is silenced and held today, see [the debug panel](#the-debug-panels-music-section)) |
 | `Audio.horizon`, `Audio.timeAt` | The editor's transport and audition for music |
 | `music.rings` and the presets, streaming and decoding | Hot reload of a playing music event (wired; see [Hot reload](#hot-reload)) |
@@ -357,6 +358,7 @@ Everything is exported from `"myco"` (`GridSpec`, `GridPoint`, `MusicHandle`, `M
 | `music.time` | The heard time in seconds of that position, on `Audio.time`'s clock |
 | `music.transition` | The pending change, with the heard time it lands: `{ to, time }`, or `null` |
 | `music.nextGrid(spec)` | The next beat, bar or n-th bar line at or after now, as `{ time, bar, beat, segment }`. While a change is pending, points after `transition.time` belong to the *new* segment (`segment` says which). `null` when not playing or when nothing follows the exit |
+| `music.positionAt(performance.now())` | Where the music was **heard** at an input's timestamp (`event.timeStamp`, ms): `{ segment, bar, beat, beatFraction, nearestBeatTime, offset, judged }`. `offset` is seconds from the nearest beat that is actually heard, positive when late, raw; `judged` is `offset - Audio.calibration`, the number a rhythm game compares. `segment` is `null` (the rest 0) when the music is not sounding at that instant. See [Judging input](#judging-input) |
 | `music.seek(position)` | Jump to a position in the segment that is playing, see [Seeking](#seeking) |
 | `handle.trigger(name)` | Fire a [stinger](#stingers); `true` if accepted |
 | `handle.setParameter(name, value)` | Drives a [switch](#music-switches) and stem automation, as for every event |
@@ -371,6 +373,19 @@ Everything is exported from `"myco"` (`GridSpec`, `GridPoint`, `MusicHandle`, `M
 const next = music.music?.nextGrid("bar");
 if (next) flashAt(next.time - Audio.time);   // seconds from now
 ```
+
+### Judging input
+
+```ts
+// In an input handler: event.timeStamp is a performance.now() time.
+const p = music.positionAt(event.timeStamp);
+if (p.segment !== null) {
+  const err = p.judged;                          // seconds, + late, - early
+  if (Math.abs(err) < 0.05) hit(p.bar, p.beat);  // within 50 ms of a beat
+}
+```
+
+The input is mapped to heard time with `Audio.timeAt` (raw, already counting the output latency), then read on the music's grid. The result follows the music across tempo and metre changes and across a change of segment: from the heard landing of a change on, the position is the new segment's. The nearest beat is one that is actually heard: a beat of the old segment that a change cuts off is not offered, and the new segment's first beat is. Before a segment's first bar (its pickup) `bar` and `beat` read 1 and 1, as `music.bar` does, while `offset` is still against the pickup's own beats. The position is kept for the playing segment and its pending successor only, so ask about a recent input (a frame or two old, as an event's timestamp is), not about a time before the last change landed. `judged` subtracts `Audio.calibration`, which is 0 until it is saved per device (coming later, below); `offset` stays raw, so `Calibration.fromTaps` can be fed the offsets.
 
 ### Seeking
 
@@ -394,7 +409,7 @@ An `AudioSource` plays a music event like any event (the flappy sample does). It
 
 *Coming later:*
 - **Beat callbacks.** `onMusicBeat`, `onMusicBar` and `onMusicCue` on a `GameBehavior` and `handle.onMusic("beat", fn)` exist in the types, but nothing calls them yet; `handle.onMusic` returns a no-op unsubscribe. To act on the beat today, read `music.nextGrid("beat")` each frame.
-- **`music.positionAt(performance.now())`** returns an empty position (`segment: null`), and **`Calibration.fromTaps`** returns an empty result. **`Audio.calibration`** can be set and read but is not saved, and `Audio.calibrationStale` is always `false`. `Audio.latency` and `Audio.rhythmMode` (the `audio.rhythmMode` project setting) exist; the rhythm mode they belong to is not finished.
+- **`Calibration.fromTaps`** returns an empty result. **`Audio.calibration`** can be set and read but is not saved, and `Audio.calibrationStale` is always `false`. `Audio.latency` and `Audio.rhythmMode` (the `audio.rhythmMode` project setting) exist; the rhythm mode they belong to is not finished.
 
 ## The debug panel's Music section
 
