@@ -531,3 +531,15 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 - K3 (mid): `positionAt`, `judged`.
 - K4 (mid): beat-clock edge and trace tests.
 E2 (M4b's browser specs and listening section) and D3 (the guide) start when these land.
+
+**K3 merged** (`m4/k3` `fd88d8df`): `handle.ts`.
+- `positionAt(time)` uses K1's `heardRunAt` and `ticksAt`, from anchors only, so F-18 isn't a dependency. It returns segment, bar, beat, fraction and the nearest beat actually heard (change-aware: just before a cut, the incoming segment's first beat can win), plus `offset` and `judged = offset − calibration`.
+- **Limit:** once a change lands, the old segment's position is gone, so judge recent inputs (a frame or two old). The guide says so.
+- Calibration is still Rh2's stub (0); Rh2 only makes `getCalibration` return the stored value. No subdivisions; Rh3 can compute them from `nearestBeatTime` and tempo.
+- Tests: 6 unit, and a loopback that's exact at each beat and ±1 sample across a tempo and metre change and a cut.
+
+**T3 merged** (`m4/t3` `4b9f2d3c`, tests only):
+- `transitionPrecedence.test.ts` (19): the tiers, exact over wildcard, nested containers and common-parent tables, `*→*` over the default, the bridge from `match.parent`'s library, D14.
+- `transitionRefusal.test.ts` (14, a file the plan didn't list; kept as is): `neverFits` refused at the request with no retry; `poolFull` retries each allowed point and lands on A's grid; replace before T − L, queue after; the latest queued ask wins.
+- 3 loopback cases appended to `transition.loopback.test.ts`: a cut after 1 and 2 refusals lands on the predicted frame (error 0); a crossfade after a refusal 9.04e-6.
+- **M4b exit check "never-fits immediate, free-ring retries" met.** No bugs found.
