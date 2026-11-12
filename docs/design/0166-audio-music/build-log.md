@@ -101,6 +101,7 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 
 - **F-1 (from Q1, pre-existing, M3):** at a 192 kHz context the default and larger presets exceed the shell's 16 MiB fixed-region headroom (`M2_REGIONS_HEADROOM_BYTES` in `worklet/coreDriver.ts`) once the HRIR is counted, before M4. Fix by raising the headroom (a tripwire move with its measured reason) or sizing the reverb region per rate. Owner of `coreDriver.ts` after W1: the coordinator.
 - **F-8 (coordinator, at the flip):** the in-voice hook (H1) costs about 104 instructions per virtual voice per quantum (the due bit, the curves byte, the start shift, the wider `VoiceFx`, two `advance_due` calls instead of plain advances). The metered `virtual` scene (8,064 virtual voices) rose +11.79%. **Z5** profiles it while adding its scenes. Candidates: a `const DUE: bool` specialisation of `render_voice`, so a voice off the due list takes the M3 path, and skipping the shift when `due` is `NONE`. Not traded for accuracy.
+- **F-9 (from SM1):** quantised event automation on a music segment's stems has no audible effect on core. The stamped `paramsShaped` ramp and the level sent at bind leave the Music bus peak unchanged (≈ 0.24); it works on Babylon. Continuous automation works on core. SM1 kept the sound-lab sample unquantised. **F-9 task** (strongest) is finding the root cause, with `voices.rs`/`groups.rs`/`status.rs` off limits while C2b holds them; it restores `quantize` in the sample once fixed.
 
 **Started (rolling, D5), base `92969c11`:** Z2a (strongest) on the flip branch `m4/in-voice`, cut locally at `92969c11` after Q1 and the wire's merge 1 (the flip branch stays local: this session pushes only the integration branch); F2, Ed2, Ed9 and R4c (mid; each depends only on merged tasks and touches no running task's files). Waiting for the wire's merge 2: Z4, C1, D1a, then Q2's merge.
 
@@ -213,3 +214,20 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 **SM1 continued** (report on `fe455402`): both samples play on the grid with no warnings; `soundLabEvents.test.ts` passes 5 of 5; `audio-events.spec.ts` passes on Babylon. Its Intensity step fails on core, a regression from SM1's segment, so the merge is still held (D9). **Two causes:**
 1. `tickMusicAutomation` only ramps a `"playing"` run. Runs stay `"stamped"` until the core reports group starts, and the core writes `groupStarts` only from C2b. SM1 is granted `eventRuntime.ts` to accept `"stamped"` and to set a quantised stem's first level at bind time, not at 1.
 2. Core `audibility` doesn't see in-voice ramps. SM1 rewrites the step to read an existing observable: the debug music view, the Music bus meter, or the stem state. No new public API.
+
+**SM1 merged** (`m4/sm1` `d741fa31`): the sound-lab `intensity` segment with stems, the flappy `town` streamed segment, `tools/music-tempo.mjs`, `music.rings` in both projects. **Engine edits granted by name (`eventRuntime.ts`):**
+- quantised automation also ramps a `"stamped"` run (runs stay stamped until C2b reports group starts);
+- a new stem voice gets its evaluated level at bind (an immediate `paramsShaped` with seconds 0), with `st.level` left at 1 so the stamped ramp still goes out;
+- a unit test that fails without the guard change.
+
+**Deviation:** sound-lab's Intensity automation stays continuous, because the quantised ramp isn't observable on core (F-9). With that, `audio-events.spec.ts` passes on both backends unchanged. Checks: typecheck 0; events and music vitest 35 files, 385 tests.
+
+**Wave-end checks** (on `c0009afd`, with C2b, Z5, F-9 and SM1 running):
+- typecheck 0, `check:filenames` clean;
+- `cargo test --workspace --release` 847 pass, 0 fail;
+- Vitest 5,802 pass, 2 fail:
+  - `zoneIr` is the known flake under load; it passes alone;
+  - `plugins.test.ts`'s import-direction check is a real failure: P10's `runtime/core/debug.music.test.ts` imported `editor/audioDebugRows`. **Coordinator fix** `2c26c6a4`: the test moved to `editor/audioDebugMusic.test.ts`; 17 of 17 pass.
+- `check:audio-metered` passes after D10.
+- `npm run build` and `test:e2e` (Chromium) are running.
+
