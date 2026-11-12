@@ -17,7 +17,8 @@ name = "loudspike"
 path = "src/bin/loudspike.rs"
 
 [features]
-default = ["ebur"]
+default = ["ebur", "bench"]
+bench = []
 ebur = ["dep:ebur128"]
 no-alloc-count = []
 

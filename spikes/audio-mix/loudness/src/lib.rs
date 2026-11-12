@@ -64,13 +64,13 @@ mod platform {
 }
 pub use platform::{now_us, print, TARGET};
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "bench"))]
 #[no_mangle]
 pub extern "C" fn bench_main(ptr: *const u8, len: usize) {
     let args = unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(ptr, len)) };
     main(args);
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "bench"))]
 #[no_mangle]
 pub extern "C" fn bench_alloc(len: usize) -> *mut u8 {
     Box::leak(vec![0u8; len].into_boxed_slice()).as_mut_ptr()

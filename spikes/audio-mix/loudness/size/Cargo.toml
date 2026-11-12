@@ -12,7 +12,7 @@ own = []
 ebur = ["loudspike/ebur"]
 
 [dependencies]
-loudspike = { path = "..", default-features = false }
+loudspike = { package = "myco-loudness-spike", path = "..", default-features = false }
 
 [profile.release]
 opt-level = 3
