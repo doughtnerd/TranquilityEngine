@@ -1050,6 +1050,12 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     return info ? { frames: info.frames, rate: info.sampleRate, channels: info.channels, gapless: true } : undefined;
   }
 
+  /** ADR 0166 (P8): the file at `path` was edited: the registry's clips of it and the worker's encoded music bytes are dropped; the next use loads the new file. */
+  invalidateClip(path: string): void {
+    this.clips.invalidate?.(path);
+    this.musicOps.invalidate(path);
+  }
+
   /** ADR 0158: the clip's length in seconds at pitch 1 once the registry has decoded it; null while unknown (or streamed). */
   clipDuration(path: string): number | null {
     return this.clips.duration?.(path) ?? null;

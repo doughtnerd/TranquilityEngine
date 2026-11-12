@@ -210,6 +210,7 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
         case "cancelGroup":
         case "protectMusic":
         case "releaseMusic":
+        case "invalidateMusic":
           return groups.handle(request);
       }
     },

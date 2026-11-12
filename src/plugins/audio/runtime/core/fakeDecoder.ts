@@ -37,7 +37,9 @@ export interface FakeGroupMember {
 }
 
 /** What `fakeDecoder` returns: `decodeClip`, plus the music-group half of `DecoderClient` (ADR 0166 §4.6, C8), in process. */
-export interface FakeDecoder extends Pick<DecoderClient, "decodeClip" | "primeGroup" | "cancelGroup" | "protectMusic" | "releaseMusic" | "onMusic" | "onStream"> {
+export interface FakeDecoder extends Pick<DecoderClient, "decodeClip" | "primeGroup" | "cancelGroup" | "protectMusic" | "releaseMusic" | "invalidateMusic" | "onMusic" | "onStream"> {
+  /** Every path passed to `invalidateMusic`, oldest first (for tests). */
+  readonly invalidated: readonly string[];
   /** The groups open now (group id to its members by stream id); a cancelled group is gone (for tests). */
   openGroups(): ReadonlyMap<number, ReadonlyMap<number, FakeGroupMember>>;
   /** Every `primeGroup` the fake received, oldest first, without the bytes (for tests). */
@@ -53,9 +55,11 @@ export function fakeDecoder(decode: (encoded: ArrayBuffer) => PlanarClip | Promi
   const primed: Omit<PrimeGroupOptions, "members">[] = [];
   const streamListeners = new Set<(reply: StreamReply) => void>();
   const musicListeners = new Set<(reply: MusicReply) => void>();
+  const invalidated: string[] = [];
   return {
     openGroups: () => groups,
     primed,
+    invalidated,
     /**
      * L-D1ba: as the worker does (§4.6, C8). `retarget: false` opens each member (stream id, asset, epoch, start frame) and
      * emits `streamOpened` through `onStream`, then one `groupOpened` through `onMusic` (every member listed, no error).
@@ -105,6 +109,10 @@ export function fakeDecoder(decode: (encoded: ArrayBuffer) => PlanarClip | Promi
     /** L-D1ba: accepted and ignored (the fake has no encoded cache). */
     releaseMusic(instance: number): void {
       void instance;
+    },
+    /** P8: recorded. */
+    invalidateMusic(path: string): void {
+      invalidated.push(path);
     },
     onMusic(listener: (reply: MusicReply) => void): () => void {
       musicListeners.add(listener);

@@ -46,7 +46,31 @@ export function sidecarValue(path: string): object | undefined {
 /** Text assets by URL (`Assets.text`). */
 const textCache = new Map<string, Promise<string>>();
 
+/** Listeners of `Assets.onChanged`. */
+const changeListeners = new Set<(path: string) => void>();
+
 export const Assets = {
+  /**
+   * @internal The editor saved or replaced the project file at `path` (its source already serves the new content):
+   * runtimes that cache what an asset held (audio's clips and music events) drop it. Each listener's error is logged, not thrown.
+   */
+  notifyChanged(path: string): void {
+    const p = normalizeAssetPath(path);
+    for (const listener of [...changeListeners]) {
+      try {
+        listener(p);
+      } catch (err) {
+        console.warn(`[myco] An asset-change listener failed for "${p}":`, err);
+      }
+    }
+  },
+
+  /** @internal Calls `listener(path)` whenever `notifyChanged` reports a changed asset; returns the unsubscribe. */
+  onChanged(listener: (path: string) => void): () => void {
+    changeListeners.add(listener);
+    return () => changeListeners.delete(listener);
+  },
+
   addSource(source: AssetSource): void {
     sources.unshift(source);
   },

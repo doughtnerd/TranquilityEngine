@@ -251,7 +251,13 @@ export interface ReleaseMusicMessage {
   readonly instance: number;
 }
 
-export type MusicRequest = PrimeGroupMessage | CancelGroupMessage | ProtectMusicMessage | ReleaseMusicMessage;
+/** P8: the music file at `path` was edited: the worker's encoded cache drops it for every instance, so a re-prime is a miss and main resends the new bytes. */
+export interface InvalidateMusicMessage {
+  readonly type: "invalidateMusic";
+  readonly path: string;
+}
+
+export type MusicRequest = PrimeGroupMessage | CancelGroupMessage | ProtectMusicMessage | ReleaseMusicMessage | InvalidateMusicMessage;
 
 /**
  * Editor waveform peaks (Ed1; api-and-models §7): decode `bytes` (transferred) and reduce it to one min/max pair per

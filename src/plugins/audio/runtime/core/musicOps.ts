@@ -386,6 +386,12 @@ export class CoreMusicOps implements MusicBackend {
     this.tryDecoder()?.releaseMusic?.(instance);
   }
 
+  /** P8: the file at `path` was edited: the worker drops its encoded bytes, and no instance counts the path as held any more. */
+  invalidate(path: string): void {
+    for (const paths of this.held.values()) paths.delete(path);
+    this.tryDecoder()?.invalidateMusic?.(path);
+  }
+
   protect(instance: number, paths: readonly string[]): void {
     this.tryDecoder()?.protectMusic?.(instance, paths);
   }

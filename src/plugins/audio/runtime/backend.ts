@@ -589,6 +589,8 @@ export interface AudioBackend {
   frameInterval?(): number;
   /** ADR 0166 (G-1): a loaded clip's facts, or undefined while unknown (not loaded, failed). `gapless`: its length is exact. */
   clipFacts?(path: string): { frames: number; rate: number; channels: number; gapless: boolean } | undefined;
+  /** ADR 0166 (P8): the asset file at `path` was edited: drop what is cached of it (decoded clips, the worker's encoded music bytes). */
+  invalidateClip?(path: string): void;
   /** ADR 0158: the earliest audio-clock time (`time`'s base) a play with `at` lands on exactly, for gapless chains. */
   horizon?(): number;
 

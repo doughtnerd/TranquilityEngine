@@ -228,7 +228,7 @@ function musicRig(rings = 8, clips: ClipRegistry = fakeClips()) {
   const say = (r: MusicReply) => {
     for (const l of music) l(r);
   };
-  return { backend, ops: backend.musicOps, clock, primes, cancels, closes, fetched, events, ringsOf, say };
+  return { backend, ops: backend.musicOps, clock, primes, invalidated: fake.invalidated, cancels, closes, fetched, events, ringsOf, say };
 }
 
 const flush = async () => {
@@ -326,6 +326,30 @@ describe("the core's group operations (ADR 0166 P1)", () => {
     expect(released).toHaveLength(2); // the admission holds
     r.ops.cancelGroup(8);
     expect(released).toHaveLength(2); // nothing released twice
+    r.backend.dispose();
+  });
+
+  it("invalidateClip tells the worker and forgets the path as held, so the next prime sends its bytes (P8)", async () => {
+    const r = musicRig(8);
+    const a = request(3, 2);
+    r.ops.admitGroup(a);
+    r.ops.primeGroup(a);
+    await flush();
+    r.ops.cancelGroup(3);
+    r.fetched.length = 0;
+    const b = request(4, 2);
+    r.ops.admitGroup(b);
+    r.ops.primeGroup(b);
+    await flush();
+    expect(r.fetched).toEqual([]); // both paths are held by the worker
+    r.ops.cancelGroup(4);
+    r.backend.invalidateClip("music/s0.ogg");
+    expect(r.invalidated).toEqual(["music/s0.ogg"]);
+    const c = request(5, 2);
+    r.ops.admitGroup(c);
+    r.ops.primeGroup(c);
+    await flush();
+    expect(r.fetched).toEqual(["music/s0.ogg"]);
     r.backend.dispose();
   });
 

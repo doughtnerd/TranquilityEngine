@@ -68,6 +68,9 @@ export class MusicGroups {
       case "releaseMusic":
         this.host.cache.releaseInstance(request.instance);
         return;
+      case "invalidateMusic":
+        this.host.cache.invalidatePath(request.path);
+        return;
     }
   }
 

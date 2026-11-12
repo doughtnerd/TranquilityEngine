@@ -94,4 +94,14 @@ describe("music encoded cache on the worker (D1c)", () => {
     await handler.handle({ type: "primeGroup", instance: 1, group: 3, retarget: false, protect: ["music/a.wav", "music/b.wav"], members: [member(3, "music/b.wav")] });
     expect(warns()).toHaveLength(1); // once per instance
   });
+
+  it("invalidateMusic drops a path for every instance: the next prime without bytes is a miss (P8)", async () => {
+    const { handler, replies } = await rig();
+    const file = makeWav(20_000, 2, 48_000, signal);
+    await handler.handle({ type: "primeGroup", instance: 1, group: 1, retarget: false, members: [member(1, "music/a.wav", file.slice(0)), member(2, "music/b.wav", file.slice(0))] });
+    await handler.handle({ type: "invalidateMusic", path: "music/a.wav" });
+    replies.length = 0;
+    await handler.handle({ type: "primeGroup", instance: 1, group: 2, retarget: false, members: [member(3, "music/a.wav"), member(4, "music/b.wav")] });
+    expect(needed(replies)).toEqual([{ type: "needBytes", group: 2, members: [{ streamId: 3, asset: "music/a.wav" }] }]);
+  });
 });

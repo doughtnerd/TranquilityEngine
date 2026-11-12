@@ -101,6 +101,17 @@ export class MusicCache {
     this.warned.delete(instance);
   }
 
+  /**
+   * P8: the file at `path` was edited. Every instance forgets its bytes (open streams hold their own copy in the wasm, so
+   * they play on); the next prime without bytes is a miss and main resends the new file. Nothing is evicted by size here.
+   */
+  invalidatePath(path: string): void {
+    for (const [instance, paths] of this.held) {
+      paths.delete(path);
+      if (paths.size === 0) this.held.delete(instance);
+    }
+  }
+
   /** A new budget in bytes (the preset's, from `primeGroup.budgetBytes`); may evict at once. */
   setBudget(bytes: number): void {
     if (!Number.isFinite(bytes) || bytes < 0) return;
