@@ -368,6 +368,8 @@ pub fn reset(core: &mut Core, keep_clips: bool) {
     // that linked them (all-zero is a free pool).
     crate::due::reset(core);
     core.regions_mut().curves.fill(0);
+    // 0166 M4a (C2b): every group entry goes with its members.
+    crate::groups::reset(core);
     let c = status::counters_mut(core);
     c.live_voices = 0;
     c.mixed_voices = 0;

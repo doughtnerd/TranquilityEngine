@@ -2,7 +2,7 @@
 //! writer puts down is read back by `audio-wire`'s generated `StatusBlock::read`. A drift between
 //! the writer's offsets and the schema fails here.
 
-use audio_core::counters::{flag, BedStatus, Counters, Event, MusicRing, Playhead, ZoneEvent, ZoneStatus, BEDS_CAP, CLIP_EVENTS_CAP, ENDED_CAP, MUSIC_RINGS_CAP, PEAKS_CAP, PLAYHEADS_CAP, ZONES_CAP, ZONE_EVENTS_CAP};
+use audio_core::counters::{flag, BedStatus, Counters, Event, GroupStart, MusicRing, Playhead, ZoneEvent, ZoneStatus, BEDS_CAP, CLIP_EVENTS_CAP, ENDED_CAP, GROUP_STARTS_CAP, MUSIC_RINGS_CAP, PEAKS_CAP, PLAYHEADS_CAP, ZONES_CAP, ZONE_EVENTS_CAP};
 use audio_core::status::{write, BUFFER_BYTES};
 use audio_wire::generated::StatusBlock;
 
@@ -110,13 +110,21 @@ fn full_sections_read_back_in_order() {
         let flags = i | if i % 2 == 1 { audio_wire::generated::MUSIC_RING_PRIMED } else { 0 } | if i == 15 { audio_wire::generated::MUSIC_RING_BOUND } else { 0 };
         assert!(c.music.music_rings.push(MusicRing { stream_id: 500 + i, epoch_flags: flags }));
     }
+    // 0166 M4 §4.4 (C2b): eight group starts, the last one late and past 2^32 frames.
+    for i in 0..GROUP_STARTS_CAP as u16 {
+        let late = i == 7;
+        assert!(c.music.group_starts.push(GroupStart { group_id: 100 + i, flags: late as u16, slip_frames: if late { 256 } else { 0 }, start_frame: if late { (1 << 32) + 5 } else { 1_000 * i as u64 } }));
+    }
     let mut out = vec![0u8; BUFFER_BYTES];
     let n = write(&c, 0, &mut out);
-    assert_eq!(n, 16_064, "api-and-models §4.4's worst case less the groupStarts section");
-    // The core writes no groupStarts (8 x 16 B) before C2b: the generated worst case less that.
-    assert_eq!(n as u32, audio_wire::generated::STATUS_WORST_CASE_BYTES - 8 * 16);
+    assert_eq!(n, 16_192, "api-and-models §4.4's worst case");
+    assert_eq!(n as u32, audio_wire::generated::STATUS_WORST_CASE_BYTES);
     let (s, _) = StatusBlock::read(&out, 0).unwrap();
     assert_eq!(s.music_rings.len(), MUSIC_RINGS_CAP);
+    assert_eq!(s.group_starts.len(), GROUP_STARTS_CAP);
+    let g = &s.group_starts[7];
+    assert_eq!((g.group_id, g.flags, g.slip_frames, g.start_frame_lo, g.start_frame_hi), (107, 1, 256, 5, 1));
+    assert_eq!((s.group_starts[3].group_id, s.group_starts[3].start_frame_lo), (103, 3_000));
     assert_eq!((s.music_rings[3].stream_id, s.music_rings[3].epoch_flags), (503, 3 | audio_wire::generated::MUSIC_RING_PRIMED));
     assert_eq!(s.music_rings[15].epoch_flags, 15 | audio_wire::generated::MUSIC_RING_PRIMED | audio_wire::generated::MUSIC_RING_BOUND);
     assert_eq!(s.ended.len(), ENDED_CAP);
