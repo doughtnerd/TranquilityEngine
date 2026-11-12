@@ -15,7 +15,7 @@ import { stemMode, type MusicClipFacts } from "../../../../engine/audio/musicVal
 import type { MusicFrame, MusicNodeRef, MusicPlayer } from "./musicSystem";
 import type { EventOptions } from "../events/eventRuntime";
 import { audioBackend } from "../backend";
-import { applySlip } from "./anchors";
+import { applySlip, simpleLoopOf, type MemberLoop } from "./anchors";
 
 /** The highest music group id (§3.2: ids 1..1023). */
 export const MAX_MUSIC_GROUP_ID = 1023;
@@ -169,10 +169,11 @@ export function groupRequest(player: MusicPlayer, run: SegmentRun): MusicGroupRe
   for (const s of run.stems) {
     const t = tracks.find((x) => x.name === s.track);
     const settings = clipSource.settings(s.clip);
+    const loop = memberLoop(run.node, s.clip);
     const play: PlayRequest = {
       path: s.clip,
       url: clipSource.url(s.clip),
-      loop: false,
+      loop: loop !== null,
       stream: s.streamed,
       bus: clipSource.bus(t?.bus || bus),
       volume: level * (t?.volume ?? 1) * settings.volume,
@@ -180,9 +181,45 @@ export function groupRequest(player: MusicPlayer, run: SegmentRun): MusicGroupRe
       world: inst.world,
       group: inst.group,
     };
-    members.push({ stem: s.track, play, startFrame: run.startFrame, loop: false });
+    members.push(
+      loop
+        ? { stem: s.track, play, startFrame: run.startFrame, loop: true, loopStartFrame: loop.startFrame, loopEndFrame: loop.endFrame }
+        : { stem: s.track, play, startFrame: run.startFrame, loop: false },
+    );
   }
   return { instance: inst.group, group: run.group, members };
+}
+
+/** The clip's own rate (its facts), else 48 kHz, as the anchor's (`anchors.ts`). */
+function clipRate(clip: string): number {
+  const r = clipSource.facts(clip)?.rate;
+  return r !== undefined && r > 0 ? r : 48_000;
+}
+
+/**
+ * P3: the member's loop when the segment is a simple forever loop (`simpleLoopOf`: one region, `count: 0`, no
+ * `while`), in file frames of the clip's own rate; null otherwise (R4a/R4b's counted and `while` regions).
+ */
+function memberLoop(node: MusicNodeRef, clip: string): MemberLoop | null {
+  return simpleLoopOf(node, clipRate(clip));
+}
+
+/**
+ * A decoded member loops its whole clip by its PLAY's loop flag; a region inside the file goes to the voice as a loop
+ * region in seconds (the backend's automation sink, stamped behind the PLAY, or the voice's own `setLoop`). Streamed
+ * members loop in the worker (`primeGroup`'s member region).
+ */
+function loopDecodedMembers(run: SegmentRun, f: MusicFrame): void {
+  for (const s of run.stems) {
+    if (s.streamed || !s.voice) continue;
+    const loop = memberLoop(run.node, s.clip);
+    if (!loop || loop.wholeFile) continue;
+    const rate = clipRate(s.clip);
+    const start = loop.startFrame / rate, end = loop.endFrame / rate;
+    const sink = f.backend.automation;
+    if (sink) sink.setLoop(s.voice, start, end, true);
+    else s.voice.setLoop?.(start, end, true);
+  }
 }
 
 // --- Live groups and the id counter (§3.2) ---
@@ -275,6 +312,7 @@ export function stampRun(player: MusicPlayer, run: SegmentRun, at: number, f: Mu
   const stamp: MusicGroupStamp = fades && fades.length > 0 ? { group: run.group, at, fades } : { group: run.group, at };
   const voices = music.stampGroup(stamp);
   for (let k = 0; k < run.stems.length; k++) run.stems[k]!.voice = voices[k] ?? null;
+  loopDecodedMembers(run, f);
   run.startAt = at;
   run.state = "stamped";
   run.prime = null;

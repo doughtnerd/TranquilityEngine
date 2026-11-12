@@ -13,7 +13,7 @@
 //   m3Shed                                      green 0         -                 red on any step
 //
 // "Per second" and "any increment" need the previous samples, so a `CounterWatch` sees every sample the panel takes.
-import type { AudioDebugInfo } from "../runtime/backend";
+import type { AudioDebugInfo, MusicDebugRow, MusicDebugTotals } from "../runtime/backend";
 
 /** green, amber, red; "info" is a number with no threshold (a gauge, not a fault). */
 export type Health = "ok" | "warn" | "bad" | "info";
@@ -41,11 +41,11 @@ export interface Column {
 
 /** A panel section. `columns` absent: a label/value list. */
 export interface Section {
-  id: "m3Counters" | "ladder" | "beds" | "zones" | "occlusion" | "memory";
+  id: "m3Counters" | "ladder" | "beds" | "zones" | "occlusion" | "memory" | "musicTotals" | "music";
   title: string;
   /** What the section is, for a tooltip on its header. */
   tip: string;
-  columns?: Column[];
+  columns?: readonly Column[];
   rows: Row[];
   /** Shown instead of the table when there are no rows. */
   empty: string;
@@ -278,7 +278,8 @@ function memoryRows(info: AudioDebugInfo): Row[] {
 }
 
 /** All M3 sections, in the order the panel shows them. A section the backend has no data for is still returned (with `empty` set). */
-export function debugSections(info: AudioDebugInfo, watch?: CounterWatch): Section[] {
+export function debugSections(info: AudioDebugInfo, watch?: CounterWatch, musicWatch?: MusicWatch): Section[] {
+  const music = info.music ?? [];
   return [
     {
       id: "m3Counters",
@@ -343,6 +344,21 @@ export function debugSections(info: AudioDebugInfo, watch?: CounterWatch): Secti
       rows: memoryRows(info),
       empty: "No memory figures on this backend",
     },
+    {
+      id: "musicTotals",
+      title: "Music totals",
+      tip: "Engine-wide interactive music counters: the stream pool, late starts, split quanta and refusals. Red and amber follow architecture 9.",
+      rows: info.musicTotals ? musicTotalsRows(music, info.musicTotals, musicWatch) : [],
+      empty: "No music on this backend",
+    },
+    {
+      id: "music",
+      title: "Music",
+      tip: "Each playing music event: where it is, the pending change and the rule that chose it, priming, re-plans and refusals.",
+      columns: MUSIC_COLUMNS,
+      rows: musicInstanceRows(music, info.sampleRate, musicWatch),
+      empty: "No music playing",
+    },
   ];
 }
 
@@ -379,4 +395,359 @@ export function voiceCells(v: DebugVoice): Cell[] {
   const parts = [...(v.sends ?? []).map((s) => `${s.zone} ${s.level.toFixed(2)}`), ...(v.aux ? [`aux ${v.aux.bus} ${v.aux.level.toFixed(2)}`] : [])];
   const sends: Cell = v.sends === undefined && v.aux === undefined ? dash : { text: parts.join(", ") || "-" };
   return [panner, doppler, occlusion, lowpass, sends];
+}
+
+// --- ADR 0166 interactive music (M4, P10): the Music section's rows -----------------------------------------------
+//
+// Filled by leaf L-P10a. Spec: api-and-models §1.6 (the row and totals shape, `MusicDebugRow` and
+// `MusicDebugTotals` in `runtime/backend.ts`) and architecture §9 (the thresholds in `MUSIC_HEALTH` below). Pure, like the
+// builders above. P10's lead wires them into `debugSections` (a "music" and a "musicTotals" section) and the panel.
+
+/** The architecture §9 music thresholds, exported so tests and docs name the numbers. */
+export const MUSIC_HEALTH = {
+  /** `replans.deadline` per 100 transitions: green below `deadlineAmber`, amber up to `deadlineRed`, red above. */
+  deadlineAmber: 1,
+  deadlineRed: 10,
+  /** `groupTimeouts` and the recoveries total: amber up to this many per minute, red above. */
+  perMinuteAmber: 1,
+  /** Lead (`leadMs`): green up to `leadGreenMs`, amber up to one beat (`60000 / tempo` ms), red above the beat. */
+  leadGreenMs: 150,
+  leadAmberMs: 330,
+} as const;
+
+/** The window the per-minute rates and the deadline ratio are measured over, seconds. */
+const MUSIC_WINDOW = 60;
+
+/** Cumulative counts at one sample: transitions (any row's pass rose or its segment changed) and the summed counters. */
+interface MusicSample {
+  t: number;
+  transitions: number;
+  deadline: number;
+  groupTimeouts: number;
+  recoveries: number;
+}
+
+/** What the watch remembers of a row between samples: its pass and segment, and its counters as last seen. */
+interface MusicSeen {
+  pass: number;
+  segment: string | null;
+  deadline: number;
+  groupTimeouts: number;
+  recoveries: number;
+}
+
+/** A row's counter rise since it was last seen; a row new to the watch counts from zero. */
+const riseSince = (prev: number | undefined, v: number): number => (prev === undefined ? num(v) : Math.max(0, num(v) - prev));
+
+/** Sum of a count record's values (a missing or non-finite value counts 0). */
+const recordTotal = (rec: Record<string, number>): number => Object.values(rec).reduce((a, v) => a + num(v), 0);
+
+/** "deadline 2, primeLate 1" for the non-zero causes, or "0". */
+const causesText = (rec: Record<string, number>): string => {
+  const parts = Object.entries(rec)
+    .filter(([, v]) => num(v) > 0)
+    .map(([k, v]) => `${k} ${fmt(v)}`);
+  return parts.length ? parts.join(", ") : "0";
+};
+
+/** Refusal causes that are amber when non-zero (§9); any other cause, `neverFits` among them, is permanent and red. */
+const AMBER_REFUSALS: readonly string[] = ["poolFull", "leadOverBeat", "tailRefused"];
+const refusalHealth = (cause: string, count: number): Health => (count <= 0 ? "ok" : AMBER_REFUSALS.includes(cause) ? "warn" : "bad");
+
+/** The worst of several healths: bad, then warn, then info, then ok. */
+const worstOf = (...hs: Health[]): Health => (hs.includes("bad") ? "bad" : hs.includes("warn") ? "warn" : hs.includes("info") ? "info" : "ok");
+
+/** A refusal record's health: the worst of its causes. */
+const refusalsHealth = (rec: Record<string, number>): Health => worstOf(...Object.entries(rec).map(([k, v]) => refusalHealth(k, num(v))));
+
+/**
+ * Per-minute counters (§9): green at 0, amber up to `perMinuteAmber` a minute, red above. `perMinute` is undefined when
+ * there is no watch; a count with no rate reads amber.
+ */
+function perMinuteHealth(count: number, perMinute: number | undefined): Health {
+  if (!(count > 0) && !(perMinute !== undefined && perMinute > 0)) return "ok";
+  return perMinute !== undefined && perMinute > MUSIC_HEALTH.perMinuteAmber ? "bad" : "warn";
+}
+
+/** Deadline re-plans per 100 transitions (§9): green below 1, amber 1 to 10, red above 10. */
+function deadlineHealth(per100: number): Health {
+  return per100 < MUSIC_HEALTH.deadlineAmber ? "ok" : per100 <= MUSIC_HEALTH.deadlineRed ? "warn" : "bad";
+}
+
+/** One stem for the Stems cell: "drums ring 2", "pad decoded", with "(unprimed)" while it is not primed. */
+const stemLabel = (s: MusicDebugRow["stems"][number]): string => `${s.name} ${s.ring === null ? "decoded" : `ring ${s.ring}`}${s.primed ? "" : " (unprimed)"}`;
+
+/**
+ * Remembers recent samples of the music counters whose health is a rate (`replans.deadline` per 100 transitions,
+ * `groupTimeouts` and `recoveries` per minute). Feed it every `Audio.debug()` the panel takes.
+ */
+export class MusicWatch {
+  private readonly samples: MusicSample[] = [];
+  private seen = new Map<number, MusicSeen>();
+  private transitions = 0;
+  private deadline = 0;
+  private groupTimeouts = 0;
+  private recoveries = 0;
+  private now = 0;
+
+  /** Records one sample (`time` is the audio clock, seconds); a clock that went backwards clears the history. */
+  observe(time: number, rows: readonly MusicDebugRow[], _totals: MusicDebugTotals | undefined): void {
+    if (time < this.now) this.reset();
+    this.now = time;
+    const seen = new Map<number, MusicSeen>();
+    for (const r of rows) {
+      const prev = this.seen.get(r.id);
+      if (prev && (r.pass > prev.pass || r.segment !== prev.segment)) this.transitions += 1;
+      const deadline = num(r.replans.deadline);
+      const groupTimeouts = num(r.groupTimeouts);
+      const recoveries = recordTotal(r.recoveries);
+      this.deadline += riseSince(prev?.deadline, deadline);
+      this.groupTimeouts += riseSince(prev?.groupTimeouts, groupTimeouts);
+      this.recoveries += riseSince(prev?.recoveries, recoveries);
+      seen.set(r.id, { pass: r.pass, segment: r.segment, deadline, groupTimeouts, recoveries });
+    }
+    this.seen = seen;
+    this.samples.push({ t: time, transitions: this.transitions, deadline: this.deadline, groupTimeouts: this.groupTimeouts, recoveries: this.recoveries });
+    while (this.samples.length > 2 && time - this.samples[1]!.t >= MUSIC_WINDOW) this.samples.shift();
+  }
+
+  /** `groupTimeouts` rise per minute, summed over rows, over the last minute or so. */
+  groupTimeoutsPerMinute(): number {
+    return this.perMinute("groupTimeouts");
+  }
+
+  /** Recoveries (every cause, every row) rise per minute. */
+  recoveriesPerMinute(): number {
+    return this.perMinute("recoveries");
+  }
+
+  /**
+   * `replans.deadline` per 100 transitions over the window; a transition is a rise of any row's `pass` or a change of its
+   * `segment`. 0 before the first transition; Infinity when re-plans rise with no transition (red).
+   */
+  deadlineReplansPer100(): number {
+    const first = this.samples[0];
+    const last = this.samples[this.samples.length - 1];
+    if (this.samples.length < 2 || !first || !last) return 0;
+    const transitions = last.transitions - first.transitions;
+    const replans = last.deadline - first.deadline;
+    if (transitions <= 0) return replans > 0 ? Infinity : 0;
+    return (Math.max(0, replans) * 100) / transitions;
+  }
+
+  /** A cumulative counter's rise per minute across the window, or 0 before two samples. */
+  private perMinute(key: "groupTimeouts" | "recoveries"): number {
+    const first = this.samples[0];
+    const last = this.samples[this.samples.length - 1];
+    if (this.samples.length < 2 || !first || !last) return 0;
+    const span = last.t - first.t;
+    return span > 0 ? (Math.max(0, last[key] - first[key]) * 60) / span : 0;
+  }
+
+  private reset(): void {
+    this.samples.length = 0;
+    this.seen = new Map();
+    this.transitions = 0;
+    this.deadline = 0;
+    this.groupTimeouts = 0;
+    this.recoveries = 0;
+  }
+}
+
+/** Lead health (§9: <= 150 ms green, 150-330 amber, > one beat red): green to 150, red above `60000 / tempo`, amber between (the table leaves 330 to the beat open when a beat is longer; this reading is the lead's). */
+export function leadHealth(leadMs: number, tempo: number): Health {
+  if (leadMs <= MUSIC_HEALTH.leadGreenMs) return "ok";
+  const beatMs = tempo > 0 ? 60000 / tempo : Infinity;
+  return leadMs > beatMs ? "bad" : "warn";
+}
+
+/** One-line text of `pending` ("verse at 5:1, tier 2 rule intro>verse from parent, exit nextBar, enter cue:in") or "none". */
+export function pendingText(p: MusicDebugRow["pending"]): string {
+  if (!p) return "none";
+  return `${p.to} at ${p.time}, tier ${p.tier} rule ${p.ruleKey} from ${p.parent}, exit ${p.exit}, enter ${p.enter}`;
+}
+
+/**
+ * The "Music instances" section's rows: one per `MusicDebugRow`, cells per `MUSIC_COLUMNS` (event, state, segment and
+ * pass, bar:beat:tick, tempo, pending, groups primed n/N, stems primed n/N, prime last / Ê / lead in ms with lead health,
+ * re-plans, refusals, late / held / timeouts, last slip in frames and ms, recoveries, missed beats, stingers).
+ */
+export function musicInstanceRows(rows: readonly MusicDebugRow[], sampleRate: number, watch?: MusicWatch): Row[] {
+  const deadline = watch?.deadlineReplansPer100();
+  return rows.map((r): Row => {
+    const groupsPrimed = r.groups.reduce((a, g) => a + num(g.primed), 0);
+    const groupsOf = r.groups.reduce((a, g) => a + num(g.of), 0);
+    const stemsPrimed = r.stems.filter((s) => s.primed).length;
+    const slipMs = sampleRate > 0 ? (num(r.lastSlipFrames) / sampleRate) * 1000 : 0;
+    const recovered = recordTotal(r.recoveries);
+    const timeouts = num(r.groupTimeouts);
+    const { stingers } = r;
+    const cells: Cell[] = [
+      { text: `${r.id}: ${r.asset}`, tip: "The event instance id and its asset path." },
+      { text: r.state, tip: "priming, playing, transitioning, recovering or ending." },
+      { text: `${r.segment ?? "none yet"}, pass ${fmt(r.pass)}`, tip: "The playing segment's node id, and its pass (its loop count, from 1)." },
+      { text: `${fmt(r.bar)}:${fmt(r.beat)}:${fmt(r.tick)}`, tip: `bar:beat:tick (960 ticks per beat); heard at ${fmt(r.time, 3)} s.` },
+      { text: `${fmt(r.tempo, 1)} BPM, ${fmt(r.beatsPerBar)} per bar`, tip: "Beats per minute (BPM) and beats per bar." },
+      { text: pendingText(r.pending), tip: "The change waiting to land: when, and the rule that supplied it." },
+      {
+        text: r.groups.length ? `${fmt(groupsPrimed)} of ${fmt(groupsOf)} primed` : "none",
+        tip: r.groups.map((g) => `Group ${g.id}: ${g.state}, ${g.primed} of ${g.of} primed`).join("\n") || "No live groups.",
+      },
+      {
+        text: r.stems.length ? `${stemsPrimed} of ${r.stems.length} primed (${r.stems.map(stemLabel).join("; ")})` : "none",
+        tip:
+          r.stems
+            .map((s) => `${s.name}: ${s.primed ? "primed" : "not primed"}, ${s.streamed ? "streamed" : "decoded"}, ${s.ring === null ? "no music ring" : `music ring ${s.ring}`}`)
+            .join("\n") || "No stems.",
+      },
+      {
+        text: `${fmt(r.primeLastMs, 1)} / ${fmt(r.primeEmaMs, 1)} / ${fmt(r.leadMs, 1)} ms`,
+        tip: "Last group prime time, the estimator Ê, and the prime lead, in milliseconds. Lead: green to 150 ms, amber to one beat, red above a beat.",
+        health: leadHealth(r.leadMs, r.tempo),
+      },
+      {
+        text: causesText(r.replans),
+        tip: "Re-plans by reason (counts). Deadline re-plans colour per 100 transitions across all music instances.",
+        health: deadline === undefined ? undefined : deadlineHealth(deadline),
+      },
+      {
+        text: causesText(r.refusals),
+        tip: "Refusals by cause (counts). Pool full, lead over a beat and tail refused are amber; never fits and other causes are red.",
+        health: refusalsHealth(r.refusals),
+      },
+      {
+        text: `${fmt(r.lateGroups)} / ${fmt(r.groupsHeld)} / ${fmt(timeouts)}`,
+        tip: "Groups that started late, groups held by a starving member, and groups the core gave up on (counts). Timeouts: amber up to 1 per minute, red above.",
+        health: worstOf(
+          r.lateGroups > 0 ? "bad" : "ok",
+          r.groupsHeld > 0 ? "bad" : "ok",
+          perMinuteHealth(timeouts, timeouts > 0 ? watch?.groupTimeoutsPerMinute() : undefined),
+        ),
+      },
+      {
+        text: `${fmt(r.lastSlipFrames)} frames (${fmt(slipMs, 2)} ms)`,
+        tip: "The slip of the last late or held group: audio frames, and milliseconds at the sample rate.",
+      },
+      {
+        text: causesText(r.recoveries),
+        tip: "Recoveries by cause (counts): rebuild, hidden, reload, crash. Amber up to 1 per minute, red above.",
+        health: perMinuteHealth(recovered, recovered > 0 ? watch?.recoveriesPerMinute() : undefined),
+      },
+      { text: `${fmt(r.missedBeats)} beats`, tip: "Beats coalesced into missed since the instance started (beats)." },
+      {
+        text: `${fmt(stingers.played)} played, ${fmt(stingers.late)} late, ${fmt(stingers.skipped)} skipped, ${fmt(stingers.dropped)} dropped`,
+        tip: "Stinger outcomes (counts). Skipped is amber when non-zero.",
+        health: nonZeroWarn(stingers.skipped),
+      },
+    ];
+    return { id: `music${r.id}`, cells };
+  });
+}
+
+/** Column headers (label and tooltip) for `musicInstanceRows`, one per cell. */
+export const MUSIC_COLUMNS: readonly Column[] = [
+  { label: "Event", tip: "The event instance id and its asset path." },
+  { label: "State", tip: "priming (the first segment's streams are filling), playing, transitioning, recovering (after a rebuild, hide or reload), or ending." },
+  { label: "Segment", tip: "The playing segment and its pass (its loop count, from 1)." },
+  { label: "Position", tip: "Bar:beat:tick of the heard position (960 ticks per beat), with the heard time in seconds." },
+  { label: "Tempo", tip: "Beats per minute (BPM) and beats per bar." },
+  { label: "Pending", tip: "The change waiting to land: its target, bar:beat, and the rule that supplied it (tier, from>to, parent, exit, enter)." },
+  { label: "Groups", tip: "Members primed out of the members of the live groups (counts)." },
+  { label: "Stems", tip: "Stems primed out of the playing segment's stems. Each shows its music ring, or decoded when it has none." },
+  { label: "Prime (ms)", tip: "Last group prime time, the estimator Ê, and the prime lead, in milliseconds. Green to 150 ms, red above one beat." },
+  { label: "Re-plans", tip: "Re-plans by reason (counts). Deadline re-plans are judged per 100 transitions in the totals." },
+  { label: "Refusals", tip: "Refusals by cause (counts). Pool full, lead over a beat and tail refused are amber; never fits and other causes are red." },
+  { label: "Late / held / timeouts", tip: "Groups that started late, groups held by a starving member, and groups the core gave up on (counts)." },
+  { label: "Last slip", tip: "The slip of the last late or held group, in audio frames and in milliseconds at the sample rate." },
+  { label: "Recoveries", tip: "Recoveries by cause (counts): rebuild, hidden, reload, crash." },
+  { label: "Missed beats", tip: "Beats coalesced into missed since the instance started (beats)." },
+  { label: "Stingers", tip: "Stinger outcomes (counts): played, late, skipped, dropped." },
+];
+
+/**
+ * The "Music totals" section's label/value rows with the §9 health: pool used of size and high-water (info; amber at
+ * `poolUsed >= poolSize`), `musicRingRefused`, `splitQuanta`, `groupTableFull` (red when non-zero), `streamStartsLate`
+ * (red), `curvePoolFull` (amber), `voiceSplits` and `maxSlipFrames` (info), plus rows summed from the instance rows:
+ * late groups (red), holds (red), timeouts and recoveries (`watch`), `refusals.poolFull` / `leadOverBeat` / `tailRefused`
+ * and `stingers.skipped` (amber), `refusals.neverFits` and other permanent refusals (red).
+ */
+export function musicTotalsRows(rows: readonly MusicDebugRow[], totals: MusicDebugTotals | undefined, watch?: MusicWatch): Row[] {
+  const out: Row[] = [];
+  const sum = (f: (r: MusicDebugRow) => number): number => rows.reduce((a, r) => a + num(f(r)), 0);
+  if (totals) {
+    const size = num(totals.poolSize);
+    const used = num(totals.poolUsed);
+    out.push(
+      kv(
+        "poolUsed",
+        "Music rings in use",
+        `${fmt(used)} of ${fmt(size)} (high-water ${fmt(num(totals.poolHighWater))})`,
+        "Music rings in use now, the pool's size (music.rings) and the most ever in use at once (rings). Amber when every ring is in use.",
+        size > 0 && used >= size ? "warn" : "info",
+      ),
+    );
+    const refused = num(totals.musicRingRefused);
+    out.push(kv("musicRingRefused", "Music rings refused", fmt(refused), "Streamed stems refused for lack of a music ring (counts). Red on any.", nonZeroBad(refused)));
+    const late = num(totals.streamStartsLate);
+    out.push(kv("streamStartsLate", "Stream starts late", fmt(late), "Streams that started after their group's start (counts). Red on any.", nonZeroBad(late)));
+    const splits = num(totals.splitQuanta);
+    out.push(kv("splitQuanta", "Quantum splits (music)", fmt(splits), "Whole-quantum splits caused by music, cumulative (counts). Red on any: a bug.", nonZeroBad(splits)));
+    out.push(kv("voiceSplits", "Voice splits", fmt(num(totals.voiceSplits)), "Voice-local splits, cumulative (counts). Informational.", "info"));
+    out.push(kv("maxSlipFrames", "Largest slip", `${fmt(num(totals.maxSlipFrames))} frames`, "The largest slip since init, in audio frames. Informational.", "info"));
+    const curve = num(totals.curvePoolFull);
+    out.push(kv("curvePoolFull", "Curve pool full", fmt(curve), "Fade curves that found the curve pool full (counts). Amber when non-zero.", nonZeroWarn(curve)));
+    const table = num(totals.groupTableFull);
+    out.push(kv("groupTableFull", "Group table full", fmt(table), "A PLAY whose group found no core table entry (counts). Red on any: a bug.", nonZeroBad(table)));
+  }
+  const timeouts = sum((r) => r.groupTimeouts);
+  const timeoutRate = watch?.groupTimeoutsPerMinute();
+  out.push(
+    kv(
+      "groupTimeouts",
+      "Groups abandoned",
+      `${fmt(timeouts)}${timeoutRate === undefined ? "" : ` (${fmt(timeoutRate, 1)}/min)`}`,
+      "Groups the core gave up on, summed over the music instances (counts; the rate is over the last minute). Green at 0, amber up to 1 per minute, red above.",
+      perMinuteHealth(timeouts, timeoutRate),
+    ),
+  );
+  const recovered = sum((r) => recordTotal(r.recoveries));
+  const recoveryRate = watch?.recoveriesPerMinute();
+  out.push(
+    kv(
+      "recoveries",
+      "Music recoveries",
+      `${fmt(recovered)}${recoveryRate === undefined ? "" : ` (${fmt(recoveryRate, 1)}/min)`}`,
+      "Recoveries of every cause, summed over the music instances (counts; the rate is over the last minute). Green at 0, amber up to 1 per minute, red above.",
+      perMinuteHealth(recovered, recoveryRate),
+    ),
+  );
+  const late = sum((r) => r.lateGroups);
+  out.push(kv("lateGroups", "Late groups", fmt(late), "Groups that started late, summed over the music instances (counts). Red on any.", nonZeroBad(late)));
+  const held = sum((r) => r.groupsHeld);
+  out.push(kv("groupsHeld", "Groups held", fmt(held), "Groups held by a starving member, summed (counts). Red on any.", nonZeroBad(held)));
+  if (watch) {
+    const per100 = watch.deadlineReplansPer100();
+    out.push(
+      kv(
+        "replansDeadline",
+        "Deadline re-plans",
+        `${fmt(per100, 1)} per 100 transitions`,
+        "Deadline re-plans per 100 transitions over the last minute (a transition: a row's pass rises or its segment changes). Green below 1, amber 1 to 10, red above 10; re-plans with no transition read red.",
+        deadlineHealth(per100),
+      ),
+    );
+  }
+  // Refusals by cause: the named causes always, then any other cause the instances report.
+  const causes = new Map<string, number>();
+  for (const k of ["poolFull", "leadOverBeat", "tailRefused", "neverFits"]) causes.set(k, 0);
+  for (const r of rows) for (const [k, v] of Object.entries(r.refusals)) causes.set(k, (causes.get(k) ?? 0) + num(v));
+  for (const [k, v] of causes) {
+    const tip = AMBER_REFUSALS.includes(k)
+      ? `Refusals with cause ${k}, summed over the music instances (counts). Amber when non-zero.`
+      : `Refusals with cause ${k}, summed over the music instances (counts). Red on any: permanent, or a cause the panel does not know.`;
+    out.push(kv(`refusal:${k}`, `Refusals: ${k}`, fmt(v), tip, refusalHealth(k, v)));
+  }
+  const skipped = sum((r) => r.stingers.skipped);
+  out.push(kv("stingersSkipped", "Stingers skipped", fmt(skipped), "Stingers skipped, summed over the music instances (counts). Amber when non-zero.", nonZeroWarn(skipped)));
+  return out;
 }

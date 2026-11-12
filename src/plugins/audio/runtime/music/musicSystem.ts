@@ -23,7 +23,7 @@ import { createMusicHandle, segmentGrid } from "./handle";
 import { entrySeconds } from "../../../../engine/audio/musicGrid";
 import { applyReloads } from "./reload";
 import { childFor, createSwitchState, tickSwitch, type SwitchState } from "./musicSwitch";
-import { createPlaylistState, tickPlaylist, type PlaylistState } from "./playlist";
+import { createPlaylistState, enterPlaylist, tickPlaylist, type PlaylistState } from "./playlist";
 import { tickRegions, type RegionState } from "./regions";
 import { tickTransition, type Transition } from "./transition";
 import { planTick, requestStart, type PlannedStart } from "./planner";
@@ -346,18 +346,20 @@ function startSwitchRoot(player: MusicPlayer, f: MusicFrame): void {
   if (!state || player.root.type !== "musicSwitch" || player.state !== "starting" || player.run || player.planned) return;
   const id = childFor(state, player.instance.getParameter(state.parameter));
   const child = (player.root as unknown as { children: MusicNodeRef[] }).children.find((c) => c.id === id);
-  if (!child || child.type !== "segment") {
+  // P4: a playlist child (however nested) descends to its first playable leaf.
+  const leaf = child ? enterPlaylist(player, child) : null;
+  if (!child || !leaf) {
     player.state = "refused";
     if (!warnedRoots.has(player)) {
       warnedRoots.add(player);
-      console.warn(`[myco] Music "${player.instance.path}": the switch's first child "${id}" isn't a segment; nothing plays.`);
+      console.warn(`[myco] Music "${player.instance.path}": the switch's first child "${id}" has nothing playable; nothing plays.`);
     }
     return;
   }
-  const g = segmentGrid(child);
+  const g = segmentGrid(leaf);
   state.playing = child.id;
   requestStart(player, {
-    to: child, reason: "start", grid: "immediate", notBefore: player.requestedAt, startFrame: 0,
+    to: leaf, reason: "start", grid: "immediate", notBefore: player.requestedAt, startFrame: 0,
     preEntry: g ? Math.max(0, entrySeconds(g)) : 0,
   }, f);
 }

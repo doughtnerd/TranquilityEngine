@@ -14,7 +14,8 @@
  * - **Deadline:** every member primed in its epoch and T_start ≥ F_now + L: stamp now; not primed and
  *   T_start < F_now + L + Δ̄ (or primed but already inside L): re-plan. The rule's own kind picks the next point; when
  *   the prime so far took more than half the gap it aims at the point after next; a start frame that moved with T
- *   re-targets (new epochs); three re-plans in a row warn `replanStorm` once.
+ *   re-targets (new epochs); three re-plans in a row warn `replanStorm` once. A first start (no grid yet, §1.3) has no
+ *   deadline: once primed it stamps at its planned start, or at F_now + L when that has passed, and never re-plans.
  * - **Refusals (R14):** permanent (the pool can never hold it, alone or beside the playing group: F3's
  *   `segmentRingNeed`, or the backend's own permanent answer): dropped with one warning naming the numbers; temporary:
  *   evict another player's primed-but-unstarted successor planned later than this start, else keep the plan `waiting`
@@ -584,6 +585,18 @@ export function planTick(player: MusicPlayer, f: MusicFrame): void {
   }
   const ready = pollPrimed(p.run, f);
   const horizon = horizonOf(f);
+  if (p.first) {
+    // No grid before the first segment (api-and-models §1.3): its start is the earliest stampable frame once primed, so
+    // it has no deadline to miss and never re-plans (a cold first prime can take far longer than Ê's seed).
+    if (!ready) return;
+    if (p.at < horizon - EPS) {
+      p.at = horizon;
+      p.point = horizon + Math.max(0, p.request.preEntry ?? 0);
+      p.deadline = p.at;
+    }
+    stamp(player, p, f);
+    return;
+  }
   if (ready && p.at >= horizon - EPS) {
     stamp(player, p, f);
     return;
