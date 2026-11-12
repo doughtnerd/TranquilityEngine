@@ -654,3 +654,10 @@ K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.t
 
 **M4b listening section** added to `listening-pass.md` (E2's text, without its "known issue", which F-23 fixed).
 
+
+**M4b milestone-end checks** (on `c669fd7d`, no agents running):
+- typecheck 0; cargo 899 pass; metered pass; `test:tools` pass; `check:links` pass; **Vitest 6,145 pass, 0 fail**.
+- **`npm run build` failed:** the engine library's typecheck (`tsconfig.engine.json`) reads `src/engine/audio/` without Node types, and SM2's `soundLabMusic.test.ts` used `node:fs`. **Coordinator fix:** moved it to `src/engine/tests/` (excluded from the library build) with its imports adjusted; 6 of 6 pass; `tsc -p tsconfig.engine.json` passes.
+- **`test:e2e` 240 pass, 2 fail, both passing alone:** `audio-music-a:246` (a stem 0.127 s off the beat against 0.12 under load) and `collider:61`.
+- **`test:e2e:slow` 30 pass, 3 fail, all passing alone (3 of 3):** `audio-core:41`, `audio-stress` (F-11), and listening M4b (under load the walker's second key of "a switch that changes its mind" came after the bar line).
+- **`audio-music-b --repeat-each 3`: 29 of 30.** Its seek case is intermittent even alone (1 fail in 3; then 4 of 4): `groupsLate` 1 with a non-zero slip, so the seek's group sometimes starts late, with its clip resident. **F-25 task** (strongest) is investigating; the M4b merge waits for it, since its exit is "E2 3 of 3".

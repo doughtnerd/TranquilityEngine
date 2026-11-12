@@ -7,9 +7,9 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parseAudioEvent, type AudioEventAsset } from "./eventFormat";
-import { isMusicContainer, type MusicNode, type SegmentNode } from "./musicFormat";
-import { validateMusic, type MusicClipFacts } from "./musicValidate";
+import { parseAudioEvent, type AudioEventAsset } from "../audio/eventFormat";
+import { isMusicContainer, type MusicNode, type SegmentNode } from "../audio/musicFormat";
+import { validateMusic, type MusicClipFacts } from "../audio/musicValidate";
 
 const MUSIC = fileURLToPath(new URL("../../../samples/sound-lab/audio/music/", import.meta.url));
 const SAMPLE = fileURLToPath(new URL("../../../samples/sound-lab/", import.meta.url));
