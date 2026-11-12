@@ -520,3 +520,14 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 
 **Wave 7 exit met:** a bridge seam is exact and pool-full keeps A (R3b); a tail rings over the wrap (R4a); S4 on recorded traces (K1). No Rust changed in W7, so the wasm is unchanged; the full suites run at M4b's milestone end.
 
+
+**Wave 8 started** (base `49ed12a9`):
+- T2 (strongest): seam goldens, every seam to 1e-5.
+- R4b (strongest): `while` regions; test the streamed release path.
+- Rh1 (strongest): the numeric `latencyHint`, `Audio.latency`/`rhythmMode`, holding the beat clock across a rebuild.
+- T3 (mid): precedence and refusal tests.
+- Bench1 (mid): music metered scenes against S7.
+- K2 (mid): `onMusicBeat`/`Bar`/`Cue` dispatch, which changes the public API on `Component.ts` (as 0166 §1.4 designed).
+- K3 (mid): `positionAt`, `judged`.
+- K4 (mid): beat-clock edge and trace tests.
+E2 (M4b's browser specs and listening section) and D3 (the guide) start when these land.
