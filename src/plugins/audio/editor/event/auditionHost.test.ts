@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { auditionBackend, auditionNotice, buttonStates, instanceAlive, instanceVoices, isStale, limitRows, newInstanceId, nextPhase, parameterChanges } from "./auditionHost";
+import { describe, expect, it, vi } from "vitest";
+import {
+  activeAudition, auditionBackend, auditionNotice, buttonStates, clearActiveAudition, instanceAlive, instanceVoices, isStale, limitRows, newInstanceId, nextPhase, parameterChanges,
+  setActiveAudition, stingerAuditionFor, stingerNames,
+} from "./auditionHost";
 
 describe("audition state machine", () => {
   it("plays, releases once, and ends", () => {
@@ -82,5 +85,37 @@ describe("backend label", () => {
     expect(auditionBackend("pending").label).toBe("Audio core loading");
     expect(auditionBackend("fake").label).toBe("fake");
     expect(auditionBackend(undefined).label).toBe("Audio core");
+  });
+});
+
+describe("the shared audition (Ed5)", () => {
+  const handle = (playing = true) => ({ playing, stop: vi.fn(), trigger: vi.fn(() => true) });
+  it("offers the stinger trigger only for the playing path", () => {
+    const h = handle();
+    setActiveAudition("a.audioevent.json", h);
+    expect(stingerAuditionFor("a.audioevent.json", activeAudition.value)?.trigger("hit")).toBe(true);
+    expect(h.trigger).toHaveBeenCalledWith("hit");
+    expect(stingerAuditionFor("b.audioevent.json", activeAudition.value)).toBeNull();
+    expect(stingerAuditionFor("a.audioevent.json", null)).toBeNull();
+    expect(stingerAuditionFor("a.audioevent.json", { path: "a.audioevent.json", handle: handle(false) })).toBeNull();
+  });
+  it("stops the previous audition when another starts, and clears only its own handle", () => {
+    const a = handle(), b = handle();
+    setActiveAudition("a", a);
+    setActiveAudition("b", b);
+    expect(a.stop).toHaveBeenCalled();
+    clearActiveAudition(a);
+    expect(activeAudition.value?.handle).toBe(b);
+    clearActiveAudition(b);
+    expect(activeAudition.value).toBeNull();
+  });
+  it("lists stinger trigger names across the tree without repeats", () => {
+    const stinger = (trigger: string) => ({ trigger, segment: "s", at: "beat" });
+    const root = {
+      type: "playlist", stingers: [stinger("hit"), stinger("win")], library: [],
+      children: [{ type: "musicSwitch", stingers: [stinger("hit"), stinger("lose")], library: [], children: [{ type: "segment" }] }],
+    };
+    expect(stingerNames(root as never)).toEqual(["hit", "win", "lose"]);
+    expect(stingerNames(undefined)).toEqual([]);
   });
 });

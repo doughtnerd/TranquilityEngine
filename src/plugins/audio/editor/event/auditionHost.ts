@@ -1,7 +1,9 @@
 // The pure half of Audition (ADR 0158 §7, E6.4): the Play / Stop / Release state machine, which `Audio.debug()` rows
 // belong to the auditioned instance, which parameter values changed, when a playing instance is out of date against
 // the asset, and the notice the panel shows when nothing is heard. No Preact, no `Audio`: `Audition.tsx` wires them.
-import type { AudioReason, AudioStatus } from "../../runtime/backend";
+import { signal } from "@preact/signals";
+import type { MusicNode } from "../../../../engine/audio/musicFormat";
+import type { AudioEventHandle, AudioReason, AudioStatus } from "../../runtime/backend";
 
 /** Where the audition is: nothing started, playing, key-off sent (sustain tails playing), or ended by itself or by Stop. */
 export type AuditionPhase = "idle" | "playing" | "released" | "ended";
@@ -106,4 +108,51 @@ export function auditionBackend(name: unknown): AuditionBackendInfo {
   if (name === "core") return { label: "Audio core", skipsFilterAndSends: false, note: null };
   if (name === "pending") return { label: "Audio core loading", skipsFilterAndSends: false, note: null };
   return { label: typeof name === "string" && name !== "" ? name : "Audio core", skipsFilterAndSends: false, note: null };
+}
+
+// --- the shared audition (Ed5) -------------------------------------------------------------------------------------------
+
+/**
+ * The one audition that is playing, whoever started it (the Event editor's Audition panel or the segment view's transport):
+ * the event asset and its handle. Starting another stops this one; the stinger Trigger buttons and the transport read it.
+ */
+export interface ActiveAudition {
+  readonly path: string;
+  readonly handle: Pick<AudioEventHandle, "playing" | "trigger" | "stop">;
+}
+
+export const activeAudition = signal<ActiveAudition | null>(null);
+
+/** Make `handle` the active audition of `path`, stopping a different one that was playing. */
+export function setActiveAudition(path: string, handle: ActiveAudition["handle"]): void {
+  const prev = activeAudition.peek();
+  if (prev && prev.handle !== handle) { try { prev.handle.stop(0.02); } catch { /* already gone */ } }
+  activeAudition.value = { path, handle };
+}
+
+/** Forget `handle` when it is the active one (a stop, or the end of the instance); another audition stays. */
+export function clearActiveAudition(handle: ActiveAudition["handle"]): void {
+  if (activeAudition.peek()?.handle === handle) activeAudition.value = null;
+}
+
+/**
+ * What the stinger Trigger buttons get for the event at `path`: the live audition's `trigger`, or null when `path` isn't
+ * playing (the buttons stay disabled and say to press Play).
+ */
+export function stingerAuditionFor(path: string, active: ActiveAudition | null): { trigger(name: string): boolean } | null {
+  if (!active || active.path !== path || !active.handle.playing) return null;
+  const { handle } = active;
+  return { trigger: (name) => handle.trigger(name) };
+}
+
+/** The trigger names of every stinger under `root`, in tree order, without repeats. */
+export function stingerNames(root: MusicNode | undefined): string[] {
+  const out: string[] = [];
+  const walk = (n: MusicNode): void => {
+    if (n.type === "segment") return;
+    for (const s of n.stingers) if (!out.includes(s.trigger)) out.push(s.trigger);
+    for (const c of n.children) walk(c);
+  };
+  if (root) walk(root);
+  return out;
 }

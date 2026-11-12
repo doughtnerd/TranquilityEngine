@@ -7,7 +7,6 @@ import { editor, openAssetDocument } from "../../../../editor/sdk";
 import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import { compileSegmentGrid, positionTextToTicks, secondsToTicks, type SegmentGrid } from "../../../../engine/audio/musicGrid";
-import { createDecoderClient } from "../../runtime/decoder/decoderClient";
 import { openSegment } from "./index";
 import { beginDrag, dragLabel, type DragHandle, type DragSession } from "./segmentDrag";
 import { SNAP_MODES, type SnapMode } from "./segmentSnap";
@@ -15,7 +14,11 @@ import {
   clampViewport, findSegment, fitViewport, followPlayhead, gridLines, positionAtX, replaceSegment, scrollBy, secondsToX, tempoLane,
   ticksToX, xToSeconds, zoomAt, type Viewport,
 } from "./segmentViewModel";
-import { createPeaksService, type PeaksService } from "./peaks";
+import { peaksFor } from "./peaksHost";
+import type { PeaksService } from "./peaks";
+import { TransportBar } from "./TransportBar";
+import { musicTransport } from "./transportHost";
+import { stingerNames } from "../event/auditionHost";
 import { binAt, binSpan, pickLevel, type PeakMips } from "./peaksMip";
 import "./segmentView.css";
 
@@ -416,33 +419,6 @@ export function SegmentView(props: SegmentViewProps) {
   );
 }
 
-/** One peaks service per open project. A file is read through its asset URL; a new URL is a new version, standing in for the mtime. */
-const peaksByProject = new WeakMap<object, PeaksService>();
-function peaksFor(project: NonNullable<typeof editor.project.current>): PeaksService {
-  let service = peaksByProject.get(project);
-  if (!service) {
-    const versions = new Map<string, number>();
-    const urlOf = (path: string): string => {
-      const url = project.assets.get(path);
-      if (typeof url !== "string") throw new Error(`${path} is not an audio file in the project`);
-      return url;
-    };
-    service = createPeaksService({
-      client: createDecoderClient(),
-      source: {
-        mtime: async (path) => {
-          const url = urlOf(path);
-          if (!versions.has(url)) versions.set(url, versions.size + 1);
-          return versions.get(url)!;
-        },
-        read: async (path) => (await fetch(urlOf(path))).arrayBuffer(),
-      },
-    });
-    peaksByProject.set(project, service);
-  }
-  return service;
-}
-
 /** The registered panel: the segment named by `openSegment`, edited through its event's asset document. */
 export function SegmentViewPanel() {
   const open = openSegment.value;
@@ -459,10 +435,40 @@ function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
   useEffect(() => () => void doc.flush(), [doc]);
   const event = doc.value.value;
   const segment = useMemo(() => findSegment(event.musicRoot, segmentId), [event.musicRoot, segmentId]);
-  if (!segment) return <p class="empty">{path} has no segment “{segmentId}”.</p>;
+  const grid = useMemo(() => (segment ? compileSegmentGrid(segment, { endSeconds: NaN }) : null), [segment]);
+  // The transport ticks on a light timer while this panel is open; closing it stops the sound.
+  useEffect(() => {
+    const t = setInterval(() => musicTransport.tick(), TRANSPORT_TICK_MS);
+    return () => { clearInterval(t); musicTransport.dispose(); };
+  }, [path, segmentId]);
+  useEffect(() => { if (grid) musicTransport.tick(grid); }, [grid]);
+  if (!segment || !grid) return <p class="empty">{path} has no segment “{segmentId}”.</p>;
   const onChange: SegmentChange = (next, o) => {
     if (!event.musicRoot) return;
     doc.edit({ ...event, musicRoot: replaceSegment(event.musicRoot, segmentId, next) }, o.drag ? { coalesce: true, label: o.label } : { label: o.label });
   };
-  return <SegmentView segment={segment} peaks={peaksFor(project)} readOnly={doc.readOnly} onChange={onChange} />;
+  const request = (seconds: number) => ({ event: path, segmentId, grid, from: { kind: "seconds", seconds } as const });
+  return (
+    <div class="segment-panel-root">
+      <TransportBar
+        transport={musicTransport}
+        event={path}
+        segmentId={segmentId}
+        grid={grid}
+        cues={segment.cues.map((c) => c.name)}
+        stingers={stingerNames(event.musicRoot)}
+      />
+      <SegmentView
+        segment={segment}
+        peaks={peaksFor(project)}
+        readOnly={doc.readOnly}
+        onChange={onChange}
+        playheadSeconds={musicTransport.playhead.value}
+        onSeek={(seconds) => void musicTransport.seek(request(seconds))}
+      />
+    </div>
+  );
 }
+
+/** How often the transport reads the music's position, ms. */
+const TRANSPORT_TICK_MS = 50;
