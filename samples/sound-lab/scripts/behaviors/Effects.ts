@@ -1,4 +1,5 @@
 import { Audio, GameBehavior, Input, behavior, field } from "myco";
+import { exposeKeyScopes, keysClaimed } from "../keyScope";
 
 /**
  * Key 5: a loud noise burst on SFX, whose bus has a compressor. While it plays, the project's ducking rule lowers
@@ -10,6 +11,7 @@ export class Effects extends GameBehavior {
   @field(String) reverbKey = "6";
 
   update(): void {
+    if (keysClaimed()) return;
     if (Input.getKeyDown(this.burstKey)) Audio.playOneShot("audio/burst.wav", { bus: "SFX" });
     if (Input.getKeyDown(this.reverbKey)) Audio.playOneShot("audio/beep.wav", { bus: "Ambience", pitch: 0.5 });
   }

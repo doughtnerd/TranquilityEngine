@@ -1,4 +1,5 @@
 import { Audio, GameBehavior, Input, behavior, field } from "myco";
+import { exposeKeyScopes, keysClaimed } from "../keyScope";
 
 /** Key 4: switch the project's "Underwater" snapshot (muffled, quieter music) on and off. */
 @behavior("lab.Snapshots")
@@ -8,7 +9,7 @@ export class Snapshots extends GameBehavior {
   private on = false;
 
   update(): void {
-    if (!Input.getKeyDown(this.key)) return;
+    if (keysClaimed() || !Input.getKeyDown(this.key)) return;
     this.on = !this.on;
     if (this.on) Audio.snapshot("Underwater", this.fade);
     else Audio.clearSnapshot(this.fade);
