@@ -327,17 +327,19 @@ describe("R3a: planImmediate (H5)", () => {
     const t = planImmediate(player, child(r, "A"), 96_000, 5, at(2))!;
     expect(t.state).toBe("pending");
     const p = t.incoming!;
-    expect(p.at).toBeCloseTo(2.1, 9); // streamed: lead 1.25 x 40 ms + L + Δ̄ = 100 ms
+    // Streamed: lead 1.25 x 40 ms + L + Δ̄ = 100 ms, and an asap start's frame of slack (Δ̄, F-25).
+    const T = 2.1 + DT;
+    expect(p.at).toBeCloseTo(T, 9);
     expect(p.run.startFrame).toBe(96_000);
     expect(b.music!.admitted.at(-1)!.members[0]!.startFrame).toBe(96_000);
     b.music!.setPrimed(p.run.group);
     tick(player, 2.02);
     const stamp = b.music!.stamps.at(-1)!;
-    expect(stamp.at).toBeCloseTo(2.1, 9);
-    expect(stamp.fades![1]!.fade).toEqual({ to: 1, seconds: 0.005, law: "equalPowerIn", at: expect.closeTo(2.1, 9) });
-    runFrames(player, 2.02 + DT, 2.09);
-    tick(player, 2.1);
-    for (const x of fades) expect(x.fade).toEqual({ to: 0, seconds: 0.005, law: "equalPowerOut", at: expect.closeTo(2.1, 9), stopAtEnd: true });
+    expect(stamp.at).toBeCloseTo(T, 9);
+    expect(stamp.fades![1]!.fade).toEqual({ to: 1, seconds: 0.005, law: "equalPowerIn", at: expect.closeTo(T, 9) });
+    runFrames(player, 2.02 + DT, T - DT);
+    tick(player, T);
+    for (const x of fades) expect(x.fade).toEqual({ to: 0, seconds: 0.005, law: "equalPowerOut", at: expect.closeTo(T, 9), stopAtEnd: true });
     expect(fades).toHaveLength(2);
     expect(player.run?.startFrame).toBe(96_000);
     expect(player.transition).toBeNull();

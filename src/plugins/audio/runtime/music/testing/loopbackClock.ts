@@ -78,6 +78,13 @@ export interface MusicLoopback {
   maxError(from: number, to: number, ref: number | ((i: number) => number)): number;
   /** Late groups and the largest slip the core reported. */
   late(): { groupsLate: number; maxSlipFrames: number };
+  /**
+   * F-25: a hitch between main and the core. The BATCHes posted from now on reach the core `quanta` quanta after they
+   * are posted (in order; a later frame's batch waits behind a held one), as when the main thread or the audio thread
+   * stalls after a frame commits. The clock map is not told: it learns of it only from the next STATUS, as in a page.
+   * `once`: only the next frame's batches (default true).
+   */
+  delayBatches(quanta: number, once?: boolean): void;
   dispose(): void;
 }
 
@@ -160,11 +167,35 @@ export async function musicLoopback(options: MusicLoopbackOptions): Promise<Musi
 
   const out: number[] = [];
   const dt = frameFrames / RATE;
+  // F-25 (`delayBatches`): BATCHes held back from the core, each with the quantum count it is delivered at.
+  let rendered = 0;
+  let delay: { quanta: number; once: boolean } | null = null;
+  const held: { buffer: ArrayBuffer; due: number }[] = [];
+  const post = link.post.bind(link);
+  link.post = (buffer: ArrayBuffer): void => {
+    const batch = buffer.byteLength >= 8 && new DataView(buffer).getUint16(6, true) === 1; // the envelope's kind: BATCH
+    if (batch && (delay || held.length > 0)) held.push({ buffer, due: Math.max(rendered + (delay?.quanta ?? 0), held.at(-1)?.due ?? 0) });
+    else post(buffer);
+  };
+  const render = (quanta: number): void => {
+    if (held.length === 0) {
+      for (const s of loop.renderQuanta(quanta).left) out.push(s);
+      rendered += quanta;
+      return;
+    }
+    // Delivered after the quantum before its due count renders, as a posted batch is (the loopback drains after each quantum).
+    for (let q = 0; q < quanta; q++) {
+      while (held.length > 0 && held[0]!.due <= rendered) post(held.shift()!.buffer);
+      for (const s of loop.renderQuanta(1).left) out.push(s);
+      rendered++;
+    }
+  };
   const step = async (n: number): Promise<void> => {
     for (let f = 0; f < n; f++) {
       AUDIO_SYSTEMS[1]!.run(engine.world, dt);
       AUDIO_SYSTEMS[0]!.run(engine.world, dt);
-      for (const s of loop.renderQuanta(quantaPerFrame).left) out.push(s);
+      if (delay?.once) delay = null;
+      render(quantaPerFrame);
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }
   };
@@ -201,6 +232,9 @@ export async function musicLoopback(options: MusicLoopbackOptions): Promise<Musi
     late() {
       const mirror = (backend as unknown as { mirror: { groupsLate: number; maxSlipFrames: number } }).mirror;
       return { groupsLate: mirror.groupsLate, maxSlipFrames: mirror.maxSlipFrames };
+    },
+    delayBatches(quanta, once = true) {
+      delay = quanta > 0 ? { quanta: Math.round(quanta), once } : null;
     },
     dispose() {
       backend.dispose();
