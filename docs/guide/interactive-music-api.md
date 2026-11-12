@@ -156,7 +156,7 @@ They run in the update phase just before `update`, in the frame whose window hol
 
 ### Debug types
 
-`Audio.debug().music` is a `MusicDebugRow[]` and `Audio.debug().musicTotals` a `MusicDebugTotals`; `MusicDebugState` is `"priming" | "playing" | "transitioning" | "recovering" | "ending"` and `MusicDebugPending` is the waiting change with its rule (`to`, `time` as `"bar:beat"`, `rule` index or -1 for the default, `ruleKey` as `"from>to"`). The columns are described in [the debug panel's Music section](interactive-music.md#the-debug-panels-music-section); the fields are in `src/plugins/audio/runtime/backend.ts`.
+`Audio.debug().music` is a `MusicDebugRow[]` and `Audio.debug().musicTotals` a `MusicDebugTotals`; `MusicDebugState` is `"priming" | "playing" | "transitioning" | "recovering" | "ending"` (`transitioning` only while two segments are audible together, a crossfade or a bridge; a scheduled change leaves the state at `playing` and is the row's `pending`) and `MusicDebugPending` is the waiting change with its rule (`to`, `time` as `"bar:beat"`, `rule` index or -1 for the default, `ruleKey` as `"from>to"`). The columns are described in [the debug panel's Music section](interactive-music.md#the-debug-panels-music-section); the fields are in `src/plugins/audio/runtime/backend.ts`.
 
 ## Project settings
 

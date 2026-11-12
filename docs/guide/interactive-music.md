@@ -621,7 +621,7 @@ The editor's Audio Debug panel (the same one [Why is there no sound?](why-no-sou
 
 | Column | Meaning |
 | --- | --- |
-| Event, State | The instance and its asset; `priming`, `playing`, `transitioning`, `recovering` or `ending` |
+| Event, State | The instance and its asset; `priming`, `playing`, `transitioning`, `recovering` or `ending`. A scheduled change does not change it: the row reads `playing` while the current segment plays and the change shows under Pending. `transitioning` is only the span in which two segments are audible together (a crossfade, or a bridge from its start to its end); a cut or a gapless playlist advance never reads it |
 | Segment, Position, Tempo | The playing segment and its pass (loop count), `bar:beat:tick`, bpm and beats per bar |
 | Pending | The waiting change: its target, `bar:beat` and the rule that chose it (tier, `from>to`, which container, exit, enter). **This is where to look when a switch changes at an unexpected time.** |
 | Groups, Stems | How many of the stems are primed, and for each stem its music ring, or "decoded" |
