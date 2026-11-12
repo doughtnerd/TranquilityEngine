@@ -36,6 +36,7 @@ import { encodeVoiceId, voiceGen, voiceIndex } from "./core/ids";
 import type { VisibilitySource } from "./core/background";
 import { Unlock, type UnlockContext } from "./core/unlock";
 import { warnOnce } from "./core/handle";
+import { calibrationDeviceChanged, initCalibration } from "./music/calibration";
 import { loadFileLoopPoints, onLoopPoints } from "./loopPoints";
 
 /** What a test (or an unusual host) can replace. */
@@ -787,6 +788,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
   private isMuted = false;
   private background: AudioBackground = "mute";
   private disposed = false;
+  private calibrationOff: (() => void) | null = null;
   private warned = false;
   /** A3.4b: the page is hidden and `audio.background` muted or paused the sound (the engine's volume is 0). */
   private hiddenMuted = false;
@@ -823,6 +825,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
       // The host owns this context and its unlock layer; the backend only plays on it.
       this.ctx = host;
       this.ownsContext = false;
+      this.watchCalibration(host);
       return host;
     }
     const ctx = this.options.createContext ? this.options.createContext() : newAudioContext();
@@ -834,7 +837,30 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
       this.unlock = new Unlock({ target, context: ctx as unknown as UnlockContext });
       this.unlock.watch(() => this.pageSuspended);
     }
+    this.watchCalibration(ctx);
     return ctx;
+  }
+
+  /** The sink the context outputs to: its `sinkId` string, "" for the default device or where unsupported. */
+  private sinkOf(ctx: AudioContext): string {
+    const id = (ctx as AudioContext & { sinkId?: unknown }).sinkId;
+    return typeof id === "string" ? id : "";
+  }
+
+  /**
+   * Rh2 on the fallback: load this device's saved `Audio.calibration` once the context exists, and re-key it on the
+   * context's `sinkchange` and the browser's `devicechange`. `dispose` removes the listeners.
+   */
+  private watchCalibration(ctx: AudioContext): void {
+    void initCalibration(this.sinkOf(ctx));
+    const onDevice = (): void => void calibrationDeviceChanged(this.sinkOf(ctx));
+    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+    ctx.addEventListener?.("sinkchange", onDevice);
+    md?.addEventListener?.("devicechange", onDevice);
+    this.calibrationOff = () => {
+      ctx.removeEventListener?.("sinkchange", onDevice);
+      md?.removeEventListener?.("devicechange", onDevice);
+    };
   }
 
   private async create(): Promise<Live | null> {
@@ -1254,6 +1280,8 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     if (this.disposed) return;
     for (const v of [...this.voices]) v.stop();
     this.disposed = true;
+    this.calibrationOff?.();
+    this.calibrationOff = null;
     this.visibility?.removeEventListener("visibilitychange", this.onVisibility);
     if (this.suspendTimer !== null) clearTimeout(this.suspendTimer);
     this.suspendTimer = null;

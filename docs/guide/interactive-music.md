@@ -21,12 +21,12 @@ Interactive music is complete for its first release (milestone M4). Everything i
 | --- | --- |
 | Segments with a tempo map, cues and stems; forever, counted and `while` loops, several regions, loop tails | **Editor transport:** stem solo and mute change nothing you hear (they have no runtime API), and playback cannot start at a later playlist item |
 | Playlists (sequence, random, shuffle) and music switches on a labelled parameter | **A starved stream** is silenced and held, with its whole group, and the core gives up after a second; it is not resynced in place (see [the debug panel](#the-debug-panels-music-section)) |
-| Transition rules: exit, enter, quantised cut, crossfade, curves, bridges | **Saved calibration on the Babylon fallback:** it is per session there ([below](#the-babylon-fallback)) |
+| Transition rules: exit, enter, quantised cut, crossfade, curves, bridges | |
 | Stingers and `handle.trigger` | **A 192 kHz output** is short of the audio core's fixed memory on the default and high presets (the low preset fits); use a 44.1, 48 or 96 kHz context |
 | Quantised stem automation | |
 | `handle.music` position, tempo, `nextGrid`, `seek` and `positionAt` (with `judged`) | **Real-device checks** (phone prime lead, other browsers' output latency, the lab VM) are the owner's [listening pass](../design/0166-audio-music/listening-pass.md); this guide's numbers come from tests and a desktop browser |
 | The component callbacks `onMusicBeat`, `onMusicBar`, `onMusicCue`, and `handle.onMusic` for music started with `Audio.play` | |
-| `Calibration.fromTaps`, `Audio.calibration` (saved per output device), `Audio.calibrationStale` | |
+| `Calibration.fromTaps`, `Audio.calibration` (saved per output device, on the Babylon fallback too), `Audio.calibrationStale` | |
 | `audio.rhythmMode` and `music.rings`, both in Project Settings > Audio; `Audio.latency`, `Audio.horizon`, `Audio.timeAt` | |
 | Beat, bar and cue callbacks on the Babylon fallback (not corrected for output latency; no rhythm mode there) | |
 | Streaming and decoding; hot reload; the Audio Debug panel's Music sections | |
@@ -596,7 +596,7 @@ Each tap goes through `handle.music.positionAt(timeStamp)`, which gives `offset`
 
 The Babylon audio fallback backend plays music switches with their rules and fades, quantised stem automation and stingers (decoded clips), with `setTimeout` accuracy rather than sample accuracy. It does not prime, so streamed stems start separately and may drift apart (turn `stream` off on stems there); it plays no loop tails; streamed stems loop whole rather than by region; it skips stem low-pass automation; two overlapping ramps on one stem cut each other short; and it has no music debug rows. Most of these warn once when they are hit.
 
-Beat, bar and cue callbacks and `handle.onMusic` work there, with limits. They come from the main-side clock (`Audio.time`) and are **uncorrected for output latency**: a beat is called when it is scheduled, not when it is heard, though still within a frame. **Rhythm mode is unavailable**: `audio.rhythmMode` logs one warning, the context keeps its default latency, `Audio.latency` reads zeros and is not `reliable`, and callbacks are not held. `Calibration.fromTaps` works, but the saved calibration is not loaded or re-keyed per output device there yet: `Audio.calibration` lasts for the session, and a device change does not set `Audio.calibrationStale`.
+Beat, bar and cue callbacks and `handle.onMusic` work there, with limits. They come from the main-side clock (`Audio.time`) and are **uncorrected for output latency**: a beat is called when it is scheduled, not when it is heard, though still within a frame. **Rhythm mode is unavailable**: `audio.rhythmMode` logs one warning, the context keeps its default latency, `Audio.latency` reads zeros and is not `reliable`, and callbacks are not held. `Calibration.fromTaps` works, and `Audio.calibration` is saved per output device as on the core backend: the saved value loads when the context starts, and a `sinkchange` on the context or a `devicechange` in the browser re-keys it and can set `Audio.calibrationStale`.
 
 ## The debug panel's Music section
 
