@@ -313,3 +313,13 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 - **Coordinator:** added the guide to `tools/check-doc-links.mjs`' defaults, so `check:links` scans it.
 - **Keep it current:** whoever merges G-2 updates its hot-reload section (it says the editor doesn't call the reload yet), and each K, R3b, R4 or R7 merge updates the status table. D2 flagged its own unsure claims: the playlist advance applies `enter` without the rule's fades (R3a's `natural` plumbing), and the crossfade timing came from the design without tracing `transition.ts`.
 
+
+**T1 merged** (`m4/t1` `f037b13d`): the deterministic-clock fixture `music/testing/loopbackClock.ts` (`musicLoopback({clips, events, quantaPerFrame, …})`, no wall clock). New loopback tests on the real core:
+- a segment's first sample lands on its planned frame;
+- 8 stems start on one sample with no slip, including at the e2e rate;
+- a 12-item playlist advances exactly 96,000 frames per item with no late group;
+- 40 loop passes are identical to the first, sample for sample;
+- cuts on the beat and the bar land sample-exact;
+- a linear crossfade starts on its grid point;
+- stingers on the beat and the bar land on their grid point.
+Quantised automation and recovery are already covered (F-9, P9), so not repeated. **No engine bugs found.** Music vitest: 22 files, 226 tests. For later tasks: call `resetMusicLoopback()` in `afterEach`; levels go through int16, so compare with `toBeCloseTo(x, 3)`.
