@@ -104,7 +104,7 @@ function OpenRules(props: { path: string; nodeId: string }) {
   };
 
   return (
-    <div class="rules-table">
+    <div class="rules-table" data-asset-document={props.path}>
       <h3>{container.id}: transitions</h3>
       <div class="rt-scroll">
         <table class="rt-grid" role="grid" aria-label="Transition rules, from by to">

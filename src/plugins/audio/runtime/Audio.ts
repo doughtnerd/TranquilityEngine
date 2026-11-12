@@ -104,7 +104,14 @@ class EventHandle implements AudioEventHandle {
 }
 
 // ADR 0166 K2: `MusicEvent.handle` for the music an `AudioSource` plays is the same public handle `Audio.play` returns.
-_setMusicHandleFactory((instance) => new EventHandle(instance));
+const handles = new WeakMap<EventInstance, EventHandle>();
+/** @internal One public handle per instance: `Audio.play` returns it and `MusicEvent.handle` is it (`e.handle === handle`). */
+export function _handleOf(instance: EventInstance): AudioEventHandle {
+  let h = handles.get(instance);
+  if (!h) handles.set(instance, (h = new EventHandle(instance)));
+  return h;
+}
+_setMusicHandleFactory(_handleOf);
 
 /** @internal `AudioSource` plays events through this too. */
 export function _playEvent(path: string, options: EventOptions, world: World | null, sourceKey?: string): EventInstance | null {
@@ -184,7 +191,7 @@ export const Audio = {
   play(event: string, options?: EventOptions): AudioEventHandle {
     try {
       const i = _playEvent(String(event), options !== null && typeof options === "object" ? options : {}, World.active);
-      return i ? new EventHandle(i) : INERT_EVENT;
+      return i ? _handleOf(i) : INERT_EVENT;
     } catch (e) {
       warnOnce("play:threw", `Audio.play failed (${e instanceof Error ? e.message : String(e)}); no sound.`);
       return INERT_EVENT;

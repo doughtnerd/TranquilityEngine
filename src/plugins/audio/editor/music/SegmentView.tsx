@@ -449,7 +449,7 @@ function OpenSegment({ path, segmentId }: { path: string; segmentId: string }) {
   };
   const request = (seconds: number) => ({ event: path, segmentId, grid, from: { kind: "seconds", seconds } as const });
   return (
-    <div class="segment-panel-root">
+    <div class="segment-panel-root" data-asset-document={doc.path}>
       <TransportBar
         transport={musicTransport}
         event={path}

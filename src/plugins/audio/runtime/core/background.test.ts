@@ -178,6 +178,18 @@ describe("BackgroundController: visibility (§3.8)", () => {
     expect(page.listenerCount).toBe(0);
     expect(target.hiddenFlag).toBe(false);
   });
+
+  it("calls onDevice on a device event only, before evaluating it (Rh2's calibration)", () => {
+    const host = new FakeHost();
+    const seen: string[] = [];
+    const c = new BackgroundController({ host, target: new FakeTarget(), visibility: null, onDevice: () => seen.push(host.sink) }).start();
+    host.fire("state");
+    expect(seen).toEqual([]);
+    host.sink = "usb";
+    host.fire("device");
+    expect(seen).toEqual(["usb"]);
+    c.dispose();
+  });
 });
 
 describe("BackgroundController: stall, interruption, device (§3.7, §7)", () => {

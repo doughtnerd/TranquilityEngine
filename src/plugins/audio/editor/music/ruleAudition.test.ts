@@ -130,6 +130,24 @@ describe("runTransitionAudition", () => {
     expect(handle.sets).toEqual([["state", "2"]]);
     transport.dispose();
   });
+  it("holds the parameter while the music is still priming (no segment yet), from the default bar 1 too", async () => {
+    const handle = fakeHandle();
+    const music = handle.music as unknown as { segment: string | null };
+    music.segment = null;
+    const transport = createTransport({ play: () => handle, flush: async () => undefined, reload: () => undefined });
+    const event = switchEvent([{ from: "a", to: "b" }], { children: [segmentRaw("a"), segmentRaw("b")] });
+    const plan = planTransitionAudition(PATH, event, containerOf(event), 0);
+    if (!plan.ok) throw new Error(plan.reason);
+    expect(plan.from).toEqual({ kind: "start" });
+    await runTransitionAudition(transport, plan);
+    transport.tick();
+    transport.tick();
+    expect(handle.sets).toEqual([]);
+    music.segment = "a";
+    transport.tick();
+    expect(handle.sets).toEqual([["state", "2"]]);
+    transport.dispose();
+  });
   it("sets nothing for a playlist and says so for a handle that can't set parameters", async () => {
     const handle = fakeHandle();
     const transport = createTransport({ play: () => handle, flush: async () => undefined, reload: () => undefined });

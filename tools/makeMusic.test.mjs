@@ -1,7 +1,7 @@
 // Tests for tools/makeMusic.mjs. Run: node --test tools/makeMusic.test.mjs (or `npm run test:tools`).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BAR, BPM, CLIPS, DEFAULT_OUT, RATE, checkAll, render, renderAll, wavBytes, writeAll } from "./makeMusic.mjs";
@@ -113,6 +113,9 @@ test("the committed sample clips are what the generator writes", () => {
   assert.deepEqual(checkAll(DEFAULT_OUT), []);
 });
 
+/** Clips the sound-lab events use that another generator writes, with that generator. */
+const OTHER_GENERATORS = new Map([["audio/music/click-track.wav", "samples/sound-lab/tools/makeClick.mjs"]]);
+
 test("the sound-lab events name only clips the generator makes, with matching lengths", () => {
   const dir = DEFAULT_OUT;
   const have = new Map(CLIPS.map((c) => [`audio/music/${c.name}.wav`, c]));
@@ -129,11 +132,18 @@ test("the sound-lab events name only clips the generator makes, with matching le
     for (const seg of segments(event.root)) {
       const lengths = new Set();
       for (const t of seg.tracks) {
+        // Clips from another generator (Rh3's click track, `samples/sound-lab/tools/makeClick.mjs`): committed, and not on
+        // this generator's lengths.
+        if (OTHER_GENERATORS.has(t.clip)) {
+          assert.ok(existsSync(join(dir, "..", "..", t.clip)), `${file}: ${t.clip} (${OTHER_GENERATORS.get(t.clip)}) is committed`);
+          continue;
+        }
         const clip = have.get(t.clip);
         assert.ok(clip, `${file}: ${t.clip} is not a generated clip`);
         used.add(t.clip);
         lengths.add(clip.bars);
       }
+      if (lengths.size === 0) continue; // only other generators' clips
       assert.equal(lengths.size, 1, `${file}: segment ${seg.id}'s stems differ in length`);
       assert.ok(seg.tempo.every((m) => m.bpm === BPM && m.beatsPerBar === 4), `${file}: ${seg.id} is on the shared grid`);
     }

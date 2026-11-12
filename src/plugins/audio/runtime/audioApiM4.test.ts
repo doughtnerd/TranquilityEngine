@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../myco";
 import type { World } from "../../../engine/core/World";
-import { Audio } from "./Audio";
+import { Audio, _handleOf } from "./Audio";
 import { AUDIO_SYSTEMS } from "./audioSystem";
 import { setAudioBackend } from "./backend";
 import { makeFakeBackend, type FakeBackend } from "./testing";
@@ -126,6 +126,18 @@ afterEach(() => {
   Assets.clearSources();
   Audio.calibration = 0;
   vi.restoreAllMocks();
+});
+
+describe("E3: one public handle per instance", () => {
+  it("the handle MusicEvent.handle carries is the object Audio.play returned (e.handle === h), one per instance", () => {
+    rig();
+    const h = playMusic();
+    const player = musicPlayers().at(-1)!;
+    expect(_handleOf(player.instance), "the factory the music system uses").toBe(h);
+    expect(_handleOf(player.instance)).toBe(_handleOf(player.instance));
+    const other = playMusic();
+    expect(other).not.toBe(h);
+  });
 });
 
 describe("L-P7a: handle.music getters (§1.2)", () => {

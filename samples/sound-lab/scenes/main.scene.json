@@ -73,6 +73,12 @@
       "components": [{ "type": "lab.SceneSwitch", "data": { "key": "m", "scene": "scenes/music.scene.json" } }]
     },
     {
+      "id": "rhythm-page",
+      "name": "Rhythm page (key R)",
+      "transform": false,
+      "components": [{ "type": "lab.SceneSwitch", "data": { "key": "r", "scene": "scenes/rhythm.scene.json" } }]
+    },
+    {
       "id": "oneshots",
       "name": "OneShots (key 1)",
       "transform": false,

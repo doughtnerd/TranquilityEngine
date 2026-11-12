@@ -17,6 +17,8 @@ import {
   EFFECT_TYPES,
   LIMITER_LOOKAHEAD_LIMITS,
   MASTER,
+  MUSIC_RINGS_LIMITS,
+  MUSIC_RINGS_PRESETS,
   MAX_BUSES,
   parseAudioSettings,
   type AudioSettings,
@@ -203,6 +205,7 @@ export function setBackend(d: SettingsDraft, backend: "babylon" | "core"): Setti
 const clampInt = (n: number, min: number, max: number): number => Math.min(max, Math.max(min, Math.round(n)));
 
 export const VOICE_LIMITS = { mixed: [8, 512], logical: [8, 8192], hrtf: [0, 32] } as const;
+export { MUSIC_RINGS_LIMITS };
 export const CLIP_MEMORY_LIMITS = [16, 1024] as const;
 
 /** A bus's `maxVoices`: rounded and clamped to 1..`voices.logical`; `undefined` is unlimited. Unknown buses change nothing. */
@@ -232,9 +235,9 @@ export function setVoices(d: SettingsDraft, patch: Partial<VoiceSettings>): Sett
 
 /** Named bundles of the voice numbers and the clip ceiling (architecture 5.3); the file stores the numbers. "low" is provisional until the low-end soak (C3) sizes it. */
 export const VOICE_PRESETS = {
-  low: { voices: { mixed: 64, logical: 1024, hrtf: 4 }, clipMemoryMB: 64, maxBeds: 0, maxClips: 1 },
-  default: { voices: { mixed: 128, logical: 4096, hrtf: 8 }, clipMemoryMB: undefined, maxBeds: 2, maxClips: 1 },
-  high: { voices: { mixed: 256, logical: 4096, hrtf: 8 }, clipMemoryMB: 256, maxBeds: 4, maxClips: 2 },
+  low: { voices: { mixed: 64, logical: 1024, hrtf: 4 }, clipMemoryMB: 64, maxBeds: 0, maxClips: 1, musicRings: MUSIC_RINGS_PRESETS.low },
+  default: { voices: { mixed: 128, logical: 4096, hrtf: 8 }, clipMemoryMB: undefined, maxBeds: 2, maxClips: 1, musicRings: MUSIC_RINGS_PRESETS.default },
+  high: { voices: { mixed: 256, logical: 4096, hrtf: 8 }, clipMemoryMB: 256, maxBeds: 4, maxClips: 2, musicRings: MUSIC_RINGS_PRESETS.high },
 } as const;
 export type VoicePresetName = keyof typeof VOICE_PRESETS;
 export const VOICE_PRESET_NAMES = Object.keys(VOICE_PRESETS) as VoicePresetName[];
@@ -243,7 +246,7 @@ export const VOICE_PRESET_NAMES = Object.keys(VOICE_PRESETS) as VoicePresetName[
 export function voicesPreset(a: AudioSettings): VoicePresetName | "custom" {
   for (const name of VOICE_PRESET_NAMES) {
     const p = VOICE_PRESETS[name];
-    if (p.voices.mixed === a.voices.mixed && p.voices.logical === a.voices.logical && p.voices.hrtf === a.voices.hrtf && p.clipMemoryMB === a.clipMemoryMB && p.maxBeds === a.bed.maxBeds && p.maxClips === a.ambisonic.maxClips) return name;
+    if (p.voices.mixed === a.voices.mixed && p.voices.logical === a.voices.logical && p.voices.hrtf === a.voices.hrtf && p.clipMemoryMB === a.clipMemoryMB && p.maxBeds === a.bed.maxBeds && p.maxClips === a.ambisonic.maxClips && p.musicRings === a.music.rings) return name;
   }
   return "custom";
 }
@@ -253,7 +256,23 @@ export function applyVoicesPreset(d: SettingsDraft, name: VoicePresetName): Sett
   const p = VOICE_PRESETS[name];
   const voiced = setClipMemory(setVoices(d, p.voices), p.clipMemoryMB);
   const a = audioOf(voiced);
-  return a.bed.maxBeds === p.maxBeds && a.ambisonic.maxClips === p.maxClips ? voiced : withAudio(voiced, { ...a, bed: { ...a.bed, maxBeds: p.maxBeds }, ambisonic: { ...a.ambisonic, maxClips: p.maxClips } });
+  return a.bed.maxBeds === p.maxBeds && a.ambisonic.maxClips === p.maxClips && a.music.rings === p.musicRings
+    ? voiced
+    : withAudio(voiced, { ...a, bed: { ...a.bed, maxBeds: p.maxBeds }, ambisonic: { ...a.ambisonic, maxClips: p.maxClips }, music: { ...a.music, rings: p.musicRings } });
+}
+
+/** `audio.music.rings`: the core's music ring pool, rounded and clamped 0..16; a non-finite value changes nothing. */
+export function setMusicRings(d: SettingsDraft, rings: number): SettingsDraft {
+  const a = audioOf(d);
+  if (!Number.isFinite(rings)) return d;
+  const v = clampInt(rings, MUSIC_RINGS_LIMITS[0], MUSIC_RINGS_LIMITS[1]);
+  return a.music.rings === v ? d : withAudio(d, { ...a, music: { ...a.music, rings: v } });
+}
+
+/** `audio.rhythmMode`: a low-latency context for rhythm games (applies when the core next starts). */
+export function setRhythmMode(d: SettingsDraft, on: boolean): SettingsDraft {
+  const a = audioOf(d);
+  return a.rhythmMode === on ? d : withAudio(d, { ...a, rhythmMode: on });
 }
 
 export function setBackground(d: SettingsDraft, background: AudioBackground): SettingsDraft {
