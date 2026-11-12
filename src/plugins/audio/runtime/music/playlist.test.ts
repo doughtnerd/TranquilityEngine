@@ -65,7 +65,7 @@ function rig(): void {
 }
 
 /** Run frames from `from` until `until` seconds, priming groups PRIME_FRAMES after their request. Returns the last time. */
-function run(player: MusicPlayer, from: number, until: number): number {
+function run(player: MusicPlayer, from: number, until: number, each?: (now: number) => void): number {
   const seen = new Map<number, number>();
   let frame = 0;
   let t = from;
@@ -81,6 +81,7 @@ function run(player: MusicPlayer, from: number, until: number): number {
     tickPlaylist(player, f as unknown as MusicFrame);
     tickTransition(player, f as unknown as MusicFrame); // R3b: the natural advance lands through the transition
     planTick(player, f as unknown as MusicFrame);
+    each?.(t);
   }
   return t;
 }
@@ -106,6 +107,24 @@ describe("playlist: state and peek", () => {
     const st = createPlaylistState(root, 3)!;
     expect(peekNext(st)?.id).toBe("a");
     expect(peekNext(st)?.id).toBe("a");
+  });
+});
+
+describe("playlist: the state across an advance (D18)", () => {
+  it("a gapless advance reads playing throughout; the next item shows as the pending change, never as transitioning", () => {
+    rig();
+    const root = playlist("p", ["a", "b", "c"].map((id) => segment(id)));
+    const player = createMusicPlayer(instance(), root);
+    player.playlist = createPlaylistState(root, 11);
+    let playing = 0, scheduled = 0, other = 0;
+    run(player, 1, 1 + 3 * SEG_SECONDS, () => {
+      if (player.state === "playing" || player.state === "pending") playing++;
+      else if (player.state !== "starting" && player.state !== "committed") other++;
+      if (player.state === "transitioning") other += 1000;
+      if (player.transition) scheduled++;
+    });
+    expect(other).toBe(0);
+    expect(scheduled).toBeGreaterThan(playing / 2); // the next item is scheduled for most of each item
   });
 });
 

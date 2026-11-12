@@ -47,7 +47,7 @@ export interface MusicNodeRef {
   readonly type: string;
 }
 
-/** The player's lifecycle (architecture §2.1's state diagram). `Pending` and `Transitioning` read `transition`. */
+/** The player's lifecycle (architecture §2.1's state diagram). `Pending` is a planned change (`transition`); `Transitioning` only while two segments are audible together (D18). */
 export type MusicPlayerState =
   | "starting"
   | "waiting"

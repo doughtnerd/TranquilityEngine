@@ -116,7 +116,7 @@ describe("R3a: a quantised crossfade", () => {
     b.music!.setPrimed(t.incoming!.run.group);
     tick(player, 1.6);
     expect(t.state).toBe("stamped");
-    expect(player.state).toBe("transitioning");
+    expect(player.state).toBe("pending"); // D18: a stamped change is scheduled, not audible: not `transitioning`
     const stamp = b.music!.stamps.at(-1)!;
     expect(stamp.at).toBeCloseTo(3.1, 9);
     // Per member: silent from the first sample, then the fade-in from T over one beat.
@@ -139,10 +139,11 @@ describe("R3a: a quantised crossfade", () => {
     // Lands at T: B plays (anchored at its stamp), A rings out as the next run, no pending change.
     tick(player, 3.1 - 1e-3);
     expect(player.run?.node.id).toBe("A");
+    expect(player.state).toBe("pending"); // committed and fading is still ahead of T
     tick(player, 3.1);
     expect(t.state).toBe("done");
     expect(player.transition).toBeNull();
-    expect(player.state).toBe("playing");
+    expect(player.state).toBe("transitioning"); // A's 0.5 s fade-out and B's fade-in are audible together
     expect(player.run?.node.id).toBe("B");
     expect(player.anchor?.segment).toBe("B");
     expect(player.anchor?.time).toBeCloseTo(3.1, 9);
@@ -151,6 +152,7 @@ describe("R3a: a quantised crossfade", () => {
     for (const v of aVoices) (v as unknown as { end(): void }).end();
     tick(player, 3.7);
     expect(player.next).toBeNull();
+    expect(player.state).toBe("playing"); // the fade is over
   });
 
   it("a cut (0-second fades) stamps no fades on the incoming and a 0-second stop on the outgoing at T", () => {
@@ -170,6 +172,25 @@ describe("R3a: a quantised crossfade", () => {
     expect(t.state).toBe("running");
     expect(fades).toHaveLength(2);
     for (const x of fades) expect(x.fade).toEqual({ to: 0, seconds: 0, law: "equalPowerOut", at: expect.closeTo(1.6, 9), stopAtEnd: true });
+  });
+
+  it("D18: the state reads transitioning only while two segments are audible: a crossfade, never a cut", () => {
+    for (const beats of [0.5, 0]) {
+      rig();
+      const r = root([{ from: "A", to: "B", exit: "bar", fadeOut: { beats }, fadeIn: { beats } }]);
+      const player = playing(r);
+      const t = requestTransition(player, child(r, "B"), at(1.5))!;
+      const seen = new Set<string>();
+      b.music!.setPrimed(t.incoming!.run.group);
+      for (let now = 1.5; now < 4.5; now += DT) {
+        tick(player, now);
+        if (now < 3.1 - 1e-6) expect(player.state).not.toBe("transitioning");
+        else if (beats === 0) expect(player.state).toBe("playing");
+        seen.add(player.state);
+      }
+      expect(seen.has("transitioning")).toBe(beats > 0);
+      expect(player.state).toBe("playing");
+    }
   });
 
   it("an incoming pickup starts at T - preEntry, silent until its fade-in at T; a negative fade-in offset opens it from its phase there", () => {
@@ -422,7 +443,7 @@ describe("R3b: bridges", () => {
     expect(t.state).toBe("bridging");
     expect(player.run?.node.id).toBe("R");
     expect(player.anchor?.segment).toBe("R");
-    expect(player.state).toBe("transitioning");
+    expect(player.state).toBe("transitioning"); // the bridge plays
     expect(t.exitAt).toBeCloseTo(5.1, 9);
     expect(player.transition).toBe(t);
 
@@ -436,9 +457,11 @@ describe("R3b: bridges", () => {
     tick(player, 5.1);
     expect(t.state).toBe("done");
     expect(player.transition).toBeNull();
-    expect(player.state).toBe("playing");
+    expect(player.state).toBe("transitioning"); // the bridge's 1 s fade-out under B
     expect(player.run?.node.id).toBe("B");
     expect(player.next?.node.id).toBe("R");
+    tick(player, 6.2);
+    expect(player.state).toBe("playing");
   });
 
   it("before the cancel point a newer target replaces it: the bridge's group and B's plan are cancelled, A untouched", () => {
