@@ -23,7 +23,19 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createLoopbackHost, LOOPBACK_PRESET, type LoopbackHost } from "../testing";
+import { Kind, writeBatchHeader, writeClipBegin, writeClipChunk, writeEnvelope } from "../wire.generated";
 import type { CorePreset } from "../worklet/coreDriver";
+
+const FNV_OFFSET = 0xcbf29ce484222325n;
+const FNV_PRIME = 0x100000001b3n;
+const MASK64 = 0xffffffffffffffffn;
+
+/** FNV-1a 64 over the bytes of `bytes`, as a BigInt. */
+function fnv1aBytes(hash: bigint, bytes: Uint8Array): bigint {
+  let h = hash;
+  for (let i = 0; i < bytes.length; i++) h = ((h ^ BigInt(bytes[i]!)) * FNV_PRIME) & MASK64;
+  return h;
+}
 
 const GOLDEN_DIR = fileURLToPath(new URL("./", import.meta.url));
 
@@ -92,48 +104,129 @@ export function readFixture(name: string): M4Fixture | undefined {
 
 /** FNV-1a 64 (offset basis 0xcbf29ce484222325, prime 0x100000001b3) over `left`'s bytes then `right`'s, as 16 lowercase hex digits. */
 export function fnv1a64(left: Float32Array, right: Float32Array): string {
-  void left;
-  void right;
-  throw new Error("L-Z3a: fnv1a64");
+  let h = FNV_OFFSET;
+  for (const part of [left, right]) h = fnv1aBytes(h, new Uint8Array(part.buffer, part.byteOffset, part.byteLength));
+  return h.toString(16).padStart(16, "0");
 }
 
 /** A fixture clip's samples (see `M4Clip`). */
 export function clipSamples(clip: M4Clip): Float32Array {
-  void clip;
-  throw new Error("L-Z3a: clipSamples");
+  const out = new Float32Array(clip.frames);
+  if (clip.fill === "dc") {
+    out.fill(clip.value ?? 0);
+    return out;
+  }
+  const amp = clip.amp ?? 1;
+  let state = (clip.seed ?? 0) >>> 0;
+  for (let i = 0; i < clip.frames; i++) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    out[i] = amp * ((state >>> 8) / 16777216 - 0.5);
+  }
+  return out;
 }
 
 /** `LOOPBACK_PRESET` with the fixture's four values. */
 export function presetOf(fixture: M4Fixture): CorePreset {
-  void fixture;
-  void LOOPBACK_PRESET;
-  throw new Error("L-Z3a: presetOf");
+  return {
+    ...LOOPBACK_PRESET,
+    maxLogical: fixture.preset.maxLogical,
+    maxMixed: fixture.preset.maxMixed,
+    maxBuses: fixture.preset.maxBuses,
+    limiterLookaheadMs: fixture.preset.limiterLookaheadMs,
+  };
 }
 
 /** Builds a loopback host with `presetOf(fixture)`, loads the clips (CLIP_BEGIN + CLIP_CHUNKs, format 0), plays the steps; returns the output and the host. */
 export async function renderFixture(fixture: M4Fixture): Promise<{ readonly left: Float32Array; readonly right: Float32Array; readonly host: LoopbackHost }> {
-  void fixture;
-  void createLoopbackHost;
-  throw new Error("L-Z3a: renderFixture");
+  const host = await createLoopbackHost({ preset: presetOf(fixture) });
+  let seq = 1;
+  const lefts: Float32Array[] = [];
+  const rights: Float32Array[] = [];
+
+  for (const clip of fixture.clips) {
+    const samples = clipSamples(clip);
+    const begin = new ArrayBuffer(16 + 20);
+    const beginView = new DataView(begin);
+    writeEnvelope(beginView, 0, { kind: Kind.CLIP_BEGIN, seq: seq++, bodyBytes: 20 });
+    writeClipBegin(beginView, 0, { clipId: clip.id, frames: clip.frames, channels: 1, sampleRate: 48_000, format: 0 });
+    host.send(begin);
+    for (let frame = 0; frame < clip.frames; frame += 2048) {
+      const n = Math.min(2048, clip.frames - frame);
+      const part = samples.subarray(frame, frame + n);
+      const chunk = new ArrayBuffer(16 + 16 + part.byteLength);
+      const view = new DataView(chunk);
+      writeEnvelope(view, 0, { kind: Kind.CLIP_CHUNK, seq: seq++, bodyBytes: 16 + part.byteLength });
+      writeClipChunk(view, 0, { clipId: clip.id, frameOffset: frame, frames: n, reserved: 0 });
+      new Uint8Array(chunk, 32).set(new Uint8Array(part.buffer, part.byteOffset, part.byteLength));
+      host.send(chunk);
+    }
+  }
+
+  for (const step of fixture.steps) {
+    if ("run" in step) {
+      const out = host.renderQuanta(step.run);
+      lefts.push(out.left);
+      rights.push(out.right);
+      continue;
+    }
+    const hex = step.send;
+    const bytes = Uint8Array.from(hex.match(/../g) ?? [], (b) => parseInt(b, 16));
+    const buffer = new ArrayBuffer(32 + bytes.length);
+    const view = new DataView(buffer);
+    writeEnvelope(view, 0, { kind: Kind.BATCH, seq: seq++, bodyBytes: 16 + bytes.length });
+    writeBatchHeader(view, 0, { firstFrame: host.frame, count: step.count, flags: 0 });
+    new Uint8Array(buffer, 32).set(bytes);
+    host.send(buffer);
+  }
+
+  return { left: concat(lefts), right: concat(rights), host };
+}
+
+function concat(parts: readonly Float32Array[]): Float32Array {
+  const out = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
 }
 
 describe("in-voice goldens: native equals wasm (Z3)", () => {
-  it.skip("fnv1a64: the empty input is the offset basis, and one f32 1.0 hashes as its four bytes", () => {
-    // L-Z3a
+  it("fnv1a64: the empty input is the offset basis, and one f32 1.0 hashes as its four bytes", () => {
+    expect(fnv1a64(new Float32Array(0), new Float32Array(0))).toBe("cbf29ce484222325");
+    // 1.0f32 is 0x3f800000, little-endian bytes 00 00 80 3f; folded byte by byte, by hand.
+    let h = 0xcbf29ce484222325n;
+    for (const b of [0x00, 0x00, 0x80, 0x3f]) h = ((h ^ BigInt(b)) * 0x100000001b3n) & 0xffffffffffffffffn;
+    expect(fnv1a64(new Float32Array([1]), new Float32Array(0))).toBe(h.toString(16).padStart(16, "0"));
   });
 
-  it.skip("clipSamples: dc and lcg clips are built exactly", () => {
-    // L-Z3a
+  it("clipSamples: dc and lcg clips are built exactly", () => {
+    expect(Array.from(clipSamples({ id: 0, frames: 4, fill: "dc", value: 0.5 }))).toEqual([0.5, 0.5, 0.5, 0.5]);
+    // seed 1: state = 1 * 1664525 + 1013904223 = 1015568748; the first sample is (state >>> 8) / 2^24 - 0.5.
+    const lcg = clipSamples({ id: 1, frames: 2, fill: "lcg", seed: 1, amp: 1 });
+    expect(lcg.length).toBe(2);
+    expect(lcg[0]).toBe((1015568748 >>> 8) / 16777216 - 0.5);
   });
 
-  it.skip.each(M4_CASES)("%s: the wasm output equals the native fixture's digest and split counts", async (name) => {
-    // L-Z3a: a missing fixture skips the case until the Rust test writes it (the lead's glue makes it a failure).
-    void name;
+  it.for(M4_CASES)("%s: the wasm output equals the native fixture's digest and split counts", async (name, ctx) => {
+    const fixture = readFixture(name);
+    if (fixture === undefined) return ctx.skip();
+    const { left, right, host } = await renderFixture(fixture);
+    expect(left.length, `${fixture.scene}: frames`).toBe(fixture.frames);
+    expect(left.every(Number.isFinite) && right.every(Number.isFinite), `${fixture.scene}: finite samples`).toBe(true);
+    let peak = 0;
+    for (const s of [left, right]) for (const v of s) peak = Math.max(peak, Math.abs(v));
+    const digest = fnv1a64(left, right);
+    expect(digest, `${fixture.scene}: wasm digest ${digest} != native ${fixture.fnv1a64} (output peak ${peak})`).toBe(fixture.fnv1a64);
+    const last = host.statuses.at(-1);
+    expect(last && { splitQuanta: last.splitQuanta, voiceSplits: last.voiceSplits }, `${fixture.scene}: split counters`).toEqual(fixture.splits);
   });
 
-  it.skip("golden/ holds no m4-*.json outside the cases", () => {
-    // L-Z3a
-    void readdirSync;
-    void expect;
+  it("golden/ holds no m4-*.json outside the cases", () => {
+    const names = readdirSync(GOLDEN_DIR)
+      .filter((f) => /^m4-.*\.json$/.test(f))
+      .map((f) => f.slice(0, -".json".length));
+    for (const name of names) expect(M4_CASES, `${name}.json has no case`).toContain(name);
   });
 });
