@@ -1,0 +1,35 @@
+[package]
+name = "myco-loudness-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Standalone: not a member of native/audio's workspace.
+[workspace]
+members = ["size"]
+
+[lib]
+name = "loudspike"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "loudspike"
+path = "src/bin/loudspike.rs"
+
+[features]
+default = ["ebur"]
+ebur = ["dep:ebur128"]
+no-alloc-count = []
+
+[dependencies]
+audio-core = { path = "../../../native/audio/crates/audio-core" }
+libm = "0.2"
+# MIT (checked on crates.io, 0.1.11, 2026-10-26). Used only as the reference and for the cost comparison.
+ebur128 = { version = "0.1.11", optional = true }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false

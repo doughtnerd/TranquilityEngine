@@ -1,0 +1,27 @@
+[package]
+name = "myco-mix-core-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Standalone: not a member of native/audio's workspace.
+[workspace]
+
+[lib]
+name = "mixcore"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "mixcore"
+path = "src/bin/mixcore.rs"
+
+[dependencies]
+audio-dsp = { path = "../../../native/audio/crates/audio-dsp" }
+libm = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
