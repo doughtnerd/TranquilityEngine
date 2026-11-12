@@ -161,9 +161,10 @@ export interface CoreBackendHost {
   readonly health?: HostHealth;
   /**
    * ADR 0166 §1.3, §1.5 (Rh1 implements it in `context.ts`): the context's `baseLatency` and `outputLatency`, seconds, as
-   * read back after creation (0 where the browser reports none). Absent: both 0.
+   * read back after creation (0 where the browser reports none), and the host's `reliable` rule (§4.6; absent: the
+   * range check alone). Absent: both 0.
    */
-  latency?(): { readonly base: number; readonly output: number };
+  latency?(): { readonly base: number; readonly output: number; readonly reliable?: boolean };
 }
 
 /** What `createCoreBackend` takes beyond the host (tests inject fakes). */
@@ -1141,7 +1142,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const base = ctx && Number.isFinite(ctx.base) ? Math.max(0, ctx.base) : 0;
     const output = ctx && Number.isFinite(ctx.output) ? Math.max(0, ctx.output) : 0;
     const limiter = this.clockMap.outputLatencyFrames / this.clockMap.sampleRate;
-    return { base, output, limiter, total: base + output + limiter, reliable: output > 0 && output < 0.5 };
+    return { base, output, limiter, total: base + output + limiter, reliable: output > 0 && output < 0.5 && ctx?.reliable !== false };
   }
 
   // --- Voice operations (`Voice` calls these) ---
@@ -2034,6 +2035,8 @@ export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): 
     },
     addLifecycleListener: (listener) => host.addLifecycleListener(listener),
     health: host.health,
+    // ADR 0166 §4.6 (Rh1): the current context's latency read-back and its `reliable` rule.
+    latency: () => host.latency(),
   };
   const backend = new CoreBackend(backendHost, { ...deps, clips, warnOnce, clock: deps.clock ?? browserHostClock(() => host.context) });
   attachBackground(backend, host);
