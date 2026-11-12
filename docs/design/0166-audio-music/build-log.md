@@ -363,3 +363,23 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 
 **Mixer 300,144 → 312,626 B** (305.3 KB): past the design's 300 KB warning, under the 320 KB tripwire; logged, not traded. F-8 measured a single-copy alternative at −3,637 B and +0.37% on `streams`, and kept the speed per CLAUDE.md. Coordinator checks: core, wasm and music vitest 114 files, 1,144 tests.
 
+**C2c + C2d merged** (`m4/c2cd` `59bbb741`), with C2c's `voices.rs` patch applied by the coordinator after F-8:
+- **`group_hold.rs`:**
+  - A look-ahead before the voice loop (`begin_started`) catches a stream member holding less than the fade plus one quantum. Then every member fades out together from that quantum's first sample: streams by the ring's gain, decoded members by their mix ramp (`voices.rs` `hold_fade`). A member's own starve check fires mid-walk, too late for the others to join its fade.
+  - The entry stays STARTED with `FLAG_FADING` while the fade runs, then turns HELD.
+  - Resume needs every ring to hold 4,096 frames past its pinned position (`member_ready`). All members restart together with a 5 ms fade-in.
+  - `on_starve` is the idempotent fallback. The give-up is C2b's.
+- **`group_rebase.rs`:** moves members' parked and pending records at or after the start through `due::rebase`.
+- **`groups.rs` edits:** the STARTED look-ahead arm, `member_ready` in `held()`, and `resume_members` on resume.
+- **Deviations:**
+  - The hold's fade is 5 ms rounded up to whole quanta (256 frames at 44.1 and 48 kHz), so every member stops on one frame. The fade-in is a true 5 ms.
+  - In the look-ahead path the starving member shows in `groupsHeld`, not in `starved`.
+  - Virtual stream members are looked ahead too.
+- **Tests** (`tests/group_rig/mod.rs`, distinct sines per member):
+  - `group_hold.rs`, 8 tests: one dry ring dips the whole group and it resumes aligned, null (max difference 0.0) against the reference delayed by the slip; decoded and streamed members together; refilled mid-fade; abandon; an ungated voice starving alone.
+  - `group_rebase.rs`, 4 tests: a late group's parked and pending FADEs land at start + offset, null.
+  - Each acceptance test fails when the code is broken on purpose (no fade rounding, the wrong resume test, a no-op rebase).
+- **Coordinator checks:** cargo `--no-fail-fast` 870 pass; core, wasm, music and events vitest 133 files, 1,317 tests; typecheck 0; metered pass (`stamped-music` +0.14%), baseline rewritten.
+- **Mixer 312,626 → 317,891 B (310.4 KB):** 9.6 KB under the 320 KB tripwire, logged. The next growth that crosses it raises the gate with a reason, per CLAUDE.md. A real store cap isn't at stake.
+- **For C3:** `group_rig` has `hold_run`, `check_null` and `group`. A hold shows as `groupStarts` with `GROUP_START_HELD` (start = the resume, slip = the time held) and in `groupsHeld`. A record stamped in the hold's 256-frame fade-out isn't rebased.
+
