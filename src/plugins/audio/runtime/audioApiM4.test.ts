@@ -23,6 +23,7 @@ import {
 } from "./music/musicSystem";
 import { _resetSegmentRuns, setSegmentClipSource } from "./music/segmentRun";
 import { planTick, requestStart, type PlanRequest } from "./music/planner";
+import { requestTransition, tickTransition } from "./music/transition";
 
 const RATE = 48_000;
 const L = 1 / 30;
@@ -220,31 +221,38 @@ describe("L-P7a: handle.music getters (§1.2)", () => {
     expect(Audio.time).toBe(2.25);
   });
 
-  // Skipped until R3a: `handle.transition` reads the player's `Transition` (R3a's `requestTransition`, still a stub on
-  // m4/p7), not the planner's bare `requestStart`, which this body uses. Switch the setup to `requestTransition` then.
-  it.skip("L-P7a transition is null until a change is planned, then { to, time } with the incoming segment's heard entry time, null again once it landed", () => {
+  // Un-skipped by R3a: the change is R3a's `requestTransition` (the default rule of a segment root: the next bar, entry
+  // cue). A plays from 1.1, so its bars are heard at 1.1, 3.1, ...
+  it("L-P7a transition is null until a change is planned, then { to, time } with the incoming segment's heard entry time, null again once it landed", () => {
     rig();
     const player = playingPlayer();
     frame(1.35);
     expect(player.handle.transition).toBeNull();
 
-    // preEntry 0.1: the group starts at 1.9 but the entry (what `time` is) is heard at 2.0.
-    const p = requestStart(player, toB({ preEntry: 0.1 }), at(1.35))!;
-    expect(p.point).toBeCloseTo(2, 9);
-    expect(p.at).toBeCloseTo(1.9, 9);
+    // B's 0.1 s pickup (preEntry): the group starts at 3.0 but the entry (what `time` is) is heard at 3.1.
+    const t = requestTransition(player, segment("B", ["music/b1.ogg", "music/b2.ogg"], 0.1), at(1.35))!;
+    const p = t.incoming!;
+    expect(p.point).toBeCloseTo(3.1, 9);
+    expect(p.at).toBeCloseTo(3.0, 9);
     frame(1.35);
-    expect(player.handle.transition).toEqual({ to: "B", time: expect.closeTo(2, 9) });
+    expect(player.handle.transition).toEqual({ to: "B", time: expect.closeTo(3.1, 9) });
 
     // Primed and stamped, not yet landed: still pending.
     b.music!.setPrimed(p.run.group);
-    planTick(player, at(1.91));
-    frame(1.95);
-    expect(player.handle.transition).toEqual({ to: "B", time: expect.closeTo(2, 9) });
+    tickTransition(player, at(1.4));
+    planTick(player, at(1.4));
+    expect(t.state).toBe("stamped");
+    frame(2.95);
+    expect(player.handle.transition).toEqual({ to: "B", time: expect.closeTo(3.1, 9) });
 
-    // Landed at the entry: no pending change.
-    planTick(player, at(2.05));
-    frame(2.05);
+    // Landed at the entry: no pending change, B plays.
+    for (let now = 3.0; now <= 3.15; now += DT) {
+      tickTransition(player, at(now));
+      planTick(player, at(now));
+    }
+    frame(3.15);
     expect(player.handle.transition).toBeNull();
+    expect(player.handle.segment).toBe("B");
   });
 
   it("L-P7a the getters share one snapshot per frame: equal values within a frame, recomputed on the next, no allocation after the first read", () => {
@@ -293,18 +301,18 @@ describe("L-P7a: nextGrid (§1.2)", () => {
     expect(player.handle.nextGrid({ every: "bar", n: 2 })).toBeNull();
   });
 
-  // Skipped until R3a: the pending change is `player.transition` (R3a), which this body does not set (see the
-  // `transition` case above).
-  it.skip("L-P7a with a pending change the points after transition.time are the incoming segment's (GridPoint.segment says which)", () => {
+  // Un-skipped by R3a: the pending change is R3a's `requestTransition` (default rule: B lands on A's next bar, 3.1).
+  it("L-P7a with a pending change the points after transition.time are the incoming segment's (GridPoint.segment says which)", () => {
     rig();
     const player = playingPlayer();
-    // B lands on the bar at 1.5 (the planner's bar rule); A's beat at 1.6 comes after it, so B's grid applies there.
-    requestStart(player, toB(), at(1.35));
+    requestTransition(player, segment("B", ["music/b1.ogg", "music/b2.ogg"]), at(1.35));
     frame(1.45);
     const h = player.handle;
-    expect(h.transition).toEqual({ to: "B", time: expect.closeTo(1.5, 9) });
-    expect(h.nextGrid("beat")).toEqual({ time: expect.closeTo(2, 9), bar: 1, beat: 2, segment: "B" });
-    expect(h.nextGrid("bar")).toEqual({ time: expect.closeTo(3.5, 9), bar: 2, beat: 1, segment: "B" });
+    expect(h.transition).toEqual({ to: "B", time: expect.closeTo(3.1, 9) });
+    // A's next beat (1.6) is before the change: A's.
+    expect(h.nextGrid("beat")).toEqual({ time: expect.closeTo(1.6, 9), bar: 1, beat: 2, segment: "A" });
+    // A's next 2-bar point (5.1) is after it: B's grid from its entry at 3.1 (whose own first 2-bar point is its entry).
+    expect(h.nextGrid({ every: "bar", n: 2 })).toEqual({ time: expect.closeTo(3.1, 9), bar: 1, beat: 1, segment: "B" });
   });
 
   it("L-P7a null when the music is not playing (priming, refused, stopped)", () => {
