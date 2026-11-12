@@ -226,7 +226,13 @@
           "curve": "equalPower"
         },
         "bridge": {
-          "segment": "riser"
+          "segment": "riser",
+          "fadeOut": {
+            "beats": 0
+          },
+          "fadeIn": {
+            "beats": 0
+          }
         }
       },
       {

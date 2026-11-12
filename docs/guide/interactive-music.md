@@ -20,9 +20,9 @@ This page documents the first part of interactive music (milestone M4a plus the 
 | Built and public | Coming later |
 | --- | --- |
 | Segments with a tempo map, cues and stems; forever and counted loops (`count`), several regions, loop tails (`tailBeats`) | `while` loops: the format reads them, the player loops the region by its `count` |
-| Playlists (sequence, random, shuffle) | The transition rule's fades on a playlist's own advance |
-| Music switches on a labelled parameter | Bridges (`bridge` in a rule): read and validated, but the change plays as a direct one |
-| Transition rules: exit, enter, quantised cut, crossfade, curves; `handle.music.seek` within the playing segment | |
+| Playlists (sequence, random, shuffle), with the rule's enter, fades and bridge on each advance | |
+| Music switches on a labelled parameter | |
+| Transition rules: exit, enter, quantised cut, crossfade, curves, bridges; `handle.music.seek` within the playing segment | |
 | Stingers and `handle.trigger` | Beat, bar and cue callbacks: `onMusicBeat`, `onMusicBar`, `onMusicCue`, `handle.onMusic` (subscribing does nothing yet) |
 | Quantised stem automation | `handle.music.positionAt`, `Calibration`, a working `Audio.calibration`, and the rhythm-game helpers |
 | `handle.music` position, tempo and `nextGrid` | Resyncing a group whose stream starved (it is silenced and held today, see [the debug panel](#the-debug-panels-music-section)) |
@@ -190,7 +190,7 @@ A **playlist** plays its children one after another, each a segment or another c
 | `weight` (on a child) | The chance in `random` mode (1) |
 | `avoidRepeat` | In `random` and `shuffle`, skip the last n picks (0) |
 
-A playlist holds up to 256 children, and playlists may nest. The next child is primed while the current one plays, so a streamed segment is ready in time. How the next child is entered is decided by the matching [transition rule](#transitions) (`enter`), but **a playlist's own advance does not apply the rule's fades yet**: the old segment's tail rings on and the new one starts on its entry cue.
+A playlist holds up to 256 children, and playlists may nest. The next child is primed while the current one plays, so a streamed segment is ready in time. The advance always leaves at the playing segment's exit cue; the matching [transition rule](#transitions) decides how the next child is entered (`enter`), its fade-in and any bridge (its `exit` is ignored). The old segment is not faded: its tail rings on under the new one until it ends. With no rule written for the change, the advance is gapless: the next child starts at full level on its entry cue (the default rule's one-beat fade is for changes, not for a playlist's own sequence).
 
 The picks are seeded like other random picks: set `audio.seed` in `project.json` to repeat them in a test ([Random seeds for tests](sound-events.md#random-seeds-for-tests)).
 
@@ -257,7 +257,16 @@ The curves run in the audio core, in the voice, on the sample; see [Fades and st
 
 **What the player does.** A change is planned, not reactive: the new segment is loaded and started on the audio thread's clock at the exit point, so a streamed segment is asked for about 100 ms before it (more if loading is slow). A change asked too late for its planned point lands on the next point of the same kind and the debug panel counts a re-plan.
 
-*Coming later:* `bridge` (a library segment played between the two) is read and checked, but today the change plays as if the rule had no bridge.
+**Bridges.** `"bridge": { "segment": "riser", "fadeOut"?, "fadeIn"? }` plays a segment from the container's `library` between the two: the old segment, then the bridge, then the new one. Each seam has its own fades:
+
+| Seam | When | Fades |
+| --- | --- | --- |
+| Old segment to bridge | The rule's `exit` point on the old segment | The rule's `fadeOut` (old segment) and `fadeIn` (bridge) |
+| Bridge to new segment | The bridge's exit cue | The bridge's `fadeOut` (bridge) and `fadeIn` (new segment); each one left out is the rule's |
+
+The bridge enters on its own entry cue (its pickup starts early); the rule's `enter` places the new segment. Unlike an ordinary exit at the exit cue, the bridge's fade-out is applied, so a bridge with audio after its exit cue can crossfade into the new segment. For a riser that should hand over on its last beat, set the bridge's fades to `{ "beats": 0 }`: the new segment then starts at full level on the bridge's exit cue, on one exact sample. Once the old segment's fade has started the change goes through; a change asked after that waits for it and is planned from the new segment.
+
+A bridge under 30 s is decoded and needs no music ring. The new segment is prepared while the bridge plays; if the pool cannot hold it by the time the old segment would start fading, the whole change is refused, the old segment plays on and the log warns once (`poolFull`). A streamed bridge can still go ahead when the pool has room for the bridge and the new segment once the old segment's rings come back and the bridge is long enough to prepare the new segment after that (the old segment's fade, plus about 0.12 s); a shorter one is refused the same way.
 
 ## Stingers
 

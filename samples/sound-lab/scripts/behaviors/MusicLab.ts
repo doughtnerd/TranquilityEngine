@@ -11,15 +11,15 @@ import { Audio, GameBehavior, Input, Text, behavior, field, type AudioEventHandl
  *   - combat to explore (1): a 2-beat CROSSFADE, equal power (the loudness stays level).
  *   - explore to calm (3): a 4-beat crossfade with the LINEAR curve (it dips in the middle).
  *   - calm to explore (1): a 4-beat crossfade with the S curve (slow at both ends).
- *   - calm to combat (2): a BRIDGE, a one-bar noise riser from the library, between the two. (Needs the bridge player, R3b:
- *     until it lands this change plays as a plain crossfade, as the guide says.)
+ *   - calm to combat (2): a BRIDGE, a one-bar noise riser from the library, between the two (a 1-beat equal-power crossfade
+ *     into the riser; combat lands at full level on the riser's last sample).
  *   - combat to calm (3): no rule of its own; the default rule (the next bar, a one-beat equal-power crossfade).
  * Stingers play over the music without touching its grid: T on the next BEAT ("hit"), Y on the next BAR ("hitBar").
  *
  * Loop (L; `music-loop.audioevent.json`): a 2-bar loop region with a 1-bar TAIL (a crash and a chord) that rings over
  * the start of the next pass. It loops while the local parameter Loop is "hold"; L again sets it to "release", the loop is
- * left, and the segment plays on through its last bar and ends. (Needs `while` regions and tails, R4a and R4b: until
- * they land a segment with such a region is a plain forever loop and L's release does nothing.)
+ * left, and the segment plays on through its last bar and ends. (The tail rings now; the `while` release needs R4b: until
+ * it lands the region loops forever and L's release does nothing.)
  *
  * Playlist (P; `music-playlist.audioevent.json`): explore, calm and combat, two plays of two bars each, forever.
  *
