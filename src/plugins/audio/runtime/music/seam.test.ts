@@ -297,11 +297,9 @@ describe("long crossfades (T2; not goldens)", () => {
   // one: measured 2.0e-6 (sCurve) and 2.4e-6 (equalPower).
   it.for([crossfade("sCurve", 0.5), crossfade("equalPower", 0.5)])("$name", (c, ctx) => runSeam(c, ctx, false));
 
-  // Can't null: measured 1.68e-5 (the 50 ms golden: 9.0e-6). The core runs a linear FADE as one f32 `Ramp` over the
-  // whole fade (`curves.rs`: "a linear record fires as set_target at its sample"; no pool entry, no per-quantum
-  // re-aim), so the f32 running sum `value += step` drifts from a + (b − a)u, past 1e-5 somewhere after the 2,400
-  // frames of the golden. The shaped laws don't drift: each quantum re-aims the ramp at the law's knot. The fix is in
-  // the core, not here: re-aim a linear fade at each quantum boundary too (a knot is exact for a linear law). Un-skip
-  // once it does.
-  it.skip("seam-crossfade-linear-500ms: a 500 ms linear crossfade nulls to 1e-5 (measured 1.68e-5)", (ctx) => runSeam(crossfade("linear", 0.5), ctx, false));
+  // F-21: measured 1.68e-5 before (the 50 ms golden: 9.0e-6). The core ran a linear FADE as one f32 `Ramp` over the
+  // whole fade, and the running sum `value += step` drifted from a + (b − a)u, past 1e-5 somewhere after the golden's
+  // 2,400 frames. Now each quantum boundary puts a linear ramp back on its line (`curves::linear_knot`), so it drifts
+  // one quantum's worth at most, however long the fade.
+  it("seam-crossfade-linear-500ms", (ctx) => runSeam(crossfade("linear", 0.5), ctx, false));
 });
