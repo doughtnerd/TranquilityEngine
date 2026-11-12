@@ -31,11 +31,25 @@
 //! `PendingRecord`): `(256 + 128) × 48 = 18,432 B` on every preset. The lengths live in a
 //! [`DueArea`] in the core-state region after the zones' area. All-zero bytes are an empty list.
 //!
-//! Owner: **Z2a** (W2, on the flip branch `m4/in-voice`). Q1 left the types, constants, views and
-//! signatures; bodies tagged `Z2a:` are inert stubs, so behaviour is today's until Z2a lands.
+//! Owner: **Z2a** (W2, on the flip branch `m4/in-voice`), on Q1's types, constants and views.
+//!
+//! **Taken records.** A due record that has applied (or that the gain loop holds) stays in its slot
+//! with opcode 0 ([`DueList::take`]), so the voice ids stay for [`begin_quantum`] to clear the
+//! `due` bits from, at a cost of the list's length, never of the live voices.
+
+use audio_wire::generated::op;
 
 use crate::core::{Core, Regions};
 use crate::layout::REGION_ALIGN;
+
+/// The opcode of a taken due record (no wire opcode is 0).
+const TAKEN: u8 = 0;
+
+/// `true` when `record` is voice `voice_id`'s and not yet taken.
+#[inline]
+pub fn is_for(record: &DueRecord, voice_id: u32) -> bool {
+    record.voice_id == voice_id && record.op != TAKEN
+}
 
 /// One due or parked record: the scheduler's 48-byte pending record (api-and-models §3.1).
 pub use crate::scheduler::PendingRecord as DueRecord;
@@ -69,9 +83,12 @@ pub enum Class {
 
 /// The class of `record` (§3.1): by opcode, and for SET_PARAMS by its mask (gain bit alone → G).
 pub fn classify(record: &DueRecord) -> Class {
-    // Z2a: the table of §3.1. Until then every record splits the quantum, as today.
-    let _ = record;
-    Class::Quantum
+    match record.op as u16 {
+        op::FADE | op::STOP => Class::G,
+        op::SET_PARAMS if record.mask == audio_wire::generated::SET_PARAMS_MASK_GAIN as u8 => Class::G,
+        op::SET_PARAMS | op::SET_PAUSED | op::SEEK | op::SET_LOOP => Class::S,
+        _ => Class::Quantum,
+    }
 }
 
 /// Where [`route`] sent a record popped in this quantum.
@@ -84,9 +101,37 @@ pub enum Route {
     /// Its voice is held but the parked records are full: the caller applies it at its own frame,
     /// unrebased; `parkedOverflow` was counted.
     Overflow,
-    /// Not per voice, or the due list is full, or its voice is gone: the caller splits the quantum
-    /// at the record's offset and applies it there, as today (`splitQuanta` counts once per quantum).
+    /// Not per voice, or the due list is full: the caller splits the quantum at the record's offset
+    /// and applies it there, as today (`splitQuanta` counts once per quantum that splits).
     Split,
+    /// Per voice, but its voice is gone (a stale id, an ended voice): applying it would change
+    /// nothing, so it is dropped without a split (Z2a: today's apply drops it too).
+    Dropped,
+}
+
+/// The sample of `record` in the quantum at `frame`: its offset, or 0 for a record already late.
+#[inline]
+pub fn offset(record: &DueRecord, frame: u64) -> usize {
+    record.frame.saturating_sub(frame).min(crate::QUANTUM as u64 - 1) as usize
+}
+
+/// The ramp a class G `record` drives (`curves::ramp_of`): SET_PARAMS the `gain` ramp, FADE and
+/// STOP the `fade` ramp (R5).
+#[inline]
+pub fn ramp_of(record: &DueRecord) -> u8 {
+    if record.op as u16 == audio_wire::generated::op::SET_PARAMS { crate::curves::ramp_of::GAIN } else { crate::curves::ramp_of::FADE }
+}
+
+/// `true` for a class G record that ends its voice when its fade settles: a STOP with a fade, or a
+/// FADE with "stop at end" over at least one frame (over 0 frames it ends the voice at once).
+#[inline]
+pub fn stops_at_end(record: &DueRecord) -> bool {
+    use audio_wire::generated::op;
+    match record.op as u16 {
+        op::STOP => record.frames > 0,
+        op::FADE => record.flags & 1 != 0 && record.frames > 0,
+        _ => false,
+    }
 }
 
 /// What [`rebase`] moved.
@@ -159,56 +204,147 @@ impl DueList<'_> {
         &self.parked[..(self.area.parked as usize).min(self.parked.len())]
     }
 
-    /// Appends a due record; `false` (no change) when the list holds `DUE_RECORDS` already.
+    /// Adds a due record in frame order, after any of the same frame (stable: `pop_due` pops in
+    /// order, so this appends; a released parked record may land earlier). `false` (no change) when
+    /// the list holds `DUE_RECORDS` already.
     pub fn push(&mut self, record: DueRecord) -> bool {
-        // Z2a: append in frame order (pop_due already pops in order).
-        let _ = record;
-        false
+        let len = self.area.len as usize;
+        if len >= self.records.len() {
+            return false;
+        }
+        let mut i = len;
+        while i > 0 && self.records[i - 1].frame > record.frame {
+            self.records[i] = self.records[i - 1];
+            i -= 1;
+        }
+        self.records[i] = record;
+        self.area.len += 1;
+        true
     }
 
-    /// Parks a record of a held voice; `false` (no change) when `PARKED_RECORDS` are parked.
+    /// Parks a record of a held voice, after the others (arrival order); `false` (no change) when
+    /// `PARKED_RECORDS` are parked.
     pub fn park(&mut self, record: DueRecord) -> bool {
-        // Z2a.
-        let _ = record;
-        false
+        let n = self.area.parked as usize;
+        if n >= self.parked.len() {
+            return false;
+        }
+        self.parked[n] = record;
+        self.area.parked += 1;
+        true
     }
 
-    /// Voice `voice_id`'s due records in this quantum, in frame order.
+    /// Takes due record `at` out of the list: it has applied (or the gain loop has it). It keeps its
+    /// slot and voice id with opcode 0, so the other records keep their places;
+    /// [`for_voice`](Self::for_voice) and [`is_for`] no longer yield it.
+    pub fn take(&mut self, at: usize) {
+        if at < self.records().len() {
+            self.records[at].op = TAKEN;
+        }
+    }
+
+    /// Voice `voice_id`'s due records in this quantum not yet taken, in frame order.
     pub fn for_voice(&self, voice_id: u32) -> impl Iterator<Item = &DueRecord> + '_ {
-        // Z2a may index per voice; the contract is the order.
-        self.records().iter().filter(move |r| r.voice_id == voice_id)
+        self.records().iter().filter(move |r| is_for(r, voice_id))
     }
 
-    /// Drops voice `voice_id`'s parked records (its voice ended or was stopped while held; RESET).
+    /// Drops voice `voice_id`'s parked records (its voice ended, or a PLAY replaced it); the others
+    /// keep their order. Returns how many went.
     pub fn drop_parked(&mut self, voice_id: u32) -> u32 {
-        // Z2a.
-        let _ = voice_id;
-        0
+        let n = self.area.parked as usize;
+        let mut kept = 0;
+        for i in 0..n.min(self.parked.len()) {
+            if self.parked[i].voice_id != voice_id {
+                self.parked[kept] = self.parked[i];
+                kept += 1;
+            }
+        }
+        self.area.parked = kept as u32;
+        (n - kept) as u32
     }
 }
 
 /// Starts quantum `frame`'s list: clears the due records and the voices' [`FLAG2_DUE`] bits left
 /// from the last quantum. Called by `voices::render` before `pop_due` (H1, Z2a's).
 pub fn begin_quantum(core: &mut Core, frame: u64) {
-    // Z2a.
-    let _ = (core, frame);
+    let len = view(core.regions_mut()).records().len();
+    for i in 0..len {
+        let id = view(core.regions_mut()).records[i].voice_id;
+        crate::voices::set_due(core, id, false);
+    }
+    let list = view(core.regions_mut());
+    list.area.len = 0;
+    list.area.frame = frame;
 }
 
 /// Routes one record `pop_due` returned for the quantum at `frame` (see [`Route`]). Counts
 /// `parkedOverflow` itself; the caller counts `splitQuanta` once per quantum that splits.
+/// - Not per voice ([`Class::Quantum`]): [`Route::Split`].
+/// - Its voice gone: [`Route::Dropped`].
+/// - Its voice held by the gate (`groups::FLAG2_GATED`): parked ([`Route::Parked`]); with the
+///   parked records full, into the due list at its own frame, unrebased ([`Route::Overflow`],
+///   `parkedOverflow` + 1).
+/// - Otherwise into the due list, its voice flagged ([`Route::Voice`]).
+///
+/// With the due list full, a record that would go into it splits instead ([`Route::Split`]).
 pub fn route(core: &mut Core, record: &DueRecord, frame: u64) -> Route {
-    // Z2a. Until then every record splits the quantum, as today.
-    let _ = (core, record, frame);
-    Route::Split
+    let _ = frame;
+    if classify(record) == Class::Quantum {
+        return Route::Split;
+    }
+    let Some(flags2) = crate::voices::live_flags2(core, record.voice_id) else { return Route::Dropped };
+    let mut overflow = false;
+    if flags2 & crate::groups::FLAG2_GATED != 0 {
+        if view(core.regions_mut()).park(*record) {
+            return Route::Parked;
+        }
+        crate::status::counters_mut(core).music.note_parked_overflow();
+        overflow = true;
+    }
+    if !view(core.regions_mut()).push(*record) {
+        return Route::Split;
+    }
+    crate::voices::set_due(core, record.voice_id, true);
+    if overflow {
+        Route::Overflow
+    } else {
+        Route::Voice
+    }
 }
 
 /// Moves every parked record whose voice is no longer gated and whose frame is before `before`
 /// (the quantum's end) into the due list, in frame order; a record that doesn't fit stays parked
-/// for the next quantum. Returns how many moved. Called after the gate's per-quantum pass.
+/// for the next quantum. Returns how many moved. Called after the gate's per-quantum pass. A
+/// parked record whose voice is gone is dropped; one whose frame has passed applies at sample 0,
+/// not counted late (it was held).
 pub fn release_parked(core: &mut Core, before: u64) -> u32 {
-    // Z2a.
-    let _ = (core, before);
-    0
+    let n = view(core.regions_mut()).parked().len();
+    if n == 0 {
+        return 0;
+    }
+    let (mut kept, mut moved) = (0usize, 0u32);
+    for i in 0..n {
+        let r = view(core.regions_mut()).parked[i];
+        let keep = match crate::voices::live_flags2(core, r.voice_id) {
+            None => false,
+            Some(f) if f & crate::groups::FLAG2_GATED != 0 || r.frame >= before => true,
+            Some(_) => {
+                if view(core.regions_mut()).push(r) {
+                    crate::voices::set_due(core, r.voice_id, true);
+                    moved += 1;
+                    false
+                } else {
+                    true
+                }
+            }
+        };
+        if keep {
+            view(core.regions_mut()).parked[kept] = r;
+            kept += 1;
+        }
+    }
+    view(core.regions_mut()).area.parked = kept as u32;
+    moved
 }
 
 /// R10, for `group_rebase::apply` (C2d): shifts by `slip` frames every **parked** record and every
@@ -216,13 +352,20 @@ pub fn release_parked(core: &mut Core, before: u64) -> u32 {
 /// `from_frame` (the group's stamp, or the hold's start), keeping the queue sorted and stable.
 /// Records of non-members are never moved.
 pub fn rebase(core: &mut Core, is_member: impl Fn(u32) -> bool, from_frame: u64, slip: u64) -> Rebased {
-    // Z2a (the mechanism; C2d decides when and by how much).
-    let _ = (core, is_member, from_frame, slip);
-    Rebased::default()
+    let mut parked = 0u32;
+    let list = view(core.regions_mut());
+    let n = list.parked().len();
+    for r in list.parked[..n].iter_mut() {
+        if r.frame >= from_frame && is_member(r.voice_id) {
+            r.frame = r.frame.saturating_add(slip);
+            parked += 1;
+        }
+    }
+    let pending = crate::scheduler::rebase_pending(core, &is_member, from_frame, slip);
+    Rebased { parked, pending }
 }
 
 /// RESET: both lists empty.
 pub fn reset(core: &mut Core) {
-    // Z2a.
-    let _ = core;
+    *view(core.regions_mut()).area = DueArea::default();
 }
