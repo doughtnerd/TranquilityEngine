@@ -162,10 +162,11 @@ describe("playlist: the descent", () => {
     const seg = segment("s");
     const inner = playlist("n", [segment("x"), segment("y")]);
     const player = createMusicPlayer(instance(), playlist("root", [seg]));
+    const before = player.playlist; // P7 creates the root playlist's state with the player
     expect(enterPlaylist(player, seg)).toBe(seg);
     const leaf = enterPlaylist(player, inner);
     expect(leaf?.id).toBe("x");
-    expect(player.playlist).toBeNull();
+    expect(player.playlist).toBe(before); // the descent doesn't replace the player's playlist
   });
 
   it("an empty playlist plays nothing and the playlist ends after its last round", () => {

@@ -105,7 +105,7 @@ const mix = (a: number, b: number): number => (Math.imul((a ^ 0x9e3779b9) >>> 0,
 
 function makeCursor(node: PlaylistNode, seed: number): PlaylistCursor {
   const order = createOrder(
-    node.children.map((c) => ({ weight: c.weight, plays: c.plays })),
+    (node.children ?? []).map((c) => ({ weight: c.weight, plays: c.plays })), // a bare node (tests, a broken asset) has none
     { mode: node.mode, avoidRepeat: node.avoidRepeat, rounds: node.rounds, seed },
   );
   return { node, order, item: -1, plays: 0, rounds: 0, seed, entered: 0 };
