@@ -23,7 +23,7 @@
  *   and retry admission once at each allowed point (each frame for an `immediate` or first start). The playing music
  *   is never touched by a refusal.
  */
-import type { MusicAdmitResult, MusicBackend, MusicGroupStamp } from "../backend";
+import { isPendingCoreBackend, type MusicAdmitResult, type MusicBackend, type MusicGroupStamp } from "../backend";
 import {
   compileSegmentGrid, entrySeconds, exitSeconds, nextGridSeconds, spanAtTicks, ticksToSeconds, type SegmentGrid,
 } from "../../../../engine/audio/musicGrid";
@@ -476,6 +476,9 @@ function drop(player: MusicPlayer, p: PlannedStart, cause: string, f: MusicFrame
  * refusal never touches the playing segment.
  */
 export function requestStart(player: MusicPlayer, req: PlanRequest, f: MusicFrame): PlannedStart | null {
+  // F-35: the core is still loading (sound locked until the first gesture): no music yet, but no refusal either. The
+  // request is dropped without a word; a first start stays `starting` and its tick asks again on the real backend.
+  if (!f.music && isPendingCoreBackend(f.backend)) return null;
   if (player.planned) cancelPlanned(player, f);
   const first = player.run === null;
   const run = createSegmentRun(player, req.to, req.startFrame);

@@ -51,6 +51,35 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
+function trackWarnings(page: Page): string[] {
+  const warnings: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "warning") warnings.push(msg.text());
+  });
+  return warnings;
+}
+
+type MusicRow ={ asset: string; state: string; segment: string | null };
+type AudioApi = { debug(): { core?: { backend: string }; music?: MusicRow[] }; bus(name: string): { peak: number } };
+/** `Audio.debug()` in the running game, or null before the player's engine is up. */
+const audioDebug = (page: Page) =>
+  page.evaluate(() => (globalThis as unknown as { __myco?: { Audio: AudioApi } }).__myco?.Audio.debug() ?? null);
+/** The highest peak of a bus's meter over `ms` (one reading can land in a quiet part of the clip). */
+const busPeakOver = (page: Page, bus: string, ms: number) =>
+  page.evaluate(
+    async ([name, span]) => {
+      const { Audio } = (globalThis as unknown as { __myco: { Audio: AudioApi } }).__myco;
+      let max = 0;
+      const start = performance.now();
+      while (performance.now() - start < span) {
+        max = Math.max(max, Audio.bus(name).peak);
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      return max;
+    },
+    [bus, ms] as const,
+  );
+
 type Hooks = { engine?: { world: { time: { frameCount: number } }; worlds(): { name: string }[] } };
 type Engine = { GameObject: { findObjectOfType(type: unknown): Record<string, unknown> | null }; getComponentClass(id: string): unknown };
 
@@ -97,6 +126,23 @@ test.describe("Flappy web build", { tag: "@slow" }, () => {
     expect(errors).toEqual([]);
   });
 
+  test("the town music, started before the first gesture, plays after the click (F-35)", async ({ page }) => {
+    const errors = trackErrors(page);
+    const warnings = trackWarnings(page);
+    await page.goto(served!.url);
+    await expect.poll(() => findScript(page, "game.GameManager", "state"), { timeout: 20_000 }).toBe("ready");
+    // The music prefab's AudioSource asked for the town music at load, while the audio core was still loading (the
+    // pending backend; in a player's browser it stays so until this click; headless Chromium allows autoplay, so here
+    // the core arrives a moment later on its own). Before F-35 the start was refused then, for good.
+    await page.locator("#game canvas").click();
+    await expect
+      .poll(async () => (await audioDebug(page))?.music?.find((m) => m.asset.includes("town")) ?? null, { timeout: 20_000 })
+      .toMatchObject({ state: "playing", segment: "town" });
+    expect(await busPeakOver(page, "Music", 1000), "the Music bus meter").toBeGreaterThan(0);
+    expect(warnings.filter((w) => w.includes("no music support"))).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
   test("a file:// page explains how to serve it", async ({ page }) => {
     await page.goto(`file://${join(served!.dir, "web", "index.html").replace(/\\/g, "/").replace(/^\/?/, "/")}`);
     await expect(page.getByRole("alert")).toContainText("served over HTTP");
@@ -126,6 +172,29 @@ test("the editor's Export… dialog: the player ships beside the editor; a brows
   await dialog.getByRole("button", { name: "Close" }).click();
   await expect(dialog).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+test.describe("Sound Lab web build", { tag: "@slow" }, () => {
+  let served: Served | undefined;
+  test.beforeAll(async () => {
+    served = await exportAndServe("sound-lab");
+  });
+  test.afterAll(() => stop(served));
+
+  test("after a tap, the music page plays its World music (F-35)", async ({ page }) => {
+    const errors = trackErrors(page);
+    const warnings = trackWarnings(page);
+    await page.goto(served!.url);
+    await expect.poll(() => frames(page), { timeout: 20_000 }).toBeGreaterThan(10);
+    await page.locator("#game canvas").click(); // the gesture that unlocks sound
+    await page.keyboard.press("m");
+    await expect
+      .poll(async () => (await audioDebug(page))?.music?.find((m) => m.asset.includes("music-world")) ?? null, { timeout: 20_000 })
+      .toMatchObject({ state: "playing", segment: expect.any(String) });
+    expect(await busPeakOver(page, "Music", 1000), "the Music bus meter").toBeGreaterThan(0);
+    expect(warnings.filter((w) => w.includes("no music support"))).toEqual([]);
+    expect(errors).toEqual([]);
+  });
 });
 
 test.describe("Arena web build", { tag: "@slow" }, () => {
