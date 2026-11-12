@@ -145,6 +145,19 @@ export function stingerAuditionFor(path: string, active: ActiveAudition | null):
   return { trigger: (name) => handle.trigger(name) };
 }
 
+/**
+ * The parameter values the Event editor's sliders hold for auditioning, per event path (only the ones moved; the rest are
+ * the event's defaults, `auditionValues`). Shared so the segment view's transport plays with the same values (F-15).
+ */
+export const auditionOverrides = signal<Readonly<Record<string, Readonly<Record<string, number | string>>>>>({});
+export const NO_OVERRIDES: Readonly<Record<string, number | string>> = Object.freeze({});
+
+/** A slider moved: remember `value` of `name` for `event`'s audition. */
+export function setAuditionValue(event: string, name: string, value: number | string): void {
+  const cur = auditionOverrides.value;
+  auditionOverrides.value = { ...cur, [event]: { ...cur[event], [name]: value } };
+}
+
 /** The trigger names of every stinger under `root`, in tree order, without repeats. */
 export function stingerNames(root: MusicNode | undefined): string[] {
   const out: string[] = [];

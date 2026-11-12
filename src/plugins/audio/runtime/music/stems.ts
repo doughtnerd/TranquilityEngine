@@ -46,8 +46,19 @@ function gainOf(stem: StemRun): StemGain {
 
 /** Per-stem silence bookkeeping: the heard time its gain reaches 0 (solo's or automation's ramp), absent while audible. */
 const silentAt = new WeakMap<StemRun, number>();
-/** Per-player solo: the soloed track (null none) and the stems it has been applied to. */
-const solos = new WeakMap<MusicPlayer, { track: string | null; applied: WeakSet<StemRun> }>();
+/**
+ * Per-player solo: the audible tracks (null: every stem sounds), the segment the set is for (null: every segment) and the
+ * stems it has been applied to. `soloStem` is the one-track case; `setAudibleStems` (editor audition) the general one.
+ */
+interface SoloState { audible: readonly string[] | null; segment: string | null; applied: WeakSet<StemRun> }
+const solos = new WeakMap<MusicPlayer, SoloState>();
+
+/** 1 when `stem` of `run` sounds under `state`, else 0. A stem of another segment than the state's is untouched. */
+function soloLevel(state: SoloState, run: SegmentRun, stem: StemRun): number {
+  if (state.audible === null) return 1;
+  if (state.segment !== null && run.node.id !== state.segment) return 1;
+  return state.audible.includes(stem.track) ? 1 : 0;
+}
 
 function voiceAlive(stem: StemRun): boolean {
   const v = stem.voice;
@@ -96,22 +107,29 @@ function liveRuns(player: MusicPlayer): SegmentRun[] {
 
 /** P5: solo one stem (others to 0 with a fade), or clear the solo with null. */
 export function soloStem(player: MusicPlayer, track: string | null, fadeSeconds: number): void {
+  setAudibleStems(player, track === null ? null : [track], null, fadeSeconds);
+}
+
+/**
+ * @internal Editor audition (F-14): only the stems named in `audible` sound (null: all do), in `segment` only (null: every
+ * segment), with a `fadeSeconds` fade. Solo and mute both reduce to a set. Stem gain composes as `auto x solo` like
+ * `soloStem`, so nothing is written to the event; a segment stamped later takes the set at once.
+ */
+export function setAudibleStems(player: MusicPlayer, audible: readonly string[] | null, segment: string | null, fadeSeconds: number): void {
   const seconds = Math.max(0, Number.isFinite(fadeSeconds) ? fadeSeconds : 0);
-  const state = solos.get(player) ?? { track: null, applied: new WeakSet<StemRun>() };
+  const state: SoloState = { audible: audible === null ? null : [...audible], segment, applied: new WeakSet<StemRun>() };
   solos.set(player, state);
-  state.track = track;
-  state.applied = new WeakSet<StemRun>();
   for (const run of liveRuns(player)) applySolo(run, state, seconds, lastNow.get(player) ?? 0);
 }
 
 /** The heard time of the player's last tick (`soloStem` has no frame; solo is audition-grade, so one tick stale is fine). */
 const lastNow = new WeakMap<MusicPlayer, number>();
 
-function applySolo(run: SegmentRun, state: { track: string | null; applied: WeakSet<StemRun> }, seconds: number, now: number): void {
+function applySolo(run: SegmentRun, state: SoloState, seconds: number, now: number): void {
   const f = { now } as MusicFrame;
   for (const stem of run.stems) {
     state.applied.add(stem);
-    gainOf(stem).solo = state.track === null || stem.track === state.track ? 1 : 0;
+    gainOf(stem).solo = soloLevel(state, run, stem);
     setStemGain(stem, seconds, f);
   }
 }
@@ -198,11 +216,11 @@ export function tickStems(player: MusicPlayer, f: MusicFrame): void {
   const solo = solos.get(player);
   for (const run of liveRuns(player)) {
     // A run stamped after the solo was set (the next segment) takes it at once.
-    if (solo && solo.track !== null) {
+    if (solo && solo.audible !== null) {
       for (const stem of run.stems) {
         if (solo.applied.has(stem) || !voiceAlive(stem)) continue;
         solo.applied.add(stem);
-        gainOf(stem).solo = stem.track === solo.track ? 1 : 0;
+        gainOf(stem).solo = soloLevel(solo, run, stem);
         setStemGain(stem, 0, f);
       }
     }
