@@ -12,6 +12,10 @@
 //!   (to 1e-4: the control-rate knots move with the quantum grid);
 //! - a non-member's fade applies at its own frame while the group still waits.
 //!
+//! C2d's `group_rebase.rs` tests cover the rebase on DC clips; the last test here runs step fades at
+//! harness scale: group sizes 2–8, decoded and streamed mixes, 44.1/48/96 kHz, three slips, stamp
+//! offsets across the quantum (54 cases). The rebase across a hold is in `gate_held.rs`.
+//!
 //! `a_parked_step_fade_lands_at_the_late_start_plus_its_offset` is also a fixture
 //! (`golden/gate-rebased.json`, replayed on the real wasm by `audioGoldenGate.test.ts`).
 
@@ -181,3 +185,64 @@ fn a_non_members_fade_is_not_rebased() {
     assert_eq!(over, 0, "a hole of the slip's length at the seam: the outgoing fade isn't shifted, the member's is");
 }
 
+
+#[test]
+fn step_fades_land_at_the_late_start_plus_their_offset_across_shapes_rates_and_slips() {
+    // Group sizes 2–8 with decoded and streamed mixes (the slow ring the first streamed member), at
+    // 44.1, 48 and 96 kHz, slips of 1, 5 and 40 quanta past the stamp's quantum, two step FADEs on
+    // the first and the last member at offsets past the stamp, and stamp offsets across the quantum.
+    const SHAPES: [(u32, u32); 6] = [(2, 1), (3, 2), (4, 1), (5, 5), (6, 3), (8, 4)];
+    const RATES: [f32; 3] = [44_100.0, 48_000.0, 96_000.0];
+    const SLIPS: [u64; 3] = [1, 5, 40];
+    let mut cases = 0u32;
+    for (si, &(n, streamed)) in SHAPES.iter().enumerate() {
+        for (ri, &rate) in RATES.iter().enumerate() {
+            for (li, &late_q) in SLIPS.iter().enumerate() {
+                let s_mod = ((si * 41 + ri * 23 + li * 61) % 128) as u64;
+                let stamp = 10 * Q + s_mod;
+                let slow_at = 10 * Q + late_q * Q;
+                let (d0, d1) = (17 + 97 * cases as u64 % 900, 1_000 + 131 * cases as u64 % 2_000);
+                let mut r = Rig::new(rate);
+                let gain = 1.0 / n as f32;
+                let mut members = Vec::new();
+                let mut first_stream = true;
+                for k in 0..n {
+                    let is_stream = (k * streamed) / n != ((k + 1) * streamed) / n;
+                    let seed = 0x0C3_5000 ^ (cases << 4) ^ k;
+                    let source = if is_stream {
+                        let id = 101 + k;
+                        r.feeds.push(Feed::new(id, seed, if first_stream { slow_at } else { 0 }));
+                        first_stream = false;
+                        Source::Stream { id, seed }
+                    } else {
+                        r.clip(1 + k, seed, 16_384);
+                        Source::Clip { id: 1 + k, seed }
+                    };
+                    members.push(Member { voice: voice(k), source, gain });
+                }
+                let gate = wire::pack_gate(44, n);
+                let at = r.off(stamp);
+                let mut recs: Vec<Vec<u8>> = members.iter().map(|m| play(m, at, gate)).collect();
+                recs.push(fade(voice(0), at + d0 as u32, 0.5, 0, fade_law::LINEAR, false));
+                recs.push(fade(voice(n - 1), at + d1 as u32, 0.25, 0, fade_law::LINEAR, false));
+                r.submit(&recs);
+                r.run_to(slow_at + 4_096);
+                let what = format!("{n}/{streamed} streamed at {rate} Hz, slip {late_q} quanta, s_mod {s_mod}");
+                same_playhead(&r, &members, r.frame - slow_at, &what);
+                let steps = [(0, slow_at + d0, 0.5), (n as usize - 1, slow_at + d1, 0.25)];
+                let mut over = 0;
+                for t in 0..r.frame {
+                    let (wl, wr) = reference_with(&r, &members, slow_at, &steps, t);
+                    let (l, rr) = r.out(t);
+                    over += ((l - wl).abs().max((rr - wr).abs()) > TOL) as usize;
+                }
+                assert_eq!(over, 0, "{what}: each fade at the late start + its offset ({d0}, {d1})");
+                let st = r.take();
+                assert_eq!(group_starts(&st), [(44, LATE, (slow_at - stamp) as u32, slow_at)], "{what}");
+                assert_eq!(st.late_commands, 0, "{what}");
+                cases += 1;
+            }
+        }
+    }
+    assert_eq!(cases, 54);
+}
