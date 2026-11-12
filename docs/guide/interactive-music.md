@@ -17,18 +17,21 @@ Nothing plays until the player has clicked or pressed a key once; see [Why is th
 
 | Built and public | Coming later |
 | --- | --- |
-| Segments with a tempo map, cues and stems; forever, counted and `while` loops, several regions, loop tails | `handle.onMusic`: the method exists but subscribing does nothing yet |
-| Playlists (sequence, random, shuffle) and music switches on a labelled parameter | `Calibration.fromTaps` (returns an empty result) and a saved `Audio.calibration`; the tap-game sample |
-| Transition rules: exit, enter, quantised cut, crossfade, curves, bridges | Beat, bar and cue callbacks on the Babylon fallback |
-| Stingers and `handle.trigger` | The Project Settings > Audio controls for `music.rings` and `rhythmMode` (edit `project.json` for now) |
-| Quantised stem automation | In the editor's transport: stem solo and mute do not change what you hear, and playback cannot start at a later playlist item |
-| `handle.music` position, tempo, `nextGrid`, `seek` and `positionAt` (with `judged`) | Resyncing a group whose stream starved (it is silenced and held today, see [the debug panel](#the-debug-panels-music-section)) |
-| The component callbacks `onMusicBeat`, `onMusicBar`, `onMusicCue` | |
-| `Audio.horizon`, `Audio.timeAt`, `Audio.latency`; rhythm mode's low-latency context | |
-| `music.rings`, streaming and decoding; hot reload; the Audio Debug panel's Music sections | |
+| Segments with a tempo map, cues and stems; forever, counted and `while` loops, several regions, loop tails | In the editor's transport: stem solo and mute do not change what you hear, and playback cannot start at a later playlist item |
+| Playlists (sequence, random, shuffle) and music switches on a labelled parameter | Resyncing a group whose stream starved (it is silenced and held today, see [the debug panel](#the-debug-panels-music-section)) |
+| Transition rules: exit, enter, quantised cut, crossfade, curves, bridges | Loading and re-keying the saved calibration on the Babylon fallback (it is per session there, see [below](#the-babylon-fallback)) |
+| Stingers and `handle.trigger` | |
+| Quantised stem automation | |
+| `handle.music` position, tempo, `nextGrid`, `seek` and `positionAt` (with `judged`) | |
+| The component callbacks `onMusicBeat`, `onMusicBar`, `onMusicCue`, and `handle.onMusic` for music started with `Audio.play` | |
+| `Calibration.fromTaps`, `Audio.calibration` (saved per output device), `Audio.calibrationStale` | |
+| `audio.rhythmMode` and its Project Settings > Audio checkbox; `Audio.latency`, `Audio.horizon`, `Audio.timeAt` | |
+| Beat, bar and cue callbacks on the Babylon fallback (not corrected for output latency; no rhythm mode there) | |
+| `music.rings` (also in Project Settings > Audio), streaming and decoding; hot reload; the Audio Debug panel's Music sections | |
 | Editor: segment view and properties, transition rules table and rule editor, audition | |
+| The Sound Lab's rhythm page: calibration and a tap game | |
 
-Where a section below depends on something in the right-hand column, it says so.
+Where a section below depends on something in the right-hand column, it says so. The Sound Lab's rhythm page is the worked example for [callbacks](#beat-bar-and-cue-callbacks) and [calibration](#rhythm-mode-and-calibration); it is described [below](#the-sound-lab-rhythm-page).
 
 ## A first music event
 
@@ -471,38 +474,122 @@ if (p.segment !== null) {
 
 The input is mapped to heard time with `Audio.timeAt` (raw, already counting the output latency), then read on the music's grid. The result follows the music across tempo and metre changes and across a change of segment: from the heard landing of a change on, the position is the new segment's. The nearest beat is one that is actually heard: a beat of the old segment that a change cuts off is not offered, and the new segment's first beat is. Before a segment's first bar (its pickup) `bar` and `beat` read 1 and 1, as `music.bar` does, while `offset` is still against the pickup's own beats.
 
-The position is kept for the playing segment and its pending successor only, so ask about a recent input (a frame or two old, as an event's timestamp is), not about a time before the last change landed. `Audio.calibration` is 0 until calibration is saved per device (see [Rhythm mode](#rhythm-mode-and-calibration)), so for now `judged` equals `offset`.
+The position is kept for the playing segment and its pending successor only, so ask about a recent input (a frame or two old, as an event's timestamp is), not about a time before the last change landed. `Audio.calibration` is 0 until you set one (see [Rhythm mode and calibration](#rhythm-mode-and-calibration)), so until then `judged` equals `offset`.
 
 ### Beat, bar and cue callbacks
 
-A `GameBehavior` on the same node as the `AudioSource` that plays the music defines the hooks it wants; defining one is the subscription, and music nobody listens to costs nothing.
+A `GameBehavior` on the same node as the `AudioSource` that plays the music (or on that source's owner node) defines the hooks it wants; defining one is the subscription, and music nobody listens to costs nothing.
 
 ```ts
+import { GameBehavior, behavior, type MusicEvent } from "myco";
+
 @behavior("game.Pulse")
 export class Pulse extends GameBehavior {
   onMusicBeat(e: MusicEvent) { this.transform.scale = 1.2; }
   onMusicBar(e: MusicEvent) { /* e.beat is 1 */ }
   onMusicCue(e: MusicEvent) { if (e.cue === "drop") this.flash(); }
+  private flash() { /* ... */ }
 }
 ```
 
-- They run in the update phase just before `update`, in the frame whose window holds the beat's heard time, so `e.heardIn` (seconds until it is heard, `e.time - Audio.time`) is under one frame: schedule the visible response for that moment.
-- After a gap longer than a beat (a hitch, a hidden tab, a rhythm-mode rebuild) the beats of that kind arrive as one call with `e.missed` set, and coalesced cues are named in `e.skippedCues`.
-- **`e` is reused.** Read it during the call and don't keep it; copy the fields you need. A hook that throws is logged and the others still run. A hook on a disabled behavior is not called, and enabling it again does not replay what it missed.
-- **They hear an `AudioSource` only.** Music started with `Audio.play` has no node, so these hooks never hear it. `handle.onMusic("beat", fn)` is meant for that case (a function that subscribes and returns an unsubscribe function) but is a no-op today. Until it works, read `music.nextGrid("beat")` each frame, or put the music on an `AudioSource`.
-- `e.segment`, `bar`, `beat`, `cue`, `tempo`, `beatsPerBar`, `time`, `heardIn`, `missed` and `skippedCues` are the fields; `e.handle` is the handle `Audio.play` returned.
+- They run in the update phase just before `update`, in the frame whose window holds the beat's heard time, so `e.heardIn` (seconds until it is heard, `e.time - Audio.time`) is under one frame: schedule the visible response for that moment. It is not negative, except in a call that carries `missed`.
+- **`e` is one object per kind, reused for every call.** It is valid only during the call: read it, copy the fields you need, and don't keep it. Nothing is allocated per beat.
+- **No backlog.** A hook that is defined or enabled mid-play hears the beats from then on, not the ones before. A disabled behavior is not called, and enabling it again does not replay what it missed.
+- **A hitch coalesces.** After a gap longer than a beat (a stalled frame, a hidden tab, a rhythm-mode rebuild) the beats of that kind arrive as **one** call, for the latest, with `e.missed` set to how many others were folded into it (0 normally). A cue call also names the cues that were skipped, in `e.skippedCues`. A seek fires nothing for the span it skips.
+- A hook that throws is logged and the others still run.
+- The fields are `segment`, `bar`, `beat` (a bar event has beat 1), `cue` (cue events only), `tempo`, `beatsPerBar`, `time`, `heardIn`, `missed` and `skippedCues`; `e.handle` is the handle `Audio.play` returned for this music, so `e.handle.music` and `e.handle.trigger(...)` work in a hook.
+
+### Callbacks for music started with `Audio.play`
+
+Music started with `Audio.play` has no node, so the component hooks never hear it. `handle.onMusic(kind, fn)` is the same subscription for a script: `kind` is `"beat"`, `"bar"` or `"cue"`, `fn` gets the same reused `MusicEvent`, and the call returns a function that unsubscribes.
+
+```ts
+import { Audio, GameBehavior, behavior, type AudioEventHandle } from "myco";
+
+@behavior("game.BeatCounter")
+export class BeatCounter extends GameBehavior {
+  private music: AudioEventHandle | null = null;
+  private off: (() => void) | null = null;
+  beats = 0;
+
+  start() {
+    this.music = Audio.play("music/combat.audioevent.json");
+    this.off = this.music.onMusic("beat", (e) => { this.beats += 1 + e.missed; });
+  }
+  onDestroy() { this.off?.(); this.music?.stop(0.2); }
+}
+```
+
+- Calls come in the same frame and with the same `missed` coalescing as the component hooks, after them, in the order the listeners subscribed.
+- **Unsubscribing** inside a callback lets the current call finish and skips that listener from the next event on. A listener added inside a callback hears the next event, not this one. Subscribing the same function twice calls it twice, and each returned function removes one subscription.
+- A kind nobody listens to costs nothing; the first listener of a kind, like a hook gained mid-play, is owed no backlog.
+- When the music ends its listeners are dropped. On a handle that is not music, `onMusic` returns a function that does nothing.
 
 ### Rhythm mode and calibration
 
-Set `"audio": { "rhythmMode": true }` in `project.json` for a game that judges input against the music. The audio context is then made with the smallest output buffer the browser allows, which lowers the delay between a beat and the sound.
+A rhythm game judges the player's taps against the music, and two delays sit between a tap and what the game reads: the delay from the game's beat to the sound (the output latency), and the player's own habit of tapping early or late. Rhythm mode and calibration deal with each.
 
-- `Audio.latency` reports what the browser gave, in seconds: `base`, `output`, the limiter's look-ahead, their `total`, and whether the `output` figure is `reliable`. Rhythm mode promises no absolute latency; read this, don't assume it.
-- Changing the setting at run time rebuilds the audio context (at most once a second). The music re-enters on the next bar, in place, and beat callbacks are held through the rebuild: they arrive afterwards as one call with `missed` set.
-- `Audio.calibration` (seconds) is subtracted from an input's `offset` to give `judged`. It can be set and read today but is **not saved**, and `Audio.calibrationStale` is always `false`. `Calibration.fromTaps` returns an empty result. Both come with the calibration work listed above.
+**Rhythm mode.** In **Project Settings > Audio > Playback > Music** tick *Rhythm mode*, or set `"audio": { "rhythmMode": true }` in `project.json`. The audio context is then made with `latencyHint: 0`, the smallest output buffer the browser allows, which lowers the delay between a beat and the sound at the price of battery and, on a slow device, crackle. `Audio.rhythmMode` reads the setting.
+
+- It refuses nothing, and it promises no absolute latency: the browser decides. Read `Audio.latency`; don't assume.
+- Changing the setting at run time rebuilds the audio context (at most once a second). The music re-enters on the next bar, in place, and beat callbacks are **held** while it recovers: afterwards they arrive as one call with `missed` set, as after a hitch.
+- Without rhythm mode the context uses `"interactive"` and callbacks are not held. Everything below works either way.
+
+**`Audio.latency`** is read-only, in seconds, a new object per read:
+
+```ts
+import { Audio } from "myco";
+
+const l = Audio.latency;     // { base, output, limiter, total, reliable }
+if (!l.reliable) console.log("output latency unknown: ask the player to calibrate");
+```
+
+`base` and `output` are what the context reports (`baseLatency`, `outputLatency`), `limiter` is the limiter's look-ahead, and `total` is their sum. `reliable` is true only when the output figure is live and between 0 and 0.5 seconds. A constant 0, as some browsers give, is never reliable: calibrate instead of trusting the number.
+
+**`Calibration.fromTaps(offsets, { warmup })`** turns a run of taps into a correction. `offsets` are the raw `positionAt(...).offset` values in seconds (positive for a late tap), one per tap.
+
+```ts
+import { Audio, Calibration } from "myco";
+
+function applyRun(offsets: number[]): boolean {
+  const r = Calibration.fromTaps(offsets);
+  if (r.steady) Audio.calibration = r.offset;
+  return r.steady;
+}
+```
+
+| Result | Meaning |
+| --- | --- |
+| `offset` | The median of the offsets kept (seconds): the player's usual lateness, with the output delay in it |
+| `spread` | Their median absolute deviation (seconds), unscaled |
+| `confidence` | 0 to 1: `1 - spread / 0.040` (not below 0) times `min(1, used / 16)` |
+| `used`, `discarded` | Offsets kept, and offsets dropped (the warm-up and non-finite ones) |
+| `steady` | The spread is 40 ms or less **and** at least 8 offsets were kept |
+
+The first `warmup` taps (default 4) are dropped, since people settle into the beat; a non-finite value (a missed tap) is dropped before that count. Too few taps never throw: the result is all zeros and `steady` is false. Apply a result only when it is `steady`, and ask the player to try again otherwise. 20 taps with the default warm-up leave 16, full confidence for the count.
+
+**`Audio.calibration`** (seconds, default 0) is what `judged` subtracts: `judged = offset - Audio.calibration`. Setting it saves it for the current output device (`Storage`, namespace `settings`), so it is still there next session; a non-finite value is ignored. Each output device has its own value. When the context reports a device change, a device calibrated before brings its saved value back; any other keeps the old value and **`Audio.calibrationStale`** turns true. Show the player a "calibrate again" prompt while it is true; setting `Audio.calibration` clears it.
+
+### The Sound Lab rhythm page
+
+The Sound Lab's rhythm page (key R from the tour page, B goes back; `samples/sound-lab/scripts/behaviors/RhythmLab.ts`, scene `samples/sound-lab/scenes/rhythm.scene.json`) puts the above together. Click the game view first, then:
+
+| Key | What it does |
+| --- | --- |
+| C | Calibrate: a 120 bpm click track plays; tap SPACE on every click. The first 4 of 20 taps are warm-up, then `Calibration.fromTaps` runs. A steady result is applied and saved; an unsteady one is shown and not applied |
+| G | The tap game: a drum and bass loop; SPACE on the beat. Judged by `judged`: within 30 ms is perfect, within 80 ms good, else a miss; the page shows early or late, hits, misses and the streak |
+| SPACE | A tap, timed from the `keydown` event's own time stamp rather than the frame's, so a tap is not up to a frame late |
+| X | Resets `Audio.calibration` to 0 |
+| O | Stops the music |
+| B | Back to the tour page |
+
+Each tap goes through `handle.music.positionAt(timeStamp)`, which gives `offset` and `judged`; the beat marker is moved by `handle.onMusic("beat", ...)`. The label shows `Audio.calibration`, a STALE note when `Audio.calibrationStale` is true, `Audio.latency` with its `reliable` flag, and whether rhythm mode is on. **Rhythm mode is off in the Sound Lab.** The setting is project-wide and would change the context of every other page, so the sample leaves it off; the calibration and the tap game work without it. Turn it on in Project Settings > Audio to see the difference in `Audio.latency`. The page's state is on `globalThis.__rhythmLab.state()` for tests.
 
 ## The Babylon fallback
 
-The Babylon audio fallback backend plays music switches with their rules and fades, quantised stem automation and stingers (decoded clips), with `setTimeout` accuracy rather than sample accuracy. It does not prime, so streamed stems start separately and may drift apart (turn `stream` off on stems there); it plays no loop tails; streamed stems loop whole rather than by region; it skips stem low-pass automation; two overlapping ramps on one stem cut each other short; and it has no music debug rows. Most of these warn once when they are hit. Beat, bar and cue callbacks are not on the fallback yet.
+The Babylon audio fallback backend plays music switches with their rules and fades, quantised stem automation and stingers (decoded clips), with `setTimeout` accuracy rather than sample accuracy. It does not prime, so streamed stems start separately and may drift apart (turn `stream` off on stems there); it plays no loop tails; streamed stems loop whole rather than by region; it skips stem low-pass automation; two overlapping ramps on one stem cut each other short; and it has no music debug rows. Most of these warn once when they are hit.
+
+Beat, bar and cue callbacks and `handle.onMusic` work there, with limits. They come from the main-side clock (`Audio.time`) and are **uncorrected for output latency**: a beat is called when it is scheduled, not when it is heard, though still within a frame. **Rhythm mode is unavailable**: `audio.rhythmMode` logs one warning, the context keeps its default latency, `Audio.latency` reads zeros and is not `reliable`, and callbacks are not held. `Calibration.fromTaps` works, but the saved calibration is not loaded or re-keyed per output device there yet: `Audio.calibration` lasts for the session, and a device change does not set `Audio.calibrationStale`.
 
 ## The debug panel's Music section
 
