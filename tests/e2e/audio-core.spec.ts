@@ -31,6 +31,59 @@ const busApi = (page: Page, name: string) =>
     return { peak: b.peak, mute: b.mute, effectiveGain: b.effectiveGain, activeVoices: b.activeVoices };
   }, name);
 
+/** The underrun probe's threshold (`coreDriver.ts` `PROBE_THRESHOLD_S`): the audio thread this far behind the wall clock. */
+const STARVED_MS = 24;
+
+type HostLog = { starved: [number, number][]; underruns: { t: number; prev: number; n: number }[] };
+
+/**
+ * Host starvation, measured beside the core (F-32). The underrun probe counts the audio thread falling behind the wall clock,
+ * which a core that can't keep up does, and so does a machine that doesn't run the page's threads (other workers, other
+ * agents: under the full slow suite the audio thread missed its slot during the page's start). A worker thread with nothing
+ * else to do times its own 10 ms timer and logs each late tick past the probe's threshold (wall-clock ms, late by); the page
+ * logs each rise in `counters.underruns` with the poll before it. An underrun with no starved tick from a second before the
+ * previous poll (the probe's 1 s window) to the poll that saw it is the core's; one beside a starved tick is the machine's.
+ */
+function hostMonitor(starvedMs: number): void {
+  const g = globalThis as unknown as { __host?: HostLog; __myco?: { Audio: { debug(): { counters: { underruns: number } } } } };
+  const log: HostLog = { starved: [], underruns: [] };
+  g.__host = log;
+  const src = `let last = performance.now();
+    setInterval(() => { const n = performance.now(); const late = n - last - 10; last = n; if (late > ${starvedMs}) postMessage([performance.timeOrigin + n, late]); }, 10);`;
+  try {
+    const w = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+    w.onmessage = (e: MessageEvent<[number, number]>) => void log.starved.push(e.data);
+  } catch {
+    // No worker: every underrun counts as the core's.
+  }
+  let prev = performance.timeOrigin + performance.now();
+  let seen = 0;
+  setInterval(() => {
+    const t = performance.timeOrigin + performance.now();
+    let n = seen;
+    try {
+      n = g.__myco?.Audio.debug().counters.underruns ?? seen;
+    } catch {
+      // Not booted yet.
+    }
+    if (n > seen) log.underruns.push({ t, prev, n: n - seen });
+    seen = n;
+    prev = t;
+  }, 250);
+}
+
+/** The underruns up to wall-clock `until` (ms): all of them, and those with no starved tick of the host beside them. */
+function underrunsOf(log: HostLog, until = Infinity): { all: number; core: number } {
+  let all = 0;
+  let core = 0;
+  for (const u of log.underruns) {
+    if (u.t > until) continue;
+    all += u.n;
+    if (!log.starved.some(([t]) => t >= u.prev - 1000 && t <= u.t)) core += u.n;
+  }
+  return { all, core };
+}
+
 /** A key press the game sees: held across a few frames, since input is snapshotted once per frame. */
 async function press(page: Page, key: string): Promise<void> {
   await page.keyboard.down(key);
@@ -44,6 +97,7 @@ test("the Sound Lab exercises the core: one-shots, buses, snapshots, ducking and
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
+  await page.addInitScript(hostMonitor, STARVED_MS);
   await page.goto(LAB);
   await page.waitForFunction(() => ((window as unknown as { engine?: { world: { time: { frameCount: number } } } }).engine?.world.time.frameCount ?? 0) > 10);
   await play(page);
@@ -59,7 +113,7 @@ test("the Sound Lab exercises the core: one-shots, buses, snapshots, ducking and
     await expect.poll(async () => (await busApi(page, "Music")).peak, { timeout: 15_000 }).toBeGreaterThan(0.01);
   });
 
-  const startUnderruns = (await audioDebug(page))!.counters.underruns;
+  const startedAt = await page.evaluate(() => performance.timeOrigin + performance.now());
 
   await test.step("one-shots create voices and end", async () => {
     // From a script: the handle is playing at once, and not after the 0.25 s clip ends.
@@ -138,11 +192,18 @@ test("the Sound Lab exercises the core: one-shots, buses, snapshots, ducking and
     const info = (await audioDebug(page))!;
     expect(info.status).toBe("running");
     expect(info.core.backend).toBe("core");
-    // Headless Chromium renders in software on the same few cores as the audio thread, and a run sees 0 or 1 underruns
-    // (observed over several runs: one now and then, never during the quiet start). A real fault (a wedged shell, a
-    // mix that can't keep up) underruns on every quantum, so a small bound still catches it.
-    expect(startUnderruns).toBe(0);
-    expect(info.counters.underruns).toBeLessThanOrEqual(2);
+    // Headless Chromium renders in software on the same few cores as the audio thread. On a quiet machine a run sees 0 or
+    // 1 underruns (one now and then, never during the quiet start); a loaded one (the full slow suite, other agents) sees
+    // more, each beside a stretch where the machine ran none of the page's threads (`hostMonitor`). The bounds are on the
+    // core's: those with the host running on time. A real fault (a wedged shell, a mix that can't keep up) underruns
+    // continuously (the probe counts about one a second, re-anchoring after each), so a small bound still catches it.
+    await page.waitForTimeout(500); // the last poll
+    const log = await page.evaluate(() => (globalThis as unknown as { __host: HostLog }).__host);
+    const start = underrunsOf(log, startedAt);
+    const all = underrunsOf(log);
+    console.log(`[audio-core] underruns: ${all.all} (${all.core} with the host on time; at the start ${start.all}, ${start.core}); the host starved ${log.starved.length} times, longest ${Math.round(Math.max(0, ...log.starved.map((s) => s[1])))} ms`);
+    expect(start.core, "underruns at the start with the host running on time").toBe(0);
+    expect(all.core, "underruns with the host running on time").toBeLessThanOrEqual(2);
     expect(errors).toEqual([]);
   });
 });

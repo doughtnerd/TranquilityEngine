@@ -25,6 +25,7 @@ type Stats = {
     mixedVoices: number;
     mixedCap: number;
     hrtfVoices: number;
+    hrtfFlagged: number;
     workUnits: number;
     workUnitsMax: number;
     streams: number;
@@ -42,6 +43,7 @@ type Stats = {
   logicalMax: number;
   mixedMax: number;
   hrtfMax: number;
+  hrtfFlaggedMax: number;
   wuMax: number;
   stalls: number;
   maxGapMs: number;
@@ -81,7 +83,7 @@ test("the stress sample runs for a minute: thousands of voices, the cap adapts, 
     const s = (await stats(page))!;
     const c = s.sample!;
     log.push(
-      `t=${((Date.now() - t0) / 1000).toFixed(0)}s logical=${c.logicalVoices} mixed=${c.mixedVoices}/${c.mixedCap} hrtf=${c.hrtfVoices} underruns=${s.underrunsSinceStart} late=${s.lateSinceStart} starves=${s.starvesSinceStart} dropped=${c.droppedPlays} wu=${c.workUnits}(max ${c.workUnitsMax}) stalls=${s.stalls}`,
+      `t=${((Date.now() - t0) / 1000).toFixed(0)}s logical=${c.logicalVoices} mixed=${c.mixedVoices}/${c.mixedCap} hrtf=${c.hrtfFlagged}(rendering ${c.hrtfVoices}) underruns=${s.underrunsSinceStart} late=${s.lateSinceStart} starves=${s.starvesSinceStart} dropped=${c.droppedPlays} wu=${c.workUnits}(max ${c.workUnitsMax}) stalls=${s.stalls}`,
     );
   }
   const s = (await stats(page))!;
@@ -89,7 +91,7 @@ test("the stress sample runs for a minute: thousands of voices, the cap adapts, 
   // The numbers, for the build log (`--reporter=list` shows them).
   console.log(`[stress] ${log.join("\n[stress] ")}`);
   console.log(
-    `[stress] summary: started ${s.started} (${s.startedPlaying} playing) in ${s.stormSeconds.toFixed(0)} s; logical peak ${s.logicalMax}, mixed peak ${s.mixedMax}, hrtf peak ${s.hrtfMax}, cap ${s.capMin}..${s.capMax}, underruns ${s.underrunsSinceStart}, late ${s.lateSinceStart}, starves ${s.starvesSinceStart}, work units max ${s.wuMax}, main stalls >100 ms ${s.stalls} (longest ${Math.round(s.maxGapMs)} ms)`,
+    `[stress] summary: started ${s.started} (${s.startedPlaying} playing) in ${s.stormSeconds.toFixed(0)} s; logical peak ${s.logicalMax}, mixed peak ${s.mixedMax}, hrtf peak ${s.hrtfFlaggedMax} flagged (${s.hrtfMax} rendering), cap ${s.capMin}..${s.capMax}, underruns ${s.underrunsSinceStart}, late ${s.lateSinceStart}, starves ${s.starvesSinceStart}, work units max ${s.wuMax}, main stalls >100 ms ${s.stalls} (longest ${Math.round(s.maxGapMs)} ms)`,
   );
 
   await test.step("it ran: voices in the thousands, streams and moving sources alive", async () => {
@@ -100,8 +102,16 @@ test("the stress sample runs for a minute: thousands of voices, the cap adapts, 
     // The beds' prefill fills the logical voices: well into the thousands (the limit is 4,096).
     expect(s.logicalMax).toBeGreaterThan(2000);
     expect(s.mixedMax).toBeGreaterThan(32);
+    // The HRTF cap (ADR 0162) is main's choice: the high preset's 8 voices, the ones past it on the bed. The core's own
+    // `hrtfVoices` also counts a voice handed to the bed while it crossfades out (45 ms, beside the one that took its
+    // place), so it reads 9 or 10 when a reading lands in a handover; the more handovers (a loaded machine's longer frames
+    // move the sources further between picks), the likelier. That count is the panners' cost, by design (H3; the
+    // work-unit model charges it); `hrtfLoopback.test.ts` pins it: the limit plus the outgoing voice for the crossfade,
+    // then the limit. Here the cap is checked where it is promised, and the core stays inside its bank of 32.
+    expect(s.hrtfFlaggedMax).toBeGreaterThan(0);
+    expect(s.hrtfFlaggedMax).toBeLessThanOrEqual(8);
     expect(s.hrtfMax).toBeGreaterThan(0);
-    expect(s.hrtfMax).toBeLessThanOrEqual(8); // the high preset's 8 (ADR 0162); the voices past it go to the bed
+    expect(s.hrtfMax).toBeLessThanOrEqual(32);
     // Eight looping streams, open the whole time.
     expect(c.streams).toBe(8);
   });

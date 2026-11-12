@@ -576,7 +576,7 @@ async function m4bKey(page: Page, key: string, what: string): Promise<void> {
 }
 
 type M4bPending = { to: string; ruleKey: string; rule: number; tier: number; parent: string };
-type M4bRow = M4aRow & { pending: M4bPending | null; stingers: { played: number; late: number; skipped: number; dropped: number } };
+type M4bRow = M4aRow & { beat: number; pending: M4bPending | null; stingers: { played: number; late: number; skipped: number; dropped: number } };
 const m4bRows = async (page: Page): Promise<M4bRow[]> => (((await fullDebug(page)) as unknown as { music?: M4bRow[] }).music ?? []);
 
 test.describe("listening M4b: transitions, stingers and loop exits", () => {
@@ -683,6 +683,32 @@ test.describe("listening M4b: transitions, stingers and loop exits", () => {
     });
 
     await test.step("keys 3 then 2: a switch that changes its mind before it lands", async () => {
+      // The promise (transition.ts, "the cancel point"): a newer target replaces a pending change until that change's cancel
+      // point (T - L; past it the outgoing fade is stamped and can't be taken back, and the newer target queues behind it), so
+      // a second key read before the cancel point means calm is never entered. What decides it is the frame the game reads key
+      // 2 in, not the wall clock between the presses: a loaded machine can take longer than the rest of the bar to deliver it
+      // (F-32: under the full slow suite it came after the bar line). So a behavior beside the page's handler logs, in the
+      // frame that reads key 2, the player's transition as the handler sees it. Headless presses 3 just after a bar line, so
+      // the cancel point is most of a bar (2 s) away and the case under test is the one that runs.
+      await page.evaluate(`(() => {
+        const g = globalThis;
+        const lab = g.playEngine.world._componentsOfType(g.__myco.getComponentClass("lab.MusicLab"))[0];
+        class SwitchLog extends g.__myco.GameBehavior {
+          update() {
+            if (!g.__myco.Input.getKeyDown("2")) return;
+            const t = lab.handle?.music?.player?.transition ?? null;
+            (g.__switchLog ??= []).push({ now: g.__myco.Audio.time, to: t ? t.to.id : null, state: t ? t.state : null, cancelBy: t ? t.cancelBy : null });
+          }
+        }
+        g.__switchLogOff = () => lab.node.removeBehavior(lab.node.getBehavior(SwitchLog));
+        lab.node.addBehavior(SwitchLog);
+      })()`);
+      if (!LISTEN) {
+        // Wait for a bar line to pass: beat 4, then beat 1 of the next bar.
+        const beat = async () => (await world())?.beat;
+        await expect.poll(beat, { timeout: 10_000, intervals: [50], message: "beat 4" }).toBe(4);
+        await expect.poll(beat, { timeout: 10_000, intervals: [20], message: "the bar line" }).toBe(1);
+      }
       const segments: string[] = [];
       const watch = setInterval(() => void world().then((r) => r?.segment && segments.at(-1) !== r.segment && segments.push(r.segment)), 50);
       try {
@@ -693,9 +719,23 @@ test.describe("listening M4b: transitions, stingers and loop exits", () => {
       } finally {
         clearInterval(watch);
       }
-      // Headless presses 250 ms apart, so calm is never entered. The owner may have been slower than the bar line: noted, not failed.
-      if (LISTEN) info.annotations.push({ type: "switch", description: segments.includes("calm") ? "calm was entered before the second key (pressed too late)" : "calm was never entered" });
-      else expect(segments, "calm is never entered").not.toContain("calm");
+      type Read = { now: number; to: string | null; state: string | null; cancelBy: number | null };
+      const read = await page.evaluate(() => {
+        const g = globalThis as unknown as { __switchLog?: Read[]; __switchLogOff?: () => void };
+        g.__switchLogOff?.();
+        return g.__switchLog ?? [];
+      });
+      expect(read.length, "the frame that read key 2 was logged").toBeGreaterThan(0);
+      const at = read[0]!;
+      expect(at.to, "a change was pending when key 2 was read").not.toBeNull();
+      // The handler may run before the log (the change to calm, not yet past its cancel point) or after it (replaced: the
+      // change to combat). Past the cancel point the change to calm is `running`, with combat queued behind it.
+      const inTime = !(at.to === "calm" && (at.state === "running" || at.state === "bridging" || at.state === "done"));
+      const margin = at.cancelBy !== null && Number.isFinite(at.cancelBy) ? `, ${Math.round((at.cancelBy - at.now) * 1000)} ms before the cancel point` : "";
+      info.annotations.push({ type: "switch", description: `key 2 was read ${inTime ? "in time" : "after the cancel point"} (${JSON.stringify(at)}${margin}); calm ${segments.includes("calm") ? "was" : "was never"} entered` });
+      // In time, the promise holds whoever pressed. After the cancel point (the owner slower than the bar line, or a frame
+      // that came that late), calm plays first and the queued change to combat still lands (the poll above): noted, not failed.
+      if (inTime) expect(segments, "key 2 was read before the cancel point: calm is never entered").not.toContain("calm");
       await hear(page, 4_000);
       await cleanCounters(page, "switch");
     });
