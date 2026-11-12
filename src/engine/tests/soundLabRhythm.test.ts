@@ -70,7 +70,7 @@ describe("the rhythm page's data", () => {
     const main = JSON.stringify(json("scenes/main.scene.json"));
     expect(main).toContain('"scene":"scenes/rhythm.scene.json"');
     expect(main).toContain('"key":"r"');
-    expect((json("project.json") as { audio: { rhythmMode: boolean } }).audio.rhythmMode).toBe(true);
+    expect((json("project.json") as { audio: { rhythmMode: boolean } }).audio.rhythmMode ?? false).toBe(false); // project-wide, so off in the lab (build log D17)
   });
 });
 

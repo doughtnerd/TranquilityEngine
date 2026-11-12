@@ -52,8 +52,8 @@ export interface RhythmState {
  * offset less the calibration, so a calibrated player taps at 0 ms: within 30 ms is PERFECT, within 80 ms is GOOD, anything
  * else is a MISS; the page shows early or late in ms and the streak. The beat marker is moved by `handle.onMusic("beat")`.
  *
- * O stops the music. The project has `audio.rhythmMode` on (the context asks for the lowest latency, and the readout below
- * shows what the browser gave back); `Audio.latency.reliable` says whether the output figure can be trusted, and if not,
+ * O stops the music. `audio.rhythmMode` is off in this sample, since it applies to the whole project (turn it on in Project
+ * Settings > Audio to have the context ask for the lowest latency; the readout below shows what the browser gave back); `Audio.latency.reliable` says whether the output figure can be trusted, and if not,
  * calibrate. The state the page shows is also on `globalThis.__rhythmLab.state()`.
  *
  * Key presses are timed with the DOM event's own time stamp (`keydown`, read by `Audio.timeAt` through `positionAt`), not
