@@ -305,3 +305,11 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 - G-2 (mid): the coordinator's wiring list.
 - F-8 continues in `voices.rs`.
 - E1 waits for T1's fixture.
+
+**D2 merged** (`m4/d2` `c81ddaef`): `docs/guide/interactive-music.md`, M4a's part.
+- It covers segments and the grid, simple forever loops, quantised automation, playlists, switches, transitions and rules, stingers, streaming and `music.rings`, the script API, the debug panel and hot reload.
+- A status table marks what's coming later: counted and `while` loops, tails, bridges, seek, music callbacks, rhythm and calibration, editor audition, held-group resync.
+- Links from `docs/README.md` and `sound-events.md`.
+- **Coordinator:** added the guide to `tools/check-doc-links.mjs`' defaults, so `check:links` scans it.
+- **Keep it current:** whoever merges G-2 updates its hot-reload section (it says the editor doesn't call the reload yet), and each K, R3b, R4 or R7 merge updates the status table. D2 flagged its own unsure claims: the playlist advance applies `enter` without the rule's fades (R3a's `natural` plumbing), and the crossfade timing came from the design without tracing `transition.ts`.
+
