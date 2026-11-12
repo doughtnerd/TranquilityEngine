@@ -17,7 +17,8 @@
  * through `createMusicPlayer`, and ends through `disposeMusicPlayer`. `handle.music` finds it with `playerOf`.
  */
 import type { AudioBackend, MusicBackend } from "../backend";
-import type { MusicEvent, MusicHandle, MusicKind } from "../../../../engine/audio/musicTypes";
+import type { MusicEvent, MusicEventHandle, MusicHandle, MusicKind } from "../../../../engine/audio/musicTypes";
+import { GameBehavior } from "../../../../engine/core/Component";
 import type { EventInstance } from "../events/eventRuntime";
 import { createMusicHandle, segmentGrid } from "./handle";
 import { entrySeconds } from "../../../../engine/audio/musicGrid";
@@ -26,13 +27,13 @@ import { childFor, createSwitchState, tickSwitch, type SwitchState } from "./mus
 import { createPlaylistState, enterPlaylist, tickPlaylist, type PlaylistState } from "./playlist";
 import { tickRegions, type RegionState } from "./regions";
 import { tickTransition, type Transition } from "./transition";
-import { planTick, requestStart, type PlannedStart } from "./planner";
+import { frameIntervalSeconds, planTick, requestStart, type PlannedStart } from "./planner";
 import { tickLoopTails, type LoopTailState } from "./loopTail";
 import { tickStingers, type StingerState } from "./stingers";
 import { tickStems } from "./stems";
 import { routeGroupEvent, type SegmentRun } from "./segmentRun";
 import type { GridAnchor } from "./anchors";
-import type { BeatState } from "./beatClock";
+import { predictDue, seatBeats, type BeatState } from "./beatClock";
 
 /**
  * A music node as the runtime sees it before F1a/F1b's format types land: every `segment`, `playlist` and `musicSwitch`
@@ -122,6 +123,12 @@ export interface MusicPlayer {
   listeners: MusicListeners | null;
   /** K2: the subscription mask (bit 0 beat, 1 bar, 2 cue): component hooks on the source's node, plus listeners. 0: not predicted. */
   subscribed: number;
+  /** K2: the component hooks' share of the mask, read from the source's node each dispatch (`subscribed` is K5's listeners). */
+  hooks: number;
+  /** K2: the mask the last dispatch predicted for; a bit that appears in `subscribed | hooks` seats its cursor first. */
+  predicted: number;
+  /** K2: the public handle `MusicEvent.handle` carries; made on first use by the factory `Audio.ts` registers. */
+  eventHandle: MusicEventHandle | null;
   /** P7: `handle.music`. */
   readonly handle: MusicHandle;
   /** Debug counters (§1.6). */
@@ -215,6 +222,9 @@ export function createMusicPlayer(instance: EventInstance, root: MusicNodeRef, o
     beats: null,
     listeners: null,
     subscribed: 0,
+    hooks: 0,
+    predicted: 0,
+    eventHandle: null,
     handle: undefined as unknown as MusicHandle, // set below: the handle reads the player
     counters: newCounters(),
   };
@@ -236,6 +246,8 @@ export function disposeMusicPlayer(player: MusicPlayer, backend: AudioBackend | 
   player.state = "stopped";
   player.listeners = null;
   player.subscribed = 0;
+  player.hooks = 0;
+  player.predicted = 0;
   backend?.music?.releaseInstance(player.instance.group);
 }
 
@@ -364,14 +376,120 @@ function startSwitchRoot(player: MusicPlayer, f: MusicFrame): void {
   }, f);
 }
 
+const KINDS = [
+  { kind: "beat", bit: MusicSubscription.BEAT, hook: "onMusicBeat" },
+  { kind: "bar", bit: MusicSubscription.BAR, hook: "onMusicBar" },
+  { kind: "cue", bit: MusicSubscription.CUE, hook: "onMusicCue" },
+] as const;
+
+type Hook = (e: MusicEvent) => void;
+
+function newEvent(): MusicEvent {
+  return { handle: null as unknown as MusicEventHandle, segment: "", bar: 1, beat: 1, tempo: 0, beatsPerBar: 0, time: 0, heardIn: 0, missed: 0 };
+}
+
+/** One reused event per kind (nothing allocates per frame); `handle` is set per player. */
+const scratch: Record<MusicKind, MusicEvent> = { beat: newEvent(), bar: newEvent(), cue: newEvent() };
+
+type HandleFactory = (instance: EventInstance) => MusicEventHandle;
+let makeHandle: HandleFactory | null = null;
+
+/** `Audio.ts` registers how an instance becomes its public handle (it owns the class); `MusicEvent.handle` uses it. */
+export function _setMusicHandleFactory(f: HandleFactory | null): void {
+  makeHandle = f;
+}
+
+/** The nodes the source's hooks live on: its own and, for a component node, its owner's (as `PhysicsCore.notify`). */
+function sourceEntities(player: MusicPlayer): number[] | null {
+  const src = player.instance.musicSource;
+  if (!src || src._destroyed || !src.node.isValid) return null;
+  const a = src.node.entity;
+  const b = src.owner.entity;
+  return a === b ? [a] : [a, b];
+}
+
+/** Which of the three hooks some active behavior on the source's nodes defines. */
+function hookMask(player: MusicPlayer): number {
+  const ents = sourceEntities(player);
+  if (!ents) return 0;
+  const world = player.instance.musicSource!._world;
+  let mask = 0;
+  for (const e of ents) {
+    const comps = world._componentsOf(e);
+    if (!comps) continue;
+    for (let i = 0; i < comps.length; i++) {
+      const c = comps[i]!;
+      if (!(c instanceof GameBehavior) || !c.isActiveAndEnabled) continue;
+      for (const k of KINDS) if (typeof (c as unknown as Record<string, unknown>)[k.hook] === "function") mask |= k.bit;
+    }
+  }
+  return mask;
+}
+
+/** Calls `hook` on each active behavior of the source's nodes that defines it; a throw is logged, the rest still hear it. */
+function deliverToComponents(player: MusicPlayer, hook: string, e: MusicEvent): void {
+  const ents = sourceEntities(player);
+  if (!ents) return;
+  const world = player.instance.musicSource!._world;
+  for (const ent of ents) {
+    const list = world._componentsOf(ent);
+    if (!list) continue;
+    for (const c of [...list]) { // a hook may add or remove components
+      if (!(c instanceof GameBehavior) || !c.isActiveAndEnabled) continue;
+      const fn = (c as unknown as Record<string, Hook | undefined>)[hook];
+      if (typeof fn !== "function") continue;
+      try {
+        fn.call(c, e);
+      } catch (err) {
+        console.error(`[myco] ${c.constructor.name}.${hook} threw:`, err);
+      }
+    }
+  }
+}
+
 /**
  * K2 (K5 adds listeners): per subscribed player, fire each beat, bar and cue event heard before `Audio.time` + Δ̄, first
  * to the component messages on the `AudioSource`'s node, then to `handle.onMusic` listeners in subscription order, with
- * the coalescing of architecture §4.5 (`missed`, `skippedCues`). A throw is caught and logged. Players with
- * `subscribed === 0` are not predicted.
+ * the coalescing of architecture §4.5 (`missed`, `skippedCues`; `predictDue` does it). A throw is caught and logged.
+ * Players with no hook and no listener are not predicted. A kind that becomes subscribed (a component gains the hook, a
+ * listener is added) owes nothing heard before this frame: its cursor is seated at `Audio.time` first.
  */
 export function dispatchMusic(f: MusicFrame): void {
-  void f; // STUB(K2)
+  const list = musicPlayers();
+  if (list.length === 0) return;
+  const interval = frameIntervalSeconds(f);
+  for (let k = 0; k < list.length; k++) {
+    const p = list[k]!;
+    if (p.state === "stopped") continue;
+    p.hooks = hookMask(p);
+    const mask = p.subscribed | p.hooks;
+    const fresh = mask & ~p.predicted;
+    p.predicted = mask;
+    if (mask === 0) continue;
+    if (fresh !== 0) {
+      // From nothing: forget the whole backlog; one more kind among running ones: only that kind's.
+      if ((mask & ~fresh) === 0) seatBeats(p, f.now);
+      else for (const d of KINDS) if (fresh & d.bit) seatBeats(p, f.now, d.kind);
+    }
+    if (p.eventHandle === null && makeHandle) p.eventHandle = makeHandle(p.instance);
+    for (const d of KINDS) {
+      if (!(mask & d.bit)) continue;
+      const e = scratch[d.kind];
+      e.handle = p.eventHandle as MusicEventHandle;
+      if (!predictDue(p, d.kind, f.now, interval, e)) continue;
+      if (p.hooks & d.bit) deliverToComponents(p, d.hook, e);
+      const ls = p.listeners?.[d.kind];
+      if (ls) {
+        for (let i = 0, n = ls.length; i < n; i++) { // K5: a listener added during this loop first hears the next event
+          try {
+            ls[i]!(e);
+          } catch (err) {
+            console.error(`[myco] Music onMusic("${d.kind}") listener threw:`, err);
+          }
+        }
+      }
+    }
+  }
 }
 
 const NOOP = (): void => {};

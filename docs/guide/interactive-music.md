@@ -23,7 +23,7 @@ This page documents the first part of interactive music (milestone M4a plus the 
 | Playlists (sequence, random, shuffle), with the rule's enter, fades and bridge on each advance | |
 | Music switches on a labelled parameter | |
 | Transition rules: exit, enter, quantised cut, crossfade, curves, bridges; `handle.music.seek` within the playing segment | |
-| Stingers and `handle.trigger` | Beat, bar and cue callbacks: `onMusicBeat`, `onMusicBar`, `onMusicCue`, `handle.onMusic` (subscribing does nothing yet) |
+| Stingers and `handle.trigger`; the component callbacks `onMusicBeat`, `onMusicBar`, `onMusicCue` | `handle.onMusic` (subscribing does nothing yet) |
 | Quantised stem automation | `Calibration`, a working (saved) `Audio.calibration`, and the rhythm-game helpers |
 | `handle.music.positionAt` and its `judged` offset (calibration still reads 0 until it is saved) | |
 | `handle.music` position, tempo and `nextGrid` | Resyncing a group whose stream starved (it is silenced and held today, see [the debug panel](#the-debug-panels-music-section)) |
@@ -387,6 +387,21 @@ if (p.segment !== null) {
 
 The input is mapped to heard time with `Audio.timeAt` (raw, already counting the output latency), then read on the music's grid. The result follows the music across tempo and metre changes and across a change of segment: from the heard landing of a change on, the position is the new segment's. The nearest beat is one that is actually heard: a beat of the old segment that a change cuts off is not offered, and the new segment's first beat is. Before a segment's first bar (its pickup) `bar` and `beat` read 1 and 1, as `music.bar` does, while `offset` is still against the pickup's own beats. The position is kept for the playing segment and its pending successor only, so ask about a recent input (a frame or two old, as an event's timestamp is), not about a time before the last change landed. `judged` subtracts `Audio.calibration`, which is 0 until it is saved per device (coming later, below); `offset` stays raw, so `Calibration.fromTaps` can be fed the offsets.
 
+### Beat, bar and cue callbacks
+
+A `GameBehavior` on the same node as the `AudioSource` that plays the music defines the hooks it wants; defining one is the subscription, and music nobody listens to costs nothing.
+
+```ts
+@behavior("game.Pulse")
+export class Pulse extends GameBehavior {
+  onMusicBeat(e: MusicEvent) { this.transform.scale = 1.2; }
+  onMusicBar(e: MusicEvent) { /* e.beat is 1 */ }
+  onMusicCue(e: MusicEvent) { if (e.cue === "drop") this.flash(); }
+}
+```
+
+They run in the update phase just before `update`, in the frame whose window holds the beat's heard time, so `e.heardIn` (seconds until it is heard, `e.time - Audio.time`) is under one frame: schedule the visible response for that moment. After a gap longer than a beat (a hitch, a hidden tab) the beats of that kind arrive as one call with `e.missed` set, and coalesced cues are named in `e.skippedCues`. `e` is reused: read it during the call and don't keep it. A hook that throws is logged and the others still run.
+
 ### Seeking
 
 ```ts
@@ -408,7 +423,7 @@ else if (!r.permanent) retryNextFrame();            // no free streaming slots y
 An `AudioSource` plays a music event like any event (the flappy sample does). Its `loop`, `spatial` and distance fields are ignored for music, and `pitch` is ignored with a warning.
 
 *Coming later:*
-- **Beat callbacks.** `onMusicBeat`, `onMusicBar` and `onMusicCue` on a `GameBehavior` and `handle.onMusic("beat", fn)` exist in the types, but nothing calls them yet; `handle.onMusic` returns a no-op unsubscribe. To act on the beat today, read `music.nextGrid("beat")` each frame.
+- **`handle.onMusic`.** `handle.onMusic("beat", fn)` is in the types but returns a no-op unsubscribe for now. For music you start yourself with `Audio.play`, read `music.nextGrid("beat")` each frame, or put the music on an `AudioSource` and use the component callbacks below.
 - **`Calibration.fromTaps`** returns an empty result. **`Audio.calibration`** can be set and read but is not saved, and `Audio.calibrationStale` is always `false`. `Audio.latency` and `Audio.rhythmMode` (the `audio.rhythmMode` project setting) exist; the rhythm mode they belong to is not finished.
 
 ## The debug panel's Music section

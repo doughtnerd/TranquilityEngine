@@ -8,6 +8,7 @@
  * `TsAutomation` on a backend without them.
  */
 
+import type { Component } from "../../../../engine/core/Component";
 import type { Curve } from "../../../../engine/core/curve";
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer } from "../../../../engine/audio/mixer";
@@ -774,6 +775,8 @@ export class EventInstance {
   private pitchOption: number;
   /** ADR 0166 P6: the music player, when the event's root is a segment, playlist or musicSwitch; null for a 0158 event. */
   music: MusicPlayer | null = null;
+  /** ADR 0166 K2: the `AudioSource` that plays this instance, whose node's `onMusic*` hooks hear its music; null for `Audio.play`. */
+  musicSource: Component | null = null;
 
   constructor(
     private readonly sys: EventSystem,

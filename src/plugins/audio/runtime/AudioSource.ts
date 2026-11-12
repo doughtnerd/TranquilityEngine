@@ -192,7 +192,10 @@ export class AudioSource extends Component {
       }, worldKeyOf(this._world));
       this.applied = "";
       this.appliedPitch = this.pitch;
-      if (this.instance) this.applyEvent();
+      if (this.instance) {
+        this.instance.musicSource = this; // ADR 0166 K2: this node's `onMusicBeat`, `onMusicBar`, `onMusicCue` hear the music
+        this.applyEvent();
+      }
       return;
     }
     this.ambisonicClip = isAmbisonicClip(path);
