@@ -127,7 +127,7 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
   1. A cue inside a looping region fires on the first pass only: `nextOn`'s `lineAtOrAfter` returns NaN and returns before the wrap check.
   2. A recovery's gap is dropped for a kind whose cursor had fired nothing yet (`cur.run === st.lostRun` fails while `run` is null).
   3. A loop pass that isn't a whole number of frames makes phantom region-end calls (149 of 6,900 over an hour with a 3.6526 s pass), and over-counts `missedBeats`. It's probably `h >= wrap - TIME_EPS` against a tick-linear end that's off the frame-rounded wrap.
-  Hearing is unaffected; the callbacks' fields and the counter are wrong. **F-20 task** (strongest) is fixing them before M4b's merge.
+  Hearing is unaffected; the callbacks' fields and the counter are wrong. **Fixed by F-20** (below).
 - **F-21 (from T2):** a linear FADE runs as one f32 ramp over the whole fade, never re-aimed at a quantum boundary (`curves.rs`: "a linear record fires as set_target at its sample"), so `value += step` drifts. A 500 ms linear crossfade nulls only to 1.68e-5 against the 1e-5 seam bound (`it.skip` in `seam.test.ts`); the 50 ms golden passes at 9.04e-6. The shaped laws are re-aimed at each knot and don't drift. **F-21 task** (strongest) re-aims linear fades in the core before M4b's merge; any golden re-record must be logged with its reason.
 
 **Started (rolling, D5), base `92969c11`:** Z2a (strongest) on the flip branch `m4/in-voice`, cut locally at `92969c11` after Q1 and the wire's merge 1 (the flip branch stays local: this session pushes only the integration branch); F2, Ed2, Ed9 and R4c (mid; each depends only on merged tasks and touches no running task's files). Waiting for the wire's merge 2: Z4, C1, D1a, then Q2's merge.
@@ -560,4 +560,18 @@ E2 (M4b's browser specs and listening section) and D3 (the guide) start when the
 - **Results:** cut 0; linear (50 ms) 9.04e-6; S-curve 1.85e-6; equal power 1.88e-6; bridge, both legs, 1.75e-6; loop exit with tail 0; stinger 0; switch under the default rule 2.67e-6. Extra live cases: 500 ms S-curve 2.03e-6, 500 ms equal power 2.38e-6.
 - **Fixtures:** `golden/seams/seam-*.json`, recorded from the runtime (`UPDATE_GOLDENS=1`, written only after a wasm replay matches the live output). They replay to the same digest on wasm (`audioGoldenSeams.test.ts`) and natively (`audio-core/tests/seam_goldens.rs`, through the shell's copy budget): **native = wasm, 8 of 8**.
 - **Open:** a 500 ms linear crossfade, 1.68e-5 (F-21). The M4b exit check "every seam nulls to 1e-5" waits for F-21.
+
+**R4b merged** (`m4/r4b` `8cfa2334`).
+- **`while` regions:** the condition is read once per wrap at E − L − Δ̄ − 10 ms. A false condition releases the region with its last pass, which every anchor query honours (`bindRelease` for `ticksAt`). A late frame, or a flag set after the commit, waits one pass. Once the release is heard, the anchor moves past the region. `is`/`atLeast`/`below`; a missing parameter warns once and leaves the region to its `count`.
+- **Bug found and fixed:** a streamed music member's loop record was dropped by the stream manager (musicOps' streams have no entry there), so a streamed stem looped for ever. It's now forwarded to `musicOps.setLoop`, which uses E4.4's `applyLoopChange` and the worker's region-release splice.
+- **Coordinator-file edit granted after the fact:** `core/streams.ts` (the forward, the extracted helper, `playheadOf`), whose header calls it frozen after W1.
+- **Not built:** moving the commit point back by a prime lead for a stem that changes file at the wrap (no per-pass alternatives exist yet).
+- **Tests:** 9 unit; 3 loopback within 1e-6 of a reference (a decoded release with tails; a late flag; the sound-lab loop event); 3 streamed releases through the real decoder worker (lateness 0, no underruns). The guide and the sound-lab comments were updated.
+- Checks: typecheck 0; music, core, events and sound-lab vitest 1,513 pass; check:links passes.
+
+**F-20 merged** (`m4/f20` `f3a15951`), in `beatClock.ts`; `anchors.ts` unchanged.
+1. **Cue in a loop:** a NaN line now falls through to the wrap check.
+2. **Recovery gap:** `adoptLost` moves seated or ended cursors onto the lost run when the recovery is detected.
+3. **Phantom region-end calls:** the wrap checked is the scratch anchor's own pass end, the same path `advanceAnchor` takes. The old path summed the wrap differently by one bit. A second case K4 didn't hit was also fixed: when the frame-rounded pass is longer than the grid's, the end line is heard up to half a frame before the wrap (462 and 390 phantom calls over 15 minutes at 117.77 and 87.31 bpm before the fix).
+K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.ts` is 52 of 52; K1's S4 trace tests and K2's and K3's tests pass unchanged. **Coordinator:** renamed K4's three `BUG:` tests to regression tests.
 

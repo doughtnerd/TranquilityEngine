@@ -148,11 +148,11 @@ describe("cues at the edges", () => {
     expect(of(fired, "cue").map((f) => [f.e.cue, f.e.missed, f.e.skippedCues])).toEqual([["e", 4, ["a", "b", "c", "d"]]]);
   });
 
-  // BUG (K4 report): `nextOn` returns false as soon as no cue line lies after the cursor inside the pass (`lineAtOrAfter` gives
+  // Regression (found by K4, fixed by F-20): `nextOn` returns false as soon as no cue line lies after the cursor inside the pass (`lineAtOrAfter` gives
   // NaN), before looking at the wrap. A cue in a looping region so fires on the first pass only, then never again (the cursor
   // sits on it); beats and bars are unaffected (a later line always exists, and the wrap check catches it). The fix is to
   // treat NaN as "no line this pass" and go on to the wrap check (I checked: a 4-line change in `nextOn`).
-  it("BUG: a cue inside a loop fires on every pass, and a long frame over several passes counts them", () => {
+  it("regression (F-20): a cue inside a loop fires on every pass, and a long frame over several passes counts them", () => {
     const node = musicSegment({
       tempo: T120, cues: [{ name: "x", at: "1:3:0" }], regions: [{ id: "r", from: "1:1:0", to: "2:1:0", count: 0 }],
     });
@@ -302,7 +302,7 @@ describe("a held clock's backlog", () => {
     expect(fired.filter((f) => f.now > 0.4 + DT && f.now < 10.2)).toEqual([]);
     const released = fired.filter((f) => f.now >= 10.2 && f.e.missed > 0);
     expect(released.map((f) => f.kind).sort()).toEqual(["bar", "beat"]);
-    // Beats every 0.5 s to 12.0, bars every 2 s (0 .. 12), B's one cue at 8.5 (A has none: cues in loops are the BUG test above).
+    // Beats every 0.5 s to 12.0, bars every 2 s (0 .. 12), B's one cue at 8.5 (A has none: cues in loops are the F-20 regression test above).
     expect(delivered(fired, "beat")).toBe(25);
     expect(delivered(fired, "bar")).toBe(7);
     expect(delivered(fired, "cue")).toBe(1);
@@ -397,11 +397,11 @@ describe("recovery re-entry", () => {
     expect(of(fired, "bar").map((f) => [f.e.bar, f.e.time, f.e.missed])).toEqual([[1, close(0), 0], [3, close(4), 1], [4, close(6), 0]]);
   });
 
-  // BUG (K4 report): `predictDue` counts a recovery's gap only when `cur.run === lostRun`, i.e. when the kind's cursor has
+  // Regression (found by K4, fixed by F-20): `predictDue` counts a recovery's gap only when `cur.run === lostRun`, i.e. when the kind's cursor has
   // consumed an event from the lost run. A cursor still seated (run null: nothing of that kind fired since the state was
   // made, or since `seatBeats`) skips the gap's events silently: here the cue cursor has fired nothing, so a, b and c (all
   // heard-then-lost or lost) vanish and the first cue call after the re-entry says missed 0.
-  it("BUG: a gap's events are counted even when that kind's cursor had fired nothing before the recovery", () => {
+  it("regression (F-20): a gap's events are counted even when that kind's cursor had fired nothing before the recovery", () => {
     const node = musicSegment({ tempo: T120, cues: [{ name: "a", at: "1:3:0" }, { name: "b", at: "2:1:0" }, { name: "c", at: "2:2:0" }, { name: "d", at: "3:1:0" }] });
     const { player, run } = playingRun(node, 0, 0);
     const list = frames(-0.05, 6, DT);
@@ -485,14 +485,14 @@ describe("long runs without drift", () => {
     strictlyIncreasing(fired);
   }, 180_000);
 
-  // BUG (K4 report): in a loop whose pass isn't a whole number of frames (the worker loops in file frames, anchors.ts rounds the
+  // Regression (found by K4, fixed by F-20): in a loop whose pass isn't a whole number of frames (the worker loops in file frames, anchors.ts rounds the
   // region to them; 133.37 / 97.13 bpm here, a pass of 3.6526 s), some passes' first beat and bar come out as ONE call that
   // is labelled with the region's end (bar 3 beat 1 of a two-bar loop: a position inside no pass), with `missed` 1, a time
   // up to 4 us late, and `counters.missedBeats` counted: two events 4 us apart (the pass's end line and the wrap's own)
   // are walked. 149 of 6900 beat calls over an hour; the bars likewise. Looks like `nextOn`'s `h >= wrap - TIME_EPS` (0.1 us)
   // against a tick-linear end time that is off the frame-rounded wrap by a fraction of a frame (not verified further).
   // Hearing is unaffected; the call's fields and the counter are wrong. Whole-frame passes (every K1 test) don't show it.
-  it("BUG: a loop whose pass isn't a whole number of frames fires no beat of the region's end, and no beat is counted missed", () => {
+  it("regression (F-20): a loop whose pass isn't a whole number of frames fires no beat of the region's end, and no beat is counted missed", () => {
     const bpm = 133.37;
     const node = musicSegment({
       tempo: [{ at: "1:1:0", bpm, beatsPerBar: 4, beatUnit: 4 }, { at: "2:1:0", bpm: 97.13, beatsPerBar: 3, beatUnit: 4 }],
