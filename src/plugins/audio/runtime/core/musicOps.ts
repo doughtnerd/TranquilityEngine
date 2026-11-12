@@ -60,6 +60,7 @@ import type { StreamDecoderLike, StreamManager } from "./streams";
 import { MAX_STAMPED, StampedKind, STAMPED_FLAG_STOP_AT_END, VoiceReason, type VoiceTable } from "./voiceTable";
 import type { WorkletChannel } from "./workletChannel";
 import type { WarnOnce } from "./codecs";
+import type { ClipRegistry } from "./clipRegistry";
 import type { CorePlayRequest, CoreVoice } from "./coreBackend";
 import { FadeLaw, packGate, packShape, SET_PARAMS_MASK_GAIN, SET_PARAMS_MASK_LP_HZ, StreamEvent } from "../wire.generated";
 import { hintFromName, MUSIC_ENCODED_BUDGET_MIB, type MusicReply, type PrimeGroupMember } from "../decoder/protocol";
@@ -112,6 +113,8 @@ export interface MusicOpsHost {
   decoder(): StreamDecoderLike;
   /** Fetches an asset's encoded bytes (for a member the worker doesn't hold, Q0's `needBytes`). */
   fetchBytes(path: string): Promise<ArrayBuffer>;
+  /** F-7b: the clip registry, to load a decoded member's clip at admission and know when it is resident. */
+  readonly clips: Pick<ClipRegistry, "acquire" | "release" | "state">;
   /** Plays one voice through the backend's ordinary path (`CoreBackend.play`); a member carries `music`. */
   play(req: CorePlayRequest): CoreVoice | null;
   /** False while nothing reaches a core (disposed, a rebuild running, failed). */
@@ -158,6 +161,8 @@ interface Member {
   voice: number;
   handle: CoreVoice | null;
   fadeZero: boolean;
+  /** F-7b: a decoded member's clip id held from admission until its PLAY took its own reference (0: none held). */
+  clip: number;
 }
 
 /** One live group. */
@@ -282,7 +287,7 @@ export class CoreMusicOps implements MusicBackend {
     if (need > pool - this.ringsUsed) return { ok: false, reason: "poolFull", permanent: false };
     const members: Member[] = req.members.map((m, index) => {
       const streamed = m.play.stream === true;
-      return { index, path: m.play.path, streamed, stream: streamed ? this.host.streams.allocate() : 0, epoch: 0, startFrame: m.startFrame, primed: !streamed, ring: streamed, voice: 0, handle: null, fadeZero: m.fadeZero === true };
+      return { index, path: m.play.path, streamed, stream: streamed ? this.host.streams.allocate() : 0, epoch: 0, startFrame: m.startFrame, primed: !streamed, ring: streamed, voice: 0, handle: null, fadeZero: m.fadeZero === true, clip: streamed ? 0 : this.host.clips.acquire(m.play.path, m.play.world ?? 0) };
     });
     const g: Group = { id: req.group, instance: req.instance, state: "admitted", req, members, postedMs: Number.NaN, sampled: true };
     this.groups.set(g.id, g);
@@ -320,7 +325,9 @@ export class CoreMusicOps implements MusicBackend {
     const g = this.groups.get(group);
     if (!g) return null;
     let primed = 0;
-    for (const m of g.members) if (m.primed) primed++;
+    // F-7b: a decoded member is primed once its clip is resident (or failed: its PLAY then reports the failure, and a
+    // group must not wait for ever), so a PLAY never goes out for a clip that would make the member start late or silent.
+    for (const m of g.members) if (m.primed && (m.streamed || this.clipSettled(m))) primed++;
     const of = g.members.length;
     return { group, primed, of, ready: primed === of };
   }
@@ -335,6 +342,7 @@ export class CoreMusicOps implements MusicBackend {
       const def = g.req.members[m.index]!;
       const req: CorePlayRequest = { ...def.play, at: stamp.at, music: m.streamed ? { group: g.id, member: m.index, stream: m.stream } : { group: g.id, member: m.index } };
       const v = this.host.play(req);
+      this.dropHold(m); // the PLAY holds its own reference now
       m.handle = v;
       voices.push(v);
     }
@@ -369,6 +377,7 @@ export class CoreMusicOps implements MusicBackend {
       m.handle = null;
     }
     if (open) decoder?.cancelGroup?.(group);
+    for (const m of g.members) this.dropHold(m);
     this.groups.delete(group);
   }
 
@@ -601,6 +610,7 @@ export class CoreMusicOps implements MusicBackend {
         }
       }
       if (open) decoder?.cancelGroup?.(g.id);
+      for (const m of g.members) this.dropHold(m);
       this.groups.delete(g.id);
     }
   }
@@ -630,6 +640,20 @@ export class CoreMusicOps implements MusicBackend {
   private tableFull = 0;
   /** F-5: `musicWarn` replies (the worker's encoded cache over budget with nothing evictable). */
   private encodedOverBudget = 0;
+
+  /** F-7b: a decoded member's clip is resident (or failed). */
+  private clipSettled(m: Member): boolean {
+    if (m.clip === 0) return true; // already played (its PLAY holds the clip) or released
+    const state = this.host.clips.state(m.clip);
+    return state === "ready" || state === "failed";
+  }
+
+  /** F-7b: drops the hold a decoded member took at admission. */
+  private dropHold(m: Member): void {
+    if (m.clip === 0) return;
+    this.host.clips.release(m.clip);
+    m.clip = 0;
+  }
 
   private takeRings(n: number): void {
     this.ringsUsed += n;

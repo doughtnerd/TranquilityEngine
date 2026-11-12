@@ -428,6 +428,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       worklet,
       decoder,
       fetchBytes,
+      clips: this.clips,
       play: (req) => this.play(req),
       sending: () => !this.disposed && !this.recovering && this.host.status === "running",
       musicRings: () => this.host.preset.maxMusicRings ?? 0,
