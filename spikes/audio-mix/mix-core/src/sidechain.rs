@@ -95,7 +95,7 @@ impl Rule {
                     let c = if x > env { aa } else { ar };
                     env = x + c * (env - x);
                 }
-                self.env = env;
+                self.env = if env < 1e-15 { 0.0 } else { env };
                 env
             }
             Detect::Rms => {
@@ -104,7 +104,7 @@ impl Rule {
                     let c = if x > env { aa } else { ar };
                     env = x + c * (env - x);
                 }
-                self.env = env;
+                self.env = if env < 1e-15 { 0.0 } else { env };
                 sqrtf(env)
             }
         }

@@ -9,7 +9,7 @@
 //! maximum since the last STATUS take.
 //!
 //! Main half ([`Feed`], [`Gating`], [`Hist`]): turns the sub-block energies into momentary (4 sub-blocks, 400 ms,
-//! 75% overlap by construction), short-term (30 sub-blocks, 3 s), gated integrated and loudness range.
+//! 75% overlap by construction), short-term (30 sub-blocks, 3 s), gated integrated and loudness range (3 s blocks at a 1 s hop, as Tech 3342 and libebur128).
 //!
 //! The coefficient formulas and the true-peak interpolator (Hann-windowed sinc, 48 taps, factor 4) are the ones
 //! `libebur128` (Copyright (c) 2011 Jan Kokemueller, MIT) and the `ebur128` crate (Copyright (c) 2020 Sebastian
@@ -302,7 +302,8 @@ impl Gating {
         lufs(g.iter().sum::<f64>() / g.len() as f64)
     }
     pub fn lra(&self) -> f64 {
-        let blocks: Vec<f64> = window_means(&self.subs, 30).into_iter().filter(|&e| lufs(e) >= -70.0).collect();
+        // EBU Tech 3342 / libebur128: 3 s blocks, one per second (hop 10 sub-blocks), first after 3 s.
+        let blocks: Vec<f64> = window_means(&self.subs, 30).into_iter().step_by(10).filter(|&e| lufs(e) >= -70.0).collect();
         if blocks.is_empty() {
             return 0.0;
         }

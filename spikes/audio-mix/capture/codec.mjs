@@ -35,6 +35,7 @@ const SECTIONS = [
   ["streamEvents", ["id", "code"]],
 ];
 export const HASH_TABLE = 4096;
+const EMPTY = new Uint8Array(0);
 const F32 = new DataView(new ArrayBuffer(8));
 
 export const peakQ = (v) => (v < 1e-6 ? -12000 : Math.max(-12000, Math.min(1200, Math.round(2000 * Math.log10(v)))));
@@ -51,7 +52,7 @@ class Chain {
     this.phId = new Int32Array(HASH_TABLE);
     this.phClip = new Float64Array(HASH_TABLE);
     this.phFrame = new Float64Array(HASH_TABLE);
-    this.sec = SECTIONS.map(() => new Uint8Array(0));
+    this.sec = SECTIONS.map(() => EMPTY);
   }
   reset() {
     this.hdr.fill(0);
@@ -60,7 +61,7 @@ class Chain {
     this.phId.fill(0);
     this.phClip.fill(0);
     this.phFrame.fill(0);
-    this.sec = SECTIONS.map(() => new Uint8Array(0));
+    for (let i = 0; i < this.sec.length; i++) this.sec[i] = EMPTY;
   }
 }
 
@@ -195,7 +196,7 @@ export class Recorder {
     let pending = 0;
     for (let s = 0; s < SECTIONS.length; s++) {
       const list = b[SECTIONS[s][0]];
-      if (list.length === 0) { if (ch.sec[s].length !== 0) ch.sec[s] = new Uint8Array(0); continue; }
+      if (list.length === 0) { if (ch.sec[s].length !== 0) ch.sec[s] = EMPTY; continue; }
       const n = this.sectionBytes(s, list, sc);
       const prev = ch.sec[s];
       let same = prev.length === n;
@@ -264,7 +265,8 @@ export class Recorder {
 
 // ---------------- reader (editor side; allocation is fine here) ----------------
 export class Reader {
-  constructor(buf) { this.b = buf; this.p = 0; this.ch = new Chain(); this.t = 0; this.dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength); }
+  get ch() { return (this._ch ??= new Chain()); }
+  constructor(buf) { this.b = buf; this.p = 0; this.t = 0; this.dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength); }
   u8() { return this.b[this.p++]; }
   vu() { let n = 0, m = 1, c; do { c = this.b[this.p++]; n += (c & 127) * m; m *= 128; } while (c & 128); return n; }
   vs() { return unzz(this.vu()); }
@@ -346,7 +348,7 @@ export class Reader {
     const tags = this.u8() | (this.u8() << 8);
     for (let s = 0; s < SECTIONS.length; s++) {
       const tag = (tags >> (2 * s)) & 3;
-      if (tag === 0) { b[SECTIONS[s][0]] = []; ch.sec[s] = new Uint8Array(0); continue; }
+      if (tag === 0) { b[SECTIONS[s][0]] = []; ch.sec[s] = EMPTY; continue; }
       if (tag === 2) { const st = this.p; this.p = this.skipSection(s); ch.sec[s] = this.b.slice(st, this.p); }
       b[SECTIONS[s][0]] = this.parseSection(s, ch.sec[s]);
     }

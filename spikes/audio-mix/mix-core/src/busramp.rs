@@ -30,10 +30,9 @@ impl Stamped {
         if ramp_end > hold_from {
             let step = (self.to - self.from) / self.frames as f32;
             let k0 = (hold_from as i64 - rel) as f32; // frames of the ramp already run before the first ramp sample here
-            let mut v = self.from + step * k0;
-            for s in out[hold_from..ramp_end].iter_mut() {
-                v += step;
-                *s = v;
+            let base = self.from + step * (k0 + 1.0);
+            for (j, s) in out[hold_from..ramp_end].iter_mut().enumerate() {
+                *s = base + step * j as f32;
             }
             if end_rel <= Q as i64 && end_rel > 0 {
                 out[ramp_end - 1] = self.to;

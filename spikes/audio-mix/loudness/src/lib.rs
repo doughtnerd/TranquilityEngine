@@ -30,7 +30,7 @@ unsafe impl GlobalAlloc for Counting {
         System.realloc(p, l, n)
     }
 }
-#[cfg(not(feature = "no-alloc-count"))]
+#[cfg(feature = "bench")]
 #[global_allocator]
 static A: Counting = Counting;
 
@@ -122,8 +122,9 @@ fn cost(args: &str) {
     let sigs: Vec<signals::Stereo> = (0..k).map(|b| make_signal(sig, 11 + b as u64 * 7)).collect();
     let gate = TpMode::Gated(0.5);
     for run in 0..runs {
+        let c0 = ALLOC_BYTES.load(Relaxed);
         let mut buses: Vec<Loudness> = (0..k)
-            .map(|_| Loudness::new(RATE, match case { "tp" | "both" => TpMode::Full, "both_gated" => gate, _ => TpMode::Off }))
+            .map(|_| Loudness::new(RATE, match case { "both" | "tp" => TpMode::Full, "both_gated" => gate, _ => TpMode::Off }))
             .collect();
         #[cfg(feature = "ebur")]
         let mut refs: Vec<ebur::Ref> = (0..k)
@@ -133,11 +134,13 @@ fn cost(args: &str) {
                 _ => ebur::Ref::full(48000),
             })
             .collect();
+        let built = (ALLOC_BYTES.load(Relaxed) - c0) / k as u64;
         let mut peaks: Vec<audio_core::meters::Meter> = vec![Default::default(); k];
         let decay = audio_core::meters::decay_per_block(48000.0, QUANTUM);
         let mut samples = Vec::with_capacity(quanta);
         let mut sink = 0.0f64;
         let mut a0 = 0;
+        let a_all = ALLOCS.load(Relaxed);
         for q in 0..warm + quanta {
             if q == warm {
                 a0 = ALLOCS.load(Relaxed);
@@ -150,7 +153,8 @@ fn cost(args: &str) {
                     "floor" => {}
                     "peak" => peaks[b].update(l, r, decay),
                     "kw" => buses[b].process_energy(l, r),
-                    "tp" | "both" | "both_gated" => buses[b].process(l, r),
+                    "tp" => buses[b].process_tp(l, r),
+                    "both" | "both_gated" => buses[b].process(l, r),
                     #[cfg(feature = "ebur")]
                     "ebur_add" | "ebur_i" | "ebur_tp" => refs[b].add(l, r),
                     #[cfg(feature = "ebur")]
@@ -175,16 +179,18 @@ fn cost(args: &str) {
             }
         }
         let allocs = ALLOCS.load(Relaxed) - a0;
+        let allocs_all = ALLOCS.load(Relaxed) - a_all;
         let ran: f64 = buses.iter().map(|b| b.tp_ran as f64).sum::<f64>() / (k * (warm + quanta)) as f64;
         samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let mean = samples.iter().sum::<f64>() / samples.len() as f64;
         print(&format!(
-            "{{\"target\":\"{TARGET}\",\"case\":\"{case}\",\"sig\":\"{sig}\",\"k\":{k},\"run\":{run},\"quanta\":{quanta},\"p50\":{:.3},\"p99\":{:.3},\"p999\":{:.3},\"max\":{:.3},\"mean\":{:.3},\"allocs\":{allocs},\"tp_ran\":{ran:.3},\"sink\":{}}}",
+            "{{\"target\":\"{TARGET}\",\"case\":\"{case}\",\"sig\":\"{sig}\",\"k\":{k},\"run\":{run},\"quanta\":{quanta},\"p50\":{:.3},\"p99\":{:.3},\"p999\":{:.3},\"max\":{:.3},\"mean\":{:.3},\"allocs\":{allocs},\"allocs_all\":{allocs_all},\"built_bytes_per_bus\":{built},\"state_bytes\":{},\"tp_ran\":{ran:.3},\"sink\":{}}}",
             pct(&samples, 0.5),
             pct(&samples, 0.99),
             pct(&samples, 0.999),
             samples[samples.len() - 1],
             mean,
+            core::mem::size_of::<Loudness>(),
             (sink as i64 & 1),
         ));
     }

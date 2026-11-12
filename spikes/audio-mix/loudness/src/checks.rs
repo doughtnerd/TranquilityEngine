@@ -42,7 +42,7 @@ pub fn own(rate: f64, sig: &Stereo, mode: TpMode, every: usize) -> Meas {
     for i in 3..g.subs.len() {
         hi.add(g.subs[i - 3..=i].iter().sum::<f64>() / 4.0);
     }
-    for i in 29..g.subs.len() {
+    for i in (29..g.subs.len()).step_by(10) {
         hl.add(g.subs[i - 29..=i].iter().sum::<f64>() / 30.0);
     }
     Meas { m: g.momentary(), s: g.shortterm(), i: g.integrated(), lra: g.lra(), hist_i: hi.integrated(), hist_lra: hl.lra(), tp_db: dbf(tp as f64), lost: feed.lost }
@@ -110,7 +110,7 @@ pub fn run(json: bool) -> bool {
     }
     for rate in [48000.0f64, 44100.0] {
         let tag = |s: &str| format!("{s}@{}", rate as u32);
-        let mut case = |o: &mut Out, name: &str, sig: Stereo, i: Option<f64>, m: Option<f64>, s: Option<f64>, lra: Option<(f64, f64)>| {
+        let case = |o: &mut Out, name: &str, sig: Stereo, i: Option<f64>, m: Option<f64>, s: Option<f64>, lra: Option<(f64, f64)>| {
             let a = own(rate, &sig, TpMode::Full, 6);
             #[cfg(feature = "ebur")]
             let r = reference(rate, &sig);

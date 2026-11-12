@@ -34,11 +34,11 @@ if (ALLOC_CHILD) {
     const blocks = [], raws = [];
     const evs = [];
     const sc = SCENES[N];
-    const { tbl } = runScene(sc, 6, { onStatus: (t, b) => { blocks.push(copyBlock(b)); }, onEvent: (t, ty, a, b, c, d, f) => evs.push([t, ty, a, b, c, d, f]) });
+    const { tbl } = runScene(sc, 20, { onStatus: (t, b) => { blocks.push(copyBlock(b)); }, onEvent: (t, ty, a, b, c, d, f) => evs.push([t, ty, a, b, c, d, f]) });
     const rec = new Recorder(1 << 22);
-    const M = Math.min(300, blocks.length);
+    const M = 1000;
     const probe = (name, fn) => {
-      for (let i = 0; i < 50; i++) fn(i); // warm the JIT
+      for (let i = 0; i < 3000; i++) fn(i); // warm the JIT
       global.gc(); const h0 = process.memoryUsage().heapUsed;
       for (let i = 0; i < M; i++) fn(i);
       const h1 = process.memoryUsage().heapUsed;
