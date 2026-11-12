@@ -1,0 +1,71 @@
+{
+  "format": "myco.audioevent@1",
+  "bus": "Music",
+  "priority": 200,
+  "limit": {
+    "maxInstances": 1,
+    "steal": "oldest"
+  },
+  "root": {
+    "type": "segment",
+    "id": "eight",
+    "tempo": [
+      {
+        "at": "1:1:0",
+        "bpm": 120,
+        "beatsPerBar": 4,
+        "beatUnit": 4
+      }
+    ],
+    "regions": [
+      {
+        "id": "loop",
+        "from": "1:1:0",
+        "to": "end",
+        "count": 0
+      }
+    ],
+    "tracks": [
+      {
+        "name": "pad-a",
+        "clip": "audio/events/music-pad.wav",
+        "volume": 0.12
+      },
+      {
+        "name": "pulse-a",
+        "clip": "audio/events/music-pulse.wav",
+        "volume": 0.12
+      },
+      {
+        "name": "lead-a",
+        "clip": "audio/events/music-lead.wav",
+        "volume": 0.12
+      },
+      {
+        "name": "melody-a",
+        "clip": "audio/melody-loop.wav",
+        "volume": 0.12
+      },
+      {
+        "name": "pad-b",
+        "clip": "audio/events/music-pad.wav",
+        "volume": 0.12
+      },
+      {
+        "name": "pulse-b",
+        "clip": "audio/events/music-pulse.wav",
+        "volume": 0.12
+      },
+      {
+        "name": "lead-b",
+        "clip": "audio/events/music-lead.wav",
+        "volume": 0.12
+      },
+      {
+        "name": "melody-b",
+        "clip": "audio/melody-loop.wav",
+        "volume": 0.12
+      }
+    ]
+  }
+}

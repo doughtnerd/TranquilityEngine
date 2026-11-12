@@ -653,6 +653,36 @@ describe("UICore pointer routing", () => {
     expect(Input.getMouseButtonUp(0)).toBe(false);
   });
 
+  it("a touch press with no pointermove first hits the button under the finger, not the stale position", async () => {
+    const { play } = menu();
+    const c = await core();
+    sync(c);
+    // Real DOM events through Input.attach: a touch screen sends pointerdown with no pointermove before it.
+    const win = new EventTarget();
+    const canvas = Object.assign(new EventTarget(), {
+      focus() {},
+      setPointerCapture() {},
+      getBoundingClientRect: () => ({ left: 10, top: 20 }),
+    });
+    vi.stubGlobal("window", win);
+    try {
+      Input.attach(canvas as unknown as HTMLCanvasElement);
+      Input.simulatePointer(900, 600); // the previous touch, far from the button
+      const ev = (type: string, x: number, y: number) =>
+        Object.assign(new Event(type), { clientX: x, clientY: y, button: 0, pointerId: 1, movementX: 0, movementY: 0 });
+      canvas.dispatchEvent(ev("pointerdown", 110, 60)); // canvas pixels (100, 40): over Play
+      engine.step(DT);
+      expect(Input.mousePosition).toEqual(new Vector2(100, 40));
+      expect(play.pressed).toBe(true);
+      win.dispatchEvent(ev("pointerup", 110, 60));
+      engine.step(DT);
+      expect(play.clicked).toBe(true);
+    } finally {
+      Input.detach();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("a press and release in one frame clicks", async () => {
     const { play } = menu();
     const c = await core();

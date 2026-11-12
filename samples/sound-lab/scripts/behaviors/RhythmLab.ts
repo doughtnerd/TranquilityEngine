@@ -1,4 +1,6 @@
-import { Audio, Calibration, GameBehavior, Input, Text, behavior, field, type AudioEventHandle, type CalibrationResult, type MusicEvent } from "myco";
+import { Audio, Calibration, GameBehavior, Input, SceneManager, Text, behavior, field, type AudioEventHandle, type CalibrationResult, type MusicEvent } from "myco";
+import { MusicReadout } from "../musicReadout";
+import { PointerTaps, TouchBar } from "../touchBar";
 
 /** What one tap read: the music's position at the key press, the raw offset, the calibrated one, and the grade. */
 export interface RhythmTap {
@@ -59,6 +61,10 @@ export interface RhythmState {
  * Key presses are timed with the DOM event's own time stamp (`keydown`, read by `Audio.timeAt` through `positionAt`), not
  * the frame's, so a tap is not up to a frame (16 ms) late. Without a DOM (a headless test) the page falls back to
  * `Input.getKeyDown` and `performance.now()`, and a test can call `tap(performanceTime)`.
+ *
+ * Touch (a phone has no keys): a press on the game view is a tap, exactly like SPACE, timed from the `pointerdown` event's own
+ * time stamp (a mouse click does the same). A row of buttons along the bottom stands in for C, G, X, O, D and B; a press on a
+ * button is not a tap. D shows or hides the music health readout (prime lead and late groups, `Audio.debug().music`).
  */
 @behavior("lab.RhythmLab")
 export class RhythmLab extends GameBehavior {
@@ -69,6 +75,8 @@ export class RhythmLab extends GameBehavior {
   @field(String) gameKey = "g";
   @field(String) resetKey = "x";
   @field(String) stopKey = "o";
+  @field(String) readoutKey = "d";
+  @field(String) backScene = "scenes/main.scene.json";
   /** Taps a calibration run collects, warm-up included (`Calibration.fromTaps` drops the first 4). */
   @field(Number) tapsWanted = 20;
   /** Seconds: a tap within this of the beat (after calibration) is a PERFECT, and within `goodWindow` a GOOD. */
@@ -90,6 +98,10 @@ export class RhythmLab extends GameBehavior {
   private bestStreak = 0;
   private shown = "";
   private pressed: number[] = [];
+  private readonly readout = new MusicReadout();
+  private bar: TouchBar | null = null;
+  private pointer: PointerTaps | null = null;
+  private leaving = false;
   private listener: ((e: { key: string; repeat?: boolean; timeStamp: number }) => void) | null = null;
 
   start(): void {
@@ -106,17 +118,38 @@ export class RhythmLab extends GameBehavior {
       g.addEventListener("keydown", this.listener as (e: never) => void);
     }
     g.__rhythmLab = { state: () => this.state(), tap: (t) => this.tap(t), page: this };
+    this.pointer = new PointerTaps();
+    this.bar = new TouchBar([
+      { key: "c", label: "C Calibrate" },
+      { key: "g", label: "G Tap game" },
+      { key: "x", label: "X Reset" },
+      { key: "o", label: "O Stop" },
+      { key: "d", label: "D Readout" },
+      { key: "b", label: "B Back" },
+    ]);
   }
 
   update(): void {
-    if (Input.getKeyDown(this.calibrateKey)) this.begin(this.mode === "calibrate" ? "" : "calibrate");
-    else if (Input.getKeyDown(this.gameKey)) this.begin(this.mode === "game" ? "" : "game");
-    else if (Input.getKeyDown(this.stopKey)) this.begin("");
-    if (Input.getKeyDown(this.resetKey)) Audio.calibration = 0;
+    const touched = this.bar?.drain() ?? [];
+    const key = (k: string) => Input.getKeyDown(k) || touched.includes(k);
+    if (key(this.calibrateKey)) this.begin(this.mode === "calibrate" ? "" : "calibrate");
+    else if (key(this.gameKey)) this.begin(this.mode === "game" ? "" : "game");
+    else if (key(this.stopKey)) this.begin("");
+    if (key(this.resetKey)) Audio.calibration = 0;
+    if (key(this.readoutKey)) this.readout.toggle();
+    if (touched.includes("b") && !this.leaving) {
+      this.leaving = true;
+      SceneManager.load(this.backScene).catch((err: Error) => {
+        this.leaving = false;
+        console.error(`[sound-lab] Couldn't load ${this.backScene}: ${err.message}`);
+      });
+    }
+    // Taps: SPACE (its keydown time stamp) and a press on the game view (its pointerdown time stamp), in the order they came.
     if (this.listener) {
-      for (const t of this.pressed) this.tap(t);
+      const taps = [...this.pressed, ...(this.pointer?.drain() ?? [])].sort((a, b) => a - b);
       this.pressed.length = 0;
-    } else if (Input.getKeyDown(this.tapKey)) {
+      for (const t of taps) this.tap(t);
+    } else if (Input.getKeyDown(this.tapKey) || Input.getMouseButtonDown(0)) {
       this.tap(performance.now());
     }
     if (this.handle && !this.handle.playing && this.mode !== "") this.begin("");
@@ -125,6 +158,10 @@ export class RhythmLab extends GameBehavior {
   }
 
   onDestroy(): void {
+    this.bar?.destroy();
+    this.bar = null;
+    this.pointer?.destroy();
+    this.pointer = null;
     this.begin("");
     const g = globalThis as unknown as { removeEventListener?: (type: string, fn: (e: never) => void) => void; __rhythmLab?: unknown };
     if (this.listener) g.removeEventListener?.("keydown", this.listener as (e: never) => void);
@@ -243,7 +280,8 @@ export class RhythmLab extends GameBehavior {
     }
     lines.push(`Audio.calibration ${ms(s.calibrationMs)}${s.calibrationStale ? "  STALE: the output device changed, calibrate again (C)" : ""}`);
     lines.push(`Audio.latency: output ${s.latencyMs.output.toFixed(1)} ms, base ${s.latencyMs.base.toFixed(1)} ms, total ${s.latencyMs.total.toFixed(1)} ms, ${s.latencyMs.reliable ? "reliable" : "not reliable (calibrate)"}; rhythm mode ${s.rhythmMode ? "on" : "off"}`);
-    lines.push("C calibrate (tap SPACE on each click), G tap game, X reset the calibration to 0, O stops; B goes back");
+    lines.push("C calibrate (tap SPACE, or press the game view, on each click), G tap game, X reset the calibration to 0, O stops, D music readout; B goes back");
+    if (this.readout.on) lines.push(this.readout.lines());
     const text = lines.join("\n");
     if (text !== this.shown) label.text = this.shown = text;
   }

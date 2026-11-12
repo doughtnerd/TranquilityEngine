@@ -1,4 +1,5 @@
 import { Audio, AudioSource, GameBehavior, GameObject, Input, Time, behavior, field } from "myco";
+import { exposeKeyScopes, keysClaimed } from "../keyScope";
 
 /** Seconds between the sounds of a sequence. Each is scheduled with `at` on the audio clock, so the spacing is exact. */
 const ladderGap = 1.25;
@@ -74,6 +75,7 @@ export class ListeningBench extends GameBehavior {
   }
 
   private listeningKeys(): void {
+    if (keysClaimed()) return;
     if (Input.getKeyDown(this.pitchKey)) this.pitchLadder();
     if (Input.getKeyDown(this.limiterKey)) this.stack();
     if (Input.getKeyDown(this.loadKey)) this.load();

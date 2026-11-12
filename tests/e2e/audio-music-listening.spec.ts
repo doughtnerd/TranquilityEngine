@@ -1,8 +1,10 @@
+import { spawn } from "node:child_process";
 import { expect, type Page, play, test } from "./fixtures";
-import { addAssets, audioDebug as fullDebug, bootSample, FLAPPY, pauseWorkers, peakOver as peakOverFull, playlist3, readLate, startEvent, stems8, watchConsole } from "./audioMusic";
+import { addAssets, audioDebug as fullDebug, bootSample, FLAPPY, pauseWorkers, peakOver as peakOverFull, playlist3, readLate, sampleMusicState, musicStates, startEvent, stems8, watchConsole } from "./audioMusic";
 
-// The interactive-music milestones' listening sections (ADR 0166/0167; waves plan, "Owner procedures"): one case per
-// milestone, grown a case at a time (M4a, M4b and M4c are here). Each case is an owner-run page and a headless walker in one:
+// The interactive-music milestones' listening sections (ADR 0166/0167; waves plan, "Owner procedures"), consolidated into one pass
+// (`docs/design/0166-audio-music/listening-pass.md`): one case per section, M4-0, M4a, M4b, M4c, and M4d (the real-device probe
+// and the phone prime lead's readout). Each case is an owner-run page and a headless walker in one:
 //
 //   headless (the smoke check, default):  npm run test:e2e:slow -- audio-music-listening
 //   owner (headphones, a headed window):   E2E_LISTEN=1 npm run test:e2e:slow -- audio-music-listening --headed --workers 1
@@ -23,6 +25,21 @@ import { addAssets, audioDebug as fullDebug, bootSample, FLAPPY, pauseWorkers, p
 //   0  stop every item voice and the crowd
 // The Music, Ambience, SFX and Engine buses are muted for the page so only the item and its crowd are heard; the items
 // play on the Tape bus (its meter shows the item alone) and the crowd on UI.
+//
+// **What the walker cannot do** (the pass lists these as owner-only; each needs hardware, a person or a real sound path):
+//   - Every "listen for" line: headless Chromium has no sound output, so the walker reads meters, voice tables, rows and counters.
+//   - README section 8 items 1 and 8, the real values: the probe's code runs here (case M4d) but on a fake sink; the numbers that
+//     matter are the ones a device reports.
+//   - Item 2, true click-to-ear latency: needs an external recorder, a loopback cable or a 240 fps phone video.
+//   - Items 3 and 4 on real input hardware (touch, gamepad, a cross-origin-isolated page on a device): the walker injects keyboard
+//     and mouse events only; the isolated page is served and read back, but its timing is the headless browser's.
+//   - Item 5, the hit sound round trip heard: needs the recorder; the SAB ring half has no host (none of the repo's servers sends COOP/COEP).
+//   - Item 6, Bluetooth: needs a Bluetooth output and a device switch; the walker only checks that the probe logs a device change.
+//   - Item 9, real tap spread: needs ten people; the walker injects taps with a known offset to prove the arithmetic.
+//   - The phone prime lead on a phone (RS2): the walker reads the same numbers (`leadMs`, `primeEmaMs`, `primeLastMs`) off the Flappy
+//     town music in Chromium; a phone's value is the owner's.
+//   - M4a key 3 in WebKit or Firefox (the worker is paused through the DevTools protocol, Chromium only), and the exported player
+//     (the walker runs the editor's page of each sample).
 const LAB = "/editor.html?sample=sound-lab";
 const LISTEN = process.env.E2E_LISTEN === "1";
 
@@ -170,7 +187,18 @@ async function installM40(page: Page, listen: boolean): Promise<void> {
         busy = false;
       }, (seconds + 2.5) * 1000);
     };
-    window.addEventListener("keydown", (e) => press(e.key));
+    // The item keys 0-5 are also the Sound Lab's own keys on this page (1 a click and a beep on UI, 2 and 3 the Music bus, 4 the Underwater
+    // snapshot, 5 a burst), which would sound over the item (the snapshot filters the whole mix). A capture listener on the window takes
+    // the key before the engine's input does.
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if (!/^[0-5]$/.test(e.key)) return;
+        e.stopImmediatePropagation();
+        if (!e.repeat) press(e.key);
+      },
+      { capture: true },
+    );
 
     if (showCard) {
       const card = document.createElement("pre");
@@ -241,6 +269,10 @@ test.describe("listening M4-0: in-voice stamped records", () => {
             expect(row!.clip, `the ${role} voice plays ${expected[key]!.roles[role]!.clip}`).toContain(expected[key]!.roles[role]!.clip);
           }
           expect(await peakOver(page, "Tape"), "the item is audible on its bus before its records land").toBeGreaterThan(0.01);
+          // The Sound Lab's own handlers for the same keys did not run: no Underwater snapshot (key 4) filters the mix, no click and beep (key 1) joined it.
+          const after = (await audioDebug(page)) as unknown as { voices: (Voice & { filter?: { lowpassBy: string | null } })[] };
+          expect(after.voices.filter((v) => v.filter?.lowpassBy === "snapshot").length, "no snapshot filters the mix").toBe(0);
+          expect(after.voices.filter((v) => /\/(click|beep)\.wav$/.test(v.clip) && v.bus === "UI" && v.state === "playing").length, "the page's own key 1 sounds did not play").toBe(0);
         })();
         const finished = runItem(page, key, before);
         await Promise.all([running, finished]);
@@ -447,8 +479,9 @@ test.describe("listening M4a: segments, stems and playlists", () => {
 
     await test.step("key 4: a playlist of three items, 30 s", async () => {
       await m4aKey(page, "4", "playlist A, B, C forever, 30 s");
+      await sampleMusicState(page, "list"); // F-29: a playlist's row reads `playing` for 100-200 ms per item
       await startEvent(page, "list", "e1/list.audioevent.json");
-      await expect.poll(async () => (await m4aRow(page, "list"))?.state, { timeout: 30_000 }).toBe("playing");
+      await expect.poll(() => musicStates(page, "list"), { timeout: 30_000 }).toContain("playing");
       const order: string[] = [];
       const until = Date.now() + (LISTEN ? 30_000 : 17_000);
       while (Date.now() < until) {
@@ -852,5 +885,143 @@ test.describe("listening M4c: beat feel, calibration and the tap game", () => {
     for (const a of info.annotations) console.log(`[music-listen] ${a.type}: ${a.description}`);
     expect(seen.errors).toEqual([]);
     expect(seen.warnings).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// M4d: the real-device items of `spikes/audio-music/rhythm/README.md` section 8, and the phone prime lead's readout. The owner's
+// tool is `spikes/audio-music/rhythm/device-probe.html` (served by `device-probe-server.mjs`, plain and cross-origin isolated):
+// buttons for items 1, 7 and 8 (hints), 2 (click + flash), 5 (hit), 3 and 4 (input timing), 9 (tap spread), and a log of device
+// changes (6). The walker serves the page from the same server, presses every button the way a person does and checks the rows it
+// writes. The numbers are a fake sink's: what is proven is that the probe runs to its results and does its arithmetic, not any
+// device value.
+type ProbeRow = { kind: string; [k: string]: unknown };
+const probeRows = (page: Page, kind: string) => page.evaluate((k) => (globalThis as unknown as { __probe: { results: ProbeRow[] } }).__probe.results.filter((r) => r.kind === k), kind);
+
+test.describe("listening M4d: the real-device probe and the prime lead readout", () => {
+  test("M4d: every probe button runs to its row (hints, click, hit, input timing, isolation, tap spread)", { tag: "@slow" }, async ({ page }, info) => {
+    info.setTimeout(120_000);
+    const port = 38_100 + (process.pid % 400) * 2;
+    const server = spawn(process.execPath, ["spikes/audio-music/rhythm/device-probe-server.mjs", String(port)], { stdio: ["ignore", "pipe", "inherit"] });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.on("error", reject);
+        server.stdout.on("data", (d: Buffer) => /listening/.test(String(d)) && resolve());
+        server.on("exit", (c) => reject(new Error(`probe server exited ${c}`)));
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (err) => errors.push(err.message));
+      await page.goto(`http://127.0.0.1:${port}/?seconds=0.4&taps=12`);
+
+      await test.step("items 1, 7, 8: the hints", async () => {
+        await page.click("#b-hints");
+        await expect.poll(async () => (await probeRows(page, "hint")).length, { timeout: 60_000, message: "five hints" }).toBe(5);
+        const rows = await probeRows(page, "hint");
+        expect(rows.map((r) => r.hint)).toEqual(["interactive", 0.005, 0, "balanced", "playback"]);
+        for (const r of rows) {
+          expect(r.sampleRate as number, `${r.hint}: sampleRate`).toBeGreaterThan(8_000);
+          expect(Number.isFinite(r.baseLatencyMs as number), `${r.hint}: baseLatency read`).toBe(true);
+          expect(["undefined", "0", "constant", "varies"], `${r.hint}: outputLatency classified`).toContain(r.outputKind);
+          expect(r.samples as number, `${r.hint}: sampled over the run`).toBeGreaterThanOrEqual(3);
+          expect(r.monotonic, `${r.hint}: getOutputTimestamp is monotonic`).toBe(true);
+          expect(Number.isFinite(r.lagMsMean as number), `${r.hint}: the timestamp lag`).toBe(true);
+        }
+      });
+
+      await test.step("item 2: a click at a known context time and the predicted press-to-heard", async () => {
+        // The first press builds the context (its setup is in the prediction); the second is the one to measure.
+        await page.click("#b-click");
+        await expect.poll(async () => (await probeRows(page, "click")).length, { timeout: 10_000 }).toBe(1);
+        await expect(page.locator("#flash")).toBeHidden({ timeout: 10_000 });
+        await page.click("#b-click");
+        await expect.poll(async () => (await probeRows(page, "click")).length, { timeout: 10_000 }).toBe(2);
+        const c = (await probeRows(page, "click"))[1]!;
+        expect(c.predictedPressToHeardMs as number, "1 s ahead plus the device's pipeline").toBeGreaterThan(900);
+        expect(c.predictedPressToHeardMs as number).toBeLessThan(2_000);
+        expect(Number.isFinite(c.pairContext as number) && Number.isFinite(c.pairPerformance as number), "the (T, P) pair is logged").toBe(true);
+        await expect(page.locator("#flash")).toBeHidden({ timeout: 10_000 });
+      });
+
+      await test.step("item 5: a hit from the input handler", async () => {
+        await page.click("#b-hit");
+        await expect.poll(async () => (await probeRows(page, "hit")).length, { timeout: 5_000 }).toBe(1);
+        const h = (await probeRows(page, "hit"))[0]!;
+        expect(h.playCallMs as number, "the play call is quick").toBeLessThan(50);
+        expect(Number.isFinite(h.eventLagMs as number), "the event lag is read").toBe(true);
+      });
+
+      await test.step("items 3, 4: input timing for key, pointer and click; isolation off", async () => {
+        await page.click("#b-input");
+        await page.keyboard.press("a");
+        await page.keyboard.press("b");
+        await page.mouse.click(300, 300);
+        await page.mouse.move(310, 310);
+        await page.click("#b-dump");
+        const r = (await probeRows(page, "input")).at(-1) as unknown as { crossOriginIsolated: boolean; performanceNowResolutionMs: number | null; kinds: Record<string, { n: number; p50Ms: number; p99Ms: number }> };
+        for (const k of ["keydown", "pointerdown", "mousedown", "click"]) {
+          expect(r.kinds[k]?.n ?? 0, `${k}: seen`).toBeGreaterThanOrEqual(1);
+          expect(Number.isFinite(r.kinds[k]!.p99Ms), `${k}: p99 lag`).toBe(true);
+        }
+        expect(r.crossOriginIsolated, "the plain page is not isolated").toBe(false);
+        expect(r.performanceNowResolutionMs, "the clock resolution is read").toBeGreaterThan(0);
+      });
+
+      await test.step("item 4: the isolated page reads crossOriginIsolated true", async () => {
+        await page.goto(`http://127.0.0.1:${port + 1}/?seconds=0.4`);
+        await page.click("#b-input");
+        const r = (await probeRows(page, "input")).at(-1) as unknown as { crossOriginIsolated: boolean; performanceNowResolutionMs: number };
+        expect(r.crossOriginIsolated, "the isolated page is isolated").toBe(true);
+      });
+
+      await test.step("item 9: the tap spread of 12 taps injected 35 ms after the click", async () => {
+        await page.goto(`http://127.0.0.1:${port}/?seconds=0.4&taps=12`);
+        await page.click("#b-tap");
+        await page.waitForFunction(() => !!document.getElementById("status")?.textContent?.startsWith("tap on every click"), undefined, { timeout: 10_000 });
+        await page.evaluate(() => {
+          const pr = (globalThis as unknown as { __probe: { shared(): Promise<AudioContext>; tap(t: number): unknown; tapRun: { T0: number } } }).__probe;
+          return pr.shared().then((c) => {
+            const jitter = [0, 0, 0, 0, -6, 6, 0, 2, -2, 5, -5, 0, 1, -1, 3, -3];
+            // Each tap aimed 35 ms after the next click is heard (the click grid starts at the run's T0).
+            for (const j of jitter) {
+              const o = c.getOutputTimestamp();
+              const next = pr.tapRun.T0 + Math.ceil((o.contextTime! - pr.tapRun.T0) / 0.5) * 0.5;
+              void pr.tap(o.performanceTime! + (next - o.contextTime!) * 1000 + 35 + j);
+            }
+          });
+        });
+        const r = (await probeRows(page, "tapSpread"))[0] as unknown as { taps: number; medianMs: number; madMs: number } | undefined;
+        expect(r, "the run ended with a result").toBeTruthy();
+        expect(r!.taps).toBe(12);
+        expect(r!.medianMs, "the injected +35 ms reads back").toBeGreaterThan(30);
+        expect(r!.medianMs).toBeLessThan(40);
+        expect(r!.madMs, "the spread of the jitter").toBeLessThan(6);
+      });
+
+      await test.step("item 6: device changes are logged", async () => {
+        // No device to switch headless: the page's own handler is exercised by the event.
+        await page.evaluate(() => navigator.mediaDevices.dispatchEvent(new Event("devicechange")));
+        await expect.poll(async () => (await probeRows(page, "devicechange")).length, { timeout: 5_000 }).toBe(1);
+      });
+      expect(errors).toEqual([]);
+      expect((await probeRows(page, "error")).map((r) => r.message)).toEqual([]);
+    } finally {
+      server.kill();
+    }
+  });
+
+  test("M4d: the prime lead readout on the Flappy town music (the numbers the phone run reads)", { tag: "@slow" }, async ({ page }) => {
+    const seen = watchConsole(page);
+    holdBase = null;
+    await bootSample(page, FLAPPY);
+    await expect.poll(async () => (await m4aRow(page, "town"))?.state, { timeout: 60_000 }).toBe("playing");
+    await hear(page, 4_000);
+    const row = ((await fullDebug(page)) as unknown as { music: { asset: string; leadMs: number; primeEmaMs: number; primeLastMs: number; lateGroups: number; groupsHeld: number }[] }).music.find((r) => r.asset.includes("town"))!;
+    // The readout: `__myco.Audio.debug().music[i]` (the exported player sets `__myco` too). Lead is 1.25 x estimate + L + the mean block (ADR 0167 1.2).
+    expect(row.leadMs, "the prime lead is read").toBeGreaterThan(0);
+    expect(Number.isFinite(row.primeEmaMs) && Number.isFinite(row.primeLastMs), "the prime time and its estimate are read").toBe(true);
+    expect(row.primeLastMs, "the group has primed").toBeGreaterThan(0);
+    expect({ late: row.lateGroups, held: row.groupsHeld }, "no late or held group").toEqual({ late: 0, held: 0 });
+    await cleanCounters(page, "flappy prime lead");
+    expect(seen.errors).toEqual([]);
   });
 });

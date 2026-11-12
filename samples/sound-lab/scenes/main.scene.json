@@ -79,6 +79,12 @@
       "components": [{ "type": "lab.SceneSwitch", "data": { "key": "r", "scene": "scenes/rhythm.scene.json" } }]
     },
     {
+      "id": "page-nav",
+      "name": "Page buttons (touch: E, S, M, R)",
+      "transform": false,
+      "components": [{ "type": "lab.PageNav", "data": {} }]
+    },
+    {
       "id": "oneshots",
       "name": "OneShots (key 1)",
       "transform": false,

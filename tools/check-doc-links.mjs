@@ -23,6 +23,7 @@ const DEFAULTS = [
   "docs/guide/sound-events.md",
   "docs/guide/spatial-audio.md",
   "docs/guide/interactive-music.md",
+  "docs/guide/interactive-music-api.md",
   "docs/guide/audio-minimum-versions.md",
   "docs/design/0157-audio-core",
   "native/audio/README.md",

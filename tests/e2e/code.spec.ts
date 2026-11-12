@@ -69,7 +69,7 @@ test("editing marks the tab; Ctrl+S saves the script, reloads scripts and leaves
 
   await page.keyboard.press("ControlOrMeta+s");
   await expect(tab(page, "Wheel.ts").locator(".code-tab-dirty")).toHaveCount(0);
-  await expect(page.locator(".status-text")).toHaveText("Reloaded 7 scripts."); // the two here and the sample's five
+  await expect(page.locator(".status-text")).toHaveText("Reloaded 8 scripts."); // the two here and the sample's six (L2 added musicReadout.ts)
   expect(await page.evaluate(() => (window as unknown as Hooks).testFolder.read("scripts/Wheel.ts"))).toContain("// saved from the Code panel");
 });
 

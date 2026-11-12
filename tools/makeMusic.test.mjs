@@ -114,7 +114,11 @@ test("the committed sample clips are what the generator writes", () => {
 });
 
 /** Clips the sound-lab events use that another generator writes, with that generator. */
-const OTHER_GENERATORS = new Map([["audio/music/click-track.wav", "samples/sound-lab/tools/makeClick.mjs"]]);
+const OTHER_GENERATORS = new Map([
+  ["audio/music/click-track.wav", "samples/sound-lab/tools/makeClick.mjs"],
+  // L2's eight-stem and playlist events use the lab's own 4 s stems.
+  ...["audio/events/music-pad.wav", "audio/events/music-pulse.wav", "audio/events/music-lead.wav", "audio/melody-loop.wav"].map((c) => [c, "samples/sound-lab/tools/makeTones.mjs"]),
+]);
 
 test("the sound-lab events name only clips the generator makes, with matching lengths", () => {
   const dir = DEFAULT_OUT;
