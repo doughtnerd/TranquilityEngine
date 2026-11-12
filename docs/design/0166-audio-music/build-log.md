@@ -108,7 +108,7 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 - **F-9 (from SM1):** quantised event automation on a music segment's stems has no audible effect on core. The stamped `paramsShaped` ramp and the level sent at bind leave the Music bus peak unchanged (≈ 0.24); it works on Babylon. Continuous automation works on core. SM1 kept the sound-lab sample unquantised. **F-9 task** (strongest) is finding the root cause, with `voices.rs`/`groups.rs`/`status.rs` off limits while C2b holds them; it restores `quantize` in the sample once fixed.
 - **F-9b (from F-9):** the main side doesn't know a quantised stem's level. Audibility ignores the stamped in-voice ramp, so a stem at 0 stays mixed. Any dry-gain write to a stem (promote SET_MIXED, `_setVolume`, occlusion) resets the core's gain ramp to the plain dry gain, which is latent today. **F-9b task** (strongest): a per-voice stem level in the voice table, read by selection and every dry-gain write; it then restores `quantize` in the sound-lab sample.
 - **F-10 (from Z5):** mixed-voice scenes rose about 1,000–2,300 instructions per mixed voice per quantum between M3 and now: `updates` +595k, `automation-base` +585k, `pitch4` +297k, `bed-256` +247k, each 1–4% of its scene. It's taken with F-8 in the **F-8 task** (strongest), which ports Z5's tested `const LIST`/`const DUE` patch onto C2b's `voices.rs` (`virtual` −331k measured before C2b) and profiles F-10.
-- **F-11 (seen at M4-0's milestone end):** `audio-stress.spec.ts` once read the core's `hrtfVoices` peak as 9 against the high preset's 8. That was under heavy load (three agents plus the full slow suite); it passed alone. Probably a voice counted on both sides of the 45 ms HRTF↔bed handover in a slow frame (M3 behaviour; M4 didn't touch the panner). To check: can the counter exceed the cap during a handover, and should the spec allow for it?
+- **F-11 (seen at M4-0's milestone end):** `audio-stress.spec.ts` once read the core's `hrtfVoices` peak as 9 against the high preset's 8. That was under heavy load (three agents plus the full slow suite); it passed alone. Probably a voice counted on both sides of the 45 ms HRTF↔bed handover in a slow frame (M3 behaviour; M4 didn't touch the panner). To check: can the counter exceed the cap during a handover, and should the spec allow for it? **Seen again at M4a's milestone end** (a peak of 10, in the full slow suite on a quiet machine; 8 alone). Twice now, so worth a task after M4a.
 - **F-12 (from F-9b, predates it):** a stamped SET_PARAMS carries the dry gain as it was when sent. A volume or occlusion change between the send and the stamp lands with the old dry gain until the next dry write. Rare for music stems.
 - **F-13 (from F-9b):** the eventBench allocation tripwire "core voice start allocations" reads 1,136 B against its 1,150 B ceiling (1,120 B before F-9b). It's a tripwire: when the next change crosses it, raise the ceiling with the reason here rather than contort the code.
 - **F-14 (from Ed5):** the editor's stem solo and mute (Ed4's `stemAudition`) doesn't reach the runtime: the handle has no API and `soloStem` is main-side only. It overlaps F-6; for Ed10 or Ed11 with a handle hook.
@@ -420,4 +420,13 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 - **`pending`:** the debug row shows the transition in every state except done and cancelled.
 - **Tests** (each fails before its fix): a streamed stem's voice row (the core rig: `musicLoopback` can't stream); `music/stop.loopback.test.ts`; the `pending` states.
 - Coordinator checks: typecheck 0; `src/plugins/audio` 204 files, 2,430 tests.
+
+**M4a milestone-end checks** (on `6294c8e2`, no agents running):
+- typecheck 0; `cargo test --workspace --no-fail-fast` 889 pass; `check:audio-metered` pass; `test:tools` 12 pass; `check:links` pass; `npm run build` passes.
+- Vitest 5,859 pass, 1 fail: `piratesSample.test.ts`, a timing assertion (3.0 against > 5); passes alone (3 of 3).
+- `test:e2e` (Chromium): 226 pass, 4 skipped, 1 fail. **`codefiles.spec.ts:38` is a regression since `c0009afd`:** the background TypeScript worker never starts. It fails alone too. **F-19 task** bisects and fixes it; the M4a merge waits for it.
+- `test:e2e:slow`: 30 pass, 2 fail, both passing alone:
+  - `audio-core.spec.ts:41` read 2 start-up underruns (0 expected);
+  - `audio-stress.spec.ts` read an HRTF peak of 10 (F-11).
+- WebKit is the owner's, as at M4-0.
 
