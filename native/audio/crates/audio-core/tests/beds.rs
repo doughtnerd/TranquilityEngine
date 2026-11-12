@@ -490,6 +490,56 @@ fn the_ladder_waits_for_the_floor_and_for_a_full_second() {
 }
 
 #[test]
+fn the_bed_step_and_the_cap_come_back_once_underruns_stop() {
+    // ADR 0170: max_mixed 64, so underruns first walk the cap down to its floor of 16, then the
+    // ladder takes its bed-idle step; once they stop, the cap climbs back to 64 and the step comes
+    // back after 20 s without an underrun.
+    let q_per_s = (48_000 / QUANTUM) as u32;
+    let mut core = new_core(48_000.0, 1, 64, 64);
+    let mut frame = 0;
+    let mut k = 0;
+    while bed::m3_shed(&mut core) == 0 {
+        k += 1;
+        assert!(k < 30 * q_per_s, "the ladder steps within 30 s of underruns");
+        core.note_underruns(k);
+        render(&mut core, &mut frame);
+    }
+    assert_eq!(core.cap().cap(), core.cap().config().floor);
+    assert_eq!(bed::ladder_steps(&mut core), bed::step::BED_IDLE);
+    // Clean from here: 20 s less a quantum keeps the step, the hold's end gives it back.
+    let hold = (20 * 48_000 / QUANTUM) as u32;
+    for _ in 0..hold - 1 {
+        render(&mut core, &mut frame);
+    }
+    assert_eq!(bed::m3_shed(&mut core), 1, "held for 20 s");
+    render(&mut core, &mut frame);
+    render(&mut core, &mut frame);
+    assert_eq!((bed::m3_shed(&mut core), bed::ladder_steps(&mut core)), (0, 0), "given back");
+    assert_eq!(core.cap().ladder().restores, 1);
+    let mut out = vec![0u8; 20_000];
+    let n = status::take(&mut core, &mut out, 0);
+    assert_eq!(wire::StatusBlock::read(&out[..n], 0).unwrap().0.m3_shed, 0, "STATUS m3Shed is the steps in force");
+    // The cap: 5 s of calm, then +2 a second from 16 to 64.
+    for _ in 0..15 * q_per_s {
+        render(&mut core, &mut frame);
+    }
+    assert_eq!(core.cap().cap(), 64, "the cap is back at its preset");
+    // A bed after the give-back idles after its partitions again, not after one quantum.
+    let v = 0x0001_0001;
+    assert_eq!(submit(&mut core, frame, &[buses(&[ROOT]), bed_config(&[0], &[0]), play(v, ROOT, 0.5, [0.0, 0.0, -1.0], BED_KIND)]), 0);
+    for _ in 0..3 {
+        render(&mut core, &mut frame);
+    }
+    assert_eq!(submit(&mut core, frame, &[stop(v)]), 0);
+    let mut seen = Vec::new();
+    for _ in 0..6 {
+        render(&mut core, &mut frame);
+        seen.push(status::counters(&core).spatial.beds_active);
+    }
+    assert_eq!(seen, [1, 1, 1, 0, 0, 0], "its partitions' history again");
+}
+
+#[test]
 fn a_removed_host_drains_and_reset_clears_every_bed() {
     let mut core = new_core(48_000.0, 2, 64, 16);
     let mut frame = 0;

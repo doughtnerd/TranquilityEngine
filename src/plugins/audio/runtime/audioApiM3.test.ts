@@ -390,7 +390,7 @@ describe("§1.6 AudioDebugInfo additions (core backend)", () => {
     }
   });
 
-  it("m3Shed and the ladder state: idle, cap at floor, shedding", () => {
+  it("m3Shed and the ladder state: idle, cap at floor, shedding, recovering (ADR 0170)", () => {
     const r = useCore({ maxMixed: 128 });
     r.status({ mixedCap: 128 });
     let info = r.backend.debug();
@@ -398,11 +398,25 @@ describe("§1.6 AudioDebugInfo additions (core backend)", () => {
     r.status({ mixedCap: 16 });
     info = r.backend.debug();
     expect([info.counters.m3Shed, info.core.ladderState]).toEqual([0, "cap at floor"]);
-    r.status({ mixedCap: 16, m3Shed: 1 });
+    r.status({ mixedCap: 16, m3Shed: 1, underruns: 40, currentFrame: 48_000 });
     expect(r.backend.debug().core.ladderState).toBe("shedding (1 step)");
-    r.status({ mixedCap: 16, m3Shed: 3 });
+    r.status({ mixedCap: 16, m3Shed: 3, underruns: 60, currentFrame: 96_000 });
     info = r.backend.debug();
-    expect([info.counters.m3Shed, info.core.ladderState]).toEqual([3, "shedding (3 steps)"]);
+    expect([info.counters.m3Shed, info.core.ladderState, info.core.ladderRecoveries]).toEqual([3, "shedding (3 steps)", 0]);
+    // ADR 0170: a second without an underrun reads "recovering"; each step given back counts.
+    r.status({ mixedCap: 16, m3Shed: 3, underruns: 60, currentFrame: 96_000 + 47_999 });
+    expect(r.backend.debug().core.ladderState).toBe("shedding (3 steps)");
+    r.status({ mixedCap: 40, m3Shed: 3, underruns: 60, currentFrame: 96_000 + 48_000 });
+    expect(r.backend.debug().core.ladderState).toBe("recovering (3 steps)");
+    r.status({ mixedCap: 128, m3Shed: 2, underruns: 60, currentFrame: 20 * 48_000 });
+    info = r.backend.debug();
+    expect([info.counters.m3Shed, info.core.ladderState, info.core.ladderRecoveries]).toEqual([2, "recovering (2 steps)", 1]);
+    // A re-trip: underruns again, the step comes back into force.
+    r.status({ mixedCap: 16, m3Shed: 3, underruns: 70, currentFrame: 21 * 48_000 });
+    expect(r.backend.debug().core.ladderState).toBe("shedding (3 steps)");
+    r.status({ mixedCap: 128, m3Shed: 0, underruns: 70, currentFrame: 200 * 48_000 });
+    info = r.backend.debug();
+    expect([info.counters.m3Shed, info.core.ladderState, info.core.ladderRecoveries]).toEqual([0, "idle", 4]);
   });
 
   it("occlusion: the pass's row", () => {
