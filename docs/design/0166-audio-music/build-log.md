@@ -129,6 +129,9 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
   3. A loop pass that isn't a whole number of frames makes phantom region-end calls (149 of 6,900 over an hour with a 3.6526 s pass), and over-counts `missedBeats`. It's probably `h >= wrap - TIME_EPS` against a tick-linear end that's off the frame-rounded wrap.
   Hearing is unaffected; the callbacks' fields and the counter are wrong. **Fixed by F-20** (below).
 - **F-21 (from T2):** a linear FADE runs as one f32 ramp over the whole fade, never re-aimed at a quantum boundary (`curves.rs`: "a linear record fires as set_target at its sample"), so `value += step` drifts. A 500 ms linear crossfade nulls only to 1.68e-5 against the 1e-5 seam bound (`it.skip` in `seam.test.ts`); the 50 ms golden passes at 9.04e-6. The shaped laws are re-aimed at each knot and don't drift. **F-21 task** (strongest) re-aims linear fades in the core before M4b's merge; any golden re-record must be logged with its reason.
+- **F-22 (owner's bug, fixed):** a spatial `AudioSource` played again with its clip resident started flat on the core. See F-22 below.
+- **F-23 (from E2, blocks M4b):** the first play of a decoded looping segment whose clips were never decoded ends at its first loop end (no warning, counters 0), e.g. sound-lab `music-world` and `music-intensity` played cold. Warming the clips avoids it. **F-23 task** (strongest) is on it.
+- **F-24 (from F-22):** the core backend still accepts `setPosition` on a voice whose PLAY went out flat: main marks it spatial while the core plays it flat. F-22 removed the trigger, but switching `spatial` on for a source already playing would hit it. It needs a wire flag, or a restart of the voice on the core.
 
 **Started (rolling, D5), base `92969c11`:** Z2a (strongest) on the flip branch `m4/in-voice`, cut locally at `92969c11` after Q1 and the wire's merge 1 (the flip branch stays local: this session pushes only the integration branch); F2, Ed2, Ed9 and R4c (mid; each depends only on merged tasks and touches no running task's files). Waiting for the wire's merge 2: Z4, C1, D1a, then Q2's merge.
 
@@ -559,7 +562,7 @@ E2 (M4b's browser specs and listening section) and D3 (the guide) start when the
 - **Method:** every seam is played through the runtime on the loopback core and nulled against an offline reference: clip levels × Z3's same-knot control-rate law (`golden/seamReference.ts`).
 - **Results:** cut 0; linear (50 ms) 9.04e-6; S-curve 1.85e-6; equal power 1.88e-6; bridge, both legs, 1.75e-6; loop exit with tail 0; stinger 0; switch under the default rule 2.67e-6. Extra live cases: 500 ms S-curve 2.03e-6, 500 ms equal power 2.38e-6.
 - **Fixtures:** `golden/seams/seam-*.json`, recorded from the runtime (`UPDATE_GOLDENS=1`, written only after a wasm replay matches the live output). They replay to the same digest on wasm (`audioGoldenSeams.test.ts`) and natively (`audio-core/tests/seam_goldens.rs`, through the shell's copy budget): **native = wasm, 8 of 8**.
-- **Open:** a 500 ms linear crossfade, 1.68e-5 (F-21). The M4b exit check "every seam nulls to 1e-5" waits for F-21.
+- **Open:** a 500 ms linear crossfade, 1.68e-5 (F-21). The M4b exit check "every seam nulls to 1e-5" waits for F-21 (now met: see F-21 below).
 
 **R4b merged** (`m4/r4b` `8cfa2334`).
 - **`while` regions:** the condition is read once per wrap at E − L − Δ̄ − 10 ms. A false condition releases the region with its last pass, which every anchor query honours (`bindRelease` for `ticksAt`). A late frame, or a flag set after the commit, waits one pass. Once the release is heard, the anchor moves past the region. `is`/`atLeast`/`below`; a missing parameter warns once and leaves the region to its `count`.
@@ -606,3 +609,39 @@ K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.t
 - **"Coming later":** `handle.onMusic` (K5); calibration from taps, storage and the tap game (Rh2, Rh3); Babylon callbacks (B3); the settings UI (Ed10); stem solo/mute and start-at-segment (F-14, F-15); held-group resync. Each was checked in the code.
 - **Corrected:** the old guide said the editor's voice presets write `music.rings`; no such UI exists, so it now says to edit `project.json`. F-21 is left out (−95 dB, inaudible).
 - **D3's unsure claims, to check when their tasks land:** Babylon callbacks absent (B3); "most fallback gaps warn once"; an explicit `*→*` on a natural advance fades in without fading out the old segment. The bridge landing at the riser's end is confirmed by R3b's loopback of the shipped rule.
+
+**F-21 merged** (`m4/f21` `43fac15d`).
+- **The fix:** at each quantum boundary the voice loop puts a linear gain or fade ramp back on its line (`target − step·remaining`, in f64, from fields the ramp already holds; `curves::linear_knot`). No new state, idempotent. It covers stamped and unstamped FADEs, the SET_PARAMS gain ramp, and the stop, pause and seek fades, on mixed and virtual voices. It skips a ramp that a class G record fires on in the same render. A ramp is corrected only past 2^-22 drift, so short fades render bit for bit as before.
+- **Bound:** one quantum's f32 drift, 2^-18 below 1.0. Long fades measured 2.8e-7 to 1.9e-6 (up to 1.1e-3 before). **The 500 ms linear crossfade nulls to 2.80e-7 (was 1.68e-5): M4b's exit check "every seam nulls to 1e-5" is met.**
+- **Goldens re-recorded, each proven closer to the exact line** (maximum error, before → after):
+  - `seam-crossfade-linear`: 9.04e-6 → 1.98e-6;
+  - `m4-fade-start`: 2.05e-6 → 9.24e-7;
+  - `m4-two-class-g`: 3.95e-7 → 2.46e-7;
+  - the `in_voice_hooks` unstamped digest: 7.96e-6 → 3.37e-6 (each longer ramp drops);
+  - M1–M3 `stop-and-fade`: 3.62e-5 → 3.12e-6;
+  - `kitchen-sink`: 2.47e-5 → 2.66e-6;
+  - `bed-64`: 3.83e-7 → 2.88e-7.
+  The M1–M3 proofs replay each scene's ramp records on a DC voice against the exact line, since those digests have no native reference. C3's gate goldens and the zones goldens didn't move.
+- **Missed by F-21:** `eventGolden`'s `event-layered` and `event-continuous` also moved. F-21 is proving them closer before re-recording them; they fail on the branch until then.
+- **Coordinator rebuild** (`edd77f98`): mixer 317,891 → **318,306 B** (1.7 KB under the 320 KB tripwire); metered `virtual` +1.17% (one compare per voice), all +0.23%; baseline rewritten; cargo 899 pass.
+
+**F-22 merged** (`m4/f22` `d27f86b6`), **the owner's spatial orbit bug.**
+- **Signature:** on the second cycle the voice row read `panner: hrtf` while the core's `hrtfVoices` was 0 and the SFX bus's `peakL == peakR`. The "quiet dip, slow return" was the East wall's occlusion, heard without panning.
+- **Root cause:** `AudioSource.play()` started the clip without a position or attenuation and set them after. On a first play the clip wasn't loaded yet, so the PLAY waited and went out spatial. Once resident, `CoreBackend.sendPlay` wrote the PLAY at once without the spatial flag, and the core sets a voice's spatial state only from its PLAY.
+- **Scope:** every spatial `AudioSource` played a second time. **Older than M4:** it reproduces at `0a024003`.
+- **Fix:** a spatial source's play request carries its attenuation and world position (`AudioSource.ts` only).
+- **Tests:** a unit case in `liveTuningSource.test.ts`, and `tests/e2e/audio-spatial-replay.spec.ts` (the owner's steps, twice over), both failing before the fix. Coordinator checks: spatial unit 23 pass; spatial e2e 5 of 5. Follow-up: F-24.
+
+**E2 merged** (`m4/e2` `1df6762f`).
+- **`audio-music-b.spec.ts`** passes 27 of 27 on `--repeat-each 3` (**M4b exit "E2 3 of 3" met**), each case asserting zero late, held, abandoned, slip and split, with no warnings. Cases:
+  - every seam by its key, the rule row named, landing on a bar line (cut, three curves, the bridge, the default `*>*` tier 4);
+  - stingers on the beat and the bar;
+  - a switch that changes its mind;
+  - a seek;
+  - beat callbacks (22 beats and 6 bars in 10 s, none missed);
+  - the `while` release with tail;
+  - playlists;
+  - Babylon.
+- Also one smoke case and the M4b listening case.
+- **Found:** F-23. One cold-loop case is `test.fixme`; the other cases warm clips first. Also seen: `heardIn` −6.8 ms on one beat call under load (documented ≥ 0); the spec tolerates −30 ms. To check with K5.
+
