@@ -136,11 +136,11 @@ export interface MusicPlayer {
   readonly counters: MusicCounters;
 }
 
-/** K5: `handle.onMusic` listeners of one instance, in subscription order per kind. */
+/** K5: `handle.onMusic` listeners of one instance, in subscription order per kind. Copy on write: a subscribe or unsubscribe replaces the array, so a dispatch in progress walks the one it began with. */
 export interface MusicListeners {
-  readonly beat: ((e: MusicEvent) => void)[];
-  readonly bar: ((e: MusicEvent) => void)[];
-  readonly cue: ((e: MusicEvent) => void)[];
+  beat: readonly ((e: MusicEvent) => void)[];
+  bar: readonly ((e: MusicEvent) => void)[];
+  cue: readonly ((e: MusicEvent) => void)[];
 }
 
 /** What a step hands each player's tick. One object, rewritten each frame (nothing allocates per frame). */
@@ -495,9 +495,13 @@ export function dispatchMusic(f: MusicFrame): void {
       if (p.hooks & d.bit) deliverToComponents(p, d.hook, e);
       const ls = p.listeners?.[d.kind];
       if (ls) {
-        for (let i = 0, n = ls.length; i < n; i++) { // K5: a listener added during this loop first hears the next event
+        // K5 (D15): walks the array as it stood at this event, so a listener added during the loop first hears the next
+        // event; one unsubscribed during it (itself or a later one) is not called again, even this frame.
+        for (let i = 0, n = ls.length; i < n; i++) {
+          const fn = ls[i]!;
+          if (p.listeners?.[d.kind] !== ls && !p.listeners?.[d.kind].includes(fn)) continue;
           try {
-            ls[i]!(e);
+            fn(e);
           } catch (err) {
             console.error(`[myco] Music onMusic("${d.kind}") listener threw:`, err);
           }
@@ -514,10 +518,26 @@ const NOOP = (): void => {};
  * the returned function removes it. A listener added during a dispatch first hears the next event (§1.2).
  */
 export function subscribeMusic(player: MusicPlayer, kind: MusicKind, fn: (e: MusicEvent) => void): () => void {
-  void player;
-  void kind;
-  void fn;
-  return NOOP; // STUB(K5)
+  if (typeof fn !== "function" || player.state === "stopped") return NOOP;
+  const ls = (player.listeners ??= { beat: [], bar: [], cue: [] });
+  ls[kind] = [...ls[kind], fn];
+  refreshSubscribed(player);
+  let live = true;
+  return () => {
+    if (!live) return; // a second call does nothing
+    live = false;
+    const cur = player.listeners;
+    if (!cur) return; // the instance ended: its listeners already went with it
+    const at = cur[kind].indexOf(fn);
+    if (at >= 0) cur[kind] = cur[kind].filter((_, i) => i !== at);
+    refreshSubscribed(player);
+  };
+}
+
+/** `subscribed` is the kinds that have a listener; a kind no hook and no listener wants leaves the mask (dispatch stops predicting it). */
+function refreshSubscribed(player: MusicPlayer): void {
+  const ls = player.listeners;
+  player.subscribed = ls ? (ls.beat.length ? MusicSubscription.BEAT : 0) | (ls.bar.length ? MusicSubscription.BAR : 0) | (ls.cue.length ? MusicSubscription.CUE : 0) : 0;
 }
 
 /** `handle.onMusic` on any event handle (`Audio.ts`): a non-music handle returns a no-op function (§1.2). */
