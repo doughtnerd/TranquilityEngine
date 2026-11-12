@@ -462,11 +462,12 @@ test("M4b on Babylon: the music page plays, a state key changes the music and a 
   expect(seen.warnings).toEqual([]);
 });
 
-// Found by this spec: the first play of a decoded looping segment ends at its first loop end, a bug. A segment's clips
-// are decoded when it is first played; if they were not decoded before, its voices reach the end of the clip instead of wrapping:
-// the instance ends (`music-world` explore 4 s after it landed; the Sound Lab's `music-intensity` the same). The same segment
-// loops for ever once its clips have been decoded (the other cases of this file warm them with silent one-shots, `warmClips`).
-test.fixme("M4b: a looping segment whose clips were never decoded before keeps looping past its first loop end", async ({ page }) => {
+// Found by this spec (F-23 fixed it): the first play of a decoded looping segment ended at its first loop end. A segment's
+// clips are decoded when it is first played, after its PLAYs' loops were decided; a region to `"end"` (the file's end,
+// unknown before the decode) was dropped, so the voices ran to the clip end instead of wrapping and the instance ended
+// (`music-world` explore 4 s after it landed; the Sound Lab's `music-intensity` the same). The other cases of this file
+// still warm the clips with silent one-shots (`warmClips`) so their timings don't include a decode.
+test("M4b: a looping segment whose clips were never decoded before keeps looping past its first loop end", async ({ page }) => {
   await openMusicPage(page, "core", false);
   await page.waitForTimeout(9_000);
   const row = ((await audioDebug(page))?.music ?? []).find((r) => r.asset.includes(WORLD));

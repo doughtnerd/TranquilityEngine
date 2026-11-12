@@ -102,11 +102,22 @@ function factsOf(node: MusicNodeRef): { frames: number; rate: number } | { secon
 const endSecondsOf = (f: { frames: number; rate: number } | { seconds: number }): number =>
   "seconds" in f ? f.seconds : f.frames / f.rate;
 
-/** The segment's grid and loop regions, cached per node object (recompiled once when the clip's facts arrive). */
-function compile(node: MusicNodeRef, rate?: number): Compiled | null {
+/**
+ * F-23: where `compile(…, openEnd)` puts an `"end"` bound while the file's length is unknown: far past any real file
+ * (about 116 days), so a region to the file's end is still a region and its first wrap is still ahead.
+ */
+const OPEN_END_SECONDS = 1e7;
+
+/**
+ * The segment's grid and loop regions, cached per node object (recompiled once when the clip's facts arrive). F-23:
+ * with `openEnd` and no facts yet, an `"end"` bound is `OPEN_END_SECONDS` instead of dropping its region, and the
+ * result isn't cached (only `firstLoopOf` asks: which region wraps first doesn't depend on where the file ends).
+ */
+function compile(node: MusicNodeRef, rate?: number, openEnd = false): Compiled | null {
   const cached = compiled.get(node);
   const facts = factsOf(node);
-  if (cached && (cached.endKnown || !facts) && (rate === undefined || cached.rate === rate)) return cached;
+  const provisional = openEnd && !facts;
+  if (!provisional && cached && (cached.endKnown || !facts) && (rate === undefined || cached.rate === rate)) return cached;
   const seg = node as Partial<SegmentNode>;
   if (node.type !== "segment" || !Array.isArray(seg.tempo)) return null;
   const r = rate ?? (facts && "rate" in facts ? facts.rate : FALLBACK_RATE);
@@ -118,7 +129,7 @@ function compile(node: MusicNodeRef, rate?: number): Compiled | null {
   const frameOf = (text: string): number => {
     if (text === "start") return 0;
     if (text === "end") {
-      if (!facts) return Number.NaN;
+      if (!facts) return provisional ? Math.round(OPEN_END_SECONDS * r) : Number.NaN;
       return "rate" in facts ? Math.round(facts.frames * (r / facts.rate)) : endSeconds * r;
     }
     const t = positionTextToTicks(grid, text);
@@ -132,7 +143,7 @@ function compile(node: MusicNodeRef, rate?: number): Compiled | null {
   });
   regions.sort((x, y) => x.from - y.from);
   const c: Compiled = { grid, regions, exit, rate: r, endKnown: facts !== undefined };
-  compiled.set(node, c);
+  if (!provisional) compiled.set(node, c);
   return c;
 }
 
@@ -221,7 +232,9 @@ export function regionFramesOf(node: MusicNodeRef, index: number, rate: number):
  * reaches them (`loopTail.ts`).
  */
 export function firstLoopOf(node: MusicNodeRef, rate: number, startFrame: number): (MemberLoop & { region: number }) | null {
-  const c = compile(node);
+  // F-23: a run is admitted (and its PLAYs' loops decided) before its decoded clips are, so the file's length may be
+  // unknown here: a region to `"end"` must still loop its members (`regionFramesOf` gives the end as 0, the file's end).
+  const c = compile(node, undefined, true);
   if (!c || c.regions.length === 0 || !(rate > 0)) return null;
   const s = Math.max(0, startFrame) / rate;
   const r = regionAt(c, s);

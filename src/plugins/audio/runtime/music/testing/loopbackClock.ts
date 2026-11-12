@@ -50,6 +50,8 @@ export interface MusicLoopbackOptions {
   parameters?: unknown[];
   /** Settle frames before the test starts (clips load, the clock map locks). Default 30. */
   settleFrames?: number;
+  /** F-23: leave the clips cold (not decoded until the first play asks for them); default false (every clip preloaded). */
+  cold?: boolean;
 }
 
 export interface MusicLoopback {
@@ -166,8 +168,8 @@ export async function musicLoopback(options: MusicLoopbackOptions): Promise<Musi
       for (let k = 0; k < 4; k++) await Promise.resolve();
     }
   };
-  // Load every clip with a silent voice so the group's decoded members are resident, then let the clock settle.
-  for (const path of Object.keys(options.clips)) backend.play({ path, url: Assets.url(path), loop: false, stream: false, bus: "Music", volume: 0 } as never);
+  // Load every clip (unless `cold`) with a silent voice so the group's decoded members are resident, then let the clock settle.
+  if (!options.cold) for (const path of Object.keys(options.clips)) backend.play({ path, url: Assets.url(path), loop: false, stream: false, bus: "Music", volume: 0 } as never);
   await step(options.settleFrames ?? 30);
 
   const stepUntil = async (done: () => boolean, maxFrames = 5000): Promise<void> => {
