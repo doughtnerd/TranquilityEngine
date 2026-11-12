@@ -22,7 +22,7 @@ This page documents the first part of interactive music (milestone M4a plus the 
 | Segments with a tempo map, cues and stems; simple forever loops | Counted loops (`count`), `while` loops, loop tails (`tailBeats`): the format reads them, the player ignores them |
 | Playlists (sequence, random, shuffle) | The transition rule's fades on a playlist's own advance |
 | Music switches on a labelled parameter | Bridges (`bridge` in a rule): read and validated, but the change plays as a direct one |
-| Transition rules: exit, enter, quantised cut, crossfade, curves | `handle.music.seek` (always refused today) |
+| Transition rules: exit, enter, quantised cut, crossfade, curves; `handle.music.seek` within the playing segment | |
 | Stingers and `handle.trigger` | Beat, bar and cue callbacks: `onMusicBeat`, `onMusicBar`, `onMusicCue`, `handle.onMusic` (subscribing does nothing yet) |
 | Quantised stem automation | `handle.music.positionAt`, `Calibration`, a working `Audio.calibration`, and the rhythm-game helpers |
 | `handle.music` position, tempo and `nextGrid` | Resyncing a group whose stream starved (it is silenced and held today, see [the debug panel](#the-debug-panels-music-section)) |
@@ -338,6 +338,7 @@ Everything is exported from `"myco"` (`GridSpec`, `GridPoint`, `MusicHandle`, `M
 | `music.time` | The heard time in seconds of that position, on `Audio.time`'s clock |
 | `music.transition` | The pending change, with the heard time it lands: `{ to, time }`, or `null` |
 | `music.nextGrid(spec)` | The next beat, bar or n-th bar line at or after now, as `{ time, bar, beat, segment }`. While a change is pending, points after `transition.time` belong to the *new* segment (`segment` says which). `null` when not playing or when nothing follows the exit |
+| `music.seek(position)` | Jump to a position in the segment that is playing, see [Seeking](#seeking) |
 | `handle.trigger(name)` | Fire a [stinger](#stingers); `true` if accepted |
 | `handle.setParameter(name, value)` | Drives a [switch](#music-switches) and stem automation, as for every event |
 | `handle.stop(fade)`, `handle.fade(to, seconds)`, `handle.release()` | As for every event handle. `stop(fade)` fades all stems at once and is not quantised |
@@ -352,13 +353,28 @@ const next = music.music?.nextGrid("bar");
 if (next) flashAt(next.time - Audio.time);   // seconds from now
 ```
 
+### Seeking
+
+```ts
+const r = music.seek("5:1:0");   // bar 5, beat 1, tick 0
+if (r.ok) console.log("lands at", r.time);          // heard seconds, on Audio.time's clock
+else if (!r.permanent) retryNextFrame();            // no free streaming slots yet, or the music has not started sounding
+```
+
+`seek` takes `"bar:beat:tick"` (bar and beat from 1, tick from 0 to 959; `"5:3"` and `"5"` fill in the rest) and moves the music to that place **in the segment playing when the seek lands**. It is a change like any other: it crossfades over 5 ms and lands on the earliest frame the audio core can stamp, a fraction of a second after the call, not on a beat.
+
+- A position past the end of the audio goes to the end; a position before the entry cue (in the pickup) is allowed and enters exactly there. At or past the exit cue the segment plays on from there, and a playlist then advances as at a natural end.
+- A change that has not yet passed its cancel point is replaced by the seek. One that has is left to land, and the seek happens after it, in the *new* segment.
+- Only the position moves. The playlist cursor and each item's `plays` count, the switch value and the alternative picks stay as they were, and the skipped span fires no missed beats or cues.
+- Seeking to a different segment is **not** a seek: change the switch parameter or advance the playlist, and the rules apply. A position is never read in another segment.
+- Refusals: `invalid` (not a position, a beat the bar does not have, or no playable track) and `notPlaying` (stopping, stopped or refused) and `neverFits` (the segment can never hold two sets of streaming slots on this preset) are permanent. `poolFull` (no free slots now) is temporary, and so is `notPlaying` before the first segment has started sounding; call again on a later frame. A refused seek did not happen and leaves nothing planned, though a pending change it would have replaced is gone.
+
 `at` in `Audio.play` is the heard time the *entry cue* is heard; the pickup starts earlier. An `at` closer than the time the player needs to prepare starts at the earliest possible moment instead. Nothing is a grid before the first segment: that moment becomes bar 1 of the grid and every later change lands on it.
 
 An `AudioSource` plays a music event like any event (the flappy sample does). Its `loop`, `spatial` and distance fields are ignored for music, and `pitch` is ignored with a warning.
 
 *Coming later:*
 - **Beat callbacks.** `onMusicBeat`, `onMusicBar` and `onMusicCue` on a `GameBehavior` and `handle.onMusic("beat", fn)` exist in the types, but nothing calls them yet; `handle.onMusic` returns a no-op unsubscribe. To act on the beat today, read `music.nextGrid("beat")` each frame.
-- **`music.seek("5:1:0")`** returns `{ ok: false, reason: "notPlaying", permanent: true }` for now.
 - **`music.positionAt(performance.now())`** returns an empty position (`segment: null`), and **`Calibration.fromTaps`** returns an empty result. **`Audio.calibration`** can be set and read but is not saved, and `Audio.calibrationStale` is always `false`. `Audio.latency` and `Audio.rhythmMode` (the `audio.rhythmMode` project setting) exist; the rhythm mode they belong to is not finished.
 
 ## The debug panel's Music section
