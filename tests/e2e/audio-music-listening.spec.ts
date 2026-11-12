@@ -290,9 +290,9 @@ test.describe("listening M4-0: in-voice stamped records", () => {
 //   1  eight stems start together on a cue (pad, pulse, lead, melody, each twice; the two melodies stream): they sound as one
 //      band, entering on the same instant, no flam, no phasing between the doubled stems
 //   2  the same, with a slow ring: the melody file is held back 1.5 s, so the music starts late, and every stem starts late together
-//   3  a held group: the decoder worker is paused for 6 s while the eight stems play, the streamed stems run dry and the whole
-//      group should dip together and come back together, aligned (the worker is paused through the DevTools protocol, Chromium
-//      only; the check that the group was held waits for C2c, see the step)
+//   3  a held group: while the eight stems play, the decoder worker is paused until the core holds the group, then resumed at
+//      once (well under a second; a hold over 1 s is given up on by design). The streamed stems run dry, the whole group dips
+//      together over about 5 ms and comes back together, aligned (the worker is paused through the DevTools protocol, Chromium only)
 //   4  a playlist of three 4 s items (A, B, C) plays for 30 s: each change lands on the beat with no gap and no click
 //   5  the flappy sample's town music (a streamed segment) for 20 s
 // The 10-minute playlist is the exit check of M4a (audio-music-a.spec.ts, `@slow`, `E2E_PLAYLIST_SECONDS`); item 4 is its ear's
@@ -422,7 +422,7 @@ test.describe("listening M4a: segments, stems and playlists", () => {
     });
 
     await test.step("key 3: a held group (the decoder worker paused)", async () => {
-      await m4aKey(page, "3", "eight stems; the decoder worker is paused for 6 s");
+      await m4aKey(page, "3", "eight stems; the decoder worker is paused until the group is held, then resumed at once");
       await startEvent(page, "held", "e1/stems8.audioevent.json");
       await checkEight("stems8", "held group");
       const paused = await pauseWorkers(page, true, null);
