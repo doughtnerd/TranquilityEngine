@@ -691,3 +691,5 @@ K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.t
 - the Rules panel and the segment view lack `data-asset-document`, so Ctrl+Z / Edit > Undo with them focused find nothing to undo (the spec undoes from the Event editor);
 - nothing opens Segment Properties: "Open segment view" shows only the view (the spec uses Window > Segment Properties);
 - an audition from the default bar 1 never transitions: the parameter lands while the music is priming, so it starts in the target segment (the spec auditions from bar 2).
+
+**F-27 merged** (`m4/f27` `0f914c6b`): the Rules panel and segment view roots carry `data-asset-document` (undo reaches them); `openSegmentView` also shows Segment Properties beside it; the audition sets its parameter only once `music.segment` is the segment it started in (no runtime change). `audio-music-d` now takes the real paths (Ctrl+Z in both panels, the Properties tab, auditions from the default bar), failing with the fixes reverted; 12 of 12. Editor music vitest 204 pass.
