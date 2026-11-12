@@ -12,6 +12,8 @@ The coordinator's log of each wave review ([waves plan, "Wave reviews"](../../pl
 
 **Needs you:** the M4-0 listening section ([listening-pass.md](listening-pass.md), about 10 minutes with headphones) and a WebKit run of the e2e suite (`npm run test:e2e:webkit`; WebKit isn't installed in this container). Neither holds the merge.
 
+**M4a merged to master** (2026-11-12): music segments, stems, playlists, switches, transitions, stingers and quantised automation on the grid; every group starts on one frame, holds and resumes together. Needs you: the M4a listening section too.
+
 **M4-0 merged to master** (2026-11-12): every queued per-voice stamped record now applies inside its voice. The integration branch also carries M4a work, all inert or opt-in for existing projects (D9).
 
 **Decisions taken (each with its revert):** see "Decisions" below.
@@ -429,4 +431,11 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
   - `audio-core.spec.ts:41` read 2 start-up underruns (0 expected);
   - `audio-stress.spec.ts` read an HRTF peak of 10 (F-11).
 - WebKit is the owner's, as at M4-0.
+
+**F-19 merged** (`m4/f19` `6d910ee8`): **not a regression.** `codefiles.spec.ts:38` read the Resource Timing list, which stops at 250 entries, and the editor's start now loads more than 250 chunks, so the `ts.worker` entry was dropped although the worker ran. It fails the same way at `c0009afd`; the earlier pass was luck. The spec now waits for Playwright's worker event, armed before the project opens. 4 of 4 pass.
+
+**M4a milestone end:**
+- **Exit checks:** C3's nulls after a late start and the held-group null (plus the 1,408-case harness); E1's 10-minute playlist with no late group, 3 of 3; every §1 row of M4a tested (P7, T1, E1).
+- **Milestone-end checks** (above): every failure explained. `codefiles` (F-19) fixed in the spec; `piratesSample`, `audio-core` and `audio-stress` pass alone; F-11 is open.
+- **Merged to master** as a merge commit (O2), per the standing instruction. Owner items open: the listening sections M4-0 and M4a, and WebKit.
 
