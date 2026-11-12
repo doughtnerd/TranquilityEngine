@@ -196,6 +196,22 @@ impl FxFilter {
         self.hp.last[0] != 0.0
     }
 
+    /// Multiplies both filters' histories (every channel's `x1, x2, y1, y2`) by `k`: the filters
+    /// then continue as if their past input had been `k` times what it was. A linear filter's
+    /// state is in the units of its input, so a caller that moves a gain from before the filters
+    /// to after them (or back) rescales by `1 / gain` (or `gain`) and the output stays continuous
+    /// (F-40: `audio-core`'s voice chain when a zone send starts or settles at 0).
+    pub fn rescale_history(&mut self, k: f32) {
+        let k = k as f64;
+        for bq in [&mut self.lp, &mut self.hp] {
+            for ch in bq.history.iter_mut() {
+                for h in ch.iter_mut() {
+                    *h *= k;
+                }
+            }
+        }
+    }
+
     /// `true` while either filter runs (STATUS `fxVoices` counts these).
     pub fn running(&self) -> bool {
         self.lowpass_running() || self.highpass_running()
