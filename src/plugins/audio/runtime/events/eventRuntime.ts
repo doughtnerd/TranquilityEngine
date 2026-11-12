@@ -948,8 +948,20 @@ export class EventInstance {
           }
           st = { voice, bindings: quantizedBindings(all), level: 1 };
           this.stemAuto.set(stem, st);
+          // A quantised stem must not sound at full until its first grid point: send the evaluated level to the voice now
+          // (the voice is new, so nothing has been heard). `st.level` stays 1 so the stamped ramp below still goes out,
+          // which also records the level in the stem's gain state (solo recomposes from it).
+          if (st.bindings.length > 0) {
+            const q0 = this.sys.quantizedLevel(this, st.bindings);
+            if (q0.grid !== null && Math.abs(q0.gain - 1) >= 1e-4) {
+              if (voice.paramsShaped) voice.paramsShaped({ gain: q0.gain, seconds: 0, law: "linear" });
+              else voice.fade(q0.gain, 0);
+            }
+          }
         }
-        if (st.bindings.length === 0 || run !== p.run || run.state !== "playing") continue;
+        // "stamped" counts as playing here: a quantised ramp is stamped at its audio time either way. The run only turns
+        // "playing" on the core's group-start report (STATUS `groupStarts`, written once C2b lands).
+        if (st.bindings.length === 0 || run !== p.run || (run.state !== "playing" && run.state !== "stamped")) continue;
         const q = this.sys.quantizedLevel(this, st.bindings);
         if (q.grid === null || Math.abs(q.gain - st.level) < 1e-4) continue;
         frame ??= { backend, music: backend.music ?? null, now: backend.time, dt: 0, hidden: false };

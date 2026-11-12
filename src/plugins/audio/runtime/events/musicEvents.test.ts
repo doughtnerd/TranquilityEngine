@@ -133,6 +133,29 @@ describe("a music event in the event runtime", () => {
   });
 });
 
+describe("quantised stem automation on a stamped run (G-1)", () => {
+  it("a stamped run with a quantised binding gets its level at once and a stamped ramp at the next beat", async () => {
+    const track = { name: "a", clip: "a.wav", automation: [{ parameter: "I", target: "volume", curve: [[0, 0], [1, 1]], quantize: "beat" }] };
+    await kit.boot({ "m.audioevent.json": ev(seg("s", { tracks: [track] }), { parameters: [{ name: "I", min: 0, max: 1, default: 0 }] }) });
+    Audio.play("m.audioevent.json");
+    const p = musicPlayers()[0]!;
+    const voice = fake.play({ path: "a.wav", url: "", loop: false, stream: false, bus: "", volume: 1, pitch: 1, priority: 128, world: 0, group: 0 })!;
+    const calls: { gain: number; seconds: number; at?: number }[] = [];
+    (voice as { paramsShaped?: unknown }).paramsShaped = (r: { gain: number; seconds: number; at?: number }) => void calls.push(r);
+    // The run as P1 leaves it before the core reports the group started: "stamped", default 120 bpm grid from 1.0 s.
+    p.run = { node: p.root, player: p, state: "stamped", group: 1, stems: [{ track: "a", alternative: 0, clip: "a.wav", streamed: false, voice, primed: true }], startAt: 1, startFrame: 0, loopsDone: 0, prime: null };
+    p.state = "playing";
+    (fake as { time: number }).time = 1.2;
+    const inst = [...(events() as unknown as { live: Set<{ tickMusicAutomation(): void }> }).live][0]!;
+    inst.tickMusicAutomation();
+    expect(calls[0]).toEqual({ gain: 0, seconds: 0, law: "linear" }); // the level at bind, before the first beat
+    const ramp = calls.find((c) => c.at !== undefined)!; // the stamped ramp (absent without the "stamped" guard)
+    expect(ramp).toBeDefined();
+    expect(ramp.gain).toBe(0);
+    expect(ramp.at).toBeGreaterThanOrEqual(1.2);
+  });
+});
+
 describe("pitch on music", () => {
   it("an EventOptions pitch is ignored with one warning", async () => {
     await kit.boot({ "m.audioevent.json": ev(seg()) });
