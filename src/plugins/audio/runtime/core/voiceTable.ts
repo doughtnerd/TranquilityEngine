@@ -77,6 +77,8 @@ export type StampedKindCode = (typeof StampedKind)[keyof typeof StampedKind];
 export const STAMPED_FLAG_STOP_AT_END = 1;
 /** @internal Most stamped ramps the table keeps per voice (a fifth drops the oldest). */
 export const MAX_STAMPED = 4;
+/** @internal Most stem-level changes the table keeps waiting for their stamps per voice (a fifth applies the earliest). */
+export const MAX_STEM_PENDING = 4;
 
 /** @internal §3 `rolloff`. */
 export const VoiceRolloff = { LINEAR: 0, INVERSE: 1, EXPONENTIAL: 2 } as const;
@@ -204,6 +206,28 @@ export class VoiceTable implements VoiceTableHandleApi {
   readonly stampedShape: Uint32Array;
   /** Stamped entries across all slots (0 = nothing to replay or convert). */
   stampedTotal = 0;
+  /**
+   * F-9b [main, `musicOps.paramsShaped`]: a music stem's level, the multiplier its stamped in-voice gain ramp puts on the
+   * dry gain (quantised automation × solo, `music/stems.ts`); 1 for every other voice. Two views of one level:
+   * - `stemDry` is what the core's gain ramp holds when an asap record sent this frame lands (`resolveStems`' frame):
+   *   every dry-gain write (SET_MIXED's promote, `_setVolume`, occlusion, a spatial move) multiplies it in, so it
+   *   doesn't wipe the level. A change stamped later is still pending; the core's held SET_PARAMS applies it then.
+   * - `stemGain` is audibility's factor (selection, stealing, `Audio.debug()`), R3a's rule (like `fadeGain` in
+   *   `fadeShaped`): a rise counts at once, a fall only once its stamp has come, so the voice isn't cut before it is
+   *   heard falling. It is `max(stemDry, every pending level)`.
+   * The pending changes: up to `MAX_STEM_PENDING` per slot at `slot * MAX_STEM_PENDING + k`, `k < stemCount[slot]`,
+   * ascending by `stemAt` (the core frame each lands at; equal frames in arrival order, so the latest wins), with the
+   * ramp's length in frames (`stemRamp`) and its `packShape` word (`stemShape`) so a dry-gain write can re-send them.
+   */
+  readonly stemGain: Float32Array;
+  readonly stemDry: Float32Array;
+  readonly stemCount: Uint8Array;
+  readonly stemAt: Float64Array;
+  readonly stemNext: Float32Array;
+  readonly stemRamp: Uint32Array;
+  readonly stemShape: Uint32Array;
+  /** Pending stem-level changes across all slots (0: `resolveStems` has nothing to do). */
+  stemPendingTotal = 0;
   /** True between `stampedToTimeline` and `stampedFromTimeline`. */
   private stampedInSeconds = false;
   readonly startFrame: Float64Array;
@@ -309,6 +333,13 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.stampedTo = new Float32Array(capacity * MAX_STAMPED);
     this.stampedSeconds = new Float32Array(capacity * MAX_STAMPED);
     this.stampedShape = new Uint32Array(capacity * MAX_STAMPED);
+    this.stemGain = new Float32Array(capacity).fill(1);
+    this.stemDry = new Float32Array(capacity).fill(1);
+    this.stemCount = new Uint8Array(capacity);
+    this.stemAt = new Float64Array(capacity * MAX_STEM_PENDING);
+    this.stemNext = new Float32Array(capacity * MAX_STEM_PENDING);
+    this.stemRamp = new Uint32Array(capacity * MAX_STEM_PENDING);
+    this.stemShape = new Uint32Array(capacity * MAX_STEM_PENDING);
     this.startFrame = new Float64Array(capacity);
     this.playhead = new Uint32Array(capacity);
     this.epoch = new Uint32Array(capacity);
@@ -351,6 +382,10 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.stampedCount.fill(0);
     this.stampedTotal = 0;
     this.stampedInSeconds = false;
+    this.stemCount.fill(0);
+    this.stemPendingTotal = 0;
+    this.stemGain.fill(1);
+    this.stemDry.fill(1);
   }
 
   // --- ADR 0166 (Z4): the log of stamped ramps, for REPLAY ---
@@ -396,6 +431,85 @@ export class VoiceTable implements VoiceTableHandleApi {
     }
   }
 
+  // --- F-9b: a music stem's level (`stemGain`, `stemDry`) ---
+
+  /**
+   * Slot `i`'s stem level becomes `level` at core frame `at` (`undefined`: with this frame's asap records), ramping over
+   * `rampFrames` with `shape`. `nowFrame` is where asap records land (`ClockMap.framesNow()`, `resolveStems`' frame):
+   * changes due by then apply first, and a stamp not after it is asap. Allocates nothing.
+   */
+  setStemLevel(i: number, level: number, at: number | undefined, nowFrame: number, rampFrames = 0, shape = 0): void {
+    this.resolveStem(i, nowFrame);
+    if (this.stampedInSeconds) at = undefined; // no frames to stamp against during a context swap
+    if (at === undefined || !(at > nowFrame)) {
+      // Asap: it lands now; later pending changes still land after it.
+      this.stemDry[i] = level;
+      this.stemAudible(i);
+      return;
+    }
+    const base = i * MAX_STEM_PENDING;
+    if (this.stemCount[i]! === MAX_STEM_PENDING) this.popStem(i);
+    let k = this.stemCount[i]!;
+    while (k > 0 && this.stemAt[base + k - 1]! > at) {
+      this.copyStem(base + k - 1, base + k);
+      k--;
+    }
+    this.stemAt[base + k] = at;
+    this.stemNext[base + k] = level;
+    this.stemRamp[base + k] = rampFrames >>> 0;
+    this.stemShape[base + k] = shape >>> 0;
+    this.stemCount[i]!++;
+    this.stemPendingTotal++;
+    this.stemAudible(i);
+  }
+
+  /** Slot `i`'s pending stem changes due by `nowFrame` land: `stemDry` and `stemGain` follow. */
+  resolveStem(i: number, nowFrame: number): void {
+    const base = i * MAX_STEM_PENDING;
+    // During a context swap the pending frames are seconds (`stampedToTimeline`): nothing lands until they are frames again.
+    if (this.stemCount[i]! === 0 || this.stampedInSeconds || this.stemAt[base]! > nowFrame) return;
+    while (this.stemCount[i]! > 0 && this.stemAt[base]! <= nowFrame) this.popStem(i);
+    this.stemAudible(i);
+  }
+
+  /** Every live slot's due stem changes (once a frame, before selection); nothing to do without pending changes. */
+  resolveStems(nowFrame: number): void {
+    if (this.stemPendingTotal === 0) return;
+    for (let i = 0; i < this.capacity; i++) if (this.stemCount[i]! > 0) this.resolveStem(i, nowFrame);
+  }
+
+  /** The earliest pending change lands: it is the level the core holds. */
+  private popStem(i: number): void {
+    const base = i * MAX_STEM_PENDING;
+    const n = this.stemCount[i]!;
+    this.stemDry[i] = this.stemNext[base]!;
+    for (let k = 1; k < n; k++) this.copyStem(base + k, base + k - 1);
+    this.stemCount[i] = n - 1;
+    this.stemPendingTotal--;
+  }
+
+  private copyStem(from: number, to: number): void {
+    this.stemAt[to] = this.stemAt[from]!;
+    this.stemNext[to] = this.stemNext[from]!;
+    this.stemRamp[to] = this.stemRamp[from]!;
+    this.stemShape[to] = this.stemShape[from]!;
+  }
+
+  /** R3a: audibility's factor is the highest of the level now and the levels still to come. */
+  private stemAudible(i: number): void {
+    const base = i * MAX_STEM_PENDING;
+    let g = this.stemDry[i]!;
+    for (let k = 0; k < this.stemCount[i]!; k++) g = Math.max(g, this.stemNext[base + k]!);
+    this.stemGain[i] = g;
+  }
+
+  private clearStem(i: number): void {
+    this.stemPendingTotal -= this.stemCount[i]!;
+    this.stemCount[i] = 0;
+    this.stemGain[i] = 1;
+    this.stemDry[i] = 1;
+  }
+
   /** Forgets slot `i`'s log. */
   clearStamped(i: number): void {
     this.stampedTotal -= this.stampedCount[i]!;
@@ -429,6 +543,7 @@ export class VoiceTable implements VoiceTableHandleApi {
   stampedToTimeline(rate: number, offset: number): void {
     if (this.stampedInSeconds) return;
     this.stampedInSeconds = true;
+    this.convertStems((f) => f / rate + offset);
     if (this.stampedTotal === 0) return;
     for (let i = 0; i < this.capacity; i++) {
       const base = i * MAX_STAMPED;
@@ -443,6 +558,7 @@ export class VoiceTable implements VoiceTableHandleApi {
   stampedFromTimeline(rate: number, offset: number): void {
     if (!this.stampedInSeconds) return;
     this.stampedInSeconds = false;
+    this.convertStems((f) => (f - offset) * rate);
     if (this.stampedTotal === 0) return;
     for (let i = 0; i < this.capacity; i++) {
       const base = i * MAX_STAMPED;
@@ -450,6 +566,15 @@ export class VoiceTable implements VoiceTableHandleApi {
         this.stampedFrame[base + k] = (this.stampedFrame[base + k]! - offset) * rate;
         this.stampedEnd[base + k] = (this.stampedEnd[base + k]! - offset) * rate;
       }
+    }
+  }
+
+  /** F-9b: the pending stem changes' frames through `map` (a context swap, like the stamped log). */
+  private convertStems(map: (frame: number) => number): void {
+    if (this.stemPendingTotal === 0) return;
+    for (let i = 0; i < this.capacity; i++) {
+      const base = i * MAX_STEM_PENDING;
+      for (let k = 0; k < this.stemCount[i]!; k++) this.stemAt[base + k] = map(this.stemAt[base + k]!);
     }
   }
 
@@ -521,6 +646,7 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.owner[i] = -1;
     this.musicGroup[i] = 0;
     this.clearStamped(i);
+    this.clearStem(i);
     this.busLive[b]!++;
     this.liveCount++;
     return this.idOf(i);
@@ -791,6 +917,7 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.dirty[i]! &= DIRTY_LISTED;
     this.musicGroup[i] = 0;
     this.clearStamped(i);
+    this.clearStem(i);
     if (this.busLive[b]! > 0) this.busLive[b]!--;
     this.liveCount--;
     const g = this.gen[i]!;

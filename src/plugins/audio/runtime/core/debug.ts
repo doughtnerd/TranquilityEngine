@@ -197,7 +197,8 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
       world: world === 0 ? null : String(world),
       state: stateName(table, i),
       priority: table.priority[i]!,
-      gain: automated ? table.gain[i]! * auto.gain : table.gain[i]!,
+      // F-9b: a music stem's level (quantised automation, solo) multiplies in, as in its audibility.
+      gain: (automated ? table.gain[i]! * auto.gain : table.gain[i]!) * table.stemGain[i]!,
       pitch: automated ? table.pitch[i]! * auto.pitch : table.pitch[i]!,
       audibility: clamp01(table.audibility[i]!),
       playheadSeconds: playheadSeconds(backend, i, clip),

@@ -93,7 +93,7 @@ import { StatusMirror } from "./mirror";
 import { DistanceEffect } from "./spatial";
 import { StatusReader } from "./statusReader";
 import { UnlockQueue } from "./unlockQueue";
-import { connectVoiceTable, VoiceFlag, VoiceFlag2, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
+import { connectVoiceTable, MAX_STEM_PENDING, VoiceFlag, VoiceFlag2, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
 import { STREAM_ERROR_FADE_SECONDS, StreamManager, type StreamDecoderLike, type StreamManagerDeps } from "./streams";
 import { WorkletChannel } from "./workletChannel";
 import { sharedDecoderClient } from "../decoder/decoderClient";
@@ -841,6 +841,9 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     // A3.4c: after a context swap, the old core's last STATUS is in the old context's frames: wait for the new one's.
     if (this.mirror.blocks > this.staleBlocks) clockMap.noteStatus(this.mirror.frameAudio, this.mirror.frameDateMs);
     this.mirror.beginFrame();
+    // F-9b: stem levels whose stamps come before this frame's asap records land (selection and dry-gain writes read them).
+    // Asap records apply on arrival, about `framesNow`; a stamp after that is still pending (`ClockMap.stampFor`'s rule).
+    this.table.resolveStems(clockMap.framesNow());
     this.publishPeaks();
     this.table.freeEnded();
     this.mirror.drainClipEvents(this.clipSink);
@@ -1207,9 +1210,17 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     return f === 1 ? t.pitch[i]! : clamp(t.pitch[i]! * f, MIN_PITCH, MAX_PITCH);
   }
 
-  /** The dry gain the core gets: volume × distance gain × occlusion (`occGain`, 1 open). */
+  /**
+   * The dry gain the core gets: volume × distance gain × occlusion (`occGain`, 1 open) × a music stem's level (F-9b:
+   * `stemDry`, 1 for other voices). Every dry-gain write (SET_MIXED's promote, `_setVolume`, occlusion, a spatial move)
+   * comes here, so none resets the stem's in-voice ramp to the plain dry gain. (The branch keeps an ordinary voice's
+   * start as it was: a third multiply there costs eventBench's start+stop about 32 B of heap.)
+   */
   private dryGain(i: number): number {
-    return this.table.gain[i]! * this.table.occGain[i]!;
+    const t = this.table;
+    const dry = t.gain[i]! * t.occGain[i]!;
+    const stem = t.stemDry[i]!;
+    return stem === 1 ? dry : dry * stem;
   }
 
   /** ADR 0162 (K4): a new voice's M3 request fields (K0's `PlayRequest` members) into the table and the fx staging. */
@@ -1409,7 +1420,30 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
 
   private sendGain(id: number, i: number): void {
     // Only a mixed voice is heard; a virtual one gets its gain with SET_MIXED when it is promoted (A3.1).
-    if (this.table.state[i] === VoiceState.PLAYING) this.writer.setParams(id, SET_PARAMS_MASK_GAIN | SET_PARAMS_MASK_DIR, this.dryGain(i), 0, this.table.dirX[i]!, this.table.dirY[i]!, this.table.dirZ[i]!, 0, this.clockMap.rampFrames());
+    if (this.table.state[i] !== VoiceState.PLAYING) return;
+    this.writer.setParams(id, SET_PARAMS_MASK_GAIN | SET_PARAMS_MASK_DIR, this.dryGain(i), 0, this.table.dirX[i]!, this.table.dirY[i]!, this.table.dirZ[i]!, 0, this.clockMap.rampFrames());
+    if (this.table.stemCount[i] !== 0) this.resendStemLevels(id, i);
+  }
+
+  /**
+   * F-9b: after a dry-gain write to slot `i` (which carries `stemDry`, the level before its pending changes), the stem's
+   * pending level changes due within a lookahead go again, stamped, behind it. The core still holds the originals, which
+   * land after the write; but one due that close may land before the write arrives (main's `framesNow` is an estimate),
+   * and the write would then put the old level back. A re-sent change whose frame has passed applies at once. Changes
+   * further out need nothing. Each multiplies the dry gain without the stem level, like `musicOps.paramsShaped`.
+   */
+  private resendStemLevels(id: number, i: number): void {
+    const t = this.table;
+    const n = t.stemCount[i]!;
+    if (n === 0) return;
+    const until = this.clockMap.framesNow() + this.clockMap.lookaheadFrames();
+    const dry = t.gain[i]! * t.occGain[i]!;
+    const base = i * MAX_STEM_PENDING;
+    for (let k = 0; k < n; k++) {
+      const e = base + k;
+      if (t.stemAt[e]! > until) break;
+      this.writer.setParams(id, SET_PARAMS_MASK_GAIN, t.stemNext[e]! * dry, 0, 0, 0, 0, 0, t.stemRamp[e]!, 0, t.stemShape[e]!, t.stemAt[e]!);
+    }
   }
 
   /** The voice's clip decides what happens next: play now, wait for the data, or fail. */
@@ -1605,6 +1639,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       if (Math.abs(t.gain[i]! - g) > GAIN_EPSILON || Math.abs(t.dirX[i]! - x) > DIR_EPSILON || Math.abs(t.dirY[i]! - y) > DIR_EPSILON || Math.abs(t.dirZ[i]! - z) > DIR_EPSILON) {
         const id = ((t.gen[i]! << 16) | i) >>> 0;
         this.writer.setParams(id, SET_PARAMS_MASK_GAIN | SET_PARAMS_MASK_DIR, this.dryGain(i), 0, t.dirX[i]!, t.dirY[i]!, t.dirZ[i]!, 0, ramp);
+        if (t.stemCount[i] !== 0) this.resendStemLevels(id, i);
       } else {
         t.gain[i] = g;
         t.dirX[i] = x;
@@ -1626,6 +1661,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const id = ((t.gen[i]! << 16) | i) >>> 0;
     if (mixed) this.spatialDirty[i] = 0;
     this.writer.setMixed(id, mixed, this.dryGain(i), t.dirX[i]!, t.dirY[i]!, t.dirZ[i]!, t.lpHz[i]!);
+    if (mixed && t.stemCount[i] !== 0) this.resendStemLevels(id, i);
     // ADR 0162 (C20): a promote re-sends the voice's send, high-pass, yaw and aux targets with its SET_MIXED.
     if (mixed) this.voiceFx.onPromote(i);
     else this.voiceFx.onDemote(i);

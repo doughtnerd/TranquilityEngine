@@ -4,7 +4,9 @@
 //
 // - **Audibility** per live voice: `gain` (volume times the distance gain, computed by the backend) times `fadeGain`
 //   (the handle's fade) times `autoGain` (ADR 0158: its automation's gain at the parameters' targets, 1 without
-//   bindings, `coreAutomation.ts`) times its bus's effective gain (volume, mute, solo, snapshot and ducking down the tree) times
+//   bindings, `coreAutomation.ts`) times `stemGain` (F-9b: a music stem's level from its quantised automation and solo,
+//   `musicOps.paramsShaped`; a rise at once, a fall at its stamp; 1 for other voices. Quantised and continuous
+//   bindings are separate gain stages on the core, so the two factors never count one binding twice) times its bus's effective gain (volume, mute, solo, snapshot and ducking down the tree) times
 //   the priority weight `1 + priority/255` (at most 2x, +6 dB: §1 "it only mildly raises audibility"). Stored in the
 //   table's `audibility0`; ADR 0162 C20: times the voice's smoothed occlusion gain (`occGain`, 1 open) it is the
 //   table's `audibility`, which ranking, stealing (`VoiceTable.allocate`) and `Audio.debug()` read.
@@ -249,7 +251,7 @@ export class Selection {
   audibilityOf(i: number): number {
     const t = this.table;
     const forced = this.worldAudible[t.world[i]!] === 0 || (t.flags[i]! & VoiceFlag.PAUSED) !== 0;
-    const a0 = forced ? 0 : t.gain[i]! * t.fadeGain[i]! * t.autoGain[i]! * this.busGain[t.bus[i]!]! * PRIORITY_WEIGHTS[t.priority[i]!]!;
+    const a0 = forced ? 0 : t.gain[i]! * t.fadeGain[i]! * t.autoGain[i]! * t.stemGain[i]! * this.busGain[t.bus[i]!]! * PRIORITY_WEIGHTS[t.priority[i]!]!;
     t.audibility0[i] = a0;
     // ADR 0162 C20: audibility = audibility0 × occGain (1 without occlusion, so M2's values are unchanged).
     const a = a0 * t.occGain[i]!;
@@ -295,6 +297,7 @@ export class Selection {
     const gain = t.gain;
     const fadeGain = t.fadeGain;
     const autoGain = t.autoGain;
+    const stemGain = t.stemGain;
     const bus = t.bus;
     const priority = t.priority;
     const world = t.world;
@@ -318,7 +321,7 @@ export class Selection {
       if (s === S_FREE) continue;
       // `audibilityOf`, inlined (the hot loop: 4,096 voices per frame).
       const forced = worldAudible[world[i]!] === 0 || (flags[i]! & F_PAUSED) !== 0;
-      const a0 = forced ? 0 : gain[i]! * fadeGain[i]! * autoGain[i]! * busGain[bus[i]!]! * weight[priority[i]!]!;
+      const a0 = forced ? 0 : gain[i]! * fadeGain[i]! * autoGain[i]! * stemGain[i]! * busGain[bus[i]!]! * weight[priority[i]!]!;
       audibility0[i] = a0;
       const a = a0 * occGain[i]!; // ADR 0162 C20
       audibility[i] = a;

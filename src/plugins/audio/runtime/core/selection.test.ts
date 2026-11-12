@@ -138,6 +138,23 @@ describe("Selection (A3.1)", () => {
     expect(priorityWeight(255)).toBe(2);
   });
 
+  it("F-9b: a music stem's level multiplies in (with automation's gain); a stem at 0 goes virtual", () => {
+    const { table, sel, run, log } = setup([1, 1], 4);
+    table.autoGain[0] = 0.5;
+    table.setStemLevel(0, 0.5, undefined, 0);
+    run();
+    expect(table.audibility[0]).toBeCloseTo(0.25, 6);
+    expect(sel.audibilityOf(0)).toBeCloseTo(0.25, 6);
+    // A stamped fall counts at its stamp; then the silent stem is demoted once its dwell is over.
+    table.setStemLevel(1, 0, 1000, 0);
+    for (let k = 0; k < DWELL_FRAMES; k++) run();
+    expect(table.audibility[1]).toBe(1);
+    table.resolveStems(1000);
+    run();
+    expect(table.audibility[1]).toBe(0);
+    expect(log).toEqual(["-1"]);
+  });
+
   it("priority raises audibility mildly: equal gains, the higher priority is mixed", () => {
     const table = new VoiceTable(8);
     const sel = new Selection(table);
