@@ -628,7 +628,7 @@ Cadence (owner rule): **per task** `npm run typecheck`, the unit tests of the fi
 
 ## 11. Task breakdown
 
-Level S (senior), M (mid), J (junior). Days are focused human effort, not agent days. **Bold is the longest chain inside each milestone** (milestones ship in order, so cross-milestone dependencies are satisfied by the order, as in M4's table). Every task is at most 5 days. A task's acceptance is the **per-task cadence** of §10 (typecheck, the unit tests of the files touched, `cargo test` of the touched crate, the committed wasm matching its hash); a row that names a golden, bench or spec is satisfied by the wave-end or milestone-end run. Pure-TypeScript tasks with no dependency (Mx1, Sa1, Rc1, Ld1, Ld3, Ld5, Sm1, Mo1) may start with M5-0. The table is summed and its chains computed by script from the rows.
+Level S (senior), M (mid), J (junior). Days are focused human effort, not agent days. **Bold is the longest chain inside each milestone** (milestones ship in order, so cross-milestone dependencies are satisfied by the order, as in M4's table). Every task is at most 5 days. A task's acceptance is the **per-task cadence** of §10 (typecheck, the unit tests of the files touched, `cargo test` of the touched crate, the committed wasm matching its hash); a row that names a golden, bench or spec is satisfied by the wave-end or milestone-end run. Pure-TypeScript tasks with no dependency (Mx1, Sa1, Ld1, Ld3, Ld5, Sm1, Mo1) may start with M5-0. The table is summed and its chains computed by script from the rows.
 
 ### M5-0 the core's mix timing: stamped bus ramps, index-stable configuration, trigger-first order, smoothing, presence ducking (48 days, 9.6 person-weeks)
 
