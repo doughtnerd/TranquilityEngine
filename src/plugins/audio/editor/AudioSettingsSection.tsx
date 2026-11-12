@@ -75,6 +75,9 @@ import {
   setSnapshotLowpass,
   setSnapshotVolume,
   setSpatial,
+  setMusicRings,
+  setRhythmMode,
+  MUSIC_RINGS_LIMITS,
   setVoices,
   voicesPreset,
   LIMITER_LOOKAHEAD_LIMITS,
@@ -473,6 +476,21 @@ function Playback(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
         {voices("mixed", "Mixed", "Sounds mixed at once (8..512)")}
         {voices("logical", "Logical", "Sounds tracked, including silent virtual ones (mixed..8192)")}
         {voices("hrtf", "HRTF", "Spatial sounds rendered with HRTF (0..32); 0 is equal-power only")}
+      </div>
+
+      <div class="project-settings-list-head">
+        <span>Music</span>
+        <span class="project-settings-hint">the voices preset sets music rings (8 / 12 / 16); changing them here makes the preset custom</span>
+      </div>
+      <div class="audio-row">
+        <label title={`Streams the core can play at once for streamed music stems (${MUSIC_RINGS_LIMITS[0]}..${MUSIC_RINGS_LIMITS[1]}); each costs about 300 KiB. 0 refuses streamed stems with a warning (decoded stems still play). Applies when the core next starts.`}>
+          Music rings
+          <Num label="Music rings" value={a.music.rings} step={1} min={MUSIC_RINGS_LIMITS[0]} max={MUSIC_RINGS_LIMITS[1]} onCommit={(n) => set("Set music rings", setMusicRings(draft, n))} />
+        </label>
+        <label class="audio-bus-check" title="Creates the audio context with the lowest latency the device allows and reads its latency back, for rhythm games. It costs battery and may crackle on slow devices. Applies when the core next starts.">
+          <input type="checkbox" aria-label="Rhythm mode" checked={a.rhythmMode} onChange={(e) => set(`${a.rhythmMode ? "Disable" : "Enable"} rhythm mode`, setRhythmMode(draft, (e.currentTarget as HTMLInputElement).checked))} />
+          Rhythm mode
+        </label>
       </div>
 
       <div class="project-settings-list-head">
