@@ -883,6 +883,8 @@ export class EventInstance {
       if (!run) continue;
       for (const s of run.stems) if (s.voice) out.push(s.voice);
     }
+    // R5: stinger voices count too, so `hasVoices` and the panner/occlusion reads see them.
+    for (const e of p.stingers?.sounding ?? []) for (const v of e.voices) out.push(v);
     return out;
   }
 
@@ -901,6 +903,11 @@ export class EventInstance {
       if (!run) continue;
       if (run.state === "new" || run.state === "admitted" || run.state === "priming") return p.state !== "stopping";
       for (const s of run.stems) if (s.voice?.playing) return true;
+    }
+    // R5: a queued or sounding stinger keeps the player alive past its stems.
+    if (p.stingers) {
+      if (p.stingers.queued.length > 0) return true;
+      for (const e of p.stingers.sounding) for (const v of e.voices) if (v.alive ?? v.playing) return true;
     }
     return false;
   }
