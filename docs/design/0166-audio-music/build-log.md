@@ -670,3 +670,5 @@ K4's three tests are un-skipped, plus one for the longer case. `beatClock.test.t
 - Coordinator checks: typecheck 0; `src/plugins/audio/runtime` vitest 2,098 pass; **`audio-music-b --repeat-each 3` on Chromium 30 of 30 (M4b exit "E2 3 of 3" met)**.
 
 **M4b milestone end.** Exit criteria met: every M4b task merged; E2 3 of 3; the milestone checks above, with every failure outside F-25 passing alone. Owner items, not holding the merge: the listening sections M4-0, M4a and M4b, and a WebKit run. Merged to master directly (D13).
+
+**Wave 9 (M4c) started** on `4ba82127`: Rh2 (mid; it writes `fromTaps` itself rather than as the plan's leaf L-Rh2a, since the function is small), K5, B3 and Ed10 (all mid). Rh3, E3, D4 follow Rh2; Ed11 follows Ed10.
