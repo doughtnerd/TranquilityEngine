@@ -21,6 +21,7 @@ import {
 import { MUSIC_TICKS_PER_BEAT, type BarBeatTick } from "../../../../engine/audio/musicPosition";
 import { audioBackend } from "../backend";
 import { heardTimeOf, ticksAt, type GridAnchor } from "./anchors";
+import { heardRunAt } from "./beatClock";
 import { getCalibration } from "./calibration";
 import { musicFrameSerial, playerOf, type MusicNodeRef, type MusicPlayer } from "./musicSystem";
 import { seekMusic } from "./seek";
@@ -235,20 +236,79 @@ export function nextGrid(player: MusicPlayer, spec: GridSpec): GridPoint | null 
   return gridPoint(gn, pn, landing + (pn - entry), node.id);
 }
 
-/**
- * K3: map an input timestamp (`performance.now()` ms, as `event.timeStamp`) to the music: `Audio.timeAt` of it, then the
- * segment, bar, beat and nearest beat at that heard time; `offset` is signed (positive: late), `judged` is
- * `judgedOffset(offset)`. `segment` null when the music is not playing at that instant.
- */
-export function positionAt(player: MusicPlayer, performanceTime: number): MusicPositionAt {
-  void player;
-  void performanceTime;
-  return { segment: null, bar: 0, beat: 0, beatFraction: 0, nearestBeatTime: 0, offset: 0, judged: 0 }; // STUB(K3)
+const NOT_PLAYING: Readonly<MusicPositionAt> = Object.freeze({ segment: null, bar: 0, beat: 0, beatFraction: 0, nearestBeatTime: 0, offset: 0, judged: 0 });
+
+/** Heard time of beat tick `beat`, given the grid is at `exact` ticks at heard `time` (the file-seconds distance, so loop passes stay unrolled). */
+function beatTimeAt(grid: SegmentGrid, exact: number, beat: number, time: number): number {
+  return time + (ticksToSeconds(grid, beat) - ticksToSeconds(grid, exact));
 }
 
-/** K3: `MusicPositionAt.judged`: the raw offset less `Audio.calibration` (R18: calibration is applied only here). */
+/**
+ * K3: map an input timestamp (`performance.now()` ms, as `event.timeStamp`) to the music: `Audio.timeAt` of it (raw heard
+ * time, calibration not applied, R18), then the run heard at that time (K1's `heardRunAt`: the successor from its
+ * landing on) read through its anchor with `ticksAt`. `segment`, `bar`, `beat` and `beatFraction` are the position heard
+ * then; `nearestBeatTime` is the heard time of the nearest beat that is actually heard (a beat a change cuts off is
+ * skipped for the neighbour or the incoming segment's); `offset = time - nearestBeatTime` (positive: late);
+ * `judged = judgedOffset(offset)`. Before the grid (a pickup) bar and beat read 1 and 1 as `handle.music` does, while
+ * the offset is still against the pickup's own beats. `segment` null (the other fields 0) when the music is not playing
+ * then. It reads anchors only, never a playhead (so the tracker's rate, F-18, is not involved).
+ */
+export function positionAt(player: MusicPlayer, performanceTime: number): MusicPositionAt {
+  const time = audioTimeAt(performanceTime);
+  if (!Number.isFinite(performanceTime) || !Number.isFinite(time)) return { ...NOT_PLAYING };
+  if (player.state === "stopping" || player.state === "stopped" || player.state === "refused") return { ...NOT_PLAYING };
+  const hit = heardRunAt(player, time);
+  if (!hit) return { ...NOT_PLAYING };
+  const { run, anchor, grid } = hit;
+  const raw = ticksAt(anchor, time);
+  if (!Number.isFinite(raw)) return { ...NOT_PLAYING };
+  // Float noise in the anchor's tick (about 1e-6 of a tick) must not read a time exactly on a beat as the end of the one before.
+  const exact = Math.abs(raw - Math.round(raw)) < 1e-3 ? Math.round(raw) : raw;
+  const id = run.node.id;
+  const whole = Math.floor(Math.max(0, exact));
+  const pos = ticksToPosition(grid, whole);
+  const beatFraction = pos ? (pos.tick + (Math.max(0, exact) - whole)) / MUSIC_TICKS_PER_BEAT : 0;
+  const bar = pos?.bar ?? 1;
+  const beat = pos?.beat ?? 1;
+  // Candidates: this run's beats around `exact` (each must be heard in this run: `heardRunAt` at its time names the run),
+  // and for one a change cuts off, the beat nearest it in the run heard there.
+  const T = MUSIC_TICKS_PER_BEAT;
+  let best = Number.NaN;
+  let bestAbs = Number.POSITIVE_INFINITY;
+  const consider = (g: SegmentGrid, e: number, atTime: number, beatTicks: number, runWanted: SegmentRun): void => {
+    const t = beatTimeAt(g, e, beatTicks, atTime);
+    const h = heardRunAt(player, t);
+    if (!h) return;
+    if (h.run !== runWanted) {
+      // A beat past a change is the run heard there's: its own nearest beat to that instant (one level, no recursion).
+      if (runWanted === run) {
+        const run2 = h.run, grid2 = h.grid;
+        const e2 = ticksAt(h.anchor, t);
+        if (Number.isFinite(e2)) consider(grid2, e2, t, Math.round(e2 / T) * T, run2);
+      }
+      return;
+    }
+    const d = Math.abs(t - time);
+    if (d < bestAbs) { bestAbs = d; best = t; }
+  };
+  const mid = Math.round(exact / T) * T;
+  consider(grid, exact, time, mid, run);
+  const lo = Math.floor(exact / T) * T;
+  if (lo !== mid) consider(grid, exact, time, lo, run);
+  const hi = Math.ceil(exact / T) * T;
+  if (hi !== mid && hi !== lo) consider(grid, exact, time, hi, run);
+  if (Number.isNaN(best)) best = beatTimeAt(grid, exact, mid, time);
+  const offset = time - best;
+  return { segment: id, bar, beat, beatFraction, nearestBeatTime: best, offset, judged: judgedOffset(offset) };
+}
+
+/**
+ * K3: `MusicPositionAt.judged`: the raw offset less `Audio.calibration` (R18: calibration is applied only here, never in
+ * `Audio.timeAt` or `offset`). Output latency is already in the heard clock `timeAt` reads, so it is not subtracted
+ * again. Rh2 owns the stored calibration (`getCalibration`; 0 until it ships). A non-finite offset passes through.
+ */
 export function judgedOffset(offset: number): number {
-  return offset - getCalibration(); // STUB(K3): verify and test
+  return offset - getCalibration();
 }
 
 /**
