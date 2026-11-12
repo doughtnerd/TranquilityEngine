@@ -5,7 +5,7 @@
 // `L-Ed6a` and un-skips `rulesModel.test.ts`.
 
 import { analyzeTransitionRules, RULE_WILDCARD, type RuleTier, type TransitionRule } from "../../../../engine/audio/musicRules";
-import type { MusicContainerNode } from "../../../../engine/audio/musicFormat";
+import { isMusicContainer, type MusicContainerNode, type MusicNode } from "../../../../engine/audio/musicFormat";
 import { matchInContainer } from "../../runtime/music/transitionRules";
 
 /** One cell of the grid: the rule that wins the pair (`from`, `to`). `from` and `to` are child ids or `"*"`. */
@@ -126,3 +126,11 @@ export function ruleMatchesPair(rule: Pick<TransitionRule, "from" | "to">, from:
 }
 
 export { RULE_WILDCARD };
+
+/** `root` with the container `id` replaced by `next` (structure shared elsewhere); `root` itself when `id` is not there. Ed7. */
+export function replaceContainer(root: MusicNode, id: string, next: MusicContainerNode): MusicNode {
+  if (!isMusicContainer(root)) return root;
+  if (root.id === id) return next;
+  const children = root.children.map((n) => replaceContainer(n, id, next));
+  return children.every((n, i) => n === root.children[i]) ? root : { ...root, children };
+}

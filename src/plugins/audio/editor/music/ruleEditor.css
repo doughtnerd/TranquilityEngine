@@ -1,0 +1,33 @@
+/* Ed7: the rule editor and the lint rows. Theme tokens only (CLAUDE.md). */
+.rule-editor { margin: 8px 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 3px; background: var(--panel); color: var(--text); font-size: 12px; }
+.rule-editor h3 { margin: 0 0 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.rule-editor .re-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 3px 0; }
+.rule-editor .re-row label, .rule-editor .re-own { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.rule-editor .re-label { min-width: 5.5em; color: var(--muted); }
+.rule-editor .re-suffix { color: var(--faint); font-size: 11px; }
+.rule-editor .re-bridge { margin-left: 12px; padding-left: 8px; border-left: 2px solid var(--border); }
+.rule-editor .re-hint { flex-basis: 100%; margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+.rule-editor .re-error { margin: 6px 0 0; padding: 3px 6px; background: var(--danger-soft); color: var(--danger); border-radius: 3px; font-size: 11px; }
+.rule-editor .re-lint { list-style: none; margin: 6px 0 0; padding: 0; font-size: 11px; }
+.rule-editor .re-lint li { padding: 2px 6px; margin: 2px 0; border-radius: 3px; background: var(--input-bg); color: var(--muted); }
+.rule-editor .re-lint li.warn { background: var(--warning-soft); color: var(--warning); }
+.rule-editor .re-lint li.error { background: var(--danger-soft); color: var(--danger); }
+.rule-editor .re-audition { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border); }
+.rule-editor input[type="text"] { min-width: 0; width: 9em; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 5px; }
+.rule-editor input[type="text"].narrow { width: 4.5em; }
+.rule-editor select { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; }
+.rule-editor button { background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 8px; }
+.rule-editor button:hover:not(:disabled) { background: var(--button-hover); }
+.rule-editor button:disabled { color: var(--faint); }
+.rule-editor input:focus-visible, .rule-editor select:focus-visible, .rule-editor button:focus-visible { outline: 1px solid var(--focus-ring); }
+
+/* The list in the rules table: lint badges and the toolbar. */
+.rules-table .rt-badge { margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10px; background: var(--input-bg); color: var(--muted); }
+.rules-table .rt-badge.warn { background: var(--warning-soft); color: var(--warning); }
+.rules-table .rt-badge.error { background: var(--danger-soft); color: var(--danger); }
+.rules-table .rt-rules li { cursor: pointer; }
+.rules-table .rt-rules li.rt-edit { outline: 1px solid var(--accent); outline-offset: -1px; }
+.rules-table .rt-toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+.rules-table .rt-toolbar button { background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 8px; }
+.rules-table .rt-toolbar button:hover:not(:disabled) { background: var(--button-hover); }
+.rules-table .rt-toolbar button:disabled { color: var(--faint); }

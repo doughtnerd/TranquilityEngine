@@ -62,7 +62,7 @@ export interface TransportHost {
   reload(path: string): void;
 }
 
-export type TransportHandle = MusicEventHandle & { stop(fade?: number): void };
+export type TransportHandle = MusicEventHandle & { stop(fade?: number): void; setParameter?(name: string, value: number | string): void };
 
 export interface TransportState {
   readonly phase: AuditionPhase;
@@ -93,6 +93,11 @@ export interface Transport {
   setLoop(loop: boolean): void;
   /** Move the playing music, or start it there when it isn't playing (the segment view's ruler click). */
   seek(request: PlayRequest): Promise<void>;
+  /**
+   * Set an event parameter on the playing instance once any pending seek has landed (a music switch's parameter asks for
+   * its change; "audition this transition"). False, with a message, when nothing plays or the handle can't set one.
+   */
+  requestParameter(name: string, value: number | string): boolean;
   /** Fire a stinger of the playing event; false (with a message) when nothing plays or it is refused. */
   trigger(name: string): boolean;
   /** Hot reload: flush the edit and tell the runtime, which swaps the playing segment at the next bar. */
@@ -111,6 +116,7 @@ export function createTransport(host: TransportHost): Transport {
   let handle: TransportHandle | null = null;
   let last: PlayRequest | null = null;
   let pendingSeek: { text: string; retries: number } | null = null;
+  let pendingParameter: { name: string; value: number | string } | null = null;
   let grid: SegmentGrid | null = null;
   /** Bumped by every play and stop, so a flush that resolves after a newer one does nothing. */
   let epoch = 0;
@@ -122,6 +128,7 @@ export function createTransport(host: TransportHost): Transport {
     const h = handle;
     handle = null;
     pendingSeek = null;
+    pendingParameter = null;
     playhead.value = undefined;
     if (h) {
       clearActiveAudition(h);
@@ -188,6 +195,15 @@ export function createTransport(host: TransportHost): Transport {
       }
       await play(request);
     },
+    requestParameter(name, value) {
+      if (!handle?.playing || !handle.setParameter) {
+        set({ message: handle?.playing ? "This handle can't set parameters." : "Press Play first: a parameter change needs running music." });
+        return false;
+      }
+      pendingParameter = { name, value };
+      set({ message: null });
+      return true;
+    },
     trigger(name) {
       if (!handle?.playing) {
         set({ message: "Press Play first: a stinger plays over the running music." });
@@ -211,6 +227,7 @@ export function createTransport(host: TransportHost): Transport {
         clearActiveAudition(h);
         handle = null;
         pendingSeek = null;
+        pendingParameter = null;
         playhead.value = undefined;
         const again = state.value.loop && state.value.phase === "playing" ? last : null;
         move("finished");
@@ -218,6 +235,11 @@ export function createTransport(host: TransportHost): Transport {
         return;
       }
       trySeek();
+      if (pendingParameter && !pendingSeek && h.setParameter) {
+        const { name, value } = pendingParameter;
+        pendingParameter = null;
+        try { h.setParameter(name, value); } catch { /* the instance ended between the check and the call */ }
+      }
       const id = state.value.segmentId;
       playhead.value = grid && id ? playheadSeconds(grid, h.music, id) : undefined;
     },
