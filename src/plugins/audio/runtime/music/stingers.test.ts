@@ -39,7 +39,7 @@ function rig(root: MusicNode): void {
   const a = (root as unknown as { children: SegmentNode[] }).children[0]!;
   player.run = createSegmentRun(player, a, 0);
   player.state = "playing";
-  player.anchor = { segment: "a", ticks: 0, time: 0, pass: 1 };
+  player.anchor = { segment: "a", ticks: 0, time: 0, pass: 1, node: a, rate: 48000 };
   (b as { time: number }).time = 0.1;
   b.horizonTime = 0.1;
   f = { backend: b, music: b.music ?? null, now: 0.1, dt: 1 / 60, hidden: false };
