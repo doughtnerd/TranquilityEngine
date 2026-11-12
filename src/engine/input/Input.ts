@@ -163,7 +163,14 @@ export class Input {
     const onKeyUp = (e: KeyboardEvent) => {
       if (typeof e.key === "string") queue.push({ type: "up", key: normalizeKey(e.key) });
     };
+    // A touch press arrives with no pointermove before it, so down and up set the position too, or the
+    // UI would hit-test the previous touch's position when it reads the button state.
+    const setPointer = (e: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      pointer.set(e.clientX - rect.left, e.clientY - rect.top);
+    };
     const onPointerDown = (e: PointerEvent) => {
+      setPointer(e);
       canvas.focus();
       e.preventDefault();
       try {
@@ -173,10 +180,12 @@ export class Input {
       }
       queue.push({ type: "down", key: mouseKey(e.button) });
     };
-    const onPointerUp = (e: PointerEvent) => queue.push({ type: "up", key: mouseKey(e.button) });
+    const onPointerUp = (e: PointerEvent) => {
+      setPointer(e);
+      queue.push({ type: "up", key: mouseKey(e.button) });
+    };
     const onPointerMove = (e: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      pointer.set(e.clientX - rect.left, e.clientY - rect.top);
+      setPointer(e);
       pendingDelta.set(pendingDelta.x + e.movementX, pendingDelta.y + e.movementY);
     };
     const onWheel = (e: WheelEvent) => {
