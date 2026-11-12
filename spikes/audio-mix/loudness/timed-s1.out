@@ -1,0 +1,24 @@
+[run] 18:43:39 building native and wasm
+    Finished `release` profile [optimized] target(s) in 0.02s
+   Compiling myco-loudness-spike v0.0.0 (/home/user/TranquilityEngine/spikes/audio-mix/loudness)
+    Finished `release` profile [optimized] target(s) in 1.03s
+[run] 18:43:47 native floor music k=1
+[run] 18:43:47 native peak music k=1
+[run] 18:43:47 native peak music k=8
+[run] 18:43:47 native kw music k=1
+[run] 18:43:47 native kw music k=4
+[run] 18:43:47 native kw music k=8
+[run] 18:43:48 native kw burst k=1
+[run] 18:43:48 native tp music k=1
+[run] 18:43:49 native tp music k=4
+[run] 18:43:49 native tp music k=8
+[run] 18:43:50 native both music k=1
+[run] 18:43:50 native both music k=4
+[run] 18:43:51 native both music k=8
+[run] 18:43:52 native both_gated music k=1
+[run] 18:43:52 native both_gated music k=4
+[run] 18:43:53 native both_gated music k=8
+[run] 18:43:54 native both_gated hot k=1
+[run] 18:43:54 native both_gated hot k=8
+[run] 18:43:55 native ebur_add music k=1
+[run] 18:43:56 native ebur_add music k=4
