@@ -367,6 +367,8 @@ export interface MusicBackend {
   releaseInstance(instance: number): void;
   /** Tell the worker which paths of an instance are protected from eviction (on each planner change of candidates, C8). */
   protect(instance: number, paths: readonly string[]): void;
+  /** The music ring pool's size (`preset.maxMusicRings` on the core); 0 on a backend without priming. */
+  readonly ringPool: number;
   /** Group and member events, delivered in `update()` after the status mirror is read. */
   onGroupEvent: ((e: MusicGroupEvent) => void) | null;
   /** Milliseconds: the page-wide prime estimator Ê (architecture §4.2), seeded at 40 on a new context. */
@@ -519,6 +521,12 @@ export interface AudioVoice {
    * Absent on a backend without stamped fades (`MusicBackendCaps.stampedFades`): callers use `fade`/`stop`.
    */
   fadeShaped?(f: ShapedFade): void;
+  /**
+   * ADR 0166 §4.6 (G-1): a stamped ramp of the voice's own gain and/or low-pass, with a law. `gain` multiplies the voice's
+   * dry gain (not the `fade` ramp); `lowpassHz` is a cutoff; `at` the heard time it starts (omitted: as soon as possible).
+   * Absent on a backend without stamped ramps (callers use `fade`).
+   */
+  paramsShaped?(r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLaw; at?: number }): void;
 }
 
 /**
@@ -575,6 +583,10 @@ export interface AudioBackend {
   readonly automation?: AutomationSink;
   /** ADR 0158: a loaded clip's length in seconds at pitch 1, or null while it isn't known (still loading, streaming). */
   clipDuration?(path: string): number | null;
+  /** ADR 0166 (G-1): the clock's frame-interval average Δ̄, seconds. Absent: callers estimate it. */
+  frameInterval?(): number;
+  /** ADR 0166 (G-1): a loaded clip's facts, or undefined while unknown (not loaded, failed). `gapless`: its length is exact. */
+  clipFacts?(path: string): { frames: number; rate: number; channels: number; gapless: boolean } | undefined;
   /** ADR 0158: the earliest audio-clock time (`time`'s base) a play with `at` lands on exactly, for gapless chains. */
   horizon?(): number;
 

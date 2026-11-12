@@ -56,7 +56,7 @@ import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
 import type { AudioSettings, BusEffect } from "../../../../engine/audio/settings";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioPanner, AudioStatus, AudioVoice, ListenerPose, MusicBackend, PlayRequest, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioPanner, AudioStatus, AudioVoice, FadeLaw, ListenerPose, MusicBackend, PlayRequest, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import {
   BUS_LP_OFF_HZ,
@@ -1035,6 +1035,17 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.writer.clear();
   }
 
+  /** ADR 0166 (G-1): Δ̄, seconds (the clock map's frame-interval EMA). */
+  frameInterval(): number {
+    return this.clockMap.frameIntervalMs / 1000;
+  }
+
+  /** ADR 0166 (G-1): a decoded clip's facts; its length is exact (decoded to PCM), so it is gapless. Undefined while unknown. */
+  clipFacts(path: string): { frames: number; rate: number; channels: number; gapless: boolean } | undefined {
+    const info = this.clips.infoByPath?.(path);
+    return info ? { frames: info.frames, rate: info.sampleRate, channels: info.channels, gapless: true } : undefined;
+  }
+
   /** ADR 0158: the clip's length in seconds at pitch 1 once the registry has decoded it; null while unknown (or streamed). */
   clipDuration(path: string): number | null {
     return this.clips.duration?.(path) ?? null;
@@ -1803,6 +1814,11 @@ class Voice extends AudioHandle implements CoreVoice {
   /** ADR 0166 §4.2 (Q2): a shaped, stamped fade of the `fade` ramp (`musicOps.fadeShaped`, P1). */
   fadeShaped(f: ShapedFade): void {
     if (this.backend.table.isLive(this.id)) this.backend.musicOps.fadeShaped(this.id, f);
+  }
+
+  /** ADR 0166 (G-1): a stamped gain and/or low-pass ramp with a law (`musicOps.paramsShaped`). */
+  paramsShaped(r: { gain?: number; lowpassHz?: number; seconds: number; law?: FadeLaw; at?: number }): void {
+    if (this.backend.table.isLive(this.id)) this.backend.musicOps.paramsShaped(this.id, r);
   }
 
   // ADR 0162 (K0, K4): main's M3 results and options.

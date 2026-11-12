@@ -258,7 +258,11 @@ export class CommandWriter implements VoiceCommandSink {
 
   /** PLAY at `atFrame` (an absolute audio frame, stamped) or asap (omitted). */
   play(args: PlayArgs, atFrame?: number): void {
-    this.playWith(args, args.gate ?? 0, atFrame);
+    // A gated PLAY joins its group's run so `flush` never splits the group across two BATCHes (P1).
+    const gate = args.gate ?? 0;
+    this.curGroup = gateGroupId(gate);
+    this.playWith(args, gate, atFrame);
+    this.curGroup = 0;
   }
 
   /** Writes a PLAY with the given `gate` word (the scratch record; `args.gate` is not read here). */
