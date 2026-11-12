@@ -1,6 +1,6 @@
 # S0: M5 prior art (profiler, loudness, live mix, sidechain, bus automation)
 
-Research only. Goal: [docs/design/0170-audio-mix/goal.md](../../../docs/design/0170-audio-mix/goal.md). Shape follows `spikes/audio-music/research/README.md`.
+Research only. Goal: [docs/design/0171-audio-mix/goal.md](../../../docs/design/0171-audio-mix/goal.md). Shape follows `spikes/audio-music/research/README.md`.
 
 ## Evidence status
 

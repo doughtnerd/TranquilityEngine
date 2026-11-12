@@ -1,6 +1,6 @@
 # Audio M5 (profiler and live mix) spikes
 
-Step 2 of the M5 design pipeline: the survey, and the measurements that the decision record (0170, provisional number) and the technical design will cite. The owner confirmed the goal on 2026-11-12 in [docs/design/0170-audio-mix/goal.md](../../docs/design/0170-audio-mix/goal.md). The shared rules for the spike agents are in [BRIEFS.md](BRIEFS.md).
+Step 2 of the M5 design pipeline: the survey, and the measurements that the decision record (0171; 0170 went to the shedding-ladder fix) and the technical design will cite. The owner confirmed the goal on 2026-11-12 in [docs/design/0171-audio-mix/goal.md](../../docs/design/0171-audio-mix/goal.md). The shared rules for the spike agents are in [BRIEFS.md](BRIEFS.md).
 
 Each sub-spike has its own README with its method, raw tables and an unverified list. This file collects the answers.
 

@@ -1,6 +1,6 @@
 # Audio M5 (profiler and live mix) spikes: shared ground rules for every spike agent
 
-Step 2 of the M5 design pipeline. The owner-confirmed goal is in [docs/design/0170-audio-mix/goal.md](../../docs/design/0170-audio-mix/goal.md): read it first, including its "What exists today" table. M4's spikes are the model for layout and evidence: read [spikes/audio-music/README.md](../audio-music/README.md) (top section) and look at `spikes/audio-music/cost/` (Cargo.toml with path deps on `native/audio/crates/*`, `run.mjs`) and `spikes/audio-spatial/bed/worklet/` (the Chromium AudioWorklet harness).
+Step 2 of the M5 design pipeline. The owner-confirmed goal is in [docs/design/0171-audio-mix/goal.md](../../docs/design/0171-audio-mix/goal.md): read it first, including its "What exists today" table. M4's spikes are the model for layout and evidence: read [spikes/audio-music/README.md](../audio-music/README.md) (top section) and look at `spikes/audio-music/cost/` (Cargo.toml with path deps on `native/audio/crates/*`, `run.mjs`) and `spikes/audio-spatial/bed/worklet/` (the Chromium AudioWorklet harness).
 
 ## Rules
 - **Write only inside your own folder** `spikes/audio-mix/<name>/`. Touch nothing else in the repository (no edits to `src/`, `native/`, `package.json`). **Do not commit.** Use only file, shell and test tools.

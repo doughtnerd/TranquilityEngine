@@ -1,6 +1,6 @@
 # Audio M5 (profiler and live mix): goal and constraints
 
-This is step 1 of the design pipeline, the goal interview (owner answers 2026-11-12). **Status: draft for the owner's confirmation.** The record number 0170 is provisional: it is the next free number after master's 0169 on 2026-11-12, and is re-checked before the record is written.
+This is step 1 of the design pipeline, the goal interview (owner answers 2026-11-12). **Status: confirmed by the owner, 2026-11-12.** The record is 0171 (0170 went to the shedding-ladder fix on master the same day).
 
 The decision record and the technical design build on this statement. Where they differ, this statement wins until the owner changes it.
 
