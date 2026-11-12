@@ -1232,6 +1232,8 @@ class BabylonMusic implements MusicBackend {
   onGroupEvent: ((e: MusicGroupEvent) => void) | null = null;
   /** No prime is ever timed here; the core's seed. */
   readonly primeEmaMs = 40;
+  /** No music ring pool on the fallback (streamed stems play as HTML5 audio): the planner skips its pool check. */
+  readonly ringPool = 0;
   private readonly groups = new Map<number, MusicGroup>();
   private readonly queue: MusicGroupEvent[] = [];
 
