@@ -35,12 +35,29 @@
 // - **Stamp** plays every member through `CoreBackend.play` with `music` set, back to back, then the first fades: the
 //   members' PLAYs are consecutive records with one frame and one gate (`decoratePlay` packs it), so the writer keeps
 //   them in one BATCH.
-import type { MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, MusicPrimedState, AudioVoice, ShapedFade, FadeLaw as FadeLawName } from "../backend";
+//
+// P9's part (architecture §3.7, §8; `music/background.ts` re-plans):
+// - **Rebuild and rate change.** `reopenStreams` (the Replayer's hand-off, C16) calls `reopenGroups` once per rebuild,
+//   with or without member voices. Every live group died with the old core: its members leave the maps, their voices
+//   are freed quietly (no `end` events: nothing ended, the group moves), their rings return to the pool mirror, and the
+//   worker closes their streams (`cancelGroup`; the encoded cache stays, the worker outlives a core rebuild). Ê goes
+//   back to its seed (a new context), and the players re-plan their playing segment at the heard position
+//   (`recoverGroups`). The cause is `rate` when the context's rate changed since the last look, else `rebuild`.
+// - **Worker crash.** Every stream fails at once (`decoderClient.failStreams`): a stream error on a music member while
+//   the decoder's `generation` differs from the one the last `primeGroup` went to is a crash, not a stem failure.
+//   Nothing is done inside the client's handler: the next `beginFrame` drops every group (member voices still on the
+//   core take a 5 ms stop, decoded ones too, so the group re-enters whole), forgets which paths the worker held (its
+//   cache died with it), and recovers with cause `crash`.
+// - **Abandon.** A `groupStarts` abandon goes to the router first (which cancels the run), then its player goes to
+//   `groupAbandoned` and is recovered in the same `beginFrame` (`recoverAbandoned`).
+// - The music side gets a small `AudioBackend` view of this backend (`time`, `horizon`, `frameInterval`, `clockMap`,
+//   `music`): the frame it plans with outside the frame steps.
+import type { AudioBackend, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, MusicPrimedState, AudioVoice, ShapedFade, FadeLaw as FadeLawName } from "../backend";
 import type { CommandWriter, PlayArgs } from "./commandWriter";
 import type { ClockMap } from "./clock";
 import type { StatusMirror } from "./mirror";
 import type { StreamDecoderLike, StreamManager } from "./streams";
-import { MAX_STAMPED, StampedKind, STAMPED_FLAG_STOP_AT_END, type VoiceTable } from "./voiceTable";
+import { MAX_STAMPED, StampedKind, STAMPED_FLAG_STOP_AT_END, VoiceReason, type VoiceTable } from "./voiceTable";
 import type { WorkletChannel } from "./workletChannel";
 import type { WarnOnce } from "./codecs";
 import type { CorePlayRequest, CoreVoice } from "./coreBackend";
@@ -48,6 +65,8 @@ import { FadeLaw, packGate, packShape, SET_PARAMS_MASK_GAIN, SET_PARAMS_MASK_LP_
 import { hintFromName, MUSIC_ENCODED_BUDGET_MIB, type MusicReply, type PrimeGroupMember } from "../decoder/protocol";
 import type { StreamReply } from "../decoder/decoderClient";
 import { MUSIC_RINGS_PRESETS } from "../../../../engine/audio/settings";
+import { groupAbandoned, recoverAbandoned, recoverGroups } from "../music/background";
+import { liveRun } from "../music/segmentRun";
 
 /** Ê's seed on a new context, milliseconds (architecture §4.1). */
 export const PRIME_EMA_SEED_MS = 40;
@@ -197,8 +216,33 @@ export class CoreMusicOps implements MusicBackend {
   private subscribed: StreamDecoderLike | null = null;
   private unsubscribe: (() => void)[] = [];
   private readonly sink = { groupStart: (id: number, flags: number, slip: number, frame: number) => this.groupStart(id, flags, slip, frame) };
+  /** P9: the context's rate at the last look (a rebuild at another rate is a `rate` recovery). */
+  private rate: number;
+  /** P9: the decoder's `generation` the last `primeGroup` went to (a stream error under another is a crash). */
+  private primedGeneration = -1;
+  /** P9: a crash noticed in the decoder's handler, recovered at the next `beginFrame`. */
+  private crashPending = false;
+  /** P9: what the music side plans with outside the frame steps (see the header). */
+  private readonly view: AudioBackend;
 
-  constructor(private readonly host: MusicOpsHost) {}
+  constructor(private readonly host: MusicOpsHost) {
+    this.rate = host.sampleRate();
+    const clock = host.clockMap;
+    this.view = {
+      name: "core",
+      music: this,
+      clockMap: clock,
+      get time() {
+        return clock.audioTime();
+      },
+      horizon(): number {
+        const now = clock.framesNow();
+        if (!(now > 0)) return clock.audioTime();
+        return Math.ceil(now + clock.lookaheadFrames()) / clock.sampleRate + clock.timeOffset;
+      },
+      frameInterval: () => clock.frameIntervalMs / 1000,
+    } as unknown as AudioBackend;
+  }
 
   /** Ê, milliseconds (architecture §4.2): the page-wide prime estimator, seeded at 40 on a new context. */
   get primeEmaMs(): number {
@@ -337,6 +381,7 @@ export class CoreMusicOps implements MusicBackend {
    * `onGroupEvent`. The second call in a frame finds nothing new.
    */
   beginFrame(): void {
+    if (this.crashPending) this.reopen("crash");
     const mirror = this.host.mirror;
     if (mirror.blocks !== this.lastBlocks) {
       this.lastBlocks = mirror.blocks;
@@ -347,7 +392,17 @@ export class CoreMusicOps implements MusicBackend {
     const out = this.events.splice(0);
     const fn = this.onGroupEvent;
     if (!fn) return;
-    for (const e of out) fn(e);
+    let abandons = false;
+    for (const e of out) {
+      // P9: the player whose group the core gave up on, looked up before the router releases the run.
+      const player = e.kind === "abandon" ? (liveRun(e.group)?.player ?? null) : null;
+      fn(e);
+      if (player) {
+        groupAbandoned(player, e.group);
+        abandons = true;
+      }
+    }
+    if (abandons) recoverAbandoned(this.view);
   }
 
   ownsVoice(id: number): boolean {
@@ -482,7 +537,56 @@ export class CoreMusicOps implements MusicBackend {
 
   /** P9: a hard rebuild (or a new decoder worker): reopen every live music group as a group (`music/background.ts`). */
   reopenGroups(): void {
-    // STUB(P9)
+    this.reopen(this.crashPending ? "crash" : this.host.sampleRate() !== this.rate ? "rate" : "rebuild");
+  }
+
+  /** P9: every live group is dead (see the header): forget them, reset Ê, and have the players re-plan. */
+  private reopen(cause: "rebuild" | "crash" | "rate"): void {
+    this.crashPending = false;
+    this.rate = this.host.sampleRate();
+    this.resetPrimeEma();
+    const crash = cause === "crash";
+    if (crash) this.held.clear();
+    this.detachAll(crash);
+    // Events of the dead groups (ends, errors) would only confuse the router.
+    this.events.length = 0;
+    recoverGroups(this.view, cause);
+  }
+
+  /**
+   * P9: drop every group without events. After a rebuild the voices are on no core: freed at once. After a crash they
+   * still play on the core (streamed ones starved): a 5 ms stop; the worker's streams are already gone.
+   */
+  private detachAll(crash: boolean): void {
+    const t = this.host.table;
+    const decoder = crash ? null : (this.subscribed ?? this.tryDecoder());
+    for (const g of [...this.groups.values()]) {
+      let open = false;
+      for (const m of g.members) {
+        const id = m.voice;
+        const handle = m.handle;
+        if (id !== 0) {
+          this.byVoice.delete(id);
+          if (t.isLive(id)) t.musicGroup[id & 0xffff] = 0;
+        }
+        if (m.streamed) {
+          this.byStream.delete(m.stream);
+          if (m.ring) {
+            open = true;
+            this.releaseRing(m);
+            if (id !== 0) decoder?.closeStream(m.stream);
+          }
+        }
+        m.voice = 0;
+        m.handle = null;
+        if (id !== 0 && t.isLive(id)) {
+          if (crash) handle?.stop(0.005);
+          else t.free(id, VoiceReason.NONE);
+        }
+      }
+      if (open) decoder?.cancelGroup?.(g.id);
+      this.groups.delete(g.id);
+    }
   }
 
   debugView(): MusicOpsDebugView {
@@ -579,6 +683,7 @@ export class CoreMusicOps implements MusicBackend {
       }
       if (members.length === 0) return;
       decoder.primeGroup!({ instance: g.instance, group: g.id, retarget, members, ...(protect ? { protect } : {}), budgetBytes: encodedBudgetBytes(this.host.musicRings()) });
+      this.primedGeneration = decoder.generation;
     };
     if (paths.length === 0) return finish(new Map());
     Promise.all(paths.map((p) => this.host.fetchBytes(p).then((b) => [p, b] as const))).then(
@@ -609,6 +714,11 @@ export class CoreMusicOps implements MusicBackend {
     if (r.type !== "error") return;
     const m = this.byStream.get(r.streamId);
     if (!m) return;
+    // P9: the worker died (every stream fails at once, under a new generation): recovered at the next beginFrame.
+    if (this.subscribed !== null && this.primedGeneration >= 0 && this.subscribed.generation !== this.primedGeneration) {
+      this.crashPending = true;
+      return;
+    }
     this.events.push({ kind: "error", group: m.group, member: m.index, message: r.message });
   }
 

@@ -361,6 +361,8 @@ export class Replayer {
   private readonly back: number[] = [];
   /** B3: live stream voices, reopened at the next `flush` (once the clock, and a new context's timeline, is known). */
   private streams: number[] = [];
+  /** ADR 0166 P9: `reopenStreams` is still owed for this rebuild (the music groups' hand-off), voices or not. */
+  private handOff = false;
   private readonly builder: ReplayBuilder;
   private trapFrame = 0;
   /** Bumped by each `restore`, so clip listeners from an earlier rebuild do nothing. */
@@ -462,6 +464,9 @@ export class Replayer {
 
     this.postHeader();
     this.streams = streams;
+    // ADR 0166 P9 (C16): the hand-off runs once per rebuild even with no member voice listed, so a group still priming
+    // (no voice yet) is re-primed too (`reopenStreams([])` reopens no stream and calls `musicOps.reopenGroups`).
+    this.handOff = true;
 
     // §3.6: resident clips go back ordered by their live voices' priority (the registry puts the HRIR first).
     const order = [...priorityOf.keys()].sort((a, b) => priorityOf.get(b)! - priorityOf.get(a)!);
@@ -512,9 +517,10 @@ export class Replayer {
    * F = *F*_now + L, each PLAY starting where the voice would be at F. Returns how many voices it replayed.
    */
   flush(): number {
-    if (this.streams.length > 0 && this.settleTimeline()) {
+    if ((this.streams.length > 0 || this.handOff) && this.settleTimeline()) {
       const streams = this.streams;
       this.streams = [];
+      this.handOff = false;
       this.src.reopenStreams?.(streams);
       this.stats.replayed += streams.length;
     }
