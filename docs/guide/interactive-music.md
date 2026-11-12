@@ -19,7 +19,7 @@ This page documents the first part of interactive music (milestone M4a plus the 
 
 | Built and public | Coming later |
 | --- | --- |
-| Segments with a tempo map, cues and stems; forever and counted loops (`count`), several regions, loop tails (`tailBeats`) | `while` loops: the format reads them, the player loops the region by its `count` |
+| Segments with a tempo map, cues and stems; forever and counted loops (`count`), `while` loops, several regions, loop tails (`tailBeats`) | |
 | Playlists (sequence, random, shuffle), with the rule's enter, fades and bridge on each advance | |
 | Music switches on a labelled parameter | |
 | Transition rules: exit, enter, quantised cut, crossfade, curves, bridges; `handle.music.seek` within the playing segment | |
@@ -145,7 +145,15 @@ Bounce the stems with the audio after the loop end left in (the reverb and decay
 
 A segment with no region plays once. Then it ends, or hands over to the next item of a [playlist](#playlists). A forever loop never reaches its exit by itself, so a playlist never advances past a segment with one: leave a looping item for last, use a counted loop, or change segments with a [switch or a script](#transitions).
 
-*Coming later:* `while` (`{ "parameter": "Boss", "is": "alive" }`, or `atLeast` or `below` for a numeric parameter) to keep looping while a condition holds. It is read, validated and written back by the editor, but today the player loops the region by its `count` (forever for 0) whatever the condition.
+**Looping while a condition holds.** `while` keeps a region looping only while a parameter of the event says so:
+
+```json
+"regions": [{ "id": "loop", "from": "1:1:0", "to": "9:1:0", "count": 0, "tailBeats": 4, "while": { "parameter": "Boss", "is": "alive" } }]
+```
+
+`is` compares a labelled parameter's label (a numeric parameter's value as text); `atLeast` and `below` compare a numeric parameter (`{ "parameter": "Danger", "atLeast": 0.5 }` loops while Danger is 0.5 or more). The condition is read once per pass, just before the loop end: one look-ahead plus a frame plus 10 ms before it (about 60 ms at 60 frames a second). If it no longer holds, that pass is the last: the region doesn't wrap, and the music plays on past `to` on the same sample, through the audio after the loop end (no tail is played for that wrap: the music plays into the same audio itself) and on to the exit cue, where the segment ends or its playlist moves on. A change made after that moment waits for the next pass, and so does one missed because the game stalled over it. `count` still caps the passes: `count: 4` with a `while` loops at most four passes, fewer if the condition goes false first. A parameter the event doesn't have (or `atLeast` on a labelled one) is warned about once and the region loops by its `count`. Decoded and streamed stems release on the same sample. The Babylon fallback releases the loop too, without sample-exact timing.
+
+The Sound Lab's loop event (`samples/sound-lab/audio/music/music-loop.audioevent.json`) loops a two-bar body while its local parameter `Loop` is `hold`; key L on the music page sets it to `release`.
 
 ## Quantised automation
 
