@@ -17,9 +17,9 @@ Its companion, `api-and-models.md` (**[API]**), owns every byte, name and format
 - The bus mix order is "deepest first, ties by index" (`audio-core/src/bus.rs:386-399`). Each bus runs pre-effects hook, effects, snapshot low-pass, gain ramp, automation gain, peak meter, sum into the parent (`bus.rs:529-584`); then the shared reverb return, MASTER and the limiter (`bus.rs:585-620`). So the root's meter misses the reverb return and the limiter.
 - BUS_CONFIG is already applied in place: a kept index keeps its gain, effect state and meter; removed buses go silent; new ones start at unity (`bus.rs:277-331`, S4 "What today's code does"). Indices are positions in `project.json` (`core/coreBackend.ts:765-801`).
 - The core keeps `max_buses` = 32 on every preset (`core/context.ts:92`), equal to the project's limit (`engine/audio/settings.ts:209`), and at most 4 effects per bus (`bus.rs` module doc, S4).
-- Today's ducking is decided on main from voice counts (`engine/audio/mixer.ts:200-213`), which include virtual and locked voices (`coreBackend.ts:778-780`). Fades are linear in volume (`mixer.ts:186-188`), snapshot transitions linear (`:192-198`), the duck an exponential approach (`:208-211`).
+- Today's ducking is decided on main from voice counts (`engine/audio/mixer.ts:200-213`), which include virtual and locked voices (`coreBackend.ts:777-780`). Fades are linear in volume (`mixer.ts:186-188`), snapshot transitions linear (`:192-198`), the duck an exponential approach (`:208-211`).
 - `mixer.configure` clears script volumes, fades and the snapshot (`mixer.ts:80-90`); `Engine.create` calls it once (`engine/core/Engine.ts:185-186`).
-- The ladder's steps live in `bed.rs` (bed idle) and `zones.rs` (tail cut, one zone fewer), triggered after 1 s of underruns with the cap at its floor (`zones.rs:50-58, 109`), and come back under `cap_controller.rs`'s `LadderRecovery` (ADR 0170).
+- The ladder's steps live in `bed.rs` (bed idle) and `zones.rs` (tail cut, one zone fewer), triggered after 1 s of underruns with the cap at its floor (`zones.rs:50-58, 110`), and come back under `cap_controller.rs`'s `LadderRecovery` (ADR 0170).
 - The macOS desktop editor defaults to the Babylon backend (`settings.ts:224, 244-246`).
 
 **Industry practice.** The owner's rule is to follow Wwise, FMOD, Unity and Unreal unless a measurement says otherwise; §12 says where M5 differs.
@@ -220,7 +220,7 @@ sequenceDiagram
 - **Affected roots:** the moved bus for a re-parent; the edited bus for effect edits and send removal; the children being re-parented for a mid-tree insert; the removed bus for a removal. A **voice** moved to another bus (an AudioSource's `bus` edited) dips alone with its own FADE records (class G, [A166 §4.4]): out 20 ms, SET_PARAMS bus at the end, in 20 ms.
 - **Effects need no stable slots.** Under the dip the edited bus's chain is rewritten whole and its filter and compressor state may reset: S4's slot-shift clicks (-19 dBFS) came from a reset at full gain, and here the reset happens at gain 0. Only buses need stable indices. The click test in M5c checks it (C25).
 - **Apply at a quantum boundary.** The core applies the stamped structural record at the start of the first quantum at or after its frame, while the gate lanes hold 0; nothing splits and `splitQuanta` stays 0 (C16). The dip therefore lasts 40 ms plus at most one quantum.
-- **Removing the last reverb send** no longer cuts the tail: the shared convolver keeps running until its input has been silent for the IR's length plus a margin, as zones do (`zones.rs:111-115`), and is reset when it stops, so a later send doesn't replay a stale tail (S4 live table, "remove last send").
+- **Removing the last reverb send** no longer cuts the tail: the shared convolver keeps running until its input has been silent for the IR's length plus a margin, as zones do (`zones.rs:113-116`), and is reset when it stops, so a later send doesn't replay a stale tail (S4 live table, "remove last send").
 
 ### 3.4 Rebuild with slot-table replay
 
@@ -479,7 +479,7 @@ A ramp starts **from the lane's value at its start frame**, so a retarget mid-ra
 
 Record change 29 (amending 0162 and 0170). The ladder gains a step **before** the bed-idle step: **pause non-master loudness metering**. While it is in force the core skips K-weighting, sub-blocks and true peak on every metered bus except master; sidechain detectors and the duck lane are never shed.
 
-- **Trigger and spacing:** the ladder's own (cap at its floor, underruns for 1 s, `zones.rs:109`); the next step follows after another second as today.
+- **Trigger and spacing:** the ladder's own (cap at its floor, underruns for 1 s, `zones.rs:110`); the next step follows after another second as today.
 - **Skipped when it saves nothing:** with only master metered, the step isn't taken and the ladder starts at the bed step as today. Otherwise it would delay the audible steps by 1 s for no saving.
 - **Given back last** under ADR 0170 (zone 2, zone 1, bed, then loudness), so all four are back 80 s after the last underrun.
 - **What it saves:** up to 8 buses' taps, ≈ 10–25 µs container p50–p99 gated, 45 µs p99 full ([S1]), 0.2 ms on the floor (§7.1). Small, but inaudible, which is the point (architect RFC 8).
@@ -556,8 +556,224 @@ Record change 29 (amending 0162 and 0170). The ladder gains a step **before** th
 | | level rules | ≤ 8 (budget bound) | [S4] worst; C17 |
 | Slots | core slots | 32 on every preset | `context.ts:92`; `settings.ts:209` |
 | | effects per bus | 4 | `bus.rs` module doc |
-| Reverb | run-out | IR length + `IDLE_MARGIN_QUANTA` of silent input | `zones.rs:111-115` |
+| Reverb | run-out | IR length + `IDLE_MARGIN_QUANTA` of silent input | `zones.rs:113-116` |
 | Ladder | new step | first; skipped with master only; given back last | record change 29 |
-| | trigger; hold | 1 s; 20 s (40–160 s on re-trip) | `zones.rs:109`; ADR 0170 |
+| | trigger; hold | 1 s; 20 s (40–160 s on re-trip) | `zones.rs:110`; ADR 0170 |
 | STATUS | buffer | 20 KB × 8 (+32 KB) | record change 28 |
 | Main | recorder; loudness stats; editor drawing | ≤ 1 ms/s at 1,024 voices; ≤ 50 µs/s; ≤ 2 ms per frame | record §3, §8, change 10 |
+
+## 6. Memory
+
+| Item | Formula | Low / default / high |
+|---|---|---|
+| Recorder ring (main, only while recording or held) | §4.2 | 4 / 16 / 32 MB; 16 MB at most on a 2 GB device |
+| Save, transient | one copy of the live span + compressed output | ≤ ring size + 0.27 / 0.84 / 2.45 MB per minute recorded at 64 / 256 / 1,024 voices ([S3] "Compressed", **raw stream** column) |
+| Capture Worker (editor) | decompressed file + segment index + overview tracks | ≤ 64 MB + ≈ 2–5 MB (est.) |
+| STATUS pool (worklet) | 8 × (20 − 16) KB | +32 KB (record change 28) |
+| Core: loudness | 9 × (1,512 B state + 32 × 4 B ring) | 14.8 KB on every preset |
+| Core: lanes, duck followers, detectors | 32 buses × ≈ 240 B + a 512 B curve scratch | ≈ 8 KB (est.) |
+| Main: loudness histograms | 9 × 24 kB | 216 kB ([S1]) |
+| Main: CPU ring, refit, slot table | 32 samples × 7 values × 8 B; a 5 × 5 solve; 32 rows | < 8 KB |
+| Shell: busy ring | 96 × u16 | 192 B |
+| Mixer wasm | loudness ≈ 21 KB ([S], before wasm-opt) + lanes, sidechain, sort, glides (est. 6–10 KB, [U]: S4 didn't measure size) | ≈ 345–349 KB from 318,306 B (goal.md; M4's last build-log entry says 312.3 KB, `docs/design/0166-audio-music/build-log.md:810`), past the 320 KB tripwire: the build log records why (CLAUDE.md) |
+| Recorder module (JS) | lazy `import()` | ≈ 15–30 KB minified (est.); **0** in a game that never captures (record §7) |
+
+**Saved file size changes with record change 2.** The record's "0.08 / 0.15 / 0.25 MB per minute saved" is S3's delta-encoded figure. With raw STATUS (change 2) a saved minute is **0.27 / 0.84 / 2.45 MB** compressed ([S3] "Compressed" table, raw column): a full 32 MB ring at 1,024 voices (2.8 minutes) saves to ≈ 7 MB, at 64 voices (14 minutes) to ≈ 4 MB (est.). Both are small for a file; §13 item 2.
+
+## 7. Performance
+
+### 7.1 The model
+
+Container µs are [S]'s wasm p50 / p99; instructions are metered and load-independent; floor µs = instructions × 0.6 ns (est., see the preamble).
+
+| Term (per quantum) | Instructions | µs container p50 / p99 | µs floor (est.) | Source |
+|---|---|---|---|---|
+| Loudness, master (full true peak) | 42.6k | 2.2 / 3.1 | 25.6 | [S1] |
+| Loudness, a bus with gated true peak, ordinary content | 23.9k | ≈ 1.3 / 3.1 (8-bus figure ÷ 8, est.) | 14.3 | [S1] |
+| Loudness, a bus on hot content or full true peak | 42.6k | ≈ 2.6 / 5.6 (÷ 8, est.) | 25.6 | [S1]; record change 30 |
+| Sidechain, one level rule (peak; RMS 6.8k) | 8.1k | 0.79 | 4.9 | [S4] |
+| Duck gain applied to a target | 1.0k | 0.13 | 0.6 | [S4] |
+| Sidechain, 8 level rules on one target | 90.9k | 5.0 / 11.4 | 54.5 | [S4] |
+| Presence rule (flag, one-pole per quantum) | ≈ 0.2k | < 0.05 | 0.1 | est. |
+| A ramping lane (stamped, any start sample) | 1.7–1.8k | 0.11–0.23 | 1.1 | [S4] |
+| Today's ramping bus (`Ramp::next`), for comparison | 5.4k | 0.22 | 3.2 | [S4] |
+| Parameter glide, per filter per gliding quantum | +0.37k | < 0.05 | 0.2 | [S4] |
+| Work-unit totals (core); busy ring (shell JS) | ≈ 0.05k; not metered | ≈ 0.2 (shell) | ≈ 1.6 (×8, est.) | [S2]; est. |
+
+Not counted, available: today's settled branch costs 6.7k instructions per bus with a gain ≠ 1, more than a ramp (S4 "Side finding"); a vectorised scalar multiply is bit-identical and would save ≈ 5k per such bus (est.).
+
+### 7.2 Scenes (every preset)
+
+Every preset may meter master and up to 8 buses (record change 29), so the scenes don't depend on the preset; the ladder's first step sheds the non-master part under pressure.
+
+| Scene | Contents | Instructions | Floor (est.) | Container p50 / p99 | Allowance |
+|---|---|---|---|---|---|
+| Typical | master + 3 gated buses; 2 level rules; 2 lanes ramping | 114.3k + 17.2k − 7.2k ≈ **124k** | 75 µs (2.8 % of a quantum) | ≈ 7.5 / 15 µs (est.) | **0.015 ms** (record §8) |
+| Worst | master + **8** full; 8 level rules; a snapshot over 32 buses + 8 fades | 383.4k + 90.9k − 101k ≈ **375k** (lanes −101k against today's 32 × 5.4k, est.) | 225 µs (8.4 %) | ≈ 30 / 62 µs (lanes' saving ignored) | **0.10 ms** (this design; the record says 0.09 for master + 7) |
+
+**Why the worst allowance moves.** The record's worst case is "master + 7 full" (§8), written before change 12 made it master **plus** 8. Nine full taps at p99 are ≈ 50.6 µs (S1's 8-bus 45.0 × 9/8, est.); with the 50 % headroom rule the loudness line is 0.08 ms, and M5's total 0.10 ms. It is a tripwire move for the build log, not a design limit (CLAUDE.md). The record's "default / low" row (0.015 / 0.005 typical, 0.05 / 0.01 worst) assumed low meters master only, which change 29 superseded.
+
+### 7.3 Main thread, editor and Worker
+
+| Item | Measured or estimated | Per second at 64 / 256 / 1,024 voices | Target |
+|---|---|---|---|
+| STATUS copy into the ring (32-bit words through the handler's `DataView`) | S3's memcpy 0.6 / 1.4 / 3.2 µs p50; the word copy est. 1.5× [U] | 0.06 / 0.13 / 0.30 ms | |
+| Keyframe | 5.5 / 18 / 63 µs p50 [S3] | 0.01 / 0.02 / 0.06 ms | |
+| Events | 0.1–0.2 µs × 92 / 269 / 1,175 per second [S3] | 0.01 / 0.05 / 0.24 ms | |
+| Loudness statistics, 9 buses | est. | ≤ 0.05 ms | ≤ 50 µs/s (record §8) |
+| CPU windows and refit | est. 0.1 µs per STATUS + 5 µs per window | 0.03 ms | |
+| **Recorder total** | | **≈ 0.16 / 0.28 / 0.68 ms** (est.; S3 ran at load ≈ 2) | **≤ 1 ms/s at 1,024 voices**, zero allocation per block (record §3) |
+| On the floor (×8, est.) | | ≈ 1.3 / 2.2 / 5.4 ms | not gated (unverified) |
+
+- **Editor drawing ≤ 2 ms a frame** (record change 10): one canvas per view; the timeline appends new columns and blits the rest; the Mixer strip draws every meter in one pass; Preact renders only on structural changes (selection, a bus added), never per STATUS block.
+- **Capture Worker:** open ≤ 2 s and seek < 16 ms off the UI thread; the UI receives one compact snapshot per seek.
+- **Save:** one copy of the span (≈ 5–10 ms for 32 MB, est.) and chunked compression; browser `CompressionStream` speed is [U] (S3 measured Node only).
+
+### 7.4 Benchmark method and the re-measurements owed
+
+Three tiers, as M4 ([A166 §7.4]): the metered bench in CI (new scenes gated at 10 %), the lab VM for p99.9 (the owner's), the floor device for real-device numbers (unverified until a device exists, ADR 0169).
+
+Record change 31 asks for runs no spike made. Each is short and changes a number this design cites:
+
+| Run | Settles | Cost |
+|---|---|---|
+| M5 metered scenes on the real core (typical, worst, ladder step in force) | §7.2's instruction totals | part of M5-0's and M5b's bench tasks; minutes |
+| S3's timings re-run idle, with the word copy | §7.3's recorder line and the `DataView` copy choice | ≈ 4 min (S3 README) |
+| Real-scene capture rates (sound-lab and stress through the loopback host) | §4.2's durations, §6's saved sizes | ≈ 5 min |
+| Main-to-worklet post latency under a busy editor frame | the fader gate's last term [U] | one Playwright spec, ≈ 1 min |
+| The CPU line against a fake clock, and against a known load on the real core | §4.3's error band on the real core | a unit test + ≈ 3 min |
+| The floor conversion (preamble) | every floor µs here | ≈ 15 min, the owner's Pixel 8 profile |
+
+## 8. Failure modes
+
+| Failure | Detection | Handling | User-visible | Counter |
+|---|---|---|---|---|
+| Ring full | writer | evict oldest whole segments | timeline starts later; file marked truncated | `segmentsEvicted`, `truncated` |
+| Record larger than 256 KB | writer | not written; gap record | a hole at that second | `recordsDropped` |
+| Recorder fails to load or allocate | `import()`, allocation | `start()` rejects with the reason | the panel's empty state says why | — |
+| Second owner starts | recorder | joins the ring, marker | none | — |
+| STATUS undecodable | decoder throws | raw bytes still recorded; block skipped live | none live; the Worker reports it | `statusDecodeErrors` |
+| Pool empty, posts skipped | shell | core keeps queues and loudness cursors | none | `skipped` (shell stats) |
+| Main stall > 3.2 s | loudness `seq` jump | oldest sub-blocks lost | `incomplete` on affected meters | `loudnessLost` |
+| Wall-clock step | clamp | that quantum counts 0 | none | `clockSteps` |
+| Coarse clock | clock step | widen to 1 s or hide the line | "clock too coarse (n ms)" | — |
+| Rebuild (trap, stall, device, rate, latency, mode) | recovery | EPOCH + keyframe; windows and feeds restart; slot table replayed at end states | the rebuild's own gap; integrated continues | existing recovery counters |
+| Edit during a rebuild | slot table | queued; the replay applies the end state | applied when the core is back | — |
+| `pause` while hidden | visibility | gap record | elapsed pauses | — |
+| MASTER ≠ 1, muted, hidden mute | backend state | target check suspended; MASTER recorded | "target check paused" | — |
+| Monitor control active | strip | `tainted` on affected meters | banner; tainted readings marked | — |
+| Bus addition with no free slot; a fifth effect | slot table; diff | kept in `project.json`, not applied live | "applies at next Play" on the bus | `liveRefused` |
+| Due list full of bus records | core | applied at the quantum's start | none (≤ 2.7 ms early) | `busRecordsEarly` |
+| Level-rule cycle reaching the core | sort | last edge dropped; that rule reads the previous quantum | none (≤ 2.7 ms late) | `sidechainLate` |
+| Last reverb send removed | core | convolver runs to silence, then resets | the tail rings out | — |
+| Compressor parameter step | core | 20 ms glide | none | — |
+| Ladder under pressure | ladder | non-master loudness pauses first | `paused` (shed), then `incomplete` | STATUS loudness step (C13) |
+| Capture from another wire | header | refused with both versions | "re-record with this build" | — |
+| Capture corrupt, or a deflate bomb | Worker bounds, 64 MB cap | refused with the reason; the editor stays responsive | message | — |
+| Capture's mix differs from the open project | audio section compare | warn, open anyway | banner | — |
+| Save fails (quota, permission) | Storage, download | `save()` rejects; the ring is kept | message | — |
+| `CompressionStream` missing | feature test | save uncompressed, flagged in the header (C7) | a larger file | — |
+| Android release build | — | the file is saved to app data and can't be pulled without a share sheet (owner decision 3) | the guide says so | — |
+| Babylon backend | backend kind | profiler without STATUS; `metered = false`; presence ducking on main | "no audio core" in each view | capability flags |
+
+## 9. Observability
+
+- **Capability flags** (record change 32, C23): `loudness`, `levelDucking`, `cpu` (with a reason when false: no core, clock too coarse, not yet measured), `stampedBusRamps`.
+- **`Audio.debug()` additions** (C23): the recorder (state, owners, bytes, segments, evicted, truncated); CPU (`loadPermille` and its window, clock step, `clockSteps`, refit residual); loudness per metered bus (readings and flags); the slot table (live, tombstones, `liveRefused`); `sidechainLate`, `busRecordsEarly`; the ladder state including the loudness step.
+- **Profiler tracks** (record §3, changes 8 and 9): underruns, late commands and `minSlackFrames` first; `loadPermille` labelled with its window; section shares as "estimated share"; voices with reasons; ladder and cap; bus levels, gain factors and loudness with flags; events, music, mix ops and markers; gaps and epochs drawn as breaks.
+
+**Health thresholds** (debug panel and Profiler):
+
+| Signal | Green | Amber | Red |
+|---|---|---|---|
+| underruns, late commands | 0 | — | any |
+| `loadPermille` (256 ms) | < 500 | 500–800 | > 800 |
+| `minSlackFrames` | > 64 | 1–64 | ≤ 0 |
+| loudness `incomplete`, `tainted` | no | yes | — |
+| integrated vs target | within tolerance | outside, < 2× tolerance | ≥ 2× tolerance |
+| max true peak vs ceiling | below | — | above |
+| `liveRefused`, `segmentsEvicted` | 0 | non-zero | — |
+| `sidechainLate`, `busRecordsEarly`, `recordsDropped` | 0 | — | any (a bug or a pathological scene) |
+
+The `loadPermille` bands are this design's (est.): above 800 permille a 256 ms average already hides quanta over budget.
+
+## 10. Platform matrix
+
+| | Core: Chromium desktop (Chrome, Edge, WebView2) | Core: Android WebView | Core: WebKit (Safari, WKWebView, WebKitGTK) | Core: Firefox | Babylon fallback |
+|---|---|---|---|---|---|
+| Stream, keyframes, events | full | full | full | full | main events and keyframes, no STATUS |
+| CPU line | 1 ms clock, 256 ms window [S2] | [U] | [U]; hidden if coarse | 1 ms [U]; 2 ms with resistFingerprinting → 1 s window [U] | absent, "no audio core" |
+| Loudness, true peak | full | full; floor cost §7.2 | full | full | `metered = false` |
+| Level-mode ducking | full | full | full | full | unavailable; presence on main as today |
+| Gain lanes, stamped ramps | full | full | full | full | lanes composed on main into one gain; stamped through `AudioParam` automation where Babylon exposes it [U] |
+| Live direct edits | full | n/a (editor) | full | full | volumes, mutes, filters |
+| Structural edits | dip | n/a | dip | dip | graph rebuilt; may click (best effort) |
+| Ring sizing | `deviceMemory` | `deviceMemory` | preset size | preset size | as the core |
+| Saving | download; app data in Tauri (WebView2) | app data (`Storage`); adb on debug builds [U] | download; app data in Tauri | download | same |
+| Opening captures | web and desktop editor | — | desktop editor on macOS and Linux | web editor | same |
+| Evidence | S1–S4, headless Chromium | none | not run | not run | — |
+
+The macOS desktop editor runs WebKit and defaults to the Babylon backend (`settings.ts:224`), so profiling the core there needs `audio.backend: "core"`; its CPU line is unverified (record change 7). WebKit and Firefox runs are owed at milestone ends.
+
+## 11. Extension points
+
+| Extension | M5 provides |
+|---|---|
+| Live editor↔device link (roadmap) | the stream's framing on paper (§4.1): HELLO = header, seq, gap (dropped), keyframe resync, in-stream names |
+| Snapshot stacking (roadmap, owner decision 7) | lane S becomes a product of per-snapshot lanes with intensity; the due list already carries per-lane records |
+| Cross-origin isolation | a per-quantum SharedArrayBuffer timer can replace the busy ring; the totals keep their meaning |
+| Effect editing in the Mixer strip (deferred, owner decision 5) | the same ops and the same dip path |
+| More metered buses | the take and the histograms are per bus; the 9-bus bound is a validation limit and a budget, not a structure |
+| Replay against the engine (non-goal, record change 9) | mix-op records and the audio section at start are what a replay would need |
+
+## 12. Where M5 follows or differs from industry practice
+
+| Area | Follows | Differs, and why |
+|---|---|---|
+| Profiler data | a timestamped stream scrubbed with a cursor and saved to a file (Wwise, FMOD Studio, Unreal `.utrace`) [S0, U] | raw STATUS blocks rather than a compact encoding, for zero allocation and simplicity (record change 2) |
+| CPU | FMOD Core's per-category CPU [S0] | categories are estimated shares of one measured figure, because the worklet has no fine timer [S2] |
+| Loudness | FMOD's Loudness Meter: on chosen buses; reset, pause, analyse; M, S, I, LRA, max true peak [S0] | master is always metered, after the limiter; non-master true peak is gated (cost) and reported as a lower bound below the ceiling |
+| Live mixing | Unity's "Edit in Play Mode" keeps edits; Wwise and FMOD edit project data live [S0] | always on, no toggle (owner); structural edits dip their subtree for 20 ms instead of crossfading |
+| Monitor mute and solo | mixing-desk monitor controls (Wwise's Mixing Desk) [U] | readings they affect are marked `tainted` |
+| Sidechain | Godot's same-pass sidechain read, FMOD's envelope follower [S0] | the bus order puts level triggers first, so no rule reads a quantum late; presence mode kept, as Wwise's auto-ducking |
+| Ramps | sample-accurate scheduled automation (Web Audio's `AudioParam`, FMOD's DSP clock) | one due list for voices and buses (M4-0's mechanism) |
+
+## 13. For the owner
+
+Each item changes behaviour, scope or schedule, or corrects the record's settled text with evidence. Design trade-offs between the two documents go to the coordinator.
+
+1. **M5-0's trigger-first sort fixes no presence-mode delay** (record change 26; the handoff's "presence ordering lands in M5-0").
+   - **Evidence:** presence ducking is decided on main from voice counts (`mixer.ts:200-213`), and in the core (§4.6) from a flag main sends. Neither reads a bus signal, so bus order can't delay it. S4's one-quantum delay is for an in-core *detector* reading its trigger's buffer (`spikes/audio-mix/mix-core/README.md` §1, "Ordering"). The challenger's point D, which change 26 adopted, cited only the top-level spike README.
+   - **Options:** (a) keep the sort in M5-0 as core work that level mode needs, tested by order and detector unit tests; (b) move it to M5c with level mode.
+   - **Recommendation:** (a). It is cheap, it touches the same BUS_CONFIG code as the slot work, and it keeps M5c's ABI change small.
+   - **Net effect:** no schedule change; the stated benefit of M5-0's sort becomes "prepares level mode".
+
+2. **The record's capture numbers predate change 2.**
+   - **Evidence:** with raw STATUS, a saved minute is 0.27 / 0.84 / 2.45 MB at 64 / 256 / 1,024 voices, not 0.08 / 0.15 / 0.25 (S3's "Compressed" table, raw column). With M5's STATUS additions a 32 MB ring holds ≈ 14 minutes at 64 voices, not 18 (§4.2).
+   - **Options:** (a) accept files of a few MB and §4.2's durations; (b) add a save-time delta pass in the Worker for S3's smaller files (≈ +1 person-week, est.).
+   - **Recommendation:** (a). The files stay small enough to attach to a bug report.
+   - **Net effect:** the record's numbers are restated; nothing new is built.
+
+3. **The worst case meters nine buses, not eight** (record §8 against change 12).
+   - **Evidence:** §8's budget assumes "master + 7"; change 12 says master **plus** up to 8.
+   - **Options:** (a) keep master + 8 and move M5's worst allowance to 0.10 ms (§7.2), a tripwire move for the build log; (b) go back to "8 including master".
+   - **Recommendation:** (a). The settled scope is master plus 8, and the ladder sheds the extra cost first.
+   - **Net effect:** a 0.01 ms tripwire move, recorded; no behaviour change.
+
+4. **Validation refuses every level-rule cycle, not only an ancestor trigger** (record change 24).
+   - **Evidence:** two level rules can loop through the bus order (A ducks B and B ducks A), which the record's rule doesn't catch (§4.6).
+   - **Options:** (a) refuse any cycle among level rules, the message naming the rules; (b) allow it, and let the closing rule read the previous quantum.
+   - **Recommendation:** (a), consistent with the record's refusal of the ancestor case; (b) stays as the core's defence.
+   - **Net effect:** a few more project files are refused, with a message; presence rules are unaffected.
+
+5. **A live addition with no free core slot is kept in the project and applied at the next Play** (record change 17 says "refused visibly").
+   - **Evidence:** with 32 core slots on every preset and a 32-bus project limit (`context.ts:92`, `settings.ts:209`), it happens only while removed buses' tombstones wait (≈ 40 ms), or for a fifth effect on a bus.
+   - **Options:** (a) keep the edit and mark the bus "applies at next Play"; (b) refuse the edit itself.
+   - **Recommendation:** (a). The edit is legal in the file, and refusing it would lose the user's work.
+   - **Net effect:** a rare case shows a badge instead of an error.
+
+6. **The ladder's audible steps start up to a second later when buses are metered** (record change 29).
+   - **Evidence:** the ladder takes one step per second of underruns (`zones.rs:110`), and the new step comes first.
+   - **Options:** (a) as designed: skip the step when only master is metered, otherwise take it first; (b) take the loudness step together with the bed step, so the audible steps' timing doesn't move.
+   - **Recommendation:** (a). It is what the record asks, and a struggling device stops metering before anything is heard.
+   - **Net effect:** under sustained overload with buses metered, the bed and zone steps arrive 1 s later.
