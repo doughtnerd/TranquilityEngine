@@ -295,3 +295,13 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 - **The sound-lab sample's Intensity automation is quantised to the beat again**; `audio-events.spec.ts` passes on both backends.
 - Coordinator checks: typecheck 0; `src/plugins/audio` 2,387 pass; `zoneIr` flaked once under load and passed alone (with eventBench, 16 of 16).
 
+
+**Wave 6 started** (rolling, base `03138580`, after M4-0's merge to master):
+- C2c + C2d (strongest, one lead): `group_hold.rs`, `group_rebase.rs`. No `voices.rs` edits while F-8 holds it; a needed `voices.rs` change comes back as a patch.
+- C3 (strongest): the alignment harness, mixed and late-start goldens now; the held and rebased null cases after C2c + C2d merge.
+- T1 (mid): music loopback tests on a deterministic-clock fixture.
+- D2 (mid, prose): `docs/guide/interactive-music.md`.
+- Ed5 (mid): transport, audition and the Trigger button.
+- G-2 (mid): the coordinator's wiring list.
+- F-8 continues in `voices.rs`.
+- E1 waits for T1's fixture.
