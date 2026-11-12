@@ -39,6 +39,7 @@ Numbered; superseded entries are marked, not rewritten.
 - **D11 (W6) The editor tells the runtime about changed assets through `Assets.onChanged`/`Assets.notifyChanged`** (`engine/scene/Assets.ts`, both `@internal`, not exported from `src/engine/index.ts`). The editor project's `writeText`/`writeFile`/`writeBinary` call `notifyChanged` after the content is served. G-2 found no existing editor-to-runtime channel; music hot reload (P8) and `clipRegistry.invalidate` (R4c) subscribe to it. Renames, moves and deletes don't notify yet. Revert: move the hook to an editor-owned service, if a later editor record defines one.
 - **D12 (W6) The metered baseline was rewritten from F-8's merge, and D10's revert is withdrawn.** F-8 found that `7f75fe72`'s baseline was stale: many scenes hadn't been rewritten since M1/M2 (`virtual` 7,102,981 dates from `142a03dc`). The same bench built from M3's source (`1ef1c615`, toolchain 1.99.1) gives `virtual` 7,482,907. So D10's +11.79% was about +5.3% earlier drift plus about +6.1% from H1. After F-8, `virtual` is +1.20% over true M3 (about 11 instructions per virtual voice, all attributed); every other scene is within ±0.15%, and `streams` is −9%. Revert: none wanted.
 - **D13 (owner, 2026-11-12) Milestone merges keep going straight to master**, as a merge commit pushed by the coordinator, although that bypasses master's "changes must be made through a pull request" rule. Asked after the M4a push showed the bypass; the owner chose a direct push over a pull request or holding for them. Revert: open a pull request per milestone instead.
+- **D14 (W7, R3b's reading) A playlist's natural advance under the default rule is a gapless cut.** Explicit rules, including a written `*→*`, apply their fades and bridge. Why: read literally, §2.4's default 1-beat fade-in would fade every item of a rule-less playlist in from silence (T1's playlist loopback would fail, and no one wants that). Also: a bridge's exit at its exit cue is faded (otherwise `bridge.fadeOut` could never act), unlike R3a's direct exit at the exit cue, whose tail rings on. Revert: apply the default rule's fades to natural advances too.
 
 ## Wave 0 (2026-11-11, base `origin/master` `c3f2e9b`)
 
@@ -501,3 +502,21 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 - **Tests:** `loopTail.loopback.test.ts`, 5 cases on the real core, each within 1e-6 of a reference built from the clip: a counted loop with tails; two regions; a refused span; `handle.stop`; a ringing playlist item.
 - **For R4b:** set `player.regions.released` at the commit point in `tickRegions` (it runs before `tickLoopTails`). The streamed members' release goes through `sink.setLoop` → `streams.setLoop`, which no test covers yet; check it. Holding spans at prime time would avoid a skipped first tail after a slow decode.
 - Checks: typecheck 0; `src/plugins/audio` 2,476 pass (`audioDebugRows` hit a vitest cache collision; 16 of 16 pass on retry); check:links passes.
+
+**K1 merged** (`m4/k1` `2a6876b3`): `music/beatClock.ts`.
+- **API for K2:** `predictDue(player, kind, now, Δ̄, out)` fires the latest due event per kind (`missed` counts the rest; `skippedCues`), re-syncs its own cursors and adds to `counters.missedBeats`. Also `seatBeats` (on the first subscription), `resyncBeats`, and `player.beats.held` (Rh1's flag; the backlog arrives as one call on release).
+- **For K3:** `heardRunAt(player, time)` returns `{run, anchor, grid}`; K3 then calls `ticksAt`.
+- **S4 met on the spike's recorded S3 trace** (`spikes/audio-music/beat-clock/extract-trace.mjs` → `testing/traces/s3-interactive-60s.json`, replayed through the real `ClockMap`), matching the spike exactly: steady beats 66 of 69 in the ideal frame (3 one frame early); tempo-change 5 of 5; transition 35 of 35; 0 missed, doubled or phantom; grid error 0.0 µs.
+- Synthesised traces from S3's distributions: 100% ideal. Rougher-than-measured cases: within one frame, 0/0/0. Loopback: each click predicted once, on its sample, in the right frame, across a tempo change and a switch.
+- F-18 doesn't affect it (K1 never reads playheads). Test rigs `testing/beatRig.ts` and `jitterTrace.ts` are for K4.
+
+**R3b merged** (`m4/r3b` `94a97209`).
+- **Bridges** run as two legs chained through the planner. A → bridge lands on A's exit with the rule's fades; bridge → B is asked for once the bridge is stamped, lands on the bridge's exit cue with `bridge.fadeOut`/`fadeIn` (each left out is the rule's). States: `pending` → `stamped` → `running` → `bridging` → `done`.
+- **Pool full keeps A:** B must be admitted at leg 1's cancel point, or the change is dropped (the bridge's group cancelled, one warning). A streamed bridge that frees enough rings commits and asks for B when A's voices end.
+- Playlist targets go through `enterPlaylist`. **Natural playlist advances go through `requestTransition({natural: true})`** (D14). Additive API: `TransitionOptions.onDropped`, `Transition.cause`, `ringingOut(player)`.
+- **SM2's question settled:** the A→bridge seam takes the rule's fades, the bridge→B seam the bridge's (a table in the guide). The sample's calm→combat bridge has 0-beat bridge fades, so combat lands at full level on the riser's last sample.
+- **Tests:** 8 unit tests and `bridge.loopback.test.ts` (4): the A→bridge cut exact; bridge→B crossfade 1.30e-5 (limit 2e-5); pool full keeps A; natural-advance fade-in 1.74e-5; the sample's rule as shipped.
+- **Coordinator at merge:** resolved the guide's status table (R4a's and R3b's rows), and updated the sound-lab's "coming later" comments in `MusicLab.ts` and `soundLabMusic.test.ts`. Checks: typecheck 0; music, events and sound-lab vitest 477 pass; check:links passes.
+
+**Wave 7 exit met:** a bridge seam is exact and pool-full keeps A (R3b); a tail rings over the wrap (R4a); S4 on recorded traces (K1). No Rust changed in W7, so the wasm is unchanged; the full suites run at M4b's milestone end.
+
