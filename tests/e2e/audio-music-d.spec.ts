@@ -165,7 +165,7 @@ test("segment view: a tempo, metre and grid-offset edit in the segment panel is 
     return ((await page.locator(".segment-readout").textContent()) ?? "").trim().split(/\s+/)[0];
   };
   const before = await readout();
-  await menu(page, "Window", "Segment Properties"); // nothing else opens it: the view's "Open segment view" shows the view only
+  await showTab(page, /^Segment Properties/); // "Open segment view" shows the properties panel beside the view
   await expect(page.getByRole("region", { name: "Tempo" })).toBeVisible();
   await expect(field(page, "Tempo")).toHaveValue("120");
   expect((await readSong(page)).root.children[0].tempo).toEqual([{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }]);
@@ -185,7 +185,7 @@ test("segment view: a tempo, metre and grid-offset edit in the segment panel is 
   // The view follows the panel: the same spot of the ruler now reads another bar:beat:tick (the grid moved).
   await showTab(page, /^Segment$/);
   await expect.poll(readout).not.toBe(before);
-  await menu(page, "Window", "Segment Properties");
+  await showTab(page, /^Segment Properties/);
 
   // A refused value says why and writes nothing.
   await commitText(page, "Tempo", "5000");
@@ -204,6 +204,11 @@ test("segment view: a tempo, metre and grid-offset edit in the segment panel is 
   await expect.poll(async () => (await tempoA(page)).bpm).toBe(120);
   await menu(page, "Edit", /^Redo/);
   await expect.poll(async () => (await tempoA(page)).bpm).toBe(100);
+  // Ctrl+Z with the segment view focused reaches the same document.
+  await showTab(page, /^Segment$/);
+  await page.locator(".segment-toolbar").click({ position: { x: 2, y: 2 } });
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await tempoA(page)).bpm).toBe(120);
   expect(problems).toEqual([]);
 });
 
@@ -251,10 +256,10 @@ test("rules table: a rule added and edited is written to the event, and audition
   await expect.poll(async () => (await readSong(page)).root.transitions[1].enter).toBe("sameTime");
 
   // Audition rule 1: B is started and the switch asked for A.
-  await editor.getByRole("textbox", { name: "Audition from bar", exact: true }).fill("2"); // from bar 1 the request lands while the music is still priming: see the report
+  // "Audition from bar" stays blank: the default start, bar 1.
   await record(page);
   await editor.getByRole("button", { name: "Audition this transition" }).click();
-  await expect(editor.locator(".re-hint")).toContainText("Starts in B, then sets State to “A”. Playing from bar 2.");
+  await expect(editor.locator(".re-hint")).toContainText("Starts in B, then sets State to “A”. Playing from the start.");
   await expect.poll(async () => (await rows(page)).some((r) => r.segment === "B"), { timeout: 30_000 }).toBe(true);
   await expect.poll(async () => (await rows(page)).some((r) => r.pending?.to === "A"), { timeout: 30_000 }).toBe(true);
   const pend = (await rows(page)).find((r) => r.pending?.to === "A")!.pending!;
@@ -265,18 +270,16 @@ test("rules table: a rule added and edited is written to the event, and audition
   // Audition the authored rule 0 (A to B) too: a second run, another pending change, naming rule 0 with its own settings.
   await page.getByRole("listitem").filter({ hasText: "#0" }).first().click();
   const first = page.getByRole("region", { name: "Rule 0" });
-  await first.getByRole("textbox", { name: "Audition from bar", exact: true }).fill("2");
   await record(page);
   await first.getByRole("button", { name: "Audition this transition" }).click();
   await expect(first.locator(".re-hint")).toContainText("Starts in A, then sets State to “B”");
   await expect.poll(async () => (await rows(page)).find((r) => r.pending?.to === "B")?.pending, { timeout: 30_000 }).toMatchObject({ to: "B", rule: 0, ruleKey: "A>B", exit: "bar", enter: "entryCue" });
   await expect.poll(async () => (await rows(page)).some((r) => r.segment === "B" && r.pending === null), { timeout: 30_000 }).toBe(true);
 
-  // Undo, with the Event editor focused (the Rules panel marks no asset document, so Ctrl+Z there reaches nothing: see the
-  // report): the enter edit, the exit edit and the add each go in one step; the grid shows B to A back at the default rule.
-  await showTab(page, /^Audio Event/);
+  // Undo, with the Rules panel focused: the enter edit, the exit edit and the add each go in one step; the grid shows B to A
+  // back at the default rule.
   const undoInEditor = async () => {
-    await page.getByTestId("event-tree").focus();
+    await page.getByRole("heading", { name: "world: transitions" }).click();
     await page.keyboard.press("Control+z");
   };
   await undoInEditor();
@@ -285,7 +288,6 @@ test("rules table: a rule added and edited is written to the event, and audition
   await expect.poll(async () => (await readSong(page)).root.transitions[1].exit).toBeUndefined();
   await undoInEditor();
   await expect.poll(async () => (await readSong(page)).root.transitions.length).toBe(1);
-  await showTab(page, /^Transition Rules/);
   await expect(cell("B", "A")).toHaveText("default");
   expect(problems).toEqual([]);
 });
@@ -341,7 +343,7 @@ test("music import: a clip dropped on the Assets panel and onto a segment's stem
 
   // The segment is empty, on the default grid.
   await page.getByTestId("open-segment-view").click();
-  await menu(page, "Window", "Segment Properties");
+  await showTab(page, /^Segment Properties/);
   const stems = page.getByRole("region", { name: "Stems" });
   await expect(stems.locator(".sp-stem")).toHaveCount(0);
   await expect(field(page, "Tempo")).toHaveValue("120");

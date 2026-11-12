@@ -235,7 +235,10 @@ export function createTransport(host: TransportHost): Transport {
         return;
       }
       trySeek();
-      if (pendingParameter && !pendingSeek && h.setParameter) {
+      // Held until the segment the play started in is the one sounding: while the music primes `segment` is null, and a
+      // parameter set then makes it start in the target (no transition to audition).
+      const sourcePlaying = !h.music || h.music.segment === state.value.segmentId;
+      if (pendingParameter && !pendingSeek && sourcePlaying && h.setParameter) {
         const { name, value } = pendingParameter;
         pendingParameter = null;
         try { h.setParameter(name, value); } catch { /* the instance ended between the check and the call */ }

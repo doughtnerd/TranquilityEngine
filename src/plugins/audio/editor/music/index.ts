@@ -14,9 +14,12 @@ export const SEGMENT_VIEW_PANEL = "audiosegment";
 export const SEGMENT_PANEL = "audiosegmentpanel";
 export const RULES_PANEL = "audiorules";
 
-/** Open segment `segmentId` of the event `event` in the segment view and bring it forward. */
+/** Open segment `segmentId` of the event `event` in the segment view, bring it forward and show its Segment Properties beside it. */
 export function openSegmentView(event: string, segmentId: string): void {
   openSegment.value = { event, segmentId };
+  // Properties joins the view's dock when first shown (`beside`), so the view goes first; the view ends in front.
+  editor.showPanel(SEGMENT_VIEW_PANEL);
+  editor.showPanel(SEGMENT_PANEL);
   editor.showPanel(SEGMENT_VIEW_PANEL);
 }
 
