@@ -19,13 +19,14 @@
 import type { AudioBackend, MusicBackend } from "../backend";
 import type { MusicEvent, MusicHandle, MusicKind } from "../../../../engine/audio/musicTypes";
 import type { EventInstance } from "../events/eventRuntime";
-import { createMusicHandle } from "./handle";
+import { createMusicHandle, segmentGrid } from "./handle";
+import { entrySeconds } from "../../../../engine/audio/musicGrid";
 import { applyReloads } from "./reload";
-import { tickSwitch, type SwitchState } from "./musicSwitch";
-import { tickPlaylist, type PlaylistState } from "./playlist";
+import { childFor, createSwitchState, tickSwitch, type SwitchState } from "./musicSwitch";
+import { createPlaylistState, tickPlaylist, type PlaylistState } from "./playlist";
 import { tickRegions, type RegionState } from "./regions";
 import { tickTransition, type Transition } from "./transition";
-import { planTick, type PlannedStart } from "./planner";
+import { planTick, requestStart, type PlannedStart } from "./planner";
 import { tickLoopTails, type LoopTailState } from "./loopTail";
 import { tickStingers, type StingerState } from "./stingers";
 import { tickStems } from "./stems";
@@ -206,8 +207,8 @@ export function createMusicPlayer(instance: EventInstance, root: MusicNodeRef, o
     planned: null,
     anchor: null,
     transition: null,
-    playlist: null,
-    musicSwitch: null,
+    playlist: createPlaylistState(root, instance.group),
+    musicSwitch: createSwitchState(root),
     regions: null,
     tails: null,
     stingers: null,
@@ -299,6 +300,7 @@ export function musicPlanStep(backend: AudioBackend, dt: number): void {
  */
 export function tickPlayer(player: MusicPlayer, f: MusicFrame): void {
   applyReloads(player, f); // P8
+  startSwitchRoot(player, f); // P7: a switch root's first segment
   tickSwitch(player, f); // R2
   tickPlaylist(player, f); // P4
   tickRegions(player, f); // R4b
@@ -321,7 +323,43 @@ export function hiddenFrame(backend: AudioBackend): MusicFrame {
  * `Audio.time`, then this frame's group events from the status mirror (§6, R17). Runs only while music plays.
  */
 export function beginMusicFrame(backend: AudioBackend): void {
-  void backend; // STUB(P7)
+  backend.beginFrame?.(); // advances the clock map and reads the status mirror (group events go to `onGroupEvent`)
+  frameSerial++; // the handles' snapshots are this frame's from here
+}
+
+let frameSerial = 0;
+
+/** P7: counts the early steps; a handle's snapshot is recomputed on the first read after it moves. */
+export function musicFrameSerial(): number {
+  return frameSerial;
+}
+
+const warnedRoots = new WeakSet<MusicPlayer>();
+
+/**
+ * P7 (R2's note): a `musicSwitch` root starts its first segment through `childFor` (the parameter's child, else the
+ * default). `planTick` starts only segment roots. A child that is itself a container isn't started here (P4 owns the
+ * playlist descent): the player is refused with one warning.
+ */
+function startSwitchRoot(player: MusicPlayer, f: MusicFrame): void {
+  const state = player.musicSwitch;
+  if (!state || player.root.type !== "musicSwitch" || player.state !== "starting" || player.run || player.planned) return;
+  const id = childFor(state, player.instance.getParameter(state.parameter));
+  const child = (player.root as unknown as { children: MusicNodeRef[] }).children.find((c) => c.id === id);
+  if (!child || child.type !== "segment") {
+    player.state = "refused";
+    if (!warnedRoots.has(player)) {
+      warnedRoots.add(player);
+      console.warn(`[myco] Music "${player.instance.path}": the switch's first child "${id}" isn't a segment; nothing plays.`);
+    }
+    return;
+  }
+  const g = segmentGrid(child);
+  state.playing = child.id;
+  requestStart(player, {
+    to: child, reason: "start", grid: "immediate", notBefore: player.requestedAt, startFrame: 0,
+    preEntry: g ? Math.max(0, entrySeconds(g)) : 0,
+  }, f);
 }
 
 /**
