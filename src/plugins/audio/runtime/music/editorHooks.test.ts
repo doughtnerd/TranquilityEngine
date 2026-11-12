@@ -2,7 +2,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { EventInstance } from "../events/eventRuntime";
 import { newMusicContext, parseSegmentNode, type SegmentNode } from "../../../../engine/audio/musicFormat";
-import { startAtSegment } from "./editorHooks";
+import { startAtPosition, startAtSegment } from "./editorHooks";
+import type { PlanRequest } from "./planner";
+import { withStartPosition } from "./startPosition";
 import { _resetMusicPlayers, createMusicPlayer, type MusicNodeRef } from "./musicSystem";
 import { peekNext } from "./playlist";
 
@@ -50,5 +52,53 @@ describe("startAtSegment", () => {
     expect(startAtSegment({} as never, "a")).toBe(false);
     p.planned = {} as never;
     expect(startAtSegment(p.handle, "b")).toBe(false);
+  });
+});
+
+// F-41: the editor's "play from" starts the first segment at the position, once.
+describe("startAtPosition", () => {
+  const timed = (cue: string) => {
+    const node = parseSegmentNode({
+      type: "segment", id: "s", tempo: [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }],
+      cues: [{ name: "entry", at: cue }], entry: "entry", tracks: [{ name: "t0", clip: "music/s.ogg" }],
+    }, "test", newMusicContext());
+    if (!node) throw new Error("fixture segment did not parse");
+    return node;
+  };
+  const request = (to: SegmentNode, preEntry: number): PlanRequest => ({ to, reason: "start", grid: "immediate", notBefore: Number.NaN, startFrame: 0, preEntry });
+
+  it("moves the first start to the position, and a start at 1:1:0 is the plain start", () => {
+    const node = timed("1:1:0");
+    const p = player(node);
+    expect(withStartPosition(p, request(node, 0))).toEqual(request(node, 0)); // nothing recorded
+    expect(startAtPosition(p.handle, "2:1:0")).toBe(true);
+    const moved = withStartPosition(p, request(node, 0));
+    expect(moved.startFrame).toBe(2 * 48_000); // 2 s at 120 bpm, the fallback rate until the clip's facts are known
+    expect(moved.preEntry).toBe(0);
+    const q = player(node);
+    startAtPosition(q.handle, "1:1:0");
+    const same = withStartPosition(q, request(node, 0));
+    expect(same.startFrame).toBe(0);
+    expect(same.preEntry).toBe(0);
+  });
+
+  it("keeps the lead-in before a later entry cue only for the part the start doesn't skip", () => {
+    const node = timed("2:1:0");
+    const p = player(node);
+    startAtPosition(p.handle, "1:3:0"); // 1 s in, the entry at 2 s: 1 s of lead-in left
+    expect(withStartPosition(p, request(node, 2)).preEntry).toBeCloseTo(1, 6);
+    const q = player(node);
+    startAtPosition(q.handle, "2:1:0"); // from the entry itself: no lead-in
+    expect(withStartPosition(q, request(node, 2)).preEntry).toBe(0);
+  });
+
+  it("leaves the request alone for a position the segment doesn't have, and is false once the music started or for no player", () => {
+    const node = timed("1:1:0");
+    const p = player(node);
+    startAtPosition(p.handle, "1:9:0");
+    expect(withStartPosition(p, request(node, 0))).toEqual(request(node, 0));
+    expect(startAtPosition({} as never, "1:1:0")).toBe(false);
+    p.planned = {} as never;
+    expect(startAtPosition(p.handle, "2:1:0")).toBe(false);
   });
 });

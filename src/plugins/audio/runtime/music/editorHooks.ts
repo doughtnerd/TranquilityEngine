@@ -12,6 +12,7 @@ import { musicPlayers, type MusicNodeRef, type MusicPlayer } from "./musicSystem
 import { createPlaylistState, type PlaylistCursor } from "./playlist";
 import { nextIndex } from "./playlistOrder";
 import { setAudibleStems } from "./stems";
+import { startPositions } from "./startPosition";
 
 const playerOfHandle = (music: MusicHandle): MusicPlayer | null => musicPlayers().find((p) => p.handle === music) ?? null;
 
@@ -83,5 +84,17 @@ export function startAtSegment(music: MusicHandle, segmentId: string): boolean {
   }
   state.cursors.splice(0, state.cursors.length, ...cursors);
   state.peek = null;
+  return true;
+}
+
+/**
+ * F-41: start the music at `position` (`"bar:beat:tick"`) of its first segment instead of at the file's start: the first
+ * plan starts the group there, so there is no start followed by a seek. Call it right after `Audio.play` (and
+ * `startAtSegment`), before the first plan tick. False when the music already started or isn't a music handle.
+ */
+export function startAtPosition(music: MusicHandle, position: string): boolean {
+  const player = playerOfHandle(music);
+  if (!player || player.run || player.planned) return false;
+  startPositions.set(player, position);
   return true;
 }
