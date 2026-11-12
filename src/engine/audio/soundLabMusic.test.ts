@@ -2,7 +2,8 @@
 // without a problem, its clips exist with the facts the lint needs (read from the WAV headers `tools/makeMusic.mjs` writes),
 // and the lint finds nothing: the stems of a segment are one length, nothing needs a ring, no cue is past the audio.
 // The rules the world event authors (cut, three crossfade curves, a bridge, two stingers) and the loop event's `while`
-// region with a tail are checked here as data. Bridges (R3b) and tails (R4a) play; the `while` release waits for R4b.
+// region with a tail are checked here as data. Bridges (R3b), tails (R4a) and the `while` release (R4b) play; the loop
+// event's release is played sample-exact on the real core in `src/plugins/audio/runtime/music/regions.loopback.test.ts`.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";

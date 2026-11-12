@@ -18,8 +18,8 @@ import { Audio, GameBehavior, Input, Text, behavior, field, type AudioEventHandl
  *
  * Loop (L; `music-loop.audioevent.json`): a 2-bar loop region with a 1-bar TAIL (a crash and a chord) that rings over
  * the start of the next pass. It loops while the local parameter Loop is "hold"; L again sets it to "release", the loop is
- * left, and the segment plays on through its last bar and ends. (The tail rings now; the `while` release needs R4b: until
- * it lands the region loops forever and L's release does nothing.)
+ * left, and the segment plays on through its last bar and ends. The condition is read just before each loop end, so a
+ * release lands at the end of the pass playing when L is pressed (one pass later when pressed in the last ~60 ms of it).
  *
  * Playlist (P; `music-playlist.audioevent.json`): explore, calm and combat, two plays of two bars each, forever.
  *

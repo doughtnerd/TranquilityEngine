@@ -27,7 +27,8 @@
 //   the stream's next epoch for that splice. Main keeps the stream-frame → file-frame map that follows (`fileFrame`):
 //   seeks, `reopenStreams` after a hard rebuild and the playhead wrap read it. The release lands on the predicted frame;
 //   the prediction is exact while the voice neither starves nor changes pitch between the last STATUS and the end of the
-//   pass.
+//   pass. A music group member's stream isn't registered here (musicOps opened it): its loop changes go to
+//   `music.setLoop` (ADR 0166 R4b), which keeps its own map with the same `applyLoopChange` and reads `playheadOf`.
 // - **Ambisonic streams** (ADR 0162 B4, §2.4, §4.6). The open carries the sidecar's `ambisonic.convention`, so the
 //   worker converts FuMa per chunk and streams all 4, 9 or 16 channels into a wide ring of the core. `streamOpened`
 //   checks the channel count against the sidecar as the registry checks a clip's (`checkAmbisonic`: a mismatch fails
@@ -73,6 +74,12 @@ export interface MusicStreamEventSink {
   ownsStream(id: number): boolean;
   /** A STATUS stream event of a music member's stream, or code 4 for any stream. */
   onStreamEvent(id: number, code: number): void;
+  /**
+   * ADR 0166 (R4b): a music member's loop record changed (a region release or a new region, through
+   * `CoreAutomation.routeStreamLoop` → `setLoop`), asked for at context frame `at`. The member's stream is musicOps's,
+   * so the change goes there.
+   */
+  setLoop?(id: number, loop: LoopRecord, at: number): void;
 }
 
 /** @internal What the manager needs of the decoder client. */
@@ -108,13 +115,13 @@ export interface StreamManagerDeps {
 }
 
 /** E4.4: a loop region in file frames (`end` exclusive, resolved: never 0 once the file's length is known). */
-interface Region {
+export interface Region {
   readonly start: number;
   readonly end: number;
 }
 
 /** E4.4: from stream frame `stream` on, the stream plays file frame `file` on, looping `region` or not. */
-interface Segment {
+export interface Segment {
   readonly stream: number;
   readonly file: number;
   readonly loop: boolean;
@@ -225,6 +232,11 @@ export class StreamManager {
    */
   setLoop(streamId: number, loop: LoopRecord, at: number): void {
     const e = this.byStream.get(streamId);
+    if (!e && this.music?.ownsStream(streamId)) {
+      // ADR 0166 (R4b): a music group member's stream isn't registered here; musicOps owns it.
+      this.music.setLoop?.(streamId, loop, at);
+      return;
+    }
     if (!e || e.failed) return;
     e.record = loop;
     if (e.rate <= 0 || e.segments.length === 0) {
@@ -434,6 +446,11 @@ export class StreamManager {
     return this.deps.positionAt?.(voice, frame) ?? null;
   }
 
+  /** ADR 0166 (R4b): `playheadAt` for musicOps (a member's stream frame at context frame `frame`, or null). */
+  playheadOf(voice: number, frame: number): number | null {
+    return this.playheadAt(voice, frame);
+  }
+
   /** The region `e` loops by its record now (resolved against the file), or the whole file. */
   private regionNow(e: Entry): Region {
     return (e.rate > 0 ? regionOf(e.record, e.rate, e.frames) : null) ?? { start: 0, end: e.frames };
@@ -446,46 +463,11 @@ export class StreamManager {
   private sendLoop(streamId: number, e: Entry, at: number): void {
     const rec = e.record;
     if (!rec) return;
-    const segs = e.segments;
     const p0 = Number.isNaN(at) ? e.openFrame : this.playheadAt(e.voice, at);
-    const p = p0 === null || p0 === undefined ? null : Math.max(segs[0]!.stream, Math.floor(p0));
-    // The segment the voice is in at `p` (later ones are changes still ahead of it; the next one's start, a seam, ends its pass).
-    let k = segs.length - 1;
-    while (p !== null && k > 0 && segs[k]!.stream > p) k--;
-    const cur = segs[k]!;
-    const ahead = segs[k + 1];
-    const f = p === null ? 0 : fileAt(segs, p, e.frames);
     const region = this.regionNow(e);
-    let x: number | undefined;
-    let next: Segment | null = null;
-    if (p !== null && e.frames > 0) {
-      // Where the voice's current pass ends: its segment's seam, or a change still ahead (which begins with one).
-      const seam = cur.loop ? p + (cur.region.end - f) : Number.POSITIVE_INFINITY;
-      const stop = ahead ? Math.min(seam, ahead.stream) : seam;
-      const lin = (at: number) => (at === seam ? cur.region.end : f + (at - p)); // the file frame at `at` without a wrap
-      if (rec.looping) {
-        // A new region: its end, if the voice reaches it first in this pass, else the pass's end; there it jumps to
-        // the region's start unless it is inside the region already.
-        const end = f < region.end && p + (region.end - f) < stop ? p + (region.end - f) : stop;
-        if (Number.isFinite(end)) {
-          x = end;
-          const file = end === stop ? lin(end) : region.end;
-          next = { stream: x, file: file >= region.start && file < region.end ? file : region.start, loop: true, region };
-        }
-      } else if (Number.isFinite(stop)) {
-        x = stop;
-        next = { stream: x, file: lin(x), loop: false, region: cur.region };
-      }
-    }
+    const x = applyLoopChange(e.segments, p0, e.frames, region, rec.looping);
     e.loop = rec.looping;
     e.epoch = (e.epoch + 1) >>> 0;
-    if (next) {
-      while (segs.length > 1 && segs[segs.length - 1]!.stream >= next.stream) segs.pop();
-      segs.push(next);
-    } else if (segs.length > 0) {
-      // Where the worker is: the map can't know the frame; it follows the change from the voice's position.
-      segs.push({ stream: p ?? cur.stream, file: f, loop: rec.looping, region: rec.looping ? region : cur.region });
-    }
     this.subscribed?.loopStream?.(streamId, rec.looping, rec.looping ? region.start : undefined, rec.looping ? region.end : undefined, x);
   }
 
@@ -559,7 +541,7 @@ export class StreamManager {
 }
 
 /** A loop record (seconds) as a region of a file at `rate` with `frames` frames (0 unknown); null without a record. */
-function regionOf(rec: LoopRecord | null, rate: number, frames: number): Region | null {
+export function regionOf(rec: LoopRecord | null, rate: number, frames: number): Region | null {
   if (!rec) return null;
   let start = Math.max(0, Math.round(rec.start * rate));
   let end = rec.end > 0 ? Math.round(rec.end * rate) : frames;
@@ -569,6 +551,51 @@ function regionOf(rec: LoopRecord | null, rate: number, frames: number): Region 
     end = frames;
   }
   return { start, end };
+}
+
+/**
+ * E4.4 (shared with musicOps, R4b): a loop change (`looping` a new `region`, else a release) asked for at stream frame
+ * `p0` (the voice's playhead then; null or undefined: unknown) lands at the end of the voice's current pass. Extends
+ * the stream-frame → file-frame map `segs` (newest last, at least one segment) and returns that stream frame, or
+ * undefined when it can't be known (the worker then acts where it is decoding).
+ */
+export function applyLoopChange(segs: Segment[], p0: number | null | undefined, frames: number, region: Region, looping: boolean): number | undefined {
+  const p = p0 === null || p0 === undefined ? null : Math.max(segs[0]!.stream, Math.floor(p0));
+  // The segment the voice is in at `p` (later ones are changes still ahead of it; the next one's start, a seam, ends its pass).
+  let k = segs.length - 1;
+  while (p !== null && k > 0 && segs[k]!.stream > p) k--;
+  const cur = segs[k]!;
+  const ahead = segs[k + 1];
+  const f = p === null ? 0 : fileAt(segs, p, frames);
+  let x: number | undefined;
+  let next: Segment | null = null;
+  if (p !== null && frames > 0) {
+    // Where the voice's current pass ends: its segment's seam, or a change still ahead (which begins with one).
+    const seam = cur.loop ? p + (cur.region.end - f) : Number.POSITIVE_INFINITY;
+    const stop = ahead ? Math.min(seam, ahead.stream) : seam;
+    const lin = (at: number) => (at === seam ? cur.region.end : f + (at - p)); // the file frame at `at` without a wrap
+    if (looping) {
+      // A new region: its end, if the voice reaches it first in this pass, else the pass's end; there it jumps to
+      // the region's start unless it is inside the region already.
+      const end = f < region.end && p + (region.end - f) < stop ? p + (region.end - f) : stop;
+      if (Number.isFinite(end)) {
+        x = end;
+        const file = end === stop ? lin(end) : region.end;
+        next = { stream: x, file: file >= region.start && file < region.end ? file : region.start, loop: true, region };
+      }
+    } else if (Number.isFinite(stop)) {
+      x = stop;
+      next = { stream: x, file: lin(x), loop: false, region: cur.region };
+    }
+  }
+  if (next) {
+    while (segs.length > 1 && segs[segs.length - 1]!.stream >= next.stream) segs.pop();
+    segs.push(next);
+  } else if (segs.length > 0) {
+    // Where the worker is: the map can't know the frame; it follows the change from the voice's position.
+    segs.push({ stream: p ?? cur.stream, file: f, loop: looping, region: looping ? region : cur.region });
+  }
+  return x;
 }
 
 /** The file frame at stream frame `pos` by the map `segs` (newest last) of a `frames`-frame file. */
