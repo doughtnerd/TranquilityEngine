@@ -72,8 +72,11 @@ export function tickHidden(backend: AudioBackend): void {
   for (let k = 0; k < players.length; k++) {
     const p = players[k]!;
     const planned = p.planned;
+    const state = p.state;
     tickPlayer(p, f);
-    if (planned !== null && p.planned !== planned && planned.run.state === "stamped") bump(p.counters.recoveries, "hidden");
+    // A stamp in this tick: the plan it had, or a first start (or re-entry) planned and stamped at once (decoded).
+    const stamped = planned !== null ? p.planned !== planned && planned.run.state === "stamped" : state !== "committed" && p.state === "committed";
+    if (stamped) bump(p.counters.recoveries, "hidden");
     if (players[k] !== p) k--;
   }
   // No frame will flush it: the stamps go now (`background.ts` flushes MASTER the same way).
