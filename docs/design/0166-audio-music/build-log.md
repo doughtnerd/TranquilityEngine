@@ -464,3 +464,18 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 - **Still skipped:** priming, the gate and the ring pool; sample-exact stamps (`setTimeout` steps, no latency correction); region loops and alignment on streamed stems; stem low-pass (warned once); beat callbacks (B3); music debug rows.
 - **Limit:** a stem's fade and params ramps share one native volume, so overlapping ramps cut each other short.
 - Tests: 5 unit cases and one Babylon e2e case (a switch on a bar line, a stinger).
+
+**Ed7 merged** (`m4/ed7` `cbfa7f48`):
+- **`RuleEditor.tsx`** edits one rule: from and to, exit and enter, fades with curve and offset, and the bridge with its own fades. The edits are pure, checked against the parser's limits and round-tripped through the format, with refusals shown inline. Add, duplicate, move and remove; one undo step per edit.
+- **`ruleLint.ts`:**
+  - errors: `missingFrom`, `missingTo`, `missingBridge`, `missingCue`;
+  - warnings: `duplicate`, `shadowed`, `unreachable`, `noCues`, `bridgeEmpty`, `bridgeMetre`, `bridgeTempo`, `bridgeLength`, `fadeTooLong`;
+  - notes: `wildcardOnly`, `exitIgnored`.
+  The badges and list are in `RulesTable.tsx`.
+- **`ruleAudition.ts`** plays from two bars before the exit cue (or a chosen bar) through Ed5's transport and asks for the target once the seek lands (`Transport.requestParameter`).
+- **Limits:** root containers only; a playlist only for its first two items (F-15); the segment view's unmount also stops a Rules-panel audition. `shadowed` almost never fires, because `duplicate` is the practical shadow check; kept as Ed6 asked.
+- Tests: editor vitest 35 files, 473 tests. Not driven in a browser yet (E2 in W8).
+- (Ed7's own build-log entry was dropped at merge.)
+
+**Coordinator:** after B2, an audio vitest run under load (4 agents) failed `hrtfLoopback`, `streamRebuild` and `zoneIr`; all 14 tests pass alone.
+
