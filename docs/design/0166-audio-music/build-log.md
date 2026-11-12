@@ -442,3 +442,5 @@ Every metered scene dropped (total −1.47%). The baseline was rewritten (D12). 
 - **Milestone-end checks** (above): every failure explained. `codefiles` (F-19) fixed in the spec; `piratesSample`, `audio-core` and `audio-stress` pass alone; F-11 is open.
 - **Merged to master** as a merge commit (O2), per the standing instruction. Owner items open: the listening sections M4-0 and M4a, and WebKit.
 
+
+**Wave 7 started** (base `08aaa694`, M4a on master): R3b (strongest: bridges, and natural playlist advances through the rule; granted `playlist.ts`), R4a (strongest: loop tails, counted loops, tail voices tracked; F-7e), K1 (strongest: beat clock), R7 (mid: seek on H5; may help F-15), B2 (mid: Babylon music), SM2 (mid: the sound-lab music scene and `tools/makeMusic.mjs`), Ed7 (mid: rule editor, lint, transition audition). Each task updates `interactive-music.md`'s "coming later" entries for what it builds.
