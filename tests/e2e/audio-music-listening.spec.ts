@@ -2,7 +2,7 @@ import { expect, type Page, play, test } from "./fixtures";
 import { addAssets, audioDebug as fullDebug, bootSample, FLAPPY, pauseWorkers, peakOver as peakOverFull, playlist3, readLate, startEvent, stems8, watchConsole } from "./audioMusic";
 
 // The interactive-music milestones' listening sections (ADR 0166/0167; waves plan, "Owner procedures"): one case per
-// milestone, grown a case at a time (M4a, M4b, M4c follow). Each case is an owner-run page and a headless walker in one:
+// milestone, grown a case at a time (M4a and M4b are here, M4c follows). Each case is an owner-run page and a headless walker in one:
 //
 //   headless (the smoke check, default):  npm run test:e2e:slow -- audio-music-listening
 //   owner (headphones, a headed window):   E2E_LISTEN=1 npm run test:e2e:slow -- audio-music-listening --headed --workers 1
@@ -485,5 +485,195 @@ test.describe("listening M4a: segments, stems and playlists", () => {
     // The slow ring (key 2) and the paused worker (key 3) raise the engine's estimate of the prime time, and it says so once per
     // event ("the prime lead is longer than one beat"): that is the right warning there. Nothing else may be warned.
     expect(seen.warnings.filter((w) => !/prime lead \(\d+ ms\) is longer than one beat/.test(w))).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// M4b: transitions, stingers and loop exits (E2), on SM2's scene: the Sound Lab's music page (key M on the tour; its own keys are
+// the item keys, so the owner presses the page's keys and the walker presses the same ones). The music plays on the Music bus; the
+// Ambience, SFX, Engine and Tape buses are muted. The page starts the world switch in explore (120 bpm, every change lands on a bar
+// line). The keys the owner presses, in this order (the card lists them; the spec waits for each):
+//   2  explore to combat: a cut on the next bar line
+//   1  combat to explore: a 2-beat equal-power crossfade on the next bar line
+//   3  explore to calm: a 4-beat linear crossfade
+//   1  calm to explore: a 4-beat S-curve crossfade
+//   3  explore to calm again (the way to the bridge: the same linear crossfade)
+//   2  calm to combat: a bridge, a one-bar noise riser between the two
+//   3  combat to calm: no rule of its own, the default rule (a 1-beat equal-power crossfade)
+//   L  the loop: the 2-bar body with its 1-bar tail loops; then L again leaves it at the end of the pass, and the tail rings out
+//   1  back to the world (explore)
+//   T  a stinger on the next beat; Y a stinger on the next bar
+//   3, then 2 within a second: a switch that changes its mind before it lands
+//   O  stops
+// The clips are decoded first by silent one-shots (the first play of a looping segment whose clips were never decoded ends at its
+// first loop end: audio-music-b.spec.ts, the fixme). Headless, the walker presses the keys itself and waits out each change.
+type M4bState = { keys: Record<string, number> };
+const m4bCard =
+  "M4b: transitions, stingers, loop exits (the Sound Lab's music page; Music bus)\n" +
+  "2 cut to combat   1 crossfade to explore   3 crossfade to calm   (1 and 3 again for the other curves)\n" +
+  "3 then 2: calm to combat through the bridge   3: combat to calm (default rule)\n" +
+  "L loop with a tail, L again to leave it   1 back to explore   T stinger on the beat   Y stinger on the bar\n" +
+  "3 then 2 at once: change your mind before it lands   O stops. Press a key when asked, listen, then the test reads the rows.";
+
+async function installM4bCard(page: Page, listen: boolean): Promise<void> {
+  await page.evaluate(
+    ([showCard, text]) => {
+      const g = globalThis as unknown as { __m4b?: M4bState };
+      g.__m4b ??= { keys: {} };
+      const state = g.__m4b;
+      window.addEventListener("keydown", (e) => (state.keys[e.key.toLowerCase()] = (state.keys[e.key.toLowerCase()] ?? 0) + 1));
+      if (showCard) {
+        const card = document.createElement("pre");
+        card.style.cssText = "position:fixed;z-index:99999;left:12px;bottom:12px;margin:0;padding:10px 14px;background:#000d;color:#fff;font:14px/1.45 monospace;border-radius:6px;pointer-events:none;max-width:90vw;white-space:pre-wrap";
+        card.textContent = text as string;
+        document.body.append(card);
+      }
+    },
+    [listen, m4bCard] as const,
+  );
+}
+
+/** The owner's key (waited for) or the spec's own press (headless): resolves once the key has been pressed. `what` is what the key does and what to listen for. */
+async function m4bKey(page: Page, key: string, what: string): Promise<void> {
+  const k = key.toLowerCase();
+  const before = await page.evaluate((x) => (globalThis as unknown as { __m4b: M4bState }).__m4b.keys[x] ?? 0, k);
+  if (LISTEN) process.stdout.write(`\n[listen] M4b: press ${key.toUpperCase()} in the page: ${what}\n`);
+  else await page.keyboard.press(key);
+  await page.waitForFunction(([x, n]) => ((globalThis as unknown as { __m4b: M4bState }).__m4b.keys[x as string] ?? 0) > (n as number), [k, before] as const, { timeout: LISTEN ? 3_600_000 : 20_000 });
+}
+
+type M4bPending = { to: string; ruleKey: string; rule: number; tier: number; parent: string };
+type M4bRow = M4aRow & { pending: M4bPending | null; stingers: { played: number; late: number; skipped: number; dropped: number } };
+const m4bRows = async (page: Page): Promise<M4bRow[]> => (((await fullDebug(page)) as unknown as { music?: M4bRow[] }).music ?? []);
+
+test.describe("listening M4b: transitions, stingers and loop exits", () => {
+  test("M4b: every seam, a loop exit with a tail, a stinger on the beat and the bar, and a switch that changes its mind", { tag: "@slow" }, async ({ page }, info) => {
+    info.setTimeout(LISTEN ? 3_600_000 : 300_000);
+    const seen = watchConsole(page);
+    holdBase = null; // a new page: its counters start at 0
+    await bootSample(page, LAB);
+    await page.evaluate((clips) => {
+      const { Audio } = (globalThis as unknown as { __myco: { Audio: { buses: readonly string[]; bus(n: string): { volume: number }; playOneShot(c: string, o?: object): unknown } } }).__myco;
+      for (const n of Audio.buses) if (!["UI", "Music", "Master"].includes(n)) Audio.bus(n).volume = 0;
+      for (const c of clips) Audio.playOneShot(`audio/music/${c}.wav`, { volume: 0.0001, bus: "UI" });
+    }, ["bridge-riser", "calm-bells", "calm-pad", "combat-bass", "combat-drums", "explore-arp", "explore-pad", "loop-body", "stinger-hit"]);
+    await page.waitForTimeout(2_500);
+    await page.keyboard.press("m"); // the music page; the spec opens it, the owner presses the page's keys from here
+    await installM4bCard(page, LISTEN);
+    const world = async () => (await m4bRows(page)).find((r) => r.asset.includes("music-world"));
+    await expect.poll(async () => (await world())?.state, { timeout: 30_000, message: "the world switch plays" }).toBe("playing");
+    expect((await world())!.segment).toBe("explore");
+    await hear(page, 4_000);
+
+    /** After the key: the row's pending change names `want`'s rule, the change lands (through `via`, a bridge's segment, first), and settles. */
+    const change = async (to: string, want: { ruleKey: string; rule: number; tier: number }, via?: string) => {
+      let pend: M4bPending | null = null;
+      const segments: string[] = [];
+      await expect
+        .poll(
+          async () => {
+            const r = await world();
+            if (r?.pending) pend = r.pending;
+            if (r?.segment && segments.at(-1) !== r.segment) segments.push(r.segment);
+            return r?.segment;
+          },
+          { timeout: LISTEN ? 60_000 : 25_000, intervals: [50], message: `the change to ${to} lands` },
+        )
+        .toBe(to);
+      expect(pend, "the row named the pending change").toBeTruthy();
+      expect({ to: pend!.to, ruleKey: pend!.ruleKey, rule: pend!.rule, tier: pend!.tier, parent: pend!.parent }, "the rule row").toEqual({ to, parent: "world", ...want });
+      if (via) expect(segments, "through the bridge").toContain(via);
+      else expect(segments, "no bridge").not.toContain("riser");
+      await expect.poll(async () => (await world())?.pending ?? null, { timeout: 20_000, message: "the change is done" }).toBeNull();
+      expect(await peakOverFull(page, "Music", 600), `${to} is audible`).toBeGreaterThan(0.01);
+      await cleanCounters(page, `to ${to}`);
+    };
+
+    const seams: { key: string; what: string; to: string; rule: { ruleKey: string; rule: number; tier: number }; via?: string; hearMs: number }[] = [
+      { key: "2", what: "explore to combat, a cut. It lands on the next bar line (within 2 s): the old music stops and combat starts on the same instant; no gap, no click, no overlap.", to: "combat", rule: { ruleKey: "explore>combat", rule: 0, tier: 1 }, hearMs: 5_000 },
+      { key: "1", what: "combat to explore, a 2-beat (1 s) equal-power crossfade on the next bar line: the level stays steady through the hand-over, no dip, no jump.", to: "explore", rule: { ruleKey: "combat>explore", rule: 1, tier: 1 }, hearMs: 5_000 },
+      { key: "3", what: "explore to calm, a 4-beat (2 s) LINEAR crossfade on the next bar line: a slight dip in the middle of the hand-over, no jump at either end.", to: "calm", rule: { ruleKey: "explore>calm", rule: 2, tier: 1 }, hearMs: 6_000 },
+      { key: "1", what: "calm to explore, a 4-beat (2 s) S-CURVE crossfade on the next bar line: slow at both ends, quick in the middle, no jump at either end.", to: "explore", rule: { ruleKey: "calm>explore", rule: 3, tier: 1 }, hearMs: 6_000 },
+      { key: "3", what: "explore to calm again (the same linear crossfade): this is the way to the bridge; wait for calm to settle.", to: "calm", rule: { ruleKey: "explore>calm", rule: 2, tier: 1 }, hearMs: 4_000 },
+      { key: "2", what: "calm to combat through the BRIDGE: on the next bar line calm crossfades (1 beat) into a one-bar noise riser, and combat starts at full level on the riser's last sample (2 s later): no gap, no click, no doubled beat.", to: "combat", rule: { ruleKey: "calm>combat", rule: 4, tier: 1 }, via: "riser", hearMs: 6_000 },
+      { key: "3", what: "combat to calm: no rule of its own, so the default rule, a 1-beat (0.5 s) equal-power crossfade on the next bar line.", to: "calm", rule: { ruleKey: "*>*", rule: 5, tier: 4 }, hearMs: 5_000 },
+    ];
+    for (const s of seams) {
+      await test.step(`key ${s.key}: ${s.rule.ruleKey}`, async () => {
+        await m4bKey(page, s.key, s.what);
+        await change(s.to, s.rule, s.via);
+        await hear(page, s.hearMs);
+      });
+    }
+
+    await test.step("key L: the loop with a tail; L again leaves it", async () => {
+      await m4bKey(page, "l", "the loop: a 2-bar body (4 s) with a 1-bar tail (a crash and a chord) that rings over the start of the next pass. Listen for two or more passes: a steady loop, the tail never cut.");
+      const loop = async () => (await m4bRows(page)).find((r) => r.asset.includes("music-loop"));
+      await expect.poll(async () => (await loop())?.state, { timeout: 30_000, message: "the loop plays" }).toBe("playing");
+      expect((await loop())!.segment).toBe("loopexit");
+      // Headless waits two passes and a bit; the owner presses L when ready (after at least two passes, 8 s).
+      if (!LISTEN) await page.waitForTimeout(9_500);
+      let maxHead = 0;
+      const sampling = setInterval(() => {
+        void fullDebug(page).then((d) => {
+          const v = d?.voices.find((x) => x.clip.includes("loop-body"));
+          if (v?.playheadSeconds != null) maxHead = Math.max(maxHead, v.playheadSeconds);
+        });
+      }, 60);
+      const before = Date.now();
+      try {
+        await m4bKey(page, "l", "L again releases the loop: the pass playing finishes (the tail rings over the end), then the music plays on to its end. Listen: the tail rings out whole, the music ends without a click.");
+        await expect.poll(async () => { const r = await loop(); return !r || r.state === "ending"; }, { timeout: 30_000, message: "the loop ends after the release" }).toBe(true);
+      } finally {
+        clearInterval(sampling);
+      }
+      info.annotations.push({ type: "loop exit", description: `the body played to ${maxHead.toFixed(2)} s of its clip, ended ${((Date.now() - before) / 1000).toFixed(1)} s after the release key` });
+      expect(maxHead, "after the release the body plays on past its 4 s loop end: the tail rings out").toBeGreaterThan(4.3);
+      await cleanCounters(page, "loop exit");
+    });
+
+    await test.step("key 1: back to the world, then a stinger on the beat (T) and on the bar (Y)", async () => {
+      await m4bKey(page, "1", "back to the world switch in explore (the loop is over, so this starts it again).");
+      await expect.poll(async () => { const r = await world(); return r?.state === "playing" && r.segment === "explore"; }, { timeout: 30_000, message: "the world plays explore again" }).toBe(true);
+      await hear(page, 3_000);
+      for (const [key, what] of [
+        ["t", "a stinger (a short hit) on the next BEAT, over the music: the music carries on unchanged, the hit lands on the beat."],
+        ["y", "a stinger on the next BAR line, over the music: the music carries on unchanged, the hit lands on the bar line."],
+      ] as const) {
+        const before = (await world())!.stingers.played;
+        await m4bKey(page, key, what);
+        await expect.poll(async () => (await world())?.stingers.played, { timeout: 10_000, message: `${key}: the stinger is played` }).toBe(before + 1);
+        await hear(page, 3_000);
+        expect((await world())!.segment, "the music carries on in explore").toBe("explore");
+      }
+      await cleanCounters(page, "stingers");
+    });
+
+    await test.step("keys 3 then 2: a switch that changes its mind before it lands", async () => {
+      const segments: string[] = [];
+      const watch = setInterval(() => void world().then((r) => r?.segment && segments.at(-1) !== r.segment && segments.push(r.segment)), 50);
+      try {
+        await m4bKey(page, "3", "a change to calm is asked...");
+        if (!LISTEN) await page.waitForTimeout(250);
+        await m4bKey(page, "2", "...and within a second, combat instead (press it before the bar line: the music goes to combat and calm is never heard).");
+        await expect.poll(async () => { const r = await world(); return r?.segment === "combat" && r.pending === null; }, { timeout: 30_000, message: "the music ends up in combat" }).toBe(true);
+      } finally {
+        clearInterval(watch);
+      }
+      // Headless presses 250 ms apart, so calm is never entered. The owner may have been slower than the bar line: noted, not failed.
+      if (LISTEN) info.annotations.push({ type: "switch", description: segments.includes("calm") ? "calm was entered before the second key (pressed too late)" : "calm was never entered" });
+      else expect(segments, "calm is never entered").not.toContain("calm");
+      await hear(page, 4_000);
+      await cleanCounters(page, "switch");
+    });
+
+    await test.step("key O: stops", async () => {
+      await m4bKey(page, "o", "stops the music.");
+      await expect.poll(async () => (await m4bRows(page)).filter((r) => r.state !== "ending").length, { timeout: 15_000, message: "the music stops" }).toBe(0);
+    });
+
+    for (const a of info.annotations) console.log(`[music-listen] ${a.type}: ${a.description}`);
+    expect(seen.errors).toEqual([]);
+    expect(seen.warnings).toEqual([]);
   });
 });
