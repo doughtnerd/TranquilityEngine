@@ -10,7 +10,9 @@ The coordinator's log of each wave review ([waves plan, "Wave reviews"](../../pl
 
 **Standing instruction (owner, 2026-11-11, at the start of the build):** "My instruction is to merge milestones to master upon completion." Each milestone merges to master (a merge commit, O2) as soon as its milestone-end checks and exit criteria pass, without asking first. The owner-only items of that milestone (its listening section, lab-VM and phone runs) don't hold the merge; they're listed here as open. This replaces the plan's "with the owner's approval" for milestone merges.
 
-**Needs you:** nothing yet.
+**Needs you:** the M4-0 listening section ([listening-pass.md](listening-pass.md), about 10 minutes with headphones) and a WebKit run of the e2e suite (`npm run test:e2e:webkit`; WebKit isn't installed in this container). Neither holds the merge.
+
+**M4-0 merged to master** (2026-11-12): every queued per-voice stamped record now applies inside its voice. The integration branch also carries M4a work, all inert or opt-in for existing projects (D9).
 
 **Decisions taken (each with its revert):** see "Decisions" below.
 
@@ -104,6 +106,7 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 - **F-9 (from SM1):** quantised event automation on a music segment's stems has no audible effect on core. The stamped `paramsShaped` ramp and the level sent at bind leave the Music bus peak unchanged (≈ 0.24); it works on Babylon. Continuous automation works on core. SM1 kept the sound-lab sample unquantised. **F-9 task** (strongest) is finding the root cause, with `voices.rs`/`groups.rs`/`status.rs` off limits while C2b holds them; it restores `quantize` in the sample once fixed.
 - **F-9b (from F-9):** the main side doesn't know a quantised stem's level. Audibility ignores the stamped in-voice ramp, so a stem at 0 stays mixed. Any dry-gain write to a stem (promote SET_MIXED, `_setVolume`, occlusion) resets the core's gain ramp to the plain dry gain, which is latent today. **F-9b task** (strongest): a per-voice stem level in the voice table, read by selection and every dry-gain write; it then restores `quantize` in the sound-lab sample.
 - **F-10 (from Z5):** mixed-voice scenes rose about 1,000–2,300 instructions per mixed voice per quantum between M3 and now: `updates` +595k, `automation-base` +585k, `pitch4` +297k, `bed-256` +247k, each 1–4% of its scene. It's taken with F-8 in the **F-8 task** (strongest), which ports Z5's tested `const LIST`/`const DUE` patch onto C2b's `voices.rs` (`virtual` −331k measured before C2b) and profiles F-10.
+- **F-11 (seen at M4-0's milestone end):** `audio-stress.spec.ts` once read the core's `hrtfVoices` peak as 9 against the high preset's 8. That was under heavy load (three agents plus the full slow suite); it passed alone. Probably a voice counted on both sides of the 45 ms HRTF↔bed handover in a slow frame (M3 behaviour; M4 didn't touch the panner). To check: can the counter exceed the cap during a handover, and should the spec allow for it?
 
 **Started (rolling, D5), base `92969c11`:** Z2a (strongest) on the flip branch `m4/in-voice`, cut locally at `92969c11` after Q1 and the wire's merge 1 (the flip branch stays local: this session pushes only the integration branch); F2, Ed2, Ed9 and R4c (mid; each depends only on merged tasks and touches no running task's files). Waiting for the wire's merge 2: Z4, C1, D1a, then Q2's merge.
 
@@ -265,4 +268,16 @@ Merge order inside W1 (plan): wire merge 1, Q1, wire merge 2, Q2; F1a, Ed1 and S
 - **Real bug fixed:** stem automation went out one frame late. `tickMusicAutomation` ran in `EventSystem.update`, after the frame's commit, so a bind-time level sent asap reached the core before the stamped PLAYs and was dropped, and pulse and lead sounded at full for up to a frame.
   - Now `tickStems` calls it in the music plan step, and the bind-time level is stamped at `run.startAt`.
   - `musicQuantizedLoopback.test.ts` drives the sound-lab event with `quantize` through the whole runtime on the core and checks every level change lands on its beat. It fails before the fix.
+
+**M4-0 milestone end** (integration head before the merge; master unchanged since `0a024003`):
+- **Exit checks:**
+  - a stamped FADE on one voice of 256 leaves the others bit-identical (`in_voice_isolation.rs`);
+  - `splitQuanta` reads 0 in Z5's stamped scenes, the stamped spatial scene with sends, and the smoke spec;
+  - the metered gate passes, each stamped scene within +60k of its twin, with the `virtual` rise logged (D10, F-8).
+- **Milestone-end checks:**
+  - typecheck 0; `cargo test --workspace` 858 pass; Vitest full 5,802 pass, the 2 failures explained and fixed; `npm run build` passes;
+  - `test:e2e` (Chromium) 214 pass after the spriteeditor fix;
+  - `test:e2e:slow` 28 of 30 under load. `lighting.spec.ts:58` timed out and `audio-stress.spec.ts` read an HRTF peak of 9 (F-11); both pass alone (2 of 2);
+  - **WebKit couldn't run here**: the browser isn't installed (`/opt/pw-browsers/webkit-2370` missing, and this environment mustn't install Playwright browsers). It's left to the owner with the listening section.
+- **Merged to master** as a merge commit (O2), per the standing instruction. Owner items open: the listening section M4-0 and WebKit.
 
