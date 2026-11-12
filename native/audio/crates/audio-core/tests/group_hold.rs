@@ -40,9 +40,7 @@ fn one_dry_ring_dips_the_whole_group_and_it_resumes_aligned() {
 
 #[test]
 fn decoded_and_streamed_members_hold_and_resume_on_one_frame() {
-    // Decoded members have no ring to fade by (until voices.rs gives them a hold fade): they are cut
-    // at the hold and step back at the resume, but stay on the group's frame: the null after the
-    // resume holds for them too.
+    // Decoded members fade by their mix ramp, streamed ones by their ring's gain: the same fade.
     let total = 110;
     let mut reference = Rig::new();
     group(&mut reference, 22, &[1, 2], &[(101, PLENTY), (102, PLENTY)]);
@@ -51,7 +49,7 @@ fn decoded_and_streamed_members_hold_and_resume_on_one_frame() {
     let mut held = Rig::new();
     let members = group(&mut held, 22, &[1, 2], &[(101, SHORT), (102, PLENTY)]);
     let h = hold_run(&mut held, 101, 7, total);
-    check_null(&held, &reference, &h, false);
+    check_null(&held, &reference, &h, true);
     same_playhead(&held, &members);
 }
 

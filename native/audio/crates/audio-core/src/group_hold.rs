@@ -23,8 +23,7 @@
 //! a ring with data stays `PLAYING`. The entry stays STARTED with [`FLAG_FADING`] while the fade runs
 //! (`held_frames` counts it), so the members aren't gated and their records apply at their own
 //! frames; then it turns HELD and the hold's start is the first silent frame. **Decoded members**
-//! have no ring: until `voices.rs` gives them a hold fade (the patch in C2c's report) they play the
-//! fade at full and are cut when the hold silences them (`must_hold`), and step back in at a resume.
+//! have no ring: they fade by their `mix` ramp (`voices::hold_fade`), as a promote or demote does.
 //! A virtual stream member is looked ahead too: it consumes its ring, so running dry would lose its
 //! place.
 //!
@@ -173,7 +172,12 @@ pub fn begin_started(core: &mut Core, index: usize, frame: u64) -> bool {
 /// turned it round). Rings waiting, starved or seeking are left alone.
 fn steer(core: &mut Core, e: &GroupEntry, frames: u32, start: bool) {
     for &v in e.present_members() {
-        let Some((slot, ring)) = member_ring(core, v) else { continue };
+        let Some((slot, ring)) = member_ring(core, v) else {
+            if start {
+                voices::hold_fade(core, v, 0.0, frames);
+            }
+            continue;
+        };
         let (position, slot_id) = (slot.position, slot.id);
         let r = core.streams_mut().ring_mut(ring);
         if r.voice != slot_id || r.seeking != 0 || (r.phase != phase::PLAYING && r.phase != phase::STARVING) {
@@ -240,7 +244,10 @@ pub fn resume_members(core: &mut Core, index: usize) {
     let Some(&e) = groups::entries_of(core.regions().groups).get(index) else { return };
     let frames = voices::mix_fade_frames(core);
     for &v in e.present_members() {
-        let Some((_, ring)) = member_ring(core, v) else { continue };
+        let Some((_, ring)) = member_ring(core, v) else {
+            voices::hold_fade(core, v, 1.0, frames);
+            continue;
+        };
         let r = core.streams_mut().ring_mut(ring);
         if r.seeking != 0 || r.phase == phase::WAITING {
             continue;
