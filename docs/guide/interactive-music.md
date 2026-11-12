@@ -27,7 +27,7 @@ This page documents the first part of interactive music (milestone M4a plus the 
 | Quantised stem automation | `Calibration`, a working (saved) `Audio.calibration`, and the rhythm-game helpers |
 | `handle.music.positionAt` and its `judged` offset (calibration still reads 0 until it is saved) | |
 | `handle.music` position, tempo and `nextGrid` | Resyncing a group whose stream starved (it is silenced and held today, see [the debug panel](#the-debug-panels-music-section)) |
-| `Audio.horizon`, `Audio.timeAt` | The editor's transport and audition for music |
+| `Audio.horizon`, `Audio.timeAt`, `Audio.latency`; rhythm mode's low-latency context (`audio.rhythmMode`) | The editor's transport and audition for music |
 | `music.rings` and the presets, streaming and decoding | Hot reload of a playing music event (wired; see [Hot reload](#hot-reload)) |
 | The Audio Debug panel's Music sections | |
 
@@ -432,7 +432,7 @@ An `AudioSource` plays a music event like any event (the flappy sample does). It
 
 *Coming later:*
 - **`handle.onMusic`.** `handle.onMusic("beat", fn)` is in the types but returns a no-op unsubscribe for now. For music you start yourself with `Audio.play`, read `music.nextGrid("beat")` each frame, or put the music on an `AudioSource` and use the component callbacks below.
-- **`Calibration.fromTaps`** returns an empty result. **`Audio.calibration`** can be set and read but is not saved, and `Audio.calibrationStale` is always `false`. `Audio.latency` and `Audio.rhythmMode` (the `audio.rhythmMode` project setting) exist; the rhythm mode they belong to is not finished.
+- **`Calibration.fromTaps`** returns an empty result. **`Audio.calibration`** can be set and read but is not saved, and `Audio.calibrationStale` is always `false`. Rhythm mode itself works: with `audio.rhythmMode` on, the audio context is made with the smallest output buffer the browser allows (`latencyHint: 0`), `Audio.latency` reports what it gave (`base`, `output`, the limiter, their `total`, and whether the output figure is `reliable`), changing the setting rebuilds the context (the music re-enters on the next bar, in place), and beat callbacks are held through such a recovery. It promises no absolute latency.
 
 ## The debug panel's Music section
 

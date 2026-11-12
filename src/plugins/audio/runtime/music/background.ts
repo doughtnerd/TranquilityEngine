@@ -32,8 +32,14 @@
  *   A re-entry past the segment's exit cue has nothing to play: the player ends.
  * - **Abandon** (`groupAbandoned`, from `musicOps` after the core's give-up reached the router): the playing group is
  *   recovered as above (cause `abandon`), at the next `recoverAbandoned`, which `musicOps` calls in the same step.
+ * - **Held callbacks** (Rh1, architecture §3.7, §4.6): in rhythm mode a player's beat clock is held (`beats.held`) from
+ *   a recovery's start until its group is stamped: from the frame the backend reports a rebuild (`isRecovering`) for
+ *   every player with a run, through the re-plan (`state` `recovering`), to the stamp. Nothing fires meanwhile; on
+ *   release the beat clock delivers the gap as one coalesced call per kind (`missed`), at the re-entry. `updateBeatHolds`
+ *   sets the flag each early step (and each hidden tick), before the dispatch. Outside rhythm mode nothing is held.
  */
 import type { AudioBackend } from "../backend";
+import { rhythmModeSetting } from "./calibration";
 import { exitSeconds, nextGridSeconds, ticksToSeconds } from "../../../../engine/audio/musicGrid";
 import { RateLimit, RECOVERY_LIMIT, RECOVERY_WINDOW_MS } from "../core/rateLimit";
 import { hiddenFrame, musicPlayers, tickPlayer, type MusicFrame, type MusicPlayer } from "./musicSystem";
@@ -68,6 +74,7 @@ export function tickHidden(backend: AudioBackend): void {
   const music = backend.music ?? null;
   if (music !== null && music.onGroupEvent === null) music.onGroupEvent = routeGroupEvent;
   backend.beginFrame?.();
+  updateBeatHolds(backend);
   const f = hiddenFrame(backend);
   for (let k = 0; k < players.length; k++) {
     const p = players[k]!;
@@ -89,7 +96,35 @@ export function tickHidden(backend: AudioBackend): void {
  */
 export function recoverGroups(backend: AudioBackend, cause: "rebuild" | "crash" | "rate"): void {
   const f = frameOf(backend);
-  for (const p of [...musicPlayers()]) recoverPlayer(p, f, cause);
+  for (const p of [...musicPlayers()]) {
+    // From here its own state (`recovering` until the stamp) holds its callbacks in rhythm mode.
+    awaitingRecovery.delete(p);
+    recoverPlayer(p, f, cause);
+  }
+}
+
+/** Players that had a run when a rebuild started and haven't been re-planned (`recoverGroups`) yet. */
+let awaitingRecovery = new WeakSet<MusicPlayer>();
+
+/**
+ * Rh1 (architecture §3.7, §4.6): sets each player's `beats.held` for this frame. In rhythm mode (`audio.rhythmMode` on
+ * a backend whose `caps.rhythm` is true), a player is held while the backend rebuilds (`isRecovering`, the core
+ * backend's), until `recoverGroups` re-plans it, and while its re-entry is unstamped (`state` `recovering`, also after
+ * an abandon or a crash). Otherwise nothing is held, and a hold left over from a recovery is released. Call it after
+ * the backend's `beginFrame` (the group events) and before the dispatch: the music system's early step and
+ * `tickHidden`. Allocates nothing.
+ */
+export function updateBeatHolds(backend: AudioBackend): void {
+  const players = musicPlayers();
+  if (players.length === 0) return;
+  const rhythm = backend.music?.caps.rhythm === true && rhythmModeSetting();
+  const rebuilding = (backend as { readonly isRecovering?: boolean }).isRecovering === true;
+  for (let k = 0; k < players.length; k++) {
+    const p = players[k]!;
+    if (rebuilding && p.run !== null) awaitingRecovery.add(p);
+    const st = p.beats;
+    if (st) st.held = rhythm && (rebuilding || p.state === "recovering" || awaitingRecovery.has(p));
+  }
 }
 
 /** Players whose playing group the core gave up on, waiting for `recoverAbandoned`. */
@@ -119,6 +154,7 @@ export function _resetMusicBackground(): void {
   hidden = false;
   abandoned.clear();
   limits = new WeakMap();
+  awaitingRecovery = new WeakSet();
 }
 
 // --- Internals -------------------------------------------------------------------------------------------------------

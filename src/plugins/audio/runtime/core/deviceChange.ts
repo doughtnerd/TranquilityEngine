@@ -54,11 +54,11 @@ export interface DeviceObservation {
 export type DeviceVerdict =
   | { readonly action: "leave" }
   | { readonly action: "resume" }
-  | { readonly action: "rebuild"; readonly reason: Exclude<RebuildReason, "trap"> };
+  | { readonly action: "rebuild"; readonly reason: Exclude<RebuildReason, "trap" | "latency"> };
 
 const LEAVE: DeviceVerdict = { action: "leave" };
 const RESUME: DeviceVerdict = { action: "resume" };
-const rebuild = (reason: Exclude<RebuildReason, "trap">): DeviceVerdict => ({ action: "rebuild", reason });
+const rebuild = (reason: Exclude<RebuildReason, "trap" | "latency">): DeviceVerdict => ({ action: "rebuild", reason });
 
 /** §3.7: classifies one observation as leave, resume, or a rebuild and its reason. Pure. */
 export function classifyDeviceChange(o: DeviceObservation): DeviceVerdict {

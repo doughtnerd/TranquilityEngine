@@ -127,8 +127,8 @@ export interface AudioSettings {
    */
   music: MusicSettings;
   /**
-   * ADR 0166 §1.5, §2.1 (Q0; inert until Rh1): create the context with `latencyHint: 0` and read the latencies back into
-   * `Audio.latency`. Default false. A change at runtime goes through the rebuild path.
+   * ADR 0166 §1.5, §2.1 (Q0; used since Rh1): the core creates its context with `latencyHint: 0` and reads the latencies
+   * back into `Audio.latency`. Default false. A change at runtime rebuilds the context (`AudioHost.reconfigure`).
    */
   rhythmMode: boolean;
 }
@@ -563,7 +563,8 @@ function occlusionLayers(raw: unknown, known: readonly string[] | undefined, pro
 
 /**
  * ADR 0166 §2.1 (Q0): `music.rings` (a whole number clamped to 0..16, a problem when clamped or not a number) and
- * `rhythmMode` (a boolean; anything else is false plus a problem). Both are inert until the features that use them land.
+ * `rhythmMode` (a boolean; anything else is false plus a problem). The rings size the core's ring pool (W1); rhythm mode
+ * sets the context's `latencyHint` (Rh1).
  */
 function parseMusicKeys(input: Record<string, unknown>, settings: AudioSettings, problems: string[]): void {
   const music = section(input.music, "audio.music", problems);

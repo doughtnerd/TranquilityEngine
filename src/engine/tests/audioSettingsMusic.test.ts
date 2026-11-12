@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_MUSIC_RINGS, MUSIC_RINGS_PRESETS, defaultAudioSettings, parseAudioSettings } from "../audio/settings";
 
 // Contract Q0 (M4 build plan). ADR 0166 api-and-models §2.1: `music.rings` (integer 0..16, default 12, clamp plus a
-// problem) and `rhythmMode` (boolean, default false; anything else false plus a problem). Both inert until W1 and Rh1.
+// problem) and `rhythmMode` (boolean, default false; anything else false plus a problem). Used by W1 (the ring pool) and Rh1 (the latency hint).
 describe("audio settings: the M4 keys (ADR 0166 §2.1)", () => {
   it("defaults: no section gives music.rings 12 and rhythmMode false, with no problems", () => {
     for (const input of [undefined, {}]) {
