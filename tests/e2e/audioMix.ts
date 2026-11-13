@@ -48,34 +48,46 @@ export async function installFrameClock(page: Page): Promise<void> {
   });
 }
 
-/** `frame`: the core's last STATUS frame (coarse while no batch flows: STATUS idles at 48 quanta); `time`: `Audio.time`, the heard clock the mixer's fades run on. */
-export type GainSample = { frame: number; time: number; gain: number; debugGain: number };
+/**
+ * `frame`: the core's last STATUS frame (coarse while no batch flows: STATUS idles at 48 quanta); `time`/`timeEnd`: `Audio.time`
+ * (the heard clock the mixer's fades run on) read just before and just after the gain, bracketing the instant it was evaluated
+ * at; `rampStart`: the bus row's `lastRampStartFrame`, the core's own record of where its last stamped ramp began.
+ */
+export type GainSample = { frame: number; time: number; timeEnd: number; gain: number; debugGain: number; rampStart: number | undefined };
 
 /**
  * Runs `start` in the page, then samples the bus's `effectiveGain` (and its `Audio.debug()` row) every 15 ms, each stamped with
- * the audio frame, until the gain has been within 1e-4 of `target` for 3 samples or `maxFrames` audio frames have passed.
- * The stop condition is on the audio clock; the real-time interval only paces the reads.
+ * the audio clock, until a new ramp has been stamped, the gain has been within 1e-4 of `target` for 3 samples, and the audio clock
+ * has run `seconds` (the fade's length) plus a margin past the stamped start; or `maxFrames` audio frames have passed.
+ * The stop condition is on the audio clock; the real-time interval only paces the reads. How many readings land inside the ramp
+ * is not controlled (a stalled page can miss it whole), so callers assert on the stamp and the law, not on a count.
  */
-export const sampleBusGain = (page: Page, bus: string, target: number, maxFrames: number, start: string) =>
+export const sampleBusGain = (page: Page, bus: string, target: number, maxFrames: number, start: string, seconds: number) =>
   page.evaluate(
-    async ([name, to, limit, startSrc]) => {
+    async ([name, to, limit, startSrc, secs]) => {
       const g = globalThis as unknown as { __myco: Api; __mixFrame: () => { frame: number } };
-      const out: { frame: number; time: number; gain: number; debugGain: number }[] = [];
       const read = () => {
+        const time = g.__myco.Audio.time;
+        const gain = g.__myco.Audio.bus(name as string).effectiveGain;
+        const timeEnd = g.__myco.Audio.time;
         const d = g.__myco.Audio.debug() as MixDebug;
-        return { frame: g.__mixFrame().frame, time: g.__myco.Audio.time, gain: g.__myco.Audio.bus(name as string).effectiveGain, debugGain: d.buses.find((b) => b.name === name)!.effectiveGain };
+        const row = d.buses.find((b) => b.name === name)! as BusRow & { lastRampStartFrame?: number };
+        return { frame: g.__mixFrame().frame, time, timeEnd, gain, debugGain: row.effectiveGain, rampStart: row.lastRampStartFrame };
       };
-      out.push(read());
+      const before = read();
+      const out = [before];
       new Function("Audio", startSrc as string)(g.__myco.Audio);
-      const first = out[0]!.frame;
+      const rate = (g.__myco.Audio.debug() as MixDebug).sampleRate;
       let settled = 0;
-      while (settled < 3 && g.__mixFrame().frame - first < (limit as number)) {
+      while (g.__mixFrame().frame - before.frame < (limit as number)) {
         await new Promise((r) => setTimeout(r, 15));
         const s = read();
         out.push(s);
         settled = Math.abs(s.gain - (to as number)) < 1e-4 ? settled + 1 : 0;
+        const stamped = s.rampStart !== undefined && s.rampStart !== before.rampStart;
+        if (stamped && settled >= 3 && s.timeEnd * rate > s.rampStart! + (secs as number) * rate + 0.25 * rate) break;
       }
       return out;
     },
-    [bus, target, maxFrames, start] as const,
+    [bus, target, maxFrames, start, seconds] as const,
   );
