@@ -419,4 +419,274 @@ test.describe("listening M5-0: the stamped bus path", () => {
   });
 });
 
+// ---------------------------------------------------------------------------------------------------------------------
+// M5b (task LSb): loudness against a reference. The owner's section is `docs/design/0171-audio-mix/listening-notes/m5b.md`; the
+// page is the Sound Lab's main page with its loudness keys (`scripts/behaviors/Loudness.ts`): L the reference (the other sounds
+// pause, a 1 kHz sine at -23 dBFS plays on the metered UI bus), W the hot signal (-0.5 dBFS, 2 s), C reset, F pause or resume the
+// meters, V the next target, D the on-screen readout. Same shape as M5-0: in the owner's mode a step waits for the owner's key and
+// then reads what the page did; headless the walker presses the keys itself. Every wait is on a meter's `elapsed` (rendered audio
+// since its last reset) or `Audio.time`, never a wall-clock tolerance (the `think` pauses are the human pace of the listen-mode case).
+//
+//   headless:                npm run test:e2e:slow -- audio-mix-listening --project chromium-slow --workers 1 -g M5b
+//   the owner's mode:        E2E_LISTEN=1 npm run test:e2e:slow -- audio-mix-listening --headed --workers 1 -g "M5b \(owner"
+//
+// **What the walker cannot do:** hear (steadiness, clicks at the tone's start or stop, the hot tone's harshness are the owner's ear),
+// and provoke the ladder (a real step needs the adaptive cap at its floor and seconds of underruns): step S5 sets the STATUS
+// block's `loudShed` as the core reports it, the same seam as `audio-mix-b.spec.ts`.
+
+type Loud = { momentary: number; shortTerm: number; integrated: number; lra: number; maxTruePeak: number; elapsed: number; paused: boolean; pausedBy: string | null; incomplete: boolean; tainted: boolean; target: { name: string; state: string; deviation: number; peakOver: boolean } | null };
+type Press5b = { key: string; repeat: boolean; time: number };
+type Globals5b = {
+  __myco: { Audio: { time: number; loudnessTarget: string | null; debug(): Dbg & { mix: { metersPaused: number; loudnessLadderStep: number } }; bus(n: string): { loudness: Loud } } };
+  __m5b: { presses: Press5b[] };
+  __b5b?: { loudness: { feed(s: { loudShed: number }): void }; mirror: { loudShed: number } };
+  __ladder5b?: { on: boolean };
+};
+
+/** The M5b recorder: a capture-phase key log, the core backend (for the ladder seam), and (owner mode) the card. */
+async function installM5b(page: Page, card: boolean): Promise<void> {
+  await page.evaluate((showCard) => {
+    type Backend = { loudness: { feed(s: { loudShed: number }): void }; mirror: { loudShed: number } };
+    const g = globalThis as unknown as Globals5b;
+    const seed = (g.__myco.Audio as unknown as { playOneShot(c: string, o?: object): { voice?: { backend?: Backend; inner?: { backend?: Backend } } } }).playOneShot("audio/beep.wav", { volume: 0.0001, bus: "SFX" }).voice;
+    g.__b5b = (seed?.backend ?? seed?.inner?.backend)!;
+    g.__m5b = { presses: [] };
+    window.addEventListener("keydown", (e) => g.__m5b.presses.push({ key: e.key.toLowerCase(), repeat: e.repeat, time: g.__myco.Audio.time }), { capture: true });
+    if (showCard) {
+      const el = document.createElement("pre");
+      el.style.cssText = "position:fixed;z-index:99999;left:12px;bottom:12px;margin:0;padding:10px 14px;background:#000d;color:#fff;font:14px/1.45 monospace;border-radius:6px;pointer-events:none;max-width:80vw;white-space:pre-wrap";
+      el.textContent = "M5b: loudness against a reference (docs/design/0171-audio-mix/listening-notes/m5b.md)\nL reference tone  W hot signal (loud!)  C reset  F pause or resume  V next target  D readout\nThe terminal says which key, then checks what the page did.";
+      document.body.append(el);
+    }
+  }, card);
+}
+
+const meter = (page: Page, bus: string): Promise<Loud> =>
+  page.evaluate((name) => {
+    const m = (globalThis as unknown as Globals5b).__myco.Audio.bus(name).loudness;
+    const t = m.target;
+    return { momentary: m.momentary, shortTerm: m.shortTerm, integrated: m.integrated, lra: m.lra, maxTruePeak: m.maxTruePeak, elapsed: m.elapsed, paused: m.paused, pausedBy: m.pausedBy, incomplete: m.incomplete, tainted: m.tainted, target: t ? { name: t.name, state: t.state, deviation: t.deviation, peakOver: t.peakOver } : null };
+  }, bus);
+/** Waits until a meter has metered `seconds` since its last reset (rendered audio). */
+const meteredFor = (page: Page, bus: string, seconds: number) => expect.poll(async () => (await meter(page, bus)).elapsed, { timeout: LISTEN ? 3_600_000 : 60_000, message: `${bus} has metered ${seconds} s` }).toBeGreaterThanOrEqual(seconds);
+const audioFor = (page: Page, seconds: number) => audioTime(page).then((t0) => untilTime(page, t0 + seconds, 60_000));
+const voicesNow = async (page: Page) => (await page.evaluate(() => (globalThis as unknown as Globals5b).__myco.Audio.debug())).voices;
+
+/** A key: the owner's (waited for) or the walker's own press. */
+async function press5b(page: Page, key: string, hint: string, o: { human?: boolean } = {}): Promise<Press5b> {
+  const before = await page.evaluate(() => (globalThis as unknown as Globals5b).__m5b.presses.length);
+  if (LISTEN && !o.human) process.stdout.write(`\n[listen] M5b: press ${key.toUpperCase()} in the page. ${hint}\n`);
+  else await page.keyboard.press(key);
+  await page.waitForFunction(([k, n]) => (globalThis as unknown as Globals5b).__m5b.presses.slice(n as number).some((p) => p.key === k && !p.repeat), [key, before] as const, { timeout: LISTEN ? 3_600_000 : 20_000 });
+  return page.evaluate(([k, n]) => (globalThis as unknown as Globals5b).__m5b.presses.slice(n as number).find((p) => p.key === k && !p.repeat)!, [key, before] as const);
+}
+
+async function boot5b(page: Page): Promise<string[]> {
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await bootMix(page);
+  await installM5b(page, LISTEN);
+  await page.waitForTimeout(1000); // the clips decode on their first play
+  return errors;
+}
+
+const TONE = -22.99;
+const near = (x: number, want: number, tol = 0.1) => Math.abs(x - want) <= tol;
+
+test.describe("listening M5b: loudness against a reference", () => {
+  test.describe.configure({ mode: "serial" });
+
+  test("M5b (owner or headless): the reference reads -22.99 LUFS, the target verdicts, a hot signal's true peak, reset and pause, the ladder flag", { tag: "@slow" }, async ({ page }) => {
+    const errors = await boot5b(page);
+
+    await test.step("S0 setup: the readout is on, and master reads the page's own sounds", async () => {
+      await press5b(page, "d", "Shows the readout (top left): M, S, I, LRA, true peak and the target's verdict for Master and UI.");
+      await expect.poll(async () => (await meter(page, "Master")).momentary, { timeout: 60_000 }).toBeGreaterThan(-70);
+      expect((await meter(page, "Master")).momentary).toBeLessThan(0);
+    });
+
+    await test.step("S1 key L then C: the page's other sounds pause, a steady 1 kHz tone plays on UI, and master reads -22.99 LUFS", async () => {
+      await press5b(page, "l", "The music and the hum stop (the hum's room rings out for a couple of seconds); a steady tone starts. Wait until the readout's M settles on -23, then press C.");
+      await expect.poll(async () => (await voicesNow(page)).some((v) => v.clip.includes("loudness-reference") && v.bus === "UI" && v.state === "playing"), { timeout: 20_000 }).toBe(true);
+      expect((await voicesNow(page)).filter((v) => (v.bus === "Music" || v.bus === "Ambience") && v.state === "playing"), "the page's other sounds are paused").toEqual([]);
+      await expect.poll(async () => (await meter(page, "Master")).momentary, { timeout: LISTEN ? 3_600_000 : 60_000, message: "the room has rung out: M on the tone" }).toBeCloseTo(TONE, 1);
+      await press5b(page, "c", "Resets Master's and UI's meters: from here they hold the tone alone.");
+      await meteredFor(page, "Master", 6);
+      await meteredFor(page, "UI", 6);
+      for (const bus of ["Master", "UI"]) {
+        const r = await meter(page, bus);
+        expect(near(r.integrated, TONE), `${bus} integrated ${r.integrated}`).toBe(true);
+        expect(near(r.momentary, TONE), `${bus} momentary ${r.momentary}`).toBe(true);
+        expect(near(r.shortTerm, TONE), `${bus} short-term ${r.shortTerm}`).toBe(true);
+        expect(r.maxTruePeak, `${bus} true peak`).toBeGreaterThan(-23.4);
+        expect(r.maxTruePeak).toBeLessThan(-22.8);
+        expect(r.lra).toBeGreaterThanOrEqual(0);
+        expect(r.lra).toBeLessThan(0.1);
+        expect(r.incomplete || r.tainted || r.paused).toBe(false);
+      }
+      expect((await meter(page, "Master")).target, "console: -24 +/- 2 LU").toMatchObject({ name: "console", state: "ok", peakOver: false });
+    });
+
+    await test.step("S2 key V twice: the same level against mobile (-18 +/- 2) is low, then back to console: ok", async () => {
+      await press5b(page, "v", "The target becomes mobile (-18 LUFS): the same tone is now 5 LU under it. The readout's verdict reads low.");
+      await expect.poll(() => page.evaluate(() => (globalThis as unknown as Globals5b).__myco.Audio.loudnessTarget), { timeout: 15_000 }).toBe("mobile");
+      const low = await meter(page, "Master");
+      expect(low.target).toMatchObject({ name: "mobile", state: "low", peakOver: false });
+      expect(low.target!.deviation).toBeCloseTo(TONE + 18, 1);
+      expect(near(low.integrated, TONE), "a target change is not a reset").toBe(true);
+      await press5b(page, "v", "Back to console (-24 LUFS): ok again.");
+      await expect.poll(() => page.evaluate(() => (globalThis as unknown as Globals5b).__myco.Audio.loudnessTarget), { timeout: 15_000 }).toBe("console");
+      expect((await meter(page, "Master")).target).toMatchObject({ name: "console", state: "ok" });
+    });
+
+    await test.step("S3 keys L, C, W: the reference off, then a hot signal: UI reads high with its true peak over the ceiling", async () => {
+      await press5b(page, "l", "The reference stops; the music and the hum come back.");
+      await expect.poll(async () => (await voicesNow(page)).some((v) => v.clip.includes("loudness-reference")), { timeout: 15_000 }).toBe(false);
+      await press5b(page, "c", "Resets both meters.");
+      await expect.poll(async () => (await meter(page, "UI")).elapsed, { timeout: 15_000 }).toBeLessThan(1);
+      await press5b(page, "w", "A loud steady tone for two seconds (turn the volume down first): the readout shows UI at about -1 LUFS, the verdict high and PEAK OVER.");
+      await expect.poll(async () => (await voicesNow(page)).some((v) => v.clip.includes("loudness-hot")), { timeout: 20_000 }).toBe(true);
+      await meteredFor(page, "UI", 3);
+      const hot = await meter(page, "UI");
+      expect(hot.target, "console, hot").toMatchObject({ name: "console", state: "high", peakOver: true });
+      expect(hot.target!.deviation, "about -1 LUFS (the burst's edge blocks pass the gates at part energy) against -24").toBeGreaterThan(22.6);
+      expect(hot.target!.deviation).toBeLessThan(23.6);
+      expect(hot.maxTruePeak).toBeGreaterThan(-0.8);
+      expect(hot.maxTruePeak).toBeLessThan(-0.2);
+      await press5b(page, "c", "Resets both meters: the verdict goes back to waiting, the peak flag clears.");
+      await expect.poll(async () => (await meter(page, "UI")).target!.peakOver, { timeout: 15_000 }).toBe(false);
+    });
+
+    await test.step("S4 key F twice: the meters pause (a frozen readout) and resume; key C resets", async () => {
+      await press5b(page, "l", "The reference again (steady tone).");
+      await expect.poll(async () => (await meter(page, "Master")).momentary, { timeout: LISTEN ? 3_600_000 : 60_000 }).toBeCloseTo(TONE, 1);
+      await press5b(page, "c", "Reset.");
+      await meteredFor(page, "UI", 2);
+      await press5b(page, "f", "Pauses Master's and UI's meters: the readout's numbers freeze and its clock stops, the tone plays on.");
+      await expect.poll(async () => (await meter(page, "UI")).paused, { timeout: 15_000 }).toBe(true);
+      const held = await meter(page, "UI");
+      expect(held.pausedBy).toBe("script");
+      expect((await page.evaluate(() => (globalThis as unknown as Globals5b).__myco.Audio.debug())).mix.metersPaused).toBe(2);
+      await audioFor(page, 2);
+      const still = await meter(page, "UI");
+      expect(still.elapsed, "no audio counted while paused").toBe(held.elapsed);
+      expect(still.integrated).toBe(held.integrated);
+      await press5b(page, "f", "Resumes: the readout moves again and the integrated level is the one it held.");
+      await expect.poll(async () => (await meter(page, "UI")).paused, { timeout: 15_000 }).toBe(false);
+      await meteredFor(page, "UI", held.elapsed + 1);
+      const after = await meter(page, "UI");
+      expect(near(after.integrated, TONE)).toBe(true);
+      expect(after.incomplete, "a script's own pause is no gap").toBe(false);
+      await press5b(page, "c", "Reset.");
+      await expect.poll(async () => (await meter(page, "UI")).elapsed, { timeout: 15_000 }).toBeLessThan(1);
+    });
+
+    await test.step("S5 (walker only): the ladder's loudness step reaches the meters: UI pauses by the ladder, master keeps metering, the resume marks incomplete", async () => {
+      await meteredFor(page, "UI", 2);
+      const set = (on: boolean) =>
+        page.evaluate((v) => {
+          const g = globalThis as unknown as Globals5b;
+          if (!g.__ladder5b) {
+            g.__ladder5b = { on: false };
+            const hub = g.__b5b!.loudness;
+            const feed = hub.feed.bind(hub);
+            hub.feed = (s) => {
+              if (g.__ladder5b!.on) {
+                s.loudShed = 1;
+                g.__b5b!.mirror.loudShed = 1;
+              }
+              feed(s);
+            };
+          }
+          g.__ladder5b.on = v;
+        }, on);
+      await set(true);
+      await expect.poll(async () => (await meter(page, "UI")).pausedBy, { timeout: 15_000 }).toBe("ladder");
+      const [m0, u0] = [await meter(page, "Master"), await meter(page, "UI")];
+      expect(m0.paused, "master never shed").toBe(false);
+      expect((await page.evaluate(() => (globalThis as unknown as Globals5b).__myco.Audio.debug())).mix).toMatchObject({ loudnessLadderStep: 1, metersPaused: 1 });
+      await audioFor(page, 1.5);
+      const [m1, u1] = [await meter(page, "Master"), await meter(page, "UI")];
+      expect(u1.elapsed).toBe(u0.elapsed);
+      expect(m1.elapsed).toBeGreaterThan(m0.elapsed + 1);
+      await set(false);
+      await expect.poll(async () => (await meter(page, "UI")).paused, { timeout: 15_000 }).toBe(false);
+      expect((await meter(page, "UI")).incomplete, "a shed span is a gap").toBe(true);
+      expect((await meter(page, "Master")).incomplete).toBe(false);
+      await press5b(page, "c", "Reset: the incomplete flag clears.");
+      await expect.poll(async () => (await meter(page, "UI")).incomplete, { timeout: 15_000 }).toBe(false);
+      await press5b(page, "l", "The reference off: the page is as you found it.");
+    });
+
+    expect(errors).toEqual([]);
+  });
+
+  test("M5b (listen mode): the same keys at human pace, one late, one twice, one held", { tag: "@slow" }, async ({ page }) => {
+    test.skip(LISTEN, "the owner's mode is the case above; this one paces the keys itself");
+    const errors = await boot5b(page);
+    const human = { human: true } as const;
+    // The pace is wall time (a person's); the checks are on the audio clock.
+    const think = (seconds: number) => page.waitForTimeout(seconds * 1000);
+    const refPlaying = async () => (await voicesNow(page)).filter((v) => v.clip.includes("loudness-reference") && v.state === "playing").length;
+
+    await test.step("a late key: the page sat idle for 12 s, then L still plays the reference and master settles on it", async () => {
+      await think(12);
+      await press5b(page, "l", "", human);
+      await expect.poll(refPlaying, { timeout: 20_000 }).toBe(1);
+      await expect.poll(async () => (await meter(page, "Master")).momentary, { timeout: 60_000 }).toBeCloseTo(TONE, 1);
+      await think(2);
+      await press5b(page, "c", "", human);
+      await meteredFor(page, "Master", 6);
+      expect(near((await meter(page, "Master")).integrated, TONE)).toBe(true);
+    });
+
+    await test.step("a key twice: C and C again a moment later; the meter restarts from the second, and keeps reading the tone", async () => {
+      await press5b(page, "c", "", human);
+      await page.waitForTimeout(250); // two game frames at the capped rate: a quick double tap
+      await press5b(page, "c", "", human);
+      await expect.poll(async () => (await meter(page, "Master")).elapsed, { timeout: 15_000 }).toBeLessThan(1);
+      await meteredFor(page, "Master", 3);
+      expect(near((await meter(page, "Master")).integrated, TONE)).toBe(true);
+    });
+
+    await test.step("a key held: holding F is one pause, not a flutter; one more F resumes", async () => {
+      await meteredFor(page, "UI", 1);
+      await page.keyboard.down("f");
+      for (let i = 0; i < 6; i++) {
+        await page.waitForTimeout(120);
+        await page.keyboard.down("f");
+      }
+      await page.keyboard.up("f");
+      await think(1);
+      expect((await meter(page, "UI")).paused, "one toggle: paused").toBe(true);
+      await press5b(page, "f", "", human);
+      await expect.poll(async () => (await meter(page, "UI")).paused, { timeout: 15_000 }).toBe(false);
+    });
+
+    await test.step("L held: the reference toggles once and stays on; V at human pace twice comes back to console", async () => {
+      // The reference is on now: one press turns it off, then a held L is one toggle, on, with one voice.
+      await press5b(page, "l", "", human);
+      await expect.poll(refPlaying, { timeout: 15_000 }).toBe(0);
+      await page.keyboard.down("l");
+      for (let i = 0; i < 6; i++) {
+        await page.waitForTimeout(120);
+        await page.keyboard.down("l");
+      }
+      await page.keyboard.up("l");
+      await think(1);
+      expect(await refPlaying(), "one toggle: on, one voice").toBe(1);
+      await press5b(page, "v", "", human);
+      await think(2);
+      await press5b(page, "v", "", human);
+      await expect.poll(() => page.evaluate(() => (globalThis as unknown as Globals5b).__myco.Audio.loudnessTarget), { timeout: 15_000 }).toBe("console");
+      await press5b(page, "l", "", human);
+    });
+
+    expect(errors).toEqual([]);
+  });
+});
+
 void play;

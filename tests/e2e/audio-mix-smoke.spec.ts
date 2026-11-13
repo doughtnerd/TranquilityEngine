@@ -359,14 +359,60 @@ test("M5a smoke: a capture starts, stops, is saved and is non-empty", async ({ p
   expect(errors).toEqual([]);
 });
 
-// M5b (E2): loudness. Owner un-fixmes in W8.
-test.fixme("M5b smoke: master's momentary loudness reads a number", async ({ page }) => {
+// M5b (E2, un-fixme'd in W8): loudness. The shipped Sound Lab plays its music loop and a hum from the first frame, so master's
+// meter has signal with no key pressed; the readings come from the public API (`Audio.bus("Master").loudness`), which is also
+// what `Audio.debug()`'s bus rows are built beside (the rows carry the peak meter, the loudness reading is `Bus.loudness`).
+// Every wait is on the meter's own `elapsed` (seconds of rendered audio since its last reset), never a wall-clock span; the
+// -22.99 LUFS tone, the targets, resets, pause, taint and the ladder are `audio-mix-b.spec.ts`.
+test("M5b smoke: master's momentary loudness reads a number, steadily, and is empty right after a reset", async ({ page }) => {
+  type Loud = { momentary: number; shortTerm: number; integrated: number; elapsed: number; metered: boolean; reset(w?: string): void };
+  type Api = { __myco: { Audio: { time: number; bus(n: string): { loudness: Loud } } } };
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
   await bootMix(page);
-  // E2:
-  //  1. Play the Sound Lab's music loop so master carries signal.
-  //  2. Read master's momentary loudness (LUFS) from `Audio.debug()`'s bus row: a finite number, not null or -Infinity.
-  //  3. It is about the same on a repeat read after more audio frames (a steady loop), and null/silent while nothing plays.
-  void page;
+  const master = () =>
+    page.evaluate(() => {
+      const m = (globalThis as unknown as Api).__myco.Audio.bus("Master").loudness;
+      return { momentary: m.momentary, shortTerm: m.shortTerm, integrated: m.integrated, elapsed: m.elapsed, metered: m.metered };
+    });
+
+  await test.step("the page's loop is playing, so master's momentary level is a finite number below 0 LUFS", async () => {
+    expect((await master()).metered, "master is always metered").toBe(true);
+    await expect.poll(async () => (await master()).momentary, { timeout: 30_000, message: "momentary has its four sub-blocks of rendered audio" }).toBeGreaterThan(-70);
+    const m = await master();
+    expect(Number.isFinite(m.momentary)).toBe(true);
+    expect(m.momentary).toBeLessThan(0);
+    expect(m.integrated, "integrated is a number once a 400 ms block passes the gate").toBeGreaterThan(-70);
+  });
+
+  await test.step("a steady loop reads about the same a few seconds of audio later", async () => {
+    // 8 s of rendered audio since Play: the 3 s short-term window lies wholly after the clips' decode and start, so both reads
+    // see the loop and not its beginning.
+    await expect.poll(async () => (await master()).elapsed, { timeout: 60_000, message: "8 s of metered audio" }).toBeGreaterThanOrEqual(8);
+    const a = await master();
+    expect(a.shortTerm).toBeGreaterThan(-70);
+    await expect.poll(async () => (await master()).elapsed, { timeout: 60_000 }).toBeGreaterThanOrEqual(a.elapsed + 2);
+    const b = await master();
+    expect(Math.abs(b.shortTerm - a.shortTerm), "short-term LUFS of a steady loop (a moving hum allows a little)").toBeLessThan(2);
+    expect(Math.abs(b.integrated - a.integrated)).toBeLessThan(2);
+  });
+
+  await test.step("right after a reset the readings are empty (-Infinity, not 0 or NaN), and fill from the audio that follows", async () => {
+    const r = await page.evaluate(() => {
+      const m = (globalThis as unknown as Api).__myco.Audio.bus("Master").loudness;
+      m.reset("all");
+      return { momentary: m.momentary, shortTerm: m.shortTerm, integrated: m.integrated, elapsed: m.elapsed };
+    });
+    expect(r).toEqual({ momentary: -Infinity, shortTerm: -Infinity, integrated: -Infinity, elapsed: 0 });
+    await expect.poll(async () => (await master()).elapsed, { timeout: 30_000 }).toBeGreaterThanOrEqual(0.5);
+    const after = await master();
+    expect(Number.isFinite(after.momentary)).toBe(true);
+    expect(after.shortTerm, "short-term needs 3 s").toBe(-Infinity);
+  });
+  expect(errors).toEqual([]);
 });
 
 // M5c (E3): live edit. Owner un-fixmes in W9.

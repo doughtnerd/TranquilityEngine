@@ -332,6 +332,58 @@ test.describe("Sound Lab web build", { tag: "@slow" }, () => {
     expect(download.suggestedFilename()).toBe("exported.mycap");
     expect(errors).toEqual([]);
   });
+
+  // M5b shipped form (ADR 0171 amended by 0172, task SXb): in the exported page, after the first tap, master's meter reads a
+  // number, and the loudness page's reference (key L: the other sounds pause, a 1 kHz sine at -23 dBFS plays on the metered UI
+  // bus) reads -22.99 LUFS (EBU Tech 3341 case 1, +/- 0.1 LU) on master and on UI. The editor's Play and its reset-on-Play are
+  // not in this page: the meter starts with the engine and the game's own key (C) resets it. Waits are on the meters' `elapsed`
+  // (seconds of rendered audio since the reset), never a wall-clock span.
+  test("after a tap, master's meter reads a number and the reference tone reads -22.99 LUFS (M5b)", async ({ page }) => {
+    type Loud = { momentary: number; integrated: number; lra: number; maxTruePeak: number; elapsed: number; metered: boolean; incomplete: boolean; tainted: boolean; target: { name: string; state: string; peakOver: boolean; deviation: number } | null };
+    type Api = { Audio: { time: number; debug(): { status: string; core: { backend: string } }; bus(n: string): { loudness: Loud } } };
+    const errors = trackErrors(page);
+    const read = (bus: string) =>
+      page.evaluate((name) => {
+        const m = (globalThis as unknown as { __myco: Api }).__myco.Audio.bus(name).loudness;
+        const t = m.target;
+        return { momentary: m.momentary, integrated: m.integrated, lra: m.lra, maxTruePeak: m.maxTruePeak, elapsed: m.elapsed, metered: m.metered, incomplete: m.incomplete, tainted: m.tainted, target: t ? { name: t.name, state: t.state, peakOver: t.peakOver, deviation: t.deviation } : null };
+      }, bus);
+    await page.goto(served!.url);
+    await expect.poll(() => frames(page), { timeout: 20_000 }).toBeGreaterThan(10);
+    await page.locator("#game canvas").click(); // the gesture that unlocks sound
+    await expect
+      .poll(async () => (await page.evaluate(() => (globalThis as unknown as { __myco?: Api }).__myco?.Audio.debug().status)) ?? null, { timeout: 30_000 })
+      .toBe("running");
+    expect(await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.debug().core.backend)).toBe("core");
+
+    // 1. The page's own loop and hum are playing: master reads a number, and it is metered in the shipped build.
+    await expect.poll(async () => (await read("Master")).momentary, { timeout: 30_000, message: "master's momentary level has its four sub-blocks" }).toBeGreaterThan(-70);
+    const first = await read("Master");
+    expect(first.metered).toBe(true);
+    expect(first.momentary).toBeLessThan(0);
+    expect((await read("UI")).metered, "the project's metered UI bus is metered in the build").toBe(true);
+
+    // 2. The reference: L pauses the page's other sounds and plays the tone; once master's momentary level has settled on it (the
+    // hum's reverb has rung out) C resets, and after 6 s of metered audio the integrated level is the tone's.
+    await page.keyboard.press("l");
+    await expect.poll(async () => (await read("Master")).momentary, { timeout: 60_000, message: "master settled on the tone" }).toBeCloseTo(-22.99, 1);
+    await page.keyboard.press("c");
+    await expect.poll(async () => (await read("Master")).elapsed, { timeout: 15_000 }).toBeLessThan(1);
+    await expect.poll(async () => Math.min((await read("Master")).elapsed, (await read("UI")).elapsed), { timeout: 60_000, message: "6 s of rendered audio on both meters" }).toBeGreaterThanOrEqual(6);
+    for (const bus of ["Master", "UI"]) {
+      const r = await read(bus);
+      expect(r.integrated, `${bus} integrated`).toBeGreaterThan(-22.99 - 0.1);
+      expect(r.integrated).toBeLessThan(-22.99 + 0.1);
+      expect(r.maxTruePeak, `${bus} true peak`).toBeGreaterThan(-23.4);
+      expect(r.maxTruePeak).toBeLessThan(-22.8);
+      expect(r.lra).toBeGreaterThanOrEqual(0);
+      expect(r.lra).toBeLessThan(0.1);
+      expect(r.incomplete).toBe(false);
+      expect(r.tainted).toBe(false);
+    }
+    expect((await read("Master")).target, "the project's first target: console, -24 LUFS +/- 2 LU").toMatchObject({ name: "console", state: "ok", peakOver: false });
+    expect(errors).toEqual([]);
+  });
 });
 
 test.describe("Arena web build", { tag: "@slow" }, () => {
