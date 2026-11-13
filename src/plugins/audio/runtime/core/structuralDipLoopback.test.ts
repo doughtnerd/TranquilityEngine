@@ -170,11 +170,6 @@ async function structural(r: NonNullable<Awaited<ReturnType<typeof rig>>>, op: M
   const out = Float32Array.from([...pre.out, ...run.out]);
   const at = (frame: number) => out[frame - pre.start]!;
   const firstChanged = pre.start + out.findIndex((v) => v !== out[0]);
-  if (process.env.MA2_DEBUG) {
-    const show = (f: number) => `${f}:${at(f)}`;
-    console.log(op.op, JSON.stringify(seq), "first", firstChanged, [firstChanged - 2, firstChanged - 1, firstChanged, firstChanged + 1, seq.f0 - 1, seq.f0, seq.f0 + 1, seq.f0 + D - 2, seq.f0 + D - 1, seq.f0 + D, seq.f0 + D + 1, seq.b - 1, seq.b, seq.b + 1, seq.b + 2, seq.end - 1, seq.end].map(show).join(" "));
-    console.log(run.posted.map((b) => `@${b.frame}: ` + b.records.map((x) => `${x.op}/${x.seq}/${x.frame}`).join(",")).join(" | "));
-  }
   return { seq, out, at, firstChanged, arrivedAt: batch.frame, last: run.last };
 }
 

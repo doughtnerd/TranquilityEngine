@@ -9,6 +9,7 @@ import type { MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import {
   BUS_SLOT_FLAGS_FRESH,
+  BUS_SLOT_FLAGS_STRUCTURAL,
   Kind,
   LANE_AUTHORED,
   LANE_RUNTIME,
@@ -29,7 +30,6 @@ import { maxStep } from "../golden/maxStep";
 import { createClipRegistry } from "./clipRegistry";
 import { AudioHost, presetFromSettings } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";
-import { RESTART_REQUIRED } from "./liveMix";
 import { Unlock, type UnlockContext } from "./unlock";
 
 const RATE = 48_000;
@@ -245,16 +245,13 @@ describe("the live-edit path on the loopback host (Ma1)", () => {
     loud = of(recs, Op.LOUD_CONFIG).map((x) => readLoudConfig(x.view, x.off));
     expect(loud.map((l) => [l.tpGateDbfs, l.meters.map((m) => m.slot)])).toEqual([[-8, [SLOT.Voice]]]);
 
-    // config: a rename keeps the slot and sends no configuration record; the old name still reaches the bus. (The lane
-    // writer keys what it sent on the bus name, so it restates the slot's lanes at their values: nothing heard moves.)
+    // config: a rename keeps the slot and sends nothing: no configuration record and (Ma2: the lane writer keys what it
+    // sent by slot) no lane record; the old name still reaches the bus.
     vi.spyOn(console, "warn").mockImplementation(() => {});
     await frame();
     expect(mixer.apply({ op: "renameBus", from: "SFX", to: "Effects" })).toEqual({ ok: true, class: "config" });
     let f = await frame();
-    expect(f.records.filter((x) => x.op === Op.BUS_SLOT || x.op === Op.BUS_CONFIG)).toEqual([]);
-    const restated = of(f.records, Op.BUS_RAMP).map((x) => readBusRamp(x.view, x.off));
-    expect(restated.every((x) => x.voiceId === SLOT.SFX)).toBe(true);
-    expect(restated.find((x) => x.lane === LANE_AUTHORED)?.gain ?? 0.25).toBe(0.25);
+    expect(f.records.filter((x) => x.op === Op.BUS_SLOT || x.op === Op.BUS_CONFIG || x.op === Op.BUS_RAMP)).toEqual([]);
     expect(backend.buses.busIndexByName.get("Effects")).toBe(SLOT.SFX);
     expect(backend.buses.busIndexByName.get("SFX")).toBe(SLOT.SFX);
     expect(mixer.bus("SFX").authoredVolume).toBe(0.25);
@@ -264,12 +261,12 @@ describe("the live-edit path on the loopback host (Ma1)", () => {
     f = await frame();
     expect(f.records.filter((x) => x.op === Op.BUS_SLOT || x.op === Op.BUS_CONFIG || x.op === Op.BUS_RAMP)).toEqual([]);
 
-    // dip: structural ops answer restartRequired until Ma2, and change nothing.
-    const settingsBefore = mixer.audioSettings;
-    expect(mixer.apply({ op: "moveBus", bus: "Voice", parent: "Music" })).toEqual({ ok: false, class: "dip", restartRequired: RESTART_REQUIRED });
-    expect(mixer.audioSettings).toBe(settingsBefore);
+    // dip: Ma2's stamped sequence (its records and sound: `structuralDipLoopback.test.ts`): one structural BUS_SLOT under a sequence id.
+    expect(mixer.apply({ op: "moveBus", bus: "Voice", parent: "Music" })).toEqual({ ok: true, class: "dip" });
     f = await frame();
-    expect(f.records.filter((x) => x.op === Op.BUS_SLOT || x.op === Op.BUS_CONFIG)).toEqual([]);
+    slots = of(f.records, Op.BUS_SLOT).map((x) => readBusSlot(x.view, x.off));
+    expect(slots).toEqual([expect.objectContaining({ slot: SLOT.Voice, parent: SLOT.Music, flags: BUS_SLOT_FLAGS_STRUCTURAL })]);
+    expect(slots[0]!.sequenceId).toBeGreaterThan(0);
     backend.dispose();
   });
 
