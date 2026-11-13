@@ -1,7 +1,7 @@
 // ADR 0171/0172 M5 (Wa2; api-and-models §4.2, §4.3): main's side of the M5 wire. The writers of the new records read back
 // with the generated readers; `StatusReader` reads the 256-byte header and the three sections into preallocated arrays
 // (identity reuse of the block, its arrays and items shows it allocates nothing per block) and enforces the count-sum rule; the mirror
-// exposes the fields; the replay sends no BUS_MIX; the interim lane writer (H1) sends two BUS_RAMPs per bus.
+// exposes the fields; the replay sends no BUS_MIX and resends every bus lane (Mx2; the lane writer's own cases are `laneWriter.test.ts`).
 import { describe, expect, it } from "vitest";
 import {
   ASAP,
@@ -42,12 +42,13 @@ import {
 } from "../wire.generated";
 import { createBatchPool } from "./bufferPool";
 import { CommandWriter, type BatchPort } from "./commandWriter";
-import { LaneWriter, type LaneWriterHost } from "./laneWriter";
+import { LaneWriter } from "./laneWriter";
 import { makeStatusBlock, StatusMirror } from "./mirror";
 import { PlayheadTracker, Replayer, type ReplaySource } from "./replay";
 import { StatusReader } from "./statusReader";
 import { VoiceTable } from "./voiceTable";
-import type { ResolvedBus } from "../../../../engine/audio/mixer";
+import { Mixer } from "../../../../engine/audio/mixer";
+import { defaultAudioSettings } from "../../../../engine/audio/settings";
 
 // --- the writers --------------------------------------------------------------------------------------------------------
 
@@ -396,21 +397,34 @@ describe("StatusMirror, the M5 fields", () => {
 // --- the replay ---------------------------------------------------------------------------------------------------------
 
 describe("Replayer, the header order without BUS_MIX", () => {
-  it("RESET, BUS_CONFIG, then each bus's runtime-lane and snapshot-lane BUS_RAMP with frames 0, then MASTER; no BUS_MIX (0x11)", () => {
+  it("RESET, BUS_CONFIG, then every lane of each bus (Mx2's lane writer, frames 0 when settled), then MASTER; no BUS_MIX (0x11)", () => {
     const table = new VoiceTable(4);
     const clips = { info: () => null, onResident: () => {} };
     const clockMap = { framesNow: () => 1000, lookaheadFrames: () => 0, sampleRate: 1000, timeOffset: 0, carryPending: false, reset() {} };
-    const resolved = [
-      { name: "Master", parent: null, gain: 0.5, effectiveGain: 0.5, effects: [], snapshotLowpass: null },
-      { name: "Music", parent: "Master", gain: 0.25, effectiveGain: 0.125, effects: [], snapshotLowpass: 800 },
-    ] as ResolvedBus[];
+    const mixer = new Mixer({
+      ...defaultAudioSettings(),
+      buses: [
+        { name: "Master", volume: 0.5, mute: false, effects: [] },
+        { name: "Music", parent: "Master", volume: 0.25, mute: false, effects: [] },
+      ],
+      snapshots: [{ name: "Dull", volumes: {}, lowpass: { Music: 800 } }],
+    });
+    mixer.snapshot("Dull", 0);
+    const lanes = new LaneWriter({
+      mixer,
+      writer: { busRampFrames: () => {} },
+      clockMap: { rampFrames: () => 5, framesNow: () => 1000, lookaheadFrames: () => 0, sampleRate: 1000, frameOfTime: () => 0, stampFor: () => undefined },
+      busIndexByName: new Map([["Master", 0], ["Music", 1]]),
+      busGain: new Float32Array(32),
+      refreshSharedLowpass: () => {},
+    });
     const posted: ArrayBuffer[] = [];
     const src = {
       table,
       clips,
       clockMap,
       mirror: { frameAudio: 1000 },
-      mixer: { resolveAll: () => resolved },
+      lanes,
       writer: { clear() {} },
       playheads: new PlayheadTracker(table, clips as never, 1000),
       masterVolume: 0.75,
@@ -432,45 +446,13 @@ describe("Replayer, the header order without BUS_MIX", () => {
       ops.push(op);
       off += view.getUint16(off + 2, true) * 4;
     }
-    expect(ops).toEqual([Op.RESET, Op.BUS_CONFIG, Op.BUS_RAMP, Op.BUS_RAMP, Op.BUS_RAMP, Op.BUS_RAMP, Op.MASTER]);
+    expect(ops).toEqual([Op.RESET, Op.BUS_CONFIG, ...Array.from({ length: 10 }, () => Op.BUS_RAMP), Op.MASTER]);
     expect(ops).not.toContain(0x11);
-    expect(ramps.map((r) => [r.voiceId, r.lane, r.mask, r.frames, r.frameOffset, r.shape])).toEqual([
-      [0, LANE_RUNTIME, BUS_RAMP_MASK_GAIN, 0, ASAP, 0],
-      [0, LANE_SNAPSHOT, BUS_RAMP_MASK_LP_HZ, 0, ASAP, 0],
-      [1, LANE_RUNTIME, BUS_RAMP_MASK_GAIN, 0, ASAP, 0],
-      [1, LANE_SNAPSHOT, BUS_RAMP_MASK_LP_HZ, 0, ASAP, 0],
-    ]);
-    expect([ramps[0]!.gain, ramps[2]!.gain]).toEqual([0.5, 0.25]);
-    expect([ramps[1]!.lpHz, ramps[3]!.lpHz]).toEqual([BUS_LP_OFF_HZ, 800]);
-  });
-});
-
-// --- the interim lane writer (H1) ---------------------------------------------------------------------------------------
-
-describe("LaneWriter.applyMix (H1, interim until Mx2)", () => {
-  it("sends one asap runtime-lane gain ramp and one snapshot-lane low-pass ramp per bus over ClockMap.rampFrames, and keeps selection's inputs", () => {
-    const calls: unknown[][] = [];
-    const host = {
-      writer: { busRampFrames: (...args: unknown[]) => void calls.push(args), master: () => {} },
-      clockMap: { rampFrames: () => 480 },
-      busIndexByName: new Map([["Master", 0], ["Music", 1]]),
-      busGain: new Float32Array(32),
-      refreshSharedLowpass: () => void calls.push(["shared"]),
-    } as unknown as LaneWriterHost;
-    const lanes = new LaneWriter(host);
-    lanes.applyMix([
-      { name: "Master", parent: null, gain: 0.5, effectiveGain: 0.5, effects: [], snapshotLowpass: null },
-      { name: "Music", parent: "Master", gain: 0.25, effectiveGain: 0.125, effects: [], snapshotLowpass: 800 },
-    ]);
-    expect(calls).toEqual([
-      [0, LANE_RUNTIME, BUS_RAMP_MASK_GAIN, 0.5, BUS_LP_OFF_HZ, 480],
-      [0, LANE_SNAPSHOT, BUS_RAMP_MASK_LP_HZ, 1, BUS_LP_OFF_HZ, 480],
-      [1, LANE_RUNTIME, BUS_RAMP_MASK_GAIN, 0.25, BUS_LP_OFF_HZ, 480],
-      [1, LANE_SNAPSHOT, BUS_RAMP_MASK_LP_HZ, 1, 800, 480],
-      ["shared"],
-    ]);
-    expect([lanes.snapLp[0], lanes.snapLp[1]]).toEqual([BUS_LP_OFF_HZ, 800]);
-    expect(Array.from(host.busGain.subarray(0, 2))).toEqual([0.5, 0.125]);
-    expect(lanes.selParent[1]).toBe(0);
+    expect(ramps.map((r) => [r.voiceId, r.lane, r.frames, r.frameOffset, r.shape])).toEqual(
+      [0, 1].flatMap((b) => [0, 1, 2, 3, 4].map((lane) => [b, lane, 0, ASAP, 0])),
+    );
+    expect([ramps[0]!.gain, ramps[5]!.gain]).toEqual([0.5, 0.25]); // the authored lanes
+    expect([ramps[2]!.lpHz, ramps[7]!.lpHz]).toEqual([BUS_LP_OFF_HZ, 800]); // the snapshot lanes
+    expect(ramps[7]!.mask).toBe(BUS_RAMP_MASK_GAIN | BUS_RAMP_MASK_LP_HZ);
   });
 });

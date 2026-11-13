@@ -80,7 +80,9 @@ test("M5 smoke (today): the buses exist, effective gain is the tree's product, a
     // A half-second fade cannot finish sooner than its length on the audio clock: from the first reading below the start to the first at the target.
     const left = samples.find((s) => s.gain < 0.6 - 1e-6)!;
     const landed = samples.find((s) => Math.abs(s.gain - 0.15) < 1e-4)!;
-    expect(landed.frame - left.frame, "the fade takes about its 0.5 s of audio frames").toBeGreaterThanOrEqual(0.4 * rate);
+    // Measured on `Audio.time` (the heard clock the fade runs on): since the stamped lanes (Mx2) nothing is sent while a
+    // fade runs, so STATUS idles at 48 quanta and its frame is too coarse for this bound.
+    expect((landed.time - left.time) * rate, "the fade takes about its 0.5 s of audio frames").toBeGreaterThanOrEqual(0.4 * rate);
     // Back up, as the page's key 3 does on its second press: the multiplier returns to 1, heard at the authored 0.6.
     await page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { bus(n: string): { fadeTo(v: number, s: number): void } } } }).__myco.Audio.bus("Music").fadeTo(1, 0.5));
     await expect.poll(() => page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { bus(n: string): { effectiveGain: number } } } }).__myco.Audio.bus("Music").effectiveGain), { timeout: 15_000 }).toBeCloseTo(0.6, 4);
@@ -90,16 +92,56 @@ test("M5 smoke (today): the buses exist, effective gain is the tree's product, a
 });
 
 // M5-0 (Mx2, then Dp1): the stamped bus path. Owners un-fixme in their wave: Mx2 (W3) the fade case, Dp1 (W4) the duck case.
-test.fixme("M5-0 smoke: a fade lands through the lanes on its stamp and a presence duck starts on its stamped frame", async ({ page }) => {
+// The exact first-moving sample is asserted on the loopback host (`laneWriterLoopback.test.ts`); here, the shipped page.
+test("M5-0 smoke: a fade lands through the lanes on its stamp", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
   await bootMix(page);
   await installFrameClock(page);
-  // Mx2:
-  //  1. Stamp a bus fade (`Audio.bus("Music").fadeTo` with `at` ahead of the audio clock, as the lanes take it) and read the
-  //     core's frame at which the gain first moves from `Audio.debug()`: it equals the stamp's frame, not a frame later.
-  //  2. The fade lands through the lanes (BUS_RAMP on the bus's lane) on its target at stamp + duration, in audio frames.
-  //  3. `splitQuanta` reads 0 (`Audio.debug().core` / `musicTotals`): no quantum was split to apply the stamp.
+  type Row = { name: string; effectiveGain: number; lastRampStartFrame?: number };
+  type Dbg = MixDebugM5 & { buses: Row[] };
+  type MixDebugM5 = { sampleRate: number; musicTotals?: { splitQuanta: number } };
+  const read = () =>
+    page.evaluate(() => {
+      const g = globalThis as unknown as { __myco: { Audio: { debug(): unknown; bus(n: string): { effectiveGain: number } } }; __mixFrame: () => { frame: number } };
+      const d = g.__myco.Audio.debug() as Dbg;
+      return { frame: g.__mixFrame().frame, gain: g.__myco.Audio.bus("Music").effectiveGain, row: d.buses.find((b) => b.name === "Music")!, split: d.musicTotals?.splitQuanta ?? 0, rate: d.sampleRate };
+    });
+  const before = await read();
+  expect(before.gain).toBeCloseTo(0.6, 6);
+  // 1. The Buses page's fade (key 3), from a script: one BUS_RAMP on Music's runtime lane, stamped ahead of the core's frame.
+  const called = await page.evaluate(() => {
+    const g = globalThis as unknown as { __myco: { Audio: { bus(n: string): { fadeTo(v: number, s: number): void } } }; __mixFrame: () => { frame: number } };
+    const frame = g.__mixFrame().frame;
+    g.__myco.Audio.bus("Music").fadeTo(0.25, 0.5);
+    return frame;
+  });
+  await expect.poll(async () => (await read()).row.lastRampStartFrame, { timeout: 15_000 }).toBeGreaterThan(0);
+  const stamp = (await read()).row.lastRampStartFrame!;
+  expect(stamp, "stamped ahead of the core's frame at the call").toBeGreaterThan(called);
+  expect(stamp - called, "within the lookahead and the clock's lead (well under 0.5 s)").toBeLessThan(0.5 * before.rate);
+  // 2. On the audio clock: once the core has rendered past stamp + 0.5 s, the fade has landed on 0.6 x 0.25.
+  const end = stamp + Math.round(0.5 * before.rate);
+  await expect.poll(async () => (await read()).frame, { timeout: 15_000 }).toBeGreaterThan(end);
+  const landed = await read();
+  expect(landed.gain, "landed on its target by stamp + duration").toBeCloseTo(0.15, 4);
+  expect(landed.row.effectiveGain).toBeCloseTo(0.15, 4);
+  expect(landed.row.lastRampStartFrame, "one stamp: nothing re-sent while it ran").toBe(stamp);
+  // 3. Applied as a stamp: no quantum split. (Lateness isn't asserted here: a headless page whose main thread stalls past
+  // the lookahead can deliver any stamped record late; the loopback case asserts it on a deterministic clock.)
+  expect(landed.split).toBe(0);
+  // Back up (the key's second press).
+  await page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { bus(n: string): { fadeTo(v: number, s: number): void } } } }).__myco.Audio.bus("Music").fadeTo(1, 0.5));
+  await expect.poll(async () => (await read()).gain, { timeout: 15_000 }).toBeCloseTo(0.6, 4);
+  expect((await read()).row.lastRampStartFrame).toBeGreaterThan(stamp);
+  expect(errors).toEqual([]);
+});
+
+test.fixme("M5-0 smoke: a presence duck starts on its stamped frame", async ({ page }) => {
+  await bootMix(page);
+  await installFrameClock(page);
   // Dp1:
-  //  4. Play a voice on a bus with a presence duck rule (a trigger bus, ADR 0172) and read the duck's start frame in
+  //  1. Play a voice on a bus with a presence duck rule (a trigger bus, ADR 0172) and read the duck's start frame in
   //     the debug rows: the duck starts on the frame its trigger voice was stamped to, `splitQuanta` still 0.
   void page;
 });

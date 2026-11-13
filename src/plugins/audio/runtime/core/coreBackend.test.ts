@@ -223,20 +223,20 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     expect(plays[0]!.frameOffset).toBe(ASAP);
   });
 
-  it("the constructor's BUS_CONFIG and bus lanes (H1: a runtime-lane and a snapshot-lane BUS_RAMP per bus) go out at the first update", () => {
+  it("the constructor's BUS_CONFIG and every bus lane (Mx2: authored, runtime, snapshot, monitor, dip per bus) go out at the first update", () => {
     const sentRig = rig();
     sentRig.backend.update(0);
     const ops = sentRig.ops();
-    expect(ops.map((o) => o.op)).toEqual([Op.BUS_CONFIG, ...Array.from({ length: 10 }, () => Op.BUS_RAMP)]);
+    expect(ops.map((o) => o.op)).toEqual([Op.BUS_CONFIG, ...Array.from({ length: 25 }, () => Op.BUS_RAMP)]);
     const cfg = readBusConfig(ops[0]!.view, ops[0]!.off);
     expect(cfg.buses).toHaveLength(5);
     expect(cfg.buses[0]!.parent).toBe(0xffff);
     expect(cfg.buses[2]!.parent).toBe(0);
     const ramps = ops.slice(1).map((o) => readBusRamp(o.view, o.off));
-    // Bus b: the runtime lane's gain (mask 1), then the snapshot lane's low-pass (mask 2), asap, linear, no sequence.
-    ramps.forEach((r, i) => expect(r).toMatchObject({ voiceId: i >> 1, lane: i % 2 === 0 ? LANE_RUNTIME : LANE_SNAPSHOT, mask: i % 2 === 0 ? 1 : 2, shape: 0, frameOffset: ASAP }));
-    expect(ramps[0]).toMatchObject({ gain: 1 });
-    expect(ramps[1]).toMatchObject({ lpHz: 24000 });
+    // Bus b: lanes 0-4 in order, asap, linear, no sequence; the snapshot lane carries gain and low-pass.
+    ramps.forEach((r, i) => expect(r).toMatchObject({ voiceId: Math.floor(i / 5), lane: i % 5, mask: i % 5 === LANE_SNAPSHOT ? 3 : 1, shape: 0, frameOffset: ASAP }));
+    expect(ramps[LANE_RUNTIME]).toMatchObject({ gain: 1 });
+    expect(ramps[LANE_SNAPSHOT]).toMatchObject({ gain: 1, lpHz: 24000 });
   });
 
   it("a play on a clip that isn't ready is waitingForData and starts when the registry says resident", () => {
@@ -387,25 +387,23 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     expect(only(r.ops(), Op.RESET)).toHaveLength(0);
   });
 
-  it("applyMix sends BUS_RAMPs (runtime and snapshot lanes); masterVolume and muted send MASTER", () => {
+  it("a volume set sends one runtime-lane BUS_RAMP; masterVolume and muted send BUS_RAMP on BUS_MASTER_OUT (Mx2)", () => {
     const r = rig();
     r.frame();
     r.ops();
     r.mixer.bus("Music").volume = 0.5;
-    r.mixer.update(0.016); // onChange -> applyMix
+    r.mixer.update(0.016); // onChange -> the lane writer
     r.backend.masterVolume = 0.25;
     r.backend.muted = true;
     r.frame();
     const ops = r.ops();
     const ramps = ops.filter((o) => o.op === Op.BUS_RAMP).map((o) => readBusRamp(o.view, o.off));
-    expect(ramps).toHaveLength(10);
-    const music = ramps.find((x) => x.voiceId === 1 && x.lane === LANE_RUNTIME)!;
-    expect(music.gain).toBeCloseTo(0.5);
-    expect(music.frames).toBeGreaterThan(0);
-    const masters = ops.filter((o) => o.op === Op.MASTER);
-    expect(masters).toHaveLength(2);
-    expect(masters[1]!.view.getFloat32(masters[1]!.off + 12, true)).toBeCloseTo(0.25);
-    expect(masters[1]!.view.getUint32(masters[1]!.off + 16, true)).toBe(1);
+    expect(ramps).toHaveLength(3);
+    expect(ramps[0]).toMatchObject({ voiceId: 1, lane: LANE_RUNTIME, gain: 0.5, frameOffset: ASAP });
+    expect(ramps[0]!.frames).toBeGreaterThan(0);
+    expect(ramps[1]).toMatchObject({ voiceId: 0xffff, lane: LANE_RUNTIME, gain: 0.25 });
+    expect(ramps[2]).toMatchObject({ voiceId: 0xffff, lane: LANE_RUNTIME, gain: 0 });
+    expect(ops.filter((o) => o.op === Op.MASTER)).toHaveLength(0);
   });
 
   it("update flushes one BATCH, and a play `at` a future time is stamped on that frame", () => {

@@ -501,9 +501,11 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       busesReset: () => {
         this.lastBusName = null;
         this.lanes.selAuto.fill(1);
+        this.lanes.forget();
       },
     });
     this.lanes = new LaneWriter({
+      mixer: this.mixer,
       writer: this.writer,
       clockMap: this.clockMap,
       busIndexByName: this.buses.busIndexByName,
@@ -537,7 +539,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.cleanups.push(
       this.mixer.onChange(() => {
         this.buses.replanBedsOnSettings();
-        this.applyMix(this.mixer.resolveAll());
+        if (!this.disposed) this.lanes.sync();
       }),
     );
     this.configureBuses(this.mixer);
@@ -722,7 +724,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     }
   }
 
-  /** BUS_MIX from the resolved buses (`laneWriter.ts`, K0): each bus's own gain and snapshot low-pass. */
+  /** The bus lanes that moved (`laneWriter.ts`, Mx2): read from the mixer's lane ramps, so `buses` is unused. */
   applyMix(buses: readonly ResolvedBus[]): void {
     if (this.disposed) return;
     this.lanes.applyMix(buses);
@@ -744,7 +746,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   /** R13: game time, ms (the kind dwell's clock). */
   private gameMs = 0;
 
-  /** Rebuilds the core's bus tree: BUS_CONFIG, the table's per-bus limits, and BUS_MIX (`busIndex.ts`, K0). */
+  /** Rebuilds the core's bus tree: BUS_CONFIG, the table's per-bus limits, and every bus lane (`busIndex.ts`, K0). */
   configureBuses(mixer: Mixer): void {
     this.buses.configureBuses(mixer);
   }
@@ -1001,6 +1003,11 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   /** `Audio.debug()` (K10): delegates to `debug.ts`. */
   debug(): AudioDebugInfo {
     const info = buildDebugInfo(this);
+    // ADR 0171 (Mx2): each bus row's last stamped BUS_RAMP start frame.
+    info.buses.forEach((row, b) => {
+      const frame = this.lanes.lastRampStartFrame(b);
+      if (frame !== undefined) row.lastRampStartFrame = frame;
+    });
     // ADR 0171 (K0): the M5 sections, empty until their tasks fill them (Dbg1, Cp2, Rc2), and the core's STATUS frame.
     info.core.currentFrame = this.mirror.currentFrame;
     info.mixCaps = { ...this.mixCaps };

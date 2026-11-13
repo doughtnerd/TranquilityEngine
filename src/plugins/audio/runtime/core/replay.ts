@@ -2,7 +2,7 @@
 // what the core backend sends a fresh core so the voices it had carry on. `recovery.ts` replaces the node and calls
 // the backend's lifecycle hooks; the backend owns a `Replayer` and a `PlayheadTracker` from this file.
 //
-// Order (§7): one REPLAY with RESET 0, BUS_CONFIG, the bus lanes (BUS_RAMP, frames 0) and MASTER; then every clip the old core had is sent again
+// Order (§7): one REPLAY with RESET 0, BUS_CONFIG, the bus lanes (BUS_RAMP: steps and remaining ramps) and MASTER; then every clip the old core had is sent again
 // by the registry (`ClipRegistry.resend`), the HRIR first, then by the priority of the live voices using each clip;
 // then, as each clip becomes resident on the new core, its voices go in a stamped REPLAY (chunked at the inbox size):
 // a PLAY at frame F with `startOffsetFrames` = where the voice would be at F (the tracker's estimate, wrapped for
@@ -28,16 +28,10 @@
 // on from where it was; one that finished during the gap is applied as its final value, and a stop that finished ends
 // the voice (it is freed, not replayed). A music group member is never replayed as a voice: its group is primed and
 // stamped again (`reopenStreams` hands them to `musicOps.reopenGroups`, so a decoded member is listed with the streams).
-import type { Mixer } from "../../../../engine/audio/mixer";
+import type { LaneWriter } from "./laneWriter";
 import {
   ASAP,
-  BUS_LP_OFF_HZ,
-  BUS_RAMP_MASK_GAIN,
-  BUS_RAMP_MASK_LP_HZ,
-  FadeLaw,
   Kind,
-  LANE_RUNTIME,
-  LANE_SNAPSHOT,
   PLAY_FLAGS_LOOP,
   PLAY_FLAGS_MIXED,
   PLAY_FLAGS_PANNER_SHIFT,
@@ -47,13 +41,11 @@ import {
   REPLAY_FLAGS_FIRST_CHUNK,
   REPLAY_FLAGS_LAST_CHUNK,
   SET_PARAMS_MASK_GAIN,
-  packRampShape,
   packShape,
   shapeLaw,
   shapeStartPhase,
   writeBatchHeader,
   writeBusConfig,
-  writeBusRamp,
   writeEnvelope,
   writeFade,
   writeMaster,
@@ -76,7 +68,6 @@ export const REPLAY_SHORT_ONE_SHOT_SECONDS = 1;
 /** @internal ...whose replay waited longer than this (seconds) after the trap are dropped rather than replayed late. */
 export const REPLAY_SHORT_ONE_SHOT_MAX_WAIT_SECONDS = 0.25;
 
-const MAX_BUS = 32;
 /** Envelope (16) plus batch header (16). */
 const PREFIX_BYTES = 32;
 
@@ -294,7 +285,8 @@ export interface ReplaySource {
   readonly clips: ClipRegistry;
   readonly clockMap: ClockMap;
   readonly mirror: StatusMirror;
-  readonly mixer: Pick<Mixer, "resolveAll">;
+  /** ADR 0171 §4.2 (Mx2): the lane writer, which replays every bus lane; absent: no lanes. */
+  readonly lanes?: Pick<LaneWriter, "replayLanes">;
   readonly writer: { clear(): void };
   readonly playheads: PlayheadTracker;
   readonly masterVolume: number;
@@ -494,9 +486,11 @@ export class Replayer {
 
   /**
  * RESET 0, BUS_CONFIG, (BED_CONFIG,) the bus lanes, MASTER(, LISTENER, ZONE_CONFIG) in one REPLAY (§7's replay order,
- * S10), every record asap. ADR 0171 §4.2 (Wa2): no BUS_MIX. The lanes are, for each bus, its `runtime` lane (gain) and its
- * `snapshot` lane (low-pass), each a BUS_RAMP with `frames` 0 (a literal step, R2). Mx2 (W3) adds BUS_DUCK, BUS_PRESENCE
- * and LOUD_CONFIG after BUS_CONFIG and the remaining ramps of the lanes; this stays the interim order until then.
+ * S10), every record asap. ADR 0171 §4.2 (Mx2): the lanes are every main-written lane of every bus from the lane writer
+ * (`LaneWriter.replayLanes`): `runtime` and `snapshot` as their remaining ramp (a literal step to the value now, then an
+ * asap ramp to the target over what is left), `authored` and `monitor` at their value, a dip at its end state. MASTER
+ * keeps its record here (§4.2: the first send). BUS_DUCK, BUS_PRESENCE and LOUD_CONFIG go after BUS_CONFIG once their
+ * tasks send them (Dp1, Ld2); nothing sends them yet, so there is nothing to replay.
  */
   private postHeader(): void {
     const b = this.builder;
@@ -506,15 +500,9 @@ export class Replayer {
     for (const bus of buses) size += 4 + 32 * bus.effects.length;
     b.record(size, (view, off) => writeBusConfig(view, off, { voiceId: 0, frameOffset: ASAP, buses }));
     this.src.spatial?.replayBeds(b);
-    const resolved = this.src.mixer.resolveAll();
-    const n = Math.min(resolved.length, MAX_BUS);
-    const shape = packRampShape(FadeLaw.Linear, 0, 0);
-    for (let i = 0; i < n; i++) {
-      const gain = resolved[i]!.gain;
-      const lpHz = resolved[i]!.snapshotLowpass ?? BUS_LP_OFF_HZ;
-      b.record(32, (view, off) => writeBusRamp(view, off, { voiceId: i, frameOffset: ASAP, lane: LANE_RUNTIME, mask: BUS_RAMP_MASK_GAIN, gain, lpHz: BUS_LP_OFF_HZ, frames: 0, shape }));
-      b.record(32, (view, off) => writeBusRamp(view, off, { voiceId: i, frameOffset: ASAP, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_LP_HZ, gain: 1, lpHz, frames: 0, shape }));
-    }
+    // ADR 0171 §4.2 (Mx2): every main-written lane of every bus (BUS_CONFIG doesn't reset a re-added slot's lanes):
+    // `runtime` and `snapshot` as their remaining ramp, the rest at their value, a dip at its end state (`laneWriter.ts`).
+    this.src.lanes?.replayLanes(b);
     const { masterVolume } = this.src;
     const muted = this.src.muted || this.src.hiddenMuted === true;
     b.record(24, (view, off) => writeMaster(view, off, { voiceId: 0, frameOffset: ASAP, volume: masterVolume, muted: muted ? 1 : 0, rampFrames: 0 }));
