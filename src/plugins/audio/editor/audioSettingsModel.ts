@@ -4,10 +4,7 @@
 import {
   AMBISONIC_LIMITS,
   BED_LIMITS,
-  BED_PRIORITY_LIMITS,
-  DEFAULT_BED_PRIORITY,
   OCCLUSION_LIMITS,
-  ROOT_BED_PRIORITY,
   SPEED_OF_SOUND_LIMITS,
   ZONE_LIMITS,
   busBed,
@@ -26,6 +23,7 @@ import {
   type BusEffect,
   type BusSettings,
   type DuckingRule,
+  type LoudnessTarget,
   type EffectType,
   type AudioBackground,
   type AudioClipFormat,
@@ -38,6 +36,7 @@ import { resolveBeds } from "../runtime/core/beds";
 import type { Curve } from "../../../engine/core/curve";
 import { isLabelled, MAX_CURVE_KEYS, MAX_PARAMETERS, parameterDefault, parameterRange, type ParameterDef } from "../../../engine/audio/eventFormat";
 import type { SettingsDraft } from "../../../editor/sdk";
+import { applyOpToDraft, loudnessTargetsOf, MAX_LOUDNESS_TARGETS, opRefusal, type MixOp } from "../../../engine/audio/mixOps";
 
 /** A name not in `taken`: `base`, else `base 2`, `base 3`… */
 function uniqueName(base: string, taken: readonly string[]): string {
@@ -78,122 +77,103 @@ export function descendants(a: AudioSettings, name: string): string[] {
   return out;
 }
 
+// --- live mix edits (ADR 0171 §6.2, task Mo1) -------------------------------------------------------------------------
+// Every function in this block builds a `MixOp` and applies it with `applyOpToDraft` (`src/engine/audio/mixOps.ts`), so
+// the Project Settings UI and a live op edit the settings the same way and `audioEdit` can register `{ ops, inverse }`.
+// A refused op (one the parse would drop) returns `d` unchanged; `mixOpRefusal` gives the message. The per-bus core and
+// bed keys (`setBusMaxVoices`, `setBusBed`, `setBusBedPriority`) and the automation functions further down go through
+// ops too. New here for M5: `moveEffect`, `setBusMeter`, the loudness target functions and `setLoudnessResetOnPlay`.
+
+/** Apply one op to the draft (what every function in this block calls). */
+export const applyMixOp = (d: SettingsDraft, op: MixOp): SettingsDraft => applyOpToDraft(d, op);
+/** Why `op` can't apply to `d` (the message to show under the field), or null. */
+export const mixOpRefusal = (d: SettingsDraft, op: MixOp): string | null => opRefusal(audioOf(d), op);
+
 export function addBus(d: SettingsDraft, parent = MASTER): SettingsDraft {
   const a = audioOf(d);
   if (a.buses.length >= MAX_BUSES) return d;
   const p = a.buses.some((b) => b.name === parent) ? parent : a.buses[0].name;
-  const name = uniqueName("Bus", a.buses.map((b) => b.name));
-  return withAudio(d, { ...a, buses: [...a.buses, { name, parent: p, volume: 1, mute: false, effects: [] }] });
+  return applyMixOp(d, { op: "addBus", name: uniqueName("Bus", a.buses.map((b) => b.name)), parent: p });
 }
 
 /** Remove a bus and everything under it, and the snapshot entries and ducking rules that named them. The root stays. */
-export function removeBus(d: SettingsDraft, name: string): SettingsDraft {
-  const a = audioOf(d);
-  if (name === a.buses[0].name) return d;
-  const gone = new Set([name, ...descendants(a, name)]);
-  const scrub = (r: Record<string, number>) => Object.fromEntries(Object.entries(r).filter(([k]) => !gone.has(k)));
-  return withAudio(d, {
-    ...a,
-    buses: a.buses.filter((b) => !gone.has(b.name)),
-    snapshots: a.snapshots.map((s) => ({ ...s, volumes: scrub(s.volumes), lowpass: scrub(s.lowpass) })),
-    ducking: a.ducking.filter((r) => !gone.has(r.target) && !gone.has(r.trigger)),
-    automation: a.automation.filter((r) => !gone.has(r.bus)),
-  });
-}
+export const removeBus = (d: SettingsDraft, name: string): SettingsDraft => applyMixOp(d, { op: "removeBus", bus: name });
 
 /** Rename a bus everywhere it's named in the section (AudioSources that name it aren't updated, like physics layers). */
-export function renameBus(d: SettingsDraft, from: string, to: string): SettingsDraft {
-  const a = audioOf(d);
-  const name = to.trim();
-  if (name === "" || name === from || a.buses.some((b) => b.name === name) || !a.buses.some((b) => b.name === from)) return d;
-  const re = (r: Record<string, number>) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k === from ? name : k, v]));
-  const fix = (n: string) => (n === from ? name : n);
-  return withAudio(d, {
-    ...a,
-    buses: a.buses.map((b) => ({ ...b, name: fix(b.name), ...(b.parent !== undefined ? { parent: fix(b.parent) } : {}) })),
-    snapshots: a.snapshots.map((s) => ({ ...s, volumes: re(s.volumes), lowpass: re(s.lowpass) })),
-    ducking: a.ducking.map((r) => ({ ...r, target: fix(r.target), trigger: fix(r.trigger) })),
-    automation: a.automation.map((r) => ({ ...r, bus: fix(r.bus) })),
-  });
-}
+export const renameBus = (d: SettingsDraft, from: string, to: string): SettingsDraft => applyMixOp(d, { op: "renameBus", from, to });
 
 /** Move a bus under another (not itself or its own descendant; the root has no parent). */
-export function setBusParent(d: SettingsDraft, name: string, parent: string): SettingsDraft {
-  const a = audioOf(d);
-  if (name === a.buses[0].name || parent === name || descendants(a, name).includes(parent) || !a.buses.some((b) => b.name === parent)) return d;
-  return withAudio(d, { ...a, buses: a.buses.map((b) => (b.name === name ? { ...b, parent } : b)) });
-}
+export const setBusParent = (d: SettingsDraft, name: string, parent: string): SettingsDraft => applyMixOp(d, { op: "moveBus", bus: name, parent });
 
-export function setBusValue(d: SettingsDraft, name: string, key: "volume" | "mute", value: number | boolean): SettingsDraft {
-  const a = audioOf(d);
-  return withAudio(d, { ...a, buses: a.buses.map((b) => (b.name === name ? { ...b, [key]: value } : b)) });
-}
+export const setBusValue = (d: SettingsDraft, name: string, key: "volume" | "mute", value: number | boolean): SettingsDraft =>
+  applyMixOp(d, { op: "setBus", bus: name, key, value });
+
+/** ADR 0171 §2.1: meter a bus's loudness, or stop. Refused on the root (always metered) and past `MAX_LOUDNESS_BUSES`. */
+export const setBusMeter = (d: SettingsDraft, name: string, on: boolean): SettingsDraft =>
+  applyMixOp(d, { op: "setBus", bus: name, key: "meter", value: on ? "loudness" : null });
 
 export const defaultEffect = (type: EffectType): BusEffect => parseAudioSettings({ buses: [{ name: "x", effects: [{ type }] }] }).settings.buses[0].effects[0];
 
+/** Append an effect with its defaults. */
 export function addEffect(d: SettingsDraft, bus: string, type: EffectType): SettingsDraft {
-  const a = audioOf(d);
-  return withAudio(d, { ...a, buses: a.buses.map((b) => (b.name === bus ? { ...b, effects: [...b.effects, defaultEffect(type)] } : b)) });
+  const b = audioOf(d).buses.find((x) => x.name === bus);
+  return b ? applyMixOp(d, { op: "addEffect", bus, index: b.effects.length, effect: defaultEffect(type) }) : d;
 }
-export function removeEffect(d: SettingsDraft, bus: string, index: number): SettingsDraft {
-  const a = audioOf(d);
-  return withAudio(d, { ...a, buses: a.buses.map((b) => (b.name === bus ? { ...b, effects: b.effects.filter((_, i) => i !== index) } : b)) });
-}
-export function setEffectValue(d: SettingsDraft, bus: string, index: number, key: string, value: number): SettingsDraft {
-  const a = audioOf(d);
-  return withAudio(d, { ...a, buses: a.buses.map((b) => (b.name === bus ? { ...b, effects: b.effects.map((e, i) => (i === index ? ({ ...e, [key]: value } as BusEffect) : e)) } : b)) });
-}
+export const removeEffect = (d: SettingsDraft, bus: string, index: number): SettingsDraft => applyMixOp(d, { op: "removeEffect", bus, index });
+/** Move the effect at `from` to `to` in the bus's chain. */
+export const moveEffect = (d: SettingsDraft, bus: string, from: number, to: number): SettingsDraft => applyMixOp(d, { op: "moveEffect", bus, from, to });
+/** Set one numeric field of an effect (a key the effect doesn't have is refused). */
+export const setEffectValue = (d: SettingsDraft, bus: string, index: number, key: string, value: number): SettingsDraft =>
+  applyMixOp(d, { op: "setEffect", bus, index, key, value });
 
 // --- snapshots and ducking ------------------------------------------------------------------------
 
-export function addSnapshot(d: SettingsDraft): SettingsDraft {
-  const a = audioOf(d);
-  return withAudio(d, { ...a, snapshots: [...a.snapshots, { name: uniqueName("Snapshot", a.snapshots.map((s) => s.name)), volumes: {}, lowpass: {} }] });
-}
-export function removeSnapshot(d: SettingsDraft, index: number): SettingsDraft {
-  const a = audioOf(d);
-  return withAudio(d, { ...a, snapshots: a.snapshots.filter((_, i) => i !== index) });
-}
-export function renameSnapshot(d: SettingsDraft, index: number, to: string): SettingsDraft {
-  const a = audioOf(d);
-  const name = to.trim();
-  if (name === "" || a.snapshots.some((s, i) => i !== index && s.name === name)) return d;
-  return withAudio(d, { ...a, snapshots: a.snapshots.map((s, i) => (i === index ? { ...s, name } : s)) });
-}
+/** Append a snapshot named "Snapshot" (unique: "Snapshot 2"…). */
+export const addSnapshot = (d: SettingsDraft): SettingsDraft => applyMixOp(d, { op: "addSnapshot", index: audioOf(d).snapshots.length });
+export const removeSnapshot = (d: SettingsDraft, index: number): SettingsDraft => applyMixOp(d, { op: "removeSnapshot", index });
+/** Trimmed; empty or taken names return `d`. */
+export const renameSnapshot = (d: SettingsDraft, index: number, to: string): SettingsDraft => applyMixOp(d, { op: "renameSnapshot", index, name: to });
 /** Set a bus's multiplier in a snapshot (undefined: unlisted, so 1). */
-export function setSnapshotVolume(d: SettingsDraft, index: number, bus: string, value: number | undefined): SettingsDraft {
-  const a = audioOf(d);
-  return withAudio(d, { ...a, snapshots: a.snapshots.map((s, i) => {
-    if (i !== index) return s;
-    const volumes = { ...s.volumes };
-    if (value === undefined) delete volumes[bus]; else volumes[bus] = value;
-    return { ...s, volumes };
-  }) });
-}
-export function setSnapshotLowpass(d: SettingsDraft, index: number, bus: string, hz: number | undefined): SettingsDraft {
-  const a = audioOf(d);
-  return withAudio(d, { ...a, snapshots: a.snapshots.map((s, i) => {
-    if (i !== index) return s;
-    const lowpass = { ...s.lowpass };
-    if (hz === undefined) delete lowpass[bus]; else lowpass[bus] = hz;
-    return { ...s, lowpass };
-  }) });
-}
+export const setSnapshotVolume = (d: SettingsDraft, index: number, bus: string, value: number | undefined): SettingsDraft =>
+  applyMixOp(d, { op: "setSnapshot", index, bus, key: "volume", value: value ?? null });
+export const setSnapshotLowpass = (d: SettingsDraft, index: number, bus: string, hz: number | undefined): SettingsDraft =>
+  applyMixOp(d, { op: "setSnapshot", index, bus, key: "lowpass", value: hz ?? null });
 
 export function addDucking(d: SettingsDraft): SettingsDraft {
   const a = audioOf(d);
   const [target, trigger] = [a.buses.find((b) => b.name === "Music") ?? a.buses[1] ?? a.buses[0], a.buses.find((b) => b.name === "Voice") ?? a.buses[2] ?? a.buses[0]];
   if (target.name === trigger.name) return d; // needs two buses
-  return withAudio(d, { ...a, ducking: [...a.ducking, { target: target.name, trigger: trigger.name, amount: 0.4, attack: 0.1, release: 0.5 }] });
+  return applyMixOp(d, { op: "setDucking", index: a.ducking.length, rule: { target: target.name, trigger: trigger.name, amount: 0.4, attack: 0.1, release: 0.5 }, insert: true });
 }
-export function removeDucking(d: SettingsDraft, index: number): SettingsDraft {
-  const a = audioOf(d);
-  return withAudio(d, { ...a, ducking: a.ducking.filter((_, i) => i !== index) });
-}
+export const removeDucking = (d: SettingsDraft, index: number): SettingsDraft => applyMixOp(d, { op: "setDucking", index, rule: null });
+/** Set one field of a rule. A rule the parse would drop (a bus ducking itself, an unknown bus) is refused. */
 export function setDuckingValue(d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): SettingsDraft {
-  const a = audioOf(d);
-  return withAudio(d, { ...a, ducking: a.ducking.map((r, i) => (i === index ? ({ ...r, [key]: value } as DuckingRule) : r)) });
+  const rule = audioOf(d).ducking[index];
+  return rule ? applyMixOp(d, { op: "setDucking", index, rule: { ...rule, [key]: value } as DuckingRule }) : d;
 }
+
+// --- ADR 0171 §2.1: loudness targets and the reset option -------------------------------------------------------------
+
+export { MAX_LOUDNESS_TARGETS };
+/** The project's loudness targets, the default list when unset; the first is the default target. */
+export const loudnessTargets = (a: AudioSettings): LoudnessTarget[] => loudnessTargetsOf(a);
+/** Append a target "Target" (unique: "Target 2"…) with the first target's numbers. Refused at `MAX_LOUDNESS_TARGETS`. */
+export function addLoudnessTarget(d: SettingsDraft): SettingsDraft {
+  const list = loudnessTargetsOf(audioOf(d));
+  const name = uniqueName("Target", list.map((t) => t.name));
+  return applyMixOp(d, { op: "setTarget", index: list.length, target: { ...list[0], name }, insert: true });
+}
+/** Remove the target at `index` (the last one stays). */
+export const removeLoudnessTarget = (d: SettingsDraft, index: number): SettingsDraft => applyMixOp(d, { op: "setTarget", index, target: null });
+/** Edit a target's fields; a name that's empty, too long or taken, or a number out of range, is refused. */
+export function setLoudnessTarget(d: SettingsDraft, index: number, patch: Partial<LoudnessTarget>): SettingsDraft {
+  const old = loudnessTargetsOf(audioOf(d))[index];
+  if (!old) return d;
+  const target = { ...old, ...patch, ...(patch.name !== undefined ? { name: patch.name.trim() } : {}) };
+  return applyMixOp(d, { op: "setTarget", index, target });
+}
+/** `loudnessResetOnPlay`: reset the meters when the editor's Play starts (default on). */
+export const setLoudnessResetOnPlay = (d: SettingsDraft, on: boolean): SettingsDraft => applyMixOp(d, { op: "setOption", key: "loudnessResetOnPlay", value: on });
 
 export function setBackend(d: SettingsDraft, backend: "babylon" | "core"): SettingsDraft {
   const a = audioOf(d);
@@ -210,14 +190,7 @@ export const CLIP_MEMORY_LIMITS = [16, 1024] as const;
 
 /** A bus's `maxVoices`: rounded and clamped to 1..`voices.logical`; `undefined` is unlimited. Unknown buses change nothing. */
 export function setBusMaxVoices(d: SettingsDraft, name: string, value: number | undefined): SettingsDraft {
-  const a = audioOf(d);
-  if (!a.buses.some((b) => b.name === name)) return d;
-  const max = value === undefined || !Number.isFinite(value) ? undefined : clampInt(value, 1, a.voices.logical);
-  return withAudio(d, { ...a, buses: a.buses.map((b) => {
-    if (b.name !== name) return b;
-    const { maxVoices: _drop, ...rest } = b;
-    return max === undefined ? rest : { ...rest, maxVoices: max };
-  }) });
+  return applyMixOp(d, { op: "setBus", bus: name, key: "maxVoices", value: value === undefined || !Number.isFinite(value) ? null : value });
 }
 
 /**
@@ -414,21 +387,21 @@ export function addBusAutomation(d: SettingsDraft, bus?: string): SettingsDraft 
   if (!p) return d;
   const [lo, hi] = parameterRange(p);
   const curve: Curve = lo === hi ? [[lo, 1], [lo + 1, 1]] : [[lo, 1], [hi, 1]];
-  return withAudio(d, { ...a, automation: [...a.automation, { bus: target, parameter: p.name, target: "volume", curve }] });
+  return applyMixOp(d, { op: "setAutomation", index: a.automation.length, rule: { bus: target, parameter: p.name, target: "volume", curve }, insert: true });
 }
 
 /** Remove the entry at `index` (out of range returns `d`). */
 export function removeBusAutomation(d: SettingsDraft, index: number): SettingsDraft {
   const a = audioOf(d);
   if (!a.automation[index]) return d;
-  return withAudio(d, { ...a, automation: a.automation.filter((_, i) => i !== index) });
+  return applyMixOp(d, { op: "setAutomation", index, rule: null });
 }
 
 /** Point an entry at another bus (unknown bus or index returns `d`). */
 export function setBusAutomationBus(d: SettingsDraft, index: number, bus: string): SettingsDraft {
   const a = audioOf(d);
   if (!a.automation[index] || !a.buses.some((b) => b.name === bus)) return d;
-  return withAudio(d, { ...a, automation: a.automation.map((r, i) => (i === index ? { ...r, bus } : r)) });
+  return applyMixOp(d, { op: "setAutomation", index, rule: { ...a.automation[index], bus } });
 }
 
 /**
@@ -447,7 +420,7 @@ export function setBusAutomationParameter(d: SettingsDraft, index: number, param
   const span = oHi - oLo;
   const mapX = (x: number) => (span === 0 ? nLo : nLo + ((x - oLo) / span) * (nHi - nLo));
   const curve: Curve = entry.curve.map((k) => (k.length > 2 ? [mapX(k[0]), k[1], k[2]] : [mapX(k[0]), k[1]]) as Curve[number]);
-  return withAudio(d, { ...a, automation: a.automation.map((r, i) => (i === index ? { ...r, parameter, curve } : r)) });
+  return applyMixOp(d, { op: "setAutomation", index, rule: { ...entry, parameter, curve } });
 }
 
 /** Switch an entry between `volume` and `lowpass`; the curve resets to flat over the parameter's range at 1 (volume) or 24000 Hz (lowpass), as the units differ. Same target or unknown index: returns `d`. */
@@ -459,7 +432,7 @@ export function setBusAutomationTarget(d: SettingsDraft, index: number, target: 
   const [lo, hi] = p ? parameterRange(p) : [0, 1];
   const v = target === "volume" ? 1 : 24000;
   const curve: Curve = [[lo, v], [hi, v]];
-  return withAudio(d, { ...a, automation: a.automation.map((r, i) => (i === index ? { ...r, target, curve } : r)) });
+  return applyMixOp(d, { op: "setAutomation", index, rule: { ...entry, target, curve } });
 }
 
 /** Replace an entry's curve (an empty curve, or an unknown index, returns `d`; more than `MAX_CURVE_KEYS` keys are cut to that). */
@@ -467,7 +440,7 @@ export function setBusAutomationCurve(d: SettingsDraft, index: number, curve: Cu
   const a = audioOf(d);
   if (curve.length === 0 || !a.automation[index]) return d;
   const kept: Curve = curve.slice(0, MAX_CURVE_KEYS);
-  return withAudio(d, { ...a, automation: a.automation.map((r, i) => (i === index ? { ...r, curve: kept } : r)) });
+  return applyMixOp(d, { op: "setAutomation", index, rule: { ...a.automation[index], curve: kept } });
 }
 
 /** The parameter a name refers to, or undefined. */
@@ -538,29 +511,12 @@ export function setBed(d: SettingsDraft, maxBeds: number): SettingsDraft {
 
 /** A bus's bed mode. The default (the root `own`, others `parent`) is stored as absent. Unknown buses change nothing. */
 export function setBusBed(d: SettingsDraft, name: string, bed: BusBed): SettingsDraft {
-  const a = audioOf(d);
-  if (!a.buses.some((b) => b.name === name) || busBed(a, name) === bed) return d;
-  const isDefault = bed === (a.buses[0].name === name ? "own" : "parent");
-  return withAudio(d, { ...a, buses: a.buses.map((b) => {
-    if (b.name !== name) return b;
-    const { bed: _drop, ...rest } = b;
-    return isDefault ? rest : { ...rest, bed };
-  }) });
+  return applyMixOp(d, { op: "setBus", bus: name, key: "bed", value: bed });
 }
 
 /** A bus's `bedPriority`: rounded, clamped 0..255; `undefined` (or the bus's default: root 255, others 128) is stored as absent. */
 export function setBusBedPriority(d: SettingsDraft, name: string, priority: number | undefined): SettingsDraft {
-  const a = audioOf(d);
-  if (!a.buses.some((b) => b.name === name)) return d;
-  const def = a.buses[0].name === name ? ROOT_BED_PRIORITY : DEFAULT_BED_PRIORITY;
-  const v = priority === undefined || !Number.isFinite(priority) ? undefined : clampInt(priority, ...BED_PRIORITY_LIMITS);
-  const next = v === undefined || v === def ? undefined : v;
-  if (busBedPriority(a, name) === (next ?? def)) return d;
-  return withAudio(d, { ...a, buses: a.buses.map((b) => {
-    if (b.name !== name) return b;
-    const { bedPriority: _drop, ...rest } = b;
-    return next === undefined ? rest : { ...rest, bedPriority: next };
-  }) });
+  return applyMixOp(d, { op: "setBus", bus: name, key: "bedPriority", value: priority === undefined || !Number.isFinite(priority) ? null : priority });
 }
 
 /** `audio.ambisonic.maxClips`: rounded, clamped 0..4 (0 refuses ambisonic clips with a warning). Non-finite changes nothing. */
