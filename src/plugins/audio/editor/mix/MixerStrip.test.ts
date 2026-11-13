@@ -550,6 +550,33 @@ describe("a model is shared by every strip", () => {
     expect(r.commits).toEqual(["Set sfx volume"]);
   });
 
+  it("the monitor-mute button: labelled apart from Mute, reflects the strip, calls the model and never commits", () => {
+    const r = rig();
+    const calls: string[] = [];
+    const model: MixerStripProps["model"] = { ...r.model, toggleMonitorMute: (bus) => (calls.push(bus), true) };
+    const changes = { n: 0 };
+    const tree = render({ strip: stripOf(r, "sfx"), model, onChange: () => void changes.n++ });
+    const btn = one(tree, byLabel("Monitor mute sfx"));
+    expect(btn.props["aria-pressed"]).toBe(false);
+    expect(one(tree, byLabel("Mute sfx")).props["aria-pressed"]).toBe(false); // the authored mute is a different button
+    fn<() => void>(btn, "onClick")();
+    expect(calls).toEqual(["sfx"]);
+    expect(changes.n).toBe(1);
+    expect(r.commits).toEqual([]);
+    const on = render({ strip: stripOf(r, "sfx", { ...reading(), monitorMute: true }), model });
+    expect(one(on, byLabel("Monitor mute sfx")).props["aria-pressed"]).toBe(true);
+    expect(find(on, byClass("monitor-muted"))).toHaveLength(1);
+  });
+
+  it("a refused monitor mute (no Play) does not re-render; without the model method there is no button", () => {
+    const r = rig();
+    const changes = { n: 0 };
+    const refusing: MixerStripProps["model"] = { ...r.model, toggleMonitorMute: () => false };
+    fn<() => void>(one(render({ strip: stripOf(r, "sfx"), model: refusing, onChange: () => void changes.n++ }), byLabel("Monitor mute sfx")), "onClick")();
+    expect(changes.n).toBe(0);
+    expect(find(render({ strip: stripOf(r, "sfx"), model: r.model }), byLabel("Monitor mute sfx"))).toHaveLength(0);
+  });
+
   it("buildStrips and MixerStrip agree for a strip built without the model", () => {
     const { settings } = parseAudioSettings(AUDIO);
     const [root] = buildStrips(settings, () => reading({ effectiveGain: 2 }));

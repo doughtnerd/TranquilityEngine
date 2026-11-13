@@ -5,6 +5,7 @@
 // W8 slot fills for the Profiler panel (contract H5; see the top of `ProfilerPanel.tsx`) go in the marked block below,
 // one import and one line each, so no task edits `ProfilerPanel.tsx`.
 import type { EditorPluginContext } from "../../../../editor/sdk";
+import type { OpLogEntry } from "./opLog";
 import type { CaptureLoudnessTarget } from "../../runtime/capture/format";
 
 export const PROFILER_PANEL = "audioprofiler";
@@ -27,8 +28,25 @@ let mixerReady: Promise<typeof import("./MixerPanel")["MixerPanel"]> | null = nu
 
 /** Loads the Mixer panel once, lazily (nothing here loads before the panel opens). */
 function loadMixer(): Promise<typeof import("./MixerPanel")["MixerPanel"]> {
-  mixerReady ??= import("./MixerPanel").then((m) => m.MixerPanel);
+  mixerReady ??= (async () => {
+    const [m, { audioBackend }, { opLogEntries }] = await Promise.all([import("./MixerPanel"), import("../../runtime/backend"), import("../index")]);
+    wireMixerHost(m.mixerHost, { flushNow: () => audioBackend().flushNow?.(), entries: opLogEntries });
+    // `mixerHost.section` waits for the SDK surface of ADR 0173 (the shell's Project Settings section): until then the panel reads the draft.
+    return m.MixerPanel;
+  })();
   return mixerReady;
+}
+
+/** What the editor half hands the Mixer panel: the backend's `flushNow` and the op log's entries. */
+export interface MixerHostSources {
+  flushNow(): void;
+  entries(): readonly OpLogEntry[];
+}
+
+/** Fill the panel's host with `sources` (G8a: previews post at once; the restart banner reads every recorded op). */
+export function wireMixerHost(host: { flushNow: (() => void) | null; entries: (() => readonly OpLogEntry[]) | null }, sources: MixerHostSources): void {
+  host.flushNow = () => sources.flushNow();
+  host.entries = () => sources.entries();
 }
 
 let profilerReady: Promise<typeof import("./ProfilerPanel")["ProfilerPanel"]> | null = null;

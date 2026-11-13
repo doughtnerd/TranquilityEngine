@@ -21,7 +21,10 @@ export const GAIN_REDUCTION_MAX_DB = 24;
 export const LUFS_FLOOR = METER_FLOOR_DB;
 
 /** What a strip needs of the model: the gestures only. */
-export type StripModel = Pick<MixerModel, "beginDrag" | "drag" | "endDrag" | "cancelDrag" | "setVolume" | "toggleMute" | "toggleSolo" | "dragging">;
+export type StripModel = Pick<MixerModel, "beginDrag" | "drag" | "endDrag" | "cancelDrag" | "setVolume" | "toggleMute" | "toggleSolo" | "dragging"> & {
+  /** A monitor mute of the bus (never a commit); false when it can't apply (no Play, Compare). Absent: the strip shows no button. */
+  toggleMonitorMute?(bus: string): boolean;
+};
 
 export interface MixerStripProps {
   readonly strip: Strip;
@@ -247,7 +250,7 @@ export function MixerStrip(props: MixerStripProps): JSX.Element {
   const effective = strip.live ? formatDb(strip.effectiveGain) : "-";
   const showGr = !!props.levelDucked || (strip.live && strip.duckGain < 1);
   const h = faderHandlers(props);
-  const cls = ["mixer-strip", strip.root ? "root" : "", strip.dragging ? "dragging" : "", strip.mute ? "muted" : "", strip.monitorSolo ? "soloed" : "", strip.live ? "" : "idle"].filter(Boolean).join(" ");
+  const cls = ["mixer-strip", strip.root ? "root" : "", strip.dragging ? "dragging" : "", strip.mute ? "muted" : "", strip.monitorMute ? "monitor-muted" : "", strip.monitorSolo ? "soloed" : "", strip.live ? "" : "idle"].filter(Boolean).join(" ");
   return (
     <div class={cls} role="group" aria-label={`${strip.name} strip`} data-bus={strip.name} data-depth={strip.depth}>
       <div class="mixer-strip-name" title={strip.name}>{strip.name}</div>
@@ -293,6 +296,16 @@ export function MixerStrip(props: MixerStripProps): JSX.Element {
           title={strip.runtimeMute ? "Muted by a script" : "Mute (saved with the project)"}
           onClick={() => { if (model.toggleMute(strip.name)) changed(); }}
         >M</button>
+        {model.toggleMonitorMute && (
+          <button
+            type="button"
+            class={`mixer-monitor-mute${strip.monitorMute ? " on" : ""}`}
+            aria-pressed={strip.monitorMute}
+            aria-label={`Monitor mute ${strip.name}`}
+            title="Mute in the monitor only (never saved; marks this bus's meters, its parents' and master's as affected)"
+            onClick={() => { if (model.toggleMonitorMute?.(strip.name)) changed(); }}
+          >MM</button>
+        )}
         <button
           type="button"
           class={`mixer-solo${strip.monitorSolo ? " on" : ""}${strip.solo ? " script" : ""}`}

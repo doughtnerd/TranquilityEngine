@@ -32,9 +32,10 @@
 .mixer-gain-effective { color: var(--muted); }
 .mixer-gain-label { color: var(--faint); }
 
-.mixer-buttons { display: flex; gap: 4px; justify-content: center; }
-.mixer-mute, .mixer-solo { width: 28px; padding: 2px 0; background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; }
-.mixer-mute:hover, .mixer-solo:hover { background: var(--button-hover); }
+.mixer-buttons { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.mixer-monitor-mute.on { background: var(--warning); color: var(--accent-text); border-color: var(--warning); }
+.mixer-mute, .mixer-solo, .mixer-monitor-mute { width: 28px; padding: 2px 0; background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; }
+.mixer-mute:hover, .mixer-solo:hover, .mixer-monitor-mute:hover { background: var(--button-hover); }
 .mixer-mute.on { background: var(--danger-strong); color: var(--danger-text); border-color: var(--danger); }
 .mixer-solo.on { background: var(--warning); color: var(--accent-text); border-color: var(--warning); }
 .mixer-mute.script, .mixer-solo.script { box-shadow: inset 0 0 0 1px var(--accent); }
