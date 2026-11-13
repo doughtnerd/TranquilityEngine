@@ -31,6 +31,7 @@ import {
 } from "./saved";
 import { layout } from "./store";
 import { panelsOfPlugin } from "../sdk/panelOwners";
+import { captureWindowBounds } from "./detached";
 
 /** Where layout files are read and written; tests pass in-memory versions. */
 export interface LayoutPlatform {
@@ -211,6 +212,7 @@ export function whyNoSave(): string | null {
 export async function saveLayout(label = "Saved"): Promise<void> {
   const active = activeSaved.peek();
   if (!active || whyNoSave()) return;
+  captureWindowBounds(); // detached windows are saved where they are now
   const next = addVersion(active.newest, layout.peek(), Date.now(), label);
   try {
     await writeTo(active.file, next, writableScopes(active));
@@ -225,6 +227,7 @@ export async function saveLayoutAs(name: string, scopes: readonly LayoutScope[])
   const trimmed = name.trim();
   if (!trimmed || scopes.length === 0) return null;
   const file = fileNameFor(trimmed, new Set(savedLayouts.peek().map((s) => s.file)));
+  captureWindowBounds();
   try {
     await writeTo(file, newLayoutFile(trimmed, layout.peek()), scopes);
     activeLayoutFile.value = file;

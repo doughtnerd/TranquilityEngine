@@ -62,12 +62,12 @@ export function addPanels(types: readonly PanelId[], group?: string): void {
   layout.value = next;
 }
 
-/** The Add Panel dialog's request: open (with the group to add to, if any) or null. */
-export const addPanelRequest = signal<{ group?: string } | null>(null);
+/** The Add Panel dialog's request: open (with the group to add to, and the detached window it's in, if any) or null. */
+export const addPanelRequest = signal<{ group?: string; window?: string } | null>(null);
 
-/** Open the Add Panel dialog, adding to `group` (a header menu's) or to each panel's usual place. */
-export function requestAddPanel(group?: string): void {
-  addPanelRequest.value = { group };
+/** Open the Add Panel dialog, adding to `group` (a header menu's) or to each panel's usual place; shown in the detached window `window` when given. */
+export function requestAddPanel(group?: string, window?: string): void {
+  addPanelRequest.value = { group, window };
 }
 
 export function resetLayout(): void {

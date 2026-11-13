@@ -648,3 +648,12 @@ button:disabled.primary { opacity: 0.5; }
 .layouts-actions { display: flex; gap: 8px; align-items: center; }
 .layouts-actions .asset-spacer { flex: 1; }
 @media (max-width: 560px) { .layouts-body { grid-template-columns: 1fr; } }
+
+/* Detached panel windows (ADR 0174): the dock layout fills the window. */
+#panel-window-root > .dock-layout { flex: 1; }
+/* Windows a layout holds that aren't open (a pop-up the browser blocked). */
+.pending-windows {
+  position: fixed; left: 50%; bottom: calc(34px * var(--ui-scale)); transform: translateX(-50%); z-index: 25;
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 6px 18px var(--shadow);
+}

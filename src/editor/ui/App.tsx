@@ -1,5 +1,6 @@
 import { isTauri } from "../../engine/platform/FileSystem";
 import { DockLayout } from "../layout/DockLayout";
+import { DetachedWindows, PendingWindowsBanner } from "./DetachedWindows";
 import { togglePlaying } from "../session";
 import { currentProject, docVersion, openScene, playState } from "../state";
 import { art, PRODUCT_NAME } from "../brand";
@@ -23,7 +24,7 @@ import { spriteEditorImage } from "../assetImport";
 // Dialogs that load when first opened (ADR 0083).
 const ExportDialog = lazyDialog(() => exportOpen.value, () => import("./ExportDialog").then((m) => m.ExportDialog));
 const SettingsDialog = lazyDialog(() => settingsOpen.value, () => import("./SettingsDialog").then((m) => m.SettingsDialog));
-const AddPanelDialog = lazyDialog(() => addPanelRequest.value !== null, () => import("./AddPanelDialog").then((m) => m.AddPanelDialog));
+const AddPanelDialog = lazyDialog(() => addPanelRequest.value !== null && !addPanelRequest.value.window, () => import("./AddPanelDialog").then((m) => () => <m.AddPanelDialog />));
 const SaveLayoutDialog = lazyDialog(() => saveLayoutAsOpen.value, () => import("./SaveLayoutDialog").then((m) => m.SaveLayoutDialog));
 const LayoutsDialog = lazyDialog(() => manageLayoutsOpen.value, () => import("./LayoutsDialog").then((m) => m.LayoutsDialog));
 const SpriteEditorDialog = lazyDialog(() => spriteEditorImage.value !== null, () => import("./SpriteEditor").then((m) => m.SpriteEditorDialog));
@@ -34,6 +35,8 @@ export function App() {
     <div class={`editor${playState.value !== "edit" ? " playing" : ""}`}>
       <Toolbar />
       <DockLayout panels={PANEL_VIEWS} />
+      <PendingWindowsBanner />
+      <DetachedWindows />
       {!currentProject.value && !isTauri() && <StartScreen /> /* the desktop editor has a Projects window instead (ADR 0059) */}
       <StatusBar />
       <AssetDragGhost />

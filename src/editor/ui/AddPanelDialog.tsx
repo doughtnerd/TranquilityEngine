@@ -6,8 +6,10 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { allPanels, instancesOf, isSinglePanel, panelTitle, type PanelId } from "../layout/model";
 import { addPanelRequest, addPanels, layout } from "../layout/store";
 
-export function AddPanelDialog() {
-  const request = addPanelRequest.value;
+/** The dialog; `inWindow` is the detached window rendering it (each window shows its own requests). */
+export function AddPanelDialog(props: { inWindow?: string }) {
+  const asked = addPanelRequest.value;
+  const request = asked && asked.window === props.inWindow ? asked : null;
   const [ticked, setTicked] = useState<ReadonlySet<PanelId>>(new Set());
   const first = useRef<HTMLInputElement>(null);
   useEffect(() => {

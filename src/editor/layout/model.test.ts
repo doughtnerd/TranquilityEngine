@@ -571,3 +571,53 @@ describe("panel instances (ADR 0174)", () => {
     expect(layoutShape(closePanel(defaultLayout(), "code"))).not.toBe(layoutShape(defaultRaw()));
   });
 });
+
+describe("detached windows (ADR 0174)", () => {
+  it("detaches a panel into a window of its own, and the rest of the model sees it there", async () => {
+    const { detachPanel, windowOf } = await import("./model");
+    const l = defaultLayout();
+    const { layout: d, windowId } = detachPanel(l, "inspector", { x: 10, y: 20, w: 400, h: 300 });
+    expect(windowId).not.toBeNull();
+    expect(d.windows).toHaveLength(1);
+    expect(windowOf(d, "inspector")?.id).toBe(windowId);
+    expect(d.windows![0]!.bounds).toEqual({ x: 10, y: 20, w: 400, h: 300 });
+    expect(instancesOf(d, "inspector")).toEqual(["inspector"]);
+    expect(d.docks.flatMap((x) => x.groups.flatMap((g) => g.panels))).not.toContain("inspector");
+    expect(detachPanel(l, "scene").windowId).toBeNull(); // the Scene view stays in the main window
+  });
+
+  it("lays out, moves within and closes panels in a window through its view", async () => {
+    const { detachPanel, windowView, fromWindowView, MAIN_WINDOW, movePanelToWindow, closeWindow } = await import("./model");
+    const { layout: d, windowId } = detachPanel(defaultLayout(), "inspector");
+    const view = windowView(d, windowId!)!;
+    expect(view.docks.flatMap((x) => x.groups.flatMap((g) => g.panels))).toEqual(["inspector"]);
+    // Drop History (from the main window) onto the window's group, in the window's view.
+    const group = view.docks[0]!.groups[0]!.id;
+    const moved = fromWindowView(movePanel(view, "history", { kind: "tab", group }), windowId!, d);
+    expect(moved.windows![0]!.docks[0]!.groups[0]!.panels).toEqual(["inspector", "history"]);
+    expect(moved.docks.flatMap((x) => x.groups.flatMap((g) => g.panels))).not.toContain("history");
+    // Back to the main window.
+    const back = movePanelToWindow(moved, "history", MAIN_WINDOW);
+    expect(back.windows![0]!.docks[0]!.groups[0]!.panels).toEqual(["inspector"]);
+    // Closing the window's last panel closes the window.
+    expect(closePanel(back, "inspector").windows).toBeUndefined();
+    // Closing the window closes its panels.
+    const closed = closeWindow(moved, windowId!);
+    expect(closed.windows).toBeUndefined();
+    expect(instancesOf(closed, "history")).toEqual([]);
+  });
+
+  it("saves windows with the layout and reads them back; a Scene view in a window goes back to the main one", async () => {
+    const { detachPanel } = await import("./model");
+    const { layout: d } = detachPanel(defaultLayout(), "inspector", { x: 1, y: 2, w: 3, h: 4 });
+    const back = parseLayout(JSON.parse(JSON.stringify(d)))!;
+    expect(back.windows![0]!.docks[0]!.groups[0]!.panels).toEqual(["inspector"]);
+    expect(back.windows![0]!.bounds).toEqual({ x: 1, y: 2, w: 3, h: 4 });
+    const hacked = JSON.parse(JSON.stringify(d)) as Layout;
+    hacked.windows![0]!.docks[0]!.groups[0]!.panels.push("scene");
+    for (const dock of hacked.docks) for (const g of dock.groups) g.panels = g.panels.filter((p) => p !== "scene");
+    const fixed = parseLayout(hacked)!;
+    expect(instancesOf(fixed, "scene")).toHaveLength(1);
+    expect(fixed.windows![0]!.docks[0]!.groups[0]!.panels).toEqual(["inspector"]);
+  });
+});
