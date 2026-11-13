@@ -6,7 +6,8 @@
 // fade, snapshot and ducking maths (`git show 770bcf1:src/engine/audio/mixer.ts`, lines 155-219 and 258-268),
 // written into this file (the leaf owns only this file).
 import { describe, expect, it, vi } from "vitest";
-import { Lane, Mixer, type MixOp } from "./mixer";
+import { Lane, Mixer } from "./mixer";
+import type { MixOp } from "./mixOps";
 import { EMPTY_BUS_LOUDNESS, type BusLoudness } from "./loudnessTypes";
 import { defaultAudioSettings, MASTER, type AudioSettings, type BusSettings, type DuckingRule, type SnapshotSettings } from "./settings";
 
