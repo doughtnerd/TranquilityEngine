@@ -25,7 +25,24 @@ import {
   CAPTURE_MAX_NAMES, CAPTURE_NAME_MAX_BYTES, EpochReason, EventKind, GapReason, NAME_TABLES, RECORD_FLAG_DEFERRED, RecordType,
   cutUtf8, encodeEvent, encodeNames, eventBytes, namesBytes, type EventPayload, type NameTable,
 } from "./format";
-import type { EpochContext, Recorder } from "./recorder";
+import type { EpochPayload } from "./format";
+import type { RecorderRing } from "./ring";
+
+/** The context an EPOCH names (`recorder.ts`' `EpochContext`, restated: no file but `capture.ts` may import the recorder, even for a type). */
+export type EpochContext = Omit<EpochPayload, "reason" | "perfMs">;
+
+/** What the sink uses of a `Recorder` (`capture/recorder.ts`); the real one satisfies it. */
+export interface EventSinkRecorder {
+  readonly ring: Pick<RecorderRing, "view">;
+  readonly newestStatusFrame: number;
+  readonly sampleRate: number;
+  readonly epochNumber: number;
+  record(type: number, frame: number, len: number, flags?: number): number;
+  begin(frame: number, context: EpochContext): void;
+  epoch(reason: number, frame: number, context: EpochContext): void;
+  gap(reason: number, frame: number, perfFrom: number, perfTo: number, firstSeq?: number, lastSeq?: number): void;
+  marker(text: string, frame: number): void;
+}
 
 /** The id an absent name or instance carries (`null` instance, `null` bus or `from`, a name the ring couldn't take). */
 export const NO_NAME = 0xffffffff;
@@ -62,7 +79,7 @@ export interface EventSinkOptions {
 export type InternedNames = ReadonlyArray<ReadonlyMap<string, number>>;
 
 export class EventSink implements ProfileSink {
-  private readonly recorder: Recorder;
+  private readonly recorder: EventSinkRecorder;
   private readonly now: () => number;
   private readonly epochContext: (() => EpochContext & { frame?: number }) | undefined;
 
@@ -81,7 +98,7 @@ export class EventSink implements ProfileSink {
   private readonly f32 = new Float32Array(1);
   private readonly f32bits = new Uint32Array(this.f32.buffer);
 
-  constructor(recorder: Recorder, opts: EventSinkOptions = {}) {
+  constructor(recorder: EventSinkRecorder, opts: EventSinkOptions = {}) {
     this.recorder = recorder;
     this.now = opts.now ?? (() => performance.now());
     this.epochContext = opts.epochContext;
@@ -310,6 +327,6 @@ export class EventSink implements ProfileSink {
 }
 
 /** The sink for a recorder: set it with `backend.setProfileSink(sink)` (Rc4, once the recorder runs). */
-export function createEventSink(recorder: Recorder, opts: EventSinkOptions = {}): EventSink {
+export function createEventSink(recorder: EventSinkRecorder, opts: EventSinkOptions = {}): EventSink {
   return new EventSink(recorder, opts);
 }
