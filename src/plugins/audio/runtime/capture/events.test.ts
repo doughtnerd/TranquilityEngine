@@ -61,6 +61,9 @@ function expected(c: CaptureContents, args: readonly Arg[]): number[] {
   return args.map((a) => (typeof a === "number" ? a : idOf(c, a.table, a.name)));
 }
 const f32 = (x: number) => Math.fround(x);
+/** busRefs are `gen << 8 | slot`; the sink writes them raw (a nonzero generation shows nothing is masked or interned). */
+const BGM = (2 << 8) | 1;
+const SFX = (1 << 8) | 2;
 
 interface Row {
   /** The sink call. */
@@ -76,23 +79,26 @@ interface Row {
 
 // §5.6, one row per kind x reason. The args follow `events.ts`' header: ids from NAMES tables for strings.
 const rows: Row[] = [
-  { name: "voiceStart", call: (s) => s.voiceStart(7, "hop.ogg", "Bgm", 3, 800, 0.5), kind: EventKind.voiceStart, reason: 0, args: [7, N("clips", "hop.ogg"), N("buses", "Bgm"), 3, 800], f32: 0.5, frame: 800 },
+  { name: "voiceStart", call: (s) => s.voiceStart(7, "hop.ogg", BGM, 3, 800, 0.5), kind: EventKind.voiceStart, reason: 0, args: [7, N("clips", "hop.ogg"), BGM, 3, 800], f32: 0.5, frame: 800 },
   ...(["ended", "stopped", "faded", "worldReleased", "failed"] as const).map((reason, i): Row => ({ name: `voiceStop ${reason}`, call: (s) => s.voiceStop(9, reason), kind: EventKind.voiceStop, reason: i + 1, args: [9] })),
   ...(["busMaxVoices", "globalLimit", "priority"] as const).map((reason, i): Row => ({ name: `voiceSteal ${reason}`, call: (s) => s.voiceSteal(4, 5, reason), kind: EventKind.voiceSteal, reason: i + 1, args: [4, 5] })),
   ...(["capDemoted", "belowAudibility", "paused", "worldInaudible"] as const).map((reason, i): Row => ({ name: `voiceVirtual ${reason}`, call: (s) => s.voiceVirtual(11, reason), kind: EventKind.voiceVirtual, reason: i + 1, args: [11] })),
   ...(["promoted", "capRaised"] as const).map((reason, i): Row => ({ name: `voiceReal ${reason}`, call: (s) => s.voiceReal(12, reason), kind: EventKind.voiceReal, reason: i + 1, args: [12] })),
-  ...(["busFull", "poolFull", "neverFits", "loadFailed", "capRefused"] as const).map((reason, i): Row => ({ name: `voiceRefused ${reason}`, call: (s) => s.voiceRefused("land.ogg", "Sfx", reason), kind: EventKind.voiceRefused, reason: i + 1, args: [N("clips", "land.ogg"), N("buses", "Sfx")] })),
-  ...(["clipLoading", "streamPriming"] as const).map((reason, i): Row => ({ name: `voiceQueued ${reason}`, call: (s) => s.voiceQueued("theme.ogg", "Bgm", reason), kind: EventKind.voiceQueued, reason: i + 1, args: [N("clips", "theme.ogg"), N("buses", "Bgm")] })),
+  ...(["busFull", "poolFull", "neverFits", "loadFailed", "capRefused"] as const).map((reason, i): Row => ({ name: `voiceRefused ${reason}`, call: (s) => s.voiceRefused("land.ogg", SFX, reason), kind: EventKind.voiceRefused, reason: i + 1, args: [N("clips", "land.ogg"), SFX] })),
+  ...(["clipLoading", "streamPriming"] as const).map((reason, i): Row => ({ name: `voiceQueued ${reason}`, call: (s) => s.voiceQueued("theme.ogg", BGM, reason), kind: EventKind.voiceQueued, reason: i + 1, args: [N("clips", "theme.ogg"), BGM] })),
   { name: "eventStart", call: (s) => s.eventStart(21, "footsteps"), kind: EventKind.eventStart, reason: 0, args: [21, N("events", "footsteps")] },
   { name: "eventStop", call: (s) => s.eventStop(21), kind: EventKind.eventStop, reason: 0, args: [21] },
+  { name: "snapshot cleared (empty name)", call: (s) => s.snapshot("", 0.5), kind: EventKind.snapshot, reason: 0, args: [NO_NAME], f32: 0.5 },
   { name: "snapshot", call: (s) => s.snapshot("Underwater", 1.5), kind: EventKind.snapshot, reason: 0, args: [N("snapshots", "Underwater")], f32: 1.5 },
   { name: "stateChange", call: (s) => s.stateChange("Surface", "Water"), kind: EventKind.stateChange, reason: 0, args: [N("parameters", "Surface"), N("parameters", "Water")] },
   { name: "musicTransition from a segment", call: (s) => s.musicTransition(2, "Intro", "Loop"), kind: EventKind.musicTransition, reason: 0, args: [2, N("events", "Intro"), N("events", "Loop")] },
   { name: "musicTransition from nothing", call: (s) => s.musicTransition(2, null, "Intro"), kind: EventKind.musicTransition, reason: 0, args: [2, NO_NAME, N("events", "Intro")] },
-  ...(["authored", "runtime", "snapshot", "monitor", "dip"] as const).map((lane, i): Row => ({ name: `busRamp ${lane}`, call: (s) => s.busRamp("Sfx", lane, 480, 0.25), kind: EventKind.busRamp, reason: 0, args: [N("buses", "Sfx"), i, 480], f32: 0.25 })),
-  { name: "busRamp unknown lane", call: (s) => s.busRamp("Sfx", "future", 96, 1), kind: EventKind.busRamp, reason: 0, args: [N("buses", "Sfx"), NO_NAME, 96], f32: 1 },
+  ...(["authored", "runtime", "snapshot", "monitor", "dip", "duck", "automation"] as const).map((lane, i): Row => ({ name: `busRamp ${lane}`, call: (s) => s.busRamp(SFX, lane, 480, 0.25), kind: EventKind.busRamp, reason: 0, args: [SFX, i, 480], f32: 0.25 })),
+  { name: "busRamp unknown lane", call: (s) => s.busRamp(SFX, "future", 96, 1), kind: EventKind.busRamp, reason: 0, args: [SFX, NO_NAME, 96], f32: 1 },
   { name: "monitor", call: (s) => s.monitor(0b1010), kind: EventKind.monitor, reason: 0, args: [0b1010] },
-  ...(["reset", "pause", "resume", "target"] as const).map((control, i): Row => ({ name: `loudnessControl ${control} on a bus`, call: (s) => s.loudnessControl(control, "Bgm"), kind: EventKind.loudnessControl, reason: i + 1, args: [N("buses", "Bgm")] })),
+  { name: "monitor mutes low, solos high", call: (s) => s.monitor(((0b100 << 16) | 0b011) >>> 0), kind: EventKind.monitor, reason: 0, args: [0x00040003] },
+  { name: "monitor with the top solo bit (unsigned)", call: (s) => s.monitor(0x80000001), kind: EventKind.monitor, reason: 0, args: [0x80000001] },
+  ...(["reset", "pause", "resume", "target"] as const).map((control, i): Row => ({ name: `loudnessControl ${control} on a bus`, call: (s) => s.loudnessControl(control, "Bgm"), kind: EventKind.loudnessControl, reason: i + 1, args: [N("parameters", "Bgm")] })),
   ...(["reset", "pause", "resume", "target"] as const).map((control, i): Row => ({ name: `loudnessControl ${control} on no bus`, call: (s) => s.loudnessControl(control, null), kind: EventKind.loudnessControl, reason: i + 1, args: [NO_NAME] })),
   { name: "ladder shed", call: (s) => s.ladder(3, true), kind: EventKind.ladder, reason: 2, args: [3] },
   { name: "ladder restored", call: (s) => s.ladder(3, false), kind: EventKind.ladder, reason: 3, args: [3] },
@@ -147,46 +153,54 @@ describe("EventSink: every §5.6 kind and reason encodes and decodes back (a spe
     expect(e[0]!.payload.f32).toBeUndefined();
   });
 
+  it("loudnessControl's bus name never lands in the slot-keyed buses table", () => {
+    const g = rig();
+    g.feed(768);
+    g.sink.loudnessControl("pause", "Bgm");
+    g.sink.voiceStart(1, "hop.ogg", BGM, 0, 0, 1);
+    const c = g.decode();
+    expect([...c.names.buses]).toEqual([]);
+  });
+
 });
 
 describe("EventSink: names are interned once", () => {
-  it("two events on one clip and bus write one NAMES record each, before the first event that uses them", () => {
+  it("two events on one clip write one NAMES record, and a bus (a busRef) writes none, before the first event that uses them", () => {
     const g = rig();
     g.feed(768);
-    g.sink.voiceStart(1, "hop.ogg", "Sfx", 0, 0, 1);
-    g.sink.voiceStart(2, "hop.ogg", "Sfx", 0, 0, 1);
-    g.sink.voiceRefused("hop.ogg", "Sfx", "busFull");
+    g.sink.voiceStart(1, "hop.ogg", SFX, 0, 0, 1);
+    g.sink.voiceStart(2, "hop.ogg", SFX, 0, 0, 1);
+    g.sink.voiceRefused("hop.ogg", SFX, "busFull");
     const c = g.decode();
     const rec = all(c);
     const names = rec.filter((d) => d.kind === "names");
-    expect(names.map((d) => d.kind === "names" && [d.payload.table, d.payload.id, d.payload.name])).toEqual([[0, 0, "hop.ogg"], [1, 0, "Sfx"]]);
-    expect(g.sink.namesWritten).toBe(2);
+    expect(names.map((d) => d.kind === "names" && [d.payload.table, d.payload.id, d.payload.name])).toEqual([[0, 0, "hop.ogg"]]);
+    expect(g.sink.namesWritten).toBe(1);
     const firstEvent = rec.findIndex((d) => d.kind === "event");
     expect(rec.findIndex((d) => d.kind === "names")).toBeLessThan(firstEvent);
     const ev = events(c);
-    expect(ev.map((x) => (x.payload.kind === EventKind.voiceStart ? x.payload.args.slice(1, 3) : x.payload.args))).toEqual([[0, 0], [0, 0], [0, 0]]);
+    expect(ev.map((x) => (x.payload.kind === EventKind.voiceStart ? x.payload.args.slice(1, 3) : x.payload.args))).toEqual([[0, SFX], [0, SFX], [0, SFX]]);
   });
 
   it("the same string in two tables is two names; ids count up per table", () => {
     const g = rig();
-    g.sink.voiceStart(1, "Water", "Water", 0, 0, 1);
+    g.sink.voiceStart(1, "Water", SFX, 0, 0, 1);
     g.sink.parameter("Water", 1, null);
     g.sink.eventStart(1, "Water");
-    g.sink.voiceStart(2, "Rain", "Sfx", 0, 0, 1);
+    g.sink.voiceStart(2, "Rain", SFX, 0, 0, 1);
     const c = g.decode();
     expect(Object.fromEntries((["clips", "buses", "events", "parameters"] as const).map((t) => [t, [...c.names[t]]]))).toEqual({
-      clips: [[0, "Water"], [1, "Rain"]], buses: [[0, "Water"], [1, "Sfx"]], events: [[0, "Water"]], parameters: [[0, "Water"]],
+      clips: [[0, "Water"], [1, "Rain"]], buses: [], events: [[0, "Water"]], parameters: [[0, "Water"]],
     });
   });
 
   it("seed reuses META's ids and continues after the largest", () => {
     const g = rig();
     g.sink.seed("clips", 4, "hop.ogg");
-    g.sink.seed("buses", 1, "Bgm");
-    g.sink.voiceStart(1, "hop.ogg", "Bgm", 0, 0, 1);
-    g.sink.voiceStart(2, "land.ogg", "Bgm", 0, 0, 1);
+    g.sink.voiceStart(1, "hop.ogg", BGM, 0, 0, 1);
+    g.sink.voiceStart(2, "land.ogg", BGM, 0, 0, 1);
     const c = g.decode();
-    expect(events(c).map((e) => e.payload.args.slice(1, 3))).toEqual([[4, 1], [5, 1]]);
+    expect(events(c).map((e) => e.payload.args.slice(1, 3))).toEqual([[4, BGM], [5, BGM]]);
     expect(all(c).filter((d) => d.kind === "names").map((d) => d.kind === "names" && d.payload.name)).toEqual(["land.ogg"]);
   });
 
@@ -204,15 +218,15 @@ describe("EventSink: names are interned once", () => {
 
   it("a name the ring couldn't take (before begin) is retried, not lost: it is interned at its next use", () => {
     const g = rig({ begin: false });
-    g.sink.voiceStart(1, "hop.ogg", "Sfx", 0, 0, 1);
+    g.sink.voiceStart(1, "hop.ogg", SFX, 0, 0, 1);
     expect(g.sink.namesWritten).toBe(0);
     expect(g.sink.eventsDropped).toBe(1);
     expect(g.sink.eventsWritten).toBe(0);
     g.r.begin(0, CONTEXT);
-    g.sink.voiceStart(2, "hop.ogg", "Sfx", 0, 0, 1);
+    g.sink.voiceStart(2, "hop.ogg", SFX, 0, 0, 1);
     const c = g.decode();
     expect([...c.names.clips]).toEqual([[0, "hop.ogg"]]);
-    expect(events(c).map((e) => e.payload.args.slice(0, 3))).toEqual([[2, 0, 0]]);
+    expect(events(c).map((e) => e.payload.args.slice(0, 3))).toEqual([[2, 0, SFX]]);
   });
 
   it("reset starts the tables over", () => {
@@ -239,9 +253,9 @@ describe("EventSink: frames and the deferred stamp (§5.3)", () => {
   it("voiceStart: asap (0) and past frames are recorded at now; a start up to 1 s ahead at its own frame", () => {
     const g = rig();
     g.feed(768);
-    g.sink.voiceStart(1, "a", "b", 0, 0, 1);
-    g.sink.voiceStart(2, "a", "b", 0, 100, 1);
-    g.sink.voiceStart(3, "a", "b", 0, 768 + SAMPLE_RATE, 1);
+    g.sink.voiceStart(1, "a", 1, 0, 0, 1);
+    g.sink.voiceStart(2, "a", 1, 0, 100, 1);
+    g.sink.voiceStart(3, "a", 1, 0, 768 + SAMPLE_RATE, 1);
     const e = events(g.decode());
     expect(e.map((x) => [x.frame, x.flags, x.stamp])).toEqual([[768, 0, undefined], [768, 0, undefined], [768 + SAMPLE_RATE, 0, undefined]]);
   });
@@ -250,13 +264,13 @@ describe("EventSink: frames and the deferred stamp (§5.3)", () => {
     const g = rig();
     g.feed(768);
     const at = 768 + 2 * SAMPLE_RATE + 5;
-    g.sink.voiceStart(1, "a", "b", 6, at, 0.5);
+    g.sink.voiceStart(1, "a", 1, 6, at, 0.5);
     const c = g.decode();
     const [e] = events(c);
     expect(e!.flags).toBe(RECORD_FLAG_DEFERRED);
     expect(e!.frame).toBe(768);
     expect(e!.stamp).toBe(at);
-    expect(e!.payload.args).toEqual([1, 0, 0, 6, at]);
+    expect(e!.payload.args).toEqual([1, 0, 1, 6, at]);
     expect(e!.payload.f32).toBe(0.5);
     // The raw record: the stamp is the first 8 payload bytes, and the head's len covers it.
     const t = c.records;
@@ -267,7 +281,7 @@ describe("EventSink: frames and the deferred stamp (§5.3)", () => {
   it("atFrame's low 32 bits go into the arg", () => {
     const g = rig();
     const at = 2 ** 32 + 77;
-    g.sink.voiceStart(1, "a", "b", 0, at, 1);
+    g.sink.voiceStart(1, "a", 1, 0, at, 1);
     expect(events(g.decode())[0]!.payload.args[4]).toBe(77);
   });
 });
@@ -363,16 +377,16 @@ describe("EventSink: nothing allocates per event (by construction)", () => {
     g.feed(768);
     // Prime: every name used below is interned here.
     const play = () => {
-      g.sink.voiceStart(1, "hop.ogg", "Sfx", 0, 0, 1);
+      g.sink.voiceStart(1, "hop.ogg", SFX, 0, 0, 1);
       g.sink.voiceStop(1, "ended");
       g.sink.voiceSteal(1, 2, "priority");
-      g.sink.voiceRefused("hop.ogg", "Sfx", "busFull");
+      g.sink.voiceRefused("hop.ogg", SFX, "busFull");
       g.sink.eventStart(3, "footsteps");
       g.sink.parameter("Speed", 0.5, 3);
       g.sink.snapshot("Underwater", 1);
       g.sink.stateChange("Surface", "Water");
       g.sink.musicTransition(1, "Intro", "Loop");
-      g.sink.busRamp("Sfx", "runtime", 480, 0.5);
+      g.sink.busRamp(SFX, "runtime", 480, 0.5);
       g.sink.loudnessControl("pause", "Sfx");
       g.sink.masterChange(0.5, false);
       g.sink.ladder(1, true);
@@ -406,9 +420,9 @@ describe("EventSink: nothing allocates per event (by construction)", () => {
   it("the ring holds the events: 100 repeat plays grow it by exactly the bytes of their records", () => {
     const g = rig();
     g.feed(768);
-    g.sink.voiceStart(1, "hop.ogg", "Sfx", 0, 0, 1);
+    g.sink.voiceStart(1, "hop.ogg", SFX, 0, 0, 1);
     const before = g.r.ring.usedBytes;
-    for (let i = 0; i < 100; i++) g.sink.voiceStart(1, "hop.ogg", "Sfx", 0, 0, 1);
+    for (let i = 0; i < 100; i++) g.sink.voiceStart(1, "hop.ogg", SFX, 0, 0, 1);
     const perEvent = 20 + 12 + 4 * 5 + 4;
     expect(g.r.ring.usedBytes - before).toBe(100 * perEvent);
   });
@@ -421,7 +435,7 @@ describe("EventSink: ring pressure", () => {
     const before = g.sink.eventsDropped;
     const spy = vi.spyOn(g.r, "record").mockReturnValue(-1);
     g.sink.voiceStop(1, "ended");
-    g.sink.voiceStart(1, "a", "b", 0, 0, 1);
+    g.sink.voiceStart(1, "a", 1, 0, 0, 1);
     spy.mockRestore();
     expect(g.sink.eventsDropped).toBe(before + 2);
     expect(g.sink.namesWritten).toBe(0);
