@@ -281,7 +281,24 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   /** ADR 0171 (K0): deferred live adds (`deferredAdds.ts`; Ma3). */
   readonly deferredAdds = new DeferredAdds();
   /** ADR 0171 (K0): the live-edit path `applyOp` routes to (`liveMix.ts`; Ma1). */
-  readonly liveMix = new LiveMix({ dip: this.dip, deferred: this.deferredAdds });
+  readonly liveMix = new LiveMix({
+    dip: this.dip,
+    deferred: this.deferredAdds,
+    mixer: () => this.mixer,
+    buses: () => this.buses,
+    writer: () => this.writer,
+    automation: () => this.automation,
+    // The mixer's change notification, run at once so the op's records go with this frame's BATCH (or `flushNow`).
+    syncMix: () => {
+      if (this.disposed) return;
+      this.buses.replanBedsOnSettings();
+      this.presence.settingsChanged(this.mixer);
+      this.lanes.sync();
+    },
+    sending: () => !this.disposed && !this.recovering && this.host.status === "running",
+    firstFrame: () => this.clockMap.nextFirstFrame(),
+    stampAt: (t) => this.clockMap.stampFor(this.clockMap.frameOfTime(t)),
+  });
   /** ADR 0171 (K0): the capture's event taps (`mix/profileSink.ts`); the null object until a recorder runs (Rc3). */
   profile: ProfileSink = NULL_PROFILE_SINK;
   private get names(): string[] {
