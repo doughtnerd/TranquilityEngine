@@ -87,3 +87,28 @@ We will give `myco/editor` a small project and editor surface, migrate every fir
 - `src/editor/sdk/editor.ts`, `sdk/project.ts`, `sdk/messages.ts`, `sdk/scene.ts`, `sdk/index.ts`, `src/editor/freePath.ts`, `src/editor/ui/settingsControls.tsx`, `src/editor/testing.ts`
 - `src/plugins/meshes/editor/modelNodes.ts`, `src/plugins/navigation/editor/navSettingsModel.ts`
 - Tests: `src/editor/sdk/editor.test.ts`, `src/plugins/plugins.test.ts` ("plugin editor halves reach the editor through its SDK"), `src/plugins/sky/sky.test.ts`
+
+## Amendment (ADR 0172 §1.8, 2026-11-13): `editor.project.onSectionChanged`
+
+Written by task Hk1 for [0171](0171-audio-profiler-loudness-metering-and-live-mixing.md) as amended by [0172](0172-audio-mix-design-corrections-and-owner-decisions.md) §1.8. This record is still Proposed, so the change is a section appended here, not a new record.
+
+`editor.project` gains one method:
+
+```ts
+onSectionChanged(key: string, listener: (change: SectionChange) => void): () => void;
+
+interface SectionChange {
+  readonly key: string;      // the top-level project.json key: "audio"
+  readonly before: unknown;  // the key's value before and after, as the drafts hold them
+  readonly after: unknown;
+  readonly cause: "edit" | "undo" | "redo" | "external";
+}
+```
+
+- **When it fires.** Synchronously, from a project section's `edit` right after the history push and from its undo and redo, for each owned key whose value now differs from the last value listeners were told about. A draft with problems never fires it. The next valid draft carries the changes an invalid one held, so `before` is the last valid value, not the previous draft. A failed disk write doesn't stop it: the live sound follows the draft, and the section keeps its unsaved draft and error. `cause: "external"` (an outside edit of `project.json`) is reserved in the type and not fired yet.
+- **What it skips.** A preview that never enters the undo history (a fader drag in progress) doesn't use it; the plugin applies those to its engine directly. Only the commit comes through the hook.
+- **Why the name.** `ProjectSurface.changed()` already exists with no arguments and means "files or the open scene changed, re-read `version`". It keeps that meaning; the hook is a second, keyed channel.
+- **Listeners.** A throwing listener is logged and doesn't stop the others or the edit. The unsubscribe is idempotent.
+- **Imports.** The registry is a leaf module (`src/editor/sectionChanged.ts`) that imports nothing; `sdk/project.ts` re-exports it and `projectSection.ts` fires it. The SDK still imports no plugin, so the rule that the SDK's imports never reach `src/plugins/` holds, and the internal-tier list is unchanged.
+- **First user.** The audio plugin's op log (`src/plugins/audio/editor/mix/opLog.ts`) listens on `"audio"`, turns the change into mix ops and, only while Play runs, hands them to `mixer.apply`.
+- **Consequence.** One more method of public SDK surface to keep stable from v1 (0133).
