@@ -10,6 +10,9 @@ import { CaptureError, type CaptureErrorInfo } from "../../runtime/capture/forma
 import { RANGE_SECONDS, type CaptureMarkerAt, type CaptureOpenSummary, type CaptureRangeColumns, type CaptureSeekState } from "../../runtime/capture/reader";
 import type { CaptureRequest, CaptureResponse } from "../../runtime/capture/worker";
 
+/** `Omit` that keeps a union's members apart. */
+export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
 /** What the profiler reads, whatever the capture's origin. */
 export interface ProfileSource {
   /** The open capture's summary (header, META, counts, markers, gaps, names, warnings). */
@@ -156,6 +159,11 @@ export class CaptureSource implements ProfileSource {
     if (r.type !== "appended") throw new Error(`capture worker: unexpected ${r.type}`);
     this.current = r.summary;
     return r.summary;
+  }
+
+  /** Pf6: another client of this Worker (`loudnessSource.ts`) sends a request with a fresh id and gets its response; an error response rejects. */
+  call(req: DistributiveOmit<CaptureRequest, "id">, transfer: Transferable[] = []): Promise<CaptureResponse> {
+    return this.request({ ...req, id: this.nextId++ } as CaptureRequest, transfer);
   }
 
   /** Ends the source: the Worker is terminated and anything pending rejects. */
