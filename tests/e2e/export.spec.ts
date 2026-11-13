@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type Page } from "./fixtures";
@@ -281,6 +281,55 @@ test.describe("Sound Lab web build", { tag: "@slow" }, () => {
     expect(duck[0]!.duck, "the duck begins from 1, not a step").toBeGreaterThan(0.9);
     await expect.poll(async () => (await read()).duck, { timeout: 15_000, message: "released back to 1" }).toBe(1);
     expect((await read()).gain, "the fade's level is back under the released duck").toBeCloseTo(0.15, 4);
+    expect(errors).toEqual([]);
+  });
+
+  // M5a shipped form (ADR 0171 amended by 0172, task Rc4): an exported game that never calls `Audio.capture.start` loads no
+  // recorder chunk. The build does carry the chunk (a file named for the recorder sits beside the page), the page plays sound
+  // for two seconds of the audio clock without requesting it, and `start()` is what fetches it.
+  test("a game that never calls Audio.capture.start loads no recorder chunk; start() fetches it (M5a)", async ({ page }) => {
+    type Capture = { state: string; start(): Promise<void>; stop(): void; save(name?: string): Promise<string> };
+    type Api = { Audio: { time: number; capture: Capture; debug(): { status: string; core: { backend: string } } } };
+    const errors = trackErrors(page);
+    const requested: string[] = [];
+    page.on("request", (req) => requested.push(new URL(req.url()).pathname));
+    const isRecorder = (path: string) => /(^|\/)recorder[-.][\w-]*\.js$/.test(path);
+    const chunks = (readdirSync(join(served!.dir, "web"), { recursive: true }) as string[]).map((f) => f.replace(/\\/g, "/")).filter(isRecorder);
+    expect(chunks.length, "the build carries a recorder chunk, so its absence from the page's requests means something").toBeGreaterThan(0);
+
+    await page.goto(served!.url);
+    await expect.poll(() => frames(page), { timeout: 20_000 }).toBeGreaterThan(10);
+    await page.locator("#game canvas").click(); // the gesture that unlocks sound
+    await expect
+      .poll(async () => (await page.evaluate(() => (globalThis as unknown as { __myco?: Api }).__myco?.Audio.debug().status)) ?? null, { timeout: 30_000 })
+      .toBe("running");
+    expect(await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.debug().core.backend)).toBe("core");
+    await page.keyboard.press("m"); // the music page: a running game with sound
+    const t0 = await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.time);
+    await page.waitForFunction((t) => (globalThis as unknown as { __myco: Api }).__myco.Audio.time > (t as number) + 2, t0, { timeout: 30_000 });
+
+    // Two seconds of the audio clock with sound playing: no chunk of the recorder (or Audio.capture's state) was touched.
+    expect(requested.filter(isRecorder), "no recorder chunk requested by a game that never captures").toEqual([]);
+    expect(await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.capture.state)).toBe("idle");
+    expect(requested.filter(isRecorder)).toEqual([]);
+
+    // Positive control: start() is what fetches it, and the take is real.
+    await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.capture.start());
+    expect(requested.filter(isRecorder).length, "start() fetched the recorder chunk").toBeGreaterThan(0);
+    expect(requested.filter(isRecorder).every((p) => chunks.some((c) => p.endsWith(c)))).toBe(true);
+    expect(await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.capture.state)).toBe("recording");
+    const t1 = await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.time);
+    await page.waitForFunction((t) => (globalThis as unknown as { __myco: Api }).__myco.Audio.time > (t as number) + 1, t1, { timeout: 30_000 });
+    const [download, name] = await Promise.all([
+      page.waitForEvent("download"),
+      page.evaluate(() => {
+        const c = (globalThis as unknown as { __myco: Api }).__myco.Audio.capture;
+        c.stop();
+        return c.save("exported");
+      }),
+    ]);
+    expect(name).toBe("exported.mycap");
+    expect(download.suggestedFilename()).toBe("exported.mycap");
     expect(errors).toEqual([]);
   });
 });
