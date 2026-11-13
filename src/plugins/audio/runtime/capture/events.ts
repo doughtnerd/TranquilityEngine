@@ -152,6 +152,14 @@ export class EventSink implements ProfileSink {
     return id;
   }
 
+  /**
+   * `name`'s id in `table` (G7b): a KEYFRAME source interns the clips, snapshots and event assets it names through here, so a
+   * keyframe row and an EVENT carry the same id. Writes the NAMES record on first use; `NO_NAME` when the ring can't take it.
+   */
+  name(table: NameTable, name: string): number {
+    return this.intern(TABLE[table], name);
+  }
+
   private nameOrNone(table: number, name: string | null): number {
     return name === null ? NO_NAME : this.intern(table, name);
   }
