@@ -590,7 +590,7 @@ export class CaptureTimeIndex {
     this.indexed = t.count;
   }
 
-  private grow(rec: Uint32Array, sec: Float64Array): [Uint32Array, Float64Array] {
+  private grow(rec: Uint32Array, sec: Float64Array): [Uint32Array<ArrayBuffer>, Float64Array<ArrayBuffer>] {
     const cap = Math.max(256, rec.length * 2);
     this.onAllocate?.(cap * (Uint32Array.BYTES_PER_ELEMENT + Float64Array.BYTES_PER_ELEMENT), "records");
     const r = new Uint32Array(cap);
