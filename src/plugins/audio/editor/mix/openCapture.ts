@@ -30,7 +30,13 @@ export interface CaptureFileLike {
 /** What the route needs of the controller (`ProfilerController` satisfies it). */
 export type CaptureOpener = Pick<ProfilerController, "openBlob" | "refuseFile">;
 
-export const isCaptureFileName = (name: string): boolean => name.toLowerCase().endsWith(CAPTURE_EXTENSION);
+/** The name desktop and Android saves get: the engine's Tauri `Storage` adds `.bin` to binary values (`<appData>/cache/<key>.bin`). */
+export const CAPTURE_STORAGE_EXTENSION = `${CAPTURE_EXTENSION}.bin`;
+
+export const isCaptureFileName = (name: string): boolean => {
+  const n = name.toLowerCase();
+  return n.endsWith(CAPTURE_EXTENSION) || n.endsWith(CAPTURE_STORAGE_EXTENSION);
+};
 
 /** The refusal texts (the tests assert them). */
 export const OPEN_REFUSALS = {

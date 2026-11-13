@@ -345,7 +345,7 @@ Export with capture as above, open it on the device (DEV2 says how). **Hold exac
 ### CAP4. Getting the file off the phone
 
 - **Web export in the phone's Chrome:** the file is in the phone's Downloads. `adb pull /sdcard/Download/capture-YYYYMMDD-HHMMSS.mycap .` (list first with `adb shell ls /sdcard/Download`).
-- **Tauri app** (the desktop export's Tauri project, or an Android Tauri build if you have one): the file is in the app's private data folder, `cache/`. On a debuggable build: `adb exec-out run-as <the app's package id> cat files/cache/<name>.mycap.bin > <name>.mycap` (the data directory's exact path depends on the build; `adb shell run-as <package> find . -name "*.mycap.bin"` finds it). The saved file has a `.bin` ending: **rename it to `.mycap` before opening it**, because the Profiler accepts only `.mycap`. On desktop the path is shown in the Profiler's bar and the toast names the file.
+- **Tauri app** (the desktop export's Tauri project, or an Android Tauri build if you have one): the file is in the app's private data folder, `cache/`. On a debuggable build: `adb exec-out run-as <the app's package id> cat files/cache/<name>.mycap.bin > <name>.mycap` (the data directory's exact path depends on the build; `adb shell run-as <package> find . -name "*.mycap.bin"` finds it). The saved file ends in `.mycap.bin` (the engine's desktop storage adds `.bin` to binary files); the Profiler opens it as it is, no rename needed. On desktop the path is shown in the Profiler's bar and the toast names the file.
 
 Then open it as in CAP2 and check that the phone's take shows the phone's load (its CPU line, or the "CPU not yet measured" or "clock too coarse" reason, DEV3).
 
@@ -356,7 +356,7 @@ Then open it as in CAP2 and check that the phone's take shows the phone's load (
 | CAP1 | export with capture, F9 twice, file downloaded | | |
 | CAP2 | open in the Audio Profiler; a non-capture refused | | |
 | CAP3 | three-finger hold; the 16-file rotation | | |
-| CAP4 | `adb pull`, rename, open | | |
+| CAP4 | `adb pull`, open | | |
 
 ## Part 5. The lab VM, the phone, and the real-device items
 

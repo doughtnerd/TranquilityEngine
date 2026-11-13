@@ -240,3 +240,11 @@ function findInput(node: unknown): InputProps | null {
   }
   return null;
 }
+
+describe("a capture saved on desktop or Android (Tauri Storage adds .bin)", () => {
+  it("accepts name.mycap.bin, and still refuses other .bin files", () => {
+    expect(isCaptureFileName("2026-11-13 sound-lab.mycap.bin")).toBe(true);
+    expect(isCaptureFileName("TAKE.MYCAP.BIN")).toBe(true);
+    expect(isCaptureFileName("level.bin")).toBe(false);
+  });
+});

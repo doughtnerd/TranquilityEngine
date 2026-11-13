@@ -71,7 +71,7 @@ export function BarView({ view, status, onRecord, onStop, onSave, onOpen, onCanc
         <input
           ref={fileInputRef}
           type="file"
-          accept=".mycap"
+          accept=".mycap,.bin"
           hidden
           aria-label="Choose a capture file"
           onChange={(e) => {
