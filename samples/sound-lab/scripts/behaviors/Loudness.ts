@@ -34,6 +34,11 @@ export class Loudness extends GameBehavior {
   private readout = false;
   private at = -Infinity;
 
+  /** Whether the reference is up: the page's other sounds are paused (the Mixer page's tour waits while this holds). */
+  get referenceOn(): boolean {
+    return this.quieted !== null;
+  }
+
   start(): void {
     exposeKeyScopes();
   }
