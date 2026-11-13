@@ -25,14 +25,15 @@
 //! step and `loudShed`.
 //!
 //! **The region (Ld2).** [`HEADER_BYTES`] of [`Header`] (`ready`, the last `tpGateDbfs`, the
-//! work units not yet reported, Ld7's pause word), then per meter `i` its 1,512-B state and its 128-B
-//! ring. The state is Ld1's [`Meter`] (1,496 B) followed by this module's 16-B [`Book`]: the bus
-//! slot, the active and reset bits, the sent cursor (the sequence after the last sub-block a
-//! successful take carried) and the gate-skip count at that take. Meter 0 is master, active from
-//! the first `LOUD_CONFIG` on (main sends one at configure and in every replay); meters 1..=8 are the buses `LOUD_CONFIG` names, in the free index each got when it was
-//! added (a meter that stays keeps its index, its state and its cursor). An all-zero region is
-//! inert: [`tap`] does nothing until [`init`] set `ready`, and nothing is metered until a
-//! `LOUD_CONFIG` arrives, so a core never configured for loudness is bit for bit the K1 core.
+//! work units not yet reported, Ld7's pause word, the taps' routes: slot → meter), then per meter
+//! `i` its 1,512-B state and its 128-B ring. The state is Ld1's [`Meter`] (1,496 B) followed by
+//! this module's 16-B [`Book`]: the bus slot, the active and reset bits, the sent cursor (the
+//! sequence after the last sub-block a successful take carried) and the gate-skip count at that
+//! take. Meter 0 is master, active from the first `LOUD_CONFIG` on (main sends one at configure
+//! and in every replay); meters 1..=8 are the buses `LOUD_CONFIG` names, in the free index each
+//! got when it was added (a meter that stays keeps its index, its state and its cursor). An
+//! all-zero region is inert (no route), and nothing is metered until a `LOUD_CONFIG` arrives, so a
+//! core never configured for loudness is bit for bit the K1 core.
 //!
 //! **Take semantics.** A meter's ring holds sub-block `e` at `e % 32`. [`status`] reports the
 //! sub-blocks from the sent cursor to the meter's sequence, at most the 32 the ring still holds
@@ -102,8 +103,16 @@ struct Header {
     wu: f64,
     /// Ld7: non-master metering paused by the ladder (0 = running). Ld2 reads nothing here.
     paused: u32,
-    reserved: [u32; 11],
+    /// 1 while master (meter 0) is active: the output tap's route.
+    out_routed: u32,
+    /// Per bus slot below [`ROUTED`], its meter's index + 1 (0: not metered), so a tap finds its meter
+    /// at once; slots past it are looked up in the books ([`reroute`] keeps both in step).
+    route: [u8; ROUTED],
+    reserved: [u32; 2],
 }
+
+/// Bus slots [`Header::route`] covers (the core's 32 slots, tombstones included).
+const ROUTED: usize = 32;
 
 /// [`Book::flags`]: the meter is in use.
 const ACTIVE: u16 = 1;
@@ -180,6 +189,28 @@ fn start_meter(region: &mut [u8], i: usize, slot: u16, rate: f32, gate: f32) {
     }
 }
 
+/// Rebuilds the header's routes from the books (after `LOUD_CONFIG` changed them).
+fn reroute(region: &mut [u8]) {
+    let mut route = [0u8; ROUTED];
+    let mut out = 0;
+    for i in 0..METERS {
+        if let Some((_, book, _)) = parts(region, i) {
+            if book.flags & ACTIVE == 0 {
+                continue;
+            }
+            if book.slot == OUTPUT_TAP {
+                out = 1;
+            } else if (book.slot as usize) < ROUTED {
+                route[book.slot as usize] = i as u8 + 1;
+            }
+        }
+    }
+    if let Some(h) = header(region) {
+        h.out_routed = out;
+        h.route = route;
+    }
+}
+
 /// Readies the region after it is zeroed (`Core::new`, once) and puts `loudSubBlockFrames` into
 /// the counters. No meter runs yet: master starts with the first `LOUD_CONFIG` ([`on_config`]),
 /// which main sends when it configures the mixer and in every rebuild's replay, so a core nobody
@@ -195,30 +226,37 @@ pub fn init(core: &mut Core) {
 /// A loudness tap: bus `bus`'s quantum `l`, `r` (post-fader: after its lanes, where the peak
 /// meter reads it), or the final output after the limiter when `bus` is [`OUTPUT_TAP`]. Called by
 /// `bus::mixdown` for every bus and once for the output. K-weights and accumulates the sub-block
-/// of a metered bus (a bus not metered returns after a scan of the nine books), runs the true peak
-/// (gated off master), and adds to `wuLoudness`; Ld7 skips paused meters. `loudness` is the
-/// `Loudness` region. Reads the signal only.
+/// of a metered bus (a bus not metered returns after one header read), runs the true peak (gated
+/// off master), and adds to `wuLoudness`; Ld7 skips paused meters. `loudness` is the `Loudness`
+/// region. Reads the signal only.
 #[inline]
 pub fn tap(loudness: &mut [u8], bus: u16, l: &[f32], r: &[f32]) {
     let Some(h) = header(loudness) else { return };
-    if h.ready == 0 {
-        return;
+    let i = if bus == OUTPUT_TAP {
+        if h.out_routed == 0 {
+            return;
+        }
+        0
+    } else if (bus as usize) < ROUTED {
+        match h.route[bus as usize] {
+            0 => return,
+            k => k as usize - 1,
+        }
+    } else {
+        match (1..METERS).find(|&i| parts(loudness, i).is_some_and(|(_, b, _)| b.flags & ACTIVE != 0 && b.slot == bus)) {
+            Some(i) => i,
+            None => return,
+        }
+    };
+    let Some((m, _, ring)) = parts(loudness, i) else { return };
+    let ran = m.true_peak_counts().0;
+    m.process(l, r, ring);
+    let mut units = wu::METER as f64;
+    if m.true_peak_counts().0 != ran {
+        units += wu::TRUE_PEAK as f64;
     }
-    for i in 0..METERS {
-        let Some((m, book, ring)) = parts(loudness, i) else { return };
-        if book.flags & ACTIVE == 0 || book.slot != bus {
-            continue;
-        }
-        let ran = m.true_peak_counts().0;
-        m.process(l, r, ring);
-        let mut units = wu::METER as f64;
-        if m.true_peak_counts().0 != ran {
-            units += wu::TRUE_PEAK as f64;
-        }
-        if let Some(h) = header(loudness) {
-            h.wu += units;
-        }
-        return;
+    if let Some(h) = header(loudness) {
+        h.wu += units;
     }
 }
 
@@ -371,6 +409,7 @@ pub fn on_config(core: &mut Core, msg: &[u8], off: usize) {
             have[i] = slot;
         }
     }
+    reroute(region);
     status::counters_mut(core).mix.loud_meters_dropped = dropped.min(u16::MAX as u32) as u16;
 }
 
