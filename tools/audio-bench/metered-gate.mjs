@@ -105,6 +105,20 @@ const SCENES = [
   "busramp-8-twin",
   "busramp-32-base",
   "busramp-32",
+  // ADR 0171/0172 M5 (Bn3): loudness. 16 looping voices on 8 buses beside the unmetered `loud-base`: master only (`loud-1`), master + 3
+  // gated buses (`loud-3`, the typical scene's meters), master + 8 gated (`loud-8g`), master + 8 with the true-peak FIR on every
+  // quantum (`loud-8`, the worst scene's loudness line), master + 8 on a hot signal beside the same signal unmetered
+  // (`loud-hot`, `loud-hot-base`), and master + 8 under the ladder's loudness step beside the same underruns unmetered
+  // (`loud-8-shed`, `loud-shed-base`). `LOUD_SCENES` reports each against S12's allowance, converted by 0169's floor profile.
+  "loud-base",
+  "loud-1",
+  "loud-3",
+  "loud-8g",
+  "loud-8",
+  "loud-hot-base",
+  "loud-hot",
+  "loud-shed-base",
+  "loud-8-shed",
 ];
 
 /** Bn1 (`-base` is the same per-quantum path with no records): each ramping scene -> its settled base and its number of ramping lanes (informational: §7.1's model is 1.7-1.8k
@@ -137,6 +151,27 @@ const MUSIC_PAIRS = {
   "music-worst": { twin: "music-worst-twin", limit: MUSIC_WORST_LIMIT },
   "music-worst-streamed": { twin: "music-worst-twin", limit: MUSIC_WORST_LIMIT },
 };
+
+/** ADR 0171/0172 M5 (Bn3): the loudness scenes against S12's allowances (architecture §7.1-§7.2), reported in instructions per
+ *  quantum less the scene's base, converted to microseconds two ways. The allowances are container milliseconds (the design's
+ *  container p50/p99 columns bracket them: typical 8 / 15 µs against 0.015 ms, worst 32 / 65 µs against 0.10 ms), so the
+ *  comparison converts at S4's container calibration, 0.075 µs per 1k instructions. The floor profile (ADR 0169, record change
+ *  30; owner item O3, unverified) converts at 0.6 ns per instruction and is reported beside it as a share of the 2,667 µs
+ *  quantum. `allowanceMs` is the allowance the scene's loudness line is held to: the worst scene's loudness line is 0.08 ms of its
+ *  0.10 (§7.2: nine full taps at p99 50.6 µs with 50 % headroom); the typical scene's whole 0.015 ms has no loudness-only line. */
+const CONTAINER_US_PER_1K = 0.075;
+const FLOOR_NS_PER_INSTRUCTION = 0.6;
+const QUANTUM_US = 2_666.7;
+const LOUD_SCENES = {
+  "loud-1": { base: "loud-base", what: "master only", allowanceMs: 0.015 },
+  "loud-3": { base: "loud-base", what: "master + 3 gated (typical)", allowanceMs: 0.015 },
+  "loud-8g": { base: "loud-base", what: "master + 8 gated", allowanceMs: 0.08 },
+  "loud-8": { base: "loud-base", what: "master + 8 full true peak (worst)", allowanceMs: 0.08 },
+  "loud-hot": { base: "loud-hot-base", what: "master + 8 on a hot signal", allowanceMs: 0.08 },
+  "loud-8-shed": { base: "loud-shed-base", what: "master + 8, ladder step in force", allowanceMs: 0.015 },
+};
+/** Each meter configuration's saving from the ladder's step: scene less `loud-8-shed` (the same underruns, the same buses). */
+const LADDER_SAVINGS = { "loud-8": "master + 8 full", "loud-8g": "master + 8 gated", "loud-hot": "master + 8 hot" };
 
 function fail(message) {
   console.error(`[metered] ${message}`);
@@ -240,6 +275,26 @@ function main() {
   }
   if (results["busramp-8"] && results["busramp-8"].splitQuanta !== 0) twinFailures.push(`busramp-8 split ${results["busramp-8"].splitQuanta} quanta (stamped bus ramps apply inside their quantum)`);
   if (results["busramp-32"] && results["busramp-32"].splitQuanta !== 0) twinFailures.push(`busramp-32 split ${results["busramp-32"].splitQuanta} quanta (stamped bus ramps apply inside their quantum)`);
+  // Bn3: each loudness scene less its base, in instructions, container µs against the allowance, and floor µs.
+  for (const [scene, { base, what, allowanceMs }] of Object.entries(LOUD_SCENES)) {
+    const a = results[scene];
+    const b = results[base];
+    if (!a || !b) continue;
+    const delta = a.perQuantum - b.perQuantum;
+    const containerUs = (delta / 1000) * CONTAINER_US_PER_1K;
+    const floorUs = delta * FLOOR_NS_PER_INSTRUCTION * 1e-3;
+    console.log(`[metered] ${scene} less ${base} (${what}): ${delta >= 0 ? "+" : ""}${delta.toLocaleString("en-US")} instructions per quantum = ${containerUs.toFixed(1)} µs container (${((containerUs / (allowanceMs * 1000)) * 100).toFixed(0)}% of the ${allowanceMs} ms allowance), ${floorUs.toFixed(1)} µs floor est. (${((floorUs / QUANTUM_US) * 100).toFixed(1)}% of a quantum)`);
+    if (containerUs > allowanceMs * 1000) twinFailures.push(`${scene} costs ${delta.toLocaleString("en-US")} instructions per quantum (${containerUs.toFixed(1)} µs container) over ${base}, above S12's ${allowanceMs} ms allowance`);
+  }
+  // Bn3: the ladder's loudness step's saving, per quantum.
+  if (results["loud-8-shed"]) {
+    for (const [scene, what] of Object.entries(LADDER_SAVINGS)) {
+      const a = results[scene];
+      if (!a) continue;
+      const saved = a.perQuantum - results["loud-8-shed"].perQuantum;
+      console.log(`[metered] ladder step on ${what}: ${scene} less loud-8-shed saves ${saved.toLocaleString("en-US")} instructions per quantum (${((saved / 1000) * CONTAINER_US_PER_1K).toFixed(1)} µs container, ${(saved * FLOOR_NS_PER_INSTRUCTION * 1e-3).toFixed(1)} µs floor est.)`);
+    }
+  }
   if (twinFailures.length > 0 && !update) {
     fail(`stamped scenes against their twins:\n  ${twinFailures.join("\n  ")}`);
   }
