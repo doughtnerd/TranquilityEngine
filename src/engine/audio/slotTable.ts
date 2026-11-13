@@ -231,6 +231,38 @@ export class SlotTable {
   }
 
   /**
+   * Ma2 (R9): the dip that tombstoned `slots` was stamped and ends at `dipEndFrame` (the end of its sequence, frames of
+   * this epoch): each of them that is still a tombstone may recycle `TOMBSTONE_TAIL_FRAMES` after it. A tombstone whose
+   * dip isn't stamped yet (`remove(name, Infinity)`) never recycles. Returns the slots it set.
+   */
+  settle(slots: readonly number[], dipEndFrame: number): number[] {
+    const out: number[] = [];
+    for (const s of slots) {
+      const slot = this.slots[s];
+      if (!slot || slot.state !== "tombstone") continue;
+      slot.recycleAfterFrame = dipEndFrame + TOMBSTONE_TAIL_FRAMES;
+      out.push(s);
+    }
+    return out;
+  }
+
+  /**
+   * Ma2 (R12): a rebuild replayed every tombstone at its end state on a new core whose frames may start again: a
+   * tombstone planned past `frame + TOMBSTONE_TAIL_FRAMES` (another epoch's frame, or a dip that never ran) may recycle
+   * from there. Returns the slots it moved.
+   */
+  replan(frame: number): number[] {
+    const out: number[] = [];
+    const at = frame + TOMBSTONE_TAIL_FRAMES;
+    this.slots.forEach((slot, s) => {
+      if (slot.state !== "tombstone" || slot.recycleAfterFrame <= at) return;
+      slot.recycleAfterFrame = at;
+      out.push(s);
+    });
+    return out;
+  }
+
+  /**
    * Sm1: frees each tombstone past its `recycleAfterFrame` with no live voice (`liveVoicesOn(slot) === 0`), bumping `gen` and calling `onRecycled`. Returns the freed slots.
    * Then each deferred add that now fits is applied in the order it was asked (`onApplied` hears each).
    */

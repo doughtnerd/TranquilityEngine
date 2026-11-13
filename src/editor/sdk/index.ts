@@ -13,7 +13,7 @@ export { activeHistory, providePanelHistory, usePanelHistory, type ActiveHistory
 // The project and editor surface (ADR 0147): `editor.project`, `editor.assets`, `editor.messages`,
 // `editor.scene` and `editor.showPanel`, over the shell's state, which plugins never import.
 export { editor, type EditorSurface } from "./editor";
-export type { ProjectSurface, AssetsSurface, CreateFileOptions, SectionChange, AssetImportSettings, AssetKind, EditorProject } from "./project";
+export type { ProjectSurface, ProjectSettingsSurface, AssetsSurface, CreateFileOptions, SectionChange, AssetImportSettings, AssetKind, EditorProject } from "./project";
 export type { MessagesSurface, MessageAction } from "./messages";
 export type { SceneSurface, SelectionSurface, PlayState, OpenScene } from "./scene";
 // Editing scene documents (ADR 0026): node paths and entries, and the field command inspector sections push.

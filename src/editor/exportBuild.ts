@@ -8,16 +8,16 @@ import { processImages } from "../export/images";
 import { browserTranscoder } from "../export/imagesBrowser";
 import { bakeModelFile } from "../engine/scene/models";
 import { packageSourceFor } from "./projectPackages";
-import { ExportError, copiedPath, isOutputInsideProject, planWebBuild, withBakedModels, type WebBuildPlan } from "../export/webBuild";
+import { ExportError, copiedPath, isOutputInsideProject, planWebBuild, withBakedModels, type BuildOptions, type WebBuildPlan } from "../export/webBuild";
 import { joinPath, jsonFiles, type EditorProject } from "./projects";
 
 /** The command-line export, for what the editor can't do (desktop packages need Rust and a shell). */
-export const desktopExportCommand = (project: EditorProject) => `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop`;
+export const desktopExportCommand = (project: EditorProject, audioCapture = false) => `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop${audioCapture ? " --audio-capture" : ""}`;
 
 /** Plan a web build of the open project (compiles its scripts). Throws an `ExportError` if it can't be built. */
-export async function planProjectBuild(project: EditorProject, bake = true): Promise<WebBuildPlan> {
+export async function planProjectBuild(project: EditorProject, bake = true, options: BuildOptions = {}): Promise<WebBuildPlan> {
   const files = [...new Set([...project.files, ...project.scripts.keys()])];
-  const plan = await planWebBuild({ name: project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name, settings: project.settings, files, scripts: project.scripts, json: jsonFiles(project), packages: packageSourceFor(project, "production") });
+  const plan = await planWebBuild({ name: project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name, settings: project.settings, files, scripts: project.scripts, json: jsonFiles(project), packages: packageSourceFor(project, "production") }, options);
   // Models baked for the build (ADR 0090), through the project's assets the editor already serves.
   if (!bake) return plan;
   const log = (line: string) => console.warn(`[myco] ${line}`);
@@ -55,9 +55,9 @@ async function playerFiles(): Promise<string[]> {
  * Write a web build of `project` into the folder `out`, which must be empty or hold an earlier
  * build (replaced). `progress` hears how many files are written out of how many.
  */
-export async function exportProjectBuild(project: EditorProject, fs: FileSystem, out: string, progress?: (done: number, total: number) => void): Promise<WebBuildPlan> {
+export async function exportProjectBuild(project: EditorProject, fs: FileSystem, out: string, progress?: (done: number, total: number) => void, options: BuildOptions = {}): Promise<WebBuildPlan> {
   if (project.root && isOutputInsideProject(project.root, out)) throw new ExportError("That folder is inside the project, where the next export would copy it in. Choose a folder outside it (or its dist/ folder).");
-  const plan = await planProjectBuild(project);
+  const plan = await planProjectBuild(project, true, options);
   const player = await playerFiles();
 
   if (await fs.exists(out)) {

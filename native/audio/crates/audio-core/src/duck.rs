@@ -29,6 +29,7 @@
 use audio_wire::generated as wire;
 
 use crate::bus::BusSlot;
+use audio_dsp::sidechain as sc;
 use crate::core::Core;
 use crate::counters::{BusDuckGain, MixSections};
 use crate::QUANTUM;
@@ -141,7 +142,12 @@ pub struct DuckArea {
     pub level_count: u32,
     /// `BUS_PRESENCE`'s mask in force (Dp1).
     pub presence: u32,
-    pub _reserved: u32,
+    /// Late detections (a level rule of a dropped cycle edge read its trigger's previous quantum)
+    /// since the last take; [`status`] adds them to `sidechainLate` (Sc1). `process` has no
+    /// counters, only this region.
+    pub late_pending: u32,
+    /// The detectors' per-rate coefficients ([`set_sample_rate`]; Sc1).
+    pub coeffs: sc::DetectorCoeffs,
     pub rules: [Rule; MAX_RULES],
     pub followers: [Follower; MAX_RULES],
     pub detectors: [Detector; MAX_LEVEL],
@@ -225,8 +231,87 @@ pub fn validate(rules: &mut [Rule], slots: &[BusSlot]) -> usize {
 /// target mixes (B3's order). K1: a no-op. Sc1: feeds the bus's detectors (peak or RMS, per
 /// sample) when it triggers a level rule.
 /// `duck` is the duck state ([`area`] of the `Duck` region).
+///
+/// **Sc1.** Each live level rule whose trigger is `bus` runs its own detector (`detectors[k]` for
+/// the `k`-th level rule) over the quantum and stores the quantum's level (the envelope at the
+/// quantum's end, dB; ARCH §4.6 and S4 both read the end) for [`gain`]. A rule of a dropped cycle
+/// edge ([`FLAG_LATE`]) has its target mixed before its trigger, so [`gain`] reads the level this
+/// call stored a quantum earlier. With no level rule this is a loop over nothing.
 #[inline]
-pub fn detect(_duck: &mut DuckArea, _bus: usize, _l: &[f32], _r: &[f32]) {}
+pub fn detect(duck: &mut DuckArea, bus: usize, l: &[f32], r: &[f32]) {
+    let levels = (duck.level_count as usize).min(MAX_LEVEL);
+    if levels == 0 {
+        return;
+    }
+    let (Ok(l), Ok(r)) = (<&[f32; QUANTUM]>::try_from(l), <&[f32; QUANTUM]>::try_from(r)) else { return };
+    let n = (duck.rule_count as usize).min(MAX_RULES);
+    let coeffs = duck.coeffs;
+    for det in &mut duck.detectors[..levels] {
+        let i = det.rule as usize;
+        if i >= n {
+            continue;
+        }
+        let rule = duck.rules[i];
+        if !rule.is_level() || rule.is_inert() || rule.trigger as usize != bus {
+            continue;
+        }
+        let mut st = sc::DetectorState { env: det.env };
+        det.level_db = if rule.is_rms() { sc::detect_rms(&mut st, &coeffs, l, r) } else { sc::detect_peak(&mut st, &coeffs, l, r) };
+        det.env = st.env;
+        det.late = rule.is_late() as u32;
+    }
+}
+
+/// The level a detector reads before it has seen a quantum (silence): `detect_*`'s floor, dB.
+pub const LEVEL_FLOOR_DB: f32 = -240.0;
+
+/// Sets the detectors' per-rate coefficients (`Core::new` through [`init`], and every `BUS_DUCK`).
+pub fn set_sample_rate(duck: &mut DuckArea, sample_rate: f32) {
+    duck.coeffs = sc::DetectorCoeffs::new(sample_rate);
+}
+
+/// A level rule's goal for this quantum (the gain computer, `sidechain::gain_goal`), from the
+/// quantum's level; a non-finite threshold or a NaN result reads as no duck.
+#[inline]
+fn level_goal(level_db: f32, r: &Rule) -> f32 {
+    if !r.threshold_db.is_finite() {
+        return 1.0;
+    }
+    let g = sc::gain_goal(level_db, r.threshold_db, clamp_amount(r.amount));
+    if g.is_nan() {
+        1.0
+    } else {
+        g.clamp(0.0, 1.0)
+    }
+}
+
+/// Moves follower `f` one quantum toward `goal` and folds its per-sample line into `curve` by min
+/// (both modes; the law of [`gain`]'s comment). A follower settled at 1 with goal 1 adds nothing.
+#[inline]
+fn advance(f: &mut Follower, goal: f32, curve: &mut [f32; QUANTUM], any: &mut bool) {
+    f.goal = goal;
+    let start = f.gain;
+    if start == 1.0 && goal == 1.0 {
+        return;
+    }
+    let coef = if goal < start { f.attack_coef } else { f.release_coef };
+    let mut end = goal + (start - goal) * coef;
+    if (end - goal).abs() < SETTLE {
+        end = goal;
+    }
+    f.gain = end;
+    if !*any {
+        curve.fill(1.0);
+        *any = true;
+    }
+    let step = (end - start) / QUANTUM as f32;
+    for (k, c) in curve.iter_mut().enumerate() {
+        let g = if k + 1 == QUANTUM { end } else { start + step * (k + 1) as f32 };
+        if g < *c {
+            *c = g;
+        }
+    }
+}
 
 /// The `duck` lane of bus `bus` for this quantum: writes the per-frame gain into `curve` and
 /// returns `true`, or returns `false` when the lane is at identity (no rule targets the bus, or
@@ -242,41 +327,46 @@ pub fn detect(_duck: &mut DuckArea, _bus: usize, _l: &[f32], _r: &[f32]) {}
 /// rising, [`coefficient`]), and the curve is the straight line from the last quantum's gain to
 /// it, per sample. The rules combine by min, per sample. A rule settled at 1 contributes nothing,
 /// so a bus whose rules have all released reads identity again.
+///
+/// **Sc1 (level mode).** Each live level rule of the bus takes its goal from the gain computer
+/// on its detector's level (`sidechain::gain_goal`: depth = clamp((level − threshold) / 6 dB, 0,
+/// 1), goal = 1 − depth × (1 − amount)) and moves its follower by the same law; it joins the same
+/// per-sample min. Under its threshold the goal is exactly 1, so a level rule that never fires
+/// leaves the lane at identity (bit-identical to no rule). A late rule ([`FLAG_LATE`]) reads the
+/// level [`detect`] stored in the previous quantum and counts one late detection (`sidechainLate`,
+/// added at the next take by [`status`]).
 pub fn gain(duck: &mut DuckArea, bus: usize, curve: &mut [f32; QUANTUM]) -> bool {
     let n = (duck.rule_count as usize).min(MAX_RULES);
     let presence = duck.presence;
     let mut any = false;
+    // `detectors[k]` serves the k-th level rule in rule order (`on_rules`).
+    let mut level_k = 0usize;
     for i in 0..n {
         let r = duck.rules[i];
-        // Level rules are Sc1's (W6): their followers stay at 1 until then.
-        if r.is_inert() || r.target as usize != bus || r.is_level() {
+        let k = level_k;
+        if r.is_level() {
+            level_k += 1;
+        }
+        if r.is_inert() || r.target as usize != bus {
             continue;
         }
-        let f = &mut duck.followers[i];
-        let on = (r.trigger as u32) < 32 && presence & (1 << r.trigger) != 0;
-        let goal = if on { clamp_amount(r.amount) } else { 1.0 };
-        f.goal = goal;
-        let start = f.gain;
-        if start == 1.0 && goal == 1.0 {
-            continue;
-        }
-        let coef = if goal < start { f.attack_coef } else { f.release_coef };
-        let mut end = goal + (start - goal) * coef;
-        if (end - goal).abs() < SETTLE {
-            end = goal;
-        }
-        f.gain = end;
-        if !any {
-            curve.fill(1.0);
-            any = true;
-        }
-        let step = (end - start) / QUANTUM as f32;
-        for (k, c) in curve.iter_mut().enumerate() {
-            let g = if k + 1 == QUANTUM { end } else { start + step * (k + 1) as f32 };
-            if g < *c {
-                *c = g;
+        let goal = if r.is_level() {
+            if k >= MAX_LEVEL {
+                continue;
             }
-        }
+            if r.is_late() {
+                duck.late_pending = duck.late_pending.saturating_add(1);
+            }
+            level_goal(duck.detectors[k].level_db, &r)
+        } else {
+            let on = (r.trigger as u32) < 32 && presence & (1 << r.trigger) != 0;
+            if on {
+                clamp_amount(r.amount)
+            } else {
+                1.0
+            }
+        };
+        advance(&mut duck.followers[i], goal, curve, &mut any);
     }
     any
 }
@@ -321,8 +411,16 @@ fn set_coefficients(d: &mut DuckArea, sample_rate: f32) {
 /// level, so a failed take loses nothing.
 ///
 /// Dp1: one entry per distinct target of a live rule, in rule order, its gain the min of its
-/// rules' followers (level rules read 1 until Sc1).
+/// rules' followers, both modes (Sc1: level rules' followers move).
+///
+/// Sc1: first adds the late detections counted since the last take (`DuckArea::late_pending`)
+/// to `sidechainLate` (saturating), so the counter in this take's block includes them.
 pub fn status(core: &mut Core, mix: &mut MixSections) {
+    let late = area(&mut core.regions_mut().duck[..]).map_or(0, |d| core::mem::take(&mut d.late_pending));
+    if late != 0 {
+        let c = &mut crate::status::counters_mut(core).mix;
+        c.sidechain_late = c.sidechain_late.saturating_add(late.min(u16::MAX as u32) as u16);
+    }
     let Some(d) = area(&mut core.regions_mut().duck[..]) else { return };
     let rules = d.rules();
     for (i, r) in rules.iter().enumerate() {
@@ -394,7 +492,9 @@ pub fn on_rules(core: &mut Core, msg: &[u8], off: usize) {
         };
         if rule.is_level() {
             let det = prev.and_then(|j| old.detectors.iter().find(|x| x.rule as usize == j && old_rules[j].is_level()).copied());
-            d.detectors[levels] = Detector { rule: kept as u16, ..det.unwrap_or_default() };
+            // A new detector starts at silence (a level of 0 dB would duck a late rule's first quantum).
+            let det = det.unwrap_or(Detector { level_db: LEVEL_FLOOR_DB, ..Detector::default() });
+            d.detectors[levels] = Detector { rule: kept as u16, ..det };
             levels += 1;
         }
         kept += 1;
@@ -413,6 +513,7 @@ pub fn on_rules(core: &mut Core, msg: &[u8], off: usize) {
     // Dp1: the followers' per-quantum coefficients from the rules' times (kept followers too, so
     // an edit of the times takes effect from the next quantum).
     set_coefficients(d, sample_rate);
+    set_sample_rate(d, sample_rate);
     crate::bus_order::rerun(core);
     crate::status::counters_mut(core).mix.duck_rules_dropped = dropped.min(u16::MAX as usize) as u16;
 }
@@ -433,12 +534,18 @@ pub fn on_presence(core: &mut Core, msg: &[u8], off: usize, _at: Option<u64>) {
 }
 
 /// Sets the duck state up after the region is zeroed (`Core::new`, once). K1: a no-op (no rules;
-/// all-zero is valid). Dp1 or Sc1 fill it if they need more.
-pub fn init(_core: &mut Core) {}
+/// all-zero is valid). Sc1: the detectors' per-rate coefficients.
+pub fn init(core: &mut Core) {
+    let sample_rate = core.params().sample_rate;
+    if let Some(d) = area(&mut core.regions_mut().duck[..]) {
+        set_sample_rate(d, sample_rate);
+    }
+}
 
 /// RESET: clears detector and follower state (the rules stay: they are main's intent, re-sent by
 /// the replay). Dp1: every voice is gone, so the presence mask clears and each follower settles
-/// at 1 (its coefficients kept); each detector's envelope clears (its rule index kept).
+/// at 1 (its coefficients kept); each detector's envelope clears (its rule index kept) and its
+/// level reads silence ([`LEVEL_FLOOR_DB`]).
 pub fn reset(core: &mut Core) {
     let Some(d) = area(&mut core.regions_mut().duck[..]) else { return };
     d.presence = 0;
@@ -448,6 +555,6 @@ pub fn reset(core: &mut Core) {
         f.goal = 1.0;
     }
     for x in &mut d.detectors {
-        *x = Detector { rule: x.rule, ..Detector::default() };
+        *x = Detector { rule: x.rule, level_db: LEVEL_FLOOR_DB, ..Detector::default() };
     }
 }

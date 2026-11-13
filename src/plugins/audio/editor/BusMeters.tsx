@@ -5,16 +5,9 @@ import { useEffect, useRef } from "preact/hooks";
 import { editor } from "../../../editor/sdk";
 import { Audio } from "../runtime";
 
-/** The quietest level a bar shows, in dB; anything under it is empty. */
-export const METER_FLOOR_DB = -60;
+import { METER_FLOOR_DB, meterFill } from "./meterFill";
+export { METER_FLOOR_DB, meterFill };
 const POLL_MS = 50;
-
-/** A linear peak as a 0..1 bar length on a dB scale from `METER_FLOOR_DB` to 0 (clipping over 0 dB fills the bar). */
-export function meterFill(peak: number): number {
-  if (!(peak > 0)) return 0;
-  const db = 20 * Math.log10(peak);
-  return db <= METER_FLOOR_DB ? 0 : db >= 0 ? 1 : (db - METER_FLOOR_DB) / -METER_FLOOR_DB;
-}
 
 /** The meter strip for `names` (the project's buses, tree order). Renders nothing outside Play. */
 export function BusMeters(props: { names: readonly string[] }) {

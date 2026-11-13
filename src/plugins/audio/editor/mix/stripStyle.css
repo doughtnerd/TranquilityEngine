@@ -1,0 +1,53 @@
+/* The Mixer panel's channel strip (MixerStrip.tsx). Theme tokens only (src/editor/ui/editor.css). */
+.mixer-strip { display: flex; flex-direction: column; gap: 6px; width: 96px; padding: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: var(--font-size-ui); }
+.mixer-strip.root { border-color: var(--border-strong); }
+.mixer-strip.dragging { border-color: var(--accent); }
+.mixer-strip.idle { color: var(--muted); }
+.mixer-strip-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.mixer-strip-body { display: flex; gap: 6px; height: 160px; justify-content: center; }
+
+.mixer-fader-col { display: flex; width: 28px; }
+.mixer-fader { position: relative; width: 100%; height: 100%; touch-action: none; cursor: ns-resize; outline: none; }
+.mixer-fader:focus-visible { box-shadow: 0 0 0 1px var(--focus-ring); }
+.mixer-fader-rail { position: absolute; left: 50%; top: 0; bottom: 0; width: 4px; margin-left: -2px; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 2px; }
+.mixer-fader-unity { position: absolute; left: 0; right: 0; height: 1px; background: var(--faint); pointer-events: none; }
+.mixer-fader-thumb { position: absolute; left: 2px; right: 2px; height: 10px; margin-bottom: -5px; background: var(--button-hover); border: 1px solid var(--border-strong); border-radius: 2px; pointer-events: none; }
+.mixer-strip.dragging .mixer-fader-thumb { background: var(--accent); border-color: var(--accent-hover); }
+
+.mixer-peak { display: flex; flex-direction: column; gap: 2px; align-items: center; width: 12px; }
+.mixer-clip { width: 12px; height: 8px; padding: 0; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 2px; cursor: pointer; }
+.mixer-clip.latched { background: var(--danger); border-color: var(--danger-strong); }
+.mixer-strip .audio-meter-track { position: relative; flex: 1; width: 100%; overflow: hidden; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 2px; cursor: pointer; }
+.mixer-strip .audio-meter-fill { position: absolute; inset: 0; background: var(--success); transform-origin: bottom; transform: scaleY(0); }
+.mixer-strip .audio-meter-fill.hot { background: var(--danger); }
+.mixer-peak-hold { position: absolute; left: 0; right: 0; height: 2px; background: var(--warning); }
+.mixer-peak-hold[hidden] { display: none; }
+
+.mixer-gr { display: flex; flex-direction: column; gap: 2px; align-items: center; width: 14px; }
+.mixer-gr-track { position: relative; flex: 1; width: 100%; overflow: hidden; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 2px; }
+.mixer-gr-fill { position: absolute; inset: 0; background: var(--warning); transform-origin: top; transform: scaleY(0); }
+.mixer-gr-readout { font-size: 10px; color: var(--muted); font-family: var(--font-code); }
+
+.mixer-gain { display: flex; flex-direction: column; align-items: center; font-family: var(--font-code); }
+.mixer-gain-effective { color: var(--muted); }
+.mixer-gain-label { color: var(--faint); }
+
+.mixer-buttons { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.mixer-monitor-mute.on { background: var(--warning); color: var(--accent-text); border-color: var(--warning); }
+.mixer-mute, .mixer-solo, .mixer-monitor-mute { width: 28px; padding: 2px 0; background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; }
+.mixer-mute:hover, .mixer-solo:hover, .mixer-monitor-mute:hover { background: var(--button-hover); }
+.mixer-mute.on { background: var(--danger-strong); color: var(--danger-text); border-color: var(--danger); }
+.mixer-solo.on { background: var(--warning); color: var(--accent-text); border-color: var(--warning); }
+.mixer-mute.script, .mixer-solo.script { box-shadow: inset 0 0 0 1px var(--accent); }
+
+.mixer-lufs { display: flex; flex-direction: column; gap: 2px; font-family: var(--font-code); font-size: 11px; }
+.mixer-lufs.unmetered { color: var(--faint); }
+.mixer-lufs-row { display: flex; justify-content: space-between; }
+.mixer-lufs-label { color: var(--muted); }
+.mixer-target { position: relative; height: 8px; overflow: hidden; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 2px; }
+.mixer-target-fill { position: absolute; inset: 0; background: var(--accent-soft); transform-origin: left; transform: scaleX(0); }
+.mixer-target-band { position: absolute; top: 0; bottom: 0; background: var(--success-soft); }
+.mixer-target-line { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--success); }
+.mixer-target.high .mixer-target-line, .mixer-target.low .mixer-target-line { background: var(--warning); }
+.mixer-target.high .mixer-target-fill, .mixer-target.low .mixer-target-fill { background: var(--warning-soft); }
+.mixer-target.suspended { opacity: 0.5; }

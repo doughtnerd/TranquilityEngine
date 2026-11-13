@@ -85,6 +85,8 @@ import {
 import { advanceAnchor, anchorRun, playingGridOf, predictWrap, ticksAt, type GridAnchor } from "./anchors";
 import { cancelRun, segmentClipSource, type SegmentRun } from "./segmentRun";
 import { enterPlaylist } from "./playlist";
+import { taps } from "../mix/profileTaps";
+import { NULL_PROFILE_SINK } from "../mix/profileSink";
 
 /** Where a transition is. */
 export type TransitionState = "pending" | "stamped" | "running" | "bridging" | "done" | "cancelled";
@@ -690,7 +692,12 @@ function commit(player: MusicPlayer, t: Transition, leg: Leg, f: MusicFrame): vo
     return;
   }
   leg.committed = true;
-  if (leg.index === 0) t.state = "running";
+  if (leg.index === 0) {
+    t.state = "running";
+    // Rc3 (§5.6 `musicTransition`): the change is past its cancel point, so it will happen: from the playing segment to the
+    // last leg's (a bridge is not named; the record is the change A to B).
+    if (taps.sink !== NULL_PROFILE_SINK) taps.sink.musicTransition(player.instance.group, player.run?.node.id ?? null, ctx.legs[ctx.legs.length - 1]!.target.id);
+  }
   const out = leg.from;
   const p = leg.planned;
   if (!out || !p || out.state === "cancelled") return;

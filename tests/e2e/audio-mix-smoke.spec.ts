@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
+import { inflateRawSync } from "node:zlib";
 import { expect, test } from "./fixtures";
 import { bootMix, installFrameClock, mixDebug, sampleBusGain } from "./audioMix";
+import { TONE_PEAK, fader, openLiveMix, openMixer, playLiveMix, savedProject, stopPlay } from "./audioMixLive";
 
 // M5 smoke (ADR 0171 amended by 0172, plan task S0, H6): the milestone path in the real editor app, through the Sound Lab
 // sample, one case per milestone, grown by later waves (each owning task un-fixmes its case in its own wave).
@@ -242,34 +245,231 @@ test("M5-0 smoke: a presence duck starts on its stamped frame", async ({ page })
   expect(errors).toEqual([]);
 });
 
-// M5a (Rc4): capture. Owner un-fixmes in W7.
-test.fixme("M5a smoke: a capture starts, stops, is saved and is non-empty", async ({ page }) => {
+// M5a (Rc4): capture. A game that never calls `start` loads no recorder chunk; `Audio.capture.start()` fetches it, a take
+// records the core's STATUS blocks while the audio clock runs, and `save()` downloads a deflate-raw `.mycap` whose header
+// parses and whose records are the take's. Every bound is on the core's rendered frames, never a wall-clock tolerance.
+test("M5a smoke: a capture starts, stops, is saved and is non-empty", async ({ page }) => {
+  type CaptureApi = { state: string; seconds: number; bytes: number; start(): Promise<void>; stop(): void; mark(t: string): void; save(n?: string): Promise<string> };
+  type Api = { __myco: { Audio: { capture: CaptureApi; playOneShot(c: string, o?: object): unknown } }; __mixFrame: () => { frame: number } };
+  const errors: string[] = [];
+  const requests: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  page.on("request", (req) => requests.push(req.url()));
+  const isRecorderChunk = (url: string) => /(^|\/)recorder[-.][\w-]*\.js|capture\/recorder(\.ts)?(\?|$)/.test(url);
   await bootMix(page);
-  // Rc4:
-  //  1. Start a capture (the recorder's start, through `Audio.capture` or the editor's record control).
-  //  2. Let the audio clock advance (frames, not a wall-clock wait), play a one-shot so the capture has content.
-  //  3. Stop the capture and save it: the result is a file in the project with a non-zero length and a header that parses.
-  void page;
+  await installFrameClock(page);
+  const rate = (await mixDebug(page))!.sampleRate;
+
+  await test.step("before start() nothing of the recorder is loaded", async () => {
+    expect(requests.filter(isRecorderChunk), "no recorder chunk requested while the page only plays").toEqual([]);
+    const idle = await page.evaluate(() => {
+      const c = (globalThis as unknown as Api).__myco.Audio.capture;
+      return { state: c.state, seconds: c.seconds, bytes: c.bytes };
+    });
+    expect(idle).toEqual({ state: "idle", seconds: 0, bytes: 0 });
+    // The empty save is refused, and refusing it loads nothing.
+    const refused = await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.save().then(() => "saved", (e: Error) => e.message));
+    expect(refused).toBe("nothing recorded: call Audio.capture.start() first");
+    expect(requests.filter(isRecorderChunk)).toEqual([]);
+  });
+
+  let startFrame = 0;
+  await test.step("start() fetches the chunk and begins a take; the audio clock runs with sound playing", async () => {
+    await page.evaluate(() => void (globalThis as unknown as Api).__myco.Audio.playOneShot("audio/melody-loop.wav", { volume: 0.05, bus: "UI" }));
+    await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.start());
+    expect(requests.filter(isRecorderChunk).length, "the recorder chunk was fetched by start()").toBeGreaterThan(0);
+    const now = await page.evaluate(() => {
+      const g = globalThis as unknown as Api;
+      return { state: g.__myco.Audio.capture.state, frame: g.__mixFrame().frame };
+    });
+    expect(now.state).toBe("recording");
+    startFrame = now.frame;
+    // Three seconds of the core's rendered frames (the poll only paces the reads).
+    await page.waitForFunction(([from, span]) => (globalThis as unknown as Api).__mixFrame().frame - (from as number) >= (span as number), [startFrame, 3 * rate] as const, { timeout: 60_000 });
+    await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.mark("smoke marker"));
+    await page.waitForFunction(([from, span]) => (globalThis as unknown as Api).__mixFrame().frame - (from as number) >= (span as number), [startFrame, 3.2 * rate] as const, { timeout: 60_000 });
+    const c = await page.evaluate(() => {
+      const cap = (globalThis as unknown as Api).__myco.Audio.capture;
+      return { state: cap.state, seconds: cap.seconds, bytes: cap.bytes };
+    });
+    expect(c.state).toBe("recording");
+    expect(c.bytes, "the ring holds the take's records").toBeGreaterThan(10_000);
+    expect(c.seconds, "the ring's content is the rendered frames since the start, in seconds").toBeGreaterThan(2);
+  });
+
+  await test.step("stop() holds the take and save() downloads a .mycap whose header parses and whose records are the take's", async () => {
+    await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.stop());
+    expect(await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.state)).toBe("stopped");
+    const [download, name] = await Promise.all([
+      page.waitForEvent("download"),
+      page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.save("smoke / take 1")),
+    ]);
+    expect(name).toBe("smoke_take_1.mycap");
+    expect(download.suggestedFilename()).toBe("smoke_take_1.mycap");
+    const bytes = readFileSync((await download.path())!);
+    expect(bytes.byteLength, "non-empty").toBeGreaterThan(96 + 1000);
+    // The 96 B plain header (§5.1).
+    expect([...bytes.subarray(0, 8)]).toEqual([0x4d, 0x59, 0x43, 0x41, 0x50, 0x00, 0x01, 0x1a]);
+    expect(bytes.readUInt16LE(8), "format").toBe(1);
+    const flags = bytes.readUInt16LE(10);
+    expect(flags & 0b1000, "compressed (deflate-raw)").toBeTruthy();
+    expect(flags & 0b0100, "hasIndex").toBeTruthy();
+    expect(flags & 0b0001, "not truncated").toBe(0);
+    expect(bytes.readUInt32LE(40), "sampleRate").toBe(rate);
+    const metaBytes = bytes.readUInt32LE(60);
+    const recordBytes = bytes.readUInt32LE(64);
+    const uncompressed = bytes.readUInt32LE(68);
+    const recordCount = bytes.readUInt32LE(72);
+    expect(metaBytes + recordBytes).toBe(uncompressed);
+    expect(recordCount, "EPOCH, keyframes, STATUS blocks and the INDEX").toBeGreaterThan(20);
+    const payload = inflateRawSync(bytes.subarray(96));
+    expect(payload.byteLength).toBe(uncompressed);
+    // META is JSON data naming the project's audio section.
+    const meta = JSON.parse(payload.subarray(0, metaBytes).toString("utf8")) as { engine: string; audio: { buses?: unknown[] } };
+    expect(meta.engine).toBe("myco");
+    expect(meta.audio.buses?.length ?? 0).toBeGreaterThan(0);
+    // The records: head by head, 20 B each (§5.3).
+    const types: number[] = [];
+    const statusFrames: number[] = [];
+    let marker = "";
+    for (let off = metaBytes; off < payload.byteLength; ) {
+      const type = payload.readUInt8(off);
+      const len = payload.readUInt32LE(off + 4);
+      types.push(type);
+      if (type === 0x03) statusFrames.push(payload.readDoubleLE(off + 12));
+      if (type === 0x06) marker = payload.subarray(off + 20 + 10, off + 20 + 10 + payload.readUInt16LE(off + 20 + 8)).toString("utf8");
+      off += 20 + len;
+    }
+    expect(types.length, "the header's record count is the records").toBe(recordCount);
+    expect(types[0], "EPOCH start leads").toBe(0x01);
+    // The keyframe's names (NAMES, 0x07) come before it, since the keyframe refers to them (G7b's keyframe source).
+    expect(types.slice(1).find((t) => t !== 0x07), "then a KEYFRAME, after the NAMES it refers to").toBe(0x04);
+    expect(types[types.length - 1], "the INDEX closes the file").toBe(0x7f);
+    expect(types.filter((t) => t === 0x04).length, "a keyframe a second of rendered frames").toBeGreaterThanOrEqual(3);
+    expect(marker).toBe("smoke marker");
+    // STATUS comes at least every 48 quanta (6,144 frames) even idle, and every 6 while the core is busy: the floor is the idle cadence.
+    expect(statusFrames.length, "a STATUS block at least every 48 quanta of the frames that ran").toBeGreaterThanOrEqual(Math.floor((2.5 * rate) / (48 * 128)));
+    for (let i = 1; i < statusFrames.length; i++) expect(statusFrames[i]).toBeGreaterThan(statusFrames[i - 1]!);
+    expect(statusFrames[statusFrames.length - 1]! - statusFrames[0]!, "the take spans the audio frames that ran").toBeGreaterThan(2.5 * rate);
+    expect(statusFrames[0]!, "the take starts at or after the call, at the keyframe before it at most a second earlier").toBeGreaterThanOrEqual(startFrame - rate - 768);
+  });
+
+  expect(errors).toEqual([]);
 });
 
-// M5b (E2): loudness. Owner un-fixmes in W8.
-test.fixme("M5b smoke: master's momentary loudness reads a number", async ({ page }) => {
+// M5b (E2, un-fixme'd in W8): loudness. The shipped Sound Lab plays its music loop and a hum from the first frame, so master's
+// meter has signal with no key pressed; the readings come from the public API (`Audio.bus("Master").loudness`), which is also
+// what `Audio.debug()`'s bus rows are built beside (the rows carry the peak meter, the loudness reading is `Bus.loudness`).
+// Every wait is on the meter's own `elapsed` (seconds of rendered audio since its last reset), never a wall-clock span; the
+// -22.99 LUFS tone, the targets, resets, pause, taint and the ladder are `audio-mix-b.spec.ts`.
+test("M5b smoke: master's momentary loudness reads a number, steadily, and is empty right after a reset", async ({ page }) => {
+  type Loud = { momentary: number; shortTerm: number; integrated: number; elapsed: number; metered: boolean; reset(w?: string): void };
+  type Api = { __myco: { Audio: { time: number; bus(n: string): { loudness: Loud } } } };
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
   await bootMix(page);
-  // E2:
-  //  1. Play the Sound Lab's music loop so master carries signal.
-  //  2. Read master's momentary loudness (LUFS) from `Audio.debug()`'s bus row: a finite number, not null or -Infinity.
-  //  3. It is about the same on a repeat read after more audio frames (a steady loop), and null/silent while nothing plays.
-  void page;
+  const master = () =>
+    page.evaluate(() => {
+      const m = (globalThis as unknown as Api).__myco.Audio.bus("Master").loudness;
+      return { momentary: m.momentary, shortTerm: m.shortTerm, integrated: m.integrated, elapsed: m.elapsed, metered: m.metered };
+    });
+
+  await test.step("the page's loop is playing, so master's momentary level is a finite number below 0 LUFS", async () => {
+    expect((await master()).metered, "master is always metered").toBe(true);
+    await expect.poll(async () => (await master()).momentary, { timeout: 30_000, message: "momentary has its four sub-blocks of rendered audio" }).toBeGreaterThan(-70);
+    const m = await master();
+    expect(Number.isFinite(m.momentary)).toBe(true);
+    expect(m.momentary).toBeLessThan(0);
+    expect(m.integrated, "integrated is a number once a 400 ms block passes the gate").toBeGreaterThan(-70);
+  });
+
+  await test.step("a steady loop reads about the same a few seconds of audio later", async () => {
+    // 8 s of rendered audio since Play: the 3 s short-term window lies wholly after the clips' decode and start, so both reads
+    // see the loop and not its beginning.
+    await expect.poll(async () => (await master()).elapsed, { timeout: 60_000, message: "8 s of metered audio" }).toBeGreaterThanOrEqual(8);
+    const a = await master();
+    expect(a.shortTerm).toBeGreaterThan(-70);
+    await expect.poll(async () => (await master()).elapsed, { timeout: 60_000 }).toBeGreaterThanOrEqual(a.elapsed + 2);
+    const b = await master();
+    expect(Math.abs(b.shortTerm - a.shortTerm), "short-term LUFS of a steady loop (a moving hum allows a little)").toBeLessThan(2);
+    expect(Math.abs(b.integrated - a.integrated)).toBeLessThan(2);
+  });
+
+  await test.step("right after a reset the readings are empty (-Infinity, not 0 or NaN), and fill from the audio that follows", async () => {
+    const r = await page.evaluate(() => {
+      const m = (globalThis as unknown as Api).__myco.Audio.bus("Master").loudness;
+      m.reset("all");
+      return { momentary: m.momentary, shortTerm: m.shortTerm, integrated: m.integrated, elapsed: m.elapsed };
+    });
+    expect(r).toEqual({ momentary: -Infinity, shortTerm: -Infinity, integrated: -Infinity, elapsed: 0 });
+    await expect.poll(async () => (await master()).elapsed, { timeout: 30_000 }).toBeGreaterThanOrEqual(0.5);
+    const after = await master();
+    expect(Number.isFinite(after.momentary)).toBe(true);
+    expect(after.shortTerm, "short-term needs 3 s").toBe(-Infinity);
+  });
+  expect(errors).toEqual([]);
 });
 
-// M5c (E3): live edit. Owner un-fixmes in W9.
-test.fixme("M5c smoke: a live edit in Play is heard and kept after Stop", async ({ page }) => {
-  await bootMix(page);
-  // E3:
-  //  1. In Play, edit a bus's volume through the mixer panel's live edit; read the new effective gain in `Audio.debug()` and the bus's peak change.
-  //  2. Press Stop: the edit is kept in the project settings (not reverted to the authored value).
-  //  3. Play again: the bus starts at the edited value.
-  void page;
+// M5c (E3, un-fixme'd in W9): live edit. The Sound Lab opens read-only (a sample), where an edit neither reaches the mixer nor is saved,
+// so the case runs on the editor's in-memory test project with a small audio section and a looping reference tone on one bus
+// (`audioMixLive.ts`; the cases are `audio-mix-c.spec.ts`). In Play, a key on the Mixer panel's fader edits the bus's volume: its
+// effective gain (`Audio.debug()` row) and its meter's peak follow, on the audio clock; Stop keeps the edit in project.json; Play again
+// starts the bus at the edited value.
+test("M5c smoke: a live edit in Play is heard and kept after Stop", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  type Row = { name: string; effectiveGain: number; peakL: number };
+  const row = (bus: string) => page.evaluate((b) => ((globalThis as unknown as { __myco: { Audio: { debug(): { buses: Row[] } } } }).__myco.Audio.debug().buses.find((r) => r.name === b))!, bus);
+  const peakOver = (bus: string, seconds: number) =>
+    page.evaluate(
+      async ([b, s]) => {
+        const A = (globalThis as unknown as { __myco: { Audio: { time: number; debug(): { buses: Row[] } } } }).__myco.Audio;
+        const t0 = A.time;
+        let max = 0;
+        while (A.time < t0 + (s as number)) {
+          max = Math.max(max, A.debug().buses.find((r) => r.name === b)!.peakL);
+          await new Promise((r) => setTimeout(r, 8));
+        }
+        return max;
+      },
+      [bus, seconds] as const,
+    );
+  await openLiveMix(page, { tones: [{ bus: "Aux" }] });
+  await playLiveMix(page);
+  await openMixer(page);
+
+  await test.step("the tone is on Aux at its authored volume", async () => {
+    await expect.poll(async () => (await row("Aux")).peakL, { timeout: 30_000 }).toBeCloseTo(TONE_PEAK, 3);
+    expect((await row("Aux")).effectiveGain).toBe(1);
+  });
+  let edited = 1;
+  await test.step("a key on the Mixer's fader edits the volume: the effective gain and the meter follow", async () => {
+    await fader(page, "Aux").focus();
+    await page.keyboard.press("PageDown");
+    await expect.poll(async () => (await savedProject(page)).audio!.buses!.find((b) => b.name === "Aux")!.volume, { timeout: 10_000 }).toBeLessThan(1);
+    edited = (await savedProject(page)).audio!.buses!.find((b) => b.name === "Aux")!.volume;
+    await expect.poll(async () => (await row("Aux")).effectiveGain, { timeout: 20_000 }).toBeCloseTo(edited, 3);
+    // The meter falls with its own release: let the audio clock run, then read its peak.
+    const t0 = await page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { time: number } } }).__myco.Audio.time);
+    await page.waitForFunction((t) => (globalThis as unknown as { __myco: { Audio: { time: number } } }).__myco.Audio.time > (t as number) + 1, t0, { timeout: 30_000 });
+    expect(await peakOver("Aux", 0.3)).toBeCloseTo(TONE_PEAK * edited, 2);
+  });
+  await test.step("Stop keeps the edit in project.json; Play again starts the bus at the edited value", async () => {
+    await stopPlay(page);
+    expect((await savedProject(page)).audio!.buses!.find((b) => b.name === "Aux")!.volume).toBeCloseTo(edited, 9);
+    await playLiveMix(page);
+    await expect.poll(async () => (await row("Aux")).effectiveGain, { timeout: 20_000 }).toBeCloseTo(edited, 3);
+  });
+  expect(errors).toEqual([]);
 });
 
 // M5d (X3): the milestone's last case. Owner un-fixmes in W10.

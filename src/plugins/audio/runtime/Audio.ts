@@ -15,7 +15,7 @@ import { triggerOn } from "./music/stingers";
 import { audioLatency, getCalibration, isCalibrationStale, rhythmModeSetting, setCalibration } from "./music/calibration";
 import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioPanner, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest, type SendCurve } from "./backend";
 import { events, type EventDebugRow, type EventInstance, type EventOptions } from "./events/eventRuntime";
-import { audioCapture, type AudioCapture } from "./capture/capture";
+import { audioCapture, captureDebug, type AudioCapture } from "./capture/capture";
 import { loudnessTarget, setLoudnessTarget } from "./mix/loudnessHub";
 
 /** `Audio.debug()`: the backend's state plus the event runtime's rows (`AudioDebugInfo.events` with the late-start count each row carries). */
@@ -331,6 +331,7 @@ export const Audio = {
     // E3.9: each event's voices the backend still lists, so an instance's row goes with its last voice.
     const listed = new Map<number, number>();
     for (const v of info.voices) if (v.event != null && v.state !== "stolen") listed.set(v.event, (listed.get(v.event) ?? 0) + 1);
-    return { ...info, events: events().debugRows(listed) };
+    // Rc4: the shared capture ring (null while none runs).
+    return { ...info, events: events().debugRows(listed), recorder: captureDebug() };
   },
 };

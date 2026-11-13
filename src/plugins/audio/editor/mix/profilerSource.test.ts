@@ -3,10 +3,10 @@
 // progress, refusals as `CaptureError`, cancel through an `AbortSignal`, the live path, close and a dying Worker. The
 // same client on a real `node:worker_threads` thread is `profilerSource.thread.test.ts`.
 import { describe, expect, it } from "vitest";
-import { CaptureError, assembleCapture, encodeRecords } from "../../runtime/capture/format";
+import { CaptureError, RecordType, assembleCapture, encodeRecords, type CaptureRecordInit } from "../../runtime/capture/format";
 import { SAMPLE_HEADER, SAMPLE_META, longCapture, longCaptureRecords, sampleCapture } from "../../runtime/capture/testSupport";
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "../../runtime/capture/worker";
-import { CaptureSource, captureErrorFrom, type CaptureWorkerLike } from "./profilerSource";
+import { CaptureSource, captureErrorFrom, statusColumns, type CaptureWorkerLike } from "./profilerSource";
 
 /** A Worker stand-in: each message runs the real handler on a later macrotask; transferred buffers are detached. */
 function inProcessWorker(): CaptureWorkerLike & { requests: CaptureRequest[]; terminated: boolean } {
@@ -114,6 +114,27 @@ describe("CaptureSource (files)", () => {
     await expect(p).rejects.toThrow("capture worker failed: boom");
     worker.postMessage = realPost;
     await expect(s.seek(0)).rejects.toMatchObject({ code: "cancelled" });
+  });
+});
+
+describe("one API for files and live (Pf1)", () => {
+  it("`live` tells the kinds apart; `startSeconds` and `statusColumns` put the Worker's axis on the viewport's", async () => {
+    // A capture whose first EPOCH has timeOffset 5: the axis starts at 5 s, the viewport at 0.
+    const recs = longCaptureRecords(2).map((r) => (r.type === RecordType.EPOCH ? { ...r, payload: { ...(r.payload as object), timeOffset: 5 } } : r)) as CaptureRecordInit[];
+    const file = await CaptureSource.openFile(buf(assembleCapture(SAMPLE_HEADER, SAMPLE_META, recs, { index: true })), { worker: inProcessWorker() });
+    expect(file.live).toBe(false);
+    expect(file.startSeconds).toBeCloseTo(5, 9);
+    const cols = await statusColumns(file, ["currentFrame"]);
+    expect(cols.seconds![0]).toBeCloseTo(768 / 48_000, 9);
+    expect(cols.seconds![cols.seconds!.length - 1]).toBeLessThanOrEqual(file.duration + 1e-9);
+    const part = await statusColumns(file, ["currentFrame"], 0.5, 1);
+    expect(part.seconds![0]).toBeGreaterThanOrEqual(0.5 - 1e-9);
+    expect(part.seconds![part.seconds!.length - 1]).toBeLessThanOrEqual(1 + 1e-9);
+    file.close();
+
+    const live = await CaptureSource.openLive(buf(assembleCapture(SAMPLE_HEADER, SAMPLE_META, [])), { worker: inProcessWorker() });
+    expect(live.live).toBe(true);
+    live.close();
   });
 });
 

@@ -3,7 +3,7 @@ import { TouchBar } from "../touchBar";
 
 /**
  * The tour page's way to the other pages for a screen with no keyboard: a row of buttons along the bottom of the view,
- * Events (E), Spatial (S), Music (M) and Rhythm (R), each loading the page its key loads (the `lab.SceneSwitch` nodes on
+ * Events (E), Spatial (S), Music (M), Rhythm (R) and Mixer (-), each loading the page its key loads (the `lab.SceneSwitch` nodes on
  * this page keep the keys). The music and rhythm pages carry their own buttons, among them Back.
  */
 @behavior("lab.PageNav")
@@ -15,6 +15,7 @@ export class PageNav extends GameBehavior {
     s: "scenes/spatial.scene.json",
     m: "scenes/music.scene.json",
     r: "scenes/rhythm.scene.json",
+    "-": "scenes/mixer.scene.json",
   };
 
   start(): void {
@@ -23,6 +24,7 @@ export class PageNav extends GameBehavior {
       { key: "s", label: "S Spatial" },
       { key: "m", label: "M Music" },
       { key: "r", label: "R Rhythm" },
+      { key: "-", label: "- Mixer" },
     ]);
   }
 

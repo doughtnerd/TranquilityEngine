@@ -21,7 +21,9 @@ import { type BusLoudness, type LoudnessResetWhat, type LoudnessSource, type Lou
 import type { LoudnessTarget } from "../../../../engine/audio/settings";
 import { DEFAULT_LOUDNESS_TARGETS } from "../../../../engine/audio/mixOps";
 import { LOUD_FLAG_NEW_BLOCKS_MASK, LOUD_FLAG_RESET, LOUD_OUTPUT_TAP, type StatusBlock } from "../wire.generated";
-import { LoudnessStats } from "./loudnessStats";
+import { LoudnessFeedControl, LoudnessStats } from "./loudnessStats";
+import { NULL_PROFILE_SINK } from "./profileSink";
+import { taps } from "./profileTaps";
 
 /** One bus as the hub needs it. `slot` is the bus's core slot (the `LOUD_CONFIG` item); the root's is unused (it reads `LOUD_OUTPUT_TAP`). */
 export interface LoudnessBusInfo {
@@ -64,12 +66,10 @@ class TargetReading implements LoudnessTargetReading {
 /** One metered bus (or the output): the stable `BusLoudness` a script may keep. */
 class Meter implements BusLoudness {
   readonly stats = new LoudnessStats();
+  /** The pause bookkeeping and the first-take rule, shared with the profiler's model (`loudnessTrackModel.ts`). */
+  readonly feed = new LoudnessFeedControl(this.stats);
   private readonly reading = new TargetReading();
   hasTarget = false;
-  scriptPaused = false;
-  ladderPaused = false;
-  /** A ladder span happened since the last resume, so the resume marks `incomplete`. */
-  ladderTouched = false;
   /** Cumulative `gatedQuanta` last seen; -1 before the first feed. */
   gatedSeen = -1;
   /** A true-peak quantum was gated off since the last peak reset. */
@@ -91,33 +91,31 @@ class Meter implements BusLoudness {
   get elapsed(): number { return this.stats.elapsed; }
   get metered(): boolean { return true; }
   get paused(): boolean { return this.stats.paused; }
-  get pausedBy(): "script" | "ladder" | null { return this.ladderPaused ? "ladder" : this.scriptPaused ? "script" : null; }
+  get pausedBy(): "script" | "ladder" | null { return this.feed.ladderPaused ? "ladder" : this.feed.scriptPaused ? "script" : null; }
   get incomplete(): boolean { return this.stats.incomplete; }
   get tainted(): boolean { return this.stats.tainted; }
   get target(): LoudnessTargetReading | null { return this.hasTarget ? this.reading : null; }
 
   reset(what: LoudnessResetWhat = "all"): void {
+    const sink = taps.sink;
+    if (sink !== NULL_PROFILE_SINK) sink.loudnessControl("reset", this.name);
+    this.clear(what);
+  }
+  /** A reset without the profiler's tap (the editor's Play resets every meter itself, not a script or the panel). */
+  clear(what: LoudnessResetWhat): void {
     this.stats.reset(what);
     if (what === "maxPeak" || what === "all") this.gatedSincePeakReset = false;
     this.refresh();
   }
   pause(): void {
-    this.scriptPaused = true;
-    this.syncPause();
+    const sink = taps.sink;
+    if (sink !== NULL_PROFILE_SINK) sink.loudnessControl("pause", this.name);
+    this.feed.setScriptPaused(true);
   }
   resume(): void {
-    this.scriptPaused = false;
-    this.syncPause();
-  }
-
-  /** Brings the stats' pause state in line with the script's and the ladder's. A ladder span marks `incomplete` on resume; a script's own does not. */
-  syncPause(): void {
-    const want = this.scriptPaused || this.ladderPaused;
-    if (want && !this.stats.paused) this.stats.pause();
-    else if (!want && this.stats.paused) {
-      this.stats.resume(this.ladderTouched);
-      this.ladderTouched = false;
-    }
+    const sink = taps.sink;
+    if (sink !== NULL_PROFILE_SINK) sink.loudnessControl("resume", this.name);
+    this.feed.setScriptPaused(false);
   }
 
   setTarget(t: LoudnessTarget | null): void {
@@ -156,6 +154,9 @@ export class LoudnessHub implements LoudnessSource {
   private targetName: string | null = this.targets[0].name;
   private resetOnPlay = true;
   private ladderOn = false;
+  /** The ladder's steps as last fed: the loudness step (`loudShed`) and the bed and zone steps (`m3Shed`). */
+  private ladderLoud = 0;
+  private ladderAudible = 0;
   private readonly suspended: Record<LoudnessSuspension, boolean> = { monitor: false, compare: false, masterNotUnity: false, mutes: false };
   private gateSink: ((tpGateDbfs: number) => void) | null = null;
 
@@ -213,6 +214,7 @@ export class LoudnessHub implements LoudnessSource {
 
   /** Ld4: one STATUS block's loudness sections (no allocation per block). */
   feed(status: StatusBlock): void {
+    if (status.loudShed !== this.ladderLoud || status.m3Shed !== this.ladderAudible) this.noteLadder(status.loudShed, status.m3Shed);
     if (!this.available) return;
     const shed = status.loudShed !== 0;
     if (shed !== this.ladderOn) this.setLadder(shed);
@@ -225,8 +227,9 @@ export class LoudnessHub implements LoudnessSource {
       if (off + count > energies.length) count = Math.max(0, energies.length - off);
       const m = this.meterOfSlot(it.slot);
       if (m) {
-        // A core-side reset (a rebuild's fresh sequence) restarts the feed like an EPOCH: histograms and maxima stay.
-        if ((it.flags & LOUD_FLAG_RESET) !== 0) m.stats.epoch();
+        // A core-side reset (a rebuild's fresh sequence) restarts the feed like an EPOCH: gated blocks and maxima stay.
+        // A new meter's first take is flagged too (its sequence starts at 0, as a fresh feed expects): not a gap.
+        m.feed.beginTake((it.flags & LOUD_FLAG_RESET) !== 0);
         m.stats.takeBlock(it.firstSeq, energies, off, count);
         m.stats.notePeak(it.truePeak);
         if (m.gatedSeen >= 0 && it.gatedQuanta > m.gatedSeen) m.gatedSincePeakReset = true;
@@ -239,6 +242,9 @@ export class LoudnessHub implements LoudnessSource {
 
   /** An EPOCH (a rebuild): feeds reseed, histograms and maxima stay, `incomplete` is set. */
   epoch(): void {
+    // A new core starts with no ladder step; the EPOCH record marks the break, so no "restored" is reported for it.
+    this.ladderLoud = 0;
+    this.ladderAudible = 0;
     for (let i = 0; i < this.meters.length; i++) {
       this.meters[i].stats.epoch();
       this.meters[i].gatedSeen = -1;
@@ -249,7 +255,7 @@ export class LoudnessHub implements LoudnessSource {
   /** The editor's Play: with `loudnessResetOnPlay` (default true) every meter resets (`"all"`, which also clears both flags). */
   play(): void {
     if (!this.resetOnPlay) return;
-    for (let i = 0; i < this.meters.length; i++) this.meters[i].reset("all");
+    for (let i = 0; i < this.meters.length; i++) this.meters[i].clear("all");
   }
 
   // ---- suspension and taint (ADR 0172 §1.9, decision 5) ----
@@ -294,6 +300,7 @@ export class LoudnessHub implements LoudnessSource {
   }
 
   private setSuspension(kind: LoudnessSuspension, on: boolean): void {
+    if (this.suspended[kind] === on) return; // the backend calls it every frame
     this.suspended[kind] = on;
     this.refreshAll();
   }
@@ -304,14 +311,28 @@ export class LoudnessHub implements LoudnessSource {
 
   // ---- ladder ----
 
+  /**
+   * The profiler's ladder tap (§5.6 kind 17): one `ladder(step, shed)` per step taken or given back, `step` the ladder's
+   * depth with that step in force (`loudShed` + `m3Shed`). The loudness step is the first taken and the last given back
+   * (R21), so within one block a shed reports it before the bed and zone steps and a give-back after them.
+   */
+  private noteLadder(loud: number, audible: number): void {
+    const sink = taps.sink;
+    if (sink !== NULL_PROFILE_SINK) {
+      let depth = this.ladderLoud + this.ladderAudible;
+      for (let n = this.ladderAudible; n > audible; n--) sink.ladder(depth--, false);
+      if (loud < this.ladderLoud) sink.ladder(depth--, false);
+      if (loud > this.ladderLoud) sink.ladder(++depth, true);
+      for (let n = this.ladderAudible; n < audible; n++) sink.ladder(++depth, true);
+    }
+    this.ladderLoud = loud;
+    this.ladderAudible = audible;
+  }
+
+  /** `loudShed` changed: the ladder's loudness step pauses every meter but the output's (master keeps metering, ARCH §4.8). */
   private setLadder(on: boolean): void {
     this.ladderOn = on;
-    for (let i = 0; i < this.meters.length; i++) {
-      const m = this.meters[i];
-      m.ladderPaused = on;
-      if (on) m.ladderTouched = true;
-      m.syncPause();
-    }
+    for (let i = 0; i < this.meters.length; i++) this.meters[i].feed.setLadder(on, this.meters[i].slot === LOUD_OUTPUT_TAP);
   }
 
   private meterOfSlot(slot: number): Meter | null {
@@ -347,7 +368,11 @@ export class LoudnessHub implements LoudnessSource {
     const changed = t.name !== this.targetName;
     this.targetName = t.name;
     this.applyTarget();
-    if (changed) this.gateSink?.(this.tpGateDbfs);
+    if (changed) {
+      const sink = taps.sink;
+      if (sink !== NULL_PROFILE_SINK) sink.loudnessControl("target", null);
+      this.gateSink?.(this.tpGateDbfs);
+    }
   }
 }
 

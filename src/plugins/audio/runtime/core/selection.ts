@@ -41,6 +41,7 @@ import { MAX_BUSES } from "../../../../engine/audio/settings";
 import type { WorldKey } from "./context";
 import { selectTopK } from "./quickselect";
 import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
+import { NULL_PROFILE_SINK, type ProfileVirtualReason } from "../mix/profileSink";
 
 
 /** @internal §3: hysteresis 1.2x (a virtual voice must beat a mixed one by this factor). */
@@ -222,6 +223,9 @@ export class Selection {
   private readonly slotKey: Float32Array;
   /** The gather threshold for the next `run` (`-Infinity`: gather every candidate). */
   private threshold = Number.NEGATIVE_INFINITY;
+  /** The cap of the previous `run` (-1: none yet), and whether this `run`'s cap is above it (Rc3's `voiceReal` reason). */
+  private lastCap = -1;
+  private capRaised = false;
   /** Scratch for `selectTopK`: keys and slot indices of this frame's candidates. */
   private readonly keys: Float32Array;
   private readonly items: Uint16Array;
@@ -272,6 +276,12 @@ export class Selection {
     if (mixed) this.mixedCount++;
     this.seen[i] = (this.table.gen[i]! << 1) | (mixed ? 1 : 0);
     this.dwell[i] = DWELL_FRAMES;
+    // Rc3 (§5.6): the PLAY is sent now, with every field filled in, so this is `voiceStart`; a voice admitted virtual says why.
+    const profile = this.table.profile;
+    if (profile !== NULL_PROFILE_SINK) {
+      this.table.noteStart(i);
+      if (!mixed) profile.voiceVirtual(this.idOf(i), this.whyVirtual(i, a));
+    }
     return mixed;
   }
 
@@ -288,6 +298,9 @@ export class Selection {
     stats.scores = 0;
     this.frame++;
     t.frame = this.frame;
+    // Rc3: promotions in a frame where the cap rose are "capRaised" (§5.6 `voiceReal`); the first frame has nothing to compare.
+    this.capRaised = this.lastCap >= 0 && cap > this.lastCap;
+    this.lastCap = cap;
     this.enforceBusLimits(sink);
 
     const state = t.state;
@@ -443,7 +456,25 @@ export class Selection {
     }
     this.seen[i] = (t.gen[i]! << 1) | (mixed ? 1 : 0);
     this.dwell[i] = 0;
+    const profile = t.profile;
+    if (profile !== NULL_PROFILE_SINK) {
+      if (mixed) profile.voiceReal(this.idOf(i), this.capRaised ? "capRaised" : "promoted");
+      else profile.voiceVirtual(this.idOf(i), this.whyVirtual(i, t.audibility[i]!));
+    }
     sink.setMixed(i, mixed);
+  }
+
+  /** Slot `i`'s current id (`VoiceTable.idOf`, private there). */
+  private idOf(i: number): number {
+    return ((this.table.gen[i]! << 16) | i) >>> 0;
+  }
+
+  /** Rc3 (§5.6 `voiceVirtual`): why selection leaves slot `i` virtual, at audibility `a`. A forced reason wins; else the cap or silence. */
+  private whyVirtual(i: number, a: number): ProfileVirtualReason {
+    const t = this.table;
+    if (this.worldAudible[t.world[i]!] === 0) return "worldInaudible";
+    if ((t.flags[i]! & F_PAUSED) !== 0) return "paused";
+    return a < MIN_AUDIBILITY ? "belowAudibility" : "capDemoted";
   }
 
   /** A virtual voice's reason: BUS_MUTED when its bus is silent, else VIRTUAL (a starved stream keeps WAITING_FOR_DATA). */
@@ -485,7 +516,9 @@ export class Selection {
           }
         }
         if (victim < 0) break;
+        t.stealWhy = "busMaxVoices"; // Rc3 (§5.6 `voiceSteal`): this steal is the bus limit's, whoever frees the slot
         sink.steal(victim);
+        t.stealWhy = "priority";
         this.stats.stolen++;
         excess--;
       }

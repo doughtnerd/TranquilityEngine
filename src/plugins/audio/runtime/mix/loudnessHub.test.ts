@@ -3,6 +3,9 @@ import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type LoudnessTarget } from "../../../../engine/audio/settings";
 import { LOUD_FLAG_RESET, LOUD_OUTPUT_TAP, type StatusBlock } from "../wire.generated";
 import { LoudnessHub, type LoudnessHubConfig, type LoudnessSuspension } from "./loudnessHub";
+import { NULL_PROFILE_SINK } from "./profileSink";
+import { taps } from "./profileTaps";
+import { recordingSink } from "./recordingSink";
 
 const NEG = Number.NEGATIVE_INFINITY;
 const energyFor = (lufs: number): number => 10 ** ((lufs + 0.691) / 10);
@@ -306,7 +309,23 @@ describe("reset on Play", () => {
 });
 
 describe("the shedding ladder (loudShed) and script pause", () => {
-  it("loudShed 1 pauses every meter with pausedBy 'ladder'; giving it back resumes and sets incomplete", () => {
+  it("loudShed 1 pauses every bus meter but master's, which keeps metering (ARCH §4.8)", () => {
+    const hub = makeHub();
+    const seqs = new Map<number, number>();
+    play(hub, seqs, LOUD_OUTPUT_TAP, -24, 10);
+    const master = hub.busLoudness("Master")!;
+    const elapsed = master.elapsed;
+    hub.feed(status([], 1));
+    expect([hub.busLoudness("Sfx")!.pausedBy, hub.busLoudness("Voice")!.pausedBy]).toEqual(["ladder", "ladder"]);
+    expect([master.paused, master.pausedBy]).toEqual([false, null]);
+    hub.feed(status([{ slot: LOUD_OUTPUT_TAP, firstSeq: seqs.get(LOUD_OUTPUT_TAP)!, energies: new Array(10).fill(energyFor(-24)) }], 1));
+    expect(master.elapsed).toBeCloseTo(elapsed + 1, 6);
+    hub.feed(status([], 0));
+    expect([master.paused, master.incomplete]).toEqual([false, false]);
+    expect(hub.busLoudness("Voice")!.incomplete).toBe(true);
+  });
+
+  it("loudShed 1 pauses a bus meter with pausedBy 'ladder'; giving it back resumes and sets incomplete", () => {
     const hub = makeHub();
     const seqs = new Map<number, number>();
     play(hub, seqs, 3, -24);
@@ -396,6 +415,16 @@ describe("feeding", () => {
     expect(v.incomplete).toBe(true);
     expect(v.integrated).toBeGreaterThan(NEG);
     expect(Math.abs(v.integrated - before)).toBeLessThan(0.2);
+  });
+
+  it("a new meter's first take, flagged reset by the core, is no gap: incomplete stays clear", () => {
+    const hub = makeHub();
+    hub.feed(status([
+      { slot: 3, firstSeq: 0, energies: new Array(4).fill(energyFor(-24)), flags: LOUD_FLAG_RESET },
+      { slot: LOUD_OUTPUT_TAP, firstSeq: 0, energies: new Array(4).fill(energyFor(-24)), flags: LOUD_FLAG_RESET },
+    ]));
+    expect([hub.busLoudness("Voice")!.incomplete, hub.busLoudness("Master")!.incomplete]).toEqual([false, false]);
+    expect(hub.busLoudness("Voice")!.momentary).toBeCloseTo(-24, 6);
   });
 
   it("epoch() keeps integrated and the maxima, marks incomplete, and restarts the window", () => {
@@ -515,5 +544,85 @@ describe("stability and allocation", () => {
     hub.configure(config({ targets: [{ name: "only", integrated: -16, tolerance: 1, truePeak: -2 }] }));
     expect(hub.target).toBe("only");
     expect(hub.busLoudness("Voice")!.target!.integrated).toBe(-16);
+  });
+});
+
+describe("the profiler's taps (ProfileSink.ladder, ProfileSink.loudnessControl)", () => {
+  const ladder = (loudShed: number, m3Shed: number): StatusBlock => ({ loudShed, m3Shed, loudBuses: [], loudEnergies: [] }) as unknown as StatusBlock;
+  afterEach(() => {
+    taps.sink = NULL_PROFILE_SINK;
+  });
+
+  it("reports each ladder step taken and given back, the loudness step first in and last out", () => {
+    const rec = recordingSink();
+    taps.sink = rec.sink;
+    const hub = makeHub();
+    hub.feed(ladder(0, 0));
+    expect(rec.calls).toEqual([]);
+    hub.feed(ladder(1, 0)); // the loudness step
+    hub.feed(ladder(1, 0));
+    hub.feed(ladder(1, 2)); // bed and zone step 1 in one block
+    hub.feed(ladder(1, 3)); // zone step 2
+    expect(rec.of("ladder")).toEqual([[1, true], [2, true], [3, true], [4, true]]);
+    rec.clear();
+    hub.feed(ladder(1, 2));
+    hub.feed(ladder(1, 0));
+    hub.feed(ladder(0, 0));
+    expect(rec.of("ladder")).toEqual([[4, false], [3, false], [2, false], [1, false]]);
+    rec.clear();
+    // Within one block: a shed reports the loudness step before the bed and zone steps, a give-back after them.
+    hub.feed(ladder(1, 1));
+    hub.feed(ladder(0, 0));
+    expect(rec.of("ladder")).toEqual([[1, true], [2, true], [2, false], [1, false]]);
+  });
+
+  it("with only master metered the bed and zone steps are reported from step 1", () => {
+    const rec = recordingSink();
+    taps.sink = rec.sink;
+    const hub = makeHub();
+    hub.feed(ladder(0, 1));
+    hub.feed(ladder(0, 0));
+    expect(rec.of("ladder")).toEqual([[1, true], [1, false]]);
+  });
+
+  it("an EPOCH drops the ladder without reporting a give-back; with no recorder nothing is called", () => {
+    const rec = recordingSink();
+    taps.sink = rec.sink;
+    const hub = makeHub();
+    hub.feed(ladder(1, 2));
+    rec.clear();
+    hub.epoch();
+    hub.feed(ladder(0, 0));
+    expect(rec.of("ladder")).toEqual([]);
+    taps.sink = NULL_PROFILE_SINK;
+    hub.feed(ladder(1, 0));
+    expect(rec.calls).toEqual([]);
+    taps.sink = rec.sink;
+    hub.feed(ladder(0, 0));
+    expect(rec.of("ladder")).toEqual([[1, false]]);
+  });
+
+  it("a script's or the panel's reset, pause and resume are reported per bus; a target change once, not a reset", () => {
+    const rec = recordingSink();
+    taps.sink = rec.sink;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const hub = makeHub();
+    const v = hub.busLoudness("Voice")!;
+    v.reset();
+    v.reset("maxPeak");
+    v.pause();
+    v.resume();
+    hub.busLoudness("Master")!.reset("integrated");
+    expect(rec.of("loudnessControl")).toEqual([["reset", "Voice"], ["reset", "Voice"], ["pause", "Voice"], ["resume", "Voice"], ["reset", "Master"]]);
+    rec.clear();
+    hub.target = "mobile";
+    hub.target = "mobile"; // no change: not reported
+    hub.target = "nope"; // unknown: ignored with a warning
+    hub.target = null; // back to the first
+    expect(rec.of("loudnessControl")).toEqual([["target", null], ["target", null]]);
+    rec.clear();
+    // The editor's Play resets every meter itself: not a control a script or the panel used.
+    hub.play();
+    expect(rec.calls).toEqual([]);
   });
 });

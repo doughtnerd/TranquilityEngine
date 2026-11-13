@@ -13,6 +13,17 @@ import { editZoneAction } from "./EditZoneButton";
 import { occluderTool } from "./AudioOccluderGizmo";
 import { occlusionTool } from "./OcclusionOverlay";
 import { registerMusicPanels } from "./music";
+import { registerMixPanels } from "./mix";
+import { mixer } from "../../../engine/audio/mixer";
+import { startOpLog, type OpLog, type OpLogEntry } from "./mix/opLog";
+import { setCaptureProject } from "../runtime/capture/capture";
+
+/** ADR 0171 (Hk1, Ma1): the audio op log, started once per page (the plugin context has no dispose hook); it hands live
+ * edits of the project's audio section to the running mixer while Play runs. */
+let opLog: OpLog | null = null;
+
+/** The op log's entries so far (every batch handed to the mixer, with its answers), empty before the plugin activates. The Mixer panel's restart banner reads it. */
+export const opLogEntries = (): readonly OpLogEntry[] => opLog?.entries ?? [];
 
 /** A speaker with waves over a page corner: an event is a sound that plays one of several. */
 const EVENT_ICON = "M5 9v6h4l5 4V5L9 9zM17.5 8.5a5 5 0 0 1 0 7M20 6a8.5 8.5 0 0 1 0 12";
@@ -32,6 +43,14 @@ const createEvent = (folder: string): Promise<string | null> =>
 export const audioEditorPlugin: EditorPlugin = {
   manifest: audioManifest,
   activate(context) {
+    opLog ??= startOpLog(() => mixer);
+    // G7b: a capture's META names the open project (the page title stands in otherwise). `project.json` has no version key
+    // of its own yet, so the version is whatever string a project keeps there, else empty.
+    setCaptureProject(() => {
+      const project = editor.project.current;
+      const version = (project?.settings as { version?: unknown } | undefined)?.version;
+      return { name: project?.name ?? "", version: typeof version === "string" ? version : "" };
+    });
     // Project settings > Audio, after Graphics as it has always been. `audio` is a core key (the panel's own parse reports
     // its problems), so the section owns no extra keys.
     context.registerProjectSettingsSection({
@@ -86,6 +105,7 @@ export const audioEditorPlugin: EditorPlugin = {
       view: () => import("./event/EventEditorPanel").then((m) => m.EventEditorPanel),
     });
     registerMusicPanels(context); // the segment view, its properties and the rules table (M4, H6)
+    registerMixPanels(context); // the Profiler now, the Mixer later (M5, one registration point)
     // The reverb zone gizmo (E1): volume and blend shell in the scene view, face, radius and blend handles under Edit Zone.
     context.registerViewportTool(zoneTool);
     context.registerComponentHeaderAction(editZoneAction);

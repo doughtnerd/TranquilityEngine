@@ -46,7 +46,7 @@
         "mute": false,
         "effects": [{ "type": "reverb", "send": 0.5 }]
       },
-      { "name": "UI", "parent": "Master", "volume": 1, "mute": false, "effects": [] },
+      { "name": "UI", "parent": "Master", "volume": 1, "mute": false, "meter": "loudness", "effects": [] },
       {
         "name": "Filters",
         "parent": "Master",
@@ -60,7 +60,14 @@
       { "name": "Tape", "parent": "Master", "volume": 1, "mute": false, "effects": [] },
       { "name": "Load", "parent": "Master", "volume": 1, "mute": false, "maxVoices": 12, "effects": [] },
       { "name": "Foley", "parent": "Master", "volume": 1, "mute": false, "effects": [] },
-      { "name": "Engine", "parent": "Master", "volume": 0.8, "mute": false, "effects": [] }
+      { "name": "Engine", "parent": "Master", "volume": 0.8, "mute": false, "effects": [] },
+      {
+        "name": "Voice",
+        "parent": "Master",
+        "volume": 1,
+        "mute": false,
+        "effects": [{ "type": "highpass", "frequency": 100, "q": 0.7 }]
+      }
     ],
     "snapshots": [
       {
@@ -88,7 +95,15 @@
     "zones": { "maxActive": 2, "standby": 1, "maxIrSeconds": 2 },
     "doppler": { "maxSpeed": 150 },
     "speedOfSound": 343,
-    "ducking": [{ "target": "Music", "trigger": "SFX", "mode": "presence", "amount": 0.3, "attack": 0.05, "release": 0.4 }],
+    "ducking": [
+      { "target": "Music", "trigger": "SFX", "mode": "presence", "amount": 0.3, "attack": 0.05, "release": 0.4 },
+      { "target": "Music", "trigger": "Voice", "mode": "level", "detector": "rms", "threshold": -30, "amount": 0.35, "attack": 0.05, "release": 0.5 },
+      { "target": "Ambience", "trigger": "Voice", "mode": "level", "detector": "peak", "threshold": -20, "amount": 0.5, "attack": 0.1, "release": 0.8 }
+    ],
+    "loudnessTargets": [
+      { "name": "console", "integrated": -24, "tolerance": 2, "truePeak": -1 },
+      { "name": "mobile", "integrated": -18, "tolerance": 2, "truePeak": -1 }
+    ],
     "parameters": [
       { "name": "Surface", "labels": ["Grass", "Gravel", "Wood", "Metal"], "default": "Grass" },
       { "name": "Intensity", "min": 0, "max": 1, "default": 1, "seekSpeed": 0.5 }

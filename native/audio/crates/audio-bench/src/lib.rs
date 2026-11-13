@@ -221,7 +221,52 @@ pub struct Scene {
     pub music: Option<Music>,
     /// The core's `max_music_rings` (the music scenes and their twins lay the pool out, whether or not they open a ring).
     pub music_rings: u32,
+    /// ADR 0171/0172 M5 (Bn3): loudness metering (a `LOUD_CONFIG` at setup: master and `meters` buses, the true-peak gate).
+    pub loud: Option<Loud>,
+    /// Bn3: a hot signal: full-scale-ish noise (half scale per voice), voice gain 1.0 and MASTER at unity, so the buses' sample
+    /// peaks sit above the true-peak gate and the master limiter works in nearly every quantum.
+    pub hot: bool,
+    /// Bn3: the shell reports an underrun every quantum from the first (`note_underruns` with a rising total). With the cap
+    /// at its floor (`max_mixed` 16) the ladder's first step, the loudness one, engages after 1 s (ARCH §4.8).
+    pub pressure: bool,
+    /// Bn3: mixed voices go to the buses in turn (every bus carries signal) instead of at random.
+    pub spread: bool,
+    /// ADR 0171/0172 M5 (Bn4): level rules (a `BUS_DUCK` at setup; [`Duck`]).
+    pub duck: Option<Duck>,
+    /// Bn4 (`lanes-7`): every bus's gain lanes all moving: a BUS_AUTOMATE volume binding to a seeking global (the `automation`
+    /// lane), beside [`Per::Lanes`]'s five main-written lanes and `duck`'s rules (the `duck` lane).
+    pub lanes7: bool,
 }
+
+/// ADR 0171/0172 M5 (Bn4): the level rules of a sidechain scene ([`Scene::duck`]), peak or RMS detectors, amount 0.5, attack 20 ms,
+/// release 150 ms (Gs1's). Triggers and targets are leaf buses (4 and up), so no rule is inert and no level edge closes a cycle:
+/// `one_target`: rule `i` ducks bus 4 on bus `5 + i`; else rule `i` ducks bus `5 + i` on bus `4 + i` (a chain of leaves: each
+/// target distinct, the order a DAG).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Duck {
+    pub rules: u32,
+    pub one_target: bool,
+    pub rms: bool,
+    pub threshold_db: f32,
+}
+
+/// Bn4: a threshold far under the scenes' bus levels (every rule ducks to its full depth) and one far over them (the detector runs,
+/// the duck stays at identity).
+const DUCK_ENGAGED_DB: f32 = -60.0;
+const DUCK_UNDER_DB: f32 = 0.0;
+const DUCK_AMOUNT: f32 = 0.5;
+
+/// ADR 0171/0172 M5 (Bn3): what `LOUD_CONFIG` sets up ([`Scene::loud`]): master (implicit) plus the buses in slots `0..meters`,
+/// and the true-peak gate (`tpGateDbfs`: the selected ceiling minus 6 dB; a very low value makes every quantum run the FIR).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Loud {
+    pub meters: u32,
+    pub gate_dbfs: f32,
+}
+
+/// Bn3: the gate of a project at the default -1 dBTP ceiling (ceiling minus 6 dB), and a gate low enough that no signal is gated.
+const GATE_TYPICAL_DBFS: f32 = -7.0;
+const GATE_NEVER_DBFS: f32 = -200.0;
 
 /// ADR 0166 M4b (Bench1): what the music scenes play ([`Scene::music`]), on the default preset (8 music rings, 16 groups).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -271,6 +316,10 @@ pub enum Per {
     /// quantum, alternating 0.6 and 0.9 (a `ramp_q` of 0 steps to unity, once: the settled twin, the identity skip): `n` lanes ramping all the
     /// time (class B when stamped).
     BusRamp(u32, u32),
+    /// ADR 0171/0172 M5 (Bn4): the five main-written lanes (authored, runtime, snapshot, monitor, dip) of every bus each retarget
+    /// every 4th quantum over 4 quanta (lane `k` at quantum `k % 4`, so a bus stages at most two stamps in a quantum and the due
+    /// list holds them), alternating 0.6 and 0.9: all five ramping all the time (class B).
+    Lanes,
 }
 
 /// ADR 0162 C7: the bus aux sends go to (one of the presets' 32 buses).
@@ -354,7 +403,27 @@ impl Scene {
             stamped: false,
             music: None,
             music_rings: 0,
+            loud: None,
+            hot: false,
+            pressure: false,
+            spread: false,
+            duck: None,
+            lanes7: false,
         }
+    }
+
+    /// ADR 0171/0172 M5 (Bn3): 16 looping voices (one clip each, spread over the buses in turn) on 8 buses, `max_mixed` 16 so
+    /// the adaptive cap is at its floor from the start (the ladder's trigger needs it). `meters` buses metered beside master
+    /// (`None`: no `LOUD_CONFIG` at all, the unmetered base), at `gate_dbfs`.
+    fn loud(name: &str, meters: Option<u32>, gate_dbfs: f32) -> Scene {
+        Scene { max_mixed: 16, buses: 8, spread: true, loud: meters.map(|meters| Loud { meters, gate_dbfs }), ..Scene::looping(name, 16) }
+    }
+
+    /// ADR 0171/0172 M5 (Bn4): 16 looping voices (one clip each, in turn) on 16 buses (bus 0 under the root, 1-3 under it, the 12
+    /// leaves 4-15 under the groups), `max_mixed` 16, with `rules` level rules on the leaves (`None`: the unruled base).
+    fn sidechain(name: &str, rules: Option<(u32, bool, bool, f32)>) -> Scene {
+        let duck = rules.map(|(rules, one_target, rms, threshold_db)| Duck { rules, one_target, rms, threshold_db });
+        Scene { max_mixed: 16, buses: 16, spread: true, duck, ..Scene::looping(name, 16) }
     }
 
     /// ADR 0166 M4-0 (Z5): `base` sending `per` every quantum, stamped or (the twin) `ASAP`.
@@ -576,6 +645,37 @@ pub fn scene(name: &str) -> Option<Scene> {
         "busramp-8-base" => Scene::per(Scene { buses: 8, ..Scene::looping(name, 32) }, Per::BusRamp(8, 0), false),
         "busramp-32" => Scene::per(Scene { buses: 32, ..Scene::looping(name, 32) }, Per::BusRamp(4, 4), true),
         "busramp-32-base" => Scene::per(Scene { buses: 32, ..Scene::looping(name, 32) }, Per::BusRamp(4, 0), false),
+        // ADR 0171/0172 M5 (Bn3): loudness. 16 looping voices on 8 buses, `max_mixed` 16. `loud-base`: nothing metered (no LOUD_CONFIG);
+        // `loud-1`: master only; `loud-3`: master + 3 gated buses (the typical scene's meters) and `loud-8g`: master + 8 gated, on the
+        // ordinary content (far under the gate, so only master runs the true-peak FIR); `loud-8`: master + 8 with the FIR every
+        // quantum on all (the gate set so low nothing is gated: the worst scene's loudness line). `loud-hot`: master + 8 on a hot
+        // signal (the buses cross the gate by themselves, the limiter works), beside `loud-hot-base`, the same signal unmetered.
+        // `loud-8-shed`: master + 8 under 1 s+ of underruns at the cap's floor (the ladder's loudness step in force), beside
+        // `loud-shed-base`, the same underruns with nothing metered.
+        "loud-base" => Scene::loud(name, None, GATE_TYPICAL_DBFS),
+        "loud-1" => Scene::loud(name, Some(0), GATE_TYPICAL_DBFS),
+        "loud-3" => Scene::loud(name, Some(3), GATE_TYPICAL_DBFS),
+        "loud-8g" => Scene::loud(name, Some(8), GATE_TYPICAL_DBFS),
+        "loud-8" => Scene::loud(name, Some(8), GATE_NEVER_DBFS),
+        "loud-hot-base" => Scene { hot: true, ..Scene::loud(name, None, GATE_TYPICAL_DBFS) },
+        "loud-hot" => Scene { hot: true, ..Scene::loud(name, Some(8), GATE_TYPICAL_DBFS) },
+        "loud-shed-base" => Scene { pressure: true, ..Scene::loud(name, None, GATE_TYPICAL_DBFS) },
+        "loud-8-shed" => Scene { pressure: true, ..Scene::loud(name, Some(8), GATE_NEVER_DBFS) },
+        // ADR 0171/0172 M5 (Bn4): sidechain (level) rules and the lane product, on 16 buses beside the unruled `duck-base`. `duck-1`
+        // and `duck-1-rms`: one peak and one RMS rule ducking; `duck-2`: two peak rules on two targets (the typical scene's);
+        // `duck-8`: eight on one target (S4's 8-rule line); `duck-8-spread`: eight on eight targets (the worst scene's). The
+        // `-gate` scenes' triggers stay under their thresholds (the detectors run, the duck lane stays at identity).
+        // `lanes-7`: all seven lanes moving on all 16 buses (five by stamped BUS_RAMPs, `duck` by `duck-8-spread`'s rules,
+        // `automation` by a volume binding), beside `duck-base` and `duck-8-spread`.
+        "duck-base" => Scene::sidechain(name, None),
+        "duck-1" => Scene::sidechain(name, Some((1, false, false, DUCK_ENGAGED_DB))),
+        "duck-1-rms" => Scene::sidechain(name, Some((1, false, true, DUCK_ENGAGED_DB))),
+        "duck-2" => Scene::sidechain(name, Some((2, false, false, DUCK_ENGAGED_DB))),
+        "duck-8" => Scene::sidechain(name, Some((8, true, false, DUCK_ENGAGED_DB))),
+        "duck-8-spread" => Scene::sidechain(name, Some((8, false, false, DUCK_ENGAGED_DB))),
+        "duck-gate" => Scene::sidechain(name, Some((1, false, false, DUCK_UNDER_DB))),
+        "duck-8-gate" => Scene::sidechain(name, Some((8, true, false, DUCK_UNDER_DB))),
+        "lanes-7" => Scene::per(Scene { lanes7: true, ..Scene::sidechain(name, Some((8, false, false, DUCK_ENGAGED_DB))) }, Per::Lanes, true),
         // ADR 0166 M4b (Bench1): music on the default preset, decoded and streamed, each beside its music-free twin (the
         // twin is shared: music's voices are on top of the same SFX). `MUSIC_PAIRS` in the gate holds the allowances.
         "music-typ-twin" => Scene::music(name, MusicKind::Typical, false, false),
@@ -892,6 +992,19 @@ pub struct RunResult {
     /// ADR 0166 M4-0: the core's `splitQuanta` and `voiceSplits` at the run's end (cumulative since init).
     pub split_quanta: u32,
     pub voice_splits: u32,
+    /// ADR 0171/0172 M5 (Bn3), loudness scenes: STATUS `loudShed` at the end, the share of quanta the master limiter acted in,
+    /// and the mean share the true-peak gate rejected on the metered buses.
+    pub loud_shed: u32,
+    pub limited: f64,
+    pub tp_gated: f64,
+    /// ADR 0171/0172 M5 (Bn4), sidechain scenes: the targets in STATUS `busDuck` at the last take and the lowest duck gain among
+    /// them; the detectors' levels at the end (lowest, highest, dB); the main-written lanes moving per bus and the share of
+    /// bus-quanta with the `automation` lane moving (`lanes-7`).
+    pub duck_targets: u32,
+    pub duck_gain_min: f64,
+    pub duck_level_db: (f64, f64),
+    pub lanes_moving: f64,
+    pub auto_moving: f64,
     /// ADR 0166 M4b (Bench1): the core's music counters at the run's end, the largest STATUS block taken, and the mixed voices
     /// (last quantum).
     pub groups_held: u16,
@@ -1200,7 +1313,7 @@ impl Bench {
             buf.clear();
             buf.reserve(frames as usize * 4);
             for _ in 0..frames as usize * 2 {
-                let s = (rng.next() >> 16) as i16 / 16;
+                let s = (rng.next() >> 16) as i16 / if scene.hot { 2 } else { 16 };
                 buf.extend_from_slice(&s.to_le_bytes());
             }
             core.clips_mut().write(id, 0, &buf).expect("clip write");
@@ -1318,7 +1431,22 @@ impl Bench {
                 self.push(&wire::BusRamp { voice_id: bus, frame_offset: wire::ASAP, lane: lane as u16, mask, gain: 0.9, lp_hz: lp, frames: 0, shape: 0 });
             }
         }
-        self.push(&wire::Master { voice_id: 0, frame_offset: wire::ASAP, volume: 0.5, muted: 0, ramp_frames: 0 });
+        self.push(&wire::Master { voice_id: 0, frame_offset: wire::ASAP, volume: if s.hot { 1.0 } else { 0.5 }, muted: 0, ramp_frames: 0 });
+        if let Some(loud) = s.loud {
+            // Master is implicit; the buses are slots 0..meters (bus 0 holds everything, 1-3 the groups).
+            let meters = (0..loud.meters as u16).map(|slot| wire::LoudConfigMeters { slot, reserved: 0 }).collect();
+            self.push(&wire::LoudConfig { voice_id: 0, frame_offset: wire::ASAP, tp_gate_dbfs: loud.gate_dbfs, meters });
+        }
+        if let Some(duck) = s.duck {
+            let flags = wire::DUCK_FLAG_LEVEL | if duck.rms { wire::DUCK_FLAG_RMS } else { 0 };
+            let rules = (0..duck.rules as u16)
+                .map(|i| {
+                    let (trigger, target) = if duck.one_target { (5 + i, 4) } else { (4 + i, 5 + i) };
+                    wire::BusDuckRules { target, trigger, flags, threshold_db: duck.threshold_db, amount: DUCK_AMOUNT, attack: 0.02, release: 0.15 }
+                })
+                .collect();
+            self.push(&wire::BusDuck { voice_id: 0, frame_offset: wire::ASAP, rules });
+        }
         if s.beds > 0 {
             // One bed: hosted by bus 0. More: bed k by bus 1 + k (each a child of bus 0); bus 0 hosts none.
             let (bed_slot, host_bus): (Vec<u8>, Vec<u16>) = if s.beds == 1 {
@@ -1332,10 +1460,16 @@ impl Bench {
         if s.zones_active > 0 {
             self.zones_init();
         }
-        if s.bindings > 0 || s.bus_automation {
+        if s.bindings > 0 || s.bus_automation || s.lanes7 {
             self.push(&bench_curves());
             for slot in 0..2u16 {
                 self.push(&wire::Param { voice_id: 0, frame_offset: wire::ASAP, group: 0, slot, value: 0.5, seek_per_second: 0.0 });
+            }
+        }
+        if s.lanes7 {
+            // The `automation` lane alone: a volume binding on every bus (no low-pass binding, so only the gain lane's work is added).
+            for bus in 0..s.buses {
+                self.push(&wire::BusAutomate { voice_id: bus, frame_offset: wire::ASAP, bindings: vec![wire::BusAutomateBindings { param: 0x8000, curve: 0, target: 0 }] });
             }
         }
         if s.bus_automation {
@@ -1600,6 +1734,9 @@ impl Bench {
             0
         } else if s.beds > 1 && (bed || ambi) {
             1 + self.rng.below(s.beds) as u16
+        } else if s.spread {
+            // Bn3: in turn, so every bus carries signal (a silent bus is gated whatever the gate).
+            (self.mixed_ids.len() as u32 % s.buses) as u16
         } else {
             self.rng.below(s.buses) as u16
         };
@@ -1643,7 +1780,7 @@ impl Bench {
             clip,
             bus,
             flags,
-            gain: 0.3,
+            gain: if s.hot { 1.0 } else { 0.3 },
             pitch,
             dir_x: libm::sinf(phase),
             dir_y: 0.0,
@@ -1797,6 +1934,24 @@ impl Bench {
                     let gain = if ramp_q == 0 { 1.0 } else if (q / 4) % 2 == 0 { 0.6 } else { 0.9 };
                     for bus in 0..n {
                         self.push(&wire::BusRamp { voice_id: bus, frame_offset: at(bus as u64), lane: wire::LANE_RUNTIME as u16, mask: wire::BUS_RAMP_MASK_GAIN, gain, lp_hz: wire::BUS_LP_OFF_HZ as f32, frames: ramp_q * QUANTUM as u32, shape: 0 });
+                    }
+                }
+            }
+            Per::Lanes => {
+                if q % BATCH_EVERY == 0 {
+                    // The automation lane's volume binding follows a global that seeks a target every batch (alternately 0.1 and 0.9, at 4
+                    // per second: 0.064 of the 0.8 between them in a batch, so it moves in every quantum).
+                    let value = if (q / BATCH_EVERY) % 2 == 0 { 0.1 } else { 0.9 };
+                    self.push(&wire::Param { voice_id: 0, frame_offset: wire::ASAP, group: 0, slot: 0, value, seek_per_second: 4.0 });
+                }
+                let lanes = [wire::LANE_AUTHORED, wire::LANE_RUNTIME, wire::LANE_SNAPSHOT, wire::LANE_MONITOR, wire::LANE_DIP];
+                let gain = if (q / 4) % 2 == 0 { 0.6 } else { 0.9 };
+                for (k, lane) in lanes.into_iter().enumerate() {
+                    if q % 4 != k as u64 % 4 {
+                        continue;
+                    }
+                    for bus in 0..s.buses {
+                        self.push(&wire::BusRamp { voice_id: bus, frame_offset: at(bus as u64 + 16 * k as u64), lane: lane as u16, mask: wire::BUS_RAMP_MASK_GAIN, gain, lp_hz: wire::BUS_LP_OFF_HZ as f32, frames: 4 * QUANTUM as u32, shape: 0 });
                     }
                 }
             }
@@ -2162,7 +2317,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps).
@@ -2187,10 +2342,96 @@ fn percentile(sorted: &[f32], p: f64) -> f64 {
     sorted[i] as f64
 }
 
+/// ADR 0171/0172 M5 (Bn3): what a loudness scene must have measured, asserted so a number never comes from a scene that
+/// didn't do what its name says, and the fields the result line carries (`loudShed`, `limited`, `tpGated`). `quanta` is
+/// every quantum rendered (warm-up included, as the counters are cumulative).
+fn loud_checks(scene: &Scene, b: &Bench, take: &[u8], quanta: u64, r: &mut RunResult) {
+    let name = &scene.name;
+    assert!(!take.is_empty(), "{name}: no STATUS take");
+    let block = wire::StatusBlock::read(take, 0).expect("a STATUS block").0;
+    let meters = block.loud_buses.len();
+    let want = scene.loud.map_or(0, |l| 1 + l.meters as usize);
+    assert_eq!(meters, want, "{name}: STATUS carries {meters} meters, the scene configured {want}");
+    r.loud_shed = block.loud_shed as u32;
+    r.limited = audio_core::bus::area(&b.core).limited as f64 / quanta as f64;
+    // Mean share of quanta the true-peak gate rejected, over the metered buses (master is never gated).
+    let gated: Vec<f64> = block.loud_buses.iter().filter(|m| m.slot != audio_core::loudness::OUTPUT_TAP).map(|m| m.gated_quanta as f64 / quanta as f64).collect();
+    r.tp_gated = if gated.is_empty() { 0.0 } else { gated.iter().sum::<f64>() / gated.len() as f64 };
+    if let Some(loud) = scene.loud {
+        let buses = loud.meters > 0;
+        if scene.pressure {
+            assert_eq!(r.loud_shed, 1, "{name}: the ladder's loudness step must be in force at the end");
+        } else {
+            assert_eq!(r.loud_shed, 0, "{name}: the ladder must not have shed");
+        }
+        for m in &block.loud_buses {
+            let paused = m.flags as u32 & wire::LOUD_FLAG_PAUSED != 0;
+            assert_eq!(paused, scene.pressure && m.slot != audio_core::loudness::OUTPUT_TAP, "{name}: meter {} paused flag", m.slot);
+        }
+        if buses && !scene.pressure && loud.gate_dbfs <= GATE_NEVER_DBFS {
+            // (The first quantum, before any voice has started, is silent and so below any gate.)
+            assert!(r.tp_gated < 0.01, "{name}: the full-true-peak scene gated quanta (share {})", r.tp_gated);
+        }
+        if buses && !scene.pressure && !scene.hot && loud.gate_dbfs > GATE_NEVER_DBFS {
+            assert!(r.tp_gated > 0.99, "{name}: ordinary content must be gated (gated share {})", r.tp_gated);
+        }
+        if scene.hot {
+            assert!(r.tp_gated < 0.05, "{name}: the hot signal must keep the true-peak path running (gated share {})", r.tp_gated);
+        }
+    }
+    if scene.hot {
+        assert!(r.limited > 0.9, "{name}: the hot signal must drive the limiter (limited in {} of quanta)", r.limited);
+    } else {
+        assert_eq!(r.limited, 0.0, "{name}: ordinary content must not reach the limiter");
+    }
+}
+
+/// ADR 0171/0172 M5 (Bn4): what a sidechain scene must have done, asserted so a number never comes from a scene that didn't do what
+/// its name says: every rule live (none inert, none dropped, none late), the detectors having run on their triggers' signal; an
+/// engaged scene's every target at its full depth (the duck gain at `amount`, the detector's level over its threshold by more than
+/// the 6 dB knee), a gate scene's detectors under their threshold and every duck gain exactly 1 (the lane at identity); and in
+/// `lanes-7`, the five main-written lanes and `automation` moving on every bus, with no stamped ramp applied early.
+fn duck_checks(scene: &Scene, b: &mut Bench, take: &[u8], r: &mut RunResult) {
+    let name = &scene.name;
+    let duck = scene.duck.expect("a duck scene");
+    assert!(!take.is_empty(), "{name}: no STATUS take");
+    let block = wire::StatusBlock::read(take, 0).expect("a STATUS block").0;
+    let mix = status::counters(&b.core).mix;
+    assert_eq!((mix.duck_rules_inert, mix.duck_rules_dropped, mix.duck_edges_dropped, mix.sidechain_late), (0, 0, 0, 0), "{name}: inert, dropped, edge-dropped, late rules");
+    let targets = if duck.one_target { 1 } else { duck.rules };
+    r.duck_targets = block.bus_duck.len() as u32;
+    assert_eq!(r.duck_targets, targets, "{name}: STATUS busDuck carries {} targets, the scene's rules have {targets}", r.duck_targets);
+    r.duck_gain_min = block.bus_duck.iter().map(|g| g.gain as f64).fold(f64::INFINITY, f64::min);
+    let d = audio_core::duck::area(&mut b.core.regions_mut().duck[..]).expect("the Duck region");
+    assert_eq!((d.rule_count, d.level_count), (duck.rules, duck.rules), "{name}: rules in force");
+    let levels: Vec<f64> = d.detectors[..duck.rules as usize].iter().map(|x| x.level_db as f64).collect();
+    r.duck_level_db = (levels.iter().copied().fold(f64::INFINITY, f64::min), levels.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+    let floor = audio_core::duck::LEVEL_FLOOR_DB as f64;
+    assert!(r.duck_level_db.0 > floor, "{name}: a detector read silence ({} dB): its trigger carried no signal", r.duck_level_db.0);
+    if duck.threshold_db >= DUCK_UNDER_DB {
+        assert!(r.duck_level_db.1 < duck.threshold_db as f64, "{name}: a trigger reached its threshold ({} dB)", r.duck_level_db.1);
+        assert!(block.bus_duck.iter().all(|g| g.gain == 1.0), "{name}: a duck gain left identity ({})", r.duck_gain_min);
+    } else {
+        assert!(r.duck_level_db.0 > duck.threshold_db as f64 + 6.0, "{name}: a trigger sits within the knee of its threshold ({} dB)", r.duck_level_db.0);
+        assert!((r.duck_gain_min - DUCK_AMOUNT as f64).abs() < 1e-3 && block.bus_duck.iter().all(|g| (g.gain - DUCK_AMOUNT).abs() < 1e-3), "{name}: duck gains not at amount ({})", r.duck_gain_min);
+    }
+    if scene.lanes7 {
+        assert_eq!(mix.bus_records_early, 0, "{name}: stamped ramps applied early");
+        assert_eq!(mix.lane_records_ignored, 0, "{name}: lane records ignored");
+        assert!(r.lanes_moving > 3.99, "{name}: {} of the 4 entry lanes moving per bus", r.lanes_moving);
+        assert!(r.auto_moving > 0.8, "{name}: the automation lane moved in {} of bus-quanta", r.auto_moving);
+    }
+}
+
 /// Runs `scene` for `warmup` then `seconds` of audio time; returns the recorded quanta's stats.
 pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir: Option<&[u8]>) -> RunResult {
     let mut b = Bench::new(scene, seed, hrir);
-    let warm_q = (warmup * RATE as f64 / QUANTUM as f64).ceil() as u64;
+    let mut warm_q = (warmup * RATE as f64 / QUANTUM as f64).ceil() as u64;
+    if scene.pressure {
+        // Bn3: the ladder's loudness step engages 1 s of underruns after the first one (375 quanta at 48 kHz, the step taken in
+        // that quantum's `after_render`); recording starts with the step in force whatever the warm-up asked for.
+        warm_q = warm_q.max((RATE as f64 / QUANTUM as f64).ceil() as u64 + 3);
+    }
     let rec_q = (seconds * RATE as f64 / QUANTUM as f64).ceil() as usize;
     let mut times = Vec::with_capacity(rec_q);
     let mut wus = Vec::with_capacity(rec_q);
@@ -2199,8 +2440,10 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     let (mut sum_mixed, mut sum_live, mut sum_src, mut sum_moving) = (0f64, 0f64, 0f64, 0f64);
     let (mut sum_bed_voices, mut sum_beds, mut sum_work_bed) = (0f64, 0f64, 0f64);
     let (mut sum_fx, mut sum_ambi) = (0f64, 0f64);
+    let (mut sum_lanes, mut sum_auto) = (0f64, 0f64);
     let (mut sum_zact, mut sum_zring, mut sum_zwork, mut sum_senders, mut sum_aux) = (0f64, 0f64, 0f64, 0f64, 0f64);
     let mut status_buf = vec![0u8; wire::STATUS_BUFFER_BYTES as usize];
+    let mut last_take = 0usize;
     let mut probe: Vec<f32> = Vec::new();
     let mut deadline = platform::now_us();
     let (mut records_at_warm, mut starts_at_warm) = (0u64, 0u64);
@@ -2224,6 +2467,10 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
             None
         };
         let t0 = platform::now_us();
+        if scene.pressure {
+            // Bn3: the shell's probe counted another underrun (a rising total, as `myco_audio_note_underruns` is given).
+            b.core.note_underruns(q as u32 + 1);
+        }
         if let Some(m) = &msg {
             let rc = scheduler::submit(&mut b.core, m);
             assert_eq!(rc, 0, "batch refused");
@@ -2252,6 +2499,16 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
             let taken = status::take(&mut b.core, &mut status_buf, 1);
             dt += platform::now_us() - t1;
             b.mus.status_max = b.mus.status_max.max(taken);
+            last_take = taken;
+        }
+        if recording && scene.lanes7 {
+            // Bn4: how many of a bus's authored, snapshot, monitor and dip lanes are off identity, and whether its automation moves.
+            let mask: u32 = [wire::LANE_AUTHORED, wire::LANE_SNAPSHOT, wire::LANE_MONITOR, wire::LANE_DIP].iter().map(|l| 1u32 << l).sum();
+            let moving: u32 = audio_core::lanes::entries_ref(&b.core.regions().lanes[..]).iter().take(scene.buses as usize).map(|e| (e.moving & mask).count_ones()).sum();
+            sum_lanes += moving as f64 / scene.buses as f64;
+            for bus in 0..scene.buses as usize {
+                sum_auto += audio_core::automation::bus_entry(&mut b.core, bus).is_some_and(|a| a.g0 != a.g1) as u32 as f64 / scene.buses as f64;
+            }
         }
         if recording {
             let c = status::counters(&b.core);
@@ -2348,6 +2605,14 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
         assert_eq!(r.split_quanta, 0, "{}: a stamped scene must not split the quantum", scene.name);
         assert_eq!(r.voice_splits > 0, matches!(scene.per_quantum, Some(Per::Loop | Per::Spatial)), "{}: voiceSplits {} (only the class S scenes, a loop region and a low-pass ramp, split voices)", scene.name, r.voice_splits);
     }
+    r.lanes_moving = sum_lanes / n;
+    r.auto_moving = sum_auto / n;
+    if scene.duck.is_some() {
+        duck_checks(scene, &mut b, &status_buf[..last_take], &mut r);
+    }
+    if scene.loud.is_some() || scene.hot || scene.pressure {
+        loud_checks(scene, &b, &status_buf[..last_take], warm_q + rec_q as u64, &mut r);
+    }
     r.buses = scene.buses;
     r.clip_mb = scene.clip_mb;
     r.biquads = scene.biquads;
@@ -2440,7 +2705,7 @@ fn num(args: &str, key: &str, default: f64) -> f64 {
 
 fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
     let mut line = format!(
-        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{},\"bedVoices\":{:.1},\"beds\":{:.2},\"workBed\":{:.0},\"transit\":{:.2},\"fxVoices\":{:.1},\"ambisonic\":{:.1},\"zonesActive\":{:.2},\"zonesRinging\":{:.2},\"workZones\":{:.0},\"zoneWetPeak\":{:.4},\"senders\":{:.1},\"aux\":{:.1},\"zoneEvents\":{},\"standbySwaps\":{},\"evictSwaps\":{},\"splitQuanta\":{},\"voiceSplits\":{},\"groupsHeld\":{},\"groupsLate\":{},\"groupsAbandoned\":{},\"groupTableFull\":{},\"musicRingRefused\":{},\"musicRingsOpen\":{},\"statusMax\":{}}}",
+        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{},\"bedVoices\":{:.1},\"beds\":{:.2},\"workBed\":{:.0},\"transit\":{:.2},\"fxVoices\":{:.1},\"ambisonic\":{:.1},\"zonesActive\":{:.2},\"zonesRinging\":{:.2},\"workZones\":{:.0},\"zoneWetPeak\":{:.4},\"senders\":{:.1},\"aux\":{:.1},\"zoneEvents\":{},\"standbySwaps\":{},\"evictSwaps\":{},\"splitQuanta\":{},\"voiceSplits\":{},\"groupsHeld\":{},\"groupsLate\":{},\"groupsAbandoned\":{},\"groupTableFull\":{},\"musicRingRefused\":{},\"musicRingsOpen\":{},\"statusMax\":{},\"loudShed\":{},\"limited\":{:.3},\"tpGated\":{:.3}}}",
         r.quanta,
         r.p50,
         r.p99,
@@ -2489,7 +2754,10 @@ fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
         r.group_table_full,
         r.music_ring_refused,
         r.music_rings_open,
-        r.status_max
+        r.status_max,
+        r.loud_shed,
+        r.limited,
+        r.tp_gated
     );
     if r.automation[3] > 0.0 {
         line.pop();
@@ -2863,6 +3131,46 @@ mod tests {
     fn the_matrix_twin_decodes_without_the_filters() {
         let r = run(&Scene::bed("bed-matrix", 64, 1, false), 0.25, 0.25, 1, false, None);
         assert_eq!((r.mean_bed_voices, r.mean_beds), (64.0, 1.0));
+    }
+
+    /// ADR 0171/0172 M5 (Bn3): each loudness scene does what its name says, by the core's own STATUS (`loud_checks` asserts it
+    /// on every run: the meters configured, the true-peak gate rejecting ordinary content and nothing under the never gate, the
+    /// hot signal limiting nearly every quantum with the FIR running, the ladder's step in force in the shed scene and no other).
+    #[test]
+    fn the_loudness_scenes_meter_what_their_names_say() {
+        let run = |name: &str| run(&scene(name).unwrap(), 1.0, 1.0, 1, false, None);
+        for name in ["loud-base", "loud-1", "loud-3", "loud-8g", "loud-8", "loud-hot-base", "loud-hot", "loud-shed-base", "loud-8-shed"] {
+            let r = run(name);
+            assert_eq!(r.split_quanta, 0, "{name}");
+        }
+        let (shed, base) = (run("loud-8-shed"), run("loud-shed-base"));
+        assert_eq!((shed.loud_shed, base.loud_shed), (1, 0), "the base has no meters to pause");
+        // Each hot scene's limiter share and the gate's share are on the result line.
+        let hot = run("loud-hot");
+        assert!(hot.limited > 0.9 && hot.tp_gated < 0.05, "hot: limited {}, gated {}", hot.limited, hot.tp_gated);
+        assert!(run("loud-3").tp_gated > 0.99, "ordinary content stays under the gate");
+    }
+
+    /// ADR 0171/0172 M5 (Bn4): each sidechain scene does what its name says, by the core's own STATUS and regions (`duck_checks`
+    /// asserts it on every run: every rule live, the detectors reading their triggers, the engaged scenes at full depth, the gate
+    /// scenes at identity with their detectors under threshold, `lanes-7` with all seven lanes moving and no ramp applied early).
+    #[test]
+    fn the_sidechain_scenes_duck_what_their_names_say() {
+        let run = |name: &str| run(&scene(name).unwrap(), 1.0, 1.0, 1, false, None);
+        for name in ["duck-base", "duck-1", "duck-1-rms", "duck-2", "duck-8", "duck-8-spread", "duck-gate", "duck-8-gate", "lanes-7"] {
+            let r = run(name);
+            assert_eq!(r.split_quanta, 0, "{name}");
+        }
+        // Targets: one per rule, or one for all eight; the gate leaves every gain at identity.
+        assert_eq!((run("duck-2").duck_targets, run("duck-8").duck_targets, run("duck-8-spread").duck_targets), (2, 1, 8));
+        let (gate, eight) = (run("duck-8-gate"), run("duck-8"));
+        assert_eq!((gate.duck_gain_min, gate.duck_targets), (1.0, 1));
+        assert!((eight.duck_gain_min - DUCK_AMOUNT as f64).abs() < 1e-3, "{}", eight.duck_gain_min);
+        // The unruled base has no rules to check.
+        assert_eq!(run("duck-base").duck_targets, 0);
+        // The lane product: all five main-written lanes and the automation lane moving, beside the eight ducked targets.
+        let lanes = run("lanes-7");
+        assert!(lanes.lanes_moving > 3.99 && lanes.auto_moving > 0.8 && lanes.duck_targets == 8, "{} {} {}", lanes.lanes_moving, lanes.auto_moving, lanes.duck_targets);
     }
 
     /// ADR 0166 M4b (Bench1): each music scene does what its doc says, by the core's own counters: no refusal, no table

@@ -5,12 +5,11 @@ import { defaultSettings } from "../../engine/core/settings";
 import { allPluginManifests } from "../../plugins/thirdPartyEditor";
 import { RENAMED_PLUGINS } from "../../plugins/enabled";
 import { usePanelHistory } from "../activeHistory";
-import { reloadGraphics } from "../graphicsPreview";
 import { projectSettingsCategory } from "../preferences";
 import { projectSettingsSections, type ProjectSettingsSectionContribution, type ProjectSettingsSectionProps } from "../sdk/contributions";
 import { PROJECT_FILE } from "../projectFile";
 import type { ProjectSectionSession } from "../projectSection";
-import { createProjectSettingsSection } from "../projectSettingsSection";
+import { projectSettings } from "../projectSettingsInstance";
 import {
   addAutoload,
   addSortingLayer,
@@ -41,7 +40,6 @@ import {
 } from "../projectSettingsModel";
 import type { EditorProject } from "../projects";
 import { currentProject, docVersion } from "../state";
-import { reapplyPlugins } from "../session";
 import { PluginsSection } from "./PluginsSection";
 import { lazyComponent, type LazyComponent } from "./lazy";
 import { NumberField, TextField } from "./settingsControls";
@@ -54,10 +52,10 @@ type PanelState = ProjectSectionSession<SettingsDraft>;
 
 /**
  * The `project.json` keys the built-in categories and the registered sections own: the draft,
- * its undo, saving and outside changes (ADR 0151). Saves reload the editor's graphics tiers and re-apply
- * plugins turned on or off.
+ * its undo, saving and outside changes (ADR 0151). The shell's one instance, shared with `editor.project.settings`
+ * (ADR 0173). Saves reload the editor's graphics tiers and re-apply plugins turned on or off.
  */
-const settings = createProjectSettingsSection({ graphicsSaved: reloadGraphics, pluginsChanged: reapplyPlugins });
+const settings = projectSettings;
 
 function edit(s: PanelState, label: string, draft: SettingsDraft): void {
   void s.edit(label, draft);

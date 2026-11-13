@@ -228,7 +228,11 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
   it("the constructor's BUS_CONFIG, the presence rules and mask (Dp1) and every bus lane (Mx2: authored, runtime, snapshot, monitor, dip per bus) go out at the first update", () => {
     const sentRig = rig();
     sentRig.backend.update(0);
-    const ops = sentRig.ops();
+    // Ld2: LOUD_CONFIG follows BUS_CONFIG at configure (master metered; its records: loudnessWiring.test.ts).
+    const sent = sentRig.ops();
+    expect(sent.filter((o) => o.op === Op.LOUD_CONFIG)).toHaveLength(1);
+    expect(sent.findIndex((o) => o.op === Op.LOUD_CONFIG)).toBeGreaterThan(sent.findIndex((o) => o.op === Op.BUS_CONFIG));
+    const ops = sent.filter((o) => o.op !== Op.LOUD_CONFIG);
     expect(ops.map((o) => o.op)).toEqual([Op.BUS_CONFIG, Op.BUS_DUCK, Op.BUS_PRESENCE, ...Array.from({ length: 25 }, () => Op.BUS_RAMP)]);
     const cfg = readBusConfig(ops[0]!.view, ops[0]!.off);
     expect(cfg.buses).toHaveLength(5);
@@ -493,14 +497,19 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     expect(r.mixer.bus("SFX").activeVoices).toBe(0);
     expect(r.mixer.bus("Music").activeVoices).toBe(1);
     r.frame();
-    const params = only(r.ops(), Op.SET_PARAMS).map((o) => readSetParams(o.view, o.off));
+    const ops = r.ops();
+    const params = only(ops, Op.SET_PARAMS).map((o) => readSetParams(o.view, o.off));
     // A3.3: the volume moved the voice's audibility more than 3 dB, so selection re-sends its score too.
     expect(params).toHaveLength(4);
     expect(params[0]!.gain).toBeCloseTo(0.3);
     expect(params[1]!.pitch).toBe(16);
-    expect(params[2]!.bus).toBe(1);
-    expect(params[3]!.mask).toBe(SET_PARAMS_MASK_SCORE);
-    expect(params[3]!.score).toBeCloseTo(r.backend.table.audibility[v.id & 0xffff]!, 6);
+    expect(params[2]!.mask).toBe(SET_PARAMS_MASK_SCORE);
+    expect(params[2]!.score).toBeCloseTo(r.backend.table.audibility[v.id & 0xffff]!, 6);
+    // G7a (§4.7): the voice is sounding, so its bus goes through the per-voice dip: stamped at B (after the asap
+    // records), between its fade-out and fade-in.
+    expect(params[3]!.bus).toBe(1);
+    expect(params[3]!.frameOffset).not.toBe(ASAP);
+    expect(only(ops, Op.FADE).map((o) => readFade(o.view, o.off).target)).toEqual([0, 0, 1]);
   });
 
   it("while the context is locked, plays wait (reason locked) and start when it runs", () => {

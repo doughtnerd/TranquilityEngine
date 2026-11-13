@@ -62,6 +62,21 @@ const STREAM_ID_COUNT = 0xffffffff - STREAM_ID_FIRST + 1;
 export const STREAM_ERROR_FADE_SECONDS = 0.05;
 
 /**
+ * @internal FU2: how far ahead of *F*_now a stream reopened after a hard rebuild is stamped (`reopenStamp`). The worker
+ * must fetch, open and post the first chunk within it for the stream to resume exactly where it would be; a later
+ * first chunk starts it late by the difference (STATUS `streamStartsLate`). Small beside the rebuild's 1–3 s gap.
+ */
+export const STREAM_REOPEN_LEAD_SECONDS = 0.1;
+
+/**
+ * @internal FU2: the context frame a stream reopened at context frame `framesNow` restarts on (stamped):
+ * `STREAM_REOPEN_LEAD_SECONDS` later, to the nearest frame. Before the clock has an estimate (`framesNow` 0) it goes asap (0).
+ */
+export function reopenStamp(framesNow: number, sampleRate: number): number {
+  return framesNow > 0 ? Math.round(framesNow + STREAM_REOPEN_LEAD_SECONDS * sampleRate) : 0;
+}
+
+/**
  * @internal ADR 0166 §4.3 (R7): stream event 4, `musicFull`: the core's music pool had no ring for a music STREAM_OPEN
  * (the generated wire constant, ABI 3.0).
  */
@@ -450,6 +465,16 @@ export class StreamManager {
     const at = this.seenFrame[i]!;
     if (at === at) return this.seen[i]! + Math.max(0, frame - at) * (this.deps.rateOf?.(voice) ?? 0);
     return this.deps.positionAt?.(voice, frame) ?? null;
+  }
+
+  /**
+   * FU2: the file frame stream `streamId` (voice `voice`) plays at context frame `frame`, for its reopen after a hard
+   * rebuild: its own stream frame position (`playheadAt`: the last STATUS playhead while it played, run on at its rate,
+   * so the frames it waited or starved don't count) through its map (`fileFrame`). Past the end of a stream that no
+   * longer loops it is past the file's frames (the caller drops it).
+   */
+  resumeFrame(streamId: number, voice: number, frame: number): number {
+    return this.fileFrame(streamId, Math.max(0, this.playheadAt(voice, frame) ?? 0));
   }
 
   /** ADR 0166 (R4b): `playheadAt` for musicOps (a member's stream frame at context frame `frame`, or null). */

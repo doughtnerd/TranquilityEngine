@@ -19,6 +19,7 @@ import { FrameMonitor } from "../render/qualityDetect";
 import { listSystemCatalog } from "./systems";
 import { _interpolateWorldServices } from "./worldServices";
 import { World, type WorldKind } from "./World";
+import { notifyEngineLifecycle } from "./engineLifecycle";
 import { WorldHandleImpl } from "./WorldHandle";
 import { DEFAULT_WORLD_TAGS, type Bootstrap, type BootstrapEngine, type BootstrapSetting, type LinkConfig, type WorldConfig, type WorldHandle } from "./worlds";
 
@@ -151,6 +152,8 @@ export class Engine implements BootstrapEngine {
   /** ADR 0080: whether new render surfaces log shader variants compiled after loading (editor play mode). */
   private variantReport = false;
 
+  private disposed = false;
+
   private constructor(private readonly options: EngineOptions) {
     this.settings = resolveSettings(options.project ?? {});
     this.container = options.headless ? null : (options.container ?? null);
@@ -172,6 +175,7 @@ export class Engine implements BootstrapEngine {
   static async create(options: EngineOptions = {}): Promise<Engine> {
     Engine._defaultPlugins?.();
     const engine = new Engine(options);
+    notifyEngineLifecycle("created", options.kind ?? "runtime");
     for (const source of ([] as AssetSource[]).concat(options.assets ?? [])) Assets.addSource(source);
     Storage.use(options.storage ?? (await defaultStorage(engine.settings.name, !engine.container)));
     // Graphics quality (ADR 0050): the project's tiers, and the player's saved choice; with
@@ -182,7 +186,8 @@ export class Engine implements BootstrapEngine {
     // Physics backends (ADR 0137): a bad id is ignored (the only enabled backend is used).
     for (const p of physicsBackendProblems(options.project?.physics)) console.warn(`[myco] project.json ${p}`);
     // Audio (ADR 0097): the project's mixer buses; one shared mixer, like the one audio context.
-    for (const p of parseAudioSettings(options.project?.audio).problems) console.warn(`[myco] project.json ${p}`);
+    const audioParse = parseAudioSettings(options.project?.audio);
+    for (const p of [...audioParse.problems, ...audioParse.warnings]) console.warn(`[myco] project.json ${p}`);
     mixer.configure(engine.settings.audio);
     notifyAudioConfigured(engine.settings.audio);
     if ((options.quality ?? "player") === "player") {
@@ -781,6 +786,8 @@ export class Engine implements BootstrapEngine {
 
   /** Stop the loop, destroy every World's nodes (scripts get onDestroy, audio stops) and release GPU resources. */
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.stop();
     const worlds = this.list.splice(0);
     for (const world of worlds) {
@@ -801,6 +808,7 @@ export class Engine implements BootstrapEngine {
     this.inputCanvas = null;
     Input.detach();
     if (World.active && worlds.includes(World.active)) World.active = null;
+    notifyEngineLifecycle("disposed", this.options.kind ?? "runtime");
   }
 }
 

@@ -9,7 +9,7 @@ const BABYLON_CAPS: AudioMixCaps = { loudness: false, levelDucking: false, cpu: 
 const cpu = (over: Partial<AudioCpuDebug> = {}): AudioCpuDebug => ({ loadPermille: 123, windowMs: 192, clockStepMs: 1, clockSteps: 0, refitResidual: null, sections: null, hidden: null, ...over });
 const mix = (over: Partial<AudioMixDebug> = {}): AudioMixDebug => ({
   slots: [{ name: "Master", slot: 0, state: "live" }, { name: "Music", slot: 1, state: "live" }],
-  monitorActive: false, metersPaused: 0, loudnessLadderStep: 0, busRecordsEarly: 0, sidechainLate: 0, liveRefused: 0, liveDeferred: 0, ducking: [], ...over,
+  monitorActive: false, metersPaused: 0, loudnessLadderStep: 0, busRecordsEarly: 0, sidechainLate: 0, liveRefused: 0, liveDeferred: 0, liveDeferredPending: 0, ducking: [], ...over,
 });
 
 function info(over: Partial<AudioDebugInfo> = {}): AudioDebugInfo {

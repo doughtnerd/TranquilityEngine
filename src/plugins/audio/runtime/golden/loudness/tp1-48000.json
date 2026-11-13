@@ -1,0 +1,1 @@
+{"name":"tp1","tech":"3341 true peak (fs/4 sine at 45 degrees)","rate":48000,"channels":2,"segments":[{"kind":"fs4_45","amp":1,"secs":2}],"expected":{"I":null,"M":null,"S":null,"LRA":null,"truePeakDb":0.000000,"toleranceLU":0.1,"truePeakToleranceDb":[-0.4,0.2]},"measured":{"I":3.351662,"M":3.351664,"S":null,"LRA":0.000000,"truePeakDb":0.103525}}

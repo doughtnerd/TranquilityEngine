@@ -10,6 +10,23 @@
 // (`drainCommands`) into the frame's BATCH.
 import type { AudioHost, BusRemap, HostLifecycleListener, WorldKey } from "./context";
 import { MAX_BUSES } from "../../../../engine/audio/settings";
+import { NULL_PROFILE_SINK, type ProfileSink, type ProfileStealReason, type ProfileStopReason } from "../mix/profileSink";
+
+/**
+ * @internal ADR 0171 (Rc3, api-and-models §5.6): how the table names what it reports to the capture's `ProfileSink`. The
+ * core backend gives it where a clip id and a bus index become names (`stream`: the id is a stream's, not a registry clip's).
+ */
+export interface ProfileNames {
+  clip(id: number, stream: boolean): string;
+  /** The bus slot's `busRef` (`gen << 8 | slot`, §6.3). */
+  busRef(index: number): number;
+}
+
+/** `stopWhy`: how a voice's stop was asked, for the `voiceStop` reason (0: nobody asked, it ended on its own). */
+const STOP_WHY_STOPPED = 1;
+const STOP_WHY_FADED = 2;
+const STOP_WHY_WORLD = 3;
+const STOP_REASONS: readonly ProfileStopReason[] = ["ended", "stopped", "faded", "worldReleased"];
 
 
 /** @internal §3 `state`. */
@@ -270,6 +287,25 @@ export class VoiceTable implements VoiceTableHandleApi {
    */
   onFree: ((id: number, bus: number) => void) | null = null;
 
+  /**
+   * ADR 0171 (Rc3): the capture's event taps; the null object until a recorder runs. Every tap here is guarded by one
+   * comparison with `NULL_PROFILE_SINK`, so a build with no recorder pays that and nothing else (nothing allocates either way).
+   */
+  profile: ProfileSink = NULL_PROFILE_SINK;
+  private names: ProfileNames | null = null;
+  /** The `voiceSteal` reason for a steal that isn't `allocate`'s (selection's bus limit sets `busMaxVoices` around its steal; the ambisonic cap's steal is by priority). */
+  stealWhy: ProfileStealReason = "priority";
+  /** Set while `allocate` frees its victim: the steal is reported once the thief's id is known. */
+  private thiefPending = false;
+  /** 1 once `noteStart` reported the voice's start (its stop is reported only then), per slot. */
+  private readonly started: Uint8Array;
+  /** `STOP_WHY_*` per slot. */
+  private readonly stopWhy: Uint8Array;
+  /** Slots allocated waiting for their clip since the last drain, and their ids (a slot freed and reused since is skipped). */
+  private readonly queuedSlots: Uint16Array;
+  private readonly queuedIds: Uint32Array;
+  private queuedTop = 0;
+
   /** The reason each slot's previous voice was freed with (see `endedReason`). */
   private readonly freedReason: Uint8Array;
   /** Slots that went ENDING since the last `freeEnded` (`endedTop` valid); `endedListed[i]` is 1 while slot `i` is listed. */
@@ -355,7 +391,46 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.stopSeconds = new Float32Array(capacity);
     this.fadeTo = new Float32Array(capacity);
     this.fadeSeconds = new Float32Array(capacity);
+    this.started = new Uint8Array(capacity);
+    this.stopWhy = new Uint8Array(capacity);
+    this.queuedSlots = new Uint16Array(capacity);
+    this.queuedIds = new Uint32Array(capacity);
     this.reset();
+  }
+
+  /** ADR 0171 (Rc3): report to `sink` (null: the null object), naming clips and buses through `names` (null: their numbers). */
+  setProfile(sink: ProfileSink | null, names: ProfileNames | null): void {
+    this.profile = sink ?? NULL_PROFILE_SINK;
+    this.names = names;
+    this.queuedTop = 0;
+  }
+
+  private clipName(i: number): string {
+    const c = this.clip[i]!;
+    return this.names ? this.names.clip(c, (this.flags[i]! & VoiceFlag.STREAM) !== 0) : String(c);
+  }
+  private busRef(b: number): number {
+    return this.names ? this.names.busRef(b) : b;
+  }
+
+  /**
+   * ADR 0171 (Rc3, §5.6 `voiceStart`): slot `i`'s PLAY is being sent (`Selection.admit`, with the clip, bus, flags, start
+   * frame and gain all filled in). Call only with a recorder's sink in place.
+   */
+  noteStart(i: number): void {
+    this.started[i] = 1;
+    this.profile.voiceStart(this.idOf(i), this.clipName(i), this.busRef(this.bus[i]!), this.flags[i]! | (this.flags2[i]! << 8), this.startFrame[i]!, this.gain[i]!);
+  }
+
+  /** `voiceQueued` for the slots allocated waiting for their clip that still wait: they really spent a frame queued. */
+  private flushQueued(): void {
+    const n = this.queuedTop;
+    this.queuedTop = 0;
+    for (let k = 0; k < n; k++) {
+      const i = this.queuedSlots[k]!;
+      if (this.idOf(i) !== this.queuedIds[k] || this.state[i] !== VoiceState.WAITING_FOR_DATA) continue;
+      this.profile.voiceQueued(this.clipName(i), this.busRef(this.bus[i]!), (this.flags[i]! & VoiceFlag.STREAM) !== 0 ? "streamPriming" : "clipLoading");
+    }
   }
 
   /** Every slot FREE at generation 1, the free list full (slot 0 on top), counts, limits and queues empty. */
@@ -367,6 +442,10 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.freedReason.fill(VoiceReason.NONE);
     this.endedListed.fill(0);
     this.dirty.fill(0);
+    this.started.fill(0);
+    this.stopWhy.fill(0);
+    this.queuedTop = 0;
+    this.thiefPending = false;
     for (let i = 0; i < n; i++) this.freeStack[i] = n - 1 - i;
     this.freeTop = n;
     this.busLive.fill(0);
@@ -590,21 +669,36 @@ export class VoiceTable implements VoiceTableHandleApi {
    * voice takes its slot (a PLAY with the new id replaces it on the core). Every other field is reset to its default:
    * volume, pitch and fadeGain 1, minDist 1, maxDist 100, owner -1, `reason` matching the state (LOCKED, VIRTUAL,
    * WAITING_FOR_DATA, or NONE for PLAYING), the rest 0. A bus index outside 0..31 is taken as the root (0).
+   * `clip` and `name` only name a refused play for the profiler (`name` wins: a stream has no registry clip to look up).
    */
-  allocate(bus: number, priority: number, world: WorldKey, state: VoiceStateCode): number {
+  allocate(bus: number, priority: number, world: WorldKey, state: VoiceStateCode, clip = 0, name?: string): number {
     const b = bus >= 0 && bus < MAX_BUSES ? bus | 0 : 0;
     const p = priority <= 0 ? 0 : priority >= 255 ? 255 : priority | 0;
     const busFull = this.busMax[b]! > 0 && this.busLive[b]! >= this.busMax[b]!;
+    const profile = this.profile;
+    let victimId = 0;
     if (busFull || this.freeTop === 0) {
       const victim = this.pickVictim(busFull ? b : -1, p);
       if (victim < 0) {
         this.refusedCount++;
+        // Rc3 (§5.6 `voiceRefused`): `name` is the play's own (a stream's asset path, FU3); else `clip` is the registry id the caller holds (0: not given).
+        if (profile !== NULL_PROFILE_SINK) {
+          const names = this.names;
+          profile.voiceRefused(name ?? (clip === 0 ? "" : names ? names.clip(clip, false) : String(clip)), this.busRef(b), busFull ? "busFull" : "poolFull");
+        }
         return INVALID_VOICE_ID;
       }
       this.stolenCount++;
+      if (profile !== NULL_PROFILE_SINK) {
+        victimId = this.idOf(victim);
+        this.thiefPending = true;
+      }
       this.freeSlot(victim, VoiceReason.STOLEN); // pushed last, so the pop below takes it
+      this.thiefPending = false;
     }
     const i = this.freeStack[--this.freeTop]!;
+    this.started[i] = 0;
+    this.stopWhy[i] = 0;
     this.state[i] = state;
     this.reason[i] =
       state === VoiceState.LOCKED ? VoiceReason.LOCKED : state === VoiceState.VIRTUAL ? VoiceReason.VIRTUAL : state === VoiceState.WAITING_FOR_DATA ? VoiceReason.WAITING_FOR_DATA : VoiceReason.NONE;
@@ -649,7 +743,15 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.clearStem(i);
     this.busLive[b]!++;
     this.liveCount++;
-    return this.idOf(i);
+    const id = this.idOf(i);
+    if (profile !== NULL_PROFILE_SINK) {
+      if (victimId !== 0) profile.voiceSteal(victimId, id, busFull ? "busMaxVoices" : "globalLimit");
+      if (state === VoiceState.WAITING_FOR_DATA && this.queuedTop < this.queuedSlots.length) {
+        this.queuedSlots[this.queuedTop] = i;
+        this.queuedIds[this.queuedTop++] = id;
+      }
+    }
+    return id;
   }
 
   /** The steal victim among live voices (on `bus`, or all when `bus` is -1) for a play at `priority`, or -1 to refuse. */
@@ -706,7 +808,7 @@ export class VoiceTable implements VoiceTableHandleApi {
   requestStop(id: number, fadeSeconds: number): void {
     const i = this.slotOf(id);
     if (i < 0) return;
-    this.stopSlot(i, fadeSeconds);
+    this.stopSlot(i, fadeSeconds, fadeSeconds > 0 ? STOP_WHY_FADED : STOP_WHY_STOPPED);
   }
 
   /** See `VoiceTableHandleApi.requestFade`. */
@@ -726,6 +828,7 @@ export class VoiceTable implements VoiceTableHandleApi {
    * and/or `sink.fade` (a stop after its fade). Empties the queue. A1.4's command writer calls it once per frame.
    */
   drainCommands(sink: VoiceCommandSink): void {
+    if (this.queuedTop > 0) this.flushQueued();
     const n = this.dirtyTop;
     this.dirtyTop = 0;
     for (let k = 0; k < n; k++) {
@@ -767,6 +870,7 @@ export class VoiceTable implements VoiceTableHandleApi {
     if (i < 0 || this.state[i] !== VoiceState.PLAYING) return false;
     this.state[i] = VoiceState.VIRTUAL;
     this.reason[i] = VoiceReason.VIRTUAL;
+    if (this.profile !== NULL_PROFILE_SINK) this.profile.voiceVirtual(this.idOf(i), "capDemoted");
     return true;
   }
 
@@ -850,7 +954,7 @@ export class VoiceTable implements VoiceTableHandleApi {
       const s = this.state[i]!;
       this.world[i] = 0;
       if (s === VoiceState.STOPPING || s === VoiceState.ENDING) continue;
-      this.stopSlot(i, WORLD_RELEASE_FADE_SECONDS);
+      this.stopSlot(i, WORLD_RELEASE_FADE_SECONDS, STOP_WHY_WORLD);
       count++;
     }
     return count;
@@ -873,9 +977,10 @@ export class VoiceTable implements VoiceTableHandleApi {
   }
 
   /** `requestStop`'s rule on a live slot. */
-  private stopSlot(i: number, fadeSeconds: number): void {
+  private stopSlot(i: number, fadeSeconds: number, why: number): void {
     const s = this.state[i]!;
     if (s === VoiceState.STOPPING || s === VoiceState.ENDING) return;
+    this.stopWhy[i] = why;
     if (s === VoiceState.LOCKED || s === VoiceState.WAITING_FOR_DATA) {
       this.freeSlot(i, VoiceReason.NONE);
       return;
@@ -910,6 +1015,17 @@ export class VoiceTable implements VoiceTableHandleApi {
   private freeSlot(i: number, reason: VoiceReasonCode): void {
     const b = this.bus[i]!;
     if (reason === VoiceReason.STOLEN) this.noteStolen(i);
+    const profile = this.profile;
+    if (profile !== NULL_PROFILE_SINK) {
+      // §5.6: a steal is one `voiceSteal` (allocate's reports it with the thief's id once it has one); every other free that
+      // follows a start is one `voiceStop`.
+      if (reason === VoiceReason.STOLEN) {
+        if (!this.thiefPending) profile.voiceSteal(this.idOf(i), 0, this.stealWhy);
+      } else if (this.started[i] === 1) {
+        profile.voiceStop(this.idOf(i), reason === VoiceReason.FAILED ? "failed" : STOP_REASONS[this.stopWhy[i]!]!);
+      }
+    }
+    this.started[i] = 0;
     this.onFree?.(this.idOf(i), b);
     this.state[i] = VoiceState.FREE;
     this.reason[i] = VoiceReason.NONE;

@@ -27,23 +27,23 @@ export type ProfileGapReason = "paused" | "rebuild" | "held" | "dropped" | "reco
 /** §5.6 loudness controls a script or the panel used. */
 export type ProfileLoudnessControl = "reset" | "pause" | "resume" | "target";
 
-/** The event taps (§5.6). Ids are voice ids, buses names (the recorder interns them as `busRef`). */
+/** The event taps (§5.6). Ids are voice ids; a bus is its `busRef` (`gen << 8 | slot`, the slot table's `busRef(slot)`, §6.3). */
 export interface ProfileSink {
-  voiceStart(id: number, clip: string, bus: string, flags: number, atFrame: number, gain: number): void;
+  voiceStart(id: number, clip: string, busRef: number, flags: number, atFrame: number, gain: number): void;
   voiceStop(id: number, reason: ProfileStopReason): void;
   voiceSteal(victim: number, thief: number, reason: ProfileStealReason): void;
   voiceVirtual(id: number, reason: ProfileVirtualReason): void;
   voiceReal(id: number, reason: ProfileRealReason): void;
-  voiceRefused(clip: string, bus: string, reason: ProfileRefusedReason): void;
-  voiceQueued(clip: string, bus: string, reason: ProfileQueuedReason): void;
+  voiceRefused(clip: string, busRef: number, reason: ProfileRefusedReason): void;
+  voiceQueued(clip: string, busRef: number, reason: ProfileQueuedReason): void;
   eventStart(instance: number, asset: string): void;
   eventStop(instance: number): void;
   parameter(name: string, value: number, instance: number | null): void;
   snapshot(name: string, seconds: number): void;
   stateChange(parameter: string, label: string): void;
   musicTransition(instance: number, from: string | null, to: string): void;
-  /** A mixer setter's `BUS_RAMP` (lane by name, frames its length, `target` its gain). */
-  busRamp(bus: string, lane: string, frames: number, target: number): void;
+  /** A mixer setter's `BUS_RAMP` (the bus's `busRef`, lane by name, frames its length, `target` its gain). */
+  busRamp(busRef: number, lane: string, frames: number, target: number): void;
   /** Monitor mute and solo, as a slot mask. */
   monitor(mask: number): void;
   loudnessControl(control: ProfileLoudnessControl, bus: string | null): void;

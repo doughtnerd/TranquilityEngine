@@ -1,0 +1,8 @@
+/* Profiler open/save bar, progress, key legend (ADR 0171/0172, Pf8): theme tokens only. Banner rules live in profilerPanel.css. */
+.profiler-bar-wrap { display: flex; flex-direction: column; gap: 4px; }
+.profiler-progress { width: 120px; height: 8px; accent-color: var(--accent); }
+.profiler-status[data-severity="error"] { color: var(--danger); }
+.profiler-keys { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: 0; padding: 0; list-style: none; color: var(--muted); }
+.profiler-keys li { display: inline-flex; gap: 4px; align-items: baseline; }
+.profiler-keys kbd { font: inherit; padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--panel); color: var(--text); }
+.profiler:focus-visible, .profiler-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

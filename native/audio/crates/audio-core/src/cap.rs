@@ -469,8 +469,9 @@ pub fn after_render(core: &mut Core, frame: u64) {
 
 /// ADR 0170 (amending ADR 0162 OD3): the load-shedding ladder's way back. Before the cap
 /// consumes the quantum's underrun signal, the recovery clock sees it and the steps in force
-/// (`bed.rs`'s bed-idle step, `zones.rs`'s two); after a clean hold it gives back the step taken
-/// last: the zone steps first (the active-slot limit, then the tail cut), the bed-idle step last.
+/// (`bed.rs`'s bed-idle step, `zones.rs`'s two, `loudness.rs`'s metering pause, R21); after a
+/// clean hold it gives back the step taken last: the zone steps first (the active-slot limit, then
+/// the tail cut), then the bed-idle step, the loudness step last.
 /// While the ladder is idle and no underrun comes, this is two compares.
 fn recover_ladder(core: &mut Core, frame: u64) {
     let underrun = core.cap().underrun_pending;
@@ -478,12 +479,15 @@ fn recover_ladder(core: &mut Core, frame: u64) {
         return;
     }
     let zone_steps = crate::zones::shed_steps(core);
-    let steps = crate::bed::m3_shed(core) + zone_steps;
+    let bed_steps = crate::bed::m3_shed(core);
+    let steps = bed_steps + zone_steps + crate::loudness::shed_steps(core);
     if core.cap_mut().ladder.step(frame, underrun, steps) == LadderMove::Restore {
         if zone_steps > 0 {
             crate::zones::restore_step(core);
-        } else {
+        } else if bed_steps > 0 {
             crate::bed::restore_step(core);
+        } else {
+            crate::loudness::restore_step(core);
         }
     }
 }

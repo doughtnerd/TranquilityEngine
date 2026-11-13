@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { CoreLink, type LinkPort } from "../core/context";
 import { Kind, type StatusBlock } from "../wire.generated";
-import { CAPTURE_RECORD_HEAD_BYTES, EpochReason, GapReason, RecordType, decodeEpoch, decodeGap, decodeKeyframe, type GapPayload, type KeyframePayload, type MarkerPayload } from "./format";
+import { CAPTURE_RECORD_HEAD_BYTES, EpochReason, GapReason, RecordType, decodeEpoch, decodeGap, decodeKeyframe, encodeKeyframe, keyframeBytes, type GapPayload, type KeyframePayload, type MarkerPayload } from "./format";
 import { decodeRecordAt, openLiveCapture, type CaptureContents } from "./reader";
 import { Recorder, createRecorder, recorderModule, type EpochContext, type RecorderOptions } from "./recorder";
 import { KEYFRAME_INDEX_SLOTS, RING_MIN_BYTES, RING_PRESET_BYTES, RecorderRing, ringBytesFor, type RingPreset } from "./ring";
@@ -299,7 +299,8 @@ describe("eviction by whole segments (§3.6)", () => {
   it("a full segment table evicts the oldest segment when a new one opens", () => {
     const ring = new RecorderRing(4 * MiB);
     for (let s = 0; s < KEYFRAME_INDEX_SLOTS + 3; s++) {
-      ring.record(RecordType.KEYFRAME, 0, 0, s * SAMPLE_RATE, 8, true, SAMPLE_RATE);
+      const off = ring.record(RecordType.KEYFRAME, 0, 0, s * SAMPLE_RATE, keyframeBytes(EMPTY_KEYFRAME_PAYLOAD), true, SAMPLE_RATE);
+      if (off >= 0) encodeKeyframe(ring.view, off, EMPTY_KEYFRAME_PAYLOAD);
     }
     expect(ring.segments).toBe(KEYFRAME_INDEX_SLOTS);
     expect(ring.evicted).toBe(3);

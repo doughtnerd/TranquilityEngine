@@ -9,7 +9,9 @@ import { expect, type Page, play, test } from "./fixtures";
 const STRESS = "/editor.html?sample=stress";
 const STORM_SECONDS = 60;
 
-test.describe.configure({ timeout: 360_000 });
+// The storm runs STORM_SECONDS of the sample's own clock (its frames' delta times), so a busy machine takes longer in wall
+// time; the timeout is the harness's patience (a storm up to three times slower than real time), not a bound on anything.
+test.describe.configure({ timeout: 900_000 });
 
 type Stats = {
   phase: string;
@@ -76,15 +78,18 @@ test("the stress sample runs for a minute: thousands of voices, the cap adapts, 
     expect(s.sample!.status).toBe("running");
   });
 
-  const t0 = Date.now();
+  // Wait for the storm to have run its minute on the sample's clock (`stormSeconds`, which counts the frames' delta
+  // times), not for a minute of wall time: the start rate, the cap history and the counters all advance with it, so a busy
+  // machine that renders fewer frames per second is judged on the same amount of work.
   const log: string[] = [];
-  while (Date.now() - t0 < STORM_SECONDS * 1000) {
+  for (;;) {
     await page.waitForTimeout(10_000);
     const s = (await stats(page))!;
     const c = s.sample!;
     log.push(
-      `t=${((Date.now() - t0) / 1000).toFixed(0)}s logical=${c.logicalVoices} mixed=${c.mixedVoices}/${c.mixedCap} hrtf=${c.hrtfFlagged}(rendering ${c.hrtfVoices}) underruns=${s.underrunsSinceStart} late=${s.lateSinceStart} starves=${s.starvesSinceStart} dropped=${c.droppedPlays} wu=${c.workUnits}(max ${c.workUnitsMax}) stalls=${s.stalls}`,
+      `t=${s.stormSeconds.toFixed(0)}s logical=${c.logicalVoices} mixed=${c.mixedVoices}/${c.mixedCap} hrtf=${c.hrtfFlagged}(rendering ${c.hrtfVoices}) underruns=${s.underrunsSinceStart} late=${s.lateSinceStart} starves=${s.starvesSinceStart} dropped=${c.droppedPlays} wu=${c.workUnits}(max ${c.workUnitsMax}) stalls=${s.stalls}`,
     );
+    if (s.stormSeconds >= STORM_SECONDS) break;
   }
   const s = (await stats(page))!;
   const c = s.sample!;

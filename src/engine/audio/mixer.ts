@@ -14,6 +14,7 @@
  * bus, the same number as before the split for the same inputs, re-sent on every frame a ramp moves.
  */
 import { defaultAudioSettings, MASTER, type AudioSettings, type BusEffect, type BusSettings } from "./settings";
+import { applyOpToSettings, type MixOp, type ApplyResult } from "./mixOps";
 import { LoudnessView, EMPTY_BUS_LOUDNESS, type BusLoudness, type LoudnessSource } from "./loudnessTypes";
 
 /** What a backend applies for one bus. */
@@ -31,6 +32,15 @@ export interface ResolvedBus {
 
 /** Shortest ramp main asks of the core for a set, a toggle or a 0-second fade (the wire's `BUS_MIN_RAMP_MS`, §4.1). */
 export const BUS_MIN_RAMP_MS = 5;
+
+/**
+ * A fader edit's ramp on the `authored` lane (ADR 0172 §1.4: drags ramp over 10 ms, asap, never stamped); the wire's
+ * `DRAG_RAMP_MS` (repeated here so the engine imports no plugin; `liveMix.test.ts` checks they agree).
+ */
+export const DRAG_RAMP_MS = 10;
+
+/** A live edit of the active snapshot's definition retargets its lane over this long (architecture §4.7). */
+export const SNAPSHOT_EDIT_MS = 20;
 
 /** Lane ids, the wire's `LANE_*` constants (api-and-models §4.1). */
 export const Lane = { authored: 0, runtime: 1, snapshot: 2, monitor: 3, dip: 4, duck: 5, automation: 6 } as const;
@@ -126,7 +136,19 @@ export interface MonitorControls {
   solo?: boolean;
 }
 
-import type { MixOp, ApplyResult } from "./mixOps"; // K0: api-and-models §6.2
+/**
+ * @internal ADR 0171 (Rc3, api-and-models §5.6): the capture's taps on the mixer's setters, for the plugin's recorder (the
+ * engine imports no plugin, so this is the engine's own shape). `busRamp`: a main-side lane moved (`seconds` is the ramp as
+ * authored, 0 asap: the lane writer ramps it over `BUS_MIN_RAMP_MS`); `snapshot`: a script or the panel faded to a
+ * snapshot (`null`: back to the plain mix); `monitor`: a monitor mute or solo changed (`muted` and `soloed` are bus-slot
+ * bit masks). With no tap set (the default) each setter pays one null check.
+ */
+export interface MixerTap {
+  busRamp(bus: string, lane: LaneId, seconds: number, target: number): void;
+  snapshot(name: string | null, seconds: number): void;
+  monitor(muted: number, soloed: number): void;
+}
+
 /** What `mixer.apply` delegates to: the backend's `applyOp` (K0 declares it on `AudioBackend`, optional). */
 export interface MixOpTarget { applyOp?(op: MixOp): ApplyResult }
 
@@ -148,7 +170,7 @@ export class Bus {
   get authoredVolume(): number { const s = this.s; return s ? rampAt(s.authored, this.mixer.time) : 0; }
   /** Runtime switch set by scripts, default false; effective mute = authored mute OR this OR a monitor control. */
   get mute(): boolean { return this.s?.mute ?? false; }
-  set mute(m: boolean) { const s = this.s; if (s && s.mute !== !!m) { s.mute = !!m; this.mixer._dirty(); } }
+  set mute(m: boolean) { const s = this.s; if (s && s.mute !== !!m) { s.mute = !!m; this.mixer._dirty(); this.mixer._noteMute(this.name); } }
   /** While any bus is soloed, only soloed buses (and the buses they feed and pass through) are heard. Default false. */
   get solo(): boolean { return this.s?.solo ?? false; }
   set solo(m: boolean) { const s = this.s; if (s && s.solo !== !!m) { s.solo = !!m; this.mixer._dirty(); } }
@@ -191,6 +213,17 @@ export class Mixer {
   private seq = 0;
   private loudnessSource: LoudnessSource | null = null;
   private opTarget: MixOpTarget | null = null;
+  /** Rc3: the capture's taps on the setters; null while no recorder runs. */
+  private tap: MixerTap | null = null;
+  /** Ma1 (§6.3): old bus name -> new, after a live rename, so a held `Bus` keeps working (one warning per old name). */
+  private readonly aliases = new Map<string, string>();
+  /**
+   * G7c (architecture §2.3, §3.3, §4.7): on the core path a removed bus leaves the model at once (`busNames`,
+   * `resolveAll`, `has`, `Audio.buses`) like on the fallback, but its state object is held here, by its slot, while the
+   * slot table keeps the slot as a tombstone: its dip lane (held at 0) is what a rebuild replays for that slot. Released
+   * when the slot recycles (`_releaseTombstones`), a bus is added into the slot, or at the next configure.
+   */
+  private readonly tombstones = new Map<number, BusState>();
 
   constructor(settings: AudioSettings = defaultAudioSettings()) { this.configure(settings); }
 
@@ -202,25 +235,33 @@ export class Mixer {
     this.order = settings.buses.map((b) => b.name);
     const now = this.time;
     this.lastUpdate = now;
-    settings.buses.forEach((b, i) => {
-      const name = b.name;
-      this.buses.set(name, {
-        settings: b, slot: i,
-        authored: this.ramp(b.volume, b.volume, now, 0), authoredMute: b.mute,
-        runtime: this.ramp(1, 1, now, 0), mute: false, solo: false,
-        snapshot: this.ramp(1, 1, now, 0), lp: this.ramp(OFF_HZ, OFF_HZ, now, 0),
-        monitorMute: false, monitorSolo: false,
-        dip: this.ramp(1, 1, now, 0),
-        duck: 1, voices: 0, peak: 0, autoGain: 1, autoLp: OFF_HZ, viewGain: 1,
-        loudness: new LoudnessView(() => this.loudnessSource?.busLoudness(name) ?? null),
-      });
-    });
+    this.aliases.clear();
+    this.tombstones.clear();
+    settings.buses.forEach((b, i) => this.buses.set(b.name, this.newState(b, i, now)));
     this._dirty();
+  }
+
+  /** A bus's state at its authored values, every script value and monitor control at rest. */
+  private newState(b: BusSettings, slot: number, now: number): BusState {
+    const st: BusState = {
+      settings: b, slot,
+      authored: this.ramp(b.volume, b.volume, now, 0), authoredMute: b.mute,
+      runtime: this.ramp(1, 1, now, 0), mute: false, solo: false,
+      snapshot: this.ramp(1, 1, now, 0), lp: this.ramp(OFF_HZ, OFF_HZ, now, 0),
+      monitorMute: false, monitorSolo: false,
+      dip: this.ramp(1, 1, now, 0),
+      duck: 1, voices: 0, peak: 0, autoGain: 1, autoLp: OFF_HZ, viewGain: 1,
+      // Read through the state's name, so a live rename keeps the object a script holds.
+      loudness: new LoudnessView(() => this.loudnessSource?.busLoudness(st.settings.name) ?? null),
+    };
+    return st;
   }
 
   /** The project's audio settings this mixer was configured with (the backend selector, K3, reads `backend` from it). */
   get audioSettings(): AudioSettings { return this.settings; }
   get busNames(): readonly string[] { return this.order; }
+  /** @internal Any bus muted by the project (authored) or a script (runtime); allocation-free (the loudness target is suspended while one is). */
+  anyMuted(): boolean { for (const s of this.buses.values()) if (s.authoredMute || s.mute) return true; return false; }
   get currentSnapshot(): string | null { return this.snapshotName; }
   get snapshotNames(): string[] { return this.settings.snapshots.map((s) => s.name); }
 
@@ -242,7 +283,7 @@ export class Mixer {
     // Re-anchor every running ramp so it keeps its remaining length on the new clock.
     const next = clock ? clock() : this.ownTime;
     const at = Number.isFinite(next) ? next : now;
-    for (const s of this.buses.values()) for (const r of [s.authored, s.runtime, s.snapshot, s.lp, s.dip]) rebase(r, now, at);
+    for (const s of [...this.buses.values(), ...this.tombstones.values()]) for (const r of [s.authored, s.runtime, s.snapshot, s.lp, s.dip]) rebase(r, now, at);
     this.clock = clock;
     this.lastUpdate = at;
     if (!clock) this.ownTime = at;
@@ -272,13 +313,125 @@ export class Mixer {
   /** @internal Register what `apply` delegates to: the backend (K0 wires it). */
   _setOpTarget(target: MixOpTarget | null): void { this.opTarget = target; }
 
+  /** @internal Rc3: where the setters report a lane ramp, a snapshot and a monitor change (null: nowhere, the default). */
+  _setTap(tap: MixerTap | null): void { this.tap = tap; }
+
   /**
    * Apply an edit while the project plays (§6): the editor's live path. Unlike `configure` it keeps every script value.
-   * Delegates to the backend's `applyOp`; Ma1 fills the main-side model (authored values, slot table, lane records).
+   * Delegates to the backend's `applyOp`, which classifies the op, changes this model through `_applyLive` (authored
+   * values, rules, snapshots; runtime state stays) and sends what moved to the core (Ma1, `core/liveMix.ts`). A backend
+   * with no live path answers `restartRequired`: the edit is saved and applies at the next Play.
    */
   apply(op: MixOp): ApplyResult {
     const r = this.opTarget?.applyOp?.(op);
     return r ?? { ok: false, class: "none", restartRequired: "no live audio backend" };
+  }
+
+  /**
+   * @internal Ma1 (§6.2, architecture §4.7): the main-side half of a live op the backend accepted. The settings become
+   * `applyOpToSettings`' result, except that an added bus goes to the end of the list, with `slot` (the slot the session
+   * slot table gave it; the core path) or, with none (the Babylon fallback), the next slot past every one in use. A
+   * bus's list index is not its slot once a bus is removed or added into a recycled slot: consumers read `BusLanes.slot`
+   * or the slot table (§4.7). A removed bus and its descendants leave the model at once; with `keepTombstones` (the core
+   * path's structural dip, §3.3) their state is held by slot until the slot recycles (`_tombstoneLanes`). Authored
+   * volume ramps over `DRAG_RAMP_MS`, asap; authored mute toggles; an edit of the active snapshot retargets its lane
+   * over `SNAPSHOT_EDIT_MS`; a rename keeps the bus's state and aliases the old name. Every runtime value (script volume, fades, mutes, solo, monitor controls, the snapshot in force) stays.
+   * Returns false when the op is refused or changes nothing.
+   */
+  _applyLive(op: MixOp, slot = -1, keepTombstones = false): boolean {
+    const before = this.settings;
+    const next = applyOpToSettings(before, op.op === "addBus" ? { op: "addBus", name: op.name, parent: op.parent } : op);
+    if (next === before) return false;
+    const now = this.time;
+    if (op.op === "renameBus") this.renameState(op.from, op.to.trim());
+    this.settings = next;
+    for (const b of next.buses) {
+      const s = this.buses.get(b.name);
+      if (s) s.settings = b;
+    }
+    switch (op.op) {
+      case "addBus": {
+        const b = next.buses[next.buses.length - 1]!;
+        // No slot given (the Babylon fallback has no slot table): the next one past every slot in use, so a bus added after a removal never shares one.
+        let free = 0;
+        for (const s of this.buses.values()) free = Math.max(free, s.slot + 1);
+        for (const t of this.tombstones.keys()) free = Math.max(free, t + 1);
+        const at = slot >= 0 ? slot : free;
+        // A slot the table recycled: the tombstone held for it goes (the new bus is a new state, R9).
+        this.tombstones.delete(at);
+        this.buses.set(b.name, this.newState(b, at, now));
+        this.order.push(b.name);
+        this.aliases.delete(b.name);
+        break;
+      }
+      case "removeBus": {
+        // The bus and its descendants leave the model: `resolveAll`, `busNames` and `debug` stop listing them. Every other
+        // bus keeps its state object, so script volumes, fades in flight, mutes, solo and voice counts carry on untouched.
+        const kept = new Set(next.buses.map((b) => b.name));
+        for (const name of this.order) {
+          if (kept.has(name)) continue;
+          const s = this.buses.get(name);
+          if (keepTombstones && s) this.tombstones.set(s.slot, s);
+          this.buses.delete(name);
+        }
+        this.order = this.order.filter((n) => kept.has(n));
+        for (const [old, target] of this.aliases) if (!kept.has(target)) this.aliases.delete(old);
+        break;
+      }
+      case "setBus": {
+        const s = this.buses.get(op.bus);
+        if (!s) break;
+        if (op.key === "volume") this.lane(op.bus, Lane.authored, s.authored, s.settings.volume, DRAG_RAMP_MS / 1000, false);
+        else if (op.key === "mute") { s.authoredMute = s.settings.mute; this.tap?.busRamp(op.bus, Lane.authored, 0, s.authoredMute ? 0 : s.authored.to); }
+        break;
+      }
+      case "renameSnapshot": {
+        const old = before.snapshots[op.index]?.name;
+        if (old !== undefined && old === this.snapshotName) this.snapshotName = next.snapshots[op.index]!.name;
+        break;
+      }
+      default:
+        break;
+    }
+    this.followSnapshot();
+    this._dirty();
+    return true;
+  }
+
+  /** Ma1: the active snapshot's definition may have changed (or it is gone): its lanes head for it over `SNAPSHOT_EDIT_MS`. */
+  private followSnapshot(): void {
+    if (this.snapshotName === null) return;
+    const snap = this.settings.snapshots.find((s) => s.name === this.snapshotName);
+    if (!snap) this.snapshotName = null;
+    const seconds = SNAPSHOT_EDIT_MS / 1000;
+    for (const [bus, s] of this.buses) {
+      this.lane(bus, Lane.snapshot, s.snapshot, snap ? (snap.volumes[bus] ?? 1) : 1, seconds);
+      this.retarget(s.lp, snap ? (snap.lowpass[bus] ?? OFF_HZ) : OFF_HZ, seconds);
+    }
+  }
+
+  /** Ma1: a live rename moves the state (voices, ramps, script values, the loudness object) to the new name. */
+  private renameState(from: string, to: string): void {
+    const s = this.buses.get(from);
+    if (!s || from === to) return;
+    this.buses.delete(from);
+    this.buses.set(to, s);
+    this.order = this.order.map((n) => (n === from ? to : n));
+    this.aliases.delete(to);
+    for (const [old, target] of this.aliases) if (target === from) this.aliases.set(old, to);
+    this.aliases.set(from, to);
+  }
+
+  /** @internal The name a bus is known by now: itself, or where a live rename took it (`aliases`; one warning per old name). */
+  _currentName(name: string): string {
+    if (this.buses.has(name)) return name;
+    const to = this.aliases.get(name);
+    if (to === undefined || !this.buses.has(to)) return name;
+    if (!this.warned.has(`alias:${name}`)) {
+      this.warned.add(`alias:${name}`);
+      console.warn(`[myco] audio bus "${name}" was renamed to "${to}" while playing; "${name}" reaches it until the next Play.`);
+    }
+    return to;
   }
 
   /** §6.6: the Mixer panel's monitor mute and solo for `bus` (the `monitor` lane), never saved, never through `apply`. */
@@ -288,17 +441,35 @@ export class Mixer {
     let moved = false;
     if (controls.mute !== undefined && s.monitorMute !== controls.mute) { s.monitorMute = controls.mute; moved = true; }
     if (controls.solo !== undefined && s.monitorSolo !== controls.solo) { s.monitorSolo = controls.solo; moved = true; }
-    if (moved) this._dirty();
+    if (!moved) return;
+    this._dirty();
+    if (this.tap !== null) {
+      // Slots 0..15 of each mask (a bus past slot 15 is not representable in one u32 carrying both).
+      let muted = 0, soloed = 0;
+      for (const b of this.buses.values()) {
+        if (b.slot >= 16) continue;
+        if (b.monitorMute) muted |= 1 << b.slot;
+        if (b.monitorSolo) soloed |= 1 << b.slot;
+      }
+      this.tap.monitor(muted, soloed);
+    }
+  }
+  /** @internal Rc3: a script mute toggled; the runtime lane's target is 0 (muted) or the script's volume. */
+  _noteMute(name: string): void {
+    const s = this.buses.get(name);
+    if (s && this.tap !== null) this.tap.busRamp(name, Lane.runtime, 0, s.mute ? 0 : s.runtime.to);
   }
   /** Whether any monitor control is on (meters are tainted, targets suspended, §1.1). */
   get monitorActive(): boolean { for (const s of this.buses.values()) if (s.monitorMute || s.monitorSolo) return true; return false; }
 
-  /** @internal */
-  _state(name: string): BusState | undefined { return this.buses.get(name); }
+  /** @internal A bus's state, through a live rename's alias. */
+  _state(name: string): BusState | undefined { return this.buses.get(name) ?? this.buses.get(this._currentName(name)); }
   /** @internal The main-side lanes of `name`, for the lane writer (Mx2). */
   _lanes(name: string): BusLanes | undefined {
     const s = this.buses.get(name);
-    if (!s) return undefined;
+    return s ? this.lanesOf(s, name) : undefined;
+  }
+  private lanesOf(s: BusState, name: string): BusLanes {
     return {
       slot: s.slot, authored: s.authored, authoredMute: s.authoredMute, runtime: s.runtime, runtimeMute: s.mute, runtimeSolo: s.solo,
       snapshot: s.snapshot, snapshotLowpass: s.lp, monitorMute: s.monitorMute, monitorSolo: s.monitorSolo, dip: s.dip, duck: this._duckOf(name, s),
@@ -319,10 +490,23 @@ export class Mixer {
       default: return s.autoGain * s.viewGain;
     }
   }
+  /**
+   * @internal G7c: the lanes of each removed bus whose slot is still a tombstone (`_applyLive`'s `keepTombstones`), by
+   * slot: the lane writer's replay sends their dip lane (§3.4: a dip at its end state).
+   */
+  _tombstoneLanes(): BusLanes[] {
+    const out: BusLanes[] = [];
+    for (const s of this.tombstones.values()) out.push(this.lanesOf(s, s.settings.name));
+    return out.sort((a, b) => a.slot - b.slot);
+  }
+  /** @internal G7c (R9): the slot table freed `slots`; the tombstones held for them go. */
+  _releaseTombstones(slots: readonly number[]): void {
+    for (const s of slots) this.tombstones.delete(s);
+  }
   /** @internal The structural dip (§6.5, the slot table's): ease `name`'s dip lane to `to` over `seconds`. */
   _setDip(name: string, to: number, seconds: number): void {
     const s = this.buses.get(name);
-    if (s) this.retarget(s.dip, Math.min(1, Math.max(0, to)), seconds);
+    if (s) this.lane(name, Lane.dip, s.dip, Math.min(1, Math.max(0, to)), seconds);
   }
   /** @internal */
   _dirty(): void { this.changed = true; }
@@ -358,7 +542,7 @@ export class Mixer {
   _setVoiceCount(name: string, n: number): void { const s = this.buses.get(name); if (s) s.voices = Math.max(0, n | 0); }
 
   bus(name: string = MASTER): Bus {
-    if (!this.buses.has(name) && !this.warned.has(name)) {
+    if (!this.buses.has(name) && !this.buses.has(this._currentName(name)) && !this.warned.has(name)) {
       this.warned.add(name);
       console.warn(`[myco] unknown audio bus "${name}". Buses: ${this.order.join(", ")}.`);
     }
@@ -369,6 +553,8 @@ export class Mixer {
   resolveOutput(name: string | undefined): string {
     if (!name) return this.order[0] ?? MASTER;
     if (this.buses.has(name)) return name;
+    const renamed = this._currentName(name);
+    if (renamed !== name) return renamed;
     this.bus(name); // warns once
     return this.order[0] ?? MASTER;
   }
@@ -384,34 +570,44 @@ export class Mixer {
     const snap = this.settings.snapshots.find((s) => s.name === name);
     if (!snap) { console.warn(`[myco] unknown audio snapshot "${name}". Snapshots: ${this.snapshotNames.join(", ") || "none"}.`); return; }
     this.snapshotName = name;
-    for (const [bus, s] of this.buses) { this.retarget(s.snapshot, snap.volumes[bus] ?? 1, seconds); this.retarget(s.lp, snap.lowpass[bus] ?? OFF_HZ, seconds); }
+    this.tap?.snapshot(name, seconds);
+    for (const [bus, s] of this.buses) { this.lane(bus, Lane.snapshot, s.snapshot, snap.volumes[bus] ?? 1, seconds); this.retarget(s.lp, snap.lowpass[bus] ?? OFF_HZ, seconds); }
   }
   /** Fade back to the plain mix. */
   clearSnapshot(seconds = 0.5): void {
     this.snapshotName = null;
-    for (const s of this.buses.values()) { this.retarget(s.snapshot, 1, seconds); this.retarget(s.lp, OFF_HZ, seconds); }
+    this.tap?.snapshot(null, seconds);
+    for (const [bus, s] of this.buses) { this.lane(bus, Lane.snapshot, s.snapshot, 1, seconds); this.retarget(s.lp, OFF_HZ, seconds); }
   }
 
   /** @internal `Bus.volume` (`seconds` 0) and `Bus.fadeTo`: one ramp on the runtime lane, clamped to 0..2. */
   _setRuntime(name: string, v: number, seconds: number): void {
     const s = this.buses.get(name);
-    if (s) this.retarget(s.runtime, Math.min(2, Math.max(0, Number.isFinite(v) ? v : 0)), seconds);
+    if (s) this.lane(name, Lane.runtime, s.runtime, Math.min(2, Math.max(0, Number.isFinite(v) ? v : 0)), seconds);
   }
 
-  /** A new ramp on `r` from its value now to `to` over `seconds` (non-finite or <= 0: asap). Re-setting a settled lane to its value writes nothing. */
-  private retarget(r: Ramp, to: number, seconds: number): void {
+  /**
+   * A new ramp on `r` from its value now to `to` over `seconds` (non-finite or <= 0: asap). Re-setting a settled lane to
+   * its value writes nothing. `stamped` false (the authored lane's drag, Ma1): the ramp starts now, as the backend sends it asap.
+   */
+  private retarget(r: Ramp, to: number, seconds: number, stamped = true): boolean {
     const now = this.time;
     const dur = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
     // A ramp with a length starts where the backend stamps it (Dp1): from the lane's value there.
     let start = now;
-    if (dur > 0 && this.clock && this.stampClock) {
+    if (stamped && dur > 0 && this.clock && this.stampClock) {
       const at = this.stampClock();
       if (Number.isFinite(at) && at > now) start = at;
     }
     const from = rampAt(r, start);
-    if (from === to && r.to === to) return;
+    if (from === to && r.to === to) return false;
     r.from = from; r.to = to; r.start = start; r.seconds = dur; r.law = "linear"; r.seq = ++this.seq;
     this._dirty();
+    return true;
+  }
+  /** `retarget` on a lane main writes: when it wrote, the capture's tap hears the ramp (Rc3; one null check without a tap). */
+  private lane(bus: string, lane: LaneId, r: Ramp, to: number, seconds: number, stamped = true): void {
+    if (this.retarget(r, to, seconds, stamped) && this.tap !== null) this.tap.busRamp(bus, lane, r.seconds, to);
   }
   private ramp(from: number, to: number, start: number, seconds: number): Ramp {
     return { from, to, start, seconds, law: "linear", seq: ++this.seq };

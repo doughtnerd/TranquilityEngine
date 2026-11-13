@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
 import { createProjectSettingsSection } from "../../../../editor/projectSettingsSection";
-import { setValue, type SettingsDraft } from "../../../../editor/projectSettingsModel";
+import { setValue, settingsProblems, settingsWarnings, type SettingsDraft } from "../../../../editor/projectSettingsModel";
 import { onSectionChanged, type SectionChange } from "../../../../editor/sectionChanged";
 import { editor } from "../../../../editor/sdk";
-import { closeTestProject, openTestProject } from "../../../../editor/testing";
+import { ROOT, closeTestProject, openTestProject } from "../../../../editor/testing";
+import { FIFTH_EFFECT } from "../../runtime/core/liveMix";
 import { createOpLog, opsOf, recordMixOps, type MixApplier, type OpLogHost } from "./opLog";
 
 const PROJECT = `{
@@ -152,6 +153,53 @@ describe("the audio op log", () => {
     createOpLog(host(() => true, mixer));
     await s.edit("Bad", { ...sfxVolume(s.draft, 0.5), display: { width: -5, height: 10 } } as SettingsDraft);
     expect(mixer.applied).toEqual([]);
+  });
+
+  it("G9b: an edit with no live op but a key with no live path (the AAC codec) is an entry with that key, for edit, undo and redo", async () => {
+    const { project } = await openTestProject({ "project.json": PROJECT });
+    const s = createProjectSettingsSection().open(project);
+    const mixer = new FakeMixer();
+    const log = createOpLog(host(() => true, mixer));
+    const audio = s.draft.audio as Record<string, unknown>;
+    await s.edit("Enable AAC", { ...s.draft, audio: { ...audio, codecs: { aac: true } } } as SettingsDraft);
+    await s.undo();
+    await s.redo();
+    expect(mixer.applied, "no op reaches the mixer").toEqual([]);
+    expect(log.entries.map((e) => [e.cause, e.source, e.ops.length, e.restartRequired])).toEqual([
+      ["edit", "diff", 0, ["codecs"]],
+      ["undo", "diff", 0, ["codecs"]],
+      ["redo", "diff", 0, ["codecs"]],
+    ]);
+    // An edit that changes nothing the mixer sees (no op, no key) still makes no entry.
+    await s.edit("Width", setValue(s.draft, "display", "width", 320));
+    expect(log.entries).toHaveLength(3);
+  });
+
+  it("G9b: a fifth effect added in Project Settings is saved (a warning, not a problem) and reaches the mixer, which answers FIFTH_EFFECT", async () => {
+    const lp = { type: "lowpass", frequency: 8000, q: 1 };
+    const four = `${JSON.stringify({ name: "Game", audio: { buses: [{ name: "master" }, { name: "sfx", parent: "master", effects: [lp, lp, lp, lp] }] } }, null, 2)}\n`;
+    const { project, fs } = await openTestProject({ "project.json": four });
+    const s = createProjectSettingsSection().open(project);
+    const answers: ApplyResult[] = [];
+    const mixer: MixApplier = {
+      apply: (op) => {
+        const r: ApplyResult = op.op === "addEffect" ? { ok: false, class: "dip", restartRequired: FIFTH_EFFECT } : { ok: true, class: "direct" };
+        answers.push(r);
+        return r;
+      },
+    };
+    const log = createOpLog({ ...host(() => true, null), mixer: () => mixer });
+    const audio = s.draft.audio as { buses: Array<{ name: string; effects?: object[] }> };
+    const five = { ...s.draft, audio: { ...audio, buses: audio.buses.map((b) => (b.name === "sfx" ? { ...b, effects: [...b.effects!, { type: "highpass", frequency: 80, q: 1 }] } : b)) } } as SettingsDraft;
+    expect(settingsProblems(five), "no problem keeps the draft unsaved").toEqual([]);
+    expect(settingsWarnings(five).join()).toMatch(/runs only the first 4 effects/);
+    await s.edit("Add effect", five);
+    expect(s.unsaved, "saved").toBe(false);
+    const saved = JSON.parse(await fs.readText(`${ROOT}\\project.json`)) as { audio: { buses: Array<{ effects?: object[] }> } };
+    expect(saved.audio.buses[1]!.effects).toHaveLength(5);
+    expect(log.entries).toHaveLength(1);
+    expect(log.entries[0]!.ops).toEqual([{ op: "addEffect", bus: "sfx", index: 4, effect: { type: "highpass", frequency: 80, q: 1 } }]);
+    expect(log.entries[0]!.results[0]!.restartRequired).toBe(FIFTH_EFFECT);
   });
 
   it("a preview that calls the mixer directly never enters the log", async () => {

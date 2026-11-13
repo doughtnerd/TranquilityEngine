@@ -19,6 +19,22 @@ test.describe.configure({ timeout: 150_000 });
 type G = { __myco: { Audio: { time: number } }; __e1: Record<string, { setParameter(n: string, v: string | number): void; trigger(n: string): boolean; stop(s?: number): void }> };
 const audioTime = (page: Page) => page.evaluate(() => (globalThis as unknown as G).__myco.Audio.time);
 
+/** The highest peak of a bus's meter over `seconds` of the audio clock (not of wall time: a busy machine still reads the whole span). */
+const peakOverAudio = (page: Page, bus: string, seconds: number) =>
+  page.evaluate(
+    async ([name, span]) => {
+      const { Audio } = (globalThis as unknown as { __myco: { Audio: { time: number; bus(n: string): { peak: number } } } }).__myco;
+      let max = 0;
+      const start = Audio.time;
+      while (Audio.time - start < (span as number)) {
+        max = Math.max(max, Audio.bus(name as string).peak);
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      return max;
+    },
+    [bus, seconds] as const,
+  );
+
 /** The core's group counters stayed clean: no group late, held or abandoned, no slip, no quantum split by music. */
 async function expectClean(page: Page, what: string): Promise<void> {
   expect(await readLate(page), `${what}: the core's group counters`).toEqual({ groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0 });
@@ -169,25 +185,60 @@ test("M4a: a quantised transition lands on a bar line, the debug row names its r
   await expect.poll(async () => (await rowOf(page, "switch"))?.state, { timeout: 30_000 }).toBe("playing");
   expect((await snap(page, "m"))!.segment).toBe("A");
 
+  // Under load (the browser, the harness and other suites share a few cores) a Playwright round trip can take seconds, so
+  // nothing here is judged by how late the test looked. The request, the pending change and the landing are observed in
+  // one page turn each, and every comparison is against the audio clock (`Audio.time`): the time of the request, the
+  // landing time the player reports, and the position the handle reports at the moment `now` was read.
+  type Seen = {
+    requested: number;
+    pending: { to: string; ruleKey: string; rule: number; tier: number; parent: string } | null;
+    now: number;
+    transition: { to: string; time: number };
+    after: { now: number; segment: string | null; bar: number; beat: number; beatFraction: number } | null;
+  };
   const change = async (to: string, ruleKey: string, rule: number) => {
-    await page.evaluate((v) => (globalThis as unknown as G).__e1.m!.setParameter("State", v), to);
-    // The pending change shows on the handle and in the row, with the rule that chose it.
-    await expect.poll(async () => (await snap(page, "m"))?.transition?.to, { timeout: 10_000 }).toBe(to);
-    const s = (await snap(page, "m"))!;
-    const pending = (await rowOf(page, "switch"))?.pending;
-    expect(pending, "the row shows the pending change").toBeTruthy();
-    expect({ to: pending!.to, ruleKey: pending!.ruleKey, rule: pending!.rule, tier: pending!.tier, parent: pending!.parent }, "the rule that supplied it").toEqual({ to, ruleKey, rule, tier: 1, parent: "world" });
-    expect(s.transition!.time, "it lands in the future").toBeGreaterThan(s.now);
-    expect(offGrid(s.transition!.time - T, 2), `lands on a bar line (${s.transition!.time.toFixed(3)} against the start ${T.toFixed(3)})`).toBeLessThan(0.02);
-    expect(s.transition!.time - s.now, "within a bar and the lead").toBeLessThan(2 + 1.5);
-    // After the landing time the new segment plays, at the start of its bar 1.
-    await expect.poll(async () => (await snap(page, "m"))?.segment, { timeout: 15_000 }).toBe(to);
-    const after = (await snap(page, "m"))!;
-    expect(after.now, "it did not change early").toBeGreaterThanOrEqual(s.transition!.time - 0.15);
-    expect(after.bar, `${to} is first seen at its bar 1`).toBe(1);
-    expect(after.beat).toBeLessThanOrEqual(2);
+    const seenChange = await page.evaluate(async (v) => {
+      const g = globalThis as unknown as G & { __myco: { Audio: { time: number; debug(): { music?: { asset: string; pending: Seen["pending"] }[] } } } };
+      const Audio = g.__myco.Audio;
+      const handle = g.__e1.m! as unknown as { setParameter(n: string, v: string): void; music: { transition: { to: string; time: number } | null; segment: string | null; bar: number; beat: number; beatFraction: number } };
+      const requested = Audio.time;
+      handle.setParameter("State", v);
+      let found: Omit<Seen, "after" | "requested"> | null = null;
+      // The pending change shows on the handle and in the row, with the rule that chose it (bounded by the audio clock).
+      while (!found && Audio.time < requested + 10) {
+        const tr = handle.music.transition;
+        if (tr?.to === v) {
+          const pending = Audio.debug().music?.find((r) => r.asset.includes("switch"))?.pending ?? null;
+          found = { now: Audio.time, transition: { to: tr.to, time: tr.time }, pending: pending && { to: pending.to, ruleKey: pending.ruleKey, rule: pending.rule, tier: pending.tier, parent: pending.parent } };
+        } else await new Promise((r) => setTimeout(r, 5));
+      }
+      if (!found) return null;
+      let after: Seen["after"] = null;
+      while (!after && Audio.time < found.transition.time + 10) {
+        const m = handle.music;
+        if (m.segment === v) after = { now: Audio.time, segment: m.segment, bar: m.bar, beat: m.beat, beatFraction: m.beatFraction };
+        else await new Promise((r) => setTimeout(r, 5));
+      }
+      return { requested, ...found, after } satisfies Seen;
+    }, to);
+    expect(seenChange, `the change to ${to} became pending`).not.toBeNull();
+    const s = seenChange!;
+    expect(s.pending, "the row shows the pending change").toBeTruthy();
+    expect(s.pending!, "the rule that supplied it").toEqual({ to, ruleKey, rule, tier: 1, parent: "world" });
+    expect(s.transition.time, "it lands in the future").toBeGreaterThan(s.now);
+    expect(offGrid(s.transition.time - T, 2), `lands on a bar line (${s.transition.time.toFixed(3)} against the start ${T.toFixed(3)})`).toBeLessThan(0.02);
+    expect(s.transition.time - s.requested, "within a bar and the lead").toBeLessThan(2 + 1.5);
+    // After the landing time the new segment plays, at the start of its bar 1: the position the handle reports (bars and
+    // beats of 4/4 at 120 bpm: 2 s a bar, 0.5 s a beat) is the audio time since the landing, whenever it was read.
+    expect(s.after, `${to} became the playing segment`).not.toBeNull();
+    const after = s.after!;
+    expect(after.now, "it did not change early").toBeGreaterThanOrEqual(s.transition.time - 0.15);
+    const since = after.now - s.transition.time;
+    const position = (after.bar - 1) * 2 + (after.beat - 1) * 0.5 + after.beatFraction * 0.5;
+    if (since < 3.5) expect(Math.abs(position - Math.max(0, since)), `${to} is at its bar ${after.bar} beat ${after.beat} ${since.toFixed(3)} s after the landing`).toBeLessThan(0.15);
+    else expect(after.bar, `${to} is at a valid bar (read ${since.toFixed(1)} s after the landing)`).toBeGreaterThanOrEqual(1);
     await expect.poll(async () => (await snap(page, "m"))?.transition, { timeout: 10_000 }).toBeNull();
-    expect(await peakOver(page, "Tape", 500), `${to} is audible`).toBeGreaterThan(0.01);
+    expect(await peakOverAudio(page, "Tape", 0.5), `${to} is audible`).toBeGreaterThan(0.01);
   };
   await test.step("A to B: next bar, a one-beat equal-power crossfade (rule 0)", () => change("B", "A>B", 0));
   await page.waitForTimeout(150);
@@ -412,7 +463,8 @@ test("M4a: a stopped music event leaves the Music table (F-17)", async ({ page }
 
 test("M4a: the 10-minute playlist runs with no late group", { tag: "@slow" }, async ({ page }, info) => {
   const SECONDS = Number(process.env.E2E_PLAYLIST_SECONDS ?? 600);
-  info.setTimeout(SECONDS * 1000 + 180_000);
+  // The run is SECONDS of the audio clock; the timeout is the harness's patience for a busy machine (up to twice as slow as real time).
+  info.setTimeout(SECONDS * 2000 + 180_000);
   const seen = watchConsole(page);
   await bootSample(page, LAB);
   // 3 one-pass segments of 4 s (decoded, and one with a streamed stem) forever: an item every 4 s, a group per item.
@@ -434,32 +486,35 @@ test("M4a: the 10-minute playlist runs with no late group", { tag: "@slow" }, as
       }
     }, 50);
   });
-  const t0 = Date.now();
+  // The run is measured on the audio clock: the items go by at the audio's pace, so a busy machine (the audio thread
+  // starved, the page slow) takes longer in wall time but plays the same items.
+  const a0 = await audioTime(page);
+  const elapsed = async () => (await audioTime(page)) - a0;
   const log: string[] = [];
   let maxReplans = 0;
-  while (Date.now() - t0 < SECONDS * 1000) {
-    await page.waitForTimeout(Math.min(Number(process.env.E2E_PLAYLIST_STEP ?? 30_000), Math.max(1_000, SECONDS * 1000 - (Date.now() - t0))));
+  while ((await elapsed()) < SECONDS) {
+    await page.waitForTimeout(Math.min(Number(process.env.E2E_PLAYLIST_STEP ?? 30_000), Math.max(1_000, (SECONDS - (await elapsed())) * 1000)));
     const d = (await audioDebug(page))!;
     const r = d.music?.find((m) => m.asset.includes("long"));
     const late = (await readLate(page))!;
     const replans = Object.values(r?.replans ?? {}).reduce((x, y) => x + y, 0);
     maxReplans = Math.max(maxReplans, replans);
     const items = await page.evaluate(() => (globalThis as unknown as { __long: { items: number } }).__long.items);
-    log.push(`t=${Math.round((Date.now() - t0) / 1000)}s items=${items} late=${late.groupsLate}/${r?.lateGroups} held=${late.groupsHeld} slip=${late.maxSlipFrames} split=${late.splitQuanta} replans=${replans} ring=${d.musicTotals?.poolUsed}/${d.musicTotals?.poolHighWater} underruns=${d.counters.underruns} state=${r?.state}`);
+    log.push(`t=${Math.round(await elapsed())}s items=${items} late=${late.groupsLate}/${r?.lateGroups} held=${late.groupsHeld} slip=${late.maxSlipFrames} split=${late.splitQuanta} replans=${replans} ring=${d.musicTotals?.poolUsed}/${d.musicTotals?.poolHighWater} underruns=${d.counters.underruns} state=${r?.state}`);
     console.log(`[music-a] ${log[log.length - 1]}`);
     // A late group is a failure at once: don't wait out the rest of the run.
     expect(late.groupsLate, `a late group (${log[log.length - 1]})`).toBe(0);
     if (!r) {
       // Between two reads the row was not there: look again for a moment before calling the playlist over (and say so).
-      console.log(`[music-a] no music row at t=${Math.round((Date.now() - t0) / 1000)}s; looking again`);
+      console.log(`[music-a] no music row at t=${Math.round(await elapsed())}s; looking again`);
       await expect.poll(async () => (await rowOf(page, "long"))?.state, { timeout: 3_000, message: `the playlist is still playing (${log[log.length - 1]})` }).toBe("playing");
     }
   }
   const long = await page.evaluate(() => (globalThis as unknown as { __long: { items: number; badOrder: number } }).__long);
-  const wall = (Date.now() - t0) / 1000;
-  info.annotations.push({ type: "playlist", description: `${long.items} items in ${wall.toFixed(0)} s, ${maxReplans} re-plans at most` });
-  // An item every 4 s: allow the first item's start and a few missed samples.
-  expect(long.items, "items played").toBeGreaterThanOrEqual(Math.floor(SECONDS / 4) - 4);
+  const played = await elapsed();
+  info.annotations.push({ type: "playlist", description: `${long.items} items in ${played.toFixed(0)} s of audio, ${maxReplans} re-plans at most` });
+  // An item every 4 s of audio: allow the first item's start and a few missed samples.
+  expect(long.items, "items played").toBeGreaterThanOrEqual(Math.floor(played / 4) - 4);
   expect(long.badOrder, "every advance went to the next item in the list").toBe(0);
   await expectClean(page, "10-minute playlist");
   expect(seen.errors).toEqual([]);

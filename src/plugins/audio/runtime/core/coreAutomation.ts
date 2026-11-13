@@ -486,6 +486,27 @@ export class CoreAutomation implements AutomationSink {
   }
 
   /**
+   * ADR 0171 (Ma1, architecture §4.7): a live rename keeps the bus's slot and sends nothing. Its bindings, the slot they
+   * were sent to and main's published gains move to the new name, so the event runtime's next bind of the new name, a
+   * later configure and the hard rebuild's replay see one binding per slot (left under the old name, a removed binding
+   * would come back at the next replay). Bindings the new name already has win.
+   */
+  renameBus(from: string, to: string): void {
+    if (from === to) return;
+    const move = <V>(m: Map<string, V>): void => {
+      if (!m.has(from)) return;
+      const v = m.get(from)!;
+      m.delete(from);
+      if (!m.has(to)) m.set(to, v);
+    };
+    move(this.buses);
+    move(this.busSentTo);
+    move(this.viewSent);
+    move(this.selSent);
+    if (this.dirtyBuses.delete(from)) this.dirtyBuses.add(to);
+  }
+
+  /**
    * A hard rebuild's header REPLAY, after MASTER: every curve (in records of at most 32 KB), every parameter set (at
    * its target, jumping: the old core's smoothing state is gone) and every bus's bindings. Clears the pending resync.
    */

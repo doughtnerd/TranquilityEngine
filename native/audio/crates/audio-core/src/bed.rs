@@ -63,9 +63,12 @@
 //! force counts in `m3Shed` ([`m3_shed`]). This module's step is the **bed-idle** step: beds go idle
 //! after 1 silent quantum instead of the decoder's partition count (the last partition of a
 //! source's tail, at most 128 taps of the MagLS response, is cut). It never turns a bed off or moves
-//! a source. C3 adds the zone steps after it. ADR 0170: once underruns stop, `cap.rs`'s recovery
-//! clock gives the steps back, this one last ([`restore_step`]: beds idle after their partitions
-//! again, from the next silence on; nothing playing changes, so nothing is heard).
+//! a source. C3 adds the zone steps after it. Ld7 (R21): while buses other than master are
+//! metered, the ladder's first step is `loudness.rs`'s metering pause, and this step waits a second
+//! after it (`loudness::audible_steps_may_start`). ADR 0170: once underruns stop, `cap.rs`'s
+//! recovery clock gives the steps back, this one after the zone steps and before the loudness step
+//! ([`restore_step`]: beds idle after their partitions again, from the next silence on; nothing
+//! playing changes, so nothing is heard).
 //!
 //! **Region** (C8): a header, the decoder's FFT scratch, the shared filters, then `max_beds` bed
 //! slots and `max_wide` private decoders (B3) of [`slot_bytes`] each: the accumulator (8 KB) and a
@@ -819,12 +822,21 @@ fn ladder(core: &mut Core) {
     if frame - l.streak_start < sustain {
         return;
     }
-    l.streak_start = frame;
     // The steps, in order. C3 adds the zone steps after the bed-idle one.
-    if l.steps & step::BED_IDLE == 0 && max_beds > 0 {
-        l.steps |= step::BED_IDLE;
-        l.m3_shed = l.m3_shed.saturating_add(1);
+    if l.steps & step::BED_IDLE != 0 || max_beds == 0 {
+        l.streak_start = frame;
+        return;
     }
+    // Ld7 (ARCH §4.8): the loudness step goes first while buses other than master are metered,
+    // and this step a whole second after it; until then the run goes on and the step waits.
+    if !crate::loudness::audible_steps_may_start(core) {
+        return;
+    }
+    let Some(mut beds) = view(&mut core.regions_mut().beds[..]) else { return };
+    let l = &mut beds.header().ladder;
+    l.streak_start = frame;
+    l.steps |= step::BED_IDLE;
+    l.m3_shed = l.m3_shed.saturating_add(1);
 }
 
 /// `m3Shed`'s bed part: the ladder steps in force (0 without a `Beds` region; STATUS adds the zone

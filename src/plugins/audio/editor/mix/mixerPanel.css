@@ -1,0 +1,22 @@
+/* The Mixer panel's chrome (MixerPanel.tsx). Theme tokens only (src/editor/ui/editor.css); the strips are in stripStyle.css. */
+.mixer-root { display: flex; flex-direction: column; height: 100%; min-height: 0; outline: none; }
+.mixer-panel { display: flex; flex-direction: column; gap: 6px; padding: 6px; height: 100%; min-height: 0; color: var(--text); font-size: var(--font-size-ui); }
+
+.mixer-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mixer-snapshots { display: flex; gap: 4px; }
+.mixer-toolbar button, .mixer-toolbar select { background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 8px; }
+.mixer-toolbar button { cursor: pointer; }
+.mixer-toolbar button:hover:not(:disabled) { background: var(--button-hover); }
+.mixer-toolbar button:disabled { color: var(--faint); cursor: default; }
+.mixer-toolbar button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent-hover); }
+.mixer-target { display: flex; align-items: center; gap: 4px; }
+.mixer-target-label { color: var(--muted); }
+.mixer-elapsed { min-width: 4ch; text-align: right; font-family: var(--font-code); color: var(--muted); }
+
+.mixer-banners { display: flex; flex-direction: column; gap: 3px; }
+.mixer-banner { margin: 0; padding: 3px 6px; border: 1px solid var(--border); border-left-width: 3px; border-radius: 3px; background: var(--panel); color: var(--text); }
+.mixer-banner[data-severity="info"] { border-left-color: var(--accent); color: var(--muted); }
+.mixer-banner[data-severity="warn"] { border-left-color: var(--warning); }
+.mixer-empty { margin: 0; color: var(--muted); }
+
+.mixer-strips { display: flex; gap: 6px; align-items: flex-start; overflow: auto; flex: 1; min-height: 0; padding-bottom: 4px; }

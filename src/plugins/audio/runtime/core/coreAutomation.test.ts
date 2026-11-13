@@ -155,6 +155,24 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
     ]);
   });
 
+  it("a live rename moves a bus's bindings to the new name (Ma1): removing them afterwards clears the slot", () => {
+    const { auto, calls, buses } = rig();
+    auto.defineCurve(0, [[0, 1]]);
+    auto.bindBus("Music", [vol(0, 0, true)]);
+    // The slot table keeps Music's slot (2) under the new name; the old name aliases it.
+    buses.set("Score", 2);
+    auto.renameBus("Music", "Score");
+    calls.length = 0;
+    // The event runtime binds the new name again from the settings: the rule was removed, so with nothing.
+    auto.bindBus("Score", []);
+    expect(calls).toEqual([["busAutomate", 2, []]]);
+    // A later configure (the alias gone) sends nothing for the old name: no binding is left behind for a replay.
+    calls.length = 0;
+    buses.delete("Music");
+    auto.onBusesConfigured();
+    expect(calls).toEqual([]);
+  });
+
   it("while a rebuild runs only the mirror changes", () => {
     const { auto, calls, voice } = rig({ sending: false });
     auto.defineCurve(0, [[0, 1]]);

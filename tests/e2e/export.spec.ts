@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type Page } from "./fixtures";
@@ -281,6 +281,157 @@ test.describe("Sound Lab web build", { tag: "@slow" }, () => {
     expect(duck[0]!.duck, "the duck begins from 1, not a step").toBeGreaterThan(0.9);
     await expect.poll(async () => (await read()).duck, { timeout: 15_000, message: "released back to 1" }).toBe(1);
     expect((await read()).gain, "the fade's level is back under the released duck").toBeCloseTo(0.15, 4);
+    expect(errors).toEqual([]);
+  });
+
+  // M5a shipped form (ADR 0171 amended by 0172, task Rc4): an exported game that never calls `Audio.capture.start` loads no
+  // recorder chunk. The build does carry the chunk (a file named for the recorder sits beside the page), the page plays sound
+  // for two seconds of the audio clock without requesting it, and `start()` is what fetches it.
+  test("a game that never calls Audio.capture.start loads no recorder chunk; start() fetches it (M5a)", async ({ page }) => {
+    type Capture = { state: string; start(): Promise<void>; stop(): void; save(name?: string): Promise<string> };
+    type Api = { Audio: { time: number; capture: Capture; debug(): { status: string; core: { backend: string } } } };
+    const errors = trackErrors(page);
+    const requested: string[] = [];
+    page.on("request", (req) => requested.push(new URL(req.url()).pathname));
+    const isRecorder = (path: string) => /(^|\/)recorder[-.][\w-]*\.js$/.test(path);
+    const chunks = (readdirSync(join(served!.dir, "web"), { recursive: true }) as string[]).map((f) => f.replace(/\\/g, "/")).filter(isRecorder);
+    expect(chunks.length, "the build carries a recorder chunk, so its absence from the page's requests means something").toBeGreaterThan(0);
+
+    await page.goto(served!.url);
+    await expect.poll(() => frames(page), { timeout: 20_000 }).toBeGreaterThan(10);
+    await page.locator("#game canvas").click(); // the gesture that unlocks sound
+    await expect
+      .poll(async () => (await page.evaluate(() => (globalThis as unknown as { __myco?: Api }).__myco?.Audio.debug().status)) ?? null, { timeout: 30_000 })
+      .toBe("running");
+    expect(await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.debug().core.backend)).toBe("core");
+    await page.keyboard.press("m"); // the music page: a running game with sound
+    const t0 = await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.time);
+    await page.waitForFunction((t) => (globalThis as unknown as { __myco: Api }).__myco.Audio.time > (t as number) + 2, t0, { timeout: 30_000 });
+
+    // Two seconds of the audio clock with sound playing: no chunk of the recorder (or Audio.capture's state) was touched.
+    expect(requested.filter(isRecorder), "no recorder chunk requested by a game that never captures").toEqual([]);
+    expect(await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.capture.state)).toBe("idle");
+    expect(requested.filter(isRecorder)).toEqual([]);
+
+    // Positive control: start() is what fetches it, and the take is real.
+    await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.capture.start());
+    expect(requested.filter(isRecorder).length, "start() fetched the recorder chunk").toBeGreaterThan(0);
+    expect(requested.filter(isRecorder).every((p) => chunks.some((c) => p.endsWith(c)))).toBe(true);
+    expect(await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.capture.state)).toBe("recording");
+    const t1 = await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.time);
+    await page.waitForFunction((t) => (globalThis as unknown as { __myco: Api }).__myco.Audio.time > (t as number) + 1, t1, { timeout: 30_000 });
+    const [download, name] = await Promise.all([
+      page.waitForEvent("download"),
+      page.evaluate(() => {
+        const c = (globalThis as unknown as { __myco: Api }).__myco.Audio.capture;
+        c.stop();
+        return c.save("exported");
+      }),
+    ]);
+    expect(name).toBe("exported.mycap");
+    expect(download.suggestedFilename()).toBe("exported.mycap");
+    expect(errors).toEqual([]);
+  });
+
+  // M5b shipped form (ADR 0171 amended by 0172, task SXb): in the exported page, after the first tap, master's meter reads a
+  // number, and the loudness page's reference (key L: the other sounds pause, a 1 kHz sine at -23 dBFS plays on the metered UI
+  // bus) reads -22.99 LUFS (EBU Tech 3341 case 1, +/- 0.1 LU) on master and on UI. The editor's Play and its reset-on-Play are
+  // not in this page: the meter starts with the engine and the game's own key (C) resets it. Waits are on the meters' `elapsed`
+  // (seconds of rendered audio since the reset), never a wall-clock span.
+  test("after a tap, master's meter reads a number and the reference tone reads -22.99 LUFS (M5b)", async ({ page }) => {
+    type Loud = { momentary: number; integrated: number; lra: number; maxTruePeak: number; elapsed: number; metered: boolean; incomplete: boolean; tainted: boolean; target: { name: string; state: string; peakOver: boolean; deviation: number } | null };
+    type Api = { Audio: { time: number; debug(): { status: string; core: { backend: string } }; bus(n: string): { loudness: Loud } } };
+    const errors = trackErrors(page);
+    const read = (bus: string) =>
+      page.evaluate((name) => {
+        const m = (globalThis as unknown as { __myco: Api }).__myco.Audio.bus(name).loudness;
+        const t = m.target;
+        return { momentary: m.momentary, integrated: m.integrated, lra: m.lra, maxTruePeak: m.maxTruePeak, elapsed: m.elapsed, metered: m.metered, incomplete: m.incomplete, tainted: m.tainted, target: t ? { name: t.name, state: t.state, peakOver: t.peakOver, deviation: t.deviation } : null };
+      }, bus);
+    await page.goto(served!.url);
+    await expect.poll(() => frames(page), { timeout: 20_000 }).toBeGreaterThan(10);
+    await page.locator("#game canvas").click(); // the gesture that unlocks sound
+    await expect
+      .poll(async () => (await page.evaluate(() => (globalThis as unknown as { __myco?: Api }).__myco?.Audio.debug().status)) ?? null, { timeout: 30_000 })
+      .toBe("running");
+    expect(await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.debug().core.backend)).toBe("core");
+
+    // 1. The page's own loop and hum are playing: master reads a number, and it is metered in the shipped build.
+    await expect.poll(async () => (await read("Master")).momentary, { timeout: 30_000, message: "master's momentary level has its four sub-blocks" }).toBeGreaterThan(-70);
+    const first = await read("Master");
+    expect(first.metered).toBe(true);
+    expect(first.momentary).toBeLessThan(0);
+    expect((await read("UI")).metered, "the project's metered UI bus is metered in the build").toBe(true);
+
+    // 2. The reference: L pauses the page's other sounds and plays the tone; once master's momentary level has settled on it (the
+    // hum's reverb has rung out) C resets, and after 6 s of metered audio the integrated level is the tone's.
+    await page.keyboard.press("l");
+    await expect.poll(async () => (await read("Master")).momentary, { timeout: 60_000, message: "master settled on the tone" }).toBeCloseTo(-22.99, 1);
+    await page.keyboard.press("c");
+    await expect.poll(async () => (await read("Master")).elapsed, { timeout: 15_000 }).toBeLessThan(1);
+    await expect.poll(async () => Math.min((await read("Master")).elapsed, (await read("UI")).elapsed), { timeout: 60_000, message: "6 s of rendered audio on both meters" }).toBeGreaterThanOrEqual(6);
+    for (const bus of ["Master", "UI"]) {
+      const r = await read(bus);
+      expect(r.integrated, `${bus} integrated`).toBeGreaterThan(-22.99 - 0.1);
+      expect(r.integrated).toBeLessThan(-22.99 + 0.1);
+      expect(r.maxTruePeak, `${bus} true peak`).toBeGreaterThan(-23.4);
+      expect(r.maxTruePeak).toBeLessThan(-22.8);
+      expect(r.lra).toBeGreaterThanOrEqual(0);
+      expect(r.lra).toBeLessThan(0.1);
+      expect(r.incomplete).toBe(false);
+      expect(r.tainted).toBe(false);
+    }
+    expect((await read("Master")).target, "the project's first target: console, -24 LUFS +/- 2 LU").toMatchObject({ name: "console", state: "ok", peakOver: false });
+    expect(errors).toEqual([]);
+  });
+
+  // M5c shipped form (ADR 0171 amended by 0172, task SXc): in the exported page the Mixer page's level-ducking rules duck. The
+  // page (key "-" on the tour page; `scenes/mixer.scene.json`) has the voice loop on its own bus (key 1) and two level rules: Voice
+  // ducks Music (RMS, -30 dBFS, amount 0.35) and Voice ducks Ambience (peak, -20 dBFS, amount 0.5). With the voice playing, Music's
+  // duck lane (`Bus.duckGain`, the core's own STATUS value) falls to the rule's amount inside a phrase, and the voice stopping lets
+  // it go back to 1. Every wait is on the audio clock (`Audio.time`); the polls only pace the reads.
+  test("after a tap, the Mixer page's voice ducks Music and Ambience through the level rules and releases (M5c)", async ({ page }) => {
+    type Api = { Audio: { time: number; debug(): { status: string; core: { backend: string }; mix: { ducking: { target: string; trigger: string; mode: string; gain: number }[] } }; bus(n: string): { duckGain: number } } };
+    const errors = trackErrors(page);
+    await page.goto(served!.url);
+    await expect.poll(() => frames(page), { timeout: 20_000 }).toBeGreaterThan(10);
+    await page.locator("#game canvas").click(); // the gesture that unlocks sound
+    await expect
+      .poll(async () => (await page.evaluate(() => (globalThis as unknown as { __myco?: Api }).__myco?.Audio.debug().status)) ?? null, { timeout: 30_000 })
+      .toBe("running");
+    expect(await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.debug().core.backend)).toBe("core");
+
+    // The Mixer page: "-" on the tour page switches scenes; wait for its behaviour to be up.
+    await page.keyboard.press("-");
+    await expect.poll(() => findScript(page, "lab.MixerLab", "voiceKey"), { timeout: 30_000 }).toBe("1");
+    const rules = await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.debug().mix.ducking);
+    expect(rules, "the project's rules reach the exported core").toEqual(
+      expect.arrayContaining([expect.objectContaining({ target: "Music", trigger: "Voice", mode: "level" }), expect.objectContaining({ target: "Ambience", trigger: "Voice", mode: "level" })]),
+    );
+    const duck = (bus: string) => page.evaluate((b) => (globalThis as unknown as { __myco: Api }).__myco.Audio.bus(b).duckGain, bus);
+    expect(await duck("Music"), "nothing on the voice yet").toBe(1);
+
+    // The voice on: sample both duck lanes over 8 s of the audio clock (inside a phrase they sit at their amounts).
+    await page.evaluate(() => {
+      const g = globalThis as unknown as { __myco: Api; __duck?: { time: number; music: number; ambience: number }[] };
+      g.__duck = [];
+      setInterval(() => g.__duck!.push({ time: g.__myco.Audio.time, music: g.__myco.Audio.bus("Music").duckGain, ambience: g.__myco.Audio.bus("Ambience").duckGain }), 20);
+    });
+    const t0 = await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.time);
+    await page.keyboard.press("1");
+    await page.waitForFunction((t) => (globalThis as unknown as { __myco: Api }).__myco.Audio.time > (t as number) + 8, t0, { timeout: 40_000 });
+    const series = await page.evaluate((t) => (globalThis as unknown as { __duck: { time: number; music: number; ambience: number }[] }).__duck.filter((d) => d.time >= (t as number)), t0);
+    const lowest = (f: "music" | "ambience") => Math.min(...series.map((d) => d[f]));
+    expect(lowest("music"), "Music reached the rule's 0.35").toBeLessThan(0.4);
+    expect(lowest("music")).toBeGreaterThan(0.3);
+    expect(lowest("ambience"), "Ambience reached the rule's 0.5").toBeLessThan(0.55);
+    expect(lowest("ambience")).toBeGreaterThan(0.45);
+    expect(series[0]!.music, "the duck begins from 1, not a step").toBeGreaterThan(0.9);
+
+    // The voice off: both lanes are released back to 1.
+    await page.keyboard.press("1");
+    await expect.poll(() => duck("Music"), { timeout: 20_000, message: "Music released" }).toBeCloseTo(1, 3);
+    await expect.poll(() => duck("Ambience"), { timeout: 20_000, message: "Ambience released" }).toBeCloseTo(1, 3);
     expect(errors).toEqual([]);
   });
 });

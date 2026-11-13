@@ -230,6 +230,68 @@ describe("LaneWriter.sync: one BUS_RAMP per lane that moved", () => {
   });
 });
 
+describe("LaneWriter keys what it sent by slot (Ma2)", () => {
+  it("a live rename sends no lane record (the slot and its state are the same bus)", () => {
+    // Fails before Ma2: the writer keyed its sent state on the bus name, so a rename restated all five lanes of the slot.
+    const r = rig();
+    const map = r.host.busIndexByName as Map<string, number>;
+    r.mixer._applyLive({ op: "renameBus", from: "SFX", to: "Effects" });
+    map.delete("SFX");
+    map.set("Effects", 2);
+    map.set("SFX", 2); // the old name aliases the slot
+    r.lanes.sync();
+    expect(r.take()).toEqual([]);
+    // The renamed bus's lanes still go out on its slot when they move.
+    r.mixer.bus("Effects").volume = 0.5;
+    r.lanes.sync();
+    expect(r.take()).toEqual([expect.objectContaining({ bus: 2, lane: LANE_RUNTIME, gain: 0.5 })]);
+  });
+
+  it("a removed bus (a tombstone) sends nothing, even when its dip lane is set to 0; selection reads it silent", () => {
+    const r = rig();
+    const map = r.host.busIndexByName as Map<string, number>;
+    r.mixer._applyLive({ op: "removeBus", bus: "SFX" });
+    map.delete("SFX");
+    r.mixer._setDip("SFX", 0, 0);
+    r.lanes.sync();
+    expect(r.take()).toEqual([]);
+    expect(r.host.busGain[2]).toBe(0);
+  });
+
+  it("a new bus on a reused slot sends every lane on that slot; the stale state there is skipped", () => {
+    const r = rig();
+    const map = r.host.busIndexByName as Map<string, number>;
+    r.mixer._applyLive({ op: "removeBus", bus: "SFX" });
+    map.delete("SFX");
+    r.lanes.sync();
+    r.mixer._applyLive({ op: "addBus", name: "Amb", parent: "Music" }, 2); // the recycled slot 2, listed after the stale SFX
+    map.set("Amb", 2);
+    r.lanes.sync();
+    const sent = r.take();
+    expect(sent.map((c) => [c.bus, c.lane])).toEqual([
+      [2, LANE_AUTHORED],
+      [2, LANE_RUNTIME],
+      [2, LANE_SNAPSHOT],
+      [2, LANE_MONITOR],
+      [2, LANE_DIP],
+    ]);
+    // Amb is under Music (slot 1, volume 0.6): selection follows the slot's parent, not the list position.
+    expect(r.host.busGain[2]).toBeCloseTo(0.6, 6);
+  });
+
+  it("selection's chain walks up the tree when a re-parent puts the parent at a higher slot", () => {
+    const r = rig();
+    const map = r.host.busIndexByName as Map<string, number>;
+    r.mixer._applyLive({ op: "addBus", name: "Late", parent: "Master" }, 3);
+    map.set("Late", 3);
+    r.mixer._applyLive({ op: "moveBus", bus: "Music", parent: "Late" });
+    r.lanes.sync();
+    r.lanes.selAuto[3] = 0.5;
+    r.lanes.refreshBusGain();
+    expect(r.host.busGain[1]).toBeCloseTo(0.6 * 0.5, 6);
+  });
+});
+
 describe("LaneWriter.master and rampLane", () => {
   it("MASTER goes as BUS_RAMP on BUS_MASTER_OUT's runtime lane, target volume x not muted", () => {
     const r = rig();

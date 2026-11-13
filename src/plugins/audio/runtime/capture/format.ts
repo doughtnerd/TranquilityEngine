@@ -88,7 +88,7 @@ export const EPOCH_REASON_MAX = 6;
 /** GAP `reason`. `paused` means only `audio.background: "pause"`. */
 export const GapReason = { paused: 1, rebuild: 2, held: 3, dropped: 4, recordTooLarge: 5 } as const;
 export const GAP_REASON_MAX = 5;
-/** NAMES `table`, and the META `names` keys in the same order. */
+/** NAMES `table`, and the META `names` keys in the same order. The `buses` table is keyed by bus **slot** (`busRef & 0xff`), written into META by the saver; the event sink never interns into it. */
 export const NAME_TABLES = ["clips", "buses", "events", "parameters", "snapshots", "targets"] as const;
 export type NameTable = (typeof NAME_TABLES)[number];
 /** MIXOP `origin`. */
@@ -124,6 +124,12 @@ export const KEYFRAME_BUS_BYTES = 56;
 export const KEYFRAME_METERED_BYTES = 36;
 export const KEYFRAME_EVENT_BYTES = 16;
 export const KEYFRAME_MUSIC_BYTES = 40;
+/** The mix section's one item (§5.5: `u32, u8, u8, u8, u8 pad, u32, f32, u8`), after its `u16 count` of 1. */
+export const KEYFRAME_MIX_BYTES = 17;
+/** The six sections' `u16 count`s. */
+export const KEYFRAME_COUNT_BYTES = 2;
+/** Floats per bus row: [value, target] x five lanes, then duck and automation (§5.5). */
+export const KEYFRAME_BUS_LANES = 10;
 
 // --- errors -----------------------------------------------------------------------------------------------------------
 
@@ -867,24 +873,255 @@ export interface KeyframePayload {
   mix: KeyframeMix;
 }
 
-/** Rc1b: the payload size of `p` (≤ `CAPTURE_RECORD_MAX_BYTES` at every cap: 8,192 voices fit). */
-export function keyframeBytes(_p: KeyframePayload): number {
-  throw new Error("keyframeBytes: Rc1b");
+// Wire layout (§5.5), little-endian, no alignment: six sections in order, each a `u16 count` then `count` items.
+//   voices   24 B: u32 id, u32 clip, u8 slot, u8 state, u8 priority, u8 reason, f32 gain, u16 pitch, u16 audibility, u32 playheadFrames
+//   buses    56 B: u8 slot, u8 pad, u16 gen, u16 flags, u16 pad, 10 x f32 lanes, f32 duck, f32 automation
+//   metered  36 B: u16 slot, u16 flags, f32 momentary, shortTerm, integrated, lra, maxTruePeak, maxMomentary, elapsed, u32 pad
+//   events   16 B: u32 id, u32 asset, u16 voices, u8 state, u8 pad, u32 paramsHash
+//   music    40 B: u32 id, u32 segment, u8 state, u8 pass, u16 bar, u8 beat, u8 tick, u16 tempo, u32 pendingTo,
+//                  f32 pendingTimeSec, 16 reserved (§5.5's fields are 24 B; `KEYFRAME_MUSIC_BYTES` fixes the row at 40)
+//   mix      count 1, 17 B: u32 slotTableVersion, u8 monitorActive, u8 loudnessPausedMask, u8 targetIndex, u8 pad,
+//                  u32 snapshotName, f32 masterVolume, u8 hiddenMute
+// Pads and reserved bytes are written 0 and ignored on read. At every cap the payload is 215,777 B (< 256 KB).
+
+/** The `voice.state` codes (0 playing … 5 locked). */
+export const KEYFRAME_VOICE_STATE_MAX = 5;
+const KEYFRAME_BUS_FLAGS_KNOWN = 0x3f;
+const KEYFRAME_METERED_FLAGS_KNOWN = 0xf;
+
+/** Each section's cap and row size, in wire order (mix last, exactly one). */
+const KEYFRAME_SECTIONS: readonly { name: string; cap: number; row: number }[] = [
+  { name: "voices", cap: KEYFRAME_MAX_VOICES, row: KEYFRAME_VOICE_BYTES },
+  { name: "buses", cap: KEYFRAME_MAX_BUSES, row: KEYFRAME_BUS_BYTES },
+  { name: "metered", cap: KEYFRAME_MAX_METERED, row: KEYFRAME_METERED_BYTES },
+  { name: "events", cap: KEYFRAME_MAX_EVENTS, row: KEYFRAME_EVENT_BYTES },
+  { name: "music", cap: KEYFRAME_MAX_MUSIC, row: KEYFRAME_MUSIC_BYTES },
+  { name: "mix", cap: 1, row: KEYFRAME_MIX_BYTES },
+];
+
+/** The payload size of `p`: counts as given, so a source past a cap yields its true size (the recorder's GAP `recordTooLarge` path); `encodeKeyframe` refuses it. */
+export function keyframeBytes(p: KeyframePayload): number {
+  return 6 * KEYFRAME_COUNT_BYTES
+    + p.voices.length * KEYFRAME_VOICE_BYTES
+    + p.buses.length * KEYFRAME_BUS_BYTES
+    + p.metered.length * KEYFRAME_METERED_BYTES
+    + p.events.length * KEYFRAME_EVENT_BYTES
+    + p.music.length * KEYFRAME_MUSIC_BYTES
+    + KEYFRAME_MIX_BYTES;
 }
 
-/** Rc1b: writes `p` at `off` with no allocation (R13: Rc2 writes straight into the ring); returns the bytes written. Counts past the §5.5 caps throw. */
-export function encodeKeyframe(_view: DataView, _off: number, _p: KeyframePayload): number {
-  throw new Error("encodeKeyframe: Rc1b");
+function keyframeCapCheck(n: number, cap: number, what: string): void {
+  if (n > cap) throw new RangeError(`encodeKeyframe: ${n} ${what} past the cap of ${cap}`);
 }
 
-/** Rc1b: reads a payload of exactly `len` bytes; a count past its cap or disagreeing with `len` is `badLength`/`badValue` before any allocation. */
-export function decodeKeyframe(_view: DataView, _off: number, _len: number, _base = 0): KeyframePayload {
-  throw new Error("decodeKeyframe: Rc1b");
+/** Writes `p` at `off` with no allocation (R13: Rc2 writes straight into the ring); returns the bytes written. Counts past the §5.5 caps throw (`RangeError`, before any byte is written). */
+export function encodeKeyframe(view: DataView, off: number, p: KeyframePayload): number {
+  const { voices, buses, metered, events, music, mix } = p;
+  keyframeCapCheck(voices.length, KEYFRAME_MAX_VOICES, "voices");
+  keyframeCapCheck(buses.length, KEYFRAME_MAX_BUSES, "buses");
+  keyframeCapCheck(metered.length, KEYFRAME_MAX_METERED, "metered buses");
+  keyframeCapCheck(events.length, KEYFRAME_MAX_EVENTS, "events");
+  keyframeCapCheck(music.length, KEYFRAME_MAX_MUSIC, "music instances");
+  for (let i = 0; i < buses.length; i++) {
+    if (buses[i]!.lanes.length !== KEYFRAME_BUS_LANES) throw new RangeError(`encodeKeyframe: bus ${i} has ${buses[i]!.lanes.length} lane floats, not ${KEYFRAME_BUS_LANES}`);
+  }
+  let at = off;
+  view.setUint16(at, voices.length, true); at += 2;
+  for (let i = 0; i < voices.length; i++) {
+    const v = voices[i]!;
+    view.setUint32(at, v.id, true);
+    view.setUint32(at + 4, v.clip, true);
+    view.setUint8(at + 8, v.slot);
+    view.setUint8(at + 9, v.state);
+    view.setUint8(at + 10, v.priority);
+    view.setUint8(at + 11, v.reason);
+    view.setFloat32(at + 12, v.gain, true);
+    view.setUint16(at + 16, v.pitch, true);
+    view.setUint16(at + 18, v.audibility, true);
+    view.setUint32(at + 20, v.playheadFrames, true);
+    at += KEYFRAME_VOICE_BYTES;
+  }
+  view.setUint16(at, buses.length, true); at += 2;
+  for (let i = 0; i < buses.length; i++) {
+    const b = buses[i]!;
+    view.setUint8(at, b.slot);
+    view.setUint8(at + 1, 0);
+    view.setUint16(at + 2, b.gen, true);
+    view.setUint16(at + 4, b.flags, true);
+    view.setUint16(at + 6, 0, true);
+    for (let k = 0; k < KEYFRAME_BUS_LANES; k++) view.setFloat32(at + 8 + 4 * k, b.lanes[k]!, true);
+    view.setFloat32(at + 48, b.duck, true);
+    view.setFloat32(at + 52, b.automation, true);
+    at += KEYFRAME_BUS_BYTES;
+  }
+  view.setUint16(at, metered.length, true); at += 2;
+  for (let i = 0; i < metered.length; i++) {
+    const m = metered[i]!;
+    view.setUint16(at, m.slot, true);
+    view.setUint16(at + 2, m.flags, true);
+    view.setFloat32(at + 4, m.momentary, true);
+    view.setFloat32(at + 8, m.shortTerm, true);
+    view.setFloat32(at + 12, m.integrated, true);
+    view.setFloat32(at + 16, m.lra, true);
+    view.setFloat32(at + 20, m.maxTruePeak, true);
+    view.setFloat32(at + 24, m.maxMomentary, true);
+    view.setFloat32(at + 28, m.elapsed, true);
+    view.setUint32(at + 32, 0, true);
+    at += KEYFRAME_METERED_BYTES;
+  }
+  view.setUint16(at, events.length, true); at += 2;
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i]!;
+    view.setUint32(at, e.id, true);
+    view.setUint32(at + 4, e.asset, true);
+    view.setUint16(at + 8, e.voices, true);
+    view.setUint8(at + 10, e.state);
+    view.setUint8(at + 11, 0);
+    view.setUint32(at + 12, e.paramsHash, true);
+    at += KEYFRAME_EVENT_BYTES;
+  }
+  view.setUint16(at, music.length, true); at += 2;
+  for (let i = 0; i < music.length; i++) {
+    const m = music[i]!;
+    view.setUint32(at, m.id, true);
+    view.setUint32(at + 4, m.segment, true);
+    view.setUint8(at + 8, m.state);
+    view.setUint8(at + 9, m.pass);
+    view.setUint16(at + 10, m.bar, true);
+    view.setUint8(at + 12, m.beat);
+    view.setUint8(at + 13, m.tick);
+    view.setUint16(at + 14, m.tempo, true);
+    view.setUint32(at + 16, m.pendingTo, true);
+    view.setFloat32(at + 20, m.pendingTimeSec, true);
+    for (let k = 24; k < KEYFRAME_MUSIC_BYTES; k += 4) view.setUint32(at + k, 0, true);
+    at += KEYFRAME_MUSIC_BYTES;
+  }
+  view.setUint16(at, 1, true); at += 2;
+  view.setUint32(at, mix.slotTableVersion, true);
+  view.setUint8(at + 4, mix.monitorActive);
+  view.setUint8(at + 5, mix.loudnessPausedMask);
+  view.setUint8(at + 6, mix.targetIndex);
+  view.setUint8(at + 7, 0);
+  view.setUint32(at + 8, mix.snapshotName, true);
+  view.setFloat32(at + 12, mix.masterVolume, true);
+  view.setUint8(at + 16, mix.hiddenMute);
+  at += KEYFRAME_MIX_BYTES;
+  return at - off;
 }
 
-/** Rc1b: the bounds check alone, no allocation: the reader's open calls it on every KEYFRAME (until Rc1b, a no-op). */
-export function checkKeyframe(_view: DataView, _off: number, _len: number, _base = 0): void {
-  // Rc1b: walk the six sections' counts against their caps and `len`.
+/**
+ * Walks the six sections' counts against their caps and `len`, reading only the counts: a count past its cap is
+ * `badValue` (the mix's must be exactly 1), a section running past `len` or bytes left over is `badLength`. Writes the
+ * offset of each section's count into `out` when given (the decoder's); allocates nothing.
+ */
+function walkKeyframe(view: DataView, off: number, len: number, base: number, out?: Int32Array): void {
+  const end = off + len;
+  let at = off;
+  for (let s = 0; s < KEYFRAME_SECTIONS.length; s++) {
+    const sec = KEYFRAME_SECTIONS[s]!;
+    if (at + KEYFRAME_COUNT_BYTES > end) badLength(base, at, "KEYFRAME", len, at + KEYFRAME_COUNT_BYTES - off);
+    const n = view.getUint16(at, true);
+    if (n > sec.cap) badValue(base + at, `KEYFRAME ${sec.name} count ${n} past the cap of ${sec.cap}`);
+    if (s === KEYFRAME_SECTIONS.length - 1 && n !== 1) badValue(base + at, `KEYFRAME mix count ${n}, expected 1`);
+    if (out) out[s] = at;
+    const next = at + KEYFRAME_COUNT_BYTES + n * sec.row;
+    if (next > end) badLength(base, at, "KEYFRAME", len, next - off);
+    at = next;
+  }
+  if (at !== end) badLength(base, off, "KEYFRAME", len, at - off);
+}
+
+/** The bounds check alone, no allocation: the reader's open calls it on every KEYFRAME. */
+export function checkKeyframe(view: DataView, off: number, len: number, base = 0): void {
+  walkKeyframe(view, off, len, base);
+}
+
+/** A float that may be ±Infinity (silent loudness readings are -Infinity) but never NaN. */
+function notNaN(x: number, at: number, what: string): number {
+  return x === x ? x : badValue(at, `${what} is NaN`);
+}
+
+const keyframeSectionAt = new Int32Array(KEYFRAME_SECTIONS.length);
+
+/**
+ * Reads a payload of exactly `len` bytes. Framing first (`checkKeyframe`: counts past their caps `badValue`, counts
+ * disagreeing with `len` `badLength`), before any allocation; then each row, refusing an unknown voice state or flag
+ * bit and a NaN float (`badValue`). Allocates its output only: one array per section, sized by the checked count, and
+ * one object per row.
+ */
+export function decodeKeyframe(view: DataView, off: number, len: number, base = 0): KeyframePayload {
+  const sec = keyframeSectionAt;
+  walkKeyframe(view, off, len, base, sec);
+  let at = sec[0]!;
+  const voices = new Array<KeyframeVoice>(view.getUint16(at, true));
+  at += 2;
+  for (let i = 0; i < voices.length; i++) {
+    const state = view.getUint8(at + 9);
+    if (state > KEYFRAME_VOICE_STATE_MAX) badValue(base + at + 9, `KEYFRAME voice ${i} state ${state}`);
+    voices[i] = {
+      id: view.getUint32(at, true), clip: view.getUint32(at + 4, true), slot: view.getUint8(at + 8), state,
+      priority: view.getUint8(at + 10), reason: view.getUint8(at + 11),
+      gain: notNaN(view.getFloat32(at + 12, true), base + at + 12, `KEYFRAME voice ${i} gain`),
+      pitch: view.getUint16(at + 16, true), audibility: view.getUint16(at + 18, true), playheadFrames: view.getUint32(at + 20, true),
+    };
+    at += KEYFRAME_VOICE_BYTES;
+  }
+  at = sec[1]!;
+  const buses = new Array<KeyframeBus>(view.getUint16(at, true));
+  at += 2;
+  for (let i = 0; i < buses.length; i++) {
+    const flags = view.getUint16(at + 4, true);
+    if (flags & ~KEYFRAME_BUS_FLAGS_KNOWN) badValue(base + at + 4, `KEYFRAME bus ${i} flags 0x${flags.toString(16)}`);
+    const lanes = new Array<number>(KEYFRAME_BUS_LANES);
+    for (let k = 0; k < KEYFRAME_BUS_LANES; k++) lanes[k] = notNaN(view.getFloat32(at + 8 + 4 * k, true), base + at + 8 + 4 * k, `KEYFRAME bus ${i} lane ${k}`);
+    buses[i] = {
+      slot: view.getUint8(at), gen: view.getUint16(at + 2, true), flags, lanes,
+      duck: notNaN(view.getFloat32(at + 48, true), base + at + 48, `KEYFRAME bus ${i} duck`),
+      automation: notNaN(view.getFloat32(at + 52, true), base + at + 52, `KEYFRAME bus ${i} automation`),
+    };
+    at += KEYFRAME_BUS_BYTES;
+  }
+  at = sec[2]!;
+  const metered = new Array<KeyframeMetered>(view.getUint16(at, true));
+  at += 2;
+  for (let i = 0; i < metered.length; i++) {
+    const flags = view.getUint16(at + 2, true);
+    if (flags & ~KEYFRAME_METERED_FLAGS_KNOWN) badValue(base + at + 2, `KEYFRAME metered ${i} flags 0x${flags.toString(16)}`);
+    for (let k = 4; k < 32; k += 4) notNaN(view.getFloat32(at + k, true), base + at + k, `KEYFRAME metered ${i} reading ${(k - 4) / 4}`);
+    metered[i] = {
+      slot: view.getUint16(at, true), flags,
+      momentary: view.getFloat32(at + 4, true), shortTerm: view.getFloat32(at + 8, true), integrated: view.getFloat32(at + 12, true),
+      lra: view.getFloat32(at + 16, true), maxTruePeak: view.getFloat32(at + 20, true), maxMomentary: view.getFloat32(at + 24, true),
+      elapsed: view.getFloat32(at + 28, true),
+    };
+    at += KEYFRAME_METERED_BYTES;
+  }
+  at = sec[3]!;
+  const events = new Array<KeyframeEvent>(view.getUint16(at, true));
+  at += 2;
+  for (let i = 0; i < events.length; i++) {
+    events[i] = { id: view.getUint32(at, true), asset: view.getUint32(at + 4, true), voices: view.getUint16(at + 8, true), state: view.getUint8(at + 10), paramsHash: view.getUint32(at + 12, true) };
+    at += KEYFRAME_EVENT_BYTES;
+  }
+  at = sec[4]!;
+  const music = new Array<KeyframeMusic>(view.getUint16(at, true));
+  at += 2;
+  for (let i = 0; i < music.length; i++) {
+    music[i] = {
+      id: view.getUint32(at, true), segment: view.getUint32(at + 4, true), state: view.getUint8(at + 8), pass: view.getUint8(at + 9),
+      bar: view.getUint16(at + 10, true), beat: view.getUint8(at + 12), tick: view.getUint8(at + 13), tempo: view.getUint16(at + 14, true),
+      pendingTo: view.getUint32(at + 16, true),
+      pendingTimeSec: notNaN(view.getFloat32(at + 20, true), base + at + 20, `KEYFRAME music ${i} pendingTimeSec`),
+    };
+    at += KEYFRAME_MUSIC_BYTES;
+  }
+  at = sec[5]! + 2;
+  const mix: KeyframeMix = {
+    slotTableVersion: view.getUint32(at, true), monitorActive: view.getUint8(at + 4), loudnessPausedMask: view.getUint8(at + 5),
+    targetIndex: view.getUint8(at + 6), snapshotName: view.getUint32(at + 8, true),
+    masterVolume: notNaN(view.getFloat32(at + 12, true), base + at + 12, "KEYFRAME mix masterVolume"), hiddenMute: view.getUint8(at + 16),
+  };
+  return { voices, buses, metered, events, music, mix };
 }
 
 // --- a whole record, and a whole file (writers and tests) -------------------------------------------------------------
@@ -1024,8 +1261,54 @@ export interface CaptureSnapshot {
   keyframeSeq: number;
 }
 
+// Pf6 (M5b, W7): the loudness protocol. Structural twins of `runtime/mix/loudnessTrackModel.ts`'s types (this module imports
+// nothing from the editor); times are seconds on the Worker's continuous axis.
+
+/** The values at a time on one bus (`LoudnessValues`); LUFS or dBTP, `-Infinity` where undefined. */
+export interface CaptureLoudnessValues {
+  time: number;
+  momentary: number;
+  shortTerm: number;
+  integrated: number;
+  lra: number;
+  truePeak: number;
+  peak: number;
+  incomplete: boolean;
+}
+/** A span the series has no audio for (`LoudnessGap`). */
+export interface CaptureLoudnessGap { kind: "lost" | "epoch"; from: number; to: number; lost: number }
+/** A span outside the target (`LoudnessMark`); warn only. */
+export interface CaptureLoudnessMark {
+  bus: number;
+  kind: "over" | "under";
+  metric: "integrated" | "shortTerm" | "momentary" | "truePeak";
+  from: number;
+  to: number;
+}
+/** A target as `audio.loudnessTargets` has it; the Worker reads it and changes nothing. */
+export interface CaptureLoudnessTarget { name?: string; integrated: number; tolerance: number; truePeak: number }
+/** One bus's series, as parallel columns (transferred): sample i is at `time[i]`. `incomplete` is 0 or 1. */
+export interface CaptureLoudnessColumns {
+  time: Float64Array;
+  momentary: Float64Array;
+  shortTerm: Float64Array;
+  integrated: Float64Array;
+  lra: Float64Array;
+  truePeak: Float64Array;
+  peak: Float64Array;
+  incomplete: Uint8Array;
+}
+
 /** Editor -> Worker. `id` names the request; `cancel` names the request to cancel. */
 export type CaptureWorkerRequest =
+  /** Pf6: the buses the capture's STATUS records meter (slot, sample count) and how the series was built. */
+  | { type: "loudnessInfo"; id: number }
+  /** Pf6: one bus's series over [t0, t1] (the whole capture by default). */
+  | { type: "loudnessSeries"; id: number; slot: number; t0?: number; t1?: number }
+  /** Pf6: the values at `t` for one bus (every bus when `slot` is omitted): the newest sample at or before `t`. */
+  | { type: "loudnessAt"; id: number; t: number; slot?: number }
+  /** Pf6: the spans outside `target` for every bus. */
+  | { type: "loudnessMarks"; id: number; target: CaptureLoudnessTarget; metrics?: readonly ("integrated" | "shortTerm" | "momentary")[]; truePeak?: boolean }
   /** A file's bytes (transferred), or for a live view the 96 B header plus raw META with no records (`recordCount` 0). */
   | { type: "open"; id: number; source: "file" | "live"; bytes: ArrayBuffer }
   /** Live (R17, Rc6): one sealed segment of raw records (starting at a KEYFRAME, no header), continuing the open view's seq and epoch. */
@@ -1035,8 +1318,12 @@ export type CaptureWorkerRequest =
   | { type: "cancel"; id: number }
   | { type: "close"; id: number };
 
-/** Worker -> editor. Typed arrays in `range` are transferred. */
+/** Worker -> editor. Typed arrays in `range` and `loudnessSeries` are transferred. */
 export type CaptureWorkerResponse =
+  | { type: "loudnessInfo"; id: number; mode: "replay" | "seek"; buses: { slot: number; samples: number }[] }
+  | { type: "loudnessSeries"; id: number; slot: number; columns: CaptureLoudnessColumns; gaps: CaptureLoudnessGap[] }
+  | { type: "loudnessAt"; id: number; t: number; buses: { slot: number; values: CaptureLoudnessValues | null }[] }
+  | { type: "loudnessMarks"; id: number; marks: CaptureLoudnessMark[] }
   | { type: "progress"; id: number; phase: "inflate" | "records"; done: number; total: number }
   | { type: "opened"; id: number; summary: CaptureSummary }
   | { type: "appended"; id: number; summary: CaptureSummary }

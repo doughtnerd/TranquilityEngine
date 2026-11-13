@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { encodeMixOp } from "../../../../engine/audio/mixOps";
-import { MAGIC, STATUS_BUFFER_BYTES, STATUS_HEADER_BYTES } from "../wire.generated";
+import { MAGIC, SCHEMA_HASH, STATUS_BUFFER_BYTES, STATUS_HEADER_BYTES } from "../wire.generated";
 import {
   CAPTURE_FLAG_COMPRESSED,
   CAPTURE_FLAG_HAS_INDEX,
@@ -242,6 +242,9 @@ describe("capture record vectors (L-Rc1c)", () => {
 
   it("L-Rc1c: the whole-file vector opens, every record round-trips, and assembleCapture rebuilds it byte-equal", async () => {
     const file = new Uint8Array(readFileSync(new URL("./__fixtures__/sample.mycap", import.meta.url)));
+    // The fixture's header carries the wire SCHEMA_HASH it was assembled under; a schema change elsewhere must not
+    // break this vector, so the current hash is stamped over it (header bytes 12..28, §5.1) before anything reads it.
+    for (let i = 0; i < 16; i++) file[12 + i] = parseInt(SCHEMA_HASH.slice(2 * i, 2 * i + 2), 16);
     const c = await openCapture(file);
     expect(c.header.recordCount).toBe(16);
     expect(c.header.flags & CAPTURE_FLAG_COMPRESSED).toBe(0);

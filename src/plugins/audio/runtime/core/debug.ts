@@ -49,6 +49,8 @@ export interface DebugSource {
   /** B3: the stream voices' clip info (asset and rate) and counts; absent in hand-built sources. */
   readonly streams?: { clipInfo(id: number): ClipInfo | null; readonly size: number; readonly stats: { readonly starves: number; readonly errors: number; readonly coreErrors: number; readonly wideStarved?: number } };
   readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings" | "monitorActive" | "bus">;
+  /** Ma3: the deferred live adds (`pending` waiting for a slot); absent in hand-built sources. */
+  readonly deferredAdds?: { readonly pending: number };
   readonly lockedQueue: { readonly size: number; readonly droppedCount: number };
   /**
    * ADR 0158 (E3.1): the automation mirror's counts; absent in hand-built sources. E3.9: main's estimate of a voice's
@@ -294,6 +296,7 @@ export function mixDebugInfo(backend: DebugSource, liveRefused: number, liveDefe
     sidechainLate: m.sidechainLate,
     liveRefused,
     liveDeferred,
+    liveDeferredPending: backend.deferredAdds?.pending ?? 0,
   });
 }
 
@@ -451,14 +454,18 @@ const LADDER_SUSTAIN_SECONDS = 1;
  * ADR 0162 OD3 (D5), ADR 0170: the load-shedding ladder for `core`: `ladderState` "idle", "cap at floor" (its
  * precondition), "shedding (n steps)" while underruns go on, or "recovering (n steps)" once they stopped (the core
  * gives a step back after each clean hold, 20 s and longer after a re-trip); `ladderRecoveries` counts the steps given back.
+ * The steps are the bed and zone steps (`m3Shed`) plus Ld7's loudness step (`loudShed`, R21, the ladder's first), which
+ * the text names while it is in force: "shedding (1 step: metering paused)" (G7a).
  */
 function ladder(backend: DebugSource): Record<string, string | number> {
   const m = backend.mirror;
-  const steps = m.m3Shed;
+  const loud = m.loudShed !== 0 ? 1 : 0;
+  const steps = m.m3Shed + loud;
   const ladderRecoveries = m.m3Recoveries;
   if (steps > 0) {
     const clean = m.frameAudio - m.underrunFrame >= LADDER_SUSTAIN_SECONDS * backend.host.sampleRate;
-    return { ladderState: `${clean ? "recovering" : "shedding"} (${steps} ${steps === 1 ? "step" : "steps"})`, ladderRecoveries };
+    const what = loud ? ": metering paused" : "";
+    return { ladderState: `${clean ? "recovering" : "shedding"} (${steps} ${steps === 1 ? "step" : "steps"}${what})`, ladderRecoveries };
   }
   const cap = backend.mixedCap ? backend.mixedCap() : m.mixedCap;
   const configured = backend.host.preset?.maxMixed ?? Infinity;
