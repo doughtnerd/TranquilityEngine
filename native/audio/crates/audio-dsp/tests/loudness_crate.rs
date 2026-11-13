@@ -10,6 +10,14 @@
 //! 32, 44.1, 48 and 88.2 kHz (below 96 kHz the crate oversamples 4×, as the meter does). The bar
 //! is 1e-3 LU (1e-3 dB for the true peak).
 //!
+//! **Rates other than 48 kHz (FU1).** The meter's K-weighting high-pass keeps 48 kHz's passband
+//! gain at every rate (BS.1770-5 Annex 1); the crate's, libebur128's, drifts with the rate
+//! (-0.0216 LU at 32 kHz, -0.0038 at 44.1 kHz, +0.0197 at 88.2 kHz against the meter), more than
+//! the 1e-3 LU bar. So at 48 kHz the comparison is exact, and at other rates the crate's M, S and
+//! I are first moved by that flat gain ([`hp_correction_lu`], computed from libebur128's own
+//! constants): the comparison is against the crate's 48 kHz-equivalent response. LRA and the true
+//! peak don't depend on it.
+//!
 //! **The TypeScript gating.** Main's gating ships in TypeScript (`loudnessStats.ts`, Ld3) with
 //! 1,000-bin histograms. [`ts_gating_vectors`] writes the meter's sub-block energies and the
 //! crate's readings to `tests/vectors/loudness_crate.json` (or checks the committed file still
@@ -40,6 +48,31 @@ const EVERY: usize = 6;
 struct CrateRun {
     at: Vec<Stats>,
     tp: [f64; 2],
+}
+
+/// FU1: libebur128, and so the crate, keeps the K-weighting high-pass's numerator at [1, -2, 1] at
+/// every rate, which leaves its passband gain at the bilinear `a0(rate) = 1 + K/Q + K²`
+/// (`K = tan(π f0 / rate)`, f0 = 38.135 Hz, Q = 0.50033) instead of 48 kHz's `a0(48 kHz)`.
+/// `audio_dsp::loudness` keeps 48 kHz's gain at every rate, as BS.1770-5 Annex 1 asks ("the same
+/// frequency response that the specified filter provides at 48 kHz"). This is the correction that
+/// moves the crate's readings at `rate` to that 48 kHz-equivalent response, in LU:
+/// `20 log10(a0(48 kHz) / a0(rate))`; exactly 0 at 48 kHz, -0.0216 at 32 kHz, -0.0038 at 44.1 kHz,
+/// +0.0197 at 88.2 kHz. It is computed here from libebur128's constants, not taken from the meter.
+fn hp_correction_lu(rate: f64) -> f64 {
+    let a0 = |fs: f64| {
+        let k = (std::f64::consts::PI * 38.13547087602444 / fs).tan();
+        1.0 + k / 0.5003270373238773 + k * k
+    };
+    20.0 * (a0(48_000.0) / a0(rate)).log10()
+}
+
+/// The crate's readings at `rate` moved to the 48 kHz-equivalent high-pass ([`hp_correction_lu`]).
+/// A flat gain moves every block's loudness, and with it the relative gate, by the same amount: M,
+/// S and I move by exactly the correction, LRA not at all (only a block within the correction of
+/// the absolute gate, -70 LKFS, could behave differently, and the comparison would show it).
+fn equiv(s: &Stats, rate: f64) -> Stats {
+    let d = hp_correction_lu(rate);
+    Stats { m: s.m + d, s: s.s + d, i: s.i + d, lra: s.lra }
 }
 
 fn crate_run(rate: f64, sig: &Stereo) -> CrateRun {
@@ -147,6 +180,7 @@ impl Worst {
         let subs: Vec<f64> = fed.subs.iter().map(|&e| e as f64).collect();
         for (k, (own, c)) in stats_series(&subs).iter().zip(&cr.at).enumerate() {
             let n = k + 1;
+            let c = &equiv(c, rate);
             let at = || format!("{name}@{} sub-block {n}", rate as u32);
             if n >= 4 {
                 Self::note(&mut self.m, own.m, c.m, at);
@@ -193,6 +227,17 @@ fn kernels_and_gating_match_the_crate_on_random_programmes() {
         w.case(r);
     }
     w.report_and_check("random programmes");
+}
+
+/// The high-pass correction is 0 at 48 kHz, so the 48 kHz comparison is against the crate as it
+/// reads; at the other rates it is the offset FU1 removed from the meter.
+#[test]
+fn the_correction_is_zero_at_48k_and_the_removed_offset_elsewhere() {
+    assert_eq!(hp_correction_lu(48_000.0), 0.0);
+    for (rate, want) in [(32_000.0, -0.0216), (44_100.0, -0.0038), (88_200.0, 0.0197), (96_000.0, 0.0216)] {
+        let d = hp_correction_lu(rate);
+        assert!((d - want).abs() < 1e-4, "{rate}: {d}");
+    }
 }
 
 /// The comparison itself can fail: the last sub-block's energy 1 % high (+0.043 LU on it, about
@@ -302,10 +347,11 @@ fn num(x: f64) -> String {
 }
 
 /// One case's line: the energies (f32, little-endian, base64), the crate's M, S, I, LRA after every
-/// 10th sub-block (f32, base64, 4 per point) and after the last (f64).
+/// 10th sub-block (f32, base64, 4 per point) and after the last (f64), away from 48 kHz moved to the
+/// 48 kHz-equivalent high-pass ([`equiv`]).
 fn vector_line(name: &str, Run { rate, fed, cr, .. }: &Run) -> String {
-    let every10 = cr.at.iter().skip(9).step_by(10).flat_map(|s| [s.m as f32, s.s as f32, s.i as f32, s.lra as f32]);
-    let end = cr.at.last().unwrap();
+    let every10 = cr.at.iter().skip(9).step_by(10).map(|s| equiv(s, *rate)).flat_map(|s| [s.m as f32, s.s as f32, s.i as f32, s.lra as f32]);
+    let end = &equiv(cr.at.last().unwrap(), *rate);
     format!(
         "{{\"name\":\"{name}\",\"rate\":{},\"subs\":\"{}\",\"every10\":\"{}\",\"end\":[{},{},{},{}]}}",
         *rate as u32,
@@ -337,7 +383,7 @@ fn ts_gating_vectors() {
         lines.push(vector_line(&r.name, r));
     }
     let text = format!(
-        "{{\"about\":\"Ld6: audio_dsp::loudness::Meter sub-block energies (f32 LE, base64) and the ebur128 0.1.11 crate's M, S, I, LRA (every 10th sub-block as f32 LE base64, and at the end); written by native/audio/crates/audio-dsp/tests/loudness_crate.rs, read by src/plugins/audio/runtime/mix/loudnessCrate.test.ts\",\"cases\":[\n{}\n]}}\n",
+        "{{\"about\":\"Ld6: audio_dsp::loudness::Meter sub-block energies (f32 LE, base64) and the ebur128 0.1.11 crate's M, S, I, LRA (every 10th sub-block as f32 LE base64, and at the end; away from 48 kHz M, S and I moved by 20 log10(a0(48 kHz) / a0(rate)), the high-pass gain libebur128 leaves rate-dependent and the meter keeps at 48 kHz's, FU1); written by native/audio/crates/audio-dsp/tests/loudness_crate.rs, read by src/plugins/audio/runtime/mix/loudnessCrate.test.ts\",\"cases\":[\n{}\n]}}\n",
         lines.join(",\n")
     );
     let write = std::env::var("LOUDNESS_CRATE_VECTORS").as_deref() == Ok("write");

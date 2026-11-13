@@ -10,7 +10,10 @@
 //! (`Mode::M | S | I | LRA | TRUE_PEAK | SAMPLE_PEAK`, fed 128 frames at a time, as the spike's
 //! `reference()`) of the spike's own signals, printed at full precision on 2026-11-13; the checks
 //! compare to them with the spike's tolerances (1e-3 LU on I, M, S; 0.01 LU on LRA; 1e-3 dB on true
-//! peak). The signals here are the spike's, with `libm` for the transcendentals.
+//! peak). The signals here are the spike's, with `libm` for the transcendentals. At 44.1 kHz the
+//! crate's M, S and I are compared after moving them by the high-pass gain libebur128 leaves
+//! rate-dependent and the meter keeps at 48 kHz's (FU1, [`hp_correction_lu`]: -0.0038 LU); the
+//! recorded values themselves stay the crate's.
 //!
 //! **The main half** (feed, exact gating, the 1,000-bin histograms) is ported from the spike as
 //! test code: in the product it is TypeScript (Ld3's `loudnessStats.ts`).
@@ -228,6 +231,7 @@ impl Hist {
 // ---------------------------------------------------------------- the ebur128 crate's readings
 
 /// `ebur128` 0.1.11's readings of a case's signal (see the module comment).
+#[derive(Clone, Copy)]
 pub struct Ref {
     pub rate: f64,
     pub case: &'static str,
@@ -268,8 +272,26 @@ pub const REFS: &[Ref] = &[
     Ref { rate: 44100.0, case: "music", i: -17.249586932875683, m: -25.098591943370266, s: -16.093410992914976, lra: 12.520656061605578, tp_db: -4.632293861907513 },
 ];
 
-fn reference(rate: f64, case: &str) -> &'static Ref {
-    REFS.iter().find(|r| r.rate == rate && r.case == case).expect("a recorded reading for every case")
+/// The crate's reading of a case, with M, S and I moved to the 48 kHz-equivalent K-weighting
+/// high-pass ([`hp_correction_lu`]; nothing moves at 48 kHz).
+fn reference(rate: f64, case: &str) -> Ref {
+    let r = REFS.iter().find(|r| r.rate == rate && r.case == case).expect("a recorded reading for every case");
+    let d = hp_correction_lu(rate);
+    Ref { i: r.i + d, m: r.m + d, s: r.s + d, ..*r }
+}
+
+/// FU1: libebur128 (and so the crate, whose readings [`REFS`] are) keeps the high-pass's numerator
+/// at [1, -2, 1] at every rate, so its passband gain drifts with the rate (`a0 = 1 + K/Q + K²`);
+/// the meter keeps 48 kHz's gain (BS.1770-5 Annex 1). The flat gain that moves the crate's M, S
+/// and I at `rate` to the 48 kHz-equivalent response, in LU: `20 log10(a0(48 kHz) / a0(rate))`,
+/// exactly 0 at 48 kHz and -0.0038 at 44.1 kHz (as `loudness_crate.rs`'s, from libebur128's
+/// constants, not from the meter).
+fn hp_correction_lu(rate: f64) -> f64 {
+    let a0 = |fs: f64| {
+        let k = libm::tan(PI * 38.13547087602444 / fs);
+        1.0 + k / 0.5003270373238773 + k * k
+    };
+    20.0 * libm::log10(a0(48_000.0) / a0(rate))
 }
 
 // ---------------------------------------------------------------- the checks (spike `checks.rs`)
