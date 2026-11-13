@@ -622,3 +622,29 @@ button:disabled.primary { opacity: 0.5; }
 .unavailable-panel-message strong { color: var(--text); }
 .unavailable-panel-message p { margin: 0 0 8px; }
 .unavailable-panel-hint { font-size: 0.9em; color: var(--faint); }
+
+/* Add Panel, Save Layout As and Manage Layouts (ADR 0174). */
+.add-panel-list { list-style: none; margin: 0 0 12px; padding: 0; max-height: 50vh; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 2px 12px; }
+.add-panel-list li { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.add-panel-list label { display: flex; flex-direction: column; }
+.add-panel-note { font-size: calc(11px * var(--ui-scale)); color: var(--muted); }
+.layout-name-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; color: var(--muted); }
+.layout-scopes { display: flex; gap: 14px; border: none; margin: 0 0 8px; padding: 0; }
+.layout-scopes legend { color: var(--muted); padding: 0; margin-bottom: 4px; }
+.layout-scopes label { display: flex; align-items: center; gap: 4px; }
+.dialog p.layout-file-preview { min-height: 1.4em; font-size: calc(12px * var(--ui-scale)); font-family: var(--font-code); }
+.layout-scope-note { font-family: var(--font-ui, inherit); color: var(--faint); }
+.dialog.layouts-dialog { width: min(760px, calc(100vw - 32px)); }
+.layouts-body { display: grid; grid-template-columns: minmax(160px, 220px) 1fr; gap: 14px; margin-bottom: 12px; min-height: 300px; }
+.layouts-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 4px; overflow: auto; max-height: 420px; }
+.layouts-list li { display: flex; flex-direction: column; padding: 6px 8px; cursor: pointer; border-bottom: 1px solid var(--border); }
+.layouts-list li:hover { background: var(--hover); }
+.layouts-list li.selected { background: var(--selection); color: var(--selection-text); }
+.layouts-scope { font-size: calc(11px * var(--ui-scale)); color: var(--muted); }
+.layouts-list li.selected .layouts-scope { color: inherit; opacity: 0.8; }
+.layouts-detail { display: flex; flex-direction: column; min-width: 0; }
+.dialog p.layouts-hint { font-size: calc(12px * var(--ui-scale)); }
+.layouts-versions { position: relative; flex: 1; min-height: 160px; max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 8px; }
+.layouts-actions { display: flex; gap: 8px; align-items: center; }
+.layouts-actions .asset-spacer { flex: 1; }
+@media (max-width: 560px) { .layouts-body { grid-template-columns: 1fr; } }

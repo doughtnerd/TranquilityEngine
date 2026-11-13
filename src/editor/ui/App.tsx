@@ -8,6 +8,8 @@ import { AssetDragGhost } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { exportOpen, settingsOpen } from "./dialogState";
 import { lazyDialog } from "./lazy";
+import { addPanelRequest } from "../layout/store";
+import { manageLayoutsOpen, saveLayoutAsOpen } from "../layout/layoutDialogs";
 import { StatusBar } from "./StatusBar";
 import { PlayControls } from "./PlayControls";
 import { NewScriptDialog } from "./NewScriptDialog";
@@ -21,6 +23,9 @@ import { spriteEditorImage } from "../assetImport";
 // Dialogs that load when first opened (ADR 0083).
 const ExportDialog = lazyDialog(() => exportOpen.value, () => import("./ExportDialog").then((m) => m.ExportDialog));
 const SettingsDialog = lazyDialog(() => settingsOpen.value, () => import("./SettingsDialog").then((m) => m.SettingsDialog));
+const AddPanelDialog = lazyDialog(() => addPanelRequest.value !== null, () => import("./AddPanelDialog").then((m) => m.AddPanelDialog));
+const SaveLayoutDialog = lazyDialog(() => saveLayoutAsOpen.value, () => import("./SaveLayoutDialog").then((m) => m.SaveLayoutDialog));
+const LayoutsDialog = lazyDialog(() => manageLayoutsOpen.value, () => import("./LayoutsDialog").then((m) => m.LayoutsDialog));
 const SpriteEditorDialog = lazyDialog(() => spriteEditorImage.value !== null, () => import("./SpriteEditor").then((m) => m.SpriteEditorDialog));
 
 /** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
@@ -38,6 +43,9 @@ export function App() {
       <NewProjectDialog />
       <SpriteEditorDialog />
       <SettingsDialog />
+      <AddPanelDialog />
+      <SaveLayoutDialog />
+      <LayoutsDialog />
       <AboutDialog />
       <RefineList />
     </div>
