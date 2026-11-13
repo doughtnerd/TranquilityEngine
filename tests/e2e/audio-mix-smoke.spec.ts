@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { inflateRawSync } from "node:zlib";
 import { expect, test } from "./fixtures";
 import { bootMix, installFrameClock, mixDebug, sampleBusGain } from "./audioMix";
 
@@ -242,14 +244,118 @@ test("M5-0 smoke: a presence duck starts on its stamped frame", async ({ page })
   expect(errors).toEqual([]);
 });
 
-// M5a (Rc4): capture. Owner un-fixmes in W7.
-test.fixme("M5a smoke: a capture starts, stops, is saved and is non-empty", async ({ page }) => {
+// M5a (Rc4): capture. A game that never calls `start` loads no recorder chunk; `Audio.capture.start()` fetches it, a take
+// records the core's STATUS blocks while the audio clock runs, and `save()` downloads a deflate-raw `.mycap` whose header
+// parses and whose records are the take's. Every bound is on the core's rendered frames, never a wall-clock tolerance.
+test("M5a smoke: a capture starts, stops, is saved and is non-empty", async ({ page }) => {
+  type CaptureApi = { state: string; seconds: number; bytes: number; start(): Promise<void>; stop(): void; mark(t: string): void; save(n?: string): Promise<string> };
+  type Api = { __myco: { Audio: { capture: CaptureApi; playOneShot(c: string, o?: object): unknown } }; __mixFrame: () => { frame: number } };
+  const errors: string[] = [];
+  const requests: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  page.on("request", (req) => requests.push(req.url()));
+  const isRecorderChunk = (url: string) => /(^|\/)recorder[-.][\w-]*\.js|capture\/recorder(\.ts)?(\?|$)/.test(url);
   await bootMix(page);
-  // Rc4:
-  //  1. Start a capture (the recorder's start, through `Audio.capture` or the editor's record control).
-  //  2. Let the audio clock advance (frames, not a wall-clock wait), play a one-shot so the capture has content.
-  //  3. Stop the capture and save it: the result is a file in the project with a non-zero length and a header that parses.
-  void page;
+  await installFrameClock(page);
+  const rate = (await mixDebug(page))!.sampleRate;
+
+  await test.step("before start() nothing of the recorder is loaded", async () => {
+    expect(requests.filter(isRecorderChunk), "no recorder chunk requested while the page only plays").toEqual([]);
+    const idle = await page.evaluate(() => {
+      const c = (globalThis as unknown as Api).__myco.Audio.capture;
+      return { state: c.state, seconds: c.seconds, bytes: c.bytes };
+    });
+    expect(idle).toEqual({ state: "idle", seconds: 0, bytes: 0 });
+    // The empty save is refused, and refusing it loads nothing.
+    const refused = await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.save().then(() => "saved", (e: Error) => e.message));
+    expect(refused).toBe("nothing recorded: call Audio.capture.start() first");
+    expect(requests.filter(isRecorderChunk)).toEqual([]);
+  });
+
+  let startFrame = 0;
+  await test.step("start() fetches the chunk and begins a take; the audio clock runs with sound playing", async () => {
+    await page.evaluate(() => void (globalThis as unknown as Api).__myco.Audio.playOneShot("audio/melody-loop.wav", { volume: 0.05, bus: "UI" }));
+    await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.start());
+    expect(requests.filter(isRecorderChunk).length, "the recorder chunk was fetched by start()").toBeGreaterThan(0);
+    const now = await page.evaluate(() => {
+      const g = globalThis as unknown as Api;
+      return { state: g.__myco.Audio.capture.state, frame: g.__mixFrame().frame };
+    });
+    expect(now.state).toBe("recording");
+    startFrame = now.frame;
+    // Three seconds of the core's rendered frames (the poll only paces the reads).
+    await page.waitForFunction(([from, span]) => (globalThis as unknown as Api).__mixFrame().frame - (from as number) >= (span as number), [startFrame, 3 * rate] as const, { timeout: 60_000 });
+    await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.mark("smoke marker"));
+    await page.waitForFunction(([from, span]) => (globalThis as unknown as Api).__mixFrame().frame - (from as number) >= (span as number), [startFrame, 3.2 * rate] as const, { timeout: 60_000 });
+    const c = await page.evaluate(() => {
+      const cap = (globalThis as unknown as Api).__myco.Audio.capture;
+      return { state: cap.state, seconds: cap.seconds, bytes: cap.bytes };
+    });
+    expect(c.state).toBe("recording");
+    expect(c.bytes, "the ring holds the take's records").toBeGreaterThan(10_000);
+    expect(c.seconds, "the ring's content is the rendered frames since the start, in seconds").toBeGreaterThan(2);
+  });
+
+  await test.step("stop() holds the take and save() downloads a .mycap whose header parses and whose records are the take's", async () => {
+    await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.stop());
+    expect(await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.state)).toBe("stopped");
+    const [download, name] = await Promise.all([
+      page.waitForEvent("download"),
+      page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.save("smoke / take 1")),
+    ]);
+    expect(name).toBe("smoke_take_1.mycap");
+    expect(download.suggestedFilename()).toBe("smoke_take_1.mycap");
+    const bytes = readFileSync((await download.path())!);
+    expect(bytes.byteLength, "non-empty").toBeGreaterThan(96 + 1000);
+    // The 96 B plain header (§5.1).
+    expect([...bytes.subarray(0, 8)]).toEqual([0x4d, 0x59, 0x43, 0x41, 0x50, 0x00, 0x01, 0x1a]);
+    expect(bytes.readUInt16LE(8), "format").toBe(1);
+    const flags = bytes.readUInt16LE(10);
+    expect(flags & 0b1000, "compressed (deflate-raw)").toBeTruthy();
+    expect(flags & 0b0100, "hasIndex").toBeTruthy();
+    expect(flags & 0b0001, "not truncated").toBe(0);
+    expect(bytes.readUInt32LE(40), "sampleRate").toBe(rate);
+    const metaBytes = bytes.readUInt32LE(60);
+    const recordBytes = bytes.readUInt32LE(64);
+    const uncompressed = bytes.readUInt32LE(68);
+    const recordCount = bytes.readUInt32LE(72);
+    expect(metaBytes + recordBytes).toBe(uncompressed);
+    expect(recordCount, "EPOCH, keyframes, STATUS blocks and the INDEX").toBeGreaterThan(20);
+    const payload = inflateRawSync(bytes.subarray(96));
+    expect(payload.byteLength).toBe(uncompressed);
+    // META is JSON data naming the project's audio section.
+    const meta = JSON.parse(payload.subarray(0, metaBytes).toString("utf8")) as { engine: string; audio: { buses?: unknown[] } };
+    expect(meta.engine).toBe("myco");
+    expect(meta.audio.buses?.length ?? 0).toBeGreaterThan(0);
+    // The records: head by head, 20 B each (§5.3).
+    const types: number[] = [];
+    const statusFrames: number[] = [];
+    let marker = "";
+    for (let off = metaBytes; off < payload.byteLength; ) {
+      const type = payload.readUInt8(off);
+      const len = payload.readUInt32LE(off + 4);
+      types.push(type);
+      if (type === 0x03) statusFrames.push(payload.readDoubleLE(off + 12));
+      if (type === 0x06) marker = payload.subarray(off + 20 + 10, off + 20 + 10 + payload.readUInt16LE(off + 20 + 8)).toString("utf8");
+      off += 20 + len;
+    }
+    expect(types.length, "the header's record count is the records").toBe(recordCount);
+    expect(types[0], "EPOCH start leads").toBe(0x01);
+    expect(types[1], "then a KEYFRAME").toBe(0x04);
+    expect(types[types.length - 1], "the INDEX closes the file").toBe(0x7f);
+    expect(types.filter((t) => t === 0x04).length, "a keyframe a second of rendered frames").toBeGreaterThanOrEqual(3);
+    expect(marker).toBe("smoke marker");
+    // STATUS comes at least every 48 quanta (6,144 frames) even idle, and every 6 while the core is busy: the floor is the idle cadence.
+    expect(statusFrames.length, "a STATUS block at least every 48 quanta of the frames that ran").toBeGreaterThanOrEqual(Math.floor((2.5 * rate) / (48 * 128)));
+    for (let i = 1; i < statusFrames.length; i++) expect(statusFrames[i]).toBeGreaterThan(statusFrames[i - 1]!);
+    expect(statusFrames[statusFrames.length - 1]! - statusFrames[0]!, "the take spans the audio frames that ran").toBeGreaterThan(2.5 * rate);
+    expect(statusFrames[0]!, "the take starts at or after the call, at the keyframe before it at most a second earlier").toBeGreaterThanOrEqual(startFrame - rate - 768);
+  });
+
+  expect(errors).toEqual([]);
 });
 
 // M5b (E2): loudness. Owner un-fixmes in W8.
