@@ -183,6 +183,17 @@ export class Recorder {
     this.ring.copyStatus(src, byteLength, this.epochNumber, frame);
   };
 
+  /**
+   * Main-side-only frames (G7b): a backend with no STATUS (the Babylon fallback) reports its audio clock here instead of
+   * through `tap`. Advances `newestStatusFrame` (the frame events are stamped at) and writes the cadence's KEYFRAME, the
+   * `tap`'s own rule; writes no STATUS record (a main-side-only capture has none).
+   */
+  advanceFrame(frame: number): void {
+    if (this.epochNumber < 0 || !(frame >= 0)) return;
+    if (this.keyframeDue || frame - this.lastKeyframeFrame >= (this.sampleRate * CAPTURE_KEYFRAME_INTERVAL_MS) / 1000) this.writeKeyframe(frame, true);
+    if (frame > this.newestStatusFrame) this.newestStatusFrame = frame;
+  }
+
   /** Ring content seconds (`Audio.capture.seconds`). */
   get seconds(): number {
     return this.ring.seconds;

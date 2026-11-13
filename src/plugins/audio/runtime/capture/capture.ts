@@ -10,8 +10,16 @@
 // chunk, makes the recorder and writes the first EPOCH and KEYFRAME; a later owner's join writes a marker. When the last
 // owner lets go the ring is **Held** (the tap and the event sink are removed, the ring stays so `save()` after `stop()`
 // works) if a take exists, and freed if none does (a panel that closes with no take leaves nothing). A `start()` from Held
-// begins a new take after a GAP `held` (R16); `save()` writes the **latest** take only. **Released** (`releaseCapture()`, Play
-// stops) frees the ring and the take with it.
+// begins a new take after a GAP `held` (R16); `save()` writes the **latest** take only. **Released** (`releaseCapture()`, the
+// Engine is disposed) frees the ring and the take with it. **Play stops** (`capturePlayStopped()`, called by the audio World
+// service when the last Runtime World goes): the owners end, the ring is freed, except that a take (running or Held) is Held
+// once so a `save()` after Stop still works; it is freed at the next Play stop (or by `releaseCapture()`).
+//
+// **Keyframes (G7b).** The recorder's keyframe source is the backend's own (`AudioBackend.keyframe`), wired to the event sink's
+// name interning, so a keyframe and an EVENT name a clip by the same id. A backend with no STATUS (the Babylon fallback,
+// `mainSideOnly`) has no block to drive the recorder's clock, so a **frame pump** reads the backend's audio clock in frames and
+// calls `Recorder.advanceFrame`: events are stamped on it and the keyframe cadence runs on it, the tap's rule on the audio
+// clock. The pump polls (`FRAME_PUMP_MS`) but the frames it reports are the audio clock's: nothing is timed by the poll.
 //
 // **A take is a (start, end) pair.** `start()` sets the take's start to the open segment's keyframe (the nearest at or before
 // now). While another owner keeps the ring recording, `stop()` copies the take's span so the file ends where the take did;
@@ -72,6 +80,26 @@ let saveEnv: SaveEnv | null = null;
 export function _setSaveEnv(env: SaveEnv | null): SaveEnv | null {
   const previous = saveEnv;
   saveEnv = env;
+  return previous;
+}
+
+/** How often the Babylon fallback's frame pump reads the audio clock, ms (the clock's frames are what is recorded, not this period). */
+const FRAME_PUMP_MS = 100;
+
+/** Starts calling `tick` until the returned stop runs; the default polls on a timer. */
+type FramePump = (tick: () => void) => () => void;
+
+const timerPump: FramePump = (tick) => {
+  const id = setInterval(tick, FRAME_PUMP_MS);
+  (id as { unref?: () => void }).unref?.();
+  return () => clearInterval(id);
+};
+let framePump: FramePump = timerPump;
+
+/** @internal Tests: replace the Babylon frame pump (a test steps the audio clock and ticks it by hand). Returns the previous one. */
+export function _setFramePump(pump: FramePump | null): FramePump {
+  const previous = framePump;
+  framePump = pump ?? timerPump;
   return previous;
 }
 
@@ -146,6 +174,12 @@ class Capture implements AudioCapture {
   private takeMeta: CaptureMetaInit | null = null;
   private takeDate = 0;
   private mainSideOnly = false;
+  /** Stops the Babylon frame pump; null while none runs. */
+  private stopPump: (() => void) | null = null;
+  /** A take was kept through a Play stop (Held for the save); the next Play stop frees it. */
+  private keptAcrossStop = false;
+  /** The id for "no name" (`events.NO_NAME`), known once the events module loaded. */
+  private noName = 0xffffffff;
   /** The frame the next EPOCH names (a start, or a core made while Held); null: 0, a rebuilt core's first frame. */
   private epochFrame: number | null = null;
 
@@ -236,6 +270,8 @@ class Capture implements AudioCapture {
   /** Frees the ring and the take (Play stops, the Engine is disposed); owners' tokens stop working. */
   release(): void {
     this.startToken++;
+    this.stopFramePump();
+    this.keptAcrossStop = false;
     const rec = this.rec;
     if (rec) {
       try {
@@ -260,6 +296,28 @@ class Capture implements AudioCapture {
     this.ringGen++;
   }
 
+  /**
+   * Play stops (architecture §2.1): the owners end (a running take stops, panel holds are over), then the ring is freed,
+   * unless a take exists that hasn't yet outlived a Play stop: that one is Held, so a `save()` after Stop still works.
+   */
+  playStopped(): void {
+    const rec = this.rec;
+    if (!rec) {
+      this.startToken++; // a start still loading is abandoned
+      return;
+    }
+    rec.stopLive();
+    this.panels = 0;
+    this.ringGen++; // the panel's tokens from this ring do nothing from here
+    this.takeActive = false;
+    if (this.hasTake && !this.keptAcrossStop) {
+      this.keptAcrossStop = true;
+      this.hold();
+      return;
+    }
+    this.release();
+  }
+
   // --- start ----------------------------------------------------------------------------------------------------------
 
   private async doStart(): Promise<void> {
@@ -282,6 +340,7 @@ class Capture implements AudioCapture {
     this.frozen = null;
     this.takeActive = true;
     this.hasTake = true;
+    this.keptAcrossStop = false;
     this.beginTakeFacts();
   }
 
@@ -298,6 +357,8 @@ class Capture implements AudioCapture {
     const [mod, events, save] = await Promise.all([loadRecorder(), import("./events"), import("./save")]);
     const rec = mod.createRecorder({});
     const sink = events.createEventSink(rec, { epochContext: () => this.epochContext(backend) });
+    this.noName = events.NO_NAME;
+    this.wireKeyframes(rec, sink, backend);
     const meta = this.buildMeta(backend, rec.ring.capacity);
     for (const table of TABLES) for (const [id, name] of namesOf(meta.names[table])) sink.seed(table, id, name);
     this.epochFrame = this.frameOf(backend);
@@ -317,6 +378,33 @@ class Capture implements AudioCapture {
     this.sink = sink;
     this.backend = backend;
     this.ringState = "recording";
+    this.startFramePump();
+  }
+
+  /** The recorder's keyframe source: the backend's own, interning its names through the sink (a backend without one leaves the recorder's empty keyframes). */
+  private wireKeyframes(rec: Recorder, sink: EventSink, backend: AudioBackend): void {
+    const keyframe = backend.keyframe;
+    if (!keyframe) return;
+    const noName = this.noName;
+    const nameId = (table: "clips" | "snapshots" | "events", name: string): number => sink.name(table, name);
+    rec.setKeyframeSource(() => keyframe.call(backend, nameId, noName));
+  }
+
+  /** A backend with no STATUS (`mainSideOnly`) is clocked by its audio clock: poll it and report the frames the clock has reached. */
+  private startFramePump(): void {
+    if (!this.mainSideOnly || this.stopPump) return;
+    this.stopPump = framePump(() => {
+      const rec = this.rec;
+      const backend = this.backend;
+      if (!rec || !backend || this.ringState !== "recording") return;
+      const frame = Math.floor(finiteOr(backend.time, 0) * rec.sampleRate);
+      rec.advanceFrame(frame);
+    });
+  }
+
+  private stopFramePump(): void {
+    this.stopPump?.();
+    this.stopPump = null;
   }
 
   /** The backend a ring can record from; rejects with a message when there is none (the core still loading, or a device without it). */
@@ -351,10 +439,12 @@ class Capture implements AudioCapture {
     }
     rec.newTake(frame, this.heldSince);
     if (backend !== this.backend && this.backend) this.backend.setProfileSink?.(null);
+    if (backend !== this.backend) this.wireKeyframes(rec, sink, backend);
     this.backend = backend;
     if (!this.mainSideOnly) rec.attach(backend);
     backend.setProfileSink?.(sink);
     this.ringState = "recording";
+    this.startFramePump();
   }
 
   /** The facts of the new take: META as the project stands now and the start date. */
@@ -417,6 +507,7 @@ class Capture implements AudioCapture {
     if (!rec || this.ringState === "held") return;
     rec.stopLive();
     rec.detach();
+    this.stopFramePump();
     this.backend?.setProfileSink?.(null);
     this.ringState = "held";
     this.heldSince = performance.now();
@@ -552,7 +643,12 @@ export function captureDebug(): AudioRecorderDebug | null {
   return capture.debug();
 }
 
-/** @internal Play stops / the Engine is disposed (architecture §2.1 "Released"): frees the ring and the take. */
+/** @internal The Engine is disposed (architecture §2.1 "Released"): frees the ring and the take. */
 export function releaseCapture(): void {
   capture.release();
+}
+
+/** @internal Play stops (architecture §2.1; G7b): the owners end and the ring is freed, a take being Held once for a save after Stop. Called by `core/service.ts` when the last Runtime World releases the audio host. */
+export function capturePlayStopped(): void {
+  capture.playStopped();
 }

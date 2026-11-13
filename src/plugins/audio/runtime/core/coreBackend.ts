@@ -114,6 +114,8 @@ import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView, 
 import type { ReplayBuilder, ReplaySpatial } from "./replay";
 import { BusIndex } from "./busIndex";
 import { LaneWriter } from "./laneWriter";
+import { KeyframeSource } from "./keyframeSource";
+import type { KeyframePayload } from "../capture/format";
 import { Presence } from "./presence";
 import { LiveMix } from "./liveMix";
 import { StructuralDip } from "./structuralDip";
@@ -1237,6 +1239,13 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       },
       busRef: (n) => this.buses.slots.busRef(this.buses.slotOf(n)),
     });
+  }
+
+  private keyframes: KeyframeSource | null = null;
+
+  /** §5.5 (G7b): the capture's KEYFRAME from main's tables, built by `keyframeSource.ts` (the voice table, the slot table and mixer lanes, the loudness hub, events, music). */
+  keyframe(nameId: Parameters<NonNullable<AudioBackend["keyframe"]>>[0], noName = 0xffffffff): KeyframePayload {
+    return (this.keyframes ??= new KeyframeSource(this)).read(nameId, noName);
   }
 
   dispose(): void {

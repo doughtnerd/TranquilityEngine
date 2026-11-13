@@ -1055,7 +1055,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
    * snapshot name into the capture's NAMES table (`EventSink` does), `noName` is the id for none. The payload is built
    * fresh per call: a keyframe is once a second, and the fallback is best effort.
    */
-  keyframe(nameId: (table: "clips" | "snapshots", name: string) => number, noName = 0xffffffff): KeyframePayload {
+  keyframe(nameId: (table: "clips" | "snapshots" | "events", name: string) => number, noName = 0xffffffff): KeyframePayload {
     const m = this.mixerRef ?? mixer;
     const voices: KeyframeVoice[] = [];
     const eventVoices = new Map<number, number>();
@@ -1385,7 +1385,9 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
       voices: [...this.voices].filter((v) => v.event !== null).map((v) => ({ id: v.id, clip: v.row.clip, bus: v.row.bus, world: null, state: "playing" as const, priority: 0, gain: v.row.gain, pitch: v.row.pitch, audibility: 1, playheadSeconds: null, owner: null, event: v.event })),
       // ADR 0162 §1.6 (D5): what applies here. Beds, zones, ambisonic voices and the ladder don't exist on this fallback.
       occlusion: this.occlusion.debug(),
-      core: { backend: "babylon", voices: n, buffers: this.liveNow?.buffers.size ?? 0, context: this.ctx?.state ?? "none" },
+      // G7b: `currentFrame` is the audio clock in frames (the context's time at its rate): the fallback has no STATUS, so this is
+      // the frame a capture stamps its events and keyframes with (`capture.ts` reads it as it reads the core's).
+      core: { backend: "babylon", voices: n, buffers: this.liveNow?.buffers.size ?? 0, context: this.ctx?.state ?? "none", currentFrame: Math.floor(this.time * this._rate()) },
       // ADR 0171 (Dbg1; §1.3, §9): the fallback's inert M5 sections.
       mixCaps: { ...this.mixCaps },
       cpu: babylonCpuDebug(),

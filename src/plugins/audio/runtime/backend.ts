@@ -14,6 +14,7 @@ import type { AudioLatency, MusicEventHandle } from "../../../engine/audio/music
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import type { DuckingRule } from "../../../engine/audio/settings";
 import type { ProfileSink } from "./mix/profileSink";
+import type { KeyframePayload } from "./capture/format";
 
 export type Rolloff = "linear" | "inverse" | "exponential";
 
@@ -782,6 +783,12 @@ export interface AudioBackend {
   recorderTap?: RecorderTap | null;
   /** §5.6: the capture's event taps (Rc3); null restores the null object. */
   setProfileSink?(sink: ProfileSink | null): void;
+  /**
+   * §5.5 (G7b): the main-side state at this instant, for the capture's KEYFRAME (`capture.ts` hands the recorder
+   * `() => backend.keyframe(nameId, noName)`). `nameId` interns a clip, snapshot or event-asset name into the capture's NAMES
+   * tables (`EventSink.name`), `noName` is the id for none. The payload and its rows may be reused by the next call.
+   */
+  keyframe?(nameId: (table: "clips" | "snapshots" | "events", name: string) => number, noName?: number): KeyframePayload;
 }
 
 let backend: AudioBackend | null = null;

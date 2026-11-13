@@ -10,6 +10,7 @@ import { onAudioConfigured } from "../../../../engine/core/audioConfigure";
 import type { World } from "../../../../engine/core/World";
 import type { WorldServiceDef } from "../../../../engine/core/worldServices";
 import { noteCoreUnavailable, registerCoreBackend } from "../backend";
+import { capturePlayStopped } from "../capture/capture";
 import type { AudioHost, WorldKey, WorldShare } from "./context";
 
 export const AUDIO = "myco.audio";
@@ -50,7 +51,19 @@ export class AudioWorldService {
     const share = this.share;
     // A released share's key may already be another World's: never release it twice.
     if (share && !share.released) this.core.host?.releaseWorld(share.key);
+    // G7b (architecture §2.1 "Released"): Play stops with the last Runtime World. The editor's own World, a server World and a
+    // Runtime World still running keep the capture going; a take is Held for the save (`capturePlayStopped`).
+    if (this.world.kind === "runtime" && !hasRuntimeShare(this.core.host)) capturePlayStopped();
   }
+}
+
+/** Whether a Runtime World still holds a share of `host`. */
+function hasRuntimeShare(host: AudioHost | undefined): boolean {
+  let found = false;
+  host?.forEachWorld((_key, owner) => {
+    if ((owner as { kind?: string }).kind === "runtime") found = true;
+  });
+  return found;
 }
 
 /**

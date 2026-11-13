@@ -16,6 +16,7 @@ import { registerMusicPanels } from "./music";
 import { registerMixPanels } from "./mix";
 import { mixer } from "../../../engine/audio/mixer";
 import { startOpLog, type OpLog } from "./mix/opLog";
+import { setCaptureProject } from "../runtime/capture/capture";
 
 /** ADR 0171 (Hk1, Ma1): the audio op log, started once per page (the plugin context has no dispose hook); it hands live
  * edits of the project's audio section to the running mixer while Play runs. */
@@ -40,6 +41,13 @@ export const audioEditorPlugin: EditorPlugin = {
   manifest: audioManifest,
   activate(context) {
     opLog ??= startOpLog(() => mixer);
+    // G7b: a capture's META names the open project (the page title stands in otherwise). `project.json` has no version key
+    // of its own yet, so the version is whatever string a project keeps there, else empty.
+    setCaptureProject(() => {
+      const project = editor.project.current;
+      const version = (project?.settings as { version?: unknown } | undefined)?.version;
+      return { name: project?.name ?? "", version: typeof version === "string" ? version : "" };
+    });
     // Project settings > Audio, after Graphics as it has always been. `audio` is a core key (the panel's own parse reports
     // its problems), so the section owns no extra keys.
     context.registerProjectSettingsSection({
