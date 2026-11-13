@@ -110,6 +110,15 @@ impl Biquad {
         kernel::process_stereo(&self.coefficients, &mut self.history, left, right);
     }
 
+    /// Leaves `left` and `right` untouched and sets the history to what a pass-through filter would
+    /// hold after them (`kernel::follow_identity`): a filter bypassed this way and then set engages
+    /// as though it had been running at identity, without a zero-state transient (F2). Costs a few
+    /// stores per block, nothing per sample. Keeps the coefficients and `last`.
+    pub fn follow(&mut self, left: &[f32], right: &[f32]) {
+        kernel::follow_identity(&mut self.history[0], left);
+        kernel::follow_identity(&mut self.history[1], right);
+    }
+
     /// Clears the history (Blink's `Reset`), keeping the coefficients.
     pub fn reset(&mut self) {
         self.history = [[0.0; 4]; 2];

@@ -284,7 +284,14 @@ pub fn lowpass_on(lp_hz: f32) -> bool {
 }
 
 /// The snapshot low-pass on one block: configures `filter` for `lp_hz` (Q [`SNAPSHOT_Q_DB`]) and
-/// filters in place, or does nothing when the cut-off is off ([`lowpass_on`]).
+/// filters in place, or leaves the block untouched when the cut-off is off ([`lowpass_on`]).
+///
+/// **Engaging from off (F2).** While off, the filter's history follows the block as a pass-through
+/// filter's would (`Biquad::follow`: four stores per channel per quantum, nothing per sample, the
+/// samples untouched), so when the cut-off comes in its first quantum continues from the signal
+/// instead of from rest (zero history before the first engagement, the last engagement's stale
+/// history after). Before, a low-pass stepping in from off over DC 0.5 dropped the output by up to
+/// 0.50 in one sample (0.18 in a 20 ms ramp); now it holds the level.
 ///
 /// **The snapshot blend (B4).** `bus.rs` calls this once per quantum with the `snapshot` lane's
 /// low-pass ramp sampled at the quantum's start, so a snapshot transition's coefficients are
@@ -296,6 +303,8 @@ pub fn snapshot_lowpass(filter: &mut Biquad, sample_rate: f32, lp_hz: f32, left:
     if lowpass_on(lp_hz) {
         filter.set_lowpass(sample_rate, lp_hz, SNAPSHOT_Q_DB);
         filter.process(left, right);
+    } else {
+        filter.follow(left, right);
     }
 }
 

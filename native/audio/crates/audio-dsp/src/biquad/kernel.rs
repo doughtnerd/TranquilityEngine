@@ -59,6 +59,22 @@ pub fn process(c: &Coefficients, history: &mut [f64; 4], samples: &mut [f32]) {
     *history = [flush(x1), flush(x2), flush(y1), flush(y2)];
 }
 
+/// The history [`process`] with identity coefficients (`b0` 1, the rest 0) would leave after
+/// `samples`, without the per-sample loop: the output equals the input, so `x1 = y1` is the last
+/// sample and `x2 = y2` the one before (flushed as [`process`] flushes). Not part of the port: the
+/// snapshot low-pass keeps its history this way while it is off (F2), so it engages from the
+/// state of a filter that was passing samples through rather than from rest.
+#[inline]
+pub fn follow_identity(history: &mut [f64; 4], samples: &[f32]) {
+    let [x1, x2, ..] = *history;
+    let (x1, x2) = match *samples {
+        [] => (x1, x2),
+        [a] => (a as f64, x1),
+        [.., b, a] => (a as f64, b as f64),
+    };
+    *history = [flush(x1), flush(x2), flush(x1), flush(x2)];
+}
+
 /// [`process`] on two channels at once (equal lengths), each with its own history. The same
 /// arithmetic per channel, so the same samples; interleaving the two recursions lets them overlap.
 #[inline]
@@ -97,6 +113,23 @@ mod tests {
         process(&IDENTITY, &mut h, &mut x);
         assert_eq!(x, [0.5, -1.0, 1e-40]);
         assert_eq!(h, [0.0, -1.0, 0.0, -1.0], "x1 and y1 (a denormal) flush to zero");
+    }
+
+    #[test]
+    fn following_equals_an_identity_pass() {
+        let x: Vec<f32> = (0..128).map(|n| ((n * 37) % 101) as f32 / 50.0 - 1.0).collect();
+        for len in [0, 1, 2, 3, 128] {
+            // From a state an identity filter can be in (y = x).
+            let start = [0.25, -0.5, 0.25, -0.5];
+            let (mut h, mut f) = (start, start);
+            let mut y = x[..len].to_vec();
+            process(&IDENTITY, &mut h, &mut y);
+            follow_identity(&mut f, &x[..len]);
+            assert_eq!(f, h, "{len} samples");
+        }
+        let mut f = [0.0; 4];
+        follow_identity(&mut f, &[1e-40, 0.5]);
+        assert_eq!(f, [0.5, 0.0, 0.5, 0.0], "a denormal flushes");
     }
 
     #[test]
