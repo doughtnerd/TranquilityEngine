@@ -27,7 +27,7 @@ function rig() {
   const table = new VoiceTable(8);
   const host: BusIndexHost = {
     mixer,
-    writer: { busConfig: (b) => void configs.push(b.map((x) => ({ ...x }))), setParams() {}, busSlot: (a) => void slots.push({ ...a }) },
+    writer: { busConfig: (b) => void configs.push(b.map((x) => ({ ...x }))), setParams() {}, busSlot: (a) => void slots.push({ ...a }), fadeShaped() {} },
     beds: { plan: (_s, names, parents) => void plans.push({ names: [...names], parents: Array.from(parents).slice(0, names.length) }) },
     automation: { onBusesConfigured() {} },
     mirror: { resetPeaks() {} },

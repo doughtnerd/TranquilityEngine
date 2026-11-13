@@ -6,7 +6,9 @@
 // - **The table** is reset at each configure (slot = project position, today's mapping: no wire byte changes until a live
 //   edit) and edited by the live path (`liveMix.ts`): an add takes the first free slot, else the next index, and goes to
 //   the core as one `BUS_SLOT` (append); an effect edit is one `BUS_SLOT` for its slot (the diff of `BUS_CONFIG`); a rename
-//   keeps the slot and aliases the old name. Ma2 (W6) adds tombstones to the remap.
+//   keeps the slot and aliases the old name. Ma2 (W6): the structural edits (`structuralDip.ts`) move and tombstone slots
+//   here; a tombstone keeps its slot (and its name in `names`, never in the map) until it recycles, its voices go to the
+//   root with a per-voice dip, and BUS_CONFIG's replay carries it as a silent root.
 // - **One map.** `busIndexByName` (name → slot, plus a live rename's old name) is the map the lane writer, automation,
 //   presence's slots, the aux sends and the plays read; `names` is slot → name; the bed plan's parents and `BUS_CONFIG`'s
 //   tree (`busConfigWire`, also the hard rebuild's replay) come from the table.
@@ -15,7 +17,8 @@
 import type { Mixer, ResolvedBus } from "../../../../engine/audio/mixer";
 import { MAX_BUSES, type AudioSettings, type BusEffect } from "../../../../engine/audio/settings";
 import { SlotTable, type SlotDeferred } from "../../../../engine/audio/slotTable";
-import { BUS_ROOT, SET_PARAMS_MASK_BUS, type BusConfigBuses, type BusConfigBusesEffects } from "../wire.generated";
+import { BUS_ROOT, FadeLaw, SET_PARAMS_MASK_BUS, type BusConfigBuses, type BusConfigBusesEffects } from "../wire.generated";
+import { VoiceState } from "./voiceTable";
 import type { CommandWriter } from "./commandWriter";
 import type { BedPlanner } from "./beds";
 import type { CoreAutomation } from "./coreAutomation";
@@ -48,6 +51,12 @@ export function wireEffect(e: BusEffect): BusConfigBusesEffects {
   }
 }
 
+/** A `BUS_SLOT` that rides a structural sequence: stamped at `at` with its `sequenceId` (C27). */
+export interface SlotStamp {
+  at: number;
+  sequenceId: number;
+}
+
 /** What the bed plan reads of the settings: a live edit that leaves it alone plans nothing again. */
 function bedKey(a: AudioSettings): string {
   return JSON.stringify([a.bed, a.buses.map((b) => [b.name, b.parent ?? null, b.bed ?? null, b.bedPriority ?? null])]);
@@ -56,7 +65,7 @@ function bedKey(a: AudioSettings): string {
 /** What the bus index needs of the core backend. */
 export interface BusIndexHost {
   readonly mixer: Mixer;
-  readonly writer: Pick<CommandWriter, "busConfig" | "setParams" | "busSlot">;
+  readonly writer: Pick<CommandWriter, "busConfig" | "setParams" | "busSlot" | "fadeShaped">;
   readonly beds: Pick<BedPlanner, "plan">;
   readonly automation: Pick<CoreAutomation, "onBusesConfigured">;
   readonly mirror: Pick<StatusMirror, "resetPeaks">;
@@ -181,13 +190,98 @@ export class BusIndex {
    * One `BUS_SLOT` (§4.2, R7), asap: bus `name`'s parent slot and effects from the mixer's settings. `fresh` for a slot
    * that was added (the core starts it zeroed with unity lanes). Returns the slot, or -1 for an unknown bus.
    */
-  writeSlot(name: string, fresh = false): number {
+  writeSlot(name: string, fresh = false, stamp?: SlotStamp): number {
     const s = this.slotOf(name);
     if (s < 0) return -1;
-    const slot = this.slots.slots[s]!;
-    const bus = this.host.mixer.audioSettings.buses.find((b) => b.name === slot.name);
-    this.host.writer.busSlot({ slot: s, parent: slot.parent < 0 ? BUS_ROOT : slot.parent, effects: (bus?.effects ?? []).map(wireEffect), fresh });
+    const c = this.slotConfig(s);
+    this.host.writer.busSlot({ ...c, fresh, ...(stamp ? { structural: true, sequenceId: stamp.sequenceId } : {}) }, stamp?.at);
     return s;
+  }
+
+  /** Slot `s`'s `BUS_SLOT` body now: a live bus's parent and effects (from the mixer's settings); a tombstone or a free slot is a silent root. */
+  slotConfig(s: number): { slot: number; parent: number; effects: BusConfigBusesEffects[] } {
+    const slot = this.slots.slots[s];
+    if (!slot || slot.state !== "live") return { slot: s, parent: BUS_ROOT, effects: [] };
+    const bus = this.host.mixer.audioSettings.buses.find((b) => b.name === slot.name);
+    return { slot: s, parent: slot.parent < 0 ? BUS_ROOT : slot.parent, effects: (bus?.effects ?? []).map(wireEffect) };
+  }
+
+  // --- Ma2: the structural edits' side of the table (`structuralDip.ts`) ---
+
+  /** A live re-parent (the table's `move`); its `BUS_SLOT` goes in the dip's sequence. Returns the bus's slot. */
+  moveBus(name: string, parent: string): number {
+    this.slots.move(name, parent);
+    this.syncNames();
+    return this.slotOf(name);
+  }
+
+  /**
+   * A live removal: the bus and its descendants become tombstones (silent roots) whose recycle frame is set once their
+   * dip is stamped (`settle`). Their names leave the map at once, so a new play under a removed name goes where an
+   * unknown name goes. Returns the tombstoned slots, the removed bus first.
+   */
+  removeBus(name: string): number[] {
+    const slots = this.slots.remove(name, Number.POSITIVE_INFINITY);
+    this.syncNames();
+    return slots;
+  }
+
+  /** The dip that tombstoned `slots` ends at `dipEndFrame`: they recycle `TOMBSTONE_TAIL_FRAMES` later (the table's `settle`). */
+  settle(slots: readonly number[], dipEndFrame: number): void {
+    this.slots.settle(slots, dipEndFrame);
+  }
+
+  /** R9: frees each tombstone past its recycle frame with no voice on it (`busLive`); returns the freed slots. */
+  recycle(frame: number): number[] {
+    const busLive = this.host.table.busLive;
+    const freed = this.slots.recycle(frame, (s) => busLive[s] ?? 0);
+    if (freed.length > 0) this.syncNames();
+    return freed;
+  }
+
+  /** The root slot above live slot `s` (itself for a root; 0 when unknown). */
+  rootOf(s: number): number {
+    const slots = this.slots.slots;
+    let b = s;
+    for (let hops = 0; hops <= slots.length; hops++) {
+      const p = slots[b]?.parent ?? -1;
+      if (p < 0) return slots[b] ? b : 0;
+      b = p;
+    }
+    return 0;
+  }
+
+  /**
+   * The per-voice dip (§6.5): every live voice on one of `from` moves to slot `to`. Main's side at once (the table's
+   * slot and counts, the mixer's counts, presence); on the core, a voice it holds fades out from `f0` over `frames`, its
+   * `SET_PARAMS bus` lands at `b` (with its old bus at 0) and it fades back in from `b` (a stopping voice stays out).
+   * Returns the voices moved.
+   */
+  moveVoices(from: ReadonlySet<number>, to: number, f0: number, b: number, frames: number, sampleRate: number): number {
+    const host = this.host;
+    const t = host.table;
+    const w = host.writer;
+    const seconds = frames / sampleRate;
+    let moved = 0;
+    for (let i = 0; i < t.capacity; i++) {
+      const state = t.state[i]!;
+      if (state === VoiceState.FREE || !from.has(t.bus[i]!)) continue;
+      const old = t.bus[i]!;
+      t.bus[i] = to;
+      if (t.busLive[old]! > 0) t.busLive[old]!--;
+      t.busLive[to]!++;
+      host.mixer.voiceEnded(this.names[old] ?? "");
+      host.mixer.voiceStarted(this.names[to] ?? "");
+      host.presence.voiceStopped(old, i);
+      host.presence.voiceStarted(to, i);
+      moved++;
+      if (!host.onCore(i)) continue;
+      const id = ((t.gen[i]! << 16) | i) >>> 0;
+      w.fadeShaped(id, 0, seconds, FadeLaw.Linear, 0, f0);
+      w.setParams(id, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, to, 0, b);
+      if (state !== VoiceState.STOPPING && state !== VoiceState.ENDING) w.fadeShaped(id, t.fadeGain[i]!, seconds, FadeLaw.Linear, 0, b);
+    }
+    return moved;
   }
 
   /** Each slot's `maxVoices` (0 unlimited) from the mixer's settings, into the voice table (the steal limit is main's). */

@@ -74,8 +74,15 @@ export class LaneWriter {
   /** Each bus's snapshot cutoff now (`BUS_LP_OFF_HZ`: none), for the sharing chain's fold. */
   readonly snapLp = new Float32Array(MAX_BUS).fill(BUS_LP_OFF_HZ);
 
-  // What was last sent, per bus index: the bus it was for, each lane ramp's `seq`, the mutes, the monitor gain.
-  private readonly sentName: (string | null)[] = new Array<string | null>(MAX_BUS).fill(null);
+  // What was last sent, per core slot (Ma2: keyed by slot, not by name): the bus state it was for (its `authored` ramp
+  // object, which a live rename keeps and a new bus on a recycled slot doesn't), each lane ramp's `seq`, the mutes, the
+  // monitor gain.
+  private readonly sentFor: (Readonly<Ramp> | null)[] = new Array<Readonly<Ramp> | null>(MAX_BUS).fill(null);
+  /** Per slot, set while a `sync` or replay visits it (a name listed twice, or a stale state on a reused slot, is skipped). */
+  private readonly visited = new Uint8Array(MAX_BUS);
+  /** The parent's name of each bus, from the settings object it was read from. */
+  private parentOf = new Map<string, string | undefined>();
+  private parentsFrom: unknown = null;
   private readonly seqAuthored = new Float64Array(MAX_BUS);
   private readonly seqRuntime = new Float64Array(MAX_BUS);
   private readonly seqSnapshot = new Float64Array(MAX_BUS);
@@ -113,28 +120,32 @@ export class LaneWriter {
    */
   sync(): void {
     const mixer = this.host.mixer;
-    const names = mixer.busNames;
-    const n = Math.min(names.length, MAX_BUS);
     const now = mixer.time;
     const full = this.full;
     this.full = false;
+    const live = this.liveBuses();
     // The monitor lane: recomputed over the tree only when a solo or monitor switch moved (or on a full send).
     let switched = full;
-    for (let b = 0; b < n; b++) {
-      const l = mixer._lanes(names[b]!);
-      const bits = l ? (l.runtimeSolo ? 1 : 0) | (l.monitorMute ? 2 : 0) | (l.monitorSolo ? 4 : 0) : 0;
-      if (bits !== this.switches[b] || this.sentName[b] !== names[b]) switched = true;
+    for (const name of live) {
+      const l = mixer._lanes(name)!;
+      const b = l.slot;
+      const bits = (l.runtimeSolo ? 1 : 0) | (l.monitorMute ? 2 : 0) | (l.monitorSolo ? 4 : 0);
+      if (bits !== this.switches[b] || this.sentFor[b] !== l.authored) switched = true;
       this.switches[b] = bits;
     }
-    if (switched) for (let b = 0; b < n; b++) this.monitorNow[b] = mixer.laneGain(names[b]!, Lane.monitor);
+    if (switched) for (const name of live) this.monitorNow[mixer._lanes(name)!.slot] = mixer.laneGain(name, Lane.monitor);
 
-    const settings = mixer.audioSettings.buses;
-    for (let b = 0; b < n; b++) {
-      const name = names[b]!;
-      const l = mixer._lanes(name);
-      if (!l) continue;
-      const fresh = full || this.sentName[b] !== name;
-      this.sentName[b] = name;
+    this.readParents();
+    // A slot no live bus holds (a tombstone, a free slot) is silent for selection.
+    this.own.fill(0);
+    this.selParent.fill(-1);
+    let n = 0;
+    for (const name of live) {
+      const l = mixer._lanes(name)!;
+      const b = l.slot;
+      if (b + 1 > n) n = b + 1;
+      const fresh = full || this.sentFor[b] !== l.authored;
+      this.sentFor[b] = l.authored;
       // authored: asap (a set or toggle over rampFrames, a drag over its own length).
       if (fresh || l.authored.seq !== this.seqAuthored[b] || (l.authoredMute ? 1 : 0) !== this.mutedAuthored[b]) {
         const wasMuted = this.mutedAuthored[b] === 1;
@@ -176,10 +187,12 @@ export class LaneWriter {
         rampAt(l.dip, now) *
         l.duck;
       this.own[b] = Number.isFinite(g) && g > 0 ? g : 0;
-      const p = settings[b]?.parent;
+      const p = this.parentOf.get(name);
       this.selParent[b] = p === undefined ? -1 : (this.host.busIndexByName.get(p) ?? -1);
       this.snapLp[b] = rampAt(l.snapshotLowpass, now);
     }
+    // A slot that went silent since the last configure (a tombstone) keeps being written, as 0.
+    if (!full) n = Math.max(n, this.selCount);
     // The effective gain down the tree: each bus's own product times its ancestors'.
     for (let b = 0; b < n; b++) {
       let g = this.own[b]!;
@@ -189,6 +202,35 @@ export class LaneWriter {
     this.selCount = n;
     this.refreshBusGain();
     this.host.refreshSharedLowpass();
+  }
+
+  /**
+   * The mixer's buses that hold their slot now, each slot once (Ma2): a name the bus index maps to its state's slot. The
+   * mixer keeps a removed bus's state until the next configure: a tombstone's lanes are the dip's (held at 0, nothing
+   * more is sent), and a stale state whose slot a new bus took is skipped.
+   */
+  private liveBuses(): string[] {
+    const mixer = this.host.mixer;
+    const map = this.host.busIndexByName;
+    const out: string[] = [];
+    this.visited.fill(0);
+    for (const name of mixer.busNames) {
+      const l = mixer._lanes(name);
+      if (!l) continue;
+      const b = l.slot;
+      if (b < 0 || b >= MAX_BUS || this.visited[b] || map.get(name) !== b) continue;
+      this.visited[b] = 1;
+      out.push(name);
+    }
+    return out;
+  }
+
+  /** Each bus's parent by name, read again when the settings object changed (a removed bus has none: a silent root). */
+  private readParents(): void {
+    const settings = this.host.mixer.audioSettings;
+    if (settings === this.parentsFrom) return;
+    this.parentsFrom = settings;
+    this.parentOf = new Map(settings.buses.map((x) => [x.name, x.parent]));
   }
 
   /**
@@ -207,9 +249,9 @@ export class LaneWriter {
     const busGain = this.host.busGain;
     const chain = this.selChain;
     for (let b = 0; b < this.selCount; b++) {
-      const p = this.selParent[b]!;
-      const own = this.selAuto[b]!;
-      const c = p >= 0 && p < b ? chain[p]! * own : own;
+      // Up the tree (Ma2: a re-parent can put a parent at a higher slot than its child).
+      let c = this.selAuto[b]!;
+      for (let p = this.selParent[b]!, depth = 0; p >= 0 && p < this.selCount && depth < 64; p = this.selParent[p]!, depth++) c *= this.selAuto[p]!;
       chain[b] = c;
       const g = this.selBase[b]! * c;
       busGain[b] = Number.isFinite(g) && g > 0 ? g : 0;
@@ -250,17 +292,29 @@ export class LaneWriter {
     // Dp1: the ducking rules and the presence mask come first (§4.2: BUS_CONFIG, BUS_DUCK, BUS_PRESENCE, then lanes).
     this.host.replayDucking?.(out);
     const mixer = this.host.mixer;
-    const names = mixer.busNames;
-    const n = Math.min(names.length, MAX_BUS);
     const now = mixer.time;
     const rate = this.host.clockMap.sampleRate;
     const step = (b: number, lane: number, mask: number, gain: number, lpHz: number, frames: number) =>
       out.record(32, (view, off) => writeBusRamp(view, off, { voiceId: b, frameOffset: ASAP, lane, mask, gain, lpHz, frames, shape: LINEAR }));
     const remaining = (r: Readonly<Ramp>) => (r.seconds > 0 && r.from !== r.to ? Math.round((r.start + r.seconds - now) * rate) : 0);
-    for (let b = 0; b < n; b++) {
-      const name = names[b]!;
+    // Ma2: the live buses by slot, then each removed bus still holding its slot (a tombstone): only its dip lane, at its
+    // end state (0), since a silent root carries nothing else.
+    const live = this.liveBuses();
+    const removed: string[] = [];
+    for (const name of mixer.busNames) {
       const l = mixer._lanes(name);
-      if (!l) continue;
+      if (!l || l.slot < 0 || l.slot >= MAX_BUS || this.visited[l.slot] || this.host.busIndexByName.has(name)) continue;
+      this.visited[l.slot] = 1;
+      removed.push(name);
+    }
+    const bySlot = (x: string, y: string) => mixer._lanes(x)!.slot - mixer._lanes(y)!.slot;
+    for (const name of removed) {
+      const l = mixer._lanes(name)!;
+      step(l.slot, LANE_DIP, BUS_RAMP_MASK_GAIN, l.dip.to, BUS_LP_OFF_HZ, 0);
+    }
+    for (const name of live.sort(bySlot)) {
+      const l = mixer._lanes(name)!;
+      const b = l.slot;
       step(b, LANE_AUTHORED, BUS_RAMP_MASK_GAIN, l.authoredMute ? 0 : l.authored.to, BUS_LP_OFF_HZ, 0);
       // runtime: the value now, then what is left of a running fade.
       const runLeft = l.runtimeMute ? 0 : remaining(l.runtime);
@@ -278,7 +332,7 @@ export class LaneWriter {
       const monitor = mixer.laneGain(name, Lane.monitor);
       step(b, LANE_MONITOR, BUS_RAMP_MASK_GAIN, monitor, BUS_LP_OFF_HZ, 0);
       step(b, LANE_DIP, BUS_RAMP_MASK_GAIN, l.dip.to, BUS_LP_OFF_HZ, 0);
-      this.sentName[b] = name;
+      this.sentFor[b] = l.authored;
       this.seqAuthored[b] = l.authored.seq;
       this.mutedAuthored[b] = l.authoredMute ? 1 : 0;
       this.seqRuntime[b] = l.runtime.seq;
