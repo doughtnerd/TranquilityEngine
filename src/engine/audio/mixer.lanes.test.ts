@@ -531,7 +531,7 @@ describe("Mixer lanes on the heard clock (Mx1)", () => {
     it("apply delegates to the registered target's applyOp and keeps script state", () => {
       const { m, run } = rig(settings(TREE()));
       const music = m.bus("Music");
-      const op: MixOp = { op: "setAuthoredVolume", bus: "Music", volume: 0.6 };
+      const op: MixOp = { op: "setBus", bus: "Music", key: "volume", value: 0.6 };
       expect(m.apply(op).ok).toBe(false); // no backend yet
 
       music.volume = 0.5;
