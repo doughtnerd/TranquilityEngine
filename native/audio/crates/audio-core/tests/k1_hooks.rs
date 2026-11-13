@@ -192,7 +192,9 @@ fn every_m5_opcode_is_dispatched_to_a_stub_that_changes_nothing() {
     let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
     assert!(want.0.iter().any(|x| *x != 0.0), "the scene is audible");
     assert_eq!((bits(&want.0), bits(&want.1)), (bits(&got.0), bits(&got.1)), "bit-identical");
-    assert_eq!((parent, parent_after), (0, 0), "BUS_SLOT's stub doesn't re-parent");
+    // B2 filled BUS_SLOT: the asap record re-parents bus 1 under bus 2 (both at unity, no effects,
+    // so the sound is the same).
+    assert_eq!((parent, parent_after), (0, 2), "BUS_SLOT re-parents (B2)");
     assert_eq!((mix.lane_records_ignored, mix.duck_rules_inert, mix.loud_meters_dropped, mix.live_deferred), (0, 0, 0, 0), "the stubs count nothing");
 }
 

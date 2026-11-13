@@ -266,6 +266,12 @@ impl DueList<'_> {
 
 /// Starts quantum `frame`'s list: clears the due records and the voices' [`FLAG2_DUE`] bits left
 /// from the last quantum. Called by `voices::render` before `pop_due` (H1, Z2a's).
+///
+/// **M5 (B2):** then the stamped configuration due in this quantum applies at its start
+/// (`scheduler::apply_due_config`: `BUS_SLOT`, `BUS_PRESENCE`, in (frame, batch order); ARCH §4.7).
+/// It runs here because this is the per-quantum entry before any voice renders or any pending
+/// record pops; `sends::begin_quantum` and `bed::begin_quantum` ran before it, so a re-parent
+/// reaches the voice-send chain gains one quantum later, under the dip at 0.
 pub fn begin_quantum(core: &mut Core, frame: u64) {
     let len = view(core.regions_mut()).records().len();
     for i in 0..len {
@@ -275,6 +281,30 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
     let list = view(core.regions_mut());
     list.area.len = 0;
     list.area.frame = frame;
+    crate::scheduler::apply_due_config(core, frame);
+}
+
+/// The structural sequence a pending or due record belongs to (C27; API §4.2), 0 for none: a
+/// `BUS_RAMP`'s `shape` bits 3–15 (`wire::ramp_sequence_id`), read through
+/// `scheduler::shape_word`. Every other record has none.
+///
+/// **The hook for B1b (W3, class B).** This is the `sequenceId` link between the dip ramps and the
+/// late-batch rule. Today no `BUS_RAMP` reaches the pending queue (`lanes::on_ramp` takes it at
+/// submit, with its frame already shifted by `scheduler::sequence_shifts`), so this returns 0 for
+/// every queued record. When B1b routes stamped `BUS_RAMP`s through the pending queue into the due
+/// list as class B, it:
+/// 1. stores the ramp's shape word in its `PendingRecord` and adds that record's arm to
+///    `scheduler::shape_word`, so this function returns its sequence;
+/// 2. when it pops a dip-down ramp whose frame is before the quantum's first frame q (a sequence
+///    found late at pop, not at arrival), calls `scheduler::shift_sequence(core, id, s)` with
+///    s = ⌈(q − F0) / 128⌉ × 128 — which moves the sequence's records still in the pending and
+///    configuration queues and counts `lateCommands` once — and re-queues the popped ramp at
+///    F0 + s itself (and any of the sequence's records already in this quantum's due list).
+pub fn sequence_of(record: &DueRecord) -> u16 {
+    match record.op as u16 {
+        op::BUS_RAMP => audio_wire::generated::ramp_sequence_id(crate::scheduler::shape_word(record)) as u16,
+        _ => 0,
+    }
 }
 
 /// Routes one record `pop_due` returned for the quantum at `frame` (see [`Route`]). Counts
