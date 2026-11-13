@@ -97,11 +97,17 @@ describe("a stream across a hard rebuild (B3)", () => {
         for (let k = 0; k < 4; k++) await Promise.resolve();
       }
     };
+    // Frames until the work is done. (`vi.waitFor` is a 1 s wall-clock budget polled every 50 ms: it fails on a busy
+    // machine. Here the budget counts frames; a real millisecond between them gives the worker and the respawn CPU.)
+    const until = async (done: () => boolean, what: string) => {
+      for (let k = 0; k < 20_000 && !done(); k++) {
+        await step(1);
+        if (!done()) await new Promise((res) => setTimeout(res, 50));
+      }
+      if (!done()) throw new Error(`gave up waiting for ${what}`);
+    };
     const voice = backend.play({ path: "music/long.wav", url: "", loop: false, stream: true, bus: "Music" })!;
-    await vi.waitFor(async () => {
-      await step(1);
-      expect(loop.driver.stats.streamFrames).toBeGreaterThan(0);
-    });
+    await until(() => loop.driver.stats.streamFrames > 0, "the stream's first frames");
     await step(73);
     expect(voice.reason).toBeNull();
     const oldStream = backend.table.clip[voice.id & 0xffff]!;
@@ -113,10 +119,7 @@ describe("a stream across a hard rebuild (B3)", () => {
     expect(voice.playing).toBe(true);
     // The new core answers; the stream reopens on it (new id, new channel) and sounds again.
     const restartAt = out.length;
-    await vi.waitFor(async () => {
-      await step(1);
-      expect(out.slice(restartAt).some((s) => s !== 0)).toBe(true);
-    });
+    await until(() => out.slice(restartAt).some((s) => s !== 0), "the reopened stream to sound");
     await step(20);
     expect(loop.cores).toBe(2);
     expect(backend.table.clip[voice.id & 0xffff]).not.toBe(oldStream);
@@ -137,9 +140,13 @@ describe("a stream across a hard rebuild (B3)", () => {
     // Where it would have been: the output frames before the trap plus the gap, within a few quanta of the estimate.
     const firstSound = out.findIndex((s) => s !== 0);
     const expected = on - firstSound;
-    // Measured: 1 frame.
+    // Measured: 1 frame, or 513 when the stream worker's refill (one chunk per macrotask, decoder/handler.ts) lands a
+    // step later. The audible edge sits on either side of a 4-quantum step (512 frames) depending on how many macrotask
+    // turns the worker got between steps, which is the host's scheduling and not the product's clock: the bound is two
+    // steps, still "a few quanta" against a playhead of 6 s of file.
     expect(Math.abs(pos - expected)).toBeLessThan(512);
     for (let k = 0; k < 4_000; k++) if (out[on + k] !== want(pos + k)) expect.fail(`frame ${k} after the reopen`);
     backend.dispose();
-  });
+    // Every assertion above is on frames rendered, stream ids and counters; the timeout is the harness's patience.
+  }, 120_000);
 });
