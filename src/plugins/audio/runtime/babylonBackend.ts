@@ -27,8 +27,10 @@ import type { Vec3Like } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { AudioReverbZone } from "./AudioReverbZone";
 import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
+import { opClass, opRefusal, type ApplyResult, type MixOp } from "../../../engine/audio/mixOps";
+import { events } from "./events/eventRuntime";
 import { BABYLON_CPU_REASON, babylonCpuDebug, babylonMixDebug } from "./mix/mixDebug";
-import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioM3Counters, type AudioMixCaps, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicGroupRequest, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type FadeLaw } from "./backend";
+import { hasAudioBackend, mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioM3Counters, type AudioMixCaps, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicGroupRequest, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type FadeLaw } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
 import { DistanceEffect, SendCurveTable, SpatialViewFlag, type SpatialPassHost, type SpatialVoiceView } from "./core/spatial";
 import { DopplerPass } from "./core/doppler";
@@ -645,6 +647,10 @@ class BabylonVoice implements AudioVoice {
     this.looping = looping;
     this.applyLoop();
   }
+  /** @internal Bb3: a live rename moved the bus's state under a new name; the voice follows without recounting. */
+  _renamedBus(to: string): void {
+    this.bus = to;
+  }
   setBus(bus: string): void {
     if (this.ended || bus === this.bus) return;
     mixer.voiceEnded(this.bus);
@@ -766,6 +772,9 @@ class BabylonSpatialView implements SpatialVoiceView {
     this.voices[i]?.setDopplerRate(factor);
   }
 }
+
+/** ADR 0171 §9 (Bb3): what a level-mode ducking rule answers on the fallback (the rule is kept, and does nothing). */
+export const NEEDS_AUDIO_CORE = "Needs the audio core";
 
 /** The fallback's decoded-clip memory ceiling for an ambisonic clip is in `babylonMapping.ts` (`AMBISONIC_DECODE_LIMIT_BYTES`). */
 export class BabylonBackend implements AudioBackend, SpatialPassHost {
@@ -957,6 +966,71 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
       return live;
     });
   }
+
+  /**
+   * ADR 0171 §6.2, §9 (Bb3): a live edit on the fallback. There is no core: direct, smoothed and config ops change the
+   * mixer's model (`_applyLive`) and reach Babylon through `applyMix` (bus volumes, which ramp over `BUS_RAMP_SECONDS`);
+   * presence ducking keeps running on main from the model. A level-mode ducking rule is kept in the model (so later
+   * indices agree with the project) and answers `NEEDS_AUDIO_CORE`; it never ducks. Structural ops (`dip`: move, remove,
+   * reorder), `addBus` and `renameBus` change the node graph, so they rebuild it with the same short ramp: no dip, a
+   * click is accepted (the panel says so). The returned class is the op's, as the core answers it.
+   */
+  applyOp(op: MixOp): ApplyResult {
+    const m = this.mixerRef ?? mixer;
+    const before = m.audioSettings;
+    if (opRefusal(before, op) !== null) return { ok: false, class: "none" };
+    const cls = opClass(op, before);
+    if (cls === "none") return { ok: true, class: "none" };
+    const level = op.op === "setDucking" && op.rule !== null && op.rule.mode === "level";
+    const names = before.buses.map((b) => b.name);
+    if (!m._applyLive(op)) return { ok: true, class: "none" };
+    const rename = op.op === "renameBus";
+    if (rename) {
+      const to = op.to.trim();
+      for (const v of this.voices) if (v.busName === op.from) v._renamedBus(to);
+      const gain = this.gains.get(op.from);
+      this.gains.delete(op.from);
+      if (gain !== undefined) this.gains.set(to, gain);
+    }
+    if (cls === "dip" || rename || op.op === "addBus") {
+      const root = m.audioSettings.buses[0]!.name;
+      const now = new Set(m.audioSettings.buses.map((b) => b.name));
+      if (!rename) for (const n of names) if (!now.has(n)) for (const v of this.voices) if (v.busName === n) v.setBus(root);
+      if (op.op === "removeBus") this.pruneRemoved(m);
+      this.applyMix(m.resolveAll());
+      this.configureBuses(m);
+    } else {
+      this.applyMix(m.resolveAll());
+    }
+    if (op.op === "setAutomation" && hasAudioBackend()) events().getGlobal("");
+    return level ? { ok: false, class: cls, restartRequired: NEEDS_AUDIO_CORE } : { ok: true, class: cls };
+  }
+
+  /**
+   * `Mixer._applyLive` changes the settings for a `removeBus` but keeps the removed buses' state (the core path leaves that to
+   * Ma2's tombstones). The fallback has no slots, so it rebuilds the mixer's state from the settings and puts back what
+   * scripts set on the buses that stay: runtime volume (a fade in progress becomes its current value), mute, solo, the
+   * snapshot in force; and the voice counts, which `configure` zeroes.
+   */
+  private pruneRemoved(m: Mixer): void {
+    const kept = m.audioSettings.buses.map((b) => {
+      const x = m.bus(b.name);
+      return { name: b.name, volume: x.volume, mute: x.mute, solo: x.solo };
+    });
+    const snapshot = m.currentSnapshot;
+    m.configure(m.audioSettings);
+    for (const k of kept) {
+      const x = m.bus(k.name);
+      x.volume = k.volume;
+      x.mute = k.mute;
+      x.solo = k.solo;
+    }
+    if (snapshot !== null) m.snapshot(snapshot, 0);
+    for (const v of this.voices) m.voiceStarted(v.busName);
+  }
+
+  /** The fallback has no batch to post: `applyOp` already applied a preview edit. */
+  flushNow(): void {}
 
   applyMix(buses: readonly ResolvedBus[]): void {
     for (const b of buses) this.gains.set(b.name, b.gain);
