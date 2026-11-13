@@ -79,6 +79,12 @@
       "components": [{ "type": "lab.SceneSwitch", "data": { "key": "r", "scene": "scenes/rhythm.scene.json" } }]
     },
     {
+      "id": "mixer-page",
+      "name": "Mixer page (key -)",
+      "transform": false,
+      "components": [{ "type": "lab.SceneSwitch", "data": { "key": "-", "scene": "scenes/mixer.scene.json" } }]
+    },
+    {
       "id": "page-nav",
       "name": "Page buttons (touch: E, S, M, R)",
       "transform": false,

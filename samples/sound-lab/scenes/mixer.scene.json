@@ -1,0 +1,81 @@
+{
+  "format": "myco.scene@4",
+  "settings": { "physics": "3d" },
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 5, -12], "rotation": [0.1736482, 0, 0, 0.9848078] } },
+        { "type": "engine.Camera", "data": { "projection": "perspective", "fieldOfView": 55 } },
+        { "type": "engine.AudioListener", "data": {} }
+      ]
+    },
+    {
+      "id": "title",
+      "name": "Title",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": {
+            "text": "Sound Lab: mixer (B goes back to the tour)\nClick the game view first. Music and an ambience bed play; the voice and bursts duck them.",
+            "anchor": "top-left",
+            "align": "left",
+            "offset": [24, 20],
+            "fontSize": 22,
+            "outlineColor": "#000000",
+            "outlineWidth": 4
+          }
+        },
+        { "type": "lab.SceneSwitch", "data": { "key": "b", "scene": "scenes/main.scene.json" } }
+      ]
+    },
+    {
+      "id": "music",
+      "name": "Music bed (key 4)",
+      "transform": false,
+      "components": [
+        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/music-loop.wav", "loop": true, "volume": 0.5, "playOnAwake": true, "output": "Music" } }
+      ]
+    },
+    {
+      "id": "ambience",
+      "name": "Ambience bed (key 5)",
+      "transform": false,
+      "components": [
+        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/noise-loop.wav", "loop": true, "volume": 0.3, "playOnAwake": true, "output": "Ambience" } }
+      ]
+    },
+    {
+      "id": "voice",
+      "name": "Voice (key 1)",
+      "transform": false,
+      "components": [
+        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/mixer/voice-loop.wav", "loop": true, "volume": 1, "playOnAwake": false, "output": "Voice" } }
+      ]
+    },
+    {
+      "id": "mixer",
+      "name": "Mixer (keys 1-5)",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": { "anchor": "top-left", "align": "left", "offset": [24, 110], "fontSize": 20, "outlineColor": "#000000", "outlineWidth": 4 }
+        },
+        { "type": "lab.MixerLab", "data": {} }
+      ]
+    },
+    {
+      "id": "loudness",
+      "name": "Loudness reference (keys L, W, C, F, V, D)",
+      "transform": false,
+      "components": [
+        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/loudness-reference.wav", "loop": true, "volume": 1, "playOnAwake": false, "output": "UI" } },
+        { "type": "engine.Text", "data": { "anchor": "top-left", "align": "left", "offset": [24, 250], "fontSize": 20, "outlineColor": "#000000", "outlineWidth": 4 } },
+        { "type": "lab.Loudness", "data": {} }
+      ]
+    }
+  ]
+}
