@@ -3,7 +3,7 @@
 // earlier-applying change alters the mask there; rules carry presence and level rules, as slots.
 import { describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
-import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
+import { defaultAudioSettings, type AudioSettings, type DuckingRule } from "../../../../engine/audio/settings";
 import { DUCK_FLAG_LEVEL, DUCK_FLAG_RMS, MAX_LEVEL_RULES, type BusDuckRules } from "../wire.generated";
 import { Presence } from "./presence";
 import { VoiceState } from "./voiceTable";
@@ -125,7 +125,7 @@ describe("presence (Dp1)", () => {
 });
 
 describe("level rules on the wire (G7a)", () => {
-  const level = (trigger: string, extra: object = {}) => ({ target: "Music", trigger, mode: "level" as const, amount: 0.3, attack: 0.01, release: 0.2, ...extra });
+  const level = (trigger: string, extra: Partial<DuckingRule> = {}): DuckingRule => ({ target: "Music", trigger, mode: "level", amount: 0.3, attack: 0.01, release: 0.2, ...extra });
 
   it("a level rule carries DUCK_FLAG_LEVEL, RMS unless the detector is peak, and its threshold; its trigger sends no presence", () => {
     const r = rig({ ...defaultAudioSettings(), ducking: [level("SFX"), level("UI", { detector: "peak", threshold: -12 }), level("Voice", { detector: "rms", threshold: -40 })] });

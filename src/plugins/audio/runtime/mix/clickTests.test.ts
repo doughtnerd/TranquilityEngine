@@ -224,15 +224,17 @@ describe("Ck1: the send run-out and a sound's bus", () => {
   });
 
   // §4.7 lists "a sound's bus" as structural (§3.3: the voice dips alone with the per-voice FADE and `SET_PARAMS bus`
-  // from F0). `CoreBackend._setBus` still sends one asap `SET_PARAMS bus`, so a playing sound moved between buses with
-  // different chains steps (measured ~0.97 here, as S4's 0.94-1.0). Reported to the coordinator; this case flips to a
-  // plain `it` once `_setBus` dips.
-  it.fails("a sound's bus (Sound.bus while playing) dips: known gap, `_setBus` sends an asap SET_PARAMS bus", T, async (ctx) => {
+  // from F0). Ck1 found `CoreBackend._setBus` sending one asap `SET_PARAMS bus` (abrupt ~0.97-0.99 here, as S4's
+  // 0.94-1.0); G7a routes a sounding voice through `StructuralDip.dipVoice`: fade-out over DIP_FRAMES from F0, the bus
+  // at B with the fade at 0, fade-in. F-40's `maxStep` over the edit's window also stays within the signal's own.
+  it("a sound's bus (Sound.bus while playing) dips: `_setBus` on a sounding voice goes through the per-voice dip", T, async (ctx) => {
     const probe = await liveRig(PROJECT);
     if (!probe) return ctx.skip();
     probe.backend.dispose();
     await closeRigs();
     let w = 0;
+    let peak = 0;
+    let ratio = 0;
     for (let k = 0; k < 8; k++) {
       const one = async (edit: boolean) => {
         const r = (await liveRig(PROJECT))!;
@@ -240,18 +242,32 @@ describe("Ck1: the send run-out and a sound's bus", () => {
         const v = r.play("SFX", "toneB.wav")!;
         const out: number[] = [...(await r.step(WARM)).out, ...(await r.quanta(k))];
         const from = out.length;
+        const emitted = r.backend.dip.emitted;
         if (edit) r.backend._setBus(v.id, "Voice");
         out.push(...(await r.step(AFTER)).out);
+        expect(r.backend.dip.emitted, "no bus sequence: the voice dips alone").toBe(emitted);
         r.backend.dispose();
         await closeRigs();
         return { out, from };
       };
       const ref = await one(false);
       const got = await one(true);
-      w = Math.max(w, abrupt(ref.out, got.out, got.from).abrupt);
+      const m = abrupt(ref.out, got.out, got.from);
+      expect(m.pre, `identical before the edit (phase ${k})`).toBe(true);
+      w = Math.max(w, m.abrupt);
+      peak = Math.max(peak, m.peak);
+      // F-40: the edit's window (the dip's two ramps and B fit in 8 quanta) against the signal's own largest step.
+      const settle = 8 * QUANTUM;
+      const x = Float32Array.from(got.out);
+      const before = maxStep(x, got.from - settle, got.from);
+      const after = maxStep(x, x.length - settle, x.length);
+      const inside = maxStep(x, got.from - 1, got.from + settle);
+      ratio = Math.max(ratio, inside / Math.max(before, after));
     }
-    console.info(`[Ck1] a sound's bus via _setBus: worst abrupt ${w.toFixed(3)} (click threshold ${CLICK})`);
+    console.info(`[G7a] a sound's bus via _setBus: worst abrupt ${w.toFixed(3)} at 8 phases (difference peak ${peak.toFixed(4)}; click threshold ${CLICK}), maxStep ${ratio.toFixed(3)} of the signal's`);
+    expect(peak, "the move is heard").toBeGreaterThan(1e-4);
     expect(w).toBeLessThanOrEqual(SMOOTH);
+    expect(ratio).toBeLessThanOrEqual(1.1);
   });
 });
 

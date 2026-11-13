@@ -4,7 +4,7 @@
 // same-task ops coalesce, later ones queue after the planned end; a direct edit of a pending slot rides the sequence; a
 // tombstone recycles only after its tail with no voice on it; the replay carries the end state. The sound of each case
 // (maxStep on the real core, a rebuild mid-dip) is in `structuralDipLoopback.test.ts`.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import type { MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
@@ -13,7 +13,9 @@ import {
   ASAP,
   BUS_ROOT,
   BUS_SLOT_FLAGS_STRUCTURAL,
+  FadeLaw,
   Kind,
+  SET_PARAMS_MASK_BUS,
   LANE_DIP,
   Op,
   QUANTUM_FRAMES,
@@ -304,6 +306,52 @@ describe("the structural dip's sequence (Ma2)", () => {
     backend.dip.replayEndState();
     expect(backend.dip.inFlight).toBe(false);
     expect(backend.busConfigWire()[SLOT.Music]!.parent).toBe(SLOT.SFX);
+    backend.dispose();
+  });
+});
+
+describe("a sound's bus: the per-voice dip (G7a, §4.7)", () => {
+  const req = (bus: string, at?: number) => ({ path: "a.wav", url: "a.wav", loop: true, stream: false, bus, ...(at !== undefined ? { at } : {}) });
+
+  it("a sounding voice fades out over DIP_FRAMES from F0, changes bus at B with its fade at 0 and fades back in; no bus sequence", () => {
+    const { backend } = rig();
+    const v = backend.play(req("SFX"))!;
+    backend.update(0.016);
+    const fades = vi.spyOn(backend.writer, "fadeShaped");
+    const params = vi.spyOn(backend.writer, "setParams");
+    const emitted = backend.dip.emitted;
+    v.setBus("UI");
+    expect(backend.dip.emitted).toBe(emitted);
+    expect(fades).toHaveBeenCalledTimes(3);
+    const f0 = fades.mock.calls[0]![5]!;
+    const b = Math.ceil((f0 + D) / QUANTUM_FRAMES) * QUANTUM_FRAMES;
+    expect(fades.mock.calls).toEqual([
+      [v.id, 0, D / RATE, FadeLaw.Linear, 0, f0],
+      [v.id, 0, 0, FadeLaw.Linear, 0, b],
+      [v.id, 1, D / RATE, FadeLaw.Linear, 0, b],
+    ]);
+    expect(params.mock.calls).toEqual([[v.id, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, SLOT.UI, 0, b]]);
+    // A second move before the first one's end starts at that end (its fade-in is never cut to 0).
+    fades.mockClear();
+    params.mockClear();
+    v.setBus("Music");
+    expect(fades.mock.calls[0]).toEqual([v.id, 0, D / RATE, FadeLaw.Linear, 0, b + D]);
+    const b2 = Math.ceil((b + 2 * D) / QUANTUM_FRAMES) * QUANTUM_FRAMES;
+    expect(params.mock.calls).toEqual([[v.id, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, SLOT.Music, 0, b2]]);
+    backend.dispose();
+  });
+
+  it("a voice whose stamped start is still ahead changes bus at once, at its start frame, with no fade", () => {
+    const { backend } = rig();
+    const v = backend.play(req("SFX", 1))!;
+    backend.update(0.016);
+    const start = backend.playheads.anchorFrame[v.id & 0xffff]!;
+    expect(start).toBeGreaterThan(backend.clockMap.framesNow());
+    const fades = vi.spyOn(backend.writer, "fadeShaped");
+    const params = vi.spyOn(backend.writer, "setParams");
+    v.setBus("UI");
+    expect(fades).not.toHaveBeenCalled();
+    expect(params.mock.calls).toEqual([[v.id, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, SLOT.UI, 0, start]]);
     backend.dispose();
   });
 });
