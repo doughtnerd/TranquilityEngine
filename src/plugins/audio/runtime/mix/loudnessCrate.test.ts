@@ -8,7 +8,7 @@ import vectors from "../../../../../native/audio/crates/audio-dsp/tests/vectors/
 // signals at 48 kHz and random programme material at 32 to 88.2 kHz, and the crate's momentary, short-term,
 // integrated and LRA after every 10th sub-block (f32) and at the end (f64; `null` is -Infinity). The Rust side
 // checks the meter plus exact list-based gating against the crate within 1e-3 LU at every sub-block; this file
-// checks the shipped histogram gating on the same energies.
+// checks the shipped gating (exact since G7d) on the same energies.
 
 interface Case {
   name: string;
@@ -97,8 +97,8 @@ const result = compareAll();
 const summary = (w: Record<Measure, Worst>): string =>
   (["M", "S", "I", "LRA"] as Measure[]).map((m) => `${m} ${w[m].d.toExponential(3)} at ${w[m].at}`).join("; ");
 
-/** The histogram gating's own bound against exact gating (`loudnessStats.ts`'s file comment, spike S1). */
-const HISTOGRAM_BOUND_LU = 0.11;
+/** The cross-check's bar (LU), as the Rust side's. */
+const TOL_LU = 1e-3;
 
 describe("LoudnessStats against the ebur128 crate (Ld6)", () => {
   it("reads the vectors: S1's 13 cases at 48 kHz and 12 random programmes", () => {
@@ -115,21 +115,25 @@ describe("LoudnessStats against the ebur128 crate (Ld6)", () => {
     expect(result.all.S.d, result.all.S.at).toBeLessThanOrEqual(1e-3);
   });
 
-  // The histograms admit the whole bin that holds a relative gate (blocks up to 0.1 LU under it) and pick a
-  // percentile's bin mean, so integrated and LRA can't meet the crate's 1e-3 LU; the bar is the histogram's own.
-  it("integrated agrees within the histogram's 0.11 LU at every second", () => {
-    expect(result.all.I.d, result.all.I.at).toBeLessThanOrEqual(HISTOGRAM_BOUND_LU);
+  // G7d: exact gating (the gate's bin compared block by block, LRA's percentiles a selection), where Ld3's 1,000-bin
+  // histograms read I up to 0.069 LU off and LRA 2.50 LU off: programme 12 at 15 s, the -20 LU gate at -48.864 LUFS
+  // and a block at -48.873 in its bin, 13 blocks passed instead of 12 and the low pick moved from -39.869 to -42.365.
+  it("integrated agrees within 1e-3 LU at every second and at the end", () => {
+    expect(result.all.I.d, result.all.I.at).toBeLessThanOrEqual(TOL_LU);
   });
 
-  it("LRA agrees within the histogram's 0.11 LU at the end of every case", () => {
-    expect(result.end.LRA.d, result.end.LRA.at).toBeLessThanOrEqual(HISTOGRAM_BOUND_LU);
+  it("LRA agrees within 1e-3 LU at every second and at the end (programme 12 at 15 s included)", () => {
+    expect(result.all.LRA.d, result.all.LRA.at).toBeLessThanOrEqual(TOL_LU);
   });
 
-  // Known (Ld6's report): with few 3 s blocks, one block admitted from under the -20 LU gate's bin moves the 10th
-  // percentile to another block, LUs away. Programme 12 at 15 s: the gate is -48.864 LUFS, a block at -48.873 shares
-  // its bin, so 13 blocks pass instead of 12 and the low pick moves from -39.869 to -42.365 (LRA 16.571 against the
-  // crate's 14.076). Flips when the gating is fixed.
-  it.fails("LRA agrees within the histogram's 0.11 LU at every second", () => {
-    expect(result.all.LRA.d, result.all.LRA.at).toBeLessThanOrEqual(HISTOGRAM_BOUND_LU);
+  it("programme 12 at 15 s: the block 0.009 LU under the -20 LU gate stays out (LRA 14.076, not 16.571)", () => {
+    const c = cases.find((x) => x.name === "programme 12");
+    expect(c, "programme 12").toBeDefined();
+    const subs = f32s(c!.subs);
+    const ref = f32s(c!.every10);
+    const st = new LoudnessStats();
+    for (let k = 0; k < 150; k++) st.push(subs[k]);
+    expect(ref[(150 / 10 - 1) * 4 + 3]).toBeCloseTo(14.076, 3);
+    expect(Math.abs(Math.fround(st.lra) - ref[(150 / 10 - 1) * 4 + 3])).toBeLessThanOrEqual(TOL_LU);
   });
 });

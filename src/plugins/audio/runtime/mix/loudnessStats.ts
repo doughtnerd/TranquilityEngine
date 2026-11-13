@@ -1,11 +1,11 @@
 /**
  * Main-side loudness statistics (ADR 0171 amended by 0172; API section 3.2, ARCH section 4.4).
  *
- * A TypeScript port of spike S1's main half (`spikes/audio-mix/loudness/src/loud.rs`: `Feed`, `Gating`, `Hist`;
- * formulas as libebur128 and EBU Tech 3341/3342). Sub-block energies go in (the audio core's K-weighted L + R mean
- * square per round(0.1 x rate) frames); momentary, short-term, gated integrated, loudness range and the maxima
- * come out. One instance per metered bus. The runtime hub (Ld4) and the capture Worker (Pf6) share this module,
- * so it imports nothing: no DOM, no plugin runtime, no engine.
+ * A TypeScript port of spike S1's main half (`spikes/audio-mix/loudness/src/loud.rs`: `Feed`, `Gating`; formulas as
+ * libebur128 and EBU Tech 3341/3342). Sub-block energies go in (the audio core's K-weighted L + R mean square per
+ * round(0.1 x rate) frames); momentary, short-term, gated integrated, loudness range and the maxima come out. One
+ * instance per metered bus. The runtime hub (Ld4) and the capture Worker (Pf6) share this module, so it imports
+ * nothing: no DOM, no plugin runtime, no engine.
  *
  * Definitions (all relative to the sub-block sequence since the last discontinuity, see below):
  * - momentary: mean of the last 4 sub-blocks (400 ms), `-Infinity` until 4 have arrived;
@@ -13,18 +13,34 @@
  * - integrated: 400 ms blocks (one per sub-block, 75 % overlap), absolute gate -70 LUFS, relative gate -10 LU
  *   below the mean of the blocks that passed it; `-Infinity` until a block passes;
  * - LRA: 3 s blocks at a 1 s hop (the first after 3 s), absolute gate -70 LUFS, relative gate -20 LU, 10th to
- *   95th percentile of the blocks' loudness; `-Infinity` until two blocks pass both gates.
- * Integrated and LRA come from two 1,000-bin histograms (0.1 LU from -70 LUFS; per bin a count and an exact
- * energy sum), within 0.11 LU of the exact list-based gating the spike checks against.
+ *   95th percentile of the blocks' loudness (rank `round((n - 1) p)`, as libebur128); `-Infinity` until two
+ *   blocks pass both gates.
+ *
+ * Exact gating (G7d). Integrated and LRA are the exact list-based gating of S1's `Gating` and the `ebur128` crate
+ * (Ld6's cross-check, 1e-3 LU at every point), not the 0.1 LU bins the design first prescribed (api-and-models
+ * §3.2, ARCH §4.4: "two 1,000-bin histograms, 24 kB, within 0.11 LU"): a bin admitted every block of the bin that
+ * held a relative gate, which moved LRA's 10th percentile by LUs on short programmes. Each gate's blocks are kept
+ * in a {@link GatedBlocks}: the energies of the blocks that passed the absolute gate, in preallocated storage,
+ * chained per 0.1 LU bin, with per-bin counts and energy sums. Binning is monotonic (`floor` of rounded, monotonic
+ * arithmetic), so every block in a bin above the relative gate's bin passes, every block in a bin below fails,
+ * and only the gate's own bin is compared block by block (`lufs >= gate`). Integrated keeps the sum above the
+ * gate's bin incrementally and walks one bin per sub-block; LRA's percentiles are a selection (quickselect)
+ * inside the bin that holds the rank, once per 3 s block (1 Hz).
+ *
+ * Bound. The storage holds {@link EXACT_GATING_SECONDS} (one hour) of gated programme: 36,000 400 ms blocks and
+ * 3,600 3 s blocks, about 560 kB per instance (`byteLength`). Past it a block still counts in its bin's count and
+ * energy sum (I's sum and LRA's ranks stay exact away from the gate) but is not listed: in the gate's bin it is
+ * admitted by the bin, and a percentile landing on it reads its bin's mean (the old histogram rule, within 0.1 LU,
+ * only for those blocks). `reset("integrated")` and `reset("all")` empty the storage.
  *
  * Discontinuities. A 400 ms or 3 s block never straddles lost, shed or rebuilt audio: after a lost span
  * ({@link LoudnessStats.take} / {@link LoudnessStats.takeBlock} seeing a sequence jump), an {@link
  * LoudnessStats.epoch} (rebuild), or a resume from {@link LoudnessStats.pause}, the sliding window and the block
- * counters restart (momentary reads `-Infinity` for 0.4 s, short-term for 3 s) while the histograms, the maxima
+ * counters restart (momentary reads `-Infinity` for 0.4 s, short-term for 3 s) while the gated blocks, the maxima
  * and the flags stay, and `incomplete` is set. `incomplete` and `tainted` stay set until `reset("all")` or
  * `reset("integrated")`.
  *
- * Zero allocation: every buffer is created in the constructor; no method allocates (no arrays, closures or
+ * Zero allocation: every buffer is created in the constructor; no method allocates (no arrays, closures, views or
  * objects on any path), and the instance's shape never changes. {@link LoudnessStats.byteLength} and
  * {@link LoudnessStats.buffers} let a test pin that.
  */
@@ -37,11 +53,13 @@ export const MOMENTARY_SUBS = 4;
 export const SHORT_TERM_SUBS = 30;
 /** LRA hop, in sub-blocks (1 s). */
 export const LRA_HOP_SUBS = 10;
-/** Histogram bins: 0.1 LU wide from the absolute gate. */
+/** Gating bins: 0.1 LU wide from the absolute gate (the last bin takes everything above -70 + 100 LU). */
 export const HIST_BINS = 1000;
 export const ABSOLUTE_GATE_LUFS = -70;
 export const INTEGRATED_RELATIVE_GATE_LU = -10;
 export const LRA_RELATIVE_GATE_LU = -20;
+/** Gated programme the exact storage holds by default: an hour (36,000 integrated blocks, 3,600 LRA blocks). */
+export const EXACT_GATING_SECONDS = 3600;
 
 /** Which statistics a reset clears (the API's `LoudnessResetWhat`, structurally). */
 export type LoudnessStatsResetWhat = "integrated" | "maxPeak" | "all";
@@ -56,90 +74,205 @@ export function linearToDb(x: number): number {
   return x > 0 ? 20 * Math.log10(x) : Number.NEGATIVE_INFINITY;
 }
 
+/** The 0.1 LU bin of a loudness, clamped to the bins. Monotonic in `l` (rounded `+`, `*` and `floor` are). */
+function binOf(l: number): number {
+  return Math.min(Math.max(Math.floor((l - ABSOLUTE_GATE_LUFS) * 10), 0), HIST_BINS - 1);
+}
+
 /**
- * A 1,000-bin gating histogram (the spike's `Hist`): per bin a count and the exact sum of the energies that fell
- * in it. Fixed memory, 12 B per bin. Not exported: `LoudnessStats` owns two.
+ * The `k`-th smallest (0-based) of `a[0 .. n)`, in place (Wirth's selection: Hoare partitions around `a[k]`, linear
+ * on average, and linear on equal values, which a steady tone gives).
  */
-class GateHistogram {
+function selectKth(a: Float64Array, n: number, k: number): number {
+  let l = 0;
+  let r = n - 1;
+  while (l < r) {
+    const x = a[k];
+    let i = l;
+    let j = r;
+    do {
+      while (a[i] < x) i++;
+      while (x < a[j]) j--;
+      if (i <= j) {
+        const t = a[i];
+        a[i] = a[j];
+        a[j] = t;
+        i++;
+        j--;
+      }
+    } while (i <= j);
+    if (j < k) l = i;
+    if (k < i) r = j;
+  }
+  return a[k];
+}
+
+/**
+ * The blocks that passed one gate's absolute gate (see the file comment): listed energies chained per bin, per-bin
+ * counts and energy sums of every block, and the unlisted (past-capacity) part per bin. Fixed memory. Not exported:
+ * `LoudnessStats` owns two.
+ */
+class GatedBlocks {
+  /** Listed blocks' mean-square energies, in arrival order. */
+  readonly energy: Float64Array;
+  /** Per listed block, the previous listed block of its bin (-1 ends the chain). */
+  readonly next: Int32Array;
+  /** Per bin, the newest listed block (-1: none). */
+  readonly head = new Int32Array(HIST_BINS);
+  /** Per bin, every block's count and energy sum. */
   readonly cnt = new Uint32Array(HIST_BINS);
   readonly esum = new Float64Array(HIST_BINS);
-  /** Blocks and energy above the absolute gate (running totals). */
+  /** Per bin, the unlisted blocks' count and energy sum (past capacity). */
+  readonly overCnt = new Uint32Array(HIST_BINS);
+  readonly overSum = new Float64Array(HIST_BINS);
+  /** LRA's selection buffer (one bin's loudness values); empty for integrated. */
+  readonly scratch: Float64Array;
+  listed = 0;
+  /** Blocks above the absolute gate and their energy, summed in arrival order (the relative gate's mean). */
   total = 0;
   totalEnergy = 0;
-  /** Relative-gate bin and the counts and energy from it up (kept incrementally for the integrated reading). */
+  /** The relative gate's bin, and the count and energy of every block in the bins above it (kept incrementally). */
   gateBin = -1;
-  gateCount = 0;
-  gateEnergy = 0;
+  upCount = 0;
+  upEnergy = 0;
+  /** The gate's own bin after {@link gate}: its blocks at or above the gate. */
+  passCount = 0;
+  passEnergy = 0;
+
+  constructor(readonly capacity: number, scratchLength: number) {
+    this.energy = new Float64Array(capacity);
+    this.next = new Int32Array(capacity);
+    this.scratch = new Float64Array(scratchLength);
+    this.head.fill(-1);
+  }
 
   clear(): void {
+    this.head.fill(-1);
     this.cnt.fill(0);
     this.esum.fill(0);
+    this.overCnt.fill(0);
+    this.overSum.fill(0);
+    this.listed = 0;
     this.total = 0;
     this.totalEnergy = 0;
     this.gateBin = -1;
-    this.gateCount = 0;
-    this.gateEnergy = 0;
+    this.upCount = 0;
+    this.upEnergy = 0;
+    this.passCount = 0;
+    this.passEnergy = 0;
   }
 
-  /** Adds one block's mean-square energy; returns its bin, or -1 when it is under the absolute gate. */
-  add(e: number): number {
+  get byteLength(): number {
+    return (
+      this.energy.byteLength + this.next.byteLength + this.head.byteLength + this.cnt.byteLength + this.esum.byteLength +
+      this.overCnt.byteLength + this.overSum.byteLength + this.scratch.byteLength
+    );
+  }
+
+  /** Adds one block's mean-square energy; returns false (and keeps nothing) when it is under the absolute gate. */
+  add(e: number): boolean {
     const l = energyToLufs(e);
-    if (!(l >= ABSOLUTE_GATE_LUFS)) return -1;
-    const i = Math.min(Math.floor((l - ABSOLUTE_GATE_LUFS) * 10), HIST_BINS - 1);
-    this.cnt[i]++;
-    this.esum[i] += e;
+    if (!(l >= ABSOLUTE_GATE_LUFS)) return false;
+    const b = binOf(l);
+    this.cnt[b]++;
+    this.esum[b] += e;
     this.total++;
     this.totalEnergy += e;
-    return i;
-  }
-
-  static binOf(l: number): number {
-    return Math.min(Math.max(Math.floor((l - ABSOLUTE_GATE_LUFS) * 10), 0), HIST_BINS - 1);
+    if (this.listed < this.capacity) {
+      const i = this.listed++;
+      this.energy[i] = e;
+      this.next[i] = this.head[b];
+      this.head[b] = i;
+    } else {
+      this.overCnt[b]++;
+      this.overSum[b] += e;
+    }
+    if (this.gateBin >= 0 && b > this.gateBin) {
+      this.upCount++;
+      this.upEnergy += e;
+    }
+    return true;
   }
 
   /**
-   * Integrated loudness after an `add` (or `-Infinity` when empty): the mean energy of the bins at or above the
-   * relative gate. The gate bin moves slowly, so the suffix totals are updated in O(1) and rebuilt (the spike's
-   * ascending fold) only when the gate bin changes.
+   * Places the relative gate `relLu` below the mean of the blocks (needs `total > 0`): the totals above its bin
+   * (rebuilt only when the bin changes, it moves slowly) and the exact pass count and energy of its own bin. Returns
+   * the gate in LUFS.
    */
-  integratedAfterAdd(bin: number, e: number): number {
-    if (bin >= this.gateBin && this.gateBin >= 0) {
-      this.gateCount++;
-      this.gateEnergy += e;
-    }
-    const g = GateHistogram.binOf(energyToLufs(this.totalEnergy / this.total) + INTEGRATED_RELATIVE_GATE_LU);
+  gate(relLu: number): number {
+    const t = energyToLufs(this.totalEnergy / this.total) + relLu;
+    const g = binOf(t);
     if (g !== this.gateBin) {
       let c = 0;
       let s = 0;
-      for (let i = g; i < HIST_BINS; i++) {
+      for (let i = g + 1; i < HIST_BINS; i++) {
         c += this.cnt[i];
         s += this.esum[i];
       }
       this.gateBin = g;
-      this.gateCount = c;
-      this.gateEnergy = s;
+      this.upCount = c;
+      this.upEnergy = s;
     }
-    return this.gateCount > 0 ? energyToLufs(this.gateEnergy / this.gateCount) : Number.NEGATIVE_INFINITY;
+    let c = 0;
+    let s = 0;
+    for (let i = this.head[g]; i >= 0; i = this.next[i]) {
+      const e = this.energy[i];
+      if (energyToLufs(e) >= t) {
+        c++;
+        s += e;
+      }
+    }
+    // unlisted blocks in the gate's bin: admitted by the bin (the histogram rule, past capacity only)
+    this.passCount = c + this.overCnt[g];
+    this.passEnergy = s + this.overSum[g];
+    return t;
   }
 
-  /** Loudness range in LU, or `-Infinity` until two blocks pass both gates (the spike returns 0 there). */
+  /** Integrated loudness (or `-Infinity` when no block has passed): the mean energy of the blocks at or above the relative gate. */
+  integrated(): number {
+    if (this.total === 0) return Number.NEGATIVE_INFINITY;
+    this.gate(INTEGRATED_RELATIVE_GATE_LU);
+    const c = this.upCount + this.passCount;
+    return c > 0 ? energyToLufs((this.upEnergy + this.passEnergy) / c) : Number.NEGATIVE_INFINITY;
+  }
+
+  /** Loudness range in LU, or `-Infinity` until two blocks pass both gates (the crate returns 0 there). */
   lra(): number {
     if (this.total === 0) return Number.NEGATIVE_INFINITY;
-    const from = GateHistogram.binOf(energyToLufs(this.totalEnergy / this.total) + LRA_RELATIVE_GATE_LU);
-    let total = 0;
-    for (let i = from; i < HIST_BINS; i++) total += this.cnt[i];
-    if (total < 2) return Number.NEGATIVE_INFINITY;
-    return this.pick(from, total, 0.95) - this.pick(from, total, 0.1);
+    const t = this.gate(LRA_RELATIVE_GATE_LU);
+    const n = this.upCount + this.passCount;
+    if (n < 2) return Number.NEGATIVE_INFINITY;
+    return this.pick(t, Math.floor((n - 1) * 0.95 + 0.5)) - this.pick(t, Math.floor((n - 1) * 0.1 + 0.5));
   }
 
-  private pick(from: number, total: number, p: number): number {
-    const target = Math.floor((total - 1) * p + 0.5); // 0-based rank
-    let seen = 0;
-    for (let i = from; i < HIST_BINS; i++) {
-      seen += this.cnt[i];
-      if (seen > target) return energyToLufs(this.esum[i] / this.cnt[i]);
+  /** The loudness of the passing block at 0-based ascending rank `r` (after {@link gate} placed gate `t`). */
+  private pick(t: number, r: number): number {
+    const g = this.gateBin;
+    if (r < this.passCount) return this.pickInBin(g, t, r);
+    r -= this.passCount;
+    for (let b = g + 1; b < HIST_BINS; b++) {
+      if (r < this.cnt[b]) return this.pickInBin(b, Number.NEGATIVE_INFINITY, r);
+      r -= this.cnt[b];
     }
-    return Number.NEGATIVE_INFINITY;
+    return Number.NEGATIVE_INFINITY; // unreachable: r < the passing count
+  }
+
+  /** Rank `r` among bin `b`'s blocks at or above `t`: the listed ones exactly, the unlisted ones as the bin's unlisted mean. */
+  private pickInBin(b: number, t: number, r: number): number {
+    const a = this.scratch;
+    let m = 0;
+    for (let i = this.head[b]; i >= 0; i = this.next[i]) {
+      const l = energyToLufs(this.energy[i]);
+      if (l >= t) a[m++] = l;
+    }
+    const oc = this.overCnt[b];
+    if (oc === 0) return selectKth(a, m, r);
+    const om = energyToLufs(this.overSum[b] / oc);
+    let below = 0;
+    for (let i = 0; i < m; i++) if (a[i] < om) below++;
+    if (r < below) return selectKth(a, m, r);
+    if (r < below + oc) return om;
+    return selectKth(a, m, r - oc);
   }
 }
 
@@ -151,8 +284,8 @@ export class LoudnessStats {
   private fill = 0;
   /** Sub-blocks since the window or the integrated statistics last restarted (reset, gap, resume): the I and LRA block counter. */
   private sinceGap = 0;
-  private readonly histI = new GateHistogram();
-  private readonly histL = new GateHistogram();
+  private readonly blocksI: GatedBlocks;
+  private readonly blocksL: GatedBlocks;
 
   private mLufs = Number.NEGATIVE_INFINITY;
   private sLufs = Number.NEGATIVE_INFINITY;
@@ -170,6 +303,16 @@ export class LoudnessStats {
   private flagIncomplete = false;
   private flagTainted = false;
   private isPaused = false;
+
+  /**
+   * `exactSeconds`: gated programme the exact storage holds (default an hour; see the file comment for what happens
+   * past it). Integrated keeps `10 x exactSeconds` blocks, LRA `exactSeconds`.
+   */
+  constructor(exactSeconds: number = EXACT_GATING_SECONDS) {
+    const lraBlocks = Math.max(1, Math.ceil(exactSeconds));
+    this.blocksI = new GatedBlocks(lraBlocks * 10, 0);
+    this.blocksL = new GatedBlocks(lraBlocks, lraBlocks);
+  }
 
   /** Momentary loudness, LUFS: the last 400 ms; `-Infinity` until 4 sub-blocks since the last restart. */
   get momentary(): number {
@@ -229,12 +372,23 @@ export class LoudnessStats {
 
   /** Bytes of preallocated storage (constant for the life of the instance). */
   get byteLength(): number {
-    return this.win.byteLength + this.histI.cnt.byteLength + this.histI.esum.byteLength + this.histL.cnt.byteLength + this.histL.esum.byteLength;
+    return this.win.byteLength + this.blocksI.byteLength + this.blocksL.byteLength;
   }
 
   /** Every typed array the instance owns, for a test that pins identity and length across a long feed. Allocates the returned array. */
   buffers(): ArrayBufferView[] {
-    return [this.win, this.histI.cnt, this.histI.esum, this.histL.cnt, this.histL.esum];
+    const out: ArrayBufferView[] = [this.win];
+    for (const g of [this.blocksI, this.blocksL]) out.push(g.energy, g.next, g.head, g.cnt, g.esum, g.overCnt, g.overSum, g.scratch);
+    return out;
+  }
+
+  /** 400 ms blocks held in the exact storage (at most `10 x exactSeconds`); for a test of the bound. */
+  get listedIntegratedBlocks(): number {
+    return this.blocksI.listed;
+  }
+  /** 3 s blocks held in the exact storage (at most `exactSeconds`). */
+  get listedLraBlocks(): number {
+    return this.blocksL.listed;
   }
 
   /**
@@ -262,13 +416,13 @@ export class LoudnessStats {
       this.sLufs = energyToLufs(blockS);
       if (this.sLufs > this.maxS) this.maxS = this.sLufs;
     }
-    // Gating blocks: one 400 ms block per sub-block; one 3 s block per 10 once 30 have arrived.
+    // Gating blocks: one 400 ms block per sub-block; one 3 s block per 10 once 30 have arrived. A block under the
+    // absolute gate changes neither set, so neither reading.
     if (this.sinceGap >= MOMENTARY_SUBS) {
-      const bin = this.histI.add(blockM);
-      if (bin >= 0) this.iLufs = this.histI.integratedAfterAdd(bin, blockM);
+      if (this.blocksI.add(blockM)) this.iLufs = this.blocksI.integrated();
     }
     if (this.sinceGap >= SHORT_TERM_SUBS && (this.sinceGap - SHORT_TERM_SUBS) % LRA_HOP_SUBS === 0) {
-      if (this.histL.add(blockS) >= 0) this.lraLu = this.histL.lra();
+      if (this.blocksL.add(blockS)) this.lraLu = this.blocksL.lra();
     }
   }
 
@@ -326,7 +480,7 @@ export class LoudnessStats {
     this.gaps++;
   }
 
-  /** The window and the block counters restart; histograms, maxima and flags stay. */
+  /** The window and the block counters restart; gated blocks, maxima and flags stay. */
   private restartBlocks(): void {
     this.head = 0;
     this.fill = 0;
@@ -375,7 +529,7 @@ export class LoudnessStats {
   }
 
   /**
-   * `"integrated"`: the histograms, I, LRA, elapsed and both flags (M, S and the window continue).
+   * `"integrated"`: the gated blocks, I, LRA, elapsed and both flags (M, S and the window continue).
    * `"maxPeak"`: the maxima (peak, momentary, short-term). `"all"`: both, and the window. The feed's sequence
    * position, {@link lost} and the pause state stay: the core keeps counting.
    */
@@ -386,8 +540,8 @@ export class LoudnessStats {
       this.maxS = Number.NEGATIVE_INFINITY;
     }
     if (what === "integrated" || what === "all") {
-      this.histI.clear();
-      this.histL.clear();
+      this.blocksI.clear();
+      this.blocksL.clear();
       this.iLufs = Number.NEGATIVE_INFINITY;
       this.lraLu = Number.NEGATIVE_INFINITY;
       this.subs = 0;
@@ -396,5 +550,57 @@ export class LoudnessStats {
       this.flagTainted = false;
     }
     if (what === "all") this.restartBlocks();
+  }
+}
+
+/**
+ * How a meter is fed, shared by the live hub (`loudnessHub.ts`) and the profiler's model (`loudnessTrackModel.ts`) so a
+ * reopened capture reads the live meter's values bit for bit: the pause bookkeeping (a script's pause, the ladder's)
+ * and the first-take rule. Allocates nothing.
+ */
+export class LoudnessFeedControl {
+  scriptPaused = false;
+  ladderPaused = false;
+  /** A ladder span happened since the last resume, so the resume marks `incomplete`. */
+  ladderTouched = false;
+  /** A take has reached this meter: the core's first take of a new meter carries `reset` and is no gap. */
+  fed = false;
+
+  constructor(readonly stats: LoudnessStats) {}
+
+  /** Brings the stats' pause state in line with the script's and the ladder's. A ladder span marks `incomplete` on resume; a script's own does not. */
+  syncPause(): void {
+    const want = this.scriptPaused || this.ladderPaused;
+    if (want && !this.stats.paused) this.stats.pause();
+    else if (!want && this.stats.paused) {
+      this.stats.resume(this.ladderTouched);
+      this.ladderTouched = false;
+    }
+  }
+
+  /** A script's (or the panel's) pause or resume. */
+  setScriptPaused(on: boolean): void {
+    this.scriptPaused = on;
+    this.syncPause();
+  }
+
+  /** The ladder's loudness step (`loudShed !== 0`) changed: it pauses every meter but the final output's (master keeps metering, ARCH §4.8). */
+  setLadder(on: boolean, isOutput: boolean): void {
+    if (isOutput) return;
+    this.ladderPaused = on;
+    if (on) this.ladderTouched = true;
+    this.syncPause();
+  }
+
+  /**
+   * Before a take's sub-blocks: a core-side reset (a rebuild's fresh sequence) restarts the feed like an EPOCH
+   * (gated blocks and maxima stay), except on the meter's first take, whose sequence starts at 0 as a fresh feed
+   * expects. Returns whether it restarted the feed (a gap).
+   */
+  beginTake(reset: boolean): boolean {
+    const restart = reset && this.fed;
+    if (restart) this.stats.epoch();
+    this.fed = true;
+    return restart;
   }
 }

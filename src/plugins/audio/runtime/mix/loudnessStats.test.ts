@@ -75,7 +75,8 @@ describe("LoudnessStats against the Rust Feed / Hist / Gating (S1 vectors)", () 
     }
   });
 
-  it("L-Ld3a: integrated matches the Rust Hist within 1e-9 LU and the exact Gating within 0.11 LU", () => {
+  it("L-Ld3a, G7d: integrated matches the exact Gating within 1e-9 LU (and differs from the Rust Hist, which the gating no longer is)", () => {
+    let histDiffers = false;
     for (const c of vectors.cases) {
       const at = new Map(c.checkpoints.map((cp) => [cp.n, cp]));
       const s = new LoudnessStats();
@@ -83,13 +84,14 @@ describe("LoudnessStats against the Rust Feed / Hist / Gating (S1 vectors)", () 
         s.push(c.subs[n - 1]);
         const cp = at.get(n);
         if (!cp) continue;
-        expectNear(s.integrated, fromJson(cp.i), 1e-9, `${c.name}: I vs Hist at ${n}`);
-        expectNear(s.integrated, fromJson(cp.iExact), 0.11, `${c.name}: I vs exact at ${n}`);
+        expectNear(s.integrated, fromJson(cp.iExact), 1e-9, `${c.name}: I vs exact at ${n}`);
+        if (Math.abs(s.integrated - fromJson(cp.i)) > 1e-6) histDiffers = true;
       }
     }
+    expect(histDiffers, "some checkpoint where the histogram was off").toBe(true);
   });
 
-  it("L-Ld3a: LRA matches the Rust Hist within 1e-9 LU (where Rust reads 0 with under two blocks, TS reads -Infinity) and the exact Gating within 0.11 LU", () => {
+  it("L-Ld3a, G7d: LRA matches the exact Gating within 1e-9 LU (where Rust reads 0 with under two blocks, TS reads -Infinity)", () => {
     for (const c of vectors.cases) {
       const at = new Map(c.checkpoints.map((cp) => [cp.n, cp]));
       const s = new LoudnessStats();
@@ -97,8 +99,7 @@ describe("LoudnessStats against the Rust Feed / Hist / Gating (S1 vectors)", () 
         s.push(c.subs[n - 1]);
         const cp = at.get(n);
         if (!cp) continue;
-        expectLra(s.lra, fromJson(cp.lra), 1e-9, `${c.name}: LRA vs Hist at ${n}`, c.subs, n);
-        expectLra(s.lra, fromJson(cp.lraExact), 0.11, `${c.name}: LRA vs exact at ${n}`, c.subs, n);
+        expectLra(s.lra, fromJson(cp.lraExact), 1e-9, `${c.name}: LRA vs exact at ${n}`, c.subs, n);
       }
     }
   });
@@ -120,6 +121,154 @@ describe("LoudnessStats against the Rust Feed / Hist / Gating (S1 vectors)", () 
       expect(out, `${f.name}: out energies`).toEqual(f.out);
       expect(s.lost, `${f.name}: lost`).toBe(f.lost);
     }
+  });
+});
+
+/** A small deterministic generator (xorshift32), so the programmes are the same on every run. */
+function rng(seed: number): () => number {
+  let x = seed >>> 0 || 1;
+  return () => {
+    x ^= x << 13;
+    x >>>= 0;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    x >>>= 0;
+    return x / 4294967296;
+  };
+}
+
+/** Programme-like sub-blocks: steps of 1 to 40 sub-blocks at -80 to -8 LUFS with a little ripple. */
+function programme(seed: number, n: number): number[] {
+  const r = rng(seed);
+  const out: number[] = [];
+  while (out.length < n) {
+    const level = -80 + 72 * r();
+    const len = 1 + Math.floor(40 * r());
+    for (let j = 0; j < len && out.length < n; j++) out.push(energyFor(level + (r() - 0.5)));
+  }
+  return out;
+}
+
+const lufsOf = (e: number) => (e > 0 ? -0.691 + 10 * Math.log10(e) : Number.NEGATIVE_INFINITY);
+const binOfLufs = (l: number) => Math.min(Math.max(Math.floor((l + 70) * 10), 0), 999);
+
+/**
+ * Exact list-based I and LRA after every sub-block (as the Rust `stats_series`, `audio-dsp/tests/loudness_common`),
+ * with the number of blocks that shared the relative gate's 0.1 LU bin but fell under the gate (what the histogram
+ * admitted wrongly).
+ */
+function exactSeries(subs: readonly number[]): { i: number[]; lra: number[]; nearMissI: number; nearMissL: number } {
+  const i: number[] = [];
+  const lra: number[] = [];
+  const blocksI: number[] = [];
+  const blocksL: number[] = [];
+  let nearMissI = 0;
+  let nearMissL = 0;
+  let curLra = Number.NEGATIVE_INFINITY;
+  const mean = (a: readonly number[], from: number, to: number) => {
+    let s = 0;
+    for (let k = from; k < to; k++) s += a[k];
+    return s / (to - from);
+  };
+  for (let k = 0; k < subs.length; k++) {
+    if (k >= 3) {
+      const e = mean(subs, k - 3, k + 1);
+      if (lufsOf(e) >= -70) blocksI.push(e);
+    }
+    if (blocksI.length === 0) i.push(Number.NEGATIVE_INFINITY);
+    else {
+      const gate = lufsOf(mean(blocksI, 0, blocksI.length)) - 10;
+      let c = 0;
+      let s = 0;
+      for (const e of blocksI) {
+        if (lufsOf(e) >= gate) {
+          c++;
+          s += e;
+        } else if (binOfLufs(lufsOf(e)) === binOfLufs(gate)) nearMissI++;
+      }
+      i.push(c > 0 ? lufsOf(s / c) : Number.NEGATIVE_INFINITY);
+    }
+    if (k >= 29 && (k - 29) % 10 === 0) {
+      const e = mean(subs, k - 29, k + 1);
+      if (lufsOf(e) >= -70) blocksL.push(e);
+      if (blocksL.length > 0) {
+        const gate = lufsOf(mean(blocksL, 0, blocksL.length)) - 20;
+        const v = blocksL.map(lufsOf).filter((l) => l >= gate).sort((a, b) => a - b);
+        nearMissL += blocksL.filter((e) => lufsOf(e) < gate && binOfLufs(lufsOf(e)) === binOfLufs(gate)).length;
+        curLra = v.length < 2 ? Number.NEGATIVE_INFINITY : v[Math.floor((v.length - 1) * 0.95 + 0.5)] - v[Math.floor((v.length - 1) * 0.1 + 0.5)];
+      }
+    }
+    lra.push(curLra);
+  }
+  return { i, lra, nearMissI, nearMissL };
+}
+
+describe("LoudnessStats exact gating (G7d)", () => {
+  it("G7d: integrated and LRA equal list-based gating within 1e-9 LU after every sub-block of six programmes, blocks in the gate's own bin included", () => {
+    let nearMissI = 0;
+    let nearMissL = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const subs = programme(seed * 7919, 3000);
+      const ref = exactSeries(subs);
+      nearMissI += ref.nearMissI;
+      nearMissL += ref.nearMissL;
+      const s = new LoudnessStats();
+      for (let k = 0; k < subs.length; k++) {
+        s.push(subs[k]);
+        expectNear(s.integrated, ref.i[k], 1e-9, `seed ${seed}: I at ${k + 1}`);
+        expectNear(s.lra, ref.lra[k], 1e-9, `seed ${seed}: LRA at ${k + 1}`);
+      }
+    }
+    // the programmes do put blocks in the gate's bin under the gate (what the histogram admitted)
+    expect(nearMissI, "I near misses").toBeGreaterThan(0);
+    expect(nearMissL, "LRA near misses").toBeGreaterThan(0);
+  });
+
+  it("G7d: the storage holds an hour by default (36,000 + 3,600 blocks, 560,240 bytes) and is emptied by reset('integrated') and reset('all')", () => {
+    const s = new LoudnessStats();
+    expect(s.byteLength).toBe(560_240);
+    tone(s, 200, -23);
+    expect(s.listedIntegratedBlocks).toBe(197);
+    expect(s.listedLraBlocks).toBe(18);
+    s.reset("integrated");
+    expect([s.listedIntegratedBlocks, s.listedLraBlocks]).toEqual([0, 0]);
+    tone(s, 50, -23);
+    expect(s.listedIntegratedBlocks).toBeGreaterThan(0);
+    s.reset("all");
+    expect([s.listedIntegratedBlocks, s.listedLraBlocks]).toEqual([0, 0]);
+    s.reset("maxPeak");
+    tone(s, 40, -23);
+    const listed = s.listedIntegratedBlocks;
+    s.reset("maxPeak");
+    expect(s.listedIntegratedBlocks).toBe(listed);
+  });
+
+  it("G7d: past the bound blocks still count (in their bin, by the bin rule at the gate): exact while under it, I within 0.11 LU after (LRA approximate: a rank can move to a neighbouring block), and a steady tone stays exact", () => {
+    // 600 s of programme against a 60 s bound: 600 integrated and 60 LRA blocks listed, ten times that unlisted.
+    const subs = programme(4242, 6000);
+    const ref = exactSeries(subs);
+    const s = new LoudnessStats(60);
+    let worstI = 0;
+    let worstL = 0;
+    for (let k = 0; k < subs.length; k++) {
+      const exactI = s.listedIntegratedBlocks < 600;
+      const exactL = s.listedLraBlocks < 60;
+      s.push(subs[k]);
+      expectNear(s.integrated, ref.i[k], exactI ? 1e-9 : 0.11, `I at ${k + 1}`);
+      // past the bound, unlisted blocks in the gate's bin are admitted and a percentile on one reads its bin's mean
+      expectNear(s.lra, ref.lra[k], exactL ? 1e-9 : 2, `LRA at ${k + 1}`);
+      if (!exactI) worstI = Math.max(worstI, Math.abs(s.integrated - ref.i[k]));
+      if (!exactL && ref.lra[k] > Number.NEGATIVE_INFINITY) worstL = Math.max(worstL, Math.abs(s.lra - ref.lra[k]));
+    }
+    expect(s.listedIntegratedBlocks).toBe(600);
+    expect(s.listedLraBlocks).toBe(60);
+    console.log(`past a 60 s bound over 600 s: worst I ${worstI.toExponential(3)} LU, worst LRA ${worstL.toExponential(3)} LU`);
+
+    const steady = new LoudnessStats(1);
+    tone(steady, 600, -23);
+    expect(steady.listedIntegratedBlocks).toBe(10);
+    expect(steady.integrated).toBeCloseTo(-23, 9);
+    expect(steady.lra).toBeCloseTo(0, 9);
   });
 });
 
@@ -177,8 +326,8 @@ describe("LoudnessStats gates and ranges", () => {
   });
 
   it("L-Ld3a: LRA hop: the first 3 s block counts after 30 sub-blocks, then one per 10", () => {
-    // The count of LRA blocks that passed the gates is read from the histogram's total (white-box).
-    const blocks = (s: LoudnessStats) => (s as unknown as { histL: { total: number } }).histL.total;
+    // The count of LRA blocks that passed the absolute gate: the blocks the exact storage holds.
+    const blocks = (s: LoudnessStats) => s.listedLraBlocks;
     const s = new LoudnessStats();
     for (let n = 1; n <= 100; n++) {
       s.push(energyFor(-20));
