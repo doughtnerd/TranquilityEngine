@@ -39,6 +39,7 @@ import { resolveBeds } from "../runtime/core/beds";
 import type { Curve } from "../../../engine/core/curve";
 import { isLabelled, MAX_CURVE_KEYS, MAX_PARAMETERS, parameterDefault, parameterRange, type ParameterDef } from "../../../engine/audio/eventFormat";
 import type { SettingsDraft } from "../../../editor/sdk";
+import { duckRefusal, newDuckRule, ruleWithField } from "./mix/duckModel";
 import { applyOpToDraft, loudnessTargetsOf, MAX_LOUDNESS_TARGETS, opRefusal, type MixOp } from "../../../engine/audio/mixOps";
 
 /** A name not in `taken`: `base`, else `base 2`, `base 3`… */
@@ -142,17 +143,55 @@ export const setSnapshotVolume = (d: SettingsDraft, index: number, bus: string, 
 export const setSnapshotLowpass = (d: SettingsDraft, index: number, bus: string, hz: number | undefined): SettingsDraft =>
   applyMixOp(d, { op: "setSnapshot", index, bus, key: "lowpass", value: hz ?? null });
 
-export function addDucking(d: SettingsDraft): SettingsDraft {
+/** An edit of the ducking list: the draft it gives, or why the settings parse would lose the rule (the draft is then `d`, unchanged). */
+export interface DuckEdit { draft: SettingsDraft; refusal: string | null }
+
+/**
+ * Append a rule: a **level** rule with an RMS detector at -30 dBFS (ADR 0172 owner decision 8), on the first pair of buses
+ * the parse keeps (Music ducked by Voice when both exist). Refused, with the parse's message, at the 33rd rule, the 9th
+ * level rule, or when no pair of buses can form a rule.
+ */
+export function addDuckingEdit(d: SettingsDraft): DuckEdit {
   const a = audioOf(d);
-  const [target, trigger] = [a.buses.find((b) => b.name === "Music") ?? a.buses[1] ?? a.buses[0], a.buses.find((b) => b.name === "Voice") ?? a.buses[2] ?? a.buses[0]];
-  if (target.name === trigger.name) return d; // needs two buses
-  return applyMixOp(d, { op: "setDucking", index: a.ducking.length, rule: { target: target.name, trigger: trigger.name, mode: "presence", amount: 0.4, attack: 0.1, release: 0.5 }, insert: true });
+  const names = a.buses.map((b) => b.name);
+  const pairs: [string, string][] = [];
+  if (names.includes("Music") && names.includes("Voice")) pairs.push(["Music", "Voice"]);
+  for (const target of names) for (const trigger of names) if (target !== trigger) pairs.push([target, trigger]);
+  let first: string | null = null;
+  for (const [target, trigger] of pairs) {
+    const rule = newDuckRule(target, trigger);
+    const refusal = duckRefusal(a, [...a.ducking, rule]);
+    if (refusal === null) return { draft: applyMixOp(d, { op: "setDucking", index: a.ducking.length, rule, insert: true }), refusal: null };
+    first ??= refusal;
+  }
+  return { draft: d, refusal: first ?? "A ducking rule needs two buses." };
 }
+export const addDucking = (d: SettingsDraft): SettingsDraft => addDuckingEdit(d).draft;
 export const removeDucking = (d: SettingsDraft, index: number): SettingsDraft => applyMixOp(d, { op: "setDucking", index, rule: null });
-/** Set one field of a rule. A rule the parse would drop (a bus ducking itself, an unknown bus) is refused. */
-export function setDuckingValue(d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): SettingsDraft {
-  const rule = audioOf(d).ducking[index];
-  return rule ? applyMixOp(d, { op: "setDucking", index, rule: { ...rule, [key]: value } as DuckingRule }) : d;
+
+/**
+ * Set one field of a rule (`duckModel.ruleWithField`: numbers clamped, `mode` adds or drops `detector` and `threshold`).
+ * Refused, with the parse's message, when the rule would be dropped: a bus ducking itself, a trigger above its target, a
+ * level cycle (naming the rules), the 9th level rule.
+ */
+export function setDuckingValueEdit(d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): DuckEdit {
+  const a = audioOf(d);
+  const old = a.ducking[index];
+  if (!old) return { draft: d, refusal: null };
+  const rule = ruleWithField(old, key, value);
+  const refusal = duckRefusal(a, a.ducking.map((r, i) => (i === index ? rule : r)));
+  return refusal ? { draft: d, refusal } : { draft: applyMixOp(d, { op: "setDucking", index, rule }), refusal: null };
+}
+export const setDuckingValue = (d: SettingsDraft, index: number, key: keyof DuckingRule, value: string | number): SettingsDraft => setDuckingValueEdit(d, index, key, value).draft;
+
+/** Move a rule up (`delta` -1) or down (+1) the list; the ends stay. The order is the index the messages and the core's rule table use. */
+export function moveDucking(d: SettingsDraft, index: number, delta: number): SettingsDraft {
+  const a = audioOf(d);
+  const other = index + delta;
+  if (!a.ducking[index] || !a.ducking[other] || delta === 0) return d;
+  const swapped = a.ducking.map((r, i) => (i === index ? a.ducking[other]! : i === other ? a.ducking[index]! : r));
+  if (duckRefusal(a, swapped) !== null) return d;
+  return applyMixOp(applyMixOp(d, { op: "setDucking", index, rule: swapped[index]! }), { op: "setDucking", index: other, rule: swapped[other]! });
 }
 
 // --- ADR 0171 §2.1: loudness targets and the reset option -------------------------------------------------------------
