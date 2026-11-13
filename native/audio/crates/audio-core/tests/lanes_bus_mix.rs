@@ -100,3 +100,18 @@ fn the_snapshot_golden_scene_with_low_passes_effects_and_a_send_is_bit_identical
         ]
     });
 }
+
+#[test]
+fn the_m4_s_bus_scene_is_bit_identical() {
+    // `golden/m4-s-bus.json`'s bus setup (its fixture still carries the BUS_MIX bytes until R0):
+    // gains 1, 0.5, 0.25, voices on buses 1 and 2, one moved between them.
+    assert_bit_identical("m4-s-bus", &|| {
+        vec![
+            Step::Recs(vec![config(&[ROOT, 0, 0]), dc(0x0001_0001, 1, 0.0), dc(0x0001_0002, 2, 0.0)]),
+            Step::Mix(0, vec![(1.0, OFF), (0.5, OFF), (0.25, OFF)]),
+            Step::Render(1),
+            Step::Recs(vec![set_bus(0x0001_0001, 2)]),
+            Step::Render(3),
+        ]
+    });
+}

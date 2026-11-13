@@ -112,9 +112,8 @@ pub fn on_slot(core: &mut Core, msg: &[u8], off: usize, _at: Option<u64>) {
     v.area.dropped = v.area.dropped.wrapping_add(dropped + (n - kept) as u32);
     if fresh {
         if let Some(e) = crate::lanes::entry(&mut core.regions_mut().lanes[..], slot) {
-            // Unity lanes, as `lanes::init` sets them (B1a's state: every lane settled at 1).
-            e.lanes = [audio_dsp::ramp::Ramp::at(1.0); crate::lanes::LANES];
-            e.moving = 0;
+            // Unity lanes, as `lanes::init` sets them.
+            crate::lanes::reset_unity(e);
         }
     }
     if added {

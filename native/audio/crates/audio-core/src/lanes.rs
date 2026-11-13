@@ -148,10 +148,16 @@ pub fn master_entry(region: &mut [u8]) -> Option<&mut BusLanes> {
     entries(region).last_mut()
 }
 
+/// Sets every lane of `entry` to a settled 1 (a `fresh` slot, `bus_slots::on_slot`; `init`).
+/// The slot's own runtime lane and low-pass are reset with the slot (`bus::fresh`).
+pub fn reset_unity(entry: &mut BusLanes) {
+    *entry = BusLanes { lanes: [Ramp::at(1.0); LANES], ..BusLanes::default() };
+}
+
 /// Sets every lane of every entry to unity (`Core::new`, once).
 pub fn init(core: &mut Core) {
     for e in entries(&mut core.regions_mut().lanes[..]) {
-        *e = BusLanes { lanes: [Ramp::at(1.0); LANES], ..BusLanes::default() };
+        reset_unity(e);
     }
 }
 
