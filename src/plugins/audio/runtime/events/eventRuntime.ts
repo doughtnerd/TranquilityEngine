@@ -20,6 +20,8 @@ import {
 import { isMusicNodeType, type MusicAutomation } from "../../../../engine/audio/musicFormat";
 import { audioBackend, type AudioBackend, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
 import { warnOnce } from "../core/handle";
+import { taps } from "../mix/profileTaps";
+import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { loopPointsFor, onLoopPoints } from "../loopPoints";
 import { _resetMusicPlayers, createMusicPlayer, disposeMusicPlayer, type MusicFrame, type MusicNodeRef, type MusicPlayer } from "../music/musicSystem";
 import { segmentClipSource, stopPlayerRuns, type StemRun } from "../music/segmentRun";
@@ -266,6 +268,8 @@ export class EventSystem {
     if (key !== null) this.lastPlay.set(key, now);
     const instance = new EventInstance(this, asset, path, world, this.allocGroup(asset), options);
     this.live.add(instance);
+    // Rc3 (§5.6 `eventStart`): the instance's id is its group (the keyframe's event rows and `debugRows` use it too); before its voices' starts.
+    if (taps.sink !== NULL_PROFILE_SINK) taps.sink.eventStart(instance.group, path);
     // M2 F1: the horizon is the same for every clip the start plays (it moves with the frame), so it is asked once.
     this.starting = true;
     this.horizonMemo = undefined;
@@ -280,6 +284,7 @@ export class EventSystem {
     const v = toNumber(g.def, value, `Audio.setParameter("${name}")`);
     if (v === null || v === g.value) return;
     g.value = v;
+    if (taps.sink !== NULL_PROFILE_SINK) noteParameter(name, g.def, v, null);
     this.sink!.setParam(0, g.slot, v, isLabelled(g.def) ? 0 : g.def.seekSpeed);
     for (const i of this.live) i.onParameter(name, true);
   }
@@ -572,6 +577,7 @@ export class EventSystem {
   /** @internal An instance ended (stopped, or all its voices finished): its group can be reused. */
   retire(instance: EventInstance): void {
     if (!this.live.delete(instance)) return;
+    if (taps.sink !== NULL_PROFILE_SINK) taps.sink.eventStop(instance.group); // Rc3 (§5.6 `eventStop`): once, however it ended
     if (instance.music && !instance.hasVoices) instance.endMusic();
     if (instance.group > 0) {
       if (this.lingering.length >= LINGERING_MAX) this.lingering.splice(0, LINGERING_MAX >> 1);
@@ -616,6 +622,15 @@ export class EventSystem {
   private sweep(): void {
     this.reap();
     this.releaseHeld();
+  }
+
+  /**
+   * Re-read the project's settings now (Ma1): new global parameters, new automation bindings (`audio.automation`), a new
+   * seed, and a backend that changed. Every public call already does this lazily; the live-mix path calls it when a
+   * project edit lands, so a binding added while playing takes effect without a script touching a parameter first.
+   */
+  syncSettings(): void {
+    this.refresh();
   }
 
   /** Follow the backend and the project settings: a new backend gets every table re-sent; new settings re-read globals. */
@@ -663,6 +678,16 @@ export class EventSystem {
       for (const b of settings.buses) this.sink!.bindBus(b.name, (byBus.get(b.name) ?? []).slice(0, MAX_BINDINGS));
     }
   }
+}
+
+/**
+ * Rc3 (§5.6 `parameter`, `stateChange`): a parameter took the value `v` (a label's index for a labelled one). `instance` is
+ * the event instance's group for a local parameter, null for a global one. A labelled parameter is also a state change.
+ */
+function noteParameter(name: string, def: ParameterDef, v: number, instance: number | null): void {
+  const sink = taps.sink;
+  sink.parameter(name, v, instance);
+  if (isLabelled(def)) sink.stateChange(name, def.labels[v] ?? String(v));
 }
 
 /** A parameter value as a number in its range (a label's index); null with a warning when it can't be. */
@@ -1119,6 +1144,7 @@ export class EventInstance {
     const v = toNumber(l.def, value, `setParameter("${name}")`);
     if (v === null || v === this.locals[l.slot]) return;
     this.locals[l.slot] = v;
+    if (taps.sink !== NULL_PROFILE_SINK) noteParameter(name, l.def, v, this.group);
     if (this.group > 0) this.sys.automation.setParam(this.group, l.slot, v, isLabelled(l.def) ? 0 : l.def.seekSpeed);
     this.onParameter(name, false);
   }
