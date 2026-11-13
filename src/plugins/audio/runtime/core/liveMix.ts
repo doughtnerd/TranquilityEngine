@@ -94,16 +94,44 @@ export class LiveMix {
   private timerSet = false;
 
   constructor(protected readonly host: LiveMixHost) {
+    // Ma3: finishing a deferred add reads the backend through the same lazy closures.
+    host.deferred.bind({ mixer: () => host.mixer(), buses: () => host.buses(), syncMix: () => host.syncMix() });
     // Ma2: the dip reads the backend through this host's lazy closures.
     host.dip.bind({
       mixer: () => host.mixer(),
-      buses: () => host.buses(),
+      buses: () => this.dipBuses(),
       writer: () => host.writer(),
       sending: () => host.sending(),
       firstFrame: () => host.firstFrame(),
       ...(host.framesNow ? { framesNow: () => host.framesNow!() } : {}),
       ...(host.defer ? { defer: (fn: () => void) => host.defer!(fn) } : {}),
     });
+  }
+
+  private recycling: { of: BusIndex; as: BusIndex } | null = null;
+
+  /**
+   * The bus index as the dip sees it: every tombstone recycle (the per-frame update, a structural op, a live add) that
+   * frees a slot goes on to finish the deferred adds the table gave it (Ma3, R10; `structuralDip.ts` is not edited).
+   */
+  private dipBuses(): BusIndex {
+    const real = this.host.buses();
+    if (this.recycling?.of === real) return this.recycling.as;
+    const as = new Proxy(real, {
+      get: (target, prop) => {
+        if (prop === "recycle") {
+          return (frame: number) => {
+            const freed = target.recycle(frame);
+            if (freed.length > 0) this.host.deferred.retry(freed);
+            return freed;
+          };
+        }
+        const v = Reflect.get(target, prop, target) as unknown;
+        return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+      },
+    });
+    this.recycling = { of: real, as };
+    return as;
   }
 
   /** One op on the running mix (§6.2); see the header for what each class sends. */
@@ -136,7 +164,8 @@ export class LiveMix {
         const parent = before.buses.some((b) => b.name === op.parent) ? op.parent : before.buses[0]!.name;
         host.dip.recycle(); // R9: a tombstone past its tail frees its slot first
         const slot = buses.addBus(name, parent);
-        if (typeof slot !== "number") return this.later(cls, slot.deferred); // Ma3 queues it (W8)
+        // R10: no free slot (a removed bus is still fading out): the edit is kept, queued, and applies at the recycle.
+        if (typeof slot !== "number") return host.deferred.defer(op, slot.deferred);
         mixer._applyLive(op, slot);
         buses.writeSlot(name, true);
         buses.writeLimits();
