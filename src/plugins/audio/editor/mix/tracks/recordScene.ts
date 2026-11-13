@@ -3,7 +3,10 @@
 // is stamped at the newest STATUS frame, so `advance` is what places events on the axis.
 import { assembleCapture } from "../../../runtime/capture/format";
 import { createEventSink, type EventSink } from "../../../runtime/capture/events";
-import { createRecorder, type EpochContext, type KeyframeSource } from "../../../runtime/capture/recorder";
+// The recorder is loaded with `import()` (as `capture.ts` does): no source but `capture.ts` imports it statically (`capture.test.ts`).
+type RecorderModule = typeof import("../../../runtime/capture/recorder");
+type EpochContext = import("../../../runtime/capture/recorder").EpochContext;
+type KeyframeSource = import("../../../runtime/capture/recorder").KeyframeSource;
 import { SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE, keyframeCodecForTests, statusBytes } from "../../../runtime/capture/testSupport";
 import { CaptureSource } from "../profilerSource";
 import { inProcessWorker } from "../voiceSceneSupport";
@@ -25,6 +28,7 @@ export interface Scene {
 export async function recordScene(script: (scene: Scene) => void, opts: { keyframeSource?: KeyframeSource } = {}): Promise<CaptureSource> {
   let t = 1000;
   const now = () => (t += 1);
+  const { createRecorder }: RecorderModule = await import("../../../runtime/capture/recorder");
   const r = createRecorder({ ringBytes: 4 * 1024 * 1024, codec: keyframeCodecForTests(), now, ...(opts.keyframeSource ? { keyframeSource: opts.keyframeSource } : {}) });
   r.begin(0, CONTEXT);
   const sink = createEventSink(r, { now });
