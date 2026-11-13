@@ -203,7 +203,7 @@ describe("coreDriver with the real wasm", () => {
     expect(s.underrunFrames).toBe(99);
     expect(s.traps).toBe(2);
     expect(s.flags & FLAG_TRAP_CAUGHT).toBeTruthy();
-    expect(SHELL_FIELD).toEqual({ dateMs: 24, pingSeq: 32, pingFrameLo: 36, underruns: 40, flags: 60, traps: 82, underrunFrames: 88 });
+    expect(SHELL_FIELD).toEqual({ dateMs: 24, pingSeq: 32, pingFrameLo: 36, underruns: 40, flags: 60, traps: 82, underrunFrames: 88, busyMsTotal: 176, quantaTotal: 184, clockStepMs: 238, clockSteps: 244 });
   });
 
   it("a trap gives silence, counts, posts one trap event, and the driver never calls the core again (A3.4a)", () => {
