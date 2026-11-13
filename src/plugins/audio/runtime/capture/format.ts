@@ -1261,8 +1261,54 @@ export interface CaptureSnapshot {
   keyframeSeq: number;
 }
 
+// Pf6 (M5b, W7): the loudness protocol. Structural twins of `editor/mix/loudnessTrackModel.ts`'s types (this module imports
+// nothing from the editor); times are seconds on the Worker's continuous axis.
+
+/** The values at a time on one bus (`LoudnessValues`); LUFS or dBTP, `-Infinity` where undefined. */
+export interface CaptureLoudnessValues {
+  time: number;
+  momentary: number;
+  shortTerm: number;
+  integrated: number;
+  lra: number;
+  truePeak: number;
+  peak: number;
+  incomplete: boolean;
+}
+/** A span the series has no audio for (`LoudnessGap`). */
+export interface CaptureLoudnessGap { kind: "lost" | "epoch"; from: number; to: number; lost: number }
+/** A span outside the target (`LoudnessMark`); warn only. */
+export interface CaptureLoudnessMark {
+  bus: number;
+  kind: "over" | "under";
+  metric: "integrated" | "shortTerm" | "momentary" | "truePeak";
+  from: number;
+  to: number;
+}
+/** A target as `audio.loudnessTargets` has it; the Worker reads it and changes nothing. */
+export interface CaptureLoudnessTarget { name?: string; integrated: number; tolerance: number; truePeak: number }
+/** One bus's series, as parallel columns (transferred): sample i is at `time[i]`. `incomplete` is 0 or 1. */
+export interface CaptureLoudnessColumns {
+  time: Float64Array;
+  momentary: Float64Array;
+  shortTerm: Float64Array;
+  integrated: Float64Array;
+  lra: Float64Array;
+  truePeak: Float64Array;
+  peak: Float64Array;
+  incomplete: Uint8Array;
+}
+
 /** Editor -> Worker. `id` names the request; `cancel` names the request to cancel. */
 export type CaptureWorkerRequest =
+  /** Pf6: the buses the capture's STATUS records meter (slot, sample count) and how the series was built. */
+  | { type: "loudnessInfo"; id: number }
+  /** Pf6: one bus's series over [t0, t1] (the whole capture by default). */
+  | { type: "loudnessSeries"; id: number; slot: number; t0?: number; t1?: number }
+  /** Pf6: the values at `t` for one bus (every bus when `slot` is omitted): the newest sample at or before `t`. */
+  | { type: "loudnessAt"; id: number; t: number; slot?: number }
+  /** Pf6: the spans outside `target` for every bus. */
+  | { type: "loudnessMarks"; id: number; target: CaptureLoudnessTarget; metrics?: readonly ("integrated" | "shortTerm" | "momentary")[]; truePeak?: boolean }
   /** A file's bytes (transferred), or for a live view the 96 B header plus raw META with no records (`recordCount` 0). */
   | { type: "open"; id: number; source: "file" | "live"; bytes: ArrayBuffer }
   /** Live (R17, Rc6): one sealed segment of raw records (starting at a KEYFRAME, no header), continuing the open view's seq and epoch. */
@@ -1272,8 +1318,12 @@ export type CaptureWorkerRequest =
   | { type: "cancel"; id: number }
   | { type: "close"; id: number };
 
-/** Worker -> editor. Typed arrays in `range` are transferred. */
+/** Worker -> editor. Typed arrays in `range` and `loudnessSeries` are transferred. */
 export type CaptureWorkerResponse =
+  | { type: "loudnessInfo"; id: number; mode: "replay" | "seek"; buses: { slot: number; samples: number }[] }
+  | { type: "loudnessSeries"; id: number; slot: number; columns: CaptureLoudnessColumns; gaps: CaptureLoudnessGap[] }
+  | { type: "loudnessAt"; id: number; t: number; buses: { slot: number; values: CaptureLoudnessValues | null }[] }
+  | { type: "loudnessMarks"; id: number; marks: CaptureLoudnessMark[] }
   | { type: "progress"; id: number; phase: "inflate" | "records"; done: number; total: number }
   | { type: "opened"; id: number; summary: CaptureSummary }
   | { type: "appended"; id: number; summary: CaptureSummary }
