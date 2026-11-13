@@ -46,6 +46,21 @@ describe("a project section", () => {
     expect(s.undoLabel).toBe("Set display width");
   });
 
+  it("saves a project.json written on one line", async () => {
+    const compact = JSON.stringify(JSON.parse(PROJECT));
+    const { project } = await openTestProject({ "project.json": compact });
+    const s = createProjectSettingsSection().open(project);
+    await s.edit("Set display width", setValue(s.draft, "display", "width", 800));
+    expect(s.error).toBeNull();
+    expect(fileOf(project).display).toEqual({ width: 800, height: 480 });
+    expect(fileOf(project).render).toEqual({ sortingLayers: ["Default", "Fx"] });
+    expect(project.textOf("project.json")).not.toContain("\n");
+    const w = createWorldsSection().open(project);
+    await w.edit("Add World", editedWorlds(addWorld(graphModel(w.draft))));
+    expect(w.error).toBeNull();
+    expect(fileOf(project).bootstrap).toBeDefined();
+  });
+
   it("keeps the draft and its undo when another panel's key changes", async () => {
     const { project } = await openTestProject({ "project.json": PROJECT });
     const settings = createProjectSettingsSection();

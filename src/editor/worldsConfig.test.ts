@@ -227,6 +227,24 @@ describe("writing project.json", () => {
   it("writes into an empty object", () => {
     expect(JSON.parse(withBootstrap("{}\n", "scripts/B.ts"))).toEqual({ bootstrap: "scripts/B.ts" });
   });
+
+  it("writes a file on one line, keeping it on one line", () => {
+    const compact = '{"name":"x","bootstrap":"scripts/A.ts","physics":{"gravity":[0,-32]}}';
+    const replaced = withBootstrap(compact, modelToConfig(clientServer()));
+    expect(JSON.parse(replaced)).toEqual({ name: "x", bootstrap: modelToConfig(clientServer()), physics: { gravity: [0, -32] } });
+    expect(replaced).not.toContain("\n");
+    expect(withBootstrap(compact, undefined)).toBe('{"name":"x","physics":{"gravity":[0,-32]}}');
+    const spaced = '{ "name": "x", "physics": { "gravity": [0, -32] } }\n';
+    const added = withBootstrap(spaced, "scripts/B.ts");
+    expect(added).toBe('{ "name": "x", "physics": { "gravity": [0, -32] }, "bootstrap": "scripts/B.ts" }\n');
+    expect(withBootstrap(added, undefined)).toBe(spaced);
+    expect(JSON.parse(withBootstrap('{"bootstrap":"a.ts","name":"x"}', undefined))).toEqual({ name: "x" });
+  });
+
+  it("writes a file whose first key shares the brace's line", () => {
+    const text = withBootstrap('{ "name": "x",\n  "physics": {}\n}\n', "scripts/B.ts");
+    expect(JSON.parse(text)).toEqual({ name: "x", physics: {}, bootstrap: "scripts/B.ts" });
+  });
 });
 
 describe("Spawnable Worlds (ADR 0062)", () => {
