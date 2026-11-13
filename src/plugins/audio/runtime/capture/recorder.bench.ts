@@ -163,8 +163,8 @@ function blocksUpTo(second: number): number {
   return Math.ceil((second * SAMPLE_RATE) / BLOCK);
 }
 
-/** Runs `seconds` of audio through the rig, returns each second's main-thread milliseconds (a second's blocks timed together). */
 const EMPTY = new Float64Array(0);
+/** Runs `seconds` of audio through the rig, returns each second's main-thread milliseconds (a second's blocks timed together). */
 function run(rig: Rig, firstBlock: number, seconds: number, record: boolean): Float64Array {
   const samples = record ? new Float64Array(seconds) : EMPTY;
   const { recorder, data, view, bytes } = rig;

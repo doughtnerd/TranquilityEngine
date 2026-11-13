@@ -98,6 +98,9 @@ interface Result {
   deflated: number;
   eventsPerSecond: number;
   keyframeBytesEach: number;
+  /** Main-thread ms per second of audio: the recorder's tap summed (STATUS copies and keyframes), and the whole per-frame main side. */
+  tapMsPerS: number;
+  mainMsPerS: number;
 }
 
 async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
@@ -273,7 +276,7 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
   }
 
   let result: Result;
-  const base = { scene, armed, quantaPlain: stat(plain, nPlain), quantaStatus: stat(withStatus, nStatus), mainFrame: stat(mainMs.map((v) => v * 1000), nMain), liveAvg: liveSum / Math.max(1, statusCount), mixedAvg: mixedSum / Math.max(1, statusCount) };
+  const base = { scene, armed, quantaPlain: stat(plain, nPlain), quantaStatus: stat(withStatus, nStatus), mainFrame: stat(mainMs.map((v) => v * 1000), nMain), mainMsPerS: mainMs.slice(0, nMain).reduce((a, b) => a + b, 0) / MEASURE_SECONDS, liveAvg: liveSum / Math.max(1, statusCount), mixedAvg: mixedSum / Math.max(1, statusCount) };
   if (recorder && sink) {
     backend.recorderTap = null;
     backend.setProfileSink(null);
@@ -301,13 +304,14 @@ async function runScene(scene: Scene, armed: boolean): Promise<Result | null> {
       ...base, tap: stat(tapNs!, tapN), statusBytesAvg: statusBytes / Math.max(1, tapN), seconds, ringBytes: span.bytes.byteLength, statusBytes,
       keyframeBytes: kfBytes, eventBytes: evBytes, otherBytes: span.bytes.byteLength - statusBytes - kfBytes - evBytes, records: byType, deflated,
       eventsPerSecond: sink.eventsWritten / seconds, keyframeBytesEach: kfBytes / Math.max(1, kfCount),
+      tapMsPerS: tapNs!.slice(0, tapN).reduce((a, b) => a + b, 0) / 1000 / seconds,
     };
     expect(recorder.badStatus).toBe(0);
     expect(recorder.ring.dropped).toBe(0);
     expect(recorder.ring.evicted).toBe(0);
     expect(Math.abs(seconds - MEASURE_SECONDS)).toBeLessThan(0.1); // the audio clock covered the minute
   } else {
-    result = { ...base, tap: null, statusBytesAvg: 0, seconds: MEASURE_SECONDS, ringBytes: 0, statusBytes: 0, keyframeBytes: 0, eventBytes: 0, otherBytes: 0, records: {}, deflated: 0, eventsPerSecond: 0, keyframeBytesEach: 0 };
+    result = { ...base, tap: null, statusBytesAvg: 0, seconds: MEASURE_SECONDS, ringBytes: 0, statusBytes: 0, keyframeBytes: 0, eventBytes: 0, otherBytes: 0, records: {}, deflated: 0, eventsPerSecond: 0, keyframeBytesEach: 0, tapMsPerS: 0 };
   }
   backend.dispose();
   return result;
@@ -319,8 +323,8 @@ const mb = (bytes: number, seconds: number): string => ((bytes / seconds) * 60 /
 describe("spike S3's capture scene, idle, through the real core (§7.4)", () => {
   it("records sizes and costs for 64 / 256 / 1,024 live voices, recorder off and on", async (ctx) => {
     const cost: string[] = [
-      "| scene | recorder | core quantum without STATUS us (median / p95 / max) | quantum with STATUS | main frame us (mixer + backend.update + scene) | recorder tap us | live / mixed voices (avg) |",
-      "|---|---|---|---|---|---|---|",
+      "| scene | recorder | core quantum without STATUS us (median / p95 / max) | quantum with STATUS | main frame us (mixer + backend.update + scene) | recorder tap us | recorder tap ms per audio s (sum, keyframes in) | main side ms per audio s (whole frame) | live / mixed voices (avg) |",
+      "|---|---|---|---|---|---|---|---|---|",
     ];
     const sizes: string[] = [
       "| scene | STATUS B/block (avg) | ring MB/min raw | STATUS | KEYFRAME | EVENT | other | S3 raw MB/min | take deflated MB/min | 0172 MB/min | events/s | keyframe B each |",
@@ -330,7 +334,7 @@ describe("spike S3's capture scene, idle, through the real core (§7.4)", () => 
       for (const armed of [false, true]) {
         const r = await runScene(scene, armed);
         if (!r) return ctx.skip();
-        cost.push(`| ${scene.name} | ${armed ? "on" : "off"} | ${us(r.quantaPlain)} | ${us(r.quantaStatus)} | ${us(r.mainFrame)} | ${r.tap ? us(r.tap) : "-"} | ${r.liveAvg.toFixed(0)} / ${r.mixedAvg.toFixed(0)} |`);
+        cost.push(`| ${scene.name} | ${armed ? "on" : "off"} | ${us(r.quantaPlain)} | ${us(r.quantaStatus)} | ${us(r.mainFrame)} | ${r.tap ? us(r.tap) : "-"} | ${r.tap ? r.tapMsPerS.toFixed(3) : "-"} | ${r.mainMsPerS.toFixed(3)} | ${r.liveAvg.toFixed(0)} / ${r.mixedAvg.toFixed(0)} |`);
         if (armed) {
           sizes.push(`| ${scene.name} | ${r.statusBytesAvg.toFixed(0)} | ${mb(r.ringBytes, r.seconds)} | ${mb(r.statusBytes, r.seconds)} | ${mb(r.keyframeBytes, r.seconds)} | ${mb(r.eventBytes, r.seconds)} | ${mb(r.otherBytes, r.seconds)} | ${scene.s3Raw} | ${mb(r.deflated, r.seconds)} | ${scene.s3Deflated} | ${r.eventsPerSecond.toFixed(0)} | ${r.keyframeBytesEach.toFixed(0)} |`);
           expect(r.ringBytes).toBeGreaterThan(0);

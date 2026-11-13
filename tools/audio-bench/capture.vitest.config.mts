@@ -3,6 +3,8 @@
 // prints its numbers with `console.log`; none asserts a wall-clock time (ground rules).
 //
 //   npx vitest run --config tools/audio-bench/capture.vitest.config.mts [file filter]
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { engineTypes, typescriptTranspile } from "../../vite.shared.ts";
@@ -11,6 +13,8 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
 
 export default defineConfig({
   root,
+  // Its own cache: node_modules is shared between worktrees, and a sibling Vitest run clears its cache directory.
+  cacheDir: join(tmpdir(), "myco-capture-bench-vite"),
   plugins: [typescriptTranspile(), engineTypes()],
   oxc: false,
   test: {
