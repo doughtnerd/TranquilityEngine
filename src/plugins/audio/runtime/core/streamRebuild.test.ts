@@ -98,11 +98,12 @@ describe("a stream across a hard rebuild (B3)", () => {
       }
     };
     // Frames until the work is done. (`vi.waitFor` is a 1 s wall-clock budget polled every 50 ms: it fails on a busy
-    // machine. Here the budget counts frames; a real millisecond between them gives the worker and the respawn CPU.)
+    // machine. Here the budget counts frames; a real millisecond between them gives the worker and the respawn CPU.
+    // FU2: 1 ms, not 50: how many frames render before the worker's chunks land must not move the result.)
     const until = async (done: () => boolean, what: string) => {
       for (let k = 0; k < 20_000 && !done(); k++) {
         await step(1);
-        if (!done()) await new Promise((res) => setTimeout(res, 50));
+        if (!done()) await new Promise((res) => setTimeout(res, 1));
       }
       if (!done()) throw new Error(`gave up waiting for ${what}`);
     };
@@ -137,14 +138,16 @@ describe("a stream across a hard rebuild (B3)", () => {
       if (ok) pos = p;
     }
     expect(pos).toBeGreaterThan(0);
-    // Where it would have been: the output frames before the trap plus the gap, within a few quanta of the estimate.
+    // Where it would have been: the output frames since the file's frame 0 sounded (its first sample is 0, so the
+    // first non-zero output is file frame 1), the gap and the reopen's wait included.
     const firstSound = out.findIndex((s) => s !== 0);
-    const expected = on - firstSound;
-    // Measured: 1 frame, or 513 when the stream worker's refill (one chunk per macrotask, decoder/handler.ts) lands a
-    // step later. The audible edge sits on either side of a 4-quantum step (512 frames) depending on how many macrotask
-    // turns the worker got between steps, which is the host's scheduling and not the product's clock: the bound is two
-    // steps, still "a few quanta" against a playhead of 6 s of file.
-    expect(Math.abs(pos - expected)).toBeLessThan(512);
+    const origin = firstSound - [0, 1, 2, 3].find((p) => [0, 1, 2, 3].every((k) => out[firstSound + k] === want(p + k)))!;
+    const expected = on - origin;
+    // FU2: frame-driven, so exact: the reopen resumes from the stream's own position (its STATUS playhead, not counting
+    // the frames it waited for its first chunks) at a stamp ahead of the worker's first chunks. Before FU2 it resumed
+    // from an estimate anchored at its first PLAY and waited for the worker on the new core, and the error moved with
+    // how many frames rendered while the worker ran (1, 513, 1,025… frames). Bound: under a quantum.
+    expect(Math.abs(pos - expected)).toBeLessThan(128);
     for (let k = 0; k < 4_000; k++) if (out[on + k] !== want(pos + k)) expect.fail(`frame ${k} after the reopen`);
     backend.dispose();
     // Every assertion above is on frames rendered, stream ids and counters; the timeout is the harness's patience.

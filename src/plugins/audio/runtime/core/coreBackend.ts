@@ -97,7 +97,7 @@ import { DistanceEffect } from "./spatial";
 import { StatusReader } from "./statusReader";
 import { UnlockQueue } from "./unlockQueue";
 import { connectVoiceTable, MAX_STEM_PENDING, VoiceFlag, VoiceFlag2, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
-import { STREAM_ERROR_FADE_SECONDS, StreamManager, type StreamDecoderLike, type StreamManagerDeps } from "./streams";
+import { reopenStamp, STREAM_ERROR_FADE_SECONDS, StreamManager, type StreamDecoderLike, type StreamManagerDeps } from "./streams";
 import { WorkletChannel } from "./workletChannel";
 import { sharedDecoderClient } from "../decoder/decoderClient";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
@@ -1874,25 +1874,29 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
 
   /**
    * B3, a hard rebuild (`Replayer.restore` hands over the live stream voices): each reopens on the new core with a new
-   * stream id, from where its playhead is now (wrapped for loops; a finished one is dropped).
+   * stream id, stamped `STREAM_REOPEN_LEAD_SECONDS` ahead from where its own position reaches there (FU2: its STATUS
+   * playhead run on at its rate, wrapped for loops; a finished one is dropped).
    *
    * ADR 0166 (Q2, C16): music group members are skipped: their groups reopen as groups (`musicOps.reopenGroups`, P9).
    */
   reopenStreams(ids: readonly number[]): void {
     const t = this.table;
-    const frame = this.clockMap.framesNow();
+    // FU2: frame-driven. Each stream restarts at a stamp `reopenStamp` ahead, from the frame its own position (its last
+    // STATUS playhead, run on at its rate) reaches there, so the worker's first chunks may land any time before it.
+    const at = reopenStamp(this.clockMap.framesNow(), this.clockMap.sampleRate);
     for (const id of ids) {
       if (!t.isLive(id) || this.musicOps.ownsVoice(id)) continue;
       const i = id & 0xffff;
       const info = this.streams.clipInfo(t.clip[i]!);
       const frames = info?.frames ?? 0;
       // E4.4: the file frame by the stream's map: inside its loop region while it loops; a released (or plain) stream past its end is dropped.
-      const pos = Math.max(0, Math.floor(this.playheads.wrappedNow(i, frame)));
+      const pos = Math.max(0, Math.floor(this.streams.resumeFrame(t.clip[i]!, id, at)));
       if (!this.streams.looping(t.clip[i]!) && frames > 0 && pos >= frames) {
         t.free(id, VoiceReason.NONE);
         continue;
       }
       t.clip[i] = this.streams.rekey(t.clip[i]!);
+      t.startFrame[i] = at;
       this.launchStream(id, i, pos);
     }
     this.musicOps.reopenGroups();
