@@ -15,8 +15,12 @@
 //!   the ceiling − 6 dB (`tpGateDbfs`), skipped quanta counted.
 //! - **The take:** each STATUS take carries, per metered bus, the sub-blocks since the last
 //!   successful take and the peak since then (a 3.2 s main stall loses nothing).
-//! - **The ladder** (R21, Ld7): its new first step pauses non-master metering (skipped when only
-//!   master is metered), reported in `loudShed`; given back last.
+//! - **The ladder** (R21, Ld7): its new first step pauses non-master metering (K-weighting,
+//!   sub-blocks, true peak; master never stops), skipped when only master is metered, reported in
+//!   `loudShed` and per meter by `LOUD_FLAG_PAUSED`; the bed and zone steps follow a second after
+//!   it ([`audible_steps_may_start`]); `cap.rs`'s ADR 0170 recovery gives it back last
+//!   ([`restore_step`], which reseeds the bus meters: their next take is flagged `reset`).
+//!   Sidechain detectors, the `duck` lane and `BUS_RAMP` are other modules' and never shed.
 //! - `wuLoudness` (cumulative work units) is this module's.
 //!
 //! **Who fills what.** K1 (W1): the hooks below, identity bodies, called from `bus.rs`,
@@ -25,7 +29,7 @@
 //! step and `loudShed`.
 //!
 //! **The region (Ld2).** [`HEADER_BYTES`] of [`Header`] (`ready`, the last `tpGateDbfs`, the
-//! work units not yet reported, Ld7's pause word, the taps' routes: slot → meter), then per meter
+//! work units not yet reported, Ld7's ladder word and frames, the taps' routes: slot → meter), then per meter
 //! `i` its 1,512-B state and its 128-B ring. The state is Ld1's [`Meter`] (1,496 B) followed by
 //! this module's 16-B [`Book`]: the bus slot, the active and reset bits, the sent cursor (the
 //! sequence after the last sub-block a successful take carried) and the gate-skip count at that
@@ -101,15 +105,28 @@ struct Header {
     tp_gate_dbfs: f32,
     /// Work units of the taps not yet added to `wuLoudness` ([`status`] moves them).
     wu: f64,
-    /// Ld7: non-master metering paused by the ladder (0 = running). Ld2 reads nothing here.
-    paused: u32,
+    /// Ld7: the ladder's loudness step, bits [`LADDER_PAUSED`], [`LADDER_PRESSURE`] and
+    /// [`LADDER_SETTLED`] (0: running, no pressure).
+    ladder: u16,
     /// 1 while master (meter 0) is active: the output tap's route.
-    out_routed: u32,
+    out_routed: u16,
     /// Per bus slot below [`ROUTED`], its meter's index + 1 (0: not metered), so a tap finds its meter
     /// at once; slots past it are looked up in the books ([`reroute`] keeps both in step).
     route: [u8; ROUTED],
-    reserved: [u32; 2],
+    /// Ld7: the frames (their low 32 bits, compared with wrapping arithmetic) the current run of
+    /// underruns at the cap's floor started, of its last underrun, and of the step being taken.
+    pressure_since: u32,
+    last_underrun: u32,
+    paused_at: u32,
 }
+
+/// [`Header::ladder`]: the ladder's loudness step is in force (non-master meters paused, `loudShed` 1).
+const LADDER_PAUSED: u16 = 1;
+/// [`Header::ladder`]: underruns at the cap's floor are going on (since `pressure_since`).
+const LADDER_PRESSURE: u16 = 2;
+/// [`Header::ladder`]: the step has been in force for a whole [`crate::zones::LADDER_MS`], so the
+/// audible steps may follow (set once, so a step held past the 32-bit frame wrap can't block them).
+const LADDER_SETTLED: u16 = 4;
 
 /// Bus slots [`Header::route`] covers (the core's 32 slots, tombstones included).
 const ROUTED: usize = 32;
@@ -227,8 +244,9 @@ pub fn init(core: &mut Core) {
 /// meter reads it), or the final output after the limiter when `bus` is [`OUTPUT_TAP`]. Called by
 /// `bus::mixdown` for every bus and once for the output. K-weights and accumulates the sub-block
 /// of a metered bus (a bus not metered returns after one header read), runs the true peak (gated
-/// off master), and adds to `wuLoudness`; Ld7 skips paused meters. `loudness` is the `Loudness`
-/// region. Reads the signal only.
+/// off master), and adds to `wuLoudness`. While the ladder's loudness step is in force a bus tap
+/// returns after the header read: no K-weighting, sub-block or true peak (master keeps metering).
+/// `loudness` is the `Loudness` region. Reads the signal only.
 #[inline]
 pub fn tap(loudness: &mut [u8], bus: u16, l: &[f32], r: &[f32]) {
     let Some(h) = header(loudness) else { return };
@@ -237,6 +255,9 @@ pub fn tap(loudness: &mut [u8], bus: u16, l: &[f32], r: &[f32]) {
             return;
         }
         0
+    } else if h.ladder & LADDER_PAUSED != 0 {
+        // Ld7 (ARCH §4.8): the ladder's loudness step stops every meter but master.
+        return;
     } else if (bus as usize) < ROUTED {
         match h.route[bus as usize] {
             0 => return,
@@ -272,6 +293,7 @@ pub fn status(core: &mut Core, mix: &mut MixSections) {
         return;
     }
     let wu = core::mem::take(&mut h.wu);
+    let paused = h.ladder & LADDER_PAUSED != 0;
     for i in 0..METERS {
         let Some((m, book, ring)) = parts(region, i) else { break };
         if book.flags & ACTIVE == 0 {
@@ -294,6 +316,9 @@ pub fn status(core: &mut Core, mix: &mut MixSections) {
         }
         if m.true_peak_gate() > 0.0 {
             flags |= wire::LOUD_FLAG_TP_GATE_ACTIVE as u16;
+        }
+        if paused && i != 0 {
+            flags |= wire::LOUD_FLAG_PAUSED as u16;
         }
         let peak = m.peak();
         mix.loud_buses.push(LoudBus { slot: book.slot, flags, first_seq: first, true_peak: peak[0].max(peak[1]), gated_quanta: skipped });
@@ -419,20 +444,130 @@ pub fn on_config(core: &mut Core, msg: &[u8], off: usize) {
 pub fn reset(core: &mut Core) {
     let region = &mut core.regions_mut().loudness[..];
     for i in 0..METERS {
-        let active = match parts(region, i) {
-            Some((m, book, _)) if book.flags & ACTIVE != 0 => {
-                m.reset();
-                book.sent = 0;
-                book.skipped_seen = 0;
-                book.flags |= RESET_PENDING;
-                true
-            }
-            _ => false,
-        };
-        if active {
-            if let Some((_, ring)) = meter(region, i) {
-                ring.fill(0);
-            }
+        reseed(region, i);
+    }
+}
+
+/// Reseeds meter `i` when it is active: filters, open sub-block, peaks and counters cleared, the
+/// ring zeroed, the sequence and the sent cursor back to 0, the next take flagged `reset`.
+fn reseed(region: &mut [u8], i: usize) {
+    let active = match parts(region, i) {
+        Some((m, book, _)) if book.flags & ACTIVE != 0 => {
+            m.reset();
+            book.sent = 0;
+            book.skipped_seen = 0;
+            book.flags |= RESET_PENDING;
+            true
+        }
+        _ => false,
+    };
+    if active {
+        if let Some((_, ring)) = meter(region, i) {
+            ring.fill(0);
         }
     }
+}
+
+/// The frames of the ladder's trigger and spacing at `rate` (`zones::LADDER_MS`, 1 s, as the bed
+/// and zone steps count it).
+fn ladder_frames(rate: f32) -> u32 {
+    crate::cap_controller::ms_to_frames(crate::zones::LADDER_MS, rate).min(u32::MAX as u64) as u32
+}
+
+/// Whether a meter other than master is active (the loudness step has something to pause).
+fn has_bus_meters(region: &mut [u8]) -> bool {
+    (1..METERS).any(|i| parts(region, i).is_some_and(|(_, book, _)| book.flags & ACTIVE != 0))
+}
+
+/// Ld7 (R21, ARCH §4.8): the ladder's loudness step, checked once a quantum after the buses mixed
+/// (`zones::after_render` calls it first, before the zone steps). Its trigger is the ladder's own,
+/// as `zones.rs` counts it: the adaptive cap at its floor and underruns going on for
+/// [`crate::zones::LADDER_MS`] (a gap of more than that between underruns starts the run again).
+/// The step pauses every non-master meter (see [`tap`]) and sets `loudShed`; it is **skipped** while
+/// only master is metered, so the audible steps aren't delayed for nothing. It is the ladder's
+/// first step: [`audible_steps_may_start`] holds the bed and zone steps back until it has been in
+/// force for another `LADDER_MS`. `cap.rs`'s recovery clock gives it back last
+/// ([`restore_step`]). Never allocates; at the cap's floor or above it, without underruns, it is a
+/// header read.
+pub fn ladder(core: &mut Core) {
+    let (at_floor, underrun) = {
+        let c = core.cap();
+        (c.cap() <= c.config().floor, c.underrun_pending())
+    };
+    // The frame's low 32 bits: every comparison below is a wrapping difference of at most seconds.
+    let frame = core.frame() as u32;
+    let rate = core.params().sample_rate;
+    let region = &mut core.regions_mut().loudness[..];
+    let Some(h) = header(region) else { return };
+    if h.ladder & (LADDER_PAUSED | LADDER_SETTLED) == LADDER_PAUSED && frame.wrapping_sub(h.paused_at) >= ladder_frames(rate) {
+        h.ladder |= LADDER_SETTLED;
+    }
+    if !at_floor {
+        h.ladder &= !LADDER_PRESSURE;
+        return;
+    }
+    if !underrun {
+        if h.ladder & LADDER_PRESSURE != 0 && frame.wrapping_sub(h.last_underrun) > ladder_frames(rate) {
+            h.ladder &= !LADDER_PRESSURE;
+        }
+        return;
+    }
+    if h.ladder & LADDER_PRESSURE == 0 {
+        h.ladder |= LADDER_PRESSURE;
+        h.pressure_since = frame;
+        h.last_underrun = frame;
+        return;
+    }
+    h.last_underrun = frame;
+    if h.ladder & LADDER_PAUSED != 0 || frame.wrapping_sub(h.pressure_since) < ladder_frames(rate) || !has_bus_meters(region) {
+        return;
+    }
+    let Some(h) = header(region) else { return };
+    h.pressure_since = frame;
+    h.paused_at = frame;
+    h.ladder = (h.ladder | LADDER_PAUSED) & !LADDER_SETTLED;
+    status::counters_mut(core).mix.loud_shed = 1;
+}
+
+/// Ld7 (ARCH §4.8, O4): whether the ladder's audible steps (`bed.rs`'s bed-idle step, `zones.rs`'s
+/// two) may go ahead at the current frame. The loudness step comes first: while a non-master meter
+/// is active and the step isn't in force, no audible step is taken (it will be, on this quantum's
+/// [`ladder`] check), and once it is in force the next step waits a whole `LADDER_MS`, as each
+/// later step waits for the one before. With only master metered this is always true, so the
+/// ladder runs exactly as before M5. Called only when an audible step is due (the cap at its floor,
+/// a fresh underrun).
+pub fn audible_steps_may_start(core: &mut Core) -> bool {
+    let frame = core.frame() as u32;
+    let rate = core.params().sample_rate;
+    let region = &mut core.regions_mut().loudness[..];
+    let Some(h) = header(region) else { return true };
+    if h.ladder & LADDER_PAUSED != 0 {
+        return h.ladder & LADDER_SETTLED != 0 || frame.wrapping_sub(h.paused_at) >= ladder_frames(rate);
+    }
+    !has_bus_meters(region)
+}
+
+/// Ld7: the ladder's loudness step in force, 0 or 1 (STATUS `loudShed`; `cap.rs`'s recovery clock
+/// counts it with the bed and zone steps, which `m3Shed` keeps reporting alone).
+pub fn shed_steps(core: &mut Core) -> u32 {
+    header(&mut core.regions_mut().loudness[..]).map_or(0, |h| (h.ladder & LADDER_PAUSED) as u32)
+}
+
+/// Ld7 (ADR 0170, R21): gives the loudness step back, last (`cap.rs`'s recovery clock, after the
+/// zone and bed steps). Each non-master meter is reseeded, so its first sub-block after the span
+/// holds only signal from after it, and its next take is flagged `reset` (main restarts the feed
+/// and marks the reading `incomplete`); master never stopped and is untouched. `loudShed` returns
+/// to 0. Returns whether the step was in force.
+pub fn restore_step(core: &mut Core) -> bool {
+    let region = &mut core.regions_mut().loudness[..];
+    let Some(h) = header(region) else { return false };
+    if h.ladder & LADDER_PAUSED == 0 {
+        return false;
+    }
+    h.ladder = 0;
+    for i in 1..METERS {
+        reseed(region, i);
+    }
+    status::counters_mut(core).mix.loud_shed = 0;
+    true
 }
