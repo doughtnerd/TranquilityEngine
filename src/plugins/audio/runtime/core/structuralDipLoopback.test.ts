@@ -212,6 +212,7 @@ describe("the structural dip on the loopback host (Ma2)", () => {
     await r.step(12);
     const before = (await r.step(1)).last;
     expect(before).toBeCloseTo(LEVEL * 0.5, 6);
+    const recycles = vi.spyOn(r.backend.buses, "recycle");
     const m = await structural(r, { op: "removeBus", bus: "SFX" });
     const i = v.id & 0xffff;
     expect(r.backend.table.bus[i]).toBe(SLOT.Master);
@@ -227,10 +228,15 @@ describe("the structural dip on the loopback host (Ma2)", () => {
     const worst = maxStep(m.out);
     console.info(`[Ma2] remove: maxStep ${worst.toExponential(3)} against the dip slope ${slope.toExponential(3)}`);
     expect(worst).toBeLessThanOrEqual(slope * F32_ROUNDING);
-    // The tombstone recycles once its tail has passed with no voice on it (main's clock leads the rendered one).
-    expect(r.backend.buses.slots.slots[SLOT.SFX]).toMatchObject({ state: "tombstone", recycleAfterFrame: m.seq.end + TOMBSTONE_TAIL_FRAMES });
-    expect(r.backend.dip.recycle(m.seq.end + TOMBSTONE_TAIL_FRAMES - 1)).toEqual([]);
-    expect(r.backend.dip.recycle(m.seq.end + TOMBSTONE_TAIL_FRAMES)).toEqual([SLOT.SFX]);
+    // The tombstone recycles once its tail has passed with no voice on it: the backend's per-frame `dip.update` (Ck1)
+    // frees it at the first frame whose F_now is at or past end + TOMBSTONE_TAIL_FRAMES, never before.
+    const due = m.seq.end + TOMBSTONE_TAIL_FRAMES;
+    const calls = recycles.mock.calls.map((c, k) => ({ frame: c[0], freed: recycles.mock.results[k]!.value as number[] }));
+    const freedAt = calls.find((c) => c.freed.includes(SLOT.SFX));
+    expect(freedAt, "recycled by the per-frame update").toBeDefined();
+    expect(freedAt!.frame).toBeGreaterThanOrEqual(due);
+    expect(calls.filter((c) => c.frame >= due && c.frame < freedAt!.frame)).toEqual([]);
+    expect(r.backend.buses.slots.slots[SLOT.SFX]!.state).toBe("free");
     r.backend.dispose();
   });
 
