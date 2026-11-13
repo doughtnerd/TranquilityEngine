@@ -6,6 +6,7 @@ import { signal } from "@preact/signals";
 import { openScene } from "./state";
 import { moveUIElement, whyNotMovable } from "./uiDocumentEdits";
 import { elementLabel, parseUIRefKey, resolveUIElement, uiRefKey, type UIElementRef } from "./uiDocuments";
+import { eventWindow } from "./windows/dom";
 
 const DRAG_THRESHOLD = 5;
 
@@ -59,10 +60,12 @@ export function startUIElementDrag(e: PointerEvent, ref: UIElementRef, key: stri
   if (e.button !== 0) return;
   const startX = e.clientX, startY = e.clientY;
   let active = false;
+  // The window the drag started in: a detached panel window's own (ADR 0174).
+  const win = eventWindow(e);
   const update = (m: PointerEvent) => {
     if (!active && Math.hypot(m.clientX - startX, m.clientY - startY) < DRAG_THRESHOLD) return;
     active = true;
-    const row = (document.elementFromPoint(m.clientX, m.clientY) as HTMLElement | null)?.closest<HTMLElement>(".row.ui-element[data-ui-key]");
+    const row = (win.document.elementFromPoint(m.clientX, m.clientY) as HTMLElement | null)?.closest<HTMLElement>(".row.ui-element[data-ui-key]");
     let drop: { target: UIElementDrop | null; problem: string | null } = { target: null, problem: "drop it on an element of the same document" };
     if (row) {
       const r = row.getBoundingClientRect();
@@ -71,10 +74,10 @@ export function startUIElementDrag(e: PointerEvent, ref: UIElementRef, key: stri
     uiElementDrag.value = { key, label, x: m.clientX, y: m.clientY, ...drop };
   };
   const finish = (apply: boolean) => {
-    window.removeEventListener("pointermove", update);
-    window.removeEventListener("pointerup", up);
-    window.removeEventListener("pointercancel", cancel);
-    window.removeEventListener("keydown", escape, true);
+    win.removeEventListener("pointermove", update);
+    win.removeEventListener("pointerup", up);
+    win.removeEventListener("pointercancel", cancel);
+    win.removeEventListener("keydown", escape, true);
     const state = uiElementDrag.value;
     uiElementDrag.value = null;
     if (apply && active && state?.target) moveUIElement(ref, state.target.parent, state.target.index);
@@ -90,10 +93,10 @@ export function startUIElementDrag(e: PointerEvent, ref: UIElementRef, key: stri
     k.stopPropagation();
     finish(false);
   };
-  window.addEventListener("pointermove", update);
-  window.addEventListener("pointerup", up);
-  window.addEventListener("pointercancel", cancel);
-  window.addEventListener("keydown", escape, true);
+  win.addEventListener("pointermove", update);
+  win.addEventListener("pointerup", up);
+  win.addEventListener("pointercancel", cancel);
+  win.addEventListener("keydown", escape, true);
 }
 
 /** What releasing would do, for the label following the pointer. */

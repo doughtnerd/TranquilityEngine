@@ -12,6 +12,7 @@ import { dropTargetFor, setDraggedAssets, type AssetDropPoint, type AssetDropTar
 import { entryPath } from "./assetDelete";
 import { moveAssetsTo, whyNotMoveTarget } from "./assetOps";
 import { currentProject, openScene, playState, sceneCamera, selectedKeys, status, viewMode } from "./state";
+import { eventWindow } from "./windows/dom";
 
 /** Pointer travel (CSS px) before pressing an asset tile becomes a drag. */
 const DRAG_THRESHOLD = 5;
@@ -55,8 +56,8 @@ export function hierarchyDrop(doc: SceneDocument, rowKey: string | null, fractio
 }
 
 /** The folder under a client point (folder tiles, tree items and path parts carry `data-drop-folder`), or null. */
-function folderAt(clientX: number, clientY: number): string | null {
-  const el = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-drop-folder]");
+function folderAt(clientX: number, clientY: number, doc: Document = document): string | null {
+  const el = (doc.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-drop-folder]");
   return el ? (el.dataset.dropFolder ?? null) : null;
 }
 
@@ -64,8 +65,8 @@ function folderAt(clientX: number, clientY: number): string | null {
  * The plugin panel's target under a client point (registered with `registerAssetDropTarget`): a target taking the
  * drag with its label for the spot, or the problem when the panel doesn't take it there. Null outside registered panels.
  */
-function dropTarget(paths: readonly string[], x: number, y: number): { spec: AssetDropTargetSpec; target: AssetDropTarget | null; problem: string } | null {
-  const found = dropTargetFor(document.elementFromPoint(x, y));
+function dropTarget(paths: readonly string[], x: number, y: number, doc: Document = document): { spec: AssetDropTargetSpec; target: AssetDropTarget | null; problem: string } | null {
+  const found = dropTargetFor(doc.elementFromPoint(x, y));
   if (!found) return null;
   const { spec } = found;
   if (!spec.accepts(paths)) return { spec, target: null, problem: "can't drop these here" };
@@ -76,11 +77,11 @@ function dropTarget(paths: readonly string[], x: number, y: number): { spec: Ass
 }
 
 /** The drop target under a client point, found from the DOM (rows carry `data-key`). */
-function targetAt(clientX: number, clientY: number): AssetDropTarget | null {
-  const folder = folderAt(clientX, clientY);
+function targetAt(clientX: number, clientY: number, doc: Document = document): AssetDropTarget | null {
+  const folder = folderAt(clientX, clientY, doc);
   if (folder !== null) return { kind: "folder", folder };
   const scene = openScene.value;
-  const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+  const el = doc.elementFromPoint(clientX, clientY) as HTMLElement | null;
   if (!scene || !el) return null;
   const viewport = el.closest(".viewport-panel");
   if (viewport && playState.value === "edit") {
@@ -88,20 +89,20 @@ function targetAt(clientX: number, clientY: number): AssetDropTarget | null {
     const r = (canvas ?? viewport).getBoundingClientRect();
     return { kind: "viewport", x: clientX - r.left, y: clientY - r.top };
   }
-  return hierarchyTargetAt(clientX, clientY);
+  return hierarchyTargetAt(clientX, clientY, doc);
 }
 
-/** True if the client point is over a hierarchy row inside a prefab instance (those don't take children). */
-export function overPrefabInsides(clientX: number, clientY: number): boolean {
-  return !!(document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest(".tree .row.inner");
+/** True if the client point is over a hierarchy row inside a prefab instance (those don't take children). `doc`: the window's the drag is in (ADR 0174). */
+export function overPrefabInsides(clientX: number, clientY: number, doc: Document = document): boolean {
+  return !!(doc.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest(".tree .row.inner");
 }
 
 const PREFAB_INSIDES = "nodes inside a prefab can't take children here";
 
-/** The hierarchy drop target under a client point (rows carry `data-key`), or null outside the hierarchy. */
-export function hierarchyTargetAt(clientX: number, clientY: number): AssetDropTarget | null {
+/** The hierarchy drop target under a client point (rows carry `data-key`), or null outside the hierarchy. `doc`: the window's the drag is in (ADR 0174). */
+export function hierarchyTargetAt(clientX: number, clientY: number, doc: Document = document): AssetDropTarget | null {
   const scene = openScene.value;
-  const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+  const el = doc.elementFromPoint(clientX, clientY) as HTMLElement | null;
   if (!scene || !el?.closest(".panel.hierarchy")) return null;
   const row = el.closest(".tree .row") as HTMLElement | null;
   if (!row) return hierarchyDrop(scene.doc, null, 0);
@@ -147,6 +148,9 @@ export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void 
   if (e.button !== 0) return;
   const startX = e.clientX, startY = e.clientY;
   let active = false;
+  // The window the drag started in: a detached panel window's own (ADR 0174). Dragging between windows isn't supported.
+  const win = eventWindow(e);
+  const doc = win.document;
   /** The plugin target the pointer is over now, to tell it when the pointer leaves. */
   let over: AssetDropTargetSpec | null = null;
   const setOver = (spec: AssetDropTargetSpec | null) => {
@@ -158,28 +162,28 @@ export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void 
     if (!active && Math.hypot(m.clientX - startX, m.clientY - startY) < DRAG_THRESHOLD) return;
     if (!active) {
       active = true;
-      window.getSelection()?.removeAllRanges();
+      win.getSelection()?.removeAllRanges();
       setDraggedAssets(paths);
     }
-    const plugin = dropTarget(paths, m.clientX, m.clientY);
+    const plugin = dropTarget(paths, m.clientX, m.clientY, doc);
     setOver(plugin?.spec ?? null);
     if (plugin) {
       assetDrag.value = { paths, x: m.clientX, y: m.clientY, target: plugin.target, problem: plugin.target ? null : plugin.problem };
       return;
     }
-    const target = targetAt(m.clientX, m.clientY);
+    const target = targetAt(m.clientX, m.clientY, doc);
     const problem = target
       ? problemFor(paths, target)
-      : overPrefabInsides(m.clientX, m.clientY)
+      : overPrefabInsides(m.clientX, m.clientY, doc)
         ? PREFAB_INSIDES
         : (problemFor(paths, { kind: "viewport", x: 0, y: 0 }) ?? "drop it in the viewport, the hierarchy or a folder");
     assetDrag.value = { paths, x: m.clientX, y: m.clientY, target: problem ? null : target, problem };
   };
   const finish = (apply: boolean) => {
-    window.removeEventListener("pointermove", update);
-    window.removeEventListener("pointerup", up);
-    window.removeEventListener("pointercancel", cancel);
-    window.removeEventListener("keydown", key, true);
+    win.removeEventListener("pointermove", update);
+    win.removeEventListener("pointerup", up);
+    win.removeEventListener("pointercancel", cancel);
+    win.removeEventListener("keydown", key, true);
     const state = assetDrag.value;
     assetDrag.value = null;
     setOver(null);
@@ -212,10 +216,10 @@ export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void 
     k.stopPropagation();
     finish(false);
   };
-  window.addEventListener("pointermove", update);
-  window.addEventListener("pointerup", up);
-  window.addEventListener("pointercancel", cancel);
-  window.addEventListener("keydown", key, true);
+  win.addEventListener("pointermove", update);
+  win.addEventListener("pointerup", up);
+  win.addEventListener("pointercancel", cancel);
+  win.addEventListener("keydown", key, true);
 }
 
 /** Text for the ghost label: what releasing here will do. */

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { combineSelection, rangeBetween } from "../selectionModel";
 import { isSelected, refineList, select, selectedKeys } from "../state";
+import { viewportOf } from "../windows/dom";
 
 /**
  * The Alt+click list (ADR 0022): every node near the click, occluded ones and children included,
@@ -26,7 +27,8 @@ function Popup(props: NonNullable<typeof refineList.value>) {
     // Keep the popup on screen.
     const el = ref.current!;
     const r = el.getBoundingClientRect();
-    setPlace({ left: Math.max(4, Math.min(props.x, innerWidth - r.width - 4)), top: Math.max(4, Math.min(props.y, innerHeight - r.height - 4)) });
+    const view = viewportOf(el); // its own window's (ADR 0174)
+    setPlace({ left: Math.max(4, Math.min(props.x, view.width - r.width - 4)), top: Math.max(4, Math.min(props.y, view.height - r.height - 4)) });
     el.focus();
   }, []);
   useEffect(() => {
