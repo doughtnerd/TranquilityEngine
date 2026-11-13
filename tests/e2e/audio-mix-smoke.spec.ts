@@ -58,8 +58,10 @@ test("M5 smoke (today): the buses exist, effective gain is the tree's product, a
   });
 
   await test.step("a scripted fadeTo moves the gain over audio frames", async () => {
-    // The Buses page's key 3: `Audio.bus("Music").fadeTo(0.15, 0.5)`. Sampled with the core's rendered frame on each read.
-    const samples = await sampleBusGain(page, "Music", 0.15, 96_000 * 4, `Audio.bus("Music").fadeTo(0.15, 0.5)`);
+    // The Buses page's key 3: `Audio.bus("Music").fadeTo(0.25, 0.5)`. Since M5's authored/runtime split (Mx1) `volume` is a
+    // multiplier on the authored 0.6, so the bus is heard at 0.6 × 0.25 = 0.15, today's level. Sampled with the core's
+    // rendered frame on each read.
+    const samples = await sampleBusGain(page, "Music", 0.15, 96_000 * 4, `Audio.bus("Music").fadeTo(0.25, 0.5)`);
     const rate = (await mixDebug(page))!.sampleRate;
     const first = samples[0]!;
     const last = samples[samples.length - 1]!;
@@ -79,8 +81,8 @@ test("M5 smoke (today): the buses exist, effective gain is the tree's product, a
     const left = samples.find((s) => s.gain < 0.6 - 1e-6)!;
     const landed = samples.find((s) => Math.abs(s.gain - 0.15) < 1e-4)!;
     expect(landed.frame - left.frame, "the fade takes about its 0.5 s of audio frames").toBeGreaterThanOrEqual(0.4 * rate);
-    // Back up, as the page's key 3 does on its second press.
-    await page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { bus(n: string): { fadeTo(v: number, s: number): void } } } }).__myco.Audio.bus("Music").fadeTo(0.6, 0.5));
+    // Back up, as the page's key 3 does on its second press: the multiplier returns to 1, heard at the authored 0.6.
+    await page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { bus(n: string): { fadeTo(v: number, s: number): void } } } }).__myco.Audio.bus("Music").fadeTo(1, 0.5));
     await expect.poll(() => page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { bus(n: string): { effectiveGain: number } } } }).__myco.Audio.bus("Music").effectiveGain), { timeout: 15_000 }).toBeCloseTo(0.6, 4);
     expect((await mixDebug(page))!.status).toBe("running");
     expect(errors).toEqual([]);
