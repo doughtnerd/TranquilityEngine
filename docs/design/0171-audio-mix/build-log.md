@@ -69,6 +69,16 @@ Wave-end checks (quiet machine): typecheck green; `npm test` **603 files, 6,825 
 
 **Follow-ups carried to W3 briefs:** Mx2 sends master on `LANE_RUNTIME` (B1a); `BUS_CONFIG` doesn't reset a re-added slot's lanes (Mx2's replay resends them); stale `BUS_MIX`-as-current comments in TS core files (coordinator sweep with Mx2); Rc5 fixes `RecordTable.ROW_BYTES` (26 vs 28 B per row in the reader's allocation count).
 
+## Wave 4 (base `m5/w4-base` `4f413ab`) — M5-0's exit
+
+Merged: Rc5, Dbg1, the `audio-music-d` flake fix, Rc2 + the recorder tap's view glue (`2e8db34`); then the M5-0 trio **Mx2 + Dp1 + G1** (`d61a17e`: stamped bus ramps from main, presence ducking in the core, main's fade timing on the heard clock, the M5-0 goldens with DS0's discontinuity windows), **F2** (`1e3bf64`), SX0 + LS0 (`4ab1d1b`), Dc1 (`6f5d4ec`), the W4 flake fixes (`16e88d5`). Mixer **358,890 B** (400 KB tripwire).
+
+**F2, a pre-M5 click fixed, and the owner-approved golden re-records (2026-11-13, "Yes, take it").** G1's DS0 found that the snapshot low-pass engaging from off clicked (M2's bus low-pass, not M5's doing): the filter started from empty history, a step of 0.5 on DC and an abrupt-change measure of 1.0 on a tone. F2 runs the filter's state forward (`Biquad::follow`) while it is off, so engaging starts from history: DC step at the ideal, tone abrupt ≤ 0.26. That changes sound inside the engage window only, so three digests were re-recorded under the owner's approval, each a named exception to "every M1–M4 golden stays bit-identical":
+- `golden/snapshot.json`: frames 2760–2914 (the low-pass engaging);
+- `golden/kitchen-sink.json`: frames 5320–5453 (the same);
+- `golden/m5/stamped-snapshot.json` (G1's new M5 golden, its stamped low-pass tail).
+Every other M1–M5 golden and parity digest is unchanged (checked with `UPDATE_GOLDENS=1` on both suites: only these three files moved). The metered baseline moved with the rebuild (253,230 instructions).
+
 ## Wave 3 (base `9f82a8d`) — closed
 
 Merged: Cp2 + L-Cp2a (`1517ba2`), B1b + L-B1ba (`6a47563`, `2e18633`), B4 + L-B4a (`174195e`), B3 (`aa6f0ea`, lead did L-B3a) + the coordinator's `bus.rs` line (`3fa559a`: `BUS_CONFIG` re-runs the order with level rules), Bn1 (`fb7dd8f`), Rv1 + L-Rv1a (`4e672de`: **post-fader sends**, one named new golden `m5/bus-mute-send` `e24525251d302e4e`, every other digest unchanged), the parity wet-only fix (`7929177`). **Mx2 is done and held** (`4a212c1`), merging with Dp1 and G1 in W4 (base `m5/w4-base` `4f413ab`). Mixer **355,970 B** (400 KB tripwire).
