@@ -50,7 +50,7 @@ const SET_PARAMS_MASK: &[Bits] = &[
 const FADE_FLAGS: &[Bits] = &[Bits::bit("stopAtEnd", 0, "stop the voice at the end of the fade")];
 
 /// One effect of a BUS_CONFIG bus: `u32 type; f32 p[7]`.
-const EFFECTS: Repeat = Repeat {
+pub(super) const EFFECTS: Repeat = Repeat {
     name: "effects",
     count_field: "effectCount",
     item: &[
@@ -288,7 +288,7 @@ pub const OPCODES: &[Opcode] = &[
         ),
         total_bytes: None,
         sent: true,
-        doc: "set bus gain and filter; ramps over rampFrames",
+        doc: "DEPRECATED (ADR 0171: superseded by BUS_RAMP 0x18; R0 retires it and reserves the id): set bus gain and filter; ramps over rampFrames",
     },
     Opcode {
         id: 0x12,
@@ -336,6 +336,11 @@ pub const OPCODES: &[Opcode] = &[
     },
     super::spatial::BED_CONFIG,
     super::spatial::ZONE_CONFIG,
+    super::mix::BUS_RAMP,
+    super::mix::BUS_DUCK,
+    super::mix::BUS_PRESENCE,
+    super::mix::LOUD_CONFIG,
+    super::mix::BUS_SLOT,
     super::spatial::LISTENER,
     Opcode {
         id: 0x30,
@@ -391,13 +396,13 @@ mod tests {
     fn opcode_ids_are_unique_and_sorted() {
         let ids: Vec<u16> = OPCODES.iter().map(|o| o.id).collect();
         assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids not strictly increasing: {ids:?}");
-        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x20, 0x30]);
+        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x20, 0x30]);
         assert!(OPCODES.iter().all(|o| o.sent));
     }
 
     #[test]
     fn fixed_totals_match_the_spec_column() {
-        let expected: [(u16, u32); 13] = [
+        let expected: [(u16, u32); 15] = [
             (0x01, 56),
             (0x02, 24),
             (0x03, 60),
@@ -409,6 +414,8 @@ mod tests {
             (0x0A, 52),
             (0x12, 24),
             (0x14, 24),
+            (0x18, 32),
+            (0x1A, 16),
             (0x20, 36),
             (0x30, 16),
         ];
@@ -418,7 +425,7 @@ mod tests {
             assert_eq!(size(RECORD_HEAD) + size(o.payload.fields), total, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::None), "{}", o.name);
         }
-        for id in [0x09, 0x10, 0x11, 0x13, 0x15, 0x17] {
+        for id in [0x09, 0x10, 0x11, 0x13, 0x15, 0x17, 0x19, 0x1B, 0x1C] {
             let o = op(id);
             assert_eq!(o.total_bytes, None, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::Repeat(_)), "{}", o.name);

@@ -405,8 +405,8 @@ describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
     expect(spatialRegionsBytes(PRESET, RATE)).toBe(32 * 448 + 8192 + PRESET.maxBuses * 1024 + (64 + PRESET.maxBuses * 512) + 64);
   });
 
-  it("ABI 3.0: max_music_rings 0..16 is accepted, 17 refused, and the preset's count reaches init (ADR 0166 W1)", () => {
-    expect(CORE_ABI_MAJOR).toBe(3);
+  it("ABI 4.0 (3.0 added max_music_rings): max_music_rings 0..16 is accepted, 17 refused, and the preset's count reaches init (ADR 0166 W1)", () => {
+    expect(CORE_ABI_MAJOR).toBe(4);
     for (const maxMusicRings of [0, 8, 16]) expect(() => instantiateCore(WASM, { ...PRESET, maxMusicRings }, RATE)).not.toThrow();
     expect(() => instantiateCore(WASM, { ...PRESET, maxMusicRings: 17 }, RATE)).toThrow(/refused/);
     const { exports } = instantiateCore(WASM, PRESET, RATE);

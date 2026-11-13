@@ -292,6 +292,14 @@ pub const fn shape_law(shape: u32) -> u32 { shape & SHAPE_LAW_MASK }
 /// The start phase of a shape word, 0..=65535 (value / 65,536).
 #[inline]
 pub const fn shape_start_phase(shape: u32) -> u32 { shape >> SHAPE_PHASE_SHIFT }
+/// The BUS_RAMP shape word: `law`, `sequence_id` 0..=8191 (0 = none, bits 3-15) and `start_phase` as u0.16.
+#[inline]
+pub const fn pack_ramp_shape(law: u32, sequence_id: u32, start_phase: u32) -> u32 {
+    (law & SHAPE_LAW_MASK) | ((sequence_id & SHAPE_SEQUENCE_MASK) << SHAPE_SEQUENCE_SHIFT) | ((start_phase & 0xFFFF) << SHAPE_PHASE_SHIFT)
+}
+/// The sequence id of a BUS_RAMP shape word, 0..=8191.
+#[inline]
+pub const fn ramp_sequence_id(shape: u32) -> u32 { (shape >> SHAPE_SEQUENCE_SHIFT) & SHAPE_SEQUENCE_MASK }
 /// The PLAY gate: `group_id` 1..=1023 (0 = ungated, which packs to 0) and `group_size` 1..=64 (clamped).
 #[inline]
 pub const fn pack_gate(group_id: u32, group_size: u32) -> u16 {

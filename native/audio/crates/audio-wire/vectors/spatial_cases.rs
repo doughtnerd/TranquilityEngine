@@ -467,7 +467,7 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 ("convention", vu(1)),
             ],
             concat!(
-                "3141594d", "0201", "0500", "2b000000", "28000000", // envelope: STREAM_OPEN, seq 43, bodyBytes 40
+                "3141594d", "0301", "0500", "2b000000", "28000000", // envelope: STREAM_OPEN, seq 43, bodyBytes 40
                 "09000000", // streamId 9
                 "10000000", // channels 16
                 "00803b47", // sampleRate 48000.0
@@ -494,7 +494,7 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 ("format", vu(3)),
             ],
             concat!(
-                "3141594d", "0201", "0200", "28000000", "14000000", // envelope: CLIP_BEGIN, seq 40, bodyBytes 20
+                "3141594d", "0301", "0200", "28000000", "14000000", // envelope: CLIP_BEGIN, seq 40, bodyBytes 20
                 "0002ffff", // clipId 0xFFFF0200
                 "c0120000", // frames 4800
                 "02000000", // channels 2
@@ -515,7 +515,7 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 ("format", vu(4)),
             ],
             concat!(
-                "3141594d", "0201", "0200", "29000000", "14000000", // envelope: CLIP_BEGIN, seq 41, bodyBytes 20
+                "3141594d", "0301", "0200", "29000000", "14000000", // envelope: CLIP_BEGIN, seq 41, bodyBytes 20
                 "0001ffff", // clipId 0xFFFF0100
                 "00010000", // frames 256
                 "02000000", // channels 2
@@ -536,7 +536,7 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 ("format", vu(5)),
             ],
             concat!(
-                "3141594d", "0201", "0200", "2a000000", "14000000", // envelope: CLIP_BEGIN, seq 42, bodyBytes 20
+                "3141594d", "0301", "0200", "2a000000", "14000000", // envelope: CLIP_BEGIN, seq 42, bodyBytes 20
                 "ff02ffff", // clipId 0xFFFF02FF
                 "c0120000", // frames 4800
                 "02000000", // channels 2
@@ -600,6 +600,20 @@ pub fn spatial_cases() -> Vec<VectorCase> {
             Subject::Status,
             vec![
                 ("seq", vu(45)),
+                ("busyMsTotal", vf(0.0)),
+                ("quantaTotal", vf(0.0)),
+                ("wuVoices", vf(0.0)),
+                ("wuBuses", vf(0.0)),
+                ("wuSpatial", vf(0.0)),
+                ("wuMusic", vf(0.0)),
+                ("wuLoudness", vf(0.0)),
+                ("clockStepMs", vu(0)),
+                ("loudSubBlockFrames", vu(0)),
+                ("clockSteps", vu(0)),
+                ("loudShed", vu(0)),
+                ("busRecordsEarly", vu(0)),
+                ("sidechainLate", vu(0)),
+                ("reserved2", vu(0)),
                 ("currentFrame", vf(1000.0)),
                 ("dateMs", vf(1.5)),
                 ("pingSeq", vu(7)),
@@ -676,9 +690,12 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                         vr(vec![("slot", vu(0)), ("code", vu(3))]),
                     ]),
                 ),
+                ("loudBuses", va(vec![])),
+                ("loudEnergies", va(vec![])),
+                ("busDuck", va(vec![])),
             ],
             concat!(
-                "3141594d", "0201", "0900", "2d000000", "f4000000", // envelope: STATUS, seq 45, bodyBytes 244
+                "3141594d", "0301", "0900", "2d000000", "44010000", // envelope: STATUS, seq 45, bodyBytes 324
                 "0000000000408f40", // 16 currentFrame 1000.0
                 "000000000000f83f", // 24 dateMs 1.5
                 "07000000", // 32 pingSeq 7
@@ -723,6 +740,8 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 "c4090000", // 140 workZones 2500
                 "0000000000000000", "0000000000000000", // 144..159 the M4 counters, all 0 here (the M4 golden STATUS is in cases.rs)
                 "0000000000000000", "0000000000000000", // 160..175 maxSlipFrames, splitQuanta, voiceSplits, reserved
+                "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", // 176..215 M5: busyMsTotal .. wuSpatial (0)
+                "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", // 216..255 M5: wuMusic .. reserved2 (0)
                 // sections: beds (2 x 8 B: u16 bus, u16 voices, u32 work), zones (4 x 12 B), zoneEvents (5 x 4 B)
                 "0100", "0400", "84030000", // beds: bus 1, 4 voices, work 900
                 "0300", "0200", "2c010000", // beds: bus 3, 2 voices, work 300
@@ -821,7 +840,7 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 ),
             ],
             concat!(
-                "3141594d", "0201", "0100", "2c000000", "d4000000", // envelope: BATCH, seq 44, bodyBytes 212
+                "3141594d", "0301", "0100", "2c000000", "d4000000", // envelope: BATCH, seq 44, bodyBytes 212
                 "0000000000408f40", // firstFrame 1000.0
                 "04000000", // count 4
                 "00000000", // flags 0

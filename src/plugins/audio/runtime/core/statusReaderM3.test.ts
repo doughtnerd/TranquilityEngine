@@ -7,6 +7,7 @@ import {
   readStatus,
   STATUS_BUFFER_BYTES,
   STATUS_FLAGS_BED_DECODER_READY,
+  STATUS_HEADER_BYTES,
   STATUS_WORST_CASE_BYTES,
   WireError,
   writeStatus,
@@ -135,8 +136,8 @@ describe("StatusReader, ADR 0162 header and sections", () => {
       }),
       1,
     );
-    expect(n).toBe(STATUS_WORST_CASE_BYTES - 16 * 8 - 8 * 16); // no musicRings or groupStarts here: Z4 reads them
-    expect(STATUS_WORST_CASE_BYTES).toBe(16_192); // 15,936 + musicRings 16 x 8 + groupStarts 8 x 16
+    expect(n).toBe(STATUS_WORST_CASE_BYTES - 16 * 8 - 8 * 16 - (9 * 16 + 288 * 4 + 32 * 8)); // no musicRings, groupStarts or M5 sections here: Z4 and Wa2 read them
+    expect(STATUS_WORST_CASE_BYTES).toBe(17_824); // 256 + the M1-M3 sections 15,760 + musicRings 16 x 8 + groupStarts 8 x 16 + the M5 sections 1,552
     const got = new StatusReader().read(buffer);
     expect(got).toEqual(readStatus(buffer));
     expect(got.beds).toHaveLength(4);
@@ -168,8 +169,8 @@ describe("StatusReader, ADR 0162 header and sections", () => {
         { bus: 4, voices: 5, work: 6 },
       ],
     });
-    // bodyBytes 168: the body ends at byte 184, so only 8 of the two beds' 16 bytes (from 176) fit.
-    new DataView(bad).setUint32(12, 168, true);
+    // bodyBytes 248: the body ends at byte 264, so only 8 of the two beds' 16 bytes (from 256) fit.
+    new DataView(bad).setUint32(12, STATUS_HEADER_BYTES - 16 + 8, true);
     expect(codeOf(() => readStatus(bad))).toBe(ErrorCode.OVERSIZE);
     expect(codeOf(() => reader.read(bad))).toBe(ErrorCode.OVERSIZE);
     expect(reader.block.currentFrame).toBe(55);
