@@ -9,7 +9,7 @@ import { DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS } from "../wire.ge
 import { CoreBackend } from "./coreBackend";
 import { DeferredAdds } from "./deferredAdds";
 import { FIFTH_EFFECT, LiveMix, RESTART_REQUIRED, type LiveMixHost } from "./liveMix";
-import { StructuralDip } from "./structuralDip";
+import { DIP_UNAVAILABLE, StructuralDip } from "./structuralDip";
 
 const PROJECT = {
   buses: [
@@ -79,22 +79,32 @@ describe("liveMix (Ma1)", () => {
     for (const [op, cls] of OPS) expect(opClass(op, settings), op.op).toBe(cls);
   });
 
-  it("answers each class: direct, smoothed and config apply (ok); dip waits for the next Play (restartRequired, nothing changed)", () => {
+  it("answers each class: every class applies (ok), dip through Ma2's sequence; the model changes at once", () => {
     for (const [op, cls] of OPS) {
       const { backend, mixer } = backendRig();
       const before = mixer.audioSettings;
       const r = mixer.apply(op);
-      if (cls === "dip") {
-        expect(r, op.op).toEqual({ ok: false, class: "dip", restartRequired: RESTART_REQUIRED });
-        expect(mixer.audioSettings, op.op).toBe(before);
-        expect(backend.liveMix.refused).toBe(1);
-      } else {
-        expect(r, op.op).toEqual({ ok: true, class: cls });
-        expect(mixer.audioSettings, op.op).not.toBe(before);
-        expect(backend.liveMix.refused).toBe(0);
-      }
+      expect(r, op.op).toEqual({ ok: true, class: cls });
+      expect(mixer.audioSettings, op.op).not.toBe(before);
+      expect(backend.liveMix.refused).toBe(0);
+      if (cls === "dip") expect(backend.dip.inFlight, op.op).toBe(true);
       backend.dispose();
     }
+  });
+
+  it("a structural op with no dip bound answers restartRequired and changes nothing (a backend with no live path)", () => {
+    const dip = new StructuralDip();
+    expect(dip.apply({ op: "moveBus", bus: "Voice", parent: "Music" })).toEqual({ ok: false, class: "dip", restartRequired: DIP_UNAVAILABLE });
+    expect(RESTART_REQUIRED).toMatch(/next Play/);
+  });
+
+  it("a fifth effect inserted mid-chain (a dip-class insert) applies at the next Play too", () => {
+    const { backend, mixer } = backendRig();
+    for (let k = 2; k < 4; k++) expect(mixer.apply({ op: "addEffect", bus: "Music", index: k, effect: { type: "highpass", frequency: 80, q: 1 } }).ok).toBe(true);
+    const before = mixer.audioSettings;
+    expect(mixer.apply({ op: "addEffect", bus: "Music", index: 0, effect: { type: "highpass", frequency: 80, q: 1 } })).toEqual({ ok: false, class: "dip", restartRequired: FIFTH_EFFECT });
+    expect(mixer.audioSettings).toBe(before);
+    backend.dispose();
   });
 
   it("an op that changes nothing is a no-op (a commit after its preview); a refused op changes nothing and is counted", () => {
@@ -192,7 +202,7 @@ describe("flushNow (the preview path, §6.6)", () => {
       deferred: new DeferredAdds(),
       mixer: () => { throw new Error("unused"); },
       buses: () => { throw new Error("unused"); },
-      writer: () => ({ busSlot() {}, loudConfig() {}, get pending() { return pending; }, flush: () => { posts.push(now); pending = 0; return 1; } }),
+      writer: () => ({ busSlot() {}, loudConfig() {}, busRampFrames() {}, sampleRate: 48_000, get pending() { return pending; }, flush: () => { posts.push(now); pending = 0; return 1; } }),
       automation: () => ({ renameBus() {} }),
       syncMix() {},
       sending: () => true,
