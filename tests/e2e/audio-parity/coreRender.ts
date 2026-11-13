@@ -85,8 +85,25 @@ export interface Render {
   readonly right: Float32Array;
 }
 
-/** The scene through the core: `sceneFrames(scene)` frames per channel, after the pre-roll. */
+/**
+ * The scene through the core: `sceneFrames(scene)` frames per channel, after the pre-roll.
+ *
+ * A `wetOnly` scene is rendered twice from identical input, once as is (bus at gain 1, the reverb send at its value)
+ * and once with every reverb send at 0 (the dry signal alone), and the result is the sample-wise difference: the wet
+ * signal. The core's reverb send is post-fader (ADR 0172 owner decision 1), so the old way, a bus at gain 0, now
+ * silences the wet signal too. The difference is exact up to f32 rounding while the path is linear: the scenes have
+ * no compressor, and the master limiter never acts, since `renderOnce` throws if either render reaches its ceiling
+ * (below which the limiter is bypassed exactly, see HEADROOM).
+ */
 export async function renderCore(scene: Scene): Promise<Render> {
+  if (!scene.wetOnly) return renderOnce(scene);
+  const mix = await renderOnce(scene);
+  const dry = await renderOnce({ ...scene, effects: scene.effects.map((e) => (e.type === "reverb" ? { ...e, send: 0 } : e)) });
+  const wet = (a: Float32Array, b: Float32Array): Float32Array => a.map((x, i) => x - b[i]!);
+  return { left: wet(mix.left, dry.left), right: wet(mix.right, dry.right) };
+}
+
+async function renderOnce(scene: Scene): Promise<Render> {
   const rate = scene.rate;
   const core = instantiateCore(await wasm(), PRESET, rate);
   let seq = 0;

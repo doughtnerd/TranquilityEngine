@@ -5,7 +5,7 @@ import { build } from "vite";
 import type { Page } from "@playwright/test";
 import { typescriptTranspile } from "../../../vite.shared";
 import type { ReferencePayload, ReferenceResult } from "./browserRender";
-import { makeClip, prerollFrames, sceneBuses, sceneFrames, type Scene } from "./scenes";
+import { makeClip, prerollFrames, referenceBuses, sceneFrames, type Scene } from "./scenes";
 
 let bundle: Promise<string> | null = null;
 
@@ -46,7 +46,7 @@ export async function renderReference(page: Page, scene: Scene): Promise<{ left:
     frames: sceneFrames(scene),
     skipFrames: scene.referenceLatency ?? 0,
     clips: scene.clips.map((c) => makeClip(c, scene.rate).map(b64)),
-    buses: sceneBuses(scene),
+    buses: referenceBuses(scene),
     voices: scene.voices.map((v) => ({
       clip: v.clip,
       bus: v.bus,
