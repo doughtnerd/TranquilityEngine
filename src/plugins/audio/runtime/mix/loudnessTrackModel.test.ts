@@ -1,9 +1,9 @@
 // ADR 0171/0172 (Pf6, L-Pf6a): the profiler's loudness series against the shared `LoudnessStats` fed as the live hub feeds it.
 // Pure: sub-blocks are synthesised; time is the sub-block count x 0.1 s of audio, never a clock.
 import { describe, expect, it } from "vitest";
-import { LOUD_FLAG_RESET, LOUD_OUTPUT_TAP } from "../../runtime/wire.generated";
-import type { KeyframeMetered } from "../../runtime/capture/format";
-import { LoudnessStats, SUB_BLOCK_SECONDS, energyToLufs, linearToDb } from "../../runtime/mix/loudnessStats";
+import { LOUD_FLAG_RESET, LOUD_OUTPUT_TAP } from "../wire.generated";
+import type { KeyframeMetered } from "../capture/format";
+import { LoudnessStats, SUB_BLOCK_SECONDS, energyToLufs, linearToDb } from "./loudnessStats";
 import { KF_METERED_INCOMPLETE, LoudnessTrackModel, type LoudnessStatusInput } from "./loudnessTrackModel";
 
 const SLOT = 3;

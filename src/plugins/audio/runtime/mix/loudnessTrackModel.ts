@@ -26,9 +26,9 @@
 //
 // Marks warn and nothing more: this module holds no setter on the mixer, the buses or the target (a target is read, never
 // written), and `targetMarks` returns data.
-import type { KeyframeMetered } from "../../runtime/capture/format";
-import { LOUD_FLAG_NEW_BLOCKS_MASK, LOUD_FLAG_RESET } from "../../runtime/wire.generated";
-import { LoudnessStats, SUB_BLOCK_SECONDS, linearToDb, type LoudnessStatsResetWhat } from "../../runtime/mix/loudnessStats";
+import type { KeyframeMetered } from "../capture/format";
+import { LOUD_FLAG_NEW_BLOCKS_MASK, LOUD_FLAG_RESET } from "../wire.generated";
+import { LoudnessStats, SUB_BLOCK_SECONDS, linearToDb, type LoudnessStatsResetWhat } from "./loudnessStats";
 
 /** Keyframe `metered` flag bits (format.ts `KeyframeMetered.flags`). */
 export const KF_METERED_PAUSED = 1;

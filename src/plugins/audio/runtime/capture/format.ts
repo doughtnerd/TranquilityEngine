@@ -1261,7 +1261,7 @@ export interface CaptureSnapshot {
   keyframeSeq: number;
 }
 
-// Pf6 (M5b, W7): the loudness protocol. Structural twins of `editor/mix/loudnessTrackModel.ts`'s types (this module imports
+// Pf6 (M5b, W7): the loudness protocol. Structural twins of `runtime/mix/loudnessTrackModel.ts`'s types (this module imports
 // nothing from the editor); times are seconds on the Worker's continuous axis.
 
 /** The values at a time on one bus (`LoudnessValues`); LUFS or dBTP, `-Infinity` where undefined. */

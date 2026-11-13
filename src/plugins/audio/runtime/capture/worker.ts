@@ -20,7 +20,7 @@ import {
   CaptureTimeIndex, decodeRecordAt, openCapture, openLiveCapture, rangeCapture, recordSeconds, seekCapture, summarizeCapture,
   type CaptureContents, type CaptureDecoder, type CaptureOpenSummary, type CaptureRangeColumns, type CaptureSeekState,
 } from "./reader";
-import { LoudnessTrackModel, type LoudnessControl } from "../../editor/mix/loudnessTrackModel";
+import { LoudnessTrackModel, type LoudnessControl } from "../mix/loudnessTrackModel";
 import { LOUD_OUTPUT_TAP, readStatus } from "../wire.generated";
 
 /** `range` with Rc5's bucket count (H3's request has none yet; omitted, the answer is one sample per STATUS). */

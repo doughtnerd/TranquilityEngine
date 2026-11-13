@@ -2,7 +2,7 @@
 // live meter read at the same times. The scene feeds a real `LoudnessHub` (decoded STATUS blocks, float32 energies as on the
 // wire) while it writes the records, so a test can open the file through the Worker and compare. Never imported by runtime code.
 import { LoudnessHub } from "../../runtime/mix/loudnessHub";
-import { LoudnessTrackModel } from "./loudnessTrackModel";
+import { LoudnessTrackModel } from "../../runtime/mix/loudnessTrackModel";
 import { LOUD_OUTPUT_TAP, readStatus } from "../../runtime/wire.generated";
 import {
   RecordType, assembleCapture, type CaptureRecordInit, type KeyframeMetered, type KeyframePayload,
