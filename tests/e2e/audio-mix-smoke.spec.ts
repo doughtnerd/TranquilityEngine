@@ -61,28 +61,57 @@ test("M5 smoke (today): the buses exist, effective gain is the tree's product, a
     // The Buses page's key 3: `Audio.bus("Music").fadeTo(0.25, 0.5)`. Since M5's authored/runtime split (Mx1) `volume` is a
     // multiplier on the authored 0.6, so the bus is heard at 0.6 × 0.25 = 0.15, today's level. Sampled with the core's
     // rendered frame on each read.
-    const samples = await sampleBusGain(page, "Music", 0.15, 96_000 * 4, `Audio.bus("Music").fadeTo(0.25, 0.5)`);
+    //
+    // Nothing here depends on a reading landing inside the ramp (a page stalled under load can miss a half second whole, and
+    // since the stamped lanes, Mx2, `Audio.time` steps with STATUS every 48 quanta): the bounds are proofs from the readings
+    // that bracket the ramp, the core's own stamp record, and the law on any reading that did land inside.
+    const samples = await sampleBusGain(page, "Music", 0.15, 96_000 * 4, `Audio.bus("Music").fadeTo(0.25, 0.5)`, 0.5);
     const rate = (await mixDebug(page))!.sampleRate;
     const first = samples[0]!;
     const last = samples[samples.length - 1]!;
     expect(first.gain).toBeCloseTo(0.6, 6);
+    expect(first.rampStart, "no ramp had been stamped on Music yet").toBeUndefined();
     expect(first.frame, "the frame clock is the core's, and runs").toBeGreaterThan(0);
     expect(last.gain, "the fade lands on its target").toBeCloseTo(0.15, 4);
     expect(last.frame - first.frame, "the audio clock ran between the first and last reading").toBeGreaterThan(0);
-    // Monotone, in the API and in the debug row, with the frame never going back.
+    // The core's record: one ramp, stamped ahead of the core's frame at the call, and unchanged while it ran.
+    const stamp = last.rampStart!;
+    expect(stamp, "the core recorded the ramp's start frame").toBeGreaterThan(first.frame);
+    for (const s of samples) if (s.rampStart !== undefined) expect(s.rampStart, "one stamp: nothing re-sent while it ran").toBe(stamp);
+    // The audio clock ran past the ramp's end (the stamp plus 0.5 s) before the last reading, which is on the target.
+    expect(last.timeEnd * rate, "the heard clock is past the ramp's end").toBeGreaterThan(stamp + 0.5 * rate);
+    // Monotone, in the API and in the debug row (read just after the API, so between this reading and the next), with the frame never going back.
     for (let i = 1; i < samples.length; i++) {
       expect(samples[i]!.frame).toBeGreaterThanOrEqual(samples[i - 1]!.frame);
       expect(samples[i]!.gain).toBeLessThanOrEqual(samples[i - 1]!.gain + 1e-9);
-      expect(samples[i]!.debugGain).toBeCloseTo(samples[i]!.gain, 6);
     }
-    // It moved over time, not in one step: some reading lies strictly between start and target.
-    expect(samples.some((s) => s.gain < 0.6 - 1e-3 && s.gain > 0.15 + 1e-3), "an intermediate gain was read").toBe(true);
-    // A half-second fade cannot finish sooner than its length on the audio clock: from the first reading below the start to the first at the target.
-    const left = samples.find((s) => s.gain < 0.6 - 1e-6)!;
-    const landed = samples.find((s) => Math.abs(s.gain - 0.15) < 1e-4)!;
-    // Measured on `Audio.time` (the heard clock the fade runs on): since the stamped lanes (Mx2) nothing is sent while a
-    // fade runs, so STATUS idles at 48 quanta and its frame is too coarse for this bound.
-    expect((landed.time - left.time) * rate, "the fade takes about its 0.5 s of audio frames").toBeGreaterThanOrEqual(0.4 * rate);
+    samples.forEach((s, i) => {
+      const next = samples[i + 1]?.gain ?? 0.15;
+      expect(s.debugGain).toBeLessThanOrEqual(s.gain + 1e-9);
+      expect(s.debugGain).toBeGreaterThanOrEqual(Math.min(next, s.gain) - 1e-9);
+    });
+    // A half-second fade cannot finish sooner than its length on the heard clock. The last reading still at the start gives
+    // a lower bound on the ramp's start, the first at the target an upper bound on its end, so the gap between them holds
+    // the whole 0.5 s however sparse the readings were.
+    const leftIdx = samples.findIndex((s) => s.gain < 0.6 - 1e-6);
+    const landedIdx = samples.findIndex((s) => Math.abs(s.gain - 0.15) < 1e-4);
+    expect(leftIdx, "the gain left the start").toBeGreaterThan(0);
+    expect(landedIdx).toBeGreaterThanOrEqual(leftIdx);
+    expect((samples[landedIdx]!.timeEnd - samples[leftIdx - 1]!.time) * rate, "the fade takes its 0.5 s of audio frames").toBeGreaterThanOrEqual(0.5 * rate - 1);
+    // It moved over time, not in one step. Readings inside the ramp lie on its line (0.9 per second of audio clock); when the
+    // clock steps over the whole ramp between two readings none lands inside it, and the stepped gap is the evidence instead.
+    const inside = samples.filter((s) => s.gain < 0.6 - 1e-3 && s.gain > 0.15 + 1e-3);
+    for (let i = 1; i < inside.length; i++) {
+      const dt = inside[i]!.time - inside[i - 1]!.time;
+      if (dt > 0.02 && inside[i]!.timeEnd === inside[i]!.time && inside[i - 1]!.timeEnd === inside[i - 1]!.time) {
+        expect((inside[i - 1]!.gain - inside[i]!.gain) / dt, "linear: 0.45 over 0.5 s").toBeCloseTo(0.9, 1);
+      }
+    }
+    if (inside.length === 0) {
+      const a = samples[leftIdx - 1]!;
+      const b = samples[landedIdx]!;
+      expect(b.timeEnd - a.time, "no reading fell inside the ramp: the heard clock stepped over all of it").toBeGreaterThanOrEqual(0.5);
+    }
     // Back up, as the page's key 3 does on its second press: the multiplier returns to 1, heard at the authored 0.6.
     await page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { bus(n: string): { fadeTo(v: number, s: number): void } } } }).__myco.Audio.bus("Music").fadeTo(1, 0.5));
     await expect.poll(() => page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { bus(n: string): { effectiveGain: number } } } }).__myco.Audio.bus("Music").effectiveGain), { timeout: 15_000 }).toBeCloseTo(0.6, 4);
