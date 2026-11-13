@@ -71,6 +71,10 @@ Wave-end checks (quiet machine): typecheck green; `npm test` **603 files, 6,825 
 
 **Follow-ups carried to W3 briefs:** Mx2 sends master on `LANE_RUNTIME` (B1a); `BUS_CONFIG` doesn't reset a re-added slot's lanes (Mx2's replay resends them); stale `BUS_MIX`-as-current comments in TS core files (coordinator sweep with Mx2); Rc5 fixes `RecordTable.ROW_BYTES` (26 vs 28 B per row in the reader's allocation count).
 
+## Wave 6 (base `3d434f7`) — in progress
+
+**Integration state:** the Rc3 merge (`9aa8be7`) changed `ProfileSink`'s bus parameters to `busRef` (the design's §5.6), so the merged `capture/events.ts` (L-Rc3a) doesn't typecheck until Rc3g's glue lands; pushed in that state so the work survives a container restart. Nothing goes to master from here before W9.
+
 ## Wave 5 (base `067f0b5`, master with M5-0) — closed
 
 Merged: L-Pf1a (`7731381`, the timeline model), Rc6 (live feed), Pf1 (profiler models I) + the stand-in swap, Rc1b (keyframe codec) + the reader's `keyframeAt` glue, Ld1 (loudness kernels) + the wasm rebuild (`241aceb`, source hash only: the mixer doesn't call the kernels until Ld2, so it stays **358,890 B**), Ma1 (live mixing) + glue (`cbb77c1`).
