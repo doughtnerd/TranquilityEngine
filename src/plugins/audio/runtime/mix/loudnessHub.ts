@@ -300,6 +300,7 @@ export class LoudnessHub implements LoudnessSource {
   }
 
   private setSuspension(kind: LoudnessSuspension, on: boolean): void {
+    if (this.suspended[kind] === on) return; // the backend calls it every frame
     this.suspended[kind] = on;
     this.refreshAll();
   }

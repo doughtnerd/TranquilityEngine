@@ -1012,6 +1012,9 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     if (this.stemStaleCount > 0) this.resendStaleStems();
     this.table.drainCommands(this.commandSink);
     this.dip.update(this.clockMap.framesNow());
+    // E2: a mute in force (master, hidden tab, or any bus's authored or script mute) or MASTER not 1 suspends the loudness target check.
+    this.loudness.setMuted(this.isMuted || this.hiddenMuteOn || this.mixer.anyMuted());
+    this.loudness.setMasterNotUnity(this.master !== 1);
     // A3.4a: during a rebuild (or after recovery gave up) no core keeps what is sent; the replay re-derives it all.
     if (this.recovering || this.host.status === "failed") this.writer.clear();
     else if (this.writer.pending > 0) this.writer.flush(this.clockMap.nextFirstFrame());

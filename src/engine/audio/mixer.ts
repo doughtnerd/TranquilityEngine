@@ -260,6 +260,8 @@ export class Mixer {
   /** The project's audio settings this mixer was configured with (the backend selector, K3, reads `backend` from it). */
   get audioSettings(): AudioSettings { return this.settings; }
   get busNames(): readonly string[] { return this.order; }
+  /** @internal Any bus muted by the project (authored) or a script (runtime); allocation-free (the loudness target is suspended while one is). */
+  anyMuted(): boolean { for (const s of this.buses.values()) if (s.authoredMute || s.mute) return true; return false; }
   get currentSnapshot(): string | null { return this.snapshotName; }
   get snapshotNames(): string[] { return this.settings.snapshots.map((s) => s.name); }
 

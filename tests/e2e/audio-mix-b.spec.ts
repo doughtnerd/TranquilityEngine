@@ -480,7 +480,7 @@ test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor so
 // The mutes and MASTER-not-1 rows of §1.1 ("authored or script mutes and the hidden-tab mute do not taint; they make
 // `target.state` suspended") need the backend to call the hub's `setMuted` and `setMasterNotUnity`. Neither is called anywhere
 // at c0d328c (the stubs file lists them as backend inputs); the taint half is in the case above. Un-fixme when they are wired.
-test.fixme("M5b: a script mute, or MASTER not 1, suspends the target check without tainting", async ({ page }) => {
+test("M5b: a script mute, or MASTER not 1, suspends the target check without tainting", async ({ page }) => {
   await boot(page);
   await referenceOn(page);
   await metered(page, "Master", 3);
