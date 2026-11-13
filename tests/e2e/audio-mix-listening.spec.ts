@@ -550,7 +550,10 @@ test.describe("listening M5b: loudness against a reference", () => {
       await expect.poll(async () => (await meter(page, "UI")).elapsed, { timeout: 15_000 }).toBeLessThan(1);
       await press5b(page, "w", "A loud steady tone for two seconds (turn the volume down first): the readout shows UI at about -1 LUFS, the verdict high and PEAK OVER.");
       await expect.poll(async () => (await voicesNow(page)).some((v) => v.clip.includes("loudness-hot")), { timeout: 20_000 }).toBe(true);
-      await meteredFor(page, "UI", 3);
+      // Wait for the burst itself to end, then half a second of audio (its last blocks complete), not a time counted from the
+      // reset: a person pausing between C and W would otherwise spend the wait before the burst made any loudness block.
+      await expect.poll(async () => (await voicesNow(page)).some((v) => v.clip.includes("loudness-hot")), { timeout: LISTEN ? 3_600_000 : 20_000 }).toBe(false);
+      await audioFor(page, 0.5);
       const hot = await meter(page, "UI");
       expect(hot.target, "console, hot").toMatchObject({ name: "console", state: "high", peakOver: true });
       expect(hot.target!.deviation, "about -1 LUFS (the burst's edge blocks pass the gates at part energy) against -24").toBeGreaterThan(22.6);
