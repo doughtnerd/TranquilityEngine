@@ -104,6 +104,11 @@ function labFiles(dir = join(process.cwd(), "samples", "sound-lab"), rel = ""): 
   return out;
 }
 
+/** The paths of the Flappy sample's scripts (`scripts/...ts`). */
+function flappyScripts(dir = join(process.cwd(), "samples", "flappy"), rel = "scripts"): string[] {
+  return readdirSync(join(dir, rel), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? flappyScripts(dir, `${rel}/${e.name}`) : e.name.endsWith(".ts") ? [`${rel}/${e.name}`] : []));
+}
+
 /**
  * Opens a writable copy of the Sound Lab in the editor's in-memory test project (the Flappy files, over which every Sound Lab file is
  * written): the owner's way to edit it is a copy on disk, and a live edit there is saved and heard like any project's. Flappy's own
@@ -113,13 +118,21 @@ export async function openLabCopy(page: Page): Promise<void> {
   await page.setViewportSize({ width: 1600, height: 1000 });
   await page.goto("/editor.html");
   await page.waitForFunction(() => typeof (window as unknown as Hooks).openTestProject === "function");
-  await page.evaluate((files) => (window as unknown as Hooks).openTestProject!(files), labFiles());
+  const files = labFiles();
+  // Flappy's scripts that the copy doesn't replace would fail to type-check against the Sound Lab's (its GameManager imports from the
+  // readout module the lab replaces), and Play would ask before starting: each becomes an empty module.
+  for (const flappy of flappyScripts()) if (!(flappy in files)) files[flappy] = "export {};\n";
+  await page.evaluate((f) => (window as unknown as Hooks).openTestProject!(f), files);
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 }
 
 /** Starts Play and unlocks the audio context with a click; waits for the running core backend. */
-export async function playLiveMix(page: Page): Promise<void> {
-  await play(page);
+export async function playLiveMix(page: Page, o: { startTimeout?: number } = {}): Promise<void> {
+  if (o.startTimeout) {
+    // A bigger project (the Sound Lab copy) type-checks more scripts in a cold worker before Play starts.
+    await page.getByRole("button", { name: "▶ Play" }).click();
+    await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: o.startTimeout });
+  } else await play(page);
   await page.mouse.click(480, 250);
   await expect.poll(async () => (await mixDebug(page))?.status, { timeout: 30_000 }).toBe("running");
   expect((await mixDebug(page))!.core.backend).toBe("core");
