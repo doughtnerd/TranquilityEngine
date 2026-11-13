@@ -141,6 +141,38 @@ describe("Mixer._applyLive (Ma1)", () => {
     expect(m._state("SFX")).toBeUndefined();
   });
 
+  it("G7c: without keepTombstones (the fallback) a removed bus holds nothing; with it (the core's dip) its state is held by slot, out of the model, until released", () => {
+    const fallback = new Mixer(settings());
+    fallback._applyLive({ op: "removeBus", bus: "Music" });
+    expect(fallback._tombstoneLanes()).toEqual([]);
+
+    const m = new Mixer(settings());
+    m._setDip("Music", 0, 0);
+    expect(m._applyLive({ op: "removeBus", bus: "Music" }, -1, true)).toBe(true);
+    // Out of the model at once, as on the fallback.
+    expect(m.busNames).toEqual(["Master", "SFX"]);
+    expect(m.resolveAll().map((b) => b.name)).toEqual(["Master", "SFX"]);
+    expect(m.has("Music")).toBe(false);
+    expect(m._lanes("Music")).toBeUndefined();
+    // Held by its slot with its dip at the end state, for the replay.
+    expect(m._tombstoneLanes().map((l) => [l.slot, l.dip.to])).toEqual([[1, 0]]);
+    // Released when the table recycles the slot.
+    m._releaseTombstones([1]);
+    expect(m._tombstoneLanes()).toEqual([]);
+  });
+
+  it("G7c: a bus added into a held tombstone's slot replaces it; a configure drops every held tombstone", () => {
+    const m = new Mixer(parseAudioSettings({ buses: [{ name: "Master" }, { name: "A", parent: "Master" }, { name: "B", parent: "Master" }] }).settings);
+    m._applyLive({ op: "removeBus", bus: "A" }, -1, true);
+    m._applyLive({ op: "removeBus", bus: "B" }, -1, true);
+    expect(m._tombstoneLanes().map((l) => l.slot)).toEqual([1, 2]);
+    m._applyLive({ op: "addBus", name: "C", parent: "Master", index: 1 }, 1);
+    expect(m._lanes("C")!.slot).toBe(1);
+    expect(m._tombstoneLanes().map((l) => l.slot)).toEqual([2]);
+    m.configure(m.audioSettings);
+    expect(m._tombstoneLanes()).toEqual([]);
+  });
+
   it("a refused op changes nothing", () => {
     const m = new Mixer(settings());
     const before = m.audioSettings;

@@ -165,6 +165,7 @@ describe("the structural dip's sequence (Ma2)", () => {
     expect(backend.buses.slotOf("SFX")).toBe(-1);
     expect(backend.buses.slotOf("Steps")).toBe(-1);
     expect(backend.busNames.slice(0, 5)).toEqual(["Master", "Music", "SFX", "Steps", "UI"]); // tombstones keep their slots
+    expect(mixer.busNames).toEqual(["Master", "Music", "UI"]); // G7c: out of the mixer's model at once (`Audio.buses`)
     await settle();
     // The rules and presence mask the removal changed went first, asap (staged before the sequence); the sequence alone.
     const posted = sequenceBatches(batches());
@@ -272,7 +273,10 @@ describe("the structural dip's sequence (Ma2)", () => {
     backend.table.busLive[SLOT.UI] = 1;
     expect(backend.dip.recycle(end + TOMBSTONE_TAIL_FRAMES)).toEqual([]);
     backend.table.busLive[SLOT.UI] = 0;
+    // G7c: the mixer holds the tombstone's state (its dip at 0, for a replay) until the slot recycles, then drops it.
+    expect(mixer._tombstoneLanes().map((l) => [l.slot, l.dip.to])).toEqual([[SLOT.UI, 0]]);
     expect(backend.dip.recycle(end + TOMBSTONE_TAIL_FRAMES)).toEqual([SLOT.UI]);
+    expect(mixer._tombstoneLanes()).toEqual([]);
     expect(backend.buses.slots.slots[SLOT.UI]).toMatchObject({ state: "free", gen: 1 });
     expect(backend.busNames[SLOT.UI]).toBe("");
     backend.dispose();

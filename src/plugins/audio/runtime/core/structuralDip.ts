@@ -4,7 +4,9 @@
 //
 // - **The model at once.** `apply` changes the mixer's settings (`Mixer._applyLive`) and the slot table (a move, or the
 //   removed bus and its descendants as tombstones) immediately, so every reader, and a rebuild's replay, sees the end
-//   state. Only the wire waits for the sequence.
+//   state. Only the wire waits for the sequence. A removed bus leaves the mixer's model at once (`busNames`,
+//   `Audio.buses`), as on the fallback; the mixer holds its state by slot (`keepTombstones`, G7c) until the slot
+//   recycles, for the replay's dip lane.
 // - **One sequence.** Ops applied in one task (one display frame: an undo's ops, a mid-tree insert's moves) coalesce into
 //   one open sequence, emitted at the end of the task (`defer`, a microtask; `update` emits it too). Its records, from one
 //   F0 = now + lookahead (`firstFrame`): per root a dip-down `BUS_RAMP` on the dip lane, 1 → 0 over `DIP_FRAMES` at F0;
@@ -62,7 +64,7 @@ const VOICE_ENDS = 64;
 
 /** What the dip needs of the core backend (closures read it lazily; `LiveMix` binds it from its own host). */
 export interface StructuralDipHost {
-  mixer(): Pick<Mixer, "_applyLive" | "_setDip" | "audioSettings">;
+  mixer(): Pick<Mixer, "_applyLive" | "_setDip" | "audioSettings"> & Partial<Pick<Mixer, "_releaseTombstones">>;
   buses(): Pick<BusIndex, "slotOf" | "moveBus" | "removeBus" | "settle" | "recycle" | "rootOf" | "moveVoices" | "dipVoices" | "slotConfig" | "slots" | "names">;
   writer(): Pick<CommandWriter, "busRampFrames" | "busSlot" | "flush" | "pending" | "sampleRate">;
   /** Whether a batch may be posted now (running, not recovering, not disposed). */
@@ -165,12 +167,13 @@ export class StructuralDip {
         } catch {
           return unavailable();
         }
-        mixer._applyLive(op);
+        // G7c: each removed bus's dip lane goes to its end state (0) while its name still reaches its state; the mixer
+        // then drops the buses from its model and holds their state by slot until the slot recycles, so a rebuild's
+        // replay sends the tombstone's dip at 0. The lane writer leaves a tombstone's lanes alone: nothing goes out here.
+        for (const t of tombs) mixer._setDip(buses.names[t] ?? "", 0, 0);
+        mixer._applyLive(op, -1, true);
         const o = this.gather();
         for (const t of tombs) {
-          // The mixer keeps the removed bus's state until the next configure: its dip lane holds the end state (0) the
-          // replay sends; the lane writer leaves a tombstone's lanes alone, so nothing goes out for it here.
-          mixer._setDip(buses.names[t] ?? "", 0, 0);
           o.tombstones.add(t);
           o.roots.delete(t);
           o.slots.add(t);
@@ -248,6 +251,7 @@ export class StructuralDip {
     this.epoch(f);
     const freed = host.buses().recycle(f);
     for (const s of freed) if (s < MAX_BUS) this.slotAt[s] = Number.NEGATIVE_INFINITY;
+    if (freed.length > 0) host.mixer()._releaseTombstones?.(freed);
     return freed;
   }
 
