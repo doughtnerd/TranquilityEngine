@@ -71,6 +71,20 @@ Wave-end checks (quiet machine): typecheck green; `npm test` **603 files, 6,825 
 
 **Follow-ups carried to W3 briefs:** Mx2 sends master on `LANE_RUNTIME` (B1a); `BUS_CONFIG` doesn't reset a re-added slot's lanes (Mx2's replay resends them); stale `BUS_MIX`-as-current comments in TS core files (coordinator sweep with Mx2); Rc5 fixes `RecordTable.ROW_BYTES` (26 vs 28 B per row in the reader's allocation count).
 
+## Wave 5 (base `067f0b5`, master with M5-0) — closed
+
+Merged: L-Pf1a (`7731381`, the timeline model), Rc6 (live feed), Pf1 (profiler models I) + the stand-in swap, Rc1b (keyframe codec) + the reader's `keyframeAt` glue, Ld1 (loudness kernels) + the wasm rebuild (`241aceb`, source hash only: the mixer doesn't call the kernels until Ld2, so it stays **358,890 B**), Ma1 (live mixing) + glue (`cbb77c1`).
+
+**Numbers:** Ma1: every direct op class reaches the core in the batch of its frame (loopback, one case per class); a fader edit's first changed sample 128 frames after the batch, the drag ramp exactly 480 frames, `maxStep` 3.92e-4 against the ramp's own 3.91e-4 (0.19 as a step); a script's runtime `volume` survives an authored edit. Ld1: 189 of 189 of spike S1's checks at 48 and 44.1 kHz, native and wasm simd128 (a scratch cdylib under Node, not committed; simd128 and scalar FIR bit-identical on 2,000 blocks); meter state **1,496 B** (design 1,512); one meter on wasm 42.7k instructions per quantum at full true peak (S1 42.6k), 17.3k gated (S1 23.9k), 16.3k energy only. Rc1b: a keyframe at every cap **215,777 B** (≤ 256 KB), round trip exact. Rc6: seek + a 400-bucket redraw on a live 10-minute recording p50 0.30 ms, p95 0.61 ms, max 1.92 ms (2 ms target; a seek visits ≤ 128 records).
+
+**Wave-end checks:** typecheck, build, `check:audio-metered` (+0.11 %) pass; `npm test` **626 files, 7,070 passed**; `cargo test` **1,046 passed**; `npm run test:e2e` **264 passed**.
+
+**Deviations and interpretations:** Rc1b's music keyframe row is 40 B (the design's fields sum to 36 with "12 reserved"; 16 reserved kept); the leaves L-Ld1a and L-Rc1ba were folded into their leads (their tests needed the lead's API or codec; pilot measure: a leaf works when its file's interface exists before it starts — L-Pf1a, given a coordinator-fixed interface, ran in parallel and merged first, 29 tests first pass). Ld1's own-vs-`ebur128` checks compare against recorded readings of the crate (0.1.11), not the crate (no dependency; Ld6 owns the live cross-check).
+
+**Glue (coordinator):** `startOpLog` was never called (Hk1's seam), so live edits couldn't reach the mixer from the editor: started once per page in the audio editor plugin's `activate()` (the plugin context has no dispose hook). `CaptureSource.open` resolved after its signal aborted when the Worker's last wall-clock slice beat the cancel: it now rejects `cancelled` (failed alone before, 5 of 5 after). Pf1's tick test now runs through the merged `timelineModel`. The reader's seek no longer swallows a keyframe decode error.
+
+**For W6 briefs:** Ma2 — `laneWriter.ts` keys its sent state by bus name (`:126, 138`), so a rename re-sends that slot's lanes at their current values (inaudible, but not "no wire"); key it by slot, which the tombstones need; a public `eventRuntime.syncSettings()` (Ma1 refreshes automation through `events().getGlobal("")`). Ld2 — `LOUD_CONFIG` and the hub's config at configure and replay; a libebur128/ebur128 (MIT) entry in `THIRD_PARTY_NOTICES.md` when the kernels ship in the mixer. Rc4 (W7) — call Rc6's `startLive`/`stopLive` (stubs file).
+
 ## Wave 4 (base `m5/w4-base` `4f413ab`) — closed; M5-0 merged to master
 
 Merged: Rc5, Dbg1, the `audio-music-d` flake fix, Rc2 + the recorder tap's view glue (`2e8db34`); then the M5-0 trio **Mx2 + Dp1 + G1** (`d61a17e`: stamped bus ramps from main, presence ducking in the core, main's fade timing on the heard clock, the M5-0 goldens with DS0's discontinuity windows), **F2** (`1e3bf64`), SX0 + LS0 (`4ab1d1b`), Dc1 (`6f5d4ec`), the W4 flake fixes (`16e88d5`). Mixer **358,890 B** (400 KB tripwire).
