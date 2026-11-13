@@ -10,7 +10,7 @@
 // `stripStyle.css`, never literals.
 import type { JSX } from "preact";
 import type { LoudnessTargetReading } from "../../../../engine/audio/loudnessTypes";
-import { FADER_MAX_DB, UNITY_POSITION, dragPosition, formatDb, gainToDb, gainToPosition, positionToDb, positionToGain } from "./faderModel";
+import { FADER_MAX_DB, FINE_DRAG_SCALE, UNITY_POSITION, dragPosition, formatDb, gainToDb, gainToPosition, positionToDb, positionToGain } from "./faderModel";
 import { METER_FLOOR_DB, meterFill } from "../meterFill";
 import type { MixerModel, Strip } from "./mixerModel";
 import "./stripStyle.css";
@@ -78,6 +78,30 @@ const gestures = new WeakMap<object, Gesture>();
 type PointerEv = PointerEvent & { currentTarget: HTMLElement };
 type KeyEv = KeyboardEvent;
 
+/** A key press moves the fader this much of its travel; a modifier (`fine`) scales it by `FINE_DRAG_SCALE`, as for a drag. */
+export const KEY_STEP = 0.02;
+/** Page Up and Page Down move the fader this much. */
+export const KEY_PAGE_STEP = 0.1;
+
+/**
+ * The fader position a key leads to from `pos`, or null for a key the fader doesn't use. Arrows (up and right raise, down and
+ * left lower) move `KEY_STEP`, the page keys `KEY_PAGE_STEP`, both scaled when `fine`; Home goes to the bottom (silence), End
+ * to the top. Clamped to 0..1 and not snapped to unity: a snap would hold a key from ever leaving 0 dB.
+ */
+export function keyPosition(pos: number, key: string, fine: boolean): number | null {
+  const scale = fine ? FINE_DRAG_SCALE : 1;
+  const clamp = (p: number): number => Math.min(1, Math.max(0, p));
+  switch (key) {
+    case "ArrowUp": case "ArrowRight": return clamp(pos + KEY_STEP * scale);
+    case "ArrowDown": case "ArrowLeft": return clamp(pos - KEY_STEP * scale);
+    case "PageUp": return clamp(pos + KEY_PAGE_STEP * scale);
+    case "PageDown": return clamp(pos - KEY_PAGE_STEP * scale);
+    case "Home": return 0;
+    case "End": return 1;
+    default: return null;
+  }
+}
+
 /** Pointer handlers for one strip's fader. Exported for tests; the component wires them onto the track. */
 export function faderHandlers(props: Pick<MixerStripProps, "strip" | "model" | "onChange">) {
   const { strip, model } = props;
@@ -122,11 +146,20 @@ export function faderHandlers(props: Pick<MixerStripProps, "strip" | "model" | "
       end(false, e);
     },
     onKeyDown(e: KeyEv): void {
-      if (e.key !== "Escape") return;
       const g = gestures.get(model);
-      if (!g || g.bus !== strip.name) return;
+      if (e.key === "Escape") {
+        if (!g || g.bus !== strip.name) return;
+        e.preventDefault?.();
+        end(false);
+        return;
+      }
+      // Keyboard control (the ARIA slider pattern): each key press is one committed edit, so one undo step. A pointer drag
+      // in progress owns the fader. Shift or Alt makes the step fine, as Shift does for the drag.
+      if (g || model.dragging) return;
+      const next = keyPosition(gainToPosition(strip.volume), e.key, !!e.shiftKey || !!e.altKey);
+      if (next === null) return;
       e.preventDefault?.();
-      end(false);
+      if (model.setVolume(strip.name, positionToGain(next))) changed();
     },
     onDblClick(): void {
       // Double-click: unity gain, one commit (nothing when the fader already sits there).
