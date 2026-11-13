@@ -52,3 +52,12 @@ The owner took every recommendation except the floor run ("No to number 3, yes t
 - `plan-milestone-build` works from API §11. The three parallel streams are the native core, the TypeScript mixer and recorder, and the editor.
 - The bus goldens must keep their digests (R3); the only named new golden is the muted-bus-with-send case (R11).
 - Raise the mixer size gate in `native/audio/build.mjs` with a build-log entry when M5-0 crosses it (R25).
+
+## Plan seams (2026-11-13)
+
+The build plan ([waves](../../plans/2026-11-audio-mix-m5-waves.md), [tree](../../plans/2026-11-audio-mix-m5-tree.md)) adds these files to §8's layout, so no two tasks in a wave share a hot file:
+- **Native:** `audio-core/src/bus_slots.rs` (B2's per-slot configuration, called from `bus.rs`). `bus.rs` is restructured once, by the plan's K1, into stage hooks (`lanes::apply`, `bus_order::compute`, `duck::gain`/`detect`, `loudness::tap`, `sends::feed`, `bus_slots::apply`); K1 also owns the M5 regions in `layout.rs` and `core.rs`, which no row did.
+- **Main:** `runtime/core/laneWriter.ts` (today's `applyMix` and `effectiveGain`, then Wa2's interim and Mx2's lane writer), `core/presence.ts` (Dp1), `core/liveMix.ts` (Ma1), `core/structuralDip.ts` (Ma2), `core/deferredAdds.ts` (Ma3), wired from `coreBackend.ts` by the plan's K0; `runtime/capture/worker.ts` (the capture Worker entry, Rc5), `capture/trigger.ts` (X1's key and gesture).
+- **Editor:** `editor/mix/openSaveFlow.ts`, `ProfilerBanners.tsx`, `profilerKeys.ts` (Pf8, in slots `ProfilerPanel.tsx` leaves).
+- **Tests and docs:** `tests/e2e/audio-mix-smoke.spec.ts` (grown one case per milestone), `tests/e2e/audio-mix-listening.spec.ts` (the walker), cases in `tests/e2e/export.spec.ts` (the shipped-form smoke); `build-log.md`, `listening-notes/` and `listening-pass.md` in this folder.
+- `BUS_MIX` leaves the schema at the plan's R0 (W2's end, after B1a and Wa2), not in Wa1, so the build stays green in between.
