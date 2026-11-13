@@ -107,7 +107,7 @@ const SCENES = [
   "busramp-32",
 ];
 
-/** Bn1: each ramping scene -> its settled base and its number of ramping lanes (informational: §7.1's model is 1.7-1.8k
+/** Bn1 (`-base` is the same per-quantum path with no records): each ramping scene -> its settled base and its number of ramping lanes (informational: §7.1's model is 1.7-1.8k
  *  instructions per ramping lane per quantum, today's ramping bus 5.4k). */
 const BUS_LANE_PAIRS = {
   "busramp-8": { base: "busramp-8-base", lanes: 8 },
