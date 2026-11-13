@@ -32,7 +32,11 @@
 //! interpolator (a 48-tap Hann-windowed sinc for factor 4, tap `4t + p` in phase `p`) follow
 //! libebur128 (Copyright (c) 2011 Jan Kokemüller, MIT) and its Rust port, the `ebur128` crate
 //! (Copyright (c) 2020 Sebastian Dröge, MIT); the code is S1's independent rewrite for the core's
-//! fixed-size, no-allocation setting. Notice: `native/audio/third_party/libebur128/`.
+//! fixed-size, no-allocation setting. Notice: `native/audio/third_party/libebur128/`. One
+//! deliberate difference (FU1): away from 48 kHz the high-pass's numerator is scaled so its gain
+//! matches the 48 kHz stage's, as BS.1770-5 Annex 1 asks; libebur128 (and so the `ebur128` crate)
+//! leaves it at `[1, −2, 1]`, which reads +0.0038 LU at 44.1 kHz and −0.0216 LU at 96 kHz against
+//! 48 kHz. At 48 kHz the coefficients are libebur128's bit for bit.
 //!
 //! Rules as for every module of this crate: transcendentals through `libm`; nothing allocates.
 
@@ -90,7 +94,8 @@ pub fn lufs(mean_square: f64) -> f64 {
 }
 
 /// K-weighting biquad coefficients at a rate, `a0` normalised to 1: `b[stage]`, `a[stage]` =
-/// `[a1, a2]`; stage 0 is the high shelf, stage 1 the high-pass (`b` = `[1, −2, 1]`).
+/// `[a1, a2]`; stage 0 is the high shelf, stage 1 the high-pass (`b` = `[1, −2, 1]·g`, `g` = 1 at
+/// 48 kHz; FU1, see [`KCoef::new`]).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct KCoef {
     pub b: [[f64; 3]; 2],
@@ -98,7 +103,14 @@ pub struct KCoef {
 }
 
 impl KCoef {
-    /// libebur128's formulas (`ebur128_init_filter`) at `rate` (48 kHz if it isn't a usable rate).
+    /// libebur128's formulas (`ebur128_init_filter`) at `rate` (48 kHz if it isn't a usable rate),
+    /// except the high-pass's numerator, which is scaled so every rate has 48 kHz's passband gain
+    /// (BS.1770-5 Annex 1; FU1). At 48 kHz all ten coefficients are libebur128's, bit for bit.
+    ///
+    /// The shelf needs no such correction: its gain is exactly 1 at DC and `Vh` at Nyquist at every
+    /// rate; it differs from the 48 kHz response only by the bilinear warp (a biquad at another rate
+    /// can't follow 48 kHz's tan-warped axis), at most 0.0016 dB at 44.1 kHz and 0.0064 dB at
+    /// 96 kHz, around its 1.7 kHz corner (`tests/loudness_annex2.rs`).
     #[allow(non_snake_case)]
     pub fn new(rate: f64) -> KCoef {
         let rate = sane_rate(rate);
@@ -109,12 +121,31 @@ impl KCoef {
         let a0 = 1.0 + K / Q + K * K;
         let shelf_b = [(Vh + Vb * K / Q + K * K) / a0, 2.0 * (K * K - Vh) / a0, (Vh - Vb * K / Q + K * K) / a0];
         let shelf_a = [2.0 * (K * K - 1.0) / a0, (1.0 - K / Q + K * K) / a0];
-        let (f0, Q) = (38.13547087602444, 0.5003270373238773);
-        let K = libm::tan(PI * f0 / rate);
-        let a0 = 1.0 + K / Q + K * K;
+        let (K, a0) = hp_k_a0(rate);
+        let Q = HP_Q;
         let hp_a = [2.0 * (K * K - 1.0) / a0, (1.0 - K / Q + K * K) / a0];
-        KCoef { b: [shelf_b, [1.0, -2.0, 1.0]], a: [shelf_a, hp_a] }
+        // BS.1770-5 Annex 1 Table 2's 48 kHz set leaves the numerator at [1, -2, 1], so it is the
+        // normalised bilinear high-pass times a flat gain a0(48 kHz) (+0.043 dB). libebur128 keeps
+        // [1, -2, 1] at every rate, so the gain becomes a0(rate) (+0.0038 dB at 44.1 kHz against
+        // 48 kHz's, -0.0216 dB at 96 kHz). Annex 1 asks other rates for "the same frequency
+        // response that the specified filter provides at 48 kHz": scaling by a0(48 kHz) / a0(rate)
+        // keeps 48 kHz's gain (FU1). At 48 kHz the ratio is x / x = 1.0 exactly, so Table 2's
+        // coefficients are unchanged bit for bit.
+        let g = hp_k_a0(48_000.0).1 / a0;
+        KCoef { b: [shelf_b, [g, -2.0 * g, g]], a: [shelf_a, hp_a] }
     }
+}
+
+/// The high-pass (stage 2) prototype's corner (Hz) and Q, libebur128's.
+const HP_F0: f64 = 38.13547087602444;
+const HP_Q: f64 = 0.5003270373238773;
+
+/// The high-pass's bilinear `K = tan(π f0 / rate)` and its unnormalised `a0 = 1 + K/Q + K²` at
+/// `rate`.
+#[allow(non_snake_case)]
+fn hp_k_a0(rate: f64) -> (f64, f64) {
+    let K = libm::tan(PI * HP_F0 / rate);
+    (K, 1.0 + K / HP_Q + K * K)
 }
 
 /// libebur128's true-peak interpolator: a Hann window over 48 taps times sinc(m / 4), `m = j − 24`;

@@ -149,6 +149,7 @@ fn full_scale_997_hz_sine_reads_minus_3_01_lkfs() {
         assert!(done >= 19, "fs {fs}: {done} sub-blocks");
         let v = lufs(sum / count as f64);
         // every rate to 0.01 (before FU1, 96 kHz read -3.028: the high-pass's -0.0216 dB offset)
+        eprintln!("997 Hz full scale at {fs} Hz: {v} LKFS");
         assert!((v - -3.01).abs() < 0.01, "fs {fs}: {v} LKFS");
     }
 }
