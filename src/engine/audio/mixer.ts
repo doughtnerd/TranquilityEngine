@@ -82,7 +82,7 @@ export interface BusLanes {
   readonly monitorMute: boolean;
   readonly monitorSolo: boolean;
   readonly dip: Readonly<Ramp>;
-  /** The duck lane's last value (main's presence computation until Dp1; then STATUS). */
+  /** The duck lane's value: STATUS's `busDuck` on the core backend (the duck source), main's presence computation on the Babylon fallback. */
   readonly duck: number;
 }
 
@@ -116,6 +116,9 @@ const OFF_HZ = 24000;
 
 /** The heard clock the mixer evaluates ramps on: seconds, `Audio.time`'s base. */
 export type MixerClock = () => number;
+
+/** ADR 0172 §1.1 (Dp1): where the duck lane is read from when the core computes it: a bus's gain (1 = not ducked). */
+export type DuckSource = (bus: string) => number;
 
 /** Monitor controls (§6.6): the Mixer panel's mute and solo, never saved, never set through `apply`. */
 export interface MonitorControls {
@@ -157,8 +160,8 @@ export class Bus {
   get peak(): number { return this.s?.peak ?? 0; }
   /** Product of every gain up the tree, all seven lanes: the level reaching the speakers from this bus. */
   get effectiveGain(): number { return (this.mixer.resolve(this.name)?.effectiveGain ?? 0) * this.mixer._viewChain(this.name); }
-  /** The duck lane's gain, 1 = not ducked, 0..1. Main's presence-duck computation until Dp1 moves it into the core (then STATUS, a block old; the Babylon fallback keeps main's). */
-  get duckGain(): number { return this.s?.duck ?? 1; }
+  /** The duck lane's gain, 1 = not ducked, 0..1. On the core backend, STATUS's `busDuck` (a block old, ADR 0172 §1.1); on the Babylon fallback, main's presence-duck computation. */
+  get duckGain(): number { const s = this.s; return s ? this.mixer._duckOf(this.name, s) : 1; }
   /** Ease `volume` to `v` over `seconds` (0 jumps over `BUS_MIN_RAMP_MS`, never an unramped step). One ramp record, not one per display frame. */
   fadeTo(v: number, seconds: number): void { this.mixer._setRuntime(this.name, v, seconds); }
   /** Loudness readings and controls; a stable object allocated once per bus, like `peak`. */
@@ -174,6 +177,13 @@ export class Mixer {
   private snapshotName: string | null = null;
   private warned = new Set<string>();
   private clock: MixerClock | null = null;
+  /**
+   * Dp1 (Mx2's timing note): the heard time a stamped ramp written now starts at on the backend (the lane writer's stamp,
+   * *F*_now + L, in heard seconds; NaN when unknown). Used only with `clock`.
+   */
+  private stampClock: MixerClock | null = null;
+  /** Dp1: the core's duck lane (STATUS); null keeps main's presence computation (the Babylon fallback). */
+  private duckSource: DuckSource | null = null;
   /** The mixer's own clock (no `setClock`): advanced by `update`'s `dt`. */
   private ownTime = 0;
   /** Heard time at the last `update`: ramps moving since then re-send the mix. */
@@ -222,9 +232,12 @@ export class Mixer {
   }
   /**
    * Evaluate ramps on `clock` (the backend's heard clock, `Audio.time`'s base), or on the mixer's own `dt` clock with
-   * null. Ramps keep their records: a running fade continues from where it reads on the new clock.
+   * null. Ramps keep their records: a running fade continues from where it reads on the new clock. `stamp` (with a
+   * clock) gives the heard time a ramp written now starts at on the backend: a ramp with a length starts there, so a
+   * getter during a fade reads the value being heard (the core starts it at its stamp, not at the call).
    */
-  setClock(clock: MixerClock | null): void {
+  setClock(clock: MixerClock | null, stamp: MixerClock | null = null): void {
+    this.stampClock = clock ? stamp : null;
     const now = this.time;
     // Re-anchor every running ramp so it keeps its remaining length on the new clock.
     const next = clock ? clock() : this.ownTime;
@@ -237,6 +250,24 @@ export class Mixer {
 
   /** Register (or with null, remove) where `Bus.loudness` reads from: the loudness hub (Ld4). */
   setLoudnessSource(source: LoudnessSource | null): void { this.loudnessSource = source; }
+
+  /**
+   * @internal Dp1 (ADR 0172 §1.1): the core computes presence ducks; `source` reads its duck lane per bus (STATUS's
+   * `busDuck`). While set, main stops computing presence ducks and every duck read (`Bus.duckGain`, `resolve`, the lanes)
+   * is the source's; null (the Babylon fallback) computes them on main again, from 1.
+   */
+  _setDuckSource(source: DuckSource | null): void {
+    if (source === this.duckSource) return;
+    this.duckSource = source;
+    for (const s of this.buses.values()) s.duck = 1;
+    this._dirty();
+  }
+  /** @internal The duck lane of bus `name` (state `s`): the source's, else main's. */
+  _duckOf(name: string, s: BusState): number {
+    if (!this.duckSource) return s.duck;
+    const g = this.duckSource(name);
+    return Number.isFinite(g) ? Math.min(1, Math.max(0, g)) : 1;
+  }
 
   /** @internal Register what `apply` delegates to: the backend (K0 wires it). */
   _setOpTarget(target: MixOpTarget | null): void { this.opTarget = target; }
@@ -270,7 +301,7 @@ export class Mixer {
     if (!s) return undefined;
     return {
       slot: s.slot, authored: s.authored, authoredMute: s.authoredMute, runtime: s.runtime, runtimeMute: s.mute, runtimeSolo: s.solo,
-      snapshot: s.snapshot, snapshotLowpass: s.lp, monitorMute: s.monitorMute, monitorSolo: s.monitorSolo, dip: s.dip, duck: s.duck,
+      snapshot: s.snapshot, snapshotLowpass: s.lp, monitorMute: s.monitorMute, monitorSolo: s.monitorSolo, dip: s.dip, duck: this._duckOf(name, s),
     };
   }
   /** @internal One lane's gain for `name` at the heard clock (`automation`: main's Babylon-fallback estimate times the core's view). */
@@ -284,7 +315,7 @@ export class Mixer {
       case Lane.snapshot: return rampAt(s.snapshot, now);
       case Lane.monitor: return s.monitorMute || (this.anySolo() && !this.audibleUnderSolo(name)) ? 0 : 1;
       case Lane.dip: return rampAt(s.dip, now);
-      case Lane.duck: return s.duck;
+      case Lane.duck: return this._duckOf(name, s);
       default: return s.autoGain * s.viewGain;
     }
   }
@@ -370,10 +401,16 @@ export class Mixer {
   /** A new ramp on `r` from its value now to `to` over `seconds` (non-finite or <= 0: asap). Re-setting a settled lane to its value writes nothing. */
   private retarget(r: Ramp, to: number, seconds: number): void {
     const now = this.time;
-    const from = rampAt(r, now);
     const dur = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+    // A ramp with a length starts where the backend stamps it (Dp1): from the lane's value there.
+    let start = now;
+    if (dur > 0 && this.clock && this.stampClock) {
+      const at = this.stampClock();
+      if (Number.isFinite(at) && at > now) start = at;
+    }
+    const from = rampAt(r, start);
     if (from === to && r.to === to) return;
-    r.from = from; r.to = to; r.start = now; r.seconds = dur; r.law = "linear"; r.seq = ++this.seq;
+    r.from = from; r.to = to; r.start = start; r.seconds = dur; r.law = "linear"; r.seq = ++this.seq;
     this._dirty();
   }
   private ramp(from: number, to: number, start: number, seconds: number): Ramp {
@@ -394,7 +431,8 @@ export class Mixer {
           break;
         }
       }
-      this.presenceDuck(hdt);
+      if (this.duckSource) this.followDuckSource();
+      else this.presenceDuck(hdt);
     }
     if (this.changed) {
       this.changed = false;
@@ -402,8 +440,19 @@ export class Mixer {
     }
   }
 
+  /** Dp1: the core's duck lane moved (a new STATUS): listeners re-read the mix (selection's audibility uses it). */
+  private followDuckSource(): void {
+    for (const [name, s] of this.buses) {
+      const g = this._duckOf(name, s);
+      if (g !== s.duck) {
+        s.duck = g;
+        this._dirty();
+      }
+    }
+  }
+
   /**
-   * Presence ducking on main (until Dp1 moves it into the core; the Babylon fallback keeps it): each bus heads for the
+   * Presence ducking on main, the Babylon fallback's (on the core backend the core computes it, `_setDuckSource`): each bus heads for the
    * lowest multiplier any rule with a playing trigger asks for, easing `dt / attack` (or the longest `release`) of the way.
    */
   private presenceDuck(dt: number): void {
@@ -451,7 +500,7 @@ export class Mixer {
     const gainOf = (n: string, st: BusState) =>
       st.authoredMute || st.mute || st.monitorMute || (solo && !this.audibleUnderSolo(n))
         ? 0
-        : rampAt(st.authored, now) * rampAt(st.runtime, now) * rampAt(st.snapshot, now) * rampAt(st.dip, now) * st.duck * st.autoGain;
+        : rampAt(st.authored, now) * rampAt(st.runtime, now) * rampAt(st.snapshot, now) * rampAt(st.dip, now) * this._duckOf(n, st) * st.autoGain;
     let effective = 1;
     for (const n of this.chain(name)) effective *= gainOf(n, this.buses.get(n)!);
     const lp = Math.min(rampAt(s.lp, now), s.autoLp);

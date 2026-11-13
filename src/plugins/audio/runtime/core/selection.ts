@@ -6,7 +6,9 @@
 //   (the handle's fade) times `autoGain` (ADR 0158: its automation's gain at the parameters' targets, 1 without
 //   bindings, `coreAutomation.ts`) times `stemGain` (F-9b: a music stem's level from its quantised automation and solo,
 //   `musicOps.paramsShaped`; a rise at once, a fall at its stamp; 1 for other voices. Quantised and continuous
-//   bindings are separate gain stages on the core, so the two factors never count one binding twice) times its bus's effective gain (volume, mute, solo, snapshot and ducking down the tree) times
+//   bindings are separate gain stages on the core, so the two factors never count one binding twice) times its bus's effective gain (ADR 0171, Mx2: the product of the bus's
+//   main-side lanes, authored × runtime × snapshot × monitor × dip × duck, down the tree, at the heard clock, times the
+//   bus automation; `laneWriter.ts`) times
 //   the priority weight `1 + priority/255` (at most 2x, +6 dB: §1 "it only mildly raises audibility"). Stored in the
 //   table's `audibility0`; ADR 0162 C20: times the voice's smoothed occlusion gain (`occGain`, 1 open) it is the
 //   table's `audibility`, which ranking, stealing (`VoiceTable.allocate`) and `Audio.debug()` read.
@@ -195,7 +197,7 @@ export class ListenerBasis {
  * backend keeps current; `run` is the frame step and `admit` decides a new PLAY's mixed bit.
  */
 export class Selection {
-  /** Effective gain per bus index (volume, mute, solo, snapshot and ducking down the tree); 1 until set. */
+  /** Effective gain per bus index (the lane product down the tree, times automation: `LaneWriter.refreshBusGain`); 1 until set. */
   readonly busGain = new Float32Array(MAX_BUSES).fill(1);
   /** 1 while World key `k` is audible (has the view); key 0 (no World) is always audible. All audible until set. */
   readonly worldAudible = new Uint8Array(256).fill(1);

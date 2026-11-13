@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { HRIR_CLIP_ID, resampleHrir, resampleMagls } from "./core/hrir";
 import { DecoderWasm } from "./decoder/wasm";
+import { maxStep } from "./golden/maxStep";
 import { createLoopbackHost, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost } from "./testing";
 import type { CorePreset } from "./worklet/coreDriver";
 import {
@@ -650,13 +651,6 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
 /** The filters' off values: a low-pass at or above, a high-pass at or below. */
 const LP_OPEN_HZ = 20_000;
 const HP_OPEN_HZ = 20;
-
-/** The largest absolute difference between neighbouring samples. */
-function maxStep(x: Float32Array): number {
-  let m = 0;
-  for (let i = 1; i < x.length; i++) m = Math.max(m, Math.abs(x[i]! - x[i - 1]!));
-  return m;
-}
 
 /** Sends `filtersFor`'s records in batches of 32 voices (a batch's scratch is 8 KB). */
 function sendFilters(s: Stage, n: number, ramp: number, lp: (k: number) => number, hp: (k: number) => number): void {

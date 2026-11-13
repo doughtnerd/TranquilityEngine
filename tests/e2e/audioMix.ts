@@ -48,7 +48,8 @@ export async function installFrameClock(page: Page): Promise<void> {
   });
 }
 
-export type GainSample = { frame: number; gain: number; debugGain: number };
+/** `frame`: the core's last STATUS frame (coarse while no batch flows: STATUS idles at 48 quanta); `time`: `Audio.time`, the heard clock the mixer's fades run on. */
+export type GainSample = { frame: number; time: number; gain: number; debugGain: number };
 
 /**
  * Runs `start` in the page, then samples the bus's `effectiveGain` (and its `Audio.debug()` row) every 15 ms, each stamped with
@@ -59,10 +60,10 @@ export const sampleBusGain = (page: Page, bus: string, target: number, maxFrames
   page.evaluate(
     async ([name, to, limit, startSrc]) => {
       const g = globalThis as unknown as { __myco: Api; __mixFrame: () => { frame: number } };
-      const out: { frame: number; gain: number; debugGain: number }[] = [];
+      const out: { frame: number; time: number; gain: number; debugGain: number }[] = [];
       const read = () => {
         const d = g.__myco.Audio.debug() as MixDebug;
-        return { frame: g.__mixFrame().frame, gain: g.__myco.Audio.bus(name as string).effectiveGain, debugGain: d.buses.find((b) => b.name === name)!.effectiveGain };
+        return { frame: g.__mixFrame().frame, time: g.__myco.Audio.time, gain: g.__myco.Audio.bus(name as string).effectiveGain, debugGain: d.buses.find((b) => b.name === name)!.effectiveGain };
       };
       out.push(read());
       new Function("Audio", startSrc as string)(g.__myco.Audio);
