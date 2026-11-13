@@ -10,7 +10,9 @@ The coordinator's log of each wave review ([waves plan, "Wave reviews"](../../pl
 
 **Owner decisions (2026-11-13, "Yes, merge it. Let's begin"):** O1–O7 of the [build handoff](../../plans/2026-11-audio-mix-m5-build-handoff.md) as recommended: three strongest and six mid leads; milestones to master as soon as each completes, by merge commit; the ≈ 14 d of plan-only work accepted as added; hardware as in M4 (an Android emulator, no real phone: real-device items deferred under 0169); one milestone-end check run when several milestones finish in one wave; the plan merged to master (done, `4e2303d`); a listening section at the end of M5-0, M5b and M5c. *Correct me if "yes" didn't cover O4.*
 
-**Needs you:** nothing yet.
+**M5-0 is on master** (2026-11-13): stamped bus ramps, presence ducking in the core, post-fader reverb sends, the seven gain lanes, and F2's click fix (three goldens re-recorded with your approval).
+
+**Needs you:** the M5-0 listening section, [`listening-notes/m5-0.md`](listening-notes/m5-0.md) (steps S0–S6, about 15 minutes, headphones); WebKit/Firefox runs (not installed here). Neither holds the build.
 
 ## Decisions
 
@@ -69,7 +71,7 @@ Wave-end checks (quiet machine): typecheck green; `npm test` **603 files, 6,825 
 
 **Follow-ups carried to W3 briefs:** Mx2 sends master on `LANE_RUNTIME` (B1a); `BUS_CONFIG` doesn't reset a re-added slot's lanes (Mx2's replay resends them); stale `BUS_MIX`-as-current comments in TS core files (coordinator sweep with Mx2); Rc5 fixes `RecordTable.ROW_BYTES` (26 vs 28 B per row in the reader's allocation count).
 
-## Wave 4 (base `m5/w4-base` `4f413ab`) — M5-0's exit
+## Wave 4 (base `m5/w4-base` `4f413ab`) — closed; M5-0 merged to master
 
 Merged: Rc5, Dbg1, the `audio-music-d` flake fix, Rc2 + the recorder tap's view glue (`2e8db34`); then the M5-0 trio **Mx2 + Dp1 + G1** (`d61a17e`: stamped bus ramps from main, presence ducking in the core, main's fade timing on the heard clock, the M5-0 goldens with DS0's discontinuity windows), **F2** (`1e3bf64`), SX0 + LS0 (`4ab1d1b`), Dc1 (`6f5d4ec`), the W4 flake fixes (`16e88d5`). Mixer **358,890 B** (400 KB tripwire).
 
@@ -85,7 +87,7 @@ Every other M1–M5 golden and parity digest is unchanged (checked with `UPDATE_
 
 **Glue (coordinator):** the M5-0 smoke fade case waits on the heard clock (`Audio.time`) the getters read, not the core's rendered frame (failed ≈ 1 in 6 before; 3 of 3 after); Rc5's Worker-thread test moved from `runtime/capture/` to `editor/mix/profilerSource.thread.test.ts` (a runtime test importing the editor broke `plugins.test.ts`'s import direction, found by the milestone run); the docs index marks 0097, 0157, 0158 and 0171 amended by 0172.
 
-**M5-0 milestone-end checks (2026-11-13, quiet machine):** typecheck and `npm run build` pass; `npm test` 619 files, 6,963 passed, 1 failure → the import-direction fix above (16 of 16 after); `cargo test` (native/audio) **1,038 passed**; `check:audio-metered` pass (all +0.11 %, worst `busramp-32` +0.30 %); `npm run test:e2e` **265 passed**, 8 skipped; `npm run test:e2e:slow` 40 passed, 2 failed under the suite's parallel load → SLOW_RERUN. The slow run covers the export smoke (SX0's Sound Lab case: a fade on its stamp and a presence duck in `Audio.debug()`), every parity spec, and both M5-0 listening walker cases (headless and listen mode). **Not run:** WebKit and Firefox (not installed in the build container; owner item).
+**M5-0 milestone-end checks (2026-11-13, quiet machine):** typecheck and `npm run build` pass; `npm test` 619 files, 6,963 passed, 1 failure → the import-direction fix above (16 of 16 after); `cargo test` (native/audio) **1,038 passed**; `check:audio-metered` pass (all +0.11 %, worst `busramp-32` +0.30 %); `npm run test:e2e` **265 passed**, 8 skipped; `npm run test:e2e:slow` 40 passed, 2 failed under the suite's parallel load (`audio-stress`: the cap held at its floor; M4a's 10-minute playlist: one late group beside 4 underruns), **both passed alone** on one worker (stress: 0 underruns, cap 21–217; playlist: no late group). Pre-M5 load sensitivity, not an M5 change. The slow run covers the export smoke (SX0's Sound Lab case: a fade on its stamp and a presence duck in `Audio.debug()`), every parity spec, and both M5-0 listening walker cases (headless and listen mode). **Not run:** WebKit and Firefox (not installed in the build container; owner item).
 
 ## Wave 3 (base `9f82a8d`) — closed
 
