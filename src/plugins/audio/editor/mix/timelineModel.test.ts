@@ -3,8 +3,12 @@ import {
   MIN_SPAN_S,
   TrackList,
   clampViewport,
+  createMinMaxPyramid,
   downsampleMinMax,
+  downsampleMinMaxPyramid,
   downsampleTicks,
+  downsampleTicksIndexed,
+  extendMinMaxPyramid,
   followLiveViewport,
   panViewport,
   timeToX,
@@ -234,6 +238,145 @@ describe("downsampleTicks", () => {
     const r = downsampleTicks([0.1], vp(0, 1), 8, out);
     expect(r).toBe(out);
     expect(Array.from(r)).toEqual([1, 0, 0, 0, 0, 0, 0, 0]);
+  });
+});
+
+describe("min/max pyramid (exact, Pf3b)", () => {
+  /** A series with clusters of equal times, gaps, and values that include spikes (so a lost peak shows). */
+  function series(rand: () => number, count: number): { times: number[]; values: number[] } {
+    const times: number[] = [];
+    const values: number[] = [];
+    let t = rand() * 2;
+    for (let i = 0; i < count; i++) {
+      t += rand() < 0.1 ? 0 : rand() < 0.05 ? rand() * 2 : rand() * 0.02;
+      times.push(t);
+      values.push(rand() < 0.02 ? 1000 + rand() * 50 : rand() < 0.02 ? -500 - rand() : Math.fround(rand() * 100 + 1));
+    }
+    return { times, values };
+  }
+
+  function same(a: { min: Float32Array; max: Float32Array; filled: Uint8Array }, b: typeof a): void {
+    expect(Array.from(a.filled)).toEqual(Array.from(b.filled));
+    expect(Array.from(a.min)).toEqual(Array.from(b.min));
+    expect(Array.from(a.max)).toEqual(Array.from(b.max));
+  }
+
+  it("equals downsampleMinMax over random series, viewports and bucket counts (seeded)", () => {
+    const rand = rng(777);
+    for (let iter = 0; iter < 300; iter++) {
+      const { times, values } = series(rand, Math.floor(rand() * 3000));
+      const pyr = createMinMaxPyramid(values);
+      const end = (times[times.length - 1] ?? 1) + 1;
+      for (let q = 0; q < 6; q++) {
+        const start = rand() * end;
+        const v = vp(start, start + MIN_SPAN_S + rand() * end * (q === 0 ? 1.5 : 0.3));
+        const n = Math.floor(rand() * 400);
+        same(downsampleMinMaxPyramid(pyr, times, v, n), downsampleMinMax(times, values, v, n));
+      }
+      // Whole-capture views: every bucket is made of whole blocks.
+      const whole = vp(0, end);
+      for (const n of [1, 2, 7, 64, 800]) same(downsampleMinMaxPyramid(pyr, times, whole, n), downsampleMinMax(times, values, whole, n));
+    }
+  });
+
+  it("equals downsampleMinMax while samples are appended in chunks, building incrementally", () => {
+    const rand = rng(4242);
+    for (let iter = 0; iter < 60; iter++) {
+      const { times, values } = series(rand, 2500);
+      const liveT: number[] = [];
+      const liveV: number[] = [];
+      const pyr = createMinMaxPyramid(liveV);
+      let at = 0;
+      while (at < times.length) {
+        const chunk = 1 + Math.floor(rand() * 400);
+        for (let i = at; i < Math.min(times.length, at + chunk); i++) {
+          liveT.push(times[i]!);
+          liveV.push(values[i]!);
+        }
+        at += chunk;
+        // Half the time the query extends the pyramid itself, half the time it is extended explicitly first.
+        if (rand() < 0.5) extendMinMaxPyramid(pyr);
+        const end = liveT[liveT.length - 1]! + 0.5;
+        const start = rand() * end * 0.8;
+        const v = vp(start, start + MIN_SPAN_S + rand() * end);
+        const n = 1 + Math.floor(rand() * 300);
+        same(downsampleMinMaxPyramid(pyr, liveT, v, n), downsampleMinMax(liveT, liveV, v, n));
+      }
+      expect(pyr.covered).toBe(liveV.length);
+    }
+  });
+
+  it("extending covers only the new samples, and a shrunk series starts over", () => {
+    const values = Array.from({ length: 1000 }, (_, i) => i);
+    const pyr = createMinMaxPyramid(values);
+    const blocks0 = pyr.levels[0]!.blocks;
+    expect(blocks0).toBe(125);
+    values.push(...Array.from({ length: 24 }, (_, i) => 1000 + i));
+    expect(extendMinMaxPyramid(pyr)).toBe(true);
+    expect(pyr.levels[0]!.blocks).toBe(128);
+    values.length = 100;
+    expect(extendMinMaxPyramid(pyr)).toBe(false);
+    expect(pyr.covered).toBe(100);
+    expect(pyr.levels[0]!.blocks).toBe(12);
+  });
+
+  it("keeps a lone spike and a lone dip inside a huge window", () => {
+    const n = 200_000;
+    const times = Array.from({ length: n }, (_, i) => i * 0.003);
+    const values = new Float32Array(n).fill(5);
+    values[123_457] = 9999;
+    values[7] = -3;
+    const pyr = createMinMaxPyramid(values);
+    const v = vp(0, n * 0.003);
+    const got = downsampleMinMaxPyramid(pyr, times, v, 800);
+    expect(Math.max(...got.max)).toBe(9999);
+    expect(Math.min(...got.min)).toBe(-3);
+    same(got, downsampleMinMax(times, values, v, 800));
+  });
+
+  it("work per query is bounded by buckets x log n, not by the samples in view", () => {
+    const n = 450_000;
+    const times = new Float64Array(n);
+    const values = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      times[i] = i * 0.00133;
+      values[i] = (i * 2654435761) % 1000;
+    }
+    const pyr = createMinMaxPyramid(values);
+    const W = 800;
+    const bound = W * (2 * Math.log2(n) + 2 * 8 + 8);
+    for (const v of [vp(0, 600), vp(0, 300), vp(123.4, 456.7), vp(10, 12), vp(300, 300.5)]) {
+      const inView = Math.min(n, Math.round((v.end - v.start) / 0.00133));
+      const got = downsampleMinMaxPyramid(pyr, times, v, W);
+      const w = pyr.lastQuery;
+      expect(w.samples + w.blocks + w.probes).toBeLessThanOrEqual(bound);
+      if (inView > 100_000) expect(w.samples + w.blocks + w.probes).toBeLessThan(inView / 8);
+      same(got, downsampleMinMax(times, values, v, W));
+    }
+  });
+
+  it("ticks: the indexed pass equals downsampleTicks on random sets, dense runs and viewports (seeded)", () => {
+    const rand = rng(31337);
+    for (let iter = 0; iter < 300; iter++) {
+      const count = Math.floor(rand() * 3000);
+      const dense = rand() < 0.5;
+      const times = Array.from({ length: count }, () => (dense ? rand() * 2 : rand() * 40)).sort((a, b) => a - b);
+      const start = rand() * 10;
+      const v = vp(start, start + MIN_SPAN_S + rand() * 12);
+      const n = Math.floor(rand() * 500);
+      expect(Array.from(downsampleTicksIndexed(times, v, n))).toEqual(Array.from(downsampleTicks(times, v, n)));
+    }
+  });
+
+  it("ticks: 450,000 dense ticks cost at most buckets x log probes, and none is dropped", () => {
+    const times = Array.from({ length: 450_000 }, (_, i) => i * 0.00133);
+    const v = vp(0, 598);
+    const work = { samples: 0, blocks: 0, probes: 0 };
+    const got = downsampleTicksIndexed(times, v, 800, undefined, work);
+    expect(work.samples).toBeLessThanOrEqual(800);
+    expect(work.probes).toBeLessThanOrEqual(800 * 2 * Math.log2(450_000));
+    expect(Array.from(got)).toEqual(Array.from(downsampleTicks(times, v, 800)));
+    expect(got.every((x) => x === 1)).toBe(true);
   });
 });
 

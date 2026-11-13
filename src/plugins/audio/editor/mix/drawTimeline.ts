@@ -8,21 +8,27 @@
  * flag is still set, so a hundred wheel events in a frame cost one redraw and an idle timeline costs none.
  *
  * Work per redraw is bounded by the canvas width: each series is reduced to one min/max bucket per pixel column
- * (`downsampleMinMax`, `downsampleTicks`) and emits at most one path segment per bucket, however many records the
+ * (a min/max pyramid per series, `downsampleMinMaxPyramid`, and `downsampleTicksIndexed`, both exactly equal to the
+ * linear `downsampleMinMax` / `downsampleTicks`, in O(width x log n)) and emits at most one path segment per bucket, however many records the
  * capture holds. The reduced buckets are cached until the viewport, the width or the data change, so moving the cursor
  * or the selection redraws from the cache. Colours come only from theme tokens, read once per theme change.
  */
 
+import { DEFAULT_PRESET, PRESETS, resolveTheme, type ThemeTokens } from "../../../../editor/theme";
 import {
   clampViewport,
-  downsampleMinMax,
-  downsampleTicks,
+  createMinMaxPyramid,
+  downsampleMinMaxPyramid,
+  downsampleTicksIndexed,
+  extendMinMaxPyramid,
   followLiveViewport,
   panViewport,
   timeToX,
   xToTime,
   zoomViewport,
   type Buckets,
+  type MinMaxPyramid,
+  type PyramidWork,
   type Track,
   type TrackList,
   type Viewport,
@@ -45,23 +51,36 @@ export const TIMELINE_TOKENS = {
 export type TimelineColorKey = keyof typeof TIMELINE_TOKENS;
 export type TimelineColors = Readonly<Record<TimelineColorKey, string>>;
 
-/** Fallbacks for a token a custom theme leaves undefined. */
-const FALLBACK: TimelineColors = {
-  bg: "#050708",
-  panel: "#0f1517",
-  border: "#283435",
-  text: "#f4efe6",
-  muted: "#989893",
-  accent: "#2ad4d4",
-  accent2: "#8bd12a",
-  accentSoft: "rgb(42 212 212 / 0.22)",
-  warning: "#f0b429",
-  danger: "#ff6b6b",
+/** The default theme's resolved token for each timeline colour (`src/editor/theme.ts`, the one source of the values). */
+const TOKEN_OF_COLOR: Readonly<Record<TimelineColorKey, keyof ThemeTokens>> = {
+  bg: "bgSunken",
+  panel: "panel",
+  border: "border",
+  text: "text",
+  muted: "muted",
+  accent: "accent",
+  accent2: "accent2",
+  accentSoft: "accentSoft",
+  warning: "warning",
+  danger: "danger",
 };
+
+let fallback: TimelineColors | undefined;
+
+/** Fallbacks for a token a custom theme leaves undefined: the default theme's values, resolved once. */
+function defaultColors(): TimelineColors {
+  if (!fallback) {
+    const tokens = resolveTheme(PRESETS.find((p) => p.id === DEFAULT_PRESET) ?? PRESETS[0]!);
+    const out = {} as Record<TimelineColorKey, string>;
+    for (const key of Object.keys(TOKEN_OF_COLOR) as TimelineColorKey[]) out[key] = tokens[TOKEN_OF_COLOR[key]];
+    fallback = out;
+  }
+  return fallback;
+}
 
 /** Reads every token once through `get` (a custom-property lookup); call it on a theme change, never per frame. */
 export function readTimelineColors(get: (name: string) => string): TimelineColors {
-  const out = { ...FALLBACK };
+  const out = { ...defaultColors() };
   for (const key of Object.keys(TIMELINE_TOKENS) as TimelineColorKey[]) {
     const v = get(TIMELINE_TOKENS[key]).trim();
     if (v) out[key] = v;
@@ -116,6 +135,8 @@ export interface DrawStats {
   /** Buckets that emitted a path segment. */
   readonly buckets: number;
   readonly tracks: number;
+  /** Raw samples, pyramid blocks and time probes the reductions of this frame read: O(width x log n), not O(records). */
+  readonly work: PyramidWork;
 }
 
 export interface TimelineOptions {
@@ -177,7 +198,9 @@ export class TimelineCanvas {
   private lastX = 0;
   private anchorT = 0;
   private redraws = 0;
-  private stats: DrawStats = { downsamples: 0, buckets: 0, tracks: 0 };
+  private readonly pyramids = new WeakMap<object, MinMaxPyramid>();
+  private readonly work: PyramidWork = { samples: 0, blocks: 0, probes: 0 };
+  private stats: DrawStats = { downsamples: 0, buckets: 0, tracks: 0, work: { samples: 0, blocks: 0, probes: 0 } };
   private themeReads = 0;
   private disposed = false;
 
@@ -404,22 +427,40 @@ export class TimelineCanvas {
     return this.opt.tracks.tracks.filter((t) => t.visible);
   }
 
+  /**
+   * The series' min/max pyramid: built the first time the series is reduced, then only extended over appended samples
+   * (a live capture's `values` grows in place). A series is identified by its `values` object, so `data()` must return
+   * stable arrays and must not rewrite samples already in them.
+   */
+  private pyramidOf(values: ArrayLike<number>): MinMaxPyramid {
+    let p = this.pyramids.get(values);
+    if (!p) this.pyramids.set(values, (p = createMinMaxPyramid(values)));
+    else extendMinMaxPyramid(p);
+    return p;
+  }
+
   private buildCache(): number {
     const key = `${this.vp.start}|${this.vp.end}|${this.w}|${this.dataVersion}`;
     if (key === this.cacheKey) return 0;
     this.cacheKey = key;
     this.cache = new Map();
     let n = 0;
+    const work = this.work;
+    work.samples = work.blocks = work.probes = 0;
     for (const t of this.visibleTracks()) {
       const data = this.opt.data(t.id);
       if (!data) continue;
       if (t.kind === "ticks") {
-        this.cache.set(t.id, { kind: "ticks", ticks: data.ticks ? downsampleTicks(data.ticks, this.vp, this.w) : undefined, tickColor: data.tickColor ?? "danger" });
+        this.cache.set(t.id, { kind: "ticks", ticks: data.ticks ? downsampleTicksIndexed(data.ticks, this.vp, this.w, undefined, work) : undefined, tickColor: data.tickColor ?? "danger" });
         n++;
         continue;
       }
       const lines = (data.lines ?? []).map((s) => {
-        const buckets = downsampleMinMax(s.times, s.values, this.vp, this.w);
+        const pyramid = this.pyramidOf(s.values);
+        const buckets = downsampleMinMaxPyramid(pyramid, s.times, this.vp, this.w);
+        work.samples += pyramid.lastQuery.samples;
+        work.blocks += pyramid.lastQuery.blocks;
+        work.probes += pyramid.lastQuery.probes;
         let top = s.yMax ?? 0;
         if (s.yMax === undefined) for (let i = 0; i < this.w; i++) if (buckets.filled[i] && buckets.max[i]! > top) top = buckets.max[i]!;
         n++;
@@ -472,7 +513,7 @@ export class TimelineCanvas {
       }
     }
     this.redraws++;
-    this.stats = { downsamples, buckets, tracks: tracks.length };
+    this.stats = { downsamples, buckets, tracks: tracks.length, work: downsamples ? { ...this.work } : { samples: 0, blocks: 0, probes: 0 } };
   }
 
   private drawRuler(g: CanvasRenderingContext2D, c: TimelineColors): void {
