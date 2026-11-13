@@ -74,7 +74,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("format", vu(0)),
             ],
             concat!(
-                "3141594d", "0201", "0200", "09000000", "14000000", // envelope, bodyBytes 20
+                "3141594d", "0301", "0200", "09000000", "14000000", // envelope, bodyBytes 20
                 "07000000", // clipId
                 "e8030000", // frames 1000
                 "02000000", // channels
@@ -104,7 +104,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ),
             ],
             concat!(
-                "3141594d", "0201", "0300", "0a000000", "20000000", // envelope, bodyBytes 32
+                "3141594d", "0301", "0300", "0a000000", "20000000", // envelope, bodyBytes 32
                 "07000000", // clipId
                 "00000000", // frameOffset
                 "02000000", // frames
@@ -120,7 +120,7 @@ pub fn cases() -> Vec<VectorCase> {
             "CLIP_UNLOAD",
             Subject::Kind("CLIP_UNLOAD"),
             vec![("seq", vu(11)), ("clipId", vu(7))],
-            concat!("3141594d", "0201", "0400", "0b000000", "04000000", "07000000"),
+            concat!("3141594d", "0301", "0400", "0b000000", "04000000", "07000000"),
         ),
         // Kind 5 STREAM_OPEN: streamId 3, channels 2, sampleRate 44100.0 (0x472C4400), totalFrames unknown,
         // loop 0..0 (whole stream), flags loop, epoch 4, startFrame 0, convention 0 (AmbiX).
@@ -141,7 +141,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("convention", vu(0)),
             ],
             concat!(
-                "3141594d", "0201", "0500", "0c000000", "28000000", // envelope, bodyBytes 40
+                "3141594d", "0301", "0500", "0c000000", "28000000", // envelope, bodyBytes 40
                 "03000000", // streamId
                 "02000000", // channels
                 "00442c47", // sampleRate 44100.0
@@ -176,7 +176,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ),
             ],
             concat!(
-                "3141594d", "0201", "0600", "0d000000", "24000000", // envelope, bodyBytes 36
+                "3141594d", "0301", "0600", "0d000000", "24000000", // envelope, bodyBytes 36
                 "03000000", // streamId
                 "01000000", // chunkSeq
                 "02000000", // frames
@@ -193,21 +193,21 @@ pub fn cases() -> Vec<VectorCase> {
             "STREAM_CLOSE",
             Subject::Kind("STREAM_CLOSE"),
             vec![("seq", vu(14)), ("streamId", vu(3))],
-            concat!("3141594d", "0201", "0700", "0e000000", "04000000", "03000000"),
+            concat!("3141594d", "0301", "0700", "0e000000", "04000000", "03000000"),
         ),
         // Kind 8 TIME_PING: pingSeq 42.
         case(
             "TIME_PING",
             Subject::Kind("TIME_PING"),
             vec![("seq", vu(15)), ("pingSeq", vu(42))],
-            concat!("3141594d", "0201", "0800", "0f000000", "04000000", "2a000000"),
+            concat!("3141594d", "0301", "0800", "0f000000", "04000000", "2a000000"),
         ),
         // Kind 10 RECYCLE: no body.
         case(
             "RECYCLE",
             Subject::Kind("RECYCLE"),
             vec![("seq", vu(16))],
-            concat!("3141594d", "0201", "0a00", "10000000", "00000000"),
+            concat!("3141594d", "0301", "0a00", "10000000", "00000000"),
         ),
         // Kind 11 STREAM_CREDIT: streamId 3, epoch 4, consumedFrames 512, returnedBuffers 2.
         case(
@@ -221,7 +221,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("returnedBuffers", vu(2)),
             ],
             concat!(
-                "3141594d", "0201", "0b00", "11000000", "10000000", // envelope, bodyBytes 16
+                "3141594d", "0301", "0b00", "11000000", "10000000", // envelope, bodyBytes 16
                 "03000000", // streamId
                 "04000000", // epoch
                 "00020000", // consumedFrames 512
@@ -617,31 +617,6 @@ pub fn cases() -> Vec<VectorCase> {
                 "02000000", "000040c1", "0000c040", "00008040", "0000803f", "00000040", "00000000", "00000000",
             ),
         ),
-        // BUS_MIX, variable length: 36 B = 9 words. Ramp 480; bus 0 gain 1.0 lpHz off (24000),
-        // bus 1 gain 0.5 lpHz 1200.0.
-        case(
-            "BUS_MIX_two_buses",
-            Subject::Opcode("BUS_MIX"),
-            vec![
-                ("voiceId", vu(0)),
-                ("frameOffset", vu(0xFFFF_FFFF)),
-                ("rampFrames", vu(480)),
-                (
-                    "buses",
-                    va(vec![
-                        vr(vec![("gain", vf(1.0)), ("lpHz", vf(24000.0))]),
-                        vr(vec![("gain", vf(0.5)), ("lpHz", vf(1200.0))]),
-                    ]),
-                ),
-            ],
-            concat!(
-                "1100", "0900", "00000000", "ffffffff", // head: BUS_MIX, 9 words, bus 0, asap
-                "02000000", // busCount 2
-                "e0010000", // rampFrames 480
-                "0000803f", "0080bb46", // bus 0: gain 1.0, lpHz 24000.0
-                "0000003f", "00009644", // bus 1: gain 0.5, lpHz 1200.0
-            ),
-        ),
         // MASTER, 24 B = 6 words: volume 0.8, muted 0, ramp 960. Asap.
         case(
             "MASTER",
@@ -703,7 +678,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ),
             ],
             concat!(
-                "3141594d", "0201", "0100", "14000000", "60000000", // envelope: BATCH, seq 20, bodyBytes 96
+                "3141594d", "0301", "0100", "14000000", "60000000", // envelope: BATCH, seq 20, bodyBytes 96
                 "0000000000408f40", // firstFrame 1000.0
                 "02000000", // count 2
                 "00000000", // flags 0
@@ -746,7 +721,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ),
             ],
             concat!(
-                "3141594d", "0201", "0c00", "15000000", "38000000", // envelope: REPLAY, seq 21, bodyBytes 56
+                "3141594d", "0301", "0c00", "15000000", "38000000", // envelope: REPLAY, seq 21, bodyBytes 56
                 "0000000000000000", // firstFrame 0.0
                 "02000000", // count 2
                 "02000000", // flags: bit1 first chunk
@@ -775,7 +750,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ),
             ],
             concat!(
-                "3141594d", "0201", "0c00", "16000000", "20000000", // envelope: REPLAY, seq 22, bodyBytes 32
+                "3141594d", "0301", "0c00", "16000000", "20000000", // envelope: REPLAY, seq 22, bodyBytes 32
                 "0000000000408f40", // firstFrame 1000.0
                 "01000000", // count 1
                 "04000000", // flags: bit2 last chunk
@@ -790,6 +765,20 @@ pub fn cases() -> Vec<VectorCase> {
             Subject::Status,
             vec![
                 ("seq", vu(30)),
+                ("busyMsTotal", vf(0.0)),
+                ("quantaTotal", vf(0.0)),
+                ("wuVoices", vf(0.0)),
+                ("wuBuses", vf(0.0)),
+                ("wuSpatial", vf(0.0)),
+                ("wuMusic", vf(0.0)),
+                ("wuLoudness", vf(0.0)),
+                ("clockStepMs", vu(0)),
+                ("loudSubBlockFrames", vu(0)),
+                ("clockSteps", vu(0)),
+                ("loudShed", vu(0)),
+                ("busRecordsEarly", vu(0)),
+                ("sidechainLate", vu(0)),
+                ("reserved2", vu(0)),
                 ("currentFrame", vf(1000.0)),
                 ("dateMs", vf(1.5)),
                 ("pingSeq", vu(7)),
@@ -858,9 +847,12 @@ pub fn cases() -> Vec<VectorCase> {
                 ("beds", va(vec![])),
                 ("zones", va(vec![])),
                 ("zoneEvents", va(vec![])),
+                ("loudBuses", va(vec![])),
+                ("loudEnergies", va(vec![])),
+                ("busDuck", va(vec![])),
             ],
             concat!(
-                "3141594d", "0201", "0900", "1e000000", "e8000000", // envelope: STATUS, seq 30, bodyBytes 232
+                "3141594d", "0301", "0900", "1e000000", "38010000", // envelope: STATUS, seq 30, bodyBytes 312
                 "0000000000408f40", // 16 currentFrame f64 1000.0
                 "000000000000f83f", // 24 dateMs f64 1.5
                 "07000000", // 32 pingSeq
@@ -898,6 +890,8 @@ pub fn cases() -> Vec<VectorCase> {
                 "de000000", // 164 splitQuanta 222
                 "4d010000", // 168 voiceSplits 333
                 "00000000", // 172 reserved
+                "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", // 176..215 M5: busyMsTotal, quantaTotal, wuVoices, wuBuses, wuSpatial (0)
+                "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", // 216..255 M5: wuMusic, wuLoudness, counts, clock fields, loudShed .. reserved2 (0)
                 // sections, in order
                 "0b000000", "0c000000", // ended: 11, 12
                 "0d000000", // demoted: 13
@@ -1034,6 +1028,20 @@ pub fn cases() -> Vec<VectorCase> {
             Subject::Status,
             vec![
                 ("seq", vu(31)),
+                ("busyMsTotal", vf(0.0)),
+                ("quantaTotal", vf(0.0)),
+                ("wuVoices", vf(0.0)),
+                ("wuBuses", vf(0.0)),
+                ("wuSpatial", vf(0.0)),
+                ("wuMusic", vf(0.0)),
+                ("wuLoudness", vf(0.0)),
+                ("clockStepMs", vu(0)),
+                ("loudSubBlockFrames", vu(0)),
+                ("clockSteps", vu(0)),
+                ("loudShed", vu(0)),
+                ("busRecordsEarly", vu(0)),
+                ("sidechainLate", vu(0)),
+                ("reserved2", vu(0)),
                 ("currentFrame", vf(0.0)),
                 ("dateMs", vf(0.0)),
                 ("pingSeq", vu(0)),
@@ -1087,9 +1095,12 @@ pub fn cases() -> Vec<VectorCase> {
                 ("beds", va(vec![])),
                 ("zones", va(vec![])),
                 ("zoneEvents", va(vec![])),
+                ("loudBuses", va(vec![])),
+                ("loudEnergies", va(vec![])),
+                ("busDuck", va(vec![])),
             ],
             concat!(
-                "3141594d", "0201", "0900", "1f000000", "a0000000", // envelope: STATUS, seq 31, bodyBytes 160
+                "3141594d", "0301", "0900", "1f000000", "f0000000", // envelope: STATUS, seq 31, bodyBytes 240
                 "0000000000000000", // 16 currentFrame f64 0.0
                 "0000000000000000", // 24 dateMs f64 0.0
                 "00000000", // 32 pingSeq
@@ -1114,6 +1125,8 @@ pub fn cases() -> Vec<VectorCase> {
                 "02010000", // 164 splitQuanta 258
                 "00100000", // 168 voiceSplits 4096
                 "00000000", // 172 reserved 0
+                "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", // 176..215 M5: busyMsTotal, quantaTotal, wuVoices, wuBuses, wuSpatial (0)
+                "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", // 216..255 M5: wuMusic, wuLoudness, counts, clock fields, loudShed .. reserved2 (0)
             ),
         ),
         // PLAY, gated (ADR 0166 M4, API 4.1): gate 0xffff = groupId 1023 (bits 0-9) | groupSize - 1 = 63 (bits
@@ -1174,7 +1187,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("convention", vu(0)),
             ],
             concat!(
-                "3141594d", "0201", "0500", "0e000000", "28000000", // envelope, bodyBytes 40
+                "3141594d", "0301", "0500", "0e000000", "28000000", // envelope, bodyBytes 40
                 "07000000", // streamId 7
                 "02000000", // channels 2
                 "00803b47", // sampleRate 48000.0
@@ -1195,6 +1208,20 @@ pub fn cases() -> Vec<VectorCase> {
             Subject::Status,
             vec![
                 ("seq", vu(32)),
+                ("busyMsTotal", vf(0.0)),
+                ("quantaTotal", vf(0.0)),
+                ("wuVoices", vf(0.0)),
+                ("wuBuses", vf(0.0)),
+                ("wuSpatial", vf(0.0)),
+                ("wuMusic", vf(0.0)),
+                ("wuLoudness", vf(0.0)),
+                ("clockStepMs", vu(0)),
+                ("loudSubBlockFrames", vu(0)),
+                ("clockSteps", vu(0)),
+                ("loudShed", vu(0)),
+                ("busRecordsEarly", vu(0)),
+                ("sidechainLate", vu(0)),
+                ("reserved2", vu(0)),
                 ("currentFrame", vf(0.0)),
                 ("dateMs", vf(0.0)),
                 ("pingSeq", vu(0)),
@@ -1266,9 +1293,12 @@ pub fn cases() -> Vec<VectorCase> {
                 ("beds", va(vec![])),
                 ("zones", va(vec![])),
                 ("zoneEvents", va(vec![])),
+                ("loudBuses", va(vec![])),
+                ("loudEnergies", va(vec![])),
+                ("busDuck", va(vec![])),
             ],
             concat!(
-                "3141594d", "0201", "0900", "20000000", "30010000", // envelope: STATUS, seq 32, bodyBytes 304
+                "3141594d", "0301", "0900", "20000000", "80010000", // envelope: STATUS, seq 32, bodyBytes 384
                 "0000000000000000", // 16 currentFrame f64 0.0
                 "0000000000000000", // 24 dateMs f64 0.0
                 "00000000", // 32 pingSeq
@@ -1293,6 +1323,8 @@ pub fn cases() -> Vec<VectorCase> {
                 "02010000", // 164 splitQuanta 258
                 "00100000", // 168 voiceSplits 4096
                 "00000000", // 172 reserved 0
+                "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", // 176..215 M5: busyMsTotal, quantaTotal, wuVoices, wuBuses, wuSpatial (0)
+                "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", "0000000000000000", // 216..255 M5: wuMusic, wuLoudness, counts, clock fields, loudShed .. reserved2 (0)
                 // musicRings at 176: streamId 3, epochFlags 0xC0000004; streamId 5, epochFlags 0x40000009
                 "03000000", "040000c0", "05000000", "09000040",
                 // groupStarts at 192: groupId u16, flags u16, slipFrames, startFrameLo, startFrameHi
@@ -1309,5 +1341,243 @@ pub fn cases() -> Vec<VectorCase> {
     ]
     .into_iter()
     .chain(crate::spatial_cases::spatial_cases())
+    .chain(mix_cases())
+    .chain(mix_status::mix_status_cases())
     .collect()
+}
+
+#[path = "mix_status_cases.rs"]
+mod mix_status;
+
+/// ADR 0171's M5 records (API section 4.2), derived by hand from the tables: envelopes carry version 1.3
+/// (`0301`); f32 as `f32::to_bits`, little-endian. Offsets count from the record's first byte.
+fn mix_cases() -> Vec<VectorCase> {
+    vec![
+        // BUS_RAMP, 32 B = 8 words (0x18): slot 3 (voiceId), stamped at 4096; lane 1 (runtime), mask 1 (gain),
+        // gain 0.5, lpHz 0, 480 frames; shape = sequenceId 5 << 3 = 0x28 (linear, startPhase 0).
+        case(
+            "BUS_RAMP_runtime_stamped_sequence",
+            Subject::Opcode("BUS_RAMP"),
+            vec![
+                ("voiceId", vu(3)),
+                ("frameOffset", vu(4096)),
+                ("lane", vu(1)),
+                ("mask", vu(1)),
+                ("gain", vf(0.5)),
+                ("lpHz", vf(0.0)),
+                ("frames", vu(480)),
+                ("shape", vu(0x28)),
+            ],
+            concat!(
+                "1800", "0800", "03000000", "00100000", // head: BUS_RAMP, 8 words, slot 3, frame 4096
+                "0100", // 12 lane 1
+                "0100", // 14 mask: gain
+                "0000003f", // 16 gain 0.5
+                "00000000", // 20 lpHz
+                "e0010000", // 24 frames 480
+                "28000000", // 28 shape: sequenceId 5 in bits 3-15
+            ),
+        ),
+        // BUS_RAMP to the output gain: voiceId BUS_MASTER_OUT 0xFFFF, asap; lane 0, mask 1, gain 2.0, lpHz 24000.0
+        // (unused), 128 frames, shape 0.
+        case(
+            "BUS_RAMP_master_out_asap",
+            Subject::Opcode("BUS_RAMP"),
+            vec![
+                ("voiceId", vu(0xFFFF)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                ("lane", vu(0)),
+                ("mask", vu(1)),
+                ("gain", vf(2.0)),
+                ("lpHz", vf(24000.0)),
+                ("frames", vu(128)),
+                ("shape", vu(0)),
+            ],
+            concat!(
+                "1800", "0800", "ffff0000", "ffffffff", // head: BUS_RAMP, 8 words, BUS_MASTER_OUT, asap
+                "0000", // lane 0
+                "0100", // mask: gain
+                "00000040", // gain 2.0
+                "0080bb46", // lpHz 24000.0
+                "80000000", // frames 128
+                "00000000", // shape
+            ),
+        ),
+        // BUS_RAMP on the snapshot lane (2) with both targets: gain 0.25, lpHz 800.0, 240 frames, stamped at 960,
+        // shape with the largest sequenceId (8191 << 3 = 0xFFF8).
+        case(
+            "BUS_RAMP_snapshot_gain_and_lp_max_sequence",
+            Subject::Opcode("BUS_RAMP"),
+            vec![
+                ("voiceId", vu(2)),
+                ("frameOffset", vu(960)),
+                ("lane", vu(2)),
+                ("mask", vu(3)),
+                ("gain", vf(0.25)),
+                ("lpHz", vf(800.0)),
+                ("frames", vu(240)),
+                ("shape", vu(0xFFF8)),
+            ],
+            concat!(
+                "1800", "0800", "02000000", "c0030000", // head: BUS_RAMP, 8 words, slot 2, frame 960
+                "0200", // lane 2 (snapshot)
+                "0300", // mask: gain | lpHz
+                "0000803e", // gain 0.25
+                "00004844", // lpHz 800.0
+                "f0000000", // frames 240
+                "f8ff0000", // shape: sequenceId 8191
+            ),
+        ),
+        // BUS_DUCK, 64 B = 16 words (0x19): two rules, asap. Rule 0: target 3, trigger 1, presence (flags 0),
+        // threshold -20 dB, amount 0.5, attack 0.125, release 1.0. Rule 1: target 2, trigger 4, level | rms (3),
+        // threshold -30 dB, amount 0.25, attack 0.0625, release 0.5.
+        case(
+            "BUS_DUCK_two_rules",
+            Subject::Opcode("BUS_DUCK"),
+            vec![
+                ("voiceId", vu(0)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                (
+                    "rules",
+                    va(vec![
+                        vr(vec![
+                            ("target", vu(3)),
+                            ("trigger", vu(1)),
+                            ("flags", vu(0)),
+                            ("thresholdDb", vf(-20.0)),
+                            ("amount", vf(0.5)),
+                            ("attack", vf(0.125)),
+                            ("release", vf(1.0)),
+                        ]),
+                        vr(vec![
+                            ("target", vu(2)),
+                            ("trigger", vu(4)),
+                            ("flags", vu(3)),
+                            ("thresholdDb", vf(-30.0)),
+                            ("amount", vf(0.25)),
+                            ("attack", vf(0.0625)),
+                            ("release", vf(0.5)),
+                        ]),
+                    ]),
+                ),
+            ],
+            concat!(
+                "1900", "1000", "00000000", "ffffffff", // head: BUS_DUCK, 16 words, asap
+                "02000000", // 12 ruleCount 2
+                "0300", "0100", "00000000", "0000a0c1", "0000003f", "0000003e", "0000803f", // 16 rule 0: presence
+                "0200", "0400", "03000000", "0000f0c1", "0000803e", "0000803d", "0000003f", // 40 rule 1: level | rms
+            ),
+        ),
+        // BUS_DUCK with no rules (clears them), 16 B.
+        case(
+            "BUS_DUCK_clear",
+            Subject::Opcode("BUS_DUCK"),
+            vec![("voiceId", vu(0)), ("frameOffset", vu(0xFFFF_FFFF)), ("rules", va(vec![]))],
+            concat!("1900", "0400", "00000000", "ffffffff", "00000000"),
+        ),
+        // BUS_PRESENCE, 16 B = 4 words (0x1A): stamped at 2400; mask 0x5 (slots 0 and 2 have a voice).
+        case(
+            "BUS_PRESENCE_slots_0_and_2",
+            Subject::Opcode("BUS_PRESENCE"),
+            vec![("voiceId", vu(0)), ("frameOffset", vu(2400)), ("mask", vu(0x5))],
+            concat!(
+                "1a00", "0400", "00000000", "60090000", // head: BUS_PRESENCE, 4 words, frame 2400
+                "05000000", // 12 mask
+            ),
+        ),
+        // BUS_PRESENCE with slot 31 set (bit 31) and nothing else.
+        case(
+            "BUS_PRESENCE_slot_31",
+            Subject::Opcode("BUS_PRESENCE"),
+            vec![("voiceId", vu(0)), ("frameOffset", vu(0)), ("mask", vu(0x8000_0000))],
+            concat!("1a00", "0400", "00000000", "00000000", "00000080"),
+        ),
+        // LOUD_CONFIG, 32 B = 8 words (0x1B): asap; tpGateDbfs -7.0; three meters on slots 1, 4, 2.
+        case(
+            "LOUD_CONFIG_three_meters",
+            Subject::Opcode("LOUD_CONFIG"),
+            vec![
+                ("voiceId", vu(0)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                ("tpGateDbfs", vf(-7.0)),
+                (
+                    "meters",
+                    va(vec![
+                        vr(vec![("slot", vu(1)), ("reserved", vu(0))]),
+                        vr(vec![("slot", vu(4)), ("reserved", vu(0))]),
+                        vr(vec![("slot", vu(2)), ("reserved", vu(0))]),
+                    ]),
+                ),
+            ],
+            concat!(
+                "1b00", "0800", "00000000", "ffffffff", // head: LOUD_CONFIG, 8 words, asap
+                "0000e0c0", // 12 tpGateDbfs -7.0
+                "03000000", // 16 meterCount 3
+                "0100", "0000", "0400", "0000", "0200", "0000", // 20 meters: slots 1, 4, 2
+            ),
+        ),
+        // LOUD_CONFIG with no meters (master only), 20 B.
+        case(
+            "LOUD_CONFIG_master_only",
+            Subject::Opcode("LOUD_CONFIG"),
+            vec![("voiceId", vu(0)), ("frameOffset", vu(0xFFFF_FFFF)), ("tpGateDbfs", vf(-7.0)), ("meters", va(vec![]))],
+            concat!("1b00", "0500", "00000000", "ffffffff", "0000e0c0", "00000000"),
+        ),
+        // BUS_SLOT, 60 B = 15 words (0x1C), stamped at 8192: slot 6, flags structural | fresh (3), sequenceId 77,
+        // parent 1, one compressor effect (type 2; threshold -18, knee 6, ratio 4, attack 0.125, release 0.5).
+        case(
+            "BUS_SLOT_structural_sequence_compressor",
+            Subject::Opcode("BUS_SLOT"),
+            vec![
+                ("voiceId", vu(0)),
+                ("frameOffset", vu(8192)),
+                ("slot", vu(6)),
+                ("flags", vu(3)),
+                ("sequenceId", vu(77)),
+                ("reserved", vu(0)),
+                ("reserved2", vu(0)),
+                ("parent", vu(1)),
+                (
+                    "effects",
+                    va(vec![vr(vec![
+                        ("type", vu(2)),
+                        ("p", va(vec![vf(-18.0), vf(6.0), vf(4.0), vf(0.125), vf(0.5), vf(0.0), vf(0.0)])),
+                    ])]),
+                ),
+            ],
+            concat!(
+                "1c00", "0f00", "00000000", "00200000", // head: BUS_SLOT, 15 words, frame 8192
+                "0600", // 12 slot 6
+                "0300", // 14 flags: structural | fresh
+                "4d00", // 16 sequenceId 77
+                "0000", // 18 reserved
+                "00000000", // 20 reserved
+                "0100", // 24 parent 1
+                "0100", // 26 effectCount 1
+                "02000000", // 28 effect type 2 (compressor)
+                "000090c1", "0000c040", "00008040", "0000003e", "0000003f", "00000000", "00000000", // p[0..7]
+            ),
+        ),
+        // BUS_SLOT tombstone, 28 B = 7 words, asap: slot 5, flags 0, no sequence, parent BUS_ROOT, no effects.
+        case(
+            "BUS_SLOT_tombstone_silent_root",
+            Subject::Opcode("BUS_SLOT"),
+            vec![
+                ("voiceId", vu(0)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                ("slot", vu(5)),
+                ("flags", vu(0)),
+                ("sequenceId", vu(0)),
+                ("reserved", vu(0)),
+                ("reserved2", vu(0)),
+                ("parent", vu(0xFFFF)),
+                ("effects", va(vec![])),
+            ],
+            concat!(
+                "1c00", "0700", "00000000", "ffffffff", // head: BUS_SLOT, 7 words, asap
+                "0500", "0000", "0000", "0000", "00000000", // 12 slot 5, flags 0, sequenceId 0, reserved, reserved
+                "ffff", "0000", // 24 parent BUS_ROOT, effectCount 0
+            ),
+        ),
+    ]
 }

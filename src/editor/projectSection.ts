@@ -9,6 +9,7 @@ import type { UndoHistory } from "./activeHistory";
 import { errorStatus } from "./messages";
 import { PROJECT_FILE, queueProjectFileWrite } from "./projectFile";
 import type { EditorProject } from "./projects";
+import { emitSectionChanged } from "./sectionChanged";
 import { status } from "./state";
 import { EditHistory, withMember } from "./worldsConfig";
 
@@ -95,6 +96,8 @@ class Session<D> implements ProjectSectionSession<D> {
   readonly history: EditHistory<D>;
   saving = false;
   error: string | null = null;
+  /** The last valid draft `onSectionChanged` listeners were told about (the draft read, until the first valid change). */
+  told: D;
 
   constructor(
     private readonly owner: SectionImpl<D>,
@@ -105,6 +108,7 @@ class Session<D> implements ProjectSectionSession<D> {
     this.fileText = project.textOf(PROJECT_FILE);
     this.saved = snapshot(project.settings, this.keys);
     this.history = new EditHistory(spec.read(pick(project.settings, this.keys)));
+    this.told = this.history.current;
   }
 
   get draft(): D {
@@ -140,7 +144,25 @@ class Session<D> implements ProjectSectionSession<D> {
     if (!this.project.canSave || this.same(next, this.draft)) return Promise.resolve();
     this.history.push(label, next);
     this.owner.bump();
+    this.notify("edit");
     return this.persist();
+  }
+
+  /**
+   * Tell `onSectionChanged` listeners which owned keys moved to the current draft (valid drafts only, R22). `before` is
+   * the last valid draft they were told about, not the previous draft: an invalid step in between never reached them,
+   * so the first valid draft after it carries its changes.
+   */
+  private notify(cause: "edit" | "undo" | "redo"): void {
+    const spec = this.owner.spec;
+    const after = this.draft;
+    if (spec.problems(after, this.project).length > 0) return;
+    const before = this.told;
+    this.told = after;
+    const was = spec.write(before), now = spec.write(after);
+    for (const key of spec.keys()) {
+      if (json(was[key]) !== json(now[key])) emitSectionChanged({ key, before: was[key], after: now[key], cause });
+    }
   }
 
   undo(): Promise<void> {
@@ -155,6 +177,7 @@ class Session<D> implements ProjectSectionSession<D> {
     const before = this.draft;
     if (!(redo ? this.history.redo() : this.history.undo())) return Promise.resolve();
     this.owner.bump();
+    this.notify(redo ? "redo" : "undo");
     const written = this.persist();
     this.owner.spec.stepped?.(this.project, before, this.draft);
     return written;

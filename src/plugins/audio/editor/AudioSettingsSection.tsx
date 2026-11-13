@@ -5,6 +5,17 @@ import type { AudioBackground, AudioClipFormat, AudioSettings, AudioSpatialMode,
 import { AMBISONIC_LIMITS, BED_LIMITS, BED_PRIORITY_LIMITS, BUS_BEDS, OCCLUSION_LIMITS, SPEED_OF_SOUND_LIMITS, ZONE_LIMITS, busBed, busBedPriority } from "../../../engine/audio/settings";
 import { MATERIAL_LIMITS, MAX_MATERIALS, type OccluderMaterial } from "../../../engine/audio/occlusionMaterials";
 import {
+  addLoudnessTarget,
+  busMeterRefusal,
+  isBusMetered,
+  loudnessTargetRefusal,
+  loudnessTargets,
+  LOUDNESS_TARGET_LIMITS,
+  MAX_LOUDNESS_TARGETS,
+  removeLoudnessTarget,
+  setBusMeter,
+  setLoudnessResetOnPlay,
+  setLoudnessTarget,
   addMaterial,
   bedPlan,
   isBuiltinMaterial,
@@ -214,10 +225,84 @@ function BusRow(props: { a: AudioSettings; bus: BusSettings; depth: number; plan
       </summary>
       <div class="audio-bus-body">
         <BusBedRow a={a} bus={bus} plan={plan} draft={draft} set={set} />
+        {!isRoot && (
+          <div class="audio-row">
+            <MeterToggle bus={bus} a={a} draft={draft} set={set} />
+          </div>
+        )}
         <span class="project-settings-hint">Effects{bus.effects.length === 0 ? ": none" : ""}</span>
         <Effects bus={bus} draft={draft} set={set} />
       </div>
     </details>
+  );
+}
+
+/** ADR 0171 §2.1: meter a bus's loudness (never the root, which is always metered). Off and refused with the model's message at the ninth. */
+function MeterToggle(props: { bus: BusSettings; a: AudioSettings; draft: SettingsDraft; set: Set }) {
+  const { bus, a, draft, set } = props;
+  const on = isBusMetered(a, bus.name);
+  const refusal = busMeterRefusal(draft, bus.name);
+  return (
+    <>
+      <label class="audio-bus-check" title="Measure this bus's loudness (LUFS) for the Mixer and Bus.loudness">
+        <input type="checkbox" aria-label={`Meter ${bus.name}`} checked={on} disabled={refusal !== null} onChange={(e) => set(`${on ? "Stop metering" : "Meter"} ${bus.name}`, setBusMeter(draft, bus.name, (e.currentTarget as HTMLInputElement).checked))} />
+        Meter
+      </label>
+      {refusal && <span class="audio-warning" role="note" aria-label={`${bus.name} meter`}>{refusal}</span>}
+    </>
+  );
+}
+
+/** ADR 0171 §2.1: the loudness targets table and `loudnessResetOnPlay`. A refused edit leaves the draft and shows the model's message. */
+function Loudness(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
+  const { a, draft, set } = props;
+  const targets = loudnessTargets(a);
+  const [refused, setRefused] = useState<string | null>(null);
+  const edit = (i: number, patch: Partial<(typeof targets)[number]>) => {
+    const why = loudnessTargetRefusal(draft, i, patch);
+    setRefused(why);
+    if (!why) set(`Set loudness target ${targets[i].name}`, setLoudnessTarget(draft, i, patch));
+  };
+  const limit = (k: keyof typeof LOUDNESS_TARGET_LIMITS) => LOUDNESS_TARGET_LIMITS[k];
+  return (
+    <>
+      <div class="project-settings-list-head">
+        <span>Loudness targets</span>
+        <span class="project-settings-hint">the first is the default; the Mixer marks it, never adjusts to it (up to {MAX_LOUDNESS_TARGETS})</span>
+      </div>
+      {targets.map((t, i) => (
+        <div key={i} class="audio-card" role="group" aria-label={`Loudness target ${t.name}`} data-target={t.name}>
+          <div class="audio-row">
+            <TextField class="audio-grow" value={t.name} label={`Loudness target ${i + 1} name`} onCommit={(v) => edit(i, { name: v })} />
+            <label>
+              Integrated (LUFS)
+              <Num label={`Loudness target ${i + 1} integrated`} value={t.integrated} step={1} min={limit("integrated")[0]} max={limit("integrated")[1]} onCommit={(n) => edit(i, { integrated: n })} />
+            </label>
+            <label>
+              Tolerance (LU)
+              <Num label={`Loudness target ${i + 1} tolerance`} value={t.tolerance} step={0.5} min={limit("tolerance")[0]} max={limit("tolerance")[1]} onCommit={(n) => edit(i, { tolerance: n })} />
+            </label>
+            <label>
+              True peak (dBTP)
+              <Num label={`Loudness target ${i + 1} true peak`} value={t.truePeak} step={0.5} min={limit("truePeak")[0]} max={limit("truePeak")[1]} onCommit={(n) => edit(i, { truePeak: n })} />
+            </label>
+            <button class="icon audio-remove" aria-label={`Remove loudness target ${t.name}`} title={targets.length === 1 ? "The last target stays" : "Remove this target"} disabled={targets.length === 1} onClick={() => { setRefused(null); set(`Remove loudness target ${t.name}`, removeLoudnessTarget(draft, i)); }}>
+              ×
+            </button>
+          </div>
+        </div>
+      ))}
+      {refused && <p class="audio-warning" role="alert" aria-label="Loudness target refused">{refused}</p>}
+      <div class="audio-row">
+        <button disabled={targets.length >= MAX_LOUDNESS_TARGETS} onClick={() => { setRefused(null); set("Add loudness target", addLoudnessTarget(draft)); }}>
+          + Loudness target
+        </button>
+        <label title="Reset the loudness meters when the editor's Play starts; an exported game's integrated measure starts at engine start">
+          <input type="checkbox" aria-label="Reset loudness meters on Play" checked={a.loudnessResetOnPlay ?? true} onChange={(e) => set("Set reset loudness on Play", setLoudnessResetOnPlay(draft, (e.currentTarget as HTMLInputElement).checked))} />
+          Reset on Play
+        </label>
+      </div>
+    </>
   );
 }
 
@@ -575,6 +660,7 @@ export function AudioSettingsSection(props: { draft: SettingsDraft; problems: re
       <Automation a={a} draft={draft} set={set} />
 
       <Snapshots a={a} draft={draft} set={set} />
+      <Loudness a={a} draft={draft} set={set} />
       <Ducking a={a} draft={draft} set={set} />
 
       <Playback a={a} draft={draft} set={set} />

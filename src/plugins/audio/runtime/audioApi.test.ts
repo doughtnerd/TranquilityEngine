@@ -145,7 +145,7 @@ function fakeClock() {
   };
 }
 
-/** Sets the core rig as the page's backend, with the first BUS_CONFIG and BUS_MIX already sent. */
+/** Sets the core rig as the page's backend, with the first BUS_CONFIG and bus lanes (BUS_RAMP) already sent. */
 function useCore(status?: "locked" | "running" | "failed") {
   const r = rig({ status });
   setAudioBackend(r.backend);

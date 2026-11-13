@@ -10,6 +10,16 @@
 //!    the last batches carried. The
 //!    coefficients are the named constants in [`wu`]; `Core::work_units` returns the total, which
 //!    STATUS carries as `workUnits` / `workUnitsMax`.
+//!
+//!    **0171/0172 M5 (Cp1; architecture §4.3, R18).** The same terms, split by section
+//!    ([`WorkSections`]), are added to the cumulative f64 totals in `Counters::mix`: `wuVoices`
+//!    (mixed and virtual voices, their source reads and pan ramps, the records applied), `wuBuses`
+//!    (buses, their effects and snapshot low-pass, the shared reverb, the limiter), `wuSpatial`
+//!    (HRTF voices and kernels, plus the beds' `workBed` and the zones' `workZones`, which the cap's
+//!    model leaves out) and `wuMusic` (no term of its own yet: the render doesn't tell music stream
+//!    voices from clip voices, so their cost stays in `wuVoices`). `wuLoudness` is `loudness.rs`'s
+//!    (Ld2). The totals start at 0 with `myco_audio_init` and are never reset; main takes their
+//!    differences over its CPU window and refits the coefficients (never feeding the cap).
 //! 2. **Takes the p99 over a 250 ms window** without storing the window: the `k` largest values,
 //!    where `k = ⌊n/100⌋ + 1` for the window's `n` quanta (94 at 48 kHz, so the max; 4th largest at
 //!    192 kHz).
@@ -130,6 +140,21 @@ pub struct RenderWork {
     pub hrtf_kernels: u32,
 }
 
+/// One quantum's modelled work units by STATUS section (Cp1; api-and-models §4.3 `wu*`; see the
+/// module comment). `voices + buses` and the HRTF part of `spatial` are the cap's
+/// [`CapState::work_units`] (before its `u32` clamp); `spatial` adds the beds' and zones' work.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WorkSections {
+    /// Mixed and virtual voices, their source reads and pan ramps, and the records applied.
+    pub voices: u64,
+    /// Configured buses, their effects and snapshot low-pass, the shared reverb, the limiter.
+    pub buses: u64,
+    /// HRTF voices and kernel computations, `workBed` and `workZones`.
+    pub spatial: u64,
+    /// Music rings and groups: 0 until the render notes music voices apart.
+    pub music: u64,
+}
+
 /// The adaptive cap's state, a field of [`Core`]. Build with [`CapState::new`].
 #[derive(Clone, Copy, Debug)]
 pub struct CapState {
@@ -145,6 +170,8 @@ pub struct CapState {
     last_p99: u32,
     /// The last quantum's work units.
     last_wu: u32,
+    /// The last quantum's work units by section (Cp1).
+    last_sections: WorkSections,
     /// The shell's underrun total as last noted, and whether it rose since the last step.
     underruns_total: u32,
     underrun_pending: bool,
@@ -196,6 +223,7 @@ impl CapState {
             top_len: 0,
             last_p99: 0,
             last_wu: 0,
+            last_sections: WorkSections { voices: 0, buses: 0, spatial: 0, music: 0 },
             underruns_total: 0,
             underrun_pending: false,
             late_seen: 0,
@@ -235,6 +263,11 @@ impl CapState {
     /// The last quantum's modelled work units.
     pub fn work_units(&self) -> u32 {
         self.last_wu
+    }
+
+    /// The last quantum's work units by section, as added to the cumulative `wu*` totals (Cp1).
+    pub fn work_sections(&self) -> WorkSections {
+        self.last_sections
     }
 
     /// The shell's underrun total as last noted (ADR 0162 A4: the load shedding ladder, `bed.rs`).
@@ -348,28 +381,30 @@ pub fn note_batch(core: &mut Core, first_frame: f64, records: u32) {
     s.batches = s.batches.saturating_add(1);
 }
 
-/// The quantum's modelled work units (see [`wu`]).
-fn model(core: &Core, records: u32) -> u32 {
+/// The quantum's modelled work units (see [`wu`]): the cap's total, and the sections the
+/// cumulative `wu*` totals take (Cp1). The total is the same sum as before the split.
+fn model(core: &Core, records: u32) -> (u32, WorkSections) {
     let c = status::counters(core);
     let mixed = c.mixed_voices as u64;
     let live = c.live_voices as u64;
     let s = core.cap();
     // Source frames in whole quanta of 128 (the f32 note is ≥ 0 and far below u64's range).
     let source_quanta = (s.source_frames.max(0.0) as u64) / QUANTUM as u64;
-    let mut units = mixed * wu::MIXED_VOICE as u64
+    let voices = mixed * wu::MIXED_VOICE as u64
         + source_quanta * wu::SOURCE_QUANTUM as u64
         + s.moving as u64 * wu::MOVING_VOICE as u64
         + live.saturating_sub(mixed) * wu::VIRTUAL_VOICE as u64
-        + c.hrtf_voices as u64 * wu::HRTF_VOICE as u64
-        + s.hrtf_kernels as u64 * wu::HRTF_KERNEL as u64;
+        + records as u64 * wu::RECORD as u64;
+    let hrtf = c.hrtf_voices as u64 * wu::HRTF_VOICE as u64 + s.hrtf_kernels as u64 * wu::HRTF_KERNEL as u64;
+    let mut buses = 0u64;
     let count = bus::count(core);
     for slot in bus::slots(core).iter().take(count) {
-        units += wu::BUS as u64;
+        buses += wu::BUS as u64;
         if fx::lowpass_on(slot.lp.value) || fx::lowpass_on(slot.lp.target) {
-            units += wu::BIQUAD as u64;
+            buses += wu::BIQUAD as u64;
         }
         for kind in slot.fx.kinds() {
-            units += match kind {
+            buses += match kind {
                 fx::kind::LOWPASS | fx::kind::HIGHPASS => wu::BIQUAD,
                 fx::kind::COMPRESSOR => wu::COMPRESSOR,
                 fx::kind::REVERB_SEND => wu::REVERB_SEND,
@@ -378,10 +413,12 @@ fn model(core: &Core, records: u32) -> u32 {
         }
     }
     if bus::area(core).has_reverb != 0 {
-        units += wu::REVERB as u64;
+        buses += wu::REVERB as u64;
     }
-    units += wu::LIMITER as u64 + records as u64 * wu::RECORD as u64;
-    units.min(u32::MAX as u64) as u32
+    buses += wu::LIMITER as u64;
+    let total = (voices + hrtf + buses).min(u32::MAX as u64) as u32;
+    let spatial = hrtf + c.spatial.work_bed as u64 + c.spatial.work_zones as u64;
+    (total, WorkSections { voices, buses, spatial, music: 0 })
 }
 
 /// After the render of the quantum at `frame` (called by `Core::process`): models its work units,
@@ -390,14 +427,21 @@ fn model(core: &Core, records: u32) -> u32 {
 pub fn after_render(core: &mut Core, frame: u64) {
     recover_ladder(core, frame);
     let records = core.cap().pending_records;
-    let units = model(core, records);
+    let (units, sections) = model(core, records);
     let (late_total, mixed_now) = {
-        let c = status::counters(core);
+        let c = status::counters_mut(core);
+        // Cp1: the cumulative section totals (f64, exact to 2^53 WU: months at full load).
+        let x = &mut c.mix;
+        x.wu_voices += sections.voices as f64;
+        x.wu_buses += sections.buses as f64;
+        x.wu_spatial += sections.spatial as f64;
+        x.wu_music += sections.music as f64;
         (c.late_commands, c.mixed_voices as u32)
     };
     let s = core.cap_mut();
     s.pending_records = 0;
     s.last_wu = units;
+    s.last_sections = sections;
     let wu_p99 = s.push_window(units);
     let late = late_total != s.late_seen && frame < s.late_armed_until;
     s.late_seen = late_total;

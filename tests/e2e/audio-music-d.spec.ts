@@ -509,13 +509,19 @@ const oneEvent = (entry: string) =>
   );
 
 type PosSample = { pos: number | null; ids: number[] };
-const sampleFor = (page: Page, ms: number): Promise<PosSample[]> =>
+// The window is measured on the audio clock (`Audio.debug().time`, seconds) from the first sample at which the music sounds, and it
+// holds at least `minHeard` sounding samples. The product starts its music once it is loaded and primed, which the CPU can put well
+// past the click, and a stalled main thread takes fewer 40 ms ticks, so neither a wall-clock span nor a tick count stands for it.
+// Only a 30 s wall-clock cap ends a run whose music never sounds; the assertion then reports it.
+const sampleFor = (page: Page, ms: number, minHeard = 8): Promise<PosSample[]> =>
   page.evaluate(
-    ([asset, span]) =>
+    ([asset, span, min]) =>
       new Promise<PosSample[]>((resolve) => {
-        type Dbg = { music?: { asset: string; segment: string | null; state: string; bar: number; beat: number; tick: number }[]; voices: { id: number; clip: string; state: string }[] };
+        type Dbg = { time: number; music?: { asset: string; segment: string | null; state: string; bar: number; beat: number; tick: number }[]; voices: { id: number; clip: string; state: string }[] };
         const out: PosSample[] = [];
         const t0 = performance.now();
+        let heardAt: number | null = null; // the audio clock at the first sounding sample
+        let heardN = 0;
         const timer = setInterval(() => {
           const d = (globalThis as unknown as { __myco: { Audio: { debug(): Dbg } } }).__myco.Audio.debug();
           const row = d.music?.find((r) => r.asset === asset);
@@ -524,10 +530,12 @@ const sampleFor = (page: Page, ms: number): Promise<PosSample[]> =>
             pos: playing ? ((row.bar - 1) * 4 + (row.beat - 1) + row.tick / 960) * 0.5 : null,
             ids: d.voices.filter((v) => /music\/foo\.mp3/.test(v.clip)).map((v) => v.id).sort((a, b) => a - b),
           });
-          if (performance.now() - t0 >= (span as number)) { clearInterval(timer); resolve(out); }
+          if (playing) { heardAt ??= d.time; heardN++; }
+          const done = heardAt !== null && d.time - heardAt >= (span as number) / 1000 && heardN >= (min as number);
+          if (done || performance.now() - t0 >= 30_000) { clearInterval(timer); resolve(out); }
         }, 40);
       }),
-    [ONE, ms] as const,
+    [ONE, ms, minHeard] as const,
   );
 const eventRowsOf = (page: Page, asset: string) =>
   page.evaluate((a) => (globalThis as unknown as { __myco: { Audio: { debug(): { events: { asset: string }[] } } } }).__myco.Audio.debug().events.filter((e) => e.asset === a), asset);

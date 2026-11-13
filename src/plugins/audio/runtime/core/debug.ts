@@ -1,7 +1,8 @@
 // `Audio.debug()` for the core (K10; api-and-models §1 `AudioDebugInfo`; architecture §8). `coreBackend.debug()` calls
 // `buildDebugInfo`, which reads the voice table, the status mirror, the mixer and the clip registry: nothing is
 // stored here, so every call is a fresh copy.
-import type { AudioBackground, AudioDebugInfo, AudioMemoryDebug, AudioM3Counters, AudioStatus, AudioVoiceM3Debug, MusicDebugRow, MusicDebugState, MusicDebugTotals } from "../backend";
+import { buildMixDebug } from "../mix/mixDebug";
+import type { AudioBackground, AudioDebugInfo, AudioMixDebug,AudioMemoryDebug, AudioM3Counters, AudioStatus, AudioVoiceM3Debug, MusicDebugRow, MusicDebugState, MusicDebugTotals } from "../backend";
 import { ticksToPosition, spanAtTicks } from "../../../../engine/audio/musicGrid";
 import { playingGridOf, ticksAt } from "../music/anchors";
 import { musicPlayers, type MusicPlayer, type MusicPlayerState } from "../music/musicSystem";
@@ -47,7 +48,7 @@ export interface DebugSource {
   readonly owners?: readonly (string | null)[];
   /** B3: the stream voices' clip info (asset and rate) and counts; absent in hand-built sources. */
   readonly streams?: { clipInfo(id: number): ClipInfo | null; readonly size: number; readonly stats: { readonly starves: number; readonly errors: number; readonly coreErrors: number; readonly wideStarved?: number } };
-  readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings">;
+  readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings" | "monitorActive" | "bus">;
   readonly lockedQueue: { readonly size: number; readonly droppedCount: number };
   /**
    * ADR 0158 (E3.1): the automation mirror's counts; absent in hand-built sources. E3.9: main's estimate of a voice's
@@ -269,7 +270,31 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
     music: musicRows(backend),
     musicTotals: musicTotals(backend),
     core: { backend: "core", hrtfReady: backend.hrtfReady, ...hrtf(backend), ...timing(backend), ...hostHealth(backend), ...health(backend), ...streamHealth(backend), ...automation(backend), ...ladder(backend) },
+    // Cp2 (§1.3): the CPU figure the mirror's meter computed (`coreBackend.debug` sets the same object from `cpu()`).
+    cpu: m.cpu.debug(),
   };
+}
+
+/**
+ * ADR 0171 (Dbg1; §1.3): `Audio.debug().mix` for the core: the slot table (the identity layout until Ma1 wires one in),
+ * the ladder step, `busRecordsEarly` and `sidechainLate` from STATUS, the live-edit counts the caller owns, and each
+ * ducking rule's target gain (STATUS `busDuck` when the newest block lists the target, else main's presence duck).
+ */
+export function mixDebugInfo(backend: DebugSource, liveRefused: number, liveDeferred: number): AudioMixDebug {
+  const m = backend.mirror;
+  return buildMixDebug({
+    names: backend.busNames,
+    mixer: backend.mixer,
+    duckOfSlot: (slot) => {
+      for (let k = 0; k < m.duckCount; k++) if (m.duckSlot[k] === slot) return m.duckGain[k]!;
+      return null;
+    },
+    loudShed: m.loudShed,
+    busRecordsEarly: m.busRecordsEarly,
+    sidechainLate: m.sidechainLate,
+    liveRefused,
+    liveDeferred,
+  });
 }
 
 /** ADR 0162 (A5, C24): the bed counters (`bedVoices`, `beds`, `bedsRefused` from STATUS; `bedDenied`, `bedSwitches`, `bedFilterLoadFailure` main's), once a bed is laid out. */

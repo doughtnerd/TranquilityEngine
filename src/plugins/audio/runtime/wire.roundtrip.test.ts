@@ -47,11 +47,15 @@ const OPCODES: Record<string, Codec> = {
   PARAM: { write: wire.writeParam, read: wire.readParam },
   BUS_AUTOMATE: { write: wire.writeBusAutomate, read: wire.readBusAutomate },
   BUS_CONFIG: { write: wire.writeBusConfig, read: wire.readBusConfig },
-  BUS_MIX: { write: wire.writeBusMix, read: wire.readBusMix },
   MASTER: { write: wire.writeMaster, read: wire.readMaster },
   RESET: { write: wire.writeReset, read: wire.readReset },
   SET_VOICE_FX: { write: wire.writeSetVoiceFx, read: wire.readSetVoiceFx },
   BED_CONFIG: { write: wire.writeBedConfig, read: wire.readBedConfig },
+  BUS_RAMP: { write: wire.writeBusRamp, read: wire.readBusRamp },
+  BUS_DUCK: { write: wire.writeBusDuck, read: wire.readBusDuck },
+  BUS_PRESENCE: { write: wire.writeBusPresence, read: wire.readBusPresence },
+  LOUD_CONFIG: { write: wire.writeLoudConfig, read: wire.readLoudConfig },
+  BUS_SLOT: { write: wire.writeBusSlot, read: wire.readBusSlot },
   ZONE_CONFIG: { write: wire.writeZoneConfig, read: wire.readZoneConfig },
   LISTENER: { write: wire.writeListener, read: wire.readListener },
 };
@@ -541,6 +545,20 @@ describe("wire round trip", () => {
       splitQuanta: 4000000003,
       voiceSplits: 4000000004,
       reserved: 0,
+      busyMsTotal: 123456.5,
+      quantaTotal: 9007199254740991,
+      wuVoices: 1e9,
+      wuBuses: 2e9,
+      wuSpatial: 3.5,
+      wuMusic: 4,
+      wuLoudness: 5,
+      clockStepMs: 4,
+      loudSubBlockFrames: 4800,
+      clockSteps: 65535,
+      loudShed: 1,
+      busRecordsEarly: 21,
+      sidechainLate: 22,
+      reserved2: 0,
       ended: [1, 2, 9],
       demoted: [4],
       starved: [5, 6],
@@ -573,6 +591,15 @@ describe("wire round trip", () => {
       ],
       groupStarts: [
         { groupId: 1023, flags: wire.GROUP_START_LATE | wire.GROUP_START_ABANDONED, slipFrames: 4096, startFrameLo: 0xfffffff0, startFrameHi: 3 },
+      ],
+      loudBuses: [
+        { slot: 2, flags: 5 | wire.LOUD_FLAG_TP_GATE_ACTIVE, firstSeq: 4000000000, truePeak: 0.75, gatedQuanta: 4294967295 },
+        { slot: wire.LOUD_OUTPUT_TAP, flags: wire.LOUD_FLAG_LOST | 1, firstSeq: 7, truePeak: 0.5, gatedQuanta: 0 },
+      ],
+      loudEnergies: [0.5, 0.25, 0.125, 1, 2, 0, 0.0625],
+      busDuck: [
+        { slot: 1, pad: 0, gain: 0.5 },
+        { slot: 6, pad: 0, gain: 1 },
       ],
     };
     const seq = 42;
@@ -714,20 +741,23 @@ function lcg(seed: number): () => number {
   };
 }
 
-/** Writes a STATUS message by hand at the spec offsets (header 176 bytes including the envelope, ADR 0162 §4.3 and ADR 0166 §4.4). */
+/** Writes a STATUS message by hand at the spec offsets (header 256 bytes including the envelope, ADR 0162 §4.3, ADR 0166 §4.4 and ADR 0171 §4.3). */
 function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
   const size =
-    176 +
+    256 +
     4 * (s.ended.length + s.demoted.length + s.starved.length) +
     8 * (s.playheads.length + s.clipEvents.length + s.streamEvents.length + s.peaks.length) +
     8 * s.beds.length +
     12 * s.zones.length +
     4 * s.zoneEvents.length +
     8 * s.musicRings.length +
-    16 * s.groupStarts.length;
+    16 * s.groupStarts.length +
+    16 * s.loudBuses.length +
+    4 * s.loudEnergies.length +
+    8 * s.busDuck.length;
   const view = new DataView(new ArrayBuffer(size));
   view.setUint32(0, 0x4d594131, true);
-  view.setUint16(4, 0x0102, true);
+  view.setUint16(4, 0x0103, true);
   view.setUint16(6, wire.Kind.STATUS, true);
   view.setUint32(8, seq, true);
   view.setUint32(12, size - 16, true);
@@ -785,8 +815,25 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
   view.setUint32(164, s.splitQuanta, true);
   view.setUint32(168, s.voiceSplits, true);
   view.setUint32(172, s.reserved, true);
+  view.setFloat64(176, s.busyMsTotal, true);
+  view.setFloat64(184, s.quantaTotal, true);
+  view.setFloat64(192, s.wuVoices, true);
+  view.setFloat64(200, s.wuBuses, true);
+  view.setFloat64(208, s.wuSpatial, true);
+  view.setFloat64(216, s.wuMusic, true);
+  view.setFloat64(224, s.wuLoudness, true);
+  view.setUint16(232, s.loudBuses.length, true);
+  view.setUint16(234, s.loudEnergies.length, true);
+  view.setUint16(236, s.busDuck.length, true);
+  view.setUint16(238, s.clockStepMs, true);
+  view.setUint32(240, s.loudSubBlockFrames, true);
+  view.setUint16(244, s.clockSteps, true);
+  view.setUint16(246, s.loudShed, true);
+  view.setUint16(248, s.busRecordsEarly, true);
+  view.setUint16(250, s.sidechainLate, true);
+  view.setUint32(252, s.reserved2, true);
 
-  let cur = 176;
+  let cur = 256;
   for (const v of [...s.ended, ...s.demoted, ...s.starved]) {
     view.setUint32(cur, v, true);
     cur += 4;
@@ -843,6 +890,24 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
     view.setUint32(cur + 8, g.startFrameLo, true);
     view.setUint32(cur + 12, g.startFrameHi, true);
     cur += 16;
+  }
+  for (const l of s.loudBuses) {
+    view.setUint16(cur, l.slot, true);
+    view.setUint16(cur + 2, l.flags, true);
+    view.setUint32(cur + 4, l.firstSeq, true);
+    view.setFloat32(cur + 8, l.truePeak, true);
+    view.setUint32(cur + 12, l.gatedQuanta, true);
+    cur += 16;
+  }
+  for (const e of s.loudEnergies) {
+    view.setFloat32(cur, e, true);
+    cur += 4;
+  }
+  for (const d of s.busDuck) {
+    view.setUint16(cur, d.slot, true);
+    view.setUint16(cur + 2, d.pad, true);
+    view.setFloat32(cur + 4, d.gain, true);
+    cur += 8;
   }
   expect(cur).toBe(size);
   return new Uint8Array(view.buffer);

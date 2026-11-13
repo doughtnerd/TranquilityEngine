@@ -8,7 +8,7 @@ import type { AudioDebugInfo } from "../runtime/backend";
 import type { AudioDebugState } from "../runtime/Audio";
 import type { EventDebugRow } from "../runtime/events/eventRuntime";
 import { editor } from "../../../editor/sdk";
-import { CounterWatch, MusicWatch, VOICE_COLUMNS, debugSections, voiceCells, type Cell, type Section } from "./audioDebugRows";
+import { CounterWatch, MusicWatch, VOICE_COLUMNS, debugSections, mixSections, voiceCells, type Cell, type Section } from "./audioDebugRows";
 import { occlusionOverlayOn } from "./OcclusionOverlay";
 import "./audioDebugPanel.css";
 
@@ -156,7 +156,8 @@ export function AudioDebugPanel() {
   const grouped = groupByEvent(shown.rows, info.events);
   const late = lateStartCount(info.events);
   const sections = debugSections(info, watch.current, musicWatch.current);
-  const section = (id: Section["id"]) => <SectionView section={sections.find((x) => x.id === id)!} />;
+  const allSections = [...sections, ...mixSections(info)];
+  const section = (id: Section["id"]) => <SectionView section={allSections.find((x) => x.id === id)!} />;
   const voiceRow = (v: DebugVoice, inEvent: boolean) => (
     <tr key={v.id} class={inEvent ? "audio-debug-in-event" : undefined}>
       <td class="audio-debug-clip" title={v.owner ?? "No node: a one-shot or an event voice"}>
@@ -263,6 +264,12 @@ export function AudioDebugPanel() {
       {section("memory")}
       {section("musicTotals")}
       {section("music")}
+      {section("mixCaps")}
+      {section("cpu")}
+      {section("mix")}
+      {section("mixSlots")}
+      {section("ducking")}
+      {section("recorder")}
 
       <h5>Voices{shown.hidden > 0 ? ` (the ${shown.rows.length} most audible of ${info.voices.length})` : ""}</h5>
       {info.voices.length === 0 ? (

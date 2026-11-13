@@ -9,7 +9,7 @@
 // Recovering (`onRebuildStart`: the core backend queues new plays), replaces its node in the same context
 // (`AudioHost._replaceCore`: a new Memory, init with the running preset, so the limiter look-ahead is set again), and on
 // the new core's first STATUS leaves Recovering (`onRebuilt`: the backend's `Replayer` sends RESET 0, BUS_CONFIG,
-// BUS_MIX, MASTER, has the registry re-send the clips by priority, and replays the voices as their clips return).
+// the bus lanes (BUS_RAMP), MASTER, has the registry re-send the clips by priority, and replays the voices as their clips return).
 //
 // A3.4c (§3.7): where the core is rebuilt depends on why. A trap keeps the context (§3.6). A device or rate change, or
 // a context the browser closed, closes the context and makes a new one at the device's rate (`AudioHost._replaceContext`),
@@ -22,6 +22,15 @@
 // is `"deferred"` (the host tries again later) rather than leaving the page silent over a settings toggle.
 import { currentAudioHost, type AudioHost } from "./context";
 import { RateLimit, RECOVERY_LIMIT, RECOVERY_WINDOW_MS } from "./rateLimit";
+import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
+
+/** ADR 0171 (K0): where rebuilds report EPOCH and GAP (the recorder's sink while one runs, else the null object). */
+let profileSink: ProfileSink = NULL_PROFILE_SINK;
+
+/** @internal ADR 0171 (K0): the page's recovery reports to `sink` (null: the null object). The core backend forwards its own. */
+export function setRecoveryProfileSink(sink: ProfileSink | null): void {
+  profileSink = sink ?? NULL_PROFILE_SINK;
+}
 
 /** @internal A3.4c: a stall rebuild in the same context fails if its core sends no first STATUS within this (ms). */
 export const STALL_REBUILD_STATUS_TIMEOUT_MS = 2_000;
@@ -162,6 +171,8 @@ export function rebuildHost(host: RebuildableHost, reason: RebuildReason): Promi
   }
   const run = async (): Promise<RebuildOutcome> => {
     host._beginRebuild(reason);
+    // ADR 0171 (K0): the capture's GAP from the failure to the new core's first STATUS (architecture §3.5).
+    profileSink.gap("rebuild");
     try {
       await replace(host, state, reason);
     } catch (error) {
@@ -179,6 +190,8 @@ export function rebuildHost(host: RebuildableHost, reason: RebuildReason): Promi
     if (reason === "trap") host.health.recoveries++;
     else host.health.rebuilds++;
     host._endRebuild();
+    // ADR 0171 (K0): a new core restarts the frames: the capture's EPOCH, one reason per rebuild cause (§5.3).
+    profileSink.epoch(reason);
     return "rebuilt";
   };
   const inFlight = run().finally(() => {

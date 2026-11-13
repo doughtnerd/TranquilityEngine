@@ -263,6 +263,14 @@ export function shapeLaw(shape: number): number {
 export function shapeStartPhase(shape: number): number {
   return shape >>> SHAPE_PHASE_SHIFT;
 }
+/** The BUS_RAMP `shape`: `law`, `sequenceId` 0..8191 (0 = none, bits 3-15) and `startPhase` as u0.16. */
+export function packRampShape(law: number, sequenceId: number, startPhase: number): number {
+  return (((law & SHAPE_LAW_MASK) | ((sequenceId & SHAPE_SEQUENCE_MASK) << SHAPE_SEQUENCE_SHIFT) | ((startPhase & 0xffff) << SHAPE_PHASE_SHIFT)) >>> 0);
+}
+/** The sequence id of a BUS_RAMP shape word, 0..8191. */
+export function rampSequenceId(shape: number): number {
+  return (shape >>> SHAPE_SEQUENCE_SHIFT) & SHAPE_SEQUENCE_MASK;
+}
 /** The PLAY `gate`: `groupId` 1..1023 (0 = ungated, which packs to 0) and `groupSize` 1..64 (clamped). */
 export function packGate(groupId: number, groupSize: number): number {
   if ((groupId & PLAY_GATE_ID_MASK) === 0) return 0;

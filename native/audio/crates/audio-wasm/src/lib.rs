@@ -26,13 +26,16 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 /// 2.0 (ADR 0162 R6, C8): `myco_audio_init` takes nine parameters; `myco_audio_zone_kernel_budget_bytes`.
 /// 3.0 (ADR 0166 M4, API section 4.5): `myco_audio_init` and `myco_audio_layout_bytes` take a tenth,
 /// `max_music_rings` (0..16, `InitError::MusicRings`).
-pub const ABI_MAJOR: u32 = 3;
+/// 4.0 (ADR 0171/0172 M5, API section 4.1): the STATUS header is 256 B and gains the `loudBuses`,
+/// `loudEnergies` and `busDuck` sections; `BUS_RAMP`, `BUS_DUCK`, `BUS_PRESENCE`, `LOUD_CONFIG` and
+/// `BUS_SLOT`; stamped configuration changes behaviour. `myco_audio_init` is unchanged.
+pub const ABI_MAJOR: u32 = 4;
 pub const ABI_MINOR: u32 = 0;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
-/// STATUS staging (architecture §5.1: 16 KB).
-pub const STATUS_BYTES: usize = 16 * 1024;
+/// STATUS staging (architecture §5.1: 16 KB; 20 KB with the M5 sections, ADR 0171: `STATUS_BUFFER_BYTES`).
+pub const STATUS_BYTES: usize = audio_wire::generated::STATUS_BUFFER_BYTES as usize;
 
 /// A global the single worklet thread owns.
 #[repr(transparent)]
@@ -380,7 +383,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x300);
+        assert_eq!(myco_audio_abi_version(), 0x400);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);

@@ -48,7 +48,15 @@ export interface BusSettings {
   bed?: BusBed;
   /** ADR 0162 §2.1: 0..255, higher wins a bed slot. Absent: the root 255, others 128; read it with `busBedPriority`. Inert until beds (A4). */
   bedPriority?: number;
+  /**
+   * ADR 0171 §2.1 (types from K0; parse Ld5): `"loudness"` meters the bus (at most `MAX_LOUDNESS_BUSES` non-root buses;
+   * the root is always metered). Absent (never written when off): not metered.
+   */
+  meter?: BusMeter;
 }
+
+/** ADR 0171 §2.1: a bus's `meter` value. */
+export type BusMeter = "loudness";
 
 export type BusBed = "own" | "parent" | "none";
 export const BUS_BEDS = ["own", "parent", "none"] as const;
@@ -62,16 +70,46 @@ export interface SnapshotSettings {
   lowpass: Record<string, number>;
 }
 
-/** Lowers `target` while `trigger` has sounds playing: music under voice. */
+/**
+ * Lowers `target` while `trigger` has sounds playing (`mode: "presence"`) or while its level is over `threshold`
+ * (`mode: "level"`, ADR 0171 §2.1): music under voice.
+ */
 export interface DuckingRule {
   target: string;
   trigger: string;
+  /**
+   * ADR 0171 §2.1 (types from K0; parse Sa1): `"presence"` ducks while the trigger has voices, `"level"` while its
+   * measured level is over `threshold`. Required once Sa1's parse lands (a rule without it is dropped); optional here
+   * so today's parse compiles.
+   */
+  mode?: DuckingMode;
+  /** ADR 0171 §2.1: the level detector, `"rms"` by default (level rules only). */
+  detector?: DuckingDetector;
+  /** ADR 0171 §2.1: dBFS, -80..0, default -30 (level rules only). */
+  threshold?: number;
   /** Volume multiplier on the target while ducked, 0..1 (0.4 = down 60%). */
   amount: number;
   /** Seconds to reach the ducked level. */
   attack: number;
   /** Seconds to come back. */
   release: number;
+}
+
+/** ADR 0171 §2.1: a ducking rule's `mode`. */
+export type DuckingMode = "presence" | "level";
+/** ADR 0171 §2.1: a level rule's detector. */
+export type DuckingDetector = "peak" | "rms";
+
+/** ADR 0171 §2.1: one entry of `audio.loudnessTargets` (types from K0; parse Ld5). */
+export interface LoudnessTarget {
+  /** Unique, non-empty, up to 32 characters. */
+  name: string;
+  /** Integrated loudness goal, LUFS, -70..0. */
+  integrated: number;
+  /** LU either side of `integrated`, 0..12, default 2. */
+  tolerance: number;
+  /** True-peak ceiling, dBTP, -20..0, default -1. */
+  truePeak: number;
 }
 
 /** ADR 0158 §3: a bus property driven by a global parameter through a curve. Multiplies with snapshots and ducking (volume) or takes the lowest cutoff (lowpass). */
@@ -131,6 +169,13 @@ export interface AudioSettings {
    * back into `Audio.latency`. Default false. A change at runtime rebuilds the context (`AudioHost.reconfigure`).
    */
   rhythmMode: boolean;
+  /**
+   * ADR 0171 §2.1 (types from K0; parse Ld5): the loudness targets, 1..8 entries, the first the default. Absent: the
+   * owner's two defaults (`console`, `mobile`).
+   */
+  loudnessTargets?: LoudnessTarget[];
+  /** ADR 0171 §2.1 (types from K0; parse Ld5): reset the loudness meters at the editor's Play. Absent: true. */
+  loudnessResetOnPlay?: boolean;
 }
 
 /** `audio.music` (ADR 0166 §2.1). */
@@ -207,6 +252,29 @@ export type AudioBackendSetting = "babylon" | "core";
 
 export const MASTER = "Master";
 export const MAX_BUSES = 32;
+/** ADR 0171 §2.2 / ADR 0172 §1.7: ducking rules per project, and the level rules among them. */
+export const MAX_DUCK_RULES = 32;
+export const MAX_LEVEL_RULES = 8;
+/** A level rule's defaults (ADR 0172 owner decision 8: a new level rule starts with an RMS detector at -30 dBFS). */
+export const DEFAULT_DUCK_DETECTOR: DuckingDetector = "rms";
+export const DEFAULT_DUCK_THRESHOLD = -30;
+
+/** §2.1: non-root buses that may carry `meter: "loudness"` (the root is always metered). */
+export const MAX_LOUDNESS_BUSES = 8;
+/** §2.1: entries of `loudnessTargets`, 1..8. */
+export const MAX_LOUDNESS_TARGETS = 8;
+/** §2.1: a target's name, up to 32 characters. */
+export const MAX_TARGET_NAME = 32;
+/** §2.1: a target's ranges, `[min, max]`: `integrated` LUFS, `tolerance` LU, `truePeak` dBTP. */
+export const LOUDNESS_TARGET_LIMITS = { integrated: [-70, 0], tolerance: [0, 12], truePeak: [-20, 0] } as const;
+/** §2.1: a target's `tolerance` and `truePeak` when absent from an authored entry. */
+export const DEFAULT_TARGET_TOLERANCE = 2;
+export const DEFAULT_TARGET_TRUE_PEAK = -1;
+/** §2.1 (owner decision 4): `loudnessTargets` when absent; the first is the default target. */
+export const DEFAULT_LOUDNESS_TARGETS: readonly Readonly<LoudnessTarget>[] = [
+  { name: "console", integrated: -24, tolerance: 2, truePeak: -1 },
+  { name: "mobile", integrated: -18, tolerance: 2, truePeak: -1 },
+];
 
 export const defaultBuses = (): BusSettings[] =>
   [MASTER, "Music", "SFX", "UI", "Voice"].map((name, i) => ({ name, ...(i > 0 ? { parent: MASTER } : {}), volume: 1, mute: false, effects: [] }));
@@ -361,18 +429,89 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
       settings.snapshots.push({ name: raw.name, volumes, lowpass });
     }
   }
-  if (Array.isArray(input.ducking)) {
-    for (const [i, raw] of input.ducking.entries()) {
-      if (!isRecord(raw) || !known(raw.target) || !known(raw.trigger)) { problems.push(`audio.ducking[${i}]: target and trigger must name buses.`); continue; }
-      if (raw.target === raw.trigger) { problems.push(`audio.ducking[${i}]: a bus can't duck itself.`); continue; }
-      settings.ducking.push({ target: raw.target, trigger: raw.trigger, amount: num(raw.amount, 0.4, 0, 1), attack: num(raw.attack, 0.1, 0, 10), release: num(raw.release, 0.5, 0, 10) });
-    }
-  }
+  if (Array.isArray(input.ducking)) parseDucking(input.ducking, settings, known, problems);
   parseCoreKeys(input, settings, problems);
   parseSpatialKeys(input, settings, problems, options);
   parseEventKeys(input, settings, problems);
   parseMusicKeys(input, settings, problems);
+  parseMeteringKeys(input, settings, problems);
   return { settings, problems };
+}
+
+/** True when `ancestor` is `name` or above it in the bus tree. */
+function isAboveInTree(buses: readonly BusSettings[], ancestor: string, name: string): boolean {
+  const seen = new Set<string>();
+  for (let b = buses.find((o) => o.name === name); b && !seen.has(b.name); b = buses.find((o) => o.name === b!.parent)) {
+    if (b.name === ancestor) return true;
+    seen.add(b.name);
+  }
+  return false;
+}
+
+/**
+ * The list indexes of the level rules on a path of mix order from `from` to `to` (a bus mixes before its parent; a
+ * level rule's trigger is measured before its target mixes), or `null` when there is no path. A path from a new
+ * rule's target to its trigger means the rule would close a cycle.
+ */
+function levelPath(buses: readonly BusSettings[], levelRules: readonly { index: number; rule: DuckingRule }[], from: string, to: string): number[] | null {
+  const visited = new Set<string>();
+  const walk = (at: string): number[] | null => {
+    if (at === to) return [];
+    if (visited.has(at)) return null;
+    visited.add(at);
+    const parent = buses.find((b) => b.name === at)?.parent;
+    if (parent !== undefined) { const rest = walk(parent); if (rest) return rest; }
+    for (const { index, rule } of levelRules) {
+      if (rule.trigger !== at) continue;
+      const rest = walk(rule.target);
+      if (rest) return [index, ...rest];
+    }
+    return null;
+  };
+  return walk(from);
+}
+
+/** ADR 0171 §2.1 and §2.2: the `ducking` list. Appends the accepted rules to `settings.ducking` and each problem to `problems`. */
+function parseDucking(list: readonly unknown[], settings: AudioSettings, known: (name: unknown) => name is string, problems: string[]): void {
+  const levelRules: { index: number; rule: DuckingRule }[] = [];
+  for (const [i, raw] of list.entries()) {
+    const where = `audio.ducking[${i}]`;
+    if (settings.ducking.length >= MAX_DUCK_RULES) { problems.push(`audio.ducking: at most ${MAX_DUCK_RULES} rules; the rest are ignored.`); break; }
+    if (!isRecord(raw) || !known(raw.target) || !known(raw.trigger)) { problems.push(`${where}: target and trigger must name buses.`); continue; }
+    if (raw.target === raw.trigger) { problems.push(`${where}: a bus can't duck itself.`); continue; }
+    if (raw.mode !== "level" && raw.mode !== "presence") { problems.push(`${where}: mode must be "level" or "presence"; the rule is dropped.`); continue; }
+    if (isAboveInTree(settings.buses, raw.trigger, raw.target)) {
+      problems.push(`${where}: ${raw.trigger} is above ${raw.target} in the tree, so its level can't be measured before ${raw.target} is mixed.`);
+      continue;
+    }
+    const rule: DuckingRule = { target: raw.target, trigger: raw.trigger, mode: raw.mode, amount: num(raw.amount, 0.4, 0, 1), attack: num(raw.attack, 0.1, 0, 10), release: num(raw.release, 0.5, 0, 10) };
+    if (raw.mode === "presence") {
+      if (raw.detector !== undefined) problems.push(`${where}: detector applies to level rules only; ignored.`);
+      if (raw.threshold !== undefined) problems.push(`${where}: threshold applies to level rules only; ignored.`);
+    } else {
+      if (levelRules.length >= MAX_LEVEL_RULES) { problems.push(`${where}: at most ${MAX_LEVEL_RULES} level rules; the rule is dropped.`); continue; }
+      const path = levelPath(settings.buses, levelRules, raw.target, raw.trigger);
+      if (path) {
+        const describe = (n: number): string => {
+          const r = n === i ? { trigger: raw.trigger as string, target: raw.target as string } : levelRules.find((l) => l.index === n)!.rule;
+          return `ducking[${n}] (${r.trigger} ducks ${r.target})`;
+        };
+        problems.push(`${where}: level rules can't form a cycle, so the rule is dropped: ${[...path, i].map(describe).join(", ")}.`);
+        continue;
+      }
+      rule.detector = raw.detector === undefined ? DEFAULT_DUCK_DETECTOR : pick(raw.detector, `${where}.detector`, ["peak", "rms"] as const, DEFAULT_DUCK_DETECTOR, problems);
+      if (raw.threshold === undefined) rule.threshold = DEFAULT_DUCK_THRESHOLD;
+      else if (typeof raw.threshold !== "number" || !Number.isFinite(raw.threshold)) {
+        problems.push(`${where}.threshold: must be a number of dBFS from -80 to 0; using ${DEFAULT_DUCK_THRESHOLD}.`);
+        rule.threshold = DEFAULT_DUCK_THRESHOLD;
+      } else {
+        rule.threshold = Math.min(0, Math.max(-80, raw.threshold));
+        if (rule.threshold !== raw.threshold) problems.push(`${where}.threshold: ${raw.threshold} is outside -80..0; using ${rule.threshold}.`);
+      }
+      levelRules.push({ index: i, rule });
+    }
+    settings.ducking.push(rule);
+  }
 }
 
 /** What the parse can't know from the `audio` section alone. */
@@ -573,6 +712,70 @@ function parseMusicKeys(input: Record<string, unknown>, settings: AudioSettings,
     if (typeof input.rhythmMode === "boolean") settings.rhythmMode = input.rhythmMode;
     else problems.push("audio.rhythmMode: must be true or false; using false.");
   }
+}
+
+/**
+ * ADR 0171 §2.1 (Ld5): `buses[].meter`, `loudnessTargets` and `loudnessResetOnPlay`. Defaults are never written back:
+ * `meter` is absent when off, `loudnessTargets` when it equals `DEFAULT_LOUDNESS_TARGETS`, `loudnessResetOnPlay` when true.
+ */
+function parseMeteringKeys(input: Record<string, unknown>, settings: AudioSettings, problems: string[]): void {
+  if (Array.isArray(input.buses)) {
+    const named = new Set<string>();
+    let metered = 0;
+    for (const [i, raw] of input.buses.entries()) {
+      if (!isRecord(raw) || typeof raw.name !== "string" || raw.name.trim() === "" || named.has(raw.name)) continue;
+      named.add(raw.name);
+      const bus = settings.buses.find((b) => b.name === raw.name);
+      if (!bus || raw.meter === undefined || raw.meter === null) continue;
+      const where = `audio.buses[${i}].meter`;
+      if (raw.meter !== "loudness") problems.push(`${where}: must be "loudness" or absent; dropped.`);
+      else if (bus === settings.buses[0]) problems.push(`${where}: ${bus.name} is always metered; dropped.`);
+      else if (metered >= MAX_LOUDNESS_BUSES) problems.push(`${where}: at most ${MAX_LOUDNESS_BUSES} buses can be metered; dropped.`);
+      else { bus.meter = "loudness"; metered++; }
+    }
+  }
+  if (input.loudnessTargets !== undefined) {
+    if (!Array.isArray(input.loudnessTargets)) problems.push("audio.loudnessTargets must be a list; using the defaults.");
+    else {
+      const list: LoudnessTarget[] = [];
+      for (const [i, raw] of input.loudnessTargets.entries()) {
+        if (list.length >= MAX_LOUDNESS_TARGETS) { problems.push(`audio.loudnessTargets: at most ${MAX_LOUDNESS_TARGETS} targets; the rest are ignored.`); break; }
+        const t = parseTarget(raw, `audio.loudnessTargets[${i}]`, list, problems);
+        if (t) list.push(t);
+      }
+      const same = list.length === DEFAULT_LOUDNESS_TARGETS.length && list.every((t, i) => {
+        const d = DEFAULT_LOUDNESS_TARGETS[i];
+        return t.name === d.name && t.integrated === d.integrated && t.tolerance === d.tolerance && t.truePeak === d.truePeak;
+      });
+      if (list.length > 0 && !same) settings.loudnessTargets = list;
+    }
+  }
+  if (input.loudnessResetOnPlay !== undefined) {
+    if (typeof input.loudnessResetOnPlay !== "boolean") problems.push("audio.loudnessResetOnPlay: must be true or false; using true.");
+    else if (!input.loudnessResetOnPlay) settings.loudnessResetOnPlay = false;
+  }
+}
+
+/** One `loudnessTargets` entry, or null (with a problem) for a bad one: not an object, a bad or taken name, or a number missing or out of range. */
+function parseTarget(raw: unknown, where: string, taken: readonly LoudnessTarget[], problems: string[]): LoudnessTarget | null {
+  if (!isRecord(raw)) { problems.push(`${where}: must be an object; dropped.`); return null; }
+  const name = raw.name;
+  if (typeof name !== "string" || name.trim() === "" || name.length > MAX_TARGET_NAME) {
+    problems.push(`${where}: name must be 1 to ${MAX_TARGET_NAME} characters; dropped.`);
+    return null;
+  }
+  if (taken.some((t) => t.name === name)) { problems.push(`${where}: another target is already named "${name}"; dropped.`); return null; }
+  const field = (key: keyof typeof LOUDNESS_TARGET_LIMITS, unit: string, fallback: number | undefined): number | null => {
+    const [min, max] = LOUDNESS_TARGET_LIMITS[key], v = raw[key];
+    if (v === undefined && fallback !== undefined) return fallback;
+    if (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max) return v;
+    problems.push(`${where}.${key}: must be a number of ${unit} from ${min} to ${max}; the target is dropped.`);
+    return null;
+  };
+  const integrated = field("integrated", "LUFS", undefined);
+  const tolerance = field("tolerance", "LU", DEFAULT_TARGET_TOLERANCE);
+  const truePeak = field("truePeak", "dBTP", DEFAULT_TARGET_TRUE_PEAK);
+  return integrated === null || tolerance === null || truePeak === null ? null : { name, integrated, tolerance, truePeak };
 }
 
 /** ADR 0158: `parameters`, `automation` and `seed`. Runs after the buses are parsed, so automation can check bus names. */

@@ -25,7 +25,7 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
           { name: "Voice", parent: "Master" },
         ],
         snapshots: [{ name: "Paused", volumes: { Music: 0.3 }, lowpass: { Music: 800 } }],
-        ducking: [{ target: "Music", trigger: "Voice", amount: 0.4, attack: 0.1, release: 0.6 }],
+        ducking: [{ target: "Music", trigger: "Voice", mode: "presence", amount: 0.4, attack: 0.1, release: 0.6 }],
       });
       expect(problems).toEqual([]);
       expect(settings.buses).toEqual([
@@ -34,7 +34,7 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
         { name: "Voice", parent: "Master", volume: 1, mute: false, effects: [] },
       ]);
       expect(settings.snapshots).toEqual([{ name: "Paused", volumes: { Music: 0.3 }, lowpass: { Music: 800 } }]);
-      expect(settings.ducking).toEqual([{ target: "Music", trigger: "Voice", amount: 0.4, attack: 0.1, release: 0.6 }]);
+      expect(settings.ducking).toEqual([{ target: "Music", trigger: "Voice", mode: "presence", amount: 0.4, attack: 0.1, release: 0.6 }]);
       expect(settings.voices).toEqual({ mixed: 128, logical: 4096, hrtf: 8 });
       expect(settings.background).toBe("mute");
       expect(settings.backend).toBe("core");
@@ -261,7 +261,7 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
       const { settings, problems } = parseAudioSettings({
         buses: [{ name: "Master" }, { name: "Music", parent: "Master" }, { name: "Battle", parent: "Music" }, { name: "SFX", parent: "Master" }, { name: "Voice", parent: "Master" }],
         snapshots: [{ name: "Paused", volumes: { Music: 0.2, SFX: 0 }, lowpass: { Music: 800 } }],
-        ducking: [{ target: "Music", trigger: "Voice", amount: 0.4, attack: 0.1, release: 0.5 }],
+        ducking: [{ target: "Music", trigger: "Voice", mode: "presence", amount: 0.4, attack: 0.1, release: 0.5 }],
       });
       expect(problems).toEqual([]);
       expect(settings.buses).toEqual([
@@ -272,7 +272,7 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
         { name: "Voice", parent: "Master", volume: 1, mute: false, effects: [] },
       ]);
       expect(settings.snapshots).toEqual([{ name: "Paused", volumes: { Music: 0.2, SFX: 0 }, lowpass: { Music: 800 } }]);
-      expect(settings.ducking).toEqual([{ target: "Music", trigger: "Voice", amount: 0.4, attack: 0.1, release: 0.5 }]);
+      expect(settings.ducking).toEqual([{ target: "Music", trigger: "Voice", mode: "presence", amount: 0.4, attack: 0.1, release: 0.5 }]);
     });
   });
 });

@@ -97,6 +97,30 @@
       "components": [{ "type": "lab.Buses", "data": {} }]
     },
     {
+      "id": "ambience-bus",
+      "name": "Ambience bus (keys N, Z)",
+      "transform": false,
+      "components": [{ "type": "lab.Buses", "data": { "bus": "Ambience", "muteKey": "n", "fadeKey": "z" } }]
+    },
+    {
+      "id": "drums",
+      "name": "Drums on Music (key B)",
+      "transform": false,
+      "components": [
+        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/drum-loop.wav", "loop": true, "volume": 0.7, "playOnAwake": false, "output": "Music" } },
+        { "type": "lab.Toggle", "data": { "key": "b" } }
+      ]
+    },
+    {
+      "id": "noise-bed",
+      "name": "Noise on Ambience (key A)",
+      "transform": false,
+      "components": [
+        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/noise-loop.wav", "loop": true, "volume": 0.3, "playOnAwake": false, "output": "Ambience" } },
+        { "type": "lab.Toggle", "data": { "key": "a" } }
+      ]
+    },
+    {
       "id": "snapshots",
       "name": "Snapshots (key 4)",
       "transform": false,
@@ -104,7 +128,7 @@
     },
     {
       "id": "effects",
-      "name": "Effects (keys 5, 6)",
+      "name": "Effects (keys 5, 6, X)",
       "transform": false,
       "components": [{ "type": "lab.Effects", "data": {} }]
     },

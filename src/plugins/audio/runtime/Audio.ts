@@ -15,6 +15,8 @@ import { triggerOn } from "./music/stingers";
 import { audioLatency, getCalibration, isCalibrationStale, rhythmModeSetting, setCalibration } from "./music/calibration";
 import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioPanner, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest, type SendCurve } from "./backend";
 import { events, type EventDebugRow, type EventInstance, type EventOptions } from "./events/eventRuntime";
+import { audioCapture, type AudioCapture } from "./capture/capture";
+import { loudnessTarget, setLoudnessTarget } from "./mix/loudnessHub";
 
 /** `Audio.debug()`: the backend's state plus the event runtime's rows (`AudioDebugInfo.events` with the late-start count each row carries). */
 export type AudioDebugState = Omit<AudioDebugInfo, "events"> & { events: EventDebugRow[] };
@@ -302,6 +304,25 @@ export const Audio = {
   /** Read-only: the project's `audio.rhythmMode` setting. */
   get rhythmMode(): boolean {
     return rhythmModeSetting();
+  },
+
+  // ADR 0171 §1.1, §1.2 (K0 declares the surface; each member delegates to its owner's file: `capture/capture.ts` Rc4,
+  // `mix/loudnessHub.ts` Ld4).
+
+  /**
+   * Record a take of the mix for the Profiler: `await Audio.capture.start()`, then `Audio.capture.save()`. The recorder
+   * loads on the first `start()`; a game that never calls it loads nothing.
+   */
+  get capture(): AudioCapture {
+    return audioCapture;
+  },
+
+  /** The entry of `audio.loudnessTargets` the loudness meters check against (default the first); an unknown name is ignored with one warning. */
+  get loudnessTarget(): string | null {
+    return loudnessTarget();
+  },
+  set loudnessTarget(name: string | null) {
+    setLoudnessTarget(name);
   },
 
   /** A copy of the state for tools and "why is there no sound?". Allocates; never per frame. */

@@ -73,6 +73,11 @@ export interface Scene {
   referenceLatency?: number;
   /** Reverb scenes also digest the energy decay curve from this time (seconds). */
   edcFrom?: number;
+  /**
+   * Compare the reverb's wet signal alone (no dry). Each side isolates it its own way, because the two graphs tap
+   * the send at different points: see `referenceBuses` (the reference) and `renderCore` in `coreRender.ts` (the core).
+   */
+  wetOnly?: boolean;
 }
 
 // --- Seeded generators -----------------------------------------------------------------------------------------------
@@ -164,6 +169,18 @@ export function sceneBuses(scene: Scene): ResolvedBus[] {
     { name: "Master", parent: null, gain: 1, effectiveGain: 1, effects: [], snapshotLowpass: null },
     { name: "Bus", parent: "Master", gain, effectiveGain: gain, effects: [...scene.effects], snapshotLowpass: scene.snapshotLowpass ?? null },
   ];
+}
+
+/**
+ * The buses the Web Audio reference graph renders. For a `wetOnly` scene, "Bus" is at gain 0: the reference's reverb
+ * send (`webAudioReference.ts`) taps the bus before its gain node, so a bus at gain 0 leaves the wet signal alone.
+ * The committed reference digests were rendered this way. The core's sends are post-fader (ADR 0172 owner decision
+ * 1), so the core cannot isolate the wet signal like this; `renderCore` takes a difference of two renders instead.
+ */
+export function referenceBuses(scene: Scene): ResolvedBus[] {
+  const buses = sceneBuses(scene);
+  if (!scene.wetOnly) return buses;
+  return buses.map((b) => (b.name === "Bus" ? { ...b, gain: 0, effectiveGain: 0 } : b));
 }
 
 // --- The catalogue ---------------------------------------------------------------------------------------------------
@@ -329,8 +346,11 @@ function reverbScenes(): Scene[] {
     seconds: 2.4,
     clips: [clip],
     effects: [{ type: "reverb", send }],
-    // The send taps the bus before its gain: a bus at gain 0 is the wet signal alone.
-    busGain: wetOnly ? 0 : 1,
+    // The bus stays at gain 1 on both sides' real graph. A wet-only scene's wet signal is isolated per side: the
+    // reference's send is pre-fader, so it renders the bus at gain 0 (`referenceBuses`); the core's send is post-fader
+    // (ADR 0172 owner decision 1: a bus at gain 0 feeds the reverb nothing), so `renderCore` renders the scene twice,
+    // with the send and with send 0, and takes the difference.
+    wetOnly,
     voices: [{ clip: 0, bus: "Bus" }],
     analyzeFrom: 0,
     windows: rate === 48_000,

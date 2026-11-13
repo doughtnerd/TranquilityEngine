@@ -7,7 +7,8 @@
 //!   linearly across each quantum; the first quantum after AUTOMATE starts at its value.
 //! - Local bindings read the voice's PLAY `group`; a voice in group 0 reads 0.
 //! - Pitch bindings scale the read rate; lowpass bindings filter the voice at `min(lpHz, lpAuto)`.
-//! - Bus bindings scale the bus after BUS_MIX and lower its snapshot low-pass.
+//! - Bus bindings scale the bus after its main-written gain lanes (`BUS_RAMP`; BUS_MIX before
+//!   0171/0172 M5) and lower its snapshot low-pass.
 //! - SET_LOOP loops a clip region gaplessly; a release plays on to the clip's end and ends the voice.
 //! - RESET clears every table; a voice that ends leaves the active list.
 

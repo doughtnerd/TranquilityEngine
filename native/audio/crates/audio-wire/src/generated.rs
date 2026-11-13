@@ -2,33 +2,33 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 287e5173cde33028cb09bd4bfbc4d2ec).
+/// First 16 bytes of the schema's SHA-256 (hex: 437412c9bad8b878ade83c2f04be5c5c).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x28,
-    0x7e,
-    0x51,
-    0x73,
-    0xcd,
-    0xe3,
-    0x30,
-    0x28,
-    0xcb,
-    0x09,
-    0xbd,
-    0x4b,
-    0xfb,
-    0xc4,
-    0xd2,
-    0xec,
+    0x43,
+    0x74,
+    0x12,
+    0xc9,
+    0xba,
+    0xd8,
+    0xb8,
+    0x78,
+    0xad,
+    0xe8,
+    0x3c,
+    0x2f,
+    0x04,
+    0xbe,
+    0x5c,
+    0x5c,
 ];
-pub const SCHEMA_HASH_HEX: &str = "287e5173cde33028cb09bd4bfbc4d2ec";
+pub const SCHEMA_HASH_HEX: &str = "437412c9bad8b878ade83c2f04be5c5c";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
 /// a core refuses a different major
 pub const VERSION_MAJOR: u32 = 0x1;
-/// new opcodes or appended payload words are minor (1.1: ADR 0162; 1.2: the shape word, ADR 0166)
-pub const VERSION_MINOR: u32 = 0x2;
+/// new opcodes or appended payload words are minor (1.1: ADR 0162; 1.2: the shape word, ADR 0166; 1.3: the M5 mix opcodes, ADR 0171)
+pub const VERSION_MINOR: u32 = 0x3;
 /// envelope size
 pub const ENVELOPE_BYTES: u32 = 0x10;
 /// f64 firstFrame; u32 count; u32 flags
@@ -43,14 +43,14 @@ pub const BATCH_MAX_BYTES: u32 = 0x10000;
 pub const INBOX_BYTES: u32 = 0x100000;
 /// each REPLAY message: 1 MiB minus 32 bytes
 pub const REPLAY_CHUNK_MAX_BYTES: u32 = 0xfffe0;
-/// STATUS header, envelope included (ADR 0162 §4.3; 176 B with the M4 fields, ADR 0166)
-pub const STATUS_HEADER_BYTES: u32 = 0xb0;
+/// STATUS header, envelope included (256 B with the M5 fields, ADR 0171 API section 4.3; 176 B in M4)
+pub const STATUS_HEADER_BYTES: u32 = 0x100;
 /// the shell's pool of STATUS buffers
 pub const STATUS_POOL_BUFFERS: u32 = 0x8;
-/// size of each STATUS buffer
-pub const STATUS_BUFFER_BYTES: u32 = 0x4000;
-/// 176 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 + 128 + 128
-pub const STATUS_WORST_CASE_BYTES: u32 = 0x3f40;
+/// size of each STATUS buffer (20 KB with the M5 sections)
+pub const STATUS_BUFFER_BYTES: u32 = 0x5000;
+/// 256 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 + 128 + 128 + 144 + 1152 + 256
+pub const STATUS_WORST_CASE_BYTES: u32 = 0x45a0;
 /// STATUS cadence
 pub const STATUS_EVERY_QUANTA: u32 = 0x6;
 /// cadence when no batch arrived for 250 ms
@@ -61,7 +61,7 @@ pub const STATUS_IDLE_AFTER_MS: u32 = 0xfa;
 pub const QUANTUM_FRAMES: u32 = 0x80;
 /// BUS_CONFIG parent of the root bus
 pub const BUS_ROOT: u32 = 0xffff;
-/// BUS_MIX lpHz meaning off
+/// BUS_MIX and BUS_RAMP lpHz meaning off
 pub const BUS_LP_OFF_HZ: u32 = 0x5dc0;
 /// STREAM_OPEN totalFrames
 pub const STREAM_TOTAL_FRAMES_UNKNOWN: u32 = 0xffffffff;
@@ -145,8 +145,8 @@ pub const MAX_CLIP_EVENTS_PER_BLOCK: u32 = 0x40;
 pub const MAX_STREAM_EVENTS_PER_BLOCK: u32 = 0x40;
 /// i32 result: ok
 pub const ERR_OK: i32 = 0;
-/// the STATUS header with the M4 fields, envelope included (STATUS_HEADER_BYTES); sections start here
-pub const HEADER_BYTES: u32 = 0xb0;
+/// the STATUS header with the M5 fields, envelope included (STATUS_HEADER_BYTES); sections start here
+pub const HEADER_BYTES: u32 = 0x100;
 /// most music rings (init max_music_rings 0..=16, the musicRings section's cap)
 pub const MAX_MUSIC_RINGS: u32 = 0x10;
 /// group table entries in the core (ADR 0167 R9)
@@ -195,6 +195,76 @@ pub const GROUP_START_HELD: u32 = 0x2;
 pub const GROUP_START_ABANDONED: u32 = 0x4;
 /// STATUS groupStarts cap; the rest carry over like starved
 pub const MAX_GROUP_STARTS_PER_BLOCK: u32 = 0x8;
+/// most buses with a loudness meter (LOUD_CONFIG meterCount); master is implicit
+pub const MAX_LOUDNESS_BUSES: u32 = 0x8;
+/// meters in STATUS loudBuses: MAX_LOUDNESS_BUSES plus the final-output tap
+pub const LOUD_METERS: u32 = 0x9;
+/// sub-blocks of the core's loudness ring per meter (3.2 s of main stall lose nothing)
+pub const LOUD_RING_SUBBLOCKS: u32 = 0x20;
+/// STATUS loudEnergies cap: LOUD_METERS x LOUD_RING_SUBBLOCKS
+pub const MAX_LOUD_ENERGIES: u32 = 0x120;
+/// loudBuses slot value: the final output
+pub const LOUD_OUTPUT_TAP: u32 = 0xffff;
+/// BUS_RAMP voiceId: the output gain (what MASTER sets today)
+pub const BUS_MASTER_OUT: u32 = 0xffff;
+/// gain lane 0: the project's authored bus volume (main-written)
+pub const LANE_AUTHORED: u32 = 0x0;
+/// gain lane 1: the script's bus volume and mute (main-written)
+pub const LANE_RUNTIME: u32 = 0x1;
+/// gain lane 2: the snapshot's gain and low-pass (main-written)
+pub const LANE_SNAPSHOT: u32 = 0x2;
+/// gain lane 3: the editor's solo and mute monitor (main-written)
+pub const LANE_MONITOR: u32 = 0x3;
+/// gain lane 4: the structural-edit dip and a tombstone's silence (main-written)
+pub const LANE_DIP: u32 = 0x4;
+/// gain lane 5: sidechain and presence ducking (core-owned; a BUS_RAMP naming it is ignored and counted)
+pub const LANE_DUCK: u32 = 0x5;
+/// gain lane 6: BUS_AUTOMATE's gain multiplier (core-owned; a BUS_RAMP naming it is ignored and counted)
+pub const LANE_AUTOMATION: u32 = 0x6;
+/// lanes per bus
+pub const LANE_COUNT: u32 = 0x7;
+/// the highest lane a BUS_RAMP may name
+pub const LANE_LAST_MAIN_WRITTEN: u32 = 0x4;
+/// most BUS_DUCK rules, and the busDuck section's cap
+pub const MAX_DUCK_RULES: u32 = 0x20;
+/// most BUS_DUCK rules in level mode (flags bit 0)
+pub const MAX_LEVEL_RULES: u32 = 0x8;
+/// the floor of a main-chosen ramp length: toggles and script jumps (R2)
+pub const BUS_MIN_RAMP_MS: u32 = 0x5;
+/// the ramp length of a continuous drag
+pub const DRAG_RAMP_MS: u32 = 0xa;
+/// a fader drag coalesces its writes to one per this many ms
+pub const FADER_COALESCE_MS: u32 = 0x4;
+/// a tombstoned slot is recycled this many frames after its config frame, with no live voice (R9)
+pub const TOMBSTONE_TAIL_FRAMES: u32 = 0x80;
+/// a BUS_SLOT edit smooths only a compressor's parameters, over this long (R7)
+pub const COMPRESSOR_SMOOTH_MS: u32 = 0x14;
+/// BUS_RAMP gain target ceiling (clamped); a non-finite value leaves the target
+pub const BUS_RAMP_GAIN_MAX: u32 = 0x4;
+/// BUS_RAMP lpHz lower bound; BUS_LP_OFF_HZ (24,000) is off
+pub const BUS_RAMP_LP_MIN_HZ: u32 = 0xa;
+/// BUS_RAMP shape bits 3-15: sequenceId (0 = none, C27)
+pub const SHAPE_SEQUENCE_SHIFT: u32 = 0x3;
+/// BUS_RAMP shape sequenceId after the shift: 13 bits
+pub const SHAPE_SEQUENCE_MASK: u32 = 0x1fff;
+/// effects a slot keeps; a BUS_SLOT naming more keeps the first four
+pub const BUS_SLOT_MAX_EFFECTS: u32 = 0x4;
+/// BUS_DUCK rule flags bit 0: level mode (reads the trigger bus's buffer; adds a bus-order edge)
+pub const DUCK_FLAG_LEVEL: u32 = 0x1;
+/// BUS_DUCK rule flags bit 1: the detector is RMS rather than peak
+pub const DUCK_FLAG_RMS: u32 = 0x2;
+/// loudBuses flags bits 0-5: sub-blocks this meter added since the last take, 0..=32
+pub const LOUD_FLAG_NEW_BLOCKS_MASK: u32 = 0x3f;
+/// loudBuses flags bit 6: paused by the load-shedding ladder
+pub const LOUD_FLAG_PAUSED: u32 = 0x40;
+/// loudBuses flags bit 7: the meter was reset
+pub const LOUD_FLAG_RESET: u32 = 0x80;
+/// loudBuses flags bit 8: sub-blocks were lost (firstSeq shows the gap)
+pub const LOUD_FLAG_LOST: u32 = 0x100;
+/// loudBuses flags bit 9: the true-peak gate rejected a quantum
+pub const LOUD_FLAG_GATED: u32 = 0x200;
+/// loudBuses flags bit 10: the true-peak gate is in force
+pub const LOUD_FLAG_TP_GATE_ACTIVE: u32 = 0x400;
 
 /// K2 stub: the export exists but does nothing yet
 pub const ERR_NOT_IMPLEMENTED: i32 = -1;
@@ -256,13 +326,17 @@ pub mod op {
     pub const AUTOMATE: u16 = 0x09;
     pub const SET_VOICE_FX: u16 = 0x0a;
     pub const BUS_CONFIG: u16 = 0x10;
-    pub const BUS_MIX: u16 = 0x11;
     pub const MASTER: u16 = 0x12;
     pub const CURVES: u16 = 0x13;
     pub const PARAM: u16 = 0x14;
     pub const BUS_AUTOMATE: u16 = 0x15;
     pub const BED_CONFIG: u16 = 0x16;
     pub const ZONE_CONFIG: u16 = 0x17;
+    pub const BUS_RAMP: u16 = 0x18;
+    pub const BUS_DUCK: u16 = 0x19;
+    pub const BUS_PRESENCE: u16 = 0x1a;
+    pub const LOUD_CONFIG: u16 = 0x1b;
+    pub const BUS_SLOT: u16 = 0x1c;
     pub const LISTENER: u16 = 0x20;
     pub const RESET: u16 = 0x30;
 }
@@ -433,6 +507,14 @@ pub const fn shape_law(shape: u32) -> u32 { shape & SHAPE_LAW_MASK }
 /// The start phase of a shape word, 0..=65535 (value / 65,536).
 #[inline]
 pub const fn shape_start_phase(shape: u32) -> u32 { shape >> SHAPE_PHASE_SHIFT }
+/// The BUS_RAMP shape word: `law`, `sequence_id` 0..=8191 (0 = none, bits 3-15) and `start_phase` as u0.16.
+#[inline]
+pub const fn pack_ramp_shape(law: u32, sequence_id: u32, start_phase: u32) -> u32 {
+    (law & SHAPE_LAW_MASK) | ((sequence_id & SHAPE_SEQUENCE_MASK) << SHAPE_SEQUENCE_SHIFT) | ((start_phase & 0xFFFF) << SHAPE_PHASE_SHIFT)
+}
+/// The sequence id of a BUS_RAMP shape word, 0..=8191.
+#[inline]
+pub const fn ramp_sequence_id(shape: u32) -> u32 { (shape >> SHAPE_SEQUENCE_SHIFT) & SHAPE_SEQUENCE_MASK }
 /// The PLAY gate: `group_id` 1..=1023 (0 = ungated, which packs to 0) and `group_size` 1..=64 (clamped).
 #[inline]
 pub const fn pack_gate(group_id: u32, group_size: u32) -> u16 {
@@ -2238,116 +2320,6 @@ impl BusConfig {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct BusMixBuses {
-    pub gain: f32,
-    /// low-pass cutoff; 24000 off
-    pub lp_hz: f32,
-}
-
-impl BusMixBuses {
-    pub const FIXED_END: usize = 8;
-    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
-        if base + Self::FIXED_END > out.len() {
-            return Err(ERR_OVERSIZE);
-        }
-        put_f32(out, base + 0, self.gain);
-        put_f32(out, base + 4, self.lp_hz);
-        let mut cur = base + Self::FIXED_END;
-        Ok(cur - base)
-    }
-    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
-        let limit = buf.len();
-        Self::read_to(buf, base, limit)
-    }
-    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
-        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
-            return Err(ERR_TRUNCATED);
-        }
-        let gain = get_f32(buf, base + 0);
-        let lp_hz = get_f32(buf, base + 4);
-        let mut cur = base + Self::FIXED_END;
-        Ok((Self {
-            gain,
-            lp_hz,
-        }, cur - base))
-    }
-}
-
-/// set bus gain and filter; ramps over rampFrames
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct BusMix {
-    pub voice_id: u32,
-    pub frame_offset: u32,
-    pub ramp_frames: u32,
-    pub buses: Vec<BusMixBuses>,
-}
-
-impl BusMix {
-    pub const FIXED_END: usize = 20;
-    pub const OPCODE: u16 = 17; // BUS_MIX
-    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
-        if base + Self::FIXED_END > out.len() {
-            return Err(ERR_OVERSIZE);
-        }
-        put_u32(out, base + 12, u32::try_from(self.buses.len()).map_err(|_| ERR_OVERSIZE)?);
-        put_u32(out, base + 16, self.ramp_frames);
-        let mut cur = base + Self::FIXED_END;
-        for item in &self.buses {
-            cur += item.write(out, cur)?;
-        }
-        let total = cur - base;
-        if total % 4 != 0 || total / 4 > u16::MAX as usize {
-            return Err(ERR_OVERSIZE);
-        }
-        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
-        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
-        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
-        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
-        Ok(cur - base)
-    }
-    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
-        let (head, _) = RecordHead::read(buf, base)?;
-        if head.opcode != Self::OPCODE {
-            return Err(ERR_MALFORMED);
-        }
-        let limit = base + head.words as usize * 4;
-        if limit > buf.len() {
-            return Err(ERR_TRUNCATED);
-        }
-        Self::read_to(buf, base, limit)
-    }
-    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
-        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
-            return Err(ERR_TRUNCATED);
-        }
-        let (head, _) = RecordHead::read(buf, base)?;
-        let bus_count = get_u32(buf, base + 12);
-        let ramp_frames = get_u32(buf, base + 16);
-        let mut cur = base + Self::FIXED_END;
-        let count = bus_count as usize;
-        if count.checked_mul(8).map_or(true, |n| n > limit - cur) {
-            return Err(ERR_TRUNCATED);
-        }
-        let mut buses = Vec::with_capacity(count);
-        for _ in 0..count {
-            let (item, n) = BusMixBuses::read_to(buf, cur, limit)?;
-            cur += n;
-            buses.push(item);
-        }
-        if cur > limit {
-            return Err(ERR_MALFORMED);
-        }
-        let cur = limit; // appended words of a newer minor are skipped
-        Ok((Self {
-            voice_id: head.voice_id,
-            frame_offset: head.frame_offset,
-            ramp_frames,
-            buses,
-        }, cur - base))
-    }
-}
-
 /// master volume and mute; ramps over rampFrames
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Master {
@@ -3005,6 +2977,548 @@ impl ZoneConfig {
     }
 }
 
+/// the gain target
+pub const BUS_RAMP_MASK_GAIN: u16 = 0x1;
+/// the lpHz target (lane 2 only: the snapshot low-pass)
+pub const BUS_RAMP_MASK_LP_HZ: u16 = 0x2;
+/// 0 linear (FadeLaw); only linear in M5
+pub const BUS_RAMP_SHAPE_LAW_SHIFT: u32 = 0;
+pub const BUS_RAMP_SHAPE_LAW_MASK: u32 = 0x7;
+/// the structural sequence this record belongs to; 0 = none (C27)
+pub const BUS_RAMP_SHAPE_SEQUENCE_ID_SHIFT: u32 = 3;
+pub const BUS_RAMP_SHAPE_SEQUENCE_ID_MASK: u32 = 0xfff8;
+/// start phase of the curve as u0.16: value / 65,536
+pub const BUS_RAMP_SHAPE_START_PHASE_SHIFT: u32 = 16;
+pub const BUS_RAMP_SHAPE_START_PHASE_MASK: u32 = 0xffff0000;
+/// stamped ramp of one bus lane (voiceId = bus slot, BUS_MASTER_OUT for the output gain; ADR 0171 change 27)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusRamp {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// 0-4 main-written; 5 duck and 6 automation are core-owned: a record naming them is ignored and counted
+    pub lane: u16,
+    pub mask: u16,
+    /// gain target, >= 0 (clamped to 4); a non-finite value leaves the target
+    pub gain: f32,
+    /// low-pass target, 10..24,000 (24,000 = off); lane 2 only
+    pub lp_hz: f32,
+    /// ramp length from the start frame; 0 is a literal step, used by replay and RESET only (R2)
+    pub frames: u32,
+    /// law and start phase as FADE's, plus bits 3-15 sequenceId (0 = none, C27)
+    pub shape: u32,
+}
+
+impl BusRamp {
+    pub const FIXED_END: usize = 32;
+    pub const OPCODE: u16 = 24; // BUS_RAMP
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 12, self.lane);
+        put_u16(out, base + 14, self.mask);
+        put_f32(out, base + 16, self.gain);
+        put_f32(out, base + 20, self.lp_hz);
+        put_u32(out, base + 24, self.frames);
+        put_u32(out, base + 28, self.shape);
+        let mut cur = base + Self::FIXED_END;
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let lane = get_u16(buf, base + 12);
+        let mask = get_u16(buf, base + 14);
+        let gain = get_f32(buf, base + 16);
+        let lp_hz = get_f32(buf, base + 20);
+        let frames = get_u32(buf, base + 24);
+        let shape = get_u32(buf, base + 28);
+        let mut cur = base + Self::FIXED_END;
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            lane,
+            mask,
+            gain,
+            lp_hz,
+            frames,
+            shape,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusDuckRules {
+    /// the bus that is ducked
+    pub target: u16,
+    /// the bus (level) or slot (presence) that triggers it
+    pub trigger: u16,
+    pub flags: u32,
+    pub threshold_db: f32,
+    pub amount: f32,
+    pub attack: f32,
+    pub release: f32,
+}
+
+impl BusDuckRules {
+    pub const FIXED_END: usize = 24;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 0, self.target);
+        put_u16(out, base + 2, self.trigger);
+        put_u32(out, base + 4, self.flags);
+        put_f32(out, base + 8, self.threshold_db);
+        put_f32(out, base + 12, self.amount);
+        put_f32(out, base + 16, self.attack);
+        put_f32(out, base + 20, self.release);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let target = get_u16(buf, base + 0);
+        let trigger = get_u16(buf, base + 2);
+        let flags = get_u32(buf, base + 4);
+        let threshold_db = get_f32(buf, base + 8);
+        let amount = get_f32(buf, base + 12);
+        let attack = get_f32(buf, base + 16);
+        let release = get_f32(buf, base + 20);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            target,
+            trigger,
+            flags,
+            threshold_db,
+            amount,
+            attack,
+            release,
+        }, cur - base))
+    }
+}
+
+/// replace all ducking rules; asap only; recomputes the bus order (R6)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusDuck {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    pub rules: Vec<BusDuckRules>,
+}
+
+impl BusDuck {
+    pub const FIXED_END: usize = 16;
+    pub const OPCODE: u16 = 25; // BUS_DUCK
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        if self.rules.len() > 32 {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, u32::try_from(self.rules.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.rules {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let rule_count = get_u32(buf, base + 12);
+        let mut cur = base + Self::FIXED_END;
+        if rule_count as usize > 32 {
+            return Err(ERR_MALFORMED);
+        }
+        let count = rule_count as usize;
+        if count.checked_mul(24).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut rules = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = BusDuckRules::read_to(buf, cur, limit)?;
+            cur += n;
+            rules.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            rules,
+        }, cur - base))
+    }
+}
+
+/// which slots have a voice, stamped at the frame of the start or explicit stop; applies at the start of the quantum holding its frame
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusPresence {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// bit b set while slot b has a voice (virtual and locked included)
+    pub mask: u32,
+}
+
+impl BusPresence {
+    pub const FIXED_END: usize = 16;
+    pub const OPCODE: u16 = 26; // BUS_PRESENCE
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, self.mask);
+        let mut cur = base + Self::FIXED_END;
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let mask = get_u32(buf, base + 12);
+        let mut cur = base + Self::FIXED_END;
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            mask,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LoudConfigMeters {
+    pub slot: u16,
+    /// reserved, 0
+    pub reserved: u16,
+}
+
+impl LoudConfigMeters {
+    pub const FIXED_END: usize = 4;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 0, self.slot);
+        put_u16(out, base + 2, self.reserved);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let slot = get_u16(buf, base + 0);
+        let reserved = get_u16(buf, base + 2);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            slot,
+            reserved,
+        }, cur - base))
+    }
+}
+
+/// replace the loudness meters' configuration; asap only
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LoudConfig {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// the selected ceiling minus 6 dB; a target change re-sends it and is not a reset
+    pub tp_gate_dbfs: f32,
+    pub meters: Vec<LoudConfigMeters>,
+}
+
+impl LoudConfig {
+    pub const FIXED_END: usize = 20;
+    pub const OPCODE: u16 = 27; // LOUD_CONFIG
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_f32(out, base + 12, self.tp_gate_dbfs);
+        if self.meters.len() > 8 {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 16, u32::try_from(self.meters.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.meters {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let tp_gate_dbfs = get_f32(buf, base + 12);
+        let meter_count = get_u32(buf, base + 16);
+        let mut cur = base + Self::FIXED_END;
+        if meter_count as usize > 8 {
+            return Err(ERR_MALFORMED);
+        }
+        let count = meter_count as usize;
+        if count.checked_mul(4).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut meters = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = LoudConfigMeters::read_to(buf, cur, limit)?;
+            cur += n;
+            meters.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            tp_gate_dbfs,
+            meters,
+        }, cur - base))
+    }
+}
+
+/// applies at quantum granularity and obeys the late-batch gate
+pub const BUS_SLOT_FLAGS_STRUCTURAL: u16 = 0x1;
+/// the slot starts zeroed with unity lanes: a re-add after recycling
+pub const BUS_SLOT_FLAGS_FRESH: u16 = 0x2;
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusSlotEffects {
+    /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send
+    pub type_: u32,
+    /// parameters; q in dB; unused p = 0
+    pub p: [f32; 7],
+}
+
+impl BusSlotEffects {
+    pub const FIXED_END: usize = 32;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 0, self.type_);
+        for i in 0..7 { put_f32(out, base + 4 + i * 4, self.p[i]); }
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let type_ = get_u32(buf, base + 0);
+        let p = { let mut a = [0 as f32; 7]; for i in 0..7 { a[i] = get_f32(buf, base + 4 + i * 4); } a };
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            type_,
+            p,
+        }, cur - base))
+    }
+}
+
+/// one bus slot's configuration (R7); a tombstone is a silent root (R9); stamped when its sequenceId is set (C27)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusSlot {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    pub slot: u16,
+    pub flags: u16,
+    /// the structural sequence this record belongs to (13 bits, 0 = none, C27)
+    pub sequence_id: u16,
+    /// reserved, 0
+    pub reserved: u16,
+    /// reserved, 0
+    pub reserved2: u32,
+    /// parent slot; BUS_ROOT (0xFFFF) for a root
+    pub parent: u16,
+    pub effects: Vec<BusSlotEffects>,
+}
+
+impl BusSlot {
+    pub const FIXED_END: usize = 28;
+    pub const OPCODE: u16 = 28; // BUS_SLOT
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 12, self.slot);
+        put_u16(out, base + 14, self.flags);
+        put_u16(out, base + 16, self.sequence_id);
+        put_u16(out, base + 18, self.reserved);
+        put_u32(out, base + 20, self.reserved2);
+        put_u16(out, base + 24, self.parent);
+        put_u16(out, base + 26, u16::try_from(self.effects.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.effects {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let slot = get_u16(buf, base + 12);
+        let flags = get_u16(buf, base + 14);
+        let sequence_id = get_u16(buf, base + 16);
+        let reserved = get_u16(buf, base + 18);
+        let reserved2 = get_u32(buf, base + 20);
+        let parent = get_u16(buf, base + 24);
+        let effect_count = get_u16(buf, base + 26);
+        let mut cur = base + Self::FIXED_END;
+        let count = effect_count as usize;
+        if count.checked_mul(32).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut effects = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = BusSlotEffects::read_to(buf, cur, limit)?;
+            cur += n;
+            effects.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            slot,
+            flags,
+            sequence_id,
+            reserved,
+            reserved2,
+            parent,
+            effects,
+        }, cur - base))
+    }
+}
+
 /// a camera cut: jump to the rotation, no ramp
 pub const LISTENER_FLAGS_SNAP: u32 = 0x1;
 /// the listener's world-to-listener rotation for ambisonic voices (ADR 0162 C4); asap
@@ -3525,6 +4039,100 @@ impl StatusGroupStartsItem {
     }
 }
 
+/// one item per loudness meter (the final-output tap included): new-block count and flags, first sequence, true peak, gated quanta (ADR 0171 M5)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StatusLoudBusesItem {
+    /// bus slot; LOUD_OUTPUT_TAP (0xFFFF) is the final output
+    pub slot: u16,
+    pub flags: u16,
+    /// sequence number of the first sub-block this STATUS carries for the meter
+    pub first_seq: u32,
+    /// linear max(true peak, sample peak) since the last successful take
+    pub true_peak: f32,
+    /// quanta the true-peak gate rejected (cumulative)
+    pub gated_quanta: u32,
+}
+
+impl StatusLoudBusesItem {
+    pub const FIXED_END: usize = 16;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 0, self.slot);
+        put_u16(out, base + 2, self.flags);
+        put_u32(out, base + 4, self.first_seq);
+        put_f32(out, base + 8, self.true_peak);
+        put_u32(out, base + 12, self.gated_quanta);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let slot = get_u16(buf, base + 0);
+        let flags = get_u16(buf, base + 2);
+        let first_seq = get_u32(buf, base + 4);
+        let true_peak = get_f32(buf, base + 8);
+        let gated_quanta = get_u32(buf, base + 12);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            slot,
+            flags,
+            first_seq,
+            true_peak,
+            gated_quanta,
+        }, cur - base))
+    }
+}
+
+/// the duck lane's gain of every bus that is the target of a rule (ADR 0171 M5)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StatusBusDuckItem {
+    pub slot: u16,
+    /// 0
+    pub pad: u16,
+    /// the duck lane's current gain
+    pub gain: f32,
+}
+
+impl StatusBusDuckItem {
+    pub const FIXED_END: usize = 8;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 0, self.slot);
+        put_u16(out, base + 2, self.pad);
+        put_f32(out, base + 4, self.gain);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let slot = get_u16(buf, base + 0);
+        let pad = get_u16(buf, base + 2);
+        let gain = get_f32(buf, base + 4);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            slot,
+            pad,
+            gain,
+        }, cur - base))
+    }
+}
+
 /// A whole STATUS message (kind 9), envelope included.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StatusBlock {
@@ -3587,6 +4195,34 @@ pub struct StatusBlock {
     pub voice_splits: u32,
     /// reserved, 0
     pub reserved: u32,
+    /// sum of Date.now() deltas around process(), ms, since the driver started (shell)
+    pub busy_ms_total: f64,
+    /// quanta processed since the driver started (shell)
+    pub quanta_total: f64,
+    /// cumulative work units: voices
+    pub wu_voices: f64,
+    /// cumulative work units: buses, effects, sidechain, ramps
+    pub wu_buses: f64,
+    /// cumulative work units: spatial
+    pub wu_spatial: f64,
+    /// cumulative work units: music
+    pub wu_music: f64,
+    /// cumulative work units: loudness
+    pub wu_loudness: f64,
+    /// the smallest non-zero Date.now delta seen; 0 = none yet (shell)
+    pub clock_step_ms: u16,
+    /// round(sampleRate / 10)
+    pub loud_sub_block_frames: u32,
+    /// wall-clock steps clamped, saturating (shell)
+    pub clock_steps: u16,
+    /// the load-shedding ladder's loudness step in force, 0 or 1
+    pub loud_shed: u16,
+    /// BUS_RAMP records applied at the quantum's start because the due list was full (cumulative, saturating)
+    pub bus_records_early: u16,
+    /// late sidechain detections (cumulative, saturating)
+    pub sidechain_late: u16,
+    /// reserved, 0
+    pub reserved2: u32,
     /// voices that ended in this block
     /// At most 1024 per block.
     pub ended: Vec<u32>,
@@ -3623,12 +4259,21 @@ pub struct StatusBlock {
     /// one item per group start: slip, flags, start frame; the rest carry over like starved (ADR 0166 M4)
     /// At most 8 per block.
     pub group_starts: Vec<StatusGroupStartsItem>,
+    /// one item per loudness meter (the final-output tap included): new-block count and flags, first sequence, true peak, gated quanta (ADR 0171 M5)
+    /// At most 9 per block.
+    pub loud_buses: Vec<StatusLoudBusesItem>,
+    /// K-weighted sub-block energies since the last successful take, bus-major in loudBuses order, oldest first (ADR 0171 M5)
+    /// At most 288 per block.
+    pub loud_energies: Vec<f32>,
+    /// the duck lane's gain of every bus that is the target of a rule (ADR 0171 M5)
+    /// At most 32 per block.
+    pub bus_duck: Vec<StatusBusDuckItem>,
 }
 
 impl StatusBlock {
     /// Write the whole message at `base` (envelope first); returns the bytes written.
     pub fn write(&self, out: &mut [u8], base: usize, seq: u32) -> Result<usize, i32> {
-        if base + 176 > out.len() {
+        if base + 256 > out.len() {
             return Err(ERR_OVERSIZE);
         }
         put_f64(out, base + 16, self.current_frame);
@@ -3721,7 +4366,33 @@ impl StatusBlock {
         put_u32(out, base + 164, self.split_quanta);
         put_u32(out, base + 168, self.voice_splits);
         put_u32(out, base + 172, self.reserved);
-        let mut cur = base + 176;
+        put_f64(out, base + 176, self.busy_ms_total);
+        put_f64(out, base + 184, self.quanta_total);
+        put_f64(out, base + 192, self.wu_voices);
+        put_f64(out, base + 200, self.wu_buses);
+        put_f64(out, base + 208, self.wu_spatial);
+        put_f64(out, base + 216, self.wu_music);
+        put_f64(out, base + 224, self.wu_loudness);
+        if self.loud_buses.len() > 9 {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 232, self.loud_buses.len() as u16);
+        if self.loud_energies.len() > 288 {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 234, self.loud_energies.len() as u16);
+        if self.bus_duck.len() > 32 {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 236, self.bus_duck.len() as u16);
+        put_u16(out, base + 238, self.clock_step_ms);
+        put_u32(out, base + 240, self.loud_sub_block_frames);
+        put_u16(out, base + 244, self.clock_steps);
+        put_u16(out, base + 246, self.loud_shed);
+        put_u16(out, base + 248, self.bus_records_early);
+        put_u16(out, base + 250, self.sidechain_late);
+        put_u32(out, base + 252, self.reserved2);
+        let mut cur = base + 256;
         if cur + self.ended.len() * 4 > out.len() {
             return Err(ERR_OVERSIZE);
         }
@@ -3806,12 +4477,33 @@ impl StatusBlock {
             v.write(out, cur)?;
             cur += 16;
         }
+        if cur + self.loud_buses.len() * 16 > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        for v in &self.loud_buses {
+            v.write(out, cur)?;
+            cur += 16;
+        }
+        if cur + self.loud_energies.len() * 4 > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        for v in &self.loud_energies {
+            put_f32(out, cur, *v);
+            cur += 4;
+        }
+        if cur + self.bus_duck.len() * 8 > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        for v in &self.bus_duck {
+            v.write(out, cur)?;
+            cur += 8;
+        }
         Envelope::new(kind::STATUS, seq, (cur - base - 16) as u32).write(out, base)?;
         Ok(cur - base)
     }
     /// Read a whole STATUS message at `base`; the envelope is checked for magic, major and kind.
     pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
-        if base.checked_add(176).map_or(true, |e| e > buf.len()) {
+        if base.checked_add(256).map_or(true, |e| e > buf.len()) {
             return Err(ERR_TRUNCATED);
         }
         let (env, _) = Envelope::read(buf, base)?;
@@ -3824,7 +4516,7 @@ impl StatusBlock {
         if env.kind != kind::STATUS {
             return Err(ERR_MALFORMED);
         }
-        let limit = base.checked_add(16 + env.body_bytes as usize).filter(|l| *l <= buf.len() && *l >= base + 176).ok_or(ERR_TRUNCATED)?;
+        let limit = base.checked_add(16 + env.body_bytes as usize).filter(|l| *l <= buf.len() && *l >= base + 256).ok_or(ERR_TRUNCATED)?;
         let current_frame = get_f64(buf, base + 16);
         let date_ms = get_f64(buf, base + 24);
         let ping_seq = get_u32(buf, base + 32);
@@ -3879,7 +4571,24 @@ impl StatusBlock {
         let split_quanta = get_u32(buf, base + 164);
         let voice_splits = get_u32(buf, base + 168);
         let reserved = get_u32(buf, base + 172);
-        let mut cur = base + 176;
+        let busy_ms_total = get_f64(buf, base + 176);
+        let quanta_total = get_f64(buf, base + 184);
+        let wu_voices = get_f64(buf, base + 192);
+        let wu_buses = get_f64(buf, base + 200);
+        let wu_spatial = get_f64(buf, base + 208);
+        let wu_music = get_f64(buf, base + 216);
+        let wu_loudness = get_f64(buf, base + 224);
+        let loud_bus_count = get_u16(buf, base + 232);
+        let loud_energy_count = get_u16(buf, base + 234);
+        let duck_count = get_u16(buf, base + 236);
+        let clock_step_ms = get_u16(buf, base + 238);
+        let loud_sub_block_frames = get_u32(buf, base + 240);
+        let clock_steps = get_u16(buf, base + 244);
+        let loud_shed = get_u16(buf, base + 246);
+        let bus_records_early = get_u16(buf, base + 248);
+        let sidechain_late = get_u16(buf, base + 250);
+        let reserved2 = get_u32(buf, base + 252);
+        let mut cur = base + 256;
         if ended_count as usize > 1024 || (ended_count as usize) * 4 > limit - cur {
             return Err(ERR_OVERSIZE);
         }
@@ -3985,6 +4694,32 @@ impl StatusBlock {
             group_starts.push(v);
             cur += n;
         }
+        if loud_bus_count as usize > 9 || (loud_bus_count as usize) * 16 > limit - cur {
+            return Err(ERR_OVERSIZE);
+        }
+        let mut loud_buses = Vec::with_capacity(loud_bus_count as usize);
+        for _ in 0..loud_bus_count {
+            let (v, n) = StatusLoudBusesItem::read(buf, cur)?;
+            loud_buses.push(v);
+            cur += n;
+        }
+        if loud_energy_count as usize > 288 || (loud_energy_count as usize) * 4 > limit - cur {
+            return Err(ERR_OVERSIZE);
+        }
+        let mut loud_energies = Vec::with_capacity(loud_energy_count as usize);
+        for _ in 0..loud_energy_count {
+            loud_energies.push(get_f32(buf, cur));
+            cur += 4;
+        }
+        if duck_count as usize > 32 || (duck_count as usize) * 8 > limit - cur {
+            return Err(ERR_OVERSIZE);
+        }
+        let mut bus_duck = Vec::with_capacity(duck_count as usize);
+        for _ in 0..duck_count {
+            let (v, n) = StatusBusDuckItem::read(buf, cur)?;
+            bus_duck.push(v);
+            cur += n;
+        }
         Ok((Self {
             current_frame,
             date_ms,
@@ -4028,6 +4763,20 @@ impl StatusBlock {
             split_quanta,
             voice_splits,
             reserved,
+            busy_ms_total,
+            quanta_total,
+            wu_voices,
+            wu_buses,
+            wu_spatial,
+            wu_music,
+            wu_loudness,
+            clock_step_ms,
+            loud_sub_block_frames,
+            clock_steps,
+            loud_shed,
+            bus_records_early,
+            sidechain_late,
+            reserved2,
             ended,
             demoted,
             starved,
@@ -4040,6 +4789,9 @@ impl StatusBlock {
             zone_events,
             music_rings,
             group_starts,
+            loud_buses,
+            loud_energies,
+            bus_duck,
         }, limit - base))
     }
 }

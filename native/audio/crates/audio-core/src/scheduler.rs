@@ -7,14 +7,14 @@
 //!   skipped. BATCH (1) and REPLAY (12) carry records; STREAM_OPEN (5) and STREAM_CLOSE (7) open
 //!   and close a stream's ring (B3, `stream.rs`); other kinds aren't handled here.
 //! - Every record head is validated before any record applies (lengths inside the message, at least
-//!   the head; BUS_CONFIG and BUS_MIX also their per-bus entries), so a malformed batch changes
+//!   the head; BUS_CONFIG also its per-bus entries), so a malformed batch changes
 //!   nothing. Unknown opcodes are skipped by their length.
 //! - SET_MIXED (A3.1, `voices::set_mixed`) applies at once, in arrival order, whatever its
 //!   `frameOffset` (main's selection sends it asap; its 5 ms fade starts with the next quantum).
 //! - SET_PAUSED (A3.7, `voices::set_paused`) is scheduled like STOP: asap applies at once, a stamped
 //!   one at its frame (main sends it asap, ahead of the frame's SET_MIXED, so a resume and the
 //!   promote that follows it land together).
-//! - BUS_CONFIG, BUS_MIX and MASTER (A2.1, `bus.rs`) apply at once, in arrival order, whatever
+//! - BUS_CONFIG and MASTER (A2.1, `bus.rs`) apply at once, in arrival order, whatever
 //!   their `frameOffset`; their ramps start with the next quantum.
 //! - ADR 0158 E2: CURVES, PARAM, AUTOMATE and BUS_AUTOMATE (`automation.rs`) apply at once, in
 //!   arrival order, whatever their `frameOffset` (AUTOMATE finds its voice because PLAY writes the
@@ -29,6 +29,29 @@
 //!   `MAX_BEDS` slots or arrays past its length, and ZONE_CONFIG with more than `MAX_ZONE_SLOTS`
 //!   slots or slots past its length, refuse the batch like any malformed record. The handlers parse
 //!   and drop until their tasks fill them (A4, C3, D1, B3). RESET also calls their `reset`.
+//! - 0171/0172 M5 (K1): BUS_RAMP (`lanes::on_ramp`), BUS_DUCK (`duck::on_rules`), BUS_PRESENCE
+//!   (`duck::on_presence`), LOUD_CONFIG (`loudness::on_config`) and BUS_SLOT (`bus_slots::on_slot`)
+//!   are handed to their owner with their frame (`None` asap), each record checked by its owner's
+//!   `*_is_well_formed` in pass 1. **B1b (class B):** a stamped `BUS_RAMP` waits in the pending
+//!   queue (`lanes::pending`) like STOP; when it pops, `due::route` takes it as class B (staged on
+//!   its bus at its sample, never a split, R6); a full queue applies it at once, counting
+//!   `busRecordsEarly`.
+//! - **0171/0172 M5 (B2): stamped configuration.** An asap `BUS_SLOT` or `BUS_PRESENCE` applies at
+//!   once. A stamped one waits in the **configuration queue** ([`ConfigArea`], beside the pending
+//!   queue: its records are variable and longer than 48 B), and applies at the start of the first
+//!   quantum holding its frame ([`apply_due_config`], from `due::begin_quantum`), in (frame, batch
+//!   order); it never enters the due list, so it can't overflow it (ARCH §4.7). `BUS_DUCK` and
+//!   `LOUD_CONFIG` are asap only: their frame is ignored (API §4.2).
+//! - **The late-batch rule (C27, ARCH §3.3).** Before pass 2 applies anything, every stamped
+//!   `BUS_RAMP` and `BUS_SLOT` with a non-zero `sequenceId` is grouped by sequence
+//!   ([`sequence_shifts`]): F0 = the sequence's earliest frame, q = the first frame of the next
+//!   quantum to render. A sequence with F0 < q is shifted whole by s = ⌈(q − F0) / 128⌉ × 128, and a
+//!   sequence that would start before the in-flight one's (shifted) end is shifted to that end, by
+//!   whole quanta too; pass 2 adds s to every record of the sequence before handing it on (so
+//!   `lanes::on_ramp` sees the shifted frame). A shifted sequence counts `lateCommands` once and
+//!   raises `maxLatenessFrames` to s once. A sequence found late only when its `BUS_SLOT` comes due
+//!   (the shell's frame jumped) is shifted then by [`shift_sequence`], which B1b also calls when it
+//!   pops a late dip-down ramp.
 //! - `slack = firstFrame - currentFrame` is noted for STATUS `minSlackFrames`.
 //!
 //! **asap vs stamped** (architecture §4.3). `frameOffset == 0xFFFFFFFF` is asap: PLAY starts at
@@ -51,10 +74,11 @@ use audio_wire::generated::{self as wire, BatchHeader, Envelope, Fade, Master, P
 use crate::core::{Core, Regions};
 use crate::counters::flag;
 use crate::layout::{PENDING_CAPACITY, PENDING_RECORD_BYTES};
-use crate::{automation, bed, bus, fxpool, listener, status, voices, zones};
+use crate::{automation, bed, bus, bus_slots, duck, fxpool, lanes, listener, loudness, status, voices, zones};
 
 /// One stamped record waiting for its frame: 48 bytes (`PENDING_RECORD_BYTES`), all-zero valid.
-/// STOP, SET_PARAMS, FADE, SET_PAUSED, SEEK and SET_LOOP only (PLAY is written to its slot at once).
+/// STOP, SET_PARAMS, FADE, SET_PAUSED, SEEK and SET_LOOP (PLAY is written to its slot at once), and
+/// a stamped `BUS_RAMP` (B1b: `lanes::pending` gives its encoding; its `voice_id` is a bus slot).
 ///
 /// **The `shape` word** (api-and-models §4.2; 0166 M4-0, Z2a) rides in a value the record doesn't
 /// otherwise use, so the record stays 48 B ([`shape_word`] reads it back):
@@ -181,7 +205,6 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::FADE => Fade::MIN_END,
             wire::op::RESET => Reset::FIXED_END,
             wire::op::BUS_CONFIG => wire::BusConfig::FIXED_END,
-            wire::op::BUS_MIX => wire::BusMix::FIXED_END,
             wire::op::MASTER => Master::FIXED_END,
             wire::op::SET_MIXED => wire::SetMixed::FIXED_END,
             wire::op::SET_PAUSED => wire::SetPaused::FIXED_END,
@@ -195,6 +218,12 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::BED_CONFIG => wire::BedConfig::FIXED_END,
             wire::op::ZONE_CONFIG => wire::ZoneConfig::FIXED_END,
             wire::op::LISTENER => wire::Listener::FIXED_END,
+            // 0171/0172 M5 (K1): the mix records (API §4.2).
+            wire::op::BUS_RAMP => wire::BusRamp::FIXED_END,
+            wire::op::BUS_DUCK => wire::BusDuck::FIXED_END,
+            wire::op::BUS_PRESENCE => wire::BusPresence::FIXED_END,
+            wire::op::LOUD_CONFIG => wire::LoudConfig::FIXED_END,
+            wire::op::BUS_SLOT => wire::BusSlot::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
         if len < min || off + len > msg.len() {
@@ -202,11 +231,15 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
         }
         let entries_fit = match head.opcode {
             wire::op::BUS_CONFIG => bus::config_is_well_formed(msg, off, len),
-            wire::op::BUS_MIX => bus::mix_is_well_formed(msg, off, len),
             wire::op::AUTOMATE | wire::op::BUS_AUTOMATE => automation::bindings_is_well_formed(msg, off, len),
             wire::op::CURVES => automation::curves_is_well_formed(msg, off, len),
             wire::op::BED_CONFIG => bed::config_is_well_formed(msg, off, len),
             wire::op::ZONE_CONFIG => zones::config_is_well_formed(msg, off, len),
+            // 0171/0172 M5 (K1): each owner checks its own record.
+            wire::op::BUS_RAMP => lanes::ramp_is_well_formed(msg, off, len),
+            wire::op::BUS_DUCK => duck::rules_is_well_formed(msg, off, len),
+            wire::op::LOUD_CONFIG => loudness::config_is_well_formed(msg, off, len),
+            wire::op::BUS_SLOT => bus_slots::slot_is_well_formed(msg, off, len),
             _ => true,
         };
         if !entries_fit {
@@ -214,6 +247,9 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
         }
         off += len;
     }
+
+    // M5 (B2): the late-batch rule, decided for the whole batch before anything applies.
+    let shifts = sequence_shifts(core, msg, first, header.count, header.first_frame);
 
     let slack = header.first_frame - status::counters(core).current_frame;
     status::counters_mut(core).note_slack(slack.clamp(i32::MIN as f64, i32::MAX as f64) as i32);
@@ -225,7 +261,12 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
     for _ in 0..header.count {
         let Ok((head, _)) = RecordHead::read(msg, off) else { break };
         let len = head.words as usize * 4;
-        let at = if head.frame_offset == wire::ASAP { None } else { Some(absolute(header.first_frame, head.frame_offset)) };
+        let mut at = if head.frame_offset == wire::ASAP { None } else { Some(absolute(header.first_frame, head.frame_offset)) };
+        // M5 (B2): a record of a shifted sequence moves with it (C27).
+        if let Some(frame) = at.as_mut() {
+            let s = shifts.of(record_sequence(msg, off, head.opcode));
+            *frame = frame.saturating_add(s);
+        }
         match head.opcode {
             wire::op::PLAY => {
                 if let Ok((p, _)) = Play::read(msg, off) {
@@ -324,7 +365,33 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
                 }
             }
             wire::op::BUS_CONFIG => bus::configure(core, msg, off),
-            wire::op::BUS_MIX => bus::mix(core, msg, off),
+            // 0171/0172 M5 (K1): each arm calls its owner (B1a/B1b lanes, B3 and Dp1 duck, Ld2
+            // loudness, B2 slots). `at` is the record's absolute frame (shifted with its sequence),
+            // `None` asap; BUS_DUCK and LOUD_CONFIG are asap only (API §4.2), so their frame is
+            // ignored. B2: a stamped BUS_SLOT or BUS_PRESENCE waits in the configuration queue.
+            // B1b: a stamped BUS_RAMP is class B: queued, then due-listed and staged on its bus at
+            // its sample (`due::route`, `lanes::on_due`). A full queue applies it now, early.
+            wire::op::BUS_RAMP => match at {
+                None => lanes::on_ramp(core, msg, off, None),
+                Some(frame) => {
+                    if let Ok((r, _)) = wire::BusRamp::read(msg, off) {
+                        let record = PendingRecord { frame, ..lanes::pending(&r) };
+                        if !push(core, record) {
+                            lanes::apply_early(core, &record);
+                        }
+                    }
+                }
+            },
+            wire::op::BUS_DUCK => duck::on_rules(core, msg, off),
+            wire::op::BUS_PRESENCE => match at {
+                None => duck::on_presence(core, msg, off, None),
+                Some(frame) => schedule_config(core, msg, off, len, frame),
+            },
+            wire::op::LOUD_CONFIG => loudness::on_config(core, msg, off),
+            wire::op::BUS_SLOT => match at {
+                None => bus_slots::on_slot(core, msg, off, None),
+                Some(frame) => schedule_config(core, msg, off, len, frame),
+            },
             wire::op::MASTER => {
                 if let Ok((m, _)) = Master::read(msg, off) {
                     bus::master(core, &m);
@@ -364,6 +431,9 @@ pub fn reset(core: &mut Core, keep_clips: bool) {
     regions.voices.fill(0);
     let area_end = SCHEDULER_AREA_OFFSET + core::mem::size_of::<SchedulerArea>();
     regions.core_state[voices::VOICE_AREA_OFFSET..area_end].fill(0);
+    // M5 (B2): stamped configuration still waiting goes with the pending records, and so does the
+    // in-flight sequence (main replays the end state after a RESET, API §4.2).
+    regions.core_state[CONFIG_AREA_OFFSET..CONFIG_AREA_OFFSET + CONFIG_AREA_BYTES].fill(0);
     // 0166 M4-0: the due list and the parked records go, and every curve-pool entry with the slots
     // that linked them (all-zero is a free pool).
     crate::due::reset(core);
@@ -386,6 +456,10 @@ pub fn reset(core: &mut Core, keep_clips: bool) {
     zones::reset(core);
     fxpool::reset(core);
     listener::reset(core);
+    // M5 (K1): the duck lane's detectors and followers (Dp1, Sc1) and the loudness meters (Ld2);
+    // no-ops until those tasks fill them. The lanes settle in `bus::reset`.
+    duck::reset(core);
+    loudness::reset(core);
 }
 
 /// `firstFrame + frameOffset` as an absolute frame (a negative or fractional `firstFrame` rounds,
@@ -422,8 +496,11 @@ fn set_params_records(p: &SetParams) -> (Option<PendingRecord>, Option<PendingRe
 
 /// A pending record's `shape` word (api-and-models §4.2: bits 0–2 the law, bits 16–31 the start
 /// phase), or 0 (linear from phase 0) for a record that carries none. See [`PendingRecord`].
+/// A queued `BUS_RAMP` (B1b) keeps its word in `values[2]` (`lanes::pending`): bits 3–15 its
+/// `sequenceId`, which `due::sequence_of` reads for the late-batch rule.
 pub fn shape_word(record: &PendingRecord) -> u32 {
     match record.op as u16 {
+        wire::op::BUS_RAMP => record.values[2].to_bits(),
         wire::op::FADE => record.values[1].to_bits(),
         wire::op::STOP => record.values[0].to_bits(),
         wire::op::SET_PARAMS if record.mask == wire::SET_PARAMS_MASK_GAIN as u8 => record.values[1].to_bits(),
@@ -467,21 +544,40 @@ fn push(core: &mut Core, record: PendingRecord) -> bool {
 
 /// Removes and returns the earliest pending record whose frame is before `before` (the end of the
 /// quantum being rendered), or `None`. Called by `voices::render`; never allocates.
+///
+/// **B1b: a sequence found late at pop (C27, ARCH §3.3).** A `BUS_RAMP` of a structural sequence
+/// (`due::sequence_of` ≠ 0) whose frame F0 is before the quantum's first frame q = `before` − 128
+/// (the shell's frame jumped after the batch arrived on time) isn't returned: its sequence is
+/// shifted by s = ⌈(q − F0) / 128⌉ × 128 ([`shift_sequence`]: the sequence's records still queued,
+/// `lateCommands` once) and the popped ramp is re-queued at F0 + s, which is inside this quantum,
+/// so the next call returns it on time. Records that pop are the sequence's earliest (the queue is
+/// sorted), so the dip-down is the one found late.
 pub fn pop_due(core: &mut Core, before: u64) -> Option<PendingRecord> {
-    let q = queue(core.regions_mut());
-    if q.area.len == 0 {
-        return None;
+    loop {
+        let q = queue(core.regions_mut());
+        if q.area.len == 0 {
+            return None;
+        }
+        let record = q.records[q.area.head as usize];
+        if record.frame >= before {
+            return None;
+        }
+        q.area.head += 1;
+        q.area.len -= 1;
+        if q.area.len == 0 {
+            q.area.head = 0;
+        }
+        let first = before.saturating_sub(crate::QUANTUM as u64);
+        let sequence = crate::due::sequence_of(&record);
+        if sequence != 0 && record.frame < first {
+            let s = whole_quanta(first - record.frame);
+            shift_sequence(core, sequence, s);
+            // Room: the record just left the queue.
+            push(core, PendingRecord { frame: record.frame + s, ..record });
+            continue;
+        }
+        return Some(record);
     }
-    let record = q.records[q.area.head as usize];
-    if record.frame >= before {
-        return None;
-    }
-    q.area.head += 1;
-    q.area.len -= 1;
-    if q.area.len == 0 {
-        q.area.head = 0;
-    }
-    Some(record)
 }
 
 /// R10, for `due::rebase` (C2d through it): shifts by `slip` frames every record still in the
@@ -527,6 +623,8 @@ pub fn apply(core: &mut Core, record: &PendingRecord) {
         wire::op::SET_PAUSED => voices::set_paused(core, record.voice_id, record.flags & 1 != 0),
         wire::op::SEEK => voices::seek(core, record.voice_id, record.frames, record.values[0].to_bits()),
         wire::op::SET_LOOP => voices::set_loop(core, record.voice_id, record.frames, record.values[0].to_bits(), record.flags & 1 != 0),
+        // B1b: class B never splits (`due::route`); applied now, at its frame's quantum start.
+        wire::op::BUS_RAMP => lanes::on_due(core, record, record.frame),
         wire::op::SET_PARAMS => {
             let v = record.values;
             let p = SetParams {
@@ -565,6 +663,328 @@ pub fn apply(core: &mut Core, record: &PendingRecord) {
 /// Pending records waiting.
 pub fn pending_len(core: &mut Core) -> usize {
     queue(core.regions_mut()).area.len as usize
+}
+
+// --- M5 (B2): stamped configuration and the late-batch rule (API §4.2, ARCH §3.3, §4.7) ---
+
+/// Stamped configuration records the queue holds (`BUS_SLOT`, `BUS_PRESENCE`). A removal of a
+/// whole tree tombstones at most `MAX_BUSES` (32) slots in one sequence; the rest is room for
+/// presence changes inside the lookahead. A record that finds it full applies at once (as a full
+/// pending queue does).
+pub const CONFIG_PENDING: usize = 64;
+/// Bytes of one queued record's copy: a `BUS_SLOT` with the 4 effects it keeps is 28 + 4 × 32 =
+/// 156 B; `BUS_PRESENCE` is 16 B.
+pub const CONFIG_RECORD_BYTES: usize = 160;
+
+/// One stamped configuration record waiting for its quantum: its absolute frame (shifted with its
+/// sequence), its sequence and a copy of the record, head included (a `BUS_SLOT` cut to the
+/// effects it keeps, its `effectCount` and head words patched to match). All-zero is valid.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ConfigRecord {
+    pub frame: u64,
+    /// `sequenceId` (13 bits, 0 = none; C27).
+    pub sequence: u16,
+    /// Bytes of `bytes` in use.
+    pub len: u16,
+    /// Effects past `BUS_SLOT_MAX_EFFECTS` cut from the copy, added to the dropped count at apply.
+    pub dropped: u16,
+    pub _pad: u16,
+    pub bytes: [u8; CONFIG_RECORD_BYTES],
+}
+
+/// The configuration queue and the in-flight sequence, in the core-state region after the due
+/// area. All-zero is valid (an empty queue, no sequence in flight).
+#[repr(C)]
+pub struct ConfigArea {
+    /// Live records, `records[..len]`, sorted by frame, stable (batch order within a frame).
+    pub len: u32,
+    /// The last sequence seen (0 = none): later sequences are kept from starting before its end.
+    pub inflight_sequence: u32,
+    /// That sequence's end, shifted: the latest `frame + frames` of its records.
+    pub inflight_end: u64,
+    pub records: [ConfigRecord; CONFIG_PENDING],
+}
+
+const fn align_up(n: usize, to: usize) -> usize {
+    (n + to - 1) / to * to
+}
+
+/// Offset of [`ConfigArea`] in the core-state region (after the due area).
+pub const CONFIG_AREA_OFFSET: usize = align_up(crate::due::DUE_AREA_OFFSET + crate::due::DUE_AREA_BYTES, crate::layout::REGION_ALIGN);
+/// Bytes it takes, rounded to a region alignment.
+pub const CONFIG_AREA_BYTES: usize = align_up(core::mem::size_of::<ConfigArea>(), crate::layout::REGION_ALIGN);
+
+const _: () = assert!(CONFIG_AREA_OFFSET + CONFIG_AREA_BYTES <= crate::layout::CORE_STATE_BYTES, "the configuration area fits the core-state region");
+const _: () = assert!(core::mem::align_of::<ConfigArea>() <= crate::layout::REGION_ALIGN);
+const _: () = assert!(wire::BusSlot::FIXED_END + wire::BUS_SLOT_MAX_EFFECTS as usize * wire::BusSlotEffects::FIXED_END <= CONFIG_RECORD_BYTES);
+
+fn config_mut(regions: &mut Regions) -> &mut ConfigArea {
+    let bytes = &mut regions.core_state[CONFIG_AREA_OFFSET..CONFIG_AREA_OFFSET + core::mem::size_of::<ConfigArea>()];
+    // SAFETY: the core-state region is 64-byte aligned and zeroed at init; all-zero bytes are a
+    // valid ConfigArea; CONFIG_AREA_OFFSET is a multiple of REGION_ALIGN and the area fits
+    // (asserted above). Only this module views these bytes.
+    unsafe { &mut *(bytes.as_mut_ptr() as *mut ConfigArea) }
+}
+
+/// The configuration queue and the in-flight sequence (tests and a debugger read it).
+pub fn config_area(core: &Core) -> &ConfigArea {
+    let bytes = &core.regions().core_state[CONFIG_AREA_OFFSET..CONFIG_AREA_OFFSET + core::mem::size_of::<ConfigArea>()];
+    // SAFETY: as in `config_mut`.
+    unsafe { &*(bytes.as_ptr() as *const ConfigArea) }
+}
+
+/// Stamped configuration records waiting.
+pub fn config_pending_len(core: &Core) -> usize {
+    config_area(core).len as usize
+}
+
+/// Distinct sequences [`sequence_shifts`] tracks in one batch. Main sends one sequence per batch
+/// (structural ops of one display frame coalesce, ARCH §3.3); a ninth in one batch isn't shifted.
+pub const MAX_BATCH_SEQUENCES: usize = 8;
+
+#[derive(Clone, Copy, Default)]
+struct Sequence {
+    id: u16,
+    first: u64,
+    end: u64,
+    shift: u64,
+}
+
+/// The shift of each sequence in one batch ([`sequence_shifts`]).
+#[derive(Default)]
+pub struct Shifts {
+    seqs: [Sequence; MAX_BATCH_SEQUENCES],
+    len: usize,
+}
+
+impl Shifts {
+    /// The frames sequence `id` moves by (0 for none or an untracked sequence).
+    pub fn of(&self, id: u16) -> u64 {
+        if id == 0 {
+            return 0;
+        }
+        self.seqs[..self.len].iter().find(|s| s.id == id).map_or(0, |s| s.shift)
+    }
+}
+
+/// The `sequenceId` of the record at `msg[off..]` (C27): a `BUS_SLOT`'s field, a `BUS_RAMP`'s
+/// `shape` bits 3–15; 0 for every other record.
+pub fn record_sequence(msg: &[u8], off: usize, opcode: u16) -> u16 {
+    match opcode {
+        wire::op::BUS_SLOT => crate::wire_read::u16_at(msg, off + 16) & wire::SHAPE_SEQUENCE_MASK as u16,
+        wire::op::BUS_RAMP => wire::ramp_sequence_id(crate::wire_read::u32_at(msg, off + 28)) as u16,
+        _ => 0,
+    }
+}
+
+/// The first frame of the next quantum the core renders: q of the late-batch rule. Between quanta
+/// that is the frame after the last one rendered (`currentFrame`, which the shell's
+/// `status::after_quantum` sets; also `frame + 128` once a quantum has rendered, for drivers that
+/// don't call it).
+pub fn next_quantum_frame(core: &Core) -> u64 {
+    let rendered = if bus::area(core).rendered != 0 { core.frame() + crate::QUANTUM as u64 } else { 0 };
+    let current = status::counters(core).current_frame;
+    rendered.max(if current > 0.0 { current as u64 } else { 0 })
+}
+
+/// `frames` rounded up to whole quanta.
+fn whole_quanta(frames: u64) -> u64 {
+    frames.div_ceil(crate::QUANTUM as u64) * crate::QUANTUM as u64
+}
+
+/// The late-batch rule for one batch (C27, ARCH §3.3), before pass 2 applies anything: groups the
+/// stamped `BUS_RAMP` and `BUS_SLOT` records by `sequenceId`, F0 = a sequence's earliest frame and
+/// its end the latest `frame + frames`. In order of first appearance, a sequence is shifted by
+/// s = ⌈max(q − F0, inFlightEnd − F0, 0) / 128⌉ × 128 (q = [`next_quantum_frame`]; the in-flight
+/// end is that of the last sequence before it, shifted, so two dips never overlap). A shifted
+/// sequence counts `lateCommands` + 1 and raises `maxLatenessFrames` to s, once. The sequence
+/// becomes the in-flight one. Asap records carry no frame and are never shifted.
+pub fn sequence_shifts(core: &mut Core, msg: &[u8], first: usize, count: u32, first_frame: f64) -> Shifts {
+    let mut shifts = Shifts::default();
+    let mut off = first;
+    for _ in 0..count {
+        let Ok((head, _)) = RecordHead::read(msg, off) else { break };
+        let len = head.words as usize * 4;
+        let id = record_sequence(msg, off, head.opcode);
+        if id != 0 && head.frame_offset != wire::ASAP {
+            let frame = absolute(first_frame, head.frame_offset);
+            let frames = if head.opcode == wire::op::BUS_RAMP { crate::wire_read::u32_at(msg, off + 24) as u64 } else { 0 };
+            let end = frame.saturating_add(frames);
+            match shifts.seqs[..shifts.len].iter_mut().find(|s| s.id == id) {
+                Some(s) => {
+                    s.first = s.first.min(frame);
+                    s.end = s.end.max(end);
+                }
+                None if shifts.len < MAX_BATCH_SEQUENCES => {
+                    shifts.seqs[shifts.len] = Sequence { id, first: frame, end, shift: 0 };
+                    shifts.len += 1;
+                }
+                None => {}
+            }
+        }
+        off += len;
+    }
+    if shifts.len == 0 {
+        return shifts;
+    }
+    let q = next_quantum_frame(core);
+    for i in 0..shifts.len {
+        let s = &mut shifts.seqs[i];
+        let area = config_mut(core.regions_mut());
+        let mut need = q.saturating_sub(s.first);
+        if area.inflight_sequence != 0 && area.inflight_sequence != s.id as u32 {
+            need = need.max(area.inflight_end.saturating_sub(s.first));
+        }
+        s.shift = whole_quanta(need);
+        area.inflight_sequence = s.id as u32;
+        area.inflight_end = area.inflight_end.max(s.end.saturating_add(s.shift));
+        if s.shift > 0 {
+            status::counters_mut(core).note_late(s.shift.min(u32::MAX as u64) as u32);
+        }
+    }
+    shifts
+}
+
+/// Queues the stamped configuration record at `msg[off..off + len]` (`BUS_SLOT` or
+/// `BUS_PRESENCE`) for `frame`, after any of the same frame; with the queue full it applies now.
+fn schedule_config(core: &mut Core, msg: &[u8], off: usize, len: usize, frame: u64) {
+    let opcode = crate::wire_read::u16_at(msg, off);
+    let mut record = ConfigRecord { frame, sequence: record_sequence(msg, off, opcode), len: 0, dropped: 0, _pad: 0, bytes: [0; CONFIG_RECORD_BYTES] };
+    let copy = if opcode == wire::op::BUS_SLOT {
+        let n = crate::wire_read::u16_at(msg, off + 26) as usize;
+        let kept = n.min(wire::BUS_SLOT_MAX_EFFECTS as usize);
+        record.dropped = (n - kept).min(u16::MAX as usize) as u16;
+        let copy = wire::BusSlot::FIXED_END + kept * wire::BusSlotEffects::FIXED_END;
+        record.bytes[..copy].copy_from_slice(&msg[off..off + copy]);
+        record.bytes[26..28].copy_from_slice(&(kept as u16).to_le_bytes());
+        copy
+    } else {
+        let copy = len.min(CONFIG_RECORD_BYTES) & !3;
+        record.bytes[..copy].copy_from_slice(&msg[off..off + copy]);
+        copy
+    };
+    record.len = copy as u16;
+    let words = RecordHead::WORDS_AT;
+    record.bytes[words..words + 2].copy_from_slice(&((copy / 4) as u16).to_le_bytes());
+    let area = config_mut(core.regions_mut());
+    let n = area.len as usize;
+    if n >= CONFIG_PENDING {
+        apply_config_record(core, &record);
+        return;
+    }
+    let mut i = n;
+    while i > 0 && area.records[i - 1].frame > frame {
+        area.records[i] = area.records[i - 1];
+        i -= 1;
+    }
+    area.records[i] = record;
+    area.len += 1;
+}
+
+/// Applies one configuration record that came due (or found the queue full).
+fn apply_config_record(core: &mut Core, record: &ConfigRecord) {
+    let bytes = &record.bytes[..record.len as usize];
+    match crate::wire_read::u16_at(bytes, RecordHead::OPCODE_AT) {
+        wire::op::BUS_SLOT => {
+            bus_slots::on_slot(core, bytes, 0, Some(record.frame));
+            let area = bus::view(core.regions_mut()).area;
+            area.dropped = area.dropped.wrapping_add(record.dropped as u32);
+        }
+        wire::op::BUS_PRESENCE => duck::on_presence(core, bytes, 0, Some(record.frame)),
+        _ => {}
+    }
+}
+
+/// The start of quantum `frame` (from `due::begin_quantum`, before any voice renders): applies
+/// every queued configuration record whose frame falls before the quantum's end, in (frame, batch
+/// order) (ARCH §4.7). A record already late applies at the quantum's start and counts
+/// `lateCommands` like any late stamped record — except a sequence's: a sequence still late here
+/// (the shell's frame jumped past it after it arrived) is shifted whole by [`shift_sequence`]
+/// instead, so its `BUS_SLOT` keeps following its dip-down.
+pub fn apply_due_config(core: &mut Core, frame: u64) {
+    let end = frame + crate::QUANTUM as u64;
+    loop {
+        let area = config_mut(core.regions_mut());
+        if area.len == 0 || area.records[0].frame >= end {
+            return;
+        }
+        let record = area.records[0];
+        if record.sequence != 0 && record.frame < frame {
+            // B1b: from the sequence's F0, its earliest record (the dip-down, still pending when it
+            // is late too), so the whole sequence lands where the pop rule would put it.
+            let f0 = sequence_first_pending(core, record.sequence).map_or(record.frame, |f| f.min(record.frame));
+            shift_sequence(core, record.sequence, whole_quanta(frame - f0));
+            continue;
+        }
+        let n = area.len as usize;
+        area.records.copy_within(1..n, 0);
+        area.len -= 1;
+        if record.frame < frame {
+            status::counters_mut(core).note_late((frame - record.frame).min(u32::MAX as u64) as u32);
+        }
+        apply_config_record(core, &record);
+    }
+}
+
+/// The earliest frame of sequence `sequence`'s records in the pending queue (B1b's dip ramps).
+fn sequence_first_pending(core: &mut Core, sequence: u16) -> Option<u64> {
+    let q = queue(core.regions_mut());
+    let (head, len) = (q.area.head as usize, q.area.len as usize);
+    q.records[head..head + len].iter().find(|r| crate::due::sequence_of(r) == sequence).map(|r| r.frame)
+}
+
+/// Shifts structural sequence `sequence` by `s` frames (a whole number of quanta) wherever its
+/// records still wait: the configuration queue and the pending queue (records whose
+/// `due::sequence_of` is `sequence`; B1b's stamped dip ramps once they ride there). Both stay
+/// sorted, stable. Counts `lateCommands` + 1 and raises `maxLatenessFrames` to `s`, once, and moves
+/// the in-flight end when `sequence` is the one in flight. Returns the records moved. A caller
+/// that has already popped one of the sequence's records (B1b's late dip-down) re-queues it at its
+/// frame + `s` itself. Control rate only: never per quantum unless a sequence is late.
+pub fn shift_sequence(core: &mut Core, sequence: u16, s: u64) -> u32 {
+    if sequence == 0 || s == 0 {
+        return 0;
+    }
+    let mut moved = 0u32;
+    let area = config_mut(core.regions_mut());
+    let n = area.len as usize;
+    for r in area.records[..n].iter_mut().filter(|r| r.sequence == sequence) {
+        r.frame = r.frame.saturating_add(s);
+        moved += 1;
+    }
+    for i in 1..n {
+        let r = area.records[i];
+        let mut j = i;
+        while j > 0 && area.records[j - 1].frame > r.frame {
+            area.records[j] = area.records[j - 1];
+            j -= 1;
+        }
+        area.records[j] = r;
+    }
+    if area.inflight_sequence == sequence as u32 {
+        area.inflight_end = area.inflight_end.saturating_add(s);
+    }
+    let q = queue(core.regions_mut());
+    let (head, len) = (q.area.head as usize, q.area.len as usize);
+    let live = &mut q.records[head..head + len];
+    let mut pending_moved = 0u32;
+    for r in live.iter_mut().filter(|r| crate::due::sequence_of(r) == sequence) {
+        r.frame = r.frame.saturating_add(s);
+        pending_moved += 1;
+    }
+    if pending_moved > 0 {
+        for i in 1..live.len() {
+            let r = live[i];
+            let mut j = i;
+            while j > 0 && live[j - 1].frame > r.frame {
+                live[j] = live[j - 1];
+                j -= 1;
+            }
+            live[j] = r;
+        }
+    }
+    status::counters_mut(core).note_late(s.min(u32::MAX as u64) as u32);
+    moved + pending_moved
 }
 
 #[cfg(test)]

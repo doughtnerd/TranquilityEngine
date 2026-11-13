@@ -1,7 +1,7 @@
 // Pools of transferable ArrayBuffers for the worklet's port (ADR 0157; architecture §4.7, api-and-models §4.3).
 // A buffer is posted with a transfer list, so the sender loses it until the other side posts it back; a pool
 // keeps a fixed number of same-sized buffers circulating instead of allocating one per message (no GC in the
-// audio thread, little on main). The shell holds the STATUS pool (8 × 16 KB); the host holds the BATCH pool
+// audio thread, little on main). The shell holds the STATUS pool (8 × 20,480 B, STATUS_BUFFER_BYTES); the host holds the BATCH pool
 // (4 × 64 KB). Plain data structure: no timers, no ports, no globals.
 import { BATCH_MAX_BYTES, STATUS_BUFFER_BYTES, STATUS_POOL_BUFFERS } from "../wire.generated";
 

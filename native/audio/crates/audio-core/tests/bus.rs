@@ -1,4 +1,5 @@
-//! BUS_CONFIG, BUS_MIX and MASTER apply cases (api-and-models §4.2; task A2.1, leaf L2).
+//! BUS_CONFIG, the bus gain lanes (`BUS_RAMP`, which replaced BUS_MIX in 0171/0172 M5) and MASTER
+//! apply cases (api-and-models §4.2; task A2.1, leaf L2).
 //!
 //! Every case submits real BATCH messages and renders quanta, then reads the output, the bus state
 //! (`audio_core::bus`) and the counters (K12). The DC clip makes each level exact. Levels are
@@ -134,7 +135,7 @@ fn reconfiguring_keeps_the_gains_of_kept_buses_and_starts_new_ones_at_unity() {
 }
 
 #[test]
-fn bus_mix_ramps_the_gain_from_the_next_quantum() {
+fn a_runtime_lane_ramp_moves_the_gain_from_the_next_quantum() {
     let mut m = Mixer::new(8);
     m.submit(&[config(&[ROOT, 0]), dc(V1, 1, 0.0)]);
     m.render();
@@ -144,28 +145,32 @@ fn bus_mix_ramps_the_gain_from_the_next_quantum() {
 }
 
 #[test]
-fn bus_mix_entries_past_the_tree_are_dropped_and_missing_ones_keep_their_gain() {
+fn bus_ramps_past_the_tree_are_ignored_and_counted_and_other_buses_keep_their_gain() {
     let mut m = Mixer::new(8);
     m.submit(&[config(&[ROOT, 0]), gains(0, &[0.5, 0.5])]);
+    // Two records (the runtime gain, the snapshot low-pass) per bus: buses 2 and 3 are past the tree.
     m.submit(&[gains(0, &[0.25, 0.75, 0.1, 0.1])]);
-    assert_eq!(bus::area(&m.core).dropped, 2);
+    assert_eq!(status::counters(&m.core).mix.lane_records_ignored, 4);
     m.submit(&[gains(0, &[1.0])]);
     let s = bus::slots(&m.core);
     assert_eq!((s[0].gain.target, s[1].gain.target), (1.0, 0.75));
 }
 
 #[test]
-fn non_finite_and_negative_values_are_neutralised() {
+fn non_finite_and_out_of_range_values_are_neutralised() {
     let mut m = Mixer::new(8);
-    m.submit(&[config(&[ROOT, 0, 0]), gains(0, &[0.5, 0.5, 0.5])]);
+    m.submit(&[config(&[ROOT, 0, 0]), mix(0, &[(0.5, 900.0), (0.5, OFF), (0.5, OFF)])]);
     m.submit(&[mix(0, &[(f32::NAN, f32::INFINITY), (-1.0, 500.0), (f32::INFINITY, -5.0)])]);
     let s = bus::slots(&m.core);
     assert_eq!(s[0].gain.target, 0.5, "NaN keeps the old target");
-    assert_eq!(s[0].lp.target, OFF, "a non-finite cut-off is off");
+    assert_eq!(s[0].lp.target, 900.0, "a non-finite cut-off keeps the old target");
     assert_eq!(s[1].gain.target, 0.0, "negative is 0");
     assert_eq!(s[1].lp.target, 500.0);
     assert_eq!(s[2].gain.target, 0.5, "infinity keeps the old target");
-    assert_eq!(s[2].lp.target, 0.0, "a negative cut-off clamps to 0");
+    assert_eq!(s[2].lp.target, 10.0, "a cut-off below 10 Hz clamps to 10");
+    m.submit(&[mix(0, &[(9.0, 30_000.0)])]);
+    let s = bus::slots(&m.core);
+    assert_eq!((s[0].gain.target, s[0].lp.target), (4.0, OFF), "gain clamps to 4, the cut-off to off");
 }
 
 #[test]
@@ -194,14 +199,20 @@ fn master_volume_and_mute_ramp_the_output() {
 }
 
 #[test]
-fn a_stamped_bus_mix_applies_on_arrival() {
+fn a_stamped_bus_ramp_applies_at_its_frame_class_b() {
+    // B1b (R6): a stamped BUS_RAMP waits for its frame and steps there, inside the quantum,
+    // without a split and without counting early.
     let mut m = Mixer::new(8);
     m.submit(&[config(&[ROOT]), dc(V1, 0, 0.0)]);
-    let Rec::Mix(mut r) = gains(0, &[0.25]) else { unreachable!() };
-    r.frame_offset = 10_000;
-    m.submit(&[Rec::Mix(r)]);
+    let mut r = lane_ramp(0, wire::LANE_RUNTIME, Some(0.25), None, 0);
+    r.frame_offset = 200;
+    m.submit(&[Rec::Ramps(vec![r])]);
     m.render();
-    m.expect(L, TOL, "applied at once", |_| 0.25);
+    m.expect(L, TOL, "not yet", |_| 1.0);
+    m.render();
+    m.expect(L, TOL, "a step at frame 200", |k| if k < 72 { 1.0 } else { 0.25 });
+    let c = status::counters(&m.core);
+    assert_eq!((c.mix.bus_records_early, c.music.split_quanta), (0, 0));
 }
 
 #[test]
@@ -263,10 +274,14 @@ fn a_bus_config_whose_entries_overrun_the_record_refuses_the_batch() {
 }
 
 #[test]
-fn a_bus_mix_whose_count_overruns_the_record_refuses_the_batch() {
+fn a_bus_ramp_shorter_than_its_layout_refuses_the_batch() {
     let mut m = Mixer::new(8);
-    let mut msg = batch(0.0, &[gains(0, &[0.5])]);
-    msg[32 + 12..32 + 16].copy_from_slice(&5u32.to_le_bytes());
+    let mut msg = batch(0.0, &[Rec::Ramps(vec![lane_ramp(0, wire::LANE_RUNTIME, Some(0.5), None, 0)])]);
+    // `words` (+2): 7 words, 28 B, one short of BUS_RAMP's 32.
+    msg[32 + 2..32 + 4].copy_from_slice(&7u16.to_le_bytes());
+    msg.truncate(msg.len() - 4);
+    let n = (msg.len() - 16) as u32;
+    wire::Envelope::new(wire::kind::BATCH, 1, n).write(&mut msg, 0).unwrap();
     assert_eq!(audio_core::scheduler::submit(&mut m.core, &msg), wire::ERR_MALFORMED);
     assert_eq!(bus::slots(&m.core)[0].gain.target, 1.0);
 }

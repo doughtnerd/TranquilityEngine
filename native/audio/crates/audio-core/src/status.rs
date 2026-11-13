@@ -5,7 +5,7 @@
 //! is a valid area, so nothing is constructed or allocated. Later tasks reach the counters with
 //! [`counters_mut`] and never edit this file.
 //!
-//! [`take`] serialises **every** field, envelope included, into the 16 KB staging buffer that
+//! [`take`] serialises **every** field, envelope included, into the 20 KB staging buffer that
 //! `myco_audio_status_ptr` points at, then ends the block (sections drained, per-block fields
 //! reset). The shell copies the bytes into one of its 8 pooled buffers and writes the fields only
 //! it knows (`dateMs`, the ping echo, the underrun probe's counts, traps) before posting.
@@ -13,8 +13,14 @@
 //! The byte offsets below are the wire's (§4.3). `audio-wire`'s generated `StatusBlock::read`
 //! checks them in `audio-wasm/tests/status_wire.rs`, and `readStatus` does in `coreDriver.test.ts`,
 //! so a drift between this writer and the schema fails a test.
+//!
+//! **M5 (0171/0172, K1).** The 256-B header's fields 176..251 come from `Counters::mix` (the shell
+//! overwrites `busyMsTotal`, `quantaTotal`, `clockStepMs`, `clockSteps` in its posted copy), and
+//! the `loudBuses`, `loudEnergies` and `busDuck` sections from `loudness::status` and
+//! `duck::status`, asked for a take's [`MixSections`] just before the block is written;
+//! `loudness::taken` follows a successful take (the ring's sent cursor advances only then).
 
-use crate::counters::{flag, Counters, MusicRing, MUSIC_RINGS_CAP};
+use crate::counters::{flag, Counters, MixSections, MusicRing, MUSIC_RINGS_CAP};
 use crate::core::Core;
 use crate::layout::{CORE_STATE_BYTES, REGION_ALIGN};
 use crate::QUANTUM;
@@ -24,10 +30,10 @@ pub const MAGIC: u32 = 0x4D59_4131;
 pub const VERSION: u16 = 0x0101;
 pub const KIND_STATUS: u16 = 9;
 /// The header, envelope included (§4.3; 144 B since ADR 0162 §4.3, 176 B with the M4 fields of API §4.4,
-/// which read 0 until Q1 and the tasks after it fill them).
-pub const HEADER_BYTES: usize = 176;
-/// The staging buffer, and each pooled buffer in the shell (§4.7: 16 KB).
-pub const BUFFER_BYTES: usize = 16 * 1024;
+/// 256 B with the M5 fields of 0171's API §4.3, which read 0 until K1 and the tasks after it fill them).
+pub const HEADER_BYTES: usize = 256;
+/// The staging buffer, and each pooled buffer in the shell (§4.7: 16 KB; 20 KB since 0171 M5).
+pub const BUFFER_BYTES: usize = 20 * 1024;
 
 /// Byte offsets of the header fields from the message's first byte (§4.3).
 pub mod off {
@@ -92,9 +98,28 @@ pub mod off {
     pub const SPLIT_QUANTA: usize = 164;
     pub const VOICE_SPLITS: usize = 168;
     pub const M4_RESERVED: usize = 172;
+    // 0171/0172 M5, API §4.3 (K1: from `Counters::mix` and the `MixSections` of the take).
+    pub const BUSY_MS_TOTAL: usize = 176;
+    pub const QUANTA_TOTAL: usize = 184;
+    pub const WU_VOICES: usize = 192;
+    pub const WU_BUSES: usize = 200;
+    pub const WU_SPATIAL: usize = 208;
+    pub const WU_MUSIC: usize = 216;
+    pub const WU_LOUDNESS: usize = 224;
+    pub const LOUD_BUS_COUNT: usize = 232;
+    pub const LOUD_ENERGY_COUNT: usize = 234;
+    pub const DUCK_COUNT: usize = 236;
+    pub const CLOCK_STEP_MS: usize = 238;
+    pub const LOUD_SUB_BLOCK_FRAMES: usize = 240;
+    pub const CLOCK_STEPS: usize = 244;
+    pub const LOUD_SHED: usize = 246;
+    pub const BUS_RECORDS_EARLY: usize = 248;
+    pub const SIDECHAIN_LATE: usize = 250;
+    pub const M5_RESERVED: usize = 252;
 }
 
-const _: () = assert!(off::M4_RESERVED + 4 == HEADER_BYTES && HEADER_BYTES == audio_wire::generated::STATUS_HEADER_BYTES as usize);
+const _: () = assert!(off::M5_RESERVED + 4 == HEADER_BYTES && HEADER_BYTES == audio_wire::generated::STATUS_HEADER_BYTES as usize);
+const _: () = assert!(BUFFER_BYTES == audio_wire::generated::STATUS_BUFFER_BYTES as usize);
 
 /// The writer's own state, kept beside the counters.
 #[repr(C)]
@@ -185,19 +210,35 @@ pub fn take(core: &mut Core, out: &mut [u8], abi_version: u32) -> usize {
     area.counters.spatial.m3_shed = shed;
     area.counters.set_flag(flag::READY, true);
     area.counters.abi_version = if area.writer.blocks == 0 { abi_version } else { 0 };
-    let n = write(&area.counters, area.writer.seq, out);
+    // 0171/0172 M5 (K1): the loudness and duck sections, from their modules' own state (Ld2, Dp1).
+    let mut mix = MixSections::default();
+    crate::loudness::status(core, &mut mix);
+    crate::duck::status(core, &mut mix);
+    let area = area_mut(core);
+    let n = write_with(&area.counters, &mix, area.writer.seq, out);
     if n == 0 {
         return 0;
     }
+    // The sub-blocks this take carried are sent: the loudness ring's cursor advances (Ld2).
+    crate::loudness::taken(core, &mix);
+    let area = area_mut(core);
     area.writer.seq = area.writer.seq.wrapping_add(1);
     area.writer.blocks = area.writer.blocks.saturating_add(1);
     area.counters.end_block();
     n
 }
 
-/// The message size `counters` needs: the header plus every section.
+/// The message size `counters` needs with no M5 section items: the header plus every section.
 pub fn message_bytes(c: &Counters) -> usize {
+    message_bytes_with(c, &MixSections::default())
+}
+
+/// The message size `counters` and the M5 sections `mix` need.
+pub fn message_bytes_with(c: &Counters, mix: &MixSections) -> usize {
     HEADER_BYTES
+        + 16 * mix.loud_buses.len()
+        + 4 * mix.loud_energies.len()
+        + 8 * mix.bus_duck.len()
         + 4 * (c.ended.len() + c.demoted.len() + c.starved.len())
         + 8 * (c.playheads.len() + c.clip_events.len() + c.stream_events.len() + c.sent_peaks().len())
         + 8 * c.spatial.sent_beds().len()
@@ -207,10 +248,16 @@ pub fn message_bytes(c: &Counters) -> usize {
         + 16 * c.music.group_starts.len()
 }
 
-/// Serialises `c` as one STATUS message with envelope `seq`. Pure: doesn't change `c`. Returns
-/// the bytes written, or 0 when `out` is too short.
+/// Serialises `c` as one STATUS message with envelope `seq` and empty M5 sections. Pure: doesn't
+/// change `c`. Returns the bytes written, or 0 when `out` is too short.
 pub fn write(c: &Counters, seq: u32, out: &mut [u8]) -> usize {
-    let total = message_bytes(c);
+    write_with(c, &MixSections::default(), seq, out)
+}
+
+/// Serialises `c` and the M5 sections `mix` as one STATUS message with envelope `seq`. Pure.
+/// Returns the bytes written, or 0 when `out` is too short.
+pub fn write_with(c: &Counters, mix: &MixSections, seq: u32, out: &mut [u8]) -> usize {
+    let total = message_bytes_with(c, mix);
     if out.len() < total {
         return 0;
     }
@@ -277,6 +324,26 @@ pub fn write(c: &Counters, seq: u32, out: &mut [u8]) -> usize {
     put_u32(out, off::SPLIT_QUANTA, m.split_quanta);
     put_u32(out, off::VOICE_SPLITS, m.voice_splits);
     put_u32(out, off::M4_RESERVED, 0);
+    // 0171/0172 M5, API §4.3 (K1). The shell writes `busyMsTotal`, `quantaTotal`, `clockStepMs` and
+    // `clockSteps` into its posted copy; the core's counters for them stay 0.
+    let x = &c.mix;
+    put_f64(out, off::BUSY_MS_TOTAL, x.busy_ms_total);
+    put_f64(out, off::QUANTA_TOTAL, x.quanta_total);
+    put_f64(out, off::WU_VOICES, x.wu_voices);
+    put_f64(out, off::WU_BUSES, x.wu_buses);
+    put_f64(out, off::WU_SPATIAL, x.wu_spatial);
+    put_f64(out, off::WU_MUSIC, x.wu_music);
+    put_f64(out, off::WU_LOUDNESS, x.wu_loudness);
+    put_u16(out, off::LOUD_BUS_COUNT, mix.loud_buses.len() as u16);
+    put_u16(out, off::LOUD_ENERGY_COUNT, mix.loud_energies.len() as u16);
+    put_u16(out, off::DUCK_COUNT, mix.bus_duck.len() as u16);
+    put_u16(out, off::CLOCK_STEP_MS, x.clock_step_ms);
+    put_u32(out, off::LOUD_SUB_BLOCK_FRAMES, x.loud_sub_block_frames);
+    put_u16(out, off::CLOCK_STEPS, x.clock_steps);
+    put_u16(out, off::LOUD_SHED, x.loud_shed);
+    put_u16(out, off::BUS_RECORDS_EARLY, x.bus_records_early);
+    put_u16(out, off::SIDECHAIN_LATE, x.sidechain_late);
+    put_u32(out, off::M5_RESERVED, 0);
     // Sections, in §4.3's order.
     let mut cur = HEADER_BYTES;
     for list in [c.ended.as_slice(), c.demoted.as_slice(), c.starved.as_slice()] {
@@ -338,6 +405,27 @@ pub fn write(c: &Counters, seq: u32, out: &mut [u8]) -> usize {
         put_u32(out, cur + 12, (g.start_frame >> 32) as u32);
         cur += 16;
     }
+    // 0171/0172 M5 §4.3: `loudBuses {u16 slot; u16 flags; u32 firstSeq; f32 truePeak; u32
+    // gatedQuanta}`, `loudEnergies {f32}`, `busDuck {u16 slot; u16 pad; f32 gain}`, after
+    // `groupStarts`.
+    for b in mix.loud_buses.as_slice() {
+        put_u16(out, cur, b.slot);
+        put_u16(out, cur + 2, b.flags);
+        put_u32(out, cur + 4, b.first_seq);
+        put_f32(out, cur + 8, b.true_peak);
+        put_u32(out, cur + 12, b.gated_quanta);
+        cur += 16;
+    }
+    for e in mix.loud_energies.as_slice() {
+        put_f32(out, cur, *e);
+        cur += 4;
+    }
+    for d in mix.bus_duck.as_slice() {
+        put_u16(out, cur, d.slot);
+        put_u16(out, cur + 2, 0);
+        put_f32(out, cur + 4, d.gain);
+        cur += 8;
+    }
     debug_assert_eq!(cur, total);
     total
 }
@@ -365,6 +453,7 @@ fn put_f64(out: &mut [u8], at: usize, v: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::counters::{BusDuckGain, LoudBus, BUS_DUCK_CAP, LOUD_BUSES_CAP, LOUD_ENERGIES_CAP};
     use crate::counters::{Event, GroupStart, Peak, Playhead, ZoneEvent, BEDS_CAP, GROUP_STARTS_CAP, CLIP_EVENTS_CAP, ENDED_CAP, PEAKS_CAP, PLAYHEADS_CAP, ZONES_CAP, ZONE_EVENTS_CAP};
     use crate::layout::{Layout, PAGE_BYTES};
     use crate::params::InitParams;
@@ -592,11 +681,57 @@ mod tests {
         for i in 0..GROUP_STARTS_CAP as u16 {
             assert!(c.music.group_starts.push(GroupStart { group_id: i + 1, flags: 1, slip_frames: 7, start_frame: 1 << 33 }));
         }
+        assert_eq!(message_bytes(&c), 16_192 - 176 + HEADER_BYTES, "M4's sections under the M5 header");
+        // 0171/0172 M5 §4.3: the three new sections at their caps.
+        let mut mix = MixSections::default();
+        for i in 0..LOUD_BUSES_CAP as u16 {
+            assert!(mix.loud_buses.push(LoudBus { slot: i, flags: 32, first_seq: 1_000 + i as u32, true_peak: 0.5, gated_quanta: 3 }));
+        }
+        for i in 0..LOUD_ENERGIES_CAP {
+            assert!(mix.loud_energies.push(i as f32 * 1e-3));
+        }
+        for i in 0..BUS_DUCK_CAP as u16 {
+            assert!(mix.bus_duck.push(BusDuckGain { slot: i, gain: 0.25 }));
+        }
         let worst = audio_wire::generated::STATUS_WORST_CASE_BYTES as usize;
-        assert_eq!(message_bytes(&c), 16_192);
-        assert_eq!(message_bytes(&c), worst, "the generated worst case");
+        assert_eq!(message_bytes_with(&c, &mix), 17_824, "API §4.3's worst case");
+        assert_eq!(message_bytes_with(&c, &mix), worst, "the generated worst case");
         let mut out = [0u8; BUFFER_BYTES];
-        assert_eq!(write(&c, 0, &mut out), worst);
+        assert_eq!(write_with(&c, &mix, 0, &mut out), worst);
+        // The M5 sections follow `groupStarts`, in order.
+        let at = worst - 8 * BUS_DUCK_CAP - 4 * LOUD_ENERGIES_CAP - 16 * LOUD_BUSES_CAP;
+        assert_eq!((u16_at(&out, at), u16_at(&out, at + 2), u32_at(&out, at + 4), f32_at(&out, at + 8), u32_at(&out, at + 12)), (0, 32, 1_000, 0.5, 3));
+        assert_eq!(f32_at(&out, at + 16 * LOUD_BUSES_CAP + 4), 1e-3);
+        let d = worst - 8;
+        assert_eq!((u16_at(&out, d), u16_at(&out, d + 2), f32_at(&out, d + 4)), (BUS_DUCK_CAP as u16 - 1, 0, 0.25));
+        assert_eq!((u16_at(&out, off::LOUD_BUS_COUNT), u16_at(&out, off::LOUD_ENERGY_COUNT), u16_at(&out, off::DUCK_COUNT)), (9, 288, 32));
+    }
+
+    #[test]
+    fn the_m5_header_fields_come_from_the_mix_counters_and_the_shell_fields_stay_for_the_shell() {
+        let mut core = core();
+        let x = &mut counters_mut(&mut core).mix;
+        x.wu_voices = 1.5;
+        x.wu_buses = 2.5;
+        x.wu_spatial = 3.5;
+        x.wu_music = 4.5;
+        x.wu_loudness = (1u64 << 52) as f64;
+        x.loud_sub_block_frames = 4_800;
+        x.loud_shed = 1;
+        x.bus_records_early = 7;
+        x.sidechain_late = 9;
+        let mut out = [0xAAu8; BUFFER_BYTES];
+        assert_eq!(take(&mut core, &mut out, 0x400), HEADER_BYTES, "K1's stubs: the three M5 sections are empty");
+        assert_eq!((f64_at(&out, off::BUSY_MS_TOTAL), f64_at(&out, off::QUANTA_TOTAL)), (0.0, 0.0), "shell fields: 0 from the core");
+        assert_eq!((u16_at(&out, off::CLOCK_STEP_MS), u16_at(&out, off::CLOCK_STEPS)), (0, 0));
+        let wu: Vec<f64> = [off::WU_VOICES, off::WU_BUSES, off::WU_SPATIAL, off::WU_MUSIC, off::WU_LOUDNESS].iter().map(|&o| f64_at(&out, o)).collect();
+        assert_eq!(wu, vec![1.5, 2.5, 3.5, 4.5, (1u64 << 52) as f64]);
+        assert_eq!((u16_at(&out, off::LOUD_BUS_COUNT), u16_at(&out, off::LOUD_ENERGY_COUNT), u16_at(&out, off::DUCK_COUNT)), (0, 0, 0));
+        assert_eq!(u32_at(&out, off::LOUD_SUB_BLOCK_FRAMES), 4_800);
+        assert_eq!((u16_at(&out, off::LOUD_SHED), u16_at(&out, off::BUS_RECORDS_EARLY), u16_at(&out, off::SIDECHAIN_LATE)), (1, 7, 9));
+        assert_eq!(u32_at(&out, off::M5_RESERVED), 0);
+        assert_eq!(u32_at(&out, off::BODY_BYTES), (HEADER_BYTES - 16) as u32);
+        assert_eq!(u32_at(&out, off::M4_RESERVED), 0, "the M4 reserve still reads 0");
     }
 
     #[test]

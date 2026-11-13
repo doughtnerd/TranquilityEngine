@@ -100,8 +100,14 @@ fn buses(parents: &[u16]) -> Vec<u8> {
     rec(|b| wire::BusConfig { voice_id: 0, frame_offset: wire::ASAP, buses: parents.iter().map(|&parent| wire::BusConfigBuses { parent, effects: vec![] }).collect() }.write(b, 0))
 }
 
-fn mix(ramp: u32, gains: &[f32]) -> Vec<u8> {
-    rec(|b| wire::BusMix { voice_id: 0, frame_offset: wire::ASAP, ramp_frames: ramp, buses: gains.iter().map(|&gain| wire::BusMixBuses { gain, lp_hz: OFF }).collect() }.write(b, 0))
+/// What BUS_MIX of `gains` (low-pass off) was: per bus, an asap `BUS_RAMP` on the runtime lane's
+/// gain and one on the snapshot lane's low-pass, over `ramp` (B1a's mapping, bit-identical by R3).
+/// Several records: callers splice them in with `concat`.
+fn mix(ramp: u32, gains: &[f32]) -> Vec<Vec<u8>> {
+    let ramp_rec = |bus: usize, lane: u32, mask: u16, gain: f32| {
+        rec(move |b| wire::BusRamp { voice_id: bus as u32, frame_offset: wire::ASAP, lane: lane as u16, mask, gain, lp_hz: OFF, frames: ramp, shape: 0 }.write(b, 0))
+    };
+    gains.iter().enumerate().flat_map(|(i, &g)| [ramp_rec(i, wire::LANE_RUNTIME, wire::BUS_RAMP_MASK_GAIN, g), ramp_rec(i, wire::LANE_SNAPSHOT, wire::BUS_RAMP_MASK_LP_HZ, 1.0)]).collect()
 }
 
 fn bed_config(bed_slot: &[u8], host_bus: &[u16]) -> Vec<u8> {
@@ -147,7 +153,7 @@ fn golden_256_voices_into_a_root_bed_through_the_matrix() {
     let mut frame = 0u64;
     let n = 256usize;
     let gain = |k: usize| 0.001 + 0.002 * (k % 3) as f32;
-    let mut recs = vec![buses(&[ROOT]), mix(0, &[1.0]), bed_config(&[0], &[0])];
+    let mut recs = [vec![buses(&[ROOT])], mix(0, &[1.0]), vec![bed_config(&[0], &[0])]].concat();
     for k in 0..n {
         recs.push(play(0x0001_0000 | k as u32, ROOT, gain(k), dir_at(k, n), BED_KIND));
     }
@@ -231,7 +237,7 @@ fn golden_a_voice_through_the_magls_filters() {
         ch.fill(g * gains[c]);
     }
     let mut frame = 0u64;
-    assert_eq!(submit(&mut core, frame, &[buses(&[ROOT]), mix(0, &[1.0]), bed_config(&[0], &[0]), play(0x0001_0001, ROOT, g, dir, BED_KIND)]), 0);
+    assert_eq!(submit(&mut core, frame, &[vec![buses(&[ROOT])], mix(0, &[1.0]), vec![bed_config(&[0], &[0]), play(0x0001_0001, ROOT, g, dir, BED_KIND)]].concat()), 0);
     let mut worst = 0.0f32;
     for q in 0..6 {
         let (l, r) = render(&mut core, &mut frame);
@@ -308,7 +314,7 @@ fn golden_crossfade_equal_power_to_bed_and_back_follows_the_law() {
     let g = 0.5;
     let v = 0x0001_0001;
     let mut frame = 0u64;
-    assert_eq!(submit(&mut core, frame, &[buses(&[ROOT]), mix(0, &[1.0]), bed_config(&[0], &[0]), play(v, ROOT, g, dir, 0)]), 0);
+    assert_eq!(submit(&mut core, frame, &[vec![buses(&[ROOT])], mix(0, &[1.0]), vec![bed_config(&[0], &[0]), play(v, ROOT, g, dir, 0)]].concat()), 0);
     let (el, er) = ep_gains(dir);
     for _ in 0..2 {
         let (l, r) = render(&mut core, &mut frame);
@@ -346,11 +352,11 @@ fn golden_ducked_chain_a_sharing_bus_follows_the_duck_within_0_05_db() {
     let g = 0.4;
     let mut frame = 0u64;
     // root <- A <- B; the root hosts slot 0; A and B share it.
-    let recs = [buses(&[ROOT, 0, 1]), mix(0, &[0.5, 1.0, 0.5]), bed_config(&[0, 0, 0], &[0]), play(0x0001_0001, 2, g, dir, BED_KIND)];
+    let recs = [vec![buses(&[ROOT, 0, 1])], mix(0, &[0.5, 1.0, 0.5]), vec![bed_config(&[0, 0, 0], &[0]), play(0x0001_0001, 2, g, dir, BED_KIND)]].concat();
     assert_eq!(submit(&mut core, frame, &recs), 0);
     render(&mut core, &mut frame);
     // The duck: A from 1 to 0.25 (-12 dB) over 240 frames (5 ms) while the root goes 0.5 to 1.
-    assert_eq!(submit(&mut core, frame, &[mix(240, &[1.0, 0.25, 0.5])]), 0);
+    assert_eq!(submit(&mut core, frame, &mix(240, &[1.0, 0.25, 0.5])), 0);
     let (ml, mr) = matrix_gains(dir);
     let mut worst = 0.0f32;
     for _ in 0..8 {

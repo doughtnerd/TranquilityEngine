@@ -1,6 +1,7 @@
 // The worklet shell's logic (ADR 0157; architecture §1 "Processor shell", §4.5–4.7; api-and-models §4.3, §5),
 // kept apart from `processor.ts` so Node drives it with the real wasm (§4.6): it takes `currentFrame` and
-// `dateNow` as arguments on every call and reads no globals.
+// `dateNow` as arguments on every call and reads no globals but its clock (`Date.now` unless given another), which
+// it reads once more after each quantum for the CPU counters (0171/0172 M5, architecture §4.3).
 //
 // It instantiates the core over an imported `WebAssembly.Memory` (always `MEMORY_INITIAL_PAGES` initial pages,
 // and `myco_audio_init` before anything that could grow memory, so init is deterministic), takes messages from
@@ -56,8 +57,8 @@ import {
 /** @internal The name `processor.ts` registers and the host creates its node with. */
 export const PROCESSOR_NAME = "myco-audio-core";
 
-/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5; 2 since ADR 0162 R6, 3 since ADR 0166 W1: `max_music_rings`). */
-export const CORE_ABI_MAJOR = 3;
+/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5; 2 since ADR 0162 R6, 3 since ADR 0166 W1: `max_music_rings`; 4 since ADR 0171 M5: the 256-B STATUS header and `BUS_RAMP`). */
+export const CORE_ABI_MAJOR = 4;
 
 /** @internal Pages the shell's Memory starts with: the same every time (`native/audio/build.mjs` uses 64), which is what makes init deterministic (A0.1). */
 export const MEMORY_INITIAL_PAGES = 64;
@@ -391,7 +392,18 @@ export const SHELL_FIELD = {
   flags: 60,
   traps: 82,
   underrunFrames: 88,
+  /** 0171/0172 M5 (Cp1, R18): `Date.now()` deltas around `process()`, ms, cumulative f64. */
+  busyMsTotal: 176,
+  /** `process()` calls, cumulative f64. */
+  quantaTotal: 184,
+  /** u16: the smallest non-zero `Date.now` delta seen, ms; 0 until one. */
+  clockStepMs: 238,
+  /** u16: quanta whose busy delta was clamped (below 0 or above `CPU_DELTA_MAX_MS`), saturating. */
+  clockSteps: 244,
 } as const;
+
+/** @internal A quantum's busy delta outside 0..this (ms) counts 0 and one `clockSteps` (architecture §4.3): the wall clock stepped. */
+export const CPU_DELTA_MAX_MS = 1_000;
 
 /** @internal STATUS `flags` bit5, set by the shell after a trap. */
 export const FLAG_TRAP_CAUGHT = 1 << 5;
@@ -567,6 +579,18 @@ export class CoreDriver {
   /** The probe's underrun total as last told to the core (A3.3's adaptive cap). */
   private notedUnderruns = 0;
   /**
+   * 0171/0172 M5 (Cp1; architecture §4.3, R18): the CPU counters every STATUS carries beside `dateMs`. Cumulative from
+   * this driver's construction (a restart is a new driver, so they start at 0) across cadence switches and skipped
+   * posts; main takes their differences over its window. A posted STATUS carries the `process()` calls completed before
+   * the one that posts it.
+   */
+  busyMsTotal = 0;
+  quantaTotal = 0;
+  clockStepMs = 0;
+  clockSteps = 0;
+  /** The last call's `dateNow` (t0), for the clock step; NaN before the first. */
+  private lastDateNow = NaN;
+  /**
    * True once the core trapped (A3.4a): a trapped instance is left mid-call (its stack pointer and any half-written
    * state are unknown), so the shell never calls it again. It renders silence, posts no STATUS, returns every buffer
    * and drops clip messages until the host replaces the node (the hard rebuild, architecture §3.6).
@@ -593,11 +617,15 @@ export class CoreDriver {
   /** ADR 0162 C9: zone kernels (format 3 clips) the decoder worker sent on the stream port and hasn't unloaded. */
   private readonly portKernels = new Set<number>();
 
-  /** `dateNow` is the wall clock at construction: the idle cadence counts 250 ms from it until a batch arrives. */
+  /**
+   * `dateNow` is the wall clock at construction: the idle cadence counts 250 ms from it until a batch arrives. `clock`
+   * is read after each `process()` call (t1) for the busy time; tests pass a fake or stub `Date.now`.
+   */
   constructor(
     readonly core: CoreInstance,
     private readonly post: CorePost,
     dateNow: number,
+    private readonly clock: () => number = () => Date.now(),
   ) {
     this.probe = new UnderrunProbe(core.sampleRate);
     this.lastBatchDate = dateNow;
@@ -939,9 +967,37 @@ export class CoreDriver {
    * Renders the quantum starting at `currentFrame` and returns the planar stereo output, `[L; 128][R; 128]`, in a
    * buffer the driver owns (valid until the next call). A trap in the core gives silence, counts in `traps`, posts
    * one `trap` event (the host rebuilds, A3.4a) and leaves the driver `dead`: silence from then on, with no call into
-   * the core. Posts STATUS at its cadence while alive.
+   * the core. Posts STATUS at its cadence while alive. `dateNow` is t0 of the CPU counters; the clock read after the
+   * call is t1 (architecture §4.3), so the shell's own work counts.
    */
   process(currentFrame: number, dateNow: number): Float32Array {
+    try {
+      return this.renderQuantum(currentFrame, dateNow);
+    } finally {
+      this.countBusy(dateNow);
+    }
+  }
+
+  /**
+   * Cp1 (architecture §4.3): d = t1 − t0 joins `busyMsTotal` unless it is below 0 or above `CPU_DELTA_MAX_MS`, which
+   * counts 0 and one `clockSteps` (saturating u16); `quantaTotal` counts the call either way. `clockStepMs` keeps the
+   * smallest non-zero delta at most `CPU_DELTA_MAX_MS` between consecutive t0s or within a call. No allocation.
+   */
+  private countBusy(t0: number): void {
+    const d = this.clock() - t0;
+    if (d >= 0 && d <= CPU_DELTA_MAX_MS) this.busyMsTotal += d;
+    else if (this.clockSteps < 0xffff) this.clockSteps++;
+    this.quantaTotal++;
+    this.noteClockStep(d);
+    this.noteClockStep(t0 - this.lastDateNow);
+    this.lastDateNow = t0;
+  }
+
+  private noteClockStep(delta: number): void {
+    if (delta > 0 && delta <= CPU_DELTA_MAX_MS && (this.clockStepMs === 0 || delta < this.clockStepMs)) this.clockStepMs = delta;
+  }
+
+  private renderQuantum(currentFrame: number, dateNow: number): Float32Array {
     this.stats.quanta++;
     if (this.dead) {
       this.output.fill(0);
@@ -1038,6 +1094,10 @@ export class CoreDriver {
     new Uint8Array(buffer, 0, n).set(this.u8.subarray(ptr, ptr + n));
     const view = new DataView(buffer);
     view.setFloat64(SHELL_FIELD.dateMs, dateNow, true);
+    view.setFloat64(SHELL_FIELD.busyMsTotal, this.busyMsTotal, true);
+    view.setFloat64(SHELL_FIELD.quantaTotal, this.quantaTotal, true);
+    view.setUint16(SHELL_FIELD.clockStepMs, this.clockStepMs === 0 ? 0 : Math.min(Math.max(1, Math.round(this.clockStepMs)), 0xffff), true);
+    view.setUint16(SHELL_FIELD.clockSteps, this.clockSteps, true);
     view.setUint32(SHELL_FIELD.pingSeq, this.pingSeq, true);
     view.setUint32(SHELL_FIELD.pingFrameLo, this.pingFrameLo, true);
     view.setUint32(SHELL_FIELD.underruns, this.probe.underruns, true);

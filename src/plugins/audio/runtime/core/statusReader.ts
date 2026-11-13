@@ -16,8 +16,12 @@
 import {
   ErrorCode,
   Kind,
+  LOUD_FLAG_NEW_BLOCKS_MASK,
+  LOUD_METERS,
   MAGIC,
   MAX_BEDS,
+  MAX_DUCK_RULES,
+  MAX_LOUD_ENERGIES,
   MAX_GROUP_STARTS_PER_BLOCK,
   MAX_MUSIC_RINGS,
   MAX_ZONE_EVENTS_PER_BLOCK,
@@ -26,9 +30,11 @@ import {
   VERSION_MAJOR,
   WireError,
   type StatusBedsItem,
+  type StatusBusDuckItem,
   type StatusBlock,
   type StatusClipEventsItem,
   type StatusGroupStartsItem,
+  type StatusLoudBusesItem,
   type StatusMusicRingsItem,
   type StatusPeaksItem,
   type StatusPlayheadsItem,
@@ -49,6 +55,10 @@ const ZONE_EVENT_ITEM_BYTES = 4;
 /** ADR 0166 §4.4: the M4 sections' item sizes. */
 const MUSIC_RING_ITEM_BYTES = 8;
 const GROUP_START_ITEM_BYTES = 16;
+/** ADR 0171 §4.3: the M5 sections' item sizes (`loudEnergies` items are f32). */
+const LOUD_BUS_ITEM_BYTES = 16;
+const LOUD_ENERGY_ITEM_BYTES = 4;
+const BUS_DUCK_ITEM_BYTES = 8;
 
 export class StatusReader {
   /** The reused block. Its section arrays keep their capacity between reads; `length` is set per read. */
@@ -63,6 +73,8 @@ export class StatusReader {
   private readonly zoneEventItems: StatusZoneEventsItem[] = [];
   private readonly musicRingItems: StatusMusicRingsItem[] = [];
   private readonly groupStartItems: StatusGroupStartsItem[] = [];
+  private readonly loudBusItems: StatusLoudBusesItem[] = [];
+  private readonly busDuckItems: StatusBusDuckItem[] = [];
 
   constructor() {
     for (let i = 0; i < MAX_PLAYHEADS; i++) this.playheadItems.push({ id: 0, clipFrame: 0 });
@@ -74,6 +86,8 @@ export class StatusReader {
     for (let i = 0; i < MAX_ZONE_EVENTS_PER_BLOCK; i++) this.zoneEventItems.push({ slot: 0, code: 0, reserved: 0 });
     for (let i = 0; i < MAX_MUSIC_RINGS; i++) this.musicRingItems.push({ streamId: 0, epochFlags: 0 });
     for (let i = 0; i < MAX_GROUP_STARTS_PER_BLOCK; i++) this.groupStartItems.push({ groupId: 0, flags: 0, slipFrames: 0, startFrameLo: 0, startFrameHi: 0 });
+    for (let i = 0; i < LOUD_METERS; i++) this.loudBusItems.push({ slot: 0, flags: 0, firstSeq: 0, truePeak: 0, gatedQuanta: 0 });
+    for (let i = 0; i < MAX_DUCK_RULES; i++) this.busDuckItems.push({ slot: 0, pad: 0, gain: 0 });
     this.block = {
       currentFrame: 0,
       dateMs: 0,
@@ -117,6 +131,20 @@ export class StatusReader {
       splitQuanta: 0,
       voiceSplits: 0,
       reserved: 0,
+      busyMsTotal: 0,
+      quantaTotal: 0,
+      wuVoices: 0,
+      wuBuses: 0,
+      wuSpatial: 0,
+      wuMusic: 0,
+      wuLoudness: 0,
+      clockStepMs: 0,
+      loudSubBlockFrames: 0,
+      clockSteps: 0,
+      loudShed: 0,
+      busRecordsEarly: 0,
+      sidechainLate: 0,
+      reserved2: 0,
       ended: [],
       demoted: [],
       starved: [],
@@ -129,12 +157,18 @@ export class StatusReader {
       zoneEvents: [],
       musicRings: [],
       groupStarts: [],
+      loudBuses: [],
+      loudEnergies: [],
+      busDuck: [],
     };
     // Warm the id arrays to full size once, so later reads only set `length` and indices.
     for (const list of [this.block.ended, this.block.demoted, this.block.starved]) {
       for (let i = 0; i < MAX_ENDED; i++) list.push(0);
       list.length = 0;
     }
+    // The loudness energies are plain numbers: fill the whole array once (the cap), so a read only sets `length`.
+    for (let i = 0; i < MAX_LOUD_ENERGIES; i++) this.block.loudEnergies.push(0);
+    this.block.loudEnergies.length = 0;
   }
 
   /** Decodes `buffer` (envelope first) into `block` and returns it. Throws `WireError` as `readStatus` does. */
@@ -171,7 +205,8 @@ export class StatusReader {
     if (busCount > MAX_PEAKS || busCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: peaks overrun");
     cur += busCount * 8;
     cur = this.validateM3(view, cur, limit);
-    this.validateM4(view, cur, limit);
+    cur = this.validateM4(view, cur, limit);
+    this.validateM5(view, cur, limit);
 
     const b = this.block;
     b.currentFrame = view.getFloat64(16, true);
@@ -234,7 +269,8 @@ export class StatusReader {
     }
     peaks.length = busCount;
     cur = this.readM3(view, cur);
-    this.readM4(view, cur);
+    cur = this.readM4(view, cur);
+    this.readM5(view, cur);
     return b;
   }
 
@@ -323,7 +359,7 @@ export class StatusReader {
    * `at` (just after `zoneEvents`), against their caps and `limit`, throwing `WireError(OVERSIZE, "STATUS: musicRings
    * overrun")` or `"STATUS: groupStarts overrun"` exactly as the generated `readStatus` does. Touches nothing.
    */
-  private validateM4(view: DataView, at: number, limit: number): void {
+  private validateM4(view: DataView, at: number, limit: number): number {
     const musicRingCount = view.getUint16(144, true);
     const groupStartCount = view.getUint16(146, true);
     let cur = at;
@@ -334,6 +370,7 @@ export class StatusReader {
     if (groupStartCount > MAX_GROUP_STARTS_PER_BLOCK || groupStartCount * GROUP_START_ITEM_BYTES > limit - cur) {
       throw new WireError(ErrorCode.OVERSIZE, "STATUS: groupStarts overrun");
     }
+    return cur + groupStartCount * GROUP_START_ITEM_BYTES;
   }
 
   /**
@@ -343,7 +380,7 @@ export class StatusReader {
    * lengths), then the two sections from `at` into the preallocated `musicRingItems` and `groupStartItems`, setting
    * each array's `length`. Allocates nothing. `validateM4` has already checked the bounds.
    */
-  private readM4(view: DataView, at: number): void {
+  private readM4(view: DataView, at: number): number {
     const b = this.block;
     const musicRingCount = view.getUint16(144, true);
     const groupStartCount = view.getUint16(146, true);
@@ -378,6 +415,90 @@ export class StatusReader {
       groupStarts[i] = item;
     }
     groupStarts.length = groupStartCount;
+    return cur;
+  }
+
+  /**
+   * ADR 0171 §4.3 (Wa2): checks the `loudBuses` (`loudBusCount` at 232, at most `LOUD_METERS`, 16 B each),
+   * `loudEnergies` (`loudEnergyCount` at 234, at most `MAX_LOUD_ENERGIES`, 4 B each) and `busDuck` (`duckCount` at 236,
+   * at most `MAX_DUCK_RULES`, 8 B each) sections, which start at `at` (just after `groupStarts`), with the codes and
+   * messages of the generated `readStatus` (`OVERSIZE`, "STATUS: <section> overrun"), then the count-sum rule: the
+   * `loudBuses` new-block counts (`flags & 0x3F`) add up to `loudEnergyCount`, else `MALFORMED` "STATUS: loudEnergies
+   * count sum" (the energies are bus-major, so a disagreement would mis-assign them). Touches nothing and allocates
+   * nothing: it reads the counts straight from the view.
+   */
+  private validateM5(view: DataView, at: number, limit: number): void {
+    const loudBusCount = view.getUint16(232, true);
+    const loudEnergyCount = view.getUint16(234, true);
+    const duckCount = view.getUint16(236, true);
+    let cur = at;
+    if (loudBusCount > LOUD_METERS || loudBusCount * LOUD_BUS_ITEM_BYTES > limit - cur) {
+      throw new WireError(ErrorCode.OVERSIZE, "STATUS: loudBuses overrun");
+    }
+    let sum = 0;
+    for (let i = 0; i < loudBusCount; i++) sum += view.getUint16(cur + i * LOUD_BUS_ITEM_BYTES + 2, true) & LOUD_FLAG_NEW_BLOCKS_MASK;
+    cur += loudBusCount * LOUD_BUS_ITEM_BYTES;
+    if (loudEnergyCount > MAX_LOUD_ENERGIES || loudEnergyCount * LOUD_ENERGY_ITEM_BYTES > limit - cur) {
+      throw new WireError(ErrorCode.OVERSIZE, "STATUS: loudEnergies overrun");
+    }
+    cur += loudEnergyCount * LOUD_ENERGY_ITEM_BYTES;
+    if (duckCount > MAX_DUCK_RULES || duckCount * BUS_DUCK_ITEM_BYTES > limit - cur) {
+      throw new WireError(ErrorCode.OVERSIZE, "STATUS: busDuck overrun");
+    }
+    if (sum !== loudEnergyCount) throw new WireError(ErrorCode.MALFORMED, "STATUS: loudEnergies count sum");
+  }
+
+  /**
+   * ADR 0171 §4.3 (Wa2): reads the 256-byte header's M5 fields (176..255: `busyMsTotal`, `quantaTotal`, the five `wu*`
+   * f64s, `clockStepMs`, `loudSubBlockFrames`, `clockSteps`, `loudShed`, `busRecordsEarly`, `sidechainLate`, `reserved2`;
+   * the three counts at 232, 234 and 236 are the section lengths), then the three sections from `at` into the
+   * preallocated `loudBusItems`, `block.loudEnergies` (warmed to its cap) and `busDuckItems`, setting each array's
+   * `length`. Allocates nothing. `validateM5` has already checked the bounds and the count sum.
+   */
+  private readM5(view: DataView, at: number): void {
+    const b = this.block;
+    const loudBusCount = view.getUint16(232, true);
+    const loudEnergyCount = view.getUint16(234, true);
+    const duckCount = view.getUint16(236, true);
+    b.busyMsTotal = view.getFloat64(176, true);
+    b.quantaTotal = view.getFloat64(184, true);
+    b.wuVoices = view.getFloat64(192, true);
+    b.wuBuses = view.getFloat64(200, true);
+    b.wuSpatial = view.getFloat64(208, true);
+    b.wuMusic = view.getFloat64(216, true);
+    b.wuLoudness = view.getFloat64(224, true);
+    b.clockStepMs = view.getUint16(238, true);
+    b.loudSubBlockFrames = view.getUint32(240, true);
+    b.clockSteps = view.getUint16(244, true);
+    b.loudShed = view.getUint16(246, true);
+    b.busRecordsEarly = view.getUint16(248, true);
+    b.sidechainLate = view.getUint16(250, true);
+    b.reserved2 = view.getUint32(252, true);
+
+    let cur = at;
+    const loudBuses = b.loudBuses;
+    for (let i = 0; i < loudBusCount; i++, cur += LOUD_BUS_ITEM_BYTES) {
+      const item = this.loudBusItems[i]!;
+      item.slot = view.getUint16(cur, true);
+      item.flags = view.getUint16(cur + 2, true);
+      item.firstSeq = view.getUint32(cur + 4, true);
+      item.truePeak = view.getFloat32(cur + 8, true);
+      item.gatedQuanta = view.getUint32(cur + 12, true);
+      loudBuses[i] = item;
+    }
+    loudBuses.length = loudBusCount;
+    const energies = b.loudEnergies;
+    for (let i = 0; i < loudEnergyCount; i++, cur += LOUD_ENERGY_ITEM_BYTES) energies[i] = view.getFloat32(cur, true);
+    energies.length = loudEnergyCount;
+    const busDuck = b.busDuck;
+    for (let i = 0; i < duckCount; i++, cur += BUS_DUCK_ITEM_BYTES) {
+      const item = this.busDuckItems[i]!;
+      item.slot = view.getUint16(cur, true);
+      item.pad = view.getUint16(cur + 2, true);
+      item.gain = view.getFloat32(cur + 4, true);
+      busDuck[i] = item;
+    }
+    busDuck.length = duckCount;
   }
 
   private ids(view: DataView, at: number, count: number, out: number[]): number {

@@ -1,4 +1,4 @@
-//! The bus tree (api-and-models §3 "Bus state serialisation", §4.2 BUS_CONFIG, BUS_MIX, MASTER;
+//! The bus tree (api-and-models §3 "Bus state serialisation", §4.2 BUS_CONFIG, BUS_RAMP, MASTER;
 //! architecture §1, §4.3).
 //!
 //! **Tree.** BUS_CONFIG sends the whole tree, one entry per bus index: its parent (`0xFFFF` for a
@@ -9,16 +9,17 @@
 //! are mixed in is computed then (deepest first), so parents need not come before their children.
 //! Before any BUS_CONFIG the tree is one root bus at unity gain.
 //!
-//! **Gains and ramps.** BUS_MIX gives each bus its own gain (mute and solo are folded into it on
-//! main: a muted bus has gain 0) and its snapshot low-pass cut-off (24,000 Hz is off), both ramped
-//! linearly over `rampFrames` from the start of the next quantum: the gain per frame (click-free),
+//! **Gains and ramps.** `BUS_RAMP` on the `runtime` lane gives each bus its own gain (mute and solo
+//! are folded into it on main: a muted bus has gain 0) and on the `snapshot` lane its low-pass
+//! cut-off (24,000 Hz is off), both ramped linearly over the record's `frames` (`lanes.rs`; BUS_MIX
+//! before 0171/0172 M5): the gain per frame (click-free),
 //! the cut-off per quantum. The core multiplies gains down the tree by mixing each bus into its
 //! parent. MASTER sets the output's volume and mute, ramped the same way. A bus that BUS_CONFIG
-//! keeps keeps its gain, cut-off, effect state and meter; a new bus starts at unity until BUS_MIX.
+//! keeps keeps its gain, cut-off, effect state and meter; a new bus starts at unity until a `BUS_RAMP`.
 //! A non-finite gain or volume leaves the old target; a negative one is 0; a non-finite cut-off is
 //! off.
 //!
-//! **Timing.** BUS_CONFIG, BUS_MIX and MASTER apply when they arrive, between quanta, whatever
+//! **Timing.** BUS_CONFIG and MASTER apply when they arrive, between quanta, whatever
 //! their `frameOffset` (main sends them asap; no M1 caller stamps them).
 //!
 //! **Render** ([`mixdown`], once per quantum after the voices): voices have mixed into their bus's
@@ -43,6 +44,21 @@
 //! core has rendered; without it the core uses the default. 0 ms is A2.8's zero-latency limiter
 //! (the module doc has the design).
 //!
+//! **M5 stage hooks** (0171/0172, plan contract K1). The render and the records reach the M5
+//! modules only through these calls, so later tasks fill their own module and never edit this
+//! file:
+//! - the gain stage is `lanes::apply` (the ramp and automation's `gainMul`, moved there verbatim,
+//!   with the `duck` lane from `duck::gain` skipped while it returns `false`); the output gain is
+//!   `lanes::apply_master`; RESET settles through `lanes::settle` and `lanes::settle_master`;
+//!   `BUS_RAMP` is `lanes::on_ramp`;
+//! - the pre-fader tap `duck::detect` runs after the effects and the snapshot low-pass, before the
+//!   lanes; `loudness::tap` runs after each bus's lanes (beside the meter) and on the output after
+//!   the limiter;
+//! - the reverb-send slots write into a shared 1 KB planar send scratch, which `sends::feed` adds
+//!   into the convolver input after the gain stage (unscaled until Rv1); `sends::convolver_should_run`
+//!   decides whether the convolver runs;
+//! - the mix order is `bus_order::compute`; BUS_CONFIG's per-slot apply is `bus_slots::apply`.
+//!
 //! **Automation** (ADR 0158 E2, `automation.rs`): a bus with BUS_AUTOMATE bindings also takes
 //! their `gainMul` after its gain ramp (ramped across the quantum) and its snapshot low-pass at
 //! `min(lpHz, lpAuto)`. Buses without bindings are untouched.
@@ -63,7 +79,7 @@ use audio_dsp::biquad::Biquad;
 use audio_dsp::convolver;
 use audio_dsp::limiter::{self, Limiter};
 use audio_dsp::ramp::Ramp;
-use audio_wire::generated::{self as wire, BusConfigBusesEffects, BusMixBuses, Master, RecordHead};
+use audio_wire::generated::{self as wire, BusConfigBusesEffects, Master, RecordHead};
 
 use crate::core::{Core, Regions};
 use crate::fx::{self, FxChain};
@@ -85,9 +101,9 @@ pub const LP_OFF_HZ: f32 = wire::BUS_LP_OFF_HZ as f32;
 pub struct BusSlot {
     /// This quantum's input, planar stereo `[L; 128][R; 128]`; voices and child buses add into it.
     pub buf: [f32; 2 * QUANTUM],
-    /// The bus's own gain (BUS_MIX), ramped per frame.
+    /// The bus's own gain (the `runtime` lane, `BUS_RAMP`), ramped per frame.
     pub gain: Ramp,
-    /// The snapshot low-pass cut-off in Hz (BUS_MIX), ramped per quantum; [`LP_OFF_HZ`] is off.
+    /// The snapshot low-pass cut-off in Hz (the `snapshot` lane, `BUS_RAMP`), ramped per quantum; [`LP_OFF_HZ`] is off.
     pub lp: Ramp,
     /// The parent bus index, or [`ROOT`].
     pub parent: u16,
@@ -115,7 +131,7 @@ pub struct BusArea {
     /// MASTER as last received.
     pub master_volume: f32,
     pub master_muted: u32,
-    /// Buses, effects and BUS_MIX entries dropped (past the limits, a bus's second compressor,
+    /// Buses and effects dropped (past the limits, a bus's second compressor,
     /// unknown effect types), cumulative. The wire has no STATUS field for it; tests and a debugger read it.
     pub dropped: u32,
     /// The mix order: bus indices, deepest first (`count` of them).
@@ -141,12 +157,14 @@ const _: () = assert!(BUS_AREA_OFFSET + core::mem::size_of::<BusArea>() <= crate
 const _: () = assert!(core::mem::align_of::<BusSlot>() <= REGION_ALIGN);
 const _: () = assert!(core::mem::size_of::<BusSlot>() <= crate::layout::BUS_BYTES);
 
-struct View<'a> {
-    slots: &'a mut [BusSlot],
-    area: &'a mut BusArea,
+pub(crate) struct View<'a> {
+    pub(crate) slots: &'a mut [BusSlot],
+    pub(crate) area: &'a mut BusArea,
 }
 
-fn view(regions: &mut Regions) -> View<'_> {
+/// The bus slots and the bus area of `regions` (this module's, `lanes.rs`'s and the stage
+/// modules K1 split out of it).
+pub(crate) fn view(regions: &mut Regions) -> View<'_> {
     let count = regions.buses.len() / crate::layout::BUS_BYTES;
     let state = &mut regions.core_state[BUS_AREA_OFFSET..BUS_AREA_OFFSET + core::mem::size_of::<BusArea>()];
     // SAFETY: both regions are 64-byte aligned (Layout) and zeroed at init; all-zero bytes are a
@@ -182,7 +200,7 @@ pub fn count(core: &Core) -> usize {
 }
 
 /// A unity bus: gain 1, low-pass off, `parent`, fresh DSP state.
-fn fresh(parent: u16) -> BusSlot {
+pub(crate) fn fresh(parent: u16) -> BusSlot {
     // SAFETY: all-zero is a valid BusSlot (see `view`).
     let mut s: BusSlot = unsafe { core::mem::zeroed() };
     s.gain = Ramp::at(1.0);
@@ -263,15 +281,6 @@ pub fn config_is_well_formed(msg: &[u8], off: usize, len: usize) -> bool {
     true
 }
 
-/// `true` when the BUS_MIX record at `msg[off..off + len]` holds its `busCount` entries.
-pub fn mix_is_well_formed(msg: &[u8], off: usize, len: usize) -> bool {
-    if len < wire::BusMix::FIXED_END || off + len > msg.len() {
-        return false;
-    }
-    let n = u32_at(msg, off + 12) as usize;
-    n.checked_mul(BusMixBuses::FIXED_END).is_some_and(|bytes| wire::BusMix::FIXED_END + bytes <= len)
-}
-
 /// BUS_CONFIG: applies the tree in the (well-formed) record at `msg[off..]`. See the module
 /// comment for validation and what is kept.
 pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
@@ -295,15 +304,12 @@ pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
         let parent = u16_at(msg, cur);
         let effects = u16_at(msg, cur + 2) as usize;
         cur += 4;
-        if i >= old_count {
-            v.slots[i] = fresh(parent);
-        }
-        let slot = &mut v.slots[i];
-        slot.parent = parent;
         let start = cur;
         let list = (0..effects).filter_map(|e| BusConfigBusesEffects::read(&msg[..end], start + e * BusConfigBusesEffects::FIXED_END).ok()).map(|(fx, _)| (fx.type_, fx.p));
-        dropped += slot.fx.configure(list, sample_rate);
-        has_reverb |= slot.fx.has_reverb_send();
+        // M5 (K1): the per-slot apply, shared with B2's `BUS_SLOT`.
+        let (d, reverb) = crate::bus_slots::apply(&mut v.slots[i], i >= old_count, parent, list, sample_rate);
+        dropped += d;
+        has_reverb |= reverb;
         cur += effects * BusConfigBusesEffects::FIXED_END;
     }
     // Buses no longer configured go silent and lose their state.
@@ -319,10 +325,11 @@ pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
     }
     let count = count.max(1);
     repair_tree(&mut v.slots[..count]);
-    order(&v.slots[..count], &mut v.area.order[..count]);
+    crate::bus_order::compute(&v.slots[..count], &mut v.area.order[..count]);
     v.area.count = count as u32;
     v.area.has_reverb = has_reverb as u32;
     v.area.dropped = v.area.dropped.wrapping_add(dropped);
+    crate::bus_order::rerun(core);
     let c = status::counters_mut(core);
     c.set_bus_count(count);
     for b in count..crate::counters::PEAKS_CAP {
@@ -383,46 +390,6 @@ fn repair_tree(slots: &mut [BusSlot]) {
     }
 }
 
-/// Writes the mix order into `out`: bus indices by depth, deepest first, ties by index (stable
-/// insertion sort; at most 256 buses, in `onmessage`).
-fn order(slots: &[BusSlot], out: &mut [u8]) {
-    for (i, o) in out.iter_mut().enumerate() {
-        *o = i as u8;
-    }
-    for i in 1..out.len() {
-        let mut j = i;
-        while j > 0 && slots[out[j - 1] as usize].depth < slots[out[j] as usize].depth {
-            out.swap(j - 1, j);
-            j -= 1;
-        }
-    }
-}
-
-/// BUS_MIX: sets each configured bus's gain and cut-off targets from the (well-formed) record at
-/// `msg[off..]`, ramped over its `rampFrames`. Entries past the configured buses are dropped and
-/// counted; buses past the record's entries keep their targets.
-pub fn mix(core: &mut Core, msg: &[u8], off: usize) {
-    let n = u32_at(msg, off + 12) as usize;
-    let ramp = u32_at(msg, off + 16);
-    let v = view(core.regions_mut());
-    let count = v.area.count as usize;
-    for i in 0..n {
-        let Ok((entry, _)) = BusMixBuses::read(msg, off + wire::BusMix::FIXED_END + i * BusMixBuses::FIXED_END) else { break };
-        if i >= count {
-            v.area.dropped = v.area.dropped.wrapping_add((n - i) as u32);
-            break;
-        }
-        let slot = &mut v.slots[i];
-        if entry.gain.is_finite() {
-            slot.gain.set_target(entry.gain.max(0.0), ramp);
-        }
-        let lp = if entry.lp_hz.is_finite() { entry.lp_hz.clamp(0.0, LP_OFF_HZ) } else { LP_OFF_HZ };
-        if lp != slot.lp.target {
-            slot.lp.set_target(lp, ramp);
-        }
-    }
-}
-
 /// MASTER: the output's volume and mute, ramped over `rampFrames`.
 pub fn master(core: &mut Core, m: &Master) {
     let v = view(core.regions_mut());
@@ -439,17 +406,25 @@ pub fn master(core: &mut Core, m: &Master) {
 pub fn reset(core: &mut Core) {
     let regions = core.regions_mut();
     convolver::reset(&mut regions.reverb[..]);
+    // M5 (K1): the lane entries, a region of their own (distinct from the buses and core state).
+    let lanes: *mut [u8] = &mut regions.lanes[..];
     let v = view(regions);
+    // SAFETY: the lanes region is distinct from every region `v` views (Layout).
+    let lanes = crate::lanes::entries(unsafe { &mut *lanes });
+    let (bus_lanes, master_lanes) = match lanes.split_last_mut() {
+        Some((m, b)) => (b, Some(m)),
+        None => (&mut [][..], None),
+    };
     let count = (v.area.count as usize).min(v.slots.len());
-    for slot in v.slots[..count].iter_mut() {
+    let mut spare = crate::lanes::BusLanes::default();
+    for (i, slot) in v.slots[..count].iter_mut().enumerate() {
         slot.buf = [0.0; 2 * QUANTUM];
-        slot.gain = Ramp::at(slot.gain.target);
-        slot.lp = Ramp::at(slot.lp.target);
+        crate::lanes::settle(bus_lanes.get_mut(i).unwrap_or(&mut spare), slot);
         slot.meter.reset();
         slot.snapshot = Biquad::default();
         slot.fx.reset();
     }
-    v.area.master = Ramp::at(v.area.master.target);
+    crate::lanes::settle_master(master_lanes.unwrap_or(&mut spare), &mut v.area.master);
     v.area.limiter.reset();
     v.area.reverb_in = [0.0; 2 * QUANTUM];
     let c = status::counters_mut(core);
@@ -513,6 +488,11 @@ pub fn mixdown(core: &mut Core) {
     let zones: *mut [u8] = &mut regions.zones[..];
     // ADR 0158 E2: the buses' automation, or `None` when no bus has bindings (the M1 path).
     let autos: Option<*mut [crate::automation::BusAuto]> = crate::automation::bus_entries(&mut regions.automation[..]).map(|a| a as *mut _);
+    // M5 (K1): the regions the stage hooks own: lanes, duck state, loudness meters, the send scratch.
+    let lanes: *mut [u8] = &mut regions.lanes[..];
+    let duck: *mut [u8] = &mut regions.duck[..];
+    let loudness: *mut [u8] = &mut regions.loudness[..];
+    let sends: *mut [u8] = &mut regions.sends[..];
     let v = view(regions);
     // SAFETY: the output and reverb regions are distinct from the buses and core-state regions
     // `v` views (Layout), so these views don't alias it.
@@ -520,12 +500,34 @@ pub fn mixdown(core: &mut Core) {
     let reverb = unsafe { &mut *reverb };
     // SAFETY: the beds and zones regions are distinct from every region viewed here (Layout).
     let (beds, zones) = unsafe { (&mut *beds, &mut *zones) };
+    // SAFETY: the M5 regions are distinct from each other and from every region viewed here (Layout).
+    let (lanes, duck, loudness, sends) = unsafe { (&mut *lanes, &mut *duck, &mut *loudness, &mut *sends) };
+    let lanes = crate::lanes::entries(lanes);
+    let (bus_lanes, master_lanes) = match lanes.split_last_mut() {
+        Some((m, b)) => (b, Some(m)),
+        None => (&mut [][..], None),
+    };
+    let mut spare_lanes = crate::lanes::BusLanes::default();
+    let mut spare_duck: Option<crate::duck::DuckArea> = None;
+    let duck = match crate::duck::area(duck) {
+        Some(d) => d,
+        // Never after `Core::new` (the region is always laid out); a zeroed stand-in keeps the
+        // hooks' signatures total.
+        // SAFETY: all-zero is a valid DuckArea (integers and floats).
+        None => spare_duck.insert(unsafe { core::mem::zeroed() }),
+    };
     let count = (v.area.count as usize).min(v.slots.len());
     let sample_rate = v.area.sample_rate;
     let decay = v.area.meter_decay;
     let (rev_l, rev_r) = v.area.reverb_in.split_at_mut(QUANTUM);
     let mut sent = false;
     let mut block = [0.0f32; 2 * QUANTUM];
+    // M5 (K1): the bus's reverb contribution (`FxChain::process`), fed to the convolver input after
+    // the gain stage (`sends::feed`); the gain stage's per-frame gain; the duck lane's curve.
+    // The `Sends` region is always laid out (1,088 B), so this never returns early.
+    let Some(send) = crate::sends::area(sends) else { return };
+    let mut gain_curve = [0.0f32; QUANTUM];
+    let mut duck_curve = [0.0f32; QUANTUM];
     for k in 0..count {
         let b = v.area.order[k] as usize;
         let slot = &mut v.slots[b];
@@ -537,36 +539,23 @@ pub fn mixdown(core: &mut Core) {
             crate::bed::decode_into(beds, b, l, r);
             crate::zones::add_returns(zones, b, l, r);
             crate::sends::add_aux(zones, b, l, r);
-            sent |= slot.fx.process(l, r, rev_l, rev_r);
+            let fed = slot.fx.process(l, r, &mut send.l, &mut send.r);
+            sent |= fed;
             let lp = match auto {
                 Some(a) if a.targets & crate::automation::has::LOWPASS != 0 => slot.lp.value.min(a.lp),
                 _ => slot.lp.value,
             };
             fx::snapshot_lowpass(&mut slot.snapshot, sample_rate, lp, l, r);
             slot.lp.advance(QUANTUM as u32);
-            if slot.gain.is_settled() {
-                let g = slot.gain.value;
-                if g != 1.0 {
-                    for x in l.iter_mut().chain(r.iter_mut()) {
-                        *x *= g;
-                    }
-                }
-            } else {
-                for i in 0..QUANTUM {
-                    let g = slot.gain.next();
-                    l[i] *= g;
-                    r[i] *= g;
-                }
-            }
-            if let Some(a) = auto.filter(|a| a.targets & crate::automation::has::GAIN != 0) {
-                // ADR 0158 §3: bus automation's gain on top of BUS_MIX's, ramped across the quantum.
-                for i in 0..QUANTUM {
-                    let g = a.gain_at(i);
-                    l[i] *= g;
-                    r[i] *= g;
-                }
+            // M5 (K1): the pre-fader tap (sidechain detectors, Sc1), then the gain lanes.
+            crate::duck::detect(duck, b, l, r);
+            let ducked = if crate::duck::gain(duck, b, &mut duck_curve) { Some(&duck_curve) } else { None };
+            let gain = crate::lanes::apply(bus_lanes.get_mut(b).unwrap_or(&mut spare_lanes), &mut slot.gain, auto, ducked, l, r, &mut gain_curve);
+            if fed {
+                crate::sends::feed(send, gain, &gain_curve, rev_l, rev_r);
             }
             slot.meter.update(l, r, decay);
+            crate::loudness::tap(loudness, b as u16, l, r);
         }
         block.copy_from_slice(&slot.buf);
         slot.buf = [0.0; 2 * QUANTUM];
@@ -582,7 +571,7 @@ pub fn mixdown(core: &mut Core) {
             dst_r[i] += block[QUANTUM + i];
         }
     }
-    if v.area.has_reverb != 0 || sent {
+    if crate::sends::convolver_should_run(send, reverb, v.area.has_reverb != 0, sent) {
         match shared_return {
             None => convolver::process(reverb, rev_l, rev_r, out_l, out_r),
             Some(g) => {
@@ -598,26 +587,13 @@ pub fn mixdown(core: &mut Core) {
         rev_l.fill(0.0);
         rev_r.fill(0.0);
     }
-    let master = &mut v.area.master;
-    if master.is_settled() {
-        let g = master.value;
-        if g != 1.0 {
-            for i in 0..QUANTUM {
-                out_l[i] *= g;
-                out_r[i] *= g;
-            }
-        }
-    } else {
-        for i in 0..QUANTUM {
-            let g = master.next();
-            out_l[i] *= g;
-            out_r[i] *= g;
-        }
-    }
+    crate::lanes::apply_master(master_lanes.unwrap_or(&mut spare_lanes), &mut v.area.master, out_l, out_r);
     v.area.rendered = 1;
     if v.area.limiter.process(out_l, out_r) {
         v.area.limited = v.area.limited.wrapping_add(1);
     }
+    // M5 (K1): the final output's loudness tap, after the limiter (record change 11).
+    crate::loudness::tap(loudness, crate::loudness::OUTPUT_TAP, out_l, out_r);
     let peaks = count.min(crate::counters::PEAKS_CAP);
     for b in 0..peaks {
         let m = view(core.regions_mut()).slots[b].meter;
@@ -647,7 +623,7 @@ mod tests {
         assert_eq!(parents(&s), vec![ROOT, 0, 0, 1, 3]);
         assert_eq!(s.iter().map(|b| b.depth).collect::<Vec<_>>(), vec![0, 1, 1, 2, 3]);
         let mut o = [0u8; 5];
-        order(&s, &mut o);
+        crate::bus_order::compute(&s, &mut o);
         assert_eq!(o, [4, 3, 1, 2, 0]);
     }
 
@@ -656,7 +632,7 @@ mod tests {
         let mut s = tree(&[2, ROOT, 1]);
         repair_tree(&mut s);
         let mut o = [0u8; 3];
-        order(&s, &mut o);
+        crate::bus_order::compute(&s, &mut o);
         assert_eq!(o, [0, 2, 1]);
     }
 

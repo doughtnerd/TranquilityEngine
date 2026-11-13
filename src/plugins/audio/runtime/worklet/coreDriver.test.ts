@@ -128,7 +128,7 @@ describe("coreDriver with the real wasm", () => {
     expect(r.blocks).toHaveLength(1);
     const first = r.blocks[0]!;
     expect(first.flags & STATUS_FLAGS_READY).toBeTruthy();
-    expect(first.abiVersion).toBe(0x300);
+    expect(first.abiVersion).toBe(0x400);
     expect(first.currentFrame).toBe(6 * 128);
     await expect(r.link.ready).resolves.toBeUndefined();
     r.run(6);
@@ -203,7 +203,7 @@ describe("coreDriver with the real wasm", () => {
     expect(s.underrunFrames).toBe(99);
     expect(s.traps).toBe(2);
     expect(s.flags & FLAG_TRAP_CAUGHT).toBeTruthy();
-    expect(SHELL_FIELD).toEqual({ dateMs: 24, pingSeq: 32, pingFrameLo: 36, underruns: 40, flags: 60, traps: 82, underrunFrames: 88 });
+    expect(SHELL_FIELD).toEqual({ dateMs: 24, pingSeq: 32, pingFrameLo: 36, underruns: 40, flags: 60, traps: 82, underrunFrames: 88, busyMsTotal: 176, quantaTotal: 184, clockStepMs: 238, clockSteps: 244 });
   });
 
   it("a trap gives silence, counts, posts one trap event, and the driver never calls the core again (A3.4a)", () => {
@@ -405,8 +405,8 @@ describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
     expect(spatialRegionsBytes(PRESET, RATE)).toBe(32 * 448 + 8192 + PRESET.maxBuses * 1024 + (64 + PRESET.maxBuses * 512) + 64);
   });
 
-  it("ABI 3.0: max_music_rings 0..16 is accepted, 17 refused, and the preset's count reaches init (ADR 0166 W1)", () => {
-    expect(CORE_ABI_MAJOR).toBe(3);
+  it("ABI 4.0 (3.0 added max_music_rings): max_music_rings 0..16 is accepted, 17 refused, and the preset's count reaches init (ADR 0166 W1)", () => {
+    expect(CORE_ABI_MAJOR).toBe(4);
     for (const maxMusicRings of [0, 8, 16]) expect(() => instantiateCore(WASM, { ...PRESET, maxMusicRings }, RATE)).not.toThrow();
     expect(() => instantiateCore(WASM, { ...PRESET, maxMusicRings: 17 }, RATE)).toThrow(/refused/);
     const { exports } = instantiateCore(WASM, PRESET, RATE);

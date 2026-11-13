@@ -14,7 +14,7 @@
 //! the `Zones` region, so [`begin_quantum`] writes every configured bus's gains into its sends area
 //! (`zones::sends_area`), and only while some mixed voice has a send or an aux bus: a core without
 //! sends pays a scan of the pool and nothing else. A record that moves a bus's gain inside the
-//! quantum (a stamped BUS_MIX) reaches the sends a quantum later than the dry path.
+//! quantum (a stamped bus gain record) reaches the sends a quantum later than the dry path.
 //!
 //! **Zone send** ([`tap`]): `send[k] × ½(l + r) × chain gain` into both inputs of slot `k` (a
 //! mono voice has `l = r`, so it sends its sample as is). A slot that doesn't take sends (off,
@@ -186,4 +186,160 @@ fn drain_into(dst: &mut [f32], src: &mut [f32]) {
     for (d, s) in dst.iter_mut().zip(src) {
         *d += core::mem::take(s);
     }
+}
+
+// --- The bus reverb send (ADR 0172 §3.1, O1: post-fader; architecture §4.5 "Post-fader sends",
+// R11; api-and-models §4.6). K1 routes it; Rv1 (W3) fills the scaling and the run-out. ---
+//
+// **Post-fader (O1, ARCH §4.5 "Post-fader sends").** `fx.process` writes the reverb slot's
+// contribution (send × the signal at that slot, before the snapshot low-pass, which the send still
+// bypasses) into the 1 KB scratch; once the bus's gain for the quantum exists (`lanes::apply`: all
+// seven lanes, `authored`, `runtime`, `snapshot`, `monitor`, `dip`, `duck`, `automation`), [`feed`]
+// multiplies the scratch by it and adds it to the convolver input. A muted, faded, ducked, dipped
+// or monitor-muted bus stops feeding the reverb; a bus at a settled 1 (`Gain::Unity`) skips the
+// multiply, bit-identical with the pre-fader send.
+//
+// **The run-out (R11, ARCH §3.3 and §4.7 "Last reverb send removed").** The shared convolver runs
+// while a configured bus has a reverb send or a send fed it this quantum; after the last send goes
+// it keeps running on silent input until that input has been silent for the IR's length plus
+// `zones::IDLE_MARGIN_QUANTA` (every history is exact zeros by then, as for a zone slot), then it is
+// reset ([`audio_dsp::convolver::reset`]: histories cleared, clock restarted), so the tail rings out
+// and a later send starts from a clean convolver with nothing stale to replay. "Silent" is counted
+// from the last quantum a send existed (a send at gain 0 counts as input: conservative, the
+// run-out is never shorter than the tail).
+
+/// The `Sends` region's header (64 B): Rv1's run-out state. All-zero valid (no tail to ring out).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SendHead {
+    /// Quanta since a send last existed (has_reverb or sent) while [`live`](Self::live): the
+    /// run-out ends once this passes the IR length plus `IDLE_MARGIN_QUANTA` ([`run_out_quanta`]).
+    pub silent_quanta: u32,
+    /// Non-zero while the convolver may hold a tail: set on every quantum a send exists, cleared by
+    /// the reset that ends the run-out. Zero: the convolver is idle and its state is clean.
+    pub live: u32,
+    pub _reserved: [u32; 14],
+}
+
+/// The `Sends` region (ARCH §6): the header and the shared bus send scratch, planar stereo
+/// (2 × 128 f32 = 1 KB, one buffer for every bus, since buses mix one at a time): 1,088 B on every
+/// preset. `#[repr(C)]`, all-zero valid (an empty scratch).
+#[repr(C)]
+pub struct SendArea {
+    pub head: SendHead,
+    /// The bus's reverb contribution, left: each reverb-send slot's `send × signal at that slot`
+    /// (`FxChain::process`). Zero between buses ([`feed`] clears it).
+    pub l: [f32; QUANTUM],
+    /// The same, right.
+    pub r: [f32; QUANTUM],
+}
+
+/// The `Sends` region's size.
+pub const REGION_BYTES: usize = core::mem::size_of::<SendArea>();
+
+const _: () = assert!(REGION_BYTES == 64 + 1024, "ARCH §6: the 1 KB send scratch plus Rv1's 64 B header");
+const _: () = assert!(core::mem::align_of::<SendArea>() <= crate::layout::REGION_ALIGN);
+
+/// The send area in the `Sends` region (`None` when the region is too short, never after
+/// `Core::new`).
+pub fn area(region: &mut [u8]) -> Option<&mut SendArea> {
+    if region.len() < REGION_BYTES {
+        return None;
+    }
+    // SAFETY: the region is 64-byte aligned (Layout), at least REGION_BYTES long (checked) and
+    // zeroed at init; all-zero is a valid SendArea (integers and floats). Only `bus::mixdown`
+    // (through this function) and this module view these bytes.
+    Some(unsafe { &mut *(region.as_mut_ptr() as *mut SendArea) })
+}
+
+/// The bus reverb send into the shared convolver's input (`bus::mixdown`, after the bus's gain
+/// stage): `area.l`, `area.r` hold this bus's reverb contribution for the quantum; they are added
+/// into `rev_l`, `rev_r` (the convolver input) and cleared. `gain` is what `lanes::apply`
+/// multiplied the bus by, and `curve` its per-frame gain when that is `Gain::Curve`.
+///
+/// Post-fader (O1, ARCH §4.5): `rev += scratch × gain`, frame by frame:
+/// - `Gain::Unity`: no multiply, `rev + (0 + x)` is `rev + x` bit for bit, today's pre-fader send
+///   (a bus with two or more send slots sums them in the scratch first, `rev + (a + b)`, which may
+///   differ from `(rev + a) + b` in the last bit; build log D2);
+/// - `Gain::Scalar(0.0)` (a settled mute, dip or monitor mute): nothing is added, the scratch is
+///   cleared;
+/// - `Gain::Scalar(g)`: `rev + x·g`; `Gain::Curve`: `rev[i] + x[i]·curve[i]`, the real per-frame
+///   curve (a stamped mid-quantum lane record lands on its own frame, build log B1b).
+///
+/// Called only for a bus whose chain wrote the scratch this quantum.
+#[inline(never)]
+pub fn feed(area: &mut SendArea, gain: crate::lanes::Gain, curve: &[f32; QUANTUM], rev_l: &mut [f32], rev_r: &mut [f32]) {
+    use crate::lanes::Gain;
+    match gain {
+        Gain::Unity => {
+            drain_into(rev_l, &mut area.l);
+            drain_into(rev_r, &mut area.r);
+        }
+        Gain::Scalar(g) if g == 0.0 => {
+            area.l.fill(0.0);
+            area.r.fill(0.0);
+        }
+        Gain::Scalar(g) => {
+            drain_scalar(rev_l, &mut area.l, g);
+            drain_scalar(rev_r, &mut area.r, g);
+        }
+        Gain::Curve => {
+            drain_scaled(rev_l, &mut area.l, curve);
+            drain_scaled(rev_r, &mut area.r, curve);
+        }
+    }
+}
+
+/// `dst[i] += src[i] · g[i]`, then `src` cleared (one multiply-add pass, then a fill the compiler
+/// turns into a memset: cheaper in wasm than clearing inside the loop).
+#[inline(never)]
+fn drain_scaled(dst: &mut [f32], src: &mut [f32; QUANTUM], g: &[f32; QUANTUM]) {
+    for (d, (s, g)) in dst.iter_mut().zip(src.iter().zip(g)) {
+        *d += *s * *g;
+    }
+    src.fill(0.0);
+}
+
+/// `dst[i] += src[i] · g`, then `src` cleared.
+#[inline(never)]
+fn drain_scalar(dst: &mut [f32], src: &mut [f32; QUANTUM], g: f32) {
+    for (d, s) in dst.iter_mut().zip(src.iter()) {
+        *d += *s * g;
+    }
+    src.fill(0.0);
+}
+
+/// Quanta of silent input after which the shared convolver's state is exact zeros: its IR's
+/// length in quanta plus `zones::IDLE_MARGIN_QUANTA` (the zone slots' rule, `zones.rs:116`). 0 when
+/// `reverb` holds no prepared response (nothing to ring out).
+pub fn run_out_quanta(reverb: &[u8]) -> u32 {
+    audio_dsp::convolver::kernel::Kernel::parse(reverb).map_or(0, |k| k.frames().div_ceil(QUANTUM).min(u32::MAX as usize) as u32 + zones::IDLE_MARGIN_QUANTA)
+}
+
+/// Whether the shared convolver runs this quantum (`bus::mixdown`, after every bus fed it):
+/// `has_reverb` (a configured bus has a reverb send) or `sent` (a send fed it this quantum), as
+/// before M5; and the run-out (R11, ARCH §3.3): with no send left it keeps running on silent input
+/// until that input has been silent for more than [`run_out_quanta`] quanta, then resets
+/// `reverb` (the convolver's region) and stops, so removing the last send no longer cuts the tail
+/// and a later send replays nothing stale. Allocates nothing; the reset is one clear of the
+/// convolver's histories, once per run-out.
+#[inline]
+pub fn convolver_should_run(area: &mut SendArea, reverb: &mut [u8], has_reverb: bool, sent: bool) -> bool {
+    let h = &mut area.head;
+    if has_reverb || sent {
+        h.live = 1;
+        h.silent_quanta = 0;
+        return true;
+    }
+    if h.live == 0 {
+        return false;
+    }
+    h.silent_quanta = h.silent_quanta.saturating_add(1);
+    if h.silent_quanta <= run_out_quanta(reverb) {
+        return true;
+    }
+    audio_dsp::convolver::reset(reverb);
+    h.live = 0;
+    h.silent_quanta = 0;
+    false
 }

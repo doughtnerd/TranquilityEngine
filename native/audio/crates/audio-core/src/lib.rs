@@ -11,11 +11,18 @@
 //!
 //! 0166 M4 (Q1's skeletons; tree A1–A5, A27): `due` (Z2a), `curves` (Z2b), `voice_split` (Z2c),
 //! `groups` (C2a, C2b), `group_hold` (C2c), `group_rebase` (C2d). This module list is final for M4.
+//!
+//! 0171/0172 M5 (K1's skeletons; plan contract K1): `lanes` (the gain stage and `BUS_RAMP`, moved
+//! from `bus.rs`; B1a, B1b), `bus_order` (the mix order; B3), `bus_slots` (per-slot configuration;
+//! B2), `duck` (the duck lane; B3, Dp1, Sc1), `loudness` (meters; Ld2, Ld7). `bus.rs` calls them as
+//! stage hooks; `scheduler.rs` dispatches the M5 opcodes to them. This module list is final for M5.
 
 pub mod arena;
 pub mod automation;
 pub mod bed;
 pub mod bus;
+pub mod bus_order;
+pub mod bus_slots;
 pub mod cap;
 pub mod cap_controller;
 pub mod chain;
@@ -23,14 +30,17 @@ pub mod clips;
 pub mod core;
 pub mod counters;
 pub mod curves;
+pub mod duck;
 pub mod due;
 pub mod fx;
 pub mod fxpool;
 pub mod group_hold;
 pub mod group_rebase;
 pub mod groups;
+pub mod lanes;
 pub mod layout;
 pub mod listener;
+pub mod loudness;
 pub mod meters;
 pub mod panner;
 pub mod params;

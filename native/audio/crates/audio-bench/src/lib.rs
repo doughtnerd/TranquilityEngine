@@ -267,6 +267,10 @@ pub enum Per {
     /// Music: 8 stems, an equal-power crossfade of one every 32 quanta (a PLAY with `fadeZero` and a FADE in, a FADE out
     /// with `stopAtEnd`), and a stinger voice started and stopped by a stamped STOP.
     Music,
+    /// ADR 0171/0172 M5 (Bn1): a `BUS_RAMP` (runtime lane, gain, over `ramp_q` quanta) on each of the first `n` buses every 4th
+    /// quantum, alternating 0.6 and 0.9 (a `ramp_q` of 0 steps to unity, once: the settled twin, the identity skip): `n` lanes ramping all the
+    /// time (class B when stamped).
+    BusRamp(u32, u32),
 }
 
 /// ADR 0162 C7: the bus aux sends go to (one of the presets' 32 buses).
@@ -564,6 +568,14 @@ pub fn scene(name: &str) -> Option<Scene> {
         "stamped-loop-twin" => Scene::per(Scene::looping(name, 128), Per::Loop, false),
         "stamped-music" => Scene::per(Scene::looping(name, 8), Per::Music, true),
         "stamped-music-twin" => Scene::per(Scene::looping(name, 8), Per::Music, false),
+        // ADR 0171/0172 M5 (Bn1): bus lanes ramping. `busramp-8`: 8 buses each with a stamped BUS_RAMP every 4th quantum
+        // (class B), `-twin` the same asap, `-base` the same 8 buses settled; `busramp-32`: 32 buses configured, 4 ramping
+        // (stamped), the other 28 settled (the identity skip), `-base` the 32 settled.
+        "busramp-8" => Scene::per(Scene { buses: 8, ..Scene::looping(name, 32) }, Per::BusRamp(8, 4), true),
+        "busramp-8-twin" => Scene::per(Scene { buses: 8, ..Scene::looping(name, 32) }, Per::BusRamp(8, 4), false),
+        "busramp-8-base" => Scene::per(Scene { buses: 8, ..Scene::looping(name, 32) }, Per::BusRamp(8, 0), false),
+        "busramp-32" => Scene::per(Scene { buses: 32, ..Scene::looping(name, 32) }, Per::BusRamp(4, 4), true),
+        "busramp-32-base" => Scene::per(Scene { buses: 32, ..Scene::looping(name, 32) }, Per::BusRamp(4, 0), false),
         // ADR 0166 M4b (Bench1): music on the default preset, decoded and streamed, each beside its music-free twin (the
         // twin is shared: music's voices are on top of the same SFX). `MUSIC_PAIRS` in the gate holds the allowances.
         "music-typ-twin" => Scene::music(name, MusicKind::Typical, false, false),
@@ -1270,7 +1282,7 @@ impl Bench {
         b
     }
 
-    /// BUS_CONFIG, BUS_MIX and MASTER, the streams, the looping and first mixed voices.
+    /// BUS_CONFIG, the bus lanes (BUS_RAMP) and MASTER, the streams, the looping and first mixed voices.
     fn configure(&mut self) {
         let s = self.scene.clone();
         let mut buses = Vec::new();
@@ -1299,8 +1311,13 @@ impl Bench {
         }
         self.push(&wire::BusConfig { voice_id: 0, frame_offset: wire::ASAP, buses });
         let lp = if s.snapshot_lp { 6_000.0 } else { wire::BUS_LP_OFF_HZ as f32 };
-        let mix = wire::BusMix { voice_id: 0, frame_offset: wire::ASAP, ramp_frames: 0, buses: (0..s.buses).map(|_| wire::BusMixBuses { gain: 0.9, lp_hz: lp }).collect() };
-        self.push(&mix);
+        // What BUS_MIX of (0.9, lp) per bus was (B1a, 0171/0172 M5): per bus, an asap BUS_RAMP on
+        // the runtime lane's gain and one on the snapshot lane's low-pass (bit-identical, R3).
+        for bus in 0..s.buses as u32 {
+            for (lane, mask) in [(wire::LANE_RUNTIME, wire::BUS_RAMP_MASK_GAIN), (wire::LANE_SNAPSHOT, wire::BUS_RAMP_MASK_LP_HZ)] {
+                self.push(&wire::BusRamp { voice_id: bus, frame_offset: wire::ASAP, lane: lane as u16, mask, gain: 0.9, lp_hz: lp, frames: 0, shape: 0 });
+            }
+        }
         self.push(&wire::Master { voice_id: 0, frame_offset: wire::ASAP, volume: 0.5, muted: 0, ramp_frames: 0 });
         if s.beds > 0 {
             // One bed: hosted by bus 0. More: bed k by bus 1 + k (each a child of bus 0); bus 0 hosts none.
@@ -1775,6 +1792,14 @@ impl Bench {
                 let (a, b) = if (q / self.mixed_ids.len() as u64) % 2 == 0 { (frames / 4, 3 * frames / 4) } else { (frames / 8, 7 * frames / 8) };
                 self.push(&wire::SetLoop { voice_id: id, frame_offset: at(0), loop_start_frame: a, loop_end_frame: b, flags: wire::SET_LOOP_FLAGS_LOOPING });
             }
+            Per::BusRamp(n, ramp_q) => {
+                if q % 4 == 0 {
+                    let gain = if ramp_q == 0 { 1.0 } else if (q / 4) % 2 == 0 { 0.6 } else { 0.9 };
+                    for bus in 0..n {
+                        self.push(&wire::BusRamp { voice_id: bus, frame_offset: at(bus as u64), lane: wire::LANE_RUNTIME as u16, mask: wire::BUS_RAMP_MASK_GAIN, gain, lp_hz: wire::BUS_LP_OFF_HZ as f32, frames: ramp_q * QUANTUM as u32, shape: 0 });
+                    }
+                }
+            }
             Per::Music => {
                 if self.stems.is_empty() {
                     self.stems = self.mixed_ids.clone();
@@ -2137,7 +2162,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps).
@@ -2175,7 +2200,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     let (mut sum_bed_voices, mut sum_beds, mut sum_work_bed) = (0f64, 0f64, 0f64);
     let (mut sum_fx, mut sum_ambi) = (0f64, 0f64);
     let (mut sum_zact, mut sum_zring, mut sum_zwork, mut sum_senders, mut sum_aux) = (0f64, 0f64, 0f64, 0f64, 0f64);
-    let mut status_buf = vec![0u8; 16 * 1024];
+    let mut status_buf = vec![0u8; wire::STATUS_BUFFER_BYTES as usize];
     let mut probe: Vec<f32> = Vec::new();
     let mut deadline = platform::now_us();
     let (mut records_at_warm, mut starts_at_warm) = (0u64, 0u64);

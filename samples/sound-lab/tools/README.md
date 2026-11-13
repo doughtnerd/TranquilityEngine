@@ -29,3 +29,7 @@ What the page does, and what to listen for, is in the comments of `scripts/behav
 ## Rhythm page clips
 
 `samples/sound-lab/tools/makeClick.mjs` writes `../audio/music/click-track.wav` (one bar at 120 bpm, a click on every beat, beat 1 higher; deterministic: `node samples/sound-lab/tools/makeClick.mjs`). The rhythm page (key R on the tour page, `scenes/rhythm.scene.json`, `scripts/behaviors/RhythmLab.ts`) plays it through `rhythm-click.audioevent.json` for the calibration, and `rhythm-game.audioevent.json` (the combat drums and bass) for the tap game.
+
+## Mix page clip (M5-0)
+
+`makeDrums.mjs` writes `../audio/drum-loop.wav` (one bar at 120 bpm, 48 kHz mono 16-bit: kick on 1 and 3, noise snare on 2 and 4, noise hats on every eighth; deterministic: `node samples/sound-lab/tools/makeDrums.mjs`). It is the broadband, percussive material of the M5-0 listening section (`docs/design/0171-audio-mix/listening-notes/m5-0.md`), where a sine would hide a post-fader mute, a dip or a duck. On the main page: **B** drums on Music, **A** noise on Ambience, **N** and **Z** mute and fade Ambience, **X** a burst scheduled one second ahead.

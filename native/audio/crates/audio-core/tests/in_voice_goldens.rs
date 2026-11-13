@@ -77,7 +77,7 @@ impl Scene {
     fn send(&mut self, recs: &[Rec]) {
         let bytes = batch(self.m.frame as f64, recs);
         let hex: String = bytes[32..].iter().map(|b| format!("{b:02x}")).collect();
-        self.steps.push(format!("{{\"send\":\"{hex}\",\"count\":{}}}", recs.len()));
+        self.steps.push(format!("{{\"send\":\"{hex}\",\"count\":{}}}", recs.iter().map(Rec::count).sum::<usize>()));
         self.m.submit(recs);
     }
 

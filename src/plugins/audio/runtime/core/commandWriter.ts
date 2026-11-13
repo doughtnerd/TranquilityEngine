@@ -9,8 +9,8 @@
 // for the frame are queued deduplicated by the table and written here in order.
 //
 // Steady state allocates nothing: the staging areas, the record index arrays and the scratch record objects are made
-// once; the generated writers write straight into the staging area. (`busConfig` and `busMix` write what the caller
-// passes; they are not per-frame in steady state.)
+// once; the generated writers write straight into the staging area. (`busConfig` writes what the caller passes;
+// it is not per-frame in steady state.)
 //
 // ADR 0158 E2 adds the automation records (`setLoop`, `automate`, `param`, `curves`, `busAutomate`; byte layouts in
 // api-and-models §4.2). They write what they are given; the event runtime (E3) decides when to send them.
@@ -28,6 +28,20 @@ import {
   AUTOMATE_BINDINGS_FIXED_END,
   BATCH_HEADER_FLAGS_OVERFLOWED,
   BATCH_MAX_BYTES,
+  BUS_SLOT_FLAGS_FRESH,
+  BUS_SLOT_FLAGS_STRUCTURAL,
+  BUS_SLOT_MAX_EFFECTS,
+  ErrorCode,
+  FadeLaw,
+  MAX_DUCK_RULES,
+  MAX_LOUDNESS_BUSES,
+  packRampShape,
+  WireError,
+  writeBusDuck,
+  writeBusPresence,
+  writeBusRamp,
+  writeBusSlot,
+  writeLoudConfig,
   FADE_FLAGS_STOP_AT_END,
   PLAY_FLAGS_FADE_ZERO,
   packGate,
@@ -48,7 +62,6 @@ import {
   writeBedConfig,
   writeBusAutomate,
   writeBusConfig,
-  writeBusMix,
   writeEnvelope,
   writeFade,
   writeListener,
@@ -67,8 +80,15 @@ import {
   type Automate,
   type AutomateBindings,
   type BusAutomate,
+  type BusDuck,
+  type BusDuckRules,
+  type BusPresence,
+  type BusRamp,
+  type BusSlot,
+  type BusSlotEffects,
+  type LoudConfig,
+  type LoudConfigMeters,
   type BusConfigBuses,
-  type BusMixBuses,
   type Fade,
   type Master,
   type Param,
@@ -90,6 +110,21 @@ import { CURVE_INTERPS, type Curve } from "../../../../engine/core/curve";
 import type { BufferPool } from "./bufferPool";
 import type { VoiceCommandSink } from "./voiceTable";
 
+
+/** ADR 0171 §4.2 `BUS_SLOT`, minus the head and the reserved words: one slot's configuration, as on the wire. */
+export interface BusSlotArgs {
+  slot: number;
+  /** Parent slot; `BUS_ROOT` (0xFFFF) for a root. */
+  parent: number;
+  /** In wire form (`type`, 7 parameters: a shorter `p` is zero-padded); at most `BUS_SLOT_MAX_EFFECTS` are written. */
+  effects: readonly { type: number; p: readonly number[] }[];
+  /** `BUS_SLOT_FLAGS_STRUCTURAL`: applies at quantum granularity under the gate (a dip's middle record). */
+  structural?: boolean;
+  /** `BUS_SLOT_FLAGS_FRESH`: the slot starts zeroed with unity lanes (a re-add after recycling). */
+  fresh?: boolean;
+  /** The structural sequence this record belongs to (13 bits, 0 none, C27). */
+  sequenceId?: number;
+}
 
 /** What the writer needs from `CoreLink`. */
 export interface BatchPort {
@@ -159,6 +194,10 @@ const BATCH_RECORD_BYTES = BATCH_MAX_BYTES - BATCH_PREFIX_BYTES;
 const MAX_FRAME_OFFSET = 0xfffffffe;
 /** The AUTOMATE record's bindings between records (never written to). */
 const NO_AUTOMATE_BINDINGS: AutomateBindings[] = [];
+/** The BUS_SLOT, BUS_DUCK and LOUD_CONFIG scratch lists between records (never written to). */
+const NO_SLOT_EFFECTS: BusSlotEffects[] = [];
+const NO_DUCK_RULES: BusDuckRules[] = [];
+const NO_LOUD_METERS: LoudConfigMeters[] = [];
 /** The BED_CONFIG and ZONE_CONFIG scratch arrays between records (never written to). */
 const NO_NUMBERS: number[] = [];
 const NO_ZONE_SLOTS: ZoneSlotArgs[] = [];
@@ -234,6 +273,18 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly mixedRec: SetMixed = { voiceId: 0, frameOffset: ASAP, mixed: 0, gain: 1, dirX: 0, dirY: 0, dirZ: -1, lpHz: 0 };
   private readonly pausedRec: SetPaused = { voiceId: 0, frameOffset: ASAP, paused: 0 };
   private readonly seekRec: Seek = { voiceId: 0, frameOffset: ASAP, clipFrame: 0, epoch: 0 };
+  private readonly rampRec: BusRamp = { voiceId: 0, frameOffset: ASAP, lane: 0, mask: 0, gain: 1, lpHz: 0, frames: 0, shape: 0 };
+  private readonly slotRec: BusSlot = { voiceId: 0, frameOffset: ASAP, slot: 0, flags: 0, sequenceId: 0, reserved: 0, reserved2: 0, parent: 0xffff, effects: [] };
+  /** `BUS_SLOT`'s effect scratch: `BUS_SLOT_MAX_EFFECTS` records with 7-entry parameter arrays, reused by every record. */
+  private readonly slotEffects: BusSlotEffects[] = Array.from({ length: BUS_SLOT_MAX_EFFECTS }, () => ({ type: 0, p: [0, 0, 0, 0, 0, 0, 0] }));
+  /** `slotEffects` cut to each length 0..4, made once, so a record sets its list without slicing. */
+  private readonly slotEffectViews: BusSlotEffects[][] = Array.from({ length: BUS_SLOT_MAX_EFFECTS + 1 }, (_, n) => this.slotEffects.slice(0, n));
+  private readonly duckRec: BusDuck = { voiceId: 0, frameOffset: ASAP, rules: [] };
+  private readonly presenceRec: BusPresence = { voiceId: 0, frameOffset: ASAP, mask: 0 };
+  private readonly loudRec: LoudConfig = { voiceId: 0, frameOffset: ASAP, tpGateDbfs: 0, meters: [] };
+  /** `LOUD_CONFIG`'s meter scratch: `MAX_LOUDNESS_BUSES` records, reused by every record. */
+  private readonly loudMeters: LoudConfigMeters[] = Array.from({ length: MAX_LOUDNESS_BUSES }, () => ({ slot: 0, reserved: 0 }));
+  private readonly loudMeterViews: LoudConfigMeters[][] = Array.from({ length: MAX_LOUDNESS_BUSES + 1 }, (_, n) => this.loudMeters.slice(0, n));
   private readonly masterRec: Master = { voiceId: 0, frameOffset: ASAP, volume: 1, muted: 0, rampFrames: 0 };
   private readonly resetRec: Reset = { voiceId: 0, frameOffset: ASAP, keepClips: 0 } as Reset;
   private readonly loopRec: SetLoop = { voiceId: 0, frameOffset: ASAP, loopStartFrame: 0, loopEndFrame: 0, flags: 0 };
@@ -458,11 +509,94 @@ export class CommandWriter implements VoiceCommandSink {
     this.end(at, writeBusConfig(this.view, at, { voiceId: 0, frameOffset: ASAP, buses: buses as BusConfigBuses[] }));
   }
 
-  /** BUS_MIX: gain and low-pass per bus, root first. */
-  busMix(buses: readonly BusMixBuses[], rampFrames: number): void {
-    const at = this.begin(20 + 8 * buses.length);
+  /**
+   * ADR 0171 §4.2 BUS_RAMP: ramp `lane` (`LANE_*`) of bus slot `bus` (`BUS_MASTER_OUT`: the output gain) to `gain` (when
+   * `mask` has `BUS_RAMP_MASK_GAIN`) and/or `lpHz` (`BUS_RAMP_MASK_LP_HZ`, lane 2 only) over `seconds`, linear, stamped at
+   * `atFrame` (absolute) or asap when omitted. `seconds` 0 is a literal step (replay and RESET only, R2). `sequenceId`
+   * (13 bits, 0 none) tags a dip's records (C27). A 32-byte record; allocates nothing.
+   */
+  busRamp(bus: number, lane: number, mask: number, gain: number, lpHz: number, seconds: number, sequenceId = 0, atFrame?: number): void {
+    this.busRampFrames(bus, lane, mask, gain, lpHz, this.frames(seconds), sequenceId, atFrame);
+  }
+
+  /** `busRamp` with the length already in frames (the lane writer's `ClockMap.rampFrames()`; replay's 0). */
+  busRampFrames(bus: number, lane: number, mask: number, gain: number, lpHz: number, frames: number, sequenceId = 0, atFrame?: number): void {
+    const r = this.rampRec;
+    r.voiceId = bus;
+    r.lane = lane;
+    r.mask = mask;
+    r.gain = gain;
+    r.lpHz = lpHz;
+    r.frames = frames;
+    r.shape = packRampShape(FadeLaw.Linear, sequenceId, 0);
+    const at = this.begin(32);
     if (at < 0) return;
-    this.end(at, writeBusMix(this.view, at, { voiceId: 0, frameOffset: ASAP, rampFrames, buses: buses as BusMixBuses[] }));
+    this.end(at, writeBusRamp(this.view, at, r), atFrame);
+  }
+
+  /**
+   * ADR 0171 §4.2 BUS_SLOT: one slot's configuration (R7), stamped at `atFrame` or asap. A tombstone is a silent root
+   * (R9). The record's size is 28 B + 32 B per effect (at most `BUS_SLOT_MAX_EFFECTS`; more are not written).
+   */
+  busSlot(args: BusSlotArgs, atFrame?: number): void {
+    const r = this.slotRec;
+    const n = args.effects.length < BUS_SLOT_MAX_EFFECTS ? args.effects.length : BUS_SLOT_MAX_EFFECTS;
+    for (let i = 0; i < n; i++) {
+      const src = args.effects[i]!;
+      const dst = this.slotEffects[i]!;
+      dst.type = src.type;
+      for (let k = 0; k < 7; k++) dst.p[k] = src.p[k] ?? 0;
+    }
+    r.slot = args.slot;
+    r.parent = args.parent;
+    r.flags = (args.structural ? BUS_SLOT_FLAGS_STRUCTURAL : 0) | (args.fresh ? BUS_SLOT_FLAGS_FRESH : 0);
+    r.sequenceId = (args.sequenceId ?? 0) & 0x1fff;
+    r.effects = this.slotEffectViews[n]!;
+    const at = this.begin(28 + 32 * n);
+    if (at >= 0) this.end(at, writeBusSlot(this.view, at, r), atFrame);
+    r.effects = NO_SLOT_EFFECTS;
+  }
+
+  /**
+   * ADR 0171 §4.2 BUS_DUCK: replaces every ducking rule (at most `MAX_DUCK_RULES`; more throw `WireError(OVERSIZE)`, as
+   * the generated writer does). Asap only: it carries no frame. An empty list clears the rules.
+   */
+  busDuck(rules: readonly BusDuckRules[]): void {
+    if (rules.length > MAX_DUCK_RULES) throw new WireError(ErrorCode.OVERSIZE, "BusDuck: rules over its cap " + MAX_DUCK_RULES);
+    const r = this.duckRec;
+    r.rules = rules as BusDuckRules[];
+    const at = this.begin(16 + 24 * rules.length);
+    if (at >= 0) this.end(at, writeBusDuck(this.view, at, r));
+    r.rules = NO_DUCK_RULES; // drops the caller's list without a new array per record
+  }
+
+  /**
+   * ADR 0171 §4.2 BUS_PRESENCE: bit b of `mask` is set while bus slot b has a voice (virtual and locked included),
+   * stamped at `atFrame` (the voice's start or explicit stop) or asap; the core applies it at the start of the quantum
+   * holding the frame.
+   */
+  busPresence(mask: number, atFrame?: number): void {
+    const r = this.presenceRec;
+    r.mask = mask >>> 0;
+    const at = this.begin(16);
+    if (at < 0) return;
+    this.end(at, writeBusPresence(this.view, at, r), atFrame);
+  }
+
+  /**
+   * ADR 0171 §4.2 LOUD_CONFIG: replaces the loudness meters' configuration: the true-peak gate (the selected ceiling
+   * minus 6 dB) and the metered bus slots (at most `MAX_LOUDNESS_BUSES`; master is implicit, more throw
+   * `WireError(OVERSIZE)`). Asap only. A target change re-sends it and is not a reset.
+   */
+  loudConfig(tpGateDbfs: number, slots: ArrayLike<number>): void {
+    if (slots.length > MAX_LOUDNESS_BUSES) throw new WireError(ErrorCode.OVERSIZE, "LoudConfig: meters over its cap " + MAX_LOUDNESS_BUSES);
+    const r = this.loudRec;
+    for (let i = 0; i < slots.length; i++) this.loudMeters[i]!.slot = slots[i]!;
+    r.tpGateDbfs = tpGateDbfs;
+    r.meters = this.loudMeterViews[slots.length]!;
+    const at = this.begin(20 + 4 * slots.length);
+    if (at >= 0) this.end(at, writeLoudConfig(this.view, at, r));
+    r.meters = NO_LOUD_METERS;
   }
 
   /** MASTER volume and mute. */

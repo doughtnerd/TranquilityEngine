@@ -10,9 +10,16 @@
 //
 // ADR 0166 (Q2 owns this file in W1; the coordinator afterwards): the fake has the music seam: `music` (a recording
 // `MusicBackend`, `FakeMusicBackend`), a counting `beginFrame`, `timeAt` over `rafTime` and `latency` over `latencyValue`.
+//
+// ADR 0171 (K0 owns this file in M5 W1; the coordinator afterwards): the fake has every M5 member: `applyOp` records the
+// op and answers `applyResult`, `flushNow` counts, the lane, slot, ducking and loudness writers record, `duckGain` reads
+// `duckGains`, `mixCaps` and `cpu()` are settable, `recorderTap` and `setProfileSink` hold what they're given.
 
-import type { AudioBackend, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, PlayRequest, VoiceSpatialOptions, ZoneIrService } from "./backend";
+import type { AudioBackend, AudioCpuDebug, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, BusLaneRamp, BusSlotWrite, FadeLaw, ListenerPose, LoudnessConfigWrite, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
 import type { AudioLatency } from "../../../engine/audio/musicTypes";
+import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
+import type { DuckingRule } from "../../../engine/audio/settings";
+import type { ProfileSink } from "./mix/profileSink";
 import { mixer, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { CoreLink, type LinkPort } from "./core/context";
@@ -115,6 +122,28 @@ export interface FakeBackend extends AudioBackend {
   rafTime: number;
   /** What `latency()` returns. */
   latencyValue: AudioLatency;
+
+  // ADR 0171 (K0): the M5 mix members.
+  /** Every op `applyOp` received, in order. */
+  readonly ops: MixOp[];
+  /** What `applyOp` answers (default `{ ok: true, class: "direct" }`). */
+  applyResult: ApplyResult;
+  /** `flushNow` calls so far. */
+  flushes: number;
+  /** Every `rampLane`, `writeSlot`, `writeDucking` and `writeLoudnessConfig` call, in order per writer. */
+  readonly laneRamps: BusLaneRamp[];
+  readonly slotWrites: BusSlotWrite[];
+  readonly duckingWrites: (readonly DuckingRule[])[];
+  readonly loudnessConfigs: LoudnessConfigWrite[];
+  /** What `duckGain(bus)` reads; unlisted buses are 1. */
+  readonly duckGains: Map<string, number>;
+  /** The fake's capability record (default: a core-like backend, every flag true). */
+  mixCaps: AudioMixCaps;
+  /** What `cpu()` returns. */
+  cpuValue: AudioCpuDebug;
+  recorderTap: RecorderTap | null;
+  /** The sink `setProfileSink` was given (null: none). */
+  profileSink: ProfileSink | null;
 }
 
 /** A group the fake music backend holds: the latest request for its id and which members are primed. */
@@ -265,6 +294,27 @@ export function makeFakeBackend(): FakeBackend {
     latency() { return { ...backend.latencyValue }; },
     clipDuration(path: string) { return backend.durations.get(path) ?? null; },
     clipFacts(path: string) { return backend.facts.get(path); },
+    ops: [],
+    applyResult: { ok: true, class: "direct" },
+    flushes: 0,
+    laneRamps: [],
+    slotWrites: [],
+    duckingWrites: [],
+    loudnessConfigs: [],
+    duckGains: new Map(),
+    mixCaps: { loudness: true, levelDucking: true, cpu: true, cpuReason: null, stampedBusRamps: true, capture: "full" },
+    cpuValue: { loadPermille: null, windowMs: 0, clockStepMs: 0, clockSteps: 0, refitResidual: null, sections: null, hidden: null },
+    recorderTap: null,
+    profileSink: null,
+    applyOp(op: MixOp) { backend.ops.push(op); return { ...backend.applyResult }; },
+    flushNow() { backend.flushes++; },
+    rampLane(r: BusLaneRamp) { backend.laneRamps.push({ ...r }); },
+    writeSlot(w: BusSlotWrite) { backend.slotWrites.push({ ...w }); },
+    writeDucking(rules: readonly DuckingRule[]) { backend.duckingWrites.push(rules.map((r) => ({ ...r }))); },
+    writeLoudnessConfig(c: LoudnessConfigWrite) { backend.loudnessConfigs.push({ ...c, meters: [...c.meters] }); },
+    duckGain(bus: string) { return backend.duckGains.get(bus) ?? 1; },
+    cpu() { return { ...backend.cpuValue }; },
+    setProfileSink(sink: ProfileSink | null) { backend.profileSink = sink; },
     play(request) {
       plays.push(request);
       if (!backend.ready) return null;
@@ -292,6 +342,12 @@ export function makeFakeBackend(): FakeBackend {
       backend.horizonTime = null;
       backend.music?.clear();
       backend.beginFrameCalls = 0;
+      backend.ops.length = 0;
+      backend.flushes = 0;
+      backend.laneRamps.length = 0;
+      backend.slotWrites.length = 0;
+      backend.duckingWrites.length = 0;
+      backend.loudnessConfigs.length = 0;
     },
   };
   Object.defineProperty(backend, "horizon", { get: () => (backend.horizonTime === null ? undefined : () => backend.horizonTime!) });

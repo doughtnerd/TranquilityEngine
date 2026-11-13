@@ -202,3 +202,14 @@ The reference for the format and the API is `docs/guide/interactive-music-api.md
 - `src/plugins/audio/runtime/Audio.ts`, `AudioSource.ts`, `backend.ts` (the M1 API this extends).
 - `src/engine/scene/particles.ts` (`CurveKey`, `myco.particles@1`).
 - Wwise containers and RTPCs; FMOD Studio parameters and seek speed (concepts only; neither is a dependency).
+
+## Amended by ADR 0172 (M5), 2026-11-13: bus automation is one gain lane
+
+Section 3 says bus automation "multiplies with snapshots and ducking (0097); it doesn't replace them". That holds, and M5 names the place it multiplies (0172 §1.3; [0171 change 15](0171-audio-profiler-loudness-metering-and-live-mixing.md)).
+
+- **Automation is the core's `automation` lane**, one of a bus's seven gain lanes (see 0097's amendment). It stays in the core, evaluated per quantum as before; the `BUS_AUTOMATE` command and the curves are unchanged. A bus's volume curve is not a stamped ramp: the core follows the parameter's smoothed value, as section 3 says.
+- **It is a separate lane, so** a fade, a duck, a snapshot and an automation curve on one bus no longer share a value. `bus.effectiveGain` is still their product with the parents' gains.
+- **Only the Babylon fallback changes:** it multiplies the lanes on main (0171 change 15).
+- The Profiler shows the automation factor beside the others at the cursor (a later M5 task).
+
+The build is in `bus.rs` and its tests, see the [build log](../design/0171-audio-mix/build-log.md) (B1a, Wave 2).

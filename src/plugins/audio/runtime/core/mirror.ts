@@ -8,9 +8,10 @@
 // (`readStatus`, which `CoreLink` runs before calling listeners, still builds a `StatusBlock` per block; that object
 // is the link's, not the mirror's.)
 import { MAX_BUSES } from "../../../../engine/audio/settings";
-import { MAX_BEDS, MAX_MUSIC_RINGS, MAX_ZONE_SLOTS, type StatusBlock } from "../wire.generated";
+import { LOUD_METERS, MAX_BEDS, MAX_DUCK_RULES, MAX_LOUD_ENERGIES, MAX_MUSIC_RINGS, MAX_ZONE_SLOTS, type StatusBlock } from "../wire.generated";
 import type { CoreLink } from "./context";
 import type { VoiceTable } from "./voiceTable";
+import { CpuMeter } from "../mix/cpuMeter";
 
 /** @internal Clip and stream events held between frames before the oldest are dropped (and counted). */
 export const MIRROR_EVENT_CAPACITY = 1024;
@@ -114,6 +115,46 @@ export class StatusMirror {
   readonly musicRingEpochFlags = new Uint32Array(MAX_MUSIC_RINGS);
   musicRingCount = 0;
 
+  // --- ADR 0171 (Wa2; §4.3): the M5 header fields, newest block. Cumulative values are f64 and restart at 0 with the shell (an epoch change) ---
+  /** Shell: sum of `Date.now()` deltas around `process()`, ms, since the driver started. */
+  busyMsTotal = 0;
+  /** Shell: quanta processed since the driver started. */
+  quantaTotal = 0;
+  /** Core: cumulative work units by part (voices, buses, spatial, music, loudness). */
+  wuVoices = 0;
+  wuBuses = 0;
+  wuSpatial = 0;
+  wuMusic = 0;
+  wuLoudness = 0;
+  /** Shell: the smallest non-zero `Date.now` delta seen; 0 = none yet. */
+  clockStepMs = 0;
+  /** Core: the loudness sub-block length in frames, `round(sampleRate / 10)`. */
+  loudSubBlockFrames = 0;
+  /** Shell: wall-clock steps clamped (saturating). */
+  clockSteps = 0;
+  /** Core: the ladder's loudness step in force, 0 or 1. */
+  loudShed = 0;
+  /** Core, cumulative saturating: bus records that arrived after their frame. */
+  busRecordsEarly = 0;
+  /** Core, cumulative saturating: sidechain reads that were late. */
+  sidechainLate = 0;
+
+  // --- ADR 0171 (Wa2; §4.3): the `loudBuses`, `loudEnergies` and `busDuck` sections, newest block (index = item; counts valid) ---
+  /** Per meter (the output tap is slot `LOUD_OUTPUT_TAP`): slot, flags (bits 0-5 new-block count), first sequence, true peak, gated quanta. */
+  readonly loudSlot = new Uint16Array(LOUD_METERS);
+  readonly loudFlags = new Uint16Array(LOUD_METERS);
+  readonly loudFirstSeq = new Uint32Array(LOUD_METERS);
+  readonly loudTruePeak = new Float32Array(LOUD_METERS);
+  readonly loudGatedQuanta = new Uint32Array(LOUD_METERS);
+  loudBusCount = 0;
+  /** The newest block's sub-block energies, bus-major in `loudBuses` order (the loudness hub reads them from the block itself). */
+  readonly loudEnergies = new Float32Array(MAX_LOUD_ENERGIES);
+  loudEnergyCount = 0;
+  /** Per ducked bus: slot and the duck lane's gain. */
+  readonly duckSlot = new Uint16Array(MAX_DUCK_RULES);
+  readonly duckGain = new Float32Array(MAX_DUCK_RULES);
+  duckCount = 0;
+
   // --- Peaks (§4.3 `peaks`, newest block; index = bus) ---
   readonly peakL = new Float32Array(MAX_BUSES);
   readonly peakR = new Float32Array(MAX_BUSES);
@@ -146,7 +187,12 @@ export class StatusMirror {
 
   private readonly listener = (status: StatusBlock): void => this.apply(status);
 
-  constructor(readonly table: VoiceTable) {}
+  /** Cp2 (architecture §4.3, R18): the CPU figure over the STATUS blocks applied here; `loadPermille` below is its value. */
+  readonly cpu: CpuMeter;
+
+  constructor(readonly table: VoiceTable, sampleRate: number = 48000) {
+    this.cpu = new CpuMeter(sampleRate);
+  }
 
   /** Applies every STATUS the link receives, in its `onmessage`. Returns the unsubscribe. */
   attach(link: Pick<CoreLink, "onStatus">): () => void {
@@ -229,6 +275,42 @@ export class StatusMirror {
     this.musicRingCount = nr;
     const starts = status.groupStarts;
     for (let k = 0; k < starts.length; k++) this.pushGroupStart(starts[k]!.groupId, starts[k]!.flags, starts[k]!.slipFrames, starts[k]!.startFrameHi * 4294967296 + starts[k]!.startFrameLo);
+    // ADR 0171 (Wa2): the M5 header fields and the three sections, into preallocated arrays.
+    this.busyMsTotal = status.busyMsTotal;
+    this.quantaTotal = status.quantaTotal;
+    this.wuVoices = status.wuVoices;
+    this.wuBuses = status.wuBuses;
+    this.wuSpatial = status.wuSpatial;
+    this.wuMusic = status.wuMusic;
+    this.wuLoudness = status.wuLoudness;
+    this.clockStepMs = status.clockStepMs;
+    this.loudSubBlockFrames = status.loudSubBlockFrames;
+    this.clockSteps = status.clockSteps;
+    this.loudShed = status.loudShed;
+    this.busRecordsEarly = status.busRecordsEarly;
+    this.sidechainLate = status.sidechainLate;
+    const loudBuses = status.loudBuses;
+    const nl = loudBuses.length < LOUD_METERS ? loudBuses.length : LOUD_METERS;
+    for (let k = 0; k < nl; k++) {
+      const item = loudBuses[k]!;
+      this.loudSlot[k] = item.slot;
+      this.loudFlags[k] = item.flags;
+      this.loudFirstSeq[k] = item.firstSeq;
+      this.loudTruePeak[k] = item.truePeak;
+      this.loudGatedQuanta[k] = item.gatedQuanta;
+    }
+    this.loudBusCount = nl;
+    const energies = status.loudEnergies;
+    const ne = energies.length < MAX_LOUD_ENERGIES ? energies.length : MAX_LOUD_ENERGIES;
+    for (let k = 0; k < ne; k++) this.loudEnergies[k] = energies[k]!;
+    this.loudEnergyCount = ne;
+    const busDuck = status.busDuck;
+    const nd = busDuck.length < MAX_DUCK_RULES ? busDuck.length : MAX_DUCK_RULES;
+    for (let k = 0; k < nd; k++) {
+      this.duckSlot[k] = busDuck[k]!.slot;
+      this.duckGain[k] = busDuck[k]!.gain;
+    }
+    this.duckCount = nd;
     // Header: the newest block wins.
     this.currentFrame = status.currentFrame;
     this.dateMs = status.dateMs;
@@ -243,7 +325,9 @@ export class StatusMirror {
     this.liveVoices = status.liveVoices;
     this.flags = status.flags;
     this.mixedCap = status.mixedCap;
-    this.loadPermille = status.loadPermille;
+    // Cp2 (architecture §4.3): the wire's `loadPermille` is reserved 0; the figure is main's, 0 until the first window fills (`cpu.loadPermille` says null).
+    this.cpu.feed(status);
+    this.loadPermille = this.cpu.loadPermille ?? 0;
     this.traps = status.traps;
     this.underrunFrames = status.underrunFrames;
     this.arenaUsedKB = status.arenaUsedKB;
@@ -457,6 +541,20 @@ export function makeStatusBlock(fields: Partial<StatusBlock> = {}): StatusBlock 
     splitQuanta: 0,
     voiceSplits: 0,
     reserved: 0,
+    busyMsTotal: 0,
+    quantaTotal: 0,
+    wuVoices: 0,
+    wuBuses: 0,
+    wuSpatial: 0,
+    wuMusic: 0,
+    wuLoudness: 0,
+    clockStepMs: 0,
+    loudSubBlockFrames: 0,
+    clockSteps: 0,
+    loudShed: 0,
+    busRecordsEarly: 0,
+    sidechainLate: 0,
+    reserved2: 0,
     ended: [],
     demoted: [],
     starved: [],
@@ -469,6 +567,9 @@ export function makeStatusBlock(fields: Partial<StatusBlock> = {}): StatusBlock 
     zoneEvents: [],
     musicRings: [],
     groupStarts: [],
+    loudBuses: [],
+    loudEnergies: [],
+    busDuck: [],
     ...fields,
   };
 }

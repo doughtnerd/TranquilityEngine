@@ -4,14 +4,14 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "287e5173cde33028cb09bd4bfbc4d2ec";
+export const SCHEMA_HASH = "437412c9bad8b878ade83c2f04be5c5c";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
 /** a core refuses a different major */
 export const VERSION_MAJOR = 0x1;
-/** new opcodes or appended payload words are minor (1.1: ADR 0162; 1.2: the shape word, ADR 0166) */
-export const VERSION_MINOR = 0x2;
+/** new opcodes or appended payload words are minor (1.1: ADR 0162; 1.2: the shape word, ADR 0166; 1.3: the M5 mix opcodes, ADR 0171) */
+export const VERSION_MINOR = 0x3;
 /** envelope size */
 export const ENVELOPE_BYTES = 0x10;
 /** f64 firstFrame; u32 count; u32 flags */
@@ -26,14 +26,14 @@ export const BATCH_MAX_BYTES = 0x10000;
 export const INBOX_BYTES = 0x100000;
 /** each REPLAY message: 1 MiB minus 32 bytes */
 export const REPLAY_CHUNK_MAX_BYTES = 0xfffe0;
-/** STATUS header, envelope included (ADR 0162 §4.3; 176 B with the M4 fields, ADR 0166) */
-export const STATUS_HEADER_BYTES = 0xb0;
+/** STATUS header, envelope included (256 B with the M5 fields, ADR 0171 API section 4.3; 176 B in M4) */
+export const STATUS_HEADER_BYTES = 0x100;
 /** the shell's pool of STATUS buffers */
 export const STATUS_POOL_BUFFERS = 0x8;
-/** size of each STATUS buffer */
-export const STATUS_BUFFER_BYTES = 0x4000;
-/** 176 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 + 128 + 128 */
-export const STATUS_WORST_CASE_BYTES = 0x3f40;
+/** size of each STATUS buffer (20 KB with the M5 sections) */
+export const STATUS_BUFFER_BYTES = 0x5000;
+/** 256 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 + 128 + 128 + 144 + 1152 + 256 */
+export const STATUS_WORST_CASE_BYTES = 0x45a0;
 /** STATUS cadence */
 export const STATUS_EVERY_QUANTA = 0x6;
 /** cadence when no batch arrived for 250 ms */
@@ -44,7 +44,7 @@ export const STATUS_IDLE_AFTER_MS = 0xfa;
 export const QUANTUM_FRAMES = 0x80;
 /** BUS_CONFIG parent of the root bus */
 export const BUS_ROOT = 0xffff;
-/** BUS_MIX lpHz meaning off */
+/** BUS_MIX and BUS_RAMP lpHz meaning off */
 export const BUS_LP_OFF_HZ = 0x5dc0;
 /** STREAM_OPEN totalFrames */
 export const STREAM_TOTAL_FRAMES_UNKNOWN = 0xffffffff;
@@ -128,8 +128,8 @@ export const MAX_CLIP_EVENTS_PER_BLOCK = 0x40;
 export const MAX_STREAM_EVENTS_PER_BLOCK = 0x40;
 /** i32 result: ok */
 export const ERR_OK = 0x0;
-/** the STATUS header with the M4 fields, envelope included (STATUS_HEADER_BYTES); sections start here */
-export const HEADER_BYTES = 0xb0;
+/** the STATUS header with the M5 fields, envelope included (STATUS_HEADER_BYTES); sections start here */
+export const HEADER_BYTES = 0x100;
 /** most music rings (init max_music_rings 0..=16, the musicRings section's cap) */
 export const MAX_MUSIC_RINGS = 0x10;
 /** group table entries in the core (ADR 0167 R9) */
@@ -178,6 +178,76 @@ export const GROUP_START_HELD = 0x2;
 export const GROUP_START_ABANDONED = 0x4;
 /** STATUS groupStarts cap; the rest carry over like starved */
 export const MAX_GROUP_STARTS_PER_BLOCK = 0x8;
+/** most buses with a loudness meter (LOUD_CONFIG meterCount); master is implicit */
+export const MAX_LOUDNESS_BUSES = 0x8;
+/** meters in STATUS loudBuses: MAX_LOUDNESS_BUSES plus the final-output tap */
+export const LOUD_METERS = 0x9;
+/** sub-blocks of the core's loudness ring per meter (3.2 s of main stall lose nothing) */
+export const LOUD_RING_SUBBLOCKS = 0x20;
+/** STATUS loudEnergies cap: LOUD_METERS x LOUD_RING_SUBBLOCKS */
+export const MAX_LOUD_ENERGIES = 0x120;
+/** loudBuses slot value: the final output */
+export const LOUD_OUTPUT_TAP = 0xffff;
+/** BUS_RAMP voiceId: the output gain (what MASTER sets today) */
+export const BUS_MASTER_OUT = 0xffff;
+/** gain lane 0: the project's authored bus volume (main-written) */
+export const LANE_AUTHORED = 0x0;
+/** gain lane 1: the script's bus volume and mute (main-written) */
+export const LANE_RUNTIME = 0x1;
+/** gain lane 2: the snapshot's gain and low-pass (main-written) */
+export const LANE_SNAPSHOT = 0x2;
+/** gain lane 3: the editor's solo and mute monitor (main-written) */
+export const LANE_MONITOR = 0x3;
+/** gain lane 4: the structural-edit dip and a tombstone's silence (main-written) */
+export const LANE_DIP = 0x4;
+/** gain lane 5: sidechain and presence ducking (core-owned; a BUS_RAMP naming it is ignored and counted) */
+export const LANE_DUCK = 0x5;
+/** gain lane 6: BUS_AUTOMATE's gain multiplier (core-owned; a BUS_RAMP naming it is ignored and counted) */
+export const LANE_AUTOMATION = 0x6;
+/** lanes per bus */
+export const LANE_COUNT = 0x7;
+/** the highest lane a BUS_RAMP may name */
+export const LANE_LAST_MAIN_WRITTEN = 0x4;
+/** most BUS_DUCK rules, and the busDuck section's cap */
+export const MAX_DUCK_RULES = 0x20;
+/** most BUS_DUCK rules in level mode (flags bit 0) */
+export const MAX_LEVEL_RULES = 0x8;
+/** the floor of a main-chosen ramp length: toggles and script jumps (R2) */
+export const BUS_MIN_RAMP_MS = 0x5;
+/** the ramp length of a continuous drag */
+export const DRAG_RAMP_MS = 0xa;
+/** a fader drag coalesces its writes to one per this many ms */
+export const FADER_COALESCE_MS = 0x4;
+/** a tombstoned slot is recycled this many frames after its config frame, with no live voice (R9) */
+export const TOMBSTONE_TAIL_FRAMES = 0x80;
+/** a BUS_SLOT edit smooths only a compressor's parameters, over this long (R7) */
+export const COMPRESSOR_SMOOTH_MS = 0x14;
+/** BUS_RAMP gain target ceiling (clamped); a non-finite value leaves the target */
+export const BUS_RAMP_GAIN_MAX = 0x4;
+/** BUS_RAMP lpHz lower bound; BUS_LP_OFF_HZ (24,000) is off */
+export const BUS_RAMP_LP_MIN_HZ = 0xa;
+/** BUS_RAMP shape bits 3-15: sequenceId (0 = none, C27) */
+export const SHAPE_SEQUENCE_SHIFT = 0x3;
+/** BUS_RAMP shape sequenceId after the shift: 13 bits */
+export const SHAPE_SEQUENCE_MASK = 0x1fff;
+/** effects a slot keeps; a BUS_SLOT naming more keeps the first four */
+export const BUS_SLOT_MAX_EFFECTS = 0x4;
+/** BUS_DUCK rule flags bit 0: level mode (reads the trigger bus's buffer; adds a bus-order edge) */
+export const DUCK_FLAG_LEVEL = 0x1;
+/** BUS_DUCK rule flags bit 1: the detector is RMS rather than peak */
+export const DUCK_FLAG_RMS = 0x2;
+/** loudBuses flags bits 0-5: sub-blocks this meter added since the last take, 0..=32 */
+export const LOUD_FLAG_NEW_BLOCKS_MASK = 0x3f;
+/** loudBuses flags bit 6: paused by the load-shedding ladder */
+export const LOUD_FLAG_PAUSED = 0x40;
+/** loudBuses flags bit 7: the meter was reset */
+export const LOUD_FLAG_RESET = 0x80;
+/** loudBuses flags bit 8: sub-blocks were lost (firstSeq shows the gap) */
+export const LOUD_FLAG_LOST = 0x100;
+/** loudBuses flags bit 9: the true-peak gate rejected a quantum */
+export const LOUD_FLAG_GATED = 0x200;
+/** loudBuses flags bit 10: the true-peak gate is in force */
+export const LOUD_FLAG_TP_GATE_ACTIVE = 0x400;
 
 /** Negative i32 results of the C ABI (0 is ok). */
 export const ErrorCode = {
@@ -236,13 +306,17 @@ export const Op = {
   AUTOMATE: 0x09,
   SET_VOICE_FX: 0x0a,
   BUS_CONFIG: 0x10,
-  BUS_MIX: 0x11,
   MASTER: 0x12,
   CURVES: 0x13,
   PARAM: 0x14,
   BUS_AUTOMATE: 0x15,
   BED_CONFIG: 0x16,
   ZONE_CONFIG: 0x17,
+  BUS_RAMP: 0x18,
+  BUS_DUCK: 0x19,
+  BUS_PRESENCE: 0x1a,
+  LOUD_CONFIG: 0x1b,
+  BUS_SLOT: 0x1c,
   LISTENER: 0x20,
   RESET: 0x30,
 } as const;
@@ -346,6 +420,14 @@ export function shapeLaw(shape: number): number {
 /** The start phase of a shape word, 0..65535 (value / 65,536). */
 export function shapeStartPhase(shape: number): number {
   return shape >>> SHAPE_PHASE_SHIFT;
+}
+/** The BUS_RAMP `shape`: `law`, `sequenceId` 0..8191 (0 = none, bits 3-15) and `startPhase` as u0.16. */
+export function packRampShape(law: number, sequenceId: number, startPhase: number): number {
+  return (((law & SHAPE_LAW_MASK) | ((sequenceId & SHAPE_SEQUENCE_MASK) << SHAPE_SEQUENCE_SHIFT) | ((startPhase & 0xffff) << SHAPE_PHASE_SHIFT)) >>> 0);
+}
+/** The sequence id of a BUS_RAMP shape word, 0..8191. */
+export function rampSequenceId(shape: number): number {
+  return (shape >>> SHAPE_SEQUENCE_SHIFT) & SHAPE_SEQUENCE_MASK;
 }
 /** The PLAY `gate`: `groupId` 1..1023 (0 = ungated, which packs to 0) and `groupSize` 1..64 (clamped). */
 export function packGate(groupId: number, groupSize: number): number {
@@ -1714,85 +1796,6 @@ export function readBusConfig(view: DataView, off: number): BusConfig {
   return _readBusConfig(view, off, limit)[0];
 }
 
-export interface BusMixBuses {
-  gain: number;
-  /** low-pass cutoff; 24000 off */
-  lpHz: number;
-}
-
-export const BUS_MIX_BUSES_FIXED_END = 8;
-
-export function writeBusMixBuses(view: DataView, off: number, rec: BusMixBuses): number {
-  view.setFloat32(off + 0, rec.gain, true);
-  view.setFloat32(off + 4, rec.lpHz, true);
-  let cur = off + 8;
-  return cur - off;
-}
-
-function _readBusMixBuses(view: DataView, off: number, limit: number): [BusMixBuses, number] {
-  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusMixBuses: truncated");
-  const gain = view.getFloat32(off + 0, true);
-  const lpHz = view.getFloat32(off + 4, true);
-  let cur = off + 8;
-  return [{ gain, lpHz }, cur - off];
-}
-
-export function readBusMixBuses(view: DataView, off: number): BusMixBuses {
-  const limit = view.byteLength;
-  return _readBusMixBuses(view, off, limit)[0];
-}
-
-/** set bus gain and filter; ramps over rampFrames */
-export interface BusMix {
-  voiceId: number;
-  frameOffset: number;
-  rampFrames: number;
-  buses: BusMixBuses[];
-}
-
-export const BUS_MIX_FIXED_END = 20;
-
-export function writeBusMix(view: DataView, off: number, rec: BusMix): number {
-  view.setUint32(off + 12, rec.buses.length, true);
-  view.setUint32(off + 16, rec.rampFrames, true);
-  let cur = off + 20;
-  for (const item of rec.buses) cur += writeBusMixBuses(view, cur, item);
-  const total = cur - off;
-  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "BusMix: record too long");
-  view.setUint16(off + 0, 17, true);
-  view.setUint16(off + 2, total / 4, true);
-  view.setUint32(off + 4, rec.voiceId, true);
-  view.setUint32(off + 8, rec.frameOffset, true);
-  return cur - off;
-}
-
-function _readBusMix(view: DataView, off: number, limit: number): [BusMix, number] {
-  if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusMix: truncated");
-  const busCount = view.getUint32(off + 12, true);
-  const rampFrames = view.getUint32(off + 16, true);
-  let cur = off + 20;
-  if (busCount * 8 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusMix: buses overrun");
-  const buses: BusMixBuses[] = [];
-  for (let i = 0; i < busCount; i++) {
-    const [item, used] = _readBusMixBuses(view, cur, limit);
-    cur += used;
-    buses.push(item);
-  }
-  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "BusMix: malformed");
-  cur = limit;
-  const voiceId = view.getUint32(off + 4, true);
-  const frameOffset = view.getUint32(off + 8, true);
-  return [{ voiceId, frameOffset, rampFrames, buses }, cur - off];
-}
-
-export function readBusMix(view: DataView, off: number): BusMix {
-  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusMix: truncated");
-  if (view.getUint16(off + 0, true) !== 17) throw new WireError(ErrorCode.MALFORMED, "BusMix: wrong opcode");
-  const limit = off + view.getUint16(off + 2, true) * 4;
-  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusMix: truncated");
-  return _readBusMix(view, off, limit)[0];
-}
-
 /** master volume and mute; ramps over rampFrames */
 export interface Master {
   voiceId: number;
@@ -2259,6 +2262,399 @@ export function readZoneConfig(view: DataView, off: number): ZoneConfig {
   return _readZoneConfig(view, off, limit)[0];
 }
 
+/** the gain target */
+export const BUS_RAMP_MASK_GAIN = 0x1;
+/** the lpHz target (lane 2 only: the snapshot low-pass) */
+export const BUS_RAMP_MASK_LP_HZ = 0x2;
+/** 0 linear (FadeLaw); only linear in M5 */
+export const BUS_RAMP_SHAPE_LAW_SHIFT = 0;
+export const BUS_RAMP_SHAPE_LAW_MASK = 0x7;
+/** the structural sequence this record belongs to; 0 = none (C27) */
+export const BUS_RAMP_SHAPE_SEQUENCE_ID_SHIFT = 3;
+export const BUS_RAMP_SHAPE_SEQUENCE_ID_MASK = 0xfff8;
+/** start phase of the curve as u0.16: value / 65,536 */
+export const BUS_RAMP_SHAPE_START_PHASE_SHIFT = 16;
+export const BUS_RAMP_SHAPE_START_PHASE_MASK = 0xffff0000;
+/** stamped ramp of one bus lane (voiceId = bus slot, BUS_MASTER_OUT for the output gain; ADR 0171 change 27) */
+export interface BusRamp {
+  voiceId: number;
+  frameOffset: number;
+  /** 0-4 main-written; 5 duck and 6 automation are core-owned: a record naming them is ignored and counted */
+  lane: number;
+  mask: number;
+  /** gain target, >= 0 (clamped to 4); a non-finite value leaves the target */
+  gain: number;
+  /** low-pass target, 10..24,000 (24,000 = off); lane 2 only */
+  lpHz: number;
+  /** ramp length from the start frame; 0 is a literal step, used by replay and RESET only (R2) */
+  frames: number;
+  /** law and start phase as FADE's, plus bits 3-15 sequenceId (0 = none, C27) */
+  shape: number;
+}
+
+export const BUS_RAMP_FIXED_END = 32;
+
+export function writeBusRamp(view: DataView, off: number, rec: BusRamp): number {
+  view.setUint16(off + 12, rec.lane, true);
+  view.setUint16(off + 14, rec.mask, true);
+  view.setFloat32(off + 16, rec.gain, true);
+  view.setFloat32(off + 20, rec.lpHz, true);
+  view.setUint32(off + 24, rec.frames, true);
+  view.setUint32(off + 28, rec.shape, true);
+  let cur = off + 32;
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "BusRamp: record too long");
+  view.setUint16(off + 0, 24, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readBusRamp(view: DataView, off: number, limit: number): [BusRamp, number] {
+  if (off + 32 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusRamp: truncated");
+  const lane = view.getUint16(off + 12, true);
+  const mask = view.getUint16(off + 14, true);
+  const gain = view.getFloat32(off + 16, true);
+  const lpHz = view.getFloat32(off + 20, true);
+  const frames = view.getUint32(off + 24, true);
+  const shape = view.getUint32(off + 28, true);
+  let cur = off + 32;
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "BusRamp: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, lane, mask, gain, lpHz, frames, shape }, cur - off];
+}
+
+export function readBusRamp(view: DataView, off: number): BusRamp {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusRamp: truncated");
+  if (view.getUint16(off + 0, true) !== 24) throw new WireError(ErrorCode.MALFORMED, "BusRamp: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusRamp: truncated");
+  return _readBusRamp(view, off, limit)[0];
+}
+
+export interface BusDuckRules {
+  /** the bus that is ducked */
+  target: number;
+  /** the bus (level) or slot (presence) that triggers it */
+  trigger: number;
+  flags: number;
+  thresholdDb: number;
+  amount: number;
+  attack: number;
+  release: number;
+}
+
+export const BUS_DUCK_RULES_FIXED_END = 24;
+
+export function writeBusDuckRules(view: DataView, off: number, rec: BusDuckRules): number {
+  view.setUint16(off + 0, rec.target, true);
+  view.setUint16(off + 2, rec.trigger, true);
+  view.setUint32(off + 4, rec.flags, true);
+  view.setFloat32(off + 8, rec.thresholdDb, true);
+  view.setFloat32(off + 12, rec.amount, true);
+  view.setFloat32(off + 16, rec.attack, true);
+  view.setFloat32(off + 20, rec.release, true);
+  let cur = off + 24;
+  return cur - off;
+}
+
+function _readBusDuckRules(view: DataView, off: number, limit: number): [BusDuckRules, number] {
+  if (off + 24 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusDuckRules: truncated");
+  const target = view.getUint16(off + 0, true);
+  const trigger = view.getUint16(off + 2, true);
+  const flags = view.getUint32(off + 4, true);
+  const thresholdDb = view.getFloat32(off + 8, true);
+  const amount = view.getFloat32(off + 12, true);
+  const attack = view.getFloat32(off + 16, true);
+  const release = view.getFloat32(off + 20, true);
+  let cur = off + 24;
+  return [{ target, trigger, flags, thresholdDb, amount, attack, release }, cur - off];
+}
+
+export function readBusDuckRules(view: DataView, off: number): BusDuckRules {
+  const limit = view.byteLength;
+  return _readBusDuckRules(view, off, limit)[0];
+}
+
+/** replace all ducking rules; asap only; recomputes the bus order (R6) */
+export interface BusDuck {
+  voiceId: number;
+  frameOffset: number;
+  rules: BusDuckRules[];
+}
+
+export const BUS_DUCK_FIXED_END = 16;
+
+export function writeBusDuck(view: DataView, off: number, rec: BusDuck): number {
+  if (rec.rules.length > 32) throw new WireError(ErrorCode.OVERSIZE, "BusDuck: rules over its cap 32");
+  view.setUint32(off + 12, rec.rules.length, true);
+  let cur = off + 16;
+  for (const item of rec.rules) cur += writeBusDuckRules(view, cur, item);
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "BusDuck: record too long");
+  view.setUint16(off + 0, 25, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readBusDuck(view: DataView, off: number, limit: number): [BusDuck, number] {
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusDuck: truncated");
+  const ruleCount = view.getUint32(off + 12, true);
+  let cur = off + 16;
+  if (ruleCount > 32) throw new WireError(ErrorCode.MALFORMED, "BusDuck: rules over its cap");
+  if (ruleCount * 24 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusDuck: rules overrun");
+  const rules: BusDuckRules[] = [];
+  for (let i = 0; i < ruleCount; i++) {
+    const [item, used] = _readBusDuckRules(view, cur, limit);
+    cur += used;
+    rules.push(item);
+  }
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "BusDuck: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, rules }, cur - off];
+}
+
+export function readBusDuck(view: DataView, off: number): BusDuck {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusDuck: truncated");
+  if (view.getUint16(off + 0, true) !== 25) throw new WireError(ErrorCode.MALFORMED, "BusDuck: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusDuck: truncated");
+  return _readBusDuck(view, off, limit)[0];
+}
+
+/** which slots have a voice, stamped at the frame of the start or explicit stop; applies at the start of the quantum holding its frame */
+export interface BusPresence {
+  voiceId: number;
+  frameOffset: number;
+  /** bit b set while slot b has a voice (virtual and locked included) */
+  mask: number;
+}
+
+export const BUS_PRESENCE_FIXED_END = 16;
+
+export function writeBusPresence(view: DataView, off: number, rec: BusPresence): number {
+  view.setUint32(off + 12, rec.mask, true);
+  let cur = off + 16;
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "BusPresence: record too long");
+  view.setUint16(off + 0, 26, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readBusPresence(view: DataView, off: number, limit: number): [BusPresence, number] {
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusPresence: truncated");
+  const mask = view.getUint32(off + 12, true);
+  let cur = off + 16;
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "BusPresence: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, mask }, cur - off];
+}
+
+export function readBusPresence(view: DataView, off: number): BusPresence {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusPresence: truncated");
+  if (view.getUint16(off + 0, true) !== 26) throw new WireError(ErrorCode.MALFORMED, "BusPresence: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusPresence: truncated");
+  return _readBusPresence(view, off, limit)[0];
+}
+
+export interface LoudConfigMeters {
+  slot: number;
+  /** reserved, 0 */
+  reserved: number;
+}
+
+export const LOUD_CONFIG_METERS_FIXED_END = 4;
+
+export function writeLoudConfigMeters(view: DataView, off: number, rec: LoudConfigMeters): number {
+  view.setUint16(off + 0, rec.slot, true);
+  view.setUint16(off + 2, rec.reserved, true);
+  let cur = off + 4;
+  return cur - off;
+}
+
+function _readLoudConfigMeters(view: DataView, off: number, limit: number): [LoudConfigMeters, number] {
+  if (off + 4 > limit) throw new WireError(ErrorCode.TRUNCATED, "LoudConfigMeters: truncated");
+  const slot = view.getUint16(off + 0, true);
+  const reserved = view.getUint16(off + 2, true);
+  let cur = off + 4;
+  return [{ slot, reserved }, cur - off];
+}
+
+export function readLoudConfigMeters(view: DataView, off: number): LoudConfigMeters {
+  const limit = view.byteLength;
+  return _readLoudConfigMeters(view, off, limit)[0];
+}
+
+/** replace the loudness meters' configuration; asap only */
+export interface LoudConfig {
+  voiceId: number;
+  frameOffset: number;
+  /** the selected ceiling minus 6 dB; a target change re-sends it and is not a reset */
+  tpGateDbfs: number;
+  meters: LoudConfigMeters[];
+}
+
+export const LOUD_CONFIG_FIXED_END = 20;
+
+export function writeLoudConfig(view: DataView, off: number, rec: LoudConfig): number {
+  view.setFloat32(off + 12, rec.tpGateDbfs, true);
+  if (rec.meters.length > 8) throw new WireError(ErrorCode.OVERSIZE, "LoudConfig: meters over its cap 8");
+  view.setUint32(off + 16, rec.meters.length, true);
+  let cur = off + 20;
+  for (const item of rec.meters) cur += writeLoudConfigMeters(view, cur, item);
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "LoudConfig: record too long");
+  view.setUint16(off + 0, 27, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readLoudConfig(view: DataView, off: number, limit: number): [LoudConfig, number] {
+  if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "LoudConfig: truncated");
+  const tpGateDbfs = view.getFloat32(off + 12, true);
+  const meterCount = view.getUint32(off + 16, true);
+  let cur = off + 20;
+  if (meterCount > 8) throw new WireError(ErrorCode.MALFORMED, "LoudConfig: meters over its cap");
+  if (meterCount * 4 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "LoudConfig: meters overrun");
+  const meters: LoudConfigMeters[] = [];
+  for (let i = 0; i < meterCount; i++) {
+    const [item, used] = _readLoudConfigMeters(view, cur, limit);
+    cur += used;
+    meters.push(item);
+  }
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "LoudConfig: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, tpGateDbfs, meters }, cur - off];
+}
+
+export function readLoudConfig(view: DataView, off: number): LoudConfig {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "LoudConfig: truncated");
+  if (view.getUint16(off + 0, true) !== 27) throw new WireError(ErrorCode.MALFORMED, "LoudConfig: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "LoudConfig: truncated");
+  return _readLoudConfig(view, off, limit)[0];
+}
+
+/** applies at quantum granularity and obeys the late-batch gate */
+export const BUS_SLOT_FLAGS_STRUCTURAL = 0x1;
+/** the slot starts zeroed with unity lanes: a re-add after recycling */
+export const BUS_SLOT_FLAGS_FRESH = 0x2;
+export interface BusSlotEffects {
+  /** 0 lowpass, 1 highpass, 2 compressor, 3 reverb send */
+  type: number;
+  /** parameters; q in dB; unused p = 0 */
+  p: number[];
+}
+
+export const BUS_SLOT_EFFECTS_FIXED_END = 32;
+
+export function writeBusSlotEffects(view: DataView, off: number, rec: BusSlotEffects): number {
+  view.setUint32(off + 0, rec.type, true);
+  for (let i = 0; i < 7; i++) view.setFloat32(off + 4 + i * 4, rec.p[i], true);
+  let cur = off + 32;
+  return cur - off;
+}
+
+function _readBusSlotEffects(view: DataView, off: number, limit: number): [BusSlotEffects, number] {
+  if (off + 32 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusSlotEffects: truncated");
+  const type = view.getUint32(off + 0, true);
+  const p = Array.from({ length: 7 }, (_, i) => view.getFloat32(off + 4 + i * 4, true));
+  let cur = off + 32;
+  return [{ type, p }, cur - off];
+}
+
+export function readBusSlotEffects(view: DataView, off: number): BusSlotEffects {
+  const limit = view.byteLength;
+  return _readBusSlotEffects(view, off, limit)[0];
+}
+
+/** one bus slot's configuration (R7); a tombstone is a silent root (R9); stamped when its sequenceId is set (C27) */
+export interface BusSlot {
+  voiceId: number;
+  frameOffset: number;
+  slot: number;
+  flags: number;
+  /** the structural sequence this record belongs to (13 bits, 0 = none, C27) */
+  sequenceId: number;
+  /** reserved, 0 */
+  reserved: number;
+  /** reserved, 0 */
+  reserved2: number;
+  /** parent slot; BUS_ROOT (0xFFFF) for a root */
+  parent: number;
+  effects: BusSlotEffects[];
+}
+
+export const BUS_SLOT_FIXED_END = 28;
+
+export function writeBusSlot(view: DataView, off: number, rec: BusSlot): number {
+  view.setUint16(off + 12, rec.slot, true);
+  view.setUint16(off + 14, rec.flags, true);
+  view.setUint16(off + 16, rec.sequenceId, true);
+  view.setUint16(off + 18, rec.reserved, true);
+  view.setUint32(off + 20, rec.reserved2, true);
+  view.setUint16(off + 24, rec.parent, true);
+  view.setUint16(off + 26, rec.effects.length, true);
+  let cur = off + 28;
+  for (const item of rec.effects) cur += writeBusSlotEffects(view, cur, item);
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "BusSlot: record too long");
+  view.setUint16(off + 0, 28, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readBusSlot(view: DataView, off: number, limit: number): [BusSlot, number] {
+  if (off + 28 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusSlot: truncated");
+  const slot = view.getUint16(off + 12, true);
+  const flags = view.getUint16(off + 14, true);
+  const sequenceId = view.getUint16(off + 16, true);
+  const reserved = view.getUint16(off + 18, true);
+  const reserved2 = view.getUint32(off + 20, true);
+  const parent = view.getUint16(off + 24, true);
+  const effectCount = view.getUint16(off + 26, true);
+  let cur = off + 28;
+  if (effectCount * 32 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusSlot: effects overrun");
+  const effects: BusSlotEffects[] = [];
+  for (let i = 0; i < effectCount; i++) {
+    const [item, used] = _readBusSlotEffects(view, cur, limit);
+    cur += used;
+    effects.push(item);
+  }
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "BusSlot: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, slot, flags, sequenceId, reserved, reserved2, parent, effects }, cur - off];
+}
+
+export function readBusSlot(view: DataView, off: number): BusSlot {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusSlot: truncated");
+  if (view.getUint16(off + 0, true) !== 28) throw new WireError(ErrorCode.MALFORMED, "BusSlot: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusSlot: truncated");
+  return _readBusSlot(view, off, limit)[0];
+}
+
 /** a camera cut: jump to the rotation, no ramp */
 export const LISTENER_FLAGS_SNAP = 0x1;
 /** the listener's world-to-listener rotation for ambisonic voices (ADR 0162 C4); asap */
@@ -2660,6 +3056,80 @@ export function readStatusGroupStartsItem(view: DataView, off: number): StatusGr
   return _readStatusGroupStartsItem(view, off, limit)[0];
 }
 
+/** one item per loudness meter (the final-output tap included): new-block count and flags, first sequence, true peak, gated quanta (ADR 0171 M5) */
+export interface StatusLoudBusesItem {
+  /** bus slot; LOUD_OUTPUT_TAP (0xFFFF) is the final output */
+  slot: number;
+  flags: number;
+  /** sequence number of the first sub-block this STATUS carries for the meter */
+  firstSeq: number;
+  /** linear max(true peak, sample peak) since the last successful take */
+  truePeak: number;
+  /** quanta the true-peak gate rejected (cumulative) */
+  gatedQuanta: number;
+}
+
+export const STATUS_LOUD_BUSES_ITEM_FIXED_END = 16;
+
+export function writeStatusLoudBusesItem(view: DataView, off: number, rec: StatusLoudBusesItem): number {
+  view.setUint16(off + 0, rec.slot, true);
+  view.setUint16(off + 2, rec.flags, true);
+  view.setUint32(off + 4, rec.firstSeq, true);
+  view.setFloat32(off + 8, rec.truePeak, true);
+  view.setUint32(off + 12, rec.gatedQuanta, true);
+  let cur = off + 16;
+  return cur - off;
+}
+
+function _readStatusLoudBusesItem(view: DataView, off: number, limit: number): [StatusLoudBusesItem, number] {
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "StatusLoudBusesItem: truncated");
+  const slot = view.getUint16(off + 0, true);
+  const flags = view.getUint16(off + 2, true);
+  const firstSeq = view.getUint32(off + 4, true);
+  const truePeak = view.getFloat32(off + 8, true);
+  const gatedQuanta = view.getUint32(off + 12, true);
+  let cur = off + 16;
+  return [{ slot, flags, firstSeq, truePeak, gatedQuanta }, cur - off];
+}
+
+export function readStatusLoudBusesItem(view: DataView, off: number): StatusLoudBusesItem {
+  const limit = view.byteLength;
+  return _readStatusLoudBusesItem(view, off, limit)[0];
+}
+
+/** the duck lane's gain of every bus that is the target of a rule (ADR 0171 M5) */
+export interface StatusBusDuckItem {
+  slot: number;
+  /** 0 */
+  pad: number;
+  /** the duck lane's current gain */
+  gain: number;
+}
+
+export const STATUS_BUS_DUCK_ITEM_FIXED_END = 8;
+
+export function writeStatusBusDuckItem(view: DataView, off: number, rec: StatusBusDuckItem): number {
+  view.setUint16(off + 0, rec.slot, true);
+  view.setUint16(off + 2, rec.pad, true);
+  view.setFloat32(off + 4, rec.gain, true);
+  let cur = off + 8;
+  return cur - off;
+}
+
+function _readStatusBusDuckItem(view: DataView, off: number, limit: number): [StatusBusDuckItem, number] {
+  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "StatusBusDuckItem: truncated");
+  const slot = view.getUint16(off + 0, true);
+  const pad = view.getUint16(off + 2, true);
+  const gain = view.getFloat32(off + 4, true);
+  let cur = off + 8;
+  return [{ slot, pad, gain }, cur - off];
+}
+
+export function readStatusBusDuckItem(view: DataView, off: number): StatusBusDuckItem {
+  const limit = view.byteLength;
+  return _readStatusBusDuckItem(view, off, limit)[0];
+}
+
 /** A whole STATUS message (kind 9); section counts are derived. */
 export interface StatusBlock {
   currentFrame: number;
@@ -2721,6 +3191,34 @@ export interface StatusBlock {
   voiceSplits: number;
   /** reserved, 0 */
   reserved: number;
+  /** sum of Date.now() deltas around process(), ms, since the driver started (shell) */
+  busyMsTotal: number;
+  /** quanta processed since the driver started (shell) */
+  quantaTotal: number;
+  /** cumulative work units: voices */
+  wuVoices: number;
+  /** cumulative work units: buses, effects, sidechain, ramps */
+  wuBuses: number;
+  /** cumulative work units: spatial */
+  wuSpatial: number;
+  /** cumulative work units: music */
+  wuMusic: number;
+  /** cumulative work units: loudness */
+  wuLoudness: number;
+  /** the smallest non-zero Date.now delta seen; 0 = none yet (shell) */
+  clockStepMs: number;
+  /** round(sampleRate / 10) */
+  loudSubBlockFrames: number;
+  /** wall-clock steps clamped, saturating (shell) */
+  clockSteps: number;
+  /** the load-shedding ladder's loudness step in force, 0 or 1 */
+  loudShed: number;
+  /** BUS_RAMP records applied at the quantum's start because the due list was full (cumulative, saturating) */
+  busRecordsEarly: number;
+  /** late sidechain detections (cumulative, saturating) */
+  sidechainLate: number;
+  /** reserved, 0 */
+  reserved2: number;
   /** voices that ended in this block (at most 1024 per block) */
   ended: number[];
   /** voices virtualised by the adaptive cap (at most 1024 per block) */
@@ -2745,6 +3243,12 @@ export interface StatusBlock {
   musicRings: StatusMusicRingsItem[];
   /** one item per group start: slip, flags, start frame; the rest carry over like starved (ADR 0166 M4) (at most 8 per block) */
   groupStarts: StatusGroupStartsItem[];
+  /** one item per loudness meter (the final-output tap included): new-block count and flags, first sequence, true peak, gated quanta (ADR 0171 M5) (at most 9 per block) */
+  loudBuses: StatusLoudBusesItem[];
+  /** K-weighted sub-block energies since the last successful take, bus-major in loudBuses order, oldest first (ADR 0171 M5) (at most 288 per block) */
+  loudEnergies: number[];
+  /** the duck lane's gain of every bus that is the target of a rule (ADR 0171 M5) (at most 32 per block) */
+  busDuck: StatusBusDuckItem[];
 }
 
 /** Write a whole STATUS message at `off` (envelope first); returns the bytes written. */
@@ -2815,7 +3319,27 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
   view.setUint32(off + 164, rec.splitQuanta, true);
   view.setUint32(off + 168, rec.voiceSplits, true);
   view.setUint32(off + 172, rec.reserved, true);
-  let cur = off + 176;
+  view.setFloat64(off + 176, rec.busyMsTotal, true);
+  view.setFloat64(off + 184, rec.quantaTotal, true);
+  view.setFloat64(off + 192, rec.wuVoices, true);
+  view.setFloat64(off + 200, rec.wuBuses, true);
+  view.setFloat64(off + 208, rec.wuSpatial, true);
+  view.setFloat64(off + 216, rec.wuMusic, true);
+  view.setFloat64(off + 224, rec.wuLoudness, true);
+  if (rec.loudBuses.length > 9) throw new WireError(ErrorCode.OVERSIZE, "STATUS: loudBuses over its cap 9");
+  view.setUint16(off + 232, rec.loudBuses.length, true);
+  if (rec.loudEnergies.length > 288) throw new WireError(ErrorCode.OVERSIZE, "STATUS: loudEnergies over its cap 288");
+  view.setUint16(off + 234, rec.loudEnergies.length, true);
+  if (rec.busDuck.length > 32) throw new WireError(ErrorCode.OVERSIZE, "STATUS: busDuck over its cap 32");
+  view.setUint16(off + 236, rec.busDuck.length, true);
+  view.setUint16(off + 238, rec.clockStepMs, true);
+  view.setUint32(off + 240, rec.loudSubBlockFrames, true);
+  view.setUint16(off + 244, rec.clockSteps, true);
+  view.setUint16(off + 246, rec.loudShed, true);
+  view.setUint16(off + 248, rec.busRecordsEarly, true);
+  view.setUint16(off + 250, rec.sidechainLate, true);
+  view.setUint32(off + 252, rec.reserved2, true);
+  let cur = off + 256;
   for (const v of rec.ended) {
     view.setUint32(cur, v, true);
     cur += 4;
@@ -2837,6 +3361,12 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
   for (const v of rec.zoneEvents) cur += writeStatusZoneEventsItem(view, cur, v);
   for (const v of rec.musicRings) cur += writeStatusMusicRingsItem(view, cur, v);
   for (const v of rec.groupStarts) cur += writeStatusGroupStartsItem(view, cur, v);
+  for (const v of rec.loudBuses) cur += writeStatusLoudBusesItem(view, cur, v);
+  for (const v of rec.loudEnergies) {
+    view.setFloat32(cur, v, true);
+    cur += 4;
+  }
+  for (const v of rec.busDuck) cur += writeStatusBusDuckItem(view, cur, v);
   writeEnvelope(view, off, { kind: Kind.STATUS, seq, bodyBytes: cur - off - 16 });
   return cur - off;
 }
@@ -2845,13 +3375,13 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
 export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
   const view = buf instanceof ArrayBuffer ? new DataView(buf) : new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const off = 0;
-  if (176 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
+  if (256 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
   const env = readEnvelope(view, 0);
   if (env.magic !== MAGIC) throw new WireError(ErrorCode.BAD_MAGIC, "STATUS: bad magic");
   if (((env.version ?? 0) >> 8) !== VERSION_MAJOR) throw new WireError(ErrorCode.VERSION_MISMATCH, "STATUS: version mismatch");
   if (env.kind !== Kind.STATUS) throw new WireError(ErrorCode.MALFORMED, "STATUS: wrong kind");
   const limit = 16 + env.bodyBytes;
-  if (limit > view.byteLength || limit < 176) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
+  if (limit > view.byteLength || limit < 256) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
   const currentFrame = view.getFloat64(off + 16, true);
   const dateMs = view.getFloat64(off + 24, true);
   const pingSeq = view.getUint32(off + 32, true);
@@ -2906,7 +3436,24 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
   const splitQuanta = view.getUint32(off + 164, true);
   const voiceSplits = view.getUint32(off + 168, true);
   const reserved = view.getUint32(off + 172, true);
-  let cur = 176;
+  const busyMsTotal = view.getFloat64(off + 176, true);
+  const quantaTotal = view.getFloat64(off + 184, true);
+  const wuVoices = view.getFloat64(off + 192, true);
+  const wuBuses = view.getFloat64(off + 200, true);
+  const wuSpatial = view.getFloat64(off + 208, true);
+  const wuMusic = view.getFloat64(off + 216, true);
+  const wuLoudness = view.getFloat64(off + 224, true);
+  const loudBusCount = view.getUint16(off + 232, true);
+  const loudEnergyCount = view.getUint16(off + 234, true);
+  const duckCount = view.getUint16(off + 236, true);
+  const clockStepMs = view.getUint16(off + 238, true);
+  const loudSubBlockFrames = view.getUint32(off + 240, true);
+  const clockSteps = view.getUint16(off + 244, true);
+  const loudShed = view.getUint16(off + 246, true);
+  const busRecordsEarly = view.getUint16(off + 248, true);
+  const sidechainLate = view.getUint16(off + 250, true);
+  const reserved2 = view.getUint32(off + 252, true);
+  let cur = 256;
   if (endedCount > 1024 || endedCount * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: ended overrun");
   const ended: number[] = [];
   for (let i = 0; i < endedCount; i++) {
@@ -2979,5 +3526,23 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
     groupStarts.push(readStatusGroupStartsItem(view, cur));
     cur += 16;
   }
-  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, m3Shed, zoneUsedKB, workBed, workZones, musicRingsOpen, streamStartsLate, groupsLate, groupsHeld, groupsAbandoned, curvePoolFull, maxSlipFrames, splitQuanta, voiceSplits, reserved, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents, musicRings, groupStarts };
+  if (loudBusCount > 9 || loudBusCount * 16 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: loudBuses overrun");
+  const loudBuses: StatusLoudBusesItem[] = [];
+  for (let i = 0; i < loudBusCount; i++) {
+    loudBuses.push(readStatusLoudBusesItem(view, cur));
+    cur += 16;
+  }
+  if (loudEnergyCount > 288 || loudEnergyCount * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: loudEnergies overrun");
+  const loudEnergies: number[] = [];
+  for (let i = 0; i < loudEnergyCount; i++) {
+    loudEnergies.push(view.getFloat32(cur, true));
+    cur += 4;
+  }
+  if (duckCount > 32 || duckCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: busDuck overrun");
+  const busDuck: StatusBusDuckItem[] = [];
+  for (let i = 0; i < duckCount; i++) {
+    busDuck.push(readStatusBusDuckItem(view, cur));
+    cur += 8;
+  }
+  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, m3Shed, zoneUsedKB, workBed, workZones, musicRingsOpen, streamStartsLate, groupsLate, groupsHeld, groupsAbandoned, curvePoolFull, maxSlipFrames, splitQuanta, voiceSplits, reserved, busyMsTotal, quantaTotal, wuVoices, wuBuses, wuSpatial, wuMusic, wuLoudness, clockStepMs, loudSubBlockFrames, clockSteps, loudShed, busRecordsEarly, sidechainLate, reserved2, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents, musicRings, groupStarts, loudBuses, loudEnergies, busDuck };
 }

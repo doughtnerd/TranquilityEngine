@@ -41,6 +41,14 @@ pub struct Regions {
     pub curves: &'static mut [u8],
     /// 0166 M4a: the group table (`groups.rs`; 2,560 B on every preset).
     pub groups: &'static mut [u8],
+    /// 0171/0172 M5 (K1): the gain lanes (`lanes.rs`; `(max_buses + 1) × 128` B).
+    pub lanes: &'static mut [u8],
+    /// 0171/0172 M5 (K1): the duck rules, followers and detectors (`duck.rs`).
+    pub duck: &'static mut [u8],
+    /// 0171/0172 M5 (K1): the loudness meters (`loudness.rs`; 14,824 B on every preset).
+    pub loudness: &'static mut [u8],
+    /// 0171/0172 M5 (K1): the shared bus send scratch and the reverb run-out (`sends.rs`; 1,088 B).
+    pub sends: &'static mut [u8],
     /// Empty: the clip store owns the arena region (A1.3b).
     pub arena: &'static mut [u8],
 }
@@ -102,6 +110,11 @@ impl Core {
             due: bytes(RegionKind::Due),
             curves: bytes(RegionKind::Curves),
             groups: bytes(RegionKind::Groups),
+            // 0171/0172 M5: always laid out (K1); zeroed.
+            lanes: bytes(RegionKind::Lanes),
+            duck: bytes(RegionKind::Duck),
+            loudness: bytes(RegionKind::Loudness),
+            sends: bytes(RegionKind::Sends),
             arena: bytes(RegionKind::Arena),
         };
         // A1.3b: the clip store owns the directory and arena regions (they stay empty here).
@@ -114,10 +127,14 @@ impl Core {
         let music_rings: usize = params.max_music_rings as usize;
         let streams = StreamStore::over(core::mem::take(&mut regions.streams), core::mem::take(&mut regions.wide), music_rings);
         let mut core = Core { params, layout, base: base as usize, regions, frame: 0, clips, cap, streams };
-        // A2.1: one root bus at unity and MASTER at unity until BUS_CONFIG, BUS_MIX and MASTER.
+        // A2.1: one root bus at unity and MASTER at unity until BUS_CONFIG, BUS_RAMP and MASTER.
         crate::bus::init(&mut core);
         // ADR 0158 E2: the automation region's header (its tables are all-zero valid).
         crate::automation::init(&mut core);
+        // 0171/0172 M5 (K1): every lane at unity; the duck and loudness state (no-ops until Dp1, Ld2).
+        crate::lanes::init(&mut core);
+        crate::duck::init(&mut core);
+        crate::loudness::init(&mut core);
         core
     }
 

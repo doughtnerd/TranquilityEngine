@@ -3,7 +3,7 @@
 //
 // - L, the lookahead, applies to stamped records only (`at`, synced starts, replays): a stamped record's frame must be
 //   at least L past *F*_now to be sure the batch arrives before it. asap records never use it.
-// - `rampFrames` is the ramp length the host puts on SET_PARAMS and BUS_MIX (and MASTER): one frame interval, so a
+// - `rampFrames` is the ramp length the host puts on SET_PARAMS and a bus lane's set or toggle (BUS_RAMP, MASTER's too): one frame interval, so a
 //   per-frame change glides into the next instead of stepping, clamped so it is never a click nor sluggish.
 // - `firstFrame` is the batch header's estimate: *F*_now + L, never earlier than the previous batch's.
 //

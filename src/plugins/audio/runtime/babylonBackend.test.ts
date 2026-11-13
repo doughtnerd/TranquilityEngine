@@ -478,7 +478,7 @@ describe("BabylonBackend mixer features", () => {
   const mixConfig = {
     buses: [{ name: "Master" }, { name: "SFX", parent: "Master" }, { name: "Music", parent: "Master" }],
     snapshots: [{ name: "Quiet", volumes: { Music: 0.25 } }],
-    ducking: [{ trigger: "SFX", target: "Music", amount: 0.4, attack: 0.1, release: 0.1 }],
+    ducking: [{ trigger: "SFX", target: "Music", mode: "presence", amount: 0.4, attack: 0.1, release: 0.1 }],
   };
 
   it("carries a snapshot's gain to the bus volume as the mixer fades to it", async () => {

@@ -109,11 +109,19 @@ fn a_return_bus_takes_the_bus_gain_and_an_unknown_bus_goes_to_the_root() {
         cfg.resize(64, 0);
         let len = rec.write(&mut cfg, 0).unwrap();
         cfg.truncate(len);
-        let mut mix = vec![0u8; 64];
-        let rec = wire::BusMix { voice_id: 0, frame_offset: wire::ASAP, ramp_frames: 0, buses: vec![wire::BusMixBuses { gain: 1.0, lp_hz: 24_000.0 }, wire::BusMixBuses { gain, lp_hz: 24_000.0 }] };
-        let len = rec.write(&mut mix, 0).unwrap();
-        mix.truncate(len);
-        z.submit(&[cfg, mix]);
+        // What BUS_MIX of (1, off), (gain, off) was (B1a's mapping, bit-identical by R3): per bus,
+        // the runtime lane's gain and the snapshot lane's low-pass, asap.
+        let mut recs = vec![cfg];
+        for (bus, g) in [(0u32, 1.0f32), (1, gain)] {
+            for (lane, mask) in [(wire::LANE_RUNTIME, wire::BUS_RAMP_MASK_GAIN), (wire::LANE_SNAPSHOT, wire::BUS_RAMP_MASK_LP_HZ)] {
+                let mut b = vec![0u8; 64];
+                let rec = wire::BusRamp { voice_id: bus, frame_offset: wire::ASAP, lane: lane as u16, mask, gain: g, lp_hz: 24_000.0, frames: 0, shape: 0 };
+                let len = rec.write(&mut b, 0).unwrap();
+                b.truncate(len);
+                recs.push(b);
+            }
+        }
+        z.submit(&recs);
         load_kernel(&mut z.core, K1, &blob);
         z.config(1.0, 0, &[(K1, bus, zone_slot_state::ACTIVE as u8, 1.0, IR_FRAMES)]);
         z.run(60, |q| Some((0, noise(q as u32)))).0

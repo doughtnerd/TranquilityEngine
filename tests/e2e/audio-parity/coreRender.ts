@@ -5,14 +5,18 @@ import { readFile } from "node:fs/promises";
 import {
   ASAP,
   BUS_LP_OFF_HZ,
+  BUS_RAMP_MASK_GAIN,
+  BUS_RAMP_MASK_LP_HZ,
   BUS_ROOT,
   Kind,
+  LANE_RUNTIME,
+  LANE_SNAPSHOT,
   PLAY_FLAGS_MIXED,
   PLAY_FLAGS_PANNER_SHIFT,
   PLAY_FLAGS_SPATIAL,
   writeBatchHeader,
   writeBusConfig,
-  writeBusMix,
+  writeBusRamp,
   writeClipBegin,
   writeClipChunk,
   writeEnvelope,
@@ -81,8 +85,25 @@ export interface Render {
   readonly right: Float32Array;
 }
 
-/** The scene through the core: `sceneFrames(scene)` frames per channel, after the pre-roll. */
+/**
+ * The scene through the core: `sceneFrames(scene)` frames per channel, after the pre-roll.
+ *
+ * A `wetOnly` scene is rendered twice from identical input, once as is (bus at gain 1, the reverb send at its value)
+ * and once with every reverb send at 0 (the dry signal alone), and the result is the sample-wise difference: the wet
+ * signal. The core's reverb send is post-fader (ADR 0172 owner decision 1), so the old way, a bus at gain 0, now
+ * silences the wet signal too. The difference is exact up to f32 rounding while the path is linear: the scenes have
+ * no compressor, and the master limiter never acts, since `renderOnce` throws if either render reaches its ceiling
+ * (below which the limiter is bypassed exactly, see HEADROOM).
+ */
 export async function renderCore(scene: Scene): Promise<Render> {
+  if (!scene.wetOnly) return renderOnce(scene);
+  const mix = await renderOnce(scene);
+  const dry = await renderOnce({ ...scene, effects: scene.effects.map((e) => (e.type === "reverb" ? { ...e, send: 0 } : e)) });
+  const wet = (a: Float32Array, b: Float32Array): Float32Array => a.map((x, i) => x - b[i]!);
+  return { left: wet(mix.left, dry.left), right: wet(mix.right, dry.right) };
+}
+
+async function renderOnce(scene: Scene): Promise<Render> {
   const rate = scene.rate;
   const core = instantiateCore(await wasm(), PRESET, rate);
   let seq = 0;
@@ -105,7 +126,19 @@ export async function renderCore(scene: Scene): Promise<Render> {
   const tree: BusConfigBuses[] = resolved.map((b) => ({ parent: b.parent === null ? BUS_ROOT : resolved.findIndex((x) => x.name === b.parent), effects: b.effects.map(wireEffect) }));
   const configBytes = 16 + tree.reduce((n, b) => n + 4 + 32 * b.effects.length, 0);
   batch(configBytes, (view, at) => void writeBusConfig(view, at, { voiceId: 0, frameOffset: ASAP, buses: tree }), 1);
-  batch(20 + 8 * resolved.length, (view, at) => void writeBusMix(view, at, { voiceId: 0, frameOffset: ASAP, rampFrames: 0, buses: resolved.map((b) => ({ gain: b.gain, lpHz: b.snapshotLowpass ?? BUS_LP_OFF_HZ })) }), 1);
+  // ADR 0171 R3 (Wa2): what BUS_MIX was, as two asap BUS_RAMPs per bus (frames 0, a literal step): the runtime lane's gain
+  // and the snapshot lane's low-pass. The parity digests are unchanged.
+  batch(
+    2 * 32 * resolved.length,
+    (view, at) => {
+      let cur = at;
+      resolved.forEach((b, bus) => {
+        cur += writeBusRamp(view, cur, { voiceId: bus, frameOffset: ASAP, lane: LANE_RUNTIME, mask: BUS_RAMP_MASK_GAIN, gain: b.gain, lpHz: BUS_LP_OFF_HZ, frames: 0, shape: 0 });
+        cur += writeBusRamp(view, cur, { voiceId: bus, frameOffset: ASAP, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_LP_HZ, gain: 1, lpHz: b.snapshotLowpass ?? BUS_LP_OFF_HZ, frames: 0, shape: 0 });
+      });
+    },
+    2 * resolved.length,
+  );
   batch(24, (view, at) => void writeMaster(view, at, { voiceId: 0, frameOffset: ASAP, volume: 1 / HEADROOM, muted: 0, rampFrames: 0 }), 1);
 
   // The clips (f32, at the context rate), copied into the arena by the shell over the pre-roll.

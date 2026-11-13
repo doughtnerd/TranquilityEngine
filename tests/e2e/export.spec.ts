@@ -223,6 +223,66 @@ test.describe("Sound Lab web build", { tag: "@slow" }, () => {
     expect(warnings.filter((w) => w.includes("no music support"))).toEqual([]);
     expect(errors).toEqual([]);
   });
+
+  // M5-0 shipped form (ADR 0171 amended by 0172, task SX0): in the exported page, after the first tap, a scripted fade (the
+  // main page's key 3) moves Music's lane on the stamp the core was given, and a burst on SFX (key 5) ducks Music through the
+  // core's presence lane. Both read from `Audio.debug()` and the bus API; every bound is on the audio clock (`Audio.time`, the
+  // frame the stamp is in), never a wall-clock tolerance. The wall-clock polls only pace the reads.
+  test("after a tap, a fade lands on its stamp and a presence duck shows in Audio.debug() (M5-0)", async ({ page }) => {
+    type Row = { name: string; effectiveGain: number; lastRampStartFrame?: number };
+    type Dbg = { status: string; sampleRate: number; time: number; core: { backend: string }; buses: Row[] };
+    type Api = { Audio: { time: number; debug(): Dbg; bus(n: string): { effectiveGain: number; duckGain: number } } };
+    const errors = trackErrors(page);
+    await page.goto(served!.url);
+    await expect.poll(() => frames(page), { timeout: 20_000 }).toBeGreaterThan(10);
+    await page.locator("#game canvas").click(); // the gesture that unlocks sound
+    await expect
+      .poll(async () => (await page.evaluate(() => (globalThis as unknown as { __myco?: Api }).__myco?.Audio.debug().status)) ?? null, { timeout: 30_000 })
+      .toBe("running");
+    const read = () =>
+      page.evaluate(() => {
+        const { Audio } = (globalThis as unknown as { __myco: Api }).__myco;
+        const d = Audio.debug();
+        const music = d.buses.find((b) => b.name === "Music")!;
+        return { backend: d.core.backend, rate: d.sampleRate, time: Audio.time, frame: Math.round(Audio.time * d.sampleRate), gain: Audio.bus("Music").effectiveGain, row: music.effectiveGain, stamp: music.lastRampStartFrame, duck: Audio.bus("Music").duckGain };
+      });
+    const before = await read();
+    expect(before.backend).toBe("core");
+    expect(before.gain, "Music's authored 0.6, undisturbed").toBeCloseTo(0.6, 6);
+    expect(before.duck, "nothing on SFX yet").toBe(1);
+
+    // 1. The fade: key 3 is `Audio.bus("Music").fadeTo(0.25, 0.5)`. One stamped record, landed by stamp + 0.5 s of audio frames.
+    const pressedAt = (await read()).frame;
+    await page.keyboard.press("3");
+    await expect.poll(async () => (await read()).stamp ?? 0, { timeout: 15_000, message: "Music's row shows the stamped BUS_RAMP" }).toBeGreaterThan(pressedAt);
+    const stamp = (await read()).stamp!;
+    expect(stamp - pressedAt, "stamped within the lookahead and the clock's lead").toBeLessThan(0.5 * before.rate);
+    await page.waitForFunction(([s, r]) => (globalThis as unknown as { __myco: Api }).__myco.Audio.time * (r as number) > (s as number) + 0.5 * (r as number), [stamp, before.rate] as const, { timeout: 20_000 });
+    const landed = await read();
+    expect(landed.gain, "landed on 0.6 x 0.25 by stamp + its 0.5 s").toBeCloseTo(0.15, 4);
+    expect(landed.row, "the Audio.debug() row says the same").toBeCloseTo(0.15, 4);
+    expect(landed.stamp, "one stamp: nothing was re-sent while it ran").toBe(stamp);
+
+    // 2. The duck: key 5 plays a burst on SFX; the project's rule ducks Music to 0.3 (attack 0.05 s, release 0.4 s). The core owns
+    // the duck lane: `duckGain` reads its STATUS value, and the bus's effective gain carries it.
+    await page.evaluate(() => {
+      const g = globalThis as unknown as { __myco: Api; __duck?: { time: number; duck: number; gain: number }[] };
+      g.__duck = [];
+      setInterval(() => g.__duck!.push({ time: g.__myco.Audio.time, duck: g.__myco.Audio.bus("Music").duckGain, gain: g.__myco.Audio.bus("Music").effectiveGain }), 10);
+    });
+    const t5 = (await read()).time;
+    await page.keyboard.press("5");
+    await page.waitForFunction((t) => (globalThis as unknown as { __myco: Api }).__myco.Audio.time > (t as number) + 2, t5, { timeout: 20_000 });
+    const duck = await page.evaluate((t) => (globalThis as unknown as { __duck: { time: number; duck: number; gain: number }[] }).__duck.filter((d) => d.time >= (t as number)), t5);
+    const lowest = Math.min(...duck.map((d) => d.duck));
+    expect(lowest, "the duck reached the rule's 0.3").toBeLessThan(0.35);
+    expect(lowest).toBeGreaterThan(0.28);
+    expect(Math.min(...duck.map((d) => d.gain)), "Music's effective gain carried it: 0.15 x ~0.3").toBeLessThan(0.15 * 0.4);
+    expect(duck[0]!.duck, "the duck begins from 1, not a step").toBeGreaterThan(0.9);
+    await expect.poll(async () => (await read()).duck, { timeout: 15_000, message: "released back to 1" }).toBe(1);
+    expect((await read()).gain, "the fade's level is back under the released duck").toBeCloseTo(0.15, 4);
+    expect(errors).toEqual([]);
+  });
 });
 
 test.describe("Arena web build", { tag: "@slow" }, () => {

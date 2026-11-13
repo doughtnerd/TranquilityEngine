@@ -81,7 +81,7 @@ pub fn boundaries<'r>(records: impl Iterator<Item = &'r DueRecord>, frame: u64, 
                 Some(g) => k != g,
             },
             // Class S (and, defensively, anything else that reached a voice's list).
-            Class::S | Class::Quantum => true,
+            Class::S | Class::Quantum | Class::B => true,
         };
         // At or before `from`: applies before the first piece. Records come in frame order, so a
         // sample already a boundary is skipped (one boundary per sample).

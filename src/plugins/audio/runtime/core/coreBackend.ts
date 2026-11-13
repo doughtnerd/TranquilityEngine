@@ -54,13 +54,13 @@
 // `DebugSource` (P10).
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
-import type { AudioSettings, BusEffect } from "../../../../engine/audio/settings";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, FadeLaw, ListenerPose, MusicBackend, PlayRequest, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, BusLaneRamp, BusSlotWrite, ClipSpanHold, FadeLaw, ListenerPose, LoudnessConfigWrite, MusicBackend, PlayRequest, RecorderTap, ShapedFade, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
+import type { DuckingRule } from "../../../../engine/audio/settings";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import {
   BUS_LP_OFF_HZ,
-  BUS_ROOT,
   AUX_BUS_NONE,
   PLAY_FLAGS_AMBISONIC,
   PLAY_FLAGS_LOOP,
@@ -75,8 +75,6 @@ import {
   SET_PARAMS_MASK_LP_HZ,
   SET_PARAMS_MASK_PITCH,
   type BusConfigBuses,
-  type BusConfigBusesEffects,
-  type BusMixBuses,
 } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
 import { limiterLatencyFrames } from "./limiterLatency";
@@ -86,7 +84,7 @@ import { createHrirLoader, createMaglsLoader, type HrirLoader, type MaglsLoader 
 import { ambisonicImportGain, createClipRegistry, type ClipInfo, type ClipRegistry } from "./clipRegistry";
 import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink, type HostHealth } from "./context";
 import { PlayheadTracker, Replayer } from "./replay";
-import { buildDebugInfo, type AudioDebugInfo } from "./debug";
+import { buildDebugInfo, mixDebugInfo, type AudioDebugInfo } from "./debug";
 import { BackgroundController } from "./background";
 import { calibrationDeviceChanged, initCalibration } from "../music/calibration";
 import { browserHostClock, type HostClock } from "./hostClock";
@@ -110,7 +108,14 @@ import { ListenerStage } from "./listener";
 import { LowpassBy, VoiceFx } from "./voiceFx";
 import { ListenerFrame, SendCurveTable, SpatialViewFlag, type SpatialVoiceView, type StagedFrameHost } from "./spatial";
 import type { ReplayBuilder, ReplaySpatial } from "./replay";
-import { MAX_BUSES } from "../../../../engine/audio/settings";
+import { BusIndex } from "./busIndex";
+import { LaneWriter } from "./laneWriter";
+import { Presence } from "./presence";
+import { LiveMix } from "./liveMix";
+import { StructuralDip } from "./structuralDip";
+import { DeferredAdds } from "./deferredAdds";
+import { setRecoveryProfileSink } from "./recovery";
+import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
 import { CoreAutomation, wrapPosition } from "./coreAutomation";
 import { MAX_GROUPS } from "../events/automation";
 import { CoreMusicOps, type MusicMemberTag } from "./musicOps";
@@ -202,30 +207,8 @@ const STEAL_FADE_SECONDS = 0.005;
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
-/** Maps a `BusEffect` to its wire record (§4.2 BUS_CONFIG: q in dB, p unused = 0). */
-function wireEffect(e: BusEffect): BusConfigBusesEffects {
-  const p = [0, 0, 0, 0, 0, 0, 0];
-  switch (e.type) {
-    case "lowpass":
-      p[0] = e.frequency;
-      p[1] = e.q;
-      return { type: 0, p };
-    case "highpass":
-      p[0] = e.frequency;
-      p[1] = e.q;
-      return { type: 1, p };
-    case "compressor":
-      p[0] = e.threshold;
-      p[1] = e.knee;
-      p[2] = e.ratio;
-      p[3] = e.attack;
-      p[4] = e.release;
-      return { type: 2, p };
-    case "reverb":
-      p[0] = e.send;
-      return { type: 3, p };
-  }
-}
+/** ADR 0171 (K0): the core backend that last registered its clock and op target on each mixer. */
+const mixerOwners = new WeakMap<Mixer, CoreBackend>();
 
 export class CoreBackend implements AudioBackend, StagedFrameHost {
   readonly name = "core";
@@ -287,8 +270,26 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private readonly clock: HostClock;
   private readonly reader = new StatusReader();
   private readonly cleanups: (() => void)[] = [];
-  private names: string[] = [];
-  private readonly busIndexByName = new Map<string, number>();
+  /** ADR 0171 (K0): the bus indexing (`busIndex.ts`; Ma1 moves it onto the slot table). */
+  readonly buses: BusIndex;
+  /** ADR 0171 (K0): the bus gain writer (`laneWriter.ts`; Wa2, then Mx2). */
+  readonly lanes: LaneWriter;
+  /** ADR 0171 (K0): presence ducking's hooks (`presence.ts`; Dp1). */
+  readonly presence = new Presence(this);
+  /** ADR 0171 (K0): structural live edits (`structuralDip.ts`; Ma2). */
+  readonly dip = new StructuralDip();
+  /** ADR 0171 (K0): deferred live adds (`deferredAdds.ts`; Ma3). */
+  readonly deferredAdds = new DeferredAdds();
+  /** ADR 0171 (K0): the live-edit path `applyOp` routes to (`liveMix.ts`; Ma1). */
+  readonly liveMix = new LiveMix({ dip: this.dip, deferred: this.deferredAdds });
+  /** ADR 0171 (K0): the capture's event taps (`mix/profileSink.ts`); the null object until a recorder runs (Rc3). */
+  profile: ProfileSink = NULL_PROFILE_SINK;
+  private get names(): string[] {
+    return this.buses.names;
+  }
+  private get busIndexByName(): ReadonlyMap<string, number> {
+    return this.buses.busIndexByName;
+  }
   /** D5: voices played while locked. One-shots are capped (32 for 1 s); owned and looping voices wait. */
   readonly lockedQueue = new UnlockQueue<number>({
     onDrop: (id) => {
@@ -318,14 +319,6 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   private readonly basis = new ListenerBasis();
   private readonly selectionSink: SelectionSink;
   private readonly playArgs: PlayArgs = { voiceId: 0, clip: 0, bus: 0, flags: 0, group: 0, gain: 1, pitch: 1, dirX: 0, dirY: 0, dirZ: -1, lpHz: BUS_LP_OFF_HZ, score: 0, startOffsetFrames: 0 };
-  private readonly mixPool: BusMixBuses[] = [];
-  /** M2 F3: selection's bus factor inputs, by bus index: effective gain without automation, parent, automated gain, chain product. */
-  private readonly selBase = new Float64Array(MAX_BUS).fill(1);
-  private readonly selParent = new Int16Array(MAX_BUS).fill(-1);
-  private readonly selAuto = new Float64Array(MAX_BUS).fill(1);
-  private readonly selChain = new Float64Array(MAX_BUS).fill(1);
-  private selCount = 0;
-  private readonly mixView: BusMixBuses[] = [];
   private idlePending = false;
   private master = 1;
   private isMuted = false;
@@ -363,7 +356,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       steal: (i) => this.stealSlot(i),
       setScore: (i, score) => this.sendScore(i, score),
     };
-    this.mirror = new StatusMirror(this.table);
+    this.mirror = new StatusMirror(this.table, host.sampleRate);
     this.writer = new CommandWriter(host.link, host.sampleRate);
     // ADR 0162 (K4): the M3 parts that write through the writer and read the mirror.
     const preset = host.preset;
@@ -489,12 +482,37 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       busSelection: (name, gain) => {
         const b = this.busIndexByName.get(name);
         if (b === undefined || b >= MAX_BUS) return;
-        this.selAuto[b] = gain;
-        this.refreshBusGain();
+        this.lanes.selAuto[b] = gain;
+        this.lanes.refreshBusGain();
       },
     });
     this.replayer = new Replayer(this, host.link);
-    for (let i = 0; i < MAX_BUS; i++) this.mixPool.push({ gain: 1, lpHz: BUS_LP_OFF_HZ });
+    // ADR 0171 (K0): the per-concern modules (closures read the backend lazily).
+    this.buses = new BusIndex({
+      mixer: this.mixer,
+      writer: this.writer,
+      beds: this.beds,
+      automation: this.automation,
+      mirror: this.mirror,
+      table: this.table,
+      presence: this.presence,
+      onCore: (i) => this.onCore(i),
+      applyMix: (buses) => this.applyMix(buses),
+      busesReset: () => {
+        this.lastBusName = null;
+        this.lanes.selAuto.fill(1);
+        this.lanes.forget();
+      },
+    });
+    this.lanes = new LaneWriter({
+      mixer: this.mixer,
+      writer: this.writer,
+      clockMap: this.clockMap,
+      busIndexByName: this.buses.busIndexByName,
+      busGain: this.selection.busGain,
+      refreshSharedLowpass: () => this.refreshSharedLowpass(),
+      replayDucking: (out) => this.presence.replay(out),
+    });
     this.clipSink = { event: (id, code) => this.clips.applyClipEvent(id, code) };
 
     // STATUS: decode into one block, apply in onmessage.
@@ -521,11 +539,54 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     );
     this.cleanups.push(
       this.mixer.onChange(() => {
-        this.replanBedsOnSettings();
-        this.applyMix(this.mixer.resolveAll());
+        this.buses.replanBedsOnSettings();
+        if (!this.disposed) this.presence.settingsChanged(this.mixer);
+        if (!this.disposed) this.lanes.sync();
       }),
     );
     this.configureBuses(this.mixer);
+    // ADR 0171 (K0, Mx1's H2): `mixer.apply(op)` reaches `applyOp`; the mixer evaluates its ramps on the heard clock once
+    // the core runs (`syncMixerClock`, each frame). Only the newest backend on a mixer clears them at its dispose (a
+    // replacement is made before the old one goes).
+    mixerOwners.set(this.mixer, this);
+    this.mixer._setOpTarget(this);
+    this.mixer._setDuckSource(this.duckSource);
+    this.cleanups.push(() => {
+      if (mixerOwners.get(this.mixer) !== this) return;
+      mixerOwners.delete(this.mixer);
+      if (this.mixerOnHeardClock) this.mixer.setClock(null);
+      this.mixerOnHeardClock = false;
+      this.mixer._setOpTarget(null);
+      this.mixer._setDuckSource(null);
+    });
+  }
+
+  /** ADR 0171 (K0): the mixer's ramps run on `heardClock` while this is true. */
+  private mixerOnHeardClock = false;
+  private readonly heardClock = (): number => this.time;
+  /** Dp1: the heard time a stamped ramp written now starts at (the lane writer's stamp), for the mixer's ramp records. */
+  private readonly stampClock = (): number => this.lanes.stampTime();
+  /** Dp1: the mixer reads the duck lane from STATUS (`duckGain`); main computes no presence duck on this backend. */
+  private readonly duckSource = (bus: string): number => this.duckGain(bus);
+  /** Dp1: the table's queued commands go to the writer; an explicit stop ends the voice's presence at once (asap, with its STOP). */
+  private readonly commandSink = {
+    stop: (id: number, fadeSeconds: number): void => {
+      this.presence.voiceStopped(this.table.bus[id & 0xffff]!, id & 0xffff);
+      this.writer.stop(id, fadeSeconds);
+    },
+    fade: (id: number, to: number, seconds: number): void => this.writer.fade(id, to, seconds),
+  };
+
+  /**
+   * ADR 0171 (K0, Mx1's H2): once the core runs and the clock map is anchored, the mixer evaluates fades, snapshots and
+   * presence ducks on the heard clock (`Audio.time`'s base); before that (locked, loading) and after a failure, on its own
+   * `dt` clock. Re-anchoring is the mixer's (`setClock` keeps each running ramp's remaining length).
+   */
+  private syncMixerClock(): void {
+    const heard = this.host.status === "running" && this.clockMap.anchored;
+    if (heard === this.mixerOnHeardClock || mixerOwners.get(this.mixer) !== this) return;
+    this.mixerOnHeardClock = heard;
+    this.mixer.setClock(heard ? this.heardClock : null, heard ? this.stampClock : null);
   }
 
   /** §1 `Audio.time`. */
@@ -580,6 +641,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   /** @internal §3.8: while hidden no frame frees ended voices, so STATUS handling does (and frees what already ended). */
   setHidden(hidden: boolean): void {
     this.hidden = hidden;
+    // ADR 0171 (K0): under `audio.background: "pause"` a hidden page records nothing until it shows: a GAP (§5.3).
+    if (hidden && this.background === "pause") this.profile.gap("paused");
     this.mirror.freeEndedInMessage = hidden;
     if (hidden && !this.disposed) this.table.freeEnded();
   }
@@ -588,7 +651,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   hiddenMute(on: boolean, rampMs: number): void {
     if (this.disposed) return;
     this.hiddenMuteOn = on;
-    this.writer.master(this.master, this.isMuted || on, Math.max(1, Math.round((rampMs / 1000) * this.host.sampleRate)));
+    this.profile.hiddenTab(on);
+    this.lanes.master(this.master, this.isMuted || on, Math.max(1, Math.round((rampMs / 1000) * this.host.sampleRate)));
     this.writer.flush(this.clockMap.nextFirstFrame());
   }
 
@@ -645,6 +709,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     // `at` is ignored while locked (API §1); the stamp-or-asap choice is made when the PLAY is sent (`sendPlay`).
     t.startFrame[i] = running ? this.clockMap.frameOfTime(req.at) : 0;
     this.mixer.voiceStarted(this.names[bus] ?? "");
+    this.presence.voiceStarted(bus, i);
     if (running) this.launch(id);
     else if (req.oneShot && !req.loop) this.lockedQueue.pushOneShot(id, performance.now());
     else this.lockedQueue.pushOwned(id);
@@ -675,28 +740,10 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     }
   }
 
-  /** BUS_MIX from the resolved buses: each bus's own gain (the core multiplies down the tree) and snapshot low-pass. */
+  /** The bus lanes that moved (`laneWriter.ts`, Mx2): read from the mixer's lane ramps, so `buses` is unused. */
   applyMix(buses: readonly ResolvedBus[]): void {
     if (this.disposed) return;
-    const view = this.mixView;
-    view.length = 0;
-    const n = Math.min(buses.length, MAX_BUS);
-    for (let b = 0; b < n; b++) {
-      const item = this.mixPool[b]!;
-      item.gain = buses[b]!.gain;
-      item.lpHz = buses[b]!.snapshotLowpass ?? BUS_LP_OFF_HZ;
-      this.snapLp[b] = item.lpHz;
-      view.push(item);
-      // Selection's audibility uses the effective gain down the tree (A3.1), without bus automation (below).
-      const g = buses[b]!.effectiveGain;
-      this.selBase[b] = Number.isFinite(g) && g > 0 ? g : 0;
-      const p = buses[b]!.parent;
-      this.selParent[b] = p === null ? -1 : (this.busIndexByName.get(p) ?? -1);
-    }
-    this.selCount = n;
-    this.refreshBusGain();
-    this.writer.busMix(view, this.clockMap.rampFrames());
-    this.refreshSharedLowpass();
+    this.lanes.applyMix(buses);
   }
 
   /**
@@ -705,98 +752,24 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
    * the lowest wins); the core folds the gains. Run where a snapshot's cutoff or the bed plan changes.
    */
   private refreshSharedLowpass(): void {
-    if (!this.beds.foldLowpass(this.snapLp, this.selCount)) return;
+    if (!this.beds.foldLowpass(this.lanes.snapLp, this.lanes.selCount)) return;
     const t = this.table;
     for (let i = 0; i < t.capacity; i++) {
       if (t.state[i] === VoiceState.FREE) continue;
       this.voiceFx.setLowpass(i, LowpassBy.SNAPSHOT, this.panners.kindOf(i) === PannerKind.BED ? this.beds.chainLowpass[t.bus[i]!]! : BUS_LP_OFF_HZ);
     }
   }
-  /** Each bus's snapshot cutoff as last sent in BUS_MIX (`BUS_LP_OFF_HZ`: none), for the sharing chain's fold. */
-  private readonly snapLp = new Float32Array(MAX_BUS).fill(BUS_LP_OFF_HZ);
   /** R13: game time, ms (the kind dwell's clock). */
   private gameMs = 0;
 
-  /**
-   * M2 F3: selection's bus factor: the mixer's effective gain times each bus's automated gain (selection's no-gap
-   * estimate, `CoreAutomation.publishSelection`) and its ancestors', root first. Run where either input changes.
-   */
-  private refreshBusGain(): void {
-    const busGain = this.selection.busGain;
-    const chain = this.selChain;
-    for (let b = 0; b < this.selCount; b++) {
-      const p = this.selParent[b]!;
-      const own = this.selAuto[b]!;
-      const c = p >= 0 && p < b ? chain[p]! * own : own;
-      chain[b] = c;
-      const g = this.selBase[b]! * c;
-      busGain[b] = Number.isFinite(g) && g > 0 ? g : 0;
-    }
-  }
-
-  /** The settings object the beds were last planned from (E7: a settings change that keeps the bus names plans them again). */
-  private bedsPlannedFrom: AudioSettings | null = null;
-
-  /** ADR 0162 (C2, E7): plans the beds for the current tree and `audio.bed` / each bus's `bed` and `bedPriority`; BED_CONFIG goes with the next batch. */
-  private planBeds(mixer: Mixer): void {
-    const settings = mixer.audioSettings;
-    const buses = settings.buses;
-    const parents = this.planParents;
-    parents.fill(-1);
-    for (let b = 0; b < buses.length && b < MAX_BUSES; b++) {
-      const parent = buses[b]!.parent;
-      parents[b] = parent === undefined ? -1 : (this.busIndexByName.get(parent) ?? 0);
-    }
-    this.bedsPlannedFrom = settings;
-    this.beds.plan(settings, this.names, parents);
-  }
-
-  /**
-   * E7: `Engine.create` gave the mixer a new settings object and the bus names are the same, so the host reported no remap
-   * and `configureBuses` didn't run. The bed settings (`bed.maxBeds`, a bus's `bed`, `bedPriority`) still apply to the
-   * running core: plan the beds again. A changed tree is `configureBuses`' (the remap runs before the mixer's next update).
-   */
-  private replanBedsOnSettings(): void {
-    const settings = this.mixer.audioSettings;
-    if (settings === this.bedsPlannedFrom || settings.buses.length !== this.names.length || settings.buses.some((b, i) => b.name !== this.names[i])) return;
-    this.planBeds(this.mixer);
-  }
-
-  /** Rebuilds the core's bus tree: BUS_CONFIG, the table's per-bus limits, and BUS_MIX. */
+  /** Rebuilds the core's bus tree: BUS_CONFIG, the table's per-bus limits, and every bus lane (`busIndex.ts`, K0). */
   configureBuses(mixer: Mixer): void {
-    const settings = mixer.audioSettings.buses;
-    this.names = settings.map((b) => b.name);
-    this.busIndexByName.clear();
-    this.names.forEach((n, i) => this.busIndexByName.set(n, i));
-    this.lastBusName = null;
-    this.selAuto.fill(1);
-    this.writer.busConfig(this.busConfigWire(mixer));
-    // ADR 0162 (K4, C2): the bed plan for the new tree, BED_CONFIG right after BUS_CONFIG (none while no bed is laid out).
-    this.planBeds(mixer);
-    // ADR 0158: bus bindings follow their buses to the new indices.
-    this.automation.onBusesConfigured();
-    // The mixer's counts restart at 0 when it is reconfigured; the table knows every live voice (virtual and locked
-    // included), so ducking keeps counting them across a remap. Peaks reported for the old indices are dropped.
-    this.names.forEach((n, i) => mixer._setVoiceCount(n, this.table.busLive[i]!));
-    this.mirror.resetPeaks();
-    this.table.setBusLimits(settings.map((b) => b.maxVoices ?? 0));
-    // A remap (A0.8) has already moved the table's voices to the new tree's indices; the core's
-    // voices still carry the old ones, so each voice on the core is re-routed (after BUS_CONFIG, in
-    // the same batch).
-    const t = this.table;
-    for (let i = 0; i < t.capacity; i++) {
-      if (!this.onCore(i)) continue;
-      this.writer.setParams(((t.gen[i]! << 16) | i) >>> 0, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, t.bus[i]!);
-    }
-    this.applyMix(mixer.resolveAll());
+    this.buses.configureBuses(mixer);
   }
 
-  /** BUS_CONFIG's buses for the tree last configured, root first (also the hard rebuild's replay, A3.4a). */
+  /** BUS_CONFIG's buses for the tree last configured, root first (also the hard rebuild's replay, A3.4a; `busIndex.ts`). */
   busConfigWire(mixer: Mixer = this.mixer): BusConfigBuses[] {
-    return mixer.audioSettings.buses.map((b) => ({
-      parent: b.parent === undefined ? BUS_ROOT : (this.busIndexByName.get(b.parent) ?? 0),
-      effects: b.effects.map(wireEffect),
-    }));
+    return this.buses.busConfigWire(mixer);
   }
 
   get masterVolume(): number {
@@ -805,7 +778,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
 
   set masterVolume(v: number) {
     this.master = clamp(Number.isFinite(v) ? v : 1, 0, 1);
-    this.writer.master(this.master, this.isMuted || this.hiddenMuteOn, this.clockMap.rampFrames());
+    this.lanes.master(this.master, this.isMuted || this.hiddenMuteOn, this.clockMap.rampFrames());
   }
 
   get muted(): boolean {
@@ -814,7 +787,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
 
   set muted(m: boolean) {
     this.isMuted = m;
-    this.writer.master(this.master, m || this.hiddenMuteOn, this.clockMap.rampFrames());
+    this.lanes.master(this.master, m || this.hiddenMuteOn, this.clockMap.rampFrames());
   }
 
   /** B4: `audio.codecs.aac` (read when used, like the rest of the settings). */
@@ -859,6 +832,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     clockMap.beginFrame();
     // A3.4c: after a context swap, the old core's last STATUS is in the old context's frames: wait for the new one's.
     if (this.mirror.blocks > this.staleBlocks) clockMap.noteStatus(this.mirror.frameAudio, this.mirror.frameDateMs);
+    this.syncMixerClock();
     this.mirror.beginFrame();
     // F-9b: stem levels whose stamps come before this frame's asap records land (selection and dry-gain writes read them).
     // Asap records apply on arrival, about `framesNow`; a stamp after that is still pending (`ClockMap.stampFor`'s rule).
@@ -909,7 +883,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     if (this.disposed) return;
     if (this.idlePending) this.checkIdle();
     if (this.stemStaleCount > 0) this.resendStaleStems();
-    this.table.drainCommands(this.writer);
+    this.table.drainCommands(this.commandSink);
     // A3.4a: during a rebuild (or after recovery gave up) no core keeps what is sent; the replay re-derives it all.
     if (this.recovering || this.host.status === "failed") this.writer.clear();
     else if (this.writer.pending > 0) this.writer.flush(this.clockMap.nextFirstFrame());
@@ -961,6 +935,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.contextReplacedInRecovery = true;
     this.zones.contextReplaced(rate);
     this.staleBlocks = this.mirror.blocks;
+    this.mirror.cpu.setSampleRate(rate);
   }
 
   /** `onRebuilt`: the new core answered: RESET 0, buses, MASTER, the clips again, then the voices as their clips return. */
@@ -1043,7 +1018,87 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
 
   /** `Audio.debug()` (K10): delegates to `debug.ts`. */
   debug(): AudioDebugInfo {
-    return buildDebugInfo(this);
+    const info = buildDebugInfo(this);
+    // ADR 0171 (Mx2): each bus row's last stamped BUS_RAMP start frame.
+    info.buses.forEach((row, b) => {
+      const frame = this.lanes.lastRampStartFrame(b);
+      if (frame !== undefined) row.lastRampStartFrame = frame;
+    });
+    // ADR 0171 (K0): the M5 sections, empty until their tasks fill them (Dbg1, Cp2, Rc2), and the core's STATUS frame.
+    info.core.currentFrame = this.mirror.currentFrame;
+    info.mixCaps = { ...this.mixCaps };
+    info.cpu = this.cpu();
+    info.mix = this.mixDebug();
+    info.recorder = null;
+    return info;
+  }
+
+  // --- ADR 0171 amended by 0172 (M5, contract K0): the mix members; each delegates to its per-concern module ---
+
+  /** §1.3: the core reports every flag true and `capture: "full"` (Dbg1 tests the flags per backend). */
+  readonly mixCaps: AudioMixCaps = { loudness: true, levelDucking: true, cpu: true, cpuReason: null, stampedBusRamps: true, capture: "full" };
+
+  /** §1.3, architecture §4.3: Cp2 fills it from `mix/cpuMeter.ts`; until then "not yet measured". */
+  cpu(): AudioCpuDebug {
+    return this.mirror.cpu.debug();
+  }
+
+  /** §1.3 `Audio.debug().mix` (Dbg1): the slot table reads the identity layout until Ma1 wires the table in. */
+  private mixDebug(): AudioMixDebug {
+    return mixDebugInfo(this, this.liveMix.refused, this.deferredAdds.count);
+  }
+
+  /** §6.2: one live edit, routed to `liveMix.ts` (Ma1; every op answers `restartRequired` until then). */
+  applyOp(op: MixOp): ApplyResult {
+    return this.liveMix.apply(op);
+  }
+
+  /** §6.6: post the pending batch now (Ma1). */
+  flushNow(): void {
+    this.liveMix.flushNow();
+  }
+
+  /** §4.2 `BUS_RAMP`: the lane writer (`laneWriter.ts`; Mx2). */
+  rampLane(r: BusLaneRamp): void {
+    this.lanes.rampLane(r);
+  }
+
+  /** §4.2 `BUS_SLOT` (`liveMix.ts`; Ma1, Ma2). */
+  writeSlot(w: BusSlotWrite): void {
+    this.liveMix.writeSlot(w);
+  }
+
+  /** §4.2 `BUS_DUCK` (`presence.ts`; Dp1, Sc1). */
+  writeDucking(rules: readonly DuckingRule[]): void {
+    this.presence.writeDucking(rules);
+  }
+
+  /** §4.2 `LOUD_CONFIG` (`liveMix.ts`; Ma1 with Ld2, Ld4). */
+  writeLoudnessConfig(c: LoudnessConfigWrite): void {
+    this.liveMix.writeLoudnessConfig(c);
+  }
+
+  /** §1.1 `Bus.duckGain`: the STATUS `busDuck` section's gain for `bus` (a block old); 1 when no rule ducks it. */
+  duckGain(bus: string): number {
+    const b = this.busIndexByName.get(bus);
+    if (b === undefined) return 1;
+    const m = this.mirror;
+    for (let k = 0; k < m.duckCount; k++) if (m.duckSlot[k] === b) return m.duckGain[k]!;
+    return 1;
+  }
+
+  /** Architecture §2.1: the recorder's STATUS tap, set on the link (`CoreLink.handleMessage` calls it before RECYCLE). */
+  get recorderTap(): RecorderTap | null {
+    return (this.host.link as { recorderTap?: RecorderTap | null }).recorderTap ?? null;
+  }
+  set recorderTap(tap: RecorderTap | null) {
+    (this.host.link as { recorderTap?: RecorderTap | null }).recorderTap = tap;
+  }
+
+  /** §5.6: the capture's event taps (Rc3); null restores the null object. Recovery reports EPOCH and GAP to the same sink. */
+  setProfileSink(sink: ProfileSink | null): void {
+    this.profile = sink ?? NULL_PROFILE_SINK;
+    setRecoveryProfileSink(sink);
   }
 
   dispose(): void {
@@ -1137,6 +1192,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const clockMap = this.clockMap;
     clockMap.beginFrame();
     if (this.mirror.blocks > this.staleBlocks) clockMap.noteStatus(this.mirror.frameAudio, this.mirror.frameDateMs);
+    this.syncMixerClock();
     this.musicOps.beginFrame();
   }
 
@@ -1365,6 +1421,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     t.busLive[next]!++;
     this.mixer.voiceEnded(this.names[old] ?? "");
     this.mixer.voiceStarted(this.names[next] ?? "");
+    this.presence.voiceStopped(old, i);
+    this.presence.voiceStarted(next, i);
     if (this.onCore(i)) this.writer.setParams(id, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, next);
   }
 
@@ -1448,8 +1506,6 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     return index;
   }
   private lastBusName: string | null = null;
-  /** ADR 0162 (K4): each bus's parent index for the bed planner (-1: the root), reused. */
-  private readonly planParents = new Int16Array(MAX_BUSES);
   private lastBusIndex = 0;
 
   private applyAttenuation(i: number, a: Attenuation): void {
@@ -1907,6 +1963,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.doppler.forget(i);
     this.zones.forget(i);
     this.mixer.voiceEnded(this.names[bus] ?? "");
+    this.presence.voiceStopped(bus, i);
     if ((t.flags[i]! & VoiceFlag.SPATIAL) !== 0) this.spatialCount--;
     t.flags[i] = 0;
     this.spatialDirty[i] = 0;
