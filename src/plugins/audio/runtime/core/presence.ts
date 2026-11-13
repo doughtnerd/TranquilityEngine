@@ -10,11 +10,15 @@ export class Presence {
   /** Dp1: the bus tree was (re)configured with `mixer`'s settings: send the rules and the presence mask. */
   configured(_mixer: Mixer, _busLive: ArrayLike<number>): void {}
 
-  /** Dp1: a voice started on bus index `bus` (its count already raised); `frame` is its start frame, 0 for asap. */
-  voiceStarted(_bus: number, _frame: number): void {}
+  /**
+   * Dp1: a voice in table slot `slot` started on bus index `bus` (or moved onto it); its start frame is
+   * `table.startFrame[slot]` (0 for asap). The slot, not the frame, is passed: a Float64Array element passed as an
+   * argument would box a heap number per voice start (the core voice-start allocation gate in `eventBench.test.ts`).
+   */
+  voiceStarted(_bus: number, _slot: number): void {}
 
-  /** Dp1: a voice on bus index `bus` stopped or ended (its count already lowered); `frame` 0 for asap or a natural end. */
-  voiceStopped(_bus: number, _frame: number): void {}
+  /** Dp1: the voice in table slot `slot` on bus index `bus` stopped, ended or moved off it (no allocation, as above). */
+  voiceStopped(_bus: number, _slot: number): void {}
 
   /** Dp1 (Sc1 adds level rules): `BUS_DUCK`, every rule, replace-all, asap (§4.2). */
   writeDucking(_rules: readonly DuckingRule[]): void {

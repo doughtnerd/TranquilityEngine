@@ -485,16 +485,6 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     });
     this.replayer = new Replayer(this, host.link);
     // ADR 0171 (K0): the per-concern modules (closures read the backend lazily).
-    const self = this;
-    this.lanes = new LaneWriter({
-      writer: this.writer,
-      clockMap: this.clockMap,
-      get busIndexByName() {
-        return self.busIndexByName;
-      },
-      busGain: this.selection.busGain,
-      refreshSharedLowpass: () => this.refreshSharedLowpass(),
-    });
     this.buses = new BusIndex({
       mixer: this.mixer,
       writer: this.writer,
@@ -509,6 +499,13 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
         this.lastBusName = null;
         this.lanes.selAuto.fill(1);
       },
+    });
+    this.lanes = new LaneWriter({
+      writer: this.writer,
+      clockMap: this.clockMap,
+      busIndexByName: this.buses.busIndexByName,
+      busGain: this.selection.busGain,
+      refreshSharedLowpass: () => this.refreshSharedLowpass(),
     });
     this.clipSink = { event: (id, code) => this.clips.applyClipEvent(id, code) };
 
@@ -663,7 +660,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     // `at` is ignored while locked (API §1); the stamp-or-asap choice is made when the PLAY is sent (`sendPlay`).
     t.startFrame[i] = running ? this.clockMap.frameOfTime(req.at) : 0;
     this.mixer.voiceStarted(this.names[bus] ?? "");
-    this.presence.voiceStarted(bus, t.startFrame[i]!);
+    this.presence.voiceStarted(bus, i);
     if (running) this.launch(id);
     else if (req.oneShot && !req.loop) this.lockedQueue.pushOneShot(id, performance.now());
     else this.lockedQueue.pushOwned(id);
@@ -1373,8 +1370,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     t.busLive[next]!++;
     this.mixer.voiceEnded(this.names[old] ?? "");
     this.mixer.voiceStarted(this.names[next] ?? "");
-    this.presence.voiceStopped(old, 0);
-    this.presence.voiceStarted(next, 0);
+    this.presence.voiceStopped(old, i);
+    this.presence.voiceStarted(next, i);
     if (this.onCore(i)) this.writer.setParams(id, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, next);
   }
 
@@ -1915,7 +1912,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.doppler.forget(i);
     this.zones.forget(i);
     this.mixer.voiceEnded(this.names[bus] ?? "");
-    this.presence.voiceStopped(bus, 0);
+    this.presence.voiceStopped(bus, i);
     if ((t.flags[i]! & VoiceFlag.SPATIAL) !== 0) this.spatialCount--;
     t.flags[i] = 0;
     this.spatialDirty[i] = 0;
