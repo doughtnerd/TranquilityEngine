@@ -97,7 +97,23 @@ const SCENES = [
   "music-worst-twin",
   "music-worst",
   "music-worst-streamed",
+  // ADR 0171/0172 M5 (Bn1): bus lanes ramping. 8 buses each with a BUS_RAMP every 4th quantum, stamped (class B) and asap
+  // (`-twin`), beside the same 8 settled (`-base`); 32 buses configured with 4 ramping and 28 settled, beside the 32
+  // settled. `BUS_LANE_PAIRS` reports the cost per ramping lane against architecture §7.1's 1.7-1.8k.
+  "busramp-8-base",
+  "busramp-8",
+  "busramp-8-twin",
+  "busramp-32-base",
+  "busramp-32",
 ];
+
+/** Bn1: each ramping scene -> its settled base and its number of ramping lanes (informational: §7.1's model is 1.7-1.8k
+ *  instructions per ramping lane per quantum, today's ramping bus 5.4k). */
+const BUS_LANE_PAIRS = {
+  "busramp-8": { base: "busramp-8-base", lanes: 8 },
+  "busramp-8-twin": { base: "busramp-8-base", lanes: 8 },
+  "busramp-32": { base: "busramp-32-base", lanes: 4 },
+};
 
 /** Stamped scene -> its unstamped twin: the stamped one may cost at most this many more instructions per quantum
  *  (the waves plan's tripwire; a miss is logged and raised with the owner, not fixed by trading CPU or quality). */
@@ -214,6 +230,16 @@ function main() {
     console.log(`[metered] ${scene} less ${twin}: ${delta >= 0 ? "+" : ""}${delta.toLocaleString("en-US")} instructions per quantum, ${((delta / limit) * 100).toFixed(0)}% of the S7 allowance (${limit.toLocaleString("en-US")})`);
     if (delta > limit) twinFailures.push(`${scene} costs ${delta.toLocaleString("en-US")} instructions per quantum over ${twin}, above its S7 allowance of ${limit.toLocaleString("en-US")}`);
   }
+  // Bn1: the cost of a ramping lane (scene less its settled base, per ramping lane) against §7.1's model.
+  for (const [scene, { base, lanes }] of Object.entries(BUS_LANE_PAIRS)) {
+    const a = results[scene];
+    const b = results[base];
+    if (!a || !b) continue;
+    const delta = a.perQuantum - b.perQuantum;
+    console.log(`[metered] ${scene} less ${base}: ${delta >= 0 ? "+" : ""}${delta.toLocaleString("en-US")} instructions per quantum, ${Math.round(delta / lanes).toLocaleString("en-US")} per ramping lane (model 1.7-1.8k; splitQuanta ${a.splitQuanta})`);
+  }
+  if (results["busramp-8"] && results["busramp-8"].splitQuanta !== 0) twinFailures.push(`busramp-8 split ${results["busramp-8"].splitQuanta} quanta (stamped bus ramps apply inside their quantum)`);
+  if (results["busramp-32"] && results["busramp-32"].splitQuanta !== 0) twinFailures.push(`busramp-32 split ${results["busramp-32"].splitQuanta} quanta (stamped bus ramps apply inside their quantum)`);
   if (twinFailures.length > 0 && !update) {
     fail(`stamped scenes against their twins:\n  ${twinFailures.join("\n  ")}`);
   }

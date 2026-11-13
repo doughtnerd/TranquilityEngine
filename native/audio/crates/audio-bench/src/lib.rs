@@ -267,6 +267,9 @@ pub enum Per {
     /// Music: 8 stems, an equal-power crossfade of one every 32 quanta (a PLAY with `fadeZero` and a FADE in, a FADE out
     /// with `stopAtEnd`), and a stinger voice started and stopped by a stamped STOP.
     Music,
+    /// ADR 0171/0172 M5 (Bn1): a `BUS_RAMP` (runtime lane, gain, over 4 quanta) on each of the first `n` buses every 4th
+    /// quantum, alternating 0.6 and 0.9: `n` lanes ramping all the time (class B when stamped).
+    BusRamp(u32),
 }
 
 /// ADR 0162 C7: the bus aux sends go to (one of the presets' 32 buses).
@@ -564,6 +567,14 @@ pub fn scene(name: &str) -> Option<Scene> {
         "stamped-loop-twin" => Scene::per(Scene::looping(name, 128), Per::Loop, false),
         "stamped-music" => Scene::per(Scene::looping(name, 8), Per::Music, true),
         "stamped-music-twin" => Scene::per(Scene::looping(name, 8), Per::Music, false),
+        // ADR 0171/0172 M5 (Bn1): bus lanes ramping. `busramp-8`: 8 buses each with a stamped BUS_RAMP every 4th quantum
+        // (class B), `-twin` the same asap, `-base` the same 8 buses settled; `busramp-32`: 32 buses configured, 4 ramping
+        // (stamped), the other 28 settled (the identity skip), `-base` the 32 settled.
+        "busramp-8" => Scene::per(Scene { buses: 8, ..Scene::looping(name, 32) }, Per::BusRamp(8), true),
+        "busramp-8-twin" => Scene::per(Scene { buses: 8, ..Scene::looping(name, 32) }, Per::BusRamp(8), false),
+        "busramp-8-base" => Scene { buses: 8, ..Scene::looping(name, 32) },
+        "busramp-32" => Scene::per(Scene { buses: 32, ..Scene::looping(name, 32) }, Per::BusRamp(4), true),
+        "busramp-32-base" => Scene { buses: 32, ..Scene::looping(name, 32) },
         // ADR 0166 M4b (Bench1): music on the default preset, decoded and streamed, each beside its music-free twin (the
         // twin is shared: music's voices are on top of the same SFX). `MUSIC_PAIRS` in the gate holds the allowances.
         "music-typ-twin" => Scene::music(name, MusicKind::Typical, false, false),
@@ -1779,6 +1790,14 @@ impl Bench {
                 // Two nested regions, alternately (the voice is wherever it is: it wraps into the new region).
                 let (a, b) = if (q / self.mixed_ids.len() as u64) % 2 == 0 { (frames / 4, 3 * frames / 4) } else { (frames / 8, 7 * frames / 8) };
                 self.push(&wire::SetLoop { voice_id: id, frame_offset: at(0), loop_start_frame: a, loop_end_frame: b, flags: wire::SET_LOOP_FLAGS_LOOPING });
+            }
+            Per::BusRamp(n) => {
+                if q % 4 == 0 {
+                    let gain = if (q / 4) % 2 == 0 { 0.6 } else { 0.9 };
+                    for bus in 0..n {
+                        self.push(&wire::BusRamp { voice_id: bus, frame_offset: at(bus as u64), lane: wire::LANE_RUNTIME as u16, mask: wire::BUS_RAMP_MASK_GAIN, gain, lp_hz: wire::BUS_LP_OFF_HZ as f32, frames: 4 * QUANTUM as u32, shape: 0 });
+                    }
+                }
             }
             Per::Music => {
                 if self.stems.is_empty() {
