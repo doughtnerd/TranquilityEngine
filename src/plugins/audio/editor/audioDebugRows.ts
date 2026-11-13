@@ -41,7 +41,7 @@ export interface Column {
 
 /** A panel section. `columns` absent: a label/value list. */
 export interface Section {
-  id: "m3Counters" | "ladder" | "beds" | "zones" | "occlusion" | "memory" | "musicTotals" | "music";
+  id: "m3Counters" | "ladder" | "beds" | "zones" | "occlusion" | "memory" | "musicTotals" | "music" | "mixCaps" | "cpu" | "mix" | "mixSlots" | "ducking" | "recorder";
   title: string;
   /** What the section is, for a tooltip on its header. */
   tip: string;
@@ -362,6 +362,127 @@ export function debugSections(info: AudioDebugInfo, watch?: CounterWatch, musicW
       rows: musicInstanceRows(music, info.sampleRate, musicWatch),
       empty: "No music playing",
     },
+  ];
+}
+
+// --- The M5 mix sections (ADR 0171 Dbg1, api-and-models §1.3) -----------------------------------------------------
+
+const NO_MIX = "No mix data on this backend";
+
+function mixCapsRows(info: AudioDebugInfo): Row[] {
+  const c = info.mixCaps;
+  if (!c) return [];
+  const flag = (id: string, label: string, on: boolean, tip: string, off = "no"): Row => kv(id, label, on ? "yes" : off, tip, on ? "ok" : "info");
+  return [
+    flag("loudness", "Loudness meters", c.loudness, "Whether Bus.loudness measures anything. The Babylon fallback has no meter, so every reading is empty."),
+    flag("levelDucking", "Level ducking", c.levelDucking, "Whether ducking rules that listen to a bus's level run. Presence rules run on every backend."),
+    flag("cpu", "CPU figure", c.cpu, "Whether the audio thread's load figure is available.", c.cpuReason ?? "no"),
+    flag("stampedBusRamps", "Stamped bus ramps", c.stampedBusRamps, "Whether script fades and snapshots start on their stamp, to the sample. Without it they start when main applies them."),
+    kv("capture", "Capture", c.capture === "full" ? "full" : "main side only", "What the profiler can record: everything, or only main-side events and keyframes (the fallback has no audio core to record).", "info"),
+  ];
+}
+
+function cpuRows(info: AudioDebugInfo): Row[] {
+  const c = info.cpu;
+  if (!c) return [];
+  const load = c.hidden ? c.hidden : c.loadPermille === null ? "CPU not yet measured" : `${(c.loadPermille / 10).toFixed(1)}%`;
+  const health: Health = c.hidden ? "info" : c.loadPermille === null ? "info" : c.loadPermille >= 900 ? "bad" : c.loadPermille >= 700 ? "warn" : "ok";
+  const rows: Row[] = [
+    kv("cpuLoad", "Audio thread load", load, "Share of the audio thread's time the mix takes, over the window below. Hidden when the clock is too coarse to tell; amber from 70%, red from 90%.", health),
+    kv("cpuWindow", "Window", c.windowMs > 0 ? `${fmt(c.windowMs, 0)} ms` : "-", "How long the load figure averages over."),
+    kv("cpuClockStep", "Clock step", c.clockStepMs > 0 ? `${fmt(c.clockStepMs, 2)} ms` : "-", "The smallest clock step the audio thread saw. The load figure needs a clock of 2 ms or finer."),
+    kv("cpuClockSteps", "Clock steps clamped", fmt(c.clockSteps), "Readings the shell discarded as impossible jumps of the clock."),
+  ];
+  if (c.refitResidual !== null) rows.push(kv("cpuResidual", "Fit residual", fmt(c.refitResidual, 3), "How well the per-section estimate explains the measured load; large means the split is a guess."));
+  if (c.sections) {
+    const s = c.sections;
+    rows.push(kv("cpuSections", "Estimated split", `voices ${fmt(s.voices / 10, 1)}%, buses ${fmt(s.buses / 10, 1)}%, spatial ${fmt(s.spatial / 10, 1)}%, music ${fmt(s.music / 10, 1)}%, loudness ${fmt(s.loudness / 10, 1)}%`, "The load figure split by section, estimated from the work each did."));
+  }
+  return rows;
+}
+
+function mixRows(info: AudioDebugInfo): Row[] {
+  const m = info.mix;
+  if (!m) return [];
+  const count = (id: string, label: string, v: number, tip: string): Row => kv(id, label, fmt(v), tip, v > 0 ? "warn" : "ok");
+  return [
+    kv("monitorActive", "Monitor", m.monitorActive ? "mute or solo on" : "off", "Whether a monitor mute or solo from the mixer panel is in force. It is never saved.", m.monitorActive ? "warn" : "ok"),
+    kv("metersPaused", "Meters paused", fmt(m.metersPaused), "Loudness meters paused now, by a script or by the load-shedding ladder.", m.metersPaused > 0 ? "warn" : "ok"),
+    kv("loudnessLadderStep", "Loudness ladder step", String(m.loudnessLadderStep), "0: meters run. 1: the audio thread was running late and the meters are paused to give the time back.", m.loudnessLadderStep > 0 ? "bad" : "ok"),
+    count("busRecordsEarly", "Bus records early", m.busRecordsEarly, "Bus changes the core applied at the start of a block because its list of timed changes was full. The change is heard slightly early."),
+    count("sidechainLate", "Sidechain late", m.sidechainLate, "Level-ducking reads that arrived a block late."),
+    count("liveRefused", "Live edits refused", m.liveRefused, "Live mix edits the core refused; the project needs a restart for them."),
+    kv("liveDeferred", "Live adds deferred", fmt(m.liveDeferred), "Bus additions waiting for a free slot.", "info"),
+  ];
+}
+
+function slotRows(info: AudioDebugInfo): Row[] {
+  return (info.mix?.slots ?? []).map((s) => ({
+    id: `slot${s.slot}`,
+    cells: [{ text: String(s.slot) }, { text: s.name ?? "-" }, { text: s.state, health: s.state === "live" ? undefined : "info" }],
+  }));
+}
+
+function duckingRows(info: AudioDebugInfo): Row[] {
+  return (info.mix?.ducking ?? []).map((d, k) => {
+    const ducked = d.gain < 0.9995;
+    return {
+      id: `duck${k}:${d.target}`,
+      cells: [
+        { text: d.target },
+        { text: d.trigger },
+        { text: d.mode, tip: d.mode === "level" ? "Ducks while the trigger's level is over the threshold." : "Ducks while the trigger has voices." },
+        { text: formatGain(d.gain), health: ducked ? "warn" : "ok" },
+      ],
+    };
+  });
+}
+
+function recorderRows(info: AudioDebugInfo): Row[] {
+  const r = info.recorder;
+  if (!r) return [];
+  return [
+    kv("recState", "State", r.state, "What the shared capture ring is doing."),
+    kv("recOwners", "Owners", fmt(r.owners), "Who holds the ring open: the Profiler panel, Audio.capture, the export's trigger."),
+    kv("recBytes", "Size", formatBytes(r.bytes), "Memory the ring holds."),
+    kv("recSegments", "Segments", fmt(r.segments), "Pieces the ring is split into."),
+    kv("recEvicted", "Evicted", fmt(r.evicted), "Segments dropped to make room for newer ones.", r.evicted > 0 ? "warn" : "ok"),
+    kv("recTruncated", "Truncated", r.truncated ? "yes" : "no", "Whether the ring wrapped, so a capture no longer starts where it was asked to.", r.truncated ? "warn" : "ok"),
+  ];
+}
+
+/** The M5 mix sections, after the M3 ones: backend flags, CPU, mix counters, the slot table, ducking, the recorder. A section the backend has no data for has `empty` set. */
+export function mixSections(info: AudioDebugInfo): Section[] {
+  return [
+    { id: "mixCaps", title: "Mix capabilities", tip: "What this backend can do for the mix: the Babylon fallback has no audio core, so it has no meters, level ducking, CPU figure or stamped ramps.", rows: mixCapsRows(info), empty: NO_MIX },
+    { id: "cpu", title: "CPU", tip: "The audio thread's load, measured over a short window.", rows: cpuRows(info), empty: NO_MIX },
+    { id: "mix", title: "Mix", tip: "Live mixing state: monitor, paused meters, the load ladder, and the counters of changes the core applied early, late or not at all.", rows: mixRows(info), empty: NO_MIX },
+    {
+      id: "mixSlots",
+      title: "Bus slots",
+      tip: "The session's bus slot table: which bus holds which slot in the core.",
+      columns: [
+        { label: "Slot", tip: "The bus's slot in the core." },
+        { label: "Bus", tip: "The bus name, or - for an empty slot." },
+        { label: "State", tip: "live: in use. tombstone: removed, not yet reused. free: never used." },
+      ],
+      rows: slotRows(info),
+      empty: NO_MIX,
+    },
+    {
+      id: "ducking",
+      title: "Ducking",
+      tip: "Each ducking rule's target gain now. 1 is not ducked.",
+      columns: [
+        { label: "Target", tip: "The bus that is lowered." },
+        { label: "Trigger", tip: "The bus that lowers it." },
+        { label: "Mode", tip: "presence: while the trigger has voices. level: while its level is over the threshold." },
+        { label: "Gain", tip: "The target's duck gain now." },
+      ],
+      rows: duckingRows(info),
+      empty: info.mix ? "No ducking rules" : NO_MIX,
+    },
+    { id: "recorder", title: "Capture ring", tip: "The shared capture ring the Profiler and Audio.capture record into.", rows: recorderRows(info), empty: info.mix || info.mixCaps ? "No capture running" : NO_MIX },
   ];
 }
 

@@ -84,7 +84,7 @@ import { createHrirLoader, createMaglsLoader, type HrirLoader, type MaglsLoader 
 import { ambisonicImportGain, createClipRegistry, type ClipInfo, type ClipRegistry } from "./clipRegistry";
 import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink, type HostHealth } from "./context";
 import { PlayheadTracker, Replayer } from "./replay";
-import { buildDebugInfo, type AudioDebugInfo } from "./debug";
+import { buildDebugInfo, mixDebugInfo, type AudioDebugInfo } from "./debug";
 import { BackgroundController } from "./background";
 import { calibrationDeviceChanged, initCalibration } from "../music/calibration";
 import { browserHostClock, type HostClock } from "./hostClock";
@@ -1022,17 +1022,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
 
   /** §1.3 `Audio.debug().mix` (Dbg1): the slot table reads the identity layout until Ma1 wires the table in. */
   private mixDebug(): AudioMixDebug {
-    return {
-      slots: this.names.map((name, slot) => ({ name, slot, state: "live" as const })),
-      monitorActive: false,
-      metersPaused: 0,
-      loudnessLadderStep: 0,
-      busRecordsEarly: 0,
-      sidechainLate: 0,
-      liveRefused: this.liveMix.refused,
-      liveDeferred: this.deferredAdds.count,
-      ducking: [],
-    };
+    return mixDebugInfo(this, this.liveMix.refused, this.deferredAdds.count);
   }
 
   /** §6.2: one live edit, routed to `liveMix.ts` (Ma1; every op answers `restartRequired` until then). */
