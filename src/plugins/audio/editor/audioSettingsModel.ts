@@ -13,6 +13,9 @@ import {
   DEFAULT_LIMITER_LOOKAHEAD_MS,
   EFFECT_TYPES,
   LIMITER_LOOKAHEAD_LIMITS,
+  LOUDNESS_TARGET_LIMITS,
+  MAX_LOUDNESS_BUSES,
+  MAX_TARGET_NAME,
   MASTER,
   MUSIC_RINGS_LIMITS,
   MUSIC_RINGS_PRESETS,
@@ -171,6 +174,21 @@ export function setLoudnessTarget(d: SettingsDraft, index: number, patch: Partia
   if (!old) return d;
   const target = { ...old, ...patch, ...(patch.name !== undefined ? { name: patch.name.trim() } : {}) };
   return applyMixOp(d, { op: "setTarget", index, target });
+}
+export { LOUDNESS_TARGET_LIMITS, MAX_LOUDNESS_BUSES, MAX_TARGET_NAME };
+/** Non-root buses that are metered (the root always is and isn't counted). */
+export const meteredBusCount = (a: AudioSettings): number => a.buses.filter((b, i) => i > 0 && b.meter !== undefined).length;
+/** Is the bus metered? The root always is. */
+export const isBusMetered = (a: AudioSettings, name: string): boolean => a.buses[0]?.name === name || a.buses.find((b) => b.name === name)?.meter !== undefined;
+/** Why turning the bus's meter on would be refused ("At most 8 buses can be metered"), or null: already on, or allowed. */
+export const busMeterRefusal = (d: SettingsDraft, name: string): string | null =>
+  isBusMetered(audioOf(d), name) ? null : mixOpRefusal(d, { op: "setBus", bus: name, key: "meter", value: "loudness" });
+/** Why `setLoudnessTarget(d, index, patch)` would be refused (the message to show under the table), or null. */
+export function loudnessTargetRefusal(d: SettingsDraft, index: number, patch: Partial<LoudnessTarget>): string | null {
+  const old = loudnessTargetsOf(audioOf(d))[index];
+  if (!old) return `No loudness target ${index + 1}.`;
+  const target = { ...old, ...patch, ...(patch.name !== undefined ? { name: patch.name.trim() } : {}) };
+  return mixOpRefusal(d, { op: "setTarget", index, target });
 }
 /** `loudnessResetOnPlay`: reset the meters when the editor's Play starts (default on). */
 export const setLoudnessResetOnPlay = (d: SettingsDraft, on: boolean): SettingsDraft => applyMixOp(d, { op: "setOption", key: "loudnessResetOnPlay", value: on });
