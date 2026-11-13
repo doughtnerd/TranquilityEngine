@@ -228,7 +228,11 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
   it("the constructor's BUS_CONFIG, the presence rules and mask (Dp1) and every bus lane (Mx2: authored, runtime, snapshot, monitor, dip per bus) go out at the first update", () => {
     const sentRig = rig();
     sentRig.backend.update(0);
-    const ops = sentRig.ops();
+    // Ld2: LOUD_CONFIG follows BUS_CONFIG at configure (master metered; its records: loudnessWiring.test.ts).
+    const sent = sentRig.ops();
+    expect(sent.filter((o) => o.op === Op.LOUD_CONFIG)).toHaveLength(1);
+    expect(sent.findIndex((o) => o.op === Op.LOUD_CONFIG)).toBeGreaterThan(sent.findIndex((o) => o.op === Op.BUS_CONFIG));
+    const ops = sent.filter((o) => o.op !== Op.LOUD_CONFIG);
     expect(ops.map((o) => o.op)).toEqual([Op.BUS_CONFIG, Op.BUS_DUCK, Op.BUS_PRESENCE, ...Array.from({ length: 25 }, () => Op.BUS_RAMP)]);
     const cfg = readBusConfig(ops[0]!.view, ops[0]!.off);
     expect(cfg.buses).toHaveLength(5);
