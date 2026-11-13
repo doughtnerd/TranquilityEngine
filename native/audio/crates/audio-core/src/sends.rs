@@ -187,3 +187,32 @@ fn drain_into(dst: &mut [f32], src: &mut [f32]) {
         *d += core::mem::take(s);
     }
 }
+
+// --- The bus reverb send (ADR 0172 §3.1, O1: post-fader; architecture §4.5 "Post-fader sends",
+// R11; api-and-models §4.6). K1 routes it; Rv1 (W3) fills the scaling and the run-out. ---
+
+/// The bus reverb send into the shared convolver's input (`bus::mixdown`, after the bus's gain
+/// stage): `scratch_l`, `scratch_r` hold this bus's reverb contribution for the quantum (each
+/// reverb-send slot's `send × signal at that slot`, written by `FxChain::process`); they are added
+/// into `rev_l`, `rev_r` and cleared. `gain` is what `lanes::apply` multiplied the bus by, and
+/// `curve` its per-frame gain when that is `Gain::Curve`.
+///
+/// K1: adds **unscaled** whatever `gain` (today's pre-fader send, bit-identical: the scratch
+/// starts at +0, so `rev + (0 + x)` is `rev + x` bit for bit). Rv1: scales by `gain` (post-fader,
+/// O1), skipping the multiply on `Gain::Unity` (bit-identical), and feeds the run-out's silence
+/// detector. Call it only for a bus whose chain fed the scratch this quantum.
+#[inline(never)]
+pub fn feed(scratch_l: &mut [f32], scratch_r: &mut [f32], gain: crate::lanes::Gain, curve: &[f32; QUANTUM], rev_l: &mut [f32], rev_r: &mut [f32]) {
+    let _ = (gain, curve);
+    drain_into(rev_l, scratch_l);
+    drain_into(rev_r, scratch_r);
+}
+
+/// Whether the shared convolver runs this quantum: `has_reverb` (a configured bus has a reverb
+/// send) or `sent` (a send fed it this quantum). K1: today's rule. Rv1: the run-out, which keeps
+/// it running until its input has been silent for the IR length plus `IDLE_MARGIN_QUANTA`, then
+/// resets it (ARCH §3.3), so removing the last send no longer cuts the tail.
+#[inline]
+pub fn convolver_should_run(has_reverb: bool, sent: bool) -> bool {
+    has_reverb || sent
+}

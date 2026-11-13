@@ -12,6 +12,9 @@
 //! - 0166 M4-0 (Q1's skeletons, Z2b fills): `equal_power` (the 1,024-point quarter-sine table) and
 //!   `curve_laws` (the fade laws at control rate).
 //!
+//! - 0171/0172 M5 (K1's skeletons): `loudness` (K-weighting, sub-blocks, true peak; Ld1) and
+//!   `sidechain` (detector, gain computer, follower; Dp1, Sc1). This module list is final for M5.
+//!
 //! Rules for every module: transcendentals go through `libm` (never `f32::sin` and friends), so
 //! native tests and the wasm build give bit-identical results; nothing allocates while processing.
 
@@ -26,6 +29,8 @@ pub mod equal_power;
 pub mod fxfilter;
 pub mod hrtf;
 pub mod limiter;
+pub mod loudness;
 pub mod pan;
 pub mod ramp;
 pub mod resample;
+pub mod sidechain;

@@ -10,9 +10,11 @@
 //! their own file and never this one:
 //! - `lowpass`, `highpass`, and the snapshot low-pass: `audio_dsp::biquad::Biquad` (A2.2a);
 //! - `compressor`: `audio_dsp::compressor::Compressor` (A2.2a);
-//! - `reverbSend`: adds `send * signal` into the shared reverb input, and leaves the bus signal
-//!   unchanged (a tap); the shared `audio_dsp::convolver` (A2.2b) renders the wet signal once per
-//!   quantum in `bus.rs`.
+//! - `reverbSend`: adds `send * signal` into the bus's send scratch (M5, K1: a 1 KB planar stereo
+//!   buffer shared by every bus, since they mix one at a time), and leaves the bus signal unchanged
+//!   (a tap); `bus.rs` hands the scratch to `sends::feed` after the bus's gain stage, which adds it
+//!   into the shared reverb input (post-fader scaling: Rv1); the shared `audio_dsp::convolver`
+//!   (A2.2b) renders the wet signal once per quantum in `bus.rs`.
 //!
 //! (In A2.1 those modules were passthrough stubs; A2.2a and A2.2b filled them.)
 //!
@@ -160,8 +162,9 @@ impl FxChain {
     }
 
     /// Runs the chain on one block of the bus (`left`, `right`, equal lengths). Each reverb send
-    /// adds `send * signal` into `reverb_l`/`reverb_r` (at least as long). Returns `true` when a
-    /// send fed the reverb.
+    /// adds `send * signal` (the signal at its slot) into `reverb_l`/`reverb_r` (at least as long):
+    /// the bus's send scratch, which `sends::feed` adds into the shared reverb input. Returns
+    /// `true` when a send wrote into it.
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32], reverb_l: &mut [f32], reverb_r: &mut [f32]) -> bool {
         let mut sent = false;
         let used = self.used();

@@ -79,7 +79,7 @@ pub fn fill(core: &mut Core, bus: u16, until: Option<u16>, out: &mut [f32; QUANT
     out.fill(1.0);
     let mut own = [0.0f32; QUANTUM];
     walk(core, bus, until, |slot, auto| {
-        ramp_frames(&slot.gain, &mut own);
+        ramp_frames(crate::lanes::gain_ramp(slot), &mut own);
         for (j, x) in out.iter_mut().enumerate() {
             let g = own[j] * auto.map_or(1.0, |a| a.gain_at(j));
             *x *= g;
@@ -91,7 +91,7 @@ pub fn fill(core: &mut Core, bus: u16, until: Option<u16>, out: &mut [f32; QUANT
 pub fn ends(core: &mut Core, bus: u16, until: Option<u16>) -> (f32, f32) {
     let (mut g0, mut g1) = (1.0f32, 1.0f32);
     walk(core, bus, until, |slot, auto| {
-        let (a, b) = ramp_ends(&slot.gain);
+        let (a, b) = ramp_ends(crate::lanes::gain_ramp(slot));
         let (m0, m1) = auto.map_or((1.0, 1.0), |x| (x.gain_at(0), x.gain_at(QUANTUM - 1)));
         g0 *= a * m0;
         g1 *= b * m1;

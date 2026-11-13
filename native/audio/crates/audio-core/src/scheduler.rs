@@ -51,7 +51,7 @@ use audio_wire::generated::{self as wire, BatchHeader, Envelope, Fade, Master, P
 use crate::core::{Core, Regions};
 use crate::counters::flag;
 use crate::layout::{PENDING_CAPACITY, PENDING_RECORD_BYTES};
-use crate::{automation, bed, bus, fxpool, listener, status, voices, zones};
+use crate::{automation, bed, bus, duck, fxpool, lanes, listener, loudness, status, voices, zones};
 
 /// One stamped record waiting for its frame: 48 bytes (`PENDING_RECORD_BYTES`), all-zero valid.
 /// STOP, SET_PARAMS, FADE, SET_PAUSED, SEEK and SET_LOOP only (PLAY is written to its slot at once).
@@ -202,7 +202,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
         }
         let entries_fit = match head.opcode {
             wire::op::BUS_CONFIG => bus::config_is_well_formed(msg, off, len),
-            wire::op::BUS_MIX => bus::mix_is_well_formed(msg, off, len),
+            wire::op::BUS_MIX => lanes::mix_is_well_formed(msg, off, len),
             wire::op::AUTOMATE | wire::op::BUS_AUTOMATE => automation::bindings_is_well_formed(msg, off, len),
             wire::op::CURVES => automation::curves_is_well_formed(msg, off, len),
             wire::op::BED_CONFIG => bed::config_is_well_formed(msg, off, len),
@@ -324,7 +324,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
                 }
             }
             wire::op::BUS_CONFIG => bus::configure(core, msg, off),
-            wire::op::BUS_MIX => bus::mix(core, msg, off),
+            wire::op::BUS_MIX => lanes::mix(core, msg, off),
             wire::op::MASTER => {
                 if let Ok((m, _)) = Master::read(msg, off) {
                     bus::master(core, &m);
@@ -386,6 +386,10 @@ pub fn reset(core: &mut Core, keep_clips: bool) {
     zones::reset(core);
     fxpool::reset(core);
     listener::reset(core);
+    // M5 (K1): the duck lane's detectors and followers (Dp1, Sc1) and the loudness meters (Ld2);
+    // no-ops until those tasks fill them. The lanes settle in `bus::reset`.
+    duck::reset(core);
+    loudness::reset(core);
 }
 
 /// `firstFrame + frameOffset` as an absolute frame (a negative or fractional `firstFrame` rounds,
