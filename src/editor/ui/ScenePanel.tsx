@@ -1,4 +1,5 @@
 import { backFromPrefab, prefabOrigin } from "../prefabTabs";
+import { Panel } from "./panel/Panel";
 import { effect } from "@preact/signals";
 import { useLayoutEffect, useRef } from "preact/hooks";
 import { cleanSnap, snapSettings } from "../sceneTools";
@@ -63,18 +64,20 @@ export function ScenePanel() {
     };
   }, []);
   return (
-    <div class="scene-panel">
-      <SceneTabs />
-      <PrefabBar />
-      <SceneToolbar />
-      <div class="viewport-panel">
-        <div ref={host} class="viewport-host" />
-        <ViewportHint />
-        <CameraPreviewFrame />
-        <PanelExtensions panel="scene" />
-        <ViewportDropHighlight />
+    <Panel>
+      <div class="scene-panel">
+        <SceneTabs />
+        <PrefabBar />
+        <SceneToolbar />
+        <div class="viewport-panel">
+          <div ref={host} class="viewport-host" />
+          <ViewportHint />
+          <CameraPreviewFrame />
+          <PanelExtensions panel="scene" />
+          <ViewportDropHighlight />
+        </div>
       </div>
-    </div>
+    </Panel>
   );
 }
 

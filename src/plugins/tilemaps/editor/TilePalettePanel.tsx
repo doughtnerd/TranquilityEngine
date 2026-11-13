@@ -7,7 +7,7 @@ import type { TileDef } from "../runtime/tileset";
 import { activeLayer, BRUSH_TOOLS, brushFlags, brushRandom, brushStamp, brushTerrain, brushTile, brushTool, flipBrush, pickBrushTool, tilemapOf } from "./brush";
 import { blockStamp, commitLayers, commitTileset, editedLayers } from "./palette";
 import { TileThumb } from "./TileThumb";
-import { editor } from "../../../editor/sdk";
+import { editor, Panel } from "../../../editor/sdk";
 import "./tilePalette.css";
 
 const MIN_COLUMNS = 1, MAX_COLUMNS = 32;
@@ -18,7 +18,7 @@ export function TilePalettePanel() {
   editor.scene.selection.active;
   const scene = editor.scene.open, path = editor.scene.selection.path(), project = editor.project.current;
   const map = editor.scene.playState === "edit" ? tilemapOf(editor.scene.selection.node()) : null;
-  if (!scene || !path || !project || !map) return <p class="empty">Select a node with a Tilemap to paint.</p>;
+  if (!scene || !path || !project || !map) return <Panel><p class="empty">Select a node with a Tilemap to paint.</p></Panel>;
   const readOnly = !project.canSave;
   const layers = map.toLayerData();
   const tileset = map.tilesetAsset;
@@ -36,131 +36,133 @@ export function TilePalettePanel() {
   };
 
   return (
-    <div class="tile-palette">
-      <BrushBar />
-      <section class="tile-palette-section">
-        <h4>Tileset</h4>
-        <select aria-label="Tileset" disabled={readOnly} value={map.tileset} onChange={(e) => commitTileset(scene, path, (e.currentTarget as HTMLSelectElement).value)}>
-          <option value="">{tilesets.length === 0 ? "No tilesets in the project" : "Choose a tileset…"}</option>
-          {tilesets.map((f) => (
-            <option key={f} value={f}>
-              {f}
-            </option>
-          ))}
-          {map.tileset && !tilesets.includes(map.tileset) && <option value={map.tileset}>{map.tileset} (missing)</option>}
-        </select>
-      </section>
-      <section class="tile-palette-section">
-        <h4>Layers</h4>
-        <ul class="tile-layers" aria-label="Layers">
-          {layers.map((l, i) => (
-            <li key={i} class={i === active ? "active" : ""} onClick={() => (activeLayer.value = i)}>
-              <input type="checkbox" aria-label={`${l.name} visible`} title="Visible" checked={l.visible} disabled={readOnly} onClick={(e) => e.stopPropagation()} onChange={(e) => edit("Toggle layer visibility", (x) => (x[i].visible = (e.currentTarget as HTMLInputElement).checked))} />
-              <input type="checkbox" aria-label={`${l.name} collision`} title="Collision" checked={l.collision} disabled={readOnly} onClick={(e) => e.stopPropagation()} onChange={(e) => edit("Toggle layer collision", (x) => (x[i].collision = (e.currentTarget as HTMLInputElement).checked))} />
-              <input
-                key={l.name}
-                type="text"
-                class="tile-layer-name"
-                aria-label={`Layer ${i + 1} name`}
-                defaultValue={l.name}
-                disabled={readOnly}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => {
-                  const name = (e.currentTarget as HTMLInputElement).value.trim();
-                  if (name) edit("Rename layer", (x) => (x[i].name = name));
-                  else (e.currentTarget as HTMLInputElement).value = l.name;
-                }}
-              />
-              <select aria-label={`${l.name} sorting layer`} title="Sorting layer" value={l.sortingLayer} disabled={readOnly} onClick={(e) => e.stopPropagation()} onChange={(e) => edit("Set sorting layer", (x) => (x[i].sortingLayer = (e.currentTarget as HTMLSelectElement).value))}>
-                {(sortingLayers.includes(l.sortingLayer) ? sortingLayers : [...sortingLayers, l.sortingLayer]).map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="number"
-                step={1}
-                class="tile-layer-order"
-                aria-label={`${l.name} order in layer`}
-                title="Order in layer"
-                value={l.orderInLayer}
-                disabled={readOnly}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => {
-                  const v = Math.round(Number((e.currentTarget as HTMLInputElement).value));
-                  if (Number.isFinite(v)) edit("Set layer order", (x) => (x[i].orderInLayer = v));
-                }}
-              />
-              <button aria-label={`Move ${l.name} up`} title="Move up" disabled={readOnly || i === 0} onClick={(e) => (e.stopPropagation(), move(i, -1))}>
-                ↑
-              </button>
-              <button aria-label={`Move ${l.name} down`} title="Move down" disabled={readOnly || i === layers.length - 1} onClick={(e) => (e.stopPropagation(), move(i, 1))}>
-                ↓
-              </button>
-              <button
-                aria-label={`Remove ${l.name}`}
-                title={layers.length === 1 ? "A Tilemap keeps at least one layer" : "Remove the layer and its tiles"}
-                disabled={readOnly || layers.length === 1}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  edit("Remove layer", (x) => void x.splice(i, 1));
-                  if (active >= i) activeLayer.value = Math.max(0, active - 1);
-                }}
-              >
-                ✕
-              </button>
-            </li>
-          ))}
-        </ul>
-        <button
-          disabled={readOnly}
-          onClick={() => {
-            let n = layers.length + 1;
-            while (layers.some((l) => l.name === `Layer ${n}`)) n++;
-            edit("Add layer", (x) => void x.push(newLayer(`Layer ${n}`, sortingLayers[0] ?? "Default")));
-            activeLayer.value = layers.length;
-          }}
-        >
-          Add Layer
-        </button>
-      </section>
-      {tileset ? (
-        <>
-          <section class="tile-palette-section">
-            <h4>Tiles</h4>
-            <TileGridView tiles={tileset.data.tiles} project={project} />
-          </section>
-          {tileset.data.terrains.length > 0 && (
+    <Panel>
+      <div class="tile-palette">
+        <BrushBar />
+        <section class="tile-palette-section">
+          <h4>Tileset</h4>
+          <select aria-label="Tileset" disabled={readOnly} value={map.tileset} onChange={(e) => commitTileset(scene, path, (e.currentTarget as HTMLSelectElement).value)}>
+            <option value="">{tilesets.length === 0 ? "No tilesets in the project" : "Choose a tileset…"}</option>
+            {tilesets.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+            {map.tileset && !tilesets.includes(map.tileset) && <option value={map.tileset}>{map.tileset} (missing)</option>}
+          </select>
+        </section>
+        <section class="tile-palette-section">
+          <h4>Layers</h4>
+          <ul class="tile-layers" aria-label="Layers">
+            {layers.map((l, i) => (
+              <li key={i} class={i === active ? "active" : ""} onClick={() => (activeLayer.value = i)}>
+                <input type="checkbox" aria-label={`${l.name} visible`} title="Visible" checked={l.visible} disabled={readOnly} onClick={(e) => e.stopPropagation()} onChange={(e) => edit("Toggle layer visibility", (x) => (x[i].visible = (e.currentTarget as HTMLInputElement).checked))} />
+                <input type="checkbox" aria-label={`${l.name} collision`} title="Collision" checked={l.collision} disabled={readOnly} onClick={(e) => e.stopPropagation()} onChange={(e) => edit("Toggle layer collision", (x) => (x[i].collision = (e.currentTarget as HTMLInputElement).checked))} />
+                <input
+                  key={l.name}
+                  type="text"
+                  class="tile-layer-name"
+                  aria-label={`Layer ${i + 1} name`}
+                  defaultValue={l.name}
+                  disabled={readOnly}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    const name = (e.currentTarget as HTMLInputElement).value.trim();
+                    if (name) edit("Rename layer", (x) => (x[i].name = name));
+                    else (e.currentTarget as HTMLInputElement).value = l.name;
+                  }}
+                />
+                <select aria-label={`${l.name} sorting layer`} title="Sorting layer" value={l.sortingLayer} disabled={readOnly} onClick={(e) => e.stopPropagation()} onChange={(e) => edit("Set sorting layer", (x) => (x[i].sortingLayer = (e.currentTarget as HTMLSelectElement).value))}>
+                  {(sortingLayers.includes(l.sortingLayer) ? sortingLayers : [...sortingLayers, l.sortingLayer]).map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  step={1}
+                  class="tile-layer-order"
+                  aria-label={`${l.name} order in layer`}
+                  title="Order in layer"
+                  value={l.orderInLayer}
+                  disabled={readOnly}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    const v = Math.round(Number((e.currentTarget as HTMLInputElement).value));
+                    if (Number.isFinite(v)) edit("Set layer order", (x) => (x[i].orderInLayer = v));
+                  }}
+                />
+                <button aria-label={`Move ${l.name} up`} title="Move up" disabled={readOnly || i === 0} onClick={(e) => (e.stopPropagation(), move(i, -1))}>
+                  ↑
+                </button>
+                <button aria-label={`Move ${l.name} down`} title="Move down" disabled={readOnly || i === layers.length - 1} onClick={(e) => (e.stopPropagation(), move(i, 1))}>
+                  ↓
+                </button>
+                <button
+                  aria-label={`Remove ${l.name}`}
+                  title={layers.length === 1 ? "A Tilemap keeps at least one layer" : "Remove the layer and its tiles"}
+                  disabled={readOnly || layers.length === 1}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    edit("Remove layer", (x) => void x.splice(i, 1));
+                    if (active >= i) activeLayer.value = Math.max(0, active - 1);
+                  }}
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button
+            disabled={readOnly}
+            onClick={() => {
+              let n = layers.length + 1;
+              while (layers.some((l) => l.name === `Layer ${n}`)) n++;
+              edit("Add layer", (x) => void x.push(newLayer(`Layer ${n}`, sortingLayers[0] ?? "Default")));
+              activeLayer.value = layers.length;
+            }}
+          >
+            Add Layer
+          </button>
+        </section>
+        {tileset ? (
+          <>
             <section class="tile-palette-section">
-              <h4>Terrains</h4>
-              <ul class="tile-terrains" aria-label="Terrains">
-                {tileset.data.terrains.map((t) => (
-                  <li key={t.name}>
-                    <button
-                      class={brushTerrain.value === t.name ? "active" : ""}
-                      aria-pressed={brushTerrain.value === t.name}
-                      onClick={() => {
-                        if (brushTerrain.peek() === t.name) brushTerrain.value = null;
-                        else {
-                          brushTerrain.value = t.name;
-                          if (!brushTool.peek() || brushTool.peek() === "pick") pickBrushTool("pencil");
-                        }
-                      }}
-                    >
-                      <span class="tile-terrain-swatch" style={{ background: t.color ?? "var(--muted)" }} />
-                      {t.name}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <h4>Tiles</h4>
+              <TileGridView tiles={tileset.data.tiles} project={project} />
             </section>
-          )}
-        </>
-      ) : (
-        map.tileset && <p class="hint">The tileset “{map.tileset}” couldn't be read.</p>
-      )}
-    </div>
+            {tileset.data.terrains.length > 0 && (
+              <section class="tile-palette-section">
+                <h4>Terrains</h4>
+                <ul class="tile-terrains" aria-label="Terrains">
+                  {tileset.data.terrains.map((t) => (
+                    <li key={t.name}>
+                      <button
+                        class={brushTerrain.value === t.name ? "active" : ""}
+                        aria-pressed={brushTerrain.value === t.name}
+                        onClick={() => {
+                          if (brushTerrain.peek() === t.name) brushTerrain.value = null;
+                          else {
+                            brushTerrain.value = t.name;
+                            if (!brushTool.peek() || brushTool.peek() === "pick") pickBrushTool("pencil");
+                          }
+                        }}
+                      >
+                        <span class="tile-terrain-swatch" style={{ background: t.color ?? "var(--muted)" }} />
+                        {t.name}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </>
+        ) : (
+          map.tileset && <p class="hint">The tileset “{map.tileset}” couldn't be read.</p>
+        )}
+      </div>
+    </Panel>
   );
 
 }

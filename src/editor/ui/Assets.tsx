@@ -1,5 +1,8 @@
 import { errorStatus } from "../messages";
-import { signal } from "@preact/signals";
+import { signal, type Signal } from "@preact/signals";
+import { createContext } from "preact";
+import { useContext } from "preact/hooks";
+import { Panel, usePanelValue } from "./panel/Panel";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { addAssets, whyNotAddAssets } from "../addAssets";
 import { fileName, folderOf, isSliceEntry, listedFiles, searchEntries, sliceEntry, splitSliceEntry } from "../assetBrowser";
@@ -12,15 +15,12 @@ import { assetClipboard, duplicateAssets, newFolder, pasteAssets, renameAsset, s
 import {
   assetAnchor,
   assetCursor,
-  assetQuery,
   boxSelection,
-  canGoBack,
-  canGoForward,
   clickSelection,
   folderPath,
-  goBack,
-  goForward,
-  historyVersion,
+  AssetBrowserView,
+  defaultAssetBrowser,
+  lastAssetBrowser,
   moveCursor,
   openFolder,
   parentFolder,
@@ -47,19 +47,45 @@ interface MenuItem {
   run?: () => void;
   separator?: boolean;
 }
-const menu = signal<{ x: number; y: number; items: MenuItem[] } | null>(null);
+/** The open context menu, and the Assets panel that opened it (only that copy draws it). */
+const menu = signal<{ x: number; y: number; items: MenuItem[]; owner: AssetsView } | null>(null);
 
-/** Images whose slices are listed under them (ADR 0040). */
-const expandedImages = signal<ReadonlySet<string>>(new Set());
+/**
+ * One Assets panel's view state (ADR 0174): its browsing (folder, Back/Forward, search), the images whose
+ * slices it lists (ADR 0040), and grid or list. Each copy has its own; the selection is the editor's. A new
+ * copy starts at the project root, in the view mode last chosen.
+ */
+class AssetsView {
+  readonly browser = new AssetBrowserView();
+  /** Images whose slices are listed under them (ADR 0040). */
+  readonly expandedImages = signal<ReadonlySet<string>>(new Set());
+  /** Grid or list; choosing one also sets the preference new copies start from. */
+  readonly mode: Signal<"grid" | "list"> = signal(assetView.peek());
+  /** The selection box while dragging on empty space, in client pixels. */
+  readonly box = signal<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  setMode(mode: "grid" | "list"): void {
+    this.mode.value = mode;
+    assetView.value = mode;
+  }
+}
+
+const AssetsViewContext = createContext<AssetsView | null>(null);
+const fallbackView = new AssetsView();
+const useAssetsView = (): AssetsView => useContext(AssetsViewContext) ?? fallbackView;
+
+/** The Assets panels drawn now, so the last-used one falls back to another when it goes. */
+const mountedBrowsers = new Set<AssetBrowserView>();
+
+/** Make `browser` the last-used Assets panel's: where the module's `openFolder` (imports, reveals) acts. */
+function useAsLast(browser: AssetBrowserView): void {
+  if (lastAssetBrowser.peek() !== browser) lastAssetBrowser.value = browser;
+}
 
 /** The slices of a file whose kind has slices (an image), from its sidecar (ADR 0040, 0149). */
 const slicesOf = (project: EditorProject, image: string) => (hasSlices(assetKind(image)) ? readImportSettings(project, image).settings.sprites : []);
 
 /** Entries that are files or folders: slices are listed, but they aren't files to rename, move, copy or delete. */
 const fileEntries = (entries: readonly string[]) => entries.filter((e) => !isSliceEntry(e));
-
-/** The selection box while dragging on empty space, in client pixels. */
-const box = signal<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 
 /** True while a drag would drop on the folder `path`. */
 const dropTarget = (path: string) => {
@@ -75,7 +101,7 @@ const nameOf = (entry: string) => (isSliceEntry(entry) ? splitSliceEntry(entry).
 const toggleKey = (e: { ctrlKey: boolean; metaKey: boolean }) => e.ctrlKey || e.metaKey;
 
 /** What the panel lists: the folder's subfolders then its files, or the search results. */
-function listedEntries(project: EditorProject, folder: string, query: string): string[] {
+function listedEntries(project: EditorProject, folder: string, query: string, expandedImages: Signal<ReadonlySet<string>>): string[] {
   // Sidecars (`*.meta.json`) travel with their files and aren't listed (ADR 0040).
   const files = [...listedFiles(project.files), ...project.scripts.keys()];
   if (query.trim()) return searchEntries(files.sort(), query, (image) => slicesOf(project, image).map((s) => s.name));
@@ -194,92 +220,119 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
  * assets into the viewport or hierarchy adds them to the scene, and a tile's + adds one.
  */
 export function AssetsPanel() {
+  const view = usePanelValue("assets.view", () => new AssetsView());
+  const browser = view.browser;
   useEffect(() => installOsDrop(), []); // files dragged in from the OS (ADR 0085)
+  useEffect(() => {
+    // The first Assets panel drawn (or one drawn while none is) becomes the last used.
+    mountedBrowsers.add(browser);
+    if (!mountedBrowsers.has(lastAssetBrowser.peek())) useAsLast(browser);
+    return () => {
+      mountedBrowsers.delete(browser);
+      if (lastAssetBrowser.peek() === browser) lastAssetBrowser.value = [...mountedBrowsers][0] ?? defaultAssetBrowser;
+    };
+  }, [browser]);
   docVersion.value; // the project's file list can change after saves
   scriptsVersion.value; // and its scripts after a reload
-  historyVersion.value;
+  browser.historyVersion.value;
   const project = currentProject.value;
-  if (!project) return <p class="empty">No project open</p>;
+  if (!project)
+    return (
+      <Panel>
+        <p class="empty">No project open</p>
+      </Panel>
+    );
   // A folder that's gone (deleted, moved) shows the root instead.
-  const folder = folderPath.value === "" || project.folders.includes(folderPath.value) ? folderPath.value : "";
-  const query = assetQuery.value;
+  const current = browser.folder.value;
+  const folder = current === "" || project.folders.includes(current) ? current : "";
+  const query = browser.query.value;
   const searching = query.trim() !== "";
-  const entries = listedEntries(project, folder, query);
+  const entries = listedEntries(project, folder, query, view.expandedImages);
   const selected = selectedAssets.value.filter((e) => entries.includes(e));
+  const mode = view.mode.value;
   return (
-    <div class={`asset-browser${osDragOver.value ? " os-drop" : ""}`}>
-      <nav class="asset-tree" aria-label="Folders">
-        <ul role="tree">
-          <FolderItem project={project} folders={project.folders} path="" label={project.name} depth={0} current={searching ? null : folder} />
-        </ul>
-      </nav>
-      <div class="asset-main">
-        <div class="asset-bar">
-          <div class="asset-nav" role="group" aria-label="Navigation">
-            <button aria-label="Back" title="Back (Alt+←)" disabled={!canGoBack()} onClick={goBack}>
-              ←
-            </button>
-            <button aria-label="Forward" title="Forward (Alt+→)" disabled={!canGoForward()} onClick={goForward}>
-              →
-            </button>
-            <button aria-label="Up" title="Up a folder (Alt+↑)" disabled={folder === "" || searching} onClick={() => openFolder(parentFolder(folder) ?? "")}>
-              ↑
-            </button>
+    <Panel>
+      <AssetsViewContext.Provider value={view}>
+        <div
+          class={`asset-browser${osDragOver.value ? " os-drop" : ""}`}
+          onPointerDownCapture={() => useAsLast(browser)}
+          onFocusCapture={() => useAsLast(browser)}
+          onDragEnterCapture={() => useAsLast(browser)}
+        >
+          <nav class="asset-tree" aria-label="Folders">
+            <ul role="tree">
+              <FolderItem project={project} folders={project.folders} path="" label={project.name} depth={0} current={searching ? null : folder} />
+            </ul>
+          </nav>
+          <div class="asset-main">
+            <div class="asset-bar">
+              <div class="asset-nav" role="group" aria-label="Navigation">
+                <button aria-label="Back" title="Back (Alt+←)" disabled={!browser.canGoBack()} onClick={browser.goBack}>
+                  ←
+                </button>
+                <button aria-label="Forward" title="Forward (Alt+→)" disabled={!browser.canGoForward()} onClick={browser.goForward}>
+                  →
+                </button>
+                <button aria-label="Up" title="Up a folder (Alt+↑)" disabled={folder === "" || searching} onClick={() => browser.openFolder(parentFolder(folder) ?? "")}>
+                  ↑
+                </button>
+              </div>
+              <Breadcrumbs project={project} folder={folder} searching={searching ? query.trim() : null} />
+              <input
+                type="search"
+                class="asset-search"
+                placeholder="Search assets"
+                aria-label="Search assets"
+                value={query}
+                onInput={(e) => (browser.query.value = (e.currentTarget as HTMLInputElement).value)}
+              />
+            </div>
+            <div class="asset-bar asset-actions">
+              {project.root !== null && (
+                <>
+                  <button disabled={!project.canSave} title="Make a folder here" onClick={() => void makeFolder(folder)}>
+                    New Folder
+                  </button>
+                  <button
+                    class="new-script-button"
+                    disabled={!project.canSave}
+                    title={project.canSave ? `Write a new script in ${scriptFolderFor(folder)}/ (ADR 0030)` : "This project is read-only."}
+                    onClick={() => void newScript({ assetFolder: folder })}
+                  >
+                    New Script
+                  </button>
+                  <DeleteButton project={project} selected={selected} />
+                </>
+              )}
+              <span class="asset-spacer" />
+              {mode === "grid" && (
+                <input
+                  type="range"
+                  class="asset-size"
+                  aria-label="Tile size"
+                  title="Tile size"
+                  min={40}
+                  max={128}
+                  step={4}
+                  value={assetTileSize.value}
+                  onInput={(e) => (assetTileSize.value = Number((e.currentTarget as HTMLInputElement).value))}
+                />
+              )}
+              <div class="asset-view-toggle" role="group" aria-label="View">
+                <button aria-pressed={mode === "grid"} class={mode === "grid" ? "active" : ""} onClick={() => view.setMode("grid")}>
+                  Grid
+                </button>
+                <button aria-pressed={mode === "list"} class={mode === "list" ? "active" : ""} onClick={() => view.setMode("list")}>
+                  List
+                </button>
+              </div>
+            </div>
+            <AssetItems project={project} entries={entries} selected={selected} searching={searching} />
           </div>
-          <Breadcrumbs project={project} folder={folder} searching={searching ? query.trim() : null} />
-          <input
-            type="search"
-            class="asset-search"
-            placeholder="Search assets"
-            aria-label="Search assets"
-            value={query}
-            onInput={(e) => (assetQuery.value = (e.currentTarget as HTMLInputElement).value)}
-          />
+          <ContextMenu />
         </div>
-        <div class="asset-bar asset-actions">
-          {project.root !== null && (
-            <>
-              <button disabled={!project.canSave} title="Make a folder here" onClick={() => void makeFolder(folder)}>
-                New Folder
-              </button>
-              <button
-                class="new-script-button"
-                disabled={!project.canSave}
-                title={project.canSave ? `Write a new script in ${scriptFolderFor(folder)}/ (ADR 0030)` : "This project is read-only."}
-                onClick={() => void newScript({ assetFolder: folder })}
-              >
-                New Script
-              </button>
-              <DeleteButton project={project} selected={selected} />
-            </>
-          )}
-          <span class="asset-spacer" />
-          {assetView.value === "grid" && (
-            <input
-              type="range"
-              class="asset-size"
-              aria-label="Tile size"
-              title="Tile size"
-              min={40}
-              max={128}
-              step={4}
-              value={assetTileSize.value}
-              onInput={(e) => (assetTileSize.value = Number((e.currentTarget as HTMLInputElement).value))}
-            />
-          )}
-          <div class="asset-view-toggle" role="group" aria-label="View">
-            <button aria-pressed={assetView.value === "grid"} class={assetView.value === "grid" ? "active" : ""} onClick={() => (assetView.value = "grid")}>
-              Grid
-            </button>
-            <button aria-pressed={assetView.value === "list"} class={assetView.value === "list" ? "active" : ""} onClick={() => (assetView.value = "list")}>
-              List
-            </button>
-          </div>
-        </div>
-        <AssetItems project={project} entries={entries} selected={selected} searching={searching} />
-      </div>
-      <ContextMenu />
-    </div>
+      </AssetsViewContext.Provider>
+    </Panel>
   );
 }
 
@@ -287,6 +340,7 @@ function Breadcrumbs(props: { project: EditorProject; folder: string; searching:
   const { project, folder, searching } = props;
   if (searching !== null) return <span class="asset-crumb">Results for “{searching}”</span>;
   const parts = folder === "" ? [] : folder.split("/");
+  const { openFolder } = useAssetsView().browser;
   return (
     <nav class="asset-crumb" aria-label="Folder path">
       <button class={`crumb${dropTarget("") ? " drop-target" : ""}`} data-drop-folder="" onClick={() => openFolder("")}>
@@ -312,6 +366,8 @@ function FolderItem(props: { project: EditorProject; folders: readonly string[];
   const { project, folders, path, label, depth, current } = props;
   const children = folders.filter((f) => parentFolder(f) === path).sort((a, b) => fileName(a).localeCompare(fileName(b)));
   const isCurrent = current === path;
+  const view = useAssetsView();
+  const { openFolder } = view.browser;
   return (
     <li role="treeitem" aria-selected={isCurrent}>
       <button
@@ -322,7 +378,7 @@ function FolderItem(props: { project: EditorProject; folders: readonly string[];
         onContextMenu={(e) => {
           e.preventDefault();
           const items = path === "" ? menuItems(project, []) : menuItems(project, [`${path}/`]);
-          menu.value = { x: e.clientX, y: e.clientY, items };
+          menu.value = { x: e.clientX, y: e.clientY, items, owner: view };
         }}
       >
         {label}
@@ -355,7 +411,9 @@ function DeleteButton(props: { project: EditorProject; selected: readonly string
 function AssetItems(props: { project: EditorProject; entries: string[]; selected: string[]; searching: boolean }) {
   const { project, entries, selected, searching } = props;
   const list = useRef<HTMLUListElement>(null);
-  const view = assetView.value;
+  const assetsView = useAssetsView();
+  const { browser, box } = assetsView;
+  const view = assetsView.mode.value;
 
   /** Columns in the grid, from the tiles' positions (1 in the list view). */
   const columns = () => {
@@ -375,9 +433,9 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
     };
     if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp")) {
       handled();
-      if (e.key === "ArrowLeft") goBack();
-      else if (e.key === "ArrowRight") goForward();
-      else if (folderPath.value !== "") openFolder(parentFolder(folderPath.value) ?? "");
+      if (e.key === "ArrowLeft") browser.goBack();
+      else if (e.key === "ArrowRight") browser.goForward();
+      else if (browser.folder.value !== "") browser.openFolder(parentFolder(browser.folder.value) ?? "");
       return;
     }
     const next = moveCursor(entries, assetCursor.value, e.key, columns());
@@ -464,7 +522,7 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
           if ((e.target as HTMLElement).closest(".asset-item")) return;
           e.preventDefault();
           select([]);
-          menu.value = { x: e.clientX, y: e.clientY, items: menuItems(project, []) };
+          menu.value = { x: e.clientX, y: e.clientY, items: menuItems(project, []), owner: assetsView };
         }}
       >
         {view === "list" && entries.length > 0 && (
@@ -506,6 +564,8 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
   const url = isFolderEntry(entry) ? undefined : project.assets.get(slice ? slice.image : path);
   const sliceRect = slice ? slicesOf(project, slice.image).find((s) => s.name === slice.slice)?.rect : undefined;
   const sliceCount = hasSlices(kind) ? slicesOf(project, path).length : 0;
+  const assetsView = useAssetsView();
+  const { expandedImages } = assetsView;
   const expanded = expandedImages.value.has(path);
   const open = openScene.value?.path === entry;
   const cut = !!assetClipboard.value?.cut && assetClipboard.value.entries.includes(entry);
@@ -513,7 +573,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
   const whyNotAdd = addable ? whyNotAddAssets([entry]) : null;
   const canAdd = addable && whyNotAdd === null;
   const press = useRef<{ x: number; y: number } | null>(null);
-  const list = assetView.value === "list";
+  const list = assetsView.mode.value === "list";
   return (
     <li
       class={`asset-item asset-tile kind-${kind}${selected ? " selected" : ""}${open ? " open" : ""}${cut ? " cut" : ""}${isFolderEntry(entry) && dropTarget(path) ? " drop-target" : ""}`}
@@ -550,7 +610,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
       onContextMenu={(e) => {
         e.preventDefault();
         const sel = selectedAssets.value.filter((x) => entries.includes(x));
-        menu.value = { x: e.clientX, y: e.clientY, items: menuItems(project, sel.includes(entry) ? sel : [entry]) };
+        menu.value = { x: e.clientX, y: e.clientY, items: menuItems(project, sel.includes(entry) ? sel : [entry]), owner: assetsView };
       }}
     >
       <div class="asset-thumb">
@@ -677,7 +737,8 @@ function RenameInput(props: { entry: string }) {
 }
 
 function ContextMenu() {
-  const m = menu.value;
+  const owner = useAssetsView();
+  const m = menu.value?.owner === owner ? menu.value : null;
   const el = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!m) return;

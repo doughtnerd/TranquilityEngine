@@ -3,8 +3,11 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import {
   HEADER_HEIGHT,
-  panelTitle,
   activatePanel,
+  canClosePanel,
+  closePanel,
+  instanceTitle,
+  typeOf,
   canCollapse,
   computeGeometry,
   fitTabs,
@@ -19,7 +22,9 @@ import {
   type Rect,
   type Side,
 } from "./model";
-import { layout } from "./store";
+import { layout, requestAddPanel } from "./store";
+import { PanelHeader } from "./PanelHeader";
+import { PanelInstanceContext, type PanelInstance } from "../ui/panel/Panel";
 
 /** Pointer travel (CSS px) before pressing a panel header becomes a drag. */
 const DRAG_THRESHOLD = 5;
@@ -34,6 +39,12 @@ const drag = signal<{ panel: PanelId; x: number; y: number; hit: DropHit | null 
 
 /** The open "» N" menu's strip, so opening one closes any other; null when none is open. */
 const openMenu = signal<object | null>(null);
+
+/** The open header menu (right-click on a tab or a header): where, which group, and the tab under the pointer. */
+const headerMenu = signal<{ x: number; y: number; group: string; panel?: PanelId } | null>(null);
+
+/** A panel instance's title in the current layout. */
+const titleOf = (id: PanelId) => instanceTitle(layout.value, id);
 
 /**
  * A header's height at the current UI scale (the CSS draws `.dock-header` at 28px × `--ui-scale`,
@@ -77,9 +88,10 @@ export function DockLayout(props: { panels: Record<PanelId, () => ComponentChild
       {dragging?.hit && <div class="drop-preview" style={box(dragging.hit.preview)} />}
       {dragging && (
         <div class="drag-ghost" style={{ left: `${dragging.x + 12}px`, top: `${dragging.y + 12}px` }}>
-          {panelTitle(dragging.panel)}
+          {titleOf(dragging.panel)}
         </div>
       )}
+      {headerMenu.value && <HeaderMenu />}
     </div>
   );
 }
@@ -88,7 +100,7 @@ export function DockLayout(props: { panels: Record<PanelId, () => ComponentChild
 const CHEVRON: Record<Side, [collapse: string, expand: string]> = { bottom: ["▾", "▴"], left: ["◂", "▸"], right: ["▸", "◂"] };
 
 /** A dock's name for labels: its first group's visible panel ("Assets dock"). */
-const dockName = (d: DockRect) => `${panelTitle(d.dock.groups[0].active)} dock`;
+const dockName = (d: DockRect) => `${titleOf(d.dock.groups[0].active)} dock`;
 
 function CollapseButton(props: { dock: DockRect }) {
   const { dock } = props;
@@ -139,7 +151,7 @@ function DockView(props: { dock: DockRect; root: Root; panels: Record<PanelId, (
       <>
         <div class={`dock-strip side-${side}`} style={box(dock.rect)}>
           {side !== "bottom" && <CollapseButton dock={dock} />}
-          <TabStrip panels={tabs} active={active} selected={selected} vertical={side !== "bottom"} root={root} collapsedStrip />
+          <TabStrip panels={tabs} active={active} selected={selected} vertical={side !== "bottom"} root={root} group={dock.dock.groups[0].id} collapsedStrip />
           {side === "bottom" && <CollapseButton dock={dock} />}
         </div>
         {handle}
@@ -151,13 +163,11 @@ function DockView(props: { dock: DockRect; root: Root; panels: Record<PanelId, (
     <>
       {dock.groups.map((g, i) => (
         <div key={g.group.id} class={`dock-group side-${side}`} style={box(g.rect)}>
-          <div class="dock-header">
-            <TabStrip panels={g.group.panels} active={g.group.active} vertical={false} root={root} />
+          <div class="dock-header" onContextMenu={(e) => openHeaderMenu(e, g.group.id)}>
+            <TabStrip panels={g.group.panels} active={g.group.active} vertical={false} root={root} group={g.group.id} />
             {collapsible && i === chevronGroup && <CollapseButton dock={dock} />}
           </div>
-          <section class={`panel ${g.group.active}`}>
-            <div class="panel-body">{panels[g.group.active]()}</div>
-          </section>
+          <PanelInstanceContext.Provider key={g.group.active} value={instanceOf(g.group.active)}>{panels[typeOf(layout.value, g.group.active)]()}</PanelInstanceContext.Provider>
         </div>
       ))}
       {handle}
@@ -182,7 +192,7 @@ function DockView(props: { dock: DockRect; root: Root; panels: Record<PanelId, (
  * show (shrunk very slightly at most) and which go behind the "» N" button, the active one always
  * showing. In a collapsed side strip the tabs run vertically.
  */
-function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readonly PanelId[]; vertical: boolean; root: Root; collapsedStrip?: boolean }) {
+function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readonly PanelId[]; vertical: boolean; root: Root; group: string; collapsedStrip?: boolean }) {
   const { panels, active, vertical, root } = props;
   const selected = props.selected ?? [active];
   const self = useRef({}).current;
@@ -200,7 +210,7 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
     openMenu.value = at ? self : openMenu.peek() === self ? null : openMenu.peek();
   };
   useEffect(() => () => void (openMenu.peek() === self && (openMenu.value = null)), []);
-  const key = panels.join("|");
+  const key = `${panels.map(titleOf).join("|")}|${!!props.collapsedStrip}`;
 
   useLayoutEffect(() => {
     const read = () => {
@@ -220,6 +230,8 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
   }, [key, vertical]);
 
   const solo = panels.length === 1 && !props.collapsedStrip;
+  // No × in a collapsed strip (ADR 0174): the panel isn't showing there.
+  const closable = (p: PanelId) => !props.collapsedStrip && canClosePanel(typeOf(layout.value, p));
   const activeIndex = Math.max(0, panels.indexOf(active));
   const measured = sizes.length === panels.length && available > 0;
   const fit = measured && !solo ? fitTabs(sizes, available, activeIndex, undefined, moreSize || undefined) : { visible: panels.map((_, i) => i), hidden: [] as number[], scale: 1 };
@@ -231,17 +243,18 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
         const p = panels[i];
         const length = measured && fit.scale < 1 ? `${Math.floor(sizes[i] * fit.scale)}px` : undefined;
         return (
-          <div
+          <PanelHeader
             key={p}
-            role="tab"
-            aria-selected={selected.includes(p)}
-            class={`dock-tab${selected.includes(p) ? " active" : ""}${solo ? " solo" : ""}`}
+            id={p}
+            title={titleOf(p)}
+            selected={selected.includes(p)}
+            solo={solo}
+            closable={closable(p)}
             style={length ? (vertical ? { height: length } : { width: length }) : undefined}
-            title={`${panelTitle(p)}: drag to move`}
-            onPointerDown={(e) => startDrag(e, p, root)}
-          >
-            <span class="dock-tab-label">{panelTitle(p)}</span>
-          </div>
+            onPress={(e) => startDrag(e, p, root)}
+            onClose={() => (layout.value = closePanel(layout.value, p))}
+            onMenu={(e) => openHeaderMenu(e, props.group, p)}
+          />
         );
       })}
       {hidden.length > 0 && (
@@ -251,7 +264,7 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
           aria-label="More tabs"
           aria-haspopup="menu"
           aria-expanded={!!menu}
-          title={hidden.map((p) => panelTitle(p)).join(", ")}
+          title={hidden.map((p) => titleOf(p)).join(", ")}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -264,8 +277,9 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
       {menu && hidden.length > 0 && <OverflowMenu panels={hidden} at={menu} vertical={vertical} root={root} button={moreButton} onClose={() => setMenu(null)} />}
       <div ref={measure} class={`dock-tabs-measure${vertical ? " vertical" : ""}`} aria-hidden="true">
         {panels.map((p) => (
-          <div key={p} class="dock-tab-measure">
-            <span class="dock-tab-label">{panelTitle(p)}</span>
+          <div key={p} class={`dock-tab-measure${closable(p) ? " closable" : ""}`}>
+            <span class="dock-tab-label">{titleOf(p)}</span>
+            {closable(p) && <span class="dock-tab-close">×</span>}
           </div>
         ))}
         <span class="dock-more">» 9</span>
@@ -303,8 +317,8 @@ function OverflowMenu(props: { panels: PanelId[]; at: { x: number; y: number }; 
   return (
     <div ref={ref} class="context-menu dock-more-menu" role="menu" aria-label="Hidden tabs" style={pos ? { left: `${pos.left}px`, top: `${pos.top}px` } : { left: "-9999px", top: "0px" }}>
       {panels.map((p) => (
-        <button key={p} role="menuitem" title={`Show ${panelTitle(p)} (drag to move it)`} onPointerDown={(e) => startDrag(e, p, root, onClose)}>
-          {panelTitle(p)}
+        <button key={p} role="menuitem" title={`Show ${titleOf(p)} (drag to move it)`} onPointerDown={(e) => startDrag(e, p, root, onClose)}>
+          {titleOf(p)}
         </button>
       ))}
     </div>
@@ -404,4 +418,69 @@ function startDrag(e: PointerEvent, panel: PanelId, root: Root, done?: () => voi
   window.addEventListener("pointerup", up);
   window.addEventListener("pointercancel", cancel);
   window.addEventListener("keydown", key, true);
+}
+
+/** The `PanelInstance` a group's showing panel is drawn as. */
+function instanceOf(id: PanelId): PanelInstance {
+  return { id, type: typeOf(layout.value, id), title: titleOf(id), close: () => (layout.value = closePanel(layout.value, id)) };
+}
+
+function openHeaderMenu(e: MouseEvent, group: string, panel?: PanelId): void {
+  e.preventDefault();
+  headerMenu.value = { x: e.clientX, y: e.clientY, group, panel };
+}
+
+/** Right-click on a tab or a group's header (ADR 0174): Add Panel… (into this group) and Close. */
+function HeaderMenu() {
+  const m = headerMenu.value!;
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const close = () => (headerMenu.value = null);
+  useLayoutEffect(() => {
+    const el = ref.current!;
+    const win = el.ownerDocument.defaultView ?? window;
+    setPos({ left: Math.max(4, Math.min(m.x, win.innerWidth - el.offsetWidth - 4)), top: Math.max(4, Math.min(m.y, win.innerHeight - el.offsetHeight - 4)) });
+  }, [m.x, m.y]);
+  useEffect(() => {
+    const win = ref.current?.ownerDocument.defaultView ?? window;
+    const away = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && close();
+    const key = (e: KeyboardEvent) => e.key === "Escape" && close();
+    win.addEventListener("pointerdown", away, true);
+    win.addEventListener("keydown", key, true);
+    win.addEventListener("blur", close);
+    return () => {
+      win.removeEventListener("pointerdown", away, true);
+      win.removeEventListener("keydown", key, true);
+      win.removeEventListener("blur", close);
+    };
+  }, []);
+  // The tab under the pointer, else the group's showing one.
+  const group = layout.value.docks.flatMap((d) => d.groups).find((g) => g.id === m.group);
+  const target = m.panel ?? group?.active;
+  const closable = target !== undefined && canClosePanel(typeOf(layout.value, target));
+  return (
+    <div ref={ref} class="context-menu dock-header-menu" role="menu" aria-label="Panel menu" style={pos ? { left: `${pos.left}px`, top: `${pos.top}px` } : { left: "-9999px", top: "0px" }}>
+      <button
+        role="menuitem"
+        title="Choose panels to add to this group"
+        onClick={() => {
+          close();
+          requestAddPanel(m.group);
+        }}
+      >
+        Add Panel…
+      </button>
+      <button
+        role="menuitem"
+        disabled={!closable}
+        title={closable ? undefined : "The Scene view can't be closed"}
+        onClick={() => {
+          close();
+          if (target !== undefined) layout.value = closePanel(layout.value, target);
+        }}
+      >
+        {target !== undefined ? `Close ${titleOf(target)}` : "Close"}
+      </button>
+    </div>
+  );
 }

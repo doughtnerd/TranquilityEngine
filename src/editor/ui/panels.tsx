@@ -8,32 +8,39 @@
 // A plugin's panel (the `panels` registry, ADR 0133) renders its `view` through one `lazyComponent`
 // per contribution object, created on first use here.
 //
+// Every panel type renders its content inside `<Panel>` (ui/panel/Panel.tsx, ADR 0174), which gives the frame and
+// the instance's own view state.
+//
 // Adding a built-in panel: add its id to `PanelId`/`PANELS`/`PANEL_TITLES` (and the default layout) in
 // layout/model.ts (or list it in `ON_DEMAND_PANELS` there to keep it out of the default layout and the idle
 // preload), and an entry here: `lazyComponent(() => import("./MyPanel").then((m) => m.MyPanel))`.
 import type { ComponentChildren } from "preact";
-import { isOnDemand, PANELS, type BuiltinPanelId, type Layout, type PanelId } from "../layout/model";
+import { isOnDemand, PANELS, typeOf, type BuiltinPanelId, type Layout, type PanelId } from "../layout/model";
 import { panels as panelRegistry, type PanelContribution } from "../sdk/contributions";
 import { extensionsOf, lazyExtension, PanelExtensions } from "./panelExtensions";
 import { lazyComponent, whenIdle, type LazyComponent } from "./lazy";
 import { ScenePanel } from "./ScenePanel";
+import { Panel } from "./panel/Panel";
+import { UnavailablePanel } from "./UnavailablePanel";
+import { layout } from "../layout/store";
 
 const LAZY: Record<Exclude<BuiltinPanelId, "scene">, LazyComponent> = {
-  hierarchy: lazyComponent(() => import("./Hierarchy").then((m) => m.Hierarchy)),
-  inspector: lazyComponent(() => import("./Inspector").then((m) => m.Inspector)),
-  assets: lazyComponent(() => import("./Assets").then((m) => m.AssetsPanel)),
-  history: lazyComponent(() => import("./HistoryPanel").then((m) => m.HistoryPanel)),
-  code: lazyComponent(() => import("./CodePanel").then((m) => m.CodePanel)),
+  hierarchy: lazyComponent(() => import("./Hierarchy").then((m) => m.Hierarchy), "framed"),
+  inspector: lazyComponent(() => import("./Inspector").then((m) => m.Inspector), "framed"),
+  assets: lazyComponent(() => import("./Assets").then((m) => m.AssetsPanel), "framed"),
+  history: lazyComponent(() => import("./HistoryPanel").then((m) => m.HistoryPanel), "framed"),
+  code: lazyComponent(() => import("./CodePanel").then((m) => m.CodePanel), "framed"),
   worlds: lazyComponent(() =>
     Promise.all([import("./WorldsPanel"), ...extensionsOf("worlds").map((e) => lazyExtension(e).preload())]).then(([{ WorldsPanel }]) => () => (
-      <>
+      <Panel>
         <WorldsPanel />
         <PanelExtensions panel="worlds" />
-      </>
+      </Panel>
     )),
+    "framed",
   ),
-  network: lazyComponent(() => import("./NetworkPanel").then((m) => m.NetworkPanel)),
-  project: lazyComponent(() => import("./ProjectSettingsPanel").then((m) => m.ProjectSettingsPanel)),
+  network: lazyComponent(() => import("./NetworkPanel").then((m) => m.NetworkPanel), "framed"),
+  project: lazyComponent(() => import("./ProjectSettingsPanel").then((m) => m.ProjectSettingsPanel), "framed"),
 };
 
 const builtin = (id: PanelId): LazyComponent | undefined => (Object.hasOwn(LAZY, id) ? LAZY[id as keyof typeof LAZY] : undefined);
@@ -46,12 +53,13 @@ function lazyFor(id: PanelId): LazyComponent | undefined {
   const c = panelRegistry.get(id);
   if (!c) return undefined;
   let lazy = registered.get(c);
-  if (!lazy) registered.set(c, (lazy = lazyComponent(c.view)));
+  if (!lazy) registered.set(c, (lazy = lazyComponent(c.view, "framed")));
   return lazy;
 }
 
 const sceneView = () => <ScenePanel />;
-const render = (id: PanelId): ComponentChildren => (id === "scene" ? sceneView() : (lazyFor(id)?.() ?? null));
+/** A panel type's view; a type nothing registers (its plugin is off or gone) shows `UnavailablePanel` (ADR 0174). */
+const render = (id: PanelId): ComponentChildren => (id === "scene" ? sceneView() : (lazyFor(id)?.() ?? <UnavailablePanel info={layout.value.panelInfo[id]} />));
 
 /**
  * What `DockLayout` renders for each panel: the built-in ones and every registered one, looked up
@@ -64,9 +72,9 @@ export const PANEL_VIEWS = new Proxy({} as Record<PanelId, () => ComponentChildr
   getOwnPropertyDescriptor: (_t, id) => (typeof id === "string" ? { enumerable: true, configurable: true, value: () => render(id) } : undefined),
 });
 
-/** The panels a layout shows: each expanded dock's front tabs. */
+/** The panel types a layout shows: each expanded dock's front tabs. */
 export function visiblePanels(layout: Layout): PanelId[] {
-  return layout.docks.filter((d) => !d.collapsed).flatMap((d) => d.groups.map((g) => g.active));
+  return layout.docks.filter((d) => !d.collapsed).flatMap((d) => d.groups.map((g) => typeOf(layout, g.active)));
 }
 
 /** Load the panels `layout` shows now, and every other panel once the editor is idle. */

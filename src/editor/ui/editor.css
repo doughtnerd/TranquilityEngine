@@ -154,6 +154,28 @@ button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px
 .dock-tab.solo { border-right: none; flex: 1; }
 .dock-tab.active:not(.solo) { color: var(--text-strong); background: var(--active); box-shadow: inset 0 -2px 0 var(--accent); }
 .dock-tab:hover { color: var(--text); }
+/* The red × that closes a panel (ADR 0174), at the right end of its tab. */
+.dock-tab.closable { padding-right: 4px; gap: 4px; }
+.dock-tab.solo.closable { justify-content: space-between; }
+.dock-tab-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(16px * var(--ui-scale));
+  height: calc(16px * var(--ui-scale));
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--danger);
+  font-size: calc(14px * var(--ui-scale));
+  line-height: 1;
+  cursor: pointer;
+}
+.dock-tab-close:hover { background: var(--hover); }
+.dock-tab-close:focus-visible { outline: 1px solid var(--focus-ring); }
+/* A panel's toolbar row (the Panel component, ADR 0174): stays put while the body scrolls. */
+.panel-toolbar { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 10px 0; }
 /* Hidden copies the strip measures its tabs' natural sizes from. */
 .dock-tabs-measure { position: absolute; left: 0; top: 0; display: flex; visibility: hidden; pointer-events: none; }
 .dock-tabs-measure.vertical { flex-direction: column; }
@@ -594,3 +616,9 @@ button:disabled.primary { opacity: 0.5; }
 .node-header input[type="checkbox"].overridden { outline: 2px solid var(--accent); outline-offset: 1px; }
 .node-header .node-revert { padding: 0 4px; line-height: 1.2; background: none; border: none; color: var(--accent); flex: none; }
 .node-header .node-revert:hover { background: var(--button-hover); }
+
+/* A panel whose plugin is off or missing (ADR 0174). */
+.unavailable-panel-message { max-width: 42em; color: var(--muted); line-height: 1.5; }
+.unavailable-panel-message strong { color: var(--text); }
+.unavailable-panel-message p { margin: 0 0 8px; }
+.unavailable-panel-hint { font-size: 0.9em; color: var(--faint); }

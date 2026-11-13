@@ -152,6 +152,8 @@ export interface PanelContribution {
   readonly beside?: string;
   /** Kept out of the default layout and the idle preload; opened by something else (double-clicking an asset). */
   readonly onDemand?: boolean;
+  /** Only one copy can be open (ADR 0174): the Add Panel dialog offers it only when none is. */
+  readonly single?: boolean;
 }
 
 /** What a Project settings section is given. */

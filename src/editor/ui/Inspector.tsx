@@ -1,4 +1,5 @@
 import { errorStatus } from "../messages";
+import { Panel } from "./panel/Panel";
 import { signal } from "@preact/signals";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Color, GameObject, Quaternion } from "../../engine";
@@ -67,18 +68,18 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
  * selected node in one undo step.
  */
 export function Inspector() {
-  if (liveInspecting()) return <RuntimeInspector />; // a live World of the running game
-  if (showsAssetInspector()) return <AssetInspector />; // an image or audio file selected in the Assets panel (ADR 0040)
-  if (selectedUIElement.value !== null) return <UIElementInspector />; // an element of a UI document (ADR 0077)
+  if (liveInspecting()) return <Panel><RuntimeInspector /></Panel>; // a live World of the running game
+  if (showsAssetInspector()) return <Panel><AssetInspector /></Panel>; // an image or audio file selected in the Assets panel (ADR 0040)
+  if (selectedUIElement.value !== null) return <Panel><UIElementInspector /></Panel>; // an element of a UI document (ADR 0077)
   docVersion.value; // re-render when the document changes
   const scene = openScene.value;
-  if (!scene) return <p class="empty">Nothing selected</p>;
+  if (!scene) return <Panel><p class="empty">Nothing selected</p></Panel>;
   // Selected nodes that still exist (an undo may have removed some).
   const paths = selectedKeys.value
     .map((k) => k.split("/") as NodePath)
     .filter((p) => scene.doc.has(p[0]) && (p.length === 1 || findInner(scene.doc, p)));
-  if (paths.length === 0) return <SceneSettings scene={scene} />;
-  if (paths.length > 1) return <MultiInspector scene={scene} paths={paths} />;
+  if (paths.length === 0) return <Panel><SceneSettings scene={scene} /></Panel>;
+  if (paths.length > 1) return <Panel><MultiInspector scene={scene} paths={paths} /></Panel>;
   const path = paths[0];
   const inner = path.length > 1 ? findInner(scene.doc, path) : null;
 
@@ -88,68 +89,70 @@ export function Inspector() {
   const components = node ? inFileOrder(scene.doc, id, listComponents(node)) : [];
   const key = pathKey(path);
   return (
-    <div class="inspector-body">
-      <AssetLists />
-      <div class="node-header">
-        <input
-          type="checkbox"
-          class={inner && isInnerPropertyOverridden(scene.doc, path, "active") ? "overridden" : undefined}
-          checked={inner ? inner.active : entry.active !== false}
-          aria-label="Active"
-          title={inner ? "Inside a prefab instance: switching it is an override" : undefined}
-          onChange={(e) => scene.stack.execute(nodePropertyCommand(scene.doc, path, "active", (e.currentTarget as HTMLInputElement).checked))}
-        />
-        <TextInput
-          class={`node-name${inner ? " inner-name" : ""}${inner && isInnerPropertyOverridden(scene.doc, path, "name") ? " overridden" : ""}`}
-          value={inner ? inner.name : (entry.name ?? id)}
-          label="Name"
-          onCommit={(name) => name !== (inner ? inner.name : (entry.name ?? id)) && scene.stack.execute(nodePropertyCommand(scene.doc, path, "name", name))}
-        />
-        {inner && (isInnerPropertyOverridden(scene.doc, path, "name") || isInnerPropertyOverridden(scene.doc, path, "active")) && (
-          <button
-            class="revert node-revert"
-            aria-label="Revert name and active"
-            title="Name or active overridden in this scene. Revert to the prefab's"
-            onClick={() =>
-              inGroup(scene, "Revert name and active", () => {
-                for (const key of ["name", "active"] as const) if (isInnerPropertyOverridden(scene.doc, path, key)) revertInnerProperty(scene, path, key);
-              })
-            }
-          >
-            ↺
-          </button>
-        )}
-        {!inner && (
-          <button class="delete-node" title="Delete this node and its children (Delete)" aria-label="Delete node" onClick={() => void deleteSelected()}>
-            Delete
-          </button>
-        )}
-      </div>
-      <dl class="node-meta">
-        <dt>Id</dt>
-        <dd>{key}</dd>
-        {entry.prefab && (
-          <>
-            <dt>{inner ? "Inside" : "Prefab"}</dt>
-            <dd>{entry.prefab}</dd>
-          </>
-        )}
-      </dl>
-      <NodeTags scene={scene} paths={[path]} />
-      {entry.prefab && !inner && <PrefabActions scene={scene} id={id} />}
-      {entry.prefab && inner && (
-        <div class="prefab-actions">
-          <span class="override-count">Inside {entry.prefab.split("/").pop()}</span>
-          <OpenPrefabButton path={path} />
+    <Panel>
+      <div class="inspector-body">
+        <AssetLists />
+        <div class="node-header">
+          <input
+            type="checkbox"
+            class={inner && isInnerPropertyOverridden(scene.doc, path, "active") ? "overridden" : undefined}
+            checked={inner ? inner.active : entry.active !== false}
+            aria-label="Active"
+            title={inner ? "Inside a prefab instance: switching it is an override" : undefined}
+            onChange={(e) => scene.stack.execute(nodePropertyCommand(scene.doc, path, "active", (e.currentTarget as HTMLInputElement).checked))}
+          />
+          <TextInput
+            class={`node-name${inner ? " inner-name" : ""}${inner && isInnerPropertyOverridden(scene.doc, path, "name") ? " overridden" : ""}`}
+            value={inner ? inner.name : (entry.name ?? id)}
+            label="Name"
+            onCommit={(name) => name !== (inner ? inner.name : (entry.name ?? id)) && scene.stack.execute(nodePropertyCommand(scene.doc, path, "name", name))}
+          />
+          {inner && (isInnerPropertyOverridden(scene.doc, path, "name") || isInnerPropertyOverridden(scene.doc, path, "active")) && (
+            <button
+              class="revert node-revert"
+              aria-label="Revert name and active"
+              title="Name or active overridden in this scene. Revert to the prefab's"
+              onClick={() =>
+                inGroup(scene, "Revert name and active", () => {
+                  for (const key of ["name", "active"] as const) if (isInnerPropertyOverridden(scene.doc, path, key)) revertInnerProperty(scene, path, key);
+                })
+              }
+            >
+              ↺
+            </button>
+          )}
+          {!inner && (
+            <button class="delete-node" title="Delete this node and its children (Delete)" aria-label="Delete node" onClick={() => void deleteSelected()}>
+              Delete
+            </button>
+          )}
         </div>
-      )}
-      {!entry.prefab && <CreatePrefabButton scene={scene} id={id} />}
-      {components.map((c) => (
-        <ComponentCard key={`${key}/${c.type}#${c.index}`} scene={scene} paths={[path]} infos={[c]} siblings={components} />
-      ))}
-      <MissingComponents scene={scene} path={path} />
-      {node && <AddComponentMenu scene={scene} targets={[{ path, node }]} />}
-    </div>
+        <dl class="node-meta">
+          <dt>Id</dt>
+          <dd>{key}</dd>
+          {entry.prefab && (
+            <>
+              <dt>{inner ? "Inside" : "Prefab"}</dt>
+              <dd>{entry.prefab}</dd>
+            </>
+          )}
+        </dl>
+        <NodeTags scene={scene} paths={[path]} />
+        {entry.prefab && !inner && <PrefabActions scene={scene} id={id} />}
+        {entry.prefab && inner && (
+          <div class="prefab-actions">
+            <span class="override-count">Inside {entry.prefab.split("/").pop()}</span>
+            <OpenPrefabButton path={path} />
+          </div>
+        )}
+        {!entry.prefab && <CreatePrefabButton scene={scene} id={id} />}
+        {components.map((c) => (
+          <ComponentCard key={`${key}/${c.type}#${c.index}`} scene={scene} paths={[path]} infos={[c]} siblings={components} />
+        ))}
+        <MissingComponents scene={scene} path={path} />
+        {node && <AddComponentMenu scene={scene} targets={[{ path, node }]} />}
+      </div>
+    </Panel>
   );
 }
 
