@@ -215,9 +215,9 @@ export function opRefusal(a: AudioSettings, op: MixOp): string | null {
         case "meter": {
           if (v === null) return null;
           if (v !== "loudness") return 'A bus meter must be "loudness" or off.';
-          if (isRoot(a, op.bus)) return `${op.bus} is always metered.`;
+          if (isRoot(a, op.bus)) return `${op.bus} is always metered`;
           const others = a.buses.filter((b, i) => i > 0 && b.meter !== undefined && b.name !== op.bus).length;
-          return others >= MAX_LOUDNESS_BUSES ? `At most ${MAX_LOUDNESS_BUSES} buses can be metered.` : null;
+          return others >= MAX_LOUDNESS_BUSES ? `At most ${MAX_LOUDNESS_BUSES} buses can be metered` : null;
         }
       }
       return null;

@@ -60,13 +60,13 @@ describe("the M5 model functions (ADR 0171 §2.1)", () => {
     expect((addLoudnessTarget(empty()).audio as { loudnessTargets: { name: string }[] }).loudnessTargets.map((t) => t.name)).toEqual(["console", "mobile", "Target"]);
     expect((setLoudnessResetOnPlay(empty(), false).audio as { loudnessResetOnPlay?: boolean }).loudnessResetOnPlay).toBe(false);
     expect(setBusMeter(empty(), "Master", true)).toEqual(empty());
-    expect(mixOpRefusal(empty(), { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered.");
+    expect(mixOpRefusal(empty(), { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered");
   });
   it.skipIf(!parseKeepsM5Keys)("meters a bus, refuses the root with a message, and turns it off", () => {
     const d = setBusMeter(empty(), "Voice", true);
     expect((d.audio as { buses: { name: string; meter?: string }[] }).buses.find((b) => b.name === "Voice")!.meter).toBe("loudness");
     expect(setBusMeter(empty(), "Master", true)).toEqual(empty());
-    expect(mixOpRefusal(empty(), { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered.");
+    expect(mixOpRefusal(empty(), { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered");
     expect((setBusMeter(d, "Voice", false).audio as { buses: { meter?: string }[] }).buses.every((b) => b.meter === undefined)).toBe(true);
   });
   it("reorders effects", () => {

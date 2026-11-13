@@ -123,10 +123,10 @@ describe("every op kind (Mo1, §6.2)", () => {
 describe("refusals: what the parse would drop (§2.1, §2.2)", () => {
   it("refuses the root's meter and a ninth metered bus", () => {
     const a = base();
-    expect(opRefusal(a, { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered.");
+    expect(opRefusal(a, { op: "setBus", bus: "Master", key: "meter", value: "loudness" })).toBe("Master is always metered");
     for (let i = 0; i < MAX_LOUDNESS_BUSES; i++) a.buses.push({ name: `M${i}`, parent: "Master", volume: 1, mute: false, effects: [], ...(i < 6 ? { meter: "loudness" as const } : {}) });
     expect(a.buses.filter((b) => b.meter).length).toBe(MAX_LOUDNESS_BUSES);
-    expect(opRefusal(a, { op: "setBus", bus: "M7", key: "meter", value: "loudness" })).toBe("At most 8 buses can be metered.");
+    expect(opRefusal(a, { op: "setBus", bus: "M7", key: "meter", value: "loudness" })).toBe("At most 8 buses can be metered");
     expect(opRefusal(a, { op: "setBus", bus: "Voice", key: "meter", value: "loudness" })).toBeNull();
   });
   it("refuses removing the root, a loop, a self-duck, a duplicate name and the last target", () => {
