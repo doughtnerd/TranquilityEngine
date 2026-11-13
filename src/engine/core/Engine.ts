@@ -186,7 +186,8 @@ export class Engine implements BootstrapEngine {
     // Physics backends (ADR 0137): a bad id is ignored (the only enabled backend is used).
     for (const p of physicsBackendProblems(options.project?.physics)) console.warn(`[myco] project.json ${p}`);
     // Audio (ADR 0097): the project's mixer buses; one shared mixer, like the one audio context.
-    for (const p of parseAudioSettings(options.project?.audio).problems) console.warn(`[myco] project.json ${p}`);
+    const audioParse = parseAudioSettings(options.project?.audio);
+    for (const p of [...audioParse.problems, ...audioParse.warnings]) console.warn(`[myco] project.json ${p}`);
     mixer.configure(engine.settings.audio);
     notifyAudioConfigured(engine.settings.audio);
     if ((options.quality ?? "player") === "player") {
