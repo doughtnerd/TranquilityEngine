@@ -158,9 +158,14 @@ fn a_level_cycle_drops_its_closing_edge_and_marks_the_rule_late() {
     assert_eq!(mix(&mut m).duck_edges_dropped, 1);
     let o = order(&m);
     assert!(pos(&o, 3) < pos(&o, 1) && pos(&o, 1) < pos(&o, 2));
-    // `sidechainLate` counts quanta a detector reads late (Sc1); no detector yet, so none.
+    // `sidechainLate` counts quanta a detector reads late (Sc1): one per quantum the late rule's
+    // target mixes, held in `late_pending` until a STATUS take adds them to the counter.
     m.render_n(4);
-    assert_eq!(mix(&mut m).sidechain_late, 0);
+    assert_eq!(mix(&mut m).sidechain_late, 0, "not before a take");
+    assert_eq!(duck_area(&mut m).late_pending, 4);
+    let mut block = vec![0u8; status::BUFFER_BYTES];
+    assert!(status::take(&mut m.core, &mut block, 0x400) > 0);
+    assert_eq!(mix(&mut m).sidechain_late, 4);
     // The cycle gone, the mark goes.
     m.submit(&[duck_rec(&[rule(1, 2, LEVEL)])]);
     assert!(!duck_area(&mut m).rules()[0].is_late());
@@ -233,19 +238,33 @@ fn an_edited_rule_keeps_its_follower_and_a_new_rule_starts_at_unity() {
 
 #[test]
 fn the_rule_table_changes_no_sound() {
-    // DC voices on every bus of the default tree; one mixer with rules whose edges keep today's
-    // order (presence, inert, and a level rule whose trigger already mixes first), one without.
+    // DC voices on every bus of the default tree, every fader at 0.1 so the sum (0.14) stays under
+    // the limiter (no look-ahead, so heard frame = core frame) and a duck would be heard. One mixer
+    // has rules whose edges keep today's order and that duck nothing: a presence rule with no
+    // presence bit set, two inert rules (master trigger, self), and a level rule whose trigger
+    // already mixes first, its threshold +6 dB over the trigger's 0 dB pre-fader level. One has none.
     let run = |rules: Option<Vec<wire::BusDuckRules>>| {
         let mut m = rig();
-        let mut recs: Vec<Rec> = (0..5).map(|b| dc(b as u32 + 1, b, 0.0)).collect();
+        m.set_lookahead(0.0);
+        let mut recs: Vec<Rec> = (0..5).map(|b| dc(0x0001_0001 * (b as u32 + 1), b, 0.0)).collect();
+        recs.push(gains(0, &[0.1; 5]));
         if let Some(r) = rules {
             recs.push(duck_rec(&r));
         }
         m.submit(&recs);
         m.render_n(16)
     };
+    let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
     let plain = run(None);
-    let ruled = run(Some(vec![rule(4, 1, 0), rule(1, 2, LEVEL), rule(0, 3, LEVEL), rule(2, 2, 0)]));
-    assert_eq!(plain.0.iter().map(|x| x.to_bits()).collect::<Vec<_>>(), ruled.0.iter().map(|x| x.to_bits()).collect::<Vec<_>>());
-    assert_eq!(plain.1.iter().map(|x| x.to_bits()).collect::<Vec<_>>(), ruled.1.iter().map(|x| x.to_bits()).collect::<Vec<_>>());
+    assert!(plain.0.iter().chain(&plain.1).all(|&x| (x - 0.14).abs() < 1e-6), "every voice heard, under the limiter: {}", plain.0[0]);
+    let quiet_level = wire::BusDuckRules { threshold_db: THRESHOLD_OVER, ..rule(1, 2, LEVEL) };
+    let ruled = run(Some(vec![rule(4, 1, 0), quiet_level, rule(0, 3, LEVEL), rule(2, 2, 0)]));
+    assert_eq!((bits(&plain.0), bits(&plain.1)), (bits(&ruled.0), bits(&ruled.1)), "the rule table changed the sound");
+    // The scene hears a duck: the same level rule at its −30 dB threshold ducks SFX's 0.01 to 0.003.
+    let ducked = run(Some(vec![rule(1, 2, LEVEL)]));
+    let last = ducked.0[16 * 128 - 1];
+    assert!(last < 0.14 - 1e-3, "a firing level rule is heard: {last}");
 }
+
+/// The level rule's threshold in `the_rule_table_changes_no_sound`: over the trigger's 0 dB.
+const THRESHOLD_OVER: f32 = 6.0;
