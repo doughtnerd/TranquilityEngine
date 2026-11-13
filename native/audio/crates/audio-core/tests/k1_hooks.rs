@@ -166,7 +166,9 @@ fn raw(write: impl Fn(&mut [u8]) -> Result<usize, i32>) -> Vec<u8> {
 fn m5_records() -> [Vec<u8>; 5] {
     let rule = wire::BusDuckRules { target: 1, trigger: 0, flags: wire::DUCK_FLAG_LEVEL, threshold_db: -30.0, amount: 0.25, attack: 0.01, release: 0.2 };
     [
-        raw(|b| wire::BusRamp { voice_id: 1, frame_offset: wire::ASAP, lane: wire::LANE_RUNTIME as u16, mask: 1, gain: 0.0, lp_hz: OFF, frames: 480, shape: 0 }.write(b, 0)),
+        // B1a filled BUS_RAMP: a runtime-lane ramp to the value the lane already holds (1) is
+        // dispatched and leaves the output bit-identical (`lanes_*.rs` test what it changes).
+        raw(|b| wire::BusRamp { voice_id: 1, frame_offset: wire::ASAP, lane: wire::LANE_RUNTIME as u16, mask: 1, gain: 1.0, lp_hz: OFF, frames: 480, shape: 0 }.write(b, 0)),
         raw(|b| wire::BusDuck { voice_id: 0, frame_offset: wire::ASAP, rules: vec![rule.clone()] }.write(b, 0)),
         raw(|b| wire::BusPresence { voice_id: 0, frame_offset: 64, mask: 1 }.write(b, 0)),
         raw(|b| wire::LoudConfig { voice_id: 0, frame_offset: wire::ASAP, tp_gate_dbfs: -7.0, meters: vec![wire::LoudConfigMeters { slot: 1, reserved: 0 }] }.write(b, 0)),

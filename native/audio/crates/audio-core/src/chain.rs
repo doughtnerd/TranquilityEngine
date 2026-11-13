@@ -1,9 +1,11 @@
 //! The bus-chain gain to the root (ADR 0162, api-and-models §4.4 and §5.1 build-plan additions;
-//! architecture §3.3, §4.3): the product of each bus's BUS_MIX gain (volume, mute, solo and ducking
-//! all reach the core folded into it, `mixer.ts` `gainOf`) and its automation `gainMul`, along a
+//! architecture §3.3, §4.3): the product of each bus's main-written gain lanes (0171/0172 M5 §4.5:
+//! `runtime`, then `authored`, `snapshot`, `monitor`, `dip`, as `lanes::product` gives them; before
+//! M5 the one BUS_MIX gain, which the `runtime` lane is) and its automation `gainMul`, along a
 //! bus's path to the root. The bed's gain fold (A4) and the voice sends (C4) both use it, so a send
 //! follows a ducked or muted bus exactly as the dry path does. MASTER is not part of it: it applies
-//! to the whole output after the tree.
+//! to the whole output after the tree. (The `duck` lane joins it when `duck::gain` stops being
+//! identity, Dp1.) A bus with one lane moving reads exactly what it read before M5.
 //!
 //! Call these **before** `bus::mixdown` in the quantum (they read the ramps where mixdown will start
 //! them, and never advance them). Two forms:
@@ -23,20 +25,8 @@ use audio_dsp::ramp::Ramp;
 use crate::automation::{self, BusAuto};
 use crate::bus::{self, BusSlot, ROOT};
 use crate::core::Core;
+use crate::lanes::{self, BusLanes, Gain};
 use crate::QUANTUM;
-
-/// The bus's own factor at frame `j` of the quantum is `gain_j × auto_j`; this steps a copy of its
-/// ramp and returns the value `Ramp::next` would give at frame `j`.
-fn ramp_frames(r: &Ramp, out: &mut [f32; QUANTUM]) {
-    let mut r = *r;
-    if r.is_settled() {
-        out.fill(r.value);
-    } else {
-        for x in out.iter_mut() {
-            *x = r.next();
-        }
-    }
-}
 
 /// The ramp's value at the quantum's first and last frame, as `Ramp::next` would give them.
 fn ramp_ends(r: &Ramp) -> (f32, f32) {
@@ -48,12 +38,17 @@ fn ramp_ends(r: &Ramp) -> (f32, f32) {
     (first, last)
 }
 
-/// The path from `bus` towards the root, stopping before `until`: calls `f(slot, auto)` per bus.
-fn walk(core: &mut Core, bus: u16, until: Option<u16>, mut f: impl FnMut(&BusSlot, Option<&BusAuto>)) {
+/// The path from `bus` towards the root, stopping before `until`: calls `f(slot, lanes, auto)` per
+/// bus (`lanes`: its lane entry, all-unity when the region has none for it).
+fn walk(core: &mut Core, bus: u16, until: Option<u16>, mut f: impl FnMut(&BusSlot, &BusLanes, Option<&BusAuto>)) {
     // The automation region's view needs `&mut`; it is a region of its own, distinct from the buses.
     let autos: Option<*const [BusAuto]> = automation::bus_entries(&mut core.regions_mut().automation[..]).map(|a| a as *const _);
     // SAFETY: `autos` views the automation region, which nothing else borrows during the walk.
     let autos: Option<&[BusAuto]> = autos.map(|a| unsafe { &*a });
+    let lanes = lanes::entries_ref(&core.regions().lanes[..]);
+    // The last entry is the output's.
+    let lanes = &lanes[..lanes.len().saturating_sub(1)];
+    let unity = BusLanes::default();
     let slots = bus::slots(core);
     let count = bus::count(core).min(slots.len());
     if count == 0 {
@@ -66,7 +61,7 @@ fn walk(core: &mut Core, bus: u16, until: Option<u16>, mut f: impl FnMut(&BusSlo
         }
         let slot = &slots[b as usize];
         let auto = autos.and_then(|a| a.get(b as usize)).filter(|a| a.count != 0 && a.targets & automation::has::GAIN != 0);
-        f(slot, auto);
+        f(slot, lanes.get(b as usize).unwrap_or(&unity), auto);
         if slot.parent == ROOT || slot.parent as usize >= count {
             return;
         }
@@ -74,12 +69,34 @@ fn walk(core: &mut Core, bus: u16, until: Option<u16>, mut f: impl FnMut(&BusSlo
     }
 }
 
+/// A bus's own lane product at every frame of the coming quantum: what `lanes::apply` multiplies
+/// by before the duck and automation lanes (a lone lane: the values `Ramp::next` gives).
+fn lane_frames(slot: &BusSlot, lanes: &BusLanes, out: &mut [f32; QUANTUM]) {
+    match lanes::product(lanes, &slot.gain, out) {
+        Gain::Unity => out.fill(1.0),
+        Gain::Scalar(g) => out.fill(g),
+        Gain::Curve => {}
+    }
+}
+
+/// A bus's own lane product at the quantum's first and last frame: the runtime lane's ends, times
+/// each other moving lane's (a lane at identity is skipped).
+fn lane_ends(slot: &BusSlot, lanes: &BusLanes) -> (f32, f32) {
+    let (mut a, mut b) = ramp_ends(&slot.gain);
+    for r in lanes.moving_lanes() {
+        let (x, y) = ramp_ends(r);
+        a *= x;
+        b *= y;
+    }
+    (a, b)
+}
+
 /// The chain gain of `bus` at every frame of the coming quantum (see the module comment).
 pub fn fill(core: &mut Core, bus: u16, until: Option<u16>, out: &mut [f32; QUANTUM]) {
     out.fill(1.0);
     let mut own = [0.0f32; QUANTUM];
-    walk(core, bus, until, |slot, auto| {
-        ramp_frames(crate::lanes::gain_ramp(slot), &mut own);
+    walk(core, bus, until, |slot, lanes, auto| {
+        lane_frames(slot, lanes, &mut own);
         for (j, x) in out.iter_mut().enumerate() {
             let g = own[j] * auto.map_or(1.0, |a| a.gain_at(j));
             *x *= g;
@@ -90,8 +107,8 @@ pub fn fill(core: &mut Core, bus: u16, until: Option<u16>, out: &mut [f32; QUANT
 /// The chain gain of `bus` at the coming quantum's first and last frame (see the module comment).
 pub fn ends(core: &mut Core, bus: u16, until: Option<u16>) -> (f32, f32) {
     let (mut g0, mut g1) = (1.0f32, 1.0f32);
-    walk(core, bus, until, |slot, auto| {
-        let (a, b) = ramp_ends(crate::lanes::gain_ramp(slot));
+    walk(core, bus, until, |slot, lanes, auto| {
+        let (a, b) = lane_ends(slot, lanes);
         let (m0, m1) = auto.map_or((1.0, 1.0), |x| (x.gain_at(0), x.gain_at(QUANTUM - 1)));
         g0 *= a * m0;
         g1 *= b * m1;
