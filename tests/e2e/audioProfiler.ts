@@ -11,7 +11,7 @@ import {
   type CaptureRecordInit,
   type KeyframePayload,
 } from "../../src/plugins/audio/runtime/capture/format";
-import { SAMPLE_HEADER, statusBytesWith } from "../../src/plugins/audio/runtime/capture/testSupport";
+import { STATUS_BUFFER_BYTES, writeStatus, type StatusBlock } from "../../src/plugins/audio/runtime/wire.generated";
 import type { Locator, Page } from "./fixtures";
 
 // Fixtures and helpers of the Audio Profiler e2e spec (ADR 0171 amended by 0172, task E1; `audio-mix-a.spec.ts`).
@@ -21,6 +21,96 @@ import type { Locator, Page } from "./fixtures";
 // whose every table row, underrun, late command, ladder step and marker is at a frame this file chooses, so a test says
 // exactly where the cursor should land and what the tables should show there. The refusals are that same file with a
 // header field changed, a cut, or a name that isn't `.mycap`.
+
+/**
+ * A STATUS block with every header field 0 and every section empty, `fields` laid over it: the same object `makeStatusBlock`
+ * (`core/mirror.ts`, a test helper) builds. It is copied here because that module reaches the editor's worker imports, which
+ * `tsconfig.node.json`'s typecheck of these specs can't resolve; a field added to `StatusBlock` is a type error here.
+ */
+function statusBlock(fields: Partial<StatusBlock> & { currentFrame: number }): StatusBlock {
+  return {
+    dateMs: 0,
+    pingSeq: 0,
+    pingFrameLo: 0,
+    underruns: 0,
+    lateCommands: 0,
+    workUnits: 0,
+    workUnitsMax: 0,
+    mixedVoices: 0,
+    liveVoices: 0,
+    flags: 0,
+    mixedCap: 0,
+    loadPermille: 0,
+    traps: 0,
+    minSlackFrames: 0,
+    underrunFrames: 0,
+    arenaUsedKB: 0,
+    arenaLargestFreeKB: 0,
+    abiVersion: 0,
+    maxLatenessFrames: 0,
+    hrtfVoices: 0,
+    hrtfLoadFailure: 0,
+    bedVoices: 0,
+    fxVoices: 0,
+    ambisonicVoices: 0,
+    zonesActive: 0,
+    zonesRinging: 0,
+    bedsRefused: 0,
+    m3Shed: 0,
+    zoneUsedKB: 0,
+    workBed: 0,
+    workZones: 0,
+    musicRingsOpen: 0,
+    streamStartsLate: 0,
+    groupsLate: 0,
+    groupsHeld: 0,
+    groupsAbandoned: 0,
+    curvePoolFull: 0,
+    maxSlipFrames: 0,
+    splitQuanta: 0,
+    voiceSplits: 0,
+    reserved: 0,
+    busyMsTotal: 0,
+    quantaTotal: 0,
+    wuVoices: 0,
+    wuBuses: 0,
+    wuSpatial: 0,
+    wuMusic: 0,
+    wuLoudness: 0,
+    clockStepMs: 0,
+    loudSubBlockFrames: 0,
+    clockSteps: 0,
+    loudShed: 0,
+    busRecordsEarly: 0,
+    sidechainLate: 0,
+    reserved2: 0,
+    ended: [],
+    demoted: [],
+    starved: [],
+    playheads: [],
+    clipEvents: [],
+    streamEvents: [],
+    peaks: [],
+    beds: [],
+    zones: [],
+    zoneEvents: [],
+    musicRings: [],
+    groupStarts: [],
+    loudBuses: [],
+    loudEnergies: [],
+    busDuck: [],
+    ...fields,
+  };
+}
+
+/** A real wire STATUS block's bytes (what the recorder copies) with `fields` set. */
+function statusBytesWith(fields: Partial<StatusBlock> & { currentFrame: number }): Uint8Array {
+  const buf = new Uint8Array(STATUS_BUFFER_BYTES);
+  const n = writeStatus(new DataView(buf.buffer), 0, statusBlock(fields), 1);
+  return buf.slice(0, n);
+}
+
+const SAMPLE_HEADER = { sampleRate: 48_000, preset: 1, startDateMs: 1_763_000_000_000, ringBytes: 16 * 1024 * 1024, firstFrame: 0 };
 
 export const RATE = 48_000;
 /** One STATUS block: `STATUS_EVERY_QUANTA` (6) quanta of 128 frames. */

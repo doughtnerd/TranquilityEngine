@@ -22,7 +22,6 @@ import {
   tooLargeHeader,
   wireMismatch,
 } from "./audioProfiler";
-import { KEY_BINDINGS } from "../../src/plugins/audio/editor/mix/profilerKeys";
 import { EMPTY_STATES } from "../../src/plugins/audio/editor/mix/emptyStates";
 
 // M5a, task E1 (ADR 0171 amended by 0172; docs/guide/audio-profiler.md): the Audio Profiler panel in the real editor. It records
@@ -43,6 +42,21 @@ import { EMPTY_STATES } from "../../src/plugins/audio/editor/mix/emptyStates";
 // beside it say where the cursor is. (Nothing here adds a product hook.)
 
 test.describe.configure({ timeout: 180_000 });
+
+/** The legend (`KEY_BINDINGS` in `profilerKeys.ts`, which reaches the panel's TSX and so can't be imported here; the guide's table gives the same keys). */
+const KEY_BINDINGS = [
+  { id: "stepBack", keys: "Left", label: "Step back one STATUS block" },
+  { id: "stepForward", keys: "Right", label: "Step forward one STATUS block" },
+  { id: "underrunPrev", keys: "U", label: "Previous underrun" },
+  { id: "underrunNext", keys: "Shift+U", label: "Next underrun" },
+  { id: "lateCommandPrev", keys: "L", label: "Previous late command" },
+  { id: "lateCommandNext", keys: "Shift+L", label: "Next late command" },
+  { id: "ladderPrev", keys: "D", label: "Previous ladder step" },
+  { id: "ladderNext", keys: "Shift+D", label: "Next ladder step" },
+  { id: "markerPrev", keys: "M", label: "Previous marker" },
+  { id: "markerNext", keys: "Shift+M", label: "Next marker" },
+  { id: "toggleLive", keys: "Space", label: "Play or pause the live view" },
+] as const;
 
 /** The banners' words (`BANNER_TEXT` in `ProfilerPanel.tsx`, which pulls in CSS and so can't be imported here; the guide's table gives the same). */
 const BANNER_TEXT = {
@@ -696,7 +710,7 @@ test("the Babylon backend live: the Audio Profiler follows the main-side ring an
 // "Babylon fallback: no CPU line"; guide, "What the panel shows"). In this build those four strings exist (`emptyStates.ts`, the
 // CPU track's `tooltipAt`) but nothing shows a track's tooltip: `ProfilerController.tooltip` has no caller and the canvas has no
 // hover handler, so a track with nothing to show is blank. The case states the behaviour the guide promises.
-test.fixme("hovering a track with nothing to show says why: CPU not yet measured", async ({ page }) => {
+test.fixme("hovering a track with nothing to show says why (the Babylon fallback has no CPU line)", async ({ page }) => {
   await openProfiler(page);
   await openMade(page, profilerCapture({ babylon: true }), "babylon.mycap");
   const canvas = panelOf(page).locator("canvas.profiler-timeline");
