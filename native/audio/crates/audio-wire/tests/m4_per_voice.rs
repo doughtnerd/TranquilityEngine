@@ -262,13 +262,13 @@ fn play_fade_zero_flag_round_trips() {
     assert_eq!((back.flags & SET_PARAMS_FLAGS_PANNER_MASK) >> SET_PARAMS_FLAGS_PANNER_SHIFT, 0);
 }
 
-/// STATUS: `HEADER_BYTES` and `STATUS_HEADER_BYTES` are 176; every M4 header field sits at its offset
+/// STATUS: `HEADER_BYTES` and `STATUS_HEADER_BYTES` are 256 (ADR 0171 grew the header from the M4 176); every M4 header field still sits at its offset
 /// of API section 4.4's table (144 musicRingCount ... 172 reserved) and round trips a distinct value;
-/// sections move up 32 B.
+/// sections start at 256.
 #[test]
-fn status_header_is_176_bytes_with_every_m4_field_at_its_offset() {
-    assert_eq!(HEADER_BYTES, 176);
-    assert_eq!(STATUS_HEADER_BYTES, 176);
+fn status_header_is_256_bytes_with_every_m4_field_at_its_offset() {
+    assert_eq!(HEADER_BYTES, 256);
+    assert_eq!(STATUS_HEADER_BYTES, 256);
 
     let status = StatusBlock {
         music_rings_open: 5,
@@ -284,11 +284,11 @@ fn status_header_is_176_bytes_with_every_m4_field_at_its_offset() {
         ended: vec![0xcafe],
         ..Default::default()
     };
-    let mut buf = vec![0u8; 256];
+    let mut buf = vec![0u8; 512];
     let n = status.write(&mut buf, 0, 42).unwrap();
-    assert_eq!(n, 176 + 4, "one ended entry after the 176-byte header");
+    assert_eq!(n, 256 + 4, "one ended entry after the 256-byte header");
     assert_eq!(&buf[8..12], &[42, 0, 0, 0], "seq");
-    assert_eq!(&buf[12..16], &[164, 0, 0, 0], "bodyBytes = 180 - 16");
+    assert_eq!(&buf[12..16], &[244, 0, 0, 0], "bodyBytes = 260 - 16");
     assert_eq!(&buf[64..66], &[1, 0], "endedCount, still at 64");
 
     assert_eq!(&buf[144..146], &[0, 0], "144 musicRingCount (derived from the empty section)");
@@ -303,20 +303,20 @@ fn status_header_is_176_bytes_with_every_m4_field_at_its_offset() {
     assert_eq!(&buf[164..168], &[0x44, 0x33, 0x22, 0x11], "164 splitQuanta 0x11223344");
     assert_eq!(&buf[168..172], &[0x88, 0x77, 0x66, 0x55], "168 voiceSplits 0x55667788");
     assert_eq!(&buf[172..176], &[0xcc, 0xbb, 0xaa, 0x99], "172 reserved");
-    assert_eq!(&buf[176..180], &[0xfe, 0xca, 0, 0], "the first section starts at 176");
+    assert_eq!(&buf[256..260], &[0xfe, 0xca, 0, 0], "the first section starts at 256");
 
     let (back, used) = StatusBlock::read(&buf[..n], 0).unwrap();
     assert_eq!(used, n);
     assert_eq!(back, status);
 }
 
-/// STATUS worst case, 16,192 B = `STATUS_WORST_CASE_BYTES` (W1 added the
+/// STATUS worst case, 17,824 B = `STATUS_WORST_CASE_BYTES` (M4: 16,192 B with the 176-byte header; M5: header 256 B and the three loudness and duck sections, ADR 0171; W1 added the
 /// `musicRings` (16 x 8 B) and `groupStarts` (8 x 16 B) sections to the 15,936 B of merge 1); of 16,384; this case is
 /// updated by L-W1a then. Here: a STATUS with every section at its cap writes exactly the constant and
 /// fits `STATUS_BUFFER_BYTES`.
 #[test]
 fn status_worst_case_matches_the_constant() {
-    assert_eq!(STATUS_WORST_CASE_BYTES, 16_192);
+    assert_eq!(STATUS_WORST_CASE_BYTES, 17_824);
     let full = StatusBlock {
         ended: vec![0; MAX_ENDED_PER_BLOCK as usize],
         demoted: vec![0; MAX_DEMOTED_PER_BLOCK as usize],
@@ -330,6 +330,9 @@ fn status_worst_case_matches_the_constant() {
         zone_events: vec![Default::default(); MAX_ZONE_EVENTS_PER_BLOCK as usize],
         music_rings: vec![Default::default(); MAX_MUSIC_RINGS as usize],
         group_starts: vec![Default::default(); MAX_GROUP_STARTS_PER_BLOCK as usize],
+        loud_buses: vec![Default::default(); LOUD_METERS as usize],
+        loud_energies: vec![Default::default(); MAX_LOUD_ENERGIES as usize],
+        bus_duck: vec![Default::default(); MAX_DUCK_RULES as usize],
         ..Default::default()
     };
     let mut buf = vec![0u8; STATUS_BUFFER_BYTES as usize];
@@ -354,7 +357,7 @@ fn golden_vectors_cover_every_longer_record() {
         ("STOP_equal_power_out", 24),
         ("SET_PARAMS_s_curve", 60),
         ("PLAY_fade_zero", 56),
-        ("STATUS_m4_header_only", 176),
+        ("STATUS_m4_header_only", 256),
     ];
     let all = cases();
     let s = schema();

@@ -125,6 +125,16 @@ function worstCaseStatus(): wire.StatusBlock {
       startFrameLo: (0x80000000 + i) >>> 0,
       startFrameHi: i,
     })),
+    // ADR 0171 M5 sections at their caps: 9 meters (the output tap last), 288 energies, 32 duck targets.
+    loudBuses: Array.from({ length: wire.LOUD_METERS }, (_, i) => ({
+      slot: i === wire.LOUD_METERS - 1 ? wire.LOUD_OUTPUT_TAP : i,
+      flags: i,
+      firstSeq: 1000 + i,
+      truePeak: i / 8,
+      gatedQuanta: i * 7,
+    })),
+    loudEnergies: Array.from({ length: wire.MAX_LOUD_ENERGIES }, (_, i) => i / 1024),
+    busDuck: Array.from({ length: wire.MAX_DUCK_RULES }, (_, i) => ({ slot: i, pad: 0, gain: 1 - i / 64 })),
   });
 }
 
@@ -192,12 +202,12 @@ describe("M4 wire vectors (L-W1b)", () => {
     expect(wire.readStreamOpen(music, 0).flags).toBe(open.flags | wire.STREAM_OPEN_FLAG_MUSIC);
   });
 
-  /** A STATUS with 16 musicRings and 8 groupStarts is STATUS_WORST_CASE_BYTES (16,192) and `readStatus` returns every item; a header count above its cap throws WireError OVERSIZE. */
+  /** A STATUS with every section at its cap (16 musicRings, 8 groupStarts, the M5 loudness and duck sections) is STATUS_WORST_CASE_BYTES (17,824) and `readStatus` returns every item; a header count above its cap throws WireError OVERSIZE. */
   it("L-W1b: the STATUS music sections at their caps", () => {
     const worst = worstCaseStatus();
     const out = scratch();
     const n = wire.writeStatus(out, 0, worst, 42);
-    expect(wire.STATUS_WORST_CASE_BYTES).toBe(16192);
+    expect(wire.STATUS_WORST_CASE_BYTES).toBe(17824);
     expect(n).toBe(wire.STATUS_WORST_CASE_BYTES);
 
     const bytes = new Uint8Array(out.buffer, 0, n).slice();

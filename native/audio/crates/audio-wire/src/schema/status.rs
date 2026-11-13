@@ -70,6 +70,24 @@ pub const HEADER_FIELDS: &[Field] = &[
     Field::new("splitQuanta", Ty::U32).at(164).doc("whole-quantum splits (cumulative; R3)"),
     Field::new("voiceSplits", Ty::U32).at(168).doc("voice-local splits (cumulative; R3)"),
     Field::new("reserved", Ty::U32).at(172).doc("reserved, 0"),
+    // ADR 0171 M5 (API section 4.3): 176..=255. The layout lands once (task Wa1); the fields read 0 until their tasks fill them.
+    Field::new("busyMsTotal", Ty::F64).at(176).doc("sum of Date.now() deltas around process(), ms, since the driver started (shell)"),
+    Field::new("quantaTotal", Ty::F64).at(184).doc("quanta processed since the driver started (shell)"),
+    Field::new("wuVoices", Ty::F64).at(192).doc("cumulative work units: voices"),
+    Field::new("wuBuses", Ty::F64).at(200).doc("cumulative work units: buses, effects, sidechain, ramps"),
+    Field::new("wuSpatial", Ty::F64).at(208).doc("cumulative work units: spatial"),
+    Field::new("wuMusic", Ty::F64).at(216).doc("cumulative work units: music"),
+    Field::new("wuLoudness", Ty::F64).at(224).doc("cumulative work units: loudness"),
+    Field::new("loudBusCount", Ty::U16).at(232).doc("the loudBuses section's count (at most 9)"),
+    Field::new("loudEnergyCount", Ty::U16).at(234).doc("the loudEnergies section's count (at most 288)"),
+    Field::new("duckCount", Ty::U16).at(236).doc("the busDuck section's count (at most 32)"),
+    Field::new("clockStepMs", Ty::U16).at(238).doc("the smallest non-zero Date.now delta seen; 0 = none yet (shell)"),
+    Field::new("loudSubBlockFrames", Ty::U32).at(240).doc("round(sampleRate / 10)"),
+    Field::new("clockSteps", Ty::U16).at(244).doc("wall-clock steps clamped, saturating (shell)"),
+    Field::new("loudShed", Ty::U16).at(246).doc("the load-shedding ladder's loudness step in force, 0 or 1"),
+    Field::new("busRecordsEarly", Ty::U16).at(248).doc("BUS_RAMP records applied at the quantum's start because the due list was full (cumulative, saturating)"),
+    Field::new("sidechainLate", Ty::U16).at(250).doc("late sidechain detections (cumulative, saturating)"),
+    Field::new("reserved2", Ty::U32).at(252).doc("reserved, 0"),
 ];
 
 /// Sections in order: ended, demoted, starved, playheads, clipEvents, streamEvents, peaks. A0.2-L3: fill.
@@ -160,9 +178,30 @@ pub const SECTIONS: &[Section] = &[
         max: 8,
         doc: "one item per group start: slip, flags, start frame; the rest carry over like starved (ADR 0166 M4)",
     },
+    Section {
+        name: "loudBuses",
+        item: super::mix::LOUD_BUSES_ITEM,
+        count_field: "loudBusCount",
+        max: 9,
+        doc: "one item per loudness meter (the final-output tap included): new-block count and flags, first sequence, true peak, gated quanta (ADR 0171 M5)",
+    },
+    Section {
+        name: "loudEnergies",
+        item: super::mix::LOUD_ENERGIES_ITEM,
+        count_field: "loudEnergyCount",
+        max: 288,
+        doc: "K-weighted sub-block energies since the last successful take, bus-major in loudBuses order, oldest first (ADR 0171 M5)",
+    },
+    Section {
+        name: "busDuck",
+        item: super::mix::BUS_DUCK_ITEM,
+        count_field: "duckCount",
+        max: 32,
+        doc: "the duck lane's gain of every bus that is the target of a rule (ADR 0171 M5)",
+    },
 ];
 
-pub const STATUS: StatusSpec = StatusSpec { header_bytes: 176, fields: HEADER_FIELDS, sections: SECTIONS };
+pub const STATUS: StatusSpec = StatusSpec { header_bytes: 256,fields: HEADER_FIELDS, sections: SECTIONS };
 
 #[cfg(test)]
 mod tests {
@@ -229,6 +268,23 @@ mod tests {
             ("splitQuanta", 164, Ty::U32),
             ("voiceSplits", 168, Ty::U32),
             ("reserved", 172, Ty::U32),
+            ("busyMsTotal", 176, Ty::F64),
+            ("quantaTotal", 184, Ty::F64),
+            ("wuVoices", 192, Ty::F64),
+            ("wuBuses", 200, Ty::F64),
+            ("wuSpatial", 208, Ty::F64),
+            ("wuMusic", 216, Ty::F64),
+            ("wuLoudness", 224, Ty::F64),
+            ("loudBusCount", 232, Ty::U16),
+            ("loudEnergyCount", 234, Ty::U16),
+            ("duckCount", 236, Ty::U16),
+            ("clockStepMs", 238, Ty::U16),
+            ("loudSubBlockFrames", 240, Ty::U32),
+            ("clockSteps", 244, Ty::U16),
+            ("loudShed", 246, Ty::U16),
+            ("busRecordsEarly", 248, Ty::U16),
+            ("sidechainLate", 250, Ty::U16),
+            ("reserved2", 252, Ty::U32),
         ];
         assert_eq!(HEADER_FIELDS.len(), expected.len());
         let mut end = 16;
@@ -242,7 +298,7 @@ mod tests {
             end = offset + field.bytes();
         }
         assert_eq!(end, constant("STATUS_HEADER_BYTES") as u32);
-        assert_eq!(STATUS.header_bytes, 176);
+        assert_eq!(STATUS.header_bytes, 256);
     }
 
     #[test]
@@ -266,12 +322,12 @@ mod tests {
     #[test]
     fn sections_and_caps() {
         let names: Vec<&str> = SECTIONS.iter().map(|s| s.name).collect();
-        assert_eq!(names, ["ended", "demoted", "starved", "playheads", "clipEvents", "streamEvents", "peaks", "beds", "zones", "zoneEvents", "musicRings", "groupStarts"]);
+        assert_eq!(names, ["ended", "demoted", "starved", "playheads", "clipEvents", "streamEvents", "peaks", "beds", "zones", "zoneEvents", "musicRings", "groupStarts", "loudBuses", "loudEnergies", "busDuck"]);
 
         let counts: Vec<&str> = SECTIONS.iter().map(|s| s.count_field).collect();
         assert_eq!(
             counts,
-            ["endedCount", "demotedCount", "starvedCount", "playheadCount", "clipEventCount", "streamEventCount", "busCount", "bedsActive", "zoneSlots", "zoneEventCount", "musicRingCount", "groupStartCount"]
+            ["endedCount", "demotedCount", "starvedCount", "playheadCount", "clipEventCount", "streamEventCount", "busCount", "bedsActive", "zoneSlots", "zoneEventCount", "musicRingCount", "groupStartCount", "loudBusCount", "loudEnergyCount", "duckCount"]
         );
         for s in SECTIONS {
             assert!(HEADER_FIELDS.iter().any(|f| f.name == s.count_field), "{}", s.name);
@@ -290,6 +346,10 @@ mod tests {
         assert_eq!(caps[9], constant("MAX_ZONE_EVENTS_PER_BLOCK") as u32);
         assert_eq!(caps[10], constant("MAX_MUSIC_RINGS") as u32);
         assert_eq!(caps[11], constant("MAX_GROUP_STARTS_PER_BLOCK") as u32);
+        assert_eq!(caps[12], constant("LOUD_METERS") as u32);
+        assert_eq!(caps[13], constant("MAX_LOUD_ENERGIES") as u32);
+        assert_eq!(caps[13], constant("LOUD_METERS") as u32 * constant("LOUD_RING_SUBBLOCKS") as u32);
+        assert_eq!(caps[14], constant("MAX_DUCK_RULES") as u32);
 
         let item_fields = |s: &Section| -> Vec<(&str, Ty)> { s.item.iter().map(|f| (f.name, f.ty)).collect() };
         assert_eq!(item_fields(&SECTIONS[0]), vec![("id", Ty::U32)]);
@@ -300,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn worst_case_is_16192_bytes() {
+    fn worst_case_is_17824_bytes() {
         let worst: u32 = STATUS.header_bytes
             + SECTIONS
                 .iter()
@@ -308,7 +368,8 @@ mod tests {
                 .sum::<u32>();
         // ADR 0162 §4.3: 15,728 - 112 + 144 + 32 + 48 + 64 = 15,904; API §4.4: - 144 + 176 (header)
         // + 16 x 8 (musicRings) + 8 x 16 (groupStarts) = 16,192, 192 B under the buffer.
-        assert_eq!(worst, 16192);
+        // M5 (API §4.3): 16,192 - 176 + 256 (header) + 9 x 16 + 288 x 4 + 32 x 8 = 17,824, 2,656 B under the buffer.
+        assert_eq!(worst, 17824);
         assert!(worst <= constant("STATUS_BUFFER_BYTES") as u32);
         assert_eq!(worst as u64, constant("STATUS_WORST_CASE_BYTES"));
     }

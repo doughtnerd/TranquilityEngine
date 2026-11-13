@@ -535,9 +535,9 @@ fn fuzz_m3_records_never_panic() {
 
 /// STATUS worst case (api-and-models §4.3): every section at its cap (ended, demoted, starved 1,024;
 /// playheads 256; clip and stream events 64; peaks 32; beds 4; zones 4; zoneEvents 16) writes exactly
-/// `STATUS_WORST_CASE_BYTES` (16,192 B, at most `STATUS_BUFFER_BYTES`) and reads back equal.
+/// `STATUS_WORST_CASE_BYTES` (17,824 B with the M5 sections, at most `STATUS_BUFFER_BYTES`) and reads back equal.
 #[test]
-fn status_worst_case_is_16192_bytes() {
+fn status_worst_case_is_17824_bytes() {
     let st = StatusBlock {
         current_frame: 1000.0,
         date_ms: 1.5,
@@ -568,6 +568,9 @@ fn status_worst_case_is_16192_bytes() {
         zone_events: (0..16u32).map(|i| StatusZoneEventsItem { slot: (i % 4) as u8, code: 1 + (i % 3) as u8, reserved: 0 }).collect(),
         music_rings: (0..16u32).map(|i| StatusMusicRingsItem { stream_id: 100 + i, epoch_flags: i | MUSIC_RING_PRIMED | if i % 2 == 0 { MUSIC_RING_BOUND } else { 0 } }).collect(),
         group_starts: (0..8u32).map(|i| StatusGroupStartsItem { group_id: 1 + i as u16, flags: (i % 8) as u16, slip_frames: i * 128, start_frame_lo: 1000 + i, start_frame_hi: i }).collect(),
+        loud_buses: (0..LOUD_METERS).map(|i| StatusLoudBusesItem { slot: if i == 8 { LOUD_OUTPUT_TAP as u16 } else { i as u16 }, flags: (i % 33) as u16, first_seq: 1000 + i, true_peak: i as f32 * 0.125, gated_quanta: i * 7 }).collect(),
+        loud_energies: (0..MAX_LOUD_ENERGIES).map(|i| i as f32 * 0.001).collect(),
+        bus_duck: (0..MAX_DUCK_RULES).map(|i| StatusBusDuckItem { slot: i as u16, pad: 0, gain: 1.0 - i as f32 * 0.01 }).collect(),
         ..StatusBlock::default()
     };
     let mut buf = vec![0u8; STATUS_BUFFER_BYTES as usize];

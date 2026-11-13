@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MAGIC, writeStatus } from "../wire.generated";
+import { MAGIC, STATUS_BUFFER_BYTES, writeStatus } from "../wire.generated";
 import { CoreLink, type LinkPort } from "./context";
 import { makeStatusBlock, MIRROR_EVENT_CAPACITY, StatusMirror } from "./mirror";
 import { VoiceReason, VoiceState, VoiceTable } from "./voiceTable";
@@ -130,7 +130,7 @@ describe("StatusMirror (§3, §4.3)", () => {
     const link = new CoreLink(port);
     const unsubscribe = mirror.attach(link);
     const a = table.allocate(0, 1, 0, P);
-    const buffer = new ArrayBuffer(16384);
+    const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
     writeStatus(new DataView(buffer), 0, makeStatusBlock({ ended: [a], currentFrame: 768 }), 1);
     expect(new DataView(buffer).getUint32(0, true)).toBe(MAGIC);
     port.onmessage!({ data: buffer });
@@ -138,7 +138,7 @@ describe("StatusMirror (§3, §4.3)", () => {
     expect(mirror.currentFrame).toBe(768);
     expect(port.postMessage).toHaveBeenCalledTimes(1); // the RECYCLE
     unsubscribe();
-    const again = new ArrayBuffer(16384);
+    const again = new ArrayBuffer(STATUS_BUFFER_BYTES);
     writeStatus(new DataView(again), 0, makeStatusBlock({ currentFrame: 1024 }), 2);
     port.onmessage!({ data: again });
     expect(mirror.currentFrame).toBe(768);

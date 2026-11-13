@@ -2175,7 +2175,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     let (mut sum_bed_voices, mut sum_beds, mut sum_work_bed) = (0f64, 0f64, 0f64);
     let (mut sum_fx, mut sum_ambi) = (0f64, 0f64);
     let (mut sum_zact, mut sum_zring, mut sum_zwork, mut sum_senders, mut sum_aux) = (0f64, 0f64, 0f64, 0f64, 0f64);
-    let mut status_buf = vec![0u8; 16 * 1024];
+    let mut status_buf = vec![0u8; wire::STATUS_BUFFER_BYTES as usize];
     let mut probe: Vec<f32> = Vec::new();
     let mut deadline = platform::now_us();
     let (mut records_at_warm, mut starts_at_warm) = (0u64, 0u64);

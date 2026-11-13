@@ -190,24 +190,24 @@ fn status_music_sections_round_trip_with_derived_counts() {
         }],
         ..Default::default()
     };
-    let mut buf = vec![0u8; 256];
+    let mut buf = vec![0u8; 512];
     let n = status.write(&mut buf, 0, 40).unwrap();
 
-    // zoneEvents (4 B) at 176, then musicRings (2 x 8 B) at 180, then groupStarts (16 B) at 196.
-    assert_eq!(n, 212, "176 header + 4 + 16 + 16");
-    assert_eq!(&buf[12..16], &[196, 0, 0, 0], "bodyBytes = 212 - 16");
+    // zoneEvents (4 B) at 256, then musicRings (2 x 8 B) at 260, then groupStarts (16 B) at 276.
+    assert_eq!(n, 292, "256 header + 4 + 16 + 16");
+    assert_eq!(&buf[12..16], &[20, 1, 0, 0], "bodyBytes = 292 - 16");
     assert_eq!(&buf[144..146], &[2, 0], "144 musicRingCount derived: 2");
     assert_eq!(&buf[146..148], &[1, 0], "146 groupStartCount derived: 1");
-    assert_eq!(&buf[176..180], &[1, 2, 0, 0], "zoneEvents first: slot 1, code 2, reserved 0");
-    assert_eq!(&buf[180..184], &3u32.to_le_bytes(), "musicRings[0].streamId");
-    assert_eq!(&buf[184..188], &(0xC000_0004u32).to_le_bytes(), "musicRings[0].epochFlags: primed | bound | epoch 4");
-    assert_eq!(&buf[188..192], &5u32.to_le_bytes(), "musicRings[1].streamId");
-    assert_eq!(&buf[192..196], &(0x4000_0009u32).to_le_bytes(), "musicRings[1].epochFlags: primed | epoch 9");
-    assert_eq!(&buf[196..198], &1023u16.to_le_bytes(), "groupStarts[0].groupId");
-    assert_eq!(&buf[198..200], &5u16.to_le_bytes(), "groupStarts[0].flags: late | abandoned");
-    assert_eq!(&buf[200..204], &1024u32.to_le_bytes(), "groupStarts[0].slipFrames");
-    assert_eq!(&buf[204..208], &0x8000_0000u32.to_le_bytes(), "groupStarts[0].startFrameLo");
-    assert_eq!(&buf[208..212], &1u32.to_le_bytes(), "groupStarts[0].startFrameHi");
+    assert_eq!(&buf[256..260], &[1, 2, 0, 0], "zoneEvents first: slot 1, code 2, reserved 0");
+    assert_eq!(&buf[260..264], &3u32.to_le_bytes(), "musicRings[0].streamId");
+    assert_eq!(&buf[264..268], &(0xC000_0004u32).to_le_bytes(), "musicRings[0].epochFlags: primed | bound | epoch 4");
+    assert_eq!(&buf[268..272], &5u32.to_le_bytes(), "musicRings[1].streamId");
+    assert_eq!(&buf[272..276], &(0x4000_0009u32).to_le_bytes(), "musicRings[1].epochFlags: primed | epoch 9");
+    assert_eq!(&buf[276..278], &1023u16.to_le_bytes(), "groupStarts[0].groupId");
+    assert_eq!(&buf[278..280], &5u16.to_le_bytes(), "groupStarts[0].flags: late | abandoned");
+    assert_eq!(&buf[280..284], &1024u32.to_le_bytes(), "groupStarts[0].slipFrames");
+    assert_eq!(&buf[284..288], &0x8000_0000u32.to_le_bytes(), "groupStarts[0].startFrameLo");
+    assert_eq!(&buf[288..292], &1u32.to_le_bytes(), "groupStarts[0].startFrameHi");
 
     assert_eq!(StatusBlock::read(&buf[..n], 0).unwrap(), (status.clone(), n));
 
@@ -215,7 +215,7 @@ fn status_music_sections_round_trip_with_derived_counts() {
     let mut empty = status.clone();
     empty.music_rings.clear();
     empty.group_starts.clear();
-    assert_eq!(empty.write(&mut buf, 0, 40).unwrap(), 180);
+    assert_eq!(empty.write(&mut buf, 0, 40).unwrap(), 260);
     assert_eq!(&buf[144..148], &[0, 0, 0, 0]);
 }
 
@@ -256,7 +256,7 @@ fn fuzz_rows_of_the_gate_family() {
     let eight = StatusBlock { group_starts: (0..MAX_GROUP_STARTS_PER_BLOCK as usize).map(group).collect(), ..Default::default() };
     let mut sbuf = vec![0u8; STATUS_BUFFER_BYTES as usize];
     let n = eight.write(&mut sbuf, 0, 1).unwrap();
-    assert_eq!(n, 176 + 8 * 16);
+    assert_eq!(n, 256 + 8 * 16);
     assert_eq!(StatusBlock::read(&sbuf[..n], 0).unwrap(), (eight.clone(), n));
     let nine = StatusBlock { group_starts: (0..9).map(group).collect(), ..Default::default() };
     assert_eq!(nine.write(&mut sbuf, 0, 1), Err(ERR_OVERSIZE), "9 groupStarts is over the cap");
@@ -265,7 +265,7 @@ fn fuzz_rows_of_the_gate_family() {
     let ring = |i: usize| StatusMusicRingsItem { stream_id: i as u32 + 1, epoch_flags: MUSIC_RING_PRIMED | (i as u32 + 1) };
     let sixteen = StatusBlock { music_rings: (0..MAX_MUSIC_RINGS as usize).map(ring).collect(), ..Default::default() };
     let n = sixteen.write(&mut sbuf, 0, 1).unwrap();
-    assert_eq!(n, 176 + 16 * 8);
+    assert_eq!(n, 256 + 16 * 8);
     assert_eq!(StatusBlock::read(&sbuf[..n], 0).unwrap(), (sixteen.clone(), n));
     let seventeen = StatusBlock { music_rings: (0..17).map(ring).collect(), ..Default::default() };
     assert_eq!(seventeen.write(&mut sbuf, 0, 1), Err(ERR_OVERSIZE), "17 musicRings is over the cap");
@@ -278,7 +278,7 @@ fn fuzz_rows_of_the_gate_family() {
         ..Default::default()
     };
     let n = both.write(&mut sbuf, 0, 1).unwrap();
-    assert_eq!(n, 176 + 4 + 16 + 32);
+    assert_eq!(n, 256 + 4 + 16 + 32);
     assert_eq!(StatusBlock::read(&sbuf[..n], 0).unwrap(), (both.clone(), n));
     for len in 0..n {
         assert!(StatusBlock::read(&sbuf[..len], 0).is_err(), "cut to {len} B must be an error");
@@ -294,15 +294,15 @@ fn fuzz_rows_of_the_gate_family() {
     assert_eq!(StatusBlock::read(&header, 0).unwrap_err(), ERR_OVERSIZE, "groupStartCount 9");
 }
 
-/// STATUS worst case: every section at its cap writes exactly `STATUS_WORST_CASE_BYTES` (16,192 B),
-/// under `STATUS_BUFFER_BYTES` (16,384 B) with 192 B spare, and reads back equal. (`tests/m4_per_voice.rs`
+/// STATUS worst case: every M4 section at its cap (the M5 sections are tested in `m5_*.rs`); the total is `STATUS_WORST_CASE_BYTES` (17,824 B),
+/// under `STATUS_BUFFER_BYTES` (20,480 B) with 2,656 B spare, and reads back equal. (`tests/m4_per_voice.rs`
 /// and `tests/spatial_vectors.rs` already assert the total; this case pins the 128 + 128 B of the two
 /// new sections by name.)
 #[test]
-fn status_worst_case_has_192_bytes_spare() {
-    assert_eq!(STATUS_BUFFER_BYTES, 16_384);
-    assert_eq!(STATUS_WORST_CASE_BYTES, 16_192);
-    assert_eq!(STATUS_BUFFER_BYTES - STATUS_WORST_CASE_BYTES, 192);
+fn status_worst_case_has_2656_bytes_spare() {
+    assert_eq!(STATUS_BUFFER_BYTES, 20_480);
+    assert_eq!(STATUS_WORST_CASE_BYTES, 17_824);
+    assert_eq!(STATUS_BUFFER_BYTES - STATUS_WORST_CASE_BYTES, 2_656);
     assert_eq!(StatusMusicRingsItem::FIXED_END, 8);
     assert_eq!(StatusGroupStartsItem::FIXED_END, 16);
     assert_eq!(MAX_MUSIC_RINGS as usize * StatusMusicRingsItem::FIXED_END, 128, "musicRings at its cap: 128 B");
@@ -334,6 +334,9 @@ fn status_worst_case_has_192_bytes_spare() {
             start_frame_hi: i as u32,
         })
         .collect();
+    full.loud_buses = vec![Default::default(); LOUD_METERS as usize];
+    full.loud_energies = vec![Default::default(); MAX_LOUD_ENERGIES as usize];
+    full.bus_duck = vec![Default::default(); MAX_DUCK_RULES as usize];
 
     let mut buf = vec![0u8; STATUS_BUFFER_BYTES as usize];
     let n = full.write(&mut buf, 0, 1).unwrap();
@@ -341,12 +344,12 @@ fn status_worst_case_has_192_bytes_spare() {
     assert!(n <= STATUS_BUFFER_BYTES as usize);
     assert_eq!(StatusBlock::read(&buf, 0).unwrap(), (full.clone(), n));
 
-    // Without the two new sections the same block is 256 B shorter: 15,936 B, the M3 + header worst case.
+    // Without the two M4 sections the same block is 256 B shorter: 17,568 B (M3 worst case 15,936 B, plus the 80 B header growth and the 1,552 B of M5 sections).
     let mut without = full.clone();
     without.music_rings.clear();
     without.group_starts.clear();
     assert_eq!(without.write(&mut buf, 0, 1).unwrap(), n - 256);
-    assert_eq!(n - 256, 15_936);
+    assert_eq!(n - 256, 17_568);
 }
 
 /// `vectors/wire.json`: add to `vectors/cases.rs` hand-derived cases for a gated PLAY (id 1023, size 64,
@@ -354,11 +357,11 @@ fn status_worst_case_has_192_bytes_spare() {
 /// Regenerate with `gen_wire`; do not hand-edit the JSON.
 #[test]
 fn golden_vectors_cover_the_gate_family() {
-    // (name, encoded size in bytes): PLAY 56, STREAM_OPEN 16 + 40, STATUS 176 + 16 + 128.
+    // (name, encoded size in bytes): PLAY 56, STREAM_OPEN 16 + 40, STATUS 256 + 16 + 128.
     let expect: [(&str, usize); 3] = [
         ("PLAY_gate_1023_of_64_fade_zero", 56),
         ("STREAM_OPEN_music", 56),
-        ("STATUS_two_music_rings_eight_group_starts", 320),
+        ("STATUS_two_music_rings_eight_group_starts", 400),
     ];
     let all = cases();
     let s = schema();
@@ -380,5 +383,5 @@ fn golden_vectors_cover_the_gate_family() {
     let status = all.iter().find(|c| c.name == "STATUS_two_music_rings_eight_group_starts").unwrap();
     let bytes = encode(&s, status).unwrap();
     assert_eq!(&bytes[144..148], &[2, 0, 8, 0], "musicRingCount 2, groupStartCount 8");
-    assert_eq!(&bytes[176..180], &3u32.to_le_bytes(), "the first musicRings item follows the header");
+    assert_eq!(&bytes[256..260], &3u32.to_le_bytes(), "the first musicRings item follows the header");
 }

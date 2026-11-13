@@ -3,7 +3,8 @@
 //!
 //! This file (lead-owned) holds the constants, enums and **error codes** (section 5), and assembles
 //! the transcribed tables: `envelope` (4.1), `batch` (4.2), `status` (4.3), ADR 0162's `spatial` and
-//! ADR 0166's `music` (the M4 constants and enums; the M4 fields are in `batch` and `status`).
+//! ADR 0166's `music` (the M4 constants and enums; the M4 fields are in `batch` and `status`) and ADR 0171's
+//! `mix` (the M5 constants, opcodes and STATUS items).
 //!
 //! **Schema hash.** First 16 bytes of SHA-256 over `SCHEMA_SOURCES` (see `schema_hash`). The generated
 //! TypeScript embeds it, the wasm exports `myco_audio_schema_hash()`, and `wire.schemaHash.test.ts`
@@ -12,6 +13,7 @@
 
 pub mod batch;
 pub mod envelope;
+pub mod mix;
 pub mod music;
 pub mod spatial;
 pub mod status;
@@ -24,6 +26,7 @@ pub const SCHEMA_SOURCES: &[(&str, &str)] = &[
     ("src/schema.rs", include_str!("schema.rs")),
     ("src/schema/batch.rs", include_str!("schema/batch.rs")),
     ("src/schema/envelope.rs", include_str!("schema/envelope.rs")),
+    ("src/schema/mix.rs", include_str!("schema/mix.rs")),
     ("src/schema/music.rs", include_str!("schema/music.rs")),
     ("src/schema/spatial.rs", include_str!("schema/spatial.rs")),
     ("src/schema/status.rs", include_str!("schema/status.rs")),
@@ -60,7 +63,7 @@ macro_rules! c {
 pub const CONSTANTS: &[Const] = &[
     c!("MAGIC", 0x4D59_4131u32, "envelope magic, 'MYA1'"),
     c!("VERSION_MAJOR", 1, "a core refuses a different major"),
-    c!("VERSION_MINOR", 2, "new opcodes or appended payload words are minor (1.1: ADR 0162; 1.2: the shape word, ADR 0166)"),
+    c!("VERSION_MINOR", 3, "new opcodes or appended payload words are minor (1.1: ADR 0162; 1.2: the shape word, ADR 0166; 1.3: the M5 mix opcodes, ADR 0171)"),
     c!("ENVELOPE_BYTES", 16, "envelope size"),
     c!("BATCH_HEADER_BYTES", 16, "f64 firstFrame; u32 count; u32 flags"),
     c!("RECORD_HEAD_BYTES", 12, "u16 opcode; u16 words; u32 voiceId; u32 frameOffset"),
@@ -68,16 +71,16 @@ pub const CONSTANTS: &[Const] = &[
     c!("BATCH_MAX_BYTES", 64 * 1024, "a BATCH is capped at 64 KB; the excess carries over"),
     c!("INBOX_BYTES", 1024 * 1024, "the fixed 1 MiB inbox"),
     c!("REPLAY_CHUNK_MAX_BYTES", 1024 * 1024 - 32, "each REPLAY message: 1 MiB minus 32 bytes"),
-    c!("STATUS_HEADER_BYTES", 176, "STATUS header, envelope included (ADR 0162 §4.3; 176 B with the M4 fields, ADR 0166)"),
+    c!("STATUS_HEADER_BYTES", 256, "STATUS header, envelope included (256 B with the M5 fields, ADR 0171 API section 4.3; 176 B in M4)"),
     c!("STATUS_POOL_BUFFERS", 8, "the shell's pool of STATUS buffers"),
-    c!("STATUS_BUFFER_BYTES", 16384, "size of each STATUS buffer"),
-    c!("STATUS_WORST_CASE_BYTES", 16192, "176 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 + 128 + 128"),
+    c!("STATUS_BUFFER_BYTES", 20480, "size of each STATUS buffer (20 KB with the M5 sections)"),
+    c!("STATUS_WORST_CASE_BYTES", 17824, "256 + 4096*3 + 2048 + 512 + 512 + 256 + 32 + 48 + 64 + 128 + 128 + 144 + 1152 + 256"),
     c!("STATUS_EVERY_QUANTA", 6, "STATUS cadence"),
     c!("STATUS_IDLE_EVERY_QUANTA", 48, "cadence when no batch arrived for 250 ms"),
     c!("STATUS_IDLE_AFTER_MS", 250, "idle threshold"),
     c!("QUANTUM_FRAMES", 128, "frames per process() call"),
     c!("BUS_ROOT", 0xFFFF, "BUS_CONFIG parent of the root bus"),
-    c!("BUS_LP_OFF_HZ", 24000, "BUS_MIX lpHz meaning off"),
+    c!("BUS_LP_OFF_HZ", 24000, "BUS_MIX and BUS_RAMP lpHz meaning off"),
     c!("STREAM_TOTAL_FRAMES_UNKNOWN", 0xFFFF_FFFFu32, "STREAM_OPEN totalFrames"),
     c!("HRIR_CLIP_ID_FIRST", 0xFFFF_0000u32, "reserved clip ids for format = 2"),
     c!("HRIR_CLIP_ID_LAST", 0xFFFF_00FFu32, "reserved clip ids for format = 2"),
@@ -218,10 +221,10 @@ pub const ERRORS: &[ErrorCode] = &[
     er!("MALFORMED", -16, "a record's fields are inconsistent (count versus length)"),
 ];
 
-/// `CONSTANTS` followed by `music::CONSTANTS`.
+/// `CONSTANTS` followed by `music::CONSTANTS` and `mix::CONSTANTS`.
 fn all_constants() -> &'static [Const] {
     static ALL: std::sync::OnceLock<Vec<Const>> = std::sync::OnceLock::new();
-    ALL.get_or_init(|| CONSTANTS.iter().chain(music::CONSTANTS).copied().collect())
+    ALL.get_or_init(|| CONSTANTS.iter().chain(music::CONSTANTS).chain(mix::CONSTANTS).copied().collect())
 }
 
 /// `ENUMS` followed by `music::ENUMS`.

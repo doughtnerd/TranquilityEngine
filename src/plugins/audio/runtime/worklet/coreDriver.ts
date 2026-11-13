@@ -56,8 +56,8 @@ import {
 /** @internal The name `processor.ts` registers and the host creates its node with. */
 export const PROCESSOR_NAME = "myco-audio-core";
 
-/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5; 2 since ADR 0162 R6, 3 since ADR 0166 W1: `max_music_rings`). */
-export const CORE_ABI_MAJOR = 3;
+/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5; 2 since ADR 0162 R6, 3 since ADR 0166 W1: `max_music_rings`; 4 since ADR 0171 M5: the 256-B STATUS header and `BUS_RAMP`). */
+export const CORE_ABI_MAJOR = 4;
 
 /** @internal Pages the shell's Memory starts with: the same every time (`native/audio/build.mjs` uses 64), which is what makes init deterministic (A0.1). */
 export const MEMORY_INITIAL_PAGES = 64;
