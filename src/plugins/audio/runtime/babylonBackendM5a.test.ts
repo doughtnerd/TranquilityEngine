@@ -243,8 +243,8 @@ describe("BabylonBackend keyframes from main's tables (§9, §5.5)", () => {
 
 describe("BabylonBackend mixCaps and CPU on the fallback (§9 CPU)", () => {
   it("captures main-side only", () => {
-    expect(newBackend().mixCaps.capture).toBe("mainSideOnly");
-    expect(newBackend().debug().mixCaps.capture).toBe("mainSideOnly");
+    expect(newBackend().mixCaps?.capture).toBe("mainSideOnly");
+    expect(newBackend().debug().mixCaps?.capture).toBe("mainSideOnly");
   });
 
   it("Audio.debug().cpu has no load figure and says why", () => {
