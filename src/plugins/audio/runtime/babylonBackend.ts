@@ -27,7 +27,7 @@ import type { Vec3Like } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { AudioReverbZone } from "./AudioReverbZone";
 import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
-import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioM3Counters, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicGroupRequest, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type FadeLaw } from "./backend";
+import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioM3Counters, type AudioMixCaps, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicGroupRequest, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type FadeLaw } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
 import { DistanceEffect, SendCurveTable, SpatialViewFlag, type SpatialPassHost, type SpatialVoiceView } from "./core/spatial";
 import { DopplerPass } from "./core/doppler";
@@ -769,6 +769,20 @@ class BabylonSpatialView implements SpatialVoiceView {
 /** The fallback's decoded-clip memory ceiling for an ambisonic clip is in `babylonMapping.ts` (`AMBISONIC_DECODE_LIMIT_BYTES`). */
 export class BabylonBackend implements AudioBackend, SpatialPassHost {
   readonly name = "babylon";
+
+  /**
+   * ADR 0171 §1.3 / §9 (M5 Bb2): the fallback has no audio core, so no loudness meters, no level ducking, no CPU figure and
+   * no stamped bus ramps; its capture is main-side only. Every bus reads the inert `EMPTY_BUS_LOUDNESS` (no loudness
+   * source is registered on this backend's path).
+   */
+  readonly mixCaps: AudioMixCaps = {
+    loudness: false,
+    levelDucking: false,
+    cpu: false,
+    cpuReason: "Babylon fallback has no audio core",
+    stampedBusRamps: false,
+    capture: "mainSideOnly",
+  };
 
   /** ADR 0162 (K4, F1): main runs Doppler and occlusion over this view (`audioSystem.ts`), then `update`. */
   readonly spatialVoices = new BabylonSpatialView();
