@@ -76,6 +76,10 @@ import {
   SET_PARAMS_MASK_PITCH,
   type BusConfigBuses,
 } from "../wire.generated";
+// Ld2: the loudness hub's wiring (LOUD_CONFIG at configure and in the rebuild's replay; `play()` at each Engine's audio configure).
+import { ASAP, MAX_LOUDNESS_BUSES, writeLoudConfig } from "../wire.generated";
+import { loudnessHub, type LoudnessBusInfo } from "../mix/loudnessHub";
+import { onAudioConfigured } from "../../../../engine/core/audioConfigure";
 import { AudioHandle, type AudioReason } from "./handle";
 import { limiterLatencyFrames } from "./limiterLatency";
 import { ClockMap } from "./clock";
@@ -209,6 +213,8 @@ const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > 
 
 /** ADR 0171 (K0): the core backend that last registered its clock and op target on each mixer. */
 const mixerOwners = new WeakMap<Mixer, CoreBackend>();
+/** Ld2: the core backend that last wired the page's loudness hub (its mixer source and gate sink). */
+let loudnessOwner: CoreBackend | null = null;
 
 export class CoreBackend implements AudioBackend, StagedFrameHost {
   readonly name = "core";
@@ -294,6 +300,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       this.buses.replanBedsOnSettings();
       this.presence.settingsChanged(this.mixer);
       this.lanes.sync();
+      this.loudnessLiveApplied(); // Ld2: the live op sent its own LOUD_CONFIG (or changed nothing it carries)
     },
     sending: () => !this.disposed && !this.recovering && this.host.status === "running",
     firstFrame: () => this.clockMap.nextFirstFrame(),
@@ -301,6 +308,10 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   });
   /** ADR 0171 (K0): the capture's event taps (`mix/profileSink.ts`); the null object until a recorder runs (Rc3). */
   profile: ProfileSink = NULL_PROFILE_SINK;
+  // Ld2: the page's loudness hub; the settings and the metered set it was last configured with.
+  private readonly loudness = loudnessHub;
+  private loudnessFrom: unknown = null;
+  private loudnessKey = "";
   private get names(): string[] {
     return this.buses.names;
   }
@@ -528,7 +539,10 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       busIndexByName: this.buses.busIndexByName,
       busGain: this.selection.busGain,
       refreshSharedLowpass: () => this.refreshSharedLowpass(),
-      replayDucking: (out) => this.presence.replay(out),
+      replayDucking: (out) => {
+        this.presence.replay(out);
+        this.replayLoudness(out); // Ld2: LOUD_CONFIG after BUS_DUCK and BUS_PRESENCE (§4.2's replay order)
+      },
     });
     this.clipSink = { event: (id, code) => this.clips.applyClipEvent(id, code) };
 
@@ -538,6 +552,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     // B3, after the mirror: a stream voice that moves again is no longer waiting for data.
     this.cleanups.push(this.streams.attach(host.link));
     this.streamSink = { event: (id, code) => this.streams.streamEvent(id, code) };
+    // Ld2: the loudness sections, after the mirror and the recorder tap (api §3.2).
+    this.cleanups.push(host.link.onStatus((status) => this.loudness.feed(status)));
     // Voice ends free the slot's clip reference and the bus count (api §3 "Mixer counting").
     this.table.onFree = (id, bus) => this.onFree(id, bus);
     this.cleanups.push(connectVoiceTable(this.table, host));
@@ -559,6 +575,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
         this.buses.replanBedsOnSettings();
         if (!this.disposed) this.presence.settingsChanged(this.mixer);
         if (!this.disposed) this.lanes.sync();
+        this.syncLoudness(false); // Ld2: a settings edit of the meters, targets or loudnessResetOnPlay
       }),
     );
     this.configureBuses(this.mixer);
@@ -575,6 +592,23 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       this.mixerOnHeardClock = false;
       this.mixer._setOpTarget(null);
       this.mixer._setDuckSource(null);
+    });
+    // Ld2: the hub reads for the mixer (`Bus.loudness`), a target change re-sends the gate, and each Engine's audio
+    // configure (the editor's Play; a game's engine start) resets the meters when `loudnessResetOnPlay` says so.
+    loudnessOwner = this;
+    this.loudness.attach(this.mixer);
+    this.loudness.setGateSink((tpGateDbfs) => this.sendLoudness(tpGateDbfs));
+    this.cleanups.push(
+      onAudioConfigured(() => {
+        this.syncLoudness(false);
+        this.loudness.play();
+      }),
+    );
+    this.cleanups.push(() => {
+      if (loudnessOwner !== this) return;
+      loudnessOwner = null;
+      this.mixer.setLoudnessSource(null);
+      this.loudness.setGateSink(null);
     });
   }
 
@@ -782,6 +816,74 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   /** Rebuilds the core's bus tree: BUS_CONFIG, the table's per-bus limits, and every bus lane (`busIndex.ts`, K0). */
   configureBuses(mixer: Mixer): void {
     this.buses.configureBuses(mixer);
+    this.syncLoudness(true); // Ld2: the hub and LOUD_CONFIG follow the new slots, after BUS_CONFIG
+  }
+
+  // --- Ld2: the loudness hub's wiring (the stubs file's Ld2 row; api-and-models §3.2, §4.2) ---
+
+  /** Ld2: each bus as the hub needs it, from the mixer's settings and the slot table. */
+  private loudnessBuses(): LoudnessBusInfo[] {
+    const buses = this.buses;
+    return this.mixer.audioSettings.buses.map((b) => ({ name: b.name, parent: b.parent ?? null, slot: buses.slotOf(b.name), metered: b.meter === "loudness" }));
+  }
+
+  /**
+   * Ld2: project load (`force`, after BUS_CONFIG: a slot may mean another bus now, so the bus meters restart with an
+   * empty `LOUD_CONFIG` before the full one; the hub reseeds them and keeps their histograms) or a settings edit: the hub
+   * follows the meters, targets and `loudnessResetOnPlay` (meters that stay keep their state), and `LOUD_CONFIG` goes out
+   * with the gate of the target in force when the metered set or the gate changed. A live op's own `LOUD_CONFIG` is
+   * `liveMix.ts`'s (`loudnessLiveApplied` notes it, so the mixer's change notification sends nothing twice).
+   */
+  private syncLoudness(force: boolean): void {
+    if (this.disposed) return;
+    const settings = this.mixer.audioSettings;
+    if (!force && settings === this.loudnessFrom) return;
+    this.loudnessFrom = settings;
+    const root = settings.buses[0]?.name;
+    if (root === undefined) return;
+    this.loudness.configure({ available: true, root, buses: this.loudnessBuses(), targets: settings.loudnessTargets, resetOnPlay: settings.loudnessResetOnPlay });
+    const gate = this.loudness.tpGateDbfs;
+    if (!force && this.loudnessKeyOf(gate, this.loudnessSlots()) === this.loudnessKey) return;
+    if (force && this.loudnessKey !== "") this.writer.loudConfig(gate, []);
+    this.sendLoudness(gate);
+  }
+
+  /**
+   * Ld2: after a live op (`liveMix.ts`): it configured the hub and sent `LOUD_CONFIG` itself for a meter or target edit,
+   * and no other op changes the metered slots or the gate, so the settings it leaves are what the core holds.
+   */
+  private loudnessLiveApplied(): void {
+    this.loudnessFrom = this.mixer.audioSettings;
+    this.loudnessKey = this.loudnessKeyOf(this.loudness.tpGateDbfs, this.loudnessSlots());
+  }
+
+  /** Ld2: the metered buses' slots (master implicit; an unplaced or repeated one left out), at most the core's 8. */
+  private loudnessSlots(): number[] {
+    const slots: number[] = [];
+    for (const b of this.loudnessBuses()) {
+      if (b.parent === null || !b.metered || b.slot < 0 || slots.includes(b.slot)) continue;
+      if (slots.length < MAX_LOUDNESS_BUSES) slots.push(b.slot);
+    }
+    return slots;
+  }
+
+  private loudnessKeyOf(tpGateDbfs: number, slots: readonly number[]): string {
+    return `${tpGateDbfs}|${slots.join(",")}`;
+  }
+
+  /** Ld2: `LOUD_CONFIG` (replace-all, asap) with `tpGateDbfs` and the metered slots, in the next batch. */
+  private sendLoudness(tpGateDbfs: number): void {
+    if (this.disposed) return;
+    const slots = this.loudnessSlots();
+    this.loudnessKey = this.loudnessKeyOf(tpGateDbfs, slots);
+    this.writer.loudConfig(tpGateDbfs, slots);
+  }
+
+  /** Ld2: a hard rebuild's `LOUD_CONFIG` (§4.2: after BUS_DUCK and BUS_PRESENCE, before the lanes). */
+  private replayLoudness(out: ReplayBuilder): void {
+    const meters = this.loudnessSlots().map((slot) => ({ slot, reserved: 0 }));
+    const tpGateDbfs = this.loudness.tpGateDbfs;
+    out.record(20 + 4 * meters.length, (view, off) => writeLoudConfig(view, off, { voiceId: 0, frameOffset: ASAP, tpGateDbfs, meters }));
   }
 
   /** BUS_CONFIG's buses for the tree last configured, root first (also the hard rebuild's replay, A3.4a; `busIndex.ts`). */
@@ -960,6 +1062,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     if (this.disposed) return;
     this.recovering = false;
     this.mirror.resetPeaks();
+    this.loudness.epoch(); // Ld2: an EPOCH: each feed reseeds, histograms stay
     // C9: as in `contextReplaced`, unless that already ran after the rebind: the replay's kernels and reopened streams
     // connect a channel to the new node.
     if (!this.contextReplacedInRecovery) this.worklet.disconnect();
