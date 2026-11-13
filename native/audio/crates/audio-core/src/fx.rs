@@ -27,6 +27,14 @@
 //! envelope state (an effect edit doesn't click); a slot whose kind changes starts from zeroed
 //! state.
 //!
+//! **Smoothing (B4, R7; architecture §4.7).** Only the compressor's parameters are smoothed: a
+//! running compressor that keeps its slot glides to edited parameters, stepping once per quantum
+//! along a straight line over `COMPRESSOR_SMOOTH_MS` ([`smooth_frames`], `Compressor::glide`), so
+//! a threshold step no longer clicks. Filter frequency and Q and the send level stay direct (S4:
+//! abrupt 0.15 and 0.10). The snapshot low-pass's coefficients follow its lane's ramp once per
+//! quantum ([`snapshot_lowpass`]: S4's per-quantum coefficient blend, +370 instructions per
+//! filter). Unchanged parameters cost nothing and stay bit-identical.
+//!
 //! **Memory.** The compressor's state (about 2.4 KB, most of it its pre-delay line) is held once
 //! per bus, in [`FxChain::compressor`], beside the slots; a slot keeps only a biquad's state
 //! (lowpass, highpass), a send gain (in `p[0]`), or nothing (a compressor slot runs the bus's
@@ -84,6 +92,11 @@ pub struct FxChain {
     pub slots: [FxSlot; MAX_EFFECTS],
     /// The bus's one compressor, run by the slot at `compressor_slot`.
     pub compressor: Compressor,
+    /// B4 (R7): frames left in the compressor's parameter glide (0: none; [`smooth_frames`] when an
+    /// edit starts one); `Compressor::glide` steps it once per quantum. The glide's target is the
+    /// compressor slot's own `p` (the edit's parameters), clamped ([`FxChain::compressor_target`]),
+    /// so a bus grows by this counter only.
+    pub compressor_glide: u32,
 }
 
 impl Default for FxChain {
@@ -105,11 +118,20 @@ impl FxChain {
         (i < self.used() && self.slots[i].kind == kind::COMPRESSOR).then_some(i)
     }
 
+    /// What the compressor at slot `i` glides to: the slot's parameters, clamped as
+    /// `Compressor::configure` clamps them.
+    fn compressor_target(&self, i: usize) -> [f32; 5] {
+        let p = self.slots[i].p;
+        Compressor::clamp([p[0], p[1], p[2], p[3], p[4]])
+    }
+
     /// Stores the effects `(type, p)` in order (BUS_CONFIG). Returns how many were dropped: past
     /// [`MAX_EFFECTS`], a second compressor, or of an unknown type (those two keep their place as
     /// a [`kind::NONE`] slot, so the order of the others is kept).
     pub fn configure<I: IntoIterator<Item = (u32, [f32; 7])>>(&mut self, effects: I, sample_rate: f32) -> u32 {
         let old_compressor = self.compressor_in_use();
+        // Where a glide in flight is heading, read before the slots are overwritten.
+        let old_target = old_compressor.map(|i| self.compressor_target(i));
         let mut compressor = None;
         let mut n = 0usize;
         let mut dropped = 0u32;
@@ -147,8 +169,23 @@ impl FxChain {
                     // stays in the same slot.
                     if old_compressor != Some(n) {
                         self.compressor = Compressor::default();
+                        self.compressor_glide = 0;
                     }
-                    self.compressor.configure(sample_rate, p[0], p[1], p[2], p[3], p[4]);
+                    // B4 (R7): a compressor that is running (it has compressed a quantum since it
+                    // was built or reset, at this rate) glides to changed parameters over
+                    // `COMPRESSOR_SMOOTH_MS`; one that hasn't run takes them at once (init, a new
+                    // or moved slot, the replay after RESET). Unchanged parameters (a resent tree)
+                    // touch nothing: a glide in flight carries on, a settled compressor stays
+                    // bit-identical.
+                    let target = Compressor::clamp([p[0], p[1], p[2], p[3], p[4]]);
+                    let running = self.compressor.constructed != 0 && self.compressor.sample_rate == sample_rate;
+                    if !running {
+                        self.compressor.configure(sample_rate, p[0], p[1], p[2], p[3], p[4]);
+                        self.compressor_glide = 0;
+                    } else if target != if self.compressor_glide != 0 { old_target.unwrap_or(target) } else { self.compressor.params } {
+                        // A new glide, or a retarget mid-glide: from where the parameters are now.
+                        self.compressor_glide = smooth_frames(sample_rate);
+                    }
                     compressor = Some(n);
                 }
                 kind::REVERB_SEND => slot.p[0] = p[0].clamp(0.0, 1.0),
@@ -172,7 +209,14 @@ impl FxChain {
             match slot.kind {
                 kind::LOWPASS | kind::HIGHPASS => slot.biquad.process(left, right),
                 // `configure` keeps at most one compressor slot: the one `compressor` belongs to.
-                kind::COMPRESSOR => self.compressor.process(left, right),
+                kind::COMPRESSOR => {
+                    if self.compressor_glide != 0 {
+                        let p = slot.p;
+                        let target = Compressor::clamp([p[0], p[1], p[2], p[3], p[4]]);
+                        self.compressor.glide(&target, &mut self.compressor_glide, left.len().min(right.len()) as u32);
+                    }
+                    self.compressor.process(left, right)
+                }
                 kind::REVERB_SEND => {
                     let send = slot.p[0];
                     if send > 0.0 {
@@ -204,7 +248,12 @@ impl FxChain {
                 slot.biquad.reset();
             }
         }
-        if self.compressor_in_use().is_some() {
+        if let Some(i) = self.compressor_in_use() {
+            // A glide in flight lands: the compressor starts again on the edit's parameters.
+            if self.compressor_glide != 0 {
+                self.compressor.params = self.compressor_target(i);
+                self.compressor_glide = 0;
+            }
             self.compressor.reset();
         }
     }
@@ -212,6 +261,17 @@ impl FxChain {
     /// The kinds in use, in order (tests and the debug panel).
     pub fn kinds(&self) -> impl Iterator<Item = u32> + '_ {
         self.slots[..self.used()].iter().map(|s| s.kind)
+    }
+}
+
+/// The compressor's parameter glide in frames: round(`COMPRESSOR_SMOOTH_MS` × rate / 1000), 960 at
+/// 48 kHz (R7). At least one frame, so a glide always ends.
+pub fn smooth_frames(sample_rate: f32) -> u32 {
+    let frames = libm::roundf(wire::COMPRESSOR_SMOOTH_MS as f32 * sample_rate / 1000.0);
+    if frames >= 1.0 {
+        frames as u32
+    } else {
+        1
     }
 }
 
@@ -223,6 +283,13 @@ pub fn lowpass_on(lp_hz: f32) -> bool {
 
 /// The snapshot low-pass on one block: configures `filter` for `lp_hz` (Q [`SNAPSHOT_Q_DB`]) and
 /// filters in place, or does nothing when the cut-off is off ([`lowpass_on`]).
+///
+/// **The snapshot blend (B4).** `bus.rs` calls this once per quantum with the `snapshot` lane's
+/// low-pass ramp sampled at the quantum's start, so a snapshot transition's coefficients are
+/// recomputed per quantum along the ramp and the filter history carries over (S4's "step per
+/// quantum" scheme: click-free, its glitch 1.19× its own per-sample version, against up to 3.5× for
+/// an unblended switch; +370 wasm instructions per filter per moving quantum). A settled cut-off
+/// recomputes nothing (`Biquad::set_lowpass` keeps the coefficients of an unchanged call).
 pub fn snapshot_lowpass(filter: &mut Biquad, sample_rate: f32, lp_hz: f32, left: &mut [f32], right: &mut [f32]) {
     if lowpass_on(lp_hz) {
         filter.set_lowpass(sample_rate, lp_hz, SNAPSHOT_Q_DB);
@@ -340,6 +407,62 @@ mod tests {
             alone.process(&mut el, &mut er);
             assert_eq!((l, r), (el, er), "quantum {q}");
         }
+    }
+
+    fn comp(threshold: f32) -> (u32, [f32; 7]) {
+        (kind::COMPRESSOR, [threshold, 6.0, 4.0, 0.003, 0.25, 0.0, 0.0])
+    }
+
+    fn run(c: &mut FxChain, quanta: usize) {
+        for _ in 0..quanta {
+            let (mut l, mut r) = ([0.5f32; 128], [0.5f32; 128]);
+            let (mut rl, mut rr) = ([0.0f32; 128], [0.0f32; 128]);
+            c.process(&mut l, &mut r, &mut rl, &mut rr);
+        }
+    }
+
+    #[test]
+    fn a_running_compressor_glides_to_an_edit_and_an_idle_one_takes_it_at_once() {
+        assert_eq!((smooth_frames(48_000.0), smooth_frames(44_100.0), smooth_frames(0.0)), (960, 882, 1));
+        let mut c = FxChain::default();
+        c.configure([comp(-24.0)], 48_000.0);
+        c.configure([comp(-30.0)], 48_000.0);
+        assert_eq!((c.compressor.params[0], c.compressor_glide), (-30.0, 0), "not run yet: at once");
+        run(&mut c, 1);
+        c.configure([comp(-40.0)], 48_000.0);
+        assert_eq!((c.compressor.params[0], c.compressor_glide), (-30.0, 960), "running: a glide starts, nothing moves yet");
+        run(&mut c, 1);
+        assert!((c.compressor.params[0] - (-30.0 - 10.0 * 128.0 / 960.0)).abs() < 1e-4, "{}", c.compressor.params[0]);
+        c.configure([comp(-40.0)], 48_000.0);
+        assert_eq!(c.compressor_glide, 960 - 128, "an unchanged resend keeps the glide in flight");
+        run(&mut c, 7);
+        assert_eq!((c.compressor.params[0], c.compressor_glide), (-40.0, 0), "landed on the target in 8 quanta");
+        c.configure([comp(-40.0)], 48_000.0);
+        assert_eq!(c.compressor_glide, 0, "unchanged: no glide");
+        c.configure([comp(-20.0)], 44_100.0);
+        assert_eq!((c.compressor.params[0], c.compressor_glide), (-20.0, 0), "a rate change takes the edit at once");
+    }
+
+    #[test]
+    fn a_retarget_glides_on_from_where_it_is_and_reset_lands_the_glide() {
+        let mut c = FxChain::default();
+        c.configure([comp(-24.0)], 48_000.0);
+        run(&mut c, 1);
+        c.configure([comp(-48.0)], 48_000.0);
+        run(&mut c, 3);
+        let mid = c.compressor.params[0];
+        assert!((mid - (-24.0 - 24.0 * 384.0 / 960.0)).abs() < 1e-4, "{mid}");
+        c.configure([comp(-12.0)], 48_000.0);
+        assert_eq!((c.compressor.params[0], c.compressor_glide), (mid, 960), "retargeted from where it is, over the whole glide");
+        run(&mut c, 1);
+        assert!(c.compressor.params[0] > mid);
+        c.reset();
+        assert_eq!((c.compressor.params[0], c.compressor_glide, c.compressor.constructed), (-12.0, 0, 0), "RESET lands the glide");
+        c.configure([comp(-6.0), fx(kind::LOWPASS, 900.0)], 48_000.0);
+        assert_eq!(c.compressor_glide, 0, "after RESET the compressor hasn't run: at once");
+        run(&mut c, 1);
+        c.configure([fx(kind::LOWPASS, 900.0), comp(-30.0)], 48_000.0);
+        assert_eq!((c.compressor.params[0], c.compressor_glide), (-30.0, 0), "a moved compressor starts zeroed and takes it at once");
     }
 
     #[test]
