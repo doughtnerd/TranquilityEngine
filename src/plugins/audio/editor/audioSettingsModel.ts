@@ -143,7 +143,7 @@ export function addDucking(d: SettingsDraft): SettingsDraft {
   const a = audioOf(d);
   const [target, trigger] = [a.buses.find((b) => b.name === "Music") ?? a.buses[1] ?? a.buses[0], a.buses.find((b) => b.name === "Voice") ?? a.buses[2] ?? a.buses[0]];
   if (target.name === trigger.name) return d; // needs two buses
-  return applyMixOp(d, { op: "setDucking", index: a.ducking.length, rule: { target: target.name, trigger: trigger.name, amount: 0.4, attack: 0.1, release: 0.5 }, insert: true });
+  return applyMixOp(d, { op: "setDucking", index: a.ducking.length, rule: { target: target.name, trigger: trigger.name, mode: "presence", amount: 0.4, attack: 0.1, release: 0.5 }, insert: true });
 }
 export const removeDucking = (d: SettingsDraft, index: number): SettingsDraft => applyMixOp(d, { op: "setDucking", index, rule: null });
 /** Set one field of a rule. A rule the parse would drop (a bus ducking itself, an unknown bus) is refused. */
