@@ -346,6 +346,21 @@ impl Compressor {
     /// Compresses `left` and `right` in place (equal lengths, at most one quantum): upstream's
     /// `Process` with the source and destination the same stereo bus.
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
+        self.run::<false>(left, right);
+    }
+
+    /// [`Compressor::process`] for a quantum of a parameter glide (B4: called after
+    /// [`Compressor::glide`] moved the parameters): the makeup gain moves linearly across the
+    /// block, sample by sample, from the previous quantum's curve to this one's, instead of
+    /// stepping at the block's first sample. Everything else is `process`'s arithmetic. A
+    /// compressor whose curve hasn't been computed yet (the first quantum after construction)
+    /// starts on the new makeup gain.
+    pub fn process_gliding(&mut self, left: &mut [f32], right: &mut [f32]) {
+        self.run::<true>(left, right);
+    }
+
+    /// `process`'s body; `RAMP` ramps the makeup gain across the block (`process_gliding`).
+    fn run<const RAMP: bool>(&mut self, left: &mut [f32], right: &mut [f32]) {
         if !(self.sample_rate > 0.0) {
             return;
         }
@@ -356,11 +371,19 @@ impl Compressor {
         let [db_threshold, db_knee, ratio, attack_time, release_time] = self.params;
         let sample_rate = self.sample_rate;
 
+        // The previous quantum's makeup gain, read from the curve before it is updated.
+        let previous_post_gain = if RAMP && self.curve.ratio != UNINITIALIZED { libm::powf(1.0 / self.curve.saturate(1.0, self.curve.knee), 0.6) } else { 0.0 };
+
         let k = self.curve.update(db_threshold, db_knee, ratio);
         let curve = self.curve;
 
         // Makeup gain with empirical/perceptual tuning.
         let linear_post_gain = libm::powf(1.0 / curve.saturate(1.0, k), 0.6);
+        let (post_gain_from, post_gain_step) = if RAMP && previous_post_gain != 0.0 && frames > 0 {
+            (previous_post_gain, (linear_post_gain - previous_post_gain) / frames as f32)
+        } else {
+            (linear_post_gain, 0.0)
+        };
 
         let attack_frames = 0.001f32.max(attack_time) * sample_rate;
         let release_frames = sample_rate * release_time;
@@ -479,7 +502,8 @@ impl Compressor {
 
                 // Warp the gain to smooth out sharp exponential transitions, then the makeup gain.
                 let post_warp_compressor_gain = libm::sin((FRAC_PI_2 * compressor_gain) as f64) as f32;
-                let total_gain = linear_post_gain * post_warp_compressor_gain;
+                let post_gain = if RAMP { post_gain_from + post_gain_step * (frame_index + 1) as f32 } else { linear_post_gain };
+                let total_gain = post_gain * post_warp_compressor_gain;
 
                 left[frame_index] = self.pre_delay[0][read] * total_gain;
                 right[frame_index] = self.pre_delay[1][read] * total_gain;

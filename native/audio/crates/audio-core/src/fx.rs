@@ -214,8 +214,10 @@ impl FxChain {
                         let p = slot.p;
                         let target = Compressor::clamp([p[0], p[1], p[2], p[3], p[4]]);
                         self.compressor.glide(&target, &mut self.compressor_glide, left.len().min(right.len()) as u32);
+                        self.compressor.process_gliding(left, right)
+                    } else {
+                        self.compressor.process(left, right)
                     }
-                    self.compressor.process(left, right)
                 }
                 kind::REVERB_SEND => {
                     let send = slot.p[0];
