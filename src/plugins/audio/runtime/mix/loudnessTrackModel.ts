@@ -4,9 +4,10 @@
 // for each loudnessControl EVENT; the track reads `series`, `valuesAt` and `targetMarks`.
 //
 // The numbers are the live meter's. Each bus owns a `LoudnessStats` (the shared Ld3 module, never reimplemented) and is
-// fed exactly as `runtime/mix/loudnessHub.ts` feeds its meters: a RESET flag calls `epoch()`, then `takeBlock(firstSeq, ...)`,
-// then `notePeak(truePeak)`; a STATUS with `loudShed` pauses every meter and its end resumes them marking `incomplete`
-// (the hub's ladder); a script's own pause resumes without marking. The one difference is granularity: the hub takes a
+// fed exactly as `runtime/mix/loudnessHub.ts` feeds its meters, through the same `LoudnessFeedControl` (loudnessStats.ts):
+// a RESET flag calls `epoch()` except on the meter's first take, then `takeBlock(firstSeq, ...)`, then `notePeak(truePeak)`;
+// a STATUS with `loudShed` pauses every meter but the final output's and its end resumes them marking `incomplete` (the
+// hub's ladder); a script's own pause resumes without marking. The one difference is granularity: the hub takes a
 // STATUS's sub-blocks in one `takeBlock`; here they go in one at a time (`takeBlock(firstSeq + j, e, j, 1)` after a
 // zero-count `takeBlock(firstSeq, ...)` that does the gap check), which leaves the stats in the identical state and lets
 // every 100 ms sub-block carry its own sample.
@@ -27,8 +28,8 @@
 // Marks warn and nothing more: this module holds no setter on the mixer, the buses or the target (a target is read, never
 // written), and `targetMarks` returns data.
 import type { KeyframeMetered } from "../capture/format";
-import { LOUD_FLAG_NEW_BLOCKS_MASK, LOUD_FLAG_RESET } from "../wire.generated";
-import { LoudnessStats, SUB_BLOCK_SECONDS, linearToDb, type LoudnessStatsResetWhat } from "./loudnessStats";
+import { LOUD_FLAG_NEW_BLOCKS_MASK, LOUD_FLAG_RESET, LOUD_OUTPUT_TAP } from "../wire.generated";
+import { LoudnessFeedControl, LoudnessStats, SUB_BLOCK_SECONDS, linearToDb, type LoudnessStatsResetWhat } from "./loudnessStats";
 
 /** Keyframe `metered` flag bits (format.ts `KeyframeMetered.flags`). */
 export const KF_METERED_PAUSED = 1;
@@ -158,11 +159,10 @@ export class LoudnessBusModel implements LoudnessSeries {
   readonly peak: number[] = [];
   readonly incomplete: number[] = [];
   readonly gaps: LoudnessGap[] = [];
+  /** The hub's pause bookkeeping and first-take rule (the same class the live meter uses). */
+  private readonly feedControl = new LoudnessFeedControl(this.stats);
   /** The newest keyframe reading seen (any mode). */
   private held: KeyframeMetered | null = null;
-  private scriptPaused = false;
-  private ladderPaused = false;
-  private ladderTouched = false;
   private lastPeak = Number.NEGATIVE_INFINITY;
 
   constructor(readonly slot: number, readonly mode: LoudnessModelMode = "replay") {}
@@ -172,37 +172,26 @@ export class LoudnessBusModel implements LoudnessSeries {
     return this.held;
   }
 
-  /** The hub's `Meter.syncPause`: the ladder resume marks `incomplete`, a script's own does not. */
-  private syncPause(): void {
-    const want = this.scriptPaused || this.ladderPaused;
-    if (want && !this.stats.paused) this.stats.pause();
-    else if (!want && this.stats.paused) {
-      this.stats.resume(this.ladderTouched);
-      this.ladderTouched = false;
-    }
-  }
-
-  /** The ladder's state changed (`loudShed !== 0`), as the hub's `setLadder`. */
+  /** The ladder's state changed (`loudShed !== 0`), as the hub's `setLadder`: the final output keeps metering. */
   setShed(on: boolean): void {
-    this.ladderPaused = on;
-    if (on) this.ladderTouched = true;
-    this.syncPause();
+    this.feedControl.setLadder(on, this.slot === LOUD_OUTPUT_TAP);
   }
 
   /** One `loudBuses` item and its `count` energies from `energies[offset]`, the STATUS completing at `time`. */
   take(time: number, item: LoudnessStatusItem, energies: ArrayLike<number>, offset: number, count: number): void {
     const st = this.stats;
     const first = time - Math.max(0, count - 1) * SUB_BLOCK_SECONDS;
-    if ((item.flags & LOUD_FLAG_RESET) !== 0) {
-      st.epoch();
-      this.gaps.push({ kind: "epoch", from: first, to: first, lost: 0 });
-    }
+    const restarted = this.feedControl.beginTake((item.flags & LOUD_FLAG_RESET) !== 0);
+    if (restarted) this.gaps.push({ kind: "epoch", from: first, to: first, lost: 0 });
     const lostBefore = st.lost;
     st.takeBlock(item.firstSeq, energies, offset, 0);
     const lost = st.lost - lostBefore;
     if (lost > 0) this.gaps.push({ kind: "lost", from: first - lost * SUB_BLOCK_SECONDS, to: first, lost });
     st.notePeak(item.truePeak);
     this.lastPeak = linearToDb(item.truePeak);
+    // A take with no sub-blocks that still restarted the feed (a loss: the output meters on through a ladder shed while
+    // the STATUS carries none of its sub-blocks; or a reset) changes the readings: one sample at the STATUS shows it.
+    if (count === 0 && (lost > 0 || restarted) && !st.paused) this.sample(time);
     for (let j = 0; j < count; j++) {
       st.takeBlock((item.firstSeq + j) >>> 0, energies, offset + j, 1);
       if (!st.paused) this.sample(first + j * SUB_BLOCK_SECONDS);
@@ -214,13 +203,7 @@ export class LoudnessBusModel implements LoudnessSeries {
     if (what.kind === "reset") {
       this.stats.reset(what.what ?? "all");
       if ((what.what ?? "all") !== "integrated") this.lastPeak = Number.NEGATIVE_INFINITY;
-    } else if (what.kind === "pause") {
-      this.scriptPaused = true;
-      this.syncPause();
-    } else {
-      this.scriptPaused = false;
-      this.syncPause();
-    }
+    } else this.feedControl.setScriptPaused(what.kind === "pause");
     this.sample(time);
   }
 
