@@ -111,7 +111,7 @@ test("Detach opens a panel in a window of its own that shares the editor's state
   const popup = context.waitForEvent("page");
   await page.getByRole("menu", { name: "Panel menu" }).getByRole("menuitem", { name: "Detach" }).click();
   const child = await popup;
-  await expect(child.locator(".dock-tabs .dock-tab-label")).toHaveText(["Inspector"]);
+  await expect(child.locator(".dock-tab .dock-tab-label")).toHaveText(["Inspector"]);
   await expect(tab(page, "Inspector")).toHaveCount(0);
   await expect.poll(() => child.title()).toBe("Inspector · Myco Engine");
   // Selecting a node in the main window shows it in the detached Inspector.
@@ -124,12 +124,12 @@ test("Detach opens a panel in a window of its own that shares the editor's state
   await child.getByRole("menu", { name: "Panel menu" }).getByRole("menuitem", { name: "Add Panel…" }).click();
   await child.getByRole("dialog", { name: "Add panels" }).getByRole("checkbox", { name: /^History/ }).check();
   await child.getByRole("dialog", { name: "Add panels" }).getByRole("button", { name: "Add" }).click();
-  await expect(child.locator(".dock-tabs .dock-tab-label")).toHaveText(["Inspector", "History"]);
+  await expect(child.locator(".dock-tab .dock-tab-label")).toHaveText(["Inspector", "History"]);
   // Move History back to the main window from its header menu.
   await tab(child, "History").click({ button: "right" });
   await child.getByRole("menu", { name: "Panel menu" }).getByRole("menuitem", { name: "Move to Main Window" }).click();
-  await expect(child.locator(".dock-tabs .dock-tab-label")).toHaveText(["Inspector"]);
-  await expect(tab(page, "History")).toHaveCount(1);
+  await expect(child.locator(".dock-tab .dock-tab-label")).toHaveText(["Inspector"]);
+  await expect(tab(page, "History")).toHaveCount(2); // beside the main window's own History
   // Closing the window closes the Inspector; the Window menu brings it back to the main window.
   await child.close();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("myco.editor.layout")!).windows ?? null)).toBeNull();
