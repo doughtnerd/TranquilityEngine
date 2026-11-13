@@ -117,12 +117,15 @@ fn a_sequence_late_only_at_its_quantum_is_shifted_whole_then() {
     // The shell's clock jumps: the next quantum is 1,280..1,408, and the slot (640) is late there.
     m.frame = 1_280;
     m.render();
-    // Shifted by ⌈640 / 128⌉ × 128 = 640, to 1,280: the start of this quantum, not before it.
-    assert_eq!(parents(&m)[1], 2);
+    // B1b: the dip-down (F0 = 512) still waits in the pending queue, so the whole sequence moves by
+    // ⌈(1,280 − 512) / 128⌉ × 128 = 768: the dip-down to 1,280 (this quantum's start), the slot
+    // and the dip-up to 1,408, so the slot still follows a full dip-down.
+    assert_eq!(parents(&m)[1], 0, "the slot waits for the next quantum");
     let c = status::counters(&m.core);
-    assert_eq!((c.late_commands, c.max_lateness_frames), (1, 640), "counted once, not as a late record too");
-    assert_eq!(scheduler::config_area(&m.core).inflight_end, 768 + 640, "the in-flight end moved with it");
+    assert_eq!((c.late_commands, c.max_lateness_frames), (1, 768), "counted once, not as a late record too");
+    assert_eq!(scheduler::config_area(&m.core).inflight_end, 768 + 768, "the in-flight end moved with it");
     m.render();
+    assert_eq!(parents(&m)[1], 2);
     assert_eq!(status::counters(&m.core).late_commands, 1);
 }
 
