@@ -5,7 +5,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Audio } from "../Audio";
 import { setAudioBackend } from "../backend";
-import { AudioWorldService } from "../core/service";
+import { AUDIO_SERVICE, AudioWorldService } from "../core/service";
+import { mixer } from "../../../../engine/audio/mixer";
 import type { AudioHost } from "../core/context";
 import { makeFakeBackend, type FakeBackend } from "../testing";
 import { _setFramePump, _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, captureOwners, capturePlayStopped, NOTHING_RECORDED, releaseCapture, type RecorderModule } from "./capture";
@@ -323,6 +324,44 @@ describe("the audio World service lets go of the capture with the last Runtime W
     expect(captureDebug()).toBeNull();
     play2.dispose(); // idempotent: a second dispose changes nothing
     expect(captureDebug()).toBeNull();
+  });
+
+  it("on the Babylon fallback (no host, FU3) the last Runtime World's dispose is Play stop: a take is Held once, then freed", async () => {
+    const r = rig({ babylon: true });
+    const core = { ready: false } as never; // `load` for `audio.backend: "babylon"`: no host
+    const editor = new AudioWorldService(world("editor"), core);
+    const play1 = new AudioWorldService(world("runtime"), core);
+    const play2 = new AudioWorldService(world("runtime"), core);
+    await Audio.capture.start();
+    play1.dispose();
+    expect(captureDebug()?.state).toBe("recording"); // play2 still runs
+    play2.dispose();
+    expect(captureDebug()?.state).toBe("held");
+    expect(Audio.capture.state).toBe("stopped");
+    await Audio.capture.save("kept");
+    expect(r.downloads).toHaveLength(1);
+    editor.dispose();
+    expect(captureDebug()?.state).toBe("held"); // the editor's World never ends the capture
+    // The next Play: its stop frees the kept take (Held once, as on the core).
+    const play3 = new AudioWorldService(world("runtime"), core);
+    play3.dispose();
+    expect(captureDebug()).toBeNull();
+  });
+
+  it("the service runs in a World with a view on either backend; the Babylon variant loads no host", async () => {
+    const withView = { render: {} } as never;
+    const before = mixer.audioSettings;
+    try {
+      for (const backend of ["core", "babylon"] as const) {
+        mixer.configure({ ...before, backend });
+        expect(AUDIO_SERVICE.runsIn!(withView), backend).toBe(true);
+        expect(AUDIO_SERVICE.variant!(withView), backend).toBe(backend);
+      }
+    } finally {
+      mixer.configure(before);
+    }
+    expect(AUDIO_SERVICE.runsIn!({} as never)).toBe(false);
+    expect(await AUDIO_SERVICE.load("babylon")).toEqual({ ready: false, reason: 'audio.backend is "babylon"' });
   });
 
   it("a server or editor World going alone never ends the capture", async () => {
