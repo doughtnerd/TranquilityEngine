@@ -19,8 +19,9 @@
 //   one before (the core also shifts a later sequence to the in-flight one's shifted end, so two dips never overlap).
 //   A direct `BUS_SLOT` for a slot whose structural change is still open is carried by the sequence (`directSlot` →
 //   null); one whose change is stamped and not applied yet rides it, stamped at its B with its id.
-// - **The per-voice dip.** A removed bus's voices move to its root: each fades out from F0, its `SET_PARAMS bus` lands at
-//   B and it fades back in from B (`BusIndex.moveVoices`).
+// - **The per-voice dip.** A removed bus's voices move to its root: the bus's dip is their fade-out; at B (dip at 0) each
+//   voice's fade drops to 0 and its `SET_PARAMS bus` lands, then it fades back in over `DIP_FRAMES` from B
+//   (`BusIndex.moveVoices`). Those records carry no sequence tag: they ride the planned frames.
 // - **Tombstones (R9).** A tombstone may recycle `TOMBSTONE_TAIL_FRAMES` after its sequence's end, with no voice on it
 //   (`recycle`, from `apply`, a live add and `update`).
 // - **Rebuild (R12).** The table and the mixer already hold the end state, so the replay sends it (BUS_CONFIG with
@@ -54,7 +55,7 @@ const STALE_SECONDS = 2;
 /** What the dip needs of the core backend (closures read it lazily; `LiveMix` binds it from its own host). */
 export interface StructuralDipHost {
   mixer(): Pick<Mixer, "_applyLive" | "_setDip" | "audioSettings">;
-  buses(): Pick<BusIndex, "slotOf" | "moveBus" | "removeBus" | "settle" | "recycle" | "rootOf" | "moveVoices" | "slotConfig" | "slots" | "names">;
+  buses(): Pick<BusIndex, "slotOf" | "moveBus" | "removeBus" | "settle" | "recycle" | "rootOf" | "moveVoices" | "dipVoices" | "slotConfig" | "slots" | "names">;
   writer(): Pick<CommandWriter, "busRampFrames" | "busSlot" | "flush" | "pending" | "sampleRate">;
   /** Whether a batch may be posted now (running, not recovering, not disposed). */
   sending(): boolean;
@@ -90,8 +91,8 @@ interface OpenSequence {
   roots: Set<number>;
   tombstones: Set<number>;
   slots: Set<number>;
-  /** Root slot → the tombstones whose voices go to it. */
-  voices: Map<number, Set<number>>;
+  /** Root slot → the ids of the voices moved to it on main, written to the core at B. */
+  voices: Map<number, number[]>;
 }
 
 export class StructuralDip {
@@ -156,8 +157,6 @@ export class StructuralDip {
         }
         mixer._applyLive(op);
         const o = this.gather();
-        let to = o.voices.get(root);
-        if (!to) o.voices.set(root, (to = new Set()));
         for (const t of tombs) {
           // The mixer keeps the removed bus's state until the next configure: its dip lane holds the end state (0) the
           // replay sends; the lane writer leaves a tombstone's lanes alone, so nothing goes out for it here.
@@ -165,8 +164,12 @@ export class StructuralDip {
           o.tombstones.add(t);
           o.roots.delete(t);
           o.slots.add(t);
-          to.add(t);
         }
+        // Their voices go to the root now on main (selection and the replay see the end state); on the core at B.
+        const ids = buses.moveVoices(new Set(tombs), root);
+        const list = o.voices.get(root);
+        if (list) list.push(...ids);
+        else o.voices.set(root, ids);
         break;
       }
       case "removeEffect":
@@ -310,7 +313,7 @@ export class StructuralDip {
     if (sending) w.flush(host.firstFrame());
     // The per-voice dip, in its own post (a sequence never waits on a voice count).
     let voices = 0;
-    for (const [to, from] of o.voices) voices += buses.moveVoices(from, to, f0, b, d, rate);
+    for (const [to, ids] of o.voices) voices += buses.dipVoices(ids, to, b, d, rate);
     if (sending && voices > 0 && w.pending > 0) w.flush(host.firstFrame());
     buses.settle(tombstones, end);
     this.lastEnd = end;

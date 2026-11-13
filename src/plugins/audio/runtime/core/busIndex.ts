@@ -252,20 +252,16 @@ export class BusIndex {
   }
 
   /**
-   * The per-voice dip (§6.5): every live voice on one of `from` moves to slot `to`. Main's side at once (the table's
-   * slot and counts, the mixer's counts, presence); on the core, a voice it holds fades out from `f0` over `frames`, its
-   * `SET_PARAMS bus` lands at `b` (with its old bus at 0) and it fades back in from `b` (a stopping voice stays out).
-   * Returns the voices moved.
+   * The per-voice dip, main's side (§6.5), at the op: every live voice on one of `from` moves to slot `to` in the
+   * table (its slot and the counts), the mixer's counts and presence, so selection and new plays see the end state at
+   * once. Returns the moved voices' ids for `dipVoices`.
    */
-  moveVoices(from: ReadonlySet<number>, to: number, f0: number, b: number, frames: number, sampleRate: number): number {
+  moveVoices(from: ReadonlySet<number>, to: number): number[] {
     const host = this.host;
     const t = host.table;
-    const w = host.writer;
-    const seconds = frames / sampleRate;
-    let moved = 0;
+    const ids: number[] = [];
     for (let i = 0; i < t.capacity; i++) {
-      const state = t.state[i]!;
-      if (state === VoiceState.FREE || !from.has(t.bus[i]!)) continue;
+      if (t.state[i] === VoiceState.FREE || !from.has(t.bus[i]!)) continue;
       const old = t.bus[i]!;
       t.bus[i] = to;
       if (t.busLive[old]! > 0) t.busLive[old]!--;
@@ -274,14 +270,33 @@ export class BusIndex {
       host.mixer.voiceStarted(this.names[to] ?? "");
       host.presence.voiceStopped(old, i);
       host.presence.voiceStarted(to, i);
-      moved++;
-      if (!host.onCore(i)) continue;
-      const id = ((t.gen[i]! << 16) | i) >>> 0;
-      w.fadeShaped(id, 0, seconds, FadeLaw.Linear, 0, f0);
+      ids.push(((t.gen[i]! << 16) | i) >>> 0);
+    }
+    return ids;
+  }
+
+  /**
+   * The per-voice dip on the core: for each of `ids` still live on slot `to` and held by the core, at `b` (a quantum
+   * start where its old bus's dip is at 0, so nothing heard moves) its fade drops to 0 and its `SET_PARAMS bus` lands,
+   * then it fades back in over `frames` from `b` (a stopping voice stays out and ends). Its old bus's dip is its
+   * fade-out, so the sound never falls or rises faster than the dip ramp. Returns the voices written.
+   */
+  dipVoices(ids: readonly number[], to: number, b: number, frames: number, sampleRate: number): number {
+    const host = this.host;
+    const t = host.table;
+    const w = host.writer;
+    const seconds = frames / sampleRate;
+    let n = 0;
+    for (const id of ids) {
+      const i = id & 0xffff;
+      const state = t.state[i]!;
+      if (state === VoiceState.FREE || t.gen[i] !== id >>> 16 || t.bus[i] !== to || !host.onCore(i)) continue;
+      w.fadeShaped(id, 0, 0, FadeLaw.Linear, 0, b);
       w.setParams(id, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, to, 0, b);
       if (state !== VoiceState.STOPPING && state !== VoiceState.ENDING) w.fadeShaped(id, t.fadeGain[i]!, seconds, FadeLaw.Linear, 0, b);
+      n++;
     }
-    return moved;
+    return n;
   }
 
   /** Each slot's `maxVoices` (0 unlimited) from the mixer's settings, into the voice table (the steal limit is main's). */
