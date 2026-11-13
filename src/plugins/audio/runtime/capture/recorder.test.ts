@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { CoreLink, type LinkPort } from "../core/context";
 import { Kind, type StatusBlock } from "../wire.generated";
-import { CAPTURE_RECORD_HEAD_BYTES, EpochReason, GapReason, RecordType, decodeEpoch, decodeGap, decodeKeyframe, type KeyframePayload } from "./format";
+import { CAPTURE_RECORD_HEAD_BYTES, EpochReason, GapReason, RecordType, decodeEpoch, decodeGap, decodeKeyframe, type GapPayload, type KeyframePayload, type MarkerPayload } from "./format";
 import { decodeRecordAt, openLiveCapture, type CaptureContents } from "./reader";
 import { Recorder, createRecorder, recorderModule, type EpochContext, type RecorderOptions } from "./recorder";
 import { KEYFRAME_INDEX_SLOTS, RING_MIN_BYTES, RING_PRESET_BYTES, RecorderRing, ringBytesFor, type RingPreset } from "./ring";
@@ -204,9 +204,9 @@ describe("EPOCH, GAP, MARKER (§5.4, §3.5)", () => {
     const all = decode(r.ring.copyRecords(0).bytes);
     const mi = types(all).indexOf(RecordType.MARKER);
     const m = decodeRecordAt(all, mi);
-    expect(m.type === RecordType.MARKER && m.payload.text.length).toBe(120);
+    expect((m.payload as MarkerPayload).text.length).toBe(120);
     const g = decodeRecordAt(all, types(all).indexOf(RecordType.GAP));
-    expect(g.type === RecordType.GAP && g.payload.reason).toBe(GapReason.held);
+    expect((g.payload as GapPayload).reason).toBe(GapReason.held);
     const take = decode(r.takeSpan().bytes);
     expect(types(take)).toEqual([RecordType.KEYFRAME, RecordType.STATUS]);
     expect(r.truncated).toBe(false);
