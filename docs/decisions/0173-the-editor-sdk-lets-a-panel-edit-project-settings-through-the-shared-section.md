@@ -61,6 +61,13 @@ Nothing.
 
 - Whether `edit` should take a draft transform `(d) => next` instead of a whole draft, to avoid lost updates if two panels edit at once. The Mixer reads `draft()` and commits at once, so the whole-draft form is enough today.
 
+## Notes from building (2026-11-13, task G8b)
+
+- `draft()` returns a deep copy, as written. The audio op log therefore can't find the ops the Mixer recorded on the draft it committed and derives them by diffing before and after (`diffOps`); for a fader drag the logged ops are the same. Kept as is: a read-only live draft would let a plugin hold a reference across edits.
+- The surface has no step names, so a Mixer step shows no label in Edit > Undo. A `label` on `canUndo`/`canRedo` (or an `undoLabel()`) can be added later without breaking callers.
+- With no project open, `draft()` is `{}` and `edit`/`undo`/`redo` do nothing; a read-only project ignores edits. `version` bumps only when the draft or the section's own version changes.
+- `projectSettingsInstance.ts` loads `session.ts` on demand (a static import made a cycle: `session.ts` → plugins → SDK → the instance).
+
 ## References
 
 - `src/editor/ui/ProjectSettingsPanel.tsx:60`, `src/editor/projectSettingsSection.ts`, `src/editor/projectSection.ts`, `src/editor/sdk/project.ts`, `src/editor/sdk/contributions.ts:158`
