@@ -16,6 +16,7 @@ The coordinator's log of each wave review ([waves plan, "Wave reviews"](../../pl
 
 | # | Decision | Why | Revert |
 |---|---|---|---|
+| D3 | **Proposal, not yet done:** raise `MIXER_LIMIT` 360 → 400 KB before Ld1/Ld2 (M5b). After W2 the mixer is **341,168 B (95% of 360 KB)**: K1 +4 KB, B2's configuration queue and slot code, B1a's lanes and Cp1's counters ≈ +17 KB together, above the design's whole-M5 projection of +27–31 KB with loudness (≈ 21 KB) still to come, so M5 will land near 365–370 KB (est.). A tripwire, raised with this reason; nothing traded | the owner's rule: size gates are tripwires (CLAUDE.md); the overrun against the design's estimate is logged here for the M5 retrospective | keep 360 KB |
 | D2 | K1: a bus with two or more reverb-send slots sums them in the send scratch before the convolver input (`rev + (a + b)` instead of `(rev + a) + b`): a possible last-bit difference no existing golden covers; one send stays bit-identical | the post-fader scratch the design asks for (R11) | sum each send straight into the convolver input in `sends::feed` |
 | D1 | `MIXER_LIMIT` raised 320 → 360 KB in W0 | the design projects ≈ 347–351 KB (R25); only ≈ 7.9 KB were left and `build.mjs` exits on the gate, so a task's own build would fail; a tripwire, raised with a reason (CLAUDE.md) | `MIXER_LIMIT = 320 * 1024` in `native/audio/build.mjs` |
 
