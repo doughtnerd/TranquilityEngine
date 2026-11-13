@@ -60,8 +60,9 @@ fn the_duck_lane_is_at_identity_and_skipped() {
 }
 
 #[test]
-fn a_send_adds_its_scratch_unscaled_whatever_the_gain_and_clears_it() {
-    for gain in [Gain::Unity, Gain::Scalar(0.25), Gain::Curve] {
+fn a_send_at_unity_adds_its_scratch_unscaled_and_clears_it() {
+    // Rv1 (O1, post-fader) scales the other gains: `sends_post_fader.rs`.
+    for gain in [Gain::Unity] {
         let x: Vec<f32> = (0..QUANTUM).map(|i| (i as f32 * 0.37).sin() * 0.3).collect();
         let y: Vec<f32> = (0..QUANTUM).map(|i| (i as f32 * 0.11).cos() * 0.2).collect();
         // Today: `rev += send * signal` straight into the convolver input.
