@@ -17,14 +17,18 @@
 //! - Never shed by the ladder (R21).
 //!
 //! **Who fills what.** K1 (W1): the hooks below, identity bodies, called from `bus.rs` and
-//! `scheduler.rs`. B3 (W3): the rule table ([`on_rules`], validation, the level edges
-//! `bus_order::compute` reads). Dp1 (W4): presence ([`on_presence`], [`gain`], [`status`]'s
+//! `scheduler.rs`. B3 (W3): the rule table ([`on_rules`]: `DuckArea::rules`, `rule_count`,
+//! `level_count`, followers carried by key, `detectors[k]` for the k-th level rule), the core's
+//! check ([`validate`]: [`FLAG_INERT`]), the late mark ([`FLAG_LATE`]) and the order re-run
+//! (`bus_order::rerun`, which reads the level edges). Dp1 and Sc1 find a target's rules with
+//! [`DuckArea::rules_for`]. Dp1 (W4): presence ([`on_presence`], [`gain`], [`status`]'s
 //! `busDuck` section). Sc1 (W6): level mode ([`detect`], `audio_dsp::sidechain`).
 //!
 //! Nothing here allocates; [`detect`] and [`gain`] run inside `process`.
 
 use audio_wire::generated as wire;
 
+use crate::bus::BusSlot;
 use crate::core::Core;
 use crate::counters::MixSections;
 use crate::QUANTUM;
@@ -39,12 +43,62 @@ pub const MAX_LEVEL: usize = wire::MAX_LEVEL_RULES as usize;
 pub struct Rule {
     pub target: u16,
     pub trigger: u16,
-    /// The wire's `DUCK_FLAG_*` bits; B3 may add core-only bits above them (inert, late).
+    /// The wire's `DUCK_FLAG_*` bits; plus the core-only [`FLAG_INERT`] and [`FLAG_LATE`] (B3).
     pub flags: u32,
     pub threshold_db: f32,
     pub amount: f32,
     pub attack: f32,
     pub release: f32,
+}
+
+/// Core-only `Rule::flags` bit (above the wire's): the core's check made the rule inert (a
+/// tombstone or a bus past the configured count named, the trigger the target itself or one of
+/// its ancestors). Re-evaluated at every order re-run ([`validate`]); an inert rule ducks nothing
+/// and adds no edge.
+pub const FLAG_INERT: u32 = 1 << 31;
+/// Core-only `Rule::flags` bit: a level rule whose trigger → target edge the order dropped to break
+/// a cycle (the closing edge in rule order): its detector reads the trigger's previous quantum
+/// and `sidechainLate` counts each such quantum (Sc1). Set by `bus_order::rerun`.
+pub const FLAG_LATE: u32 = 1 << 30;
+/// The wire's flag bits the core keeps (`DUCK_FLAG_LEVEL`, `DUCK_FLAG_RMS`); others are cleared.
+const WIRE_FLAGS: u32 = wire::DUCK_FLAG_LEVEL | wire::DUCK_FLAG_RMS;
+
+impl Rule {
+    /// A level rule (`DUCK_FLAG_LEVEL`); otherwise a presence rule.
+    #[inline]
+    pub fn is_level(&self) -> bool {
+        self.flags & wire::DUCK_FLAG_LEVEL != 0
+    }
+    /// An RMS detector (`DUCK_FLAG_RMS`; level rules only), else peak.
+    #[inline]
+    pub fn is_rms(&self) -> bool {
+        self.flags & wire::DUCK_FLAG_RMS != 0
+    }
+    /// Made inert by the core's check ([`FLAG_INERT`]).
+    #[inline]
+    pub fn is_inert(&self) -> bool {
+        self.flags & FLAG_INERT != 0
+    }
+    /// Reads its trigger a quantum late ([`FLAG_LATE`]).
+    #[inline]
+    pub fn is_late(&self) -> bool {
+        self.flags & FLAG_LATE != 0
+    }
+    /// Sets or clears [`FLAG_INERT`].
+    #[inline]
+    pub fn set_inert(&mut self, on: bool) {
+        self.flags = if on { self.flags | FLAG_INERT } else { self.flags & !FLAG_INERT };
+    }
+    /// Sets or clears [`FLAG_LATE`].
+    #[inline]
+    pub fn set_late(&mut self, on: bool) {
+        self.flags = if on { self.flags | FLAG_LATE } else { self.flags & !FLAG_LATE };
+    }
+    /// The same rule for a follower's purposes: target, trigger and mode.
+    #[inline]
+    fn same_key(&self, o: &Rule) -> bool {
+        self.target == o.target && self.trigger == o.trigger && self.is_level() == o.is_level()
+    }
 }
 
 /// One rule's gain follower (Dp1, Sc1). All-zero valid (B3/Dp1 start it at 1).
@@ -109,6 +163,62 @@ pub fn area(region: &mut [u8]) -> Option<&mut DuckArea> {
     Some(unsafe { &mut *(region.as_mut_ptr() as *mut DuckArea) })
 }
 
+impl DuckArea {
+    /// The rules in use (`rules[..rule_count]`), inert ones included (check `Rule::is_inert`).
+    #[inline]
+    pub fn rules(&self) -> &[Rule] {
+        &self.rules[..(self.rule_count as usize).min(MAX_RULES)]
+    }
+
+    /// The live (not inert) rules that duck bus `target`, with their index into `rules` (and so
+    /// into `followers`). Dp1 and Sc1 take the min of their gains.
+    #[inline]
+    pub fn rules_for(&self, target: usize) -> impl Iterator<Item = (usize, &Rule)> {
+        self.rules().iter().enumerate().filter(move |(_, r)| !r.is_inert() && r.target as usize == target)
+    }
+
+    /// `true` when some live rule ducks bus `target`.
+    #[inline]
+    pub fn is_target(&self, target: usize) -> bool {
+        self.rules_for(target).next().is_some()
+    }
+}
+
+/// The core's check (API §4.2): marks each rule of `rules` inert ([`FLAG_INERT`]) or live against
+/// the configured tree `slots`, and returns the inert count. A rule is inert when its target or
+/// trigger is past the configured buses or a **tombstone**, or its trigger is the target itself
+/// or one of the target's ancestors (for both modes; R5's wider cycle check is main's validation,
+/// and a cycle among level rules that still reaches the core is `bus_order`'s dropped edge).
+///
+/// A tombstone is a silent root (R9, no wire sentinel), so the core reads every root but the
+/// first (lowest-index) one, which is the master, as a tombstone. Nothing allocates.
+pub fn validate(rules: &mut [Rule], slots: &[BusSlot]) -> usize {
+    let n = slots.len();
+    let first_root = slots.iter().position(|s| s.parent == crate::bus::ROOT);
+    let tombstone = |b: usize| slots[b].parent == crate::bus::ROOT && Some(b) != first_root;
+    let ancestor = |a: usize, b: usize| {
+        // Is `a` an ancestor of `b`? The walk is bounded by n (the tree is repaired; be safe).
+        let mut x = slots[b].parent;
+        let mut steps = 0;
+        while x != crate::bus::ROOT && (x as usize) < n && steps <= n {
+            if x as usize == a {
+                return true;
+            }
+            x = slots[x as usize].parent;
+            steps += 1;
+        }
+        false
+    };
+    let mut inert = 0;
+    for r in rules.iter_mut() {
+        let (t, g) = (r.trigger as usize, r.target as usize);
+        let bad = t >= n || g >= n || t == g || tombstone(t) || tombstone(g) || ancestor(t, g);
+        r.set_inert(bad);
+        inert += bad as usize;
+    }
+    inert
+}
+
 /// The pre-fader tap (ARCH §4.6, record change 25): bus `bus`'s quantum `l`, `r` after its
 /// effects and snapshot low-pass, before every lane (so monitoring never changes a duck). Called
 /// by `bus::mixdown` for every bus in mix order, so a level rule's trigger is detected before its
@@ -148,11 +258,70 @@ pub fn rules_is_well_formed(msg: &[u8], off: usize, len: usize) -> bool {
     n.checked_mul(wire::BusDuckRules::FIXED_END).is_some_and(|bytes| wire::BusDuck::FIXED_END + bytes <= len)
 }
 
-/// `BUS_DUCK` (0x19, API §4.2): replaces the rule table (asap). Recomputes the bus order
-/// (`bus_order::compute`, level edges only). K1: a stub that ignores the record and counts
-/// nothing. B3: stores and validates the rules (inert rules, the 32 / 8 limits) and re-runs the
-/// order; Dp1 and Sc1 read them.
-pub fn on_rules(_core: &mut Core, _msg: &[u8], _off: usize) {}
+/// `BUS_DUCK` (0x19, API §4.2): replaces the rule table (asap) and re-runs the bus order
+/// (`bus_order::rerun`: the core's check, then Kahn with the level edges).
+/// - **Limits:** rules are kept in record order up to `MAX_DUCK_RULES` (32); a level rule past the
+///   eighth (`MAX_LEVEL_RULES`) is dropped, and so is every rule past 32; the level
+///   `duckRulesDropped` counts them. Flags keep the wire's `level` and `rms` bits only.
+/// - **Followers and detectors:** a kept rule with the target, trigger and mode of a rule in the
+///   previous table keeps that rule's follower (and detector, for a level rule), so an edit of
+///   `amount` or the times doesn't jump the gain; a new rule starts at gain 1, goal 1 (Dp1 sets
+///   its coefficients). `detectors[k]` serves the `k`-th level rule (`Detector::rule`).
+/// - Inert rules (`FLAG_INERT`) and late ones (`FLAG_LATE`) are marked by the re-run.
+///
+/// The record is well formed (`rules_is_well_formed`). Nothing allocates.
+pub fn on_rules(core: &mut Core, msg: &[u8], off: usize) {
+    let wanted = crate::wire_read::u32_at(msg, off + 12) as usize;
+    let Some(d) = area(&mut core.regions_mut().duck[..]) else { return };
+    let old = *d;
+    let old_rules = old.rules();
+    let mut taken = [false; MAX_RULES];
+    let (mut kept, mut levels, mut dropped) = (0usize, 0usize, 0usize);
+    for i in 0..wanted {
+        let at = off + wire::BusDuck::FIXED_END + i * wire::BusDuckRules::FIXED_END;
+        let rule = Rule {
+            target: crate::wire_read::u16_at(msg, at),
+            trigger: crate::wire_read::u16_at(msg, at + 2),
+            flags: crate::wire_read::u32_at(msg, at + 4) & WIRE_FLAGS,
+            threshold_db: f32::from_bits(crate::wire_read::u32_at(msg, at + 8)),
+            amount: f32::from_bits(crate::wire_read::u32_at(msg, at + 12)),
+            attack: f32::from_bits(crate::wire_read::u32_at(msg, at + 16)),
+            release: f32::from_bits(crate::wire_read::u32_at(msg, at + 20)),
+        };
+        if kept == MAX_RULES || (rule.is_level() && levels == MAX_LEVEL) {
+            dropped += 1;
+            continue;
+        }
+        let prev = old_rules.iter().enumerate().position(|(j, o)| !taken[j] && o.same_key(&rule));
+        d.rules[kept] = rule;
+        d.followers[kept] = match prev {
+            Some(j) => {
+                taken[j] = true;
+                old.followers[j]
+            }
+            None => Follower { gain: 1.0, goal: 1.0, ..Follower::default() },
+        };
+        if rule.is_level() {
+            let det = prev.and_then(|j| old.detectors.iter().find(|x| x.rule as usize == j && old_rules[j].is_level()).copied());
+            d.detectors[levels] = Detector { rule: kept as u16, ..det.unwrap_or_default() };
+            levels += 1;
+        }
+        kept += 1;
+    }
+    for r in &mut d.rules[kept..] {
+        *r = Rule::default();
+    }
+    for f in &mut d.followers[kept..] {
+        *f = Follower::default();
+    }
+    for x in &mut d.detectors[levels..] {
+        *x = Detector::default();
+    }
+    d.rule_count = kept as u32;
+    d.level_count = levels as u32;
+    crate::bus_order::rerun(core);
+    crate::status::counters_mut(core).mix.duck_rules_dropped = dropped.min(u16::MAX as usize) as u16;
+}
 
 /// `BUS_PRESENCE` (0x1A, 16 B, API §4.2): `u32 mask`, one bit per trigger slot with a voice,
 /// applying at the start of the quantum holding its frame (`at`: `None` asap, `Some(frame)`

@@ -106,10 +106,11 @@ pub fn on_slot(core: &mut Core, msg: &[u8], off: usize, _at: Option<u64>) {
     let (dropped, _) = apply(&mut v.slots[slot], fresh, parent, effects, sample_rate);
     let count = if added { count + 1 } else { count };
     attach(&mut v.slots[..count], slot);
-    crate::bus_order::compute(&v.slots[..count], &mut v.area.order[..count]);
     v.area.count = count as u32;
     v.area.has_reverb = v.slots[..count].iter().any(|s| s.fx.has_reverb_send()) as u32;
     v.area.dropped = v.area.dropped.wrapping_add(dropped + (n - kept) as u32);
+    // B3: the order with the rule table's level edges, the rules re-checked against the new tree.
+    crate::bus_order::rerun(core);
     if fresh {
         if let Some(e) = crate::lanes::entry(&mut core.regions_mut().lanes[..], slot) {
             // Unity lanes, as `lanes::init` sets them.
