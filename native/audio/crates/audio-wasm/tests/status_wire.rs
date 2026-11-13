@@ -117,8 +117,8 @@ fn full_sections_read_back_in_order() {
     }
     let mut out = vec![0u8; BUFFER_BYTES];
     let n = write(&c, 0, &mut out);
-    assert_eq!(n, 16_192, "api-and-models §4.4's worst case");
-    assert_eq!(n as u32, audio_wire::generated::STATUS_WORST_CASE_BYTES);
+    // M4 worst case 16,192 B with the 176-B header; the 256-B header (ADR 0171) adds 80 B. The 17,824 B case is K1's (k1_hooks.rs).
+    assert_eq!(n, 16_192 - 176 + 256, "api-and-models §4.4 worst case under the 256-B header");
     let (s, _) = StatusBlock::read(&out, 0).unwrap();
     assert_eq!(s.music_rings.len(), MUSIC_RINGS_CAP);
     assert_eq!(s.group_starts.len(), GROUP_STARTS_CAP);
