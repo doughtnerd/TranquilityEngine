@@ -329,6 +329,7 @@ pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
     v.area.count = count as u32;
     v.area.has_reverb = has_reverb as u32;
     v.area.dropped = v.area.dropped.wrapping_add(dropped);
+    crate::bus_order::rerun(core);
     let c = status::counters_mut(core);
     c.set_bus_count(count);
     for b in count..crate::counters::PEAKS_CAP {

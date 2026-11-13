@@ -192,7 +192,6 @@ fn a_bus_slot_reparent_reruns_the_order_and_the_check() {
 }
 
 #[test]
-#[ignore = "needs the coordinator's bus.rs line: bus::configure calls bus_order::rerun"]
 fn bus_config_reruns_the_order_and_the_check() {
     let mut m = rig();
     m.submit(&[duck_rec(&[rule(4, 1, LEVEL)])]);
