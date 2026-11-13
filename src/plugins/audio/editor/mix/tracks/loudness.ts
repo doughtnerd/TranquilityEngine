@@ -3,10 +3,10 @@
 // with the shared `LoudnessStats`) and fetched through `loudnessSource.ts`; this module only shapes them for
 // `drawTimeline.ts`:
 //
-//   - one track, `loudness`, with M (momentary), S (short-term) and I (integrated) lines for every bus the capture meters
-//     (the final output included), the target's integrated level as a line (`warning`), and a tick at the start of each
-//     over/under mark (`danger`). The marks are the model's (`LoudnessTrackModel.targetMarks`): they warn, nothing here or
-//     in the Worker adjusts a bus, a fader or the target.
+//   - `loudness`, a line track with M (momentary), S (short-term) and I (integrated) for every bus the capture meters (the
+//     final output included) and the target's integrated level as a line (`warning`); and `loudness.marks`, a ticks track
+//     with a tick (`danger`) at the start of each over/under mark. The marks are the model's
+//     (`LoudnessTrackModel.targetMarks`): they warn, nothing here or in the Worker adjusts a bus, a fader or the target.
 //   - the canvas scales a line from 0, and LUFS is negative, so a line is drawn as `LUFS - LOUDNESS_PLOT_FLOOR` (0 at -70 LUFS, the
 //     meter's absolute gate, to `LOUDNESS_PLOT_RANGE` at 0 LUFS). An undefined reading (`-Infinity`) is left out, so a gap is a
 //     gap and not a floor, as the CPU line does.
@@ -15,6 +15,7 @@
 // The panel gives the factory the target in force (`audio.loudnessTargets` through `Audio.loudnessTarget`); without one the
 // track has no target line and no marks.
 import { LOUD_OUTPUT_TAP } from "../../../runtime/wire.generated";
+import { SUB_BLOCK_SECONDS } from "../../../runtime/mix/loudnessStats";
 import type { CaptureLoudnessMark, CaptureLoudnessTarget, CaptureLoudnessValues } from "../../../runtime/capture/format";
 import type { LineSeries, TrackData } from "../drawTimeline";
 import { LoudnessSource, canAskLoudness, type LoudnessInfo, type LoudnessSeriesData } from "../loudnessSource";
@@ -26,6 +27,7 @@ export const LOUDNESS_PLOT_FLOOR = -70;
 /** The top of the scale in the same units (0 LUFS). */
 export const LOUDNESS_PLOT_RANGE = 70;
 export const LOUDNESS_TRACK_ID = "loudness";
+export const LOUDNESS_MARKS_TRACK_ID = "loudness.marks";
 
 /** One bus's cached series: the readings the lines and the tooltip use. */
 interface BusSeries {
@@ -44,10 +46,10 @@ export function formatBusReadout(name: string, v: CaptureLoudnessValues): string
   return `${name}: M ${formatLevel(v.momentary)}  S ${formatLevel(v.shortTerm)}  I ${formatLevel(v.integrated)} LUFS  LRA ${formatLevel(v.lra)} LU  TP ${formatLevel(v.truePeak)} dBTP${v.incomplete ? "  (incomplete)" : ""}`;
 }
 
-/** The marks in force at `t` as words. */
+/** The marks in force at `t` as words (a run's last sample holds for one more sub-block). */
 export function formatMarks(marks: readonly CaptureLoudnessMark[], t: number, name: (slot: number) => string): string[] {
   const out: string[] = [];
-  for (const m of marks) if (m.from <= t && t <= m.to) out.push(`${name(m.bus)}: ${m.kind} target (${m.metric === "truePeak" ? "true peak" : m.metric})`);
+  for (const m of marks) if (m.from <= t && t <= m.to + SUB_BLOCK_SECONDS) out.push(`${name(m.bus)}: ${m.kind} target (${m.metric === "truePeak" ? "true peak" : m.metric})`);
   return out;
 }
 
@@ -59,6 +61,8 @@ export interface LoudnessTrackModule extends TrackModule {
   slots(): readonly number[];
   /** The marks of the last refresh, by start time (empty without a target). */
   marks(): readonly CaptureLoudnessMark[];
+  /** The ticks track of the marks (`loudness.marks`), refreshed with this one. */
+  readonly marksTrack: TrackModule;
   /** The Worker's values at viewport time `t` for every bus (the cursor's M, S and I). */
   valuesAt(t: number): Promise<{ slot: number; values: CaptureLoudnessValues | null }[]>;
 }
@@ -95,6 +99,16 @@ class LoudnessTrack implements LoudnessTrackModule {
   private markList: CaptureLoudnessMark[] = [];
   private targetNow: CaptureLoudnessTarget | null = null;
   private drawn: TrackData | undefined;
+  private inflight: Promise<void> | null = null;
+  readonly marksTrack: TrackModule = {
+    track: { id: LOUDNESS_MARKS_TRACK_ID, label: "Loudness target", kind: "ticks", height: 20, visible: true },
+    data: () => (this.targetNow ? { ticks: Float64Array.from(this.markList.map((m) => m.from)), tickColor: "danger" } : undefined),
+    refresh: () => this.refresh(),
+    tooltipAt: (t) => {
+      const words = formatMarks(this.markList, t, (slot) => this.busName(slot));
+      return words.length > 0 ? words.join("\n") : null;
+    },
+  };
 
   constructor(private readonly ctx: TrackContext, private readonly client: LoudnessSource | null, private readonly options: LoudnessTrackOptions) {}
 
@@ -118,7 +132,12 @@ class LoudnessTrack implements LoudnessTrackModule {
     return this.client ? this.client.valuesAt(t) : Promise.resolve([]);
   }
 
-  async refresh(): Promise<void> {
+  /** One read at a time: the two tracks' refreshes in the same turn share it. */
+  refresh(): Promise<void> {
+    return (this.inflight ??= this.read().finally(() => { this.inflight = null; }));
+  }
+
+  private async read(): Promise<void> {
     const client = this.client;
     if (!client) return;
     const info = await client.info();
@@ -154,8 +173,7 @@ class LoudnessTrack implements LoudnessTrackModule {
       const end = Math.max(this.ctx.source.duration, 0);
       lines.push({ times: [0, end], values: [target.integrated - LOUDNESS_PLOT_FLOOR, target.integrated - LOUDNESS_PLOT_FLOOR], color: "warning", yMax: LOUDNESS_PLOT_RANGE });
     }
-    const ticks = Float64Array.from(this.markList.map((m) => m.from));
-    return { lines, ticks, tickColor: "danger" };
+    return { lines };
   }
 
   data(): TrackData | undefined {
@@ -186,7 +204,10 @@ class LoudnessTrack implements LoudnessTrackModule {
 
 /** The factory with the panel's target; `loudnessTrackFactory` is the one without. */
 export function loudnessTracks(options: LoudnessTrackOptions = {}): TrackFactory {
-  return (ctx) => [new LoudnessTrack(ctx, (options.client ?? defaultClient)(ctx.source), options)];
+  return (ctx) => {
+    const main = new LoudnessTrack(ctx, (options.client ?? defaultClient)(ctx.source), options);
+    return [main, main.marksTrack];
+  };
 }
 
 export const loudnessTrackFactory: TrackFactory = loudnessTracks();
