@@ -8,7 +8,7 @@
 // (`readStatus`, which `CoreLink` runs before calling listeners, still builds a `StatusBlock` per block; that object
 // is the link's, not the mirror's.)
 import { MAX_BUSES } from "../../../../engine/audio/settings";
-import { MAX_BEDS, MAX_MUSIC_RINGS, MAX_ZONE_SLOTS, type StatusBlock } from "../wire.generated";
+import { LOUD_METERS, MAX_BEDS, MAX_DUCK_RULES, MAX_LOUD_ENERGIES, MAX_MUSIC_RINGS, MAX_ZONE_SLOTS, type StatusBlock } from "../wire.generated";
 import type { CoreLink } from "./context";
 import type { VoiceTable } from "./voiceTable";
 
@@ -113,6 +113,46 @@ export class StatusMirror {
   readonly musicRingStream = new Uint32Array(MAX_MUSIC_RINGS);
   readonly musicRingEpochFlags = new Uint32Array(MAX_MUSIC_RINGS);
   musicRingCount = 0;
+
+  // --- ADR 0171 (Wa2; §4.3): the M5 header fields, newest block. Cumulative values are f64 and restart at 0 with the shell (an epoch change) ---
+  /** Shell: sum of `Date.now()` deltas around `process()`, ms, since the driver started. */
+  busyMsTotal = 0;
+  /** Shell: quanta processed since the driver started. */
+  quantaTotal = 0;
+  /** Core: cumulative work units by part (voices, buses, spatial, music, loudness). */
+  wuVoices = 0;
+  wuBuses = 0;
+  wuSpatial = 0;
+  wuMusic = 0;
+  wuLoudness = 0;
+  /** Shell: the smallest non-zero `Date.now` delta seen; 0 = none yet. */
+  clockStepMs = 0;
+  /** Core: the loudness sub-block length in frames, `round(sampleRate / 10)`. */
+  loudSubBlockFrames = 0;
+  /** Shell: wall-clock steps clamped (saturating). */
+  clockSteps = 0;
+  /** Core: the ladder's loudness step in force, 0 or 1. */
+  loudShed = 0;
+  /** Core, cumulative saturating: bus records that arrived after their frame. */
+  busRecordsEarly = 0;
+  /** Core, cumulative saturating: sidechain reads that were late. */
+  sidechainLate = 0;
+
+  // --- ADR 0171 (Wa2; §4.3): the `loudBuses`, `loudEnergies` and `busDuck` sections, newest block (index = item; counts valid) ---
+  /** Per meter (the output tap is slot `LOUD_OUTPUT_TAP`): slot, flags (bits 0-5 new-block count), first sequence, true peak, gated quanta. */
+  readonly loudSlot = new Uint16Array(LOUD_METERS);
+  readonly loudFlags = new Uint16Array(LOUD_METERS);
+  readonly loudFirstSeq = new Uint32Array(LOUD_METERS);
+  readonly loudTruePeak = new Float32Array(LOUD_METERS);
+  readonly loudGatedQuanta = new Uint32Array(LOUD_METERS);
+  loudBusCount = 0;
+  /** The newest block's sub-block energies, bus-major in `loudBuses` order (the loudness hub reads them from the block itself). */
+  readonly loudEnergies = new Float32Array(MAX_LOUD_ENERGIES);
+  loudEnergyCount = 0;
+  /** Per ducked bus: slot and the duck lane's gain. */
+  readonly duckSlot = new Uint16Array(MAX_DUCK_RULES);
+  readonly duckGain = new Float32Array(MAX_DUCK_RULES);
+  duckCount = 0;
 
   // --- Peaks (§4.3 `peaks`, newest block; index = bus) ---
   readonly peakL = new Float32Array(MAX_BUSES);
@@ -229,6 +269,42 @@ export class StatusMirror {
     this.musicRingCount = nr;
     const starts = status.groupStarts;
     for (let k = 0; k < starts.length; k++) this.pushGroupStart(starts[k]!.groupId, starts[k]!.flags, starts[k]!.slipFrames, starts[k]!.startFrameHi * 4294967296 + starts[k]!.startFrameLo);
+    // ADR 0171 (Wa2): the M5 header fields and the three sections, into preallocated arrays.
+    this.busyMsTotal = status.busyMsTotal;
+    this.quantaTotal = status.quantaTotal;
+    this.wuVoices = status.wuVoices;
+    this.wuBuses = status.wuBuses;
+    this.wuSpatial = status.wuSpatial;
+    this.wuMusic = status.wuMusic;
+    this.wuLoudness = status.wuLoudness;
+    this.clockStepMs = status.clockStepMs;
+    this.loudSubBlockFrames = status.loudSubBlockFrames;
+    this.clockSteps = status.clockSteps;
+    this.loudShed = status.loudShed;
+    this.busRecordsEarly = status.busRecordsEarly;
+    this.sidechainLate = status.sidechainLate;
+    const loudBuses = status.loudBuses;
+    const nl = loudBuses.length < LOUD_METERS ? loudBuses.length : LOUD_METERS;
+    for (let k = 0; k < nl; k++) {
+      const item = loudBuses[k]!;
+      this.loudSlot[k] = item.slot;
+      this.loudFlags[k] = item.flags;
+      this.loudFirstSeq[k] = item.firstSeq;
+      this.loudTruePeak[k] = item.truePeak;
+      this.loudGatedQuanta[k] = item.gatedQuanta;
+    }
+    this.loudBusCount = nl;
+    const energies = status.loudEnergies;
+    const ne = energies.length < MAX_LOUD_ENERGIES ? energies.length : MAX_LOUD_ENERGIES;
+    for (let k = 0; k < ne; k++) this.loudEnergies[k] = energies[k]!;
+    this.loudEnergyCount = ne;
+    const busDuck = status.busDuck;
+    const nd = busDuck.length < MAX_DUCK_RULES ? busDuck.length : MAX_DUCK_RULES;
+    for (let k = 0; k < nd; k++) {
+      this.duckSlot[k] = busDuck[k]!.slot;
+      this.duckGain[k] = busDuck[k]!.gain;
+    }
+    this.duckCount = nd;
     // Header: the newest block wins.
     this.currentFrame = status.currentFrame;
     this.dateMs = status.dateMs;

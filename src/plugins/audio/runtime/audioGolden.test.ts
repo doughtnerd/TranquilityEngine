@@ -33,6 +33,10 @@ import {
   ASAP,
   BED_SLOT_NONE,
   BUS_LP_OFF_HZ,
+  BUS_RAMP_MASK_GAIN,
+  BUS_RAMP_MASK_LP_HZ,
+  LANE_RUNTIME,
+  LANE_SNAPSHOT,
   BUS_ROOT,
   EffectType,
   Kind,
@@ -59,7 +63,7 @@ import {
   writeBedConfig,
   writeBusAutomate,
   writeBusConfig,
-  writeBusMix,
+  writeBusRamp,
   writeClipBegin,
   writeClipChunk,
   writeEnvelope,
@@ -131,9 +135,15 @@ function busConfig(parents: number[], effects: Record<number, number[][]> = {}):
   return (view, off) => writeBusConfig(view, off, { voiceId: 0, frameOffset: ASAP, buses });
 }
 
-/** BUS_MIX: `[gain, lpHz]` per bus over `rampFrames`. */
-const busMix = (rampFrames: number, buses: [number, number][]): Writer => (view, off) =>
-  writeBusMix(view, off, { voiceId: 0, frameOffset: ASAP, rampFrames, buses: buses.map(([gain, lpHz]) => ({ gain, lpHz })) });
+/**
+ * What BUS_MIX was (ADR 0171 R3, M5 Wa2): `[gain, lpHz]` per bus over `rampFrames`, now two asap BUS_RAMPs per bus: the
+ * `runtime` lane's gain and the `snapshot` lane's low-pass. Every digest is unchanged by R3.
+ */
+const busMix = (rampFrames: number, buses: [number, number][]): Writer[] =>
+  buses.flatMap(([gain, lpHz], bus): Writer[] => [
+    (view, off) => writeBusRamp(view, off, { voiceId: bus, frameOffset: ASAP, lane: LANE_RUNTIME, mask: BUS_RAMP_MASK_GAIN, gain, lpHz: OFF, frames: rampFrames, shape: 0 }),
+    (view, off) => writeBusRamp(view, off, { voiceId: bus, frameOffset: ASAP, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_LP_HZ, gain: 1, lpHz, frames: rampFrames, shape: 0 }),
+  ]);
 
 const master = (volume: number, muted: boolean, rampFrames: number): Writer => (view, off) =>
   writeMaster(view, off, { voiceId: 0, frameOffset: ASAP, volume, muted: muted ? 1 : 0, rampFrames });
@@ -196,7 +206,8 @@ class Stage {
   }
 
   /** Sends one BATCH of the records, all asap at the current frame. */
-  send(...records: Writer[]): void {
+  send(...parts: (Writer | Writer[])[]): void {
+    const records = parts.flat();
     const scratch = new ArrayBuffer(32 + 8192);
     const view = new DataView(scratch);
     let at = 32;
@@ -473,7 +484,7 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.send(param(0, 0, 0.3, 0), param(7, 2, 0.2, 0));
     s.run(20);
   },
-  // ADR 0158 E2: bus volume automation on a global parameter (a step then a linear segment), seeking, over BUS_MIX.
+  // ADR 0158 E2: bus volume automation on a global parameter (a step then a linear segment), seeking, over BUS_RAMP (the runtime lane).
   "automation-bus"(s) {
     s.send(
       busConfig([BUS_ROOT, 0]),

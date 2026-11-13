@@ -188,7 +188,7 @@ describe("the hard rebuild on the loopback host (A3.4a)", () => {
     loop.trapNext();
     expect(await r.untilSound()).toBeGreaterThan(0);
     await step(4);
-    // A fresh core would have every gain at 1 (1.0 here); the replayed BUS_MIX and MASTER give 0.5 × 0.5 × 0.5 again.
+    // A fresh core would have every gain at 1 (1.0 here); the replayed bus lanes (BUS_RAMP) and MASTER give 0.5 × 0.5 × 0.5 again.
     expect((await step(1)).last).toBeCloseTo(0.125, 5);
     backend.dispose();
   });

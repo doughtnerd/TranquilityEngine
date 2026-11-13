@@ -1,6 +1,6 @@
 // ADR 0158 §3 (M2 F2) on the real wasm (the loopback host): `Audio.bus(n).effectiveGain` on the core includes the bus
 // automation a global parameter drives (as on the Babylon fallback), following the parameter's seek to its target,
-// multiplied with snapshots and parents, and never sent to the core a second time (BUS_MIX carries no automation).
+// multiplied with snapshots and parents, and never sent to the core a second time (the runtime lane carries no automation).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { mixer as globalMixer } from "../../../../engine/audio/mixer";
