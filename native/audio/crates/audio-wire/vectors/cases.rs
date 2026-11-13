@@ -1367,8 +1367,12 @@ pub fn cases() -> Vec<VectorCase> {
     .into_iter()
     .chain(crate::spatial_cases::spatial_cases())
     .chain(mix_cases())
+    .chain(mix_status::mix_status_cases())
     .collect()
 }
+
+#[path = "mix_status_cases.rs"]
+mod mix_status;
 
 /// ADR 0171's M5 records (API section 4.2), derived by hand from the tables: envelopes carry version 1.3
 /// (`0301`); f32 as `f32::to_bits`, little-endian. Offsets count from the record's first byte.
