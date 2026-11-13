@@ -18,7 +18,8 @@ import { NULL_PROFILE_SINK, type ProfileSink, type ProfileStealReason, type Prof
  */
 export interface ProfileNames {
   clip(id: number, stream: boolean): string;
-  bus(index: number): string;
+  /** The bus slot's `busRef` (`gen << 8 | slot`, §6.3). */
+  busRef(index: number): number;
 }
 
 /** `stopWhy`: how a voice's stop was asked, for the `voiceStop` reason (0: nobody asked, it ended on its own). */
@@ -408,8 +409,8 @@ export class VoiceTable implements VoiceTableHandleApi {
     const c = this.clip[i]!;
     return this.names ? this.names.clip(c, (this.flags[i]! & VoiceFlag.STREAM) !== 0) : String(c);
   }
-  private busName(b: number): string {
-    return this.names ? this.names.bus(b) : String(b);
+  private busRef(b: number): number {
+    return this.names ? this.names.busRef(b) : b;
   }
 
   /**
@@ -418,7 +419,7 @@ export class VoiceTable implements VoiceTableHandleApi {
    */
   noteStart(i: number): void {
     this.started[i] = 1;
-    this.profile.voiceStart(this.idOf(i), this.clipName(i), this.busName(this.bus[i]!), this.flags[i]! | (this.flags2[i]! << 8), this.startFrame[i]!, this.gain[i]!);
+    this.profile.voiceStart(this.idOf(i), this.clipName(i), this.busRef(this.bus[i]!), this.flags[i]! | (this.flags2[i]! << 8), this.startFrame[i]!, this.gain[i]!);
   }
 
   /** `voiceQueued` for the slots allocated waiting for their clip that still wait: they really spent a frame queued. */
@@ -428,7 +429,7 @@ export class VoiceTable implements VoiceTableHandleApi {
     for (let k = 0; k < n; k++) {
       const i = this.queuedSlots[k]!;
       if (this.idOf(i) !== this.queuedIds[k] || this.state[i] !== VoiceState.WAITING_FOR_DATA) continue;
-      this.profile.voiceQueued(this.clipName(i), this.busName(this.bus[i]!), (this.flags[i]! & VoiceFlag.STREAM) !== 0 ? "streamPriming" : "clipLoading");
+      this.profile.voiceQueued(this.clipName(i), this.busRef(this.bus[i]!), (this.flags[i]! & VoiceFlag.STREAM) !== 0 ? "streamPriming" : "clipLoading");
     }
   }
 
@@ -682,7 +683,7 @@ export class VoiceTable implements VoiceTableHandleApi {
         // Rc3 (§5.6 `voiceRefused`): `clip` is the registry or stream id the caller holds for the play (0: not given).
         if (profile !== NULL_PROFILE_SINK) {
           const names = this.names;
-          profile.voiceRefused(clip === 0 ? "" : names ? names.clip(clip, false) : String(clip), this.busName(b), busFull ? "busFull" : "poolFull");
+          profile.voiceRefused(clip === 0 ? "" : names ? names.clip(clip, false) : String(clip), this.busRef(b), busFull ? "busFull" : "poolFull");
         }
         return INVALID_VOICE_ID;
       }

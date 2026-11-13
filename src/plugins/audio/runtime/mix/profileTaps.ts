@@ -23,12 +23,12 @@ const LANE_NAMES: readonly string[] = ["authored", "runtime", "snapshot", "monit
  * `BUS_MIN_RAMP_MS` long on the wire), a monitor change is both masks in one word (mutes in the low 16 bits, solos in
  * the high 16), a cleared snapshot is the empty name.
  */
-export function mixerTapFor(sink: ProfileSink, sampleRate: () => number): MixerTap {
+export function mixerTapFor(sink: ProfileSink, sampleRate: () => number, busRef: (bus: string) => number): MixerTap {
   return {
     busRamp(bus: string, lane: LaneId, seconds: number, target: number): void {
       const rate = sampleRate();
       const frames = Math.round(Math.max(seconds, BUS_MIN_RAMP_MS / 1000) * (rate > 0 ? rate : 48_000));
-      sink.busRamp(bus, LANE_NAMES[lane] ?? String(lane), frames, target);
+      sink.busRamp(busRef(bus), LANE_NAMES[lane] ?? String(lane), frames, target);
     },
     snapshot(name: string | null, seconds: number): void {
       sink.snapshot(name ?? "", seconds);
@@ -39,18 +39,20 @@ export function mixerTapFor(sink: ProfileSink, sampleRate: () => number): MixerT
   };
 }
 
-/** What `wireProfileTaps` reaches: the backend's table, the page's mixer, and the names and rate only the backend knows. */
+/** What `wireProfileTaps` reaches: the backend's table, the page's mixer, and the names, bus refs and rate only the backend knows. */
 export interface ProfileWiring {
   readonly table: VoiceTable;
   readonly mixer: Mixer;
   readonly names: ProfileNames;
   readonly sampleRate: () => number;
+  /** A bus name's `busRef` (`gen << 8 | slot`; the slot table's `busRef(slot)` of the name's slot). */
+  readonly busRef: (bus: string) => number;
 }
 
 /** Points every tap at `sink` (null: the null object everywhere, the mixer's tap removed). */
 export function wireProfileTaps(sink: ProfileSink | null, w: ProfileWiring): void {
   const s = sink ?? NULL_PROFILE_SINK;
   w.table.setProfile(sink, sink ? w.names : null);
-  w.mixer._setTap(sink ? mixerTapFor(s, w.sampleRate) : null);
+  w.mixer._setTap(sink ? mixerTapFor(s, w.sampleRate, w.busRef) : null);
   taps.sink = s;
 }
