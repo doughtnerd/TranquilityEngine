@@ -31,9 +31,9 @@ describe("audio settings: the M3 keys (ADR 0162 §2.1)", () => {
     });
     it("a section with only the old keys gives every M3 default and no problem", () => {
       const { settings, problems } = parseAudioSettings({
-        buses: [{ name: "Master" }, { name: "Music", parent: "Master", volume: 0.8 }],
+        buses: [{ name: "Master" }, { name: "Music", parent: "Master", volume: 0.8 }, { name: "Voice", parent: "Master" }],
         snapshots: [{ name: "Paused", volumes: { Music: 0.3 }, lowpass: {} }],
-        ducking: [{ target: "Music", trigger: "Master", amount: 0.4, attack: 0.1, release: 0.6 }],
+        ducking: [{ target: "Music", trigger: "Voice", mode: "presence", amount: 0.4, attack: 0.1, release: 0.6 }],
         voices: { mixed: 64 },
         backend: "babylon",
       });

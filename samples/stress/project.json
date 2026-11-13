@@ -909,6 +909,7 @@
       {
         "target": "Mix0",
         "trigger": "Bus01",
+        "mode": "presence",
         "amount": 0.7,
         "attack": 0.05,
         "release": 0.5

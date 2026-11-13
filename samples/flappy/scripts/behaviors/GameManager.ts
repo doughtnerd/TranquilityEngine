@@ -6,21 +6,20 @@ import { PipeSpawner } from "./PipeSpawner";
 
 type State = "ready" | "playing" | "dead";
 
-/** On game over the town music dips to this share of the Music bus's volume, and comes back when the next run starts. */
+/** On game over the town music dips to this share of the Music bus's authored volume, and comes back when the next run starts. */
 const DUCK = 0.35;
-/** The Music bus's volume before the dip (null: not dipped). Module state outlives the scene reload that restarts the run. */
-let duckedFrom: number | null = null;
+/** Whether the music is dipped. Module state outlives the scene reload that restarts the run. */
+let ducked = false;
 
 function duckMusic(): void {
-  const bus = Audio.bus("Music");
-  if (duckedFrom === null) duckedFrom = bus.volume;
-  bus.fadeTo(duckedFrom * DUCK, 0.4);
+  ducked = true;
+  Audio.bus("Music").fadeTo(DUCK, 0.4);
 }
 
 function restoreMusic(seconds: number): void {
-  if (duckedFrom === null) return;
-  Audio.bus("Music").fadeTo(duckedFrom, seconds);
-  duckedFrom = null;
+  if (!ducked) return;
+  Audio.bus("Music").fadeTo(1, seconds);
+  ducked = false;
 }
 
 /** Runs the ready → playing → game over loop, keeps score and the best score. */

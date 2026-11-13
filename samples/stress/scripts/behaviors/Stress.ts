@@ -205,7 +205,10 @@ export class Stress extends GameBehavior {
     if (this.churnClock <= 0) {
       this.churnClock = 0.2;
       const name = this.rand() < 0.2 ? `Mix${Math.floor(this.rand() * 4)}` : leaf(Math.floor(this.rand() * LEAVES));
-      Audio.bus(name).fadeTo(0.3 + this.rand() * 0.9, 0.25);
+      const target = 0.3 + this.rand() * 0.9;
+      // `fadeTo` sets the multiplier on the authored volume (leaves 0.8, Mix buses 1): divide so the heard level is `target`, as before.
+      const bus = Audio.bus(name);
+      bus.fadeTo(bus.authoredVolume > 0 ? target / bus.authoredVolume : target, 0.25);
     }
     this.muteClock -= dt;
     if (this.muted && this.stormTime >= this.muted.until) {

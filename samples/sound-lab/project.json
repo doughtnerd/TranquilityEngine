@@ -88,7 +88,7 @@
     "zones": { "maxActive": 2, "standby": 1, "maxIrSeconds": 2 },
     "doppler": { "maxSpeed": 150 },
     "speedOfSound": 343,
-    "ducking": [{ "target": "Music", "trigger": "SFX", "amount": 0.3, "attack": 0.05, "release": 0.4 }],
+    "ducking": [{ "target": "Music", "trigger": "SFX", "mode": "presence", "amount": 0.3, "attack": 0.05, "release": 0.4 }],
     "parameters": [
       { "name": "Surface", "labels": ["Grass", "Gravel", "Wood", "Metal"], "default": "Grass" },
       { "name": "Intensity", "min": 0, "max": 1, "default": 1, "seekSpeed": 0.5 }
