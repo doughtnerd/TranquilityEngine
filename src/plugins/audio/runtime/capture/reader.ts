@@ -13,10 +13,12 @@ import {
   CAPTURE_HEADER_BYTES, CAPTURE_MAX_NAMES, CAPTURE_MAX_UNCOMPRESSED_BYTES, CAPTURE_RECORD_HEAD_BYTES, CaptureError,
   DEFERRED_STAMP_BYTES, NAME_TABLES, RECORD_FLAG_DEFERRED, RecordType, checkKeyframe, checkStatusPayload, decodeCaptureMeta,
   decodeEpoch, decodeEvent, decodeGap, decodeIndex, decodeMarker, decodeMixOpRecord, decodeNames, readCaptureHeader,
-  readRecordHead,
-  type CaptureHeader, type CaptureMeta, type EpochPayload, type EventPayload, type GapPayload, type IndexPayload,
-  type MarkerPayload, type MixOpPayload, type NameTable, type NamesPayload, type RecordHead,
+  readRecordHead, CAPTURE_KEYFRAME_INTERVAL_MS, decodeKeyframe,
+  type CaptureHeader, type CaptureMeta, type CaptureSnapshot, type CaptureSummary, type EpochPayload, type EventPayload,
+  type GapPayload, type IndexPayload, type KeyframePayload, type MarkerPayload, type MixOpPayload, type NameTable,
+  type NamesPayload, type RecordHead,
 } from "./format";
+import { readStatus, type StatusBlock } from "../wire.generated";
 
 /** What an open can be given. */
 export interface ReaderOptions {
@@ -29,9 +31,14 @@ export interface ReaderOptions {
   /**
    * The inflater (tests, or a runtime without `DecompressionStream`): inflate `compressed`, stopping as soon as more than
    * `maxBytes` would be produced (return what it has, at least `maxBytes` long, so the reader refuses `inflateOverrun`).
-   * Default: `DecompressionStream("deflate-raw")`.
+   * Default: `DecompressionStream("deflate-raw")`. `pause`, when given, is awaited after each chunk.
    */
-  inflate?(compressed: Uint8Array, maxBytes: number, onChunk: (bytes: number) => void): Promise<Uint8Array>;
+  inflate?(compressed: Uint8Array, maxBytes: number, onChunk: (bytes: number) => void, pause?: () => Promise<void>): Promise<Uint8Array>;
+  /**
+   * Rc5: awaited after each inflate chunk and every `CANCEL_CHECK_RECORDS` records, so the open yields to its event loop
+   * (a Worker then sees `cancel` and sets `signal`). Without it the records scan is one synchronous loop.
+   */
+  pause?(): Promise<void>;
 }
 
 /** Records between cancel checks and progress calls. */
@@ -121,6 +128,15 @@ export type DecodedRecord = RecordHead & { stamp?: number } & (
   | { kind: "unknown"; payload: Uint8Array }
 );
 
+/** A segment being scanned (`CaptureDecoder`'s cursor between slices). */
+interface SegmentScan {
+  bytes: Uint8Array;
+  base: number;
+  segment: number;
+  view: DataView;
+  off: number;
+}
+
 /**
  * The incremental decoder: header and META at construction, then records by `appendRecords` (a file's records region
  * once, or a live view's sealed segments), then `finish` for a file (the count and INDEX checks). Each call validates
@@ -160,6 +176,25 @@ export class CaptureDecoder {
    * `badEpoch`, `disorder`, a deferred stamp (`badLength`, `badValue`), then the type's payload.
    */
   appendRecords(bytes: Uint8Array, base = 0): void {
+    const scan = this.beginSegment(bytes, base);
+    this.scanRecords(scan, Infinity);
+    this.endSegment(scan);
+  }
+
+  /**
+   * Rc5: `appendRecords` that awaits `pause` every `CANCEL_CHECK_RECORDS` records, so a Worker can take a `cancel`
+   * message while it opens a large file (the scan is otherwise one synchronous loop). Refuses exactly as `appendRecords`.
+   */
+  async appendRecordsAsync(bytes: Uint8Array, base: number, pause: () => Promise<void>): Promise<void> {
+    const scan = this.beginSegment(bytes, base);
+    while (!this.scanRecords(scan, CANCEL_CHECK_RECORDS)) {
+      await pause();
+      if (this.opts.signal?.aborted) throw new CaptureError("cancelled", base + scan.off, "the open was cancelled");
+    }
+    this.endSegment(scan);
+  }
+
+  private beginSegment(bytes: Uint8Array, base: number): SegmentScan {
     const c = this.contents;
     if (this.live) {
       if (this.heldBytes + bytes.byteLength > CAPTURE_MAX_UNCOMPRESSED_BYTES - c.header.metaBytes) {
@@ -167,12 +202,24 @@ export class CaptureDecoder {
       }
     }
     if (c.segments.length >= 0xffff) throw new CaptureError("tooLarge", base, "more than 65,535 segments");
-    const segment = c.segments.length;
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const end = bytes.byteLength;
+    return { bytes, base, segment: c.segments.length, view: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), off: 0 };
+  }
+
+  private endSegment(scan: SegmentScan): void {
+    this.contents.segments.push(scan.bytes);
+    this.heldBytes += scan.bytes.byteLength;
+  }
+
+  /** Scans up to `max` records of `scan`; true when the segment is done. */
+  private scanRecords(scan: SegmentScan, max: number): boolean {
+    const c = this.contents;
+    const { view, base, segment } = scan;
+    const end = scan.bytes.byteLength;
     const t = c.records;
-    let off = 0;
-    while (off < end) {
+    let off = scan.off;
+    let n = 0;
+    while (off < end && n < max) {
+      n++;
       const at = base + off;
       const h = readRecordHead(view, off, end, c.header.statusBytesMax, base);
       t.reserve(this.recordLimit, at, this.opts.onAllocate);
@@ -215,8 +262,8 @@ export class CaptureDecoder {
         this.opts.onProgress?.("records", t.count, c.header.recordCount);
       }
     }
-    c.segments.push(bytes);
-    this.heldBytes += bytes.byteLength;
+    scan.off = off;
+    return off >= end;
   }
 
   private checkPayload(h: RecordHead, view: DataView, p: number, len: number, base: number, at: number): void {
@@ -322,7 +369,7 @@ export async function capturePayload(header: CaptureHeader, body: Uint8Array, op
     if (opts.signal?.aborted) throw new CaptureError("cancelled", CAPTURE_HEADER_BYTES, "the open was cancelled");
     if (produced > expected) throw new CaptureError("inflateOverrun", CAPTURE_HEADER_BYTES, `inflate passed the declared ${expected} B`);
   };
-  const out = await (opts.inflate ?? inflateDeflateRaw)(body, expected + 1, onChunk);
+  const out = await (opts.inflate ?? inflateDeflateRaw)(body, expected + 1, onChunk, opts.pause);
   if (out.byteLength > expected) throw new CaptureError("inflateOverrun", CAPTURE_HEADER_BYTES, `inflate passed the declared ${expected} B`);
   if (out.byteLength < expected) throw new CaptureError("sizeMismatch", CAPTURE_HEADER_BYTES, `inflated ${out.byteLength} B, the header says ${expected}`);
   return out;
@@ -333,7 +380,7 @@ export async function capturePayload(header: CaptureHeader, body: Uint8Array, op
  * and throws to stop (the stream is cancelled), so no more than `maxBytes` plus one chunk is ever held. A corrupt stream
  * is `inflateFailed`.
  */
-export async function inflateDeflateRaw(compressed: Uint8Array, maxBytes: number, onChunk: (bytes: number) => void): Promise<Uint8Array> {
+export async function inflateDeflateRaw(compressed: Uint8Array, maxBytes: number, onChunk: (bytes: number) => void, pause?: () => Promise<void>): Promise<Uint8Array> {
   if (typeof DecompressionStream === "undefined") throw new CaptureError("inflateFailed", CAPTURE_HEADER_BYTES, "this runtime has no DecompressionStream");
   const ds = new DecompressionStream("deflate-raw");
   const writer = ds.writable.getWriter();
@@ -355,6 +402,7 @@ export async function inflateDeflateRaw(compressed: Uint8Array, maxBytes: number
       total += r.value.byteLength;
       if (total > maxBytes) throw new CaptureError("inflateOverrun", CAPTURE_HEADER_BYTES, `inflate passed ${maxBytes - 1} B`);
       chunks.push(r.value);
+      if (pause) await pause();
     }
   } catch (e) {
     reader.cancel().catch(() => {});
@@ -367,12 +415,17 @@ export async function inflateDeflateRaw(compressed: Uint8Array, maxBytes: number
   return out;
 }
 
-/** Opens a whole file: header (§5.1's order), payload (inflate or stored), META, records, INDEX. */
+/** Opens a whole file: header (§5.1's order), payload (inflate or stored), META, records, INDEX. With `opts.pause` the records scan yields between slices (Rc5's Worker). */
 export async function openCapture(file: Uint8Array, opts: ReaderOptions = {}): Promise<CaptureContents> {
   const header = readCaptureHeader(file);
   const payload = await capturePayload(header, file.subarray(CAPTURE_HEADER_BYTES), opts);
   if (header.flags & CAPTURE_FLAG_COMPRESSED) opts.onAllocate?.(payload.byteLength, "payload");
-  return readCapturePayload(header, payload, opts);
+  if (!opts.pause) return readCapturePayload(header, payload, opts);
+  if (payload.byteLength !== header.uncompressedBytes) throw new CaptureError("sizeMismatch", CAPTURE_HEADER_BYTES, `payload is ${payload.byteLength} B, the header says ${header.uncompressedBytes}`);
+  const meta = decodeCaptureMeta(payload.subarray(0, header.metaBytes), 0);
+  const d = new CaptureDecoder(header, meta, false, opts);
+  await d.appendRecordsAsync(payload.subarray(header.metaBytes), header.metaBytes, opts.pause);
+  return d.finish();
 }
 
 /**
@@ -433,4 +486,296 @@ export function epochOf(c: CaptureContents, i: number): EpochInfo {
     else hi = mid - 1;
   }
   return c.epochs[lo]!;
+}
+
+// --- Rc5: the Worker's time index, seek and range (api-and-models §5.4, §5.5, §7; architecture §3.7) ---------------
+
+/**
+ * The STATUS header scalars `range` can return, by their `StatusBlock` name: byte offset in the block and type. The
+ * header is fixed (176 B before M5, 256 B now; `readStatus`), and the capture's wire hash equals this build's
+ * (`wireMismatch` otherwise), so the offsets hold for every capture that opens. `reader.test.ts` checks each against
+ * `writeStatus`/`readStatus`.
+ */
+export const STATUS_COLUMNS = {
+  currentFrame: [16, "f64"], dateMs: [24, "f64"], underruns: [40, "u32"], lateCommands: [44, "u32"], workUnits: [48, "u32"],
+  workUnitsMax: [52, "u32"], mixedVoices: [56, "u16"], liveVoices: [58, "u16"], flags: [60, "u32"], mixedCap: [78, "u16"],
+  loadPermille: [80, "u16"], traps: [82, "u16"], minSlackFrames: [84, "i32"], underrunFrames: [88, "u32"], arenaUsedKB: [92, "u32"],
+  maxLatenessFrames: [104, "u32"], hrtfVoices: [108, "u16"], bedVoices: [112, "u16"], fxVoices: [116, "u16"], zonesActive: [120, "u16"],
+  m3Shed: [130, "u16"], workBed: [136, "u32"], workZones: [140, "u32"], musicRingsOpen: [148, "u16"], streamStartsLate: [150, "u16"],
+  maxSlipFrames: [160, "u32"], splitQuanta: [164, "u32"], voiceSplits: [168, "u32"], busyMsTotal: [176, "f64"], quantaTotal: [184, "f64"],
+  wuVoices: [192, "f64"], wuBuses: [200, "f64"], wuSpatial: [208, "f64"], wuMusic: [216, "f64"], wuLoudness: [224, "f64"],
+  clockStepMs: [238, "u16"], clockSteps: [244, "u16"], loudShed: [246, "u16"], busRecordsEarly: [248, "u16"], sidechainLate: [250, "u16"],
+} as const satisfies Record<string, readonly [number, "f64" | "u32" | "i32" | "u16"]>;
+export type StatusColumn = keyof typeof STATUS_COLUMNS;
+
+/** `range`'s columns beyond the STATUS scalars: `seconds` (each sample's time; in bucket mode each bucket's start). */
+export const RANGE_SECONDS = "seconds";
+/** The most buckets one `range` may ask for. */
+export const RANGE_MAX_BUCKETS = 65_536;
+
+/** A STATUS scalar read in place (no allocation). */
+export function readStatusColumn(view: DataView, off: number, column: StatusColumn): number {
+  const [at, kind] = STATUS_COLUMNS[column];
+  switch (kind) {
+    case "f64": return view.getFloat64(off + at, true);
+    case "u32": return view.getUint32(off + at, true);
+    case "i32": return view.getInt32(off + at, true);
+    case "u16": return view.getUint16(off + at, true);
+  }
+}
+
+/** A MARKER on the axis. */
+export interface CaptureMarkerAt { seq: number; seconds: number; text: string }
+/** A GAP on the axis. */
+export interface CaptureGapAt { seq: number; seconds: number; payload: GapPayload }
+
+/**
+ * What the Worker builds once per open (and extends per live segment): every STATUS and KEYFRAME on the continuous
+ * axis, sorted, plus the markers and gaps. Arrays grow by doubling from the records read (never from a header count)
+ * and report through `onAllocate` like the record table.
+ *
+ * **Search keys.** A STATUS's time is its `currentFrame` (§5.3), so STATUS times rise within an epoch; across epochs the
+ * axis carries each EPOCH's `timeOffset` (R14). A key is clamped to the largest before it, so the arrays stay sorted for
+ * binary search even if an epoch's `timeOffset` stepped back (the cursor then holds, never jumps backwards).
+ */
+export class CaptureTimeIndex {
+  /** Records indexed so far (a live view extends from here). */
+  indexed = 0;
+  statusCount = 0;
+  statusRecord = new Uint32Array(0);
+  statusSeconds = new Float64Array(0);
+  keyframeCount = 0;
+  keyframeRecord = new Uint32Array(0);
+  keyframeSeconds = new Float64Array(0);
+  markers: CaptureMarkerAt[] = [];
+  gaps: CaptureGapAt[] = [];
+  /** The smallest and largest record time seen (NaN before any record). */
+  startSeconds = NaN;
+  endSeconds = NaN;
+  private lastKey = -Infinity;
+  private readonly onAllocate: ReaderOptions["onAllocate"];
+
+  constructor(onAllocate?: ReaderOptions["onAllocate"]) {
+    this.onAllocate = onAllocate;
+  }
+
+  /** Indexes records `indexed..count` of `c`. */
+  extend(c: CaptureContents): void {
+    const t = c.records;
+    for (let i = this.indexed; i < t.count; i++) {
+      const s = recordSeconds(c, i);
+      if (!(s >= this.startSeconds)) this.startSeconds = Number.isNaN(this.startSeconds) ? s : Math.min(this.startSeconds, s);
+      if (!(s <= this.endSeconds)) this.endSeconds = Number.isNaN(this.endSeconds) ? s : Math.max(this.endSeconds, s);
+      const type = t.type[i]!;
+      if (type === RecordType.STATUS || type === RecordType.KEYFRAME) {
+        const key = Math.max(this.lastKey, s);
+        this.lastKey = key;
+        if (type === RecordType.STATUS) {
+          if (this.statusCount === this.statusRecord.length) [this.statusRecord, this.statusSeconds] = this.grow(this.statusRecord, this.statusSeconds);
+          this.statusRecord[this.statusCount] = i;
+          this.statusSeconds[this.statusCount++] = key;
+        } else {
+          if (this.keyframeCount === this.keyframeRecord.length) [this.keyframeRecord, this.keyframeSeconds] = this.grow(this.keyframeRecord, this.keyframeSeconds);
+          this.keyframeRecord[this.keyframeCount] = i;
+          this.keyframeSeconds[this.keyframeCount++] = key;
+        }
+      } else if (type === RecordType.MARKER) {
+        const d = decodeRecordAt(c, i);
+        if (d.kind === "marker") this.markers.push({ seq: d.seq, seconds: s, text: d.payload.text });
+      } else if (type === RecordType.GAP) {
+        const d = decodeRecordAt(c, i);
+        if (d.kind === "gap") this.gaps.push({ seq: d.seq, seconds: s, payload: d.payload });
+      }
+    }
+    this.indexed = t.count;
+  }
+
+  private grow(rec: Uint32Array, sec: Float64Array): [Uint32Array<ArrayBuffer>, Float64Array<ArrayBuffer>] {
+    const cap = Math.max(256, rec.length * 2);
+    this.onAllocate?.(cap * (Uint32Array.BYTES_PER_ELEMENT + Float64Array.BYTES_PER_ELEMENT), "records");
+    const r = new Uint32Array(cap);
+    r.set(rec);
+    const s = new Float64Array(cap);
+    s.set(sec);
+    return [r, s];
+  }
+}
+
+/** The last index in `keys[0..n)` whose value is ≤ `t`, or -1. */
+export function lastAtOrBefore(keys: Float64Array, n: number, t: number): number {
+  let lo = 0;
+  let hi = n;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (keys[mid]! <= t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo - 1;
+}
+
+/** The first index in `keys[0..n)` whose value is ≥ `t` (`n` when none). */
+export function firstAtOrAfter(keys: Float64Array, n: number, t: number): number {
+  let lo = 0;
+  let hi = n;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (keys[mid]! < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** The summary `open` and `appendSegment` answer, with the overview's markers, gaps and names (data, structured-cloneable). */
+export interface CaptureOpenSummary extends CaptureSummary {
+  statusCount: number;
+  markers: readonly CaptureMarkerAt[];
+  gaps: readonly CaptureGapAt[];
+  /** META's names plus every NAMES record, per table. */
+  names: Record<NameTable, readonly (readonly [number, string])[]>;
+}
+
+/** The summary of an opened (or extended) capture. */
+export function summarizeCapture(c: CaptureContents, idx: CaptureTimeIndex): CaptureOpenSummary {
+  const names = {} as Record<NameTable, (readonly [number, string])[]>;
+  for (const t of NAME_TABLES) names[t] = [...c.names[t]];
+  return {
+    header: c.header, meta: c.meta, recordCount: c.records.count, keyframeCount: c.keyframes.length, epochCount: c.epochs.length,
+    startSeconds: Number.isNaN(idx.startSeconds) ? 0 : idx.startSeconds, endSeconds: Number.isNaN(idx.endSeconds) ? 0 : idx.endSeconds,
+    truncated: c.truncated, warnings: [...c.warnings], statusCount: idx.statusCount, markers: [...idx.markers], gaps: [...idx.gaps], names,
+  };
+}
+
+/** An EVENT or MIXOP between the snapshot's base and its instant. */
+export type CaptureSeekRecord =
+  | { kind: "event"; seq: number; seconds: number; payload: EventPayload }
+  | { kind: "mixop"; seq: number; seconds: number; payload: MixOpPayload };
+
+/**
+ * The table at one instant (`seek`). The cursor fields are the last STATUS at or before t (or, before any STATUS, the
+ * first record). The state is the keyframe at or before t plus the records from it to t (§5.5): `keyframe` is
+ * `decodeKeyframe`'s payload (null without one, and until Rc1b fills the codec), `records` the EVENTs and MIXOPs after
+ * it, in seq order, for the models to apply (Pf2's voice table, Pf6's loudness). Without a keyframe at or before t the
+ * base is the STATUS one keyframe interval before t (the records of that last second only).
+ */
+export interface CaptureSeekState extends CaptureSnapshot {
+  /** The requested time, clamped to the capture. */
+  seconds: number;
+  /** -1 when there is no keyframe at or before t. */
+  keyframeSeq: number;
+  keyframe: KeyframePayload | null;
+  /** The last STATUS at or before t, parsed; null before the first. */
+  status: StatusBlock | null;
+  records: CaptureSeekRecord[];
+  /** Record heads the seek visited (the work it did): the keyframe's interval plus at most `CAPTURE_DISORDER_SECONDS` past t. */
+  recordsScanned: number;
+}
+
+/** Rebuilds the state at `t` seconds (`CaptureSeekState`). Work: two binary searches, then the records of one keyframe interval. */
+export function seekCapture(c: CaptureContents, idx: CaptureTimeIndex, t: number): CaptureSeekState {
+  if (!Number.isFinite(t)) throw new CaptureError("badValue", -1, `seek to ${t}`);
+  const seconds = idx.indexed === 0 ? 0 : Math.min(Math.max(t, idx.startSeconds), idx.endSeconds);
+  const s = lastAtOrBefore(idx.statusSeconds, idx.statusCount, seconds);
+  const k = lastAtOrBefore(idx.keyframeSeconds, idx.keyframeCount, seconds);
+  const tbl = c.records;
+  const cursor = s >= 0 ? idx.statusRecord[s]! : 0;
+  const state: CaptureSeekState = {
+    seconds, epoch: tbl.count ? tbl.epoch[cursor]! : 0, frame: tbl.count ? tbl.frame[cursor]! : 0, seq: tbl.count ? tbl.seq[cursor]! : 0,
+    keyframeSeq: -1, keyframe: null, status: null, records: [], recordsScanned: 0,
+  };
+  if (s >= 0) {
+    const seg = c.segments[tbl.segment[cursor]!]!;
+    state.status = readStatus(seg.subarray(tbl.offset[cursor]!, tbl.offset[cursor]! + tbl.len[cursor]!));
+  }
+  let base: number;
+  if (k >= 0) {
+    base = idx.keyframeRecord[k]!;
+    state.keyframeSeq = tbl.seq[base]!;
+    state.keyframe = keyframeAt(c, base);
+    base++;
+  } else {
+    const b = lastAtOrBefore(idx.statusSeconds, idx.statusCount, seconds - CAPTURE_KEYFRAME_INTERVAL_MS / 1000);
+    base = b >= 0 ? idx.statusRecord[b]! : 0;
+  }
+  // Records after `base` up to t. A record written later may be stamped up to CAPTURE_DISORDER_SECONDS earlier than one
+  // before it in its epoch (§5.3), so the scan runs until a record lies that far past t.
+  const stop = seconds + CAPTURE_DISORDER_SECONDS;
+  for (let i = base; i < tbl.count; i++) {
+    state.recordsScanned++;
+    const at = recordSeconds(c, i);
+    if (at > stop) break;
+    if (at > seconds) continue;
+    const type = tbl.type[i]!;
+    if (type !== RecordType.EVENT && type !== RecordType.MIXOP) continue;
+    const d = decodeRecordAt(c, i);
+    if (d.kind === "event" || d.kind === "mixop") state.records.push({ kind: d.kind, seq: d.seq, seconds: at, payload: d.payload } as CaptureSeekRecord);
+  }
+  return state;
+}
+
+/** KEYFRAME `i`'s payload, or null while Rc1b's `decodeKeyframe` is the H3 stub (it throws a plain `Error`; a `CaptureError` still propagates). */
+function keyframeAt(c: CaptureContents, i: number): KeyframePayload | null {
+  const t = c.records;
+  const seg = c.segments[t.segment[i]!]!;
+  try {
+    return decodeKeyframe(new DataView(seg.buffer, seg.byteOffset, seg.byteLength), t.offset[i]!, t.len[i]!);
+  } catch (e) {
+    if (e instanceof CaptureError) throw e;
+    return null;
+  }
+}
+
+/** `range`'s answer: typed arrays keyed by column (transferred by the Worker). */
+export type CaptureRangeColumns = Record<string, Float64Array | Uint32Array>;
+
+/**
+ * The STATUS columns over [t0, t1]. Without `buckets`: one sample per STATUS in the span, `seconds` plus each column.
+ * With `buckets` (1..`RANGE_MAX_BUCKETS`): the span cut into that many equal buckets, `seconds` (each bucket's start),
+ * `count` (STATUS records in it) and per column `<column>.min` and `<column>.max` (NaN for an empty bucket), so a
+ * timeline draws min/max columns without receiving every sample. Unknown columns and a bad span are `badValue`.
+ */
+export function rangeCapture(c: CaptureContents, idx: CaptureTimeIndex, t0: number, t1: number, columns: readonly string[], buckets?: number): CaptureRangeColumns {
+  if (!(Number.isFinite(t0) && Number.isFinite(t1) && t1 >= t0)) throw new CaptureError("badValue", -1, `range [${t0}, ${t1}]`);
+  if (buckets !== undefined && !(Number.isInteger(buckets) && buckets >= 1 && buckets <= RANGE_MAX_BUCKETS)) throw new CaptureError("badValue", -1, `range buckets ${buckets}`);
+  for (const col of columns) if (!Object.hasOwn(STATUS_COLUMNS, col)) throw new CaptureError("badValue", -1, `unknown range column "${col}"`);
+  const cols = columns as readonly StatusColumn[];
+  const from = firstAtOrAfter(idx.statusSeconds, idx.statusCount, t0);
+  const to = lastAtOrBefore(idx.statusSeconds, idx.statusCount, t1) + 1;
+  const n = Math.max(0, to - from);
+  const tbl = c.records;
+  const read = (s: number, col: StatusColumn): number => {
+    const i = idx.statusRecord[s]!;
+    const seg = c.segments[tbl.segment[i]!]!;
+    return readStatusColumn(new DataView(seg.buffer, seg.byteOffset, seg.byteLength), tbl.offset[i]!, col);
+  };
+  const out: CaptureRangeColumns = {};
+  if (buckets === undefined) {
+    out[RANGE_SECONDS] = idx.statusSeconds.slice(from, from + n);
+    for (const col of cols) {
+      const a = new Float64Array(n);
+      for (let j = 0; j < n; j++) a[j] = read(from + j, col);
+      out[col] = a;
+    }
+    return out;
+  }
+  const width = (t1 - t0) / buckets;
+  const starts = new Float64Array(buckets);
+  for (let b = 0; b < buckets; b++) starts[b] = t0 + b * width;
+  const count = new Uint32Array(buckets);
+  const bucketOf = (s: number): number => (width > 0 ? Math.min(buckets - 1, Math.floor((idx.statusSeconds[s]! - t0) / width)) : 0);
+  for (let j = 0; j < n; j++) count[bucketOf(from + j)]!++;
+  out[RANGE_SECONDS] = starts;
+  out.count = count;
+  for (const col of cols) {
+    const lo = new Float64Array(buckets).fill(NaN);
+    const hi = new Float64Array(buckets).fill(NaN);
+    for (let j = 0; j < n; j++) {
+      const b = bucketOf(from + j);
+      const v = read(from + j, col);
+      if (!(v >= lo[b]!)) lo[b] = v;
+      if (!(v <= hi[b]!)) hi[b] = v;
+    }
+    out[`${col}.min`] = lo;
+    out[`${col}.max`] = hi;
+  }
+  return out;
 }

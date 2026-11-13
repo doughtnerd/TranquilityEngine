@@ -7,7 +7,7 @@ import {
   CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, CAPTURE_RECORD_HEAD_BYTES, CaptureError, RecordType, assembleCapture,
   encodeRecords, readCaptureHeader, type CaptureErrorCode,
 } from "./format";
-import { decodeRecordAt, epochOf, openCapture, openLiveCapture, recordSeconds, type ReaderOptions } from "./reader";
+import { RecordTable, decodeRecordAt, epochOf, openCapture, openLiveCapture, recordSeconds, type ReaderOptions } from "./reader";
 import { SAMPLE_HEADER, SAMPLE_META, sampleCapture, sampleRecords, statusBytes } from "./testSupport";
 
 async function codeOf(f: () => Promise<unknown>): Promise<CaptureErrorCode | "none"> {
@@ -82,6 +82,16 @@ describe("openCapture", () => {
     expect(sizes.length).toBeGreaterThan(0);
     // The record table is sized by records read up to recordCount (16), never by a larger header value.
     expect(Math.max(...sizes)).toBeLessThanOrEqual(64 * 1024 * 1024);
+  });
+
+  it("Rc5: the record table's reported allocation is the bytes its columns really hold (every column counted)", async () => {
+    const reported: number[] = [];
+    const c = await openCapture(sampleCapture(), { onAllocate: (n, what) => { if (what === "records") reported.push(n); } });
+    const t = c.records;
+    let held = 0;
+    for (const v of Object.values(t)) if (ArrayBuffer.isView(v)) held += v.byteLength;
+    expect(reported).toEqual([held]);
+    expect(held).toBe(t.capacity * RecordTable.ROW_BYTES);
   });
 
   it("stops a deflate bomb at the declared size + 1", async () => {
