@@ -1,3 +1,7 @@
+// The K-weighting and true-peak formulas follow libebur128, Copyright (c) 2011 Jan Kokemüller, and
+// the ebur128 crate, Copyright (c) 2020 Sebastian Dröge, both under the MIT licence; the notices
+// are in native/audio/third_party/libebur128/ (COPYING, EBUR128-CRATE-LICENSE).
+
 //! Loudness kernels (ADR 0171 §§ loudness, amended by 0172; architecture §4.4; spike S1): K-weighting
 //! in f64 (two biquads, coefficients from the core's rate), the L + R mean-square accumulator per
 //! sub-block of round(0.1 × rate) frames, and 4× true peak (48 taps, simd128 on wasm), after
@@ -132,8 +136,30 @@ pub fn true_peak_taps() -> [[f32; TP_FACTOR]; TP_TAPS_PER_PHASE] {
 /// The larger |sample| of `l[..n]` and `r[..n]` (NaN ignored).
 #[inline]
 fn sample_peaks(l: &[f32], r: &[f32]) -> [f32; 2] {
-    let pk = |x: &[f32]| x.iter().fold(0.0f32, |m, s| m.max(s.abs()));
-    [pk(l), pk(r)]
+    [sample_peak(l), sample_peak(r)]
+}
+
+/// The largest |sample| of `x` (NaN ignored; 0 for an empty slice). On wasm with `simd128`, four
+/// lanes at a time with `pmax` (`acc < x ? x : acc`, so a NaN `x` keeps `acc`, as `f32::max`
+/// does); the maximum is exact either way, so both forms give the same value.
+#[inline]
+pub fn sample_peak(x: &[f32]) -> f32 {
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    {
+        use core::arch::wasm32::*;
+        let mut acc = f32x4_splat(0.0);
+        let mut chunks = x.chunks_exact(4);
+        for c in &mut chunks {
+            acc = f32x4_pmax(acc, f32x4_abs(f32x4(c[0], c[1], c[2], c[3])));
+        }
+        let m = [f32x4_extract_lane::<0>(acc), f32x4_extract_lane::<1>(acc), f32x4_extract_lane::<2>(acc), f32x4_extract_lane::<3>(acc)];
+        let m = m[0].max(m[1]).max(m[2].max(m[3]));
+        chunks.remainder().iter().fold(m, |m, s| m.max(s.abs()))
+    }
+    #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+    {
+        x.iter().fold(0.0f32, |m, s| m.max(s.abs()))
+    }
 }
 
 /// The oversampling FIR over `h[..TAIL + n]` (`h[TAIL + i]` = input sample `i`, the 11 before it
