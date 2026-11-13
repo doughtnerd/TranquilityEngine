@@ -290,6 +290,12 @@ export class ProfilerController {
     return this.openFile(file.name, bytes);
   }
 
+  /** A file the open route won't read (X2: not `.mycap`, too big): the error banner; the previous capture stays open. */
+  refuseFile(name: string, code: string, message: string): void {
+    this.openError = { code, message };
+    this.patch({ fileName: name });
+  }
+
   /** Close the open file capture (back to the live view in Play, or the empty state). */
   closeFile(): void {
     this.openError = null;
