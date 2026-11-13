@@ -116,6 +116,7 @@ import { StructuralDip } from "./structuralDip";
 import { DeferredAdds } from "./deferredAdds";
 import { setRecoveryProfileSink } from "./recovery";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
+import { wireProfileTaps } from "../mix/profileTaps";
 import { CoreAutomation, wrapPosition } from "./coreAutomation";
 import { MAX_GROUPS } from "../events/automation";
 import { CoreMusicOps, type MusicMemberTag } from "./musicOps";
@@ -689,7 +690,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const world = req.world ?? 0;
     const group = req.group !== undefined && Number.isInteger(req.group) && req.group >= 1 && req.group <= MAX_GROUPS ? req.group : 0;
     // B5: `audio.ambisonic.maxClips` caps concurrent ambisonic voices; main steals the lowest priority first (the core's steal is a backstop).
-    if (req.ambisonic === true && !this.admitAmbisonic(req.path, req.priority ?? 128)) return null;
+    if (req.ambisonic === true && !this.admitAmbisonic(req.path, req.priority ?? 128, req.bus)) return null;
     // B3: a stream voice takes a stream id where a clip voice takes a registry clip (no clip load).
     const stream = req.stream === true;
     // ADR 0166 (Q2): a streamed group member plays the stream musicOps allocated and primed (P1).
@@ -699,7 +700,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const priority = req.priority ?? 128;
     // A3.4a: while a hard rebuild runs, new plays wait in the locked queue and start once the new core is up.
     const running = this.host.status === "running" && !this.recovering;
-    const id = this.table.allocate(bus, priority, world, running ? VoiceState.WAITING_FOR_DATA : VoiceState.LOCKED);
+    // A stream voice has no registry clip to name (`allocate` names its `clip` as one), so a refused stream play is unnamed.
+    const id = this.table.allocate(bus, priority, world, running ? VoiceState.WAITING_FOR_DATA : VoiceState.LOCKED, stream ? 0 : clip);
     if (id === 0) {
       if (!stream) this.clips.release(clip);
       return null;
@@ -796,6 +798,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   set masterVolume(v: number) {
     this.master = clamp(Number.isFinite(v) ? v : 1, 0, 1);
     this.lanes.master(this.master, this.isMuted || this.hiddenMuteOn, this.clockMap.rampFrames());
+    if (this.profile !== NULL_PROFILE_SINK) this.profile.masterChange(this.master, this.isMuted || this.hiddenMuteOn);
   }
 
   get muted(): boolean {
@@ -805,6 +808,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   set muted(m: boolean) {
     this.isMuted = m;
     this.lanes.master(this.master, m || this.hiddenMuteOn, this.clockMap.rampFrames());
+    if (this.profile !== NULL_PROFILE_SINK) this.profile.masterChange(this.master, m || this.hiddenMuteOn);
   }
 
   /** B4: `audio.codecs.aac` (read when used, like the rest of the settings). */
@@ -1116,6 +1120,17 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   setProfileSink(sink: ProfileSink | null): void {
     this.profile = sink ?? NULL_PROFILE_SINK;
     setRecoveryProfileSink(sink);
+    // Rc3: one sink reaches the voice table, the mixer's setters and the page-wide event and music taps (null restores every null object).
+    wireProfileTaps(sink, {
+      table: this.table,
+      mixer: this.mixer,
+      sampleRate: () => this.host.sampleRate,
+      names: {
+        clip: (id, stream) => (stream ? (this.streams.assetOf(id) ?? "") : (this.clips.info(id)?.path ?? "")),
+        busRef: (i) => this.buses.slots.busRef(i),
+      },
+      busRef: (n) => this.buses.slots.busRef(this.buses.slotOf(n)),
+    });
   }
 
   dispose(): void {
@@ -1700,6 +1715,11 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const t = this.table;
     const info = this.clips.info(t.clip[i]!);
     if (info?.failure !== "streamInstead") {
+      // §5.6: a clip over the memory ceiling or a bad span can never fit (neverFits); a fetch, decode or grow failure is loadFailed.
+      if (this.profile !== NULL_PROFILE_SINK) {
+        const never = info?.failure === "refusedCeiling" || info?.failure === "refusedSpan";
+        this.profile.voiceRefused(info?.path ?? "", this.buses.slots.busRef(t.bus[i]!), never ? "neverFits" : "loadFailed");
+      }
       t.free(id, VoiceReason.FAILED);
       return;
     }
@@ -1905,11 +1925,13 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
    * stolen (the lowest audibility among equals), unless every one of them is at or above `priority` (the play is refused,
    * as `VoiceTable.allocate` does). A limit of 0 refuses with one warning.
    */
-  private admitAmbisonic(path: string, priority: number): boolean {
+  private admitAmbisonic(path: string, priority: number, bus: string): boolean {
     const t = this.table;
     const limit = Math.min(this.host.preset.maxWide ?? 0, this.mixer.audioSettings.ambisonic?.maxClips ?? 0);
     if (limit <= 0) {
       this.warnOnce(`${path}#ambisonic-refused`, `audio: "${path}" is an ambisonic clip, but ${this.mixer.audioSettings.ambisonic?.maxClips === 0 ? "audio.ambisonic.maxClips is 0" : "the audio core has no room for ambisonic voices"}; not played (ADR 0162)`);
+      // A limit of 0 can never admit this voice.
+      if (this.profile !== NULL_PROFILE_SINK) this.profile.voiceRefused(path, this.buses.slots.busRef(this.busIndex(bus)), "neverFits");
       return false;
     }
     let count = 0;
@@ -1931,6 +1953,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     if (count < limit) return true;
     if (victim < 0 || victimPriority >= priority) {
       t.refusedCount++;
+      if (this.profile !== NULL_PROFILE_SINK) this.profile.voiceRefused(path, this.buses.slots.busRef(this.busIndex(bus)), "capRefused");
       return false;
     }
     this.stealSlot(victim);

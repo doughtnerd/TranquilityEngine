@@ -73,10 +73,10 @@ export interface LiveMixHost {
 
 /**
  * The event runtime's refresh (it re-reads `audio.automation` and binds every bus again through the active backend's
- * sink). `getGlobal` is its public entry that does only that for an unknown name; nothing is made when no backend is up.
+ * sink). `syncSettings` is its public entry that does only that; nothing is made when no backend is up.
  */
 function refreshEventAutomation(): void {
-  if (hasAudioBackend()) events().getGlobal("");
+  if (hasAudioBackend()) events().syncSettings();
 }
 
 export class LiveMix {
