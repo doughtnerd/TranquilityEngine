@@ -1,6 +1,6 @@
 # 0174. Editor panels share one Panel component, can be closed, added and repeated with per-instance view state; layouts are `.layout.json` files with a version tree, per user or per project
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-13
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -24,7 +24,7 @@ Some panels keep module-level state (`Hierarchy.tsx`: `collapsed`, `expanded`, `
 ### Reusable components
 
 - **`Panel`** (`src/editor/ui/panel/Panel.tsx`): the frame every panel type renders its content in. It gives the body (an optional toolbar row, the scrolling content area, an empty-state message), and through `usePanel()` the instance it is drawn for: `{ id, type, title, close() }` and the instance's view state (below). Every built-in panel (Hierarchy, Inspector, Assets, History, Code, Worlds, Network, Project) and every plugin panel's `view` renders `<Panel>` with its own content; plugins get it from the editor SDK (`myco/editor`). The unavailable-plugin placeholder is a `Panel` too.
-- **`PanelHeader`** (`src/editor/layout/PanelHeader.tsx`): the dock chrome over a tab group, taken out of `DockLayout.tsx`: the tabs and their overflow button, the red ×, the collapse chevron and the header's context menu. A group has one header for all its tabs, so this stays dock chrome rather than part of `Panel`.
+- **`PanelHeader`** (`src/editor/layout/PanelHeader.tsx`): one panel's tab, and nothing else: its title, the red × at its right end, pressing to show it, dragging to move it, and right-clicking for the header menu. `DockLayout.tsx` keeps the group chrome around the tabs (the tab strip, its overflow button and menu, the collapse chevron) and draws a `PanelHeader` per tab; a group holding one panel draws one `PanelHeader` as its title. The overflow menu lists hidden panels by title and doesn't use it.
 - **`UndoTree`** (`src/editor/ui/undoTree/UndoTree.tsx`): the tree drawing now inside `HistoryPanel.tsx` (gutter of branches, one row per state, current and marked states, relative times, click to pick), as a component over `{ seq, parent, label, time }[]`, `current`, an optional `marked` (the History panel's "saved"), and `onPick`. The History panel and the layout version tree (Manage Layouts) both consume it; `layoutHistory` (`historyLayout.ts`) stays its pure layout.
 
 ### Panel instances
@@ -34,10 +34,10 @@ Some panels keep module-level state (`Hierarchy.tsx`: `collapsed`, `expanded`, `
 - **Default view state.** A panel type declares its initial view state, and a new instance (a second copy, a re-added panel, a panel in a newly applied layout) starts from that default rather than copying another instance. The Hierarchy's default has every scene node expanded; prefab instances' inner nodes and UI documents' element rows start closed, as today, because they can hold hundreds of rows. The Assets panel's default is the project root in its saved view mode.
 - **How.** `usePanelState(key, initial)` (from `Panel`) returns a signal stored under the instance id; the store drops an instance's state when the instance is closed. The module-level view signals in `Hierarchy.tsx` (`collapsed`, `expanded`, `uiExpanded`, `hierarchyQuery`, the Shift-click anchor) and `Assets.tsx` (folder, view mode, expanded images, the marquee and its context menu) move into it; other panels move theirs when they're built on `Panel`. View state lives for the session and is not written into layout files.
 - **Single-instance panels.** `PanelContribution` gains `single?: boolean`. The Scene panel is single (it owns the one viewport and WebGL context, `viewportElements()`). The Add Panel dialog offers a single panel only when none is open.
-- **Closing.** Each expanded group header shows a red **×** (`var(--danger)`) at its right end, after the tabs and before the dock's collapse chevron; it closes the group's showing instance (`closePanel(layout, id)` in `model.ts`; `normalize` then drops an emptied group or dock, and the instance's view state is dropped). The × is not drawn on collapsed strips. The Scene panel has no ×.
+- **Closing.** Each panel's tab (`PanelHeader`) shows a red **×** (`var(--danger)`) at its right end; it closes that instance (`closePanel(layout, id)` in `model.ts`; `normalize` then drops an emptied group or dock, and the instance's view state is dropped). The × is not drawn while the panel's dock is collapsed (its tab is then in the collapsed strip). The Scene panel's tab has no ×.
 - **Adding.** `addPanel(layout, type, target?)` makes a new instance (UUID, default view state) and puts it in `target` (a group id) or, without one, where `activatePanel` puts an on-demand panel today (beside its `beside` neighbour, else with the Inspector, else the first group). Two entry points:
   - **Window menu.** One item per panel type, ticked when an instance is visible. Picking a type with no instance adds one; with instances, it brings the first to the front (as today). Then **Add Panel…** (the dialog, adding to the default place) and Reset Layout. This amends ADR 0063's Window menu.
-  - **Header context menu.** Right-clicking a group header (tabs or empty space) opens a menu: **Add Panel…** (the dialog, adding to *this* group), **Close** (the tab under the pointer, or the showing one), and, once the detach phase is built, **Detach**.
+  - **Header context menu.** Right-clicking a tab or the empty part of a group's header opens a menu: **Add Panel…** (the dialog, adding to *this* group), **Close** (the tab under the pointer, or the showing one), and, once the detach phase is built, **Detach**.
   - **The Add Panel dialog** (`ui/AddPanelDialog.tsx`, lazy like the other dialogs, ADR 0083): a checklist of every available panel type with its title; types already open say "open (adds another)". OK adds one instance of each ticked type, the last one showing.
 
 ### Saved layouts

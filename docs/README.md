@@ -111,7 +111,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0060](decisions/0060-vfx-graph-particle-authoring.md) | Particle effects are VFX-Graph-style graph assets, authored only in the Particle Graph | Accepted (0094–0096 proposed amendments: kernel backends, attributes, sub-graphs and custom blocks) |
 | [0061](decisions/0061-asset-previews-and-the-thumbnail-cache.md) | Asset previews are rendered in the editor and cached by content in the project's `.myco/thumbnails/` | Accepted, amended by 0153 (prefab and scene thumbnails draw through the real render features) |
 | [0062](decisions/0062-links-to-spawnable-worlds.md) | Bootstrap links apply whenever both Worlds exist, so they can name Spawnable Worlds (templates) | Accepted |
-| [0063](decisions/0063-editor-menu-bar.md) | The editor's commands live in a menu bar below the system title bar | Accepted |
+| [0063](decisions/0063-editor-menu-bar.md) | The editor's commands live in a menu bar below the system title bar | Accepted, amended by 0174 (the Window menu adds and closes panels) |
 | [0064](decisions/0064-system-rows-with-column-access.md) | System rows give typed-array columns as well as per-row views | Accepted |
 | [0065](decisions/0065-built-in-navigation-foxfire-port.md) | Built-in navigation: Foxfire.Navigation ported to Rust, run as WebAssembly | Accepted |
 | [0066](decisions/0066-navigation-authoring-parity-with-foxfire.md) | Navigation authoring matches Foxfire: named avoidance layers, formation assets, agent goals | Accepted |
