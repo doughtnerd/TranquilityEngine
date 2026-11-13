@@ -381,3 +381,14 @@ The technical design in `docs/design/0157-audio-core/` (an architect's and a sen
   - The low-end soak device is an **Android phone** running the lowest Android version that Google Play currently accepts for publishing apps (the exact version is looked up when the soak is set up, since Google raises it over time), playing the web build in its Chrome and Android System WebView.
   - The low end is a **starting point, not an absolute**. If the core shows significant performance gaps on it, the low end moves up to a more capable device class, rather than the design being squeezed to fit.
   - This makes Android's browser and WebView a runtime the core must serve at the "low" preset. If that Android version's WebView lacks AudioWorklet or `simd128`, the device gets the Babylon fallback, and the soak then measures the fallback. A0.6 checks which.
+
+## Amended by ADR 0172 (M5), 2026-11-13: `loadPermille` (design section 4.7)
+
+The design's STATUS section ([architecture.md §4.7](../design/0157-audio-core/architecture.md)) reserves `loadPermille` as 0, "unmeasured in M1". M5 keeps the field and still writes 0, and fills the figure another way (0172 §1.10; [0171 change 6](0171-audio-profiler-loudness-metering-and-live-mixing.md)).
+
+- **The wire field stays 0, reserved.** The worklet has no clock, so the core can't measure its own time.
+- **The CPU figure is computed on main** from cumulative counters: the shell writes the clock fields (busy milliseconds and quanta, as f64 totals, with the clock's step), the core writes five work-unit totals (voices, buses and effects, spatial, music, loudness). Main reads a window of 96 quanta and reports a percentage. On a coarse clock (a step over 1 ms) it widens the window, and past that it hides the line with a reason instead of a number.
+- **Work units don't drive the cap.** The 2026-11-10 owner decision stands: only underruns and qualifying late commands lower the cap.
+- Floor-phone microseconds stay estimates at 0.6 ns per metered instruction; no floor run was made (0172 §3.3).
+
+Built by Cp1 (counters, Wave 2); the reader and the Profiler line are Cp2 and Pf tasks, in [the build log](../design/0171-audio-mix/build-log.md) as they land.

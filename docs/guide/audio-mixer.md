@@ -66,3 +66,9 @@ The limiter looks ahead: it delays all of the core's output by a fixed time, set
 Pitch on the audio core uses 4-point interpolation: changing a sound's pitch keeps it clean, with very little added distortion. Raising the pitch a long way can still fold very high frequencies back down as faint false tones (aliasing). Small changes, such as a random semitone or two on footsteps, are not affected, because only content above about 21 kHz folds and it stays inaudible. Raising a bright sound by half again or more (pitch 1.5 or higher) can make it audible. If a sound must go that high, author it with less top end, or record it closer to the pitch it plays at.
 
 Bus volume changes ramp over about 15 milliseconds, so a mute or a ducking step doesn't click.
+
+### Fades, volume and sends
+
+- **`Bus.volume` is a multiplier on the volume you authored** in Project Settings. Setting it to 0.5 gives half of the authored volume, and the authored value itself is never changed or saved. Muting, snapshots, ducking and parameter automation each act on their own, so a fade and a duck at once don't undo each other.
+- **`fadeTo` is one ramp** that the audio core starts on an exact frame and runs for the whole time you give it. It begins when it is scheduled, not a few frames later, and it carries on if the audio restarts mid-fade.
+- **Reverb sends follow the bus.** A bus's `reverb` send is taken after its volume, mute, duck and snapshot, so turning a bus down or muting it also turns down what it feeds the shared reverb. The reverb's tail still rings out when the last send stops. A project that muted a bus and relied on its send still sounding will hear the difference.

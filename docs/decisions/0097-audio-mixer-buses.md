@@ -58,3 +58,14 @@ The bus graph, snapshots and ducking are unchanged: music plays on the `Music` b
 ## References
 
 - `src/engine/audio/`, `docs/guide/audio-mixer.md`
+
+## Amended by ADR 0172 (M5), 2026-11-13: the bus's gain is seven lanes
+
+The bus model above is kept. What changes is how the core forms a bus's gain, and what `Bus.volume` means. Source: [ADR 0172](0172-audio-mix-design-corrections-and-owner-decisions.md) §1 items 1, 3 and 4 and §3 item 1; what M5-0 built is in the [build log](../design/0171-audio-mix/build-log.md) (Wave 2 and the commits of waves 3 and 4).
+
+- **Effective gain is a product of seven lanes** (0172 §1.3), each ramping on its own: `authored` (the project's volume and mute), `runtime` (a script's volume, `fadeTo` and mute), `snapshot`, `monitor` (the Mixer panel's mute and the solo gate) and `dip` are written by main; `duck` and `automation` belong to the core. A lane at rest costs nothing. The wire's `BUS_MIX` is retired (ABI 4.0); main sends `BUS_RAMP` per lane. An asap ramp on one lane keeps today's arithmetic, so every existing bus golden kept its digest.
+- **`Bus.volume` is a multiplier on the authored volume.** It is runtime state and is never written back to `project.json`; before M5 both wrote one number.
+- **`fadeTo` is one stamped ramp.** It starts on its stamp, not after the 18 to 38 ms the old per-block steps took, and a rebuild mid-fade continues the remaining ramp.
+- **Presence ducking runs in the core** (0172 §1.1). `BUS_PRESENCE` is stamped at the voice's own frame, so a duck starts on the sound that triggers it. "Trigger detection is voice activity" is unchanged for presence rules; `Bus.duckGain` is read from STATUS. Level-based rules (a trigger bus's signal level) are added later in M5 and follow 0172 §1.7.
+- **The reverb send is post-fader** (0172 §3.1): it follows the bus's volume, mutes, duck and snapshot. A muted or turned-down bus no longer feeds the shared reverb; this is the one named sound change (golden `m5/bus-mute-send`). The convolver runs out its tail before it resets.
+- **A structural edit that arrives late** shifts as one sequence by whole quanta, so the change never applies above silence (0172 §1.5).
