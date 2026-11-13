@@ -1,0 +1,23 @@
+/* Audio Profiler tables (ADR 0171/0172, Pf5): theme tokens only, so Settings > Appearance themes it. */
+.ptables { display: flex; flex-direction: column; gap: 8px; font-size: 11px; color: var(--text); }
+.ptables-filter { display: flex; align-items: center; gap: 6px; }
+.ptables-filter-label { color: var(--muted); }
+.ptables-filter-input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 3px; padding: 2px 6px; }
+.ptables-filter-input:focus { outline: none; border-color: var(--accent); }
+.ptable { display: flex; flex-direction: column; gap: 3px; }
+.ptable-title { margin: 0; font-size: 11px; font-weight: 600; color: var(--text); }
+.ptable-summary, .ptable-empty { margin: 0; color: var(--muted); }
+.pgrid { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 3px; background: var(--panel); min-width: 0; overflow-x: auto; }
+.pgrid-head, .pgrid-row { display: grid; align-items: center; column-gap: 6px; padding: 0 6px; height: 20px; box-sizing: border-box; min-width: max-content; }
+.pgrid-head { color: var(--muted); border-bottom: 1px solid var(--border); }
+.pgrid-scroll { overflow-y: auto; overflow-x: hidden; position: relative; min-width: max-content; }
+.pgrid-scroll:focus-visible, .pgrid-row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.pgrid-spacer { position: relative; }
+.pgrid-row { position: absolute; left: 0; right: 0; color: var(--text); }
+.pgrid-row:hover { background: var(--hover); }
+.pgrid-row[data-state="stolen"] { color: var(--danger); }
+.pgrid-row[data-state="virtual"], .pgrid-row[data-state="removed"] { color: var(--muted); }
+.pgrid-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pgrid-cell[data-align="end"] { text-align: right; font-variant-numeric: tabular-nums; }
+.pgrid-cell[data-flag="unity"] { color: var(--muted); }
+.pgrid-cell[data-flag="active"] { color: var(--accent); }
