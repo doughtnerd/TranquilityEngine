@@ -11,7 +11,7 @@
 // running its suite twice), plus: a send step's optional `firstFrame` (the batch header's first frame when the batch
 // arrives after it; otherwise the host's current frame), `late` (`lateCommands`, `maxLatenessFrames`), `null` (the
 // native error against the reference, informational), `ds0` (`[from, to, bound]` windows) and `busDuck` (the presence
-// duck's STATUS gain bounds after the scene).
+// duck's target slot and its voice's level: the last STATUS block's busDuck gain is checked against the output).
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -34,7 +34,7 @@ interface M5Fixture {
   readonly late?: { readonly lateCommands: number; readonly maxLatenessFrames: number };
   readonly null?: { readonly maxError: number; readonly tolerance: number; readonly from: number; readonly to: number };
   readonly ds0?: readonly (readonly [number, number, number])[];
-  readonly busDuck?: { readonly slot: number; readonly from: number; readonly to: number };
+  readonly busDuck?: { readonly slot: number; readonly level: number };
   /** Rv1's `bus-mute-send` only: each mute or unmute transition's `[first frame, frames]`. */
   readonly toggles?: readonly (readonly [number, number])[];
 }
@@ -108,7 +108,7 @@ function step2(left: Float32Array, right: Float32Array, from: number, to: number
   return Math.max(maxStep(left, from, to), maxStep(right, from, to));
 }
 
-/** Digest, counters (STATUS after 6 more quanta, as Z3's test reads them), DS0's windows and the busDuck bounds. */
+/** Digest, counters (STATUS after 6 more quanta, as Z3's test reads them), DS0's windows and the busDuck reading. */
 async function checkScene(name: string): Promise<void> {
   const fixture = readM5(name);
   const { left, right, host, lateness } = await render(fixture);
@@ -125,12 +125,18 @@ async function checkScene(name: string): Promise<void> {
   expect(fixture.splits.splitQuanta, `${name}: no split quanta`).toBe(0);
   if (fixture.late) expect(last && { lateCommands: last.lateCommands, maxLatenessFrames: lateness.max }, `${name}: late counters (lateCommands cumulative; maxLatenessFrames per block, the largest)`).toEqual(fixture.late);
   if (fixture.busDuck) {
-    const { slot, from, to } = fixture.busDuck;
+    // The last block's busDuck gain is the duck gain at the end of the quantum ending at its `currentFrame` (STATUS
+    // follows the 6/48-quantum cadence, so take whichever block came last). The scene's voice is a DC 0.5 on the target
+    // with no other lane moving, so that gain is twice the output's sample just before `currentFrame`.
+    const { slot, level } = fixture.busDuck;
     const item = last?.busDuck.find((d) => d.slot === slot);
     expect(item, `${name}: busDuck has slot ${slot}`).toBeDefined();
-    const [lo, hi] = [Math.min(from, to), Math.max(from, to)];
-    expect(item!.gain, `${name}: busDuck gain ${item!.gain} within the reference's [${lo}, ${hi}]`).toBeGreaterThanOrEqual(lo - 1e-5);
-    expect(item!.gain).toBeLessThanOrEqual(hi + 1e-5);
+    const at = last!.currentFrame;
+    expect(at, `${name}: a STATUS block inside the scene`).toBeGreaterThan(0);
+    expect(at).toBeLessThanOrEqual(fixture.frames);
+    const heard = left[at - 1]! / level;
+    expect(Math.abs(item!.gain - heard), `${name}: busDuck gain ${item!.gain} at ${at}, the output says ${heard}`).toBeLessThanOrEqual(1e-6);
+    expect(item!.gain).toBeLessThan(1);
   }
 }
 

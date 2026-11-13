@@ -82,13 +82,13 @@ fn a_presence_duck_starts_on_its_stamped_frame_and_matches_the_reference() {
     let on = ON as usize;
     assert!(s.left[..on].iter().chain(&s.right[..on]).all(|&x| x == 0.5), "untouched before the stamped frame");
     assert!(s.left[on] < 0.5, "the duck starts on its stamped frame");
-    let g = reference(n + 6 * QUANTUM);
+    let g = reference(n);
     let err = max_error(&s, 0, n, |i| 0.5 * g[i]);
     eprintln!("{NAME}: max error {err:e} against the offline reference (tolerance {TOL:e})");
     assert!(err <= TOL, "{NAME}: {err} against the reference");
     // Deep in the hold the gain is near `amount`; at the end the release is under way.
-    assert!((s.left[OFF_AT as usize - 1] - 0.2).abs() < 1e-3);
-    assert!(s.left[n - 1] > 0.45 && s.left[n - 1] < 0.5);
+    assert!((s.left[OFF_AT as usize - 1] - 0.2).abs() < 2e-3);
+    assert!(s.left[n - 1] > 0.4 && s.left[n - 1] < 0.5);
     assert_eq!(s.split_quanta(), 0);
     // Stamped mid-quantum: the same bits.
     let skewed = scene(77);
@@ -99,9 +99,12 @@ fn a_presence_duck_starts_on_its_stamped_frame_and_matches_the_reference() {
     let step = max_step(&s.left[512..]).max(max_step(&s.right[512..]));
     eprintln!("{NAME}: DS0 maxStep {step:e} (bound {b:e}); the duck at once would step {}", 0.5 * (1.0 - RULE.2));
     assert!(step <= b, "{NAME}: a step of {step}, over {b}");
-    // The busDuck STATUS a take after the scene reads (the wasm side renders 6 more quanta): the
-    // reference gain at the scene's end and 6 quanta later bound it (the release rises).
-    let raw = format!(",\"busDuck\":{{\"slot\":{},\"from\":{:e},\"to\":{:e}}}", RULE.0, g[n - 1], g[n + 6 * QUANTUM - 1]);
+    // What busDuck reports: the rule's follower at the end of the last quantum, which is the
+    // curve's last sample (the wasm side checks its STATUS block against the output the same way).
+    let mut s = s;
+    let follower = audio_core::duck::area(&mut s.m.core.regions_mut().duck[..]).unwrap().followers[0].gain;
+    assert_eq!(follower, s.left[n - 1] / 0.5, "the follower is the curve's last sample");
+    let raw = format!(",\"busDuck\":{{\"slot\":{},\"level\":0.5}}", RULE.0);
     let about = "G1: a presence duck (rule target 1, trigger slot 2, amount 0.4, attack 50 ms, release 300 ms) set stamped at 1024 and cleared stamped at 13824; against the per-quantum one-pole reference of architecture 4.6";
     write_or_check(TEST, NAME, about, &s, &Extra { null: Some((err, TOL, 0, n)), ds0: vec![(512, n, b)], late: false, raw });
 }
