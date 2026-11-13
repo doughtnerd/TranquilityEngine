@@ -76,6 +76,9 @@ async function boot(): Promise<void> {
   runtime.start();
   (window as { engine?: Engine }).engine = runtime;
   container.querySelector("canvas")?.focus(); // keyboard input without a click first
+  // The Export option "audio capture" (ADR 0172): F9 and the three-finger hold record the audio mix. Without it nothing is
+  // imported or installed, so the build holds no listener and loads no part of the recorder.
+  if (manifest.audioCapture) (await import("../plugins/audio/runtime/capture/trigger")).installCaptureTrigger();
 }
 
 boot().catch((err: unknown) => {

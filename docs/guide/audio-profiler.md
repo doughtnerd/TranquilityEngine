@@ -69,7 +69,7 @@ const where = await Audio.capture.save("boss-fight");   // "boss-fight.mycap"; a
 - **Automatic file rotation:** auto-named files keep the newest 16 in the app's `cache` folder; the oldest are deleted. A file you named yourself is never deleted. A browser cannot delete a download, so its built-in trigger stops at 16 saves per session.
 - On the Babylon fallback the take holds main-side events and keyframes only, and the file says so.
 
-**The F9 key is decided, not yet built.** ADR 0172 fixes a built-in trigger for exported games (F9 starts, then stops and saves; a one-second three-finger hold on touch; 16 files), behind an Export option. This build has `Audio.capture` in scripts and the editor's panel only. Bind your own key to the calls above until the trigger ships.
+**Exported games can record too.** Export with the Audio capture option (`npm run export -- <dir> --audio-capture`, or the checkbox in Build / Export). In that game F9 starts recording and the next F9 stops and saves a `.mycap` file; on a touch screen, hold three fingers for one second. A toast says what happened. On desktop and Android it keeps the newest 16 auto-named files in the app's cache folder; a browser stops at 16 saves per page session.
 
 ## Opening a capture
 

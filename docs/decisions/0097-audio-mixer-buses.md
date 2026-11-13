@@ -1,6 +1,6 @@
 # 0097. Audio mixer buses, snapshots and ducking over one shared AudioContext
 
-- **Status:** Proposed; amended by 0157 (the model is kept, the Web Audio bus graph is replaced by the core) and 0166 and 0167 (presets gain the music ring pool and the rhythm-mode setting)
+- **Status:** Proposed; amended by 0157 (the model is kept, the Web Audio bus graph is replaced by the core) and 0166 and 0167 (presets gain the music ring pool and the rhythm-mode setting); amended by 0171, 0172 and 0173 (live mixing, ducking modes, the Mixer panel)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -69,3 +69,12 @@ The bus model above is kept. What changes is how the core forms a bus's gain, an
 - **Presence ducking runs in the core** (0172 §1.1). `BUS_PRESENCE` is stamped at the voice's own frame, so a duck starts on the sound that triggers it. "Trigger detection is voice activity" is unchanged for presence rules; `Bus.duckGain` is read from STATUS. Level-based rules (a trigger bus's signal level) are added later in M5 and follow 0172 §1.7.
 - **The reverb send is post-fader** (0172 §3.1): it follows the bus's volume, mutes, duck and snapshot. A muted or turned-down bus no longer feeds the shared reverb; this is the one named sound change (golden `m5/bus-mute-send`). The convolver runs out its tail before it resets.
 - **A structural edit that arrives late** shifts as one sequence by whole quanta, so the change never applies above silence (0172 §1.5).
+
+## Amendment (ADRs 0171, 0172, 0173, 2026-11)
+
+The model above stands; these parts changed.
+- **Buses.** `Bus.volume` is a runtime multiplier on the read-only `authoredVolume`; a script never writes `project.json`. Gain is seven lanes (authored, runtime, snapshot, monitor, dip, duck, automation), each ramping on its own. Mute is authored mute OR script mute OR the Mixer's monitor control. A bus's reverb send is post-fader, so a muted or ducked bus stops feeding the reverb.
+- **Ducking.** A rule has a required `mode`. `presence` is the original voice-activity rule, now decided in the core on the voice's own frame. `level` is a sidechain with `detector` (`peak` or `rms`) and `threshold` (dBFS); a new level rule starts at RMS, −30 dBFS. Rules on one target combine by min. Level rules can't form a cycle; at most 8 level rules and 32 rules in all. Level mode needs the audio core; the Babylon fallback keeps the rule and doesn't duck. This replaces "trigger detection is voice activity, not signal level" and the alternative that deferred level-based ducking.
+- **Edits.** Project Settings and the Mixer panel edit `audio` while Play runs, through the shared Project Settings history (0173; one undo step per gesture). Edits apply live (`mixer.apply`); structural edits dip for 20 ms; keys outside `buses`, `snapshots`, `ducking`, `automation`, `loudnessTargets` and `loudnessResetOnPlay` apply at the next Play. Monitor mute and solo, Compare and the snapshot buttons are never saved.
+
+See [guide/audio-mixing.md](../guide/audio-mixing.md).

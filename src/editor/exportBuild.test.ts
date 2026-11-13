@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameManifest } from "../export/format";
-import { exportProjectBuild } from "./exportBuild";
+import { desktopExportCommand, exportProjectBuild } from "./exportBuild";
 import { openFolderProject, readOnlyProject } from "./projects";
 import { demoFolder, ROOT, type MemoryFileSystem } from "./testing";
 
@@ -40,6 +40,27 @@ async function folderProject(fs: MemoryFileSystem) {
   await new Promise((r) => setTimeout(r, 0)); // blob bytes land
   return project;
 }
+
+describe("the Export dialog's audio capture checkbox (its option reaches the build)", () => {
+  it("checked: game.json carries audioCapture; unchecked, or no option: it doesn't", async () => {
+    const run = async (options?: { audioCapture?: boolean }) => {
+      const fs = demoFolder();
+      const project = await folderProject(fs);
+      await exportProjectBuild(project, fs, "C:\\Out\\flappy", undefined, options);
+      return JSON.parse(fs.files.get("C:\\Out\\flappy\\game.json") as string) as GameManifest;
+    };
+    expect((await run({ audioCapture: true })).audioCapture).toBe(true);
+    expect(await run({ audioCapture: false })).not.toHaveProperty("audioCapture");
+    expect(await run()).not.toHaveProperty("audioCapture");
+  });
+
+  it("the desktop command the dialog shows adds --audio-capture only when it is checked", async () => {
+    const project = await folderProject(demoFolder());
+    expect(desktopExportCommand(project)).not.toContain("--audio-capture");
+    expect(desktopExportCommand(project, false)).not.toContain("--audio-capture");
+    expect(desktopExportCommand(project, true)).toMatch(/--target desktop --audio-capture$/);
+  });
+});
 
 describe("exportProjectBuild", () => {
   it("writes the player, the project's files and its compiled scripts into the folder", async () => {
