@@ -23,6 +23,7 @@ import type { Mixer } from "../../../../engine/audio/mixer";
 import type { DuckingRule } from "../../../../engine/audio/settings";
 import { ASAP, MAX_DUCK_RULES, writeBusDuck, writeBusPresence, type BusDuckRules } from "../wire.generated";
 import type { ClockMap } from "./clock";
+import type { BusIndex } from "./busIndex";
 import type { CommandWriter } from "./commandWriter";
 import type { ReplayBuilder } from "./replay";
 import { VoiceState, type VoiceTable } from "./voiceTable";
@@ -38,6 +39,12 @@ export interface PresenceHost {
   readonly table: Pick<VoiceTable, "capacity" | "state" | "bus" | "startFrame">;
   readonly clockMap: Pick<ClockMap, "stampFor">;
   readonly mixer: Pick<Mixer, "audioSettings" | "busNames">;
+  /**
+   * The bus index (Sm1's slot table, `busIndex.ts`): a rule's buses are found by their slot. Live edits leave a bus's
+   * position in `mixer.busNames` and its slot apart (a bus added into a recycled slot is listed last), so the position
+   * is used only when no index is given (unit tests).
+   */
+  readonly buses?: Pick<BusIndex, "slotOf">;
 }
 
 export class Presence {
@@ -86,11 +93,13 @@ export class Presence {
     this.presenceRecords++;
   }
 
-  /** The mixer's settings changed (its change notification): a new `ducking` list is sent again. */
+  /**
+   * The mixer's settings changed (its change notification): a new `ducking` list is sent again, unless its rules come
+   * out the same on the wire (a rename gives a new list naming the same slots: nothing is sent, §4.7).
+   */
   settingsChanged(mixer: Mixer): void {
     if (this.host && mixer.audioSettings.ducking !== this.rulesFrom) {
-      this.sendRules(mixer.audioSettings.ducking, mixer.busNames);
-      this.resendMask();
+      if (this.sendRules(mixer.audioSettings.ducking, mixer.busNames, false)) this.resendMask();
     }
   }
 
@@ -152,23 +161,27 @@ export class Presence {
     this.presenceRecords++;
   }
 
-  private sendRules(list: readonly DuckingRule[], names: readonly string[]): void {
+  /** Sends `list`'s presence rules as slots (`BUS_DUCK`); with `force` false only when they differ from those last sent. Returns whether it sent. */
+  private sendRules(list: readonly DuckingRule[], names: readonly string[], force = true): boolean {
     const host = this.host!;
     this.rulesFrom = list;
+    const buses = host.buses;
     const out: BusDuckRules[] = [];
     for (const r of list) {
       if (r.mode === "level" || out.length >= MAX_DUCK_RULES) continue;
-      const target = names.indexOf(r.target);
-      const trigger = names.indexOf(r.trigger);
+      const target = buses ? buses.slotOf(r.target) : names.indexOf(r.target);
+      const trigger = buses ? buses.slotOf(r.trigger) : names.indexOf(r.trigger);
       if (target < 0 || trigger < 0 || trigger >= MASK_BITS) continue;
       out.push({ target, trigger, flags: 0, thresholdDb: r.threshold ?? -30, amount: r.amount, attack: r.attack, release: r.release });
     }
+    if (!force && sameRules(out, this.rules)) return false;
     this.rules = out;
     let triggers = 0;
     for (const r of out) triggers |= 1 << r.trigger;
     this.triggers = triggers >>> 0;
     host.writer.busDuck(out);
     this.duckRecords++;
+    return true;
   }
 
   /** The mask at `frame`: the counts with every waiting change after `frame` left out. */
@@ -242,4 +255,15 @@ export class Presence {
     }
     this.pendLen--;
   }
+}
+
+/** Whether two presence rule lists are the same on the wire. */
+function sameRules(a: readonly BusDuckRules[], b: readonly BusDuckRules[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (x.target !== y.target || x.trigger !== y.trigger || x.flags !== y.flags || x.thresholdDb !== y.thresholdDb || x.amount !== y.amount || x.attack !== y.attack || x.release !== y.release) return false;
+  }
+  return true;
 }

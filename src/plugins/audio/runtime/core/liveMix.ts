@@ -11,8 +11,10 @@
 //   - `smoothed`: a compressor parameter, the same `BUS_SLOT`; the core blends over `COMPRESSOR_SMOOTH_MS` (R7).
 //   - `config`: a rename (the slot is kept and the old name aliased: nothing on the wire), a bus's `bed` or
 //     `bedPriority` (the bed plan again), `loudnessResetOnPlay` (the loudness hub).
-//   - `dip` (structural: move, remove, effect reorder or removal, an effect inserted before the end) answers
-//     `restartRequired` until Ma2's dip (W6): the edit is saved and applies at the next Play, so nothing can click.
+//   - `dip` (structural: move, remove, effect reorder or removal, an effect inserted before the end): Ma2's stamped
+//     sequence (`structuralDip.ts`): the model changes at once, the wire is one dip sequence from F0 = now + lookahead.
+//     A fifth effect inserted mid-chain still applies at the next Play. A direct `BUS_SLOT` for a slot whose structural
+//     change is pending is carried by, or stamped behind, that sequence (`StructuralDip.directSlot`).
 //   - `none`: a refused op (`ok: false`, counted) or one that changes nothing (`ok: true`: a commit re-applying what a
 //     preview already set).
 // - **Same batch.** Everything an op sends is staged in the command writer during `apply`, so it goes out with the
@@ -34,7 +36,7 @@ import type { BusIndex } from "./busIndex";
 import type { CommandWriter } from "./commandWriter";
 import type { CoreAutomation } from "./coreAutomation";
 
-/** The answer of a structural op until Ma2's dip (the Mixer panel shows "Applies at the next Play: ..."). */
+/** The answer of a structural op on a backend with no live path (the Mixer panel shows "Applies at the next Play: ..."). */
 export const RESTART_REQUIRED = "moving, removing or reordering buses and effects applies at the next Play";
 
 /** The answer of a fifth effect on a bus (`BUS_SLOT` carries at most `BUS_SLOT_MAX_EFFECTS`; architecture §4.7). */
@@ -51,7 +53,7 @@ export interface LiveMixHost {
   mixer(): Mixer;
   /** The bus index and its slot table (`busIndex.ts`). */
   buses(): BusIndex;
-  writer(): Pick<CommandWriter, "busSlot" | "loudConfig" | "flush" | "pending">;
+  writer(): Pick<CommandWriter, "busSlot" | "loudConfig" | "flush" | "pending" | "busRampFrames" | "sampleRate">;
   automation(): Pick<CoreAutomation, "renameBus">;
   /** The backend's mixer-change work, now: the bed plan check, presence's rules (`BUS_DUCK`) and the lanes (`BUS_RAMP`). */
   syncMix(): void;
@@ -59,6 +61,10 @@ export interface LiveMixHost {
   sending(): boolean;
   /** `ClockMap.nextFirstFrame()`: the frame a posted batch's asap records apply at. */
   firstFrame(): number;
+  /** Ma2: `ClockMap.framesNow()`, the frame a command sent now reaches the core at (the dip's recycling and queue); default `firstFrame`. */
+  framesNow?(): number;
+  /** Ma2: runs `fn` at the end of the current task, where same-task structural ops coalesce (default `queueMicrotask`). */
+  defer?(fn: () => void): void;
   /** A heard time as a stamp (`ClockMap.stampFor(frameOfTime(t))`); undefined: asap. */
   stampAt?(t: number): number | undefined;
   /** The event runtime binds bus automation again from the mixer's settings (`BUS_AUTOMATE`); default: its refresh. */
@@ -87,7 +93,18 @@ export class LiveMix {
   private lastPostMs = Number.NEGATIVE_INFINITY;
   private timerSet = false;
 
-  constructor(protected readonly host: LiveMixHost) {}
+  constructor(protected readonly host: LiveMixHost) {
+    // Ma2: the dip reads the backend through this host's lazy closures.
+    host.dip.bind({
+      mixer: () => host.mixer(),
+      buses: () => host.buses(),
+      writer: () => host.writer(),
+      sending: () => host.sending(),
+      firstFrame: () => host.firstFrame(),
+      ...(host.framesNow ? { framesNow: () => host.framesNow!() } : {}),
+      ...(host.defer ? { defer: (fn: () => void) => host.defer!(fn) } : {}),
+    });
+  }
 
   /** One op on the running mix (§6.2); see the header for what each class sends. */
   apply(op: MixOp): ApplyResult {
@@ -100,12 +117,24 @@ export class LiveMix {
     }
     const cls = opClass(op, before);
     if (cls === "none") return { ok: true, class: "none" };
-    if (cls === "dip") return this.later(cls, RESTART_REQUIRED);
     const buses = host.buses();
+    if (cls === "dip") {
+      if (op.op === "addEffect" && before.buses.find((b) => b.name === op.bus)!.effects.length >= BUS_SLOT_MAX_EFFECTS) return this.later(cls, FIFTH_EFFECT);
+      const r = host.dip.apply(op);
+      if (!r.ok) {
+        this.refused++;
+        return r;
+      }
+      if (r.class === "none") return r;
+      buses.liveSettings(before);
+      host.syncMix();
+      return r;
+    }
     switch (op.op) {
       case "addBus": {
         const name = op.name.trim();
         const parent = before.buses.some((b) => b.name === op.parent) ? op.parent : before.buses[0]!.name;
+        host.dip.recycle(); // R9: a tombstone past its tail frees its slot first
         const slot = buses.addBus(name, parent);
         if (typeof slot !== "number") return this.later(cls, slot.deferred); // Ma3 queues it (W8)
         mixer._applyLive(op, slot);
@@ -116,11 +145,11 @@ export class LiveMix {
       case "addEffect":
         if (before.buses.find((b) => b.name === op.bus)!.effects.length >= BUS_SLOT_MAX_EFFECTS) return this.later(cls, FIFTH_EFFECT);
         mixer._applyLive(op);
-        buses.writeSlot(op.bus);
+        this.slotEdited(op.bus);
         break;
       case "setEffect":
         mixer._applyLive(op);
-        buses.writeSlot(op.bus);
+        this.slotEdited(op.bus);
         break;
       case "renameBus": {
         const to = op.to.trim();
@@ -197,6 +226,17 @@ export class LiveMix {
       if (s >= 0 && !slots.includes(s)) slots.push(s);
     }
     this.host.writer().loudConfig(c.tpGateDbfs, slots);
+  }
+
+  /**
+   * A direct `BUS_SLOT` for `bus` (an effect edit): asap, unless a structural change of its slot is pending, which then
+   * carries it (open in this task) or has it ride its sequence (stamped at its `BUS_SLOT` frame), so the direct record
+   * can never apply the structural change before its dip is at 0.
+   */
+  private slotEdited(bus: string): void {
+    const buses = this.host.buses();
+    const stamp = this.host.dip.directSlot(buses.slotOf(bus));
+    if (stamp !== null) buses.writeSlot(bus, false, stamp);
   }
 
   /** An op left for later: counted, the edit stays saved, the message says when it applies. */

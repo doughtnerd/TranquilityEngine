@@ -305,6 +305,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     },
     sending: () => !this.disposed && !this.recovering && this.host.status === "running",
     firstFrame: () => this.clockMap.nextFirstFrame(),
+    framesNow: () => this.clockMap.framesNow(),
     stampAt: (t) => this.clockMap.stampFor(this.clockMap.frameOfTime(t)),
   });
   /** ADR 0171 (K0): the capture's event taps (`mix/profileSink.ts`); the null object until a recorder runs (Rc3). */
@@ -1007,6 +1008,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     if (this.idlePending) this.checkIdle();
     if (this.stemStaleCount > 0) this.resendStaleStems();
     this.table.drainCommands(this.commandSink);
+    this.dip.update(this.clockMap.framesNow());
     // A3.4a: during a rebuild (or after recovery gave up) no core keeps what is sent; the replay re-derives it all.
     if (this.recovering || this.host.status === "failed") this.writer.clear();
     else if (this.writer.pending > 0) this.writer.flush(this.clockMap.nextFirstFrame());
@@ -1031,6 +1033,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.worklet.disconnect();
     this.contextReplacedInRecovery = false;
     this.replayer.begin();
+    this.dip.replayEndState();
   }
 
   /** STATUS blocks that came from a context since replaced: the clock map's fallback ignores them (A3.4c). */

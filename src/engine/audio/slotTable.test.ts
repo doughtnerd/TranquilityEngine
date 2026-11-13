@@ -66,6 +66,27 @@ describe("SlotTable", () => {
     expect(t.busRef(2)).toBe((1 << 8) | 2);
   });
 
+  it("Ma2: a tombstone whose dip isn't stamped never recycles; `settle` sets its frame to the dip's end + the tail", () => {
+    const { t } = table(TREE);
+    expect(t.remove("Sfx", Number.POSITIVE_INFINITY)).toEqual([2, 3]);
+    expect(t.recycle(1e15, none)).toEqual([]);
+    expect(t.settle([2, 3, 1], 5000)).toEqual([2, 3]); // a live slot is left alone
+    expect(t.slots[2]!.recycleAfterFrame).toBe(5000 + TOMBSTONE_TAIL_FRAMES);
+    expect(t.slots[1]!.recycleAfterFrame).toBe(0);
+    expect(t.recycle(5000 + TOMBSTONE_TAIL_FRAMES - 1, none)).toEqual([]);
+    expect(t.recycle(5000 + TOMBSTONE_TAIL_FRAMES, none)).toEqual([2, 3]);
+  });
+
+  it("Ma2: `replan` lets a tombstone planned on another epoch's frames recycle a tail after the new frame", () => {
+    const { t } = table(TREE);
+    t.remove("Ui", 900_000);
+    t.remove("Music", 100);
+    expect(t.replan(1000)).toEqual([3]); // Music's plan (100 + tail) is already earlier
+    expect(t.slots[3]!.recycleAfterFrame).toBe(1000 + TOMBSTONE_TAIL_FRAMES);
+    expect(t.slots[1]!.recycleAfterFrame).toBe(100 + TOMBSTONE_TAIL_FRAMES);
+    expect(t.recycle(1000 + TOMBSTONE_TAIL_FRAMES, none)).toEqual([1, 3]);
+  });
+
   it("resurrects the same slots until they recycle", () => {
     const { t } = table(TREE);
     t.remove("Sfx", 0);
