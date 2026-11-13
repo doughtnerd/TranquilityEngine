@@ -29,7 +29,7 @@
 use audio_wire::generated as wire;
 
 use crate::bus::BusSlot;
-use self::sidechain_standin as sc;
+use audio_dsp::sidechain as sc;
 use crate::core::Core;
 use crate::counters::{BusDuckGain, MixSections};
 use crate::QUANTUM;
@@ -556,68 +556,5 @@ pub fn reset(core: &mut Core) {
     }
     for x in &mut d.detectors {
         *x = Detector { rule: x.rule, level_db: LEVEL_FLOOR_DB, ..Detector::default() };
-    }
-}
-
-/// **Stand-in** for `audio_dsp::sidechain` (the coordinator's fixed interface, filled by L-Sc1a on
-/// its own branch) so this module builds and tests before that merge. At the merge, delete this
-/// module and replace `use self::sidechain_standin as sc;` above with
-/// `use audio_dsp::sidechain as sc;`. Same signatures and documented semantics.
-#[allow(dead_code)]
-mod sidechain_standin {
-    /// Per-rate coefficients, computed once at configure (libm only).
-    #[derive(Clone, Copy, Debug, Default, PartialEq)]
-    pub struct DetectorCoeffs {
-        pub peak_release: f32,
-        pub rms_alpha: f32,
-    }
-    impl DetectorCoeffs {
-        /// Peak: 10 ms release; RMS: 10 ms one-pole (63 % time constants), per sample.
-        pub fn new(rate: f32) -> Self {
-            let c = if rate > 0.0 { libm::expf(-1.0 / (0.010 * rate)) } else { 0.0 };
-            DetectorCoeffs { peak_release: c, rms_alpha: c }
-        }
-    }
-    /// A detector's carried state; all-zero valid (silence).
-    #[repr(C)]
-    #[derive(Clone, Copy, Debug, Default, PartialEq)]
-    pub struct DetectorState {
-        pub env: f32,
-    }
-    fn db20(x: f32) -> f32 {
-        if x > 0.0 {
-            (20.0 * libm::log10f(x)).max(-240.0)
-        } else {
-            -240.0
-        }
-    }
-    /// Peak: instant attack, `peak_release` one-pole release; the envelope at the quantum's end, dB.
-    pub fn detect_peak(s: &mut DetectorState, c: &DetectorCoeffs, l: &[f32; 128], r: &[f32; 128]) -> f32 {
-        let mut env = s.env;
-        for i in 0..128 {
-            let x = l[i].abs().max(r[i].abs());
-            env = if x > env { x } else { x + c.peak_release * (env - x) };
-        }
-        s.env = env;
-        db20(env)
-    }
-    /// RMS: a one-pole on the mean of l² and r²; 10·log10(ms) at the quantum's end (−240 floor).
-    pub fn detect_rms(s: &mut DetectorState, c: &DetectorCoeffs, l: &[f32; 128], r: &[f32; 128]) -> f32 {
-        let mut env = s.env;
-        for i in 0..128 {
-            let x = 0.5 * (l[i] * l[i] + r[i] * r[i]);
-            env = x + c.rms_alpha * (env - x);
-        }
-        s.env = env;
-        if env > 0.0 {
-            (10.0 * libm::log10f(env)).max(-240.0)
-        } else {
-            -240.0
-        }
-    }
-    /// depth = clamp((level_db − threshold_db) / 6, 0, 1); goal = 1 − depth × (1 − amount).
-    pub fn gain_goal(level_db: f32, threshold_db: f32, amount: f32) -> f32 {
-        let depth = ((level_db - threshold_db) / 6.0).clamp(0.0, 1.0);
-        1.0 - depth * (1.0 - amount)
     }
 }
