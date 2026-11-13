@@ -819,12 +819,21 @@ fn ladder(core: &mut Core) {
     if frame - l.streak_start < sustain {
         return;
     }
-    l.streak_start = frame;
     // The steps, in order. C3 adds the zone steps after the bed-idle one.
-    if l.steps & step::BED_IDLE == 0 && max_beds > 0 {
-        l.steps |= step::BED_IDLE;
-        l.m3_shed = l.m3_shed.saturating_add(1);
+    if l.steps & step::BED_IDLE != 0 || max_beds == 0 {
+        l.streak_start = frame;
+        return;
     }
+    // Ld7 (ARCH §4.8): the loudness step goes first while buses other than master are metered,
+    // and this step a whole second after it; until then the run goes on and the step waits.
+    if !crate::loudness::audible_steps_may_start(core) {
+        return;
+    }
+    let Some(mut beds) = view(&mut core.regions_mut().beds[..]) else { return };
+    let l = &mut beds.header().ladder;
+    l.streak_start = frame;
+    l.steps |= step::BED_IDLE;
+    l.m3_shed = l.m3_shed.saturating_add(1);
 }
 
 /// `m3Shed`'s bed part: the ladder steps in force (0 without a `Beds` region; STATUS adds the zone

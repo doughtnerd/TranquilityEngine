@@ -52,7 +52,10 @@
 //! the releasing slots' tails with a 100 ms fade (and every release after it, while the step is in force);
 //! step 2, after another second of underruns, allows one active slot fewer (the
 //! active slot with the lowest wet is evicted; a start past the limit is `refusedSlot`). Each step
-//! in force counts in [`shed_steps`] (main's `m3Shed`). It never touches beds or HRTF. ADR 0170:
+//! in force counts in [`shed_steps`] (main's `m3Shed`). It never touches beds or HRTF. Ld7 (R21):
+//! while buses other than master are metered, the ladder's first step is `loudness.rs`'s (checked
+//! here, before the zone steps), and the zone steps wait a second more
+//! (`loudness::audible_steps_may_start`). ADR 0170:
 //! once underruns stop, `cap.rs`'s recovery clock gives the steps back one at a time, step 2 first
 //! ([`restore_step`]): the limit lifts, so main's next ZONE_CONFIG starts the zone again with its
 //! 100 ms fade-in; then releases ring out in full again (a tail already cut stays cut).
@@ -975,6 +978,9 @@ pub fn shared_return(core_state: &mut [u8]) -> Option<[f32; QUANTUM]> {
 /// the STATUS zone fields. Nothing happens without zone slots.
 #[inline(never)]
 pub(crate) fn after_render(core: &mut Core, note: RenderNote) {
+    // Ld7 (R21): the ladder's loudness step, its first, checked before the zone steps (with or
+    // without zone slots).
+    crate::loudness::ladder(core);
     let (count, stride) = geometry(&core.regions().zones[..]);
     if count == 0 {
         return;
@@ -1032,6 +1038,13 @@ fn ladder(core: &mut Core, frame: u64, at_floor: bool, underrun: bool) {
     if frame.saturating_sub(a.pressure_since) < a.ladder_frames as u64 || a.shed_steps >= LADDER_STEPS {
         return;
     }
+    // Ld7 (ARCH §4.8): the loudness step goes first while buses other than master are metered,
+    // and the zone steps a whole second after it; until then the run goes on and the step waits.
+    if !crate::loudness::audible_steps_may_start(core) {
+        return;
+    }
+    let regions = core.regions_mut();
+    let a = area_mut(regions.core_state);
     a.pressure_since = frame;
     a.shed_steps += 1;
     let a = *a;
