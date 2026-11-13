@@ -86,7 +86,10 @@ async function codeOf(p: Promise<unknown>): Promise<string> {
   return "none";
 }
 
-describe("the capture Worker on a worker_threads thread", () => {
+// Every assertion here is on work done (records scanned, keyframes counted, bytes transferred, error codes); the times
+// are only logged. The timeout is the harness's patience for a real thread decoding a 10-minute capture on a busy
+// machine (about 2.4 s alone, over the 5 s default under load), not a performance bound.
+describe("the capture Worker on a worker_threads thread", { timeout: 120_000 }, () => {
   it("opens the 10-minute capture, seeks and returns transferred ranges (times logged)", async () => {
     const file = compress(longCapture(600));
     const bytes = buf(file);
