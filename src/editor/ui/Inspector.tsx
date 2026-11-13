@@ -56,6 +56,7 @@ import { openScript, scriptFor } from "../code/codeState";
 import { applyOverrides, applyOverridesTo, createPrefabFromNodes, createPrefab, findInner, isInnerPropertyOverridden, nodePropertyCommand, revertInnerProperty } from "../prefabs";
 import { currentProject, docVersion, openScene, scriptsVersion, selectedKeys, selectedUIElement, selection, status, type OpenScene } from "../state";
 import { componentHeaderActions, type ComponentHeaderActionContribution } from "../sdk/contributions";
+import { isKeyboardEvent, ownerDocumentOf } from "../windows/dom";
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -484,7 +485,8 @@ function startReorder(e: PointerEvent, scene: OpenScene, path: NodePath, info: C
   grip.setPointerCapture(e.pointerId);
   const self = grip.closest(".component");
   const move = (m: PointerEvent) => {
-    const cards = [...document.querySelectorAll<HTMLElement>(".inspector-body .component[data-reorder]")];
+    // This Inspector's cards (its own document, its own body: there may be more than one, ADR 0174).
+    const cards = [...(grip.closest(".inspector-body") ?? grip.ownerDocument).querySelectorAll<HTMLElement>(".inspector-body .component[data-reorder]")];
     let best: { card: HTMLElement; after: boolean; distance: number } | null = null;
     for (const card of cards) {
       const r = card.getBoundingClientRect();
@@ -1078,13 +1080,14 @@ function ComponentMenu(props: { scene: OpenScene; title: string; worlds: { targe
   useEffect(() => {
     if (!open) return;
     const close = (e: Event) => {
-      if (e instanceof KeyboardEvent ? e.key === "Escape" : !ref.current?.contains(e.target as Node)) setOpen(false);
+      if (isKeyboardEvent(e) ? e.key === "Escape" : !ref.current?.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener("pointerdown", close, true);
-    document.addEventListener("keydown", close, true);
+    const doc = ownerDocumentOf(ref.current); // the window it's in (a detached panel window, ADR 0174)
+    doc.addEventListener("pointerdown", close, true);
+    doc.addEventListener("keydown", close, true);
     return () => {
-      document.removeEventListener("pointerdown", close, true);
-      document.removeEventListener("keydown", close, true);
+      doc.removeEventListener("pointerdown", close, true);
+      doc.removeEventListener("keydown", close, true);
     };
   }, [open]);
   const active = worlds[worlds.length - 1].setting;

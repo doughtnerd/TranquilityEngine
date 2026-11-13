@@ -19,7 +19,7 @@ import { extname, join, normalize, resolve, sep } from "node:path";
 const port = process.env.E2E_PORT ?? "4174";
 const STAMP = "dist/editor/.e2e-build";
 /** What the editor and player builds read. Tests, docs and native sources are left out. */
-const INPUTS = ["src", "samples", "editor.html", "projects.html", "player.html", "index.html", "package-lock.json", "patches", "tsconfig.json", "vite.shared.ts", "vite.editor.config.ts", "vite.player.config.ts"];
+const INPUTS = ["src", "samples", "editor.html", "projects.html", "panel-window.html", "player.html", "index.html", "package-lock.json", "patches", "tsconfig.json", "vite.shared.ts", "vite.editor.config.ts", "vite.player.config.ts"];
 
 function git(args) {
   const r = spawnSync("git", args, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });

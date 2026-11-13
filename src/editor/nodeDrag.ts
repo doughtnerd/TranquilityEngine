@@ -10,6 +10,7 @@ import type { SceneDocument } from "./document";
 import { isInsidePrefab, moveNodes, whyNotMovable } from "./hierarchyEdit";
 import { subtreeRoots } from "./nodeClipboard";
 import { openScene, playState, select, selectedKeys, status } from "./state";
+import { eventWindow } from "./windows/dom";
 
 const DRAG_THRESHOLD = 5;
 
@@ -67,26 +68,29 @@ export function startNodeDrag(e: PointerEvent, key: string): void {
   const startX = e.clientX, startY = e.clientY;
   let active = false;
   let keys: readonly string[] = [key];
+  // The window the drag started in: a detached panel window's own (ADR 0174). Dragging between windows isn't supported.
+  const win = eventWindow(e);
+  const doc = win.document;
 
   const update = (m: PointerEvent) => {
     if (!active && Math.hypot(m.clientX - startX, m.clientY - startY) < DRAG_THRESHOLD) return;
     const scene = openScene.value;
     if (!active && scene) keys = draggedKeys(scene.doc, key, selectedKeys.peek());
     active = true;
-    const target = hierarchyTargetAt(m.clientX, m.clientY);
+    const target = hierarchyTargetAt(m.clientX, m.clientY, doc);
     const hierarchy = target?.kind === "hierarchy" ? target : null;
     const problem =
       !scene ? "no scene open"
       : playState.value !== "edit" ? "stop playing to edit the scene"
-      : !hierarchy && !keys.some(isInsidePrefab) && overPrefabInsides(m.clientX, m.clientY) ? "nodes inside a prefab can't take children here"
+      : !hierarchy && !keys.some(isInsidePrefab) && overPrefabInsides(m.clientX, m.clientY, doc) ? "nodes inside a prefab can't take children here"
       : nodeDropProblem(scene.doc, key, hierarchy, keys);
     nodeDrag.value = { key, keys, x: m.clientX, y: m.clientY, target: problem ? null : hierarchy, problem };
   };
   const finish = (apply: boolean) => {
-    window.removeEventListener("pointermove", update);
-    window.removeEventListener("pointerup", up);
-    window.removeEventListener("pointercancel", cancel);
-    window.removeEventListener("keydown", key_, true);
+    win.removeEventListener("pointermove", update);
+    win.removeEventListener("pointerup", up);
+    win.removeEventListener("pointercancel", cancel);
+    win.removeEventListener("keydown", key_, true);
     const state = nodeDrag.value;
     nodeDrag.value = null;
     if (!apply || !active || !state?.target) return;
@@ -110,10 +114,10 @@ export function startNodeDrag(e: PointerEvent, key: string): void {
     k.stopPropagation();
     finish(false);
   };
-  window.addEventListener("pointermove", update);
-  window.addEventListener("pointerup", up);
-  window.addEventListener("pointercancel", cancel);
-  window.addEventListener("keydown", key_, true);
+  win.addEventListener("pointermove", update);
+  win.addEventListener("pointerup", up);
+  win.addEventListener("pointercancel", cancel);
+  win.addEventListener("keydown", key_, true);
 }
 
 /** Text for the ghost label while dragging a node. */

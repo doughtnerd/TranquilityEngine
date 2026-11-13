@@ -97,7 +97,7 @@ function LiveRename(props: { node: GameObject }) {
       aria-label="Node name"
       ref={(input) => {
         // Not a controlled value: the tree re-renders every 300 ms, which would reset the typing.
-        if (input && document.activeElement !== input) {
+        if (input && input.ownerDocument.activeElement !== input) {
           input.value = props.node.name;
           input.focus();
           input.select();
