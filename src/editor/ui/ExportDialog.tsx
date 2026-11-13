@@ -18,6 +18,7 @@ type Target = "web" | "desktop";
 export function ExportDialog() {
   const project = currentProject.value;
   const [target, setTarget] = useState<Target>("web");
+  const [audioCapture, setAudioCapture] = useState(false);
   const [fs, setFs] = useState<FileSystem | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "info" | "error"; text: string; folder?: string } | null>(null);
@@ -42,7 +43,7 @@ export function ExportDialog() {
     setBusy(true);
     setMessage({ kind: "info", text: "Compiling scripts…" });
     try {
-      const plan = await exportProjectBuild(project, fs, out, (done, total) => setMessage({ kind: "info", text: `Writing files… ${done} of ${total}` }));
+      const plan = await exportProjectBuild(project, fs, out, (done, total) => setMessage({ kind: "info", text: `Writing files… ${done} of ${total}` }), { audioCapture });
       const text = `Exported ${plan.manifest.name} to ${out}. Put the folder on any web host, or run node serve.mjs in it to play locally.`;
       setMessage({ kind: "info", text, folder: out });
       status.value = { kind: "info", text };
@@ -54,7 +55,7 @@ export function ExportDialog() {
       setBusy(false);
     }
   };
-  const command = desktopExportCommand(project);
+  const command = desktopExportCommand(project, audioCapture);
 
   return (
     <div class="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && close()}>
@@ -83,6 +84,13 @@ export function ExportDialog() {
             Desktop app
           </label>
         </fieldset>
+        <label class="export-audio-capture" title="Press F9 (or hold three fingers for a second) in the exported game to record its audio mix, then again to save a .mycap file the Profiler opens">
+          <input type="checkbox" name="export-audio-capture" checked={audioCapture} disabled={busy} onChange={(e) => setAudioCapture(e.currentTarget.checked)} />
+          Let the game record its audio mix (F9)
+        </label>
+        <p class="export-audio-capture-note" style={{ color: "var(--muted)", fontSize: "12px", margin: "4px 0 10px" }}>
+          Players press F9, or hold three fingers for a second, to start recording and again to save a .mycap file for the Profiler. A capture is labelled: it holds the project's audio settings, name and version, the names of its clips, buses, events and parameters, and part of the browser's user-agent.
+        </p>
         {target === "web" ? (
           <>
             <p>A folder you can put on any web host. Browsers don't run it from disk: run node serve.mjs in it to play locally.</p>

@@ -2,7 +2,7 @@
  * `npm run export`: build a project into a game (ADR 0041).
  *
  * ```sh
- * npm run export -- <projectDir> [--out <dir>] [--target web|desktop] [--scene <path>]
+ * npm run export -- <projectDir> [--out <dir>] [--target web|desktop] [--scene <path>] [--audio-capture]
  * ```
  *
  * - `--target web` (default) writes a static web build: the prebuilt player (dist/player/, built
@@ -26,6 +26,8 @@ Options:
   --out DIR        Output folder (default: <projectDir>/dist/<target>)
   --target T       web (default): a static web build; desktop: a Tauri app of it
   --scene PATH     The scene to start in (default: scenes/main.scene.json, else the first scene)
+  --audio-capture  Ship the audio capture trigger: F9 (or a one-second three-finger hold) records the game's audio mix and
+                   saves a .mycap file for the editor's Profiler. The file names the project's clips, buses and events.
   --build          Desktop: run tauri build (default when Rust is installed)
   --no-build       Desktop: only write the Tauri project
   -h, --help       Show this help`;
@@ -58,6 +60,9 @@ export function parseArgs(argv: readonly string[]): ExportOptions | "help" {
       }
       case "--scene":
         options.mainScene = value().replace(/\\/g, "/").replace(/^\.?\//, "");
+        break;
+      case "--audio-capture":
+        options.audioCapture = true;
         break;
       case "--build":
         options.tauriBuild = true;

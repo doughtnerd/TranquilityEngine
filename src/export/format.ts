@@ -49,6 +49,11 @@ export interface GameManifest {
    * its compiled entry module, which the player activates after the first-party plugins. Omitted when none.
    */
   readonly plugins?: readonly BuiltPlugin[];
+  /**
+   * The Export option "audio capture" (ADR 0171 amended by 0172, X1): the player installs the built-in capture trigger
+   * (F9, a one-second three-finger hold). Omitted when off, so a build without the option carries no trace of it.
+   */
+  readonly audioCapture?: true;
 }
 
 /** Where a compiled script, or a JSON file's module, goes in the build. */

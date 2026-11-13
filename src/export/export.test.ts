@@ -5,6 +5,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { appIdentifier, desktopProjectFiles, slug } from "./desktop";
 import { modulePath, relativeSpecifier, type GameManifest } from "./format";
 import { exportProject } from "./node";
+import { USAGE, parseArgs } from "./main";
 import { ExportError, isExportedFile, isOutputInsideProject, planWebBuild, type BuildSource } from "./webBuild";
 import { typescript } from "../editor/moduleImports";
 
@@ -109,6 +110,23 @@ describe("planWebBuild", () => {
   });
 });
 
+describe("the audio capture option", () => {
+  it("planWebBuild writes the field only when asked", async () => {
+    expect((await planWebBuild(source())).manifest).not.toHaveProperty("audioCapture");
+    expect((await planWebBuild(source(), { audioCapture: false })).manifest).not.toHaveProperty("audioCapture");
+    const plan = await planWebBuild(source(), { audioCapture: true });
+    expect(plan.manifest.audioCapture).toBe(true);
+    expect(JSON.parse(plan.generated.get("game.json")!)).toMatchObject({ audioCapture: true });
+  });
+
+  it("the command line: --audio-capture sets it, nothing sets it otherwise, and the help says what it does", () => {
+    expect(parseArgs(["proj"])).toEqual({ projectDir: "proj" });
+    expect(parseArgs(["proj", "--audio-capture"])).toEqual({ projectDir: "proj", audioCapture: true });
+    expect(parseArgs(["--audio-capture", "proj", "--target", "desktop", "--no-build"])).toMatchObject({ projectDir: "proj", audioCapture: true, target: "desktop", tauriBuild: false });
+    expect(USAGE).toMatch(/--audio-capture[\s\S]*F9/);
+  });
+});
+
 describe("desktop project", () => {
   it("names the app after the project and points the window at the web build", () => {
     const files = desktopProjectFiles({ name: "Flappy Bird", settings: { display: { width: 720, height: 680 } } });
@@ -170,6 +188,24 @@ describe("exportProject (Node)", () => {
     expect(manifest).toMatchObject({ name: "flappy", mainScene: "scenes/main.scene.json" });
     expect(manifest.scripts.map((s) => s.source)).toContain("scripts/behaviors/GameManager.ts");
     expect(result.plan.manifest).toEqual(manifest);
+  });
+
+  it("--audio-capture / audioCapture writes the manifest field the player reads; without it the manifest has none", async () => {
+    const project = temp();
+    mkdirSync(join(project, "scenes"));
+    writeFileSync(join(project, "project.json"), '{ "name": "Tiny" }');
+    writeFileSync(join(project, "scenes", "main.scene.json"), "{}");
+    const manifestOf = (out: string) => JSON.parse(readFileSync(join(out, "game.json"), "utf8")) as GameManifest;
+    const off = join(temp(), "web");
+    await exportProject({ projectDir: project, out: off, playerDir: fakePlayer() });
+    expect(manifestOf(off)).not.toHaveProperty("audioCapture");
+    const explicitOff = join(temp(), "web");
+    await exportProject({ projectDir: project, out: explicitOff, playerDir: fakePlayer(), audioCapture: false });
+    expect(manifestOf(explicitOff)).not.toHaveProperty("audioCapture");
+    const on = join(temp(), "web");
+    const result = await exportProject({ projectDir: project, out: on, playerDir: fakePlayer(), audioCapture: true });
+    expect(manifestOf(on).audioCapture).toBe(true);
+    expect(result.plan.manifest).toEqual(manifestOf(on));
   });
 
   it("replaces an earlier build, and refuses a folder holding something else", async () => {

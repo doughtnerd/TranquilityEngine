@@ -36,6 +36,8 @@ export interface BuildSource {
 export interface BuildOptions {
   /** The scene start-up Worlds without scenes of their own load; default `scenes/main.scene.json`, else the first scene. */
   readonly mainScene?: string;
+  /** Write `audioCapture: true` into the manifest, so the player installs the capture trigger (default off). */
+  readonly audioCapture?: boolean;
 }
 
 /** What a web build is made of, before anything is written. */
@@ -175,6 +177,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     files: copies,
     scripts: order.map((path) => ({ source: path, module: modulePath(path) })),
     ...(plugins.length > 0 && { plugins }),
+    ...(options.audioCapture === true && { audioCapture: true as const }),
   };
   const assetRefs = projectScriptAssetRefs(source.scripts.values(), (p) => copies.includes(p));
   if (assetRefs.length) (manifest as { assetRefs?: readonly string[] }).assetRefs = assetRefs;
