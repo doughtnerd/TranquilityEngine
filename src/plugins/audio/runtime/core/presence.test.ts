@@ -1,10 +1,10 @@
 // Dp1 (api-and-models §4.2 `BUS_DUCK`, `BUS_PRESENCE`): what presence sends, on a fake writer and clock. A record's
 // mask is the presence at its own frame; a stamped change waiting for its frame is sent again when a later-written,
-// earlier-applying change alters the mask there; rules carry presence rules only, as slots.
+// earlier-applying change alters the mask there; rules carry presence and level rules, as slots.
 import { describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
-import type { BusDuckRules } from "../wire.generated";
+import { DUCK_FLAG_LEVEL, DUCK_FLAG_RMS, MAX_LEVEL_RULES, type BusDuckRules } from "../wire.generated";
 import { Presence } from "./presence";
 import { VoiceState } from "./voiceTable";
 
@@ -37,7 +37,7 @@ function rig(settings: AudioSettings = triggers()) {
 }
 
 describe("presence (Dp1)", () => {
-  it("configure sends the presence rules as slots (level rules and unknown buses left out) and the mask", () => {
+  it("configure sends the rules as slots (level rules with their flags; unknown buses left out) and the mask", () => {
     const s: AudioSettings = {
       ...defaultAudioSettings(),
       ducking: [
@@ -57,6 +57,7 @@ describe("presence (Dp1)", () => {
     expect(r.ducks).toEqual([
       [
         { target: names.indexOf("Music"), trigger: names.indexOf("Voice"), flags: 0, thresholdDb: -30, amount: 0.4, attack: 0.1, release: 0.5 },
+        { target: names.indexOf("Music"), trigger: names.indexOf("SFX"), flags: DUCK_FLAG_LEVEL | DUCK_FLAG_RMS, thresholdDb: -30, amount: 0.5, attack: 0.1, release: 0.5 },
         { target: names.indexOf("SFX"), trigger: names.indexOf("UI"), flags: 0, thresholdDb: -30, amount: 0.7, attack: 0, release: 0.2 },
       ],
     ]);
@@ -120,5 +121,48 @@ describe("presence (Dp1)", () => {
     r.start(2, 3);
     expect(r.sent.slice(5)).toEqual([{ mask: (1 << 2) | (1 << 3), at: undefined }]);
     expect(r.p.mask).toBe((1 << 2) | (1 << 3));
+  });
+});
+
+describe("level rules on the wire (G7a)", () => {
+  const level = (trigger: string, extra: object = {}) => ({ target: "Music", trigger, mode: "level" as const, amount: 0.3, attack: 0.01, release: 0.2, ...extra });
+
+  it("a level rule carries DUCK_FLAG_LEVEL, RMS unless the detector is peak, and its threshold; its trigger sends no presence", () => {
+    const r = rig({ ...defaultAudioSettings(), ducking: [level("SFX"), level("UI", { detector: "peak", threshold: -12 }), level("Voice", { detector: "rms", threshold: -40 })] });
+    r.p.configured(r.mixer, []);
+    const n = r.mixer.busNames;
+    expect(r.ducks).toEqual([
+      [
+        { target: n.indexOf("Music"), trigger: n.indexOf("SFX"), flags: DUCK_FLAG_LEVEL | DUCK_FLAG_RMS, thresholdDb: -30, amount: 0.3, attack: 0.01, release: 0.2 },
+        { target: n.indexOf("Music"), trigger: n.indexOf("UI"), flags: DUCK_FLAG_LEVEL, thresholdDb: -12, amount: 0.3, attack: 0.01, release: 0.2 },
+        { target: n.indexOf("Music"), trigger: n.indexOf("Voice"), flags: DUCK_FLAG_LEVEL | DUCK_FLAG_RMS, thresholdDb: -40, amount: 0.3, attack: 0.01, release: 0.2 },
+      ],
+    ]);
+    // Voices on a level rule's trigger change no presence record (the core reads the bus's signal).
+    r.sent.length = 0;
+    r.start(0, n.indexOf("SFX"));
+    r.start(1, n.indexOf("UI"), 1_000);
+    expect(r.sent).toEqual([]);
+  });
+
+  it("at most MAX_LEVEL_RULES (8) level rules go; a 9th is left out, a presence rule after it still goes", () => {
+    const tens = Array.from({ length: MAX_LEVEL_RULES + 1 }, (_, k) => level("SFX", { threshold: -50 + k }));
+    const presence = { target: "Music", trigger: "UI", mode: "presence" as const, amount: 0.5, attack: 0, release: 0 };
+    const r = rig({ ...defaultAudioSettings(), ducking: [...tens, presence] });
+    r.p.configured(r.mixer, []);
+    const sent = r.ducks[0]!;
+    expect(sent.filter((x) => x.flags & DUCK_FLAG_LEVEL).map((x) => x.thresholdDb)).toEqual(tens.slice(0, MAX_LEVEL_RULES).map((x) => x.threshold));
+    expect(sent).toHaveLength(MAX_LEVEL_RULES + 1);
+    expect(sent.at(-1)!.flags).toBe(0);
+    expect(sent.at(-1)!.trigger).toBe(r.mixer.busNames.indexOf("UI"));
+  });
+
+  it("a live ducking edit adding a level rule sends it (and an edit changing only the detector sends again)", () => {
+    const r = rig({ ...defaultAudioSettings(), ducking: [] });
+    r.p.configured(r.mixer, []);
+    r.p.writeDucking([level("SFX")]);
+    expect(r.ducks.at(-1)!.map((x) => x.flags)).toEqual([DUCK_FLAG_LEVEL | DUCK_FLAG_RMS]);
+    r.p.writeDucking([level("SFX", { detector: "peak" })]);
+    expect(r.ducks.at(-1)!.map((x) => x.flags)).toEqual([DUCK_FLAG_LEVEL]);
   });
 });
