@@ -187,3 +187,79 @@ fn drain_into(dst: &mut [f32], src: &mut [f32]) {
         *d += core::mem::take(s);
     }
 }
+
+// --- The bus reverb send (ADR 0172 §3.1, O1: post-fader; architecture §4.5 "Post-fader sends",
+// R11; api-and-models §4.6). K1 routes it; Rv1 (W3) fills the scaling and the run-out. ---
+
+/// The `Sends` region's header (64 B): Rv1's run-out state. All-zero valid.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SendHead {
+    /// Rv1: quanta the convolver's input has been silent (the run-out: IR length plus
+    /// `IDLE_MARGIN_QUANTA`, then reset, ARCH §3.3).
+    pub silent_quanta: u32,
+    /// Rv1: non-zero while the convolver runs out (no send left, tail still ringing).
+    pub running_out: u32,
+    pub _reserved: [u32; 14],
+}
+
+/// The `Sends` region (ARCH §6): the header and the shared bus send scratch, planar stereo
+/// (2 × 128 f32 = 1 KB, one buffer for every bus, since buses mix one at a time): 1,088 B on every
+/// preset. `#[repr(C)]`, all-zero valid (an empty scratch).
+#[repr(C)]
+pub struct SendArea {
+    pub head: SendHead,
+    /// The bus's reverb contribution, left: each reverb-send slot's `send × signal at that slot`
+    /// (`FxChain::process`). Zero between buses ([`feed`] clears it).
+    pub l: [f32; QUANTUM],
+    /// The same, right.
+    pub r: [f32; QUANTUM],
+}
+
+/// The `Sends` region's size.
+pub const REGION_BYTES: usize = core::mem::size_of::<SendArea>();
+
+const _: () = assert!(REGION_BYTES == 64 + 1024, "ARCH §6: the 1 KB send scratch plus Rv1's 64 B header");
+const _: () = assert!(core::mem::align_of::<SendArea>() <= crate::layout::REGION_ALIGN);
+
+/// The send area in the `Sends` region (`None` when the region is too short, never after
+/// `Core::new`).
+pub fn area(region: &mut [u8]) -> Option<&mut SendArea> {
+    if region.len() < REGION_BYTES {
+        return None;
+    }
+    // SAFETY: the region is 64-byte aligned (Layout), at least REGION_BYTES long (checked) and
+    // zeroed at init; all-zero is a valid SendArea (integers and floats). Only `bus::mixdown`
+    // (through this function) and this module view these bytes.
+    Some(unsafe { &mut *(region.as_mut_ptr() as *mut SendArea) })
+}
+
+/// The bus reverb send into the shared convolver's input (`bus::mixdown`, after the bus's gain
+/// stage): `area.l`, `area.r` hold this bus's reverb contribution for the quantum; they are added
+/// into `rev_l`, `rev_r` (the convolver input) and cleared. `gain` is what `lanes::apply`
+/// multiplied the bus by, and `curve` its per-frame gain when that is `Gain::Curve`.
+///
+/// K1: adds **unscaled** whatever `gain` (today's pre-fader send, bit-identical: the scratch
+/// starts at +0, so `rev + (0 + x)` is `rev + x` bit for bit; a bus with two or more send slots
+/// sums them first, `rev + (a + b)`, which may differ from today's `(rev + a) + b` in the last
+/// bit, and no golden has one). Rv1: scales by `gain` (post-fader, O1), skipping the multiply on
+/// `Gain::Unity` (bit-identical), and notes the input for the run-out. Called only for a bus whose
+/// chain wrote the scratch this quantum.
+#[inline(never)]
+pub fn feed(area: &mut SendArea, gain: crate::lanes::Gain, curve: &[f32; QUANTUM], rev_l: &mut [f32], rev_r: &mut [f32]) {
+    let _ = (gain, curve);
+    drain_into(rev_l, &mut area.l);
+    drain_into(rev_r, &mut area.r);
+}
+
+/// Whether the shared convolver runs this quantum (`bus::mixdown`, after every bus fed it):
+/// `has_reverb` (a configured bus has a reverb send) or `sent` (a send fed it this quantum).
+/// `reverb` is the convolver's region (Rv1 resets it at the end of a run-out). K1: today's rule.
+/// Rv1: the run-out, which keeps it running until its input has been silent for the IR length plus
+/// `IDLE_MARGIN_QUANTA`, then resets it (ARCH §3.3), so removing the last send no longer cuts the
+/// tail.
+#[inline]
+pub fn convolver_should_run(area: &mut SendArea, reverb: &mut [u8], has_reverb: bool, sent: bool) -> bool {
+    let _ = (area, reverb);
+    has_reverb || sent
+}

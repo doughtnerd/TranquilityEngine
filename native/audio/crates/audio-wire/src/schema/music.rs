@@ -20,7 +20,7 @@ macro_rules! c {
 
 /// Every M4 constant (API section 4.5). The architect quotes these by name.
 pub const CONSTANTS: &[Const] = &[
-    c!("HEADER_BYTES", 176, "the STATUS header with the M4 fields, envelope included (STATUS_HEADER_BYTES); sections start here"),
+    c!("HEADER_BYTES", 256, "the STATUS header with the M5 fields, envelope included (STATUS_HEADER_BYTES); sections start here"),
     c!("MAX_MUSIC_RINGS", 16, "most music rings (init max_music_rings 0..=16, the musicRings section's cap)"),
     c!("MAX_GROUPS", 16, "group table entries in the core (ADR 0167 R9)"),
     c!("MAX_GROUP_MEMBERS", 32, "members of a group the core's table holds; a larger gate size is refused and counted"),

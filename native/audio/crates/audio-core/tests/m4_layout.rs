@@ -34,7 +34,11 @@ fn presets() -> Vec<InitParams> {
 
 #[test]
 fn the_m4_regions_are_laid_out_before_the_arena_on_every_preset() {
-    assert_eq!(&REGION_ORDER[REGION_ORDER.len() - 4..], &[RegionKind::Due, RegionKind::Curves, RegionKind::Groups, RegionKind::Arena]);
+    // 0171/0172 M5 (K1) appends Lanes, Duck, Loudness and Sends after Groups, before the arena.
+    assert_eq!(
+        &REGION_ORDER[REGION_ORDER.len() - 8..],
+        &[RegionKind::Due, RegionKind::Curves, RegionKind::Groups, RegionKind::Lanes, RegionKind::Duck, RegionKind::Loudness, RegionKind::Sends, RegionKind::Arena]
+    );
     assert_eq!(wire::DUE_RECORDS as usize + wire::PARKED_RECORDS as usize, 384);
     for p in presets() {
         let layout = Layout::new(&p);
@@ -59,7 +63,8 @@ fn the_m4_regions_are_laid_out_before_the_arena_on_every_preset() {
         // The arena is still last, on a page, after the groups.
         let last = layout.regions().last().unwrap();
         assert_eq!(last.0, RegionKind::Arena);
-        assert_eq!(arena.offset, groups.end().next_multiple_of(PAGE_BYTES));
+        assert_eq!(arena.offset, layout.region(RegionKind::Sends).end().next_multiple_of(PAGE_BYTES), "after M5's regions (K1)");
+        assert!(layout.region(RegionKind::Lanes).offset >= groups.end());
         assert!(layout.regions().all(|(k, r)| k == RegionKind::Arena || r.end() <= arena.offset));
         if p == preset(48_000.0, 4_096, 128, 16) {
             eprintln!("default preset at 48 kHz: Due {due:?}, Curves {curves:?}, Groups {groups:?}, Arena at {}", arena.offset);

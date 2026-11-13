@@ -88,12 +88,24 @@ pub enum RegionKind {
     Curves,
     /// 0166 M4a: the group table (`groups::REGION_BYTES`: `MAX_GROUPS × 160` = 2,560 B).
     Groups,
+    /// 0171/0172 M5 (K1): the gain lanes, one `lanes::BusLanes` per bus slot plus the output's
+    /// (`lanes::region_bytes`: `(max_buses + 1) × 128` = 4,224 B at 32 buses).
+    Lanes,
+    /// 0171/0172 M5 (K1): the duck rules, followers and detectors (`duck::REGION_BYTES`, ≈ 1.4 KB
+    /// on every preset).
+    Duck,
+    /// 0171/0172 M5 (K1): the loudness meters (`loudness::REGION_BYTES`: 64 + 9 × (1,512 + 128) =
+    /// 14,824 B on every preset).
+    Loudness,
+    /// 0171/0172 M5 (K1): the shared bus send scratch and the reverb run-out
+    /// (`sends::REGION_BYTES`: 1,024 + 64 = 1,088 B on every preset).
+    Sends,
     /// The clip arena's initial reserve. Always last.
     Arena,
 }
 
 /// The layout order. Append-only before `Arena` (see the module comment).
-pub const REGION_ORDER: [RegionKind; 20] = [
+pub const REGION_ORDER: [RegionKind; 24] = [
     RegionKind::Output,
     RegionKind::CoreState,
     RegionKind::Pending,
@@ -113,6 +125,10 @@ pub const REGION_ORDER: [RegionKind; 20] = [
     RegionKind::Due,
     RegionKind::Curves,
     RegionKind::Groups,
+    RegionKind::Lanes,
+    RegionKind::Duck,
+    RegionKind::Loudness,
+    RegionKind::Sends,
     RegionKind::Arena,
 ];
 
@@ -124,6 +140,14 @@ pub const M4_REGIONS_BYTES: usize = crate::due::REGION_BYTES + crate::curves::RE
 pub const M4_REGIONS_SPAN: usize = align_up(align_up(crate::due::REGION_BYTES, REGION_ALIGN) + crate::curves::REGION_BYTES, REGION_ALIGN) + crate::groups::REGION_BYTES;
 
 const _: () = assert!(M4_REGIONS_BYTES == 29_152, "api-and-models §3.1");
+
+/// 0171/0172 M5 (architecture §6; K1 stage B): the bytes `Lanes`, `Duck`, `Loudness` and `Sends`
+/// add at `max_buses` buses: loudness 14.8 KB, lanes, duck state and the send scratch ≈ 6.7 KB at
+/// 32 buses (ARCH §6 estimated ≈ 9 KB).
+pub fn m5_regions_bytes(max_buses: u32) -> usize {
+    let p = InitParams { max_buses, ..InitParams::default() };
+    crate::lanes::region_bytes(&p) + crate::duck::REGION_BYTES + crate::loudness::REGION_BYTES + crate::sends::REGION_BYTES
+}
 const _: () = assert!(M4_REGIONS_SPAN == 29_184);
 
 /// A region's place in the block: `offset` bytes from the block's base, `len` bytes long.
@@ -177,6 +201,11 @@ fn region_len(kind: RegionKind, p: &InitParams) -> usize {
         RegionKind::Due => crate::due::REGION_BYTES,
         RegionKind::Curves => crate::curves::REGION_BYTES,
         RegionKind::Groups => crate::groups::REGION_BYTES,
+        // 0171/0172 M5 (K1): sized in their modules, so B1a, B3, Dp1, Sc1, Ld2 and Rv1 never edit this file.
+        RegionKind::Lanes => crate::lanes::region_bytes(p),
+        RegionKind::Duck => crate::duck::REGION_BYTES,
+        RegionKind::Loudness => crate::loudness::REGION_BYTES,
+        RegionKind::Sends => crate::sends::REGION_BYTES,
         RegionKind::Arena => align_up(p.arena_initial_bytes as usize, PAGE_BYTES),
     }
 }
@@ -290,6 +319,27 @@ mod tests {
         let wide_mib = m3.region(RegionKind::Wide).len as f64 / (1 << 20) as f64;
         assert!((wide_mib - 2.22).abs() < 0.01, "{wide_mib} MiB");
         assert!(m3.region(RegionKind::Arena).offset > m2.region(RegionKind::Arena).offset);
+    }
+
+    #[test]
+    fn the_m5_regions_follow_the_memory_table() {
+        let layout = Layout::new(&preset(4_096, 128, 16));
+        assert_eq!(layout.region(RegionKind::Lanes).len, 33 * 128, "32 buses and the output, 128 B each");
+        assert_eq!(layout.region(RegionKind::Loudness).len, 14_824, "64 + 9 × (1,512 + 128)");
+        assert_eq!(layout.region(RegionKind::Sends).len, 1_088, "the 1 KB scratch and the 64 B header");
+        let duck = layout.region(RegionKind::Duck).len;
+        assert!(duck < 2 * 1024, "duck rules, followers and detectors: {duck}");
+        let m5 = m5_regions_bytes(32);
+        eprintln!("M5 regions at 32 buses: {m5} B (lanes 4,224, duck {duck}, loudness 14,824, sends 1,088)");
+        assert!(m5 < 24 * 1024, "ARCH §6: ≈ 24 KB: {m5}");
+        // Appended before the arena: M4's regions keep their offsets.
+        let groups = layout.region(RegionKind::Groups);
+        assert!(layout.region(RegionKind::Lanes).offset >= groups.end());
+        for (kind, r) in layout.regions() {
+            if matches!(kind, RegionKind::Lanes | RegionKind::Duck | RegionKind::Loudness | RegionKind::Sends) {
+                assert_eq!(r.offset % REGION_ALIGN, 0, "{kind:?}");
+            }
+        }
     }
 
     #[test]

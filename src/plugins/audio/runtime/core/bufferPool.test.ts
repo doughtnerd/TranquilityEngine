@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { STATUS_BUFFER_BYTES, STATUS_POOL_BUFFERS } from "../wire.generated";
 import { BufferPool, createBatchPool, createStatusPool } from "./bufferPool";
 
 // A0.3-L1 fills these (architecture §4.7, api-and-models §4.3).
@@ -90,12 +91,13 @@ describe("BufferPool", () => {
     expect(listB[0]).toBe(second);
   });
 
-  it("createStatusPool is 8 × 16,384 B and createBatchPool is 4 × 65,536 B", () => {
+  it("createStatusPool is STATUS_POOL_BUFFERS × STATUS_BUFFER_BYTES (8 × 20,480 B) and createBatchPool is 4 × 65,536 B", () => {
     const status = createStatusPool();
-    expect(status.count).toBe(8);
-    expect(status.bytes).toBe(16384);
-    expect(status.available).toBe(8);
-    expect(status.acquire()!.byteLength).toBe(16384);
+    expect(status.count).toBe(STATUS_POOL_BUFFERS);
+    expect(status.bytes).toBe(STATUS_BUFFER_BYTES);
+    expect(STATUS_BUFFER_BYTES).toBe(20480);
+    expect(status.available).toBe(STATUS_POOL_BUFFERS);
+    expect(status.acquire()!.byteLength).toBe(STATUS_BUFFER_BYTES);
 
     const batch = createBatchPool();
     expect(batch.count).toBe(4);

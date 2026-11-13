@@ -299,6 +299,156 @@ impl MusicCounters {
     }
 }
 
+/// 0171/0172 M5 (api-and-models §4.3; architecture §4.3–4.8; plan contract K1): **every** M5
+/// counter, declared once by K1 so later tasks only set them from their own module:
+/// - the STATUS header fields 176..251 (the writer serialises them from K1's stage B, merged with
+///   the wire lead's merge 1): core-written fields here; **shell** fields stay 0 in the core and
+///   the worklet shell writes them into the posted copy beside `dateMs` (Cp1);
+/// - the core-only counts the design names that STATUS doesn't carry (tests and the debug hooks
+///   read them here).
+///
+/// The `loudBuses`, `loudEnergies` and `busDuck` sections aren't lists here: `status.rs` asks
+/// `loudness::status` and `duck::status` to write them from their own state (stage B).
+///
+/// Cumulative f64 fields are exact to 2^53 (no wrap logic on main); cumulative u16 fields
+/// saturate, cumulative u32 fields wrap. All-zero valid.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MixCounters {
+    /// `busyMsTotal` (176): `Date.now()` deltas around `process()`, ms, since the driver started
+    /// (shell: Cp1).
+    pub busy_ms_total: f64,
+    /// `quantaTotal` (184) (shell: Cp1).
+    pub quanta_total: f64,
+    /// `wuVoices` (192): cumulative work units of voices (core: Cp1, `cap.rs`).
+    pub wu_voices: f64,
+    /// `wuBuses` (200): buses, effects, sidechain, ramps (core: Cp1, `cap.rs`).
+    pub wu_buses: f64,
+    /// `wuSpatial` (208): beds, zones, HRTF (core: Cp1, `cap.rs`).
+    pub wu_spatial: f64,
+    /// `wuMusic` (216): music rings and groups (core: Cp1, `cap.rs`).
+    pub wu_music: f64,
+    /// `wuLoudness` (224): the loudness taps (core: Ld2, `loudness.rs`).
+    pub wu_loudness: f64,
+    /// `clockStepMs` (238): the smallest non-zero `Date.now` delta seen; 0 = none yet (shell: Cp1).
+    pub clock_step_ms: u16,
+    /// `clockSteps` (244): wall-clock steps clamped, saturating (shell: Cp1).
+    pub clock_steps: u16,
+    /// `loudSubBlockFrames` (240): `round(sampleRate / 10)` (core: Ld2; 0 until then).
+    pub loud_sub_block_frames: u32,
+    /// `loudShed` (246): the ladder's loudness step in force, 0 or 1 (core: Ld7; R21). `m3Shed`
+    /// keeps counting bed and zone steps.
+    pub loud_shed: u16,
+    /// `busRecordsEarly` (248): stamped `BUS_RAMP`s that found the due list full and applied at the
+    /// quantum's start (cumulative, saturating; core: B1b, through `note_bus_record_early`; R6).
+    pub bus_records_early: u16,
+    /// `sidechainLate` (250): quanta in which a level rule read its trigger a quantum late, because
+    /// a cycle dropped its edge (cumulative, saturating; core: B3, Sc1, through
+    /// `note_sidechain_late`; R5).
+    pub sidechain_late: u16,
+    /// Core only: `BUS_SLOT` records the core couldn't place (a slot past `max_buses`) or a fifth
+    /// effect, which main keeps and applies at the next Play (R10; main's own `liveDeferred` is
+    /// debug-only) (cumulative, wrapping; core: B2, through `note_live_deferred`).
+    pub live_deferred: u32,
+    /// Core only: `BUS_RAMP` records ignored: a core-owned lane (5 `duck`, 6 `automation`), an
+    /// unknown lane or a slot past the configured buses (cumulative, wrapping; core: B1a, through
+    /// `note_lane_record_ignored`; API §4.2).
+    pub lane_records_ignored: u32,
+    /// Core only: `BUS_SLOT` sequences shifted whole because their batch arrived late (C27; each
+    /// also counts once in `lateCommands`) (cumulative, wrapping; core: B2).
+    pub sequences_shifted: u32,
+    /// Core only: duck rules made inert by the core's check (a tombstone, an ancestor or self
+    /// trigger) at the last `BUS_DUCK` (a level; core: B3).
+    pub duck_rules_inert: u16,
+    /// Core only: duck rules dropped past `MAX_DUCK_RULES` (32) or `MAX_LEVEL_RULES` (8), at the last
+    /// `BUS_DUCK` (a level; core: B3).
+    pub duck_rules_dropped: u16,
+    /// Core only: level-rule edges dropped to break a cycle at the last order computation (a level;
+    /// core: B3; each such rule then counts in `sidechainLate`).
+    pub duck_edges_dropped: u16,
+    /// Core only: `LOUD_CONFIG` meters dropped (past 8, a slot past the configured buses, a
+    /// duplicate) at the last record (a level; core: Ld2).
+    pub loud_meters_dropped: u16,
+    /// Core only: sub-blocks overwritten in a meter's 32-entry ring before a take sent them
+    /// (cumulative, wrapping; core: Ld2; main sees the loss as `firstSeq` jumping).
+    pub loud_sub_blocks_lost: u32,
+}
+
+/// 0171/0172 M5 §4.3: the `loudBuses`, `loudEnergies` and `busDuck` caps (the wire's
+/// `LOUD_METERS`, `MAX_LOUD_ENERGIES`, `MAX_DUCK_RULES`).
+pub const LOUD_BUSES_CAP: usize = audio_wire::generated::LOUD_METERS as usize;
+pub const LOUD_ENERGIES_CAP: usize = audio_wire::generated::MAX_LOUD_ENERGIES as usize;
+pub const BUS_DUCK_CAP: usize = audio_wire::generated::MAX_DUCK_RULES as usize;
+
+/// 0171/0172 M5 §4.3: a `loudBuses` item (16 B on the wire), one per meter that reports.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LoudBus {
+    /// The bus slot, or the wire's `LOUD_OUTPUT_TAP` (0xFFFF) for the final output.
+    pub slot: u16,
+    /// The wire's `LOUD_FLAG_*` bits; bits 0–5 the sub-blocks this take carries for the meter
+    /// (its run in `loudEnergies`).
+    pub flags: u16,
+    /// The sequence number of the first sub-block this take carries.
+    pub first_seq: u32,
+    /// Linear max(true peak, sample peak) since the last successful take.
+    pub true_peak: f32,
+    /// Quanta the true-peak gate skipped (cumulative).
+    pub gated_quanta: u32,
+}
+
+/// 0171/0172 M5 §4.3: a `busDuck` item (8 B on the wire): a rule target's duck gain.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BusDuckGain {
+    pub slot: u16,
+    pub gain: f32,
+}
+
+/// 0171/0172 M5 §4.3: the three M5 STATUS sections of one take, filled by `loudness::status` and
+/// `duck::status` from their own state just before the writer serialises the block (a stack value
+/// in `status::take`, ≈ 1.6 KB; never allocated). All-zero is three empty sections.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MixSections {
+    /// `loudBuses`, with `loudBusCount` (Ld2).
+    pub loud_buses: List<LoudBus, LOUD_BUSES_CAP>,
+    /// `loudEnergies`, with `loudEnergyCount`: bus-major in `loud_buses` order, oldest first; each
+    /// meter's run is its flags' new-block count (Ld2).
+    pub loud_energies: List<f32, LOUD_ENERGIES_CAP>,
+    /// `busDuck`, with `duckCount`: only buses that are the target of a rule (Dp1).
+    pub bus_duck: List<BusDuckGain, BUS_DUCK_CAP>,
+}
+
+impl Default for MixSections {
+    fn default() -> MixSections {
+        // SAFETY: lists of plain integers and floats: all-zero is empty.
+        unsafe { core::mem::zeroed() }
+    }
+}
+
+impl MixCounters {
+    /// `busRecordsEarly` + 1, saturating.
+    pub fn note_bus_record_early(&mut self) {
+        self.bus_records_early = self.bus_records_early.saturating_add(1);
+    }
+
+    /// `sidechainLate` + 1, saturating.
+    pub fn note_sidechain_late(&mut self) {
+        self.sidechain_late = self.sidechain_late.saturating_add(1);
+    }
+
+    /// `liveDeferred` + 1, wrapping.
+    pub fn note_live_deferred(&mut self) {
+        self.live_deferred = self.live_deferred.wrapping_add(1);
+    }
+
+    /// An ignored `BUS_RAMP` + 1, wrapping.
+    pub fn note_lane_record_ignored(&mut self) {
+        self.lane_records_ignored = self.lane_records_ignored.wrapping_add(1);
+    }
+}
+
 /// A `playheads` entry: a voice and its frame in its clip.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -449,6 +599,8 @@ pub struct Counters {
     pub spatial: SpatialCounters,
     /// 0166 M4's fields and sections (Q1, tree A5).
     pub music: MusicCounters,
+    /// 0171/0172 M5's fields (K1).
+    pub mix: MixCounters,
 }
 
 impl Counters {
@@ -716,5 +868,25 @@ mod tests {
         assert_eq!(c.flags, flag::READY);
         assert_eq!(c.bus_count, 2);
         assert_eq!(c.peaks[0], Peak { l: 0.5, r: 0.5 });
+    }
+
+    #[test]
+    fn the_m5_counters_start_at_zero_saturate_and_survive_a_block() {
+        let mut c = Counters::default();
+        let m = c.mix;
+        assert_eq!((m.wu_voices, m.wu_buses, m.wu_spatial, m.wu_music, m.wu_loudness), (0.0, 0.0, 0.0, 0.0, 0.0));
+        assert_eq!((m.loud_shed, m.bus_records_early, m.sidechain_late, m.live_deferred, m.loud_sub_block_frames), (0, 0, 0, 0, 0));
+        c.mix.bus_records_early = u16::MAX - 1;
+        c.mix.note_bus_record_early();
+        c.mix.note_bus_record_early();
+        c.mix.sidechain_late = u16::MAX;
+        c.mix.note_sidechain_late();
+        c.mix.live_deferred = u32::MAX;
+        c.mix.note_live_deferred();
+        c.mix.note_lane_record_ignored();
+        c.mix.wu_loudness += 1.5;
+        c.end_block();
+        assert_eq!((c.mix.bus_records_early, c.mix.sidechain_late, c.mix.live_deferred, c.mix.lane_records_ignored), (u16::MAX, u16::MAX, 0, 1));
+        assert_eq!(c.mix.wu_loudness, 1.5, "cumulative: kept across blocks");
     }
 }

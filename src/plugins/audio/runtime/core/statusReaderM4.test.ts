@@ -1,4 +1,4 @@
-// ADR 0166 M4 (Z4, leaf L-Z4a; api-and-models §4.4): the 176-byte STATUS header and the `musicRings` and `groupStarts`
+// ADR 0166 M4 (Z4, leaf L-Z4a; api-and-models §4.4): the STATUS header (176 B in M4, 256 B since ADR 0171) and the `musicRings` and `groupStarts`
 // sections. Every case compares against the generated `readStatus` / `writeStatus` for the same bytes.
 import { describe, expect, it } from "vitest";
 import {
@@ -13,6 +13,7 @@ import {
   MUSIC_RING_PRIMED,
   readStatus,
   STATUS_BUFFER_BYTES,
+  STATUS_HEADER_BYTES,
   STATUS_WORST_CASE_BYTES,
   WireError,
   writeStatus,
@@ -119,7 +120,7 @@ describe("StatusReader, ADR 0166 header and sections (L-Z4a)", () => {
     ]);
   });
 
-  it("a message with every section at its cap is STATUS_WORST_CASE_BYTES (16,192 B) and reads back equal to readStatus (16 musicRings, 8 groupStarts)", () => {
+  it("a message with every section at its cap is the M3 + M4 part of STATUS_WORST_CASE_BYTES (17,824 B less the 1,552 B of M5 sections, which `StatusReader` reads in Wa2) and reads back equal to readStatus (16 musicRings, 8 groupStarts)", () => {
     const ids = Array.from({ length: 1024 }, (_, i) => i + 1);
     const buffer = new ArrayBuffer(STATUS_BUFFER_BYTES);
     const n = writeStatus(
@@ -148,8 +149,8 @@ describe("StatusReader, ADR 0166 header and sections (L-Z4a)", () => {
       }),
       1,
     );
-    expect(n).toBe(STATUS_WORST_CASE_BYTES);
-    expect(STATUS_WORST_CASE_BYTES).toBe(16_192);
+    expect(n).toBe(STATUS_WORST_CASE_BYTES - (9 * 16 + 288 * 4 + 32 * 8)); // the M5 sections are empty here
+    expect(STATUS_WORST_CASE_BYTES).toBe(17_824);
     const got = new StatusReader().read(buffer);
     expect(got).toEqual(readStatus(buffer));
     expect(got.musicRings).toHaveLength(16);
@@ -191,7 +192,7 @@ describe("StatusReader, ADR 0166 header and sections (L-Z4a)", () => {
       }),
     );
     const previous = structuredClone(reader.block);
-    // bodyBytes 168: the limit is byte 184, so only 8 of the 16 bytes of two music rings (from 176) fit.
+    // bodyBytes 248: the limit is byte 264, so only 8 of the 16 bytes of two music rings (from 256) fit.
     const rings = encode({
       currentFrame: 99,
       musicRingsOpen: 1,
@@ -201,7 +202,7 @@ describe("StatusReader, ADR 0166 header and sections (L-Z4a)", () => {
         { streamId: 2, epochFlags: 2 },
       ],
     });
-    new DataView(rings).setUint32(12, 168, true);
+    new DataView(rings).setUint32(12, STATUS_HEADER_BYTES - 16 + 8, true);
     expect(codeOf(() => readStatus(rings))).toBe(ErrorCode.OVERSIZE);
     expect(codeOf(() => reader.read(rings))).toBe(ErrorCode.OVERSIZE);
     expect(reader.block).toEqual(previous);
@@ -210,12 +211,12 @@ describe("StatusReader, ADR 0166 header and sections (L-Z4a)", () => {
     expect(reader.block.maxSlipFrames).toBe(9);
     expect(reader.block.musicRings).toEqual([{ streamId: 9, epochFlags: 9 }]);
 
-    // The same cut through one group start (16 B, from 176, only 8 B before byte 184).
+    // The same cut through one group start (16 B, from 256, only 8 B before byte 264).
     const groups = encode({
       currentFrame: 98,
       groupStarts: [{ groupId: 3, flags: 0, slipFrames: 0, startFrameLo: 0, startFrameHi: 0 }],
     });
-    new DataView(groups).setUint32(12, 168, true);
+    new DataView(groups).setUint32(12, STATUS_HEADER_BYTES - 16 + 8, true);
     expect(codeOf(() => readStatus(groups))).toBe(ErrorCode.OVERSIZE);
     expect(messageOf(() => reader.read(groups))).toBe("STATUS: groupStarts overrun");
     expect(reader.block).toEqual(previous);
@@ -270,7 +271,7 @@ describe("StatusReader, ADR 0166 header and sections (L-Z4a)", () => {
         { groupId: 2, flags: GROUP_START_LATE | GROUP_START_HELD | GROUP_START_ABANDONED, slipFrames: 3, startFrameLo: 4, startFrameHi: 5 },
       ],
     });
-    expect(new DataView(buffer).getUint32(176 + 4, true)).toBe(0xc000_0005);
+    expect(new DataView(buffer).getUint32(STATUS_HEADER_BYTES + 4, true)).toBe(0xc000_0005);
     const got = new StatusReader().read(buffer);
     expect(got).toEqual(readStatus(buffer));
     const epochFlags = got.musicRings[0]!.epochFlags;

@@ -29,6 +29,11 @@
 //!   `MAX_BEDS` slots or arrays past its length, and ZONE_CONFIG with more than `MAX_ZONE_SLOTS`
 //!   slots or slots past its length, refuse the batch like any malformed record. The handlers parse
 //!   and drop until their tasks fill them (A4, C3, D1, B3). RESET also calls their `reset`.
+//! - 0171/0172 M5 (K1): BUS_RAMP (`lanes::on_ramp`), BUS_DUCK (`duck::on_rules`), BUS_PRESENCE
+//!   (`duck::on_presence`), LOUD_CONFIG (`loudness::on_config`) and BUS_SLOT (`bus_slots::on_slot`)
+//!   are handed to their owner with their frame (`None` asap), each record checked by its owner's
+//!   `*_is_well_formed` in pass 1. Until B1a, B1b, B2, B3, Dp1 and Ld2 fill them the owners ignore
+//!   the records. B2 adds the pending queue for stamped configuration, B1b class B routing.
 //! - `slack = firstFrame - currentFrame` is noted for STATUS `minSlackFrames`.
 //!
 //! **asap vs stamped** (architecture §4.3). `frameOffset == 0xFFFFFFFF` is asap: PLAY starts at
@@ -51,7 +56,7 @@ use audio_wire::generated::{self as wire, BatchHeader, Envelope, Fade, Master, P
 use crate::core::{Core, Regions};
 use crate::counters::flag;
 use crate::layout::{PENDING_CAPACITY, PENDING_RECORD_BYTES};
-use crate::{automation, bed, bus, fxpool, listener, status, voices, zones};
+use crate::{automation, bed, bus, bus_slots, duck, fxpool, lanes, listener, loudness, status, voices, zones};
 
 /// One stamped record waiting for its frame: 48 bytes (`PENDING_RECORD_BYTES`), all-zero valid.
 /// STOP, SET_PARAMS, FADE, SET_PAUSED, SEEK and SET_LOOP only (PLAY is written to its slot at once).
@@ -195,6 +200,12 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::BED_CONFIG => wire::BedConfig::FIXED_END,
             wire::op::ZONE_CONFIG => wire::ZoneConfig::FIXED_END,
             wire::op::LISTENER => wire::Listener::FIXED_END,
+            // 0171/0172 M5 (K1): the mix records (API §4.2).
+            wire::op::BUS_RAMP => wire::BusRamp::FIXED_END,
+            wire::op::BUS_DUCK => wire::BusDuck::FIXED_END,
+            wire::op::BUS_PRESENCE => wire::BusPresence::FIXED_END,
+            wire::op::LOUD_CONFIG => wire::LoudConfig::FIXED_END,
+            wire::op::BUS_SLOT => wire::BusSlot::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
         if len < min || off + len > msg.len() {
@@ -202,11 +213,16 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
         }
         let entries_fit = match head.opcode {
             wire::op::BUS_CONFIG => bus::config_is_well_formed(msg, off, len),
-            wire::op::BUS_MIX => bus::mix_is_well_formed(msg, off, len),
+            wire::op::BUS_MIX => lanes::mix_is_well_formed(msg, off, len),
             wire::op::AUTOMATE | wire::op::BUS_AUTOMATE => automation::bindings_is_well_formed(msg, off, len),
             wire::op::CURVES => automation::curves_is_well_formed(msg, off, len),
             wire::op::BED_CONFIG => bed::config_is_well_formed(msg, off, len),
             wire::op::ZONE_CONFIG => zones::config_is_well_formed(msg, off, len),
+            // 0171/0172 M5 (K1): each owner checks its own record.
+            wire::op::BUS_RAMP => lanes::ramp_is_well_formed(msg, off, len),
+            wire::op::BUS_DUCK => duck::rules_is_well_formed(msg, off, len),
+            wire::op::LOUD_CONFIG => loudness::config_is_well_formed(msg, off, len),
+            wire::op::BUS_SLOT => bus_slots::slot_is_well_formed(msg, off, len),
             _ => true,
         };
         if !entries_fit {
@@ -324,7 +340,15 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
                 }
             }
             wire::op::BUS_CONFIG => bus::configure(core, msg, off),
-            wire::op::BUS_MIX => bus::mix(core, msg, off),
+            wire::op::BUS_MIX => lanes::mix(core, msg, off),
+            // 0171/0172 M5 (K1): each arm calls its owner (B1a/B1b lanes, B3 and Dp1 duck, Ld2
+            // loudness, B2 slots). `at` is the record's absolute frame, `None` asap; BUS_DUCK and
+            // LOUD_CONFIG are asap only (API §4.2), so their frame is ignored.
+            wire::op::BUS_RAMP => lanes::on_ramp(core, msg, off, at),
+            wire::op::BUS_DUCK => duck::on_rules(core, msg, off),
+            wire::op::BUS_PRESENCE => duck::on_presence(core, msg, off, at),
+            wire::op::LOUD_CONFIG => loudness::on_config(core, msg, off),
+            wire::op::BUS_SLOT => bus_slots::on_slot(core, msg, off, at),
             wire::op::MASTER => {
                 if let Ok((m, _)) = Master::read(msg, off) {
                     bus::master(core, &m);
@@ -386,6 +410,10 @@ pub fn reset(core: &mut Core, keep_clips: bool) {
     zones::reset(core);
     fxpool::reset(core);
     listener::reset(core);
+    // M5 (K1): the duck lane's detectors and followers (Dp1, Sc1) and the loudness meters (Ld2);
+    // no-ops until those tasks fill them. The lanes settle in `bus::reset`.
+    duck::reset(core);
+    loudness::reset(core);
 }
 
 /// `firstFrame + frameOffset` as an absolute frame (a negative or fractional `firstFrame` rounds,
