@@ -2,7 +2,7 @@
 // type, built with `format.ts`'s writers. Never imported by runtime code.
 import { makeStatusBlock } from "../core/mirror";
 import { STATUS_BUFFER_BYTES, writeStatus, type StatusBlock } from "../wire.generated";
-import { RecordType, assembleCapture, type CaptureHeaderInit, type CaptureMetaInit, type CaptureRecordInit } from "./format";
+import { RecordType, assembleCapture, encodeKeyframe, keyframeBytes, type CaptureHeaderInit, type CaptureMetaInit, type CaptureRecordInit, type KeyframePayload } from "./format";
 
 export const SAMPLE_RATE = 48_000;
 
@@ -99,4 +99,54 @@ export function longCapture(seconds: number): Uint8Array {
 /** The sample as a stored (uncompressed) file with an INDEX. */
 export function sampleCapture(opts: { index?: boolean } = { index: true }): Uint8Array {
   return assembleCapture(SAMPLE_HEADER, SAMPLE_META, sampleRecords(), opts);
+}
+
+// --- Rc2 (the recorder ring's tests) ----------------------------------------------------------------------------------
+
+/** An empty KEYFRAME payload (Rc2's tests; the recorder's default source returns the same shape). */
+export const EMPTY_KEYFRAME_PAYLOAD: KeyframePayload = {
+  voices: [], buses: [], metered: [], events: [], music: [],
+  mix: { slotTableVersion: 0, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: 0, masterVolume: 1, hiddenMute: 0 },
+};
+
+/** True once Rc1b has filled `keyframeBytes` (its W4 stub throws). Rc2's real-codec cases run only then. */
+export function rc1bReady(): boolean {
+  try {
+    keyframeBytes(EMPTY_KEYFRAME_PAYLOAD);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The placeholder keyframe body: `KEYFRAME_PLACEHOLDER_BYTES` zero bytes, written without allocating. */
+export const KEYFRAME_PLACEHOLDER_BYTES = 32;
+export const PLACEHOLDER_KEYFRAME_CODEC = {
+  bytes: (_p: KeyframePayload): number => KEYFRAME_PLACEHOLDER_BYTES,
+  encode: (view: DataView, off: number, _p: KeyframePayload): number => {
+    for (let i = 0; i < KEYFRAME_PLACEHOLDER_BYTES; i += 4) view.setUint32(off + i, 0, true);
+    return KEYFRAME_PLACEHOLDER_BYTES;
+  },
+};
+
+/** Rc1b's codec once it exists, the placeholder before (the reader's `checkKeyframe` is a no-op until Rc1b). */
+export function keyframeCodecForTests(): { bytes(p: KeyframePayload): number; encode(view: DataView, off: number, p: KeyframePayload): number } {
+  return rc1bReady() ? { bytes: keyframeBytes, encode: encodeKeyframe } : PLACEHOLDER_KEYFRAME_CODEC;
+}
+
+/** A live head (header + META, no records) for `openLiveCapture` (Rc2, Rc6). */
+export function liveHead(init: Partial<CaptureHeaderInit> = {}): Uint8Array {
+  return assembleCapture({ ...SAMPLE_HEADER, ...init }, SAMPLE_META, []);
+}
+
+/**
+ * A real STATUS block at `currentFrame` sized for `voices` live voices, on the heavy side (Rc2's cost run): playhead rows
+ * up to the wire's 256, one `demoted` id per voice (up to 1,024) and 32 bus peaks: ≈ 6.6 KB at 1,024 voices, against
+ * ≈ 3 KB a block in spike S3's 1,024-voice stream.
+ */
+export function statusBytesWithVoices(currentFrame: number, voices: number): Uint8Array {
+  const playheads = Array.from({ length: Math.min(voices, 256) }, (_, i) => ({ id: i + 1, clipFrame: (currentFrame + i * 17) >>> 0 }));
+  const demoted = Array.from({ length: Math.min(voices, 1024) }, (_, i) => i + 1);
+  const peaks = Array.from({ length: 32 }, (_, i) => ({ l: i / 64, r: i / 32 }));
+  return statusBytesWith({ currentFrame, playheads, demoted, peaks, mixedVoices: voices, liveVoices: voices });
 }
