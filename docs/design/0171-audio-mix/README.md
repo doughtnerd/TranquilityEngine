@@ -37,7 +37,15 @@ The owner's working rules from M3 still apply: [../0162-audio-spatial/working-no
 
 ## Owner decisions on the design
 
-Pending: see the decision list brought to the owner (each document's "For the owner" section, merged).
+The owner took every recommendation except the floor run ("No to number 3, yes to everything else", 2026-11-13). Recorded in [ADR 0172](../../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md), which amends 0171 with the design's corrections:
+1. **Reverb sends are post-fader** (follow the fader, mutes, duck, snapshot), as FMOD's sends default; one named golden.
+2. **Estimate:** 300.5 d of tasks + a 20% reserve of 60 d = **360.5 d ≈ 72.1 pw**, no scope cut.
+3. **No floor-conversion run:** floor µs stay estimates (0.6 ns per metered instruction); gates are set in instructions.
+4. **The loudness ladder step goes first** and is skipped with master only.
+5. **The target check is suspended** under monitor controls and Compare.
+6. **Captures are labelled** (names and the `audio` section), said beside the Export checkbox.
+7. **The built-in trigger:** F9, a one-second three-finger hold, 16 files.
+8. **New level rules** start with RMS at −30 dBFS.
 
 ## Notes for the build
 

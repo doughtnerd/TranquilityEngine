@@ -296,7 +296,7 @@ The core keeps the 32-entry ring and sends the sub-blocks since the last **succe
 
 `vectors/wire.json` gains a golden for each new opcode, a `BUS_SLOT` with a sequence tag, a STATUS with the three sections at their caps (the 17,824 B case) and at zero; the fuzz adds truncated and over-count `BUS_RAMP`/`BUS_DUCK`/`LOUD_CONFIG`/`BUS_SLOT`, `loudEnergyCount` past its cap, a count sum that disagrees with it, NaN and infinite targets, an unknown lane, a slot past the configured count.
 
-### 4.6 Reverb sends and the lanes (R11, owner item O1)
+### 4.6 Reverb sends and the lanes (R11; owner decision 1: post-fader, 2026-11-13)
 
 The send is taken inside `slot.fx.process` (`bus.rs:540`) before the gain stage (`:547-568`), so today no gain lane silences it: a muted bus still feeds the reverb. M5 **must** scale the send by the `dip` and `monitor` lanes (a dip would otherwise let a reset chain step into the convolver, and a monitor solo would still ring muted buses' reverb). **Recommended (post-fader, FMOD's default):** the send also follows every other lane, so a muted or ducked bus stops feeding the reverb. **Alternative:** only `dip` and `monitor` scale it, and the fader and script mutes keep today's pre-fader send. There is **no setting either way** (no flags). The API side: nothing changes in `Bus`; the compatibility table above names the behaviour. **Golden exception:** either choice changes the render of a muted bus that has a send, the one named exception to R3: G1 adds a golden (`bus-mute-send`) and, under post-fader, re-records only the goldens whose bus has a send and a gain other than 1 (found by running them). `fx.process` writes the reverb contribution to a 1 KB scratch that is multiplied by the bus's gain for the quantum before it joins the convolver input; a settled gain of 1 skips the multiply, so it is bit-identical (priced in Rv1). The shared convolver runs out until its input has been silent for the IR length plus `IDLE_MARGIN_QUANTA` and then resets ([ARCH §3.3]); Rv1 builds both.
 
@@ -812,10 +812,12 @@ Each item names its evidence; none reopens a settled decision.
 | Main-to-worklet latency of a live edit (§6.6's figure is the loopback's) | Fg1 in Chromium, then a phone | 1 hour; the owner's phone |
 | `CompressionStream`, Workers and `Storage.save` of a multi-MB file in the Tauri webviews and Android WebView; the key and gesture there; Babylon `AudioParam` ramps | X3 and Bb3 on WebKit and an emulator | 1 day |
 | `Date.now` resolution on Firefox and WebKit worklets; `deviceMemory` absent on Safari | RS1; Cp2 reports `clockStepMs`; an Rc2 test | the owner's runs |
-| The floor instruction-to-time conversion ([ARCH] preamble, 0.6 ns, est.) | one scene timed on the Pixel 8 profile | ≈ 15 min, the owner's |
+| The floor instruction-to-time conversion ([ARCH] preamble, 0.6 ns, est.) | one scene timed on the Pixel 8 profile | ≈ 15 min; not run (owner decision 3) |
 | Getting a capture off Android; the game loudness targets; `compressor.rs`'s click cause | the owner's emulator; the owner's documents; read in B4 | 15 min; n/a; in B4 |
 
 ## 13. For the owner
+
+**Owner decisions (2026-11-13, recorded in [ADR 0172](../../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md)):** 1 (A) post-fader sends; 2 (A) 20% reserve, **360.5 d ≈ 72.1 pw**, no scope cut; 3 **no floor run** (floor µs stay estimates); 4 (A) labelled captures, said beside the Export checkbox; 5 (A) F9, a one-second three-finger hold, 16 files; 6 (A) new level rules start `rms` at −30 dBFS. The options below are kept as the record of what was decided.
 
 Only decisions that change product behaviour, scope or schedule; design trade-offs went to the coordinator's rulings. Everything in the record's "Owner decisions (accepted)" stands.
 
@@ -830,7 +832,7 @@ Only decisions that change product behaviour, scope or schedule; design trade-of
 - *C:* cut scope. Candidates and days released, each a loss against settled scope: Babylon live-apply (Bb3, 3), "Compare with Play start" (about 2 of Mp1b), the profiler's music and event tracks (Pf3d, 4.5), the soak (So1, 3). Not recommended.
 - *Net effect:* A and B change only the days held back; C changes what ships.
 
-**3. The floor conversion run (O3).** Every floor-device microsecond in the architecture is an estimate (0.6 ns per metered instruction) until one scene is timed on the Pixel 8 profile, about 15 minutes. It cannot change the design, only the tripwire numbers; recommended before M5-0's metered gate is set.
+**3. The floor conversion run (O3).** Every floor-device microsecond in the architecture is an estimate (0.6 ns per metered instruction) until one scene is timed on the Pixel 8 profile, about 15 minutes. It cannot change the design, only the tripwire numbers. **Decided: not run** (owner, 2026-11-13); the metered gates are set in instructions.
 
 **4. What a capture file reveals.** A capture embeds the project's `audio` section, name and version, the clip, bus, event and parameter names and 120 bytes of the user-agent.
 - *A (recommended):* include them and say so beside the Export checkbox: the file opens fully labelled with no project.

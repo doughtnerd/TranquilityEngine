@@ -12,7 +12,7 @@ This file owns components, channels, lifecycles, timing, constants, memory, perf
 
 **Evidence.** **[S]** is `spikes/audio-mix/README.md`; **[S1]** `loudness/`, **[S2]** `cpu-clock/`, **[S3]** `capture/`, **[S4]** `mix-core/`. They ran on the shared 4-vCPU container: p50 and p99 are usable, p99.9 and max are not. S3's main-thread timings ran at load ≈ 2.0 (record change 31). **(est.)** marks an unmeasured number and **[U]** an unverified fact. A quantum is 128 frames, 2,667 µs at 48 kHz.
 
-**The floor conversion (record change 30; owner item O3).** ADR 0169 fixes the floor (Android 14, Chrome 113, an emulated Pixel 8 with 2 GB and 4 cores) but gives no instruction-to-time factor. This design uses **0.6 ns per metered wasm instruction on the floor (est., unverified)**: M4's container calibration of 0.075 µs per 1k instructions ([A166 §7.1]) times the 8× phone slowdown M4's spike assumed (`spikes/audio-music/README.md:89`). A ≈ 15-minute timed run on the owner's Pixel 8 profile settles it. Instruction counts are the gate.
+**The floor conversion (record change 30; owner item O3).** ADR 0169 fixes the floor (Android 14, Chrome 113, an emulated Pixel 8 with 2 GB and 4 cores) but gives no instruction-to-time factor. This design uses **0.6 ns per metered wasm instruction on the floor (est., unverified)**: M4's container calibration of 0.075 µs per 1k instructions ([A166 §7.1]) times the 8× phone slowdown M4's spike assumed (`spikes/audio-music/README.md:89`). A ≈ 15-minute timed run on the Pixel 8 profile would settle it; **the owner chose not to run it** (2026-11-13, ADR 0172), so every floor µs stays an estimate. Instruction counts are the gate.
 
 **Code facts this design rests on (read 2026-11-12).**
 - **STATUS today** is a 176 B header with no spare word (`audio-wire/src/schema/status.rs:72`) and a worst case of 16,192 of 16,384 B (`schema.rs:73-74`).
@@ -480,7 +480,7 @@ Authored 2 × runtime 2 = 4 is legal; the limiter catches it.
 
 **Bit-identity (R3).** An asap `BUS_RAMP` on a lone lane uses `Ramp::next`'s per-sample arithmetic, and lanes at identity are skipped, not multiplied by 1.0. Every existing bus golden keeps its digest with a harness sending `BUS_RAMP` where it sent `BUS_MIX`. Only stamped ramps and R11's named change get new goldens.
 
-**Post-fader sends (R11; recommendation for owner item O1).**
+**Post-fader sends (R11; chosen by the owner, O1, 2026-11-13).**
 - **Today:** the reverb send is taken inside `fx.process` (`bus.rs:540`) at the reverb slot's position in the chain, before the snapshot low-pass and every gain stage (`:541-568`). So no lane can silence it, and a muted bus still feeds the reverb.
 - **Design:**
   - **Capture:** `fx.process` writes the reverb slot's contribution (send × the signal at that slot) into a per-bus **scratch** (planar stereo, 2 × 128 f32 = 1 KB, one buffer shared by all buses since they mix one at a time), not into the convolver's input.
@@ -698,7 +698,7 @@ The record's worst case (§8, "master + 7") predates change 12's "plus 8". Nine 
 | S3 re-run idle, with the word copy | §7.3's recorder line | ≈ 4 min |
 | Real-scene capture rates through the loopback host | §4.2, §6 | ≈ 5 min |
 | Main-to-worklet post under a busy frame | the gate's last term | one spec, ≈ 1 min |
-| The floor conversion | every floor µs | ≈ 15 min, owner (O3) |
+| The floor conversion | every floor µs | ≈ 15 min; not run (owner, O3) |
 
 ## 8. Failure modes
 
@@ -784,11 +784,13 @@ The macOS desktop editor runs WebKit and defaults to Babylon (`settings.ts:224`)
 | CPU | FMOD Core's per-category CPU | shares are estimates of one measured figure; the worklet has no fine timer [S2] |
 | Loudness | FMOD's Loudness Meter on chosen buses: reset, pause, M, S, I, LRA, max true peak | master always, after the limiter; non-master true peak gated, with a lower-bound mark |
 | Live mixing | Unity "Edit in Play Mode", Wwise and FMOD project data | always on; structural edits dip their subtree for 20 ms |
-| Sends | FMOD's post-fader default (recommended, O1) | the tap stays at the reverb slot's place in the chain |
+| Sends | FMOD's post-fader default (owner, O1) | the tap stays at the reverb slot's place in the chain |
 | Sidechain | Godot's same-pass read, FMOD's envelope follower | level triggers ordered first; presence kept, as Wwise's auto-ducking |
 | Ramps | sample-accurate scheduled automation | one due list for voices and buses (M4-0) |
 
 ## 13. For the owner
+
+**Owner decisions (2026-11-13, recorded in [ADR 0172](../../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md)):** O1 (a) post-fader sends; O2 20% reserve, 72.1 pw; O3 **(b)**, no floor run: floor µs stay estimates at 0.6 ns per instruction and the metered gates are set in instructions; O4 (a) the loudness step goes first; O5 (a) suspend the target check. The options below are kept as the record of what was decided.
 
 Behaviour, scope and schedule only.
 

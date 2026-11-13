@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (2026-11-12; "RFC round (revision 2)" and "Owner decisions (accepted)" at the end win over the text above them)
 - **Date:** 2026-11-12
+- **Amended by:** [0172](0172-audio-mix-design-corrections-and-owner-decisions.md) (the technical design: seven gain lanes, raw capture sizes, the sort's real benefit, the hook's name, and the owner's design decisions; 0172 wins where they disagree)
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0157's roadmap item M5, 0097's ducking rules and 0158's mixer timing)
 - **Related:** 0097, 0098, 0147, 0155, 0157, 0158, 0162, 0166, 0167, 0169, 0170

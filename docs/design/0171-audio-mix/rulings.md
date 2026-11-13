@@ -72,7 +72,7 @@ Code facts checked for these rulings:
 
 **R25. Wasm size.** The baseline is **319,799 B** (the committed `myco_audio.wasm`). The projected ≈ 347–351 KB passes the 327,680 B gate in `native/audio/build.mjs`; per CLAUDE.md that is a tripwire move to raise and record in the build log, not a reason to cut. Both documents say so in one sentence.
 
-## Owner list (to bring after verification, provisional)
+## Owner list (decided 2026-11-13, ADR 0172: O1 post-fader, O2 20% reserve, O3 not run; see the design README)
 
 - **O1. Reverb sends follow the bus fader and mutes (post-fader)?** Recommended yes (FMOD's default; a muted bus stops feeding the reverb, which is what a designer expects). Alternative: only the dip and monitor controls scale the send; the fader and script mutes keep today's pre-fader send. Net effect: both ≈ the same days (inside Rv1); post-fader changes today's sound for a bus with a send whose volume isn't 1 or is muted.
 - **O2. The task-table total and reserve** after round 2B.
