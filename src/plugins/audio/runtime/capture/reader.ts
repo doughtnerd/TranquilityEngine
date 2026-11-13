@@ -712,16 +712,11 @@ export function seekCapture(c: CaptureContents, idx: CaptureTimeIndex, t: number
   return state;
 }
 
-/** KEYFRAME `i`'s payload, or null while Rc1b's `decodeKeyframe` is the H3 stub (it throws a plain `Error`; a `CaptureError` still propagates). */
-function keyframeAt(c: CaptureContents, i: number): KeyframePayload | null {
+/** KEYFRAME `i`'s payload (Rc1b's codec; a malformed keyframe throws its `CaptureError`). */
+function keyframeAt(c: CaptureContents, i: number): KeyframePayload {
   const t = c.records;
   const seg = c.segments[t.segment[i]!]!;
-  try {
-    return decodeKeyframe(new DataView(seg.buffer, seg.byteOffset, seg.byteLength), t.offset[i]!, t.len[i]!);
-  } catch (e) {
-    if (e instanceof CaptureError) throw e;
-    return null;
-  }
+  return decodeKeyframe(new DataView(seg.buffer, seg.byteOffset, seg.byteLength), t.offset[i]!, t.len[i]!);
 }
 
 /** `range`'s answer: typed arrays keyed by column (transferred by the Worker). */
