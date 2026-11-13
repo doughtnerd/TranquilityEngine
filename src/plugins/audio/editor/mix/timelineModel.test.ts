@@ -261,7 +261,10 @@ describe("min/max pyramid (exact, Pf3b)", () => {
     expect(Array.from(a.max)).toEqual(Array.from(b.max));
   }
 
-  it("equals downsampleMinMax over random series, viewports and bucket counts (seeded)", () => {
+  // 300 seeded series x 11 views, each compared exactly (toEqual): the assertion is on values, never on time. The
+  // timeout is only the harness's patience for a busy machine (about 1 to 2 s alone, 5 s default under load); the
+  // case count stays so the coverage per run is unchanged.
+  it("equals downsampleMinMax over random series, viewports and bucket counts (seeded)", { timeout: 60_000 }, () => {
     const rand = rng(777);
     for (let iter = 0; iter < 300; iter++) {
       const { times, values } = series(rand, Math.floor(rand() * 3000));

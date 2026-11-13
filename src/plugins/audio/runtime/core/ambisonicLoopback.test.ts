@@ -26,6 +26,10 @@ import type { World } from "../../../../engine/core/World";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 
 const RATE = 48_000;
+/** The most frames `until` steps before it gives up (an escape hatch for a hung decoder, not a time budget). */
+const UNTIL_FRAMES = 20_000;
+/** The harness's patience for a test; every assertion in this file is on rendered frames or on state. */
+const PATIENCE_MS = 120_000;
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
 const wasmBytes = () => WASM.buffer.slice(WASM.byteOffset, WASM.byteOffset + WASM.byteLength) as ArrayBuffer;
 
@@ -94,8 +98,20 @@ async function rig(where: Where, files: Record<string, ArrayBuffer>) {
       const out = loop.renderQuanta(4);
       left.push(...out.left);
       right.push(...out.right);
-      await new Promise((r) => setTimeout(r, 1));
+      await new Promise((r) => setImmediate(r)); // a macrotask turn for the in-process decoder; no timer, no clock
     }
+  };
+  /**
+   * Steps one frame at a time until `done()` (work done: the clip's state, the mirror's counters), yielding a real
+   * millisecond between frames so the decoder's wasm compile and decode get CPU even when the machine is busy. The
+   * frame budget is an escape hatch, never the measure: the render and the assertions count frames, not wall time.
+   */
+  const until = async (done: () => boolean, what: string) => {
+    for (let k = 0; k < UNTIL_FRAMES && !done(); k++) {
+      await step(1);
+      if (!done()) await new Promise((res) => setTimeout(res, 1));
+    }
+    if (!done()) throw new Error(`gave up waiting for ${what}`);
   };
   /** The energies of what was rendered since the last call (the tail: after the clip's upload and its fade-in). */
   const measure = () => {
@@ -118,7 +134,7 @@ async function rig(where: Where, files: Record<string, ArrayBuffer>) {
     frame.cut = true;
     backend.frameStageListener(frame);
   };
-  return { backend, step, measure, turnHead, loop, client, clips };
+  return { backend, step, until, measure, turnHead, loop, client, clips };
 }
 
 const wavs = (order: 1 | 2 | 3, az: number, el = 0) => {
@@ -130,7 +146,8 @@ const wavs = (order: 1 | 2 | 3, az: number, el = 0) => {
 async function playAmbisonic(r: Awaited<ReturnType<typeof rig>>, name: string, convention: "ambix" | "fuma", yaw?: number) {
   Assets.addSource(Assets.fromObject({ [`${name}.meta.json`]: { format: "myco.import@1", ambisonic: { convention } } }));
   // Load first: a FuMa clip's import gain is known once its decode has reported (a play before that would miss it).
-  r.clips.acquire(name);
+  const id = r.clips.acquire(name);
+  await r.until(() => r.clips.state(id) === "ready", `${name} to load`);
   await r.step(20);
   return r.backend.play({ path: name, url: name, loop: true, stream: false, bus: "Master", ambisonic: true, volume: ambisonicImportGain(name), ...(yaw === undefined ? {} : { yaw }) })!;
 }
@@ -143,6 +160,7 @@ async function image(where: Where, order: 1 | 2 | 3, az: number, turn = 0) {
   const r = await rig(where, { [name]: wavs(order, az).ambix });
   const voice = await playAmbisonic(r, name, "ambix");
   expect(voice).not.toBeNull();
+  await r.until(() => r.backend.mirror.ambisonicVoices >= 1, "the voice to play");
   await r.step(30);
   expect(r.backend.mirror.ambisonicVoices).toBe(1);
   // The decode ran where it should: a hosted bed on the master bus, or none (a private decoder); both cost work_bed.
@@ -159,7 +177,7 @@ async function image(where: Where, order: 1 | 2 | 3, az: number, turn = 0) {
   return m;
 }
 
-describe("ambisonic clips on the loopback host (B6)", () => {
+describe("ambisonic clips on the loopback host (B6)", { timeout: PATIENCE_MS }, () => {
   for (const where of ["bed", "decoder"] as const) {
     for (const order of [1, 2, 3] as const) {
       it(`${channelsOf(order)} channels through a ${where}: the image sits at the encoded azimuth`, async () => {
@@ -250,7 +268,7 @@ describe("ambisonic clips on the loopback host (B6)", () => {
     const voice = fuma.backend.play({ path: "first-fuma.wav", url: "first-fuma.wav", loop: true, stream: false, bus: "Master", ambisonic: true, volume: 1 });
     expect(voice).not.toBeNull();
     // The decode runs in real time on the in-process worker: step until the clip is on the core and playing.
-    for (let k = 0; k < 400 && fuma.backend.mirror.ambisonicVoices < 1; k++) await fuma.step(1);
+    await fuma.until(() => fuma.backend.mirror.ambisonicVoices >= 1, "the FuMa voice to play");
     expect(ambisonicImportGain("first-fuma.wav")).toBeCloseTo(Math.SQRT2, 6);
     await fuma.step(40);
     fuma.measure();
@@ -293,7 +311,8 @@ describe("ambisonic clips on the loopback host (B6)", () => {
     // what B5 owns is that the voice was restarted as one, on its path, once the registry read the clip's length.
     const registered = vi.spyOn(r.backend.streams, "register");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    await r.step(30);
+    await r.until(() => registered.mock.calls.length >= 1, "the restart as a stream");
+    await r.step(2);
     warn.mockRestore();
     expect(ambisonicStreamsByDefault("long.wav")).toBe(true);
     expect(registered).toHaveBeenCalledTimes(1);

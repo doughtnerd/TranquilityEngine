@@ -2,91 +2,28 @@
 // core backend): the top `voices.hrtf` spatial voices get HRTF once the table is resident (`Audio.debug()` shows
 // `hrtfReady` and `counters.hrtfVoices`), never more than `voices.hrtf`; `audio.spatial: "equalPower"` and
 // `voices.hrtf: 0` never fetch the table; a failed fetch reads `hrtfLoadFailure` 1 and flags nothing. Also the
-// per-voice cost of HRTF in the real wasm (printed, for A3.5; compare with `wu::HRTF_VOICE`).
+// 16 HRTF voices with the listener turning (the work: flagged voices and frames rendered). The wall-clock cost of an
+// HRTF voice (printed, for A3.5; compare with `wu::HRTF_VOICE`) is in `hrtfCost.bench.ts`, apart from `npm test`.
 import { fakeDecoder } from "./fakeDecoder";
 import { afterEach, describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
-import { AudioHost, presetFromSettings, type CoreLink } from "./context";
-import { CoreBackend, createCoreBackend, type CoreBackendHost } from "./coreBackend";
+import { AudioHost, presetFromSettings } from "./context";
+import { createCoreBackend } from "./coreBackend";
 import { createHrirLoader } from "./hrir";
+import { req, readAsset, rig } from "./hrtfLoopbackRig";
 import { watchForTraps } from "./recovery";
 import { Unlock, type UnlockContext } from "./unlock";
 
-const att = { minDistance: 1, maxDistance: 100, rolloff: "inverse" as const };
-const req = (path: string, x: number, z: number, extra: object = {}) => ({ path, url: path, loop: true, stream: false, bus: "SFX", attenuation: att, position: { x, y: 0, z }, ...extra });
-
-async function readAsset(): Promise<ArrayBuffer> {
-  const nodeFs = "node:fs/promises";
-  const { readFile } = (await import(/* @vite-ignore */ nodeFs)) as { readFile(url: URL): Promise<Uint8Array> };
-  const bytes = await readFile(new URL("../wasm/myco_hrir.bin", import.meta.url));
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-}
-
-async function rig(opts: { spatial?: "hrtf" | "equalPower"; hrtf?: number; failFetch?: boolean } = {}) {
-  const testing = await import("../testing");
-  let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
-  try {
-    loop = (await testing.createLoopbackHost()) as typeof loop;
-  } catch {
-    return null;
-  }
-  const { createClipRegistry } = await import("./clipRegistry");
-  const link = loop.link;
-  const frames = 48_000;
-  const tone = new Float32Array(frames).map((_, i) => 0.2 * Math.sin((2 * Math.PI * 440 * i) / 48_000));
-  const clips = createClipRegistry({
-    send: (m) => link.post(m),
-    nextSeq: () => link.nextSeq(),
-    fetchBytes: async () => new ArrayBuffer(8),
-    decodeWorker: fakeDecoder(async () => ({ frames, channels: 1, sampleRate: 48_000, channelData: [tone] })),
-    nextFrame: (cb) => cb(),
-    nextQuantum: (cb) => cb(),
-  });
-  let fetches = 0;
-  const warnings: string[] = [];
-  const hrir = createHrirLoader({
-    clips,
-    sampleRate: 48_000,
-    warn: (m) => warnings.push(m),
-    fetchBytes: async () => {
-      fetches++;
-      if (opts.failFetch) throw new Error("HTTP 404");
-      return readAsset();
-    },
-  });
-  const host: CoreBackendHost = {
-    link,
-    status: "running",
-    preset: { maxLogical: 256, maxMixed: 32 },
-    worldCount: 1,
-    sampleRate: 48_000,
-    addLifecycleListener: (() => () => {}) as AudioHost["addLifecycleListener"],
-  };
-  const settings = defaultAudioSettings();
-  settings.spatial = opts.spatial ?? "hrtf";
-  settings.voices = { ...settings.voices, hrtf: opts.hrtf ?? 16 };
-  const mixer = new Mixer(settings);
-  const backend = new CoreBackend(host, { clips, clock: loop.clock, mixer, hrir });
-  const hrtfSeen: number[] = [];
-  const step = async (n: number) => {
-    for (let f = 0; f < n; f++) {
-      mixer.update(0.003);
-      backend.update(0.003);
-      loop.renderQuanta(4);
-      hrtfSeen.push(backend.mirror.hrtfVoices);
-      await new Promise((r) => setTimeout(r, 0));
-    }
-  };
-  return { loop, backend, mixer, step, fetches: () => fetches, warnings, hrtfSeen };
-}
+/** The harness's patience for a test; every assertion here is on frames rendered or on state, not on wall time. */
+const PATIENCE_MS = 120_000;
 
 const hosts: AudioHost[] = [];
 afterEach(async () => {
   for (const host of hosts.splice(0)) await host.close();
 });
 
-describe("HRTF for the nearest voices on the loopback host (H3)", () => {
+describe("HRTF for the nearest voices on the loopback host (H3)", { timeout: PATIENCE_MS }, () => {
   it("a rebuild after a trap brings the HRTF voices back on HRTF (the replayed PLAY carries the panner)", async (ctx) => {
     const testing = await import("../testing");
     let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>>;
@@ -136,14 +73,26 @@ describe("HRTF for the nearest voices on the loopback host (H3)", () => {
         mixer.update(0.003);
         backend.update(0.003);
         loop.renderQuanta(4);
-        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((r) => setImmediate(r)); // a macrotask turn for the HRIR file read; no timer, no clock
       }
     };
+    // Frames until the work is done (the table resident, the host rebuilt): a real millisecond between frames lets the
+    // file read and the respawn get CPU on a busy machine; the frame budget is an escape hatch, not the measure.
+    const until = async (done: () => boolean, what: string) => {
+      for (let k = 0; k < 20_000 && !done(); k++) {
+        await step(1);
+        if (!done()) await new Promise((res) => setTimeout(res, 1));
+      }
+      if (!done()) throw new Error(`gave up waiting for ${what}`);
+    };
     for (let k = 0; k < 3; k++) backend.play(req(`s${k}.wav`, -(k + 1), -1));
-    await step(30);
+    await until(() => backend.debug().core.hrtfReady === true, "the HRIR table");
+    await step(10);
     expect(backend.debug().counters.hrtfVoices).toBe(2);
     loop.trapNext();
-    await step(40);
+    await until(() => host.health.recoveries >= 1 && loop.cores >= 2, "the rebuild after the trap");
+    await until(() => backend.debug().core.hrtfReady === true, "the table on the new core");
+    await step(10);
     expect(host.health.recoveries).toBe(1);
     expect(loop.cores).toBe(2);
     const d = backend.debug();
@@ -160,7 +109,8 @@ describe("HRTF for the nearest voices on the loopback host (H3)", () => {
     // Four spatial voices at distances 1..4 (nearest loudest) and one non-spatial voice.
     for (let k = 0; k < 4; k++) backend.play(req(`s${k}.wav`, -(k + 1), -1));
     backend.play({ path: "flat.wav", url: "flat.wav", loop: true, stream: false, bus: "SFX" });
-    await step(40);
+    await r.until(() => backend.debug().core.hrtfReady === true, "the HRIR table");
+    await step(10);
     expect(fetches()).toBe(1);
     const d = backend.debug();
     expect(d.core.hrtfReady).toBe(true);
@@ -188,7 +138,8 @@ describe("HRTF for the nearest voices on the loopback host (H3)", () => {
     if (!r) return ctx.skip();
     const { backend, step, hrtfSeen } = r;
     backend.play(req("far.wav", -4, 0));
-    await step(40);
+    await r.until(() => backend.debug().core.hrtfReady === true, "the HRIR table");
+    await step(10);
     expect(backend.debug().counters.hrtfVoices).toBe(1);
     // A nearer voice outranks it: the far one is unflagged and the near one flagged in the same frame (unflags first).
     hrtfSeen.length = 0;
@@ -226,7 +177,8 @@ describe("HRTF for the nearest voices on the loopback host (H3)", () => {
     const r = await rig({ failFetch: true });
     if (!r) return ctx.skip();
     r.backend.play(req("s.wav", 1, -1));
-    await r.step(20);
+    await r.until(() => r.backend.debug().counters.hrtfLoadFailure === 1, "the failed fetch to read");
+    await r.step(10);
     expect(r.fetches()).toBe(1);
     const d = r.backend.debug();
     expect(d.counters.hrtfLoadFailure).toBe(1);
@@ -236,52 +188,24 @@ describe("HRTF for the nearest voices on the loopback host (H3)", () => {
     r.backend.dispose();
   });
 
-  it("measures the per-voice HRTF cost in the wasm", async (ctx) => {
-    /** µs per quantum with 16 spatial voices; `moving` turns the listener 3° a frame (4 quanta), so kernels crossfade. */
-    const time = async (hrtf: number, moving: boolean) => {
-      const r = await rig({ hrtf });
-      if (!r) return null;
-      for (let k = 0; k < 16; k++) r.backend.play(req(`s${k}.wav`, Math.sin(k), -Math.cos(k)));
-      await r.step(40);
-      const flagged = r.backend.debug().counters.hrtfVoices;
-      const frames = 300;
-      let spent = 0;
-      const blocks: number[] = [];
-      for (let f = 0; f < frames; f++) {
-        if (moving) {
-          const a = (f * 3 * Math.PI) / 180;
-          r.backend.setListener({ position: { x: 0, y: 0, z: 0 }, forward: { x: Math.sin(a), y: 0, z: -Math.cos(a) }, up: { x: 0, y: 1, z: 0 } });
-          r.backend.update(0.01);
-        }
-        const t0 = performance.now();
-        r.loop.renderQuanta(4);
-        const dt = performance.now() - t0;
-        spent += dt;
-        blocks.push(dt);
-      }
-      r.backend.dispose();
-      blocks.sort((a, b) => a - b);
-      return { per: (spent / (frames * 4)) * 1000, flagged, p99: (blocks[Math.floor(blocks.length * 0.99)]! / 4) * 1000 };
-    };
-    const best = async (hrtf: number, moving: boolean) => {
-      let out: { per: number; flagged: number; p99: number } | null = null;
-      for (let k = 0; k < 2; k++) {
-        const r = await time(hrtf, moving);
-        if (r && (!out || r.per < out.per)) out = r;
-      }
-      return out;
-    };
-    const ep = await best(0, false);
-    const still = await best(16, false);
-    const epMoving = await best(0, true);
-    const moving = await best(16, true);
-    if (!ep || !still || !epMoving || !moving) return ctx.skip();
-    expect(still.flagged).toBe(16);
-    const perStill = (still.per - ep.per) / 16;
-    const perMoving = (moving.per - epMoving.per) / 16;
-    console.log(
-      `[hrtf cost] wasm (loopback, with the shell): equal-power quantum ${ep.per.toFixed(1)} µs for 16 voices; per HRTF voice +${perStill.toFixed(2)} µs static, +${perMoving.toFixed(2)} µs with the listener turning (kernel crossfades); p99 of 4-quantum blocks per quantum: ${epMoving.p99.toFixed(0)} µs equal-power, ${moving.p99.toFixed(0)} µs HRTF turning`,
-    );
-    expect(perStill).toBeLessThan(200);
-  }, 30_000);
+  it("16 spatial voices with the listener turning 3 degrees a frame: all 16 stay on HRTF, the frames render", async (ctx) => {
+    const r = await rig({ hrtf: 16 });
+    if (!r) return ctx.skip();
+    for (let k = 0; k < 16; k++) r.backend.play(req(`s${k}.wav`, Math.sin(k), -Math.cos(k)));
+    await r.until(() => r.backend.debug().core.hrtfReady === true, "the HRIR table");
+    await r.step(10);
+    expect(r.backend.debug().counters.hrtfVoices).toBe(16);
+    const frames = 300;
+    let peak = 0;
+    for (let f = 0; f < frames; f++) {
+      const a = (f * 3 * Math.PI) / 180;
+      r.backend.setListener({ position: { x: 0, y: 0, z: 0 }, forward: { x: Math.sin(a), y: 0, z: -Math.cos(a) }, up: { x: 0, y: 1, z: 0 } });
+      r.backend.update(0.01);
+      const out = r.loop.renderQuanta(4);
+      for (const s of out.left) peak = Math.max(peak, Math.abs(s));
+    }
+    expect(r.backend.debug().counters.hrtfVoices).toBe(16);
+    expect(peak).toBeGreaterThan(0); // the HRTF voices sound
+    r.backend.dispose();
+  });
 });
