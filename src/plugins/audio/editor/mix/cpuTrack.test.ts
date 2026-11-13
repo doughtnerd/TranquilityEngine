@@ -7,6 +7,7 @@ import { SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE, keyframeBytesPlaceholder, stat
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "../../runtime/capture/worker";
 import { CPU_WINDOW_QUANTA } from "../../runtime/mix/cpuMeter";
 import { CaptureSource, statusColumns, type CaptureWorkerLike } from "./profilerSource";
+import { downsampleTicks, type Viewport } from "./timelineModel";
 import { COUNTER_COLUMNS, CPU_COLUMNS, CpuState, CpuTrack, LADDER_COLUMNS, VOICE_COLUMNS, counterTicks, cpuLevel, ladderSeries, slackLevel, slackSeries, voiceSeries } from "./cpuTrack";
 
 const QUANTA_PER_STATUS = 6;
@@ -215,20 +216,7 @@ describe("voices, counters, ladder", () => {
 
 // --- acceptance: downsampling keeps every underrun tick -------------------------------------------------------------
 //
-// `timelineModel.ts` (L-Pf1a, parallel branch) is not merged yet, so this test runs against a local stand-in with the
-// interface's `downsampleTicks` semantics (every tick in [start, end) sets floor((t - start) / span * buckets)). When
-// the leaf lands, replace `downsampleTicks` below with `import { downsampleTicks, type Viewport } from "./timelineModel"`:
-// the assertions don't change.
-interface Viewport { readonly start: number; readonly end: number; readonly followLive: boolean }
-function downsampleTicks(t: ArrayLike<number>, v: Viewport, buckets: number, out?: Uint8Array): Uint8Array {
-  const o = out && out.length === buckets ? out.fill(0) : new Uint8Array(buckets);
-  const span = v.end - v.start;
-  for (let i = 0; i < t.length; i++) {
-    if (t[i]! < v.start || t[i]! >= v.end) continue;
-    o[Math.min(buckets - 1, Math.floor(((t[i]! - v.start) / span) * buckets))] = 1;
-  }
-  return o;
-}
+// Through the merged `timelineModel.ts` (L-Pf1a).
 
 describe("underrun ticks survive downsampling", () => {
   const N = 6000; // 96 s of STATUS blocks
