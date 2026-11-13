@@ -82,10 +82,12 @@ async function meterWindow(page: Page, bus: string, seconds: number): Promise<{ 
  */
 async function heard(page: Page, bus: string, gain: number): Promise<void> {
   await expect.poll(() => gainOf(page, bus), { timeout: 20_000, message: `${bus}'s effective gain reaches ${gain}` }).toBeCloseTo(gain, 3);
-  await audioFor(page, 0.3);
+  // The meter falls with its own release (about 0.5 s from a louder reading to the new level): let it settle on the audio clock.
+  await audioFor(page, gain === 0 ? 1.6 : 0.9);
   const w = await meterWindow(page, bus, 0.3);
   if (gain === 0) {
-    expect(w.max, `${bus} is silent`).toBeLessThan(0.002);
+    // A fall from a loud reading takes the meter longer: poll audio-clock windows until it is silent.
+    await expect.poll(async () => (await meterWindow(page, bus, 0.3)).max, { timeout: 30_000, message: `${bus} is silent` }).toBeLessThan(0.002);
     return;
   }
   expect(w.max, `${bus} peak at ${gain}`).toBeGreaterThan(TONE_PEAK * gain * 0.93);
@@ -238,6 +240,7 @@ test("M5c: a pointer drag previews live and commits one edit on release; Escape 
   await playLiveMix(page);
   await openMixer(page);
   await heard(page, "Aux", 1);
+  await fader(page, "Aux").scrollIntoViewIfNeeded();
   const box = (await fader(page, "Aux").boundingBox())!;
   const x = box.x + box.width / 2;
   const yUnity = box.y + box.height * (1 - 0.75);
