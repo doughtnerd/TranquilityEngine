@@ -21,10 +21,10 @@ const RATE = 48_000;
 const BLOCK = 768;
 const SECOND = Math.ceil(RATE / BLOCK);
 
-type Fake = FakeBackend & { frame: number };
+type Fake = FakeBackend & { frame: number; time: number };
 
 function rig(opts: { babylon?: boolean; keyframe?: boolean } = {}) {
-  const fb = makeFakeBackend() as Fake;
+  const fb = makeFakeBackend() as unknown as Fake;
   fb.frame = 0;
   const baseDebug = fb.debug.bind(fb);
   // The core reports STATUS frames (`frame`, moved by `feed`); the fallback reports its audio clock (`time`, moved by `clock`).
@@ -40,7 +40,7 @@ function rig(opts: { babylon?: boolean; keyframe?: boolean } = {}) {
   const calls: { table: string; name: string }[] = [];
   let version = 0;
   if (opts.keyframe !== false) {
-    (fb as { keyframe?: AudioBackendKeyframe }).keyframe = (nameId, noName) => {
+    (fb as { keyframe?: AudioBackendKeyframe }).keyframe = (nameId, noName = 0xffffffff) => {
       version++;
       const clip = nameId("clips", "jump.ogg");
       calls.push({ table: "clips", name: "jump.ogg" });
