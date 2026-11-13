@@ -42,6 +42,16 @@
 //! - Nothing allocates; transcendentals through `libm`.
 //! - `set_*` may be called once per quantum with the same values: the filter state is kept and the
 //!   coefficients are recomputed only when the kind, the frequency, the Q or the rate changed.
+//!
+//! **The per-quantum coefficient blend (B4; spike S4).** A parameter that moves along a ramp is
+//! blended by calling `set_*` once per quantum with the ramp's value at the quantum's start: the
+//! coefficients are recomputed from it and the history is kept, so the response steps 128 frames
+//! at a time along the ramp and nothing clicks (S4: the glitch is 1.19× the same trajectory's
+//! per-sample recompute for a linear-Hz ramp, 1.68× the exact log-Hz sweep; an unblended switch
+//! reaches 3.5×; the cost is +370 wasm instructions per filter per moving quantum, 10,675 against
+//! 10,305 settled). The bus's snapshot low-pass is blended this way (`audio-core`'s
+//! `fx::snapshot_lowpass`); effect-slot filters take an edit directly (R7: S4 measured a cut-off
+//! jump clean, abrupt 0.15).
 
 pub mod coeffs;
 pub mod kernel;

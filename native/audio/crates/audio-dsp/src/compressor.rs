@@ -58,7 +58,9 @@
 //! - `#[repr(C)]` and **all-zero valid**: a zeroed `Compressor` passes samples through until it is
 //!   configured with a rate; the first quantum after that runs upstream's constructor setup.
 //! - Nothing allocates (the pre-delay line is a fixed array inside the struct).
-//! - [`Compressor::configure`] keeps the envelope and the pre-delay line (no click).
+//! - [`Compressor::configure`] keeps the envelope and the pre-delay line, but sets the parameters
+//!   at once: a changed threshold, knee or ratio steps the makeup gain at the next quantum (a
+//!   click). A live edit glides instead ([`Compressor::glide`], driven per quantum by `fx.rs`).
 
 use core::f32::consts::FRAC_PI_2;
 
@@ -260,8 +262,16 @@ impl Compressor {
     /// ratio, attack s, release s; each clamped to the node's range, a NaN to its minimum).
     pub fn configure(&mut self, sample_rate: f32, threshold_db: f32, knee_db: f32, ratio: f32, attack_s: f32, release_s: f32) {
         self.sample_rate = sample_rate;
-        let raw = [threshold_db, knee_db, ratio, attack_s, release_s];
-        for ((dst, v), (lo, hi)) in self.params.iter_mut().zip(raw).zip(RANGES) {
+        self.params = Compressor::clamp([threshold_db, knee_db, ratio, attack_s, release_s]);
+    }
+
+    /// The parameters `threshold dB, knee dB, ratio, attack s, release s` clamped as
+    /// [`Compressor::configure`] clamps them (each to the node's range, a NaN to its minimum): the
+    /// target of a glide ([`Compressor::glide`]) compares equal to `params` exactly when
+    /// `configure` would store the same values.
+    pub fn clamp(raw: [f32; 5]) -> [f32; 5] {
+        let mut out = [0.0f32; 5];
+        for ((dst, v), (lo, hi)) in out.iter_mut().zip(raw).zip(RANGES) {
             *dst = if v >= hi {
                 hi
             } else if v > lo {
@@ -270,6 +280,36 @@ impl Compressor {
                 lo
             };
         }
+        out
+    }
+
+    /// One quantum of a parameter glide (B4, R7: a compressor edit is smoothed over
+    /// `COMPRESSOR_SMOOTH_MS`): moves `params` toward `target` (already [`Compressor::clamp`]ed)
+    /// by `frames / frames_left` of the way, before the block of `frames` is compressed, and counts
+    /// `frames_left` down; the quantum that reaches 0 lands on `target` exactly. So the parameters
+    /// follow a straight line from where they were when the glide began (or was retargeted) to
+    /// `target`, stepping once per quantum (S4: a threshold blended per quantum over 20 ms reads
+    /// abrupt 0.19–0.23, the hard step 0.78). `frames_left` 0 does nothing: a compressor whose
+    /// parameters don't change costs nothing here and processes bit-identically.
+    ///
+    /// The step is the click's cure: `process` derives the makeup gain
+    /// (`(1 / saturate(1))^0.6`) from the curve once per quantum and applies it unsmoothed, so a
+    /// threshold, knee or ratio jump steps the output's level within one sample (read in B4; S4
+    /// inferred it from the step's shape). The envelope itself is smoothed by attack and release.
+    pub fn glide(&mut self, target: &[f32; 5], frames_left: &mut u32, frames: u32) {
+        if *frames_left == 0 {
+            return;
+        }
+        if *frames_left <= frames {
+            self.params = *target;
+            *frames_left = 0;
+            return;
+        }
+        let u = frames as f32 / *frames_left as f32;
+        for (p, &t) in self.params.iter_mut().zip(target) {
+            *p += (t - *p) * u;
+        }
+        *frames_left -= frames;
     }
 
     /// The pre-delay in frames at the configured rate (upstream's `SetPreDelayTime`, held at
@@ -306,6 +346,21 @@ impl Compressor {
     /// Compresses `left` and `right` in place (equal lengths, at most one quantum): upstream's
     /// `Process` with the source and destination the same stereo bus.
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
+        self.run::<false>(left, right);
+    }
+
+    /// [`Compressor::process`] for a quantum of a parameter glide (B4: called after
+    /// [`Compressor::glide`] moved the parameters): the makeup gain moves linearly across the
+    /// block, sample by sample, from the previous quantum's curve to this one's, instead of
+    /// stepping at the block's first sample. Everything else is `process`'s arithmetic. A
+    /// compressor whose curve hasn't been computed yet (the first quantum after construction)
+    /// starts on the new makeup gain.
+    pub fn process_gliding(&mut self, left: &mut [f32], right: &mut [f32]) {
+        self.run::<true>(left, right);
+    }
+
+    /// `process`'s body; `RAMP` ramps the makeup gain across the block (`process_gliding`).
+    fn run<const RAMP: bool>(&mut self, left: &mut [f32], right: &mut [f32]) {
         if !(self.sample_rate > 0.0) {
             return;
         }
@@ -316,11 +371,19 @@ impl Compressor {
         let [db_threshold, db_knee, ratio, attack_time, release_time] = self.params;
         let sample_rate = self.sample_rate;
 
+        // The previous quantum's makeup gain, read from the curve before it is updated.
+        let previous_post_gain = if RAMP && self.curve.ratio != UNINITIALIZED { libm::powf(1.0 / self.curve.saturate(1.0, self.curve.knee), 0.6) } else { 0.0 };
+
         let k = self.curve.update(db_threshold, db_knee, ratio);
         let curve = self.curve;
 
         // Makeup gain with empirical/perceptual tuning.
         let linear_post_gain = libm::powf(1.0 / curve.saturate(1.0, k), 0.6);
+        let (post_gain_from, post_gain_step) = if RAMP && previous_post_gain != 0.0 && frames > 0 {
+            (previous_post_gain, (linear_post_gain - previous_post_gain) / frames as f32)
+        } else {
+            (linear_post_gain, 0.0)
+        };
 
         let attack_frames = 0.001f32.max(attack_time) * sample_rate;
         let release_frames = sample_rate * release_time;
@@ -439,7 +502,8 @@ impl Compressor {
 
                 // Warp the gain to smooth out sharp exponential transitions, then the makeup gain.
                 let post_warp_compressor_gain = libm::sin((FRAC_PI_2 * compressor_gain) as f64) as f32;
-                let total_gain = linear_post_gain * post_warp_compressor_gain;
+                let post_gain = if RAMP { post_gain_from + post_gain_step * (frame_index + 1) as f32 } else { linear_post_gain };
+                let total_gain = post_gain * post_warp_compressor_gain;
 
                 left[frame_index] = self.pre_delay[0][read] * total_gain;
                 right[frame_index] = self.pre_delay[1][read] * total_gain;
@@ -521,5 +585,38 @@ mod tests {
         c.configure(48_000.0, -30.0, 30.0, 12.0, 0.003, 0.25);
         assert_eq!((c.compressor_gain, c.pre_delay), (gain, line));
         assert!(l.iter().chain(&r).all(|x| x.is_finite()));
+    }
+
+    #[test]
+    fn clamp_is_configures_clamp() {
+        let mut c = Compressor::default();
+        for raw in [[-200.0, 50.0, 0.0, f32::NAN, 2.0], [-24.0, 30.0, 12.0, 0.003, 0.25], [0.0, 0.0, 1.0, 1.0, -1.0]] {
+            c.configure(48_000.0, raw[0], raw[1], raw[2], raw[3], raw[4]);
+            assert_eq!(Compressor::clamp(raw), c.params);
+        }
+    }
+
+    #[test]
+    fn a_glide_is_a_straight_line_per_quantum_and_lands_on_the_target() {
+        let mut c = Compressor::default();
+        c.configure(48_000.0, -24.0, 6.0, 4.0, 0.003, 0.25);
+        let target = Compressor::clamp([-40.0, 6.0, 8.0, 0.003, 0.25]);
+        let mut left = 960u32;
+        let mut seen = vec![];
+        while left > 0 {
+            c.glide(&target, &mut left, 128);
+            seen.push(c.params);
+        }
+        assert_eq!(seen.len(), 8, "960 frames take 8 quanta (the last one lands)");
+        assert_eq!(c.params, target, "exactly on the target");
+        for (q, p) in seen.iter().enumerate().take(7) {
+            let u = (q + 1) as f32 * 128.0 / 960.0;
+            assert!((p[0] - (-24.0 - 16.0 * u)).abs() < 1e-4, "quantum {q}: threshold {}", p[0]);
+            assert!((p[2] - (4.0 + 4.0 * u)).abs() < 1e-5, "quantum {q}: ratio {}", p[2]);
+            assert_eq!((p[1], p[3], p[4]), (6.0, 0.003, 0.25), "unchanged parameters stay exact");
+        }
+        let before = c;
+        c.glide(&target, &mut left, 128);
+        assert_eq!(c, before, "no glide: nothing moves");
     }
 }
