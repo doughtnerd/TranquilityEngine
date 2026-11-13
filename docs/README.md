@@ -21,6 +21,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Why is there no sound?](guide/why-no-sound.md) | A troubleshooting page driven by `Audio.debug()` and the Audio Debug panel: locked audio, the fallback backend, a sound's `reason`, AAC and format problems, the decoder worker, hidden tabs, mute and volume |
 | [Fog, camera rays and spatial audio](guide/atmosphere-and-sound.md) | The `Fog` component, `Camera.screenPointToRay` / `worldToScreenPoint`, `Ray` and `Plane`, `AudioListener` and spatial `AudioSource` |
 | [Audio mixer](guide/audio-mixer.md) | Buses, effects, snapshots, ducking, `AudioSource.output`, `Audio.bus(...)` |
+| [Audio profiler](guide/audio-profiler.md) | The Audio Profiler panel (tracks, tables, keys, loudness), recording in the editor and with `Audio.capture`, saving and opening `.mycap` files, banners and refusals, file size, what a capture reveals |
 | [Spatial audio](guide/spatial-audio.md) | Beds, reverb zones, occlusion and materials (the door recipe), Doppler, ambisonic clips, the Babylon fallback's limits, how it compares with Wwise, FMOD and Unity |
 | [Sound events](guide/sound-events.md) | Audio event assets (`*.audioevent.json`): containers, parameters, automation curves, `Audio.play`, sustain and release, limits |
 | [Interactive music](guide/interactive-music.md) | Music events: segments, tempo grid, stems and quantised automation, playlists, music switches, transition rules, stingers, streaming and `music.rings`, `handle.music`, the debug panel's Music sections; what is still to come |
