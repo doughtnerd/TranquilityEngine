@@ -74,7 +74,7 @@ Wave-end checks (quiet machine): typecheck green; `npm test` **603 files, 6,825 
 
 **Follow-ups carried to W3 briefs:** Mx2 sends master on `LANE_RUNTIME` (B1a); `BUS_CONFIG` doesn't reset a re-added slot's lanes (Mx2's replay resends them); stale `BUS_MIX`-as-current comments in TS core files (coordinator sweep with Mx2); Rc5 fixes `RecordTable.ROW_BYTES` (26 vs 28 B per row in the reader's allocation count).
 
-## Wave 7 (base `1e70359`) — closing
+## Wave 7 (base `1e70359`) — closed
 
 Merged: L-Mp1ba, L-Pf6a, Mp1b, Pf6, Pf3c, Pf3b, Mp2a, Pf4, Pf3d, Bn2, Bb1, Rc4, Ld7 (+ wasm `377,465 B`), Gs1, **Ck1 + Ma2 (the live-structural flip)**, L-Ld6b, L-Ld6a, Ld6, and four coordinator-added follow-ups: G7a (level rules sent to the core; a playing sound's bus change through the per-voice dip; the ladder's debug row), G7b (the capture's real keyframe source on both backends, Babylon event frames, release on Play stop, the project name, the loudness track's target), G7c (a removed bus vs the tombstone), G7d (exact loudness gating). The track contract `editor/mix/tracks/types.ts` (`1e70359`) was written by the coordinator before Pf3b–d and Pf4.
 
@@ -92,6 +92,8 @@ Merged: L-Mp1ba, L-Pf6a, Mp1b, Pf6, Pf3c, Pf3b, Mp2a, Pf4, Pf3d, Bn2, Bb1, Rc4, 
 **Glue (coordinator):** the track factories, the live host and the loudness track loaded lazily in `mix/index.ts`; `Audio.debug().recorder`; `meterFill` imports; three import-direction fixes (Pf6's Worker importing the editor's model → `loudnessTrackModel.ts` moved to `runtime/mix/`; Rc4's tests in `runtime/` importing the editor → moved to `editor/mix/`; Pf3d's helper importing the recorder statically → `import()`; the recorder-import check now skips `*.bench.ts`); W6's pyramid follow-up renamed Pf3p.
 
 **Process:** load reached 27 on 4 cores with 11 agents plus benches; Bn2's timings are loaded figures. Four agents (Bn2, Rc4, Gs1, G7b) kept background jobs running after reporting: stopped. Rc4's real Tauri and Android paths ran on fakes only; the profiler's views have no DOM run yet (W9's Playwright).
+
+**Wave-end checks (quiet machine):** typecheck, `check:audio-metered` (+0.12 %) pass; `cargo test` **1,119 passed**; `npm test` 679 files, 7,836 passed, 1 failure (the audio source hash after Ld6's `Cargo.toml` and test edits → wasm rebuilt, `d2773c5`); `npm run build` failed on the engine library's typecheck of Bn2's Node-only `realCore.bench.ts` → `tsconfig.engine.json` excludes `*.bench.ts`; `npm run test:e2e` 264 passed, 1 failed (the M5a smoke expected the KEYFRAME right after EPOCH; G7b's keyframe source interns names first, so NAMES precedes the keyframe that refers to them — the spec now allows that; 12 of 12 after). **Bn2's real-core bench on the quiet machine:** with the recorder on, main spends **+0.55 / +0.72 / +0.81 ms per audio second** at 64 / 256 / 1,024 live voices (allowance 1 ms; the recorder tap alone 0.28 / 0.33 / 0.41); the core's quantum cost unchanged within noise; sizes as in the loaded run.
 
 ## Wave 6 (base `3d434f7`) — closed (Ma2 held)
 
