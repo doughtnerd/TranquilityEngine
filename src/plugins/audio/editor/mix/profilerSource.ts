@@ -7,7 +7,7 @@
 // Requests are matched to responses by id. Errors reject with a `CaptureError` (the Worker's `code`, `offset`,
 // `message`); a cancelled open rejects with code `cancelled`. A Worker that dies rejects everything pending.
 import { CaptureError, type CaptureErrorInfo } from "../../runtime/capture/format";
-import type { CaptureMarkerAt, CaptureOpenSummary, CaptureRangeColumns, CaptureSeekState } from "../../runtime/capture/reader";
+import { RANGE_SECONDS, type CaptureMarkerAt, type CaptureOpenSummary, type CaptureRangeColumns, type CaptureSeekState } from "../../runtime/capture/reader";
 import type { CaptureRequest, CaptureResponse } from "../../runtime/capture/worker";
 
 /** What the profiler reads, whatever the capture's origin. */
@@ -19,6 +19,10 @@ export interface ProfileSource {
   readonly markers: readonly CaptureMarkerAt[];
   /** The ring wrapped before the save: the capture starts at a keyframe, not at Play. */
   readonly truncated: boolean;
+  /** Opened as a live view: it grows by `appendSegment` (`duration`, `markers` and `summary` follow), and a file never does. */
+  readonly live: boolean;
+  /** The Worker's axis seconds of the capture's first record: viewport time 0. `seek` and `range` take axis seconds (viewport time + this). */
+  readonly startSeconds: number;
   /** The state at `t` seconds on the axis (clamped to the capture). */
   seek(t: number): Promise<CaptureSeekState>;
   /** STATUS columns over [t0, t1]; with `buckets`, min/max per bucket (`rangeCapture`). The arrays are transferred, so the caller owns them. */
@@ -67,6 +71,7 @@ export class CaptureSource implements ProfileSource {
   private nextId = 1;
   private current: CaptureOpenSummary | null = null;
   private closed = false;
+  private isLive = false;
 
   private constructor(worker: CaptureWorkerLike) {
     this.worker = worker;
@@ -97,6 +102,7 @@ export class CaptureSource implements ProfileSource {
       const r = await s.request({ type: "open", id, source, bytes }, [bytes], opts.onProgress);
       if (r.type !== "opened") throw new Error(`capture worker: unexpected ${r.type}`);
       s.current = r.summary;
+      s.isLive = source === "live";
       return s;
     } catch (e) {
       s.close();
@@ -120,6 +126,14 @@ export class CaptureSource implements ProfileSource {
 
   get truncated(): boolean {
     return this.current!.truncated;
+  }
+
+  get live(): boolean {
+    return this.isLive;
+  }
+
+  get startSeconds(): number {
+    return this.current!.startSeconds;
   }
 
   async seek(t: number): Promise<CaptureSeekState> {
@@ -182,4 +196,18 @@ export class CaptureSource implements ProfileSource {
     this.pending.clear();
     for (const p of all) p.reject(e);
   }
+}
+
+/**
+ * STATUS columns over viewport time [from, to] (seconds from the capture's first record; the whole capture by default),
+ * raw (one sample per STATUS), with `seconds` rebased to the viewport axis. The models in `cpuTrack.ts` read this.
+ */
+export async function statusColumns(source: ProfileSource, columns: readonly string[], from = 0, to = source.duration): Promise<CaptureRangeColumns> {
+  const o = source.startSeconds;
+  const cols = await source.range(o + from, o + to, columns);
+  if (o !== 0) {
+    const s = cols[RANGE_SECONDS] as Float64Array;
+    for (let i = 0; i < s.length; i++) s[i] = s[i]! - o;
+  }
+  return cols;
 }
