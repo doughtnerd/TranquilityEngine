@@ -617,31 +617,6 @@ pub fn cases() -> Vec<VectorCase> {
                 "02000000", "000040c1", "0000c040", "00008040", "0000803f", "00000040", "00000000", "00000000",
             ),
         ),
-        // BUS_MIX, variable length: 36 B = 9 words. Ramp 480; bus 0 gain 1.0 lpHz off (24000),
-        // bus 1 gain 0.5 lpHz 1200.0.
-        case(
-            "BUS_MIX_two_buses",
-            Subject::Opcode("BUS_MIX"),
-            vec![
-                ("voiceId", vu(0)),
-                ("frameOffset", vu(0xFFFF_FFFF)),
-                ("rampFrames", vu(480)),
-                (
-                    "buses",
-                    va(vec![
-                        vr(vec![("gain", vf(1.0)), ("lpHz", vf(24000.0))]),
-                        vr(vec![("gain", vf(0.5)), ("lpHz", vf(1200.0))]),
-                    ]),
-                ),
-            ],
-            concat!(
-                "1100", "0900", "00000000", "ffffffff", // head: BUS_MIX, 9 words, bus 0, asap
-                "02000000", // busCount 2
-                "e0010000", // rampFrames 480
-                "0000803f", "0080bb46", // bus 0: gain 1.0, lpHz 24000.0
-                "0000003f", "00009644", // bus 1: gain 0.5, lpHz 1200.0
-            ),
-        ),
         // MASTER, 24 B = 6 words: volume 0.8, muted 0, ramp 960. Asap.
         case(
             "MASTER",

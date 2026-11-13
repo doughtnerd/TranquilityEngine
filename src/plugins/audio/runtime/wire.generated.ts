@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "ac3d52ea3ecf37921bb9302c66da1ed8";
+export const SCHEMA_HASH = "437412c9bad8b878ade83c2f04be5c5c";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -306,7 +306,6 @@ export const Op = {
   AUTOMATE: 0x09,
   SET_VOICE_FX: 0x0a,
   BUS_CONFIG: 0x10,
-  BUS_MIX: 0x11,
   MASTER: 0x12,
   CURVES: 0x13,
   PARAM: 0x14,
@@ -1795,85 +1794,6 @@ export function readBusConfig(view: DataView, off: number): BusConfig {
   const limit = off + view.getUint16(off + 2, true) * 4;
   if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusConfig: truncated");
   return _readBusConfig(view, off, limit)[0];
-}
-
-export interface BusMixBuses {
-  gain: number;
-  /** low-pass cutoff; 24000 off */
-  lpHz: number;
-}
-
-export const BUS_MIX_BUSES_FIXED_END = 8;
-
-export function writeBusMixBuses(view: DataView, off: number, rec: BusMixBuses): number {
-  view.setFloat32(off + 0, rec.gain, true);
-  view.setFloat32(off + 4, rec.lpHz, true);
-  let cur = off + 8;
-  return cur - off;
-}
-
-function _readBusMixBuses(view: DataView, off: number, limit: number): [BusMixBuses, number] {
-  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusMixBuses: truncated");
-  const gain = view.getFloat32(off + 0, true);
-  const lpHz = view.getFloat32(off + 4, true);
-  let cur = off + 8;
-  return [{ gain, lpHz }, cur - off];
-}
-
-export function readBusMixBuses(view: DataView, off: number): BusMixBuses {
-  const limit = view.byteLength;
-  return _readBusMixBuses(view, off, limit)[0];
-}
-
-/** DEPRECATED (ADR 0171: superseded by BUS_RAMP 0x18; R0 retires it and reserves the id): set bus gain and filter; ramps over rampFrames */
-export interface BusMix {
-  voiceId: number;
-  frameOffset: number;
-  rampFrames: number;
-  buses: BusMixBuses[];
-}
-
-export const BUS_MIX_FIXED_END = 20;
-
-export function writeBusMix(view: DataView, off: number, rec: BusMix): number {
-  view.setUint32(off + 12, rec.buses.length, true);
-  view.setUint32(off + 16, rec.rampFrames, true);
-  let cur = off + 20;
-  for (const item of rec.buses) cur += writeBusMixBuses(view, cur, item);
-  const total = cur - off;
-  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "BusMix: record too long");
-  view.setUint16(off + 0, 17, true);
-  view.setUint16(off + 2, total / 4, true);
-  view.setUint32(off + 4, rec.voiceId, true);
-  view.setUint32(off + 8, rec.frameOffset, true);
-  return cur - off;
-}
-
-function _readBusMix(view: DataView, off: number, limit: number): [BusMix, number] {
-  if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusMix: truncated");
-  const busCount = view.getUint32(off + 12, true);
-  const rampFrames = view.getUint32(off + 16, true);
-  let cur = off + 20;
-  if (busCount * 8 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusMix: buses overrun");
-  const buses: BusMixBuses[] = [];
-  for (let i = 0; i < busCount; i++) {
-    const [item, used] = _readBusMixBuses(view, cur, limit);
-    cur += used;
-    buses.push(item);
-  }
-  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "BusMix: malformed");
-  cur = limit;
-  const voiceId = view.getUint32(off + 4, true);
-  const frameOffset = view.getUint32(off + 8, true);
-  return [{ voiceId, frameOffset, rampFrames, buses }, cur - off];
-}
-
-export function readBusMix(view: DataView, off: number): BusMix {
-  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusMix: truncated");
-  if (view.getUint16(off + 0, true) !== 17) throw new WireError(ErrorCode.MALFORMED, "BusMix: wrong opcode");
-  const limit = off + view.getUint16(off + 2, true) * 4;
-  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusMix: truncated");
-  return _readBusMix(view, off, limit)[0];
 }
 
 /** master volume and mute; ramps over rampFrames */

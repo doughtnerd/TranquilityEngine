@@ -13,7 +13,7 @@
 //!   that voice's render at the record's sample (`voice_split::boundaries`, Z2c). Two class G
 //!   records for one voice at different offsets in one quantum take the class S path too.
 //!
-//! Records that aren't per voice (BUS_MIX, MASTER, LISTENER, configuration tables:
+//! Records that aren't per voice (MASTER, LISTENER, configuration tables:
 //! [`Class::Quantum`]) keep splitting the quantum and count `splitQuanta`; so does a quantum with
 //! more than [`DUE_RECORDS`] due records ([`Route::Split`]). A due record at a voice's own start
 //! frame applies before its first sample.

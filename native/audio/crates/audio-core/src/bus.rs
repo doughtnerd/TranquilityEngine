@@ -1,4 +1,4 @@
-//! The bus tree (api-and-models §3 "Bus state serialisation", §4.2 BUS_CONFIG, BUS_MIX, MASTER;
+//! The bus tree (api-and-models §3 "Bus state serialisation", §4.2 BUS_CONFIG, BUS_RAMP, MASTER;
 //! architecture §1, §4.3).
 //!
 //! **Tree.** BUS_CONFIG sends the whole tree, one entry per bus index: its parent (`0xFFFF` for a
@@ -9,16 +9,17 @@
 //! are mixed in is computed then (deepest first), so parents need not come before their children.
 //! Before any BUS_CONFIG the tree is one root bus at unity gain.
 //!
-//! **Gains and ramps.** BUS_MIX gives each bus its own gain (mute and solo are folded into it on
-//! main: a muted bus has gain 0) and its snapshot low-pass cut-off (24,000 Hz is off), both ramped
-//! linearly over `rampFrames` from the start of the next quantum: the gain per frame (click-free),
+//! **Gains and ramps.** `BUS_RAMP` on the `runtime` lane gives each bus its own gain (mute and solo
+//! are folded into it on main: a muted bus has gain 0) and on the `snapshot` lane its low-pass
+//! cut-off (24,000 Hz is off), both ramped linearly over the record's `frames` (`lanes.rs`; BUS_MIX
+//! before 0171/0172 M5): the gain per frame (click-free),
 //! the cut-off per quantum. The core multiplies gains down the tree by mixing each bus into its
 //! parent. MASTER sets the output's volume and mute, ramped the same way. A bus that BUS_CONFIG
-//! keeps keeps its gain, cut-off, effect state and meter; a new bus starts at unity until BUS_MIX.
+//! keeps keeps its gain, cut-off, effect state and meter; a new bus starts at unity until a `BUS_RAMP`.
 //! A non-finite gain or volume leaves the old target; a negative one is 0; a non-finite cut-off is
 //! off.
 //!
-//! **Timing.** BUS_CONFIG, BUS_MIX and MASTER apply when they arrive, between quanta, whatever
+//! **Timing.** BUS_CONFIG and MASTER apply when they arrive, between quanta, whatever
 //! their `frameOffset` (main sends them asap; no M1 caller stamps them).
 //!
 //! **Render** ([`mixdown`], once per quantum after the voices): voices have mixed into their bus's
@@ -49,7 +50,7 @@
 //! - the gain stage is `lanes::apply` (the ramp and automation's `gainMul`, moved there verbatim,
 //!   with the `duck` lane from `duck::gain` skipped while it returns `false`); the output gain is
 //!   `lanes::apply_master`; RESET settles through `lanes::settle` and `lanes::settle_master`;
-//!   BUS_MIX is `lanes::mix`;
+//!   `BUS_RAMP` is `lanes::on_ramp`;
 //! - the pre-fader tap `duck::detect` runs after the effects and the snapshot low-pass, before the
 //!   lanes; `loudness::tap` runs after each bus's lanes (beside the meter) and on the output after
 //!   the limiter;
@@ -100,9 +101,9 @@ pub const LP_OFF_HZ: f32 = wire::BUS_LP_OFF_HZ as f32;
 pub struct BusSlot {
     /// This quantum's input, planar stereo `[L; 128][R; 128]`; voices and child buses add into it.
     pub buf: [f32; 2 * QUANTUM],
-    /// The bus's own gain (BUS_MIX), ramped per frame.
+    /// The bus's own gain (the `runtime` lane, `BUS_RAMP`), ramped per frame.
     pub gain: Ramp,
-    /// The snapshot low-pass cut-off in Hz (BUS_MIX), ramped per quantum; [`LP_OFF_HZ`] is off.
+    /// The snapshot low-pass cut-off in Hz (the `snapshot` lane, `BUS_RAMP`), ramped per quantum; [`LP_OFF_HZ`] is off.
     pub lp: Ramp,
     /// The parent bus index, or [`ROOT`].
     pub parent: u16,
@@ -130,7 +131,7 @@ pub struct BusArea {
     /// MASTER as last received.
     pub master_volume: f32,
     pub master_muted: u32,
-    /// Buses, effects and BUS_MIX entries dropped (past the limits, a bus's second compressor,
+    /// Buses and effects dropped (past the limits, a bus's second compressor,
     /// unknown effect types), cumulative. The wire has no STATUS field for it; tests and a debugger read it.
     pub dropped: u32,
     /// The mix order: bus indices, deepest first (`count` of them).
@@ -161,7 +162,7 @@ pub(crate) struct View<'a> {
     pub(crate) area: &'a mut BusArea,
 }
 
-/// The bus slots and the bus area of `regions` (this module's, `lanes.rs`'s BUS_MIX and the stage
+/// The bus slots and the bus area of `regions` (this module's, `lanes.rs`'s and the stage
 /// modules K1 split out of it).
 pub(crate) fn view(regions: &mut Regions) -> View<'_> {
     let count = regions.buses.len() / crate::layout::BUS_BYTES;

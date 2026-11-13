@@ -14,7 +14,7 @@
 //! the `Zones` region, so [`begin_quantum`] writes every configured bus's gains into its sends area
 //! (`zones::sends_area`), and only while some mixed voice has a send or an aux bus: a core without
 //! sends pays a scan of the pool and nothing else. A record that moves a bus's gain inside the
-//! quantum (a stamped BUS_MIX) reaches the sends a quantum later than the dry path.
+//! quantum (a stamped bus gain record) reaches the sends a quantum later than the dry path.
 //!
 //! **Zone send** ([`tap`]): `send[k] × ½(l + r) × chain gain` into both inputs of slot `k` (a
 //! mono voice has `l = r`, so it sends its sample as is). A slot that doesn't take sends (off,

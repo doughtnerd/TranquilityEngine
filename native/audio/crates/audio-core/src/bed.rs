@@ -27,7 +27,7 @@
 //! (`ambisonic::encode_ramp_add`).
 //!
 //! **Fold** (architecture §4.3): a voice on bus B whose bed is hosted by ancestor A skips the
-//! buffers of B and of every bus between B and A, so their gains (BUS_MIX gain, which carries
+//! buffers of B and of every bus between B and A, so their gains (the main-written gain lanes, which carry
 //! volume, mute, solo and ducking, times automation `gainMul`) multiply its encode. [`begin_quantum`]
 //! computes them per frame with `chain::fill` (the per-frame product `bus::mixdown` itself applies,
 //! so a duck's knee inside a quantum is followed exactly; `chain::ends`' straight line misses it by

@@ -127,7 +127,7 @@ impl Core {
         let music_rings: usize = params.max_music_rings as usize;
         let streams = StreamStore::over(core::mem::take(&mut regions.streams), core::mem::take(&mut regions.wide), music_rings);
         let mut core = Core { params, layout, base: base as usize, regions, frame: 0, clips, cap, streams };
-        // A2.1: one root bus at unity and MASTER at unity until BUS_CONFIG, BUS_MIX and MASTER.
+        // A2.1: one root bus at unity and MASTER at unity until BUS_CONFIG, BUS_RAMP and MASTER.
         crate::bus::init(&mut core);
         // ADR 0158 E2: the automation region's header (its tables are all-zero valid).
         crate::automation::init(&mut core);

@@ -27,8 +27,8 @@
 //!    values with no ramp. A local binding of a voice whose PLAY `group` is 0 or out of range reads
 //!    0. Voices with no bindings pay nothing here.
 //! 4. **Bus bindings** (BUS_AUTOMATE, global parameters only, up to 8 per bus): `gainMul` on top of
-//!    the bus's BUS_MIX gain, ramped the same way, and the snapshot low-pass at
-//!    `min(BUS_MIX lpHz, lpAuto)`.
+//!    the bus's main-written gain lanes (`lanes.rs`), ramped the same way, and the snapshot
+//!    low-pass at `min(snapshot lane lpHz, lpAuto)`.
 //! 5. **Loop regions** (SET_LOOP, clip voices): kept beside the bindings ([`VoiceAuto`]); the
 //!    render loop reads them. See [`set_loop`].
 //!

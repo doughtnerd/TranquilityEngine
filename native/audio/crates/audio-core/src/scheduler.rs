@@ -7,14 +7,14 @@
 //!   skipped. BATCH (1) and REPLAY (12) carry records; STREAM_OPEN (5) and STREAM_CLOSE (7) open
 //!   and close a stream's ring (B3, `stream.rs`); other kinds aren't handled here.
 //! - Every record head is validated before any record applies (lengths inside the message, at least
-//!   the head; BUS_CONFIG and BUS_MIX also their per-bus entries), so a malformed batch changes
+//!   the head; BUS_CONFIG also its per-bus entries), so a malformed batch changes
 //!   nothing. Unknown opcodes are skipped by their length.
 //! - SET_MIXED (A3.1, `voices::set_mixed`) applies at once, in arrival order, whatever its
 //!   `frameOffset` (main's selection sends it asap; its 5 ms fade starts with the next quantum).
 //! - SET_PAUSED (A3.7, `voices::set_paused`) is scheduled like STOP: asap applies at once, a stamped
 //!   one at its frame (main sends it asap, ahead of the frame's SET_MIXED, so a resume and the
 //!   promote that follows it land together).
-//! - BUS_CONFIG, BUS_MIX and MASTER (A2.1, `bus.rs`) apply at once, in arrival order, whatever
+//! - BUS_CONFIG and MASTER (A2.1, `bus.rs`) apply at once, in arrival order, whatever
 //!   their `frameOffset`; their ramps start with the next quantum.
 //! - ADR 0158 E2: CURVES, PARAM, AUTOMATE and BUS_AUTOMATE (`automation.rs`) apply at once, in
 //!   arrival order, whatever their `frameOffset` (AUTOMATE finds its voice because PLAY writes the
@@ -202,7 +202,6 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::FADE => Fade::MIN_END,
             wire::op::RESET => Reset::FIXED_END,
             wire::op::BUS_CONFIG => wire::BusConfig::FIXED_END,
-            wire::op::BUS_MIX => wire::BusMix::FIXED_END,
             wire::op::MASTER => Master::FIXED_END,
             wire::op::SET_MIXED => wire::SetMixed::FIXED_END,
             wire::op::SET_PAUSED => wire::SetPaused::FIXED_END,
@@ -229,7 +228,6 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
         }
         let entries_fit = match head.opcode {
             wire::op::BUS_CONFIG => bus::config_is_well_formed(msg, off, len),
-            wire::op::BUS_MIX => lanes::mix_is_well_formed(msg, off, len),
             wire::op::AUTOMATE | wire::op::BUS_AUTOMATE => automation::bindings_is_well_formed(msg, off, len),
             wire::op::CURVES => automation::curves_is_well_formed(msg, off, len),
             wire::op::BED_CONFIG => bed::config_is_well_formed(msg, off, len),
@@ -364,7 +362,6 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
                 }
             }
             wire::op::BUS_CONFIG => bus::configure(core, msg, off),
-            wire::op::BUS_MIX => lanes::mix(core, msg, off),
             // 0171/0172 M5 (K1): each arm calls its owner (B1a/B1b lanes, B3 and Dp1 duck, Ld2
             // loudness, B2 slots). `at` is the record's absolute frame (shifted with its sequence),
             // `None` asap; BUS_DUCK and LOUD_CONFIG are asap only (API §4.2), so their frame is

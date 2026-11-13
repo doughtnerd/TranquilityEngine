@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: ac3d52ea3ecf37921bb9302c66da1ed8).
+/// First 16 bytes of the schema's SHA-256 (hex: 437412c9bad8b878ade83c2f04be5c5c).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0xac,
-    0x3d,
-    0x52,
-    0xea,
-    0x3e,
-    0xcf,
-    0x37,
-    0x92,
-    0x1b,
-    0xb9,
-    0x30,
-    0x2c,
-    0x66,
-    0xda,
-    0x1e,
+    0x43,
+    0x74,
+    0x12,
+    0xc9,
+    0xba,
     0xd8,
+    0xb8,
+    0x78,
+    0xad,
+    0xe8,
+    0x3c,
+    0x2f,
+    0x04,
+    0xbe,
+    0x5c,
+    0x5c,
 ];
-pub const SCHEMA_HASH_HEX: &str = "ac3d52ea3ecf37921bb9302c66da1ed8";
+pub const SCHEMA_HASH_HEX: &str = "437412c9bad8b878ade83c2f04be5c5c";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -326,7 +326,6 @@ pub mod op {
     pub const AUTOMATE: u16 = 0x09;
     pub const SET_VOICE_FX: u16 = 0x0a;
     pub const BUS_CONFIG: u16 = 0x10;
-    pub const BUS_MIX: u16 = 0x11;
     pub const MASTER: u16 = 0x12;
     pub const CURVES: u16 = 0x13;
     pub const PARAM: u16 = 0x14;
@@ -2316,116 +2315,6 @@ impl BusConfig {
         Ok((Self {
             voice_id: head.voice_id,
             frame_offset: head.frame_offset,
-            buses,
-        }, cur - base))
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct BusMixBuses {
-    pub gain: f32,
-    /// low-pass cutoff; 24000 off
-    pub lp_hz: f32,
-}
-
-impl BusMixBuses {
-    pub const FIXED_END: usize = 8;
-    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
-        if base + Self::FIXED_END > out.len() {
-            return Err(ERR_OVERSIZE);
-        }
-        put_f32(out, base + 0, self.gain);
-        put_f32(out, base + 4, self.lp_hz);
-        let mut cur = base + Self::FIXED_END;
-        Ok(cur - base)
-    }
-    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
-        let limit = buf.len();
-        Self::read_to(buf, base, limit)
-    }
-    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
-        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
-            return Err(ERR_TRUNCATED);
-        }
-        let gain = get_f32(buf, base + 0);
-        let lp_hz = get_f32(buf, base + 4);
-        let mut cur = base + Self::FIXED_END;
-        Ok((Self {
-            gain,
-            lp_hz,
-        }, cur - base))
-    }
-}
-
-/// DEPRECATED (ADR 0171: superseded by BUS_RAMP 0x18; R0 retires it and reserves the id): set bus gain and filter; ramps over rampFrames
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct BusMix {
-    pub voice_id: u32,
-    pub frame_offset: u32,
-    pub ramp_frames: u32,
-    pub buses: Vec<BusMixBuses>,
-}
-
-impl BusMix {
-    pub const FIXED_END: usize = 20;
-    pub const OPCODE: u16 = 17; // BUS_MIX
-    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
-        if base + Self::FIXED_END > out.len() {
-            return Err(ERR_OVERSIZE);
-        }
-        put_u32(out, base + 12, u32::try_from(self.buses.len()).map_err(|_| ERR_OVERSIZE)?);
-        put_u32(out, base + 16, self.ramp_frames);
-        let mut cur = base + Self::FIXED_END;
-        for item in &self.buses {
-            cur += item.write(out, cur)?;
-        }
-        let total = cur - base;
-        if total % 4 != 0 || total / 4 > u16::MAX as usize {
-            return Err(ERR_OVERSIZE);
-        }
-        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
-        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
-        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
-        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
-        Ok(cur - base)
-    }
-    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
-        let (head, _) = RecordHead::read(buf, base)?;
-        if head.opcode != Self::OPCODE {
-            return Err(ERR_MALFORMED);
-        }
-        let limit = base + head.words as usize * 4;
-        if limit > buf.len() {
-            return Err(ERR_TRUNCATED);
-        }
-        Self::read_to(buf, base, limit)
-    }
-    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
-        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
-            return Err(ERR_TRUNCATED);
-        }
-        let (head, _) = RecordHead::read(buf, base)?;
-        let bus_count = get_u32(buf, base + 12);
-        let ramp_frames = get_u32(buf, base + 16);
-        let mut cur = base + Self::FIXED_END;
-        let count = bus_count as usize;
-        if count.checked_mul(8).map_or(true, |n| n > limit - cur) {
-            return Err(ERR_TRUNCATED);
-        }
-        let mut buses = Vec::with_capacity(count);
-        for _ in 0..count {
-            let (item, n) = BusMixBuses::read_to(buf, cur, limit)?;
-            cur += n;
-            buses.push(item);
-        }
-        if cur > limit {
-            return Err(ERR_MALFORMED);
-        }
-        let cur = limit; // appended words of a newer minor are skipped
-        Ok((Self {
-            voice_id: head.voice_id,
-            frame_offset: head.frame_offset,
-            ramp_frames,
             buses,
         }, cur - base))
     }
