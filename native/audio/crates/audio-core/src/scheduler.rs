@@ -32,8 +32,10 @@
 //! - 0171/0172 M5 (K1): BUS_RAMP (`lanes::on_ramp`), BUS_DUCK (`duck::on_rules`), BUS_PRESENCE
 //!   (`duck::on_presence`), LOUD_CONFIG (`loudness::on_config`) and BUS_SLOT (`bus_slots::on_slot`)
 //!   are handed to their owner with their frame (`None` asap), each record checked by its owner's
-//!   `*_is_well_formed` in pass 1. Until B1a, B1b, B2, B3, Dp1 and Ld2 fill them the owners ignore
-//!   the records. B1b adds class B routing.
+//!   `*_is_well_formed` in pass 1. **B1b (class B):** a stamped `BUS_RAMP` waits in the pending
+//!   queue (`lanes::pending`) like STOP; when it pops, `due::route` takes it as class B (staged on
+//!   its bus at its sample, never a split, R6); a full queue applies it at once, counting
+//!   `busRecordsEarly`.
 //! - **0171/0172 M5 (B2): stamped configuration.** An asap `BUS_SLOT` or `BUS_PRESENCE` applies at
 //!   once. A stamped one waits in the **configuration queue** ([`ConfigArea`], beside the pending
 //!   queue: its records are variable and longer than 48 B), and applies at the start of the first
@@ -75,7 +77,8 @@ use crate::layout::{PENDING_CAPACITY, PENDING_RECORD_BYTES};
 use crate::{automation, bed, bus, bus_slots, duck, fxpool, lanes, listener, loudness, status, voices, zones};
 
 /// One stamped record waiting for its frame: 48 bytes (`PENDING_RECORD_BYTES`), all-zero valid.
-/// STOP, SET_PARAMS, FADE, SET_PAUSED, SEEK and SET_LOOP only (PLAY is written to its slot at once).
+/// STOP, SET_PARAMS, FADE, SET_PAUSED, SEEK and SET_LOOP (PLAY is written to its slot at once), and
+/// a stamped `BUS_RAMP` (B1b: `lanes::pending` gives its encoding; its `voice_id` is a bus slot).
 ///
 /// **The `shape` word** (api-and-models §4.2; 0166 M4-0, Z2a) rides in a value the record doesn't
 /// otherwise use, so the record stays 48 B ([`shape_word`] reads it back):

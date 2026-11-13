@@ -724,4 +724,70 @@ mod tests {
         assert_eq!(lanes.moving, 0, "settled at 1: the bit clears");
         assert_eq!(apply(&mut lanes, &mut rt, None, None, &mut l, &mut r, &mut curve), Gain::Unity);
     }
+
+    /// The per-sample reference: the lane's `Ramp::next`, retargeted by `set_target` at each
+    /// stamp's sample, in order.
+    fn reference(mut ramp: Ramp, stamps: &[(usize, f32, u32)]) -> [f32; QUANTUM] {
+        let mut out = [0.0; QUANTUM];
+        for (i, x) in out.iter_mut().enumerate() {
+            for &(at, g, n) in stamps.iter().filter(|s| s.0 == i) {
+                ramp.set_target(g, n);
+            }
+            *x = ramp.next();
+        }
+        out
+    }
+
+    #[test]
+    fn a_stamp_holds_then_ramps_from_the_lanes_value_at_its_sample() {
+        let mut lanes = BusLanes::default();
+        let mut rt = Ramp::at(1.0);
+        set_lane(&mut lanes, &mut rt, None, 4, Some(0.5), None, 300);
+        let start = lanes.lanes[4];
+        assert!(stage(&mut lanes, Stamp { lane: 4, at: 40, gain: 0.0, frames: 50 }, 7));
+        assert!(stage(&mut lanes, Stamp { lane: 4, at: 100, gain: 1.0, frames: 64 }, 7));
+        let mut curve = [0.0; QUANTUM];
+        let (mut l, mut r) = ([1.0f32; QUANTUM], [1.0f32; QUANTUM]);
+        assert_eq!(apply(&mut lanes, &mut rt, None, None, &mut l, &mut r, &mut curve), Gain::Curve);
+        let want = reference(start, &[(40, 0.0, 50), (100, 1.0, 64)]);
+        assert_eq!(bits(&curve), bits(&want), "the same arithmetic as the per-sample reference");
+        assert_eq!(bits(&l), bits(&want));
+        assert_eq!(lanes.staged, 0, "consumed");
+        assert_eq!(lanes.moving, 1 << 4, "still ramping toward 1");
+    }
+
+    #[test]
+    fn a_stamp_on_a_lane_at_identity_and_on_the_runtime_lane_multiply_in_order() {
+        let mut lanes = BusLanes::default();
+        let mut rt = Ramp::at(1.0);
+        rt.set_target(0.5, 200);
+        let rt0 = rt;
+        assert!(stage(&mut lanes, Stamp { lane: 0, at: 64, gain: 0.25, frames: 32 }, 1));
+        assert!(stage(&mut lanes, Stamp { lane: 1, at: 10, gain: 2.0, frames: 0 }, 1));
+        let mut curve = [0.0; QUANTUM];
+        let (mut l, mut r) = ([1.0f32; QUANTUM], [1.0f32; QUANTUM]);
+        apply(&mut lanes, &mut rt, None, None, &mut l, &mut r, &mut curve);
+        let a = reference(rt0, &[(10, 2.0, 0)]);
+        let b = reference(Ramp::at(1.0), &[(64, 0.25, 32)]);
+        for i in 0..QUANTUM {
+            assert_eq!(curve[i], a[i] * b[i], "frame {i}");
+        }
+        assert_eq!((lanes.moving, rt.target), (1, 2.0));
+    }
+
+    #[test]
+    fn a_fourth_stamp_finds_no_room_and_stale_stamps_go() {
+        let mut lanes = BusLanes::default();
+        for at in 1..=STAMPS as u16 {
+            assert!(stage(&mut lanes, Stamp { lane: 3, at, gain: 0.5, frames: 0 }, 2));
+        }
+        assert!(!stage(&mut lanes, Stamp { lane: 3, at: 9, gain: 0.5, frames: 0 }, 2));
+        assert_eq!(lanes.stamps().map(|s| s.at).collect::<Vec<_>>(), vec![1, 2, 3]);
+        assert!(stage(&mut lanes, Stamp { lane: 3, at: 9, gain: 0.5, frames: 0 }, 3), "another quantum drops what was left");
+        assert_eq!(lanes.staged, 1);
+    }
+
+    fn bits(v: &[f32]) -> Vec<u32> {
+        v.iter().map(|x| x.to_bits()).collect()
+    }
 }
