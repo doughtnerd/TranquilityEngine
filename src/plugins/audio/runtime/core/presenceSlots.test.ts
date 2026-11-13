@@ -31,10 +31,10 @@ describe("presence rules by slot after live structural edits (Ck1)", () => {
     await r.step(12);
     expect(mixer.apply({ op: "removeBus", bus: "SFX" })).toEqual({ ok: true, class: "dip" });
     await r.step(24);
-    // The removed bus stays listed (and its slot a tombstone) until the next configure: Voice keeps slot 4.
+    // The removed bus stays listed (and its slot a tombstone) until the next configure: Voice keeps slot 4, so the
+    // rules are the same on the wire and nothing is sent again.
     expect(r.backend.buses.slotOf("Voice")).toBe(4);
-    const last = ducks.mock.calls.at(-1)![0] as readonly BusDuckRules[];
-    expect(last.map((x) => [x.target, x.trigger])).toEqual([[1, 4]]);
+    expect(ducks).not.toHaveBeenCalled();
     r.play("Voice");
     const run = await r.step(30);
     expect(run.last / LEVEL, "Music ducks while Voice plays").toBeCloseTo(AMOUNT, 3);
