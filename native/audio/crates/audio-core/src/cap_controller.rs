@@ -200,7 +200,9 @@ pub enum LadderMove {
 
 /// The load-shedding ladder's way back (ADR 0170, amending ADR 0162 OD3), pure like
 /// [`CapController`]: `cap.rs` feeds it once a quantum with the underrun signal and the steps in
-/// force (`bed.rs`'s plus `zones.rs`'s), and gives back the step taken last when it says so.
+/// force (`bed.rs`'s plus `zones.rs`'s plus `loudness.rs`'s metering pause, R21), and gives back
+/// the step taken last when it says so: zone step 2, zone step 1, the bed-idle step, the loudness
+/// step last, so four steps are all back 80 s after the last underrun.
 ///
 /// | Element | Rule |
 /// |---|---|

@@ -15,8 +15,12 @@
 //!   the ceiling − 6 dB (`tpGateDbfs`), skipped quanta counted.
 //! - **The take:** each STATUS take carries, per metered bus, the sub-blocks since the last
 //!   successful take and the peak since then (a 3.2 s main stall loses nothing).
-//! - **The ladder** (R21, Ld7): its new first step pauses non-master metering (skipped when only
-//!   master is metered), reported in `loudShed`; given back last.
+//! - **The ladder** (R21, Ld7): its new first step pauses non-master metering (K-weighting,
+//!   sub-blocks, true peak; master never stops), skipped when only master is metered, reported in
+//!   `loudShed` and per meter by `LOUD_FLAG_PAUSED`; the bed and zone steps follow a second after
+//!   it ([`audible_steps_may_start`]); `cap.rs`'s ADR 0170 recovery gives it back last
+//!   ([`restore_step`], which reseeds the bus meters: their next take is flagged `reset`).
+//!   Sidechain detectors, the `duck` lane and `BUS_RAMP` are other modules' and never shed.
 //! - `wuLoudness` (cumulative work units) is this module's.
 //!
 //! **Who fills what.** K1 (W1): the hooks below, identity bodies, called from `bus.rs`,
@@ -25,7 +29,7 @@
 //! step and `loudShed`.
 //!
 //! **The region (Ld2).** [`HEADER_BYTES`] of [`Header`] (`ready`, the last `tpGateDbfs`, the
-//! work units not yet reported, Ld7's pause word, the taps' routes: slot → meter), then per meter
+//! work units not yet reported, Ld7's ladder word and frames, the taps' routes: slot → meter), then per meter
 //! `i` its 1,512-B state and its 128-B ring. The state is Ld1's [`Meter`] (1,496 B) followed by
 //! this module's 16-B [`Book`]: the bus slot, the active and reset bits, the sent cursor (the
 //! sequence after the last sub-block a successful take carried) and the gate-skip count at that

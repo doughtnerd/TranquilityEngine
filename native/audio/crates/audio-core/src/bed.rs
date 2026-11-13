@@ -63,9 +63,12 @@
 //! force counts in `m3Shed` ([`m3_shed`]). This module's step is the **bed-idle** step: beds go idle
 //! after 1 silent quantum instead of the decoder's partition count (the last partition of a
 //! source's tail, at most 128 taps of the MagLS response, is cut). It never turns a bed off or moves
-//! a source. C3 adds the zone steps after it. ADR 0170: once underruns stop, `cap.rs`'s recovery
-//! clock gives the steps back, this one last ([`restore_step`]: beds idle after their partitions
-//! again, from the next silence on; nothing playing changes, so nothing is heard).
+//! a source. C3 adds the zone steps after it. Ld7 (R21): while buses other than master are
+//! metered, the ladder's first step is `loudness.rs`'s metering pause, and this step waits a second
+//! after it (`loudness::audible_steps_may_start`). ADR 0170: once underruns stop, `cap.rs`'s
+//! recovery clock gives the steps back, this one after the zone steps and before the loudness step
+//! ([`restore_step`]: beds idle after their partitions again, from the next silence on; nothing
+//! playing changes, so nothing is heard).
 //!
 //! **Region** (C8): a header, the decoder's FFT scratch, the shared filters, then `max_beds` bed
 //! slots and `max_wide` private decoders (B3) of [`slot_bytes`] each: the accumulator (8 KB) and a
