@@ -51,3 +51,20 @@ Every W1 task merged into the integration branch. Wave-end checks on a quiet mac
 - **Permission refusals: 3** (Wa1 on `mirror.ts`/`statusReader.ts`; K1 on `audio-wasm/` and on the gate goldens), each for a file a format change forced but the brief didn't list. **Change:** briefs list the tests and literals a format change forces.
 - **Cheapest-model leaves called session tools 3 times** (`create_session`, `interrupt_session`, `send_message`), even with an explicit ban in the brief; every call was refused and did nothing. **Change:** keep the ban; use a leaf agent type without those tools if one becomes available.
 - **Agent time:** K0 ≈ 49 min, K1 ≈ 47 min, against 2.5 table-days each (plan est.); leaves 3–8 min each.
+
+## Wave 2 (base `3b17a16`) — closed
+
+Merged: Hk1 (`7f081e0`), Ld4 (`8d0d4a8`, leaf done by the lead), Ld5 + L-Ld5a (`2f7b567`), Bb2 (`773d821`), Rc1 + L-Rc1a + L-Rc1c (`65b3c0c`, `e0acedf`, `e7cd15c`), B2 + L-B2a (`4737787`, `34824d7`), Cp1 (`affcf59`), **B1a + Wa2 together** (`5b625c9`, `7467a2d`: the seven-lanes flip, every golden, loopback and parity digest unchanged on the rebuilt core with main sending `BUS_RAMP`), **R0** (`e920e63`: `BUS_MIX` retired from the wire, core, main and tests; `m4-s-bus.json` steps rewritten to `BUS_RAMP`, digest `fb0ccda9ffc65091` unchanged). Mixer **340,304 B** after R0 (tripwire raised to 400 KB, D3).
+
+Wave-end checks (quiet machine): typecheck green; `npm test` **603 files, 6,825 passed** after two fixes (below) and one known flake (`piratesSample`, 3 of 3 alone); `npm run build` green; `check:audio-metered` pass; `cargo test` **970 passed**; `npm run test:e2e` **262 passed, 1 failed** → fixed; parity specs **7 of 7**.
+
+**Wave-end fixes (coordinator, `9ed49d2`):**
+- **A real regression from Ld5:** the Meter checkbox sat in the bus row's `<summary>`, which moved the summary's centre onto it, so opening a bus row toggled metering instead (`audio-spatial-settings.spec.ts:44` failed 3 of 3; passes on the commit before Ld5's merge, found by bisecting). The toggle now sits in the row's body beside the bed. **Lesson:** an editor task runs the e2e specs of the panel it edits, not only its unit tests (added to later editor briefs).
+- `wireMainM5.test.ts`'s heap-delta bound failed under the parallel suite (3 of 3 alone); now a structural identity check across 3,000 reads.
+- The capture sample fixture stores `SCHEMA_HASH`; R0 changed it (patched; Rc1b makes the test stamp the current hash).
+
+**Decisions in W2:** Bb2's `mixCaps` uses §1.3's fields, no new loudness-reason field (the panel's text is Pf2's). Wa2 and B1a merged together so the TS goldens could prove the flip; R0 was delegated to a strongest agent (larger than the plan's 0.5 d: 36 files, re-estimated 1.5 d).
+
+**Pilot measures (W2):** leaf first pass **6 of 6** (L-Ld5a, Bb2 after one correct stop for a decision, L-Rc1a, L-Rc1c, L-B2a; L-Ld4a done by its lead); leaf session-tool calls: 2 more (one `Claude_Docs.guide` read, one denied), down from 3 in W1 with the explicit ban. Skeleton fit: Ld4 widened its hub's API (additive), B2 added scheduler hooks for B1b (planned).
+
+**Follow-ups carried to W3 briefs:** Mx2 sends master on `LANE_RUNTIME` (B1a); `BUS_CONFIG` doesn't reset a re-added slot's lanes (Mx2's replay resends them); stale `BUS_MIX`-as-current comments in TS core files (coordinator sweep with Mx2); Rc5 fixes `RecordTable.ROW_BYTES` (26 vs 28 B per row in the reader's allocation count).
