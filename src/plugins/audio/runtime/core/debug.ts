@@ -269,6 +269,8 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
     music: musicRows(backend),
     musicTotals: musicTotals(backend),
     core: { backend: "core", hrtfReady: backend.hrtfReady, ...hrtf(backend), ...timing(backend), ...hostHealth(backend), ...health(backend), ...streamHealth(backend), ...automation(backend), ...ladder(backend) },
+    // Cp2 (§1.3): the CPU figure the mirror's meter computed (`coreBackend.debug` sets the same object from `cpu()`).
+    cpu: m.cpu.debug(),
   };
 }
 

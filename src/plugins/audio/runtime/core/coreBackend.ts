@@ -356,7 +356,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       steal: (i) => this.stealSlot(i),
       setScore: (i, score) => this.sendScore(i, score),
     };
-    this.mirror = new StatusMirror(this.table);
+    this.mirror = new StatusMirror(this.table, host.sampleRate);
     this.writer = new CommandWriter(host.link, host.sampleRate);
     // ADR 0162 (K4): the M3 parts that write through the writer and read the mirror.
     const preset = host.preset;
@@ -917,6 +917,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.contextReplacedInRecovery = true;
     this.zones.contextReplaced(rate);
     this.staleBlocks = this.mirror.blocks;
+    this.mirror.cpu.setSampleRate(rate);
   }
 
   /** `onRebuilt`: the new core answered: RESET 0, buses, MASTER, the clips again, then the voices as their clips return. */
@@ -1016,7 +1017,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
 
   /** §1.3, architecture §4.3: Cp2 fills it from `mix/cpuMeter.ts`; until then "not yet measured". */
   cpu(): AudioCpuDebug {
-    return { loadPermille: null, windowMs: 0, clockStepMs: 0, clockSteps: 0, refitResidual: null, sections: null, hidden: null };
+    return this.mirror.cpu.debug();
   }
 
   /** §1.3 `Audio.debug().mix` (Dbg1): the slot table reads the identity layout until Ma1 wires the table in. */

@@ -11,6 +11,7 @@ import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { LOUD_METERS, MAX_BEDS, MAX_DUCK_RULES, MAX_LOUD_ENERGIES, MAX_MUSIC_RINGS, MAX_ZONE_SLOTS, type StatusBlock } from "../wire.generated";
 import type { CoreLink } from "./context";
 import type { VoiceTable } from "./voiceTable";
+import { CpuMeter } from "../mix/cpuMeter";
 
 /** @internal Clip and stream events held between frames before the oldest are dropped (and counted). */
 export const MIRROR_EVENT_CAPACITY = 1024;
@@ -186,7 +187,12 @@ export class StatusMirror {
 
   private readonly listener = (status: StatusBlock): void => this.apply(status);
 
-  constructor(readonly table: VoiceTable) {}
+  /** Cp2 (architecture §4.3, R18): the CPU figure over the STATUS blocks applied here; `loadPermille` below is its value. */
+  readonly cpu: CpuMeter;
+
+  constructor(readonly table: VoiceTable, sampleRate: number = 48000) {
+    this.cpu = new CpuMeter(sampleRate);
+  }
 
   /** Applies every STATUS the link receives, in its `onmessage`. Returns the unsubscribe. */
   attach(link: Pick<CoreLink, "onStatus">): () => void {
@@ -319,7 +325,9 @@ export class StatusMirror {
     this.liveVoices = status.liveVoices;
     this.flags = status.flags;
     this.mixedCap = status.mixedCap;
-    this.loadPermille = status.loadPermille;
+    // Cp2 (architecture §4.3): the wire's `loadPermille` is reserved 0; the figure is main's, 0 until the first window fills (`cpu.loadPermille` says null).
+    this.cpu.feed(status);
+    this.loadPermille = this.cpu.loadPermille ?? 0;
     this.traps = status.traps;
     this.underrunFrames = status.underrunFrames;
     this.arenaUsedKB = status.arenaUsedKB;
