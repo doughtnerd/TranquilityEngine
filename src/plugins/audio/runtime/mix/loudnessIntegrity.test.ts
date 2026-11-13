@@ -160,14 +160,17 @@ async function rig() {
   sfx.reset();
   master.reset();
   const stats = (name: string) => (loudnessHub.busLoudness(name) as unknown as { stats: LoudnessStats }).stats;
-  return { loop, host, backend, mixer, step, stepTo, stall, sfx, master, stats, takes };
+  // `lost` counts for the life of the page's meter (a reset leaves it): readings take it from here.
+  const lost0 = { SFX: stats("SFX").lost, Master: stats("Master").lost };
+  const lost = (name: "SFX" | "Master") => stats(name).lost - lost0[name];
+  return { loop, host, backend, mixer, step, stepTo, stall, sfx, master, stats, lost, takes };
 }
 
 /** One scenario's readings: what the meters said at its end. */
 type Rig = NonNullable<Awaited<ReturnType<typeof rig>>>;
 const readings = (r: Rig) => ({
-  sfx: { integrated: r.sfx.integrated, elapsed: r.sfx.elapsed, lost: r.stats("SFX").lost, incomplete: r.sfx.incomplete },
-  master: { integrated: r.master.integrated, elapsed: r.master.elapsed, lost: r.stats("Master").lost, incomplete: r.master.incomplete },
+  sfx: { integrated: r.sfx.integrated, elapsed: r.sfx.elapsed, lost: r.lost("SFX"), incomplete: r.sfx.incomplete },
+  master: { integrated: r.master.integrated, elapsed: r.master.elapsed, lost: r.lost("Master"), incomplete: r.master.incomplete },
 });
 
 describe("loudness integrity on the loopback host (Ld8)", () => {
@@ -218,12 +221,106 @@ describe("loudness integrity on the loopback host (Ld8)", () => {
     await four.stepTo(END);
     const got4 = readings(four);
     four.backend.dispose();
-    console.log(`[Ld8] unstalled ${JSON.stringify(base)}\n 3 s stall ${JSON.stringify(got3)}\n 4 s stall ${JSON.stringify(got4)}`);
     const expectLost = Math.floor(s4.stalledFrames / SUB_BLOCK_FRAMES) - LOUD_RING_SUBBLOCKS;
     expect(got4.sfx.lost, "the sub-blocks that did not fit the ring").toBeGreaterThanOrEqual(1);
     expect(got4.sfx.lost).toBeLessThanOrEqual(expectLost + 1);
     expect(got4.master.lost).toBe(got4.sfx.lost);
     expect([got4.sfx.incomplete, got4.master.incomplete], "the hub's readings say incomplete").toEqual([true, true]);
     expect(got4.sfx.elapsed, "the lost audio is not counted as metered").toBeLessThan(base.sfx.elapsed - 0.5);
+  });
+
+  it("an EPOCH (a trap, then the rebuild on a new core) restarts seq, keeps integrated and elapsed, and sets incomplete", { timeout: 60_000 }, async (ctx) => {
+    const r = await rig();
+    if (!r) return ctx.skip();
+    const { loop, host, step, sfx, master, takes } = r;
+    const sfxSlot = takes.find((t) => t.slot !== LOUD_OUTPUT_TAP)!.slot;
+    await step(6 * QUANTA_PER_SECOND);
+    const before = readings(r);
+    const seqBefore = Math.max(...takes.filter((t) => t.slot === sfxSlot).map((t) => t.firstSeq + t.count));
+    expect(before.sfx.integrated, "metered, a loudness").toBeGreaterThan(-30);
+    expect(before.sfx.elapsed).toBeGreaterThan(5.5);
+    expect(seqBefore, "the sequence has run on").toBeGreaterThan(50);
+    expect([sfx.incomplete, master.incomplete]).toEqual([false, false]);
+
+    // Integrated and elapsed as the first take of the new core leaves them (the hub's feed ran first, the epoch before it).
+    const atReset: { integrated: number; elapsed: number; incomplete: boolean }[] = [];
+    r.host.link.onStatus((s) => {
+      if (s.loudBuses.some((it) => it.slot === sfxSlot && (it.flags & LOUD_FLAG_RESET) !== 0)) atReset.push({ integrated: sfx.integrated, elapsed: sfx.elapsed, incomplete: sfx.incomplete });
+    });
+    const mark = takes.length;
+    loop.trapNext();
+    for (let f = 0; f < 120 && host.health.recoveries === 0; f++) await step(4);
+    expect(host.health.recoveries, "the host rebuilt").toBe(1);
+    expect(loop.cores, "on a new core").toBe(2);
+    await step(QUANTA_PER_SECOND);
+
+    const after = takes.slice(mark).filter((t) => t.slot === sfxSlot);
+    const first = after.find((t) => t.reset);
+    expect(first, "the new core's first take of the meter carries the reset flag").toBeDefined();
+    expect(first!.firstSeq, "seq restarts at 0").toBe(0);
+    expect(Math.max(...after.map((t) => t.firstSeq + t.count)), "and counts up from there").toBeLessThan(seqBefore);
+    expect(atReset.length, "the reset take reached main once").toBeGreaterThanOrEqual(1);
+    expect(atReset[0]!.integrated, "integrated kept across the EPOCH").toBe(before.sfx.integrated);
+    expect(atReset[0]!.elapsed, "elapsed kept").toBeGreaterThanOrEqual(before.sfx.elapsed);
+    expect(atReset[0]!.incomplete, "the EPOCH marks the reading incomplete").toBe(true);
+
+    // The new core meters on from there: the same histograms, more of them, nothing counted lost.
+    await step(5 * QUANTA_PER_SECOND);
+    const later = readings(r);
+    expect(later.sfx.elapsed, "metering continues on the new core").toBeGreaterThan(before.sfx.elapsed + 0.5);
+    expect(later.sfx.integrated).toBeGreaterThan(-30);
+    expect([later.sfx.incomplete, later.master.incomplete], "incomplete stays until a reset").toEqual([true, true]);
+    expect([r.lost("SFX"), r.lost("Master")], "a rebuild is not a loss").toEqual([0, 0]);
+    r.backend.dispose();
+  });
+
+  it("a shed span pauses the bus meter and not master's, and the give-back sets incomplete on the bus alone", { timeout: 120_000 }, async (ctx) => {
+    const r = await rig();
+    if (!r) return ctx.skip();
+    const { loop, backend, step, sfx, master } = r;
+    /** The render falls `ms` behind the wall clock (the context clock stands still meanwhile): one underrun, the ladder's input. */
+    const underrun = (ms: number) => {
+      loop.clock.setRunning(false);
+      loop.clock.advance(ms);
+      loop.clock.setRunning(true);
+    };
+    // The ladder's probe warms up for 1 s (the rig's warm-up passed it); underruns every half second until the metering step.
+    await step(QUANTA_PER_SECOND);
+    expect([backend.mirror.loudShed, sfx.paused, master.paused, sfx.elapsed > 0]).toEqual([0, false, false, true]);
+    let underruns = 0;
+    while (backend.mirror.loudShed === 0) {
+      expect(++underruns, "the metering step within 20 s of underruns").toBeLessThan(40);
+      underrun(60);
+      await step(188);
+    }
+    expect(backend.mirror.m3Shed, "the metering step comes before any audible one").toBe(0);
+
+    // From the step on, the bus's numbers stand still while master's go on.
+    await step(94); // the pause has reached the hub
+    expect([sfx.paused, sfx.pausedBy, master.paused, master.pausedBy]).toEqual([true, "ladder", false, null]);
+    expect(sfx.incomplete, "incomplete waits for the give-back").toBe(false);
+    const frozen = { elapsed: sfx.elapsed, integrated: sfx.integrated, masterElapsed: master.elapsed, masterIntegrated: master.integrated };
+    await step(8 * QUANTA_PER_SECOND);
+    expect(backend.mirror.loudShed, "still shed").toBe(1);
+    expect([sfx.elapsed, sfx.integrated], "the bus meter is paused: nothing taken").toEqual([frozen.elapsed, frozen.integrated]);
+    expect(master.elapsed, "master meters on, 8 s of it").toBeGreaterThan(frozen.masterElapsed + 7.5);
+    expect(master.integrated).not.toBe(frozen.masterIntegrated);
+    expect([master.paused, master.incomplete]).toEqual([false, false]);
+
+    // Clean from here: the loudness step comes back last, 80 s after the last underrun; the bus resumes `incomplete`.
+    let clean = 0;
+    while (backend.mirror.loudShed !== 0) {
+      expect(++clean, "the step is given back within 90 s").toBeLessThan((90 * QUANTA_PER_SECOND) / 4);
+      await step(4);
+    }
+    expect([sfx.paused, sfx.pausedBy, sfx.incomplete], "resumed, the shed span marks the reading incomplete").toEqual([false, null, true]);
+    expect([master.paused, master.incomplete], "master was never shed").toEqual([false, false]);
+    expect(sfx.integrated, "integrated kept across the span").toBeGreaterThan(-30);
+    const resumed = sfx.elapsed;
+    expect(resumed, "nothing metered during the span (at most the sub-blocks since the give-back)").toBeLessThan(frozen.elapsed + 0.2);
+    await step(3 * QUANTA_PER_SECOND);
+    expect(sfx.elapsed, "metering goes on after the give-back").toBeGreaterThan(resumed + 2.5);
+    expect([sfx.incomplete, master.incomplete]).toEqual([true, false]);
+    backend.dispose();
   });
 });
