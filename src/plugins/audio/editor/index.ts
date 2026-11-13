@@ -15,12 +15,15 @@ import { occlusionTool } from "./OcclusionOverlay";
 import { registerMusicPanels } from "./music";
 import { registerMixPanels } from "./mix";
 import { mixer } from "../../../engine/audio/mixer";
-import { startOpLog, type OpLog } from "./mix/opLog";
+import { startOpLog, type OpLog, type OpLogEntry } from "./mix/opLog";
 import { setCaptureProject } from "../runtime/capture/capture";
 
 /** ADR 0171 (Hk1, Ma1): the audio op log, started once per page (the plugin context has no dispose hook); it hands live
  * edits of the project's audio section to the running mixer while Play runs. */
 let opLog: OpLog | null = null;
+
+/** The op log's entries so far (every batch handed to the mixer, with its answers), empty before the plugin activates. The Mixer panel's restart banner reads it. */
+export const opLogEntries = (): readonly OpLogEntry[] => opLog?.entries ?? [];
 
 /** A speaker with waves over a page corner: an event is a sound that plays one of several. */
 const EVENT_ICON = "M5 9v6h4l5 4V5L9 9zM17.5 8.5a5 5 0 0 1 0 7M20 6a8.5 8.5 0 0 1 0 12";

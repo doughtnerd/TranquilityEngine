@@ -213,6 +213,7 @@ export class MixerPanelController {
       toggleMute: (bus) => !locked() && m.toggleMute(bus),
       // Solo is a monitor control: only while a play Engine is up, and never a commit.
       toggleSolo: (bus) => { if (deps.playing()) this.monitor.toggleSolo(bus); },
+      toggleMonitorMute: (bus) => this.toggleMonitorMute(bus),
     };
   }
 
@@ -320,7 +321,7 @@ export class MixerPanelController {
     return swap;
   }
 
-  /** A monitor mute of `bus` (the panel's strips carry no button for it; the model and its taint rules are tested). */
+  /** A monitor mute of `bus` : the strip's monitor-mute button. Never a commit; refused outside Play. */
   toggleMonitorMute(bus: string): boolean {
     if (!this.deps.playing()) return false;
     const ok = this.monitor.toggleMute(bus);
