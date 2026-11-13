@@ -14,7 +14,7 @@
  * or the selection redraws from the cache. Colours come only from theme tokens, read once per theme change.
  */
 
-import { DEFAULT_PRESET, PRESETS, resolveTheme, type ThemeTokens } from "../../../../editor/theme";
+import { theme, type ThemeTokens } from "../../../../editor/sdk";
 import {
   clampViewport,
   createMinMaxPyramid,
@@ -51,7 +51,7 @@ export const TIMELINE_TOKENS = {
 export type TimelineColorKey = keyof typeof TIMELINE_TOKENS;
 export type TimelineColors = Readonly<Record<TimelineColorKey, string>>;
 
-/** The default theme's resolved token for each timeline colour (`src/editor/theme.ts`, the one source of the values). */
+/** The editor theme's resolved token for each timeline colour (the SDK's `theme`, the one source of the values). */
 const TOKEN_OF_COLOR: Readonly<Record<TimelineColorKey, keyof ThemeTokens>> = {
   bg: "bgSunken",
   panel: "panel",
@@ -65,17 +65,12 @@ const TOKEN_OF_COLOR: Readonly<Record<TimelineColorKey, keyof ThemeTokens>> = {
   danger: "danger",
 };
 
-let fallback: TimelineColors | undefined;
-
-/** Fallbacks for a token a custom theme leaves undefined: the default theme's values, resolved once. */
+/** Fallbacks for a token a custom theme leaves undefined: the editor theme's resolved values (read on a theme change only). */
 function defaultColors(): TimelineColors {
-  if (!fallback) {
-    const tokens = resolveTheme(PRESETS.find((p) => p.id === DEFAULT_PRESET) ?? PRESETS[0]!);
-    const out = {} as Record<TimelineColorKey, string>;
-    for (const key of Object.keys(TOKEN_OF_COLOR) as TimelineColorKey[]) out[key] = tokens[TOKEN_OF_COLOR[key]];
-    fallback = out;
-  }
-  return fallback;
+  const tokens = theme.value;
+  const out = {} as Record<TimelineColorKey, string>;
+  for (const key of Object.keys(TOKEN_OF_COLOR) as TimelineColorKey[]) out[key] = tokens[TOKEN_OF_COLOR[key]];
+  return out;
 }
 
 /** Reads every token once through `get` (a custom-property lookup); call it on a theme change, never per frame. */

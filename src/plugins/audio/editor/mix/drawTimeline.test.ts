@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PRESET, PRESETS, resolveTheme } from "../../../../editor/theme";
+import { theme } from "../../../../editor/sdk";
 import {
   CLICK_SLOP_PX,
   RULER_HEIGHT,
@@ -448,9 +448,9 @@ describe("theme tokens", () => {
     expect(c.bg.length).toBeGreaterThan(0);
   });
 
-  it("an undefined token falls back to the default theme's resolved value, one source with theme.ts", () => {
+  it("an undefined token falls back to the editor theme's resolved value (the SDK's theme), one source", () => {
     const c = readTimelineColors(() => "");
-    const t = resolveTheme(PRESETS.find((p) => p.id === DEFAULT_PRESET)!);
+    const t = theme.value;
     expect(c).toEqual({
       bg: t.bgSunken,
       panel: t.panel,
