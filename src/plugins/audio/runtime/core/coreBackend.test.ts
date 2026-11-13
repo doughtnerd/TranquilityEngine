@@ -12,6 +12,8 @@ import {
   Op,
   readBatchHeader,
   readBusConfig,
+  readBusDuck,
+  readBusPresence,
   readBusRamp,
   readEnvelope,
   readPlay,
@@ -223,16 +225,18 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     expect(plays[0]!.frameOffset).toBe(ASAP);
   });
 
-  it("the constructor's BUS_CONFIG and every bus lane (Mx2: authored, runtime, snapshot, monitor, dip per bus) go out at the first update", () => {
+  it("the constructor's BUS_CONFIG, the presence rules and mask (Dp1) and every bus lane (Mx2: authored, runtime, snapshot, monitor, dip per bus) go out at the first update", () => {
     const sentRig = rig();
     sentRig.backend.update(0);
     const ops = sentRig.ops();
-    expect(ops.map((o) => o.op)).toEqual([Op.BUS_CONFIG, ...Array.from({ length: 25 }, () => Op.BUS_RAMP)]);
+    expect(ops.map((o) => o.op)).toEqual([Op.BUS_CONFIG, Op.BUS_DUCK, Op.BUS_PRESENCE, ...Array.from({ length: 25 }, () => Op.BUS_RAMP)]);
     const cfg = readBusConfig(ops[0]!.view, ops[0]!.off);
     expect(cfg.buses).toHaveLength(5);
     expect(cfg.buses[0]!.parent).toBe(0xffff);
     expect(cfg.buses[2]!.parent).toBe(0);
-    const ramps = ops.slice(1).map((o) => readBusRamp(o.view, o.off));
+    expect(readBusDuck(ops[1]!.view, ops[1]!.off).rules).toHaveLength(0);
+    expect(readBusPresence(ops[2]!.view, ops[2]!.off)).toMatchObject({ mask: 0, frameOffset: ASAP });
+    const ramps = ops.slice(3).map((o) => readBusRamp(o.view, o.off));
     // Bus b: lanes 0-4 in order, asap, linear, no sequence; the snapshot lane carries gain and low-pass.
     ramps.forEach((r, i) => expect(r).toMatchObject({ voiceId: Math.floor(i / 5), lane: i % 5, mask: i % 5 === LANE_SNAPSHOT ? 3 : 1, shape: 0, frameOffset: ASAP }));
     expect(ramps[LANE_RUNTIME]).toMatchObject({ gain: 1 });
@@ -416,7 +420,10 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     const batches = r.batches();
     expect(batches).toHaveLength(1);
     expect(batches[0]!.header.firstFrame).toBe(96_000);
-    expect(batches[0]!.records.map((x) => x.frameOffset)).toEqual([ASAP, 0]);
+    const plays = batches[0]!.records.filter((x) => x.op === Op.PLAY);
+    expect(plays.map((x) => x.frameOffset)).toEqual([ASAP, 0]);
+    // Dp1: no rule triggers on SFX, so its voices send no presence.
+    expect(batches[0]!.records.filter((x) => x.op === Op.BUS_PRESENCE)).toHaveLength(0);
   });
 
   it("an `at` in the past plays asap", () => {
@@ -590,36 +597,70 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
 describe("CoreBackend: ducking counts and Bus.peak (A2.3)", () => {
   const duckSettings = (): AudioSettings => ({ ...defaultAudioSettings(), ducking: [{ target: "Music", trigger: "Voice", amount: 0.4, attack: 0.1, release: 0.5 }] });
 
-  it("a locked voice on the trigger bus still ducks, and the duck lifts when it is freed", () => {
+  /** Dp1: the BUS_PRESENCE masks sent since the last call. */
+  const masks = (r: ReturnType<typeof rig>) => r.ops().filter((o) => o.op === Op.BUS_PRESENCE).map((o) => readBusPresence(o.view, o.off).mask);
+  const VOICE_BIT = 1 << 4;
+
+  it("a locked voice on the trigger bus still ducks (its presence bit goes to the core), and the duck lifts when it is freed", () => {
     const r = rig({ status: "locked", settings: duckSettings() });
+    r.frame();
+    const duck = r.ops().find((o) => o.op === Op.BUS_DUCK)!;
+    expect(readBusDuck(duck.view, duck.off).rules).toEqual([{ target: 1, trigger: 4, flags: 0, thresholdDb: -30, amount: expect.closeTo(0.4, 6), attack: expect.closeTo(0.1, 6), release: 0.5 }]);
     const v = r.backend.play(req("v.wav", { bus: "Voice", loop: true }))!;
     expect(r.backend.table.state[idx(v.id)]).toBe(VoiceState.LOCKED);
     expect(r.mixer.bus("Voice").activeVoices).toBe(1);
+    r.frame();
+    expect(masks(r)).toEqual([VOICE_BIT]);
+    // The core's duck, from STATUS: main computes none of its own on this backend.
     for (let i = 0; i < 60; i++) r.mixer.update(0.1);
-    expect(r.mixer.bus("Music").effectiveGain).toBeCloseTo(0.4, 2);
-    v.stop();
+    expect(r.mixer.bus("Music").effectiveGain).toBe(1);
+    r.status({ busDuck: [{ slot: 1, pad: 0, gain: 0.4 }] });
+    expect(r.mixer.bus("Music").duckGain).toBeCloseTo(0.4, 6);
+    expect(r.mixer.bus("Music").effectiveGain).toBeCloseTo(0.4, 6);
+    v.stop(); // a locked voice is freed at once
     r.frame();
-    r.status({ ended: [v.id] });
-    r.frame();
-    for (let i = 0; i < 100; i++) r.mixer.update(0.1);
-    expect(r.mixer.bus("Music").effectiveGain).toBeCloseTo(1, 2);
+    expect(masks(r)).toEqual([0]);
+    r.status({ busDuck: [{ slot: 1, pad: 0, gain: 1 }] });
+    expect(r.mixer.bus("Music").effectiveGain).toBeCloseTo(1, 6);
   });
 
   it("a virtual voice on the trigger bus still ducks", () => {
     const r = rig({ settings: duckSettings() });
     const v = r.backend.play(req("v.wav", { bus: "Voice", loop: true }))!;
     r.frame();
+    expect(masks(r)).toEqual([0, VOICE_BIT]);
     r.status({ demoted: [v.id] });
     r.frame();
     expect(r.backend.table.state[idx(v.id)]).toBe(VoiceState.VIRTUAL);
     expect(r.mixer.bus("Voice").activeVoices).toBe(1);
-    // ADR 0171 (K0, Mx1's H2): a running core puts the mixer on the heard clock, so the 6 s pass on it, frame by frame.
-    for (let i = 0; i < 60; i++) {
-      r.clock.advance(100);
-      r.backend.beginFrame();
-      r.mixer.update(0.1);
-    }
-    expect(r.mixer.bus("Music").effectiveGain).toBeCloseTo(0.4, 2);
+    // Dp1: demotion changes no presence (the voice still counts); the duck is the core's, read from STATUS.
+    expect(masks(r)).toEqual([]);
+    r.status({ busDuck: [{ slot: 1, pad: 0, gain: 0.4 }] });
+    r.mixer.update(0.1);
+    expect(r.mixer.bus("Music").effectiveGain).toBeCloseTo(0.4, 6);
+  });
+
+  it("an explicit stop clears the presence bit asap with its STOP; the natural end of another voice keeps it", () => {
+    const r = rig({ settings: duckSettings() });
+    const a = r.backend.play(req("v.wav", { bus: "Voice", loop: true }))!;
+    const b = r.backend.play(req("w.wav", { bus: "Voice", loop: true }))!;
+    r.frame();
+    expect(masks(r), "the configure's mask, then the first start").toEqual([0, VOICE_BIT]);
+    a.stop();
+    r.frame();
+    expect(masks(r), "one voice still on Voice").toEqual([]);
+    b.stop();
+    r.frame();
+    const ops = r.ops();
+    const stopAt = ops.findIndex((o) => o.op === Op.STOP);
+    const presAt = ops.findIndex((o) => o.op === Op.BUS_PRESENCE);
+    expect(presAt).toBeGreaterThanOrEqual(0);
+    expect(stopAt).toBeGreaterThan(presAt);
+    expect(readBusPresence(ops[presAt]!.view, ops[presAt]!.off)).toMatchObject({ mask: 0, frameOffset: ASAP });
+    // Its end a STATUS later sends nothing more.
+    r.status({ ended: [a.id, b.id] });
+    r.frame();
+    expect(masks(r)).toEqual([]);
   });
 
   it("a bus remap keeps counting live voices", () => {

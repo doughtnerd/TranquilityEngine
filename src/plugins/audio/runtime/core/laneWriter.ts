@@ -51,7 +51,7 @@ const LINEAR = packRampShape(FadeLaw.Linear, 0, 0);
 /** What the lane writer needs of the core backend. */
 export interface LaneWriterHost {
   readonly writer: Pick<CommandWriter, "busRampFrames">;
-  readonly clockMap: Pick<ClockMap, "rampFrames" | "framesNow" | "lookaheadFrames" | "frameOfTime" | "stampFor" | "sampleRate">;
+  readonly clockMap: Pick<ClockMap, "rampFrames" | "framesNow" | "lookaheadFrames" | "frameOfTime" | "stampFor" | "sampleRate"> & Partial<Pick<ClockMap, "timeOffset">>;
   /** The mixer whose lanes are written (its `Ramp` records, evaluated on the heard clock). */
   readonly mixer: Pick<Mixer, "_lanes" | "busNames" | "time" | "audioSettings" | "laneGain">;
   /** Bus name → index, as last configured (`busIndex.ts`). */
@@ -60,6 +60,8 @@ export interface LaneWriterHost {
   readonly busGain: Float32Array;
   /** ADR 0162 (A5, S3): re-fold the sharing chain's snapshot low-pass after the cutoffs changed. */
   refreshSharedLowpass(): void;
+  /** Dp1 (§4.2's replay order): `BUS_DUCK` and `BUS_PRESENCE`, after `BUS_CONFIG` and before the lanes (`presence.ts`). */
+  replayDucking?(out: ReplayBuilder): void;
 }
 
 export class LaneWriter {
@@ -245,6 +247,8 @@ export class LaneWriter {
    * dip at its end state. What it sends becomes what the core is known to hold.
    */
   replayLanes(out: ReplayBuilder): void {
+    // Dp1: the ducking rules and the presence mask come first (§4.2: BUS_CONFIG, BUS_DUCK, BUS_PRESENCE, then lanes).
+    this.host.replayDucking?.(out);
     const mixer = this.host.mixer;
     const names = mixer.busNames;
     const n = Math.min(names.length, MAX_BUS);
@@ -294,14 +298,26 @@ export class LaneWriter {
   }
 
   /**
-   * The frame a ramp starting `ahead` heard seconds from now is stamped at: *F*_now + L (the batch's first frame) plus
-   * `ahead` in frames when it starts later; undefined (asap) while the clock map has no estimate.
+   * The frame a ramp starting at heard time `start` is stamped at: *F*_now + L (the batch's first frame), or `start`'s
+   * frame when that is later; undefined (asap) while the clock map has no estimate.
    */
-  private stampOf(ahead: number): number | undefined {
+  private stampOf(start: number): number | undefined {
     const cm = this.host.clockMap;
     const now = cm.framesNow();
     if (!(now > 0)) return undefined;
-    return Math.round(now + cm.lookaheadFrames()) + (ahead > 0 ? Math.round(ahead * cm.sampleRate) : 0);
+    return Math.max(Math.round(now + cm.lookaheadFrames()), cm.frameOfTime(start));
+  }
+
+  /**
+   * Dp1 (Mx2's timing note): the heard time (`Audio.time` seconds) a ramp stamped now starts at: *F*_now + L as heard
+   * seconds, NaN while the clock map has no estimate. The mixer starts a fade's or snapshot's `Ramp` record here
+   * (`Mixer.setClock`'s `stamp`), so its getters read the value being heard, and `stampOf` gives the same frame back.
+   */
+  stampTime(): number {
+    const cm = this.host.clockMap;
+    const now = cm.framesNow();
+    if (!(now > 0)) return Number.NaN;
+    return Math.round(now + cm.lookaheadFrames()) / cm.sampleRate + (cm.timeOffset ?? 0);
   }
 
   /**
@@ -330,7 +346,7 @@ export class LaneWriter {
     if (r && r.seconds > 0) {
       if (isNew) {
         const frames = Math.max(Math.round(r.seconds * cm.sampleRate), this.minFrames());
-        const at = stampable ? this.stampOf(r.start - now) : undefined;
+        const at = stampable ? this.stampOf(r.start) : undefined;
         writer.busRampFrames(b, lane, mask, gain, lpHz, frames, 0, at);
         if (at !== undefined) this.lastStamp[b] = at;
         return;
