@@ -22,6 +22,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Fog, camera rays and spatial audio](guide/atmosphere-and-sound.md) | The `Fog` component, `Camera.screenPointToRay` / `worldToScreenPoint`, `Ray` and `Plane`, `AudioListener` and spatial `AudioSource` |
 | [Audio mixer](guide/audio-mixer.md) | Buses, effects, snapshots, ducking, `AudioSource.output`, `Audio.bus(...)` |
 | [Audio profiler](guide/audio-profiler.md) | The Audio Profiler panel (tracks, tables, keys, loudness), recording in the editor and with `Audio.capture`, saving and opening `.mycap` files, banners and refusals, file size, what a capture reveals |
+| [Live mixing and ducking](guide/audio-mixing.md) | Mixing while Play runs: what applies at once, what is kept after Stop and undo, the Mixer panel (strips, fader keys, M / MM / S), Compare, monitor controls and taint, presence and level ducking with examples, what waits for the next Play |
 | [Loudness, targets and Bus.loudness](guide/audio-loudness.md) | What the meters measure (M, S, I, LRA, true peak), choosing metered buses, loudness targets that warn and never adjust, `Audio.loudnessTarget`, `Bus.loudness` in scripts, when the check is suspended or a meter is tainted, the overload ladder, accuracy |
 | [Spatial audio](guide/spatial-audio.md) | Beds, reverb zones, occlusion and materials (the door recipe), Doppler, ambisonic clips, the Babylon fallback's limits, how it compares with Wwise, FMOD and Unity |
 | [Sound events](guide/sound-events.md) | Audio event assets (`*.audioevent.json`): containers, parameters, automation curves, `Audio.play`, sustain and release, limits |
@@ -143,7 +144,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0094](decisions/0094-gpu-particle-simulation-backends.md) | Particle systems compile to per-particle kernels run on WebGPU compute, WebGL2 textures or JavaScript, chosen per system (auto/cpu/gpu); resolves O16 | Proposed |
 | [0095](decisions/0095-particle-attributes-subgraphs-and-custom-blocks.md) | Particle graphs gain Particle attribute nodes, Set Attribute blocks, and sub-graph and custom block assets inlined before compiling | Proposed |
 | [0096](decisions/0096-soft-particles-collisions-seed-and-particle-materials.md) | Soft particles, depth-buffer (GPU) and collider (CPU) collisions, deterministic seeds, a shader-graph Particle Color node; quarks.art import dropped | Proposed |
-| [0097](decisions/0097-audio-mixer-buses.md) | Audio mixer buses, snapshots and ducking over one shared AudioContext | Proposed, amended by 0157, 0166, 0167, 0172 |
+| [0097](decisions/0097-audio-mixer-buses.md) | Audio mixer buses, snapshots and ducking over one shared AudioContext | Proposed, amended by 0157, 0166, 0167, 0171, 0172, 0173 |
 | [0098](decisions/0098-audio-backend-interface.md) | An internal audio backend interface, with Howler as the default implementation | Proposed, amended by 0157 |
 | [0099](decisions/0099-fmod-spike.md) | FMOD as an optional audio backend: spike, recommendation and stub adapter | Superseded by 0157 |
 | [0100](decisions/0100-replicate-node-structure-and-a-string-table.md) | Replication sends each ghost's active flag and parent as a versioned structure, and spawn strings through a per-connection string table | Proposed |
