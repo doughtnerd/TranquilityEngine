@@ -11,6 +11,7 @@ import {
   deleteLayout,
   layoutModified,
   layoutsWithPanels,
+  pluginPanelTypes,
   refreshSavedLayouts,
   removePanelsFromLayouts,
   renameLayout,
@@ -126,5 +127,19 @@ describe("saved layouts (ADR 0174)", () => {
     await openTestProject({ ".layouts/shared.layout.json": layoutFileText(newer) });
     await refreshSavedLayouts();
     expect(savedLayouts.value.map((s) => s.name)).toEqual(["Shared (team)"]);
+  });
+});
+
+describe("plugin panels in layouts (ADR 0174)", () => {
+  it("knows a plugin's panel types from what the layouts remember, even when it was never on", async () => {
+    const l = structuredClone(layout.value);
+    const id = "11111111-1111-4111-8111-111111111111";
+    l.instances[id] = { type: "acme.graph" };
+    l.docks[0]!.groups[0]!.panels.push(id);
+    l.panelInfo["acme.graph"] = { title: "Acme Graph", plugin: "acme.tools", pluginTitle: "Acme Tools" };
+    layout.value = l;
+    expect(pluginPanelTypes(["acme.tools"])).toEqual(["acme.graph"]);
+    expect(pluginPanelTypes(["other"])).toEqual([]);
+    expect(layoutsWithPanels(["acme.graph"]).map((x) => x.name)).toEqual(["Current layout"]);
   });
 });

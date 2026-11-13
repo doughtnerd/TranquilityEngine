@@ -59,10 +59,10 @@ Some panels keep module-level state (`Hierarchy.tsx`: `collapsed`, `expanded`, `
 - **Owners.** `activatePlugin` records the owning plugin of each panel it registers (`panelOwner(type)` → plugin name, in `sdk/plugins.ts`); the panel registry itself is unchanged.
 - **What a layout remembers.** Every layout (working and saved) carries `panelInfo: Record<type, { title, plugin, pluginTitle }>` for the plugin panels it holds, refreshed whenever it is saved while the plugin is on. With `instances`, this makes `Layout.version` 2; version-1 layouts are migrated on read with empty `panelInfo`.
 - **Unavailable panels stay.** `parseLayout` no longer drops unknown panels. A panel whose type isn't registered (plugin off, plugin removed from the project, or a third-party plugin that failed to load) keeps its place, title (`panelInfo`, else its id) and × and can be moved, closed and collapsed like any other. Its body is `UnavailablePanel`: "*Sky* isn't available. It comes from the plugin *Sky* (myco.sky), which is turned off for this project. Turn it on in Project Settings > Plugins to bring this panel back." with a button that opens that category; for a plugin that isn't installed or failed to load, the text says so instead. When the plugin comes back, the panel renders again in place.
-- **Confirming.** When turning plugins off in Project Settings > Plugins (`PluginsSection.tsx`, after the existing dependents confirmation, and covering those dependents), the editor looks for their panels in the working layout and in every saved layout's `head`. If any are found, a dialog lists the layouts and panels and offers:
-  - **Keep as unavailable panels** (the default): nothing changes in the layouts.
-  - **Remove from layouts:** the panels are closed in the working layout, and each affected saved layout file gets a new version without them (so the old arrangement is one Restore away). Project layouts in a read-only project are left alone, and the dialog says so.
-  - **Cancel:** the plugin stays on.
+- **Confirming.** When turning plugins off in Project Settings > Plugins (`PluginsSection.tsx`, after the existing dependents confirmation, and covering those dependents), the editor looks for their panels (those they registered, and those layouts remember as theirs in `panelInfo`) in the working layout and in every saved layout's `head`. If any are found, a confirmation lists each layout with its panels, and has a checkbox, **Remove these panels from the layouts**:
+  - **Turn off** with it unticked (the default) keeps them as unavailable panels: nothing changes in the layouts.
+  - **Turn off** with it ticked closes them in the working layout, and gives each affected saved layout file a new version without them (so the old arrangement is one Restore away). Project layouts in a read-only project are left alone, and the dialog says so.
+  - **Cancel** leaves the plugin on.
 
 ### Detached windows (second phase)
 

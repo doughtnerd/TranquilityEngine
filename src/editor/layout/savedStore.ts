@@ -30,6 +30,7 @@ import {
   type SavedLayout,
 } from "./saved";
 import { layout } from "./store";
+import { panelsOfPlugin } from "../sdk/panelOwners";
 
 /** Where layout files are read and written; tests pass in-memory versions. */
 export interface LayoutPlatform {
@@ -300,6 +301,21 @@ export interface LayoutWithPanels {
   types: PanelId[];
   /** False for a project layout in a read-only project (it can't be changed). */
   writable: boolean;
+}
+
+/**
+ * The panel types the given plugins provide: those they registered this session, and those layouts (the working one
+ * and every saved one) remember as theirs, for a plugin that was never on this session.
+ */
+export function pluginPanelTypes(plugins: readonly string[]): PanelId[] {
+  const types = new Set<PanelId>(plugins.flatMap((p) => panelsOfPlugin(p)));
+  const remembered = (l: Layout | null) => {
+    if (!l) return;
+    for (const [type, info] of Object.entries(l.panelInfo)) if (info?.plugin && plugins.includes(info.plugin)) types.add(type);
+  };
+  remembered(layout.peek());
+  for (const s of savedLayouts.peek()) remembered(layoutOf(s.newest));
+  return [...types];
 }
 
 /** The layouts (the working one first) whose current version holds panels of `types`. */

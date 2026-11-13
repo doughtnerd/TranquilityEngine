@@ -7,6 +7,8 @@ import { migrateDisabledPlugins, pluginDependencies, pluginDependents, resolveEn
 import { pluginTitle, type PluginManifest } from "../../plugins/manifest";
 import { disabledPluginsOf, setDisabledPlugins, type SettingsDraft } from "../projectSettingsModel";
 import { confirmInEditor } from "./ConfirmDialog";
+import { panelTitle } from "../layout/model";
+import { layoutsWithPanels, pluginPanelTypes, removePanelsFromLayouts } from "../layout/savedStore";
 
 type Set = (label: string, next: SettingsDraft) => void;
 
@@ -38,6 +40,28 @@ export function PluginsSection(props: { draft: SettingsDraft; set: Set }) {
           danger: false,
         });
         if (!answer.ok) return;
+      }
+    }
+    if (!on) {
+      // Layouts showing the panels of the plugins turning off (ADR 0174): keep them as unavailable panels, or remove them.
+      const turningOff = [m.name, ...pluginDependents(manifests, m.name).filter((n) => enabled.has(n))];
+      const types = pluginPanelTypes(turningOff);
+      const holding = types.length > 0 ? layoutsWithPanels(types) : [];
+      if (holding.length > 0) {
+        const fixed = holding.filter((l) => !l.writable);
+        const answer = await confirmInEditor({
+          title: `Turn off ${pluginTitle(m)}`,
+          message:
+            `${holding.length === 1 ? "A layout shows" : `${holding.length} layouts show`} panels from ${turningOff.length === 1 ? "this plugin" : "these plugins"}. ` +
+            "Kept, they stay where they are and say which plugin brings them back; removed, saved layouts get a new version without them (the old one stays in Manage Layouts)." +
+            (fixed.length > 0 ? ` Read-only project layouts keep them: ${fixed.map((l) => l.name).join(", ")}.` : ""),
+          items: holding.map((l) => `${l.name}: ${l.types.map((t) => panelTitle(t)).join(", ")}`),
+          optionLabel: "Remove these panels from the layouts",
+          confirmLabel: "Turn off",
+          danger: false,
+        });
+        if (!answer.ok) return;
+        if (answer.option) await removePanelsFromLayouts(types, `Removed ${turningOff.map(title).join(", ")} panels`);
       }
     }
     const label = on ? `Enable plugin ${pluginTitle(m)}` : `Disable plugin ${pluginTitle(m)}`;
