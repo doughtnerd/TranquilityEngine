@@ -2,7 +2,7 @@
 // structurally (the same buffer, view and segment tables by identity, no growth, over 10,000 STATUS records through
 // wraps and evictions), and every state eviction leaves decodes with Rc1's reader.
 import { describe, expect, it } from "vitest";
-import { RecordType } from "./format";
+import { KEYFRAME_VOICE_BYTES, RecordType } from "./format";
 import { openLiveCapture } from "./reader";
 import { createRecorder, type EpochContext } from "./recorder";
 import { KEYFRAME_INDEX_SLOTS, RecorderRing } from "./ring";
@@ -63,9 +63,16 @@ describe("the recorder ring allocates nothing per block (L-Rc2a)", () => {
       frame += 1;
       const opens = untilSegment-- <= 0;
       if (opens) untilSegment = rand(40);
-      const len = rand(8) === 0 ? rand(64 * 1024) : rand(600);
+      const size = rand(8) === 0 ? rand(64 * 1024) : rand(600);
+      // A keyframe must pass Rc1b's framing check: `voices` zero rows sized near `size`, then empty sections and the mix.
+      const voices = Math.floor(size / KEYFRAME_VOICE_BYTES);
+      const len = opens ? 29 + voices * KEYFRAME_VOICE_BYTES : size;
       const off = ring.record(opens ? RecordType.KEYFRAME : 0x40, 0, 0, frame, len, opens, SAMPLE_RATE);
-      if (off >= 0) ring.bytes.fill(i & 0xff, off, off + len);
+      if (off >= 0 && opens) {
+        ring.bytes.fill(0, off, off + len);
+        ring.view.setUint16(off, voices, true);
+        ring.view.setUint16(off + 2 + voices * KEYFRAME_VOICE_BYTES + 8, 1, true);
+      } else if (off >= 0) ring.bytes.fill(i & 0xff, off, off + len);
       if (ring.evicted !== lastEvicted) {
         lastEvicted = ring.evicted;
         const span = ring.copyRecords(0);
