@@ -10,10 +10,10 @@ import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { deflateRawSync } from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { CaptureSource, type CaptureWorkerLike } from "../../editor/mix/profilerSource";
-import { CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, CaptureError } from "./format";
-import { longCapture, sampleCapture } from "./testSupport";
-import type { CaptureResponse } from "./worker";
+import { CaptureSource, type CaptureWorkerLike } from "./profilerSource";
+import { CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, CaptureError } from "../../runtime/capture/format";
+import { longCapture, sampleCapture } from "../../runtime/capture/testSupport";
+import type { CaptureResponse } from "../../runtime/capture/worker";
 
 interface EsbuildLike {
   build(options: Record<string, unknown>): Promise<{ outputFiles: { text: string }[] }>;
@@ -21,7 +21,7 @@ interface EsbuildLike {
 
 const ENTRY = `
 import { parentPort } from "node:worker_threads";
-import { bindCaptureWorker } from ${JSON.stringify(fileURLToPath(new URL("./worker.ts", import.meta.url)))};
+import { bindCaptureWorker } from ${JSON.stringify(fileURLToPath(new URL("../../runtime/capture/worker.ts", import.meta.url)))};
 let listener = null;
 parentPort.on("message", (data) => listener?.({ data }));
 bindCaptureWorker({
@@ -38,7 +38,7 @@ beforeAll(async () => {
   const mod = (await import("esbuild-wasm")) as unknown as EsbuildLike & { default?: EsbuildLike };
   const esbuild = mod.default ?? mod;
   const out = await esbuild.build({
-    stdin: { contents: ENTRY, resolveDir: fileURLToPath(new URL(".", import.meta.url)), loader: "ts", sourcefile: "thread-entry.ts" },
+    stdin: { contents: ENTRY, resolveDir: fileURLToPath(new URL("../../runtime/capture/", import.meta.url)), loader: "ts", sourcefile: "thread-entry.ts" },
     bundle: true, format: "esm", platform: "node", target: "node20", write: false,
   });
   dir = mkdtempSync(join(tmpdir(), "rc5-capture-worker-"));

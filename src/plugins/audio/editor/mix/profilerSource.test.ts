@@ -1,7 +1,7 @@
 // ADR 0171/0172 (Rc5; api-and-models §7 `profilerSource.ts`): `CaptureSource` over the capture Worker's handler run in
 // process (messages delivered asynchronously, transfers detached as a Worker would). Open, summary, seek, range,
 // progress, refusals as `CaptureError`, cancel through an `AbortSignal`, the live path, close and a dying Worker. The
-// same client on a real `node:worker_threads` thread is `runtime/capture/worker.thread.test.ts`.
+// same client on a real `node:worker_threads` thread is `profilerSource.thread.test.ts`.
 import { describe, expect, it } from "vitest";
 import { CaptureError, assembleCapture, encodeRecords } from "../../runtime/capture/format";
 import { SAMPLE_HEADER, SAMPLE_META, longCapture, longCaptureRecords, sampleCapture } from "../../runtime/capture/testSupport";
