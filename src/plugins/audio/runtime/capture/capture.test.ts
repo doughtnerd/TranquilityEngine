@@ -10,8 +10,7 @@ import { Audio } from "../Audio";
 import { setAudioBackend } from "../backend";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { makeFakeBackend, type FakeBackend } from "../testing";
-import type { LiveHost } from "../../editor/mix/liveFollow";
-import { _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, captureOwners, NOTHING_RECORDED, releaseCapture, setCaptureProject, type RecorderModule } from "./capture";
+import { _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, captureOwners, NOTHING_RECORDED, releaseCapture, setCaptureProject, type CaptureLiveHost, type RecorderModule } from "./capture";
 import {
   CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_MAIN_SIDE_ONLY, CAPTURE_MARKER_MAX_BYTES, EpochReason, GapReason, RecordType, assembleCapture, readCaptureHeader,
 } from "./format";
@@ -29,7 +28,7 @@ function sources(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) sources(path, out);
-    else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(path);
+    else if (/\.(ts|tsx)$/.test(name) && !/\.(test|bench)\.tsx?$/.test(name)) out.push(path);
   }
   return out;
 }
@@ -490,8 +489,8 @@ describe("Held: a start from Held begins a new take after a GAP", () => {
 
 
 describe("owners: the Profiler panel's hold is distinct from a take (the LiveHost seam)", () => {
-  it("the seam is the editor's LiveHost, and is not a member of Audio.capture", () => {
-    const host: LiveHost = captureLiveHost;
+  it("the seam is a CaptureLiveHost (the editor's LiveHost: editor/mix/captureLiveHost.test.ts), and is not a member of Audio.capture", () => {
+    const host: CaptureLiveHost = captureLiveHost;
     expect(host.join).toBeTypeOf("function");
     expect("join" in Audio.capture).toBe(false);
     expect("liveHost" in Audio.capture).toBe(false);

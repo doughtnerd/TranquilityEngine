@@ -32,6 +32,7 @@ function loadProfiler(): Promise<typeof import("./ProfilerPanel")["ProfilerPanel
       import("./tracks/markers"),
     ]);
     // --- Profiler slot fills: one line each (W8: Pf5's tables, Pf8's bar and banners, X2's drop route; Rc4's host; Pf6's loudness track) ---
+    m.profilerHost.liveHost = (await import("../../runtime/capture/capture")).captureLiveHost;
     m.profilerTrackFactories.push(cpu.cpuTracks, counters.counterTracks, voices.voicesTracks, buses.busTracks, events.eventTracks, music.musicTracks, markers.markerTracks);
     return m.ProfilerPanel;
   })();

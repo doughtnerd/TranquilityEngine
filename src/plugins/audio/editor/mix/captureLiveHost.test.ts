@@ -4,16 +4,16 @@
 // follows the same STATUS blocks the take records. No wall-clock assertion: every wait is "the segments the feed sealed
 // have reached the view".
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LiveFollow, type LiveFollowModel, type LiveScheduler } from "../../editor/mix/liveFollow";
-import type { CaptureWorkerLike } from "../../editor/mix/profilerSource";
-import { Audio } from "../Audio";
-import { setAudioBackend } from "../backend";
-import { makeFakeBackend, type FakeBackend } from "../testing";
-import { _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, captureOwners, releaseCapture, type RecorderModule } from "./capture";
-import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "./worker";
-import { deflateRawCompress, type SaveEnv } from "./save";
-import { openCapture } from "./reader";
-import { keyframeCodecForTests, statusBytes } from "./testSupport";
+import { LiveFollow, type LiveFollowModel, type LiveHost, type LiveScheduler } from "./liveFollow";
+import type { CaptureWorkerLike } from "./profilerSource";
+import { Audio } from "../../runtime/Audio";
+import { setAudioBackend } from "../../runtime/backend";
+import { makeFakeBackend, type FakeBackend } from "../../runtime/testing";
+import { _setRecorderLoader, _setSaveEnv, captureDebug, captureLiveHost, captureOwners, releaseCapture, type RecorderModule } from "../../runtime/capture/capture";
+import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "../../runtime/capture/worker";
+import { deflateRawCompress, type SaveEnv } from "../../runtime/capture/save";
+import { openCapture } from "../../runtime/capture/reader";
+import { keyframeCodecForTests, statusBytes } from "../../runtime/capture/testSupport";
 
 const BLOCK = 768;
 const RATE = 48_000;
@@ -71,7 +71,7 @@ function rig() {
   fb.debug = () => ({ ...baseDebug(), time: fb.frame / RATE, sampleRate: RATE, core: { backend: "fake", currentFrame: fb.frame } });
   setAudioBackend(fb);
   const before = _setRecorderLoader(async (): Promise<RecorderModule> => {
-    const m = await import("./recorder");
+    const m = await import("../../runtime/capture/recorder");
     return { ...m, createRecorder: (o) => m.createRecorder({ ringBytes: 8 * MiB, codec: keyframeCodecForTests(), ...o }) };
   });
   const downloads: Uint8Array[] = [];
@@ -174,3 +174,7 @@ describe("LiveFollow over Rc4's LiveHost", () => {
     await expect(Audio.capture.save("after-panel")).resolves.toBe("after-panel.mycap");
   });
 });
+
+// The runtime seam is the editor's `LiveHost` (a compile-time check; moved here from `capture.test.ts`, whose folder may not import the editor).
+const _seamIsLiveHost: LiveHost = captureLiveHost;
+void _seamIsLiveHost;
