@@ -22,6 +22,7 @@ From K0's and K1's reports (W1, 2026-11-13). Each later brief quotes its rows. A
 | Dbg1 | `core/coreBackend.ts` | `mixDebug()` (identity slots, zero counters); `mixCaps` | W4 |
 | Dp1 | `core/coreBackend.ts` | `duckGain(bus)` → 1 | W4 |
 | Mx2 | `backend.ts` bus rows | `lastRampStartFrame?` (undefined until Mx2) | W3 |
+| Ld2 (granted lines in `coreBackend.ts`) | `mix/loudnessHub.ts` (Ld4, filled) | wire the hub: `configure(...)` on project load and on a live edit of meters, targets or `loudnessResetOnPlay`; `feed(status)` in the STATUS handler; `epoch()` on an EPOCH; `play()` at the editor's Play; `attach(mixer)` once; `setGateSink` to re-send `LOUD_CONFIG`'s gate. Mixer panel inputs (Mp1b): `noteMonitorMute`, `noteMonitorSolo`, `setCompare`, `setMonitorActive`; backend inputs: `setMasterNotUnity`, `setMuted`. Babylon (Bb2): `configure({ available: false, ... })` | W6 (Ld2), Mp1b, Bb2 |
 | Ma1 | `editor/mix/opLog.ts` (Hk1) | `startOpLog(getMixer)` must be called once with the running mixer (wire it where the editor's Play starts the audio backend); `recordMixOps(value, entry, base)` tags an edited section value with its ops — the Mixer panel's edits (Mp1a) pass `base` so the log trusts them instead of diffing | W5 (Ma1), Mp1a |
 | — | `backend.ts` | optional `AudioBackend` members: `mixCaps`, `cpu`, `applyOp`, `flushNow`, `rampLane`, `writeSlot`, `writeDucking`, `writeLoudnessConfig`, `duckGain`, `recorderTap`, `setProfileSink`; `AudioDebugInfo`: `mixCaps`, `cpu`, `mix`, `recorder`; `core.currentFrame` filled | declared |
 
