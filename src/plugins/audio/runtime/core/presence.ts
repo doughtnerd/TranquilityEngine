@@ -23,6 +23,7 @@ import type { Mixer } from "../../../../engine/audio/mixer";
 import type { DuckingRule } from "../../../../engine/audio/settings";
 import { ASAP, MAX_DUCK_RULES, writeBusDuck, writeBusPresence, type BusDuckRules } from "../wire.generated";
 import type { ClockMap } from "./clock";
+import type { BusIndex } from "./busIndex";
 import type { CommandWriter } from "./commandWriter";
 import type { ReplayBuilder } from "./replay";
 import { VoiceState, type VoiceTable } from "./voiceTable";
@@ -38,6 +39,12 @@ export interface PresenceHost {
   readonly table: Pick<VoiceTable, "capacity" | "state" | "bus" | "startFrame">;
   readonly clockMap: Pick<ClockMap, "stampFor">;
   readonly mixer: Pick<Mixer, "audioSettings" | "busNames">;
+  /**
+   * The bus index (Sm1's slot table, `busIndex.ts`): a rule's buses are found by their slot. Live edits leave a bus's
+   * position in `mixer.busNames` and its slot apart (a bus added into a recycled slot is listed last), so the position
+   * is used only when no index is given (unit tests).
+   */
+  readonly buses?: Pick<BusIndex, "slotOf">;
 }
 
 export class Presence {
@@ -155,11 +162,12 @@ export class Presence {
   private sendRules(list: readonly DuckingRule[], names: readonly string[]): void {
     const host = this.host!;
     this.rulesFrom = list;
+    const buses = host.buses;
     const out: BusDuckRules[] = [];
     for (const r of list) {
       if (r.mode === "level" || out.length >= MAX_DUCK_RULES) continue;
-      const target = names.indexOf(r.target);
-      const trigger = names.indexOf(r.trigger);
+      const target = buses ? buses.slotOf(r.target) : names.indexOf(r.target);
+      const trigger = buses ? buses.slotOf(r.trigger) : names.indexOf(r.trigger);
       if (target < 0 || trigger < 0 || trigger >= MASK_BITS) continue;
       out.push({ target, trigger, flags: 0, thresholdDb: r.threshold ?? -30, amount: r.amount, attack: r.attack, release: r.release });
     }
