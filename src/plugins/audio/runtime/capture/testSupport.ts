@@ -13,9 +13,11 @@ export function statusBytes(currentFrame: number): Uint8Array {
   return buf.slice(0, n);
 }
 
-/** A KEYFRAME payload until Rc1b's codec: opaque bytes (the reader only frames it before Rc1b). */
+/** A KEYFRAME payload's bytes: the empty keyframe through Rc1b's codec (29 B; the reader checks every KEYFRAME's framing). */
 export function keyframeBytesPlaceholder(): Uint8Array {
-  return new Uint8Array(32);
+  const out = new Uint8Array(keyframeBytes(EMPTY_KEYFRAME_PAYLOAD));
+  encodeKeyframe(new DataView(out.buffer), 0, EMPTY_KEYFRAME_PAYLOAD);
+  return out;
 }
 
 export const SAMPLE_HEADER: CaptureHeaderInit = { sampleRate: SAMPLE_RATE, preset: 1, startDateMs: 1_763_000_000_000, ringBytes: 16 * 1024 * 1024, firstFrame: 0 };
