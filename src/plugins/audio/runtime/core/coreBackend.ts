@@ -207,6 +207,9 @@ const STEAL_FADE_SECONDS = 0.005;
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
+/** ADR 0171 (K0): the core backend that last registered its clock and op target on each mixer. */
+const mixerOwners = new WeakMap<Mixer, CoreBackend>();
+
 export class CoreBackend implements AudioBackend, StagedFrameHost {
   readonly name = "core";
   readonly table: VoiceTable;
@@ -538,6 +541,34 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       }),
     );
     this.configureBuses(this.mixer);
+    // ADR 0171 (K0, Mx1's H2): `mixer.apply(op)` reaches `applyOp`; the mixer evaluates its ramps on the heard clock once
+    // the core runs (`syncMixerClock`, each frame). Only the newest backend on a mixer clears them at its dispose (a
+    // replacement is made before the old one goes).
+    mixerOwners.set(this.mixer, this);
+    this.mixer._setOpTarget(this);
+    this.cleanups.push(() => {
+      if (mixerOwners.get(this.mixer) !== this) return;
+      mixerOwners.delete(this.mixer);
+      if (this.mixerOnHeardClock) this.mixer.setClock(null);
+      this.mixerOnHeardClock = false;
+      this.mixer._setOpTarget(null);
+    });
+  }
+
+  /** ADR 0171 (K0): the mixer's ramps run on `heardClock` while this is true. */
+  private mixerOnHeardClock = false;
+  private readonly heardClock = (): number => this.time;
+
+  /**
+   * ADR 0171 (K0, Mx1's H2): once the core runs and the clock map is anchored, the mixer evaluates fades, snapshots and
+   * presence ducks on the heard clock (`Audio.time`'s base); before that (locked, loading) and after a failure, on its own
+   * `dt` clock. Re-anchoring is the mixer's (`setClock` keeps each running ramp's remaining length).
+   */
+  private syncMixerClock(): void {
+    const heard = this.host.status === "running" && this.clockMap.anchored;
+    if (heard === this.mixerOnHeardClock || mixerOwners.get(this.mixer) !== this) return;
+    this.mixerOnHeardClock = heard;
+    this.mixer.setClock(heard ? this.heardClock : null);
   }
 
   /** §1 `Audio.time`. */
@@ -783,6 +814,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     clockMap.beginFrame();
     // A3.4c: after a context swap, the old core's last STATUS is in the old context's frames: wait for the new one's.
     if (this.mirror.blocks > this.staleBlocks) clockMap.noteStatus(this.mirror.frameAudio, this.mirror.frameDateMs);
+    this.syncMixerClock();
     this.mirror.beginFrame();
     // F-9b: stem levels whose stamps come before this frame's asap records land (selection and dry-gain writes read them).
     // Asap records apply on arrival, about `framesNow`; a stamp after that is still pending (`ClockMap.stampFor`'s rule).
@@ -1142,6 +1174,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const clockMap = this.clockMap;
     clockMap.beginFrame();
     if (this.mirror.blocks > this.staleBlocks) clockMap.noteStatus(this.mirror.frameAudio, this.mirror.frameDateMs);
+    this.syncMixerClock();
     this.musicOps.beginFrame();
   }
 

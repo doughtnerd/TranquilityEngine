@@ -123,12 +123,7 @@ export interface MonitorControls {
   solo?: boolean;
 }
 
-// K0: `MixOp` and `ApplyResult` are `src/engine/audio/mixOps.ts`'s (api-and-models §6.2); replace these local
-// stand-ins with `import type { MixOp, ApplyResult } from "./mixOps"` once K0's first commit is merged.
-/** @internal Stand-in for K0's `MixOp` (§6.2). */
-export type MixOp = { readonly op: string } & Record<string, unknown>;
-/** @internal Stand-in for K0's `ApplyResult` (§6.2). */
-export interface ApplyResult { ok: boolean; class: "direct" | "smoothed" | "dip" | "config" | "none"; deferred?: string; restartRequired?: string }
+import type { MixOp, ApplyResult } from "./mixOps"; // K0: api-and-models §6.2
 /** What `mixer.apply` delegates to: the backend's `applyOp` (K0 declares it on `AudioBackend`, optional). */
 export interface MixOpTarget { applyOp?(op: MixOp): ApplyResult }
 

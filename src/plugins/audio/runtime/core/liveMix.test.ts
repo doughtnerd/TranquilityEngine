@@ -41,6 +41,21 @@ describe("liveMix (K0 stub)", () => {
     for (const op of OPS) expect(live.apply(op), op.op).toEqual({ ok: false, class: "none", restartRequired: RESTART_REQUIRED });
   });
 
+  it("mixer.apply(op) reaches the active backend's applyOp, and nothing once the backend is gone", async () => {
+    const { makeFakeBackend } = await import("../testing");
+    const { setAudioBackend, mixer } = await import("../backend");
+    const fake = makeFakeBackend();
+    setAudioBackend(fake);
+    try {
+      expect(mixer.apply(OPS[0]!)).toEqual({ ok: true, class: "direct" });
+      expect(fake.ops).toEqual([OPS[0]]);
+    } finally {
+      setAudioBackend(null);
+    }
+    expect(mixer.apply(OPS[0]!).restartRequired).toBeTruthy();
+    expect(fake.ops).toHaveLength(1);
+  });
+
   it("CoreBackend.applyOp routes to liveMix", () => {
     const live = new LiveMix({ dip: new StructuralDip(), deferred: new DeferredAdds() });
     for (const op of OPS) expect(CoreBackend.prototype.applyOp.call({ liveMix: live } as unknown as CoreBackend, op).restartRequired).toBe(RESTART_REQUIRED);

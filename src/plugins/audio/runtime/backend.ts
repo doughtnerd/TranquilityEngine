@@ -856,6 +856,7 @@ export function audioBackend(): AudioBackend {
     backend.configureBuses(mixer);
     backend.applyMix(mixer.resolveAll());
     applyBackgroundSetting(backend);
+    mixer._setOpTarget(backend); // ADR 0171 (K0): `mixer.apply(op)` reaches the backend's `applyOp`
     mixer.onChange(() => backend?.applyMix(mixer.resolveAll()));
   }
   return backend;
@@ -883,6 +884,7 @@ export function setAudioBackend(next: AudioBackend | null): void {
     next.applyMix(mixer.resolveAll());
     applyBackgroundSetting(next);
   }
+  mixer._setOpTarget(next); // ADR 0171 (K0): `mixer.apply(op)` reaches the backend's `applyOp` (null: none)
 }
 
 /** The core load settled (registered, failed, or no longer wanted): the pending backend hands its sound to the real one. */
