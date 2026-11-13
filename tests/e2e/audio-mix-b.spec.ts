@@ -408,6 +408,8 @@ test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor so
     await audioFor(page, 0.5);
     expect((await readBoth(page, "Master", "UI")).map((m) => m.tainted)).toEqual([false, false]);
     await run(page, `(Audio.bus("Ambience").mute = false)`);
+    // The backend hands mutes to the hub once a frame (a mute suspends the target check); let a frame of audio pass.
+    await audioFor(page, 0.2);
   });
 
   await test.step("a monitor mute of an unmetered bus (Ambience) taints master only, and suspends the target check", async () => {
