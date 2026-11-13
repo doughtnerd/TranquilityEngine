@@ -441,14 +441,24 @@ describe("stability and allocation", () => {
     expect(before.momentary).toBeCloseTo(-23, 6);
   });
 
-  it("feed allocates nothing: heap growth over 20,000 blocks stays within noise", () => {
+  it("feed allocates nothing: the hub's meters, stats objects, buffers and BusLoudness objects are the same objects after 20,000 blocks", () => {
+    // Structural, not a heap bound (a heap-growth threshold flakes under a parallel suite): identity of everything the hub owns.
     const hub = makeHub();
+    type Inner = { stats: { buffers(): ArrayBufferView[] }; reading: object };
+    const inner = (name: string): Inner => hub.busLoudness(name) as unknown as Inner;
+    const snap = () =>
+      METERED.map((n) => {
+        const m = inner(n);
+        const bufs = m.stats.buffers();
+        return { obj: hub.busLoudness(n)!, stats: m.stats, reading: m.reading, target: hub.busLoudness(n)!.target, bufs, lens: bufs.map((b) => b.byteLength), arrays: bufs.map((b) => b.buffer) };
+      });
+    const hubFields = () => ({ meters: (hub as unknown as { meters: unknown[] }).meters, byName: (hub as unknown as { byName: Map<string, unknown> }).byName, size: (hub as unknown as { byName: Map<string, unknown> }).byName.size });
     const blocks: StatusBlock[] = [];
     for (let k = 0; k < 8; k++) {
       blocks.push(status(METERED.map((n) => ({ slot: SLOT_OF[n], firstSeq: k, energies: [energyFor(-24)] }))));
     }
-    let seq = 0;
-    const run = (n: number): void => {
+    const feedN = (n: number, from: number): void => {
+      let seq = from;
       for (let i = 0; i < n; i++) {
         const b = blocks[i & 7];
         for (const it of b.loudBuses) it.firstSeq = seq;
@@ -456,15 +466,32 @@ describe("stability and allocation", () => {
         hub.feed(b);
       }
     };
-    run(2000);
-    const gc = (globalThis as { gc?: () => void }).gc;
-    gc?.();
-    const before = process.memoryUsage().heapUsed;
-    run(20000);
-    gc?.();
-    const grown = process.memoryUsage().heapUsed - before;
-    // 20,000 blocks x 3 meters: an allocation per block (say 32 B) would be ~2 MB; allow generous noise.
-    expect(grown).toBeLessThan(3_000_000);
+    feedN(100, 0);
+    const before = snap();
+    const fieldsBefore = hubFields();
+    feedN(20_000, 100);
+    const after = snap();
+    const fieldsAfter = hubFields();
+    expect(fieldsAfter.meters).toBe(fieldsBefore.meters);
+    expect(fieldsAfter.byName).toBe(fieldsBefore.byName);
+    expect(fieldsAfter.size).toBe(fieldsBefore.size);
+    expect(before.length).toBe(METERED.length);
+    before.forEach((b, i) => {
+      const a = after[i]!;
+      expect(a.obj, "the stable BusLoudness object").toBe(b.obj);
+      expect(a.stats, "the per-bus LoudnessStats").toBe(b.stats);
+      expect(a.reading, "the target reading").toBe(b.reading);
+      expect(a.target, "the target object").toBe(b.target);
+      expect(a.bufs.length).toBe(b.bufs.length);
+      a.bufs.forEach((buf, j) => {
+        expect(buf, `buffer ${j} is the same typed array`).toBe(b.bufs[j]);
+        expect(buf.byteLength, `buffer ${j} did not grow`).toBe(b.lens[j]);
+        expect(buf.buffer).toBe(b.arrays[j]);
+      });
+    });
+    // And the feed did run: the meters moved.
+    expect(inner(METERED[0]!)).toBeDefined();
+    expect(hub.busLoudness(METERED[0]!)!.elapsed).toBeGreaterThan(0);
   });
 
   it("configure keeps the state of meters that stay and drops removed ones to the inert reading", () => {
