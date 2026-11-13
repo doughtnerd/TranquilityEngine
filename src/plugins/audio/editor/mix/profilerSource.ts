@@ -101,6 +101,8 @@ export class CaptureSource implements ProfileSource {
     try {
       const r = await s.request({ type: "open", id, source, bytes }, [bytes], opts.onProgress);
       if (r.type !== "opened") throw new Error(`capture worker: unexpected ${r.type}`);
+      // Aborted after the Worker finished but before this resolved (its last slice can beat the cancel): still cancelled.
+      if (opts.signal?.aborted) throw new CaptureError("cancelled", -1, "the open was cancelled");
       s.current = r.summary;
       s.isLive = source === "live";
       return s;
