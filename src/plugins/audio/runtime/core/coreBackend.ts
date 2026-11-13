@@ -1788,6 +1788,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       const refused = aacRefusal(asset, this.aac);
       if (refused) {
         this.warnOnce(asset, refused);
+        if (this.profile !== NULL_PROFILE_SINK) this.profile.voiceRefused(asset, this.buses.slots.busRef(t.bus[i]!), "loadFailed"); // §5.6: as the clip's AAC failure
         t.free(id, VoiceReason.FAILED);
         return;
       }
