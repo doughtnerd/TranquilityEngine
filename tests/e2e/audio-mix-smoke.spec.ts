@@ -149,9 +149,12 @@ test("M5-0 smoke: a fade lands through the lanes on its stamp", async ({ page })
   const stamp = (await read()).row.lastRampStartFrame!;
   expect(stamp, "stamped ahead of the core's frame at the call").toBeGreaterThan(called);
   expect(stamp - called, "within the lookahead and the clock's lead (well under 0.5 s)").toBeLessThan(0.5 * before.rate);
-  // 2. On the audio clock: once the core has rendered past stamp + 0.5 s, the fade has landed on 0.6 x 0.25.
+  // 2. On the audio clock: once the heard clock (`Audio.time`, which the getters read) is past stamp + 0.5 s, the fade has
+  // landed on 0.6 x 0.25. The core's rendered frame runs ahead of the heard clock by the lookahead, so waiting on it alone
+  // can read the getter before the end it hears.
   const end = stamp + Math.round(0.5 * before.rate);
-  await expect.poll(async () => (await read()).frame, { timeout: 15_000 }).toBeGreaterThan(end);
+  const heard = () => page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { time: number } } }).__myco.Audio.time);
+  await expect.poll(async () => (await heard()) * before.rate, { timeout: 15_000 }).toBeGreaterThan(end);
   const landed = await read();
   expect(landed.gain, "landed on its target by stamp + duration").toBeCloseTo(0.15, 4);
   expect(landed.row.effectiveGain).toBeCloseTo(0.15, 4);
