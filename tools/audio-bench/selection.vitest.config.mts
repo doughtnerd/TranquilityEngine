@@ -1,4 +1,4 @@
-// DF: runs the selection wall-clock bench (`src/plugins/audio/runtime/core/selectionBench.bench.ts`) as a plain Vitest
+// DF: runs the core wall-clock benches (`src/plugins/audio/runtime/core/*.bench.ts`: selectionBench, hrtfCost) as a plain Vitest
 // file, apart from `npm test` (whose include is `*.test.ts`). Same shape as `capture.vitest.config.mts`.
 //
 //   npx vitest run --config tools/audio-bench/selection.vitest.config.mts
