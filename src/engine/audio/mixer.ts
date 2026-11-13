@@ -340,9 +340,21 @@ export class Mixer {
     switch (op.op) {
       case "addBus": {
         const b = next.buses[next.buses.length - 1]!;
-        this.buses.set(b.name, this.newState(b, slot >= 0 ? slot : this.order.length, now));
+        // No slot given (the Babylon fallback has no slot table): the next one past every slot in use, so a bus added after a removal never shares one.
+        let free = 0;
+        for (const s of this.buses.values()) free = Math.max(free, s.slot + 1);
+        this.buses.set(b.name, this.newState(b, slot >= 0 ? slot : free, now));
         this.order.push(b.name);
         this.aliases.delete(b.name);
+        break;
+      }
+      case "removeBus": {
+        // The bus and its descendants leave the model: `resolveAll`, `busNames` and `debug` stop listing them. Every other
+        // bus keeps its state object, so script volumes, fades in flight, mutes, solo and voice counts carry on untouched.
+        const kept = new Set(next.buses.map((b) => b.name));
+        for (const name of this.order) if (!kept.has(name)) this.buses.delete(name);
+        this.order = this.order.filter((n) => kept.has(n));
+        for (const [old, target] of this.aliases) if (!kept.has(target)) this.aliases.delete(old);
         break;
       }
       case "setBus": {

@@ -90,6 +90,57 @@ describe("Mixer._applyLive (Ma1)", () => {
     expect(m.resolve("Amb")!.effectiveGain).toBeCloseTo(0.8, 9);
   });
 
+  it("a removed bus (and its descendants) is gone from resolveAll, busNames and the lanes, while another bus's fade, mute, solo and voices carry on", () => {
+    const m = new Mixer(parseAudioSettings({
+      buses: [{ name: "Master" }, { name: "Music", parent: "Master" }, { name: "Stems", parent: "Music" }, { name: "SFX", parent: "Master" }],
+    }).settings);
+    let t = 0;
+    m.setClock(() => t);
+    m.voiceStarted("SFX");
+    m.voiceStarted("SFX");
+    m.bus("SFX").mute = true;
+    m.bus("Master").solo = true;
+    m.bus("Master").fadeTo(0.2, 2);
+    t = 0.5;
+    const mid = m.bus("Master").volume;
+    const fade = { ...m._lanes("Master")!.runtime };
+    expect(mid).toBeGreaterThan(0.2);
+    expect(mid).toBeLessThan(1);
+
+    expect(m._applyLive({ op: "removeBus", bus: "Music" })).toBe(true);
+    expect(m.busNames).toEqual(["Master", "SFX"]);
+    expect(m.resolveAll().map((b) => b.name)).toEqual(["Master", "SFX"]);
+    expect(m.has("Music")).toBe(false);
+    expect(m.has("Stems")).toBe(false);
+    expect(m._lanes("Stems")).toBeUndefined();
+
+    // The fade on Master is the same ramp, unrestarted: it continues from where it was and lands at its target.
+    expect(m._lanes("Master")!.runtime).toEqual(fade);
+    expect(m.bus("Master").volume).toBeCloseTo(mid, 9);
+    t = 2;
+    expect(m.bus("Master").volume).toBeCloseTo(0.2, 9);
+    expect(m.bus("SFX").mute).toBe(true);
+    expect(m.bus("Master").solo).toBe(true);
+    expect(m._state("SFX")!.voices).toBe(2);
+  });
+
+  it("a bus added with no slot after a removal takes a slot no remaining bus holds", () => {
+    const m = new Mixer(settings());
+    m._applyLive({ op: "removeBus", bus: "Music" }); // Master 0, SFX 2
+    m._applyLive({ op: "addBus", name: "Amb", parent: "Master", index: 1 });
+    const slots = m.busNames.map((n) => m._lanes(n)!.slot);
+    expect(new Set(slots).size).toBe(slots.length);
+    expect(m._lanes("Amb")!.slot).toBe(3);
+  });
+
+  it("a removed bus's old name stops aliasing once its target is gone", () => {
+    const m = new Mixer(settings());
+    m._applyLive({ op: "renameBus", from: "SFX", to: "Fx" });
+    m._applyLive({ op: "removeBus", bus: "Fx" });
+    expect(m.busNames).toEqual(["Master", "Music"]);
+    expect(m._state("SFX")).toBeUndefined();
+  });
+
   it("a refused op changes nothing", () => {
     const m = new Mixer(settings());
     const before = m.audioSettings;

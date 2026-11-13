@@ -26,10 +26,13 @@ import type { StreamingSound } from "@babylonjs/core/AudioV2/abstractAudio/strea
 import type { Vec3Like } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { AudioReverbZone } from "./AudioReverbZone";
-import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
+import { Lane, type LaneId, type Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import { opClass, opRefusal, type ApplyResult, type MixOp } from "../../../engine/audio/mixOps";
 import { events } from "./events/eventRuntime";
 import { BABYLON_CPU_REASON, babylonCpuDebug, babylonMixDebug } from "./mix/mixDebug";
+import { NULL_PROFILE_SINK, type ProfileSink, type ProfileStopReason } from "./mix/profileSink";
+import { mixerTapFor, taps } from "./mix/profileTaps";
+import type { KeyframeBus, KeyframeEvent, KeyframePayload, KeyframeVoice } from "./capture/format";
 import { hasAudioBackend, mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioM3Counters, type AudioMixCaps, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicGroupRequest, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type FadeLaw } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
 import { DistanceEffect, SendCurveTable, SpatialViewFlag, type SpatialPassHost, type SpatialVoiceView } from "./core/spatial";
@@ -145,6 +148,8 @@ class BabylonVoice implements AudioVoice {
   /** The fallback has no stealing, virtual or locked voices (api-and-models 1 "Fallback backend"); only a failed load shows. */
   reason: AudioReason | null = null;
   private ended = false;
+  /** ADR 0171 (Bb1): the voice left through `voiceSteal`, which stands in for its `voiceStop`. */
+  private stolen = false;
   private bus: string;
   private volume: number;
   /** The fade's target gain, and the gain the sound has now (they differ until `applyVolume` runs). */
@@ -219,7 +224,17 @@ class BabylonVoice implements AudioVoice {
     this.attenuation = flat || ambisonic ? null : (req.attenuation ?? null);
     this.position = !flat && !ambisonic && req.position ? { x: req.position.x, y: req.position.y, z: req.position.z } : null;
     mixer.voiceStarted(this.bus);
+    // §5.6 voiceStart: the fallback starts a voice when it is asked (`atFrame` 0: at or before now), with no core flag bits.
+    if (backend._profile !== NULL_PROFILE_SINK) backend._profile.voiceStart(this.id, req.path, backend._busRef(this.bus), 0, 0, this.volume);
     void this.load();
+  }
+
+  /** @internal Bb1: the bus's `maxVoices` stopped this voice for `thief` (§5.6 voiceSteal, reason busMaxVoices). */
+  _stolenBy(thief: BabylonVoice): void {
+    if (this.ended) return;
+    this.stolen = true;
+    this.backend._profile.voiceSteal(this.id, thief.id, "busMaxVoices");
+    this.stop();
   }
 
   get playing(): boolean {
@@ -252,9 +267,11 @@ class BabylonVoice implements AudioVoice {
   }
 
   /** @internal Ends the voice's bookkeeping once: the bus count drops and the backend forgets it. */
-  private finish(): void {
+  private finish(reason: ProfileStopReason): void {
     if (this.ended) return;
     this.ended = true;
+    // §5.6 voiceStop (a steal reports itself as the `voiceSteal`, as on the core, so it adds no stop of its own).
+    if (!this.stolen) this.backend._profile.voiceStop(this.id, reason);
     if (this.startTimer !== null) clearTimeout(this.startTimer);
     this.startTimer = null;
     for (const t of this.shapedTimers) clearTimeout(t);
@@ -288,7 +305,7 @@ class BabylonVoice implements AudioVoice {
         // The backend already warned that the engine can't start: no second warning per voice.
         if (!this.ended) {
           this.reason = "failed";
-          this.finish();
+          this.finish("failed");
         }
         return;
       }
@@ -313,7 +330,7 @@ class BabylonVoice implements AudioVoice {
         if (buffer === null) {
           if (!this.ended) {
             this.reason = "failed";
-            this.finish();
+            this.finish("failed");
           }
           return;
         }
@@ -327,7 +344,7 @@ class BabylonVoice implements AudioVoice {
       if (!this.ended) {
         console.warn(`[myco] audio: could not load "${this.req.path}": ${e instanceof Error ? e.message : String(e)}`);
         this.reason = "failed";
-        this.finish();
+        this.finish("failed");
       }
       return;
     }
@@ -341,7 +358,7 @@ class BabylonVoice implements AudioVoice {
     }
     this.sound = sound;
     sound.onEndedObservable.add(() => {
-      this.finish();
+      this.finish("ended");
       this.disposeSound();
     });
     if (this.position) this.applyPosition();
@@ -675,7 +692,7 @@ class BabylonVoice implements AudioVoice {
   stop(fadeSeconds = 0): void {
     if (this.ended) return;
     const sound = this.sound;
-    this.finish(); // `playing` goes false now
+    this.finish(fadeSeconds > 0 && this.started ? "faded" : "stopped"); // `playing` goes false now
     if (!sound) return; // still loading: the load sees `ended` and drops the sound
     if (fadeSeconds > 0 && this.started) {
       sound.setVolume(0, { duration: fadeSeconds, shape: RAMP });
@@ -996,7 +1013,6 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
       const root = m.audioSettings.buses[0]!.name;
       const now = new Set(m.audioSettings.buses.map((b) => b.name));
       if (!rename) for (const n of names) if (!now.has(n)) for (const v of this.voices) if (v.busName === n) v.setBus(root);
-      if (op.op === "removeBus") this.pruneRemoved(m);
       this.applyMix(m.resolveAll());
       this.configureBuses(m);
     } else {
@@ -1006,27 +1022,78 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     return level ? { ok: false, class: cls, restartRequired: NEEDS_AUDIO_CORE } : { ok: true, class: cls };
   }
 
+  /** @internal ADR 0171 (Bb1): the capture's event sink; the null object while no recorder runs (a tap costs one comparison). */
+  _profile: ProfileSink = NULL_PROFILE_SINK;
+
   /**
-   * `Mixer._applyLive` changes the settings for a `removeBus` but keeps the removed buses' state (the core path leaves that to
-   * Ma2's tombstones). The fallback has no slots, so it rebuilds the mixer's state from the settings and puts back what
-   * scripts set on the buses that stay: runtime volume (a fade in progress becomes its current value), mute, solo, the
-   * snapshot in force; and the voice counts, which `configure` zeroes.
+   * ADR 0171 (Bb1; api-and-models §5.6, §9): the capture's event taps on the fallback, all on main. One sink reaches this
+   * backend's voice start, stop and steal, master and hidden-tab changes, the mixer's setters (bus ramps, snapshots, monitor
+   * controls) and the page-wide event and music taps (`taps.sink`); null restores every null object. The taps the core
+   * has and the fallback has no information for stay silent: no virtual, real, refused (a failed load stops as `failed`)
+   * or queued voices, no ladder, no loudness controls, and no EPOCH or GAP from a core (a `pause` background reports its GAP).
    */
-  private pruneRemoved(m: Mixer): void {
-    const kept = m.audioSettings.buses.map((b) => {
-      const x = m.bus(b.name);
-      return { name: b.name, volume: x.volume, mute: x.mute, solo: x.solo };
-    });
-    const snapshot = m.currentSnapshot;
-    m.configure(m.audioSettings);
-    for (const k of kept) {
-      const x = m.bus(k.name);
-      x.volume = k.volume;
-      x.mute = k.mute;
-      x.solo = k.solo;
+  setProfileSink(sink: ProfileSink | null): void {
+    this._profile = sink ?? NULL_PROFILE_SINK;
+    (this.mixerRef ?? mixer)._setTap(sink ? mixerTapFor(sink, () => this._rate(), (n) => this._busRef(n)) : null);
+    taps.sink = this._profile;
+  }
+
+  /**
+   * @internal A bus name's `busRef` (`gen << 8 | slot`, §6.3): the mixer's slot for it with generation 0 (the fallback has no
+   * slot table; a slot is never reused by a later bus, see `Mixer._applyLive`'s `addBus`).
+   */
+  _busRef(bus: string): number {
+    return ((this.mixerRef ?? mixer)._lanes(bus)?.slot ?? 0) & 0xff;
+  }
+
+  /**
+   * ADR 0171 (Bb1; api-and-models §5.5, §9): the main-side state at this instant for a capture's KEYFRAME, read from main's own
+   * tables: the live voices (clip, bus, gain, pitch), every bus's lanes as the mixer holds them (value and target), the
+   * events that have voices playing, and the mix section (snapshot in force, monitor flag, master volume, hidden mute). The
+   * metered and music sections are empty (no loudness meters on the fallback; music segments aren't tracked here),
+   * audibility is full and the playhead 0 (neither is known), and an event's asset is `noName`. `nameId` interns a clip or
+   * snapshot name into the capture's NAMES table (`EventSink` does), `noName` is the id for none. The payload is built
+   * fresh per call: a keyframe is once a second, and the fallback is best effort.
+   */
+  keyframe(nameId: (table: "clips" | "snapshots", name: string) => number, noName = 0xffffffff): KeyframePayload {
+    const m = this.mixerRef ?? mixer;
+    const voices: KeyframeVoice[] = [];
+    const eventVoices = new Map<number, number>();
+    for (const v of this.voices) {
+      if (voices.length < 8192) {
+        const row = v.row;
+        voices.push({
+          id: v.id >>> 0, clip: nameId("clips", row.clip), slot: this._busRef(row.bus) & 0xff, state: 0, priority: 0, reason: 0,
+          gain: Math.fround(row.gain), pitch: Math.min(0xffff, Math.max(0, Math.round(row.pitch * 4096))), audibility: 0xffff, playheadFrames: 0,
+        });
+      }
+      if (v.event !== null) eventVoices.set(v.event, (eventVoices.get(v.event) ?? 0) + 1);
     }
-    if (snapshot !== null) m.snapshot(snapshot, 0);
-    for (const v of this.voices) m.voiceStarted(v.busName);
+    const buses: KeyframeBus[] = [];
+    for (const name of m.busNames) {
+      const l = m._lanes(name);
+      if (!l || buses.length >= 32) continue;
+      const pair = (lane: LaneId, to: number): number[] => [Math.fround(m.laneGain(name, lane)), Math.fround(to)];
+      buses.push({
+        slot: l.slot & 0xff, gen: 0,
+        flags: (l.authoredMute ? 1 : 0) | (l.runtimeMute ? 2 : 0) | (l.monitorMute ? 4 : 0) | (l.monitorSolo ? 8 : 0),
+        lanes: [
+          ...pair(Lane.authored, l.authoredMute ? 0 : l.authored.to), ...pair(Lane.runtime, l.runtimeMute ? 0 : l.runtime.to),
+          ...pair(Lane.snapshot, l.snapshot.to), ...pair(Lane.monitor, m.laneGain(name, Lane.monitor)), ...pair(Lane.dip, l.dip.to),
+        ],
+        duck: Math.fround(m.laneGain(name, Lane.duck)), automation: Math.fround(m.laneGain(name, Lane.automation)),
+      });
+    }
+    const events: KeyframeEvent[] = [];
+    for (const [id, n] of eventVoices) if (events.length < 1024) events.push({ id: id >>> 0, asset: noName, voices: Math.min(0xffff, n), state: 0, paramsHash: 0 });
+    const snapshot = m.currentSnapshot;
+    return {
+      voices, buses, metered: [], events, music: [],
+      mix: {
+        slotTableVersion: 0, monitorActive: m.monitorActive ? 1 : 0, loudnessPausedMask: 0, targetIndex: 0,
+        snapshotName: snapshot === null ? noName : nameId("snapshots", snapshot), masterVolume: Math.fround(this.master), hiddenMute: this.hiddenMuted ? 1 : 0,
+      },
+    };
   }
 
   /** The fallback has no batch to post: `applyOp` already applied a preview edit. */
@@ -1056,7 +1123,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     const onBus = [...this.voices].filter((v) => v.busName === bus);
     for (let i = 0; onBus.length - i > cap; i++) {
       const v = onBus[i]!;
-      if (v !== keep) v.stop();
+      if (v !== keep) v._stolenBy(keep);
     }
   }
 
@@ -1213,6 +1280,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
   set masterVolume(v: number) {
     this.master = v;
     this.applyMaster();
+    if (this._profile !== NULL_PROFILE_SINK) this._profile.masterChange(this.master, this.isMuted || this.hiddenMuted);
   }
   get muted(): boolean {
     return this.isMuted;
@@ -1220,6 +1288,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
   set muted(m: boolean) {
     this.isMuted = m;
     this.applyMaster();
+    if (this._profile !== NULL_PROFILE_SINK) this._profile.masterChange(this.master, m || this.hiddenMuted);
   }
   private applyMaster(): void {
     if (this.liveNow) this.liveNow.engine.volume = this.isMuted || this.hiddenMuted ? 0 : Math.max(0, this.master);
@@ -1241,6 +1310,8 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     if (mode === "play") return;
     this.hiddenMuted = true;
     this.applyMaster();
+    this._profile.hiddenTab(true);
+    if (mode === "pause") this._profile.gap("paused"); // §5.3: under `audio.background: "pause"` a hidden page records nothing until it shows
     if (mode === "pause" && this.ownsContext) {
       this.suspendTimer = setTimeout(() => {
         this.suspendTimer = null;
@@ -1263,6 +1334,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     if (this.hiddenMuted) {
       this.hiddenMuted = false;
       this.applyMaster();
+      this._profile.hiddenTab(false);
     }
   }
 
@@ -1374,6 +1446,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     if (this.disposed) return;
     for (const v of [...this.voices]) v.stop();
     this.disposed = true;
+    if (this._profile !== NULL_PROFILE_SINK) this.setProfileSink(null); // the taps point at nothing once this backend is gone
     this.calibrationOff?.();
     this.calibrationOff = null;
     this.visibility?.removeEventListener("visibilitychange", this.onVisibility);
