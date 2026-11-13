@@ -22,6 +22,7 @@ import { createClipRegistry, RESERVED_CLIP_FIRST } from "./clipRegistry";
 import { AudioHost, presetFromSettings } from "./context";
 import { createCoreBackend, type CoreBackend } from "./coreBackend";
 import { rebuildHost, watchForTraps } from "./recovery";
+import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { PlayheadTracker, ReplayBuilder } from "./replay";
 import { Unlock, type UnlockContext } from "./unlock";
 import { VoiceFlag, VoiceTable, VoiceState } from "./voiceTable";
@@ -301,6 +302,24 @@ describe("the hard rebuild on the loopback host (A3.4a)", () => {
     expect(host.status).toBe("running");
     expect(warn).not.toHaveBeenCalled();
     backend.dispose();
+  });
+
+  it("ADR 0171 (K0): a rebuild reports a GAP at its start and an EPOCH with its reason to the backend's profile sink", async () => {
+    const r = await rig();
+    const { backend, step, firstNode } = r;
+    const calls: string[] = [];
+    const sink = { ...NULL_PROFILE_SINK, gap: (reason: string) => calls.push(`gap:${reason}`), epoch: (reason: string) => calls.push(`epoch:${reason}`) };
+    backend.setProfileSink(sink);
+    try {
+      backend.play(req("const.wav"));
+      await step(5);
+      firstNode.dispatchEvent(new Event("processorerror"));
+      expect(await r.untilSound()).toBeGreaterThan(0);
+      expect(calls).toEqual(["gap:rebuild", "epoch:trap"]);
+    } finally {
+      backend.setProfileSink(null);
+      backend.dispose();
+    }
   });
 
   it("processorerror on the node takes the same path; other reasons count as rebuilds", async () => {

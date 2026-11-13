@@ -13,6 +13,7 @@ import type { Curve } from "../../../engine/core/curve";
 import type { AudioLatency, MusicEventHandle } from "../../../engine/audio/musicTypes";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import type { DuckingRule } from "../../../engine/audio/settings";
+import type { ProfileSink } from "./mix/profileSink";
 
 export type Rolloff = "linear" | "inverse" | "exponential";
 
@@ -779,6 +780,8 @@ export interface AudioBackend {
   duckGain?(bus: string): number;
   /** Architecture §2.1: the recorder's STATUS tap, null when no recorder runs (Rc2 sets it through `capture.ts`). */
   recorderTap?: RecorderTap | null;
+  /** §5.6: the capture's event taps (Rc3); null restores the null object. */
+  setProfileSink?(sink: ProfileSink | null): void;
 }
 
 let backend: AudioBackend | null = null;

@@ -16,6 +16,9 @@ export { Audio, type OneShotOptions } from "./Audio";
 export { Calibration } from "./music/calibration";
 export type { AudioLatency, CalibrationResult, GridPoint, GridSpec, MusicEvent, MusicHandle, MusicKind, MusicPositionAt, MusicSeekResult } from "../../../engine/audio/musicTypes";
 export type { AudioBedDebug, AudioDebugInfo, AudioEventHandle, AudioHandle, AudioM3Counters, AudioMemoryDebug, AudioOcclusionDebug, AudioPanner, AudioReason, AudioStatus, AudioVoiceM3Debug, AudioZoneDebug, MusicDebugPending, MusicDebugRow, MusicDebugState, MusicDebugTotals, SendCurve } from "./backend";
+// ADR 0171 §1.2, §1.3 (K0): the capture surface and the M5 debug shapes.
+export type { AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioRecorderDebug } from "./backend";
+export type { AudioCapture, AudioCaptureState } from "./capture/capture";
 export { DEFAULT_SEND_CURVE } from "./backend";
 export type { EventOptions } from "./events/eventRuntime";
 export { AudioSource, type Rolloff } from "./AudioSource";
