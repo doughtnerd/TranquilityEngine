@@ -69,7 +69,10 @@ function kcoef(rate: number): { b: number[][]; a: number[][] } {
   K = Math.tan((Math.PI * f0) / rate);
   a0 = 1 + K / Q + K * K;
   const hpA = [(2 * (K * K - 1)) / a0, (1 - K / Q + K * K) / a0];
-  return { b: [shelfB, [1, -2, 1]], a: [shelfA, hpA] };
+  // FU1: the high-pass keeps 48 kHz's passband gain at every rate (b = [1, -2, 1] scaled by a0(48 kHz) / a0(rate)).
+  const K48 = Math.tan((Math.PI * f0) / 48000);
+  const g = (1 + K48 / Q + K48 * K48) / a0;
+  return { b: [shelfB, [g, -2 * g, g]], a: [shelfA, hpA] };
 }
 
 /** Sub-block energies (f32, as the core's ring) of the signal in both channels. */
