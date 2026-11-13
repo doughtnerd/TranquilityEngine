@@ -73,14 +73,14 @@ Wave-end checks (quiet machine): typecheck green; `npm test` **603 files, 6,825 
 
 ## Wave 6 (base `3d434f7`) — closed (Ma2 held)
 
-Merged: L-Sc1a, Mp1a, L-Pf2a, Fg1, L-Mp1aa, Pf3a, Pf3b (a coordinator-added follow-up), Pf7, Pf2, L-Rc3a, Bb3, Rc3 + Rc3g (glue), Sc1, Ld2; the wasm rebuild (`4e15e19`): mixer **375,087 B** (400 KB tripwire; +16.2 KB for level ducking and core loudness). **Ma2 is done and held** (local branch `m5/ma2` `c22b8e5`, merging after Ck1's structural click cases in W7; pushing a second branch isn't allowed from this session, so it exists only in this container).
+Merged: L-Sc1a, Mp1a, L-Pf2a, Fg1, L-Mp1aa, Pf3a, Pf3p (the pyramid, a coordinator-added follow-up), Pf7, Pf2, L-Rc3a, Bb3, Rc3 + Rc3g (glue), Sc1, Ld2; the wasm rebuild (`4e15e19`): mixer **375,087 B** (400 KB tripwire; +16.2 KB for level ducking and core loudness). **Ma2 is done and held** (local branch `m5/ma2` `c22b8e5`, merging after Ck1's structural click cases in W7; pushing a second branch isn't allowed from this session, so it exists only in this container).
 
 **Numbers:**
 - Fg1, the fader gate on the audio clock: over 100 seeded drags p50 4.92 ms, **p95 7.37 ms**, max 8.39 ms (gate 50 ms); parts: event → post p95 2.93, post → batch 2.57, batch → first changed sample 2.67 (one quantum). Without the preview path p95 is 40.8 ms (the harness catches a late post).
 - Sc1: S4's follower check within 0.0021 dB (peak) and 0.0110 dB (RMS) of a per-sample computer (limit 0.024); over threshold settles on `amount` to 1e-4; under threshold **bit-identical** to no rule (all eight `golden/m5` fixtures replayed with level rules above their level keep their digests); presence + level take the min per sample to 2e-6.
 - Ld2: 400 sub-blocks produced and 400 taken over 40 s at both cadences; a 3 s stall loses nothing, a 4 s stall sets `lost` (8 per meter); master energies equal a stand-alone meter on the rendered output bit for bit; output bit-identical with and without meters.
 - Ma2 (held): `maxStep` within the dip ramp's own slope — move 2.615e-4 (slope 2.604e-4), remove 5.219e-4 (5.208e-4), mid-list effect insert 5.232e-4 (2.0×: the rewritten chain's filters restart, which §3.3 allows); without the dip 0.125 and 0.067.
-- Pf3a/Pf3b: a viewport-change redraw of a 10-minute capture ≈ 12 ms (linear, under load) → **0.95 ms median, 1.38 ms p95** with an exact min/max pyramid (target 2 ms); cursor-only 0.06 ms.
+- Pf3a/Pf3p: a viewport-change redraw of a 10-minute capture ≈ 12 ms (linear, under load) → **0.95 ms median, 1.38 ms p95** with an exact min/max pyramid (target 2 ms); cursor-only 0.06 ms.
 
 **Measured against the cost model (§7.1), logged, nothing traded:** one level rule ducking **+11.0k instructions per quantum** against 9.1k (applying the duck gain costs ≈ 4.4k, not 1.0k; a presence duck costs the same 4.8k, so it's the shared curve and multiply); one RMS rule +8.2k (7.8k); eight rules on one target 69.4k (90.9k). Core loudness: master only +40.4k per quantum, nine meters +160.7k (≈ 15k per bus).
 
