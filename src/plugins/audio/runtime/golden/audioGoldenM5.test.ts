@@ -15,9 +15,11 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { mixer } from "../../../../engine/audio/mixer";
+import { abrupt, closeRigs, liveRig, SMOOTH } from "../mix/clickHarness";
 import { createLoopbackHost, LOOPBACK_PRESET, type LoopbackHost } from "../testing";
-import { Kind, writeBatchHeader, writeClipBegin, writeClipChunk, writeEnvelope } from "../wire.generated";
+import { BUS_LP_OFF_HZ, BUS_MASTER_OUT, BUS_RAMP_MASK_GAIN, Kind, LANE_RUNTIME, writeBatchHeader, writeClipBegin, writeClipChunk, writeEnvelope } from "../wire.generated";
 import { maxStep } from "./maxStep";
 
 const M5_DIR = fileURLToPath(new URL("./m5/", import.meta.url));
@@ -179,5 +181,169 @@ describe("DS0: the discontinuity check on M5-0's scenes (wasm output)", () => {
       expect(step, `toggle at ${at}: ${step} over ${bound}`).toBeLessThanOrEqual(bound);
     }
     expect(fixture.toggles?.length).toBe(2);
+  });
+});
+
+// --- DSd: the discontinuity check on the Mixer scene -------------------------------------------------------------------
+// Sa2's Mixer page (`samples/sound-lab/scenes/mixer.scene.json`) plays on the Sound Lab project's buses and rules, which
+// this reads from disk (a test may read a sample; `src/` never imports one). The real wasm renders them on the loopback host
+// through the page's mixer and the live-edit path (`clickHarness.ts`), Master at 0.5 so four tone voices stay under the
+// limiter (as Ck1's copy of this mixer did). Two checks:
+//   1. every ducking rule is audible: the trigger's tone makes the target's duck lane fall to the rule's amount, and
+//      stopping the trigger lets it release (the lane is the core's STATUS `busDuck`, read through `Bus.duckGain`);
+//   2. a live session of edits on the Mixer scene's buses and rules, each under F-40's `maxStep` bound: no step in an edit's
+//      window beyond the signal's own largest step before and after it, plus 1 %; an abrupt control shows the detector fires.
+type DuckRule = { target: string; trigger: string; mode: string; amount: number; attack: number; release: number; detector?: string; threshold?: number };
+interface MixerSceneProject {
+  readonly buses: readonly { readonly name: string; readonly volume?: number }[];
+  readonly ducking: readonly DuckRule[];
+}
+
+const SOUND_LAB_AUDIO = (JSON.parse(readFileSync(fileURLToPath(new URL("../../../../../samples/sound-lab/project.json", import.meta.url)), "utf8")) as { audio: MixerSceneProject }).audio;
+const MIXER_SCENE = { ...SOUND_LAB_AUDIO, buses: SOUND_LAB_AUDIO.buses.map((b) => (b.name === "Master" ? { ...b, volume: 0.5 } : b)) };
+
+describe("DSd: the Mixer scene (Sa2) on the real core", () => {
+  afterEach(async () => {
+    await closeRigs();
+  });
+
+  it("the Mixer scene has the three rules the page shows: one presence and two level (RMS and peak)", () => {
+    expect(SOUND_LAB_AUDIO.ducking.map((r) => [r.trigger, r.target, r.mode, r.detector ?? null])).toEqual([
+      ["SFX", "Music", "presence", null],
+      ["Voice", "Music", "level", "rms"],
+      ["Voice", "Ambience", "level", "peak"],
+    ]);
+  });
+
+  for (const [index, rule] of SOUND_LAB_AUDIO.ducking.entries()) {
+    it(`rule ${index} (${rule.trigger} ducks ${rule.target}, ${rule.mode}${rule.detector ? ` ${rule.detector} ${rule.threshold} dBFS` : ""}): audible, the duck falls to ${rule.amount} and releases`, { timeout: 120_000 }, async (ctx) => {
+      const r = await liveRig(MIXER_SCENE);
+      if (!r) return ctx.skip();
+      const bus = mixer.bus(rule.target);
+      r.play(rule.target, "toneA.wav");
+      await r.step(60);
+      expect(bus.duckGain, `${rule.target} is not ducked before the trigger`).toBe(1);
+      const trigger = r.play(rule.trigger, "toneB.wav");
+      // The duck lane's own series, one reading per main-thread frame (4 quanta of the audio clock): it never rises while
+      // the trigger holds, and it settles on the rule's amount.
+      const series: number[] = [];
+      for (let f = 0; f < 400; f++) {
+        await r.step(1);
+        series.push(bus.duckGain);
+      }
+      for (let i = 1; i < series.length; i++) expect(series[i]!, `frame ${i}: the duck only falls while the trigger plays`).toBeLessThanOrEqual(series[i - 1]! + 1e-6);
+      expect(Math.min(...series), "the duck fell").toBeLessThan(0.99);
+      expect(series.at(-1)!, "settled on the rule's amount").toBeCloseTo(rule.amount, 1);
+      trigger!.stop();
+      await r.step(700);
+      expect(bus.duckGain, "released after the trigger stops").toBeCloseTo(1, 2);
+      console.info(`[DSd] rule ${index} (${rule.trigger} -> ${rule.target}, ${rule.mode}): settled ${series.at(-1)!.toFixed(3)} (amount ${rule.amount}), released to ${bus.duckGain.toFixed(3)}`);
+    });
+  }
+
+  type RigOf = NonNullable<Awaited<ReturnType<typeof liveRig>>>;
+  type Edit = [string, (r: RigOf) => void];
+  const edits: Edit[] = [
+    ["Music volume 0.6 -> 0.3", () => mixer.apply({ op: "setBus", bus: "Music", key: "volume", value: 0.3 })],
+    ["Voice volume 1 -> 0.5", () => mixer.apply({ op: "setBus", bus: "Voice", key: "volume", value: 0.5 })],
+    ["Voice high-pass 100 -> 300 Hz", () => mixer.apply({ op: "setEffect", bus: "Voice", index: 0, key: "frequency", value: 300 })],
+    ["Ambience reverb send 0.5 -> 0.2", () => mixer.apply({ op: "setEffect", bus: "Ambience", index: 0, key: "send", value: 0.2 })],
+    ["Voice -> Music amount 0.35 -> 0.2", () => mixer.apply({ op: "setDucking", index: 1, rule: { ...SOUND_LAB_AUDIO.ducking[1]!, amount: 0.2 } as never })],
+    ["Voice -> Music threshold -30 -> -16 dBFS (over the voice, so the duck releases)", () => mixer.apply({ op: "setDucking", index: 1, rule: { ...SOUND_LAB_AUDIO.ducking[1]!, amount: 0.2, threshold: -16 } as never })],
+    ["SFX tone starts (the presence duck engages)", (r) => void r.play("SFX", "toneB.wav")],
+    ["Voice -> Ambience detector peak -> rms", () => mixer.apply({ op: "setDucking", index: 2, rule: { ...SOUND_LAB_AUDIO.ducking[2]!, detector: "rms" } as never })],
+    ["Underwater snapshot (script, 0.3 s)", () => mixer.snapshot("Underwater", 0.3)],
+    ["snapshot off (script, 0.3 s)", () => mixer.clearSnapshot(0.3)],
+    ["SFX muted", () => mixer.apply({ op: "setBus", bus: "SFX", key: "mute", value: true })],
+  ];
+  /** Main-thread frames (4 quanta each) between edits: every ramp, dip and duck follower settles inside it. */
+  const SPACING = 150;
+  /** F-40's bound for this check: the signal's own largest step before and after the edit, plus 1 %. */
+  const BOUND = 1.01;
+  /**
+   * Two kinds of edit change what the mix is made of, not only its gain, so the signal before and after the edit is not the
+   * signal inside it, and `maxStep` on the full mix is too coarse to bound them by 1 %: the snapshots sweep low-passes (Music to
+   * 500 Hz, SFX 1500, Ambience 900), and while a cut-off moves the partials of the tones shift in relative phase, so their sum
+   * can step beyond its stationary peak though nothing clicks; and a new voice (the SFX tone) sounds at full level for the
+   * duck's attack before the presence duck pulls Music down, a sum larger than either the quiet before or the ducked after.
+   * Those are held to S4's `abrupt` (the largest step of the difference from the same session without the edit, over its
+   * peak; a smooth change reads at or under 0.23) instead of the 1 % bound; every other edit meets both.
+   */
+  const ABRUPT_ONLY = new Set(["Underwater snapshot (script, 0.3 s)", "snapshot off (script, 0.3 s)", "SFX tone starts (the presence duck engages)"]);
+
+  /**
+   * One session on the Mixer scene (the voice playing, so both level rules hold their ducks; an edit starts the SFX tone) with
+   * the first `limit` edits; `ctrl` replaces edit `at` after `pre` extra single quanta (the edit's phase against the tones).
+   */
+  async function session(limit = edits.length, ctrl?: { at: number; pre?: number; run: (r: RigOf) => void }) {
+    const r = (await liveRig(MIXER_SCENE))!;
+    r.play("Music", "toneA.wav");
+    r.play("Ambience", "toneB.wav");
+    r.play("Voice", "toneA.wav");
+    const out: number[] = [...(await r.step(SPACING)).out];
+    const at: number[] = [];
+    for (let e = 0; e < edits.length; e++) {
+      if (ctrl && ctrl.at === e && ctrl.pre) out.push(...(await r.quanta(ctrl.pre)));
+      at.push(out.length);
+      if (ctrl && ctrl.at === e) ctrl.run(r);
+      else if (e < limit) edits[e]![1](r);
+      out.push(...(await r.step(SPACING)).out);
+    }
+    r.backend.dispose();
+    await closeRigs();
+    return { x: Float32Array.from(out), at };
+  }
+
+  it("a live session of edits on the Mixer scene's buses and rules: maxStep stays within the signal's own, +1 %", { timeout: 300_000 }, async (ctx) => {
+    const probe = await liveRig(MIXER_SCENE);
+    if (!probe) return ctx.skip();
+    probe.backend.dispose();
+    await closeRigs();
+    // The session with the first n edits, for n = 0..all: edit e is measured against run e (the same session without it).
+    const runs = [];
+    for (let n = 0; n <= edits.length; n++) runs.push(await session(n));
+    const { x, at } = runs[edits.length]!;
+    const settle = 4096;
+    let worst = 0;
+    let worstAbrupt = 0;
+    for (let e = 0; e < edits.length; e++) {
+      const [name] = edits[e]!;
+      const from = at[e]!;
+      const to = e + 1 < at.length ? at[e + 1]! : x.length;
+      const before = maxStep(x, from - settle, from);
+      const after = maxStep(x, to - settle, to);
+      const inside = maxStep(x, from - 1, to);
+      const ratio = inside / Math.max(before, after);
+      const m = abrupt(runs[e]!.x, runs[e + 1]!.x, from);
+      expect(m.pre).toBe(true);
+      console.info(`[DSd] Mixer scene: ${name}: maxStep ratio ${ratio.toFixed(4)} (${inside.toExponential(3)} against ${before.toExponential(3)} before, ${after.toExponential(3)} after), abrupt ${m.abrupt.toFixed(3)} (difference peak ${m.peak.toFixed(4)})`);
+      expect(m.abrupt, `${name}: abrupt`).toBeLessThanOrEqual(SMOOTH);
+      worstAbrupt = Math.max(worstAbrupt, m.abrupt);
+      if (ABRUPT_ONLY.has(name)) continue;
+      worst = Math.max(worst, ratio);
+      expect(inside, `${name}: maxStep ${inside} against ${before} before, ${after} after`).toBeLessThanOrEqual(Math.max(before, after) * BOUND);
+    }
+    console.info(`[DSd] Mixer scene: ${edits.length} live edits; worst maxStep ratio ${worst.toFixed(4)} (bound ${BOUND}; the ${ABRUPT_ONLY.size} edits that change the mix's makeup are held to abrupt), worst abrupt ${worstAbrupt.toFixed(3)} (bound ${SMOOTH})`);
+  });
+
+  it("the control: the output cut by a literal step in place of the first edit is caught by maxStep (the phases of 8 positions against the tones)", { timeout: 300_000 }, async (ctx) => {
+    const probe = await liveRig(MIXER_SCENE);
+    if (!probe) return ctx.skip();
+    probe.backend.dispose();
+    await closeRigs();
+    const settle = 4096;
+    let strongest = 0;
+    for (let k = 0; k < 8; k++) {
+      const control = await session(0, { at: 0, pre: k, run: (r) => r.backend.writer.busRampFrames(BUS_MASTER_OUT, LANE_RUNTIME, BUS_RAMP_MASK_GAIN, 0, BUS_LP_OFF_HZ, 1) });
+      const from = control.at[0]!;
+      const own = maxStep(control.x, from - settle, from);
+      const inside = maxStep(control.x, from - 1, from + 4096);
+      strongest = Math.max(strongest, inside / own);
+      console.info(`[DSd] control (phase ${k}): the cut steps ${inside.toExponential(3)} against the signal's own ${own.toExponential(3)} (ratio ${(inside / own).toFixed(2)})`);
+    }
+    // A literal cut steps by the mix's sample value at that instant, so a phase near a zero crossing steps little (phase 3 reads 0.83x): the detector
+    // is shown by the phases where the value is large.
+    console.info(`[DSd] control: the strongest phase reads ${strongest.toFixed(2)}x the signal's own largest step`);
+    expect(strongest, "the detector fires on a literal step at some phase").toBeGreaterThan(2);
   });
 });
