@@ -205,7 +205,6 @@ function BusRow(props: { a: AudioSettings; bus: BusSettings; depth: number; plan
           Max voices
           <OptionalNum label={`${bus.name} max voices`} value={bus.maxVoices} step={1} min={1} max={a.voices.logical} placeholder="∞" onCommit={(n) => set(`Set ${bus.name} max voices`, setBusMaxVoices(draft, bus.name, n))} />
         </label>
-        {!isRoot && <MeterToggle bus={bus} a={a} draft={draft} set={set} />}
         {!isRoot && (
           <select aria-label={`${bus.name} parent`} value={bus.parent} onChange={(e) => set(`Move ${bus.name} under ${(e.currentTarget as HTMLSelectElement).value}`, setBusParent(draft, bus.name, (e.currentTarget as HTMLSelectElement).value))}>
             {a.buses.filter((b) => !banned.has(b.name)).map((b) => (
@@ -226,6 +225,11 @@ function BusRow(props: { a: AudioSettings; bus: BusSettings; depth: number; plan
       </summary>
       <div class="audio-bus-body">
         <BusBedRow a={a} bus={bus} plan={plan} draft={draft} set={set} />
+        {!isRoot && (
+          <div class="audio-row">
+            <MeterToggle bus={bus} a={a} draft={draft} set={set} />
+          </div>
+        )}
         <span class="project-settings-hint">Effects{bus.effects.length === 0 ? ": none" : ""}</span>
         <Effects bus={bus} draft={draft} set={set} />
       </div>

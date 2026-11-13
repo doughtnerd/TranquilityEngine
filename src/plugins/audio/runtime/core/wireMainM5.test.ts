@@ -1,6 +1,6 @@
 // ADR 0171/0172 M5 (Wa2; api-and-models §4.2, §4.3): main's side of the M5 wire. The writers of the new records read back
 // with the generated readers; `StatusReader` reads the 256-byte header and the three sections into preallocated arrays
-// (identity reuse and a heap measure show it allocates nothing per block) and enforces the count-sum rule; the mirror
+// (identity reuse of the block, its arrays and items shows it allocates nothing per block) and enforces the count-sum rule; the mirror
 // exposes the fields; the replay sends no BUS_MIX; the interim lane writer (H1) sends two BUS_RAMPs per bus.
 import { describe, expect, it } from "vitest";
 import {
@@ -334,7 +334,7 @@ describe("StatusReader, ADR 0171 header and sections (Wa2)", () => {
     expect(reader.block.busDuck).toHaveLength(1);
   });
 
-  it("allocates nothing per block: the block, section arrays and items are the reader's own and reused, and 3,000 worst-case reads grow the heap by no more than the one DataView over the message", () => {
+  it("allocates nothing per block: the block, every section array and every item are the reader's own and reused across 3,000 worst-case reads", () => {
     const worst = encode({
       ...sections(new Array(LOUD_METERS).fill(MAX_LOUD_ENERGIES / LOUD_METERS), MAX_DUCK_RULES),
       peaks: Array.from({ length: 32 }, (_, i) => ({ l: i, r: -i })),
@@ -356,19 +356,14 @@ describe("StatusReader, ADR 0171 header and sections (Wa2)", () => {
     expect([b.loudBuses.length, b.loudEnergies.length, b.busDuck.length]).toEqual([1, 1, 1]);
     expect(reader.read(worst).loudBuses[3]).toBe(item);
     expect(reader.block.busDuck[3]).toBe(duckItem);
-    // The heap: a warm reader over the same buffer, many times. (The generated `readStatus` builds ~330 objects per block.)
-    for (let i = 0; i < 500; i++) reader.read(worst);
-    const rounds = 3000;
-    const before = process.memoryUsage().heapUsed;
-    for (let i = 0; i < rounds; i++) reader.read(worst);
-    const perRead = (process.memoryUsage().heapUsed - before) / rounds;
-    // The only allocation is the DataView over the (transferred, so new each time) message buffer; measure it alone as the floor.
-    let sink: DataView | null = null;
-    const base = process.memoryUsage().heapUsed;
-    for (let i = 0; i < rounds; i++) sink = new DataView(worst);
-    const floor = (process.memoryUsage().heapUsed - base) / rounds;
-    expect(sink).not.toBeNull();
-    expect(perRead).toBeLessThan(floor + 32);
+    // Structural, not a heap measure (a heap delta under a parallel suite is noise, the ground rules' wall-clock rule): every
+    // item object of every section, captured after a worst-case read, is the same object after 3,000 more reads.
+    const owned = (blk: typeof a) => [blk, blk.loudBuses, blk.loudEnergies, blk.busDuck, blk.peaks, blk.playheads, ...blk.loudBuses, ...blk.busDuck, ...blk.peaks, ...blk.playheads];
+    const firstRead = owned(reader.read(worst));
+    for (let i = 0; i < 3000; i++) reader.read(i % 2 === 0 ? worst : small);
+    const lastRead = owned(reader.read(worst));
+    expect(lastRead.length).toBe(firstRead.length);
+    for (let i = 0; i < firstRead.length; i++) expect(lastRead[i]).toBe(firstRead[i]);
   });
 });
 
