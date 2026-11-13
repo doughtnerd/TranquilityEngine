@@ -119,6 +119,19 @@ const SCENES = [
   "loud-hot",
   "loud-shed-base",
   "loud-8-shed",
+  // ADR 0171/0172 M5 (Bn4): sidechain (level) rules and the lane product on 16 buses, beside the unruled `duck-base`: one peak and one
+  // RMS rule (`duck-1`, `duck-1-rms`), two on two targets (`duck-2`, the typical scene's), eight on one target (`duck-8`) and on eight
+  // (`duck-8-spread`, the worst scene's); the gate's twins, whose triggers stay under their thresholds so the detectors run and the duck lane
+  // stays at identity (`duck-gate`, `duck-8-gate`); and all seven gain lanes moving on all 16 buses (`lanes-7`). `DUCK_SCENES` reports each.
+  "duck-base",
+  "duck-1",
+  "duck-1-rms",
+  "duck-2",
+  "duck-8",
+  "duck-8-spread",
+  "duck-gate",
+  "duck-8-gate",
+  "lanes-7",
 ];
 
 /** Bn1 (`-base` is the same per-quantum path with no records): each ramping scene -> its settled base and its number of ramping lanes (informational: §7.1's model is 1.7-1.8k
@@ -170,6 +183,32 @@ const LOUD_SCENES = {
   "loud-hot": { base: "loud-hot-base", what: "master + 8 on a hot signal", allowanceMs: 0.08 },
   "loud-8-shed": { base: "loud-shed-base", what: "master + 8, ladder step in force", allowanceMs: 0.015 },
 };
+/** ADR 0171/0172 M5 (Bn4): the sidechain scenes against `duck-base`: instructions per quantum over it, converted like the loudness scenes,
+ *  against architecture §7.1's model (`model`: a level rule ≈ 9.1k, 8.1k of it the detector; 8 rules 90.9k; the gate's rules the detector
+ *  alone) and Sc1's stand-in figures (`stand`, build log W6, measured with stand-in detectors: one peak rule +11.0k, RMS +8.2k, 8 rules on
+ *  one target +69.4k). `allowanceMs` is S12's: the typical scene's whole 0.015 ms for its 2 rules (`hard`: a rise over it fails the gate);
+ *  for the worst scene (0.10 ms, of which 0.08 is the loudness line) the 0.02 ms that is left for its rules, lanes and sends, reported
+ *  only: Bn3 measured the loudness line at 34 % of its 0.08 ms, so the worst scene is held to its 0.10 ms in total (the sum below fails the
+ *  gate), and a scene over its own 0.02 ms is a miss to report, not a failure. The one-rule scenes are §7.1's rows and have no allowance. */
+const SIDECHAIN_BASE = "duck-base";
+const DUCK_SCENES = {
+  "duck-1": { what: "1 peak rule ducking", model: 9_100, stand: 11_000, allowanceMs: null },
+  "duck-1-rms": { what: "1 RMS rule ducking", model: 9_100, stand: 8_200, allowanceMs: null },
+  "duck-2": { what: "2 peak rules on 2 targets (typical)", model: 18_200, stand: null, allowanceMs: 0.015, hard: true },
+  "duck-8": { what: "8 peak rules on one target", model: 90_900, stand: 69_400, allowanceMs: 0.02 },
+  "duck-8-spread": { what: "8 peak rules on 8 targets (worst)", model: 90_900, stand: null, allowanceMs: 0.02 },
+  "duck-gate": { what: "1 rule, trigger under threshold (detector only)", model: 8_100, stand: null, allowanceMs: null },
+  "duck-8-gate": { what: "8 rules, triggers under threshold (detectors only)", model: 64_800, stand: null, allowanceMs: 0.02 },
+};
+/** The lane product: `lanes-7` (all seven lanes moving on 16 buses) less `duck-base`, and less `duck-8-spread` (the same eight ducked targets,
+ *  so the difference is the six other lanes: five stamped BUS_RAMP lanes and the automation lane). §7.1's model: 1.7-1.8k per ramping lane per
+ *  quantum (Bn1 measured 5.3k); allowance the worst scene's 0.02 ms. */
+const LANES_SCENE = "lanes-7";
+const LANES_PER_BUS = 6;
+const LANES_BUSES = 16;
+const WORST_TOTAL_MS = 0.1;
+const TYPICAL_TOTAL_MS = 0.015;
+
 /** Each meter configuration's saving from the ladder's step: scene less `loud-8-shed` (the same underruns, the same buses). */
 const LADDER_SAVINGS = { "loud-8": "master + 8 full", "loud-8g": "master + 8 gated", "loud-hot": "master + 8 hot" };
 
@@ -285,6 +324,63 @@ function main() {
     const floorUs = delta * FLOOR_NS_PER_INSTRUCTION * 1e-3;
     console.log(`[metered] ${scene} less ${base} (${what}): ${delta >= 0 ? "+" : ""}${delta.toLocaleString("en-US")} instructions per quantum = ${containerUs.toFixed(1)} µs container (${((containerUs / (allowanceMs * 1000)) * 100).toFixed(0)}% of the ${allowanceMs} ms allowance), ${floorUs.toFixed(1)} µs floor est. (${((floorUs / QUANTUM_US) * 100).toFixed(1)}% of a quantum)`);
     if (containerUs > allowanceMs * 1000) twinFailures.push(`${scene} costs ${delta.toLocaleString("en-US")} instructions per quantum (${containerUs.toFixed(1)} µs container) over ${base}, above S12's ${allowanceMs} ms allowance`);
+  }
+  // Bn4: each sidechain scene less duck-base, against the model, Sc1's stand-ins and S12's allowance.
+  const us = (delta) => ({ container: (delta / 1000) * CONTAINER_US_PER_1K, floor: delta * FLOOR_NS_PER_INSTRUCTION * 1e-3 });
+  const signed = (n) => `${n >= 0 ? "+" : ""}${n.toLocaleString("en-US")}`;
+  const duckBase = results[SIDECHAIN_BASE];
+  for (const [scene, { what, model, stand, allowanceMs, hard }] of Object.entries(DUCK_SCENES)) {
+    const a = results[scene];
+    if (!a || !duckBase) continue;
+    const delta = a.perQuantum - duckBase.perQuantum;
+    const { container, floor } = us(delta);
+    const over = allowanceMs !== null && container > allowanceMs * 1000;
+    const share = allowanceMs === null ? "no allowance of its own" : `${((container / (allowanceMs * 1000)) * 100).toFixed(0)}% of the ${allowanceMs} ms allowance${over ? (hard ? ": OVER" : ": over, reported; the worst scene's sum is the gate") : ""}`;
+    const standIn = stand === null ? "" : `, Sc1's stand-in ${stand.toLocaleString("en-US")} (${((delta / stand) * 100).toFixed(0)}%)`;
+    console.log(`[metered] ${scene} less ${SIDECHAIN_BASE} (${what}): ${signed(delta)} instructions per quantum = ${container.toFixed(1)} µs container (${share}), ${floor.toFixed(1)} µs floor est.; model ${model.toLocaleString("en-US")} (${((delta / model) * 100).toFixed(0)}%)${standIn}`);
+    if (hard && over) twinFailures.push(`${scene} costs ${delta.toLocaleString("en-US")} instructions per quantum (${container.toFixed(1)} µs container) over ${SIDECHAIN_BASE}, above S12's ${allowanceMs} ms allowance`);
+  }
+  // Bn4: applying the duck gain: a ducking scene less its gate twin (the same detectors, the duck lane at identity there).
+  for (const [duck, gate, targets] of [["duck-1", "duck-gate", 1], ["duck-8", "duck-8-gate", 1]]) {
+    if (!results[duck] || !results[gate]) continue;
+    const applied = results[duck].perQuantum - results[gate].perQuantum;
+    console.log(`[metered] ${duck} less ${gate}: ${signed(applied)} instructions per quantum for applying the duck gain (${targets} target${targets === 1 ? "" : "s"}; model 1.0k per rule's gain)`);
+  }
+  // Bn4: the lane product.
+  if (results[LANES_SCENE] && duckBase) {
+    const a = results[LANES_SCENE];
+    const overBase = a.perQuantum - duckBase.perQuantum;
+    const { container, floor } = us(overBase);
+    console.log(`[metered] ${LANES_SCENE} less ${SIDECHAIN_BASE} (7 lanes on ${LANES_BUSES} buses; ${a.splitQuanta} split quanta): ${signed(overBase)} instructions per quantum = ${container.toFixed(1)} µs container (${((container / (WORST_TOTAL_MS * 1000)) * 100).toFixed(0)}% of the worst scene's whole ${WORST_TOTAL_MS} ms), ${floor.toFixed(1)} µs floor est.`);
+    if (a.splitQuanta !== 0) twinFailures.push(`${LANES_SCENE} split ${a.splitQuanta} quanta (stamped bus ramps apply inside their quantum)`);
+    const spread = results["duck-8-spread"];
+    if (spread) {
+      const six = a.perQuantum - spread.perQuantum;
+      const { container: c6, floor: f6 } = us(six);
+      console.log(`[metered] ${LANES_SCENE} less duck-8-spread (the six other lanes: 5 stamped ramps + automation): ${signed(six)} instructions per quantum = ${c6.toFixed(1)} µs container (${((c6 / 20) * 100).toFixed(0)}% of the worst scene's 0.02 ms residual${c6 > 20 ? ": over, reported; the sum below is the gate" : ""}), ${f6.toFixed(1)} µs floor est.; ${signed(Math.round(six / (LANES_PER_BUS * LANES_BUSES)))} per lane per bus (model 1.7-1.8k, Bn1's measure 5.3k)`);
+    }
+  }
+  // Bn4: the metered parts of S12's two scenes summed (each delta is over its own base of the same 16 voices; the deltas add).
+  const sumOver = (parts) => {
+    let total = 0;
+    for (const [scene, base] of parts) {
+      if (!results[scene] || !results[base]) return null;
+      total += results[scene].perQuantum - results[base].perQuantum;
+    }
+    return total;
+  };
+  const typical = sumOver([["loud-3", "loud-base"], ["duck-2", SIDECHAIN_BASE]]);
+  if (typical !== null) {
+    const { container, floor } = us(typical);
+    console.log(`[metered] typical scene's metered parts (loud-3 + duck-2; its 2 ramping lanes and 2 sends are Bn1's and Rv1's): ${signed(typical)} instructions per quantum = ${container.toFixed(1)} µs container (${((container / (TYPICAL_TOTAL_MS * 1000)) * 100).toFixed(0)}% of ${TYPICAL_TOTAL_MS} ms), ${floor.toFixed(1)} µs floor est.`);
+    if (container > TYPICAL_TOTAL_MS * 1000) twinFailures.push(`the typical scene's metered parts cost ${typical.toLocaleString("en-US")} instructions per quantum (${container.toFixed(1)} µs container), above S12's ${TYPICAL_TOTAL_MS} ms allowance`);
+  }
+  const worst = sumOver([["loud-8", "loud-base"], ["duck-8-spread", SIDECHAIN_BASE]]);
+  if (worst !== null && results[LANES_SCENE] && results["duck-8-spread"]) {
+    const total = worst + (results[LANES_SCENE].perQuantum - results["duck-8-spread"].perQuantum);
+    const { container, floor } = us(total);
+    console.log(`[metered] worst scene's metered parts (loud-8 + duck-8-spread + the other six lanes of lanes-7; its 32 sends are Rv1's): ${signed(total)} instructions per quantum = ${container.toFixed(1)} µs container (${((container / (WORST_TOTAL_MS * 1000)) * 100).toFixed(0)}% of ${WORST_TOTAL_MS} ms), ${floor.toFixed(1)} µs floor est.`);
+    if (container > WORST_TOTAL_MS * 1000) twinFailures.push(`the worst scene's metered parts cost ${total.toLocaleString("en-US")} instructions per quantum (${container.toFixed(1)} µs container), above S12's ${WORST_TOTAL_MS} ms allowance`);
   }
   // Bn3: the ladder's loudness step's saving, per quantum.
   if (results["loud-8-shed"]) {
