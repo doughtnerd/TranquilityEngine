@@ -197,9 +197,18 @@ export class ProfilerController {
     return this.modules.find((m) => m.track.id === id)?.data();
   }
 
-  /** The hover text of a track at `t`. */
+  /**
+   * The hover text of a track at `t`: the module's own readout. A Babylon-fallback capture has no CPU samples, so the CPU
+   * tracks' modules answer null there; the track then says why it is empty (the design's "Babylon fallback: no CPU line").
+   */
   tooltip(id: string, t: number): string | null {
-    return this.modules.find((m) => m.track.id === id)?.tooltipAt?.(t) ?? null;
+    const own = this.modules.find((m) => m.track.id === id)?.tooltipAt?.(t) ?? null;
+    if (own !== null) return own;
+    const source = this.cur.source;
+    if (source && id.startsWith("cpu.") && (source.summary.header.flags & CAPTURE_FLAG_MAIN_SIDE_ONLY) !== 0) {
+      return chooseEmptyState("cpu", { playing: this.deps.playing(), hasCapture: true, mainSideOnly: true, cpuLoadPermille: 0 });
+    }
+    return null;
   }
 
   duration(): number {
@@ -579,6 +588,7 @@ export function defaultProfilerDeps(): ProfilerDeps {
 function Timeline({ controller, view }: { controller: ProfilerController; view: ProfilerView }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const timeline = useRef<TimelineCanvas | null>(null);
+  const tip = useRef<HTMLDivElement>(null);
   const tracksHeight = view.tracks.tracks.filter((t) => t.visible).reduce((h, t) => h + t.height, 0);
   const height = RULER_HEIGHT + tracksHeight;
   useEffect(() => {
@@ -589,6 +599,13 @@ function Timeline({ controller, view }: { controller: ProfilerController; view: 
     const dpr = globalThis.devicePixelRatio || 1;
     canvas.width = Math.floor(width * dpr);
     canvas.height = Math.floor(height * dpr);
+    // The tooltip is a DOM element updated here, once per frame (the canvas throttles `onHover`); Preact never renders it.
+    const hide = () => {
+      const el = tip.current;
+      if (!el) return;
+      el.hidden = true;
+      el.textContent = "";
+    };
     const t = new TimelineCanvas({
       ctx,
       tracks: view.tracks,
@@ -602,6 +619,16 @@ function Timeline({ controller, view }: { controller: ProfilerController; view: 
         controller.cursor.seekTo(time);
         void controller.cursorMoved();
       },
+      onHover: (h) => {
+        const el = tip.current;
+        const text = h ? controller.tooltip(h.trackId, h.t) : null;
+        if (!el || !h || !text) return hide();
+        el.textContent = text;
+        el.hidden = false;
+        const room = canvas.clientWidth - el.offsetWidth - 4;
+        el.style.left = `${Math.max(0, Math.min(h.x + 12, room))}px`;
+        el.style.top = `${h.y + 16}px`;
+      },
     });
     timeline.current = t;
     t.setCursor(controller.cursor.time);
@@ -612,7 +639,11 @@ function Timeline({ controller, view }: { controller: ProfilerController; view: 
     const stopTheme = theme.subscribe(() => t.themeChanged());
     const point = (e: PointerEvent) => ({ x: e.offsetX, y: e.offsetY, shiftKey: e.shiftKey });
     const down = (e: PointerEvent) => t.pointerDown(point(e));
-    const move = (e: PointerEvent) => t.pointerMove(point(e));
+    const move = (e: PointerEvent) => {
+      t.pointerMove(point(e));
+      t.hover(point(e));
+    };
+    const leave = () => t.hover(null);
     const up = (e: PointerEvent) => t.pointerUp(point(e));
     const cancel = () => t.pointerCancel();
     const wheel = (e: WheelEvent) => {
@@ -622,20 +653,28 @@ function Timeline({ controller, view }: { controller: ProfilerController; view: 
     canvas.addEventListener("pointermove", move);
     canvas.addEventListener("pointerup", up);
     canvas.addEventListener("pointercancel", cancel);
+    canvas.addEventListener("pointerleave", leave);
     canvas.addEventListener("wheel", wheel, { passive: false });
     return () => {
       canvas.removeEventListener("pointerdown", down);
       canvas.removeEventListener("pointermove", move);
       canvas.removeEventListener("pointerup", up);
       canvas.removeEventListener("pointercancel", cancel);
+      canvas.removeEventListener("pointerleave", leave);
       canvas.removeEventListener("wheel", wheel);
       stopTheme();
       controller.setTimelineListener(null);
       t.dispose();
+      hide();
       timeline.current = null;
     };
   }, [controller, view.sourceVersion, height]);
-  return <canvas ref={ref} class="profiler-timeline" style={{ height: `${height}px` }} aria-label="Timeline" />;
+  return (
+    <div class="profiler-timeline-wrap">
+      <canvas ref={ref} class="profiler-timeline" style={{ height: `${height}px` }} aria-label="Timeline" aria-describedby="profiler-tooltip" />
+      <div ref={tip} id="profiler-tooltip" class="profiler-tooltip" role="tooltip" hidden />
+    </div>
+  );
 }
 
 /** The chrome as a pure function of the view: the tests walk this tree; the stateful wrapper below feeds it. */

@@ -707,14 +707,17 @@ test("the Babylon backend live: the Audio Profiler follows the main-side ring an
 });
 
 // The design's views each say why they are empty ("CPU not yet measured", "Not metered", "Truncated: the ring wrapped",
-// "Babylon fallback: no CPU line"; guide, "What the panel shows"). In this build those four strings exist (`emptyStates.ts`, the
-// CPU track's `tooltipAt`) but nothing shows a track's tooltip: `ProfilerController.tooltip` has no caller and the canvas has no
-// hover handler, so a track with nothing to show is blank. The case states the behaviour the guide promises.
-test.fixme("hovering a track with nothing to show says why (the Babylon fallback has no CPU line)", async ({ page }) => {
+// "Babylon fallback: no CPU line"; guide, "What the panel shows"): the canvas reports the hovered track and time once per
+// frame and the panel shows that track's `tooltipAt` string in a `role="tooltip"` element, hidden on leave.
+test("hovering a track with nothing to show says why (the Babylon fallback has no CPU line)", async ({ page }) => {
   await openProfiler(page);
   await openMade(page, profilerCapture({ babylon: true }), "babylon.mycap");
   const canvas = panelOf(page).locator("canvas.profiler-timeline");
   const box = (await canvas.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + 40);
-  await expect(page.getByText(EMPTY_STATES.babylonNoCpu)).toBeVisible();
+  const tip = panelOf(page).getByRole("tooltip");
+  await expect(tip).toHaveText(EMPTY_STATES.babylonNoCpu);
+  await expect(canvas).toHaveAttribute("aria-describedby", (await tip.getAttribute("id"))!);
+  await page.mouse.move(box.x + box.width / 2, box.y - 20);
+  await expect(tip).toBeHidden();
 });

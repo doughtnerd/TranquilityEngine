@@ -12,3 +12,6 @@
 .profiler-banner[data-severity="error"] { border-left-color: var(--danger); color: var(--danger); }
 .profiler-timeline { width: 100%; display: block; }
 .profiler-empty, .profiler-placeholder { margin: 0; color: var(--muted); }
+.profiler-timeline-wrap { position: relative; }
+.profiler-tooltip { position: absolute; z-index: 10; max-width: 320px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--panel); color: var(--text); white-space: pre-wrap; pointer-events: none; box-shadow: 0 2px 6px var(--shadow); }
+.profiler-tooltip[hidden] { display: none; }

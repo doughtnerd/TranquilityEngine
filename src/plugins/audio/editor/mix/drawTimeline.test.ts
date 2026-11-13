@@ -662,3 +662,93 @@ describe("work is bounded by the canvas width, not the record count", () => {
     expect(r.tl.redrawCount).toBeGreaterThan(40);
   });
 });
+
+describe("hover: track tooltips", () => {
+  // The panel's wiring in miniature: onHover asks the track's `tooltipAt(t)` and "shows" its string (null hides).
+  function hoverRig() {
+    const asked: [string, number][] = [];
+    const tips: Record<string, (t: number) => string | null> = {
+      cpu: (t) => (asked.push(["cpu", t]), `cpu@${t.toFixed(1)}`),
+      underruns: (t) => (asked.push(["underruns", t]), null),
+      voices: (t) => (asked.push(["voices", t]), `voices@${t.toFixed(1)}`),
+    };
+    const shown: (string | null)[] = [];
+    const r = rig({ onHover: (h) => shown.push(h ? tips[h.trackId]!(h.t) : null) });
+    settle(r);
+    return { r, asked, shown };
+  }
+  const yOf = { cpu: RULER_HEIGHT + 10, underruns: RULER_HEIGHT + 60 + 5, voices: RULER_HEIGHT + 60 + 20 + 5 };
+
+  it("trackAt maps y to the row: none in the ruler or below the last track", () => {
+    const { r } = hoverRig();
+    expect(r.tl.trackAt(RULER_HEIGHT - 1)).toBeNull();
+    expect(r.tl.trackAt(yOf.cpu)?.id).toBe("cpu");
+    expect(r.tl.trackAt(yOf.underruns)?.id).toBe("underruns");
+    expect(r.tl.trackAt(yOf.voices)?.id).toBe("voices");
+    expect(r.tl.trackAt(RULER_HEIGHT + 170)).toBeNull();
+  });
+
+  it("hovering a track at x asks that track's tooltipAt for the time at x and shows its string", () => {
+    const { r, asked, shown } = hoverRig();
+    r.tl.hover({ x: W / 2, y: yOf.voices });
+    expect(shown).toEqual([]); // nothing until the frame
+    r.f.step();
+    const t = xToTime(r.tl.viewport, W / 2, W);
+    expect(asked).toEqual([["voices", t]]);
+    expect(shown).toEqual([`voices@${t.toFixed(1)}`]);
+  });
+
+  it("a track with no readout hides the tooltip; the ruler shows none and reports nothing twice", () => {
+    const { r, shown } = hoverRig();
+    r.tl.hover({ x: 100, y: yOf.underruns });
+    r.f.step();
+    expect(shown).toEqual([null]);
+    r.tl.hover({ x: 100, y: 5 });
+    r.f.step();
+    expect(shown).toEqual([null, null]);
+  });
+
+  it("leaving hides it", () => {
+    const { r, shown } = hoverRig();
+    r.tl.hover({ x: 100, y: yOf.cpu });
+    r.f.step();
+    r.tl.hover(null);
+    r.f.step();
+    expect(shown).toEqual([`cpu@${xToTime(r.tl.viewport, 100, W).toFixed(1)}`, null]);
+  });
+
+  it("dragging shows none, and a press hides what was shown", () => {
+    const { r, asked, shown } = hoverRig();
+    r.tl.hover({ x: 100, y: yOf.cpu });
+    r.f.step();
+    r.tl.pointerDown({ x: 100, y: yOf.cpu });
+    r.f.step();
+    expect(shown.at(-1)).toBeNull();
+    const before = asked.length;
+    r.tl.pointerMove({ x: 140, y: yOf.cpu });
+    r.tl.hover({ x: 140, y: yOf.cpu });
+    r.f.step();
+    expect(asked.length).toBe(before);
+    expect(shown.at(-1)).toBeNull();
+    r.tl.pointerUp({ x: 140, y: yOf.cpu });
+    r.tl.hover({ x: 141, y: yOf.cpu });
+    r.f.step();
+    expect(asked.length).toBe(before + 1);
+  });
+
+  it("one update per frame however many moves: the last position wins, one frame is requested", () => {
+    const { r, asked } = hoverRig();
+    const requested = r.f.requested;
+    for (let x = 0; x < 50; x++) r.tl.hover({ x, y: yOf.cpu });
+    expect(r.f.requested - requested).toBe(1);
+    r.f.step();
+    expect(asked).toEqual([["cpu", xToTime(r.tl.viewport, 49, W)]]);
+  });
+
+  it("an idle leave (nothing shown) schedules nothing", () => {
+    const { r } = hoverRig();
+    const requested = r.f.requested;
+    r.tl.hover(null);
+    expect(r.f.requested).toBe(requested);
+  });
+});
