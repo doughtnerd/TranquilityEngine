@@ -43,7 +43,7 @@ Written 2026-11-13, at the end of the session that ran steps 6–10 of the `desi
 
 ## Gotchas found
 
-- **The engine's audio code lives in `src/plugins/audio/`** (`runtime/core/coreBackend.ts`, `runtime/core/context.ts`, `worklet/coreDriver.ts`), not `src/engine/audio/`; the mixer is `src/engine/audio/mixer.ts`.
+- **The engine's audio code lives in `src/plugins/audio/`** (`runtime/core/coreBackend.ts`, `runtime/core/context.ts`, `runtime/worklet/coreDriver.ts`), not `src/engine/audio/`; the mixer is `src/engine/audio/mixer.ts`.
 - **The recorder's copy must sit between the decode and the RECYCLE** in `CoreLink.handleMessage` (`runtime/core/context.ts:239-247`): the buffer goes back to the worklet right after.
 - **Tests hard-code the old STATUS size:** `runtime/core/mirror.test.ts:133,141`, `runtime/core/bufferPool.test.ts:96`, `runtime/wire.m4.test.ts:200` (task Wa2).
 - **The mixer wasm will pass its size gate:** 319,799 B today, ≈ 347–351 KB projected, against `MIXER_LIMIT = 320 * 1024` (`native/audio/build.mjs:27`). Raise it with a build-log entry (CLAUDE.md); don't cut.
