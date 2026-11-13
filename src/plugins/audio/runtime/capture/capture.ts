@@ -519,8 +519,25 @@ class Capture implements AudioCapture {
 
 const capture = new Capture();
 
-/** `Audio.capture`. */
-export const audioCapture: AudioCapture = capture;
+/** `Audio.capture`: only the eight public members; the owners, the seam and the debug view stay behind this file's own exports. */
+export const audioCapture: AudioCapture = {
+  get state() {
+    return capture.state;
+  },
+  get seconds() {
+    return capture.seconds;
+  },
+  get bytes() {
+    return capture.bytes;
+  },
+  get truncated() {
+    return capture.truncated;
+  },
+  start: () => capture.start(),
+  stop: () => capture.stop(),
+  mark: (text) => capture.mark(text),
+  save: (name) => capture.save(name),
+};
 
 /** @internal The Profiler panel's way onto the ring (Pf7's `LiveHost`): `join()` is an owner distinct from a take. Not part of `Audio.capture`'s public type. */
 export const captureLiveHost: CaptureLiveHost = { join: () => capture.join() };
