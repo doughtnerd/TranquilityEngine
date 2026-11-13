@@ -29,9 +29,17 @@
 //! M5). Settled lanes fold into one scalar (§4.5 step 1); otherwise a 128-frame curve is built
 //! from each lane's `Ramp::next` (§4.5 step 2).
 //!
-//! **Records.** [`on_ramp`] applies a `BUS_RAMP` asap: `Ramp::set_target` from the lane's current
-//! value, so a retarget never jumps. A stamped record (B1b routes it through the due list as class
-//! B in W3) applies asap here too, at once, and counts `busRecordsEarly` (R6's overflow rule).
+//! **Records.** [`on_ramp`] applies an asap `BUS_RAMP`: `Ramp::set_target` from the lane's current
+//! value, so a retarget never jumps. A **stamped** one is class B (B1b, W3; ARCH §4.5, R6): the
+//! scheduler queues it as a pending record, `due::route` takes it into the quantum's due list and
+//! hands it to [`on_due`], which applies it at once when its frame is the quantum's first (or it is
+//! late), and otherwise **stages** it on the bus's entry ([`BusLanes::staged`]): the gain stage
+//! then builds the quantum's curve with the lane holding its motion up to the stamp's sample and
+//! retargeting there (a start-sample compare), so the ramp starts from the lane's value at its
+//! start frame. Stamps of one lane apply in frame order. A stamped record that finds the due list
+//! (or its bus's [`STAMPS`] stage slots) full applies at the quantum's start and counts
+//! `busRecordsEarly`, never splitting ([`apply_early`]). A stamped low-pass target (lane 2) applies
+//! at the start of the quantum holding its frame: the snapshot low-pass ramps per quantum.
 //! (BUS_MIX, which carried a bus's runtime gain and snapshot low-pass, was retired at R0; its
 //! opcode 0x11 stays reserved.)
 //!
@@ -74,7 +82,42 @@ pub struct BusLanes {
     /// Bit `k` set while lane `k` isn't a settled 1 (the "every lane settled" test of §4.5 step 1
     /// reads it too). Never set for lanes 1, 5, 6.
     pub moving: u32,
-    pub _reserved: [u32; 3],
+    /// B1b: stamps staged for the quantum [`staged_quantum`](Self::staged_quantum) names (0 to
+    /// [`STAMPS`]), kept in the unused ramps of lanes 1, 5 and 6 ([`stage`]); the gain stage
+    /// consumes them and clears this.
+    pub staged: u32,
+    /// The quantum (its first frame / 128, truncated) the staged stamps belong to.
+    pub staged_quantum: u32,
+    pub _reserved: u32,
+}
+
+/// Stamps one bus can hold staged in a quantum: the three ramps of its entry the lanes don't use
+/// (lanes 1, 5 and 6). A fourth applies at the quantum's start and counts `busRecordsEarly`.
+pub const STAMPS: usize = 3;
+
+/// Where staged stamp `i` lives: the ramp of a lane the entry doesn't use.
+const STAMP_SLOTS: [usize; STAMPS] = [RUNTIME, wire::LANE_DUCK as usize, wire::LANE_AUTOMATION as usize];
+
+/// One staged stamp: lane `lane` retargets to `gain` over `frames` at sample `at` (1..=127) of the
+/// quantum. Stored bit for bit in a spare [`Ramp`] (`value` the gain, `remaining` the frames,
+/// `step`'s bits `at | lane << 16`), so the entry keeps its 128 B.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Stamp {
+    pub lane: u16,
+    pub at: u16,
+    pub gain: f32,
+    pub frames: u32,
+}
+
+impl Stamp {
+    fn to_ramp(self) -> Ramp {
+        Ramp { value: self.gain, target: 0.0, step: f32::from_bits(self.at as u32 | (self.lane as u32) << 16), remaining: self.frames }
+    }
+
+    fn of_ramp(r: &Ramp) -> Stamp {
+        let packed = r.step.to_bits();
+        Stamp { lane: (packed >> 16) as u16, at: packed as u16, gain: r.value, frames: r.remaining }
+    }
 }
 
 impl BusLanes {
@@ -93,6 +136,11 @@ impl BusLanes {
         ENTRY_LANES.iter().filter(move |&&k| self.moving & (1 << k) != 0).map(move |&k| &self.lanes[k])
     }
 
+    /// The stamps staged on this entry, in the order they were staged (frame order).
+    pub fn stamps(&self) -> impl Iterator<Item = Stamp> + '_ {
+        STAMP_SLOTS[..(self.staged as usize).min(STAMPS)].iter().map(move |&k| Stamp::of_ramp(&self.lanes[k]))
+    }
+
     /// Clears the bit of every lane that has come to rest at 1.
     #[inline]
     fn rest(&mut self) {
@@ -102,6 +150,25 @@ impl BusLanes {
             }
         }
     }
+}
+
+/// Stages stamp `stamp` (lane 0–4, `at` in 1..=127) on `lanes` for quantum `quantum` (its first
+/// frame / 128): after the stamps already staged, so one lane's apply in the order staged (the
+/// pending queue pops in frame order). Stamps left from another quantum are dropped first (never
+/// after `Core::process`, which consumes them in its own quantum). `false` (no change) when
+/// [`STAMPS`] are staged.
+pub fn stage(lanes: &mut BusLanes, stamp: Stamp, quantum: u32) -> bool {
+    if lanes.staged_quantum != quantum {
+        lanes.staged = 0;
+        lanes.staged_quantum = quantum;
+    }
+    let n = lanes.staged as usize;
+    if n >= STAMPS {
+        return false;
+    }
+    lanes.lanes[STAMP_SLOTS[n]] = stamp.to_ramp();
+    lanes.staged += 1;
+    true
 }
 
 /// Bytes of one [`BusLanes`] entry, rounded to a cache line (128 B: 7 × 16 B ramps + 16 B).
@@ -185,6 +252,9 @@ pub fn product(lanes: &BusLanes, runtime: &Ramp, out: &mut [f32; QUANTUM]) -> Ga
 
 /// As [`product`], advancing the ramps one quantum.
 fn product_advance(lanes: &mut BusLanes, runtime: &mut Ramp, out: &mut [f32; QUANTUM]) -> Gain {
+    if lanes.staged != 0 {
+        return product_stamped(lanes, runtime, out);
+    }
     let runtime_on = !runtime.is_unity();
     let others = lanes.moving & ENTRY_LANES.iter().fold(0, |m, &k| m | 1 << k);
     if !runtime_on && others == 0 {
@@ -239,6 +309,87 @@ fn product_advance(lanes: &mut BusLanes, runtime: &mut Ramp, out: &mut [f32; QUA
         }
     }
     lanes.rest();
+    Gain::Curve
+}
+
+/// Frames `from..to` of one lane into `out`: written (`write`, the curve's first lane) or
+/// multiplied in; a settled lane as its value (the hold segments), a moving one through
+/// `Ramp::next` (the ramp segment, the same arithmetic as an asap ramp's).
+#[inline]
+fn segment(ramp: &mut Ramp, out: &mut [f32; QUANTUM], from: usize, to: usize, write: bool) {
+    let out = &mut out[from..to];
+    match (write, ramp.is_settled()) {
+        (true, true) => out.fill(ramp.value),
+        (false, true) => {
+            let v = ramp.value;
+            for x in out.iter_mut() {
+                *x *= v;
+            }
+        }
+        (true, false) => {
+            for x in out.iter_mut() {
+                *x = ramp.next();
+            }
+        }
+        (false, false) => {
+            for x in out.iter_mut() {
+                *x *= ramp.next();
+            }
+        }
+    }
+}
+
+/// §4.5 step 2 with stamps staged this quantum (class B, R6): the curve in the order of the plain
+/// path (the runtime lane, then lanes 0, 2, 3, 4), each lane in segments split at its stamps'
+/// samples: up to a stamp the lane keeps its motion (hold, or the ramp it was on), at the stamp it
+/// retargets from its value there (`Ramp::set_target`, so a retarget never jumps), and so on in
+/// the order staged. A lane at identity with no stamp is skipped. Consumes the stamps.
+fn product_stamped(lanes: &mut BusLanes, runtime: &mut Ramp, out: &mut [f32; QUANTUM]) -> Gain {
+    let mut stamps = [Stamp::default(); STAMPS];
+    let n = (lanes.staged as usize).min(STAMPS);
+    for (i, s) in lanes.stamps().enumerate() {
+        stamps[i] = s;
+    }
+    lanes.staged = 0;
+    let stamps = &stamps[..n];
+    let mut first = true;
+    for k in core::iter::once(RUNTIME).chain(ENTRY_LANES) {
+        let stamped = stamps.iter().any(|s| s.lane as usize == k);
+        let bit = 1u32 << k;
+        let on = if k == RUNTIME { !runtime.is_unity() } else { lanes.moving & bit != 0 };
+        if !on && !stamped {
+            continue;
+        }
+        let ramp = if k == RUNTIME {
+            &mut *runtime
+        } else {
+            if !on {
+                // A clear bit is a lane at 1, whatever its stored ramp holds.
+                lanes.lanes[k] = Ramp::at(1.0);
+            }
+            &mut lanes.lanes[k]
+        };
+        let mut from = 0;
+        for s in stamps.iter().filter(|s| s.lane as usize == k) {
+            let at = (s.at as usize).clamp(from, QUANTUM);
+            segment(ramp, out, from, at, first);
+            ramp.set_target(s.gain, s.frames);
+            from = at;
+        }
+        segment(ramp, out, from, QUANTUM, first);
+        first = false;
+        if k != RUNTIME {
+            if lanes.lanes[k].is_unity() {
+                lanes.moving &= !bit;
+            } else {
+                lanes.moving |= bit;
+            }
+        }
+    }
+    if first {
+        // Only stamps on lanes this curve doesn't take (never staged: `on_due` checks the lane).
+        return product_advance(lanes, runtime, out);
+    }
     Gain::Curve
 }
 
@@ -390,17 +541,70 @@ pub fn ramp_is_well_formed(_msg: &[u8], _off: usize, _len: usize) -> bool {
 /// Ignored and counted (`MixCounters::lane_records_ignored`): lanes 5 (`duck`) and 6
 /// (`automation`), which the core owns, an unknown lane, a slot past the configured buses.
 ///
-/// `at`: `None` asap. A stamped record (`Some(frame)`) applies asap too, at once, and counts
-/// `busRecordsEarly`, until B1b (W3) routes it through the due list as class B (R6).
+/// `at`: `None` asap, applied now (between quanta: the ramp starts with the next quantum). A
+/// stamped record is queued by the scheduler and reaches [`on_due`] instead; one that reaches here
+/// with `Some(frame)` (the pending queue was full) applies at once and counts `busRecordsEarly`.
 pub fn on_ramp(core: &mut Core, msg: &[u8], off: usize, at: Option<u64>) {
     let Ok((rec, _)) = wire::BusRamp::read(msg, off) else { return };
     if at.is_some() {
         crate::status::counters_mut(core).mix.note_bus_record_early();
     }
+    apply_ramp(core, &rec, None);
+}
+
+/// A stamped `BUS_RAMP` as a pending record (the scheduler's queue and the due list): `voice_id`
+/// the bus slot, `flags` the lane (255 for any lane past it: ignored at apply), `mask` the
+/// record's mask, `values` = `[gain, lpHz, shape bits]`, `frames` its frames. The caller sets
+/// `frame`. `scheduler::shape_word` reads the shape back (and `due::sequence_of` its
+/// `sequenceId`).
+pub fn pending(rec: &wire::BusRamp) -> crate::scheduler::PendingRecord {
+    crate::scheduler::PendingRecord {
+        frame: 0,
+        voice_id: rec.voice_id,
+        op: wire::op::BUS_RAMP as u8,
+        mask: rec.mask.min(255) as u8,
+        flags: rec.lane.min(255) as u8,
+        bus: 0,
+        values: [rec.gain, rec.lp_hz, f32::from_bits(rec.shape), 0.0, 0.0, 0.0, 0.0],
+        frames: rec.frames,
+    }
+}
+
+/// [`pending`]'s inverse (the frame offset is the caller's business).
+fn ramp_of_pending(r: &crate::scheduler::PendingRecord) -> wire::BusRamp {
+    wire::BusRamp { voice_id: r.voice_id, frame_offset: wire::ASAP, lane: r.flags as u16, mask: r.mask as u16, gain: r.values[0], lp_hz: r.values[1], frames: r.frames, shape: r.values[2].to_bits() }
+}
+
+/// Class B (`due::route`, R6): the stamped `BUS_RAMP` `record`, due in the quantum at `frame`.
+/// At the quantum's first sample (or late) it applies now, which is that sample: the gain stage
+/// runs after every voice. Otherwise its gain is staged on its bus at its sample ([`stage`]) and
+/// its low-pass target applies now (the snapshot low-pass ramps per quantum). With the bus's
+/// stage slots full it applies now and counts `busRecordsEarly`, never splitting.
+pub fn on_due(core: &mut Core, record: &crate::scheduler::PendingRecord, frame: u64) {
+    let rec = ramp_of_pending(record);
+    let at = crate::due::offset(record, frame);
+    if at == 0 {
+        apply_ramp(core, &rec, None);
+    } else if !apply_ramp(core, &rec, Some((at as u16, (frame / QUANTUM as u64) as u32))) {
+        crate::status::counters_mut(core).mix.note_bus_record_early();
+    }
+}
+
+/// R6's overflow rule: a stamped `BUS_RAMP` that found the due list full applies at the quantum's
+/// start (now: the gain stage runs after every voice) and counts `busRecordsEarly`.
+pub fn apply_early(core: &mut Core, record: &crate::scheduler::PendingRecord) {
+    crate::status::counters_mut(core).mix.note_bus_record_early();
+    apply_ramp(core, &ramp_of_pending(record), None);
+}
+
+/// Applies `rec` (see [`on_ramp`] for the fields and what is ignored): now, or with `stage_at =
+/// Some((sample, quantum))` its gain staged at that sample of that quantum. `false` only when the
+/// gain should have been staged and the bus had no room: then it applied now instead.
+fn apply_ramp(core: &mut Core, rec: &wire::BusRamp, stage_at: Option<(u16, u32)>) -> bool {
     let lane = rec.lane as usize;
     if lane > wire::LANE_LAST_MAIN_WRITTEN as usize {
         crate::status::counters_mut(core).mix.note_lane_record_ignored();
-        return;
+        return true;
     }
     let gain = (rec.mask & wire::BUS_RAMP_MASK_GAIN != 0 && rec.gain.is_finite()).then(|| rec.gain.clamp(0.0, MAX_LANE_GAIN));
     let lp_hz = (rec.mask & wire::BUS_RAMP_MASK_LP_HZ != 0 && lane == wire::LANE_SNAPSHOT as usize && rec.lp_hz.is_finite()).then(|| rec.lp_hz.clamp(MIN_LANE_LP_HZ, LP_OFF_HZ));
@@ -411,24 +615,32 @@ pub fn on_ramp(core: &mut Core, msg: &[u8], off: usize, at: Option<u64>) {
     let lanes = entries(unsafe { &mut *lanes });
     let count = (v.area.count as usize).min(v.slots.len());
     let bus = rec.voice_id as usize;
-    let ignored = if rec.voice_id == wire::BUS_MASTER_OUT {
+    let (entry, runtime, lp) = if rec.voice_id == wire::BUS_MASTER_OUT {
         match lanes.last_mut() {
-            Some(e) => {
-                set_lane(e, &mut v.area.master, None, lane, gain, None, rec.frames);
-                false
+            Some(e) => (e, &mut v.area.master, None),
+            None => {
+                crate::status::counters_mut(core).mix.note_lane_record_ignored();
+                return true;
             }
-            None => true,
         }
     } else if bus < count && bus + 1 < lanes.len() {
         let slot = &mut v.slots[bus];
-        set_lane(&mut lanes[bus], &mut slot.gain, Some(&mut slot.lp), lane, gain, lp_hz, rec.frames);
-        false
+        (&mut lanes[bus], &mut slot.gain, Some(&mut slot.lp))
     } else {
-        true
-    };
-    if ignored {
         crate::status::counters_mut(core).mix.note_lane_record_ignored();
-    }
+        return true;
+    };
+    let lp_hz = lp_hz.filter(|_| lp.is_some());
+    let mut staged = true;
+    let gain_now = match (gain, stage_at) {
+        (Some(g), Some((at, quantum))) => {
+            staged = stage(entry, Stamp { lane: lane as u16, at, gain: g, frames: rec.frames }, quantum);
+            (!staged).then_some(g)
+        }
+        (g, _) => g,
+    };
+    set_lane(entry, runtime, lp, lane, gain_now, lp_hz, rec.frames);
+    staged
 }
 
 #[cfg(test)]

@@ -366,7 +366,19 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             // loudness, B2 slots). `at` is the record's absolute frame (shifted with its sequence),
             // `None` asap; BUS_DUCK and LOUD_CONFIG are asap only (API §4.2), so their frame is
             // ignored. B2: a stamped BUS_SLOT or BUS_PRESENCE waits in the configuration queue.
-            wire::op::BUS_RAMP => lanes::on_ramp(core, msg, off, at),
+            // B1b: a stamped BUS_RAMP is class B: queued, then due-listed and staged on its bus at
+            // its sample (`due::route`, `lanes::on_due`). A full queue applies it now, early.
+            wire::op::BUS_RAMP => match at {
+                None => lanes::on_ramp(core, msg, off, None),
+                Some(frame) => {
+                    if let Ok((r, _)) = wire::BusRamp::read(msg, off) {
+                        let record = PendingRecord { frame, ..lanes::pending(&r) };
+                        if !push(core, record) {
+                            lanes::apply_early(core, &record);
+                        }
+                    }
+                }
+            },
             wire::op::BUS_DUCK => duck::on_rules(core, msg, off),
             wire::op::BUS_PRESENCE => match at {
                 None => duck::on_presence(core, msg, off, None),
@@ -481,10 +493,11 @@ fn set_params_records(p: &SetParams) -> (Option<PendingRecord>, Option<PendingRe
 
 /// A pending record's `shape` word (api-and-models §4.2: bits 0–2 the law, bits 16–31 the start
 /// phase), or 0 (linear from phase 0) for a record that carries none. See [`PendingRecord`].
-/// B1b (W3): a queued `BUS_RAMP` gets its arm here (bits 3–15 its `sequenceId`, which
-/// `due::sequence_of` reads for the late-batch rule).
+/// A queued `BUS_RAMP` (B1b) keeps its word in `values[2]` (`lanes::pending`): bits 3–15 its
+/// `sequenceId`, which `due::sequence_of` reads for the late-batch rule.
 pub fn shape_word(record: &PendingRecord) -> u32 {
     match record.op as u16 {
+        wire::op::BUS_RAMP => record.values[2].to_bits(),
         wire::op::FADE => record.values[1].to_bits(),
         wire::op::STOP => record.values[0].to_bits(),
         wire::op::SET_PARAMS if record.mask == wire::SET_PARAMS_MASK_GAIN as u8 => record.values[1].to_bits(),
@@ -528,21 +541,40 @@ fn push(core: &mut Core, record: PendingRecord) -> bool {
 
 /// Removes and returns the earliest pending record whose frame is before `before` (the end of the
 /// quantum being rendered), or `None`. Called by `voices::render`; never allocates.
+///
+/// **B1b: a sequence found late at pop (C27, ARCH §3.3).** A `BUS_RAMP` of a structural sequence
+/// (`due::sequence_of` ≠ 0) whose frame F0 is before the quantum's first frame q = `before` − 128
+/// (the shell's frame jumped after the batch arrived on time) isn't returned: its sequence is
+/// shifted by s = ⌈(q − F0) / 128⌉ × 128 ([`shift_sequence`]: the sequence's records still queued,
+/// `lateCommands` once) and the popped ramp is re-queued at F0 + s, which is inside this quantum,
+/// so the next call returns it on time. Records that pop are the sequence's earliest (the queue is
+/// sorted), so the dip-down is the one found late.
 pub fn pop_due(core: &mut Core, before: u64) -> Option<PendingRecord> {
-    let q = queue(core.regions_mut());
-    if q.area.len == 0 {
-        return None;
+    loop {
+        let q = queue(core.regions_mut());
+        if q.area.len == 0 {
+            return None;
+        }
+        let record = q.records[q.area.head as usize];
+        if record.frame >= before {
+            return None;
+        }
+        q.area.head += 1;
+        q.area.len -= 1;
+        if q.area.len == 0 {
+            q.area.head = 0;
+        }
+        let first = before.saturating_sub(crate::QUANTUM as u64);
+        let sequence = crate::due::sequence_of(&record);
+        if sequence != 0 && record.frame < first {
+            let s = whole_quanta(first - record.frame);
+            shift_sequence(core, sequence, s);
+            // Room: the record just left the queue.
+            push(core, PendingRecord { frame: record.frame + s, ..record });
+            continue;
+        }
+        return Some(record);
     }
-    let record = q.records[q.area.head as usize];
-    if record.frame >= before {
-        return None;
-    }
-    q.area.head += 1;
-    q.area.len -= 1;
-    if q.area.len == 0 {
-        q.area.head = 0;
-    }
-    Some(record)
 }
 
 /// R10, for `due::rebase` (C2d through it): shifts by `slip` frames every record still in the
@@ -588,6 +620,8 @@ pub fn apply(core: &mut Core, record: &PendingRecord) {
         wire::op::SET_PAUSED => voices::set_paused(core, record.voice_id, record.flags & 1 != 0),
         wire::op::SEEK => voices::seek(core, record.voice_id, record.frames, record.values[0].to_bits()),
         wire::op::SET_LOOP => voices::set_loop(core, record.voice_id, record.frames, record.values[0].to_bits(), record.flags & 1 != 0),
+        // B1b: class B never splits (`due::route`); applied now, at its frame's quantum start.
+        wire::op::BUS_RAMP => lanes::on_due(core, record, record.frame),
         wire::op::SET_PARAMS => {
             let v = record.values;
             let p = SetParams {
@@ -874,7 +908,10 @@ pub fn apply_due_config(core: &mut Core, frame: u64) {
         }
         let record = area.records[0];
         if record.sequence != 0 && record.frame < frame {
-            shift_sequence(core, record.sequence, whole_quanta(frame - record.frame));
+            // B1b: from the sequence's F0, its earliest record (the dip-down, still pending when it
+            // is late too), so the whole sequence lands where the pop rule would put it.
+            let f0 = sequence_first_pending(core, record.sequence).map_or(record.frame, |f| f.min(record.frame));
+            shift_sequence(core, record.sequence, whole_quanta(frame - f0));
             continue;
         }
         let n = area.len as usize;
@@ -885,6 +922,13 @@ pub fn apply_due_config(core: &mut Core, frame: u64) {
         }
         apply_config_record(core, &record);
     }
+}
+
+/// The earliest frame of sequence `sequence`'s records in the pending queue (B1b's dip ramps).
+fn sequence_first_pending(core: &mut Core, sequence: u16) -> Option<u64> {
+    let q = queue(core.regions_mut());
+    let (head, len) = (q.area.head as usize, q.area.len as usize);
+    q.records[head..head + len].iter().find(|r| crate::due::sequence_of(r) == sequence).map(|r| r.frame)
 }
 
 /// Shifts structural sequence `sequence` by `s` frames (a whole number of quanta) wherever its

@@ -13,6 +13,13 @@
 //!   that voice's render at the record's sample (`voice_split::boundaries`, Z2c). Two class G
 //!   records for one voice at different offsets in one quantum take the class S path too.
 //!
+//! **Class B** ([`Class::B`], 0171/0172 M5 B1b; ARCH §4.5 "Due-list class B", R6): a stamped
+//! `BUS_RAMP` pops like any stamped record and [`route`] takes it into the list (its `voice_id` is
+//! a bus slot, so it flags no voice), and `lanes::on_due` stages it on its bus at its sample: the
+//! gain stage, after every voice, holds the lane's motion up to that sample and retargets there.
+//! At the quantum's first sample it applies at once; with the list full it applies at the
+//! quantum's start and counts `busRecordsEarly` ([`Route::Bus`]). It never splits.
+//!
 //! Records that aren't per voice (MASTER, LISTENER, configuration tables:
 //! [`Class::Quantum`]) keep splitting the quantum and count `splitQuanta`; so does a quantum with
 //! more than [`DUE_RECORDS`] due records ([`Route::Split`]). A due record at a voice's own start
@@ -48,8 +55,11 @@ const TAKEN: u8 = 0;
 /// `true` when `record` is voice `voice_id`'s and not yet taken.
 #[inline]
 pub fn is_for(record: &DueRecord, voice_id: u32) -> bool {
-    record.voice_id == voice_id && record.op != TAKEN
+    record.voice_id == voice_id && record.op != TAKEN && record.op != BUS_RAMP
 }
+
+/// A class B record's opcode as stored (its `voice_id` is a bus slot, never a voice's).
+const BUS_RAMP: u8 = op::BUS_RAMP as u8;
 
 /// One due or parked record: the scheduler's 48-byte pending record (api-and-models §3.1).
 pub use crate::scheduler::PendingRecord as DueRecord;
@@ -77,6 +87,9 @@ pub enum Class {
     G,
     /// Every other per-voice record, applied by a split of that voice's render.
     S,
+    /// A stamped `BUS_RAMP` (0171/0172 M5, R6): a bus lane's retarget, staged on its bus at its
+    /// sample and applied by the gain stage's start-sample compare (`lanes::on_due`). Never splits.
+    B,
     /// Not per voice: splits the whole quantum and counts `splitQuanta`.
     Quantum,
 }
@@ -87,6 +100,7 @@ pub fn classify(record: &DueRecord) -> Class {
         op::FADE | op::STOP => Class::G,
         op::SET_PARAMS if record.mask == audio_wire::generated::SET_PARAMS_MASK_GAIN as u8 => Class::G,
         op::SET_PARAMS | op::SET_PAUSED | op::SEEK | op::SET_LOOP => Class::S,
+        op::BUS_RAMP => Class::B,
         _ => Class::Quantum,
     }
 }
@@ -104,6 +118,10 @@ pub enum Route {
     /// Not per voice, or the due list is full: the caller splits the quantum at the record's offset
     /// and applies it there, as today (`splitQuanta` counts once per quantum that splits).
     Split,
+    /// Class B (a stamped `BUS_RAMP`): into the due list and staged on its bus at its sample, or,
+    /// at the quantum's first sample, applied now; with the due list (or its bus's stage slots)
+    /// full, applied now, at the quantum's start, counting `busRecordsEarly` (R6). Never a split.
+    Bus,
     /// Per voice, but its voice is gone (a stale id, an ended voice): applying it would change
     /// nothing, so it is dropped without a split (Z2a: today's apply drops it too).
     Dropped,
@@ -275,8 +293,11 @@ impl DueList<'_> {
 pub fn begin_quantum(core: &mut Core, frame: u64) {
     let len = view(core.regions_mut()).records().len();
     for i in 0..len {
-        let id = view(core.regions_mut()).records[i].voice_id;
-        crate::voices::set_due(core, id, false);
+        let r = view(core.regions_mut()).records[i];
+        // A class B record names a bus, not a voice.
+        if r.op != BUS_RAMP {
+            crate::voices::set_due(core, r.voice_id, false);
+        }
     }
     let list = view(core.regions_mut());
     list.area.len = 0;
@@ -288,18 +309,13 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
 /// `BUS_RAMP`'s `shape` bits 3–15 (`wire::ramp_sequence_id`), read through
 /// `scheduler::shape_word`. Every other record has none.
 ///
-/// **The hook for B1b (W3, class B).** This is the `sequenceId` link between the dip ramps and the
-/// late-batch rule. Today no `BUS_RAMP` reaches the pending queue (`lanes::on_ramp` takes it at
-/// submit, with its frame already shifted by `scheduler::sequence_shifts`), so this returns 0 for
-/// every queued record. When B1b routes stamped `BUS_RAMP`s through the pending queue into the due
-/// list as class B, it:
-/// 1. stores the ramp's shape word in its `PendingRecord` and adds that record's arm to
-///    `scheduler::shape_word`, so this function returns its sequence;
-/// 2. when it pops a dip-down ramp whose frame is before the quantum's first frame q (a sequence
-///    found late at pop, not at arrival), calls `scheduler::shift_sequence(core, id, s)` with
-///    s = ⌈(q − F0) / 128⌉ × 128 — which moves the sequence's records still in the pending and
-///    configuration queues and counts `lateCommands` once — and re-queues the popped ramp at
-///    F0 + s itself (and any of the sequence's records already in this quantum's due list).
+/// This is the `sequenceId` link between the dip ramps and the late-batch rule. A stamped
+/// `BUS_RAMP` rides the pending queue with its shape word (`lanes::pending`, B1b), its frame
+/// already shifted when its batch arrived late (`scheduler::sequence_shifts`). One found late only
+/// when it pops (the shell's frame jumped) is handled in `scheduler::pop_due`: its sequence moves by
+/// s = ⌈(q − F0) / 128⌉ × 128 (`scheduler::shift_sequence`, `lateCommands` once) and the ramp is
+/// re-queued at F0 + s. None of the sequence is in this quantum's due list yet: the dip-down is its
+/// earliest record and pops first.
 pub fn sequence_of(record: &DueRecord) -> u16 {
     match record.op as u16 {
         op::BUS_RAMP => audio_wire::generated::ramp_sequence_id(crate::scheduler::shape_word(record)) as u16,
@@ -310,6 +326,7 @@ pub fn sequence_of(record: &DueRecord) -> u16 {
 /// Routes one record `pop_due` returned for the quantum at `frame` (see [`Route`]). Counts
 /// `parkedOverflow` itself; the caller counts `splitQuanta` once per quantum that splits.
 /// - Not per voice ([`Class::Quantum`]): [`Route::Split`].
+/// - Class B (a stamped `BUS_RAMP`): [`Route::Bus`] (see it; never a split).
 /// - Its voice gone: [`Route::Dropped`].
 /// - Its voice held by the gate (`groups::FLAG2_GATED`): parked ([`Route::Parked`]); with the
 ///   parked records full, into the due list at its own frame, unrebased ([`Route::Overflow`],
@@ -318,9 +335,21 @@ pub fn sequence_of(record: &DueRecord) -> u16 {
 ///
 /// With the due list full, a record that would go into it splits instead ([`Route::Split`]).
 pub fn route(core: &mut Core, record: &DueRecord, frame: u64) -> Route {
-    let _ = frame;
-    if classify(record) == Class::Quantum {
-        return Route::Split;
+    match classify(record) {
+        Class::Quantum => return Route::Split,
+        Class::B => {
+            // R6: at the quantum's first sample it applies now; later in the quantum it takes a
+            // due-list slot and is staged; with the list full it applies now and counts early.
+            if offset(record, frame) == 0 {
+                crate::lanes::on_due(core, record, frame);
+            } else if view(core.regions_mut()).push(*record) {
+                crate::lanes::on_due(core, record, frame);
+            } else {
+                crate::lanes::apply_early(core, record);
+            }
+            return Route::Bus;
+        }
+        Class::G | Class::S => {}
     }
     let Some(flags2) = crate::voices::live_flags2(core, record.voice_id) else { return Route::Dropped };
     let mut overflow = false;

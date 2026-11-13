@@ -199,15 +199,20 @@ fn master_volume_and_mute_ramp_the_output() {
 }
 
 #[test]
-fn a_stamped_bus_ramp_applies_on_arrival_and_counts_early_until_b1b() {
+fn a_stamped_bus_ramp_applies_at_its_frame_class_b() {
+    // B1b (R6): a stamped BUS_RAMP waits for its frame and steps there, inside the quantum,
+    // without a split and without counting early.
     let mut m = Mixer::new(8);
     m.submit(&[config(&[ROOT]), dc(V1, 0, 0.0)]);
     let mut r = lane_ramp(0, wire::LANE_RUNTIME, Some(0.25), None, 0);
-    r.frame_offset = 10_000;
+    r.frame_offset = 200;
     m.submit(&[Rec::Ramps(vec![r])]);
     m.render();
-    m.expect(L, TOL, "applied at once", |_| 0.25);
-    assert_eq!(status::counters(&m.core).mix.bus_records_early, 1);
+    m.expect(L, TOL, "not yet", |_| 1.0);
+    m.render();
+    m.expect(L, TOL, "a step at frame 200", |k| if k < 72 { 1.0 } else { 0.25 });
+    let c = status::counters(&m.core);
+    assert_eq!((c.mix.bus_records_early, c.music.split_quanta), (0, 0));
 }
 
 #[test]
