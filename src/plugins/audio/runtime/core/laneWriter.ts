@@ -53,7 +53,7 @@ export interface LaneWriterHost {
   readonly writer: Pick<CommandWriter, "busRampFrames">;
   readonly clockMap: Pick<ClockMap, "rampFrames" | "framesNow" | "lookaheadFrames" | "frameOfTime" | "stampFor" | "sampleRate"> & Partial<Pick<ClockMap, "timeOffset">>;
   /** The mixer whose lanes are written (its `Ramp` records, evaluated on the heard clock). */
-  readonly mixer: Pick<Mixer, "_lanes" | "busNames" | "time" | "audioSettings" | "laneGain">;
+  readonly mixer: Pick<Mixer, "_lanes" | "busNames" | "time" | "audioSettings" | "laneGain"> & Partial<Pick<Mixer, "_tombstoneLanes">>;
   /** Bus name → index, as last configured (`busIndex.ts`). */
   readonly busIndexByName: ReadonlyMap<string, number>;
   /** Selection's bus factor, by bus index (`Selection.busGain`). */
@@ -205,9 +205,9 @@ export class LaneWriter {
   }
 
   /**
-   * The mixer's buses that hold their slot now, each slot once (Ma2): a name the bus index maps to its state's slot. The
-   * mixer keeps a removed bus's state until the next configure: a tombstone's lanes are the dip's (held at 0, nothing
-   * more is sent), and a stale state whose slot a new bus took is skipped.
+   * The mixer's buses that hold their slot now, each slot once (Ma2): a name the bus index maps to its state's slot. A
+   * removed bus is out of `busNames` (G7c: its state is held by slot, `_tombstoneLanes`, for the replay); its lanes are
+   * the dip's, held at 0, and nothing more is sent. A name listed twice, or one the index maps elsewhere, is skipped.
    */
   private liveBuses(): string[] {
     const mixer = this.host.mixer;
@@ -297,21 +297,16 @@ export class LaneWriter {
     const step = (b: number, lane: number, mask: number, gain: number, lpHz: number, frames: number) =>
       out.record(32, (view, off) => writeBusRamp(view, off, { voiceId: b, frameOffset: ASAP, lane, mask, gain, lpHz, frames, shape: LINEAR }));
     const remaining = (r: Readonly<Ramp>) => (r.seconds > 0 && r.from !== r.to ? Math.round((r.start + r.seconds - now) * rate) : 0);
-    // Ma2: the live buses by slot, then each removed bus still holding its slot (a tombstone): only its dip lane, at its
-    // end state (0), since a silent root carries nothing else.
+    // Ma2: each removed bus still holding its slot (a tombstone), then the live buses by slot. A tombstone sends only its
+    // dip lane, at its end state (0), since a silent root carries nothing else. G7c: the mixer holds a tombstone's state
+    // by slot (`_tombstoneLanes`, out of `busNames`) until the slot table recycles it.
     const live = this.liveBuses();
-    const removed: string[] = [];
-    for (const name of mixer.busNames) {
-      const l = mixer._lanes(name);
-      if (!l || l.slot < 0 || l.slot >= MAX_BUS || this.visited[l.slot] || this.host.busIndexByName.has(name)) continue;
+    for (const l of mixer._tombstoneLanes?.() ?? []) {
+      if (l.slot < 0 || l.slot >= MAX_BUS || this.visited[l.slot]) continue;
       this.visited[l.slot] = 1;
-      removed.push(name);
-    }
-    const bySlot = (x: string, y: string) => mixer._lanes(x)!.slot - mixer._lanes(y)!.slot;
-    for (const name of removed) {
-      const l = mixer._lanes(name)!;
       step(l.slot, LANE_DIP, BUS_RAMP_MASK_GAIN, l.dip.to, BUS_LP_OFF_HZ, 0);
     }
+    const bySlot = (x: string, y: string) => mixer._lanes(x)!.slot - mixer._lanes(y)!.slot;
     for (const name of live.sort(bySlot)) {
       const l = mixer._lanes(name)!;
       const b = l.slot;

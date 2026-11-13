@@ -217,6 +217,13 @@ export class Mixer {
   private tap: MixerTap | null = null;
   /** Ma1 (§6.3): old bus name -> new, after a live rename, so a held `Bus` keeps working (one warning per old name). */
   private readonly aliases = new Map<string, string>();
+  /**
+   * G7c (architecture §2.3, §3.3, §4.7): on the core path a removed bus leaves the model at once (`busNames`,
+   * `resolveAll`, `has`, `Audio.buses`) like on the fallback, but its state object is held here, by its slot, while the
+   * slot table keeps the slot as a tombstone: its dip lane (held at 0) is what a rebuild replays for that slot. Released
+   * when the slot recycles (`_releaseTombstones`), a bus is added into the slot, or at the next configure.
+   */
+  private readonly tombstones = new Map<number, BusState>();
 
   constructor(settings: AudioSettings = defaultAudioSettings()) { this.configure(settings); }
 
@@ -229,6 +236,7 @@ export class Mixer {
     const now = this.time;
     this.lastUpdate = now;
     this.aliases.clear();
+    this.tombstones.clear();
     settings.buses.forEach((b, i) => this.buses.set(b.name, this.newState(b, i, now)));
     this._dirty();
   }
@@ -273,7 +281,7 @@ export class Mixer {
     // Re-anchor every running ramp so it keeps its remaining length on the new clock.
     const next = clock ? clock() : this.ownTime;
     const at = Number.isFinite(next) ? next : now;
-    for (const s of this.buses.values()) for (const r of [s.authored, s.runtime, s.snapshot, s.lp, s.dip]) rebase(r, now, at);
+    for (const s of [...this.buses.values(), ...this.tombstones.values()]) for (const r of [s.authored, s.runtime, s.snapshot, s.lp, s.dip]) rebase(r, now, at);
     this.clock = clock;
     this.lastUpdate = at;
     if (!clock) this.ownTime = at;
@@ -319,14 +327,17 @@ export class Mixer {
 
   /**
    * @internal Ma1 (§6.2, architecture §4.7): the main-side half of a live op the backend accepted. The settings become
-   * `applyOpToSettings`' result, except that an added bus goes to the end of the list: the running tree is kept in
-   * **slot order** (`slot` is the slot the session slot table gave it), so a bus's list index is its core slot for every
-   * consumer that indexes by position. Authored volume ramps over `DRAG_RAMP_MS`, asap; authored mute toggles; an edit
+   * `applyOpToSettings`' result, except that an added bus goes to the end of the list, with `slot` (the slot the session
+   * slot table gave it; the core path) or, with none (the Babylon fallback), the next slot past every one in use. A
+   * bus's list index is not its slot once a bus is removed or added into a recycled slot: consumers read `BusLanes.slot`
+   * or the slot table (§4.7). A removed bus and its descendants leave the model at once; with `keepTombstones` (the core
+   * path's structural dip, §3.3) their state is held by slot until the slot recycles (`_tombstoneLanes`). Authored
+   * volume ramps over `DRAG_RAMP_MS`, asap; authored mute toggles; an edit
    * of the active snapshot retargets its lane over `SNAPSHOT_EDIT_MS`; a rename keeps the bus's state and aliases the
    * old name. Every runtime value (script volume, fades, mutes, solo, monitor controls, the snapshot in force) stays.
    * Returns false when the op is refused or changes nothing.
    */
-  _applyLive(op: MixOp, slot = -1): boolean {
+  _applyLive(op: MixOp, slot = -1, keepTombstones = false): boolean {
     const before = this.settings;
     const next = applyOpToSettings(before, op.op === "addBus" ? { op: "addBus", name: op.name, parent: op.parent } : op);
     if (next === before) return false;
@@ -343,7 +354,11 @@ export class Mixer {
         // No slot given (the Babylon fallback has no slot table): the next one past every slot in use, so a bus added after a removal never shares one.
         let free = 0;
         for (const s of this.buses.values()) free = Math.max(free, s.slot + 1);
-        this.buses.set(b.name, this.newState(b, slot >= 0 ? slot : free, now));
+        for (const t of this.tombstones.keys()) free = Math.max(free, t + 1);
+        const at = slot >= 0 ? slot : free;
+        // A slot the table recycled: the tombstone held for it goes (the new bus is a new state, R9).
+        this.tombstones.delete(at);
+        this.buses.set(b.name, this.newState(b, at, now));
         this.order.push(b.name);
         this.aliases.delete(b.name);
         break;
@@ -352,7 +367,12 @@ export class Mixer {
         // The bus and its descendants leave the model: `resolveAll`, `busNames` and `debug` stop listing them. Every other
         // bus keeps its state object, so script volumes, fades in flight, mutes, solo and voice counts carry on untouched.
         const kept = new Set(next.buses.map((b) => b.name));
-        for (const name of this.order) if (!kept.has(name)) this.buses.delete(name);
+        for (const name of this.order) {
+          if (kept.has(name)) continue;
+          const s = this.buses.get(name);
+          if (keepTombstones && s) this.tombstones.set(s.slot, s);
+          this.buses.delete(name);
+        }
         this.order = this.order.filter((n) => kept.has(n));
         for (const [old, target] of this.aliases) if (!kept.has(target)) this.aliases.delete(old);
         break;
@@ -446,7 +466,9 @@ export class Mixer {
   /** @internal The main-side lanes of `name`, for the lane writer (Mx2). */
   _lanes(name: string): BusLanes | undefined {
     const s = this.buses.get(name);
-    if (!s) return undefined;
+    return s ? this.lanesOf(s, name) : undefined;
+  }
+  private lanesOf(s: BusState, name: string): BusLanes {
     return {
       slot: s.slot, authored: s.authored, authoredMute: s.authoredMute, runtime: s.runtime, runtimeMute: s.mute, runtimeSolo: s.solo,
       snapshot: s.snapshot, snapshotLowpass: s.lp, monitorMute: s.monitorMute, monitorSolo: s.monitorSolo, dip: s.dip, duck: this._duckOf(name, s),
@@ -466,6 +488,19 @@ export class Mixer {
       case Lane.duck: return this._duckOf(name, s);
       default: return s.autoGain * s.viewGain;
     }
+  }
+  /**
+   * @internal G7c: the lanes of each removed bus whose slot is still a tombstone (`_applyLive`'s `keepTombstones`), by
+   * slot: the lane writer's replay sends their dip lane (§3.4: a dip at its end state).
+   */
+  _tombstoneLanes(): BusLanes[] {
+    const out: BusLanes[] = [];
+    for (const s of this.tombstones.values()) out.push(this.lanesOf(s, s.settings.name));
+    return out.sort((a, b) => a.slot - b.slot);
+  }
+  /** @internal G7c (R9): the slot table freed `slots`; the tombstones held for them go. */
+  _releaseTombstones(slots: readonly number[]): void {
+    for (const s of slots) this.tombstones.delete(s);
   }
   /** @internal The structural dip (§6.5, the slot table's): ease `name`'s dip lane to `to` over `seconds`. */
   _setDip(name: string, to: number, seconds: number): void {
