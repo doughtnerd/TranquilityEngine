@@ -1,0 +1,953 @@
+{
+  "about": "Golden record vectors for ADR 0171/0172 section 5.3 (Rc1, L-Rc1c). Every byte is hand-assembled from the spec table: little-endian, head = 20 B (type, flags, u16 epoch, u32 len, u32 seq, f64 frame), then len payload bytes. f64 values: 0 = 00.., 768 = 00 00 00 00 00 00 88 40, 1000 = 00 00 00 00 00 40 8f 40, 2000 = 00 00 00 00 00 40 9f 40, 1536 = 00 00 00 00 00 00 98 40, 900 = 00 00 00 00 00 20 8c 40, 200000 = 00 00 00 00 00 6a 08 41, 3.25 unused. f32 1.0 = 00 00 80 3f. Repeat fields are written as {repeat, count} and expanded by the test. Kinds not listed here are KEYFRAME (Rc1b).",
+  "records": [
+    {
+      "group": "EPOCH",
+      "name": "EPOCH reason 0 (start)",
+      "head": "01 00 00 00 20 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00",
+      "payload": "00 00 00 00 80 bb 00 00 40 00 00 00 e0 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 40 8f 40",
+      "expect": {
+        "type": 1,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 1,
+        "frame": 0,
+        "payload": {
+          "reason": 0,
+          "sampleRate": 48000,
+          "limiterLatencyFrames": 64,
+          "outputLatencyFrames": 480,
+          "timeOffset": 0,
+          "perfMs": 1000
+        }
+      }
+    },
+    {
+      "group": "EPOCH",
+      "name": "EPOCH reason 1 (trap)",
+      "head": "01 00 00 00 20 00 00 00 02 00 00 00 00 00 00 00 00 00 00 00",
+      "payload": "01 00 00 00 80 bb 00 00 40 00 00 00 e0 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 40 8f 40",
+      "expect": {
+        "type": 1,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 2,
+        "frame": 0,
+        "payload": {
+          "reason": 1,
+          "sampleRate": 48000,
+          "limiterLatencyFrames": 64,
+          "outputLatencyFrames": 480,
+          "timeOffset": 0,
+          "perfMs": 1000
+        }
+      }
+    },
+    {
+      "group": "EPOCH",
+      "name": "EPOCH reason 2 (stall)",
+      "head": "01 00 00 00 20 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00",
+      "payload": "02 00 00 00 80 bb 00 00 40 00 00 00 e0 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 40 8f 40",
+      "expect": {
+        "type": 1,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 3,
+        "frame": 0,
+        "payload": {
+          "reason": 2,
+          "sampleRate": 48000,
+          "limiterLatencyFrames": 64,
+          "outputLatencyFrames": 480,
+          "timeOffset": 0,
+          "perfMs": 1000
+        }
+      }
+    },
+    {
+      "group": "EPOCH",
+      "name": "EPOCH reason 3 (device)",
+      "head": "01 00 00 00 20 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00",
+      "payload": "03 00 00 00 80 bb 00 00 40 00 00 00 e0 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 40 8f 40",
+      "expect": {
+        "type": 1,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 4,
+        "frame": 0,
+        "payload": {
+          "reason": 3,
+          "sampleRate": 48000,
+          "limiterLatencyFrames": 64,
+          "outputLatencyFrames": 480,
+          "timeOffset": 0,
+          "perfMs": 1000
+        }
+      }
+    },
+    {
+      "group": "EPOCH",
+      "name": "EPOCH reason 4 (rate)",
+      "head": "01 00 00 00 20 00 00 00 05 00 00 00 00 00 00 00 00 00 00 00",
+      "payload": "04 00 00 00 80 bb 00 00 40 00 00 00 e0 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 40 8f 40",
+      "expect": {
+        "type": 1,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 5,
+        "frame": 0,
+        "payload": {
+          "reason": 4,
+          "sampleRate": 48000,
+          "limiterLatencyFrames": 64,
+          "outputLatencyFrames": 480,
+          "timeOffset": 0,
+          "perfMs": 1000
+        }
+      }
+    },
+    {
+      "group": "EPOCH",
+      "name": "EPOCH reason 5 (latency)",
+      "head": "01 00 00 00 20 00 00 00 06 00 00 00 00 00 00 00 00 00 00 00",
+      "payload": "05 00 00 00 80 bb 00 00 40 00 00 00 e0 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 40 8f 40",
+      "expect": {
+        "type": 1,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 6,
+        "frame": 0,
+        "payload": {
+          "reason": 5,
+          "sampleRate": 48000,
+          "limiterLatencyFrames": 64,
+          "outputLatencyFrames": 480,
+          "timeOffset": 0,
+          "perfMs": 1000
+        }
+      }
+    },
+    {
+      "group": "EPOCH",
+      "name": "EPOCH reason 6 (mode)",
+      "head": "01 00 00 00 20 00 00 00 07 00 00 00 00 00 00 00 00 00 00 00",
+      "payload": "06 00 00 00 80 bb 00 00 40 00 00 00 e0 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 40 8f 40",
+      "expect": {
+        "type": 1,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 7,
+        "frame": 0,
+        "payload": {
+          "reason": 6,
+          "sampleRate": 48000,
+          "limiterLatencyFrames": 64,
+          "outputLatencyFrames": 480,
+          "timeOffset": 0,
+          "perfMs": 1000
+        }
+      }
+    },
+    {
+      "group": "GAP",
+      "name": "GAP reason 1 (paused)",
+      "head": "02 00 00 00 1c 00 00 00 0b 00 00 00 00 00 00 00 00 00 98 40",
+      "payload": "01 00 00 00 00 00 00 00 00 40 8f 40 00 00 00 00 00 40 9f 40 01 00 00 00 03 00 00 00",
+      "expect": {
+        "type": 2,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 11,
+        "frame": 1536,
+        "payload": {
+          "reason": 1,
+          "perfFrom": 1000,
+          "perfTo": 2000,
+          "firstSeq": 1,
+          "lastSeq": 3
+        }
+      }
+    },
+    {
+      "group": "GAP",
+      "name": "GAP reason 2 (rebuild)",
+      "head": "02 00 00 00 1c 00 00 00 0c 00 00 00 00 00 00 00 00 00 98 40",
+      "payload": "02 00 00 00 00 00 00 00 00 40 8f 40 00 00 00 00 00 40 9f 40 01 00 00 00 03 00 00 00",
+      "expect": {
+        "type": 2,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 12,
+        "frame": 1536,
+        "payload": {
+          "reason": 2,
+          "perfFrom": 1000,
+          "perfTo": 2000,
+          "firstSeq": 1,
+          "lastSeq": 3
+        }
+      }
+    },
+    {
+      "group": "GAP",
+      "name": "GAP reason 3 (held)",
+      "head": "02 00 00 00 1c 00 00 00 0d 00 00 00 00 00 00 00 00 00 98 40",
+      "payload": "03 00 00 00 00 00 00 00 00 40 8f 40 00 00 00 00 00 40 9f 40 01 00 00 00 03 00 00 00",
+      "expect": {
+        "type": 2,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 13,
+        "frame": 1536,
+        "payload": {
+          "reason": 3,
+          "perfFrom": 1000,
+          "perfTo": 2000,
+          "firstSeq": 1,
+          "lastSeq": 3
+        }
+      }
+    },
+    {
+      "group": "GAP",
+      "name": "GAP reason 4 (dropped)",
+      "head": "02 00 00 00 1c 00 00 00 0e 00 00 00 00 00 00 00 00 00 98 40",
+      "payload": "04 00 00 00 00 00 00 00 00 40 8f 40 00 00 00 00 00 40 9f 40 01 00 00 00 03 00 00 00",
+      "expect": {
+        "type": 2,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 14,
+        "frame": 1536,
+        "payload": {
+          "reason": 4,
+          "perfFrom": 1000,
+          "perfTo": 2000,
+          "firstSeq": 1,
+          "lastSeq": 3
+        }
+      }
+    },
+    {
+      "group": "GAP",
+      "name": "GAP reason 5 (recordTooLarge)",
+      "head": "02 00 00 00 1c 00 00 00 0f 00 00 00 00 00 00 00 00 00 98 40",
+      "payload": "05 00 00 00 00 00 00 00 00 40 8f 40 00 00 00 00 00 40 9f 40 01 00 00 00 03 00 00 00",
+      "expect": {
+        "type": 2,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 15,
+        "frame": 1536,
+        "payload": {
+          "reason": 5,
+          "perfFrom": 1000,
+          "perfTo": 2000,
+          "firstSeq": 1,
+          "lastSeq": 3
+        }
+      }
+    },
+    {
+      "group": "STATUS",
+      "name": "STATUS (a real wire block, currentFrame 768)",
+      "head": "03 00 00 00 00 01 00 00 01 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "31 41 59 4d 03 01 09 00 01 00 00 00 f0 00 00 00 00 00 00 00 00 00 88 40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+      "expect": {
+        "type": 3,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 1,
+        "frame": 768,
+        "envelope": {
+          "kind": 9,
+          "version": 259,
+          "seq": 1,
+          "bodyBytes": 240,
+          "currentFrame": 768
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 1 voiceStart (f32 gain)",
+      "head": "05 00 00 00 14 00 00 00 01 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 01 01 01 00 07 00 00 00 00 00 80 3f",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 1,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 1,
+          "reason": 1,
+          "args": [
+            7
+          ],
+          "f32": 1
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 2 voiceStop",
+      "head": "05 00 00 00 10 00 00 00 02 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 02 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 2,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 2,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 3 voiceSteal",
+      "head": "05 00 00 00 10 00 00 00 03 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 03 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 3,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 3,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 4 voiceVirtual",
+      "head": "05 00 00 00 10 00 00 00 04 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 04 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 4,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 4,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 5 voiceReal",
+      "head": "05 00 00 00 10 00 00 00 05 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 05 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 5,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 5,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 6 voiceRefused",
+      "head": "05 00 00 00 10 00 00 00 06 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 06 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 6,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 6,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 7 voiceQueued",
+      "head": "05 00 00 00 10 00 00 00 07 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 07 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 7,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 7,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 8 eventStart",
+      "head": "05 00 00 00 10 00 00 00 08 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 08 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 8,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 8,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 9 eventStop",
+      "head": "05 00 00 00 10 00 00 00 09 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 09 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 9,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 9,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 10 parameter",
+      "head": "05 00 00 00 10 00 00 00 0a 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 0a 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 10,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 10,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 11 snapshot (f32 seconds)",
+      "head": "05 00 00 00 14 00 00 00 0b 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 0b 01 01 00 07 00 00 00 00 00 80 3f",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 11,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 11,
+          "reason": 1,
+          "args": [
+            7
+          ],
+          "f32": 1
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 12 stateChange",
+      "head": "05 00 00 00 10 00 00 00 0c 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 0c 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 12,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 12,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 13 musicTransition",
+      "head": "05 00 00 00 10 00 00 00 0d 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 0d 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 13,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 13,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 14 busRamp (f32 target)",
+      "head": "05 00 00 00 14 00 00 00 0e 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 0e 01 01 00 07 00 00 00 00 00 80 3f",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 14,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 14,
+          "reason": 1,
+          "args": [
+            7
+          ],
+          "f32": 1
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 15 monitor",
+      "head": "05 00 00 00 10 00 00 00 0f 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 0f 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 15,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 15,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 16 loudnessControl",
+      "head": "05 00 00 00 10 00 00 00 10 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 10 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 16,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 16,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 17 ladder",
+      "head": "05 00 00 00 10 00 00 00 11 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 11 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 17,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 17,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 18 masterChange (f32 volume)",
+      "head": "05 00 00 00 14 00 00 00 12 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 12 01 01 00 07 00 00 00 00 00 80 3f",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 18,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 18,
+          "reason": 1,
+          "args": [
+            7
+          ],
+          "f32": 1
+        }
+      }
+    },
+    {
+      "group": "EVENT",
+      "name": "EVENT kind 19 hiddenTab",
+      "head": "05 00 00 00 10 00 00 00 13 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 40 8f 40 13 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 19,
+        "frame": 768,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 19,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "group": "MARKER",
+      "name": "MARKER empty text",
+      "head": "06 00 00 00 0a 00 00 00 01 00 00 00 00 00 00 00 00 40 8f 40",
+      "payload": "00 00 00 00 00 40 8f 40 00 00",
+      "expect": {
+        "type": 6,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 1,
+        "frame": 1000,
+        "payload": {
+          "perfMs": 1000,
+          "text": ""
+        }
+      }
+    },
+    {
+      "group": "MARKER",
+      "name": "MARKER ASCII text",
+      "head": "06 00 00 00 0f 00 00 00 02 00 00 00 00 00 00 00 00 40 8f 40",
+      "payload": "00 00 00 00 00 40 8f 40 05 00 6f 77 6e 65 72",
+      "expect": {
+        "type": 6,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 2,
+        "frame": 1000,
+        "payload": {
+          "perfMs": 1000,
+          "text": "owner"
+        }
+      }
+    },
+    {
+      "group": "MARKER",
+      "name": "MARKER multi-byte UTF-8 at 120 B",
+      "head": "06 00 00 00 82 00 00 00 03 00 00 00 00 00 00 00 00 40 8f 40",
+      "payload": "00 00 00 00 00 40 8f 40 78 00 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9 c3 a9",
+      "expect": {
+        "type": 6,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 3,
+        "frame": 1000,
+        "payload": {
+          "perfMs": 1000,
+          "text": {
+            "repeat": "é",
+            "count": 60
+          }
+        }
+      }
+    },
+    {
+      "group": "NAMES",
+      "name": "NAMES table 0 (clip)",
+      "head": "07 00 00 00 0c 00 00 00 01 00 00 00 00 00 00 00 00 40 8f 40",
+      "payload": "00 00 00 00 02 00 00 00 02 00 6e 30",
+      "expect": {
+        "type": 7,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 1,
+        "frame": 1000,
+        "payload": {
+          "table": 0,
+          "id": 2,
+          "name": "n0"
+        }
+      }
+    },
+    {
+      "group": "NAMES",
+      "name": "NAMES table 1 (bus)",
+      "head": "07 00 00 00 0c 00 00 00 02 00 00 00 00 00 00 00 00 40 8f 40",
+      "payload": "01 00 00 00 02 00 00 00 02 00 6e 31",
+      "expect": {
+        "type": 7,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 2,
+        "frame": 1000,
+        "payload": {
+          "table": 1,
+          "id": 2,
+          "name": "n1"
+        }
+      }
+    },
+    {
+      "group": "NAMES",
+      "name": "NAMES table 2 (event)",
+      "head": "07 00 00 00 0c 00 00 00 03 00 00 00 00 00 00 00 00 40 8f 40",
+      "payload": "02 00 00 00 02 00 00 00 02 00 6e 32",
+      "expect": {
+        "type": 7,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 3,
+        "frame": 1000,
+        "payload": {
+          "table": 2,
+          "id": 2,
+          "name": "n2"
+        }
+      }
+    },
+    {
+      "group": "NAMES",
+      "name": "NAMES table 3 (parameter)",
+      "head": "07 00 00 00 0c 00 00 00 04 00 00 00 00 00 00 00 00 40 8f 40",
+      "payload": "03 00 00 00 02 00 00 00 02 00 6e 33",
+      "expect": {
+        "type": 7,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 4,
+        "frame": 1000,
+        "payload": {
+          "table": 3,
+          "id": 2,
+          "name": "n3"
+        }
+      }
+    },
+    {
+      "group": "NAMES",
+      "name": "NAMES table 4 (snapshot)",
+      "head": "07 00 00 00 0c 00 00 00 05 00 00 00 00 00 00 00 00 40 8f 40",
+      "payload": "04 00 00 00 02 00 00 00 02 00 6e 34",
+      "expect": {
+        "type": 7,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 5,
+        "frame": 1000,
+        "payload": {
+          "table": 4,
+          "id": 2,
+          "name": "n4"
+        }
+      }
+    },
+    {
+      "group": "NAMES",
+      "name": "NAMES table 5 (target)",
+      "head": "07 00 00 00 0c 00 00 00 06 00 00 00 00 00 00 00 00 40 8f 40",
+      "payload": "05 00 00 00 02 00 00 00 02 00 6e 35",
+      "expect": {
+        "type": 7,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 6,
+        "frame": 1000,
+        "payload": {
+          "table": 5,
+          "id": 2,
+          "name": "n5"
+        }
+      }
+    },
+    {
+      "group": "NAMES",
+      "name": "NAMES 256 B name (the cap)",
+      "head": "07 00 00 00 0a 01 00 00 07 00 00 00 00 00 00 00 00 40 8f 40",
+      "payload": "05 00 00 00 10 00 00 00 00 01 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62",
+      "expect": {
+        "type": 7,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 7,
+        "frame": 1000,
+        "payload": {
+          "table": 5,
+          "id": 16,
+          "name": {
+            "repeat": "ab",
+            "count": 128
+          }
+        }
+      }
+    },
+    {
+      "group": "MIXOP",
+      "name": "MIXOP setBus volume 0.5 (direct, Music = busRef 0x101)",
+      "head": "08 00 00 00 21 00 00 00 01 00 00 00 00 00 00 00 00 40 8f 40",
+      "payload": "00 00 05 00 01 01 00 00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 e0 3f 00 00 00 00 00 40 8f 40 00",
+      "expect": {
+        "type": 8,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 1,
+        "frame": 1000,
+        "payload": {
+          "op": 0,
+          "class": 0,
+          "words": [
+            "0x101",
+            "0x0",
+            "0x3",
+            "0x0",
+            "0x3fe00000"
+          ],
+          "perfMs": 1000,
+          "origin": 0
+        }
+      }
+    },
+    {
+      "group": "INDEX",
+      "name": "INDEX with 0 entries",
+      "head": "7f 00 00 00 08 00 00 00 0a 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "00 00 00 00 00 00 00 00",
+      "expect": {
+        "type": 127,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 10,
+        "frame": 768,
+        "payload": {
+          "entries": [],
+          "truncatedFromSeq": 0
+        }
+      }
+    },
+    {
+      "group": "INDEX",
+      "name": "INDEX with 2 entries",
+      "head": "7f 00 00 00 30 00 00 00 0a 00 00 00 00 00 00 00 00 00 88 40",
+      "payload": "02 00 00 00 00 00 00 00 00 00 00 00 00 00 88 40 00 01 00 00 03 00 00 00 01 00 00 00 00 00 00 00 00 00 88 40 00 02 00 00 09 00 00 00 00 00 00 00",
+      "expect": {
+        "type": 127,
+        "flags": 0,
+        "epoch": 0,
+        "seq": 10,
+        "frame": 768,
+        "payload": {
+          "entries": [
+            {
+              "epoch": 0,
+              "frame": 768,
+              "byteOffset": 256,
+              "seq": 3
+            },
+            {
+              "epoch": 1,
+              "frame": 768,
+              "byteOffset": 512,
+              "seq": 9
+            }
+          ],
+          "truncatedFromSeq": 0
+        }
+      }
+    },
+    {
+      "group": "DEFERRED",
+      "name": "deferred EVENT kind 2 (stamp 200000 first, frame F_now 900)",
+      "head": "05 01 00 00 18 00 00 00 04 00 00 00 00 00 00 00 00 20 8c 40",
+      "payload": "00 00 00 00 00 6a 08 41 00 00 00 00 00 40 8f 40 02 01 01 00 07 00 00 00",
+      "expect": {
+        "type": 5,
+        "flags": 1,
+        "epoch": 0,
+        "seq": 4,
+        "frame": 900,
+        "stamp": 200000,
+        "payload": {
+          "perfMs": 1000,
+          "kind": 2,
+          "reason": 1,
+          "args": [
+            7
+          ]
+        }
+      }
+    }
+  ]
+}
