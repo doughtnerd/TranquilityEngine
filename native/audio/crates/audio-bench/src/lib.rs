@@ -1270,7 +1270,7 @@ impl Bench {
         b
     }
 
-    /// BUS_CONFIG, BUS_MIX and MASTER, the streams, the looping and first mixed voices.
+    /// BUS_CONFIG, the bus lanes (BUS_RAMP) and MASTER, the streams, the looping and first mixed voices.
     fn configure(&mut self) {
         let s = self.scene.clone();
         let mut buses = Vec::new();
@@ -1299,8 +1299,13 @@ impl Bench {
         }
         self.push(&wire::BusConfig { voice_id: 0, frame_offset: wire::ASAP, buses });
         let lp = if s.snapshot_lp { 6_000.0 } else { wire::BUS_LP_OFF_HZ as f32 };
-        let mix = wire::BusMix { voice_id: 0, frame_offset: wire::ASAP, ramp_frames: 0, buses: (0..s.buses).map(|_| wire::BusMixBuses { gain: 0.9, lp_hz: lp }).collect() };
-        self.push(&mix);
+        // What BUS_MIX of (0.9, lp) per bus was (B1a, 0171/0172 M5): per bus, an asap BUS_RAMP on
+        // the runtime lane's gain and one on the snapshot lane's low-pass (bit-identical, R3).
+        for bus in 0..s.buses as u32 {
+            for (lane, mask) in [(wire::LANE_RUNTIME, wire::BUS_RAMP_MASK_GAIN), (wire::LANE_SNAPSHOT, wire::BUS_RAMP_MASK_LP_HZ)] {
+                self.push(&wire::BusRamp { voice_id: bus, frame_offset: wire::ASAP, lane: lane as u16, mask, gain: 0.9, lp_hz: lp, frames: 0, shape: 0 });
+            }
+        }
         self.push(&wire::Master { voice_id: 0, frame_offset: wire::ASAP, volume: 0.5, muted: 0, ramp_frames: 0 });
         if s.beds > 0 {
             // One bed: hosted by bus 0. More: bed k by bus 1 + k (each a child of bus 0); bus 0 hosts none.
@@ -2137,7 +2142,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusMix, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps).

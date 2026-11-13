@@ -463,11 +463,22 @@ fn s_direction_sends() {
     s.finish((0, 1), None);
 }
 
+/// The BUS_MIX record `golden/m4-s-bus.json` carries in its steps (the TypeScript golden runner
+/// replays those bytes, so they stay until R0 retires BUS_MIX and the fixture's steps are rewritten
+/// to `BUS_RAMP`; its digest is unchanged by that, R3).
+fn legacy_bus_mix(gains: &[f32]) -> Rec {
+    let rec = wire::BusMix { voice_id: 0, frame_offset: wire::ASAP, ramp_frames: 0, buses: gains.iter().map(|&gain| wire::BusMixBuses { gain, lp_hz: OFF }).collect() };
+    let mut b = vec![0u8; 256];
+    let n = rec.write(&mut b, 0).unwrap();
+    b.truncate(n);
+    Rec::Raw(b)
+}
+
 #[test]
 fn s_bus() {
     let mut s = Scene::new("m4-s-bus", "voice 3 moves from bus 1 (gain 0.5) to bus 2 (gain 0.25) at sample 50");
     s.noise();
-    s.send(&[config(&[ROOT, 0, 0]), gains(0, &[1.0, 0.5, 0.25]), played(V1, DC, MIXED | LOOP, 0.1), played(V2, DC, MIXED | LOOP, 0.1), play_at(V3, NOISE, 1, MIXED, 0.5, wire::ASAP)]);
+    s.send(&[config(&[ROOT, 0, 0]), legacy_bus_mix(&[1.0, 0.5, 0.25]), played(V1, DC, MIXED | LOOP, 0.1), played(V2, DC, MIXED | LOOP, 0.1), play_at(V3, NOISE, 1, MIXED, 0.5, wire::ASAP)]);
     s.run(1);
     s.send(&[bus_at(V3, 2, K)]);
     s.run(3);

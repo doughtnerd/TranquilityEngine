@@ -1,5 +1,6 @@
 //! Linear parameter ramps (api-and-models §4.2: "Only SET_PARAMS, FADE, BUS_MIX and MASTER ramp";
-//! architecture §4.3: `rampFrames` is chosen by the host).
+//! architecture §4.3: `rampFrames` is chosen by the host; 0171/0172 M5: each bus gain lane of
+//! `BUS_RAMP` is one, and an asap ramp on a lone lane is exactly [`Ramp::next`]'s arithmetic, R3).
 //!
 //! A [`Ramp`] moves a value linearly from where it is to a target over a whole number of frames.
 //! The first frame of a ramp already moves (so no frame is wasted at the start), and the last
@@ -92,6 +93,12 @@ impl Ramp {
     /// `true` when `remaining == 0`.
     pub fn is_settled(&self) -> bool {
         self.remaining == 0
+    }
+
+    /// `true` when settled at exactly 1: a gain at identity, which a gain stage skips rather than
+    /// multiplies by (R3: bit-identical, NaN payloads and all).
+    pub fn is_unity(&self) -> bool {
+        self.remaining == 0 && self.value == 1.0
     }
 }
 
@@ -233,6 +240,18 @@ mod tests {
         assert_eq!(ramp.step, 0.25);
         ramp.retarget(0.1, 0);
         assert_eq!(ramp.step, 0.25, "0 frames: no change");
+    }
+
+    #[test]
+    fn is_unity_only_when_settled_at_one() {
+        assert!(Ramp::at(1.0).is_unity());
+        assert!(!Ramp::at(0.5).is_unity());
+        assert!(!Ramp::default().is_unity());
+        let mut ramp = Ramp::at(1.0);
+        ramp.set_target(1.0, 4);
+        assert!(!ramp.is_unity(), "moving, even towards 1");
+        ramp.advance(4);
+        assert!(ramp.is_unity());
     }
 
     #[test]
