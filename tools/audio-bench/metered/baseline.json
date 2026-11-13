@@ -1,7 +1,7 @@
 {
   "note": "Wasm instructions per quantum of audio-bench scenes in the metered build (ADR 0157 C1b). Rewrite with UPDATE_METERED_BASELINE=1 node tools/audio-bench/metered-gate.mjs.",
   "meterVersion": 1,
-  "sourceHash": "f4a54201e6bc8a0090e3a29f56184a27",
+  "sourceHash": "a73ecef1e8132a20a3452c2813bd7666",
   "settings": {
     "seconds": 2,
     "warmup": 1,
@@ -495,6 +495,56 @@
       "p99": 20723820,
       "max": 20814234,
       "wuMean": 1401540,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "busramp-8-base": {
+      "quanta": 750,
+      "perQuantum": 1356227,
+      "total": 1017169905,
+      "p99": 1361551,
+      "max": 1361566,
+      "wuMean": 118361,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "busramp-8": {
+      "quanta": 750,
+      "perQuantum": 1398768,
+      "total": 1049076338,
+      "p99": 1413309,
+      "max": 1413373,
+      "wuMean": 118361,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "busramp-8-twin": {
+      "quanta": 750,
+      "perQuantum": 1395993,
+      "total": 1046994435,
+      "p99": 1401359,
+      "max": 1401374,
+      "wuMean": 118361,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "busramp-32-base": {
+      "quanta": 750,
+      "perQuantum": 1748971,
+      "total": 1311728460,
+      "p99": 1751590,
+      "max": 1751605,
+      "wuMean": 137460,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "busramp-32": {
+      "quanta": 750,
+      "perQuantum": 1770215,
+      "total": 1327661565,
+      "p99": 1777390,
+      "max": 1777408,
+      "wuMean": 137460,
       "splitQuanta": 0,
       "voiceSplits": 0
     }
