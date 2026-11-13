@@ -27,6 +27,7 @@ import type { Vec3Like } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { AudioReverbZone } from "./AudioReverbZone";
 import type { Mixer, ResolvedBus } from "../../../engine/audio/mixer";
+import { BABYLON_CPU_REASON, babylonCpuDebug, babylonMixDebug } from "./mix/mixDebug";
 import { mixer, registerDefaultBackend, resolveBackendKind, type AudioBackend, type AudioBackground, type AudioDebugInfo, type AudioM3Counters, type AudioMixCaps, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicGroupRequest, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type FadeLaw } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
 import { DistanceEffect, SendCurveTable, SpatialViewFlag, type SpatialPassHost, type SpatialVoiceView } from "./core/spatial";
@@ -779,7 +780,7 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
     loudness: false,
     levelDucking: false,
     cpu: false,
-    cpuReason: "Babylon fallback has no audio core",
+    cpuReason: BABYLON_CPU_REASON,
     stampedBusRamps: false,
     capture: "mainSideOnly",
   };
@@ -1239,6 +1240,11 @@ export class BabylonBackend implements AudioBackend, SpatialPassHost {
       // ADR 0162 §1.6 (D5): what applies here. Beds, zones, ambisonic voices and the ladder don't exist on this fallback.
       occlusion: this.occlusion.debug(),
       core: { backend: "babylon", voices: n, buffers: this.liveNow?.buffers.size ?? 0, context: this.ctx?.state ?? "none" },
+      // ADR 0171 (Dbg1; §1.3, §9): the fallback's inert M5 sections.
+      mixCaps: { ...this.mixCaps },
+      cpu: babylonCpuDebug(),
+      mix: babylonMixDebug(mixer, mixer.busNames),
+      recorder: null,
     };
   }
 
