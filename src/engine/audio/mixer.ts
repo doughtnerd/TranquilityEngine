@@ -332,9 +332,8 @@ export class Mixer {
    * bus's list index is not its slot once a bus is removed or added into a recycled slot: consumers read `BusLanes.slot`
    * or the slot table (§4.7). A removed bus and its descendants leave the model at once; with `keepTombstones` (the core
    * path's structural dip, §3.3) their state is held by slot until the slot recycles (`_tombstoneLanes`). Authored
-   * volume ramps over `DRAG_RAMP_MS`, asap; authored mute toggles; an edit
-   * of the active snapshot retargets its lane over `SNAPSHOT_EDIT_MS`; a rename keeps the bus's state and aliases the
-   * old name. Every runtime value (script volume, fades, mutes, solo, monitor controls, the snapshot in force) stays.
+   * volume ramps over `DRAG_RAMP_MS`, asap; authored mute toggles; an edit of the active snapshot retargets its lane
+   * over `SNAPSHOT_EDIT_MS`; a rename keeps the bus's state and aliases the old name. Every runtime value (script volume, fades, mutes, solo, monitor controls, the snapshot in force) stays.
    * Returns false when the op is refused or changes nothing.
    */
   _applyLive(op: MixOp, slot = -1, keepTombstones = false): boolean {

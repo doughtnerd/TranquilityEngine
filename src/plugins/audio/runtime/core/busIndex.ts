@@ -12,8 +12,10 @@
 // - **One map.** `busIndexByName` (name → slot, plus a live rename's old name) is the map the lane writer, automation,
 //   presence's slots, the aux sends and the plays read; `names` is slot → name; the bed plan's parents and `BUS_CONFIG`'s
 //   tree (`busConfigWire`, also the hard rebuild's replay) come from the table.
-// - **Slot order.** The mixer keeps its running tree in slot order (`Mixer._applyLive` appends an added bus), so a
-//   consumer that walks `mixer.busNames` by index walks slots.
+// - **Slot, not position.** `mixer.busNames` is the project's buses (a removed bus leaves it at once, an added one is
+//   appended), so after a live remove or an add into a recycled slot a bus's position there is not its slot: every
+//   consumer reads the slot from this map or `BusLanes.slot` (G7c). The mixer holds a tombstone's state by slot
+//   (`Mixer._tombstoneLanes`) until the slot recycles, for the replay's dip lane.
 import type { Mixer, ResolvedBus } from "../../../../engine/audio/mixer";
 import { MAX_BUSES, type AudioSettings, type BusEffect } from "../../../../engine/audio/settings";
 import { SlotTable, type SlotDeferred } from "../../../../engine/audio/slotTable";
