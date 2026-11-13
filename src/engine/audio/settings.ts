@@ -48,7 +48,15 @@ export interface BusSettings {
   bed?: BusBed;
   /** ADR 0162 §2.1: 0..255, higher wins a bed slot. Absent: the root 255, others 128; read it with `busBedPriority`. Inert until beds (A4). */
   bedPriority?: number;
+  /**
+   * ADR 0171 §2.1 (types from K0; parse Ld5): `"loudness"` meters the bus (at most `MAX_LOUDNESS_BUSES` non-root buses;
+   * the root is always metered). Absent (never written when off): not metered.
+   */
+  meter?: BusMeter;
 }
+
+/** ADR 0171 §2.1: a bus's `meter` value. */
+export type BusMeter = "loudness";
 
 export type BusBed = "own" | "parent" | "none";
 export const BUS_BEDS = ["own", "parent", "none"] as const;
@@ -62,16 +70,46 @@ export interface SnapshotSettings {
   lowpass: Record<string, number>;
 }
 
-/** Lowers `target` while `trigger` has sounds playing: music under voice. */
+/**
+ * Lowers `target` while `trigger` has sounds playing (`mode: "presence"`) or while its level is over `threshold`
+ * (`mode: "level"`, ADR 0171 §2.1): music under voice.
+ */
 export interface DuckingRule {
   target: string;
   trigger: string;
+  /**
+   * ADR 0171 §2.1 (types from K0; parse Sa1): `"presence"` ducks while the trigger has voices, `"level"` while its
+   * measured level is over `threshold`. Required once Sa1's parse lands (a rule without it is dropped); optional here
+   * so today's parse compiles.
+   */
+  mode?: DuckingMode;
+  /** ADR 0171 §2.1: the level detector, `"rms"` by default (level rules only). */
+  detector?: DuckingDetector;
+  /** ADR 0171 §2.1: dBFS, -80..0, default -30 (level rules only). */
+  threshold?: number;
   /** Volume multiplier on the target while ducked, 0..1 (0.4 = down 60%). */
   amount: number;
   /** Seconds to reach the ducked level. */
   attack: number;
   /** Seconds to come back. */
   release: number;
+}
+
+/** ADR 0171 §2.1: a ducking rule's `mode`. */
+export type DuckingMode = "presence" | "level";
+/** ADR 0171 §2.1: a level rule's detector. */
+export type DuckingDetector = "peak" | "rms";
+
+/** ADR 0171 §2.1: one entry of `audio.loudnessTargets` (types from K0; parse Ld5). */
+export interface LoudnessTarget {
+  /** Unique, non-empty, up to 32 characters. */
+  name: string;
+  /** Integrated loudness goal, LUFS, -70..0. */
+  integrated: number;
+  /** LU either side of `integrated`, 0..12, default 2. */
+  tolerance: number;
+  /** True-peak ceiling, dBTP, -20..0, default -1. */
+  truePeak: number;
 }
 
 /** ADR 0158 §3: a bus property driven by a global parameter through a curve. Multiplies with snapshots and ducking (volume) or takes the lowest cutoff (lowpass). */
@@ -131,6 +169,13 @@ export interface AudioSettings {
    * back into `Audio.latency`. Default false. A change at runtime rebuilds the context (`AudioHost.reconfigure`).
    */
   rhythmMode: boolean;
+  /**
+   * ADR 0171 §2.1 (types from K0; parse Ld5): the loudness targets, 1..8 entries, the first the default. Absent: the
+   * owner's two defaults (`console`, `mobile`).
+   */
+  loudnessTargets?: LoudnessTarget[];
+  /** ADR 0171 §2.1 (types from K0; parse Ld5): reset the loudness meters at the editor's Play. Absent: true. */
+  loudnessResetOnPlay?: boolean;
 }
 
 /** `audio.music` (ADR 0166 §2.1). */

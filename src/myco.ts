@@ -176,6 +176,7 @@ export {
 export { Audio, AudioSource, AudioListener, AudioOccluder, AudioReverbZone, DEFAULT_SEND_CURVE, type AudioHandle, type AudioEventHandle, type EventOptions, type AudioStatus, type AudioReason, type AudioPanner, type SendCurve, type AudioDebugInfo, type AudioBedDebug, type AudioZoneDebug, type AudioOcclusionDebug, type AudioMemoryDebug, type AudioVoiceM3Debug, type AudioM3Counters, type OneShotOptions, type Rolloff, type Bus } from "./plugins/audio/runtime";
 // Interactive music (ADR 0166 §1, amended by 0167): handle.music, beat callbacks, calibration.
 export { Calibration, type GridSpec, type GridPoint, type MusicEvent, type MusicKind, type MusicHandle, type MusicPositionAt, type MusicSeekResult, type CalibrationResult, type AudioLatency, type MusicDebugRow, type MusicDebugPending, type MusicDebugState, type MusicDebugTotals } from "./plugins/audio/runtime";
+export type { AudioCapture, AudioCaptureState, AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioRecorderDebug } from "./plugins/audio/runtime";
 
 // Interactive-music types, exported as types only (ADR 0168): a script can name them in annotations, and nothing
 // reaches the runtime bundle. The handle and event types, then the music format's node model and rules.

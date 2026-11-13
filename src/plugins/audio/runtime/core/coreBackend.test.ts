@@ -609,7 +609,12 @@ describe("CoreBackend: ducking counts and Bus.peak (A2.3)", () => {
     r.frame();
     expect(r.backend.table.state[idx(v.id)]).toBe(VoiceState.VIRTUAL);
     expect(r.mixer.bus("Voice").activeVoices).toBe(1);
-    for (let i = 0; i < 60; i++) r.mixer.update(0.1);
+    // ADR 0171 (K0, Mx1's H2): a running core puts the mixer on the heard clock, so the 6 s pass on it, frame by frame.
+    for (let i = 0; i < 60; i++) {
+      r.clock.advance(100);
+      r.backend.beginFrame();
+      r.mixer.update(0.1);
+    }
     expect(r.mixer.bus("Music").effectiveGain).toBeCloseTo(0.4, 2);
   });
 

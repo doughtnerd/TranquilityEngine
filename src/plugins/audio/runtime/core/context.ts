@@ -14,6 +14,7 @@ import { musicInitParams, spatialInitParams } from "./initParams";
 import { loadCoreWasm, workletModuleUrl, type CoreWasm } from "./loader";
 import { Unlock } from "./unlock";
 import type { DeviceSnapshot } from "./deviceChange";
+import type { RecorderTap } from "../backend";
 
 /** @internal §2.1's states as `Audio.status` reports them. */
 export type HostStatus = "locked" | "running" | "failed";
@@ -129,6 +130,12 @@ export class CoreLink {
    * `StatusReader` that fills one preallocated block (the block is then reused: listeners must not keep it).
    */
   statusDecoder: (buffer: ArrayBuffer) => StatusBlock = readStatus;
+  /**
+   * ADR 0171 (K0; Rc2 sets it from `capture/recorder.ts` through `capture/capture.ts`): the recorder's raw copy of each
+   * STATUS block, called after the decode and before the RECYCLE, with the envelope's total bytes. Null when no recorder
+   * runs: a null check, no allocation. Never import the recorder here.
+   */
+  recorderTap: RecorderTap | null = null;
 
   private seq = 0;
   private pingSeq = 0;
@@ -242,6 +249,8 @@ export class CoreLink {
       } catch {
         // A block we can't read still goes back, or the shell's pool shrinks.
       }
+      // ADR 0171 (K0): the recorder copies the raw block here, before RECYCLE overwrites its envelope and transfers it.
+      this.recorderTap?.(data, 16 + view.getUint32(12, true));
       // §4.3: return the buffer at once with RECYCLE (the transfer is the message), before anything else runs.
       writeEnvelope(view, 0, { kind: Kind.RECYCLE, seq: this.nextSeq(), bodyBytes: 0 });
       this.port.postMessage(data, [data]);
