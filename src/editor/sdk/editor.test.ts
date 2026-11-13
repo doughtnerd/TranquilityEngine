@@ -111,5 +111,9 @@ describe("myco/editor", () => {
   it("exports the surface and the building blocks plugins use, not the shell's signals", () => {
     for (const name of ["editor", "openAssetDocument", "SetField", "pathKey", "sectionField", "LargePreview", "TextField", "NumberField", "theme", "persisted", "useGraphCanvas"]) expect(sdk).toHaveProperty(name);
     for (const name of ["currentProject", "docVersion", "status", "openScene", "selectedKeys"]) expect(sdk).not.toHaveProperty(name);
+    // ADR 0173: the Project Settings section's narrow surface, not the section itself.
+    for (const name of ["draft", "edit", "undo", "redo", "canUndo", "canRedo", "version"]) expect(editor.project.settings).toHaveProperty(name);
+    for (const name of ["open", "history", "reset", "refresh"]) expect(editor.project.settings).not.toHaveProperty(name);
+    for (const name of ["projectSettings", "createProjectSettingsSection"]) expect(sdk).not.toHaveProperty(name);
   });
 });

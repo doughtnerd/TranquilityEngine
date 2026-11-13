@@ -2,6 +2,7 @@
 // paths, creating a file, and what a path is, so a plugin's editor half never reads the shell's signals (state.ts) itself.
 // Reading `editor.project.current` or `editor.project.version` inside a component, `computed` or `effect`
 // tracks it, as reading the signal would.
+import { computed, untracked } from "@preact/signals";
 import type { ImportSettings } from "../../engine/scene/importSettings";
 import { readImportSettings, showAsset } from "../assetImport";
 import { assetKind, type AssetKind } from "../assetKindLookup";
@@ -12,9 +13,31 @@ import { joinPath } from "../projectPaths";
 import { isScenePath, type EditorProject } from "../projects";
 import { currentProject, docVersion } from "../state";
 import { onSectionChanged, type SectionChange } from "../sectionChanged";
+import { projectSettings } from "../projectSettingsInstance";
+import type { SettingsDraft } from "../projectSettingsModel";
 import { messages } from "./messages";
 
-export type { AssetKind, EditorProject, SectionChange };
+export type { AssetKind, EditorProject, SectionChange, SettingsDraft };
+
+/**
+ * The project's settings as the Project Settings panel edits them (ADR 0173): its draft, one-step edits and its undo
+ * history, the panel's own (one instance, `projectSettingsInstance.ts`), so an edit or undo here is one in the panel and
+ * the reverse. Works whether or not the panel is open: the session for the open project opens on demand and the panel
+ * shares it. With no project open the draft is empty and edits, undo and redo do nothing.
+ */
+export interface ProjectSettingsSurface {
+  /** The current settings draft (a deep copy). */
+  draft(): SettingsDraft;
+  /** Commit `next` as one undo step named `label` in the Project Settings history (the panel's own); resolves when saved or failed. */
+  edit(label: string, next: SettingsDraft): Promise<void>;
+  /** Step the Project Settings history (what the panel's Undo/Redo do). */
+  undo(): void;
+  redo(): void;
+  canUndo(): boolean;
+  canRedo(): boolean;
+  /** Bumped on every draft change (an edit, an undo, an outside change). Tracks, like `version`. */
+  readonly version: number;
+}
 
 /** What `project.createFile` writes: a new file in `folder`, named `name` or the first free "<base> 2", "<base> 3"… */
 export interface CreateFileOptions {
@@ -48,6 +71,8 @@ export interface ProjectSurface {
    * draft with problems and never for a preview that skips the undo history. Returns the unsubscribe. Not `changed()`.
    */
   onSectionChanged(key: string, listener: (change: SectionChange) => void): () => void;
+  /** The project's settings draft, its one-step edits and the Project Settings undo history (ADR 0173). */
+  readonly settings: ProjectSettingsSurface;
   /** True (after an info message naming `what`, plural) when the project is read-only (a sample). */
   refuseReadOnly(project: EditorProject, what: string): boolean;
   /**
@@ -62,6 +87,52 @@ export interface ProjectSurface {
   joinPath(root: string, path: string): string;
 }
 
+/** The shell section's session for the open project (opened on demand, shared with the panel), or null with none open. */
+function settingsSession() {
+  const p = currentProject.peek();
+  return p ? projectSettings.open(p) : null;
+}
+
+// `settings.version` counts the draft changes it has seen. The section bumps on an edit, undo, redo or save; the project
+// (`docVersion`) on a file change, after which opening the session reads an outside change to the section's keys again
+// (a new draft); another project is a new draft too.
+let seenDraft: unknown = undefined;
+let seenSectionVersion = -1;
+let draftChanges = 0;
+const settingsVersion = computed(() => {
+  const sectionVersion = projectSettings.version.value;
+  void docVersion.value;
+  const p = currentProject.value;
+  const draft = p ? untracked(() => projectSettings.open(p).draft) : null;
+  if (draft !== seenDraft || sectionVersion !== seenSectionVersion) {
+    seenDraft = draft;
+    seenSectionVersion = sectionVersion;
+    draftChanges++;
+  }
+  return draftChanges;
+});
+
+const settings: ProjectSettingsSurface = {
+  draft: () => {
+    const s = settingsSession();
+    return s ? structuredClone(s.draft) : {};
+  },
+  edit: (label, next) => settingsSession()?.edit(label, next) ?? Promise.resolve(),
+  undo: () => void settingsSession()?.undo(),
+  redo: () => void settingsSession()?.redo(),
+  canUndo: () => {
+    const s = settingsSession();
+    return !!s && s.project.canSave && s.canUndo;
+  },
+  canRedo: () => {
+    const s = settingsSession();
+    return !!s && s.project.canSave && s.canRedo;
+  },
+  get version() {
+    return settingsVersion.value;
+  },
+};
+
 export const project: ProjectSurface = {
   get current() {
     return currentProject.value;
@@ -75,6 +146,7 @@ export const project: ProjectSurface = {
     docVersion.value++;
   },
   onSectionChanged,
+  settings,
   refuseReadOnly(p, what) {
     if (p.canSave) return false;
     messages.info(`${p.name} is read-only. Open a project folder (or copy the sample) to add ${what}.`);

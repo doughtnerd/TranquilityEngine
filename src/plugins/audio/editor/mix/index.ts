@@ -4,7 +4,7 @@
 //
 // W8 slot fills for the Profiler panel (contract H5; see the top of `ProfilerPanel.tsx`) go in the marked block below,
 // one import and one line each, so no task edits `ProfilerPanel.tsx`.
-import type { EditorPluginContext } from "../../../../editor/sdk";
+import { editor, type EditorPluginContext, type ProjectSettingsSurface, type SettingsDraft } from "../../../../editor/sdk";
 import type { OpLogEntry } from "./opLog";
 import type { CaptureLoudnessTarget } from "../../runtime/capture/format";
 
@@ -31,7 +31,8 @@ function loadMixer(): Promise<typeof import("./MixerPanel")["MixerPanel"]> {
   mixerReady ??= (async () => {
     const [m, { audioBackend }, { opLogEntries }] = await Promise.all([import("./MixerPanel"), import("../../runtime/backend"), import("../index")]);
     wireMixerHost(m.mixerHost, { flushNow: () => audioBackend().flushNow?.(), entries: opLogEntries });
-    // `mixerHost.section` waits for the SDK surface of ADR 0173 (the shell's Project Settings section): until then the panel reads the draft.
+    // ADR 0173: the fader's one undo step goes into the Project Settings history, the panel's own.
+    m.mixerHost.section = mixerSectionOf(editor.project.settings);
     return m.MixerPanel;
   })();
   return mixerReady;
@@ -47,6 +48,28 @@ export interface MixerHostSources {
 export function wireMixerHost(host: { flushNow: (() => void) | null; entries: (() => readonly OpLogEntry[]) | null }, sources: MixerHostSources): void {
   host.flushNow = () => sources.flushNow();
   host.entries = () => sources.entries();
+}
+
+/**
+ * The Mixer panel's view of the Project Settings section (`MixerSection`) over the SDK's `editor.project.settings`
+ * (ADR 0173): its draft and edits, its history for Ctrl+Z while the panel is focused, and its version. The surface follows
+ * the open project, so `open` ignores its argument. The surface names no steps, so the history's labels are null.
+ */
+export function mixerSectionOf(settings: ProjectSettingsSurface): import("./MixerPanel").MixerSection {
+  const session = { get draft() { return settings.draft(); }, edit: (label: string, next: SettingsDraft) => settings.edit(label, next) };
+  return {
+    open: () => session,
+    history: {
+      name: "Project Settings",
+      get canUndo() { return (settings.version, settings.canUndo()); },
+      get canRedo() { return (settings.version, settings.canRedo()); },
+      undoLabel: null,
+      redoLabel: null,
+      undo: () => settings.undo(),
+      redo: () => settings.redo(),
+    },
+    version: { get value() { return settings.version; } },
+  };
 }
 
 let profilerReady: Promise<typeof import("./ProfilerPanel")["ProfilerPanel"]> | null = null;
