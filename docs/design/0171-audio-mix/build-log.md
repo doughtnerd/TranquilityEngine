@@ -14,6 +14,8 @@ The coordinator's log of each wave review ([waves plan, "Wave reviews"](../../pl
 
 **Needs you:** the M5-0 listening section, [`listening-notes/m5-0.md`](listening-notes/m5-0.md) (steps S0–S6, about 15 minutes, headphones); WebKit/Firefox runs (not installed here). Neither holds the build.
 
+**Owner decisions (2026-11-13, after W7, "I approve of all recommendations"):** the coordinator may push `m5/*` task branches (held work survives a container restart); wave-end checks run the audio and editor e2e specs, the full e2e at milestone ends (ground rules updated); at most 6–8 agents at once, shared interfaces fixed before launch; the known timing-flaky tests get a deflake task early in W8; small judgment calls are settled by the coordinator and logged. The environment can't be enlarged (4 cores).
+
 ## Decisions
 
 | # | Decision | Why | Revert |
