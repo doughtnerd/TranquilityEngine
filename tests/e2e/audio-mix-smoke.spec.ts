@@ -344,7 +344,8 @@ test("M5a smoke: a capture starts, stops, is saved and is non-empty", async ({ p
     }
     expect(types.length, "the header's record count is the records").toBe(recordCount);
     expect(types[0], "EPOCH start leads").toBe(0x01);
-    expect(types[1], "then a KEYFRAME").toBe(0x04);
+    // The keyframe's names (NAMES, 0x07) come before it, since the keyframe refers to them (G7b's keyframe source).
+    expect(types.slice(1).find((t) => t !== 0x07), "then a KEYFRAME, after the NAMES it refers to").toBe(0x04);
     expect(types[types.length - 1], "the INDEX closes the file").toBe(0x7f);
     expect(types.filter((t) => t === 0x04).length, "a keyframe a second of rendered frames").toBeGreaterThanOrEqual(3);
     expect(marker).toBe("smoke marker");

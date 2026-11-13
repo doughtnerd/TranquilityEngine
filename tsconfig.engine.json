@@ -10,5 +10,5 @@
     "outDir": "./dist/engine/types"
   },
   "include": ["src/myco.ts", "src/engine/**/*", "src/plugins/manifest.ts", "src/plugins/order.ts", "src/plugins/runtimeContext.ts", "src/plugins/*/manifest.ts", "src/plugins/*/runtime/**/*"],
-  "exclude": ["src/engine/tests/**/*", "src/engine/editor/**/*", "src/plugins/**/*.test.ts"]
+  "exclude": ["src/engine/tests/**/*", "src/engine/editor/**/*", "src/plugins/**/*.test.ts", "src/plugins/**/*.bench.ts"]
 }
