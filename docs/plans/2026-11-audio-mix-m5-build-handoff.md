@@ -34,9 +34,12 @@ Written 2026-11-13, at the end of the session that ran `plan-milestone-build` on
 - **Changes from the table** (each a file handover or a missing dependency; the waves plan lists them with reasons): B1b after B2; Dp1 after Mx1; Ld5 after Mo1 and Sa1; Dk1 after Ld5; E2 after Ld2 and Ld7; Ck1 after Rv1; Dbg1 after Sm1; Ls1 after E1, E2, E3 and X3; Pf4 codes against K0's `Audio.capture` surface instead of waiting for Rc4 (E1 gains Rc4); Wa1's merge carries the three hard-coded STATUS sizes; Rv1 works in `sends.rs` only.
 - Tripwires (mixer size, metered gate, allowances, the recorder's 1 ms, drawing and seek targets) are never a flip's gate or a task's acceptance; the capture decode caps are security bounds, never raised.
 
-## Open (for the owner)
+## Open (decided)
 
-| # | Decision | Recommendation | Needed by |
+All seven decided by the owner on 2026-11-13 ("Yes, merge it. Let's begin"), as recommended; O4 read as confirming M4's answer (emulator only, no real phone). Correct the build log if that reading is wrong.
+
+
+| # | Decision | Recommendation (decided: yes) | Needed by |
 |---|---|---|---|
 | O1 | Concurrency: up to **three strongest leads and six mid leads** at once | **yes**, as M4. Two strongest: ≈ 75 table-days; three: ≈ 60–64; four: ≈ 58–61 (all plan est.). A fourth moves M5-0 earlier (≈ 25 against ≈ 26–32) but not the end, which the mid-level profiler chain and M5d's serial tail bind; eight mid leads gain nothing | W1 |
 | O2 | Milestones to master **as soon as each completes, by merge commit** (M4's standing instruction) | **yes**, unchanged from M4 | M5-0's merge (W4) |
