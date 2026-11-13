@@ -6,22 +6,42 @@
 //! then the lowest index. With no level rules this is exactly the pre-M5 order (by depth, deepest
 //! first, ties by index), so unstamped goldens stay identical. Presence rules add no edge (their
 //! input is a flag, not a buffer). A level cycle that reaches the core drops its last edge in rule
-//! order (that rule reads the previous quantum; `sidechainLate`, set by `duck.rs`).
+//! order: the level edges are added one at a time in rule order and an edge whose addition would
+//! close a cycle is dropped; that rule reads the previous quantum (`duck::FLAG_LATE`, and
+//! `sidechainLate` counts the quanta its detector reads late, Sc1).
 //!
-//! **Who fills what.** K1 (W1): [`compute`] is the pre-M5 `bus.rs` `order()`, moved verbatim.
-//! B3 (W3): Kahn with the level edges from `duck.rs`'s rule table, called again from `BUS_DUCK`
-//! and (B2) `BUS_SLOT` re-parents.
+//! **Who fills what.** K1 (W1): the pre-M5 `bus.rs` `order()`, moved verbatim. B3 (W3): Kahn
+//! ([`compute_with`], leaf L-B3a) with the level edges of `duck.rs`'s rule table, and [`rerun`],
+//! the re-run that validates the rules against the tree, orders and marks the late rules, called
+//! from `BUS_DUCK` (`duck::on_rules`), `BUS_SLOT` (`bus_slots::on_slot`) and `BUS_CONFIG`
+//! (`bus::configure`, the coordinator's line: it still calls the tree-only [`compute`]).
 //!
-//! Runs in `onmessage`, never inside `process`; nothing allocates (at most 256 buses).
+//! Runs in `onmessage`, never inside `process`; nothing allocates (at most 256 buses, 8 level
+//! edges: fixed arrays on the stack).
 
-use crate::bus::BusSlot;
+use crate::bus::{self, BusSlot};
+use crate::core::Core;
+use crate::duck::{self, Rule};
 
-/// Writes the mix order into `out` (`out.len()` = the configured buses = `slots.len()`): bus
-/// indices by depth, deepest first, ties by index (stable insertion sort). Each slot's `depth` is
-/// set (`bus.rs`'s tree repair). K1: the pre-M5 order, verbatim. B3: Kahn's algorithm over the
-/// tree's child → parent edges and the level rules' trigger → target edges (a new parameter for
-/// the rule table), equal to this order when there is no level rule.
+/// Writes the tree-only mix order into `out` (`out.len()` = the configured buses =
+/// `slots.len()`): [`compute_with`] with no rule, which is the pre-M5 order (bus indices by depth,
+/// deepest first, ties by index). Each slot's `depth` must be set (the tree repair).
 pub fn compute(slots: &[BusSlot], out: &mut [u8]) {
+    compute_with(slots, &[], out);
+}
+
+/// Writes the mix order into `out` (`out.len()` = `slots.len()` ≤ 256) by Kahn's algorithm over
+/// the tree's child → parent edges (a parent that is `ROOT` or out of range adds none) and one
+/// trigger → target edge for each rule of `rules` that is a level rule (`Rule::is_level`), not
+/// inert (`Rule::is_inert`) and names two distinct buses below `slots.len()`. Among the ready
+/// buses it takes the deepest (`BusSlot::depth`), then the lowest index; with no such edge this is
+/// exactly the pre-M5 order. Level edges are added in rule order, and an edge whose addition would
+/// close a cycle (its target already reaches its trigger) is dropped. Returns the dropped rules as
+/// a mask (bit `i` = `rules[i]`; `rules.len()` ≤ 32). Nothing allocates.
+///
+/// L-B3a fills this body; until then it is the pre-M5 order and drops nothing.
+pub fn compute_with(slots: &[BusSlot], rules: &[Rule], out: &mut [u8]) -> u32 {
+    let _ = rules;
     for (i, o) in out.iter_mut().enumerate() {
         *o = i as u8;
     }
@@ -32,4 +52,41 @@ pub fn compute(slots: &[BusSlot], out: &mut [u8]) {
             j -= 1;
         }
     }
+    0
+}
+
+/// Re-runs the order for the configured tree and the stored rule table (`BUS_DUCK`, a `BUS_SLOT`,
+/// `BUS_CONFIG`): validates each rule against the tree (`duck::validate`: inert rules), computes
+/// the order with the level edges ([`compute_with`]) into `BusArea::order`, sets each rule's
+/// `duck::FLAG_LATE` from the dropped mask, and sets the levels `duckRulesInert` and
+/// `duckEdgesDropped`. The slots' depths must be current. Nothing allocates.
+pub fn rerun(core: &mut Core) {
+    let regions = core.regions_mut();
+    // The duck region is borrowed apart from the bus view (distinct regions); it is put back below.
+    let duck_bytes = core::mem::take(&mut regions.duck);
+    let (inert, dropped) = {
+        let v = bus::view(regions);
+        let count = (v.area.count as usize).clamp(1, v.slots.len()).min(v.area.order.len());
+        match duck::area(&mut *duck_bytes) {
+            Some(d) => {
+                let n = (d.rule_count as usize).min(duck::MAX_RULES);
+                let rules = &mut d.rules[..n];
+                let inert = duck::validate(rules, &v.slots[..count]);
+                let late = compute_with(&v.slots[..count], rules, &mut v.area.order[..count]);
+                for (i, r) in rules.iter_mut().enumerate() {
+                    r.set_late(late & (1 << i) != 0);
+                }
+                (inert, late.count_ones())
+            }
+            None => {
+                compute(&v.slots[..count], &mut v.area.order[..count]);
+                (0, 0)
+            }
+        }
+    };
+    let regions = core.regions_mut();
+    regions.duck = duck_bytes;
+    let mix = &mut crate::status::counters_mut(core).mix;
+    mix.duck_rules_inert = inert as u16;
+    mix.duck_edges_dropped = dropped as u16;
 }
