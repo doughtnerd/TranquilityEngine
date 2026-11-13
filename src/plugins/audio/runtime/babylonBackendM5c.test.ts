@@ -337,6 +337,7 @@ describe("BabylonBackend debug and panel rows (§9)", () => {
     const mix = b.debug().mix!;
     expect(mix.liveRefused).toBe(0);
     expect(mix.liveDeferred).toBe(0);
+    expect(mix.liveDeferredPending).toBe(0);
     expect(mix.slots.map((s) => s.name).sort()).toEqual(["Ambience", "Master", "Music"]);
   });
 });

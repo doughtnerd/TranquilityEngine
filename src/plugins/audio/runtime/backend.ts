@@ -194,6 +194,8 @@ export interface AudioMixDebug {
   liveRefused: number;
   /** Live adds deferred for want of a free slot (architecture §4.7, debug-only). */
   liveDeferred: number;
+  /** Live adds waiting for a slot now (of `liveDeferred`, those not yet applied). */
+  liveDeferredPending: number;
   /** Each ducking rule's target gain now. */
   ducking: { target: string; trigger: string; mode: "level" | "presence"; gain: number }[];
 }

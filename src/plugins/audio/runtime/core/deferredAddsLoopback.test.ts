@@ -152,6 +152,8 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     // Kept, queued, counted; the mixer's running model does not hold it yet; nothing was refused.
     expect(r.backend.deferredAdds.pending).toBe(1);
     expect(r.backend.deferredAdds.count).toBe(1);
+    // Debug shows both: `liveDeferred` is the adds deferred so far, `liveDeferredPending` those still waiting.
+    expect(r.backend.debug().mix).toMatchObject({ liveDeferred: 1, liveDeferredPending: 1 });
     expect(r.backend.liveMix.refused).toBe(refused);
     expect(r.backend.buses.slots.slotOf("A")).toBe(31);
     expect(r.backend.buses.slots.slotOf("B")).toBe(-1);
@@ -159,6 +161,7 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     // Render until it applies: on the audio clock, past the tombstone's tail.
     for (let f = 0; f < 60 && r.backend.deferredAdds.pending > 0; f++) await r.step(1);
     expect(r.backend.deferredAdds.pending, "applied within 60 frames").toBe(0);
+    expect(r.backend.debug().mix).toMatchObject({ liveDeferred: 1, liveDeferredPending: 0 });
     const seq = r.backend.dip.last!;
     expect(seq.tombstones).toEqual([30]);
     expect(r.backend.buses.slots.slotOf("B")).toBe(30); // the recycled slot
@@ -224,6 +227,29 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     expect(r.backend.deferredAdds.pending).toBe(0);
     expect(names().slice(-2)).toEqual(["P", "Kid"]);
     expect(r.backend.buses.slots.slotOf("P")).toBeLessThan(r.backend.buses.slots.slotOf("Kid"));
+    play(r.backend, "Kid");
+    expect((await r.step(12)).last).toBeCloseTo(LEVEL, 6);
+    r.backend.dispose();
+  });
+
+  it("a child naming a waiting parent queues behind it: both apply in order, the child under the parent's real slot (FU3)", { timeout: 60_000 }, async (ctx) => {
+    const r = await rig(project(32));
+    if (!r) return ctx.skip();
+    await r.step(4);
+    mixer.apply({ op: "removeBus", bus: "B31" });
+    mixer.apply({ op: "removeBus", bus: "B30" });
+    expect(mixer.apply({ op: "addBus", name: "P", parent: "Master" }).deferred).toBeTruthy();
+    // P is not in the mixer's running model yet; the child still names it, not Master.
+    const kid = mixer.apply({ op: "addBus", name: "Kid", parent: "P" });
+    expect(kid.deferred).toBeTruthy();
+    expect(r.backend.deferredAdds.pending).toBe(2);
+    expect(r.backend.buses.slots.deferred.map((q) => [q.name, q.parent])).toEqual([["P", "Master"], ["Kid", "P"]]);
+    for (let f = 0; f < 80 && r.backend.deferredAdds.pending > 0; f++) await r.step(1);
+    expect(r.backend.deferredAdds.pending).toBe(0);
+    expect(names().slice(-2)).toEqual(["P", "Kid"]);
+    expect(mixer.audioSettings.buses.find((b) => b.name === "Kid")!.parent).toBe("P");
+    const table = r.backend.buses.slots;
+    expect(table.slots[table.slotOf("Kid")]!.parent).toBe(table.slotOf("P"));
     play(r.backend, "Kid");
     expect((await r.step(12)).last).toBeCloseTo(LEVEL, 6);
     r.backend.dispose();

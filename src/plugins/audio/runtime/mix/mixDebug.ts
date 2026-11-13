@@ -17,6 +17,7 @@ export interface MixDebugInput {
   sidechainLate: number;
   liveRefused: number;
   liveDeferred: number;
+  liveDeferredPending: number;
 }
 
 /** `Audio.debug().mix`: a fresh object. */
@@ -39,6 +40,7 @@ export function buildMixDebug(i: MixDebugInput): AudioMixDebug {
     sidechainLate: i.sidechainLate,
     liveRefused: i.liveRefused,
     liveDeferred: i.liveDeferred,
+    liveDeferredPending: i.liveDeferredPending,
     ducking,
   };
 }
@@ -53,5 +55,5 @@ export function babylonCpuDebug(): AudioCpuDebug {
 
 /** The fallback's `Audio.debug().mix` (§9): there is no core, so every STATUS counter reads 0 and no live edit is refused or deferred. */
 export function babylonMixDebug(mixer: MixDebugInput["mixer"], names: readonly string[]): AudioMixDebug {
-  return buildMixDebug({ names, mixer, loudShed: 0, busRecordsEarly: 0, sidechainLate: 0, liveRefused: 0, liveDeferred: 0 });
+  return buildMixDebug({ names, mixer, loudShed: 0, busRecordsEarly: 0, sidechainLate: 0, liveRefused: 0, liveDeferred: 0, liveDeferredPending: 0 });
 }

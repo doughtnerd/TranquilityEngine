@@ -143,6 +143,17 @@ describe("the taps in a loopback scene", () => {
     r.backend.dispose();
   });
 
+  it("voiceRefused names a refused stream play by its asset path, not by a registry clip (FU3)", async (ctx) => {
+    const settings = settingsWith((s) => { s.buses = s.buses.map((b) => (b.name === "Music" ? { ...b, maxVoices: 1 } : b)); });
+    const r = await rig({ settings });
+    if (!r) return ctx.skip();
+    r.backend.play(req("a.wav", { loop: true, bus: "Music", priority: 255 }));
+    r.stub.clear();
+    expect(r.backend.play(req("song.ogg", { stream: true, bus: "Music", priority: 0 }))).toBeNull();
+    expect(r.stub.of("voiceRefused")).toEqual([["song.ogg", busRefOf(r.names, "Music"), "busFull"]]);
+    r.backend.dispose();
+  });
+
   it("voiceQueued clipLoading: a voice whose clip has not arrived by the frame's drain", async (ctx) => {
     const r = await rig({ pending: ["slow.wav"] });
     if (!r) return ctx.skip();

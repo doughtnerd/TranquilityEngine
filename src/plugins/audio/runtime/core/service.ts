@@ -37,6 +37,8 @@ export class AudioWorldService {
   constructor(readonly world: World, readonly core: AudioCoreModule) {
     const host = core.ready && core.host && !core.host.closed ? core.host : null;
     this.share = host ? host.attachWorld(world) : null;
+    // No host (the Babylon fallback, or a core that didn't load): Runtime Worlds are counted here, as the host's shares count them.
+    if (!host && world.kind === "runtime") hostlessRuntime.add(this);
   }
 
   /** The World's key (the voice table's `world` byte), or 0 without a share. */
@@ -53,9 +55,13 @@ export class AudioWorldService {
     if (share && !share.released) this.core.host?.releaseWorld(share.key);
     // G7b (architecture §2.1 "Released"): Play stops with the last Runtime World. The editor's own World, a server World and a
     // Runtime World still running keep the capture going; a take is Held for the save (`capturePlayStopped`).
-    if (this.world.kind === "runtime" && !hasRuntimeShare(this.core.host)) capturePlayStopped();
+    hostlessRuntime.delete(this);
+    if (this.world.kind === "runtime" && !(this.share ? hasRuntimeShare(this.core.host) : hostlessRuntime.size > 0)) capturePlayStopped();
   }
 }
+
+/** FU3: the Runtime Worlds running this service with no host (`audio.backend: "babylon"`, or the core failed to load): the last one's dispose is Play stop. */
+const hostlessRuntime = new Set<AudioWorldService>();
 
 /** Whether a Runtime World still holds a share of `host`. */
 function hasRuntimeShare(host: AudioHost | undefined): boolean {
@@ -107,7 +113,10 @@ const armed = new WeakSet<AudioHost>();
 export const AUDIO_SERVICE: WorldServiceDef<AudioCoreModule, AudioWorldService> = {
   id: AUDIO,
   neededBy: { components: ["engine.AudioSource", "engine.AudioListener"] },
-  runsIn: (world) => !!world.render && mixer.audioSettings.backend === "core",
+  // FU3: a World with a view runs the service whatever the backend, so Play stop reaches the capture on the Babylon fallback
+  // too (`load` answers "no host" there; the service then holds nothing but the Play-stop signal).
+  runsIn: (world) => !!world.render,
+  variant: () => (mixer.audioSettings.backend === "core" ? "core" : "babylon"),
   /**
    * Probes the engine (K8: `probe.ts`, which A0.6 fills), then dynamic-imports the host and starts it: the wasm is
    * fetched and compiled, the context created (suspended while autoplay is blocked) and the worklet node made, so
@@ -116,7 +125,8 @@ export const AUDIO_SERVICE: WorldServiceDef<AudioCoreModule, AudioWorldService> 
    * answers, `audioBackend()` is a pending stand-in whose plays wait as locked voices; they move to the core when it
    * registers, or to "babylon" (with A0.6's one warning) when the load fails.
    */
-  load: async (): Promise<AudioCoreModule> => {
+  load: async (variant: string): Promise<AudioCoreModule> => {
+    if (variant === "babylon") return { ready: false, reason: `audio.backend is "babylon"` };
     const { probeCoreSupport } = await import("./probe");
     const probe = await probeCoreSupport();
     if (!probe.supported) return { ready: false, reason: probe.reason };

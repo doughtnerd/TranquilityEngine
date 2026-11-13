@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { aacRefusal, createWarnOnce, DECODE_ERR_CODEC, DECODE_ERR_FORMAT, isAacPath, unsupportedFormat } from "./codecs";
 import { rig } from "../../testing/streamRig";
+import { recordingSink } from "../mix/recordingSink";
 
 const FIXTURES = new URL("../../../../../native/audio/crates/audio-decode/tests/fixtures/", import.meta.url);
 const read = (name: string): ArrayBuffer => {
@@ -83,6 +84,23 @@ describe("AAC opt-in and unknown formats on the core (B4)", () => {
     // Refused before any fetch or stream open.
     expect(r.backend.streams.stats.opened).toBe(0);
     expect(r.spawned()).toBe(0); // no decoder worker was ever needed
+    r.backend.dispose();
+  });
+
+  it("with audio.codecs.aac off, a refused AAC stream play records voiceRefused loadFailed (as the clip's does) with the asset path (FU3)", async (ctx) => {
+    const m4a = read("tone-48000-stereo.m4a");
+    const r = await rig({ "music/s.m4a": m4a }, { clipFiles: { "music/c.m4a": m4a } });
+    if (!r) return ctx.skip();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const taps = recordingSink();
+    r.backend.setProfileSink(taps.sink);
+    await playToFailure(r, "music/s.m4a", true);
+    await playToFailure(r, "music/c.m4a", false);
+    const busRef = r.backend.buses.slots.busRef(r.backend.busNames.indexOf("Music"));
+    expect(taps.of("voiceRefused")).toEqual([
+      ["music/s.m4a", busRef, "loadFailed"],
+      ["music/c.m4a", busRef, "loadFailed"],
+    ]);
     r.backend.dispose();
   });
 

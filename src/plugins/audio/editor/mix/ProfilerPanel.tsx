@@ -197,18 +197,9 @@ export class ProfilerController {
     return this.modules.find((m) => m.track.id === id)?.data();
   }
 
-  /**
-   * The hover text of a track at `t`: the module's own readout. A Babylon-fallback capture has no CPU samples, so the CPU
-   * tracks' modules answer null there; the track then says why it is empty (the design's "Babylon fallback: no CPU line").
-   */
+  /** The hover text of a track at `t`: the module's own readout (the CPU tracks say "Babylon fallback: no CPU line" themselves). */
   tooltip(id: string, t: number): string | null {
-    const own = this.modules.find((m) => m.track.id === id)?.tooltipAt?.(t) ?? null;
-    if (own !== null) return own;
-    const source = this.cur.source;
-    if (source && id.startsWith("cpu.") && (source.summary.header.flags & CAPTURE_FLAG_MAIN_SIDE_ONLY) !== 0) {
-      return chooseEmptyState("cpu", { playing: this.deps.playing(), hasCapture: true, mainSideOnly: true, cpuLoadPermille: 0 });
-    }
-    return null;
+    return this.modules.find((m) => m.track.id === id)?.tooltipAt?.(t) ?? null;
   }
 
   duration(): number {

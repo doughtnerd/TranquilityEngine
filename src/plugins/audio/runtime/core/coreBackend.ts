@@ -737,8 +737,8 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     const priority = req.priority ?? 128;
     // A3.4a: while a hard rebuild runs, new plays wait in the locked queue and start once the new core is up.
     const running = this.host.status === "running" && !this.recovering;
-    // A stream voice has no registry clip to name (`allocate` names its `clip` as one), so a refused stream play is unnamed.
-    const id = this.table.allocate(bus, priority, world, running ? VoiceState.WAITING_FOR_DATA : VoiceState.LOCKED, stream ? 0 : clip);
+    // A stream voice has no registry clip to name, so a refused stream play is named by its asset path.
+    const id = this.table.allocate(bus, priority, world, running ? VoiceState.WAITING_FOR_DATA : VoiceState.LOCKED, stream ? 0 : clip, stream ? req.path : undefined);
     if (id === 0) {
       if (!stream) this.clips.release(clip);
       return null;
@@ -1788,6 +1788,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
       const refused = aacRefusal(asset, this.aac);
       if (refused) {
         this.warnOnce(asset, refused);
+        if (this.profile !== NULL_PROFILE_SINK) this.profile.voiceRefused(asset, this.buses.slots.busRef(t.bus[i]!), "loadFailed"); // §5.6: as the clip's AAC failure
         t.free(id, VoiceReason.FAILED);
         return;
       }

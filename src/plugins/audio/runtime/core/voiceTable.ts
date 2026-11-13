@@ -669,8 +669,9 @@ export class VoiceTable implements VoiceTableHandleApi {
    * voice takes its slot (a PLAY with the new id replaces it on the core). Every other field is reset to its default:
    * volume, pitch and fadeGain 1, minDist 1, maxDist 100, owner -1, `reason` matching the state (LOCKED, VIRTUAL,
    * WAITING_FOR_DATA, or NONE for PLAYING), the rest 0. A bus index outside 0..31 is taken as the root (0).
+   * `clip` and `name` only name a refused play for the profiler (`name` wins: a stream has no registry clip to look up).
    */
-  allocate(bus: number, priority: number, world: WorldKey, state: VoiceStateCode, clip = 0): number {
+  allocate(bus: number, priority: number, world: WorldKey, state: VoiceStateCode, clip = 0, name?: string): number {
     const b = bus >= 0 && bus < MAX_BUSES ? bus | 0 : 0;
     const p = priority <= 0 ? 0 : priority >= 255 ? 255 : priority | 0;
     const busFull = this.busMax[b]! > 0 && this.busLive[b]! >= this.busMax[b]!;
@@ -680,10 +681,10 @@ export class VoiceTable implements VoiceTableHandleApi {
       const victim = this.pickVictim(busFull ? b : -1, p);
       if (victim < 0) {
         this.refusedCount++;
-        // Rc3 (§5.6 `voiceRefused`): `clip` is the registry or stream id the caller holds for the play (0: not given).
+        // Rc3 (§5.6 `voiceRefused`): `name` is the play's own (a stream's asset path, FU3); else `clip` is the registry id the caller holds (0: not given).
         if (profile !== NULL_PROFILE_SINK) {
           const names = this.names;
-          profile.voiceRefused(clip === 0 ? "" : names ? names.clip(clip, false) : String(clip), this.busRef(b), busFull ? "busFull" : "poolFull");
+          profile.voiceRefused(name ?? (clip === 0 ? "" : names ? names.clip(clip, false) : String(clip)), this.busRef(b), busFull ? "busFull" : "poolFull");
         }
         return INVALID_VOICE_ID;
       }
