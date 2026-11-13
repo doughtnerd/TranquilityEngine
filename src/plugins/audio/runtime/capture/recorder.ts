@@ -21,7 +21,7 @@ import type { RecorderTap } from "../backend";
 import {
   CAPTURE_KEYFRAME_INTERVAL_MS, CAPTURE_RECORD_MAX_BYTES, EPOCH_BYTES, GAP_BYTES, GapReason, RecordType, encodeEpoch, encodeGap,
   encodeKeyframe, encodeMarker, keyframeBytes, markerBytes, cutUtf8, CAPTURE_MARKER_MAX_BYTES,
-  type EpochPayload, type KeyframePayload,
+  type CaptureWorkerRequest, type EpochPayload, type KeyframePayload,
 } from "./format";
 import { RecorderRing, ringBytesFor, type RingPreset, type RingSpan } from "./ring";
 import { STATUS_BUFFER_BYTES } from "../wire.generated";
@@ -64,6 +64,21 @@ export interface SealedSegmentInfo {
   frame: number;
   endFrame: number;
   sampleRate: number;
+}
+
+/**
+ * The live view's hand-off (R17, Rc6; architecture §3.7). `post` is the Worker's `postMessage` (`profilerSource.ts`'s
+ * `CaptureWorkerLike`): the recorder posts `open {source: "live", bytes: head}` once, then one `appendSegment` per sealed
+ * segment, each with its buffer in the transfer list. The Worker answers `opened` and `appended` (or `error`) to the
+ * client; the recorder reads no answer.
+ */
+export interface LiveFeedOptions {
+  post(request: CaptureWorkerRequest, transfer: Transferable[]): void;
+  /** The 96 B header plus raw META with no records (`assembleCapture(header, meta, [])`, the saver's, Rc4). */
+  head: Uint8Array;
+  /** The live capture's id: `open`'s. Each `appendSegment` takes `nextId()` (default: `id + 1`, `id + 2`, ...). */
+  id: number;
+  nextId?: () => number;
 }
 
 /** `Audio.debug().recorder`'s ring part (§1.3). */
@@ -118,6 +133,10 @@ export class Recorder {
   private readonly now: () => number;
   private readonly sealed: SealedSegmentInfo = { segment: 0, epoch: 0, firstSeq: 0, records: 0, frame: 0, endFrame: 0, sampleRate: 0 };
   private target: RecorderTapTarget | null = null;
+  private live: { post: LiveFeedOptions["post"]; nextId: () => number; next: number } | null = null;
+  /** Segments posted to the Worker's live view, and whether it ended (a segment the ring evicted before it was sent). */
+  liveSegments = 0;
+  liveLost = false;
 
   /** The current epoch (0 at `begin`, +1 per `epoch`), its sample rate, and the last keyframe's frame. */
   epochNumber = -1;
@@ -177,6 +196,30 @@ export class Recorder {
   /** True when an eviction passed the latest take's start (§4.2): the file then begins at a later keyframe. */
   get truncated(): boolean {
     return this.takeStart >= 0 && this.ring.firstSegment > this.takeStart;
+  }
+
+  /**
+   * Starts the live view (R17): posts `open` with the head, then the take's already sealed segments (those the ring still
+   * holds), and from then on each segment as it seals (every second of rendered STATUS frames, never a timer). If the ring
+   * already evicted the take's start the view begins at the oldest kept segment, which the Worker's decoder takes as it
+   * takes a truncated file. A second call replaces the first feed (the old Worker capture is the client's to close).
+   */
+  startLive(opts: LiveFeedOptions): void {
+    let id = opts.id;
+    this.live = { post: opts.post, nextId: opts.nextId ?? (() => ++id), next: -1 };
+    this.liveLost = false;
+    this.liveSegments = 0;
+    const head = opts.head.slice().buffer as ArrayBuffer;
+    opts.post({ type: "open", id: opts.id, source: "live", bytes: head }, [head]);
+    const ring = this.ring;
+    let from = Math.max(this.takeStart < 0 ? ring.firstSegment : this.takeStart, ring.firstSegment);
+    for (; from < ring.openSegment; from++) this.postSegment(from, ring.copySegment(from));
+    this.live.next = from;
+  }
+
+  /** Stops posting segments (the client closes the Worker's capture with `close`). */
+  stopLive(): void {
+    this.live = null;
   }
 
   /** Replace the keyframe source (Rc3/Rc4 wire the backend's state once the backend exists). */
@@ -311,7 +354,8 @@ export class Recorder {
   private sealOpen(): void {
     const ring = this.ring;
     const id = ring.openSegment;
-    if (id < 0 || !this.onSegmentSealed) return;
+    const live = this.live;
+    if (id < 0 || (!this.onSegmentSealed && !live)) return;
     const r = ring.rowOf(id);
     const info = this.sealed;
     info.segment = id;
@@ -321,7 +365,27 @@ export class Recorder {
     info.frame = ring.segFrame[r]!;
     info.endFrame = ring.segEndFrame[r]!;
     info.sampleRate = ring.segRate[r]!;
-    this.onSegmentSealed(ring.copySegment(id), info);
+    const copy = ring.copySegment(id);
+    this.onSegmentSealed?.(copy, info);
+    if (live) this.postSegment(id, copy);
+  }
+
+  /**
+   * Posts segment `id` to the live view, transferring `bytes` (so a caller's `onSegmentSealed` must be done with its copy
+   * by then, as it is: the callback runs first and a copy it keeps is detached). Segments go in order; one the ring
+   * evicted before its turn ends the view (`liveLost`), since the Worker's decoder checks seq continuity.
+   */
+  private postSegment(id: number, bytes: Uint8Array): void {
+    const live = this.live;
+    if (!live || this.liveLost) return;
+    if (live.next >= 0 && id !== live.next) {
+      this.liveLost = true;
+      return;
+    }
+    live.next = id + 1;
+    this.liveSegments++;
+    const buffer = bytes.buffer as ArrayBuffer;
+    live.post({ type: "appendSegment", id: live.nextId(), bytes: buffer }, [buffer]);
   }
 }
 
