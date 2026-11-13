@@ -280,8 +280,8 @@ pub fn feed(area: &mut SendArea, gain: crate::lanes::Gain, curve: &[f32; QUANTUM
             area.r.fill(0.0);
         }
         Gain::Scalar(g) => {
-            drain_scaled(rev_l, &mut area.l, &[g; QUANTUM]);
-            drain_scaled(rev_r, &mut area.r, &[g; QUANTUM]);
+            drain_scalar(rev_l, &mut area.l, g);
+            drain_scalar(rev_r, &mut area.r, g);
         }
         Gain::Curve => {
             drain_scaled(rev_l, &mut area.l, curve);
@@ -290,12 +290,23 @@ pub fn feed(area: &mut SendArea, gain: crate::lanes::Gain, curve: &[f32; QUANTUM
     }
 }
 
-/// `dst[i] += src[i] · g[i]`, then `src[i] = 0`.
+/// `dst[i] += src[i] · g[i]`, then `src` cleared (one multiply-add pass, then a fill the compiler
+/// turns into a memset: cheaper in wasm than clearing inside the loop).
 #[inline(never)]
 fn drain_scaled(dst: &mut [f32], src: &mut [f32; QUANTUM], g: &[f32; QUANTUM]) {
-    for (d, (s, g)) in dst.iter_mut().zip(src.iter_mut().zip(g)) {
-        *d += core::mem::take(s) * *g;
+    for (d, (s, g)) in dst.iter_mut().zip(src.iter().zip(g)) {
+        *d += *s * *g;
     }
+    src.fill(0.0);
+}
+
+/// `dst[i] += src[i] · g`, then `src` cleared.
+#[inline(never)]
+fn drain_scalar(dst: &mut [f32], src: &mut [f32; QUANTUM], g: f32) {
+    for (d, s) in dst.iter_mut().zip(src.iter()) {
+        *d += *s * g;
+    }
+    src.fill(0.0);
 }
 
 /// Quanta of silent input after which the shared convolver's state is exact zeros: its IR's
