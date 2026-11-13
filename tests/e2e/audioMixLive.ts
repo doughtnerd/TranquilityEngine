@@ -40,7 +40,7 @@ export type LiveMixOptions = {
   /** Extra keys of the audio section (snapshots, ducking, ...). */
   audio?: Record<string, unknown>;
   /** Buses that carry a looping tone from the first frame (one AudioSource each). */
-  tones?: { bus: string; volume?: number; playOnAwake?: boolean }[];
+  tones?: { bus: string; volume?: number; playOnAwake?: boolean; /** The node is named `Tone <label>` (default: the bus). */ label?: string; /** A clip of the Sound Lab's audio folder (default: the reference tone). */ clip?: string }[];
 };
 
 const withDefaults = (b: MixBus) => ({ volume: 1, mute: false, effects: [], ...b });
@@ -69,9 +69,9 @@ export function liveScene(o: LiveMixOptions = {}): string {
       { id: "camera", name: "Camera", components: [{ type: "engine.Transform", data: { position: [0, 0, -10] } }, { type: "engine.Camera", data: { projection: "orthographic", orthographicSize: 10, backgroundColor: "#202428" } }] },
       ...tones.map((t, i) => ({
         id: `tone-${i}`,
-        name: `Tone ${t.bus}`,
+        name: `Tone ${t.label ?? t.bus}`,
         transform: false,
-        components: [{ type: "engine.AudioSource", data: { clip: `asset:${TONE}`, loop: true, volume: t.volume ?? 1, playOnAwake: t.playOnAwake ?? true, output: t.bus } }],
+        components: [{ type: "engine.AudioSource", data: { clip: `asset:${t.clip ?? TONE}`, loop: true, volume: t.volume ?? 1, playOnAwake: t.playOnAwake ?? true, output: t.bus } }],
       })),
     ],
   });
@@ -84,7 +84,7 @@ export async function openLiveMix(page: Page, o: LiveMixOptions = {}): Promise<v
   await page.setViewportSize({ width: 1600, height: 1000 });
   await page.goto("/editor.html");
   await page.waitForFunction(() => typeof (window as unknown as Hooks).openTestProject === "function");
-  const extra = { "project.json": liveProject(o), "scenes/main.scene.json": liveScene(o), [TONE]: clip("loudness-reference.wav"), "audio/loudness-hot.wav": clip("loudness-hot.wav") };
+  const extra = { "project.json": liveProject(o), "scenes/main.scene.json": liveScene(o), [TONE]: clip("loudness-reference.wav"), "audio/loudness-hot.wav": clip("loudness-hot.wav"), "audio/drum-loop.wav": clip("drum-loop.wav") };
   await page.evaluate((files) => (window as unknown as Hooks).openTestProject!(files), extra);
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 }

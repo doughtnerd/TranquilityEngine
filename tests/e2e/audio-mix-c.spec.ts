@@ -508,3 +508,321 @@ test("M5c: Compare plays the saved mix from Play start with the faders locked, s
   });
   expect(errors).toEqual([]);
 });
+
+// ---- the edit classes (architecture 4.7) -------------------------------------------------------------------------------------
+
+/** `mixer.apply(op)` as the editor's section hook does it, through the core backend the page holds (reached through a voice). */
+const applyOp = (page: Page, op: object) =>
+  page.evaluate((o) => {
+    type Backend = { applyOp(op: object): { ok: boolean; class: string; deferred?: string; restartRequired?: string } };
+    type Voice = { backend?: Backend; inner?: { backend?: Backend } };
+    const A = (globalThis as unknown as { __myco: { Audio: { playOneShot(c: string, o?: object): { voice?: Voice } } } }).__myco.Audio;
+    const v = A.playOneShot("audio/loudness-reference.wav", { volume: 0.0001, bus: "UI" }).voice;
+    return (v?.backend ?? v?.inner?.backend)!.applyOp(o);
+  }, op);
+
+const FX4: MixBus = { name: "Fx", parent: "Master", effects: [{ type: "lowpass", frequency: 18000, q: 1 }, { type: "highpass", frequency: 20, q: 1 }, { type: "compressor", threshold: -24, knee: 30, ratio: 8, attack: 0.003, release: 0.25 }, { type: "reverb", send: 0.2 }] };
+
+test("M5c: every edit class is applied live and kept: direct (volume, mute, send, filter), smoothed (compressor), structural (move, effect removal, bus removal, undo of it) and an added bus", async ({ page }) => {
+  const errors = track(page);
+  const buses = [...withBus("Aux", { volume: 0.5 }), FX4];
+  await openLiveMix(page, { buses, tones: [{ bus: "UI" }, { bus: "Music" }, { bus: "SFX" }, { bus: "Ambience" }, { bus: "Deep" }] });
+  await playLiveMix(page);
+  await openMixer(page);
+  await openAudioSettings(page);
+  // The Mixer and Project panels are tabs of one dock: `inMixer` looks at the strips and comes back to the (re-expanded) settings.
+  const settings = async () => {
+    await openAudioSettings(page);
+    for (const b of ["Music", "SFX", "Ambience", "Fx"]) await expandBus(page, b);
+  };
+  const inMixer = async <T,>(look: () => Promise<T>): Promise<T> => {
+    await openMixer(page);
+    try {
+      return await look();
+    } finally {
+      await settings();
+    }
+  };
+  await settings();
+  const field = (label: string) => audioPanel(page).getByLabel(label, { exact: true });
+  const peak = async (bus: string) => {
+    await audioFor(page, 1.0);
+    return (await meterWindow(page, bus, 0.3)).max;
+  };
+  await heard(page, "UI", 1);
+  const musicBefore = await peak("Music");
+  const sfxBefore = await peak("SFX");
+  expect(musicBefore).toBeGreaterThan(0.03);
+  const counters = await clickCounters(page);
+
+  await test.step("direct: bus volume and mute, heard", async () => {
+    await commit(field("UI volume"), "0.5");
+    await expect.poll(() => savedVolume(page, "UI"), { timeout: 10_000 }).toBe(0.5);
+    await heard(page, "UI", 0.5);
+    await field("Mute UI").check();
+    await expect.poll(async () => (await savedOf(page, "UI"))!.mute, { timeout: 10_000 }).toBe(true);
+    await heard(page, "UI", 0);
+    await field("Mute UI").uncheck();
+    await heard(page, "UI", 0.5);
+  });
+  await test.step("direct: a send level is applied without a refusal or a banner and kept", async () => {
+    await commit(field("Ambience reverb Send (0-1)"), "1");
+    await expect.poll(async () => (await savedOf(page, "Ambience"))!.effects![0]!.send, { timeout: 10_000 }).toBe(1);
+    await audioFor(page, 0.5);
+    expect((await dbg(page)).mix.liveRefused).toBe(0);
+    await inMixer(() => expect(banners(page)).toHaveCount(0));
+  });
+  await test.step("direct: a filter parameter changes the sound (the 1 kHz tone falls by the 500 Hz low-pass), Q is kept", async () => {
+    await commit(field("Music lowpass Frequency (Hz)"), "500");
+    await expect.poll(async () => (await savedOf(page, "Music"))!.effects![1]!.frequency, { timeout: 10_000 }).toBe(500);
+    const after = await peak("Music");
+    expect(after / musicBefore, "about -11 dB: a 1 kHz tone two times over the cut-off").toBeGreaterThan(0.2);
+    expect(after / musicBefore).toBeLessThan(0.4);
+    await commit(field("Music lowpass Q"), "2");
+    await expect.poll(async () => (await savedOf(page, "Music"))!.effects![1]!.q, { timeout: 10_000 }).toBe(2);
+  });
+  await test.step("smoothed: a compressor threshold changes the level and the level settles", async () => {
+    await commit(field("SFX compressor Threshold (dB)"), "-60");
+    await expect.poll(async () => (await savedOf(page, "SFX"))!.effects![0]!.threshold, { timeout: 10_000 }).toBe(-60);
+    const a = await peak("SFX");
+    expect(Math.abs(a - sfxBefore) / sfxBefore, "the compressor acts differently").toBeGreaterThan(0.1);
+    const b = await peak("SFX");
+    expect(Math.abs(b - a) / a, "settled").toBeLessThan(0.03);
+  });
+  await test.step("structural: moving Deep under Master raises its effective gain from 0.5 to 1 (a dip, then the new place)", async () => {
+    await inMixer(() => expect(strip(page, "Deep")).toHaveAttribute("data-depth", "2"));
+    expect(await gainOf(page, "Deep")).toBeCloseTo(0.5, 3);
+    await audioPanel(page).getByLabel("Deep parent", { exact: true }).selectOption("Master");
+    await expect.poll(async () => (await savedOf(page, "Deep"))!.parent, { timeout: 10_000 }).toBe("Master");
+    await expect.poll(() => gainOf(page, "Deep"), { timeout: 20_000 }).toBeCloseTo(1, 3);
+    await inMixer(() => expect(strip(page, "Deep")).toHaveAttribute("data-depth", "1"));
+    await audioFor(page, 0.6);
+  });
+  await test.step("structural: removing the low-pass puts the Music tone back at its first level", async () => {
+    await page.getByRole("button", { name: "Remove Music lowpass effect", exact: true }).click();
+    await expect.poll(async () => (await savedOf(page, "Music"))!.effects!.length, { timeout: 10_000 }).toBe(1);
+    const after = await peak("Music");
+    expect(Math.abs(after - musicBefore) / musicBefore).toBeLessThan(0.08);
+  });
+  const names = () => page.evaluate(() => [...(globalThis as unknown as Api).__myco.Audio.buses]);
+  await test.step("structural: removing a bus with a sound on it takes it from the mixer and the strips, and its sound moves to the root", async () => {
+    await audioPanel(page).getByRole("button", { name: "Remove bus Deep", exact: true }).click();
+    await expect.poll(names, { timeout: 20_000 }).not.toContain("Deep");
+    await inMixer(() => expect(strip(page, "Deep")).toHaveCount(0));
+    await expect.poll(async () => (await dbg(page)).voices.filter((v) => v.clip.includes("loudness-reference") && v.bus === "Deep").length, { timeout: 20_000 }).toBe(0);
+    expect((await dbg(page)).voices.some((v) => v.clip.includes("loudness-reference") && v.bus === "Master"), "the sound plays on at the root").toBe(true);
+    await audioFor(page, 0.5);
+  });
+  await test.step("structural: undo brings the bus back (the Project Settings history's Undo)", async () => {
+    await page.locator(".panel.project .project-settings-toolbar").getByRole("button", { name: "Undo" }).click();
+    await expect.poll(names, { timeout: 30_000 }).toContain("Deep");
+    await inMixer(() => expect(strip(page, "Deep")).toHaveCount(1));
+  });
+  await test.step("direct: an added bus is live at once", async () => {
+    const before = await names();
+    await audioPanel(page).getByRole("button", { name: "Add child bus to Aux", exact: true }).click();
+    await expect.poll(async () => (await names()).length, { timeout: 20_000 }).toBe(before.length + 1);
+    const added = (await names()).find((n) => !before.includes(n))!;
+    await inMixer(() => expect(strip(page, added)).toHaveCount(1));
+    await expect.poll(async () => (await dbg(page)).mix.slots.find((s) => s.name === added)?.state, { timeout: 20_000 }).toBe("live");
+    expect((await savedProject(page)).audio!.buses!.map((b) => b.name)).toContain(added);
+  });
+  await test.step("no click: nothing was late, early, refused or underrun across all of it", async () => {
+    expect(await clickCounters(page)).toEqual(counters);
+  });
+  expect(errors).toEqual([]);
+});
+
+test("M5c: a fifth effect is refused live with the message that it applies at the next Play, and the refusal is counted", async ({ page }) => {
+  const errors = track(page);
+  await openLiveMix(page, { buses: [...BUSES, FX4], tones: [{ bus: "UI" }] });
+  await playLiveMix(page);
+  await openMixer(page);
+  await openAudioSettings(page);
+
+  await test.step("the fifth effect: the mixer answers that it applies at the next Play, and counts the refusal", async () => {
+    const refused = (await dbg(page)).mix.liveRefused;
+    const r = await applyOp(page, { op: "addEffect", bus: "Fx", index: 4, effect: { type: "lowpass", frequency: 8000, q: 1 } });
+    expect(r.ok).toBe(false);
+    expect(r.restartRequired).toMatch(/a bus takes at most 4 effects while playing; this one applies at the next Play/);
+    expect((await dbg(page)).mix.liveRefused).toBe(refused + 1);
+  });
+  expect(errors).toEqual([]);
+});
+
+test("M5c: an add that finds no free slot is deferred (kept, and live at the next recycle), with every slot of 32 in use", async ({ page }) => {
+  const errors = track(page);
+  const many: MixBus[] = [{ name: "Master" }, ...Array.from({ length: 31 }, (_, i) => ({ name: `B${String(i + 1).padStart(2, "0")}`, parent: "Master" }))];
+  await openLiveMix(page, { buses: many, tones: [{ bus: "B01" }] });
+  await playLiveMix(page);
+  await audioFor(page, 0.5);
+  const r = await page.evaluate(() => {
+    type Res = { ok: boolean; class: string; deferred?: string };
+    type Backend = { applyOp(op: object): Res };
+    type Voice = { backend?: Backend; inner?: { backend?: Backend } };
+    const A = (globalThis as unknown as { __myco: { Audio: { playOneShot(c: string, o?: object): { voice?: Voice } } } }).__myco.Audio;
+    const v = A.playOneShot("audio/loudness-reference.wav", { volume: 0.0001, bus: "B01" }).voice;
+    const b = (v?.backend ?? v?.inner?.backend)!;
+    // One task: the removed bus is a tombstone still holding its slot when the add arrives.
+    const removed = b.applyOp({ op: "removeBus", bus: "B31" });
+    const added = b.applyOp({ op: "addBus", name: "Late", parent: "Master" });
+    return { removed, added };
+  });
+  expect(r.removed.ok).toBe(true);
+  expect(r.added.ok, "kept, not refused").toBe(true);
+  expect(r.added.deferred).toMatch(/free bus slot/);
+  await expect.poll(async () => (await dbg(page)).mix.liveDeferred, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+  await expect.poll(async () => (await dbg(page)).mix.slots.find((s) => s.name === "Late")?.state, { timeout: 30_000, message: "the deferred add is live after the recycle" }).toBe("live");
+  expect((await dbg(page)).mix.liveRefused).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+// The design (architecture 4.7, api-and-models 7): an edit with no live path "applies at the next Play" and the Mixer says so. The op log
+// (`mix/opLog.ts`, `createOpLog`) returns before it records an entry when a change has no ops (`if (ops.length === 0) return;`), so an
+// edit that only touches a key with no live path (the AAC codec checkbox here) never reaches the banner's `restartRequired` list, and the
+// fifth effect added through Project Settings is not saved at all (the draft has the parse's "runs only the first 4 effects" problem:
+// "Not saved: 1 problem"). Neither can be driven from the editor until the log records those; this case is the check for when it does.
+test.fixme("M5c: an edit with no live path (the AAC codec) is saved and the Mixer's banner says it applies at the next Play", async ({ page }) => {
+  await openLiveMix(page, { tones: [{ bus: "UI" }] });
+  await playLiveMix(page);
+  await openAudioSettings(page);
+  await audioPanel(page).getByLabel("AAC codec", { exact: true }).click();
+  await openMixer(page);
+  await expect(banners(page).filter({ hasText: "Applies at the next Play" }).first()).toBeVisible({ timeout: 20_000 });
+});
+
+// ---- level ducking, audible ----------------------------------------------------------------------------------------------------
+
+/** The lowest duck gain of Music over `seconds` of the audio clock. */
+const meterDuck = (page: Page, seconds: number) =>
+  page.evaluate(async (span) => {
+    const A = (globalThis as unknown as Api).__myco.Audio;
+    const t0 = A.time;
+    let min = 1;
+    while (A.time < t0 + span) {
+      min = Math.min(min, A.bus("Music").duckGain);
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return { min };
+  }, seconds);
+
+const LEVEL = { target: "Music", trigger: "SFX", mode: "level", detector: "rms", threshold: -30, amount: 0.3, attack: 0.05, release: 0.4 };
+const DUCK_DB = -20 * Math.log10(LEVEL.amount);
+
+test("M5c: a level rule ducks its target to the rule's amount while the trigger is over the threshold, and lets go on release; the strip's gain reduction meter shows it", async ({ page }) => {
+  const errors = track(page);
+  // The trigger is the tone at full scale: -23 dBFS peak is -26 dBFS RMS, over the rule's -30.
+  await openLiveMix(page, { audio: { ducking: [LEVEL] }, tones: [{ bus: "Music" }, { bus: "SFX", playOnAwake: false }, { bus: "SFX", volume: 0.02, playOnAwake: false, label: "SFX quiet" }] });
+  await playLiveMix(page);
+  await openMixer(page);
+  const gr = page.getByRole("meter", { name: "Music gain reduction", exact: true });
+  await heard(page, "Music", 0.6);
+  expect(await duckOf(page, "Music"), "nothing on the trigger yet").toBe(1);
+  await expect(gr, "a level-ducked bus always shows its gain reduction").toBeVisible();
+  const counters = await clickCounters(page);
+
+  await test.step("the trigger over the threshold: the target falls to the amount (on the audio clock)", async () => {
+    await toneAction(page, "SFX", "play");
+    await expect.poll(() => duckOf(page, "Music"), { timeout: 20_000, message: "ducked to the amount" }).toBeCloseTo(LEVEL.amount, 2);
+    expect(await gainOf(page, "Music"), "effective gain carries it").toBeCloseTo(0.6 * LEVEL.amount, 2);
+    await expect.poll(async () => Number(await gr.getAttribute("aria-valuenow")), { timeout: 10_000 }).toBeCloseTo(DUCK_DB, 0);
+    const d = (await dbg(page)).mix.ducking.find((r) => r.target === "Music")!;
+    expect(d).toMatchObject({ trigger: "SFX", mode: "level" });
+    expect(d.gain).toBeCloseTo(LEVEL.amount, 2);
+    // Heard: the Music bus's tone is down by the duck (its filters are at 1 kHz ~ unity), against its own reading before.
+    await audioFor(page, 1.2);
+    expect((await meterWindow(page, "Music", 0.3)).max, "Music's meter at 0.18 of the tone").toBeLessThan(TONE_PEAK * 0.6 * 0.5);
+  });
+  await test.step("the trigger stops: released back to 1 on the audio clock", async () => {
+    await toneAction(page, "SFX", "stop");
+    await expect.poll(() => duckOf(page, "Music"), { timeout: 20_000 }).toBeCloseTo(1, 3);
+    await heard(page, "Music", 0.6);
+  });
+  await test.step("a trigger under the threshold does not duck (the tone at 0.02 is -52 dBFS RMS)", async () => {
+    await toneAction(page, "SFX quiet", "play");
+    // The voice's first quanta read louder than its -52 dBFS (a shallow dip, measured to 0.82 at the start and gone in 2 s): never
+    // the rule's amount, and gone by the time it has played.
+    const w = await meterDuck(page, 2.5);
+    expect(w.min, "nowhere near the amount").toBeGreaterThan(0.7);
+    expect(await duckOf(page, "Music")).toBeGreaterThan(0.995);
+    await toneAction(page, "SFX quiet", "stop");
+  });
+  expect(await clickCounters(page), "no late, early or refused record, no underrun, no late sidechain").toEqual(counters);
+  expect(errors).toEqual([]);
+});
+
+test("M5c: every level-rule setting is live: threshold, detector, amount and mode (level against presence) change the duck while the trigger plays", async ({ page }) => {
+  const errors = track(page);
+  await openLiveMix(page, { audio: { ducking: [LEVEL] }, tones: [{ bus: "Music" }, { bus: "SFX", playOnAwake: false }, { bus: "SFX", volume: 0.02, playOnAwake: false, label: "SFX quiet" }, { bus: "SFX", clip: "audio/drum-loop.wav", playOnAwake: false, label: "SFX drum" }] });
+  await playLiveMix(page);
+  await openMixer(page);
+  await openAudioSettings(page);
+  const rule = (label: string) => audioPanel(page).getByLabel(`Ducking 1 ${label}`, { exact: true });
+  const ruleSaved = async () => ((await savedProject(page)).audio!.ducking as Record<string, unknown>[])[0]!;
+  /** The mean duck gain of Music over `seconds` of the audio clock. */
+  const meanDuck = (seconds: number) =>
+    page.evaluate(async (span) => {
+      const A = (globalThis as unknown as Api).__myco.Audio;
+      const t0 = A.time;
+      let sum = 0, n = 0;
+      while (A.time < t0 + span) {
+        sum += A.bus("Music").duckGain;
+        n++;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return sum / n;
+    }, seconds);
+  await heard(page, "Music", 0.6);
+  await toneAction(page, "SFX", "play");
+  await expect.poll(() => duckOf(page, "Music"), { timeout: 20_000 }).toBeCloseTo(0.3, 2);
+
+  await test.step("threshold above the trigger's RMS (-26): released; below it: ducked again", async () => {
+    await commit(rule("threshold"), "-20");
+    await expect.poll(async () => (await ruleSaved()).threshold, { timeout: 10_000 }).toBe(-20);
+    await expect.poll(() => duckOf(page, "Music"), { timeout: 20_000 }).toBeCloseTo(1, 2);
+    await commit(rule("threshold"), "-40");
+    await expect.poll(() => duckOf(page, "Music"), { timeout: 20_000 }).toBeCloseTo(0.3, 2);
+  });
+  await test.step("amount: the target goes to the new multiplier", async () => {
+    await commit(rule("amount"), "0.5");
+    await expect.poll(() => duckOf(page, "Music"), { timeout: 20_000 }).toBeCloseTo(0.5, 2);
+    expect(await gainOf(page, "Music")).toBeCloseTo(0.3, 2);
+    await commit(rule("amount"), "0.3");
+    await expect.poll(() => duckOf(page, "Music"), { timeout: 20_000 }).toBeCloseTo(0.3, 2);
+  });
+  await test.step("detector: on a bursty trigger (the drum loop) at -12 dBFS the peak detector ducks deeper than RMS", async () => {
+    await toneAction(page, "SFX", "stop");
+    await commit(rule("threshold"), "-12");
+    await toneAction(page, "SFX drum", "play");
+    await audioFor(page, 1.5);
+    const rms = await meanDuck(2);
+    await rule("detector").selectOption("peak");
+    await expect.poll(async () => (await ruleSaved()).detector, { timeout: 10_000 }).toBe("peak");
+    await audioFor(page, 1.5);
+    const peak = await meanDuck(2);
+    expect(peak, `peak ${peak.toFixed(3)} against RMS ${rms.toFixed(3)}`).toBeLessThan(rms - 0.08);
+    await rule("detector").selectOption("rms");
+    await audioFor(page, 1.5);
+    expect(await meanDuck(2), "RMS again: as before").toBeGreaterThan(peak + 0.08);
+    await toneAction(page, "SFX drum", "stop");
+    await commit(rule("threshold"), "-40");
+    await expect.poll(() => duckOf(page, "Music"), { timeout: 20_000 }).toBeCloseTo(1, 2);
+  });
+  await test.step("mode: a quiet trigger ducks under presence and not under level, on the same target", async () => {
+    await commit(rule("threshold"), "-30");
+    await toneAction(page, "SFX quiet", "play");
+    expect((await meterDuck(page, 2.5)).min, "level: -52 dBFS is under the threshold (only the start's dip)").toBeGreaterThan(0.7);
+    await rule("mode").selectOption("presence");
+    await expect.poll(async () => (await ruleSaved()).mode, { timeout: 10_000 }).toBe("presence");
+    await expect.poll(() => duckOf(page, "Music"), { timeout: 20_000, message: "presence: a voice on the trigger ducks" }).toBeCloseTo(0.3, 2);
+    await rule("mode").selectOption("level");
+    await expect.poll(() => duckOf(page, "Music"), { timeout: 20_000 }).toBeCloseTo(1, 2);
+    await toneAction(page, "SFX quiet", "stop");
+  });
+  await test.step("undo walks the edits back through the shared history", async () => {
+    await page.locator(".panel.project .project-settings-toolbar").getByRole("button", { name: "Undo" }).click(); // the last edit was mode back to level: undone, the rule is presence again
+    await expect.poll(async () => (await ruleSaved()).mode, { timeout: 10_000 }).toBe("presence");
+    await expect.poll(() => duckOf(page, "Music"), { timeout: 20_000 }).toBeCloseTo(0.3, 2);
+  });
+  expect(errors).toEqual([]);
+});
