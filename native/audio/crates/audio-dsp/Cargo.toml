@@ -10,3 +10,7 @@ publish.workspace = true
 [dependencies]
 microfft.workspace = true
 libm.workspace = true
+
+[dev-dependencies]
+# MIT. Dev-only: the loudness cross-check (Ld6, ADR 0171's test plan); never a normal dependency.
+ebur128 = "=0.1.11"
