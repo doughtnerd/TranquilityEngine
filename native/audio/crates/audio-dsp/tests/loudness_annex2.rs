@@ -1,4 +1,5 @@
-//! K-weighting against ITU-R BS.1770's Annex 2 table (task Ld6b; spike S1 couldn't get the table,
+//! K-weighting against ITU-R BS.1770's Annex 1 coefficient tables (task Ld6b; the file keeps its
+//! `annex2` name from the plan's task title; spike S1 couldn't get the table,
 //! its README says "ITU hosts blocked", so this is the first check against the published numbers):
 //! - at 48 kHz the computed coefficients equal the table's, to the digits the table gives;
 //! - the cascade's magnitude response at 1/3-octave centres (20 Hz to 20 kHz) matches the response
@@ -7,20 +8,21 @@
 //!   transform's frequency warping near Nyquist);
 //! - a full-scale 997 Hz sine in one channel reads -3.01 LKFS, BS.1770's calibration statement.
 //!
-//! The Annex 2 constants below are typed from BS.1770-4 Annex 2 (Tables 1 and 2: "Filter
-//! coefficients for the first stage / second stage of the pre-filter", 48 kHz, 14-15 significant
-//! digits as published). They are the spec in this test; the PDF could not be fetched here, so a
-//! reviewer with the document should re-check the typed digits against it.
+//! The constants below are ITU-R BS.1770-5 (11/2023) Annex 1, Table 1 ("Filter coefficients for
+//! stage 1 of the pre-filter to model a spherical head") and Table 2 ("Filter coefficients for the
+//! second stage weighting curve"), 48 kHz, as published; checked digit for digit against the
+//! document on 2026-11-13. The calibration statement (a 0 dB FS 997 Hz sine reads -3.01 LKFS) is
+//! Annex 1's too.
 
 use audio_dsp::loudness::{lufs, KCoef, Meter, Ring};
 use std::f64::consts::PI;
 
 /// Stage 1 (high shelf), 48 kHz: b0, b1, b2 and a1, a2 (a0 = 1).
-const ANNEX2_B1: [f64; 3] = [1.53512485958697, -2.69169618940638, 1.19839281085285];
-const ANNEX2_A1: [f64; 2] = [-1.69065929318241, 0.73248077421585];
+const TABLE1_B: [f64; 3] = [1.53512485958697, -2.69169618940638, 1.19839281085285];
+const TABLE1_A: [f64; 2] = [-1.69065929318241, 0.73248077421585];
 /// Stage 2 (RLB high-pass), 48 kHz.
-const ANNEX2_B2: [f64; 3] = [1.0, -2.0, 1.0];
-const ANNEX2_A2: [f64; 2] = [-1.99004745483398, 0.99007225036621];
+const TABLE2_B: [f64; 3] = [1.0, -2.0, 1.0];
+const TABLE2_A: [f64; 2] = [-1.99004745483398, 0.99007225036621];
 
 /// Magnitude (dB) of one biquad at `f` Hz and sample rate `fs`.
 fn biquad_db(b: &[f64; 3], a: &[f64; 2], f: f64, fs: f64) -> f64 {
@@ -37,8 +39,8 @@ fn cascade_db(c: &KCoef, f: f64, fs: f64) -> f64 {
     biquad_db(&c.b[0], &c.a[0], f, fs) + biquad_db(&c.b[1], &c.a[1], f, fs)
 }
 
-fn annex2_db(f: f64) -> f64 {
-    biquad_db(&ANNEX2_B1, &ANNEX2_A1, f, 48_000.0) + biquad_db(&ANNEX2_B2, &ANNEX2_A2, f, 48_000.0)
+fn table_db(f: f64) -> f64 {
+    biquad_db(&TABLE1_B, &TABLE1_A, f, 48_000.0) + biquad_db(&TABLE2_B, &TABLE2_A, f, 48_000.0)
 }
 
 /// 1/3-octave centres 20 Hz .. 20 kHz (base 10: 10^(n/10), n = 13..=43).
@@ -53,12 +55,12 @@ fn coefficients_at_48k_match_the_annex_2_table() {
     // set derives from libebur128's rounded f0/G/Q, so allow 1e-6, far below an audible change.
     let tol = 1e-6;
     for i in 0..3 {
-        assert!((c.b[0][i] - ANNEX2_B1[i]).abs() < tol, "stage 1 b{i}: {} vs {}", c.b[0][i], ANNEX2_B1[i]);
-        assert_eq!(c.b[1][i], ANNEX2_B2[i], "stage 2 b{i}");
+        assert!((c.b[0][i] - TABLE1_B[i]).abs() < tol, "stage 1 b{i}: {} vs {}", c.b[0][i], TABLE1_B[i]);
+        assert_eq!(c.b[1][i], TABLE2_B[i], "stage 2 b{i}");
     }
     for i in 0..2 {
-        assert!((c.a[0][i] - ANNEX2_A1[i]).abs() < tol, "stage 1 a{}: {} vs {}", i + 1, c.a[0][i], ANNEX2_A1[i]);
-        assert!((c.a[1][i] - ANNEX2_A2[i]).abs() < tol, "stage 2 a{}: {} vs {}", i + 1, c.a[1][i], ANNEX2_A2[i]);
+        assert!((c.a[0][i] - TABLE1_A[i]).abs() < tol, "stage 1 a{}: {} vs {}", i + 1, c.a[0][i], TABLE1_A[i]);
+        assert!((c.a[1][i] - TABLE2_A[i]).abs() < tol, "stage 2 a{}: {} vs {}", i + 1, c.a[1][i], TABLE2_A[i]);
     }
 }
 
@@ -66,7 +68,7 @@ fn coefficients_at_48k_match_the_annex_2_table() {
 fn response_at_48k_matches_the_annex_2_coefficients() {
     let c = KCoef::new(48_000.0);
     for f in third_octaves() {
-        let d = (cascade_db(&c, f, 48_000.0) - annex2_db(f)).abs();
+        let d = (cascade_db(&c, f, 48_000.0) - table_db(f)).abs();
         assert!(d < 0.001, "{f:.1} Hz: {d} dB apart");
     }
 }
@@ -85,9 +87,9 @@ fn response_at_other_rates_matches_the_48k_response() {
         let c = KCoef::new(fs);
         let mut hp = Vec::new();
         for f in third_octaves() {
-            let shelf = biquad_db(&c.b[0], &c.a[0], f, fs) - biquad_db(&ANNEX2_B1, &ANNEX2_A1, f, 48_000.0);
+            let shelf = biquad_db(&c.b[0], &c.a[0], f, fs) - biquad_db(&TABLE1_B, &TABLE1_A, f, 48_000.0);
             assert!(shelf.abs() < 0.01, "fs {fs}, {f:.1} Hz: shelf {shelf} dB apart");
-            hp.push(biquad_db(&c.b[1], &c.a[1], f, fs) - biquad_db(&ANNEX2_B2, &ANNEX2_A2, f, 48_000.0));
+            hp.push(biquad_db(&c.b[1], &c.a[1], f, fs) - biquad_db(&TABLE2_B, &TABLE2_A, f, 48_000.0));
         }
         let (lo, hi) = hp.iter().fold((f64::MAX, f64::MIN), |(l, h), &v| (l.min(v), h.max(v)));
         assert!(hi - lo < 0.001, "fs {fs}: high-pass offset isn't flat ({lo} .. {hi})");
