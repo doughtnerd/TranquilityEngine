@@ -136,6 +136,19 @@ export interface MonitorControls {
   solo?: boolean;
 }
 
+/**
+ * @internal ADR 0171 (Rc3, api-and-models §5.6): the capture's taps on the mixer's setters, for the plugin's recorder (the
+ * engine imports no plugin, so this is the engine's own shape). `busRamp`: a main-side lane moved (`seconds` is the ramp as
+ * authored, 0 asap: the lane writer ramps it over `BUS_MIN_RAMP_MS`); `snapshot`: a script or the panel faded to a
+ * snapshot (`null`: back to the plain mix); `monitor`: a monitor mute or solo changed (`muted` and `soloed` are bus-slot
+ * bit masks). With no tap set (the default) each setter pays one null check.
+ */
+export interface MixerTap {
+  busRamp(bus: string, lane: LaneId, seconds: number, target: number): void;
+  snapshot(name: string | null, seconds: number): void;
+  monitor(muted: number, soloed: number): void;
+}
+
 /** What `mixer.apply` delegates to: the backend's `applyOp` (K0 declares it on `AudioBackend`, optional). */
 export interface MixOpTarget { applyOp?(op: MixOp): ApplyResult }
 
@@ -157,7 +170,7 @@ export class Bus {
   get authoredVolume(): number { const s = this.s; return s ? rampAt(s.authored, this.mixer.time) : 0; }
   /** Runtime switch set by scripts, default false; effective mute = authored mute OR this OR a monitor control. */
   get mute(): boolean { return this.s?.mute ?? false; }
-  set mute(m: boolean) { const s = this.s; if (s && s.mute !== !!m) { s.mute = !!m; this.mixer._dirty(); } }
+  set mute(m: boolean) { const s = this.s; if (s && s.mute !== !!m) { s.mute = !!m; this.mixer._dirty(); this.mixer._noteMute(this.name); } }
   /** While any bus is soloed, only soloed buses (and the buses they feed and pass through) are heard. Default false. */
   get solo(): boolean { return this.s?.solo ?? false; }
   set solo(m: boolean) { const s = this.s; if (s && s.solo !== !!m) { s.solo = !!m; this.mixer._dirty(); } }
@@ -200,6 +213,8 @@ export class Mixer {
   private seq = 0;
   private loudnessSource: LoudnessSource | null = null;
   private opTarget: MixOpTarget | null = null;
+  /** Rc3: the capture's taps on the setters; null while no recorder runs. */
+  private tap: MixerTap | null = null;
   /** Ma1 (§6.3): old bus name -> new, after a live rename, so a held `Bus` keeps working (one warning per old name). */
   private readonly aliases = new Map<string, string>();
 
@@ -288,6 +303,9 @@ export class Mixer {
   /** @internal Register what `apply` delegates to: the backend (K0 wires it). */
   _setOpTarget(target: MixOpTarget | null): void { this.opTarget = target; }
 
+  /** @internal Rc3: where the setters report a lane ramp, a snapshot and a monitor change (null: nowhere, the default). */
+  _setTap(tap: MixerTap | null): void { this.tap = tap; }
+
   /**
    * Apply an edit while the project plays (§6): the editor's live path. Unlike `configure` it keeps every script value.
    * Delegates to the backend's `applyOp`, which classifies the op, changes this model through `_applyLive` (authored
@@ -330,8 +348,8 @@ export class Mixer {
       case "setBus": {
         const s = this.buses.get(op.bus);
         if (!s) break;
-        if (op.key === "volume") this.retarget(s.authored, s.settings.volume, DRAG_RAMP_MS / 1000, false);
-        else if (op.key === "mute") s.authoredMute = s.settings.mute;
+        if (op.key === "volume") this.lane(op.bus, Lane.authored, s.authored, s.settings.volume, DRAG_RAMP_MS / 1000, false);
+        else if (op.key === "mute") { s.authoredMute = s.settings.mute; this.tap?.busRamp(op.bus, Lane.authored, 0, s.authoredMute ? 0 : s.authored.to); }
         break;
       }
       case "renameSnapshot": {
@@ -354,7 +372,7 @@ export class Mixer {
     if (!snap) this.snapshotName = null;
     const seconds = SNAPSHOT_EDIT_MS / 1000;
     for (const [bus, s] of this.buses) {
-      this.retarget(s.snapshot, snap ? (snap.volumes[bus] ?? 1) : 1, seconds);
+      this.lane(bus, Lane.snapshot, s.snapshot, snap ? (snap.volumes[bus] ?? 1) : 1, seconds);
       this.retarget(s.lp, snap ? (snap.lowpass[bus] ?? OFF_HZ) : OFF_HZ, seconds);
     }
   }
@@ -390,7 +408,23 @@ export class Mixer {
     let moved = false;
     if (controls.mute !== undefined && s.monitorMute !== controls.mute) { s.monitorMute = controls.mute; moved = true; }
     if (controls.solo !== undefined && s.monitorSolo !== controls.solo) { s.monitorSolo = controls.solo; moved = true; }
-    if (moved) this._dirty();
+    if (!moved) return;
+    this._dirty();
+    if (this.tap !== null) {
+      // Slots 0..15 of each mask (a bus past slot 15 is not representable in one u32 carrying both).
+      let muted = 0, soloed = 0;
+      for (const b of this.buses.values()) {
+        if (b.slot >= 16) continue;
+        if (b.monitorMute) muted |= 1 << b.slot;
+        if (b.monitorSolo) soloed |= 1 << b.slot;
+      }
+      this.tap.monitor(muted, soloed);
+    }
+  }
+  /** @internal Rc3: a script mute toggled; the runtime lane's target is 0 (muted) or the script's volume. */
+  _noteMute(name: string): void {
+    const s = this.buses.get(name);
+    if (s && this.tap !== null) this.tap.busRamp(name, Lane.runtime, 0, s.mute ? 0 : s.runtime.to);
   }
   /** Whether any monitor control is on (meters are tainted, targets suspended, §1.1). */
   get monitorActive(): boolean { for (const s of this.buses.values()) if (s.monitorMute || s.monitorSolo) return true; return false; }
@@ -424,7 +458,7 @@ export class Mixer {
   /** @internal The structural dip (§6.5, the slot table's): ease `name`'s dip lane to `to` over `seconds`. */
   _setDip(name: string, to: number, seconds: number): void {
     const s = this.buses.get(name);
-    if (s) this.retarget(s.dip, Math.min(1, Math.max(0, to)), seconds);
+    if (s) this.lane(name, Lane.dip, s.dip, Math.min(1, Math.max(0, to)), seconds);
   }
   /** @internal */
   _dirty(): void { this.changed = true; }
@@ -488,25 +522,27 @@ export class Mixer {
     const snap = this.settings.snapshots.find((s) => s.name === name);
     if (!snap) { console.warn(`[myco] unknown audio snapshot "${name}". Snapshots: ${this.snapshotNames.join(", ") || "none"}.`); return; }
     this.snapshotName = name;
-    for (const [bus, s] of this.buses) { this.retarget(s.snapshot, snap.volumes[bus] ?? 1, seconds); this.retarget(s.lp, snap.lowpass[bus] ?? OFF_HZ, seconds); }
+    this.tap?.snapshot(name, seconds);
+    for (const [bus, s] of this.buses) { this.lane(bus, Lane.snapshot, s.snapshot, snap.volumes[bus] ?? 1, seconds); this.retarget(s.lp, snap.lowpass[bus] ?? OFF_HZ, seconds); }
   }
   /** Fade back to the plain mix. */
   clearSnapshot(seconds = 0.5): void {
     this.snapshotName = null;
-    for (const s of this.buses.values()) { this.retarget(s.snapshot, 1, seconds); this.retarget(s.lp, OFF_HZ, seconds); }
+    this.tap?.snapshot(null, seconds);
+    for (const [bus, s] of this.buses) { this.lane(bus, Lane.snapshot, s.snapshot, 1, seconds); this.retarget(s.lp, OFF_HZ, seconds); }
   }
 
   /** @internal `Bus.volume` (`seconds` 0) and `Bus.fadeTo`: one ramp on the runtime lane, clamped to 0..2. */
   _setRuntime(name: string, v: number, seconds: number): void {
     const s = this.buses.get(name);
-    if (s) this.retarget(s.runtime, Math.min(2, Math.max(0, Number.isFinite(v) ? v : 0)), seconds);
+    if (s) this.lane(name, Lane.runtime, s.runtime, Math.min(2, Math.max(0, Number.isFinite(v) ? v : 0)), seconds);
   }
 
   /**
    * A new ramp on `r` from its value now to `to` over `seconds` (non-finite or <= 0: asap). Re-setting a settled lane to
    * its value writes nothing. `stamped` false (the authored lane's drag, Ma1): the ramp starts now, as the backend sends it asap.
    */
-  private retarget(r: Ramp, to: number, seconds: number, stamped = true): void {
+  private retarget(r: Ramp, to: number, seconds: number, stamped = true): boolean {
     const now = this.time;
     const dur = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
     // A ramp with a length starts where the backend stamps it (Dp1): from the lane's value there.
@@ -516,9 +552,14 @@ export class Mixer {
       if (Number.isFinite(at) && at > now) start = at;
     }
     const from = rampAt(r, start);
-    if (from === to && r.to === to) return;
+    if (from === to && r.to === to) return false;
     r.from = from; r.to = to; r.start = start; r.seconds = dur; r.law = "linear"; r.seq = ++this.seq;
     this._dirty();
+    return true;
+  }
+  /** `retarget` on a lane main writes: when it wrote, the capture's tap hears the ramp (Rc3; one null check without a tap). */
+  private lane(bus: string, lane: LaneId, r: Ramp, to: number, seconds: number, stamped = true): void {
+    if (this.retarget(r, to, seconds, stamped) && this.tap !== null) this.tap.busRamp(bus, lane, r.seconds, to);
   }
   private ramp(from: number, to: number, start: number, seconds: number): Ramp {
     return { from, to, start, seconds, law: "linear", seq: ++this.seq };

@@ -35,6 +35,8 @@ import { routeGroupEvent, type SegmentRun } from "./segmentRun";
 import { updateBeatHolds } from "./background";
 import type { GridAnchor } from "./anchors";
 import { predictDue, seatBeats, type BeatState } from "./beatClock";
+import { taps } from "../mix/profileTaps";
+import { NULL_PROFILE_SINK } from "../mix/profileSink";
 
 /**
  * A music node as the runtime sees it before F1a/F1b's format types land: every `segment`, `playlist` and `musicSwitch`
@@ -232,6 +234,8 @@ export function createMusicPlayer(instance: EventInstance, root: MusicNodeRef, o
   (player as { handle: MusicHandle }).handle = createMusicHandle(player);
   players.push(player);
   byInstance.set(instance, player);
+  // Rc3: a player that began before a recorder did has no "first segment" to report when the recorder starts (the keyframe has its state).
+  if (taps.sink === NULL_PROFILE_SINK) firstReported.add(player);
   return player;
 }
 
@@ -331,6 +335,18 @@ export function tickPlayer(player: MusicPlayer, f: MusicFrame): void {
   tickLoopTails(player, f); // R4a
   tickStingers(player, f); // R5
   tickStems(player, f); // P5, R6
+  if (taps.sink !== NULL_PROFILE_SINK) noteFirstSegment(player);
+}
+
+/** Players whose first segment `noteFirstSegment` reported (the later changes are `transition.ts`'s `commit`). */
+const firstReported = new WeakSet<MusicPlayer>();
+
+/** Rc3 (§5.6 `musicTransition`): the player's first segment began playing: a transition from nothing (`from` null). */
+function noteFirstSegment(player: MusicPlayer): void {
+  const run = player.run;
+  if (run === null || firstReported.has(player)) return;
+  firstReported.add(player);
+  taps.sink.musicTransition(player.instance.group, null, run.node.id);
 }
 
 /** P9: the hidden-tab tick's frame (from the STATUS handler, architecture §3.8). */
