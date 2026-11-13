@@ -1,7 +1,7 @@
 // @internal Tests only (Rc1 and its leaves L-Rc1a, L-Rc1c; Rc1b, Rc5, Rc6 may reuse it): a capture holding every record
 // type, built with `format.ts`'s writers. Never imported by runtime code.
 import { makeStatusBlock } from "../core/mirror";
-import { STATUS_BUFFER_BYTES, writeStatus } from "../wire.generated";
+import { STATUS_BUFFER_BYTES, writeStatus, type StatusBlock } from "../wire.generated";
 import { RecordType, assembleCapture, type CaptureHeaderInit, type CaptureMetaInit, type CaptureRecordInit } from "./format";
 
 export const SAMPLE_RATE = 48_000;
@@ -50,6 +50,50 @@ export function sampleRecords(): CaptureRecordInit[] {
   push({ type: RecordType.KEYFRAME, epoch: 1, frame: 768, payload: keyframeBytesPlaceholder() });
   push({ type: RecordType.STATUS, epoch: 1, frame: 768, payload: statusBytes(768) });
   return r;
+}
+
+/** A real wire STATUS block with the given fields (Rc5's range tests). */
+export function statusBytesWith(fields: Partial<StatusBlock> & { currentFrame: number }): Uint8Array {
+  const buf = new Uint8Array(STATUS_BUFFER_BYTES);
+  const n = writeStatus(new DataView(buf.buffer), 0, makeStatusBlock(fields), 1);
+  return buf.slice(0, n);
+}
+
+/** Rc5: the STATUS fields `longCaptureRecords` writes for block `k` (so tests can check `range` against them). */
+export function longStatusFields(k: number, frame: number): Partial<StatusBlock> & { currentFrame: number } {
+  return { currentFrame: frame, underruns: k >> 9, loadPermille: (k * 7) % 1000, mixedVoices: k % 37, minSlackFrames: (k % 101) - 50, busyMsTotal: k * 0.25 };
+}
+
+/**
+ * Rc5: a synthetic capture of `seconds` at 48 kHz in one epoch: a STATUS every 768 frames (6 quanta, varying fields),
+ * a KEYFRAME (Rc1b's placeholder payload) before the first STATUS of each second, a voiceStart EVENT every 4th block and
+ * its voiceStop two blocks later, and a MARKER every 60 s. Ten minutes is ≈ 57,000 records, ≈ 11.6 MB stored.
+ */
+export function longCaptureRecords(seconds: number): CaptureRecordInit[] {
+  const r: CaptureRecordInit[] = [];
+  let seq = 0;
+  const push = (x: Omit<CaptureRecordInit, "seq">) => r.push({ ...x, seq: ++seq } as CaptureRecordInit);
+  push({ type: RecordType.EPOCH, epoch: 0, frame: 0, payload: { reason: 0, sampleRate: SAMPLE_RATE, limiterLatencyFrames: 64, outputLatencyFrames: 480, timeOffset: 0, perfMs: 1000 } });
+  const blocks = Math.floor((seconds * SAMPLE_RATE) / 768);
+  let second = -1;
+  for (let k = 0; k < blocks; k++) {
+    const frame = 768 * (k + 1);
+    const s = Math.floor(frame / SAMPLE_RATE);
+    if (s !== second) {
+      second = s;
+      push({ type: RecordType.KEYFRAME, epoch: 0, frame, payload: keyframeBytesPlaceholder() });
+      if (s % 60 === 0) push({ type: RecordType.MARKER, epoch: 0, frame, payload: { perfMs: 1000 + frame / 48, text: `minute ${s / 60}` } });
+    }
+    if (k % 4 === 0) push({ type: RecordType.EVENT, epoch: 0, frame: frame + 100, payload: { perfMs: 1000 + frame / 48, kind: 1, reason: 0, args: [k, 1, 1, 0, frame + 100], f32: 0.5 } });
+    if (k % 4 === 2) push({ type: RecordType.EVENT, epoch: 0, frame: frame + 200, payload: { perfMs: 1000 + frame / 48, kind: 2, reason: 1, args: [k - 2] } });
+    push({ type: RecordType.STATUS, epoch: 0, frame, payload: statusBytesWith(longStatusFields(k, frame)) });
+  }
+  return r;
+}
+
+/** Rc5: `longCaptureRecords(seconds)` as a stored file with an INDEX. */
+export function longCapture(seconds: number): Uint8Array {
+  return assembleCapture(SAMPLE_HEADER, SAMPLE_META, longCaptureRecords(seconds), { index: true });
 }
 
 /** The sample as a stored (uncompressed) file with an INDEX. */
