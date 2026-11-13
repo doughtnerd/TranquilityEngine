@@ -30,7 +30,7 @@ use audio_wire::generated as wire;
 
 use crate::bus::BusSlot;
 use crate::core::Core;
-use crate::counters::MixSections;
+use crate::counters::{BusDuckGain, MixSections};
 use crate::QUANTUM;
 
 /// Most rules (`MAX_DUCK_RULES`) and level rules (`MAX_LEVEL_RULES`).
@@ -231,20 +231,110 @@ pub fn detect(_duck: &mut DuckArea, _bus: usize, _l: &[f32], _r: &[f32]) {}
 /// The `duck` lane of bus `bus` for this quantum: writes the per-frame gain into `curve` and
 /// returns `true`, or returns `false` when the lane is at identity (no rule targets the bus, or
 /// its duck gain is a settled 1), and the gain stage then **skips** the lane (R3; `lanes::apply`'s
-/// `duck` is `None`). K1: always `false` (and `curve` untouched). Dp1: presence rules, the min
+/// `duck` is `None`). Presence rules (Dp1), the min
 /// over the bus's rules, attack and release per quantum interpolated per sample; Sc1 adds level
 /// rules to the min.
 /// `duck` is the duck state ([`area`] of the `Duck` region).
+///
+/// **Dp1 (presence mode, R4).** Each live presence rule of the bus moves its follower one quantum:
+/// the goal is `amount` while the trigger's bit is set in the presence mask, else 1; the end-of-
+/// quantum gain is `goal + (gain − goal) × coef` (the attack coefficient falling, the release one
+/// rising, [`coefficient`]), and the curve is the straight line from the last quantum's gain to
+/// it, per sample. The rules combine by min, per sample. A rule settled at 1 contributes nothing,
+/// so a bus whose rules have all released reads identity again.
+pub fn gain(duck: &mut DuckArea, bus: usize, curve: &mut [f32; QUANTUM]) -> bool {
+    let n = (duck.rule_count as usize).min(MAX_RULES);
+    let presence = duck.presence;
+    let mut any = false;
+    for i in 0..n {
+        let r = duck.rules[i];
+        // Level rules are Sc1's (W6): their followers stay at 1 until then.
+        if r.is_inert() || r.target as usize != bus || r.is_level() {
+            continue;
+        }
+        let f = &mut duck.followers[i];
+        let on = (r.trigger as u32) < 32 && presence & (1 << r.trigger) != 0;
+        let goal = if on { clamp_amount(r.amount) } else { 1.0 };
+        f.goal = goal;
+        let start = f.gain;
+        if start == 1.0 && goal == 1.0 {
+            continue;
+        }
+        let coef = if goal < start { f.attack_coef } else { f.release_coef };
+        let mut end = goal + (start - goal) * coef;
+        if (end - goal).abs() < SETTLE {
+            end = goal;
+        }
+        f.gain = end;
+        if !any {
+            curve.fill(1.0);
+            any = true;
+        }
+        let step = (end - start) / QUANTUM as f32;
+        for (k, c) in curve.iter_mut().enumerate() {
+            let g = if k + 1 == QUANTUM { end } else { start + step * (k + 1) as f32 };
+            if g < *c {
+                *c = g;
+            }
+        }
+    }
+    any
+}
+
+/// A follower closer than this to its goal lands on it (≈ −100 dB of the step), so a released
+/// duck reaches exactly 1 and the lane returns to identity.
+pub const SETTLE: f32 = 1e-5;
+
+/// `amount` as a gain in [0, 1] (a NaN reads as no duck).
 #[inline]
-pub fn gain(_duck: &mut DuckArea, _bus: usize, _curve: &mut [f32; QUANTUM]) -> bool {
-    false
+fn clamp_amount(a: f32) -> f32 {
+    if a.is_nan() {
+        1.0
+    } else {
+        a.clamp(0.0, 1.0)
+    }
+}
+
+/// The per-quantum one-pole coefficient of a 63 % time constant `seconds` at `sample_rate`:
+/// `exp(−QUANTUM / (seconds × sample_rate))`; 0 (a jump) for a zero, negative or non-finite time.
+pub fn coefficient(seconds: f32, sample_rate: f32) -> f32 {
+    let frames = seconds as f64 * sample_rate as f64;
+    if !(frames > 0.0) || !frames.is_finite() {
+        return 0.0;
+    }
+    libm::exp(-(QUANTUM as f64) / frames) as f32
+}
+
+/// Sets every kept rule's follower coefficients from its attack and release (after `BUS_DUCK`).
+fn set_coefficients(d: &mut DuckArea, sample_rate: f32) {
+    let n = (d.rule_count as usize).min(MAX_RULES);
+    for i in 0..n {
+        let r = d.rules[i];
+        d.followers[i].attack_coef = coefficient(r.attack, sample_rate);
+        d.followers[i].release_coef = coefficient(r.release, sample_rate);
+    }
 }
 
 /// The `busDuck` STATUS section (API §4.3) for a take: pushes `{slot, gain}` into
 /// `mix.bus_duck` for every bus that is the target of a rule (at most `MAX_DUCK_RULES`), its duck
 /// gain at the end of the last quantum. Called by `status::take` before the block is written; a
-/// level, so a failed take loses nothing. K1: writes nothing (count 0). Dp1 fills it.
-pub fn status(_core: &mut Core, _mix: &mut MixSections) {}
+/// level, so a failed take loses nothing.
+///
+/// Dp1: one entry per distinct target of a live rule, in rule order, its gain the min of its
+/// rules' followers (level rules read 1 until Sc1).
+pub fn status(core: &mut Core, mix: &mut MixSections) {
+    let Some(d) = area(&mut core.regions_mut().duck[..]) else { return };
+    let rules = d.rules();
+    for (i, r) in rules.iter().enumerate() {
+        if r.is_inert() || rules[..i].iter().any(|o| !o.is_inert() && o.target == r.target) {
+            continue;
+        }
+        let g = d.rules_for(r.target as usize).map(|(j, _)| d.followers[j].gain).fold(1.0f32, f32::min);
+        if !mix.bus_duck.push(BusDuckGain { slot: r.target, gain: g }) {
+            break;
+        }
+    }
+}
 
 /// `true` when a `BUS_DUCK` record (0x19, API §4.2) at `msg[off..off + len]` holds its `ruleCount`
 /// items of 24 B (pass 1 of `scheduler::submit`: a malformed record refuses the batch). K1: checks
@@ -272,6 +362,7 @@ pub fn rules_is_well_formed(msg: &[u8], off: usize, len: usize) -> bool {
 /// The record is well formed (`rules_is_well_formed`). Nothing allocates.
 pub fn on_rules(core: &mut Core, msg: &[u8], off: usize) {
     let wanted = crate::wire_read::u32_at(msg, off + 12) as usize;
+    let sample_rate = core.params().sample_rate;
     let Some(d) = area(&mut core.regions_mut().duck[..]) else { return };
     let old = *d;
     let old_rules = old.rules();
@@ -319,20 +410,44 @@ pub fn on_rules(core: &mut Core, msg: &[u8], off: usize) {
     }
     d.rule_count = kept as u32;
     d.level_count = levels as u32;
+    // Dp1: the followers' per-quantum coefficients from the rules' times (kept followers too, so
+    // an edit of the times takes effect from the next quantum).
+    set_coefficients(d, sample_rate);
     crate::bus_order::rerun(core);
     crate::status::counters_mut(core).mix.duck_rules_dropped = dropped.min(u16::MAX as usize) as u16;
 }
 
 /// `BUS_PRESENCE` (0x1A, 16 B, API §4.2): `u32 mask`, one bit per trigger slot with a voice,
 /// applying at the start of the quantum holding its frame (`at`: `None` asap, `Some(frame)`
-/// stamped). K1: a stub that ignores the record and counts nothing. Dp1 fills it (B2's pending
-/// queue holds stamped configuration records).
-pub fn on_presence(_core: &mut Core, _msg: &[u8], _off: usize, _at: Option<u64>) {}
+/// stamped). B2's configuration queue holds a stamped record until the quantum holding its frame
+/// starts and then calls this, so the mask is in force for that whole quantum (quantum
+/// granularity, before any bus mixes). Dp1: replaces the mask in force.
+pub fn on_presence(core: &mut Core, msg: &[u8], off: usize, _at: Option<u64>) {
+    if off + wire::BusPresence::FIXED_END > msg.len() {
+        return;
+    }
+    let mask = crate::wire_read::u32_at(msg, off + 12);
+    if let Some(d) = area(&mut core.regions_mut().duck[..]) {
+        d.presence = mask;
+    }
+}
 
 /// Sets the duck state up after the region is zeroed (`Core::new`, once). K1: a no-op (no rules;
 /// all-zero is valid). Dp1 or Sc1 fill it if they need more.
 pub fn init(_core: &mut Core) {}
 
 /// RESET: clears detector and follower state (the rules stay: they are main's intent, re-sent by
-/// the replay). K1: a no-op; Dp1 and Sc1 fill it.
-pub fn reset(_core: &mut Core) {}
+/// the replay). Dp1: every voice is gone, so the presence mask clears and each follower settles
+/// at 1 (its coefficients kept); each detector's envelope clears (its rule index kept).
+pub fn reset(core: &mut Core) {
+    let Some(d) = area(&mut core.regions_mut().duck[..]) else { return };
+    d.presence = 0;
+    let n = (d.rule_count as usize).min(MAX_RULES);
+    for f in &mut d.followers[..n] {
+        f.gain = 1.0;
+        f.goal = 1.0;
+    }
+    for x in &mut d.detectors {
+        *x = Detector { rule: x.rule, ..Detector::default() };
+    }
+}
