@@ -19,19 +19,20 @@
  * Exact gating (G7d). Integrated and LRA are the exact list-based gating of S1's `Gating` and the `ebur128` crate
  * (Ld6's cross-check, 1e-3 LU at every point), not the 0.1 LU bins the design first prescribed (api-and-models
  * §3.2, ARCH §4.4: "two 1,000-bin histograms, 24 kB, within 0.11 LU"): a bin admitted every block of the bin that
- * held a relative gate, which moved LRA's 10th percentile by LUs on short programmes. Each gate's blocks are kept
- * in a {@link GatedBlocks}: the energies of the blocks that passed the absolute gate, in preallocated storage,
- * chained per 0.1 LU bin, with per-bin counts and energy sums. Binning is monotonic (`floor` of rounded, monotonic
- * arithmetic), so every block in a bin above the relative gate's bin passes, every block in a bin below fails,
- * and only the gate's own bin is compared block by block (`lufs >= gate`). Integrated keeps the sum above the
- * gate's bin incrementally and walks one bin per sub-block; LRA's percentiles are a selection (quickselect)
- * inside the bin that holds the rank, once per 3 s block (1 Hz).
+ * held a relative gate, which put I up to 0.17 LU off and moved LRA's 10th percentile by LUs on short programmes.
+ * Each gate's blocks are kept in a {@link SortedBlocks}: the energies of the blocks that passed the absolute gate,
+ * sorted (energy order is loudness order), with prefix sums, in preallocated storage. The relative gate becomes the
+ * least energy that reads at or above it (so `e >= that` is exactly the list's `lufs(e) >= gate`), found in the run
+ * by binary search; the passing energy is a difference of prefix sums. The relative gate's mean is the running sum
+ * in arrival order. Integrated takes its newest 256 blocks unsorted (each compared one by one) and merges them every
+ * 256 sub-blocks (25.6 s), so a sub-block costs a binary search and at most 256 comparisons, and a merge moves the
+ * run once. LRA (one block a second) inserts in place, and its percentiles are indices into the run.
  *
  * Bound. The storage holds {@link EXACT_GATING_SECONDS} (one hour) of gated programme: 36,000 400 ms blocks and
- * 3,600 3 s blocks, about 560 kB per instance (`byteLength`). Past it a block still counts in its bin's count and
- * energy sum (I's sum and LRA's ranks stay exact away from the gate) but is not listed: in the gate's bin it is
- * admitted by the bin, and a percentile landing on it reads its bin's mean (the old histogram rule, within 0.1 LU,
- * only for those blocks). `reset("integrated")` and `reset("all")` empty the storage.
+ * 3,600 3 s blocks, 659,904 bytes per instance (`byteLength`). Past it a block still counts (the gate's mean stays
+ * exact) but is kept only as its 0.1 LU bin's count and energy sum: in the gate's bin it is admitted by the bin
+ * (the old histogram rule, within 0.1 LU, only for those blocks), and a percentile landing on one reads its bin's
+ * mean. `reset("integrated")` and `reset("all")` empty the storage.
  *
  * Discontinuities. A 400 ms or 3 s block never straddles lost, shed or rebuilt audio: after a lost span
  * ({@link LoudnessStats.take} / {@link LoudnessStats.takeBlock} seeing a sequence jump), an {@link
@@ -60,6 +61,8 @@ export const INTEGRATED_RELATIVE_GATE_LU = -10;
 export const LRA_RELATIVE_GATE_LU = -20;
 /** Gated programme the exact storage holds by default: an hour (36,000 integrated blocks, 3,600 LRA blocks). */
 export const EXACT_GATING_SECONDS = 3600;
+/** Integrated blocks taken unsorted before a merge into the sorted run (25.6 s of sub-blocks). */
+const PENDING_BLOCKS = 256;
 
 /** Which statistics a reset clears (the API's `LoudnessResetWhat`, structurally). */
 export type LoudnessStatsResetWhat = "integrated" | "maxPeak" | "all";
@@ -79,93 +82,119 @@ function binOf(l: number): number {
   return Math.min(Math.max(Math.floor((l - ABSOLUTE_GATE_LUFS) * 10), 0), HIST_BINS - 1);
 }
 
-/**
- * The `k`-th smallest (0-based) of `a[0 .. n)`, in place (Wirth's selection: Hoare partitions around `a[k]`, linear
- * on average, and linear on equal values, which a steady tone gives).
- */
-function selectKth(a: Float64Array, n: number, k: number): number {
-  let l = 0;
-  let r = n - 1;
-  while (l < r) {
-    const x = a[k];
-    let i = l;
-    let j = r;
-    do {
-      while (a[i] < x) i++;
-      while (x < a[j]) j--;
-      if (i <= j) {
-        const t = a[i];
-        a[i] = a[j];
-        a[j] = t;
-        i++;
-        j--;
-      }
-    } while (i <= j);
-    if (j < k) l = i;
-    if (k < i) r = j;
+// One float's bits, for stepping by an ulp (module scratch: allocated once, used only inside one call).
+const ulpView = new DataView(new ArrayBuffer(8));
+
+/** The next double above (`dir` 1) or below (`dir` -1) a positive finite `x`. */
+function stepUlp(x: number, dir: 1 | -1): number {
+  ulpView.setFloat64(0, x);
+  const hi = ulpView.getUint32(0);
+  const lo = ulpView.getUint32(4);
+  if (dir > 0) {
+    if (lo === 0xffffffff) ulpView.setUint32(0, hi + 1);
+    ulpView.setUint32(4, (lo + 1) >>> 0);
+  } else {
+    if (lo === 0) ulpView.setUint32(0, hi - 1);
+    ulpView.setUint32(4, (lo - 1) >>> 0);
   }
-  return a[k];
+  return ulpView.getFloat64(0);
 }
 
 /**
- * The blocks that passed one gate's absolute gate (see the file comment): listed energies chained per bin, per-bin
- * counts and energy sums of every block, and the unlisted (past-capacity) part per bin. Fixed memory. Not exported:
- * `LoudnessStats` owns two.
+ * The least positive energy `e` with `energyToLufs(e) >= t`, so `e >= it` is exactly `energyToLufs(e) >= t` (both are
+ * monotonic): the inverse, then stepped by ulps until it is the boundary.
  */
-class GatedBlocks {
-  /** Listed blocks' mean-square energies, in arrival order. */
+function leastEnergyAtLeast(t: number): number {
+  let e = 10 ** ((t + 0.691) / 10);
+  if (!(e < Number.POSITIVE_INFINITY)) return Number.POSITIVE_INFINITY;
+  if (!(e > 0)) e = Number.MIN_VALUE;
+  while (energyToLufs(e) < t) e = stepUlp(e, 1);
+  for (;;) {
+    const d = stepUlp(e, -1);
+    if (d > 0 && energyToLufs(d) >= t) e = d;
+    else return e;
+  }
+}
+
+/** In-place heapsort of `a[0 .. n)`, ascending (no allocation; pending blocks before a merge). */
+function heapSort(a: Float64Array, n: number): void {
+  for (let start = (n >> 1) - 1; start >= 0; start--) siftDown(a, start, n);
+  for (let end = n - 1; end > 0; end--) {
+    const t = a[0];
+    a[0] = a[end];
+    a[end] = t;
+    siftDown(a, 0, end);
+  }
+}
+
+function siftDown(a: Float64Array, i: number, n: number): void {
+  const x = a[i];
+  for (;;) {
+    let c = 2 * i + 1;
+    if (c >= n) break;
+    if (c + 1 < n && a[c + 1] > a[c]) c++;
+    if (!(a[c] > x)) break;
+    a[i] = a[c];
+    i = c;
+  }
+  a[i] = x;
+}
+
+/**
+ * The blocks that passed one gate's absolute gate (see the file comment): the listed energies sorted ascending with
+ * their prefix sums, the newest few unsorted (`pendingCap`; 0 inserts each block in place), and the unlisted
+ * (past-capacity) blocks as per-bin counts and energy sums. Fixed memory. Not exported: `LoudnessStats` owns two.
+ */
+class SortedBlocks {
+  /** Listed energies `[0, sorted)`, ascending. Energy order is loudness order. */
   readonly energy: Float64Array;
-  /** Per listed block, the previous listed block of its bin (-1 ends the chain). */
-  readonly next: Int32Array;
-  /** Per bin, the newest listed block (-1: none). */
-  readonly head = new Int32Array(HIST_BINS);
-  /** Per bin, every block's count and energy sum. */
-  readonly cnt = new Uint32Array(HIST_BINS);
-  readonly esum = new Float64Array(HIST_BINS);
-  /** Per bin, the unlisted blocks' count and energy sum (past capacity). */
+  /** `prefix[i]`: the sum of `energy[0 .. i)`. */
+  readonly prefix: Float64Array;
+  /** The newest listed blocks, unsorted. */
+  readonly pending: Float64Array;
+  /** Unlisted blocks per 0.1 LU bin (past capacity). */
   readonly overCnt = new Uint32Array(HIST_BINS);
   readonly overSum = new Float64Array(HIST_BINS);
-  /** LRA's selection buffer (one bin's loudness values); empty for integrated. */
-  readonly scratch: Float64Array;
-  listed = 0;
+  sorted = 0;
+  pendingCount = 0;
+  overflow = 0;
   /** Blocks above the absolute gate and their energy, summed in arrival order (the relative gate's mean). */
   total = 0;
   totalEnergy = 0;
-  /** The relative gate's bin, and the count and energy of every block in the bins above it (kept incrementally). */
-  gateBin = -1;
-  upCount = 0;
-  upEnergy = 0;
-  /** The gate's own bin after {@link gate}: its blocks at or above the gate. */
+  /** After {@link gate}: the first sorted index at or above the gate, the gate's bin, and the passing count and energy. */
+  from = 0;
+  gateBin = 0;
   passCount = 0;
   passEnergy = 0;
 
-  constructor(readonly capacity: number, scratchLength: number) {
+  constructor(readonly capacity: number, readonly pendingCap: number) {
     this.energy = new Float64Array(capacity);
-    this.next = new Int32Array(capacity);
-    this.scratch = new Float64Array(scratchLength);
-    this.head.fill(-1);
+    this.prefix = new Float64Array(capacity + 1);
+    this.pending = new Float64Array(pendingCap);
+  }
+
+  /** Blocks held in the exact storage. */
+  get listed(): number {
+    return this.sorted + this.pendingCount;
   }
 
   clear(): void {
-    this.head.fill(-1);
-    this.cnt.fill(0);
-    this.esum.fill(0);
     this.overCnt.fill(0);
     this.overSum.fill(0);
-    this.listed = 0;
+    this.sorted = 0;
+    this.pendingCount = 0;
+    this.overflow = 0;
     this.total = 0;
     this.totalEnergy = 0;
-    this.gateBin = -1;
-    this.upCount = 0;
-    this.upEnergy = 0;
+    this.from = 0;
+    this.gateBin = 0;
     this.passCount = 0;
     this.passEnergy = 0;
   }
 
   get byteLength(): number {
     return (
-      this.energy.byteLength + this.next.byteLength + this.head.byteLength + this.cnt.byteLength + this.esum.byteLength +
-      this.overCnt.byteLength + this.overSum.byteLength + this.scratch.byteLength
+      this.energy.byteLength + this.prefix.byteLength + this.pending.byteLength + this.overCnt.byteLength + this.overSum.byteLength
     );
   }
 
@@ -173,58 +202,113 @@ class GatedBlocks {
   add(e: number): boolean {
     const l = energyToLufs(e);
     if (!(l >= ABSOLUTE_GATE_LUFS)) return false;
-    const b = binOf(l);
-    this.cnt[b]++;
-    this.esum[b] += e;
     this.total++;
     this.totalEnergy += e;
-    if (this.listed < this.capacity) {
-      const i = this.listed++;
-      this.energy[i] = e;
-      this.next[i] = this.head[b];
-      this.head[b] = i;
-    } else {
+    if (this.sorted + this.pendingCount >= this.capacity) {
+      const b = binOf(l);
       this.overCnt[b]++;
       this.overSum[b] += e;
-    }
-    if (this.gateBin >= 0 && b > this.gateBin) {
-      this.upCount++;
-      this.upEnergy += e;
+      this.overflow++;
+    } else if (this.pendingCap === 0) {
+      this.insert(e);
+    } else {
+      this.pending[this.pendingCount++] = e;
+      if (this.pendingCount === this.pendingCap) this.merge();
     }
     return true;
   }
 
+  /** Inserts one energy into the sorted run (LRA: once a second, at most `capacity` moves). */
+  private insert(e: number): void {
+    const a = this.energy;
+    let i = this.sorted;
+    while (i > 0 && a[i - 1] > e) {
+      a[i] = a[i - 1];
+      i--;
+    }
+    a[i] = e;
+    this.sorted++;
+    this.rebuildPrefix(i);
+  }
+
+  /** Sorts the pending blocks and merges them into the sorted run from the top (in place), then the prefix sums. */
+  private merge(): void {
+    const k = this.pendingCount;
+    if (k === 0) return;
+    const p = this.pending;
+    heapSort(p, k);
+    const a = this.energy;
+    let i = this.sorted - 1;
+    let j = k - 1;
+    let w = this.sorted + k - 1;
+    while (j >= 0) {
+      if (i >= 0 && a[i] > p[j]) a[w--] = a[i--];
+      else a[w--] = p[j--];
+    }
+    this.sorted += k;
+    this.pendingCount = 0;
+    this.rebuildPrefix(w + 1);
+  }
+
+  private rebuildPrefix(from: number): void {
+    const a = this.energy;
+    const s = this.prefix;
+    for (let i = from; i < this.sorted; i++) s[i + 1] = s[i] + a[i];
+  }
+
+  /** The first sorted index whose energy is at least `e`. */
+  private lowerBound(e: number): number {
+    let lo = 0;
+    let hi = this.sorted;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.energy[mid] >= e) hi = mid;
+      else lo = mid + 1;
+    }
+    return lo;
+  }
+
+  /** The first sorted index whose bin is at least `b`. */
+  private lowerBoundBin(b: number): number {
+    let lo = 0;
+    let hi = this.sorted;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (binOf(energyToLufs(this.energy[mid])) >= b) hi = mid;
+      else lo = mid + 1;
+    }
+    return lo;
+  }
+
   /**
-   * Places the relative gate `relLu` below the mean of the blocks (needs `total > 0`): the totals above its bin
-   * (rebuilt only when the bin changes, it moves slowly) and the exact pass count and energy of its own bin. Returns
-   * the gate in LUFS.
+   * Places the relative gate `relLu` below the mean of the blocks (needs `total > 0`) and counts the blocks at or
+   * above it: the sorted run by binary search and prefix sums, the pending ones one by one, the unlisted ones by bin
+   * (every unlisted block in the gate's bin admitted, the histogram rule, past capacity only). Returns the gate in LUFS.
    */
   gate(relLu: number): number {
     const t = energyToLufs(this.totalEnergy / this.total) + relLu;
-    const g = binOf(t);
-    if (g !== this.gateBin) {
-      let c = 0;
-      let s = 0;
-      for (let i = g + 1; i < HIST_BINS; i++) {
-        c += this.cnt[i];
-        s += this.esum[i];
-      }
-      this.gateBin = g;
-      this.upCount = c;
-      this.upEnergy = s;
-    }
-    let c = 0;
-    let s = 0;
-    for (let i = this.head[g]; i >= 0; i = this.next[i]) {
-      const e = this.energy[i];
-      if (energyToLufs(e) >= t) {
+    // a block passes when lufs(e) >= t, that is when e >= the least energy that reads t or more
+    const et = leastEnergyAtLeast(t);
+    const from = this.lowerBound(et);
+    let c = this.sorted - from;
+    let s = this.prefix[this.sorted] - this.prefix[from];
+    for (let i = 0; i < this.pendingCount; i++) {
+      if (this.pending[i] >= et) {
         c++;
-        s += e;
+        s += this.pending[i];
       }
     }
-    // unlisted blocks in the gate's bin: admitted by the bin (the histogram rule, past capacity only)
-    this.passCount = c + this.overCnt[g];
-    this.passEnergy = s + this.overSum[g];
+    const g = binOf(t);
+    if (this.overflow > 0) {
+      for (let b = g; b < HIST_BINS; b++) {
+        c += this.overCnt[b];
+        s += this.overSum[b];
+      }
+    }
+    this.from = from;
+    this.gateBin = g;
+    this.passCount = c;
+    this.passEnergy = s;
     return t;
   }
 
@@ -232,47 +316,41 @@ class GatedBlocks {
   integrated(): number {
     if (this.total === 0) return Number.NEGATIVE_INFINITY;
     this.gate(INTEGRATED_RELATIVE_GATE_LU);
-    const c = this.upCount + this.passCount;
-    return c > 0 ? energyToLufs((this.upEnergy + this.passEnergy) / c) : Number.NEGATIVE_INFINITY;
+    return this.passCount > 0 ? energyToLufs(this.passEnergy / this.passCount) : Number.NEGATIVE_INFINITY;
   }
 
   /** Loudness range in LU, or `-Infinity` until two blocks pass both gates (the crate returns 0 there). */
   lra(): number {
     if (this.total === 0) return Number.NEGATIVE_INFINITY;
-    const t = this.gate(LRA_RELATIVE_GATE_LU);
-    const n = this.upCount + this.passCount;
+    this.merge();
+    this.gate(LRA_RELATIVE_GATE_LU);
+    const n = this.passCount;
     if (n < 2) return Number.NEGATIVE_INFINITY;
-    return this.pick(t, Math.floor((n - 1) * 0.95 + 0.5)) - this.pick(t, Math.floor((n - 1) * 0.1 + 0.5));
+    return this.pick(Math.floor((n - 1) * 0.95 + 0.5)) - this.pick(Math.floor((n - 1) * 0.1 + 0.5));
   }
 
-  /** The loudness of the passing block at 0-based ascending rank `r` (after {@link gate} placed gate `t`). */
-  private pick(t: number, r: number): number {
-    const g = this.gateBin;
-    if (r < this.passCount) return this.pickInBin(g, t, r);
-    r -= this.passCount;
-    for (let b = g + 1; b < HIST_BINS; b++) {
-      if (r < this.cnt[b]) return this.pickInBin(b, Number.NEGATIVE_INFINITY, r);
-      r -= this.cnt[b];
+  /** The loudness of the passing block at 0-based ascending rank `r` (after {@link gate}; nothing pending). */
+  private pick(r: number): number {
+    if (this.overflow === 0) return energyToLufs(this.energy[this.from + r]);
+    // past capacity: walk the bins from the gate's, the sorted blocks of each bin beside its unlisted ones
+    let lo = this.from;
+    for (let b = this.gateBin; b < HIST_BINS; b++) {
+      const hi = b === HIST_BINS - 1 ? this.sorted : Math.max(lo, this.lowerBoundBin(b + 1));
+      const m = hi - lo;
+      const oc = this.overCnt[b];
+      if (r < m + oc) {
+        if (oc === 0) return energyToLufs(this.energy[lo + r]);
+        const om = energyToLufs(this.overSum[b] / oc);
+        let below = 0;
+        while (below < m && energyToLufs(this.energy[lo + below]) < om) below++;
+        if (r < below) return energyToLufs(this.energy[lo + r]);
+        if (r < below + oc) return om;
+        return energyToLufs(this.energy[lo + r - oc]);
+      }
+      r -= m + oc;
+      lo = hi;
     }
     return Number.NEGATIVE_INFINITY; // unreachable: r < the passing count
-  }
-
-  /** Rank `r` among bin `b`'s blocks at or above `t`: the listed ones exactly, the unlisted ones as the bin's unlisted mean. */
-  private pickInBin(b: number, t: number, r: number): number {
-    const a = this.scratch;
-    let m = 0;
-    for (let i = this.head[b]; i >= 0; i = this.next[i]) {
-      const l = energyToLufs(this.energy[i]);
-      if (l >= t) a[m++] = l;
-    }
-    const oc = this.overCnt[b];
-    if (oc === 0) return selectKth(a, m, r);
-    const om = energyToLufs(this.overSum[b] / oc);
-    let below = 0;
-    for (let i = 0; i < m; i++) if (a[i] < om) below++;
-    if (r < below) return selectKth(a, m, r);
-    if (r < below + oc) return om;
-    return selectKth(a, m, r - oc);
   }
 }
 
@@ -284,8 +362,8 @@ export class LoudnessStats {
   private fill = 0;
   /** Sub-blocks since the window or the integrated statistics last restarted (reset, gap, resume): the I and LRA block counter. */
   private sinceGap = 0;
-  private readonly blocksI: GatedBlocks;
-  private readonly blocksL: GatedBlocks;
+  private readonly blocksI: SortedBlocks;
+  private readonly blocksL: SortedBlocks;
 
   private mLufs = Number.NEGATIVE_INFINITY;
   private sLufs = Number.NEGATIVE_INFINITY;
@@ -310,8 +388,8 @@ export class LoudnessStats {
    */
   constructor(exactSeconds: number = EXACT_GATING_SECONDS) {
     const lraBlocks = Math.max(1, Math.ceil(exactSeconds));
-    this.blocksI = new GatedBlocks(lraBlocks * 10, 0);
-    this.blocksL = new GatedBlocks(lraBlocks, lraBlocks);
+    this.blocksI = new SortedBlocks(lraBlocks * 10, PENDING_BLOCKS);
+    this.blocksL = new SortedBlocks(lraBlocks, 0);
   }
 
   /** Momentary loudness, LUFS: the last 400 ms; `-Infinity` until 4 sub-blocks since the last restart. */
@@ -378,7 +456,7 @@ export class LoudnessStats {
   /** Every typed array the instance owns, for a test that pins identity and length across a long feed. Allocates the returned array. */
   buffers(): ArrayBufferView[] {
     const out: ArrayBufferView[] = [this.win];
-    for (const g of [this.blocksI, this.blocksL]) out.push(g.energy, g.next, g.head, g.cnt, g.esum, g.overCnt, g.overSum, g.scratch);
+    for (const g of [this.blocksI, this.blocksL]) out.push(g.energy, g.prefix, g.pending, g.overCnt, g.overSum);
     return out;
   }
 

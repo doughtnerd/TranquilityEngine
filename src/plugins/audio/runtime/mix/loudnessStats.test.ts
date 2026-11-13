@@ -224,9 +224,9 @@ describe("LoudnessStats exact gating (G7d)", () => {
     expect(nearMissL, "LRA near misses").toBeGreaterThan(0);
   });
 
-  it("G7d: the storage holds an hour by default (36,000 + 3,600 blocks, 560,240 bytes) and is emptied by reset('integrated') and reset('all')", () => {
+  it("G7d: the storage holds an hour by default (36,000 + 3,600 blocks, 659,904 bytes) and is emptied by reset('integrated') and reset('all')", () => {
     const s = new LoudnessStats();
-    expect(s.byteLength).toBe(560_240);
+    expect(s.byteLength).toBe(659_904);
     tone(s, 200, -23);
     expect(s.listedIntegratedBlocks).toBe(197);
     expect(s.listedLraBlocks).toBe(18);
