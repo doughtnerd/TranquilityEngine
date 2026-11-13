@@ -253,7 +253,7 @@ export interface LoudnessConfigWrite {
  * and the RECYCLE: `data` is the pooled buffer, valid only during the call; `byteLength` the block's bytes. Must not
  * allocate (ground rules). Rc2 fills it from `capture/recorder.ts`.
  */
-export type RecorderTap = (data: ArrayBuffer, byteLength: number) => void;
+export type RecorderTap = (data: ArrayBuffer, byteLength: number, view?: DataView) => void;
 
 /** A copy of the audio state for tools and "why is there no sound?" (§1, architecture §8). */
 export interface AudioDebugInfo {

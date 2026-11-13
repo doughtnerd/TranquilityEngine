@@ -250,7 +250,7 @@ export class CoreLink {
         // A block we can't read still goes back, or the shell's pool shrinks.
       }
       // ADR 0171 (K0): the recorder copies the raw block here, before RECYCLE overwrites its envelope and transfers it.
-      this.recorderTap?.(data, 16 + view.getUint32(12, true));
+      this.recorderTap?.(data, 16 + view.getUint32(12, true), view);
       // §4.3: return the buffer at once with RECYCLE (the transfer is the message), before anything else runs.
       writeEnvelope(view, 0, { kind: Kind.RECYCLE, seq: this.nextSeq(), bodyBytes: 0 });
       this.port.postMessage(data, [data]);
