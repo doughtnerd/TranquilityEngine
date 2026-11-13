@@ -91,7 +91,7 @@ test("M5 smoke (today): the buses exist, effective gain is the tree's product, a
   });
 });
 
-// M5-0 (Mx2, then Dp1): the stamped bus path. Owners un-fixme in their wave: Mx2 (W3) the fade case, Dp1 (W4) the duck case.
+// M5-0 (Mx2, then Dp1): the stamped bus path: Mx2's fade case (W3), Dp1's presence duck case (W4).
 // The exact first-moving sample is asserted on the loopback host (`laneWriterLoopback.test.ts`); here, the shipped page.
 test("M5-0 smoke: a fade lands through the lanes on its stamp", async ({ page }) => {
   const errors: string[] = [];
@@ -137,13 +137,77 @@ test("M5-0 smoke: a fade lands through the lanes on its stamp", async ({ page })
   expect(errors).toEqual([]);
 });
 
-test.fixme("M5-0 smoke: a presence duck starts on its stamped frame", async ({ page }) => {
+// Dp1: the Sound Lab ducks Music under SFX by presence (amount 0.3, attack 0.05 s, release 0.4 s). The exact first ducked
+// sample is asserted on the loopback host (`presenceLoopback.test.ts`); here, the shipped page, on the core's STATUS frames.
+test("M5-0 smoke: a presence duck starts on its stamped frame", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
   await bootMix(page);
   await installFrameClock(page);
-  // Dp1:
-  //  1. Play a voice on a bus with a presence duck rule (a trigger bus, ADR 0172) and read the duck's start frame in
-  //     the debug rows: the duck starts on the frame its trigger voice was stamped to, `splitQuanta` still 0.
-  void page;
+  type Mirror = { currentFrame: number; duckCount: number; duckSlot: Uint16Array; duckGain: Float32Array; splitQuanta?: number };
+  type Backend = { mirror: Mirror; writer: { busPresence(mask: number, at?: number): void } };
+  type Handle = { stop(): void; voice?: { backend?: Backend; inner?: { backend?: Backend } } };
+  type G = { __myco: { Audio: { time: number; buses: readonly string[]; bus(n: string): { duckGain: number }; playOneShot(c: string, o: object): Handle } }; __dp1?: { sent: { mask: number; at?: number }[]; handle?: Handle; reads: { frame: number; duck: number; api: number }[] } };
+  // 1. A quiet voice on SFX, `at` 0.3 s ahead of the heard clock: its BUS_PRESENCE goes out stamped at its start frame.
+  const music = await page.evaluate(() => {
+    const g = globalThis as unknown as G;
+    return g.__myco.Audio.buses.indexOf("Music");
+  });
+  const before = await page.evaluate(() => (globalThis as unknown as G).__myco.Audio.bus("Music").duckGain);
+  expect(before, "nothing on SFX yet: Music not ducked").toBe(1);
+  await page.evaluate(() => {
+    const g = globalThis as unknown as G;
+    const probe = g.__myco.Audio.playOneShot("audio/beep.wav", { volume: 0.0001, bus: "UI" });
+    const backend = (probe.voice?.backend ?? probe.voice?.inner?.backend)!;
+    const sent: { mask: number; at?: number }[] = [];
+    const write = backend.writer.busPresence.bind(backend.writer);
+    backend.writer.busPresence = (mask: number, at?: number) => {
+      sent.push({ mask, at });
+      write(mask, at);
+    };
+    g.__dp1 = { sent, reads: [] };
+    g.__dp1.handle = g.__myco.Audio.playOneShot("audio/melody-loop.wav", { volume: 0.0001, bus: "SFX", at: g.__myco.Audio.time + 0.3 });
+  });
+  const sent = await page.evaluate(() => (globalThis as unknown as G).__dp1!.sent);
+  const sfxBit = 1 << (await page.evaluate(() => (globalThis as unknown as G).__myco.Audio.buses.indexOf("SFX")));
+  const stamped = sent.find((x) => (x.mask & sfxBit) !== 0 && x.at !== undefined);
+  expect(stamped, "BUS_PRESENCE with SFX's bit, stamped").toBeDefined();
+  const stamp = stamped!.at!;
+  // 2. On the core's STATUS frames: Music's busDuck stays 1 in every block before the quantum holding the stamp, then
+  //    falls toward 0.3; Bus.duckGain reads it.
+  const reads = await page.evaluate(
+    async ([slot, until]) => {
+      const g = globalThis as unknown as G;
+      const backend = (g.__dp1!.handle!.voice?.backend ?? g.__dp1!.handle!.voice?.inner?.backend)!;
+      const m = backend.mirror;
+      const out: { frame: number; duck: number; api: number }[] = [];
+      const read = () => {
+        let duck = 1;
+        for (let k = 0; k < m.duckCount; k++) if (m.duckSlot[k] === slot) duck = m.duckGain[k]!;
+        out.push({ frame: m.currentFrame, duck, api: g.__myco.Audio.bus("Music").duckGain });
+      };
+      while (m.currentFrame < until) {
+        read();
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      read(); // the first block at or past `until` (STATUS idles at 48 quanta while nothing is sent)
+      return out;
+    },
+    [music, stamp + 24_000] as const, // 0.5 s: ten attack constants, well inside the 4 s clip
+  );
+  const q0 = Math.floor(stamp / 128) * 128;
+  for (const r of reads) if (r.frame <= q0) expect(r.duck, `STATUS frame ${r.frame}, before the stamp's quantum ${q0}`).toBe(1);
+  const ducked = reads.filter((r) => r.duck < 1);
+  expect(ducked.length, "the duck was read").toBeGreaterThan(0);
+  expect(ducked[0]!.frame, "first seen in a block after the stamp's quantum").toBeGreaterThan(q0);
+  expect(reads[reads.length - 1]!.duck, "held near the rule's amount").toBeCloseTo(0.3, 2);
+  expect(reads[reads.length - 1]!.api).toBeCloseTo(reads[reads.length - 1]!.duck, 6);
+  // 3. An explicit stop clears the bit asap; the duck releases with `release` (0.4 s) back to 1.
+  await page.evaluate(() => (globalThis as unknown as G).__dp1!.handle!.stop());
+  await expect.poll(() => page.evaluate(() => (globalThis as unknown as G).__myco.Audio.bus("Music").duckGain), { timeout: 15_000 }).toBe(1);
+  const after = await page.evaluate(() => (globalThis as unknown as G).__dp1!.sent);
+  expect(after.some((x) => (x.mask & sfxBit) === 0 && x.at === undefined), "an asap BUS_PRESENCE without SFX's bit").toBe(true);
+  expect(errors).toEqual([]);
 });
 
 // M5a (Rc4): capture. Owner un-fixmes in W7.
