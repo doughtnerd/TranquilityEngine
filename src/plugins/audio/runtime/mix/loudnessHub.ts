@@ -76,6 +76,8 @@ class Meter implements BusLoudness {
   gatedSeen = -1;
   /** A true-peak quantum was gated off since the last peak reset. */
   gatedSincePeakReset = false;
+  /** An item has reached this meter: the core's first take of a new meter carries `reset` and is no gap. */
+  fed = false;
   slot = 0;
 
   constructor(readonly name: string, private readonly hub: LoudnessHub) {}
@@ -242,7 +244,9 @@ export class LoudnessHub implements LoudnessSource {
       const m = this.meterOfSlot(it.slot);
       if (m) {
         // A core-side reset (a rebuild's fresh sequence) restarts the feed like an EPOCH: histograms and maxima stay.
-        if ((it.flags & LOUD_FLAG_RESET) !== 0) m.stats.epoch();
+        // A new meter's first take is flagged too (its sequence starts at 0, as a fresh feed expects): not a gap.
+        if ((it.flags & LOUD_FLAG_RESET) !== 0 && m.fed) m.stats.epoch();
+        m.fed = true;
         m.stats.takeBlock(it.firstSeq, energies, off, count);
         m.stats.notePeak(it.truePeak);
         if (m.gatedSeen >= 0 && it.gatedQuanta > m.gatedSeen) m.gatedSincePeakReset = true;

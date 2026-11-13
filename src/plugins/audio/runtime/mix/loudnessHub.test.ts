@@ -417,6 +417,16 @@ describe("feeding", () => {
     expect(Math.abs(v.integrated - before)).toBeLessThan(0.2);
   });
 
+  it("a new meter's first take, flagged reset by the core, is no gap: incomplete stays clear", () => {
+    const hub = makeHub();
+    hub.feed(status([
+      { slot: 3, firstSeq: 0, energies: new Array(4).fill(energyFor(-24)), flags: LOUD_FLAG_RESET },
+      { slot: LOUD_OUTPUT_TAP, firstSeq: 0, energies: new Array(4).fill(energyFor(-24)), flags: LOUD_FLAG_RESET },
+    ]));
+    expect([hub.busLoudness("Voice")!.incomplete, hub.busLoudness("Master")!.incomplete]).toEqual([false, false]);
+    expect(hub.busLoudness("Voice")!.momentary).toBeCloseTo(-24, 6);
+  });
+
   it("epoch() keeps integrated and the maxima, marks incomplete, and restarts the window", () => {
     const hub = makeHub();
     play(hub, new Map(), 3, -24, 40);
