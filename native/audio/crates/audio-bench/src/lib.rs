@@ -221,7 +221,29 @@ pub struct Scene {
     pub music: Option<Music>,
     /// The core's `max_music_rings` (the music scenes and their twins lay the pool out, whether or not they open a ring).
     pub music_rings: u32,
+    /// ADR 0171/0172 M5 (Bn3): loudness metering (a `LOUD_CONFIG` at setup: master and `meters` buses, the true-peak gate).
+    pub loud: Option<Loud>,
+    /// Bn3: a hot signal: full-scale-ish noise (half scale per voice), voice gain 1.0 and MASTER at unity, so the buses' sample
+    /// peaks sit above the true-peak gate and the master limiter works in nearly every quantum.
+    pub hot: bool,
+    /// Bn3: the shell reports an underrun every quantum from the first (`note_underruns` with a rising total). With the cap
+    /// at its floor (`max_mixed` 16) the ladder's first step, the loudness one, engages after 1 s (ARCH §4.8).
+    pub pressure: bool,
+    /// Bn3: mixed voices go to the buses in turn (every bus carries signal) instead of at random.
+    pub spread: bool,
 }
+
+/// ADR 0171/0172 M5 (Bn3): what `LOUD_CONFIG` sets up ([`Scene::loud`]): master (implicit) plus the buses in slots `0..meters`,
+/// and the true-peak gate (`tpGateDbfs`: the selected ceiling minus 6 dB; a very low value makes every quantum run the FIR).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Loud {
+    pub meters: u32,
+    pub gate_dbfs: f32,
+}
+
+/// Bn3: the gate of a project at the default -1 dBTP ceiling (ceiling minus 6 dB), and a gate low enough that no signal is gated.
+const GATE_TYPICAL_DBFS: f32 = -7.0;
+const GATE_NEVER_DBFS: f32 = -200.0;
 
 /// ADR 0166 M4b (Bench1): what the music scenes play ([`Scene::music`]), on the default preset (8 music rings, 16 groups).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -354,7 +376,18 @@ impl Scene {
             stamped: false,
             music: None,
             music_rings: 0,
+            loud: None,
+            hot: false,
+            pressure: false,
+            spread: false,
         }
+    }
+
+    /// ADR 0171/0172 M5 (Bn3): 16 looping voices (one clip each, spread over the buses in turn) on 8 buses, `max_mixed` 16 so
+    /// the adaptive cap is at its floor from the start (the ladder's trigger needs it). `meters` buses metered beside master
+    /// (`None`: no `LOUD_CONFIG` at all, the unmetered base), at `gate_dbfs`.
+    fn loud(name: &str, meters: Option<u32>, gate_dbfs: f32) -> Scene {
+        Scene { max_mixed: 16, buses: 8, spread: true, loud: meters.map(|meters| Loud { meters, gate_dbfs }), ..Scene::looping(name, 16) }
     }
 
     /// ADR 0166 M4-0 (Z5): `base` sending `per` every quantum, stamped or (the twin) `ASAP`.
@@ -576,6 +609,22 @@ pub fn scene(name: &str) -> Option<Scene> {
         "busramp-8-base" => Scene::per(Scene { buses: 8, ..Scene::looping(name, 32) }, Per::BusRamp(8, 0), false),
         "busramp-32" => Scene::per(Scene { buses: 32, ..Scene::looping(name, 32) }, Per::BusRamp(4, 4), true),
         "busramp-32-base" => Scene::per(Scene { buses: 32, ..Scene::looping(name, 32) }, Per::BusRamp(4, 0), false),
+        // ADR 0171/0172 M5 (Bn3): loudness. 16 looping voices on 8 buses, `max_mixed` 16. `loud-base`: nothing metered (no LOUD_CONFIG);
+        // `loud-1`: master only; `loud-3`: master + 3 gated buses (the typical scene's meters) and `loud-8g`: master + 8 gated, on the
+        // ordinary content (far under the gate, so only master runs the true-peak FIR); `loud-8`: master + 8 with the FIR every
+        // quantum on all (the gate set so low nothing is gated: the worst scene's loudness line). `loud-hot`: master + 8 on a hot
+        // signal (the buses cross the gate by themselves, the limiter works), beside `loud-hot-base`, the same signal unmetered.
+        // `loud-8-shed`: master + 8 under 1 s+ of underruns at the cap's floor (the ladder's loudness step in force), beside
+        // `loud-shed-base`, the same underruns with nothing metered.
+        "loud-base" => Scene::loud(name, None, GATE_TYPICAL_DBFS),
+        "loud-1" => Scene::loud(name, Some(0), GATE_TYPICAL_DBFS),
+        "loud-3" => Scene::loud(name, Some(3), GATE_TYPICAL_DBFS),
+        "loud-8g" => Scene::loud(name, Some(8), GATE_TYPICAL_DBFS),
+        "loud-8" => Scene::loud(name, Some(8), GATE_NEVER_DBFS),
+        "loud-hot-base" => Scene { hot: true, ..Scene::loud(name, None, GATE_TYPICAL_DBFS) },
+        "loud-hot" => Scene { hot: true, ..Scene::loud(name, Some(8), GATE_TYPICAL_DBFS) },
+        "loud-shed-base" => Scene { pressure: true, ..Scene::loud(name, None, GATE_TYPICAL_DBFS) },
+        "loud-8-shed" => Scene { pressure: true, ..Scene::loud(name, Some(8), GATE_NEVER_DBFS) },
         // ADR 0166 M4b (Bench1): music on the default preset, decoded and streamed, each beside its music-free twin (the
         // twin is shared: music's voices are on top of the same SFX). `MUSIC_PAIRS` in the gate holds the allowances.
         "music-typ-twin" => Scene::music(name, MusicKind::Typical, false, false),
@@ -892,6 +941,11 @@ pub struct RunResult {
     /// ADR 0166 M4-0: the core's `splitQuanta` and `voiceSplits` at the run's end (cumulative since init).
     pub split_quanta: u32,
     pub voice_splits: u32,
+    /// ADR 0171/0172 M5 (Bn3), loudness scenes: STATUS `loudShed` at the end, the share of quanta the master limiter acted in,
+    /// and the mean share the true-peak gate rejected on the metered buses.
+    pub loud_shed: u32,
+    pub limited: f64,
+    pub tp_gated: f64,
     /// ADR 0166 M4b (Bench1): the core's music counters at the run's end, the largest STATUS block taken, and the mixed voices
     /// (last quantum).
     pub groups_held: u16,
@@ -1200,7 +1254,7 @@ impl Bench {
             buf.clear();
             buf.reserve(frames as usize * 4);
             for _ in 0..frames as usize * 2 {
-                let s = (rng.next() >> 16) as i16 / 16;
+                let s = (rng.next() >> 16) as i16 / if scene.hot { 2 } else { 16 };
                 buf.extend_from_slice(&s.to_le_bytes());
             }
             core.clips_mut().write(id, 0, &buf).expect("clip write");
@@ -1318,7 +1372,12 @@ impl Bench {
                 self.push(&wire::BusRamp { voice_id: bus, frame_offset: wire::ASAP, lane: lane as u16, mask, gain: 0.9, lp_hz: lp, frames: 0, shape: 0 });
             }
         }
-        self.push(&wire::Master { voice_id: 0, frame_offset: wire::ASAP, volume: 0.5, muted: 0, ramp_frames: 0 });
+        self.push(&wire::Master { voice_id: 0, frame_offset: wire::ASAP, volume: if s.hot { 1.0 } else { 0.5 }, muted: 0, ramp_frames: 0 });
+        if let Some(loud) = s.loud {
+            // Master is implicit; the buses are slots 0..meters (bus 0 holds everything, 1-3 the groups).
+            let meters = (0..loud.meters as u16).map(|slot| wire::LoudConfigMeters { slot, reserved: 0 }).collect();
+            self.push(&wire::LoudConfig { voice_id: 0, frame_offset: wire::ASAP, tp_gate_dbfs: loud.gate_dbfs, meters });
+        }
         if s.beds > 0 {
             // One bed: hosted by bus 0. More: bed k by bus 1 + k (each a child of bus 0); bus 0 hosts none.
             let (bed_slot, host_bus): (Vec<u8>, Vec<u16>) = if s.beds == 1 {
@@ -1600,6 +1659,9 @@ impl Bench {
             0
         } else if s.beds > 1 && (bed || ambi) {
             1 + self.rng.below(s.beds) as u16
+        } else if s.spread {
+            // Bn3: in turn, so every bus carries signal (a silent bus is gated whatever the gate).
+            (self.mixed_ids.len() as u32 % s.buses) as u16
         } else {
             self.rng.below(s.buses) as u16
         };
@@ -1643,7 +1705,7 @@ impl Bench {
             clip,
             bus,
             flags,
-            gain: 0.3,
+            gain: if s.hot { 1.0 } else { 0.3 },
             pitch,
             dir_x: libm::sinf(phase),
             dir_y: 0.0,
@@ -2162,7 +2224,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps).
@@ -2187,10 +2249,59 @@ fn percentile(sorted: &[f32], p: f64) -> f64 {
     sorted[i] as f64
 }
 
+/// ADR 0171/0172 M5 (Bn3): what a loudness scene must have measured, asserted so a number never comes from a scene that
+/// didn't do what its name says, and the fields the result line carries (`loudShed`, `limited`, `tpGated`). `quanta` is
+/// every quantum rendered (warm-up included, as the counters are cumulative).
+fn loud_checks(scene: &Scene, b: &Bench, take: &[u8], quanta: u64, r: &mut RunResult) {
+    let name = &scene.name;
+    assert!(!take.is_empty(), "{name}: no STATUS take");
+    let block = wire::StatusBlock::read(take, 0).expect("a STATUS block").0;
+    let meters = block.loud_buses.len();
+    let want = scene.loud.map_or(0, |l| 1 + l.meters as usize);
+    assert_eq!(meters, want, "{name}: STATUS carries {meters} meters, the scene configured {want}");
+    r.loud_shed = block.loud_shed as u32;
+    r.limited = audio_core::bus::area(&b.core).limited as f64 / quanta as f64;
+    // Mean share of quanta the true-peak gate rejected, over the metered buses (master is never gated).
+    let gated: Vec<f64> = block.loud_buses.iter().filter(|m| m.slot != audio_core::loudness::OUTPUT_TAP).map(|m| m.gated_quanta as f64 / quanta as f64).collect();
+    r.tp_gated = if gated.is_empty() { 0.0 } else { gated.iter().sum::<f64>() / gated.len() as f64 };
+    if let Some(loud) = scene.loud {
+        let buses = loud.meters > 0;
+        if scene.pressure {
+            assert_eq!(r.loud_shed, 1, "{name}: the ladder's loudness step must be in force at the end");
+        } else {
+            assert_eq!(r.loud_shed, 0, "{name}: the ladder must not have shed");
+        }
+        for m in &block.loud_buses {
+            let paused = m.flags as u32 & wire::LOUD_FLAG_PAUSED != 0;
+            assert_eq!(paused, scene.pressure && m.slot != audio_core::loudness::OUTPUT_TAP, "{name}: meter {} paused flag", m.slot);
+        }
+        if buses && !scene.pressure && loud.gate_dbfs <= GATE_NEVER_DBFS {
+            // (The first quantum, before any voice has started, is silent and so below any gate.)
+            assert!(r.tp_gated < 0.01, "{name}: the full-true-peak scene gated quanta (share {})", r.tp_gated);
+        }
+        if buses && !scene.pressure && !scene.hot && loud.gate_dbfs > GATE_NEVER_DBFS {
+            assert!(r.tp_gated > 0.99, "{name}: ordinary content must be gated (gated share {})", r.tp_gated);
+        }
+        if scene.hot {
+            assert!(r.tp_gated < 0.05, "{name}: the hot signal must keep the true-peak path running (gated share {})", r.tp_gated);
+        }
+    }
+    if scene.hot {
+        assert!(r.limited > 0.9, "{name}: the hot signal must drive the limiter (limited in {} of quanta)", r.limited);
+    } else {
+        assert_eq!(r.limited, 0.0, "{name}: ordinary content must not reach the limiter");
+    }
+}
+
 /// Runs `scene` for `warmup` then `seconds` of audio time; returns the recorded quanta's stats.
 pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir: Option<&[u8]>) -> RunResult {
     let mut b = Bench::new(scene, seed, hrir);
-    let warm_q = (warmup * RATE as f64 / QUANTUM as f64).ceil() as u64;
+    let mut warm_q = (warmup * RATE as f64 / QUANTUM as f64).ceil() as u64;
+    if scene.pressure {
+        // Bn3: the ladder's loudness step engages 1 s of underruns after the first one (375 quanta at 48 kHz, the step taken in
+        // that quantum's `after_render`); recording starts with the step in force whatever the warm-up asked for.
+        warm_q = warm_q.max((RATE as f64 / QUANTUM as f64).ceil() as u64 + 3);
+    }
     let rec_q = (seconds * RATE as f64 / QUANTUM as f64).ceil() as usize;
     let mut times = Vec::with_capacity(rec_q);
     let mut wus = Vec::with_capacity(rec_q);
@@ -2201,6 +2312,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
     let (mut sum_fx, mut sum_ambi) = (0f64, 0f64);
     let (mut sum_zact, mut sum_zring, mut sum_zwork, mut sum_senders, mut sum_aux) = (0f64, 0f64, 0f64, 0f64, 0f64);
     let mut status_buf = vec![0u8; wire::STATUS_BUFFER_BYTES as usize];
+    let mut last_take = 0usize;
     let mut probe: Vec<f32> = Vec::new();
     let mut deadline = platform::now_us();
     let (mut records_at_warm, mut starts_at_warm) = (0u64, 0u64);
@@ -2224,6 +2336,10 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
             None
         };
         let t0 = platform::now_us();
+        if scene.pressure {
+            // Bn3: the shell's probe counted another underrun (a rising total, as `myco_audio_note_underruns` is given).
+            b.core.note_underruns(q as u32 + 1);
+        }
         if let Some(m) = &msg {
             let rc = scheduler::submit(&mut b.core, m);
             assert_eq!(rc, 0, "batch refused");
@@ -2252,6 +2368,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
             let taken = status::take(&mut b.core, &mut status_buf, 1);
             dt += platform::now_us() - t1;
             b.mus.status_max = b.mus.status_max.max(taken);
+            last_take = taken;
         }
         if recording {
             let c = status::counters(&b.core);
@@ -2348,6 +2465,9 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
         assert_eq!(r.split_quanta, 0, "{}: a stamped scene must not split the quantum", scene.name);
         assert_eq!(r.voice_splits > 0, matches!(scene.per_quantum, Some(Per::Loop | Per::Spatial)), "{}: voiceSplits {} (only the class S scenes, a loop region and a low-pass ramp, split voices)", scene.name, r.voice_splits);
     }
+    if scene.loud.is_some() || scene.hot || scene.pressure {
+        loud_checks(scene, &b, &status_buf[..last_take], warm_q + rec_q as u64, &mut r);
+    }
     r.buses = scene.buses;
     r.clip_mb = scene.clip_mb;
     r.biquads = scene.biquads;
@@ -2440,7 +2560,7 @@ fn num(args: &str, key: &str, default: f64) -> f64 {
 
 fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
     let mut line = format!(
-        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{},\"bedVoices\":{:.1},\"beds\":{:.2},\"workBed\":{:.0},\"transit\":{:.2},\"fxVoices\":{:.1},\"ambisonic\":{:.1},\"zonesActive\":{:.2},\"zonesRinging\":{:.2},\"workZones\":{:.0},\"zoneWetPeak\":{:.4},\"senders\":{:.1},\"aux\":{:.1},\"zoneEvents\":{},\"standbySwaps\":{},\"evictSwaps\":{},\"splitQuanta\":{},\"voiceSplits\":{},\"groupsHeld\":{},\"groupsLate\":{},\"groupsAbandoned\":{},\"groupTableFull\":{},\"musicRingRefused\":{},\"musicRingsOpen\":{},\"statusMax\":{}}}",
+        "{{\"target\":\"{target}\",\"scene\":\"{name}\",\"run\":{run},\"quanta\":{},\"p50\":{:.2},\"p99\":{:.2},\"p999\":{:.2},\"max\":{:.2},\"mean\":{:.2},\"p99Quiet\":{:.2},\"p999Quiet\":{:.2},\"mixed\":{:.1},\"live\":{:.0},\"hrtf\":{:.2},\"crossfading\":{:.2},\"kernels\":{:.3},\"kernelsMax\":{},\"budgetMax\":{},\"sourceFrames\":{:.0},\"moving\":{:.1},\"recordsPerQuantum\":{:.2},\"startsPerSecond\":{:.1},\"wuMean\":{:.0},\"wuP99\":{:.0},\"wuMax\":{:.0},\"capMin\":{},\"capLast\":{},\"demoted\":{},\"bedVoices\":{:.1},\"beds\":{:.2},\"workBed\":{:.0},\"transit\":{:.2},\"fxVoices\":{:.1},\"ambisonic\":{:.1},\"zonesActive\":{:.2},\"zonesRinging\":{:.2},\"workZones\":{:.0},\"zoneWetPeak\":{:.4},\"senders\":{:.1},\"aux\":{:.1},\"zoneEvents\":{},\"standbySwaps\":{},\"evictSwaps\":{},\"splitQuanta\":{},\"voiceSplits\":{},\"groupsHeld\":{},\"groupsLate\":{},\"groupsAbandoned\":{},\"groupTableFull\":{},\"musicRingRefused\":{},\"musicRingsOpen\":{},\"statusMax\":{},\"loudShed\":{},\"limited\":{:.3},\"tpGated\":{:.3}}}",
         r.quanta,
         r.p50,
         r.p99,
@@ -2489,7 +2609,10 @@ fn result_json(target: &str, name: &str, run: usize, r: &RunResult) -> String {
         r.group_table_full,
         r.music_ring_refused,
         r.music_rings_open,
-        r.status_max
+        r.status_max,
+        r.loud_shed,
+        r.limited,
+        r.tp_gated
     );
     if r.automation[3] > 0.0 {
         line.pop();
@@ -2863,6 +2986,24 @@ mod tests {
     fn the_matrix_twin_decodes_without_the_filters() {
         let r = run(&Scene::bed("bed-matrix", 64, 1, false), 0.25, 0.25, 1, false, None);
         assert_eq!((r.mean_bed_voices, r.mean_beds), (64.0, 1.0));
+    }
+
+    /// ADR 0171/0172 M5 (Bn3): each loudness scene does what its name says, by the core's own STATUS (`loud_checks` asserts it
+    /// on every run: the meters configured, the true-peak gate rejecting ordinary content and nothing under the never gate, the
+    /// hot signal limiting nearly every quantum with the FIR running, the ladder's step in force in the shed scene and no other).
+    #[test]
+    fn the_loudness_scenes_meter_what_their_names_say() {
+        let run = |name: &str| run(&scene(name).unwrap(), 1.0, 1.0, 1, false, None);
+        for name in ["loud-base", "loud-1", "loud-3", "loud-8g", "loud-8", "loud-hot-base", "loud-hot", "loud-shed-base", "loud-8-shed"] {
+            let r = run(name);
+            assert_eq!(r.split_quanta, 0, "{name}");
+        }
+        let (shed, base) = (run("loud-8-shed"), run("loud-shed-base"));
+        assert_eq!((shed.loud_shed, base.loud_shed), (1, 0), "the base has no meters to pause");
+        // Each hot scene's limiter share and the gate's share are on the result line.
+        let hot = run("loud-hot");
+        assert!(hot.limited > 0.9 && hot.tp_gated < 0.05, "hot: limited {}, gated {}", hot.limited, hot.tp_gated);
+        assert!(run("loud-3").tp_gated > 0.99, "ordinary content stays under the gate");
     }
 
     /// ADR 0166 M4b (Bench1): each music scene does what its doc says, by the core's own counters: no refusal, no table
