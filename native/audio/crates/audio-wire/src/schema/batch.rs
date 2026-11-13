@@ -73,18 +73,6 @@ const BUS_CONFIG_BUSES: Repeat = Repeat {
     max: 0,
 };
 
-/// BUS_MIX buses: `f32 gain; f32 lpHz` (24000 is off).
-const BUS_MIX_BUSES: Repeat = Repeat {
-    name: "buses",
-    count_field: "busCount",
-    item: &[
-        Field::new("gain", Ty::F32),
-        Field::new("lpHz", Ty::F32).doc("low-pass cutoff; 24000 off"),
-    ],
-    then: None,
-    max: 0,
-};
-
 /// SET_LOOP `flags` (ADR 0158 §4).
 const SET_LOOP_FLAGS: &[Bits] = &[Bits::bit("looping", 0, "loop the region; clear is a release (play on to the clip's end)")];
 
@@ -279,17 +267,7 @@ pub const OPCODES: &[Opcode] = &[
         sent: true,
         doc: "configure buses and their effects",
     },
-    Opcode {
-        id: 0x11,
-        name: "BUS_MIX",
-        payload: Body::with_tail(
-            &[Field::new("busCount", Ty::U32), Field::new("rampFrames", Ty::U32)],
-            Tail::Repeat(&BUS_MIX_BUSES),
-        ),
-        total_bytes: None,
-        sent: true,
-        doc: "DEPRECATED (ADR 0171: superseded by BUS_RAMP 0x18; R0 retires it and reserves the id): set bus gain and filter; ramps over rampFrames",
-    },
+    // 0x11 is reserved: BUS_MIX, retired by ADR 0171/0172 M5 (R0; BUS_RAMP 0x18 replaces it).
     Opcode {
         id: 0x12,
         name: "MASTER",
@@ -396,8 +374,9 @@ mod tests {
     fn opcode_ids_are_unique_and_sorted() {
         let ids: Vec<u16> = OPCODES.iter().map(|o| o.id).collect();
         assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids not strictly increasing: {ids:?}");
-        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x20, 0x30]);
+        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x20, 0x30]);
         assert!(OPCODES.iter().all(|o| o.sent));
+        assert!(OPCODES.iter().all(|o| o.id != 0x11), "0x11 stays reserved (BUS_MIX, retired)");
     }
 
     #[test]
@@ -425,7 +404,7 @@ mod tests {
             assert_eq!(size(RECORD_HEAD) + size(o.payload.fields), total, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::None), "{}", o.name);
         }
-        for id in [0x09, 0x10, 0x11, 0x13, 0x15, 0x17, 0x19, 0x1B, 0x1C] {
+        for id in [0x09, 0x10, 0x13, 0x15, 0x17, 0x19, 0x1B, 0x1C] {
             let o = op(id);
             assert_eq!(o.total_bytes, None, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::Repeat(_)), "{}", o.name);

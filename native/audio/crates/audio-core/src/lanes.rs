@@ -32,18 +32,17 @@
 //! **Records.** [`on_ramp`] applies a `BUS_RAMP` asap: `Ramp::set_target` from the lane's current
 //! value, so a retarget never jumps. A stamped record (B1b routes it through the due list as class
 //! B in W3) applies asap here too, at once, and counts `busRecordsEarly` (R6's overflow rule).
-//! BUS_MIX ([`mix`], retired at R0) is an asap `BUS_RAMP` per configured bus on the `runtime`
-//! lane (its gain) and the `snapshot` lane (its low-pass), through the same setter.
+//! (BUS_MIX, which carried a bus's runtime gain and snapshot low-pass, was retired at R0; its
+//! opcode 0x11 stays reserved.)
 //!
 //! Nothing here allocates; [`apply`] runs once per bus per quantum inside `process`.
 
 use audio_dsp::ramp::Ramp;
-use audio_wire::generated::{self as wire, BusMixBuses};
+use audio_wire::generated as wire;
 
 use crate::automation::{self, BusAuto};
 use crate::bus::{self, BusSlot, LP_OFF_HZ};
 use crate::core::Core;
-use crate::wire_read::u32_at;
 use crate::QUANTUM;
 
 /// Lanes per bus (R1): `authored`, `runtime`, `snapshot`, `monitor`, `dip`, `duck`, `automation`.
@@ -367,50 +366,10 @@ fn set_lane(lanes: &mut BusLanes, runtime: &mut Ramp, lp: Option<&mut Ramp>, lan
         }
     }
     if let (Some(hz), Some(lp)) = (lp_hz, lp) {
-        // As BUS_MIX did: an unchanged target leaves a running low-pass ramp alone.
+        // An unchanged target leaves a running low-pass ramp alone (as BUS_MIX did before M5).
         if hz != lp.target {
             lp.set_target(hz, frames);
         }
-    }
-}
-
-/// `true` when the BUS_MIX record at `msg[off..off + len]` holds its `busCount` entries.
-/// (BUS_MIX is retired by R0 once every caller sends `BUS_RAMP`.)
-pub fn mix_is_well_formed(msg: &[u8], off: usize, len: usize) -> bool {
-    if len < wire::BusMix::FIXED_END || off + len > msg.len() {
-        return false;
-    }
-    let n = u32_at(msg, off + 12) as usize;
-    n.checked_mul(BusMixBuses::FIXED_END).is_some_and(|bytes| wire::BusMix::FIXED_END + bytes <= len)
-}
-
-/// BUS_MIX (retired at R0): for each configured bus, an asap `BUS_RAMP` on the `runtime` lane
-/// (the entry's gain, `max(0)`, a non-finite gain leaving the target) and one on the `snapshot`
-/// lane's low-pass (the entry's `lpHz` clamped to `0..=24,000`, non-finite = off), both over the
-/// record's `rampFrames`. Entries past the configured buses are dropped and counted; buses past
-/// the record's entries keep their targets. Bit-identical with BUS_MIX before M5.
-pub fn mix(core: &mut Core, msg: &[u8], off: usize) {
-    let n = u32_at(msg, off + 12) as usize;
-    let ramp = u32_at(msg, off + 16);
-    let regions = core.regions_mut();
-    let lanes: *mut [u8] = &mut regions.lanes[..];
-    let v = bus::view(regions);
-    // SAFETY: the lanes region is distinct from every region `v` views (Layout).
-    let lanes = entries(unsafe { &mut *lanes });
-    let mut spare = BusLanes::default();
-    let count = v.area.count as usize;
-    for i in 0..n {
-        let Ok((entry, _)) = BusMixBuses::read(msg, off + wire::BusMix::FIXED_END + i * BusMixBuses::FIXED_END) else { break };
-        if i >= count {
-            v.area.dropped = v.area.dropped.wrapping_add((n - i) as u32);
-            break;
-        }
-        let slot = &mut v.slots[i];
-        let e = if i + 1 < lanes.len() { &mut lanes[i] } else { &mut spare };
-        let gain = entry.gain.is_finite().then(|| entry.gain.max(0.0));
-        set_lane(e, &mut slot.gain, None, RUNTIME, gain, None, ramp);
-        let lp = if entry.lp_hz.is_finite() { entry.lp_hz.clamp(0.0, LP_OFF_HZ) } else { LP_OFF_HZ };
-        set_lane(e, &mut slot.gain, Some(&mut slot.lp), wire::LANE_SNAPSHOT as usize, None, Some(lp), ramp);
     }
 }
 

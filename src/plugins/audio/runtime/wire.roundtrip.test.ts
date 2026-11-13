@@ -47,7 +47,6 @@ const OPCODES: Record<string, Codec> = {
   PARAM: { write: wire.writeParam, read: wire.readParam },
   BUS_AUTOMATE: { write: wire.writeBusAutomate, read: wire.readBusAutomate },
   BUS_CONFIG: { write: wire.writeBusConfig, read: wire.readBusConfig },
-  BUS_MIX: { write: wire.writeBusMix, read: wire.readBusMix },
   MASTER: { write: wire.writeMaster, read: wire.readMaster },
   RESET: { write: wire.writeReset, read: wire.readReset },
   SET_VOICE_FX: { write: wire.writeSetVoiceFx, read: wire.readSetVoiceFx },

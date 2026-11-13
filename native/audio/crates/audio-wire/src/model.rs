@@ -140,7 +140,7 @@ pub enum Tail {
     Bytes,
     /// `Batch.count` command records (BATCH and REPLAY).
     Records,
-    /// A counted group (BUS_CONFIG, BUS_MIX).
+    /// A counted group (BUS_CONFIG, CURVES, AUTOMATE, ...).
     Repeat(&'static Repeat),
     /// Counted scalar arrays, each padded to 4 bytes (BED_CONFIG).
     Arrays(&'static [PaddedArray]),
@@ -175,7 +175,7 @@ pub struct Kind {
 
 /// A command opcode (section 4.2). `payload` excludes the 12-byte record head. `total_bytes` is the
 /// spec's "Total B" for fixed-size records (head included); the generator asserts it matches the
-/// field sizes. Variable records (BUS_CONFIG, BUS_MIX) give `None` and use a `Repeat` tail.
+/// field sizes. Variable records (BUS_CONFIG and the like) give `None` and use a `Repeat` tail.
 #[derive(Clone, Copy, Debug)]
 pub struct Opcode {
     pub id: u16,

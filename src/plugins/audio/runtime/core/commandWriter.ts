@@ -9,8 +9,8 @@
 // for the frame are queued deduplicated by the table and written here in order.
 //
 // Steady state allocates nothing: the staging areas, the record index arrays and the scratch record objects are made
-// once; the generated writers write straight into the staging area. (`busConfig` and `busMix` write what the caller
-// passes; they are not per-frame in steady state.)
+// once; the generated writers write straight into the staging area. (`busConfig` writes what the caller passes;
+// it is not per-frame in steady state.)
 //
 // ADR 0158 E2 adds the automation records (`setLoop`, `automate`, `param`, `curves`, `busAutomate`; byte layouts in
 // api-and-models §4.2). They write what they are given; the event runtime (E3) decides when to send them.
@@ -62,7 +62,6 @@ import {
   writeBedConfig,
   writeBusAutomate,
   writeBusConfig,
-  writeBusMix,
   writeEnvelope,
   writeFade,
   writeListener,
@@ -90,7 +89,6 @@ import {
   type LoudConfig,
   type LoudConfigMeters,
   type BusConfigBuses,
-  type BusMixBuses,
   type Fade,
   type Master,
   type Param,
@@ -509,13 +507,6 @@ export class CommandWriter implements VoiceCommandSink {
     const at = this.begin(size);
     if (at < 0) return;
     this.end(at, writeBusConfig(this.view, at, { voiceId: 0, frameOffset: ASAP, buses: buses as BusConfigBuses[] }));
-  }
-
-  /** BUS_MIX: gain and low-pass per bus, root first. */
-  busMix(buses: readonly BusMixBuses[], rampFrames: number): void {
-    const at = this.begin(20 + 8 * buses.length);
-    if (at < 0) return;
-    this.end(at, writeBusMix(this.view, at, { voiceId: 0, frameOffset: ASAP, rampFrames, buses: buses as BusMixBuses[] }));
   }
 
   /**
