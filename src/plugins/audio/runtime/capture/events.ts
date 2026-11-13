@@ -6,8 +6,15 @@
 // NAMES table (`NAME_TABLES`): the first use writes a NAMES record (the one allocation, once per name) and a later use is
 // a `Map` lookup. `seed` loads the ids the META chunk already holds so the sink continues after them. A name the ring
 // couldn't take (no segment open, dropped) is not marked interned, so the next use retries; its event carries `NO_NAME`.
-// A bus is interned by its name (the sink sees names, not `gen << 8 | slot`); the file reader resolves `busRef`s of this
-// kind through the `buses` table.
+// A bus is never interned: the sink sees a `busRef` (`gen << 8 | slot`, §6.3) and writes it raw into the arg; the file
+// reader takes `busRef & 0xff` as the slot and names it through the `buses` table, which is keyed by slot (META's, written
+// by the saver; a rename after a structural edit is a MIXOP the reader applies). `loudnessControl`'s bus arrives as a name
+// (the sink has no slot for it), so it is interned into the `parameters` table, not `buses`.
+//
+// **Arg layouts** (§5.6): voiceStart `id, clip, busRef, flags, atFrameLo` + f32 gain; voiceRefused and voiceQueued `clip,
+// busRef`; busRamp `busRef, lane, frames` + f32 target; monitor `mask` (mutes in the low 16 bits, solos in the high 16, as
+// `mixerTapFor` packs it); snapshot `name` + f32 seconds (`NO_NAME` for the cleared snapshot, the empty name); parameter
+// `name, instance, f32 bits` (instance `NO_NAME` for a global parameter; it is a group's id otherwise).
 //
 // **Frames.** A tap has no frame of its own: it is recorded at the newest STATUS frame (`recorder.newestStatusFrame`,
 // "now"). `voiceStart`'s `atFrame` is the one stamp: a start at or before now is recorded at now, one within a second
@@ -58,10 +65,10 @@ export const LOUDNESS_CONTROL_REASON: Readonly<Record<ProfileLoudnessControl, nu
 /** ladder: reason 2 `shed`, 3 `restored` (1 is §5.6's bare "step", not written by this sink). */
 export const LADDER_REASON = { shed: 2, restored: 3 } as const;
 /** busRamp `lane` arg: the lane's index in the KEYFRAME bus row's lane order; `NO_NAME` for a lane this build doesn't know. */
-export const BUS_RAMP_LANES: Readonly<Record<string, number>> = { authored: 0, runtime: 1, snapshot: 2, monitor: 3, dip: 4 };
+export const BUS_RAMP_LANES: Readonly<Record<string, number>> = { authored: 0, runtime: 1, snapshot: 2, monitor: 3, dip: 4, duck: 5, automation: 6 };
 
 const TABLE: Readonly<Record<NameTable, number>> = { clips: 0, buses: 1, events: 2, parameters: 3, snapshots: 4, targets: 5 };
-const T_CLIP = TABLE.clips, T_BUS = TABLE.buses, T_EVENT = TABLE.events, T_PARAM = TABLE.parameters, T_SNAPSHOT = TABLE.snapshots;
+const T_CLIP = TABLE.clips, T_EVENT = TABLE.events, T_PARAM = TABLE.parameters, T_SNAPSHOT = TABLE.snapshots;
 
 /** Options of `createEventSink`. */
 export interface EventSinkOptions {
@@ -191,13 +198,12 @@ export class EventSink implements ProfileSink {
 
   // --- ProfileSink: events ----------------------------------------------------------------------------------------------
 
-  voiceStart(id: number, clip: string, bus: string, flags: number, atFrame: number, gain: number): void {
+  voiceStart(id: number, clip: string, busRef: number, flags: number, atFrame: number, gain: number): void {
     const clipId = this.intern(T_CLIP, clip);
-    const busId = this.intern(T_BUS, bus);
     const a = this.args[5]!;
     a[0] = id;
     a[1] = clipId;
-    a[2] = busId;
+    a[2] = busRef;
     a[3] = flags;
     a[4] = atFrame; // `atFrameLo`: the low 32 bits (`setUint32` wraps)
     const rec = this.recorder;
@@ -227,12 +233,12 @@ export class EventSink implements ProfileSink {
     this.now1(EventKind.voiceReal, REAL_REASON[reason], id);
   }
 
-  voiceRefused(clip: string, bus: string, reason: ProfileRefusedReason): void {
-    this.now2(EventKind.voiceRefused, REFUSED_REASON[reason], this.intern(T_CLIP, clip), this.intern(T_BUS, bus));
+  voiceRefused(clip: string, busRef: number, reason: ProfileRefusedReason): void {
+    this.now2(EventKind.voiceRefused, REFUSED_REASON[reason], this.intern(T_CLIP, clip), busRef);
   }
 
-  voiceQueued(clip: string, bus: string, reason: ProfileQueuedReason): void {
-    this.now2(EventKind.voiceQueued, QUEUED_REASON[reason], this.intern(T_CLIP, clip), this.intern(T_BUS, bus));
+  voiceQueued(clip: string, busRef: number, reason: ProfileQueuedReason): void {
+    this.now2(EventKind.voiceQueued, QUEUED_REASON[reason], this.intern(T_CLIP, clip), busRef);
   }
 
   eventStart(instance: number, asset: string): void {
@@ -253,8 +259,9 @@ export class EventSink implements ProfileSink {
     this.write(EventKind.parameter, 0, a, 0, this.recorder.newestStatusFrame, false, 0);
   }
 
+  /** The empty name is the cleared snapshot: it carries `NO_NAME`, no NAMES record. */
   snapshot(name: string, seconds: number): void {
-    this.now1(EventKind.snapshot, 0, this.intern(T_SNAPSHOT, name), seconds);
+    this.now1(EventKind.snapshot, 0, name === "" ? NO_NAME : this.intern(T_SNAPSHOT, name), seconds);
   }
 
   /** args: parameter name id, label id (the label is interned in the `parameters` table too). */
@@ -271,9 +278,9 @@ export class EventSink implements ProfileSink {
     this.write(EventKind.musicTransition, 0, a, 0, this.recorder.newestStatusFrame, false, 0);
   }
 
-  busRamp(bus: string, lane: string, frames: number, target: number): void {
+  busRamp(busRef: number, lane: string, frames: number, target: number): void {
     const a = this.args[3]!;
-    a[0] = this.intern(T_BUS, bus);
+    a[0] = busRef;
     a[1] = BUS_RAMP_LANES[lane] ?? NO_NAME;
     a[2] = frames;
     this.write(EventKind.busRamp, 0, a, target, this.recorder.newestStatusFrame, false, 0);
@@ -284,7 +291,7 @@ export class EventSink implements ProfileSink {
   }
 
   loudnessControl(control: ProfileLoudnessControl, bus: string | null): void {
-    this.now1(EventKind.loudnessControl, LOUDNESS_CONTROL_REASON[control], this.nameOrNone(T_BUS, bus));
+    this.now1(EventKind.loudnessControl, LOUDNESS_CONTROL_REASON[control], this.nameOrNone(T_PARAM, bus));
   }
 
   ladder(step: number, shed: boolean): void {

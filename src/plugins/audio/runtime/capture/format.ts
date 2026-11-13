@@ -88,7 +88,7 @@ export const EPOCH_REASON_MAX = 6;
 /** GAP `reason`. `paused` means only `audio.background: "pause"`. */
 export const GapReason = { paused: 1, rebuild: 2, held: 3, dropped: 4, recordTooLarge: 5 } as const;
 export const GAP_REASON_MAX = 5;
-/** NAMES `table`, and the META `names` keys in the same order. */
+/** NAMES `table`, and the META `names` keys in the same order. The `buses` table is keyed by bus **slot** (`busRef & 0xff`), written into META by the saver; the event sink never interns into it. */
 export const NAME_TABLES = ["clips", "buses", "events", "parameters", "snapshots", "targets"] as const;
 export type NameTable = (typeof NAME_TABLES)[number];
 /** MIXOP `origin`. */
