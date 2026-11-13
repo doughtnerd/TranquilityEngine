@@ -11,9 +11,10 @@ import { fileName, folderOf, listedFiles } from "../assetBrowser";
 import { joinPath } from "../projectPaths";
 import { isScenePath, type EditorProject } from "../projects";
 import { currentProject, docVersion } from "../state";
+import { onSectionChanged, type SectionChange } from "../sectionChanged";
 import { messages } from "./messages";
 
-export type { AssetKind, EditorProject };
+export type { AssetKind, EditorProject, SectionChange };
 
 /** What `project.createFile` writes: a new file in `folder`, named `name` or the first free "<base> 2", "<base> 3"… */
 export interface CreateFileOptions {
@@ -41,6 +42,12 @@ export interface ProjectSurface {
   peekVersion(): number;
   /** Say that files or the open scene changed, so everything reading `version` re-renders. */
   changed(): void;
+  /**
+   * Listen for changes to the top-level `project.json` key `key` (ADR 0147's 2026-11-13 amendment). The listener runs
+   * synchronously when an edit, undo or redo leaves a valid draft whose `key` value differs from before, never for a
+   * draft with problems and never for a preview that skips the undo history. Returns the unsubscribe. Not `changed()`.
+   */
+  onSectionChanged(key: string, listener: (change: SectionChange) => void): () => void;
   /** True (after an info message naming `what`, plural) when the project is read-only (a sample). */
   refuseReadOnly(project: EditorProject, what: string): boolean;
   /**
@@ -67,6 +74,7 @@ export const project: ProjectSurface = {
   changed() {
     docVersion.value++;
   },
+  onSectionChanged,
   refuseReadOnly(p, what) {
     if (p.canSave) return false;
     messages.info(`${p.name} is read-only. Open a project folder (or copy the sample) to add ${what}.`);
