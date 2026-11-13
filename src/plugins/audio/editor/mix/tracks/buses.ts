@@ -158,14 +158,12 @@ export function busLevelData(lines: readonly BusLevelLine[]): TrackData | undefi
   return { lines: lines.map((l) => ({ times: l.times, values: l.values, color: colorOf(l.slot), yMax: 1 })) };
 }
 
-/** The hover text: each bus's peak in dB at the STATUS in force at `t`, one per line; `null` with no STATUS yet. */
-export function busLevelTooltip(samples: readonly BusSample[], t: number, nameOf: (slot: number, tombstone: boolean) => string, named: (slot: number) => boolean): string | null {
+/** The hover text: the peak in dB of each of `slots` (the lines drawn) at the STATUS in force at `t`, one per line; `null` with no STATUS yet. */
+export function busLevelTooltip(samples: readonly BusSample[], t: number, nameOf: (slot: number, tombstone: boolean) => string, slots: readonly number[]): string | null {
   const s = sampleAtOrBefore(samples, t);
   if (!s || !s.peaks) return null;
-  const rows: string[] = [];
-  s.peaks.forEach((p, slot) => {
-    if (named(slot) || peakOf(p) > 0) rows.push(`${nameOf(slot, tombstoneAt(s, slot))}: peak ${formatDb(gainToDb(peakOf(p)))}`);
-  });
+  const peaks = s.peaks;
+  const rows = slots.map((slot) => `${nameOf(slot, tombstoneAt(s, slot))}: peak ${formatDb(gainToDb(peakOf(peaks[slot])))}`);
   return rows.length ? rows.join("\n") : null;
 }
 
@@ -224,9 +222,12 @@ export const busTracks: TrackFactory = (ctx): readonly TrackModule[] => {
   const nameOf = (slot: number, tombstone: boolean): string => busName(ctx, slot, tombstone);
   const named = (slot: number): boolean => ctx.names.bus(slot) !== undefined;
   let level: TrackData | undefined;
+  let slots: readonly number[] = [];
   let gain: TrackData | undefined;
   const build = (): void => {
-    level = busLevelData(busLevelLines(sampler.samples, named));
+    const lines = busLevelLines(sampler.samples, named);
+    slots = lines.map((l) => l.slot);
+    level = busLevelData(lines);
     gain = busGainData(busGainLines(sampler.samples));
   };
   return [
@@ -237,7 +238,7 @@ export const busTracks: TrackFactory = (ctx): readonly TrackModule[] => {
         await sampler.refresh();
         build();
       },
-      tooltipAt: (t) => busLevelTooltip(sampler.samples, t, nameOf, named),
+      tooltipAt: (t) => busLevelTooltip(sampler.samples, t, nameOf, slots),
     },
     {
       track: { id: BUS_GAIN_TRACK_ID, label: "Bus gain", kind: "line", height: 70, visible: true },
