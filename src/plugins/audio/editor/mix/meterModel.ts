@@ -4,7 +4,7 @@
 // 1500 ms, then a fall at the core's rate, 20 dB/s. The latch trips at 0 dBFS or over (the same level at which
 // `meterFill` fills the bar) and stays until `resetClip`. All time is the `nowMs` the caller passes (the poll's
 // clock or a test's): no timers, no `Date.now`. Pure TypeScript; no DOM.
-import { METER_FLOOR_DB, meterFill } from "../BusMeters";
+import { METER_FLOOR_DB, meterFill } from "../meterFill";
 
 /** How long the held peak stays put before it falls, in ms. */
 export const PEAK_HOLD_MS = 1500;
