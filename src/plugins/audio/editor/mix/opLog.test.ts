@@ -154,6 +154,26 @@ describe("the audio op log", () => {
     expect(mixer.applied).toEqual([]);
   });
 
+  it("G9b: an edit with no live op but a key with no live path (the AAC codec) is an entry with that key, for edit, undo and redo", async () => {
+    const { project } = await openTestProject({ "project.json": PROJECT });
+    const s = createProjectSettingsSection().open(project);
+    const mixer = new FakeMixer();
+    const log = createOpLog(host(() => true, mixer));
+    const audio = s.draft.audio as Record<string, unknown>;
+    await s.edit("Enable AAC", { ...s.draft, audio: { ...audio, codecs: { aac: true } } } as SettingsDraft);
+    await s.undo();
+    await s.redo();
+    expect(mixer.applied, "no op reaches the mixer").toEqual([]);
+    expect(log.entries.map((e) => [e.cause, e.source, e.ops.length, e.restartRequired])).toEqual([
+      ["edit", "diff", 0, ["codecs"]],
+      ["undo", "diff", 0, ["codecs"]],
+      ["redo", "diff", 0, ["codecs"]],
+    ]);
+    // An edit that changes nothing the mixer sees (no op, no key) still makes no entry.
+    await s.edit("Width", setValue(s.draft, "display", "width", 320));
+    expect(log.entries).toHaveLength(3);
+  });
+
   it("a preview that calls the mixer directly never enters the log", async () => {
     const { project } = await openTestProject({ "project.json": PROJECT });
     const s = createProjectSettingsSection().open(project);
