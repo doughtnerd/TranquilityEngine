@@ -32,6 +32,7 @@ import type { Mixer } from "../../../../engine/audio/mixer";
 import { BUS_LP_OFF_HZ, BUS_RAMP_MASK_GAIN, LANE_DIP, QUANTUM_FRAMES, SHAPE_SEQUENCE_MASK } from "../wire.generated";
 import type { BusIndex, SlotStamp } from "./busIndex";
 import type { CommandWriter } from "./commandWriter";
+import { LOOKAHEAD_MAX_SECONDS } from "./lookahead";
 
 /** The dip's length (R8): `DIP_FRAMES` = round(0.020 × sampleRate). */
 export const DIP_MS = 20;
@@ -59,7 +60,7 @@ export interface StructuralDipHost {
   sending(): boolean;
   /** `ClockMap.nextFirstFrame()`: F0 = now + lookahead, the frame a batch posted now applies at. */
   firstFrame(): number;
-  /** `ClockMap.framesNow()`: the frame a command sent now reaches the core at (recycling, the in-flight check); default `firstFrame`. */
+  /** `ClockMap.framesNow()`: the frame a command sent now reaches the core at (recycling, the in-flight check); default `firstFrame` less the lookahead's ceiling. */
   framesNow?(): number;
   /** Runs `fn` at the end of the current task (default `queueMicrotask`): same-task ops coalesce. */
   defer?(fn: () => void): void;
@@ -231,9 +232,13 @@ export class StructuralDip {
 
   // --- Internals ---
 
+  /**
+   * *F*_now: where an asap record lands. Without `framesNow`, `firstFrame` less the lookahead's ceiling: never later
+   * than *F*_now, so a tombstone never recycles early and a direct edit never overtakes a pending `BUS_SLOT`.
+   */
   private now(): number {
     const host = this.host!;
-    return host.framesNow ? host.framesNow() : host.firstFrame();
+    return host.framesNow ? host.framesNow() : host.firstFrame() - Math.round(LOOKAHEAD_MAX_SECONDS * host.writer().sampleRate);
   }
 
   private gather(): OpenSequence {
