@@ -820,6 +820,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
 
   /** Rebuilds the core's bus tree: BUS_CONFIG, the table's per-bus limits, and every bus lane (`busIndex.ts`, K0). */
   configureBuses(mixer: Mixer): void {
+    this.deferredAdds.clear(); // Ma3: a reconfigure starts from the settings; no queued live add survives it.
     this.buses.configureBuses(mixer);
     this.syncLoudness(true); // Ld2: the hub and LOUD_CONFIG follow the new slots, after BUS_CONFIG
   }
@@ -1249,6 +1250,7 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
   }
 
   dispose(): void {
+    this.deferredAdds.clear(); // Ma3
     if (this.disposed) return;
     this.disposed = true;
     this.lockedQueue.clear();
