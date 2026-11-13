@@ -229,9 +229,8 @@ fn classify_follows_the_class_table() {
     for r in &s {
         assert_eq!(due::classify(r), Class::S, "{r:?}");
     }
-    for op in [wire::op::BUS_MIX, wire::op::MASTER] {
-        assert_eq!(due::classify(&pending(op, 0, 0, 0)), Class::Quantum, "opcode {op}");
-    }
+    // (BUS_MIX, retired by 0171/0172 M5, was here too; BUS_RAMP becomes class B with B1b.)
+    assert_eq!(due::classify(&pending(wire::op::MASTER, 0, 0, 0)), Class::Quantum, "MASTER");
 }
 
 /// A stamped record for a live, ungated voice: `route` returns `Route::Voice`, the record is in the

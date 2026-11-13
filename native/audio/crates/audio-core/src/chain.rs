@@ -150,6 +150,20 @@ mod tests {
         b
     }
 
+    /// What BUS_MIX of `gains` (low-pass off) over `ramp` was: per bus, an asap `BUS_RAMP` on the
+    /// runtime lane's gain and one on the snapshot lane's low-pass (B1a's mapping, R3).
+    fn mix(ramp: u32, gains: &[f32]) -> Vec<Vec<u8>> {
+        let one = |bus: usize, lane: u32, mask: u16, gain: f32| {
+            rec(|b| wire::BusRamp { voice_id: bus as u32, frame_offset: wire::ASAP, lane: lane as u16, mask, gain, lp_hz: wire::BUS_LP_OFF_HZ as f32, frames: ramp, shape: 0 }.write(b, 0))
+        };
+        gains.iter().enumerate().flat_map(|(i, &g)| [one(i, wire::LANE_RUNTIME, wire::BUS_RAMP_MASK_GAIN, g), one(i, wire::LANE_SNAPSHOT, wire::BUS_RAMP_MASK_LP_HZ, 1.0)]).collect()
+    }
+
+    /// One lane of one bus: an asap `BUS_RAMP` of `gain` over `ramp`.
+    fn lane(bus: u32, lane: u32, gain: f32, ramp: u32) -> Vec<u8> {
+        rec(|b| wire::BusRamp { voice_id: bus, frame_offset: wire::ASAP, lane: lane as u16, mask: wire::BUS_RAMP_MASK_GAIN, gain, lp_hz: 0.0, frames: ramp, shape: 0 }.write(b, 0))
+    }
+
     fn db(a: f32, b: f32) -> f32 {
         (20.0 * (a / b).log10()).abs()
     }
@@ -164,16 +178,10 @@ mod tests {
         let buses = |parents: &[u16]| {
             wire::BusConfig { voice_id: 0, frame_offset: wire::ASAP, buses: parents.iter().map(|&parent| wire::BusConfigBuses { parent, effects: vec![] }).collect() }
         };
-        let mix = |ramp: u32, gains: &[f32]| wire::BusMix {
-            voice_id: 0,
-            frame_offset: wire::ASAP,
-            ramp_frames: ramp,
-            buses: gains.iter().map(|&gain| wire::BusMixBuses { gain, lp_hz: wire::BUS_LP_OFF_HZ as f32 }).collect(),
-        };
-        assert_eq!(crate::scheduler::submit(&mut c, &batch(&[rec(|b| buses(&[ROOT, 0, 1]).write(b, 0)), rec(|b| mix(0, &[0.5, 1.0, 0.5]).write(b, 0))])), 0);
+        assert_eq!(crate::scheduler::submit(&mut c, &batch(&[vec![rec(|b| buses(&[ROOT, 0, 1]).write(b, 0))], mix(0, &[0.5, 1.0, 0.5])].concat())), 0);
         assert!(bus::set_limiter_lookahead(&mut c, 0.0), "no look-ahead: output frame = core frame");
         // The duck: A from 1 to 0.25 (-12 dB) over 240 frames (5 ms) while the root goes from 0.5 to 1.
-        assert_eq!(crate::scheduler::submit(&mut c, &batch(&[rec(|b| mix(240, &[1.0, 0.25, 0.5]).write(b, 0))])), 0);
+        assert_eq!(crate::scheduler::submit(&mut c, &batch(&mix(240, &[1.0, 0.25, 0.5]))), 0);
         let x = 0.2f32;
         let mut worst = 0.0f32;
         let mut chord_worst = 0.0f32;
@@ -208,11 +216,59 @@ mod tests {
     fn until_stops_before_the_host_and_unknown_buses_are_the_root() {
         let mut c = core();
         let buses = wire::BusConfig { voice_id: 0, frame_offset: wire::ASAP, buses: [ROOT, 0, 1].iter().map(|&parent| wire::BusConfigBuses { parent, effects: vec![] }).collect() };
-        let mix = wire::BusMix { voice_id: 0, frame_offset: wire::ASAP, ramp_frames: 0, buses: [0.5f32, 0.25, 0.125].iter().map(|&gain| wire::BusMixBuses { gain, lp_hz: 24_000.0 }).collect() };
-        assert_eq!(crate::scheduler::submit(&mut c, &batch(&[rec(|b| buses.write(b, 0)), rec(|b| mix.write(b, 0))])), 0);
+        assert_eq!(crate::scheduler::submit(&mut c, &batch(&[vec![rec(|b| buses.write(b, 0))], mix(0, &[0.5, 0.25, 0.125])].concat())), 0);
         assert_eq!(ends(&mut c, 2, None), (0.5 * 0.25 * 0.125, 0.5 * 0.25 * 0.125));
         assert_eq!(ends(&mut c, 2, Some(0)), (0.25 * 0.125, 0.25 * 0.125), "the host (root) excluded");
         assert_eq!(ends(&mut c, 2, Some(2)), (1.0, 1.0), "the bus hosts its own bed");
         assert_eq!(ends(&mut c, 7, None), (0.5, 0.5), "an unconfigured bus is the root");
+    }
+
+    /// Sends and the bed fold follow every main-written lane, not only the runtime lane: root ← A
+    /// ← B with A's authored lane settled at 0.5, its monitor lane ramping to 0 and its dip lane
+    /// ramping to 0.25 (ends inside a quantum), B's runtime lane ramping up. `fill` is
+    /// `bus::mixdown`'s own product to float rounding, and `ends` is `fill`'s ends.
+    #[test]
+    fn the_chain_gain_follows_every_lane() {
+        let mut c = core();
+        let buses = wire::BusConfig { voice_id: 0, frame_offset: wire::ASAP, buses: [ROOT, 0, 1].iter().map(|&parent| wire::BusConfigBuses { parent, effects: vec![] }).collect() };
+        assert_eq!(crate::scheduler::submit(&mut c, &batch(&[rec(|b| buses.write(b, 0))])), 0);
+        assert!(bus::set_limiter_lookahead(&mut c, 0.0));
+        let recs = [
+            lane(1, wire::LANE_AUTHORED, 0.5, 0),
+            lane(1, wire::LANE_MONITOR, 0.0, 700),
+            lane(1, wire::LANE_DIP, 0.25, 200),
+            lane(2, wire::LANE_RUNTIME, 0.5, 0),
+        ];
+        assert_eq!(crate::scheduler::submit(&mut c, &batch(&recs)), 0);
+        assert_eq!(crate::scheduler::submit(&mut c, &batch(&[lane(2, wire::LANE_RUNTIME, 1.0, 300)])), 0);
+        let (g0, _) = ends(&mut c, 2, Some(0));
+        let want0 = (0.5 + 0.5 / 300.0) * 0.5 * (1.0 - 1.0 / 700.0) * (1.0 - 0.75 / 200.0);
+        assert!((g0 - want0).abs() < 1e-6, "the first frame is every lane's product: {g0} vs {want0}");
+        let x = 0.2f32;
+        let mut worst = 0.0f32;
+        for q in 0..8 {
+            let mut want = [0.0f32; QUANTUM];
+            fill(&mut c, 2, None, &mut want);
+            let (g0, g1) = ends(&mut c, 2, None);
+            assert!((g0 - want[0]).abs() < 1e-6 && (g1 - want[QUANTUM - 1]).abs() < 1e-6, "quantum {q}: ends {g0}, {g1} vs {}, {}", want[0], want[QUANTUM - 1]);
+            {
+                let mut inputs = bus::Inputs::of(c.regions_mut());
+                let (l, r) = inputs.get(2).unwrap();
+                l.fill(x);
+                r.fill(x);
+            }
+            c.regions_mut().output.fill(0.0);
+            bus::mixdown(&mut c);
+            let out = &c.regions().output[..QUANTUM];
+            for j in 0..QUANTUM {
+                let want = x * want[j];
+                worst = worst.max((out[j] - want).abs());
+            }
+        }
+        assert!(worst < 1e-7, "fill is the tree's own product: {worst}");
+        // By the 8th quantum the monitor lane has reached 0: the chain is silent.
+        let mut want = [1.0f32; QUANTUM];
+        fill(&mut c, 2, None, &mut want);
+        assert!(want.iter().all(|g| *g == 0.0));
     }
 }

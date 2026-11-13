@@ -44,7 +44,8 @@ pub enum Rec {
     Play(wire::Play),
     Set(wire::SetParams),
     Config(wire::BusConfig),
-    Mix(wire::BusMix),
+    /// `BUS_RAMP` records, written one after another (each counts in the batch header).
+    Ramps(Vec<wire::BusRamp>),
     Master(wire::Master),
     Reset(wire::Reset),
     /// A record already written, head included (ADR 0158's variable records in `automation.rs`).
@@ -58,7 +59,7 @@ impl Rec {
             Rec::Play(r) => r.write(out, at),
             Rec::Set(r) => r.write(out, at),
             Rec::Config(r) => r.write(out, at),
-            Rec::Mix(r) => r.write(out, at),
+            Rec::Ramps(rs) => Ok(rs.iter().fold(0, |n, r| n + r.write(out, at + n).unwrap())),
             Rec::Master(r) => r.write(out, at),
             Rec::Reset(r) => r.write(out, at),
             Rec::Raw(b) => {
@@ -67,6 +68,14 @@ impl Rec {
             }
         }
         .unwrap()
+    }
+
+    /// Records this writes (the batch header's `count`).
+    pub fn count(&self) -> usize {
+        match self {
+            Rec::Ramps(rs) => rs.len(),
+            _ => 1,
+        }
     }
 }
 
@@ -79,7 +88,7 @@ pub fn batch(first_frame: f64, recs: &[Rec]) -> Vec<u8> {
     }
     buf.truncate(at);
     wire::Envelope::new(wire::kind::BATCH, 1, (buf.len() - 16) as u32).write(&mut buf, 0).unwrap();
-    wire::BatchHeader { first_frame, count: recs.len() as u32, flags: 0 }.write(&mut buf, 0).unwrap();
+    wire::BatchHeader { first_frame, count: recs.iter().map(Rec::count).sum::<usize>() as u32, flags: 0 }.write(&mut buf, 0).unwrap();
     buf
 }
 
@@ -139,17 +148,27 @@ pub fn config_fx(buses: &[(u16, Vec<(u32, f32, f32)>)]) -> Rec {
     })
 }
 
-/// BUS_MIX of `(gain, lpHz)` per bus over `ramp` frames, asap.
-pub fn mix(ramp: u32, buses: &[(f32, f32)]) -> Rec {
-    Rec::Mix(wire::BusMix {
-        voice_id: 0,
-        frame_offset: wire::ASAP,
-        ramp_frames: ramp,
-        buses: buses.iter().map(|&(gain, lp_hz)| wire::BusMixBuses { gain, lp_hz }).collect(),
-    })
+/// One asap `BUS_RAMP` of `lane` on bus `bus` (`BUS_MASTER_OUT` for the output): `gain` (mask bit
+/// 0) and, when given, the snapshot low-pass `lp_hz` (mask bit 1), over `frames`.
+pub fn lane_ramp(bus: u32, lane: u32, gain: Option<f32>, lp_hz: Option<f32>, frames: u32) -> wire::BusRamp {
+    let mask = gain.map_or(0, |_| wire::BUS_RAMP_MASK_GAIN) | lp_hz.map_or(0, |_| wire::BUS_RAMP_MASK_LP_HZ);
+    wire::BusRamp { voice_id: bus, frame_offset: wire::ASAP, lane: lane as u16, mask, gain: gain.unwrap_or(1.0), lp_hz: lp_hz.unwrap_or(OFF), frames, shape: 0 }
 }
 
-/// BUS_MIX of gains only (low-pass off).
+/// What BUS_MIX of `(gain, lpHz)` per bus over `ramp` frames was, as asap `BUS_RAMP`s (B1a's
+/// mapping, bit-identical by R3): per bus, the `runtime` lane's gain, then the `snapshot` lane's
+/// low-pass, both over `ramp`.
+pub fn mix(ramp: u32, buses: &[(f32, f32)]) -> Rec {
+    Rec::Ramps(
+        buses
+            .iter()
+            .enumerate()
+            .flat_map(|(b, &(gain, lp_hz))| [lane_ramp(b as u32, wire::LANE_RUNTIME, Some(gain), None, ramp), lane_ramp(b as u32, wire::LANE_SNAPSHOT, None, Some(lp_hz), ramp)])
+            .collect(),
+    )
+}
+
+/// [`mix`] of gains only (low-pass off).
 pub fn gains(ramp: u32, gains: &[f32]) -> Rec {
     mix(ramp, &gains.iter().map(|&g| (g, OFF)).collect::<Vec<_>>())
 }

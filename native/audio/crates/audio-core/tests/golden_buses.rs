@@ -4,9 +4,10 @@
 //! from the spec (linear ramps over `rampFrames`, gains multiplied down the tree, Blink's
 //! equal-power pan for hard left and right).
 //!
-//! - **Duck:** what the mixer's ducking sends: a bus's BUS_MIX gain falls, holds, and recovers while
-//!   another bus plays on. Sample-exact, and click-free (no step larger than the ramp's).
-//! - **Snapshot:** what a snapshot sends: one BUS_MIX changing several buses' gains and a low-pass
+//! - **Duck:** what the mixer's ducking sends: a bus's runtime-lane gain (`BUS_RAMP`; BUS_MIX before
+//!   0171/0172 M5) falls, holds, and recovers while another bus plays on. Sample-exact, and
+//!   click-free (no step larger than the ramp's).
+//! - **Snapshot:** what a snapshot sends: one batch of `BUS_RAMP`s changing several buses' gains and a low-pass
 //!   cut-off at once, plus the root. Sample-exact on the buses without a low-pass; the low-passed
 //!   bus is sample-exact while `audio_dsp::biquad` is the A2.1 passthrough stub, and checked at its
 //!   settled level (a low-pass passes DC) once A2.2a fills the filter.
@@ -56,8 +57,9 @@ fn duck_golden() {
     assert_eq!(l, r);
     m.expect(L, TOL, "before the duck", |_| M * 1.5);
 
-    // Duck Music to 0.25 over 300 frames (not a whole number of quanta), as the mixer's BUS_MIX
-    // sends it: every bus's own gain, only Music's changes.
+    // Duck Music to 0.25 over 300 frames (not a whole number of quanta), as the mixer sent it
+    // (BUS_MIX before 0171/0172 M5; now asap BUS_RAMPs on each bus's runtime lane and snapshot
+    // low-pass, bit-identical by R3): every bus's own gain, only Music's changes.
     m.submit(&[gains(300, &[1.0, 0.25, 1.0])]);
     let (duck, duck_r) = m.render_n(4);
     assert_eq!(duck, duck_r);
@@ -72,7 +74,7 @@ fn duck_golden() {
     m.expect(L, LONG_RAMP_TOL, "recovering", |k| M * (ramp_to(0.25, 1.0, 1_000, k) + 0.5));
     assert!(max_step(&rec) <= M * 0.75 / 1_000.0 + TOL);
 
-    // A duck that is cut short: a new BUS_MIX ramps from wherever the gain is.
+    // A duck that is cut short: a new runtime-lane ramp starts from wherever the gain is.
     m.submit(&[gains(256, &[1.0, 0.0, 1.0])]);
     m.render();
     let mid = bus::slots(&m.core)[MUSIC as usize].gain.value;
