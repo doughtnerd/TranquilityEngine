@@ -20,29 +20,80 @@
 //! - `wuLoudness` (cumulative work units) is this module's.
 //!
 //! **Who fills what.** K1 (W1): the hooks below, identity bodies, called from `bus.rs`,
-//! `scheduler.rs` and (stage B) `status.rs`. Ld2 (W6): taps, `LOUD_CONFIG`, the ring and take
+//! `scheduler.rs` and `status.rs`. Ld2 (W6): taps, `LOUD_CONFIG`, the ring and take
 //! semantics, flags, the true-peak gate, `wuLoudness`, the STATUS sections. Ld7 (W7): the ladder
 //! step and `loudShed`.
 //!
 //! Nothing here allocates; [`tap`] runs inside `process`.
 
-use crate::core::Core;
+use audio_wire::generated as wire;
 
-/// [`tap`]'s `bus` for the final output (the wire's `LOUD_OUTPUT_TAP`, Wa1's merge 1).
-pub const OUTPUT_TAP: u16 = 0xFFFF;
+use crate::core::Core;
+use crate::counters::MixSections;
+
+/// [`tap`]'s `bus` for the final output (the wire's `LOUD_OUTPUT_TAP`).
+pub const OUTPUT_TAP: u16 = wire::LOUD_OUTPUT_TAP as u16;
+/// Meters: master plus `MAX_LOUDNESS_BUSES` (the wire's `LOUD_METERS`, 9).
+pub const METERS: usize = wire::LOUD_METERS as usize;
+/// One meter's DSP state (ARCH §5.3, spike S1: K-weighting biquads in f64, the sub-block
+/// accumulator, the true-peak FIR history): 1,512 B. Ld1's state type must fit it.
+pub const METER_STATE_BYTES: usize = 1_512;
+/// One meter's ring: `LOUD_RING_SUBBLOCKS` (32) f32 sub-block energies = 128 B.
+pub const RING_BYTES: usize = wire::LOUD_RING_SUBBLOCKS as usize * 4;
+/// The region's header (Ld2: `tpGateDbfs`, the metered slots, the sent cursors, the pause): 64 B.
+pub const HEADER_BYTES: usize = 64;
+/// The `Loudness` region (ARCH §6): the header, then per meter its state and its ring
+/// (meter `i` at `HEADER_BYTES + i × (METER_STATE_BYTES + RING_BYTES)`):
+/// 64 + 9 × (1,512 + 128) = 14,824 B on every preset. Ld2 owns the bytes' layout inside it.
+pub const REGION_BYTES: usize = HEADER_BYTES + METERS * (METER_STATE_BYTES + RING_BYTES);
+
+const _: () = assert!(REGION_BYTES == 14_824, "ARCH §6: 9 × (1,512 + 128) B plus the header");
+const _: () = assert!((METER_STATE_BYTES + RING_BYTES) % 8 == 0 && HEADER_BYTES % 8 == 0, "every meter starts 8-byte aligned (f64 state)");
+
+/// Meter `i`'s state and ring bytes in the `Loudness` region (`None` past `METERS` or a short
+/// region): `(state, ring)`, 1,512 and 128 B, each 8-byte aligned.
+pub fn meter(region: &mut [u8], i: usize) -> Option<(&mut [u8], &mut [u8])> {
+    if i >= METERS {
+        return None;
+    }
+    let at = HEADER_BYTES + i * (METER_STATE_BYTES + RING_BYTES);
+    region.get_mut(at..at + METER_STATE_BYTES + RING_BYTES).map(|m| m.split_at_mut(METER_STATE_BYTES))
+}
+
+/// Sets the meters up after the region is zeroed (`Core::new`, once). K1: a no-op. Ld2: K-weighting
+/// coefficients from the rate, `loudSubBlockFrames` into the counters.
+pub fn init(_core: &mut Core) {}
 
 /// A loudness tap: bus `bus`'s quantum `l`, `r` (post-fader: after its lanes, where the peak
 /// meter reads it), or the final output after the limiter when `bus` is [`OUTPUT_TAP`]. Called by
 /// `bus::mixdown` for every bus and once for the output. K1: a no-op. Ld2: K-weights and
 /// accumulates the sub-block of a metered bus (a bus not metered returns at once), runs the true
-/// peak (gated off master), and adds to `wuLoudness`; Ld7 skips paused meters.
+/// peak (gated off master), and adds to `wuLoudness`; Ld7 skips paused meters. `loudness` is the
+/// `Loudness` region.
 #[inline]
-pub fn tap(_bus: u16, _l: &[f32], _r: &[f32]) {}
+pub fn tap(_loudness: &mut [u8], _bus: u16, _l: &[f32], _r: &[f32]) {}
+
+/// The `loudBuses` and `loudEnergies` STATUS sections (API §4.3) for a take: per meter that
+/// reports, a `LoudBus` in `mix.loud_buses` and its sub-blocks since the last successful take,
+/// oldest first, in `mix.loud_energies` (bus-major, the item's flags carrying the count). Called by
+/// `status::take` before the block is written; must not advance the sent cursor ([`taken`] does).
+/// K1: writes nothing (counts 0). Ld2 fills it.
+pub fn status(_core: &mut Core, _mix: &mut MixSections) {}
+
+/// After a successful take: the sub-blocks `mix` carried are sent, so each meter's sent cursor
+/// advances and its take-relative peak resets (a failed take sends them again). K1: a no-op;
+/// Ld2 fills it.
+pub fn taken(_core: &mut Core, _mix: &MixSections) {}
 
 /// `true` when a `LOUD_CONFIG` record (0x1B, API §4.2) at `msg[off..off + len]` holds its
-/// `meterCount` items of 4 B. K1: `true` (the scheduler checks the fixed length); Ld2 fills it.
-pub fn config_is_well_formed(_msg: &[u8], _off: usize, _len: usize) -> bool {
-    true
+/// `meterCount` items of 4 B (pass 1 of `scheduler::submit`: a malformed record refuses the batch;
+/// more than 8 meters is dropped and counted at apply, not refused).
+pub fn config_is_well_formed(msg: &[u8], off: usize, len: usize) -> bool {
+    if len < wire::LoudConfig::FIXED_END || off + len > msg.len() {
+        return false;
+    }
+    let n = crate::wire_read::u32_at(msg, off + 16) as usize;
+    n.checked_mul(wire::LoudConfigMeters::FIXED_END).is_some_and(|bytes| wire::LoudConfig::FIXED_END + bytes <= len)
 }
 
 /// `LOUD_CONFIG` (0x1B, API §4.2, asap): `tpGateDbfs` and the metered bus slots (master

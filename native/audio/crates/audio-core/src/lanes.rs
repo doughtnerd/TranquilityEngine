@@ -33,8 +33,64 @@ use crate::wire_read::u32_at;
 use crate::QUANTUM;
 
 /// Lanes per bus (R1): `authored`, `runtime`, `snapshot`, `monitor`, `dip`, `duck`, `automation`.
-/// The wire's `LANE_*` ids index them (Wa1's merge 1).
-pub const LANES: usize = 7;
+/// The wire's `LANE_*` ids index them.
+pub const LANES: usize = wire::LANE_COUNT as usize;
+
+/// One bus's lane state in the `Lanes` region (K1 stage B lays it out; B1a fills it). `#[repr(C)]`,
+/// all-zero valid (lanes at 0: [`init`] sets them to unity). B1a may change the fields: the
+/// region is sized from this type ([`BUS_LANES_BYTES`]), so `layout.rs` doesn't change.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BusLanes {
+    /// One ramp per lane, indexed by the wire's `LANE_*` (lanes 5 and 6 are the core's: the duck
+    /// and automation lanes keep their own state in `duck.rs` and `automation.rs`; their entries
+    /// here are free for B1a).
+    pub lanes: [Ramp; LANES],
+    /// Bit `k` set while lane `k` isn't settled at 1 (B1a: the "every lane settled" test of §4.5
+    /// step 1).
+    pub moving: u32,
+    pub _reserved: [u32; 3],
+}
+
+/// Bytes of one [`BusLanes`] entry, rounded to a cache line (128 B: 7 × 16 B ramps + 16 B).
+pub const BUS_LANES_BYTES: usize = (core::mem::size_of::<BusLanes>() + crate::layout::REGION_ALIGN - 1) / crate::layout::REGION_ALIGN * crate::layout::REGION_ALIGN;
+
+const _: () = assert!(core::mem::align_of::<BusLanes>() <= crate::layout::REGION_ALIGN);
+const _: () = assert!(BUS_LANES_BYTES == core::mem::size_of::<BusLanes>(), "the slice stride is the entry size");
+
+/// The `Lanes` region (ARCH §6): one [`BusLanes`] per core bus slot (`max_buses`), then one more
+/// for the output gain (`BUS_MASTER_OUT`, [`master_entry`]): 33 × 128 B = 4,224 B at 32 buses.
+pub fn region_bytes(p: &crate::params::InitParams) -> usize {
+    (p.max_buses as usize + 1) * BUS_LANES_BYTES
+}
+
+/// The lane entries of the `Lanes` region: `max_buses` bus entries, then the output's.
+pub fn entries(region: &mut [u8]) -> &mut [BusLanes] {
+    let n = region.len() / BUS_LANES_BYTES;
+    // SAFETY: the region is 64-byte aligned (Layout) and zeroed at init; all-zero is a valid
+    // BusLanes (floats and integers). BUS_LANES_BYTES >= size_of::<BusLanes>() and is a multiple
+    // of REGION_ALIGN (and equal to it, asserted), so each entry is aligned and inside the region.
+    unsafe { core::slice::from_raw_parts_mut(region.as_mut_ptr() as *mut BusLanes, n) }
+}
+
+/// Bus `bus`'s lane entry (`None` past the region).
+pub fn entry(region: &mut [u8], bus: usize) -> Option<&mut BusLanes> {
+    entries(region).get_mut(bus)
+}
+
+/// The output gain's lane entry: the region's last.
+pub fn master_entry(region: &mut [u8]) -> Option<&mut BusLanes> {
+    entries(region).last_mut()
+}
+
+/// Sets every lane of every entry to unity (`Core::new`, once). K1: the state isn't read yet;
+/// B1a reads it.
+pub fn init(core: &mut Core) {
+    for e in entries(&mut core.regions_mut().lanes[..]) {
+        e.lanes = [Ramp::at(1.0); LANES];
+        e.moving = 0;
+    }
+}
 
 /// What [`apply`] multiplied the bus by this quantum: the post-fader send (`sends::feed`, Rv1)
 /// scales the reverb scratch by the same gain, and skips the multiply on [`Gain::Unity`] (R11's
@@ -60,6 +116,7 @@ pub fn gain_ramp(slot: &BusSlot) -> &Ramp {
 
 /// The gain stage of one bus (`bus::mixdown`, after the pre-fader tap `duck::detect`, before the
 /// meter and the loudness tap): multiplies `l`, `r` (one quantum each) by the bus's lanes.
+/// - `lanes`: the bus's lane entry (K1: not read; B1a: the seven-lane state).
 /// - `ramp`: the bus's gain ramp (`BusSlot::gain`, BUS_MIX's); it advances one quantum. (The slot's
 ///   buffer holds `l`, `r`, so the stage takes the ramp, not the slot.)
 /// - `auto`: the bus's automation entry when it has bindings (ADR 0158; its `gainMul` applies only
@@ -71,7 +128,8 @@ pub fn gain_ramp(slot: &BusSlot) -> &Ramp {
 /// Returns what was applied. K1: today's code, verbatim (the ramp, then automation), with the duck
 /// curve between them; B1a replaces the single ramp with the seven-lane product, keeping this
 /// signature and the bit-identity of a lone lane.
-pub fn apply(ramp: &mut Ramp, auto: Option<&BusAuto>, duck: Option<&[f32; QUANTUM]>, l: &mut [f32], r: &mut [f32], curve: &mut [f32; QUANTUM]) -> Gain {
+pub fn apply(lanes: &mut BusLanes, ramp: &mut Ramp, auto: Option<&BusAuto>, duck: Option<&[f32; QUANTUM]>, l: &mut [f32], r: &mut [f32], curve: &mut [f32; QUANTUM]) -> Gain {
+    let _ = lanes;
     let auto = auto.filter(|a| a.targets & automation::has::GAIN != 0);
     let mut gain = if ramp.is_settled() {
         let g = ramp.value;
@@ -126,8 +184,10 @@ fn to_curve(gain: Gain, curve: &mut [f32; QUANTUM]) -> Gain {
 }
 
 /// The output gain (MASTER; B1a: `BUS_MASTER_OUT`'s lane) on the summed output, after the shared
-/// reverb's return and before the limiter. K1: today's code, verbatim.
-pub fn apply_master(master: &mut Ramp, out_l: &mut [f32], out_r: &mut [f32]) {
+/// reverb's return and before the limiter. `lanes` is the output's entry ([`master_entry`]; K1:
+/// not read). K1: today's code, verbatim.
+pub fn apply_master(lanes: &mut BusLanes, master: &mut Ramp, out_l: &mut [f32], out_r: &mut [f32]) {
+    let _ = lanes;
     if master.is_settled() {
         let g = master.value;
         if g != 1.0 {
@@ -146,14 +206,16 @@ pub fn apply_master(master: &mut Ramp, out_l: &mut [f32], out_r: &mut [f32]) {
 }
 
 /// RESET (R12): settles the bus's ramps on their targets. K1: the gain and the snapshot low-pass;
-/// B1a: every lane, on its target.
-pub fn settle(slot: &mut BusSlot) {
+/// B1a: every lane of `lanes`, on its target.
+pub fn settle(lanes: &mut BusLanes, slot: &mut BusSlot) {
+    let _ = lanes;
     slot.gain = Ramp::at(slot.gain.target);
     slot.lp = Ramp::at(slot.lp.target);
 }
 
-/// RESET: settles the output gain on its target.
-pub fn settle_master(master: &mut Ramp) {
+/// RESET: settles the output gain on its target (`lanes`: the output's entry; B1a settles it).
+pub fn settle_master(lanes: &mut BusLanes, master: &mut Ramp) {
+    let _ = lanes;
     *master = Ramp::at(master.target);
 }
 
@@ -192,8 +254,9 @@ pub fn mix(core: &mut Core, msg: &[u8], off: usize) {
     }
 }
 
-/// `true` when a `BUS_RAMP` record (0x18, 32 B, API §4.2) at `msg[off..off + len]` is well formed.
-/// K1: the fixed length is checked by the scheduler's length table; B1a adds any field checks.
+/// `true` when a `BUS_RAMP` record (0x18, 32 B, API §4.2) at `msg[off..off + len]` is well formed
+/// (pass 1 of `scheduler::submit`, after its length check: `len >= BusRamp::FIXED_END`). K1: `true`;
+/// B1a adds any field checks (a bad field is ignored and counted at apply, not refused, API §4.2).
 pub fn ramp_is_well_formed(_msg: &[u8], _off: usize, _len: usize) -> bool {
     true
 }
@@ -222,7 +285,7 @@ mod tests {
         let mut s = slot(Ramp::at(1.0));
         let (mut l, mut r) = ([0.3f32; QUANTUM], [-0.7f32; QUANTUM]);
         let mut curve = [f32::NAN; QUANTUM];
-        assert_eq!(apply(&mut s.gain, None, None, &mut l, &mut r, &mut curve), Gain::Unity);
+        assert_eq!(apply(&mut BusLanes::default(), &mut s.gain, None, None, &mut l, &mut r, &mut curve), Gain::Unity);
         assert_eq!((l, r), ([0.3; QUANTUM], [-0.7; QUANTUM]));
         assert!(curve.iter().all(|c| c.is_nan()), "no curve is written at unity");
     }
@@ -232,11 +295,11 @@ mod tests {
         let mut s = slot(Ramp::at(0.5));
         let (mut l, mut r) = ([0.3f32; QUANTUM], [0.2f32; QUANTUM]);
         let mut curve = [0.0; QUANTUM];
-        assert_eq!(apply(&mut s.gain, None, None, &mut l, &mut r, &mut curve), Gain::Scalar(0.5));
+        assert_eq!(apply(&mut BusLanes::default(), &mut s.gain, None, None, &mut l, &mut r, &mut curve), Gain::Scalar(0.5));
         assert_eq!(l[0], 0.3 * 0.5);
         let duck = [0.25f32; QUANTUM];
         let (mut l, mut r) = ([0.3f32; QUANTUM], [0.2f32; QUANTUM]);
-        assert_eq!(apply(&mut s.gain, None, Some(&duck), &mut l, &mut r, &mut curve), Gain::Curve);
+        assert_eq!(apply(&mut BusLanes::default(), &mut s.gain, None, Some(&duck), &mut l, &mut r, &mut curve), Gain::Curve);
         assert_eq!((l[7], r[7], curve[7]), (0.3 * 0.5 * 0.25, 0.2 * 0.5 * 0.25, 0.5 * 0.25));
     }
 
@@ -247,7 +310,7 @@ mod tests {
         let mut copy = s.gain;
         let (mut l, mut r) = ([1.0f32; QUANTUM], [1.0f32; QUANTUM]);
         let mut curve = [0.0; QUANTUM];
-        assert_eq!(apply(&mut s.gain, None, None, &mut l, &mut r, &mut curve), Gain::Curve);
+        assert_eq!(apply(&mut BusLanes::default(), &mut s.gain, None, None, &mut l, &mut r, &mut curve), Gain::Curve);
         for i in 0..QUANTUM {
             let g = copy.next();
             assert_eq!((l[i], curve[i]), (g, g));
@@ -260,12 +323,12 @@ mod tests {
         s.gain.set_target(0.25, 1000);
         s.lp = Ramp::at(LP_OFF_HZ);
         s.lp.set_target(500.0, 1000);
-        settle(&mut s);
+        settle(&mut BusLanes::default(), &mut s);
         assert!(s.gain.is_settled() && s.lp.is_settled());
         assert_eq!((s.gain.value, s.lp.value), (0.25, 500.0));
         let mut m = Ramp::at(1.0);
         m.set_target(0.5, 99);
-        settle_master(&mut m);
+        settle_master(&mut BusLanes::default(), &mut m);
         assert_eq!((m.value, m.is_settled()), (0.5, true));
     }
 }

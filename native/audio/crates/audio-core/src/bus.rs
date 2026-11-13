@@ -404,16 +404,25 @@ pub fn master(core: &mut Core, m: &Master) {
 pub fn reset(core: &mut Core) {
     let regions = core.regions_mut();
     convolver::reset(&mut regions.reverb[..]);
+    // M5 (K1): the lane entries, a region of their own (distinct from the buses and core state).
+    let lanes: *mut [u8] = &mut regions.lanes[..];
     let v = view(regions);
+    // SAFETY: the lanes region is distinct from every region `v` views (Layout).
+    let lanes = crate::lanes::entries(unsafe { &mut *lanes });
+    let (bus_lanes, master_lanes) = match lanes.split_last_mut() {
+        Some((m, b)) => (b, Some(m)),
+        None => (&mut [][..], None),
+    };
     let count = (v.area.count as usize).min(v.slots.len());
-    for slot in v.slots[..count].iter_mut() {
+    let mut spare = crate::lanes::BusLanes::default();
+    for (i, slot) in v.slots[..count].iter_mut().enumerate() {
         slot.buf = [0.0; 2 * QUANTUM];
-        crate::lanes::settle(slot);
+        crate::lanes::settle(bus_lanes.get_mut(i).unwrap_or(&mut spare), slot);
         slot.meter.reset();
         slot.snapshot = Biquad::default();
         slot.fx.reset();
     }
-    crate::lanes::settle_master(&mut v.area.master);
+    crate::lanes::settle_master(master_lanes.unwrap_or(&mut spare), &mut v.area.master);
     v.area.limiter.reset();
     v.area.reverb_in = [0.0; 2 * QUANTUM];
     let c = status::counters_mut(core);
@@ -477,6 +486,11 @@ pub fn mixdown(core: &mut Core) {
     let zones: *mut [u8] = &mut regions.zones[..];
     // ADR 0158 E2: the buses' automation, or `None` when no bus has bindings (the M1 path).
     let autos: Option<*mut [crate::automation::BusAuto]> = crate::automation::bus_entries(&mut regions.automation[..]).map(|a| a as *mut _);
+    // M5 (K1): the regions the stage hooks own: lanes, duck state, loudness meters, the send scratch.
+    let lanes: *mut [u8] = &mut regions.lanes[..];
+    let duck: *mut [u8] = &mut regions.duck[..];
+    let loudness: *mut [u8] = &mut regions.loudness[..];
+    let sends: *mut [u8] = &mut regions.sends[..];
     let v = view(regions);
     // SAFETY: the output and reverb regions are distinct from the buses and core-state regions
     // `v` views (Layout), so these views don't alias it.
@@ -484,6 +498,22 @@ pub fn mixdown(core: &mut Core) {
     let reverb = unsafe { &mut *reverb };
     // SAFETY: the beds and zones regions are distinct from every region viewed here (Layout).
     let (beds, zones) = unsafe { (&mut *beds, &mut *zones) };
+    // SAFETY: the M5 regions are distinct from each other and from every region viewed here (Layout).
+    let (lanes, duck, loudness, sends) = unsafe { (&mut *lanes, &mut *duck, &mut *loudness, &mut *sends) };
+    let lanes = crate::lanes::entries(lanes);
+    let (bus_lanes, master_lanes) = match lanes.split_last_mut() {
+        Some((m, b)) => (b, Some(m)),
+        None => (&mut [][..], None),
+    };
+    let mut spare_lanes = crate::lanes::BusLanes::default();
+    let mut spare_duck: Option<crate::duck::DuckArea> = None;
+    let duck = match crate::duck::area(duck) {
+        Some(d) => d,
+        // Never after `Core::new` (the region is always laid out); a zeroed stand-in keeps the
+        // hooks' signatures total.
+        // SAFETY: all-zero is a valid DuckArea (integers and floats).
+        None => spare_duck.insert(unsafe { core::mem::zeroed() }),
+    };
     let count = (v.area.count as usize).min(v.slots.len());
     let sample_rate = v.area.sample_rate;
     let decay = v.area.meter_decay;
@@ -492,8 +522,8 @@ pub fn mixdown(core: &mut Core) {
     let mut block = [0.0f32; 2 * QUANTUM];
     // M5 (K1): the bus's reverb contribution (`FxChain::process`), fed to the convolver input after
     // the gain stage (`sends::feed`); the gain stage's per-frame gain; the duck lane's curve.
-    let mut send = [0.0f32; 2 * QUANTUM];
-    let (send_l, send_r) = send.split_at_mut(QUANTUM);
+    // The `Sends` region is always laid out (1,088 B), so this never returns early.
+    let Some(send) = crate::sends::area(sends) else { return };
     let mut gain_curve = [0.0f32; QUANTUM];
     let mut duck_curve = [0.0f32; QUANTUM];
     for k in 0..count {
@@ -507,7 +537,7 @@ pub fn mixdown(core: &mut Core) {
             crate::bed::decode_into(beds, b, l, r);
             crate::zones::add_returns(zones, b, l, r);
             crate::sends::add_aux(zones, b, l, r);
-            let fed = slot.fx.process(l, r, send_l, send_r);
+            let fed = slot.fx.process(l, r, &mut send.l, &mut send.r);
             sent |= fed;
             let lp = match auto {
                 Some(a) if a.targets & crate::automation::has::LOWPASS != 0 => slot.lp.value.min(a.lp),
@@ -516,14 +546,14 @@ pub fn mixdown(core: &mut Core) {
             fx::snapshot_lowpass(&mut slot.snapshot, sample_rate, lp, l, r);
             slot.lp.advance(QUANTUM as u32);
             // M5 (K1): the pre-fader tap (sidechain detectors, Sc1), then the gain lanes.
-            crate::duck::detect(b, l, r);
-            let duck = if crate::duck::gain(b, &mut duck_curve) { Some(&duck_curve) } else { None };
-            let gain = crate::lanes::apply(&mut slot.gain, auto, duck, l, r, &mut gain_curve);
+            crate::duck::detect(duck, b, l, r);
+            let ducked = if crate::duck::gain(duck, b, &mut duck_curve) { Some(&duck_curve) } else { None };
+            let gain = crate::lanes::apply(bus_lanes.get_mut(b).unwrap_or(&mut spare_lanes), &mut slot.gain, auto, ducked, l, r, &mut gain_curve);
             if fed {
-                crate::sends::feed(send_l, send_r, gain, &gain_curve, rev_l, rev_r);
+                crate::sends::feed(send, gain, &gain_curve, rev_l, rev_r);
             }
             slot.meter.update(l, r, decay);
-            crate::loudness::tap(b as u16, l, r);
+            crate::loudness::tap(loudness, b as u16, l, r);
         }
         block.copy_from_slice(&slot.buf);
         slot.buf = [0.0; 2 * QUANTUM];
@@ -539,7 +569,7 @@ pub fn mixdown(core: &mut Core) {
             dst_r[i] += block[QUANTUM + i];
         }
     }
-    if crate::sends::convolver_should_run(v.area.has_reverb != 0, sent) {
+    if crate::sends::convolver_should_run(send, reverb, v.area.has_reverb != 0, sent) {
         match shared_return {
             None => convolver::process(reverb, rev_l, rev_r, out_l, out_r),
             Some(g) => {
@@ -555,13 +585,13 @@ pub fn mixdown(core: &mut Core) {
         rev_l.fill(0.0);
         rev_r.fill(0.0);
     }
-    crate::lanes::apply_master(&mut v.area.master, out_l, out_r);
+    crate::lanes::apply_master(master_lanes.unwrap_or(&mut spare_lanes), &mut v.area.master, out_l, out_r);
     v.area.rendered = 1;
     if v.area.limiter.process(out_l, out_r) {
         v.area.limited = v.area.limited.wrapping_add(1);
     }
     // M5 (K1): the final output's loudness tap, after the limiter (record change 11).
-    crate::loudness::tap(crate::loudness::OUTPUT_TAP, out_l, out_r);
+    crate::loudness::tap(loudness, crate::loudness::OUTPUT_TAP, out_l, out_r);
     let peaks = count.min(crate::counters::PEAKS_CAP);
     for b in 0..peaks {
         let m = view(core.regions_mut()).slots[b].meter;

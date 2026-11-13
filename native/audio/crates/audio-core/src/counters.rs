@@ -374,6 +374,59 @@ pub struct MixCounters {
     pub loud_sub_blocks_lost: u32,
 }
 
+/// 0171/0172 M5 §4.3: the `loudBuses`, `loudEnergies` and `busDuck` caps (the wire's
+/// `LOUD_METERS`, `MAX_LOUD_ENERGIES`, `MAX_DUCK_RULES`).
+pub const LOUD_BUSES_CAP: usize = audio_wire::generated::LOUD_METERS as usize;
+pub const LOUD_ENERGIES_CAP: usize = audio_wire::generated::MAX_LOUD_ENERGIES as usize;
+pub const BUS_DUCK_CAP: usize = audio_wire::generated::MAX_DUCK_RULES as usize;
+
+/// 0171/0172 M5 §4.3: a `loudBuses` item (16 B on the wire), one per meter that reports.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LoudBus {
+    /// The bus slot, or the wire's `LOUD_OUTPUT_TAP` (0xFFFF) for the final output.
+    pub slot: u16,
+    /// The wire's `LOUD_FLAG_*` bits; bits 0–5 the sub-blocks this take carries for the meter
+    /// (its run in `loudEnergies`).
+    pub flags: u16,
+    /// The sequence number of the first sub-block this take carries.
+    pub first_seq: u32,
+    /// Linear max(true peak, sample peak) since the last successful take.
+    pub true_peak: f32,
+    /// Quanta the true-peak gate skipped (cumulative).
+    pub gated_quanta: u32,
+}
+
+/// 0171/0172 M5 §4.3: a `busDuck` item (8 B on the wire): a rule target's duck gain.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BusDuckGain {
+    pub slot: u16,
+    pub gain: f32,
+}
+
+/// 0171/0172 M5 §4.3: the three M5 STATUS sections of one take, filled by `loudness::status` and
+/// `duck::status` from their own state just before the writer serialises the block (a stack value
+/// in `status::take`, ≈ 1.6 KB; never allocated). All-zero is three empty sections.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MixSections {
+    /// `loudBuses`, with `loudBusCount` (Ld2).
+    pub loud_buses: List<LoudBus, LOUD_BUSES_CAP>,
+    /// `loudEnergies`, with `loudEnergyCount`: bus-major in `loud_buses` order, oldest first; each
+    /// meter's run is its flags' new-block count (Ld2).
+    pub loud_energies: List<f32, LOUD_ENERGIES_CAP>,
+    /// `busDuck`, with `duckCount`: only buses that are the target of a rule (Dp1).
+    pub bus_duck: List<BusDuckGain, BUS_DUCK_CAP>,
+}
+
+impl Default for MixSections {
+    fn default() -> MixSections {
+        // SAFETY: lists of plain integers and floats: all-zero is empty.
+        unsafe { core::mem::zeroed() }
+    }
+}
+
 impl MixCounters {
     /// `busRecordsEarly` + 1, saturating.
     pub fn note_bus_record_early(&mut self) {

@@ -21,6 +21,8 @@
 //!
 //! Runs in `onmessage`, never inside `process`; nothing allocates.
 
+use audio_wire::generated as wire;
+
 use crate::bus::{self, BusSlot};
 use crate::core::Core;
 
@@ -41,9 +43,14 @@ pub fn apply<I: IntoIterator<Item = (u32, [f32; 7])>>(slot: &mut BusSlot, fresh:
 }
 
 /// `true` when a `BUS_SLOT` record (0x1C, API §4.2) at `msg[off..off + len]` holds its
-/// `effectCount` effects of 32 B. K1: `true` (the scheduler checks the fixed length); B2 fills it.
-pub fn slot_is_well_formed(_msg: &[u8], _off: usize, _len: usize) -> bool {
-    true
+/// `effectCount` effects of 32 B (pass 1 of `scheduler::submit`: a malformed record refuses the
+/// batch; past 4 effects the rest are dropped at apply, not refused).
+pub fn slot_is_well_formed(msg: &[u8], off: usize, len: usize) -> bool {
+    if len < wire::BusSlot::FIXED_END || off + len > msg.len() {
+        return false;
+    }
+    let n = crate::wire_read::u16_at(msg, off + 26) as usize;
+    n.checked_mul(wire::BusSlotEffects::FIXED_END).is_some_and(|bytes| wire::BusSlot::FIXED_END + bytes <= len)
 }
 
 /// `BUS_SLOT` (0x1C, API §4.2): one slot's configuration at `at` (`None` asap; `Some(frame)`
