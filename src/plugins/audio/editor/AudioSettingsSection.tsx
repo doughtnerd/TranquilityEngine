@@ -1,7 +1,7 @@
 // The Project panel's Audio section (ADR 0097): the bus tree with per-bus effects, snapshots, ducking rules and
 // the backend. Edits go through the pure functions in `audioSettingsModel.ts` and the panel's undo history.
 import { useState } from "preact/hooks";
-import type { AudioBackground, AudioClipFormat, AudioSettings, AudioSpatialMode, BusBed, BusEffect, BusSettings } from "../../../engine/audio/settings";
+import type { AudioBackground, AudioClipFormat, AudioSettings, AudioSpatialMode, BusBed, BusEffect, BusSettings, DuckingDetector, DuckingMode, DuckingRule } from "../../../engine/audio/settings";
 import { AMBISONIC_LIMITS, BED_LIMITS, BED_PRIORITY_LIMITS, BUS_BEDS, OCCLUSION_LIMITS, SPEED_OF_SOUND_LIMITS, ZONE_LIMITS, busBed, busBedPriority } from "../../../engine/audio/settings";
 import { MATERIAL_LIMITS, MAX_MATERIALS, type OccluderMaterial } from "../../../engine/audio/occlusionMaterials";
 import {
@@ -59,7 +59,10 @@ import {
   setParameterLabels,
   setParameterRange,
   parameterOf,
-  addDucking,
+  addDuckingEdit,
+  moveDucking,
+  setDuckingValueEdit,
+  type DuckEdit,
   addEffect,
   addSnapshot,
   applyVoicesPreset,
@@ -80,7 +83,6 @@ import {
   setClipFormat,
   setClipMemory,
   setCodec,
-  setDuckingValue,
   setLimiterLookahead,
   setEffectValue,
   setSnapshotLowpass,
@@ -94,7 +96,9 @@ import {
   LIMITER_LOOKAHEAD_LIMITS,
   type VoicePresetName,
 } from "./audioSettingsModel";
-import { CurveEditor, TextField, type SettingsDraft } from "../../../editor/sdk";
+import { CurveEditor, TextField, editor, type SettingsDraft } from "../../../editor/sdk";
+import { Audio } from "../runtime";
+import { DEFAULT_DUCK_DETECTOR, DEFAULT_DUCK_THRESHOLD, DUCK_DETECTORS, DUCK_LIMITS, DUCK_MODES, MAX_DUCK_RULES, MAX_LEVEL_RULES, NEEDS_AUDIO_CORE, levelDuckingAvailable } from "./mix/duckModel";
 import { isLabelled, parameterRange } from "../../../engine/audio/eventFormat";
 import { BusMeters } from "./BusMeters";
 import "./audioSettings.css";
@@ -343,10 +347,23 @@ function Snapshots(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) 
   );
 }
 
-function Ducking(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
-  const { a, draft, set } = props;
+const DUCK_MODE_LABELS: Record<DuckingMode, string> = { presence: "presence (voices playing)", level: "level (sidechain)" };
+const DUCK_DETECTOR_LABELS: Record<DuckingDetector, string> = { peak: "peak", rms: "RMS" };
+
+/**
+ * The ducking rules (api-and-models §2; task Dk1): mode, trigger, target, detector and threshold on a level rule, amount,
+ * attack, release, reorder, remove, add. No hooks, so a test can call it; `Ducking` keeps the refusal. An edit the settings
+ * parse would drop (a level cycle, the 9th level rule) is not saved: `onRefusal` gets the parse's message instead.
+ */
+export function DuckingEditor(props: { a: AudioSettings; draft: SettingsDraft; set: Set; levelDucking: boolean; refusal: string | null; onRefusal: (message: string | null) => void }) {
+  const { a, draft, set, levelDucking, refusal, onRefusal } = props;
+  const apply = (label: string, edit: DuckEdit) => {
+    onRefusal(edit.refusal);
+    if (!edit.refusal && edit.draft !== draft) set(label, edit.draft);
+  };
+  const change = (i: number, key: keyof DuckingRule, label: string, value: string | number) => apply(label, setDuckingValueEdit(draft, i, key, value));
   const BusSelect = (p: { label: string; value: string; index: number; field: "target" | "trigger" }) => (
-    <select aria-label={p.label} value={p.value} onChange={(e) => set(`Set ducking ${p.field}`, setDuckingValue(draft, p.index, p.field, (e.currentTarget as HTMLSelectElement).value))}>
+    <select aria-label={p.label} value={p.value} onChange={(e) => change(p.index, p.field, `Set ducking ${p.field}`, (e.currentTarget as HTMLSelectElement).value)}>
       {a.buses.map((b) => (
         <option key={b.name} value={b.name}>
           {b.name}
@@ -358,43 +375,94 @@ function Ducking(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
     <>
       <div class="project-settings-list-head">
         <span>Ducking</span>
-        <span class="project-settings-hint">lower the target while the trigger bus has sounds playing</span>
+        <span class="project-settings-hint">lower the target while the trigger has sounds playing (presence) or while its level is over the threshold (level); at most {MAX_DUCK_RULES} rules, {MAX_LEVEL_RULES} of them level</span>
       </div>
       {a.ducking.length === 0 && <p class="project-settings-none">None</p>}
-      {a.ducking.map((r, i) => (
-        <div key={i} class="audio-card" role="group" aria-label={`Ducking rule ${i + 1}`}>
-          <div class="audio-row">
-            <label>
-              Target
-              <BusSelect label={`Ducking ${i + 1} target`} value={r.target} index={i} field="target" />
-            </label>
-            <label>
-              Trigger
-              <BusSelect label={`Ducking ${i + 1} trigger`} value={r.trigger} index={i} field="trigger" />
-            </label>
-            <label>
-              Amount
-              <Num label={`Ducking ${i + 1} amount`} value={r.amount} step={0.05} min={0} max={1} onCommit={(n) => set("Set ducking amount", setDuckingValue(draft, i, "amount", Math.min(1, Math.max(0, n))))} />
-            </label>
-            <label>
-              Attack (s)
-              <Num label={`Ducking ${i + 1} attack`} value={r.attack} step={0.05} min={0} onCommit={(n) => set("Set ducking attack", setDuckingValue(draft, i, "attack", Math.max(0, n)))} />
-            </label>
-            <label>
-              Release (s)
-              <Num label={`Ducking ${i + 1} release`} value={r.release} step={0.05} min={0} onCommit={(n) => set("Set ducking release", setDuckingValue(draft, i, "release", Math.max(0, n)))} />
-            </label>
-            <button class="icon audio-remove" aria-label={`Remove ducking rule ${i + 1}`} title="Remove this rule" onClick={() => set("Remove ducking rule", removeDucking(draft, i))}>
-              ×
-            </button>
+      {a.ducking.map((r, i) => {
+        const level = r.mode === "level";
+        return (
+          <div key={i} class="audio-card" role="group" aria-label={`Ducking rule ${i + 1}`} data-duck-rule={i} data-mode={level ? "level" : "presence"}>
+            <div class="audio-row">
+              <label title="presence: ducks while the trigger has voices playing. level: ducks while the trigger's measured level is over the threshold (needs the audio core)">
+                Mode
+                <Choice<DuckingMode> label={`Ducking ${i + 1} mode`} value={level ? "level" : "presence"} options={DUCK_MODES} labels={DUCK_MODE_LABELS} onChange={(v) => change(i, "mode", `Set ducking mode ${v}`, v)} />
+              </label>
+              <label>
+                Target
+                <BusSelect label={`Ducking ${i + 1} target`} value={r.target} index={i} field="target" />
+              </label>
+              <label>
+                Trigger
+                <BusSelect label={`Ducking ${i + 1} trigger`} value={r.trigger} index={i} field="trigger" />
+              </label>
+              <button class="icon" aria-label={`Move ducking rule ${i + 1} up`} title="Move this rule up the list" disabled={i === 0} onClick={() => set("Move ducking rule up", moveDucking(draft, i, -1))}>
+                ↑
+              </button>
+              <button class="icon" aria-label={`Move ducking rule ${i + 1} down`} title="Move this rule down the list" disabled={i === a.ducking.length - 1} onClick={() => set("Move ducking rule down", moveDucking(draft, i, 1))}>
+                ↓
+              </button>
+              <button class="icon audio-remove" aria-label={`Remove ducking rule ${i + 1}`} title="Remove this rule" onClick={() => { onRefusal(null); set("Remove ducking rule", removeDucking(draft, i)); }}>
+                ×
+              </button>
+            </div>
+            <div class="audio-row">
+              {level && (
+                <label title="How the trigger's level is measured: RMS follows loudness, peak follows the highest sample">
+                  Detector
+                  <Choice<DuckingDetector> label={`Ducking ${i + 1} detector`} value={r.detector ?? DEFAULT_DUCK_DETECTOR} options={DUCK_DETECTORS} labels={DUCK_DETECTOR_LABELS} onChange={(v) => change(i, "detector", `Set ducking detector ${v}`, v)} />
+                </label>
+              )}
+              {level && (
+                <label title={`The trigger level, in dBFS (${DUCK_LIMITS.threshold[0]}..${DUCK_LIMITS.threshold[1]}), above which the target ducks; -30 is typical`}>
+                  Threshold (dBFS)
+                  <Num label={`Ducking ${i + 1} threshold`} value={r.threshold ?? DEFAULT_DUCK_THRESHOLD} step={1} min={DUCK_LIMITS.threshold[0]} max={DUCK_LIMITS.threshold[1]} onCommit={(n) => change(i, "threshold", "Set ducking threshold", n)} />
+                </label>
+              )}
+              <label title="The multiplier the target heads for while ducked (0.4 is down 8 dB)">
+                Amount
+                <Num label={`Ducking ${i + 1} amount`} value={r.amount} step={0.05} min={DUCK_LIMITS.amount[0]} max={DUCK_LIMITS.amount[1]} onCommit={(n) => change(i, "amount", "Set ducking amount", n)} />
+              </label>
+              <label>
+                Attack (s)
+                <Num label={`Ducking ${i + 1} attack`} value={r.attack} step={0.05} min={DUCK_LIMITS.attack[0]} max={DUCK_LIMITS.attack[1]} onCommit={(n) => change(i, "attack", "Set ducking attack", n)} />
+              </label>
+              <label>
+                Release (s)
+                <Num label={`Ducking ${i + 1} release`} value={r.release} step={0.05} min={DUCK_LIMITS.release[0]} max={DUCK_LIMITS.release[1]} onCommit={(n) => change(i, "release", "Set ducking release", n)} />
+              </label>
+              {level && !levelDucking && (
+                <span class="audio-note" data-needs-core={i}>
+                  {NEEDS_AUDIO_CORE}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
-      <button disabled={a.buses.length < 2} onClick={() => set("Add ducking rule", addDucking(draft))}>
+        );
+      })}
+      {refusal && (
+        <p class="audio-warning" role="alert" data-duck-refusal>
+          {refusal}
+        </p>
+      )}
+      <button disabled={a.buses.length < 2} title="Adds a level rule: RMS detector at -30 dBFS" onClick={() => apply("Add ducking rule", addDuckingEdit(draft))}>
         + Ducking rule
       </button>
     </>
   );
+}
+
+/** Whether the backend that will play this project runs level rules: the playing backend's `mixCaps`, else the backend setting. */
+function levelDuckingNow(a: AudioSettings): boolean {
+  let caps: { levelDucking: boolean } | undefined;
+  if (editor.scene.playState === "playing") {
+    try { caps = Audio.debug().mixCaps; } catch { /* no backend yet: the setting answers */ }
+  }
+  return levelDuckingAvailable(a.backend, caps);
+}
+
+function Ducking(props: { a: AudioSettings; draft: SettingsDraft; set: Set }) {
+  const [refusal, setRefusal] = useState<string | null>(null);
+  return <DuckingEditor {...props} levelDucking={levelDuckingNow(props.a)} refusal={refusal} onRefusal={setRefusal} />;
 }
 
 /** ADR 0158 §2: global parameters, numeric (min, max, default, seek speed) or labelled (a label list and a default). */
