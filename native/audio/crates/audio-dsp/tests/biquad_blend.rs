@@ -165,17 +165,50 @@ fn a_settled_cut_off_set_every_quantum_is_bit_identical_to_one_set() {
     assert_eq!(every, once);
 }
 
+/// The largest |sample| of `y`, infinite when one isn't finite.
+fn peak_of(y: &[f32]) -> f32 {
+    y.iter().fold(0.0f32, |m, v| if v.is_finite() { m.max(v.abs()) } else { f32::INFINITY })
+}
+
 #[test]
-fn a_resonant_blend_stays_finite_and_bounded() {
-    // Q 12 dB, lowpass 18 kHz -> 500 Hz and 500 Hz -> 18 kHz over 20 ms per quantum: every output
-    // sample is finite and its magnitude stays under 4 × the input's peak (a stable path; S4's
-    // coefficient path had pole radius <= 0.9993).
+fn the_products_blend_stays_finite_and_bounded() {
+    // Every per-quantum cut-off ramp in the product runs at Q 1 dB: the bus's snapshot low-pass
+    // (`audio-core` `fx::SNAPSHOT_Q_DB` = 1, Web Audio's default Q) and the voice filters
+    // (`fxfilter::Q_DB`). An effect slot's Q is the user's, but its frequency and Q edits are
+    // direct (R7: `FxChain::configure` calls `set_*` once with the new values; nothing ramps
+    // them), so a resonant Q never meets a per-quantum ramp: that path is the next test.
+    // Lowpass 18 kHz -> 500 Hz and 500 Hz -> 18 kHz over 20 ms per quantum at Q 1 dB: every output
+    // sample is finite and its magnitude stays under 4 × the input's peak.
+    assert_eq!(audio_dsp::fxfilter::Q_DB, 1.0, "the voice filters' Q");
     let x = tones(N);
-    let peak = x.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+    let peak = peak_of(&x);
     let len = (20.0 * RATE / 1000.0) as usize;
     for (from, to) in [(18_000.0f32, 500.0f32), (500.0, 18_000.0)] {
+        let worst = peak_of(&run(&x, false, 1.0, Q, linear_hz(from, to, T0, len)));
+        println!("blend Q 1 dB lowpass {from} -> {to}: output peak {worst:.3} ({:.2}x the input's)", worst / peak);
+        assert!(worst < 4.0 * peak, "lowpass {from} -> {to}: output peak {worst} exceeds 4 x input peak {peak}");
+    }
+    // For the record (not reachable, see above): the same blend at Q 12 dB. Measured (L-B4a):
+    // 18k -> 500 peaks at 2.062 (5.28x the input; the per-sample recompute 0.802), about 18
+    // frames after the ramp ends; 500 -> 18k 1.54x.
+    for (from, to) in [(18_000.0f32, 500.0f32), (500.0, 18_000.0)] {
         let y = run(&x, false, 12.0, Q, linear_hz(from, to, T0, len));
-        let worst = y.iter().fold(0.0f32, |m, v| if v.is_finite() { m.max(v.abs()) } else { f32::INFINITY });
+        println!("blend Q 12 dB lowpass {from} -> {to} (unreachable): output peak {:.3}", peak_of(&y));
+    }
+}
+
+#[test]
+fn a_resonant_direct_edit_stays_finite_and_bounded() {
+    // The resonant path the product has: an effect slot's low-pass edited in place at Q 12 dB
+    // (one `set_lowpass`, history kept), 18 kHz -> 500 Hz and back. Every output sample is finite
+    // and the transient's peak stays under 4 × the input's peak.
+    let x = tones(N);
+    let peak = peak_of(&x);
+    for (from, to) in [(18_000.0f32, 500.0f32), (500.0, 18_000.0)] {
+        let y = run(&x, false, 12.0, 1, step_hz(from, to, T0));
+        let worst = peak_of(&y);
+        let settled = peak_of(&y[N - 4_800..]);
+        println!("direct edit Q 12 dB lowpass {from} -> {to}: output peak {worst:.3} ({:.2}x the input's), settled {settled:.3}", worst / peak);
         assert!(worst < 4.0 * peak, "lowpass {from} -> {to}: output peak {worst} exceeds 4 x input peak {peak}");
     }
 }
