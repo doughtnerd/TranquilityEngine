@@ -21,7 +21,7 @@
 //! applies at the start of the quantum holding its frame); `splitQuanta` 0; DS0's window over the
 //! duck and its release, under 1 % over the reference's own largest step.
 //!
-//! Needs Dp1's core (`duck::on_presence`, `duck::gain`): ignored until Dp1 merges.
+//! Needs Dp1's core (`duck::on_presence`, `duck::gain`); before it the duck never starts.
 
 mod m5_common;
 
@@ -74,7 +74,6 @@ fn reference(n: usize) -> Vec<f64> {
 }
 
 #[test]
-#[ignore = "needs Dp1"]
 fn a_presence_duck_starts_on_its_stamped_frame_and_matches_the_reference() {
     let s = scene(0);
     let n = s.left.len();

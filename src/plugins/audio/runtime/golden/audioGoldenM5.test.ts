@@ -39,7 +39,7 @@ interface M5Fixture {
   readonly toggles?: readonly (readonly [number, number])[];
 }
 
-/** G1's scenes (`m5_goldens.rs`), the presence duck (`m5_presence_golden.rs`, after Dp1) and Rv1's named golden. */
+/** G1's scenes (`m5_goldens.rs`), the presence duck (`m5_presence_golden.rs`) and Rv1's named golden. */
 const G1_CASES = ["stamped-fade", "stamped-snapshot", "stamped-slot", "tombstone", "late-sequence", "two-sends"] as const;
 const PRESENCE = "presence-duck";
 const RV1 = "bus-mute-send";
@@ -145,8 +145,8 @@ describe("M5 goldens (G1): native equals wasm", () => {
     await checkScene(name);
   });
 
-  // Needs Dp1's core (presence in `duck.rs`): enabled when Dp1 merges into G1.
-  it.skip(`${PRESENCE}: the wasm output equals the native digest; the duck's DS0 window and busDuck STATUS hold`, async () => {
+  // Dp1's core (presence in `duck.rs`).
+  it(`${PRESENCE}: the wasm output equals the native digest; the duck's DS0 window and busDuck STATUS hold`, async () => {
     await checkScene(PRESENCE);
   });
 
@@ -160,10 +160,10 @@ describe("M5 goldens (G1): native equals wasm", () => {
 });
 
 describe("DS0: the discontinuity check on M5-0's scenes (wasm output)", () => {
-  // The stamped fade, the snapshot change and (after Dp1) the presence duck carry their windows in their fixtures and run
+  // The stamped fade, the snapshot change and the presence duck carry their windows in their fixtures and run
   // in `checkScene` above; the fixture's bound is the offline reference's own largest step plus 1 %.
-  it("the stamped fade and the snapshot scenes carry DS0 windows", () => {
-    for (const name of ["stamped-fade", "stamped-snapshot"]) expect(readM5(name).ds0?.length, `${name}: DS0 windows`).toBeGreaterThan(0);
+  it("the stamped fade, the snapshot and the presence duck scenes carry DS0 windows", () => {
+    for (const name of ["stamped-fade", "stamped-snapshot", PRESENCE]) expect(readM5(name).ds0?.length, `${name}: DS0 windows`).toBeGreaterThan(0);
   });
 
   // Rv1's post-fader mute (`m5/bus-mute-send`): each mute or unmute window steps no more than the steady output's largest
