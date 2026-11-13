@@ -287,3 +287,224 @@ test("M5c: a pointer drag previews live and commits one edit on release; Escape 
   });
   expect(errors).toEqual([]);
 });
+
+/** Starts, stops or reads a scene tone (an `AudioSource` on the node named `Tone <bus>`). */
+const toneAction = (page: Page, bus: string, action: "play" | "stop") =>
+  page.evaluate(
+    ([b, a]) => {
+      const m = (globalThis as unknown as Api).__myco;
+      const s = m.GameObject.findObjectsOfType(m.AudioSource).find((x) => x.node.name === `Tone ${b}`);
+      if (!s) throw new Error(`no tone on ${b}`);
+      s[a as "play"]();
+    },
+    [bus, action] as const,
+  );
+
+// ---- M, MM, S ------------------------------------------------------------------------------------------------------------------
+
+test("M5c: M mutes and saves, MM mutes in the monitor only, S solos in the monitor only; neither monitor control is saved or outlives Stop", async ({ page }) => {
+  const errors = track(page);
+  await openLiveMix(page, { tones: [{ bus: "Aux" }, { bus: "Music" }] });
+  await playLiveMix(page);
+  await openMixer(page);
+  await heard(page, "Aux", 1);
+  const mute = (bus: string) => page.getByRole("button", { name: `Mute ${bus}`, exact: true });
+  const mm = (bus: string) => page.getByRole("button", { name: `Monitor mute ${bus}`, exact: true });
+  const solo = (bus: string) => page.getByRole("button", { name: `Solo ${bus}`, exact: true });
+  const musicPeak = async () => (await meterWindow(page, "Music", 0.3)).max;
+
+  await test.step("M: saved in project.json, silent, one undo step restores it", async () => {
+    await mute("Aux").click();
+    await expect(mute("Aux")).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(async () => (await savedOf(page, "Aux"))!.mute, { timeout: 10_000 }).toBe(true);
+    await heard(page, "Aux", 0);
+    await focusFader(page, "Aux");
+    await page.keyboard.press("Control+z");
+    await expect.poll(async () => (await savedOf(page, "Aux"))!.mute, { timeout: 10_000 }).toBe(false);
+    await heard(page, "Aux", 1);
+  });
+
+  await test.step("MM: Aux goes silent, the project is untouched, the banner and Audio.debug() say a monitor control is on", async () => {
+    await mm("Aux").click();
+    await expect(mm("Aux")).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(async () => (await meterWindow(page, "Aux", 0.3)).max, { timeout: 30_000, message: "Aux is silent in the monitor" }).toBeLessThan(0.002);
+    expect((await savedOf(page, "Aux"))!.mute, "never saved").toBe(false);
+    expect(await savedVolume(page, "Aux")).toBe(1);
+    await expect(banners(page).filter({ hasText: "Monitor controls are on" })).toHaveCount(1);
+    expect((await dbg(page)).mix.monitorActive).toBe(true);
+    expect(await musicPeak(), "the other bus plays on").toBeGreaterThan(0.03);
+    await mm("Aux").click();
+    await expect(mm("Aux")).toHaveAttribute("aria-pressed", "false");
+    await heard(page, "Aux", 1);
+    await expect(banners(page).filter({ hasText: "Monitor controls are on" })).toHaveCount(0);
+    expect((await dbg(page)).mix.monitorActive).toBe(false);
+  });
+
+  await test.step("S: every other bus goes silent, Aux keeps playing, nothing is saved; S again returns the mix", async () => {
+    await solo("Aux").click();
+    await expect(solo("Aux")).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(musicPeak, { timeout: 30_000, message: "Music is silent while Aux is soloed" }).toBeLessThan(0.002);
+    expect((await meterWindow(page, "Aux", 0.3)).max, "the soloed bus plays").toBeGreaterThan(TONE_PEAK * 0.93);
+    expect((await dbg(page)).mix.monitorActive).toBe(true);
+    expect(await savedVolume(page, "Music")).toBe(0.6);
+    await solo("Aux").click();
+    await expect(solo("Aux")).toHaveAttribute("aria-pressed", "false");
+    await expect.poll(musicPeak, { timeout: 30_000 }).toBeGreaterThan(0.03);
+  });
+
+  await test.step("a monitor control does not outlive Stop", async () => {
+    await mm("Aux").click();
+    await expect(mm("Aux")).toHaveAttribute("aria-pressed", "true");
+    await stopPlay(page);
+    await playLiveMix(page);
+    await expect(mm("Aux")).toHaveAttribute("aria-pressed", "false");
+    expect((await dbg(page)).mix.monitorActive).toBe(false);
+    await heard(page, "Aux", 1);
+  });
+  expect(errors).toEqual([]);
+});
+
+// ---- snapshot buttons ----------------------------------------------------------------------------------------------------------
+
+test("M5c: snapshot buttons are disabled outside Play, one is in force at a time, the one in force fades back to the plain mix, and none is saved", async ({ page }) => {
+  const errors = track(page);
+  await openLiveMix(page, { tones: [{ bus: "Aux" }, { bus: "Music" }] });
+  await openMixer(page);
+  const snap = (name: string) => page.locator(".mixer-snapshots").getByRole("button", { name, exact: true });
+  await expect(snap("Muffled")).toBeDisabled();
+  await expect(snap("Quiet")).toBeDisabled();
+  await playLiveMix(page);
+  await heard(page, "Aux", 1);
+  await expect(snap("Muffled")).toBeEnabled();
+
+  await test.step("Muffled: Music at 0.3 of its 0.6", async () => {
+    await snap("Muffled").click();
+    await expect(snap("Muffled")).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => gainOf(page, "Music"), { timeout: 20_000 }).toBeCloseTo(0.6 * 0.3, 3);
+    await heard(page, "Aux", 1);
+  });
+  await test.step("Quiet replaces it: Music 0.2 of 0.6, Aux 0.5", async () => {
+    await snap("Quiet").click();
+    await expect(snap("Quiet")).toHaveAttribute("aria-pressed", "true");
+    await expect(snap("Muffled")).toHaveAttribute("aria-pressed", "false");
+    await expect.poll(() => gainOf(page, "Music"), { timeout: 20_000 }).toBeCloseTo(0.6 * 0.2, 3);
+    await heard(page, "Aux", 0.5);
+  });
+  await test.step("the one in force again: back to the plain mix", async () => {
+    await snap("Quiet").click();
+    await expect(snap("Quiet")).toHaveAttribute("aria-pressed", "false");
+    await expect.poll(() => gainOf(page, "Music"), { timeout: 20_000 }).toBeCloseTo(0.6, 3);
+    await heard(page, "Aux", 1);
+  });
+  await test.step("a snapshot is session state: project.json is unchanged and there is nothing to undo", async () => {
+    await snap("Muffled").click();
+    await expect.poll(() => gainOf(page, "Music"), { timeout: 20_000 }).toBeCloseTo(0.18, 3);
+    expect(await savedVolume(page, "Music")).toBe(0.6);
+    expect(await savedVolume(page, "Aux")).toBe(1);
+    await focusFader(page, "Aux");
+    await page.keyboard.press("Control+z");
+    await audioFor(page, 0.3);
+    expect(await savedVolume(page, "Music")).toBe(0.6);
+    await stopPlay(page);
+    await expect(snap("Muffled")).toBeDisabled();
+  });
+  expect(errors).toEqual([]);
+});
+
+// ---- target, Reset, Pause, Compare, clip lamp ----------------------------------------------------------------------------------
+
+test("M5c: the target picker sets every target, Reset and Pause act on the meters and the timer, the clip lamp latches and clears", async ({ page }) => {
+  const errors = track(page);
+  await openLiveMix(page, { tones: [{ bus: "Music" }, { bus: "Aux", volume: 20 }] });
+  await playLiveMix(page);
+  await openMixer(page);
+  const loud = (): Promise<{ elapsed: number; paused: boolean }> =>
+    page.evaluate(() => {
+      const m = (globalThis as unknown as Api).__myco.Audio.bus("Master").loudness;
+      return { elapsed: m.elapsed, paused: m.paused };
+    });
+  const timer = page.getByRole("timer", { name: "Elapsed" });
+
+  await test.step("every option of the target picker sets Audio.loudnessTarget", async () => {
+    const select = page.getByRole("combobox", { name: "Loudness target" });
+    const values = await select.locator("option").evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value));
+    expect(values.length, "the default project has more than one target").toBeGreaterThan(1);
+    for (const v of [...values, values[0]!]) {
+      await select.selectOption(v);
+      await expect.poll(() => page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.loudnessTarget), { timeout: 10_000 }).toBe(v);
+    }
+  });
+  await test.step("Reset: the meters' elapsed time and the timer go to zero and run on", async () => {
+    await expect.poll(async () => (await loud()).elapsed, { timeout: 30_000 }).toBeGreaterThan(2);
+    await page.getByRole("button", { name: "Reset", exact: true }).click();
+    await expect.poll(async () => (await loud()).elapsed, { timeout: 10_000 }).toBeLessThan(1.5);
+    await expect(timer).toHaveText("0:00");
+  });
+  await test.step("Pause holds the meters (the audio clock goes on); Resume counts again", async () => {
+    const pause = page.getByRole("button", { name: /^(Pause|Resume)$/ });
+    await expect(pause).toHaveText("Pause");
+    await pause.click();
+    await expect(pause).toHaveText("Resume");
+    await expect(pause).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(async () => (await loud()).paused).toBe(true);
+    const held = (await loud()).elapsed;
+    await audioFor(page, 1.2);
+    expect((await loud()).elapsed, "no audio counted while paused").toBe(held);
+    await pause.click();
+    await expect(pause).toHaveText("Pause");
+    await expect.poll(async () => (await loud()).elapsed, { timeout: 20_000 }).toBeGreaterThan(held + 0.5);
+    expect((await loud()).paused).toBe(false);
+  });
+  await test.step("the clip lamp: a bus over full scale latches it; stopping the tone and clicking the lamp clears it", async () => {
+    const lamp = page.getByRole("button", { name: "Aux clip", exact: true });
+    await expect(lamp).toHaveAttribute("aria-pressed", "true", { timeout: 20_000 });
+    await toneAction(page, "Aux", "stop");
+    await expect.poll(async () => (await meterWindow(page, "Aux", 0.3)).max, { timeout: 30_000 }).toBeLessThan(0.002);
+    await expect(lamp).toHaveAttribute("aria-pressed", "true"); // still latched: a latch holds
+    await lamp.click();
+    await expect(lamp).toHaveAttribute("aria-pressed", "false");
+  });
+  expect(errors).toEqual([]);
+});
+
+test("M5c: Compare plays the saved mix from Play start with the faders locked, saves nothing and leaves the edit's undo step alone", async ({ page }) => {
+  const errors = track(page);
+  await openLiveMix(page, { tones: [{ bus: "Aux" }] });
+  await openMixer(page);
+  const compare = page.getByRole("button", { name: "Compare", exact: true });
+  await expect(compare, "outside Play there is nothing to compare").toBeDisabled();
+  await playLiveMix(page);
+  await expect(compare).toBeEnabled();
+  await expect(compare).toHaveAttribute("title", /same as at Play start/);
+  await focusFader(page, "Aux");
+  await page.keyboard.press("PageDown");
+  await expect.poll(() => savedVolume(page, "Aux"), { timeout: 10_000 }).toBeLessThan(1);
+  const v1 = await savedVolume(page, "Aux");
+  await heard(page, "Aux", v1);
+  await expect(compare).toHaveAttribute("title", /saved mix from Play start/);
+
+  await test.step("on: the Play-start value is heard, the banner shows, the faders are locked", async () => {
+    await compare.click();
+    await expect(compare).toHaveAttribute("aria-pressed", "true");
+    await expect(banners(page).filter({ hasText: "Compare:" })).toHaveCount(1);
+    await heard(page, "Aux", 1);
+    expect(await savedVolume(page, "Aux"), "nothing saved").toBeCloseTo(v1, 9);
+    await focusFader(page, "Aux");
+    await page.keyboard.press("ArrowDown");
+    await audioFor(page, 0.4);
+    expect(await savedVolume(page, "Aux"), "the fader is locked").toBeCloseTo(v1, 9);
+    expect(await gainOf(page, "Aux")).toBeCloseTo(1, 3);
+  });
+  await test.step("off: the edited mix is back", async () => {
+    await compare.click();
+    await expect(compare).toHaveAttribute("aria-pressed", "false");
+    await expect(banners(page).filter({ hasText: "Compare:" })).toHaveCount(0);
+    await heard(page, "Aux", v1);
+  });
+  await test.step("the edit is still the one undo step", async () => {
+    await page.keyboard.press("Control+z");
+    await expect.poll(() => savedVolume(page, "Aux"), { timeout: 10_000 }).toBe(1);
+    await heard(page, "Aux", 1);
+  });
+  expect(errors).toEqual([]);
+});
