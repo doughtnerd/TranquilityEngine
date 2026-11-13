@@ -278,7 +278,7 @@ export class ClockMap {
     return lookaheadFrames(this.intervalMs, this.sampleRate);
   }
 
-  /** `rampFrames` (§4.3, `lookahead.ts`): the ramp length for SET_PARAMS and BUS_MIX, in frames. */
+  /** `rampFrames` (§4.3, `lookahead.ts`): the ramp length for SET_PARAMS and a bus lane's set or toggle (BUS_RAMP), in frames. */
   rampFrames(): number {
     return rampFrames(this.intervalMs, this.sampleRate);
   }

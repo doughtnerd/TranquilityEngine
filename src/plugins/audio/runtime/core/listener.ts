@@ -2,7 +2,7 @@
 // staging), in the World with the view only: LISTENER (the world → listener quaternion, the frame's `rampFrames`, `snap`
 // on a camera cut) when the rotation moved more than 0.001 rad, on a cut, and on the first ambisonic play, in the same
 // BATCH as the frame's direction changes so clips and point voices turn together. A hard rebuild replays the last
-// rotation, snapped, after BUS_MIX (C10's order).
+// rotation, snapped, after the bus lanes and MASTER (C10's order).
 //
 // **Axes (S2).** The core's axes are right-handed (listener space: +X right, +Y up, forward -Z); the core owns the
 // engine → AmbiX map, `(X, Y, Z)_ambix = (-z, -x, +y)_engine` (`audio-dsp` `quat_to_ambix`), and applies
@@ -157,7 +157,7 @@ export class ListenerStage {
     this.qw = qw;
   }
 
-  /** A hard rebuild: the last rotation, snapped, after BUS_MIX and MASTER (C10). Nothing if none was ever sent. */
+  /** A hard rebuild: the last rotation, snapped, after the bus lanes and MASTER (C10). Nothing if none was ever sent. */
   replay(b: ReplayBuilder): void {
     if (!this.sent) return;
     const { qx, qy, qz, qw } = this;

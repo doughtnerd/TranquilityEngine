@@ -9,7 +9,7 @@
 // Recovering (`onRebuildStart`: the core backend queues new plays), replaces its node in the same context
 // (`AudioHost._replaceCore`: a new Memory, init with the running preset, so the limiter look-ahead is set again), and on
 // the new core's first STATUS leaves Recovering (`onRebuilt`: the backend's `Replayer` sends RESET 0, BUS_CONFIG,
-// BUS_MIX, MASTER, has the registry re-send the clips by priority, and replays the voices as their clips return).
+// the bus lanes (BUS_RAMP), MASTER, has the registry re-send the clips by priority, and replays the voices as their clips return).
 //
 // A3.4c (§3.7): where the core is rebuilt depends on why. A trap keeps the context (§3.6). A device or rate change, or
 // a context the browser closed, closes the context and makes a new one at the device's rate (`AudioHost._replaceContext`),

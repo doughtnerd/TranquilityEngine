@@ -89,7 +89,7 @@ export class BusIndex {
     this.planBeds(this.host.mixer);
   }
 
-  /** Rebuilds the core's bus tree: BUS_CONFIG, the table's per-bus limits, and BUS_MIX. */
+  /** Rebuilds the core's bus tree: BUS_CONFIG, the table's per-bus limits, and every bus lane (the lane writer). */
   configureBuses(mixer: Mixer): void {
     const settings = mixer.audioSettings.buses;
     this.names = settings.map((b) => b.name);
