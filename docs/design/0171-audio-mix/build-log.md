@@ -79,6 +79,14 @@ Merged: Rc5, Dbg1, the `audio-music-d` flake fix, Rc2 + the recorder tap's view 
 - `golden/m5/stamped-snapshot.json` (G1's new M5 golden, its stamped low-pass tail).
 Every other M1–M5 golden and parity digest is unchanged (checked with `UPDATE_GOLDENS=1` on both suites: only these three files moved). The metered baseline moved with the rebuild (253,230 instructions).
 
+**DS0 (the discontinuity checks, F-40's `maxStep`, now `runtime/golden/maxStep.ts`):** every window within 1 % of its reference's own largest step: stamped fade 7.85e-4 (bound 7.93e-4); snapshot gain change 5.90e-4 (5.97e-4); presence duck 1.22e-4 (1.24e-4; applied at once it would step 0.3); the post-fader mute within Rv1's bound. A mid-quantum stamp gives identical bits to the quantum-start one where the design says it should.
+
+**Dp1's timing fix:** main's fade `Ramp` now starts at the stamp's heard time, not the heard "now", so `Bus.volume`/`effectiveGain` no longer read ahead of the sound by the lookahead (Mx2's follow-up from W3).
+
+**Glue (coordinator):** the M5-0 smoke fade case waits on the heard clock (`Audio.time`) the getters read, not the core's rendered frame (failed ≈ 1 in 6 before; 3 of 3 after); Rc5's Worker-thread test moved from `runtime/capture/` to `editor/mix/profilerSource.thread.test.ts` (a runtime test importing the editor broke `plugins.test.ts`'s import direction, found by the milestone run); the docs index marks 0097, 0157, 0158 and 0171 amended by 0172.
+
+**M5-0 milestone-end checks (2026-11-13, quiet machine):** typecheck and `npm run build` pass; `npm test` 619 files, 6,963 passed, 1 failure → the import-direction fix above (16 of 16 after); `cargo test` (native/audio) **1,038 passed**; `check:audio-metered` pass (all +0.11 %, worst `busramp-32` +0.30 %); `npm run test:e2e` **265 passed**, 8 skipped; `npm run test:e2e:slow` 40 passed, 2 failed under the suite's parallel load → SLOW_RERUN. The slow run covers the export smoke (SX0's Sound Lab case: a fade on its stamp and a presence duck in `Audio.debug()`), every parity spec, and both M5-0 listening walker cases (headless and listen mode). **Not run:** WebKit and Firefox (not installed in the build container; owner item).
+
 ## Wave 3 (base `9f82a8d`) — closed
 
 Merged: Cp2 + L-Cp2a (`1517ba2`), B1b + L-B1ba (`6a47563`, `2e18633`), B4 + L-B4a (`174195e`), B3 (`aa6f0ea`, lead did L-B3a) + the coordinator's `bus.rs` line (`3fa559a`: `BUS_CONFIG` re-runs the order with level rules), Bn1 (`fb7dd8f`), Rv1 + L-Rv1a (`4e672de`: **post-fader sends**, one named new golden `m5/bus-mute-send` `e24525251d302e4e`, every other digest unchanged), the parity wet-only fix (`7929177`). **Mx2 is done and held** (`4a212c1`), merging with Dp1 and G1 in W4 (base `m5/w4-base` `4f413ab`). Mixer **355,970 B** (400 KB tripwire).
