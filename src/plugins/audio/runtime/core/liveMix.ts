@@ -40,7 +40,7 @@ import type { CoreAutomation } from "./coreAutomation";
 export const RESTART_REQUIRED = "moving, removing or reordering buses and effects applies at the next Play";
 
 /** The answer of a fifth effect on a bus (`BUS_SLOT` carries at most `BUS_SLOT_MAX_EFFECTS`; architecture §4.7). */
-export const FIFTH_EFFECT = `a bus takes at most ${BUS_SLOT_MAX_EFFECTS} effects while playing; this one applies at the next Play`;
+export const FIFTH_EFFECT = `a bus runs at most ${BUS_SLOT_MAX_EFFECTS} effects; the edit is saved and applies at the next Play, where only the first ${BUS_SLOT_MAX_EFFECTS} of the list run`;
 
 /** What the live path needs of the loudness hub (`mix/loudnessHub.ts`). */
 export type LiveLoudness = { configure(cfg: LoudnessHubConfig): void; readonly tpGateDbfs: number };

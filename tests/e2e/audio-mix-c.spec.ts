@@ -648,7 +648,7 @@ test("M5c: a fifth effect is refused live with the message that it applies at th
     const refused = (await dbg(page)).mix.liveRefused;
     const r = await applyOp(page, { op: "addEffect", bus: "Fx", index: 4, effect: { type: "lowpass", frequency: 8000, q: 1 } });
     expect(r.ok).toBe(false);
-    expect(r.restartRequired).toMatch(/a bus takes at most 4 effects while playing; this one applies at the next Play/);
+    expect(r.restartRequired).toMatch(/a bus runs at most 4 effects; the edit is saved and applies at the next Play, where only the first 4 of the list run/);
     expect((await dbg(page)).mix.liveRefused).toBe(refused + 1);
   });
   expect(errors).toEqual([]);
@@ -743,10 +743,9 @@ test("M5c: a level rule ducks its target to the rule's amount while the trigger 
   });
   await test.step("a trigger under the threshold does not duck (the tone at 0.02 is -52 dBFS RMS)", async () => {
     await toneAction(page, "SFX quiet", "play");
-    // The voice's first quanta read louder than its -52 dBFS (a shallow dip, measured to 0.82 at the start and gone in 2 s): never
-    // the rule's amount, and gone by the time it has played.
+    // G9b: a voice starts at its volume, so a trigger this far under the threshold never ducks (it dipped to 0.82 before).
     const w = await meterDuck(page, 2.5);
-    expect(w.min, "nowhere near the amount").toBeGreaterThan(0.7);
+    expect(w.min, "under the threshold: no duck at all (G9b: a voice starts at its volume)").toBeGreaterThan(0.999);
     expect(await duckOf(page, "Music")).toBeGreaterThan(0.995);
     await toneAction(page, "SFX quiet", "stop");
   });
@@ -814,7 +813,7 @@ test("M5c: every level-rule setting is live: threshold, detector, amount and mod
   await test.step("mode: a quiet trigger ducks under presence and not under level, on the same target", async () => {
     await commit(rule("threshold"), "-30");
     await toneAction(page, "SFX quiet", "play");
-    expect((await meterDuck(page, 2.5)).min, "level: -52 dBFS is under the threshold (only the start's dip)").toBeGreaterThan(0.7);
+    expect((await meterDuck(page, 2.5)).min, "level: -52 dBFS is under the threshold: no duck (the previous step's release tail is under 0.005)").toBeGreaterThan(0.995);
     await rule("mode").selectOption("presence");
     await expect.poll(async () => (await ruleSaved()).mode, { timeout: 10_000 }).toBe("presence");
     await expect.poll(() => duckOf(page, "Music"), { timeout: 20_000, message: "presence: a voice on the trigger ducks" }).toBeCloseTo(0.3, 2);
