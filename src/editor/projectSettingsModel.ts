@@ -311,6 +311,8 @@ export function settingsProblems(draft: SettingsDraft, files?: readonly string[]
 export function settingsWarnings(draft: SettingsDraft, knownPlugins?: readonly string[]): string[] {
   const out: string[] = [];
   out.push(...pluginSettingsProblems(draft.plugins, knownPlugins).warnings);
+  // G9b: a bus with more effects than the audio core runs saves (R10); the note says what the core skips.
+  out.push(...parseAudioSettings(draft.audio).warnings);
   if (!sortingLayersOf(draft).includes("Default")) out.push('There\'s no "Default" sorting layer, which sprites use unless they name another.');
   return out;
 }

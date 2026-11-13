@@ -205,7 +205,10 @@ export class AudioSource extends Component {
     // F-22: a spatial source starts positioned. With its clip resident the core sends the PLAY inside `play`, and a voice
     // can't turn spatial on the core after its PLAY, so a position given only afterwards (`apply`) left every replay flat.
     const spatial = this.spatial && !this.ambisonicClip && this.node.transform !== null;
+    // G9b: the voice starts at its volume and pitch. Set only afterwards (`apply`), the PLAY went out at gain 1 and the
+    // volume a frame later, so a quiet source was heard at full scale for that frame (and dipped a level rule's target).
     this.voice = startClip(path, this.loop, this.output, {
+      volume: this.volume * clipVolume(path), pitch: this.pitch,
       priority: clamp255(this.priority), world: worldKeyOf(this._world), owner: this.node.name, ...this.spatialOptions(),
       ...(spatial ? { attenuation: { minDistance: this.minDistance, maxDistance: this.maxDistance, rolloff: this.rolloff }, position: this.node.transform!.worldPosition } : null),
     });

@@ -70,20 +70,19 @@ describe("audio settings: the §2 keys (ADR 0157)", () => {
   });
 
   describe("buses[].effects on the audio core", () => {
-    it("more than 4 effects or a second compressor on a bus are kept, with a problem naming what the core skips", () => {
+    it("more than 4 effects or a second compressor on a bus are kept: a warning names the effects past 4 (G9b, R10: it saves), a problem the second compressor", () => {
       const lp = { type: "lowpass", frequency: 1000 };
       const comp = { type: "compressor" };
-      const { settings, problems } = parseAudioSettings({ buses: [{ name: "Master", effects: [lp, lp, lp, lp, lp] }, { name: "SFX", parent: "Master", effects: [comp, comp] }] });
+      const { settings, problems, warnings } = parseAudioSettings({ buses: [{ name: "Master", effects: [lp, lp, lp, lp, lp] }, { name: "SFX", parent: "Master", effects: [comp, comp] }] });
       expect(settings.buses[0]!.effects).toHaveLength(5);
       expect(settings.buses[1]!.effects).toHaveLength(2);
-      expect(problems).toEqual([
-        "audio.buses[0]: the audio core runs only the first 4 effects of a bus; the rest are skipped.",
-        "audio.buses[1]: the audio core runs one compressor per bus (the first); the others are skipped.",
-      ]);
+      expect(warnings).toEqual(["audio.buses[0]: the audio core runs only the first 4 effects of a bus; the rest are skipped."]);
+      expect(problems).toEqual(["audio.buses[1]: the audio core runs one compressor per bus (the first); the others are skipped."]);
     });
-    it("4 effects with one compressor give no problem", () => {
-      const { problems } = parseAudioSettings({ buses: [{ name: "Master", effects: [{ type: "lowpass", frequency: 1000 }, { type: "highpass", frequency: 80 }, { type: "compressor" }, { type: "reverb", send: 0.2 }] }] });
+    it("4 effects with one compressor give no problem and no warning", () => {
+      const { problems, warnings } = parseAudioSettings({ buses: [{ name: "Master", effects: [{ type: "lowpass", frequency: 1000 }, { type: "highpass", frequency: 80 }, { type: "compressor" }, { type: "reverb", send: 0.2 }] }] });
       expect(problems).toEqual([]);
+      expect(warnings).toEqual([]);
     });
   });
 

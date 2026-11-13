@@ -14,7 +14,7 @@ export interface MixApplier {
   apply(op: MixOp): ApplyResult;
 }
 
-/** One handed-over batch. */
+/** One handed-over batch (or an edit with no live op whose keys wait for the next Play: `ops` empty). */
 export interface OpLogEntry {
   readonly seq: number;
   readonly cause: SectionChange["cause"];
@@ -80,7 +80,9 @@ export function createOpLog(host: OpLogHost): OpLog {
     const mixer = host.mixer();
     if (!mixer) return;
     const { ops, source, restartRequired } = opsOf(change);
-    if (ops.length === 0) return;
+    // G9b: an edit with no live op but a key with no live path (the AAC codec, `LIVE_KEYS`) is still an entry: its
+    // `restartRequired` is what the Mixer's "Applies at the next Play" banner shows. Nothing for the mixer: no entry.
+    if (ops.length === 0 && restartRequired.length === 0) return;
     const results = ops.map((op) => mixer.apply(op));
     entries.push({ seq: ++seq, cause: change.cause, source, ops, results, restartRequired });
     if (entries.length > OP_LOG_LIMIT) entries.splice(0, entries.length - OP_LOG_LIMIT);

@@ -363,11 +363,17 @@ function parseEffect(raw: unknown, where: string, problems: string[]): BusEffect
   }
 }
 
-/** The `audio` section, read leniently: bad entries are dropped or clamped, and each is reported in `problems`. */
-export function parseAudioSettings(input: unknown, options: AudioParseOptions = {}): { settings: AudioSettings; problems: string[] } {
+/**
+ * The `audio` section, read leniently: bad entries are dropped or clamped, and each is reported in `problems`.
+ * `warnings` are notes on a valid section that the editor saves (G9b): a bus with more effects than the audio core runs
+ * (`MAX_CORE_BUS_EFFECTS`) is kept as authored (design R10, ADR 0172: the edit is kept and applies at the next Play,
+ * where the core runs the first `MAX_CORE_BUS_EFFECTS`), so it must not hold the Project Settings draft unsaved.
+ */
+export function parseAudioSettings(input: unknown, options: AudioParseOptions = {}): { settings: AudioSettings; problems: string[]; warnings: string[] } {
   const problems: string[] = [];
-  if (input === undefined) return { settings: defaultAudioSettings(), problems };
-  if (!isRecord(input)) return { settings: defaultAudioSettings(), problems: ["audio must be an object."] };
+  const warnings: string[] = [];
+  if (input === undefined) return { settings: defaultAudioSettings(), problems, warnings };
+  if (!isRecord(input)) return { settings: defaultAudioSettings(), problems: ["audio must be an object."], warnings };
   const settings = defaultAudioSettings();
 
   if (input.buses !== undefined) {
@@ -381,8 +387,9 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
         const effects: BusEffect[] = [];
         if (Array.isArray(raw.effects)) raw.effects.forEach((e, j) => { const fx = parseEffect(e, `${where}.effects[${j}]`, problems); if (fx) effects.push(fx); });
         // The audio core runs a bus's first MAX_CORE_BUS_EFFECTS effects and at most one compressor (`audio-core/src/fx.rs`).
-        // Kept as authored (the Web Audio reference runs them all); the problem says what the core skips.
-        if (effects.length > MAX_CORE_BUS_EFFECTS) problems.push(`${where}: the audio core runs only the first ${MAX_CORE_BUS_EFFECTS} effects of a bus; the rest are skipped.`);
+        // Kept as authored (the Web Audio reference runs them all); the message says what the core skips. Past the
+        // effect count it is a warning, not a problem (G9b, R10): the edit saves and the live path answers FIFTH_EFFECT.
+        if (effects.length > MAX_CORE_BUS_EFFECTS) warnings.push(`${where}: the audio core runs only the first ${MAX_CORE_BUS_EFFECTS} effects of a bus; the rest are skipped.`);
         if (effects.filter((fx) => fx.type === "compressor").length > 1) problems.push(`${where}: the audio core runs one compressor per bus (the first); the others are skipped.`);
         buses.push({
           name: raw.name,
@@ -435,7 +442,7 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
   parseEventKeys(input, settings, problems);
   parseMusicKeys(input, settings, problems);
   parseMeteringKeys(input, settings, problems);
-  return { settings, problems };
+  return { settings, problems, warnings };
 }
 
 /** True when `ancestor` is `name` or above it in the bus tree. */
