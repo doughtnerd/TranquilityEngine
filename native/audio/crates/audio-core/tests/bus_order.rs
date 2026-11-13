@@ -126,6 +126,12 @@ fn with_no_rule_the_order_is_todays() {
             let mut t = vec![0u8; n];
             bus_order::compute(&s, &mut t);
             assert_eq!(t, o, "compute is compute_with without rules");
+            // Kahn itself (not the no-edge fast path): level rules child -> parent repeat tree
+            // edges, so the order must still be today's.
+            let redundant: Vec<Rule> = (0..n).filter(|&b| s[b].parent != ROOT).take(8).map(|b| level(b as u16, s[b].parent)).collect();
+            if !redundant.is_empty() {
+                assert_eq!(order(&s, &redundant), (today(&s), 0), "Kahn equals today's order, n = {n}");
+            }
         }
     }
     for p in [&SOUND_LAB[..], &STRESS[..]] {
@@ -154,7 +160,6 @@ fn presence_and_inert_rules_add_no_edge() {
 }
 
 #[test]
-#[ignore = "L-B3a: Kahn with level edges"]
 fn a_level_rules_trigger_comes_first() {
     // Default tree: Master, Music, SFX, UI, Voice; Voice ducks Music (settings.ts:14), delayed today.
     let s = tree(&[ROOT, 0, 0, 0, 0]);
@@ -200,19 +205,16 @@ fn s4_pairs(parents: &[u16], delayed_want: usize, ancestors_want: usize) {
 }
 
 #[test]
-#[ignore = "L-B3a: Kahn with level edges"]
 fn spike_s4_sound_lab_36_of_90_pairs() {
     s4_pairs(&SOUND_LAB, 36, 9);
 }
 
 #[test]
-#[ignore = "L-B3a: Kahn with level edges"]
 fn spike_s4_stress_438_of_992_pairs() {
     s4_pairs(&STRESS, 438, 58);
 }
 
 #[test]
-#[ignore = "L-B3a: Kahn with level edges"]
 fn eight_level_rules_all_come_first() {
     let s = tree(&STRESS);
     // Eight non-ancestor rules forming a chain and a fan, all acyclic.
@@ -226,7 +228,6 @@ fn eight_level_rules_all_come_first() {
 }
 
 #[test]
-#[ignore = "L-B3a: Kahn with level edges"]
 fn a_level_cycle_drops_its_closing_edge_in_rule_order() {
     // Siblings 1 and 2: 1 ducks 2, 2 ducks 1: rule 1 closes the cycle and is dropped.
     let s = tree(&[ROOT, 0, 0, 0]);

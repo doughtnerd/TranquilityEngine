@@ -195,7 +195,9 @@ fn every_m5_opcode_is_dispatched_to_a_stub_that_changes_nothing() {
     // B2 filled BUS_SLOT: the asap record re-parents bus 1 under bus 2 (both at unity, no effects,
     // so the sound is the same).
     assert_eq!((parent, parent_after), (0, 2), "BUS_SLOT re-parents (B2)");
-    assert_eq!((mix.lane_records_ignored, mix.duck_rules_inert, mix.loud_meters_dropped, mix.live_deferred), (0, 0, 0, 0), "the stubs count nothing");
+    // B3 filled BUS_DUCK: the rule's trigger (bus 0, the root) is its target's ancestor, so the
+    // core's check makes it inert (and the order stays the tree's).
+    assert_eq!((mix.lane_records_ignored, mix.duck_rules_inert, mix.loud_meters_dropped, mix.live_deferred), (0, 1, 0, 0), "the stubs count nothing");
 }
 
 #[test]

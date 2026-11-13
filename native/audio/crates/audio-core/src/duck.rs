@@ -17,8 +17,11 @@
 //! - Never shed by the ladder (R21).
 //!
 //! **Who fills what.** K1 (W1): the hooks below, identity bodies, called from `bus.rs` and
-//! `scheduler.rs`. B3 (W3): the rule table ([`on_rules`], validation, the level edges
-//! `bus_order::compute` reads). Dp1 (W4): presence ([`on_presence`], [`gain`], [`status`]'s
+//! `scheduler.rs`. B3 (W3): the rule table ([`on_rules`]: `DuckArea::rules`, `rule_count`,
+//! `level_count`, followers carried by key, `detectors[k]` for the k-th level rule), the core's
+//! check ([`validate`]: [`FLAG_INERT`]), the late mark ([`FLAG_LATE`]) and the order re-run
+//! (`bus_order::rerun`, which reads the level edges). Dp1 and Sc1 find a target's rules with
+//! [`DuckArea::rules_for`]. Dp1 (W4): presence ([`on_presence`], [`gain`], [`status`]'s
 //! `busDuck` section). Sc1 (W6): level mode ([`detect`], `audio_dsp::sidechain`).
 //!
 //! Nothing here allocates; [`detect`] and [`gain`] run inside `process`.
@@ -40,7 +43,7 @@ pub const MAX_LEVEL: usize = wire::MAX_LEVEL_RULES as usize;
 pub struct Rule {
     pub target: u16,
     pub trigger: u16,
-    /// The wire's `DUCK_FLAG_*` bits; B3 may add core-only bits above them (inert, late).
+    /// The wire's `DUCK_FLAG_*` bits; plus the core-only [`FLAG_INERT`] and [`FLAG_LATE`] (B3).
     pub flags: u32,
     pub threshold_db: f32,
     pub amount: f32,
