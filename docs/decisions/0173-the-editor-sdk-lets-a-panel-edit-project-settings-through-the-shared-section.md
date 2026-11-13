@@ -1,6 +1,6 @@
 # 0173. The editor SDK lets a panel edit project settings through the shared Project Settings section
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-13
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

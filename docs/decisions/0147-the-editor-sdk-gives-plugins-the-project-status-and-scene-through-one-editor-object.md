@@ -1,6 +1,6 @@
 # 0147. The editor SDK gives plugins the project, status bar and scene through one `editor` object
 
-- **Status:** Proposed — built in the same change
+- **Status:** Proposed — built in the same change; amended by 0173 (`editor.project.settings`)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
