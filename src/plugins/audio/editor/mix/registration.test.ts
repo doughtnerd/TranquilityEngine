@@ -3,21 +3,22 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { EditorPluginContext } from "../../../../editor/sdk";
-import { PROFILER_PANEL, registerMixPanels } from "./index";
+import { MIXER_PANEL, PROFILER_PANEL, registerMixPanels } from "./index";
 
 const MIX_DIR = __dirname;
 
 describe("registerMixPanels", () => {
-  it("registers the Profiler panel once, lazily, and nothing else", () => {
+  it("registers the Profiler and the Mixer panels once each, lazily, and nothing else", () => {
     const panels: { id: string; title: string; view: () => Promise<unknown> }[] = [];
     const others: string[] = [];
     const ctx = new Proxy({ registerPanel: (p: (typeof panels)[number]) => void panels.push(p) } as object, {
       get: (t, k) => (k in t ? (t as Record<string | symbol, unknown>)[k] : (..._a: unknown[]) => void others.push(String(k))),
     }) as unknown as EditorPluginContext;
     registerMixPanels(ctx);
-    expect(panels.map((p) => p.id)).toEqual([PROFILER_PANEL]);
+    expect(panels.map((p) => p.id)).toEqual([PROFILER_PANEL, MIXER_PANEL]);
     expect(PROFILER_PANEL).toBe("audioprofiler");
-    expect(panels[0]!.title).toBe("Audio Profiler");
+    expect(MIXER_PANEL).toBe("audiomixer");
+    expect(panels.map((p) => p.title)).toEqual(["Audio Profiler", "Audio Mixer"]);
     expect(others).toEqual([]); // no menu entry, toolbar button, shortcut, tool or section
   });
 
@@ -37,6 +38,16 @@ describe("registerMixPanels", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("the Mixer panel loads lazily: the panel's module is a dynamic import in index.ts only", async () => {
+    const text = readFileSync(join(MIX_DIR, "index.ts"), "utf8");
+    expect(text).toMatch(/import\("\.\/MixerPanel"\)/);
+    expect(text).not.toMatch(/^import .*MixerPanel/m);
+    const panels: { id: string; view: () => Promise<unknown> }[] = [];
+    registerMixPanels({ registerPanel: (p: (typeof panels)[number]) => void panels.push(p) } as unknown as EditorPluginContext);
+    const view = await panels.find((p) => p.id === MIXER_PANEL)!.view();
+    expect(typeof view).toBe("function");
+  });
+
   it("editor/index.ts calls registerMixPanels, and no file outside mix/index.ts registers the profiler or mixer panel ids", () => {
     const editorDir = join(MIX_DIR, "..");
     const text = readFileSync(join(editorDir, "index.ts"), "utf8");
@@ -45,7 +56,7 @@ describe("registerMixPanels", () => {
   });
 
   it("the panel's styles use theme tokens only: no colour literal in the CSS or the view", () => {
-    for (const name of ["profilerPanel.css", "ProfilerPanel.tsx"]) {
+    for (const name of ["profilerPanel.css", "ProfilerPanel.tsx", "mixerPanel.css", "MixerPanel.tsx", "mixerPanelModel.ts", "stripStyle.css", "MixerStrip.tsx"]) {
       const text = readFileSync(join(MIX_DIR, name), "utf8");
       expect(text, name).not.toMatch(/#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/);
     }
