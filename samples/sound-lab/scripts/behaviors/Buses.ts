@@ -14,7 +14,8 @@ export class Buses extends GameBehavior {
     if (Input.getKeyDown(this.muteKey)) music.mute = !music.mute;
     if (Input.getKeyDown(this.fadeKey)) {
       this.faded = !this.faded;
-      music.fadeTo(this.faded ? 0.15 : 0.6, 0.5);
+      // `fadeTo` sets the multiplier on the authored 0.6: 0.25 x 0.6 = 0.15 heard, 1 x 0.6 = 0.6.
+      music.fadeTo(this.faded ? 0.25 : 1, 0.5);
     }
   }
 }

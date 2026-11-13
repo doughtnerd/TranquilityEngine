@@ -252,6 +252,12 @@ export type AudioBackendSetting = "babylon" | "core";
 
 export const MASTER = "Master";
 export const MAX_BUSES = 32;
+/** ADR 0171 §2.2 / ADR 0172 §1.7: ducking rules per project, and the level rules among them. */
+export const MAX_DUCK_RULES = 32;
+export const MAX_LEVEL_RULES = 8;
+/** A level rule's defaults (ADR 0172 owner decision 8: a new level rule starts with an RMS detector at -30 dBFS). */
+export const DEFAULT_DUCK_DETECTOR: DuckingDetector = "rms";
+export const DEFAULT_DUCK_THRESHOLD = -30;
 
 export const defaultBuses = (): BusSettings[] =>
   [MASTER, "Music", "SFX", "UI", "Voice"].map((name, i) => ({ name, ...(i > 0 ? { parent: MASTER } : {}), volume: 1, mute: false, effects: [] }));
@@ -406,18 +412,88 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
       settings.snapshots.push({ name: raw.name, volumes, lowpass });
     }
   }
-  if (Array.isArray(input.ducking)) {
-    for (const [i, raw] of input.ducking.entries()) {
-      if (!isRecord(raw) || !known(raw.target) || !known(raw.trigger)) { problems.push(`audio.ducking[${i}]: target and trigger must name buses.`); continue; }
-      if (raw.target === raw.trigger) { problems.push(`audio.ducking[${i}]: a bus can't duck itself.`); continue; }
-      settings.ducking.push({ target: raw.target, trigger: raw.trigger, amount: num(raw.amount, 0.4, 0, 1), attack: num(raw.attack, 0.1, 0, 10), release: num(raw.release, 0.5, 0, 10) });
-    }
-  }
+  if (Array.isArray(input.ducking)) parseDucking(input.ducking, settings, known, problems);
   parseCoreKeys(input, settings, problems);
   parseSpatialKeys(input, settings, problems, options);
   parseEventKeys(input, settings, problems);
   parseMusicKeys(input, settings, problems);
   return { settings, problems };
+}
+
+/** True when `ancestor` is `name` or above it in the bus tree. */
+function isAboveInTree(buses: readonly BusSettings[], ancestor: string, name: string): boolean {
+  const seen = new Set<string>();
+  for (let b = buses.find((o) => o.name === name); b && !seen.has(b.name); b = buses.find((o) => o.name === b!.parent)) {
+    if (b.name === ancestor) return true;
+    seen.add(b.name);
+  }
+  return false;
+}
+
+/**
+ * The list indexes of the level rules on a path of mix order from `from` to `to` (a bus mixes before its parent; a
+ * level rule's trigger is measured before its target mixes), or `null` when there is no path. A path from a new
+ * rule's target to its trigger means the rule would close a cycle.
+ */
+function levelPath(buses: readonly BusSettings[], levelRules: readonly { index: number; rule: DuckingRule }[], from: string, to: string): number[] | null {
+  const visited = new Set<string>();
+  const walk = (at: string): number[] | null => {
+    if (at === to) return [];
+    if (visited.has(at)) return null;
+    visited.add(at);
+    const parent = buses.find((b) => b.name === at)?.parent;
+    if (parent !== undefined) { const rest = walk(parent); if (rest) return rest; }
+    for (const { index, rule } of levelRules) {
+      if (rule.trigger !== at) continue;
+      const rest = walk(rule.target);
+      if (rest) return [index, ...rest];
+    }
+    return null;
+  };
+  return walk(from);
+}
+
+/** ADR 0171 §2.1 and §2.2: the `ducking` list. Appends the accepted rules to `settings.ducking` and each problem to `problems`. */
+function parseDucking(list: readonly unknown[], settings: AudioSettings, known: (name: unknown) => name is string, problems: string[]): void {
+  const levelRules: { index: number; rule: DuckingRule }[] = [];
+  for (const [i, raw] of list.entries()) {
+    const where = `audio.ducking[${i}]`;
+    if (settings.ducking.length >= MAX_DUCK_RULES) { problems.push(`audio.ducking: at most ${MAX_DUCK_RULES} rules; the rest are ignored.`); break; }
+    if (!isRecord(raw) || !known(raw.target) || !known(raw.trigger)) { problems.push(`${where}: target and trigger must name buses.`); continue; }
+    if (raw.target === raw.trigger) { problems.push(`${where}: a bus can't duck itself.`); continue; }
+    if (raw.mode !== "level" && raw.mode !== "presence") { problems.push(`${where}: mode must be "level" or "presence"; the rule is dropped.`); continue; }
+    if (isAboveInTree(settings.buses, raw.trigger, raw.target)) {
+      problems.push(`${where}: ${raw.trigger} is above ${raw.target} in the tree, so its level can't be measured before ${raw.target} is mixed.`);
+      continue;
+    }
+    const rule: DuckingRule = { target: raw.target, trigger: raw.trigger, mode: raw.mode, amount: num(raw.amount, 0.4, 0, 1), attack: num(raw.attack, 0.1, 0, 10), release: num(raw.release, 0.5, 0, 10) };
+    if (raw.mode === "presence") {
+      if (raw.detector !== undefined) problems.push(`${where}: detector applies to level rules only; ignored.`);
+      if (raw.threshold !== undefined) problems.push(`${where}: threshold applies to level rules only; ignored.`);
+    } else {
+      if (levelRules.length >= MAX_LEVEL_RULES) { problems.push(`${where}: at most ${MAX_LEVEL_RULES} level rules; the rule is dropped.`); continue; }
+      const path = levelPath(settings.buses, levelRules, raw.target, raw.trigger);
+      if (path) {
+        const describe = (n: number): string => {
+          const r = n === i ? { trigger: raw.trigger as string, target: raw.target as string } : levelRules.find((l) => l.index === n)!.rule;
+          return `ducking[${n}] (${r.trigger} ducks ${r.target})`;
+        };
+        problems.push(`${where}: level rules can't form a cycle, so the rule is dropped: ${[...path, i].map(describe).join(", ")}.`);
+        continue;
+      }
+      rule.detector = raw.detector === undefined ? DEFAULT_DUCK_DETECTOR : pick(raw.detector, `${where}.detector`, ["peak", "rms"] as const, DEFAULT_DUCK_DETECTOR, problems);
+      if (raw.threshold === undefined) rule.threshold = DEFAULT_DUCK_THRESHOLD;
+      else if (typeof raw.threshold !== "number" || !Number.isFinite(raw.threshold)) {
+        problems.push(`${where}.threshold: must be a number of dBFS from -80 to 0; using ${DEFAULT_DUCK_THRESHOLD}.`);
+        rule.threshold = DEFAULT_DUCK_THRESHOLD;
+      } else {
+        rule.threshold = Math.min(0, Math.max(-80, raw.threshold));
+        if (rule.threshold !== raw.threshold) problems.push(`${where}.threshold: ${raw.threshold} is outside -80..0; using ${rule.threshold}.`);
+      }
+      levelRules.push({ index: i, rule });
+    }
+    settings.ducking.push(rule);
+  }
 }
 
 /** What the parse can't know from the `audio` section alone. */

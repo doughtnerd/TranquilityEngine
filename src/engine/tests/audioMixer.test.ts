@@ -82,7 +82,7 @@ describe("mixer", () => {
     expect(m.resolve("Music")!.snapshotLowpass).toBeNull();
   });
   it("ducks the target while the trigger has voices, then releases", () => {
-    const m = mk({ ducking: [{ target: "Music", trigger: "Voice", amount: 0.4, attack: 0.1, release: 0.5 }] });
+    const m = mk({ ducking: [{ target: "Music", trigger: "Voice", mode: "presence", amount: 0.4, attack: 0.1, release: 0.5 }] });
     m.update(0.1);
     expect(m.bus("Music").effectiveGain).toBe(1);
     m.voiceStarted("Voice");
@@ -102,7 +102,7 @@ describe("mixer", () => {
     expect(m.bus("SFX").peak).toBe(0);
   });
   it("a backend can restore a bus's voice count, and ducking follows it (A2.3)", () => {
-    const m = mk({ ducking: [{ target: "Music", trigger: "Voice", amount: 0.4, attack: 0.1, release: 0.5 }] });
+    const m = mk({ ducking: [{ target: "Music", trigger: "Voice", mode: "presence", amount: 0.4, attack: 0.1, release: 0.5 }] });
     m._setVoiceCount("Voice", 2);
     expect(m.bus("Voice").activeVoices).toBe(2);
     for (let i = 0; i < 60; i++) m.update(0.1);
