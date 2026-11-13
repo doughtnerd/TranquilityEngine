@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
 import { expect, test } from "./fixtures";
 import { bootMix, installFrameClock, mixDebug, sampleBusGain } from "./audioMix";
+import { TONE_PEAK, fader, openLiveMix, openMixer, playLiveMix, savedProject, stopPlay } from "./audioMixLive";
 
 // M5 smoke (ADR 0171 amended by 0172, plan task S0, H6): the milestone path in the real editor app, through the Sound Lab
 // sample, one case per milestone, grown by later waves (each owning task un-fixmes its case in its own wave).
@@ -415,14 +416,60 @@ test("M5b smoke: master's momentary loudness reads a number, steadily, and is em
   expect(errors).toEqual([]);
 });
 
-// M5c (E3): live edit. Owner un-fixmes in W9.
-test.fixme("M5c smoke: a live edit in Play is heard and kept after Stop", async ({ page }) => {
-  await bootMix(page);
-  // E3:
-  //  1. In Play, edit a bus's volume through the mixer panel's live edit; read the new effective gain in `Audio.debug()` and the bus's peak change.
-  //  2. Press Stop: the edit is kept in the project settings (not reverted to the authored value).
-  //  3. Play again: the bus starts at the edited value.
-  void page;
+// M5c (E3, un-fixme'd in W9): live edit. The Sound Lab opens read-only (a sample), where an edit neither reaches the mixer nor is saved,
+// so the case runs on the editor's in-memory test project with a small audio section and a looping reference tone on one bus
+// (`audioMixLive.ts`; the cases are `audio-mix-c.spec.ts`). In Play, a key on the Mixer panel's fader edits the bus's volume: its
+// effective gain (`Audio.debug()` row) and its meter's peak follow, on the audio clock; Stop keeps the edit in project.json; Play again
+// starts the bus at the edited value.
+test("M5c smoke: a live edit in Play is heard and kept after Stop", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  type Row = { name: string; effectiveGain: number; peakL: number };
+  const row = (bus: string) => page.evaluate((b) => ((globalThis as unknown as { __myco: { Audio: { debug(): { buses: Row[] } } } }).__myco.Audio.debug().buses.find((r) => r.name === b))!, bus);
+  const peakOver = (bus: string, seconds: number) =>
+    page.evaluate(
+      async ([b, s]) => {
+        const A = (globalThis as unknown as { __myco: { Audio: { time: number; debug(): { buses: Row[] } } } }).__myco.Audio;
+        const t0 = A.time;
+        let max = 0;
+        while (A.time < t0 + (s as number)) {
+          max = Math.max(max, A.debug().buses.find((r) => r.name === b)!.peakL);
+          await new Promise((r) => setTimeout(r, 8));
+        }
+        return max;
+      },
+      [bus, seconds] as const,
+    );
+  await openLiveMix(page, { tones: [{ bus: "Aux" }] });
+  await playLiveMix(page);
+  await openMixer(page);
+
+  await test.step("the tone is on Aux at its authored volume", async () => {
+    await expect.poll(async () => (await row("Aux")).peakL, { timeout: 30_000 }).toBeCloseTo(TONE_PEAK, 3);
+    expect((await row("Aux")).effectiveGain).toBe(1);
+  });
+  let edited = 1;
+  await test.step("a key on the Mixer's fader edits the volume: the effective gain and the meter follow", async () => {
+    await fader(page, "Aux").focus();
+    await page.keyboard.press("PageDown");
+    await expect.poll(async () => (await savedProject(page)).audio!.buses!.find((b) => b.name === "Aux")!.volume, { timeout: 10_000 }).toBeLessThan(1);
+    edited = (await savedProject(page)).audio!.buses!.find((b) => b.name === "Aux")!.volume;
+    await expect.poll(async () => (await row("Aux")).effectiveGain, { timeout: 20_000 }).toBeCloseTo(edited, 3);
+    // The meter falls with its own release: let the audio clock run, then read its peak.
+    const t0 = await page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { time: number } } }).__myco.Audio.time);
+    await page.waitForFunction((t) => (globalThis as unknown as { __myco: { Audio: { time: number } } }).__myco.Audio.time > (t as number) + 1, t0, { timeout: 30_000 });
+    expect(await peakOver("Aux", 0.3)).toBeCloseTo(TONE_PEAK * edited, 2);
+  });
+  await test.step("Stop keeps the edit in project.json; Play again starts the bus at the edited value", async () => {
+    await stopPlay(page);
+    expect((await savedProject(page)).audio!.buses!.find((b) => b.name === "Aux")!.volume).toBeCloseTo(edited, 9);
+    await playLiveMix(page);
+    await expect.poll(async () => (await row("Aux")).effectiveGain, { timeout: 20_000 }).toBeCloseTo(edited, 3);
+  });
+  expect(errors).toEqual([]);
 });
 
 // M5d (X3): the milestone's last case. Owner un-fixmes in W10.
