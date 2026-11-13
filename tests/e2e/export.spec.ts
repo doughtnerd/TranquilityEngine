@@ -384,6 +384,56 @@ test.describe("Sound Lab web build", { tag: "@slow" }, () => {
     expect((await read("Master")).target, "the project's first target: console, -24 LUFS +/- 2 LU").toMatchObject({ name: "console", state: "ok", peakOver: false });
     expect(errors).toEqual([]);
   });
+
+  // M5c shipped form (ADR 0171 amended by 0172, task SXc): in the exported page the Mixer page's level-ducking rules duck. The
+  // page (key "-" on the tour page; `scenes/mixer.scene.json`) has the voice loop on its own bus (key 1) and two level rules: Voice
+  // ducks Music (RMS, -30 dBFS, amount 0.35) and Voice ducks Ambience (peak, -20 dBFS, amount 0.5). With the voice playing, Music's
+  // duck lane (`Bus.duckGain`, the core's own STATUS value) falls to the rule's amount inside a phrase, and the voice stopping lets
+  // it go back to 1. Every wait is on the audio clock (`Audio.time`); the polls only pace the reads.
+  test("after a tap, the Mixer page's voice ducks Music and Ambience through the level rules and releases (M5c)", async ({ page }) => {
+    type Api = { Audio: { time: number; debug(): { status: string; core: { backend: string }; mix: { ducking: { target: string; trigger: string; mode: string; gain: number }[] } }; bus(n: string): { duckGain: number } } };
+    const errors = trackErrors(page);
+    await page.goto(served!.url);
+    await expect.poll(() => frames(page), { timeout: 20_000 }).toBeGreaterThan(10);
+    await page.locator("#game canvas").click(); // the gesture that unlocks sound
+    await expect
+      .poll(async () => (await page.evaluate(() => (globalThis as unknown as { __myco?: Api }).__myco?.Audio.debug().status)) ?? null, { timeout: 30_000 })
+      .toBe("running");
+    expect(await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.debug().core.backend)).toBe("core");
+
+    // The Mixer page: "-" on the tour page switches scenes; wait for its behaviour to be up.
+    await page.keyboard.press("-");
+    await expect.poll(() => findScript(page, "lab.MixerLab", "voiceKey"), { timeout: 30_000 }).toBe("1");
+    const rules = await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.debug().mix.ducking);
+    expect(rules, "the project's rules reach the exported core").toEqual(
+      expect.arrayContaining([expect.objectContaining({ target: "Music", trigger: "Voice", mode: "level" }), expect.objectContaining({ target: "Ambience", trigger: "Voice", mode: "level" })]),
+    );
+    const duck = (bus: string) => page.evaluate((b) => (globalThis as unknown as { __myco: Api }).__myco.Audio.bus(b).duckGain, bus);
+    expect(await duck("Music"), "nothing on the voice yet").toBe(1);
+
+    // The voice on: sample both duck lanes over 8 s of the audio clock (inside a phrase they sit at their amounts).
+    await page.evaluate(() => {
+      const g = globalThis as unknown as { __myco: Api; __duck?: { time: number; music: number; ambience: number }[] };
+      g.__duck = [];
+      setInterval(() => g.__duck!.push({ time: g.__myco.Audio.time, music: g.__myco.Audio.bus("Music").duckGain, ambience: g.__myco.Audio.bus("Ambience").duckGain }), 20);
+    });
+    const t0 = await page.evaluate(() => (globalThis as unknown as { __myco: Api }).__myco.Audio.time);
+    await page.keyboard.press("1");
+    await page.waitForFunction((t) => (globalThis as unknown as { __myco: Api }).__myco.Audio.time > (t as number) + 8, t0, { timeout: 40_000 });
+    const series = await page.evaluate((t) => (globalThis as unknown as { __duck: { time: number; music: number; ambience: number }[] }).__duck.filter((d) => d.time >= (t as number)), t0);
+    const lowest = (f: "music" | "ambience") => Math.min(...series.map((d) => d[f]));
+    expect(lowest("music"), "Music reached the rule's 0.35").toBeLessThan(0.4);
+    expect(lowest("music")).toBeGreaterThan(0.3);
+    expect(lowest("ambience"), "Ambience reached the rule's 0.5").toBeLessThan(0.55);
+    expect(lowest("ambience")).toBeGreaterThan(0.45);
+    expect(series[0]!.music, "the duck begins from 1, not a step").toBeGreaterThan(0.9);
+
+    // The voice off: both lanes are released back to 1.
+    await page.keyboard.press("1");
+    await expect.poll(() => duck("Music"), { timeout: 20_000, message: "Music released" }).toBeCloseTo(1, 3);
+    await expect.poll(() => duck("Ambience"), { timeout: 20_000, message: "Ambience released" }).toBeCloseTo(1, 3);
+    expect(errors).toEqual([]);
+  });
 });
 
 test.describe("Arena web build", { tag: "@slow" }, () => {

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, play } from "./fixtures";
 import { menu } from "./menus";
@@ -86,6 +86,34 @@ export async function openLiveMix(page: Page, o: LiveMixOptions = {}): Promise<v
   await page.waitForFunction(() => typeof (window as unknown as Hooks).openTestProject === "function");
   const extra = { "project.json": liveProject(o), "scenes/main.scene.json": liveScene(o), [TONE]: clip("loudness-reference.wav"), "audio/loudness-hot.wav": clip("loudness-hot.wav"), "audio/drum-loop.wav": clip("drum-loop.wav") };
   await page.evaluate((files) => (window as unknown as Hooks).openTestProject!(files), extra);
+  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+}
+
+const TEXT_FILE = /\.(json|ts|md|txt|css|html)$/;
+
+/** Every file of the Sound Lab sample (path under the sample, text or bytes), `tools/` left out. */
+function labFiles(dir = join(process.cwd(), "samples", "sound-lab"), rel = ""): Record<string, string | Uint8Array> {
+  const out: Record<string, string | Uint8Array> = {};
+  for (const e of readdirSync(join(dir, rel), { withFileTypes: true })) {
+    const path = rel === "" ? e.name : `${rel}/${e.name}`;
+    if (e.isDirectory()) {
+      if (path === "tools") continue;
+      Object.assign(out, labFiles(dir, path));
+    } else out[path] = TEXT_FILE.test(e.name) ? readFileSync(join(dir, path), "utf8") : new Uint8Array(readFileSync(join(dir, path)));
+  }
+  return out;
+}
+
+/**
+ * Opens a writable copy of the Sound Lab in the editor's in-memory test project (the Flappy files, over which every Sound Lab file is
+ * written): the owner's way to edit it is a copy on disk, and a live edit there is saved and heard like any project's. Flappy's own
+ * scene and project.json are replaced; its unused prefabs, images and scripts stay beside.
+ */
+export async function openLabCopy(page: Page): Promise<void> {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto("/editor.html");
+  await page.waitForFunction(() => typeof (window as unknown as Hooks).openTestProject === "function");
+  await page.evaluate((files) => (window as unknown as Hooks).openTestProject!(files), labFiles());
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 }
 
