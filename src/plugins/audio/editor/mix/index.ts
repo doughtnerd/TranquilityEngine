@@ -51,6 +51,8 @@ function loadProfiler(): Promise<typeof import("./ProfilerPanel")["ProfilerPanel
     m.profilerHost.liveHost = (await import("../../runtime/capture/capture")).captureLiveHost;
     (await import("./openCapture")).installOpenCapture(m.profilerSlots);
     m.profilerSlots.tables = (await import("./profilerTables")).ProfilerTables;
+    m.profilerSlots.bar = (await import("./ProfilerBar")).ProfilerBar;
+    m.profilerSlots.banners = (await import("./ProfilerBanners")).ProfilerBanners;
     const [{ Audio }, { mixer }] = await Promise.all([import("../../runtime/Audio"), import("../../../../engine/audio/mixer")]);
     m.profilerTrackFactories.push(cpu.cpuTracks, counters.counterTracks, voices.voicesTracks, buses.busTracks, events.eventTracks, music.musicTracks, markers.markerTracks);
     // Pf6's loudness track with the project's target in force: the session's `Audio.loudnessTarget` named in `audio.loudnessTargets`.

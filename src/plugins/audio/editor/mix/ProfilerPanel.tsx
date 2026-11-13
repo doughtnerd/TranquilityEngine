@@ -29,6 +29,7 @@ import { cssVarReader, readTimelineColors, RULER_HEIGHT, TimelineCanvas, type Tr
 import { chooseEmptyState } from "./emptyStates";
 import { LiveFollow, type LiveFollowModel, type LiveHost } from "./liveFollow";
 import { CaptureSource, type ProfileSource } from "./profilerSource";
+import { profilerFlow } from "./openSaveFlow";
 import { TrackList } from "./timelineModel";
 import type { TrackFactory, TrackModule } from "./tracks/types";
 import { nameLookup } from "./voiceTableModel";
@@ -160,7 +161,7 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
 const plainMessage = (e: CaptureError): string => (e.message.startsWith(`${e.code} at ${e.offset}: `) ? e.message.slice(`${e.code} at ${e.offset}: `.length) : e.message);
 
 export class ProfilerController {
-  readonly cursor: CursorModel;
+  cursor: CursorModel;
   private cur: ProfilerView;
   private modules: readonly TrackModule[] = [];
   private fileSource: ProfileSource | null = null;
@@ -372,6 +373,8 @@ export class ProfilerController {
       this.fileSource = source;
     }
     this.modules = modules;
+    // A live recording's cursor can return to live; a file's can't (Pf8: built once as a file cursor, Space never resumed live).
+    if (origin !== this.cur.origin && origin !== "none") this.cursor = new CursorModel({ live: origin === "live" });
     this.cursor.setDuration(source ? source.duration : 0);
     if (source) {
       this.cursor.setTargets(cursorTargets({ ...emptyColumns() }, source.markers, source.startSeconds));
@@ -559,7 +562,7 @@ export const profilerHost: { liveHost: LiveHost | null; onStatus?: (cb: () => vo
 export function defaultProfilerDeps(): ProfilerDeps {
   return {
     capture: Audio.capture,
-    openCapture: (bytes, signal) => CaptureSource.openFile(bytes, signal ? { signal } : {}),
+    openCapture: (bytes, signal) => CaptureSource.openFile(bytes, { ...(signal ? { signal } : {}), onProgress: (p, d, t) => profilerFlow.progress(p, d, t) }),
     // `undefined` with no project open (no mismatch to report); an open project without the key reads as the defaults.
     projectAudio: () => {
       const p = editor.project.peek();

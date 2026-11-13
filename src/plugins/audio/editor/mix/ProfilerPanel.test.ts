@@ -419,4 +419,21 @@ describe("no Preact render per STATUS block", () => {
     expect(delta).toBe(1); // the update that attached the source: one patch, not a rebuild then an update
     c.dispose();
   });
+
+  it("a live view's cursor pauses and returns to live (Space resumes); a file's can't", async () => {
+    const scheduler = manualScheduler();
+    const host: LiveHost = { join: async () => ({ head: () => liveHead(), startLive() {}, stopLive() {}, liveLost: false, release() {} }) };
+    const c = new ProfilerController(deps({ playing: () => true, liveHost: host, liveOptions: { scheduler, sourceOptions: () => ({ worker: inProcessWorker() }) } }));
+    c.setPlaying();
+    await vi.waitFor(() => {
+      scheduler.fire();
+      expect(c.view.origin).toBe("live");
+    });
+    expect(c.cursor.mode).toBe("live");
+    c.cursor.pause();
+    expect(c.cursor.mode).toBe("paused");
+    expect(c.cursor.goLive(), "a live recording's cursor returns to live").toBe(true);
+    expect(c.cursor.mode).toBe("live");
+    c.dispose();
+  });
 });
