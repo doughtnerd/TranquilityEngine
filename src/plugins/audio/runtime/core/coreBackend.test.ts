@@ -7,10 +7,12 @@ import { defaultAudioSettings, type AudioSettings } from "../../../../engine/aud
 import {
   ASAP,
   Kind,
+  LANE_RUNTIME,
+  LANE_SNAPSHOT,
   Op,
   readBatchHeader,
   readBusConfig,
-  readBusMix,
+  readBusRamp,
   readEnvelope,
   readPlay,
   readRecordHead,
@@ -206,7 +208,7 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
 
   it("play allocates a voice, sends PLAY with the registry's clip id, and counts the bus with mixer.voiceStarted", () => {
     const r = rig();
-    r.frame(); // the initial BUS_CONFIG and BUS_MIX
+    r.frame(); // the initial BUS_CONFIG and bus lanes
     r.ops();
     const voice = r.backend.play({ ...req("hit.wav"), volume: 0.5, pitch: 2, loop: true })!;
     expect(voice.playing).toBe(true);
@@ -221,18 +223,20 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     expect(plays[0]!.frameOffset).toBe(ASAP);
   });
 
-  it("the constructor's BUS_CONFIG and BUS_MIX go out at the first update", () => {
+  it("the constructor's BUS_CONFIG and bus lanes (H1: a runtime-lane and a snapshot-lane BUS_RAMP per bus) go out at the first update", () => {
     const sentRig = rig();
     sentRig.backend.update(0);
     const ops = sentRig.ops();
-    expect(ops.map((o) => o.op)).toEqual([Op.BUS_CONFIG, Op.BUS_MIX]);
+    expect(ops.map((o) => o.op)).toEqual([Op.BUS_CONFIG, ...Array.from({ length: 10 }, () => Op.BUS_RAMP)]);
     const cfg = readBusConfig(ops[0]!.view, ops[0]!.off);
     expect(cfg.buses).toHaveLength(5);
     expect(cfg.buses[0]!.parent).toBe(0xffff);
     expect(cfg.buses[2]!.parent).toBe(0);
-    const mix = readBusMix(ops[1]!.view, ops[1]!.off);
-    expect(mix.buses).toHaveLength(5);
-    expect(mix.buses[0]).toEqual({ gain: 1, lpHz: 24000 });
+    const ramps = ops.slice(1).map((o) => readBusRamp(o.view, o.off));
+    // Bus b: the runtime lane's gain (mask 1), then the snapshot lane's low-pass (mask 2), asap, linear, no sequence.
+    ramps.forEach((r, i) => expect(r).toMatchObject({ voiceId: i >> 1, lane: i % 2 === 0 ? LANE_RUNTIME : LANE_SNAPSHOT, mask: i % 2 === 0 ? 1 : 2, shape: 0, frameOffset: ASAP }));
+    expect(ramps[0]).toMatchObject({ gain: 1 });
+    expect(ramps[1]).toMatchObject({ lpHz: 24000 });
   });
 
   it("a play on a clip that isn't ready is waitingForData and starts when the registry says resident", () => {
@@ -383,7 +387,7 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     expect(only(r.ops(), Op.RESET)).toHaveLength(0);
   });
 
-  it("applyMix sends BUS_MIX; masterVolume and muted send MASTER", () => {
+  it("applyMix sends BUS_RAMPs (runtime and snapshot lanes); masterVolume and muted send MASTER", () => {
     const r = rig();
     r.frame();
     r.ops();
@@ -393,9 +397,11 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     r.backend.muted = true;
     r.frame();
     const ops = r.ops();
-    const mix = readBusMix(ops.find((o) => o.op === Op.BUS_MIX)!.view, ops.find((o) => o.op === Op.BUS_MIX)!.off);
-    expect(mix.buses[1]!.gain).toBeCloseTo(0.5);
-    expect(mix.rampFrames).toBeGreaterThan(0);
+    const ramps = ops.filter((o) => o.op === Op.BUS_RAMP).map((o) => readBusRamp(o.view, o.off));
+    expect(ramps).toHaveLength(10);
+    const music = ramps.find((x) => x.voiceId === 1 && x.lane === LANE_RUNTIME)!;
+    expect(music.gain).toBeCloseTo(0.5);
+    expect(music.frames).toBeGreaterThan(0);
     const masters = ops.filter((o) => o.op === Op.MASTER);
     expect(masters).toHaveLength(2);
     expect(masters[1]!.view.getFloat32(masters[1]!.off + 12, true)).toBeCloseTo(0.25);
@@ -770,7 +776,7 @@ describe("CoreBackend on the loopback host (A1.7's createLoopbackHost)", () => {
     backend.dispose();
   });
 
-  // A2.1: the core's buses apply the mixer's gains (BUS_MIX): a bus at half volume halves its voice, a muted bus
+  // A2.1: the core's buses apply the mixer's gains (BUS_RAMP): a bus at half volume halves its voice, a muted bus
   // silences its voice, and the root multiplies its children.
   it("bus gains reach the output: half volume halves a voice, mute silences one", async (ctx) => {
     const rig = await loopback(480);
