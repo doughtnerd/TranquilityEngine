@@ -682,15 +682,14 @@ test("M5c: an add that finds no free slot is deferred (kept, and live at the nex
 });
 
 // The design (architecture 4.7, api-and-models 7): an edit with no live path "applies at the next Play" and the Mixer says so. The op log
-// (`mix/opLog.ts`, `createOpLog`) returns before it records an entry when a change has no ops (`if (ops.length === 0) return;`), so an
-// edit that only touches a key with no live path (the AAC codec checkbox here) never reaches the banner's `restartRequired` list, and the
-// fifth effect added through Project Settings is not saved at all (the draft has the parse's "runs only the first 4 effects" problem:
-// "Not saved: 1 problem"). Neither can be driven from the editor until the log records those; this case is the check for when it does.
-test.fixme("M5c: an edit with no live path (the AAC codec) is saved and the Mixer's banner says it applies at the next Play", async ({ page }) => {
+// (`mix/opLog.ts`, `createOpLog`) records an edit with no live op whose keys have no live path (the AAC codec checkbox here) as an
+// entry with those keys (G9b; it dropped it before), so the banner's `restartRequired` list shows it.
+test("M5c: an edit with no live path (the AAC codec) is saved and the Mixer's banner says it applies at the next Play", async ({ page }) => {
   await openLiveMix(page, { tones: [{ bus: "UI" }] });
   await playLiveMix(page);
   await openAudioSettings(page);
   await audioPanel(page).getByLabel("AAC codec", { exact: true }).click();
+  await expect.poll(async () => ((await savedProject(page)).audio as { codecs?: { aac?: boolean } }).codecs?.aac, { timeout: 10_000 }).toBe(true);
   await openMixer(page);
   await expect(banners(page).filter({ hasText: "Applies at the next Play" }).first()).toBeVisible({ timeout: 20_000 });
 });
