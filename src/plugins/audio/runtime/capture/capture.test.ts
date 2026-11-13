@@ -7,6 +7,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Audio } from "../Audio";
+import { notifyEngineLifecycle } from "../../../../engine/core/engineLifecycle";
 import { setAudioBackend } from "../backend";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { makeFakeBackend, type FakeBackend } from "../testing";
@@ -260,6 +261,28 @@ describe("start, stop, mark and save", () => {
     expect(Audio.capture.state).toBe("idle");
     await expect(Audio.capture.save()).rejects.toThrow(NOTHING_RECORDED);
     expect(r.downloads).toEqual([]);
+  });
+
+  it("Released follows the Engines: the editor's Engine going frees the take; its per-Play runtime Engine going doesn't; an exported game's does", async () => {
+    const r = rig();
+    // In the editor: an editor Engine, then a Play's runtime Engine.
+    notifyEngineLifecycle("created", "editor");
+    notifyEngineLifecycle("created", "runtime");
+    await Audio.capture.start();
+    r.feed(5);
+    Audio.capture.stop();
+    notifyEngineLifecycle("disposed", "runtime"); // Play stopped: the take stays for a save
+    expect(captureDebug(), "a Play stop doesn't release the ring").not.toBeNull();
+    notifyEngineLifecycle("disposed", "editor"); // the project closed
+    expect(captureDebug(), "the editor's Engine going releases it").toBeNull();
+    await expect(Audio.capture.save()).rejects.toThrow(NOTHING_RECORDED);
+    // An exported game: a runtime Engine with no editor.
+    notifyEngineLifecycle("created", "runtime");
+    await Audio.capture.start();
+    r.feed(5);
+    expect(captureDebug()).not.toBeNull();
+    notifyEngineLifecycle("disposed", "runtime");
+    expect(captureDebug(), "a game's Engine going with no editor releases it").toBeNull();
   });
 
   it("start rejects with a message while the core isn't there (a pending or absent backend), and leaves state idle", async () => {

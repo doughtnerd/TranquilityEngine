@@ -24,6 +24,7 @@
 // **A take is a (start, end) pair.** `start()` sets the take's start to the open segment's keyframe (the nearest at or before
 // now). While another owner keeps the ring recording, `stop()` copies the take's span so the file ends where the take did;
 // with no other owner the ring stops growing and is read in place.
+import { onEngineLifecycle } from "../../../../engine/core/engineLifecycle";
 import type { AudioBackend, AudioRecorderDebug } from "../backend";
 import { audioBackend } from "../backend";
 import { mixer } from "../../../../engine/audio/mixer";
@@ -647,6 +648,19 @@ export function captureDebug(): AudioRecorderDebug | null {
 export function releaseCapture(): void {
   capture.release();
 }
+
+/**
+ * Released (architecture §2.1) follows the Engines: the ring and the take are freed when the editor's Engine is disposed
+ * (a project closed or switched) or when a game's Engine is disposed with no editor Engine alive (an exported game
+ * exits). The editor's per-Play runtime Engine going is a Play stop instead (`capturePlayStopped`, from the audio World
+ * service), which keeps the take Held for a save after Stop.
+ */
+let editorEngines = 0;
+onEngineLifecycle((event, kind) => {
+  if (kind === "editor") editorEngines = Math.max(0, editorEngines + (event === "created" ? 1 : -1));
+  if (event !== "disposed") return;
+  if (kind === "editor" || (kind === "runtime" && editorEngines === 0)) releaseCapture();
+});
 
 /** @internal Play stops (architecture §2.1; G7b): the owners end and the ring is freed, a take being Held once for a save after Stop. Called by `core/service.ts` when the last Runtime World releases the audio host. */
 export function capturePlayStopped(): void {
