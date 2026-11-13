@@ -5,7 +5,6 @@
 // W8 slot fills for the Profiler panel (contract H5; see the top of `ProfilerPanel.tsx`) go in the marked block below,
 // one import and one line each, so no task edits `ProfilerPanel.tsx`.
 import { editor, type EditorPluginContext, type ProjectSettingsSurface, type SettingsDraft } from "../../../../editor/sdk";
-import type { MixerSection } from "./MixerPanel";
 import type { OpLogEntry } from "./opLog";
 import type { CaptureLoudnessTarget } from "../../runtime/capture/format";
 
@@ -56,7 +55,7 @@ export function wireMixerHost(host: { flushNow: (() => void) | null; entries: ((
  * (ADR 0173): its draft and edits, its history for Ctrl+Z while the panel is focused, and its version. The surface follows
  * the open project, so `open` ignores its argument. The surface names no steps, so the history's labels are null.
  */
-export function mixerSectionOf(settings: ProjectSettingsSurface): MixerSection {
+export function mixerSectionOf(settings: ProjectSettingsSurface): import("./MixerPanel").MixerSection {
   const session = { get draft() { return settings.draft(); }, edit: (label: string, next: SettingsDraft) => settings.edit(label, next) };
   return {
     open: () => session,
