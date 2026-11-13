@@ -12,7 +12,7 @@
 // A keyframe is in force from its own instant until the next, so a gain step shows within one grid step of the keyframe
 // that carries it. A bus is named from META's bus names; a bus that is a tombstone at the instant is named from the project
 // section the take started with (`meta.audio.buses`, by slot), since the slot may since have been recycled. Pure TypeScript, no DOM.
-import { meterFill } from "../../BusMeters";
+import { meterFill } from "../../meterFill";
 import { busFactors, formatDb, gainToDb, type BusFactors } from "../busFactorsModel";
 import type { LineSeries, TrackData } from "../drawTimeline";
 import type { ProfileSource } from "../profilerSource";
