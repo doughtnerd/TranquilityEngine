@@ -22,9 +22,11 @@ const TARGET = "wasm32-unknown-unknown";
 /**
  * The mixer's size tripwire (ADR 0158 amends 0157): a guard against accidental bloat, not a design constraint; raise it
  * with a line in the build log saying why. 320 KB since ADR 0162 M3 (2026-11-12, owner): beds, zones, ambisonic voices
- * and sends took the mixer to ≈ 260 KB, past the 256 KB set before any of them existed.
+ * and sends took the mixer to ≈ 260 KB, past the 256 KB set before any of them existed. 360 KB since ADR 0171/0172 M5
+ * (2026-11-13, W0; design R25, `docs/design/0171-audio-mix/build-log.md`): loudness, lanes, sidechain, the bus order,
+ * sends and the reverb run-out project ≈ 347–351 KB from 319,799 B, and only ≈ 7.9 KB were left under 320 KB.
  */
-const MIXER_LIMIT = 320 * 1024;
+const MIXER_LIMIT = 360 * 1024;
 /** ADR 0162 (api-and-models §5.2): M3's mixer warning, under the gate: a build past it warns but passes. */
 const MIXER_WARN = 300 * 1024;
 /** The decoder's size gate (M1b): 900 KB. */
