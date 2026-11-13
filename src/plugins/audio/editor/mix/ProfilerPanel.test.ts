@@ -126,6 +126,18 @@ describe("banners on fixture captures", () => {
     c.dispose();
   });
 
+  it("hovering a CPU track of a Babylon capture says why it is empty; a CPU track of a full capture without a readout stays null", async () => {
+    const none: TrackFactory = () => [{ track: { id: "cpu.load", label: "CPU", kind: "line", height: 40, visible: true }, data: () => undefined, refresh: async () => {}, tooltipAt: () => null }];
+    const b = new ProfilerController(deps({ trackFactories: [none] }));
+    await b.openFile("b.mycap", file({ mainSideOnly: true }));
+    expect(b.tooltip("cpu.load", 1)).toBe("Babylon fallback: no CPU line");
+    b.dispose();
+    const full = new ProfilerController(deps({ trackFactories: [none] }));
+    await full.openFile("f.mycap", file());
+    expect(full.tooltip("cpu.load", 1)).toBeNull();
+    full.dispose();
+  });
+
   it("a capture whose audio section differs from the open project's shows the project mismatch banner, and still opens", async () => {
     const c = new ProfilerController(deps({ projectAudio: () => ({ buses: [{ name: "Other" }] }) }));
     expect(await c.openFile("p.mycap", file())).toBe(true);

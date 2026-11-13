@@ -151,6 +151,16 @@ export interface TimelineOptions {
   readonly onViewport?: (v: Viewport) => void;
   readonly onCursor?: (t: number) => void;
   readonly onSelection?: (s: TimelineSelection | null) => void;
+  /** The hover target, at most once per frame: the track under the pointer and the time at its x, or null (left, in the ruler, off the tracks, or dragging). */
+  readonly onHover?: (h: TimelineHover | null) => void;
+}
+
+/** What the pointer is over: a track, the capture time at its x, and the pointer in canvas pixels. */
+export interface TimelineHover {
+  readonly trackId: string;
+  readonly t: number;
+  readonly x: number;
+  readonly y: number;
 }
 
 export const RULER_HEIGHT = 18;
@@ -185,6 +195,9 @@ export class TimelineCanvas {
   private sel: TimelineSelection | null = null;
   private dirty = true;
   private frame: number | null = null;
+  private hoverFrame: number | null = null;
+  private hoverPending: { x: number; y: number } | null | undefined = undefined;
+  private hoverShown = false;
   private dataVersion = 0;
   private cacheKey = "";
   private cache = new Map<string, SeriesCache>();
@@ -300,6 +313,8 @@ export class TimelineCanvas {
     this.disposed = true;
     if (this.frame !== null) this.caf(this.frame);
     this.frame = null;
+    if (this.hoverFrame !== null) this.caf(this.hoverFrame);
+    this.hoverFrame = null;
   }
 
   // ---- input -------------------------------------------------------------------------------------------------------
@@ -321,6 +336,7 @@ export class TimelineCanvas {
   /** A press: in the ruler it scrubs the cursor; shift in the tracks starts a selection; else a pan or a click. */
   pointerDown(e: TimelinePointer): void {
     this.downX = this.lastX = e.x;
+    this.hover(null);
     if (e.y < RULER_HEIGHT) {
       this.mode = "cursor";
       this.moveCursorTo(e.x);
@@ -364,6 +380,49 @@ export class TimelineCanvas {
 
   pointerCancel(): void {
     this.mode = "none";
+    this.hover(null);
+  }
+
+  /** The visible track whose row holds canvas-y `y` (null in the ruler or below the last track). */
+  trackAt(y: number): Track | null {
+    let top = RULER_HEIGHT;
+    if (!(y >= top)) return null;
+    for (const t of this.visibleTracks()) {
+      if (y < top + t.height) return t;
+      top += t.height;
+    }
+    return null;
+  }
+
+  /**
+   * The pointer moved with no button down (or left, with null): the hover target is reported by `onHover` once per
+   * frame, from the last position seen. A drag in progress (any mode but none) reports null instead.
+   */
+  hover(p: { x: number; y: number } | null): void {
+    this.hoverPending = p && this.mode === "none" ? { x: p.x, y: p.y } : null;
+    if (this.hoverPending === null && !this.hoverShown && this.hoverFrame === null) {
+      this.hoverPending = undefined;
+      return;
+    }
+    if (this.disposed || this.hoverFrame !== null) return;
+    this.hoverFrame = this.raf(() => this.onHoverFrame());
+  }
+
+  private onHoverFrame(): void {
+    this.hoverFrame = null;
+    const p = this.hoverPending;
+    this.hoverPending = undefined;
+    if (this.disposed || p === undefined) return;
+    const track = p ? this.trackAt(p.y) : null;
+    if (!p || !track) {
+      if (this.hoverShown) {
+        this.hoverShown = false;
+        this.opt.onHover?.(null);
+      }
+      return;
+    }
+    this.hoverShown = true;
+    this.opt.onHover?.({ trackId: track.id, t: this.clampTime(xToTime(this.vp, p.x, this.w)), x: p.x, y: p.y });
   }
 
   // ---- internals ---------------------------------------------------------------------------------------------------
