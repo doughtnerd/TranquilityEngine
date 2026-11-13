@@ -121,6 +121,16 @@
       ]
     },
     {
+      "id": "loudness",
+      "name": "Loudness reference (keys L, W, C, F, V, D)",
+      "transform": false,
+      "components": [
+        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/loudness-reference.wav", "loop": true, "volume": 1, "playOnAwake": false, "output": "UI" } },
+        { "type": "engine.Text", "data": { "anchor": "top-left", "align": "left", "offset": [24, 20], "fontSize": 20, "outlineColor": "#000000", "outlineWidth": 4 } },
+        { "type": "lab.Loudness", "data": {} }
+      ]
+    },
+    {
       "id": "snapshots",
       "name": "Snapshots (key 4)",
       "transform": false,

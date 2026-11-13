@@ -46,7 +46,7 @@
         "mute": false,
         "effects": [{ "type": "reverb", "send": 0.5 }]
       },
-      { "name": "UI", "parent": "Master", "volume": 1, "mute": false, "effects": [] },
+      { "name": "UI", "parent": "Master", "volume": 1, "mute": false, "meter": "loudness", "effects": [] },
       {
         "name": "Filters",
         "parent": "Master",
