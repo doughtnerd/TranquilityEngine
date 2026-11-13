@@ -79,10 +79,10 @@ Do them in order the first time; each one leaves the page as it found it, except
 
 **Check the volume first:** this tone is 22 dB louder than the reference.
 
-- **Press L** (the reference stops; the music and the hum come back), **press C** (both meters restart at 0 s), then **press W.** Correct: a **loud steady tone** for two seconds, then silence on UI (the music and the hum go on under it). The readout's UI line, once its clock reads 3 s or more: **I about -0.5 LUFS, peak about -0.5 dBTP, verdict `console ... high, +23.5 LU, PEAK OVER`** (the peak is over the targets' -1 dBTP ceiling). The `PEAK OVER` stays on after the tone ends.
+- **Press L** (the reference stops; the music and the hum come back), **press C** (both meters restart at 0 s), then **press W.** Correct: a **loud steady tone** for two seconds, then silence on UI (the music and the hum go on under it). The readout's UI line, once its clock reads 3 s or more: **I about -1 LUFS (a little under the tone's own -0.5: the blocks at the burst's start and end are only partly tone), peak about -0.5 dBTP, verdict `console ... high, about +23 LU, PEAK OVER`** (the peak is over the targets' -1 dBTP ceiling). The `PEAK OVER` stays on after the tone ends.
 - **Press C.** Correct: the flag clears, the verdict goes back to `waiting` (nothing integrated yet), the clock restarts.
 - **A defect sounds like:** the tone **clipping or crackling** (a distorted tone is not a -0.5 dBFS sine: a true-peak bug would show as a limiter working, or a harsh edge); the tone much quieter than the readout's number suggests (compare it with the reference: it should be a very large step, about 22 dB). **A defect reads like:** `PEAK OVER` missing with a peak above -1; `PEAK OVER` showing on a meter that carried nothing hot; the flag not clearing on C.
-- **Walker confirms:** the hot voice plays on UI; after 3 s of rendered audio UI's console verdict is `high` with a deviation between 23.2 and 23.8, `peakOver` is true and the true peak is between -0.8 and -0.2; after C the peak flag is false.
+- **Walker confirms:** the hot voice plays on UI; after 3 s of rendered audio UI's console verdict is `high` with a deviation between 22.6 and 23.6, `peakOver` is true and the true peak is between -0.8 and -0.2; after C the peak flag is false.
 
 ### S4. Pause and resume, and reset. Keys **L**, **C**, **F**, **F**, **C**
 

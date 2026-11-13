@@ -547,13 +547,13 @@ test.describe("listening M5b: loudness against a reference", () => {
       await expect.poll(async () => (await voicesNow(page)).some((v) => v.clip.includes("loudness-reference")), { timeout: 15_000 }).toBe(false);
       await press5b(page, "c", "Resets both meters.");
       await expect.poll(async () => (await meter(page, "UI")).elapsed, { timeout: 15_000 }).toBeLessThan(1);
-      await press5b(page, "w", "A loud steady tone for two seconds (turn the volume down first): the readout shows UI at about -0.5 LUFS, the verdict high and PEAK OVER.");
+      await press5b(page, "w", "A loud steady tone for two seconds (turn the volume down first): the readout shows UI at about -1 LUFS, the verdict high and PEAK OVER.");
       await expect.poll(async () => (await voicesNow(page)).some((v) => v.clip.includes("loudness-hot")), { timeout: 20_000 }).toBe(true);
       await meteredFor(page, "UI", 3);
       const hot = await meter(page, "UI");
       expect(hot.target, "console, hot").toMatchObject({ name: "console", state: "high", peakOver: true });
-      expect(hot.target!.deviation).toBeGreaterThan(23.2);
-      expect(hot.target!.deviation).toBeLessThan(23.8);
+      expect(hot.target!.deviation, "about -1 LUFS (the burst's edge blocks pass the gates at part energy) against -24").toBeGreaterThan(22.6);
+      expect(hot.target!.deviation).toBeLessThan(23.6);
       expect(hot.maxTruePeak).toBeGreaterThan(-0.8);
       expect(hot.maxTruePeak).toBeLessThan(-0.2);
       await press5b(page, "c", "Resets both meters: the verdict goes back to waiting, the peak flag clears.");

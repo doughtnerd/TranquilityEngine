@@ -224,8 +224,10 @@ test("M5b: the target verdict, for every target and a hot signal: ok, low, high,
     await metered(page, "UI", 3);
     const hot = await read(page, "UI");
     expect(hot.target).toMatchObject({ name: "console", state: "high", peakOver: true });
-    expect(hot.target!.deviation, "-0.5 LUFS against -24").toBeGreaterThan(23.2);
-    expect(hot.target!.deviation).toBeLessThan(23.8);
+    // A 2 s burst: the 400 ms blocks that straddle its start and end pass the gates at part energy, so integrated reads a
+    // little under the tone's own -0.5 LUFS (measured -1.10): -24 + 22.9 here, not 23.5.
+    expect(hot.target!.deviation, "about -1 LUFS against -24").toBeGreaterThan(22.6);
+    expect(hot.target!.deviation).toBeLessThan(23.6);
     expect(hot.maxTruePeak, "the tone's own peak").toBeGreaterThan(-0.8);
     expect(hot.maxTruePeak).toBeLessThan(-0.2);
     // The hot bus's peak is a fact about that bus: the reference's meter reading (console again) says ok on a quieter one.
@@ -429,7 +431,11 @@ test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor so
     // The meter reads post-fader, monitor lane included: 0.6 s of the audio clock on, its window holds silence.
     await audioFor(page, 0.6);
     await expect.poll(async () => (await read(page, "UI")).momentary, { timeout: 15_000 }).toBe(-Infinity);
-    expect((await read(page, "UI")).integrated, "digital silence keeps the integrated level where it was").toBeCloseTo(held, 6);
+    // Silent blocks are under the absolute gate and leave integrated alone; the blocks that straddled the mute passed it at part
+    // energy and pulled it down a little (measured -0.15 LU after 3 s of tone): near the held value, not at silence.
+    const after = (await read(page, "UI")).integrated;
+    expect(after, "digital silence does not drag the integrated level to silence").toBeGreaterThan(held - 0.5);
+    expect(after).toBeLessThanOrEqual(held + 1e-9);
     await monitor("UI", { mute: false }, null, false);
   });
 
@@ -454,6 +460,9 @@ test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor so
   });
 
   await test.step("Compare taints every meter and suspends the check, until it is switched off", async () => {
+    // The last reset left no integrated value (verdict waiting): meter a second of the tone first, so "off" can read ok.
+    await metered(page, "Master", 1);
+    await metered(page, "UI", 1);
     await page.evaluate(() => (globalThis as unknown as Api).__b.loudness.setCompare(true));
     const on = await readBoth(page, "Master", "UI");
     expect(on.map((x) => x.tainted)).toEqual([true, true]);

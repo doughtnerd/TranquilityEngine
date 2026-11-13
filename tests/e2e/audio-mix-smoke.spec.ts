@@ -389,8 +389,11 @@ test("M5b smoke: master's momentary loudness reads a number, steadily, and is em
   });
 
   await test.step("a steady loop reads about the same a few seconds of audio later", async () => {
-    await expect.poll(async () => (await master()).shortTerm, { timeout: 60_000, message: "short-term has its 3 s" }).toBeGreaterThan(-70);
+    // 8 s of rendered audio since Play: the 3 s short-term window lies wholly after the clips' decode and start, so both reads
+    // see the loop and not its beginning.
+    await expect.poll(async () => (await master()).elapsed, { timeout: 60_000, message: "8 s of metered audio" }).toBeGreaterThanOrEqual(8);
     const a = await master();
+    expect(a.shortTerm).toBeGreaterThan(-70);
     await expect.poll(async () => (await master()).elapsed, { timeout: 60_000 }).toBeGreaterThanOrEqual(a.elapsed + 2);
     const b = await master();
     expect(Math.abs(b.shortTerm - a.shortTerm), "short-term LUFS of a steady loop (a moving hum allows a little)").toBeLessThan(2);
