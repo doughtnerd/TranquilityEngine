@@ -21,7 +21,8 @@
  */
 import { CURVE_INTERPS, type Curve, type CurveKey } from "../core/curve";
 import {
-  BED_PRIORITY_LIMITS, BUS_BEDS, DEFAULT_BED_PRIORITY, EFFECT_TYPES, MAX_BUSES, ROOT_BED_PRIORITY, parseAudioSettings,
+  BED_PRIORITY_LIMITS, BUS_BEDS, DEFAULT_BED_PRIORITY, DEFAULT_LOUDNESS_TARGETS, EFFECT_TYPES, MAX_BUSES, MAX_LOUDNESS_BUSES,
+  MAX_LOUDNESS_TARGETS, MAX_TARGET_NAME, ROOT_BED_PRIORITY, parseAudioSettings,
   type AudioSettings, type BusAutomation, type BusEffect, type BusSettings, type DuckingRule, type LoudnessTarget, type SnapshotSettings,
 } from "./settings";
 
@@ -95,19 +96,9 @@ export interface MixOpNameTable {
   busRef(bus: string): number;
 }
 
-// --- limits and defaults the ops check (api-and-models §2.1; Ld5 may move them into settings.ts) ----------------------
+// --- limits and defaults the ops check (api-and-models §2.1; they live in settings.ts beside the parse, Ld5) ------------
 
-/** §2.1: non-root buses that may carry `meter: "loudness"` (the root is always metered). */
-export const MAX_LOUDNESS_BUSES = 8;
-/** §2.1: entries of `loudnessTargets`, 1..8. */
-export const MAX_LOUDNESS_TARGETS = 8;
-/** §2.1: a target's name, up to 32 characters. */
-export const MAX_TARGET_NAME = 32;
-/** §2.1 (owner decision 4): `loudnessTargets` when absent; the first is the default target. */
-export const DEFAULT_LOUDNESS_TARGETS: readonly Readonly<LoudnessTarget>[] = [
-  { name: "console", integrated: -24, tolerance: 2, truePeak: -1 },
-  { name: "mobile", integrated: -18, tolerance: 2, truePeak: -1 },
-];
+export { DEFAULT_LOUDNESS_TARGETS, MAX_LOUDNESS_BUSES, MAX_LOUDNESS_TARGETS, MAX_TARGET_NAME };
 
 /** The `audio` keys a live op edits; every other key that differs is `restartRequired` in `diffOps`. */
 export const LIVE_KEYS = ["buses", "snapshots", "ducking", "automation", "loudnessTargets", "loudnessResetOnPlay"] as const;

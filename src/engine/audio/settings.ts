@@ -259,6 +259,23 @@ export const MAX_LEVEL_RULES = 8;
 export const DEFAULT_DUCK_DETECTOR: DuckingDetector = "rms";
 export const DEFAULT_DUCK_THRESHOLD = -30;
 
+/** §2.1: non-root buses that may carry `meter: "loudness"` (the root is always metered). */
+export const MAX_LOUDNESS_BUSES = 8;
+/** §2.1: entries of `loudnessTargets`, 1..8. */
+export const MAX_LOUDNESS_TARGETS = 8;
+/** §2.1: a target's name, up to 32 characters. */
+export const MAX_TARGET_NAME = 32;
+/** §2.1: a target's ranges, `[min, max]`: `integrated` LUFS, `tolerance` LU, `truePeak` dBTP. */
+export const LOUDNESS_TARGET_LIMITS = { integrated: [-70, 0], tolerance: [0, 12], truePeak: [-20, 0] } as const;
+/** §2.1: a target's `tolerance` and `truePeak` when absent from an authored entry. */
+export const DEFAULT_TARGET_TOLERANCE = 2;
+export const DEFAULT_TARGET_TRUE_PEAK = -1;
+/** §2.1 (owner decision 4): `loudnessTargets` when absent; the first is the default target. */
+export const DEFAULT_LOUDNESS_TARGETS: readonly Readonly<LoudnessTarget>[] = [
+  { name: "console", integrated: -24, tolerance: 2, truePeak: -1 },
+  { name: "mobile", integrated: -18, tolerance: 2, truePeak: -1 },
+];
+
 export const defaultBuses = (): BusSettings[] =>
   [MASTER, "Music", "SFX", "UI", "Voice"].map((name, i) => ({ name, ...(i > 0 ? { parent: MASTER } : {}), volume: 1, mute: false, effects: [] }));
 
@@ -417,6 +434,7 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
   parseSpatialKeys(input, settings, problems, options);
   parseEventKeys(input, settings, problems);
   parseMusicKeys(input, settings, problems);
+  parseMeteringKeys(input, settings, problems);
   return { settings, problems };
 }
 
@@ -694,6 +712,70 @@ function parseMusicKeys(input: Record<string, unknown>, settings: AudioSettings,
     if (typeof input.rhythmMode === "boolean") settings.rhythmMode = input.rhythmMode;
     else problems.push("audio.rhythmMode: must be true or false; using false.");
   }
+}
+
+/**
+ * ADR 0171 §2.1 (Ld5): `buses[].meter`, `loudnessTargets` and `loudnessResetOnPlay`. Defaults are never written back:
+ * `meter` is absent when off, `loudnessTargets` when it equals `DEFAULT_LOUDNESS_TARGETS`, `loudnessResetOnPlay` when true.
+ */
+function parseMeteringKeys(input: Record<string, unknown>, settings: AudioSettings, problems: string[]): void {
+  if (Array.isArray(input.buses)) {
+    const named = new Set<string>();
+    let metered = 0;
+    for (const [i, raw] of input.buses.entries()) {
+      if (!isRecord(raw) || typeof raw.name !== "string" || raw.name.trim() === "" || named.has(raw.name)) continue;
+      named.add(raw.name);
+      const bus = settings.buses.find((b) => b.name === raw.name);
+      if (!bus || raw.meter === undefined || raw.meter === null) continue;
+      const where = `audio.buses[${i}].meter`;
+      if (raw.meter !== "loudness") problems.push(`${where}: must be "loudness" or absent; dropped.`);
+      else if (bus === settings.buses[0]) problems.push(`${where}: ${bus.name} is always metered; dropped.`);
+      else if (metered >= MAX_LOUDNESS_BUSES) problems.push(`${where}: at most ${MAX_LOUDNESS_BUSES} buses can be metered; dropped.`);
+      else { bus.meter = "loudness"; metered++; }
+    }
+  }
+  if (input.loudnessTargets !== undefined) {
+    if (!Array.isArray(input.loudnessTargets)) problems.push("audio.loudnessTargets must be a list; using the defaults.");
+    else {
+      const list: LoudnessTarget[] = [];
+      for (const [i, raw] of input.loudnessTargets.entries()) {
+        if (list.length >= MAX_LOUDNESS_TARGETS) { problems.push(`audio.loudnessTargets: at most ${MAX_LOUDNESS_TARGETS} targets; the rest are ignored.`); break; }
+        const t = parseTarget(raw, `audio.loudnessTargets[${i}]`, list, problems);
+        if (t) list.push(t);
+      }
+      const same = list.length === DEFAULT_LOUDNESS_TARGETS.length && list.every((t, i) => {
+        const d = DEFAULT_LOUDNESS_TARGETS[i];
+        return t.name === d.name && t.integrated === d.integrated && t.tolerance === d.tolerance && t.truePeak === d.truePeak;
+      });
+      if (list.length > 0 && !same) settings.loudnessTargets = list;
+    }
+  }
+  if (input.loudnessResetOnPlay !== undefined) {
+    if (typeof input.loudnessResetOnPlay !== "boolean") problems.push("audio.loudnessResetOnPlay: must be true or false; using true.");
+    else if (!input.loudnessResetOnPlay) settings.loudnessResetOnPlay = false;
+  }
+}
+
+/** One `loudnessTargets` entry, or null (with a problem) for a bad one: not an object, a bad or taken name, or a number missing or out of range. */
+function parseTarget(raw: unknown, where: string, taken: readonly LoudnessTarget[], problems: string[]): LoudnessTarget | null {
+  if (!isRecord(raw)) { problems.push(`${where}: must be an object; dropped.`); return null; }
+  const name = raw.name;
+  if (typeof name !== "string" || name.trim() === "" || name.length > MAX_TARGET_NAME) {
+    problems.push(`${where}: name must be 1 to ${MAX_TARGET_NAME} characters; dropped.`);
+    return null;
+  }
+  if (taken.some((t) => t.name === name)) { problems.push(`${where}: another target is already named "${name}"; dropped.`); return null; }
+  const field = (key: keyof typeof LOUDNESS_TARGET_LIMITS, unit: string, fallback: number | undefined): number | null => {
+    const [min, max] = LOUDNESS_TARGET_LIMITS[key], v = raw[key];
+    if (v === undefined && fallback !== undefined) return fallback;
+    if (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max) return v;
+    problems.push(`${where}.${key}: must be a number of ${unit} from ${min} to ${max}; the target is dropped.`);
+    return null;
+  };
+  const integrated = field("integrated", "LUFS", undefined);
+  const tolerance = field("tolerance", "LU", DEFAULT_TARGET_TOLERANCE);
+  const truePeak = field("truePeak", "dBTP", DEFAULT_TARGET_TRUE_PEAK);
+  return integrated === null || tolerance === null || truePeak === null ? null : { name, integrated, tolerance, truePeak };
 }
 
 /** ADR 0158: `parameters`, `automation` and `seed`. Runs after the buses are parsed, so automation can check bus names. */
