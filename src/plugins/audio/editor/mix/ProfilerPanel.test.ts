@@ -12,6 +12,7 @@ import type { AudioCapture, AudioCaptureState } from "../../runtime/capture/capt
 import { CaptureSource, type CaptureWorkerLike, type ProfileSource } from "./profilerSource";
 import type { LiveHost, LiveRecording, LiveScheduler } from "./liveFollow";
 import type { TrackFactory } from "./tracks/types";
+import { cpuTracks } from "./tracks/cpu";
 import {
   BANNER_TEXT, ProfilerChrome, ProfilerController, profilerBanners, profilerSlots, sameAudioSettings,
   type BarSlotProps, type ProfilerDeps, type ProfilerSlots,
@@ -126,13 +127,18 @@ describe("banners on fixture captures", () => {
     c.dispose();
   });
 
-  it("hovering a CPU track of a Babylon capture says why it is empty; a CPU track of a full capture without a readout stays null", async () => {
-    const none: TrackFactory = () => [{ track: { id: "cpu.load", label: "CPU", kind: "line", height: 40, visible: true }, data: () => undefined, refresh: async () => {}, tooltipAt: () => null }];
-    const b = new ProfilerController(deps({ trackFactories: [none] }));
+  it("hovering a CPU track of a Babylon capture says why it is empty (the CPU tracks' own readout, no controller fallback); a track with no readout stays null", async () => {
+    const b = new ProfilerController(deps({ trackFactories: [cpuTracks] }));
     await b.openFile("b.mycap", file({ mainSideOnly: true }));
     expect(b.tooltip("cpu.load", 1)).toBe("Babylon fallback: no CPU line");
+    expect(b.tooltip("cpu.sections", 1)).toBe("Babylon fallback: no CPU line");
     b.dispose();
-    const full = new ProfilerController(deps({ trackFactories: [none] }));
+    const none: TrackFactory = () => [{ track: { id: "cpu.load", label: "CPU", kind: "line", height: 40, visible: true }, data: () => undefined, refresh: async () => {}, tooltipAt: () => null }];
+    const stub = new ProfilerController(deps({ trackFactories: [none] }));
+    await stub.openFile("b.mycap", file({ mainSideOnly: true }));
+    expect(stub.tooltip("cpu.load", 1)).toBeNull();
+    stub.dispose();
+    const full = new ProfilerController(deps({ trackFactories: [cpuTracks] }));
     await full.openFile("f.mycap", file());
     expect(full.tooltip("cpu.load", 1)).toBeNull();
     full.dispose();

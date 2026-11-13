@@ -4,7 +4,10 @@ import { describe, expect, it } from "vitest";
 import { CPU_WINDOW_QUANTA } from "../../../runtime/mix/cpuMeter";
 import { EMPTY_STATES } from "../emptyStates";
 import { CPU_SECTION_KEYS, CPU_LOAD_TRACK, CPU_SECTIONS_TRACK, cpuTracks, indexAtOrBefore } from "./cpu";
-import { QUANTA_PER_STATUS, QUANTUM_MS, context, open, records, timeOf, type Fields } from "./cpuCountersTestSupport";
+import { QUANTA_PER_STATUS, QUANTUM_MS, context, inProcessWorker, open, records, timeOf, type Fields } from "./cpuCountersTestSupport";
+import { assembleCapture } from "../../../runtime/capture/format";
+import { SAMPLE_HEADER, SAMPLE_META } from "../../../runtime/capture/testSupport";
+import { CaptureSource } from "../profilerSource";
 
 const WINDOW_SAMPLES = CPU_WINDOW_QUANTA / QUANTA_PER_STATUS; // 16
 
@@ -55,6 +58,17 @@ describe("cpuTracks", () => {
     expect(sections.tooltipAt!(early)).toBe(EMPTY_STATES.cpuNotMeasured);
     expect(load.tooltipAt!(timeOf(source, 50))).toBe("CPU 250‰ (256 ms average)");
     expect(load.tooltipAt!(-1)).toBeNull();
+  });
+
+  it("a main-side-only (Babylon) capture has no CPU samples: both tracks' tooltips say Babylon has no CPU line (FU3)", async () => {
+    const bytes = assembleCapture({ ...SAMPLE_HEADER, mainSideOnly: true }, SAMPLE_META, records(0, () => ({})), { index: true }).slice().buffer;
+    const source = await CaptureSource.openFile(bytes, { worker: inProcessWorker() });
+    const [load, sections] = cpuTracks(context(source));
+    await load!.refresh();
+    expect(load!.tooltipAt!(0)).toBe(EMPTY_STATES.babylonNoCpu);
+    expect(load!.tooltipAt!(1)).toBe(EMPTY_STATES.babylonNoCpu);
+    expect(sections!.tooltipAt!(1)).toBe(EMPTY_STATES.babylonNoCpu);
+    expect(load!.data()).toBeUndefined();
   });
 
   it("splits the line by cpuLevel (green below 500, amber to 800, red above) on one scale of at least 1000", async () => {
