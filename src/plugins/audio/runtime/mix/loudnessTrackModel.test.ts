@@ -1,7 +1,8 @@
 // ADR 0171/0172 (Pf6, L-Pf6a): the profiler's loudness series against the shared `LoudnessStats` fed as the live hub feeds it.
 // Pure: sub-blocks are synthesised; time is the sub-block count x 0.1 s of audio, never a clock.
 import { describe, expect, it } from "vitest";
-import { LOUD_FLAG_RESET, LOUD_OUTPUT_TAP } from "../wire.generated";
+import { LOUD_FLAG_RESET, LOUD_OUTPUT_TAP, type StatusBlock } from "../wire.generated";
+import { LoudnessHub } from "./loudnessHub";
 import type { KeyframeMetered } from "../capture/format";
 import { LoudnessStats, SUB_BLOCK_SECONDS, energyToLufs, linearToDb } from "./loudnessStats";
 import { KF_METERED_INCOMPLETE, LoudnessTrackModel, type LoudnessStatusInput } from "./loudnessTrackModel";
@@ -209,6 +210,77 @@ describe("resets and gaps", () => {
     expect(model.bus(SLOT)!.stats.incomplete).toBe(true);
     expect(model.valuesAt(SLOT, 20)!.incomplete).toBe(true);
     expect(model.valuesAt(SLOT, 20)!.integrated).toBe(live.integrated);
+  });
+});
+
+describe("against a real LoudnessHub (G7d: the hub's rules since Ld7, through the shared LoudnessFeedControl)", () => {
+  type Item = { slot: number; flags: number; firstSeq: number; truePeak: number };
+  /** One STATUS to both: the hub (a StatusBlock's loudness fields) and the model. */
+  function both(hub: LoudnessHub, model: LoudnessTrackModel, time: number, loudShed: number, items: Item[], energies: number[]): void {
+    const loudBuses = items.map((i) => ({ ...i, gatedQuanta: 0 }));
+    hub.feed({ loudShed, m3Shed: 0, loudBuses, loudEnergies: Float32Array.from(energies) } as unknown as StatusBlock);
+    model.feed({ time, loudShed, loudBuses: items, loudEnergies: Float32Array.from(energies) });
+  }
+  function hubOf(): LoudnessHub {
+    const hub = new LoudnessHub();
+    hub.configure({
+      available: true, root: "Master",
+      buses: [{ name: "Master", parent: null, slot: 0, metered: true }, { name: "Music", parent: "Master", slot: SLOT, metered: true }],
+    });
+    return hub;
+  }
+  function expectSame(hub: LoudnessHub, model: LoudnessTrackModel, name: string, slot: number, t: number): void {
+    const live = hub.busLoudness(name)!;
+    const v = model.valuesAt(slot, t)!;
+    const label = `${name} at ${t}`;
+    expect(v, label).not.toBeNull();
+    expect([v.momentary, v.shortTerm, v.integrated, v.lra, v.truePeak, v.incomplete], label).toEqual([
+      live.momentary, live.shortTerm, live.integrated, live.lra, live.maxTruePeak, live.incomplete,
+    ]);
+  }
+
+  it("a new meter's first take flagged RESET is no gap; a later RESET is an epoch (gap, incomplete), bit for bit with the hub", () => {
+    const hub = hubOf();
+    const model = new LoudnessTrackModel();
+    for (let k = 0; k < 200; k += PER_STATUS) {
+      const e: number[] = [];
+      for (let j = 0; j < PER_STATUS; j++) e.push(tone(k + j));
+      const flags = (k === 0 || k === 150 ? LOUD_FLAG_RESET : 0) | PER_STATUS;
+      const seq = k >= 150 ? k - 150 : k;
+      const t = (k + PER_STATUS) * SUB_BLOCK_SECONDS;
+      both(hub, model, t, 0, [{ slot: SLOT, flags, firstSeq: seq, truePeak: 0.5 }], e);
+      expectSame(hub, model, "Music", SLOT, t);
+      expect(model.valuesAt(SLOT, t)!.incomplete, `incomplete at ${t}`).toBe(k >= 150);
+    }
+    expect(model.series(SLOT)!.gaps.map((g) => g.kind)).toEqual(["epoch"]);
+    expect(model.series(SLOT)!.gaps[0]!.from).toBeCloseTo(15.1, 9);
+  });
+
+  it("a ladder shed pauses the bus but not the output, which meters on (a STATUS without its sub-blocks is a loss), bit for bit with the hub", () => {
+    const hub = hubOf();
+    const model = new LoudnessTrackModel();
+    let seq = 0;
+    for (let k = 0; k < 80; k++) {
+      const shed = k >= 30 && k < 35 ? 1 : 0;
+      const count = shed ? 0 : PER_STATUS;
+      const e: number[] = [];
+      for (let b = 0; b < 2; b++) for (let j = 0; j < count; j++) e.push(tone(seq + j) * (b + 1));
+      const t = (k + 1) * PER_STATUS * SUB_BLOCK_SECONDS;
+      both(hub, model, t, shed, [
+        { slot: SLOT, flags: count, firstSeq: seq, truePeak: 0.4 },
+        { slot: LOUD_OUTPUT_TAP, flags: count, firstSeq: seq, truePeak: 0.6 },
+      ], e);
+      seq += PER_STATUS;
+      expectSame(hub, model, "Music", SLOT, t);
+      expectSame(hub, model, "Master", LOUD_OUTPUT_TAP, t);
+      expect(model.bus(SLOT)!.stats.paused, `bus paused at ${k}`).toBe(shed === 1);
+      expect(model.bus(LOUD_OUTPUT_TAP)!.stats.paused, `output paused at ${k}`).toBe(false);
+    }
+    // the output's shed statuses read the loss (window restarted, incomplete), the bus resumed incomplete
+    expect(model.valuesAt(LOUD_OUTPUT_TAP, 16)!.momentary).toBe(Number.NEGATIVE_INFINITY);
+    expect(model.valuesAt(LOUD_OUTPUT_TAP, 16)!.incomplete).toBe(true);
+    expect(model.series(LOUD_OUTPUT_TAP)!.gaps.every((g) => g.kind === "lost")).toBe(true);
+    expect(model.valuesAt(SLOT, 40)!.incomplete).toBe(true);
   });
 });
 
