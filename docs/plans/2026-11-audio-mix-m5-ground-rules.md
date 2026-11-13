@@ -17,7 +17,7 @@ Only the coordinator writes these; if you need a change, say so in your report:
 - `src/plugins/audio/runtime/wasm/*.wasm`, `wasm/hash.json` (you may commit a local rebuild; the coordinator's replaces it), `native/audio/Cargo.lock`, `Cargo.toml` dependencies, `native/audio/build.mjs`;
 - the metered baselines (`tools/audio-bench/metered/`);
 - after W1: `audio-wire/src/schema/*`, `schema.rs`, `generated.rs`, `runtime/wire.generated.ts`, `vectors/wire.json`, `audio-wasm/src/lib.rs`;
-- after W1: `audio-core/src/{lib,layout,core,counters,status,bus}.rs`, `audio-dsp/src/lib.rs` (reach `bus.rs` through K1's stage hooks; set counters from your own module);
+- after W1: `audio-core/src/{lib,layout,core,counters,status,bus}.rs`, `audio-dsp/src/lib.rs` (reach `bus.rs` through K1's stage hooks and your opcode through K1's arm in `scheduler.rs`; set counters from your own module);
 - after W1: `runtime/backend.ts`, `runtime/Audio.ts`, `src/myco.ts`, `runtime/testing.ts`, `runtime/index.ts`, `runtime/core/coreBackend.ts`, `runtime/core/context.ts` (fill the per-concern module K0 gave you instead);
 - `docs/architecture/implementation-status.md`, `docs/README.md`, `docs/decisions/*`, `docs/design/0171-audio-mix/build-log.md` (supply text in your report);
 - `package.json`, `vite*.ts`, `playwright.config.ts`.
@@ -33,7 +33,7 @@ The full single-writer table, with the wave each file changes owner, is in the w
 - The audio plugin imports nothing from other plugins (`src/plugins/plugins.test.ts`); the types the engine needs (`BusLoudness`, `MixOp`) live in `src/engine/audio/`.
 - Every M1–M4 golden and parity digest stays bit-identical. The **one** named exception is Rv1's muted-bus-with-a-send golden. Never re-record a digest to make a test pass; report it.
 - An asap `BUS_RAMP` on a lone lane uses `Ramp::next`'s arithmetic and lanes at identity are skipped, not multiplied by 1.0 (R3).
-- The recorder and the STATUS reader allocate nothing per block.
+- The recorder and the STATUS reader allocate nothing per block. Nothing imports `capture/recorder.ts` statically except through `capture/capture.ts`'s dynamic import: a game that never captures loads no recorder chunk.
 - Size and speed gates are tripwires: if your change crosses one, report it with the number; never trade CPU, quality, accuracy or a feature to stay under. The capture decode caps are security bounds, not tripwires: never raise them.
 - Fill, don't reshape (leaves): signatures, types, module declarations and other files stay as the skeleton has them; if one looks wrong, stop and report.
 

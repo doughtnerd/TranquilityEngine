@@ -19,7 +19,7 @@ Every file two tasks in one wave would have touched (*hotspot*), and every later
 | # | Found | Tasks, wave | Fix |
 |---|---|---|---|
 | A1 | `bus.rs` (689 lines): B1a, B2, B3, Rv1, Dp1, Ld2, Sc1 each edit it, B1a and B2 in the same wave | W2–W6 | **hook stub** K1: `bus.rs` calls `lanes::apply`, `lanes::settle`, `bus_order::compute`, `duck::gain`, `duck::detect`, `loudness::tap`, `sends::feed`, `bus_slots::apply` with identity bodies, every digest unchanged; each task fills its own module; `bus.rs` is the coordinator's after W1 |
-| A2 | `layout.rs`, `core.rs`: no row owns them, though the core gains ≈ 24 KB of state ([ARCH §6]) and five new opcodes need dispatch | W1–W6 | **complete config early**: K1 lays out every M5 region and adds every dispatch arm in W1 (stage B after Wa1's merge 1) |
+| A2 | `layout.rs`, `core.rs`: no row owns them, though the core gains ≈ 24 KB of state ([ARCH §6]); and **dispatch is in `scheduler.rs`** (`:176–210`, `:300–330`), which B1a, B2, B3, Dp1, Ld2 and Sc1 would each need for their opcode's arm, B1a and B2 in W2, B3 and B1b in W3 (review R1) | W1–W6 | **complete config early**: K1 lays out every M5 region (stage B after Wa1's merge 1) and adds a length entry, a well-formed check and an apply arm in `scheduler.rs` for every new opcode, each calling its owner's stub, and moves `bus::mix` into `lanes.rs`; afterwards only B2 (W2) and B1b (W3) edit `scheduler.rs`, for the pending queue and class B |
 | A3 | `counters.rs`, `status.rs`: Cp1, Dp1, Ld2 each add fields or a section | W2, W4, W6 | **counters struct**: K1 declares every M5 counter and writes the 256-B header and the three sections from it and from `duck::status`, `loudness::status`; tasks set values in their own modules |
 | A4 | `fx.rs`: Rv1 (the send into a scratch) and B4 (blends) in W3 | W3 | K1 routes the reverb slot into the 1 KB scratch and `sends::feed` (unscaled, bit-identical); Rv1 fills `sends.rs` only; B4 owns `fx.rs` |
 | A5 | `due.rs`, `scheduler.rs`: B1b and B2 both edit them; both could start after B1a/Wa1 | W2–W3 | **wave move**: B2 (W2) before B1b (W3). The late-batch rule ties the due list to the pending queue, so a seam would split one mechanism across two owners. +1 d on the pure chain (plan est.) |
@@ -27,7 +27,7 @@ Every file two tasks in one wave would have touched (*hotspot*), and every later
 | A7 | `duck.rs`: B3 (rule table), Dp1 (presence), Sc1 (level) | W3, W4, W6 | sequential, one per wave, additive; K1 declares the module |
 | A8 | core `loudness.rs`: Ld2 then Ld7 | W6, W7 | sequential, additive |
 | A9 | The wire: Wa1 retires `BUS_MIX`, but `coreBackend.ts`, `commandWriter.ts`, `replay.ts` and the core handler use it until B1a and Wa2 | W1–W2 | **planned stub replacement** H1 plus a coordinator step: Wa1 keeps `BUS_MIX`; B1a maps it onto the `runtime` lane; Wa2 writes `BUS_RAMP` through `laneWriter.ts`'s interim body; **R0** removes `BUS_MIX` at W2's end; Mx2 replaces the interim body in W3 |
-| A10 | The three hard-coded STATUS sizes (Wa2's row) break `npm test` at Wa1's merge | W1 | moved into Wa1's merge (one line each); Wa2's lead verifies |
+| A10 | Tests that hard-code the STATUS layout (three named in Wa2's row; also `statusReaderM3.test.ts`, `statusReaderM4.test.ts`, `wire.roundtrip.test.ts:717–789`, `audio-bench/src/lib.rs:2178`, `schema/music.rs:23`) and `CORE_ABI_MAJOR = 3` (`coreDriver.ts:60`, checked at `context.ts:262`) break `npm test` and every core load at Wa1's merge (review R2) | W1 | all moved into Wa1's merge 1, which is one merge with K1's stage B (`status.rs` asserts the header size statically); Wa2's lead verifies |
 | A11 | `coreBackend.ts` (2,140 lines): Dp1, Mx2, Rc3, Ma1, Ma2, Ma3 each edit it, Ma2 and Ma3 possibly together | W3–W8 | **per-concern modules** K0: `core/laneWriter.ts` (Wa2, Mx2), `presence.ts` (Dp1), `liveMix.ts` (Ma1), `structuralDip.ts` (Ma2), `deferredAdds.ts` (Ma3), the sink calls to `mix/profileSink.ts` (Rc3 implements in `capture/events.ts`); `coreBackend.ts` is the coordinator's after W1 |
 | A12 | `context.ts`: Rc2's copy between the decode and the RECYCLE | W4 | K0 leaves the hook (a null check); Rc2 fills `capture/recorder.ts` |
 | A13 | `Audio.ts`, `backend.ts`, `myco.ts`: Rc4, Ld4, Ma1, Dbg1 add members | W2–W8 | **declare the whole surface early**: K0 declares every M5 member, delegating to stubs in each owner's file |
@@ -49,6 +49,14 @@ Every file two tasks in one wave would have touched (*hotspot*), and every later
 | A29 | The smoke spec, `export.spec.ts`, the walker grown by many tasks | W1–W10 | single writer per wave (the waves plan's table); E2 and E3 own their milestone's export and walker cases with one lead each |
 | A30 | **Default flips before their safety net**: Dp1 (presence) before G1's reference; Ma2 (live structural) before Ck1; Mx1 (`Bus.volume`) before Sa1's samples; R0 before B1a and Wa2 | W1–W7 | held branches and joint merges (the waves plan's flip table) |
 | A31 | Pf4's dependency on Rc4 puts the capture chain (Rc2 → Rc3 → Rc4) on the profiler's path | W7 | **interface stub** H4: K0's `Audio.capture` surface; E1 tests the real path (dependency changed in the waves plan) |
+| A33 | `chain.rs` reads each bus's gain directly (`chain.rs:82, 94`) for voice sends and the bed fold; no task owned it, so lanes would break sends and beds (review R3) | W1–W3 | K1 routes it through a `lanes::` accessor (bit-identical) and moves automation's `gainMul` multiply (`bus.rs:561–568`) into `lanes::apply`; B1a (W2) and B1b (W3) own `chain.rs` |
+| A34 | `coreBackend.ts` code outside K0's seams: `writer.master` (`:591, 808, 817`, Mx2's master and hidden-tab mute) and the bus indexing by project position (`:740–801`, which ARCH §4.7 moves to slots) (review R4) | W3, W5, W6 | K0 moves the master writes into `laneWriter.ts` and the indexing into a new `core/busIndex.ts` (Ma1 W5, Ma2 W6) |
+| A35 | Mo1 (W1) must cover `MixOp`s whose settings Ld5 (W2) adds: `setBus "meter"`, `setTarget`, `loudnessResetOnPlay`, and Sa1's new rule fields (review R5) | W1 | **complete config early**: K0's first commit declares those settings types in `settings.ts`; Sa1 and Ld5 write only the parse |
+| A36 | `BUS_MIX` in 36 files, including the TS goldens and the parity harness (`coreRender.ts:108`); R0 at 0.5 d couldn't convert them (review R6) | W2 | B1a converts the Rust tests and the bench, Wa2 the TS tests and the parity harness, each with a bit-identity check; R0 re-estimated at 1.5 d and only deletes |
+| A37 | Ck1 (W7) names "the discontinuity check on the Mixer scene", which Sa2 builds in W9 (review R7) | W7, W9 | that item runs as DSd in W9 after Sa2, using DS0's extracted `runtime/golden/maxStep.ts` |
+| A38 | Flips ahead of their net: Mx2's stamped ramps (net in G1, W4); Dp1 removing the presence path the Babylon fallback uses (`babylonBackend.ts:10`) (review R8) | W3, W4 | Mx2 held and merged with Dp1 + G1; Dp1 keeps main's presence path for backends without the core |
+| A39 | The mixer gate exits a task's own build (`build.mjs:153–160`) with ≈ 7.9 KB left (review R9) | W1–W6 | the coordinator raises `MIXER_LIMIT` to 360 KB in W0 with a log line |
+| A40 | Rotation of 16 written twice (Rc4's `save.ts`, X1's `trigger.ts`); the 0147 amendment given to Hk1, Dc4 and Dc5; the recorder's lazy chunk at risk from a static import in K0's hook (review R14, R15, R18) | W1, W2, W7, W9 | X1 calls Rc4's rotation; Hk1 is 0147's one author; K0 and Rc2 import `recorder.ts` only through `capture.ts`'s dynamic import |
 | A32 | Hk1's files are `src/editor/`, not the audio plugin; the plugin boundary test | W2 | Hk1 alone in `src/editor/` this wave; its acceptance runs `src/plugins/plugins.test.ts` |
 
 **Overlaps checked and left as they were:** sequential additive edits in different waves (`duck.rs` B3 → Dp1 → Sc1; `lanes.rs` B1a → B1b; `mixer.ts` Mx1 → Dp1 → Ma1 → Rc3 → Ma3; `capture/format.ts` Rc1 → Rc1b; `reader.ts` Rc1 → Rc5 → Rc6; `worker.ts` Rc5 → Rc6 → Pf6; `profilerSource.ts` Rc5 → Pf1). Read-only uses across a wave (Ld4 reads Mx1's merged loudness source; Pf2–Pf8 read Pf1's models; Mp2a reads Mp1a's models and the existing `BusMeters.tsx` drawing).
@@ -97,8 +105,8 @@ Days are the table's; leaf days are plan est. "Unsplit" gives the reason in one 
 | K1 (2.5, plan) | strongest | all | none: a bit-identical restructure needs judgement | 0 |
 | S0 (1, plan) | mid | all | none: one spec, real-app flake judgement | 0 |
 | SX0 + LS0 (1.5), SXb + LSb (1.5), SXc + LSc (1.5) | mid (the E2 and E3 leads for b and c) | all | none: written from the running product | 0 |
-| DS0 (0.5), DSd (0.5) | G1's lead; Sa2's lead | all | none: under half a day | 0 |
-| R0 (0.5), W0 (1) | coordinator | all | none | 0 |
+| DS0 (0.5), DSd (0.5) | G1's lead; Sa2's lead | all (DS0 extracts `maxStep` into `runtime/golden/maxStep.ts`) | none: under half a day | 0 |
+| R0 (1.5), W0 (1) | coordinator | all | none | 0 |
 
 ### M5-0
 
@@ -192,7 +200,7 @@ Days are the table's; leaf days are plan est. "Unsplit" gives the reason in one 
 
 | Task (d) | Lead | Keeps | Leaves | Leaf d |
 |---|---|---|---|---|
-| X1 (4.5) | mid | the option's plumbing, the dialog, the player | **L-X1a** `capture/trigger.ts`: F9 start/stop/save, the one-second three-finger hold, rotation of 16, against fake events (owner decision 7) | 0.75 |
+| X1 (4.5) | mid | the option's plumbing, the dialog, the player | **L-X1a** `capture/trigger.ts`: F9 start/stop/save and the one-second three-finger hold against fake events, calling Rc4's rotation (owner decision 7) | 0.75 |
 | X2 (2.5) | mid | unsplit: small | none | 0 |
 | X3 (4) | mid | unsplit: e2e | none | 0 |
 | Sa2 (4) | mid | unsplit: audible judgement | none | 0 |
@@ -211,6 +219,25 @@ Days are the table's; leaf days are plan est. "Unsplit" gives the reason in one 
 
 ## Independent review
 
-A fresh agent that didn't write these files reviewed the waves plan, this tree and the design for hotspots, rework, contracts that land too late and tasks missing from the source. Its findings and their fixes are listed below.
+A fresh agent that didn't write these files reviewed the waves plan, this tree and the design against the code (2026-11-13) for hotspots, rework, contracts that land too late and tasks missing from the source. It confirmed all 79 rows appear once, no task precedes a dependency, and the state-at-planning facts it checked hold. Its findings, each checked against the code by the planner before fixing:
 
-(Filled in after the review.)
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| R1 | Dispatch is in `scheduler.rs`, not `core.rs`; B1a/B2 (W2) and B3/B1b (W3) would share it | blocking | A2: K1 adds every arm in `scheduler.rs` |
+| R2 | More tests hard-code the STATUS layout, and `CORE_ABI_MAJOR = 3` would fail every core load at Wa1's merge | blocking | A10: all in Wa1's merge 1, one merge with K1's stage B |
+| R3 | `chain.rs` reads bus gains directly and had no owner | blocking | A33 |
+| R4 | `writer.master` and the bus indexing in `coreBackend.ts` were outside K0's seams | major | A34: `laneWriter.ts`, new `busIndex.ts` |
+| R5 | Mo1's ops need settings types Ld5 adds after it | major | A35: K0's first commit declares the types |
+| R6 | R0 far bigger than 0.5 d (`BUS_MIX` in 36 files, the parity harness among them) | major | A36: conversions in B1a and Wa2; R0 1.5 d |
+| R7 | Ck1's Mixer-scene item can't run before Sa2 | major | A37: DSd in W9 |
+| R8 | Mx2's and Dp1's flips ahead of their nets | major | A38 |
+| R9 | The mixer gate fails a task's own build | major | A39: raised in W0 |
+| R10 | Mid overflow in W6, W8, W9 unacknowledged | major | start orders in each wave (W8 plan est. +2 d) |
+| R11 | `check:audio-metered` listed as a must-pass wave gate | minor | shippable item 1: run as a tripwire, logged, not a merge gate |
+| R12 | DSd's path differed from G1's; `maxStep` is private | minor | `runtime/golden/`; DS0 extracts the helper |
+| R13 | Mx1's `duckGain` and Dbg1's slot rows need later work | minor | coded against stubs, said in their rows |
+| R14 | Rotation written twice | minor | A40: X1 calls Rc4's |
+| R15 | 0147's amendment had three authors | minor | A40: Hk1 only |
+| R16 | Dc5's "after Ls1" missing in W10 | minor | added |
+| R17 | K1 stage B and Wa1 merge 1 read as circular | minor | stated as one merge |
+| R18 | A static import of `recorder.ts` would defeat the lazy chunk | minor | A40, K0's contract text |

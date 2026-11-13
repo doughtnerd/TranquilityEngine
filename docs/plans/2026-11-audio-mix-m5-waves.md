@@ -22,6 +22,13 @@ Checked in the repository rather than taken from the handoff ([2026-11-audio-mix
 - **Facts the handoff doesn't state, which this plan relies on:**
   - Sizes of the hot files: `bus.rs` 689 lines, `voices.rs` 2,491, `scheduler.rs` 822, `due.rs` 371, `counters.rs` 720, `status.rs` 620, `fx.rs` 355, `sends.rs` 189, `core.rs` 259, `layout.rs` 306, `compressor.rs` 525; `coreBackend.ts` 2,140, `eventRuntime.ts` 1,599, `babylonBackend.ts` 1,448, `context.ts` 1,157, `coreDriver.ts` 1,050, `backend.ts` 964, `voiceTable.ts` 950, `coreAutomation.ts` 932, `commandWriter.ts` 863, `AudioSettingsSection.tsx` 798, `audioSettingsModel.ts` 745, `replay.ts` 682, `settings.ts` 596, `mixer.ts` 268.
   - **`BUS_MIX` carries the snapshot low-pass as well as the gain** (`bus.rs:88–90`, `coreBackend.ts:678–698`), and main writes it from `coreBackend.ts`, `commandWriter.ts:461–465` and `replay.ts:491–505`. Its retirement can't land in Wa1 alone without breaking typecheck and every bus test; see the lanes flip below.
+  - **`BUS_MIX` is in 36 files**, tests included: the Rust tests `audio-core/tests/{common/mod,bus,golden_buses,zones_golden,beds,automation,due_list}.rs` and `chain.rs`'s own tests, `audio-bench/src/lib.rs`, `audio-wire/src/model.rs` and `vectors/cases.rs`, and on the TypeScript side `audioGolden.test.ts:62,135`, `recovery.test.ts`, `coreBackend.test.ts`, `audioApi.test.ts`, `busEffectiveGainLoopback.test.ts` and **the parity harness `tests/e2e/audio-parity/coreRender.ts:108`**. Each is converted to `BUS_RAMP` with a bit-identity check before R0 deletes the opcode.
+  - **Command dispatch is in `scheduler.rs`, not `core.rs`:** the length table and well-formed checks at `scheduler.rs:176–210`, the apply arms at `:300–330` (`BUS_MIX => bus::mix`, `bus.rs:404`).
+  - **`chain.rs` reads each bus's gain directly** (`chain.rs:82, 94`) for voice sends and the bed fold, as the product of the `BUS_MIX` gain and automation's `gainMul`; it must follow the lanes or sends and beds lose bit-identity.
+  - **The ABI is checked on main:** `CORE_ABI_MAJOR = 3` (`worklet/coreDriver.ts:60`, checked in `core/context.ts:262` and `coreDriver.test.ts:409`), so ABI 4.0 needs that constant in the same merge. More tests hard-code today's STATUS layout than the handoff lists: `statusReaderM3.test.ts:139,171`, `statusReaderM4.test.ts:152,194,213,273`, `wire.roundtrip.test.ts:717–789` (a hand-built 176-B header), `audio-bench/src/lib.rs:2178` (a 16 KiB buffer); the 176 is also in `schema/music.rs:23`, and `status.rs` asserts the header size statically, so the wire and the core writer can only merge together.
+  - **The mixer gate fails the build, not just the merge:** `build.mjs:153–160` exits 1 above `MIXER_LIMIT`, with ≈ 7.9 KB left, and `sourceHash.test.ts` forces a rebuild, so a task's own worktree would hit it. The coordinator raises it in W0 (budgets).
+  - **The main-side master and bus indexing are outside `applyMix`:** `writer.master` at `coreBackend.ts:591, 808, 817` (hidden-tab mute, master volume) and the indexing by project position in `configureBuses`, `busConfigWire`, `planBeds`, `busIndexByName` (`coreBackend.ts:740–801`). K0's seams take both.
+  - **The Babylon fallback relies on main folding presence ducks into the bus volume** (`babylonBackend.ts:10`), so main's presence path stays for backends without the core.
   - **The shared reverb (convolver) lives in `bus.rs`** (`bus.rs:63, 441, 587–591`), not in `zones.rs` or `sends.rs`; `IDLE_MARGIN_QUANTA` is `zones.rs:116`.
   - **`audio-core/src/layout.rs` and `core.rs` have no owner in the table**, though the design's layout lists both as changed and the core gains ≈ 24 KB of state (loudness 14.8 KB, lanes, duck followers, detectors and the send scratch ≈ 9 KB, [ARCH §6]). Contract K1 owns them.
   - `projectSettingsSection.ts` and `projectSection.ts` are in `src/editor/`, not `src/editor/sdk/` (Hk1's row lists them beside `sdk/project.ts`).
@@ -34,7 +41,7 @@ Checked in the repository rather than taken from the handoff ([2026-11-audio-mix
 
 Every wave merges to the M5 integration branch, and every milestone to master, with all of these true:
 
-1. **Wave end** (the owner's cadence, [0162 working-notes](../design/0162-audio-spatial/working-notes.md)): `npm run typecheck`, the full `npm test`, `npm run build`, `npm run test:e2e` (Chromium), `cargo test` in `native/audio/`, `npm run check:audio-metered`, and the short benches the wave's tasks touch. The committed wasm matches its source hash (`wasm/sourceHash.test.ts`). A baseline change says why in the build log. The coordinator runs these with **no agent running a browser suite, bench or build** (M4's retrospective).
+1. **Wave end** (the owner's cadence, [0162 working-notes](../design/0162-audio-spatial/working-notes.md)): `npm run typecheck`, the full `npm test`, `npm run build`, `npm run test:e2e` (Chromium), `cargo test` in `native/audio/`, and the short benches the wave's tasks touch. The committed wasm matches its source hash (`wasm/sourceHash.test.ts`). **`npm run check:audio-metered` runs too, as a tripwire, not a merge gate:** a scene over 10% is traced to its cause and logged; when the cause is the design's own work, the coordinator moves the baseline with a build-log line. A baseline change always says why in the build log. The coordinator runs these with **no agent running a browser suite, bench or build** (M4's retrospective).
 2. **Milestone end, before master:** also `npm run test:e2e:slow` (which holds `export.spec.ts`, the **shipped-form smoke**), WebKit and Firefox when the milestone touches the browser layer (all five do), the long benches, the **discontinuity check** on the milestone's new scenes, and the coordinator's run of the milestone's listening walker in listen mode before the owner gets it. After any merge that follows the milestone checks, the specs covering the changed code run again before the master merge (M4's retrospective, item 3).
 3. **M1–M4 goldens and parity digests stay bit-identical** at every wave end. M5 has **exactly one named exception**: the muted-bus-with-a-send golden that post-fader sends change (Rv1, R11). Any other digest change is a failure, not a re-record.
 4. **No feature flags, no compatibility defaults** (owner). What changes for every project is a **flip**: its own merge, gated on its safety net. A task's table dependencies are kept; the plan only holds merges back.
@@ -42,11 +49,11 @@ Every wave merges to the M5 integration branch, and every milestone to master, w
    | Flip | What changes for every project | Tasks | Gated on (safety net) |
    |---|---|---|---|
    | **Seven gain lanes** | every bus's gain goes through `lanes.rs` instead of the single ramp | B1a | every existing bus golden keeps its digest through the `BUS_RAMP` harness (B1a's own acceptance); checked again in G1 |
-   | **`BUS_MIX` retired** | main writes `BUS_RAMP` (the `runtime` lane and the snapshot low-pass) where it wrote `BUS_MIX`; the opcode leaves the schema | R0 (coordinator, plan est. 0.5 d) after **B1a and Wa2** have both merged (W2's end) | the bus goldens and `busEffectiveGainLoopback.test.ts` unchanged on the integration head with both merged; until R0 the core accepts both opcodes |
+   | **`BUS_MIX` retired** | main writes `BUS_RAMP` (the `runtime` lane and the snapshot low-pass) where it wrote `BUS_MIX`; the opcode leaves the schema | R0 (coordinator, plan est. 1.5 d) after **B1a and Wa2** have both merged (W2's end). B1a converts every Rust test and the bench crate to `BUS_RAMP`, Wa2 every TypeScript test and the parity harness (`coreRender.ts:108`), each with a bit-identity check, so R0 only deletes the opcode, its handler, its writers and its wire vectors (`model.rs`, `vectors/cases.rs`) | the bus goldens, the parity digests and `busEffectiveGainLoopback.test.ts` unchanged on the integration head with both merged; until R0 the core accepts both opcodes |
    | **Mixer authored/runtime split** | `Bus.volume` becomes the script multiplier; `authoredVolume` is new; `fadeTo` in the samples behaves differently | **Mx1 + Sa1, merged together** (W1's end) | Mx1's "fade, snapshot and presence-duck curves equal today's at the heard clock" and Sa1's sample parse and `fadeTo`/`mute` checks |
    | **Post-fader sends** | a muted, faded, ducked or snapshot-lowered bus stops feeding the reverb (owner decision 1) | Rv1 (W3) | Rv1's named new golden, every other bus golden unchanged, a settled gain of 1 bit-identical; owner listening section M5-0 |
-   | **Presence ducking in the core** | main stops computing presence ducks; `BUS_PRESENCE` stamps them at the voice frame | **Dp1 + G1, merged together** (W4) | G1's presence duck against the offline reference. Dp1 waits on its branch until G1's presence case passes; Dp1 is on G1's path anyway, so this costs no days |
-   | **Stamped bus ramps** | script fades and snapshots start on their stamp (class B in the due list) | B1b (W3), then Mx2 (W3) | B1b's exactness (1e-7) and `splitQuanta` 0; Mx2's loopback fade landing on its stamp; G1's stamped cases |
+   | **Presence ducking in the core** | on the core backend, main stops computing presence ducks; `BUS_PRESENCE` stamps them at the voice frame. The Babylon fallback keeps main's presence path (`babylonBackend.ts:10`) | **Dp1 + G1, merged together** (W4) | G1's presence duck against the offline reference. Dp1 waits on its branch until G1's presence case passes; Dp1 is on G1's path anyway, so this costs no days |
+   | **Stamped bus ramps** | script fades and snapshots start on their stamp (class B in the due list) | B1b (W3: the core accepts stamped ramps; nothing sends one yet), then **Mx2, held on its branch and merged with Dp1 + G1** (W4) | B1b's exactness (1e-7) and `splitQuanta` 0; Mx2's loopback fade landing on its stamp; G1's stamped cases and DS0's `maxStep`. Ma1 (W5) is Mx2's only successor, so holding it costs no days |
    | **The loudness ladder step** | with buses metered, bed and zone shedding start 1 s later | Ld7 (W7) | Ld7's step-order test through the 0170 recovery (`ladderRecoveryLoopback.test.ts`); skipped with master only, so no project without extra meters changes |
    | **Edits in Play reach the mixer** | an edit, undo or redo in Play applies live | Hk1 (W2) and Ma1 (W5), then **Ma2 + Ck1 merged together** (W6–W7) | until Ma2 merges, Ma1 answers every structural op with `restartRequired` ("applies at the next Play"), so no structural edit can click; Ma2 waits on its branch until Ck1's structural cases pass |
 
@@ -63,23 +70,23 @@ The table's milestone groups, unchanged. **The table's bold (each milestone's lo
 | **M5-0** | the core's mix timing | **Wa1**, Wa2, B1a, B1b, Rv1, **B2, B3**, B4, **Dp1, G1**, Mx1, Mx2, Sa1, Bn1, **Dc1** (+ K0, K1, S0, R0, DS0, SX0, LS0) | every existing digest unchanged and `splitQuanta` 0 in the ramp scenes; a presence duck starts on its stamped frame; a late batch's sequence shifts whole; the named golden exception recorded; mixer size recorded. **Shipped form:** the Sound Lab export plays a scripted fade and a presence duck after the first tap (SX0). **Discontinuity:** `maxStep` on the stamped fade, snapshot, presence duck and post-fader mute scenes (DS0). **Owner:** listening section M5-0 | 57 | W4 |
 | **M5a** | the stream, the CPU figure and the Profiler | Cp1, Cp2, **Rc1**, Rc1b, Rc2, Rc3, Rc4, **Rc5**, Rc6, **Pf1, Pf2**, Pf3a–Pf3d, **Pf4, Pf5**, Pf7, Pf8, Bb1, Dbg1, Bn2, **E1**, Dc2 | zero allocation per block over 10 minutes; a capture round-trips at five positions; `loadPermille` reads a real number in Chromium and a reason where the clock is coarse. **Shipped form:** a Sound Lab export that never calls `Audio.capture.start` loads no recorder chunk (Rc4's case). No sound changes, so no discontinuity check or listening section | 97.5 | W9 |
 | **M5b** | loudness | **Ld1, Ld2, Ld7**, Ld3, Ld4, Ld5, Ld6, Ld8, Bn3, Pf6, Bb2, E2, Dc3 (+ SXb, LSb) | spike S1's checks and the synthesised EBU goldens on native and wasm; a −23 dBFS tone reads −22.99 LUFS in Play; the scenes inside the allowances. **Shipped form:** the export reads a loudness value on master (SXb). **Owner:** listening section M5b (loudness against a reference file) | 45.5 | W9 (after M5a) |
-| **M5c** | live mixing and sidechain ducking | Sc1, Gs1, Sm1, **Mo1, Ma1**, Ma2, Ma3, Hk1, Ck1, Dk1, **Mp1a**, Mp1b, **Mp2a, Mp2b**, Fg1, Bb3, Bn4, **E3**, Dc4 (+ SXc, LSc) | every edit class passes the click test; the gate passes on the audio clock; an edit made in Play is on disk after Stop and undoable. **Shipped form:** a level-ducking rule ducks in the export (SXc). **Discontinuity:** Ck1 is the check. **Owner:** listening section M5c (dips, level against presence ducking, fader zipper) | 71 | W9 (after M5b) |
-| **M5d** | captures in exports, samples, guides, the listening pass | **X1**, X2, **X3**, Sa2, **So1**, Ls1, Ls2, Dc5 (+ DSd) | a game exported with the option records and saves a capture the editor opens (X3 is the shipped-form smoke); the samples play warning-free; every owner listening item has a key or scene; `maxStep` on the Mixer scene (DSd); the owner's full pass signed off (Ls2) | 29.5 | W10 |
+| **M5c** | live mixing and sidechain ducking | Sc1, Gs1, Sm1, **Mo1, Ma1**, Ma2, Ma3, Hk1, Ck1, Dk1, **Mp1a**, Mp1b, **Mp2a, Mp2b**, Fg1, Bb3, Bn4, **E3**, Dc4 (+ SXc, LSc) | every edit class passes the click test; the gate passes on the audio clock; an edit made in Play is on disk after Stop and undoable. **Shipped form:** a level-ducking rule ducks in the export (SXc). **Discontinuity:** Ck1's click tests, and `maxStep` on Sa2's Mixer scene (DSd, W9; Ck1's row names that scene, which only exists once Sa2 lands). **Owner:** listening section M5c (dips, level against presence ducking, fader zipper) | 71 | W9 (after M5b) |
+| **M5d** | captures in exports, samples, guides, the listening pass | **X1**, X2, **X3**, Sa2, **So1**, Ls1, Ls2, Dc5 (+ DSd) | a game exported with the option records and saves a capture the editor opens (X3 is the shipped-form smoke); the samples play warning-free; every owner listening item has a key or scene; the owner's full pass signed off (Ls2) | 29.5 | W10 |
 
-Tasks 300.5 d + named reserve 60 d (RS1–RS10, API §11.1) = 360.5 d ≈ 72.1 person-weeks, unchanged. This plan adds **≈ 13 d of plan-only work (plan est.)**: the coordinator's W0 (1) and R0 (0.5); K0 2.5 and K1 2.5 (strongest); S0 1, the three export cases SX0, SXb, SXc (0.5 each), the three listening sections with their walker cases LS0, LSb, LSc (1 each), DS0 and DSd (0.5 each). Some of it is work the rows would otherwise do (see "Contract days"); as in M3 and M4, the rows keep their days until the pilot measures the shift, so the 13 d count as added (owner item O3).
+Tasks 300.5 d + named reserve 60 d (RS1–RS10, API §11.1) = 360.5 d ≈ 72.1 person-weeks, unchanged. This plan adds **≈ 14 d of plan-only work (plan est.)**: the coordinator's W0 (1) and R0 (1.5); K0 2.5 and K1 2.5 (strongest); S0 1, the three export cases SX0, SXb, SXc (0.5 each), the three listening sections with their walker cases LS0, LSb, LSc (1 each), DS0 and DSd (0.5 each). Some of it is work the rows would otherwise do (see "Contract days"); as in M3 and M4, the rows keep their days until the pilot measures the shift, so the 14 d count as added (owner item O3).
 
 ```mermaid
 graph LR
   W0[W0 baseline] --> W1[W1 pilot: K0 K1 Wa1 Mx1+Sa1 Mo1 Sm1 Ld3 S0]
   W1 --> W2[W2 B1a B2 Wa2 → R0 · Rc1 Cp1 · Ld4 Ld5 Hk1 Bb2]
   W2 --> W3[W3 B1b→Mx2 B3 B4 Rv1 · Cp2 Bn1]
-  W3 --> W4[W4 Dp1+G1 · Rc5 Rc2 · Dbg1 Dc1 — M5-0 exits]
+  W3 --> W4[W4 Dp1+Mx2+G1 · Rc5 Rc2 · Dbg1 Dc1 — M5-0 exits]
   W4 --> W5[W5 Ma1 Ld1 Rc1b Rc6 Pf1]
   W5 --> W6[W6 Ma2 Sc1 Ld2 · Rc3 Pf2 Pf3a Pf7 Mp1a Bb3 Fg1]
   W6 --> W7[W7 Ck1 Gs1 Ld7 Ld6 · Rc4 Pf4 Pf3b-d Pf6 Mp2a Mp1b Bn2 Bb1]
   W7 --> W8[W8 Pf5 Pf8 Dk1 Mp2b Ma3 Ld8 E2 Bn3 X2 Dc2]
-  W8 --> W9[W9 E1 E3 Bn4 X1 Sa2 Dc3 Dc4 — M5a, M5b, M5c exit]
-  W9 --> W10[W10 X3→So1 · Ls1→Ls2 Dc5 — M5d exits]
+  W8 --> W9[W9 E1 E3 Bn4 X1 Sa2→DSd Dc3 Dc4 — M5a, M5b, M5c exit]
+  W9 --> W10[W10 X3→So1 · Ls1→Ls2 Ls1→Dc5 — M5d exits]
 ```
 
 ## The critical path
@@ -103,11 +110,11 @@ Computed by script (plan est.):
 
 ## Who does what
 
-- **Coordinator** (main session, strongest model): wave 0 (baseline, integration branch, the build log); R0 (the `BUS_MIX` retirement merge); starting leads and leaves, merges and wasm rebuilds; the single-writer files; the wave reviews and global checks; the milestone merges; the build log and owner reports.
+- **Coordinator** (main session, strongest model): wave 0 (baseline, integration branch, the mixer gate raised, the build log); R0 (the `BUS_MIX` retirement merge); starting leads and leaves, merges and wasm rebuilds; the single-writer files; the wave reviews and global checks; the milestone merges; the build log and owner reports.
 - **Leads and leaves:** see the tree. The strongest model leads every S row, K0, K1 and DS0; the mid model leads the M and J rows and the mid plan tasks. The cheapest model takes leaves where the leaf criteria hold.
-- **Isolation:** every lead and leaf works in its own git worktree under `.claude/worktrees/`. Leads branch from the integration branch at the wave's base (named in the brief: agent worktrees start at master unless told otherwise), leaves from their lead's skeleton commit. Branches held back for a flip (Dp1 for G1, Ma2 for Ck1) stay on their task branch; the coordinator merges the integration branch into them at each wave end so they don't drift.
+- **Isolation:** every lead and leaf works in its own git worktree under `.claude/worktrees/`. Leads branch from the integration branch at the wave's base (named in the brief: agent worktrees start at master unless told otherwise), leaves from their lead's skeleton commit. Branches held back for a flip (Mx2 and Dp1 for G1, Ma2 for Ck1) stay on their task branch; the coordinator merges the integration branch into them at each wave end so they don't drift.
 - **Dispatch is flat** (subagents can't start subagents in this tool): the lead commits its skeleton and returns leaf briefs, the coordinator starts the leaves, then continues the lead with their branch names.
-- **Concurrency:** up to **three strongest leads** and **six mid leads** at once (O1), leaves on top. **At most two load-heavy tasks at once** on this 4-core machine: a Playwright run, a bench, `npm run build`, a golden run over every scene. The heavy tasks are named per wave below; a third waits in the queue. Wave-end and milestone-end checks run with none of them running.
+- **Concurrency:** up to **three strongest leads** and **six mid leads** at once (O1), leaves on top. Waves with more tasks than slots give a **start order**; the rest start as slots free. **At most two load-heavy tasks at once** on this 4-core machine: a Playwright run, a bench, `npm run build`, a golden run over every scene. The heavy tasks are named per wave below; a third waits in the queue. Wave-end and milestone-end checks run with none of them running.
 - **Owner-only items:** listed in the handoff ("Open").
 
 ### Single-writer files
@@ -116,32 +123,36 @@ Computed by script (plan est.):
 |---|---|
 | `src/plugins/audio/runtime/wasm/*.wasm`, `wasm/hash.json` | coordinator, after merging (`npm run build:audio`); task branches commit Rust source and may commit a local rebuild, which the coordinator's replaces |
 | `native/audio/Cargo.lock`, any `Cargo.toml` dependency change (the `ebur128` dev-dependency for Ld6) | coordinator (the task asks in its report) |
-| `native/audio/build.mjs` | coordinator (a size move is logged, never traded, CLAUDE.md) |
+| `native/audio/build.mjs` | coordinator (a size move is logged, never traded, CLAUDE.md): `MIXER_LIMIT` raised in W0 to 360 KB, the design's ≈ 347–351 KB plus room, so no task's own build fails on it |
 | the metered baselines (`tools/audio-bench/metered/`) | coordinator, with a build-log line |
-| `audio-wire/src/schema/*`, `schema.rs`, `generated.rs`, `runtime/wire.generated.ts`, `vectors/wire.json`, `audio-wasm/src/lib.rs` | Wa1 in W1 (two merges); then the coordinator (R0 removes `BUS_MIX` at W2's end). Nobody else touches the schema |
+| `audio-wire/src/schema/*`, `schema.rs`, `generated.rs`, `model.rs`, `vectors/*`, `runtime/wire.generated.ts`, `audio-wasm/src/lib.rs` | Wa1 in W1 (two merges); then the coordinator (R0 removes `BUS_MIX` at W2's end). Nobody else touches the schema |
+| The tests that hard-code the STATUS layout (`core/mirror.test.ts`, `bufferPool.test.ts`, `statusReaderM3.test.ts`, `statusReaderM4.test.ts`, `wire.m4.test.ts`, `wire.roundtrip.test.ts`), `CORE_ABI_MAJOR` in `worklet/coreDriver.ts:60` and `coreDriver.test.ts:409`, the STATUS buffer in `audio-bench/src/lib.rs:2178` | Wa1's merge 1 (W1), so ABI 4.0 and the 256-B header land green |
 | `audio-core/src/{lib,layout,core,counters,status,bus}.rs`, `audio-dsp/src/lib.rs` | K1 in W1; then the coordinator. Tasks reach `bus.rs` through K1's stage hooks and set counters in their own modules |
+| `audio-core/src/chain.rs` (the bus-chain gain for voice sends and the bed fold) | K1 (W1: reads the gain through a `lanes::` accessor, bit-identical), B1a (W2), B1b (W3) |
 | `audio-core/src/fx.rs` | K1 (W1: the reverb slot writes the send scratch), B4 (W3). Rv1 works in `sends.rs` |
 | `audio-core/src/sends.rs` | K1 (W1: the `feed` and `convolver_should_run` hooks), Rv1 (W3) |
-| `audio-core/src/{due,scheduler}.rs` | B2 (W2), B1b (W3, after B2's merge) |
+| `audio-core/src/scheduler.rs` (command dispatch, `:176–210`, `:300–330`) | K1 (W1: a length entry, a well-formed check and an apply arm for every new opcode, each calling its owner's stub; `bus::mix` moved into `lanes.rs`), B2 (W2: the pending queue for stamped configuration, the sequence shift), B1b (W3, after B2's merge: class B routing). B1a, B3, Dp1, Ld2 and Sc1 fill the stubs the arms call and never edit it |
+| `audio-core/src/due.rs` | B2 (W2), B1b (W3, after B2's merge) |
 | `audio-core/src/lanes.rs` | K1 (W1: today's ramp moved in verbatim), B1a (W2), B1b (W3) |
 | `audio-core/src/bus_slots.rs` (plan seam) | K1 (stub), B2 (W2) |
 | `audio-core/src/bus_order.rs` | K1 (today's order moved in), B3 (W3) |
 | `audio-core/src/duck.rs` | K1 (stub), B3 (W3: the rule table), Dp1 (W4: presence), Sc1 (W6: level mode) |
 | `audio-core/src/loudness.rs` | K1 (stub), Ld2 (W6), Ld7 (W7) |
 | `audio-core/src/{cap_controller,zones,bed}.rs`, `runtime/core/zones.ts` | Ld7 (W7) only |
-| `audio-core/src/cap.rs`, `runtime/worklet/coreDriver.ts` | Cp1 (W2) only |
+| `audio-core/src/cap.rs`, `runtime/worklet/coreDriver.ts` | Cp1 (W2) only (after Wa1's one-line ABI constant in W1) |
 | `audio-dsp/src/{ramp}.rs` | B1a (W2) · `compressor.rs`, `biquad.rs`: B4 (W3) · `loudness.rs`: Ld1 (W5) · `sidechain.rs`: Sc1 (W6) |
 | existing `golden/*.json` digests and the bus golden harness | B1a (W2: the harness sends `BUS_RAMP` where it sent `BUS_MIX`; no digest changes); Rv1 adds the one named new golden; afterwards the coordinator. G1, Gs1 and Ld6 add new files only |
 | `runtime/backend.ts`, `runtime/Audio.ts`, `src/myco.ts`, `runtime/testing.ts`, `runtime/index.ts` | K0 in W1 (the whole M5 surface, delegating to stubs in each owner's file); then the coordinator |
 | `runtime/core/coreBackend.ts`, `core/context.ts`, `core/recovery.ts` | K0 in W1 (hooks into the per-concern modules below); then the coordinator; Mx2 takes `recovery.ts` in W3 |
-| `runtime/core/laneWriter.ts` (plan seam) | K0 (today's `applyMix` moved in), Wa2 (W2: the interim `BUS_RAMP` body), Mx2 (W3: the lane writer) |
+| `runtime/core/laneWriter.ts` (plan seam) | K0 (today's `applyMix`, `effectiveGain` and the `writer.master` calls of `coreBackend.ts:591, 808, 817` moved in), Wa2 (W2: the interim `BUS_RAMP` body), Mx2 (W3: the lane writer, master through `BUS_RAMP`, the hidden-tab mute) |
+| `runtime/core/busIndex.ts` (plan seam) | K0 (`configureBuses`, `busConfigWire`, `planBeds`, `busIndexByName` moved in from `coreBackend.ts:740–801`, unchanged), Ma1 (W5: every consumer reads the slot from Sm1's table, ARCH §4.7), Ma2 (W6: tombstones in the remap) |
 | `runtime/core/presence.ts` · `liveMix.ts` · `structuralDip.ts` · `deferredAdds.ts` (plan seams) | K0 (stubs); then Dp1 (W4) · Ma1 (W5) · Ma2 (W6) · Ma3 (W8) |
 | `runtime/core/{commandWriter,statusReader,bufferPool}.ts` | Wa2 (W2) only |
 | `runtime/core/mirror.ts` | Wa2 (W2), Cp2 (W3) · `core/debug.ts`: Cp2 (W3), Dbg1 (W4) · `core/replay.ts`: Wa2 (W2), Mx2 (W3) · `core/selection.ts`: Mx2 (W3), Rc3 (W6) |
 | `runtime/core/{voiceTable}.ts`, `events/eventRuntime.ts`, the music files Rc3 taps | Rc3 (W6) only |
-| `src/engine/audio/mixer.ts` | Mx1 (W1, the whole `Bus` surface of §1.1), Dp1 (W4), Rc3 (W6), Ma1 (W5), Ma3 (W8); one per wave. Ld4 registers through Mx1's loudness source and doesn't edit it |
+| `src/engine/audio/mixer.ts` | Mx1 (W1, the whole `Bus` surface of §1.1), Dp1 (W4), Ma1 (W5), Rc3 (W6), Ma3 (W8); one per wave. Ld4 registers through Mx1's loudness source and doesn't edit it |
 | `src/engine/audio/mixOps.ts` · `slotTable.ts` | K0 (types and interface, W1, first commit); then Mo1 (W1) · Sm1 (W1), Ma2 (W6) |
-| `src/engine/audio/settings.ts` | Sa1 (W1), Ld5 (W2) |
+| `src/engine/audio/settings.ts` | K0's first commit (types only: the `DuckingRule` fields `mode`, `detector`, `threshold`; `meter`, `LoudnessTarget`, `loudnessTargets`, `loudnessResetOnPlay`, so Mo1 can cover every `MixOp` of §6.2 in W1), then Sa1 (W1, the ducking parse and samples), Ld5 (W2, the metering parse) |
 | `src/plugins/audio/editor/audioSettingsModel.ts` | Mo1 (W1), Ld5 (W2), Dk1 (W8) · `AudioSettingsSection.tsx`: Ld5 (W2), Dk1 (W8) |
 | `runtime/babylonBackend.ts` | Bb2 (W2), Bb3 (W6), Bb1 (W7) |
 | `runtime/capture/format.ts` | Rc1 (W2), Rc1b (W5) · `capture/reader.ts`: Rc1 (W2), Rc5 (W4), Rc6 (W5) · `capture/worker.ts` (plan seam, the Worker entry): Rc5 (W4), Rc6 (W5), Pf6 (W7) · `capture/recorder.ts`: Rc2 (W4), Rc6 (W5) |
@@ -156,14 +167,15 @@ Computed by script (plan est.):
 | `samples/*` | Sa1 (W1), Sa2 (W9) |
 | `docs/guide/*` audio chapters | Dc1 (W4), Dc2 (W8), Dc3 and Dc4 (W9, different files), Dc5 (W10) |
 | `package.json`, `vite*.ts`, `playwright.config.ts` (the capture Worker's build entry if Vite needs one) | coordinator (Rc5 asks) |
-| `docs/architecture/implementation-status.md`, `docs/README.md`, `docs/decisions/*` (0097, 0147, 0157, 0158, 0162, 0170 amendments), `docs/design/0171-audio-mix/build-log.md` | coordinator (Dc1–Dc5 and Hk1 supply text; no task rewrites 0171 or 0172; deviations go in the build log) |
+| `docs/architecture/implementation-status.md`, `docs/README.md`, `docs/decisions/*` (0097, 0147, 0157, 0158, 0162, 0170 amendments), `docs/design/0171-audio-mix/build-log.md` | coordinator (Dc1–Dc5 and Hk1 supply text; no task rewrites 0171 or 0172; deviations go in the build log). **The 0147 amendment's one author is Hk1**; Dc4 and Dc5 link to it |
+| `runtime/golden/maxStep.ts` (the discontinuity detector, extracted from the private `maxStep` in `audioGolden.test.ts:644`) | DS0 (W4, extracts it and edits `audioGolden.test.ts` to import it); DSd (W9) uses it |
 | `docs/design/0171-audio-mix/listening-pass.md` | Ls1 (W10); the listening sections LS0, LSb, LSc write `listening-notes/m5-0.md`, `m5b.md`, `m5c.md` beside it, which Ls1 consolidates |
 
 ### Budgets
 
 | Gate | Limit | Today | M5 estimate | Kind |
 |---|---|---|---|---|
-| Mixer wasm size | 327,680 B gate, 307,200 B warning (`build.mjs:27–29`) | 319,799 B (past the warning) | ≈ 347–351 KB ([ARCH §6], est.): lanes, order, sends and run-out 6–10 KB may cross it in M5-0; loudness ≈ 21 KB in M5b | **project tripwire**: the coordinator raises `MIXER_LIMIT` with a build-log line when a merge crosses it (R25); never traded against CPU or quality |
+| Mixer wasm size | 327,680 B gate, 307,200 B warning (`build.mjs:27–29`); the gate exits the build | 319,799 B (past the warning) | ≈ 347–351 KB ([ARCH §6], est.): lanes, order, sends and run-out 6–10 KB in M5-0; loudness ≈ 21 KB in M5b | **project tripwire**: the coordinator raises `MIXER_LIMIT` to 360 KB **in W0** with a build-log line (R25), because the gate fails a task's own build (`build.mjs:153–160`) and only ≈ 7.9 KB are left; a build past 360 KB is raised again with a reason; never traded against CPU or quality |
 | `check:audio-metered` | 10% per scene | M4 baselines | Bn1–Bn4 add scenes; gates in **instructions** (owner decision 3) | **project tripwire** (rustc 1.97 here reads +1–4%) |
 | Worst-case render allowance | typical 0.015 ms, worst 0.10 ms ([ARCH §7.2]) | M4 figures | floor µs are estimates at 0.6 ns per instruction (owner decision 3) | **project tripwire**, recorded as a move in the build log |
 | STATUS worst case | 20,480 B buffer | 16,192 of 16,384 B | 17,824 B | **structural (wire)**: exceeding it is a wire change; tests assert the worst case |
@@ -205,9 +217,9 @@ No tripwire is a flip's gate or a task's acceptance. Where a row's acceptance na
 
 | Id | Contract | Lands | Lets run in parallel |
 |---|---|---|---|
-| **Wa1** | **The whole M5 wire, generated first** (one lead, two merges): **merge 1** (≈ day 3) every new opcode and constant of §4.1–4.2 (`BUS_RAMP`, `BUS_SLOT` with `sequenceId`, `BUS_DUCK`, `BUS_PRESENCE`, `LOUD_CONFIG`, the seven lane ids, `MAX_DUCK_RULES`, …), the 256-B STATUS header and the three sections, the 20,480 B buffer, ABI 4.0, envelope 1.3, **with `BUS_MIX` still generated**; the three hard-coded STATUS sizes in `mirror.test.ts`, `bufferPool.test.ts` and `wire.m4.test.ts` read the constants (moved from Wa2 so merge 1 is green). **Merge 2** (≈ day 5): vectors, fuzz, the stale-wasm check | W1 | K1's stage B after merge 1 (they merge together); Wa2, B1a, B2, Cp1, Rc1 code against final records; nobody touches the schema after W1 except R0 |
-| **K1** | **The core skeleton** (strongest, plan est. 2.5 d): module declarations and doc-comment skeletons for `lanes.rs`, `bus_order.rs`, `duck.rs`, `loudness.rs`, **`bus_slots.rs`** (`audio-core`) and `loudness.rs`, `sidechain.rs` (`audio-dsp`). **Stage A (day 0):** `bus.rs` restructured into stage hooks with identity bodies, every digest bit-identical: the gain stage calls `lanes::apply` (today's ramp code moved verbatim into `lanes.rs`), RESET calls `lanes::settle`, the order comes from `bus_order::compute` (today's `order()` moved in), the duck lane from `duck::gain` (1.0), the loudness tap `loudness::tap` (no-op), the pre-fader tap for `duck::detect` (no-op), the reverb slot in `fx.rs` writes the 1 KB send scratch and `sends::feed` adds it unscaled (bit-identical), `sends::convolver_should_run` keeps today's rule, `configure`'s per-slot apply goes through `bus_slots.rs`; dispatch arms in `core.rs` for every new opcode calling stubs; every M5 counter in `counters.rs` (`busRecordsEarly`, `sidechainLate`, `loudShed`, the five work-unit totals, `liveDeferred`, …). **Stage B (after Wa1's merge 1):** regions for lanes, duck followers, detectors, loudness (14.8 KB) and the send scratch in `layout.rs` with their slices in `core.rs`; `status.rs` writes the 256-B header from the counters struct and the three sections from `duck::status` and `loudness::status` stubs | W1 | B1a, B1b, B2, B3, B4, Rv1, Dp1, Ld2, Ld7, Sc1, Cp1 fill their own files; nobody edits `bus.rs`, `layout.rs`, `core.rs`, `lib.rs`, `counters.rs` or `status.rs` again |
-| **K0** | **The main-side skeleton** (strongest, plan est. 2.5 d). **First commit (≈ day 0.5):** `src/engine/audio/mixOps.ts` (the §6.2 `MixOp` union, `ApplyResult`, function stubs), `slotTable.ts` (the §6.3 interface, stubs), every M5 member of `backend.ts` (optional: the lane and slot writers, `applyOp`, `flushNow`, `mixCaps` with `cpuReason`, `cpu`, the loudness config, the recorder tap) and the whole M5 shape of `AudioDebugInfo` (Dbg1's fields). **Then:** the public surface in `Audio.ts` and `src/myco.ts` (`Audio.capture` delegating to `capture/capture.ts`, the lazy chunk; `Audio.loudnessTarget` to `mix/loudnessHub.ts`); `mix/profileSink.ts` (the `ProfileSink` interface and the null object); per-concern modules wired from `coreBackend.ts`: **`core/laneWriter.ts`** (today's `applyMix` and `effectiveGain` moved in), **`core/presence.ts`** (calls at configure, voice start and voice stop), **`core/liveMix.ts`**, **`core/structuralDip.ts`**, **`core/deferredAdds.ts`** (stubs answering `restartRequired`); the sink calls at the rebuild, trap, stall and hidden-tab points in `coreBackend.ts` and `recovery.ts`; the recorder hook in `context.ts` between the decode and the RECYCLE (a null check when no recorder); the debug source members in `coreBackend.ts`; fake backend members in `testing.ts` | W1 | Mx1, Sm1, Mo1 base on the first commit; Wa2, Mx2, Dp1, Ma1–Ma3, Rc2–Rc4, Ld4, Cp2, Dbg1 fill stubs without touching `coreBackend.ts`, `context.ts`, `Audio.ts`, `backend.ts`, `myco.ts` or `testing.ts` |
+| **Wa1** | **The whole M5 wire, generated first** (one lead, two merges): **merge 1** (≈ day 3) every new opcode and constant of §4.1–4.2 (`BUS_RAMP`, `BUS_SLOT` with `sequenceId`, `BUS_DUCK`, `BUS_PRESENCE`, `LOUD_CONFIG`, the seven lane ids, `MAX_DUCK_RULES`, …), the 256-B STATUS header and the three sections, the 20,480 B buffer, ABI 4.0, envelope 1.3, **with `BUS_MIX` still generated**; every test that hard-codes today's STATUS layout reads the constants or the new layout (`mirror.test.ts`, `bufferPool.test.ts`, `wire.m4.test.ts`, moved from Wa2; and `statusReaderM3.test.ts`, `statusReaderM4.test.ts`, `wire.roundtrip.test.ts:717–789`, `audio-bench/src/lib.rs:2178`, `schema/music.rs:23`); `CORE_ABI_MAJOR` becomes 4 (`worklet/coreDriver.ts:60`, `coreDriver.test.ts:409`), so a 4.0 core loads. **Merge 1 and K1's stage B are one merge** (`status.rs` asserts the header size statically, so neither compiles alone). **Merge 2** (≈ day 5): vectors, fuzz, the stale-wasm check | W1 | K1's stage B (one merge with merge 1); Wa2, B1a, B2, Cp1, Rc1 code against final records; nobody touches the schema after W1 except R0 |
+| **K1** | **The core skeleton** (strongest, plan est. 2.5 d): module declarations and doc-comment skeletons for `lanes.rs`, `bus_order.rs`, `duck.rs`, `loudness.rs`, **`bus_slots.rs`** (`audio-core`) and `loudness.rs`, `sidechain.rs` (`audio-dsp`). **Stage A (day 0):** `bus.rs` restructured into stage hooks with identity bodies, every digest bit-identical: the gain stage calls `lanes::apply` (today's ramp code and automation's `gainMul` multiply, `bus.rs:561–568`, moved verbatim into `lanes.rs`, with `bus::mix` itself), RESET calls `lanes::settle`, `chain.rs` reads each bus's gain through a `lanes::` accessor (`chain.rs:82, 94`), the order comes from `bus_order::compute` (today's `order()` moved in), the duck lane from `duck::gain` (1.0), the loudness tap `loudness::tap` (no-op), the pre-fader tap for `duck::detect` (no-op), the reverb slot in `fx.rs` writes the 1 KB send scratch and `sends::feed` adds it unscaled (bit-identical), `sends::convolver_should_run` keeps today's rule, `configure`'s per-slot apply goes through `bus_slots.rs`; a length entry, a well-formed check and an apply arm in `scheduler.rs` (`:176–210`, `:300–330`; dispatch isn't in `core.rs`) for every new opcode, each calling its owner's stub; every M5 counter in `counters.rs` (`busRecordsEarly`, `sidechainLate`, `loudShed`, the five work-unit totals, `liveDeferred`, …). **Stage B (after Wa1's merge 1):** regions for lanes, duck followers, detectors, loudness (14.8 KB) and the send scratch in `layout.rs` with their slices in `core.rs`; `status.rs` writes the 256-B header from the counters struct and the three sections from `duck::status` and `loudness::status` stubs | W1 | B1a, B1b, B2, B3, B4, Rv1, Dp1, Ld2, Ld7, Sc1, Cp1 fill their own files; nobody edits `bus.rs`, `layout.rs`, `core.rs`, `lib.rs`, `counters.rs` or `status.rs` again; `scheduler.rs` passes to B2 (W2) and B1b (W3), `chain.rs` to B1a and B1b |
+| **K0** | **The main-side skeleton** (strongest, plan est. 2.5 d). **First commit (≈ day 0.5):** `src/engine/audio/mixOps.ts` (the §6.2 `MixOp` union, `ApplyResult`, function stubs), `slotTable.ts` (the §6.3 interface, stubs), the M5 settings **types** in `settings.ts` (the ducking rule's `mode`, `detector`, `threshold`; `meter`, `LoudnessTarget`, `loudnessTargets`, `loudnessResetOnPlay`; parsing stays Sa1's and Ld5's), every M5 member of `backend.ts` (optional: the lane and slot writers, `applyOp`, `flushNow`, `mixCaps` with `cpuReason`, `cpu`, the loudness config, the recorder tap) and the whole M5 shape of `AudioDebugInfo` (Dbg1's fields). **Then:** the public surface in `Audio.ts` and `src/myco.ts` (`Audio.capture` delegating to `capture/capture.ts`, the lazy chunk; `Audio.loudnessTarget` to `mix/loudnessHub.ts`); `mix/profileSink.ts` (the `ProfileSink` interface and the null object); per-concern modules wired from `coreBackend.ts`: **`core/laneWriter.ts`** (today's `applyMix`, `effectiveGain` and the `writer.master` calls of `coreBackend.ts:591, 808, 817` moved in), **`core/busIndex.ts`** (`configureBuses`, `busConfigWire`, `planBeds`, `busIndexByName` from `coreBackend.ts:740–801`, unchanged), **`core/presence.ts`** (calls at configure, voice start and voice stop), **`core/liveMix.ts`**, **`core/structuralDip.ts`**, **`core/deferredAdds.ts`** (stubs answering `restartRequired`); the sink calls at the rebuild, trap, stall and hidden-tab points in `coreBackend.ts` and `recovery.ts`; the recorder hook in `context.ts` between the decode and the RECYCLE (a null check when no recorder; **no static import of `capture/recorder.ts`** anywhere outside `capture/capture.ts`'s dynamic import, so a game that never captures loads no recorder chunk); the debug source members in `coreBackend.ts`; fake backend members in `testing.ts` | W1 | Mx1, Sm1, Mo1, Sa1 base on the first commit; Wa2, Mx2, Dp1, Ma1–Ma3, Rc2–Rc4, Ld4, Cp2, Dbg1 fill stubs without touching `coreBackend.ts`, `context.ts`, `Audio.ts`, `backend.ts`, `myco.ts` or `testing.ts` |
 | **H1** | **The interim lane writer** (a planned stub replacement, labelled in both briefs): Wa2 replaces `laneWriter.applyMix`'s body with one asap `BUS_RAMP` per bus on the `runtime` lane (gain) and the `snapshot` lane (low-pass), today's targets, bit-identical by R3; Mx2 replaces it with the per-lane writer | W2 | R0 retires `BUS_MIX` at W2's end without waiting for Mx2 |
 | **H2** | **Mx1's `Bus` surface**: every §1.1 member in `mixer.ts`, with `loudness` read from a `LoudnessSource` registered on the mixer (types in `loudnessTypes.ts`, empty values until Ld4) and `apply(op)` delegating to the backend's `applyOp` | W1 | Ld4 registers its hub; Ma1 fills `apply`'s main-side model; neither adds a public member |
 | **H3** | **Rc1's skeleton**: `format.ts` declares the keyframe and NAMES codec signatures (Rc1b fills) and the Worker protocol (`open`, `seek`, `range`, progress, cancel, **`appendSegment`**) | W2 | Rc2 builds keyframes into the ring against the declared codecs beside Rc1b (W4–W5); Rc6 appends through `appendSegment` while Pf1 owns `profilerSource.ts` (W5) |
@@ -216,8 +228,8 @@ No tripwire is a flip's gate or a task's acceptance. Where a row's acceptance na
 | **H6** | **S0's smoke spec**: the real app (`?sample=sound-lab`), one `test.fixme` case per milestone with the steps named | W1 | each milestone's task un-fixmes its case in its own wave |
 
 **Contract days and the work they move** (all plan est.). The contracts cost ≈ 5 d of strongest lead time on top of the table (K0 2.5, K1 2.5). H1–H6 are inside their tasks' days. Work that moves:
-- into K1 from B1a (moving the ramp into `lanes.rs`), B2 (`core.rs` dispatch), B3 (the order's call sites), Dp1, Ld2, Cp1 (their `status.rs` and `counters.rs` edits), Rv1 (the `fx.rs` scratch routing), and the region layout no row owns;
-- into K0 from Mx2 (moving `applyMix` into `laneWriter.ts`), Dp1, Ma1–Ma3, Rc2, Rc3, Rc4, Ld4, Dbg1 (their `coreBackend.ts`, `context.ts`, `Audio.ts`, `backend.ts` lines), Mo1 and Sm1 (their types).
+- into K1 from B1a (moving the ramp and `bus::mix` into `lanes.rs`, `chain.rs`'s accessor), B1a, B2, B3, Dp1, Ld2 and Sc1 (their `scheduler.rs` dispatch arms), B3 (the order's call sites), Dp1, Ld2, Cp1 (their `status.rs` and `counters.rs` edits), Rv1 (the `fx.rs` scratch routing), and the region layout no row owns;
+- into K0 from Mx2 (moving `applyMix` and the master writes into `laneWriter.ts`), Ma1 (moving the bus indexing into `busIndex.ts`), Dp1, Ma1–Ma3, Rc2, Rc3, Rc4, Ld4, Dbg1 (their `coreBackend.ts`, `context.ts`, `Audio.ts`, `backend.ts` lines), Mo1 and Sm1 (their types).
 
 ### Changed from the table
 
@@ -233,8 +245,12 @@ Every change keeps the row's ID, days and acceptance; each is a file handover or
 | **Dbg1 after Sm1** | Dbg1 shows the slot table |
 | **Ls1 after E1, E2, E3 and X3** | the listening document is written from the running product, every feature in |
 | **Pf4 no longer waits for Rc4; E1 gains Rc4** | Pf4 codes against K0's `Audio.capture` surface (H4); its acceptance (banners on fixtures, one registration point) doesn't need a real save. Takes Rc4 off the profiler's path |
-| **Wa1's merge carries the three hard-coded STATUS sizes** (Wa2's acceptance item) | merge 1 grows the buffer; without them `npm test` fails until Wa2. Wa2's lead verifies them |
+| **Wa1's merge carries every hard-coded STATUS size and layout, and `CORE_ABI_MAJOR`** (three of them are Wa2's acceptance item) | merge 1 grows the buffer and header and bumps the ABI; without them `npm test` fails and no core loads until Wa2. Wa2's lead verifies them |
 | **`BUS_MIX` leaves the schema in R0, not Wa1** | its writers (`coreBackend.ts`, `commandWriter.ts`, `replay.ts`) and the core's handler go only once B1a and Wa2 have merged; until then both opcodes work (B1a maps `BUS_MIX` onto the `runtime` lane) |
+| **B1a converts the Rust tests and the bench to `BUS_RAMP`; Wa2 the TypeScript tests and the parity harness** | `BUS_MIX` is in 36 files; each conversion carries a bit-identity check, so R0 is a deletion (re-estimated at 1.5 d) |
+| **Mx2 is held on its branch until G1 (W4)** | the stamped-ramps flip's safety net (G1's stamped cases, DS0) lands in W4; Ma1 is Mx2's only successor |
+| **Ck1's "discontinuity check on the Mixer scene" runs as DSd in W9** | the Mixer scene is Sa2's (W9); the rest of Ck1's acceptance is unchanged in W7 |
+| **Dp1 keeps main's presence path for the Babylon fallback** | the fallback folds presence ducks on main (`babylonBackend.ts:10`) until Bb3 and after |
 | **Rv1 doesn't edit `fx.rs` or `bus.rs`** | K1 routes the reverb slot through the scratch and `sends::feed`; Rv1 fills `sends.rs` (scaling, the run-out) and B4 owns `fx.rs` in the same wave |
 | **Plan tasks** K0, K1, S0, R0, SX0, SXb, SXc, LS0, LSb, LSc, DS0, DSd | the contracts, the smoke and the checks M4's retrospective asks for (≈ 13 d, O3) |
 
@@ -254,23 +270,24 @@ After every wave, before its files change owner, the coordinator:
 
 - `npm ci`; `rustup target add wasm32-unknown-unknown` if missing; `wasm-bindgen-cli` isn't needed (the audio crates don't use it). Then the baseline: typecheck, `npm test`, `npm run build`, `cargo test` in `native/audio/`, `npm run check:audio-metered`, `npm run test:e2e`. Record failures as known before any task runs.
 - Create the integration branch from `origin/master`.
+- Raise `MIXER_LIMIT` in `native/audio/build.mjs` to 360 KB with a build-log line (the design's ≈ 347–351 KB, R25; budgets).
 - Start `build-log.md` with "State at planning" above and the owner's answers to O1–O7.
 
 ## Wave 1 (pilot): the wire, both skeletons, the mixer model, early pure TypeScript
 
 | Task | Level | Files (new unless marked) |
 |---|---|---|
-| Wa1 (two merges) | mid | `audio-wire/src/schema/mix.rs`; edits `schema/{status,batch,envelope}.rs`, `schema.rs`, `generated.rs`, `runtime/wire.generated.ts`, `vectors/wire.json`, `audio-wasm/src/lib.rs` (ABI 4.0); edits `core/mirror.test.ts`, `core/bufferPool.test.ts`, `wire.m4.test.ts` (sizes read the constants); tests `audio-wire/tests/m5_*.rs`, `runtime/wire.m5.test.ts` |
-| K1 | strongest | the core skeleton (Contracts); edits `audio-core/src/{lib,layout,core,counters,status,bus,fx,sends}.rs`, `audio-dsp/src/lib.rs`; new skeleton files; stage B after Wa1's merge 1, merged with it |
-| K0 | strongest | the main-side skeleton (Contracts); edits `backend.ts`, `Audio.ts`, `src/myco.ts`, `testing.ts`, `core/coreBackend.ts`, `core/context.ts`, `core/recovery.ts`; new `src/engine/audio/{mixOps,slotTable}.ts` (types), `core/{laneWriter,presence,liveMix,structuralDip,deferredAdds}.ts`, `mix/{profileSink,loudnessHub}.ts`, `capture/capture.ts` (stubs) |
-| Mx1 | strongest | edits `src/engine/audio/mixer.ts` (H2); new `loudnessTypes.ts`; tests |
-| Sa1 | mid | edits `src/engine/audio/settings.ts`, `samples/*` (the `fadeTo` rescales, the new ducking fields), tests |
+| Wa1 (two merges) | mid | `audio-wire/src/schema/mix.rs`; edits `schema/{status,batch,envelope}.rs`, `schema.rs`, `generated.rs`, `runtime/wire.generated.ts`, `vectors/wire.json`, `audio-wasm/src/lib.rs` (ABI 4.0); edits the tests that hard-code the STATUS layout (`core/mirror.test.ts`, `bufferPool.test.ts`, `statusReaderM3.test.ts`, `statusReaderM4.test.ts`, `wire.m4.test.ts`, `wire.roundtrip.test.ts`), `audio-bench/src/lib.rs:2178`, `CORE_ABI_MAJOR` in `worklet/coreDriver.ts:60` and `coreDriver.test.ts`; tests `audio-wire/tests/m5_*.rs`, `runtime/wire.m5.test.ts` |
+| K1 | strongest | the core skeleton (Contracts); edits `audio-core/src/{lib,layout,core,counters,status,bus,fx,sends,scheduler,chain}.rs`, `audio-dsp/src/lib.rs`; new skeleton files; stage B after Wa1's merge 1, one merge with it |
+| K0 | strongest | the main-side skeleton (Contracts); edits `backend.ts`, `Audio.ts`, `src/myco.ts`, `testing.ts`, `core/coreBackend.ts`, `core/context.ts`, `core/recovery.ts`; types in `src/engine/audio/settings.ts` (first commit); new `src/engine/audio/{mixOps,slotTable}.ts` (types), `core/{laneWriter,busIndex,presence,liveMix,structuralDip,deferredAdds}.ts`, `mix/{profileSink,loudnessHub}.ts`, `capture/capture.ts` (stubs) |
+| Mx1 | strongest | edits `src/engine/audio/mixer.ts` (H2; `duckGain` reads K0's backend member, a stub until Wa2's reader and Dp1's section); new `loudnessTypes.ts`; tests |
+| Sa1 | mid (after K0's first commit) | edits `src/engine/audio/settings.ts`, `samples/*` (the `fadeTo` rescales, the new ducking fields), tests |
 | Mo1 | strongest (when K0's slot frees, ≈ day 2.5) | fills `src/engine/audio/mixOps.ts`; edits `editor/audioSettingsModel.ts`; tests |
 | Sm1 | mid (after K0's first commit) | fills `src/engine/audio/slotTable.ts`; property tests |
 | Ld3 | mid | `runtime/mix/loudnessStats.ts`, tests |
 | S0 (plan, 1 d) | mid | `tests/e2e/audio-mix-smoke.spec.ts` (H6): today it asserts the bus effective gain and `Audio.debug()` bus rows in Sound Lab; one `fixme` per milestone |
 
-**Hotspots checked:** `audio-core`: K1 alone; Wa1 touches only `audio-wire` and `audio-wasm`. `audio-wasm/src/lib.rs` is Wa1's. `src/engine/audio/`: `mixer.ts` (Mx1), `settings.ts` (Sa1), `mixOps.ts` and `slotTable.ts` (K0's first commit, then Mo1 and Sm1: a handover inside the wave, not a shared edit), `loudnessTypes.ts` (Mx1). `runtime/`: K0 alone outside `mix/loudnessStats.ts` (Ld3) and the three test files Wa1 edits. `testing.ts`: K0 only.
+**Hotspots checked:** `audio-core`: K1 alone (`scheduler.rs` and `chain.rs` included); Wa1 touches `audio-wire`, `audio-wasm`, one line of `audio-bench` and the STATUS-layout tests. `audio-wasm/src/lib.rs` and `coreDriver.ts`'s ABI line are Wa1's (Cp1 takes `coreDriver.ts` in W2). `settings.ts`: K0's types first, then Sa1's parse (a handover). `src/engine/audio/`: `mixer.ts` (Mx1), `settings.ts` (Sa1), `mixOps.ts` and `slotTable.ts` (K0's first commit, then Mo1 and Sm1: a handover inside the wave, not a shared edit), `loudnessTypes.ts` (Mx1). `runtime/`: K0 alone outside `mix/loudnessStats.ts` (Ld3) and the three test files Wa1 edits. `testing.ts`: K0 only.
 **Heavy:** S0 (one Playwright run).
 **Exit:** the shippable checks; `wire.roundtrip`, `wire.schemaHash` and the stale-wasm check green; STATUS worst case 17,824 B parses; every M1–M4 digest bit-identical with K1's hooks and regions in; Mx1 + Sa1 merged together (the split flip); `npm test` green with `BUS_MIX` still in use.
 
@@ -278,18 +295,18 @@ After every wave, before its files change owner, the coordinator:
 
 | Task | Level | Files |
 |---|---|---|
-| B1a | strongest | fills `audio-core/src/lanes.rs` (seven lanes, `BUS_RAMP` asap, `BUS_MASTER_OUT`, `BUS_MIX` mapped onto the `runtime` lane until R0, RESET on targets); edits `audio-dsp/src/ramp.rs`; the bus golden harness (`BUS_RAMP` where it sent `BUS_MIX`); tests |
+| B1a | strongest | fills `audio-core/src/lanes.rs` (seven lanes, `BUS_RAMP` asap, `BUS_MASTER_OUT`, `BUS_MIX` mapped onto the `runtime` lane until R0, RESET on targets, the automation lane); edits `audio-dsp/src/ramp.rs`, `audio-core/src/chain.rs` (the lane product for sends and beds); converts every Rust test that sends `BUS_MIX` (`audio-core/tests/{common/mod,bus,golden_buses,zones_golden,beds,automation,due_list}.rs`, `chain.rs`'s tests) and `audio-bench/src/lib.rs` to `BUS_RAMP`, digests unchanged; tests |
 | B2 | strongest | fills `audio-core/src/bus_slots.rs` (`BUS_SLOT`, tombstones, kept state per index, the re-parent re-running the order through `bus_order::compute`); edits `scheduler.rs` (stamped configuration in the pending queue, the sequence shift), `due.rs` (the `sequenceId` link to dip ramps); tests |
 | Rc1 | strongest (when Mo1's slot frees) | `runtime/capture/format.ts`, `capture/reader.ts` (H3), vectors and fuzz tests |
 | Cp1 | strongest (when B1a's slot frees) | edits `runtime/worklet/coreDriver.ts` (`busyMsTotal`, `quantaTotal`, `clockStepMs`, `clockSteps`), `audio-core/src/cap.rs` (work-unit totals into K1's counters) |
-| Wa2 | mid | edits `core/commandWriter.ts`, `statusReader.ts`, `mirror.ts`, `bufferPool.ts`, `replay.ts` (no `BUS_MIX`), `core/laneWriter.ts` (H1); tests |
+| Wa2 | mid | edits `core/commandWriter.ts`, `statusReader.ts`, `mirror.ts`, `bufferPool.ts`, `replay.ts` (no `BUS_MIX`), `core/laneWriter.ts` (H1); converts the TypeScript tests that send `BUS_MIX` (`audioGolden.test.ts`, `recovery.test.ts`, `coreBackend.test.ts`, `audioApi.test.ts`, `busEffectiveGainLoopback.test.ts`) and the parity harness `tests/e2e/audio-parity/coreRender.ts` to `BUS_RAMP`, digests unchanged; tests |
 | Ld4 | mid | fills `runtime/mix/loudnessHub.ts`; registers on Mx1's loudness source; tests |
 | Ld5 | mid (after Mo1 merges) | edits `settings.ts` (`meter`, `loudnessTargets`, `loudnessResetOnPlay`), `editor/audioSettingsModel.ts`, `editor/AudioSettingsSection.tsx`; tests |
 | Hk1 | mid (after Mo1 merges) | edits `src/editor/sdk/project.ts`, `src/editor/projectSettingsSection.ts`, `src/editor/projectSection.ts`; new `editor/mix/opLog.ts`; the 0147 amendment text for the coordinator |
 | Bb2 | leaf (J, after Ld4 merges) | edits `runtime/babylonBackend.ts` (the inert loudness shape and panel text) |
 
-**R0 at W2's end (coordinator, plan est. 0.5 d):** with B1a and Wa2 merged, remove `BUS_MIX` from the schema (its id reserved), regenerate, delete the core handler and B1a's mapping, the `commandWriter.ts` writer and its tests; rebuild the wasm; the bus goldens and `busEffectiveGainLoopback.test.ts` unchanged.
-**Hotspots checked:** `audio-core`: B1a (`lanes.rs`), B2 (`bus_slots.rs`, `scheduler.rs`, `due.rs`), Cp1 (`cap.rs`) disjoint; none edits `bus.rs` or `core.rs` (K1's hooks). `audio-dsp/src/ramp.rs`: B1a. `runtime/core/`: Wa2 alone (`laneWriter.ts` included). `settings.ts` and `audioSettingsModel.ts`: Ld5 alone this wave (Sa1 and Mo1 merged in W1). `src/editor/`: Hk1 alone. `babylonBackend.ts`: Bb2 alone.
+**R0 at W2's end (coordinator, plan est. 1.5 d):** with B1a and Wa2 merged (every test already on `BUS_RAMP`), remove `BUS_MIX` from the schema (its id reserved), `model.rs` and `vectors/cases.rs`, regenerate, delete the core handler and B1a's mapping and the `commandWriter.ts` writer; rebuild the wasm; the bus goldens and `busEffectiveGainLoopback.test.ts` unchanged.
+**Hotspots checked:** `audio-core`: B1a (`lanes.rs`, `chain.rs`, the Rust tests it converts), B2 (`bus_slots.rs`, `scheduler.rs`, `due.rs`), Cp1 (`cap.rs`) disjoint; none edits `bus.rs` or `core.rs` (K1's hooks); B1a's `BUS_RAMP` arm is K1's in `scheduler.rs`. The TypeScript tests Wa2 converts are touched by no other W2 task. `audio-dsp/src/ramp.rs`: B1a. `runtime/core/`: Wa2 alone (`laneWriter.ts` included). `settings.ts` and `audioSettingsModel.ts`: Ld5 alone this wave (Sa1 and Mo1 merged in W1). `src/editor/`: Hk1 alone. `babylonBackend.ts`: Bb2 alone.
 **Heavy:** none (B1a's harness run is a cargo test).
 **Exit:** the shippable checks after R0; the lanes flip and the `BUS_MIX` retirement in; Hk1's plugin boundary test; a stale wasm still fails `npm test`.
 
@@ -298,7 +315,7 @@ After every wave, before its files change owner, the coordinator:
 | Task | Level | Files |
 |---|---|---|
 | **B1b** | strongest | edits `audio-core/src/due.rs` (class B), `lanes.rs` (stamped segments, frame order, the overflow rule), `scheduler.rs`; tests |
-| **Mx2** | strongest (after B1b merges: an in-wave chain on the pure path) | fills `core/laneWriter.ts` (the per-lane writer, H1's replacement); edits `core/replay.ts` (lanes' remaining ramps after RESET), `core/recovery.ts`, `core/selection.ts` (audibility from the lane product); the smoke spec's M5-0 case; loopback tests |
+| **Mx2** | strongest (after B1b merges: an in-wave chain on the pure path) | fills `core/laneWriter.ts` (the per-lane writer, H1's replacement); edits `core/replay.ts` (lanes' remaining ramps after RESET), `core/recovery.ts`, `core/selection.ts` (audibility from the lane product); the smoke spec's M5-0 case; loopback tests; **held on its branch, merged with Dp1 + G1 in W4** |
 | B3 | strongest | fills `audio-core/src/bus_order.rs` (Kahn), `duck.rs` (the rule table, validation, ancestor trigger read a quantum late); tests |
 | B4 | strongest | edits `audio-dsp/src/compressor.rs`, `biquad.rs`, `audio-core/src/fx.rs` (blends per quantum); tests |
 | Rv1 | strongest | fills `audio-core/src/sends.rs` (scaled by all seven lanes, the run-out and reset); the one named new golden (a new file); tests |
@@ -313,24 +330,24 @@ Five strongest tasks for three slots: B1b, B3 and B4 start at once; Rv1 takes th
 
 | Task | Level | Files |
 |---|---|---|
-| **Dp1** | strongest | edits `audio-core/src/duck.rs` (presence rules, `BUS_PRESENCE` stamped, attack and release, the `busDuck` section through K1's emitter); fills `core/presence.ts`; edits `mixer.ts` (main stops computing presence ducks; `duckGain` from STATUS); the smoke spec's presence row; **held on its branch until G1's presence case passes** |
+| **Dp1** | strongest | edits `audio-core/src/duck.rs` (presence rules, `BUS_PRESENCE` stamped, attack and release, the `busDuck` section through K1's emitter); fills `core/presence.ts`; edits `mixer.ts` (on the core backend main stops computing presence ducks and `duckGain` reads STATUS; the Babylon fallback keeps main's presence path); the smoke spec's presence row; **held on its branch until G1's presence case passes** |
 | **G1** | strongest | new `audio-core/tests/m5_*.rs`, new `golden/` cases, `runtime/golden/audioGoldenM5.test.ts`; merges with Dp1 |
-| DS0 (plan, 0.5 d) | strongest (G1's lead) | `maxStep` cases on the stamped fade, snapshot, presence duck and post-fader mute scenes, in `audioGoldenM5.test.ts` |
+| DS0 (plan, 0.5 d) | strongest (G1's lead) | extracts `maxStep` from `audioGolden.test.ts:644` into `runtime/golden/maxStep.ts`; cases on the stamped fade, snapshot, presence duck and post-fader mute scenes in `runtime/golden/audioGoldenM5.test.ts` |
 | Rc5 | strongest | edits `capture/reader.ts`; new `capture/worker.ts`, `editor/mix/profilerSource.ts` (H3's `appendSegment`) |
 | Rc2 | strongest | `capture/ring.ts`, `capture/recorder.ts` (fills K0's recorder hook from its own module) |
-| Dbg1 | mid | edits `core/debug.ts`, `editor/AudioDebugPanel.tsx`, `editor/audioDebugRows.ts` |
+| Dbg1 | mid | edits `core/debug.ts`, `editor/AudioDebugPanel.tsx`, `editor/audioDebugRows.ts` (the slot-table rows read Sm1's table through K0's debug member; they show the identity layout until Ma1 wires the table in W5) |
 | Dc1 | mid lead (J row, after G1) | guide note in `docs/guide/` (the audio buses chapter); amendment text for 0097, 0157 §4.7, 0158 to the coordinator |
 | SX0 + LS0 (plan, 1.5 d) | mid (one lead) | a Sound Lab case in `tests/e2e/export.spec.ts`; `listening-notes/m5-0.md`; the walker `tests/e2e/audio-mix-listening.spec.ts` case M5-0 |
 
 **Hotspots checked:** `duck.rs`: Dp1 alone (B3 merged). `mixer.ts`: Dp1 alone. `capture/`: Rc5 (`reader.ts`, `worker.ts`) and Rc2 (`ring.ts`, `recorder.ts`) disjoint; `format.ts` nobody (Rc1 merged). `core/debug.ts`: Dbg1 alone (Cp2 merged). SX0 and LS0 share one lead.
 **Heavy:** G1 (every golden on native and wasm), SX0 + LS0 (Playwright, `@slow` export); Rc5's Worker test is a vitest run.
-**Exit (M5-0 exits here):** the shippable checks; M5-0's exit check; DS0 under the threshold; milestone-end checks; the walker in listen mode; owner listening section M5-0; the mixer size and any `MIXER_LIMIT` raise in the build log; the merge to master.
+**Exit (M5-0 exits here):** Mx2, Dp1 and G1 merge together (the stamped-ramps and presence flips); the shippable checks; M5-0's exit check; DS0 under the threshold; milestone-end checks; the walker in listen mode; owner listening section M5-0; the mixer size and any `MIXER_LIMIT` raise in the build log; the merge to master.
 
 ## Wave 5: live apply; the loudness DSP; keyframes, the live Worker path, the profiler source
 
 | Task | Level | Files |
 |---|---|---|
-| **Ma1** | strongest | fills `core/liveMix.ts` (direct and smoothed classes, `BUS_CONFIG` diff, `BUS_DUCK`, `LOUD_CONFIG`, `flushNow`; structural ops answer `restartRequired` until Ma2); edits `mixer.ts` (`apply`), `core/coreAutomation.ts` (rebind); the smoke spec's M5c steps stay `fixme` |
+| **Ma1** | strongest | fills `core/liveMix.ts` (direct and smoothed classes, `BUS_CONFIG` diff, `BUS_DUCK`, `LOUD_CONFIG`, `flushNow`; structural ops answer `restartRequired` until Ma2); fills `core/busIndex.ts` (every consumer reads the slot from Sm1's table, ARCH §4.7); edits `mixer.ts` (`apply`), `core/coreAutomation.ts` (rebind); the smoke spec's M5c steps stay `fixme` |
 | Ld1 | strongest | `audio-dsp/src/loudness.rs`, the MIT notice (`native/audio/third_party/`); spike S1's 189 checks as cargo tests |
 | Rc1b | strongest | fills `capture/format.ts` (keyframe and NAMES codecs) |
 | Rc6 | mid | edits `capture/recorder.ts`, `capture/reader.ts`, `capture/worker.ts` (sealed segments every second through `appendSegment`) |
@@ -344,7 +361,7 @@ Five strongest tasks for three slots: B1b, B3 and B4 start at once; Rv1 takes th
 
 | Task | Level | Files |
 |---|---|---|
-| Ma2 | strongest | fills `core/structuralDip.ts`; edits `slotTable.ts` (tombstone recycling at `TOMBSTONE_TAIL_FRAMES`); **held on its branch until Ck1's structural cases pass (W7)** |
+| Ma2 | strongest | fills `core/structuralDip.ts`; edits `slotTable.ts` (tombstone recycling at `TOMBSTONE_TAIL_FRAMES`), `core/busIndex.ts` (tombstones in the remap); **held on its branch until Ck1's structural cases pass (W7)** |
 | Sc1 | strongest | edits `audio-core/src/duck.rs` (level mode, the min combine); fills `audio-dsp/src/sidechain.rs` |
 | Ld2 | strongest | fills `audio-core/src/loudness.rs` (taps through K1's hook, the 32-entry ring, flags, `wuLoudness`, the STATUS sections through K1's emitter) |
 | Rc3 | mid | edits `core/voiceTable.ts`, `core/selection.ts`, `events/eventRuntime.ts`, the music files with transitions and snapshots (`music/transition.ts`, `music/musicSystem.ts`), `mixer.ts` (setter taps); new `capture/events.ts` (the real `ProfileSink`) |
@@ -355,7 +372,7 @@ Five strongest tasks for three slots: B1b, B3 and B4 start at once; Rv1 takes th
 | Bb3 | mid | edits `runtime/babylonBackend.ts` |
 | Fg1 | mid | `runtime/mix/faderGate.test.ts` |
 
-**Hotspots checked:** `duck.rs`: Sc1 alone. `loudness.rs` (core): Ld2. `slotTable.ts`: Ma2. `mixer.ts`: Rc3 alone (Ma1 merged in W5). `selection.ts`: Rc3 alone (Mx2 merged in W3). `editor/mix/`: Pf2, Pf3a, Pf7, Mp1a each own their files. `babylonBackend.ts`: Bb3 alone.
+Seven mid tasks for six slots: **start order** Rc3, Pf2, Pf3a, Mp1a, Pf7, Fg1; Bb3 takes the first free slot. **Hotspots checked:** `duck.rs`: Sc1 alone. `loudness.rs` (core): Ld2. `busIndex.ts`: Ma2 alone. `slotTable.ts`: Ma2. `mixer.ts`: Rc3 alone (Ma1 merged in W5). `selection.ts`: Rc3 alone (Mx2 merged in W3). `editor/mix/`: Pf2, Pf3a, Pf7, Mp1a each own their files. `babylonBackend.ts`: Bb3 alone.
 **Heavy:** none (Fg1 runs on the loopback host).
 **Exit:** the shippable checks; zero lost sub-blocks at both cadences (Ld2); every §5.6 event kind recorded (Rc3); p95 ≤ 50 ms on the audio clock (Fg1).
 
@@ -395,7 +412,7 @@ Eight mid tasks for six slots: Rc4, Pf4, Pf3b–d and Mp2a start; Pf6 and Mp1b t
 | X2 | mid (after Pf4's merge) | `editor/mix/openCapture.ts`; edits `ProfilerPanel.tsx` (File > Open if the SDK offers it; the drop path is H5's) |
 | Dc2 | mid lead (J row) | `docs/guide/audio-profiler.md` |
 
-**Hotspots checked:** `editor/mix/`: Pf5, Pf8, Mp2b, X2, Dk1 own their files; `ProfilerPanel.tsx` X2 alone; `index.ts` Mp2b alone. `mixer.ts`: Ma3 alone. Settings files: Dk1 alone (Ld5 merged in W2). Bench registry: Bn3 alone. `export.spec.ts`, the smoke spec, the walker: E2's lead alone.
+Ten mid tasks for six slots: **start order** Pf5 and Mp2b (the profiler's and the pure chain), Dk1 (E3 needs it), E2, Ma3, X2; then Pf8, Bn3, Ld8, Dc2 as slots free (plan est. +2 d on the wave). **Hotspots checked:** `editor/mix/`: Pf5, Pf8, Mp2b, X2, Dk1 own their files; `ProfilerPanel.tsx` X2 alone; `index.ts` Mp2b alone. `mixer.ts`: Ma3 alone. Settings files: Dk1 alone (Ld5 merged in W2). Bench registry: Bn3 alone. `export.spec.ts`, the smoke spec, the walker: E2's lead alone.
 **Heavy:** E2's specs and Bn3 (two).
 **Exit:** the shippable checks; a tone reads −22.99 LUFS in Play (E2, 3 of 3 repeats); the fifth effect says it applies at the next Play (Ma3).
 
@@ -406,13 +423,14 @@ Eight mid tasks for six slots: Rc4, Pf4, Pf3b–d and Mp2a start; Pf6 and Mp1b t
 | **E1** | mid | `tests/e2e/audio-mix-a.spec.ts` |
 | **E3** + SXc + LSc | mid (one lead) | `tests/e2e/audio-mix-c.spec.ts`; the smoke spec's M5c case; the export case; `listening-notes/m5c.md`; walker case M5c |
 | Bn4 | mid (queued under the heavy cap) | `audio-bench`, `tools/audio-bench` (2 and 8 level rules, the lane product) |
-| **X1** | mid | edits `src/export/{node,main,format,webBuild}.ts`, `src/editor/ui/ExportDialog.tsx`, the player entry in `src/player/`; new `capture/trigger.ts` (F9, the three-finger hold, rotation of 16, the toast) |
+| **X1** | mid | edits `src/export/{node,main,format,webBuild}.ts`, `src/editor/ui/ExportDialog.tsx`, the player entry in `src/player/`; new `capture/trigger.ts` (F9, the three-finger hold, the toast; rotation of 16 calls Rc4's in `save.ts`, not a second copy) |
 | Sa2 | mid | `samples/sound-lab` (the Mixer scene), `samples/stress`, `samples/flappy`, READMEs |
-| Dc3, Dc4 | mid leads (J rows) | `docs/guide/audio-loudness.md` · `docs/guide/audio-mixing.md` (live mixing and ducking); the 0147 and 0097 amendment text |
+| Dc3, Dc4 | mid leads (J rows) | `docs/guide/audio-loudness.md` · `docs/guide/audio-mixing.md` (live mixing and ducking, linking Hk1's 0147 amendment); the 0097 amendment text |
+| DSd (plan, 0.5 d) | mid (Sa2's lead, after Sa2) | `maxStep` (`runtime/golden/maxStep.ts`) on Sa2's Mixer scene, in `runtime/golden/audioGoldenM5.test.ts`: Ck1's Mixer-scene item |
 
-**Hotspots checked:** spec files each have one owner; the smoke spec and `export.spec.ts` are E3's lead's alone this wave. `samples/`: Sa2 alone. `src/export/`, `src/player/`: X1 alone. Guide files: different chapters.
+Seven mid tasks for six slots (eight with DSd, which follows Sa2): **start order** E1, E3, X1, Sa2, Dc3, Dc4; Bn4 waits for the heavy cap anyway. **Hotspots checked:** spec files each have one owner; the smoke spec and `export.spec.ts` are E3's lead's alone this wave. `samples/`: Sa2 alone. `src/export/`, `src/player/`: X1 alone. Guide files: different chapters.
 **Heavy:** E1, E3's specs, Bn4 (three, so Bn4 waits for one of the specs; plan est. +1 d on the wave).
-**Exit (M5a, M5b and M5c exit here, in order):** the shippable checks; the three exit checks; the milestone-end checks run once (O5); the walker in listen mode; owner listening sections M5b and M5c; three merges to master in order.
+**Exit (M5a, M5b and M5c exit here, in order):** the shippable checks; the three exit checks, DSd under the threshold for M5c; the milestone-end checks run once (O5); the walker in listen mode; owner listening sections M5b and M5c; three merges to master in order.
 
 ## Wave 10: the export round trip, soak, the listening pass, docs — M5d exits
 
@@ -420,13 +438,12 @@ Eight mid tasks for six slots: Rc4, Pf4, Pf3b–d and Mp2a start; Pf6 and Mp1b t
 |---|---|---|
 | **X3** | mid | `tests/e2e/audio-mix-d.spec.ts` (record in an export, open in the editor at five cursor positions; a release export has no recorder chunk); the smoke spec's M5d case |
 | **So1** | strongest (after X3) | `tools/audio-bench`, `capture/*.bench.ts` (a ring wrap over 10 minutes, open at 1,024 voices, loudness drift against the crate over 20 minutes, S3 on real scenes) |
-| DSd (plan, 0.5 d) | mid | `maxStep` on Sa2's Mixer scene, in `runtime/audioGoldenM5.test.ts` |
 | Ls1 | mid lead (J row, after X3 and the E tasks) | `docs/design/0171-audio-mix/listening-pass.md` from the three listening notes, lab-VM and phone instructions |
 | Ls2 | strongest (after Ls1 and the owner's pass) | as the owner's items say |
-| Dc5 | mid lead (J row) | the guide (profiler, loudness, mixing, ducking, captures, Android `adb`), API reference; amendment text for 0097, 0147, 0157, 0158, 0162, 0170 and the status row |
+| Dc5 | mid lead (J row, after Ls1) | the guide (profiler, loudness, mixing, ducking, captures, Android `adb`), API reference; amendment text for 0097, 0157, 0158, 0162, 0170 (0147's is Hk1's) and the status row |
 
 **Heavy:** X3, then So1 (in sequence by dependency).
-**Exit (M5d exits here):** the shippable checks; M5d's exit check; milestone-end checks; DSd under the threshold; the owner's full pass signed off (Ls2); the merge to master.
+**Exit (M5d exits here):** the shippable checks; M5d's exit check; milestone-end checks; the owner's full pass signed off (Ls2); the merge to master.
 
 ## Risks
 
