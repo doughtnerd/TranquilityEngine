@@ -68,3 +68,22 @@ Wave-end checks (quiet machine): typecheck green; `npm test` **603 files, 6,825 
 **Pilot measures (W2):** leaf first pass **6 of 6** (L-Ld5a, Bb2 after one correct stop for a decision, L-Rc1a, L-Rc1c, L-B2a; L-Ld4a done by its lead); leaf session-tool calls: 2 more (one `Claude_Docs.guide` read, one denied), down from 3 in W1 with the explicit ban. Skeleton fit: Ld4 widened its hub's API (additive), B2 added scheduler hooks for B1b (planned).
 
 **Follow-ups carried to W3 briefs:** Mx2 sends master on `LANE_RUNTIME` (B1a); `BUS_CONFIG` doesn't reset a re-added slot's lanes (Mx2's replay resends them); stale `BUS_MIX`-as-current comments in TS core files (coordinator sweep with Mx2); Rc5 fixes `RecordTable.ROW_BYTES` (26 vs 28 B per row in the reader's allocation count).
+
+## Wave 3 (base `9f82a8d`) — closed
+
+Merged: Cp2 + L-Cp2a (`1517ba2`), B1b + L-B1ba (`6a47563`, `2e18633`), B4 + L-B4a (`174195e`), B3 (`aa6f0ea`, lead did L-B3a) + the coordinator's `bus.rs` line (`3fa559a`: `BUS_CONFIG` re-runs the order with level rules), Bn1 (`fb7dd8f`), Rv1 + L-Rv1a (`4e672de`: **post-fader sends**, one named new golden `m5/bus-mute-send` `e24525251d302e4e`, every other digest unchanged), the parity wet-only fix (`7929177`). **Mx2 is done and held** (`4a212c1`), merging with Dp1 and G1 in W4 (base `m5/w4-base` `4f413ab`). Mixer **355,970 B** (400 KB tripwire).
+
+Wave-end checks: typecheck, build, `check:audio-metered` pass; `cargo test` **1,021 passed**; `npm test` 605 files with 4 failures → fixed (below); `npm run test:e2e` 261 passed, 2 failed (M4 music specs: `audio-music-a.spec.ts:307` passed alone; `audio-music-d.spec.ts:536` fails ≈ 1 in 7 even alone and failed at the pre-M5 baseline too — **now a work item**, a W4 fix task); browser parity specs 7 of 7 after the fix.
+
+**A harness break from the post-fader decision:** the Web Audio parity "wet only" scenes made the dry signal silent with a bus at gain 0, which only worked while the send was pre-fader (`tests/e2e/audio-parity/scenes.ts`: "The send taps the bus before its gain"). With owner decision 1, a bus at gain 0 feeds nothing (−180 dB). The core render now isolates the wet signal as (send) − (send 0) from identical input; the Web Audio reference, whose send still taps before the gain, was unaffected (`reference.json` unchanged); no tolerance loosened. **Lesson:** a task that changes sound runs `src/plugins/audio/testing/webAudioParity.test.ts` and the `@slow` parity specs, not only the goldens (added to later briefs).
+
+**Measured against the design's cost model (§7.1), logged, nothing traded:**
+- a ramping lane ≈ **5.3k instructions per quantum** (Bn1) against the model's 1.7–1.8k — about today's ramping bus (5.4k); stamped ≈ +0.35k per bus over asap. The worst scene's projected lane saving (−101k) won't materialise; the typical scene (2 lanes) is unaffected;
+- a gliding compressor ≈ **+12.8k per quantum for 8 quanta** per edit (B4) against "≈ 0"; the snapshot filter blend +250 per filter (S4: +370);
+- the post-fader send ≈ 1.4–1.6k per bus with a send, ≈ today's unscaled add (Rv1).
+
+**Design corrections found in W3:** §4.3's 32-sample CPU ring can't span 384 quanta at a 6-quantum cadence → 128 (Cp2); the compressor's click came from the makeup gain applied unsmoothed per quantum, now ramped during a glide (B4: abrupt 0.15 on the real core, 0.996 before); the snapshot low-pass already blended per quantum since M3 (B4); a resonant per-quantum sweep can't occur (every per-quantum filter ramp runs at Q 1 dB; resonant Q edits are direct), its 5.3× overshoot recorded for the record (B4).
+
+**Pilot measures (W3):** leaves L-Cp2a, L-B1ba, L-B4a (one reachability question, resolved), L-Rv1a first pass; cheapest-model leaves made two more session-tool calls (`read_documentation`, `archive_session`, both refused) → **leaves moved to the mid model** from L-Rv1a on (no stray calls since). Skeleton fit: B3 needed a coordinator line in `bus.rs`; Cp2 needed three `coreBackend.ts` lines (granted).
+
+**Follow-ups:** Mx2 found that main's fade `Ramp` starts at the heard "now" while the core starts it at the stamp, so getters read ahead of the sound by about the lookahead — Dp1 (W4, owner of `mixer.ts`) fixes it before the M5-0 listening section. RESET doesn't clear the send run-out's `live` flag (harmless: a cleared reverb outputs zero) — `bus.rs`, coordinator, with a later core change.
