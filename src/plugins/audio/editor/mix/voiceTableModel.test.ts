@@ -153,7 +153,7 @@ describe("the table: order, cap and counts", () => {
     expect(voiceTable(reconstructVoices(fakeState(64), names)).hidden).toBe(0);
     expect(voiceTable(reconstructVoices(fakeState(10), names), "", 4).rows).toHaveLength(4);
     const tie = fakeState(3);
-    for (const [i, v] of tie.keyframe!.voices.entries()) (tie.keyframe!.voices as { audibility: number; priority: number }[])[i] = { ...v, audibility: 100, priority: [1, 3, 3][i]! };
+    for (const [i, v] of tie.keyframe!.voices.entries()) (tie.keyframe!.voices as unknown as { audibility: number; priority: number }[])[i] = { ...v, audibility: 100, priority: [1, 3, 3][i]! };
     expect(voiceTable(reconstructVoices(tie, names)).rows.map((r) => r.id)).toEqual([2, 3, 1]);
   });
 
