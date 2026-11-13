@@ -99,7 +99,7 @@ describe("core backend: mix (§1.3)", () => {
   });
   it("starts with every counter at zero, no monitor and no paused meters", () => {
     const mix = coreRig().backend.debug().mix!;
-    expect(mix).toMatchObject({ monitorActive: false, metersPaused: 0, loudnessLadderStep: 0, busRecordsEarly: 0, sidechainLate: 0, liveRefused: 0, liveDeferred: 0 });
+    expect(mix).toMatchObject({ monitorActive: false, metersPaused: 0, loudnessLadderStep: 0, busRecordsEarly: 0, sidechainLate: 0, liveRefused: 0, liveDeferred: 0, liveDeferredPending: 0 });
   });
   it("takes busRecordsEarly and sidechainLate from the newest STATUS", () => {
     const { backend, status } = coreRig();
@@ -147,14 +147,14 @@ describe("core backend: mix (§1.3)", () => {
 describe("buildMixDebug: the pieces both backends share", () => {
   it("falls back to main's duck for a target STATUS does not list, and calls a missing mode a presence rule", () => {
     const m = new Mixer(withBuses(true));
-    const out = buildMixDebug({ names: m.busNames, mixer: m, duckOfSlot: () => null, loudShed: 0, busRecordsEarly: 0, sidechainLate: 0, liveRefused: 0, liveDeferred: 0 });
+    const out = buildMixDebug({ names: m.busNames, mixer: m, duckOfSlot: () => null, loudShed: 0, busRecordsEarly: 0, sidechainLate: 0, liveRefused: 0, liveDeferred: 0, liveDeferredPending: 0 });
     expect(out.ducking[0]).toMatchObject({ target: "Music", mode: "presence", gain: m.bus("Music").duckGain });
   });
   it("reports a level rule's mode", () => {
     const s = withBuses(false);
     s.ducking.push({ target: "Music", trigger: "Voice", mode: "level", amount: 0.5, attack: 0.1, release: 0.5, threshold: -30, detector: "rms" });
     const m = new Mixer(s);
-    const out = buildMixDebug({ names: m.busNames, mixer: m, loudShed: 0, busRecordsEarly: 0, sidechainLate: 0, liveRefused: 0, liveDeferred: 0 });
+    const out = buildMixDebug({ names: m.busNames, mixer: m, loudShed: 0, busRecordsEarly: 0, sidechainLate: 0, liveRefused: 0, liveDeferred: 0, liveDeferredPending: 0 });
     expect(out.ducking[0]!.mode).toBe("level");
   });
 });
@@ -178,7 +178,7 @@ describe("Babylon fallback: the inert M5 sections (§1.3, §9)", () => {
     expect(cpu).toEqual(babylonCpuDebug());
   });
   it("mix: every counter 0, the ladder at 0, no monitor, no paused meters", () => {
-    expect(babylon().debug().mix).toMatchObject({ monitorActive: false, metersPaused: 0, loudnessLadderStep: 0, busRecordsEarly: 0, sidechainLate: 0, liveRefused: 0, liveDeferred: 0 });
+    expect(babylon().debug().mix).toMatchObject({ monitorActive: false, metersPaused: 0, loudnessLadderStep: 0, busRecordsEarly: 0, sidechainLate: 0, liveRefused: 0, liveDeferred: 0, liveDeferredPending: 0 });
   });
   it("mix: the slot table lists the buses in order, all live", () => {
     const mix = babylon().debug().mix!;

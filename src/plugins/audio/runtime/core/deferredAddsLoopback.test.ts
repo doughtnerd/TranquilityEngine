@@ -152,6 +152,8 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     // Kept, queued, counted; the mixer's running model does not hold it yet; nothing was refused.
     expect(r.backend.deferredAdds.pending).toBe(1);
     expect(r.backend.deferredAdds.count).toBe(1);
+    // Debug shows both: `liveDeferred` is the adds deferred so far, `liveDeferredPending` those still waiting.
+    expect(r.backend.debug().mix).toMatchObject({ liveDeferred: 1, liveDeferredPending: 1 });
     expect(r.backend.liveMix.refused).toBe(refused);
     expect(r.backend.buses.slots.slotOf("A")).toBe(31);
     expect(r.backend.buses.slots.slotOf("B")).toBe(-1);
@@ -159,6 +161,7 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     // Render until it applies: on the audio clock, past the tombstone's tail.
     for (let f = 0; f < 60 && r.backend.deferredAdds.pending > 0; f++) await r.step(1);
     expect(r.backend.deferredAdds.pending, "applied within 60 frames").toBe(0);
+    expect(r.backend.debug().mix).toMatchObject({ liveDeferred: 1, liveDeferredPending: 0 });
     const seq = r.backend.dip.last!;
     expect(seq.tombstones).toEqual([30]);
     expect(r.backend.buses.slots.slotOf("B")).toBe(30); // the recycled slot

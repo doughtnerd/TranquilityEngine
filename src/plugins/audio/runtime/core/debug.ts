@@ -49,6 +49,8 @@ export interface DebugSource {
   /** B3: the stream voices' clip info (asset and rate) and counts; absent in hand-built sources. */
   readonly streams?: { clipInfo(id: number): ClipInfo | null; readonly size: number; readonly stats: { readonly starves: number; readonly errors: number; readonly coreErrors: number; readonly wideStarved?: number } };
   readonly mixer: Pick<Mixer, "resolveAll" | "audioSettings" | "monitorActive" | "bus">;
+  /** Ma3: the deferred live adds (`pending` waiting for a slot); absent in hand-built sources. */
+  readonly deferredAdds?: { readonly pending: number };
   readonly lockedQueue: { readonly size: number; readonly droppedCount: number };
   /**
    * ADR 0158 (E3.1): the automation mirror's counts; absent in hand-built sources. E3.9: main's estimate of a voice's
@@ -294,6 +296,7 @@ export function mixDebugInfo(backend: DebugSource, liveRefused: number, liveDefe
     sidechainLate: m.sidechainLate,
     liveRefused,
     liveDeferred,
+    liveDeferredPending: backend.deferredAdds?.pending ?? 0,
   });
 }
 
