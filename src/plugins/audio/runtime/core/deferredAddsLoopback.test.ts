@@ -232,6 +232,29 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     r.backend.dispose();
   });
 
+  it("a child naming a waiting parent queues behind it: both apply in order, the child under the parent's real slot (FU3)", { timeout: 60_000 }, async (ctx) => {
+    const r = await rig(project(32));
+    if (!r) return ctx.skip();
+    await r.step(4);
+    mixer.apply({ op: "removeBus", bus: "B31" });
+    mixer.apply({ op: "removeBus", bus: "B30" });
+    expect(mixer.apply({ op: "addBus", name: "P", parent: "Master" }).deferred).toBeTruthy();
+    // P is not in the mixer's running model yet; the child still names it, not Master.
+    const kid = mixer.apply({ op: "addBus", name: "Kid", parent: "P" });
+    expect(kid.deferred).toBeTruthy();
+    expect(r.backend.deferredAdds.pending).toBe(2);
+    expect(r.backend.buses.slots.deferred.map((q) => [q.name, q.parent])).toEqual([["P", "Master"], ["Kid", "P"]]);
+    for (let f = 0; f < 80 && r.backend.deferredAdds.pending > 0; f++) await r.step(1);
+    expect(r.backend.deferredAdds.pending).toBe(0);
+    expect(names().slice(-2)).toEqual(["P", "Kid"]);
+    expect(mixer.audioSettings.buses.find((b) => b.name === "Kid")!.parent).toBe("P");
+    const table = r.backend.buses.slots;
+    expect(table.slots[table.slotOf("Kid")]!.parent).toBe(table.slotOf("P"));
+    play(r.backend, "Kid");
+    expect((await r.step(12)).last).toBeCloseTo(LEVEL, 6);
+    r.backend.dispose();
+  });
+
   it("the fifth effect on a bus answers that it applies at the next Play, and is not queued", { timeout: 60_000 }, async (ctx) => {
     const fx = (i: number) => ({ type: "lowpass", frequency: 4000 + i * 100, q: 0.7 });
     const r = await rig(project(4, { effects: [fx(0), fx(1), fx(2), fx(3)] }));

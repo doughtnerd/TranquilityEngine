@@ -161,7 +161,8 @@ export class LiveMix {
     switch (op.op) {
       case "addBus": {
         const name = op.name.trim();
-        const parent = before.buses.some((b) => b.name === op.parent) ? op.parent : before.buses[0]!.name;
+        // A parent still waiting for its slot is a parent (FU3): the child queues behind it and applies after it.
+        const parent = before.buses.some((b) => b.name === op.parent) || host.deferred.waits(op.parent) ? op.parent : before.buses[0]!.name;
         host.dip.recycle(); // R9: a tombstone past its tail frees its slot first
         const slot = buses.addBus(name, parent);
         // R10: no free slot (a removed bus is still fading out): the edit is kept, queued, and applies at the recycle.

@@ -78,6 +78,11 @@ export class DeferredAdds {
     if (applied) host.syncMix();
   }
 
+  /** Whether a live add named `name` is waiting for a slot (a child added under it queues behind it rather than falling back to the root). */
+  waits(name: string): boolean {
+    return this.ops.has(name);
+  }
+
   /** Forget the queue (Stop, the next configure). The count of adds deferred so far stays. */
   clear(): void {
     this.ops.clear();
