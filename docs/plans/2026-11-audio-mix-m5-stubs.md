@@ -22,6 +22,7 @@ From K0's and K1's reports (W1, 2026-11-13). Each later brief quotes its rows. A
 | Dbg1 | `core/coreBackend.ts` | `mixDebug()` (identity slots, zero counters); `mixCaps` | W4 |
 | Dp1 | `core/coreBackend.ts` | `duckGain(bus)` → 1 | W4 |
 | Mx2 | `backend.ts` bus rows | `lastRampStartFrame?` (undefined until Mx2) | W3 |
+| Ma1 | `editor/mix/opLog.ts` (Hk1) | `startOpLog(getMixer)` must be called once with the running mixer (wire it where the editor's Play starts the audio backend); `recordMixOps(value, entry, base)` tags an edited section value with its ops — the Mixer panel's edits (Mp1a) pass `base` so the log trusts them instead of diffing | W5 (Ma1), Mp1a |
 | — | `backend.ts` | optional `AudioBackend` members: `mixCaps`, `cpu`, `applyOp`, `flushNow`, `rampLane`, `writeSlot`, `writeDucking`, `writeLoudnessConfig`, `duckGain`, `recorderTap`, `setProfileSink`; `AudioDebugInfo`: `mixCaps`, `cpu`, `mix`, `recorder`; `core.currentFrame` filled | declared |
 
 `MixOp`, `ApplyResult` and `LoudnessTarget` aren't exported from `src/myco.ts`; Ma1 or Ld4 adds them if `Bus.apply` becomes public (a public API change, with the coordinator).
