@@ -22,6 +22,11 @@
 // - **The per-voice dip.** A removed bus's voices move to its root: the bus's dip is their fade-out; at B (dip at 0) each
 //   voice's fade drops to 0 and its `SET_PARAMS bus` lands, then it fades back in over `DIP_FRAMES` from B
 //   (`BusIndex.moveVoices`). Those records carry no sequence tag: they ride the planned frames.
+// - **A sound's bus** (§4.7, structural; §3.3's last affected root; G7a): `CoreBackend._setBus` on a sounding voice
+//   moves it on main at once and calls `dipVoice`: the voice dips alone, with no bus dip and no sequence tag. Its fade
+//   goes 1 → 0 over `DIP_FRAMES` from F0 = now + lookahead, then at B (the first quantum start at or after
+//   F0 + `DIP_FRAMES`) `dipVoices` lands its `SET_PARAMS bus` at fade 0 and fades it back in. A second move of the same
+//   voice before the first one's end (B + `DIP_FRAMES`) starts from that end, so a fade-in is never cut to 0.
 // - **Tombstones (R9).** A tombstone may recycle `TOMBSTONE_TAIL_FRAMES` after its sequence's end, with no voice on it
 //   (`recycle`, from `apply`, a live add and `update`).
 // - **Rebuild (R12).** The table and the mixer already hold the end state, so the replay sends it (BUS_CONFIG with
@@ -30,7 +35,7 @@
 //   frame that runs backwards (a new context) does the same.
 import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
 import type { Mixer } from "../../../../engine/audio/mixer";
-import { BUS_LP_OFF_HZ, BUS_RAMP_MASK_GAIN, LANE_DIP, QUANTUM_FRAMES, SHAPE_SEQUENCE_MASK } from "../wire.generated";
+import { BUS_LP_OFF_HZ, BUS_RAMP_MASK_GAIN, FadeLaw, LANE_DIP, QUANTUM_FRAMES, SHAPE_SEQUENCE_MASK } from "../wire.generated";
 import type { BusIndex, SlotStamp } from "./busIndex";
 import type { CommandWriter } from "./commandWriter";
 import { LOOKAHEAD_MAX_SECONDS } from "./lookahead";
@@ -51,6 +56,9 @@ const MAX_BUS = 32;
 
 /** A planned end this far (in seconds) past now belongs to another epoch's frames: forget it. */
 const STALE_SECONDS = 2;
+
+/** `dipVoice`'s remembered ends past which the ones already over are dropped. */
+const VOICE_ENDS = 64;
 
 /** What the dip needs of the core backend (closures read it lazily; `LiveMix` binds it from its own host). */
 export interface StructuralDipHost {
@@ -111,6 +119,8 @@ export class StructuralDip {
   /** Per slot: the frame its last structural `BUS_SLOT` applies at, and that sequence's id. */
   private readonly slotAt = new Float64Array(MAX_BUS).fill(Number.NEGATIVE_INFINITY);
   private readonly slotSeq = new Uint16Array(MAX_BUS);
+  /** Per voice id moved by `dipVoice`: its planned end (B + DIP_FRAMES), frames of this epoch. */
+  private readonly voiceEnd = new Map<number, number>();
 
   /** `LiveMix` hands its host over (the backend's lazy closures). */
   bind(host: StructuralDipHost): void {
@@ -204,6 +214,30 @@ export class StructuralDip {
   }
 
   /**
+   * A sound's bus (§4.7, structural; G7a): voice `id`, already moved to bus slot `to` on main (the table, presence and
+   * the mixer's counts), dips alone on the core: fade-out over `DIP_FRAMES` from F0, `SET_PARAMS bus` at B with its
+   * fade at 0, fade-in from B (`BusIndex.dipVoices`). `fades` writes the fade-out (the backend's command writer).
+   * Returns the planned B, or -1 when the dip has no host (the caller then sends the bus at once).
+   */
+  dipVoice(id: number, to: number, fades: Pick<CommandWriter, "fadeShaped">): number {
+    const host = this.host;
+    if (!host) return -1;
+    const rate = host.writer().sampleRate;
+    const d = dipFrames(rate);
+    const now = Math.round(host.firstFrame());
+    this.epoch(this.now());
+    // A move still dipping: this one starts at its end (the voice is back at full fade there, never cut mid-fade-in).
+    const prev = this.voiceEnd.get(id);
+    const f0 = prev !== undefined && prev > now && prev - now <= STALE_SECONDS * rate ? Math.ceil(prev) : now;
+    const b = Math.ceil((f0 + d) / QUANTUM_FRAMES) * QUANTUM_FRAMES;
+    fades.fadeShaped(id, 0, d / rate, FadeLaw.Linear, 0, f0);
+    host.buses().dipVoices([id], to, b, d, rate);
+    if (this.voiceEnd.size >= VOICE_ENDS) for (const [k, end] of this.voiceEnd) if (end <= now) this.voiceEnd.delete(k);
+    this.voiceEnd.set(id, b + d);
+    return b;
+  }
+
+  /**
    * R9: frees each tombstone whose sequence ended `TOMBSTONE_TAIL_FRAMES` ago with no voice on it (at `frame`, default
    * now). Returns the freed slots.
    */
@@ -272,6 +306,7 @@ export class StructuralDip {
     this.lastEnd = Number.NEGATIVE_INFINITY;
     this.lastFrame = frame;
     this.slotAt.fill(Number.NEGATIVE_INFINITY);
+    this.voiceEnd.clear();
     this.host?.buses().slots.replan(frame);
   }
 

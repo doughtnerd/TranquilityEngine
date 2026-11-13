@@ -2,9 +2,12 @@
 // architecture §4.6 R4; api-and-models §4.2 `BUS_DUCK`, `BUS_PRESENCE`). The core backend calls these hooks when the bus
 // tree is configured, when the settings change and when a voice starts or stops:
 //
-// - **Rules.** `BUS_DUCK` (replace-all, asap) carries every presence rule of the settings (`mode` not `"level"`; Sc1 adds
-//   level rules), target and trigger as bus slots, at configure and whenever the settings' `ducking` list changes (then
-//   with the mask, asap).
+// - **Rules.** `BUS_DUCK` (replace-all, asap) carries every rule of the settings in their order, target and trigger as
+//   bus slots, at configure and whenever the settings' `ducking` list changes (then with the mask, asap; a live edit
+//   reaches here through `LiveMix`'s `syncMix`). A level rule (`mode: "level"`, G7a) carries `DUCK_FLAG_LEVEL`, plus
+//   `DUCK_FLAG_RMS` unless its detector is `"peak"`, and its threshold (-30 dBFS by default, ADR 0172); at most
+//   `MAX_DUCK_RULES` rules, of them at most `MAX_LEVEL_RULES` level rules (later ones are left out, as validation
+//   reports them). Only presence rules' triggers make their slot's bit go out.
 // - **Presence.** `BUS_PRESENCE` carries a mask, bit b while slot b has a voice (virtual and locked included; a voice
 //   stops counting at its explicit stop, or at its free when it ended on its own, a STATUS later). A record goes out when
 //   the bit of a slot some rule triggers on changes (other slots' bits only ride along, so a project without ducking
@@ -21,7 +24,7 @@
 // never uses this: it keeps main's presence computation (`mixer.ts`).
 import type { Mixer } from "../../../../engine/audio/mixer";
 import type { DuckingRule } from "../../../../engine/audio/settings";
-import { ASAP, MAX_DUCK_RULES, writeBusDuck, writeBusPresence, type BusDuckRules } from "../wire.generated";
+import { ASAP, DUCK_FLAG_LEVEL, DUCK_FLAG_RMS, MAX_DUCK_RULES, MAX_LEVEL_RULES, writeBusDuck, writeBusPresence, type BusDuckRules } from "../wire.generated";
 import type { ClockMap } from "./clock";
 import type { BusIndex } from "./busIndex";
 import type { CommandWriter } from "./commandWriter";
@@ -59,7 +62,7 @@ export class Presence {
   private readonly pendSent = new Uint32Array(PENDING);
   private pendLen = 0;
   private readonly scratch = new Int32Array(MASK_BITS);
-  /** The presence rules last sent (`BUS_DUCK`), for the replay; and the settings list they came from. */
+  /** The rules last sent (`BUS_DUCK`), for the replay; and the settings list they came from. */
   private rules: BusDuckRules[] = [];
   private rulesFrom: readonly DuckingRule[] | null = null;
   /** The slots some presence rule triggers on: only their bit changes are sent (the others ride along in the masks). */
@@ -129,7 +132,7 @@ export class Presence {
     this.change(c - 1, -1, undefined);
   }
 
-  /** `BUS_DUCK`, every presence rule of `rules`, replace-all, asap (§4.2; Sc1 adds level rules). */
+  /** `BUS_DUCK`, every rule of `rules` (presence and level), replace-all, asap (§4.2). */
   writeDucking(rules: readonly DuckingRule[]): void {
     if (!this.host) return;
     this.sendRules(rules, this.host.mixer.busNames);
@@ -161,23 +164,31 @@ export class Presence {
     this.presenceRecords++;
   }
 
-  /** Sends `list`'s presence rules as slots (`BUS_DUCK`); with `force` false only when they differ from those last sent. Returns whether it sent. */
+  /** Sends `list`'s rules as slots (`BUS_DUCK`); with `force` false only when they differ from those last sent. Returns whether it sent. */
   private sendRules(list: readonly DuckingRule[], names: readonly string[], force = true): boolean {
     const host = this.host!;
     this.rulesFrom = list;
     const buses = host.buses;
     const out: BusDuckRules[] = [];
+    let levels = 0;
     for (const r of list) {
-      if (r.mode === "level" || out.length >= MAX_DUCK_RULES) continue;
+      if (out.length >= MAX_DUCK_RULES) break;
+      const level = r.mode === "level";
+      if (level && levels >= MAX_LEVEL_RULES) continue;
       const target = buses ? buses.slotOf(r.target) : names.indexOf(r.target);
       const trigger = buses ? buses.slotOf(r.trigger) : names.indexOf(r.trigger);
-      if (target < 0 || trigger < 0 || trigger >= MASK_BITS) continue;
-      out.push({ target, trigger, flags: 0, thresholdDb: r.threshold ?? -30, amount: r.amount, attack: r.attack, release: r.release });
+      // A level rule's trigger is a bus whose buffer the core reads (any slot); a presence rule's is a mask bit.
+      if (target < 0 || trigger < 0 || (!level && trigger >= MASK_BITS)) continue;
+      // ADR 0172: a level rule's detector is RMS unless it says "peak"; its threshold -30 dBFS unless given.
+      const flags = level ? DUCK_FLAG_LEVEL | (r.detector === "peak" ? 0 : DUCK_FLAG_RMS) : 0;
+      if (level) levels++;
+      out.push({ target, trigger, flags, thresholdDb: r.threshold ?? -30, amount: r.amount, attack: r.attack, release: r.release });
     }
     if (!force && sameRules(out, this.rules)) return false;
     this.rules = out;
     let triggers = 0;
-    for (const r of out) triggers |= 1 << r.trigger;
+    // Only presence rules' triggers need their slot's bit sent (a level rule reads the trigger's signal, not the mask).
+    for (const r of out) if ((r.flags & DUCK_FLAG_LEVEL) === 0) triggers |= 1 << r.trigger;
     this.triggers = triggers >>> 0;
     host.writer.busDuck(out);
     this.duckRecords++;
@@ -257,7 +268,7 @@ export class Presence {
   }
 }
 
-/** Whether two presence rule lists are the same on the wire. */
+/** Whether two rule lists are the same on the wire. */
 function sameRules(a: readonly BusDuckRules[], b: readonly BusDuckRules[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {

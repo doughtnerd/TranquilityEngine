@@ -1561,7 +1561,13 @@ export class CoreBackend implements AudioBackend, StagedFrameHost {
     this.mixer.voiceStarted(this.names[next] ?? "");
     this.presence.voiceStopped(old, i);
     this.presence.voiceStarted(next, i);
-    if (this.onCore(i)) this.writer.setParams(id, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, next);
+    if (!this.onCore(i)) return;
+    // G7a (§4.7: a sound's bus is structural): a sounding voice dips alone (`StructuralDip.dipVoice`); one whose
+    // stamped start is still ahead of F_now changes bus at once, at that start frame (it is not heard before it).
+    const start = this.playheads.anchorFrame[i]!;
+    const ahead = this.clockMap.stampFor(start);
+    if (ahead === undefined && this.dip.dipVoice(id, next, this.writer) >= 0) return;
+    this.writer.setParams(id, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, next, 0, ahead);
   }
 
   /** @internal */
