@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_PRESET, PRESETS, resolveTheme } from "../../../../editor/theme";
 import {
   CLICK_SLOP_PX,
   RULER_HEIGHT,
@@ -444,6 +447,30 @@ describe("theme tokens", () => {
     expect(c.accent).toBe("#123456");
     expect(c.bg.length).toBeGreaterThan(0);
   });
+
+  it("an undefined token falls back to the default theme's resolved value, one source with theme.ts", () => {
+    const c = readTimelineColors(() => "");
+    const t = resolveTheme(PRESETS.find((p) => p.id === DEFAULT_PRESET)!);
+    expect(c).toEqual({
+      bg: t.bgSunken,
+      panel: t.panel,
+      border: t.border,
+      text: t.text,
+      muted: t.muted,
+      accent: t.accent,
+      accent2: t.accent2,
+      accentSoft: t.accentSoft,
+      warning: t.warning,
+      danger: t.danger,
+    });
+  });
+
+  it("drawTimeline.ts carries no colour literal", () => {
+    const src = readFileSync(fileURLToPath(new URL("./drawTimeline.ts", import.meta.url)), "utf8");
+    expect(src).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(src).not.toMatch(/\brgba?\(/);
+    expect(src).not.toMatch(/\bhsla?\(/);
+  });
 });
 
 describe("tracks", () => {
@@ -563,12 +590,62 @@ describe("work is bounded by the canvas width, not the record count", () => {
     expect(r.tl.lastDraw.downsamples).toBe(5);
   });
 
+  it("a viewport change reads O(width x log n) samples and blocks, not the records in view", () => {
+    const r = loaded(FULL);
+    const bound = 5 * W * (2 * Math.log2(FULL) + 2 * 8 + 8);
+    const views: [number, number][] = [[0, TEN_MIN], [100, 400], [250.5, 251.5], [0, 30], [590, 600]];
+    for (const [start, end] of views) {
+      r.tl.setViewport({ start, end, followLive: false });
+      r.f.step();
+      const w = r.tl.lastDraw.work;
+      expect(r.tl.lastDraw.downsamples).toBe(5);
+      expect(w.samples + w.blocks + w.probes).toBeLessThanOrEqual(bound);
+      // The whole capture holds 225,000 records per series; a linear pass reads every record in view (4 series).
+      if (end - start > 100) expect(w.samples + w.blocks + w.probes).toBeLessThan((((end - start) / TEN_MIN) * FULL * 4) / 4);
+    }
+    // A cursor move reduces nothing.
+    r.tl.setCursor(5);
+    r.f.step();
+    expect(r.tl.lastDraw.work).toEqual({ samples: 0, blocks: 0, probes: 0 });
+  });
+
+  it("a live capture's appended samples extend the pyramid: each redraw equals one from a pyramid built whole", () => {
+    const c = capture(30_000);
+    const times: number[] = [];
+    const values: number[] = [];
+    const live = rig({}, 1);
+    live.state.data.cpu = { lines: [{ times, values, color: "accent" }] };
+    for (let at = 0; at < 30_000; at += 2_500) {
+      for (let i = at; i < at + 2_500; i++) {
+        times.push(c.times[i]!);
+        values.push(c.voices[i]!);
+      }
+      live.state.duration = times[times.length - 1]!;
+      live.tl.dataChanged();
+      live.tl.setViewport({ start: 0, end: live.state.duration, followLive: false });
+      live.g.clear();
+      live.f.step();
+
+      const whole = rig({}, 1);
+      whole.state.data.cpu = { lines: [{ times: [...times], values: [...values], color: "accent" }] };
+      whole.state.duration = live.state.duration;
+      whole.tl.dataChanged();
+      whole.tl.setViewport({ start: 0, end: live.state.duration, followLive: false });
+      whole.g.clear();
+      whole.f.step();
+      expect(live.tl.lastDraw.buckets).toBe(whole.tl.lastDraw.buckets);
+      expect(live.g.calls).toEqual(whole.g.calls);
+      expect(live.tl.lastDraw.work).toEqual(whole.tl.lastDraw.work);
+    }
+    expect(live.tl.lastDraw.work.blocks).toBeGreaterThan(0);
+  });
+
   it("logs the measured redraw time (a design target of 2 ms, never asserted)", () => {
     const r = loaded(FULL);
     const cold: number[] = [];
     const warm: number[] = [];
-    for (let i = 0; i < 20; i++) {
-      r.tl.setViewport({ start: i, end: i + 500 + (i % 3), followLive: false });
+    for (let i = 0; i < 100; i++) {
+      r.tl.setViewport({ start: i, end: i + 400 + (i % 97), followLive: false });
       const t0 = performance.now();
       r.f.step();
       cold.push(performance.now() - t0);
@@ -578,7 +655,10 @@ describe("work is bounded by the canvas width, not the record count", () => {
       warm.push(performance.now() - t1);
     }
     const med = (a: number[]) => [...a].sort((x, y) => x - y)[a.length >> 1]!;
-    console.log(`drawTimeline redraw, 10 min, ${FULL} records x 4 series + ticks, width ${W}: viewport change median ${med(cold).toFixed(2)} ms, cursor-only median ${med(warm).toFixed(3)} ms`);
+    const p95 = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length * 0.95)]!;
+    console.log(
+      `drawTimeline redraw, 10 min, ${FULL} records x 4 series + ticks, width ${W}: viewport change median ${med(cold).toFixed(2)} ms, p95 ${p95(cold).toFixed(2)} ms, cursor-only median ${med(warm).toFixed(3)} ms`,
+    );
     expect(r.tl.redrawCount).toBeGreaterThan(40);
   });
 });

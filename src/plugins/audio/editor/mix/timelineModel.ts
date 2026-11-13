@@ -142,6 +142,212 @@ export function downsampleTicks(times: ArrayLike<number>, v: Viewport, buckets: 
   return res;
 }
 
+// ---- min/max pyramid (Pf3b) -------------------------------------------------------------------------------------------
+//
+// `downsampleMinMax` is O(samples in the window): on a 10-minute capture at one record per quantum a fully zoomed-out
+// viewport reads 450,000 samples per series per redraw. The pyramid answers the same question exactly in
+// O(buckets x log n): level k holds the min and max of every complete block of PYRAMID_BASE << k samples, a bucket is
+// covered by the coarsest whole blocks that fit inside it and raw samples only at its two edges. Nothing is dropped or
+// approximated; the result equals `downsampleMinMax` bucket for bucket.
+//
+// Assumes finite sample values and an append-only series (samples already covered are never rewritten in place).
+
+/** Samples per block at level 0 of the pyramid. */
+export const PYRAMID_BASE = 8;
+const BASE_SHIFT = 3;
+
+/** What the last pyramid query touched; the tests assert on it, never on time. */
+export interface PyramidWork {
+  /** Raw samples read (bucket edges and the unbuilt tail). */
+  samples: number;
+  /** Pyramid blocks read. */
+  blocks: number;
+  /** Time-array probes made by the bucket-boundary searches. */
+  probes: number;
+}
+
+export interface MinMaxPyramid {
+  readonly values: ArrayLike<number>;
+  /** Samples covered so far (only complete blocks are stored). */
+  covered: number;
+  /** `levels[k]` holds blocks of PYRAMID_BASE << k samples; `blocks` of its entries are filled. */
+  readonly levels: { min: Float32Array; max: Float32Array; blocks: number }[];
+  readonly lastQuery: PyramidWork;
+}
+
+export function createMinMaxPyramid(values: ArrayLike<number>): MinMaxPyramid {
+  const p: MinMaxPyramid = { values, covered: 0, levels: [], lastQuery: { samples: 0, blocks: 0, probes: 0 } };
+  extendMinMaxPyramid(p);
+  return p;
+}
+
+function growTo(a: Float32Array, n: number): Float32Array {
+  if (a.length >= n) return a;
+  const b = new Float32Array(Math.max(n, a.length * 2, 16));
+  b.set(a);
+  return b;
+}
+
+/**
+ * Covers samples appended to `p.values` since the last call: O(new samples). Returns false (after starting over) when
+ * the series shrank, which is not an append.
+ */
+export function extendMinMaxPyramid(p: MinMaxPyramid, count = p.values.length): boolean {
+  let ok = true;
+  if (count < p.covered) {
+    p.levels.length = 0;
+    p.covered = 0;
+    ok = false;
+  }
+  const values = p.values;
+  for (let k = 0; ; k++) {
+    const size = PYRAMID_BASE << k;
+    const target = Math.floor(count / size);
+    if (target === 0) break;
+    let lvl = p.levels[k];
+    if (!lvl) p.levels[k] = lvl = { min: new Float32Array(16), max: new Float32Array(16), blocks: 0 };
+    if (lvl.blocks >= target) continue;
+    lvl.min = growTo(lvl.min, target);
+    lvl.max = growTo(lvl.max, target);
+    for (let j = lvl.blocks; j < target; j++) {
+      let mn: number;
+      let mx: number;
+      if (k === 0) {
+        const s = j << BASE_SHIFT;
+        mn = mx = values[s]!;
+        for (let i = s + 1; i < s + PYRAMID_BASE; i++) {
+          const x = values[i]!;
+          if (x < mn) mn = x;
+          if (x > mx) mx = x;
+        }
+      } else {
+        const lo = p.levels[k - 1]!;
+        const a = 2 * j;
+        mn = Math.min(lo.min[a]!, lo.min[a + 1]!);
+        mx = Math.max(lo.max[a]!, lo.max[a + 1]!);
+      }
+      lvl.min[j] = mn;
+      lvl.max[j] = mx;
+    }
+    lvl.blocks = target;
+  }
+  p.covered = count;
+  return ok;
+}
+
+/**
+ * First index in [from, to] whose bucket is >= `b` (`to` if none), galloping from `from` then binary searching, so a
+ * short gap costs O(log gap). Bucket order follows time order (the formula is monotone), so this is exact.
+ */
+function firstInBucket(times: ArrayLike<number>, from: number, to: number, b: number, start: number, span: number, n: number, w: PyramidWork): number {
+  let lo = from;
+  let step = 1;
+  let hi = from;
+  while (hi < to) {
+    w.probes++;
+    if (bucketOf(times[hi]!, start, span, n) >= b) break;
+    lo = hi + 1;
+    hi = Math.min(to, hi + step);
+    step *= 2;
+  }
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    w.probes++;
+    if (bucketOf(times[mid]!, start, span, n) < b) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** Exactly `downsampleMinMax(times, p.values, v, buckets, out)`, in O(buckets x log n); covers newly appended samples first. */
+export function downsampleMinMaxPyramid(p: MinMaxPyramid, times: ArrayLike<number>, v: Viewport, buckets: number, out?: Buckets): Buckets {
+  const n = Math.max(0, Math.floor(buckets));
+  const res: Buckets =
+    out && out.min.length === n && out.max.length === n && out.filled.length === n
+      ? out
+      : { min: new Float32Array(n), max: new Float32Array(n), filled: new Uint8Array(n) };
+  res.min.fill(0);
+  res.max.fill(0);
+  res.filled.fill(0);
+  const w = p.lastQuery;
+  w.samples = 0;
+  w.blocks = 0;
+  w.probes = 0;
+  const span = v.end - v.start;
+  if (n === 0 || !(span > 0)) return res;
+  const values = p.values;
+  const count = Math.min(times.length, values.length);
+  extendMinMaxPyramid(p, values.length);
+  // The window [lo, hi): the samples the linear pass visits.
+  let lo = lowerBound(times, v.start);
+  let a = lo;
+  let z = count;
+  while (a < z) {
+    const mid = (a + z) >>> 1;
+    w.probes++;
+    if (times[mid]! < v.end) a = mid + 1;
+    else z = mid;
+  }
+  const hi = Math.max(lo, a);
+  const top = p.levels.length;
+  for (let b = 0; b < n && lo < hi; b++) {
+    const e = b === n - 1 ? hi : firstInBucket(times, lo, hi, b + 1, v.start, span, n, w);
+    if (e <= lo) continue;
+    let mn = Infinity;
+    let mx = -Infinity;
+    let i = lo;
+    while (i < e) {
+      // The coarsest block that starts at i (alignment) and ends inside the bucket.
+      let k = i === 0 ? top - 1 : Math.min(31 - Math.clz32(i & -i) - BASE_SHIFT, top - 1);
+      while (k >= 0 && i + (PYRAMID_BASE << k) > e) k--;
+      if (k >= 0) {
+        const lvl = p.levels[k]!;
+        const j = i >> (BASE_SHIFT + k);
+        if (lvl.min[j]! < mn) mn = lvl.min[j]!;
+        if (lvl.max[j]! > mx) mx = lvl.max[j]!;
+        i += PYRAMID_BASE << k;
+        w.blocks++;
+      } else {
+        const x = values[i]!;
+        if (x < mn) mn = x;
+        if (x > mx) mx = x;
+        i++;
+        w.samples++;
+      }
+    }
+    res.min[b] = mn;
+    res.max[b] = mx;
+    res.filled[b] = 1;
+    lo = e;
+  }
+  return res;
+}
+
+/**
+ * Exactly `downsampleTicks`, in O(min(ticks in view, buckets) x log gap): a bucket holds a tick iff its index range is
+ * non-empty, so dense ticks are never walked one by one. `work` (optional) counts probes and the ticks that set a bucket.
+ */
+export function downsampleTicksIndexed(times: ArrayLike<number>, v: Viewport, buckets: number, out?: Uint8Array, work?: PyramidWork): Uint8Array {
+  const n = Math.max(0, Math.floor(buckets));
+  const res = out && out.length === n ? out : new Uint8Array(n);
+  res.fill(0);
+  const span = v.end - v.start;
+  if (n === 0 || !(span > 0)) return res;
+  const w = work ?? { samples: 0, blocks: 0, probes: 0 };
+  const count = times.length;
+  let i = lowerBound(times, v.start);
+  while (i < count) {
+    const t = times[i]!;
+    if (t >= v.end) break;
+    const b = bucketOf(t, v.start, span, n);
+    res[b] = 1;
+    w.samples++;
+    if (b === n - 1) break;
+    i = firstInBucket(times, i + 1, count, b + 1, v.start, span, n, w);
+  }
+  return res;
+}
+
 /** The profiler's track list: order, visibility, height. */
 export interface Track {
   readonly id: string;
