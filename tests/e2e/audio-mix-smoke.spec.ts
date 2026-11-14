@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
 import { expect, test } from "./fixtures";
 import { bootMix, installFrameClock, mixDebug, sampleBusGain } from "./audioMix";
+import { MARKER_TEXT, exportAndServe, expectTablesAt, openCaptureFile, openProfilerTab, press, recordScene, rulerAt, stopServed } from "./audioExport";
+import { panelOf } from "./audioProfiler";
 import { TONE_PEAK, fader, openLiveMix, openMixer, playLiveMix, savedProject, stopPlay } from "./audioMixLive";
 
 // M5 smoke (ADR 0171 amended by 0172, plan task S0, H6): the milestone path in the real editor app, through the Sound Lab
@@ -472,10 +474,37 @@ test("M5c smoke: a live edit in Play is heard and kept after Stop", async ({ pag
   expect(errors).toEqual([]);
 });
 
-// M5d (X3): the milestone's last case. Owner un-fixmes in W10.
-test.fixme("M5d smoke: X3's end-to-end step", async ({ page }) => {
-  await bootMix(page);
-  // X3:
-  //  1. Steps are named by the X3 task (the export/profiler/mixer-panel path of M5d); this case is a placeholder until then.
-  void page;
+// M5d (X3, un-fixme'd in W10): the shipped form of the capture. The Sound Lab exported with --audio-capture is played by its keys
+// in its own page, F9 records and F9 saves a .mycap, and the editor's Audio Profiler opens that file with the Open button: at the
+// marker and at the end the voice table and the bus factors read what the exported game's `Audio.debug()` said it was playing.
+// Tagged @slow because it exports (the whole round trip at five positions, and the release export, are `audio-mix-d.spec.ts`).
+test("M5d smoke: a game exported with the capture option records, and the editor's Profiler shows what it played", { tag: "@slow" }, async ({ page, context }) => {
+  const served = await exportAndServe("sound-lab", ["--audio-capture"]);
+  try {
+    const errors: string[] = [];
+    const game = await context.newPage();
+    game.on("pageerror", (err) => errors.push(err.message));
+    const scene = await recordScene(game, served.url);
+    expect(scene.parsed.markers.map((m) => m.text)).toEqual([MARKER_TEXT]);
+    page.on("pageerror", (err) => errors.push(err.message));
+    await openProfilerTab(page);
+    await openCaptureFile(page, scene.file, scene.fileName);
+    // The marker, by its key (the keys act once the file's targets are loaded; a second press has nowhere to go).
+    await panelOf(page).focus();
+    await expect
+      .poll(async () => {
+        await page.keyboard.press("Shift+M");
+        return (await page.locator("section.profiler .ptable[data-table=voices] .pgrid-row").allInnerTexts()).some((t) => t.includes("noise-loop"));
+      }, { timeout: 20_000 })
+      .toBe(true);
+    await expectTablesAt(page, "marker", scene.truths.marker);
+    // The end: the right edge of the timeline, then Right to the last block.
+    const at = await rulerAt(page, 1);
+    await page.mouse.click(at.x, at.y);
+    await press(page, "ArrowRight", 40);
+    await expectTablesAt(page, "end", scene.truths.end);
+    expect(errors).toEqual([]);
+  } finally {
+    stopServed(served);
+  }
 });
