@@ -19,7 +19,7 @@
 //
 // **Allocation (FU5).** Every row (voice, bus, metered, event, music) is pooled and rewritten in place, the five output arrays and the
 // slot flags are reused, and there are no per-keyframe Sets, closures or `?? []` fallbacks: the recorder asks for allocation-free
-// sources. What still allocates is outside this file: `events().debugRows` (its own row builder) and the strings an event's
+// sources; `events().debugRows(listed, out)` refills its own pooled rows too. What still allocates is the strings an event's
 // parameter values hash through.
 //
 // **Chunk boundary.** The recorder chunk (`capture/format.ts`) is lazy and this file is in every game that uses the core, so it
@@ -27,7 +27,7 @@
 import type { KeyframeBus, KeyframeEvent, KeyframeMetered, KeyframeMusic, KeyframePayload, KeyframeVoice } from "../capture/format";
 import { Lane, type Mixer } from "../../../../engine/audio/mixer";
 import type { SlotTable } from "../../../../engine/audio/slotTable";
-import { events } from "../events/eventRuntime";
+import { events, type EventDebugRow } from "../events/eventRuntime";
 import { loudnessHub, type LoudnessHub } from "../mix/loudnessHub";
 import { ticksToPosition, spanAtTicks } from "../../../../engine/audio/musicGrid";
 import { playingGridOf, ticksAt } from "../music/anchors";
@@ -155,6 +155,8 @@ export class KeyframeSource {
   /** Slot flags of the metered buses (grown with the slot table). */
   private meteredFlags = new Uint8Array(KF_MAX_BUSES);
   private readonly listed = new Map<number, number>();
+  /** The event runtime's pooled debug rows, refilled per keyframe. */
+  private readonly debugOut: EventDebugRow[] = [];
   private readonly auto = { gain: 1, pitch: 1, lowpass: 0 };
   private readonly payload: { -readonly [K in keyof KeyframePayload]: KeyframePayload[K] } = {
     voices: this.voices, buses: this.buses, metered: this.meteredOut, events: this.eventsOut, music: this.musicOut,
@@ -371,8 +373,8 @@ export class KeyframeSource {
   private readEvents(nameId: KeyframeNameId): void {
     const out = this.eventsOut;
     out.length = 0;
-    // `debugRows` is the event runtime's own allocating row builder (its file is not this task's).
-    const rows = events().debugRows(this.listed);
+    // Pooled: the event runtime refills `debugOut` with its own reused row objects (nothing built per keyframe).
+    const rows = events().debugRows(this.listed, this.debugOut);
     for (let i = 0; i < rows.length; i++) {
       const e = rows[i]!;
       if (out.length >= KF_MAX_EVENTS) break;

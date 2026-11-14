@@ -1,16 +1,13 @@
 // FU5 (M5 wave 10 follow-up to So1's soak 1): the keyframe source builds a keyframe without constructing anything: no Set, Map or
 // array per keyframe, and every row of every section is a pooled object reused by the next keyframe. Counted by construction
-// (constructor and array-builder counters over many keyframes), never by heap deltas. What this file's source still reads from
-// the event runtime (`debugRows`, an allocating builder of its own) is out of the count: no event is live here.
-import { afterEach, describe, expect, it, vi } from "vitest";
+// (constructor and array-builder counters over many keyframes), never by heap deltas. The event runtime's `debugRows` is the
+// real one (pooled when given `out`); live events through it are covered by `events/debugRowsRetire.test.ts`.
+import { afterEach, describe, expect, it } from "vitest";
 import { Mixer } from "../../../../engine/audio/mixer";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import { LOUD_OUTPUT_TAP } from "../wire.generated";
 import { KF_BUS_METERED, KeyframeSource, type KeyframeHost, type KeyframeNameId } from "./keyframeSource";
 import { VoiceState, VoiceTable } from "./voiceTable";
-
-// The event runtime's `debugRows` builds a Set and an array per call (its file is not FU5's; see the report): stood in for here, so the count is this file's own.
-vi.mock("../events/eventRuntime", () => { const none: never[] = []; return { events: () => ({ debugRows: () => none }) }; });
 
 const NO_NAME = 0xffffffff;
 

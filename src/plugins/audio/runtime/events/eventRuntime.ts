@@ -377,32 +377,60 @@ export class EventSystem {
    * listed (fading out, or ended and not yet freed), so a row goes with its last voice, never a poll before it; such a
    * row counts its listed voices. A group a playing instance holds again shows that instance only.
    */
-  debugRows(listed?: ReadonlyMap<number, number>): EventDebugRow[] {
-    const rows: EventDebugRow[] = [];
-    const row = (i: EventInstance, voices: number) => rows.push({ id: i.group, asset: i.path, world: i.world, voices, parameters: i.parameterValues(), lateStarts: i.lateStarts });
-    const shown = new Set<number>();
+  debugRows(listed?: ReadonlyMap<number, number>, out?: EventDebugRow[]): EventDebugRow[] {
+    const rows = out ?? [];
+    rows.length = 0;
+    const shown = this.debugShown;
+    shown.clear();
     for (const i of this.live) {
       if (!i.playing) continue;
-      row(i, i.voiceCount);
+      this.debugRow(rows, out !== undefined, i, i.voiceCount);
       if (i.group > 0) shown.add(i.group);
     }
     if (!listed) return rows;
-    const still = (i: EventInstance) => i.group > 0 && !shown.has(i.group) && (listed.get(i.group) ?? 0) > 0;
     for (const i of this.live) {
-      if (i.playing || !still(i)) continue;
-      row(i, listed.get(i.group)!);
+      if (i.playing || !this.stillListed(i, listed)) continue;
+      this.debugRow(rows, out !== undefined, i, listed.get(i.group)!);
       shown.add(i.group);
     }
     // Retired instances: kept while listed; once not, gone for good (their group may be reused later).
     let w = 0;
     for (const i of this.lingering) {
-      if (this.live.has(i) || !still(i)) continue;
-      row(i, listed.get(i.group)!);
+      if (this.live.has(i) || !this.stillListed(i, listed)) continue;
+      this.debugRow(rows, out !== undefined, i, listed.get(i.group)!);
       shown.add(i.group);
       this.lingering[w++] = i;
     }
     this.lingering.length = w;
     return rows;
+  }
+
+  /** The groups `debugRows` has shown this call: one Set, cleared per call (the keyframe source calls it per keyframe). */
+  private readonly debugShown = new Set<number>();
+  /** Row objects `debugRows(listed, out)` reuses: a caller passing `out` gets these, refilled, and must copy what it keeps. */
+  private readonly debugPool: EventDebugRow[] = [];
+
+  private stillListed(i: EventInstance, listed: ReadonlyMap<number, number>): boolean {
+    return i.group > 0 && !this.debugShown.has(i.group) && (listed.get(i.group) ?? 0) > 0;
+  }
+
+  /**
+   * Appends one row. Pooled (the keyframe source, per keyframe): a reused row object and the instance's reused parameter
+   * record, so nothing is built; otherwise (`Audio.debug`) fresh objects the caller may keep.
+   */
+  private debugRow(rows: EventDebugRow[], pooled: boolean, i: EventInstance, voices: number): void {
+    if (!pooled) {
+      rows.push({ id: i.group, asset: i.path, world: i.world, voices, parameters: i.parameterValues(), lateStarts: i.lateStarts });
+      return;
+    }
+    const row = (this.debugPool[rows.length] ??= { id: 0, asset: "", world: 0, voices: 0, parameters: {}, lateStarts: 0 });
+    row.id = i.group;
+    row.asset = i.path;
+    row.world = i.world;
+    row.voices = voices;
+    row.parameters = i.parameterValuesShared();
+    row.lateStarts = i.lateStarts;
+    rows.push(row);
   }
 
   /** Clips started late since the page began (all instances, ended ones too). */
@@ -1160,6 +1188,14 @@ export class EventInstance {
     for (const name of this.localDefs.keys()) out[name] = this.getParameter(name)!;
     return out;
   }
+
+  /** The parameter values in one record this instance reuses (refilled per call; its keys never change): for per-keyframe readers. */
+  parameterValuesShared(): Readonly<Record<string, number | string>> {
+    const out = (this.sharedValues ??= {});
+    for (const name of this.localDefs.keys()) out[name] = this.getParameter(name)!;
+    return out;
+  }
+  private sharedValues: Record<string, number | string> | undefined;
 
   /** @internal A parameter changed (local or global): re-pick switches that follow it. */
   onParameter(name: string, global: boolean): void {

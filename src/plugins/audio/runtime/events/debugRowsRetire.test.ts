@@ -3,7 +3,7 @@
 // a retired instance once it is not listed. The core end to end is in `core/debugAutomationLoopback.test.ts`.
 import { describe, expect, it } from "vitest";
 import { Audio } from "../index";
-import { events } from "./eventRuntime";
+import { events, type EventDebugRow } from "./eventRuntime";
 import { clip, eventKit, F } from "./eventTestKit";
 
 const kit = eventKit();
@@ -38,5 +38,30 @@ describe("events debug rows go with their last listed voice (E3.9)", () => {
     events().update(0.016); // reaped: retired
     expect(events().debugRows(new Map([[id, 1]]))).toEqual([expect.objectContaining({ id, voices: 1 })]);
     expect(events().debugRows(new Map())).toEqual([]);
+  });
+
+  it("pooled (`out` passed, the keyframe source per keyframe): the same rows, the same objects call after call, and Audio.debug's rows stay fresh", async () => {
+    await kit.boot({ "e.audioevent.json": { format: F, root: { type: "layer", children: [clip("a.wav"), clip("b.wav")] } } });
+    const a = Audio.play("e.audioevent.json");
+    Audio.play("e.audioevent.json");
+    const fresh = events().debugRows();
+    const out: EventDebugRow[] = [];
+    const first = events().debugRows(undefined, out);
+    expect(first).toBe(out);
+    expect(out).toEqual(fresh);
+    const objects = [...out];
+    const params = out.map((r) => r.parameters);
+    for (let n = 0; n < 5; n++) {
+      events().debugRows(undefined, out);
+      out.forEach((r, k) => { expect(r).toBe(objects[k]); expect(r.parameters).toBe(params[k]); });
+    }
+    // A stopped instance still listed keeps its pooled row; the unlisted pass empties `out`.
+    const id = out[0]!.id;
+    a.stop(0.5);
+    events().debugRows(new Map([[id, 2]]), out);
+    expect(out).toEqual([expect.objectContaining({ voices: 2 }), expect.objectContaining({ id, voices: 2 })]);
+    expect(events().debugRows(undefined, out)).toHaveLength(1);
+    // The unpooled rows are not the pool's.
+    expect(events().debugRows()[0]).not.toBe(out[0]);
   });
 });
