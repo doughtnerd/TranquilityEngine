@@ -1,6 +1,6 @@
 # 0063. The editor's commands live in a menu bar below the system title bar
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0174 (the Window menu adds panels; panels can be closed)
 - **Date:** 2026-11-04
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

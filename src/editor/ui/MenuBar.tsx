@@ -7,8 +7,11 @@ import { activeHistory, redo, undo } from "../activeHistory";
 import { deleteSelected } from "../deleteSelection";
 import { copySelection, cutSelection, duplicateSelection, nodeClipboard, pasteClipboard, whyNotPasteHere } from "../hierarchyActions";
 import { isInsidePrefab } from "../hierarchyEdit";
-import { layout, resetLayout, showPanel } from "../layout/store";
-import type { PanelId } from "../layout/model";
+import { layout, requestAddPanel, showPanel } from "../layout/store";
+import { typeOf, type PanelId } from "../layout/model";
+import { activeLayoutFile, applyDefaultLayout, applySavedLayout, layoutModified, savedLayouts, saveLayout, whyNoSave } from "../layout/savedStore";
+import { manageLayoutsOpen, saveLayoutAsOpen } from "../layout/layoutDialogs";
+import { scopeLabel, scopesOf } from "../layout/saved";
 import { buildMenus, DOCS_URL, SEPARATOR, type Menu, type MenuActions, type MenuEntry, type MenuState } from "../menuBar";
 import { logOpen, unseenErrors } from "../messages";
 import { createScene } from "../newScene";
@@ -93,7 +96,12 @@ const ACTIONS: MenuActions = {
   reloadScripts: () => void reloadScripts(),
   exportBuild: () => (exportOpen.value = true),
   showPanel,
-  resetLayout,
+  addPanel: () => requestAddPanel(),
+  resetLayout: applyDefaultLayout,
+  applyLayout: (file) => (file === null ? applyDefaultLayout() : void applySavedLayout(file)),
+  saveLayout: () => void saveLayout(),
+  saveLayoutAs: () => (saveLayoutAsOpen.value = true),
+  manageLayouts: () => (manageLayoutsOpen.value = true),
   closeProject: () => void closeProject(),
   exit: () => void exit(),
   undo: () => void undo(),
@@ -112,10 +120,11 @@ const ACTIONS: MenuActions = {
   openAbout: () => (aboutOpen.value = true),
 };
 
-/** The panels showing now: the active tab of each group, in docks that aren't collapsed. */
+/** The panel types showing now: the active tab of each group, in docks that aren't collapsed. */
 function visiblePanels(): Set<PanelId> {
   const visible = new Set<PanelId>();
-  for (const dock of layout.value.docks) if (!dock.collapsed) for (const g of dock.groups) visible.add(g.active);
+  const current = layout.value;
+  for (const dock of current.docks) if (!dock.collapsed) for (const g of dock.groups) visible.add(typeOf(current, g.active));
   return visible;
 }
 
@@ -158,6 +167,12 @@ function liveMenus(): Menu[] {
     hasSelection: selectedKeys.value.length > 0 || selectedUIElement.value !== null,
     clipboard: returnTo?.closest(".asset-browser") ? "assets" : "nodes",
     createItems: createEntries(),
+    layouts: {
+      saved: savedLayouts.value.map((l) => ({ file: l.file, name: l.name, scope: scopeLabel(scopesOf(l)) })),
+      active: activeLayoutFile.value !== null && savedLayouts.value.some((l) => l.file === activeLayoutFile.value) ? activeLayoutFile.value : null,
+      modified: layoutModified.value,
+      saveBlocked: whyNoSave(),
+    },
   };
   return buildMenus(state, ACTIONS);
 }

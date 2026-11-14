@@ -25,6 +25,7 @@ const state = (over: Partial<MenuState> = {}): MenuState => ({
   hasSelection: true,
   clipboard: "nodes",
   createItems: [{ label: "Empty", run: noop }],
+  layouts: { saved: [], active: null, modified: false, saveBlocked: "the Default layout can't be changed; use Save Layout As…" },
   ...over,
 });
 const project = { name: "Game", canSave: true, hasRoot: true };
@@ -50,7 +51,7 @@ describe("menu bar", () => {
   });
 
   it("has the five menus", () => {
-    expect(buildMenus(state(), actions()).map((m) => m.label)).toEqual(["File", "Edit", "Create", "Window", "Help"]);
+    expect(buildMenus(state(), actions()).map((m) => m.label)).toEqual(["File", "Edit", "Create", "Window", "Layouts", "Help"]);
   });
 
   it("with no project: only opening and creating projects, and the editor's own commands, are available", () => {
@@ -136,14 +137,32 @@ describe("menu bar", () => {
     expect(open.items.map((i) => i.label)).toEqual(["Empty"]);
   });
 
-  it("Window has a checked item per panel, then Reset Layout", () => {
+  it("Window has a checked item per panel, then Add Panel… and Reset Layout", () => {
     const visible = new Set(PANELS.filter((p) => p !== "history"));
     const w = menu(buildMenus(state({ visiblePanels: visible }), actions()), "window");
     const panels = w.items.filter((i) => i.checked !== undefined);
     expect(panels).toHaveLength(PANELS.length);
     expect(panels.find((i) => i.label === "History")!.checked).toBe(false);
     expect(panels.find((i) => i.label === "Hierarchy")!.checked).toBe(true);
+    expect(w.items.at(-2)!.label).toBe("Add Panel…");
     expect(w.items.at(-1)!.label).toBe("Reset Layout");
+  });
+
+  it("Layouts lists Default and the saved layouts, ticks the active one, marks it changed, and saves (ADR 0174)", () => {
+    const a = actions();
+    const layouts = { saved: [{ file: "audio.layout.json", name: "Audio", scope: "Project" }], active: "audio.layout.json", modified: true, saveBlocked: null };
+    const m = buildMenus(state({ project, layouts }), a);
+    const l = menu(m, "layouts");
+    expect(l.items.slice(0, 2).map((i) => [i.label, i.checked])).toEqual([["Default", false], ["Audio ●", true]]);
+    expect(l.items[1]!.shortcut).toBe("Project");
+    l.items[0]!.run!();
+    expect(a.applyLayout).toHaveBeenCalledWith(null);
+    item(m, "layouts", "Save Layout").run!();
+    expect(a.saveLayout).toHaveBeenCalled();
+    expect(item(m, "layouts", "Manage Layouts…").disabled).toBeFalsy();
+    const fresh = buildMenus(state(), actions());
+    expect(item(fresh, "layouts", "Save Layout").disabled).toMatch(/Default/);
+    expect(item(fresh, "layouts", "Manage Layouts…").disabled).toBe("no saved layouts yet");
   });
 
   it("Project Settings shows the project panel", () => {

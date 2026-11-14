@@ -18,7 +18,7 @@
 // audio section, the live host (Rc4's `LiveHost`), the STATUS subscription and the track factories (Pf3b-d).
 import type { ComponentChild, ComponentType } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { editor, theme } from "../../../../editor/sdk";
+import { editor, theme, Panel } from "../../../../editor/sdk";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { Audio } from "../../runtime/Audio";
 import type { AudioCapture } from "../../runtime/capture/capture";
@@ -709,5 +709,9 @@ export function ProfilerPanel() {
     c.setPlaying();
   }, [c, playing]);
   useEffect(() => () => c.dispose(), [c]);
-  return <ProfilerChrome controller={c} view={view ?? c.view} />;
+  return (
+    <Panel>
+      <ProfilerChrome controller={c} view={view ?? c.view} />
+    </Panel>
+  );
 }

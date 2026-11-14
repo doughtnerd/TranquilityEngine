@@ -15,6 +15,7 @@ import { errorStatus } from "./messages";
 import { isWithin, type EditorProject } from "./projects";
 import { assetFormats, type AssetFormatContribution, type AssetProblem } from "./sdk/contributions";
 import { currentProject, docVersion, status } from "./state";
+import { forEachChildWindow } from "./windows/editorWindows";
 
 export interface EditOptions {
   /** Merge with the previous coalesced edit into one undo step, and write after the format's writeDelay (default 150 ms) of quiet. For sliders and drags. */
@@ -380,9 +381,20 @@ function trackFocus(): void {
   };
   document.addEventListener("focusin", onFocus, true);
   document.addEventListener("pointerdown", onFocus, true);
+  // And in each detached panel window (ADR 0174).
+  const stopChildren = forEachChildWindow((win) => {
+    const doc = win.document;
+    doc.addEventListener("focusin", onFocus, true);
+    doc.addEventListener("pointerdown", onFocus, true);
+    return () => {
+      doc.removeEventListener("focusin", onFocus, true);
+      doc.removeEventListener("pointerdown", onFocus, true);
+    };
+  });
   stopTrackingFocus = () => {
     document.removeEventListener("focusin", onFocus, true);
     document.removeEventListener("pointerdown", onFocus, true);
+    stopChildren();
   };
 }
 

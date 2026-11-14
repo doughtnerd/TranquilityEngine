@@ -21,15 +21,17 @@ export function editorWindowOptions(windows: readonly WindowEntry[] = tauriConfi
 
 let starting: Promise<void> | null = null;
 
-/** Create the editor window (hidden: it shows itself when it opens a project) unless it exists. Resolves once created. */
+/**
+ * Create the editor window (hidden: it shows itself when it opens a project) unless it exists. Resolves once created.
+ * Rust builds it (the `create_editor_window` command, src-tauri/src/lib.rs) from the same tauri.conf.json entry,
+ * because only a window built there can carry the `on_new_window` handler that opens the editor's detached panel
+ * windows as linked Tauri windows (ADR 0174).
+ */
 export function startEditorWindow(): Promise<void> {
   starting ??= (async () => {
-    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    if (await WebviewWindow.getByLabel(EDITOR_WINDOW)) return;
-    const window = new WebviewWindow(EDITOR_WINDOW, editorWindowOptions() as never);
-    await new Promise<void>((resolve, reject) => {
-      void window.once("tauri://created", () => resolve());
-      void window.once("tauri://error", (e) => reject(new Error(`The editor window couldn't be created: ${JSON.stringify(e.payload)}`)));
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("create_editor_window").catch((err: unknown) => {
+      throw new Error(`The editor window couldn't be created: ${String(err)}`);
     });
   })().catch((err: unknown) => {
     starting = null; // let the next try (picking a project) create it

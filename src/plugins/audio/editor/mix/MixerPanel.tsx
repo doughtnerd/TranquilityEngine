@@ -13,7 +13,7 @@
 // `Audio.capture.mark` and the audio clock. Colours are theme tokens in `mixerPanel.css`.
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { editor, usePanelHistory, type EditorProject, type SettingsDraft, type UndoHistory } from "../../../../editor/sdk";
+import { editor, usePanelHistory, type EditorProject, type SettingsDraft, type UndoHistory, Panel } from "../../../../editor/sdk";
 import { mixer } from "../../../../engine/audio/mixer";
 import type { LoudnessResetWhat } from "../../../../engine/audio/loudnessTypes";
 import { Audio } from "../../runtime/Audio";
@@ -191,8 +191,10 @@ export function MixerPanel(): JSX.Element {
   }, [c]);
   const view = c.view();
   return (
-    <div class="mixer-root" ref={root} tabIndex={-1}>
-      <MixerChrome controller={c} view={view} onChange={() => rerender.current()} />
-    </div>
+    <Panel>
+      <div class="mixer-root" ref={root} tabIndex={-1}>
+        <MixerChrome controller={c} view={view} onChange={() => rerender.current()} />
+      </div>
+    </Panel>
   );
 }

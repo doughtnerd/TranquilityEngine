@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Myco Engine</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/src/editor/ui/brand/favicon-32.png" />
+    <!--
+      A detached panel window (ADR 0174). Deliberately empty and script-free: the editor window that
+      opened it renders into #panel-window-root and copies its stylesheets and theme in
+      (src/editor/windows/childWindow.ts).
+    -->
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      #panel-window-root { position: fixed; inset: 0; display: flex; flex-direction: column; }
+    </style>
+  </head>
+  <body>
+    <div id="panel-window-root"></div>
+  </body>
+</html>

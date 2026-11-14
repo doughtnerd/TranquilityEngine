@@ -5,7 +5,7 @@
 // transition" (`ruleAudition.ts`, through Ed5's shared transport).
 import { signal } from "@preact/signals";
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { editor, openAssetDocument } from "../../../../editor/sdk";
+import { editor, openAssetDocument, Panel } from "../../../../editor/sdk";
 import type { AudioEventAsset } from "../../../../engine/audio/eventFormat";
 import { isMusicContainer, type MusicContainerNode, type MusicNode } from "../../../../engine/audio/musicFormat";
 import { buildRulesGrid, explainPair, replaceContainer, ruleMatchesPair } from "./rulesModel";
@@ -39,9 +39,13 @@ export function RulesTable() {
   const open = openRules.value;
   const project = editor.project.current;
   editor.project.version;
-  if (!project || !open) return <p class="empty">Rules: open a playlist or music switch from the Event editor to see its transition rules here.</p>;
-  if (!project.files.includes(open.event)) return <p class="empty">{open.event} isn't in the project any more.</p>;
-  return <OpenRules key={`${open.event}#${open.nodeId}`} path={open.event} nodeId={open.nodeId} />;
+  if (!project || !open) return <Panel><p class="empty">Rules: open a playlist or music switch from the Event editor to see its transition rules here.</p></Panel>;
+  if (!project.files.includes(open.event)) return <Panel><p class="empty">{open.event} isn't in the project any more.</p></Panel>;
+  return (
+    <Panel>
+      <OpenRules key={`${open.event}#${open.nodeId}`} path={open.event} nodeId={open.nodeId} />
+    </Panel>
+  );
 }
 
 function OpenRules(props: { path: string; nodeId: string }) {

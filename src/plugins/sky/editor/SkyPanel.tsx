@@ -7,7 +7,7 @@ import { useEffect, useMemo } from "preact/hooks";
 import { SKY_PRESETS, skyPreset, type SkyPresetId } from "../../../engine/sky/presets";
 import { cloneSky, defaultCloudLayer, MAX_CLOUD_LAYERS, type SkySettings } from "../../../engine/sky/skyFormat";
 import { skyLight, sunAngles } from "../../../engine/sky/skyMath";
-import { openAssetDocument, editor, LargePreview } from "../../../editor/sdk";
+import { openAssetDocument, editor, LargePreview, Panel } from "../../../editor/sdk";
 import { openSky } from "./skyAssets";
 import "./skyPanel.css";
 
@@ -130,9 +130,9 @@ export function SkyPanel() {
   const path = openSky.value;
   const project = editor.project.current;
   editor.project.version; // the file list changes with it
-  if (!project || !path) return <p class="empty">Double-click a sky asset (.sky.json) in the Assets panel, or create one with New Sky.</p>;
-  if (!project.files.includes(path)) return <p class="empty">{path} isn't in the project any more.</p>;
-  return <SkyEditor key={path} path={path} />;
+  if (!project || !path) return <Panel><p class="empty">Double-click a sky asset (.sky.json) in the Assets panel, or create one with New Sky.</p></Panel>;
+  if (!project.files.includes(path)) return <Panel><p class="empty">{path} isn't in the project any more.</p></Panel>;
+  return <Panel><SkyEditor key={path} path={path} /></Panel>;
 }
 
 function SkyEditor({ path }: { path: string }) {

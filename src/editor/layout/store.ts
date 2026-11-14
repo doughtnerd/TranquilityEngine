@@ -2,7 +2,8 @@
 // per-viewer convenience, so browser storage is fine; anything unreadable falls back to the
 // default layout.
 import { effect, signal } from "@preact/signals";
-import { activatePanel, defaultLayout, parseLayout, type Layout, type PanelId } from "./model";
+import { activatePanel, addPanel, defaultLayout, parseLayout, type Layout, type PanelId } from "./model";
+import { retainInstances } from "./instanceState";
 
 const STORAGE_KEY = "myco.editor.layout";
 
@@ -46,9 +47,27 @@ effect(() => {
   }
 });
 
-/** Bring `panel` to the front of its tab group. */
+// An instance's view state goes when it leaves the layout (closed, or another layout applied; ADR 0174).
+effect(() => retainInstances(Object.keys(layout.value.instances)));
+
+/** Show a panel: an instance id, or a type (its first instance, or a new one when none is open). */
 export function showPanel(panel: PanelId): void {
   layout.value = activatePanel(layout.value, panel);
+}
+
+/** Open a new instance of each of `types` (in `group` when given), the last one showing (ADR 0174). */
+export function addPanels(types: readonly PanelId[], group?: string): void {
+  let next = layout.value;
+  for (const type of types) next = addPanel(next, type, group).layout;
+  layout.value = next;
+}
+
+/** The Add Panel dialog's request: open (with the group to add to, and the detached window it's in, if any) or null. */
+export const addPanelRequest = signal<{ group?: string; window?: string } | null>(null);
+
+/** Open the Add Panel dialog, adding to `group` (a header menu's) or to each panel's usual place; shown in the detached window `window` when given. */
+export function requestAddPanel(group?: string, window?: string): void {
+  addPanelRequest.value = { group, window };
 }
 
 export function resetLayout(): void {
