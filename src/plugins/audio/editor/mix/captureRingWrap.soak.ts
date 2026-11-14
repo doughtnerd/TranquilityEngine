@@ -20,7 +20,8 @@ import { afterAll, describe, expect, it } from "vitest";
 import { audioCapture, captureDebug, releaseCapture, setCaptureProject, _setRecorderLoader, _setSaveEnv, type RecorderModule } from "../../runtime/capture/capture";
 import { CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_TRUNCATED, CAPTURE_HEADER_BYTES, RecordType, decodeKeyframe, readCaptureHeader } from "../../runtime/capture/format";
 import { decodeRecordAt, openCapture } from "../../runtime/capture/reader";
-import type { Recorder } from "../../runtime/capture/recorder";
+/** The recorder chunk is reached only by `import()` (a test checks no source imports it statically). */
+type Recorder = ReturnType<RecorderModule["createRecorder"]>;
 import { AllocationCounter, FRAME_SECONDS, MiB, RATE, S3_1024, memorySaveEnv, s3Rig, stat, threadWorkerFactory } from "../../runtime/capture/soakSupport";
 import { chooseEmptyStateKind } from "./emptyStates";
 import { profilerBanners } from "./ProfilerPanel";

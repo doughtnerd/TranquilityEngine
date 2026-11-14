@@ -19,7 +19,6 @@ import { mixer } from "../../../../engine/audio/mixer";
 import { createEventSink, NO_NAME } from "../../runtime/capture/events";
 import { CAPTURE_FLAG_COMPRESSED, CAPTURE_HEADER_BYTES, EventKind, NAME_TABLES, RecordType, decodeKeyframe, type CaptureMetaInit } from "../../runtime/capture/format";
 import { decodeRecordAt, openCapture } from "../../runtime/capture/reader";
-import { createRecorder } from "../../runtime/capture/recorder";
 import { assembleTakeFile } from "../../runtime/capture/save";
 import { FRAME_SECONDS, MiB, RATE, S3_1024, s3Rig, stat, threadWorkerFactory, timedCallOverheadUs, timedSink } from "../../runtime/capture/soakSupport";
 import { SAMPLE_META } from "../../runtime/capture/testSupport";
@@ -74,6 +73,8 @@ describe("soak 2: a 1,024-voice capture opens through the Worker (§3.7)", () =>
     for (let t = 0; t < WARM_SECONDS; t += FRAME_SECONDS) await rig.frame();
 
     // The recorder as `capture.ts` wires it, on the editor preset's ring.
+    // The recorder chunk by `import()`, as `capture.ts` loads it (no source imports it statically).
+    const { createRecorder } = await import("../../runtime/capture/recorder");
     const rec = createRecorder({ preset: "editor" });
     expect(rec.ring.capacity).toBe(32 * MiB);
     const sink = createEventSink(rec, { epochContext: () => ({ sampleRate: RATE, limiterLatencyFrames: 0, outputLatencyFrames: 0, timeOffset: 0, frame: backend.debug().core.currentFrame as number }) });

@@ -37,7 +37,8 @@ import { events } from "../events/eventRuntime";
 import { createLoopbackHost, type LoopbackHost } from "../testing";
 import { audioCapture, releaseCapture, setCaptureProject, _setRecorderLoader, _setSaveEnv, type RecorderModule } from "./capture";
 import { openCapture } from "./reader";
-import type { Recorder } from "./recorder";
+/** The recorder chunk is reached only by `import()` (a test checks no source imports it statically). */
+type Recorder = ReturnType<RecorderModule["createRecorder"]>;
 import { RecordType } from "./format";
 import { FRAME_QUANTA, FRAME_SECONDS, RATE, bytesByType, memorySaveEnv, stat, timedCallOverheadUs, timedSink } from "./soakSupport";
 
