@@ -1,6 +1,6 @@
 # 0170. The shedding ladder recovers once underruns stop
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by 0172 (the metering step is given back last)
 - **Date:** 2026-11-12
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0162 OD3, "steps last the session")
@@ -53,3 +53,7 @@ None.
 - `docs/design/0166-audio-music/build-log.md` D22, F-37.
 - `native/audio/crates/audio-core/src/cap_controller.rs` (`LadderRecovery`), `cap.rs`, `bed.rs`, `zones.rs`; `src/plugins/audio/runtime/core/{debug,mirror,zones}.ts`.
 - Tests: `cap_controller.rs` `ladder_tests`, `tests/beds.rs`, `tests/zones_golden.rs`, `runtime/core/ladderRecoveryLoopback.test.ts`.
+
+## Amendment (0172, M5)
+
+The give-back order is zone 2, zone 1, bed idle, then the loudness metering step last: all four steps are back 80 s after the last underrun (20 s each). The hold and back-off are unchanged (`audio-core` `cap.rs` `recover_ladder`).

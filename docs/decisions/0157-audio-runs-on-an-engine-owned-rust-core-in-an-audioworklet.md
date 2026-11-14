@@ -1,6 +1,6 @@
 # 0157. Audio runs on an engine-owned Rust core in an AudioWorklet, replacing Howler
 
-- **Status:** Accepted, amended by 0158 (size gates are tripwires; M2 is 0158) and 0166 (M4: a music stream pool; every queued per-voice stamped record applies inside its voice instead of splitting the quantum, built in M4-0; see 0167 and `docs/design/0166-audio-music/build-log.md` D7) (revision 3: refined by the approved technical design in `docs/design/0157-audio-core/`; see "Revision 3" at the end. Revision 2 followed the RFC round in `docs/rfc/0157/`)
+- **Status:** Accepted, amended by 0158 (size gates are tripwires; M2 is 0158) and 0166 (M4: a music stream pool; every queued per-voice stamped record applies inside its voice instead of splitting the quantum, built in M4-0; see 0167 and `docs/design/0166-audio-music/build-log.md` D7) (revision 3: refined by the approved technical design in `docs/design/0157-audio-core/`; see "Revision 3" at the end. Revision 2 followed the RFC round in `docs/rfc/0157/`); amended by 0171, 0172 and 0173 (M5: the mix in the core)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0006, 0099
@@ -392,3 +392,13 @@ The design's STATUS section ([architecture.md §4.7](../design/0157-audio-core/a
 - Floor-phone microseconds stay estimates at 0.6 ns per metered instruction; no floor run was made (0172 §3.3).
 
 Built by Cp1 (counters, Wave 2); the reader and the Profiler line are Cp2 and Pf tasks, in [the build log](../design/0171-audio-mix/build-log.md) as they land.
+
+## Amendment (0171, 0172, 0173, M5): the core gains the mix
+
+- A bus's gain is seven lanes: authored, runtime, snapshot, monitor and dip written from main; duck and automation owned by the core.
+- New opcodes `BUS_RAMP` (0x18), `BUS_DUCK` (0x19), `BUS_PRESENCE` (0x1a), `LOUD_CONFIG` (0x1b) and `BUS_SLOT` (0x1c); `BUS_MIX` is retired; ABI 4.0, envelope 1.3.
+- The STATUS header grows from 176 to 256 B, with `loudBuses`, `loudEnergies` and `busDuck` sections; buffers are 20,480 B, the worst case 17,824 B.
+- Reverb sends are post-fader (golden `m5/bus-mute-send`); the reverb runs out its tail.
+- Loudness (BS.1770 meters on Master plus up to 8 buses) and level-mode sidechain ducking run in the core. The mixer wasm is 377,648 B under the 400 KB tripwire (M5 build log, D3).
+
+See the M5 build log (`docs/design/0171-audio-mix/build-log.md`) and [guide/audio-mix-api.md](../guide/audio-mix-api.md).

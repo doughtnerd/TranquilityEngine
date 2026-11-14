@@ -1,6 +1,6 @@
 # 0162. Spatial audio (M3): distant voices share a 3rd-order ambisonic bed, sources are occluded through physics rays on a frame budget, and reverb zones run on M1's convolver
 
-- **Status:** Accepted (2026-11-11; revision 3 folded in the RFC round in `docs/rfc/0162/` and the owner's decisions; revision 4, at the end, records the technical design in `docs/design/0162-audio-spatial/` and the owner's decisions on it); amended by 0170 (the shedding ladder recovers once underruns stop)
+- **Status:** Accepted (2026-11-11; revision 3 folded in the RFC round in `docs/rfc/0162/` and the owner's decisions; revision 4, at the end, records the technical design in `docs/design/0162-audio-spatial/` and the owner's decisions on it); amended by 0170 (the shedding ladder recovers once underruns stop); amended by 0172 (M5: the metering step, post-fader sends)
 - **Date:** 2026-11-11
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -238,3 +238,9 @@ The two-author technical design ([docs/design/0162-audio-spatial/](../design/016
   - Reserved clip ids: MagLS 0xFFFF0100; zone kernels 0xFFFF0200..02FF.
   - The panner field is flags bits 5–6, with value 2 for the bed; PLAY bit 7 marks an ambisonic voice.
 - **Testing cadence (owner).** Per task: typecheck, the touched files' tests and the touched crate's tests. At wave end: the full unit suite, the build, e2e, the metered gate and short benches. At milestone end: `@slow` e2e, WebKit, soaks and long benches. See `docs/design/0162-audio-spatial/working-notes.md`.
+
+## Amendment (0172, M5)
+
+- The shedding ladder gains a first step: pausing every non-master loudness meter. It is skipped when only Master is metered; with buses metered, the bed and zone steps start 1 s after it.
+- `m3Shed` still counts only the bed and zone steps; `loudShed` reports the new one.
+- The shared bus reverb is fed post-fader; its return is still scaled by 1 minus the listener's zone weight.

@@ -1,6 +1,6 @@
 # 0158. Audio events are data assets; main picks their voices when something happens, and the core runs everything continuous: parameters, curves, blends and sustain loops
 
-- **Status:** Accepted, amended by 0166 and 0167 (`myco.audioevent@1` gains music nodes: segment, playlist, musicSwitch, transition rules, stingers; its handle gains `music`, `onMusic` and `trigger`)
+- **Status:** Accepted, amended by 0166 and 0167 (`myco.audioevent@1` gains music nodes: segment, playlist, musicSwitch, transition rules, stingers; its handle gains `music`, `onMusic` and `trigger`); amended by 0172 (automation is a gain lane)
 - **Date:** 2026-11-10
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -213,3 +213,8 @@ Section 3 says bus automation "multiplies with snapshots and ducking (0097); it 
 - The Profiler shows the automation factor beside the others at the cursor (a later M5 task).
 
 The build is in `bus.rs` and its tests, see the [build log](../design/0171-audio-mix/build-log.md) (B1a, Wave 2).
+
+## Amendment (0172, M5)
+
+- Bus automation is one of a bus's seven gain lanes (the `automation` lane), multiplied with the others in the core; renaming a bus keeps its automation bound.
+- The Audio Profiler's event taps record event instances, parameters and state changes from the main-side event runtime (bus references as `busRef`, gen << 8 | slot); with no recorder the taps cost one compare and add no work to the evaluator.
